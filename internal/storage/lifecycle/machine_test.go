@@ -213,6 +213,19 @@ func TestHoldFromStuckRemembersStalledPhase(t *testing.T) {
 	}
 }
 
+func TestReleaseKeepsAttemptsSoRetriesStillEscalate(t *testing.T) {
+	deadlines := DefaultDeadlines()
+	held := mustApply(t, State{Phase: Stuck, StuckFrom: Attaching, Since: t0, Attempts: deadlines.MaxAttachRetries}, EventHold, t0)
+	released := mustApply(t, held, EventRelease, t0.Add(time.Minute))
+	if released.Phase != Attaching || released.Attempts != deadlines.MaxAttachRetries {
+		t.Fatalf("release = %+v, want Attaching with the attempts kept", released)
+	}
+	stuck, changed := Check(released, released.Since.Add(deadlines.Attaching+time.Second), deadlines)
+	if !changed || Remediate(stuck, deadlines) != RemediationReplaceHost {
+		t.Fatalf("a stall after hold/release did not escalate: %+v", stuck)
+	}
+}
+
 func TestOCIAttachmentStateMapping(t *testing.T) {
 	for state, want := range map[string]Event{
 		"ATTACHING": EventAttachRequested, "ATTACHED": EventAttached,

@@ -217,14 +217,24 @@ func (c *sdkClient) GetCapabilitySchema(ctx context.Context, id string) (Capabil
 }
 
 func (c *sdkClient) GlobalCapabilitySchemaVersion(ctx context.Context) (string, error) {
-	response, err := c.compute.ListComputeGlobalImageCapabilitySchemas(ctx, core.ListComputeGlobalImageCapabilitySchemasRequest{})
-	if err != nil {
-		return "", fmt.Errorf("list OCI global image capability schemas: %w", err)
+	// The first listed schema is used, as with the CLI's --all listing; a
+	// first page that is empty but has more pages is followed.
+	var cursor *string
+	for range maxPages {
+		response, err := c.compute.ListComputeGlobalImageCapabilitySchemas(ctx,
+			core.ListComputeGlobalImageCapabilitySchemasRequest{Page: cursor})
+		if err != nil {
+			return "", fmt.Errorf("list OCI global image capability schemas: %w", err)
+		}
+		if len(response.Items) > 0 {
+			return deref(response.Items[0].CurrentVersionName), nil
+		}
+		var more bool
+		if cursor, more = page(response.OpcNextPage); !more {
+			return "", errors.New("OCI returned no global capability schema")
+		}
 	}
-	if len(response.Items) == 0 {
-		return "", errors.New("OCI returned no global capability schema")
-	}
-	return deref(response.Items[0].CurrentVersionName), nil
+	return "", errors.New("OCI global capability schema list exceeds its page bound")
 }
 
 func (c *sdkClient) CreateCapabilitySchema(ctx context.Context, compartment, imageID, displayName, version string, data map[string]Capability) (CapabilitySchema, error) {

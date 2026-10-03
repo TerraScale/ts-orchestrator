@@ -721,7 +721,7 @@ func maintainManagedMount(ctx context.Context, cfg VolumeInitConfig, paths manag
 			slog.Warn("managed volume mount hardening failed", "mount", paths.mount, "error", err)
 		}
 	}
-	if grown, err := hostvolume.Grow(ctx, cfg.Grow, paths.mount, device.fd, device.stat.Rdev, mount.fsType); err != nil {
+	if grown, err := hostvolume.Grow(ctx, cfg.Grow, paths.mount, device.stat.Rdev, mount.fsType); err != nil {
 		slog.Warn("managed volume online grow failed", "mount", paths.mount, "error", err)
 	} else if grown {
 		slog.Info("managed volume filesystem grown to its device size", "mount", paths.mount)

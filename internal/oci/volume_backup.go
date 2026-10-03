@@ -29,6 +29,13 @@ type CloudVolumeBackup struct {
 type VolumeBackupProvider interface {
 	CreateVolumeBackup(ctx context.Context, volumeID, displayName, backupType string, tags map[string]string, retryToken string) (CloudVolumeBackup, error)
 	ListVolumeBackups(ctx context.Context, volumeID string) ([]CloudVolumeBackup, error)
+	// ListCompartmentVolumeBackups lists every backup in the pinned
+	// compartment, so backups whose source volume left placement stay
+	// reachable for retention.
+	ListCompartmentVolumeBackups(ctx context.Context) ([]CloudVolumeBackup, error)
+	// VolumeGone reports whether the source volume no longer exists: OCI
+	// answers 404 or reports it TERMINATED.
+	VolumeGone(ctx context.Context, volumeID string) (bool, error)
 	GetVolumeBackup(ctx context.Context, backupID string) (CloudVolumeBackup, error)
 	DeleteVolumeBackup(ctx context.Context, backupID, etag string) error
 }
@@ -64,18 +71,29 @@ func (provider *sdkProvider) ListVolumeBackups(ctx context.Context, volumeID str
 	if volumeID == "" {
 		return nil, errors.New("OCI volume backup listing requires a volume ID")
 	}
+	return provider.listVolumeBackups(ctx, new(volumeID), maxProviderItems)
+}
+
+// maxCompartmentBackups bounds the compartment-wide backup listing.
+const maxCompartmentBackups = 8 * maxProviderItems
+
+func (provider *sdkProvider) ListCompartmentVolumeBackups(ctx context.Context) ([]CloudVolumeBackup, error) {
+	return provider.listVolumeBackups(ctx, nil, maxCompartmentBackups)
+}
+
+func (provider *sdkProvider) listVolumeBackups(ctx context.Context, volumeID *string, bound int) ([]CloudVolumeBackup, error) {
 	var backups []CloudVolumeBackup
 	var page *string
 	for {
 		response, err := provider.storage.ListVolumeBackups(ctx, core.ListVolumeBackupsRequest{
-			CompartmentId: new(provider.config.CompartmentID), VolumeId: new(volumeID), Page: page, Limit: new(100),
+			CompartmentId: new(provider.config.CompartmentID), VolumeId: volumeID, Page: page, Limit: new(100),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list OCI volume backups: %w", err)
 		}
 		for _, backup := range response.Items {
 			backups = append(backups, cloudVolumeBackup(backup, ""))
-			if len(backups) > maxProviderItems {
+			if len(backups) > bound {
 				return nil, errors.New("OCI volume backup list exceeds its safety bound")
 			}
 		}
@@ -84,6 +102,20 @@ func (provider *sdkProvider) ListVolumeBackups(ctx context.Context, volumeID str
 		}
 		page = response.OpcNextPage
 	}
+}
+
+func (provider *sdkProvider) VolumeGone(ctx context.Context, volumeID string) (bool, error) {
+	if volumeID == "" {
+		return false, errors.New("OCI volume lookup requires a volume ID")
+	}
+	volume, err := provider.GetVolume(ctx, volumeID)
+	if isNotFound(err) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return volume.LifecycleState == "TERMINATED", nil
 }
 
 func (provider *sdkProvider) GetVolumeBackup(ctx context.Context, backupID string) (CloudVolumeBackup, error) {

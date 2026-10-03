@@ -33,6 +33,10 @@ type Policy struct {
 	FullEvery int `json:"full_every,omitzero"`
 	// Prune enables retention deletes of owned backups beyond Retain.
 	Prune bool `json:"prune,omitzero"`
+	// OrphanRetentionDays keeps an owned backup whose source volume left
+	// placement and no longer exists in OCI for this many days after it was
+	// taken; pruning then deletes it (default 30). Only applies with Prune.
+	OrphanRetentionDays int `json:"orphan_retention_days,omitzero"`
 	// RunIntervalSeconds is how often the leader evaluates the policy
 	// (default 900).
 	RunIntervalSeconds int `json:"run_interval_seconds,omitzero"`
@@ -52,6 +56,9 @@ func (policy Policy) WithDefaults() Policy {
 	if policy.RunIntervalSeconds == 0 {
 		policy.RunIntervalSeconds = 900
 	}
+	if policy.OrphanRetentionDays == 0 {
+		policy.OrphanRetentionDays = 30
+	}
 	return policy
 }
 
@@ -59,7 +66,8 @@ func (policy Policy) WithDefaults() Policy {
 func (policy Policy) Validate() error {
 	policy = policy.WithDefaults()
 	if policy.IntervalHours < 1 || policy.IntervalHours > 24*31 || policy.Retain < 1 || policy.Retain > 365 ||
-		policy.FullEvery < 1 || policy.FullEvery > 365 || policy.RunIntervalSeconds < 60 || policy.RunIntervalSeconds > 86400 {
+		policy.FullEvery < 1 || policy.FullEvery > 365 || policy.RunIntervalSeconds < 60 || policy.RunIntervalSeconds > 86400 ||
+		policy.OrphanRetentionDays < 1 || policy.OrphanRetentionDays > 365 {
 		return errors.New("volume backup policy is outside its bounds")
 	}
 	return nil
@@ -68,6 +76,11 @@ func (policy Policy) Validate() error {
 // Interval returns the backup interval.
 func (policy Policy) Interval() time.Duration {
 	return time.Duration(policy.WithDefaults().IntervalHours) * time.Hour
+}
+
+// OrphanRetention returns how long an orphaned owned backup is kept.
+func (policy Policy) OrphanRetention() time.Duration {
+	return time.Duration(policy.WithDefaults().OrphanRetentionDays) * 24 * time.Hour
 }
 
 // RunInterval returns the evaluation interval.

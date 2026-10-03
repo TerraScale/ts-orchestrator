@@ -62,7 +62,7 @@ func (o RetryOptions) normalized() RetryOptions {
 //     attempt may have taken effect and callers classify that outcome
 //     themselves (ETags, journals, exact-target teardown).
 //
-// Backoff is exponential with full jitter and honors a Retry-After hint up to
+// Backoff is exponential with equal jitter and honors a Retry-After hint up to
 // MaxDelay.
 func RetryPolicy(options RetryOptions) common.RetryPolicy {
 	options = options.normalized()
@@ -79,7 +79,7 @@ func IdempotentPutRetryPolicy(options RetryOptions) common.RetryPolicy {
 	options = options.normalized()
 	return common.NewRetryPolicy(options.MaxAttempts, func(response common.OCIOperationResponse) bool {
 		return shouldRetry(response, func(request *http.Request) bool {
-			return request != nil && request.Method == http.MethodPut || replayable(request)
+			return (request != nil && request.Method == http.MethodPut) || replayable(request)
 		})
 	}, func(response common.OCIOperationResponse) time.Duration {
 		return nextDelay(options, response)
@@ -165,7 +165,8 @@ func nextDelay(options RetryOptions, response common.OCIOperationResponse) time.
 	attempt := max(response.AttemptNumber, 1)
 	step := float64(options.BaseDelay) * math.Pow(2, float64(attempt-1))
 	step = min(step, float64(options.MaxDelay))
-	// Full jitter keeps a fleet of controllers from retrying in lockstep.
+	// Equal jitter (uniform in [step/2, step)) keeps a fleet of controllers
+	// from retrying in lockstep without near-zero delays.
 	delay := time.Duration(step/2 + options.Jitter()*step/2)
 	if hint := retryAfter(response); hint > delay {
 		delay = hint

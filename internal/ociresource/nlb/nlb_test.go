@@ -22,6 +22,7 @@ type fakeAPI struct {
 	failWR   bool
 	seq      int
 	gone     bool
+	setGone  bool
 }
 
 func (f *fakeAPI) GetLoadBalancer(context.Context, string) (LoadBalancer, error) {
@@ -31,6 +32,9 @@ func (f *fakeAPI) GetLoadBalancer(context.Context, string) (LoadBalancer, error)
 	return f.balancer, nil
 }
 func (f *fakeAPI) ListBackends(context.Context, string, string) ([]Backend, error) {
+	if f.setGone {
+		return nil, fmt.Errorf("list OCI NLB backends: %w", ociresource.ErrGone)
+	}
 	return slices.Clone(f.backends), nil
 }
 
@@ -42,6 +46,8 @@ func (f *fakeAPI) workRequest(call string) (string, error) {
 	}
 	f.calls = append(f.calls, call)
 	f.seq++
+	// Every NLB mutation advances its ETag, as OCI does.
+	f.balancer.ETag = fmt.Sprintf("etag-%d", f.seq)
 	id := fmt.Sprintf("wr%d", f.seq)
 	f.pending = map[string]bool{id: true}
 	return id, nil
@@ -72,8 +78,11 @@ func (f *fakeAPI) UpdateTags(_ context.Context, _, etag string, tags ociresource
 	if etag != f.balancer.ETag {
 		return "", errors.New("etag mismatch")
 	}
-	f.balancer.Tags = tags
-	return f.workRequest("tags")
+	id, err := f.workRequest("tags")
+	if err == nil {
+		f.balancer.Tags = tags
+	}
+	return id, err
 }
 func (f *fakeAPI) WaitWorkRequest(_ context.Context, id string) error {
 	if !f.pending[id] {
@@ -264,5 +273,74 @@ func TestSpecValidation(t *testing.T) {
 	if _, err := Publish(t.Context(), ociresource.NewMemoryStore(), ociresource.Key{Region: "GRU", Kind: "other", Name: "x"},
 		ociresource.PolicyEnforce, Spec{NLBID: nlbID, BackendSet: "api", Backends: []Backend{{IP: "10.0.0.1", Port: 1}}}); err == nil {
 		t.Fatal("published under another kind")
+	}
+}
+
+// fenceAfter allows a number of guards and then reports lost authority.
+type fenceAfter struct{ remaining int }
+
+func (f *fenceAfter) Guard(context.Context, uint64) error {
+	if f.remaining <= 0 {
+		return errors.New("lost leadership")
+	}
+	f.remaining--
+	return nil
+}
+
+func TestApplyReguardsBeforeEveryMutation(t *testing.T) {
+	api := &fakeAPI{balancer: LoadBalancer{ID: nlbID, Tags: owner.Stamp(key, 0, "")}}
+	store := ociresource.NewMemoryStore()
+	spec := Spec{NLBID: nlbID, BackendSet: "api", Backends: []Backend{
+		{IP: "10.0.1.11", Port: 8443}, {IP: "10.0.1.12", Port: 8443}, {IP: "10.0.1.13", Port: 8443}}}
+	if _, err := Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec); err != nil {
+		t.Fatal(err)
+	}
+	// The controller's own guard plus one mutation, then leadership is lost.
+	fenced := &ociresource.Controller[Spec, Observed]{Region: "GRU", Resource: Reconciler{API: api}, Store: store,
+		Ownership: owner, Authority: &fenceAfter{remaining: 2}}
+	if _, err := fenced.Reconcile(t.Context(), 1); err == nil {
+		t.Fatal("a fenced pass reported success")
+	}
+	if len(api.calls) != 1 {
+		t.Fatalf("mutations after losing authority: %v", api.calls)
+	}
+}
+
+func TestRestampAfterBackendChangesUsesAFreshETag(t *testing.T) {
+	api := &fakeAPI{balancer: LoadBalancer{ID: nlbID, ETag: "etag-0", Tags: owner.Stamp(key, 0, "")}}
+	store := ociresource.NewMemoryStore()
+	spec := Spec{NLBID: nlbID, BackendSet: "api", Backends: []Backend{{IP: "10.0.1.11", Port: 8443}}}
+	if _, err := Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec); err != nil {
+		t.Fatal(err)
+	}
+	result, err := controller(api, store).Reconcile(t.Context(), 1)
+	if err != nil || result.Failed != 0 {
+		t.Fatalf("drift with a generation bump: result=%+v err=%v", result, err)
+	}
+	if !slices.Equal(api.calls, []string{"create 10.0.1.11:8443", "tags"}) {
+		t.Fatalf("calls = %v", api.calls)
+	}
+}
+
+func TestTombstonePurgesWhenTheBackendSetIsGone(t *testing.T) {
+	api := &fakeAPI{balancer: LoadBalancer{ID: nlbID, Tags: owner.Stamp(key, 0, "")}}
+	store := ociresource.NewMemoryStore()
+	spec := Spec{NLBID: nlbID, BackendSet: "typo", Backends: []Backend{{IP: "10.0.1.11", Port: 8443}}}
+	if _, err := Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec); err != nil {
+		t.Fatal(err)
+	}
+	api.setGone = true
+	if result, err := controller(api, store).Reconcile(t.Context(), 1); err == nil || result.Failed != 1 {
+		t.Fatalf("live spec over a missing backend set: result=%+v err=%v", result, err)
+	}
+	now := time.Now()
+	if _, err := store.MarkDeleted(t.Context(), key, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := controller(api, store).Reconcile(t.Context(), 1); err != nil || result.Deleted != 1 {
+		t.Fatalf("tombstone over a missing backend set: result=%+v err=%v", result, err)
+	}
+	if _, err := store.Get(t.Context(), key); !errors.Is(err, ociresource.ErrNotFound) {
+		t.Fatalf("record survived: %v", err)
 	}
 }

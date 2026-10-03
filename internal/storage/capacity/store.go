@@ -115,6 +115,12 @@ func (store *UsageStore) Usages(ctx context.Context) ([]VolumeUsage, error) {
 		}
 		usages = append(usages, usage)
 	}
+	// The key lister closes its channel early, without an error, when ctx
+	// ends mid-listing (its Stop only unsubscribes): a truncated inventory
+	// must not look complete, or live nodes would read as expired.
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("list storage usage: %w", err)
+	}
 	return usages, nil
 }
 

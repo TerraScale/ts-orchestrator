@@ -34,6 +34,7 @@ func (f *fakeAPI) ListRules(context.Context, string) ([]ObservedRule, error) {
 }
 func (f *fakeAPI) AddRules(_ context.Context, _ string, rules []Rule) error {
 	f.calls = append(f.calls, fmt.Sprintf("add %d", len(rules)))
+	f.group.ETag += "+" // a rule change advances the NSG's ETag, as OCI does
 	for _, rule := range rules {
 		f.nextID++
 		f.rules = append(f.rules, ObservedRule{ID: fmt.Sprintf("r%d", f.nextID), Rule: rule})
@@ -42,6 +43,7 @@ func (f *fakeAPI) AddRules(_ context.Context, _ string, rules []Rule) error {
 }
 func (f *fakeAPI) RemoveRules(_ context.Context, _ string, ids []string) error {
 	f.calls = append(f.calls, fmt.Sprintf("remove %d", len(ids)))
+	f.group.ETag += "-"
 	f.rules = slices.DeleteFunc(f.rules, func(rule ObservedRule) bool { return slices.Contains(ids, rule.ID) })
 	return nil
 }
@@ -230,5 +232,60 @@ func TestNormalizeMarksUnsupportedFeatures(t *testing.T) {
 	if details := addDetails(want); details.TcpOptions == nil || *details.TcpOptions.DestinationPortRange.Min != 443 ||
 		details.SourceType != core.AddSecurityRuleDetailsSourceTypeCidrBlock {
 		t.Fatalf("details=%+v", details)
+	}
+}
+
+func TestExclusiveTombstoneRemovesTheRulesItManaged(t *testing.T) {
+	owner := ociresource.Ownership{Mode: ociresource.TagModeFreeform, Owner: "cell-gru"}
+	kept := ObservedRule{ID: "pre-existing", Rule: https("0.0.0.0/0")}
+	api := &fakeAPI{group: owned(owner), rules: []ObservedRule{kept}}
+	store := ociresource.NewMemoryStore()
+	spec := Spec{NSGID: nsgID, Exclusive: true, Rules: []Rule{https("0.0.0.0/0")}}
+	run(t, api, store, spec, ociresource.PolicyEnforce, 1)
+	if len(api.rules) != 1 || api.rules[0].ID != "pre-existing" {
+		t.Fatalf("an existing matching rule was not kept unmarked: %+v", api.rules)
+	}
+	// A rule added out of band after enforcement is not part of the spec.
+	later := ObservedRule{ID: "later", Rule: Rule{Direction: DirectionIngress, Protocol: ProtocolTCP, Peer: "10.0.0.0/8",
+		PortMin: 22, PortMax: 22}}
+	api.rules = append(api.rules, later)
+	now := time.Now()
+	if _, err := store.MarkDeleted(t.Context(), key, now, now); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		run(t, api, store, spec, ociresource.PolicyEnforce, 1)
+	}
+	if len(api.rules) != 1 || api.rules[0].ID != "later" {
+		t.Fatalf("exclusive tombstone left %+v, want only the rule the spec never named", api.rules)
+	}
+	if _, err := store.Get(t.Context(), key); err == nil {
+		t.Fatal("the tombstoned record was not purged")
+	}
+}
+
+func TestRestampAfterRuleChangesUsesAFreshETag(t *testing.T) {
+	owner := ociresource.Ownership{Mode: ociresource.TagModeFreeform, Owner: "cell-gru"}
+	api := &fakeAPI{group: owned(owner)}
+	store := ociresource.NewMemoryStore()
+	result := run(t, api, store, Spec{NSGID: nsgID, Rules: []Rule{https("0.0.0.0/0")}}, ociresource.PolicyEnforce, 1)
+	if result.Failed != 0 || !slices.Equal(api.calls, []string{"add 1", "tags"}) {
+		t.Fatalf("result=%+v calls=%v", result, api.calls)
+	}
+}
+
+func TestSpecBoundsRulesAndRequiresCanonicalCIDRs(t *testing.T) {
+	var rules []Rule
+	for port := range maxRulesPerNSG + 1 {
+		rules = append(rules, Rule{Direction: DirectionIngress, Protocol: ProtocolTCP, Peer: "10.0.0.0/8", PortMin: port + 1, PortMax: port + 1})
+	}
+	if err := (Spec{NSGID: nsgID, Rules: rules}).Validate(); err == nil {
+		t.Fatal("a spec over OCI's per-NSG rule limit validated")
+	}
+	if err := (Spec{NSGID: nsgID, Rules: rules[:maxRulesPerNSG]}).Validate(); err != nil {
+		t.Fatalf("a spec at the limit failed: %v", err)
+	}
+	if err := (Spec{NSGID: nsgID, Rules: []Rule{https("10.0.0.1/8")}}).Validate(); err == nil {
+		t.Fatal("a CIDR with host bits set validated")
 	}
 }

@@ -53,15 +53,20 @@ func TestSignUpdateDelegationThenAutoSignBinaryUpdate(t *testing.T) {
 	inspect := func(string, string, string) (binaryReceipt, error) { return testBinaryReceipt(), nil }
 	check := func(release.Qualification, string) error { return nil }
 	var gitCalls []string
-	git := func(_ context.Context, args ...string) error {
+	origin := "https://git.terrascale.tech/TerraScale/ts-orchestrator.git\n"
+	git := func(_ context.Context, args ...string) (string, error) {
 		gitCalls = append(gitCalls, strings.Join(args, " "))
-		return nil
+		if strings.Contains(strings.Join(args, " "), "remote get-url origin") {
+			return origin, nil
+		}
+		return "", nil
 	}
 	if err := c.signBinaryUpdateWith(args, check, inspect, git); err != nil {
 		t.Fatalf("sign-binary-update: %v", err)
 	}
-	if len(gitCalls) != 3 || !strings.Contains(gitCalls[1], "merge-base --is-ancestor "+testLineageBase+" "+testRevision) ||
-		!strings.HasSuffix(gitCalls[2], testRevision+" refs/remotes/origin/main") {
+	if len(gitCalls) != 4 || !strings.HasSuffix(gitCalls[0], "remote get-url origin") ||
+		!strings.Contains(gitCalls[2], "merge-base --is-ancestor "+testLineageBase+" "+testRevision) ||
+		!strings.HasSuffix(gitCalls[3], testRevision+" refs/remotes/origin/main") {
 		t.Fatalf("lineage checks = %q", gitCalls)
 	}
 	receiptWire, err := os.ReadFile(signedPath)
@@ -84,19 +89,62 @@ func TestSignUpdateDelegationThenAutoSignBinaryUpdate(t *testing.T) {
 
 	rejected := append([]string{}, args...)
 	rejected[len(rejected)-1] = filepath.Join(fixture.directory, "rejected.json")
-	notOnMain := func(_ context.Context, args ...string) error {
+	notOnMain := func(ctx context.Context, args ...string) (string, error) {
 		if strings.Contains(strings.Join(args, " "), "origin/main") && strings.Contains(strings.Join(args, " "), "merge-base") {
-			return errors.New("not an ancestor")
+			return "", errors.New("not an ancestor")
 		}
-		return nil
+		return git(ctx, args...)
 	}
 	if err := c.signBinaryUpdateWith(rejected, check, inspect, notOnMain); !errors.Is(err, release.ErrLineage) {
 		t.Fatalf("source outside main signed: %v", err)
 	}
+	// A checkout whose origin is a fork never proves lineage, even when
+	// every ancestry check would pass.
+	origin = "https://git.terrascale.tech/someone/ts-orchestrator.git\n"
+	if err := c.signBinaryUpdateWith(rejected, check, inspect, git); !errors.Is(err, release.ErrLineage) {
+		t.Fatalf("a forked origin proved lineage: %v", err)
+	}
+	origin = "https://git.terrascale.tech/TerraScale/ts-orchestrator.git\n"
 	if err := c.signBinaryUpdateWith(rejected, func(release.Qualification, string) error { return errors.New("run failed") }, inspect, git); err == nil {
 		t.Fatal("unqualified run signed")
 	}
 	if _, err := os.Stat(rejected[len(rejected)-1]); !os.IsNotExist(err) {
 		t.Fatal("rejected signing wrote a receipt")
+	}
+}
+
+func TestPinnedLineageRemote(t *testing.T) {
+	for remote, want := range map[string]bool{
+		"https://git.terrascale.tech/TerraScale/ts-orchestrator.git":             true,
+		"https://git.terrascale.tech/TerraScale/ts-orchestrator":                 true,
+		"ssh://git@git.terrascale.tech/TerraScale/ts-orchestrator.git":           true,
+		"ssh://git@git.terrascale.tech:2222/TerraScale/ts-orchestrator.git":      true,
+		"git@git.terrascale.tech:TerraScale/ts-orchestrator.git":                 true,
+		"https://git.terrascale.tech/someone/ts-orchestrator.git":                false,
+		"https://evil.example/TerraScale/ts-orchestrator.git":                    false,
+		"https://user:secret@git.terrascale.tech/TerraScale/ts-orchestrator.git": false,
+		"http://git.terrascale.tech/TerraScale/ts-orchestrator.git":              false,
+		"file:///srv/TerraScale/ts-orchestrator.git":                             false,
+		"/srv/checkout/TerraScale/ts-orchestrator":                               false,
+		"git@evil.example:TerraScale/ts-orchestrator.git":                        false,
+		"": false,
+	} {
+		if got := pinnedLineageRemote(remote); got != want {
+			t.Fatalf("pinnedLineageRemote(%q) = %v, want %v", remote, got, want)
+		}
+	}
+}
+
+func TestSignUpdateDelegationRefusesTheRootAsLeaf(t *testing.T) {
+	fixture := newDelegationFixture(t)
+	c := command{ctx: context.Background(), output: os.Stdout}
+	args := []string{"--subject-public-key", fixture.rootPath, "--root-key", fixture.rootPath,
+		"--signing-key", fixture.privatePath, "--environment", "canary", "--lineage-base", testLineageBase,
+		"--cell", "GRU", "--arch", "amd64",
+		"--issued-at", fixture.now.Add(-time.Minute).Format(time.RFC3339),
+		"--expires-at", fixture.now.Add(24 * time.Hour).Format(time.RFC3339),
+		"--out", filepath.Join(fixture.directory, "root-leaf.json")}
+	if err := c.signUpdateDelegation(args); err == nil || !strings.Contains(err.Error(), "differ from offline root") {
+		t.Fatalf("the offline root was delegated to itself: %v", err)
 	}
 }

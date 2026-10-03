@@ -8,6 +8,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/backup"
 )
 
 type volumeListStore struct {
@@ -21,7 +22,10 @@ func (store volumeListStore) ListIntents(context.Context) ([]placement.Intent, e
 }
 
 func (store volumeListStore) ListMembers(_ context.Context, databaseID, partitionID string) ([]placement.VersionedMemberState, error) {
-	return store.members[databaseID+"/"+partitionID], nil
+	if members, ok := store.members[databaseID+"/"+partitionID]; ok {
+		return members, nil
+	}
+	return nil, errors.New("partition unreadable")
 }
 
 func (volumeListStore) ReadTerminalIntent(context.Context, string, string) (authority.LogEntry, error) {
@@ -45,8 +49,21 @@ func TestPlacementVolumeIDsListsPlacedRetainedVolumesOnce(t *testing.T) {
 	}
 }
 
+func TestPlacementVolumeIDsSkipsAnUnreadablePartition(t *testing.T) {
+	store := volumeListStore{
+		intents: []placement.Intent{{DatabaseID: "db-a", PartitionID: "p1"}, {DatabaseID: "db-broken", PartitionID: "p1"}},
+		members: map[string][]placement.VersionedMemberState{
+			"db-a/p1": {{State: placement.MemberState{VolumeID: "vol-1", Stage: placement.StageAwaitingRuntimeContract}}},
+		},
+	}
+	volumes, err := placementVolumeIDs(t.Context(), store)
+	if !errors.Is(err, backup.ErrPartialVolumes) || !slices.Equal(volumes, []string{"vol-1"}) {
+		t.Fatalf("volumes = %v, %v; want the readable partition's volumes and a partial-listing error", volumes, err)
+	}
+}
+
 func TestStorageFeaturesAreOffByDefault(t *testing.T) {
-	if err := startControllerStorageCapacity(t.Context(), Config{}, nil); err != nil {
+	if err := startControllerStorageCapacity(t.Context(), Config{}, nil, nil); err != nil {
 		t.Fatalf("disabled capacity collector started: %v", err)
 	}
 	if err := startVolumeBackups(t.Context(), Config{}, nil, nil, nil); err != nil {
@@ -60,7 +77,7 @@ func TestStorageFeaturesAreOffByDefault(t *testing.T) {
 	cfg.Controller.StorageCapacity.Enabled = true
 	cfg.Controller.StorageCapacity.IntervalSeconds = 60
 	cfg.Controller.StorageCapacity.TTLSeconds = 30
-	if err := startControllerStorageCapacity(t.Context(), cfg, nil); err == nil {
+	if err := startControllerStorageCapacity(t.Context(), cfg, nil, nil); err == nil {
 		t.Fatal("capacity collector accepted a TTL shorter than its interval")
 	}
 }

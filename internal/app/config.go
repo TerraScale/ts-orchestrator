@@ -74,6 +74,9 @@ type ControllerConfig struct {
 	// SelfUpdateProofFile, when set, makes a ready controller sign a version
 	// proof for a pending self-update activation with its response key.
 	SelfUpdateProofFile string `json:"self_update_proof_file,omitempty"`
+	// SelfUpdateRoot is the release root the selfupdate prepare and watchdog
+	// steps use (their --root); empty means selfupdate.DefaultRoot.
+	SelfUpdateRoot string `json:"self_update_root,omitempty"`
 	// ManagedHostImageReceiptFile and ManagedHostImageDelegationFile, when
 	// both set, qualify the managed-host image from its own root-delegated
 	// image receipt instead of the controller's accepted boot image, so
@@ -145,6 +148,9 @@ type HostConfig struct {
 	// SelfUpdateProofFile, when set, makes a started host agent sign a
 	// version proof for a pending self-update activation with its identity key.
 	SelfUpdateProofFile string `json:"self_update_proof_file,omitempty"`
+	// SelfUpdateRoot is the release root the selfupdate prepare and watchdog
+	// steps use (their --root); empty means selfupdate.DefaultRoot.
+	SelfUpdateRoot string `json:"self_update_root,omitempty"`
 }
 
 func LoadConfig(path string) (Config, error) {

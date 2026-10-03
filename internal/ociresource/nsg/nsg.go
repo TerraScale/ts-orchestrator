@@ -26,6 +26,10 @@ const Kind = "nsg-rules"
 // maxRulesPerCall is OCI's batch limit for add/remove security rule calls.
 const maxRulesPerCall = 25
 
+// maxRulesPerNSG is OCI's limit of security rules in one NSG; a larger spec
+// could only ever be applied partway.
+const maxRulesPerNSG = 120
+
 const (
 	DirectionIngress = "INGRESS"
 	DirectionEgress  = "EGRESS"
@@ -81,8 +85,14 @@ func (r Rule) validate() error {
 	}
 	switch r.peerType() {
 	case PeerCIDR:
-		if _, err := netip.ParsePrefix(r.Peer); err != nil {
+		prefix, err := netip.ParsePrefix(r.Peer)
+		if err != nil {
 			return fmt.Errorf("NSG rule CIDR %q is invalid", r.Peer)
+		}
+		// OCI stores the masked network; a CIDR with host bits set would
+		// never match the stored rule and be re-added on every pass.
+		if canonical := prefix.Masked().String(); canonical != r.Peer {
+			return fmt.Errorf("NSG rule CIDR %q is not canonical; use %q", r.Peer, canonical)
 		}
 	case PeerNSG:
 		if !strings.HasPrefix(r.Peer, "ocid1.networksecuritygroup.") {
@@ -112,6 +122,9 @@ type Spec struct {
 func (s Spec) Validate() error {
 	if !strings.HasPrefix(s.NSGID, "ocid1.networksecuritygroup.") {
 		return errors.New("NSG spec requires an NSG OCID")
+	}
+	if len(s.Rules) > maxRulesPerNSG {
+		return fmt.Errorf("NSG spec has %d rules, more than OCI's %d per NSG", len(s.Rules), maxRulesPerNSG)
 	}
 	seen := map[string]bool{}
 	for _, rule := range s.Rules {
@@ -186,12 +199,24 @@ func (r Reconciler) Observe(ctx context.Context, target ociresource.Target[Spec]
 	if err != nil {
 		return Observed{}, false, err
 	}
-	if target.Deleting && !slices.ContainsFunc(rules, func(rule ObservedRule) bool {
-		return strings.HasPrefix(rule.Rule.Description, marker(target.Key))
-	}) {
+	if target.Deleting && !slices.ContainsFunc(rules, func(rule ObservedRule) bool { return deletable(target, rule) }) {
 		return Observed{Group: group}, false, nil
 	}
 	return Observed{Group: group, Rules: rules}, true, nil
+}
+
+// deletable reports a rule a tombstoned spec removes: every rule carrying its
+// marker, and under an exclusive spec also an unmarked rule the spec itself
+// asked for (kept unmarked because it already existed when enforced). Rules
+// the spec never named are left alone even in exclusive mode: a deletion
+// relinquishes management and must not strip an NSG that member VNICs use.
+func deletable(target ociresource.Target[Spec], rule ObservedRule) bool {
+	if strings.HasPrefix(rule.Rule.Description, marker(target.Key)) {
+		return true
+	}
+	return target.Spec.Exclusive && slices.ContainsFunc(target.Spec.Rules, func(wanted Rule) bool {
+		return wanted.identity() == rule.Rule.identity()
+	})
 }
 
 // changes computes rules to add and rule IDs to remove.
@@ -254,6 +279,9 @@ func (r Reconciler) Apply(ctx context.Context, target ociresource.Target[Spec], 
 			rule.Description = managedDescription(target.Key, rule)
 			marked = append(marked, rule)
 		}
+		if err := target.Fence(ctx); err != nil {
+			return err
+		}
 		if err := r.API.AddRules(ctx, target.Spec.NSGID, marked); err != nil {
 			return fmt.Errorf("add NSG rules: %w", err)
 		}
@@ -263,13 +291,32 @@ func (r Reconciler) Apply(ctx context.Context, target ociresource.Target[Spec], 
 		for _, rule := range chunk {
 			ids = append(ids, rule.ID)
 		}
+		if err := target.Fence(ctx); err != nil {
+			return err
+		}
 		if err := r.API.RemoveRules(ctx, target.Spec.NSGID, ids); err != nil {
 			return fmt.Errorf("remove NSG rules: %w", err)
 		}
 	}
 	if target.Ownership.Stale(observed.Group.Tags, target.Generation, target.SpecDigest) {
-		tags := observed.Group.Tags.Merge(target.Ownership.Stamp(target.Key, target.Generation, target.SpecDigest))
-		if err := r.API.UpdateTags(ctx, target.Spec.NSGID, observed.Group.ETag, tags); err != nil {
+		group := observed.Group
+		if len(add)+len(remove) > 0 {
+			// The rule changes advanced the NSG's ETag; restamp against a
+			// fresh read, and only while it is still owned.
+			fresh, err := r.API.GetGroup(ctx, target.Spec.NSGID)
+			if err != nil {
+				return fmt.Errorf("re-read NSG before restamp: %w", err)
+			}
+			if fresh.ID != target.Spec.NSGID || !target.Ownership.Owns(target.Key, fresh.Tags) {
+				return ociresource.ErrForeign
+			}
+			group = fresh
+		}
+		tags := group.Tags.Merge(target.Ownership.Stamp(target.Key, target.Generation, target.SpecDigest))
+		if err := target.Fence(ctx); err != nil {
+			return err
+		}
+		if err := r.API.UpdateTags(ctx, target.Spec.NSGID, group.ETag, tags); err != nil {
 			return fmt.Errorf("restamp NSG ownership: %w", err)
 		}
 	}
@@ -281,11 +328,14 @@ func (r Reconciler) Apply(ctx context.Context, target ociresource.Target[Spec], 
 func (r Reconciler) Delete(ctx context.Context, target ociresource.Target[Spec], observed Observed) error {
 	var ids []string
 	for _, rule := range observed.Rules {
-		if strings.HasPrefix(rule.Rule.Description, marker(target.Key)) {
+		if deletable(target, rule) {
 			ids = append(ids, rule.ID)
 		}
 	}
 	for chunk := range slices.Chunk(ids, maxRulesPerCall) {
+		if err := target.Fence(ctx); err != nil {
+			return err
+		}
 		if err := r.API.RemoveRules(ctx, target.Spec.NSGID, chunk); err != nil {
 			return fmt.Errorf("remove NSG rules: %w", err)
 		}

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -54,7 +55,7 @@ func (source placementVolumes) Volumes(ctx context.Context) ([]insights.Volume, 
 	if source.store == nil {
 		return nil, nil
 	}
-	members, err := placedVolumeMembers(ctx, source.store)
+	members, _, err := placedVolumeMembers(ctx, source.store, false)
 	if err != nil {
 		return nil, err
 	}
@@ -79,19 +80,24 @@ func volumeAttachmentState(stage placement.MemberStage) string {
 }
 
 // placedVolumeMembers lists the member state of every placed member that
-// holds a retained volume, once per volume. The volume backup policy and the
-// volume insight provider share it.
-func placedVolumeMembers(ctx context.Context, store placement.Store) ([]placement.MemberState, error) {
+// holds a retained volume, once per volume. The volume insight provider and
+// the volume backup policy share it. A partition whose members cannot be read
+// aborts the listing, unless skipUnreadable is set: then the partition is
+// skipped and its error is returned in skipped instead.
+func placedVolumeMembers(ctx context.Context, store placement.Store, skipUnreadable bool) (out []placement.MemberState, skipped []error, err error) {
 	intents, err := store.ListIntents(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	seen := make(map[string]bool)
-	var out []placement.MemberState
 	for _, intent := range intents {
 		members, err := store.ListMembers(ctx, intent.DatabaseID, intent.PartitionID)
 		if err != nil {
-			return nil, err
+			if !skipUnreadable {
+				return nil, nil, err
+			}
+			skipped = append(skipped, fmt.Errorf("partition %s/%s: %w", intent.DatabaseID, intent.PartitionID, err))
+			continue
 		}
 		for _, member := range members {
 			if id := member.State.VolumeID; id != "" && member.State.Stage != placement.StageRemoved && !seen[id] {
@@ -100,7 +106,7 @@ func placedVolumeMembers(ctx context.Context, store placement.Store) ([]placemen
 			}
 		}
 	}
-	return out, nil
+	return out, skipped, nil
 }
 
 var (

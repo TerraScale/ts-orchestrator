@@ -3,6 +3,7 @@ package rollout
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -238,5 +239,124 @@ func TestStoreBeginRepairsInterruptedCellRelease(t *testing.T) {
 	third.ToDigest = strings.Repeat("d", 64)
 	if _, _, err := store.Begin(ctx, third, testStart); !errors.Is(err, ErrActiveRollout) {
 		t.Fatalf("live rollout lost the cell slot: %v", err)
+	}
+}
+
+func TestStoreBeginReclaimsASlotWhoseRecordWasNeverCreated(t *testing.T) {
+	store, _ := testStore(t)
+	ctx := t.Context()
+	// Simulate a crash between the cell claim and the record create.
+	cell, revision, err := store.Cell(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cell.ActiveRolloutID = "lost"
+	cell.Attempts = map[string]int{toDigest: 1}
+	if err := store.writeCell(ctx, 7, cell, revision); err != nil {
+		t.Fatal(err)
+	}
+	next := testSpec("r2")
+	next.ToDigest = otherBad
+	if _, _, err := store.Begin(ctx, next, testStart); err != nil {
+		t.Fatalf("a dangling claim kept the cell slot: %v", err)
+	}
+	// The abandoned ID can never create a live record afterwards.
+	lost := testSpec("lost")
+	if _, _, err := store.createRecord(ctx, lost, cell, testStart); !errors.Is(err, errAbandonedRollout) {
+		t.Fatalf("an abandoned rollout ID created a record: %v", err)
+	}
+}
+
+func TestStoreBeginReportsALoadFailureInsteadOfAnActiveRollout(t *testing.T) {
+	store, _ := testStore(t)
+	ctx := t.Context()
+	cell, revision, err := store.Cell(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cell.ActiveRolloutID = "corrupt"
+	if err := store.writeCell(ctx, 7, cell, revision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.kv.Put(ctx, rolloutKey("corrupt"), []byte(`{"schema_version":1}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.Begin(ctx, testSpec("r2"), testStart); err == nil || errors.Is(err, ErrActiveRollout) {
+		t.Fatalf("an unreadable active record reported %v, want the load failure", err)
+	}
+}
+
+func TestStoreBeginRetryMustKeepThePlan(t *testing.T) {
+	store, _ := testStore(t)
+	ctx := t.Context()
+	if _, _, err := store.Begin(ctx, testSpec("r1"), testStart); err != nil {
+		t.Fatal(err)
+	}
+	grown := testSpec("r1")
+	grown.Units = append(grown.Units, Unit{ID: "ctrl-d", Group: "controllers"})
+	if _, _, err := store.Begin(ctx, grown, testStart); !errors.Is(err, ErrConflict) {
+		t.Fatalf("a retry with a different unit set returned the stored plan: %v", err)
+	}
+	tuned := testSpec("r1")
+	tuned.Policy.BatchSoakSeconds++
+	if _, _, err := store.Begin(ctx, tuned, testStart); !errors.Is(err, ErrConflict) {
+		t.Fatalf("a retry with a different policy returned the stored plan: %v", err)
+	}
+}
+
+func TestStoreRefundsTheAttemptOfACompletedRollout(t *testing.T) {
+	store, _ := testStore(t)
+	ctx := t.Context()
+	record, revision, err := store.Begin(ctx, testSpec("r1"), testStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := testStart
+	record, err = Apply(record, Event{Kind: EventStart, At: at})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err = Apply(record, Event{Kind: EventPreflightPassed, At: at})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for !record.Phase.Terminal() {
+		record, at = soakWave(t, record, at)
+	}
+	if record.Phase != PhaseComplete {
+		t.Fatalf("rollout ended %s", record.Phase)
+	}
+	if _, err := store.Commit(ctx, revision, record); err != nil {
+		t.Fatal(err)
+	}
+	cell, _, err := store.Cell(ctx)
+	if err != nil || cell.ActiveRolloutID != "" || cell.Attempts[toDigest] != 0 {
+		t.Fatalf("cell after completion = %+v %v", cell, err)
+	}
+	// The proven digest can be targeted again, for example to restore it.
+	restore := testSpec("r2")
+	restore.FromDigest, restore.ToDigest = otherBad, toDigest
+	if _, _, err := store.Begin(ctx, restore, at); err != nil {
+		t.Fatalf("a completed digest could not be targeted again: %v", err)
+	}
+}
+
+func TestBoundAttemptsEvictsKnownBadFirstAndKeepsTheTarget(t *testing.T) {
+	attempts := make(map[string]int, maxAttemptDigest+2)
+	digest := func(index int) string { return fmt.Sprintf("%064x", index) }
+	for index := range maxAttemptDigest + 2 {
+		attempts[digest(index)] = 1
+	}
+	knownBad := []string{digest(5)}
+	target := digest(0)
+	boundAttempts(attempts, knownBad, target)
+	if len(attempts) != maxAttemptDigest {
+		t.Fatalf("bounded to %d entries, want %d", len(attempts), maxAttemptDigest)
+	}
+	if _, kept := attempts[digest(5)]; kept {
+		t.Fatal("a known-bad digest's count was kept over others")
+	}
+	if attempts[target] != 1 {
+		t.Fatal("the current target's count was evicted")
 	}
 }

@@ -133,6 +133,10 @@ func (r Reconciler) Observe(ctx context.Context, target ociresource.Target[Spec]
 		return Observed{}, true, ociresource.ErrForeign
 	}
 	backends, err := r.API.ListBackends(ctx, target.Spec.NLBID, target.Spec.BackendSet)
+	if target.Deleting && errors.Is(err, ociresource.ErrGone) {
+		// The backend set is gone; there is nothing left to drain.
+		return Observed{LoadBalancer: balancer}, false, nil
+	}
 	if err != nil {
 		return Observed{}, false, err
 	}
@@ -197,6 +201,15 @@ func (Reconciler) Diff(target ociresource.Target[Spec], observed Observed, found
 	return plan
 }
 
+// mutate fences, runs one NLB mutation and waits for its work request.
+func (r Reconciler) mutate(ctx context.Context, target ociresource.Target[Spec], call func() (string, error)) error {
+	if err := target.Fence(ctx); err != nil {
+		return err
+	}
+	id, err := call()
+	return r.wait(ctx, id, err)
+}
+
 func (r Reconciler) wait(ctx context.Context, workRequest string, err error) error {
 	if err != nil {
 		return err
@@ -219,27 +232,36 @@ func (r Reconciler) Apply(ctx context.Context, target ociresource.Target[Spec], 
 	// Add and reweight before removing so capacity never dips below the
 	// intersection of the old and new sets.
 	for _, backend := range d.create {
-		id, err := r.API.CreateBackend(ctx, spec.NLBID, set, backend)
-		if err := r.wait(ctx, id, err); err != nil {
+		if err := r.mutate(ctx, target, func() (string, error) { return r.API.CreateBackend(ctx, spec.NLBID, set, backend) }); err != nil {
 			return fmt.Errorf("add NLB backend %s: %w", backend.Name(), err)
 		}
 	}
 	for _, backend := range d.update {
-		id, err := r.API.UpdateBackend(ctx, spec.NLBID, set, backend)
-		if err := r.wait(ctx, id, err); err != nil {
+		if err := r.mutate(ctx, target, func() (string, error) { return r.API.UpdateBackend(ctx, spec.NLBID, set, backend) }); err != nil {
 			return fmt.Errorf("reweight NLB backend %s: %w", backend.Name(), err)
 		}
 	}
 	for _, backend := range d.remove {
-		id, err := r.API.DeleteBackend(ctx, spec.NLBID, set, backend.Name())
-		if err := r.wait(ctx, id, err); err != nil {
+		if err := r.mutate(ctx, target, func() (string, error) { return r.API.DeleteBackend(ctx, spec.NLBID, set, backend.Name()) }); err != nil {
 			return fmt.Errorf("remove NLB backend %s: %w", backend.Name(), err)
 		}
 	}
 	if target.Ownership.Stale(observed.LoadBalancer.Tags, target.Generation, target.SpecDigest) {
-		tags := observed.LoadBalancer.Tags.Merge(target.Ownership.Stamp(target.Key, target.Generation, target.SpecDigest))
-		id, err := r.API.UpdateTags(ctx, spec.NLBID, observed.LoadBalancer.ETag, tags)
-		if err := r.wait(ctx, id, err); err != nil {
+		balancer := observed.LoadBalancer
+		if len(d.create)+len(d.update)+len(d.remove) > 0 {
+			// The backend work requests advanced the NLB's ETag; restamp
+			// against a fresh read, and only while it is still owned.
+			fresh, err := r.API.GetLoadBalancer(ctx, spec.NLBID)
+			if err != nil {
+				return fmt.Errorf("re-read NLB before restamp: %w", err)
+			}
+			if fresh.ID != spec.NLBID || !target.Ownership.Owns(target.Key, fresh.Tags) {
+				return ociresource.ErrForeign
+			}
+			balancer = fresh
+		}
+		tags := balancer.Tags.Merge(target.Ownership.Stamp(target.Key, target.Generation, target.SpecDigest))
+		if err := r.mutate(ctx, target, func() (string, error) { return r.API.UpdateTags(ctx, spec.NLBID, balancer.ETag, tags) }); err != nil {
 			return fmt.Errorf("restamp NLB ownership: %w", err)
 		}
 	}
@@ -250,8 +272,9 @@ func (r Reconciler) Apply(ctx context.Context, target ociresource.Target[Spec], 
 // they hold the region's reserved public IP.
 func (r Reconciler) Delete(ctx context.Context, target ociresource.Target[Spec], observed Observed) error {
 	for _, backend := range observed.Backends {
-		id, err := r.API.DeleteBackend(ctx, target.Spec.NLBID, target.Spec.BackendSet, backend.Name())
-		if err := r.wait(ctx, id, err); err != nil {
+		if err := r.mutate(ctx, target, func() (string, error) {
+			return r.API.DeleteBackend(ctx, target.Spec.NLBID, target.Spec.BackendSet, backend.Name())
+		}); err != nil {
 			return fmt.Errorf("remove NLB backend %s: %w", backend.Name(), err)
 		}
 	}

@@ -261,6 +261,12 @@ func SignBinaryUpdateReceipt(binary BinaryReceipt, qualification Qualification, 
 	}
 	expiresAt := now.Add(validFor)
 	if delegationEnvelope.ExpiresAt.Before(expiresAt) {
+		// The receipt is capped at its delegation's expiry. Refuse a cap
+		// that would leave a receipt consumers reject almost at once.
+		if remaining := delegationEnvelope.ExpiresAt.Sub(now); remaining < min(validFor, MinUpdateReceiptValidity) {
+			return trust.Envelope{}, fmt.Errorf("update delegation expires in %s, less than the %s minimum receipt validity; renew the delegation",
+				remaining.Round(time.Second), min(validFor, MinUpdateReceiptValidity))
+		}
 		expiresAt = delegationEnvelope.ExpiresAt
 	}
 	payload, err := trust.EncodePayload(receipt)
@@ -285,6 +291,10 @@ func SignBinaryUpdateReceipt(binary BinaryReceipt, qualification Qualification, 
 	}
 	return envelope, nil
 }
+
+// MinUpdateReceiptValidity is the shortest validity an update receipt is
+// signed with when its delegation's expiry caps the requested validity.
+const MinUpdateReceiptValidity = time.Hour
 
 // VerifyBinaryUpdateCurrent verifies an automatically signed update receipt
 // against a currently valid root delegation, the consumer's environment,

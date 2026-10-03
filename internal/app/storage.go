@@ -18,7 +18,7 @@ import (
 // JetStream StoreDir and publishes them to the regional TTL'd usage bucket.
 // It runs on every controller (each node measures itself) and only when
 // controller.storage_capacity.enabled is set.
-func startControllerStorageCapacity(ctx context.Context, cfg Config, runtime *natscell.Runtime) error {
+func startControllerStorageCapacity(ctx context.Context, cfg Config, runtime *natscell.Runtime, fullClusterReady func() bool) error {
 	settings := cfg.Controller.StorageCapacity
 	if !settings.Enabled {
 		return nil
@@ -29,9 +29,12 @@ func startControllerStorageCapacity(ctx context.Context, cfg Config, runtime *na
 	if cfg.NATS.Embedded == nil || runtime == nil {
 		return errors.New("storage capacity requires the embedded regional NATS server")
 	}
-	store, err := capacity.OpenUsageStore(ctx, runtime.JetStream(), cfg.NATS.Replicas, settings.TTL(), settings.Policy)
+	store, _, err := retryControllerOpen(ctx, "open storage usage bucket", fullClusterReady, false,
+		func(attempt context.Context) (*capacity.UsageStore, error) {
+			return capacity.OpenUsageStore(attempt, runtime.JetStream(), cfg.NATS.Replicas, settings.TTL(), settings.Policy)
+		}, nil)
 	if err != nil {
-		return fmt.Errorf("open storage usage bucket: %w", err)
+		return err
 	}
 	collector := capacity.Collector{
 		Cell: cfg.NATS.Cell, Node: cfg.NATS.Instance,
@@ -78,15 +81,22 @@ func startVolumeBackups(ctx context.Context, cfg Config, managed *managedControl
 	return nil
 }
 
-// placementVolumeIDs lists the retained volumes of every placed member.
+// placementVolumeIDs lists the retained volumes of every placed member. An
+// unreadable partition is skipped so it cannot block backups of every other
+// volume; the listing then reports backup.ErrPartialVolumes, which keeps the
+// runner from treating the skipped partition's volumes as orphaned.
 func placementVolumeIDs(ctx context.Context, store placement.Store) ([]string, error) {
-	members, err := placedVolumeMembers(ctx, store)
+	members, skipped, err := placedVolumeMembers(ctx, store, true)
 	if err != nil {
 		return nil, err
 	}
 	volumes := make([]string, 0, len(members))
 	for _, member := range members {
 		volumes = append(volumes, member.VolumeID)
+	}
+	if len(skipped) > 0 {
+		slog.Warn("volume backup listing skipped unreadable partitions", "error", errors.Join(skipped...))
+		return volumes, fmt.Errorf("%w: %w", backup.ErrPartialVolumes, errors.Join(skipped...))
 	}
 	return volumes, nil
 }

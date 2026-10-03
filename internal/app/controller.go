@@ -240,7 +240,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return err
 	}
-	if err := startControllerStorageCapacity(ctx, cfg, runtime); err != nil {
+	if err := startControllerStorageCapacity(ctx, cfg, runtime, fullClusterReady); err != nil {
 		return fmt.Errorf("start storage capacity collector: %w", err)
 	}
 	var managedController *placement.Controller
@@ -656,7 +656,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// client is no longer usable, so WatchdogSec= restarts a wedged
 	// controller instead of leaving a silent Raft peer.
 	go notifier.RunWatchdog(runCtx, runtime.Ready)
-	emitSelfUpdateProof(cfg.Controller.SelfUpdateProofFile, cfg.Controller.ResponseKeyFile, controllerUnit, output)
+	emitSelfUpdateProof(cfg.Controller.SelfUpdateProofFile, cfg.Controller.SelfUpdateRoot, cfg.Controller.ResponseKeyFile, controllerUnit, output)
 	select {
 	case <-parentCtx.Done():
 		stop()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -102,6 +103,10 @@ func (s *Store) Load(ctx context.Context, rolloutID string) (Record, uint64, err
 	}
 	var record Record
 	if err := protocol.DecodeStrict(entry.Value(), &record, maxRecordBytes); err != nil {
+		var marker abandonedMarker
+		if protocol.DecodeStrict(entry.Value(), &marker, maxRecordBytes) == nil && marker.AbandonedRollout == rolloutID {
+			return Record{}, 0, errAbandonedRollout
+		}
 		return Record{}, 0, err
 	}
 	if err := record.Validate(); err != nil {
@@ -135,7 +140,22 @@ func (s *Store) Begin(ctx context.Context, spec Spec, now time.Time) (Record, ui
 			// A terminal commit whose cell release was interrupted is
 			// repaired here; a live rollout keeps the slot.
 			active, _, err := s.Load(ctx, state.ActiveRolloutID)
-			if err != nil || !active.Phase.Terminal() {
+			if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, errAbandonedRollout) {
+				// The slot was claimed but its record was never created (a
+				// crash or failure between the two writes). Abandon the ID
+				// so a late create of it fails, then release the slot.
+				if err := s.abandon(ctx, spec.AuthorityEpoch, state.ActiveRolloutID); err != nil {
+					return Record{}, 0, err
+				}
+				if err := s.releaseSlot(ctx, spec.AuthorityEpoch, state.ActiveRolloutID); err != nil {
+					return Record{}, 0, err
+				}
+				continue
+			}
+			if err != nil {
+				return Record{}, 0, fmt.Errorf("load active rollout %q: %w", state.ActiveRolloutID, err)
+			}
+			if !active.Phase.Terminal() {
 				return Record{}, 0, ErrActiveRollout
 			}
 			if err := s.syncCell(ctx, withEpoch(active, spec.AuthorityEpoch)); err != nil {
@@ -160,6 +180,7 @@ func (s *Store) Begin(ctx context.Context, spec Spec, now time.Time) (Record, ui
 			next.Attempts[digest] = count
 		}
 		next.Attempts[spec.ToDigest]++
+		boundAttempts(next.Attempts, next.KnownBad, spec.ToDigest)
 		if err := s.writeCell(ctx, spec.AuthorityEpoch, next, revision); errors.Is(err, ErrConflict) {
 			continue
 		} else if err != nil {
@@ -179,6 +200,20 @@ func (s *Store) createRecord(ctx context.Context, spec Spec, state CellState, no
 	if existing, revision, err := s.Load(ctx, spec.RolloutID); err == nil {
 		if existing.FromDigest != spec.FromDigest || existing.ToDigest != spec.ToDigest || existing.Kind != spec.Kind {
 			return Record{}, 0, fmt.Errorf("%w: rollout ID is bound to a different rollout", ErrConflict)
+		}
+		// A retry must describe the same plan, not only the same target:
+		// a changed unit set or policy would otherwise silently run the
+		// stored, older plan.
+		waves, err := PlanWaves(spec.Units, spec.Policy)
+		if err != nil {
+			return Record{}, 0, err
+		}
+		policyDigest, err := spec.Policy.Digest()
+		if err != nil {
+			return Record{}, 0, err
+		}
+		if existing.PolicyDigest != policyDigest || !slices.EqualFunc(existing.Waves, waves, slices.Equal) {
+			return Record{}, 0, fmt.Errorf("%w: rollout ID is bound to a different plan", ErrConflict)
 		}
 		return existing, revision, nil
 	} else if !errors.Is(err, jetstream.ErrKeyNotFound) {
@@ -302,10 +337,22 @@ func (s *Store) syncCell(ctx context.Context, record Record) error {
 		if len(next.KnownBad) > MaxKnownBad {
 			next.KnownBad = next.KnownBad[len(next.KnownBad)-MaxKnownBad:]
 		}
+		next.Attempts = maps.Clone(state.Attempts)
 		if record.Phase.Terminal() && state.ActiveRolloutID == record.RolloutID {
 			next.ActiveRolloutID = ""
+			// The attempt budget limits retries of a rejected digest. A
+			// completed rollout proved its digest, so its attempt is
+			// refunded once, as the slot is released, and the digest can
+			// be targeted again (for example to restore it).
+			if record.Phase == PhaseComplete && state.Attempts[record.ToDigest] > 0 {
+				if next.Attempts[record.ToDigest]--; next.Attempts[record.ToDigest] == 0 {
+					delete(next.Attempts, record.ToDigest)
+				}
+			}
 		}
-		if slices.Equal(next.KnownBad, state.KnownBad) && next.ActiveRolloutID == state.ActiveRolloutID {
+		boundAttempts(next.Attempts, next.KnownBad, "")
+		if slices.Equal(next.KnownBad, state.KnownBad) && next.ActiveRolloutID == state.ActiveRolloutID &&
+			maps.Equal(next.Attempts, state.Attempts) {
 			return nil
 		}
 		if err := s.writeCell(ctx, record.AuthorityEpoch, next, revision); errors.Is(err, ErrConflict) {
@@ -337,6 +384,83 @@ func (s *Store) writeCell(ctx context.Context, epoch uint64, state CellState, re
 		return ErrConflict
 	}
 	return err
+}
+
+// boundAttempts keeps the per-digest attempt map within maxAttemptDigest so
+// the cell state never grows into one validate rejects. Counts of digests the
+// cell refuses as known bad go first, since the known-bad check already
+// refuses them; then the remaining entries in digest order. keep is never
+// evicted.
+func boundAttempts(attempts map[string]int, knownBad []string, keep string) {
+	if len(attempts) <= maxAttemptDigest {
+		return
+	}
+	digests := slices.Sorted(maps.Keys(attempts))
+	for _, refused := range []bool{true, false} {
+		for _, digest := range digests {
+			if len(attempts) <= maxAttemptDigest {
+				return
+			}
+			if digest != keep && slices.Contains(knownBad, digest) == refused {
+				delete(attempts, digest)
+			}
+		}
+	}
+}
+
+// errAbandonedRollout marks a rollout ID whose cell claim was reclaimed
+// before its record existed.
+var errAbandonedRollout = errors.New("rollout ID was abandoned before its record was created")
+
+// abandonedMarker occupies the record key of an abandoned rollout ID. It
+// does not decode as a Record, so a late createRecord of that ID fails
+// instead of creating a live record after its slot was released.
+type abandonedMarker struct {
+	AbandonedRollout string `json:"abandoned_rollout"`
+}
+
+// abandon writes the marker for rolloutID unless a record or marker exists.
+func (s *Store) abandon(ctx context.Context, epoch uint64, rolloutID string) error {
+	encoded, err := protocol.EncodeJSON(abandonedMarker{AbandonedRollout: rolloutID})
+	if err != nil {
+		return err
+	}
+	if err := s.fencer.Guard(ctx, epoch); err != nil {
+		return err
+	}
+	_, err = s.kv.Create(ctx, rolloutKey(rolloutID), encoded)
+	if errors.Is(err, jetstream.ErrKeyExists) {
+		// A concurrent create won or the marker is already in place; the
+		// next Load tells which.
+		if _, _, loadErr := s.Load(ctx, rolloutID); loadErr == nil {
+			return ErrActiveRollout
+		} else if !errors.Is(loadErr, errAbandonedRollout) {
+			return loadErr
+		}
+		return nil
+	}
+	return err
+}
+
+// releaseSlot clears the cell slot while it still names rolloutID.
+func (s *Store) releaseSlot(ctx context.Context, epoch uint64, rolloutID string) error {
+	for range cellCASAttempts {
+		state, revision, err := s.Cell(ctx)
+		if err != nil {
+			return err
+		}
+		if state.ActiveRolloutID != rolloutID {
+			return nil
+		}
+		next := state
+		next.ActiveRolloutID = ""
+		if err := s.writeCell(ctx, epoch, next, revision); errors.Is(err, ErrConflict) {
+			continue
+		} else {
+			return err
+		}
+	}
+	return ErrConflict
 }
 
 // withEpoch fences a cell repair with the caller's current epoch instead of

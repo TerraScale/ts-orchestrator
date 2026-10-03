@@ -22,10 +22,17 @@ type Runner struct {
 	Scope    Scope
 	Provider oci.VolumeBackupProvider
 	Fencer   authority.Fencer
-	// Volumes lists the retained volume IDs to protect.
+	// Volumes lists the retained volume IDs to protect. A listing that could
+	// not read every source returns the volumes it did read together with an
+	// error wrapping ErrPartialVolumes: those volumes are still protected, but
+	// orphan retention is skipped because a missing volume may be unread
+	// rather than removed.
 	Volumes func(context.Context) ([]string, error)
 	Now     func() time.Time
 }
+
+// ErrPartialVolumes marks a volume listing that skipped unreadable sources.
+var ErrPartialVolumes = errors.New("volume listing is partial")
 
 // Report summarizes one evaluation.
 type Report struct {
@@ -63,11 +70,15 @@ func (runner Runner) RunOnce(ctx context.Context) (Report, error) {
 		now = runner.Now
 	}
 	volumes, err := runner.Volumes(ctx)
-	if err != nil {
+	partial := errors.Is(err, ErrPartialVolumes)
+	if err != nil && !partial {
 		return Report{}, fmt.Errorf("list volumes to back up: %w", err)
 	}
 	var report Report
 	var failures []error
+	if partial {
+		failures = append(failures, fmt.Errorf("list volumes to back up: %w", err))
+	}
 	for _, volumeID := range volumes {
 		backups, err := runner.Provider.ListVolumeBackups(ctx, volumeID)
 		if err != nil {
@@ -103,7 +114,63 @@ func (runner Runner) RunOnce(ctx context.Context) (Report, error) {
 			}
 		}
 	}
+	if runner.Policy.Prune && !partial {
+		if err := runner.pruneOrphans(ctx, epoch, volumes, now(), &report); err != nil {
+			failures = append(failures, err)
+		}
+	}
 	return report, errors.Join(failures...)
+}
+
+// pruneOrphans deletes owned AVAILABLE backups whose source volume is no
+// longer placed, has been removed from OCI, and whose backup is older than
+// the orphan retention. Without it a torn-down partition would strand its
+// last Retain backups for ever, since per-volume pruning only visits placed
+// volumes. It runs only over a complete placement listing.
+func (runner Runner) pruneOrphans(ctx context.Context, epoch uint64, placed []string, now time.Time, report *Report) error {
+	backups, err := runner.Provider.ListCompartmentVolumeBackups(ctx)
+	if err != nil {
+		return fmt.Errorf("list compartment volume backups: %w", err)
+	}
+	live := make(map[string]bool, len(placed))
+	for _, volumeID := range placed {
+		live[volumeID] = true
+	}
+	retention := runner.Policy.OrphanRetention()
+	gone := make(map[string]bool)
+	var failures []error
+	for _, backup := range backups {
+		volumeID := backup.VolumeID
+		if volumeID == "" || live[volumeID] || !runner.Scope.Owns(backup, volumeID) ||
+			backup.LifecycleState != "AVAILABLE" || now.Sub(backup.CreatedAt) < retention {
+			continue
+		}
+		removed, checked := gone[volumeID]
+		if !checked {
+			removed, err = runner.Provider.VolumeGone(ctx, volumeID)
+			if err != nil {
+				failures = append(failures, err)
+				continue
+			}
+			gone[volumeID] = removed
+		}
+		if !removed {
+			continue
+		}
+		deleted, err := runner.prune(ctx, epoch, volumeID, backup.ID)
+		if errors.Is(err, authority.ErrFenced) {
+			return errors.Join(append(failures, err)...)
+		}
+		switch {
+		case err != nil:
+			failures = append(failures, err)
+		case deleted:
+			report.Deleted = append(report.Deleted, backup.ID)
+		default:
+			report.Skipped = append(report.Skipped, backup.ID)
+		}
+	}
+	return errors.Join(failures...)
 }
 
 // prune re-reads one backup and deletes it with its exact ETag only while it

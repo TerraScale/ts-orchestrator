@@ -417,7 +417,7 @@ func (e *Engine) process(command []string) Object {
 	if e.Dependency != nil {
 		return obj(e.call("subprocess.run", args, kw))
 	}
-	ctx, cancel := context.WithTimeout(e.ctx(), 180*time.Second)
+	ctx, cancel := context.WithTimeout(e.ctx(), ociReadTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -497,7 +497,11 @@ func (e *Engine) realOCI(args []any, kwargs Object) any {
 func (e *Engine) sdkOCI(args []any, kwargs Object) (any, bool) {
 	backend := e.Backend
 	if backend == "" {
-		backend = must(sdkcli.SelectedBackend())
+		selected, err := sdkcli.SelectedBackend()
+		if err != nil {
+			fail(fmt.Sprintf("OCI backend selection is invalid: %v", err))
+		}
+		backend = selected
 	}
 	if backend == sdkcli.BackendCLI {
 		return nil, false
@@ -510,8 +514,21 @@ func (e *Engine) sdkOCI(args []any, kwargs Object) (any, bool) {
 			operation = append(operation, words[i])
 		}
 	}
-	client := must(sdkcli.ForRegion(text(kwargs["region"])))
-	data, handled, err := client.Call(e.ctx(), words)
+	region := text(kwargs["region"])
+	client, err := sdkcli.ForRegion(region)
+	if err != nil {
+		// A region outside the catalog, or an SDK client that cannot be
+		// built, falls back to the oci CLI under auto instead of aborting.
+		if backend == sdkcli.BackendAuto {
+			return nil, false
+		}
+		fail(fmt.Sprintf("OCI read cannot be served in-binary for region %q: %v", region, err))
+	}
+	// The same bound the CLI path applies to every oci subprocess, so a
+	// stalled connection cannot hang a caller without its own deadline.
+	ctx, cancel := context.WithTimeout(e.ctx(), ociReadTimeout)
+	defer cancel()
+	data, handled, err := client.Call(ctx, words)
 	if !handled {
 		if backend == sdkcli.BackendAuto && errors.Is(err, sdkcli.ErrUnsupported) {
 			return nil, false
@@ -522,7 +539,9 @@ func (e *Engine) sdkOCI(args []any, kwargs Object) (any, bool) {
 		if ctxErr := e.ctx().Err(); ctxErr != nil {
 			panic(ctxErr)
 		}
-		fail(fmt.Sprintf("OCI read failed: %s", strings.Join(operation, " ")))
+		// Call already names the command path and wraps the SDK cause
+		// (throttling, 404, authorization or decode failure).
+		fail(err.Error())
 	}
 	v, err := decodeJSON(data)
 	if err != nil {
@@ -530,6 +549,9 @@ func (e *Engine) sdkOCI(args []any, kwargs Object) (any, bool) {
 	}
 	return v, true
 }
+
+// ociReadTimeout bounds one OCI read, in-binary or through the oci CLI.
+const ociReadTimeout = 180 * time.Second
 
 func capture[T any](fn func() T) (v T, err error) {
 	defer func() {

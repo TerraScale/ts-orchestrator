@@ -135,7 +135,9 @@ func Apply(record Record, event Event) (Record, error) {
 	case EventHealthy:
 		err = next.healthy(event.Unit, event.Health, at)
 	case EventUnhealthy, EventHeld:
-		err = next.failed(event.Unit, event.Kind == EventHeld, at, reasonOr(event.Reason, string(event.Kind)))
+		// A held forward step rolls back like an unhealthy one; rollback
+		// itself, not the forward unit, is what freezes for a human.
+		err = next.failed(event.Unit, at, reasonOr(event.Reason, string(event.Kind)))
 	case EventRollbackServing:
 		err = next.rollbackServing(event.Unit, at)
 	case EventRollbackHeld:
@@ -287,8 +289,10 @@ func (record *Record) healthy(unit string, health Health, at time.Time) error {
 	if health.ProcessID <= 0 || !tokenRE.MatchString(health.StartNonce) || health.ObservedAt.IsZero() {
 		return fmt.Errorf("%w: health report identity", ErrInvalid)
 	}
-	if health.ObservedAt.Before(record.PhaseStartedAt) && record.Phase.soaking() || health.ObservedAt.After(at.Add(time.Minute)) {
-		// A report older than the soak window cannot prove the new process.
+	if health.ObservedAt.Before(record.PhaseStartedAt) || health.ObservedAt.After(at.Add(time.Minute)) {
+		// A report older than the current phase cannot prove the new
+		// process, in the preparing phase as little as in the soak: a
+		// replayed report would start the soak clock in the past.
 		return fmt.Errorf("%w: stale or future health report", ErrInvalid)
 	}
 	if health.Digest != record.ToDigest {
@@ -309,17 +313,13 @@ func (record *Record) healthy(unit string, health Health, at time.Time) error {
 	return nil
 }
 
-func (record *Record) failed(unit string, held bool, at time.Time, reason string) error {
+func (record *Record) failed(unit string, at time.Time, reason string) error {
 	if !record.Phase.preparing() && !record.Phase.soaking() {
 		return fmt.Errorf("%w: %s", ErrInvalidTransition, record.Phase)
 	}
 	progress, exists := record.Units[unit]
 	if !exists || !progress.State.touched() {
 		return fmt.Errorf("%w: unit %q has not moved", ErrInvalidTransition, unit)
-	}
-	if held {
-		progress.State = UnitHeld
-		record.Units[unit] = progress
 	}
 	record.startRollback(at, fmt.Sprintf("unit %s: %s", unit, reason))
 	return nil

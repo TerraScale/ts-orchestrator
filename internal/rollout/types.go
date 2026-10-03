@@ -262,8 +262,30 @@ func (record Record) Validate() error {
 			return fmt.Errorf("%w: rollback unit %q", ErrInvalid, id)
 		}
 	}
+	for _, digest := range record.KnownBad {
+		if !digestRE.MatchString(digest) {
+			return fmt.Errorf("%w: known-bad digest", ErrInvalid)
+		}
+	}
 	if slices.Contains(record.KnownBad, record.FromDigest) {
 		return fmt.Errorf("%w: rollback target is known bad", ErrInvalid)
+	}
+	return record.validatePhaseUnits()
+}
+
+// validatePhaseUnits rejects phase and unit-state contradictions that Apply
+// never produces, so a record built outside Apply is refused at the storage
+// boundary instead of driving effects.
+func (record Record) validatePhaseUnits() error {
+	for _, id := range record.Waves[record.WaveIndex] {
+		state := record.Units[id].State
+		if record.Phase.soaking() && state != UnitSoaking ||
+			record.Phase.preparing() && state != UnitPreparing && state != UnitSoaking {
+			return fmt.Errorf("%w: phase %s contradicts unit %q in state %s", ErrInvalid, record.Phase, id, state)
+		}
+	}
+	if record.Phase == PhaseRollingBack && record.rollbackHead() == "" {
+		return fmt.Errorf("%w: rolling back without a unit to roll back", ErrInvalid)
 	}
 	return nil
 }

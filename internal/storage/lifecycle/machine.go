@@ -128,7 +128,9 @@ func Apply(state State, event Event, now time.Time, reason string) (State, error
 		if state.Phase != Held || !state.HeldFrom.Valid() || state.HeldFrom == Held || state.HeldFrom == Stuck {
 			return state, fmt.Errorf("%w: release requires a held volume with a recorded phase", ErrInvalidTransition)
 		}
-		return State{Phase: state.HeldFrom, Since: now}, nil
+		// Attempts survive the hold: a release must not reset the bound that
+		// escalates repeated same-host attach stalls to host replacement.
+		return State{Phase: state.HeldFrom, Since: now, Attempts: state.Attempts}, nil
 	case EventRetry:
 		if state.Phase != Stuck || !state.StuckFrom.Transitional() {
 			return state, fmt.Errorf("%w: retry requires a stuck transitional phase", ErrInvalidTransition)

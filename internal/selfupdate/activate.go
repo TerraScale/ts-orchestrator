@@ -23,6 +23,10 @@ const (
 	maxKnownBad    = 256
 )
 
+// errUnreadableActivation marks an owned activation record that does not
+// decode or validate, for example one written by a newer binary.
+var errUnreadableActivation = errors.New("self-update activation record is unreadable")
+
 var (
 	unitRE         = regexp.MustCompile(`^[a-z0-9][a-z0-9@_.-]{0,127}\.service$`)
 	activationIDRE = regexp.MustCompile(`^[0-9a-f]{32}$`)
@@ -54,28 +58,46 @@ func (activation Activation) validate() error {
 
 // Pending returns the pending activation, if any.
 func (layout Layout) Pending() (Activation, bool, error) {
-	if err := layout.checkOwned(layout.activationPath(), false); errors.Is(err, os.ErrNotExist) {
-		return Activation{}, false, nil
-	} else if err != nil {
+	data, exists, err := layout.pendingRecord()
+	if err != nil || !exists {
 		return Activation{}, false, err
 	}
-	data, err := readBounded(layout.activationPath(), maxStateBytes)
+	activation, err := decodeActivation(data)
 	if err != nil {
-		return Activation{}, false, err
-	}
-	var activation Activation
-	if err := protocol.DecodeStrict(data, &activation, maxStateBytes); err != nil {
-		return Activation{}, false, err
-	}
-	if err := activation.validate(); err != nil {
 		return Activation{}, false, err
 	}
 	return activation, true, nil
 }
 
+// pendingRecord reads the owned activation record without decoding it.
+func (layout Layout) pendingRecord() ([]byte, bool, error) {
+	if err := layout.checkOwned(layout.activationPath(), false); errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	} else if err != nil {
+		return nil, false, err
+	}
+	data, err := readBounded(layout.activationPath(), maxStateBytes)
+	if err != nil {
+		return nil, false, err
+	}
+	return data, true, nil
+}
+
+func decodeActivation(data []byte) (Activation, error) {
+	var activation Activation
+	if err := protocol.DecodeStrict(data, &activation, maxStateBytes); err != nil {
+		return Activation{}, fmt.Errorf("%w: activation record: %w", errUnreadableActivation, err)
+	}
+	if err := activation.validate(); err != nil {
+		return Activation{}, fmt.Errorf("%w: %w", errUnreadableActivation, err)
+	}
+	return activation, nil
+}
+
 // Activate records a pending activation of a staged release and flips the
 // current link to it. The caller restarts unit afterwards. A second
 // activation is refused while one is pending, unless it is the same target.
+// The caller holds Layout.Lock.
 func Activate(layout Layout, digest, unit string, now time.Time, window time.Duration) (Activation, error) {
 	if window < MinProofWindow || window > MaxProofWindow || !unitRE.MatchString(unit) || now.IsZero() {
 		return Activation{}, fmt.Errorf("%w: activation unit or proof window", ErrInvalid)
@@ -84,6 +106,20 @@ func Activate(layout Layout, digest, unit string, now time.Time, window time.Dur
 		return Activation{}, err
 	} else if exists {
 		if pending.Target == digest && pending.Unit == unit {
+			// A retry passes the same gates as a fresh activation: a crash
+			// after a rollback marked the target known bad must not
+			// re-activate it, and unverified bytes never become current.
+			if !now.Before(pending.Deadline) {
+				return Activation{}, fmt.Errorf("%w: activation %s passed its deadline; the watchdog resolves it", ErrInvalid, pending.ActivationID)
+			}
+			if knownBad, err := layout.KnownBad(); err != nil {
+				return Activation{}, err
+			} else if knownBad[digest] {
+				return Activation{}, ErrKnownBad
+			}
+			if err := layout.VerifyRelease(digest); err != nil {
+				return Activation{}, err
+			}
 			return pending, layout.flipCurrent(digest)
 		}
 		return Activation{}, fmt.Errorf("%w: activation %s is still pending", ErrInvalid, pending.ActivationID)

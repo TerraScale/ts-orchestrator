@@ -134,7 +134,14 @@ func (e *Engine) seedLaunch(plan Object, reviewedPath, manifestPath, identityPat
 	if size > 32000 {
 		fail("controller-a launch metadata exceeds the OCI instance metadata limit")
 	}
-	return Object{"availabilityDomain": reviewed["availability_domain"], "faultDomain": reviewed["fault_domain"], "compartmentId": reviewed["compartment_id"], "displayName": str(deployment) + "-controller-a", "shape": reviewed["shape"], "shapeConfig": Object{"ocpus": reviewed["ocpus"], "memoryInGBs": reviewed["memory_gb"]}, "sourceDetails": Object{"sourceType": "image", "imageId": reviewed["image_id"], "bootVolumeSizeInGBs": reviewed["boot_gb"], "bootVolumeVpusPerGB": reviewed["boot_vpus_per_gb"]}, "subnetId": reviewed["subnet_id"], "privateIp": host["private_ip"], "nsgIds": reviewed["network_security_group_ids"], "assignPublicIp": reviewed["assign_public_ip"], "metadata": metadata, "freeformTags": Object{"BootstrapCreateKey": reviewed["create_identity"]}}
+	return SeedLaunchDocument(reviewed, host, str(deployment), metadata)
+}
+
+// SeedLaunchDocument is the controller-a launch input `preview seed-launch`
+// writes. internal/attempt decodes it strictly, so its members are pinned by
+// a round-trip test there.
+func SeedLaunchDocument(reviewed, host Object, deployment string, metadata Object) Object {
+	return Object{"availabilityDomain": reviewed["availability_domain"], "faultDomain": reviewed["fault_domain"], "compartmentId": reviewed["compartment_id"], "displayName": deployment + "-controller-a", "shape": reviewed["shape"], "shapeConfig": Object{"ocpus": reviewed["ocpus"], "memoryInGBs": reviewed["memory_gb"]}, "sourceDetails": Object{"sourceType": "image", "imageId": reviewed["image_id"], "bootVolumeSizeInGBs": reviewed["boot_gb"], "bootVolumeVpusPerGB": reviewed["boot_vpus_per_gb"]}, "subnetId": reviewed["subnet_id"], "privateIp": host["private_ip"], "nsgIds": reviewed["network_security_group_ids"], "assignPublicIp": reviewed["assign_public_ip"], "metadata": metadata, "freeformTags": Object{"BootstrapCreateKey": reviewed["create_identity"]}}
 }
 func verifiedPrefix(plan, ids, anchor, manifest Object, namespace string) string {
 	domain := obj(anchor["storageDomain"])

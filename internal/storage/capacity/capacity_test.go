@@ -103,6 +103,27 @@ func TestWorstAndNodeHeadroom(t *testing.T) {
 	}
 }
 
+func TestNodeHeadroomSubtractsAJetStreamReserveOnTheBootFilesystem(t *testing.T) {
+	boot := usage(storage.RoleBoot, 100*gib, 60*gib, 40*gib)
+	shared := usage(storage.RoleJetStream, 100*gib, 60*gib, 40*gib)
+	shared.ReservedBytes = 8 * gib
+	headroom, ok := NodeHeadroomBytes([]Signal{Evaluate(boot, Policy{}), Evaluate(shared, Policy{})}, "host-a")
+	if !ok || headroom != 32*gib {
+		t.Fatalf("shared-filesystem headroom = %d %v, want the 8 GiB JetStream reserve subtracted", headroom, ok)
+	}
+	separate := usage(storage.RoleJetStream, 200*gib, 60*gib, 140*gib)
+	separate.ReservedBytes = 8 * gib
+	headroom, ok = NodeHeadroomBytes([]Signal{Evaluate(boot, Policy{}), Evaluate(separate, Policy{})}, "host-a")
+	if !ok || headroom != 40*gib {
+		t.Fatalf("separate-filesystem headroom = %d %v, want the full boot headroom", headroom, ok)
+	}
+	exhausted := shared
+	exhausted.ReservedBytes = 80 * gib
+	if headroom, _ := NodeHeadroomBytes([]Signal{Evaluate(boot, Policy{}), Evaluate(exhausted, Policy{})}, "host-a"); headroom != 0 {
+		t.Fatalf("over-reserved headroom = %d, want 0", headroom)
+	}
+}
+
 func TestCollectorMeasuresTargetsAndReportsPartialFailures(t *testing.T) {
 	failure := errors.New("no such mount")
 	collector := Collector{
@@ -168,6 +189,11 @@ func TestUsageStorePublishesWithTTLAndFeedsSignals(t *testing.T) {
 	signals, err := store.Signals(ctx)
 	if err != nil || len(signals) != 2 {
 		t.Fatalf("signals = %+v, %v", signals, err)
+	}
+	cancelled, stop := context.WithCancel(ctx)
+	stop()
+	if partial, err := store.Usages(cancelled); err == nil {
+		t.Fatalf("a listing cut short by its context looked complete: %+v", partial)
 	}
 	worst, _ := Worst(signals)
 	if worst.Level != LevelScaleOut || worst.Usage.VolumeID != "ocid1.volume.a" {

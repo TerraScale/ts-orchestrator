@@ -166,7 +166,14 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("GET "+core+"/computeImageCapabilitySchemas", s.listSchemas)
 	mux.HandleFunc("POST "+core+"/computeImageCapabilitySchemas", s.createSchema)
 	mux.HandleFunc("GET "+core+"/computeImageCapabilitySchemas/{id}", s.getSchema)
-	mux.HandleFunc("GET "+core+"/computeGlobalImageCapabilitySchemas", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET "+core+"/computeGlobalImageCapabilitySchemas", func(w http.ResponseWriter, r *http.Request) {
+		// The first page is empty and points at the next one, so the
+		// client must follow pagination to find the schema.
+		if r.URL.Query().Get("page") == "" {
+			w.Header().Set("opc-next-page", "global-schemas-2")
+			reply(w, http.StatusOK, []map[string]string{})
+			return
+		}
 		reply(w, http.StatusOK, []map[string]string{{"id": "ocid1.computeglobalimgcapschema.standin", "currentVersionName": "standin-v1"}})
 	})
 	mux.HandleFunc("GET "+core+"/images/{id}/shapes", s.listShapes)

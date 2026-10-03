@@ -18,7 +18,7 @@ const (
 // emitSelfUpdateProof confirms a pending self-update activation once the
 // process is ready. It never fails the runtime: a missing proof only lets
 // the root watchdog roll the activation back at its deadline.
-func emitSelfUpdateProof(proofFile, keyFile, unit string, output io.Writer) {
+func emitSelfUpdateProof(proofFile, root, keyFile, unit string, output io.Writer) {
 	if proofFile == "" {
 		return
 	}
@@ -27,14 +27,23 @@ func emitSelfUpdateProof(proofFile, keyFile, unit string, output io.Writer) {
 		slog.Warn("self-update version proof key unavailable", "error", err)
 		return
 	}
-	emitSelfUpdateProofWithKey(proofFile, key, unit, output)
+	emitSelfUpdateProofWithKey(proofFile, root, key, unit, output)
 }
 
-func emitSelfUpdateProofWithKey(proofFile string, key ed25519.PrivateKey, unit string, output io.Writer) {
+// selfUpdateRoot returns the configured release root, which must be the
+// --root the unit's prepare and watchdog steps use.
+func selfUpdateRoot(root string) string {
+	if root == "" {
+		return selfupdate.DefaultRoot
+	}
+	return root
+}
+
+func emitSelfUpdateProofWithKey(proofFile, root string, key ed25519.PrivateKey, unit string, output io.Writer) {
 	if proofFile == "" {
 		return
 	}
-	emitted, err := selfupdate.EmitProof(selfupdate.NewLayout(selfupdate.DefaultRoot), unit, proofFile, key, time.Now())
+	emitted, err := selfupdate.EmitProof(selfupdate.NewLayout(selfUpdateRoot(root)), unit, proofFile, key, time.Now())
 	if err != nil {
 		slog.Warn("self-update version proof failed", "error", err)
 		return

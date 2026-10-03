@@ -206,14 +206,21 @@ func (s *KVStore) List(ctx context.Context, region, kind string) ([]Desired, err
 		return nil, fmt.Errorf("list OCI desired keys: %w", err)
 	}
 	var keys []string
+	seen := make(map[string]bool)
 	for key := range lister.Keys() {
 		if len(keys) >= maxListedKeys {
 			_ = lister.Stop()
 			return nil, errors.New("OCI desired key list exceeds its safety bound")
 		}
-		if !slices.Contains(keys, key) {
+		if !seen[key] {
+			seen[key] = true
 			keys = append(keys, key)
 		}
+	}
+	// The lister closes early without an error when ctx ends mid-listing;
+	// a truncated listing must not look complete.
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("list OCI desired keys: %w", err)
 	}
 	slices.Sort(keys)
 	records := make([]Desired, 0, len(keys))
@@ -286,7 +293,7 @@ func (s *KVStore) Put(ctx context.Context, desired Desired) (Desired, error) {
 	}
 	revision, err := s.desired.Update(ctx, desired.Key.subject(), wire, current.Revision)
 	if err != nil {
-		return Desired{}, fmt.Errorf("%w: %v", ErrConflict, err)
+		return Desired{}, fmt.Errorf("%w: %w", ErrConflict, err)
 	}
 	desired.Revision = revision
 	return desired, nil
@@ -310,7 +317,7 @@ func (s *KVStore) MarkDeleted(ctx context.Context, key Key, requestedAt, notBefo
 	}
 	revision, err := s.desired.Update(ctx, key.subject(), wire, current.Revision)
 	if err != nil {
-		return Desired{}, fmt.Errorf("%w: %v", ErrConflict, err)
+		return Desired{}, fmt.Errorf("%w: %w", ErrConflict, err)
 	}
 	current.Revision = revision
 	return current, nil
@@ -321,7 +328,7 @@ func (s *KVStore) Purge(ctx context.Context, desired Desired) error {
 		return errors.New("only a read tombstoned OCI desired record may be purged")
 	}
 	if err := s.desired.Purge(ctx, desired.Key.subject(), jetstream.LastRevision(desired.Revision)); err != nil {
-		return fmt.Errorf("%w: %v", ErrConflict, err)
+		return fmt.Errorf("%w: %w", ErrConflict, err)
 	}
 	if err := s.observed.Purge(ctx, desired.Key.subject()); err != nil && !errors.Is(err, jetstream.ErrKeyNotFound) {
 		return fmt.Errorf("purge OCI observed record: %w", err)

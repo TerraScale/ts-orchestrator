@@ -704,8 +704,8 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 			importer = Services{}.importer()
 		}
 		var previous map[string]any
-		if o.Resume && readJSON(importRecord, &previous) == nil && previous["qcow2_sha256"] == p.manifest.Image.SHA256 &&
-			previous["schema"] == "terrascale.oci.image-import.v1" && previous["image_id"] != "" && previous["image_id"] != nil {
+		if o.Resume && readJSON(importRecord, &previous) == nil && reusableImport(previous, p.manifest.Image.SHA256,
+			o.CompartmentID, o.Namespace, o.Bucket, display) {
 			p.step("reusing completed OCI import")
 		} else if e = imageimport.RunImporters(ctx, []string{"--qcow2", image, "--sha256", p.manifest.Image.SHA256, "--region", catalog.OCIRegion(catalog.Bootstrap), "--compartment-id", o.CompartmentID, "--namespace", o.Namespace, "--bucket", o.Bucket, "--display-name", display, "--out", importRecord}, out, importer); e != nil {
 			return e
@@ -837,4 +837,16 @@ func runPromotion(ctx context.Context, root string, args []string, out, stderr i
 	}
 	o.Importer = services.importer()
 	return Promote(ctx, root, o, out), 0
+}
+
+// reusableImport reports whether a recorded OCI import is the one this run
+// would perform: the same image bytes into the same compartment, object
+// namespace and bucket under the same display name. A resume with any other
+// target re-imports instead of reusing an image in the wrong place.
+func reusableImport(previous map[string]any, sha256, compartmentID, namespace, bucket, display string) bool {
+	id, _ := previous["image_id"].(string)
+	object, _ := previous["object"].(string)
+	return previous["schema"] == "terrascale.oci.image-import.v1" && id != "" &&
+		previous["qcow2_sha256"] == sha256 && previous["compartment_id"] == compartmentID &&
+		previous["display_name"] == display && strings.HasPrefix(object, namespace+"/"+bucket+"/")
 }

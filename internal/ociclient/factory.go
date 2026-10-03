@@ -113,25 +113,40 @@ var (
 
 // InstancePrincipal returns the process-wide instance-principal factory for
 // region, creating it on first use so every in-binary caller shares limiters.
+// The provider is fetched from the metadata service outside the lock, so one
+// slow or hung fetch never serializes every other region's factory; a racing
+// creator's factory is discarded and the installed one returned.
 func InstancePrincipal(region string) (*Factory, error) {
 	sharedMu.Lock()
-	defer sharedMu.Unlock()
-	if factory := sharedPrincipal[region]; factory != nil {
+	factory := sharedPrincipal[region]
+	sharedMu.Unlock()
+	if factory != nil {
 		return factory, nil
 	}
 	if !catalog.IsOCIRegion(region) {
 		return nil, fmt.Errorf("OCI region %q is not in the region catalog", region)
 	}
-	provider, err := auth.InstancePrincipalConfigurationProviderForRegion(common.Region(region))
+	provider, err := newInstancePrincipalProvider(common.Region(region))
 	if err != nil {
 		return nil, fmt.Errorf("create OCI instance-principal provider: %w", err)
 	}
-	factory, err := New(provider, Options{Region: region})
+	created, err := New(provider, Options{Region: region})
 	if err != nil {
 		return nil, err
 	}
-	sharedPrincipal[region] = factory
-	return factory, nil
+	sharedMu.Lock()
+	defer sharedMu.Unlock()
+	if factory := sharedPrincipal[region]; factory != nil {
+		return factory, nil
+	}
+	sharedPrincipal[region] = created
+	return created, nil
+}
+
+// newInstancePrincipalProvider fetches instance-principal credentials; tests
+// replace it.
+var newInstancePrincipalProvider = func(region common.Region) (common.ConfigurationProvider, error) {
+	return auth.InstancePrincipalConfigurationProviderForRegion(region)
 }
 
 // OperatorConfig returns a factory over the operator's ~/.oci/config DEFAULT

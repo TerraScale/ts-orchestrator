@@ -2,6 +2,7 @@ package oci
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -276,5 +277,61 @@ func TestKVJournalAdvancesAndRepairsResizedVolumeOwnership(t *testing.T) {
 	unconfirmed.SizeGB = 200
 	if owned, _ := journal.IsOwnedVolume(ctx, unconfirmed); owned {
 		t.Fatal("size without a confirmed resize was owned")
+	}
+	// An interrupted ownership advance leaves the record at the predecessor
+	// size; the observed grown size finishes the advance from the receipt.
+	stale, err := json.Marshal(journalEntry{SchemaVersion: journalSchema, Kind: "volume", Identity: identity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := kv.Put(ctx, ownershipKey("volume", volumeID), stale); err != nil {
+		t.Fatal(err)
+	}
+	if owned, _ := journal.IsOwnedVolume(ctx, unconfirmed); owned {
+		t.Fatal("a stale record let an unconfirmed size be owned")
+	}
+	if owned, err := journal.IsOwnedVolume(ctx, grown); err != nil || !owned {
+		t.Fatalf("interrupted ownership advance was not completed: %v %v", owned, err)
+	}
+	if owned, _ := journal.IsOwnedVolume(ctx, identity); owned {
+		t.Fatal("predecessor size is still owned after the advance was completed")
+	}
+}
+
+func TestTerminalTreatsObservedSupersededResizesAsSettled(t *testing.T) {
+	resize := OperationIntent{Action: actionVolumeResize, VolumeID: "ocid1.volume.a", SizeGB: 100}
+	cases := []struct {
+		name    string
+		volumes []CloudVolume
+		want    bool
+	}{
+		{"landed", []CloudVolume{{ID: "ocid1.volume.a", SizeGB: 100}}, true},
+		{"superseded by a larger resize", []CloudVolume{{ID: "ocid1.volume.a", SizeGB: 150}}, true},
+		{"volume gone", nil, true},
+		{"volume terminated", []CloudVolume{{ID: "ocid1.volume.a", SizeGB: 50, LifecycleState: "TERMINATED"}}, true},
+		{"still below target", []CloudVolume{{ID: "ocid1.volume.a", SizeGB: 50, LifecycleState: "AVAILABLE"}}, false},
+	}
+	for _, test := range cases {
+		if got := resizeSettledByObservation(resize, test.volumes); got != test.want {
+			t.Fatalf("%s: settled = %v, want %v", test.name, got, test.want)
+		}
+	}
+	if resizeSettledByObservation(OperationIntent{Action: actionVolumeAttach, VolumeID: "ocid1.volume.a"}, nil) {
+		t.Fatal("a non-resize operation was settled by observation")
+	}
+}
+
+func TestTerminalSettlesAResizeWhoseETagCanNoLongerMatch(t *testing.T) {
+	fleet, provider, _, _, created := resizeFixture(t)
+	volume := provider.volumes[created.ID]
+	op := OperationIntent{Action: actionVolumeResize, VolumeID: created.ID, SizeGB: volume.SizeGB + 50, ExpectedETag: volume.ETag}
+	listed := []CloudVolume{volume}
+	if fleet.resizeSettled(t.Context(), op, listed) {
+		t.Fatal("a resize that can still land was settled")
+	}
+	volume.ETag = "changed-elsewhere"
+	provider.volumes[created.ID] = volume
+	if !fleet.resizeSettled(t.Context(), op, listed) {
+		t.Fatal("a resize whose If-Match ETag is gone stayed unsettled")
 	}
 }

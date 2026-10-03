@@ -15,12 +15,14 @@ const mountInfo = `22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw
 
 func TestOptionsHardenedRequiresEveryFlag(t *testing.T) {
 	cases := map[string]bool{
-		"rw,nosuid,nodev,noexec,noatime": true,
-		"rw,noexec,nodev,nosuid":         true,
-		"rw,nosuid,nodev":                false,
-		"rw,relatime":                    false,
-		"":                               false,
-		"rw,nosuidx,nodev,noexec":        false,
+		"rw,nosuid,nodev,noexec,noatime":  true,
+		"rw,noexec,nodev,nosuid,noatime":  true,
+		"rw,noexec,nodev,nosuid":          false,
+		"rw,nosuid,nodev,noexec,relatime": false,
+		"rw,nosuid,nodev":                 false,
+		"rw,relatime":                     false,
+		"":                                false,
+		"rw,nosuidx,nodev,noexec":         false,
 	}
 	for options, want := range cases {
 		if got := OptionsHardened(options); got != want {
@@ -96,6 +98,47 @@ func TestExt4ResizeBlocks(t *testing.T) {
 	}
 	if _, err := Ext4ResizeBlocks(1000, 4096); err == nil {
 		t.Fatal("device smaller than a block accepted")
+	}
+}
+
+func TestSysfsDeviceBytesReadsSectors(t *testing.T) {
+	root := t.TempDir()
+	node := filepath.Join(root, "dev", "block", "8:16")
+	if err := os.MkdirAll(node, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(node, "size"), []byte("104857600\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if size, err := SysfsDeviceBytes(root, 8, 16); err != nil || size != 50<<30 {
+		t.Fatalf("size = %d, %v; want 50 GiB", size, err)
+	}
+	if _, err := SysfsDeviceBytes(root, 8, 32); err == nil {
+		t.Fatal("missing device reported a size")
+	}
+	for _, bad := range []string{"0", "garbage", "-1"} {
+		if err := os.WriteFile(filepath.Join(node, "size"), []byte(bad), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := SysfsDeviceBytes(root, 8, 16); err == nil {
+			t.Fatalf("size %q was accepted", bad)
+		}
+	}
+}
+
+func TestGrowSlackTriggersOnEveryWholeGiBResize(t *testing.T) {
+	const block = 4096
+	// XFS reports roughly 0.3% and ext4 up to about 2% of the device as
+	// metadata overhead below statfs blocks; a 1 GiB resize must still clear
+	// the gate on large volumes.
+	for _, size := range []uint64{50 << 30, 64 << 30, 1 << 40} {
+		fsBlocks := (size - size/50) / block
+		if !GrowNeeded(size+1<<30, fsBlocks, block, GrowSlack) {
+			t.Fatalf("a +1 GiB resize of a %d GiB volume did not trigger growth", size>>30)
+		}
+	}
+	if GrowNeeded(50<<30, (50<<30-200<<20)/block, block, GrowSlack) {
+		t.Fatal("metadata overhead of an unresized small volume triggered growth")
 	}
 }
 

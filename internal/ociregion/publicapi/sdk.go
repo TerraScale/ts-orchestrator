@@ -5,7 +5,9 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -48,12 +50,48 @@ var creators = map[string]creator{
 	"nlb network-load-balancer create": createNLB,
 }
 
+// createFlags lists every flag each in-binary creator consumes.
+var createFlags = map[string][]string{
+	"network internet-gateway create": {"compartment-id", "vcn-id", "display-name", "is-enabled", "wait-for-state"},
+	"network route-table create":      {"compartment-id", "vcn-id", "display-name", "route-rules", "wait-for-state"},
+	"network security-list create": {"compartment-id", "vcn-id", "display-name", "ingress-security-rules",
+		"egress-security-rules", "wait-for-state"},
+	"network subnet create": {"compartment-id", "vcn-id", "display-name", "cidr-block", "dns-label", "route-table-id",
+		"security-list-ids", "prohibit-public-ip-on-vnic", "wait-for-state"},
+	"network nsg rules add": {"nsg-id", "security-rules"},
+	"nlb network-load-balancer create": {"compartment-id", "display-name", "subnet-id", "is-private",
+		"is-preserve-source-destination", "backend-sets", "listeners"},
+}
+
+// unacceptedCreateFlags returns, sorted, the flags of a create command that
+// its creator does not consume.
+func unacceptedCreateFlags(parsed sdkcli.Command) []string {
+	accepted := createFlags[parsed.Path]
+	var extra []string
+	for name := range parsed.Flags {
+		if !slices.Contains(accepted, name) {
+			extra = append(extra, name)
+		}
+	}
+	slices.Sort(extra)
+	return extra
+}
+
 func (c *SDKClient) Call(ctx context.Context, args ...string) (map[string]any, error) {
 	parsed, err := sdkcli.Parse(args)
 	if err != nil {
 		return nil, err
 	}
 	if create, ok := c.creators[parsed.Path]; ok {
+		// A create is a mutation, so a flag it would not consume is caught
+		// before any effect: under auto the oci CLI serves the command,
+		// under sdk it fails instead of silently diverging.
+		if extra := unacceptedCreateFlags(parsed); len(extra) > 0 {
+			if c.Backend == sdkcli.BackendAuto {
+				return command.CLI{Region: c.Region}.Call(ctx, args...)
+			}
+			return nil, fmt.Errorf("%w: %s with --%s", sdkcli.ErrUnsupported, parsed.Path, strings.Join(extra, ", --"))
+		}
 		value, err := create(ctx, c, parsed)
 		if err != nil {
 			return nil, fmt.Errorf("OCI %s failed: %w", parsed.Path, err)

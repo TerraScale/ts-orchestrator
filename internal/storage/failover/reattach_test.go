@@ -80,9 +80,11 @@ type fakeVolumes struct {
 	detaches    int
 	attaches    int
 	proofs      []FenceProof
+	listings    int
 }
 
 func (volumes *fakeVolumes) VolumeAttachments(context.Context, string) ([]Attachment, error) {
+	volumes.listings++
 	return append([]Attachment(nil), volumes.attachments...), nil
 }
 
@@ -138,6 +140,9 @@ func TestReattacherDrivesTerminatedHostToMountedReplacement(t *testing.T) {
 	// A host that only stopped answering is never detached.
 	if step, err := reattacher.Step(t.Context(), request); step.Kind != StepProveFence || !errors.Is(err, storage.ErrWriterNotFenced) || volumes.detaches != 0 {
 		t.Fatalf("unfenced host was detached: %+v %v", step, err)
+	}
+	if volumes.listings != 0 {
+		t.Fatalf("an unproven fence still listed attachments %d times", volumes.listings)
 	}
 	instances["old"] = "TERMINATED"
 	want := []StepKind{StepDetach, StepWaitDetached}
@@ -197,7 +202,7 @@ func TestReattacherRefusesDisabledFollowerFencedAndForeignAttachments(t *testing
 		t.Fatal("reattach to the lost instance itself was accepted")
 	}
 	volumes.attachments = []Attachment{attachment("c", "third", "ATTACHED")}
-	if step, err := base.Step(t.Context(), request); step.Kind != StepHold || !errors.Is(err, storage.ErrVolumeStuck) {
+	if step, err := base.Step(t.Context(), request); step.Kind != StepHold || !errors.Is(err, storage.ErrVolumeHeld) || errors.Is(err, storage.ErrVolumeStuck) {
 		t.Fatalf("foreign attachment did not hold: %+v %v", step, err)
 	}
 	if volumes.detaches != 0 || volumes.attaches != 0 {

@@ -95,6 +95,9 @@ func EmitProof(layout Layout, unit, proofFile string, privateKey ed25519.Private
 	if !filepath.IsAbs(proofFile) {
 		return false, fmt.Errorf("%w: proof file must be absolute", ErrInvalid)
 	}
+	if err := layout.validate(); err != nil {
+		return false, err
+	}
 	activation, pending, err := layout.Pending()
 	if err != nil || !pending || activation.Unit != unit {
 		return false, err

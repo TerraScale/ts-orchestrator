@@ -1163,10 +1163,6 @@ func validOCIImageIDForRegion(value, region string) bool {
 	return release.ValidOCIImageIDForRegion(value, region)
 }
 
-func oracleRegion(region string) string {
-	return catalog.OCIRegion(region)
-}
-
 func validRegion(value string) bool {
 	return release.ValidRegion(value)
 }

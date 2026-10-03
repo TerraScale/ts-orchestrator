@@ -100,6 +100,18 @@ type Target[S any] struct {
 	// is part of a larger object (rules of an NSG, backends of an NLB) reports
 	// found=false once none of its managed parts remain.
 	Deleting bool
+	// Guard re-checks mutation authority. The controller sets it; Apply and
+	// Delete call Fence before every individual mutation, so a controller
+	// that loses leadership mid-pass stops instead of finishing its plan.
+	Guard func(context.Context) error
+}
+
+// Fence re-checks mutation authority immediately before one mutation.
+func (t Target[S]) Fence(ctx context.Context) error {
+	if t.Guard == nil {
+		return nil
+	}
+	return t.Guard(ctx)
 }
 
 // Resource is one reconcilable OCI resource kind.
