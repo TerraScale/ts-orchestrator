@@ -221,22 +221,26 @@ func (federation Federation) queryRegion(ctx context.Context, region string, que
 
 // Chain looks the chain up locally first, then in every linked region.
 func (federation Federation) Chain(ctx context.Context, id string) (Chain, error) {
+	// Keep searching past a journal that cannot answer (this member's while
+	// it replays or its archive fails, or a linked region's), but do not
+	// turn its failure into a negative answer: ErrNotFound only when every
+	// searched journal answered that it has no such decision.
+	var unavailable error
 	if federation.Local != nil {
 		chain, err := federation.Local.Chain(ctx, id)
 		if err == nil {
 			return chain, nil
 		}
 		if !errors.Is(err, ErrNotFound) {
-			return Chain{}, err
+			unavailable = err
 		}
 	}
 	if federation.Links == nil {
+		if unavailable != nil {
+			return Chain{}, unavailable
+		}
 		return Chain{}, ErrNotFound
 	}
-	// Keep searching past a region that cannot answer, but do not turn its
-	// failure into a negative answer: ErrNotFound only when every searched
-	// region answered that it has no such decision.
-	var unavailable error
 	for _, region := range federation.Links.Regions() {
 		if region == federation.Links.Local() || !federation.Links.Linked(region) {
 			continue
@@ -245,7 +249,7 @@ func (federation Federation) Chain(ctx context.Context, id string) (Chain, error
 		switch {
 		case err == nil && reply.Chain != nil:
 			return *reply.Chain, nil
-		case err != nil && !errors.Is(err, ErrNotFound):
+		case err != nil && !errors.Is(err, ErrNotFound) && unavailable == nil:
 			unavailable = ErrUnavailable
 		}
 	}
