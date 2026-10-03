@@ -240,3 +240,30 @@ func TestSignOutRevokesEveryCopyOfTheSession(t *testing.T) {
 		t.Fatal("past the revocation bound the key did not rotate")
 	}
 }
+
+// The Server documents mounting routes before or after Start; mounting the
+// login after the listener serves must not race with requests reading the
+// flag (run with -race).
+func TestHandleLoginAfterServingDoesNotRace(t *testing.T) {
+	t.Parallel()
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenFile, []byte(strings.Repeat("s", 48)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(Config{ListenAddress: "10.0.0.4:9464", BearerTokenFile: tokenFile, Dashboard: true},
+		ServerDeps{Registry: NewRegistry(false), Health: new(Health)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 200 {
+			request := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+			request.Header.Set("Accept", "text/html")
+			server.ServeHTTP(httptest.NewRecorder(), request)
+		}
+	}()
+	server.HandleLogin(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	<-done
+}

@@ -24,20 +24,22 @@ for source in ${sources[@]+"${sources[@]}"}; do
 done
 
 status=0
-if ! (cd "$scratch" && "${go[@]}" -C "$root" tool templ fmt -fail "$scratch" >/dev/null 2>&1); then
-	echo 'templ sources need formatting: run make generate' >&2
-	status=1
+if [ "${#sources[@]}" -gt 0 ]; then
+	if ! (cd "$scratch" && "${go[@]}" -C "$root" tool templ fmt -fail "$scratch" >/dev/null 2>&1); then
+		echo 'templ sources need formatting: run make generate' >&2
+		status=1
+	fi
+	# Formatting the scratch copy must not change what generation sees, so
+	# regenerate from pristine copies.
+	for source in "${sources[@]}"; do
+		cp "$source" "$scratch/$source"
+	done
+	"${go[@]}" tool templ generate -path "$scratch" >/dev/null 2>&1 || {
+		"${go[@]}" tool templ generate -path "$scratch" >&2 || true
+		echo 'templ generation failed' >&2
+		exit 1
+	}
 fi
-# Formatting the scratch copy must not change what generation sees, so
-# regenerate from pristine copies.
-for source in ${sources[@]+"${sources[@]}"}; do
-	cp "$source" "$scratch/$source"
-done
-"${go[@]}" tool templ generate -path "$scratch" >/dev/null 2>&1 || {
-	"${go[@]}" tool templ generate -path "$scratch" >&2 || true
-	echo 'templ generation failed' >&2
-	exit 1
-}
 for source in ${sources[@]+"${sources[@]}"}; do
 	generated="${source%.templ}_templ.go"
 	if ! cmp -s "$scratch/$generated" "$generated"; then
