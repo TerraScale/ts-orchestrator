@@ -234,6 +234,15 @@ var userKeyed = map[string]bool{
 	"securityAttributes": true, "schemaData": true, "opcMeta": true, "lockedAttributes": true,
 }
 
+// nameKeyed are SDK members keyed by user-defined resource names (an NLB's
+// backend sets and listeners, a load balancer's named sets) whose values are
+// still schema objects: only the immediate keys are preserved, so a listener's
+// default-backend-set-name keeps resolving to its backend set.
+var nameKeyed = map[string]bool{
+	"backendSets": true, "listeners": true, "certificates": true, "hostnames": true,
+	"pathRouteSets": true, "ruleSets": true, "routingPolicies": true, "sslCipherSuites": true,
+}
+
 func kebab(value any, preserveKeys bool) any {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -242,6 +251,14 @@ func kebab(value any, preserveKeys bool) any {
 			name := key
 			if !preserveKeys {
 				name = Kebab(key)
+			}
+			if named, ok := member.(map[string]any); ok && !preserveKeys && nameKeyed[key] {
+				entries := make(map[string]any, len(named))
+				for entryName, entry := range named {
+					entries[entryName] = kebab(entry, false)
+				}
+				result[name] = entries
+				continue
 			}
 			// The members of a user-keyed map are user data at any depth
 			// (defined tags nest one level), so preserve keys below it.
