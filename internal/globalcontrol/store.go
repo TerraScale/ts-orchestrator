@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -107,7 +108,7 @@ func (r *Reader) read(ctx context.Context, kind Kind, key string) (record, uint6
 	var stored record
 	if err := protocol.DecodeStrict(message.Data, &stored, maxRecordBytes+4096); err != nil ||
 		stored.Version != recordVersion || stored.Kind != kind || stored.Key != key ||
-		stored.Generation == 0 || stored.Epoch == 0 {
+		stored.Generation == 0 || stored.Epoch == 0 || !epochHeaderMatches(message.Header, stored.Epoch) {
 		return record{}, 0, ErrRecordCorrupt
 	}
 	return stored, message.Sequence, nil
@@ -131,19 +132,60 @@ func (r *Reader) checkMirrorGapFree(ctx context.Context) error {
 	return nil
 }
 
-// Writer appends global records in the home region. Every write is guarded
-// by the global-scope authority lease immediately before a per-subject
-// compare-and-set publish, so a fenced leader cannot overwrite a newer record.
+// EpochHeader carries the global authority epoch of every record the writer
+// appends, term barriers included. It must equal the epoch in the record
+// body; a reader treats a mismatch as corruption.
+const EpochHeader = "Ts-Global-Epoch"
+
+// termKey is the single key of the term barrier record.
+const termKey = "current"
+
+// maxAppendAttempts bounds compare-and-set retries against concurrent appends.
+const maxAppendAttempts = 8
+
+// epochHeaderMatches accepts a record whose epoch header equals its body. A
+// record without the header was not appended by a Writer.
+func epochHeaderMatches(header nats.Header, epoch uint64) bool {
+	return header.Get(EpochHeader) == strconv.FormatUint(epoch, 10)
+}
+
+// term is the payload of the barrier record a new global leader appends to
+// TS_GLOBAL_CONTROL before its first write.
+type term struct {
+	Epoch uint64 `json:"epoch"`
+}
+
+// Writer appends global records in the home region.
+//
+// Fencing is enforced by the server, not only by the pre-publish lease
+// Guard: the global stream and the authority lease live in different streams,
+// so a Guard alone cannot order a write against a newer term. The writer
+// therefore keeps a term barrier inside TS_GLOBAL_CONTROL itself
+// (ts.global.v1.term.current). A writer whose lease epoch is newer than the
+// stored term first appends a barrier for its epoch (per-subject CAS on the
+// term subject, and only right after a successful lease Guard), and every
+// record append is a whole-stream compare-and-set on the last sequence at
+// which the writer saw its own epoch as the current term, plus the
+// per-subject CAS on the record. Once a new leader appends its barrier, every
+// in-flight append of an older leader fails with a wrong-last-sequence error,
+// and its retry observes the newer term and returns authority.ErrFenced. An
+// old leader that commits before the new barrier is ordered before the new
+// term, which reads every record after its own barrier.
 type Writer struct {
 	Reader
 	home   string
 	fencer authority.Fencer
 	js     jetstream.JetStream
+	mu     sync.Mutex
+	// beforePublish runs between the fenced reads and the conditional
+	// append; tests use it to interleave a new term.
+	beforePublish func()
 }
 
 // OpenHome creates or verifies the writable home stream and the durable
 // mirror consumer of every peer that mirrors it. cell must equal the roster
-// home; fencer must be the global-scope authority runtime.
+// home; fencer must be the global-scope authority runtime. Mirror consumers of
+// regions that are no longer peers are deleted.
 func OpenHome(ctx context.Context, js jetstream.JetStream, cell string, peers []string, replicas int,
 	fencer authority.Fencer,
 ) (*Writer, error) {
@@ -165,6 +207,9 @@ func OpenHome(ctx context.Context, js jetstream.JetStream, cell string, peers []
 		return nil, err
 	}
 	if err := ensureMirrorConsumers(ctx, stream, peers, replicas); err != nil {
+		return nil, err
+	}
+	if err := removeStaleMirrorConsumers(ctx, stream, peers); err != nil {
 		return nil, err
 	}
 	return &Writer{Reader: Reader{stream: stream}, home: cell, fencer: fencer, js: js}, nil
@@ -198,6 +243,113 @@ func (w *Writer) PutDirectory(ctx context.Context, epoch uint64, entry Directory
 	return w.put(ctx, epoch, KindDirectory, entry.Key(), entry.Generation, entry)
 }
 
+// Fence appends the term barrier for epoch unless the stream already holds
+// it. A new global leader calls it eagerly so that no older leader can append
+// once it returns; every write also establishes the term first.
+func (w *Writer) Fence(ctx context.Context, epoch uint64) error {
+	if epoch == 0 {
+		return authority.ErrFenced
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err := w.fencer.Guard(ctx, epoch); err != nil {
+		return err
+	}
+	_, err := w.establishTerm(ctx, epoch)
+	return err
+}
+
+// Term returns the epoch of the latest term barrier, or 0 before the first.
+func (r *Reader) Term(ctx context.Context) (uint64, error) {
+	if r == nil || r.stream == nil {
+		return 0, errors.New("global control reader is not open")
+	}
+	readCtx, cancel := context.WithTimeout(ctx, apiTimeout)
+	defer cancel()
+	epoch, _, err := readTerm(readCtx, r.stream)
+	return epoch, err
+}
+
+func readTerm(ctx context.Context, stream jetstream.Stream) (uint64, uint64, error) {
+	message, err := stream.GetLastMsgForSubject(ctx, subject(KindTerm, termKey))
+	if errors.Is(err, jetstream.ErrMsgNotFound) {
+		return 0, 0, nil
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	var stored record
+	var barrier term
+	if err := protocol.DecodeStrict(message.Data, &stored, maxRecordBytes+4096); err != nil ||
+		stored.Version != recordVersion || stored.Kind != KindTerm || stored.Key != termKey ||
+		stored.Epoch == 0 || stored.Generation != stored.Epoch || !epochHeaderMatches(message.Header, stored.Epoch) ||
+		protocol.DecodeStrict(stored.Payload, &barrier, 1024) != nil || barrier.Epoch != stored.Epoch {
+		return 0, 0, ErrRecordCorrupt
+	}
+	return stored.Epoch, message.Sequence, nil
+}
+
+// establishTerm makes epoch the stored term and returns a stream last
+// sequence at which it was current. The caller holds w.mu and has just
+// guarded epoch against the authority lease.
+func (w *Writer) establishTerm(ctx context.Context, epoch uint64) (uint64, error) {
+	for range maxAppendAttempts {
+		readCtx, cancel := context.WithTimeout(ctx, apiTimeout)
+		info, err := w.stream.Info(readCtx)
+		if err != nil {
+			cancel()
+			return 0, fmt.Errorf("read global stream sequence: %w", err)
+		}
+		if err := verifyHome(info.Config, info.Config.Replicas); err != nil {
+			cancel()
+			return 0, err
+		}
+		current, termSequence, err := readTerm(readCtx, w.stream)
+		cancel()
+		if err != nil {
+			return 0, fmt.Errorf("read global term: %w", err)
+		}
+		if termSequence > info.State.LastSeq {
+			continue
+		}
+		switch {
+		case current == epoch:
+			return info.State.LastSeq, nil
+		case current > epoch:
+			return 0, authority.ErrFenced
+		}
+		payload, err := protocol.EncodeJSON(term{Epoch: epoch})
+		if err != nil {
+			return 0, err
+		}
+		data, err := protocol.EncodeJSON(record{
+			Version: recordVersion, Kind: KindTerm, Key: termKey, Generation: epoch, Epoch: epoch, Payload: payload,
+		})
+		if err != nil {
+			return 0, err
+		}
+		message := nats.NewMsg(subject(KindTerm, termKey))
+		message.Data = data
+		message.Header.Set(EpochHeader, strconv.FormatUint(epoch, 10))
+		publishCtx, publishCancel := context.WithTimeout(ctx, apiTimeout)
+		_, err = w.js.PublishMsg(publishCtx, message,
+			jetstream.WithExpectStream(StreamName),
+			jetstream.WithExpectLastSequenceForSubject(termSequence, subject(KindTerm, termKey)),
+		)
+		publishCancel()
+		if err != nil && !wrongLastSequence(err) {
+			return 0, fmt.Errorf("publish global term barrier: %w", err)
+		}
+		// Re-read: our barrier or a concurrent newer one is now current.
+	}
+	return 0, ErrConflict
+}
+
+func wrongLastSequence(err error) bool {
+	apiErr, ok := errors.AsType[*jetstream.APIError](err)
+	return ok && apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence
+}
+
 func (w *Writer) put(ctx context.Context, epoch uint64, kind Kind, key string, generation uint64, value any) (uint64, error) {
 	if epoch == 0 {
 		return 0, authority.ErrFenced
@@ -206,51 +358,68 @@ func (w *Writer) put(ctx context.Context, epoch uint64, kind Kind, key string, g
 	if err != nil {
 		return 0, err
 	}
-	prior, priorSequence, err := w.read(ctx, kind, key)
-	switch {
-	case errors.Is(err, ErrNotFound):
-	case err != nil:
-		return 0, err
-	case prior.Generation == generation && bytes.Equal(prior.Payload, payload):
-		// An identical retry after an unknown publish outcome is idempotent.
-		return priorSequence, nil
-	case generation <= prior.Generation:
-		return 0, ErrStaleRecord
-	case epoch < prior.Epoch:
-		return 0, authority.ErrFenced
-	}
 	data, err := protocol.EncodeJSON(record{
 		Version: recordVersion, Kind: kind, Key: key, Generation: generation, Epoch: epoch, Payload: payload,
 	})
 	if err != nil {
 		return 0, err
 	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if err := w.fencer.Guard(ctx, epoch); err != nil {
 		return 0, err
 	}
-	message := nats.NewMsg(subject(kind, key))
-	message.Data = data
-	publishCtx, cancel := context.WithTimeout(ctx, apiTimeout)
-	defer cancel()
-	ack, err := w.js.PublishMsg(publishCtx, message,
-		jetstream.WithExpectStream(StreamName),
-		jetstream.WithExpectLastSequenceForSubject(priorSequence, subject(kind, key)),
-		jetstream.WithMsgID(string(kind)+"."+key+"."+strconv.FormatUint(generation, 10)),
-	)
-	if err != nil {
-		if apiErr, ok := errors.AsType[*jetstream.APIError](err); ok &&
-			apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence {
-			return 0, ErrConflict
+	for range maxAppendAttempts {
+		lastSequence, err := w.establishTerm(ctx, epoch)
+		if err != nil {
+			return 0, err
 		}
-		return 0, fmt.Errorf("publish global %s record: %w", kind, err)
-	}
-	if ack.Duplicate {
-		// The message ID was seen; only an identical stored record is success.
-		stored, sequence, readErr := w.read(ctx, kind, key)
-		if readErr != nil || stored.Generation != generation || !bytes.Equal(stored.Payload, payload) {
-			return 0, ErrConflict
+		prior, priorSequence, err := w.read(ctx, kind, key)
+		switch {
+		case errors.Is(err, ErrNotFound):
+		case err != nil:
+			return 0, err
+		case priorSequence > lastSequence:
+			continue
+		case prior.Generation == generation && bytes.Equal(prior.Payload, payload):
+			// An identical retry after an unknown publish outcome is idempotent.
+			return priorSequence, nil
+		case generation <= prior.Generation:
+			return 0, ErrStaleRecord
+		case epoch < prior.Epoch:
+			return 0, authority.ErrFenced
 		}
-		return sequence, nil
+		if w.beforePublish != nil {
+			w.beforePublish()
+		}
+		message := nats.NewMsg(subject(kind, key))
+		message.Data = data
+		message.Header.Set(EpochHeader, strconv.FormatUint(epoch, 10))
+		publishCtx, cancel := context.WithTimeout(ctx, apiTimeout)
+		ack, err := w.js.PublishMsg(publishCtx, message,
+			jetstream.WithExpectStream(StreamName),
+			jetstream.WithExpectLastSequence(lastSequence),
+			jetstream.WithExpectLastSequenceForSubject(priorSequence, subject(kind, key)),
+			jetstream.WithMsgID(string(kind)+"."+key+"."+strconv.FormatUint(generation, 10)),
+		)
+		cancel()
+		if wrongLastSequence(err) {
+			// Another append won: a newer term barrier or a concurrent write.
+			// The next attempt observes it and fences or re-checks the CAS.
+			continue
+		}
+		if err != nil {
+			return 0, fmt.Errorf("publish global %s record: %w", kind, err)
+		}
+		if ack.Duplicate {
+			// The message ID was seen; only an identical stored record is success.
+			stored, sequence, readErr := w.read(ctx, kind, key)
+			if readErr != nil || stored.Generation != generation || !bytes.Equal(stored.Payload, payload) {
+				return 0, ErrConflict
+			}
+			return sequence, nil
+		}
+		return ack.Sequence, nil
 	}
-	return ack.Sequence, nil
+	return 0, ErrConflict
 }

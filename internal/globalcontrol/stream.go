@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -21,6 +22,8 @@ const (
 	mirrorHeartbeat = time.Second
 	// mirrorMaxAckPending bounds unacknowledged records in flight to a peer.
 	mirrorMaxAckPending = 1024
+	// mirrorConsumerPrefix names every peer's durable mirror consumer.
+	mirrorConsumerPrefix = "global-mirror-"
 )
 
 // HomeStreamConfig is the writable global stream in the home region. Like the
@@ -124,6 +127,39 @@ func ensureMirrorConsumers(ctx context.Context, stream jetstream.Stream, peers [
 		}
 		if err := verifyMirrorConsumer(consumer.CachedInfo().Config, peer, replicas); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// removeStaleMirrorConsumers deletes every global mirror consumer whose peer
+// is no longer in peers, so a removed region's durable consumer neither keeps
+// delivering home records to its contract subject nor pins resources. Only
+// consumers named like a mirror source are touched.
+func removeStaleMirrorConsumers(ctx context.Context, stream jetstream.Stream, peers []string) error {
+	keep := make(map[string]bool, len(peers))
+	for _, peer := range peers {
+		keep[protocol.GlobalMirrorConsumer(peer)] = true
+	}
+	listCtx, cancel := context.WithTimeout(ctx, apiTimeout)
+	lister := stream.ConsumerNames(listCtx)
+	var stale []string
+	for name := range lister.Name() {
+		if strings.HasPrefix(name, mirrorConsumerPrefix) && !keep[name] {
+			stale = append(stale, name)
+		}
+	}
+	err := lister.Err()
+	cancel()
+	if err != nil {
+		return fmt.Errorf("list global mirror consumers: %w", err)
+	}
+	for _, name := range stale {
+		deleteCtx, deleteCancel := context.WithTimeout(ctx, apiTimeout)
+		err := stream.DeleteConsumer(deleteCtx, name)
+		deleteCancel()
+		if err != nil && !errors.Is(err, jetstream.ErrConsumerNotFound) {
+			return fmt.Errorf("delete stale global mirror consumer %q: %w", name, err)
 		}
 	}
 	return nil
