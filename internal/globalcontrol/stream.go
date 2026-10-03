@@ -168,6 +168,8 @@ func removeStaleMirrorConsumers(ctx context.Context, stream jetstream.Stream, pe
 func verifyHome(actual jetstream.StreamConfig, replicas int) error {
 	if actual.Name != StreamName || !slices.Equal(actual.Subjects, []string{protocol.GlobalStateStreamSubject()}) ||
 		actual.Mirror != nil || len(actual.Sources) != 0 || actual.Replicas != replicas ||
+		// A transform would store records outside the subjects reads use.
+		actual.SubjectTransform != nil ||
 		actual.Storage != jetstream.FileStorage || actual.Retention != jetstream.LimitsPolicy ||
 		!actual.DenyDelete || !actual.DenyPurge || actual.AllowDirect || actual.AllowRollup ||
 		actual.MaxMsgs != -1 || actual.MaxBytes != -1 || actual.MaxMsgsPerSubject != -1 || actual.MaxAge != 0 ||
@@ -185,8 +187,13 @@ func verifyMirror(actual jetstream.StreamConfig, home, cell string, replicas int
 		actual.Mirror.External.DeliverPrefix != "" || actual.Mirror.Consumer == nil ||
 		*actual.Mirror.Consumer != *expected.Mirror.Consumer ||
 		actual.Mirror.FilterSubject != "" || len(actual.Mirror.SubjectTransforms) != 0 ||
+		// A mirror starting past the first record never copies the ones
+		// before its start.
+		actual.Mirror.OptStartSeq != 0 || actual.Mirror.OptStartTime != nil ||
 		actual.Replicas != replicas || actual.Storage != jetstream.FileStorage ||
 		!actual.DenyDelete || !actual.DenyPurge || actual.AllowDirect || actual.AllowRollup || actual.MaxAge != 0 ||
+		// Finite limits would let the mirror discard home records.
+		actual.MaxMsgs != -1 || actual.MaxBytes != -1 || actual.MaxMsgsPerSubject != -1 ||
 		actual.Metadata["terrascale-contract"] != contract || actual.Metadata["terrascale-role"] != "mirror" ||
 		actual.Metadata["terrascale-home"] != home {
 		return errors.New("global control mirror is not the read-only mirror of the home stream")
@@ -203,6 +210,7 @@ func openStream(ctx context.Context, js jetstream.JetStream, config jetstream.St
 	createCtx, cancel := context.WithTimeout(ctx, apiTimeout)
 	stream, err := js.CreateStream(createCtx, config)
 	cancel()
+	created := err == nil
 	if err != nil {
 		if !errors.Is(err, jetstream.ErrStreamNameAlreadyInUse) {
 			return nil, fmt.Errorf("create global control stream: %w", err)
@@ -214,9 +222,7 @@ func openStream(ctx context.Context, js jetstream.JetStream, config jetstream.St
 			return nil, fmt.Errorf("lookup global control stream: %w", err)
 		}
 	}
-	infoCtx, infoCancel := context.WithTimeout(ctx, apiTimeout)
-	info, err := stream.Info(infoCtx)
-	infoCancel()
+	info, err := inspectStream(ctx, stream, created)
 	if err != nil {
 		return nil, fmt.Errorf("inspect global control stream: %w", err)
 	}
@@ -224,6 +230,33 @@ func openStream(ctx context.Context, js jetstream.JetStream, config jetstream.St
 		return nil, err
 	}
 	return stream, nil
+}
+
+// createdStreamConvergence bounds how long a just-created stream may answer
+// Info with stream-not-found while its metadata leader converges.
+var createdStreamConvergence = 10 * time.Second
+
+// inspectStream reads the stream's info. A new replicated stream can be
+// visible to CreateStream before its metadata leader serves Info, which then
+// answers stream-not-found for a moment; only for a stream this call created
+// is that retried, briefly and cancelably, as authority's control stream
+// opener does.
+func inspectStream(ctx context.Context, stream jetstream.Stream, created bool) (*jetstream.StreamInfo, error) {
+	window, cancel := context.WithTimeout(ctx, createdStreamConvergence)
+	defer cancel()
+	for {
+		infoCtx, infoCancel := context.WithTimeout(window, apiTimeout)
+		info, err := stream.Info(infoCtx)
+		infoCancel()
+		if err == nil || !created || !errors.Is(err, jetstream.ErrStreamNotFound) {
+			return info, err
+		}
+		select {
+		case <-window.Done():
+			return nil, err
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 // OpenMirror creates or verifies cell's read-only mirror of home's stream and

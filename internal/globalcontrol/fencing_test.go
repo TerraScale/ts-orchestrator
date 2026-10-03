@@ -253,3 +253,101 @@ func TestHomeRemovesMirrorConsumersOfRemovedPeers(t *testing.T) {
 		t.Fatalf("unrelated consumer was deleted: %v", err)
 	}
 }
+
+// TestLegacyRecordsBeforeTheFirstBarrierStayReadable: records an older
+// writer stored without the epoch header (before any term barrier) are read
+// and superseded by the next fenced write; a headerless record appended after
+// a barrier is still corruption.
+func TestLegacyRecordsBeforeTheFirstBarrierStayReadable(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	js := newTestJetStream(t)
+	writer, err := OpenHome(ctx, js, "gru", nil, 1, &pausedFencer{epoch: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := protocol.EncodeJSON(testRoster(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := protocol.EncodeJSON(record{Version: recordVersion, Kind: KindRoster, Key: RosterKey, Generation: 1,
+		Epoch: 1, Payload: payload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := js.Publish(ctx, subject(KindRoster, RosterKey), legacy); err != nil {
+		t.Fatal(err)
+	}
+	if roster, _, err := writer.Roster(ctx); err != nil || roster.Generation != 1 {
+		t.Fatalf("legacy roster = %+v, %v", roster, err)
+	}
+	if _, err := writer.PutRoster(ctx, 1, testRoster(2)); err != nil {
+		t.Fatalf("a fenced write over a legacy record = %v", err)
+	}
+	if roster, _, err := writer.Roster(ctx); err != nil || roster.Generation != 2 {
+		t.Fatalf("roster after the upgrade write = %+v, %v", roster, err)
+	}
+	// The barrier now exists: a headerless append is not legacy.
+	if _, err := js.Publish(ctx, subject(KindRoster, RosterKey), legacy); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := writer.Roster(ctx); !errors.Is(err, ErrRecordCorrupt) {
+		t.Fatalf("headerless record after the barrier = %v, want corruption", err)
+	}
+}
+
+// TestMirrorWithFiniteLimitsIsRefused: an existing mirror that could discard
+// home records does not pass verification.
+func TestMirrorWithFiniteLimitsIsRefused(t *testing.T) {
+	t.Parallel()
+	for name, change := range map[string]func(*jetstream.StreamConfig){
+		"max msgs":             func(config *jetstream.StreamConfig) { config.MaxMsgs = 10 },
+		"max bytes":            func(config *jetstream.StreamConfig) { config.MaxBytes = 1 << 20 },
+		"max msgs per subject": func(config *jetstream.StreamConfig) { config.MaxMsgsPerSubject = 1 },
+	} {
+		config := MirrorStreamConfig("gru", "sfo", 1)
+		if err := verifyMirror(config, "gru", "sfo", 1); err != nil {
+			t.Fatalf("expected mirror config refused: %v", err)
+		}
+		change(&config)
+		if err := verifyMirror(config, "gru", "sfo", 1); err == nil {
+			t.Errorf("%s: a mirror with a finite limit passed verification", name)
+		}
+	}
+}
+
+// TestEmptyMirrorWithoutHomeContactFailsClosed: an empty mirror that never
+// heard from the home stream cannot answer "not found".
+func TestEmptyMirrorWithoutHomeContactFailsClosed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	js := newTestJetStream(t)
+	stream, err := js.CreateStream(ctx, jetstream.StreamConfig{Name: "EMPTY_MIRROR_PROBE", Subjects: []string{"probe.>"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := &Reader{stream: stream, mirror: true}
+	if _, _, err := reader.Roster(ctx); !errors.Is(err, ErrMirrorNotCaughtUp) {
+		t.Fatalf("empty unconfirmed mirror read = %v, want ErrMirrorNotCaughtUp", err)
+	}
+	if _, err := reader.Term(ctx); !errors.Is(err, ErrMirrorNotCaughtUp) {
+		t.Fatalf("empty unconfirmed mirror term = %v, want ErrMirrorNotCaughtUp", err)
+	}
+}
+
+// TestStreamVerificationRefusesTransformsAndLateMirrorStarts: a home stream
+// that rewrites subjects, or a mirror that starts past the first record,
+// is not accepted.
+func TestStreamVerificationRefusesTransformsAndLateMirrorStarts(t *testing.T) {
+	t.Parallel()
+	home := HomeStreamConfig(1)
+	home.SubjectTransform = &jetstream.SubjectTransformConfig{Source: "ts.global.v1.>", Destination: "elsewhere.>"}
+	if err := verifyHome(home, 1); err == nil {
+		t.Fatal("a home stream with a subject transform passed verification")
+	}
+	mirror := MirrorStreamConfig("gru", "sfo", 1)
+	mirror.Mirror.OptStartSeq = 5
+	if err := verifyMirror(mirror, "gru", "sfo", 1); err == nil {
+		t.Fatal("a mirror starting past the first record passed verification")
+	}
+}

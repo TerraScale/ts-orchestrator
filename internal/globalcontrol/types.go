@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 // Kind selects one family of global records. Each record is the latest value
@@ -73,7 +75,7 @@ func (r Roster) Validate() error {
 	}
 	home := false
 	for index, entry := range r.Regions {
-		if !cellToken.MatchString(entry.Cell) || entry.Cell == "global" {
+		if !cellToken.MatchString(entry.Cell) || entry.Cell == protocol.GlobalScope {
 			return fmt.Errorf("roster cell %q is invalid", entry.Cell)
 		}
 		if index > 0 && r.Regions[index-1].Cell >= entry.Cell {
@@ -149,7 +151,7 @@ func (d DirectoryEntry) Validate() error {
 		return errors.New("directory entry needs 1 to 5 active regions")
 	}
 	for index, cell := range d.ActiveRegions {
-		if !cellToken.MatchString(cell) || cell == "global" {
+		if !cellToken.MatchString(cell) || cell == protocol.GlobalScope {
 			return fmt.Errorf("directory active region %q is invalid", cell)
 		}
 		if index > 0 && d.ActiveRegions[index-1] >= cell {
