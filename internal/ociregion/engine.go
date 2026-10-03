@@ -40,6 +40,9 @@ type Engine struct {
 	Overrides  map[string]bool
 	Stdout     io.Writer
 	Argv       []string
+	// Backend overrides TS_OCI_BACKEND for this engine when set. Contract
+	// tests that replay recorded oci CLI output pin it to sdkcli.BackendCLI.
+	Backend sdkcli.Backend
 }
 type Failure struct {
 	Message string
@@ -492,7 +495,10 @@ func (e *Engine) realOCI(args []any, kwargs Object) any {
 // only when the CLI backend is selected, or when the auto backend meets a
 // command the SDK reader does not serve yet.
 func (e *Engine) sdkOCI(args []any, kwargs Object) (any, bool) {
-	backend := must(sdkcli.SelectedBackend())
+	backend := e.Backend
+	if backend == "" {
+		backend = must(sdkcli.SelectedBackend())
+	}
 	if backend == sdkcli.BackendCLI {
 		return nil, false
 	}
