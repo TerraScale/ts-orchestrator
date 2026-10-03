@@ -239,14 +239,24 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 	return syncDir(directory)
 }
 
-// readBounded reads a small state file without following a final symlink.
+// readBounded reads a small regular state file without following a final
+// symlink. The open is nonblocking and the opened descriptor must be a
+// regular file: a FIFO planted in a controller-writable directory would
+// otherwise block the open, and with it every locked update command.
 func readBounded(path string, maximum int64) ([]byte, error) {
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0)
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, &os.PathError{Op: "open", Path: path, Err: err}
 	}
 	file := os.NewFile(uintptr(fd), path)
 	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%w: %s is not a regular file", ErrInvalid, path)
+	}
 	data, err := io.ReadAll(io.LimitReader(file, maximum+1))
 	if err != nil {
 		return nil, err
