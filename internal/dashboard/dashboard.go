@@ -2,9 +2,7 @@ package dashboard
 
 import (
 	"context"
-	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"sync/atomic"
 	"time"
@@ -182,18 +180,7 @@ func (dashboard *Dashboard) guard(next http.Handler) http.Handler {
 	})
 }
 
-func literalHost(host string) bool {
-	if name, _, err := net.SplitHostPort(host); err == nil {
-		host = name
-	} else if len(host) > 1 && host[0] == '[' && host[len(host)-1] == ']' {
-		host = host[1 : len(host)-1]
-	}
-	if host == "localhost" {
-		return true
-	}
-	_, err := netip.ParseAddr(host)
-	return err == nil
-}
+func literalHost(host string) bool { return observability.LiteralHost(host) }
 
 // load gathers the view every page renders from. Missing providers and
 // failing sections become notes on the view, never a failed request.

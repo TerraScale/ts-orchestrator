@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -127,7 +128,30 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		writePlain(writer, http.StatusBadRequest, "proxied requests are not accepted\n")
 		return
 	}
+	// Without a token the loopback bind is the only control, and DNS
+	// rebinding defeats it for any route reachable under a hostname. Every
+	// route of a tokenless listener, not only the dashboard's, therefore
+	// requires an IP literal or localhost as the Host.
+	if server.token == nil && !LiteralHost(request.Host) {
+		writePlain(writer, http.StatusMisdirectedRequest, "address this listener by IP or localhost\n")
+		return
+	}
 	server.mux.ServeHTTP(writer, request)
+}
+
+// LiteralHost reports whether an HTTP Host header names an IP literal or
+// localhost, which a DNS-rebinding page cannot present.
+func LiteralHost(host string) bool {
+	if name, _, err := net.SplitHostPort(host); err == nil {
+		host = name
+	} else if len(host) > 1 && host[0] == '[' && host[len(host)-1] == ']' {
+		host = host[1 : len(host)-1]
+	}
+	if host == "localhost" {
+		return true
+	}
+	_, err := netip.ParseAddr(host)
+	return err == nil
 }
 
 func (server *Server) authenticate(next http.Handler) http.Handler {
