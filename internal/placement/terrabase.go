@@ -771,6 +771,11 @@ type MemberState struct {
 	HostGeneration           uint64               `json:"host_generation"`
 	OperationID              string               `json:"operation_id"`
 	UpdatedAt                time.Time            `json:"updated_at"`
+	// HostLostAt is when the member's OCI host was first seen missing or
+	// TERMINATED while it awaited its runtime contract. The lost-member
+	// replacement grace runs from it, not from the last persisted write,
+	// and it clears when the host is observed again.
+	HostLostAt time.Time `json:"host_lost_at,omitzero"`
 }
 
 type ManagedUpdateSeatPhase string
@@ -853,6 +858,7 @@ func (state MemberState) Validate() error {
 		!validToken(state.CreateKey) || state.HostAttempt == 0 || state.IntentGeneration == 0 ||
 		stageRequiresHostGeneration(state.Stage) && state.HostGeneration == 0 ||
 		!validToken(state.OperationID) || state.UpdatedAt.IsZero() || state.UpdatedAt.Location() != time.UTC ||
+		!state.HostLostAt.IsZero() && state.HostLostAt.Location() != time.UTC ||
 		state.Kind == MemberPermanent && state.MemberID != permanentMember(state.Region) ||
 		state.Kind == MemberElastic && state.MemberID != elasticMember(state.Region) {
 		return errors.New("invalid TerraBase member state")
