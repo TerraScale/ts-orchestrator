@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/capacity"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
@@ -24,7 +24,7 @@ type AutoscaleConfig struct {
 	Services        []workload.ServiceSpec `json:"services,omitempty"`
 	// NodePools are planned in recommend-only mode until a generic host
 	// provisioner exists; plans are logged, never applied.
-	NodePools []capacity.NodePool `json:"node_pools,omitempty"`
+	NodePools []hostpool.NodePool `json:"node_pools,omitempty"`
 }
 
 func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]WorkloadProfile) error {
@@ -54,17 +54,17 @@ func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]Worklo
 			return fmt.Errorf("autoscale service %q resources differ from its workload profile", spec.Role)
 		}
 	}
-	if err := capacity.ValidatePools(config.NodePools); err != nil {
+	if err := hostpool.ValidatePools(config.NodePools); err != nil {
 		return fmt.Errorf("autoscale node pools: %w", err)
 	}
 	return nil
 }
 
-// startWorkloadAutoscale builds the reconciler and capacity scaler when the
+// startWorkloadAutoscale builds the reconciler and host pool scaler when the
 // signed config enables them. Both act only on the regional authority leader.
 func startWorkloadAutoscale(cell string, config *AutoscaleConfig, profiles map[string]WorkloadProfile,
 	hosts *host.Controller, fencer authority.Fencer,
-) (*workload.Reconciler, *capacity.Scaler, error) {
+) (*workload.Reconciler, *hostpool.Scaler, error) {
 	if config == nil || !config.Enabled {
 		return nil, nil, nil
 	}
@@ -73,11 +73,11 @@ func startWorkloadAutoscale(cell string, config *AutoscaleConfig, profiles map[s
 	for role, profile := range profiles {
 		resources[role] = profile.Resources
 	}
-	var scaler *capacity.Scaler
+	var scaler *hostpool.Scaler
 	var requester workload.CapacityRequester
 	if len(config.NodePools) > 0 {
 		var err error
-		scaler, err = capacity.NewScaler(capacity.Config{Cell: cell, Pools: config.NodePools, Hosts: hosts,
+		scaler, err = hostpool.NewScaler(hostpool.Config{Cell: cell, Pools: config.NodePools, Hosts: hosts,
 			Fencer: fencer, Logf: log.Printf})
 		if err != nil {
 			return nil, nil, fmt.Errorf("start host pool scaler: %w", err)

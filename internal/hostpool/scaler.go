@@ -1,4 +1,4 @@
-package capacity
+package hostpool
 
 import (
 	"context"
@@ -59,11 +59,13 @@ type Scaler struct {
 	launching map[string]time.Time
 	idleSince map[string]time.Time
 	last      map[string]Plan
+	// recommended is the last recommend-only plan journaled per pool.
+	recommended map[string]Plan
 }
 
 func NewScaler(config Config) (*Scaler, error) {
 	if config.Hosts == nil || config.Fencer == nil || config.Cell == "" {
-		return nil, errors.New("capacity scaler requires cell, host view and fencer")
+		return nil, errors.New("host pool scaler requires cell, host view and fencer")
 	}
 	if err := ValidatePools(config.Pools); err != nil {
 		return nil, err
@@ -85,7 +87,7 @@ func NewScaler(config Config) (*Scaler, error) {
 	}
 	config.Pools = slices.Clone(config.Pools)
 	return &Scaler{config: config, demands: make(map[string]demand), launching: make(map[string]time.Time),
-		idleSince: make(map[string]time.Time), last: make(map[string]Plan)}, nil
+		idleSince: make(map[string]time.Time), last: make(map[string]Plan), recommended: make(map[string]Plan)}, nil
 }
 
 // RequestCapacity records unplaceable demand for the spec's pool, or for the
@@ -102,7 +104,7 @@ func (s *Scaler) RequestCapacity(spec workload.ServiceSpec, request placement.Wo
 		}
 	}
 	if pool == "" {
-		s.config.Logf("capacity: no host pool serves role %q in %q", spec.Role, spec.Environment)
+		s.config.Logf("hostpool: no host pool serves role %q in %q", spec.Role, spec.Environment)
 		return
 	}
 	s.mu.Lock()
@@ -122,7 +124,7 @@ func (s *Scaler) Run(ctx context.Context) error {
 	defer ticker.Stop()
 	for {
 		if err := s.Tick(ctx); err != nil && ctx.Err() == nil {
-			s.config.Logf("capacity reconciliation: %v", err)
+			s.config.Logf("hostpool reconciliation: %v", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -230,8 +232,16 @@ func (s *Scaler) apply(ctx context.Context, epoch uint64, pool NodePool, plan Pl
 		return nil
 	}
 	if s.config.Provisioner == nil {
-		s.config.Logf("capacity: pool %s recommends launching %d and reclaiming %v (%s); no provisioner configured",
+		s.config.Logf("hostpool: pool %s recommends launching %d and reclaiming %v (%s); no provisioner configured",
 			pool.Name, len(plan.Launch), plan.Reclaim, plan.Reason)
+		s.mu.Lock()
+		previous, seen := s.recommended[pool.Name]
+		changed := !seen || !samePlan(previous, plan)
+		s.recommended[pool.Name] = plan
+		s.mu.Unlock()
+		if changed {
+			recordRecommendation(ctx, s.config.Cell, epoch, pool, plan)
+		}
 		return nil
 	}
 	for _, launch := range plan.Launch {
@@ -244,7 +254,8 @@ func (s *Scaler) apply(ctx context.Context, epoch uint64, pool NodePool, plan Pl
 		s.mu.Lock()
 		s.launching[launch.Node] = now
 		s.mu.Unlock()
-		s.config.Logf("capacity: pool %s launching %s in %s (%s)", pool.Name, launch.Node, launch.FailureDomain, plan.Reason)
+		s.config.Logf("hostpool: pool %s launching %s in %s (%s)", pool.Name, launch.Node, launch.FailureDomain, plan.Reason)
+		recordLaunch(ctx, s.config.Cell, epoch, pool, plan, launch)
 	}
 	for _, node := range plan.Reclaim {
 		if allocations[node] != 0 {
@@ -259,7 +270,8 @@ func (s *Scaler) apply(ctx context.Context, epoch uint64, pool NodePool, plan Pl
 		s.mu.Lock()
 		delete(s.idleSince, node)
 		s.mu.Unlock()
-		s.config.Logf("capacity: pool %s reclaimed idle host %s", pool.Name, node)
+		s.config.Logf("hostpool: pool %s reclaimed idle host %s", pool.Name, node)
+		recordReclaim(ctx, s.config.Cell, epoch, pool, plan, node)
 	}
 	return nil
 }
