@@ -331,14 +331,21 @@ func fillFromCluster(summary *Summary, cluster observability.ClusterSnapshot) {
 	}
 	slices.SortFunc(summary.Members, func(left, right Member) int { return strings.Compare(left.Name, right.Name) })
 	if placement != nil {
-		// Placement lists one entry per database partition.
+		// Placement lists one entry per database partition. A terminal
+		// partition keeps its historical roster after teardown; it is no
+		// longer live, so it counts toward nothing active.
 		databases := map[string]bool{}
 		for _, database := range placement.Databases {
-			databases[database.DatabaseID] = true
+			if !database.Terminal {
+				databases[database.DatabaseID] = true
+			}
 		}
 		summary.TerraBase.Databases = len(databases)
 		hosts := map[string]*Host{}
 		for _, database := range placement.Databases {
+			if database.Terminal {
+				continue
+			}
 			for _, seat := range database.Members {
 				if seat.HostNode == "" {
 					continue
@@ -487,7 +494,7 @@ func (provider *Provider) remote(ctx context.Context, region string) Summary {
 		placeholder.Reach = decisionlog.RegionNotLinked
 		return placeholder
 	}
-	data, err := provider.Links.Request(ctx, region, SummaryLeaf, []byte(`{"version":1}`))
+	data, err := provider.Links.Request(ctx, region, SummaryLeaf, summaryRequestPayload)
 	if err != nil {
 		switch {
 		case errors.Is(err, regionlink.ErrNotLinked):
@@ -527,11 +534,30 @@ func (summary *Summary) boundTopology() {
 	summary.Hosts = summary.Hosts[:min(len(summary.Hosts), maxTopologyHosts)]
 	summary.Quorum.Missing = summary.Quorum.Missing[:min(len(summary.Quorum.Missing), maxTopologyMembers)]
 	summary.Versions = summary.Versions[:min(len(summary.Versions), maxTopologyMembers)]
+	// Version members are the legacy topology source when Members is
+	// absent: bound them across the whole summary, not per version, or 64
+	// versions of 64 names would still expand into thousands of
+	// controllers and millions of routes. With the missing list (bounded
+	// above) at most 2*maxTopologyMembers controllers are meshed.
+	budget := maxTopologyMembers
 	for index := range summary.Versions {
 		members := summary.Versions[index].Members
-		summary.Versions[index].Members = members[:min(len(members), maxTopologyMembers)]
+		keep := min(len(members), budget)
+		summary.Versions[index].Members = members[:keep]
+		budget -= keep
 	}
 }
+
+// summaryRequestPayload is the summary request every requester sends; it is
+// derived from summaryVersion so the requester and the responder's version
+// check can never drift apart.
+var summaryRequestPayload = func() []byte {
+	data, err := json.Marshal(summaryRequest{Version: summaryVersion})
+	if err != nil {
+		panic(err)
+	}
+	return data
+}()
 
 // Region returns one region's summary.
 func (provider *Provider) Region(ctx context.Context, region string) (Summary, error) {

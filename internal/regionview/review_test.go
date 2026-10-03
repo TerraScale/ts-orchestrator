@@ -3,6 +3,7 @@ package regionview
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
@@ -81,5 +82,54 @@ func TestDatabasesCountDistinctIDsNotPartitions(t *testing.T) {
 	provider := &Provider{Cell: "gru", Cluster: staticCluster{cluster(leader)}}
 	if terrabase := provider.Local(t.Context()).TerraBase; terrabase.Databases != 2 || terrabase.DesiredSeats != 6 {
 		t.Fatalf("terrabase = %+v", terrabase)
+	}
+}
+
+// These pin the fixes for the ts-reviewer findings on PRs #127 and #129.
+
+// A torn-down (terminal) partition keeps its roster but is not live work.
+func TestTerminalPartitionsAreNotActiveWork(t *testing.T) {
+	t.Parallel()
+	leader := member("c1", "v1", true)
+	leader.Placement = &observability.PlacementView{Databases: []observability.DatabaseView{
+		{DatabaseID: "orders", PartitionID: "p0", DesiredSeats: 2, Serving: 2,
+			Members: []observability.MemberView{{SeatID: "a", HostNode: "h1", Stage: "serving"}}},
+		{DatabaseID: "gone", PartitionID: "p0", DesiredSeats: 2, Serving: 2, Terminal: true,
+			Members: []observability.MemberView{{SeatID: "a", HostNode: "h2", Stage: "serving"}},
+			Rollout: &observability.RolloutView{OperationID: "op", Seats: 2, Completed: 1}}}}
+	summary := (&Provider{Cell: "gru", Cluster: staticCluster{cluster(leader)}}).Local(t.Context())
+	if summary.TerraBase.Databases != 1 || summary.TerraBase.ServingSeats != 2 || len(summary.Hosts) != 1 ||
+		len(summary.Rollouts) != 0 {
+		t.Fatalf("terminal partition counted as live: terrabase=%+v hosts=%+v rollouts=%+v", summary.TerraBase,
+			summary.Hosts, summary.Rollouts)
+	}
+}
+
+// Legacy version members are bounded across the whole summary.
+func TestLegacyVersionMembersAreBoundedAcrossTheSummary(t *testing.T) {
+	t.Parallel()
+	summary := Summary{}
+	for version := range maxTopologyMembers {
+		var members []string
+		for index := range maxTopologyMembers {
+			members = append(members, fmt.Sprintf("v%d-m%d", version, index))
+		}
+		summary.Versions = append(summary.Versions, Version{Version: fmt.Sprint(version), Members: members})
+	}
+	summary.boundTopology()
+	total := 0
+	for _, version := range summary.Versions {
+		total += len(version.Members)
+	}
+	if total > maxTopologyMembers {
+		t.Fatalf("legacy members after bounding = %d, want at most %d", total, maxTopologyMembers)
+	}
+}
+
+// The summary request is derived from the version the responder checks.
+func TestSummaryRequestCarriesTheCurrentVersion(t *testing.T) {
+	t.Parallel()
+	if !validSummaryRequest(summaryRequestPayload) {
+		t.Fatalf("the requester's payload %s is refused by the responder", summaryRequestPayload)
 	}
 }
