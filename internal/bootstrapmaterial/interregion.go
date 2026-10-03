@@ -131,7 +131,10 @@ func GenerateInterRegion(materialDirectory, directory string, cfg InterRegionCon
 	if err != nil {
 		return InterRegionRecord{}, fmt.Errorf("%w: %w", ErrMaterial, err)
 	}
-	if !filepath.IsAbs(directory) || now.IsZero() || secureParents(directory) != nil || !now.Before(material.ExpiresAt) {
+	if !filepath.IsAbs(directory) || now.IsZero() || secureParents(directory) != nil || !now.Before(material.ExpiresAt) ||
+		nested(materialDirectory, directory) || nested(directory, materialDirectory) {
+		// A directory inside the controller material would add an entry
+		// Load refuses, making the source unusable.
 		return InterRegionRecord{}, ErrMaterial
 	}
 	if _, err := os.Lstat(directory); err == nil {
@@ -204,6 +207,12 @@ func GenerateInterRegion(materialDirectory, directory string, cfg InterRegionCon
 		}
 	}
 	return record, nil
+}
+
+// nested reports whether path is parent or inside it.
+func nested(parent, path string) bool {
+	relative, err := filepath.Rel(filepath.Clean(parent), filepath.Clean(path))
+	return err == nil && (relative == "." || relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)))
 }
 
 func sameTopology(a, b InterRegionConfig) bool {

@@ -94,7 +94,11 @@ func peerHoldPages(ctx context.Context, source decisionlog.Source, peer string, 
 		if added == 0 {
 			// A whole page shares the boundary timestamp: the query has no
 			// ID cursor, so skip past that instant to the older holds
-			// rather than stop.
+			// rather than stop. Holds beyond the first page at one exact
+			// nanosecond are not read; the journal stamps each hold when it
+			// is recorded, once per reason per 15 minutes, so only a peer
+			// fabricating its journal produces such a bucket, and that peer
+			// could omit holds just as well.
 			until = oldest
 			continue
 		}
