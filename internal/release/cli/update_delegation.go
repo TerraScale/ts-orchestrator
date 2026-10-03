@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os/exec"
 	"slices"
 	"strings"
@@ -70,6 +71,12 @@ func (c command) signUpdateDelegation(args []string) error {
 	if err != nil {
 		return err
 	}
+	// Keep the offline-root/online-leaf separation: this grant authorizes
+	// automatic signing, so delegating it to the root itself would invite
+	// putting the root private key online.
+	if bytes.Equal(leafPublic, rootPublic) {
+		return errors.New("delegated update leaf must differ from offline root")
+	}
 	rootPrivate, err := readOfflineRootPrivateKey(*privatePath)
 	if err != nil {
 		return err
@@ -107,20 +114,64 @@ func (c command) signUpdateDelegation(args []string) error {
 
 // gitLineage proves ancestry in a verified checkout of the repository after
 // fetching main without force: the source must descend from the delegation's
-// base and be contained in origin/main.
+// base and be contained in origin/main. origin must resolve to the pinned
+// repository on the pinned Forgejo host, so a fork or a repointed remote can
+// never stand in for reviewed main.
 type gitLineage struct {
 	ctx      context.Context
 	checkout string
-	run      func(ctx context.Context, args ...string) error
+	run      func(ctx context.Context, args ...string) (string, error)
 }
 
-func runGit(ctx context.Context, args ...string) error {
+// lineageHost is the Forgejo host that serves release.QualificationRepository.
+const lineageHost = "git.terrascale.tech"
+
+func runGit(ctx context.Context, args ...string) (string, error) {
 	command := exec.CommandContext(ctx, "git", args...)
-	output, err := command.CombinedOutput()
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	output, err := command.Output()
 	if err != nil {
-		return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
-	return nil
+	return string(output), nil
+}
+
+// pinnedLineageRemote reports whether a git remote URL (after insteadOf
+// rewriting, as `git remote get-url` reports it) names the pinned repository
+// on the pinned host over https or ssh.
+func pinnedLineageRemote(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	var host, path string
+	if rest, ok := strings.CutPrefix(raw, "git@"); ok && !strings.Contains(raw, "://") {
+		host, path, ok = strings.Cut(rest, ":")
+		if !ok {
+			return false
+		}
+	} else {
+		parsed, err := url.Parse(raw)
+		if err != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Opaque != "" {
+			return false
+		}
+		switch parsed.Scheme {
+		case "https":
+			if parsed.User != nil || parsed.Port() != "" {
+				return false
+			}
+		case "ssh":
+			if parsed.User == nil || parsed.User.Username() != "git" {
+				return false
+			}
+			if _, hasPassword := parsed.User.Password(); hasPassword {
+				return false
+			}
+		default:
+			return false
+		}
+		host, path = parsed.Hostname(), parsed.Path
+	}
+	path = strings.TrimSuffix(strings.TrimPrefix(path, "/"), ".git")
+	return host == lineageHost && path == release.QualificationRepository
 }
 
 func (lineage gitLineage) CheckLineage(base, revision, ref string) error {
@@ -129,14 +180,21 @@ func (lineage gitLineage) CheckLineage(base, revision, ref string) error {
 	}
 	ctx, cancel := context.WithTimeout(lineage.ctx, 2*time.Minute)
 	defer cancel()
-	if err := lineage.run(ctx, "-C", lineage.checkout, "fetch", "--quiet", "--no-tags", "origin",
+	origin, err := lineage.run(ctx, "-C", lineage.checkout, "remote", "get-url", "origin")
+	if err != nil {
+		return err
+	}
+	if !pinnedLineageRemote(origin) {
+		return fmt.Errorf("lineage checkout origin %q is not %s/%s", strings.TrimSpace(origin), lineageHost, release.QualificationRepository)
+	}
+	if _, err := lineage.run(ctx, "-C", lineage.checkout, "fetch", "--quiet", "--no-tags", "origin",
 		"refs/heads/main:refs/remotes/origin/main"); err != nil {
 		return err
 	}
-	if err := lineage.run(ctx, "-C", lineage.checkout, "merge-base", "--is-ancestor", base, revision); err != nil {
+	if _, err := lineage.run(ctx, "-C", lineage.checkout, "merge-base", "--is-ancestor", base, revision); err != nil {
 		return fmt.Errorf("source does not descend from the lineage base: %w", err)
 	}
-	if err := lineage.run(ctx, "-C", lineage.checkout, "merge-base", "--is-ancestor", revision, "refs/remotes/origin/main"); err != nil {
+	if _, err := lineage.run(ctx, "-C", lineage.checkout, "merge-base", "--is-ancestor", revision, "refs/remotes/origin/main"); err != nil {
 		return fmt.Errorf("source is not on main: %w", err)
 	}
 	return nil
@@ -151,7 +209,7 @@ func (c command) signBinaryUpdate(args []string) error {
 // qualification run), proves lineage, and signs an update receipt under the
 // scoped delegation.
 func (c command) signBinaryUpdateWith(args []string, check func(release.Qualification, string) error,
-	inspect func(string, string, string) (binaryReceipt, error), git func(context.Context, ...string) error,
+	inspect func(string, string, string) (binaryReceipt, error), git func(context.Context, ...string) (string, error),
 ) error {
 	flags := flag.NewFlagSet("sign-binary-update", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -221,5 +279,11 @@ func (c command) signBinaryUpdateWith(args []string, check func(release.Qualific
 	if err != nil {
 		return err
 	}
-	return c.writeNew(*output, encoded, 0o644)
+	if err := c.writeNew(*output, encoded, 0o644); err != nil {
+		return err
+	}
+	// The receipt never outlives its delegation; report the effective
+	// expiry so a shortened receipt is visible.
+	fmt.Fprintf(c.output, "update receipt valid until %s\n", envelope.ExpiresAt.UTC().Format(time.RFC3339))
+	return nil
 }

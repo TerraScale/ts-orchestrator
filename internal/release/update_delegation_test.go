@@ -220,3 +220,16 @@ func TestBinaryUpdateReceiptIsBoundToExactDelegation(t *testing.T) {
 		t.Fatal("update receipt accepted as a per-source receipt")
 	}
 }
+
+func TestBinaryUpdateReceiptRefusesANearlyExpiredDelegation(t *testing.T) {
+	fixture := newUpdateFixture(t)
+	fixture.envelope = fixture.signDelegation(t, fixture.now.Add(-time.Minute), fixture.now.Add(10*time.Minute))
+	if _, err := fixture.sign("GRU", &fakeLineage{}); err == nil {
+		t.Fatal("a receipt capped to ten minutes by its delegation was signed")
+	}
+	fixture.envelope = fixture.signDelegation(t, fixture.now.Add(-time.Minute), fixture.now.Add(2*time.Hour))
+	receipt, err := fixture.sign("GRU", &fakeLineage{})
+	if err != nil || !receipt.ExpiresAt.Equal(fixture.envelope.ExpiresAt) {
+		t.Fatalf("receipt capped to a usable delegation remainder = %v, %v", receipt.ExpiresAt, err)
+	}
+}
