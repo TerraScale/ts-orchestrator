@@ -60,10 +60,19 @@ type Executor struct {
 	ProofFreshness time.Duration
 	Now            func() time.Time
 
-	issued map[string]*issue
-	holds  map[string]string
-	paged  map[string]bool
-	halted string
+	// The leader-local memory below belongs to one rollout (rolloutID)
+	// and is reset when the active rollout changes or ends.
+	rolloutID string
+	issued    map[string]*issue
+	holds     map[string]string
+	paged     map[string]bool
+	halted    string
+}
+
+// forget resets the leader-local memory and binds it to rolloutID.
+func (e *Executor) forget(rolloutID string) {
+	e.rolloutID = rolloutID
+	e.issued, e.holds, e.paged = map[string]*issue{}, map[string]string{}, map[string]bool{}
 }
 
 func (e *Executor) now() time.Time {
@@ -110,17 +119,18 @@ func (e *Executor) Run(ctx context.Context) error {
 func (e *Executor) Tick(ctx context.Context) error {
 	snapshot := e.Fencer.Current()
 	if !snapshot.CanMutate() {
-		e.issued, e.holds, e.paged = nil, nil, nil
+		e.forget("")
 		return nil
 	}
 	if e.issued == nil {
-		e.issued, e.holds, e.paged = map[string]*issue{}, map[string]string{}, map[string]bool{}
+		e.forget("")
 	}
 	record, revision, ok, err := e.Store.Active(ctx)
 	if err != nil {
 		return err
 	}
 	if !ok {
+		e.forget("")
 		if err := e.startNext(ctx, snapshot.Epoch); err != nil {
 			e.publish(snapshot.Epoch, nil)
 			return err
@@ -130,6 +140,9 @@ func (e *Executor) Tick(ctx context.Context) error {
 			return err
 		}
 	}
+	if record.RolloutID != e.rolloutID {
+		e.forget(record.RolloutID)
+	}
 	if record.AuthorityEpoch != snapshot.Epoch && !record.Phase.Terminal() {
 		id := record.RolloutID
 		if record, revision, err = e.Store.Adopt(ctx, id, snapshot.Epoch); err != nil {
@@ -137,6 +150,7 @@ func (e *Executor) Tick(ctx context.Context) error {
 		}
 	}
 	if record.Phase.Terminal() {
+		e.forget(record.RolloutID)
 		e.publish(snapshot.Epoch, &record)
 		return e.Store.Settle(ctx, record, snapshot.Epoch)
 	}
@@ -225,6 +239,11 @@ func (e *Executor) act(ctx context.Context, record rollout.Record) ([]rollout.Ev
 	// while a unit that already reported has lost its fresh proof, no
 	// healthy report may complete the wave around it.
 	lost := e.waveLostProof(record)
+	// A unit that restarted during its soak is reported before any other
+	// unit can complete the wave from the restarted unit's stored reports.
+	if restart := e.waveRestart(record); restart != nil {
+		return []rollout.Event{*restart}, nil
+	}
 	for _, action := range rollout.NextActions(record) {
 		var event *rollout.Event
 		var err error
@@ -421,6 +440,28 @@ func (e *Executor) waveLostProof(record rollout.Record) string {
 		}
 	}
 	return ""
+}
+
+// waveRestart returns the healthy report of a soaking unit of the current
+// wave whose fresh proof comes from a new incarnation; the transition core
+// rolls the rollout back on it.
+func (e *Executor) waveRestart(record rollout.Record) *rollout.Event {
+	if !(record.Phase == rollout.PhaseCanary || record.Phase == rollout.PhaseCanarySoak ||
+		record.Phase == rollout.PhaseBatch || record.Phase == rollout.PhaseBatchSoak) {
+		return nil
+	}
+	for _, id := range record.Waves[record.WaveIndex] {
+		progress := record.Units[id]
+		if progress.State != rollout.UnitSoaking || progress.HealthyReports == 0 {
+			continue
+		}
+		proof, ok := e.Proofs.Latest(id)
+		if ok && e.fresh(proof) && !proof.ObservedAt.Before(record.PhaseStartedAt) &&
+			(proof.ProcessID != progress.ProcessID || proof.StartNonce != progress.StartNonce) {
+			return &rollout.Event{Kind: rollout.EventHealthy, Unit: id, Health: proof.Health(), At: e.now()}
+		}
+	}
+	return nil
 }
 
 // expired reports a step whose phase deadline passed while its gates ran;

@@ -2,10 +2,33 @@ package selfupdate
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
+
+const (
+	restoreIntentPrefix = "restore-"
+	restoreIntentSchema = "terrascale.orchestrator.restore-intent.v1"
+)
+
+// restoreIntent is written before Restore changes anything and removed once
+// the link has moved, so an interrupted restore is finished from it by the
+// next Watch (the watchdog timer or the unit's prepare step).
+type restoreIntent struct {
+	Schema   string `json:"schema"`
+	Unit     string `json:"unit"`
+	Target   string `json:"target"`
+	Rejected string `json:"rejected"`
+}
+
+func (layout Layout) restoreIntentPath(unit string) string {
+	return filepath.Join(layout.Root, restoreIntentPrefix+unit+".json")
+}
 
 // Restore returns unit to digest, a release it ran before, on a rollout's
 // order to roll back the rejected release. Unlike Activate it creates no
@@ -56,16 +79,17 @@ func Restore(layout Layout, digest, rejected, unit string) (bool, error) {
 	default:
 		return false, fmt.Errorf("%w: the current release is neither the restore target nor the rejected release", ErrInvalid)
 	}
-	if err := layout.markKnownBad(rejected); err != nil {
+	// There is no activation record to recover an interrupted restore
+	// from, so a durable intent names the target first; finishRestore
+	// completes the switch from it at any later point.
+	intent, err := protocol.EncodeJSON(restoreIntent{Schema: restoreIntentSchema, Unit: unit, Target: digest, Rejected: rejected})
+	if err != nil {
 		return false, err
 	}
-	// The restart obligation is durable before the link moves: there is no
-	// activation record to recover from, so an interruption after the flip
-	// must still leave the watchdog and a retry something to finish.
-	if err := layout.markRestartPending(unit); err != nil {
+	if err := writeFileAtomic(layout.restoreIntentPath(unit), intent, 0o644); err != nil {
 		return false, err
 	}
-	if err := layout.flipCurrent(digest); err != nil {
+	if err := layout.finishRestore(unit); err != nil {
 		return true, err
 	}
 	decisionlog.Record(context.Background(), decisionlog.Decision{
@@ -78,7 +102,53 @@ func Restore(layout Layout, digest, rejected, unit string) (bool, error) {
 		Status:  decisionlog.StatusRolledBack,
 		Attrs:   map[string]string{"version": digest, "rejected": rejected},
 	})
-	return true, syncDir(layout.Root)
+	return true, nil
+}
+
+// finishRestore completes a restore of unit whose intent is recorded: the
+// rejected release is known bad, the restart obligation is durable, and
+// only then does the link move to the target and the intent go away. Every
+// step is idempotent, so it finishes a restore interrupted at any point.
+// The caller holds Lock.
+func (layout Layout) finishRestore(unit string) error {
+	path := layout.restoreIntentPath(unit)
+	if err := layout.checkOwned(path, false); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	data, err := readBounded(path, maxStateBytes)
+	if err != nil {
+		return err
+	}
+	var intent restoreIntent
+	if err := protocol.DecodeStrict(data, &intent, maxStateBytes); err != nil {
+		return err
+	}
+	if intent.Schema != restoreIntentSchema || intent.Unit != unit || !digestRE.MatchString(intent.Target) ||
+		!digestRE.MatchString(intent.Rejected) || intent.Target == intent.Rejected {
+		return fmt.Errorf("%w: restore intent", ErrInvalid)
+	}
+	if err := layout.VerifyRelease(intent.Target); err != nil {
+		return fmt.Errorf("restore target cannot be restored: %w", err)
+	}
+	if err := layout.markKnownBad(intent.Rejected); err != nil {
+		return err
+	}
+	if err := layout.markRestartPending(unit); err != nil {
+		return err
+	}
+	if current, err := layout.Current(); err != nil {
+		return err
+	} else if current != intent.Target {
+		if err := layout.flipCurrent(intent.Target); err != nil {
+			return err
+		}
+	}
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	return syncDir(layout.Root)
 }
 
 // MarkRestartPending records that unit still owes a restart, so the

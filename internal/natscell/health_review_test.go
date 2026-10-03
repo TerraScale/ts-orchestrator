@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -31,14 +32,14 @@ func TestObserveClusterReportsDisabledJetStream(t *testing.T) {
 	if _, err := runtime.Observe(ctx); !errors.Is(err, ErrJetStreamDisabled) {
 		t.Fatalf("Observe error = %v", err)
 	}
-	if _, err := runtime.LaggingStreams(ctx); !errors.Is(err, ErrJetStreamDisabled) {
-		t.Fatalf("LaggingStreams error = %v", err)
+	if _, err := runtime.StreamHealth(ctx); !errors.Is(err, ErrJetStreamDisabled) {
+		t.Fatalf("StreamHealth error = %v", err)
 	}
 }
 
-// A standalone broker's streams have no replicas to lag behind, so the
-// rollout gate never holds on them.
-func TestLaggingStreamsIgnoresUnreplicatedStreams(t *testing.T) {
+// A standalone broker's streams have no replicas to lag behind; they are
+// reported with this broker as their only peer.
+func TestStreamHealthReportsUnreplicatedStreamsOnThisBroker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	runtime, err := Start(ctx, Config{Cell: "lab", Instance: "solo", Replicas: 1, Lab: true,
@@ -50,12 +51,12 @@ func TestLaggingStreamsIgnoresUnreplicatedStreams(t *testing.T) {
 	if _, err := runtime.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "LAGGING_TEST"}); err != nil {
 		t.Fatal(err)
 	}
-	lagging, err := runtime.LaggingStreams(ctx)
-	if err != nil || len(lagging) != 0 {
-		t.Fatalf("lagging = %v, %v", lagging, err)
+	states, err := runtime.StreamHealth(ctx)
+	if err != nil || len(states) != 1 || states[0].Lagging || !slices.Equal(states[0].Peers, []string{runtime.server.Name()}) {
+		t.Fatalf("states = %+v, %v", states, err)
 	}
 	var stopped *Runtime
-	if _, err := stopped.LaggingStreams(ctx); err == nil {
+	if _, err := stopped.StreamHealth(ctx); err == nil {
 		t.Fatal("a missing runtime reported no lagging streams")
 	}
 }

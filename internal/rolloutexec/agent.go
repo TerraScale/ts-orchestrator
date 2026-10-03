@@ -62,6 +62,12 @@ type Agent struct {
 	// mu serializes this agent's steps; Layout.Lock serializes them with
 	// the watchdog and unit starts.
 	mu sync.Mutex
+	// served names the operation whose owed restart this agent already
+	// performed. The obligation itself is cleared only by the unit's start
+	// (selfupdate prepare), so a retry before that start does not restart
+	// the unit a second time, while a new agent, which cannot know whether
+	// its predecessor restarted, serves it once.
+	served string
 }
 
 func (a *Agent) now() time.Time {
@@ -89,8 +95,8 @@ func (a *Agent) Handle(ctx context.Context, wire []byte) StepReply {
 // apply fences the step by its authority epoch, which the release root
 // records durably: an older leader's step is refused even after this agent
 // restarted. The restart obligation is recorded before the release changes
-// and cleared only after a restart, so any interruption leaves the watchdog
-// (and a retry by a new agent) a restart to finish.
+// and cleared only by the unit's next start, so any interruption leaves the
+// watchdog (and a retry by a new agent) a restart to finish.
 func (a *Agent) apply(ctx context.Context, command StepCommand, window time.Duration) (StepOutcome, string) {
 	if outcome, reason := a.locked(func() (StepOutcome, string) { return a.admit(command) }); outcome != "" {
 		return outcome, reason
@@ -114,20 +120,14 @@ func (a *Agent) apply(ctx context.Context, command StepCommand, window time.Dura
 	if err != nil {
 		return OutcomeRetry, "restart obligation is unreadable"
 	}
-	if !owed {
+	if !owed || a.served == command.OperationID && outcome != OutcomeActivated {
 		return outcome, reason
 	}
 	if err := a.restart(ctx); err != nil {
 		slog.Warn("rollout agent could not restart its unit", "component", "rollout", "unit", a.Unit, "error", err)
 		return OutcomeRetry, "unit restart failed"
 	}
-	// Served, as the watchdog clears it after its own restart.
-	a.locked(func() (StepOutcome, string) {
-		if err := a.Layout.ClearRestartPending(a.SystemdUnit); err != nil {
-			slog.Warn("rollout agent could not clear a served restart", "component", "rollout", "unit", a.Unit, "error", err)
-		}
-		return "", ""
-	})
+	a.served = command.OperationID
 	return outcome, reason
 }
 
@@ -143,13 +143,12 @@ func (a *Agent) admit(command StepCommand) (StepOutcome, string) {
 }
 
 func (a *Agent) owed() (bool, error) {
-	var owed bool
-	var err error
-	a.locked(func() (StepOutcome, string) {
-		owed, err = a.Layout.RestartPending(a.SystemdUnit)
-		return "", ""
-	})
-	return owed, err
+	unlock, err := a.Layout.Lock()
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	return a.Layout.RestartPending(a.SystemdUnit)
 }
 
 // locked runs step under Layout.Lock.

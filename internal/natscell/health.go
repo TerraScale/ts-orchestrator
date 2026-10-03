@@ -71,22 +71,32 @@ func (r *Runtime) ObserveCluster() (ClusterObservation, error) {
 	return observation, nil
 }
 
-// maxLaggingStreams bounds the names LaggingStreams returns.
+// maxLaggingStreams bounds how many lagging streams StreamHealth reports
+// before it stops asking: one already holds a rollout step.
 const maxLaggingStreams = 8
 
-// laggingStreamTimeout bounds one stream info request; a stream whose
-// leader does not answer in time counts as lagging.
-const laggingStreamTimeout = 2 * time.Second
+// streamInfoTimeout bounds one stream info request; a stream whose leader
+// does not answer in time counts as lagging.
+const streamInfoTimeout = 2 * time.Second
 
-// LaggingStreams lists the cell account's replicated streams that could lose
-// availability if one more broker restarted now: a stream whose leader does
-// not answer, and a stream with any offline or not-current replica. Each
-// stream's state comes from a STREAM.INFO request, which its leader answers
-// for every replica, including out-of-band catchup that the local Jsz
+// StreamState is one stream as its leader reports it.
+type StreamState struct {
+	Name string
+	// Peers are the brokers holding a replica, the leader included.
+	Peers []string
+	// Lagging is set for a stream without an answering leader, or with a
+	// replica that is offline or not current (see StreamLagging).
+	Lagging bool
+}
+
+// StreamHealth reports the cell account's streams for the rollout gate.
+// Each stream's state comes from a STREAM.INFO request, which its leader
+// answers for every replica, including out-of-band catchup that the local Jsz
 // monitoring view does not show; so streams led by other brokers are judged
-// as strictly as this broker's own. The rollout gate holds a controller step
-// while any stream is listed.
-func (r *Runtime) LaggingStreams(ctx context.Context) ([]string, error) {
+// as strictly as this broker's own. It stops after maxLaggingStreams lagging
+// streams, so slow requests to leaderless streams cannot block the caller
+// once the answer is already "hold".
+func (r *Runtime) StreamHealth(ctx context.Context) ([]StreamState, error) {
 	if r == nil || r.server == nil || !r.server.Running() || r.js == nil {
 		return nil, errors.New("embedded regional NATS server is not running")
 	}
@@ -104,9 +114,10 @@ func (r *Runtime) LaggingStreams(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("list streams: %w", err)
 	}
 	slices.Sort(names)
-	var lagging []string
+	var states []StreamState
+	lagging := 0
 	for _, name := range names {
-		requestCtx, cancel := context.WithTimeout(ctx, laggingStreamTimeout)
+		requestCtx, cancel := context.WithTimeout(ctx, streamInfoTimeout)
 		stream, err := r.js.Stream(requestCtx, name)
 		cancel()
 		if errors.Is(err, jetstream.ErrStreamNotFound) {
@@ -115,22 +126,46 @@ func (r *Runtime) LaggingStreams(ctx context.Context) ([]string, error) {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		if err != nil || StreamLagging(stream.CachedInfo()) {
-			lagging = append(lagging, name)
-			// One name already holds the gate; stop before more slow
-			// requests to leaderless streams can block the caller.
-			if len(lagging) == maxLaggingStreams {
-				return lagging, nil
+		state := StreamState{Name: name, Lagging: true}
+		if err == nil {
+			info := stream.CachedInfo()
+			state.Lagging = StreamLagging(info)
+			state.Peers = streamPeers(info, r.server.Name())
+		}
+		states = append(states, state)
+		if state.Lagging {
+			if lagging++; lagging == maxLaggingStreams {
+				break
 			}
 		}
 	}
-	return lagging, nil
+	return states, nil
+}
+
+// streamPeers lists the brokers holding a replica of a stream; an
+// unclustered stream lives on this broker only.
+func streamPeers(info *jetstream.StreamInfo, self string) []string {
+	if info == nil || info.Cluster == nil {
+		return []string{self}
+	}
+	var peers []string
+	if info.Cluster.Leader != "" {
+		peers = append(peers, info.Cluster.Leader)
+	}
+	for _, peer := range info.Cluster.Replicas {
+		if peer != nil && peer.Name != "" && !slices.Contains(peers, peer.Name) {
+			peers = append(peers, peer.Name)
+		}
+	}
+	slices.Sort(peers)
+	return peers
 }
 
 // StreamLagging reports whether a stream, as its leader describes it, has
 // no leader or a replica that is offline or not current (including a
 // replica still receiving an out-of-band snapshot). An unreplicated stream
-// is never lagging.
+// is never lagging; whether it survives a restart is a separate question
+// the rollout gate answers from its peers.
 func StreamLagging(info *jetstream.StreamInfo) bool {
 	if info == nil {
 		return true

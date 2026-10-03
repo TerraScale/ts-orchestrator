@@ -164,7 +164,8 @@ func TestAgentActivatesOnceAndAnswersRetriesIdempotently(t *testing.T) {
 }
 
 // assertRestored checks that the unit runs the predecessor with no pending
-// activation, the rejected release known bad and no restart owed.
+// activation, the rejected release known bad and the restart still owed
+// until the unit's own start (selfupdate prepare) clears it.
 func (f *agentFixture) assertRestored(t *testing.T) {
 	t.Helper()
 	layout := f.agent.Layout
@@ -177,8 +178,8 @@ func (f *agentFixture) assertRestored(t *testing.T) {
 	if bad, err := layout.KnownBad(); err != nil || !bad[f.to] {
 		t.Fatalf("rejected release is not known bad: %v %v", bad, err)
 	}
-	if owed, err := layout.RestartPending(agentUnit); err != nil || owed {
-		t.Fatalf("restart still owed after a successful restart: %v %v", owed, err)
+	if owed, err := layout.RestartPending(agentUnit); err != nil || !owed {
+		t.Fatalf("restore left no restart obligation: %v %v", owed, err)
 	}
 }
 
@@ -307,8 +308,10 @@ func TestAgentRetriesARestartThatFailed(t *testing.T) {
 	if reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomePending || f.restarts.count() != 1 {
 		t.Fatalf("retry = %+v restarts %d", reply, f.restarts.count())
 	}
-	if owed, err := f.agent.Layout.RestartPending(agentUnit); err != nil || owed {
-		t.Fatalf("served restart is still owed: %v %v", owed, err)
+	// Only the unit's start clears the obligation; a retry before it does
+	// not restart the unit again.
+	if owed, err := f.agent.Layout.RestartPending(agentUnit); err != nil || !owed {
+		t.Fatalf("restart obligation cleared before the unit started: %v %v", owed, err)
 	}
 	if reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomePending || f.restarts.count() != 1 {
 		t.Fatalf("second retry restarted again: %+v restarts %d", reply, f.restarts.count())

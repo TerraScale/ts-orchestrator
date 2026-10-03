@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -401,6 +402,75 @@ func TestExecutorCommitsAnExpiredDeadlineBeforeSendingAStep(t *testing.T) {
 	h.run(5, func() bool { return h.phase("rel1-controllers") == rollout.PhaseRolledBack })
 	if slices.Contains(h.fleet.stepLog(), "prepare:ctl-b") {
 		t.Fatalf("an expired prepare was still sent: %v", h.fleet.stepLog())
+	}
+}
+
+// A unit that restarts on the target after meeting its soak rolls the wave
+// back, even when another unit's report would complete the wave first.
+func TestExecutorRollsBackAWaveWhoseSoakedUnitRestarted(t *testing.T) {
+	h := newHarness(t)
+	policy := testPolicy()
+	policy.BatchSize = 2
+	h.program = Program{{RolloutID: "rel1-hosts", Kind: rollout.KindHost, Cell: "gru", FromDigest: fromDigest,
+		ToDigest: toDigest, Policy: policy,
+		Units: HostUnits(map[string][]string{"h1": {"p1"}, "h3": {"p2"}, "h4": {"p3"}})}}
+	if err := h.executor.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	// h3 starts reporting one tick after h4, so h4 meets its soak one tick
+	// before h3's next report would complete the wave.
+	h.fleet.units["h3"].age = 2 * DefaultProofFreshness
+	h.run(30, func() bool {
+		record, _ := h.load("rel1-hosts")
+		return record.WaveIndex == 1 && record.Units["h4"].HealthyReports == 1
+	})
+	h.fleet.units["h3"].age = 0
+	h.clock.Advance(20 * time.Second)
+	soak := time.Duration(policy.BatchSoakSeconds) * time.Second
+	h.run(10, func() bool {
+		record, _ := h.load("rel1-hosts")
+		h4 := record.Units["h4"]
+		return h4.HealthyReports >= policy.MinHealthyReports && !h4.LastHealthyAt.Before(h4.FirstHealthyAt.Add(soak))
+	})
+	if record, _ := h.load("rel1-hosts"); record.Phase != rollout.PhaseBatchSoak {
+		t.Fatalf("before the restart: %s %+v", record.Phase, record.Units)
+	}
+	// h4 restarts on the target; h3's next report alone would complete the
+	// wave from h4's stored reports.
+	h.fleet.restart("h4")
+	h.clock.Advance(20 * time.Second)
+	if err := h.executor.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if phase := h.phase("rel1-hosts"); phase != rollout.PhaseRollingBack && phase != rollout.PhaseRolledBack {
+		t.Fatalf("a wave with a restarted unit ended %s", phase)
+	}
+}
+
+// Leader-local memory belongs to one rollout: a hold of an ended rollout
+// never shows up in the next one's status.
+func TestExecutorForgetsTheMemoryOfAnEndedRollout(t *testing.T) {
+	h := newHarness(t)
+	h.program = h.program[:1]
+	h.fleet.units["ctl-c"].down = true
+	if err := h.executor.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	h.fleet.units["ctl-c"].down = false
+	h.fleet.units["ctl-c"].digest = otherBad
+	h.run(5, func() bool { return h.phase("rel1-controllers") == rollout.PhaseAborted })
+	h.fleet.units["ctl-c"].digest = fromDigest
+	// Memory left from the ended rollout must not reach the next one.
+	h.executor.holds["ctl-z"] = "left over from rel1"
+	next := h.program[0]
+	next.RolloutID, next.ToDigest = "rel2-controllers", strings.Repeat("d", 64)
+	h.program = Program{next}
+	h.run(5, func() bool { return h.phase("rel2-controllers") == rollout.PhaseCanarySoak })
+	h.status.mu.Lock()
+	last := h.status.statuses[len(h.status.statuses)-1]
+	h.status.mu.Unlock()
+	if last.RolloutID != "rel2-controllers" || len(last.Holds) != 0 {
+		t.Fatalf("status of the next rollout = %s holds %v", last.RolloutID, last.Holds)
 	}
 }
 

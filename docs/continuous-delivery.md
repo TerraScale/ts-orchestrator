@@ -317,9 +317,12 @@ Nothing in this change starts it; the pieces are:
   health proof from every group peer (on either side of the rollout) and
   checks its `Gate`. `ClusterGate` holds a step while the JetStream metadata
   group has no leader, an expected broker is offline, a controller restart
-  would drop the metadata group below quorum, or any replicated stream has
-  no leader or a replica that is offline or not current
-  (`natscell.LaggingStreams`). Stream state comes from each stream's leader
+  would drop the metadata group below quorum, or any stream has no leader
+  or a replica that is offline or not current (`natscell.StreamHealth`).
+  For a controller step it also holds while a stream on the restarting
+  broker would lose its quorum without it (an R1 or R2 stream there; every
+  stream counts when `ClusterGate.ServerOf` cannot name the unit's
+  broker). Stream state comes from each stream's leader
   through `STREAM.INFO`, which also reports a replica still catching up
   from an out-of-band snapshot, so remote-led streams are judged as
   strictly as local ones. A held step only waits; the phase deadline
@@ -335,7 +338,9 @@ Nothing in this change starts it; the pieces are:
   on its own unit's subject and from the unit's resolved keys, and only a
   proof younger than the freshness limit (60 s) completes anything. While a
   unit of the current wave that already reported has no fresh proof, no
-  healthy report can complete the wave around it. A proof on the target
+  healthy report can complete the wave around it, and a unit that restarted
+  after it reported is reported (and rolls the wave back) before any other
+  unit's report is fed. A proof on the target
   feeds `healthy`; a new incarnation on another release after the
   step feeds `unhealthy` (the watchdog rolled the unit back); a proof on the
   predecessor after a rollback step feeds `rollback-serving`. Controllers
@@ -356,17 +361,20 @@ Nothing in this change starts it; the pieces are:
     gated, so the watchdog rolls an unproven target back); a retry of a
     matching pending activation goes through `Activate` again, so an
     interrupted link flip is repaired;
-  - a rollback restores the predecessor with `selfupdate.Restore`: it marks
-    the rejected release known bad on the node, records a restart
-    obligation and only then moves the link, and creates no pending
-    activation, so a failed
+  - a rollback restores the predecessor with `selfupdate.Restore`: it
+    first writes a restore intent (`restore-<unit>.json`), then marks the
+    rejected release known bad, records a restart obligation, moves the
+    link and removes the intent. `selfupdate.Watch` (the watchdog and the
+    unit's prepare step) finishes an interrupted restore from the intent.
+    It creates no pending activation, so a failed
     restart or missing proof can never let the watchdog return the node to
     the rejected release. A pending activation of the rejected release is
     rolled back exactly as the watchdog would.
 
   The restart obligation is durable before the link moves and is cleared
-  only after a restart, so an agent that dies in between leaves the
-  watchdog, and the next agent's retry, a restart to finish. Steps are idempotent per operation: a retry answers
+  only by the unit's own start (`selfupdate prepare`), so an agent that
+  dies in between leaves the watchdog, and the next agent's retry, a
+  restart to finish; an agent restarts the unit once per operation. Steps are idempotent per operation: a retry answers
   `pending` or `current`. The reply is unsigned and only says whether to wait; completion
   is proven by health proofs. A forged `refused` reply can at worst start a
   rollback (or freeze one), never move a unit forward.
