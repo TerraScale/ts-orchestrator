@@ -145,8 +145,10 @@ HTTP on the private listener (`GET /v1/decisions?region=&kind=&actor=&subject=&s
 on `ts.orch.v1.<region>.obs.decisions` (one answer per region through a
 queue group). `decisionlog.Federation` merges every region newest first and
 reports each region's state: `ok`, `not_linked` (no cross-region link yet),
-`unreachable` or `error`. Until the multi-region link slice lands, only the
-local region is linked.
+`unreachable` or `error`. Interregion leafnode peers are linked through the
+cell connection: the interregion contract carries exactly the
+`obs.region` and `obs.decisions` services, and both responders decode
+requests strictly and bound every filter.
 
 The responders run when `observability.cluster_aggregation` is enabled,
 like the snapshot responder, because they need the controller's `obs.>`

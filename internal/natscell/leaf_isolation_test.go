@@ -122,7 +122,22 @@ func TestSiblingLeafCannotInterceptAnotherChild(t *testing.T) {
 			t.Fatalf("query to SFO answered by someone else: %q", reply.Data)
 		}
 	}
-	if subject, got := sibling.awaitMessage(t, "ts.orch.v1.sfo.", 500*time.Millisecond); got {
+	// SFO's mirror feed and its observability requests are SFO's alone too.
+	for range 5 {
+		if err := gruRuntime.Conn().Publish(protocol.InterRegionGlobalDeliverSubject("sfo"), []byte("feed")); err != nil {
+			t.Fatal(err)
+		}
+		for _, leaf := range protocol.InterRegionObservabilityLeaves() {
+			requestCtx, requestCancel := context.WithTimeout(ctx, 200*time.Millisecond)
+			_, _ = gruRuntime.Conn().RequestWithContext(requestCtx, protocol.InterRegionObservabilitySubject("sfo", leaf),
+				[]byte(`{"version":1}`))
+			requestCancel()
+		}
+	}
+	if err := gruRuntime.Conn().Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if subject, got := sibling.awaitMessage(t, "ts.", 500*time.Millisecond); got {
 		t.Fatalf("FRA's leaf intercepted %q addressed to SFO", subject)
 	}
 
