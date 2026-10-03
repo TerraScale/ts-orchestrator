@@ -1,6 +1,8 @@
 package memberstatus
 
 import (
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"math"
 )
@@ -39,4 +41,47 @@ func (l Load) Validate() error {
 		return ErrInvalidLoad
 	}
 	return nil
+}
+
+// loadFields are the counters a load block must carry; a missing counter
+// never reads as zero load.
+var loadFields = []string{"connections", "storage_bytes", "replication_lag_seq", "write_qps"}
+
+// DecodeLoad parses a raw load block. Any problem (malformed JSON, a value
+// of the wrong type or out of range such as a negative counter or 1e400, a
+// missing counter, an unknown member, or null) yields nil instead of an
+// error: the block is telemetry, never evidence, so it can never fail the
+// status that carries it, and a newer TerraBase that adds a counter only
+// loses its telemetry until this build learns the field.
+func DecodeLoad(raw []byte) *Load {
+	if len(raw) == 0 {
+		return nil
+	}
+	var load Load
+	if decodeRequired(raw, &load, loadFields...) != nil || load.Validate() != nil {
+		return nil
+	}
+	return &load
+}
+
+// splitLoad removes the optional top-level "load" member from a status body
+// and returns it separately, so the lifecycle evidence is decoded strictly
+// while the telemetry block is decoded leniently. A body that is not a JSON
+// object, or has duplicate names, is returned unchanged for the strict
+// decoder to refuse.
+func splitLoad(body []byte) (evidence, load []byte) {
+	var root map[string]jsontext.Value
+	if err := json.Unmarshal(body, &root); err != nil {
+		return body, nil
+	}
+	raw, present := root["load"]
+	if !present {
+		return body, nil
+	}
+	delete(root, "load")
+	evidence, err := json.Marshal(root)
+	if err != nil {
+		return body, nil
+	}
+	return evidence, raw
 }

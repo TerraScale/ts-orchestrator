@@ -243,15 +243,24 @@ func TestDecodeMemberStatusOptionalLoadBlock(t *testing.T) {
 		"incomplete": `{"connections":12}`,
 		"negative":   `{"connections":1,"storage_bytes":1,"replication_lag_seq":1,"write_qps":-1}`,
 		"oversized":  `{"connections":99999999999,"storage_bytes":1,"replication_lag_seq":1,"write_qps":1}`,
+		// Values the typed decoder itself would refuse must not fail the
+		// status either.
+		"negative counter": `{"connections":-1,"storage_bytes":1,"replication_lag_seq":1,"write_qps":1}`,
+		"overflowing qps":  `{"connections":1,"storage_bytes":1,"replication_lag_seq":1,"write_qps":1e400}`,
+		"string counter":   `{"connections":"1","storage_bytes":1,"replication_lag_seq":1,"write_qps":1}`,
+		"not an object":    `[1,2]`,
+		"null":             `null`,
+		// A newer TerraBase that adds a counter only loses its telemetry.
+		"unknown member": `{"connections":1,"storage_bytes":1,"replication_lag_seq":1,"write_qps":1,"extra":1}`,
 	} {
 		status, err := decodeMemberStatus([]byte(withLoad(load)), nonce, 123, expected)
 		if err != nil || status.Load != nil {
 			t.Errorf("%s load: status=%+v err=%v, want accepted status without load", name, status.Load, err)
 		}
 	}
-	// The block is still strict JSON: unknown members are refused like any
-	// other unknown status field.
-	if _, err := decodeMemberStatus([]byte(withLoad(`{"connections":1,"storage_bytes":1,"replication_lag_seq":1,"write_qps":1,"extra":1}`)), nonce, 123, expected); err == nil {
-		t.Error("unknown load member accepted")
+	// The evidence around the block stays strict.
+	if _, err := decodeMemberStatus([]byte(strings.Replace(withLoad(`{"connections":1,"storage_bytes":1,"replication_lag_seq":1,"write_qps":1}`),
+		`"receiver_only":false`, `"receiver_only":false,"extra":1`, 1)), nonce, 123, expected); err == nil {
+		t.Error("unknown status member accepted next to a load block")
 	}
 }

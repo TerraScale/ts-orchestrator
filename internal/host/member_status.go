@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -121,12 +122,10 @@ type memberStatusWire struct {
 		ServingProof *bool `json:"serving_proof"`
 		DurableDrain *bool `json:"durable_drain"`
 	} `json:"capabilities"`
-	Load *struct {
-		Connections       *uint64  `json:"connections"`
-		StorageBytes      *uint64  `json:"storage_bytes"`
-		ReplicationLagSeq *uint64  `json:"replication_lag_seq"`
-		WriteQPS          *float64 `json:"write_qps"`
-	} `json:"load"`
+	// Load stays raw so that no value inside the optional telemetry block
+	// (a wrong type, a negative counter, 1e400, an unknown member) can fail
+	// the strict decode of the lifecycle evidence around it.
+	Load jsontext.Value `json:"load"`
 }
 
 // ReadMemberStatus authenticates one local TerraBase process and its exact
@@ -401,17 +400,10 @@ func decodeMemberStatus(data []byte, nonce string, pid int, expected ExpectedMem
 	if wire.CredentialGeneration != nil {
 		status.CredentialGeneration = *wire.CredentialGeneration
 	}
-	// The optional TerraBase load block is telemetry, never evidence: an
-	// incomplete or out-of-range block is dropped instead of failing the
-	// status, so a telemetry bug can never stop a serving member.
-	if l := wire.Load; l != nil && l.Connections != nil && l.StorageBytes != nil && l.ReplicationLagSeq != nil &&
-		l.WriteQPS != nil {
-		load := memberstatus.Load{Connections: *l.Connections, StorageBytes: *l.StorageBytes,
-			ReplicationLagSeq: *l.ReplicationLagSeq, WriteQPS: *l.WriteQPS}
-		if load.Validate() == nil {
-			status.Load = &load
-		}
-	}
+	// The optional TerraBase load block is telemetry, never evidence: a
+	// malformed, incomplete or out-of-range block is dropped instead of
+	// failing the status, so a telemetry bug can never stop a serving member.
+	status.Load = memberstatus.DecodeLoad(wire.Load)
 	if status.SchemaVersion != 2 || status.Nonce != nonce || status.Process.PID != pid || !lowerHex(status.Process.StartNonce, 32) ||
 		status.Scope.ShardID == 0 || !canonicalMemberID(status.Scope.TenantID) ||
 		!canonicalMemberID(status.Scope.DatabaseID) || !canonicalMemberID(status.Scope.MemberID) ||
