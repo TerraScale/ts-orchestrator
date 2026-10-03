@@ -52,8 +52,12 @@ func RegionSeats(region oci.Region, faultDomains []string, count int) ([]Seat, e
 		}
 		seen[domain] = struct{}{}
 	}
+	permanentID := permanentMember(region)
+	if permanentID == "" {
+		return nil, fmt.Errorf("%w: region %s has no permanent member mapping", ErrInvalidIntent, region)
+	}
 	seats := make([]Seat, 0, count)
-	seats = append(seats, Seat{MemberID: permanentMember(region), Region: region, FailureDomain: faultDomains[0], Kind: MemberPermanent})
+	seats = append(seats, Seat{MemberID: permanentID, Region: region, FailureDomain: faultDomains[0], Kind: MemberPermanent})
 	for ordinal := 1; ordinal < count; ordinal++ {
 		seats = append(seats, Seat{MemberID: ElasticSeatID(region, ordinal), Region: region,
 			FailureDomain: faultDomains[ordinal], Kind: MemberElastic})

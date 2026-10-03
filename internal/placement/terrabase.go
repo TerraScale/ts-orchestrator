@@ -703,8 +703,11 @@ func elasticMember(region oci.Region) string {
 	return "elastic-" + strings.ToLower(string(region))
 }
 
+// knownRegion admits a catalog region only once it has a permanent seat
+// mapping: a region added to the catalog without one is rejected instead of
+// placing a seat with an empty member ID.
 func knownRegion(region oci.Region) bool {
-	return slices.Contains(regionsInOrder, region)
+	return slices.Contains(regionsInOrder, region) && permanentMember(region) != ""
 }
 
 func validBoundedToken(value string, maxLength int) bool {
