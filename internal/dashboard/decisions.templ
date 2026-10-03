@@ -108,7 +108,7 @@ templ regionStatuses(result *decisionlog.Result) {
 					<span class="tag">{ upper(status.Region) } { reachLabel(status.State) }</span>
 				}
 			} else if result.Partial {
-				Part of the requested history could not be searched (it is older than the in-memory window and the durable journal was unavailable), so this list may be incomplete.
+				Part of the requested history could not be searched (the journal may still be loading its history, or an archive search was cut short or failed), so this list may be incomplete.
 			}
 		</p>
 	}
@@ -156,6 +156,12 @@ templ chainPanel(current view, chain decisionlog.Chain) {
 			</h2>
 			<a href={ safe(current.State.keep(current.Page.href(), "id", "")) }>Close ✕</a>
 		</div>
+		if chain.Partial {
+			<p class="note warn">Part of this chain could not be searched, so steps may be missing and its current status may be out of date.</p>
+		}
+		if chain.Truncated {
+			<p class="note warn">This chain has more steps than are shown: the root, the selected decision and the newest steps are listed.</p>
+		}
 		<ol class="chain">
 			for _, decision := range chain.Decisions {
 				@decisionStep(current, decision)

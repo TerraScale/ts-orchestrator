@@ -21,14 +21,14 @@ func (source rollouts) Rollouts(context.Context) ([]insights.Rollout, error) {
 	case "gru":
 		return []insights.Rollout{
 			{ID: "ro-v0.43.0-gru", Release: "v0.43.0", Phase: "complete", PhaseStarted: now.Add(-245 * time.Minute), Done: true},
-			{ID: "ro-terrabase-3.8.2-gru", Release: "terrabase 3.8.2", Phase: "soak", PhaseStarted: now.Add(-26 * time.Minute),
+			{ID: "ro-terrabase-3.8.2-gru", Release: "terrabase 3.8.2", Phase: "canary-soak", PhaseStarted: now.Add(-26 * time.Minute),
 				PhaseDeadline: now.Add(4 * time.Minute)},
 		}, nil
 	case "sfo":
-		return []insights.Rollout{{ID: "ro-v0.43.0-sfo", Release: "v0.43.0", Phase: "batch-1",
+		return []insights.Rollout{{ID: "ro-v0.43.0-sfo", Release: "v0.43.0", Phase: "batch",
 			PhaseStarted: now.Add(-30 * time.Minute), PhaseDeadline: now.Add(-5 * time.Minute)}}, nil
 	case "fra":
-		return []insights.Rollout{{ID: "ro-v0.43.0-fra", Release: "v0.43.0", Phase: "held",
+		return []insights.Rollout{{ID: "ro-v0.43.0-fra", Release: "v0.43.0", Phase: "frozen",
 			PhaseStarted: now.Add(-140 * time.Minute)}}, nil
 	}
 	return nil, nil

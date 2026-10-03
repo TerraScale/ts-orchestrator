@@ -75,6 +75,11 @@ func storageBody(current view) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
+		} else if current.failed("volumes") {
+			templ_7745c5c3_Err = unavailable("Volume state could not be read right now, so attachments are unknown.").Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
 		} else if len(current.Volumes) == 0 {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<p class=\"empty\">No block volume is attached in this region.</p>")
 			if templ_7745c5c3_Err != nil {
@@ -103,7 +108,7 @@ func storageBody(current view) templ.Component {
 				var templ_7745c5c3_Var3 templ.SafeURL
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinURLErrs(safe(current.State.keep("/storage", "volume", volume.ID)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 33, Col: 81}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 35, Col: 81}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 				if templ_7745c5c3_Err != nil {
@@ -116,7 +121,7 @@ func storageBody(current view) templ.Component {
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(volume.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 33, Col: 95}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 35, Col: 95}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {
@@ -134,7 +139,7 @@ func storageBody(current view) templ.Component {
 					var templ_7745c5c3_Var5 templ.SafeURL
 					templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinURLErrs(safe(current.State.link("/members", "host", volume.Host)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 36, Col: 79}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 38, Col: 79}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 					if templ_7745c5c3_Err != nil {
@@ -147,7 +152,7 @@ func storageBody(current view) templ.Component {
 					var templ_7745c5c3_Var6 string
 					templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(volume.Host)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 36, Col: 95}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 38, Col: 95}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 					if templ_7745c5c3_Err != nil {
@@ -204,7 +209,7 @@ func storageBody(current view) templ.Component {
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(upper(current.region()))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 62, Col: 68}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 64, Col: 68}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
@@ -217,7 +222,7 @@ func storageBody(current view) templ.Component {
 		var templ_7745c5c3_Var8 templ.SafeURL
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinURLErrs(safe(current.State.link("/decisions", "kind", "backup_taken,volume_resized,volume_reattached")))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 63, Col: 110}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 65, Col: 110}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
@@ -266,7 +271,7 @@ func storageBody(current view) templ.Component {
 					var templ_7745c5c3_Var9 string
 					templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(member.Member)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 84, Col: 28}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 86, Col: 28}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 					if templ_7745c5c3_Err != nil {
@@ -279,7 +284,7 @@ func storageBody(current view) templ.Component {
 					var templ_7745c5c3_Var10 string
 					templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(formatBytes(nats.StoreUsedBytes))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 85, Col: 47}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 87, Col: 47}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 					if templ_7745c5c3_Err != nil {
@@ -297,7 +302,7 @@ func storageBody(current view) templ.Component {
 						var templ_7745c5c3_Var11 string
 						templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(formatBytes(nats.StoreLimitBytes))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 87, Col: 49}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 89, Col: 49}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 						if templ_7745c5c3_Err != nil {
@@ -333,7 +338,7 @@ func storageBody(current view) templ.Component {
 					var templ_7745c5c3_Var12 string
 					templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(member.Member)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 98, Col: 28}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 100, Col: 28}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 					if templ_7745c5c3_Err != nil {
@@ -370,7 +375,7 @@ func storageBody(current view) templ.Component {
 					var templ_7745c5c3_Var13 string
 					templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(member.Member)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 119, Col: 29}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 121, Col: 29}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 					if templ_7745c5c3_Err != nil {
@@ -383,7 +388,7 @@ func storageBody(current view) templ.Component {
 					var templ_7745c5c3_Var14 string
 					templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(filesystem.Role)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 120, Col: 31}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 122, Col: 31}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 					if templ_7745c5c3_Err != nil {
@@ -396,7 +401,7 @@ func storageBody(current view) templ.Component {
 					var templ_7745c5c3_Var15 string
 					templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(filesystem.Path)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 121, Col: 37}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 123, Col: 37}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 					if templ_7745c5c3_Err != nil {
@@ -409,7 +414,7 @@ func storageBody(current view) templ.Component {
 					var templ_7745c5c3_Var16 string
 					templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(formatBytes(filesystem.SizeBytes))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 122, Col: 49}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 124, Col: 49}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 					if templ_7745c5c3_Err != nil {
@@ -422,7 +427,7 @@ func storageBody(current view) templ.Component {
 					var templ_7745c5c3_Var17 string
 					templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(formatBytes(filesystem.AvailBytes))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 123, Col: 50}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 125, Col: 50}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 					if templ_7745c5c3_Err != nil {
@@ -443,7 +448,7 @@ func storageBody(current view) templ.Component {
 					var templ_7745c5c3_Var18 string
 					templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(itoa(filesystem.FilesFree))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 127, Col: 42}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 129, Col: 42}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 					if templ_7745c5c3_Err != nil {
@@ -456,7 +461,7 @@ func storageBody(current view) templ.Component {
 					var templ_7745c5c3_Var19 string
 					templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(itoa(filesystem.Files))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 127, Col: 71}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/storage.templ`, Line: 129, Col: 71}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 					if templ_7745c5c3_Err != nil {

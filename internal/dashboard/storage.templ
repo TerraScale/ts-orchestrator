@@ -17,6 +17,8 @@ templ storageBody(current view) {
 				</div>
 				if current.Journal == nil || current.Journal.Volumes == nil {
 					@unavailable("Volume lifecycle state appears once the storage slice reports volumes. Filesystems below come from each member's own view.")
+				} else if current.failed("volumes") {
+					@unavailable("Volume state could not be read right now, so attachments are unknown.")
 				} else if len(current.Volumes) == 0 {
 					<p class="empty">No block volume is attached in this region.</p>
 				} else {

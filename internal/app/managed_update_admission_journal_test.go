@@ -17,7 +17,7 @@ func TestManagedUpdateAdmissionIsJournaledOncePerOperation(t *testing.T) {
 		recordManagedUpdateAdmission(t.Context(), "lab", "operator", intent, 12)
 	}
 	result, _ := journal.Query(t.Context(), decisionlog.Query{Kinds: []decisionlog.Kind{decisionlog.KindReleaseAdmitted}})
-	if len(result.Decisions) != 1 || result.Decisions[0].ID != placement.ManagedUpdateAdmissionID("op-7") {
+	if len(result.Decisions) != 1 || result.Decisions[0].ID != placement.ManagedUpdateAdmissionID("lab", "db", "p0", "op-7") {
 		t.Fatalf("admissions = %+v", result.Decisions)
 	}
 	if stats := journal.Stats(); stats.Recorded != 1 {

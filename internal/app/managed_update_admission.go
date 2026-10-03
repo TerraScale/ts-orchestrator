@@ -281,7 +281,7 @@ func recordManagedUpdateAdmission(ctx context.Context, cell, actor string, inten
 	sequence uint64,
 ) {
 	id := decisionlog.Record(ctx, decisionlog.Decision{
-		ID:     placement.ManagedUpdateAdmissionID(intent.OperationID),
+		ID:     placement.ManagedUpdateAdmissionID(cell, intent.DatabaseID, intent.PartitionID, intent.OperationID),
 		Region: cell,
 		Actor:  decisionlog.Actor{Slice: "placement"},
 		Kind:   decisionlog.KindReleaseAdmitted,
@@ -302,5 +302,5 @@ func recordManagedUpdateAdmission(ctx context.Context, cell, actor string, inten
 		Attrs: map[string]string{"signed_by": actor, "candidate_artifact_digest": intent.CandidateArtifactDigest,
 			"old_artifact_digest": intent.OldArtifactDigest, "canary_seat": intent.CanarySeatID},
 	})
-	decisionlog.Correlate(placement.ManagedUpdateCorrelation(intent.OperationID), id)
+	decisionlog.Correlate(placement.ManagedUpdateCorrelation(intent.DatabaseID, intent.PartitionID, intent.OperationID), id)
 }

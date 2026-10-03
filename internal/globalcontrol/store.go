@@ -28,6 +28,9 @@ var (
 	// region sending a forward reset. The mirror fails closed rather than serve a record that
 	// a skipped one may have superseded; recreate the mirror to recover.
 	ErrMirrorGap = errors.New("global mirror is missing home records")
+	// ErrMirrorNotCaughtUp means an empty regional mirror has not yet
+	// confirmed with the home stream that there is nothing to copy.
+	ErrMirrorNotCaughtUp = errors.New("global mirror has not caught up with the home stream")
 )
 
 // record is the stored envelope. Epoch is the global authority epoch that
@@ -108,10 +111,40 @@ func (r *Reader) read(ctx context.Context, kind Kind, key string) (record, uint6
 	var stored record
 	if err := protocol.DecodeStrict(message.Data, &stored, maxRecordBytes+4096); err != nil ||
 		stored.Version != recordVersion || stored.Kind != kind || stored.Key != key ||
-		stored.Generation == 0 || stored.Epoch == 0 || !epochHeaderMatches(message.Header, stored.Epoch) {
+		stored.Generation == 0 || stored.Epoch == 0 {
 		return record{}, 0, ErrRecordCorrupt
 	}
+	if !epochHeaderMatches(message.Header, stored.Epoch) {
+		legacy, err := r.legacyRecord(readCtx, message)
+		if err != nil {
+			return record{}, 0, err
+		}
+		if !legacy {
+			return record{}, 0, ErrRecordCorrupt
+		}
+	}
 	return stored, message.Sequence, nil
+}
+
+// legacyRecord reports whether a record without the epoch header was
+// written by a writer that predates the term barrier: it has no epoch header
+// at all and its sequence precedes the first term barrier in the stream (or
+// no barrier exists yet). Such a record stays readable, and the next write
+// supersedes it with a headered record under the barrier. A record appended
+// after the first barrier must carry a matching header, so fencing is
+// unchanged; a present but mismatching header is always corruption.
+func (r *Reader) legacyRecord(ctx context.Context, message *jetstream.RawStreamMsg) (bool, error) {
+	if len(message.Header.Values(EpochHeader)) != 0 {
+		return false, nil
+	}
+	first, err := r.stream.GetMsg(ctx, 1, jetstream.WithGetMsgSubject(subject(KindTerm, termKey)))
+	if errors.Is(err, jetstream.ErrMsgNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read first global term barrier: %w", err)
+	}
+	return message.Sequence < first.Sequence, nil
 }
 
 // checkMirrorGapFree requires the mirror to hold every home sequence from 1
@@ -124,6 +157,13 @@ func (r *Reader) checkMirrorGapFree(ctx context.Context) error {
 	}
 	state := info.State
 	if state.LastSeq == 0 {
+		// An empty mirror proves nothing until it has heard from the home
+		// stream and has nothing left to copy: before its first contact
+		// (initial catch-up, or a home that never created this region's
+		// mirror consumer) "not found" would be a guess.
+		if mirror := info.Mirror; mirror == nil || mirror.Active < 0 || mirror.Lag != 0 {
+			return ErrMirrorNotCaughtUp
+		}
 		return nil
 	}
 	if state.NumDeleted != 0 || state.FirstSeq != 1 || state.Msgs != state.LastSeq {
@@ -176,7 +216,10 @@ type Writer struct {
 	home   string
 	fencer authority.Fencer
 	js     jetstream.JetStream
-	mu     sync.Mutex
+	// replicas is the replica count OpenHome verified; every append
+	// re-verifies the stream against it, so later drift is detected.
+	replicas int
+	mu       sync.Mutex
 	// beforePublish runs between the fenced reads and the conditional
 	// append; tests use it to interleave a new term.
 	beforePublish func()
@@ -212,7 +255,7 @@ func OpenHome(ctx context.Context, js jetstream.JetStream, cell string, peers []
 	if err := removeStaleMirrorConsumers(ctx, stream, peers); err != nil {
 		return nil, err
 	}
-	return &Writer{Reader: Reader{stream: stream}, home: cell, fencer: fencer, js: js}, nil
+	return &Writer{Reader: Reader{stream: stream}, home: cell, fencer: fencer, js: js, replicas: replicas}, nil
 }
 
 // PutRoster writes the next roster generation. The home region cannot be
@@ -267,6 +310,13 @@ func (r *Reader) Term(ctx context.Context) (uint64, error) {
 	readCtx, cancel := context.WithTimeout(ctx, apiTimeout)
 	defer cancel()
 	epoch, _, err := readTerm(readCtx, r.stream)
+	if err == nil && r.mirror {
+		// Like every mirror read: a mirror missing home records may also
+		// miss a newer barrier, so it fails closed.
+		if gapErr := r.checkMirrorGapFree(readCtx); gapErr != nil {
+			return 0, gapErr
+		}
+	}
 	return epoch, err
 }
 
@@ -300,7 +350,7 @@ func (w *Writer) establishTerm(ctx context.Context, epoch uint64) (uint64, error
 			cancel()
 			return 0, fmt.Errorf("read global stream sequence: %w", err)
 		}
-		if err := verifyHome(info.Config, info.Config.Replicas); err != nil {
+		if err := verifyHome(info.Config, w.replicas); err != nil {
 			cancel()
 			return 0, err
 		}
@@ -345,9 +395,13 @@ func (w *Writer) establishTerm(ctx context.Context, epoch uint64) (uint64, error
 	return 0, ErrConflict
 }
 
+// wrongLastSequence reports a failed sequence expectation. The server also
+// answers the per-subject expectation with the "constant" variant when the
+// subject is in flight in a batch, which is the same concurrent-writer race.
 func wrongLastSequence(err error) bool {
 	apiErr, ok := errors.AsType[*jetstream.APIError](err)
-	return ok && apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence
+	return ok && (apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence ||
+		apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequenceConstant)
 }
 
 func (w *Writer) put(ctx context.Context, epoch uint64, kind Kind, key string, generation uint64, value any) (uint64, error) {

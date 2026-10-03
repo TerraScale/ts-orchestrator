@@ -28,10 +28,12 @@ type DesiredWriter interface {
 	ApplyDesired(context.Context, host.Desired) (host.Receipt, error)
 }
 
-// CapacityRequester is told when a service cannot be placed on current hosts.
-// Implementations must not block; they record demand for a host-pool scaler.
+// CapacityRequester is told when a service cannot be placed on current hosts,
+// and when it can again. Implementations must not block; they record demand
+// for a host-pool scaler.
 type CapacityRequester interface {
 	RequestCapacity(spec ServiceSpec, request placement.WorkloadRequest)
+	CapacitySatisfied(spec ServiceSpec)
 }
 
 type Config struct {
@@ -97,6 +99,11 @@ func New(config Config) (*Reconciler, error) {
 		return 0
 	})
 	for _, spec := range specs {
+		// Only stateless services are reconciled here; stateful specs
+		// (TerraBase) are sized by placement and need no generic profile.
+		if spec.Kind != KindStateless {
+			continue
+		}
 		if _, err := resourcesFor(spec, config.Profiles); err != nil {
 			return nil, err
 		}
@@ -181,7 +188,11 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 		if spec.Kind != KindStateless {
 			continue
 		}
-		result, err := r.reconcile(ctx, spec, snapshot.Epoch, hosts, desired, now)
+		// Every service plans against the allocations earlier services
+		// committed in this tick, so two services can never both claim
+		// the same free capacity on one host.
+		result, committed, err := r.reconcile(ctx, spec, snapshot.Epoch, hosts, desired, now)
+		desired = withCommitted(desired, committed)
 		r.mu.Lock()
 		r.last[spec.Role] = result
 		r.mu.Unlock()
@@ -192,18 +203,42 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+// withCommitted returns desired with every committed write replacing the
+// record of the same node and role.
+func withCommitted(desired, committed []host.Desired) []host.Desired {
+	if len(committed) == 0 {
+		return desired
+	}
+	result := slices.Clone(desired)
+	for _, write := range committed {
+		index := slices.IndexFunc(result, func(existing host.Desired) bool {
+			return existing.Node == write.Node && existing.Role == write.Role
+		})
+		if index < 0 {
+			result = append(result, write)
+		} else {
+			result[index] = write
+		}
+	}
+	return result
+}
+
+// reconcile plans and applies one step for spec. It returns the writes that
+// committed, even when a later write failed. The remembered goal and the
+// autoscaling history advance only after the whole step committed, so a
+// failed step is decided and applied again instead of being taken as done.
 func (r *Reconciler) reconcile(ctx context.Context, spec ServiceSpec, epoch uint64, hosts []host.HostStatus,
 	desired []host.Desired, now time.Time,
-) (Result, error) {
+) (Result, []host.Desired, error) {
 	result := Result{Role: spec.Role}
 	resources, err := resourcesFor(spec, r.config.Profiles)
 	if err != nil {
-		return result, err
+		return result, nil, err
 	}
 	observation, err := Observe(Snapshot{Cell: r.config.Cell, Environment: spec.Environment, Role: spec.Role,
 		Hosts: hosts, Desired: desired, Profiles: r.config.Profiles, Now: now})
 	if err != nil {
-		return result, err
+		return result, nil, err
 	}
 	release, err := CurrentRelease(observation)
 	if errors.Is(err, ErrNoRelease) {
@@ -213,10 +248,10 @@ func (r *Reconciler) reconcile(ctx context.Context, spec ServiceSpec, epoch uint
 		delete(r.goal, spec.Role)
 		r.mu.Unlock()
 		result.Reason = "awaiting-release"
-		return result, nil
+		return result, nil, nil
 	}
 	if err != nil {
-		return result, err
+		return result, nil, err
 	}
 	// Replicas counts every active replica, stale ones included. Without a
 	// remembered goal, for example on a new authority term, the goal starts
@@ -238,36 +273,43 @@ func (r *Reconciler) reconcile(ctx context.Context, spec ServiceSpec, epoch uint
 			autoscale.Target{Cell: r.config.Cell, Environment: spec.Environment, Role: spec.Role}, *spec.Scaling, now)
 		decision := autoscale.Decide(*spec.Scaling, autoscale.Input{Current: goal, Bounds: bounds,
 			Readings: readings, Now: now}, history)
-		r.mu.Lock()
-		r.history[spec.Role] = decision.History
-		r.mu.Unlock()
+		history = decision.History
 		result.Decision = &decision
 		target, result.Reason = decision.To, decision.Reason
 	}
-	r.mu.Lock()
-	r.goal[spec.Role] = target
-	r.mu.Unlock()
 	result.Target = target
 	step, err := PlanStep(StepInput{Cell: r.config.Cell, Spec: spec, Resources: resources,
 		Observation: observation, Release: release, Replicas: target, Epoch: epoch})
 	if errors.Is(err, placement.ErrInsufficientCapacity) && r.config.Capacity != nil {
 		r.config.Capacity.RequestCapacity(spec, placement.WorkloadRequest{Cell: r.config.Cell, Role: spec.Role,
-			Replicas: target, Request: resources, Hosts: observation.Candidates, Previous: release.Current})
+			Replicas: target, Request: resources, Hosts: observation.Candidates, Previous: release.Current,
+			MaxPerFailureDomain: spec.Placement.MaxPerFailureDomain})
+	}
+	if err == nil && r.config.Capacity != nil {
+		r.config.Capacity.CapacitySatisfied(spec)
 	}
 	if err != nil {
-		return result, err
+		return result, nil, err
 	}
 	result.Step = step
+	var committed []host.Desired
 	for _, write := range step.Writes {
 		if err := r.config.Fencer.Guard(ctx, epoch); err != nil {
-			return result, err
+			return result, committed, err
 		}
 		if _, err := r.config.Writer.ApplyDesired(ctx, write); err != nil {
 			// A concurrent release or authority change wins; the next tick
 			// observes it and plans again.
-			return result, fmt.Errorf("apply desired %s/%s: %w", write.Node, write.Role, err)
+			return result, committed, fmt.Errorf("apply desired %s/%s: %w", write.Node, write.Role, err)
 		}
+		committed = append(committed, write)
 	}
+	r.mu.Lock()
+	r.goal[spec.Role] = target
+	if result.Decision != nil {
+		r.history[spec.Role] = history
+	}
+	r.mu.Unlock()
 	if len(step.Writes) > 0 {
 		r.config.Logf("workload %s: %d -> %d replicas (%s), generation %d, +%d -%d", spec.Role,
 			result.Replicas, target, result.Reason, step.Generation, step.Added, step.Withdrawn)
@@ -275,7 +317,7 @@ func (r *Reconciler) reconcile(ctx context.Context, spec ServiceSpec, epoch uint
 			recordScale(ctx, r.config.Cell, spec, epoch, *result.Decision, readings, step.Generation)
 		}
 	}
-	return result, nil
+	return result, committed, nil
 }
 
 func resourcesFor(spec ServiceSpec, profiles map[string]placement.Resources) (placement.Resources, error) {

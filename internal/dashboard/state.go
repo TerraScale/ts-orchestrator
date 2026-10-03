@@ -74,13 +74,29 @@ func parseState(query url.Values) uiState {
 			state.Params.Set(name, value)
 		}
 	}
-	// subject= is what the insight engine's entity links use for the
-	// journal's subject or text filter.
-	if subject := strings.TrimSpace(query.Get("subject")); subject != "" && !state.Params.Has("q") &&
+	// subject= is what older insight entity links use for the journal's
+	// subject or text filter.
+	if subject := subjectSearch(strings.TrimSpace(query.Get("subject"))); subject != "" && !state.Params.Has("q") &&
 		validSearch(subject) {
 		state.Params.Set("q", subject)
 	}
 	return state
+}
+
+// subjectKinds are the decision subject kinds a kind-qualified subject link
+// ("operation/op-123") may name.
+var subjectKinds = []string{"release", "service", "host", "volume", "region", "member", "database", "seat",
+	"operation", "intent", "peer", "cluster", "host_pool", "nats-meta"}
+
+// subjectSearch turns a legacy subject= link value into the decision search
+// text. The search matches subject IDs, names and summaries, never the
+// kind-qualified form Subject.String() renders, so a known kind prefix is
+// dropped.
+func subjectSearch(subject string) string {
+	if kind, id, found := strings.Cut(subject, "/"); found && id != "" && slices.Contains(subjectKinds, kind) {
+		return id
+	}
+	return subject
 }
 
 func (state uiState) param(name string) string { return state.Params.Get(name) }
@@ -200,7 +216,7 @@ func (state uiState) adopt(link, region string) string {
 	if subject := values.Get("subject"); subject != "" {
 		values.Del("subject")
 		if !values.Has("q") {
-			values.Set("q", subject)
+			values.Set("q", subjectSearch(subject))
 		}
 	}
 	for name, value := range state.values() {

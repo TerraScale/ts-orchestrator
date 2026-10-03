@@ -153,3 +153,94 @@ func TestEngineReportsDroppedChanges(t *testing.T) {
 		t.Fatal("ChangesComplete does not follow the dropped boundary")
 	}
 }
+
+// These pin the fixes for the ts-reviewer findings on PRs #127 and #130.
+
+// A rule that observed health resets its timer even while another rule is
+// blind, so a later failure waits a fresh interval.
+func TestObservableRuleResetsTimerWhileAnotherRuleIsBlind(t *testing.T) {
+	ticks := 0
+	rules := []Rule{
+		{Name: "watched", Evaluate: func(inputs *Inputs) []Insight {
+			ticks++
+			if ticks == 1 {
+				inputs.Since("watched:x")
+			}
+			return nil
+		}},
+		{Name: "volume_stuck", Evaluate: func(*Inputs) []Insight { return nil }},
+	}
+	engine := NewEngine(Config{Region: "gru", Volumes: failingVolumes{}, Rules: rules})
+	engine.Evaluate(t.Context())
+	engine.Evaluate(t.Context())
+	engine.mu.Lock()
+	_, kept := engine.conditions["watched:x"]
+	engine.mu.Unlock()
+	if kept {
+		t.Fatal("a healthy observation kept its timer because an unrelated rule was blind")
+	}
+}
+
+type failingVolumes struct{}
+
+func (failingVolumes) Volumes(context.Context) ([]Volume, error) { return nil, errors.New("down") }
+
+// A held seat read from placement resolves once placement shows the hold
+// cleared, even while the journal input of the same rule is unavailable.
+func TestSeatHoldResolvesWhileTheJournalIsUnavailable(t *testing.T) {
+	held := &observability.PlacementView{Databases: []observability.DatabaseView{{DatabaseID: "db", PartitionID: "p0",
+		Members: []observability.MemberView{{SeatID: "permanent-a", UpdatePhase: "held"}}}}}
+	cluster := &fakeCluster{snapshot: observability.ClusterSnapshot{
+		Members: []observability.MemberSnapshot{{Member: "c1", Placement: held}}}}
+	engine := NewEngine(Config{Region: "gru", Cluster: cluster, Decisions: &truncatingDecisions{}})
+	if find(engine.Evaluate(t.Context()).Insights, "member_held") == nil {
+		t.Fatal("no hold insight")
+	}
+	cluster.mu.Lock()
+	cluster.snapshot = observability.ClusterSnapshot{Members: []observability.MemberSnapshot{{Member: "c1",
+		Placement: &observability.PlacementView{}}}}
+	cluster.mu.Unlock()
+	if find(engine.Evaluate(t.Context()).Insights, "member_held") != nil {
+		t.Fatal("an observed recovery stayed open because the journal input was unavailable")
+	}
+}
+
+// A stuck attachment reported by its seat is not reported again by the
+// volume provider describing the same placement state.
+func TestStuckAttachmentIsReportedOnce(t *testing.T) {
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	since := now.Add(-time.Hour)
+	view := &observability.PlacementView{Databases: []observability.DatabaseView{{DatabaseID: "db", PartitionID: "p0",
+		Members: []observability.MemberView{{SeatID: "permanent-a", Stage: "awaiting-attach", HostNode: "host-a",
+			UpdatedAt: since}}}}}
+	cluster := &observability.ClusterSnapshot{Members: []observability.MemberSnapshot{{Member: "c1", Placement: view}}}
+	got := evaluate(t, volumeStuck, &Inputs{Now: now, Cluster: cluster, Thresholds: Thresholds{}.withDefaults(),
+		Volumes: []Volume{{ID: "vol-1", Host: "host-a", State: "attaching", StateSince: since}}})
+	if len(got) != 1 {
+		t.Fatalf("stuck attachment insights = %+v, want one", got)
+	}
+}
+
+// The repeated-hold link searches the subject ID the decision search matches.
+func TestRepeatedHoldLinkSearchesTheSubjectID(t *testing.T) {
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	var decisions []decisionlog.Decision
+	for range 5 {
+		decisions = append(decisions, decisionlog.Decision{Kind: decisionlog.KindHeld, Time: now.Add(-time.Minute),
+			Subject: decisionlog.Subject{Kind: "operation", ID: "op 123"}})
+	}
+	got := evaluate(t, memberHeld, &Inputs{Now: now, Decisions: decisions, Thresholds: Thresholds{}.withDefaults()})
+	if len(got) != 1 || got[0].Entity.Href != "/decisions?q=op+123" {
+		t.Fatalf("repeated hold = %+v", got)
+	}
+}
+
+// A truncated decision count is a lower bound and marks the summary partial.
+func TestTruncatedDecisionsMarkTheSummaryPartial(t *testing.T) {
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	summary := Summarize(SummaryInput{Now: now, Window: time.Hour, Scope: "GRU", DecisionsTruncated: true,
+		Decisions: []decisionlog.Decision{{Time: now.Add(-time.Minute), Kind: decisionlog.KindScaleUp}}})
+	if !summary.Partial {
+		t.Fatalf("truncated summary = %+v", summary)
+	}
+}

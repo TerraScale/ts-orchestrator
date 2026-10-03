@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/url"
 	"slices"
@@ -103,7 +104,7 @@ func TestPartialReleaseHistoryIsNotCompleteEverywhere(t *testing.T) {
 	// Every region answered, but SFO never started the release.
 	answered := decisionlog.Result{Decisions: completedRelease("fra"),
 		Regions: []decisionlog.RegionStatus{{Region: "fra", State: decisionlog.RegionOK}, {Region: "sfo", State: decisionlog.RegionOK}}}
-	if got := label(answered); strings.Contains(got, "everywhere") || !strings.Contains(got, "1 never started it") {
+	if got := label(answered); strings.Contains(got, "everywhere") || !strings.Contains(got, "1 with no activity in the queried window") {
 		t.Fatalf("release missing a region = %q", got)
 	}
 	everywhere := decisionlog.Result{Decisions: completedRelease("fra", "sfo"), Regions: answered.Regions}
@@ -275,11 +276,21 @@ func TestInsightsPageEmptyStatesAreHonest(t *testing.T) {
 	if text := (view{Journal: &Journal{}}).quietText(); !strings.Contains(text, "unavailable") {
 		t.Fatalf("no evaluation = %q", text)
 	}
-	quiet := view{Evaluation: &insights.Evaluation{}}
+	// A new engine's empty evaluation (zero time) has not run yet.
+	if text := (view{Evaluation: &insights.Evaluation{}}).quietText(); !strings.Contains(text, "unavailable") {
+		t.Fatalf("not yet evaluated = %q", text)
+	}
+	quiet := view{Evaluation: &insights.Evaluation{At: testNow}}
 	if text := quiet.quietText(); !strings.Contains(text, "Every rule is quiet") {
 		t.Fatalf("quiet = %q", text)
 	}
-	blind := view{Evaluation: &insights.Evaluation{Unavailable: []string{"volumes"}}}
+	// A region that could not be observed rules out the global all-clear.
+	unlinked := view{Evaluation: &insights.Evaluation{At: testNow}, Regions: []regionview.Summary{
+		{Region: "fra", Local: true, Reach: decisionlog.RegionOK}, {Region: "sfo", Reach: decisionlog.RegionNotLinked}}}
+	if text := unlinked.quietText(); strings.Contains(text, "Every rule is quiet") || !strings.Contains(text, "SFO") {
+		t.Fatalf("unobserved region = %q", text)
+	}
+	blind := view{Evaluation: &insights.Evaluation{At: testNow, Unavailable: []string{"volumes"}}}
 	if text := blind.quietText(); strings.Contains(text, "Every rule is quiet") {
 		t.Fatalf("rules without input = %q", text)
 	}
@@ -302,7 +313,7 @@ func TestEntityLinksUseTheEntitysRegion(t *testing.T) {
 	source.evaluation.Insights = append(source.evaluation.Insights, gru, unreachable, held)
 	body := get(t, dashboard.Handler(), "/insights?r=sfo&region=all").Body.String()
 	for _, want := range []string{`href="/nats?r=gru&amp;stream=TS_X"`, `href="/region?r=sfo"`, `href="/?r=sfo"`,
-		`href="/decisions?q=seat%2Fs1"`, `href="/members?host=ctl-1"`} {
+		`href="/decisions?q=s1"`, `href="/members?host=ctl-1"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("insights page lacks %s", want)
 		}
@@ -557,4 +568,175 @@ func renderHTML(t *testing.T, component templ.Component) string {
 		t.Fatal(err)
 	}
 	return body.String()
+}
+
+// These pin the fixes for the ts-reviewer findings on PRs #127 and #130.
+
+func releaseLabel(t *testing.T, decisions ...decisionlog.Decision) releaseView {
+	t.Helper()
+	result := decisionlog.Result{Decisions: decisions}
+	releases := view{Journal: &Journal{Decisions: &fakeDecisions{}}, Decisions: &result}.releases()
+	if len(releases) != 1 {
+		t.Fatalf("releases = %+v", releases)
+	}
+	return releases[0]
+}
+
+// Admission is not CI qualification: without explicit evidence there is no
+// qualified step.
+func TestAdmissionAloneIsNotQualified(t *testing.T) {
+	t.Parallel()
+	release := releaseLabel(t, decisionlog.Decision{ID: "a", Time: testNow, Region: "fra",
+		Kind: decisionlog.KindReleaseAdmitted, Subject: release})
+	for _, step := range release.Lanes[0].Steps {
+		if step.Stage == "qualified" && step.Decision != nil {
+			t.Fatalf("admission produced a qualified step: %+v", step)
+		}
+	}
+}
+
+// A rollback that has started is not reported as rolled back, and an
+// aborted rollout is a failed outcome, not a running lane.
+func TestRollbackInProgressAndAbortedOutcomes(t *testing.T) {
+	t.Parallel()
+	rolling := releaseLabel(t, decisionlog.Decision{ID: "rb", Time: testNow, Region: "fra",
+		Kind: decisionlog.KindRollback, Subject: release, Status: decisionlog.StatusInProgress})
+	if rolling.Status != "serious" || !strings.HasPrefix(rolling.Label, "rolling back") {
+		t.Fatalf("rollback in progress = %s %q", rolling.Status, rolling.Label)
+	}
+	done := releaseLabel(t, decisionlog.Decision{ID: "rb", Time: testNow, Region: "fra",
+		Kind: decisionlog.KindRollback, Subject: release, Status: decisionlog.StatusRolledBack})
+	if !strings.HasPrefix(done.Label, "rolled back") {
+		t.Fatalf("finished rollback = %q", done.Label)
+	}
+	aborted := releaseLabel(t, decisionlog.Decision{ID: "ab", Time: testNow, Region: "fra",
+		Kind: decisionlog.KindHeld, Subject: release, Status: decisionlog.StatusFailed,
+		Attrs: map[string]string{"phase": "aborted"}})
+	if aborted.Status != "bad" || !strings.HasPrefix(aborted.Label, "aborted") {
+		t.Fatalf("aborted rollout = %s %q", aborted.Status, aborted.Label)
+	}
+}
+
+// The rollout producer names its subject "<kind>/<rollout>"; that label is
+// not a version, and a release whose start was not observed does not
+// outrank one whose admission was.
+func TestTargetVersionUsesVersionIdentityAndObservedStarts(t *testing.T) {
+	t.Parallel()
+	rollout := decisionlog.Subject{Kind: "release", ID: "sha256:cccc", Name: "orchestrator/ro-7"}
+	if got := releaseVersion(decisionlog.Decision{Subject: rollout}, rollout.ID); got != "sha256:cccc" {
+		t.Fatalf("rollout producer version = %q", got)
+	}
+	v1 := decisionlog.Subject{Kind: "release", ID: "r1", Name: "v1"}
+	v2 := decisionlog.Subject{Kind: "release", ID: "r2", Name: "v2"}
+	result := decisionlog.Result{Decisions: []decisionlog.Decision{
+		// v1's admission is outside the window; its first loaded decision
+		// is a recent batch.
+		{ID: "v1-batch", Time: testNow.Add(-time.Hour), Region: "fra", Kind: decisionlog.KindBatchPromoted, Subject: v1},
+		{ID: "v2-start", Time: testNow.Add(-2 * time.Hour), Region: "fra", Kind: decisionlog.KindReleaseAdmitted, Subject: v2},
+	}}
+	current := view{Decisions: &result, Versions: []UnitVersion{
+		{Region: "fra", Kind: "controller", Unit: "a", Version: "v1"},
+		{Region: "fra", Kind: "controller", Unit: "b", Version: "v2"}}}
+	if target := current.targetVersion("controller"); target != "v2" {
+		t.Fatalf("target = %q, want v2 whose start was observed", target)
+	}
+}
+
+// The rollout diagram reads the rollout state machine's phases.
+func TestRolloutDiagramReadsStateMachinePhases(t *testing.T) {
+	t.Parallel()
+	for phase, want := range map[string]string{"canary": "canary", "canary-soak": "soak", "batch": "batches",
+		"batch-soak": "batches", "complete": "complete", "preflight": ""} {
+		if got := rolloutStep(phase); got != want {
+			t.Errorf("rolloutStep(%q) = %q, want %q", phase, got, want)
+		}
+	}
+	soaking := insights.Rollout{Phase: "canary-soak"}
+	if phaseStatus(soaking, "canary", testNow) != "ok" || phaseStatus(soaking, "soak", testNow) != "run" ||
+		phaseStatus(soaking, "batches", testNow) != "idle" {
+		t.Fatal("a canary soak is not drawn on the soak step")
+	}
+	if rolloutStatus(insights.Rollout{Phase: "rolled-back", Done: true}, testNow) != "serious" ||
+		rolloutStatus(insights.Rollout{Phase: "aborted", Done: true}, testNow) != "bad" {
+		t.Fatal("terminal failures read as complete")
+	}
+}
+
+// A region that answered but could not read its own quorum is "unknown
+// quorum", not "not answering"; remote-to-remote map links stay unknown.
+func TestGlobalViewSeparatesUnknownQuorumAndUnobservedLinks(t *testing.T) {
+	t.Parallel()
+	current := view{State: parseState(url.Values{}), Regions: []regionview.Summary{
+		{Region: "fra", Local: true, Reach: decisionlog.RegionOK, Quorum: regionview.Quorum{Expected: 3, Answering: 3}},
+		{Region: "sfo", Reach: decisionlog.RegionOK, Quorum: regionview.Quorum{Answering: 1, Unobserved: true}},
+		{Region: "gru", Reach: decisionlog.RegionOK, Quorum: regionview.Quorum{Expected: 3, Answering: 3}}}}
+	for _, tile := range current.globalKPIs() {
+		if tile.Label == "Controllers up" && (strings.Contains(tile.Sub, "not answering") ||
+			!strings.Contains(tile.Sub, "1 with unknown quorum")) {
+			t.Fatalf("controllers tile = %+v", tile)
+		}
+	}
+	var spec mapSpec
+	if err := json.Unmarshal([]byte(current.mapJSON()), &spec); err != nil {
+		t.Fatal(err)
+	}
+	for _, link := range spec.Links {
+		if link.From != "fra" && link.To != "fra" && link.State == "ok" {
+			t.Fatalf("a remote-to-remote link was drawn healthy: %+v", link)
+		}
+	}
+}
+
+// Heatmap columns are never finer than the samples, so continuous 1m
+// rollups in a 1h view fill every column.
+func TestHeatmapColumnsFollowTheSampleResolution(t *testing.T) {
+	t.Parallel()
+	current := view{State: parseState(url.Values{"range": {"1h"}}), Now: testNow}
+	var points [][2]float64
+	for minute := 60; minute >= 0; minute-- {
+		points = append(points, [2]float64{float64(testNow.Add(-time.Duration(minute) * time.Minute).UnixMilli()), 0.5})
+	}
+	spec := current.heatmap("percent", []chartSeries{{Name: "m", Points: points}}, "empty")
+	if spec.Step < time.Minute.Milliseconds() {
+		t.Fatalf("step %dms is finer than the 1m samples", spec.Step)
+	}
+	columns := (spec.End - spec.Start + spec.Step - 1) / spec.Step
+	if int64(len(spec.Heat)) != columns {
+		t.Fatalf("heat cells = %d, want every one of %d columns filled", len(spec.Heat), columns)
+	}
+}
+
+// A slow fill near 100% that rounding would flatten is still forecast.
+func TestStorageForecastFitsRawSamples(t *testing.T) {
+	t.Parallel()
+	history := observability.NewHistory(observability.HistoryConfig{})
+	for minute := 24 * 60; minute >= 0; minute -= 10 {
+		history.Append(testNow.Add(-time.Duration(minute)*time.Minute), []observability.Sample{{Metric: observability.HistFSRatio,
+			Labels: observability.L("member", "ctl-1", "role", "nats"), Value: 0.99994 - float64(minute)/(24*60)*0.00003}})
+	}
+	current := view{State: parseState(url.Values{}), Now: testNow, Journal: &Journal{History: history}}
+	forecasts, _ := current.storageForecasts()
+	if len(forecasts) != 1 || !forecasts[0].Known || !forecasts[0].Trend {
+		t.Fatalf("forecasts = %+v, want a known fill from the raw trend", forecasts)
+	}
+}
+
+// A failed volume read is not "no block volume is attached".
+func TestStoragePageNamesAFailedVolumeRead(t *testing.T) {
+	t.Parallel()
+	current := view{Page: page{slug: "storage"}, State: parseState(url.Values{}), Now: testNow,
+		Journal: &Journal{Volumes: failingVolumeProvider{}}, Unavailable: []string{"volumes"}}
+	var body strings.Builder
+	if err := storageBody(current).Render(context.Background(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(body.String(), "No block volume is attached") || !strings.Contains(body.String(), "could not be read") {
+		t.Fatalf("storage page with a failed volume read = %s", body.String())
+	}
+}
+
+type failingVolumeProvider struct{}
+
+func (failingVolumeProvider) Volumes(context.Context) ([]insights.Volume, error) {
+	return nil, errors.New("placement store timeout")
 }

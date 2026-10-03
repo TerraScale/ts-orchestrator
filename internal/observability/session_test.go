@@ -154,7 +154,8 @@ func TestSessionCookieIsBoundToProcessKeyAndLifetime(t *testing.T) {
 	// A correctly signed payload claiming a longer lifetime is refused.
 	manager.now = func() time.Time { return now }
 	payload := sessionVersion + "." + strconv.FormatInt(now.Add(2*SessionTTL).Unix(), 10) + "." + base64URL(make([]byte, 16))
-	forged := payload + "." + base64URL(manager.mac(payload))
+	key, _ := manager.currentKey()
+	forged := payload + "." + base64URL(sessionMAC(key, payload))
 	if manager.valid(forged) {
 		t.Fatal("an over-long session was accepted")
 	}

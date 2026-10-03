@@ -179,29 +179,58 @@ func (collector *Collector) writeMetrics(w io.Writer) {
 // failed load is cached for the same TTL so an unhealthy dependency is not
 // hammered by every scrape and dashboard tick.
 type Cache[T any] struct {
-	TTL   time.Duration
-	mu    sync.Mutex
-	at    time.Time
+	TTL    time.Duration
+	mu     sync.Mutex
+	at     time.Time
+	value  T
+	err    error
+	flight *cacheFlight[T]
+}
+
+// cacheFlight is one load shared by every caller that arrives while it runs.
+type cacheFlight[T any] struct {
+	done  chan struct{}
 	value T
 	err   error
 }
 
-// Get returns the cached value or calls load with a bounded context.
+// Get returns the cached value or the result of one shared load bounded by
+// sectionTimeout. Only bookkeeping happens under the lock: a caller waiting
+// for another caller's load returns its own ctx.Err() as soon as its context
+// ends, instead of waiting for the unrelated load to finish.
 func (cache *Cache[T]) Get(ctx context.Context, load func(context.Context) (T, error)) (T, error) {
 	cache.mu.Lock()
-	defer cache.mu.Unlock()
 	if !cache.at.IsZero() && time.Since(cache.at) < cache.TTL {
-		return cache.value, cache.err
-	}
-	loadCtx, cancel := context.WithTimeout(ctx, sectionTimeout)
-	defer cancel()
-	value, err := load(loadCtx)
-	if ctx.Err() != nil {
-		// The caller left; do not pin its cancellation on later callers.
+		value, err := cache.value, cache.err
+		cache.mu.Unlock()
 		return value, err
 	}
-	cache.value, cache.err, cache.at = value, err, time.Now()
-	return value, err
+	flight := cache.flight
+	if flight == nil {
+		flight = &cacheFlight[T]{done: make(chan struct{})}
+		cache.flight = flight
+		// The load is shared, so no single caller's cancellation may cut
+		// it short; sectionTimeout bounds it.
+		loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sectionTimeout)
+		go func() {
+			defer cancel()
+			value, err := load(loadCtx)
+			cache.mu.Lock()
+			cache.value, cache.err, cache.at = value, err, time.Now()
+			cache.flight = nil
+			cache.mu.Unlock()
+			flight.value, flight.err = value, err
+			close(flight.done)
+		}()
+	}
+	cache.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		var zero T
+		return zero, ctx.Err()
+	case <-flight.done:
+		return flight.value, flight.err
+	}
 }
 
 func errorClass(err error) string {

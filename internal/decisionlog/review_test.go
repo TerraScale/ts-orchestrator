@@ -2,8 +2,10 @@ package decisionlog
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -125,4 +127,139 @@ func containsID(decisions []Decision, id string) bool {
 		}
 	}
 	return false
+}
+
+// These pin the fixes for the ts-reviewer findings on PRs #127, #129 and #130.
+
+// An idempotent replay of a decision whose durable copy never landed queues
+// it again; one that is known durable is not republished.
+func TestReplayedRecordRepublishesUntilDurable(t *testing.T) {
+	sink := &fakeSink{failures: publishAttempts}
+	journal := NewJournal(JournalConfig{Region: "gru", Sink: sink})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go func() { _ = journal.Run(ctx) }()
+	decision := Decision{ID: "mu-admission", Kind: KindReleaseAdmitted, Summary: "admitted"}
+	journal.Record(ctx, decision)
+	waitFor(t, func() bool { return journal.Stats().PublishFailed == 1 })
+	journal.Record(ctx, decision)
+	waitFor(t, func() bool { return sink.count() == 1 })
+	journal.Record(ctx, decision)
+	time.Sleep(50 * time.Millisecond)
+	if sink.count() != 1 || journal.Stats().Recorded != 1 {
+		t.Fatalf("stored %d, recorded %d: a durable replay was published again or counted twice",
+			sink.count(), journal.Stats().Recorded)
+	}
+}
+
+// Memory evicts by arrival, so a memory page holding records older than an
+// evicted one is not the newest page: the archive is consulted.
+func TestOutOfOrderEvictionConsultsArchive(t *testing.T) {
+	base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	at := func(id string, minutes int) Decision {
+		return Decision{ID: id, Region: "gru", Kind: KindHeld, Time: base.Add(time.Duration(minutes) * time.Minute)}
+	}
+	t3, t1, t2 := at("t3", 3), at("t1", 1), at("t2", 2)
+	archive := &fakeArchive{complete: true, decisions: []Decision{t3, t1, t2}}
+	journal := NewJournal(JournalConfig{Region: "gru", Capacity: 2, Archive: archive})
+	for _, decision := range archive.decisions {
+		journal.Ingest(decision)
+	}
+	result, err := journal.Query(t.Context(), Query{Limit: 1})
+	if err != nil || len(result.Decisions) != 1 || result.Decisions[0].ID != "t3" {
+		t.Fatalf("newest page = %+v (%v), want the evicted t3", result.Decisions, err)
+	}
+}
+
+// A historical query reaches back from its own end, not from the memory
+// boundary, so newer records cannot exhaust the scan budget first.
+func TestHistoricalQueryAnchorsArchiveSearchAtUntil(t *testing.T) {
+	base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	old := Decision{ID: "old", Region: "gru", Kind: KindHeld, Time: base}
+	archive := &fakeArchive{complete: true, decisions: []Decision{old}}
+	for index := range maxArchiveScan + 10 {
+		archive.decisions = append(archive.decisions, Decision{ID: fmt.Sprintf("n%06d", index), Region: "gru",
+			Kind: KindHeld, Time: base.Add(30*24*time.Hour - time.Duration(maxArchiveScan-index)*time.Second)})
+	}
+	journal := NewJournal(JournalConfig{Region: "gru", Capacity: 1, Archive: archive})
+	journal.MarkCoveredFrom(base.Add(30 * 24 * time.Hour))
+	result, err := journal.Query(t.Context(), Query{Since: base.Add(-time.Hour), Until: base.Add(time.Hour)})
+	if err != nil || len(result.Decisions) != 1 || result.Decisions[0].ID != "old" || result.Partial {
+		t.Fatalf("historical query = %+v (%v)", result, err)
+	}
+}
+
+// Every successful chain lookup during the replay is partial.
+func TestChainDuringReplayIsPartial(t *testing.T) {
+	journal := NewJournal(JournalConfig{Region: "gru"})
+	decision := Decision{ID: NewID(), Region: "gru", Kind: KindHeld, Time: time.Now()}
+	journal.Ingest(decision)
+	journal.beginReplay()
+	if chain, err := journal.Chain(t.Context(), decision.ID); err != nil || !chain.Partial {
+		t.Fatalf("chain during replay = %+v (%v), want partial", chain, err)
+	}
+	journal.endReplay()
+	if chain, err := journal.Chain(t.Context(), decision.ID); err != nil || chain.Partial {
+		t.Fatalf("chain after replay = %+v (%v)", chain, err)
+	}
+}
+
+// A peer's non-ASCII search text is a valid filter; control characters
+// are not.
+func TestRemoteFiltersAllowNonASCIIText(t *testing.T) {
+	if !(remoteRequest{Version: wireVersion, Query: Query{Subject: "münchen"}}).valid() {
+		t.Fatal("a non-ASCII subject filter was refused")
+	}
+	for _, value := range []string{"a\x7fb", "a\u0085b", "a\x01b"} {
+		if (remoteRequest{Version: wireVersion, Query: Query{Subject: value}}).valid() {
+			t.Fatalf("control character filter %q accepted", value)
+		}
+	}
+}
+
+// An oversized chain reply keeps its root and the requested decision and
+// says it was trimmed.
+func TestOversizedChainReplyKeepsRootAndRequested(t *testing.T) {
+	base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	var decisions []Decision
+	for index := range 40 {
+		decisions = append(decisions, Decision{ID: fmt.Sprintf("c%03d", index), Region: "gru", Kind: KindHeld,
+			Summary: strings.Repeat("x", 400), Time: base.Add(time.Duration(index) * time.Second)})
+	}
+	for index := 1; index < len(decisions); index++ {
+		decisions[index].ParentID = decisions[0].ID
+	}
+	chain, _ := BuildChain(decisions, "c005")
+	data, err := encodeReply(remoteReply{Version: wireVersion, Chain: &chain}, "c005", 4<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reply remoteReply
+	if err := json.Unmarshal(data, &reply); err != nil {
+		t.Fatal(err)
+	}
+	if !reply.Chain.Truncated || !containsID(reply.Chain.Decisions, "c000") || !containsID(reply.Chain.Decisions, "c005") {
+		t.Fatalf("trimmed chain lost its root or requested step: truncated=%v", reply.Chain.Truncated)
+	}
+}
+
+// A caller-chosen ID encodes no time; once evicted from memory its chain is
+// still found in the archive.
+func TestChainFindsEvictedDeterministicIDInArchive(t *testing.T) {
+	now := time.Now().UTC()
+	admission := Decision{ID: "mu0123456789abcdef", Region: "gru", Kind: KindReleaseAdmitted, Time: now.Add(-48 * time.Hour)}
+	phase := Decision{ID: newIDAt(now.Add(-time.Hour)), Region: "gru", Kind: KindUpgradeStarted,
+		ParentID: admission.ID, Time: now.Add(-time.Hour)}
+	other := Decision{ID: newIDAt(now), Region: "gru", Kind: KindHeld, Time: now}
+	archive := &fakeArchive{complete: true, decisions: []Decision{admission, phase, other}}
+	journal := NewJournal(JournalConfig{Region: "gru", Capacity: 1, Archive: archive})
+	for _, decision := range archive.decisions {
+		journal.Ingest(decision)
+	}
+	for _, id := range []string{admission.ID, phase.ID} {
+		chain, err := journal.Chain(t.Context(), id)
+		if err != nil || chain.Root.ID != admission.ID || len(chain.Decisions) != 2 {
+			t.Fatalf("chain of %s = %+v (%v)", id, chain, err)
+		}
+	}
 }

@@ -162,3 +162,32 @@ func TestGlobalHomeNeedsGlobalGrantsUnderRestrictedCredentials(t *testing.T) {
 		}
 	}
 }
+
+// A deny that only partly overlaps the global namespace still blocks a
+// global publish; an unrelated deny does not.
+func TestSubjectsIntersect(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		left, right string
+		want        bool
+	}{
+		{"ts.*.global.lease", "ts.control.global.>", true},
+		{"ts.control.global.>", "ts.control.global.lease", true},
+		{"private.>", "ts.control.global.>", false},
+		{"ts.global.v1.*", "ts.global.v1.>", true},
+		{"ts.global", "ts.global.v1.>", false},
+		{"ts.*", "ts.global.v1.>", false},
+		{"*.*.*", "a.>", true},
+	} {
+		if got := subjectsIntersect(tc.left, tc.right); got != tc.want {
+			t.Errorf("subjectsIntersect(%q, %q) = %v, want %v", tc.left, tc.right, got, tc.want)
+		}
+	}
+	if globalPublishGranted(nil, []string{"ts.*.global.lease"}) == nil {
+		t.Fatal("a partially overlapping deny passed the global grant preflight")
+	}
+	// No allow list means unrestricted publishing subject to the denies.
+	if err := globalPublishGranted(nil, []string{"private.>"}); err != nil {
+		t.Fatalf("an unrelated deny without an allow list = %v", err)
+	}
+}

@@ -143,11 +143,23 @@ type operation struct {
 
 func IntentSubject(cell string) string { return protocol.DeliveryIntentSubject(cell) }
 
+// validCell accepts a cell the protocol subject builders accept: a name
+// token that is a canonical region and not the reserved global scope.
+// Otherwise every delivery subject would be empty and fail far from the
+// configuration as an opaque invalid-subject error.
+func validCell(cell string) bool {
+	if !nameRE.MatchString(cell) || cell == protocol.GlobalScope {
+		return false
+	}
+	_, err := protocol.CanonicalRegion(cell)
+	return err == nil
+}
+
 // ConnectClient binds existing regional resources without managing topology.
 // Operator and CI identities should use this path with only their specific
 // artifact, admission, operation-read and intent-publish permissions.
 func ConnectClient(ctx context.Context, cfg Config) (*Service, error) {
-	if cfg.Conn == nil || cfg.JS == nil || !nameRE.MatchString(cfg.Cell) {
+	if cfg.Conn == nil || cfg.JS == nil || !validCell(cfg.Cell) {
 		return nil, fmt.Errorf("%w: delivery client configuration", ErrInvalid)
 	}
 	s := &Service{js: cfg.JS, config: cfg}
@@ -170,7 +182,7 @@ func ConnectClient(ctx context.Context, cfg Config) (*Service, error) {
 // Open provisions the durable regional resources and may be used by CLI
 // commands without starting a consumer. Serve requires the controller ports.
 func Open(ctx context.Context, cfg Config) (*Service, error) {
-	if cfg.Conn == nil || cfg.JS == nil || !nameRE.MatchString(cfg.Cell) || cfg.Replicas != 1 && cfg.Replicas != 3 && cfg.Replicas != 5 || cfg.ArtifactStoreMaxBytes < 0 {
+	if cfg.Conn == nil || cfg.JS == nil || !validCell(cfg.Cell) || cfg.Replicas != 1 && cfg.Replicas != 3 && cfg.Replicas != 5 || cfg.ArtifactStoreMaxBytes < 0 {
 		return nil, fmt.Errorf("%w: delivery service configuration", ErrInvalid)
 	}
 	artifactStoreMaxBytes := cfg.ArtifactStoreMaxBytes

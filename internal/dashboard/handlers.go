@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"time"
 
 	"github.com/a-h/templ"
@@ -140,7 +141,9 @@ func toast(ctx context.Context, sse *datastar.ServerSentEventGenerator, state ui
 }
 
 // chromeRefresher re-renders the live top-bar parts (region switcher,
-// attention badge) and patches them when they changed.
+// attention badge) and patches them when they changed. Loading the view
+// waits on providers (the cluster gather, regional requests), so render runs
+// off the stream's loop and only the patch is written from it.
 type chromeRefresher struct {
 	dashboard *Dashboard
 	page      page
@@ -148,26 +151,42 @@ type chromeRefresher struct {
 	last      uint64
 }
 
-func (refresher *chromeRefresher) refresh(ctx context.Context, sse *datastar.ServerSentEventGenerator) (uiState, error) {
+// chromeRender is one rendered top bar.
+type chromeRender struct {
+	state uiState
+	html  string
+	err   error
+}
+
+func (refresher *chromeRefresher) render(ctx context.Context) chromeRender {
 	current := refresher.dashboard.load(ctx, refresher.page, refresher.query)
 	var body bytes.Buffer
-	if err := chrome(current).Render(ctx, &body); err != nil {
-		return current.State, err
+	err := chrome(current).Render(ctx, &body)
+	return chromeRender{state: current.State, html: body.String(), err: err}
+}
+
+// patch writes a rendered top bar when it changed since the last patch.
+func (refresher *chromeRefresher) patch(sse *datastar.ServerSentEventGenerator, rendered chromeRender) error {
+	if rendered.err != nil {
+		return rendered.err
 	}
 	digest := fnv.New64a()
-	_, _ = digest.Write(body.Bytes())
+	_, _ = digest.Write([]byte(rendered.html))
 	if sum := digest.Sum64(); sum != refresher.last {
 		refresher.last = sum
-		return current.State, sse.PatchElements(body.String())
+		return sse.PatchElements(rendered.html)
 	}
-	return current.State, nil
+	return nil
 }
 
 // streamEvents first replaces the listed rows, so a reconnecting browser has
 // no gap and no duplicate, then prepends each new matching event. Every
-// maxRows prepended rows it replaces the list again to bound the page. Like
-// every other page stream it also keeps the top bar current and raises
-// insight toasts, all written from this one loop.
+// maxRows prepended rows it replaces the list again to bound the page. Every
+// tick it also reconciles the shown rows with the event ring, so a matching
+// event the bus dropped from a full subscription still appears. Like every
+// other page stream it keeps the top bar current and raises insight toasts,
+// all written from this one loop; the top bar is rendered off the loop so
+// slow providers never stall the event subscription.
 func (dashboard *Dashboard) streamEvents(ctx context.Context, sse *datastar.ServerSentEventGenerator, page page,
 	query url.Values,
 ) {
@@ -192,20 +211,34 @@ func (dashboard *Dashboard) streamEvents(ctx context.Context, sse *datastar.Serv
 	live := source.Subscribe(ctx, 256)
 	var seen uint64
 	empty := false
+	// shown are the sequences of the listed rows, newest first.
+	var shown []uint64
+	sequences := func(events []observability.Event) []uint64 {
+		out := make([]uint64, 0, len(events))
+		for _, event := range events {
+			out = append(out, event.Sequence)
+		}
+		return out
+	}
 	reset := func() bool {
 		events := filter.apply(source.Recent(0), page.events)
 		if len(events) > 0 {
 			seen = max(seen, events[0].Sequence)
 		}
 		empty = len(events) == 0
+		shown = sequences(events)
 		return sse.PatchElementTempl(eventRows(events, "events-rows")) == nil
 	}
 	if !reset() {
 		return
 	}
-	if state, err = chromeState.refresh(ctx, sse); err != nil {
+	first := chromeState.render(ctx)
+	if err = chromeState.patch(sse, first); err != nil {
 		return
 	}
+	state = first.state
+	rendered := make(chan chromeRender, 1)
+	rendering := false
 	prepended := 0
 	for {
 		var batch []observability.Event
@@ -214,9 +247,25 @@ func (dashboard *Dashboard) streamEvents(ctx context.Context, sse *datastar.Serv
 			return
 		case <-ticker.C:
 			subscribe()
-			if state, err = chromeState.refresh(ctx, sse); err != nil {
+			if !rendering {
+				rendering = true
+				go func() { rendered <- chromeState.render(ctx) }()
+			}
+			// A matching event the bus dropped (full subscription) is
+			// still in the ring: relist when the rows fell out of step.
+			if !slices.Equal(sequences(filter.apply(source.Recent(0), page.events)), shown) {
+				if !reset() {
+					return
+				}
+				prepended = 0
+			}
+			continue
+		case result := <-rendered:
+			rendering = false
+			if err = chromeState.patch(sse, result); err != nil {
 				return
 			}
+			state = result.state
 			continue
 		case change, open := <-changes:
 			if !open {
@@ -256,6 +305,8 @@ func (dashboard *Dashboard) streamEvents(ctx context.Context, sse *datastar.Serv
 			continue
 		}
 		seen = max(seen, fresh[0].Sequence)
+		shown = slices.Concat(sequences(fresh), shown)
+		shown = shown[:min(len(shown), page.events)]
 		prepended += len(fresh)
 		if prepended > page.events {
 			if !reset() {

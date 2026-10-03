@@ -26,6 +26,13 @@ func TestVolumeAttachmentStateFeedsTheStuckAttachRule(t *testing.T) {
 	if state := volumeAttachmentState(placement.StageServing); strings.Contains(strings.ToLower(state), "attaching") {
 		t.Fatalf("a serving member's volume must not read as attaching: %q", state)
 	}
+	// The dashboard keys on the canonical lowercase states.
+	for stage, want := range map[placement.MemberStage]string{placement.StageServing: "attached",
+		placement.StageAwaitingAttach: "attaching", placement.StagePreparedVolume: "available"} {
+		if got := volumeAttachmentState(stage); got != want {
+			t.Fatalf("%s maps to %q, want the canonical %q", stage, got, want)
+		}
+	}
 }
 
 func TestNilSliceProvidersStaySilent(t *testing.T) {

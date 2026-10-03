@@ -58,6 +58,10 @@ type WorkloadRequest struct {
 	Request  Resources
 	Hosts    []WorkloadHost
 	Previous []Assignment
+	// MaxPerFailureDomain caps the replicas placed in one failure domain,
+	// retained assignments included; zero means unlimited. Retained
+	// assignments past the cap are withdrawn so the plan can migrate.
+	MaxPerFailureDomain int
 }
 
 // PlanWorkload makes a deterministic, capacity-aware desired node set for one
@@ -69,7 +73,7 @@ type WorkloadRequest struct {
 // desired-state changes.
 func PlanWorkload(request WorkloadRequest) ([]Assignment, error) {
 	if !validToken(request.Cell) || !validToken(request.Role) || request.Replicas < 0 || request.Replicas > 1024 ||
-		!positive(request.Request) {
+		request.MaxPerFailureDomain < 0 || !positive(request.Request) {
 		return nil, fmt.Errorf("%w: cell, role, replica count or resource request", ErrInvalidWorkload)
 	}
 
@@ -111,13 +115,15 @@ func PlanWorkload(request WorkloadRequest) ([]Assignment, error) {
 	active := make([]Assignment, 0, request.Replicas)
 	usedNodes := make(map[string]struct{}, request.Replicas)
 	quarantined := make(map[string]struct{})
+	domainCounts := make(map[string]int)
 	for _, old := range previous {
 		candidate, exists := hosts[old.Node]
 		if exists && schedulable(candidate, request.Role) && fits(candidate, request.Request) && (old.Ready || old.Pending) {
-			if len(active) < request.Replicas {
+			if len(active) < request.Replicas && !domainFull(request, domainCounts, candidate) {
 				old.Ordinal = len(active)
 				active = append(active, old)
 				usedNodes[old.Node] = struct{}{}
+				domainCounts[candidate.FailureDomain]++
 				continue
 			}
 		} else if exists {
@@ -128,7 +134,7 @@ func PlanWorkload(request WorkloadRequest) ([]Assignment, error) {
 	}
 
 	for len(active) < request.Replicas {
-		best, ok := chooseHost(request, hosts, usedNodes, quarantined, active)
+		best, ok := chooseHost(request, hosts, usedNodes, quarantined, active, domainCounts)
 		if !ok {
 			return nil, fmt.Errorf("%w: placed %d of %d replicas", ErrInsufficientCapacity, len(active), request.Replicas)
 		}
@@ -139,6 +145,7 @@ func PlanWorkload(request WorkloadRequest) ([]Assignment, error) {
 			Pending: true,
 		})
 		usedNodes[best.Node] = struct{}{}
+		domainCounts[best.FailureDomain]++
 	}
 
 	result := slices.Clone(active)
@@ -172,7 +179,16 @@ func PlanReplicas(cell, role string, replicas int, request Resources, hosts []Wo
 	})
 }
 
-func chooseHost(request WorkloadRequest, hosts map[string]WorkloadHost, used, quarantined map[string]struct{}, active []Assignment) (WorkloadHost, bool) {
+// domainFull reports whether the candidate's failure domain already holds the
+// request's per-domain cap. A host without a domain counts as the "" domain,
+// as the workload reconciler's own cap check does.
+func domainFull(request WorkloadRequest, counts map[string]int, candidate WorkloadHost) bool {
+	return request.MaxPerFailureDomain > 0 && counts[candidate.FailureDomain] >= request.MaxPerFailureDomain
+}
+
+func chooseHost(request WorkloadRequest, hosts map[string]WorkloadHost, used, quarantined map[string]struct{},
+	active []Assignment, domainCounts map[string]int,
+) (WorkloadHost, bool) {
 	activeDomains := make(map[string]int, len(active))
 	for _, assignment := range active {
 		if candidate, ok := hosts[assignment.Node]; ok && candidate.FailureDomain != "" {
@@ -192,6 +208,9 @@ func chooseHost(request WorkloadRequest, hosts map[string]WorkloadHost, used, qu
 			continue
 		}
 		if _, exists := quarantined[candidate.Node]; exists {
+			continue
+		}
+		if domainFull(request, domainCounts, candidate) {
 			continue
 		}
 

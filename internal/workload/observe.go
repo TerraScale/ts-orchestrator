@@ -37,9 +37,28 @@ type Observation struct {
 	Active map[string]host.Desired
 	// Statuses maps node to every verified host status in the cell.
 	Statuses map[string]host.HostStatus
-	// HighWater is the largest generation committed for the role, including
-	// withdrawn targets; any later write must use a larger generation.
+	// HighWater is the largest generation committed for the role in this
+	// environment, including withdrawn targets. Release supersession is
+	// judged against it, so another environment's newer release of the same
+	// role never stalls this one.
 	HighWater uint64
+	// NodeHighWater is the largest generation committed for the role on each
+	// node in any environment. Host generations are fenced per node and role,
+	// so a write to a node must exceed that node's entry.
+	NodeHighWater map[string]uint64
+}
+
+// Shaped reports whether the role has ever been committed with a
+// release-scoped generation (see ReleaseShift) on any node. Such a role must
+// stay in that generation space even after the reconciler stops owning it:
+// a plain intent generation would move every host backwards.
+func (o Observation) Shaped() bool {
+	for _, generation := range o.NodeHighWater {
+		if ReleaseOf(generation) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // Dedicated reports whether a host registration belongs to one TerraBase
@@ -69,8 +88,9 @@ func Schedulable(status host.HostStatus, now time.Time) placement.WorkloadHost {
 // resources are unknown on a candidate host.
 func Observe(snapshot Snapshot) (Observation, error) {
 	observation := Observation{
-		Active:   make(map[string]host.Desired),
-		Statuses: make(map[string]host.HostStatus, len(snapshot.Hosts)),
+		Active:        make(map[string]host.Desired),
+		Statuses:      make(map[string]host.HostStatus, len(snapshot.Hosts)),
+		NodeHighWater: make(map[string]uint64),
 	}
 	candidateIndex := make(map[string]int, len(snapshot.Hosts))
 	for _, status := range snapshot.Hosts {
@@ -90,7 +110,10 @@ func Observe(snapshot Snapshot) (Observation, error) {
 			return Observation{}, errors.New("allocation belongs to another cell")
 		}
 		if desired.Role == snapshot.Role {
-			observation.HighWater = max(observation.HighWater, desired.Generation)
+			observation.NodeHighWater[desired.Node] = max(observation.NodeHighWater[desired.Node], desired.Generation)
+			if desired.Environment == snapshot.Environment {
+				observation.HighWater = max(observation.HighWater, desired.Generation)
+			}
 		}
 		if desired.Withdrawn {
 			continue

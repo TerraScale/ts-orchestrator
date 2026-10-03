@@ -174,7 +174,7 @@ templ insightToast(state uiState, change insights.Change) {
 		data-key={ change.Insight.Key }
 		data-title={ string(change.Insight.Severity) + ": " + change.Insight.Title }
 		data-body={ change.Insight.Why }
-		data-href={ state.link("/insights", "id", change.Insight.Key) }
+		data-href={ insightHref(state, change.Insight) }
 	>
 		<strong>
 			if change.Type == insights.ChangeEscalated {
@@ -186,7 +186,7 @@ templ insightToast(state uiState, change insights.Change) {
 		</strong>
 		<span class="muted">{ upper(change.Insight.Region) } · { short(change.Insight.Why, 140) }</span>
 		<br/>
-		<a href={ safe(state.link("/insights", "id", change.Insight.Key)) }>Open insight</a>
+		<a href={ safe(insightHref(state, change.Insight)) }>Open insight</a>
 	</div>
 }
 

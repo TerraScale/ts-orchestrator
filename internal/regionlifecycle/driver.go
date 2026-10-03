@@ -62,7 +62,10 @@ func (d Driver) Advance(ctx context.Context, epoch uint64, cell string) (Record,
 		}
 		next, err := d.Machine.ReconcileRetirePending(record, observation, d.now())
 		if err != nil {
-			return d.hold(ctx, epoch, record, revision, "observation does not match the pending intent", err)
+			// Not held: Resume could never return a RetireApproved record
+			// that still carries its intent, so the intent stays pending
+			// for the next reconciliation pass instead.
+			return record, err
 		}
 		if _, err := d.Store.Update(ctx, epoch, record, next, revision); err != nil {
 			return record, err

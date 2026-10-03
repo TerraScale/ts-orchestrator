@@ -72,9 +72,14 @@ type SnapshotSampler struct {
 	// reset or a burst.
 	ociLast  map[string]map[string]ociCounters
 	ociTotal map[string]*ociCounters
-	roles    map[string]string
-	stages   map[string]bool
-	seeded   bool
+	// ociPresent are the members whose OCI counters the previous snapshot
+	// carried. A member missing from it rejoins with a fresh baseline: its
+	// counters grew across several collections, and adding that growth to
+	// one sample would read as a burst.
+	ociPresent map[string]bool
+	roles      map[string]string
+	stages     map[string]bool
+	seeded     bool
 }
 
 type ociCounters struct{ calls, errors, throttled, seconds float64 }
@@ -111,9 +116,11 @@ func (sampler *SnapshotSampler) Samples(cluster ClusterSnapshot) []Sample {
 		sampler.previous = map[string]CPUSeconds{}
 		sampler.ociLast = map[string]map[string]ociCounters{}
 		sampler.ociTotal = map[string]*ociCounters{}
+		sampler.ociPresent = map[string]bool{}
 		sampler.roles = map[string]string{}
 		sampler.stages = map[string]bool{}
 	}
+	present := map[string]bool{}
 	var samples []Sample
 	gauge := func(metric string, value float64, pairs ...string) {
 		samples = append(samples, Sample{Metric: metric, Labels: L(pairs...), Value: value})
@@ -205,6 +212,8 @@ func (sampler *SnapshotSampler) Samples(cluster ClusterSnapshot) []Sample {
 			}
 		}
 		if view := member.OCI; view != nil {
+			present[name] = true
+			continuous := sampler.ociPresent[name]
 			last := sampler.ociLast[name]
 			if last == nil && len(sampler.ociLast) < maxSampledMembers {
 				last = map[string]ociCounters{}
@@ -226,7 +235,18 @@ func (sampler *SnapshotSampler) Samples(cluster ClusterSnapshot) []Sample {
 					continue
 				}
 				previous, known := last[key]
-				total.add(current, previous, known, !sampler.seeded)
+				switch {
+				case !sampler.seeded:
+					total.add(current, previous, known, true)
+				case !continuous:
+					// Returning or new member: rebaseline only.
+				case !known:
+					// A new operation on a continuously observed member:
+					// its counters were zero before, so all of it is new.
+					total.add(current, ociCounters{}, true, false)
+				default:
+					total.add(current, previous, true, false)
+				}
 				last[key] = current
 			}
 		}
@@ -248,6 +268,7 @@ func (sampler *SnapshotSampler) Samples(cluster ClusterSnapshot) []Sample {
 		}
 	}
 	sampler.seeded = true
+	sampler.ociPresent = present
 	gauge(HistMembersReady, float64(ready))
 	if epoch > 0 || leader {
 		gauge(HistAuthorityEpoch, float64(epoch))

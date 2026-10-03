@@ -49,6 +49,16 @@ type demand struct {
 	at      time.Time
 }
 
+// launchState is one host launched by this scaler that has not registered
+// yet. It keeps the launch's failure domain so in-flight launches count
+// toward their real domain, and the journaled launch decision so its outcome
+// can be recorded as a follow-up.
+type launchState struct {
+	since    time.Time
+	domain   string
+	decision string
+}
+
 // Scaler keeps generic host pools sized to placement demand. It implements
 // workload.CapacityRequester and acts only on the regional authority leader.
 type Scaler struct {
@@ -56,7 +66,7 @@ type Scaler struct {
 
 	mu        sync.Mutex
 	demands   map[string]demand
-	launching map[string]time.Time
+	launching map[string]launchState
 	idleSince map[string]time.Time
 	last      map[string]Plan
 	// recommended is the last recommend-only plan journaled per pool.
@@ -86,7 +96,7 @@ func NewScaler(config Config) (*Scaler, error) {
 		config.Logf = func(string, ...any) {}
 	}
 	config.Pools = slices.Clone(config.Pools)
-	return &Scaler{config: config, demands: make(map[string]demand), launching: make(map[string]time.Time),
+	return &Scaler{config: config, demands: make(map[string]demand), launching: make(map[string]launchState),
 		idleSince: make(map[string]time.Time), last: make(map[string]Plan), recommended: make(map[string]Plan)}, nil
 }
 
@@ -110,6 +120,15 @@ func (s *Scaler) RequestCapacity(spec workload.ServiceSpec, request placement.Wo
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.demands[spec.Role] = demand{pool: pool, request: request, at: s.config.Now()}
+}
+
+// CapacitySatisfied clears the role's recorded demand once its service
+// placed on the current hosts, so a stale failed request cannot keep
+// recommending hosts until DemandTTL.
+func (s *Scaler) CapacitySatisfied(spec workload.ServiceSpec) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.demands, spec.Role)
 }
 
 // Last returns the latest plan per pool for diagnostics.
@@ -156,34 +175,51 @@ func (s *Scaler) Tick(ctx context.Context) error {
 		}
 	}
 	var errs []error
+	// observed collects every node that is a registered or launching pool
+	// member this tick; idle timestamps of any other node are dropped, so a
+	// reused ordinal that re-registers later starts a fresh cooldown.
+	observed := make(map[string]struct{})
 	for _, pool := range s.config.Pools {
 		in := PlanInput{Cell: s.config.Cell, Pool: pool, Now: now, IdleSince: make(map[string]time.Time)}
 		registered := make(map[string]bool)
 		for _, status := range hosts {
 			r := status.Registration
-			if _, member := pool.Ordinal(r.Node); !member {
+			ordinal, member := pool.Ordinal(r.Node)
+			if !member {
 				continue
 			}
 			if workload.Dedicated(r) || r.Environment != pool.Environment {
 				errs = append(errs, fmt.Errorf("pool %q: host %q is dedicated or in another environment", pool.Name, r.Node))
+				// The name is taken: never launch a pool host under it,
+				// which the idempotent provisioner would map onto this
+				// foreign host instead of creating capacity.
+				in.ReservedOrdinals = append(in.ReservedOrdinals, ordinal)
 				continue
 			}
 			registered[r.Node] = true
 			in.Members = append(in.Members, Member{Node: r.Node, FailureDomain: r.FailureDomain,
 				Allocations: allocations[r.Node]})
 		}
+		var outcomes []launchOutcome
 		s.mu.Lock()
-		for node, since := range s.launching {
+		for node, launch := range s.launching {
 			if _, member := pool.Ordinal(node); !member {
 				continue
 			}
-			if registered[node] || now.Sub(since) > s.config.LaunchGrace {
+			if registered[node] {
+				outcomes = append(outcomes, launchOutcome{node: node, state: launch, registered: true})
 				delete(s.launching, node)
 				continue
 			}
-			in.Members = append(in.Members, Member{Node: node, Launching: true})
+			if now.Sub(launch.since) > s.config.LaunchGrace {
+				outcomes = append(outcomes, launchOutcome{node: node, state: launch})
+				delete(s.launching, node)
+				continue
+			}
+			in.Members = append(in.Members, Member{Node: node, FailureDomain: launch.domain, Launching: true})
 		}
 		for _, member := range in.Members {
+			observed[member.Node] = struct{}{}
 			if member.Launching || member.Allocations > 0 {
 				delete(s.idleSince, member.Node)
 				continue
@@ -203,6 +239,9 @@ func (s *Scaler) Tick(ctx context.Context) error {
 			}
 		}
 		s.mu.Unlock()
+		for _, outcome := range outcomes {
+			recordLaunchOutcome(ctx, s.config.Cell, snapshot.Epoch, pool, outcome, s.config.LaunchGrace)
+		}
 		slices.SortFunc(in.Demands, func(a, b placement.WorkloadRequest) int {
 			if a.Role < b.Role {
 				return -1
@@ -224,11 +263,23 @@ func (s *Scaler) Tick(ctx context.Context) error {
 			errs = append(errs, fmt.Errorf("pool %q: %w", pool.Name, err))
 		}
 	}
+	s.mu.Lock()
+	for node := range s.idleSince {
+		if _, present := observed[node]; !present {
+			delete(s.idleSince, node)
+		}
+	}
+	s.mu.Unlock()
 	return errors.Join(errs...)
 }
 
 func (s *Scaler) apply(ctx context.Context, epoch uint64, pool NodePool, plan Plan, allocations map[string]int, now time.Time) error {
 	if len(plan.Launch) == 0 && len(plan.Reclaim) == 0 {
+		// The episode ended: a later identical recommendation is a new
+		// episode and must be journaled again.
+		s.mu.Lock()
+		delete(s.recommended, pool.Name)
+		s.mu.Unlock()
 		return nil
 	}
 	if s.config.Provisioner == nil {
@@ -251,11 +302,11 @@ func (s *Scaler) apply(ctx context.Context, epoch uint64, pool NodePool, plan Pl
 		if err := s.config.Provisioner.Launch(ctx, epoch, pool, launch); err != nil {
 			return fmt.Errorf("launch %s: %w", launch.Node, err)
 		}
-		s.mu.Lock()
-		s.launching[launch.Node] = now
-		s.mu.Unlock()
 		s.config.Logf("hostpool: pool %s launching %s in %s (%s)", pool.Name, launch.Node, launch.FailureDomain, plan.Reason)
-		recordLaunch(ctx, s.config.Cell, epoch, pool, plan, launch)
+		id := recordLaunch(ctx, s.config.Cell, epoch, pool, plan, launch)
+		s.mu.Lock()
+		s.launching[launch.Node] = launchState{since: now, domain: launch.FailureDomain, decision: id}
+		s.mu.Unlock()
 	}
 	for _, node := range plan.Reclaim {
 		if allocations[node] != 0 {

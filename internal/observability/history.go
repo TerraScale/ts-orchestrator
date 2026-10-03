@@ -75,9 +75,16 @@ type bucket struct {
 	// the time between the samples that supplied Last, not by the bucket
 	// starts. Zero in snapshots taken before it existed.
 	LastAt int64 `json:"a,omitempty"`
+	// Increase is a counter's reset-correct growth from the series' sample
+	// before this bucket to Last, accumulated per raw sample when it is
+	// ingested; Increased marks it as tracked. Downsampling keeps only the
+	// bucket's Last, so a reset and recovery inside one bucket would
+	// otherwise look like less growth than happened.
+	Increase  float64 `json:"i,omitempty"`
+	Increased bool    `json:"ii,omitempty"`
 }
 
-func (b *bucket) add(at int64, value float64) {
+func (b *bucket) add(at int64, value float64, increase float64, counted bool) {
 	if b.Count == 0 {
 		b.Min, b.Max = value, value
 	} else {
@@ -86,6 +93,10 @@ func (b *bucket) add(at int64, value float64) {
 	b.Sum += value
 	b.Last, b.LastAt = value, at
 	b.Count++
+	if counted {
+		b.Increase += increase
+		b.Increased = true
+	}
 }
 
 // lastAt is when the bucket's Last was sampled, or its start when unknown.
@@ -124,10 +135,10 @@ func (t *tier) push(b bucket) {
 	t.ring[index] = b
 }
 
-func (t *tier) add(at int64, value float64) {
+func (t *tier) add(at int64, value float64, increase float64, counted bool) {
 	if t.step == 0 {
 		b := bucket{Start: at}
-		b.add(at, value)
+		b.add(at, value, increase, counted)
 		t.push(b)
 		return
 	}
@@ -144,7 +155,7 @@ func (t *tier) add(at int64, value float64) {
 		t.open = bucket{Start: aligned}
 		t.opened = true
 	}
-	t.open.add(at, value)
+	t.open.add(at, value, increase, counted)
 }
 
 // oldest returns the start of the tier's oldest bucket.
@@ -176,7 +187,11 @@ type series struct {
 	labels  []Label
 	counter bool
 	last    int64
-	tiers   map[string]*tier
+	// lastValue is the newest raw sample, the baseline of a counter's next
+	// increase; sampled reports that there is one.
+	lastValue float64
+	sampled   bool
+	tiers     map[string]*tier
 }
 
 // HistoryConfig sizes a History.
@@ -272,9 +287,18 @@ func (history *History) Append(at time.Time, samples []Sample) {
 		if millis < current.last {
 			continue
 		}
-		current.last = millis
+		// A counter's growth since its previous raw sample, reset-correct:
+		// a decrease is a restart that counted again from zero.
+		increase, counted := 0.0, false
+		if current.counter && current.sampled {
+			increase, counted = sample.Value-current.lastValue, true
+			if increase < 0 {
+				increase = sample.Value
+			}
+		}
+		current.last, current.lastValue, current.sampled = millis, sample.Value, true
 		for _, name := range []string{TierRaw, Tier1m, Tier5m} {
-			current.tiers[name].add(millis, sample.Value)
+			current.tiers[name].add(millis, sample.Value, increase, counted)
 		}
 		historySamples.Inc()
 	}
@@ -376,6 +400,11 @@ func (history *History) Range(query HistoryQuery) HistoryResult {
 					if delta < 0 { // counter reset
 						delta = b.Last
 					}
+					if b.Increased {
+						// Growth accumulated per raw sample also counts a
+						// reset and recovery inside the bucket.
+						delta = b.Increase
+					}
 					rate := delta / (float64(b.lastAt()-previous.lastAt()) / 1000)
 					out.Points = append(out.Points, Point{Time: time.UnixMilli(b.Start).UTC(), Value: rate,
 						Min: rate, Max: rate})
@@ -418,7 +447,9 @@ func (current *series) coveringTier(chosen string, start int64) string {
 		if !ok {
 			continue
 		}
-		if oldest <= start+t.step.Milliseconds() {
+		// The tier covers start only when its oldest bucket begins at or
+		// before it; a bucket beginning after start does not hold start.
+		if oldest <= start {
 			return name
 		}
 		if oldest < bestOldest {

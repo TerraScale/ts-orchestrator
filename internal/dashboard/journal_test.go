@@ -435,14 +435,15 @@ func TestURLStateIsValidatedAndCarried(t *testing.T) {
 	for link, want := range map[string]string{
 		"/regions/SFO":                  "/region?r=sfo",
 		"/regions":                      "/",
-		"/decisions?subject=seat/m1":    "/decisions?q=seat%2Fm1",
+		"/decisions?subject=seat/m1":    "/decisions?q=m1",
+		"/decisions?subject=db/p0/m1":   "/decisions?q=db%2Fp0%2Fm1",
 		"/decisions?subject=a&q=winner": "/decisions?q=winner",
 	} {
 		if got := plain.adopt(link, ""); got != want {
 			t.Errorf("adopt(%q) = %q, want %q", link, got, want)
 		}
 	}
-	if got := parseState(url.Values{"subject": {"seat/m1"}}).param("q"); got != "seat/m1" {
+	if got := parseState(url.Values{"subject": {"seat/m1"}}).param("q"); got != "m1" {
 		t.Errorf("subject alias = %q", got)
 	}
 }

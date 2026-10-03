@@ -71,6 +71,8 @@ func TestInterRegionConfigFailsClosed(t *testing.T) {
 			ir.Remotes, ir.GlobalHome = []LeafRemote{remote, remote}, "sfo"
 		},
 		"global home dials": func(ir *InterRegion, _ *Config) { ir.Remotes = []LeafRemote{remote} },
+		// The root reaches every peer through a child subtree.
+		"root peer unreachable": func(ir *InterRegion, _ *Config) { ir.Peers = append(ir.Peers, "iad") },
 	}
 	for name, mutate := range cases {
 		cfg := region.cfg

@@ -39,7 +39,16 @@ func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]Worklo
 	}
 	for _, spec := range config.Services {
 		if spec.Kind != workload.KindStateless {
-			continue
+			// Nothing reconciles stateful services yet (TerraBase is sized
+			// by placement); refuse signed config that would silently do
+			// nothing.
+			return fmt.Errorf("autoscale service %q: stateful services are not reconciled yet", spec.Role)
+		}
+		if spec.Scaling != nil {
+			// No telemetry producer feeds the autoscaler's signal source
+			// yet, so a scaling policy would only ever hold with
+			// no-signal-data. Bounds and self-healing work without one.
+			return fmt.Errorf("autoscale service %q: signal-driven scaling has no signal source yet; set replicas bounds only", spec.Role)
 		}
 		if spec.Role == "terrabase" {
 			// TerraBase members are owned by placement, never by the
@@ -99,7 +108,13 @@ func (p *regionalDeliveryPlanner) PlanShaped(ctx context.Context, intent deliver
 	shape := delivery.PlanShape{Generation: intent.Generation, Replicas: intent.DesiredReplicas}
 	spec, owned := p.workloads.Owns(intent.Role)
 	if !owned || spec.Environment != intent.Environment {
-		plan, err := p.Plan(ctx, intent)
+		// A role the reconciler once owned carries release-scoped host
+		// generations (intent << ReleaseShift). Planning it at the plain
+		// intent generation would move every host backwards and hold
+		// every later release, so it stays in that generation space.
+		plan, err := p.plan(ctx, intent, func(observation workload.Observation) (delivery.PlanShape, error) {
+			return unownedShape(intent, observation)
+		}, &shape)
 		return shape, plan, err
 	}
 	plan, err := p.plan(ctx, intent, func(observation workload.Observation) (delivery.PlanShape, error) {
@@ -107,4 +122,15 @@ func (p *regionalDeliveryPlanner) PlanShaped(ctx context.Context, intent deliver
 		return delivery.PlanShape{Generation: generation, Replicas: replicas}, err
 	}, &shape)
 	return shape, plan, err
+}
+
+// unownedShape is the shape of a release for a role the reconciler does not
+// own: the intent's own generation and replicas, except that a role once
+// committed with release-scoped generations keeps that generation space.
+func unownedShape(intent delivery.Intent, observation workload.Observation) (delivery.PlanShape, error) {
+	if !observation.Shaped() {
+		return delivery.PlanShape{Generation: intent.Generation, Replicas: intent.DesiredReplicas}, nil
+	}
+	generation, err := workload.ReleaseGeneration(intent.Generation)
+	return delivery.PlanShape{Generation: generation, Replicas: intent.DesiredReplicas}, err
 }

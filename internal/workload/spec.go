@@ -90,6 +90,11 @@ func (p StatefulPolicy) validate() error {
 	if p.DrainTimeoutSeconds <= 0 || p.DrainTimeoutSeconds > 24*60*60 {
 		return fmt.Errorf("%w: drain timeout must be within 1..86400 seconds", ErrInvalidSpec)
 	}
+	// Lag is a sequence-count difference: zero would demand perfectly
+	// caught-up replicas and silently block every scale-down.
+	if p.MaxLagForScaleDown == 0 {
+		return fmt.Errorf("%w: max lag for scale down must be positive", ErrInvalidSpec)
+	}
 	if p.VolumeRetention != RetainVolume {
 		return fmt.Errorf("%w: only retained volumes are supported", ErrInvalidSpec)
 	}

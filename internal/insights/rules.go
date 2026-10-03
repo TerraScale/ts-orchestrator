@@ -3,6 +3,7 @@ package insights
 import (
 	"fmt"
 	"maps"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -435,7 +436,8 @@ func memberHeld(inputs *Inputs) []Insight {
 				}
 				// Seat IDs repeat across databases and partitions.
 				seat := database.DatabaseID + "/" + database.PartitionID + "/" + member.SeatID
-				out = append(out, Insight{Severity: SeverityWarning, Score: 2, Key: "member_held:seat:" + seat,
+				out = append(out, Insight{inputs: placementInputs, Severity: SeverityWarning, Score: 2,
+					Key:   "member_held:seat:" + seat,
 					Title: "Managed update held on seat " + member.SeatID,
 					Why: fmt.Sprintf("The managed runtime update of %s/%s is durably held on seat %s; it will not "+
 						"advance or roll forward without an operator.", database.DatabaseID, database.PartitionID, member.SeatID),
@@ -448,7 +450,9 @@ func memberHeld(inputs *Inputs) []Insight {
 	}
 	for _, hold := range inputs.Holds {
 		subject := holdSubject(hold.Reason)
-		out = append(out, Insight{Severity: SeverityWarning, Score: 1, Key: "member_held:hold:" + subject,
+		// Holds are read in process and never fail.
+		out = append(out, Insight{inputs: []string{}, Severity: SeverityWarning, Score: 1,
+			Key:      "member_held:hold:" + subject,
 			Title:    "Placement held: " + subject,
 			Why:      "The placement reconciler is holding: " + hold.Reason + ".",
 			Entity:   Entity{Kind: "member", ID: subject, Href: "/terrabase"},
@@ -457,20 +461,25 @@ func memberHeld(inputs *Inputs) []Insight {
 	}
 	// Repeated holds of one subject in the journal point at a flapping seat.
 	counts := map[string]int{}
+	ids := map[string]string{}
 	cutoff := inputs.Now.Add(-time.Hour)
 	for _, decision := range inputs.Decisions {
 		if decision.Kind == decisionlog.KindHeld && decision.Time.After(cutoff) && decision.Subject.ID != "" {
 			counts[decision.Subject.String()]++
+			ids[decision.Subject.String()] = decision.Subject.ID
 		}
 	}
 	for _, subject := range slices.Sorted(maps.Keys(counts)) {
 		if counts[subject] < inputs.Thresholds.RepeatedHolds {
 			continue
 		}
-		out = append(out, Insight{Severity: SeverityInfo, Score: float64(counts[subject]),
-			Key: "member_held:repeated:" + subject, Title: "Repeated holds on " + subject,
+		// The decision search (q) matches subject IDs, names and
+		// summaries, not the kind-qualified form.
+		out = append(out, Insight{inputs: []string{"decisions"}, Severity: SeverityInfo,
+			Score: float64(counts[subject]),
+			Key:   "member_held:repeated:" + subject, Title: "Repeated holds on " + subject,
 			Why:    fmt.Sprintf("%s was held %d times in the last hour.", subject, counts[subject]),
-			Entity: Entity{Kind: "subject", ID: subject, Href: "/decisions?subject=" + subject},
+			Entity: Entity{Kind: "subject", ID: subject, Href: "/decisions?q=" + url.QueryEscape(ids[subject])},
 			Evidence: []Evidence{{Label: "Holds in 1h", Value: float64(counts[subject]), Comparison: "<",
 				Threshold: threshold(float64(inputs.Thresholds.RepeatedHolds))}}})
 	}
@@ -492,9 +501,17 @@ func holdSubject(reason string) string {
 	return reason
 }
 
+// placementInputs are the inputs of an insight read from the placement
+// section of the cluster snapshot.
+var placementInputs = []string{"cluster", "snapshot", "section placement"}
+
 func volumeStuck(inputs *Inputs) []Insight {
 	var out []Insight
 	limit := inputs.Thresholds.VolumeAttachStuck
+	// Hosts whose seat already reports the stuck attachment: the volume
+	// provider describes the same placement state, so it must not open a
+	// second problem for it.
+	reported := map[string]bool{}
 	if view := placement(inputs); view != nil {
 		for _, database := range view.Databases {
 			for _, member := range database.Members {
@@ -506,7 +523,11 @@ func volumeStuck(inputs *Inputs) []Insight {
 					continue
 				}
 				seat := database.DatabaseID + "/" + database.PartitionID + "/" + member.SeatID
-				out = append(out, Insight{Severity: SeverityWarning, Score: stuck.Seconds(), Key: "volume_stuck:seat:" + seat,
+				if member.HostNode != "" {
+					reported[member.HostNode] = true
+				}
+				out = append(out, Insight{inputs: placementInputs, Severity: SeverityWarning, Score: stuck.Seconds(),
+					Key:   "volume_stuck:seat:" + seat,
 					Title: "Volume stuck attaching for seat " + member.SeatID,
 					Why: fmt.Sprintf("Seat %s has waited in %s for %s; its retained volume is not attached.",
 						member.SeatID, member.Stage, roundDuration(stuck)),
@@ -520,14 +541,15 @@ func volumeStuck(inputs *Inputs) []Insight {
 		}
 	}
 	for _, volume := range inputs.Volumes {
-		if !strings.Contains(strings.ToLower(volume.State), "attaching") || volume.StateSince.IsZero() {
+		if !strings.Contains(strings.ToLower(volume.State), "attaching") || volume.StateSince.IsZero() ||
+			volume.Host != "" && reported[volume.Host] {
 			continue
 		}
 		stuck := inputs.Now.Sub(volume.StateSince)
 		if stuck < limit {
 			continue
 		}
-		out = append(out, Insight{Severity: SeverityWarning, Score: stuck.Seconds(),
+		out = append(out, Insight{inputs: []string{"volumes"}, Severity: SeverityWarning, Score: stuck.Seconds(),
 			Title:  "Volume " + shortID(volume.ID) + " stuck attaching",
 			Why:    fmt.Sprintf("Volume %s has been %s for %s.", volume.ID, volume.State, roundDuration(stuck)),
 			Entity: Entity{Kind: "volume", ID: volume.ID, Href: "/storage"},

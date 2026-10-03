@@ -19,9 +19,12 @@ import (
 const (
 	// ControlStreamName is the durable stream that orders lease barriers,
 	// operation journal entries, and host registration/desired state.
-	ControlStreamName    = controlStreamName
-	controlStreamSubject = protocol.ControlRoot + ".*.>"
+	ControlStreamName = controlStreamName
 )
+
+// controlStreamSubject is the stream filter brokerauth also verifies; both
+// read it from protocol so they cannot drift apart.
+var controlStreamSubject = protocol.ControlStreamSubject()
 
 type controlRecord struct {
 	Version     int              `json:"version"`

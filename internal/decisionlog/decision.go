@@ -225,6 +225,9 @@ func (decision Decision) Normalize(now time.Time) Decision {
 		decision.Related = decision.Related[:maxRelated]
 	}
 	decision.Related = slices.Clone(decision.Related)
+	for index := range decision.Related {
+		decision.Related[index] = clip(decision.Related[index], 64)
+	}
 	if len(decision.Attrs) > 0 {
 		attrs := make(map[string]string, min(len(decision.Attrs), maxAttrs))
 		for _, key := range slices.Sorted(maps.Keys(decision.Attrs)) {

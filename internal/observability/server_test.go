@@ -190,3 +190,33 @@ func TestServerStartRefusesTokenlessNetworkAddress(t *testing.T) {
 		t.Fatalf("Start(tokenless private address) error = %v", err)
 	}
 }
+
+// A tokenless loopback listener is reachable from a DNS-rebinding page under
+// an attacker hostname, so every route, not only the dashboard's, requires an
+// IP literal or localhost as the Host.
+func TestTokenlessServerRefusesHostnamesOnEveryRoute(t *testing.T) {
+	t.Parallel()
+	server, err := NewServer(Config{}, ServerDeps{Registry: NewRegistry(false), Health: new(Health)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.Handle("GET /v1/extra", http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+	}))
+	for _, path := range []string{"/metrics", "/healthz", "/v1/extra"} {
+		for host, want := range map[string]int{
+			"rebind.attacker.example:9464": http.StatusMisdirectedRequest,
+			"127.0.0.1:9464":               http.StatusOK,
+			"[::1]:9464":                   http.StatusOK,
+			"localhost:9464":               http.StatusOK,
+		} {
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			request.Host = host
+			recorder := httptest.NewRecorder()
+			server.ServeHTTP(recorder, request)
+			if recorder.Code != want {
+				t.Fatalf("GET %s with Host %q = %d, want %d", path, host, recorder.Code, want)
+			}
+		}
+	}
+}

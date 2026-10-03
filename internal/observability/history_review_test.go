@@ -1,6 +1,7 @@
 package observability
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -103,10 +104,23 @@ func TestSamplerCountersSurviveAMissingMember(t *testing.T) {
 	if up, ok := value(missing, HistMemberUp, "member", "c2", "role", "controller"); !ok || up != 0 {
 		t.Fatalf("missing c2 member_up = %v (present %v), want 0", up, ok)
 	}
-	// c2 returns having made 2 more errors meanwhile; c1 restarted.
+	// c2 returns having made 2 more errors meanwhile; c1 restarted. The
+	// returning member is rebaselined: its growth over several collections
+	// would otherwise land in one sample and read as a burst.
 	back := sampler.Samples(ClusterSnapshot{Members: []MemberSnapshot{member("c1", 1), member("c2", 102)}})
-	if got, _ := value(back, HistOCIErrors, "operation", "compute.Get"); got != 204 {
-		t.Fatalf("total after return and restart = %v, want 204", got)
+	if got, _ := value(back, HistOCIErrors, "operation", "compute.Get"); got != 202 {
+		t.Fatalf("total after return and restart = %v, want 202", got)
+	}
+	// From then on c2 counts normally, and a new operation on a member
+	// that was observed throughout contributes its whole first count.
+	withNew := member("c2", 103)
+	withNew.OCI.Operations = append(withNew.OCI.Operations, OCIOperationView{Service: "compute", Operation: "List", Errors: 4})
+	next := sampler.Samples(ClusterSnapshot{Members: []MemberSnapshot{member("c1", 1), withNew}})
+	if got, _ := value(next, HistOCIErrors, "operation", "compute.Get"); got != 203 {
+		t.Fatalf("total after the return = %v, want 203", got)
+	}
+	if got, _ := value(next, HistOCIErrors, "operation", "compute.List"); got != 4 {
+		t.Fatalf("a new operation's first errors = %v, want 4", got)
 	}
 }
 
@@ -141,4 +155,69 @@ func TestSamplerRecordsAClearedStageAsZero(t *testing.T) {
 		}
 	}
 	t.Fatal("the cleared stage got no sample")
+}
+
+// A short query whose start lies before a fresh tier's first bucket reads
+// the restored coarser tier, which holds that start.
+func TestShortHistoricalQueryAfterRestoreReadsTheCoveringTier(t *testing.T) {
+	t.Parallel()
+	now := time.Now().Truncate(5 * time.Minute)
+	before := NewHistory(HistoryConfig{})
+	for minute := 40; minute >= 0; minute-- {
+		before.Append(now.Add(-time.Duration(minute)*time.Minute), []Sample{{Metric: "g", Value: 1}})
+	}
+	data, err := before.Export(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := NewHistory(HistoryConfig{})
+	if err := after.Import(data); err != nil {
+		t.Fatal(err)
+	}
+	// Sampling resumes a minute later, so the fresh tiers begin after the
+	// query's start.
+	after.Append(now.Add(90*time.Second), []Sample{{Metric: "g", Value: 1}})
+	result := after.Range(HistoryQuery{Metric: "g", Start: now.Add(30 * time.Second), End: now.Add(80 * time.Second)})
+	if len(result.Series) != 1 || len(result.Series[0].Points) == 0 {
+		t.Fatalf("short query after restore = %+v", result)
+	}
+}
+
+// A tier whose oldest bucket begins after the query's start does not cover
+// it, even when that bucket begins within one step of it.
+func TestCoveringTierNeedsABucketAtOrBeforeStart(t *testing.T) {
+	t.Parallel()
+	start := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC).UnixMilli()
+	minute := newTier(time.Minute, time.Hour, time.Second)
+	minute.open, minute.opened = bucket{Start: start + time.Minute.Milliseconds()}, true
+	five := newTier(5*time.Minute, time.Hour, time.Second)
+	five.open, five.opened = bucket{Start: start}, true
+	current := &series{tiers: map[string]*tier{TierRaw: newTier(0, time.Minute, time.Second), Tier1m: minute, Tier5m: five}}
+	if got := current.coveringTier(Tier1m, start); got != Tier5m {
+		t.Fatalf("covering tier = %s, want the 5m tier holding the start", got)
+	}
+}
+
+// A counter that resets and recovers inside one rollup bucket keeps all its
+// growth: increases are accumulated per raw sample before downsampling.
+func TestCounterResetInsideABucketKeepsItsGrowth(t *testing.T) {
+	t.Parallel()
+	history := NewHistory(HistoryConfig{})
+	base := time.Now().Truncate(time.Minute).Add(-10 * time.Minute)
+	samples := []struct {
+		offset time.Duration
+		value  float64
+	}{{0, 100}, {time.Minute + 10*time.Second, 150}, {time.Minute + 20*time.Second, 0}, {time.Minute + 30*time.Second, 200}}
+	for _, sample := range samples {
+		history.Append(base.Add(sample.offset), []Sample{{Metric: "c", Value: sample.value, Counter: true}})
+	}
+	result := history.Range(HistoryQuery{Metric: "c", Start: base.Add(-time.Minute), End: base.Add(2 * time.Minute),
+		Tier: Tier1m, Rate: true})
+	if len(result.Series) != 1 || len(result.Series[0].Points) != 1 {
+		t.Fatalf("rate = %+v", result)
+	}
+	// 100 -> 150 (+50), reset to 0 (+0), -> 200 (+200): 250 over 90 s.
+	if got, want := result.Series[0].Points[0].Value, 250.0/90; math.Abs(got-want) > 1e-9 {
+		t.Fatalf("rate = %v, want %v", got, want)
+	}
 }
