@@ -804,6 +804,12 @@ and the intended network boundary.
      --from-json file:///ABSOLUTE/PATH/controller-a-launch.json
    ```
 
+   `ts-orch oci-region attempt --config attempt.json launch` submits the same
+   file in-binary through the OCI Go SDK instead (no Python CLI): it refuses
+   unknown or missing members, carries `subnetId`, `privateIp`, `nsgIds` and
+   `assignPublicIp` in `createVnicDetails` exactly as the CLI did, and sends
+   an `opc-retry-token` bound to the file bytes.
+
    Record the exact OCI instance OCID returned by the CLI. OCI accepting the
    launch request is not proof that the signed network profile was applied.
 10. Re-read controller A, its primary VNIC, and boot-volume sizing with
