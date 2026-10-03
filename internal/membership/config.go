@@ -26,7 +26,9 @@ const (
 	// retirement envelopes named <slot>.retirement, and the leader's unsigned
 	// <slot>.retirement-request.json files. It lives under the controller
 	// unit's StateDirectory, the only tree the service account may write
-	// under ProtectSystem=strict; systemd creates and owns it.
+	// under ProtectSystem=strict. systemd creates the StateDirectory itself;
+	// the controller creates this subdirectory (0700) when it first writes a
+	// retirement request.
 	DefaultRetirementEvidenceDir = "/var/lib/terrascale-orchestrator-controller/membership/retirement"
 )
 
