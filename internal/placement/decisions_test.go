@@ -95,8 +95,71 @@ func TestJournaledStoreRecordsTransitions(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustCAS(9, MemberState{DatabaseID: "db", PartitionID: "p0", MemberID: "m2", Stage: StagePreparedDesired})
-	latest, _ := journal.Query(ctx, decisionlog.Query{SubjectID: "m2"})
+	latest, _ := journal.Query(ctx, decisionlog.Query{SubjectID: "db/p0/m2"})
 	if len(latest.Decisions) != 1 || latest.Decisions[0].Reason != "The reconciler committed prepared-desired after awaiting-attach." {
 		t.Fatalf("m2 = %+v", latest.Decisions)
+	}
+}
+
+// Seat IDs repeat across partitions; journal subjects do not.
+func TestJournaledSeatSubjectsAreQualified(t *testing.T) {
+	journal := decisionlog.NewJournal(decisionlog.JournalConfig{Region: "gru"})
+	t.Cleanup(decisionlog.SetDefault(journal))
+	store := JournaledStore(&journalTestStore{members: map[string]VersionedMemberState{}}, "gru")
+	for _, partition := range []string{"p0", "p1"} {
+		if _, err := store.CompareAndSwap(t.Context(), 0, MemberState{DatabaseID: "db", PartitionID: partition,
+			MemberID: "permanent-a", Stage: StagePreparedHost}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	one, _ := journal.Query(t.Context(), decisionlog.Query{SubjectKind: "seat", SubjectID: "db/p0/permanent-a"})
+	if len(one.Decisions) != 1 {
+		t.Fatalf("seat history mixes partitions: %+v", one.Decisions)
+	}
+}
+
+// A read racing the compare-and-swap (the admission lists members while the
+// reconciler commits) cannot hide the committed transition: the predecessor
+// is the state at the expected revision.
+func TestConcurrentReadDoesNotHideATransition(t *testing.T) {
+	journal := decisionlog.NewJournal(decisionlog.JournalConfig{Region: "gru"})
+	t.Cleanup(decisionlog.SetDefault(journal))
+	inner := &journalTestStore{members: map[string]VersionedMemberState{}}
+	store := JournaledStore(inner, "gru").(*journaledStore)
+	state := MemberState{DatabaseID: "db", PartitionID: "p0", MemberID: "m1", Stage: StageAwaitingHost}
+	if _, err := store.CompareAndSwap(t.Context(), 0, state); err != nil {
+		t.Fatal(err)
+	}
+	// The admission reads the newly committed state at revision 2 before
+	// the reconciler's swap from revision 1 is journaled.
+	state.Stage = StageServing
+	store.remember(state, 2)
+	if _, err := store.CompareAndSwap(t.Context(), 1, state); err != nil {
+		t.Fatal(err)
+	}
+	serving, _ := journal.Query(t.Context(), decisionlog.Query{SubjectID: "db/p0/m1"})
+	if len(serving.Decisions) != 2 || serving.Decisions[0].Reason != "The reconciler committed serving after awaiting-host." {
+		t.Fatalf("decisions = %+v", serving.Decisions)
+	}
+}
+
+// A forgotten predecessor does not journal an unchanged phase again.
+func TestUnknownPredecessorDoesNotRepeatAPhase(t *testing.T) {
+	journal := decisionlog.NewJournal(decisionlog.JournalConfig{Region: "gru"})
+	t.Cleanup(decisionlog.SetDefault(journal))
+	store := JournaledStore(&journalTestStore{members: map[string]VersionedMemberState{}}, "gru").(*journaledStore)
+	state := MemberState{DatabaseID: "db", PartitionID: "p0", MemberID: "m1", Stage: StageServing,
+		ManagedRuntimeTarget: ManagedRuntimeTarget{OperationID: "op", Phase: ManagedUpdateSeatPrepared}}
+	if _, err := store.CompareAndSwap(t.Context(), 0, state); err != nil {
+		t.Fatal(err)
+	}
+	clear(store.seats) // eviction
+	state.Stage = StageCordoned
+	if _, err := store.CompareAndSwap(t.Context(), 1, state); err != nil {
+		t.Fatal(err)
+	}
+	started, _ := journal.Query(t.Context(), decisionlog.Query{Kinds: []decisionlog.Kind{decisionlog.KindUpgradeStarted}})
+	if len(started.Decisions) != 1 {
+		t.Fatalf("upgrade_started journaled %d times", len(started.Decisions))
 	}
 }

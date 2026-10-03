@@ -19,19 +19,30 @@ const maxJournaledSeats = 4096
 // decisions chain under it.
 func ManagedUpdateCorrelation(operationID string) string { return "managed_update:" + operationID }
 
+// marksPerSeat bounds the revisions remembered per seat.
+const marksPerSeat = 4
+
 // JournaledStore wraps the reconciler's store and journals every seat stage
 // and managed update phase transition the reconciler commits. It remembers
-// the last stage it read or wrote per seat to tell what changed; recording is
+// the stage it read or wrote per seat and revision; a compare-and-swap's
+// predecessor is the state at its expected revision, so a concurrent read
+// (the managed-update admission lists members while the reconciler runs)
+// can neither hide a transition nor stand in for an older one. Recording is
 // best effort and never affects the compare-and-swap result.
 func JournaledStore(store Store, cell string) Store {
-	return &journaledStore{Store: store, cell: cell, seats: map[string]seatMark{}}
+	return &journaledStore{Store: store, cell: cell, seats: map[string]map[uint64]seatMark{},
+		phases: map[string]struct{}{}}
 }
 
 type journaledStore struct {
 	Store
 	cell  string
 	mu    sync.Mutex
-	seats map[string]seatMark
+	seats map[string]map[uint64]seatMark
+	// phases holds the managed update phases already journaled per
+	// operation and seat, so a forgotten predecessor never journals the
+	// same phase twice.
+	phases map[string]struct{}
 }
 
 type seatMark struct {
@@ -49,22 +60,55 @@ func markOf(state MemberState) seatMark {
 		phase: state.ManagedRuntimeTarget.Phase}
 }
 
-func (store *journaledStore) remember(state MemberState) (seatMark, bool) {
+// remember records the seat's state at revision.
+func (store *journaledStore) remember(state MemberState, revision uint64) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	key := seatKey(state)
-	previous, known := store.seats[key]
-	if !known && len(store.seats) >= maxJournaledSeats {
-		clear(store.seats)
+	marks := store.seats[key]
+	if marks == nil {
+		if len(store.seats) >= maxJournaledSeats {
+			clear(store.seats)
+			clear(store.phases)
+		}
+		marks = map[uint64]seatMark{}
+		store.seats[key] = marks
 	}
-	store.seats[key] = markOf(state)
-	return previous, known
+	marks[revision] = markOf(state)
+	for len(marks) > marksPerSeat {
+		oldest := revision
+		for other := range marks {
+			oldest = min(oldest, other)
+		}
+		delete(marks, oldest)
+	}
+}
+
+// at returns the seat's state at revision, if it was read or written.
+func (store *journaledStore) at(state MemberState, revision uint64) (seatMark, bool) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	mark, known := store.seats[seatKey(state)][revision]
+	return mark, known
+}
+
+// firstPhase reports whether the phase is journaled for the first time for
+// this operation and seat.
+func (store *journaledStore) firstPhase(state MemberState) bool {
+	key := state.ManagedRuntimeTarget.OperationID + "|" + seatKey(state) + "|" + string(state.ManagedRuntimeTarget.Phase)
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if _, seen := store.phases[key]; seen {
+		return false
+	}
+	store.phases[key] = struct{}{}
+	return true
 }
 
 func (store *journaledStore) ReadMember(ctx context.Context, databaseID, partitionID, memberID string) (VersionedMemberState, error) {
 	member, err := store.Store.ReadMember(ctx, databaseID, partitionID, memberID)
 	if err == nil {
-		store.remember(member.State)
+		store.remember(member.State, member.Revision)
 	}
 	return member, err
 }
@@ -73,7 +117,7 @@ func (store *journaledStore) ListMembers(ctx context.Context, databaseID, partit
 	members, err := store.Store.ListMembers(ctx, databaseID, partitionID)
 	if err == nil {
 		for _, member := range members {
-			store.remember(member.State)
+			store.remember(member.State, member.Revision)
 		}
 	}
 	return members, err
@@ -84,17 +128,20 @@ func (store *journaledStore) CompareAndSwap(ctx context.Context, expected uint64
 	if err != nil {
 		return revision, err
 	}
-	previous, known := store.remember(state)
+	previous, known := store.at(state, expected)
 	if expected == 0 {
 		known, previous = true, seatMark{}
 	}
+	store.remember(state, revision)
 	store.journal(ctx, previous, known, state)
 	return revision, nil
 }
 
 func (store *journaledStore) journal(ctx context.Context, previous seatMark, known bool, state MemberState) {
 	current := markOf(state)
-	subject := decisionlog.Subject{Kind: "seat", ID: state.MemberID,
+	// Seat IDs repeat across databases and partitions; the journal subject
+	// is the fully qualified seat.
+	subject := decisionlog.Subject{Kind: "seat", ID: seatKey(state),
 		Name: fmt.Sprintf("%s/%s %s", state.DatabaseID, state.PartitionID, state.MemberID)}
 	signals := []decisionlog.Signal{
 		{Name: "intent_generation", Value: float64(state.IntentGeneration)},
@@ -126,7 +173,12 @@ func (store *journaledStore) journal(ctx context.Context, previous seatMark, kno
 			Signals: stageSignals, Status: status, Epoch: state.WriterEpoch, Attrs: attrs,
 			Outcome: string(current.stage)})
 	}
-	if current.operation == "" || previous.operation == current.operation && previous.phase == current.phase {
+	if current.operation == "" || known && previous.operation == current.operation && previous.phase == current.phase {
+		return
+	}
+	// An unknown predecessor is not evidence of a phase change: journal a
+	// phase only the first time it is seen for this operation and seat.
+	if !store.firstPhase(state) {
 		return
 	}
 	target := state.ManagedRuntimeTarget
