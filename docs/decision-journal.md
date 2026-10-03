@@ -104,6 +104,8 @@ chain's status).
 | Volume auto-grow | `volume_resized` | `placement.Controller.growVolume`, after the journaled resize |
 | Controller slot replacement | `controller_replaced` | `membership.Reconciler`, after the founder accepted the replacement |
 | Region proposals | `region_proposed` | `regionplanner.Submit`, after the lifecycle record was stored |
+| Region admissions | `region_admitted` (admitted or readmitted, with the estimate and committed spend), `held` (refused by the region maximum, the ceiling or the approval; once per cell and reason) | `regionops.Loop`, after the lifecycle record was stored |
+| Region lifecycle steps | `region_step` (in progress, succeeded, or failed when held), `held` (waiting for an approval, a fresh admission, an effector or an OCI effect in progress; once per cell and reason) | `regionops.Loop`, after `Driver.Advance` or an observed resume |
 
 ### Providers of the other slices
 
@@ -112,7 +114,7 @@ chain's status).
 | `insights.AutoscalerProvider` | `app.workloadAutoscalers` over `workload.Reconciler.Last` | when `controller.autoscale.enabled` |
 | `insights.VolumeProvider` (also the dashboard storage page) | `app.placementVolumes` over the placement member states | on managed controllers |
 | `insights.RolloutProvider` | `rollout.Store.Rollouts` | available; no controller opens the rollout store yet |
-| `insights.BudgetProvider` | `regionplanner.Budgets` | available; the planner is not scheduled yet |
+| `insights.BudgetProvider` | `regionplanner.Budgets` | when `controller.region_planner.enabled` (global home only) |
 
 ### Original contract for the parallel slices
 
@@ -124,6 +126,7 @@ chain's status).
 | storage | `volume_resized`, `volume_reattached`, `backup_taken` | Subject `volume/<ocid>`. Implement `insights.VolumeProvider`. |
 | membership | `member_replaced`, `controller_replaced`, `host_reclaimed` | Subject `member/<name>` or `host/<ocid>`. |
 | regionplanner | `region_proposed` | Region in `Region`; implement `insights.BudgetProvider` for budgets. |
+| regionops | `region_admitted`, `region_step`, `held` | Region in `Region`, subject `region/<cell>`; proposal, phases, step and create key in `Attrs`. |
 
 Every provider is optional: the insights engine and the region view take
 nil for anything not built yet, and the rules that need it stay silent
