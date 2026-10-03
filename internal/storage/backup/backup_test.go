@@ -224,7 +224,7 @@ func TestRunnerCreatesIdempotentlyAndPrunesWithExactETag(t *testing.T) {
 	}
 	provider := newFakeProvider(existing...)
 	fencer := &fakeFencer{snapshot: leader()}
-	report, err := runner(provider, fencer, Policy{Enabled: true, Retain: 2, Prune: true}).RunOnce(t.Context())
+	report, err := runner(provider, fencer, Policy{Enabled: true, Retain: 2, FullEvery: 2, Prune: true}).RunOnce(t.Context())
 	if err != nil || len(report.Created) != 1 || len(report.Deleted) != 2 {
 		t.Fatalf("report = %+v, %v", report, err)
 	}
@@ -232,7 +232,7 @@ func TestRunnerCreatesIdempotentlyAndPrunesWithExactETag(t *testing.T) {
 		t.Fatalf("creates=%d deletes=%v", provider.creates, provider.deletes)
 	}
 	// The new backup is CREATING: a second pass creates nothing.
-	if report, err := runner(provider, fencer, Policy{Enabled: true, Retain: 2, Prune: true}).RunOnce(t.Context()); err != nil || len(report.Created) != 0 {
+	if report, err := runner(provider, fencer, Policy{Enabled: true, Retain: 2, FullEvery: 2, Prune: true}).RunOnce(t.Context()); err != nil || len(report.Created) != 0 {
 		t.Fatalf("second pass = %+v, %v", report, err)
 	}
 }
@@ -243,7 +243,7 @@ func TestRunnerSkipsBackupThatChangedOwnershipBeforeDelete(t *testing.T) {
 		owned("old", "AVAILABLE", TypeFull, 2*time.Hour),
 	)
 	provider.onGet = func(backup *oci.CloudVolumeBackup) { backup.FreeformTags = nil }
-	report, err := runner(provider, &fakeFencer{snapshot: leader()}, Policy{Enabled: true, Retain: 1, Prune: true}).RunOnce(t.Context())
+	report, err := runner(provider, &fakeFencer{snapshot: leader()}, Policy{Enabled: true, Retain: 1, FullEvery: 1, Prune: true}).RunOnce(t.Context())
 	if err != nil || len(provider.deletes) != 0 || len(report.Skipped) != 1 {
 		t.Fatalf("re-read foreign backup was deleted: report=%+v deletes=%v err=%v", report, provider.deletes, err)
 	}
