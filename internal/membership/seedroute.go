@@ -76,6 +76,11 @@ func (request SeedReplaceRequest) key() string {
 	return fmt.Sprintf("%s/%d/%s", request.Slot, request.PreviousAttempt, hex.EncodeToString(sum[:]))
 }
 
+func (request SeedReplaceRequest) sameTerm(other SeedReplaceRequest) bool {
+	return request.Epoch == other.Epoch && request.CandidateID == other.CandidateID &&
+		request.OwnerID == other.OwnerID
+}
+
 func (request SeedReplaceRequest) validate(topology Topology) error {
 	if request.Version != SeedReplaceRequestVersion || request.Cell != topology.Cell {
 		return errors.New("request is for another schema or cell")
@@ -222,7 +227,10 @@ func NewSeedServer(ctx context.Context, topology Topology, deps SeedServerDepend
 // Close cancels any running replacement and waits for it, so no founder OCI
 // call outlives the controller.
 func (s *SeedServer) Close() {
+	// Stopping under the lock orders every job start before the wait.
+	s.mu.Lock()
 	s.stop()
+	s.mu.Unlock()
 	s.jobs.Wait()
 }
 
@@ -253,10 +261,16 @@ func (s *SeedServer) Handle(ctx context.Context, payload []byte) SeedReplaceRepl
 	key := request.key()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.base.Err() != nil {
+		return refuse(errors.New("seed controller is stopping"))
+	}
 	if job := s.job; job != nil {
 		switch {
 		case job.key == key && job.running:
 			return SeedReplaceReply{Status: SeedInProgress}
+		case job.key == key && job.err != nil && !job.request.sameTerm(request):
+			// The term that started the failed attempt ended (its fence
+			// most likely cancelled it); the new term resumes at once.
 		case job.key == key && job.err != nil:
 			// Report the failure once; the leader's retry backoff decides
 			// when the next request starts a fresh attempt.
@@ -284,10 +298,11 @@ func (s *SeedServer) run(job *seedJob) {
 	fence := func(ctx context.Context) error {
 		return s.deps.Leases.VerifyLeaseHolder(ctx, request.Epoch, request.CandidateID, request.OwnerID)
 	}
+	poll := seedFencePoll
 	ctx, cancel := context.WithCancelCause(s.base)
 	defer cancel(context.Canceled)
 	go func() {
-		ticker := time.NewTicker(seedFencePoll)
+		ticker := time.NewTicker(poll)
 		defer ticker.Stop()
 		for {
 			select {

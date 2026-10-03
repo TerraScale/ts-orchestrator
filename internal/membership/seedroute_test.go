@@ -244,10 +244,10 @@ func TestSeedRefusesRequestsOutsideTheCurrentTermOrScope(t *testing.T) {
 }
 
 func TestSeedRoutedReplacementEndsWithTheRequestingTerm(t *testing.T) {
-	harness := newSeedHarness(t)
 	previous := seedFencePoll
 	seedFencePoll = 10 * time.Millisecond
 	t.Cleanup(func() { seedFencePoll = previous })
+	harness := newSeedHarness(t)
 	if reply := harness.request(t, nil); reply.Status != SeedAccepted {
 		t.Fatalf("reply = %+v", reply)
 	}
@@ -275,6 +275,19 @@ func TestSeedRoutedReplacementEndsWithTheRequestingTerm(t *testing.T) {
 	if reply := harness.request(t, nil); reply.Status != SeedRefused {
 		t.Fatalf("stale term reply = %+v", reply)
 	}
+	// The next term resumes the same retirement at once instead of first
+	// collecting the failure the old term's fence caused.
+	if reply := harness.request(t, func(request *SeedReplaceRequest) {
+		request.Retirement = action.Retirement.Wire
+		request.Epoch, request.CandidateID, request.OwnerID = seedTermEpoch+1, "gru-controller-b-5678", "owner-b"
+	}); reply.Status != SeedAccepted {
+		t.Fatalf("new term reply = %+v", reply)
+	}
+	resumed := awaitStarted(t, harness.replacer)
+	if resumed.Epoch != seedTermEpoch+1 {
+		t.Fatalf("resumed under epoch %d", resumed.Epoch)
+	}
+	harness.replacer.release <- nil
 }
 
 func TestSeedRunsOneRoutedReplacementAtATimeAndReportsFailuresOnce(t *testing.T) {
