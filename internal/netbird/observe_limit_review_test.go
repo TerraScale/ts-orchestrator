@@ -29,3 +29,18 @@ func TestObserveBoundsEveryStatusQueryByItsLimit(t *testing.T) {
 		t.Fatalf("observe = %v %t %v; want the last observation at the limit", status, done, err)
 	}
 }
+
+// A first status query cut by the limit has observed nothing: it must fail
+// rather than return a zero status, which the boot-time reconnect wait would
+// read as a daemon bound to no manager and re-enroll.
+func TestObserveFailsWhenTheFirstStatusQueryHitsTheLimit(t *testing.T) {
+	e := testEnroller(t)
+	e.run = func(ctx context.Context, _ string, _ ...string) ([]byte, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	status, done, err := e.observe(t.Context(), 50*time.Millisecond, nil, func(daemonStatus) bool { return false })
+	if err == nil || done || status != (daemonStatus{}) {
+		t.Fatalf("observe = %v %t %v; want an error with no observation", status, done, err)
+	}
+}

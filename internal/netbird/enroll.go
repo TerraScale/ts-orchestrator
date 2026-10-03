@@ -320,6 +320,7 @@ func (e enroller) observe(ctx context.Context, limit time.Duration, first *daemo
 	defer cancel()
 	delay := e.poll
 	var last daemonStatus
+	observed := false
 	for {
 		var status daemonStatus
 		if first != nil {
@@ -332,14 +333,19 @@ func (e enroller) observe(ctx context.Context, limit time.Duration, first *daemo
 				if ctxErr := ctx.Err(); ctxErr != nil {
 					return daemonStatus{}, false, ctxErr
 				}
-				// A query cut short by the limit is the limit elapsing.
+				// A query cut short by the limit is the limit elapsing. With
+				// no observation yet there is nothing to report: a zero
+				// status would read as a daemon bound to no manager.
 				if limited.Err() != nil {
+					if !observed {
+						return daemonStatus{}, false, errors.Join(errors.New("NetBird status did not answer within its observation limit"), err)
+					}
 					return last, false, nil
 				}
 				return daemonStatus{}, false, err
 			}
 		}
-		last = status
+		last, observed = status, true
 		if done(status) {
 			return status, true, nil
 		}
