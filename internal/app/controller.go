@@ -60,7 +60,7 @@ func controllerClockCheck(probe brokerauth.ClockProbe) func() error {
 	}
 }
 
-func runController(ctx context.Context, cfg Config, output io.Writer) error {
+func runController(ctx context.Context, cfg Config, output io.Writer) (err error) {
 	// Take the systemd notification socket before any child process starts.
 	notifier := sdnotify.FromEnvironment()
 	defer func() { _ = notifier.Stopping() }()
@@ -141,6 +141,18 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	_, brokerStopped, waitHealth := startClusterHealth(healthCtx, runtime, nil)
 	defer waitHealth()
 	defer stopHealth()
+	// Every later startup step runs under the broker's lifetime: a broker
+	// that dies while an authority, delivery or placement open is retrying
+	// cancels that open, and the controller exits with
+	// ErrEmbeddedServerStopped so the service manager restarts it.
+	parentCtx := ctx
+	ctx, stopBrokerLifetime := brokerLifetimeContext(parentCtx, brokerStopped)
+	defer stopBrokerLifetime()
+	defer func() {
+		if brokerLifetimeEnded(parentCtx, ctx) {
+			err = natscell.ErrEmbeddedServerStopped
+		}
+	}()
 	defer stepDownMetaLeaderOnShutdown(runtime, cfg.NATS.Embedded.MembershipCredentialsFile)
 	fullClusterReady := func() bool { return runtime.FullClusterReady(cfg.NATS.Replicas) }
 	waitCluster := func(waitCtx context.Context) error {
@@ -572,12 +584,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("start region planner: %w", err)
 	}
-	var brokerIDs []string
-	if cfg.NATS.Embedded != nil {
-		brokerIDs = cfg.NATS.Embedded.BrokerIDs
-	}
+	// runController refused a configuration without an embedded broker at
+	// its top, so Embedded is always set here.
 	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
-		brokerIDs: brokerIDs, authority: control, placements: placementStore, managed: managed != nil,
+		brokerIDs: cfg.NATS.Embedded.BrokerIDs, authority: control, placements: placementStore, managed: managed != nil,
 		holds: placementHolds, autoscalers: workloadReconciler, linkedPeers: globalMirrorPeers(cfg.NATS),
 		rollouts: rollouts, budgets: budgets},
 		[]observability.FilesystemRole{{Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
@@ -648,7 +658,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	go notifier.RunWatchdog(runCtx, runtime.Ready)
 	emitSelfUpdateProof(cfg.Controller.SelfUpdateProofFile, cfg.Controller.ResponseKeyFile, controllerUnit, output)
 	select {
-	case <-ctx.Done():
+	case <-parentCtx.Done():
 		stop()
 		workers.Wait()
 		return nil

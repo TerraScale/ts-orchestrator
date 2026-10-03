@@ -5,9 +5,12 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/VictoriaMetrics/metrics"
 )
@@ -73,7 +76,7 @@ func NewLogger(output io.Writer, config LogConfig, bus *EventBus, attrs ...slog.
 		handler = slog.NewJSONHandler(output, options)
 	}
 	if bus != nil {
-		handler = &EventTee{next: handler, bus: bus, counters: newLogCounters()}
+		handler = &EventTee{next: handler, bus: bus, counters: newLogCounters(), repeats: newEventRepeats()}
 	}
 	if len(attrs) > 0 {
 		handler = handler.WithAttrs(attrs)
@@ -96,6 +99,7 @@ type EventTee struct {
 	next     slog.Handler
 	bus      *EventBus
 	counters *logCounters
+	repeats  *eventRepeats
 	scoped   []slog.Attr
 	groups   []string
 }
@@ -138,15 +142,25 @@ func (counters *logCounters) count(level slog.Level) {
 	}
 }
 
+// Enabled admits every record at INFO and above even when the log level is
+// stricter, because an INFO record tagged EventKey=true or a WARN record under
+// log_level=error still belongs on the event bus. Handle forwards to the log
+// output only what its own level admits.
 func (tee *EventTee) Enabled(ctx context.Context, level slog.Level) bool {
-	return tee.next.Enabled(ctx, level)
+	return level >= slog.LevelInfo || tee.next.Enabled(ctx, level)
 }
 
 func (tee *EventTee) Handle(ctx context.Context, record slog.Record) error {
-	tee.counters.count(record.Level)
 	if record.Level >= slog.LevelWarn || tee.marked(record) {
-		tee.bus.Publish(eventFromRecord(record, tee.eventScope(), tee.groups))
+		event := eventFromRecord(record, tee.eventScope(), tee.groups)
+		if tee.repeats.admit(event, record.Time) {
+			tee.bus.Publish(event)
+		}
 	}
+	if !tee.next.Enabled(ctx, record.Level) {
+		return nil
+	}
+	tee.counters.count(record.Level)
 	return tee.next.Handle(ctx, record)
 }
 
@@ -187,4 +201,72 @@ func (tee *EventTee) WithGroup(name string) slog.Handler {
 	clone.next = tee.next.WithGroup(name)
 	clone.groups = append(slices.Clone(tee.groups), name)
 	return &clone
+}
+
+// eventRepeatWindow is how long an identical event is kept off the bus after
+// it was published. A loop that logs the same warning every tick still writes
+// every log line, but the bounded ring keeps one copy per window instead of
+// being flushed of every other event within hours.
+const (
+	eventRepeatWindow = 5 * time.Minute
+	maxEventRepeats   = 512
+)
+
+// eventRepeats remembers when each distinct event was last published. It is
+// shared by every clone of one EventTee.
+type eventRepeats struct {
+	mu         sync.Mutex
+	last       map[string]time.Time
+	suppressed atomic.Uint64
+}
+
+func newEventRepeats() *eventRepeats {
+	return &eventRepeats{last: map[string]time.Time{}}
+}
+
+// admit reports whether event should be published at now, recording it if
+// so. Events differing in level, component, message or any attribute are
+// distinct.
+func (repeats *eventRepeats) admit(event Event, now time.Time) bool {
+	if repeats == nil {
+		return true
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	key := eventRepeatKey(event)
+	repeats.mu.Lock()
+	defer repeats.mu.Unlock()
+	if last, ok := repeats.last[key]; ok && now.Sub(last) >= 0 && now.Sub(last) < eventRepeatWindow {
+		repeats.suppressed.Add(1)
+		return false
+	}
+	if len(repeats.last) >= maxEventRepeats {
+		for existing, at := range repeats.last {
+			if now.Sub(at) >= eventRepeatWindow {
+				delete(repeats.last, existing)
+			}
+		}
+		if len(repeats.last) >= maxEventRepeats {
+			clear(repeats.last)
+		}
+	}
+	repeats.last[key] = now
+	return true
+}
+
+func eventRepeatKey(event Event) string {
+	var key strings.Builder
+	key.WriteString(event.Level)
+	key.WriteByte(0)
+	key.WriteString(event.Component)
+	key.WriteByte(0)
+	key.WriteString(event.Message)
+	for _, name := range slices.Sorted(maps.Keys(event.Attrs)) {
+		key.WriteByte(0)
+		key.WriteString(name)
+		key.WriteByte('=')
+		key.WriteString(event.Attrs[name])
+	}
+	return key.String()
 }

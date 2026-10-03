@@ -88,7 +88,7 @@ func (replacer founderMembershipReplacer) Replace(ctx context.Context, action me
 	if err != nil {
 		return fmt.Errorf("open seed founder replacer: %w", err)
 	}
-	return founder.Replace(ctx, action.Slot, action.Retirement.Wire)
+	return founder.ReplaceFenced(ctx, action.Slot, action.Retirement.Wire, action.Fence)
 }
 
 // RetirementRequestSuffix names the unsigned candidate a controller writes
@@ -293,7 +293,8 @@ func startControllerMembership(ctx context.Context, cfg Config, runtime *natscel
 		Leadership: control, Peers: natsMembershipPeers{runtime: runtime},
 		Ledger:    ledgerMembershipSlots{ledger: ledger, deploymentID: accepted.DeploymentID, cell: accepted.Cell},
 		Instances: lifecycleInstances{observer: observer},
-		Evidence:  membership.FileEvidence{Dir: settings.EvidenceDir(), Slots: topology.Slots},
+		Evidence: membership.NewFileEvidence(settings.EvidenceDir(), topology.Slots,
+			slog.Default().With("component", "membership")),
 		Requests: ledgerRetirementRequests{ledger: ledger, deploymentID: accepted.DeploymentID,
 			cell: accepted.Cell, dir: settings.EvidenceDir()},
 		Replacer: replacer, Logger: slog.Default().With("component", "membership"),

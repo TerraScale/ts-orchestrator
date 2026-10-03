@@ -13,6 +13,9 @@ import (
 // before a replacement attempt may start.
 const DefaultLostMemberGrace = 10 * time.Minute
 
+// instanceLifecycleTerminated is OCI's final instance lifecycle state.
+const instanceLifecycleTerminated = "TERMINATED"
+
 // LostMemberEvidence supplies independent proof about a member held without
 // its host: the old writer is stopped, the retained volume is intact, and the
 // surviving member has replicated the data. It returns false when no
@@ -80,6 +83,7 @@ func replacementMemberState(intent Intent, seat Seat, state MemberState) (Member
 	next.HostNode, next.InstanceID, next.InstanceETag = "", "", ""
 	next.AttachmentID, next.AttachmentDevice, next.AttachmentETag = "", "", ""
 	next.HostGeneration, next.DesiredGeneration = 0, 0
+	next.HostLostAt = time.Time{}
 	next.OperationID = memberOperationID(intent, seat.MemberID, next.HostAttempt, "replace")
 	return next, nil
 }
@@ -96,15 +100,43 @@ func (controller *Controller) replaceLostMember(ctx context.Context, epoch uint6
 		state.ManagedRuntimeTarget.OperationID != "" {
 		return false, nil
 	}
-	if _, observed := instances[state.InstanceID]; observed || state.InstanceID == "" {
-		// A host that is still observed may return; it is never replaced.
+	if state.InstanceID == "" {
 		return false, nil
+	}
+	instance, observed := instances[state.InstanceID]
+	// A host that is still observed may return and is never replaced; a
+	// host OCI positively reports TERMINATED cannot return, even while the
+	// historical instance still appears in the inventory.
+	if observed && instance.State != instanceLifecycleTerminated {
+		if state.HostLostAt.IsZero() {
+			return false, nil
+		}
+		// The host came back: a later loss starts a fresh grace.
+		next := state
+		next.HostLostAt = time.Time{}
+		if err := controller.guard(ctx, epoch); err != nil {
+			return false, err
+		}
+		_, err := controller.persist(ctx, epoch, versioned.Revision, next)
+		return true, err
+	}
+	now := controller.currentTime().UTC()
+	if state.HostLostAt.IsZero() {
+		// Record the first observation of the loss durably; the grace runs
+		// from here, not from the member's last unrelated write.
+		next := state
+		next.HostLostAt = now
+		if err := controller.guard(ctx, epoch); err != nil {
+			return false, err
+		}
+		_, err := controller.persist(ctx, epoch, versioned.Revision, next)
+		return true, err
 	}
 	grace := controller.config.LostMemberGrace
 	if grace == 0 {
 		grace = DefaultLostMemberGrace
 	}
-	if controller.currentTime().Sub(state.UpdatedAt) < grace {
+	if now.Sub(state.HostLostAt) < grace {
 		return false, nil
 	}
 	evidence, complete, err := controller.config.LostMemberEvidence(ctx, state)

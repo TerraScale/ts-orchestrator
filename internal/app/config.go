@@ -51,6 +51,12 @@ type ControllerConfig struct {
 	// Full OCI restart admission and NTP still gate authority, the broker gate,
 	// the founder, and every mutation. It is part of the signed controller
 	// config, so enabling it is a signed operator decision. Default off.
+	//
+	// It applies to controller process restarts, where the install and
+	// bootstrap oneshots stay active. A VM reboot still reruns those units,
+	// which require systemd-time-wait-sync and verify the signed config
+	// against the wall clock, so a reboot without NTP does not reach the
+	// offline path; relaxing those boot units is a separate trust decision.
 	OfflineRestartAdmission bool `json:"offline_restart_admission,omitzero"`
 	// StorageCapacity publishes this node's boot root and JetStream StoreDir
 	// usage to the regional TTL'd usage bucket. Off by default.

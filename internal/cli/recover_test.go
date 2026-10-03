@@ -5,13 +5,17 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -34,9 +38,17 @@ func recoveryFixture(t *testing.T) (string, string, string) {
 		t.Fatal(err)
 	}
 	config := filepath.Join(root, "controller.json")
+	clientPort, routePort := closedPort(t), closedPort(t)
 	if err := os.WriteFile(config, []byte(`{"nats":{"cell":"gru","instance":"controller-a","replicas":3,`+
-		`"embedded":{"host":"127.0.0.1","port":0,"store_dir":"`+store+`"}}}`), 0o600); err != nil {
+		`"embedded":{"host":"127.0.0.1","port":`+clientPort+`,"route_host":"127.0.0.1","route_port":`+routePort+
+		`,"store_dir":"`+store+`"}}}`), 0o600); err != nil {
 		t.Fatal(err)
+	}
+	previousInstall := localAdmittedInstall
+	t.Cleanup(func() { localAdmittedInstall = previousInstall })
+	localAdmittedInstall = func() (bootstrapstart.AcceptedInstall, error) {
+		return bootstrapstart.AcceptedInstall{Cell: "GRU", Slot: "controller-a", SeedSlot: "controller-a",
+			PrimaryPrivateIP: "127.0.0.1"}, nil
 	}
 	_, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -69,7 +81,7 @@ func TestRecoverQuorumRefoundRequiresBackupAndConfirmation(t *testing.T) {
 	recorder := &recordingRefound{}
 	previousInput, previousReplacer := recoveryInput, refoundReplacer
 	t.Cleanup(func() { recoveryInput, refoundReplacer = previousInput, previousReplacer })
-	refoundReplacer = func(context.Context) (interface {
+	refoundReplacer = func(context.Context, bootstrapstart.AcceptedInstall) (interface {
 		Replace(context.Context, string, []byte) error
 	}, error) {
 		return recorder, nil
@@ -95,6 +107,13 @@ func TestRecoverQuorumRefoundRequiresBackupAndConfirmation(t *testing.T) {
 	if out, err := run("", "verify-backup", "--dir", backup); err != nil || !strings.Contains(out, "verified") {
 		t.Fatalf("verify = %q, %v", out, err)
 	}
+	if _, err := run("re-found gru/controller-b\n", refoundArgs...); err == nil ||
+		!strings.Contains(err.Error(), "start the survivor controller service first") {
+		t.Fatalf("refound ran while the survivor broker was stopped: %v", err)
+	}
+	// The data-bearing survivor runs again before any peer is re-founded.
+	survivorBroker := listenOn(t, config)
+	defer survivorBroker.Close()
 	wrongSlot := append([]string(nil), refoundArgs...)
 	wrongSlot[4] = "controller-c"
 	if _, err := run("re-found gru/controller-c\n", wrongSlot...); err == nil {
@@ -146,4 +165,40 @@ func TestRecoverQuorumRenderRetirement(t *testing.T) {
 		!strings.Contains(out, "sign-slot-retirement") {
 		t.Fatalf("render = %q, %v, %v", out, err, rendered)
 	}
+}
+
+// closedPort is a loopback port that refuses connections.
+func closedPort(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	return strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
+}
+
+// listenOn starts a listener on the config's client port, standing in for a
+// running survivor broker.
+func listenOn(t *testing.T, config string) net.Listener {
+	t.Helper()
+	data, err := os.ReadFile(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		NATS struct {
+			Embedded struct {
+				Port int `json:"port"`
+			} `json:"embedded"`
+		} `json:"nats"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.NATS.Embedded.Port)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return listener
 }

@@ -26,7 +26,20 @@ func survivorStore(t *testing.T) RecoveryTarget {
 			t.Fatal(err)
 		}
 	}
-	return RecoveryTarget{Cell: "gru", Slot: "controller-a", StoreDir: store}
+	return RecoveryTarget{Cell: "gru", Slot: "controller-a", StoreDir: store,
+		ClientAddress: closedAddress(t), RouteAddress: closedAddress(t)}
+}
+
+// closedAddress is a loopback port that refuses connections.
+func closedAddress(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	listener.Close()
+	return address
 }
 
 func TestPreflightRefusesLiveBrokerAndInventoriesStore(t *testing.T) {

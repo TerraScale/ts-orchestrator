@@ -23,8 +23,13 @@ const (
 	// looking like a lost controller.
 	MinOfflineGrace = 2 * time.Minute
 	// DefaultRetirementEvidenceDir holds operator-supplied, root-signed slot
-	// retirement envelopes named <slot>.retirement.
-	DefaultRetirementEvidenceDir = "/var/lib/terrascale/membership/retirement"
+	// retirement envelopes named <slot>.retirement, and the leader's unsigned
+	// <slot>.retirement-request.json files. It lives under the controller
+	// unit's StateDirectory, the only tree the service account may write
+	// under ProtectSystem=strict. systemd creates the StateDirectory itself;
+	// the controller creates this subdirectory (0700) when it first writes a
+	// retirement request.
+	DefaultRetirementEvidenceDir = "/var/lib/terrascale-orchestrator-controller/membership/retirement"
 )
 
 // Config is part of the signed controller config. The zero value disables

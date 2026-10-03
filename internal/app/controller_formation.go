@@ -15,6 +15,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -25,6 +26,10 @@ var (
 	controllerFounderMaxBackoff   = 5 * time.Minute
 	controllerAdmissionMinBackoff = 5 * time.Second
 	controllerAdmissionMaxBackoff = 2 * time.Minute
+	// controllerFounderJoinTimeout bounds how long shutdown waits for a
+	// cancelled founder. With the broker drain, handoff and lame-duck
+	// windows it stays well below the unit's TimeoutStopSec=60s.
+	controllerFounderJoinTimeout = 20 * time.Second
 )
 
 var controllerLocalAdmissionProduction = admitProductionControllerRestartLocal
@@ -186,8 +191,14 @@ func admitProductionControllerRestartLocal(ctx context.Context, cfg Config) erro
 // superviseFounderAndWaitCluster starts the seed founder as a supervised
 // background worker and waits for the regional NATS quorum. A founder error
 // never ends the wait or tears down the broker; only a cluster failure does.
-// The returned stop cancels the founder and joins it, so no founder OCI call
-// outlives the controller.
+// The returned stop cancels the founder and joins it for at most
+// controllerFounderJoinTimeout. The OCI SDK's instance-principal constructors
+// and retry sleeps do not observe a context, so an unbounded join could hold
+// shutdown past the unit's stop timeout and turn it into a SIGKILL that skips
+// broker draining and leadership handoff. A founder still inside such a call
+// ends with the process, which every founder effect already tolerates: each
+// launch is pinned by its ledger intent and idempotent retry token, exactly as
+// for a crash.
 func superviseFounderAndWaitCluster(ctx context.Context, waitCluster, foundPeers func(context.Context) error,
 ) (*bootstrapstart.FounderSupervisor, func(), error) {
 	if foundPeers == nil {
@@ -205,7 +216,14 @@ func superviseFounderAndWaitCluster(ctx context.Context, waitCluster, foundPeers
 	stop := func() {
 		once.Do(func() {
 			cancel()
-			<-done
+			timer := time.NewTimer(controllerFounderJoinTimeout)
+			defer timer.Stop()
+			select {
+			case <-done:
+			case <-timer.C:
+				slog.Warn("founder did not stop within its join bound; continuing shutdown",
+					observability.ComponentKey, "founder", "bound", controllerFounderJoinTimeout)
+			}
 		})
 	}
 	if err := waitCluster(ctx); err != nil {
@@ -213,6 +231,28 @@ func superviseFounderAndWaitCluster(ctx context.Context, waitCluster, foundPeers
 		return nil, func() {}, err
 	}
 	return supervisor, stop, nil
+}
+
+// brokerLifetimeContext derives a context that also ends when brokerStopped
+// closes, with ErrEmbeddedServerStopped as its cause. stop releases the
+// watcher.
+func brokerLifetimeContext(parent context.Context, brokerStopped <-chan struct{},
+) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancelCause(parent)
+	go func() {
+		select {
+		case <-brokerStopped:
+			cancel(natscell.ErrEmbeddedServerStopped)
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, func() { cancel(context.Canceled) }
+}
+
+// brokerLifetimeEnded reports whether ctx ended because the embedded broker
+// stopped while the parent context was still live.
+func brokerLifetimeEnded(parent, ctx context.Context) bool {
+	return parent.Err() == nil && errors.Is(context.Cause(ctx), natscell.ErrEmbeddedServerStopped)
 }
 
 // startClusterHealth supervises the local broker's view of the regional

@@ -126,7 +126,11 @@ func (verified VerifiedFounderPlan) ReplacementManagedPeerIntent(slot string, pr
 		return Intent{}, err
 	}
 	attempt := previous.Head.Attempt + 1
-	token := "founder-" + slot + "-a" + strconv.FormatUint(attempt, 10) + "-" + verified.digest[:24]
+	// Replacement tokens live in their own "replace-" namespace. Reusing the
+	// initial "founder-<slot>-" form would let slot "b" at attempt 2 render
+	// exactly the attempt-one token of a slot named "b-a2" under the same
+	// plan. Read from the right, "-a<attempt>-<digest>" is unambiguous.
+	token := "replace-" + slot + "-a" + strconv.FormatUint(attempt, 10) + "-" + verified.digest[:24]
 	if !createTokenPattern.MatchString(token) {
 		return Intent{}, fmt.Errorf("%w: replacement create key is unbounded", ErrFounderPeerAuthorization)
 	}

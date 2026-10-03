@@ -15,7 +15,10 @@ const MetricPrefix = "ts_orch_"
 // Registry composes the metric sets that feature slices own and scrape-time
 // writers that render state only when scraped. It deliberately avoids the
 // VictoriaMetrics global set, so tests and several in-process members do not
-// share or double-register series.
+// double-register series. The sets that feature slices own (for example
+// placement.Metrics, delivery.Metrics, oci.Metrics and LogMetrics) are still
+// process-wide: several in-process members registering the same set share
+// its counter values. A production process runs exactly one member.
 type Registry struct {
 	mu      sync.Mutex
 	sets    []*metrics.Set

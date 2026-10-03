@@ -1,6 +1,7 @@
 package bootstrapstart
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -70,18 +71,32 @@ func NewAdmittedFounderReplacer(ctx context.Context, baked BakedInputs, accepted
 	if err != nil {
 		return nil, err
 	}
+	// The successor launch runs the founder's anti-affinity check, which
+	// needs this seed's own placement exactly as initial founding does.
 	return &FounderReplacer{caller: founderCaller{reader: reader, roots: baked.Roots,
-		accepted: accepted, signers: signers, adapter: adapter}}, nil
+		accepted: accepted, signers: signers, adapter: adapter, placement: NewIMDSClient().FetchPlacement}}, nil
 }
 
 // Replace advances slot to its next attempt with retirementWire and then runs
 // the ordinary founder transaction for it. A replay with the same evidence
 // resumes the already admitted successor attempt without another advance.
 func (replacer *FounderReplacer) Replace(ctx context.Context, slot string, retirementWire []byte) error {
+	return replacer.ReplaceFenced(ctx, slot, retirementWire, nil)
+}
+
+// ReplaceFenced is Replace with a caller fence that is checked immediately
+// before every durable advance, reservation and OCI launch. A controller
+// passes its authority guard, so a replacement whose controller lost its
+// lease or quorum during the preceding reads never mutates afterwards.
+func (replacer *FounderReplacer) ReplaceFenced(ctx context.Context, slot string, retirementWire []byte,
+	fence func(context.Context) error,
+) error {
 	if replacer == nil {
 		return ErrFounderReplacement
 	}
-	return replacer.caller.replacePeer(ctx, slot, retirementWire)
+	caller := replacer.caller
+	caller.fence = fence
+	return caller.replacePeer(ctx, slot, retirementWire)
 }
 
 // ObserveLifecycle returns the OCI lifecycle state of one exact instance
@@ -171,6 +186,14 @@ func (caller founderCaller) replacePeer(ctx context.Context, slot string, retire
 		return fmt.Errorf("%w: retirement evidence does not name this managed peer slot", ErrFounderReplacement)
 	}
 	snapshot, err := caller.fresh(ctx, slot)
+	if errors.Is(err, bootstrap.ErrSlotAdvancePendingHead) {
+		// An earlier advance stored the successor intent but not HEAD.
+		// Finish it with those exact bytes, then run the successor.
+		if err := caller.finishStagedAdvance(ctx, slot, retirementWire); err != nil {
+			return fmt.Errorf("finish staged slot advance: %w", err)
+		}
+		return caller.runPeer(ctx, slot)
+	}
 	if err != nil {
 		return err
 	}
@@ -188,6 +211,65 @@ func (caller founderCaller) replacePeer(ctx context.Context, slot string, retire
 		return fmt.Errorf("advance retired peer slot: %w", err)
 	}
 	return caller.runPeer(ctx, slot)
+}
+
+// finishStagedAdvance completes an AdvanceSlot whose successor intent is
+// durable but whose HEAD CAS never happened. It reuses the persisted intent
+// and evidence bytes exactly, requires them to belong to retirementWire, and
+// signs only a new HEAD; the ledger re-verifies everything before admitting.
+func (caller founderCaller) finishStagedAdvance(ctx context.Context, slot string, retirementWire []byte) error {
+	selected, err := caller.reader.ReadCurrent(ctx, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	if selected.Plan.Plan().SeedSlot != caller.accepted.Slot {
+		return ErrFounderReplacement
+	}
+	opener := caller.openLedger
+	if opener == nil {
+		opener = OpenSelectedFounderLedger
+	}
+	ledger, err := opener(ctx, selected, caller.roots)
+	if err != nil {
+		return err
+	}
+	scope := bootstrap.BootstrapScope{DeploymentID: caller.accepted.DeploymentID, Cell: caller.accepted.Cell, Slot: slot}
+	state, intent, intentWire, stagedRetirement, err := ledger.StagedSlotAdvance(ctx, scope)
+	if err != nil {
+		return err
+	}
+	if stagedRetirement != nil && !bytes.Equal(stagedRetirement, retirementWire) ||
+		intent.RetirementDigest != digest(retirementWire) || intent.Attempt != state.Head.Attempt+1 {
+		return fmt.Errorf("%w: the staged successor belongs to other retirement evidence", ErrFounderReplacement)
+	}
+	clock := caller.now
+	if clock == nil {
+		clock = time.Now
+	}
+	now := clock().UTC().Truncate(time.Second)
+	keys, err := caller.signers.Load(selected, caller.accepted, caller.roots, now)
+	if err != nil {
+		return err
+	}
+	defer keys.Close()
+	expiresAt := earliestFounderTime(selected.Plan.Plan().LaunchDeadline, selected.SelectionExpiresAt,
+		selected.Anchor.ExpiresAt())
+	if !expiresAt.After(now) {
+		return bootstrap.ErrFounderPlanExpired
+	}
+	head, err := bootstrap.ReplacementSlotHead(state, intent, intentWire, retirementWire)
+	if err != nil {
+		return err
+	}
+	headWire, err := keys.signHead(head, now, expiresAt)
+	if err != nil {
+		return err
+	}
+	if err := caller.checkFence(ctx); err != nil {
+		return err
+	}
+	_, err = ledger.AdvanceSlot(ctx, scope, state.HeadRecord.ETag, retirementWire, intentWire, headWire)
+	return err
 }
 
 // advancePeer signs the successor intent and HEAD with the delegated ledger
@@ -231,6 +313,9 @@ func (caller founderCaller) advancePeer(ctx context.Context, snapshot founderSna
 		return err
 	}
 	scope := bootstrap.BootstrapScope{DeploymentID: caller.accepted.DeploymentID, Cell: caller.accepted.Cell, Slot: slot}
+	if err := caller.checkFence(ctx); err != nil {
+		return err
+	}
 	_, err = snapshot.ledger.AdvanceSlot(ctx, scope, state.HeadRecord.ETag, retirementWire, intentWire, headWire)
 	return err
 }

@@ -170,6 +170,17 @@ func TestControllerReplacesLostMemberOnlyWithEvidenceAfterGrace(t *testing.T) {
 		}
 		return evidence, complete, nil
 	}
+	// The first pass only records when the host was first seen missing; the
+	// grace runs from that moment, not from the member's last write.
+	lostAt := time.Now().UTC()
+	controller.now = func() time.Time { return lostAt }
+	if state := tick(); state.Stage != StageAwaitingRuntimeContract || !state.HostLostAt.Equal(lostAt) {
+		t.Fatalf("host loss not recorded: %+v", state)
+	}
+	if state := tick(); state.HostAttempt != 1 || strings.Contains(strings.Join(holds, "\n"), "replacement") {
+		t.Fatalf("replacement considered within the grace of a fresh loss: %+v holds=%v", state, holds)
+	}
+	controller.now = func() time.Time { return lostAt.Add(DefaultLostMemberGrace + time.Minute) }
 	if state := tick(); state.Stage != StageAwaitingRuntimeContract ||
 		!strings.Contains(strings.Join(holds, "\n"), "replacement awaits") {
 		t.Fatalf("incomplete evidence state = %+v holds=%v", state, holds)

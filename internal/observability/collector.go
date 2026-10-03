@@ -168,7 +168,9 @@ func (collector *Collector) writeMetrics(w io.Writer) {
 			WritePlacementMetrics(w, *view)
 		}
 	}
-	if view, err := collector.systemView(ctx); err == nil {
+	view, err := collector.systemView(ctx)
+	WriteGauge(w, Series(MetricPrefix+"collect_ok", "section", "system"), Bool(err == nil))
+	if err == nil {
 		WriteSystemMetrics(w, view)
 	}
 }

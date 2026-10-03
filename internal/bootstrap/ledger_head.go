@@ -1787,6 +1787,38 @@ func (ledger *Ledger) ensureFreshIdempotencyIdentity(ctx context.Context, scope 
 	}
 }
 
+// StagedSlotAdvance returns the completed slot state together with the exact
+// successor intent (and retirement evidence, nil when it was never stored)
+// that an AdvanceSlot persisted before its HEAD update failed or the process
+// stopped. Passing these same bytes to AdvanceSlot with a freshly signed HEAD
+// finishes the advance; regenerating the intent would conflict with the
+// immutable record. ErrRecordMissing means no advance is staged.
+func (ledger *Ledger) StagedSlotAdvance(ctx context.Context, scope BootstrapScope,
+) (SlotState, Intent, []byte, []byte, error) {
+	state, err := ledger.readSlot(ctx, scope, false)
+	if err != nil {
+		return SlotState{}, Intent{}, nil, nil, err
+	}
+	if state.Head.Attempt == ^uint64(0) {
+		return SlotState{}, Intent{}, nil, nil, fmt.Errorf("%w: slot attempt sequence is exhausted", ErrInvalidRecord)
+	}
+	intentRecord, err := ledger.read(ctx, scope, state.Head.Attempt+1, ledgerIntent)
+	if err != nil {
+		return SlotState{}, Intent{}, nil, nil, err
+	}
+	intent, _, err := ledger.decodeIntent(scope, intentRecord.Bytes, false)
+	if err != nil {
+		return SlotState{}, Intent{}, nil, nil, err
+	}
+	var retirement []byte
+	if record, err := ledger.read(ctx, scope, state.Head.Attempt+1, ledgerRetirement); err == nil {
+		retirement = record.Bytes
+	} else if !errors.Is(err, ErrRecordMissing) {
+		return SlotState{}, Intent{}, nil, nil, err
+	}
+	return state, intent, intentRecord.Bytes, retirement, nil
+}
+
 func (ledger *Ledger) readSlot(ctx context.Context, scope BootstrapScope, requireCurrentIntent bool) (SlotState, error) {
 	return ledger.readSlotWithRecovery(ctx, scope, requireCurrentIntent, false)
 }

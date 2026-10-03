@@ -63,7 +63,7 @@ func runAdmittedFounder(ctx context.Context, baked BakedInputs, accepted Accepte
 	}
 	complete, err := completed(ctx, baked, accepted)
 	if err != nil {
-		return fmt.Errorf("%w: read historical peer completion: %v", ErrFounderRuntime, err)
+		return fmt.Errorf("%w: read historical peer completion: %w", ErrFounderRuntime, err)
 	}
 	if complete {
 		markFounderPeersComplete(floor, accepted)
@@ -71,14 +71,19 @@ func runAdmittedFounder(ctx context.Context, baked BakedInputs, accepted Accepte
 	}
 	reader, err := NewOCICurrentFounderAuthorityReader(baked, accepted, floor)
 	if err != nil {
-		return fmt.Errorf("%w: open selected founder authority: %v", ErrFounderRuntime, err)
+		return fmt.Errorf("%w: open selected founder authority: %w", ErrFounderRuntime, err)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	selected, err := reader.ReadCurrent(ctx, time.Now().UTC())
-	if err != nil || selected.Plan.Plan().SeedSlot != accepted.Slot {
-		return fmt.Errorf("%w: read selected seed authority: %v", ErrFounderRuntime, err)
+	if err != nil {
+		// Keep the cause in the chain: an expired plan or a rejected
+		// selection-floor rollback needs operator action, not a retry.
+		return fmt.Errorf("%w: read selected seed authority: %w", ErrFounderRuntime, err)
+	}
+	if selected.Plan.Plan().SeedSlot != accepted.Slot {
+		return fmt.Errorf("%w: selected seed authority names another seed slot", ErrFounderRuntime)
 	}
 	config, err := currentLedgerConfig(selected.Anchor, baked.Roots)
 	if err != nil {
@@ -228,6 +233,21 @@ type founderCaller struct {
 	placement  func(context.Context) (bootstrap.ControllerPlacement, error)
 	now        func() time.Time
 	openLedger func(context.Context, CurrentFounderAuthority, trust.Keyring) (*bootstrap.Ledger, error)
+	// fence, when set, is checked immediately before every slot advance,
+	// reservation and OCI launch (controller slot replacement passes its
+	// authority guard). Initial founding has none.
+	fence func(context.Context) error
+}
+
+// checkFence runs the caller fence, if any, right before a mutation.
+func (caller founderCaller) checkFence(ctx context.Context) error {
+	if caller.fence == nil {
+		return nil
+	}
+	if err := caller.fence(ctx); err != nil {
+		return fmt.Errorf("%w: caller fence: %w", ErrFounderRuntime, err)
+	}
+	return nil
 }
 
 func runFounderPeers(ctx context.Context, reader *CurrentFounderAuthorityReader, roots trust.Keyring,
@@ -325,6 +345,11 @@ func (caller founderCaller) fresh(ctx context.Context, slot string) (founderSnap
 func (caller founderCaller) peerRefresh(slot string) FounderPeerRefresh {
 	return func(ctx context.Context) (bootstrap.VerifiedFounderPeer, time.Time, time.Time, error) {
 		snapshot, err := caller.fresh(ctx, slot)
+		if err == nil {
+			// The OCI adapter refreshes right before its effect; the
+			// caller fence is rechecked at that same point.
+			err = caller.checkFence(ctx)
+		}
 		return snapshot.peer, snapshot.now, snapshot.selected.SelectionExpiresAt, err
 	}
 }
@@ -339,6 +364,15 @@ func (caller founderCaller) completionRefresh(slot string) bootstrap.ManagedPeer
 func (caller founderCaller) runPeer(ctx context.Context, slot string) error {
 	snapshot, err := caller.fresh(ctx, slot)
 	if errors.Is(err, errFounderPeerUnreserved) {
+		// Refuse a co-located plan before its row is pinned in the ledger:
+		// a reservation pins the plan and peer-row digests, so a corrected,
+		// re-signed plan could not recover a slot reserved under this one.
+		if err := caller.checkAntiAffinity(ctx, snapshot.selected.Plan.Plan()); err != nil {
+			return err
+		}
+		if err := caller.checkFence(ctx); err != nil {
+			return err
+		}
 		if err := caller.reservePeer(ctx, snapshot, slot); err != nil {
 			return fmt.Errorf("reserve planned peer slot: %w", err)
 		}
@@ -452,6 +486,9 @@ func (caller founderCaller) retryLaunch(ctx context.Context, attempt FounderOCIA
 	var last error
 	for range 3 {
 		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		if err := caller.checkFence(ctx); err != nil {
 			return "", err
 		}
 		instanceID, err := caller.adapter.Launch(ctx, attempt, caller.peerRefresh(slot))
