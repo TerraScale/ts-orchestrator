@@ -195,8 +195,10 @@ func (loop *Loop) admit(ctx context.Context, epoch uint64, cell string, fleetRec
 	switch {
 	case record.Phase == regionlifecycle.Approved:
 	case record.Phase != regionlifecycle.Held && record.Phase != regionlifecycle.RollingBack:
+		// Only a step this loop can run needs a fresh admission; refreshing
+		// one that waits for an effector would only churn the journal.
 		step, ok := regionlifecycle.NextStep(record)
-		if !ok || !step.Spends() || step.Retire() {
+		if !ok || !step.Spends() || step.Retire() || !loop.Effectors.Has(step) {
 			return nil
 		}
 		if record.Admission != nil && now.Before(record.Admission.AdmittedAt.Add(ttl-ttl/3)) {

@@ -268,7 +268,6 @@ func (r plannerRunner) plan(ctx context.Context, epoch uint64, now time.Time) ([
 	return regionplanner.Run(ctx, r.source, r.planner, r.store, r.machine, epoch, now)
 }
 
-
 // holdSignals turns the home region's placement holds into planner signals:
 // a hold that reports OCI host capacity or a service limit is a capacity or
 // limit signal for this cell, with the hold record as its evidence. Other

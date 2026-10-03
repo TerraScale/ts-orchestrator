@@ -22,6 +22,21 @@ func testPlannerConfig() *RegionPlannerConfig {
 		RegionMonthlyCents: map[string]uint64{"gru": 9_000, "fra": 9_500, "sfo": 9_000}, Overflow: map[string]string{"gru": "sfo"}}
 }
 
+// testApproverKey is a base64 Ed25519 public key (32 zero bytes are a valid
+// encoding for configuration parsing).
+const testApproverKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
+func TestRegionPlannerApproversEnableAdmitAndDrive(t *testing.T) {
+	t.Parallel()
+	config := testPlannerConfig()
+	config.Admit, config.Drive, config.SubscribeRegions = true, true, true
+	config.Approvers = map[string]string{"operator:mario": testApproverKey}
+	_, lifecycle, err := config.plannerPolicy("gru")
+	if err != nil || len(lifecycle.Approvers["operator:mario"]) != 32 {
+		t.Fatalf("lifecycle = %+v, %v", lifecycle, err)
+	}
+}
+
 func TestRegionPlannerPolicyCountsTheHomeAndValidates(t *testing.T) {
 	t.Parallel()
 
@@ -38,6 +53,14 @@ func TestRegionPlannerPolicyCountsTheHomeAndValidates(t *testing.T) {
 		"no max":        func(c *RegionPlannerConfig) { c.MaxRegions = 0 },
 		"no home cost":  func(c *RegionPlannerConfig) { c.HomeMonthlyCents = 0 },
 		"empty catalog": func(c *RegionPlannerConfig) { c.RegionMonthlyCents = nil },
+		"admit without approvers": func(c *RegionPlannerConfig) { c.Admit = true },
+		"drive without approvers": func(c *RegionPlannerConfig) { c.Drive = true },
+		"subscribe without drive": func(c *RegionPlannerConfig) {
+			c.SubscribeRegions = true
+			c.Approvers = map[string]string{"operator:mario": testApproverKey}
+		},
+		"bad approver key":   func(c *RegionPlannerConfig) { c.Approvers = map[string]string{"operator:mario": "AAAA"} },
+		"empty approver actor": func(c *RegionPlannerConfig) { c.Approvers = map[string]string{"": testApproverKey} },
 	} {
 		config := testPlannerConfig()
 		mutate(config)
