@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nats-io/nats.go"
 
@@ -46,15 +47,16 @@ const (
 )
 
 // valid bounds every filter of a remote request: list lengths, string sizes
-// and printable ASCII, so a peer cannot make the journal scan with absurd
-// filters.
+// and no control characters, so a peer cannot make the journal scan with
+// absurd filters. Non-ASCII text is allowed: subject names and summaries are
+// human labels, and DecodeStrict already guarantees valid UTF-8.
 func (request remoteRequest) valid() bool {
 	text := func(value string) bool {
-		if len(value) > maxRemoteFilterBytes {
+		if len(value) > maxRemoteFilterBytes || !utf8.ValidString(value) {
 			return false
 		}
 		for _, character := range value {
-			if character < ' ' || character > '~' {
+			if character < ' ' || character == 0x7f || character >= 0x80 && character < 0xa0 {
 				return false
 			}
 		}
@@ -108,8 +110,8 @@ func ServeQueries(ctx context.Context, conn *nats.Conn, cell string, source Sour
 		if message.Reply == "" || len(message.Data) > maxQueryRequestBytes {
 			return
 		}
-		reply := answer(ctx, region, source, message.Data)
-		data, err := encodeReply(reply, conn.MaxPayload())
+		reply, requested := answer(ctx, region, source, message.Data)
+		data, err := encodeReply(reply, requested, conn.MaxPayload())
 		if err != nil {
 			return
 		}
@@ -122,7 +124,14 @@ func ServeQueries(ctx context.Context, conn *nats.Conn, cell string, source Sour
 	return subscription, nil
 }
 
-func answer(ctx context.Context, region string, source Source, data []byte) remoteReply {
+// answer handles one request and also returns the requested chain ID, which
+// encodeReply must keep when it trims an oversized chain.
+func answer(ctx context.Context, region string, source Source, data []byte) (remoteReply, string) {
+	reply, request := answerRequest(ctx, region, source, data)
+	return reply, request.ChainID
+}
+
+func answerRequest(ctx context.Context, region string, source Source, data []byte) (remoteReply, remoteRequest) {
 	reply := remoteReply{Version: wireVersion, Region: region}
 	// Peer regions reach this subject over the interregion contract, so the
 	// request is decoded strictly and bounded before anything reads it.
@@ -130,7 +139,7 @@ func answer(ctx context.Context, region string, source Source, data []byte) remo
 	if err := protocol.DecodeStrict(data, &request, maxQueryRequestBytes); err != nil ||
 		request.Version != wireVersion || !request.valid() {
 		reply.Error = "invalid"
-		return reply
+		return reply, remoteRequest{}
 	}
 	answerCtx, cancel := context.WithTimeout(ctx, queryAnswerTimeout)
 	defer cancel()
@@ -144,21 +153,23 @@ func answer(ctx context.Context, region string, source Source, data []byte) remo
 		default:
 			reply.Chain = &chain
 		}
-		return reply
+		return reply, request
 	}
 	// A remote region answers only for itself.
 	request.Query.Regions = []string{region}
 	result, err := source.Query(answerCtx, request.Query)
 	if err != nil {
 		reply.Error = "unavailable"
-		return reply
+		return reply, request
 	}
 	reply.Result = &result
-	return reply
+	return reply, request
 }
 
-// encodeReply drops the oldest decisions until the reply fits limit bytes.
-func encodeReply(reply remoteReply, limit int64) ([]byte, error) {
+// encodeReply drops the oldest decisions until the reply fits limit bytes. A
+// trimmed chain keeps its root and the requested decision and is marked
+// Truncated, exactly as BuildChain trims a chain past MaxQueryLimit.
+func encodeReply(reply remoteReply, requested string, limit int64) ([]byte, error) {
 	for {
 		data, err := json.Marshal(reply)
 		if err != nil {
@@ -172,12 +183,32 @@ func encodeReply(reply remoteReply, limit int64) ([]byte, error) {
 			keep := len(reply.Result.Decisions) / 2
 			reply.Result.Decisions = reply.Result.Decisions[:keep]
 			reply.Result.Truncated = true
-		case reply.Chain != nil && len(reply.Chain.Decisions) > 1:
-			reply.Chain.Decisions = reply.Chain.Decisions[len(reply.Chain.Decisions)/2:]
+		case reply.Chain != nil && trimChain(reply.Chain, requested):
 		default:
 			return nil, errors.New("decision reply does not fit the payload limit")
 		}
 	}
+}
+
+// trimChain halves the decisions of chain other than its root and the
+// requested one, dropping the oldest, and reports whether it removed any.
+func trimChain(chain *Chain, requested string) bool {
+	var pinned, rest []Decision
+	for _, decision := range chain.Decisions {
+		if decision.ID == chain.Root.ID || decision.ID == requested {
+			pinned = append(pinned, decision)
+		} else {
+			rest = append(rest, decision)
+		}
+	}
+	if len(rest) == 0 {
+		return false
+	}
+	kept := append(pinned, rest[len(rest)/2+len(rest)%2:]...)
+	slices.SortStableFunc(kept, func(left, right Decision) int { return left.Time.Compare(right.Time) })
+	chain.Decisions = kept
+	chain.Truncated = true
+	return true
 }
 
 // Federation answers queries across every configured region: the local
@@ -295,7 +326,15 @@ func (federation Federation) Chain(ctx context.Context, id string) (Chain, error
 		return Chain{}, ErrNotFound
 	}
 	for _, region := range federation.Links.Regions() {
-		if region == federation.Links.Local() || !federation.Links.Linked(region) {
+		if region == federation.Links.Local() {
+			continue
+		}
+		if !federation.Links.Linked(region) {
+			// A configured region without a link was never searched, so
+			// a final miss is not proof of absence.
+			if unavailable == nil {
+				unavailable = ErrUnavailable
+			}
 			continue
 		}
 		reply, err := federation.request(ctx, region, remoteRequest{Version: wireVersion, ChainID: id})

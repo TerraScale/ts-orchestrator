@@ -19,17 +19,24 @@ const maxJournaledSeats = 4096
 
 // ManagedUpdateCorrelation is the decisionlog correlation key under which
 // the managed update admission records its decision, so the seat phase
-// decisions chain under it.
-func ManagedUpdateCorrelation(operationID string) string { return "managed_update:" + operationID }
+// decisions chain under it. Operation conflicts are enforced per database
+// partition, so two partitions may admit the same operation ID: the key is
+// scoped to the partition.
+func ManagedUpdateCorrelation(databaseID, partitionID, operationID string) string {
+	return "managed_update:" + databaseID + "/" + partitionID + ":" + operationID
+}
 
-// ManagedUpdateAdmissionID is the decision ID of an operation's admission.
-// It is derived from the operation, so a replayed Prepare journals the same
-// decision (the journal keeps one copy per ID) and a controller that resumes
-// the update after a leader change links its canary phases to the admission
-// without the admitting process's in-memory correlation. The "mu" prefix
-// keeps it from being read as a time-ordered ID.
-func ManagedUpdateAdmissionID(operationID string) string {
-	digest := sha256.Sum256([]byte("managed update admission\x00" + operationID))
+// ManagedUpdateAdmissionID is the decision ID of an operation's admission in
+// one cell and database partition. It is derived from that scope and the
+// operation, so a replayed Prepare journals the same decision (the journal
+// keeps one copy per ID) and a controller that resumes the update after a
+// leader change links its canary phases to the admission without the
+// admitting process's in-memory correlation. The "mu" prefix keeps it from
+// being read as a time-ordered ID; Journal.Chain searches the archive's
+// retention for such IDs.
+func ManagedUpdateAdmissionID(cell, databaseID, partitionID, operationID string) string {
+	digest := sha256.Sum256([]byte("managed update admission\x00" + cell + "\x00" + databaseID + "\x00" +
+		partitionID + "\x00" + operationID))
 	return "mu" + hex.EncodeToString(digest[:15])
 }
 
@@ -45,7 +52,7 @@ const marksPerSeat = 4
 // best effort and never affects the compare-and-swap result.
 func JournaledStore(store Store, cell string) Store {
 	return &journaledStore{Store: store, cell: cell, seats: map[string]map[uint64]seatMark{},
-		phases: map[string]struct{}{}}
+		phases: map[string]seatPhases{}}
 }
 
 type journaledStore struct {
@@ -53,10 +60,17 @@ type journaledStore struct {
 	cell  string
 	mu    sync.Mutex
 	seats map[string]map[uint64]seatMark
-	// phases holds the managed update phases already journaled per
-	// operation and seat, so a forgotten predecessor never journals the
-	// same phase twice.
-	phases map[string]struct{}
+	// phases holds, per seat, the managed update phases already journaled
+	// for the seat's current operation, so a forgotten predecessor never
+	// journals the same phase twice. Only the current operation is kept per
+	// seat, so the map is bounded by the seats, not by every operation the
+	// controller ever ran.
+	phases map[string]seatPhases
+}
+
+type seatPhases struct {
+	operation string
+	seen      map[ManagedUpdateSeatPhase]struct{}
 }
 
 type seatMark struct {
@@ -109,13 +123,22 @@ func (store *journaledStore) at(state MemberState, revision uint64) (seatMark, b
 // firstPhase reports whether the phase is journaled for the first time for
 // this operation and seat.
 func (store *journaledStore) firstPhase(state MemberState) bool {
-	key := state.ManagedRuntimeTarget.OperationID + "|" + seatKey(state) + "|" + string(state.ManagedRuntimeTarget.Phase)
+	key := seatKey(state)
+	target := state.ManagedRuntimeTarget
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if _, seen := store.phases[key]; seen {
+	entry := store.phases[key]
+	if entry.operation != target.OperationID || entry.seen == nil {
+		if _, known := store.phases[key]; !known && len(store.phases) >= maxJournaledSeats {
+			clear(store.phases)
+		}
+		entry = seatPhases{operation: target.OperationID, seen: map[ManagedUpdateSeatPhase]struct{}{}}
+	}
+	if _, seen := entry.seen[target.Phase]; seen {
 		return false
 	}
-	store.phases[key] = struct{}{}
+	entry.seen[target.Phase] = struct{}{}
+	store.phases[key] = entry
 	return true
 }
 
@@ -196,7 +219,7 @@ func (store *journaledStore) journal(ctx context.Context, previous seatMark, kno
 		return
 	}
 	target := state.ManagedRuntimeTarget
-	correlation := ManagedUpdateCorrelation(target.OperationID)
+	correlation := ManagedUpdateCorrelation(state.DatabaseID, state.PartitionID, target.OperationID)
 	updateSubject := decisionlog.Subject{Kind: "operation", ID: target.OperationID,
 		Name: "managed update of " + subject.Name}
 	updateAttrs := map[string]string{"artifact_digest": target.ArtifactDigest,
@@ -204,7 +227,8 @@ func (store *journaledStore) journal(ctx context.Context, previous seatMark, kno
 		"database_id": state.DatabaseID, "partition_id": state.PartitionID}
 	decision := decisionlog.Decision{Region: store.cell, Actor: decisionlog.Actor{Slice: "placement"},
 		Subject: updateSubject, Epoch: state.WriterEpoch, Attrs: updateAttrs, Rule: "managed TerraBase canary update",
-		ParentID: cmp.Or(decisionlog.Correlated(correlation), ManagedUpdateAdmissionID(target.OperationID)),
+		ParentID: cmp.Or(decisionlog.Correlated(correlation),
+			ManagedUpdateAdmissionID(store.cell, state.DatabaseID, state.PartitionID, target.OperationID)),
 		Signals: slices.Concat(signals, []decisionlog.Signal{
 			{Name: "authority_sequence", Value: float64(target.AuthoritySequence)},
 			{Name: "phase", Text: string(target.Phase)}})}

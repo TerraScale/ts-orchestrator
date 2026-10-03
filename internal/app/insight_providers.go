@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"slices"
-	"strings"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -61,21 +60,22 @@ func (source placementVolumes) Volumes(ctx context.Context) ([]insights.Volume, 
 	out := make([]insights.Volume, 0, len(members))
 	for _, member := range members {
 		out = append(out, insights.Volume{ID: member.VolumeID, Host: member.HostNode,
-			State: volumeAttachmentState(member.Stage), StateSince: member.UpdatedAt})
+			State: volumeAttachmentState(member.Stage), Detail: string(member.Stage), StateSince: member.UpdatedAt})
 	}
 	return out, nil
 }
 
-// volumeAttachmentState maps a member stage onto the attachment vocabulary
-// the volume insight rule keys on ("attaching").
+// volumeAttachmentState maps a member stage onto the canonical attachment
+// vocabulary the volume insight rule and the dashboard key on ("attaching",
+// "available", "attached"). The stage itself travels as Volume.Detail.
 func volumeAttachmentState(stage placement.MemberStage) string {
 	switch stage {
 	case placement.StagePreparedAttach, placement.StageAwaitingAttach:
-		return "ATTACHING"
+		return "attaching"
 	case placement.StagePreparedVolume:
-		return "AVAILABLE"
+		return "available"
 	}
-	return "ATTACHED (" + strings.ToLower(string(stage)) + ")"
+	return "attached"
 }
 
 // placedVolumeMembers lists the member state of every placed member that

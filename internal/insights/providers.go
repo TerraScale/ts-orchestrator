@@ -38,7 +38,11 @@ type VolumeProvider interface {
 type Volume struct {
 	ID    string `json:"id"`
 	Host  string `json:"host,omitempty"`
+	// State is attached, available, attaching or detaching.
 	State string `json:"state"`
+	// Detail optionally names the provider's own finer state, for example
+	// the placement stage behind an attached volume.
+	Detail string `json:"detail,omitempty"`
 	// StateSince is when the volume entered State.
 	StateSince time.Time `json:"state_since"`
 }

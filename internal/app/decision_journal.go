@@ -261,10 +261,20 @@ func watchControlPlane(ctx context.Context, cell, member string, fencer authorit
 			// follower records it too when it observes no valid lease: the
 			// authority runtime keeps its own candidate as OwnerID on
 			// control-log failures, so an empty OwnerID is not the test.
+			//
+			// healthy is the state last journaled, not the last observed: a
+			// follower that sees a transition while a lease looks valid
+			// leaves it unreported, so if that leader died with the cluster
+			// the next leader (or a member that sees the lease expire)
+			// still journals it. A leadership change can therefore journal
+			// one transition twice, never zero times.
 			if ready != healthy && everHealthy && (leading || !validLease(snapshot, time.Now())) {
 				recordClusterHealth(ctx, cell, member, nats, replicas, ready, snapshot.Epoch)
+				healthy = ready
 			}
-			healthy = ready
+			if !everHealthy || leading {
+				healthy = ready
+			}
 			everHealthy = everHealthy || ready
 			viewCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			if view, err := nats.Observe(viewCtx); err == nil {

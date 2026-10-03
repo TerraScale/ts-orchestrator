@@ -186,7 +186,7 @@ func TestEncodeReplyTrimsToLimit(t *testing.T) {
 	for index := range 200 {
 		result.Decisions = append(result.Decisions, Decision{ID: fmt.Sprint(index), Summary: fmt.Sprintf("%0200d", index)})
 	}
-	data, err := encodeReply(remoteReply{Version: wireVersion, Result: &result}, 8<<10)
+	data, err := encodeReply(remoteReply{Version: wireVersion, Result: &result}, "", 8<<10)
 	if err != nil || len(data) > 8<<10 {
 		t.Fatalf("len=%d err=%v", len(data), err)
 	}
@@ -249,5 +249,19 @@ func TestFederatedChainSearchesPastAnUnavailableLocalJournal(t *testing.T) {
 	}
 	if _, err := (Federation{Local: local}).Chain(ctx, "missing"); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("miss without links = %v, want ErrUnavailable", err)
+	}
+}
+
+// A configured region without a link was never searched: a chain miss is
+// unavailable, not absent.
+func TestFederatedChainMissWithUnlinkedRegionIsUnavailable(t *testing.T) {
+	conn := startJetStream(t)
+	local := NewJournal(JournalConfig{Region: "gru", Member: "gru-1"})
+	links, err := regionlink.New("GRU", conn, []string{"GRU", "SFO"}, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Federation{Local: local, Links: links}).Chain(t.Context(), NewID()); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("miss with an unlinked region = %v, want ErrUnavailable", err)
 	}
 }

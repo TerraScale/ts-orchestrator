@@ -25,7 +25,7 @@ func TestRemoteQueriesAreValidatedStrictly(t *testing.T) {
 		"too many actors":  `{"version":1,"query":{"actors":[` + many + `]}}`,
 		"negative limit":   `{"version":1,"query":{"limit":-1}}`,
 	} {
-		if reply := answer(t.Context(), "gru", nil, []byte(request)); reply.Error != "invalid" {
+		if reply, _ := answer(t.Context(), "gru", nil, []byte(request)); reply.Error != "invalid" {
 			t.Errorf("%s: reply = %+v", name, reply)
 		}
 	}

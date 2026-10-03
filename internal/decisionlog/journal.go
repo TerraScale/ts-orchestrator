@@ -89,11 +89,14 @@ type Journal struct {
 	queue   chan Decision
 	storage atomic.Pointer[storageHolder]
 
-	mu          sync.RWMutex
-	ring        []Decision
-	start       int
-	size        int
-	ids         map[string]struct{}
+	mu    sync.RWMutex
+	ring  []Decision
+	start int
+	size  int
+	// ids indexes the ring by decision ID. The value reports whether the
+	// decision is known to be durable: published by this journal or read
+	// back from the stream.
+	ids         map[string]bool
 	coveredFrom time.Time
 	subscribers map[*subscriber]struct{}
 
@@ -128,7 +131,7 @@ func NewJournal(config JournalConfig) *Journal {
 		config.Now = time.Now
 	}
 	journal := &Journal{config: config, queue: make(chan Decision, config.QueueSize),
-		ring: make([]Decision, config.Capacity), ids: map[string]struct{}{},
+		ring: make([]Decision, config.Capacity), ids: map[string]bool{},
 		subscribers: map[*subscriber]struct{}{}}
 	journal.Attach(config.Sink, config.Archive)
 	return journal
@@ -163,8 +166,14 @@ func (journal *Journal) Record(ctx context.Context, decision Decision) string {
 	}
 	decision = decision.Normalize(journal.config.Now())
 	// A decision with a caller-chosen ID that is already indexed (an
-	// idempotent replay) is recorded once.
-	if !journal.Ingest(decision) {
+	// idempotent replay) is indexed and logged once. Its durable copy is
+	// queued again unless it is known to be stored, since the first attempt
+	// may have been dropped from a full queue or failed to publish; the
+	// stream deduplicates a copy that did land by its message ID.
+	if fresh, durable := journal.ingest(decision, false); !fresh {
+		if !durable {
+			journal.enqueue(decision)
+		}
 		return decision.ID
 	}
 	journal.recorded.Add(1)
@@ -172,6 +181,11 @@ func (journal *Journal) Record(ctx context.Context, decision Decision) string {
 	if journal.config.Log {
 		LogRecorder{}.Record(ctx, decision)
 	}
+	journal.enqueue(decision)
+	return decision.ID
+}
+
+func (journal *Journal) enqueue(decision Decision) {
 	select {
 	case journal.queue <- decision:
 		queueDepth.Add(1)
@@ -179,7 +193,15 @@ func (journal *Journal) Record(ctx context.Context, decision Decision) string {
 		journal.dropped.Add(1)
 		droppedQueueFull.Inc()
 	}
-	return decision.ID
+}
+
+// markDurable records that an indexed decision is stored in the stream.
+func (journal *Journal) markDurable(id string) {
+	journal.mu.Lock()
+	defer journal.mu.Unlock()
+	if _, indexed := journal.ids[id]; indexed {
+		journal.ids[id] = true
+	}
 }
 
 // Run publishes queued decisions until ctx ends. A publish is retried a few
@@ -219,6 +241,7 @@ func (journal *Journal) publish(ctx context.Context, decision Decision) {
 		if err == nil {
 			journal.published.Add(1)
 			publishedTotal.Inc()
+			journal.markDurable(decision.ID)
 			return
 		}
 		if ctx.Err() != nil || attempt >= publishAttempts {
@@ -238,14 +261,25 @@ func (journal *Journal) publish(ctx context.Context, decision Decision) {
 	}
 }
 
-// Ingest adds a decision to the in-memory index and notifies subscribers.
-// A decision already indexed is ignored, so the stream tail can replay what
-// this member recorded itself. It reports whether the decision was new.
+// Ingest adds a decision read from the durable stream to the in-memory index
+// and notifies subscribers. A decision already indexed is ignored, so the
+// stream tail can replay what this member recorded itself. It reports whether
+// the decision was new.
 func (journal *Journal) Ingest(decision Decision) bool {
+	fresh, _ := journal.ingest(decision, true)
+	return fresh
+}
+
+// ingest indexes decision. durable marks it as stored in the stream. It
+// reports whether the decision was new and whether it is known durable.
+func (journal *Journal) ingest(decision Decision, durable bool) (bool, bool) {
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
-	if _, seen := journal.ids[decision.ID]; seen {
-		return false
+	if known, seen := journal.ids[decision.ID]; seen {
+		if durable && !known {
+			journal.ids[decision.ID] = true
+		}
+		return false, known || durable
 	}
 	ingestedTotal.Inc()
 	capacity := len(journal.ring)
@@ -261,14 +295,14 @@ func (journal *Journal) Ingest(decision Decision) bool {
 		journal.ring[(journal.start+journal.size)%capacity] = decision
 		journal.size++
 	}
-	journal.ids[decision.ID] = struct{}{}
+	journal.ids[decision.ID] = durable
 	for subscriber := range journal.subscribers {
 		select {
 		case subscriber.decisions <- decision:
 		default:
 		}
 	}
-	return true
+	return true, durable
 }
 
 // MarkCoveredFrom records that decisions older than at may exist in the
@@ -298,24 +332,34 @@ func (journal *Journal) snapshot() ([]Decision, time.Time) {
 // reported Partial otherwise.
 func (journal *Journal) Query(ctx context.Context, query Query) (Result, error) {
 	query = query.Normalized()
+	// The replay flag is read before the snapshot: a replay that ends in
+	// between leaves the result conservatively partial, never the reverse.
+	replaying := journal.replaying.Load()
 	decisions, coveredFrom := journal.snapshot()
 	result := Result{}
 	seen := make(map[string]struct{}, len(decisions))
+	// fresh counts matches newer than coveredFrom. Memory evicts by arrival,
+	// not by time, so only those are known to outrank everything evicted.
+	fresh := 0
 	for _, decision := range decisions {
 		if query.Matches(decision) {
 			result.Decisions = append(result.Decisions, decision)
 			seen[decision.ID] = struct{}{}
+			if decision.Time.After(coveredFrom) {
+				fresh++
+			}
 		}
 	}
 	// While the stream tail is still replaying, memory does not hold the
 	// region's history yet.
-	if journal.replaying.Load() {
+	if replaying {
 		result.Partial = true
 	}
-	// Older decisions only matter when memory did not fill the page.
+	// Older decisions only matter when memory did not fill the page with
+	// decisions newer than anything it evicted.
 	older := !coveredFrom.IsZero() && (query.Since.IsZero() || query.Since.Before(coveredFrom))
 	exhausted := !older
-	if older && len(result.Decisions) < query.Limit {
+	if older && fresh < query.Limit {
 		_, archive := journal.currentStorage()
 		if archive == nil {
 			result.Partial = true
@@ -355,23 +399,34 @@ const archiveClockSkew = 5 * time.Minute
 func (journal *Journal) scanArchive(ctx context.Context, archive Archive, query Query, coveredFrom time.Time,
 	seen map[string]struct{}, result *Result,
 ) (complete, reachedFloor bool) {
+	// The search reaches back from the earlier of coveredFrom and the
+	// query's end, so a historical query does not spend its scan budget on
+	// newer records that cannot match.
+	upper := coveredFrom
+	if !query.Until.IsZero() && query.Until.Before(upper) {
+		upper = query.Until
+	}
 	floor := query.Since
 	if floor.IsZero() {
-		floor = coveredFrom.Add(-DefaultRetention)
+		floor = upper.Add(-DefaultRetention)
+	}
+	if floor.After(upper) {
+		return true, true
 	}
 	budget := maxArchiveScan
 	for width := archiveFirstWindow; ; width *= 4 {
-		since := coveredFrom.Add(-width)
+		since := upper.Add(-width)
 		if !since.After(floor) {
 			since = floor
 		}
 		scanned := 0
 		complete, err := archive.Scan(ctx, since, budget, func(decision Decision) bool {
-			// Memory is complete only after coveredFrom. The archive is in
-			// publication order, so a record timed after it is skipped, not
-			// a stopping point, until well past any clock skew.
-			if decision.Time.After(coveredFrom) {
-				return !decision.Time.After(coveredFrom.Add(archiveClockSkew))
+			// Memory is complete only after coveredFrom, and nothing after
+			// upper matches. The archive is in publication order, so a
+			// record timed after upper is skipped, not a stopping point,
+			// until well past any clock skew.
+			if decision.Time.After(upper) {
+				return !decision.Time.After(upper.Add(archiveClockSkew))
 			}
 			scanned++
 			if _, dup := seen[decision.ID]; !dup && query.Matches(decision) {
@@ -399,19 +454,25 @@ func (journal *Journal) scanArchive(ctx context.Context, archive Archive, query 
 // before the in-memory window it is completed from the archive, starting at
 // the time encoded in the root's ID.
 func (journal *Journal) Chain(ctx context.Context, id string) (Chain, error) {
+	// While the tail replays, later steps of an indexed chain (a completion
+	// or a rollback) may still be pending, so every answer is partial.
+	replaying := journal.replaying.Load()
 	decisions, coveredFrom := journal.snapshot()
 	chain, ok := BuildChain(decisions, id)
 	needArchive := !ok || (!coveredFrom.IsZero() && !chain.Root.Time.After(coveredFrom)) ||
 		(ok && chain.Root.ParentID != "")
 	if !needArchive {
+		chain.Partial = replaying
 		return chain, nil
 	}
 	_, archive := journal.currentStorage()
 	if archive == nil {
 		if ok {
+			// Part of the chain lies before memory and nothing can read it.
+			chain.Partial = true
 			return chain, nil
 		}
-		if journal.replaying.Load() {
+		if replaying {
 			return Chain{}, ErrUnavailable
 		}
 		return Chain{}, ErrNotFound
@@ -421,8 +482,11 @@ func (journal *Journal) Chain(ctx context.Context, id string) (Chain, error) {
 		since = chain.Root.Time
 		valid = true
 	}
+	retentionFloor := journal.config.Now().Add(-DefaultRetention)
 	if !valid {
-		return Chain{}, ErrNotFound
+		// A caller-chosen ID (for example a managed update admission)
+		// encodes no time: search the archive's whole retention.
+		since = retentionFloor.Add(24 * time.Hour)
 	}
 	seen := make(map[string]struct{}, len(decisions))
 	for _, decision := range decisions {
@@ -450,20 +514,29 @@ func (journal *Journal) Chain(ctx context.Context, id string) (Chain, error) {
 			break
 		}
 		parentTime, known := IDTime(chain.Root.ParentID)
-		if !known || !parentTime.Before(since) || parentTime.Before(time.Now().Add(-DefaultRetention)) {
+		if !known {
+			// The missing parent has a caller-chosen ID: widen to the
+			// retention once.
+			if !since.After(retentionFloor) {
+				break
+			}
+			since = retentionFloor
+			continue
+		}
+		if !parentTime.Before(since) || parentTime.Before(retentionFloor) {
 			break
 		}
 		since = parentTime.Add(-time.Minute)
 	}
 	chain, ok = BuildChain(decisions, id)
 	switch {
-	case !ok && partial:
+	case !ok && (partial || replaying):
 		// The archive could not be read: not proof of absence.
 		return Chain{}, ErrUnavailable
 	case !ok:
 		return Chain{}, ErrNotFound
 	}
-	chain.Partial = partial
+	chain.Partial = partial || replaying
 	return chain, nil
 }
 

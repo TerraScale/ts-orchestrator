@@ -105,3 +105,24 @@ func TestMetaLeaderElectionIsJournaledOnce(t *testing.T) {
 		t.Fatalf("meta election journaled %d times", len(result.Decisions))
 	}
 }
+
+// A follower that saw the quorum loss while the leader's lease still looked
+// valid keeps it unreported: when that lease then expires (the leader died
+// with the cluster) the follower still journals it.
+func TestQuorumLossSeenUnderAValidLeaseIsJournaledOnceTheLeaseExpires(t *testing.T) {
+	journal := installTestJournal(t)
+	fastControlPlaneWatch(t)
+	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, OwnerID: "two", Epoch: 4,
+		ExpiresAt: time.Now().Add(time.Hour)}}
+	health := &metaClusterHealth{}
+	health.ready.Store(true)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { watchControlPlane(ctx, "lab", "one", fencer, health, 3); close(done) }()
+	defer func() { cancel(); <-done }()
+	time.Sleep(150 * time.Millisecond)
+	health.ready.Store(false)
+	time.Sleep(200 * time.Millisecond)
+	fencer.set(authority.Snapshot{Ready: true, OwnerID: "two", Epoch: 4, ExpiresAt: time.Now().Add(-time.Second)})
+	waitForDecisions(t, journal, decisionlog.KindQuorumDegraded, 1)
+}

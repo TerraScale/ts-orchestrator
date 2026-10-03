@@ -3,6 +3,7 @@ package placement
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
@@ -51,7 +52,7 @@ func TestJournaledStoreRecordsTransitions(t *testing.T) {
 	mustCAS(3, state)
 
 	admission := decisionlog.Record(ctx, decisionlog.Decision{Kind: decisionlog.KindReleaseAdmitted})
-	decisionlog.Correlate(ManagedUpdateCorrelation("op-1"), admission)
+	decisionlog.Correlate(ManagedUpdateCorrelation("db", "p0", "op-1"), admission)
 	state.ManagedRuntimeTarget = ManagedRuntimeTarget{OperationID: "op-1", Phase: ManagedUpdateSeatPrepared}
 	mustCAS(4, state)
 	state.ManagedRuntimeTarget.Phase = ManagedUpdateSeatCanaryServing
@@ -176,14 +177,40 @@ func TestResumedUpdateLinksToTheAdmissionWithoutCorrelation(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, _ := journal.Query(t.Context(), decisionlog.Query{Kinds: []decisionlog.Kind{decisionlog.KindCanaryPromoted}})
-	if len(result.Decisions) != 1 || result.Decisions[0].ParentID != ManagedUpdateAdmissionID("op-resumed") {
+	if len(result.Decisions) != 1 || result.Decisions[0].ParentID != ManagedUpdateAdmissionID("gru", "db", "p0", "op-resumed") {
 		t.Fatalf("promotion = %+v", result.Decisions)
 	}
-	if id := ManagedUpdateAdmissionID("op-resumed"); id != ManagedUpdateAdmissionID("op-resumed") ||
-		id == ManagedUpdateAdmissionID("other") {
-		t.Fatal("admission IDs are not a function of the operation")
+	if id := ManagedUpdateAdmissionID("gru", "db", "p0", "op-resumed"); id != ManagedUpdateAdmissionID("gru", "db", "p0", "op-resumed") ||
+		id == ManagedUpdateAdmissionID("gru", "db", "p1", "op-resumed") {
+		t.Fatal("admission IDs are not a function of the partition-scoped operation")
 	}
-	if _, ok := decisionlog.IDTime(ManagedUpdateAdmissionID("op-resumed")); ok {
+	if _, ok := decisionlog.IDTime(ManagedUpdateAdmissionID("gru", "db", "p0", "op-resumed")); ok {
 		t.Fatal("an admission ID reads as a time-ordered ID")
+	}
+}
+
+// The phase deduplication keeps only each seat's current operation, so a
+// stable roster running many updates does not grow it.
+func TestJournaledPhasesStayBoundedPerSeat(t *testing.T) {
+	journal := decisionlog.NewJournal(decisionlog.JournalConfig{Region: "gru"})
+	t.Cleanup(decisionlog.SetDefault(journal))
+	store := JournaledStore(&journalTestStore{members: map[string]VersionedMemberState{}}, "gru").(*journaledStore)
+	state := MemberState{DatabaseID: "db", PartitionID: "p0", MemberID: "m1", Stage: StageServing}
+	revision := uint64(0)
+	for index := range 50 {
+		state.ManagedRuntimeTarget = ManagedRuntimeTarget{OperationID: fmt.Sprintf("op-%d", index),
+			Phase: ManagedUpdateSeatPrepared}
+		next, err := store.CompareAndSwap(t.Context(), revision, state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		revision = next
+	}
+	if len(store.phases) != 1 {
+		t.Fatalf("phase memory holds %d seats, want 1", len(store.phases))
+	}
+	started, _ := journal.Query(t.Context(), decisionlog.Query{Kinds: []decisionlog.Kind{decisionlog.KindUpgradeStarted}})
+	if len(started.Decisions) != 50 {
+		t.Fatalf("upgrade_started journaled %d times, want once per operation", len(started.Decisions))
 	}
 }
