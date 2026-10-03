@@ -231,6 +231,12 @@ func (loop *Loop) admit(ctx context.Context, epoch uint64, cell string, fleetRec
 	if _, err := loop.Store.Update(ctx, epoch, record, next, revision); err != nil {
 		return err
 	}
+	// Later admissions in this tick see this one's admitted estimate.
+	for index := range fleetRecords {
+		if fleetRecords[index].Cell == cell {
+			fleetRecords[index] = next
+		}
+	}
 	if readmit {
 		report.Readmitted = append(report.Readmitted, cell)
 	} else {
@@ -289,7 +295,11 @@ func (loop *Loop) drive(ctx context.Context, epoch uint64, cell string, report *
 func (loop *Loop) resume(ctx context.Context, epoch uint64, record regionlifecycle.Record, revision uint64,
 	report *Report,
 ) error {
-	if record.Pending == nil || record.Hold == nil || record.Hold.Phase == regionlifecycle.RollingBack {
+	// Only a step held in its running phase completes from an observation;
+	// rollback and a failed bring-up's pending intent settle on their own
+	// paths (CompleteRollback, ReconcileRetirePending).
+	if record.Pending == nil || record.Hold == nil || record.Hold.Phase == regionlifecycle.RollingBack ||
+		record.Hold.Phase == regionlifecycle.RetireProposed || record.Hold.Phase == regionlifecycle.RetireApproved {
 		return nil
 	}
 	observation, err := loop.Effectors.Observe(ctx, record, *record.Pending)
