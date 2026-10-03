@@ -405,7 +405,43 @@ func (journal *KVJournal) isOwned(ctx context.Context, kind string, identity Res
 	if err != nil {
 		return false, err
 	}
-	return entry.SchemaVersion == journalSchema && entry.Kind == kind && entry.Identity == identity, nil
+	if entry.SchemaVersion != journalSchema || entry.Kind != kind {
+		return false, nil
+	}
+	if entry.Identity == identity {
+		return true, nil
+	}
+	if kind == "volume" && staleVolumeOwnership(entry.Identity, identity) {
+		// A confirmed resize whose ownership advance was interrupted left the
+		// record at a smaller size; finish the advance from the receipt.
+		return journal.advanceFromConfirmedResize(ctx, identity)
+	}
+	return false, nil
+}
+
+// staleVolumeOwnership reports a recorded volume identity that differs from
+// observed only by a smaller size.
+func staleVolumeOwnership(recorded, observed ResourceIdentity) bool {
+	smaller := observed
+	smaller.SizeGB = recorded.SizeGB
+	return recorded == smaller && recorded.SizeGB < observed.SizeGB
+}
+
+// advanceFromConfirmedResize completes an interrupted ownership advance: the
+// confirmed resize to exactly identity.SizeGB moves the record from its
+// recorded predecessor size by CAS. Anything else stays not owned.
+func (journal *KVJournal) advanceFromConfirmedResize(ctx context.Context, identity ResourceIdentity) (bool, error) {
+	result, found, err := journal.confirmedResize(ctx, identity)
+	if err != nil || !found {
+		return false, err
+	}
+	if err := journal.advanceVolumeOwnership(ctx, result); err != nil {
+		if errors.Is(err, errVolumeOwnershipMismatch) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func (journal *KVJournal) read(ctx context.Context, key string) (journalEntry, error) {
@@ -451,6 +487,10 @@ func (journal *KVJournal) repairOwnership(ctx context.Context, result OperationR
 	}
 }
 
+// errVolumeOwnershipMismatch reports a volume ownership record that is
+// neither the resize predecessor nor its target.
+var errVolumeOwnershipMismatch = errors.New("OCI volume ownership does not match the resize predecessor")
+
 // advanceVolumeOwnership moves the volume ownership record from the exact
 // predecessor size to the confirmed resized size with a revision CAS. Any
 // other recorded identity is a conflict; a missing record is rebuilt only by
@@ -484,7 +524,7 @@ func (journal *KVJournal) advanceVolumeOwnership(ctx context.Context, result Ope
 			return nil
 		case previous:
 		default:
-			return errors.New("OCI volume ownership does not match the resize predecessor")
+			return errVolumeOwnershipMismatch
 		}
 		data, err := json.Marshal(journalEntry{SchemaVersion: journalSchema, Kind: "volume", Identity: next})
 		if err != nil {
@@ -572,16 +612,28 @@ func (journal *KVJournal) repairOwnershipFromOperation(ctx context.Context, kind
 // volume. The confirmed create already proved ownership of identity.ID; a
 // confirmed resize to exactly identity.SizeGB proves the current size.
 func (journal *KVJournal) repairResizedVolumeOwnership(ctx context.Context, identity ResourceIdentity) (bool, error) {
+	if _, found, err := journal.confirmedResize(ctx, identity); err != nil || !found {
+		return false, err
+	}
+	if err := journal.recordOwnership(ctx, "volume", identity); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// confirmedResize returns the confirmed resize of identity.ID to exactly
+// identity.SizeGB when its intent matches identity in every scope field.
+func (journal *KVJournal) confirmedResize(ctx context.Context, identity ResourceIdentity) (OperationResult, bool, error) {
 	intent := OperationIntent{
 		Action: actionVolumeResize, Key: volumeResizeKey(identity.ID, identity.SizeGB),
 		Region: identity.Region, Generation: identity.Generation, Owner: identity.Owner,
 	}
 	entry, err := journal.read(ctx, operationKey(intent))
 	if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted) {
-		return false, nil
+		return OperationResult{}, false, nil
 	}
 	if err != nil {
-		return false, err
+		return OperationResult{}, false, err
 	}
 	resize := entry.Intent
 	if entry.Kind != "operation" || resize.Action != actionVolumeResize || resize.Key != intent.Key ||
@@ -589,12 +641,9 @@ func (journal *KVJournal) repairResizedVolumeOwnership(ctx context.Context, iden
 		resize.VolumeID != identity.ID || resize.CreateKey != identity.CreateKey ||
 		resize.AvailabilityDomain != identity.AvailabilityDomain || resize.SizeGB != identity.SizeGB ||
 		entry.Result.RecordedAt.IsZero() || entry.Result.Unknown || entry.Result.ResourceID != identity.ID {
-		return false, nil
+		return OperationResult{}, false, nil
 	}
-	if err := journal.recordOwnership(ctx, "volume", identity); err != nil {
-		return false, err
-	}
-	return true, nil
+	return entry.Result, true, nil
 }
 
 func validateIntent(intent OperationIntent) error {
