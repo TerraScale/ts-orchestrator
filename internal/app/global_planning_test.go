@@ -49,17 +49,17 @@ func TestRegionPlannerPolicyCountsTheHomeAndValidates(t *testing.T) {
 		t.Fatalf("policy = %+v, lifecycle = %+v", policy, lifecycle)
 	}
 	for name, mutate := range map[string]func(*RegionPlannerConfig){
-		"no ceiling":    func(c *RegionPlannerConfig) { c.MonthlyCeilingCents = 0 },
-		"no max":        func(c *RegionPlannerConfig) { c.MaxRegions = 0 },
-		"no home cost":  func(c *RegionPlannerConfig) { c.HomeMonthlyCents = 0 },
-		"empty catalog": func(c *RegionPlannerConfig) { c.RegionMonthlyCents = nil },
+		"no ceiling":              func(c *RegionPlannerConfig) { c.MonthlyCeilingCents = 0 },
+		"no max":                  func(c *RegionPlannerConfig) { c.MaxRegions = 0 },
+		"no home cost":            func(c *RegionPlannerConfig) { c.HomeMonthlyCents = 0 },
+		"empty catalog":           func(c *RegionPlannerConfig) { c.RegionMonthlyCents = nil },
 		"admit without approvers": func(c *RegionPlannerConfig) { c.Admit = true },
 		"drive without approvers": func(c *RegionPlannerConfig) { c.Drive = true },
 		"subscribe without drive": func(c *RegionPlannerConfig) {
 			c.SubscribeRegions = true
 			c.Approvers = map[string]string{"operator:mario": testApproverKey}
 		},
-		"bad approver key":   func(c *RegionPlannerConfig) { c.Approvers = map[string]string{"operator:mario": "AAAA"} },
+		"bad approver key":     func(c *RegionPlannerConfig) { c.Approvers = map[string]string{"operator:mario": "AAAA"} },
 		"empty approver actor": func(c *RegionPlannerConfig) { c.Approvers = map[string]string{"": testApproverKey} },
 	} {
 		config := testPlannerConfig()
