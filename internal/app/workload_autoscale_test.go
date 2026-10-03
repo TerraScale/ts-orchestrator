@@ -1,12 +1,18 @@
 package app
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/autoscale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
@@ -76,6 +82,63 @@ func TestAutoscaleConfigRefusesInertEntries(t *testing.T) {
 		Scaling: &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.6}}}}}}
 	if err := validateAutoscaleConfig(scaling, profiles); err == nil {
 		t.Fatal("a scaling policy was accepted although no signal source feeds it")
+	}
+	// Host telemetry is the signal source: with it the policy is accepted,
+	// but only for signals it produces for stateless roles.
+	scaling.HostTelemetry = true
+	if err := validateAutoscaleConfig(scaling, profiles); err != nil {
+		t.Fatalf("a cpu_util policy with host telemetry was refused: %v", err)
+	}
+	for _, name := range []autoscale.SignalName{autoscale.SignalRequestRatePerReplica, autoscale.SignalTerraBaseWriteQPS} {
+		scaling.Services[0].Scaling.Signals[0].Name = name
+		if err := validateAutoscaleConfig(scaling, profiles); err == nil {
+			t.Errorf("signal %s without a stateless producer was accepted", name)
+		}
+	}
+}
+
+// Host telemetry starts an aggregator as the reconciler's signal source,
+// installs it as the host controller's load sink, and its readings and the
+// reconciler's results reach the metric history.
+func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
+	resources := placement.Resources{CPU: 2, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
+	config := &AutoscaleConfig{Enabled: true, HostTelemetry: true, Services: []workload.ServiceSpec{{Role: "api",
+		Environment: "prod", Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Min: 1, Max: 3},
+		Scaling: &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.6}}}}}}
+	reconciler, _, err := startWorkloadAutoscale("gru", config, map[string]WorkloadProfile{"api": {Resources: resources}},
+		&host.Controller{}, followerFencer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	load, ok := reconciler.Signals().(*hostload.Aggregator)
+	if !ok {
+		t.Fatalf("signal source = %T, want the host load aggregator", reconciler.Signals())
+	}
+	cores := 1.0
+	if err := load.Record(hostload.Origin{Cell: "gru", Environment: "prod", Node: "pool-1"},
+		hostload.Report{SchemaVersion: 1, Roles: []hostload.RoleUsage{{Role: "api", CPUCores: &cores}}}); err != nil {
+		t.Fatal(err)
+	}
+	reading, err := load.Read(t.Context(), autoscale.Target{Cell: "gru", Environment: "prod", Role: "api"},
+		autoscale.Signal{Name: autoscale.SignalCPUUtilization, Target: 0.6}, time.Now())
+	if err != nil || reading.Samples != 1 || reading.Value != 0.5 {
+		t.Fatalf("cpu_util normalized by the signed 2-core request = %+v, %v", reading, err)
+	}
+	tbLoad := &memberstatus.Load{Connections: 4, ReplicationLagSeq: 2}
+	if err := load.Record(hostload.Origin{Cell: "gru", Environment: "prod", Node: "tb-1"},
+		hostload.Report{SchemaVersion: 1, Roles: []hostload.RoleUsage{{Role: "terrabase", TerraBase: tbLoad}}}); err != nil {
+		t.Fatal(err)
+	}
+	samples := withAutoscaleSamples(func(context.Context) []observability.Sample { return nil }, reconciler)(t.Context())
+	found := map[string]float64{}
+	for _, sample := range samples {
+		found[sample.Metric] = sample.Value
+	}
+	if found[observability.HistTerraBaseConnections] != 4 || found[observability.HistTerraBaseLagSeq] != 2 {
+		t.Fatalf("terrabase load samples = %+v", samples)
+	}
+	if _, present := found[observability.HistAutoscaleReplicas]; present {
+		t.Fatal("a service without a reconciliation result was sampled")
 	}
 }
 

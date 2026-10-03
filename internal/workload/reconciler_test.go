@@ -305,6 +305,10 @@ func TestReconcilerAutoscalesFromSignals(t *testing.T) {
 	if last.Decision == nil || last.Decision.Reason != autoscale.ReasonScaleUp || last.Target != 4 {
 		t.Fatalf("decision = %#v", last)
 	}
+	if len(last.Readings) != 1 || last.Readings[0].Signal != autoscale.SignalCPUUtilization ||
+		last.Readings[0].Value != 0.9 || last.Readings[0].Samples != 1 {
+		t.Fatalf("readings behind the decision = %#v", last.Readings)
+	}
 	// Not converged: the decision core is not consulted while replicas start.
 	if err := reconciler.Tick(context.Background()); err != nil || reconciler.Last()["api"].Decision != nil {
 		t.Fatalf("autoscaled while unconverged: %#v (%v)", reconciler.Last()["api"], err)
