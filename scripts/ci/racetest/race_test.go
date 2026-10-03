@@ -529,9 +529,26 @@ esac
 		t.Fatal(err)
 	}
 	cmd.Wait()
-	for deadline := time.Now().Add(10 * time.Second); syscall.Kill(pid, 0) == nil; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(10 * time.Second); processRunning(pid); time.Sleep(20 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatalf("shard child %d outlived the scheduler", pid)
 		}
 	}
+}
+
+// processRunning reports whether pid names a process that has not exited.
+// Kill(pid, 0) also succeeds for a zombie, and an orphaned shard child
+// stays one in a CI container whose PID 1 never reaps adopted children.
+func processRunning(pid int) bool {
+	if syscall.Kill(pid, 0) != nil {
+		return false
+	}
+	stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return false
+	}
+	// The state follows the parenthesised command name, which may itself
+	// contain spaces or parentheses.
+	fields := strings.Fields(string(stat[strings.LastIndexByte(string(stat), ')')+1:]))
+	return len(fields) == 0 || (fields[0] != "Z" && fields[0] != "X")
 }
