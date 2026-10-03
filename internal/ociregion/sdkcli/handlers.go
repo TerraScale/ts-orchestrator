@@ -440,9 +440,19 @@ func kmsEndpointInRegion(endpoint, region string) bool {
 		(parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return false
 	}
+	// OCI vault endpoints are <vault>-management.kms.<region>.oraclecloud.com
+	// and <vault>-crypto.kms.<region>.oraclecloud.com; the dotted
+	// <vault>.management.<region> and the oci.oraclecloud.com realm domain
+	// are accepted too. Every form stays a single label under an Oracle
+	// domain pinned to region.
 	host := parsed.Hostname()
-	prefix, ok := strings.CutSuffix(host, ".kms."+region+".oraclecloud.com")
-	return ok && prefix != "" && !strings.Contains(prefix, ".")
+	for _, domain := range []string{".kms." + region + ".oraclecloud.com", ".kms." + region + ".oci.oraclecloud.com",
+		".management." + region + ".oraclecloud.com"} {
+		if prefix, ok := strings.CutSuffix(host, domain); ok {
+			return prefix != "" && !strings.Contains(prefix, ".")
+		}
+	}
+	return false
 }
 
 func osNamespaceGet(ctx context.Context, c *Client, _ Command) (any, error) {

@@ -2,6 +2,7 @@ package sdkcli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -175,8 +176,11 @@ func osBucketList(ctx context.Context, c *Client, command Command) (any, error) 
 	namespace := command.value("namespace-name")
 	if namespace == "" {
 		response, err := client.GetNamespace(ctx, objectstorage.GetNamespaceRequest{})
-		if err != nil || response.Value == nil {
+		if err != nil {
 			return nil, fmt.Errorf("resolve Object Storage namespace: %w", err)
+		}
+		if response.Value == nil {
+			return nil, errors.New("OCI returned no Object Storage namespace")
 		}
 		namespace = *response.Value
 	}

@@ -2,6 +2,7 @@ package publicapi
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -55,6 +56,9 @@ func TestSDKDecodesEveryCreateTheProvisionerSends(t *testing.T) {
 		}
 		if _, ok := creators[command.Path]; !ok {
 			continue
+		}
+		if extra := unacceptedCreateFlags(command); len(extra) > 0 {
+			t.Fatalf("%s sends flags its creator does not consume: %v", command.Path, extra)
 		}
 		switch command.Path {
 		case "network route-table create":
@@ -118,5 +122,20 @@ func TestNewClientPinsThePlanRegion(t *testing.T) {
 	t.Setenv(sdkcli.BackendEnv, "cli")
 	if client, err := newClient(plan); err != nil || client == nil {
 		t.Fatalf("cli backend: %v", err)
+	}
+}
+
+func TestSDKCreateRefusesAFlagItWouldDropBeforeAnyEffect(t *testing.T) {
+	called := false
+	client := &SDKClient{Region: "sa-saopaulo-1", Backend: sdkcli.BackendSDK, creators: map[string]creator{
+		"nlb network-load-balancer create": func(context.Context, *SDKClient, sdkcli.Command) (any, error) {
+			called = true
+			return nil, nil
+		},
+	}}
+	_, err := client.Call(t.Context(), "nlb", "network-load-balancer", "create", "--compartment-id", "c",
+		"--display-name", "d", "--subnet-id", "s", "--wait-for-state", "ACTIVE")
+	if !errors.Is(err, sdkcli.ErrUnsupported) || called {
+		t.Fatalf("create with an unconsumed --wait-for-state = %v (called %v)", err, called)
 	}
 }

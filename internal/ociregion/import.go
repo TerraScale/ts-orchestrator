@@ -49,7 +49,13 @@ func (e *Engine) sdkHead(namespace, bucket, name, region string) (any, bool) {
 			if err, ok := r.(error); ok && e.ctx().Err() != nil && errors.Is(err, e.ctx().Err()) {
 				panic(err)
 			}
-			fail("OCI current object HEAD failed or key is deleted")
+			// Keep the diagnosis (missing object, unreadable OCI config,
+			// invalid backend); anything that is not an operational
+			// failure is a programming error and is not recast.
+			if failure, ok := r.(Failure); ok {
+				fail("OCI current object HEAD failed or key is deleted: " + failure.Message)
+			}
+			panic(r)
 		}
 	}()
 	return e.sdkOCI([]any{"os", "object", "head", "--namespace-name", namespace, "--bucket-name", bucket, "--name", name}, Object{"region": region})

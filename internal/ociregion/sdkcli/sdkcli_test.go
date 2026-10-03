@@ -178,8 +178,25 @@ func TestHandlersServeCLIShapedData(t *testing.T) {
 			t.Fatalf("accepted KMS endpoint %q outside the region", endpoint)
 		}
 	}
-	if !kmsEndpointInRegion("https://vault-management.kms.sa-saopaulo-1.oraclecloud.com", "sa-saopaulo-1") {
-		t.Fatal("rejected the regional KMS management endpoint")
+	for _, endpoint := range []string{
+		"https://vault-management.kms.sa-saopaulo-1.oraclecloud.com",
+		"https://vault-crypto.kms.sa-saopaulo-1.oraclecloud.com",
+		"https://vault-management.kms.sa-saopaulo-1.oci.oraclecloud.com",
+		"https://vault.management.sa-saopaulo-1.oraclecloud.com",
+	} {
+		if !kmsEndpointInRegion(endpoint, "sa-saopaulo-1") {
+			t.Fatalf("rejected the regional vault endpoint %q", endpoint)
+		}
+	}
+	for _, endpoint := range []string{
+		"https://a.b.management.sa-saopaulo-1.oraclecloud.com",
+		"https://vault.management.eu-frankfurt-1.oraclecloud.com",
+		"https://vault.management.sa-saopaulo-1.oraclecloud.com.evil.example",
+		"https://.management.sa-saopaulo-1.oraclecloud.com",
+	} {
+		if kmsEndpointInRegion(endpoint, "sa-saopaulo-1") {
+			t.Fatalf("accepted the vault endpoint %q", endpoint)
+		}
 	}
 }
 
