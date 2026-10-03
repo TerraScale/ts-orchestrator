@@ -104,6 +104,37 @@ func (t LeafTopology) Peers(cell string) []string {
 	return peers
 }
 
+// Subtrees maps each child of cell to the sorted regions reached through it,
+// the child included: the InterRegion.Subtrees of cell's leaf listener.
+func (t LeafTopology) Subtrees(cell string) map[string][]string {
+	children := t.Children(cell)
+	if len(children) == 0 {
+		return nil
+	}
+	subtrees := make(map[string][]string, len(children))
+	for _, child := range children {
+		var subtree []string
+		for region := range t.Parents {
+			// Bounded walk to the root, so an unvalidated cycle cannot hang.
+			current := region
+			for range len(t.Parents) + 1 {
+				if current == child {
+					subtree = append(subtree, region)
+					break
+				}
+				parent, ok := t.Parents[current]
+				if !ok {
+					break
+				}
+				current = parent
+			}
+		}
+		slices.Sort(subtree)
+		subtrees[child] = subtree
+	}
+	return subtrees
+}
+
 // Links is the number of leafnode links incident to cell.
 func (t LeafTopology) Links(cell string) int {
 	links := len(t.Children(cell))

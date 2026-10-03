@@ -24,8 +24,8 @@ var (
 	// ErrMirrorGap means a regional mirror is missing home records. The home
 	// stream never loses a record (no deletes, purges or limits), so a gap
 	// means the mirror's durable consumer was reset past records the mirror
-	// had not stored, for example by another child of the same hub sending a
-	// forward reset. The mirror fails closed rather than serve a record that
+	// had not stored, for example by a compromised leaf credential of that
+	// region sending a forward reset. The mirror fails closed rather than serve a record that
 	// a skipped one may have superseded; recreate the mirror to recover.
 	ErrMirrorGap = errors.New("global mirror is missing home records")
 )

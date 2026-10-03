@@ -41,6 +41,12 @@ type InterRegion struct {
 	// consumer per peer and nothing else of JetStream. It must be this cell
 	// or a roster peer.
 	GlobalHome string `json:"global_home,omitempty"`
+	// Subtrees maps every direct child region that dials Listen to the
+	// regions reached through it, the child included. Each child gets its
+	// own leaf users, bound by a scoped signing key of the interregion
+	// account to permissions for its subtree alone (see
+	// InterRegionContract.ChildLeafPermissions). Required with Listen.
+	Subtrees map[string][]string `json:"subtrees,omitempty"`
 }
 
 // LeafListen accepts leafnodes from child regions in the leaf topology. TLS is
@@ -107,10 +113,25 @@ func (ir *InterRegion) validate(cfg Config) error {
 	if ir.Listen != nil && (ir.Listen.Host == "" || ir.Listen.Port <= 0 || !ir.Listen.TLS.complete()) {
 		return errors.New("interregion leaf listener requires host, port, and mutual TLS")
 	}
+	if (ir.Listen != nil) != (len(ir.Subtrees) != 0) {
+		return errors.New("interregion leaf listener and child subtrees must be configured together")
+	}
+	reached := map[string]bool{}
+	for child, subtree := range ir.Subtrees {
+		if !slices.Contains(subtree, child) {
+			return fmt.Errorf("interregion child %q must be in its own subtree", child)
+		}
+		for _, region := range subtree {
+			if !slices.Contains(ir.Peers, region) || region == ir.GlobalHome || reached[region] {
+				return fmt.Errorf("interregion subtree of %q names %q, which is not a unique non-home peer", child, region)
+			}
+			reached[region] = true
+		}
+	}
 	remotes := map[string]bool{}
 	for _, remote := range ir.Remotes {
-		if !slices.Contains(ir.Peers, remote.Peer) || remotes[remote.Peer] {
-			return fmt.Errorf("interregion remote %q is not a unique roster peer", remote.Peer)
+		if !slices.Contains(ir.Peers, remote.Peer) || remotes[remote.Peer] || reached[remote.Peer] {
+			return fmt.Errorf("interregion remote %q is not a unique roster peer outside the child subtrees", remote.Peer)
 		}
 		remotes[remote.Peer] = true
 		if len(remote.URLs) == 0 || remote.CredentialsFile == "" || !remote.TLS.complete() ||
@@ -141,11 +162,21 @@ func (ir *InterRegion) validate(cfg Config) error {
 // No consumer-create, stream or account API is exported, so a peer can never
 // pick a delivery subject: the probe that made GRU deliver global records onto
 // its own placement subject has nothing to call.
+//
+// Subtrees lists, per direct child accepted on this region's leaf listener,
+// the regions reached through that child. Each child's leaf users are bound
+// to that child's permissions by a scoped signing key, so one child can never
+// act for a sibling's regions.
 type InterRegionContract struct {
 	Cell       string
 	Peers      []string
 	GlobalHome string
+	Subtrees   map[string][]string
 }
+
+// links is the number of leaf links of a region with this contract and
+// remotes outbound links.
+func (c InterRegionContract) links(remotes int) int { return len(c.Subtrees) + remotes }
 
 // contractFlow is one subject that crosses between the two accounts. The cell
 // side uses cellSubject; the interregion side uses linkSubject, which differs
@@ -208,31 +239,67 @@ func (c InterRegionContract) inbound() []contractFlow {
 	return flows
 }
 
-// LeafPermissions is the deny-by-default permission set of every leaf user of
-// this region's interregion account, installed as that account's default
-// permissions. NATS reads leaf user permissions from the remote's point of
-// view: Pub is what a connected peer may send into this region, Sub is what
-// this region may send to it.
+// ChildLeafPermissions is the deny-by-default permission set of child's leaf
+// users. It is the template of child's scoped signing key in the interregion
+// account, so the server applies it to every user that key issues, whatever
+// the user JWT says. NATS reads leaf user permissions from the remote's point
+// of view: Pub is what the child may send into this region, Sub is what this
+// region may send to it.
 //
-// Only accepted leafs use these permissions, and in the leaf tree, rooted at
-// the global home which never dials, an accepted leaf is always a child of
-// this region. So each contract subject is allowed only in the direction it
-// legitimately travels from a child, including transit for regions further
-// down: a child may send its subtree's health, requests to any region's query
-// service, and its subtree's mirror resets and flow-control acks; it may
-// receive any health, requests for its subtree's query services, and its
-// subtree's mirror feeds. Neither this region nor the global home is ever in
-// a child's subtree, so a child can never speak for either, and it can never
-// send a mirror feed: that would forge another region's copy of global state.
+// In the leaf tree, rooted at the global home which never dials, an accepted
+// leaf is always a child of this region. Each contract subject is allowed
+// only in the direction it legitimately travels from that child, for the
+// regions in the child's subtree alone (transit for regions further down
+// included): the child may send its subtree's health, requests to any
+// region's query service, and its subtree's mirror resets and flow-control
+// acks; it may receive any health, requests for its subtree's query services,
+// and its subtree's mirror feeds. Neither this region, the global home, nor a
+// sibling's subtree is ever in it, so a child can never speak for, reset the
+// mirror of, or take the requests of any of them, and it can never send a
+// mirror feed: that would forge another region's copy of global state.
+//
 // Replies cross only on the service-import reply namespace "_R_", which NATS
-// creates per request for the contract's service imports and already exempts
-// from leaf publish checks. The hub closes a link that sends anything else.
+// creates per request for the contract's service imports. The hub closes a
+// link that sends anything else. An unknown child gets nothing.
+//
+// Known limit of static NATS permissions: "_R_" cannot be narrowed per child.
+// NATS exempts inbound "_R_" publishes from leaf permission checks, and a
+// child must receive "_R_" deliveries for replies to its own requests, whose
+// account-level prefix is random per server start. So a child that
+// subscribes to "_R_.>" also sees replies addressed to other regions'
+// requests, and could answer an in-flight request only by guessing its
+// random per-request token (six base-62 characters). Requests themselves
+// (the query and observability subjects) never reach a sibling.
+func (c InterRegionContract) ChildLeafPermissions(child string) jwt.Permissions {
+	subtree, ok := c.Subtrees[child]
+	if !ok {
+		return denyAllPermissions()
+	}
+	return c.leafPermissionsFor(func(region string) bool { return slices.Contains(subtree, region) })
+}
+
+// LeafPermissions is the union of every possible child's permissions: the
+// most any leaf of this region could be granted. It is a review aid; leaf
+// users get ChildLeafPermissions through their child's scoped signing key.
 func (c InterRegionContract) LeafPermissions() jwt.Permissions {
+	return c.leafPermissionsFor(func(string) bool { return true })
+}
+
+// denyAllPermissions are the interregion account's default permissions: a
+// leaf user not issued by a child's scoped signing key may do nothing.
+func denyAllPermissions() jwt.Permissions {
+	var permissions jwt.Permissions
+	permissions.Pub.Deny.Add(">")
+	permissions.Sub.Deny.Add(">")
+	return permissions
+}
+
+func (c InterRegionContract) leafPermissionsFor(inSubtree func(string) bool) jwt.Permissions {
 	var permissions jwt.Permissions
 	for _, region := range append([]string{c.Cell}, c.Peers...) {
 		permissions.Sub.Allow.Add(protocol.RegionHealthSubject(region))
 		permissions.Pub.Allow.Add(protocol.Regional(region, "query", ">"))
-		if region == c.Cell || region == c.GlobalHome {
+		if region == c.Cell || region == c.GlobalHome || !inSubtree(region) {
 			continue
 		}
 		permissions.Pub.Allow.Add(protocol.RegionHealthSubject(region))
@@ -304,15 +371,61 @@ func (c InterRegionContract) ApplyCell(claim *jwt.AccountClaims, interregionAcco
 }
 
 // ApplyInterRegion sets the interregion account's exports, imports, its
-// deny-by-default leaf user permissions and limits. It never holds JetStream
-// state of its own.
-func (c InterRegionContract) ApplyInterRegion(claim *jwt.AccountClaims, cellAccount string, links int) {
+// deny-all default leaf permissions, one scoped signing key per child (from
+// childKeys, child to signing public key) whose template is that child's
+// leaf permissions, and limits. It never holds JetStream state of its own.
+func (c InterRegionContract) ApplyInterRegion(claim *jwt.AccountClaims, cellAccount string, links int,
+	childKeys map[string]string,
+) {
 	claim.Exports = c.InterRegionExports()
 	claim.Imports = c.InterRegionImports(cellAccount)
-	claim.DefaultPermissions = c.LeafPermissions()
+	claim.DefaultPermissions = denyAllPermissions()
+	claim.SigningKeys = jwt.SigningKeys{}
+	for child, key := range childKeys {
+		claim.SigningKeys.AddScopedSigner(c.childScope(child, key))
+	}
 	claim.Limits.LeafNodeConn = int64(links * maxLeafConnectionsPerLink)
 	claim.Limits.JetStreamLimits = jwt.JetStreamLimits{}
 	claim.Limits.JetStreamTieredLimits = nil
+}
+
+// childScope is the scoped signing key of child's leaf users.
+func (c InterRegionContract) childScope(child, key string) *jwt.UserScope {
+	scope := jwt.NewUserScope()
+	scope.Key = key
+	scope.Role = child
+	scope.Description = "interregion leaf users of child region " + child
+	scope.Template.Permissions = c.ChildLeafPermissions(child)
+	scope.Template.AllowedConnectionTypes = jwt.StringList{jwt.ConnectionTypeLeafnode}
+	return scope
+}
+
+// verifyChildScopes requires exactly one scoped signing key per child whose
+// template is exactly that child's leaf permissions, leafnode-only. An
+// unscoped signing key could issue users with any permissions.
+func (c InterRegionContract) verifyChildScopes(claim *jwt.AccountClaims) error {
+	if len(claim.SigningKeys) != len(c.Subtrees) {
+		return errors.New("interregion account needs exactly one scoped signing key per child region")
+	}
+	seen := map[string]bool{}
+	for key, scope := range claim.SigningKeys {
+		user, ok := scope.(*jwt.UserScope)
+		if !ok || user == nil || user.Key != key || key == claim.Subject || !nkeys.IsValidPublicAccountKey(key) {
+			return errors.New("interregion account signing keys must all be scoped child keys")
+		}
+		if _, child := c.Subtrees[user.Role]; !child || seen[user.Role] {
+			return fmt.Errorf("interregion signing key role %q is not a unique child region", user.Role)
+		}
+		seen[user.Role] = true
+		template := user.Template
+		if !samePermissions(template.Permissions, c.ChildLeafPermissions(user.Role)) || template.BearerToken ||
+			template.ProxyRequired || len(template.AllowedConnectionTypes) != 1 ||
+			template.AllowedConnectionTypes[0] != jwt.ConnectionTypeLeafnode ||
+			len(template.Src) != 0 || len(template.Times) != 0 || template.Locale != "" {
+			return fmt.Errorf("interregion leaf template of %q differs from its child permissions", user.Role)
+		}
+	}
+	return nil
 }
 
 // verify requires the installed claims to match the contract exactly, the
@@ -339,14 +452,23 @@ func (c InterRegionContract) verify(system, cell, interregion *jwt.AccountClaims
 		!sameImports(interregion.Imports, c.InterRegionImports(cell.Subject)) {
 		return errors.New("interregion account exports or imports differ from the contract")
 	}
-	if !samePermissions(interregion.DefaultPermissions, c.LeafPermissions()) {
-		return errors.New("interregion account default leaf permissions differ from the contract")
+	if !denyAll(interregion.DefaultPermissions) {
+		return errors.New("interregion account default leaf permissions must deny everything")
+	}
+	if err := c.verifyChildScopes(interregion); err != nil {
+		return err
 	}
 	if interregion.Limits.LeafNodeConn <= 0 || interregion.Limits.LeafNodeConn > int64(links*maxLeafConnectionsPerLink) ||
-		interregion.Limits.IsJSEnabled() || len(interregion.SigningKeys) != 0 {
+		interregion.Limits.IsJSEnabled() {
 		return errors.New("interregion account limits are not bounded to its leaf links")
 	}
 	return nil
+}
+
+func denyAll(permissions jwt.Permissions) bool {
+	return len(permissions.Pub.Allow) == 0 && len(permissions.Sub.Allow) == 0 &&
+		slices.Equal(permissions.Pub.Deny, jwt.StringList{">"}) && slices.Equal(permissions.Sub.Deny, jwt.StringList{">"}) &&
+		permissions.Resp == nil
 }
 
 // samePermissions compares allow lists as sets and requires no deny lists:
@@ -423,11 +545,8 @@ func interRegionServerOptions(cfg Config, options *server.Options, resolver *acc
 	if err != nil {
 		return err
 	}
-	links := len(ir.Remotes)
-	if ir.Listen != nil {
-		links = len(ir.Peers)
-	}
-	contract := InterRegionContract{Cell: cfg.Cell, Peers: ir.Peers, GlobalHome: ir.GlobalHome}
+	contract := InterRegionContract{Cell: cfg.Cell, Peers: ir.Peers, GlobalHome: ir.GlobalHome, Subtrees: ir.Subtrees}
+	links := contract.links(len(ir.Remotes))
 	if err := contract.verify(systemClaim, cellClaim, claim, links); err != nil {
 		return err
 	}
@@ -486,13 +605,16 @@ func validateLeafCredentials(path, peerAccount string) error {
 	if err != nil {
 		return err
 	}
-	if credentialAccount(claim) != peerAccount || claim.BearerToken ||
-		len(claim.AllowedConnectionTypes) != 1 || !claim.AllowedConnectionTypes.Contains(jwt.ConnectionTypeLeafnode) {
-		return errors.New("leaf credentials must be a leafnode-only user of the pinned peer interregion account")
+	// The peer binds a child's leaf users to that child's permissions only
+	// through the child's scoped signing key, whose template (leafnode-only)
+	// replaces anything in the user JWT; the server refuses a scoped user
+	// that carries permissions or limits of its own. A user signed by the
+	// account identity key would get the account's deny-all defaults.
+	if claim.IssuerAccount != peerAccount || claim.Issuer == peerAccount {
+		return errors.New("leaf credentials must be issued by a scoped child signing key of the pinned peer interregion account")
 	}
-	if len(claim.Pub.Allow) != 0 || len(claim.Pub.Deny) != 0 || len(claim.Sub.Allow) != 0 ||
-		len(claim.Sub.Deny) != 0 || claim.Resp != nil {
-		return errors.New("leaf credentials must not carry permissions that override the contract defaults")
+	if !claim.HasEmptyPermissions() {
+		return errors.New("leaf credentials must not carry permissions or limits that override the child template")
 	}
 	return nil
 }
