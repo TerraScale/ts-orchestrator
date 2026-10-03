@@ -213,11 +213,24 @@ executable on a running node with an A/B layout:
    digest in `known-bad.json` first, restores `previous`, and restarts the
    unit. A known-bad digest can never be staged or activated again on that
    node. Crash loops and hangs both end in rollback at the deadline.
+   A retried `activate` passes the same known-bad and byte checks as a fresh
+   one and is refused after the deadline. An activation for a unit no
+   watchdog matches is rolled back by any unit's watchdog five minutes after
+   its deadline, so a mistyped `--unit` cannot block the node. An
+   `activation.json` that does not decode (for example one written by a
+   newer binary) cannot be confirmed: `prepare` restores its `previous`
+   release when that still verifies, marks the target known bad, and moves
+   the record aside as `activation.json.unreadable-<time>`.
+6. **Prune.** After each `prepare`, release directories that are not
+   current, not part of a pending activation, not the baked release, and
+   either known bad or staged more than 24 hours ago are removed.
 
 The image is unchanged: `deploy/systemd/selfupdate/` holds the drop-ins and
 the watchdog timer, which an operator installs per node together with
 `/etc/terrascale-orchestrator/selfupdate-<unit>.env` (see
-`selfupdate.env.example`) and `self_update_proof_file`. On first start
+`selfupdate.env.example`) and `self_update_proof_file`. A non-default
+`--root` in the drop-ins must also be set as `self_update_root`, so the
+process signs its proof under the same root. On first start
 `prepare` seeds the image-baked `/usr/local/bin/terrascale-orchestrator` as the
 first release, so the baked binary always remains a valid rollback target.
 A node running both a controller and a host shares one `current` link; enable

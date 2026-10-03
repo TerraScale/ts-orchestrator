@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -478,5 +479,143 @@ func TestLockSerializesRootSteps(t *testing.T) {
 	}
 	if _, err := f.layout.Lock(); !errors.Is(err, ErrUnsafe) {
 		t.Fatalf("writable lock file accepted: %v", err)
+	}
+}
+
+func TestActivateRetryRunsTheFreshActivationGates(t *testing.T) {
+	f := newFixture(t)
+	if _, err := Seed(f.layout, f.baked); err != nil {
+		t.Fatal(err)
+	}
+	target := f.stage([]byte("retried build"))
+	activation, err := Activate(f.layout, target, testUnit, f.now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Activate(f.layout, target, testUnit, activation.Deadline, time.Minute); err == nil {
+		t.Fatal("a retry after the deadline reported success")
+	}
+	// A rollback that crashed after marking the target known bad but before
+	// removing the record must not be undone by a retry.
+	if err := f.layout.markKnownBad(target); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Activate(f.layout, target, testUnit, f.now.Add(time.Second), time.Minute); !errors.Is(err, ErrKnownBad) {
+		t.Fatalf("a retry re-activated a known-bad target: %v", err)
+	}
+}
+
+func TestExpiredActivationOfAnUnwatchedUnitRollsBack(t *testing.T) {
+	f := newFixture(t)
+	baked, err := Seed(f.layout, f.baked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := f.stage([]byte("mistyped unit build"))
+	activation, err := Activate(f.layout, target, "terrascale-orchestrator-typo.service", f.now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome, _, err := Watch(f.layout, testUnit, ProofCheck{}, activation.Deadline.Add(time.Minute)); err != nil || outcome != OutcomePending {
+		t.Fatalf("watch within the grace = %s %v", outcome, err)
+	}
+	if outcome, _, err := Watch(f.layout, testUnit, ProofCheck{}, activation.Deadline.Add(OrphanedActivationGrace)); err != nil || outcome != OutcomeRolledBack {
+		t.Fatalf("watch after the grace = %s %v", outcome, err)
+	}
+	if current, _ := f.layout.Current(); current != baked {
+		t.Fatalf("current = %s, want the previous release %s", current, baked)
+	}
+	next := f.stage([]byte("next build"))
+	if _, err := Activate(f.layout, next, testUnit, f.now, time.Minute); err != nil {
+		t.Fatalf("an expired orphaned activation still blocks activation: %v", err)
+	}
+}
+
+func TestPrepareMovesAnUnreadableActivationAsideAndRollsBack(t *testing.T) {
+	f := newFixture(t)
+	baked, err := Seed(f.layout, f.baked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := f.stage([]byte("newer writer build"))
+	activation, err := Activate(f.layout, target, testUnit, f.now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A record a newer binary wrote with a field this one does not know.
+	data, err := os.ReadFile(f.layout.activationPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = bytes.Replace(data, []byte(`"schema"`), []byte(`"future_field":true,"schema"`), 1)
+	if err := writeFileAtomic(f.layout.activationPath(), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := f.layout.Pending(); err == nil {
+		t.Fatal("the altered record still decoded")
+	}
+	outcome, err := Prepare(f.layout, testUnit, f.baked, ProofCheck{}, f.now.Add(time.Second))
+	if err != nil || outcome != OutcomeRolledBack {
+		t.Fatalf("prepare = %s %v", outcome, err)
+	}
+	if current, _ := f.layout.Current(); current != baked {
+		t.Fatalf("current = %s, want %s", current, baked)
+	}
+	if _, pending, err := f.layout.Pending(); err != nil || pending {
+		t.Fatalf("unreadable record was not moved aside: %v %v", pending, err)
+	}
+	if known, _ := f.layout.KnownBad(); !known[activation.Target] {
+		t.Fatal("the unproven target was not marked known bad")
+	}
+	// Garbage without usable digests is moved aside and the current release
+	// keeps its verification gate.
+	if err := writeFileAtomic(f.layout.activationPath(), []byte("not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if outcome, err := Prepare(f.layout, testUnit, f.baked, ProofCheck{}, f.now.Add(time.Second)); err != nil || outcome != OutcomeIdle {
+		t.Fatalf("prepare over garbage = %s %v", outcome, err)
+	}
+}
+
+func TestPruneReleasesKeepsReferencedBakedAndRecentReleases(t *testing.T) {
+	f := newFixture(t)
+	baked, err := Seed(f.layout, f.baked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := f.stage([]byte("old settled build"))
+	bad := f.stage([]byte("known bad build"))
+	recent := f.stage([]byte("recently staged build"))
+	current := f.stage([]byte("current build"))
+	activation, err := Activate(f.layout, current, testUnit, f.now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome, _, err := Watch(f.layout, testUnit, f.proof(activation, f.now.Add(time.Second)), f.now.Add(time.Second)); err != nil || outcome != OutcomeConfirmed {
+		t.Fatalf("confirm = %s %v", outcome, err)
+	}
+	if err := f.layout.markKnownBad(bad); err != nil {
+		t.Fatal(err)
+	}
+	past := f.now.Add(-2 * StagedReleaseRetention)
+	for _, digest := range []string{old, baked} {
+		if err := os.Chtimes(f.layout.ReleaseDir(digest), past, past); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removed, err := f.layout.PruneReleases(f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(removed)
+	want := []string{old, bad}
+	slices.Sort(want)
+	if !slices.Equal(removed, want) {
+		t.Fatalf("removed %v, want the settled and known-bad releases %v", removed, want)
+	}
+	for _, digest := range []string{baked, recent, current} {
+		if err := f.layout.VerifyRelease(digest); err != nil {
+			t.Fatalf("kept release %s does not verify: %v", digest, err)
+		}
 	}
 }

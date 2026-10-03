@@ -18,6 +18,10 @@ type ArtifactStore interface {
 	GetInfo(context.Context, string, ...jetstream.GetObjectInfoOpt) (*jetstream.ObjectInfo, error)
 }
 
+// StageFromArtifactStore takes Layout.Lock itself around the install, so
+// its caller must not hold it. Stage and Activate do not lock: callers hold
+// Lock around them, as the selfupdate CLI does.
+//
 // StageFromArtifactStore fetches the binary named by the verified receipt
 // from the content-addressed delivery store over NATS, checking every chunk
 // and the object digest, then stages it. The receipt is verified before any
@@ -49,5 +53,13 @@ func StageFromArtifactStore(ctx context.Context, layout Layout, js jetstream.Jet
 	if _, err := spool.Seek(0, io.SeekStart); err != nil {
 		return "", err
 	}
+	// The download stays unlocked so a slow fetch never blocks a unit
+	// start; installing into releases/ is serialized with prepare, the
+	// watchdog and activate like every other root step.
+	unlock, err := layout.Lock()
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
 	return Stage(layout, spool, receiptWire, delegationWire, verifier, now)
 }

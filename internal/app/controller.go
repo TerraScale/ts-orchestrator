@@ -646,7 +646,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	// client is no longer usable, so WatchdogSec= restarts a wedged
 	// controller instead of leaving a silent Raft peer.
 	go notifier.RunWatchdog(runCtx, runtime.Ready)
-	emitSelfUpdateProof(cfg.Controller.SelfUpdateProofFile, cfg.Controller.ResponseKeyFile, controllerUnit, output)
+	emitSelfUpdateProof(cfg.Controller.SelfUpdateProofFile, cfg.Controller.SelfUpdateRoot, cfg.Controller.ResponseKeyFile, controllerUnit, output)
 	select {
 	case <-ctx.Done():
 		stop()

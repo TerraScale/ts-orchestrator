@@ -66,6 +66,7 @@ type Verifier interface {
 // Stage verifies the receipt, copies the binary from source while hashing
 // it, requires the exact signed size and digest, and installs it read-only
 // under releases/<sha256>. It is idempotent for an already staged release.
+// The caller holds Layout.Lock.
 func Stage(layout Layout, source io.Reader, receiptWire, delegationWire []byte, verifier Verifier, now time.Time) (string, error) {
 	if source == nil || verifier == nil {
 		return "", fmt.Errorf("%w: stage source and verifier are required", ErrInvalid)
@@ -168,7 +169,7 @@ func (layout Layout) install(source io.Reader, digest string, size int64, metada
 		return fmt.Errorf("%w: staged binary differs from its signed size or digest", ErrInvalid)
 	}
 	for name, data := range metadata {
-		if err := os.WriteFile(filepath.Join(temporary, name), data, 0o444); err != nil {
+		if err := writeSyncedFile(filepath.Join(temporary, name), data, 0o444); err != nil {
 			return err
 		}
 	}
@@ -182,4 +183,25 @@ func (layout Layout) install(source io.Reader, digest string, size int64, metada
 		return err
 	}
 	return layout.VerifyRelease(digest)
+}
+
+// writeSyncedFile creates path with data and syncs it before the caller
+// syncs and renames the directory, so a crash never keeps a release whose
+// metadata files are empty or truncated.
+func writeSyncedFile(path string, data []byte, mode os.FileMode) error {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
+	if err != nil {
+		return err
+	}
+	_, err = file.Write(data)
+	if err == nil {
+		err = file.Chmod(mode)
+	}
+	if err == nil {
+		err = file.Sync()
+	}
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	return err
 }

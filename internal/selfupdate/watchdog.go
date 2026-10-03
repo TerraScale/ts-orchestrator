@@ -2,10 +2,12 @@ package selfupdate
 
 import (
 	"crypto/ed25519"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -31,11 +33,27 @@ type ProofCheck struct {
 // on this node. Callers restart the unit after OutcomeRolledBack.
 func Watch(layout Layout, unit string, proof ProofCheck, now time.Time) (Outcome, Activation, error) {
 	activation, pending, err := layout.Pending()
+	if errors.Is(err, errUnreadableActivation) {
+		return layout.resolveUnreadable(err)
+	}
 	if err != nil || !pending {
 		return OutcomeIdle, Activation{}, err
 	}
 	if activation.Unit != unit {
-		return OutcomePending, activation, nil
+		// Another unit's watchdog resolves this activation. Once it is long
+		// past its deadline no functioning watchdog is left to do so (a
+		// mistyped unit, or a unit without the drop-ins): roll it back so it
+		// cannot block every later activation on this node.
+		if now.Before(activation.Deadline.Add(OrphanedActivationGrace)) {
+			return OutcomePending, activation, nil
+		}
+		slog.Warn("self-update activation of an unwatched unit expired; rolling back",
+			"activation", activation.ActivationID, "unit", activation.Unit)
+		if err := layout.rollback(activation); err != nil {
+			return OutcomeRolledBack, activation, err
+		}
+		recordResolution(activation, OutcomeRolledBack)
+		return OutcomeRolledBack, activation, nil
 	}
 	targetErr := layout.VerifyRelease(activation.Target)
 	if targetErr == nil && len(proof.PublicKey) == ed25519.PublicKeySize {
@@ -61,6 +79,50 @@ func Watch(layout Layout, unit string, proof ProofCheck, now time.Time) (Outcome
 	}
 	recordResolution(activation, OutcomeRolledBack)
 	return OutcomeRolledBack, activation, nil
+}
+
+// OrphanedActivationGrace is how long past its deadline an activation of a
+// unit no watchdog matches stays pending before any watchdog rolls it back.
+// It covers the matching unit's watchdog timer running late.
+const OrphanedActivationGrace = 5 * time.Minute
+
+// resolveUnreadable handles an owned activation record that does not decode
+// or validate. It cannot be confirmed, so it fails safe: when the record
+// still names a verifiable previous release, that release is restored and
+// the target is marked known bad like any unproven activation; the record is
+// then moved aside so the unit can start. The VerifyRelease gate on the
+// current release in Prepare still refuses bytes that do not verify.
+func (layout Layout) resolveUnreadable(cause error) (Outcome, Activation, error) {
+	data, exists, err := layout.pendingRecord()
+	if err != nil || !exists {
+		return OutcomeIdle, Activation{}, err
+	}
+	var loose struct {
+		Target   string `json:"target"`
+		Previous string `json:"previous"`
+	}
+	_ = json.Unmarshal(data, &loose)
+	outcome := OutcomeIdle
+	activation := Activation{Target: loose.Target, Previous: loose.Previous}
+	if digestRE.MatchString(loose.Target) && digestRE.MatchString(loose.Previous) && loose.Target != loose.Previous &&
+		layout.VerifyRelease(loose.Previous) == nil {
+		if err := layout.markKnownBad(loose.Target); err != nil {
+			return OutcomePending, activation, err
+		}
+		if current, err := layout.Current(); err == nil && current == loose.Target {
+			if err := layout.flipCurrent(loose.Previous); err != nil {
+				return OutcomePending, activation, err
+			}
+		}
+		outcome = OutcomeRolledBack
+	}
+	quarantine := layout.activationPath() + ".unreadable-" + time.Now().UTC().Format("20060102T150405.000000000Z")
+	if err := os.Rename(layout.activationPath(), quarantine); err != nil {
+		return OutcomePending, activation, err
+	}
+	slog.Warn("self-update activation record was unreadable and was moved aside",
+		"path", quarantine, "outcome", outcome, "error", cause)
+	return outcome, activation, syncDir(layout.Root)
 }
 
 // rollback marks the target known bad first, then restores the previous
@@ -99,5 +161,74 @@ func Prepare(layout Layout, unit, bakedBinary string, proof ProofCheck, now time
 	if err := layout.VerifyRelease(current); err != nil {
 		return outcome, fmt.Errorf("current release does not verify: %w", err)
 	}
+	if removed, err := layout.PruneReleases(now); err != nil {
+		slog.Warn("self-update release pruning failed", "error", err)
+	} else if len(removed) > 0 {
+		slog.Info("self-update pruned settled releases", "releases", removed)
+	}
 	return outcome, nil
+}
+
+// StagedReleaseRetention keeps a release that is neither current nor part
+// of a pending activation for this long after it was staged, so a release
+// staged for an upcoming activation is not pruned before it is activated.
+const StagedReleaseRetention = 24 * time.Hour
+
+// PruneReleases removes settled release directories: everything except the
+// current release, both sides of a pending activation, the image-baked
+// release, and non-known-bad releases staged within StagedReleaseRetention.
+// The caller holds Lock. It returns the removed digests.
+func (layout Layout) PruneReleases(now time.Time) ([]string, error) {
+	current, err := layout.Current()
+	if err != nil {
+		return nil, err
+	}
+	if current == "" {
+		return nil, nil
+	}
+	keep := map[string]bool{current: true}
+	activation, pending, err := layout.Pending()
+	if err != nil {
+		return nil, err
+	}
+	if pending {
+		keep[activation.Target], keep[activation.Previous] = true, true
+	}
+	knownBad, err := layout.KnownBad()
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(layout.releasesPath())
+	if err != nil {
+		return nil, err
+	}
+	var removed []string
+	for _, entry := range entries {
+		digest := entry.Name()
+		if !digestRE.MatchString(digest) || keep[digest] {
+			continue
+		}
+		directory := layout.ReleaseDir(digest)
+		info, err := os.Lstat(directory)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(directory, bakedMarkerFile)); err == nil {
+			continue
+		}
+		if !knownBad[digest] && now.Sub(info.ModTime()) < StagedReleaseRetention {
+			continue
+		}
+		if err := layout.checkOwned(directory, true); err != nil {
+			return removed, err
+		}
+		if err := os.RemoveAll(directory); err != nil {
+			return removed, err
+		}
+		removed = append(removed, digest)
+	}
+	if len(removed) > 0 {
+		return removed, syncDir(layout.releasesPath())
+	}
+	return removed, nil
 }
