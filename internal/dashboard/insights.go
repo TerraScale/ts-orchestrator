@@ -2,7 +2,9 @@ package dashboard
 
 import (
 	"slices"
+	"strings"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 )
 
@@ -171,25 +173,49 @@ func insightID(insight insights.Insight) string { return insight.Region + ":" + 
 // insightLink opens one insight on the insights page. It lists every region,
 // so the insight is shown whatever region is selected.
 func (current view) insightLink(insight insights.Insight) string {
-	return current.State.link("/insights", "id", insightID(insight), "region", allRegions) + "#insight-" + insightID(insight)
+	return insightHref(current.State, insight)
+}
+
+// insightHref is insightLink for a bare state, as toasts have one.
+func insightHref(state uiState, insight insights.Insight) string {
+	return state.link("/insights", "id", insightID(insight), "region", allRegions) + "#insight-" + insightID(insight)
 }
 
 // quietText is the insights page's empty state: an all-clear only when the
 // evaluation ran and nothing is open anywhere.
 func (current view) quietText() string {
 	open := len(current.globalInsights())
+	// A new engine returns an empty evaluation with a zero time until its
+	// first pass: that is no evaluation either.
+	evaluated := current.Evaluation != nil && !current.Evaluation.At.IsZero()
+	unobserved := current.unobservedRegions()
 	switch {
-	case current.Evaluation == nil && len(current.Regions) == 0:
-		return "Insights are unavailable on this member: no evaluation has run, so nothing can be ruled out."
 	case open > 0:
 		return "No insight matches these filters; " + itoa(open) + " are open with other filters."
-	case current.Evaluation == nil:
+	case !evaluated && len(current.Regions) == 0:
+		return "Insights are unavailable on this member: no evaluation has run, so nothing can be ruled out."
+	case !evaluated:
 		return "Nothing is reported by the other regions, but this region's insights are unavailable, so nothing can be ruled out here."
+	case len(unobserved) > 0:
+		return "Nothing is open in the regions that answered, but " + strings.ToUpper(strings.Join(unobserved, ", ")) +
+			" could not be observed, so nothing can be ruled out there."
 	case len(current.Evaluation.Unavailable) > 0:
 		return "Nothing is open, but some rules had no input on the last evaluation (listed alongside), so they could not fire."
 	default:
 		return "Nothing needs attention. Every rule is quiet."
 	}
+}
+
+// unobservedRegions lists the remote regions whose insights could not be
+// read (not linked, unreachable or failed).
+func (current view) unobservedRegions() []string {
+	var out []string
+	for _, summary := range current.Regions {
+		if !summary.Local && summary.Reach != "" && summary.Reach != decisionlog.RegionOK {
+			out = append(out, summary.Region)
+		}
+	}
+	return out
 }
 
 // foreign returns region when it is not this member's, so a link into that

@@ -34,12 +34,17 @@ func (current view) globalKPIs() []kpi {
 	answering, expected := 0, 0
 	databases, serving, desired, rollouts := 0, 0, 0, 0
 	var diskUsed, diskTotal uint64
-	quorumRegions := 0
+	quorumRegions, unknownQuorum := 0, 0
 	for _, summary := range regions {
 		if summary.Reach == decisionlog.RegionOK {
 			observed++
 		}
-		if (summary.Reach == decisionlog.RegionOK || summary.Local) && !summary.Quorum.Unobserved {
+		switch answered := summary.Reach == decisionlog.RegionOK || summary.Local; {
+		case answered && summary.Quorum.Unobserved:
+			// The region answered, but its cell-wide quorum could not be
+			// read: unknown, not a connectivity failure.
+			unknownQuorum++
+		case answered:
 			quorumRegions++
 		}
 		if summary.Health.Status == regionview.StatusHealthy {
@@ -76,8 +81,13 @@ func (current view) globalKPIs() []kpi {
 		}
 		if quorumRegions < len(regions) {
 			status = "bad"
-			sub = "across " + itoa(quorumRegions) + " of " + itoa(len(regions)) + " regions; " +
-				itoa(len(regions)-quorumRegions) + " not answering"
+			sub = "across " + itoa(quorumRegions) + " of " + itoa(len(regions)) + " regions"
+			if silent := len(regions) - quorumRegions - unknownQuorum; silent > 0 {
+				sub += "; " + itoa(silent) + " not answering"
+			}
+			if unknownQuorum > 0 {
+				sub += "; " + itoa(unknownQuorum) + " with unknown quorum"
+			}
 		}
 		tiles = append(tiles, kpi{Label: "Controllers up", Value: itoa(answering) + " / " + itoa(expected),
 			Sub: sub, Status: status, Spark: sparkValues(members),
@@ -302,8 +312,9 @@ func (current view) mapJSON() string {
 				state = reachStatus(reach[from])
 				label += ": " + reachLabel(reach[from])
 			case reach[from] == decisionlog.RegionOK && reach[to] == decisionlog.RegionOK:
-				state = "ok"
-				label += ": both answer"
+				// Both answer this region; that says nothing about the link
+				// between them, so it stays unknown.
+				label += ": both answer here; their link is not observed"
 			default:
 				label += ": not observed from here"
 			}

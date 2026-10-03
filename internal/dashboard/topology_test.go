@@ -101,7 +101,9 @@ func TestLocalTopologySeatsAndRouteEvidence(t *testing.T) {
 	first, second := memberSnapshot(), memberSnapshot()
 	second.Member, second.Authority.Leader, second.NATS.IsMetaLeader, second.NATS.ServerName = "ctl-2", false, false, "fra-ctl-2"
 	first.NATS.ServerName, first.NATS.MetaLeader, second.NATS.MetaLeader = "fra-ctl-1", "fra-ctl-1", "fra-ctl-1"
-	first.NATS.Routes, second.NATS.Routes = 1, 0
+	// Route pooling: ctl-2 has three route connections but sees no peer.
+	first.NATS.Routes, second.NATS.Routes = 3, 3
+	first.NATS.ClusterPeers, second.NATS.ClusterPeers = 2, 1
 	first.NATS.MetaPeers = []observability.PeerView{{Name: "fra-ctl-2", Current: true}}
 	database := first.Placement.Databases[0]
 	other := database
@@ -133,7 +135,7 @@ func TestLocalTopologySeatsAndRouteEvidence(t *testing.T) {
 			}
 		case "route":
 			if link.State != "idle" {
-				t.Errorf("route %+v: ctl-2 reports no routes, so the route is unproven", link)
+				t.Errorf("route %+v: ctl-2 sees no route peer, so the route is unproven", link)
 			}
 		}
 	}

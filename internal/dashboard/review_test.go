@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/url"
 	"slices"
@@ -275,11 +276,21 @@ func TestInsightsPageEmptyStatesAreHonest(t *testing.T) {
 	if text := (view{Journal: &Journal{}}).quietText(); !strings.Contains(text, "unavailable") {
 		t.Fatalf("no evaluation = %q", text)
 	}
-	quiet := view{Evaluation: &insights.Evaluation{}}
+	// A new engine's empty evaluation (zero time) has not run yet.
+	if text := (view{Evaluation: &insights.Evaluation{}}).quietText(); !strings.Contains(text, "unavailable") {
+		t.Fatalf("not yet evaluated = %q", text)
+	}
+	quiet := view{Evaluation: &insights.Evaluation{At: testNow}}
 	if text := quiet.quietText(); !strings.Contains(text, "Every rule is quiet") {
 		t.Fatalf("quiet = %q", text)
 	}
-	blind := view{Evaluation: &insights.Evaluation{Unavailable: []string{"volumes"}}}
+	// A region that could not be observed rules out the global all-clear.
+	unlinked := view{Evaluation: &insights.Evaluation{At: testNow}, Regions: []regionview.Summary{
+		{Region: "fra", Local: true, Reach: decisionlog.RegionOK}, {Region: "sfo", Reach: decisionlog.RegionNotLinked}}}
+	if text := unlinked.quietText(); strings.Contains(text, "Every rule is quiet") || !strings.Contains(text, "SFO") {
+		t.Fatalf("unobserved region = %q", text)
+	}
+	blind := view{Evaluation: &insights.Evaluation{At: testNow, Unavailable: []string{"volumes"}}}
 	if text := blind.quietText(); strings.Contains(text, "Every rule is quiet") {
 		t.Fatalf("rules without input = %q", text)
 	}
@@ -649,4 +660,83 @@ func TestRolloutDiagramReadsStateMachinePhases(t *testing.T) {
 		rolloutStatus(insights.Rollout{Phase: "aborted", Done: true}, testNow) != "bad" {
 		t.Fatal("terminal failures read as complete")
 	}
+}
+
+// A region that answered but could not read its own quorum is "unknown
+// quorum", not "not answering"; remote-to-remote map links stay unknown.
+func TestGlobalViewSeparatesUnknownQuorumAndUnobservedLinks(t *testing.T) {
+	t.Parallel()
+	current := view{State: parseState(url.Values{}), Regions: []regionview.Summary{
+		{Region: "fra", Local: true, Reach: decisionlog.RegionOK, Quorum: regionview.Quorum{Expected: 3, Answering: 3}},
+		{Region: "sfo", Reach: decisionlog.RegionOK, Quorum: regionview.Quorum{Answering: 1, Unobserved: true}},
+		{Region: "gru", Reach: decisionlog.RegionOK, Quorum: regionview.Quorum{Expected: 3, Answering: 3}}}}
+	for _, tile := range current.globalKPIs() {
+		if tile.Label == "Controllers up" && (strings.Contains(tile.Sub, "not answering") ||
+			!strings.Contains(tile.Sub, "1 with unknown quorum")) {
+			t.Fatalf("controllers tile = %+v", tile)
+		}
+	}
+	var spec mapSpec
+	if err := json.Unmarshal([]byte(current.mapJSON()), &spec); err != nil {
+		t.Fatal(err)
+	}
+	for _, link := range spec.Links {
+		if link.From != "fra" && link.To != "fra" && link.State == "ok" {
+			t.Fatalf("a remote-to-remote link was drawn healthy: %+v", link)
+		}
+	}
+}
+
+// Heatmap columns are never finer than the samples, so continuous 1m
+// rollups in a 1h view fill every column.
+func TestHeatmapColumnsFollowTheSampleResolution(t *testing.T) {
+	t.Parallel()
+	current := view{State: parseState(url.Values{"range": {"1h"}}), Now: testNow}
+	var points [][2]float64
+	for minute := 60; minute >= 0; minute-- {
+		points = append(points, [2]float64{float64(testNow.Add(-time.Duration(minute) * time.Minute).UnixMilli()), 0.5})
+	}
+	spec := current.heatmap("percent", []chartSeries{{Name: "m", Points: points}}, "empty")
+	if spec.Step < time.Minute.Milliseconds() {
+		t.Fatalf("step %dms is finer than the 1m samples", spec.Step)
+	}
+	columns := (spec.End - spec.Start + spec.Step - 1) / spec.Step
+	if int64(len(spec.Heat)) != columns {
+		t.Fatalf("heat cells = %d, want every one of %d columns filled", len(spec.Heat), columns)
+	}
+}
+
+// A slow fill near 100% that rounding would flatten is still forecast.
+func TestStorageForecastFitsRawSamples(t *testing.T) {
+	t.Parallel()
+	history := observability.NewHistory(observability.HistoryConfig{})
+	for minute := 24 * 60; minute >= 0; minute -= 10 {
+		history.Append(testNow.Add(-time.Duration(minute)*time.Minute), []observability.Sample{{Metric: observability.HistFSRatio,
+			Labels: observability.L("member", "ctl-1", "role", "nats"), Value: 0.99994 - float64(minute)/(24*60)*0.00003}})
+	}
+	current := view{State: parseState(url.Values{}), Now: testNow, Journal: &Journal{History: history}}
+	forecasts, _ := current.storageForecasts()
+	if len(forecasts) != 1 || !forecasts[0].Known || !forecasts[0].Trend {
+		t.Fatalf("forecasts = %+v, want a known fill from the raw trend", forecasts)
+	}
+}
+
+// A failed volume read is not "no block volume is attached".
+func TestStoragePageNamesAFailedVolumeRead(t *testing.T) {
+	t.Parallel()
+	current := view{Page: page{slug: "storage"}, State: parseState(url.Values{}), Now: testNow,
+		Journal: &Journal{Volumes: failingVolumeProvider{}}, Unavailable: []string{"volumes"}}
+	var body strings.Builder
+	if err := storageBody(current).Render(context.Background(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(body.String(), "No block volume is attached") || !strings.Contains(body.String(), "could not be read") {
+		t.Fatalf("storage page with a failed volume read = %s", body.String())
+	}
+}
+
+type failingVolumeProvider struct{}
+
+func (failingVolumeProvider) Volumes(context.Context) ([]insights.Volume, error) {
+	return nil, errors.New("placement store timeout")
 }

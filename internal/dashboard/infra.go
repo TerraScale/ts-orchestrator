@@ -144,8 +144,12 @@ func (current view) storageForecasts() ([]forecast, chartSpec) {
 	var forecasts []forecast
 	var series []chartSeries
 	for _, found := range result.Series {
+		// The trend is fitted on raw samples; rounding is for display only,
+		// since it can flatten a slow but real fill near 100%.
+		raw := make([][2]float64, 0, len(found.Points))
 		points := make([][2]float64, 0, len(found.Points))
 		for _, point := range found.Points {
+			raw = append(raw, [2]float64{float64(point.Time.UnixMilli()), point.Value})
 			points = append(points, [2]float64{float64(point.Time.UnixMilli()), round(point.Value)})
 		}
 		if len(points) == 0 {
@@ -153,8 +157,8 @@ func (current view) storageForecasts() ([]forecast, chartSpec) {
 		}
 		name := found.Labels["member"] + " " + found.Labels["role"]
 		entry := forecast{Name: name, Used: points[len(points)-1][1], Status: "ok"}
-		entry.Full, entry.Known = timeToFull(points)
-		_, _, entry.Trend = linearForecast(points)
+		entry.Full, entry.Known = timeToFull(raw)
+		_, _, entry.Trend = linearForecast(raw)
 		switch {
 		case !entry.Trend:
 			entry.Status = "idle"
@@ -168,7 +172,7 @@ func (current view) storageForecasts() ([]forecast, chartSpec) {
 		if entry.Status == "warn" || entry.Status == "bad" {
 			one.Status = entry.Status
 			series = append(series, one)
-			if slope, last, ok := linearForecast(points); ok && slope > 0 {
+			if slope, last, ok := linearForecast(raw); ok && slope > 0 {
 				end := points[len(points)-1][0]
 				horizon := min(entry.Full.Seconds(), 72*3600)
 				series = append(series, chartSeries{Name: name + " forecast", Status: entry.Status, Dashed: true,

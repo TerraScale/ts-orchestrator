@@ -2,15 +2,19 @@ package dashboard
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 )
 
@@ -455,5 +459,67 @@ func TestEventFilterMatches(t *testing.T) {
 		if got := filter.matches(event); got != test.want {
 			t.Errorf("matches(%+v) = %v", event, got)
 		}
+	}
+}
+
+// lossyEvents keeps events in its ring but never delivers them live, as a
+// bus whose full subscription dropped them.
+type lossyEvents struct {
+	mu     sync.Mutex
+	events []observability.Event
+}
+
+func (source *lossyEvents) add(event observability.Event) {
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	event.Sequence = uint64(len(source.events) + 1)
+	source.events = append([]observability.Event{event}, source.events...)
+}
+
+func (source *lossyEvents) Recent(int) []observability.Event {
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	return slices.Clone(source.events)
+}
+
+func (source *lossyEvents) Since(uint64, int) []observability.Event { return nil }
+
+func (source *lossyEvents) Subscribe(ctx context.Context, _ int) <-chan observability.Event {
+	channel := make(chan observability.Event)
+	context.AfterFunc(ctx, func() { close(channel) })
+	return channel
+}
+
+// A matching event the bus dropped from the stream's subscription is still
+// listed: every tick reconciles the rows with the event ring.
+func TestEventsStreamRecoversDroppedEvents(t *testing.T) {
+	t.Parallel()
+	source := &lossyEvents{}
+	dashboard := newTestDashboard(Options{Events: source})
+	server := newStreamServer(t, dashboard)
+	reader, _ := openStream(t, server, "/events/stream?level=warn")
+	reader.next()
+	source.add(observability.Event{Level: "WARN", Component: "placement", Message: "dropped warning"})
+	for range 20 {
+		if _, data := reader.next(); strings.Contains(data, "dropped warning") {
+			return
+		}
+	}
+	t.Fatal("a dropped matching event never appeared")
+}
+
+// A toast opens its insight under the insight's own region on the
+// all-regions list, like an insight card does.
+func TestToastLinksTheRegionScopedInsight(t *testing.T) {
+	t.Parallel()
+	insight := testInsight("oci:x", "OCI errors", insights.SeverityWarning, "sfo")
+	var body bytes.Buffer
+	if err := insightToast(parseState(url.Values{"r": {"fra"}}), insights.Change{Type: insights.ChangeOpened,
+		Insight: insight}).Render(context.Background(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body.String(), "id=sfo%3Aoci%3Ax") || !strings.Contains(body.String(), "region=all") ||
+		!strings.Contains(body.String(), "#insight-sfo:oci:x") {
+		t.Fatalf("toast = %s", body.String())
 	}
 }

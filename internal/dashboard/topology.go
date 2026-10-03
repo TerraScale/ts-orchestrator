@@ -216,7 +216,9 @@ func (current view) localTopology(spec *topologySpec, addNode func(topologyNode)
 		if member.NATS == nil || member.Role == "host" {
 			continue
 		}
-		routes[member.Member] = member.NATS.Routes
+		// Distinct route peers including this server, not route
+		// connections: route pooling opens several connections per peer.
+		routes[member.Member] = member.NATS.ClusterPeers
 		for _, peer := range member.NATS.MetaPeers {
 			if peer.Offline {
 				offline[memberOf(peer.Name)] = true
@@ -276,13 +278,14 @@ func (current view) localTopology(spec *topologySpec, addNode func(topologyNode)
 		spec.Links = append(spec.Links, topologyLink{Source: regionID, Target: id, Kind: "member", State: "bad"})
 	}
 	// NATS routes form a full mesh between the region's controllers. The
-	// snapshot carries route counts, not route peers: a route is healthy
-	// only when both ends report a full mesh, broken when an end is
-	// missing or offline, and expected (idle) otherwise.
+	// snapshot carries distinct peer counts (this server included), not
+	// route peers: a route is healthy only when both ends see every
+	// answering controller, broken when an end is missing or offline, and
+	// expected (idle) otherwise.
 	slices.Sort(controllers)
 	full := func(name string) bool {
 		count, ok := routes[name]
-		return ok && count >= answering-1
+		return ok && count >= answering
 	}
 	for left := range controllers {
 		for right := left + 1; right < len(controllers); right++ {

@@ -237,9 +237,11 @@ const heatColumns = 90
 func (current view) heatmap(unit string, series []chartSeries, empty string) chartSpec {
 	spec := chartSpec{Kind: "heatmap", Unit: unit, Start: current.Now.Add(-current.State.Range.Duration).UnixMilli(),
 		End: current.Now.UnixMilli()}
-	// Average each row into heatColumns equal columns across the range, so
-	// cells tile without gaps whatever the history tier's resolution.
-	spec.Step = max((spec.End-spec.Start)/heatColumns, 1)
+	// Average each row into equal columns across the range, at most
+	// heatColumns and never finer than the samples (the history tier's
+	// resolution), so cells tile without gaps when sampling is continuous.
+	spec.Step = max((spec.End-spec.Start)/heatColumns, sampleSpacing(series), 1)
+	columns := max((spec.End-spec.Start+spec.Step-1)/spec.Step, 1)
 	for row, one := range series {
 		spec.Categories = append(spec.Categories, one.Name)
 		sums := map[int64]float64{}
@@ -251,7 +253,7 @@ func (current view) heatmap(unit string, series []chartSeries, empty string) cha
 			}
 			// The range includes its end; a sample exactly at End belongs
 			// to the last column.
-			column := min((at-spec.Start)/spec.Step, heatColumns-1)
+			column := min((at-spec.Start)/spec.Step, columns-1)
 			sums[column] += point[1]
 			counts[column]++
 		}
@@ -264,6 +266,24 @@ func (current view) heatmap(unit string, series []chartSeries, empty string) cha
 		spec.Empty = empty
 	}
 	return spec
+}
+
+// sampleSpacing is the median gap in milliseconds between consecutive points
+// of the series, zero without two points.
+func sampleSpacing(series []chartSeries) int64 {
+	var gaps []int64
+	for _, one := range series {
+		for index := 1; index < len(one.Points); index++ {
+			if gap := int64(one.Points[index][0] - one.Points[index-1][0]); gap > 0 {
+				gaps = append(gaps, gap)
+			}
+		}
+	}
+	if len(gaps) == 0 {
+		return 0
+	}
+	slices.Sort(gaps)
+	return gaps[len(gaps)/2]
 }
 
 // linearForecast fits value = a + b*t over the points by least squares and
