@@ -28,6 +28,9 @@ type fakeDecisions struct {
 	chains    atomic.Int64
 	err       error
 	chainErr  error
+	// complete answers every region in full instead of the default
+	// partial result with SFO unreachable.
+	complete bool
 }
 
 func (source *fakeDecisions) Query(_ context.Context, query decisionlog.Query) (decisionlog.Result, error) {
@@ -38,6 +41,10 @@ func (source *fakeDecisions) Query(_ context.Context, query decisionlog.Query) (
 	query = query.Normalized()
 	result := decisionlog.Result{Regions: []decisionlog.RegionStatus{{Region: "fra", State: decisionlog.RegionOK},
 		{Region: "sfo", State: decisionlog.RegionUnreachable}}, Partial: true}
+	if source.complete {
+		result = decisionlog.Result{Regions: []decisionlog.RegionStatus{{Region: "fra", State: decisionlog.RegionOK},
+			{Region: "sfo", State: decisionlog.RegionOK}}}
+	}
 	for _, decision := range source.decisions {
 		if query.Matches(decision) {
 			result.Decisions = append(result.Decisions, decision)
@@ -407,12 +414,36 @@ func TestURLStateIsValidatedAndCarried(t *testing.T) {
 			t.Errorf("adopt(%q) = %q", unsafe, got)
 		}
 	}
-	if got := state.adopt("/members?host=a", "gru"); got != "/members?host=a&live=0&r=sfo&range=24h" {
+	// The entity lives in its own region whatever region the page shows:
+	// a GRU insight opened while SFO is selected links into GRU.
+	if got := state.adopt("/nats?stream=x", "gru"); got != "/nats?live=0&r=gru&range=24h&stream=x" {
 		t.Errorf("adopt kept the selected region over the entity's: %s", got)
+	}
+	// A local entity ("" region) drops the inherited remote selection.
+	if got := state.adopt("/members?host=a", ""); got != "/members?host=a&live=0&range=24h" {
+		t.Errorf("local entity = %s", got)
+	}
+	// A region the link names itself wins.
+	if got := state.adopt("/region?r=fra", "gru"); got != "/region?live=0&r=fra&range=24h" {
+		t.Errorf("explicit region = %s", got)
 	}
 	plain := parseState(url.Values{})
 	if got := plain.adopt("/members?host=a", "gru"); got != "/members?host=a&r=gru" {
 		t.Errorf("adopt = %s", got)
+	}
+	// Links the insight engine emits for routes that predate the pages.
+	for link, want := range map[string]string{
+		"/regions/SFO":                  "/region?r=sfo",
+		"/regions":                      "/",
+		"/decisions?subject=seat/m1":    "/decisions?q=seat%2Fm1",
+		"/decisions?subject=a&q=winner": "/decisions?q=winner",
+	} {
+		if got := plain.adopt(link, ""); got != want {
+			t.Errorf("adopt(%q) = %q, want %q", link, got, want)
+		}
+	}
+	if got := parseState(url.Values{"subject": {"seat/m1"}}).param("q"); got != "seat/m1" {
+		t.Errorf("subject alias = %q", got)
 	}
 }
 

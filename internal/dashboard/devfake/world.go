@@ -75,9 +75,12 @@ func New() *World {
 				stages: []string{"serving", "serving", "cordoned"}}}},
 	}
 	world.stuck = now.Add(-22 * time.Minute)
-	world.health.Add(observability.Check{Name: "nats", Run: func(context.Context) (bool, string) { return true, "" }})
-	world.health.Add(observability.Check{Name: "cluster", Run: func(context.Context) (bool, string) { return true, "" }})
-	world.health.Add(observability.Check{Name: "authority", Run: func(context.Context) (bool, string) { return true, "" }})
+	// This member's own checks: the same results its snapshot reports.
+	for _, check := range world.regions[0].checks(world.regions[0].leader) {
+		world.health.Add(observability.Check{Name: check.Name, Run: func(context.Context) (bool, string) {
+			return check.OK, check.Detail
+		}})
+	}
 	world.seedDecisions(now)
 	for index, region := range world.regions {
 		state := &regionState{region: region, world: world,

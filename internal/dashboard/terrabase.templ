@@ -4,6 +4,7 @@ templ terrabaseBody(current view) {
 	<div id="content">
 		<h1>TerraBase instances</h1>
 		@notes(current)
+		@scopeNote(current)
 		if placement := current.placement(); placement != nil && len(placement.Databases) > 0 {
 			<article>
 				<div class="chart-title">
@@ -71,7 +72,7 @@ templ terrabaseBody(current view) {
 		<div class="cols-2">
 			<article>
 				<div class="chart-title">
-					<h2>Scaling and placement decisions <small>24h at least</small></h2>
+					<h2>Scaling and placement decisions <small>{ upper(current.region()) } · 24h at least</small></h2>
 					<a href={ safe(current.State.link("/decisions", "actor", "autoscale,placement")) }>Journal →</a>
 				</div>
 				@timeline("", current.decisionTimeline(current.decisions(), true))

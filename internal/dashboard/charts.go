@@ -118,7 +118,7 @@ func (current view) historyRange(metric string, labels map[string]string, nameBy
 		if len(found.Points) == 0 {
 			continue
 		}
-		name := found.Labels[nameBy]
+		name := seriesName(found.Labels, nameBy)
 		if name == "" {
 			name = metric
 		}
@@ -133,6 +133,21 @@ func (current view) historyRange(metric string, labels map[string]string, nameBy
 	}
 	slices.SortFunc(series, func(left, right chartSeries) int { return cmp.Compare(left.Name, right.Name) })
 	return series
+}
+
+// seriesName names a series by one label, or by several comma-separated
+// labels joined with " / " (consumers are only unique within their stream).
+func seriesName(labels map[string]string, nameBy string) string {
+	if !strings.Contains(nameBy, ",") {
+		return labels[nameBy]
+	}
+	var parts []string
+	for name := range strings.SplitSeq(nameBy, ",") {
+		if value := labels[name]; value != "" {
+			parts = append(parts, value)
+		}
+	}
+	return strings.Join(parts, " / ")
 }
 
 // sumSeries adds series point by point on their shared timestamps.
@@ -230,10 +245,13 @@ func (current view) heatmap(unit string, series []chartSeries, empty string) cha
 		sums := map[int64]float64{}
 		counts := map[int64]float64{}
 		for _, point := range one.Points {
-			column := (int64(point[0]) - spec.Start) / spec.Step
-			if column < 0 || column >= heatColumns {
+			at := int64(point[0])
+			if at < spec.Start || at > spec.End {
 				continue
 			}
+			// The range includes its end; a sample exactly at End belongs
+			// to the last column.
+			column := min((at-spec.Start)/spec.Step, heatColumns-1)
 			sums[column] += point[1]
 			counts[column]++
 		}

@@ -59,19 +59,45 @@ templ regionBody(current view) {
 					@chart("short", current.membersChart())
 				</article>
 				<article>
-					<h2>Readiness checks</h2>
-					if len(current.Checks) == 0 {
+					<h2>Region readiness <small>every member's checks</small></h2>
+					if rows := current.readiness(); len(rows) == 0 {
 						@unavailable("No readiness checks are registered yet.")
 					} else {
-						<ul class="mini-list">
-							for _, check := range current.Checks {
-								<li>
-									@statusPill(boolStatus(check.OK), yesNo(check.OK))
-									<span class="grow">{ check.Name }</span>
-									<small class="muted">{ check.Detail }</small>
-								</li>
-							}
-						</ul>
+						<div class="table-scroll">
+							<table class="readiness">
+								<thead><tr><th>Member</th><th>Ready</th><th>Checks</th></tr></thead>
+								<tbody>
+									for _, row := range rows {
+										<tr>
+											<td>
+												{ row.Member }
+												if row.Role != "" && row.Role != "controller" {
+													<small class="muted">{ row.Role }</small>
+												}
+											</td>
+											<td>
+												if row.Missing {
+													@statusPill("bad", "not answering")
+												} else {
+													@statusPill(boolStatus(row.Ready), yesNo(row.Ready))
+												}
+											</td>
+											<td class="wrap">
+												for _, check := range row.Checks {
+													<span class="check" title={ check.Detail }>
+														<span class={ "dot", sClass(boolStatus(check.OK)) }></span>
+														{ check.Name }
+														if check.Detail != "" {
+															<small class="muted">{ check.Detail }</small>
+														}
+													</span>
+												}
+											</td>
+										</tr>
+									}
+								</tbody>
+							</table>
+						</div>
 					}
 				</article>
 			</div>

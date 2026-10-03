@@ -287,7 +287,7 @@ func fillFromCluster(summary *Summary, cluster observability.ClusterSnapshot) {
 			summary.Capacity.CPUs += system.CPUCount
 			summary.Capacity.MemoryBytes += system.MemTotalBytes
 			summary.Capacity.MemoryUsedBytes += system.MemTotalBytes - min(system.MemAvailBytes, system.MemTotalBytes)
-			for _, filesystem := range system.Filesystems {
+			for _, filesystem := range observability.DistinctFilesystems(system.Filesystems) {
 				summary.Capacity.DiskBytes += filesystem.SizeBytes
 				summary.Capacity.DiskUsedBytes += filesystem.SizeBytes - min(filesystem.AvailBytes, filesystem.SizeBytes)
 			}

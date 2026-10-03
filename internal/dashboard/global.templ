@@ -90,6 +90,8 @@ templ kpiTiles(tiles []kpi) {
 templ timeline(class string, spec chartSpec) {
 	if spec.Empty == "" {
 		<ts-timeline class={ class } data-spec={ spec.JSON() } role="img" aria-label="Decision timeline"></ts-timeline>
+	} else {
+		<p class="empty">{ spec.Empty }</p>
 	}
 }
 
@@ -177,7 +179,7 @@ templ regionCard(current view, summary regionview.Summary) {
 					for _, insight := range summary.Insights[:min(3, len(summary.Insights))] {
 						<li>
 							<span class={ "dot", sClass(severityStatus(insight.Severity)) }></span>
-							<a class="grow" href={ safe(current.State.link("/insights", "id", insight.Key)) } title={ insight.Why }>{ insight.Title }</a>
+							<a class="grow" href={ safe(current.insightLink(insight)) } title={ insight.Why }>{ insight.Title }</a>
 						</li>
 					}
 				</ul>
@@ -221,7 +223,7 @@ templ insightList(current view, list []insights.Insight, limit int, showRegion b
 					if showRegion {
 						<span class="tag">{ upper(insight.Region) }</span>
 					}
-					<a class="grow" href={ safe(current.State.link("/insights", "id", insight.Key)) } title={ insight.Why }>{ insight.Title }</a>
+					<a class="grow" href={ safe(current.insightLink(insight)) } title={ insight.Why }>{ insight.Title }</a>
 					<small class="muted">
 						@ago(insight.FirstSeen)
 					</small>

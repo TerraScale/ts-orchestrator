@@ -6,6 +6,7 @@ templ storageBody(current view) {
 	<div id="content">
 		<h1>Storage</h1>
 		@notes(current)
+		@scopeNote(current)
 		<div class="cols-2">
 			<article>
 				<div class="chart-title">
@@ -58,7 +59,7 @@ templ storageBody(current view) {
 		<div class="cols-2">
 			<article>
 				<div class="chart-title">
-					<h2>Backups and volume changes <small>24h at least</small></h2>
+					<h2>Backups and volume changes <small>{ upper(current.region()) } · 24h at least</small></h2>
 					<a href={ safe(current.State.link("/decisions", "kind", "backup_taken,volume_resized,volume_reattached")) }>Journal →</a>
 				</div>
 				@timeline("", current.decisionTimeline(current.decisions(), true))

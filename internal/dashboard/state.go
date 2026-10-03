@@ -74,10 +74,40 @@ func parseState(query url.Values) uiState {
 			state.Params.Set(name, value)
 		}
 	}
+	// subject= is what the insight engine's entity links use for the
+	// journal's subject or text filter.
+	if subject := strings.TrimSpace(query.Get("subject")); subject != "" && !state.Params.Has("q") &&
+		validSearch(subject) {
+		state.Params.Set("q", subject)
+	}
 	return state
 }
 
 func (state uiState) param(name string) string { return state.Params.Get(name) }
+
+// allRegions is the region filter value that lists every region even when
+// a region is selected in the top bar.
+const allRegions = "all"
+
+// regionFilter is the region filter of a page with its own region select
+// (insights, decisions): the select's value, else the selected region,
+// else none. "all" lists every region.
+func (state uiState) regionFilter() []string {
+	regions := state.list("region")
+	if slices.Contains(regions, allRegions) {
+		return nil
+	}
+	if len(regions) == 0 && state.Region != "" {
+		return []string{state.Region}
+	}
+	return regions
+}
+
+// filtersRegion reports that the region filter selects exactly region.
+func (state uiState) filtersRegion(region string) bool {
+	regions := state.regionFilter()
+	return len(regions) == 1 && regions[0] == region
+}
 
 // list splits a comma-separated parameter.
 func (state uiState) list(name string) []string {
@@ -143,8 +173,14 @@ func (state uiState) keep(path string, pairs ...string) string {
 }
 
 // adopt adds the shared state to a dashboard link that may already carry a
-// query, such as an insight's entity link. A link that is not a local path
-// is returned as "/" so a provider cannot point the page elsewhere.
+// query, such as an insight's entity link. region is the region the entity
+// lives in ("" for this member's region): it replaces the selected region,
+// because the entity is in its own region whatever the page shows, unless
+// the link names a region itself. Paths that providers still emit from
+// before the dashboard pages existed are translated (/regions/<r> is
+// /region?r=<r>, /regions is the global page, subject= is the journal's
+// q=). A link that is not a local path is returned as "/" so a provider
+// cannot point the page elsewhere.
 func (state uiState) adopt(link, region string) string {
 	parsed, err := url.Parse(link)
 	if err != nil || parsed.IsAbs() || parsed.Host != "" || !strings.HasPrefix(parsed.Path, "/") ||
@@ -152,8 +188,23 @@ func (state uiState) adopt(link, region string) string {
 		return "/"
 	}
 	values := parsed.Query()
+	switch {
+	case parsed.Path == "/regions" || parsed.Path == "/regions/":
+		parsed.Path = "/"
+	case strings.HasPrefix(parsed.Path, "/regions/"):
+		if named := strings.ToLower(strings.TrimPrefix(parsed.Path, "/regions/")); validRegion(named) {
+			values.Set("r", named)
+		}
+		parsed.Path = "/region"
+	}
+	if subject := values.Get("subject"); subject != "" {
+		values.Del("subject")
+		if !values.Has("q") {
+			values.Set("q", subject)
+		}
+	}
 	for name, value := range state.values() {
-		if !values.Has(name) {
+		if name != "r" && !values.Has(name) {
 			values[name] = value
 		}
 	}

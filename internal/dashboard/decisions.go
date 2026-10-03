@@ -36,6 +36,10 @@ func (current view) actorOptions() []string {
 			seen[decision.Actor.Slice] = true
 		}
 	}
+	// The active filter stays selectable even when nothing matches it now.
+	for _, actor := range current.State.list("actor") {
+		seen[actor] = true
+	}
 	return slices.Sorted(maps.Keys(seen))
 }
 
@@ -47,6 +51,9 @@ func (current view) kindOptions() []string {
 	for _, decision := range current.decisions() {
 		seen[string(decision.Kind)] = true
 	}
+	for _, kind := range current.State.list("kind") {
+		seen[kind] = true
+	}
 	return slices.Sorted(maps.Keys(seen))
 }
 
@@ -54,6 +61,11 @@ func (current view) regionOptions() []string {
 	var regions []string
 	for _, region := range current.switcher() {
 		regions = append(regions, region.ID)
+	}
+	for _, region := range current.State.regionFilter() {
+		if !slices.Contains(regions, region) {
+			regions = append(regions, region)
+		}
 	}
 	return regions
 }
@@ -121,6 +133,19 @@ func signalMark(signal decisionlog.Signal) string {
 	default:
 		return "observed"
 	}
+}
+
+// unansweredRegions lists the regions of a cross-region query that did not
+// answer. Result.Partial alone can also mean older history was not
+// searched in a region that did answer.
+func unansweredRegions(result *decisionlog.Result) []decisionlog.RegionStatus {
+	var out []decisionlog.RegionStatus
+	for _, status := range result.Regions {
+		if status.State != decisionlog.RegionOK {
+			out = append(out, status)
+		}
+	}
+	return out
 }
 
 // filterActive reports whether any journal filter is set.

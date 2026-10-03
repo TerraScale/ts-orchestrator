@@ -25,11 +25,18 @@ templ releasesBody(current view) {
 		<h2>Release timelines</h2>
 		if current.Journal == nil || current.Journal.Decisions == nil {
 			@journalMissing("Release timelines")
-		} else if releases := current.releases(); len(releases) == 0 {
+		} else if releases := current.releases(); len(releases) == 0 && current.decisionCoverage() != coverageComplete {
+			<article>
+				@historyUnavailable(current, "Release history")
+			</article>
+		} else if len(releases) == 0 {
 			<article>
 				<p class="empty">No release decisions in the last 7 days. The rollout and selfupdate slices record release_admitted, canary, batch and rollback decisions here as they run.</p>
 			</article>
 		} else {
+			if current.decisionCoverage() != coverageComplete {
+				@historyUnavailable(current, "Release history")
+			}
 			for _, release := range releases {
 				@releaseCard(current, release)
 			}

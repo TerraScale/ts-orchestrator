@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"sync/atomic"
@@ -63,7 +64,7 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 	runtime.registry.Register(observability.LogMetrics)
 	runtime.health.Add(observability.Check{Name: "startup", Run: func(context.Context) (bool, string) {
 		if runtime.started.Load() {
-			return true, ""
+			return true, "runtime started"
 		}
 		return false, "runtime is still starting"
 	}})
@@ -124,19 +125,22 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 	}
 	runtime.health.Add(observability.Check{Name: "nats", Run: func(context.Context) (bool, string) {
 		if observed.nats.Ready() {
-			return true, ""
+			return true, "regional broker connected"
 		}
 		return false, "regional broker is not connected"
 	}})
 	runtime.health.Add(observability.Check{Name: "cluster", Run: func(context.Context) (bool, string) {
 		if observed.nats.FullClusterReady(observed.replicas) {
-			return true, ""
+			return true, fmt.Sprintf("%d of %d replicas routed", observed.replicas, observed.replicas)
 		}
 		return false, "regional cluster is below its full replica count"
 	}})
 	runtime.health.Add(observability.Check{Name: "authority", Run: func(context.Context) (bool, string) {
-		if observed.authority.Current().Ready {
-			return true, ""
+		if lease := observed.authority.Current(); lease.Ready {
+			if lease.Leader {
+				return true, fmt.Sprintf("this controller holds the lease, epoch %d", lease.Epoch)
+			}
+			return true, fmt.Sprintf("lease observed, epoch %d", lease.Epoch)
 		}
 		return false, "authority lease is not observed"
 	}})
@@ -205,7 +209,7 @@ func mountJournalAPI(server *observability.Server, providers journalProviders) {
 func (runtime *runtimeObservability) attachHost(nats *natscell.Runtime, filesystems []observability.FilesystemRole) error {
 	runtime.health.Add(observability.Check{Name: "nats", Run: func(context.Context) (bool, string) {
 		if nats.Ready() {
-			return true, ""
+			return true, "regional broker connected"
 		}
 		return false, "regional broker is not connected"
 	}})

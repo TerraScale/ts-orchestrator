@@ -401,6 +401,10 @@ func TestEventsStreamPrependsLiveEvents(t *testing.T) {
 		!strings.Contains(data, "events-rows-empty") {
 		t.Fatalf("initial events patch = %s %q", eventType, data)
 	}
+	// The events stream keeps the top bar current like every page stream.
+	if _, data = reader.next(); !strings.Contains(data, "region-switcher") || !strings.Contains(data, "attention-badge") {
+		t.Fatalf("chrome patch = %q", data)
+	}
 	bus.Publish(observability.Event{Level: "INFO", Message: "filtered out"})
 	bus.Publish(observability.Event{Level: "WARN", Component: "placement", Message: "placement held"})
 	_, data = reader.next()
