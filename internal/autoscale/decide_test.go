@@ -289,3 +289,30 @@ func TestWindowStoreDefaultRetentionCoversLongestWindow(t *testing.T) {
 		t.Fatalf("default retention %s is shorter than the longest policy window", store.retention)
 	}
 }
+
+// A stabilization window shorter than the evaluation interval must still
+// become covered by the previous evaluation; a long gap must not.
+func TestDecideCoversWindowShorterThanInterval(t *testing.T) {
+	policy := Policy{Signals: []Signal{{Name: SignalCPUUtilization, Target: 0.5}}, UpStabilizationSeconds: 4}
+	history := History{}
+	now := t0
+	changed := false
+	for range 3 {
+		decision := Decide(policy, Input{Current: 2, Bounds: Bounds{Min: 1, Max: 10}, Readings: cpu(1), Now: now}, history)
+		if decision.Changed() {
+			changed = true
+			break
+		}
+		history = decision.History
+		now = now.Add(10 * time.Second)
+	}
+	if !changed {
+		t.Fatal("sustained load evaluated every 10s never covered a 4s window")
+	}
+	first := Decide(policy, Input{Current: 2, Bounds: Bounds{Min: 1, Max: 10}, Readings: cpu(1), Now: t0}, History{})
+	late := Decide(policy, Input{Current: 2, Bounds: Bounds{Min: 1, Max: 10}, Readings: cpu(1),
+		Now: t0.Add(coverageLimit(4*time.Second) + time.Second)}, first.History)
+	if late.Changed() {
+		t.Fatalf("a single observation older than the coverage limit scaled: %+v", late)
+	}
+}

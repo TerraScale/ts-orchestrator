@@ -221,7 +221,7 @@ func pruneRecommendations(recommendations []Recommendation, now time.Time, polic
 	boundary := -1
 	for index, recommendation := range recommendations {
 		age := now.Sub(recommendation.At)
-		if age > keep && age <= 2*keep && (boundary < 0 || recommendation.At.After(recommendations[boundary].At)) {
+		if age > keep && age <= coverageLimit(keep) && (boundary < 0 || recommendation.At.After(recommendations[boundary].At)) {
 			boundary = index
 		}
 	}
@@ -248,16 +248,28 @@ func windowExtreme(recommendations []Recommendation, now time.Time, window time.
 	return result
 }
 
+// coverageSlack is the shortest gap past a window's start that still counts
+// as covering it. A window shorter than the evaluation interval can only be
+// covered by an observation one interval old, so the bound must not shrink
+// with the window: two windows alone would never cover a 4s window
+// evaluated every 10s.
+const coverageSlack = 2 * time.Minute
+
+// coverageLimit is the oldest observation that may cover window.
+func coverageLimit(window time.Duration) time.Duration {
+	return window + max(window, coverageSlack)
+}
+
 // windowCovered requires an observation at least one full window old, so a
 // fresh or restarted history cannot act on its first recommendation. The
-// observation must also be at most two windows old: after a longer gap the
-// window holds too few recent observations to stand for sustained load.
+// observation must also be no older than coverageLimit: after a longer gap
+// the window holds too few recent observations to stand for sustained load.
 func windowCovered(recommendations []Recommendation, now time.Time, window time.Duration) bool {
 	if window <= 0 {
 		return true
 	}
 	for _, recommendation := range recommendations {
-		if age := now.Sub(recommendation.At); age >= window && age <= 2*window {
+		if age := now.Sub(recommendation.At); age >= window && age <= coverageLimit(window) {
 			return true
 		}
 	}
