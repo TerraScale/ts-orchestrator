@@ -92,6 +92,42 @@ func (n *Notifier) Ready(status string) error {
 // Stopping reports that the service began an orderly shutdown.
 func (n *Notifier) Stopping() error { return n.Notify("STOPPING=1") }
 
+// ExtendStart asks systemd for extension more time to finish starting
+// (EXTEND_TIMEOUT_USEC), counted from now.
+func (n *Notifier) ExtendStart(extension time.Duration) error {
+	return n.Notify("EXTEND_TIMEOUT_USEC=" + strconv.FormatInt(extension.Microseconds(), 10))
+}
+
+// KeepStarting sends ExtendStart(extension) at once and then every interval
+// until the returned stop is called or ctx ends. It is for a deliberate,
+// unbounded pre-READY wait (such as offline restart admission riding out an
+// OCI outage) that must not be killed by TimeoutStartSec. stop waits for the
+// sender to exit.
+func (n *Notifier) KeepStarting(ctx context.Context, interval, extension time.Duration) (stop func()) {
+	if !n.Enabled() || interval <= 0 || extension <= interval {
+		return func() {}
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			_ = n.ExtendStart(extension)
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
 // RunWatchdog sends WATCHDOG=1 every interval while healthy returns true
 // and stops when ctx ends. An unhealthy service stops sending, so systemd's
 // WatchdogSec= restarts it; it never reports a failure itself.

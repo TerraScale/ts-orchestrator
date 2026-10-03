@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -63,21 +64,42 @@ func TestPlacementVolumeIDsSkipsAnUnreadablePartition(t *testing.T) {
 }
 
 func TestStorageFeaturesAreOffByDefault(t *testing.T) {
-	if err := startControllerStorageCapacity(t.Context(), Config{}, nil, nil); err != nil {
+	if _, err := startControllerStorageCapacity(t.Context(), Config{}, nil, nil); err != nil {
 		t.Fatalf("disabled capacity collector started: %v", err)
 	}
-	if err := startVolumeBackups(t.Context(), Config{}, nil, nil, nil); err != nil {
+	if _, err := startVolumeBackups(t.Context(), Config{}, nil, nil, nil); err != nil {
 		t.Fatalf("disabled volume backups started: %v", err)
 	}
 	var cfg Config
 	cfg.Controller.VolumeBackup.Enabled = true
-	if err := startVolumeBackups(t.Context(), cfg, nil, nil, nil); err == nil {
+	if _, err := startVolumeBackups(t.Context(), cfg, nil, nil, nil); err == nil {
 		t.Fatal("volume backups started without a managed controller")
 	}
 	cfg.Controller.StorageCapacity.Enabled = true
 	cfg.Controller.StorageCapacity.IntervalSeconds = 60
 	cfg.Controller.StorageCapacity.TTLSeconds = 30
-	if err := startControllerStorageCapacity(t.Context(), cfg, nil, nil); err == nil {
+	if _, err := startControllerStorageCapacity(t.Context(), cfg, nil, nil); err == nil {
 		t.Fatal("capacity collector accepted a TTL shorter than its interval")
+	}
+}
+
+// A background service runs under a context its owner cancels, and stop
+// returns only after the loop has returned, so a controller startup failure
+// joins it before closing the NATS runtime and authority it uses (#127 11984).
+func TestOwnedLoopStopCancelsAndJoins(t *testing.T) {
+	started, finished := make(chan struct{}), make(chan struct{})
+	stop := ownedLoop(context.Background(), "test loop", func(ctx context.Context) error {
+		close(started)
+		<-ctx.Done()
+		time.Sleep(20 * time.Millisecond)
+		close(finished)
+		return ctx.Err()
+	})
+	<-started
+	stop()
+	select {
+	case <-finished:
+	default:
+		t.Fatal("stop returned before the loop finished")
 	}
 }

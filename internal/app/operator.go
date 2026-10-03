@@ -25,14 +25,17 @@ import (
 var fingerprintPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 const (
-	operatorBindRecoveryTimeout      = 15 * time.Second
-	operatorBindAttemptTimeout       = 5 * time.Second
-	operatorAdmissionRecoveryTimeout = 30 * time.Second
-	operatorAdmissionAttemptTimeout  = 10 * time.Second
-	operatorSubmitSetupTimeout       = 10 * time.Second
-	operatorRetryInitialBackoff      = 100 * time.Millisecond
-	operatorRetryMaxBackoff          = 800 * time.Millisecond
+	operatorBindRecoveryTimeout     = 15 * time.Second
+	operatorBindAttemptTimeout      = 5 * time.Second
+	operatorAdmissionAttemptTimeout = 10 * time.Second
+	operatorSubmitSetupTimeout      = 10 * time.Second
+	operatorRetryInitialBackoff     = 100 * time.Millisecond
+	operatorRetryMaxBackoff         = 800 * time.Millisecond
 )
+
+// operatorAdmissionRecoveryTimeout bounds the replays of one signed artifact
+// claim; tests shorten it.
+var operatorAdmissionRecoveryTimeout = 30 * time.Second
 
 type operatorForwardFlags map[string]string
 
@@ -275,6 +278,11 @@ func pushArtifact(ctx context.Context, cfg Config, runtime *natscell.Runtime, pa
 	return record, nil
 }
 
+// errControllerRetryable marks a controller reply that declared itself
+// retryable. It stays in the chain when the recovery window below expires,
+// so callers still classify the failure as transient.
+var errControllerRetryable = errors.New("controller reported a retryable backend failure")
+
 // Reuse the exact signed claim during the 30-second recovery window. A replay
 // can only confirm the same durable admission; the controller verifies its
 // signature, expiry, authorization and stored artifact on every request.
@@ -307,7 +315,7 @@ func requestArtifactAdmission(ctx context.Context, conn *nats.Conn, cell string,
 			if !response.Retryable {
 				return errors.New(response.Error)
 			}
-			requestErr = errors.New(response.Error)
+			requestErr = fmt.Errorf("%w: %s", errControllerRetryable, response.Error)
 		} else if !retryableOperatorBackendError(requestErr, attemptTimedOut) {
 			return fmt.Errorf("request controller artifact admission: %w", requestErr)
 		}

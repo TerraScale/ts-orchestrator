@@ -181,14 +181,21 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		slog.Info("controller joined the regional NATS quorum; holding authority until full restart admission passes",
 			observability.ComponentKey, "controller", "instance", cfg.NATS.Instance)
 		// Full admission may retry for a long time; a dead broker must still
-		// end the process so the service manager restarts it.
+		// end the process so the service manager restarts it. The broker
+		// already serves routes and quorum, so keep extending the unit's
+		// start timeout while admission rides out an OCI outage; authority
+		// and READY still wait for full admission.
+		stopExtending := notifier.KeepStarting(ctx, time.Minute, 5*time.Minute)
 		select {
 		case <-admission.done:
 		case <-brokerStopped:
+			stopExtending()
 			return natscell.ErrEmbeddedServerStopped
 		case <-ctx.Done():
+			stopExtending()
 			return ctx.Err()
 		}
+		stopExtending()
 		if err := clockCheck(); err != nil {
 			return fmt.Errorf("production broker NTP clock health: %w", err)
 		}
@@ -240,9 +247,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return err
 	}
-	if err := startControllerStorageCapacity(ctx, cfg, runtime, fullClusterReady); err != nil {
+	stopCapacity, err := startControllerStorageCapacity(ctx, cfg, runtime, fullClusterReady)
+	if err != nil {
 		return fmt.Errorf("start storage capacity collector: %w", err)
 	}
+	defer stopCapacity()
 	var managedController *placement.Controller
 	var registrationVerifier host.ManagedRegistrationVerifier
 	var materialProvider host.ManagedMaterialProvider
@@ -338,9 +347,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		if err != nil {
 			return err
 		}
-		if err := startVolumeBackups(ctx, cfg, managed, control, placementStore); err != nil {
+		stopBackups, err := startVolumeBackups(ctx, cfg, managed, control, placementStore)
+		if err != nil {
 			return fmt.Errorf("start volume backup policy: %w", err)
 		}
+		defer stopBackups()
 		if reconcile := cfg.Controller.OciReconcile; reconcile != nil && reconcile.Enabled {
 			ociReconcile, _, err = retryControllerOpen(ctx, "open OCI resource reconcile state", fullClusterReady, false,
 				func(attempt context.Context) (*ociresource.Runner, error) {
