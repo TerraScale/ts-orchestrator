@@ -59,10 +59,13 @@ func Restore(layout Layout, digest, rejected, unit string) (bool, error) {
 	if err := layout.markKnownBad(rejected); err != nil {
 		return false, err
 	}
-	if err := layout.flipCurrent(digest); err != nil {
-		return true, err
-	}
+	// The restart obligation is durable before the link moves: there is no
+	// activation record to recover from, so an interruption after the flip
+	// must still leave the watchdog and a retry something to finish.
 	if err := layout.markRestartPending(unit); err != nil {
+		return false, err
+	}
+	if err := layout.flipCurrent(digest); err != nil {
 		return true, err
 	}
 	decisionlog.Record(context.Background(), decisionlog.Decision{

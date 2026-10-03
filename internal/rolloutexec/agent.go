@@ -59,17 +59,9 @@ type Agent struct {
 	Restart func(ctx context.Context, unit string) error
 	Now     func() time.Time
 
-	// mu serializes steps and guards the fencing and restart state.
+	// mu serializes this agent's steps; Layout.Lock serializes them with
+	// the watchdog and unit starts.
 	mu sync.Mutex
-	// epoch is the newest authority epoch a verified step carried. An
-	// older leader's step is refused, so a deposed leader cannot move the
-	// unit after its successor did.
-	epoch uint64
-	// owed names a release an earlier step changed to whose restart
-	// failed; a retry of that step restarts the unit again. The failure is
-	// also recorded durably (selfupdate's restart obligation), so the
-	// watchdog retries it when this agent is gone.
-	owed string
 }
 
 func (a *Agent) now() time.Time {
@@ -88,49 +80,86 @@ func (a *Agent) Handle(ctx context.Context, wire []byte) StepReply {
 	reply := StepReply{OperationID: command.OperationID, Unit: a.Unit}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if command.Epoch < a.epoch {
-		reply.Outcome, reply.Reason = OutcomeRefused, "step is from an older authority epoch"
-		return reply
-	}
-	a.epoch = command.Epoch
 	window := max(selfupdate.MinProofWindow, min(selfupdate.MaxProofWindow,
 		time.Duration(command.ProofWindowSeconds)*time.Second))
 	reply.Outcome, reply.Reason = a.apply(ctx, command, window)
 	return reply
 }
 
+// apply fences the step by its authority epoch, which the release root
+// records durably: an older leader's step is refused even after this agent
+// restarted. The restart obligation is recorded before the release changes
+// and cleared only after a restart, so any interruption leaves the watchdog
+// (and a retry by a new agent) a restart to finish.
 func (a *Agent) apply(ctx context.Context, command StepCommand, window time.Duration) (StepOutcome, string) {
+	if outcome, reason := a.locked(func() (StepOutcome, string) { return a.admit(command) }); outcome != "" {
+		return outcome, reason
+	}
 	if outcome, reason := a.ensureStaged(ctx, command); outcome != "" {
 		return outcome, reason
 	}
-	unlock, err := a.Layout.Lock()
+	outcome, reason := a.locked(func() (StepOutcome, string) {
+		if outcome, reason := a.admit(command); outcome != "" {
+			return outcome, reason
+		}
+		if command.Action == StepRollback {
+			return a.restore(command)
+		}
+		return a.activate(command, window)
+	})
+	if !outcome.Accepted() {
+		return outcome, reason
+	}
+	owed, err := a.owed()
 	if err != nil {
-		return OutcomeRetry, "release root is locked"
+		return OutcomeRetry, "restart obligation is unreadable"
 	}
-	var outcome StepOutcome
-	var reason string
-	if command.Action == StepRollback {
-		outcome, reason = a.restore(command)
-	} else {
-		outcome, reason = a.activate(command, window)
-	}
-	unlock()
-	// A unit restarts after a change, and again on a retry when the
-	// restart of an earlier attempt failed.
-	if outcome != OutcomeActivated && (a.owed != command.Digest || !outcome.Accepted()) {
+	if !owed {
 		return outcome, reason
 	}
 	if err := a.restart(ctx); err != nil {
 		slog.Warn("rollout agent could not restart its unit", "component", "rollout", "unit", a.Unit, "error", err)
-		a.owed = command.Digest
-		// Durable, so the watchdog keeps retrying even without this agent.
-		a.withLock(func() error { return a.Layout.MarkRestartPending(a.SystemdUnit) })
 		return OutcomeRetry, "unit restart failed"
 	}
-	a.owed = ""
 	// Served, as the watchdog clears it after its own restart.
-	a.withLock(func() error { return a.Layout.ClearRestartPending(a.SystemdUnit) })
+	a.locked(func() (StepOutcome, string) {
+		if err := a.Layout.ClearRestartPending(a.SystemdUnit); err != nil {
+			slog.Warn("rollout agent could not clear a served restart", "component", "rollout", "unit", a.Unit, "error", err)
+		}
+		return "", ""
+	})
 	return outcome, reason
+}
+
+// admit records the step's epoch, refusing an older one. The caller holds
+// Layout.Lock.
+func (a *Agent) admit(command StepCommand) (StepOutcome, string) {
+	if err := a.Layout.AdmitEpoch(command.Epoch); errors.Is(err, selfupdate.ErrStaleEpoch) {
+		return OutcomeRefused, "step is from an older authority epoch"
+	} else if err != nil {
+		return OutcomeRetry, "authority epoch record is unreadable"
+	}
+	return "", ""
+}
+
+func (a *Agent) owed() (bool, error) {
+	var owed bool
+	var err error
+	a.locked(func() (StepOutcome, string) {
+		owed, err = a.Layout.RestartPending(a.SystemdUnit)
+		return "", ""
+	})
+	return owed, err
+}
+
+// locked runs step under Layout.Lock.
+func (a *Agent) locked(step func() (StepOutcome, string)) (StepOutcome, string) {
+	unlock, err := a.Layout.Lock()
+	if err != nil {
+		return OutcomeRetry, "release root is locked"
+	}
+	defer unlock()
+	return step()
 }
 
 // ensureStaged restages a release that is not in the release root (a
@@ -178,10 +207,23 @@ func (a *Agent) activate(command StepCommand, window time.Duration) (StepOutcome
 		} else if current == digest {
 			return OutcomeCurrent, ""
 		}
+		// Owed before the link moves, so an interruption after it never
+		// leaves the old process running until the watchdog rejects a
+		// release that never started.
+		if err := a.Layout.MarkRestartPending(a.SystemdUnit); err != nil {
+			return OutcomeRetry, "restart obligation could not be recorded"
+		}
 	}
-	if _, err := selfupdate.Activate(a.Layout, digest, a.SystemdUnit, a.now(), window); errors.Is(err, selfupdate.ErrKnownBad) {
-		return OutcomeRefused, "release is known bad on this node"
-	} else if err != nil {
+	if _, err := selfupdate.Activate(a.Layout, digest, a.SystemdUnit, a.now(), window); err != nil {
+		if !exists {
+			// Nothing to restart unless the activation record was written.
+			if _, recorded, _ := a.Layout.Pending(); !recorded {
+				_ = a.Layout.ClearRestartPending(a.SystemdUnit)
+			}
+		}
+		if errors.Is(err, selfupdate.ErrKnownBad) {
+			return OutcomeRefused, "release is known bad on this node"
+		}
 		slog.Warn("rollout agent could not activate a release", "component", "rollout", "unit", a.Unit,
 			"digest", digest, "error", err)
 		return OutcomeRetry, "activation failed"
@@ -222,18 +264,6 @@ func (a *Agent) restart(ctx context.Context) error {
 		return errors.New("no restarter")
 	}
 	return a.Restart(ctx, a.SystemdUnit)
-}
-
-func (a *Agent) withLock(change func() error) {
-	unlock, err := a.Layout.Lock()
-	if err == nil {
-		err = change()
-		unlock()
-	}
-	if err != nil {
-		slog.Warn("rollout agent could not update the restart obligation", "component", "rollout", "unit", a.Unit,
-			"error", err)
-	}
 }
 
 // Serve answers steps for this unit until the subscription is closed.

@@ -388,3 +388,55 @@ func TestExecutorFencesEveryStepAndIgnoresStaleProofs(t *testing.T) {
 		t.Fatalf("steps = %v", steps)
 	}
 }
+
+func TestExecutorCommitsAnExpiredDeadlineBeforeSendingAStep(t *testing.T) {
+	h := newHarness(t)
+	h.program = h.program[:1]
+	h.gate.holds["ctl-b"] = 1
+	if err := h.executor.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	// The leader resumes long after the canary's prepare deadline.
+	h.clock.Advance(time.Duration(testPolicy().ProofDeadlineSeconds+60) * time.Second)
+	h.run(5, func() bool { return h.phase("rel1-controllers") == rollout.PhaseRolledBack })
+	if slices.Contains(h.fleet.stepLog(), "prepare:ctl-b") {
+		t.Fatalf("an expired prepare was still sent: %v", h.fleet.stepLog())
+	}
+}
+
+// A two-unit wave is not promoted around a unit that stopped proving it
+// serves after it had already met its soak.
+func TestExecutorDoesNotPromoteAWaveAroundAUnitThatStoppedReporting(t *testing.T) {
+	h := newHarness(t)
+	policy := testPolicy()
+	policy.BatchSize = 2
+	h.program = Program{{RolloutID: "rel1-hosts", Kind: rollout.KindHost, Cell: "gru", FromDigest: fromDigest,
+		ToDigest: toDigest, Policy: policy,
+		Units: HostUnits(map[string][]string{"h1": {"p1"}, "h3": {"p2"}, "h4": {"p3"}})}}
+	if err := h.executor.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	// h3 is slow to report; h4 meets its soak first and then goes quiet.
+	h.fleet.units["h3"].age = 2 * DefaultProofFreshness
+	h.run(30, func() bool {
+		record, _ := h.load("rel1-hosts")
+		h4 := record.Units["h4"]
+		return record.WaveIndex == 1 && h4.HealthyReports >= policy.MinHealthyReports &&
+			!h4.LastHealthyAt.Before(h4.FirstHealthyAt.Add(time.Duration(policy.BatchSoakSeconds)*time.Second))
+	})
+	h.fleet.units["h4"].down = true
+	h.fleet.units["h3"].age = 0
+	for range 10 {
+		h.clock.Advance(20 * time.Second)
+		if err := h.executor.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record, _ := h.load("rel1-hosts")
+	if record.Phase != rollout.PhaseBatchSoak || record.Units["h3"].HealthyReports != 0 {
+		t.Fatalf("the wave was promoted around a silent unit: %s %+v", record.Phase, record.Units["h3"])
+	}
+	if !slices.Contains(h.status.heldUnits(), "soak") {
+		t.Fatal("the soak hold was not reported")
+	}
+}

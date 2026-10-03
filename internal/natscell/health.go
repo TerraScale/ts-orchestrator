@@ -115,8 +115,13 @@ func (r *Runtime) LaggingStreams(ctx context.Context) ([]string, error) {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		if (err != nil || StreamLagging(stream.CachedInfo())) && len(lagging) < maxLaggingStreams {
+		if err != nil || StreamLagging(stream.CachedInfo()) {
 			lagging = append(lagging, name)
+			// One name already holds the gate; stop before more slow
+			// requests to leaderless streams can block the caller.
+			if len(lagging) == maxLaggingStreams {
+				return lagging, nil
+			}
 		}
 	}
 	return lagging, nil

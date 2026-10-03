@@ -323,16 +323,20 @@ Nothing in this change starts it; the pieces are:
   through `STREAM.INFO`, which also reports a replica still catching up
   from an out-of-band snapshot, so remote-led streams are judged as
   strictly as local ones. A held step only waits; the phase deadline
-  decides when waiting becomes a rollback. Immediately before a step leaves
-  the leader, the executor calls the authority `Guard` for the record's
-  epoch, so a lease lost during the tick never moves a unit.
+  decides when waiting becomes a rollback. Each round commits expired
+  deadlines before it derives any step, and a step whose deadline passed
+  while its gates ran is not sent. Immediately before a step leaves the
+  leader, the executor calls the authority `Guard` for the record's epoch,
+  so a lease lost during the tick never moves a unit.
 - **Signed health proofs** (`ts.orch.v1.<cell>.rollout.proof.<hash(unit)>`).
   A running unit signs `{cell, unit, binary digest, pid, start nonce,
   observed_at}` (trust domain `terrascale.orchestrator.rollout-health`, 2
   minute lifetime) while it is healthy. The collector accepts a proof only
   on its own unit's subject and from the unit's resolved keys, and only a
-  proof younger than the freshness limit (60 s) completes anything. A proof on the
-  target feeds `healthy`; a new incarnation on another release after the
+  proof younger than the freshness limit (60 s) completes anything. While a
+  unit of the current wave that already reported has no fresh proof, no
+  healthy report can complete the wave around it. A proof on the target
+  feeds `healthy`; a new incarnation on another release after the
   step feeds `unhealthy` (the watchdog rolled the unit back); a proof on the
   predecessor after a rollback step feeds `rollback-serving`. Controllers
   share the regional response key, so one controller can sign for another;
@@ -342,7 +346,9 @@ Nothing in this change starts it; the pieces are:
   plus the release receipt (trust domain
   `terrascale.orchestrator.rollout-step`, 2 minute lifetime, scope bound to
   operation, action and unit). The agent verifies it against the controller
-  keys, refuses a step from an older epoch than one it already applied,
+  keys, records the step's authority epoch durably in the release root
+  (`authority-epoch`) and refuses a step from an older epoch, even after
+  the agent restarted,
   restages a pruned release through its `Fetcher` (the receipt is verified
   by `selfupdate` against the node's own release roots before any byte is
   kept), then:
@@ -351,14 +357,16 @@ Nothing in this change starts it; the pieces are:
     matching pending activation goes through `Activate` again, so an
     interrupted link flip is repaired;
   - a rollback restores the predecessor with `selfupdate.Restore`: it marks
-    the rejected release known bad on the node, moves the link and records
-    a restart obligation, but creates no pending activation, so a failed
+    the rejected release known bad on the node, records a restart
+    obligation and only then moves the link, and creates no pending
+    activation, so a failed
     restart or missing proof can never let the watchdog return the node to
     the rejected release. A pending activation of the rejected release is
     rolled back exactly as the watchdog would.
 
-  A restart that fails is recorded as a durable restart obligation that the
-  watchdog retries. Steps are idempotent per operation: a retry answers
+  The restart obligation is durable before the link moves and is cleared
+  only after a restart, so an agent that dies in between leaves the
+  watchdog, and the next agent's retry, a restart to finish. Steps are idempotent per operation: a retry answers
   `pending` or `current`. The reply is unsigned and only says whether to wait; completion
   is proven by health proofs. A forged `refused` reply can at worst start a
   rollback (or freeze one), never move a unit forward.

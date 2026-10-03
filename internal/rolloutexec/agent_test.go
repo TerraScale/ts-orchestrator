@@ -222,6 +222,13 @@ func TestAgentRefusesUnverifiedAndStaleSteps(t *testing.T) {
 		t.Fatalf("step for another unit = %+v", reply)
 	}
 	f.agent.Unit = "ctl-b"
+	// The accepted epoch is durable: a recreated agent still refuses a
+	// still-valid step from the older leader.
+	recreated := &Agent{Cell: "gru", Unit: "ctl-b", SystemdUnit: agentUnit, Layout: f.agent.Layout,
+		Leaders: f.agent.Leaders, Restart: f.restarts.restart, Now: f.agent.Now}
+	if reply := recreated.Handle(ctx, f.command(t, StepPrepare, f.to, 8)); reply.Outcome != OutcomeRefused {
+		t.Fatalf("older epoch replayed to a recreated agent = %+v", reply)
+	}
 	f.agent.Now = func() time.Time { return f.now.Add(StepLifetime + time.Minute) }
 	if reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 9)); reply.Outcome != OutcomeRefused {
 		t.Fatalf("expired step = %+v", reply)
@@ -293,6 +300,10 @@ func TestAgentRetriesARestartThatFailed(t *testing.T) {
 		t.Fatalf("failed restart is not owed durably: %v %v", owed, err)
 	}
 	f.restarts.fail = false
+	// A new agent (the old one died before restarting) finishes the
+	// restart from the durable obligation.
+	f.agent = &Agent{Cell: "gru", Unit: "ctl-b", SystemdUnit: agentUnit, Layout: f.agent.Layout,
+		Leaders: f.agent.Leaders, Restart: f.restarts.restart, Now: f.agent.Now}
 	if reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomePending || f.restarts.count() != 1 {
 		t.Fatalf("retry = %+v restarts %d", reply, f.restarts.count())
 	}

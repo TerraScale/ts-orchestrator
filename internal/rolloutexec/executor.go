@@ -148,6 +148,15 @@ func (e *Executor) Tick(ctx context.Context) error {
 				return err
 			}
 		}
+		// Deadlines are committed before any effect is derived: a tick
+		// that resumes after a deadline rolls back (or freezes) instead of
+		// still sending the expired step.
+		if err := e.apply(ctx, &record, &revision, rollout.Event{Kind: rollout.EventTick, At: e.now()}); err != nil {
+			return err
+		}
+		if record.Phase.Terminal() {
+			break
+		}
 		events, err := e.act(ctx, record)
 		if err != nil {
 			return err
@@ -212,6 +221,10 @@ func sameRecord(a, b rollout.Record) (bool, error) {
 // the events they observed.
 func (e *Executor) act(ctx context.Context, record rollout.Record) ([]rollout.Event, error) {
 	var events []rollout.Event
+	// A wave is promoted from stored reports when its last unit reports;
+	// while a unit that already reported has lost its fresh proof, no
+	// healthy report may complete the wave around it.
+	lost := e.waveLostProof(record)
 	for _, action := range rollout.NextActions(record) {
 		var event *rollout.Event
 		var err error
@@ -222,6 +235,12 @@ func (e *Executor) act(ctx context.Context, record rollout.Record) ([]rollout.Ev
 			event, err = e.prepare(ctx, record, action)
 		case rollout.ActionAwaitHealth:
 			event = e.awaitHealth(record, action)
+			if event != nil && event.Kind == rollout.EventHealthy && lost != "" {
+				e.hold(record, "soak", "unit "+lost+" stopped proving it serves the target")
+				event = nil
+			} else if event != nil && event.Kind == rollout.EventHealthy {
+				e.release(record, "soak")
+			}
 		case rollout.ActionRollback:
 			event, err = e.rollback(ctx, record, action)
 		case rollout.ActionPage:
@@ -268,6 +287,9 @@ func (e *Executor) prepare(ctx context.Context, record rollout.Record, action ro
 	}
 	if reason := e.checkGate(ctx, record, action.Unit); reason != "" {
 		e.hold(record, action.Unit, reason)
+		return nil, nil
+	}
+	if e.expired(action) {
 		return nil, nil
 	}
 	if err := e.fence(ctx, record); err != nil {
@@ -338,6 +360,9 @@ func (e *Executor) rollback(ctx context.Context, record rollout.Record, action r
 			e.hold(record, action.Unit, reason)
 			return nil, nil
 		}
+		if e.expired(action) {
+			return nil, nil
+		}
 		if err := e.fence(ctx, record); err != nil {
 			return nil, err
 		}
@@ -378,6 +403,30 @@ func (e *Executor) fence(ctx context.Context, record rollout.Record) error {
 		return fmt.Errorf("authority lease lost before a rollout step: %w", err)
 	}
 	return nil
+}
+
+// waveLostProof names a soaking unit of the current wave that already
+// reported healthy but has no fresh proof on the target now.
+func (e *Executor) waveLostProof(record rollout.Record) string {
+	if record.WaveIndex < 0 || record.WaveIndex >= len(record.Waves) {
+		return ""
+	}
+	for _, id := range record.Waves[record.WaveIndex] {
+		progress := record.Units[id]
+		if progress.State != rollout.UnitSoaking || progress.HealthyReports == 0 {
+			continue
+		}
+		if proof, ok := e.Proofs.Latest(id); !ok || !e.fresh(proof) || proof.BinarySHA256 != record.ToDigest {
+			return id
+		}
+	}
+	return ""
+}
+
+// expired reports a step whose phase deadline passed while its gates ran;
+// the next tick commits the deadline instead of sending it.
+func (e *Executor) expired(action rollout.Action) bool {
+	return !action.Deadline.IsZero() && !e.now().Before(action.Deadline)
 }
 
 func (e *Executor) fresh(proof HealthProof) bool {
