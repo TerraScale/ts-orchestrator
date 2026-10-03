@@ -70,13 +70,18 @@ type Inputs struct {
 
 	conditions map[string]time.Time
 	touched    map[string]struct{}
+	owners     map[string]string
+	rule       string
 }
 
 // Since marks a condition as true in this evaluation and returns how long
 // it has been continuously true. A condition not marked in an evaluation
-// resets.
+// resets, unless its rule could not read its inputs this evaluation.
 func (inputs *Inputs) Since(key string) time.Duration {
 	inputs.touched[key] = struct{}{}
+	if inputs.owners != nil {
+		inputs.owners[key] = inputs.rule
+	}
 	started, ok := inputs.conditions[key]
 	if !ok {
 		inputs.conditions[key] = inputs.Now
@@ -119,8 +124,10 @@ type Engine struct {
 	config         Config
 	rules          []Rule
 
-	mu          sync.Mutex
-	conditions  map[string]time.Time
+	mu         sync.Mutex
+	conditions map[string]time.Time
+	// owners names the rule that started each condition timer.
+	owners      map[string]string
 	open        map[string]Insight
 	current     Evaluation
 	changes     []Change
@@ -143,8 +150,8 @@ func NewEngine(config Config) *Engine {
 	if rules == nil {
 		rules = DefaultRules()
 	}
-	return &Engine{config: config, rules: rules, conditions: map[string]time.Time{}, open: map[string]Insight{},
-		subscribers: map[*changeSubscriber]struct{}{}}
+	return &Engine{config: config, rules: rules, conditions: map[string]time.Time{}, owners: map[string]string{},
+		open: map[string]Insight{}, subscribers: map[*changeSubscriber]struct{}{}}
 }
 
 // Run evaluates every Interval until ctx ends.
@@ -283,6 +290,20 @@ func blindRules(unavailable []string) map[string]bool {
 	return blind
 }
 
+// insightBlind reports whether an open insight's inputs were unavailable this
+// pass, so its absence is not evidence of recovery.
+func insightBlind(insight Insight, blind map[string]bool, unavailable []string) bool {
+	if insight.inputs == nil {
+		return blind[insight.Rule]
+	}
+	for _, input := range insight.inputs {
+		if slices.Contains(unavailable, input) {
+			return true
+		}
+	}
+	return false
+}
+
 // Evaluate runs every rule once, updates open insights and notifies
 // subscribers of changes. It returns the new evaluation.
 func (engine *Engine) Evaluate(ctx context.Context) Evaluation {
@@ -292,8 +313,10 @@ func (engine *Engine) Evaluate(ctx context.Context) Evaluation {
 	defer engine.mu.Unlock()
 	inputs.conditions = engine.conditions
 	inputs.touched = map[string]struct{}{}
+	inputs.owners = engine.owners
 	found := map[string]Insight{}
 	for _, rule := range engine.rules {
+		inputs.rule = rule.Name
 		for _, insight := range rule.Evaluate(inputs) {
 			if insight.Rule == "" {
 				insight.Rule = rule.Name
@@ -314,13 +337,13 @@ func (engine *Engine) Evaluate(ctx context.Context) Evaluation {
 		}
 	}
 	blind := blindRules(unavailable)
-	// Untouched condition timers are reset only when every input was read:
-	// a rule that could not look keeps its duration-gated timers.
-	if len(blind) == 0 {
-		for key := range engine.conditions {
-			if _, touched := inputs.touched[key]; !touched {
-				delete(engine.conditions, key)
-			}
+	// An untouched condition timer resets unless the rule that owns it could
+	// not read its inputs: a blind rule keeps its duration-gated timers,
+	// while a rule that looked and saw health starts afresh next time.
+	for key := range engine.conditions {
+		if _, touched := inputs.touched[key]; !touched && !blind[engine.owners[key]] {
+			delete(engine.conditions, key)
+			delete(engine.owners, key)
 		}
 	}
 	var changes []Change
@@ -342,7 +365,7 @@ func (engine *Engine) Evaluate(ctx context.Context) Evaluation {
 	}
 	for _, key := range slices.Sorted(maps.Keys(engine.open)) {
 		if _, still := found[key]; !still {
-			if blind[engine.open[key].Rule] {
+			if insightBlind(engine.open[key], blind, unavailable) {
 				// Not observed this pass: keep it open until a successful
 				// observation clears it.
 				continue

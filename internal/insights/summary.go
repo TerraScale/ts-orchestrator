@@ -138,7 +138,9 @@ func Summarize(input SummaryInput) Summary {
 	summary.Decisions = len(decisions)
 	window := WindowPhrase(input.Window)
 	var sentences []string
-	summary.Partial = input.DecisionsPartial || input.ChangesTruncated
+	// A truncated decision query makes the count a lower bound, which a
+	// structured consumer must be able to tell apart from an exact count.
+	summary.Partial = input.DecisionsTruncated || input.DecisionsPartial || input.ChangesTruncated
 	switch {
 	case len(decisions) == 0 && input.DecisionsPartial:
 		sentences = append(sentences, fmt.Sprintf("In the last %s no decisions were found in %s, but part of the "+

@@ -302,7 +302,7 @@ func TestEntityLinksUseTheEntitysRegion(t *testing.T) {
 	source.evaluation.Insights = append(source.evaluation.Insights, gru, unreachable, held)
 	body := get(t, dashboard.Handler(), "/insights?r=sfo&region=all").Body.String()
 	for _, want := range []string{`href="/nats?r=gru&amp;stream=TS_X"`, `href="/region?r=sfo"`, `href="/?r=sfo"`,
-		`href="/decisions?q=seat%2Fs1"`, `href="/members?host=ctl-1"`} {
+		`href="/decisions?q=s1"`, `href="/members?host=ctl-1"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("insights page lacks %s", want)
 		}

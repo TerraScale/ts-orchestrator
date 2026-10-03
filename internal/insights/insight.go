@@ -99,6 +99,11 @@ type Insight struct {
 	// the latest evaluation that still found it.
 	FirstSeen time.Time `json:"first_seen"`
 	LastSeen  time.Time `json:"last_seen"`
+	// inputs, when set, names exactly the inputs this insight was derived
+	// from; it overrides its rule's inputs for the resolution guard, so a
+	// rule with several independent branches resolves a branch that was
+	// observed healthy even while another branch's input is unavailable.
+	inputs []string
 }
 
 // Rank sorts insights worst first: severity, then score, then age, then key.
