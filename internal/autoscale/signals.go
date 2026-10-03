@@ -64,7 +64,9 @@ type WindowStore struct {
 // NewWindowStore bounds every series by age and by point count.
 func NewWindowStore(retention time.Duration, maxPoints int) *WindowStore {
 	if retention <= 0 {
-		retention = 15 * time.Minute
+		// Cover the longest window a valid policy may configure: a shorter
+		// retention would silently aggregate only the window's tail.
+		retention = time.Duration(maxWindowSeconds) * time.Second
 	}
 	if maxPoints <= 0 {
 		maxPoints = 4096

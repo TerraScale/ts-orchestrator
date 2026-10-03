@@ -248,3 +248,44 @@ func TestAggregate(t *testing.T) {
 		t.Fatal("empty aggregate is not zero")
 	}
 }
+
+// A window evaluated at an interval that does not divide it must still become
+// covered: the boundary observation older than the window is kept.
+func TestDecideCoversWindowAtUnalignedInterval(t *testing.T) {
+	policy := Policy{Signals: []Signal{{Name: SignalCPUUtilization, Target: 0.5}}, UpStabilizationSeconds: 60}
+	history := History{}
+	now := t0
+	for range 12 {
+		decision := Decide(policy, Input{Current: 2, Bounds: Bounds{Min: 1, Max: 10}, Readings: cpu(1), Now: now}, history)
+		if decision.Changed() {
+			if decision.To != 4 || decision.Reason != ReasonScaleUp {
+				t.Fatalf("decision = %+v", decision)
+			}
+			return
+		}
+		history = decision.History
+		now = now.Add(17 * time.Second)
+	}
+	t.Fatal("sustained load evaluated every 17s never covered a 60s window")
+}
+
+// Signals never scale a service to zero: per-replica signals are undefined
+// at zero, so nothing could bring it back.
+func TestDecideNeverSignalScalesToZero(t *testing.T) {
+	policy := Policy{Signals: []Signal{{Name: SignalCPUUtilization, Target: 0.5}}}
+	decision := Decide(policy, Input{Current: 3, Bounds: Bounds{Min: 0, Max: 10}, Readings: cpu(0), Now: t0}, History{})
+	if decision.To != 1 || decision.Reason != ReasonScaleDown {
+		t.Fatalf("idle 3 replicas with min 0 = %+v, want a scale down to 1", decision)
+	}
+	decision = Decide(policy, Input{Current: 1, Bounds: Bounds{Min: 0, Max: 10}, Readings: cpu(0), Now: t0}, History{})
+	if decision.To != 1 || decision.Changed() {
+		t.Fatalf("idle single replica with min 0 = %+v, want a hold", decision)
+	}
+}
+
+func TestWindowStoreDefaultRetentionCoversLongestWindow(t *testing.T) {
+	store := NewWindowStore(0, 0)
+	if store.retention < time.Duration(maxWindowSeconds)*time.Second {
+		t.Fatalf("default retention %s is shorter than the longest policy window", store.retention)
+	}
+}

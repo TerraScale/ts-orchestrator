@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"regexp"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/autoscale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -17,6 +18,9 @@ const (
 	MaxIntentBytes               = 32 << 10
 	MaxArtifactBytes             = 512 << 20
 	DefaultArtifactStoreMaxBytes = int64(2 << 30)
+	// maxReplicas bounds intent and shaped replica counts. It is the
+	// autoscaler's own bound, so shaped plans can never exceed it.
+	maxReplicas = autoscale.MaxReplicas
 )
 
 var (
@@ -118,7 +122,7 @@ type Intent struct {
 }
 
 func (i Intent) Validate() error {
-	if i.SchemaVersion != SchemaVersion || !opRE.MatchString(i.OperationID) || !nameRE.MatchString(i.Cell) || !nameRE.MatchString(i.Role) || !nameRE.MatchString(i.Environment) || !sha256RE.MatchString(i.ArtifactDigest) || !sha256RE.MatchString(i.ManifestDigest) || !sha256RE.MatchString(i.ConfigDigest) || i.Generation == 0 || i.AuthorityEpoch == 0 || i.DesiredReplicas < 0 || i.DesiredReplicas > 1024 {
+	if i.SchemaVersion != SchemaVersion || !opRE.MatchString(i.OperationID) || !nameRE.MatchString(i.Cell) || !nameRE.MatchString(i.Role) || !nameRE.MatchString(i.Environment) || !sha256RE.MatchString(i.ArtifactDigest) || !sha256RE.MatchString(i.ManifestDigest) || !sha256RE.MatchString(i.ConfigDigest) || i.Generation == 0 || i.AuthorityEpoch == 0 || i.DesiredReplicas < 0 || i.DesiredReplicas > maxReplicas {
 		return fmt.Errorf("%w: delivery intent", ErrInvalid)
 	}
 	return i.Source.validate()

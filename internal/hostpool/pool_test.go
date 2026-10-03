@@ -272,7 +272,151 @@ func TestScalerRecommendOnlyFollowerAndDedicatedHosts(t *testing.T) {
 	if err == nil {
 		t.Fatal("dedicated host with a pool name was accepted as a member")
 	}
-	if plan := recommend.Last()["general"]; len(plan.Launch) != 1 || plan.Reason != "below-min" {
+	if plan := recommend.Last()["general"]; len(plan.Launch) != 1 || plan.Reason != "below-min" ||
+		plan.Launch[0].Node == "general-0" {
 		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+func newTestScaler(t *testing.T, view *fakeView, pool NodePool, clock *time.Time, prov *provisioner) *Scaler {
+	t.Helper()
+	scaler, err := NewScaler(Config{Cell: "gru", Pools: []NodePool{pool}, Hosts: view, Fencer: fencer{leader: true},
+		Provisioner: prov, Now: func() time.Time { return *clock }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return scaler
+}
+
+// In-flight launches keep their failure domain, so a second batch spreads to
+// the least-used domain instead of repeating the first one.
+func TestScalerSpreadsLaunchesAcrossDomainsWhileLaunching(t *testing.T) {
+	view := &fakeView{hosts: []host.HostStatus{registered("general-0", "fd-1")},
+		desired: []host.Desired{{Cell: "gru", Node: "general-0", Role: "api"}}}
+	clock := now
+	prov := &provisioner{}
+	scaler := newTestScaler(t, view, generalPool(), &clock, prov)
+	full := generalPool().virtualHost("gru", "general-0", "fd-1")
+	full.Allocated = full.Capacity
+	spec := workload.ServiceSpec{Role: "api", Environment: "prod"}
+	scaler.RequestCapacity(spec, apiDemand(1, full))
+	if err := scaler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// Demand grows while general-1 (fd-2) is still launching; replicas of
+	// one role never share a host, so the second replica needs a launch.
+	scaler.RequestCapacity(spec, apiDemand(2, full))
+	if err := scaler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if plan := scaler.Last()["general"]; len(plan.Launch) != 1 || plan.Launch[0].FailureDomain != "fd-3" {
+		t.Fatalf("second launch = %+v, want one host in fd-3", plan)
+	}
+}
+
+// A registered member the recorded demand predates still counts as capacity,
+// and a satisfied service clears its demand.
+func TestScalerCountsMembersNewerThanDemandAndClearsSatisfiedDemand(t *testing.T) {
+	view := &fakeView{hosts: []host.HostStatus{registered("general-0", "fd-1")},
+		desired: []host.Desired{{Cell: "gru", Node: "general-0", Role: "api"}}}
+	clock := now
+	prov := &provisioner{}
+	scaler := newTestScaler(t, view, generalPool(), &clock, prov)
+	full := generalPool().virtualHost("gru", "general-0", "fd-1")
+	full.Allocated = full.Capacity
+	spec := workload.ServiceSpec{Role: "api", Environment: "prod"}
+	scaler.RequestCapacity(spec, apiDemand(1, full))
+	if err := scaler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	view.hosts = append(view.hosts, registered("general-1", "fd-2"))
+	if err := scaler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(prov.launched, []string{"general-1"}) {
+		t.Fatalf("launched = %v: the registered host was not counted for the stale demand", prov.launched)
+	}
+	scaler.CapacitySatisfied(spec)
+	scaler.mu.Lock()
+	remaining := len(scaler.demands)
+	scaler.mu.Unlock()
+	if remaining != 0 {
+		t.Fatal("a satisfied service kept its capacity demand")
+	}
+}
+
+// A dedicated or foreign host holding a pool name reserves that ordinal.
+func TestPlanPoolNeverLaunchesReservedOrdinals(t *testing.T) {
+	plan, err := PlanPool(PlanInput{Cell: "gru", Pool: generalPool(), Now: now, ReservedOrdinals: []int{0}})
+	if err != nil || len(plan.Launch) != 1 || plan.Launch[0].Node != "general-1" {
+		t.Fatalf("plan = %+v (%v), want general-1", plan, err)
+	}
+}
+
+// A host that disappears without a reclaim forgets its idle time, so a
+// same-named host that registers later gets a full cooldown.
+func TestScalerForgetsIdleTimeOfVanishedHosts(t *testing.T) {
+	view := &fakeView{hosts: []host.HostStatus{registered("general-0", "fd-1"), registered("general-1", "fd-2")},
+		desired: []host.Desired{{Cell: "gru", Node: "general-0", Role: "api"}}}
+	clock := now
+	prov := &provisioner{}
+	scaler := newTestScaler(t, view, generalPool(), &clock, prov)
+	steps := []struct {
+		after time.Duration
+		hosts []host.HostStatus
+	}{
+		{0, view.hosts},
+		{5 * time.Minute, view.hosts[:1]},
+		{6 * time.Minute, view.hosts},
+	}
+	for _, step := range steps {
+		clock = clock.Add(step.after)
+		view.hosts = step.hosts
+		if err := scaler.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(prov.reclaims) != 0 {
+		t.Fatalf("re-registered host reclaimed without a fresh cooldown: %v", prov.reclaims)
+	}
+}
+
+// Each demand's snapshot excludes its own replicas. A retained replica of
+// one role must still be charged when a later role is simulated.
+func TestPlanPoolChargesRetainedReplicasAcrossRoles(t *testing.T) {
+	pool := generalPool()
+	pool.Roles = []string{"api", "web"}
+	pool.Shape = placement.Resources{CPU: replica.CPU, MemoryBytes: replica.MemoryBytes + pool.SystemReserveBytes,
+		DiskBytes: replica.DiskBytes}
+	busy := func(allocated placement.Resources) placement.WorkloadHost {
+		existing := pool.virtualHost("gru", "general-0", "fd-1")
+		existing.Allocated = allocated
+		return existing
+	}
+	api := placement.WorkloadRequest{Cell: "gru", Role: "api", Replicas: 2, Request: replica,
+		Hosts:    []placement.WorkloadHost{busy(placement.Resources{})},
+		Previous: []placement.Assignment{{Node: "general-0", Role: "api", Ready: true}}}
+	web := placement.WorkloadRequest{Cell: "gru", Role: "web", Replicas: 1, Request: replica,
+		Hosts: []placement.WorkloadHost{busy(replica)}}
+	plan, err := PlanPool(PlanInput{Cell: "gru", Pool: pool, Now: now,
+		Members: []Member{{Node: "general-0", FailureDomain: "fd-1", Allocations: 1}},
+		Demands: []placement.WorkloadRequest{api, web}})
+	if err != nil || len(plan.Launch) != 2 {
+		t.Fatalf("plan = %+v (%v), want two single-replica hosts", plan, err)
+	}
+}
+
+// A demand that only fails its per-domain cap still grows the pool into a
+// domain with room.
+func TestPlanPoolHonoursDomainCapOfDemand(t *testing.T) {
+	pool := generalPool()
+	free := func(node string) placement.WorkloadHost { return pool.virtualHost("gru", node, "fd-1") }
+	demand := apiDemand(2, free("general-0"), free("general-1"))
+	demand.MaxPerFailureDomain = 1
+	plan, err := PlanPool(PlanInput{Cell: "gru", Pool: pool, Now: now,
+		Members: []Member{{Node: "general-0", FailureDomain: "fd-1"}, {Node: "general-1", FailureDomain: "fd-1"}},
+		Demands: []placement.WorkloadRequest{demand}})
+	if err != nil || len(plan.Launch) != 1 || plan.Launch[0].FailureDomain == "fd-1" {
+		t.Fatalf("plan = %+v (%v), want one launch outside fd-1", plan, err)
 	}
 }

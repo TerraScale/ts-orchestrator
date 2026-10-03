@@ -20,9 +20,11 @@ const SeatsPerRegion = MinSeatsPerRegion
 
 // ElasticSeatID names a region's elastic seat by ordinal. Ordinal 1 keeps the
 // original "elastic-<region>" ID so existing members and rosters are stable;
-// later ordinals are "elastic-<region>-<ordinal>".
+// later ordinals are "elastic-<region>-<ordinal>". Ordinals start at 1; only
+// ordinal 1 maps to the base ID, so an off-by-one caller gets a distinct
+// (and visibly wrong) ID instead of silently aliasing ordinal 1's member.
 func ElasticSeatID(region oci.Region, ordinal int) string {
-	if ordinal <= 1 {
+	if ordinal == 1 {
 		return elasticMember(region)
 	}
 	return elasticMember(region) + "-" + strconv.Itoa(ordinal)

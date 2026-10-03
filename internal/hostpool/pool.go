@@ -143,7 +143,11 @@ type PlanInput struct {
 	Demands []placement.WorkloadRequest
 	// IdleSince is when each member was first observed without allocations.
 	IdleSince map[string]time.Time
-	Now       time.Time
+	// ReservedOrdinals are pool ordinals whose node names belong to hosts
+	// that cannot be members (dedicated or in another environment). They
+	// are never launched, and they do not count as members.
+	ReservedOrdinals []int
+	Now              time.Time
 }
 
 // PlanPool launches the fewest hosts that let every demand served by the pool
@@ -161,6 +165,9 @@ func PlanPool(in PlanInput) (Plan, error) {
 		if !ok {
 			return Plan{}, fmt.Errorf("%w: %q is not a member name", ErrInvalidPool, member.Node)
 		}
+		used[ordinal] = true
+	}
+	for _, ordinal := range in.ReservedOrdinals {
 		used[ordinal] = true
 	}
 	headroom := in.Pool.Max - len(members)
@@ -237,6 +244,12 @@ func launches(pool NodePool, members []Member, used map[int]bool, count int) []L
 
 // fits simulates placement of every demand in order on the current hosts plus
 // the launched and launching pool hosts, charging each plan to its hosts.
+//
+// Each demand's host snapshot excludes that demand's own allocations (the
+// placement.WorkloadHost contract), so the snapshots disagree. The shared
+// baseline is the real usage: a snapshot plus its own demand's retained
+// replicas. Each demand is then planned with only its own previous replicas
+// excluded again, and its new replicas are charged for the demands after it.
 func fits(in PlanInput, demands []placement.WorkloadRequest, extra []Launch) bool {
 	hosts := make(map[string]placement.WorkloadHost)
 	order := []string{}
@@ -247,14 +260,24 @@ func fits(in PlanInput, demands []placement.WorkloadRequest, extra []Launch) boo
 		hosts[candidate.Node] = candidate
 	}
 	for _, demand := range demands {
+		own := previousNodes(demand)
 		for _, candidate := range demand.Hosts {
 			if _, exists := hosts[candidate.Node]; !exists {
+				if _, held := own[candidate.Node]; held {
+					candidate.Allocated = plus(candidate.Allocated, demand.Request)
+				}
 				add(candidate)
 			}
 		}
 	}
 	for _, member := range in.Members {
-		if _, exists := hosts[member.Node]; member.Launching && !exists {
+		if _, exists := hosts[member.Node]; exists {
+			continue
+		}
+		// A launching host, or a registered member the demand snapshots
+		// predate, is modelled as an empty pool host. A registered member
+		// that already holds allocations is left out: its usage is unknown.
+		if member.Launching || member.Allocations == 0 {
 			add(in.Pool.virtualHost(in.Cell, member.Node, member.FailureDomain))
 		}
 	}
@@ -262,29 +285,50 @@ func fits(in PlanInput, demands []placement.WorkloadRequest, extra []Launch) boo
 		add(in.Pool.virtualHost(in.Cell, launch.Node, launch.FailureDomain))
 	}
 	for _, demand := range demands {
+		own := previousNodes(demand)
 		request := demand
 		request.Hosts = make([]placement.WorkloadHost, 0, len(order))
 		for _, node := range order {
-			request.Hosts = append(request.Hosts, hosts[node])
+			candidate := hosts[node]
+			if _, held := own[node]; held {
+				candidate.Allocated = minus(candidate.Allocated, demand.Request)
+			}
+			request.Hosts = append(request.Hosts, candidate)
 		}
 		assignments, err := placement.PlanWorkload(request)
 		if err != nil {
 			return false
 		}
-		previous := make(map[string]struct{}, len(demand.Previous))
-		for _, assignment := range demand.Previous {
-			previous[assignment.Node] = struct{}{}
-		}
 		for _, assignment := range assignments {
-			if _, kept := previous[assignment.Node]; assignment.Withdrawn || kept {
+			if _, kept := own[assignment.Node]; assignment.Withdrawn || kept {
+				// Retained replicas are already in the baseline; withdrawn
+				// ones stay charged until they actually stop.
 				continue
 			}
 			candidate := hosts[assignment.Node]
-			candidate.Allocated.CPU += demand.Request.CPU
-			candidate.Allocated.MemoryBytes += demand.Request.MemoryBytes
-			candidate.Allocated.DiskBytes += demand.Request.DiskBytes
+			candidate.Allocated = plus(candidate.Allocated, demand.Request)
 			hosts[assignment.Node] = candidate
 		}
 	}
 	return true
+}
+
+func previousNodes(demand placement.WorkloadRequest) map[string]struct{} {
+	nodes := make(map[string]struct{}, len(demand.Previous))
+	for _, assignment := range demand.Previous {
+		if !assignment.Withdrawn {
+			nodes[assignment.Node] = struct{}{}
+		}
+	}
+	return nodes
+}
+
+func plus(left, right placement.Resources) placement.Resources {
+	return placement.Resources{CPU: left.CPU + right.CPU, MemoryBytes: left.MemoryBytes + right.MemoryBytes,
+		DiskBytes: left.DiskBytes + right.DiskBytes}
+}
+
+func minus(left, right placement.Resources) placement.Resources {
+	return placement.Resources{CPU: max(left.CPU-right.CPU, 0), MemoryBytes: max(left.MemoryBytes-right.MemoryBytes, 0),
+		DiskBytes: max(left.DiskBytes-right.DiskBytes, 0)}
 }

@@ -174,6 +174,13 @@ func Decide(policy Policy, in Input, history History) Decision {
 		if policy.MaxStepDown > 0 {
 			to = max(to, in.Current-policy.MaxStepDown)
 		}
+		// Per-replica signals are undefined at zero replicas, so no signal
+		// could ever bring the service back: signals never scale to zero.
+		// Only Bounds.Min (an operator decision) governs zero.
+		to = max(to, 1)
+		if to >= in.Current {
+			return finish(in.Current, ReasonAtBound)
+		}
 		return finish(to, ReasonScaleDown)
 	}
 }
@@ -205,11 +212,27 @@ func signalRecommendation(current int, ratio, tolerance float64) int {
 	return int(scaled)
 }
 
+// pruneRecommendations keeps every recommendation inside the longest window
+// plus the newest one older than it, the boundary observation windowCovered
+// needs: without it a window evaluated at an interval that does not divide it
+// would never be covered.
 func pruneRecommendations(recommendations []Recommendation, now time.Time, policy Policy) []Recommendation {
 	keep := max(policy.upStabilization(), policy.downStabilization())
-	return slices.DeleteFunc(recommendations, func(r Recommendation) bool {
-		return r.At.After(now) || now.Sub(r.At) > keep
-	})
+	boundary := -1
+	for index, recommendation := range recommendations {
+		age := now.Sub(recommendation.At)
+		if age > keep && age <= 2*keep && (boundary < 0 || recommendation.At.After(recommendations[boundary].At)) {
+			boundary = index
+		}
+	}
+	kept := recommendations[:0:0]
+	for index, recommendation := range recommendations {
+		if recommendation.At.After(now) || now.Sub(recommendation.At) > keep && index != boundary {
+			continue
+		}
+		kept = append(kept, recommendation)
+	}
+	return kept
 }
 
 func windowExtreme(recommendations []Recommendation, now time.Time, window time.Duration, largest bool) int {
@@ -226,13 +249,15 @@ func windowExtreme(recommendations []Recommendation, now time.Time, window time.
 }
 
 // windowCovered requires an observation at least one full window old, so a
-// fresh or restarted history cannot act on its first recommendation.
+// fresh or restarted history cannot act on its first recommendation. The
+// observation must also be at most two windows old: after a longer gap the
+// window holds too few recent observations to stand for sustained load.
 func windowCovered(recommendations []Recommendation, now time.Time, window time.Duration) bool {
 	if window <= 0 {
 		return true
 	}
 	for _, recommendation := range recommendations {
-		if now.Sub(recommendation.At) >= window {
+		if age := now.Sub(recommendation.At); age >= window && age <= 2*window {
 			return true
 		}
 	}

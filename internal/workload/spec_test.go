@@ -43,6 +43,7 @@ func TestServiceSpecValidate(t *testing.T) {
 		"quorum floor of one": func(s *ServiceSpec) { s.Stateful.QuorumFloorPerRegion = 1 },
 		"concurrent changes":  func(s *ServiceSpec) { s.Stateful.MaxConcurrentChanges = 2 },
 		"no drain timeout":    func(s *ServiceSpec) { s.Stateful.DrainTimeoutSeconds = 0 },
+		"zero lag tolerance":  func(s *ServiceSpec) { s.Stateful.MaxLagForScaleDown = 0 },
 		"volume deletion":     func(s *ServiceSpec) { s.Stateful.VolumeRetention = "delete" },
 		"min below floor":     func(s *ServiceSpec) { s.Stateful.QuorumFloorPerRegion = 3 },
 	}

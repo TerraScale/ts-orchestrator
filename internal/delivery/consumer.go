@@ -566,7 +566,7 @@ func (op operation) planShape() PlanShape {
 func validatePlan(intent Intent, shape PlanShape, plan []host.Desired) error {
 	// A shaped release may only move the desired generation forward and must
 	// stay within the intent's replica bound.
-	if shape.Generation < intent.Generation || shape.Replicas < 0 || shape.Replicas > 1024 {
+	if shape.Generation < intent.Generation || shape.Replicas < 0 || shape.Replicas > maxReplicas {
 		return ErrInvalid
 	}
 	seen := make(map[string]struct{}, len(plan))

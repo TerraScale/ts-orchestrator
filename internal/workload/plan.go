@@ -1,7 +1,6 @@
 package workload
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
 	"maps"
@@ -101,8 +100,8 @@ type StepInput struct {
 	Epoch       uint64
 }
 
-// Step is the set of host desired writes for one reconciliation, sorted by
-// node and sharing one fresh generation. An empty step means converged or
+// Step is the set of host desired writes for one reconciliation, additions
+// then withdrawals, each sorted by node, sharing one fresh generation. An empty step means converged or
 // waiting for in-flight replicas.
 type Step struct {
 	Generation uint64
@@ -115,11 +114,19 @@ type Step struct {
 // PlanStep plans toward Replicas with placement.PlanWorkload and then limits
 // the change: at most MaxSurge new replicas, failed replicas are replaced
 // immediately, and ready replicas (current or stale) are withdrawn only when
-// no replica is starting, at most MaxUnavailable per step.
+// no replica is starting, at most MaxUnavailable per step. Writing the new
+// release over a node whose old replica is still serving stops that replica,
+// so such an in-place replacement is charged to the unavailability budget
+// rather than treated as a surge addition.
+//
+// Additions are ordered before withdrawals, so a step that fails part-way
+// never withdraws the last active replica (the release template) before its
+// replacement is committed.
 func PlanStep(in StepInput) (Step, error) {
 	assignments, err := placement.PlanWorkload(placement.WorkloadRequest{
 		Cell: in.Cell, Role: in.Spec.Role, Replicas: in.Replicas, Request: in.Resources,
 		Hosts: in.Observation.Candidates, Previous: in.Release.Current,
+		MaxPerFailureDomain: in.Spec.Placement.MaxPerFailureDomain,
 	})
 	if err != nil {
 		return Step{}, err
@@ -131,7 +138,11 @@ func PlanStep(in StepInput) (Step, error) {
 	for _, assignment := range in.Release.Current {
 		current[assignment.Node] = assignment
 	}
-	var additions, withdrawals []string
+	stale := make(map[string]placement.Assignment, len(in.Release.Stale))
+	for _, assignment := range in.Release.Stale {
+		stale[assignment.Node] = assignment
+	}
+	var additions, replacements, withdrawals []string
 	starting := false
 	for _, assignment := range assignments {
 		previous, existed := current[assignment.Node]
@@ -141,6 +152,10 @@ func PlanStep(in StepInput) (Step, error) {
 			withdrawals = append(withdrawals, assignment.Node)
 		case assignment.Withdrawn:
 			// Ready surplus waits for the unavailability budget below.
+		case !existed && stale[assignment.Node].Ready:
+			// The node still serves the old release: replacing it in place
+			// takes a serving replica down.
+			replacements = append(replacements, assignment.Node)
 		case !existed:
 			if len(additions) < in.Spec.Rollout.surge() {
 				additions = append(additions, assignment.Node)
@@ -152,15 +167,23 @@ func PlanStep(in StepInput) (Step, error) {
 	}
 	if !starting {
 		budget := in.Spec.Rollout.unavailable()
+		for _, node := range replacements {
+			if budget > 0 {
+				additions = append(additions, node)
+				budget--
+			}
+		}
 		for _, assignment := range assignments {
 			if budget > 0 && assignment.Withdrawn && current[assignment.Node].Ready {
 				withdrawals = append(withdrawals, assignment.Node)
 				budget--
 			}
 		}
-		for _, stale := range in.Release.Stale {
-			if budget > 0 {
-				withdrawals = append(withdrawals, stale.Node)
+		for _, old := range in.Release.Stale {
+			// A stale node the plan reuses is overwritten by its addition
+			// or kept for a later in-place replacement, never withdrawn.
+			if budget > 0 && !slices.Contains(additions, old.Node) && !slices.Contains(replacements, old.Node) {
+				withdrawals = append(withdrawals, old.Node)
 				budget--
 			}
 		}
@@ -169,11 +192,20 @@ func PlanStep(in StepInput) (Step, error) {
 		return Step{Waiting: starting}, nil
 	}
 	generation := in.Observation.HighWater + 1
+	for _, node := range slices.Concat(additions, withdrawals) {
+		// The host fences generations per node and role across
+		// environments, so a node formerly used elsewhere sets the floor.
+		if floor := in.Observation.NodeHighWater[node]; floor >= generation {
+			generation = floor + 1
+		}
+	}
 	if generation == 0 || ReleaseOf(generation) != in.Release.Release {
 		return Step{}, ErrGenerationSpace
 	}
 	step := Step{Generation: generation, Added: len(additions), Withdrawn: len(withdrawals), Waiting: starting}
 	template := in.Release.Template
+	slices.Sort(additions)
+	slices.Sort(withdrawals)
 	for _, node := range additions {
 		step.Writes = append(step.Writes, host.Desired{
 			Cell: in.Cell, Node: node, Environment: in.Spec.Environment, Role: in.Spec.Role,
@@ -182,12 +214,17 @@ func PlanStep(in StepInput) (Step, error) {
 		})
 	}
 	for _, node := range withdrawals {
+		// The host validates a withdrawal against its current registration,
+		// which may have moved to another environment since the allocation.
+		environment := in.Spec.Environment
+		if status, exists := in.Observation.Statuses[node]; exists {
+			environment = status.Registration.Environment
+		}
 		step.Writes = append(step.Writes, host.Desired{
-			Cell: in.Cell, Node: node, Environment: in.Spec.Environment, Role: in.Spec.Role,
+			Cell: in.Cell, Node: node, Environment: environment, Role: in.Spec.Role,
 			Generation: generation, AuthorityEpoch: in.Epoch, Withdrawn: true,
 		})
 	}
-	slices.SortFunc(step.Writes, func(a, b host.Desired) int { return cmp.Compare(a.Node, b.Node) })
 	return step, nil
 }
 

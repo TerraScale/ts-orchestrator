@@ -143,7 +143,12 @@ func (f *fakeFencer) Guard(context.Context, uint64) error {
 	return nil
 }
 
-type capacityRecorder struct{ requests []placement.WorkloadRequest }
+type capacityRecorder struct {
+	requests  []placement.WorkloadRequest
+	satisfied int
+}
+
+func (c *capacityRecorder) CapacitySatisfied(ServiceSpec) { c.satisfied++ }
 
 func (c *capacityRecorder) RequestCapacity(_ ServiceSpec, request placement.WorkloadRequest) {
 	c.requests = append(c.requests, request)
@@ -523,5 +528,148 @@ func TestReconcilerScaleUpIsNotTruncatedBySurge(t *testing.T) {
 	}
 	if got := cell.active("api"); len(got) != 4 {
 		t.Fatalf("scale-up to 4 with surge 1 stopped at %v (last %#v)", got, reconciler.Last()["api"])
+	}
+}
+
+// Two services that each need one more replica must not both claim the last
+// free slot on a host: each plans against the writes earlier services
+// committed in the same tick.
+func TestReconcilerServicesDoNotOvercommitOneHost(t *testing.T) {
+	cell := newFakeCell()
+	cell.addHost("node-a", "fd-1", true)
+	cell.addHost("node-b", "fd-2", true, func(r *host.Registration) { r.Capacity.CPU = 2 })
+	release, _ := ReleaseGeneration(1)
+	cell.seed("node-a", "api", testDigest, release)
+	cell.seed("node-a", "worker", testDigest, release)
+	cell.runAll()
+	worker := statelessSpec(2, 2)
+	worker.Role = "worker"
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, statelessSpec(2, 2),
+		func(config *Config) { config.Specs = append(config.Specs, worker) })
+	err := reconciler.Tick(context.Background())
+	onB := 0
+	for _, write := range cell.writes {
+		if write.Node == "node-b" && !write.Withdrawn {
+			onB++
+		}
+	}
+	if onB != 1 || !errors.Is(err, placement.ErrInsufficientCapacity) {
+		t.Fatalf("node-b received %d allocations (err %v), want exactly one and a capacity error", onB, err)
+	}
+}
+
+// A node whose old-release replica still serves is not a free surge slot:
+// replacing it in place waits until no new replica is starting.
+func TestReconcilerDoesNotReplaceServingStaleReplicaWhileStarting(t *testing.T) {
+	cell := newFakeCell()
+	cell.addHost("node-a", "fd-1", true)
+	cell.addHost("node-b", "fd-2", true)
+	oldRelease, _ := ReleaseGeneration(2)
+	newRelease, _ := ReleaseGeneration(3)
+	cell.seed("node-a", "api", newDigest, newRelease)
+	cell.seed("node-b", "api", testDigest, oldRelease)
+	cell.run("node-a", "api", "starting")
+	cell.run("node-b", "api", "running")
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, statelessSpec(2, 2))
+	if err := reconciler.Tick(context.Background()); err != nil || len(cell.writes) != 0 {
+		t.Fatalf("the last serving replica was replaced while the new one starts: %v (%v)", cell.writes, err)
+	}
+	cell.run("node-a", "api", "running")
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(cell.writes) != 1 || cell.writes[0].Node != "node-b" || cell.writes[0].Withdrawn ||
+		cell.writes[0].Digest != newDigest {
+		t.Fatalf("writes = %#v, want one in-place replacement on node-b", cell.writes)
+	}
+}
+
+// A replacement step commits its addition before the failed replica's
+// withdrawal, so a failed addition never leaves the role without the active
+// allocation that templates new replicas.
+func TestReconcilerKeepsReleaseTemplateWhenAdditionFails(t *testing.T) {
+	cell := newFakeCell()
+	cell.addHost("node-a", "fd-1", true)
+	cell.addHost("node-b", "fd-2", true)
+	release, _ := ReleaseGeneration(4)
+	cell.seed("node-a", "api", testDigest, release)
+	cell.run("node-a", "api", "failed")
+	cell.failOn = "node-b"
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, statelessSpec(1, 1))
+	if err := reconciler.Tick(context.Background()); err == nil {
+		t.Fatal("injected addition failure was not reported")
+	}
+	if got := cell.active("api"); !slices.Equal(got, []string{"node-a"}) {
+		t.Fatalf("active = %v: the template replica was withdrawn before its replacement committed", got)
+	}
+	reconciler.mu.Lock()
+	_, remembered := reconciler.goal["api"]
+	reconciler.mu.Unlock()
+	if remembered {
+		t.Fatal("a failed step advanced the remembered goal")
+	}
+	cell.failOn = ""
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := cell.active("api"); !slices.Equal(got, []string{"node-b"}) {
+		t.Fatalf("active after retry = %v", got)
+	}
+}
+
+// Retained replicas past the failure-domain cap are migrated to a domain
+// with room instead of being rejected every tick.
+func TestReconcilerMigratesPastDomainCap(t *testing.T) {
+	cell := newFakeCell()
+	cell.addHost("node-a", "fd-1", true)
+	cell.addHost("node-b", "fd-1", true)
+	cell.addHost("node-c", "fd-2", true)
+	release, _ := ReleaseGeneration(1)
+	cell.seed("node-a", "api", testDigest, release)
+	cell.seed("node-b", "api", testDigest, release)
+	cell.runAll()
+	spec := statelessSpec(2, 2)
+	spec.Placement.MaxPerFailureDomain = 1
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, spec)
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(cell.writes) != 1 || cell.writes[0].Node != "node-c" || cell.writes[0].Withdrawn {
+		t.Fatalf("writes = %#v, want a new replica in fd-2", cell.writes)
+	}
+	cell.runAll()
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := cell.active("api"); len(got) != 2 || !slices.Contains(got, "node-c") {
+		t.Fatalf("active = %v, want one replica per domain", got)
+	}
+}
+
+// A newer release of the same role in another environment neither
+// supersedes this environment's release nor stalls its self-healing.
+func TestReconcilerIgnoresOtherEnvironmentsRelease(t *testing.T) {
+	cell := threeHostCell()
+	cell.addHost("node-s", "fd-1", true, func(r *host.Registration) { r.Environment = "staging" })
+	prod, _ := ReleaseGeneration(2)
+	staging, _ := ReleaseGeneration(9)
+	cell.seed("node-a", "api", testDigest, prod)
+	cell.desired["node-s/api"] = host.Desired{Cell: "gru", Node: "node-s", Environment: "staging", Role: "api",
+		Digest: newDigest, Generation: staging, AuthorityEpoch: 1}
+	cell.runAll()
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, statelessSpec(2, 2))
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(cell.writes) != 1 || cell.writes[0].Generation != prod+1 || cell.writes[0].Digest != testDigest {
+		t.Fatalf("writes = %#v, want one prod replica at generation %d", cell.writes, prod+1)
+	}
+}
+
+// Stateful specs are never reconciled here, so they need no generic profile.
+func TestNewAcceptsStatefulSpecWithoutGenericProfile(t *testing.T) {
+	if _, err := New(Config{Cell: "gru", Specs: []ServiceSpec{statelessSpec(1, 2), validStateful()},
+		Profiles: testProfiles, Hosts: newFakeCell(), Writer: newFakeCell(), Fencer: &fakeFencer{}}); err != nil {
+		t.Fatalf("New with a stateful spec = %v", err)
 	}
 }

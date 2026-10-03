@@ -39,7 +39,8 @@ func TestRegionSeatsGeneralizesTheTwoSeatTopology(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	if ElasticSeatID(oci.RegionFRA, 1) != "elastic-fra" || ElasticSeatID(oci.RegionFRA, 3) != "elastic-fra-3" {
+	if ElasticSeatID(oci.RegionFRA, 1) != "elastic-fra" || ElasticSeatID(oci.RegionFRA, 3) != "elastic-fra-3" ||
+		ElasticSeatID(oci.RegionFRA, 0) == ElasticSeatID(oci.RegionFRA, 1) {
 		t.Fatal("elastic seat IDs changed")
 	}
 }
