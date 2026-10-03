@@ -158,7 +158,7 @@ func TestAggregatorNormalizesByRequestAndThrottles(t *testing.T) {
 	}
 	target := autoscale.Target{Cell: "gru", Environment: "prod", Role: "api"}
 	read := func(name autoscale.SignalName, target autoscale.Target) autoscale.Reading {
-		reading, err := aggregator.Read(t.Context(), target, autoscale.Signal{Name: name, Target: 1}, now.Add(time.Minute))
+		reading, err := aggregator.Read(t.Context(), target, autoscale.Signal{Name: name, Target: 1, WindowSeconds: 10}, now.Add(5*time.Second))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -203,14 +203,14 @@ func TestAggregatorTerraBaseSignals(t *testing.T) {
 		autoscale.SignalTerraBaseConnectionsPerMember: 40, autoscale.SignalTerraBaseStorageBytes: 1 << 20,
 		autoscale.SignalTerraBaseReplicationLag: 9, autoscale.SignalTerraBaseWriteQPS: 12.5,
 	} {
-		reading, _ := aggregator.Read(t.Context(), target, autoscale.Signal{Name: name, Target: 1}, now.Add(time.Minute))
+		reading, _ := aggregator.Read(t.Context(), target, autoscale.Signal{Name: name, Target: 1, WindowSeconds: 10}, now.Add(5*time.Second))
 		if reading.Samples != 1 || reading.Value != want {
 			t.Errorf("%s = %+v, want %v", name, reading, want)
 		}
 	}
 	// Without CPU or memory usage the host's disk is not attributed to the
 	// role.
-	if reading, _ := aggregator.Read(t.Context(), target, autoscale.Signal{Name: autoscale.SignalDiskUtilization, Target: 1}, now.Add(time.Minute)); reading.Samples != 0 {
+	if reading, _ := aggregator.Read(t.Context(), target, autoscale.Signal{Name: autoscale.SignalDiskUtilization, Target: 1, WindowSeconds: 10}, now.Add(5*time.Second)); reading.Samples != 0 {
 		t.Fatalf("disk attributed without usage: %+v", reading)
 	}
 	if !StatelessSignal(autoscale.SignalCPUUtilization) || StatelessSignal(autoscale.SignalTerraBaseWriteQPS) ||
@@ -383,6 +383,60 @@ func TestAggregatorDropsSilentContributors(t *testing.T) {
 	}
 	if math.Abs(reading.Value-0.2) > 1e-9 || reading.Samples != 721 {
 		t.Fatalf("reading = %+v, want only the live node (0.2 over 721 samples)", reading)
+	}
+}
+
+// A window that the reports cover only sparsely (hosts reporting less
+// often than half the window, or a publication outage inside it) reads as
+// unavailable, even within an unbroken run.
+func TestAggregatorRefusesSparselyCoveredWindows(t *testing.T) {
+	start := time.Unix(150_000, 0)
+	now := start
+	aggregator := NewAggregator(AggregatorConfig{Requests: map[string]Request{"api": {CPUCores: 1, MemoryBytes: 1}},
+		Now: func() time.Time { return now }})
+	origin := Origin{Cell: "gru", Environment: "prod", Node: "pool-1"}
+	record := func() {
+		t.Helper()
+		if err := aggregator.Record(origin, Report{SchemaVersion: 1, Roles: []RoleUsage{{Role: "api", CPUCores: ptr(0.7)}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := autoscale.Target{Cell: "gru", Environment: "prod", Role: "api"}
+	minute := autoscale.Signal{Name: autoscale.SignalCPUUtilization, Target: 1}
+	read := func() autoscale.Reading {
+		reading, _ := aggregator.Read(t.Context(), target, minute, now)
+		return reading
+	}
+	// Reports every two minutes against a one-minute window.
+	for range 4 {
+		record()
+		if got := read(); got.Samples != 0 {
+			t.Fatalf("sparse window read at %v: %+v", now.Sub(start), got)
+		}
+		now = now.Add(2 * time.Minute)
+	}
+	// Dense 15s reports cover it once a window has passed without a hole.
+	for range 5 {
+		record()
+		now = now.Add(15 * time.Second)
+	}
+	now = now.Add(-15 * time.Second)
+	if got := read(); got.Samples == 0 {
+		t.Fatalf("dense window unavailable: %+v", got)
+	}
+	// A 45s outage inside the window makes it unavailable until the hole
+	// leaves the window.
+	now = now.Add(45 * time.Second)
+	record()
+	if got := read(); got.Samples != 0 {
+		t.Fatalf("window with a 45s hole read: %+v", got)
+	}
+	for range 4 {
+		now = now.Add(15 * time.Second)
+		record()
+	}
+	if got := read(); got.Samples == 0 {
+		t.Fatalf("window unavailable after the hole left it: %+v", got)
 	}
 }
 

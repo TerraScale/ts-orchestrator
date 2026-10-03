@@ -1,6 +1,9 @@
 package dashboard
 
 import (
+	"fmt"
+	"strings"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 )
 
@@ -16,15 +19,23 @@ type autoscaledService struct {
 // maxAutoscaledServices bounds how many services the page charts.
 const maxAutoscaledServices = 12
 
+// autoscaledServicesView is the charted services plus the names of those
+// beyond maxAutoscaledServices, which the page lists instead of charting.
+type autoscaledServicesView struct {
+	Services []autoscaledService
+	Hidden   []string
+}
+
 // autoscaledServices builds the per-service charts from the leader's
-// history. Services appear once the reconciler has reported them; a
-// follower or a cell without autoscaling has none.
-func (current view) autoscaledServices() []autoscaledService {
+// history, alphabetically. Services appear once the reconciler has reported
+// them; a follower or a cell without autoscaling has none.
+func (current view) autoscaledServices() autoscaledServicesView {
 	replicas := current.historyRange(observability.HistAutoscaleReplicas, nil, "service", false)
-	var services []autoscaledService
+	var out autoscaledServicesView
 	for _, series := range replicas {
-		if len(services) == maxAutoscaledServices {
-			break
+		if len(out.Services) == maxAutoscaledServices {
+			out.Hidden = append(out.Hidden, series.Name)
+			continue
 		}
 		name := series.Name
 		labels := map[string]string{"service": name}
@@ -47,9 +58,18 @@ func (current view) autoscaledServices() []autoscaledService {
 		signalChart := current.lineChart("line", "", signals,
 			"No signal readings yet: the service has no scaling policy, host telemetry is off, or the replica set has not converged.")
 		signalChart.Min = float(0)
-		services = append(services, autoscaledService{Name: name, Replicas: replicaChart, Signals: signalChart})
+		out.Services = append(out.Services, autoscaledService{Name: name, Replicas: replicaChart, Signals: signalChart})
 	}
-	return services
+	return out
+}
+
+// hiddenNotice lists the services beyond the charted ones.
+func (v autoscaledServicesView) hiddenNotice() string {
+	if len(v.Hidden) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("Charting the first %d services alphabetically. Not charted: %s; their decisions are in the journal.",
+		maxAutoscaledServices, strings.Join(v.Hidden, ", "))
 }
 
 // terraBaseLoadChart charts one TerraBase load metric by member.

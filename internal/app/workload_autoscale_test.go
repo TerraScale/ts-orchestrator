@@ -98,6 +98,20 @@ func TestAutoscaleConfigRefusesInertEntries(t *testing.T) {
 	}
 }
 
+func TestLoadTelemetrySecondsIsCheckedBeforeConversion(t *testing.T) {
+	for _, valid := range []int{0, 5, 15, 3600} {
+		if err := validateLoadTelemetrySeconds(valid); err != nil {
+			t.Errorf("%d refused: %v", valid, err)
+		}
+	}
+	// 1<<55 seconds overflows a time.Duration to zero.
+	for _, invalid := range []int{-1, 1, 4, 3601, 1 << 55} {
+		if err := validateLoadTelemetrySeconds(invalid); err == nil {
+			t.Errorf("%d accepted", invalid)
+		}
+	}
+}
+
 // Host telemetry starts an aggregator as the reconciler's signal source,
 // installs it as the host controller's load sink, and its readings and the
 // reconciler's results reach the metric history.
@@ -122,10 +136,10 @@ func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
 		hostload.Report{SchemaVersion: 1, Roles: []hostload.RoleUsage{{Role: "api", CPUCores: &cores}}}); err != nil {
 		t.Fatal(err)
 	}
-	// The aggregator holds until reports cover the signal window (one
-	// minute by default), so read at its end.
+	// The aggregator holds until reports cover the signal window; one
+	// report covers a 10s window five seconds later.
 	reading, err := load.Read(t.Context(), autoscale.Target{Cell: "gru", Environment: "prod", Role: "api"},
-		autoscale.Signal{Name: autoscale.SignalCPUUtilization, Target: 0.6}, time.Now().Add(time.Minute-time.Second))
+		autoscale.Signal{Name: autoscale.SignalCPUUtilization, Target: 0.6, WindowSeconds: 10}, time.Now().Add(5*time.Second))
 	if err != nil || reading.Samples != 1 || reading.Value != 0.5 {
 		t.Fatalf("cpu_util normalized by the signed 2-core request = %+v, %v", reading, err)
 	}

@@ -96,8 +96,36 @@ type seriesKey struct {
 // run is one series' current unbroken run of samples: since starts it, last
 // is its latest sample from any node. A gap longer than StaleAfter (for
 // example while another member led) ends the run; the next sample starts a
-// new one.
-type run struct{ since, last time.Time }
+// new one. Shorter gaps of more than two minimum intervals are kept as
+// holes (at most one per two intervals over the retention), so a read can
+// tell whether its own window is densely covered.
+type run struct {
+	since, last time.Time
+	holes       []hole
+}
+
+// hole is a gap between two consecutive samples of a series, ending at end.
+type hole struct {
+	end    time.Time
+	length time.Duration
+}
+
+// covered reports whether the series covers the window ending at now: the
+// run started early enough, and neither the window's tail nor any hole
+// ending inside the window is longer than half the window (at least two
+// minimum intervals), so a sparse window never reads as available.
+func (r run) covered(now time.Time, window, warmUp, minInterval time.Duration) bool {
+	allowed := max(window/2, 2*minInterval)
+	if now.Sub(r.since) < warmUp || now.Sub(r.last) > allowed {
+		return false
+	}
+	for i := len(r.holes) - 1; i >= 0 && now.Sub(r.holes[i].end) < window; i-- {
+		if r.holes[i].length > allowed {
+			return false
+		}
+	}
+	return true
+}
 
 // Reset forgets every report and sample, for example when the authority
 // term changes: a new term must observe a fresh window before scaling.
@@ -134,10 +162,12 @@ func (a *Aggregator) nodePoints() int {
 // once whatever its report interval. Samples is the total sample count.
 //
 // Until this series' samples have arrived without a break for the whole
-// signal window, and while its latest sample is older than StaleAfter, the
+// signal window, while its window has a hole or tail longer than half the
+// window, and while its latest sample is older than StaleAfter, the
 // reading has no samples, so the autoscaler holds with no-signal-data: a
-// new leader, a first enablement, a newly reporting service or a cell whose
-// hosts went silent never scales on a partial or stale window.
+// new leader, a first enablement, a newly reporting service, sparse
+// reporting or a cell whose hosts went silent never scales on a partial or
+// stale window.
 func (a *Aggregator) Read(ctx context.Context, target autoscale.Target, signal autoscale.Signal, now time.Time) (autoscale.Reading, error) {
 	reading := autoscale.Reading{Signal: signal.Name}
 	a.mu.Lock()
@@ -148,7 +178,8 @@ func (a *Aggregator) Read(ctx context.Context, target autoscale.Target, signal a
 	// needs more than the first report after a reset.
 	current, ok := a.runs[seriesKey{target: target, signal: signal.Name}]
 	warmUp := max(signal.Window()-a.config.MinInterval, a.config.MinInterval)
-	if !ok || now.Sub(current.last) > a.config.StaleAfter || now.Sub(current.since) < warmUp {
+	if !ok || now.Sub(current.last) > a.config.StaleAfter ||
+		!current.covered(now, signal.Window(), warmUp, a.config.MinInterval) {
 		a.mu.Unlock()
 		return reading, nil
 	}
@@ -213,8 +244,17 @@ func (a *Aggregator) Record(origin Origin, report Report) error {
 			key := seriesKey{target: target, signal: name}
 			node.series[key] = now
 			current := a.runs[key]
-			if current.last.IsZero() || now.Sub(current.last) > a.config.StaleAfter {
-				current.since = now
+			switch gap := now.Sub(current.last); {
+			case current.last.IsZero() || gap > a.config.StaleAfter:
+				current.since, current.holes = now, nil
+			case gap > 2*a.config.MinInterval:
+				// Samples arrive in receive order, so holes stay sorted and
+				// the expired ones are at the front.
+				expired := 0
+				for expired < len(current.holes) && now.Sub(current.holes[expired].end) > nodeRetention {
+					expired++
+				}
+				current.holes = append(current.holes[expired:], hole{end: now, length: gap})
 			}
 			current.last = now
 			a.runs[key] = current

@@ -27,7 +27,7 @@ func TestAutoscaledServicesChartReplicasGoalAndSignals(t *testing.T) {
 		}
 	})
 	current := view{State: parseState(url.Values{}), Now: now, Journal: journal}
-	services := current.autoscaledServices()
+	services := current.autoscaledServices().Services
 	if len(services) != 2 || services[0].Name != "api" || services[1].Name != "web" {
 		t.Fatalf("services = %+v", services)
 	}
@@ -47,9 +47,26 @@ func TestAutoscaledServicesChartReplicasGoalAndSignals(t *testing.T) {
 	if len(lag.Series) != 1 || lag.Series[0].Name != "tb-1 / terrabase" {
 		t.Fatalf("lag chart = %+v", lag.Series)
 	}
+	if notice := current.autoscaledServices().hiddenNotice(); notice != "" {
+		t.Fatalf("notice without hidden services: %q", notice)
+	}
+	// Services beyond the charted bound are named, not silently dropped.
+	many := historyJournal(now, func(time.Time, int) []observability.Sample {
+		var samples []observability.Sample
+		for i := range maxAutoscaledServices + 2 {
+			samples = append(samples, observability.Sample{Metric: observability.HistAutoscaleReplicas,
+				Labels: observability.L("service", "svc-"+string(rune('a'+i))), Value: 1})
+		}
+		return samples
+	})
+	crowded := view{State: parseState(url.Values{}), Now: now, Journal: many}.autoscaledServices()
+	if len(crowded.Services) != maxAutoscaledServices || len(crowded.Hidden) != 2 ||
+		!strings.Contains(crowded.hiddenNotice(), "svc-m, svc-n") {
+		t.Fatalf("crowded view: %d charted, hidden %v, notice %q", len(crowded.Services), crowded.Hidden, crowded.hiddenNotice())
+	}
 	empty := view{State: parseState(url.Values{}), Now: now,
 		Journal: &Journal{History: observability.NewHistory(observability.HistoryConfig{})}}
-	if len(empty.autoscaledServices()) != 0 ||
+	if len(empty.autoscaledServices().Services) != 0 ||
 		!strings.Contains(empty.terraBaseLoadChart(observability.HistTerraBaseConnections, "count").Empty, "host telemetry") {
 		t.Fatal("empty history invented autoscale or TerraBase load data")
 	}

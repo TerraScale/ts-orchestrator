@@ -92,15 +92,18 @@ templ terrabaseBody(current view) {
 				<h2>Autoscaled services <small>replicas vs goal, signals vs target</small></h2>
 				<a href={ safe(current.State.link("/decisions", "actor", "autoscale,hostpool")) }>Journal →</a>
 			</div>
-			if services := current.autoscaledServices(); len(services) == 0 {
+			if autoscaled := current.autoscaledServices(); len(autoscaled.Services) == 0 {
 				@unavailable("No autoscaled service has reported yet. Autoscaling is off in this cell, or this member is not the authority leader.")
 			} else {
-				for _, service := range services {
+				for _, service := range autoscaled.Services {
 					<h3>{ service.Name }</h3>
 					<div class="cols-2">
 						@chart("", service.Replicas)
 						@chart("", service.Signals)
 					</div>
+				}
+				if notice := autoscaled.hiddenNotice(); notice != "" {
+					<p><small>{ notice }</small></p>
 				}
 			}
 		</article>
