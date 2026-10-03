@@ -37,10 +37,20 @@ func NewSDKClient(region string) (API, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newSDKClient(factory)
+	return NewClient(factory, "")
 }
 
-func newSDKClient(factory *ociclient.Factory) (*sdkClient, error) {
+// NewClient builds the SDK client over an existing factory. An empty endpoint
+// addresses the factory region's public OCI endpoints. A non-empty endpoint
+// pins the Compute, Object Storage and work request clients to that one
+// origin. No flag or environment variable reaches it: only Go callers pass
+// it, and the promotion tests use it to aim the real client at a local OCI
+// stand-in.
+func NewClient(factory *ociclient.Factory, endpoint string) (API, error) {
+	return newSDKClient(factory, endpoint)
+}
+
+func newSDKClient(factory *ociclient.Factory, endpoint string) (*sdkClient, error) {
 	compute, err := factory.Compute()
 	if err != nil {
 		return nil, err
@@ -53,6 +63,9 @@ func newSDKClient(factory *ociclient.Factory) (*sdkClient, error) {
 	if err != nil {
 		return nil, err
 	}
+	ociclient.PinHost(&compute.BaseClient, endpoint)
+	ociclient.PinHost(&objects.BaseClient, endpoint)
+	ociclient.PinHost(&work.BaseClient, endpoint)
 	return &sdkClient{compute: compute, objects: objects, workRequest: work, upload: transfer.NewUploadManager(),
 		uploadRetry: ociclient.IdempotentPutRetryPolicy(ociclient.RetryOptions{})}, nil
 }

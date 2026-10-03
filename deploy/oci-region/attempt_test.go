@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oracle/oci-go-sdk/v65/core"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/attempt"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
@@ -240,16 +242,18 @@ func TestAttemptFreshAdmissionAndEmptyPrefixPrecedeReservation(t *testing.T) {
 			script.Write(t, a.Path("image", "import.json"), []byte(`{"image_id":"ocid1.image.fixture"}`), 0600)
 			script.Write(t, a.Plan(), []byte(`{"foundation_buckets":{"head":"head","ledger":"ledger"}}`), 0600)
 			var calls []string
+			cloud := &fakeCloud{calls: &calls, objects: []string{"bootstrap/a/founder-selection/1"}}
+			if name == "existing_slot" {
+				cloud.objects = []string{"bootstrap/a/slot/record"}
+			}
+			a.Cloud = cloud
 			a.Runner = func(ctx context.Context, c attempt.Command) (string, error) {
 				calls = append(calls, strings.Join(c.Args, " "))
 				if c.Args[0] == "oci" {
-					if slices.Contains(c.Args, "launch") {
-						return `{"data":{"id":"ocid1.instance.a"}}`, nil
-					}
-					if name == "existing_slot" {
-						return `{"data":[{"name":"bootstrap/a/slot/record"}]}`, nil
-					}
-					return `{"data":[{"name":"bootstrap/a/founder-selection/1"}]}`, nil
+					t.Fatal("ran the Python OCI CLI", c.Args)
+				}
+				if slices.Contains(c.Args, "seed-launch") {
+					script.Write(t, commandValue(c.Args, "--out"), []byte(launchInput), 0600)
 				}
 				if slices.Contains(c.Args, "admit") {
 					expires := now.Add(10 * time.Minute)
@@ -272,6 +276,14 @@ func TestAttemptFreshAdmissionAndEmptyPrefixPrecedeReservation(t *testing.T) {
 				if a.Err() != nil || !reserved || !existsTest(a.Path("launch", "controller-a.ocid")) {
 					t.Fatal(calls, a.Err())
 				}
+				if len(cloud.launched) != 1 || *cloud.launched[0].DisplayName != "deployment-a-controller-a" ||
+					cloud.launched[0].Metadata["terrascale-bootstrap"] == "" || cloud.tokens[0] != attempt.LaunchRetryToken([]byte(launchInput)) {
+					t.Fatal(cloud.launched, cloud.tokens)
+				}
+				submitted, e := os.ReadFile(a.Path("launch", "controller-a-launch-submit.json"))
+				if e != nil || !strings.Contains(string(submitted), `"lifecycle-state":"PROVISIONING"`) || !strings.Contains(string(submitted), `"opc-work-request-id":"ocid1.workrequest.a"`) {
+					t.Fatal(string(submitted), e)
+				}
 				n := len(calls)
 				a.PhaseLaunch()
 				if len(calls) != n {
@@ -284,3 +296,47 @@ func TestAttemptFreshAdmissionAndEmptyPrefixPrecedeReservation(t *testing.T) {
 	}
 }
 func existsTest(path string) bool { _, e := os.Stat(path); return e == nil }
+
+// launchInput is a seed-launch document in the camelCase shape
+// `oci-region preview seed-launch` writes.
+const launchInput = `{"availabilityDomain":"AD-1","faultDomain":"FAULT-DOMAIN-1","compartmentId":"ocid1.compartment.oc1..c","displayName":"deployment-a-controller-a","shape":"VM.Standard.A1.Flex","shapeConfig":{"ocpus":1,"memoryInGBs":6},"sourceDetails":{"sourceType":"image","imageId":"ocid1.image.fixture","bootVolumeSizeInGBs":50,"bootVolumeVpusPerGB":10},"subnetId":"ocid1.subnet.oc1..s","privateIp":"10.0.0.11","nsgIds":["ocid1.networksecuritygroup.oc1..n"],"assignPublicIp":false,"metadata":{"terrascale-bootstrap":"{\"schemaVersion\":1,\"slot\":\"controller-a\"}","user_data":"Y2xvdWQtaW5pdA=="},"freeformTags":{"BootstrapCreateKey":"seed-a"}}`
+
+// fakeCloud is the attempt's typed OCI seam without cloud access.
+type fakeCloud struct {
+	calls    *[]string
+	objects  []string
+	launched []core.LaunchInstanceDetails
+	tokens   []string
+}
+
+func (f *fakeCloud) record(call string) { *f.calls = append(*f.calls, "OCI "+call) }
+func (f *fakeCloud) PolicyStatements(context.Context, string) ([]string, string, error) {
+	f.record("GetPolicy")
+	return nil, "", errors.New("unexpected policy read")
+}
+func (f *fakeCloud) ReplacePolicyStatements(context.Context, string, string, []string) error {
+	f.record("UpdatePolicy")
+	return errors.New("unexpected policy update")
+}
+func (f *fakeCloud) ListObjects(_ context.Context, _, bucket, _ string) ([]string, error) {
+	f.record("ListObjects " + bucket)
+	return f.objects, nil
+}
+func (f *fakeCloud) GetObject(context.Context, string, string, string) ([]byte, bool, error) {
+	f.record("GetObject")
+	return nil, false, nil
+}
+func (f *fakeCloud) LaunchInstance(_ context.Context, details core.LaunchInstanceDetails, token string) (core.Instance, string, error) {
+	f.record("LaunchInstance")
+	f.launched, f.tokens = append(f.launched, details), append(f.tokens, token)
+	id := "ocid1.instance.a"
+	return core.Instance{Id: &id, DisplayName: details.DisplayName, LifecycleState: core.InstanceLifecycleStateProvisioning}, "ocid1.workrequest.a", nil
+}
+func (f *fakeCloud) GetInstance(context.Context, string) (attempt.Instance, error) {
+	f.record("GetInstance")
+	return attempt.Instance{}, errors.New("unexpected instance read")
+}
+func (f *fakeCloud) ListInstances(context.Context, string) ([]attempt.Instance, error) {
+	f.record("ListInstances")
+	return nil, errors.New("unexpected instance list")
+}

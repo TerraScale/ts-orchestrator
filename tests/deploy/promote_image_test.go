@@ -2,7 +2,6 @@ package deploy_test
 
 import (
 	"context"
-	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/image"
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport/imageimporttest"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
@@ -42,13 +42,6 @@ func TestPromotionCommand(t *testing.T) {
 		if err := f.Close(); err != nil {
 			fail(err.Error())
 		}
-	}
-	reply := func(data any) {
-		b, err := json.Marshal(map[string]any{"data": data})
-		if err != nil {
-			fail(err.Error())
-		}
-		fmt.Println(string(b))
 	}
 	switch kind {
 	case "fj":
@@ -98,48 +91,6 @@ func TestPromotionCommand(t *testing.T) {
 		if args[0] == "verify-image" {
 			fmt.Println("verified OCI image=fake region=GRU")
 		}
-	case "oci":
-		appendLog("oci-calls.log", strings.Join(args, " "))
-		command := strings.Join(args[2:5], " ")
-		shapes := filepath.Join(fixture, "oci-shapes.json")
-		switch {
-		case strings.HasPrefix(command, "compute image list"):
-			reply([]any{})
-		case strings.HasPrefix(command, "os object head"):
-			os.Exit(1)
-		case strings.HasPrefix(command, "os object put"):
-			fmt.Println("{}")
-		case strings.HasPrefix(command, "compute image import"):
-			reply(map[string]any{"id": importedOCID, "lifecycle-state": "IMPORTING"})
-		case strings.HasPrefix(command, "compute image get"):
-			reply(map[string]any{"id": importedOCID, "lifecycle-state": "AVAILABLE", "billable-size-in-gbs": 3})
-		case strings.HasPrefix(command, "compute image-capability-schema list"):
-			reply([]any{})
-		case strings.HasPrefix(command, "compute global-image-capability-schema list"):
-			reply([]any{map[string]any{"current-version-name": "v1"}})
-		case strings.HasPrefix(command, "compute image-capability-schema create"):
-			var schema any
-			if err := json.Unmarshal([]byte(args[slices.Index(args, "--schema-data")+1]), &schema); err != nil {
-				fail(err.Error())
-			}
-			reply(map[string]any{"id": "ocid1.schema", "schema-data": schema})
-		case strings.HasPrefix(command, "compute image-shape-compatibility-entry list"):
-			var data any = []any{}
-			if b, err := os.ReadFile(shapes); err == nil {
-				if err := json.Unmarshal(b, &data); err != nil {
-					fail(err.Error())
-				}
-			}
-			reply(data)
-		case strings.HasPrefix(command, "compute image-shape-compatibility-entry add"):
-			b := []byte(`[{"shape":"VM.Standard.A1.Flex","ocpu-constraints":{"min":1,"max":4},"memory-constraints":{"min-in-gbs":6,"max-in-gbs":24}}]`)
-			if err := os.WriteFile(shapes, b, 0600); err != nil {
-				fail(err.Error())
-			}
-			fmt.Println("{}")
-		default:
-			fail(fmt.Sprintf("unexpected oci call: %q", args))
-		}
 	default:
 		fail("unexpected shim " + kind)
 	}
@@ -151,6 +102,10 @@ type promotionFixture struct {
 	root, fixture, bin, fj, tool, trust, out, imageDir string
 	image, kernel                                      []byte
 	manifest                                           map[string]any
+	// oci is the stand-in OCI region the in-binary SDK importer talks to.
+	// It lives in this test process, so its images and objects persist
+	// across promotion runs exactly like a real region's.
+	oci *imageimporttest.Server
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
@@ -159,9 +114,12 @@ func newPromotion(t *testing.T) *promotionFixture {
 	dir := t.TempDir()
 	f := &promotionFixture{t: t, root: dir, fixture: filepath.Join(dir, "fixture"), bin: filepath.Join(dir, "bin"), fj: filepath.Join(dir, "fj"), tool: filepath.Join(dir, "ts-orch"), trust: filepath.Join(dir, "trust"), out: filepath.Join(dir, "promotion"), image: []byte("final qcow2 bytes"), kernel: []byte("arm64 kernel")}
 	exe := fakeToolBinary(t)
-	for path, kind := range map[string]string{f.fj: "fj", f.tool: "release", filepath.Join(f.bin, "oci"): "oci"} {
+	for path, kind := range map[string]string{f.fj: "fj", f.tool: "release"} {
 		write(t, path, []byte("#!/bin/sh\nexec "+shellQuote(exe)+" -test.run=^TestPromotionCommand$ -- "+kind+" \"$@\"\n"), 0755)
 	}
+	// The promotion must never fall back to the Python OCI CLI.
+	write(t, filepath.Join(f.bin, "oci"), []byte("#!/bin/sh\necho \"$@\" >> "+shellQuote(filepath.Join(f.fixture, "oci-cli-calls.log"))+"\nexit 1\n"), 0755)
+	f.oci = imageimporttest.Start(t, importedOCID)
 	write(t, filepath.Join(f.bin, "virt-cat"), []byte("#!/bin/sh\necho 'virt-cat 1.52.3'\n"), 0755)
 	for _, name := range []string{"delegation.json", "image-delegation.json", "root.pub", "leaf.pem"} {
 		write(t, filepath.Join(f.trust, name), []byte("fake "+name+"\n"), 0600)
@@ -204,7 +162,7 @@ func (f *promotionFixture) promote(image []string, env map[string]string, extra 
 	args := append([]string{"image", "promote"}, image...)
 	args = append(args, "--out", f.out, "--delegation", filepath.Join(f.trust, "delegation.json"), "--root-key", filepath.Join(f.trust, "root.pub"), "--fj", f.fj, "--release-tool", f.tool)
 	args = append(args, extra...)
-	environment := map[string]string{"PATH": f.bin + string(os.PathListSeparator) + os.Getenv("PATH"), "PROMOTE_FIXTURE": f.fixture, "PROMOTE_IMPORTED_OCID": importedOCID}
+	environment := map[string]string{"PATH": f.bin + string(os.PathListSeparator) + os.Getenv("PATH"), "PROMOTE_FIXTURE": f.fixture, ociStandInEnv: f.oci.URL}
 	for k, v := range env {
 		environment[k] = v
 	}
@@ -254,11 +212,33 @@ func flagValue(t *testing.T, args []string, flag string) string {
 func (f *promotionFixture) rejected(r script.Result, message string) {
 	equal(f.t, r.Code, 1)
 	contains(f.t, r.Stderr, message)
-	equal(f.t, len(f.lines("oci-calls.log")), 0)
+	equal(f.t, len(f.oci.Requests()), 0)
+	f.noCLI()
 	if slices.Contains(f.commands(), "sign-image") {
 		f.t.Fatal("signed rejected image")
 	}
 	absent(f.t, filepath.Join(f.out, "promotion-receipt.json"))
+}
+
+// imported asserts that the SDK importer uploaded the exact verified image
+// bytes once, created the image the given number of times, and polled its
+// work request to success, all without the Python OCI CLI.
+func (f *promotionFixture) imported(creates int) {
+	f.t.Helper()
+	f.noCLI()
+	equal(f.t, f.oci.Count("POST /20160918/images"), creates)
+	equal(f.t, f.oci.Count("PUT /n/ns/b/images/o/"), 1)
+	equal(f.t, f.oci.Count("GET /20160918/workRequests/"), creates*(imageimporttest.WorkRequestPolls+1))
+	object, metadata, ok := f.oci.Object("ns", "images", "images/"+digest(f.image)+".qcow2")
+	equal(f.t, ok, true)
+	equal(f.t, string(object), string(f.image))
+	equal(f.t, metadata["sha256"], digest(f.image))
+	state, _ := f.oci.Image(importedOCID)
+	equal(f.t, state, "AVAILABLE")
+}
+func (f *promotionFixture) noCLI() {
+	f.t.Helper()
+	equal(f.t, f.lines("oci-cli-calls.log"), []string{})
 }
 func (f *promotionFixture) reset() {
 	if err := os.RemoveAll(f.out); err != nil {
@@ -284,13 +264,7 @@ func TestPromotionCIImageImportedSignedVerifiedAndReceipted(t *testing.T) {
 	for _, call := range calls[:2] {
 		equal(t, flagValue(t, call, "--delegation"), filepath.Join(f.trust, "delegation.json"))
 	}
-	found := false
-	for _, call := range f.lines("oci-calls.log") {
-		if strings.Contains(call, " image import from-object ") {
-			found = true
-		}
-	}
-	equal(t, found, true)
+	f.imported(1)
 	r := f.receipt()
 	equal(t, r["dry_run"], false)
 	imp := r["oci_import"].(map[string]any)
@@ -312,15 +286,20 @@ func TestPromotionFirstRunWaitsForImageDelegation(t *testing.T) {
 	receipt := f.receipt()
 	equal(t, receipt["image_receipt"], map[string]any{"awaiting": "root-signed image delegation", "image_ocid": importedOCID})
 	equal(t, receipt["outcome"], "imported "+importedOCID+"; awaiting the root-signed image delegation")
+	f.imported(1)
 	f.reset()
 	successful(t, f.promote(nil, nil, f.realArgs()...))
 	equal(t, f.commands(), []string{"verify-binary", "image-candidate", "sign-image", "verify-image"})
 	equal(t, f.receipt()["outcome"], "promotion complete")
+	// The rerun found the live image by display name rather than importing twice.
+	f.imported(1)
+	equal(t, f.receipt()["oci_import"].(map[string]any)["image_id"], importedOCID)
 }
 func TestPromotionDryRunReadOnlyGates(t *testing.T) {
 	f := newPromotion(t)
 	successful(t, f.promote(nil, nil, "--dry-run"))
-	equal(t, len(f.lines("oci-calls.log")), 0)
+	equal(t, len(f.oci.Requests()), 0)
+	f.noCLI()
 	equal(t, f.commands(), []string{"verify-binary", "image-candidate"})
 	if !strings.HasPrefix(flagValue(t, f.calls()[1], "--image-ocid"), "ocid1.image.oc1.sa-saopaulo-1.dryrun") {
 		t.Fatal("candidate did not use dry-run image OCID")
@@ -531,7 +510,8 @@ func TestPromotionResumeReusesVerifiedWork(t *testing.T) {
 	for _, asset := range large {
 		equal(t, f.countCalls("fj-calls.log", asset), 1)
 	}
-	equal(t, f.countCalls("oci-calls.log", " image import from-object "), 1)
+	f.imported(1)
+	requests := len(f.oci.Requests())
 	r := f.promote(nil, nil, f.realArgs()...)
 	equal(t, r.Code, 2)
 	contains(t, r.Stderr, "or pass --resume")
@@ -541,7 +521,9 @@ func TestPromotionResumeReusesVerifiedWork(t *testing.T) {
 	for _, asset := range large {
 		equal(t, f.countCalls("fj-calls.log", asset), 1)
 	}
-	equal(t, f.countCalls("oci-calls.log", " image import from-object "), 1)
+	f.imported(1)
+	// The resumed promotion reused the recorded import without touching OCI.
+	equal(t, len(f.oci.Requests()), requests)
 	contains(t, r.Stdout, "reusing completed OCI import")
 	contains(t, r.Stdout, "reusing verified terrascale-gru-arm64.qcow2")
 	equal(t, f.commands(), []string{"verify-binary", "image-candidate", "verify-binary", "image-candidate", "sign-image", "verify-image"})

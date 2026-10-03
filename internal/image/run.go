@@ -12,6 +12,7 @@ import (
 	"strconv"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
 )
 
 type stringsFlag []string
@@ -19,8 +20,34 @@ type stringsFlag []string
 func (s *stringsFlag) String() string     { return fmt.Sprint([]string(*s)) }
 func (s *stringsFlag) Set(v string) error { *s = append(*s, v); return nil }
 
+// Services are the cloud seams of the image tooling. The zero value uses the
+// production OCI SDK clients; tests substitute a local OCI stand-in.
+type Services struct {
+	// ImageImporter builds the OCI image importer for one region. Nil uses
+	// the operator's ~/.oci/config through the in-binary SDK.
+	ImageImporter imageimport.ImporterFactory
+}
+
+func (s Services) importer() imageimport.ImporterFactory {
+	if s.ImageImporter != nil {
+		return s.ImageImporter
+	}
+	return func(region string) (imageimport.Importer, error) {
+		client, err := imageimport.NewSDKClient(region)
+		if err != nil {
+			return imageimport.Importer{}, err
+		}
+		return imageimport.Importer{Client: client}, nil
+	}
+}
+
 // Run runs the image tooling within the unified executable.
 func Run(ctx context.Context, root string, args []string, stdout, stderr io.Writer) int {
+	return RunWith(ctx, root, args, stdout, stderr, Services{})
+}
+
+// RunWith runs the image tooling with explicit cloud services.
+func RunWith(ctx context.Context, root string, args []string, stdout, stderr io.Writer, services Services) int {
 	if err := ctx.Err(); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -40,7 +67,7 @@ func Run(ctx context.Context, root string, args []string, stdout, stderr io.Writ
 	case "build-offline":
 		e, code = runOffline(ctx, root, args[1:], output, stderr)
 	case "promote":
-		e, code = runPromotion(ctx, root, args[1:], output, stderr)
+		e, code = runPromotion(ctx, root, args[1:], output, stderr, services)
 	case "help", "--help", "-h":
 		fmt.Fprintln(output, "usage: ts-orch image inputs|build-offline|guestfs|promote")
 	default:

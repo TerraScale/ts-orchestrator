@@ -175,8 +175,25 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	return RunWith(ctx, args, out, NewSDKClient)
 }
 
-// RunWith parses the operator command and imports into every requested region.
+// RunWith parses the operator command and imports into every requested
+// region through clients built by factory.
 func RunWith(ctx context.Context, args []string, out io.Writer, factory ClientFactory) error {
+	return RunImporters(ctx, args, out, func(region string) (Importer, error) {
+		client, err := factory(region)
+		if err != nil {
+			return Importer{}, err
+		}
+		return Importer{Client: client}, nil
+	})
+}
+
+// ImporterFactory builds the Importer for one OCI region, including its
+// client and poll bounds.
+type ImporterFactory func(region string) (Importer, error)
+
+// RunImporters parses the operator command and imports into every requested
+// region through the importers it builds.
+func RunImporters(ctx context.Context, args []string, out io.Writer, importers ImporterFactory) error {
 	fs := flag.NewFlagSet("oci-region import-image", flag.ContinueOnError)
 	fs.SetOutput(out)
 	var o Options
@@ -204,13 +221,7 @@ func RunWith(ctx context.Context, args []string, out io.Writer, factory ClientFa
 	if len(o.Regions) == 0 {
 		o.Regions = []string{catalog.OCIRegion(catalog.Bootstrap)}
 	}
-	_, err := ImportRegions(ctx, o, out, func(region string) (Importer, error) {
-		client, err := factory(region)
-		if err != nil {
-			return Importer{}, err
-		}
-		return Importer{Client: client}, nil
-	})
+	_, err := ImportRegions(ctx, o, out, importers)
 	return err
 }
 
