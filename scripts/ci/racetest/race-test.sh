@@ -127,8 +127,27 @@ cleanup() {
 }
 trap cleanup EXIT
 finish() {
-	local completed status
-	if wait -n -p completed "${!active[@]}"; then status=ok; else status=FAIL; failed=1; fi
+	local completed= status rc=0 pid
+	wait -n -p completed "${!active[@]}" || rc=$?
+	if [[ -z $completed ]]; then
+		# Some bash releases stop reporting a shard to wait -n once it has
+		# already terminated and been marked notified (for example while
+		# another shard's log was printed); wait -n then returns 127 without
+		# a pid. A plain wait still returns such a shard's saved status.
+		for pid in "${!active[@]}"; do
+			if ! kill -0 "$pid" 2>/dev/null; then
+				completed=$pid
+				rc=0
+				wait "$pid" || rc=$?
+				break
+			fi
+		done
+		if [[ -z $completed ]]; then
+			echo "race-test.sh: wait -n reported no finished shard (status $rc)" >&2
+			exit 2
+		fi
+	fi
+	if ((rc == 0)); then status=ok; else status=FAIL; failed=1; fi
 	local name=${active[$completed]}
 	if [[ ${active_pool[$completed]} == idle ]]; then
 		running_idle=$((running_idle - 1))
