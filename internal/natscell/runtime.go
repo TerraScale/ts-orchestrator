@@ -537,6 +537,11 @@ func (cfg Config) validate() error {
 	if !cellName.MatchString(cfg.Cell) || !cellName.MatchString(cfg.Instance) {
 		return errors.New("cell and instance must be lowercase NATS tokens")
 	}
+	// Every protocol subject builder refuses the reserved scope as a cell
+	// and returns "", which would surface far from here as empty grants.
+	if cfg.Cell == protocol.GlobalScope {
+		return errors.New("cell name is reserved for the global scope")
+	}
 	if cfg.Replicas != 1 && cfg.Replicas != 3 && cfg.Replicas != 5 {
 		return errors.New("regional replicas must be 1, 3, or 5")
 	}

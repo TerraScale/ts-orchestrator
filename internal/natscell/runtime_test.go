@@ -89,6 +89,12 @@ func TestEmbeddedStoreLimit(t *testing.T) {
 	if err := cfg.validate(); err == nil {
 		t.Fatal("negative embedded store limit was accepted")
 	}
+	embedded.StoreMaxBytes = 0
+	reserved := cfg
+	reserved.Cell = "global"
+	if err := reserved.validate(); err == nil {
+		t.Fatal("the reserved global scope was accepted as a cell")
+	}
 }
 
 func TestControllerNKeyDurablyAcknowledgesDeliveryIntent(t *testing.T) {

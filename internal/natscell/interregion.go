@@ -110,6 +110,11 @@ func (ir *InterRegion) validate(cfg Config) error {
 	if ir.Listen == nil && len(ir.Remotes) == 0 {
 		return errors.New("interregion needs a leaf listener or at least one remote")
 	}
+	// The home is the tree root and never dials out, so a non-home region
+	// reaches it, and its mirror feed, only through a parent remote.
+	if ir.GlobalHome != "" && ir.GlobalHome != cfg.Cell && len(ir.Remotes) == 0 {
+		return errors.New("a non-home region must dial a remote to reach the interregion global home")
+	}
 	if ir.Listen != nil && (ir.Listen.Host == "" || ir.Listen.Port <= 0 || !ir.Listen.TLS.complete()) {
 		return errors.New("interregion leaf listener requires host, port, and mutual TLS")
 	}
@@ -126,6 +131,17 @@ func (ir *InterRegion) validate(cfg Config) error {
 				return fmt.Errorf("interregion subtree of %q names %q, which is not a unique non-home peer", child, region)
 			}
 			reached[region] = true
+		}
+	}
+	// The tree root (no parent remote) reaches every peer through its child
+	// subtrees; a peer in none would be in the contract yet unreachable,
+	// and every request to it would hang without a responder. A region
+	// with a parent reaches the rest of the tree through it.
+	if len(ir.Remotes) == 0 {
+		for _, peer := range ir.Peers {
+			if !reached[peer] {
+				return fmt.Errorf("interregion roster peer %q is in no child subtree and this region dials no parent", peer)
+			}
 		}
 	}
 	remotes := map[string]bool{}
@@ -400,6 +416,9 @@ func (c InterRegionContract) ApplyInterRegion(claim *jwt.AccountClaims, cellAcco
 	claim.Exports = c.InterRegionExports()
 	claim.Imports = c.InterRegionImports(cellAccount)
 	claim.DefaultPermissions = denyAllPermissions()
+	// Leaf users must prove possession of their key (nonce signature); a
+	// bearer JWT alone never links a region.
+	claim.Limits.DisallowBearer = true
 	claim.SigningKeys = jwt.SigningKeys{}
 	for child, key := range childKeys {
 		claim.SigningKeys.AddScopedSigner(c.childScope(child, key))
@@ -474,6 +493,9 @@ func (c InterRegionContract) verify(system, cell, interregion *jwt.AccountClaims
 	}
 	if !denyAll(interregion.DefaultPermissions) {
 		return errors.New("interregion account default leaf permissions must deny everything")
+	}
+	if !interregion.Limits.DisallowBearer {
+		return errors.New("interregion account must disallow bearer leaf users")
 	}
 	if err := c.verifyChildScopes(interregion); err != nil {
 		return err

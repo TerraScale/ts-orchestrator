@@ -54,3 +54,18 @@ func TestValidatePlanHonoursRecordedShape(t *testing.T) {
 		}
 	}
 }
+
+// Delivery refuses cells the protocol subject builders would turn into empty
+// subjects, at its configuration gate.
+func TestDeliveryCellsFollowProtocolRegionTokens(t *testing.T) {
+	for _, cell := range []string{"gru", "us-east-1"} {
+		if !validCell(cell) {
+			t.Errorf("valid cell %q refused", cell)
+		}
+	}
+	for _, cell := range []string{"global", "gru-", "a--b"} {
+		if validCell(cell) {
+			t.Errorf("cell %q accepted although its subjects are empty", cell)
+		}
+	}
+}

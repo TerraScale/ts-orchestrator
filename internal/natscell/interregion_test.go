@@ -132,6 +132,9 @@ func TestInterRegionContractIsExplicitAndExact(t *testing.T) {
 		"leaf defaults with deny": func(_, _, interregion *jwt.AccountClaims) {
 			interregion.DefaultPermissions.Pub.Deny.Add("x")
 		},
+		"bearer leaf users allowed": func(_, _, interregion *jwt.AccountClaims) {
+			interregion.Limits.DisallowBearer = false
+		},
 		"leaf defaults with responses": func(_, _, interregion *jwt.AccountClaims) {
 			interregion.DefaultPermissions.Resp = &jwt.ResponsePermission{MaxMsgs: 100}
 		},
