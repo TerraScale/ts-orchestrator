@@ -318,6 +318,7 @@ func (e *Executor) prepare(ctx context.Context, record rollout.Record, action ro
 	reply, err := e.Driver.Step(ctx, Step{RolloutID: record.RolloutID, Kind: record.Kind, Unit: action.Unit,
 		OperationID: action.OperationID, Action: StepPrepare, Digest: action.Digest, Epoch: record.AuthorityEpoch,
 		ProofWindow: time.Duration(record.Policy.ProofDeadlineSeconds) * time.Second,
+		Deadline:    action.Deadline,
 		Fence:       func(ctx context.Context) error { return e.fence(ctx, record) }})
 	switch {
 	case errors.Is(err, ErrLeaseLost):
@@ -392,7 +393,8 @@ func (e *Executor) rollback(ctx context.Context, record rollout.Record, action r
 		reply, err := e.Driver.Step(ctx, Step{RolloutID: record.RolloutID, Kind: record.Kind, Unit: action.Unit,
 			OperationID: action.OperationID, Action: StepRollback, Digest: action.Digest, Replaces: record.ToDigest,
 			Epoch: record.AuthorityEpoch, ProofWindow: time.Duration(record.Policy.RollbackDeadlineSeconds) * time.Second,
-			Fence: func(ctx context.Context) error { return e.fence(ctx, record) }})
+			Deadline: action.Deadline,
+			Fence:    func(ctx context.Context) error { return e.fence(ctx, record) }})
 		switch {
 		case errors.Is(err, ErrLeaseLost):
 			return nil, err

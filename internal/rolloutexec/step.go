@@ -56,6 +56,10 @@ type Step struct {
 	// ProofWindow is how long the unit's watchdog waits for the new
 	// process's version proof before it rolls the activation back.
 	ProofWindow time.Duration
+	// Deadline is the phase deadline of the step; the signed command
+	// expires no later, so an agent never applies it after the leader
+	// gave up on it.
+	Deadline time.Time
 	// Fence, when set, re-checks the leader's authority lease; a driver
 	// calls it after its own preparation (receipt lookup, signing) and
 	// immediately before the step leaves, and sends nothing if it fails.
@@ -102,16 +106,26 @@ func stepScope(command StepCommand) trust.Scope {
 		Environment: stepEnvironment, Role: string(command.Action), Slot: command.Unit}
 }
 
-// SignStepCommand signs command with the leader's controller key.
-func SignStepCommand(command StepCommand, key ed25519.PrivateKey, now time.Time) ([]byte, error) {
+// SignStepCommand signs command with the leader's controller key. The
+// signature expires at deadline, or StepLifetime after now when that is
+// sooner or deadline is zero: an agent never acts on a step after the phase
+// deadline the leader enforces for it.
+func SignStepCommand(command StepCommand, key ed25519.PrivateKey, now, deadline time.Time) ([]byte, error) {
 	if err := command.validate(); err != nil {
 		return nil, err
+	}
+	expires := now.Add(StepLifetime)
+	if !deadline.IsZero() && deadline.Before(expires) {
+		expires = deadline
+	}
+	if !expires.After(now) {
+		return nil, fmt.Errorf("%w: step deadline has passed", ErrInvalid)
 	}
 	payload, err := trust.EncodePayload(command)
 	if err != nil {
 		return nil, err
 	}
-	envelope, err := trust.Sign(payload, stepScope(command), now, now.Add(StepLifetime), key)
+	envelope, err := trust.Sign(payload, stepScope(command), now, expires, key)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +243,7 @@ func (d NATSDriver) Step(ctx context.Context, step Step) (StepReply, error) {
 		}
 		command.Receipt, command.Delegation = receipt, delegation
 	}
-	wire, err := SignStepCommand(command, d.Key, now().UTC())
+	wire, err := SignStepCommand(command, d.Key, now().UTC(), step.Deadline)
 	if err != nil {
 		return StepReply{}, err
 	}

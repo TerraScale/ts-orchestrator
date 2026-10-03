@@ -352,8 +352,10 @@ Nothing in this change starts it; the pieces are:
 - **Signed steps** (`ts.orch.v1.<cell>.rollout.step.<hash(unit)>`). The leader
   signs `{rollout, unit, operation, action, digest, epoch, proof window}`
   plus the release receipt (trust domain
-  `terrascale.orchestrator.rollout-step`, 2 minute lifetime, scope bound to
-  operation, action and unit). The agent verifies it against the controller
+  `terrascale.orchestrator.rollout-step`, scope bound to operation, action
+  and unit). The signature expires after 2 minutes or at the step's phase
+  deadline, whichever is sooner, so no agent applies a step after the
+  leader gave up on it. The agent verifies it against the controller
   keys, refuses to act once the signed command has expired (staging is
   bounded by that expiry and the expiry is re-checked under the release
   lock before the selection changes), records the step's authority epoch

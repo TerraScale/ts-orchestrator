@@ -132,7 +132,7 @@ func (f *agentFixture) command(t *testing.T, action StepAction, digest string, e
 	if action == StepRollback {
 		command.Replaces = f.to
 	}
-	wire, err := SignStepCommand(command, f.key, f.now)
+	wire, err := SignStepCommand(command, f.key, f.now, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestAgentRefusesUnverifiedAndStaleSteps(t *testing.T) {
 	}
 	other, _ := testKey(t)
 	wire, err := SignStepCommand(StepCommand{Schema: StepSchema, Cell: "gru", RolloutID: "r", Kind: rollout.KindController,
-		Unit: "ctl-b", OperationID: "ro-1", Action: StepPrepare, Digest: f.to, Epoch: 9, ProofWindowSeconds: 60}, other, f.now)
+		Unit: "ctl-b", OperationID: "ro-1", Action: StepPrepare, Digest: f.to, Epoch: 9, ProofWindowSeconds: 60}, other, f.now, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,5 +399,33 @@ func TestNATSDriverSendsNothingAfterTheLeaseWasLost(t *testing.T) {
 	}
 	if _, pending, err := f.agent.Layout.Pending(); err != nil || pending || f.restarts.count() != 0 {
 		t.Fatalf("a fenced step reached the agent: pending %v %v, restarts %d", pending, err, f.restarts.count())
+	}
+}
+
+// A step never outlives its phase deadline: the signature expires with it,
+// so a step that reaches the agent (or finishes staging) after the leader
+// gave up on it is never applied, and a passed deadline is not signed.
+func TestStepCommandsExpireWithTheirPhaseDeadline(t *testing.T) {
+	f := newAgentFixture(t)
+	command := StepCommand{Schema: StepSchema, Cell: "gru", RolloutID: "rel1-controllers", Kind: rollout.KindController,
+		Unit: "ctl-b", OperationID: rollout.OperationID("rel1-controllers", "ctl-b", rollout.PhaseCanary, 0),
+		Action: StepPrepare, Digest: f.to, Epoch: 7, ProofWindowSeconds: 600}
+	deadline := f.now.Add(30 * time.Second)
+	wire, err := SignStepCommand(command, f.key, f.now, deadline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, expires, err := VerifyStepCommand(wire, "gru", "ctl-b", f.agent.Leaders, f.now); err != nil || !expires.Equal(deadline) {
+		t.Fatalf("expiry = %s %v, want the phase deadline %s", expires, err, deadline)
+	}
+	f.agent.Now = func() time.Time { return deadline.Add(time.Second) }
+	if reply := f.agent.Handle(t.Context(), wire); reply.Outcome != OutcomeRefused {
+		t.Fatalf("step after its phase deadline = %+v", reply)
+	}
+	if _, pending, err := f.agent.Layout.Pending(); err != nil || pending {
+		t.Fatalf("a step after its deadline activated: %v %v", pending, err)
+	}
+	if _, err := SignStepCommand(command, f.key, f.now, f.now); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("signing a step whose deadline passed = %v", err)
 	}
 }
