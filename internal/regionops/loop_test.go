@@ -361,3 +361,71 @@ func newTestJetStream(t *testing.T) jetstream.JetStream {
 	}
 	return js
 }
+
+// TestDriveWithoutEffectorsJournalsTheWait pins that drive on with no
+// effector registered (drive without subscribe_regions) still journals, once,
+// that an admitted region waits for its first step's effector.
+func TestDriveWithoutEffectorsJournalsTheWait(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
+	defer cancel()
+	journal := &recorder{}
+	t.Cleanup(decisionlog.SetDefault(journal))
+	js := newTestJetStream(t)
+	leader := startGlobalAuthority(ctx, t, js)
+	store, err := regionlifecycle.OpenStore(ctx, js, 1, leader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, private, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	machine := regionlifecycle.Machine{Policy: regionlifecycle.Policy{MaxRegions: 3, MonthlyCeilingCents: 30_000,
+		AdmissionTTL: regionlifecycle.DefaultAdmissionTTL, ProposalTTL: 72 * time.Hour,
+		ApprovalMaxLifetime: 7 * 24 * time.Hour, ClockSkew: time.Minute, MinIdle: 14 * 24 * time.Hour,
+		Approvers: map[string]ed25519.PublicKey{approver: public}}}
+	proposal := regionlifecycle.Proposal{ID: "fra-g1-0123456789ab", Cell: "fra", OCIRegion: "eu-frankfurt-1",
+		Reason: "planner: latency", EvidenceDigests: []string{"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
+		EstimatedMonthlyCents: 9_000, ProposedAt: now}
+	payload, err := protocol.EncodeJSON(regionlifecycle.ApprovalPayload{Cell: "fra", ProposalDigest: proposal.Digest(),
+		MaxMonthlyCents: 10_000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: "fra",
+		Kind: regionlifecycle.ApproveExpansionKind, Actor: approver, OperationID: proposal.ID, Generation: 1},
+		now, now.Add(time.Hour), private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create(ctx, leader.Current().Epoch, mustProposed(t, machine, proposal, now)); err != nil {
+		t.Fatal(err)
+	}
+	stored, revision, err := store.Get(ctx, "fra")
+	if err != nil {
+		t.Fatal(err)
+	}
+	approved, err := machine.Approve(stored, envelope, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Update(ctx, leader.Current().Epoch, stored, approved, revision); err != nil {
+		t.Fatal(err)
+	}
+	loop := &Loop{Store: store, Machine: machine, Home: regionlifecycle.Home{Cell: "gru", MonthlyCents: 9_000},
+		Leader: leader, Admissions: PriceList{MonthlyCents: map[string]uint64{"fra": 9_000}}, Effectors: Effectors{},
+		Now: func() time.Time { return now }}
+	report := loop.Tick(ctx)
+	if !slices.Equal(report.Admitted, []string{"fra"}) || !slices.Equal(report.Waiting, []string{"fra"}) ||
+		len(report.Errors) != 0 {
+		t.Fatalf("first tick = %+v", report)
+	}
+	if report := loop.Tick(ctx); !slices.Equal(report.Waiting, []string{"fra"}) || len(report.Advanced) != 0 {
+		t.Fatalf("second tick = %+v", report)
+	}
+	if kinds := journal.kinds(); !slices.Equal(kinds, []decisionlog.Kind{decisionlog.KindRegionAdmitted,
+		decisionlog.KindHeld}) {
+		t.Fatalf("journal = %v", kinds)
+	}
+}

@@ -253,4 +253,16 @@ func TestLeafRemoteURLsComeOnlyFromTheReviewedReceipt(t *testing.T) {
 			t.Errorf("%s: leaf remote accepted", name)
 		}
 	}
+	// The parent's inventory must still match its ledger digest and be
+	// unexpired: a controller address edited after issue (even one inside
+	// the peered subnet) and expired material are refused.
+	edited := parent
+	edited.Slots = slices.Clone(parent.Slots)
+	edited.Slots[0].PrivateIP = "10.251.0.99"
+	if _, err := LeafRemote(edited, "sfo", wire, reviewed, creds, tls, time.Now()); err == nil {
+		t.Error("a parent inventory edited after issue was accepted")
+	}
+	if _, err := LeafRemote(parent, "sfo", wire, reviewed, creds, tls, parent.ExpiresAt); err == nil {
+		t.Error("expired parent material was accepted")
+	}
 }

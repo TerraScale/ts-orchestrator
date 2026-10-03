@@ -81,7 +81,9 @@ type Loop struct {
 	// Admissions admits approved regions and refreshes stale admissions of
 	// in-flight ones; nil admits nothing.
 	Admissions Admissions
-	// Effectors drive lifecycle steps; nil or empty drives nothing.
+	// Effectors drive lifecycle steps; nil drives nothing. A non-nil set,
+	// even an empty one, turns driving on: a region whose next step has no
+	// effector waits, and the wait is journaled once.
 	Effectors Effectors
 	Now       func() time.Time
 
@@ -143,7 +145,7 @@ func (loop *Loop) Tick(ctx context.Context) Report {
 			report.Errors = append(report.Errors, fmt.Errorf("plan regions: %w", err))
 		}
 	}
-	if loop.Admissions == nil && len(loop.Effectors) == 0 {
+	if loop.Admissions == nil && loop.Effectors == nil {
 		return report
 	}
 	records, err := loop.Store.List(ctx)
@@ -173,7 +175,7 @@ func (loop *Loop) Tick(ctx context.Context) Report {
 				continue
 			}
 		}
-		if len(loop.Effectors) != 0 {
+		if loop.Effectors != nil {
 			if err := loop.drive(ctx, epoch, record.Cell, records, &report); err != nil {
 				report.Errors = append(report.Errors, fmt.Errorf("advance region %s: %w", record.Cell, err))
 			}

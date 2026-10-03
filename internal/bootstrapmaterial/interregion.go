@@ -435,12 +435,22 @@ type privatePeerReceipt struct {
 // allows the parent's leaf port, and every URL is a parent controller
 // address inside the parent subnet the receipt observed. credentialsFile is
 // the child's copy of the parent's leaf-<child>.creds; its digest must match
-// the parent's record. TLS stays the caller's (the reviewed interregion CA).
+// the parent's record, which itself must be unexpired and still match its
+// own ledger digest. TLS stays the caller's (the reviewed interregion CA).
 func LeafRemote(parent InterRegionRecord, child string, receipt []byte, reviewedSHA256, credentialsFile string,
 	tls natscell.TLSFiles, now time.Time,
 ) (natscell.LeafRemote, error) {
 	if parent.Topology().Hub == "" {
 		return natscell.LeafRemote{}, ErrMaterial
+	}
+	// An edited inventory (a slot address or account changed after issue)
+	// no longer matches its ledger digest, and expired material's
+	// credentials would be refused by the parent anyway.
+	if ledger, err := parent.ledgerDigest(); err != nil || ledger != parent.LedgerDigest {
+		return natscell.LeafRemote{}, fmt.Errorf("%w: parent interregion record does not match its ledger digest", ErrMaterial)
+	}
+	if !now.Before(parent.ExpiresAt) {
+		return natscell.LeafRemote{}, fmt.Errorf("%w: parent interregion material has expired", ErrMaterial)
 	}
 	if dialed, ok := parent.Config.Topology.Parent(child); !ok || dialed != parent.Cell {
 		return natscell.LeafRemote{}, fmt.Errorf("%w: %s does not dial %s in the topology", ErrMaterial, child, parent.Cell)
