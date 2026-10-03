@@ -31,9 +31,9 @@ templ insightsBody(current view) {
 			<label>
 				Region
 				<select name="region">
-					<option value="">all regions</option>
+					<option value={ allRegions } selected?={ len(current.State.regionFilter()) == 0 }>all regions</option>
 					for _, region := range current.insightRegions() {
-						<option value={ region } selected?={ current.State.param("region") == region }>{ upper(region) }</option>
+						<option value={ region } selected?={ current.State.filtersRegion(region) }>{ upper(region) }</option>
 					}
 				</select>
 			</label>
@@ -43,7 +43,7 @@ templ insightsBody(current view) {
 			<div>
 				if list := current.filteredInsights(); len(list) == 0 {
 					<article>
-						<p class="empty">Nothing needs attention with these filters. Every rule is quiet.</p>
+						<p class="empty">{ current.quietText() }</p>
 					</article>
 				} else {
 					for _, insight := range list {
@@ -87,9 +87,9 @@ templ insightsBody(current view) {
 
 templ insightCard(current view, insight insights.Insight) {
 	<article
-		id={ "insight-" + insight.Key }
+		id={ "insight-" + insightID(insight) }
 		class={ "insight", "edge", sClass(severityStatus(insight.Severity)) }
-		if current.State.param("id") == insight.Key {
+		if current.State.param("id") == insightID(insight) {
 			aria-current="true"
 		}
 	>

@@ -63,3 +63,40 @@ func TestLinksRegionsAndRequests(t *testing.T) {
 		t.Fatal("the global scope is not a region")
 	}
 }
+
+// A caller deadline later than the link timeout does not stretch it.
+func TestLinkTimeoutAppliesUnderALaterCallerDeadline(t *testing.T) {
+	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, NoLog: true, NoSigs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go srv.Start()
+	if !srv.ReadyForConnections(5 * time.Second) {
+		t.Fatal("NATS did not start")
+	}
+	t.Cleanup(func() { srv.Shutdown(); srv.WaitForShutdown() })
+	conn, err := nats.Connect(srv.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(conn.Close)
+	if _, err := conn.Subscribe("ts.orch.v1.gru.obs.slow", func(message *nats.Msg) {
+		time.Sleep(2 * time.Second)
+		_ = message.Respond(nil)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	links, err := New("gru", conn, nil, 150*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	started := time.Now()
+	if _, err := links.Request(ctx, "gru", "slow", nil); err == nil {
+		t.Fatal("a slow region answered")
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("the request took %s under a 150ms link timeout", elapsed)
+	}
+}

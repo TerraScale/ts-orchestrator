@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -123,9 +124,14 @@ func (current *view) loadVersions(ctx context.Context) {
 	for _, member := range current.members() {
 		roles[member.Member] = member.Role
 	}
+	seen := map[[2]string]bool{}
 	for _, summary := range current.Regions {
 		for _, version := range summary.Versions {
 			for _, member := range version.Members {
+				if seen[[2]string{summary.Region, member}] {
+					continue
+				}
+				seen[[2]string{summary.Region, member}] = true
 				kind := "controller"
 				if summary.Region == local && roles[member] != "" {
 					kind = roles[member]
@@ -135,11 +141,16 @@ func (current *view) loadVersions(ctx context.Context) {
 			}
 		}
 	}
-	if len(current.Regions) == 0 {
-		for _, member := range current.members() {
-			current.Versions = append(current.Versions, UnitVersion{Region: local, Kind: member.Role,
-				Unit: member.Member, Version: member.BuildVersion})
+	// The local summary can come back without versions (its snapshot
+	// requests timed out) while this member's own snapshot is known: add
+	// every local member the summaries did not list.
+	for _, member := range current.members() {
+		if member.BuildVersion == "" || seen[[2]string{local, member.Member}] {
+			continue
 		}
+		seen[[2]string{local, member.Member}] = true
+		current.Versions = append(current.Versions, UnitVersion{Region: local, Kind: cmp.Or(member.Role, "controller"),
+			Unit: member.Member, Version: member.BuildVersion})
 	}
 }
 
@@ -177,11 +188,7 @@ func regionDecisions(current view) *decisionlog.Query {
 
 // journalDecisions reads the decisions page filters.
 func journalDecisions(current view) *decisionlog.Query {
-	regions := current.State.list("region")
-	if len(regions) == 0 && current.State.Region != "" {
-		regions = []string{current.State.Region}
-	}
-	query := decisionlog.Query{Regions: regions, Actors: current.State.list("actor"),
+	query := decisionlog.Query{Regions: current.State.regionFilter(), Actors: current.State.list("actor"),
 		Subject: strings.ToLower(current.State.param("q")), Since: current.since(0), Limit: 500}
 	for _, kind := range current.State.list("kind") {
 		query.Kinds = append(query.Kinds, decisionlog.Kind(kind))
@@ -232,6 +239,43 @@ func storageDecisions(current view) *decisionlog.Query {
 		Kinds: []decisionlog.Kind{decisionlog.KindBackupTaken, decisionlog.KindVolumeResized,
 			decisionlog.KindVolumeReattached}}
 }
+
+// coverage is how much of the requested decision history a page holds.
+type coverage int
+
+const (
+	// coverageMissing: no decision source is attached.
+	coverageMissing coverage = iota
+	// coverageFailed: the source is attached but the query failed.
+	coverageFailed
+	// coveragePartial: the query answered, but a region did not, older
+	// history could not be searched, or the result was truncated.
+	coveragePartial
+	// coverageComplete: every requested region answered in full.
+	coverageComplete
+)
+
+// decisionCoverage reports whether the loaded decisions can support a claim
+// that something did not happen (no rollback, no release).
+func (current view) decisionCoverage() coverage {
+	switch {
+	case current.Journal == nil || current.Journal.Decisions == nil:
+		return coverageMissing
+	case current.Decisions == nil:
+		return coverageFailed
+	case current.Decisions.Partial || current.Decisions.Truncated:
+		return coveragePartial
+	}
+	for _, status := range current.Decisions.Regions {
+		if status.State != decisionlog.RegionOK {
+			return coveragePartial
+		}
+	}
+	return coverageComplete
+}
+
+// failed reports that an attached provider failed on this render.
+func (current view) failed(name string) bool { return slices.Contains(current.Unavailable, name) }
 
 // decisions returns the loaded decisions, newest first.
 func (current view) decisions() []decisionlog.Decision {

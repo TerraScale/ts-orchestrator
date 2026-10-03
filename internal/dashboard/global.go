@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
@@ -33,9 +34,13 @@ func (current view) globalKPIs() []kpi {
 	answering, expected := 0, 0
 	databases, serving, desired, rollouts := 0, 0, 0, 0
 	var diskUsed, diskTotal uint64
+	quorumRegions := 0
 	for _, summary := range regions {
 		if summary.Reach == decisionlog.RegionOK {
 			observed++
+		}
+		if (summary.Reach == decisionlog.RegionOK || summary.Local) && !summary.Quorum.Unobserved {
+			quorumRegions++
 		}
 		if summary.Health.Status == regionview.StatusHealthy {
 			healthy++
@@ -62,12 +67,20 @@ func (current view) globalKPIs() []kpi {
 	}
 	members := current.historyRange(observability.HistMembersAnswering, nil, "", false)
 	if expected > 0 {
-		status := "ok"
+		// A region that does not answer reports no quorum at all: its
+		// controllers are unknown, so the total covers observed regions
+		// only and cannot be healthy.
+		status, sub := "ok", "across all regions"
 		if answering < expected {
 			status = "warn"
 		}
+		if quorumRegions < len(regions) {
+			status = "bad"
+			sub = "across " + itoa(quorumRegions) + " of " + itoa(len(regions)) + " regions; " +
+				itoa(len(regions)-quorumRegions) + " not answering"
+		}
 		tiles = append(tiles, kpi{Label: "Controllers up", Value: itoa(answering) + " / " + itoa(expected),
-			Sub: "across all regions", Status: status, Spark: sparkValues(members),
+			Sub: sub, Status: status, Spark: sparkValues(members),
 			Href: current.State.link("/topology")})
 	} else if len(current.members()) > 0 {
 		tiles = append(tiles, kpi{Label: "Members up", Value: itoa(len(current.members())),
@@ -102,11 +115,17 @@ func (current view) globalKPIs() []kpi {
 	if len(regions) > 0 || current.placement() != nil {
 		if len(regions) == 0 {
 			placement := current.placement()
-			databases = len(placement.Databases)
+			ids := map[string]bool{}
 			for _, database := range placement.Databases {
+				ids[database.DatabaseID] = true
 				serving += database.Serving
 				desired += database.DesiredSeats
+				// The same in-flight condition regionview counts.
+				if database.Rollout != nil && database.Rollout.Completed < database.Rollout.Seats {
+					rollouts++
+				}
 			}
+			databases = len(ids)
 		}
 		tiles = append(tiles, kpi{Label: "TerraBase instances", Value: itoa(databases),
 			Sub: itoa(serving) + " / " + itoa(desired) + " seats serving", Status: boolStatus(serving >= desired),
@@ -191,7 +210,7 @@ func (current view) globalCounts() insights.Counts {
 // filteredInsights applies the insights page's severity and region filters.
 func (current view) filteredInsights() []insights.Insight {
 	severities := current.State.list("severity")
-	regions := current.State.list("region")
+	regions := current.State.regionFilter()
 	var out []insights.Insight
 	for _, insight := range current.globalInsights() {
 		if len(severities) > 0 && !slices.Contains(severities, string(insight.Severity)) {
@@ -323,7 +342,16 @@ func (current view) decisionTimeline(decisions []decisionlog.Decision, byActor b
 		}
 	})
 	if len(spec.Items) == 0 {
-		spec.Empty = "No decisions were recorded in this time range."
+		switch current.decisionCoverage() {
+		case coverageMissing:
+			spec.Empty = "No decision journal is attached on this member."
+		case coverageFailed:
+			spec.Empty = "The decision timeline is unavailable right now: the journal query failed."
+		case coveragePartial:
+			spec.Empty = "No decisions found, but part of the history could not be searched."
+		default:
+			spec.Empty = "No decisions were recorded since " + formatTime(time.UnixMilli(spec.Start)) + "."
+		}
 	}
 	return spec
 }

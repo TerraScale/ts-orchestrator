@@ -58,6 +58,8 @@ type journalProviders struct {
 func (runtime *runtimeObservability) startDecisionJournal(ctx context.Context) {
 	journal := decisionlog.NewJournal(decisionlog.JournalConfig{Region: runtime.cell, Member: runtime.member,
 		Log: true})
+	ctx, cancel := context.WithCancel(ctx)
+	runtime.journalCtx, runtime.stopJournal = ctx, cancel
 	restore := decisionlog.SetDefault(journal)
 	context.AfterFunc(ctx, restore)
 	runtime.registry.Register(decisionlog.Metrics)
@@ -76,6 +78,9 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	if journal == nil {
 		return
 	}
+	// Everything feeding the journal ends with it.
+	ctx, cancel := context.WithCancel(ctx)
+	context.AfterFunc(runtime.journalCtx, cancel)
 	conn := observed.nats.Conn()
 	go openDecisionStream(ctx, observed.nats.JetStream(), runtime.cell, observed.replicas, journal)
 	if runtime.config.ClusterAggregation {
@@ -126,8 +131,9 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	}
 	federation := decisionlog.Federation{Local: journal, Links: links}
 	providers := journalProviders{Decisions: federation, Live: journal, History: history, Insights: engine,
-		Summarizer: insights.Summarizer{Decisions: federation, Insights: engine, Scope: "all regions"},
-		Regions:    regions}
+		Summarizer: insights.Summarizer{Decisions: federation, Insights: engine, Scope: "all regions",
+			AttentionScope: strings.ToUpper(runtime.cell)},
+		Regions: regions}
 	runtime.providers.Store(&providers)
 	mountJournalAPI(runtime.server, providers)
 	if runtime.dashboard != nil {
@@ -205,9 +211,10 @@ type clusterHealth interface {
 var _ clusterHealth = (*natscell.Runtime)(nil)
 
 // watchControlPlane journals authority leadership acquisitions (recorded by
-// the new leader, so each change is recorded once) and regional cluster
-// health transitions (recorded by the leader, or by any member while no
-// leader exists).
+// the new leader, so each change is recorded once), JetStream meta leader
+// elections (recorded by the elected server) and regional cluster health
+// transitions (recorded by the leader, or by any member while no valid
+// lease is observed).
 func watchControlPlane(ctx context.Context, cell, member string, fencer authority.Fencer, nats clusterHealth,
 	replicas int,
 ) {
@@ -218,7 +225,8 @@ func watchControlPlane(ctx context.Context, cell, member string, fencer authorit
 	ticker := time.NewTicker(controlPlaneWatchInterval)
 	defer ticker.Stop()
 	var observedEpoch uint64
-	wasLeader := false
+	wasLeader, wasMetaLeader := false, false
+	metaLeader := ""
 	healthy, everHealthy := false, false
 	var lastHealthCheck time.Time
 	for {
@@ -234,12 +242,26 @@ func watchControlPlane(ctx context.Context, cell, member string, fencer authorit
 		if time.Since(lastHealthCheck) >= healthEvery {
 			lastHealthCheck = time.Now()
 			ready := nats.FullClusterReady(replicas)
-			// The first full formation at startup is not a recovery.
-			if ready != healthy && everHealthy && (leading || snapshot.OwnerID == "") {
+			// The first full formation at startup is not a recovery. A
+			// follower records it too when it observes no valid lease: the
+			// authority runtime keeps its own candidate as OwnerID on
+			// control-log failures, so an empty OwnerID is not the test.
+			if ready != healthy && everHealthy && (leading || !validLease(snapshot, time.Now())) {
 				recordClusterHealth(ctx, cell, member, nats, replicas, ready, snapshot.Epoch)
 			}
 			healthy = ready
 			everHealthy = everHealthy || ready
+			viewCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			if view, err := nats.Observe(viewCtx); err == nil {
+				if view.IsMetaLeader && !wasMetaLeader {
+					recordMetaLeadership(ctx, cell, member, view, metaLeader, snapshot.Epoch)
+				}
+				wasMetaLeader = view.IsMetaLeader
+				if view.MetaLeader != "" {
+					metaLeader = view.MetaLeader
+				}
+			}
+			cancel()
 		}
 		select {
 		case <-ctx.Done():
@@ -247,6 +269,37 @@ func watchControlPlane(ctx context.Context, cell, member string, fencer authorit
 		case <-ticker.C:
 		}
 	}
+}
+
+// validLease reports that the snapshot observes a live regional lease held by
+// some controller.
+func validLease(snapshot authority.Snapshot, now time.Time) bool {
+	return snapshot.Ready && snapshot.OwnerID != "" && snapshot.Epoch > 0 &&
+		(snapshot.ExpiresAt.IsZero() || now.Before(snapshot.ExpiresAt))
+}
+
+// recordMetaLeadership journals this server's election as JetStream meta
+// leader; previous is the leader it last observed, if any.
+func recordMetaLeadership(ctx context.Context, cell, member string, view observability.NATSView, previous string,
+	epoch uint64,
+) {
+	reason := "The JetStream metadata group elected this server."
+	if previous != "" && previous != view.ServerName {
+		reason = fmt.Sprintf("The JetStream metadata group elected this server; %s led it before.", previous)
+	}
+	decisionlog.Record(ctx, decisionlog.Decision{
+		Region:  cell,
+		Actor:   decisionlog.Actor{Slice: "cluster"},
+		Kind:    decisionlog.KindLeaderChanged,
+		Subject: decisionlog.Subject{Kind: "nats-meta", ID: member, Name: view.ServerName},
+		Summary: fmt.Sprintf("%s became the JetStream meta leader", member),
+		Reason:  reason,
+		Rule:    "JetStream meta leader election",
+		Status:  decisionlog.StatusSucceeded,
+		Epoch:   epoch,
+		Signals: []decisionlog.Signal{{Name: "meta_leader", Text: view.ServerName},
+			{Name: "meta_cluster_size", Value: float64(view.MetaClusterSize)}},
+	})
 }
 
 func recordLeadership(ctx context.Context, cell, member string, snapshot authority.Snapshot, previousEpoch uint64) {

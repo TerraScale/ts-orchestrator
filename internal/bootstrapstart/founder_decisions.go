@@ -28,8 +28,12 @@ func recordFounderLaunch(ctx context.Context, cell, deploymentID, slot string, a
 	if launchErr != nil {
 		decision.Status = decisionlog.StatusFailed
 		decision.Summary = fmt.Sprintf("Founder peer launch for slot %s failed", slot)
-		decision.Reason = "The signed founder plan authorized the launch, but OCI did not create the instance after retries."
-		decision.Outcome = "launch failed"
+		// A lost launch response is ambiguous, and the attempt may end on
+		// cancellation or an authority refresh error: do not claim that no
+		// instance exists.
+		decision.Reason = "The signed founder plan authorized the launch, but the launch attempt ended with an error; " +
+			"whether OCI created an instance could not be confirmed."
+		decision.Outcome = "launch unconfirmed"
 	} else {
 		decision.Status = decisionlog.StatusSucceeded
 		decision.Summary = fmt.Sprintf("Founder peer launched for slot %s", slot)

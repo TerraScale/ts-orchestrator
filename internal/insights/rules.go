@@ -433,11 +433,13 @@ func memberHeld(inputs *Inputs) []Insight {
 				if member.UpdatePhase != "held" {
 					continue
 				}
-				out = append(out, Insight{Severity: SeverityWarning, Score: 2,
+				// Seat IDs repeat across databases and partitions.
+				seat := database.DatabaseID + "/" + database.PartitionID + "/" + member.SeatID
+				out = append(out, Insight{Severity: SeverityWarning, Score: 2, Key: "member_held:seat:" + seat,
 					Title: "Managed update held on seat " + member.SeatID,
 					Why: fmt.Sprintf("The managed runtime update of %s/%s is durably held on seat %s; it will not "+
 						"advance or roll forward without an operator.", database.DatabaseID, database.PartitionID, member.SeatID),
-					Entity:   Entity{Kind: "seat", ID: member.SeatID, Href: "/terrabase"},
+					Entity:   Entity{Kind: "seat", ID: seat, Href: "/terrabase"},
 					Evidence: []Evidence{{Label: "Update phase", Text: member.UpdatePhase}},
 					Actions: []Action{{Label: "Inspect the hold", Command: "ts-orch operator terrabase-status --state DIR"},
 						{Label: "Open TerraBase", Href: "/terrabase"}}})
@@ -503,11 +505,12 @@ func volumeStuck(inputs *Inputs) []Insight {
 				if stuck < limit {
 					continue
 				}
-				out = append(out, Insight{Severity: SeverityWarning, Score: stuck.Seconds(),
+				seat := database.DatabaseID + "/" + database.PartitionID + "/" + member.SeatID
+				out = append(out, Insight{Severity: SeverityWarning, Score: stuck.Seconds(), Key: "volume_stuck:seat:" + seat,
 					Title: "Volume stuck attaching for seat " + member.SeatID,
 					Why: fmt.Sprintf("Seat %s has waited in %s for %s; its retained volume is not attached.",
 						member.SeatID, member.Stage, roundDuration(stuck)),
-					Entity: Entity{Kind: "seat", ID: member.SeatID, Href: "/storage"},
+					Entity: Entity{Kind: "seat", ID: seat, Href: "/storage"},
 					Evidence: []Evidence{{Label: "Waiting", Value: stuck.Seconds(), Unit: "s", Comparison: "<",
 						Threshold: threshold(limit.Seconds())}},
 					Actions: []Action{{Label: "Inspect the attachment",
@@ -554,39 +557,50 @@ func diskTimeToFull(inputs *Inputs) []Insight {
 			usedEvidence := Evidence{Label: "Used", Metric: observability.HistFSRatio, Labels: labels, Value: ratio,
 				Unit: "ratio", Comparison: "<", Threshold: threshold(thresholds.DiskUsedWarning)}
 			action := Action{Label: "Find what is growing", Command: "du -xh --max-depth=2 " + filesystem.Path + " | sort -h | tail"}
+			// Both criteria are evaluated and the worse one wins, under one
+			// key per filesystem: crossing the usage warning must not
+			// downgrade a disk that fills within hours, nor resolve and
+			// reopen the same problem under a new key.
+			var candidates []Insight
 			if ratio >= thresholds.DiskUsedWarning {
 				severity := SeverityWarning
+				evidence := usedEvidence
 				if ratio >= thresholds.DiskUsedCritical {
 					severity = SeverityCritical
-					usedEvidence.Threshold = threshold(thresholds.DiskUsedCritical)
+					evidence.Threshold = threshold(thresholds.DiskUsedCritical)
 				}
-				out = append(out, Insight{Severity: severity, Score: ratio * 100, Key: "disk_used:" + entity.ID,
+				candidates = append(candidates, Insight{Severity: severity, Score: ratio * 100,
 					Title: fmt.Sprintf("%s %s filesystem is %.0f%% full", member.Member, filesystem.Role, ratio*100),
 					Why: fmt.Sprintf("The %s filesystem (%s) on %s has %s free.", filesystem.Role, filesystem.Path,
 						member.Member, bytesText(float64(filesystem.AvailBytes))),
-					Entity: entity, Evidence: []Evidence{usedEvidence}, Actions: []Action{action}})
+					Evidence: []Evidence{evidence}})
+			}
+			if ttf, rate, ok := timeToFull(inputs, labels, size, used); ok && ttf < thresholds.DiskTimeToFullWarning {
+				severity := SeverityWarning
+				limit := thresholds.DiskTimeToFullWarning
+				if ttf < thresholds.DiskTimeToFullCritical {
+					severity, limit = SeverityCritical, thresholds.DiskTimeToFullCritical
+				}
+				candidates = append(candidates, Insight{Severity: severity, Score: 1e6 / max(ttf.Hours(), 0.01),
+					Title: fmt.Sprintf("%s %s filesystem full in about %s", member.Member, filesystem.Role, roundDuration(ttf)),
+					Why: fmt.Sprintf("The %s filesystem on %s grows %s per hour and has %s free, so it fills in about %s.",
+						filesystem.Role, member.Member, bytesText(rate*3600), bytesText(size-used), roundDuration(ttf)),
+					Evidence: []Evidence{{Label: "Time to full", Value: ttf.Hours(), Unit: "h", Comparison: ">=",
+						Threshold: threshold(limit.Hours())},
+						{Label: "Growth", Metric: observability.HistFSUsed, Labels: labels, Value: rate * 3600, Unit: "bytes/h"},
+						usedEvidence}})
+			}
+			if len(candidates) == 0 {
 				continue
 			}
-			ttf, rate, ok := timeToFull(inputs, labels, size, used)
-			if !ok || ttf >= thresholds.DiskTimeToFullWarning {
-				continue
+			worst := candidates[0]
+			for _, candidate := range candidates[1:] {
+				if candidate.Severity.Rank() > worst.Severity.Rank() {
+					worst = candidate
+				}
 			}
-			severity := SeverityWarning
-			limit := thresholds.DiskTimeToFullWarning
-			if ttf < thresholds.DiskTimeToFullCritical {
-				severity, limit = SeverityCritical, thresholds.DiskTimeToFullCritical
-			}
-			out = append(out, Insight{Severity: severity, Score: 1e6 / max(ttf.Hours(), 0.01),
-				Key:   "disk_time_to_full:" + entity.ID,
-				Title: fmt.Sprintf("%s %s filesystem full in about %s", member.Member, filesystem.Role, roundDuration(ttf)),
-				Why: fmt.Sprintf("The %s filesystem on %s grows %s per hour and has %s free, so it fills in about %s.",
-					filesystem.Role, member.Member, bytesText(rate*3600), bytesText(size-used), roundDuration(ttf)),
-				Entity: entity,
-				Evidence: []Evidence{{Label: "Time to full", Value: ttf.Hours(), Unit: "h", Comparison: ">=",
-					Threshold: threshold(limit.Hours())},
-					{Label: "Growth", Metric: observability.HistFSUsed, Labels: labels, Value: rate * 3600, Unit: "bytes/h"},
-					usedEvidence},
-				Actions: []Action{action}})
+			worst.Key, worst.Entity, worst.Actions = "disk:"+entity.ID, entity, []Action{action}
+			out = append(out, worst)
 		}
 	}
 	return out

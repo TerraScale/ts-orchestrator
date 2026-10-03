@@ -93,9 +93,7 @@ func (region *region) member(name string, t, start time.Time, placement *observa
 	member := observability.MemberSnapshot{Version: observability.SnapshotVersion, Cell: region.name, Member: name,
 		Role: "controller", BuildVersion: region.versions[name], StartedAt: start.Add(-time.Duration(len(name)) * 7 * time.Hour),
 		ObservedAt: t, Ready: true,
-		Checks: []observability.CheckResult{{Name: "nats", OK: true}, {Name: "cluster", OK: len(region.missing) == 0,
-			Detail: detailIf(len(region.missing) > 0, "regional cluster is below its full replica count")},
-			{Name: "authority", OK: true}},
+		Checks: region.checks(name),
 		Authority: &observability.AuthorityView{Leader: leader, Ready: true, CanMutate: leader, OwnerID: region.leader,
 			Epoch: region.epoch, Revision: region.epoch*40 + uint64(t.Unix()/30)%40, ExpiresAt: t.Add(8 * time.Second),
 			ObservedAt: t},
@@ -104,14 +102,16 @@ func (region *region) member(name string, t, start time.Time, placement *observa
 			Load1:      util * cpus * 1.1, Load5: (0.32 + bonus(leader)) * cpus, Load15: 0.3 * cpus,
 			MemTotalBytes: 16 * gib, MemAvailBytes: uint64(float64(16*gib) * (0.5 - 0.08*wave(t, 2*time.Hour, name+"m"))),
 			Pressure:    map[string]observability.PSI{"memory": {SomeAvg10: math.Max(0, 0.4*wave(t, 40*time.Minute, name))}},
-			Filesystems: region.filesystems(name, t), UptimeSeconds: t.Sub(start).Seconds() + 86400*3,
+			Filesystems: region.filesystems(name, t, start), UptimeSeconds: t.Sub(start).Seconds() + 86400*3,
 			ProcessRSSBytes: 380 << 20},
 	}
-	member.Ready = member.Checks[1].OK || !leader
+	// Readiness is every check passing, whatever the member's role, as
+	// observability.Health.Evaluate decides it.
+	member.Ready = allOK(member.Checks)
 	member.NATS = region.nats(name, t, leader)
 	if leader {
 		member.Placement = placement
-		member.OCI = region.oci(t)
+		member.OCI = region.oci(t, start)
 	}
 	member.Delivery = &observability.DeliveryView{Acknowledged: uint64(integral(local, 0.02, 0.01, time.Hour, name)),
 		Deferred: uint64(integral(local, 0.0004, 0.0002, time.Hour, name)), TransportRetries: 3, LastAckAt: t.Add(-42 * time.Second)}
@@ -125,20 +125,45 @@ func bonus(leader bool) float64 {
 	return 0
 }
 
-func detailIf(condition bool, detail string) string {
-	if condition {
-		return detail
+// checks are the member's readiness checks with the same names and detail
+// phrases the controller registers (internal/app/observability.go).
+func (region *region) checks(name string) []observability.CheckResult {
+	peers := len(region.controllers) + len(region.missing)
+	cluster := observability.CheckResult{Name: "cluster", OK: true,
+		Detail: fmt.Sprintf("%d of %d replicas routed", peers, peers)}
+	if len(region.missing) > 0 {
+		cluster = observability.CheckResult{Name: "cluster",
+			Detail: "regional cluster is below its full replica count"}
 	}
-	return ""
+	return []observability.CheckResult{
+		{Name: "startup", OK: true, Detail: "runtime started"},
+		{Name: "nats", OK: true, Detail: "regional broker connected"},
+		cluster,
+		{Name: "authority", OK: true, Detail: fmt.Sprintf("lease held by %s, epoch %d", region.leader, region.epoch)},
+	}
 }
 
-func (region *region) filesystems(name string, t time.Time) []observability.FilesystemView {
+func allOK(checks []observability.CheckResult) bool {
+	for _, check := range checks {
+		if !check.OK {
+			return false
+		}
+	}
+	return len(checks) > 0
+}
+
+// fullDiskRate is how fast the filling disk fills, as a ratio per hour.
+const fullDiskRate = 0.0035
+
+func (region *region) filesystems(name string, t, start time.Time) []observability.FilesystemView {
 	hours := float64(t.Sub(counterEpoch).Hours())
 	root := 0.31 + 0.0001*hours
 	nats := 0.42 + 0.02*wave(t, 6*time.Hour, name) + 0.00005*hours
 	if name == region.fullDisk {
-		// Fills about 0.35% an hour from 73% a day ago: under 72h to full.
-		nats = 0.715 + 0.0035*(hours-float64(time.Since(counterEpoch).Hours()-24))
+		// Fills about 0.35% an hour from 73% a day before the world
+		// started: under 72h to full. Anchored to the fixed world start,
+		// so live samples keep growing like the backfill.
+		nats = 0.715 + fullDiskRate*(t.Sub(start).Hours()+24)
 	}
 	view := func(role, path string, size uint64, used float64) observability.FilesystemView {
 		used = math.Min(math.Max(used, 0), 0.999)
@@ -214,27 +239,32 @@ var ociOperations = []struct {
 	{"objectstorage", "PUT /n/{ns}/b/{bucket}/o/{object}", 0.2, 0.65},
 }
 
-func (region *region) oci(t time.Time) *observability.OCIView {
+// stormLead is how long before the world started the 429 storm began.
+const stormLead = 40 * time.Minute
+
+// stormShare is the share of compute calls OCI answers with 429 during the
+// storm: enough for a warning, not a critical insight.
+const stormShare = 0.012
+
+func (region *region) oci(t, start time.Time) *observability.OCIView {
 	local := since(t)
 	view := &observability.OCIView{}
 	for _, op := range ociOperations {
 		calls := integral(local, op.rate, op.rate*0.5, 23*time.Minute, op.operation)
 		errorRate := 0.004
-		throttleRate := 0.0
+		throttled := 0.0
 		if region.throttled && op.service == "compute" {
-			// A 429 storm in the last half hour.
-			if time.Since(t) < 40*time.Minute {
-				throttleRate = 0.12
-			}
+			// A 429 storm that began stormLead before the world started and
+			// is still going: elapsed storm time comes from the fixed world
+			// start, so backfill and live samples share one origin and the
+			// counter keeps rising.
+			throttled = op.rate * stormShare * math.Max(0, t.Sub(start.Add(-stormLead)).Seconds())
 			errorRate = 0.01
 		}
-		throttled := integral(local, op.rate*throttleRate, 0, time.Hour, op.operation)
-		if region.throttled && op.service == "compute" {
-			// Earlier history carried none; keep the counter monotonic.
-			throttled = op.rate * 0.12 * math.Max(0, 40*60-time.Since(t).Seconds())
-		}
 		errors := calls*errorRate + throttled
-		seconds := calls * op.latency * (1 + 0.15*wave(t, 31*time.Minute, op.operation))
+		// Total call duration is the integral of call rate x latency, with
+		// latency swinging 15% on a 31-minute wave; it only ever grows.
+		seconds := op.latency * (calls + 0.15*integral(local, 0, op.rate, 31*time.Minute, op.operation))
 		status := 200
 		code := 0
 		if throttled > 0 {

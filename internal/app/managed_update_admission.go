@@ -274,10 +274,14 @@ func verifyManagedCompatibility(intent placement.ManagedUpdateIntent, update pro
 
 // recordManagedUpdateAdmission journals the admitted update as the root of
 // its decision chain; the placement reconciler's canary phases link to it.
+// Its ID is derived from the operation, so an idempotent Prepare replay
+// records nothing new and any controller that resumes the update links to
+// the same root.
 func recordManagedUpdateAdmission(ctx context.Context, cell, actor string, intent placement.ManagedUpdateIntent,
 	sequence uint64,
 ) {
 	id := decisionlog.Record(ctx, decisionlog.Decision{
+		ID:     placement.ManagedUpdateAdmissionID(intent.OperationID),
 		Region: cell,
 		Actor:  decisionlog.Actor{Slice: "placement"},
 		Kind:   decisionlog.KindReleaseAdmitted,

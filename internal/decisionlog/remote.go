@@ -161,7 +161,8 @@ func (federation Federation) Query(ctx context.Context, query Query) (Result, er
 		merged.Partial = merged.Partial || result.Partial
 	}
 	for _, status := range statuses {
-		if status.State != RegionOK && status.State != RegionNotLinked {
+		// A configured region that is not linked was not searched either.
+		if status.State != RegionOK {
 			merged.Partial = true
 		}
 	}
@@ -220,16 +221,24 @@ func (federation Federation) queryRegion(ctx context.Context, region string, que
 
 // Chain looks the chain up locally first, then in every linked region.
 func (federation Federation) Chain(ctx context.Context, id string) (Chain, error) {
+	// Keep searching past a journal that cannot answer (this member's while
+	// it replays or its archive fails, or a linked region's), but do not
+	// turn its failure into a negative answer: ErrNotFound only when every
+	// searched journal answered that it has no such decision.
+	var unavailable error
 	if federation.Local != nil {
 		chain, err := federation.Local.Chain(ctx, id)
 		if err == nil {
 			return chain, nil
 		}
 		if !errors.Is(err, ErrNotFound) {
-			return Chain{}, err
+			unavailable = err
 		}
 	}
 	if federation.Links == nil {
+		if unavailable != nil {
+			return Chain{}, unavailable
+		}
 		return Chain{}, ErrNotFound
 	}
 	for _, region := range federation.Links.Regions() {
@@ -237,9 +246,15 @@ func (federation Federation) Chain(ctx context.Context, id string) (Chain, error
 			continue
 		}
 		reply, err := federation.request(ctx, region, remoteRequest{Version: wireVersion, ChainID: id})
-		if err == nil && reply.Chain != nil {
+		switch {
+		case err == nil && reply.Chain != nil:
 			return *reply.Chain, nil
+		case err != nil && !errors.Is(err, ErrNotFound) && unavailable == nil:
+			unavailable = ErrUnavailable
 		}
+	}
+	if unavailable != nil {
+		return Chain{}, unavailable
 	}
 	return Chain{}, ErrNotFound
 }

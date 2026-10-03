@@ -2,6 +2,7 @@ package decisionlog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -169,6 +170,15 @@ func TestFederationAcrossRegions(t *testing.T) {
 	if err != nil || chain.Root.ID != remoteID {
 		t.Fatalf("remote chain = %+v err=%v", chain, err)
 	}
+	// MIA is linked but does not answer: a miss is not proof of absence.
+	if _, err := federation.Chain(ctx, "missing"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("chain with an unreachable region = %v, want ErrUnavailable", err)
+	}
+	// A configured region that is not linked was not searched either.
+	linked, _ := federation.Query(ctx, Query{Regions: []string{"gru", "fra"}})
+	if !linked.Partial {
+		t.Fatal("an unlinked configured region left the result complete")
+	}
 }
 
 func TestEncodeReplyTrimsToLimit(t *testing.T) {
@@ -179,5 +189,65 @@ func TestEncodeReplyTrimsToLimit(t *testing.T) {
 	data, err := encodeReply(remoteReply{Version: wireVersion, Result: &result}, 8<<10)
 	if err != nil || len(data) > 8<<10 {
 		t.Fatalf("len=%d err=%v", len(data), err)
+	}
+}
+
+// A replay whose consumer broke half way resumes from the next sequence; it
+// must still end once the sequence the stream held at the start is read,
+// not leave every later query partial for the life of the process.
+func TestResumedReplayStillEnds(t *testing.T) {
+	conn := startJetStream(t)
+	stream := openTestStream(t, conn)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	writer := NewJournal(JournalConfig{Region: "gru", Member: "ctrl-1", Sink: stream})
+	go func() { _ = writer.Run(ctx) }()
+	for index := range 4 {
+		writer.Record(ctx, Decision{Kind: KindHeld, Actor: Actor{Slice: "placement"}, Summary: fmt.Sprint(index)})
+	}
+	waitFor(t, func() bool { return writer.Stats().Published == 4 })
+	info, err := stream.stream.Info(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := NewJournal(JournalConfig{Region: "gru", Member: "ctrl-2"})
+	reader.beginReplay()
+	// The first consumer read the first two messages before it broke.
+	next, caughtUp := uint64(3), info.State.LastSeq
+	go func() { _ = stream.tailOnce(ctx, reader, 100, &next, &caughtUp) }()
+	waitFor(t, func() bool { return !reader.replaying.Load() })
+}
+
+// A local journal that cannot answer (it is still replaying) must not stop
+// the federation from finding a chain held by another region, and a miss
+// everywhere is unavailable rather than not found.
+func TestFederatedChainSearchesPastAnUnavailableLocalJournal(t *testing.T) {
+	conn := startJetStream(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	local := NewJournal(JournalConfig{Region: "gru", Member: "gru-1"})
+	local.beginReplay()
+	remote := NewJournal(JournalConfig{Region: "sfo", Member: "sfo-1"})
+	remoteID := remote.Record(ctx, Decision{Kind: KindScaleUp, Actor: Actor{Slice: "autoscale"}})
+	if _, err := ServeQueries(ctx, conn, "sfo", remote); err != nil {
+		t.Fatal(err)
+	}
+	links, err := regionlink.New("GRU", conn, []string{"GRU", "SFO"}, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := links.Link("sfo", conn); err != nil {
+		t.Fatal(err)
+	}
+	federation := Federation{Local: local, Links: links}
+	chain, err := federation.Chain(ctx, remoteID)
+	if err != nil || chain.Root.ID != remoteID {
+		t.Fatalf("remote chain behind a replaying local journal = %+v err=%v", chain, err)
+	}
+	if _, err := federation.Chain(ctx, "missing"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("miss with an unavailable local journal = %v, want ErrUnavailable", err)
+	}
+	if _, err := (Federation{Local: local}).Chain(ctx, "missing"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("miss without links = %v, want ErrUnavailable", err)
 	}
 }

@@ -308,6 +308,10 @@ details.decision > summary { cursor: pointer; }
 .matrix td.cell { min-width: 9rem; }
 .matrix td.cell.drift { background: color-mix(in srgb, var(--ts-warn) 14%, transparent) !important; }
 .matrix .vchip { display: inline-flex; gap: 0.3rem; align-items: center; margin: 0.08rem 0.75rem 0.08rem 0; white-space: nowrap; }
+.readiness { font-size: 0.84rem; }
+.readiness .check { display: inline-flex; gap: 0.3rem; align-items: baseline; margin: 0.08rem 0.9rem 0.08rem 0; white-space: nowrap; }
+.readiness .check .dot { align-self: center; }
+.note.scope { margin-bottom: var(--gap, 1rem); }
 .phase-row { display: flex; gap: 3px; align-items: stretch; margin: 0.25rem 0 0.5rem; }
 .phase-row .phase { flex: 1; text-align: center; padding: 0.3rem 0.2rem; border-radius: 0.3rem; font-size: 0.78rem; background: color-mix(in srgb, var(--s, var(--ts-idle)) 15%, transparent); border-bottom: 3px solid var(--s, var(--ts-hairline)); }
 .seat-grid { display: flex; flex-wrap: wrap; gap: 3px; }

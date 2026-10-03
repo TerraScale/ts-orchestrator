@@ -20,9 +20,9 @@ templ decisionsBody(current view) {
 			<label>
 				Region
 				<select name="region">
-					<option value="">all</option>
+					<option value={ allRegions } selected?={ len(current.State.regionFilter()) == 0 }>all</option>
 					for _, region := range current.regionOptions() {
-						<option value={ region } selected?={ current.State.param("region") == region }>{ upper(region) }</option>
+						<option value={ region } selected?={ current.State.filtersRegion(region) }>{ upper(region) }</option>
 					}
 				</select>
 			</label>
@@ -81,7 +81,7 @@ templ decisionsBody(current view) {
 					<span><span class="dot s-serious"></span>rolled back</span>
 				</span>
 			</div>
-			@timeline("tall", current.decisionTimeline(current.decisions(), current.State.param("region") != ""))
+			@timeline("tall", current.decisionTimeline(current.decisions(), len(current.State.regionFilter()) == 1))
 		</article>
 		<div class="cols-2">
 			<article>
@@ -97,18 +97,18 @@ templ decisionsBody(current view) {
 }
 
 templ regionStatuses(result *decisionlog.Result) {
-	if result.Partial || result.Truncated {
+	if result.Partial || result.Truncated || len(unansweredRegions(result)) > 0 {
 		<p class="note warn">
 			if result.Truncated {
 				More decisions matched than are shown; narrow the filters or the time range.
 			}
-			if result.Partial {
+			if missing := unansweredRegions(result); len(missing) > 0 {
 				Some regions did not answer, so this list is partial:
-				for _, status := range result.Regions {
-					if status.State != decisionlog.RegionOK {
-						<span class="tag">{ upper(status.Region) } { reachLabel(status.State) }</span>
-					}
+				for _, status := range missing {
+					<span class="tag">{ upper(status.Region) } { reachLabel(status.State) }</span>
 				}
+			} else if result.Partial {
+				Part of the requested history could not be searched (it is older than the in-memory window and the durable journal was unavailable), so this list may be incomplete.
 			}
 		</p>
 	}
@@ -154,7 +154,7 @@ templ chainPanel(current view, chain decisionlog.Chain) {
 				{ chain.Root.Summary }
 				<small>{ itoa(len(chain.Decisions)) } steps · now { statusLabel(chain.Latest.Status) }</small>
 			</h2>
-			<a href={ safe(current.State.keep("/decisions", "id", "")) }>Close ✕</a>
+			<a href={ safe(current.State.keep(current.Page.href(), "id", "")) }>Close ✕</a>
 		</div>
 		<ol class="chain">
 			for _, decision := range chain.Decisions {

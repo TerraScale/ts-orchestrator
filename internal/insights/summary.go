@@ -22,8 +22,19 @@ type SummaryInput struct {
 	// DecisionsTruncated reports that more decisions matched the window
 	// than Decisions holds, so counts are lower bounds.
 	DecisionsTruncated bool
-	Changes            []Change
-	Open               []Insight
+	// DecisionsPartial reports that part of the window could not be
+	// searched; Unanswered names the regions that did not answer.
+	DecisionsPartial bool
+	Unanswered       []string
+	Changes          []Change
+	// ChangesTruncated reports that the insight engine no longer holds
+	// every change of the window, so opened/resolved counts are lower
+	// bounds.
+	ChangesTruncated bool
+	Open             []Insight
+	// AttentionScope names what Open covers when it is narrower than
+	// Scope, for example this region's engine in an all-regions summary.
+	AttentionScope string
 }
 
 // Summary is a deterministic plain-language account of a window.
@@ -39,6 +50,9 @@ type Summary struct {
 	Opened    int      `json:"opened"`
 	Resolved  int      `json:"resolved"`
 	Open      Counts   `json:"open"`
+	// Partial reports that the counts cover only part of the window or
+	// scope.
+	Partial bool `json:"partial,omitzero"`
 }
 
 // kindNouns maps decision kinds to singular and plural phrases.
@@ -124,10 +138,15 @@ func Summarize(input SummaryInput) Summary {
 	summary.Decisions = len(decisions)
 	window := WindowPhrase(input.Window)
 	var sentences []string
-	if len(decisions) == 0 {
+	summary.Partial = input.DecisionsPartial || input.ChangesTruncated
+	switch {
+	case len(decisions) == 0 && input.DecisionsPartial:
+		sentences = append(sentences, fmt.Sprintf("In the last %s no decisions were found in %s, but part of the "+
+			"history could not be searched%s.", window, scope, unansweredText(input.Unanswered)))
+	case len(decisions) == 0:
 		sentences = append(sentences, fmt.Sprintf("In the last %s the orchestrator made no recorded decisions in %s.",
 			window, scope))
-	} else {
+	default:
 		counts := map[decisionlog.Kind]int{}
 		for _, decision := range decisions {
 			counts[decision.Kind]++
@@ -155,11 +174,15 @@ func Summarize(input SummaryInput) Summary {
 			noun = "decision"
 		}
 		made := fmt.Sprintf("%d %s", len(decisions), noun)
-		if input.DecisionsTruncated {
+		if input.DecisionsTruncated || input.DecisionsPartial {
 			made = "at least " + made
 		}
 		sentences = append(sentences, fmt.Sprintf("In the last %s the orchestrator made %s in %s: %s.",
 			window, made, scope, joinList(phrases)))
+		if input.DecisionsPartial {
+			sentences = append(sentences, "Part of the history could not be searched"+
+				unansweredText(input.Unanswered)+", so these counts are lower bounds.")
+		}
 		sentences = append(sentences, notable(decisions)...)
 	}
 	for _, change := range input.Changes {
@@ -174,14 +197,29 @@ func Summarize(input SummaryInput) Summary {
 		}
 	}
 	if summary.Opened > 0 || summary.Resolved > 0 {
-		sentences = append(sentences, fmt.Sprintf("%s opened and %s resolved.",
-			countNoun(summary.Opened, "problem", "problems"), countNoun(summary.Resolved, "problem", "problems")))
+		atLeast := ""
+		if input.ChangesTruncated {
+			atLeast = "At least "
+		}
+		sentence := fmt.Sprintf("%s opened and %s resolved", countNoun(summary.Opened, "problem", "problems"),
+			countNoun(summary.Resolved, "problem", "problems"))
+		if atLeast != "" {
+			sentence = atLeast + lowerFirst(sentence)
+		}
+		if input.AttentionScope != "" {
+			sentence += " in " + input.AttentionScope
+		}
+		sentences = append(sentences, sentence+".")
 	}
 	open := slices.Clone(input.Open)
 	Rank(open)
+	where := ""
+	if input.AttentionScope != "" {
+		where = " in " + input.AttentionScope
+	}
 	switch {
 	case len(open) == 0:
-		sentences = append(sentences, "Nothing needs attention right now.")
+		sentences = append(sentences, "Nothing needs attention"+where+" right now.")
 	default:
 		var parts []string
 		if summary.Open.Critical > 0 {
@@ -197,12 +235,24 @@ func Summarize(input SummaryInput) Summary {
 		if len(open) > 1 {
 			verb = "need"
 		}
-		sentences = append(sentences, fmt.Sprintf("Now %s %s attention, most urgently: %s.", joinList(parts), verb,
-			strings.TrimSuffix(open[0].Title, ".")))
+		sentences = append(sentences, fmt.Sprintf("Now %s %s attention%s, most urgently: %s.", joinList(parts), verb,
+			where, strings.TrimSuffix(open[0].Title, ".")))
 	}
 	summary.Sentences = sentences
 	summary.Text = strings.Join(sentences, " ")
 	return summary
+}
+
+func unansweredText(regions []string) string {
+	if len(regions) == 0 {
+		return ""
+	}
+	upper := make([]string, len(regions))
+	for index, region := range regions {
+		upper[index] = strings.ToUpper(region)
+	}
+	verb := "did"
+	return " (" + joinList(upper) + " " + verb + " not answer)"
 }
 
 // notable calls out the decisions an operator most wants to hear about,
@@ -318,7 +368,17 @@ type Summarizer struct {
 	// source answers for.
 	Regions []string
 	Scope   string
-	Now     func() time.Time
+	// AttentionScope names what Insights covers when narrower than Scope
+	// (the local engine in an all-regions summary).
+	AttentionScope string
+	Now            func() time.Time
+}
+
+// changeRetention is implemented by sources that drop old changes.
+type changeRetention interface {
+	// ChangesComplete reports whether every change at or after since is
+	// still held.
+	ChangesComplete(since time.Time) bool
 }
 
 // Summary generates the paragraph for the window ending now.
@@ -328,7 +388,7 @@ func (summarizer Summarizer) Summary(ctx context.Context, window time.Duration) 
 		now = summarizer.Now()
 	}
 	now = now.UTC()
-	input := SummaryInput{Now: now, Window: window, Scope: summarizer.Scope}
+	input := SummaryInput{Now: now, Window: window, Scope: summarizer.Scope, AttentionScope: summarizer.AttentionScope}
 	if summarizer.Decisions != nil {
 		result, err := summarizer.Decisions.Query(ctx, decisionlog.Query{Regions: summarizer.Regions,
 			Since: now.Add(-window), Until: now.Add(time.Nanosecond), Limit: decisionlog.MaxQueryLimit})
@@ -337,10 +397,20 @@ func (summarizer Summarizer) Summary(ctx context.Context, window time.Duration) 
 		}
 		input.Decisions = result.Decisions
 		input.DecisionsTruncated = result.Truncated
+		input.DecisionsPartial = result.Partial
+		for _, status := range result.Regions {
+			if status.State != decisionlog.RegionOK {
+				input.DecisionsPartial = true
+				input.Unanswered = append(input.Unanswered, status.Region)
+			}
+		}
 	}
 	if summarizer.Insights != nil {
 		input.Changes = summarizer.Insights.Changes(now.Add(-window))
 		input.Open = summarizer.Insights.Current().Insights
+		if retention, ok := summarizer.Insights.(changeRetention); ok {
+			input.ChangesTruncated = !retention.ChangesComplete(now.Add(-window))
+		}
 	}
 	return Summarize(input), nil
 }

@@ -179,22 +179,55 @@ func (current view) switcher() []switcherRegion {
 	return out
 }
 
-// switchLink keeps the current page when it can show the region, and goes
-// to the region overview from the global page.
-func (current view) switchLink(region string) string {
-	target := current.Page.href()
-	if current.Page.slug == "" {
-		target = "/region"
+// scope is what the region switcher's selection means on a page.
+type scope int
+
+const (
+	// scopeRegional pages show the selected region (r).
+	scopeRegional scope = iota
+	// scopeFiltered pages list every region and narrow by their own region
+	// filter, which defaults to the selected region.
+	scopeFiltered
+	// scopeGlobal pages always show every region.
+	scopeGlobal
+	// scopeLocal pages show this member's live state only.
+	scopeLocal
+)
+
+func (page page) scope() scope {
+	switch page.slug {
+	case "region", "nats", "terrabase", "storage":
+		return scopeRegional
+	case "insights", "decisions":
+		return scopeFiltered
+	case "", "releases", "ci", "topology":
+		return scopeGlobal
+	default:
+		return scopeLocal
 	}
-	return current.State.link(target, "r", region)
 }
 
-// globalScope reports pages that show every region at once unless a region
-// is selected.
+// switchLink keeps the current page when it shows the selected region and
+// otherwise goes to that region's overview, so the switcher never claims a
+// regional view the page does not render.
+func (current view) switchLink(region string) string {
+	switch current.Page.scope() {
+	case scopeRegional:
+		return current.State.link(current.Page.href(), "r", region)
+	case scopeFiltered:
+		return current.State.keep(current.Page.href(), "r", region, "region", "")
+	default:
+		return current.State.link("/region", "r", region)
+	}
+}
+
+// globalScope reports that the page currently shows every region.
 func (current view) globalScope() bool {
-	switch current.Page.slug {
-	case "", "insights", "decisions", "releases", "ci", "topology":
-		return current.State.Region == ""
+	switch current.Page.scope() {
+	case scopeGlobal:
+		return true
+	case scopeFiltered:
+		return len(current.State.regionFilter()) == 0
 	}
 	return false
 }
@@ -202,15 +235,26 @@ func (current view) globalScope() bool {
 // allRegionsLink stays on a page that can show every region and otherwise
 // goes to the global landing page.
 func (current view) allRegionsLink() string {
-	switch current.Page.slug {
-	case "insights", "decisions", "releases", "ci", "topology":
+	switch current.Page.scope() {
+	case scopeFiltered:
+		return current.State.keep(current.Page.href(), "r", "", "region", "")
+	case scopeGlobal:
 		return current.State.keep(current.Page.href(), "r", "")
 	}
 	return current.State.link("/", "r", "")
 }
 
+// selectedRegion marks the region the page's data comes from.
 func (current view) selectedRegion(region string) bool {
-	return !current.globalScope() && current.region() == region
+	switch current.Page.scope() {
+	case scopeGlobal:
+		return false
+	case scopeFiltered:
+		return current.State.filtersRegion(region)
+	case scopeLocal:
+		return region == current.localRegion()
+	}
+	return current.region() == region
 }
 
 // paletteItem is one command palette entry.
@@ -250,7 +294,7 @@ func (current view) paletteJSON() string {
 	if current.Evaluation != nil {
 		for _, insight := range current.Evaluation.Insights {
 			items = append(items, paletteItem{Label: insight.Title, Group: "Insight " + string(insight.Severity),
-				Href: current.State.link("/insights", "id", insight.Key)})
+				Href: current.insightLink(insight)})
 		}
 	}
 	data, _ := json.Marshal(items)

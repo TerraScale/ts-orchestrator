@@ -143,11 +143,10 @@ func (links *Links) Request(ctx context.Context, region, leaf string, payload []
 	if err != nil {
 		return nil, err
 	}
-	if _, has := ctx.Deadline(); !has {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, links.timeout)
-		defer cancel()
-	}
+	// Always bound the request by the link timeout; an earlier caller
+	// deadline still wins, a later one does not stretch it.
+	ctx, cancel := context.WithTimeout(ctx, links.timeout)
+	defer cancel()
 	message, err := conn.RequestWithContext(ctx, subject, payload)
 	if err != nil {
 		return nil, err

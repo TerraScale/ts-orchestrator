@@ -199,11 +199,15 @@ class EChartElement extends HTMLElement {
       this.chart = echarts.init(this.box, null, { renderer: "canvas" });
       this.chart.on("click", (event) => this.clicked(event));
     }
+    // option() may await (the map's GeoJSON): the element can be detached,
+    // its chart disposed or replaced, or a newer render started meanwhile.
+    const chart = this.chart;
+    const generation = (this.generation = (this.generation || 0) + 1);
     const option = await this.option(spec, t);
-    if (!option) return;
+    if (!option || !this.isConnected || this.chart !== chart || this.generation !== generation) return;
     option.animationDuration = fresh ? 300 : 0;
     option.animationDurationUpdate = 250;
-    this.chart.setOption(option, { notMerge: fresh, replaceMerge: ["series", "xAxis", "yAxis", "visualMap"] });
+    chart.setOption(option, { notMerge: fresh, replaceMerge: ["series", "xAxis", "yAxis", "visualMap"] });
   }
   clicked(event) {
     const data = event.data || {};
@@ -791,7 +795,10 @@ TsTopology.prototype.option = async function (spec, t) {
   }));
   const tip = (p) => {
     if (p.dataType === "node") {
-      const n = p.data.node;
+      // Resolve by id from the current spec: a patch that changes only a
+      // node's details or stage label keeps the drawn graph (and its stored
+      // node objects) to preserve the layout.
+      const n = (this.spec().nodes || []).find((node) => node.id === p.data.id) || p.data.node;
       return n ? `<b>${escapeHTML(n.name)}</b><br>${escapeHTML(n.kind)} · ${escapeHTML(n.stateLabel || n.state)}<br><span style="opacity:.65">click for details</span>` : "";
     }
     const name = (id) => (spec.nodes || []).find((n) => n.id === id)?.name || id;
@@ -819,10 +826,18 @@ customElements.define("ts-topology", TsTopology);
 let geoLoading = null;
 function loadGeo(url) {
   if (!geoLoading) {
-    geoLoading = fetch(url, { credentials: "same-origin" }).then((r) => r.json()).then((geo) => {
+    const attempt = fetch(url, { credentials: "same-origin" }).then((r) => {
+      if (!r.ok) throw new Error("GeoJSON " + r.status);
+      return r.json();
+    }).then((geo) => {
       echarts.registerMap("world", geo);
       return true;
-    }).catch(() => false);
+    }).catch(() => {
+      // Only success is cached: the next render retries.
+      if (geoLoading === attempt) geoLoading = null;
+      return false;
+    });
+    geoLoading = attempt;
   }
   return geoLoading;
 }
@@ -842,8 +857,14 @@ TsMap.prototype.option = async function (spec, t) {
     coords: [[byID[l.from].lon, byID[l.from].lat], [byID[l.to].lon, byID[l.to].lat]], label: l.label,
     lineStyle: { color: t.status[l.state] || t.axis, type: l.state === "idle" ? "dashed" : "solid" },
   }));
+  // Initial zoom and center only: streamed updates keep the operator's pan
+  // and zoom (ECharts writes them back into the geo option on roam).
+  let current;
+  try { current = ((this.chart && this.chart.getOption()) || {}).geo; } catch { current = undefined; }
+  current = current && current[0];
   const geo = ready ? {
-    map: "world", roam: true, zoom: 1.15, center: [-35, 20],
+    map: "world", roam: true, zoom: current && current.zoom ? current.zoom : 1.15,
+    center: current && current.center ? current.center : [-35, 20],
     itemStyle: { areaColor: t.hairline, borderColor: t.surface, borderWidth: 0.6 },
     emphasis: { disabled: true }, silent: true,
   } : undefined;
@@ -893,7 +914,9 @@ class TsPalette extends HTMLElement {
     this.list = shadow.querySelector("ul");
     this.input.addEventListener("input", () => this.filter());
     this.input.addEventListener("keydown", (e) => this.key(e));
-    this.addEventListener("click", (e) => { if (e.target === this) this.close(); });
+    // Clicks inside the shadow root are retargeted to the host; only a click
+    // whose original target is the host itself is on the backdrop.
+    this.addEventListener("click", (e) => { if (e.composedPath()[0] === this) this.close(); });
     document.addEventListener("keydown", (e) => {
       const typing = /^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || "");
       if ((e.key === "k" && (e.ctrlKey || e.metaKey)) || (e.key === "/" && !typing && !this.hasAttribute("open"))) {
@@ -966,10 +989,15 @@ async function enableNotifications() {
   syncNotifyButtons();
 }
 
+// syncNotifyButtons runs from the body MutationObserver, so it must not
+// mutate the DOM when nothing changed: replacing the text node even with the
+// same label queues another childList record and loops forever.
 function syncNotifyButtons() {
+  const on = notificationsOn();
+  const label = on ? "Notifications on" : "Notify me";
   document.querySelectorAll("[data-notify-toggle]").forEach((button) => {
-    button.textContent = notificationsOn() ? "Notifications on" : "Notify me";
-    button.setAttribute("aria-pressed", String(notificationsOn()));
+    if (button.textContent !== label) button.textContent = label;
+    if (button.getAttribute("aria-pressed") !== String(on)) button.setAttribute("aria-pressed", String(on));
   });
 }
 
@@ -982,12 +1010,28 @@ function wire() {
 
 document.addEventListener("click", (event) => {
   const button = event.target.closest && event.target.closest("[data-copy]");
-  if (!button) return;
-  navigator.clipboard.writeText(button.dataset.copy).then(() => {
+  if (!button || button.dataset.copyState) return;
+  const flash = (text) => {
     const label = button.textContent;
-    button.textContent = "Copied";
-    setTimeout(() => { button.textContent = label; }, 1200);
-  });
+    button.dataset.copyState = "1";
+    button.textContent = text;
+    setTimeout(() => { button.textContent = label; delete button.dataset.copyState; }, 1600);
+  };
+  // Select the command so it can be copied by hand when the API is missing
+  // (plain HTTP outside localhost) or the browser refuses.
+  const manual = () => {
+    const code = button.parentElement && button.parentElement.querySelector("code");
+    if (code) {
+      const range = document.createRange();
+      range.selectNodeContents(code);
+      const selection = getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    flash("Press Ctrl+C");
+  };
+  if (!navigator.clipboard || !navigator.clipboard.writeText) { manual(); return; }
+  navigator.clipboard.writeText(button.dataset.copy).then(() => flash("Copied"), manual);
 });
 
 function watchToasts() {

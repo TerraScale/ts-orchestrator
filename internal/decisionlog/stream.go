@@ -168,10 +168,15 @@ func (stream *Stream) Tail(ctx context.Context, journal *Journal, warm int) erro
 	if warm <= 0 {
 		warm = journal.config.Capacity
 	}
+	journal.beginReplay()
+	defer journal.endReplay()
 	backoff := time.Second
-	var next uint64
+	// next is the sequence to resume from. caughtUp is the last sequence
+	// the stream held when the tail started; it survives consumer restarts
+	// so a replay broken half way still ends once that sequence is read.
+	var next, caughtUp uint64
 	for ctx.Err() == nil {
-		err := stream.tailOnce(ctx, journal, warm, &next)
+		err := stream.tailOnce(ctx, journal, warm, &next, &caughtUp)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -186,7 +191,7 @@ func (stream *Stream) Tail(ctx context.Context, journal *Journal, warm int) erro
 	return ctx.Err()
 }
 
-func (stream *Stream) tailOnce(ctx context.Context, journal *Journal, warm int, next *uint64) error {
+func (stream *Stream) tailOnce(ctx context.Context, journal *Journal, warm int, next, caughtUp *uint64) error {
 	// An empty stream is read from its start, so a decision stored between
 	// the info call and the consumer is not missed.
 	config := jetstream.OrderedConsumerConfig{DeliverPolicy: jetstream.DeliverAllPolicy}
@@ -195,6 +200,10 @@ func (stream *Stream) tailOnce(ctx context.Context, journal *Journal, warm int, 
 		if err != nil {
 			return err
 		}
+		if info.State.Msgs == 0 {
+			journal.endReplay()
+		}
+		*caughtUp = info.State.LastSeq
 		if info.State.Msgs > 0 {
 			start := info.State.FirstSeq
 			if info.State.LastSeq >= uint64(warm) && info.State.LastSeq-uint64(warm)+1 > start {
@@ -229,12 +238,19 @@ func (stream *Stream) tailOnce(ctx context.Context, journal *Journal, warm int, 
 		if err != nil {
 			return err
 		}
+		var sequence uint64
 		if metadata, err := message.Metadata(); err == nil {
-			*next = metadata.Sequence.Stream + 1
+			sequence = metadata.Sequence.Stream
+			*next = sequence + 1
 		}
 		var decision Decision
 		if json.Unmarshal(message.Data(), &decision) == nil && decision.ID != "" {
 			journal.Ingest(decision)
+		}
+		if *caughtUp > 0 && sequence >= *caughtUp {
+			// Memory now holds what the stream held when the tail started.
+			journal.endReplay()
+			*caughtUp = 0
 		}
 	}
 }

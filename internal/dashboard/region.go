@@ -35,7 +35,9 @@ func (current view) regionKPIs() []kpi {
 	if placement := current.placement(); placement != nil {
 		tiles = append(tiles, kpi{Label: "TerraBase partitions", Value: itoa(len(placement.Databases)),
 			Sub: counts(placement.StageCounts), Status: "info",
-			Spark: sparkValues(current.historyRange(observability.HistSeatsServing, nil, "", false)),
+			// The partition count's own history (len(placement.Databases)),
+			// not serving seats.
+			Spark: sparkValues(current.historyRange(observability.HistDatabases, nil, "", false)),
 			Href:  current.State.link("/terrabase")})
 	}
 	cpu := current.historyRange(observability.HistCPUUtilization, nil, "member", false)
@@ -57,6 +59,37 @@ func (current view) regionKPIs() []kpi {
 			Href: current.State.link("/nats")})
 	}
 	return tiles
+}
+
+// readinessRow is one member's readiness in the region readiness card.
+type readinessRow struct {
+	Member  string
+	Role    string
+	Ready   bool
+	Missing bool
+	Checks  []observability.CheckResult
+}
+
+// readiness lists every answering member's readiness checks, as each member
+// evaluated them, then the expected members that did not answer. Without a
+// cell-wide view it is this member's own checks.
+func (current view) readiness() []readinessRow {
+	var rows []readinessRow
+	for _, member := range current.members() {
+		checks, ready := member.Checks, member.Ready
+		if current.Local != nil && member.Member == current.Local.Member && len(current.Checks) > 0 {
+			// This member's checks were just evaluated for this render.
+			checks, ready = current.Checks, current.Ready
+		}
+		rows = append(rows, readinessRow{Member: member.Member, Role: member.Role, Ready: ready, Checks: checks})
+	}
+	if len(rows) == 0 && len(current.Checks) > 0 {
+		rows = append(rows, readinessRow{Member: current.memberName(), Ready: current.Ready, Checks: current.Checks})
+	}
+	for _, name := range current.missing() {
+		rows = append(rows, readinessRow{Member: name, Missing: true})
+	}
+	return rows
 }
 
 // averageSeries averages series point by point on shared timestamps.

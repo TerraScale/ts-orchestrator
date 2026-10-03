@@ -124,6 +124,71 @@ func (chain *releaseChain) step(at time.Time, kind decisionlog.Kind, status deci
 	chain.parent = decision.ID
 }
 
+// seedLeadership writes a day of authority and JetStream leadership and
+// quorum changes for a region, shaped like what watchControlPlane records:
+// a rolling restart hands the lease to another controller and back, and
+// the JetStream meta leader follows.
+func (world *World) seedLeadership(region *region, now time.Time) {
+	offset := time.Duration(len(region.name)*7%5) * 40 * time.Minute
+	other := region.controllers[len(region.controllers)-1]
+	if other == region.leader {
+		other = region.controllers[0]
+	}
+	leadership := func(at time.Time, member string, epoch uint64, reason string) {
+		world.store.record(decisionlog.Decision{Time: at, Region: region.name,
+			Actor: decisionlog.Actor{Slice: "authority", Member: member}, Kind: decisionlog.KindLeaderChanged,
+			Subject: decisionlog.Subject{Kind: "member", ID: member},
+			Summary: fmt.Sprintf("%s became the regional authority leader (epoch %d)", member, epoch),
+			Reason:  reason, Rule: "fenced JetStream authority lease", Status: decisionlog.StatusSucceeded, Epoch: epoch,
+			Signals: []decisionlog.Signal{{Name: "epoch", Value: float64(epoch)},
+				{Name: "lease_expires_at", Text: at.Add(8 * time.Second).UTC().Format(time.RFC3339)}}})
+	}
+	meta := func(at time.Time, member, previous string, epoch uint64) {
+		world.store.record(decisionlog.Decision{Time: at, Region: region.name,
+			Actor: decisionlog.Actor{Slice: "cluster", Member: member}, Kind: decisionlog.KindLeaderChanged,
+			Subject: decisionlog.Subject{Kind: "nats-meta", ID: member},
+			Summary: member + " became the JetStream meta leader",
+			Reason:  "The JetStream metadata group elected this server after " + previous + " stepped down.",
+			Rule:    "JetStream meta leader election", Status: decisionlog.StatusSucceeded, Epoch: epoch,
+			Signals: []decisionlog.Signal{{Name: "meta_leader", Text: member}, {Name: "previous", Text: previous}}})
+	}
+	quorum := func(at time.Time, healthy bool, epoch uint64) {
+		peers := len(region.controllers) + len(region.missing)
+		decision := decisionlog.Decision{Time: at, Region: region.name,
+			Actor: decisionlog.Actor{Slice: "cluster", Member: region.leader}, Subject: decisionlog.Subject{Kind: "cluster", ID: region.name},
+			Rule: "full regional cluster readiness", Epoch: epoch,
+			Signals: []decisionlog.Signal{{Name: "required_replicas", Value: float64(peers)}}}
+		if healthy {
+			decision.Kind, decision.Status = decisionlog.KindQuorumRestored, decisionlog.StatusSucceeded
+			decision.Summary = "Regional cluster is back at full strength"
+			decision.Reason = fmt.Sprintf("All %d replicas route and the JetStream metadata quorum is current.", peers)
+			decision.Signals = append(decision.Signals, gate("cluster_peers", float64(peers), "", ">=", float64(peers)))
+		} else {
+			decision.Kind, decision.Status = decisionlog.KindQuorumDegraded, decisionlog.StatusFailed
+			decision.Summary = "Regional cluster dropped below full strength"
+			decision.Reason = fmt.Sprintf("%s restarted for an upgrade; %d of %d replicas routed meanwhile.", region.leader, peers-1, peers)
+			decision.Signals = append(decision.Signals, gate("cluster_peers", float64(peers-1), "", ">=", float64(peers)))
+		}
+		world.store.record(decision)
+	}
+	// Two days ago this region's current leader first took the lease.
+	leadership(now.Add(-31*time.Hour), region.leader, region.epoch-2,
+		"This controller acquired the regional authority lease after the previous holder restarted for an upgrade.")
+	// A rolling restart about 20h ago: the leader restarts, the lease and
+	// the meta group move to another controller, the cluster recovers.
+	restart := now.Add(-20*time.Hour + offset)
+	quorum(restart, false, region.epoch-2)
+	leadership(restart.Add(40*time.Second), other, region.epoch-1,
+		fmt.Sprintf("This controller acquired the regional authority lease, ending epoch %d.", region.epoch-2))
+	meta(restart.Add(55*time.Second), other, region.leader, region.epoch-1)
+	quorum(restart.Add(4*time.Minute), true, region.epoch-1)
+	// About 5h ago the lease and the meta group moved back after a drain.
+	back := now.Add(-5*time.Hour - offset)
+	leadership(back, region.leader, region.epoch,
+		fmt.Sprintf("This controller acquired the regional authority lease, ending epoch %d.", region.epoch-1))
+	meta(back.Add(30*time.Second), region.leader, other, region.epoch)
+}
+
 func gate(name string, value float64, unit, comparison string, threshold float64) decisionlog.Signal {
 	passed := false
 	switch comparison {
@@ -151,12 +216,7 @@ func (world *World) seedDecisions(now time.Time) {
 		store := world.store
 		leader := region.leader
 		member := func(slice string) decisionlog.Actor { return decisionlog.Actor{Slice: slice, Member: leader} }
-		store.record(decisionlog.Decision{Time: ago(31 * time.Hour), Region: region.name, Actor: member("authority"),
-			Kind: decisionlog.KindLeaderChanged, Subject: decisionlog.Subject{Kind: "member", ID: leader},
-			Summary: leader + " became the regional authority leader (epoch " + fmt.Sprint(region.epoch) + ")",
-			Reason:  "This controller acquired the regional authority lease after the previous holder restarted for an upgrade.",
-			Rule:    "fenced JetStream authority lease", Epoch: region.epoch,
-			Signals: []decisionlog.Signal{{Name: "epoch", Value: float64(region.epoch)}}})
+		world.seedLeadership(region, now)
 		// The last release every region completed.
 		old := releaseChain{store: store, region: region.name, member: leader, epoch: region.epoch,
 			release: decisionlog.Subject{Kind: "release", ID: "sha256:4be1c0de77a1", Name: "v0.42.1"}}
@@ -165,27 +225,27 @@ func (world *World) seedDecisions(now time.Time) {
 		for hour := 46; hour > 0; hour -= 3 + len(region.name)%2 {
 			at := ago(time.Duration(hour)*time.Hour + time.Duration(len(region.hosts))*time.Minute)
 			cpu := 0.55 + 0.25*wave(at, 9*time.Hour, region.name)
-			kind, summary, status := decisionlog.KindScaleDown, "Scaled the TerraBase pool down by one host", decisionlog.StatusSucceeded
-			comparison, threshold := "<=", 0.35
-			if cpu > 0.6 {
-				kind, summary, comparison, threshold = decisionlog.KindScaleUp, "Scaled the TerraBase pool up by one host", ">=", 0.7
-			}
-			scale := store.record(decisionlog.Decision{Time: at, Region: region.name, Actor: member("autoscale"), Kind: kind,
-				Subject: decisionlog.Subject{Kind: "service", ID: "terrabase-pool"}, Summary: summary, Status: status,
-				Reason: fmt.Sprintf("Mean pool CPU was %.0f%% for 10 minutes.", cpu*100),
-				Rule:   "pool CPU target band 35-70%",
-				Signals: []decisionlog.Signal{gate("pool_cpu", cpu, "ratio", comparison, threshold),
-					{Name: "hosts", Value: float64(len(region.hosts))}},
-				Alternatives: []decisionlog.Alternative{{Option: "wait one more window",
-					Reason: "the band was breached for two consecutive windows"}}})
-			if kind == decisionlog.KindScaleUp {
-				host := fmt.Sprintf("%s-host-%c", region.name, 'f'+rune(hour%5))
-				store.record(decisionlog.Decision{Time: at.Add(3 * time.Minute), Region: region.name, Actor: member("placement"),
-					Kind: decisionlog.KindHostLaunched, Subject: decisionlog.Subject{Kind: "host", ID: host},
-					Summary: "Launched host " + host + " in FAULT-DOMAIN-" + fmt.Sprint(hour%3+1), ParentID: scale.ID,
-					Reason: "The pool needed one more host and this fault domain had the fewest seats.",
-					Rule:   "spread seats across fault domains", Status: decisionlog.StatusSucceeded,
-					Alternatives: []decisionlog.Alternative{{Option: "FAULT-DOMAIN-1", Reason: "already carries the most seats"}}})
+			kind, summary, comparison, threshold, scaled := scaleDecision(cpu)
+			status := decisionlog.StatusSucceeded
+			// Inside the target band the autoscaler holds: no decision.
+			if scaled {
+				scale := store.record(decisionlog.Decision{Time: at, Region: region.name, Actor: member("autoscale"), Kind: kind,
+					Subject: decisionlog.Subject{Kind: "service", ID: "terrabase-pool"}, Summary: summary, Status: status,
+					Reason: fmt.Sprintf("Mean pool CPU was %.0f%% for 10 minutes.", cpu*100),
+					Rule:   "pool CPU target band 35-70%",
+					Signals: []decisionlog.Signal{gate("pool_cpu", cpu, "ratio", comparison, threshold),
+						{Name: "hosts", Value: float64(len(region.hosts))}},
+					Alternatives: []decisionlog.Alternative{{Option: "wait one more window",
+						Reason: "the band was breached for two consecutive windows"}}})
+				if kind == decisionlog.KindScaleUp {
+					host := fmt.Sprintf("%s-host-%c", region.name, 'f'+rune(hour%5))
+					store.record(decisionlog.Decision{Time: at.Add(3 * time.Minute), Region: region.name, Actor: member("placement"),
+						Kind: decisionlog.KindHostLaunched, Subject: decisionlog.Subject{Kind: "host", ID: host},
+						Summary: "Launched host " + host + " in FAULT-DOMAIN-" + fmt.Sprint(hour%3+1), ParentID: scale.ID,
+						Reason: "The pool needed one more host and this fault domain had the fewest seats.",
+						Rule:   "spread seats across fault domains", Status: decisionlog.StatusSucceeded,
+						Alternatives: []decisionlog.Alternative{{Option: "FAULT-DOMAIN-1", Reason: "already carries the most seats"}}})
+				}
 			}
 			if hour%6 == 0 || hour%6 == 1 {
 				store.record(decisionlog.Decision{Time: at.Add(20 * time.Minute), Region: region.name, Actor: member("storage"),
@@ -230,6 +290,19 @@ func (world *World) seedDecisions(now time.Time) {
 		Rule:   "replace a controller after 30m absent and instance terminated", Status: decisionlog.StatusPending,
 		Signals:      []decisionlog.Signal{gate("absent_minutes", 10, "", ">=", 30), {Name: "instance_state", Text: "STOPPED"}},
 		Alternatives: []decisionlog.Alternative{{Option: "replace now", Reason: "an unnecessary replacement costs a full JetStream resync"}}})
+}
+
+// scaleDecision is the autoscaler's rule for the pool CPU target band
+// 35-70%: scale up at or above 70%, down at or below 35%, otherwise hold.
+func scaleDecision(cpu float64) (kind decisionlog.Kind, summary, comparison string, threshold float64, scaled bool) {
+	switch {
+	case cpu >= 0.7:
+		return decisionlog.KindScaleUp, "Scaled the TerraBase pool up by one host", ">=", 0.7, true
+	case cpu <= 0.35:
+		return decisionlog.KindScaleDown, "Scaled the TerraBase pool down by one host", "<=", 0.35, true
+	default:
+		return "", "", "", 0, false
+	}
 }
 
 func (world *World) fullRollout(chain *releaseChain, start time.Time, gates func(float64, float64) []decisionlog.Signal) {

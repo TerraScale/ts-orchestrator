@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -118,9 +119,23 @@ func serveAsset(writer http.ResponseWriter, request *http.Request) {
 func acceptsGzip(header string) bool {
 	for part := range strings.SplitSeq(header, ",") {
 		name, params, _ := strings.Cut(strings.TrimSpace(part), ";")
-		if strings.EqualFold(strings.TrimSpace(name), "gzip") && strings.ReplaceAll(params, " ", "") != "q=0" {
-			return true
+		if strings.EqualFold(strings.TrimSpace(name), "gzip") {
+			return qualityAbove0(params)
 		}
 	}
 	return false
+}
+
+// qualityAbove0 reads the q parameter of an Accept-Encoding entry: q=0,
+// q=0.0 or q=0.000 refuse the encoding; a missing or unreadable q accepts.
+func qualityAbove0(params string) bool {
+	for param := range strings.SplitSeq(params, ";") {
+		key, value, _ := strings.Cut(strings.TrimSpace(param), "=")
+		if !strings.EqualFold(strings.TrimSpace(key), "q") {
+			continue
+		}
+		quality, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+		return err != nil || quality > 0
+	}
+	return true
 }

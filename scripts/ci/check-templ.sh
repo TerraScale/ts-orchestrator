@@ -11,31 +11,36 @@ root=$(pwd)
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 
-mapfile -d '' sources < <(find . -type f -name '*.templ' -not -path './.git/*' -not -path './third_party/*' -print0)
-if [ "${#sources[@]}" -eq 0 ]; then
-	exit 0
-fi
-for source in "${sources[@]}"; do
+# Portable to bash 3.2 (macOS); mapfile -d needs bash 4.4.
+sources=()
+while IFS= read -r -d '' source; do
+	sources+=("$source")
+done < <(find . -type f -name '*.templ' -not -path './.git/*' -not -path './third_party/*' -print0)
+# With no sources the checks below are no-ops, but orphaned generated files
+# are still found.
+for source in ${sources[@]+"${sources[@]}"}; do
 	mkdir -p "$scratch/$(dirname "$source")"
 	cp "$source" "$scratch/$source"
 done
 
 status=0
-if ! (cd "$scratch" && "${go[@]}" -C "$root" tool templ fmt -fail "$scratch" >/dev/null 2>&1); then
-	echo 'templ sources need formatting: run make generate' >&2
-	status=1
+if [ "${#sources[@]}" -gt 0 ]; then
+	if ! (cd "$scratch" && "${go[@]}" -C "$root" tool templ fmt -fail "$scratch" >/dev/null 2>&1); then
+		echo 'templ sources need formatting: run make generate' >&2
+		status=1
+	fi
+	# Formatting the scratch copy must not change what generation sees, so
+	# regenerate from pristine copies.
+	for source in "${sources[@]}"; do
+		cp "$source" "$scratch/$source"
+	done
+	"${go[@]}" tool templ generate -path "$scratch" >/dev/null 2>&1 || {
+		"${go[@]}" tool templ generate -path "$scratch" >&2 || true
+		echo 'templ generation failed' >&2
+		exit 1
+	}
 fi
-# Formatting the scratch copy must not change what generation sees, so
-# regenerate from pristine copies.
-for source in "${sources[@]}"; do
-	cp "$source" "$scratch/$source"
-done
-"${go[@]}" tool templ generate -path "$scratch" >/dev/null 2>&1 || {
-	"${go[@]}" tool templ generate -path "$scratch" >&2 || true
-	echo 'templ generation failed' >&2
-	exit 1
-}
-for source in "${sources[@]}"; do
+for source in ${sources[@]+"${sources[@]}"}; do
 	generated="${source%.templ}_templ.go"
 	if ! cmp -s "$scratch/$generated" "$generated"; then
 		echo "$generated is stale: run make generate" >&2

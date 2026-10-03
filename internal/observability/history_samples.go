@@ -51,11 +51,56 @@ const (
 	HistDeliveryDeferred = "delivery_deferred_total"
 )
 
+// Bounds on what the sampler remembers between snapshots.
+const (
+	maxSampledMembers    = 512
+	maxSampledOperations = 256
+	maxSampledStages     = 64
+)
+
 // SnapshotSampler turns cluster snapshots into history samples. It keeps
-// the previous CPU counters per member to report utilization.
+// the previous CPU counters per member to report utilization, the last OCI
+// counters per member to accumulate reset-aware cluster totals, the role of
+// every member seen (to record a missing one as down) and the stages seen
+// (to record a cleared stage as zero).
 type SnapshotSampler struct {
 	mu       sync.Mutex
 	previous map[string]CPUSeconds
+	// ociLast is each member's last OCI counters per operation; ociTotal is
+	// the cluster total accumulated from per-member deltas, so a member
+	// that misses a collection or restarts does not look like a counter
+	// reset or a burst.
+	ociLast  map[string]map[string]ociCounters
+	ociTotal map[string]*ociCounters
+	roles    map[string]string
+	stages   map[string]bool
+	seeded   bool
+}
+
+type ociCounters struct{ calls, errors, throttled, seconds float64 }
+
+// add accumulates current minus last, treating a decrease as a process
+// restart whose counters started again from zero. A member seen for the
+// first time contributes its whole count only when seed is set (the
+// sampler's first snapshot); later it contributes from its first sample on,
+// so a member joining or returning is not a burst.
+func (total *ociCounters) add(current, last ociCounters, known, seed bool) {
+	delta := func(now, before float64) float64 {
+		switch {
+		case !known && seed:
+			return now
+		case !known:
+			return 0
+		case now < before:
+			return now
+		default:
+			return now - before
+		}
+	}
+	total.calls += delta(current.calls, last.calls)
+	total.errors += delta(current.errors, last.errors)
+	total.throttled += delta(current.throttled, last.throttled)
+	total.seconds += delta(current.seconds, last.seconds)
 }
 
 // Samples derives every history series from one cluster snapshot.
@@ -64,6 +109,10 @@ func (sampler *SnapshotSampler) Samples(cluster ClusterSnapshot) []Sample {
 	defer sampler.mu.Unlock()
 	if sampler.previous == nil {
 		sampler.previous = map[string]CPUSeconds{}
+		sampler.ociLast = map[string]map[string]ociCounters{}
+		sampler.ociTotal = map[string]*ociCounters{}
+		sampler.roles = map[string]string{}
+		sampler.stages = map[string]bool{}
 	}
 	var samples []Sample
 	gauge := func(metric string, value float64, pairs ...string) {
@@ -82,13 +131,16 @@ func (sampler *SnapshotSampler) Samples(cluster ClusterSnapshot) []Sample {
 	leader := false
 	var epoch uint64
 	streams := map[string]StreamView{}
+	// fromLeader marks streams whose report came from their leader.
+	fromLeader := map[string]bool{}
 	consumers := map[[2]string]ConsumerView{}
-	type ociTotals struct{ calls, errors, throttled, seconds float64 }
-	oci := map[string]*ociTotals{}
 	var placement *PlacementView
 	for _, member := range cluster.Members {
 		name := member.Member
 		gauge(HistMemberUp, 1, "member", name, "role", member.Role)
+		if len(sampler.roles) < maxSampledMembers || sampler.roles[name] != "" {
+			sampler.roles[name] = member.Role
+		}
 		gauge(HistMemberReady, Bool(member.Ready), "member", name)
 		if member.Ready {
 			ready++
@@ -136,9 +188,13 @@ func (sampler *SnapshotSampler) Samples(cluster ClusterSnapshot) []Sample {
 				gauge(HistJSStoreLimit, float64(nats.StoreLimitBytes), "member", name)
 			}
 			for _, stream := range nats.Streams {
-				// Prefer the leader's report; any replica's is a fallback.
-				if existing, ok := streams[stream.Name]; !ok || stream.Leader == nats.ServerName && existing.Leader != nats.ServerName {
+				// Prefer the leader's own report; any replica's is a
+				// fallback. A follower's report also names the leader, so
+				// track who reported, not whom the report names.
+				own := stream.Leader == nats.ServerName
+				if _, ok := streams[stream.Name]; !ok || own && !fromLeader[stream.Name] {
 					streams[stream.Name] = stream
+					fromLeader[stream.Name] = own
 				}
 			}
 			for _, consumer := range nats.Consumers {
@@ -149,17 +205,29 @@ func (sampler *SnapshotSampler) Samples(cluster ClusterSnapshot) []Sample {
 			}
 		}
 		if view := member.OCI; view != nil {
+			last := sampler.ociLast[name]
+			if last == nil && len(sampler.ociLast) < maxSampledMembers {
+				last = map[string]ociCounters{}
+				sampler.ociLast[name] = last
+			}
 			for _, operation := range view.Operations {
 				key := operation.Service + "." + operation.Operation
-				totals := oci[key]
-				if totals == nil {
-					totals = &ociTotals{}
-					oci[key] = totals
+				current := ociCounters{calls: float64(operation.Calls), errors: float64(operation.Errors),
+					throttled: float64(operation.Throttled), seconds: operation.TotalSeconds}
+				total := sampler.ociTotal[key]
+				if total == nil {
+					if len(sampler.ociTotal) >= maxSampledOperations {
+						continue
+					}
+					total = &ociCounters{}
+					sampler.ociTotal[key] = total
 				}
-				totals.calls += float64(operation.Calls)
-				totals.errors += float64(operation.Errors)
-				totals.throttled += float64(operation.Throttled)
-				totals.seconds += operation.TotalSeconds
+				if last == nil {
+					continue
+				}
+				previous, known := last[key]
+				total.add(current, previous, known, !sampler.seeded)
+				last[key] = current
 			}
 		}
 		if member.Placement != nil && (placement == nil || len(member.Placement.Databases) > len(placement.Databases)) {
@@ -170,6 +238,16 @@ func (sampler *SnapshotSampler) Samples(cluster ClusterSnapshot) []Sample {
 			counter(HistDeliveryDeferred, float64(delivery.Deferred), "member", name)
 		}
 	}
+	// A member seen before that no longer answers is down: record 0 under
+	// its last role so its series is updated, not left at its last 1.
+	for _, name := range cluster.Missing {
+		if role, seen := sampler.roles[name]; seen {
+			gauge(HistMemberUp, 0, "member", name, "role", role)
+		} else {
+			gauge(HistMemberUp, 0, "member", name, "role", "controller")
+		}
+	}
+	sampler.seeded = true
 	gauge(HistMembersReady, float64(ready))
 	if epoch > 0 || leader {
 		gauge(HistAuthorityEpoch, float64(epoch))
@@ -184,7 +262,7 @@ func (sampler *SnapshotSampler) Samples(cluster ClusterSnapshot) []Sample {
 		gauge(HistConsumerPending, float64(consumer.NumPending), "stream", key[0], "consumer", key[1])
 		gauge(HistConsumerAck, float64(consumer.NumAckPending), "stream", key[0], "consumer", key[1])
 	}
-	for operation, totals := range oci {
+	for operation, totals := range sampler.ociTotal {
 		counter(HistOCICalls, totals.calls, "operation", operation)
 		counter(HistOCIErrors, totals.errors, "operation", operation)
 		counter(HistOCIThrottled, totals.throttled, "operation", operation)
@@ -204,6 +282,15 @@ func (sampler *SnapshotSampler) Samples(cluster ClusterSnapshot) []Sample {
 		gauge(HistSeatsServing, float64(serving))
 		for stage, count := range placement.StageCounts {
 			gauge(HistStageMembers, float64(count), "stage", stage)
+			if len(sampler.stages) < maxSampledStages {
+				sampler.stages[stage] = true
+			}
+		}
+		// A stage that emptied is absent from StageCounts: record its zero.
+		for stage := range sampler.stages {
+			if _, present := placement.StageCounts[stage]; !present {
+				gauge(HistStageMembers, 0, "stage", stage)
+			}
 		}
 	}
 	return samples

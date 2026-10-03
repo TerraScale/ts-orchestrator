@@ -34,8 +34,11 @@ format-check:
 
 # Regenerate the committed templ Go files with the generator pinned by the
 # go.mod tool directive, so a plain go build never needs the templ tool.
+# Formats exactly the sources generate-check discovers (no third_party).
+TEMPL_SOURCES = $(shell find . -type f -name '*.templ' -not -path './.git/*' -not -path './third_party/*')
+
 generate:
-	$(GO) tool templ fmt internal
+	$(if $(TEMPL_SOURCES),$(GO) tool templ fmt $(TEMPL_SOURCES))
 	$(GO) tool templ generate
 
 # Fail when a committed *_templ.go file differs from its .templ source or a

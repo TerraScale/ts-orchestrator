@@ -154,7 +154,8 @@ func TestControllerObservabilityServesSnapshotAndCluster(t *testing.T) {
 	deadline := time.Now().Add(20 * time.Second)
 	var decisions decisionlog.Result
 	for {
-		status, body = get("/v1/decisions?kind=leader_changed&since=1h")
+		// The authority lease; the JetStream meta election is journaled too.
+		status, body = get("/v1/decisions?kind=leader_changed&subject_kind=member&since=1h")
 		decisions = decisionlog.Result{}
 		_ = json.Unmarshal([]byte(body), &decisions)
 		if status == http.StatusOK && len(decisions.Decisions) == 1 && telemetry.journal.Stats().Published > 0 {

@@ -264,11 +264,11 @@ func TestPlacementRules(t *testing.T) {
 	cluster := &observability.ClusterSnapshot{Members: []observability.MemberSnapshot{{Member: "c1", Placement: view}}}
 	inputs := &Inputs{Now: now, Cluster: cluster,
 		Holds: []Hold{{Reason: "member m7 OCI host is not currently observed; retained volume is kept", LastSeen: now}}}
-	if got := evaluate(t, volumeStuck, inputs); len(got) != 1 || got[0].Entity.ID != "s1" {
+	if got := evaluate(t, volumeStuck, inputs); len(got) != 1 || got[0].Entity.ID != "db/p0/s1" {
 		t.Fatalf("volume = %+v", got)
 	}
 	held := evaluate(t, memberHeld, inputs)
-	if len(held) != 2 || held[0].Entity.ID != "s2" || held[1].Entity.ID != "m7" {
+	if len(held) != 2 || held[0].Entity.ID != "db/p0/s2" || held[1].Entity.ID != "m7" {
 		t.Fatalf("held = %+v", held)
 	}
 	// The rollout must stay at the same progress past the threshold.

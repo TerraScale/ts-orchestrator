@@ -111,10 +111,16 @@ func (history *History) Import(data []byte) error {
 			if !ok || name == TierRaw {
 				continue
 			}
-			for _, b := range buckets {
-				if b.Count > 0 {
-					t.push(b)
+			buckets = slices.DeleteFunc(slices.Clone(buckets), func(b bucket) bool { return b.Count == 0 })
+			for index, b := range buckets {
+				if index == len(buckets)-1 {
+					// Export includes the bucket being filled: restore it
+					// open, so samples resuming in the same step extend it
+					// instead of opening a second bucket with that start.
+					t.open, t.opened = b, true
+					continue
 				}
+				t.push(b)
 			}
 		}
 		history.series[key] = current

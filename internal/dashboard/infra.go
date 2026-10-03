@@ -25,12 +25,10 @@ func (current view) memberChart(metric, unit string, rate bool, empty string) ch
 
 // filesystemChart charts used ratio per member and filesystem role.
 func (current view) filesystemChart() chartSpec {
-	series := current.historyRange(observability.HistFSRatio, current.hostFilter(), "member", false)
-	labelled := current.Journal != nil && current.Journal.History != nil
-	if labelled {
+	var series []chartSeries
+	if current.Journal != nil && current.Journal.History != nil {
 		result := current.Journal.History.Range(observability.HistoryQuery{Metric: observability.HistFSRatio,
 			Labels: current.hostFilter(), Start: current.Now.Add(-current.State.Range.Duration), End: current.Now})
-		series = series[:0]
 		for _, found := range result.Series {
 			points := make([][2]float64, 0, len(found.Points))
 			for _, point := range found.Points {
@@ -63,7 +61,7 @@ func (current view) capacityChart(disk bool) chartSpec {
 		}
 		var total, available uint64
 		if disk {
-			for _, filesystem := range member.System.Filesystems {
+			for _, filesystem := range observability.DistinctFilesystems(member.System.Filesystems) {
 				total += filesystem.SizeBytes
 				available += min(filesystem.AvailBytes, filesystem.SizeBytes)
 			}
@@ -124,10 +122,13 @@ func (current view) seatsChart() chartSpec {
 
 // forecast is one filesystem's growth projection.
 type forecast struct {
-	Name   string
-	Used   float64
-	Full   time.Duration
-	Known  bool
+	Name  string
+	Used  float64
+	Full  time.Duration
+	Known bool
+	// Trend reports that there was enough history to measure a trend at
+	// all; without it the headroom is unknown, not healthy.
+	Trend  bool
 	Status string
 }
 
@@ -153,7 +154,10 @@ func (current view) storageForecasts() ([]forecast, chartSpec) {
 		name := found.Labels["member"] + " " + found.Labels["role"]
 		entry := forecast{Name: name, Used: points[len(points)-1][1], Status: "ok"}
 		entry.Full, entry.Known = timeToFull(points)
+		_, _, entry.Trend = linearForecast(points)
 		switch {
+		case !entry.Trend:
+			entry.Status = "idle"
 		case entry.Known && entry.Full < 72*time.Hour:
 			entry.Status = "bad"
 		case entry.Known && entry.Full < 14*24*time.Hour:
@@ -161,7 +165,7 @@ func (current view) storageForecasts() ([]forecast, chartSpec) {
 		}
 		forecasts = append(forecasts, entry)
 		one := chartSeries{Name: name, Points: points}
-		if entry.Status != "ok" {
+		if entry.Status == "warn" || entry.Status == "bad" {
 			one.Status = entry.Status
 			series = append(series, one)
 			if slope, last, ok := linearForecast(points); ok && slope > 0 {
@@ -184,7 +188,22 @@ func (current view) storageForecasts() ([]forecast, chartSpec) {
 	spec := chartSpec{Kind: "line", Unit: "percent", Series: series, Min: float(0), Max: float(1),
 		Start:      current.Now.Add(-window).UnixMilli(),
 		Thresholds: []chartThreshold{{Value: 1, Label: "full", Status: "bad"}}}
-	if len(series) == 0 {
+	unmeasured := 0
+	for _, entry := range forecasts {
+		if !entry.Trend {
+			unmeasured++
+		}
+	}
+	switch {
+	case len(series) > 0:
+	case len(forecasts) == 0:
+		spec.Empty = "No storage history yet, so no headroom can be projected."
+	case unmeasured == len(forecasts):
+		spec.Empty = "Not enough storage history yet to project headroom (a trend needs at least three samples)."
+	case unmeasured > 0:
+		spec.Empty = "The measured filesystems have more than 14 days of headroom; " + itoa(unmeasured) +
+			" have too little history to project."
+	default:
 		spec.Empty = "Every filesystem has more than 14 days of headroom at its current growth."
 	}
 	return forecasts, spec
@@ -192,6 +211,8 @@ func (current view) storageForecasts() ([]forecast, chartSpec) {
 
 func forecastText(entry forecast) string {
 	switch {
+	case !entry.Trend:
+		return "not enough history"
 	case !entry.Known:
 		return "not growing"
 	case entry.Full == 0:
@@ -209,7 +230,7 @@ func (current view) filesystemTree() chartSpec {
 			continue
 		}
 		node := treeNode{Name: member.Member, Href: current.State.link("/members", "host", member.Member)}
-		for _, filesystem := range member.System.Filesystems {
+		for _, filesystem := range observability.DistinctFilesystems(member.System.Filesystems) {
 			used := filesystemUsed(filesystem)
 			node.Children = append(node.Children, treeNode{Name: filesystem.Role, Value: float64(filesystem.SizeBytes),
 				Status: ratioStatus(used)})

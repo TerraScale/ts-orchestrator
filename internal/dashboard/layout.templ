@@ -215,6 +215,29 @@ templ journalMissing(what string) {
 	<p class="empty">{ what } appears once this controller's decision journal, metric history and insight engine are running. Hosts and members without a private observability listener do not run them.</p>
 }
 
+// historyUnavailable replaces an empty-history claim when the decision
+// query failed or answered only in part.
+templ historyUnavailable(current view, what string) {
+	switch current.decisionCoverage() {
+		case coverageFailed:
+			<p class="empty unavailable">{ what } is unavailable right now: the decision journal query failed.</p>
+		case coveragePartial:
+			<p class="empty unavailable">{ what } is partial: some regions or older history could not be searched, so nothing can be ruled out.</p>
+	}
+}
+
+// scopeNote says which region each part of a mixed page shows: the live
+// metrics and member detail are this member's region, while the decision
+// timelines follow the selected region.
+templ scopeNote(current view) {
+	if current.remote() {
+		<p class="note warn scope">
+			Live metrics and member detail on this page are from <strong>{ upper(current.localRegion()) }</strong> (this member's region); only the decision timeline shows <strong>{ upper(current.region()) }</strong>.
+			<a href={ safe(current.State.link("/region", "r", current.region())) }>{ upper(current.region()) } overview →</a>
+		</p>
+	}
+}
+
 templ unavailable(message string) {
 	<p class="empty">{ message }</p>
 }

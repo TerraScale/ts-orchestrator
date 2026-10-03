@@ -10,9 +10,10 @@ import (
 // the network for longer than the caller's context allows.
 type Check struct {
 	Name string
-	// Run returns an empty detail when healthy. A failing detail is a short
-	// fixed phrase, never upstream error text, because /readyz is
-	// unauthenticated on loopback.
+	// Run returns a short detail either way (the dashboard's readiness
+	// card shows it; empty is allowed). A detail is a fixed phrase with at
+	// most counts or epochs filled in, never upstream error text, because
+	// /readyz is unauthenticated on loopback.
 	Run func(context.Context) (ok bool, detail string)
 }
 

@@ -28,6 +28,11 @@ type releaseView struct {
 	Lanes  []releaseLane
 	// Reason is the rollback or hold reason, when there is one.
 	Reason string
+	// Partial reports that the decision history behind the release is
+	// incomplete (a region did not answer, older history was not
+	// searched, or the page was truncated), so its status only covers
+	// what was observed.
+	Partial bool
 }
 
 type releaseLane struct {
@@ -80,6 +85,7 @@ func releaseStage(decision decisionlog.Decision) string {
 // releases groups the loaded decisions into release timelines, newest
 // first.
 func (current view) releases() []releaseView {
+	coverage := current.decisionCoverage()
 	byID := map[string]*releaseView{}
 	lanes := map[string]map[string]map[string]*releaseStep{}
 	// Oldest first, so a later decision for the same step wins.
@@ -163,17 +169,35 @@ func (current view) releases() []releaseView {
 				running++
 			}
 		}
+		release.Partial = coverage != coverageComplete
+		unseen := 0
+		for _, summary := range current.Regions {
+			if lanes[id][summary.Region] == nil {
+				unseen++
+			}
+		}
 		switch {
 		case rolledBack > 0:
 			release.Status, release.Label = "serious", "rolled back in "+itoa(rolledBack)+" region(s)"
+		case running == 0 && release.Partial:
+			// A region that did not answer may still be rolling out (or
+			// may have rolled back): completion covers observed regions.
+			release.Status, release.Label = "warn", "complete in "+itoa(complete)+" observed region(s); history partial"
+		case running == 0 && unseen > 0:
+			release.Status, release.Label = "ok", "complete in "+itoa(complete)+" region(s); "+itoa(unseen)+" never started it"
 		case running == 0:
 			release.Status, release.Label = "ok", "complete everywhere"
 		default:
 			release.Status, release.Label = "run", "in progress: "+itoa(complete)+" of "+itoa(len(release.Lanes))+" regions complete"
+			if release.Partial {
+				release.Label += "; history partial"
+			}
 		}
 		out = append(out, *release)
 	}
-	slices.SortFunc(out, func(left, right releaseView) int { return right.Last.Compare(left.Last) })
+	slices.SortFunc(out, func(left, right releaseView) int {
+		return cmp.Or(right.Last.Compare(left.Last), cmp.Compare(left.ID, right.ID))
+	})
 	return out
 }
 
@@ -230,6 +254,10 @@ var unitKindTitles = map[string]string{"controller": "Controllers", "host": "Hos
 // else the version most units of the kind run, ties broken by the newest
 // name; units of that kind on any other version are drifted. Kinds run
 // different software (orchestrator, TerraBase), so each has its own target.
+// A version rolled back anywhere is never the target; when only such
+// versions remain the target is unknown (""). Releases are ordered by when
+// they started, not by their latest activity, so an older rollout that
+// makes progress cannot move the target backwards.
 func (current view) targetVersion(kind string) string {
 	counts := map[string]int{}
 	for _, unit := range current.Versions {
@@ -237,16 +265,33 @@ func (current view) targetVersion(kind string) string {
 			counts[unit.Version]++
 		}
 	}
-	// The newest release that is rolling out or complete (not rolled back)
-	// is the target when units of this kind run it.
-	for _, release := range current.releases() {
-		if release.Status != "serious" && counts[release.Name] > 0 {
-			return release.Name
+	bad := map[string]bool{}
+	var newest *releaseView
+	releases := current.releases()
+	for index := range releases {
+		if releases[index].Status == "serious" {
+			bad[releases[index].Name] = true
 		}
+	}
+	for index := range releases {
+		release := &releases[index]
+		if bad[release.Name] || counts[release.Name] == 0 {
+			continue
+		}
+		if newest == nil || release.First.After(newest.First) ||
+			release.First.Equal(newest.First) && release.Name > newest.Name {
+			newest = release
+		}
+	}
+	if newest != nil {
+		return newest.Name
 	}
 	best := ""
 	for _, version := range slices.Sorted(maps.Keys(counts)) {
-		if counts[version] >= counts[best] {
+		if bad[version] {
+			continue
+		}
+		if best == "" || counts[version] >= counts[best] {
 			best = version
 		}
 	}

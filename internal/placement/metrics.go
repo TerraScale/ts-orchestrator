@@ -113,13 +113,17 @@ func summarizePartition(intent Intent, members []VersionedMemberState) observabi
 	if latest == nil {
 		return database
 	}
+	// A managed update operation targets its own seats (one canary per
+	// operation), so its progress is over the seats it targets, not every
+	// placement seat: otherwise a finished update reads as stalled at 1/2.
 	rollout := &observability.RolloutView{OperationID: latest.OperationID, ArtifactDigest: latest.ArtifactDigest,
-		Seats: max(database.DesiredSeats, len(members)), Phases: map[string]int{}}
+		Phases: map[string]int{}}
 	for _, member := range members {
 		target := member.State.ManagedRuntimeTarget
 		if target.OperationID != latest.OperationID {
 			continue
 		}
+		rollout.Seats++
 		rollout.Phases[string(target.Phase)]++
 		if target.Phase == ManagedUpdateSeatCanaryServing && member.State.Stage == StageServing {
 			rollout.Completed++

@@ -11,6 +11,8 @@ templ rolloutsBody(current view) {
 			</div>
 			if current.Journal == nil || current.Journal.Rollouts == nil {
 				@unavailable("Release rollout phases (canary, soak, batches) appear once the rollout slice reports them. Managed TerraBase updates are below.")
+			} else if current.failed("rollouts") {
+				<p class="empty unavailable">Release rollout phases are unavailable right now: the rollout provider did not answer.</p>
 			} else if len(current.Rollouts) == 0 {
 				<p class="empty">No release rollout is known in this region.</p>
 			} else {
@@ -53,9 +55,16 @@ templ rolloutsBody(current view) {
 			</article>
 			<article>
 				<h2>Known-bad releases</h2>
-				if bad := current.knownBad(); len(bad) == 0 {
+				if bad := current.knownBad(); len(bad) == 0 && current.decisionCoverage() == coverageMissing {
+					@journalMissing("Known-bad releases")
+				} else if len(bad) == 0 && current.decisionCoverage() != coverageComplete {
+					@historyUnavailable(current, "Rollback history")
+				} else if len(bad) == 0 {
 					<p class="empty">No release was rolled back in the last 7 days.</p>
 				} else {
+					if current.decisionCoverage() != coverageComplete {
+						@historyUnavailable(current, "Rollback history")
+					}
 					<ul class="mini-list">
 						for _, release := range bad {
 							<li>

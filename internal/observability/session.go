@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,8 +22,11 @@ const (
 	// process restart signs every browser out.
 	SessionTTL = 12 * time.Hour
 
-	sessionVersion   = "v1"
+	sessionVersion   = "v2"
 	maxLoginFormSize = 8 << 10
+	// maxRevoked bounds the signed-out sessions remembered until they
+	// expire; past it the process key rotates, which signs everyone out.
+	maxRevoked = 4096
 )
 
 // sessions issues and verifies browser session cookies. A cookie proves only
@@ -30,13 +34,17 @@ const (
 // this process: the MAC key is random per process and never leaves memory,
 // so a cookie grants exactly the read-only access the token grants.
 type sessions struct {
+	mu     sync.Mutex
 	key    [32]byte
 	secure bool
 	now    func() time.Time
+	// revoked holds the IDs of signed-out sessions until they expire, so
+	// signing out ends the session for every copy of the cookie.
+	revoked map[string]time.Time
 }
 
 func newSessions(secure bool) (*sessions, error) {
-	manager := &sessions{secure: secure, now: time.Now}
+	manager := &sessions{secure: secure, now: time.Now, revoked: map[string]time.Time{}}
 	if _, err := rand.Read(manager.key[:]); err != nil {
 		return nil, err
 	}
@@ -44,40 +52,86 @@ func newSessions(secure bool) (*sessions, error) {
 }
 
 func (manager *sessions) mac(payload string) []byte {
-	digest := hmac.New(sha256.New, manager.key[:])
+	manager.mu.Lock()
+	key := manager.key
+	manager.mu.Unlock()
+	digest := hmac.New(sha256.New, key[:])
 	digest.Write([]byte("ts-orch dashboard session\x00" + payload))
 	return digest.Sum(nil)
 }
 
-// issue returns a cookie value "v1.<expiry unix>.<mac>".
+// issue returns a cookie value "v2.<expiry unix>.<session id>.<mac>". The
+// random session ID makes every login distinct and revocable.
 func (manager *sessions) issue() (string, time.Time) {
 	expires := manager.now().Add(SessionTTL).Truncate(time.Second)
-	payload := sessionVersion + "." + strconv.FormatInt(expires.Unix(), 10)
+	var id [16]byte
+	_, _ = rand.Read(id[:])
+	payload := sessionVersion + "." + strconv.FormatInt(expires.Unix(), 10) + "." +
+		base64.RawURLEncoding.EncodeToString(id[:])
 	return payload + "." + base64.RawURLEncoding.EncodeToString(manager.mac(payload)), expires
 }
 
-func (manager *sessions) valid(value string) bool {
-	version, rest, found := strings.Cut(value, ".")
-	if !found || version != sessionVersion {
-		return false
+// parse verifies a cookie value and returns its session ID and expiry.
+func (manager *sessions) parse(value string) (string, time.Time, bool) {
+	parts := strings.Split(value, ".")
+	if len(parts) != 4 || parts[0] != sessionVersion {
+		return "", time.Time{}, false
 	}
-	expiry, encoded, found := strings.Cut(rest, ".")
-	if !found {
-		return false
-	}
+	expiry, id, encoded := parts[1], parts[2], parts[3]
 	seconds, err := strconv.ParseInt(expiry, 10, 64)
 	if err != nil || strconv.FormatInt(seconds, 10) != expiry {
-		return false
+		return "", time.Time{}, false
+	}
+	if raw, err := base64.RawURLEncoding.DecodeString(id); err != nil || len(raw) != 16 {
+		return "", time.Time{}, false
 	}
 	presented, err := base64.RawURLEncoding.DecodeString(encoded)
-	if err != nil || !hmac.Equal(presented, manager.mac(version+"."+expiry)) {
-		return false
+	if err != nil || !hmac.Equal(presented, manager.mac(parts[0]+"."+expiry+"."+id)) {
+		return "", time.Time{}, false
 	}
 	// A cookie claiming a lifetime longer than SessionTTL was not issued
 	// by this process, whatever its MAC says.
 	now := manager.now()
 	expires := time.Unix(seconds, 0)
-	return now.Before(expires) && !expires.After(now.Add(SessionTTL))
+	if !now.Before(expires) || expires.After(now.Add(SessionTTL)) {
+		return "", time.Time{}, false
+	}
+	return id, expires, true
+}
+
+func (manager *sessions) valid(value string) bool {
+	id, _, ok := manager.parse(value)
+	if !ok {
+		return false
+	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	_, revoked := manager.revoked[id]
+	return !revoked
+}
+
+// revoke ends a session for every copy of its cookie until it expires.
+func (manager *sessions) revoke(value string) {
+	id, expires, ok := manager.parse(value)
+	if !ok {
+		return
+	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	now := manager.now()
+	for other, until := range manager.revoked {
+		if !now.Before(until) {
+			delete(manager.revoked, other)
+		}
+	}
+	if len(manager.revoked) >= maxRevoked {
+		// Too many live sign-outs to remember: a new key ends every
+		// session instead, which is the safe direction.
+		_, _ = rand.Read(manager.key[:])
+		clear(manager.revoked)
+		return
+	}
+	manager.revoked[id] = expires
 }
 
 func (manager *sessions) cookie(value string, expires time.Time) *http.Cookie {
@@ -101,7 +155,7 @@ func (manager *sessions) authenticated(request *http.Request) bool {
 // POST /logout clears it. Without HandleLogin, or on a tokenless loopback
 // listener, browsers have no session path and only the bearer header works.
 func (server *Server) HandleLogin(page http.Handler) {
-	server.loginMounted = true
+	server.loginMounted.Store(true)
 	server.mux.Handle("GET /login", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if server.token == nil || server.sessions.authenticated(request) {
 			http.Redirect(writer, request, LocalRedirectPath(request.URL.Query().Get("next")), http.StatusSeeOther)
@@ -114,6 +168,11 @@ func (server *Server) HandleLogin(page http.Handler) {
 		if !sameOriginForm(request) {
 			writePlain(writer, http.StatusForbidden, "cross-site request refused\n")
 			return
+		}
+		// Revoke the session itself, not only this browser's cookie: a
+		// copied cookie stops working too.
+		if cookie, err := request.Cookie(SessionCookieName); err == nil {
+			server.sessions.revoke(cookie.Value)
 		}
 		http.SetCookie(writer, server.sessions.cookie("", time.Time{}))
 		http.Redirect(writer, request, "/login", http.StatusSeeOther)

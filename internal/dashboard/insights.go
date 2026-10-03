@@ -40,6 +40,12 @@ func (current view) evidenceChart(insight insights.Insight, evidence insights.Ev
 		break
 	}
 	series := current.historyRange(evidence.Metric, evidence.Labels, nameBy, false)
+	if evidence.Unit == perMinute {
+		// Per-minute evidence is a rate of cumulative counters summed over
+		// their series (operations), as the rule computed it.
+		series = scaleSeries(sumSeries(evidence.Label+" per minute",
+			current.historyRange(evidence.Metric, evidence.Labels, nameBy, true)), 60)
+	}
 	if len(series) == 0 {
 		return chartSpec{}, false
 	}
@@ -62,6 +68,19 @@ func (current view) evidenceChart(insight insights.Insight, evidence insights.Ev
 			Status: severityStatus(insight.Severity)}}
 	}
 	return spec, true
+}
+
+// perMinute is the evidence unit of counter rates per minute.
+const perMinute = "per min"
+
+// scaleSeries multiplies every point by factor.
+func scaleSeries(series []chartSeries, factor float64) []chartSeries {
+	for _, one := range series {
+		for index := range one.Points {
+			one.Points[index][1] = round(one.Points[index][1] * factor)
+		}
+	}
+	return series
 }
 
 func evidenceValue(evidence insights.Evidence) string {
@@ -143,6 +162,34 @@ func (current view) insightRegions() []string {
 		}
 	}
 	return regions
+}
+
+// insightID identifies an insight across regions: keys are only unique
+// within the region whose engine raised them.
+func insightID(insight insights.Insight) string { return insight.Region + ":" + insight.Key }
+
+// insightLink opens one insight on the insights page. It lists every region,
+// so the insight is shown whatever region is selected.
+func (current view) insightLink(insight insights.Insight) string {
+	return current.State.link("/insights", "id", insightID(insight), "region", allRegions) + "#insight-" + insightID(insight)
+}
+
+// quietText is the insights page's empty state: an all-clear only when the
+// evaluation ran and nothing is open anywhere.
+func (current view) quietText() string {
+	open := len(current.globalInsights())
+	switch {
+	case current.Evaluation == nil && len(current.Regions) == 0:
+		return "Insights are unavailable on this member: no evaluation has run, so nothing can be ruled out."
+	case open > 0:
+		return "No insight matches these filters; " + itoa(open) + " are open with other filters."
+	case current.Evaluation == nil:
+		return "Nothing is reported by the other regions, but this region's insights are unavailable, so nothing can be ruled out here."
+	case len(current.Evaluation.Unavailable) > 0:
+		return "Nothing is open, but some rules had no input on the last evaluation (listed alongside), so they could not fire."
+	default:
+		return "Nothing needs attention. Every rule is quiet."
+	}
 }
 
 // foreign returns region when it is not this member's, so a link into that

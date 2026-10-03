@@ -53,6 +53,11 @@ type LiveSource interface {
 // ErrNotFound reports a chain lookup for an unknown decision.
 var ErrNotFound = errors.New("decision not found")
 
+// ErrUnavailable reports that part of the journal (the durable archive or a
+// linked region) could not be searched, so a lookup is neither found nor
+// proven absent.
+var ErrUnavailable = errors.New("decision journal unavailable")
+
 // JournalConfig wires one member's journal.
 type JournalConfig struct {
 	// Region and Member fill Decision.Region and Actor.Member when a caller
@@ -96,6 +101,9 @@ type Journal struct {
 	dropped   atomic.Uint64
 	published atomic.Uint64
 	failed    atomic.Uint64
+	// replaying is set while the stream tail replays the stored history
+	// into memory, so queries report the index as partial.
+	replaying atomic.Bool
 }
 
 type storageHolder struct {
@@ -154,12 +162,16 @@ func (journal *Journal) Record(ctx context.Context, decision Decision) string {
 		decision.Actor.Member = journal.config.Member
 	}
 	decision = decision.Normalize(journal.config.Now())
+	// A decision with a caller-chosen ID that is already indexed (an
+	// idempotent replay) is recorded once.
+	if !journal.Ingest(decision) {
+		return decision.ID
+	}
 	journal.recorded.Add(1)
 	recordedTotal.Inc()
 	if journal.config.Log {
 		LogRecorder{}.Record(ctx, decision)
 	}
-	journal.Ingest(decision)
 	select {
 	case journal.queue <- decision:
 		queueDepth.Add(1)
@@ -295,23 +307,42 @@ func (journal *Journal) Query(ctx context.Context, query Query) (Result, error) 
 			seen[decision.ID] = struct{}{}
 		}
 	}
+	// While the stream tail is still replaying, memory does not hold the
+	// region's history yet.
+	if journal.replaying.Load() {
+		result.Partial = true
+	}
 	// Older decisions only matter when memory did not fill the page.
-	if !coveredFrom.IsZero() && len(result.Decisions) < query.Limit &&
-		(query.Since.IsZero() || query.Since.Before(coveredFrom)) {
+	older := !coveredFrom.IsZero() && (query.Since.IsZero() || query.Since.Before(coveredFrom))
+	exhausted := !older
+	if older && len(result.Decisions) < query.Limit {
 		_, archive := journal.currentStorage()
 		if archive == nil {
 			result.Partial = true
-		} else if !journal.scanArchive(ctx, archive, query, coveredFrom, seen, &result) {
+		} else if complete, reachedFloor := journal.scanArchive(ctx, archive, query, coveredFrom, seen, &result); !complete {
 			result.Partial = true
+		} else {
+			exhausted = reachedFloor
 		}
 	}
 	SortNewestFirst(result.Decisions)
-	if len(result.Decisions) > query.Limit {
+	switch {
+	case len(result.Decisions) > query.Limit:
 		result.Decisions = result.Decisions[:query.Limit]
+		result.Truncated = true
+	case len(result.Decisions) == query.Limit && !exhausted:
+		// A full page with older history left unsearched may not be all:
+		// say so rather than look exhaustive.
 		result.Truncated = true
 	}
 	return result, nil
 }
+
+// archiveClockSkew is how far past the in-memory coverage a record's own
+// time may lie while older archived records still follow it: the stream is
+// ordered by publication, records are timed by the recording controller's
+// clock and published asynchronously.
+const archiveClockSkew = 5 * time.Minute
 
 // scanArchive adds matching archived decisions recorded at or before
 // coveredFrom to result. The archive is read oldest first from a start time,
@@ -319,10 +350,11 @@ func (journal *Journal) Query(ctx context.Context, query Query) (Result, error) 
 // fourfold until the page is full or the query's start (or the retention)
 // is reached. A page is then the newest matches, not the oldest ones a
 // single scan from the start would return when the range holds more than
-// maxArchiveScan records. It reports whether the search was complete.
+// maxArchiveScan records. It reports whether the search was complete and
+// whether it reached the query's start (so nothing older remains).
 func (journal *Journal) scanArchive(ctx context.Context, archive Archive, query Query, coveredFrom time.Time,
 	seen map[string]struct{}, result *Result,
-) bool {
+) (complete, reachedFloor bool) {
 	floor := query.Since
 	if floor.IsZero() {
 		floor = coveredFrom.Add(-DefaultRetention)
@@ -335,9 +367,11 @@ func (journal *Journal) scanArchive(ctx context.Context, archive Archive, query 
 		}
 		scanned := 0
 		complete, err := archive.Scan(ctx, since, budget, func(decision Decision) bool {
-			// Memory is complete only after coveredFrom.
+			// Memory is complete only after coveredFrom. The archive is in
+			// publication order, so a record timed after it is skipped, not
+			// a stopping point, until well past any clock skew.
 			if decision.Time.After(coveredFrom) {
-				return false
+				return !decision.Time.After(coveredFrom.Add(archiveClockSkew))
 			}
 			scanned++
 			if _, dup := seen[decision.ID]; !dup && query.Matches(decision) {
@@ -347,13 +381,16 @@ func (journal *Journal) scanArchive(ctx context.Context, archive Archive, query 
 			return true
 		})
 		if err != nil || !complete {
-			return false
+			return false, false
 		}
-		if len(result.Decisions) >= query.Limit || since.Equal(floor) {
-			return true
+		if since.Equal(floor) {
+			return true, true
+		}
+		if len(result.Decisions) >= query.Limit {
+			return true, false
 		}
 		if budget -= max(scanned, 1); budget <= 0 {
-			return false
+			return false, false
 		}
 	}
 }
@@ -374,6 +411,9 @@ func (journal *Journal) Chain(ctx context.Context, id string) (Chain, error) {
 		if ok {
 			return chain, nil
 		}
+		if journal.replaying.Load() {
+			return Chain{}, ErrUnavailable
+		}
 		return Chain{}, ErrNotFound
 	}
 	since, valid := IDTime(id)
@@ -384,26 +424,55 @@ func (journal *Journal) Chain(ctx context.Context, id string) (Chain, error) {
 	if !valid {
 		return Chain{}, ErrNotFound
 	}
-	// A parent is recorded before its child; look back a little for roots
-	// that the in-memory window no longer holds.
-	since = since.Add(-24 * time.Hour)
 	seen := make(map[string]struct{}, len(decisions))
 	for _, decision := range decisions {
 		seen[decision.ID] = struct{}{}
 	}
-	_, _ = archive.Scan(ctx, since, maxArchiveScan, func(decision Decision) bool {
-		if _, dup := seen[decision.ID]; !dup {
-			seen[decision.ID] = struct{}{}
-			decisions = append(decisions, decision)
+	// A parent is recorded before its child; look back a little for roots
+	// that the in-memory window no longer holds, then further back to the
+	// time a missing parent's ID encodes, within retention.
+	since = since.Add(-24 * time.Hour)
+	partial := false
+	for range 4 {
+		complete, err := archive.Scan(ctx, since, maxArchiveScan, func(decision Decision) bool {
+			if _, dup := seen[decision.ID]; !dup {
+				seen[decision.ID] = struct{}{}
+				decisions = append(decisions, decision)
+			}
+			return true
+		})
+		if err != nil || !complete {
+			partial = true
+			break
 		}
-		return true
-	})
+		chain, ok = BuildChain(decisions, id)
+		if !ok || chain.Root.ParentID == "" {
+			break
+		}
+		parentTime, known := IDTime(chain.Root.ParentID)
+		if !known || !parentTime.Before(since) || parentTime.Before(time.Now().Add(-DefaultRetention)) {
+			break
+		}
+		since = parentTime.Add(-time.Minute)
+	}
 	chain, ok = BuildChain(decisions, id)
-	if !ok {
+	switch {
+	case !ok && partial:
+		// The archive could not be read: not proof of absence.
+		return Chain{}, ErrUnavailable
+	case !ok:
 		return Chain{}, ErrNotFound
 	}
+	chain.Partial = partial
 	return chain, nil
 }
+
+// beginReplay marks the index as incomplete until the stream tail has
+// caught up with what the stream held when it started.
+func (journal *Journal) beginReplay() { journal.replaying.Store(true) }
+
+// endReplay marks the index complete from its coverage boundary on.
+func (journal *Journal) endReplay() { journal.replaying.Store(false) }
 
 // Subscribe streams decisions indexed after the call until ctx ends. A
 // subscriber that falls more than buffer decisions behind loses decisions.

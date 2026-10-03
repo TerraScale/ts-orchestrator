@@ -141,6 +141,13 @@ type Chain struct {
 	// Latest is the newest decision in the chain; its status is the
 	// chain's current status.
 	Latest Decision `json:"latest"`
+	// Truncated reports that the chain has more than MaxQueryLimit
+	// decisions: Decisions keeps the root, the requested decision and the
+	// newest ones, and Latest is still the newest of the whole chain.
+	Truncated bool `json:"truncated,omitzero"`
+	// Partial reports that part of the chain may be missing because the
+	// archive could not be read in full.
+	Partial bool `json:"partial,omitzero"`
 }
 
 // BuildChain assembles the chain containing id from a set of decisions. It
@@ -171,7 +178,9 @@ func BuildChain(decisions []Decision, id string) (Chain, bool) {
 	chain := Chain{Root: current}
 	visited := map[string]bool{}
 	queue := []string{current.ID}
-	for len(queue) > 0 && len(chain.Decisions) < MaxQueryLimit {
+	// The walk is bounded by the input; only the returned list is capped,
+	// after Latest is known.
+	for len(queue) > 0 {
 		next := queue[0]
 		queue = queue[1:]
 		if visited[next] {
@@ -188,5 +197,16 @@ func BuildChain(decisions []Decision, id string) (Chain, bool) {
 		return cmp.Compare(left.ID, right.ID)
 	})
 	chain.Latest = chain.Decisions[len(chain.Decisions)-1]
+	if len(chain.Decisions) > MaxQueryLimit {
+		chain.Truncated = true
+		kept := make([]Decision, 0, MaxQueryLimit)
+		newest := chain.Decisions[len(chain.Decisions)-(MaxQueryLimit-2):]
+		for _, decision := range chain.Decisions[:len(chain.Decisions)-len(newest)] {
+			if decision.ID == chain.Root.ID || decision.ID == id {
+				kept = append(kept, decision)
+			}
+		}
+		chain.Decisions = append(kept, newest...)
+	}
 	return chain, true
 }
