@@ -58,6 +58,8 @@ type journalProviders struct {
 func (runtime *runtimeObservability) startDecisionJournal(ctx context.Context) {
 	journal := decisionlog.NewJournal(decisionlog.JournalConfig{Region: runtime.cell, Member: runtime.member,
 		Log: true})
+	ctx, cancel := context.WithCancel(ctx)
+	runtime.journalCtx, runtime.stopJournal = ctx, cancel
 	restore := decisionlog.SetDefault(journal)
 	context.AfterFunc(ctx, restore)
 	runtime.registry.Register(decisionlog.Metrics)
@@ -76,6 +78,9 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	if journal == nil {
 		return
 	}
+	// Everything feeding the journal ends with it.
+	ctx, cancel := context.WithCancel(ctx)
+	context.AfterFunc(runtime.journalCtx, cancel)
 	conn := observed.nats.Conn()
 	go openDecisionStream(ctx, observed.nats.JetStream(), runtime.cell, observed.replicas, journal)
 	if runtime.config.ClusterAggregation {

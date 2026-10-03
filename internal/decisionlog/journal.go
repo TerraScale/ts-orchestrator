@@ -162,12 +162,16 @@ func (journal *Journal) Record(ctx context.Context, decision Decision) string {
 		decision.Actor.Member = journal.config.Member
 	}
 	decision = decision.Normalize(journal.config.Now())
+	// A decision with a caller-chosen ID that is already indexed (an
+	// idempotent replay) is recorded once.
+	if !journal.Ingest(decision) {
+		return decision.ID
+	}
 	journal.recorded.Add(1)
 	recordedTotal.Inc()
 	if journal.config.Log {
 		LogRecorder{}.Record(ctx, decision)
 	}
-	journal.Ingest(decision)
 	select {
 	case journal.queue <- decision:
 		queueDepth.Add(1)

@@ -163,3 +163,27 @@ func TestUnknownPredecessorDoesNotRepeatAPhase(t *testing.T) {
 		t.Fatalf("upgrade_started journaled %d times", len(started.Decisions))
 	}
 }
+
+// A controller that resumes a managed update after a leader change has no
+// in-memory correlation; its canary phases still link to the admission.
+func TestResumedUpdateLinksToTheAdmissionWithoutCorrelation(t *testing.T) {
+	journal := decisionlog.NewJournal(decisionlog.JournalConfig{Region: "gru"})
+	t.Cleanup(decisionlog.SetDefault(journal))
+	store := JournaledStore(&journalTestStore{members: map[string]VersionedMemberState{}}, "gru")
+	state := MemberState{DatabaseID: "db", PartitionID: "p0", MemberID: "m1", Stage: StageServing,
+		ManagedRuntimeTarget: ManagedRuntimeTarget{OperationID: "op-resumed", Phase: ManagedUpdateSeatCanaryServing}}
+	if _, err := store.CompareAndSwap(t.Context(), 0, state); err != nil {
+		t.Fatal(err)
+	}
+	result, _ := journal.Query(t.Context(), decisionlog.Query{Kinds: []decisionlog.Kind{decisionlog.KindCanaryPromoted}})
+	if len(result.Decisions) != 1 || result.Decisions[0].ParentID != ManagedUpdateAdmissionID("op-resumed") {
+		t.Fatalf("promotion = %+v", result.Decisions)
+	}
+	if id := ManagedUpdateAdmissionID("op-resumed"); id != ManagedUpdateAdmissionID("op-resumed") ||
+		id == ManagedUpdateAdmissionID("other") {
+		t.Fatal("admission IDs are not a function of the operation")
+	}
+	if _, ok := decisionlog.IDTime(ManagedUpdateAdmissionID("op-resumed")); ok {
+		t.Fatal("an admission ID reads as a time-ordered ID")
+	}
+}

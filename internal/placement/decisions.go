@@ -1,7 +1,10 @@
 package placement
 
 import (
+	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"slices"
 	"sync"
@@ -18,6 +21,17 @@ const maxJournaledSeats = 4096
 // the managed update admission records its decision, so the seat phase
 // decisions chain under it.
 func ManagedUpdateCorrelation(operationID string) string { return "managed_update:" + operationID }
+
+// ManagedUpdateAdmissionID is the decision ID of an operation's admission.
+// It is derived from the operation, so a replayed Prepare journals the same
+// decision (the journal keeps one copy per ID) and a controller that resumes
+// the update after a leader change links its canary phases to the admission
+// without the admitting process's in-memory correlation. The "mu" prefix
+// keeps it from being read as a time-ordered ID.
+func ManagedUpdateAdmissionID(operationID string) string {
+	digest := sha256.Sum256([]byte("managed update admission\x00" + operationID))
+	return "mu" + hex.EncodeToString(digest[:15])
+}
 
 // marksPerSeat bounds the revisions remembered per seat.
 const marksPerSeat = 4
@@ -190,7 +204,7 @@ func (store *journaledStore) journal(ctx context.Context, previous seatMark, kno
 		"database_id": state.DatabaseID, "partition_id": state.PartitionID}
 	decision := decisionlog.Decision{Region: store.cell, Actor: decisionlog.Actor{Slice: "placement"},
 		Subject: updateSubject, Epoch: state.WriterEpoch, Attrs: updateAttrs, Rule: "managed TerraBase canary update",
-		ParentID: decisionlog.Correlated(correlation),
+		ParentID: cmp.Or(decisionlog.Correlated(correlation), ManagedUpdateAdmissionID(target.OperationID)),
 		Signals: slices.Concat(signals, []decisionlog.Signal{
 			{Name: "authority_sequence", Value: float64(target.AuthoritySequence)},
 			{Name: "phase", Text: string(target.Phase)}})}
@@ -217,10 +231,7 @@ func (store *journaledStore) journal(ctx context.Context, previous seatMark, kno
 	default:
 		return
 	}
-	id := decisionlog.Record(ctx, decision)
-	if decision.ParentID == "" {
-		decisionlog.Correlate(correlation, id)
-	}
+	decisionlog.Record(ctx, decision)
 }
 
 func stageDecision(state MemberState) (decisionlog.Kind, decisionlog.Status, string) {

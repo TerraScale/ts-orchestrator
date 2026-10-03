@@ -41,6 +41,11 @@ type runtimeObservability struct {
 	// journal-derived dashboard providers once the controller attaches them.
 	journal   *decisionlog.Journal
 	providers atomic.Pointer[journalProviders]
+	// journalCtx scopes the journal and everything feeding it to this
+	// runtime: close ends it on every return path of the role, so a failed
+	// controller's journal stops and is no longer the process recorder.
+	journalCtx  context.Context
+	stopJournal context.CancelFunc
 }
 
 // startRuntimeObservability installs the structured default logger and
@@ -237,7 +242,13 @@ func (runtime *runtimeObservability) attachSnapshots(collector *observability.Co
 // fails after startup (or an in-process test member) does not keep the port
 // bound until its parent context ends.
 func (runtime *runtimeObservability) close() {
-	if runtime != nil && runtime.server != nil {
+	if runtime == nil {
+		return
+	}
+	if runtime.stopJournal != nil {
+		runtime.stopJournal()
+	}
+	if runtime.server != nil {
 		_ = runtime.server.Close()
 	}
 }
