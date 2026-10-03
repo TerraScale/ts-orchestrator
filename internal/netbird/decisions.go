@@ -27,8 +27,11 @@ func recordEnrollment(ctx context.Context, cfg Config, hostname func() (string, 
 	if result != nil {
 		decision.Status = decisionlog.StatusFailed
 		decision.Summary = "NetBird enrollment of " + name + " failed"
-		decision.Reason = "The peer did not reach a connected management and signal state within the enrollment limit."
-		decision.Outcome = "not connected"
+		// Enrollment also fails before connecting (runtime lock, hosts
+		// file, Vault, settings) and in setup-key cleanup after connecting,
+		// so the failure does not say the peer is disconnected.
+		decision.Reason = "The enrollment did not complete; the failure may be in preparation, connectivity or setup-key cleanup."
+		decision.Outcome = "enrollment failed"
 	} else {
 		decision.Status = decisionlog.StatusSucceeded
 		decision.Summary = "NetBird peer " + name + " enrolled"
