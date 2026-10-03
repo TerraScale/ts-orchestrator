@@ -8,12 +8,12 @@ default and are enabled separately.
 
 | Where | Field | Default | Effect |
 | --- | --- | --- | --- |
-| host config | `host.load_telemetry_seconds` | `0` (off) | The agent samples its load every N seconds (5..3600) and sends it as the `load` host operation. |
+| host config | `host.load_telemetry_seconds` | `0` (off) | The agent samples its load every N seconds (5..3600) and sends it as the `load` host operation. Keep it below 300 for scaling: the aggregator treats a 5 minute silence of every host as a break. |
 | signed controller config | `controller.autoscale.host_telemetry` | `false` | The authority leader accepts `load` reports and feeds them to the autoscaler. Scaling policies (`services[].scaling`) are refused without it. |
 
 A host with telemetry on and a controller with it off is harmless: the
 controller answers "not enabled", and the agent backs off exponentially up
-to ten minutes between attempts. A controller with telemetry on and hosts
+to ten minutes (or the configured interval, if longer) between attempts. A controller with telemetry on and hosts
 without it holds every scaling policy with `no-signal-data`; bounds and
 self-healing still work.
 
@@ -47,13 +47,16 @@ request, current session, registration key). The controller then:
    desired allocation**, so a host cannot report load for a service it does
    not run;
 3. takes the cell, environment and node from its own registration state;
-4. accepts at most one report per node every 5 seconds, so one chatty host
-   cannot dominate a windowed average;
+4. accepts at most one report per node every 5 seconds;
 5. stamps every sample with the controller's receive time, so a host clock
    cannot place samples in the future or keep them inside a window.
 
-`hostload.Aggregator` records one sample per role per report into the
-autoscaler's bounded `autoscale.WindowStore`:
+`hostload.Aggregator` records one sample per role per report into a
+bounded `autoscale.WindowStore` **per node** (at most one sample per 5s for
+an hour, so a large replica set can never truncate a configured window).
+A reading reduces each node's samples in the window with the signal's
+aggregation and then reduces the per-node values the same way, so every
+reporting replica counts once whatever its report interval:
 
 | Signal | Value |
 | --- | --- |
@@ -69,9 +72,15 @@ for the stateless services the reconciler owns; the TerraBase signals feed
 the dashboard until TerraBase seats are reconciled.
 
 Only the authority leader serves host requests, so only its aggregator
-fills. A new leader starts empty and, together with the reconciler's
-conservative history reset on every epoch change, holds until a full
-stabilization window of new samples has arrived.
+fills. The aggregator returns no samples until reports have arrived without
+a break for the whole signal window (less one 5s report interval), so a new
+leader, a first enablement, or a leader returning after more than 5 minutes
+without reports holds with `no-signal-data` instead of scaling on the first
+report of a single replica. The reconciler's history reset on every epoch
+change applies the cooldowns from the start of the term on top. Host load
+intervals should therefore stay below 5 minutes. Members that are not the
+leader record no autoscale or TerraBase load history, and a demoted leader
+stops presenting its last results.
 
 ## Trust decision
 

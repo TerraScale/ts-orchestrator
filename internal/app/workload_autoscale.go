@@ -17,10 +17,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
 
-// hostLoadSamplesPerSeries bounds each autoscale series: about 100
-// replicas reporting every 15s for the longest (one hour) window.
-const hostLoadSamplesPerSeries = 24000
-
 // AutoscaleConfig enables continuous reconciliation of generic services. It
 // is part of the signed controller config and is off unless Enabled is set:
 // without it every role keeps the fixed, one-shot delivery placement.
@@ -121,8 +117,7 @@ func startWorkloadAutoscale(cell string, config *AutoscaleConfig, profiles map[s
 		for role, request := range resources {
 			requests[role] = hostload.Request{CPUCores: float64(request.CPU), MemoryBytes: request.MemoryBytes}
 		}
-		load = hostload.NewAggregator(hostload.AggregatorConfig{
-			Store: autoscale.NewWindowStore(0, hostLoadSamplesPerSeries), Requests: requests})
+		load = hostload.NewAggregator(hostload.AggregatorConfig{Requests: requests})
 		signals = load
 	}
 	reconciler, err := workload.New(workload.Config{Cell: cell, Specs: config.Services, Profiles: resources,

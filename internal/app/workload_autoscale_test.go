@@ -122,8 +122,10 @@ func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
 		hostload.Report{SchemaVersion: 1, Roles: []hostload.RoleUsage{{Role: "api", CPUCores: &cores}}}); err != nil {
 		t.Fatal(err)
 	}
+	// The aggregator holds until reports cover the signal window (one
+	// minute by default), so read at its end.
 	reading, err := load.Read(t.Context(), autoscale.Target{Cell: "gru", Environment: "prod", Role: "api"},
-		autoscale.Signal{Name: autoscale.SignalCPUUtilization, Target: 0.6}, time.Now())
+		autoscale.Signal{Name: autoscale.SignalCPUUtilization, Target: 0.6}, time.Now().Add(time.Minute-time.Second))
 	if err != nil || reading.Samples != 1 || reading.Value != 0.5 {
 		t.Fatalf("cpu_util normalized by the signed 2-core request = %+v, %v", reading, err)
 	}

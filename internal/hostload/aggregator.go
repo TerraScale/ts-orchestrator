@@ -51,30 +51,43 @@ type NodeLoad struct {
 }
 
 type AggregatorConfig struct {
-	// Store receives the samples; nil creates one with default bounds.
-	Store       *autoscale.WindowStore
 	Requests    map[string]Request
 	MinInterval time.Duration
 	StaleAfter  time.Duration
 	Now         func() time.Time
 }
 
+// nodeRetention is how long a silent node's samples are kept: the longest
+// window a valid scaling policy may configure.
+const nodeRetention = time.Hour
+
+// nodeState is one node's latest report and its own sample window. Each
+// node keeps a separate autoscale.WindowStore, so every node's series is
+// bounded by its own report rate (at most one sample per MinInterval) and
+// a busy cell can never truncate a configured window.
+type nodeState struct {
+	latest NodeLoad
+	store  *autoscale.WindowStore
+}
+
 // Aggregator turns accepted host reports into autoscale samples. It is an
-// autoscale.Source: the workload reconciler reads windowed aggregates of the
-// per-replica samples it recorded. Samples are stamped with the
-// controller's receive time, so a host clock can never place a sample in
-// the future or keep it inside a window.
+// autoscale.Source: the workload reconciler reads a windowed aggregate per
+// node and then combines nodes with equal weight, so a host that reports
+// every 5s does not outweigh a replica that reports every minute. Samples
+// are stamped with the controller's receive time, so a host clock can never
+// place a sample in the future or keep it inside a window.
 type Aggregator struct {
 	config AggregatorConfig
 
 	mu    sync.Mutex
-	nodes map[string]NodeLoad
+	nodes map[string]*nodeState
+	// since starts the current unbroken run of accepted reports; last is
+	// the latest accepted report of any node. A gap longer than StaleAfter
+	// (for example while another member led) restarts the run.
+	since, last time.Time
 }
 
 func NewAggregator(config AggregatorConfig) *Aggregator {
-	if config.Store == nil {
-		config.Store = autoscale.NewWindowStore(0, 0)
-	}
 	if config.MinInterval <= 0 {
 		config.MinInterval = DefaultMinInterval
 	}
@@ -85,12 +98,53 @@ func NewAggregator(config AggregatorConfig) *Aggregator {
 		config.Now = time.Now
 	}
 	config.Requests = maps.Clone(config.Requests)
-	return &Aggregator{config: config, nodes: make(map[string]NodeLoad)}
+	return &Aggregator{config: config, nodes: make(map[string]*nodeState)}
 }
 
-// Read implements autoscale.Source.
+// nodePoints bounds one node's series: one accepted sample per MinInterval
+// over the retention, plus slack.
+func (a *Aggregator) nodePoints() int {
+	return int(min(nodeRetention/a.config.MinInterval+16, 4096))
+}
+
+// Read implements autoscale.Source. Each node's samples inside the window
+// are reduced with the signal's aggregation first; the per-node values are
+// then reduced with the same aggregation, so every reporting replica counts
+// once whatever its report interval. Samples is the total sample count.
+//
+// Until reports have arrived without a break for the whole signal window,
+// the reading has no samples, so the autoscaler holds with no-signal-data:
+// a new leader, or a first enablement, never scales on the first report
+// of a single replica.
 func (a *Aggregator) Read(ctx context.Context, target autoscale.Target, signal autoscale.Signal, now time.Time) (autoscale.Reading, error) {
-	return a.config.Store.Read(ctx, target, signal, now)
+	reading := autoscale.Reading{Signal: signal.Name}
+	a.mu.Lock()
+	// Warm once the run started within one minimum report interval of the
+	// window's start, so a window is covered even if its first sample
+	// landed a moment after the window opened.
+	if a.since.IsZero() || now.Sub(a.since) < signal.Window()-a.config.MinInterval {
+		a.mu.Unlock()
+		return reading, nil
+	}
+	a.pruneLocked(a.config.Now(), nodeRetention)
+	stores := make([]*autoscale.WindowStore, 0, len(a.nodes))
+	for _, node := range a.nodes {
+		stores = append(stores, node.store)
+	}
+	a.mu.Unlock()
+	values := make([]float64, 0, len(stores))
+	for _, store := range stores {
+		node, err := store.Read(ctx, target, signal, now)
+		if err != nil {
+			return autoscale.Reading{}, err
+		}
+		if node.Samples > 0 {
+			values = append(values, node.Value)
+			reading.Samples += node.Samples
+		}
+	}
+	reading.Value = autoscale.Aggregate(signal.AggregationOrDefault(), values)
+	return reading, nil
 }
 
 // Record accepts one validated report. The caller must already have
@@ -101,26 +155,38 @@ func (a *Aggregator) Record(origin Origin, report Report) error {
 	}
 	now := a.config.Now()
 	a.mu.Lock()
-	previous, known := a.nodes[origin.Node]
-	if known && now.Sub(previous.At) < a.config.MinInterval {
+	node, known := a.nodes[origin.Node]
+	if known && now.Sub(node.latest.At) < a.config.MinInterval {
 		a.mu.Unlock()
 		return ErrTooFrequent
 	}
-	if !known && len(a.nodes) >= maxNodes {
-		a.pruneLocked(now)
+	if !known {
+		if len(a.nodes) >= maxNodes {
+			// Full: forget every node that is no longer reporting, even if
+			// a long window could still use its older samples.
+			a.pruneLocked(now, a.config.StaleAfter)
+		}
 		if len(a.nodes) >= maxNodes {
 			a.mu.Unlock()
 			return ErrTooManyNodes
 		}
+		node = &nodeState{store: autoscale.NewWindowStore(nodeRetention, a.nodePoints())}
+		a.nodes[origin.Node] = node
 	}
-	a.nodes[origin.Node] = NodeLoad{Origin: origin, At: now, Report: report}
-	a.mu.Unlock()
+	node.latest = NodeLoad{Origin: origin, At: now, Report: report}
+	if a.last.IsZero() || now.Sub(a.last) > a.config.StaleAfter {
+		a.since = now
+	}
+	a.last = now
+	// Recording under the aggregator lock keeps one node's samples in
+	// receive order and its store from being pruned mid-record.
 	for _, role := range report.Roles {
 		target := autoscale.Target{Cell: origin.Cell, Environment: origin.Environment, Role: role.Role}
 		for name, value := range roleSignals(role, report.Host, a.config.Requests[role.Role]) {
-			a.config.Store.Record(target, name, autoscale.Sample{At: now, Value: value})
+			node.store.Record(target, name, autoscale.Sample{At: now, Value: value})
 		}
 	}
+	a.mu.Unlock()
 	return nil
 }
 
@@ -164,17 +230,24 @@ func roleSignals(role RoleUsage, host HostUsage, request Request) map[autoscale.
 func (a *Aggregator) Nodes() []NodeLoad {
 	now := a.config.Now()
 	a.mu.Lock()
-	a.pruneLocked(now)
-	out := slices.Collect(maps.Values(a.nodes))
+	a.pruneLocked(now, nodeRetention)
+	out := make([]NodeLoad, 0, len(a.nodes))
+	for _, node := range a.nodes {
+		if now.Sub(node.latest.At) <= a.config.StaleAfter {
+			out = append(out, node.latest)
+		}
+	}
 	a.mu.Unlock()
 	slices.SortFunc(out, func(x, y NodeLoad) int { return strings.Compare(x.Origin.Node, y.Origin.Node) })
 	return out
 }
 
-func (a *Aggregator) pruneLocked(now time.Time) {
-	for node, load := range a.nodes {
-		if now.Sub(load.At) > a.config.StaleAfter {
-			delete(a.nodes, node)
+// pruneLocked forgets nodes silent for longer than retention; none of their
+// samples can fall inside a window any more.
+func (a *Aggregator) pruneLocked(now time.Time, retention time.Duration) {
+	for name, node := range a.nodes {
+		if now.Sub(node.latest.At) > retention {
+			delete(a.nodes, name)
 		}
 	}
 }

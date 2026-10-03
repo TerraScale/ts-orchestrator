@@ -143,7 +143,7 @@ func TestAggregatorNormalizesByRequestAndThrottles(t *testing.T) {
 	}
 	target := autoscale.Target{Cell: "gru", Environment: "prod", Role: "api"}
 	read := func(name autoscale.SignalName, target autoscale.Target) autoscale.Reading {
-		reading, err := aggregator.Read(t.Context(), target, autoscale.Signal{Name: name, Target: 1}, now)
+		reading, err := aggregator.Read(t.Context(), target, autoscale.Signal{Name: name, Target: 1}, now.Add(time.Minute))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -188,19 +188,106 @@ func TestAggregatorTerraBaseSignals(t *testing.T) {
 		autoscale.SignalTerraBaseConnectionsPerMember: 40, autoscale.SignalTerraBaseStorageBytes: 1 << 20,
 		autoscale.SignalTerraBaseReplicationLag: 9, autoscale.SignalTerraBaseWriteQPS: 12.5,
 	} {
-		reading, _ := aggregator.Read(t.Context(), target, autoscale.Signal{Name: name, Target: 1}, now)
+		reading, _ := aggregator.Read(t.Context(), target, autoscale.Signal{Name: name, Target: 1}, now.Add(time.Minute))
 		if reading.Samples != 1 || reading.Value != want {
 			t.Errorf("%s = %+v, want %v", name, reading, want)
 		}
 	}
 	// Without CPU or memory usage the host's disk is not attributed to the
 	// role.
-	if reading, _ := aggregator.Read(t.Context(), target, autoscale.Signal{Name: autoscale.SignalDiskUtilization, Target: 1}, now); reading.Samples != 0 {
+	if reading, _ := aggregator.Read(t.Context(), target, autoscale.Signal{Name: autoscale.SignalDiskUtilization, Target: 1}, now.Add(time.Minute)); reading.Samples != 0 {
 		t.Fatalf("disk attributed without usage: %+v", reading)
 	}
 	if !StatelessSignal(autoscale.SignalCPUUtilization) || StatelessSignal(autoscale.SignalTerraBaseWriteQPS) ||
 		StatelessSignal(autoscale.SignalRequestRatePerReplica) {
 		t.Fatal("stateless signal set changed")
+	}
+}
+
+// Every reporting replica counts once, whatever its report interval, and a
+// many-replica service keeps its full one-hour window.
+func TestAggregatorWeighsNodesEquallyOverTheWholeWindow(t *testing.T) {
+	start := time.Unix(50_000, 0)
+	now := start
+	aggregator := NewAggregator(AggregatorConfig{Requests: map[string]Request{"api": {CPUCores: 1, MemoryBytes: 1}},
+		Now: func() time.Time { return now }})
+	report := func(cores float64) Report {
+		return Report{SchemaVersion: 1, Roles: []RoleUsage{{Role: "api", CPUCores: ptr(cores)}}}
+	}
+	// 30 chatty nodes at 5s and one quiet node every minute, for an hour.
+	for step := 0; step < 720; step++ {
+		now = start.Add(time.Duration(step) * 5 * time.Second)
+		for node := range 30 {
+			value := 0.1
+			if step < 360 {
+				// The first half hour was busy: a truncated window would
+				// miss it.
+				value = 0.5
+			}
+			if err := aggregator.Record(Origin{Cell: "gru", Environment: "prod", Node: "chatty-" + string(rune('a'+node%26)) + string(rune('a'+node/26))}, report(value)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if step%12 == 0 {
+			if err := aggregator.Record(Origin{Cell: "gru", Environment: "prod", Node: "quiet"}, report(0.9)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	target := autoscale.Target{Cell: "gru", Environment: "prod", Role: "api"}
+	hour := autoscale.Signal{Name: autoscale.SignalCPUUtilization, Target: 1, WindowSeconds: 3600}
+	// Reports have not covered the whole hour yet: no reading.
+	if early, _ := aggregator.Read(t.Context(), target, hour, start.Add(30*time.Minute)); early.Samples != 0 {
+		t.Fatalf("reading before a full window of reports: %+v", early)
+	}
+	reading, err := aggregator.Read(t.Context(), target, hour, start.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Each chatty node averages 0.3 over the hour, the quiet one 0.9.
+	want := (30*0.3 + 0.9) / 31
+	if math.Abs(reading.Value-want) > 1e-9 || reading.Samples != 30*720+60 {
+		t.Fatalf("reading = %+v, want value %v over %d samples", reading, want, 30*720+60)
+	}
+}
+
+// After a break in reports longer than StaleAfter, for example while
+// another member led, the aggregator waits for a full window again.
+func TestAggregatorWarmUpRestartsAfterAGap(t *testing.T) {
+	now := time.Unix(90_000, 0)
+	aggregator := NewAggregator(AggregatorConfig{Requests: map[string]Request{"api": {CPUCores: 1, MemoryBytes: 1}},
+		Now: func() time.Time { return now }})
+	origin := Origin{Cell: "gru", Environment: "prod", Node: "pool-1"}
+	target := autoscale.Target{Cell: "gru", Environment: "prod", Role: "api"}
+	signal := autoscale.Signal{Name: autoscale.SignalCPUUtilization, Target: 1}
+	record := func() {
+		t.Helper()
+		if err := aggregator.Record(origin, Report{SchemaVersion: 1, Roles: []RoleUsage{{Role: "api", CPUCores: ptr(0.4)}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func() autoscale.Reading {
+		reading, _ := aggregator.Read(t.Context(), target, signal, now)
+		return reading
+	}
+	if got := read(); got.Samples != 0 {
+		t.Fatalf("empty aggregator read %+v", got)
+	}
+	for range 11 { // 0s..50s: the first report is not yet within one interval of the window start
+		record()
+		if got := read(); got.Samples != 0 {
+			t.Fatalf("read before a full window: %+v", got)
+		}
+		now = now.Add(5 * time.Second)
+	}
+	record()
+	if got := read(); got.Samples != 12 || math.Abs(got.Value-0.4) > 1e-9 {
+		t.Fatalf("warm read = %+v", got)
+	}
+	now = now.Add(DefaultStaleAfter + time.Second)
+	record()
+	if got := read(); got.Samples != 0 {
+		t.Fatalf("read right after a gap: %+v", got)
 	}
 }
 
