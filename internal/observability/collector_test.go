@@ -109,18 +109,47 @@ func TestRegistryTextTruncatesAtLineBoundary(t *testing.T) {
 	}
 }
 
+// A caller's cancellation neither cuts the shared load short nor is pinned
+// on later callers.
 func TestCacheDoesNotPinCallerCancellation(t *testing.T) {
 	t.Parallel()
 	cache := Cache[int]{TTL: time.Minute}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := cache.Get(ctx, func(ctx context.Context) (int, error) { return 0, ctx.Err() }); err == nil {
-		t.Fatal("canceled load returned no error")
+	if _, err := cache.Get(ctx, func(ctx context.Context) (int, error) { return 7, ctx.Err() }); err == nil {
+		t.Fatal("a canceled caller returned no error")
 	}
-	value, err := cache.Get(t.Context(), func(context.Context) (int, error) { return 7, nil })
+	value, err := cache.Get(t.Context(), func(context.Context) (int, error) { return 9, nil })
 	if err != nil || value != 7 {
-		t.Fatalf("Get after cancellation = %d, %v", value, err)
+		t.Fatalf("Get after a canceled caller = %d, %v; want the shared load's own result", value, err)
 	}
+}
+
+// A waiter whose deadline ends returns at once instead of waiting for
+// another caller's slow load.
+func TestCacheWaiterHonoursItsOwnContext(t *testing.T) {
+	t.Parallel()
+	cache := Cache[int]{TTL: time.Minute}
+	release := make(chan struct{})
+	started := make(chan struct{})
+	go func() {
+		_, _ = cache.Get(t.Context(), func(context.Context) (int, error) {
+			close(started)
+			<-release
+			return 1, nil
+		})
+	}()
+	<-started
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	begun := time.Now()
+	if _, err := cache.Get(ctx, func(context.Context) (int, error) { return 2, nil }); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("waiter error = %v, want its own deadline", err)
+	}
+	if waited := time.Since(begun); waited > time.Second {
+		t.Fatalf("waiter blocked %s on another caller's load", waited)
+	}
+	close(release)
 }
 
 func TestSeriesEscapesLabelValues(t *testing.T) {

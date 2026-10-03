@@ -418,7 +418,9 @@ func (current *series) coveringTier(chosen string, start int64) string {
 		if !ok {
 			continue
 		}
-		if oldest <= start+t.step.Milliseconds() {
+		// The tier covers start only when its oldest bucket begins at or
+		// before it; a bucket beginning after start does not hold start.
+		if oldest <= start {
 			return name
 		}
 		if oldest < bestOldest {
