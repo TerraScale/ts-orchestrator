@@ -100,3 +100,18 @@ func TestTerraBaseLoadExpires(t *testing.T) {
 		t.Fatalf("cleared load kept: %+v", got)
 	}
 }
+
+// Backoff doubles up to its cap but never publishes more often than the
+// configured interval.
+func TestLoadBackoffNeverShortensTheInterval(t *testing.T) {
+	for _, tc := range []struct{ wait, interval, want time.Duration }{
+		{15 * time.Second, 15 * time.Second, 30 * time.Second},
+		{8 * time.Minute, 15 * time.Second, maxLoadBackoff},
+		{time.Hour, time.Hour, time.Hour},
+		{30 * time.Minute, 30 * time.Minute, 30 * time.Minute},
+	} {
+		if got := nextLoadWait(tc.wait, tc.interval); got != tc.want {
+			t.Errorf("nextLoadWait(%v, %v) = %v, want %v", tc.wait, tc.interval, got, tc.want)
+		}
+	}
+}

@@ -169,7 +169,7 @@ func (a *Agent) publishLoad(ctx context.Context) {
 				slog.Info("host load telemetry not accepted; backing off", "error_class", loadErrorClass(err))
 			}
 			failing = true
-			wait = min(max(wait*2, a.cfg.LoadInterval), maxLoadBackoff)
+			wait = nextLoadWait(wait, a.cfg.LoadInterval)
 			continue
 		}
 		if failing {
@@ -177,6 +177,13 @@ func (a *Agent) publishLoad(ctx context.Context) {
 		}
 		failing, wait = false, a.cfg.LoadInterval
 	}
+}
+
+// nextLoadWait doubles the wait after a failed publication, capped at
+// maxLoadBackoff, but never below the configured interval: a failure must
+// not make an agent with a long interval publish more often.
+func nextLoadWait(wait, interval time.Duration) time.Duration {
+	return max(min(wait*2, maxLoadBackoff), interval)
 }
 
 func loadErrorClass(err error) string {
