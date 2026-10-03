@@ -250,6 +250,7 @@ func TestDecodeMemberStatusOptionalLoadBlock(t *testing.T) {
 		"string counter":   `{"connections":"1","storage_bytes":1,"replication_lag_seq":1,"write_qps":1}`,
 		"not an object":    `[1,2]`,
 		"null":             `null`,
+		"repeated counter": `{"connections":1,"connections":2,"storage_bytes":1,"replication_lag_seq":1,"write_qps":1}`,
 		// A newer TerraBase that adds a counter only loses its telemetry.
 		"unknown member": `{"connections":1,"storage_bytes":1,"replication_lag_seq":1,"write_qps":1,"extra":1}`,
 	} {

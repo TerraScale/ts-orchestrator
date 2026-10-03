@@ -1,9 +1,10 @@
 package memberstatus
 
 import (
+	"bytes"
 	"encoding/json/jsontext"
-	"encoding/json/v2"
 	"errors"
+	"io"
 	"math"
 )
 
@@ -64,24 +65,56 @@ func DecodeLoad(raw []byte) *Load {
 	return &load
 }
 
-// splitLoad removes the optional top-level "load" member from a status body
+// SplitLoad removes the optional top-level "load" member from a status body
 // and returns it separately, so the lifecycle evidence is decoded strictly
-// while the telemetry block is decoded leniently. A body that is not a JSON
-// object, or has duplicate names, is returned unchanged for the strict
-// decoder to refuse.
-func splitLoad(body []byte) (evidence, load []byte) {
-	var root map[string]jsontext.Value
-	if err := json.Unmarshal(body, &root); err != nil {
+// while the telemetry block is decoded leniently. Duplicate names are
+// tolerated only inside the load value (DecodeLoad then drops it): a body
+// that is not a single JSON object, repeats a top-level name, or repeats a
+// name inside any other member is returned unchanged for the strict decoder
+// to refuse.
+func SplitLoad(body []byte) (evidence, load []byte) {
+	decoder := jsontext.NewDecoder(bytes.NewReader(body), jsontext.AllowDuplicateNames(true))
+	if token, err := decoder.ReadToken(); err != nil || token.Kind() != '{' {
 		return body, nil
 	}
-	raw, present := root["load"]
-	if !present {
+	var out bytes.Buffer
+	encoder := jsontext.NewEncoder(&out)
+	if encoder.WriteToken(jsontext.BeginObject) != nil {
 		return body, nil
 	}
-	delete(root, "load")
-	evidence, err := json.Marshal(root)
-	if err != nil {
+	seen := make(map[string]struct{})
+	for decoder.PeekKind() == '"' {
+		token, err := decoder.ReadToken()
+		if err != nil {
+			return body, nil
+		}
+		// A token is only valid until the next read.
+		name := token.String()
+		if _, repeated := seen[name]; repeated {
+			return body, nil
+		}
+		seen[name] = struct{}{}
+		value, err := decoder.ReadValue()
+		if err != nil {
+			return body, nil
+		}
+		if name == "load" {
+			load = bytes.Clone(value)
+			continue
+		}
+		// The strict encoder refuses duplicate names inside evidence values.
+		if encoder.WriteToken(jsontext.String(name)) != nil || encoder.WriteValue(value) != nil {
+			return body, nil
+		}
+	}
+	if token, err := decoder.ReadToken(); err != nil || token.Kind() != '}' {
 		return body, nil
 	}
-	return evidence, raw
+	if _, err := decoder.ReadToken(); err != io.EOF {
+		return body, nil
+	}
+	if load == nil || encoder.WriteToken(jsontext.EndObject) != nil {
+		return body, nil
+	}
+	return bytes.TrimSpace(out.Bytes()), load
 }

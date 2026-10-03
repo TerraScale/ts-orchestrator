@@ -113,9 +113,13 @@ func (a *Agent) noteTerraBaseLoad(role string, load *memberstatus.Load) {
 func (a *Agent) currentTerraBaseLoads() map[string]memberstatus.Load {
 	a.loadMu.Lock()
 	defer a.loadMu.Unlock()
+	// A running member's block is refreshed on every poll, so one that
+	// missed a few polls (withdrawn, draining, or stuck) is dropped well
+	// before the absolute cap.
+	ttl := min(max(3*a.cfg.PollInterval, MinLoadInterval), terraBaseLoadTTL)
 	out := make(map[string]memberstatus.Load, len(a.terraBaseLoads))
 	for role, entry := range a.terraBaseLoads {
-		if time.Since(entry.at) > terraBaseLoadTTL {
+		if time.Since(entry.at) > ttl {
 			delete(a.terraBaseLoads, role)
 			continue
 		}

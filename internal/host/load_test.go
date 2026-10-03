@@ -94,6 +94,18 @@ func TestTerraBaseLoadExpires(t *testing.T) {
 	if got := a.currentTerraBaseLoads(); len(got) != 0 {
 		t.Fatalf("stale load kept: %+v", got)
 	}
+	// A block not refreshed for three polls (at least 5s) is dropped long
+	// before the absolute cap.
+	a.cfg.PollInterval = time.Second
+	a.noteTerraBaseLoad("terrabase", &memberstatus.Load{Connections: 3})
+	a.loadMu.Lock()
+	entry = a.terraBaseLoads["terrabase"]
+	entry.at = time.Now().Add(-6 * time.Second)
+	a.terraBaseLoads["terrabase"] = entry
+	a.loadMu.Unlock()
+	if got := a.currentTerraBaseLoads(); len(got) != 0 {
+		t.Fatalf("load missing several polls kept: %+v", got)
+	}
 	a.noteTerraBaseLoad("terrabase", &memberstatus.Load{})
 	a.noteTerraBaseLoad("terrabase", nil)
 	if got := a.currentTerraBaseLoads(); len(got) != 0 {

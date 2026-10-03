@@ -73,7 +73,7 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 	// The load block is telemetry, never evidence: it is split off before
 	// the strict decode, and a malformed, incomplete or out-of-range block
 	// is dropped instead of failing the status.
-	evidence, load := splitLoad(body)
+	evidence, load := SplitLoad(body)
 	var status Status
 	if err := decodeRequired(evidence, &status, statusPaths...); err != nil {
 		return Status{}, err
