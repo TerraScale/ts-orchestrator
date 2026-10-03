@@ -74,6 +74,12 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 	if err := decodeRequired(body, &status, statusPaths...); err != nil {
 		return Status{}, err
 	}
+	if status.Load != nil && (decodeRequired(body, &Status{}, loadPaths...) != nil || status.Load.Validate() != nil) {
+		// The load block is telemetry, never evidence: an incomplete or
+		// out-of-range block is dropped instead of failing the status, and
+		// a missing counter never reads as zero load.
+		status.Load = nil
+	}
 	if status.SchemaVersion != 2 || status.Nonce != challenge || status.Process.PID != process.PID ||
 		!status.Process.valid() || status.Scope != c.scope || status.Authority != c.authority ||
 		!status.Capabilities.ServingProof || !status.Capabilities.DurableDrain {
@@ -286,6 +292,8 @@ var statusPaths = []string{
 	"local.storage_recovered", "local.replication_listener_ready", "local.healthy", "local.ready",
 	"receiver_only", "serving", "capabilities.serving_proof", "capabilities.durable_drain",
 }
+
+var loadPaths = []string{"load.connections", "load.storage_bytes", "load.replication_lag_seq", "load.write_qps"}
 
 var servingPaths = []string{
 	"schema_version", "nonce", "process.pid", "process.start_nonce",

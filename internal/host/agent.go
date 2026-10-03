@@ -56,6 +56,8 @@ type Agent struct {
 	memoryCheck      func(Registration) error
 	wallNow          func() time.Time
 	watchdogTicks    <-chan time.Time
+	loadMu           sync.Mutex
+	terraBaseLoads   map[string]terraBaseLoad
 }
 
 // An open cycle has no outcome until work has succeeded or failed. A transient
@@ -112,6 +114,9 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 	}
 	if cfg.PollInterval < 100*time.Millisecond {
 		return nil, errors.New("agent poll interval is too short")
+	}
+	if cfg.LoadInterval != 0 && (cfg.LoadInterval < MinLoadInterval || cfg.LoadInterval > time.Hour) {
+		return nil, errors.New("agent load interval must be within 5s..1h")
 	}
 	runner := cfg.Runner
 	if runner == nil {
@@ -271,6 +276,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	go a.maintainSession(work, cancel, lost)
 	if a.cfg.ManagedRuntimeRoot != "" {
 		go a.refreshNativeRootPins(work)
+	}
+	if a.cfg.LoadInterval > 0 {
+		go a.publishLoad(work)
 	}
 	ticker := time.NewTicker(a.cfg.PollInterval)
 	defer ticker.Stop()

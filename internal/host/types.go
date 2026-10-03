@@ -241,6 +241,9 @@ type AgentConfig struct {
 	// session. A self-update activation proof belongs here: earlier, a host
 	// whose recovery fails would still confirm its release.
 	Initialized func()
+	// LoadInterval, when nonzero, publishes host load telemetry that often
+	// (5s..1h). Zero, the default, never samples or sends load.
+	LoadInterval time.Duration
 }
 
 type ControllerConfig struct {

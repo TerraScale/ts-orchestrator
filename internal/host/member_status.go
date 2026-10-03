@@ -22,6 +22,8 @@ import (
 	"uuid"
 
 	"golang.org/x/sys/unix"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 )
 
 // MemberScope and MemberAuthority are expected from a verified, signed member
@@ -72,7 +74,10 @@ type MemberStatus struct {
 	Serving              bool               `json:"serving"`
 	Capabilities         MemberCapabilities `json:"capabilities"`
 	CredentialGeneration uint64             `json:"client_credential_generation,omitzero"`
-	ObservedAt           time.Time          `json:"-"`
+	// Load is the optional TerraBase load block. It feeds host telemetry
+	// only and is never lifecycle evidence.
+	Load       *memberstatus.Load `json:"load,omitempty"`
+	ObservedAt time.Time          `json:"-"`
 }
 
 type ExpectedMemberStatus struct {
@@ -116,6 +121,12 @@ type memberStatusWire struct {
 		ServingProof *bool `json:"serving_proof"`
 		DurableDrain *bool `json:"durable_drain"`
 	} `json:"capabilities"`
+	Load *struct {
+		Connections       *uint64  `json:"connections"`
+		StorageBytes      *uint64  `json:"storage_bytes"`
+		ReplicationLagSeq *uint64  `json:"replication_lag_seq"`
+		WriteQPS          *float64 `json:"write_qps"`
+	} `json:"load"`
 }
 
 // ReadMemberStatus authenticates one local TerraBase process and its exact
@@ -389,6 +400,17 @@ func decodeMemberStatus(data []byte, nonce string, pid int, expected ExpectedMem
 	}
 	if wire.CredentialGeneration != nil {
 		status.CredentialGeneration = *wire.CredentialGeneration
+	}
+	// The optional TerraBase load block is telemetry, never evidence: an
+	// incomplete or out-of-range block is dropped instead of failing the
+	// status, so a telemetry bug can never stop a serving member.
+	if l := wire.Load; l != nil && l.Connections != nil && l.StorageBytes != nil && l.ReplicationLagSeq != nil &&
+		l.WriteQPS != nil {
+		load := memberstatus.Load{Connections: *l.Connections, StorageBytes: *l.StorageBytes,
+			ReplicationLagSeq: *l.ReplicationLagSeq, WriteQPS: *l.WriteQPS}
+		if load.Validate() == nil {
+			status.Load = &load
+		}
 	}
 	if status.SchemaVersion != 2 || status.Nonce != nonce || status.Process.PID != pid || !lowerHex(status.Process.StartNonce, 32) ||
 		status.Scope.ShardID == 0 || !canonicalMemberID(status.Scope.TenantID) ||

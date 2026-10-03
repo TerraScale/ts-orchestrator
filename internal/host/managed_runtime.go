@@ -896,6 +896,9 @@ func (a *Agent) reportManagedStatus(ctx context.Context, d Desired, mount manage
 	if err := a.publishReport(ctx, report); err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
 	}
+	// Only a status that passed every identity, mount and serving check and
+	// was reported may contribute TerraBase load telemetry.
+	a.noteTerraBaseLoad(d.Role, status.Load)
 	return nil
 }
 

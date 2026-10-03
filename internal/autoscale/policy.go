@@ -35,12 +35,14 @@ const (
 	SignalTerraBaseConnectionsPerMember SignalName = "tb_connections_per_member"
 	SignalTerraBaseStorageBytes         SignalName = "tb_storage_bytes"
 	SignalTerraBaseReplicationLag       SignalName = "tb_replication_lag_seq"
+	SignalTerraBaseWriteQPS             SignalName = "tb_write_qps"
 )
 
 func knownSignal(name SignalName) bool {
 	switch name {
 	case SignalCPUUtilization, SignalMemoryUtilization, SignalDiskUtilization, SignalRequestRatePerReplica,
-		SignalTerraBaseConnectionsPerMember, SignalTerraBaseStorageBytes, SignalTerraBaseReplicationLag:
+		SignalTerraBaseConnectionsPerMember, SignalTerraBaseStorageBytes, SignalTerraBaseReplicationLag,
+		SignalTerraBaseWriteQPS:
 		return true
 	default:
 		return false
