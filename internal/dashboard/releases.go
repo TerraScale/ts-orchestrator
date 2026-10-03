@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
@@ -19,10 +20,17 @@ var releaseStageTitles = map[string]string{"qualified": "CI qualified", "signed"
 // releaseView is one release's journey through every region, built from the
 // decision journal: each step links the decision that took it.
 type releaseView struct {
-	ID     string
-	Name   string
-	First  time.Time
-	Last   time.Time
+	ID   string
+	Name string
+	// Version is the identity units report for this release (its build
+	// version, else its digest); Name is only a display label.
+	Version string
+	// Started is when the release was admitted or started, zero when no
+	// such decision was loaded. First is the earliest loaded decision,
+	// which is not necessarily the start.
+	Started time.Time
+	First   time.Time
+	Last    time.Time
 	Status string
 	Label  string
 	Lanes  []releaseLane
@@ -59,6 +67,26 @@ func releaseID(decision decisionlog.Decision) (id, name string) {
 	return "", ""
 }
 
+// releaseVersion is the identity a unit running the release reports: its
+// version attribute, else a subject name that is a version label, else the
+// release ID (a digest). The rollout producer names its subject
+// "<kind>/<rollout>", which is a display label, never a unit's version.
+func releaseVersion(decision decisionlog.Decision, id string) string {
+	if version := decision.Attrs["version"]; version != "" {
+		return version
+	}
+	if name := decision.Subject.Name; decision.Subject.Kind == "release" && name != "" && !strings.Contains(name, "/") {
+		return name
+	}
+	return id
+}
+
+// aborted reports a rollout aborted for good (preflight failure, preflight
+// timeout or an operator abort), as opposed to a temporary hold.
+func aborted(decision decisionlog.Decision) bool {
+	return decision.Kind == decisionlog.KindHeld && decision.Attrs["phase"] == "aborted"
+}
+
 // releaseStage places a decision on the timeline.
 func releaseStage(decision decisionlog.Decision) string {
 	if stage := decision.Attrs["stage"]; slices.Contains(releaseStages, stage) {
@@ -72,6 +100,9 @@ func releaseStage(decision decisionlog.Decision) string {
 	case decisionlog.KindCanaryPromoted:
 		return "canary"
 	case decisionlog.KindHeld, decisionlog.KindHoldCleared, decisionlog.KindFrozen:
+		if aborted(decision) {
+			return "outcome"
+		}
 		return "soak"
 	case decisionlog.KindBatchPromoted:
 		return "batches"
@@ -100,9 +131,16 @@ func (current view) releases() []releaseView {
 		}
 		release := byID[id]
 		if release == nil {
-			release = &releaseView{ID: id, Name: name, First: decision.Time}
+			release = &releaseView{ID: id, Name: name, Version: releaseVersion(*decision, id), First: decision.Time}
 			byID[id] = release
 			lanes[id] = map[string]map[string]*releaseStep{}
+		}
+		if version := decision.Attrs["version"]; version != "" {
+			release.Version = version
+		}
+		if (decision.Kind == decisionlog.KindReleaseAdmitted || decision.Kind == decisionlog.KindUpgradeStarted) &&
+			(release.Started.IsZero() || decision.Time.Before(release.Started)) {
+			release.Started = decision.Time
 		}
 		release.Last = decision.Time
 		if lanes[id][decision.Region] == nil {
@@ -121,23 +159,33 @@ func (current view) releases() []releaseView {
 		switch decision.Kind {
 		case decisionlog.KindReleaseAdmitted:
 			step.Label = cmp.Or(decision.Attrs["delegation"], "admitted")
-			qualified := &releaseStep{Stage: "qualified", Decision: decision, Count: 1, Status: "ok",
-				Label: cmp.Or(decision.Attrs["qualification"], "qualified")}
-			if decision.Attrs["qualification"] == "failed" {
-				qualified.Status = "bad"
+			// Admission checks fencing, known-bad digests and attempts,
+			// not CI: the qualified step shows only explicit evidence.
+			if qualification := decision.Attrs["qualification"]; qualification != "" {
+				steps["qualified"] = &releaseStep{Stage: "qualified", Decision: decision, Count: 1,
+					Status: qualificationStatus(qualification), Label: qualification}
 			}
-			steps["qualified"] = qualified
 		case decisionlog.KindBatchPromoted:
 			step.Label = "batch " + cmp.Or(decision.Attrs["batch"], strconv.Itoa(step.Count))
 			if total := decision.Attrs["batches"]; total != "" {
 				step.Label += " of " + total
 			}
 		case decisionlog.KindRollback:
-			step.Label, step.Status = "rolled back", "serious"
+			// A rollback is journaled when it starts and again when the
+			// previous version is restored; only the latter is done.
+			step.Label, step.Status = "rolling back", "serious"
+			if decision.Status == decisionlog.StatusRolledBack {
+				step.Label = "rolled back"
+			}
 			release.Reason = cmp.Or(decision.Reason, decision.Summary)
 		case decisionlog.KindRolloutCompleted:
 			step.Label = "complete"
 		case decisionlog.KindHeld, decisionlog.KindFrozen:
+			if aborted(*decision) {
+				step.Label, step.Status = "aborted", "bad"
+				release.Reason = cmp.Or(decision.Reason, decision.Summary)
+				break
+			}
 			step.Label, step.Status = kindLabel(decision.Kind), "warn"
 			if release.Reason == "" {
 				release.Reason = cmp.Or(decision.Reason, decision.Summary)
@@ -148,7 +196,7 @@ func (current view) releases() []releaseView {
 	}
 	out := make([]releaseView, 0, len(byID))
 	for id, release := range byID {
-		complete, rolledBack, running := 0, 0, 0
+		complete, rolledBack, rollingBack, abortedLanes, running := 0, 0, 0, 0, 0
 		for _, region := range current.orderRegions(slices.Collect(maps.Keys(lanes[id]))) {
 			steps := lanes[id][region]
 			lane := releaseLane{Region: region}
@@ -161,8 +209,13 @@ func (current view) releases() []releaseView {
 			}
 			release.Lanes = append(release.Lanes, lane)
 			switch outcome := steps["outcome"]; {
-			case outcome != nil && outcome.Decision.Kind == decisionlog.KindRollback:
+			case outcome != nil && outcome.Decision.Kind == decisionlog.KindRollback &&
+				outcome.Decision.Status == decisionlog.StatusRolledBack:
 				rolledBack++
+			case outcome != nil && outcome.Decision.Kind == decisionlog.KindRollback:
+				rollingBack++
+			case outcome != nil && aborted(*outcome.Decision):
+				abortedLanes++
 			case outcome != nil:
 				complete++
 			default:
@@ -176,15 +229,23 @@ func (current view) releases() []releaseView {
 				unseen++
 			}
 		}
+		// The window is the decision query's (releaseHistory), not the
+		// release's whole life: a region without a lane may have finished
+		// it earlier.
 		switch {
+		case rollingBack > 0:
+			release.Status, release.Label = "serious", "rolling back in "+itoa(rollingBack)+" region(s)"
 		case rolledBack > 0:
 			release.Status, release.Label = "serious", "rolled back in "+itoa(rolledBack)+" region(s)"
+		case abortedLanes > 0:
+			release.Status, release.Label = "bad", "aborted in "+itoa(abortedLanes)+" region(s)"
 		case running == 0 && release.Partial:
 			// A region that did not answer may still be rolling out (or
 			// may have rolled back): completion covers observed regions.
 			release.Status, release.Label = "warn", "complete in "+itoa(complete)+" observed region(s); history partial"
 		case running == 0 && unseen > 0:
-			release.Status, release.Label = "ok", "complete in "+itoa(complete)+" region(s); "+itoa(unseen)+" never started it"
+			release.Status, release.Label = "ok", "complete in "+itoa(complete)+" region(s); "+itoa(unseen)+
+				" with no activity in the queried window"
 		case running == 0:
 			release.Status, release.Label = "ok", "complete everywhere"
 		default:
@@ -270,21 +331,24 @@ func (current view) targetVersion(kind string) string {
 	releases := current.releases()
 	for index := range releases {
 		if releases[index].Status == "serious" {
-			bad[releases[index].Name] = true
+			bad[releases[index].Version] = true
 		}
 	}
 	for index := range releases {
 		release := &releases[index]
-		if bad[release.Name] || counts[release.Name] == 0 {
+		// Only a release whose start was observed can be ordered by it:
+		// the earliest loaded decision of a bounded or partial query is
+		// not its start.
+		if bad[release.Version] || counts[release.Version] == 0 || release.Started.IsZero() {
 			continue
 		}
-		if newest == nil || release.First.After(newest.First) ||
-			release.First.Equal(newest.First) && release.Name > newest.Name {
+		if newest == nil || release.Started.After(newest.Started) ||
+			release.Started.Equal(newest.Started) && release.Version > newest.Version {
 			newest = release
 		}
 	}
 	if newest != nil {
-		return newest.Name
+		return newest.Version
 	}
 	best := ""
 	for _, version := range slices.Sorted(maps.Keys(counts)) {

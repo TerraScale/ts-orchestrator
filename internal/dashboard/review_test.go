@@ -103,7 +103,7 @@ func TestPartialReleaseHistoryIsNotCompleteEverywhere(t *testing.T) {
 	// Every region answered, but SFO never started the release.
 	answered := decisionlog.Result{Decisions: completedRelease("fra"),
 		Regions: []decisionlog.RegionStatus{{Region: "fra", State: decisionlog.RegionOK}, {Region: "sfo", State: decisionlog.RegionOK}}}
-	if got := label(answered); strings.Contains(got, "everywhere") || !strings.Contains(got, "1 never started it") {
+	if got := label(answered); strings.Contains(got, "everywhere") || !strings.Contains(got, "1 with no activity in the queried window") {
 		t.Fatalf("release missing a region = %q", got)
 	}
 	everywhere := decisionlog.Result{Decisions: completedRelease("fra", "sfo"), Regions: answered.Regions}
@@ -557,4 +557,96 @@ func renderHTML(t *testing.T, component templ.Component) string {
 		t.Fatal(err)
 	}
 	return body.String()
+}
+
+// These pin the fixes for the ts-reviewer findings on PRs #127 and #130.
+
+func releaseLabel(t *testing.T, decisions ...decisionlog.Decision) releaseView {
+	t.Helper()
+	result := decisionlog.Result{Decisions: decisions}
+	releases := view{Journal: &Journal{Decisions: &fakeDecisions{}}, Decisions: &result}.releases()
+	if len(releases) != 1 {
+		t.Fatalf("releases = %+v", releases)
+	}
+	return releases[0]
+}
+
+// Admission is not CI qualification: without explicit evidence there is no
+// qualified step.
+func TestAdmissionAloneIsNotQualified(t *testing.T) {
+	t.Parallel()
+	release := releaseLabel(t, decisionlog.Decision{ID: "a", Time: testNow, Region: "fra",
+		Kind: decisionlog.KindReleaseAdmitted, Subject: release})
+	for _, step := range release.Lanes[0].Steps {
+		if step.Stage == "qualified" && step.Decision != nil {
+			t.Fatalf("admission produced a qualified step: %+v", step)
+		}
+	}
+}
+
+// A rollback that has started is not reported as rolled back, and an
+// aborted rollout is a failed outcome, not a running lane.
+func TestRollbackInProgressAndAbortedOutcomes(t *testing.T) {
+	t.Parallel()
+	rolling := releaseLabel(t, decisionlog.Decision{ID: "rb", Time: testNow, Region: "fra",
+		Kind: decisionlog.KindRollback, Subject: release, Status: decisionlog.StatusInProgress})
+	if rolling.Status != "serious" || !strings.HasPrefix(rolling.Label, "rolling back") {
+		t.Fatalf("rollback in progress = %s %q", rolling.Status, rolling.Label)
+	}
+	done := releaseLabel(t, decisionlog.Decision{ID: "rb", Time: testNow, Region: "fra",
+		Kind: decisionlog.KindRollback, Subject: release, Status: decisionlog.StatusRolledBack})
+	if !strings.HasPrefix(done.Label, "rolled back") {
+		t.Fatalf("finished rollback = %q", done.Label)
+	}
+	aborted := releaseLabel(t, decisionlog.Decision{ID: "ab", Time: testNow, Region: "fra",
+		Kind: decisionlog.KindHeld, Subject: release, Status: decisionlog.StatusFailed,
+		Attrs: map[string]string{"phase": "aborted"}})
+	if aborted.Status != "bad" || !strings.HasPrefix(aborted.Label, "aborted") {
+		t.Fatalf("aborted rollout = %s %q", aborted.Status, aborted.Label)
+	}
+}
+
+// The rollout producer names its subject "<kind>/<rollout>"; that label is
+// not a version, and a release whose start was not observed does not
+// outrank one whose admission was.
+func TestTargetVersionUsesVersionIdentityAndObservedStarts(t *testing.T) {
+	t.Parallel()
+	rollout := decisionlog.Subject{Kind: "release", ID: "sha256:cccc", Name: "orchestrator/ro-7"}
+	if got := releaseVersion(decisionlog.Decision{Subject: rollout}, rollout.ID); got != "sha256:cccc" {
+		t.Fatalf("rollout producer version = %q", got)
+	}
+	v1 := decisionlog.Subject{Kind: "release", ID: "r1", Name: "v1"}
+	v2 := decisionlog.Subject{Kind: "release", ID: "r2", Name: "v2"}
+	result := decisionlog.Result{Decisions: []decisionlog.Decision{
+		// v1's admission is outside the window; its first loaded decision
+		// is a recent batch.
+		{ID: "v1-batch", Time: testNow.Add(-time.Hour), Region: "fra", Kind: decisionlog.KindBatchPromoted, Subject: v1},
+		{ID: "v2-start", Time: testNow.Add(-2 * time.Hour), Region: "fra", Kind: decisionlog.KindReleaseAdmitted, Subject: v2},
+	}}
+	current := view{Decisions: &result, Versions: []UnitVersion{
+		{Region: "fra", Kind: "controller", Unit: "a", Version: "v1"},
+		{Region: "fra", Kind: "controller", Unit: "b", Version: "v2"}}}
+	if target := current.targetVersion("controller"); target != "v2" {
+		t.Fatalf("target = %q, want v2 whose start was observed", target)
+	}
+}
+
+// The rollout diagram reads the rollout state machine's phases.
+func TestRolloutDiagramReadsStateMachinePhases(t *testing.T) {
+	t.Parallel()
+	for phase, want := range map[string]string{"canary": "canary", "canary-soak": "soak", "batch": "batches",
+		"batch-soak": "batches", "complete": "complete", "preflight": ""} {
+		if got := rolloutStep(phase); got != want {
+			t.Errorf("rolloutStep(%q) = %q, want %q", phase, got, want)
+		}
+	}
+	soaking := insights.Rollout{Phase: "canary-soak"}
+	if phaseStatus(soaking, "canary", testNow) != "ok" || phaseStatus(soaking, "soak", testNow) != "run" ||
+		phaseStatus(soaking, "batches", testNow) != "idle" {
+		t.Fatal("a canary soak is not drawn on the soak step")
+	}
+	if rolloutStatus(insights.Rollout{Phase: "rolled-back", Done: true}, testNow) != "serious" ||
+		rolloutStatus(insights.Rollout{Phase: "aborted", Done: true}, testNow) != "bad" {
+		t.Fatal("terminal failures read as complete")
+	}
 }

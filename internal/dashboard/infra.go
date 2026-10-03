@@ -330,18 +330,45 @@ func (current view) inventoryCounts() []string {
 	return out
 }
 
-// rolloutPhases are the phase diagram's steps.
-var rolloutPhases = []string{"canary", "soak", "batch-1", "batch-2", "batch-3", "complete"}
+// rolloutPhases are the phase diagram's steps. Waves are configurable, so
+// every batch wave and its soak fold into one "batches" step.
+var rolloutPhases = []string{"canary", "soak", "batches", "complete"}
+
+// rolloutStep maps a rollout provider phase (the rollout state machine's
+// pending, preflight, canary, canary-soak, batch, batch-soak, complete, ...)
+// onto a diagram step; "" when the phase is not a step.
+func rolloutStep(phase string) string {
+	switch {
+	case phase == "canary":
+		return "canary"
+	case phase == "canary-soak" || phase == "soak":
+		return "soak"
+	case phase == "batch" || phase == "batch-soak" || strings.HasPrefix(phase, "batch-"):
+		return "batches"
+	case phase == "complete":
+		return "complete"
+	default:
+		return ""
+	}
+}
+
+func rolledBack(phase string) bool { return phase == "rolled-back" || phase == "rolled_back" }
+
+// stopped reports a rollout that waits for an operator or ended without
+// completing: frozen, aborted, held or rolling back.
+func stopped(phase string) bool {
+	return phase == "frozen" || phase == "aborted" || phase == "held" || phase == "rolling-back"
+}
 
 func phaseStatus(rollout insights.Rollout, phase string, now time.Time) string {
-	current := slices.Index(rolloutPhases, rollout.Phase)
+	current := slices.Index(rolloutPhases, rolloutStep(rollout.Phase))
 	index := slices.Index(rolloutPhases, phase)
 	switch {
-	case rollout.Phase == "rolled_back":
+	case rolledBack(rollout.Phase):
 		return "serious"
-	case rollout.Done || rollout.Phase == "complete":
+	case rollout.Phase == "complete":
 		return "ok"
-	case rollout.Phase == "held" && index == 0:
+	case stopped(rollout.Phase) && index == 0:
 		return "warn"
 	case current < 0:
 		return "idle"
@@ -359,11 +386,13 @@ func phaseStatus(rollout insights.Rollout, phase string, now time.Time) string {
 
 func rolloutStatus(rollout insights.Rollout, now time.Time) string {
 	switch {
-	case rollout.Phase == "rolled_back":
+	case rolledBack(rollout.Phase) || rollout.Phase == "rolling-back":
 		return "serious"
-	case rollout.Done || rollout.Phase == "complete":
+	case rollout.Phase == "aborted":
+		return "bad"
+	case rollout.Phase == "complete":
 		return "ok"
-	case rollout.Phase == "held":
+	case stopped(rollout.Phase):
 		return "warn"
 	case !rollout.PhaseDeadline.IsZero() && now.After(rollout.PhaseDeadline):
 		return "warn"

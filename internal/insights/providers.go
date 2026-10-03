@@ -19,7 +19,9 @@ type RolloutProvider interface {
 type Rollout struct {
 	ID      string `json:"id"`
 	Release string `json:"release"`
-	// Phase is canary, soak, batch-N, complete, rolled_back or held.
+	// Phase is the rollout state machine's phase: pending, preflight,
+	// canary, canary-soak, batch, batch-soak, complete, rolling-back,
+	// frozen, aborted or rolled-back.
 	Phase string `json:"phase"`
 	// PhaseStarted is when the current phase began and PhaseDeadline when
 	// it should have ended; a zero deadline means none.
