@@ -108,14 +108,12 @@ func (s *Store) Get(ctx context.Context, cell string) (Record, uint64, error) {
 // List returns every region record; the planner and guards use it to count
 // regions and committed spend.
 func (s *Store) List(ctx context.Context) ([]Record, error) {
-	listCtx, cancel := context.WithTimeout(ctx, storeTimeout)
-	defer cancel()
-	keys, err := s.kv.ListKeys(listCtx)
+	keys, err := s.keys(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var records []Record
-	for key := range keys.Keys() {
+	for _, key := range keys {
 		record, _, err := s.Get(ctx, key)
 		if err != nil {
 			return nil, err
@@ -123,6 +121,40 @@ func (s *Store) List(ctx context.Context) ([]Record, error) {
 		records = append(records, record)
 	}
 	return records, nil
+}
+
+// keys lists every record key. A key lister closes its channel both when the
+// listing completes and when it fails or times out, so it cannot tell a
+// truncated listing from a complete one; this watches directly and returns
+// only after the end-of-initial-values marker. A truncated list would
+// undercount regions and committed spend for the admission guards.
+func (s *Store) keys(ctx context.Context) ([]string, error) {
+	listCtx, cancel := context.WithTimeout(ctx, storeTimeout)
+	defer cancel()
+	watcher, err := s.kv.WatchAll(listCtx, jetstream.IgnoreDeletes(), jetstream.MetaOnly())
+	if err != nil {
+		return nil, fmt.Errorf("list region lifecycle keys: %w", err)
+	}
+	defer func() { _ = watcher.Stop() }()
+	seen := map[string]bool{}
+	var keys []string
+	for {
+		select {
+		case <-listCtx.Done():
+			return nil, fmt.Errorf("list region lifecycle keys: %w", listCtx.Err())
+		case entry, open := <-watcher.Updates():
+			if !open {
+				return nil, errors.New("list region lifecycle keys: listing was interrupted")
+			}
+			if entry == nil {
+				return keys, nil
+			}
+			if !seen[entry.Key()] {
+				seen[entry.Key()] = true
+				keys = append(keys, entry.Key())
+			}
+		}
+	}
 }
 
 // Create stores a new Proposed record; a second proposal for a cell that
@@ -187,7 +219,7 @@ func (s *Store) write(ctx context.Context, epoch uint64, next Record, revision u
 	writeCtx, cancel := context.WithTimeout(ctx, storeTimeout)
 	defer cancel()
 	updated, err := s.kv.Update(writeCtx, next.Cell, data, revision)
-	if errors.Is(err, jetstream.ErrKeyExists) {
+	if errors.Is(err, jetstream.ErrKeyExists) || errors.Is(err, jetstream.ErrKeyRevisionMismatch) {
 		// A revision mismatch: another writer advanced the record.
 		return 0, ErrConflict
 	}

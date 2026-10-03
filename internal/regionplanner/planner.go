@@ -76,7 +76,6 @@ type Policy struct {
 }
 
 var (
-	cellToken   = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
 	digestToken = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
@@ -91,7 +90,7 @@ func (p Policy) validate() error {
 		return err
 	}
 	for cell, entry := range p.Catalog {
-		if cell != entry.Cell || !cellToken.MatchString(cell) || entry.OCIRegion == "" || entry.EstimatedMonthlyCents == 0 {
+		if cell != entry.Cell || !regionlifecycle.ValidCell(cell) || entry.OCIRegion == "" || entry.EstimatedMonthlyCents == 0 {
 			return fmt.Errorf("region catalog entry %q is invalid", cell)
 		}
 		// A product cell must keep the OCI region the product catalog binds it
@@ -223,7 +222,12 @@ func (p Planner) proposal(entry CatalogEntry, found *candidate, now time.Time) r
 	for _, kind := range slices.Sorted(maps.Keys(found.kinds)) {
 		reasons = append(reasons, fmt.Sprintf("%s x%d", kind, found.kinds[kind]))
 	}
-	identity := sha256.Sum256([]byte(entry.Cell + "\x00" + strings.Join(evidence, ",")))
+	// The planning round (a Window bucket) is part of the identity: evidence
+	// digests are stable across windows, and Repropose refuses the previous
+	// proposal ID, so without it persistent demand could never propose the
+	// cell again after a terminal decision.
+	round := now.UTC().Truncate(p.Policy.Window).Format(time.RFC3339)
+	identity := sha256.Sum256([]byte(entry.Cell + "\x00" + round + "\x00" + strings.Join(evidence, ",")))
 	return regionlifecycle.Proposal{
 		ID: entry.Cell + "-" + hex.EncodeToString(identity[:6]), Cell: entry.Cell, OCIRegion: entry.OCIRegion,
 		Reason: "planner: " + strings.Join(reasons, ", "), EvidenceDigests: evidence,

@@ -9,8 +9,10 @@ import (
 	"math"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -38,10 +40,23 @@ const (
 )
 
 var (
-	cellToken   = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
+	cellToken = cellRule{}
+	// cellShape matches protocol.CanonicalRegion: no leading, trailing or
+	// consecutive hyphens, so every stored cell can be signed and verified
+	// in an approval envelope.
+	cellShape   = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 	idToken     = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
 	digestToken = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
+
+// cellRule validates a region cell token: at most 31 characters of
+// cellShape.
+type cellRule struct{}
+
+func (cellRule) MatchString(cell string) bool { return len(cell) <= 31 && cellShape.MatchString(cell) }
+
+// ValidCell reports whether cell is a valid region cell token.
+func ValidCell(cell string) bool { return cellToken.MatchString(cell) }
 
 // Proposal is why a region should exist. Only the planner or an operator
 // creates one; a proposal never authorizes spending by itself.
@@ -269,9 +284,13 @@ type Machine struct {
 	Policy Policy
 }
 
-// CreateKey is the deterministic retry token and ownership tag for a step.
-func CreateKey(cell, proposalID string, step Step) string {
-	digest := sha256.Sum256([]byte("terrascale-region-step-v1\x00" + cell + "\x00" + proposalID + "\x00" + string(step)))
+// CreateKey is the deterministic retry token and ownership tag for a step of
+// one proposal attempt. The proposal generation is part of it, so a cell
+// that later reuses an older proposal ID (only the immediately preceding one
+// is refused) never reuses that attempt's OCI retry tokens or tags.
+func CreateKey(cell, proposalID string, proposalGeneration uint64, step Step) string {
+	digest := sha256.Sum256([]byte("terrascale-region-step-v2\x00" + cell + "\x00" + proposalID + "\x00" +
+		strconv.FormatUint(proposalGeneration, 10) + "\x00" + string(step)))
 	return hex.EncodeToString(digest[:16])
 }
 
@@ -410,7 +429,7 @@ func (m Machine) BeginStep(record Record, now time.Time) (Record, StepIntent, er
 	if err := m.stepGuards(record, def, now); err != nil {
 		return Record{}, StepIntent{}, err
 	}
-	intent := StepIntent{Step: def.step, CreateKey: CreateKey(record.Cell, record.Proposal.ID, def.step), RecordedAt: now.UTC()}
+	intent := StepIntent{Step: def.step, CreateKey: CreateKey(record.Cell, record.Proposal.ID, record.ProposalGeneration, def.step), RecordedAt: now.UTC()}
 	next := record.advance(def.running, now)
 	next.Pending = &intent
 	return next, intent, nil
@@ -595,8 +614,10 @@ func (m Machine) ReconcileRetirePending(record Record, observation Observation, 
 	if record.Phase != RetireApproved || record.Pending == nil {
 		return Record{}, ErrInvalidTransition
 	}
+	// No result is journaled for an absent effect, so only a found one
+	// needs evidence, as for every other absent-effect observation.
 	if observation.Step != record.Pending.Step || observation.CreateKey != record.Pending.CreateKey ||
-		!digestToken.MatchString(observation.EvidenceDigest) {
+		observation.Found && !digestToken.MatchString(observation.EvidenceDigest) {
 		return Record{}, ErrStepMismatch
 	}
 	next := record.advance(record.Phase, now)
@@ -660,7 +681,7 @@ func (m Machine) CompleteRollback(record Record, evidenceDigest string, now time
 	next := record.advance(Retired, now)
 	next.Pending = nil
 	next.Completed = append(slices.Clone(record.Completed), StepResult{Step: StepRollback,
-		CreateKey: CreateKey(record.Cell, record.Proposal.ID, StepRollback), EvidenceDigest: evidenceDigest, RecordedAt: now.UTC()})
+		CreateKey: CreateKey(record.Cell, record.Proposal.ID, record.ProposalGeneration, StepRollback), EvidenceDigest: evidenceDigest, RecordedAt: now.UTC()})
 	return next, nil
 }
 
@@ -773,7 +794,12 @@ func isRetire(phase Phase) bool {
 func boundReason(reason string) string {
 	reason = strings.TrimSpace(reason)
 	if len(reason) > 256 {
-		reason = reason[:256]
+		// Cut on a rune boundary so the stored reason stays valid UTF-8.
+		cut := 256
+		for cut > 0 && !utf8.RuneStart(reason[cut]) {
+			cut--
+		}
+		reason = reason[:cut]
 	}
 	if reason == "" {
 		reason = "unspecified"
@@ -791,8 +817,16 @@ func (record Record) Validate() error {
 	if (record.Phase == Held) != (record.Hold != nil) {
 		return errors.New("region lifecycle hold does not match its phase")
 	}
-	if record.Pending != nil && record.Pending.CreateKey != CreateKey(record.Cell, record.Proposal.ID, record.Pending.Step) {
+	if record.Pending != nil && record.Pending.CreateKey != CreateKey(record.Cell, record.Proposal.ID, record.ProposalGeneration, record.Pending.Step) {
 		return errors.New("region lifecycle pending intent has a foreign create key")
+	}
+	// A running phase carries its pending intent; a pending intent outside
+	// a running phase is legitimate only while held, rolling back, or
+	// awaiting settlement before a failed bring-up retires.
+	settling := record.RetireFrom != "" && (record.Phase == RetireProposed || record.Phase == RetireApproved)
+	if _, running := stepRunning(record.Phase); running && record.Pending == nil ||
+		!running && record.Pending != nil && record.Phase != Held && record.Phase != RollingBack && !settling {
+		return errors.New("region lifecycle pending intent does not match its phase")
 	}
 	if record.RetireFrom != "" {
 		if _, forward := forwardOrder[record.RetireFrom]; !forward || !seedMayExist(record.RetireFrom) ||

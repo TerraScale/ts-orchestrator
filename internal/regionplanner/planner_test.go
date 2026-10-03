@@ -262,3 +262,21 @@ func newTestJetStream(t *testing.T) jetstream.JetStream {
 	}
 	return js
 }
+
+// Persistent evidence in a later planning window yields a new proposal ID,
+// so a cell can be proposed again after a terminal decision.
+func TestProposalIDsChangeAcrossPlanningWindows(t *testing.T) {
+	t.Parallel()
+	planner := Planner{Policy: testPolicy()}
+	records := []regionlifecycle.Record{activeGRU()}
+	first, err := planner.Plan([]Signal{signal(SignalUnplaceableIntent, "sfo", "intent-1", time.Hour)}, records, now)
+	if err != nil || len(first) != 1 {
+		t.Fatalf("first = %+v, %v", first, err)
+	}
+	later := now.Add(3 * planner.Policy.Window)
+	second, err := planner.Plan([]Signal{{Kind: SignalUnplaceableIntent, Cell: "sfo", EvidenceDigest: digest("intent-1"),
+		ObservedAt: later.Add(-time.Hour)}}, records, later)
+	if err != nil || len(second) != 1 || second[0].ID == first[0].ID {
+		t.Fatalf("a later window reused proposal ID %s: %+v, %v", first[0].ID, second, err)
+	}
+}

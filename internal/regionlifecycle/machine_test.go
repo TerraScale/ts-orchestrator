@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -90,7 +92,7 @@ func (f *fixture) runStep(t *testing.T, record Record) Record {
 	if err != nil {
 		t.Fatalf("begin from %s: %v", record.Phase, err)
 	}
-	if next.Pending == nil || *next.Pending != intent || intent.CreateKey != CreateKey(record.Cell, record.Proposal.ID, intent.Step) {
+	if next.Pending == nil || *next.Pending != intent || intent.CreateKey != CreateKey(record.Cell, record.Proposal.ID, record.ProposalGeneration, intent.Step) {
 		t.Fatalf("intent was not journaled before the effect: %+v", next.Pending)
 	}
 	done, err := f.machine.CompleteStep(next, StepResult{Step: intent.Step, CreateKey: intent.CreateKey,
@@ -281,7 +283,7 @@ func TestCompleteStepRequiresTheJournaledIntent(t *testing.T) {
 	}
 	for name, result := range map[string]StepResult{
 		"wrong step":     {Step: StepFoundation, CreateKey: intent.CreateKey, EvidenceDigest: digest("x")},
-		"wrong key":      {Step: intent.Step, CreateKey: CreateKey("sfo", "other", intent.Step), EvidenceDigest: digest("x")},
+		"wrong key":      {Step: intent.Step, CreateKey: CreateKey("sfo", "other", 1, intent.Step), EvidenceDigest: digest("x")},
 		"no evidence":    {Step: intent.Step, CreateKey: intent.CreateKey},
 		"non-hex digest": {Step: intent.Step, CreateKey: intent.CreateKey, EvidenceDigest: "evidence"},
 	} {
@@ -294,8 +296,8 @@ func TestCompleteStepRequiresTheJournaledIntent(t *testing.T) {
 	}
 	keys := map[string]bool{}
 	for _, def := range steps {
-		key := CreateKey("sfo", "sfo-capacity-1", def.step)
-		if keys[key] || key != CreateKey("sfo", "sfo-capacity-1", def.step) {
+		key := CreateKey("sfo", "sfo-capacity-1", 1, def.step)
+		if keys[key] || key != CreateKey("sfo", "sfo-capacity-1", 1, def.step) {
 			t.Fatalf("create key for %s is not unique and deterministic", def.step)
 		}
 		keys[key] = true
@@ -456,7 +458,7 @@ func TestProposalsExpireAndRejectionIsTerminal(t *testing.T) {
 	if _, err := f.machine.Approve(again, f.approval(t, again), f.now); err != nil {
 		t.Fatalf("approval of the new proposal = %v", err)
 	}
-	if CreateKey("sfo", second.ID, StepSubscribe) == CreateKey("sfo", f.proposal().ID, StepSubscribe) {
+	if CreateKey("sfo", second.ID, 1, StepSubscribe) == CreateKey("sfo", f.proposal().ID, 1, StepSubscribe) {
 		t.Fatal("a new proposal reuses the previous attempt's create keys")
 	}
 	rejected, err := f.machine.Reject(proposed, "", f.now)
@@ -501,7 +503,7 @@ func TestEveryPhaseHasExactlyItsTableTransitions(t *testing.T) {
 			t.Errorf("%s: BeginStep = %v, table says begin=%v", phase, err, canBegin)
 		}
 		if isRunning {
-			key := CreateKey(record.Cell, record.Proposal.ID, def.step)
+			key := CreateKey(record.Cell, record.Proposal.ID, record.ProposalGeneration, def.step)
 			record.Pending = &StepIntent{Step: def.step, CreateKey: key}
 			if next, err := f.machine.CompleteStep(record, StepResult{Step: def.step, CreateKey: key, EvidenceDigest: digest("x")}, f.now); err != nil || next.Phase != def.to {
 				t.Errorf("%s: CompleteStep = %s, %v", phase, next.Phase, err)
@@ -563,5 +565,88 @@ func assertTerminal(t *testing.T, f *fixture, record Record) {
 	}
 	if _, err := f.machine.Resume(record, nil, f.now); err == nil {
 		t.Errorf("%s: Resume accepted", record.Phase)
+	}
+}
+
+// These pin the fixes for the ts-reviewer findings on PRs #126, #127 and #129.
+
+// An absent effect needs no evidence digest: nothing is journaled for it.
+func TestReconcileRetirePendingAcceptsAnAbsentEffectWithoutDigest(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	reserved := f.runTo(t, f.admitted(t), SeedReserved)
+	launching, intent, err := f.machine.BeginStep(reserved, f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposed, err := f.machine.ProposeFailedRetire(launching, "seed never booted", digest("boot"), f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approved, err := f.machine.ApproveRetire(proposed, f.sign(t, proposed, ApproveRetirementKind, 0, f.key, time.Hour), f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := f.machine.ReconcileRetirePending(approved, Observation{Step: intent.Step, CreateKey: intent.CreateKey}, f.now)
+	if err != nil || next.Pending != nil {
+		t.Fatalf("absent effect without digest = %+v, %v", next.Pending, err)
+	}
+	if _, err := f.machine.ReconcileRetirePending(approved, Observation{Step: intent.Step, CreateKey: intent.CreateKey,
+		Found: true}, f.now); !errors.Is(err, ErrStepMismatch) {
+		t.Fatalf("found effect without digest = %v", err)
+	}
+}
+
+// Reasons are cut on a rune boundary.
+func TestBoundReasonKeepsValidUTF8(t *testing.T) {
+	t.Parallel()
+	if reason := boundReason(strings.Repeat("a", 255) + "é" + strings.Repeat("b", 10)); !utf8.ValidString(reason) ||
+		len(reason) > 256 {
+		t.Fatalf("bounded reason is invalid UTF-8 or too long: %q", reason)
+	}
+}
+
+// Cells follow the protocol's region-token rules, so every stored cell can
+// be signed into an approval.
+func TestCellsFollowProtocolRegionTokens(t *testing.T) {
+	t.Parallel()
+	for _, cell := range []string{"sfo", "us-east-1", "a1"} {
+		if !ValidCell(cell) {
+			t.Errorf("valid cell %q refused", cell)
+		}
+	}
+	for _, cell := range []string{"sfo-", "a--b", "-a", "1a", "A", strings.Repeat("a", 32)} {
+		if ValidCell(cell) {
+			t.Errorf("invalid cell %q accepted", cell)
+		}
+	}
+}
+
+// Step keys belong to one proposal attempt.
+func TestCreateKeysDifferPerProposalGeneration(t *testing.T) {
+	t.Parallel()
+	if CreateKey("sfo", "sfo-a", 1, StepSubscribe) == CreateKey("sfo", "sfo-a", 3, StepSubscribe) {
+		t.Fatal("a reused proposal ID reuses the earlier attempt's step keys")
+	}
+}
+
+// A running phase without its intent, or a stray intent, is corruption.
+func TestValidateRejectsPhaseInconsistentIntents(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	reserved := f.runTo(t, f.admitted(t), SeedReserved)
+	launching, _, err := f.machine.BeginStep(reserved, f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missing := launching
+	missing.Pending = nil
+	if missing.Validate() == nil {
+		t.Fatal("a running phase without its intent validated")
+	}
+	stray := reserved
+	stray.Pending = launching.Pending
+	if stray.Validate() == nil {
+		t.Fatal("a waiting phase with a stray intent validated")
 	}
 }
