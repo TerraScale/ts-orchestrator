@@ -143,9 +143,12 @@ func (a *Aggregator) Read(ctx context.Context, target autoscale.Target, signal a
 	a.mu.Lock()
 	// Warm once the run started within one minimum report interval of the
 	// window's start, so a window is covered even if its first sample
-	// landed a moment after the window opened.
+	// landed a moment after the window opened; but never sooner than one
+	// minimum interval, so a window as short as the report interval still
+	// needs more than the first report after a reset.
 	current, ok := a.runs[seriesKey{target: target, signal: signal.Name}]
-	if !ok || now.Sub(current.last) > a.config.StaleAfter || now.Sub(current.since) < signal.Window()-a.config.MinInterval {
+	warmUp := max(signal.Window()-a.config.MinInterval, a.config.MinInterval)
+	if !ok || now.Sub(current.last) > a.config.StaleAfter || now.Sub(current.since) < warmUp {
 		a.mu.Unlock()
 		return reading, nil
 	}

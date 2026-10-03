@@ -332,6 +332,19 @@ func TestAggregatorWarmUpRestartsAfterAGap(t *testing.T) {
 	if got := read(); got.Samples != 0 || len(aggregator.Nodes()) != 0 {
 		t.Fatalf("read after reset: %+v", got)
 	}
+	// A window no longer than the report interval still needs more than
+	// the first report after a reset.
+	short := autoscale.Signal{Name: autoscale.SignalCPUUtilization, Target: 1, WindowSeconds: 3}
+	now = now.Add(5 * time.Second)
+	record()
+	if got, _ := aggregator.Read(t.Context(), target, short, now); got.Samples != 0 {
+		t.Fatalf("short window read on the first report after a reset: %+v", got)
+	}
+	now = now.Add(5 * time.Second)
+	record()
+	if got, _ := aggregator.Read(t.Context(), target, short, now); got.Samples != 1 {
+		t.Fatalf("short window after one interval: %+v", got)
+	}
 }
 
 // A node that stops supplying a series (scaled down, replaced or silent)
