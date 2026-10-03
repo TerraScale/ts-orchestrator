@@ -41,7 +41,7 @@ type sessions struct {
 	// clears revoked cannot resurrect a revoked cookie mid-verification.
 	generation uint64
 	secure     bool
-	now    func() time.Time
+	now        func() time.Time
 	// revoked holds the IDs of signed-out sessions until they expire, so
 	// signing out ends the session for every copy of the cookie.
 	revoked map[string]time.Time
