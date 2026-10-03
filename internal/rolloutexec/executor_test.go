@@ -1,0 +1,354 @@
+package rolloutexec
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"slices"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/nats-io/nats.go/jetstream"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
+)
+
+type fakeUnit struct {
+	digest string
+	pid    int64
+	nonce  string
+	down   bool
+}
+
+// fakeFleet simulates unit agents and their health proofs. Proofs are
+// observed at the test clock's current time.
+type fakeFleet struct {
+	mu    sync.Mutex
+	clock *clock
+	units map[string]*fakeUnit
+	steps []string
+	// wrongBinary units restart on their old release (a watchdog rollback).
+	wrongBinary    map[string]bool
+	refuseRollback bool
+	nextPID        int64
+}
+
+func newFleet(c *clock, digest string, units ...string) *fakeFleet {
+	fleet := &fakeFleet{clock: c, units: map[string]*fakeUnit{}, wrongBinary: map[string]bool{}, nextPID: 100}
+	for _, unit := range units {
+		fleet.units[unit] = &fakeUnit{digest: digest}
+		fleet.restart(unit)
+	}
+	return fleet
+}
+
+func (f *fakeFleet) restart(unit string) {
+	f.nextPID++
+	u := f.units[unit]
+	u.pid, u.nonce = f.nextPID, fmt.Sprintf("%032x", f.nextPID)
+}
+
+func (f *fakeFleet) Latest(unit string) (HealthProof, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	u, exists := f.units[unit]
+	if !exists || u.down {
+		return HealthProof{}, false
+	}
+	return HealthProof{Schema: HealthSchema, Cell: "gru", Unit: unit, BinarySHA256: u.digest, ProcessID: u.pid,
+		StartNonce: u.nonce, ObservedAt: f.clock.Now()}, true
+}
+
+func (f *fakeFleet) Step(_ context.Context, step Step) (StepReply, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.steps = append(f.steps, string(step.Action)+":"+step.Unit)
+	reply := StepReply{OperationID: step.OperationID, Unit: step.Unit}
+	u := f.units[step.Unit]
+	switch {
+	case step.Action == StepRollback && f.refuseRollback:
+		reply.Outcome, reply.Reason = OutcomeRefused, "release is known bad on this node"
+	case u.digest == step.Digest:
+		reply.Outcome = OutcomeCurrent
+	default:
+		if !(step.Action == StepPrepare && f.wrongBinary[step.Unit]) {
+			u.digest = step.Digest
+		}
+		f.restart(step.Unit)
+		reply.Outcome = OutcomeActivated
+	}
+	return reply, nil
+}
+
+func (f *fakeFleet) stepLog() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.steps)
+}
+
+type fakeGate struct {
+	mu    sync.Mutex
+	holds map[string]int
+	calls int
+}
+
+func (g *fakeGate) Check(_ context.Context, _ rollout.Record, unit string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.calls++
+	if g.holds[unit] > 0 {
+		g.holds[unit]--
+		return fmt.Errorf("%w: test hold", ErrGateHeld)
+	}
+	return nil
+}
+
+type statusLog struct {
+	mu       sync.Mutex
+	statuses []Status
+}
+
+func (s *statusLog) PublishStatus(status Status) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.statuses = append(s.statuses, status)
+}
+
+func (s *statusLog) heldUnits() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var units []string
+	for _, status := range s.statuses {
+		for unit := range status.Holds {
+			if !slices.Contains(units, unit) {
+				units = append(units, unit)
+			}
+		}
+	}
+	return units
+}
+
+type harness struct {
+	t        *testing.T
+	clock    *clock
+	fence    *epochFence
+	store    *rollout.Store
+	fleet    *fakeFleet
+	gate     *fakeGate
+	status   *statusLog
+	executor *Executor
+	program  Program
+}
+
+func newHarness(t *testing.T) *harness {
+	t.Helper()
+	c := &clock{now: testStart}
+	fence := newFence(7)
+	h := &harness{t: t, clock: c, fence: fence, store: testStore(t, fence),
+		fleet: newFleet(c, fromDigest, "ctl-a", "ctl-b", "ctl-c", "h1", "h2", "h3", "h4"),
+		gate:  &fakeGate{holds: map[string]int{}}, status: &statusLog{}}
+	controllers, err := ControllerUnits([]string{"ctl-a", "ctl-b", "ctl-c"}, "ctl-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts := HostUnits(map[string][]string{"h1": {"p1"}, "h2": {"p1"}, "h3": {"p2"}, "h4": {"p3"}})
+	policy := testPolicy()
+	policy.BatchSize = 2
+	h.program = SelfUpdateProgram("rel1", "gru", fromDigest, toDigest, controllers, hosts, policy)
+	h.executor = &Executor{Cell: "gru", Store: h.store, Fencer: fence, Driver: h.fleet, Proofs: h.fleet, Gate: h.gate,
+		Status: h.status, Now: c.Now,
+		Program: func(context.Context) (Program, error) { return h.program, nil }}
+	return h
+}
+
+// run ticks until done reports true, advancing the clock between ticks.
+func (h *harness) run(limit int, done func() bool) {
+	h.t.Helper()
+	for range limit {
+		if err := h.executor.Tick(h.t.Context()); err != nil {
+			h.t.Fatalf("tick: %v", err)
+		}
+		if done() {
+			return
+		}
+		h.clock.Advance(20 * time.Second)
+	}
+	h.t.Fatalf("not done after %d ticks; steps %v", limit, h.fleet.stepLog())
+}
+
+func (h *harness) load(id string) (rollout.Record, bool) {
+	h.t.Helper()
+	record, _, err := h.store.Load(h.t.Context(), id)
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return rollout.Record{}, false
+	}
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return record, true
+}
+
+func (h *harness) phase(id string) rollout.Phase {
+	record, exists := h.load(id)
+	if !exists {
+		return ""
+	}
+	return record.Phase
+}
+
+func TestExecutorRunsControllersSeedLastThenHostsOneSeatPerPartition(t *testing.T) {
+	h := newHarness(t)
+	// The cluster gate holds the second controller step twice; the step
+	// waits and the hold is reported in the status.
+	h.gate.holds["ctl-c"] = 2
+	h.run(200, func() bool { return h.phase("rel1-hosts") == rollout.PhaseComplete })
+
+	if got := h.phase("rel1-controllers"); got != rollout.PhaseComplete {
+		t.Fatalf("controller rollout = %s", got)
+	}
+	steps := h.fleet.stepLog()
+	want := []string{"prepare:ctl-b", "prepare:ctl-c", "prepare:ctl-a"}
+	if len(steps) < 3 || !slices.Equal(steps[:3], want) {
+		t.Fatalf("controllers moved as %v, want non-seed first and the seed last: %v", steps, want)
+	}
+	for _, step := range steps[3:] {
+		if step == "prepare:ctl-a" || step == "prepare:ctl-b" || step == "prepare:ctl-c" {
+			t.Fatalf("a controller moved after the hosts started: %v", steps)
+		}
+	}
+	hosts, _ := h.load("rel1-hosts")
+	for _, wave := range hosts.Waves {
+		if slices.Contains(wave, "h1") && slices.Contains(wave, "h2") {
+			t.Fatalf("two seats of partition p1 moved in one wave: %v", hosts.Waves)
+		}
+	}
+	if len(hosts.Waves) != 3 {
+		t.Fatalf("host waves = %v, want a canary and two batches", hosts.Waves)
+	}
+	for unit, u := range h.fleet.units {
+		if u.digest != toDigest {
+			t.Fatalf("unit %s still runs %s", unit, u.digest)
+		}
+	}
+	if !slices.Contains(h.status.heldUnits(), "ctl-c") {
+		t.Fatalf("the gate hold of ctl-c was not reported: %v", h.status.heldUnits())
+	}
+	if h.gate.calls < len(h.fleet.units) {
+		t.Fatalf("gate checked %d times for %d steps", h.gate.calls, len(h.fleet.units))
+	}
+}
+
+func TestExecutorRollsBackACanaryThatRestartsOnTheWrongBinary(t *testing.T) {
+	h := newHarness(t)
+	h.fleet.wrongBinary["ctl-b"] = true
+	// Well inside the 600s proof deadline: the new incarnation on the old
+	// release is detected directly, not by the deadline.
+	h.run(10, func() bool { return h.phase("rel1-controllers") == rollout.PhaseRolledBack })
+
+	if steps := h.fleet.stepLog(); !slices.Equal(steps, []string{"prepare:ctl-b", "rollback:ctl-b"}) {
+		t.Fatalf("steps = %v", steps)
+	}
+	bad, err := h.store.IsKnownBad(t.Context(), toDigest)
+	if err != nil || !bad {
+		t.Fatalf("rolled-back target is not known bad: %v %v", bad, err)
+	}
+	// The program stops: the hosts never start on a release the
+	// controllers rejected.
+	for range 3 {
+		if err := h.executor.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, exists := h.load("rel1-hosts"); exists {
+		t.Fatal("the host rollout started after the controller rollout was rolled back")
+	}
+}
+
+func TestExecutorFreezesWhenARollbackIsRefused(t *testing.T) {
+	h := newHarness(t)
+	h.fleet.wrongBinary["ctl-b"] = true
+	h.fleet.refuseRollback = true
+	h.run(10, func() bool { return h.phase("rel1-controllers") == rollout.PhaseFrozen })
+	if err := h.executor.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if steps := h.fleet.stepLog(); slices.Contains(steps, "prepare:ctl-c") {
+		t.Fatalf("a frozen rollout kept moving forward: %v", steps)
+	}
+}
+
+func TestExecutorFollowerIsIdleAndANewLeaderAdopts(t *testing.T) {
+	h := newHarness(t)
+	h.run(20, func() bool {
+		record, exists := h.load("rel1-controllers")
+		return exists && record.Phase == rollout.PhaseCanarySoak
+	})
+	steps := len(h.fleet.stepLog())
+	h.fence.leader.Store(false)
+	for range 5 {
+		h.clock.Advance(20 * time.Second)
+		if err := h.executor.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(h.fleet.stepLog()) != steps {
+		t.Fatal("a follower sent steps")
+	}
+	h.fence.epoch.Store(8)
+	h.fence.leader.Store(true)
+	h.run(200, func() bool { return h.phase("rel1-controllers") == rollout.PhaseComplete })
+	record, _ := h.load("rel1-controllers")
+	if record.AuthorityEpoch != 8 {
+		t.Fatalf("the new leader did not adopt the rollout: epoch %d", record.AuthorityEpoch)
+	}
+}
+
+func TestExecutorHoldsAStepWhileAGroupPeerIsNotServing(t *testing.T) {
+	h := newHarness(t)
+	h.program = h.program[:1]
+	// Pass preflight, then lose a peer before the canary step is sent.
+	h.gate.holds["ctl-b"] = 1
+	if err := h.executor.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.phase("rel1-controllers"); got != rollout.PhaseCanary {
+		t.Fatalf("phase = %s", got)
+	}
+	h.fleet.units["ctl-c"].down = true
+	for range 5 {
+		h.clock.Advance(20 * time.Second)
+		if err := h.executor.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if steps := h.fleet.stepLog(); len(steps) != 0 {
+		t.Fatalf("a step was sent while its group peer was down: %v", steps)
+	}
+	h.fleet.units["ctl-c"].down = false
+	h.run(200, func() bool { return h.phase("rel1-controllers") == rollout.PhaseComplete })
+}
+
+func TestExecutorPreflightWaitsForProofsAndAbortsOnAForeignRelease(t *testing.T) {
+	h := newHarness(t)
+	h.program = h.program[:1]
+	h.fleet.units["ctl-c"].down = true
+	for range 3 {
+		if err := h.executor.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		h.clock.Advance(20 * time.Second)
+	}
+	if got := h.phase("rel1-controllers"); got != rollout.PhasePreflight {
+		t.Fatalf("phase = %s, want preflight held for the missing proof", got)
+	}
+	if !slices.Contains(h.status.heldUnits(), "preflight") {
+		t.Fatal("the preflight hold was not reported")
+	}
+	h.fleet.units["ctl-c"].down = false
+	h.fleet.units["ctl-c"].digest = otherBad
+	h.run(5, func() bool { return h.phase("rel1-controllers") == rollout.PhaseAborted })
+	if len(h.fleet.stepLog()) != 0 {
+		t.Fatalf("an aborted preflight sent steps: %v", h.fleet.stepLog())
+	}
+}

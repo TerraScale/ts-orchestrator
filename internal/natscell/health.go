@@ -3,6 +3,8 @@ package natscell
 import (
 	"errors"
 	"slices"
+
+	"github.com/nats-io/nats-server/v2/server"
 )
 
 // ClusterObservation is a point-in-time, read-only view of this broker's
@@ -64,6 +66,51 @@ func (r *Runtime) ObserveCluster() (ClusterObservation, error) {
 	observation.MetaQuorum = info.Meta.QuorumNeeded
 	observation.MetaPeers = metaReplicas(info.Meta.Replicas)
 	return observation, nil
+}
+
+// maxLaggingStreams bounds the names LaggingStreams returns.
+const maxLaggingStreams = 8
+
+// LaggingStreams lists replicated streams that could lose availability if
+// one more broker restarted now: a stream without a leader, and a stream
+// this broker leads with an offline or not-current replica. Replica state of
+// streams led elsewhere is not judged, because a follower's view of it can
+// be stale. The rollout gate holds a controller step while any is listed.
+func (r *Runtime) LaggingStreams() ([]string, error) {
+	if r == nil || r.server == nil || !r.server.Running() {
+		return nil, errors.New("embedded regional NATS server is not running")
+	}
+	info, err := r.server.Jsz(&server.JSzOptions{Accounts: true, Streams: true})
+	if err != nil {
+		return nil, err
+	}
+	if info.Disabled {
+		return nil, ErrJetStreamDisabled
+	}
+	name := r.server.Name()
+	var lagging []string
+	for _, account := range info.AccountDetails {
+		if account == nil {
+			continue
+		}
+		for _, stream := range account.Streams {
+			cluster := stream.Cluster
+			if cluster == nil || len(cluster.Replicas) == 0 && cluster.Leader != "" {
+				continue
+			}
+			behind := cluster.Leader == ""
+			if cluster.Leader == name {
+				for _, peer := range cluster.Replicas {
+					behind = behind || peer == nil || peer.Offline || !peer.Current
+				}
+			}
+			if behind && len(lagging) < maxLaggingStreams {
+				lagging = append(lagging, stream.Name)
+			}
+		}
+	}
+	slices.Sort(lagging)
+	return lagging, nil
 }
 
 // PeerRoutes returns the production seed-route shape: every signed controller
