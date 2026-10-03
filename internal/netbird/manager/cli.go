@@ -124,7 +124,10 @@ func readToken(path string) ([]byte, error) {
 	}
 	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return nil, errors.New("cannot open the NetBird PAT file (symlinks are refused)")
+		if errors.Is(err, syscall.ELOOP) {
+			return nil, errors.New("cannot open the NetBird PAT file: symlinks are refused")
+		}
+		return nil, errors.New("cannot open the NetBird PAT file")
 	}
 	file := os.NewFile(uintptr(fd), path)
 	defer file.Close()

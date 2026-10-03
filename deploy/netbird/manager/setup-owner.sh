@@ -2,7 +2,9 @@
 # Create the NetBird owner over loopback while the instance still needs setup,
 # before Caddy publishes netbird.terrascale.tech. Reads the setup request JSON
 # ({"email", "password", "name", "create_pat", "pat_expire_in"}) on stdin and
-# prints the response, which holds the owner's one-time PAT, on stdout.
+# prints the response, which holds the owner's one-time PAT, on stdout. Run it
+# under umask 077 so the redirected response file is not readable by others:
+#   (umask 077; setup-owner.sh < request.json > response.json)
 set -euo pipefail
 
 API=http://127.0.0.1:18081/api
@@ -16,7 +18,7 @@ API=http://127.0.0.1:18081/api
   exit 1
 }
 [[ "${1:-}" == "" ]] || {
-  echo "Usage: setup-owner.sh < request.json > response.json" >&2
+  echo "Usage: (umask 077; setup-owner.sh < request.json > response.json)" >&2
   exit 2
 }
 

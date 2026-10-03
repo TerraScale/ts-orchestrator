@@ -12,6 +12,10 @@ APT_KEY_FINGERPRINT=EFE37DF047DF7CCDF1FC54FA83F79AD029778355
 APT_KEYRING=/usr/share/keyrings/netbird-archive-keyring.gpg
 APT_SOURCE=/etc/apt/sources.list.d/netbird.list
 LIBEXEC=/usr/local/libexec/homelab/netbird
+# ts-ops' public IP and its private VCN address; peers connect directly to the
+# public one.
+PUBLIC_IP=163.176.73.79
+PRIVATE_IP=10.250.10.155
 
 usage() {
   cat <<'USAGE'
@@ -124,10 +128,13 @@ sysctl -q -p /etc/sysctl.d/99-netbird-routing.conf
 systemctl daemon-reload
 systemctl enable --now netbird-peer-firewall.service
 # Re-runs keep an enrolled routing peer connected; resource limits apply live.
+# `netbird service install` starts the daemon without enabling it, so enable
+# it unconditionally.
+systemctl enable netbird.service
 if systemctl is-active --quiet netbird.service; then
   systemctl set-property --runtime netbird.service CPUWeight=50 MemoryHigh=128M MemoryMax=192M
 else
-  systemctl enable --now netbird.service
+  systemctl start netbird.service
 fi
 
 up_args=(--management-url https://netbird.terrascale.tech)
@@ -138,5 +145,5 @@ netbird up \
   --disable-dns \
   --disable-client-routes \
   --allow-server-ssh=false \
-  --external-ip-map 163.176.73.79/10.250.10.155
+  --external-ip-map "$PUBLIC_IP/$PRIVATE_IP"
 netbird status

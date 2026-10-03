@@ -121,7 +121,9 @@ func ValidateConfig(path string) (Config, error) {
 	if e = json.Unmarshal(b, &fields); e != nil {
 		return c, e
 	}
-	if len(fields) < 3 || len(fields) > 6 || fields["management_url"] == nil || fields["region"] == nil || fields["setup_key_secret_id"] == nil {
+	// RejectUnknownMembers below bounds the field set; only required fields
+	// are checked here.
+	if fields["management_url"] == nil || fields["region"] == nil || fields["setup_key_secret_id"] == nil {
 		return c, errors.New("NetBird enrollment configuration has unexpected or missing fields")
 	}
 	if e = json.Unmarshal(b, &c, json.RejectUnknownMembers(true)); e != nil {

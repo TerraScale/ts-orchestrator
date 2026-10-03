@@ -4,6 +4,7 @@ package netbird
 import (
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"io"
 	"net/netip"
 	"net/url"
@@ -99,7 +100,11 @@ func loadConfig(path string, rootOwned bool) (Config, error) {
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil || !(ownedRegular(info, 0o022) || rootOwned && rootOwnedRegular(info, 0o022)) || info.Size() > maxConfigBytes {
-		return Config{}, errors.New("NetBird configuration must be a root-owned regular file without group or other write access")
+		owner := "root"
+		if rootOwned {
+			owner = "root or the caller"
+		}
+		return Config{}, fmt.Errorf("NetBird configuration must be a regular file owned by %s, without group or other write access, and at most %d bytes", owner, maxConfigBytes)
 	}
 	wire, err := io.ReadAll(io.LimitReader(file, maxConfigBytes+1))
 	if err != nil || len(wire) > maxConfigBytes {

@@ -35,7 +35,7 @@ type API struct {
 func ValidateManagementURL(value string) (string, error) {
 	parsed, err := url.Parse(value)
 	invalid := errors.New("NetBird management URL must be an https origin (http only on loopback)")
-	if err != nil || parsed.User != nil || parsed.Opaque != "" || parsed.Host == "" ||
+	if err != nil || parsed.User != nil || parsed.Opaque != "" || parsed.Host == "" || parsed.Hostname() == "" ||
 		parsed.Path != "" && parsed.Path != "/" || parsed.RawQuery != "" || parsed.ForceQuery || strings.Contains(value, "#") {
 		return "", invalid
 	}
