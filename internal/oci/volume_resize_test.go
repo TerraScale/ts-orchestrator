@@ -320,3 +320,18 @@ func TestTerminalTreatsObservedSupersededResizesAsSettled(t *testing.T) {
 		t.Fatal("a non-resize operation was settled by observation")
 	}
 }
+
+func TestTerminalSettlesAResizeWhoseETagCanNoLongerMatch(t *testing.T) {
+	fleet, provider, _, _, created := resizeFixture(t)
+	volume := provider.volumes[created.ID]
+	op := OperationIntent{Action: actionVolumeResize, VolumeID: created.ID, SizeGB: volume.SizeGB + 50, ExpectedETag: volume.ETag}
+	listed := []CloudVolume{volume}
+	if fleet.resizeSettled(t.Context(), op, listed) {
+		t.Fatal("a resize that can still land was settled")
+	}
+	volume.ETag = "changed-elsewhere"
+	provider.volumes[created.ID] = volume
+	if !fleet.resizeSettled(t.Context(), op, listed) {
+		t.Fatal("a resize whose If-Match ETag is gone stayed unsettled")
+	}
+}

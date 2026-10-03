@@ -113,7 +113,7 @@ func (f *fleet) DiscoverTerminalTargets(ctx context.Context, intent authority.Te
 		}
 		if (allowedHosts[op.CreateKey] || allowedData[op.CreateKey] || terminalOperationTouches(op, targets)) &&
 			op.Action != actionTerminalTerminate && op.Action != actionTerminalBootDelete && op.Action != actionTerminalDataDelete &&
-			(record.Result.RecordedAt.IsZero() || record.Result.Unknown) && !resizeSettledByObservation(op, volumes) {
+			(record.Result.RecordedAt.IsZero() || record.Result.Unknown) && !f.resizeSettled(ctx, op, volumes) {
 			return nil, fmt.Errorf("%w: prior OCI operation %s remains unsettled", ErrOutcomeUnknown, op.Action)
 		}
 	}
@@ -134,6 +134,24 @@ func resizeSettledByObservation(op OperationIntent, volumes []CloudVolume) bool 
 		}
 	}
 	return true
+}
+
+// resizeSettled extends resizeSettledByObservation with an exact read: a
+// resize below its target whose If-Match ETag no longer matches the volume
+// can never land, so its outcome is settled too. A read failure keeps the
+// resize unsettled.
+func (f *fleet) resizeSettled(ctx context.Context, op OperationIntent, volumes []CloudVolume) bool {
+	if resizeSettledByObservation(op, volumes) {
+		return true
+	}
+	if op.Action != actionVolumeResize || op.ExpectedETag == "" {
+		return false
+	}
+	current, err := f.provider.GetVolume(ctx, op.VolumeID)
+	if err != nil {
+		return isNotFound(err)
+	}
+	return current.SizeGB >= op.SizeGB || current.ETag != "" && current.ETag != op.ExpectedETag
 }
 
 func (f *fleet) VerifyTerminalInventorySettled(ctx context.Context, intent authority.TerminalIntent) error {
