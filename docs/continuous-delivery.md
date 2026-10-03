@@ -342,7 +342,8 @@ Nothing in this change starts it; the pieces are:
   kept), activates it with `selfupdate.Activate` and restarts the unit. It
   is idempotent per operation: a retried step answers `pending` or
   `current`. The reply is unsigned and only says whether to wait; completion
-  is proven by health proofs.
+  is proven by health proofs. A forged `refused` reply can at worst start a
+  rollback (or freeze one), never move a unit forward.
 - **Status** (`ts.orch.v1.<cell>.rollout.status`). Read-only JSON with the
   phase, waves, per-unit state, newest proof digest and current holds.
 - **Journal.** Phase changes are journaled by the store; the executor adds
