@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/autoscale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
@@ -105,8 +106,10 @@ func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
 	config := &AutoscaleConfig{Enabled: true, HostTelemetry: true, Services: []workload.ServiceSpec{{Role: "api",
 		Environment: "prod", Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Min: 1, Max: 3},
 		Scaling: &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.6}}}}}}
+	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, Leader: true, Epoch: 1, Revision: 1,
+		ExpiresAt: time.Now().Add(time.Hour)}}
 	reconciler, _, err := startWorkloadAutoscale("gru", config, map[string]WorkloadProfile{"api": {Resources: resources}},
-		&host.Controller{}, followerFencer{})
+		&host.Controller{}, fencer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,6 +142,12 @@ func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
 	}
 	if _, present := found[observability.HistAutoscaleReplicas]; present {
 		t.Fatal("a service without a reconciliation result was sampled")
+	}
+	// A member that is not (or no longer) the authority leader records
+	// nothing extra: its cached reports and last results are not current.
+	fencer.set(authority.Snapshot{})
+	if samples := withAutoscaleSamples(func(context.Context) []observability.Sample { return nil }, reconciler)(t.Context()); len(samples) != 0 {
+		t.Fatalf("follower recorded autoscale samples: %+v", samples)
 	}
 }
 

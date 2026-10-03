@@ -23,6 +23,11 @@ func withAutoscaleSamples(collect func(context.Context) []observability.Sample, 
 	load, _ := reconciler.Signals().(*hostload.Aggregator)
 	return func(ctx context.Context) []observability.Sample {
 		samples := collect(ctx)
+		if !reconciler.Leading() {
+			// A former leader's last results and cached host reports are
+			// not current; recording them would chart stale state as live.
+			return samples
+		}
 		samples = append(samples, autoscaleSamples(reconciler)...)
 		return append(samples, terraBaseLoadSamples(load)...)
 	}

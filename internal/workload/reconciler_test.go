@@ -239,6 +239,19 @@ func TestReconcilerFollowerAndFencedLeaderDoNotWrite(t *testing.T) {
 	if err := follower.Tick(context.Background()); err != nil || len(cell.writes) != 0 {
 		t.Fatalf("follower wrote %v (%v)", cell.writes, err)
 	}
+	if follower.Leading() || len(follower.Last()) != 0 {
+		t.Fatalf("follower leading=%v last=%#v", follower.Leading(), follower.Last())
+	}
+	// A demoted leader stops presenting its last results as current.
+	fencer := &fakeFencer{leader: true, epoch: 1}
+	demoted := newTestReconciler(t, cell, fencer, statelessSpec(1, 5))
+	if err := demoted.Tick(context.Background()); err != nil || !demoted.Leading() || len(demoted.Last()) != 1 {
+		t.Fatalf("leader tick: last=%#v (%v)", demoted.Last(), err)
+	}
+	fencer.leader = false
+	if err := demoted.Tick(context.Background()); err != nil || demoted.Leading() || len(demoted.Last()) != 0 {
+		t.Fatalf("demoted leader kept results: %#v (%v)", demoted.Last(), err)
+	}
 	fenced := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1, fenced: true}, statelessSpec(3, 5))
 	if err := fenced.Tick(context.Background()); !errors.Is(err, authority.ErrFenced) || len(cell.writes) != 0 {
 		t.Fatalf("fenced leader wrote %v (%v)", cell.writes, err)

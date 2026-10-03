@@ -132,6 +132,12 @@ func (r *Reconciler) Signals() autoscale.Source {
 	return r.config.Signals
 }
 
+// Leading reports whether this member's authority may mutate right now, so
+// its reconciliation results and signal source are current.
+func (r *Reconciler) Leading() bool {
+	return r != nil && r.config.Fencer.Current().CanMutate()
+}
+
 // Owns reports whether the role is reconciled here, which changes how the
 // delivery planner shapes its releases.
 func (r *Reconciler) Owns(role string) (ServiceSpec, bool) {
@@ -173,6 +179,11 @@ func (r *Reconciler) Run(ctx context.Context) error {
 func (r *Reconciler) Tick(ctx context.Context) error {
 	snapshot := r.config.Fencer.Current()
 	if !snapshot.CanMutate() {
+		// A former leader's results are no longer current; Last must not
+		// keep presenting them to history, insights or the dashboard.
+		r.mu.Lock()
+		clear(r.last)
+		r.mu.Unlock()
 		return nil
 	}
 	now := r.config.Now()
