@@ -71,17 +71,29 @@ type bucket struct {
 	Max   float64 `json:"x"`
 	Last  float64 `json:"l"`
 	Count uint32  `json:"c"`
+	// LastAt is when Last was sampled (unix milliseconds); rates divide by
+	// the time between the samples that supplied Last, not by the bucket
+	// starts. Zero in snapshots taken before it existed.
+	LastAt int64 `json:"a,omitempty"`
 }
 
-func (b *bucket) add(value float64) {
+func (b *bucket) add(at int64, value float64) {
 	if b.Count == 0 {
 		b.Min, b.Max = value, value
 	} else {
 		b.Min, b.Max = min(b.Min, value), max(b.Max, value)
 	}
 	b.Sum += value
-	b.Last = value
+	b.Last, b.LastAt = value, at
 	b.Count++
+}
+
+// lastAt is when the bucket's Last was sampled, or its start when unknown.
+func (b bucket) lastAt() int64 {
+	if b.LastAt != 0 {
+		return b.LastAt
+	}
+	return b.Start
 }
 
 // tier is a ring of closed buckets and the bucket being filled.
@@ -115,7 +127,7 @@ func (t *tier) push(b bucket) {
 func (t *tier) add(at int64, value float64) {
 	if t.step == 0 {
 		b := bucket{Start: at}
-		b.add(value)
+		b.add(at, value)
 		t.push(b)
 		return
 	}
@@ -132,7 +144,19 @@ func (t *tier) add(at int64, value float64) {
 		t.open = bucket{Start: aligned}
 		t.opened = true
 	}
-	t.open.add(value)
+	t.open.add(at, value)
+}
+
+// oldest returns the start of the tier's oldest bucket.
+func (t *tier) oldest() (int64, bool) {
+	switch {
+	case t.size > 0:
+		return t.ring[t.start].Start, true
+	case t.opened:
+		return t.open.Start, true
+	default:
+		return 0, false
+	}
 }
 
 // buckets returns closed buckets plus the open one, oldest first.
@@ -315,9 +339,9 @@ func (history *History) Range(query HistoryQuery) HistoryResult {
 	if query.Start.IsZero() {
 		query.Start = query.End.Add(-time.Hour)
 	}
-	tierName := query.Tier
-	if tierName == "" {
-		tierName = TierFor(query.Start, time.Now())
+	chosen := query.Tier
+	if chosen == "" {
+		chosen = TierFor(query.Start, time.Now())
 	}
 	if query.MaxSeries <= 0 {
 		query.MaxSeries = 64
@@ -332,13 +356,13 @@ func (history *History) Range(query HistoryQuery) HistoryResult {
 		if current.metric != query.Metric || !labelsMatch(current.labels, query.Labels) {
 			continue
 		}
+		tierName := chosen
+		if query.Tier == "" {
+			tierName = current.coveringTier(chosen, start)
+		}
 		t, ok := current.tiers[tierName]
 		if !ok {
 			continue
-		}
-		if len(result.Series) == query.MaxSeries {
-			result.Truncated = true
-			break
 		}
 		out := HistorySeries{Metric: current.metric, Tier: tierName, Labels: labelMap(current.labels)}
 		var previous *bucket
@@ -347,12 +371,12 @@ func (history *History) Range(query HistoryQuery) HistoryResult {
 				continue
 			}
 			if query.Rate {
-				if previous != nil && b.Start > previous.Start {
+				if previous != nil && b.lastAt() > previous.lastAt() {
 					delta := b.Last - previous.Last
 					if delta < 0 { // counter reset
 						delta = b.Last
 					}
-					rate := delta / (float64(b.Start-previous.Start) / 1000)
+					rate := delta / (float64(b.lastAt()-previous.lastAt()) / 1000)
 					out.Points = append(out.Points, Point{Time: time.UnixMilli(b.Start).UTC(), Value: rate,
 						Min: rate, Max: rate})
 				}
@@ -367,9 +391,41 @@ func (history *History) Range(query HistoryQuery) HistoryResult {
 			out.Points = append(out.Points, Point{Time: time.UnixMilli(b.Start).UTC(), Value: value,
 				Min: b.Min, Max: b.Max})
 		}
+		// A stored series without points in the range does not take one
+		// of the result's slots.
+		if len(out.Points) == 0 {
+			continue
+		}
+		if len(result.Series) == query.MaxSeries {
+			result.Truncated = true
+			break
+		}
 		result.Series = append(result.Series, out)
 	}
 	return result
+}
+
+// coveringTier picks, for an automatic query, the finest tier from chosen
+// on whose data reaches back to start; restored history has no raw tier and
+// may lack the 1m one, so a fresh tier must not hide older restored data.
+// Without full coverage it takes the tier reaching furthest back.
+func (current *series) coveringTier(chosen string, start int64) string {
+	order := []string{TierRaw, Tier1m, Tier5m}
+	best, bestOldest := chosen, int64(math.MaxInt64)
+	for _, name := range order[max(slices.Index(order, chosen), 0):] {
+		t := current.tiers[name]
+		oldest, ok := t.oldest()
+		if !ok {
+			continue
+		}
+		if oldest <= start+t.step.Milliseconds() {
+			return name
+		}
+		if oldest < bestOldest {
+			best, bestOldest = name, oldest
+		}
+	}
+	return best
 }
 
 // Metrics lists the metric names currently stored.
