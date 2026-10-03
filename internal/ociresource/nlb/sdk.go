@@ -73,6 +73,9 @@ func (a sdkAPI) ListBackends(ctx context.Context, id, backendSet string) ([]Back
 		response, err := a.client.ListBackends(ctx, networkloadbalancer.ListBackendsRequest{NetworkLoadBalancerId: new(id),
 			BackendSetName: new(backendSet), Page: page})
 		if err != nil {
+			if serviceErr, ok := common.IsServiceError(err); ok && serviceErr.GetHTTPStatusCode() == http.StatusNotFound {
+				return nil, fmt.Errorf("list OCI NLB backends: %w: %w", ociresource.ErrGone, err)
+			}
 			return nil, fmt.Errorf("list OCI NLB backends: %w", err)
 		}
 		for _, item := range response.Items {
