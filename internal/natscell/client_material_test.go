@@ -68,11 +68,11 @@ func TestClientMaterialSourceRejectsAnotherUserKey(t *testing.T) {
 		t.Fatalf("renewed credentials for the same key were not used: %s", got)
 	}
 	next = foreign
-	if got := source.current().CredentialsFile; got != startup {
+	if got := source.current().CredentialsFile; got != renewed {
 		t.Fatalf("credentials for a different NATS user were accepted: %s", got)
 	}
 	next = filepath.Join(root, "missing.creds")
-	if got := source.current().CredentialsFile; got != startup {
+	if got := source.current().CredentialsFile; got != renewed {
 		t.Fatalf("missing reloaded credentials did not fall back: %s", got)
 	}
 	if _, err := source.tlsConfig(); err != nil {

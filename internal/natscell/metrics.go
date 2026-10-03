@@ -42,7 +42,7 @@ func (r *Runtime) Observe(ctx context.Context) (observability.NATSView, error) {
 	if varz.JetStream.Config != nil {
 		view.StoreLimitBytes = varz.JetStream.Config.MaxStore
 	}
-	jsz, err := r.server.Jsz(&server.JSzOptions{Accounts: true, Streams: true, Consumer: true})
+	jsz, err := r.server.Jsz(&server.JSzOptions{Accounts: true, Streams: true, Consumer: true, Config: true})
 	if err != nil {
 		return observability.NATSView{}, err
 	}
@@ -103,13 +103,21 @@ func (r *Runtime) Observe(ctx context.Context) (observability.NATSView, error) {
 
 func streamView(stream server.StreamDetail) observability.StreamView {
 	view := observability.StreamView{Name: stream.Name, Messages: stream.State.Msgs, Bytes: stream.State.Bytes, Replicas: 1}
-	if stream.Config != nil && stream.Config.Replicas > 0 {
+	configured := stream.Config != nil && stream.Config.Replicas > 0
+	if configured {
 		view.Replicas = stream.Config.Replicas
 	}
 	if cluster := stream.Cluster; cluster != nil {
 		view.Leader = cluster.Leader
-		if len(cluster.Replicas)+1 > view.Replicas {
-			view.Replicas = len(cluster.Replicas) + 1
+		// Without a configured factor, count peers from the cluster info.
+		// It omits the leader from Replicas, but a leaderless group lists
+		// every peer, this server included.
+		peers := len(cluster.Replicas)
+		if cluster.Leader != "" {
+			peers++
+		}
+		if !configured && peers > view.Replicas {
+			view.Replicas = peers
 		}
 		for _, replica := range cluster.Replicas {
 			if replica == nil {

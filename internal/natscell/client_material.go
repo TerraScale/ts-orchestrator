@@ -19,15 +19,20 @@ type ClientMaterial struct {
 
 // clientMaterialSource resolves the files for each connect and reconnect. A
 // reloaded set is accepted only when it keeps the pinned NATS user key, so a
-// renewal can replace the JWT and certificate but never the identity. Any
-// failure falls back to the files the process started with, which remain
-// valid until their own expiry.
+// renewal can replace the JWT and certificate but never the identity. A
+// failure falls back to the last renewal that was accepted, re-checked, and
+// only before the first accepted renewal to the files the process started
+// with: after a renewal the startup material may already have expired.
 type clientMaterialSource struct {
 	static ClientMaterial
 	user   string
 	reload func() (ClientMaterial, error)
 	mu     sync.Mutex
 	logged string
+	// good is the last accepted renewal and goodTLS the last renewed TLS
+	// files that loaded; both are guarded by mu.
+	good    *ClientMaterial
+	goodTLS *TLSFiles
 }
 
 func newClientMaterialSource(cfg Config, user string) *clientMaterialSource {
@@ -46,11 +51,21 @@ func (s *clientMaterialSource) current() ClientMaterial {
 	if err == nil {
 		err = s.validate(material)
 	}
-	if err != nil {
-		s.note("NATS client material reload rejected; using startup credentials", err)
-		return s.static
+	if err == nil {
+		s.mu.Lock()
+		s.good = &material
+		s.mu.Unlock()
+		return material
 	}
-	return material
+	s.mu.Lock()
+	good := s.good
+	s.mu.Unlock()
+	if good != nil && s.validate(*good) == nil {
+		s.note("NATS client material reload rejected; using the last accepted renewal", err)
+		return *good
+	}
+	s.note("NATS client material reload rejected; using startup credentials", err)
+	return s.static
 }
 
 func (s *clientMaterialSource) validate(material ClientMaterial) error {
@@ -107,7 +122,21 @@ func (s *clientMaterialSource) note(message string, err error) {
 func (s *clientMaterialSource) tlsConfig() (*tls.Config, error) {
 	material := s.current()
 	config, err := loadTLS(material.TLS, false)
+	if err == nil && material != s.static {
+		s.mu.Lock()
+		s.goodTLS = &material.TLS
+		s.mu.Unlock()
+	}
 	if err != nil && material != s.static {
+		s.mu.Lock()
+		good := s.goodTLS
+		s.mu.Unlock()
+		if good != nil && *good != material.TLS {
+			if config, goodErr := loadTLS(*good, false); goodErr == nil {
+				s.note("reloaded NATS TLS material is unusable; using the last renewed certificate", err)
+				return config, nil
+			}
+		}
 		s.note("reloaded NATS TLS material is unusable; using startup certificate", err)
 		config, fallbackErr := loadTLS(s.static.TLS, false)
 		if fallbackErr != nil {
