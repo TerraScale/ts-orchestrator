@@ -25,6 +25,8 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/hostvolume"
 	"golang.org/x/sys/unix"
 )
 
@@ -37,6 +39,9 @@ type VolumeInitConfig struct {
 	StateRoot               string
 	WorkloadIdentity        WorkloadIdentity
 	ReadMetadata            func(context.Context) (VolumeInitMetadata, error)
+	// Grow enables online filesystem growth after an OCI volume resize. It is
+	// off by default; ext4 growth needs CAP_SYS_RESOURCE in the unit.
+	Grow hostvolume.GrowConfig
 }
 
 type VolumeInitMetadata struct {
@@ -81,8 +86,8 @@ func executeVolumeInitAction(ctx context.Context, pins ManagedRuntimePins, probe
 		return errors.New("volume initializer has no mount effect")
 	}
 	if action == volumeInitFormat {
-		if pins.FileSystemType != "ext4" || effects.Consume == nil || effects.Format == nil || effects.Probe == nil {
-			return errors.New("fresh managed formatting requires supported ext4 effects")
+		if !storage.ValidFileSystem(pins.FileSystemType) || effects.Consume == nil || effects.Format == nil || effects.Probe == nil {
+			return errors.New("fresh managed formatting requires a supported ext4 or xfs pin and effects")
 		}
 		if expiresAt.IsZero() || !time.Now().Before(expiresAt) {
 			return errors.New("volume format permit expired before disk effect")
@@ -312,6 +317,7 @@ func prepareManagedVolumeDevice(ctx context.Context, cfg VolumeInitConfig, permi
 		_ = lock.Close()
 	}()
 	if mounted, err := verifyManagedMount(paths, *launch.Runtime, cfg.WorkloadIdentity); err == nil {
+		maintainManagedMount(ctx, cfg, paths, mounted, device)
 		mounted.close()
 		return requireManagedVolumeProvenance(paths, *launch, consumed)
 	}
@@ -332,6 +338,7 @@ func prepareManagedVolumeDevice(ctx context.Context, cfg VolumeInitConfig, permi
 		if err != nil {
 			return err
 		}
+		maintainManagedMount(ctx, cfg, paths, mount, device)
 		mount.close()
 		return requireManagedVolumeProvenance(paths, *launch, consumed)
 	}
@@ -360,7 +367,7 @@ func prepareManagedVolumeDevice(ctx context.Context, cfg VolumeInitConfig, permi
 				if !same {
 					return errors.New("managed block alias changed before format")
 				}
-				return formatManagedExt4(ctx, device, launch.Runtime.FileSystemUUID)
+				return formatManagedFilesystem(ctx, device, launch.Runtime.FileSystemType, launch.Runtime.FileSystemUUID)
 			},
 			Probe: func(ctx context.Context) (volumeFilesystemProbe, error) { return probeManagedVolume(ctx, device) },
 			Mount: func(ctx context.Context, complete bool) error {
@@ -374,6 +381,7 @@ func prepareManagedVolumeDevice(ctx context.Context, cfg VolumeInitConfig, permi
 	if err != nil {
 		return err
 	}
+	maintainManagedMount(ctx, cfg, paths, mount, device)
 	mount.close()
 	return requireManagedVolumeProvenance(paths, *launch, true)
 }
@@ -691,13 +699,33 @@ func rootMountBlockDevice(path string) (string, error) {
 	return "", errors.New("host root mount is unavailable")
 }
 
-func formatManagedExt4(ctx context.Context, device *managedDevice, uuid string) error {
-	output, code, err := runPinnedBlockTool(ctx, device, "/usr/sbin/mkfs.ext4", "-F", "-U", uuid, "-m", "0", "-E", "lazy_itable_init=0,lazy_journal_init=0")
-	_ = output
+func formatManagedFilesystem(ctx context.Context, device *managedDevice, fsType, uuid string) error {
+	tool, args, err := hostvolume.FormatCommand(fsType, uuid)
+	if err != nil {
+		return err
+	}
+	_, code, err := runPinnedBlockTool(ctx, device, tool, args...)
 	if err != nil || code != 0 {
-		return errors.New("managed ext4 formatting failed; retained volume is held")
+		return fmt.Errorf("managed %s formatting failed; retained volume is held", fsType)
 	}
 	return nil
+}
+
+// maintainManagedMount upgrades an already verified mount: it adds the
+// hardened per-mount flags to a mount made by an older initializer and, when
+// enabled, grows the filesystem after an OCI resize. Failures are logged, not
+// returned, so a serving member keeps its verified mount.
+func maintainManagedMount(ctx context.Context, cfg VolumeInitConfig, paths managedRuntimePaths, mount managedMount, device *managedDevice) {
+	if err := hostvolume.RequireHardened("/proc/self/mountinfo", mount.id); err != nil {
+		if err := hostvolume.HardenRemount(paths.mount); err != nil {
+			slog.Warn("managed volume mount hardening failed", "mount", paths.mount, "error", err)
+		}
+	}
+	if grown, err := hostvolume.Grow(ctx, cfg.Grow, paths.mount, device.stat.Rdev, mount.fsType); err != nil {
+		slog.Warn("managed volume online grow failed", "mount", paths.mount, "error", err)
+	} else if grown {
+		slog.Info("managed volume filesystem grown to its device size", "mount", paths.mount)
+	}
 }
 
 func mountManagedVolume(ctx context.Context, device *managedDevice, paths managedRuntimePaths,
@@ -718,10 +746,15 @@ func mountManagedVolume(ctx context.Context, device *managedDevice, paths manage
 	if !same {
 		return errors.New("managed block alias changed before mount")
 	}
-	if err := unix.Mount(fmt.Sprintf("/proc/self/fd/%d", device.fd), paths.mount, pins.FileSystemType, 0, ""); err != nil {
+	if err := unix.Mount(fmt.Sprintf("/proc/self/fd/%d", device.fd), paths.mount, pins.FileSystemType,
+		hostvolume.MountFlags, hostvolume.FilesystemData(pins.FileSystemType)); err != nil {
 		return fmt.Errorf("mount signed managed volume: %w", err)
 	}
-	if _, err := findExclusiveMount("/proc/self/mountinfo", paths.mount, device.stat.Rdev, pins.FileSystemType); err != nil {
+	mountID, err := findExclusiveMount("/proc/self/mountinfo", paths.mount, device.stat.Rdev, pins.FileSystemType)
+	if err != nil {
+		return err
+	}
+	if err := hostvolume.RequireHardened("/proc/self/mountinfo", mountID); err != nil {
 		return err
 	}
 	if err := waitManagedUUID(ctx, pins.FileSystemUUID, device.stat.Rdev); err != nil {

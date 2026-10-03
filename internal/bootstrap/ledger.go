@@ -20,6 +20,8 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const (
@@ -533,7 +535,7 @@ func (config LedgerConfig) storageDomain() StorageDomain {
 
 func validateLedgerScope(scope BootstrapScope) error {
 	if !deploymentRE.MatchString(scope.DeploymentID) || !slotNameRE.MatchString(scope.Slot) ||
-		(scope.Cell != "GRU" && scope.Cell != "SFO" && scope.Cell != "FRA") {
+		!catalog.IsCell(scope.Cell) {
 		return errors.New("bootstrap ledger scope has an invalid deployment, cell, or controller slot")
 	}
 	return nil

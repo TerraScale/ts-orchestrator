@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -22,7 +23,10 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/hostvolume"
 )
 
 func Run(ctx context.Context, args []string, output io.Writer) error {
@@ -86,7 +90,7 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	case "run":
 		return runController(ctx, cfg, output)
 	case "host":
-		return runHost(ctx, cfg, output)
+		return runHost(ctx, cfg, *configPath, output)
 	case "check":
 		return check(ctx, cfg, output)
 	default:
@@ -96,11 +100,17 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 
 var hostClockProbe = func() brokerauth.ClockProbe { return brokerauth.KernelClockProbe{} }
 
-func runHost(ctx context.Context, cfg Config, output io.Writer) error {
+func runHost(ctx context.Context, cfg Config, configPath string, output io.Writer) error {
+	notifier := sdnotify.FromEnvironment()
 	if cfg.NATS.Embedded != nil {
 		return errors.New("host role cannot start the regional NATS server")
 	}
 	cfg.NATS.ClientRole = "host"
+	telemetry, err := startRuntimeObservability(ctx, cfg, "host", cfg.Host.Node)
+	if err != nil {
+		return fmt.Errorf("start host observability: %w", err)
+	}
+	defer telemetry.close()
 	key, err := readPrivateKey(cfg.Host.IdentityKeyFile)
 	if err != nil {
 		return err
@@ -152,6 +162,9 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("host native runtime probe: %w", err)
 	}
+	if configPath != "" {
+		cfg.NATS.ReloadClientMaterial = hostCredentialReloader(configPath, cfg, key)
+	}
 	runtime, err := natscell.Start(ctx, cfg.NATS)
 	if err != nil {
 		return err
@@ -169,11 +182,32 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 		PollInterval:            time.Duration(cfg.Host.PollMillis) * time.Millisecond, SessionTrace: cfg.Host.SessionTrace,
 		ClockCheck:       clockCheck,
 		VolumeInitSocket: "/run/terrascale-orchestrator-volume-init.sock",
+		// The activation proof follows native recovery, so a release whose
+		// agent cannot recover its workloads is never confirmed.
+		Initialized: func() {
+			emitSelfUpdateProofWithKey(cfg.Host.SelfUpdateProofFile, cfg.Host.SelfUpdateRoot, key, hostUnit, output)
+		},
 	})
 	if err != nil {
 		return err
 	}
+	filesystems := []observability.FilesystemRole{{Role: "state", Path: cfg.Host.StateRoot},
+		{Role: "install", Path: cfg.Host.InstallRoot}}
+	if cfg.Host.ManagedRuntimeRoot != "" {
+		filesystems = append(filesystems, observability.FilesystemRole{Role: "managed_runtime", Path: cfg.Host.ManagedRuntimeRoot})
+	}
+	if err := telemetry.attachHost(runtime, filesystems); err != nil {
+		return fmt.Errorf("attach host observability: %w", err)
+	}
+	telemetry.markStarted()
 	fmt.Fprintf(output, "host %s ready in cell %s\n", cfg.Host.Node, cfg.NATS.Cell)
+	// The host connected to its regional cell. It sends no watchdog
+	// keepalives: a restart of this process stops every supervised member,
+	// so it must never follow from a transient controller outage.
+	if err := notifier.Ready("host " + cfg.Host.Node + " connected to cell " + cfg.NATS.Cell); err != nil {
+		slog.Warn("systemd readiness notification failed", "error", err)
+	}
+	defer func() { _ = notifier.Stopping() }()
 	return hostRunResult(ctx, agent.Run(ctx))
 }
 
@@ -200,6 +234,7 @@ func runHostVolumeInit(ctx context.Context, args []string) error {
 		ControllerPublicKey: key, ManagedRuntimeRoot: cfg.Host.ManagedRuntimeRoot,
 		StateRoot:        "/var/lib/terrascale-orchestrator-volume-init",
 		WorkloadIdentity: host.WorkloadIdentity{UID: cfg.Host.WorkloadUID, GID: cfg.Host.WorkloadGID},
+		Grow:             hostvolume.GrowConfig{Enabled: cfg.Host.ManagedVolumeOnlineGrow},
 		ReadMetadata: func(ctx context.Context) (host.VolumeInitMetadata, error) {
 			metadata, err := hostenroll.ReadInstanceMetadata(ctx, hostenroll.NewIMDSClient())
 			if err != nil {

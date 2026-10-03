@@ -14,11 +14,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 )
 
 const Region = "sa-saopaulo-1"
@@ -41,11 +43,14 @@ type Attempt struct {
 	Env                      []string
 	Executable               string
 	Runner                   Runner
-	Now                      func() time.Time
-	Sleep                    func(context.Context, time.Duration) error
-	Out, ErrOut              io.Writer
-	ctx                      context.Context
-	err                      error
+	// Cloud reaches OCI through the in-binary SDK; nil builds the operator
+	// ~/.oci/config client on first use.
+	Cloud       Cloud
+	Now         func() time.Time
+	Sleep       func(context.Context, time.Duration) error
+	Out, ErrOut io.Writer
+	ctx         context.Context
+	err         error
 }
 
 func object(v any) Object {
@@ -215,17 +220,23 @@ func (a *Attempt) release(args ...string) string {
 func (a *Attempt) preview(args ...string) string {
 	return a.run(append([]string{a.Executable, "oci-region", "preview"}, args...)...)
 }
-func (a *Attempt) oci(args ...string) Object {
-	s := a.capture(append(append([]string{"oci", "--region", Region}, args...), "--output", "json")...)
+
+// cloud returns the OCI seam after announcing the operation, or nil once the
+// attempt has failed.
+func (a *Attempt) cloud(operation string) Cloud {
 	if a.err != nil {
-		return Object{}
+		return nil
 	}
-	if strings.TrimSpace(s) == "" {
-		return Object{}
+	if a.Cloud == nil {
+		cloud, err := newSDKCloud(Region)
+		if err != nil {
+			a.fail(err)
+			return nil
+		}
+		a.Cloud = cloud
 	}
-	var o Object
-	a.fail(json.Unmarshal([]byte(s), &o))
-	return object(o)
+	fmt.Fprintf(a.Out, "%s OCI %s ...\n", a.Now().UTC().Format("15:04:05"), operation)
+	return a.Cloud
 }
 func (a *Attempt) read(path string) Object {
 	if a.err != nil {
@@ -408,19 +419,25 @@ func (a *Attempt) controllerObjectGrants(plan Object) {
 	if a.err != nil {
 		return
 	}
-	policy := object(a.oci("iam", "policy", "get", "--policy-id", str(ids, "controller_policy"))["data"])
-	want, e := json.Marshal(expected)
-	a.fail(e)
-	have, e := json.Marshal(policy["statements"])
-	a.fail(e)
-	if bytes.Equal(want, have) {
+	cloud := a.cloud("GetPolicy")
+	if cloud == nil {
 		return
 	}
-	path := a.Path("controller-policy-statements.json")
-	if a.err == nil {
-		a.fail(os.WriteFile(path, want, 0600))
+	policyID := str(ids, "controller_policy")
+	statements, etag, e := cloud.PolicyStatements(a.ctx, policyID)
+	a.fail(e)
+	if a.err != nil || slices.Equal(statements, expected) {
+		return
 	}
-	a.oci("iam", "policy", "update", "--policy-id", str(ids, "controller_policy"), "--statements", "file://"+path, "--version-date", "", "--force")
+	// The replacement is conditional on the version just read; without an
+	// ETag it would silently overwrite a concurrent policy change.
+	if etag == "" {
+		a.fail(fmt.Errorf("OCI policy %s read returned no ETag; refusing an unconditional update", policyID))
+		return
+	}
+	if cloud = a.cloud("UpdatePolicy"); cloud != nil {
+		a.fail(cloud.ReplacePolicyStatements(a.ctx, policyID, etag, expected))
+	}
 	if a.err == nil {
 		fmt.Fprintln(a.Out, "controller object grants now target prefix", a.Prefix, "- waiting for IAM propagation")
 		a.fail(a.Sleep(a.ctx, time.Minute))
@@ -690,11 +707,12 @@ func (a *Attempt) SeedArgs() []string {
 	return args
 }
 func (a *Attempt) listObjects(bucket, prefix string) []string {
-	listing := a.oci("os", "object", "list", "--namespace-name", str(a.Config, "namespace"), "--bucket-name", bucket, "--prefix", prefix, "--all")
-	var names []string
-	for _, v := range rows(listing["data"]) {
-		names = append(names, str(object(v), "name"))
+	cloud := a.cloud("ListObjects " + bucket)
+	if cloud == nil {
+		return nil
 	}
+	names, e := cloud.ListObjects(a.ctx, str(a.Config, "namespace"), bucket, prefix)
+	a.fail(e)
 	return names
 }
 func (a *Attempt) PhaseLaunch() {
@@ -727,6 +745,18 @@ func (a *Attempt) PhaseLaunch() {
 	if a.err != nil {
 		return
 	}
+	// Decode the exact launch request before any reservation is signed, so
+	// a malformed input can never strand a published reservation.
+	wire, e := os.ReadFile(launchInput)
+	a.fail(e)
+	if a.err != nil {
+		return
+	}
+	details, e := LaunchDetails(wire)
+	a.fail(e)
+	if a.err != nil {
+		return
+	}
 	plan := a.read(a.Plan())
 	for _, bucket := range []string{"head", "ledger"} {
 		for _, name := range a.listObjects(str(object(plan["foundation_buckets"]), bucket), a.Prefix+"/") {
@@ -747,11 +777,27 @@ func (a *Attempt) PhaseLaunch() {
 	createIdentity := str(a.read(reviewed), "create_identity")
 	a.RunBootstrap(join([]string{"sign-external-seed-reservation"}, a.SeedArgs(), []string{"--reviewed-plan", reviewed, "--reviewed-plan-sha256", reviewedSHA, "--create-identity", createIdentity, "--ledger-signing-key", a.Path("material", "founder-ledger.key"), "--out", reservation})...)
 	a.RunBootstrap(join([]string{"publish-external-seed-reservation"}, a.SeedArgs(), []string{"--reservation", reservation, "--oci-config", ociConfig(), "--oci-profile", "DEFAULT"})...)
-	submitted := a.oci("compute", "instance", "launch", "--from-json", "file://"+launchInput)
-	id := str(object(submitted["data"]), "id")
+	cloud := a.cloud("LaunchInstance")
+	if cloud == nil {
+		return
+	}
+	launched, workRequest, e := cloud.LaunchInstance(a.ctx, details, LaunchRetryToken(wire))
+	a.fail(e)
 	if a.err != nil {
 		return
 	}
+	data, e := sdkcli.Render(launched)
+	a.fail(e)
+	var rendered any
+	if a.err == nil {
+		a.fail(json.Unmarshal(data, &rendered))
+	}
+	if a.err != nil {
+		return
+	}
+	// The retained record keeps the CLI-shaped {"data": ...} document.
+	submitted := Object{"data": rendered, "opc-work-request-id": workRequest}
+	id := str(object(rendered), "id")
 	if id == "" {
 		a.fail(fmt.Errorf("controller launch omitted instance ID"))
 		return
@@ -766,12 +812,18 @@ func (a *Attempt) PhaseComplete() {
 	a.fail(e)
 	instance := strings.TrimSpace(string(b))
 	running := false
+	// Announce the poll once; the seam is reused for every attempt.
+	cloud := a.cloud("GetInstance (polling until RUNNING)")
+	if cloud == nil {
+		return
+	}
 	for range 60 {
-		state := object(a.oci("compute", "instance", "get", "--instance-id", instance)["data"])["lifecycle-state"]
+		state, e := cloud.GetInstance(a.ctx, instance)
+		a.fail(e)
 		if a.err != nil {
 			return
 		}
-		if state == "RUNNING" {
+		if state.LifecycleState == "RUNNING" {
 			running = true
 			break
 		}
@@ -792,6 +844,13 @@ func (a *Attempt) PhaseComplete() {
 	}
 	a.RunBootstrap(join([]string{"publish-external-seed-completion"}, a.SeedArgs(), []string{"--reservation", filepath.Join(launch, "seed-reservation.json"), "--completion", completion}, reviewedArgs, ociArgs)...)
 }
+
+// markerObject names a controller slot's accepted-install marker in the head
+// bucket.
+func (a *Attempt) markerObject(slot string) string {
+	key := sha256.Sum256([]byte("GRU\x00controller\x00" + slot))
+	return a.Prefix + "/bootstrap/v1/" + a.Deployment + "/" + hex.EncodeToString(key[:]) + "/accepted-install.json"
+}
 func (a *Attempt) PhaseContinuity() {
 	continuity := a.Path("continuity")
 	a.mkdir(continuity)
@@ -799,19 +858,34 @@ func (a *Attempt) PhaseContinuity() {
 	anchor := a.Path("anchor.signed.json")
 	for _, slot := range Slots {
 		marker := filepath.Join(continuity, slot+".marker.json")
-		key := sha256.Sum256([]byte("GRU\x00controller\x00" + slot))
-		name := a.Prefix + "/bootstrap/v1/" + a.Deployment + "/" + hex.EncodeToString(key[:]) + "/accepted-install.json"
+		name := a.markerObject(slot)
 		deadline := a.Now().Add(20 * time.Minute)
+		if exists(marker) {
+			continue
+		}
+		// Announce the poll once per slot; the seam is reused for every read.
+		cloud := a.cloud("GetObject " + slot + " accepted-install marker (polling)")
+		if cloud == nil {
+			return
+		}
 		for !exists(marker) {
 			if a.err != nil {
 				return
 			}
-			_, e := a.Runner(a.ctx, Command{Args: []string{"oci", "--region", Region, "os", "object", "get", "--namespace-name", str(a.Config, "namespace"), "--bucket-name", str(object(plan["foundation_buckets"]), "head"), "--name", name, "--file", marker}, Dir: "/tmp", Env: a.Env, Capture: true})
-			info, se := os.Stat(marker)
-			if e == nil && se == nil && info.Size() > 0 {
+			// A read error is retried like an absent marker until the
+			// deadline: the controller may still be publishing it.
+			data, found, e := cloud.GetObject(a.ctx, str(a.Config, "namespace"), str(object(plan["foundation_buckets"]), "head"), name)
+			if e != nil {
+				fmt.Fprintln(a.ErrOut, e)
+			}
+			if a.ctx.Err() != nil {
+				a.fail(a.ctx.Err())
+				return
+			}
+			if e == nil && found && len(data) > 0 {
+				a.WriteNew(marker, data)
 				break
 			}
-			a.remove(marker)
 			if a.Now().After(deadline) {
 				a.fail(fmt.Errorf("%s did not publish its accepted-install marker", slot))
 				return
@@ -898,14 +972,19 @@ func (a *Attempt) PhaseStatus() {
 			fmt.Fprintf(a.Out, "%s: %s\n", bucket, strings.TrimPrefix(name, a.Prefix+"/bootstrap/v1/"+a.Deployment+"/"))
 		}
 	}
-	var instances []any
+	var instances []Instance
 	for _, compartment := range []string{"control_compartment", "workload_compartment"} {
-		instances = append(instances, rows(a.oci("compute", "instance", "list", "--compartment-id", str(object(plan["resource_ids"]), compartment), "--all")["data"])...)
+		cloud := a.cloud("ListInstances " + compartment)
+		if cloud == nil {
+			return
+		}
+		listed, e := cloud.ListInstances(a.ctx, str(object(plan["resource_ids"]), compartment))
+		a.fail(e)
+		instances = append(instances, listed...)
 	}
-	for _, v := range instances {
-		instance := object(v)
-		if instance["lifecycle-state"] != "TERMINATED" && strings.HasPrefix(str(instance, "display-name"), a.Deployment) {
-			fmt.Fprintf(a.Out, "instance %v %v %v\n", instance["display-name"], instance["lifecycle-state"], instance["id"])
+	for _, instance := range instances {
+		if instance.LifecycleState != "TERMINATED" && strings.HasPrefix(instance.DisplayName, a.Deployment) {
+			fmt.Fprintf(a.Out, "instance %v %v %v\n", instance.DisplayName, instance.LifecycleState, instance.ID)
 		}
 	}
 }

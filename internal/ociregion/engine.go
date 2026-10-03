@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"golang.org/x/sys/unix"
 	"io"
@@ -23,6 +24,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 )
 
 type Object = map[string]any
@@ -37,6 +40,9 @@ type Engine struct {
 	Overrides  map[string]bool
 	Stdout     io.Writer
 	Argv       []string
+	// Backend overrides TS_OCI_BACKEND for this engine when set. Contract
+	// tests that replay recorded oci CLI output pin it to sdkcli.BackendCLI.
+	Backend sdkcli.Backend
 }
 type Failure struct {
 	Message string
@@ -411,7 +417,7 @@ func (e *Engine) process(command []string) Object {
 	if e.Dependency != nil {
 		return obj(e.call("subprocess.run", args, kw))
 	}
-	ctx, cancel := context.WithTimeout(e.ctx(), 180*time.Second)
+	ctx, cancel := context.WithTimeout(e.ctx(), ociReadTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -443,6 +449,9 @@ func (e *Engine) process(command []string) Object {
 	return Object{"args": arr(command), "returncode": code, "stdout": stdout.String(), "stderr": stderr.String()}
 }
 func (e *Engine) realOCI(args []any, kwargs Object) any {
+	if v, ok := e.sdkOCI(args, kwargs); ok {
+		return v
+	}
 	cmd := []string{"oci"}
 	for _, x := range args {
 		cmd = append(cmd, str(x))
@@ -481,6 +490,69 @@ func (e *Engine) realOCI(args []any, kwargs Object) any {
 	}
 	return d
 }
+
+// sdkOCI serves a read in-binary through the OCI Go SDK. It reports false
+// only when the CLI backend is selected, or when the auto backend meets a
+// command the SDK reader does not serve yet.
+func (e *Engine) sdkOCI(args []any, kwargs Object) (any, bool) {
+	backend := e.Backend
+	if backend == "" {
+		selected, err := sdkcli.SelectedBackend()
+		if err != nil {
+			fail(fmt.Sprintf("OCI backend selection is invalid: %v", err))
+		}
+		backend = selected
+	}
+	if backend == sdkcli.BackendCLI {
+		return nil, false
+	}
+	words := make([]string, len(args))
+	operation := []string{}
+	for i, x := range args {
+		words[i] = str(x)
+		if i < 3 {
+			operation = append(operation, words[i])
+		}
+	}
+	region := text(kwargs["region"])
+	client, err := sdkcli.ForRegion(region)
+	if err != nil {
+		// A region outside the catalog, or an SDK client that cannot be
+		// built, falls back to the oci CLI under auto instead of aborting.
+		if backend == sdkcli.BackendAuto {
+			return nil, false
+		}
+		fail(fmt.Sprintf("OCI read cannot be served in-binary for region %q: %v", region, err))
+	}
+	// The same bound the CLI path applies to every oci subprocess, so a
+	// stalled connection cannot hang a caller without its own deadline.
+	ctx, cancel := context.WithTimeout(e.ctx(), ociReadTimeout)
+	defer cancel()
+	data, handled, err := client.Call(ctx, words)
+	if !handled {
+		if backend == sdkcli.BackendAuto && errors.Is(err, sdkcli.ErrUnsupported) {
+			return nil, false
+		}
+		fail(fmt.Sprintf("OCI read is not served in-binary: %s", strings.Join(operation, " ")))
+	}
+	if err != nil {
+		if ctxErr := e.ctx().Err(); ctxErr != nil {
+			panic(ctxErr)
+		}
+		// Call already names the command path and wraps the SDK cause
+		// (throttling, 404, authorization or decode failure).
+		fail(err.Error())
+	}
+	v, err := decodeJSON(data)
+	if err != nil {
+		fail("invalid OCI response for " + strings.Join(operation, " "))
+	}
+	return v, true
+}
+
+// ociReadTimeout bounds one OCI read, in-binary or through the oci CLI.
+const ociReadTimeout = 180 * time.Second
+
 func capture[T any](fn func() T) (v T, err error) {
 	defer func() {
 		if r := recover(); r != nil {

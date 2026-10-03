@@ -128,7 +128,16 @@ func (verifier managedRegistrationVerifier) VerifyManagedRegistration(ctx contex
 		return errors.New("managed registration differs from current placement intent")
 	}
 
-	observed, err := verifier.fleet.Observe(ctx)
+	// Verify only the hosts that can match this seat: a fleet-wide scan does
+	// not fit the registration deadline under the OCI rate limit.
+	var observed []oci.Instance
+	if selective, ok := verifier.fleet.(oci.SelectiveObserver); ok {
+		observed, err = selective.ObserveSelected(ctx, func(id, node string) bool {
+			return id == state.InstanceID || node == state.HostNode
+		})
+	} else {
+		observed, err = verifier.fleet.Observe(ctx)
+	}
 	if err != nil {
 		return fmt.Errorf("observe current managed OCI fleet: %w", err)
 	}

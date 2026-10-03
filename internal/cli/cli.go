@@ -27,6 +27,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/qualification/memberstatus"
 	releasecli "git.terrascale.tech/TerraScale/ts-orchestrator/internal/release/cli"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/runtimepriority"
+	selfupdatecli "git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate/cli"
 )
 
 const usage = `Usage: ts-orch <command> [flags]
@@ -41,6 +42,7 @@ Runtime:
   install-controller-config  Install signed controller configuration
   netbird-enroll         Enroll the local NetBird client
   identity-new           Generate a host identity
+  selfupdate             Stage, activate and watch binary-only A/B updates
 
 Operator tooling:
   operator               Manage workloads through the regional controller
@@ -52,6 +54,7 @@ Operator tooling:
   qualification          Run source-backed operational qualification
   source-digest          Compute the versioned TerraBase source-tree digest
   runtime-priority       Qualify runtime resources and run bounded pressure
+  cluster                Break-glass controller quorum-loss recovery
 
 Use ts-orch bootstrap --help or ts-orch release --help to list their commands.
 `
@@ -73,6 +76,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return bootstrapcli.Run(ctx, args[1:], output)
 	case "release":
 		return releasecli.Run(ctx, args[1:], output)
+	case "selfupdate":
+		return selfupdatecli.Run(ctx, args[1:], commandio.NewWriter(output))
 	case "oci-region":
 		return runOCIRegion(ctx, args[1:], commandio.NewWriter(output))
 	case "image", "netbird":
@@ -96,6 +101,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return commandStatus(ctx, sourcedigest.Run(ctx, args[1:], commandio.NewWriter(output), &diagnostics), &diagnostics)
 	case "qualification":
 		return runQualification(ctx, args[1:], commandio.NewWriter(output))
+	case "cluster":
+		return runCluster(ctx, args[1:], commandio.NewWriter(output))
 	case "runtime-priority":
 		if len(args) == 1 || args[1] == "help" || args[1] == "--help" || args[1] == "-h" {
 			_, err := io.WriteString(output, "Usage: ts-orch runtime-priority <qualify|pressure|probe-admission|adapter|remote> [flags]\n")

@@ -5,9 +5,20 @@ After=network-online.target
 Requires=terrascale-orchestrator-bootstrap.service
 After=terrascale-orchestrator-bootstrap.service
 ConditionPathExists=/etc/terrascale-orchestrator/controller.json
+# A controller that keeps failing enters the failed state (start-limit-hit),
+# visible to alerting and a rollout gate, instead of rejoining and leaving
+# the cluster forever.
+StartLimitIntervalSec=30min
+StartLimitBurst=10
 
 [Service]
-Type=simple
+# READY=1 follows the host controller's readiness; WATCHDOG=1 keepalives stop
+# when the embedded broker or its in-process client is unusable.
+Type=notify
+NotifyAccess=main
+# First cluster formation waits for peers and JetStream quorum.
+TimeoutStartSec=20min
+WatchdogSec=60s
 User=terrascale-orchestrator
 Group=terrascale-orchestrator
 ExecStart=/usr/local/bin/terrascale-orchestrator run --config /etc/terrascale-orchestrator/controller.json
@@ -23,6 +34,8 @@ OOMScoreAdjust=-1000
 ManagedOOMPreference=omit
 Restart=on-failure
 RestartSec=5s
+RestartSteps=6
+RestartMaxDelaySec=5min
 TimeoutStopSec=60s
 KillSignal=SIGTERM
 KillMode=control-group

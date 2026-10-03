@@ -1,0 +1,114 @@
+package dashboard
+
+import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+
+templ ociBody(current view) {
+	<div id="content">
+		<h1>OCI resources and API usage</h1>
+		@notes(current)
+		<div class="cols">
+			<article>
+				<h2>Calls per second <small>by operation</small></h2>
+				@chart("", current.ociOperationChart(observability.HistOCICalls, "rate", "No OCI call history yet."))
+			</article>
+			<article>
+				<h2>Mean latency <small>by operation</small></h2>
+				@chart("", current.ociLatencyChart())
+				<p class="legend-note">The OCI slice exports call count, total and maximum seconds per operation; p50/p95/p99 need its latency histogram, which is not exported yet.</p>
+			</article>
+			<article>
+				<h2>Errors per second</h2>
+				@chart("", current.ociOperationChart(observability.HistOCIErrors, "rate", "No OCI errors in this range."))
+			</article>
+			<article>
+				<div class="chart-title">
+					<h2>429 throttling per second</h2>
+					<a href={ safe(current.State.link("/events", "component", "oci", "level", "warn")) }>Backoff events →</a>
+				</div>
+				@chart("", current.ociOperationChart(observability.HistOCIThrottled, "rate", "No 429 responses in this range."))
+			</article>
+		</div>
+		<article>
+			<div class="chart-title">
+				<h2>Resource inventory</h2>
+				if len(current.Inventory) > 0 {
+					<small class="muted">{ joinWords(current.inventoryCounts()) }</small>
+				}
+			</div>
+			if current.Journal == nil || current.Journal.Inventory == nil {
+				@unavailable("The OCI resource inventory and drift report appear once the OCI inventory provider is attached.")
+			} else if len(current.Inventory) == 0 {
+				<p class="empty">No OCI resource is owned by this region.</p>
+			} else {
+				<div class="table-scroll">
+					<table>
+						<thead><tr><th>Kind</th><th>Name</th><th>State</th><th>Drift</th><th>OCID</th></tr></thead>
+						<tbody>
+							for _, item := range current.Inventory {
+								<tr class={ templ.KV("drift", item.Drift != "in_sync") }>
+									<td>{ item.Kind }</td>
+									<td>{ item.Name }</td>
+									<td>{ item.State }</td>
+									<td>
+										@statusPill(driftStatus(item.Drift), item.Drift)
+									</td>
+									<td><code>{ short(item.ID, 48) }</code></td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+			}
+		</article>
+		{{ reported := 0 }}
+		for _, member := range current.members() {
+			if member.OCI != nil {
+				{{ reported++ }}
+				<article>
+					<h2>API calls from { member.Member }</h2>
+					if len(member.OCI.Operations) == 0 {
+						@unavailable("No OCI API call since this process started.")
+					} else {
+						<div class="table-scroll">
+							<table class="striped">
+								<thead>
+									<tr>
+										<th>Service</th>
+										<th>Operation</th>
+										<th>Calls</th>
+										<th>Errors</th>
+										<th>Throttled</th>
+										<th>Mean</th>
+										<th>Max</th>
+										<th>Last status</th>
+										<th>Last error</th>
+									</tr>
+								</thead>
+								<tbody>
+									for _, operation := range member.OCI.Operations {
+										<tr>
+											<td>{ operation.Service }</td>
+											<td class="wrap"><code>{ operation.Operation }</code></td>
+											<td>{ itoa(operation.Calls) }</td>
+											<td class={ templ.KV("warn", operation.Errors > 0) }>{ itoa(operation.Errors) }</td>
+											<td class={ templ.KV("bad", operation.Throttled > 0) }>{ itoa(operation.Throttled) }</td>
+											<td>{ apiMean(operation) }</td>
+											<td>{ formatSeconds(operation.MaxSeconds) }</td>
+											<td>{ statusCode(operation.LastStatus) }</td>
+											<td>{ statusCode(operation.LastErrorCode) }</td>
+										</tr>
+									}
+								</tbody>
+							</table>
+						</div>
+					}
+				</article>
+			}
+		}
+		if reported == 0 {
+			<article>
+				@unavailable("No member reported OCI API usage. Only controllers of a cell that manages TerraBase placement call OCI.")
+			</article>
+		}
+	</div>
+}

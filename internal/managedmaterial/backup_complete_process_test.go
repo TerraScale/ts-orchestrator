@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
 type backupCompleteProcessResult struct {
@@ -43,18 +44,13 @@ func TestBackupGoRustCompleteProcessBridge(t *testing.T) {
 // The separate full-material packet leaves the accepted direct bridge packet
 // and its test selector unchanged.
 func TestBackupGoRustFullProducerProcessBridge(t *testing.T) {
-	if os.Getenv("TS_D10_FULL_MATERIAL_PACKET") == "" {
-		t.Skip("Rust full material packet was not supplied")
-	}
+	tier.Qualification(t, "TS_D10_FULL_MATERIAL_PACKET")
 	runBackupGoRustCompleteProcessBridge(t, true)
 }
 
 func runBackupGoRustCompleteProcessBridge(t *testing.T, fullProducer bool) {
 	t.Helper()
-	packetPath := os.Getenv("TS_D10_PROCESS_PACKET")
-	if packetPath == "" {
-		t.Skip("Rust live-process packet was not supplied")
-	}
+	packetPath := tier.Qualification(t, "TS_D10_PROCESS_PACKET")[0]
 	resultPath := os.Getenv("TS_D10_PROCESS_RESULT")
 	if resultPath == "" {
 		t.Fatal("Rust live-process result path was not supplied")

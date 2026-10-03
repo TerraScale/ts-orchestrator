@@ -167,7 +167,8 @@ func newFounderRuntimeFixtureWithReservation(t *testing.T, setup func(*founderSi
 	}
 	caller := &founderCaller{reader: fixture.reader(t), roots: fixture.baked.Roots,
 		accepted: fixture.accepted, signers: fixture.store, now: func() time.Time { return fixture.now },
-		adapter: &FounderOCI{region: oci.RegionGRU, material: testLaunchMaterial, compute: fake, network: fake, volume: fake},
+		adapter:   &FounderOCI{region: oci.RegionGRU, material: testLaunchMaterial, compute: fake, network: fake, volume: fake},
+		placement: testSeedPlacement,
 		openLedger: func(context.Context, CurrentFounderAuthority, trust.Keyring) (*bootstrap.Ledger, error) {
 			return ledger, nil
 		}}
@@ -453,7 +454,7 @@ func TestFounderRuntimeCompletedCellRestartDoesNotNeedCurrentLaunchPlan(t *testi
 		return founderPeersComplete(ctx, fixture.current.Anchor.Anchor(), accepted, ledger)
 	}
 	if err := runAdmittedFounder(t.Context(), fixture.baked, fixture.accepted, 1000, 1000,
-		fixture.floor, completed); err != nil {
+		fixture.floor, completed, testSeedPlacement); err != nil {
 		t.Fatalf("completed cell restart required an expired launch plan: %v", err)
 	}
 	if fake.launches != launches || fake.observations != observations || fake.imageReads != imageReads {
@@ -491,7 +492,7 @@ func TestFounderRuntimeCompletedCellRequiresExistingCanonicalFloor(t *testing.T)
 				return true, nil
 			}
 			if err := runAdmittedFounder(t.Context(), fixture.baked, fixture.accepted, 1000, 1000,
-				fixture.floor, completed); !errors.Is(err, ErrFounderSelectionFloor) || called {
+				fixture.floor, completed, testSeedPlacement); !errors.Is(err, ErrFounderSelectionFloor) || called {
 				t.Fatalf("%s bypassed durable floor: %v called=%v", damage, err, called)
 			}
 		})
@@ -636,7 +637,13 @@ func newFounderPeerGate(t *testing.T, fixture *founderSignerFixture, reader *fou
 	row bootstrap.FounderPeerRow,
 ) (Gate, *countingMaterialChecker, *founderAdmissionCredentials) {
 	t.Helper()
-	instanceID := "ocid1.instance.oc1.sa-saopaulo-1." + row.Slot
+	return newFounderPeerGateForInstance(t, fixture, reader, row, "ocid1.instance.oc1.sa-saopaulo-1."+row.Slot)
+}
+
+func newFounderPeerGateForInstance(t *testing.T, fixture *founderSignerFixture, reader *founderAdmissionLedger,
+	row bootstrap.FounderPeerRow, instanceID string,
+) (Gate, *countingMaterialChecker, *founderAdmissionCredentials) {
+	t.Helper()
 	material := new(countingMaterialChecker)
 	credentials := new(founderAdmissionCredentials)
 	markerDirectory := filepath.Join(t.TempDir(), "marker")
@@ -829,7 +836,7 @@ func TestFounderRuntimeTimelyCompletedPeersRemainAdmittedAfterProgressExpiry(t *
 		return founderPeersComplete(ctx, fixture.current.Anchor.Anchor(), accepted, ledger)
 	}
 	if err := runAdmittedFounder(t.Context(), fixture.baked, fixture.accepted, 1000, 1000,
-		fixture.floor, completed); err != nil {
+		fixture.floor, completed, testSeedPlacement); err != nil {
 		t.Fatalf("completed seed founder restart: %v", err)
 	}
 	for _, peer := range fixture.plan.Peers {
@@ -1481,11 +1488,38 @@ type founderFakeOCI struct {
 
 func (fake *founderFakeOCI) rowForInstance(id string) (bootstrap.FounderPeerRow, bool) {
 	for slot, row := range fake.rows {
-		if id == "ocid1.instance.oc1.sa-saopaulo-1."+slot {
+		base := "ocid1.instance.oc1.sa-saopaulo-1." + slot
+		if id == base || strings.HasPrefix(id, base+"-a") && founderFakeReplacementSuffix(slot, id[len(base)+1:]) {
 			return row, true
 		}
 	}
 	return bootstrap.FounderPeerRow{}, false
+}
+
+// founderFakeAttempt returns the replacement attempt marker ("a2") from a
+// replacement retry token; attempt one carries no marker.
+func founderFakeAttempt(slot, token string) string {
+	rest, ok := strings.CutPrefix(token, "replace-"+slot+"-")
+	if !ok {
+		return ""
+	}
+	marker, _, found := strings.Cut(rest, "-")
+	if !found || !founderFakeReplacementSuffix(slot, marker) {
+		return ""
+	}
+	return marker
+}
+
+func founderFakeReplacementSuffix(_ string, marker string) bool {
+	if len(marker) < 2 || marker[0] != 'a' {
+		return false
+	}
+	for _, digit := range marker[1:] {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func (fake *founderFakeOCI) GetImage(_ context.Context, request core.GetImageRequest) (core.GetImageResponse, error) {
@@ -1511,8 +1545,12 @@ func (fake *founderFakeOCI) LaunchInstance(_ context.Context, request core.Launc
 		return core.LaunchInstanceResponse{}, errors.New("unknown founder slot")
 	}
 	fake.launches++
+	id := "ocid1.instance.oc1.sa-saopaulo-1." + row.Slot
+	if attempt := founderFakeAttempt(row.Slot, *request.OpcRetryToken); attempt != "" {
+		id += "-" + attempt
+	}
 	return core.LaunchInstanceResponse{Instance: core.Instance{
-		Id:            new("ocid1.instance.oc1.sa-saopaulo-1." + row.Slot),
+		Id:            new(id),
 		CompartmentId: new(row.CompartmentOCID), ImageId: new(row.ImageOCID)}}, nil
 }
 
@@ -1623,4 +1661,10 @@ func (fake *founderFakeOCI) GetBootVolume(_ context.Context, request core.GetBoo
 		}
 	}
 	return core.GetBootVolumeResponse{}, errors.New("unknown founder boot volume")
+}
+
+// testSeedPlacement puts the fixture seed in the fault domain its plan leaves
+// free: the sorted peer slots take FAULT-DOMAIN-1 and FAULT-DOMAIN-2.
+func testSeedPlacement(context.Context) (bootstrap.ControllerPlacement, error) {
+	return bootstrap.ControllerPlacement{AvailabilityDomain: "SA-SAOPAULO-1-AD-1", FaultDomain: "FAULT-DOMAIN-3"}, nil
 }

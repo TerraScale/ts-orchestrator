@@ -15,6 +15,15 @@ cannot form an R3 route cluster and shutdown waits indefinitely. The fix does
 not create a TCP client listener; TerraScale's closed-by-default mTLS bridge
 remains the only external client path.
 
+The second change, also in `server/server.go`, adds the exported
+`Server.UpdateAccountClaimJWT`, a thin wrapper over the unexported
+`updateAccountWithClaimJWT`. The embedded account resolver reports
+`IsTrackingUpdate() == true`, which stops the server from applying
+`$SYS.REQ.ACCOUNT.<account>.CLAIMS.UPDATE` requests (routed or client-sent)
+without the resolver's interregion contract check; the resolver validates a
+replacement in `Store` and then installs it through this wrapper. No other
+server behavior changes.
+
 Compare this directory with the upstream `v2.15.0` Go module archive before
 upgrading. Apart from this README, `server/server.go` must be the only differing
 file. An upgrade must pass the route-start, absent-client-listener, bounded

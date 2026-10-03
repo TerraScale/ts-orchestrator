@@ -159,6 +159,12 @@ type Fleet interface {
 	Terminate(context.Context, string, string, WriterStopEvidence) error
 }
 
+// SelectiveObserver verifies only the managed instances a selector accepts by
+// instance ID or host node; see fleet.ObserveSelected.
+type SelectiveObserver interface {
+	ObserveSelected(ctx context.Context, selectInstance func(id, node string) bool) ([]Instance, error)
+}
+
 // TerminalExecutor is the region-bound, exact-resource teardown boundary.
 // Discovery and settlement perform reads only; reconciliation requires an
 // already accepted authority marker and a current lease for every effect.
@@ -226,6 +232,8 @@ type ResourceIdentity struct {
 }
 
 // OperationIntent is durably written before an OCI mutation is attempted.
+// PreviousSizeGB is set only on volume-resize intents: it is the confirmed
+// size a grow-only resize starts from.
 type OperationIntent struct {
 	Action                         string    `json:"action"`
 	Key                            string    `json:"key"`
@@ -248,6 +256,7 @@ type OperationIntent struct {
 	VolumeID                       string    `json:"volume_id,omitempty"`
 	AvailabilityDomain             string    `json:"availability_domain,omitempty"`
 	SizeGB                         int64     `json:"size_gb,omitempty"`
+	PreviousSizeGB                 int64     `json:"previous_size_gb,omitzero"`
 	Device                         string    `json:"device,omitempty"`
 	IsReadOnly                     bool      `json:"is_read_only"`
 	IsShareable                    bool      `json:"is_shareable"`

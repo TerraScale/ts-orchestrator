@@ -1,0 +1,193 @@
+package dashboard
+
+import (
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
+)
+
+// regionBody drills into one region. This member's own region shows its live
+// members, charts and events; another region shows the summary it answers
+// over the region link plus its journal and insights.
+templ regionBody(current view) {
+	<div id="content">
+		<div class="page-head">
+			<h1>
+				Region { upper(current.region()) }
+				<small class="muted">{ regionName(current.region()) }</small>
+			</h1>
+			if summary := current.selectedSummary(); summary != nil {
+				<span>
+					@statusPill(regionStatus(summary.Health.Status), string(summary.Health.Status)+" · score "+itoa(summary.Health.Score))
+				</span>
+			}
+		</div>
+		@notes(current)
+		if current.remote() {
+			<p class="note">Live member detail for { upper(current.region()) } is served by that region's own controllers. This page shows the summary { upper(current.region()) } answers over the region link, its decisions and its insights.</p>
+			if summary := current.selectedSummary(); summary != nil {
+				<div class="cols-2">
+					@regionCard(current, *summary)
+					<div class="stack">
+						<article>
+							<h2>Needs attention in { upper(current.region()) }</h2>
+							@insightList(current, current.regionInsights(current.region()), 10, false)
+						</article>
+						@remoteMembers(current, *summary)
+					</div>
+				</div>
+			} else {
+				@unavailable("This region is not configured or has not been summarized yet.")
+			}
+		} else {
+			@kpiTiles(current.regionKPIs())
+			<div class="cols-2">
+				<article>
+					<div class="chart-title">
+						<h2>CPU by member</h2>
+						<a href={ safe(current.State.link("/members")) }>Hosts →</a>
+					</div>
+					@chart("", current.lineChart("line", "percent", current.historyRange(observability.HistCPUUtilization, nil, "member", false), "No CPU history yet; the sampler records a point every 10 seconds."))
+				</article>
+				<article>
+					<h2>Needs attention</h2>
+					@insightList(current, current.regionInsights(current.region()), 8, false)
+				</article>
+			</div>
+			<div class="cols">
+				<article>
+					<h2>Members answering</h2>
+					@chart("short", current.membersChart())
+				</article>
+				<article>
+					<h2>Region readiness <small>every member's checks</small></h2>
+					if rows := current.readiness(); len(rows) == 0 {
+						@unavailable("No readiness checks are registered yet.")
+					} else {
+						<div class="table-scroll">
+							<table class="readiness">
+								<thead><tr><th>Member</th><th>Ready</th><th>Checks</th></tr></thead>
+								<tbody>
+									for _, row := range rows {
+										<tr>
+											<td>
+												{ row.Member }
+												if row.Role != "" && row.Role != "controller" {
+													<small class="muted">{ row.Role }</small>
+												}
+											</td>
+											<td>
+												if row.Missing {
+													@statusPill("bad", "not answering")
+												} else {
+													@statusPill(boolStatus(row.Ready), yesNo(row.Ready))
+												}
+											</td>
+											<td class="wrap">
+												for _, check := range row.Checks {
+													<span class="check" title={ check.Detail }>
+														<span class={ "dot", sClass(boolStatus(check.OK)) }></span>
+														{ check.Name }
+														if check.Detail != "" {
+															<small class="muted">{ check.Detail }</small>
+														}
+													</span>
+												}
+											</td>
+										</tr>
+									}
+								</tbody>
+							</table>
+						</div>
+					}
+				</article>
+			</div>
+			if errors := current.sectionErrors(); len(errors) > 0 {
+				<article>
+					<h2>Collection errors</h2>
+					<ul>
+						for _, entry := range errors {
+							<li class="warn">{ entry }</li>
+						}
+					</ul>
+				</article>
+			}
+		}
+		<article>
+			<div class="chart-title">
+				<h2>Decisions in { upper(current.region()) } <small>by deciding slice</small></h2>
+				<a href={ safe(current.State.link("/decisions", "region", current.region())) }>Journal →</a>
+			</div>
+			@timeline("", current.decisionTimeline(current.decisions(), true))
+			@decisionList(current, current.decisions(), 10)
+		</article>
+		if !current.remote() {
+			<article>
+				<h2>Recent events</h2>
+				@eventTable(current.Events, "overview-events")
+				<p><a href={ safe(current.State.link("/events")) }>All events</a></p>
+			</article>
+		}
+	</div>
+}
+
+// remoteMembers lists the members and seat hosts another region's summary
+// reports; older regions do not send them and the card is left out.
+templ remoteMembers(current view, summary regionview.Summary) {
+	if len(summary.Members) > 0 || len(summary.Hosts) > 0 {
+		<article>
+			<div class="chart-title">
+				<h2>Members and hosts</h2>
+				<a href={ safe(current.State.link("/topology")) }>Topology →</a>
+			</div>
+			<div class="table-scroll">
+				<table>
+					<thead>
+						<tr><th>Member</th><th>Role</th><th>Build</th><th>State</th></tr>
+					</thead>
+					<tbody>
+						for _, member := range summary.Members {
+							<tr>
+								<td>{ member.Name }</td>
+								<td>{ orDash(member.Role) }</td>
+								<td>{ orDash(member.Version) }</td>
+								<td>
+									if member.Ready {
+										@statusPill("ok", "ready")
+									} else {
+										@statusPill("bad", "not ready")
+									}
+								</td>
+							</tr>
+						}
+						for _, missing := range summary.Quorum.Missing {
+							<tr>
+								<td>{ missing }</td>
+								<td>controller</td>
+								<td>—</td>
+								<td>
+									@statusPill("bad", "missing")
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+				if len(summary.Hosts) > 0 {
+					<table>
+						<thead>
+							<tr><th>Seat host</th><th>Seats</th><th>Serving</th></tr>
+						</thead>
+						<tbody>
+							for _, host := range summary.Hosts {
+								<tr>
+									<td>{ host.Name }</td>
+									<td>{ itoa(host.Seats) }</td>
+									<td>{ itoa(host.Serving) }</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				}
+			</div>
+		</article>
+	}
+}

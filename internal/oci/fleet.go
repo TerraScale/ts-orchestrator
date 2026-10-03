@@ -172,6 +172,24 @@ func (f *fleet) verifyRetainedVolumeHostImage(cloud CloudInstance) error {
 func (f *fleet) Region() Region { return f.config.Region }
 
 func (f *fleet) Observe(ctx context.Context) ([]Instance, error) {
+	return f.observe(ctx, nil)
+}
+
+// ObserveSelected lists the fleet once and fully verifies only the managed
+// instances whose ID or host node select accepts. Admission paths that need
+// one host use it instead of verifying every host: with verification costing
+// several Compute reads per host, a fleet-wide scan does not fit an
+// admission deadline under the shared OCI rate limit. Every selected
+// instance gets exactly the verification Observe gives it, so a caller still
+// sees every verified instance that shares the selected ID or node.
+func (f *fleet) ObserveSelected(ctx context.Context, selectInstance func(id, node string) bool) ([]Instance, error) {
+	if selectInstance == nil {
+		return nil, errors.New("selective OCI observation requires a selector")
+	}
+	return f.observe(ctx, selectInstance)
+}
+
+func (f *fleet) observe(ctx context.Context, selectInstance func(id, node string) bool) ([]Instance, error) {
 	cloudInstances, err := f.provider.ListInstances(ctx, f.config.CompartmentID)
 	if err != nil {
 		return nil, err
@@ -189,6 +207,9 @@ func (f *fleet) Observe(ctx context.Context) ([]Instance, error) {
 		if tags[tagRegion] != string(f.config.Region) || tags[tagGeneration] != fmt.Sprint(f.config.Generation) ||
 			tags[tagResource] != resourceMemberHost || !validCreateKey(createKey) || tags[tagHostNode] != hostNode(f.config, createKey) {
 			slog.Warn("withholding OCI instance with out-of-scope identity tags", "instance_id", listed.ID, "region", f.config.Region)
+			continue
+		}
+		if selectInstance != nil && !selectInstance(listed.ID, tags[tagHostNode]) {
 			continue
 		}
 		cloud, identity, err := f.reobserveInstance(ctx, listed.ID)
@@ -463,6 +484,19 @@ func (f *fleet) CreateRetainedVolume(ctx context.Context, request VolumeCreateRe
 	if err := f.verifyDataCreateScope(ctx, request); err != nil {
 		return RetainedVolume{}, err
 	}
+	stored, hasStored, err := f.journal.GetOperation(ctx, OperationScope{
+		Action: actionVolumeCreate, Key: request.CreateKey, Region: f.config.Region,
+		Generation: f.config.Generation, Owner: f.config.Owner,
+	})
+	if err != nil {
+		return RetainedVolume{}, fmt.Errorf("read OCI retained volume create intent: %w", err)
+	}
+	if hasStored && stored.SizeGB != request.SizeGB && stored.AvailabilityDomain == request.AvailabilityDomain {
+		// The create intent is immutable. A later desired size never issues a
+		// second create; the caller grows the owned volume through
+		// ResizeRetainedVolume instead.
+		request.SizeGB = stored.SizeGB
+	}
 	intent := f.intent(actionVolumeCreate, request.CreateKey, "", request.CreateKey, "", "", "")
 	intent.AvailabilityDomain = request.AvailabilityDomain
 	intent.SizeGB = request.SizeGB
@@ -490,7 +524,9 @@ func (f *fleet) CreateRetainedVolume(ctx context.Context, request VolumeCreateRe
 			if hasPriorResult && !priorResult.Unknown && priorResult.ResourceID != cloud.ID {
 				return RetainedVolume{}, createRecoveryHold(resourceMemberData, request.CreateKey, "the observed volume differs from the immutable confirmed result")
 			}
-			if cloud.SizeGB != request.SizeGB || cloud.AvailabilityDomain != request.AvailabilityDomain {
+			// The journal-owned identity proves the observed size; a volume
+			// grown by a confirmed resize is still the same owned volume.
+			if cloud.SizeGB < request.SizeGB || cloud.AvailabilityDomain != request.AvailabilityDomain {
 				return RetainedVolume{}, fmt.Errorf("%w: create key is bound to a retained volume with a different profile", ErrForeignResource)
 			}
 			return retainedVolumeFromCloud(cloud, identity), nil
@@ -1117,8 +1153,17 @@ func validDevicePath(value string) bool {
 		!strings.ContainsAny(value, " \t\r\n\x00")
 }
 
+// findVolumeAttachments lists every attachment record of one volume. OCI
+// filters by VolumeId server-side when the provider supports it; the result
+// is still filtered here so a provider bug cannot widen the scope.
 func (f *fleet) findVolumeAttachments(ctx context.Context, volumeID string) ([]CloudAttachment, error) {
-	attachments, err := f.provider.ListVolumeAttachments(ctx, f.config.CompartmentID, "")
+	var attachments []CloudAttachment
+	var err error
+	if lister, ok := f.provider.(VolumeAttachmentLister); ok {
+		attachments, err = lister.ListVolumeAttachmentsByVolume(ctx, f.config.CompartmentID, f.config.AvailabilityDomain, volumeID)
+	} else {
+		attachments, err = f.provider.ListVolumeAttachments(ctx, f.config.CompartmentID, "")
+	}
 	if err != nil {
 		return nil, err
 	}

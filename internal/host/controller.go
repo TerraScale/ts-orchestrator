@@ -314,7 +314,7 @@ func (c *Controller) requireExclusiveManagedMember(ctx context.Context, candidat
 	if c.controlLog == nil {
 		return errors.New("managed member exclusivity requires ordered control log")
 	}
-	prefix := "ts.control." + c.cell + ".host.registration." + c.cell + "."
+	prefix := protocol.Control(c.cell, "host", "registration", c.cell) + "."
 	info, err := c.controlLog.Info(ctx, jetstream.WithSubjectFilter(prefix+"*"))
 	if err != nil {
 		return err
@@ -332,6 +332,16 @@ func (c *Controller) requireExclusiveManagedMember(ctx context.Context, candidat
 			return err
 		}
 		if exists && other.ManagedMember != nil && sameLogicalMember(other.ManagedMember.Scope, candidate.ManagedMember.Scope) {
+			// A replacement host carries the next host attempt of the same
+			// logical member. The verifier has already bound the candidate to
+			// the seat's current durable attempt, which the placement
+			// controller only advances through its fenced, evidence-gated
+			// replacement once the previous host is proven lost. An older
+			// attempt's registration therefore no longer owns the member;
+			// an equal or newer one still does.
+			if other.ManagedMember.HostAttempt < candidate.ManagedMember.HostAttempt {
+				continue
+			}
 			return errors.New("managed member is already bound to another host")
 		}
 	}
@@ -465,7 +475,7 @@ func (c *Controller) ListHosts(ctx context.Context) ([]HostStatus, error) {
 	if c.controlLog == nil {
 		return nil, errors.New("ordered control log is required for host discovery")
 	}
-	prefix := "ts.control." + c.cell + ".host.registration." + c.cell + "."
+	prefix := protocol.Control(c.cell, "host", "registration", c.cell) + "."
 	info, err := c.controlLog.Info(ctx, jetstream.WithSubjectFilter(prefix+"*"))
 	if err != nil {
 		return nil, err
@@ -600,7 +610,7 @@ func (c *Controller) Run(ctx context.Context) error {
 func (c *Controller) subscribeHostRequests(ctx context.Context) ([]*nats.Subscription, error) {
 	subscriptions := make([]*nats.Subscription, 0, len(hostOperations))
 	for _, operation := range hostOperations {
-		sub, err := c.conn.QueueSubscribe("ts.orch.v1."+c.cell+".agent.*.observation."+operation, "host-controller-"+operation, func(msg *nats.Msg) { c.handle(ctx, msg) })
+		sub, err := c.conn.QueueSubscribe(protocol.AgentObservation(c.cell, "*", operation), "host-controller-"+operation, func(msg *nats.Msg) { c.handle(ctx, msg) })
 		if err == nil {
 			subscriptions = append(subscriptions, sub)
 			continue

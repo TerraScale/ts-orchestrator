@@ -20,6 +20,8 @@ Commands:
   sign-image
   verify-image
   publish
+  sign-update-delegation
+  sign-binary-update
 `
 
 type command struct {

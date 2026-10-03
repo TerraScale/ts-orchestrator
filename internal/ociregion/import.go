@@ -1,6 +1,7 @@
 package ociregion
 
 import (
+	"errors"
 	"maps"
 	"net/http"
 	"os"
@@ -11,11 +12,17 @@ import (
 )
 
 func (e *Engine) currentHead(namespace, bucket, name, region string) Object {
-	p := e.process([]string{"oci", "os", "object", "head", "--namespace-name", namespace, "--bucket-name", bucket, "--name", name, "--region", region, "--output", "json"})
-	if number(p["returncode"]) != 0 {
-		fail("OCI current object HEAD failed or key is deleted")
+	var value any
+	var parseErr error
+	if v, ok := e.sdkHead(namespace, bucket, name, region); ok {
+		value = v
+	} else {
+		p := e.process([]string{"oci", "os", "object", "head", "--namespace-name", namespace, "--bucket-name", bucket, "--name", name, "--region", region, "--output", "json"})
+		if number(p["returncode"]) != 0 {
+			fail("OCI current object HEAD failed or key is deleted")
+		}
+		value, parseErr = decodeJSON([]byte(text(p["stdout"])))
 	}
-	value, parseErr := decodeJSON([]byte(text(p["stdout"])))
 	headers, valid := value.(Object)
 	if parseErr != nil || !valid {
 		fail("OCI current object HEAD response is invalid")
@@ -30,6 +37,30 @@ func (e *Engine) currentHead(namespace, bucket, name, region string) Object {
 	}
 	return Object{"region": region, "bucket": bucket, "name": name, "version_id": headers["version-id"], "size": size, "last_modified": headers["last-modified"], "head_at": pythonTime(e.now())}
 }
+
+// sdkHead serves the object HEAD in-binary unless a test dependency or the
+// CLI backend is in use.
+func (e *Engine) sdkHead(namespace, bucket, name, region string) (any, bool) {
+	if e.Dependency != nil {
+		return nil, false
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			if err, ok := r.(error); ok && e.ctx().Err() != nil && errors.Is(err, e.ctx().Err()) {
+				panic(err)
+			}
+			// Keep the diagnosis (missing object, unreadable OCI config,
+			// invalid backend); anything that is not an operational
+			// failure is a programming error and is not recast.
+			if failure, ok := r.(Failure); ok {
+				fail("OCI current object HEAD failed or key is deleted: " + failure.Message)
+			}
+			panic(r)
+		}
+	}()
+	return e.sdkOCI([]any{"os", "object", "head", "--namespace-name", namespace, "--bucket-name", bucket, "--name", name}, Object{"region": region})
+}
+
 func objectVersion(row Object, versioned bool) Object {
 	name, id, marker, size, tier := row["name"], row["version-id"], row["is-delete-marker"], row["size"], row["storage-tier"]
 	if _, ok := row["is-delete-marker"]; !ok {

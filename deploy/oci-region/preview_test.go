@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
@@ -206,7 +207,7 @@ func runPreviewContract(t *testing.T, originalWire []byte, sourceRoot string) {
 		overrides[name] = true
 	}
 	calls := []any{}
-	engine := &ociregion.Engine{Context: t.Context(), PlanPath: contract.Plan, Clock: func() time.Time { return clock }, Argv: contract.Argv, Overrides: overrides}
+	engine := &ociregion.Engine{Context: t.Context(), PlanPath: contract.Plan, Clock: func() time.Time { return clock }, Argv: contract.Argv, Overrides: overrides, Backend: sdkcli.BackendCLI}
 	engine.Dependency = func(name string, args []any, kwargs map[string]any) (any, error) {
 		observation := map[string]any{"name": name, "args": ociregion.EncodeInvocation(args), "kwargs": ociregion.EncodeInvocation(kwargs)}
 		calls = append(calls, observation)

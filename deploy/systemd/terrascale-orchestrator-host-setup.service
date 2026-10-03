@@ -8,8 +8,12 @@ Before=terrascale-orchestrator-host.service
 Type=oneshot
 ExecStart=/usr/local/bin/terrascale-orchestrator host-setup --public-config /etc/terrascale-orchestrator/host-enrollment-public.json --output-root /etc/terrascale-orchestrator
 # Start the runtime once enrollment succeeds, also when an earlier failed
-# attempt left it stopped by a failed dependency; restart it after a refresh.
-ExecStartPost=/usr/bin/systemctl --no-block restart terrascale-orchestrator-host.service
+# attempt left it stopped by a failed dependency. Never restart it: stopping the
+# host runtime stops every TerraBase member it supervises, and both seats of a
+# pair renew on the same schedule. The running agent re-reads host.json on each
+# NATS reconnect and presents renewed credentials without a restart.
+# A start refused by the runtime's start limit must not fail enrollment.
+ExecStartPost=-/usr/bin/systemctl --no-block start terrascale-orchestrator-host.service
 Restart=on-failure
 RestartSec=10s
 TimeoutStartSec=90s

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"math/rand/v2"
 	"strings"
 	"sync"
@@ -20,8 +20,11 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -57,43 +60,22 @@ func controllerClockCheck(probe brokerauth.ClockProbe) func() error {
 	}
 }
 
-// The seed must start peer founding while the embedded broker waits for its
-// regional quorum. Both paths must succeed before controller authority starts.
-func waitForFounderAndCluster(ctx context.Context, waitCluster,
-	foundPeers func(context.Context) error,
-) error {
-	if foundPeers == nil {
-		return waitCluster(ctx)
+func runController(ctx context.Context, cfg Config, output io.Writer) (err error) {
+	// Take the systemd notification socket before any child process starts.
+	notifier := sdnotify.FromEnvironment()
+	defer func() { _ = notifier.Stopping() }()
+	telemetry, err := startRuntimeObservability(ctx, cfg, "controller", cfg.NATS.Instance)
+	if err != nil {
+		return fmt.Errorf("start controller observability: %w", err)
 	}
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	type startupResult struct {
-		name string
-		err  error
-	}
-	results := make(chan startupResult, 2)
-	go func() { results <- startupResult{name: "wait for regional NATS cluster", err: waitCluster(runCtx)} }()
-	go func() { results <- startupResult{name: "found admitted seed peers", err: foundPeers(runCtx)} }()
-	var firstErr error
-	for range 2 {
-		result := <-results
-		if result.err != nil && firstErr == nil {
-			firstErr = fmt.Errorf("%s: %w", result.name, result.err)
-			cancel()
-		}
-	}
-	if firstErr != nil {
-		return firstErr
-	}
-	return ctx.Err()
-}
-
-func runController(ctx context.Context, cfg Config, output io.Writer) error {
+	defer telemetry.close()
 	clockProbe := controllerBrokerClockProbe()
 	clockCheck := controllerClockCheck(clockProbe)
-	if err := admitControllerBootstrap(ctx, cfg, clockCheck); err != nil {
+	admission, err := startControllerAdmission(ctx, cfg, clockCheck)
+	if err != nil {
 		return err
 	}
+	defer admission.stop()
 	if cfg.NATS.Embedded == nil {
 		return errors.New("controller run requires an embedded regional NATS server")
 	}
@@ -122,6 +104,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	if err := validateWorkloadProfiles(cfg.Controller.Workloads); err != nil {
 		return err
 	}
+	if err := validateAutoscaleConfig(cfg.Controller.Autoscale, cfg.Controller.Workloads); err != nil {
+		return err
+	}
 	policy, err := buildSignerPolicy(cfg)
 	if err != nil {
 		return err
@@ -135,8 +120,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		return err
 	}
 	if !cfg.NATS.Lab {
-		if err := clockCheck(); err != nil {
-			return fmt.Errorf("production broker NTP clock health: %w", err)
+		// Offline-first restarts form routes without NTP; raft needs no wall
+		// clock. The same check then gates authority below.
+		if !admission.offline {
+			if err := clockCheck(); err != nil {
+				return fmt.Errorf("production broker NTP clock health: %w", err)
+			}
 		}
 	} else {
 		clockCheck = nil
@@ -148,6 +137,23 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		return err
 	}
 	defer runtime.Close()
+	healthCtx, stopHealth := context.WithCancel(ctx)
+	_, brokerStopped, waitHealth := startClusterHealth(healthCtx, runtime, nil)
+	defer waitHealth()
+	defer stopHealth()
+	// Every later startup step runs under the broker's lifetime: a broker
+	// that dies while an authority, delivery or placement open is retrying
+	// cancels that open, and the controller exits with
+	// ErrEmbeddedServerStopped so the service manager restarts it.
+	parentCtx := ctx
+	ctx, stopBrokerLifetime := brokerLifetimeContext(parentCtx, brokerStopped)
+	defer stopBrokerLifetime()
+	defer func() {
+		if brokerLifetimeEnded(parentCtx, ctx) {
+			err = natscell.ErrEmbeddedServerStopped
+		}
+	}()
+	defer stepDownMetaLeaderOnShutdown(runtime, cfg.NATS.Embedded.MembershipCredentialsFile)
 	fullClusterReady := func() bool { return runtime.FullClusterReady(cfg.NATS.Replicas) }
 	waitCluster := func(waitCtx context.Context) error {
 		_, _, err := retryControllerOpen(waitCtx, "wait for regional NATS cluster", fullClusterReady, false,
@@ -158,11 +164,41 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	var foundPeers func(context.Context) error
 	if !cfg.NATS.Lab {
-		foundPeers = controllerFounderProduction
+		// The founder makes OCI effects, so it waits for full admission.
+		foundPeers = func(founderCtx context.Context) error {
+			if err := admission.wait(founderCtx); err != nil {
+				return err
+			}
+			return controllerFounderProduction(founderCtx)
+		}
 	}
-	err = waitForFounderAndCluster(ctx, waitCluster, foundPeers)
+	_, stopFounder, err := superviseFounderAndWaitCluster(ctx, waitCluster, foundPeers)
 	if err != nil {
 		return err
+	}
+	defer stopFounder()
+	if admission.offline {
+		slog.Info("controller joined the regional NATS quorum; holding authority until full restart admission passes",
+			observability.ComponentKey, "controller", "instance", cfg.NATS.Instance)
+		// Full admission may retry for a long time; a dead broker must still
+		// end the process so the service manager restarts it. The broker
+		// already serves routes and quorum, so keep extending the unit's
+		// start timeout while admission rides out an OCI outage; authority
+		// and READY still wait for full admission.
+		stopExtending := notifier.KeepStarting(ctx, time.Minute, 5*time.Minute)
+		select {
+		case <-admission.done:
+		case <-brokerStopped:
+			stopExtending()
+			return natscell.ErrEmbeddedServerStopped
+		case <-ctx.Done():
+			stopExtending()
+			return ctx.Err()
+		}
+		stopExtending()
+		if err := clockCheck(); err != nil {
+			return fmt.Errorf("production broker NTP clock health: %w", err)
+		}
 	}
 	candidateID := cfg.Controller.CandidateID
 	if candidateID == "" {
@@ -184,6 +220,15 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	defer stopAuthority()
 	defer control.Close()
+	membershipReconciler, err := startControllerMembership(ctx, cfg, runtime, control)
+	if err != nil {
+		return fmt.Errorf("start controller membership supervision: %w", err)
+	}
+	global, err := startGlobalControl(ctx, cfg, runtime.JetStream(), candidateID, clockCheck, fullClusterReady)
+	if err != nil {
+		return fmt.Errorf("start global control: %w", err)
+	}
+	defer global.close()
 	gate, err := startBrokerGate(ctx, cfg, runtime, control, candidateID, ticketPrivate, ticketPublic, clockProbe)
 	if err != nil {
 		return fmt.Errorf("start broker admission gate: %w", err)
@@ -202,6 +247,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	stopCapacity, err := startControllerStorageCapacity(ctx, cfg, runtime, fullClusterReady)
+	if err != nil {
+		return fmt.Errorf("start storage capacity collector: %w", err)
+	}
+	defer stopCapacity()
 	var managedController *placement.Controller
 	var registrationVerifier host.ManagedRegistrationVerifier
 	var materialProvider host.ManagedMaterialProvider
@@ -213,6 +263,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	var materialService *managedmaterial.PreparationService
 	var backupRuntime *backupOperationRuntime
 	var materialAdmission placementMaterialAdmission
+	var ociReconcile *ociresource.Runner
 	managedRuntimeVerifier := managedRuntimeTargetVerifier(func(ctx context.Context, desired host.Desired,
 		registration host.Registration,
 	) (bool, error) {
@@ -251,7 +302,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 			return fmt.Errorf("load host launch material: %w", err)
 		}
 		fleet, err = openManagedControllerFleet(ctx, managed.region, managed.intent, journal, control,
-			launchMaterial.HostMetadata(), newManagedImageVerifier, oci.NewInstancePrincipalFleetWithImageVerifier)
+			launchMaterial.HostMetadata(), managedImageVerifierFor(cfg.Controller),
+			oci.InstancePrincipalFleetFactory(time.Duration(cfg.Controller.OciObserveVerifyCacheSeconds)*time.Second))
 		if err != nil {
 			return fmt.Errorf("start region-bound OCI fleet: %w", err)
 		}
@@ -295,6 +347,21 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		if err != nil {
 			return err
 		}
+		stopBackups, err := startVolumeBackups(ctx, cfg, managed, control, placementStore)
+		if err != nil {
+			return fmt.Errorf("start volume backup policy: %w", err)
+		}
+		defer stopBackups()
+		if reconcile := cfg.Controller.OciReconcile; reconcile != nil && reconcile.Enabled {
+			ociReconcile, _, err = retryControllerOpen(ctx, "open OCI resource reconcile state", fullClusterReady, false,
+				func(attempt context.Context) (*ociresource.Runner, error) {
+					return newOCIReconcileRunner(attempt, *reconcile, managed.region, runtime.JetStream(),
+						cfg.NATS.Replicas, control, fleet)
+				}, nil)
+			if err != nil {
+				return err
+			}
+		}
 		registrationVerifier, err = newManagedRegistrationVerifier(
 			cfg.NATS.Cell, managed.region.Region, managed.region.Owner, managed.region.Generation,
 			control, placementStore, fleet,
@@ -304,7 +371,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		}
 		if materialService != nil {
 			credentials := managedmaterial.CredentialService{Preparation: *materialService, Store: control}
-			materialProvider = admittedManagedMaterialProvider(*materialService, control, credentials,
+			materialProvider = admittedManagedMaterialProvider(*materialService, control, placementStore, credentials,
 				managedRuntimeVerifier)
 			credentialFloor = func(ctx context.Context, registration host.Registration) (uint64, error) {
 				if registration.ManagedPlacement == nil {
@@ -345,6 +412,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		return err
 	}
 	planner.hosts = hostController
+	workloadReconciler, capacityScaler, err := startWorkloadAutoscale(cfg.NATS.Cell, cfg.Controller.Autoscale,
+		cfg.Controller.Workloads, hostController, control)
+	if err != nil {
+		return err
+	}
+	planner.workloads = workloadReconciler
 	if materialService != nil && managed != nil {
 		backupRuntime = &backupOperationRuntime{cell: cfg.NATS.Cell,
 			memberRole: managed.placement.MemberRole, control: control,
@@ -354,17 +427,21 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 			policy: policy, responseKey: responseKey}
 	}
 	placementHolds := new(placementHoldLog)
+	holdDecisions := newHoldJournal(cfg.NATS.Cell)
 	if managed != nil {
 		managedController, err = placement.StartController(ctx, managed.placementConfig(cfg.NATS.Cell,
 			func(err error) {
-				log.Printf("TerraBase placement reconciliation: %v", err)
-				placementHolds.record("reconciliation error: " + err.Error())
+				changed := placementHolds.recordChange("reconciliation error: " + err.Error())
+				slog.Warn("TerraBase placement reconciliation failed", observability.ComponentKey, "placement",
+					"error", err, "repeated", !changed)
 			},
 			func(reason string) {
-				log.Printf("TerraBase placement held: %s", reason)
-				placementHolds.record(reason)
+				changed := placementHolds.recordChange(reason)
+				slog.Info("TerraBase placement held", observability.ComponentKey, "placement",
+					"reason", reason, observability.EventKey, changed)
+				holdDecisions.record(ctx, reason, time.Now())
 			}),
-			placementStore, control, fleet, hostController, hostController,
+			placement.JournaledStore(placementStore, cfg.NATS.Cell), control, fleet, hostController, hostController,
 			func(ctx context.Context, digest, role, environment string) (placement.AdmittedArtifact, error) {
 				record, err := service.ResolveAdmittedArtifact(ctx, digest, role, environment)
 				if err != nil {
@@ -509,7 +586,25 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		}
 		defer brokerSub.Unsubscribe()
 	}
-	workerErrors := make(chan error, 6)
+	// Optional rollout and region planner providers, behind their flags.
+	rollouts, err := startRollouts(runCtx, cfg, runtime.JetStream(), control, fullClusterReady)
+	if err != nil {
+		return fmt.Errorf("start rollout store: %w", err)
+	}
+	budgets, err := startRegionPlanner(runCtx, cfg, runtime.JetStream(), global, placementHolds, fullClusterReady)
+	if err != nil {
+		return fmt.Errorf("start region planner: %w", err)
+	}
+	// runController refused a configuration without an embedded broker at
+	// its top, so Embedded is always set here.
+	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
+		brokerIDs: cfg.NATS.Embedded.BrokerIDs, authority: control, placements: placementStore, managed: managed != nil,
+		holds: placementHolds, autoscalers: workloadReconciler, linkedPeers: globalMirrorPeers(cfg.NATS),
+		rollouts: rollouts, budgets: budgets},
+		[]observability.FilesystemRole{{Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
+		return fmt.Errorf("attach controller observability: %w", err)
+	}
+	workerErrors := make(chan error, 10)
 	var workers sync.WaitGroup
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })
@@ -521,6 +616,18 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	if terminalRuntime != nil {
 		workers.Go(func() { workerErrors <- terminalRuntime.Run(runCtx) })
+	}
+	if ociReconcile != nil {
+		workers.Go(func() { workerErrors <- ociReconcile.Run(runCtx) })
+	}
+	if membershipReconciler != nil {
+		workers.Go(func() { workerErrors <- membershipReconciler.Run(runCtx) })
+	}
+	if workloadReconciler != nil {
+		workers.Go(func() { workerErrors <- workloadReconciler.Run(runCtx) })
+	}
+	if capacityScaler != nil {
+		workers.Go(func() { workerErrors <- capacityScaler.Run(runCtx) })
 	}
 	if enrollmentErrors != nil {
 		workers.Go(func() { workerErrors <- <-enrollmentErrors })
@@ -541,17 +648,35 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		stop()
 		workers.Wait()
 		return fmt.Errorf("host controller exited before readiness: %w", err)
+	case <-brokerStopped:
+		stop()
+		workers.Wait()
+		return natscell.ErrEmbeddedServerStopped
 	case <-ctx.Done():
 		stop()
 		workers.Wait()
 		return ctx.Err()
 	}
+	telemetry.markStarted()
+	slog.Info("controller ready", observability.ComponentKey, "controller", observability.EventKey, true)
 	fmt.Fprintf(output, "controller %s ready in cell %s via %s\n", cfg.NATS.Instance, cfg.NATS.Cell, runtime.URL())
+	if err := notifier.Ready("controller " + cfg.NATS.Instance + " ready in cell " + cfg.NATS.Cell); err != nil {
+		slog.Warn("systemd readiness notification failed", observability.ComponentKey, "controller", "error", err)
+	}
+	// Watchdog keepalives stop when the embedded broker or its in-process
+	// client is no longer usable, so WatchdogSec= restarts a wedged
+	// controller instead of leaving a silent Raft peer.
+	go notifier.RunWatchdog(runCtx, runtime.Ready)
+	emitSelfUpdateProof(cfg.Controller.SelfUpdateProofFile, cfg.Controller.SelfUpdateRoot, cfg.Controller.ResponseKeyFile, controllerUnit, output)
 	select {
-	case <-ctx.Done():
+	case <-parentCtx.Done():
 		stop()
 		workers.Wait()
 		return nil
+	case <-brokerStopped:
+		stop()
+		workers.Wait()
+		return natscell.ErrEmbeddedServerStopped
 	case err := <-workerErrors:
 		stop()
 		workers.Wait()
@@ -603,7 +728,8 @@ func retryControllerOpen[T any](ctx context.Context, name string, fullClusterRea
 			noSuitable && noSuitableAttempts >= 10 && fullClusterReady() {
 			return zero, nil, fmt.Errorf("%s: %w", name, err)
 		}
-		log.Printf("%s: %v; retrying with embedded NATS running", name, err)
+		slog.Warn("controller startup step retrying with embedded NATS running",
+			observability.ComponentKey, "controller", "step", name, "attempt", attemptNumber, "error", err)
 		backoff := min(time.Duration(attemptNumber)*250*time.Millisecond, 2*time.Second)
 		backoff += time.Duration(rand.IntN(250)) * time.Millisecond
 		select {
@@ -615,6 +741,9 @@ func retryControllerOpen[T any](ctx context.Context, name string, fullClusterRea
 }
 
 func transientControllerBootstrapError(err error) bool {
+	if errors.Is(err, natscell.ErrEmbeddedServerStopped) {
+		return false
+	}
 	if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrLeaseCorrupt) ||
 		errors.Is(err, authority.ErrOutcomeUnknown) {
 		return false

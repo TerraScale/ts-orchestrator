@@ -278,7 +278,7 @@ func (reader *CurrentFounderAuthorityReader) readCurrent(ctx context.Context, no
 	plan, err := bootstrap.VerifyFounderPlan(planWire, reader.baked.Roots, anchorWire, manifests, currentNow,
 		trust.Policy{MaxLifetime: 24 * time.Hour, ClockSkew: bootstrap.ManifestClockSkew})
 	if err != nil {
-		return CurrentFounderAuthority{}, fmt.Errorf("%w: selected founder proof: %v", ErrFounderSelection, err)
+		return CurrentFounderAuthority{}, fmt.Errorf("%w: selected founder proof: %w", ErrFounderSelection, err)
 	}
 	if plan.Digest() != selection.PlanSHA256 || plan.Plan().SeedSlot != reader.accepted.Slot ||
 		plan.Plan().SeedManifestSHA256 != reader.accepted.ManifestSHA256 {

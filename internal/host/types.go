@@ -21,6 +21,8 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const (
@@ -234,6 +236,11 @@ type AgentConfig struct {
 	SessionTrace            bool
 	ClockCheck              func() error
 	VolumeInitSocket        string
+	// Initialized, when set, is called once Run has recovered the native
+	// runner and passed its clock check, before it waits for a controller
+	// session. A self-update activation proof belongs here: earlier, a host
+	// whose recovery fails would still confirm its release.
+	Initialized func()
 }
 
 type ControllerConfig struct {
@@ -426,7 +433,7 @@ func validateManagedMemberBinding(binding ManagedMemberBinding) error {
 }
 
 func validateManagedOCIBinding(binding ManagedOCIBinding, failureDomain string) error {
-	if binding.Region != "GRU" && binding.Region != "SFO" && binding.Region != "FRA" {
+	if !catalog.IsCell(binding.Region) {
 		return errors.New("managed OCI region is invalid")
 	}
 	const instancePrefix = "ocid1.instance."

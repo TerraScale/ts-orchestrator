@@ -89,6 +89,12 @@ func TestEmbeddedStoreLimit(t *testing.T) {
 	if err := cfg.validate(); err == nil {
 		t.Fatal("negative embedded store limit was accepted")
 	}
+	embedded.StoreMaxBytes = 0
+	reserved := cfg
+	reserved.Cell = "global"
+	if err := reserved.validate(); err == nil {
+		t.Fatal("the reserved global scope was accepted as a cell")
+	}
 }
 
 func TestControllerNKeyDurablyAcknowledgesDeliveryIntent(t *testing.T) {
@@ -156,7 +162,7 @@ func TestEmbeddedClusterAdvertisesClientPeers(t *testing.T) {
 		instance := fmt.Sprintf("peer%d", index)
 		runtime, err := Start(ctx, Config{Cell: "lab", Instance: instance, Replicas: peers, Lab: true,
 			Embedded: &Embedded{Host: "127.0.0.1", Port: -1, RouteHost: "127.0.0.1", RoutePort: routePorts[index],
-				Routes: routes, StoreDir: filepath.Join(t.TempDir(), instance)},
+				Routes: PeerRoutes(routes, routes[index]), StoreDir: filepath.Join(t.TempDir(), instance)},
 		})
 		if err != nil {
 			t.Fatal(err)

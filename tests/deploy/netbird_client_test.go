@@ -255,15 +255,24 @@ func TestNetbirdAdditiveInstallerPreservesOrchestrator(t *testing.T) {
 func TestNetbirdUnitsRetryWithoutGatingOrchestrator(t *testing.T) {
 	daemon := string(read(t, filepath.Join(deployRoot(t), "deploy/systemd/netbird.service")))
 	enrollment := string(read(t, filepath.Join(deployRoot(t), "deploy/systemd/terrascale-netbird-enroll.service")))
-	for _, want := range []string{"service run --config /var/lib/netbird/config.json --log-file console", "StateDirectoryMode=0700", "KillMode=process"} {
+	for _, want := range []string{"service run --config /var/lib/netbird/config.json --log-file console", "StateDirectoryMode=0700", "KillMode=process",
+		"\nEnvironment=NB_FORCE_RELAY=true\n", "\nEnvironment=NB_LAZY_CONN=on\n"} {
 		contains(t, daemon, want)
+	}
+	// Only connectivity tuning belongs in the daemon environment: a manager,
+	// setup key or relay override there would bypass enrollment's checks.
+	for line := range strings.SplitSeq(daemon, "\n") {
+		if strings.HasPrefix(line, "Environment") && line != "Environment=NB_FORCE_RELAY=true" && line != "Environment=NB_LAZY_CONN=on" {
+			t.Errorf("unexpected NetBird daemon environment: %s", line)
+		}
 	}
 	for _, confinement := range []string{"CapabilityBoundingSet", "NoNewPrivileges", "ProtectSystem", "ProtectHome", "RestrictSUIDSGID", "DevicePolicy"} {
 		if strings.Contains(daemon, confinement) {
 			t.Errorf("NetBird SSH sessions need an unconfined daemon: %s", confinement)
 		}
 	}
-	for _, want := range []string{"Restart=on-failure", "StartLimitIntervalSec=0", "TimeoutStartSec=180s", "ConditionPathExists=/etc/terrascale-orchestrator/netbird.json", "UnsetEnvironment=OCI_GO_SDK_DEBUG"} {
+	for _, want := range []string{"Restart=on-failure", "\nRestartSec=5s\n", "StartLimitIntervalSec=0", "TimeoutStartSec=180s", "ConditionPathExists=/etc/terrascale-orchestrator/netbird.json", "UnsetEnvironment=OCI_GO_SDK_DEBUG",
+		"\nWants=network-online.target netbird.service systemd-time-wait-sync.service\n", "\nAfter=network-online.target netbird.service systemd-time-wait-sync.service\n"} {
 		contains(t, enrollment, want)
 	}
 	for _, role := range []string{"controller", "host"} {

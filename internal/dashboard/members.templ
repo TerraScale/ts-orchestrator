@@ -1,0 +1,160 @@
+package dashboard
+
+import (
+	"strings"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+)
+
+templ membersBody(current view) {
+	<div id="content">
+		<div class="page-head">
+			<h1>
+				Members and hosts
+				if host := current.State.param("host"); host != "" {
+					<small class="muted">· { host }</small>
+				}
+			</h1>
+			if current.State.param("host") != "" {
+				<a href={ safe(current.State.link("/members")) }>All hosts</a>
+			}
+		</div>
+		@notes(current)
+		if current.remote() {
+			<p class="note">Live host detail is served by { upper(current.region()) }'s own controllers; this page shows { upper(current.localRegion()) }.</p>
+		}
+		<div class="cols">
+			<article>
+				<div class="chart-title">
+					<h2>CPU</h2>
+					<span class="legend-note">click a point to see the events at that time</span>
+				</div>
+				@chart("", current.memberChart(observability.HistCPUUtilization, "percent", false, "No CPU history yet."))
+			</article>
+			<article>
+				<h2>Memory used</h2>
+				@chart("", current.memberChart(observability.HistMemoryRatio, "percent", false, "No memory history yet."))
+			</article>
+			<article>
+				<h2>Disk used <small>per filesystem</small></h2>
+				@chart("", current.filesystemChart())
+			</article>
+			<article>
+				<h2>Network <small>NATS bytes in per second</small></h2>
+				@chart("", current.memberChart(observability.HistNATSInBytes, "bytes_rate", true, "No NATS traffic history yet."))
+			</article>
+		</div>
+		if current.State.param("host") == "" {
+			<div class="cols-2">
+				<article>
+					<h2>Fleet CPU heatmap <small>members × time</small></h2>
+					@chart("", current.cpuHeatmap())
+				</article>
+				<article>
+					<h2>Capacity <small>used vs free</small></h2>
+					@chart("short", current.capacityChart(false))
+					@chart("short", current.capacityChart(true))
+					<p class="legend-note">Top: memory. Bottom: disk across filesystems. Reserved headroom per host appears once the placement slice exports allocations.</p>
+				</article>
+			</div>
+		}
+		<article>
+			<h2>Orchestrator members</h2>
+			if members := current.members(); len(members) == 0 && len(current.missing()) == 0 {
+				@unavailable("No member has reported yet.")
+			} else {
+				<div class="table-scroll">
+					<table class="striped">
+						<thead>
+							<tr>
+								<th>Member</th>
+								<th>Role</th>
+								<th>Ready</th>
+								<th>Build</th>
+								<th>Up</th>
+								<th>Lease</th>
+								<th>Routes</th>
+								<th>CPUs</th>
+								<th>Load 1/5/15</th>
+								<th>Memory</th>
+								<th>Mem PSI 10s</th>
+								<th>Observed</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, member := range members {
+								<tr>
+									<td><a href={ safe(current.State.link("/members", "host", member.Member)) }>{ member.Member }</a></td>
+									<td>{ member.Role }</td>
+									<td class={ okClass(member.Ready) }>{ yesNo(member.Ready) }</td>
+									<td>{ short(orDash(member.BuildVersion), 14) }</td>
+									<td>{ age(current.Now, member.StartedAt) }</td>
+									<td>
+										if member.Authority == nil {
+											-
+										} else if member.Authority.Leader {
+											<span class="ok">leader</span>
+										} else {
+											follower
+										}
+									</td>
+									<td>
+										if member.NATS != nil {
+											{ itoa(member.NATS.Routes) }
+										} else {
+											-
+										}
+									</td>
+									if system := member.System; system != nil {
+										<td>{ itoa(system.CPUCount) }</td>
+										<td>{ formatFloat(system.Load1, 2) } / { formatFloat(system.Load5, 2) } / { formatFloat(system.Load15, 2) }</td>
+										<td>
+											@ratioBar(memoryUsed(system))
+										</td>
+										<td>{ memoryPressure(system) }</td>
+									} else {
+										<td>-</td>
+										<td>-</td>
+										<td>-</td>
+										<td>-</td>
+									}
+									<td>{ age(current.Now, member.ObservedAt) } ago</td>
+								</tr>
+							}
+							for _, missing := range current.missing() {
+								<tr>
+									<td>{ missing }</td>
+									<td colspan="11" class="bad">missing: did not answer the cell-wide snapshot request</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+			}
+			if current.Cluster == nil {
+				<p class="muted"><small>Cell-wide aggregation is off; only this member is listed.</small></p>
+			}
+		</article>
+		<article>
+			<h2>Hosts carrying TerraBase seats</h2>
+			if hosts := current.hosts(); len(hosts) == 0 {
+				@unavailable("No host carries a TerraBase seat in the placement view, or this cell does not manage placement.")
+			} else {
+				<table class="striped">
+					<thead><tr><th>Host node</th><th>Failure domains</th><th>Seats</th><th>Serving</th></tr></thead>
+					<tbody>
+						for _, host := range hosts {
+							<tr>
+								<td><a href={ safe(current.State.link("/terrabase", "host", host.Node)) }>{ host.Node }</a></td>
+								<td>{ orDash(strings.Join(host.Domains, ", ")) }</td>
+								<td>{ itoa(host.Seats) }</td>
+								<td>{ itoa(host.Serving) }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			}
+			<p class="muted"><small>Host agents serve their own CPU, memory and filesystem view on their local observability listener.</small></p>
+		</article>
+	</div>
+}

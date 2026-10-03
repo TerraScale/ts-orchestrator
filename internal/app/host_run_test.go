@@ -58,7 +58,7 @@ func TestHostRejectsUnsafeManagedRuntimeRootBeforeNativeProbe(t *testing.T) {
 		InstallRoot: filepath.Join(root, "install"), StateRoot: stateRoot, ManagedRuntimeRoot: "relative/runtime",
 		WorkloadUID: uint32(os.Geteuid()), WorkloadGID: uint32(os.Getegid()),
 	}}
-	if err := runHost(t.Context(), cfg, io.Discard); err == nil || !strings.Contains(err.Error(), "managed runtime root") {
+	if err := runHost(t.Context(), cfg, "", io.Discard); err == nil || !strings.Contains(err.Error(), "managed runtime root") {
 		t.Fatalf("unsafe managed runtime root reached native probe: %v", err)
 	}
 	if _, err := os.Stat(stateRoot); !errors.Is(err, os.ErrNotExist) {
@@ -77,7 +77,7 @@ func TestHostRejectsZeroWorkloadIdentityBeforeNativeProbe(t *testing.T) {
 		ControllerPublicKey: base64.StdEncoding.EncodeToString(controllerPublic),
 		InstallRoot:         filepath.Join(root, "install"), StateRoot: filepath.Join(root, "state"),
 	}}
-	if err := runHost(t.Context(), cfg, io.Discard); err == nil || !strings.Contains(err.Error(), "workload_uid and workload_gid") {
+	if err := runHost(t.Context(), cfg, "", io.Discard); err == nil || !strings.Contains(err.Error(), "workload_uid and workload_gid") {
 		t.Fatalf("host reached native probe with zero workload identity: %v", err)
 	}
 }

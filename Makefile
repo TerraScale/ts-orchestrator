@@ -10,15 +10,20 @@ endif
 CONFIG ?= config.json
 APP := ./cmd/terrascale-orchestrator
 BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
+# Test tier (CONTRIBUTING.md): pr runs the fast tier with -short; full also
+# runs the integration tier and checks the fixturetest build.
+TS_TEST_TIER ?= full
+export TS_TEST_TIER
 
-.PHONY: verify ci-verify format-check test vet race-test terrabase-walkthrough-process netbird-backup-check netbird-podman-test build build-linux release-linux release-check image run host check clean
+.PHONY: verify ci-verify format-check generate generate-check test test-fast dashboard-preview vet fixturetest-check race-test terrabase-walkthrough-process netbird-backup-check netbird-podman-test shellcheck build build-linux release-linux release-check image run host check clean
 
-verify: format-check vet race-test netbird-backup-check
+verify: format-check generate-check vet race-test netbird-backup-check
 
 # CI runs the independent checks and the release build at once. The race
 # scheduler prints complete shard logs; stream them as each shard finishes.
 ci-verify:
-	$(MAKE) --jobs --keep-going --output-sync=none format-check vet race-test release-check netbird-backup-check
+	$(MAKE) --jobs --keep-going --output-sync=none format-check generate-check vet race-test release-check netbird-backup-check \
+		$(if $(filter pr,$(TS_TEST_TIER)),,fixturetest-check)
 
 format-check:
 	@unformatted="$$(find . -type f -name '*.go' -not -path './.git/*' -not -path './third_party/*' -print0 | xargs -0 $(GOFMT) -l)"; \
@@ -27,14 +32,45 @@ format-check:
 		exit 1; \
 	fi
 
+# Regenerate the committed templ Go files with the generator pinned by the
+# go.mod tool directive, so a plain go build never needs the templ tool.
+# Formats exactly the sources generate-check discovers (no third_party).
+TEMPL_SOURCES = $(shell find . -type f -name '*.templ' -not -path './.git/*' -not -path './third_party/*')
+
+generate:
+	$(if $(TEMPL_SOURCES),$(GO) tool templ fmt $(TEMPL_SOURCES))
+	$(GO) tool templ generate
+
+# Fail when a committed *_templ.go file differs from its .templ source or a
+# source is not templ-formatted. It generates into a scratch copy, so it is
+# safe beside the other ci-verify jobs.
+generate-check:
+	GO="$(GO)" bash scripts/ci/check-templ.sh
+
 test:
 	$(GO) test ./...
+
+# The fast tier without the race detector, for local iteration.
+test-fast:
+	$(GO) test -short ./...
+
+# Preview the operator dashboard over a fake three-region world on
+# 127.0.0.1:8099. Development only: the dashboardpreview tag keeps the fake
+# data provider out of the orchestrator binary.
+dashboard-preview:
+	$(GO) run -tags dashboardpreview ./cmd/ts-dashboard-preview $(PREVIEW_FLAGS)
 
 vet:
 	$(GO) vet ./...
 
+# The fixturetest tag swaps in fixture observers that no default build
+# compiles; vet and test them so they cannot rot.
+fixturetest-check:
+	$(GO) vet -tags fixturetest ./...
+	$(GO) test -tags fixturetest ./tests/firecracker/production/fixturegen
+
 race-test:
-	GO="$(GO)" bash scripts/ci/race-test.sh
+	GO="$(GO)" bash scripts/ci/racetest/race-test.sh
 
 # Walk through two local tb-server members built from the paired TerraBase
 # revision, in a finite memory cgroup as tb-server requires:
@@ -43,6 +79,11 @@ terrabase-walkthrough-process:
 	@test -n "$(TERRABASE_SERVER)" || { echo 'usage: make terrabase-walkthrough-process TERRABASE_SERVER=<tb-server>' >&2; exit 2; }
 	systemd-run --user --scope --quiet -p MemoryMax=10G env TS_TERRABASE_SERVER="$(abspath $(TERRABASE_SERVER))" \
 		$(GO) test ./internal/app -run '^TestTerraBaseWalkthroughAgainstRealMembers$$' -count=1 -v
+
+# Lint the tracked shell scripts (needs shellcheck >= 0.11 on PATH). It joins
+# ci-verify once the builder image ships shellcheck.
+shellcheck:
+	git ls-files -z -- 'scripts/*.sh' 'deploy/*.sh' deploy/netbird/manager/netbird-firewall | xargs -0 shellcheck -S warning
 
 # The ts-ops NetBird store backup script carries its own self-check.
 netbird-backup-check:

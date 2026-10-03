@@ -18,6 +18,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/lifecycle"
 )
 
 const (
@@ -60,8 +61,20 @@ type Config struct {
 	MemberRole      string
 	Resources       Resources
 	TickInterval    time.Duration
+	// VolumeDeadlines bound transitional retained-volume phases; zero fields
+	// use storage lifecycle defaults (ten minutes for ATTACHING).
+	VolumeDeadlines lifecycle.Deadlines
+	// AutoGrowVolumes lets placement grow a retained volume created under a
+	// smaller resource profile through the fleet's grow-only resize. Off by
+	// default: a smaller volume stays an error for the operator instead.
+	AutoGrowVolumes bool
 	OnError         func(error)
 	OnHold          func(string)
+	// LostMemberEvidence enables replacing a member whose OCI host is gone.
+	// Nil keeps such members held without replacement.
+	LostMemberEvidence LostMemberEvidence
+	// LostMemberGrace defaults to DefaultLostMemberGrace.
+	LostMemberGrace time.Duration
 }
 
 type Controller struct {
@@ -111,6 +124,12 @@ func (config Config) validate() error {
 		config.Resources.CPU > 4096 || config.Resources.MemoryBytes > 1<<50 || config.Resources.DiskBytes > 1<<50 {
 		return errors.New("placement controller config has an invalid cell, region, owner, role, or resource profile")
 	}
+	if err := config.VolumeDeadlines.Validate(); err != nil {
+		return err
+	}
+	if config.LostMemberGrace < 0 || config.LostMemberGrace > 7*24*time.Hour {
+		return errors.New("placement lost member grace must be between zero and seven days")
+	}
 	if config.TickInterval < 0 || config.TickInterval != 0 && (config.TickInterval < minTickInterval || config.TickInterval > maxTickInterval) {
 		return errors.New("placement tick interval must be zero or between 100ms and 5m")
 	}
@@ -134,7 +153,12 @@ func (controller *Controller) Run(ctx context.Context) error {
 	ticker := time.NewTicker(controller.config.TickInterval)
 	defer ticker.Stop()
 	for {
-		if err := controller.Tick(ctx); err != nil && ctx.Err() == nil && controller.config.OnError != nil {
+		started, standby := time.Now(), !controller.fencer.Current().CanMutate()
+		err := controller.Tick(ctx)
+		if ctx.Err() == nil {
+			recordReconcile(started, standby, err)
+		}
+		if err != nil && ctx.Err() == nil && controller.config.OnError != nil {
 			controller.config.OnError(err)
 		}
 		select {
@@ -169,7 +193,7 @@ func (controller *Controller) Tick(ctx context.Context) error {
 	if len(intents) > maxIntentCount {
 		return errors.New("placement intent list exceeds its safety bound")
 	}
-	instances, err := controller.fleet.Observe(ctx)
+	instances, err := controller.fleet.Observe(oci.WithCachedVerification(ctx))
 	if err != nil {
 		return fmt.Errorf("observe region-bound OCI fleet: %w", err)
 	}
@@ -344,7 +368,16 @@ intents:
 				}
 				return errors.Join(placementErrs...)
 			}
-			acted, err := controller.advanceMember(ctx, epoch, intent, seat, versioned, instanceByID, statusByNode)
+			acted, err := controller.replaceLostMember(ctx, epoch, intent, seat, versioned, seats, memberByID,
+				instanceByID, statusByNode)
+			if err != nil {
+				placementErrs = append(placementErrs, fmt.Errorf("%s/%s: %w", intent.DatabaseID, intent.PartitionID, err))
+				continue intents
+			}
+			if acted {
+				return errors.Join(placementErrs...)
+			}
+			acted, err = controller.advanceMember(ctx, epoch, intent, seat, versioned, instanceByID, statusByNode)
 			if err != nil {
 				placementErrs = append(placementErrs, fmt.Errorf("%s/%s: %w", intent.DatabaseID, intent.PartitionID, err))
 				continue intents
@@ -475,8 +508,19 @@ func (controller *Controller) advanceMember(
 			return false, fmt.Errorf("create or recover retained member volume %s/%s: %w", intent.DatabaseID, seat.MemberID, err)
 		}
 		if volume.ID == "" || volume.CreateKey != volumeCreateKey(intent, seat) || volume.Region != controller.config.Region ||
-			volume.Owner != controller.config.ManagedOwner || volume.Generation != controller.config.FleetGeneration || volume.SizeGB < sizeGB {
+			volume.Owner != controller.config.ManagedOwner || volume.Generation != controller.config.FleetGeneration {
 			return false, errors.New("OCI fleet returned a retained volume with mismatched durable identity")
+		}
+		if volume.SizeGB < sizeGB {
+			// The volume was created under an earlier, smaller resource profile.
+			grown, err := controller.growVolume(ctx, epoch, intent, volume, sizeGB)
+			if err != nil {
+				return false, fmt.Errorf("retained member volume %s/%s is %d GiB, below the desired %d GiB: %w",
+					intent.DatabaseID, seat.MemberID, volume.SizeGB, sizeGB, err)
+			}
+			if grown.ID != volume.ID || grown.SizeGB < sizeGB {
+				return false, errors.New("OCI fleet returned a resized retained volume with mismatched durable identity")
+			}
 		}
 		state.VolumeID = volume.ID
 		state.Stage = StagePreparedAttach
@@ -486,6 +530,10 @@ func (controller *Controller) advanceMember(
 	case StagePreparedAttach:
 		instance, exists := instances[state.InstanceID]
 		if !exists {
+			// An instance with an ATTACHING volume is withheld from
+			// observation; a requested attach still runs against its
+			// deadline.
+			controller.holdStalledAttachRequest(seat.MemberID, state)
 			return false, nil
 		}
 		if err := controller.validateObservedInstance(instance, state, seat); err != nil {
@@ -512,6 +560,16 @@ func (controller *Controller) advanceMember(
 			}
 		}
 		if attachment == nil {
+			if state.AttachRequestedAt.IsZero() {
+				// Record when the attach starts, durably, so its deadline
+				// survives restarts and settle-wait failures.
+				state.AttachRequestedAt = controller.currentTime().UTC()
+				revision, err := controller.persist(ctx, epoch, versioned.Revision, state)
+				if err != nil {
+					return false, err
+				}
+				versioned.Revision = revision
+			}
 			if err := controller.guard(ctx, epoch); err != nil {
 				return false, err
 			}
@@ -521,12 +579,14 @@ func (controller *Controller) advanceMember(
 				IdempotencyKey: memberOperationID(intent, seat.MemberID, state.HostAttempt, "attach-volume"),
 			})
 			if err != nil {
+				controller.holdStalledAttachRequest(seat.MemberID, state)
 				return false, fmt.Errorf("attach retained member volume %s/%s: %w", intent.DatabaseID, seat.MemberID, err)
 			}
 			attachment = &attached
 		}
 		state.AttachmentID = attachment.ID
 		if attachment.State == "ATTACHED" {
+			state.AttachRequestedAt = time.Time{}
 			state.Stage = StageAwaitingRuntimeContract
 			state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "runtime-hold")
 		} else if attachment.State == "ATTACHING" {
@@ -562,11 +622,13 @@ func (controller *Controller) advanceMember(
 				if err := controller.verifyPinnedImage(ctx); err != nil {
 					return false, err
 				}
+				state.AttachRequestedAt = time.Time{}
 				state.Stage = StageAwaitingRuntimeContract
 				state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "runtime-hold")
 				_, err := controller.persist(ctx, epoch, versioned.Revision, state)
 				return true, err
 			case "ATTACHING":
+				controller.holdStuckAttachment(seat.MemberID, attachment.ID, state)
 				return false, nil
 			default:
 				controller.hold(fmt.Sprintf("member %s retained volume attachment is %s; desired state remains withheld", seat.MemberID, attachment.State))
@@ -755,14 +817,7 @@ func (controller *Controller) localSeats(intent Intent) ([]Seat, error) {
 	if !slices.Contains(intent.ActiveRegions, controller.config.Region) {
 		return nil, nil
 	}
-	domains := controller.config.FaultDomains
-	if len(domains) < 2 || domains[0] == domains[1] {
-		return nil, fmt.Errorf("%w: region %s has fewer than two anti-affine fault domains", ErrInvalidIntent, controller.config.Region)
-	}
-	return []Seat{
-		{MemberID: permanentMember(controller.config.Region), Region: controller.config.Region, FailureDomain: domains[0], Kind: MemberPermanent},
-		{MemberID: elasticMember(controller.config.Region), Region: controller.config.Region, FailureDomain: domains[1], Kind: MemberElastic},
-	}, nil
+	return RegionSeats(controller.config.Region, controller.config.FaultDomains, SeatsPerRegion)
 }
 
 func (controller *Controller) initialState(intent Intent, seat Seat, row CanonicalRosterRow, rosterDigest string, profile ManagedHostProfile, profileDigest string, manifest RuntimeManifest, manifestDigest string, attempt uint64) MemberState {
@@ -980,6 +1035,60 @@ func (controller *Controller) guard(ctx context.Context, epoch uint64) error {
 		return authority.ErrFenced
 	}
 	return controller.fencer.Guard(ctx, epoch)
+}
+
+var errVolumeAutoGrowDisabled = errors.New("volume auto-grow is disabled in placement config")
+
+// growVolume grows an owned retained volume through the fleet's journaled
+// resize seam when AutoGrowVolumes is enabled.
+func (controller *Controller) growVolume(ctx context.Context, epoch uint64, intent Intent, volume oci.RetainedVolume, sizeGB int64) (oci.RetainedVolume, error) {
+	if !controller.config.AutoGrowVolumes {
+		return volume, errVolumeAutoGrowDisabled
+	}
+	resizer, ok := controller.fleet.(oci.VolumeResizer)
+	if !ok {
+		return volume, oci.ErrVolumeResizeUnsupported
+	}
+	if err := controller.guard(ctx, epoch); err != nil {
+		return volume, err
+	}
+	grown, err := resizer.ResizeRetainedVolume(ctx, oci.VolumeResizeRequest{
+		DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID, VolumeID: volume.ID, SizeGB: sizeGB,
+	})
+	if err == nil {
+		recordVolumeResize(ctx, controller.config.Cell, epoch, intent, volume, grown)
+	}
+	return grown, err
+}
+
+// holdStuckAttachment reports an attachment that stayed ATTACHING past its
+// lifecycle deadline. The member's UpdatedAt is the phase start: it is written
+// on entering StageAwaitingAttach and left unchanged while waiting. The
+// remediation is reported, never executed here: every force detach or host
+// replacement needs its own fencing proof in the storage slice.
+func (controller *Controller) holdStuckAttachment(memberID, attachmentID string, state MemberState) {
+	since := state.UpdatedAt
+	if !state.AttachRequestedAt.IsZero() {
+		since = state.AttachRequestedAt
+	}
+	phase := lifecycle.State{Phase: lifecycle.Attaching, Since: since}
+	stuck, expired := lifecycle.Check(phase, controller.currentTime(), controller.config.VolumeDeadlines)
+	if !expired {
+		return
+	}
+	controller.hold(fmt.Sprintf("member %s retained volume attachment %s is stuck ATTACHING since %s (%s); remediation %s is required",
+		memberID, attachmentID, since.UTC().Format(time.RFC3339), stuck.Reason,
+		lifecycle.Remediate(stuck, controller.config.VolumeDeadlines)))
+}
+
+// holdStalledAttachRequest reports a requested attach that has not been
+// observed ATTACHED within the attach deadline, while the attachment itself
+// is not observable (its instance is withheld or the settle wait failed).
+func (controller *Controller) holdStalledAttachRequest(memberID string, state MemberState) {
+	if state.AttachRequestedAt.IsZero() {
+		return
+	}
+	controller.holdStuckAttachment(memberID, "(not yet observable)", state)
 }
 
 func (controller *Controller) hold(reason string) {

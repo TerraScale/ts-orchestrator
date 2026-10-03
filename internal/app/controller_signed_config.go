@@ -14,6 +14,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -79,6 +80,9 @@ func ValidateSignedControllerConfig(manifest bootstrap.Manifest, observedPrivate
 	if cfg.Controller.HostEnrollmentListenAddress != cfg.NATS.Embedded.Host+":8443" {
 		return Config{}, errors.New("host enrollment listener differs from the signed controller address")
 	}
+	if err := validateSignedObservability(cfg); err != nil {
+		return Config{}, err
+	}
 	if _, err := buildSignerPolicy(cfg); err != nil {
 		return Config{}, fmt.Errorf("signed controller operator grant: %w", err)
 	}
@@ -120,6 +124,20 @@ func ValidateSignedControllerConfig(manifest bootstrap.Manifest, observedPrivate
 			return Config{}, fmt.Errorf("controller credential %s is absent from signed material", name)
 		}
 	}
+	if path := cfg.NATS.Embedded.MembershipCredentialsFile; path != "" {
+		if _, signed := secretFiles["membership.creds"]; !signed ||
+			path != filepath.Join(bootstrapstart.MaterialDirectory, "membership.creds") {
+			return Config{}, errors.New("membership credentials are not the signed slot material")
+		}
+	}
+	if settings := cfg.Controller.Membership; settings != nil {
+		if err := settings.Validate(); err != nil {
+			return Config{}, fmt.Errorf("signed controller membership: %w", err)
+		}
+		if settings.RetirementEvidenceDir != "" && settings.RetirementEvidenceDir != membership.DefaultRetirementEvidenceDir {
+			return Config{}, errors.New("signed controller membership evidence directory must be the fixed path")
+		}
+	}
 	if cfg.Controller.ResponseKeyFile != filepath.Join(bootstrapstart.MaterialDirectory, manifest.Slot+"-response.key") ||
 		cfg.Controller.BrokerTicketKeyFile != filepath.Join(bootstrapstart.MaterialDirectory, "ticket.key") ||
 		cfg.Controller.HostNATSIssuerSeedFile != filepath.Join(bootstrapstart.MaterialDirectory, "host-nats-issuer.seed") ||
@@ -144,6 +162,29 @@ func ValidateSignedControllerConfig(manifest bootstrap.Manifest, observedPrivate
 		return Config{}, errors.New("controller placement config differs from signed environment")
 	}
 	return cfg, nil
+}
+
+// validateSignedObservability keeps a signed controller's telemetry listener
+// on loopback or on its own signed private broker address, never on another
+// interface, and keeps any token or TLS file under the signed config root.
+func validateSignedObservability(cfg Config) error {
+	settings := cfg.Observability
+	if err := settings.Validate(); err != nil {
+		return fmt.Errorf("signed controller observability: %w", err)
+	}
+	if settings.Enabled() {
+		address, err := netip.ParseAddrPort(settings.Address())
+		if err != nil || !address.Addr().IsLoopback() && address.Addr().String() != cfg.NATS.Embedded.Host {
+			return errors.New("signed observability listener must bind loopback or the signed broker address")
+		}
+	}
+	for _, path := range []string{settings.BearerTokenFile, settings.TLSCertFile, settings.TLSKeyFile} {
+		if path != "" && (filepath.Clean(path) != path ||
+			!strings.HasPrefix(path, controllerConfigDirectory+"/")) {
+			return errors.New("signed observability files must live under the controller config directory")
+		}
+	}
+	return nil
 }
 
 func controllerSidecarPath(name string) string {

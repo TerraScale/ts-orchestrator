@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -17,6 +17,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
@@ -58,7 +59,7 @@ type backupOperationRuntime struct {
 	responseKey ed25519.PrivateKey
 }
 
-func backupOperationSubject(cell string) string { return "ts.orch.v1." + cell + ".backup.operation" }
+func backupOperationSubject(cell string) string { return protocol.BackupOperationSubject(cell) }
 
 func operatorBackupOperation(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 	action, databaseID, partitionID, operationID, historyCursor string, output io.Writer,
@@ -453,7 +454,7 @@ func (runtime backupOperationRuntime) Run(ctx context.Context) error {
 	defer ticker.Stop()
 	for {
 		if err := runtime.reconcileAll(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("backup operation reconciliation held: %v", err)
+			slog.Warn("backup operation reconciliation held", observability.ComponentKey, "backup", "error", err)
 		}
 		select {
 		case <-ctx.Done():

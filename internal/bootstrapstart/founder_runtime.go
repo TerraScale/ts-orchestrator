@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -24,12 +25,14 @@ var errFounderObservationStale = errors.New("exact founder OCI observation must 
 func RunAdmittedFounder(ctx context.Context, baked BakedInputs, accepted AcceptedInstall,
 	serviceUID, serviceGID uint32,
 ) error {
-	return runAdmittedFounder(ctx, baked, accepted, serviceUID, serviceGID, nil, completedAdmittedFounder)
+	return runAdmittedFounder(ctx, baked, accepted, serviceUID, serviceGID, nil, completedAdmittedFounder,
+		NewIMDSClient().FetchPlacement)
 }
 
 func runAdmittedFounder(ctx context.Context, baked BakedInputs, accepted AcceptedInstall,
 	serviceUID, serviceGID uint32, floor *FounderSelectionFloorStore,
 	completed func(context.Context, BakedInputs, AcceptedInstall) (bool, error),
+	placement func(context.Context) (bootstrap.ControllerPlacement, error),
 ) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -54,23 +57,33 @@ func runAdmittedFounder(ctx context.Context, baked BakedInputs, accepted Accepte
 	if completed == nil {
 		return ErrFounderRuntime
 	}
+	// A durable local completion fact lets a seed restart without OCI.
+	if floor.PeersComplete(accepted) {
+		return nil
+	}
 	complete, err := completed(ctx, baked, accepted)
 	if err != nil {
-		return fmt.Errorf("%w: read historical peer completion: %v", ErrFounderRuntime, err)
+		return fmt.Errorf("%w: read historical peer completion: %w", ErrFounderRuntime, err)
 	}
 	if complete {
+		markFounderPeersComplete(floor, accepted)
 		return nil
 	}
 	reader, err := NewOCICurrentFounderAuthorityReader(baked, accepted, floor)
 	if err != nil {
-		return fmt.Errorf("%w: open selected founder authority: %v", ErrFounderRuntime, err)
+		return fmt.Errorf("%w: open selected founder authority: %w", ErrFounderRuntime, err)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	selected, err := reader.ReadCurrent(ctx, time.Now().UTC())
-	if err != nil || selected.Plan.Plan().SeedSlot != accepted.Slot {
-		return fmt.Errorf("%w: read selected seed authority: %v", ErrFounderRuntime, err)
+	if err != nil {
+		// Keep the cause in the chain: an expired plan or a rejected
+		// selection-floor rollback needs operator action, not a retry.
+		return fmt.Errorf("%w: read selected seed authority: %w", ErrFounderRuntime, err)
+	}
+	if selected.Plan.Plan().SeedSlot != accepted.Slot {
+		return fmt.Errorf("%w: selected seed authority names another seed slot", ErrFounderRuntime)
 	}
 	config, err := currentLedgerConfig(selected.Anchor, baked.Roots)
 	if err != nil {
@@ -98,7 +111,19 @@ func runAdmittedFounder(ctx context.Context, baked BakedInputs, accepted Accepte
 	if err != nil {
 		return err
 	}
-	return runFounderPeers(ctx, reader, baked.Roots, accepted, signers, adapter, selected)
+	if err := runFounderPeers(ctx, reader, baked.Roots, accepted, signers, adapter, selected, placement); err != nil {
+		return err
+	}
+	markFounderPeersComplete(floor, accepted)
+	return nil
+}
+
+// markFounderPeersComplete is best effort: without the fact the next seed
+// restart repeats the read-only historical ledger check.
+func markFounderPeersComplete(floor *FounderSelectionFloorStore, accepted AcceptedInstall) {
+	if err := floor.MarkPeersComplete(accepted); err != nil {
+		slog.Warn("record local founder peer completion", "error", err)
+	}
 }
 
 func verifyExistingFounderFloor(floor *FounderSelectionFloorStore) error {
@@ -205,23 +230,55 @@ type founderCaller struct {
 	accepted   AcceptedInstall
 	signers    FounderSignerStore
 	adapter    *FounderOCI
+	placement  func(context.Context) (bootstrap.ControllerPlacement, error)
 	now        func() time.Time
 	openLedger func(context.Context, CurrentFounderAuthority, trust.Keyring) (*bootstrap.Ledger, error)
+	// fence, when set, is checked immediately before every slot advance,
+	// reservation and OCI launch (controller slot replacement passes its
+	// authority guard). Initial founding has none.
+	fence func(context.Context) error
+}
+
+// checkFence runs the caller fence, if any, right before a mutation.
+func (caller founderCaller) checkFence(ctx context.Context) error {
+	if caller.fence == nil {
+		return nil
+	}
+	if err := caller.fence(ctx); err != nil {
+		return fmt.Errorf("%w: caller fence: %w", ErrFounderRuntime, err)
+	}
+	return nil
 }
 
 func runFounderPeers(ctx context.Context, reader *CurrentFounderAuthorityReader, roots trust.Keyring,
 	accepted AcceptedInstall, signers FounderSignerStore, adapter *FounderOCI, initial CurrentFounderAuthority,
+	placement func(context.Context) (bootstrap.ControllerPlacement, error),
 ) error {
 	if initial.Plan.Plan().SeedSlot != accepted.Slot {
 		return ErrFounderRuntime
 	}
-	caller := founderCaller{reader: reader, roots: roots, accepted: accepted, signers: signers, adapter: adapter}
+	caller := founderCaller{reader: reader, roots: roots, accepted: accepted, signers: signers, adapter: adapter,
+		placement: placement}
 	for _, row := range initial.Plan.Plan().Peers {
 		if err := caller.runPeer(ctx, row.Slot); err != nil {
-			return fmt.Errorf("%w: peer %q: %v", ErrFounderRuntime, row.Slot, err)
+			return fmt.Errorf("%w: peer %q: %w", ErrFounderRuntime, row.Slot, err)
 		}
 	}
 	return nil
+}
+
+// checkAntiAffinity refuses a new launch that would put two controllers in
+// one fault domain. It runs only before a first launch; a slot that already
+// has a candidate or result is recovered regardless of placement.
+func (caller founderCaller) checkAntiAffinity(ctx context.Context, plan bootstrap.FounderPlan) error {
+	if caller.placement == nil {
+		return fmt.Errorf("%w: seed placement source is unavailable", ErrFounderRuntime)
+	}
+	seed, err := caller.placement(ctx)
+	if err != nil {
+		return fmt.Errorf("read seed placement: %w", err)
+	}
+	return bootstrap.CheckControllerAntiAffinity(seed, plan.Peers)
 }
 
 func (caller founderCaller) fresh(ctx context.Context, slot string) (founderSnapshot, error) {
@@ -288,6 +345,11 @@ func (caller founderCaller) fresh(ctx context.Context, slot string) (founderSnap
 func (caller founderCaller) peerRefresh(slot string) FounderPeerRefresh {
 	return func(ctx context.Context) (bootstrap.VerifiedFounderPeer, time.Time, time.Time, error) {
 		snapshot, err := caller.fresh(ctx, slot)
+		if err == nil {
+			// The OCI adapter refreshes right before its effect; the
+			// caller fence is rechecked at that same point.
+			err = caller.checkFence(ctx)
+		}
 		return snapshot.peer, snapshot.now, snapshot.selected.SelectionExpiresAt, err
 	}
 }
@@ -302,6 +364,15 @@ func (caller founderCaller) completionRefresh(slot string) bootstrap.ManagedPeer
 func (caller founderCaller) runPeer(ctx context.Context, slot string) error {
 	snapshot, err := caller.fresh(ctx, slot)
 	if errors.Is(err, errFounderPeerUnreserved) {
+		// Refuse a co-located plan before its row is pinned in the ledger:
+		// a reservation pins the plan and peer-row digests, so a corrected,
+		// re-signed plan could not recover a slot reserved under this one.
+		if err := caller.checkAntiAffinity(ctx, snapshot.selected.Plan.Plan()); err != nil {
+			return err
+		}
+		if err := caller.checkFence(ctx); err != nil {
+			return err
+		}
 		if err := caller.reservePeer(ctx, snapshot, slot); err != nil {
 			return fmt.Errorf("reserve planned peer slot: %w", err)
 		}
@@ -316,11 +387,15 @@ func (caller founderCaller) runPeer(ctx context.Context, slot string) error {
 	var observation FounderOCIObservation
 	switch snapshot.recovery.Phase() {
 	case bootstrap.ManagedPeerRecoveryClean, bootstrap.ManagedPeerRecoveryManifestOnly:
+		if err := caller.checkAntiAffinity(ctx, snapshot.selected.Plan.Plan()); err != nil {
+			return err
+		}
 		attempt, err := NewFounderOCIAttempt(snapshot.peer, snapshot.now)
 		if err != nil {
 			return err
 		}
 		instanceID, err := caller.retryLaunch(ctx, attempt, slot)
+		recordFounderLaunch(ctx, caller.accepted.Cell, caller.accepted.DeploymentID, slot, attempt, instanceID, err)
 		if err != nil {
 			return err
 		}
@@ -411,6 +486,9 @@ func (caller founderCaller) retryLaunch(ctx context.Context, attempt FounderOCIA
 	var last error
 	for range 3 {
 		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		if err := caller.checkFence(ctx); err != nil {
 			return "", err
 		}
 		instanceID, err := caller.adapter.Launch(ctx, attempt, caller.peerRefresh(slot))

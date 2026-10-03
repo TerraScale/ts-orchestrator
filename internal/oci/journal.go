@@ -191,6 +191,9 @@ func (journal *KVJournal) RecordResult(ctx context.Context, result OperationResu
 	if result.Intent.Action == actionVolumeAttach && !result.Unknown && (result.ResourceID == "" || result.ETag == "") {
 		return errors.New("confirmed OCI volume attachment result requires an attachment ID and ETag")
 	}
+	if result.Intent.Action == actionVolumeResize && !result.Unknown && result.ResourceID != result.Intent.VolumeID {
+		return errors.New("confirmed OCI volume resize result must name its exact volume")
+	}
 	key := operationKey(result.Intent)
 	if result.RecordedAt.IsZero() {
 		result.RecordedAt = time.Now().UTC()
@@ -402,7 +405,87 @@ func (journal *KVJournal) isOwned(ctx context.Context, kind string, identity Res
 	if err != nil {
 		return false, err
 	}
-	return entry.SchemaVersion == journalSchema && entry.Kind == kind && entry.Identity == identity, nil
+	if entry.SchemaVersion != journalSchema || entry.Kind != kind {
+		return false, nil
+	}
+	if entry.Identity == identity {
+		return true, nil
+	}
+	if kind == "volume" && staleVolumeOwnership(entry.Identity, identity) {
+		// A confirmed resize whose ownership advance was interrupted left the
+		// record at a smaller size; finish the advance from the receipt.
+		owned, err := journal.advanceFromConfirmedResize(ctx, identity)
+		if err != nil || owned {
+			return owned, err
+		}
+		// A resize this controller journaled and OCI applied, whose receipt
+		// was never confirmed (the re-observation failed or the process
+		// stopped first), leaves the same stale record. Without this the
+		// create/recover path rejects the grown volume before the resize
+		// path can confirm its receipt.
+		return journal.advanceFromAppliedResizeIntent(ctx, entry.Identity, identity)
+	}
+	return false, nil
+}
+
+// advanceFromAppliedResizeIntent advances the ownership record of a volume
+// observed at exactly the target of this controller's own unconfirmed resize
+// intent, whose recorded predecessor is exactly the current ownership record.
+// Every scope field must match; any other size stays not owned. The receipt
+// itself is still confirmed only by ResizeRetainedVolume.
+func (journal *KVJournal) advanceFromAppliedResizeIntent(ctx context.Context, recorded, identity ResourceIdentity) (bool, error) {
+	key := OperationIntent{
+		Action: actionVolumeResize, Key: volumeResizeKey(identity.ID, identity.SizeGB),
+		Region: identity.Region, Generation: identity.Generation, Owner: identity.Owner,
+	}
+	entry, err := journal.read(ctx, operationKey(key))
+	if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	resize := entry.Intent
+	if entry.Kind != "operation" || resize.Action != actionVolumeResize || resize.Key != key.Key ||
+		resize.Region != identity.Region || resize.Generation != identity.Generation || resize.Owner != identity.Owner ||
+		resize.VolumeID != identity.ID || resize.CreateKey != identity.CreateKey ||
+		resize.AvailabilityDomain != identity.AvailabilityDomain || resize.SizeGB != identity.SizeGB ||
+		resize.PreviousSizeGB != recorded.SizeGB ||
+		!entry.Result.RecordedAt.IsZero() && !entry.Result.Unknown {
+		return false, nil
+	}
+	if err := journal.advanceVolumeOwnership(ctx, OperationResult{Intent: resize}); err != nil {
+		if errors.Is(err, errVolumeOwnershipMismatch) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// staleVolumeOwnership reports a recorded volume identity that differs from
+// observed only by a smaller size.
+func staleVolumeOwnership(recorded, observed ResourceIdentity) bool {
+	smaller := observed
+	smaller.SizeGB = recorded.SizeGB
+	return recorded == smaller && recorded.SizeGB < observed.SizeGB
+}
+
+// advanceFromConfirmedResize completes an interrupted ownership advance: the
+// confirmed resize to exactly identity.SizeGB moves the record from its
+// recorded predecessor size by CAS. Anything else stays not owned.
+func (journal *KVJournal) advanceFromConfirmedResize(ctx context.Context, identity ResourceIdentity) (bool, error) {
+	result, found, err := journal.confirmedResize(ctx, identity)
+	if err != nil || !found {
+		return false, err
+	}
+	if err := journal.advanceVolumeOwnership(ctx, result); err != nil {
+		if errors.Is(err, errVolumeOwnershipMismatch) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func (journal *KVJournal) read(ctx context.Context, key string) (journalEntry, error) {
@@ -441,9 +524,65 @@ func (journal *KVJournal) repairOwnership(ctx context.Context, result OperationR
 		return journal.recordOwnership(ctx, "volume", identity)
 	case actionVolumeAttach:
 		return journal.recordAttachmentOwnership(ctx, attachmentIdentityFromResult(result), result)
+	case actionVolumeResize:
+		return journal.advanceVolumeOwnership(ctx, result)
 	default:
 		return nil
 	}
+}
+
+// errVolumeOwnershipMismatch reports a volume ownership record that is
+// neither the resize predecessor nor its target.
+var errVolumeOwnershipMismatch = errors.New("OCI volume ownership does not match the resize predecessor")
+
+// advanceVolumeOwnership moves the volume ownership record from the exact
+// predecessor size to the confirmed resized size with a revision CAS. Any
+// other recorded identity is a conflict; a missing record is rebuilt only by
+// repairOwnershipFromOperation from the create and resize operations.
+func (journal *KVJournal) advanceVolumeOwnership(ctx context.Context, result OperationResult) error {
+	intent := result.Intent
+	next := ResourceIdentity{
+		ID: intent.VolumeID, Region: intent.Region, Generation: intent.Generation, Owner: intent.Owner,
+		CreateKey: intent.CreateKey, AvailabilityDomain: intent.AvailabilityDomain, SizeGB: intent.SizeGB,
+	}
+	previous := next
+	previous.SizeGB = intent.PreviousSizeGB
+	key := ownershipKey("volume", intent.VolumeID)
+	for range 4 {
+		raw, err := journal.kv.Get(ctx, key)
+		if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted) {
+			return errors.New("OCI volume resize has no predecessor ownership record")
+		}
+		if err != nil {
+			return err
+		}
+		current, err := decodeJournalEntry(raw.Value())
+		if err != nil {
+			return err
+		}
+		if current.Kind != "volume" {
+			return errors.New("OCI volume ownership record is corrupt")
+		}
+		switch current.Identity {
+		case next:
+			return nil
+		case previous:
+		default:
+			return errVolumeOwnershipMismatch
+		}
+		data, err := json.Marshal(journalEntry{SchemaVersion: journalSchema, Kind: "volume", Identity: next})
+		if err != nil {
+			return fmt.Errorf("encode OCI volume ownership: %w", err)
+		}
+		if _, err := journal.kv.Update(ctx, key, data, raw.Revision()); err != nil {
+			if errors.Is(err, jetstream.ErrKeyRevisionMismatch) {
+				continue
+			}
+			return fmt.Errorf("advance OCI volume ownership: %w", err)
+		}
+		return nil
+	}
+	return errors.New("OCI volume ownership CAS did not converge")
 }
 
 func attachmentIdentityFromResult(result OperationResult) AttachmentIdentity {
@@ -501,13 +640,54 @@ func (journal *KVJournal) repairOwnershipFromOperation(ctx context.Context, kind
 		entry.Result.Unknown || entry.Result.ResourceID != identity.ID {
 		return false, nil
 	}
-	if kind == "volume" && (entry.Intent.AvailabilityDomain != identity.AvailabilityDomain || entry.Intent.SizeGB != identity.SizeGB) {
+	if kind == "volume" && entry.Intent.AvailabilityDomain != identity.AvailabilityDomain {
 		return false, nil
+	}
+	if kind == "volume" && entry.Intent.SizeGB != identity.SizeGB {
+		return journal.repairResizedVolumeOwnership(ctx, identity)
 	}
 	if err := journal.repairOwnership(ctx, entry.Result); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// repairResizedVolumeOwnership rebuilds a missing ownership record of a grown
+// volume. The confirmed create already proved ownership of identity.ID; a
+// confirmed resize to exactly identity.SizeGB proves the current size.
+func (journal *KVJournal) repairResizedVolumeOwnership(ctx context.Context, identity ResourceIdentity) (bool, error) {
+	if _, found, err := journal.confirmedResize(ctx, identity); err != nil || !found {
+		return false, err
+	}
+	if err := journal.recordOwnership(ctx, "volume", identity); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// confirmedResize returns the confirmed resize of identity.ID to exactly
+// identity.SizeGB when its intent matches identity in every scope field.
+func (journal *KVJournal) confirmedResize(ctx context.Context, identity ResourceIdentity) (OperationResult, bool, error) {
+	intent := OperationIntent{
+		Action: actionVolumeResize, Key: volumeResizeKey(identity.ID, identity.SizeGB),
+		Region: identity.Region, Generation: identity.Generation, Owner: identity.Owner,
+	}
+	entry, err := journal.read(ctx, operationKey(intent))
+	if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted) {
+		return OperationResult{}, false, nil
+	}
+	if err != nil {
+		return OperationResult{}, false, err
+	}
+	resize := entry.Intent
+	if entry.Kind != "operation" || resize.Action != actionVolumeResize || resize.Key != intent.Key ||
+		resize.Region != identity.Region || resize.Generation != identity.Generation || resize.Owner != identity.Owner ||
+		resize.VolumeID != identity.ID || resize.CreateKey != identity.CreateKey ||
+		resize.AvailabilityDomain != identity.AvailabilityDomain || resize.SizeGB != identity.SizeGB ||
+		entry.Result.RecordedAt.IsZero() || entry.Result.Unknown || entry.Result.ResourceID != identity.ID {
+		return OperationResult{}, false, nil
+	}
+	return entry.Result, true, nil
 }
 
 func validateIntent(intent OperationIntent) error {
@@ -529,6 +709,14 @@ func validateIntent(intent OperationIntent) error {
 		intent.IsReadOnly != retainedVolumeReadOnly || intent.IsShareable != retainedVolumeShareable ||
 		intent.IsPvEncryptionInTransitEnabled != retainedVolumeEncryptionInTransit) {
 		return errors.New("OCI volume attachment intent requires a fixed device and attachment policy")
+	}
+	if intent.Action == actionVolumeResize && (intent.ResourceID == "" || intent.VolumeID != intent.ResourceID ||
+		intent.CreateKey == "" || intent.ExpectedETag == "" || intent.AvailabilityDomain == "" ||
+		intent.PreviousSizeGB <= 0 || intent.SizeGB <= intent.PreviousSizeGB || intent.Key != volumeResizeKey(intent.VolumeID, intent.SizeGB)) {
+		return errors.New("OCI volume resize intent requires an exact grow-only volume target")
+	}
+	if intent.Action != actionVolumeResize && intent.PreviousSizeGB != 0 {
+		return errors.New("only OCI volume resize intents carry a previous size")
 	}
 	return nil
 }
@@ -568,7 +756,8 @@ func sameIntent(a, b OperationIntent) bool {
 		a.ImageID == b.ImageID && a.BootDescriptor == b.BootDescriptor &&
 		a.BootDescriptorSHA256 == b.BootDescriptorSHA256 &&
 		a.VolumeID == b.VolumeID &&
-		a.AvailabilityDomain == b.AvailabilityDomain && a.SizeGB == b.SizeGB && a.Device == b.Device &&
+		a.AvailabilityDomain == b.AvailabilityDomain && a.SizeGB == b.SizeGB && a.PreviousSizeGB == b.PreviousSizeGB &&
+		a.Device == b.Device &&
 		a.IsReadOnly == b.IsReadOnly && a.IsShareable == b.IsShareable &&
 		a.IsPvEncryptionInTransitEnabled == b.IsPvEncryptionInTransitEnabled
 }

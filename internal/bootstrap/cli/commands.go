@@ -71,6 +71,8 @@ func (c command) runAt(args []string, now time.Time) error {
 		return c.renderFounderContinuityAt(args[1:])
 	case "sign-founder-continuity":
 		return c.signFounderContinuityAt(args[1:], now)
+	case "sign-slot-retirement":
+		return c.signSlotRetirementAt(args[1:], now)
 	case "sign-founder-plan":
 		return c.signFounderPlanAt(args[1:], now)
 	case "sign-initial-founder-selection":

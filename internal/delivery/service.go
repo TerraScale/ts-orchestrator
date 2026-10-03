@@ -11,6 +11,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -60,6 +61,19 @@ type Planner interface {
 	Plan(context.Context, Intent) ([]host.Desired, error)
 }
 
+// ShapedPlanner is an optional Planner extension for roles whose replica count
+// and host desired generation are owned by a continuous reconciler. The shape
+// is recorded with the operation so a resumed delivery validates the same plan.
+type ShapedPlanner interface {
+	PlanShaped(context.Context, Intent) (PlanShape, []host.Desired, error)
+}
+
+// PlanShape is the desired generation and active replica count of a plan.
+type PlanShape struct {
+	Generation uint64 `json:"generation"`
+	Replicas   int    `json:"replicas"`
+}
+
 type DesiredWriter interface {
 	ApplyDesired(context.Context, host.Desired) (host.Receipt, error)
 }
@@ -79,7 +93,16 @@ type Config struct {
 	Fencer                Fencer
 	Planner               Planner
 	Writer                DesiredWriter
+	// MaxPlannerAttempts bounds deliveries of an intent the planner keeps
+	// refusing, such as a missing profile or no eligible host, before it is
+	// held with a durable receipt. Zero uses DefaultMaxPlannerAttempts.
+	// Transport and leadership failures never count toward it.
+	MaxPlannerAttempts int
 }
+
+// DefaultMaxPlannerAttempts holds a planner-refused intent after roughly
+// half an hour of capped redelivery backoff.
+const DefaultMaxPlannerAttempts = 30
 
 type Service struct {
 	js         jetstream.JetStream
@@ -88,6 +111,8 @@ type Service struct {
 	operations jetstream.KeyValue
 	consumer   jetstream.Consumer
 	config     Config
+	// plannerRefusals bounds an intent the planner keeps refusing.
+	plannerRefusals plannerRefusalCounter
 }
 
 // Receipt is a durable admission outcome. "accepted" means each planned host
@@ -112,16 +137,29 @@ type operation struct {
 	Fingerprint string         `json:"fingerprint"`
 	Actor       string         `json:"actor"`
 	Plan        []host.Desired `json:"plan"`
+	Shape       *PlanShape     `json:"shape,omitempty"`
 	Receipt     *Receipt       `json:"receipt,omitempty"`
 }
 
-func IntentSubject(cell string) string { return "ts.orch.v1." + cell + ".delivery.intent" }
+func IntentSubject(cell string) string { return protocol.DeliveryIntentSubject(cell) }
+
+// validCell accepts a cell the protocol subject builders accept: a name
+// token that is a canonical region and not the reserved global scope.
+// Otherwise every delivery subject would be empty and fail far from the
+// configuration as an opaque invalid-subject error.
+func validCell(cell string) bool {
+	if !nameRE.MatchString(cell) || cell == protocol.GlobalScope {
+		return false
+	}
+	_, err := protocol.CanonicalRegion(cell)
+	return err == nil
+}
 
 // ConnectClient binds existing regional resources without managing topology.
 // Operator and CI identities should use this path with only their specific
 // artifact, admission, operation-read and intent-publish permissions.
 func ConnectClient(ctx context.Context, cfg Config) (*Service, error) {
-	if cfg.Conn == nil || cfg.JS == nil || !nameRE.MatchString(cfg.Cell) {
+	if cfg.Conn == nil || cfg.JS == nil || !validCell(cfg.Cell) {
 		return nil, fmt.Errorf("%w: delivery client configuration", ErrInvalid)
 	}
 	s := &Service{js: cfg.JS, config: cfg}
@@ -144,7 +182,7 @@ func ConnectClient(ctx context.Context, cfg Config) (*Service, error) {
 // Open provisions the durable regional resources and may be used by CLI
 // commands without starting a consumer. Serve requires the controller ports.
 func Open(ctx context.Context, cfg Config) (*Service, error) {
-	if cfg.Conn == nil || cfg.JS == nil || !nameRE.MatchString(cfg.Cell) || cfg.Replicas != 1 && cfg.Replicas != 3 && cfg.Replicas != 5 || cfg.ArtifactStoreMaxBytes < 0 {
+	if cfg.Conn == nil || cfg.JS == nil || !validCell(cfg.Cell) || cfg.Replicas != 1 && cfg.Replicas != 3 && cfg.Replicas != 5 || cfg.ArtifactStoreMaxBytes < 0 {
 		return nil, fmt.Errorf("%w: delivery service configuration", ErrInvalid)
 	}
 	artifactStoreMaxBytes := cfg.ArtifactStoreMaxBytes
@@ -186,11 +224,18 @@ func Open(ctx context.Context, cfg Config) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("delivery intent stream: %w", err)
 	}
-	s.consumer, err = cfg.JS.CreateOrUpdateConsumer(ctx, IntentStream, jetstream.ConsumerConfig{Durable: IntentConsumer, FilterSubject: IntentSubject(cfg.Cell), AckPolicy: jetstream.AckExplicitPolicy, AckWait: 30 * time.Second, MaxDeliver: -1, MaxAckPending: 32, MaxRequestBatch: 1})
+	s.consumer, err = cfg.JS.CreateOrUpdateConsumer(ctx, IntentStream, intentConsumerConfig(cfg.Cell))
 	if err != nil {
 		return nil, fmt.Errorf("delivery intent consumer: %w", err)
 	}
 	return s, nil
+}
+
+// intentConsumerConfig keeps redelivery unbounded at the broker: a broker
+// MaxDeliver would drop an intent without a receipt. The consumer bounds
+// planner refusals itself and records a durable held receipt instead.
+func intentConsumerConfig(cell string) jetstream.ConsumerConfig {
+	return jetstream.ConsumerConfig{Durable: IntentConsumer, FilterSubject: IntentSubject(cell), AckPolicy: jetstream.AckExplicitPolicy, AckWait: 30 * time.Second, MaxDeliver: -1, MaxAckPending: 32, MaxRequestBatch: 1}
 }
 
 // Submit signs exact serialized intent bytes and waits for JetStream publish

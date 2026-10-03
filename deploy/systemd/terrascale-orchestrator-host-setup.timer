@@ -5,6 +5,8 @@ Description=Renew TerraScale managed host credentials
 OnBootSec=12h
 OnUnitActiveSec=12h
 AccuracySec=5m
+# Spread renewals of hosts launched together; credentials keep 24h of margin.
+RandomizedDelaySec=2h
 Persistent=true
 Unit=terrascale-orchestrator-host-setup.service
 

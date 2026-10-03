@@ -44,7 +44,7 @@ const admissionCASAttempts = 8
 const artifactUploadTimeout = 15 * time.Minute
 
 func ArtifactClaimSubject(cell string) string {
-	return "ts.orch.v1." + cell + ".delivery.artifact.admit"
+	return protocol.DeliveryArtifactAdmitSubject(cell)
 }
 
 // PrepareArtifact uploads content-addressed bytes and returns a signed claim.

@@ -290,11 +290,13 @@ func ManagedUpdateSeatFor(state MemberState, owner string, fleetGeneration uint6
 }
 
 // managedUpdateRollsBackHeld reports whether update returns a seat whose
-// candidate was held back to the exact artifact and source it replaced.
+// candidate was held back to the exact artifact and source it replaced. A
+// held rollback is excluded: its predecessor is the candidate that failed
+// first, and returning to it would re-deploy a known-bad release.
 func managedUpdateRollsBackHeld(update ManagedUpdateIntent, state MemberState) bool {
 	target := state.ManagedRuntimeTarget
 	predecessor := state.PredecessorState().RuntimeManifest
-	return target.Phase == ManagedUpdateSeatHeld && update.CanarySeatID == state.MemberID &&
+	return target.Phase == ManagedUpdateSeatHeld && !target.RollbackOfHeld && update.CanarySeatID == state.MemberID &&
 		update.OldArtifactDigest == target.ArtifactDigest &&
 		update.CandidateArtifactDigest == predecessor.ArtifactDigest &&
 		update.CandidateSourceDigest == predecessor.SourceDigest &&

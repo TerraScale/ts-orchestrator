@@ -23,6 +23,9 @@ type managedPlacementSettings struct {
 	MemberRole  string              `json:"member_role"`
 	Resources   placement.Resources `json:"resources"`
 	TickMillis  int64               `json:"tick_millis,omitzero"`
+	// AutoGrowVolumes opts into grow-only resize of retained volumes created
+	// under a smaller resource profile. Off by default.
+	AutoGrowVolumes bool `json:"auto_grow_volumes,omitzero"`
 }
 
 type managedControllerConfig struct {
@@ -38,8 +41,9 @@ func (m managedControllerConfig) placementConfig(cell string, onError func(error
 		ManagedOwner: m.region.Owner, FleetGeneration: m.region.Generation,
 		ImageID:     m.region.ImageID,
 		Environment: settings.Environment, MemberRole: settings.MemberRole, Resources: settings.Resources,
-		TickInterval: time.Duration(settings.TickMillis) * time.Millisecond,
-		OnError:      onError, OnHold: onHold,
+		TickInterval:    time.Duration(settings.TickMillis) * time.Millisecond,
+		AutoGrowVolumes: settings.AutoGrowVolumes,
+		OnError:         onError, OnHold: onHold,
 	}
 }
 

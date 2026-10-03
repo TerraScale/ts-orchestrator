@@ -18,10 +18,18 @@ type tlsFirstDialer struct {
 	config  *tls.Config
 	timeout time.Duration
 	forward map[string]string
+	// reload, when set, supplies the current client certificate per dial so a
+	// renewed host certificate is presented on the next reconnect.
+	reload func() (*tls.Config, error)
 }
 
 func (d *tlsFirstDialer) Dial(network, address string) (net.Conn, error) {
 	destination, config := address, d.config
+	if d.reload != nil {
+		if current, err := d.reload(); err == nil {
+			config = current
+		}
+	}
 	if len(d.forward) != 0 {
 		if network != "tcp" {
 			return nil, errors.New("operator forward requires TCP")
@@ -35,7 +43,7 @@ func (d *tlsFirstDialer) Dial(network, address string) (net.Conn, error) {
 			return nil, err
 		}
 		destination = mapped
-		config = d.config.Clone()
+		config = config.Clone()
 		config.ServerName = host
 	}
 	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: d.timeout}, network, destination, config)

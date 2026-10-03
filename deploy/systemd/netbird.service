@@ -6,6 +6,15 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
+# Cell servers reach NetBird only through the gateway /32 on TCP 443 and UDP
+# 3478, with no internet route, so ICE to operators or the routing peer can
+# never succeed. Skip ICE and use the relay at once (NetBird 0.79 reads
+# NB_FORCE_RELAY=true in the daemon). Lazy connections (NB_LAZY_CONN, the
+# replacement for the inert --enable-lazy-connection flag) open a tunnel only
+# when an operator connects. Intra-region cluster traffic uses VCN private IPs
+# and never NetBird. The enrollment CLI runs with a scrubbed environment.
+Environment=NB_FORCE_RELAY=true
+Environment=NB_LAZY_CONN=on
 ExecStart=/usr/local/bin/netbird service run --config /var/lib/netbird/config.json --log-file console
 Restart=always
 RestartSec=10s

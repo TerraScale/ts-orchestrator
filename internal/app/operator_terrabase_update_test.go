@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	staged "git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/nats-io/nats.go"
 )
 
@@ -32,14 +34,20 @@ type fakeRolloutController struct {
 	sequence uint64
 	seats    []*fakeRolloutSeat
 	failing  string
-	prepares []placement.ManagedUpdateIntent
-	rejected []error
+	// failingSeat limits failing to one seat; failingToo fails anywhere.
+	failingSeat string
+	failingToo  string
+	// restarting makes every promoted seat running it restart on each read.
+	restarting string
+	prepares   []placement.ManagedUpdateIntent
+	rejected   []error
 }
 
 type fakeRolloutSeat struct {
 	pins    placement.ManagedUpdateSeat
 	update  *placementUpdateStatus
 	serving bool
+	pid     int
 }
 
 func TestTerraBaseUpdateRollsReleasesSeatBySeatAndRollsBackAHeldCandidate(t *testing.T) {
@@ -55,7 +63,7 @@ func TestTerraBaseUpdateRollsReleasesSeatBySeatAndRollsBackAHeldCandidate(t *tes
 	update := func(release terrabaseReleaseFiles) ([]string, error) {
 		output, err := runDeployTestOperatorErr(ctx, cell, "terrabase-update", "--state", state,
 			"--qualification", release.Qualification, "--binary", release.Binary, "--source-digest", release.SourceDigest,
-			"--compatibility-actor", "compatibility", "--compatibility-key", cell.root+"/compatibility.key", "--wait", "30s")
+			"--compatibility-actor", "compatibility", "--compatibility-key", cell.root+"/compatibility.key", "--wait", "30s", "--soak", "1s")
 		var steps []string
 		scanner := bufio.NewScanner(bytes.NewReader(output))
 		for scanner.Scan() {
@@ -73,7 +81,7 @@ func TestTerraBaseUpdateRollsReleasesSeatBySeatAndRollsBackAHeldCandidate(t *tes
 		t.Fatalf("release 2 rollout: %v (%v, rejected %v)", err, steps, fake.rejected)
 	}
 	if !slices.Equal(steps, []string{"artifact:admitted", "seat permanent-a:prepared", "seat permanent-a:canary-serving",
-		"seat elastic-gru:prepared", "seat elastic-gru:canary-serving", "rollout:complete"}) {
+		"seat permanent-a:soaked", "seat elastic-gru:prepared", "seat elastic-gru:canary-serving", "rollout:complete"}) {
 		t.Fatalf("release 2 steps = %v", steps)
 	}
 	r2 := fake.prepares[0].CandidateArtifactDigest
@@ -105,6 +113,122 @@ func TestTerraBaseUpdateRollsReleasesSeatBySeatAndRollsBackAHeldCandidate(t *tes
 	if fake.seats[0].pins.ArtifactDigest != r2 || !fake.seats[0].serving || len(fake.rejected) != 0 {
 		t.Fatalf("rolled back seat does not serve release 2: %+v rejected %v", fake.seats[0], fake.rejected)
 	}
+	var knownBad staged.KnownBad
+	readDeployTestState(t, state, filepath.Join(deployKnownBadDirectory, r3+".json"), &knownBad)
+	if knownBad.Digest != r3 || knownBad.SeatID != "permanent-a" || !strings.Contains(knownBad.Reason, "held") {
+		t.Fatalf("held candidate was not recorded known bad: %+v", knownBad)
+	}
+	fake.failing = ""
+	if steps, err := update(third); err == nil || !strings.Contains(err.Error(), "known bad") || len(fake.prepares) != 4 {
+		t.Fatalf("a known-bad candidate was retried: %v %v", steps, err)
+	}
+
+	// Compatibility evidence is derived from both releases, never assumed.
+	if steps, err := update(writeDeployTestRelease(t, cell.root, "format-break-6")); err == nil ||
+		!strings.Contains(err.Error(), "not compatible") || len(fake.prepares) != 4 {
+		t.Fatalf("an incompatible persistent format was certified: %v %v", steps, err)
+	}
+	noCompat := writeDeployTestRelease(t, cell.root, "no-compat-7")
+	noCompatDigest, _, err := digestReleaseBinary(noCompat.Binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if steps, err := update(noCompat); err == nil || !errors.Is(err, staged.ErrNoCompatibilityData) ||
+		!strings.Contains(err.Error(), noCompatDigest) || strings.Contains(err.Error(), r2) || len(fake.prepares) != 4 {
+		t.Fatalf("a release without compatibility data was certified: %v %v", steps, err)
+	}
+
+	// A hold on the second seat rolls back both seats, newest first, so the
+	// pair never stays mixed on the failed candidate.
+	fourth := writeDeployTestRelease(t, cell.root, "4")
+	r4, _, err := digestReleaseBinary(fourth.Binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.failing, fake.failingSeat = r4, "elastic-gru"
+	steps, err = update(fourth)
+	if err == nil || !strings.Contains(err.Error(), "held on seat elastic-gru") {
+		t.Fatalf("second-seat hold did not stop the rollout: %v %v", steps, err)
+	}
+	reverts := fake.prepares[4:]
+	if len(reverts) != 4 || reverts[2].CanarySeatID != "elastic-gru" || reverts[2].CandidateArtifactDigest != r2 ||
+		reverts[3].CanarySeatID != "permanent-a" || reverts[3].OldArtifactDigest != r4 || reverts[3].CandidateArtifactDigest != r2 {
+		t.Fatalf("both seats were not returned to release 2: %+v", reverts)
+	}
+	for _, seat := range fake.seats {
+		if seat.pins.ArtifactDigest != r2 || !seat.serving {
+			t.Fatalf("pair left mixed after a second-seat hold: %+v", fake.seats)
+		}
+	}
+
+	// A rollback that is itself held must never return the seat to the
+	// known-bad candidate, on this run or any rerun.
+	fifth := writeDeployTestRelease(t, cell.root, "5")
+	r5, _, err := digestReleaseBinary(fifth.Binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.failing, fake.failingSeat, fake.failingToo = r5, "", r2
+	started := len(fake.prepares)
+	steps, err = update(fifth)
+	if err == nil || !strings.Contains(err.Error(), "instead of serving") {
+		t.Fatalf("a held rollback was reported as rolled back: %v %v", steps, err)
+	}
+	before := len(fake.prepares)
+	if attempt := fake.prepares[started:]; len(attempt) != 2 || attempt[0].CandidateArtifactDigest != r5 ||
+		attempt[1].OldArtifactDigest != r5 || attempt[1].CandidateArtifactDigest != r2 {
+		t.Fatalf("release 5 was not one canary and one rollback: %+v", attempt)
+	}
+	for range 2 {
+		if steps, err := update(fifth); err == nil || !strings.Contains(err.Error(), "frozen") {
+			t.Fatalf("rerun after a held rollback did not stay frozen: %v %v", steps, err)
+		}
+	}
+	if len(fake.prepares) != before {
+		t.Fatalf("rerun after a held rollback flipped the seat again: %+v", fake.prepares[before:])
+	}
+}
+
+func TestTerraBaseUpdateSoaksTheFirstSeatAndRollsBackARestartingCandidate(t *testing.T) {
+	cell := startDeployTestCell(t, true, true)
+	ctx := t.Context()
+	plan, state := writeDeployTestPlan(t, cell.root, 9465)
+	runDeployTestOperator(t, ctx, cell, "terrabase-deploy", "--plan", plan, "--state", state)
+	var intent placement.Intent
+	var initial delivery.ArtifactRecord
+	readDeployTestState(t, state, deployIntentFile, &intent)
+	readDeployTestState(t, state, deployArtifactFile, &initial)
+	fake := startFakeRolloutController(t, cell, intent)
+	for _, seat := range fake.seats {
+		seat.pid = 100
+	}
+	second := writeDeployTestRelease(t, cell.root, "2")
+	r2, _, err := digestReleaseBinary(second.Binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.restarting = r2
+	_, err = runDeployTestOperatorErr(ctx, cell, "terrabase-update", "--state", state,
+		"--qualification", second.Qualification, "--binary", second.Binary, "--source-digest", second.SourceDigest,
+		"--compatibility-actor", "compatibility", "--compatibility-key", cell.root+"/compatibility.key",
+		"--wait", "30s", "--soak", "30s")
+	if err == nil || !strings.Contains(err.Error(), "failed its soak") {
+		t.Fatalf("a restarting canary passed its soak: %v", err)
+	}
+	if len(fake.prepares) != 2 || fake.prepares[0].CanarySeatID != "permanent-a" ||
+		fake.prepares[1].CanarySeatID != "permanent-a" || fake.prepares[1].CandidateArtifactDigest != initial.Digest {
+		t.Fatalf("soak failure reached the second seat or was not rolled back: %+v", fake.prepares)
+	}
+	for _, seat := range fake.seats {
+		if seat.pins.ArtifactDigest != initial.Digest || !seat.serving {
+			t.Fatalf("pair not restored after a failed soak: %+v", fake.seats)
+		}
+	}
+	var knownBad staged.KnownBad
+	readDeployTestState(t, state, filepath.Join(deployKnownBadDirectory, r2+".json"), &knownBad)
+	if !strings.Contains(knownBad.Reason, "restarted") {
+		t.Fatalf("soak failure not recorded known bad: %+v", knownBad)
+	}
 }
 
 func startFakeRolloutController(t *testing.T, cell *deployTestCellServices, intent placement.Intent) *fakeRolloutController {
@@ -126,7 +250,8 @@ func startFakeRolloutController(t *testing.T, cell *deployTestCellServices, inte
 		if err != nil {
 			t.Fatal(err)
 		}
-		fake.seats = append(fake.seats, &fakeRolloutSeat{serving: true, pins: placement.ManagedUpdateSeat{
+		// Every seat has a live host report, as a real host publishes.
+		fake.seats = append(fake.seats, &fakeRolloutSeat{serving: true, pid: 100, pins: placement.ManagedUpdateSeat{
 			SeatID: row.SeatID, Region: row.Region, MemberID: row.MemberID, Incarnation: row.Incarnation,
 			TLSLeafSHA256: row.TLSLeafSHA256, RuntimeManifestDigest: digest, HostNode: "host-" + row.SeatID,
 			HostGeneration: 1, HostAttempt: 1, OCIInstanceID: "ocid1.instance.oc1..fake-" + row.SeatID,
@@ -260,12 +385,19 @@ func (fake *fakeRolloutController) status(wire []byte) ([]byte, error) {
 		Generation: fake.intent.Generation, PayloadSHA256: decoded.PayloadDigest(), Sequence: fake.sequence, Serving: true}
 	for _, seat := range fake.seats {
 		if seat.update != nil && seat.update.Phase == updatePreparedPhase {
-			if seat.update.ArtifactDigest == fake.failing {
+			failing := seat.update.ArtifactDigest == fake.failing &&
+				(fake.failingSeat == "" || fake.failingSeat == seat.pins.SeatID) ||
+				seat.update.ArtifactDigest == fake.failingToo
+			if failing {
 				seat.update.Phase, seat.update.Outcome = updateHeldPhase, "candidate-proof-timeout"
 			} else {
 				seat.update.Phase, seat.update.Outcome = string(placement.ManagedUpdateSeatCanaryServing), "canary-serving"
 				seat.serving = true
 			}
+		}
+		if seat.update != nil && seat.update.ArtifactDigest == fake.restarting &&
+			seat.update.Phase == string(placement.ManagedUpdateSeatCanaryServing) {
+			seat.pid++
 		}
 		stage := string(placement.StageServing)
 		if !seat.serving {
@@ -277,6 +409,10 @@ func (fake *fakeRolloutController) status(wire []byte) ([]byte, error) {
 		if seat.update != nil {
 			update := *seat.update
 			member.Update = &update
+		}
+		if seat.pid != 0 {
+			member.Host = &placementHostStatus{ProcessPID: seat.pid, SessionCurrent: true, ReportState: "running",
+				ServingProof: seat.serving}
 		}
 		report.Serving = report.Serving && seat.serving
 		report.Members = append(report.Members, member)

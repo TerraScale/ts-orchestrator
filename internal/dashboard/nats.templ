@@ -1,0 +1,176 @@
+package dashboard
+
+import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+
+templ natsBody(current view) {
+	<div id="content">
+		<h1>NATS and JetStream</h1>
+		@notes(current)
+		@scopeNote(current)
+		<div class="cols">
+			<article>
+				<h2>Messages per second <small>all servers</small></h2>
+				@chart("", current.natsRateChart(observability.HistNATSInMsgs, observability.HistNATSOutMsgs, "rate"))
+			</article>
+			<article>
+				<h2>Bytes per second <small>all servers</small></h2>
+				@chart("", current.natsRateChart(observability.HistNATSInBytes, observability.HistNATSOutBytes, "bytes_rate"))
+			</article>
+			<article>
+				<h2>Stream replica lag</h2>
+				@chart("", current.lineChart("line", "count", current.historyRange(observability.HistStreamLag, nil, "stream", false), "No replica lag history yet."))
+			</article>
+			<article>
+				<h2>Consumer backlog <small>pending messages</small></h2>
+				@chart("", current.lineChart("line", "count", current.historyRange(observability.HistConsumerPending, nil, "stream,consumer", false), "No consumer history yet."))
+			</article>
+		</div>
+		<div class="cols-2">
+			<article>
+				<div class="chart-title">
+					<h2>Leadership and quorum timeline <small>{ upper(current.region()) } · 24h at least</small></h2>
+					<a href={ safe(current.State.link("/decisions", "kind", "leader_changed,quorum_degraded,quorum_restored")) }>Journal →</a>
+				</div>
+				@timeline("", current.decisionTimeline(current.decisions(), true))
+				if leader := current.metaLeader(); leader != "" && !current.remote() {
+					<small class="muted">Current JetStream meta leader: <strong>{ leader }</strong></small>
+				}
+			</article>
+			<article>
+				<h2>Route RTT <small>server × server</small></h2>
+				@unavailable("Route round-trip times are not sampled yet; the natscell slice exports them through Routez in a later change. Route counts per server are in the table below.")
+			</article>
+		</div>
+		<article>
+			<h2>Servers</h2>
+			if len(current.members()) == 0 {
+				@unavailable("No member has reported yet.")
+			} else {
+				<div class="table-scroll">
+					<table class="striped">
+						<thead>
+							<tr>
+								<th>Member</th>
+								<th>Server</th>
+								<th>Connections</th>
+								<th>Routes</th>
+								<th>Peers</th>
+								<th>Slow consumers</th>
+								<th>Msgs in/out</th>
+								<th>Bytes in/out</th>
+								<th>Store</th>
+								<th>Meta leader</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, member := range current.members() {
+								if nats := member.NATS; nats != nil {
+									<tr>
+										<td>{ member.Member }</td>
+										<td>{ nats.ServerName }</td>
+										<td>{ itoa(nats.Connections) }</td>
+										<td>{ itoa(nats.Routes) }</td>
+										<td>{ itoa(nats.ClusterPeers) }</td>
+										<td class={ templ.KV("warn", nats.SlowConsumers > 0) }>{ itoa(nats.SlowConsumers) }</td>
+										<td>{ itoa(nats.InMsgs) } / { itoa(nats.OutMsgs) }</td>
+										<td>{ formatBytes(nats.InBytes) } / { formatBytes(nats.OutBytes) }</td>
+										<td>{ formatBytes(nats.StoreUsedBytes) } / { formatBytes(nats.StoreLimitBytes) }</td>
+										<td>
+											if nats.IsMetaLeader {
+												<span class="ok">this server</span>
+											} else {
+												{ orDash(nats.MetaLeader) }
+											}
+										</td>
+									</tr>
+								} else {
+									<tr>
+										<td>{ member.Member }</td>
+										<td colspan="9" class="muted">no embedded broker view on this member</td>
+									</tr>
+								}
+							}
+						</tbody>
+					</table>
+				</div>
+			}
+		</article>
+		if reporter := current.natsReporter(); reporter == nil {
+			<article>
+				@unavailable("No member reported JetStream state.")
+			</article>
+		} else {
+			<article>
+				<h2>Meta group</h2>
+				<p><small class="muted">As seen by { reporter.Member }; cluster size { itoa(reporter.NATS.MetaClusterSize) }.</small></p>
+				if len(reporter.NATS.MetaPeers) == 0 {
+					@unavailable("No metadata peers are listed.")
+				} else {
+					<table class="striped">
+						<thead><tr><th>Peer</th><th>Current</th><th>Offline</th><th>Lag</th><th>Last active</th></tr></thead>
+						<tbody>
+							for _, peer := range reporter.NATS.MetaPeers {
+								<tr>
+									<td>{ peer.Name }</td>
+									<td class={ okClass(peer.Current) }>{ yesNo(peer.Current) }</td>
+									<td class={ templ.KV("bad", peer.Offline) }>{ yesNo(peer.Offline) }</td>
+									<td>{ itoa(peer.Lag) }</td>
+									<td>{ formatDuration(peer.Active) }</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				}
+			</article>
+			<article>
+				<h2>Streams</h2>
+				if len(reporter.NATS.Streams) == 0 {
+					@unavailable("No streams are hosted on this server.")
+				} else {
+					<div class="table-scroll">
+						<table class="striped">
+							<thead><tr><th>Stream</th><th>Messages</th><th>Bytes</th><th>Replicas</th><th>Leader</th><th>Max lag</th><th>Offline peers</th></tr></thead>
+							<tbody>
+								for _, stream := range reporter.NATS.Streams {
+									<tr>
+										<td>{ stream.Name }</td>
+										<td>{ itoa(stream.Messages) }</td>
+										<td>{ formatBytes(stream.Bytes) }</td>
+										<td>{ itoa(stream.Replicas) }</td>
+										<td>{ orDash(stream.Leader) }</td>
+										<td>{ itoa(stream.MaxReplicaLag) }</td>
+										<td class={ templ.KV("bad", stream.OfflinePeers > 0) }>{ itoa(stream.OfflinePeers) }</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				}
+			</article>
+			<article>
+				<h2>Consumers</h2>
+				if len(reporter.NATS.Consumers) == 0 {
+					@unavailable("No consumers are hosted on this server.")
+				} else {
+					<div class="table-scroll">
+						<table class="striped">
+							<thead><tr><th>Stream</th><th>Consumer</th><th>Pending</th><th>Ack pending</th><th>Redelivered</th><th>Waiting</th></tr></thead>
+							<tbody>
+								for _, consumer := range reporter.NATS.Consumers {
+									<tr>
+										<td>{ consumer.Stream }</td>
+										<td>{ consumer.Name }</td>
+										<td>{ itoa(consumer.NumPending) }</td>
+										<td>{ itoa(consumer.NumAckPending) }</td>
+										<td>{ itoa(consumer.NumRedelivered) }</td>
+										<td>{ itoa(consumer.NumWaiting) }</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				}
+			</article>
+		}
+	</div>
+}

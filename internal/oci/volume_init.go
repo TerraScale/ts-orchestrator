@@ -135,7 +135,9 @@ func (f *fleet) InspectVolumeInitialization(ctx context.Context, pins VolumeInit
 		}
 	}
 	proof := VolumeInitializationProof{BootDescriptorSHA256: selected.BootDescriptorSHA256}
-	if pins.FileSystemType != "ext4" || creates != 1 || attaches != 1 || otherAttachmentEffects != 0 {
+	// The pin validation above admits only ext4 and xfs, both of which the
+	// host initializer can format.
+	if creates != 1 || attaches != 1 || otherAttachmentEffects != 0 {
 		return proof, nil
 	}
 	if err := f.guard(ctx, epoch); err != nil {

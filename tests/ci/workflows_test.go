@@ -3,11 +3,13 @@ package ci_test
 import (
 	"bytes"
 	"encoding/json/v2"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -62,10 +64,11 @@ func TestWorkflowContracts(t *testing.T) {
 			t.Fatalf("paths-ignore: %v", patterns)
 		}
 		forbidText(t, image, "  push:")
-		// The image job starts with the checks and waits for them to pass.
+		// The image job starts once the release is retained, so it never
+		// holds a builder slot while the checks run.
 		steps := matches(ci, `(?m)^      - name: (.+)$`)
-		if len(steps) < 2 || steps[1] != "Start the image build for this revision" {
-			t.Fatalf("second step: %v", steps)
+		if len(steps) < 2 || steps[len(steps)-1] != "Start the image build for this revision" || steps[len(steps)-2] != "Retain verified binaries and qualification manifest" {
+			t.Fatalf("image dispatch must follow the retained release: %v", steps)
 		}
 		_, dispatchStep, _ := strings.Cut(ci, "- name: Start the image build for this revision")
 		dispatchStep, _, _ = strings.Cut(dispatchStep, "- name:")
@@ -96,7 +99,20 @@ func TestWorkflowContracts(t *testing.T) {
 		requireText(t, workflowText(t, "deploy/image/build-image.sh"), "image_job='"+name+"'")
 	})
 	t.Run("image_waits_for_ci", func(t *testing.T) {
-		requireText(t, image, "--wait-for-ci")
+		// The gate waits for the dispatching run once; the build does not poll again.
+		forbidText(t, image, "--wait-for-ci")
+		steps := matches(image, `(?m)^      - name: (.+)$`)
+		gate := slices.Index(steps, "Wait for ci.yml and skip a failed or overtaken revision")
+		qualify := slices.Index(steps, "Qualify the revision against real infrastructure")
+		build := slices.Index(steps, "Build the image from the qualified candidate")
+		if gate < 0 || qualify != gate+1 || build != qualify+1 {
+			t.Fatalf("qualification must run between the CI gate and the build: %v", steps)
+		}
+		_, qualifyStep, _ := strings.Cut(image, "- name: Qualify the revision against real infrastructure")
+		qualifyStep, _, _ = strings.Cut(qualifyStep, "- name:")
+		requireText(t, qualifyStep, "if: ${{ steps.gate.outputs.skip != 'true' && vars.TS_QUALIFICATION_SUITES != '' }}")
+		requireText(t, qualifyStep, "TS_TEST_TIER: qualification\n")
+		requireText(t, qualifyStep, "run: bash scripts/ci/qualify-image.sh")
 		_, dispatch, ok := strings.Cut(image, "workflow_dispatch:")
 		if !ok {
 			t.Fatal("missing workflow dispatch")
@@ -105,6 +121,20 @@ func TestWorkflowContracts(t *testing.T) {
 		if got := matches(dispatch, `(?m)^      ([a-z_]+):$`); !reflect.DeepEqual(got, []string{"source_revision", "source_ci_run_id", "source_ci_run_number", "trigger"}) {
 			t.Fatalf("inputs: %v", got)
 		}
+	})
+	t.Run("test_tiers", func(t *testing.T) {
+		requireText(t, ci, "      TS_TEST_TIER: ${{ forgejo.event_name == 'pull_request' && 'pr' || 'full' }}\n")
+		requireText(t, ci, "      TS_RACE_IDLE_JOBS: '5'\n")
+		_, admission, ok := strings.Cut(ci, "- name: Prepare pinned Forgejo admission client")
+		if !ok {
+			t.Fatal("missing admission client step")
+		}
+		admission, _, _ = strings.Cut(admission, "- name:")
+		requireText(t, admission, "if: ${{ forgejo.event_name != 'pull_request' }}")
+		makefile := workflowText(t, "Makefile")
+		requireText(t, makefile, "$(if $(filter pr,$(TS_TEST_TIER)),,fixturetest-check)")
+		requireText(t, makefile, "$(GO) vet -tags fixturetest ./...")
+		requireText(t, makefile, "GO=\"$(GO)\" bash scripts/ci/racetest/race-test.sh")
 	})
 	t.Run("image_inputs", func(t *testing.T) {
 		root := script.Root(t)
@@ -211,5 +241,94 @@ func TestImageDispatchPinsRun(t *testing.T) {
 	}
 	if payload.Ref != "main" || payload.Inputs["source_revision"] != env["GITHUB_SHA"] || payload.Inputs["source_ci_run_id"] != "42" || payload.Inputs["source_ci_run_number"] != "7" || payload.Inputs["trigger"] != "ci" {
 		t.Fatalf("dispatch payload: %+v", payload)
+	}
+}
+
+func TestQualifyImageRequiresEverySuiteToPass(t *testing.T) {
+	// The fake toolchain records the tier it ran under and prints what
+	// MOCK_RESULT asks for, as `go test -v` would.
+	fake := func(t *testing.T) (string, string) {
+		root := t.TempDir()
+		record := filepath.Join(root, "record")
+		goTool := filepath.Join(root, "go")
+		script.Write(t, goTool, []byte(`#!/usr/bin/env bash
+printf '%s %s\n' "$TS_TEST_TIER" "$*" >> "$MOCK_RECORD"
+case $MOCK_RESULT in
+	pass) printf -- '=== RUN   TestX\n--- PASS: TestX (0.00s)\nPASS\n' ;;
+	skip) printf -- '=== RUN   TestX\n--- SKIP: TestX (0.00s)\nPASS\n' ;;
+	none) printf -- 'testing: warning: no tests to run\nPASS\n' ;;
+	fail) printf -- '--- FAIL: TestX (0.00s)\nFAIL\n'; exit 1 ;;
+esac
+`), 0o755)
+		return goTool, record
+	}
+	for _, tc := range []struct {
+		name, suites, result, message string
+		code                          int
+	}{
+		{"pass", "terrabase-walkthrough terrabase-successor", "pass", "qualification suite terrabase-successor passed", 0},
+		// A multi-line repository variable keeps every line's suites.
+		{"multi_line", "terrabase-walkthrough\nterrabase-successor\nnative-validator", "pass", "qualification suite native-validator passed", 0},
+		{"skip", "terrabase-walkthrough", "skip", "skipped a test; its fixture is incomplete", 1},
+		{"no_test", "native-validator", "none", "ran no test", 1},
+		{"fail", "rendered-sfo-enrollment", "fail", "qualification suite rendered-sfo-enrollment failed", 1},
+		{"backup_bridge_is_not_a_suite", "terrabase-backup", "pass", "unknown qualification suite: terrabase-backup", 2},
+		{"unknown", "terrabase-walkthrough firecracker", "pass", "unknown qualification suite: firecracker", 2},
+		{"none", " ", "pass", "names no qualification suite", 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			goTool, record := fake(t)
+			env := map[string]string{"GO": goTool, "MOCK_RECORD": record, "MOCK_RESULT": tc.result, "TS_QUALIFICATION_SUITES": tc.suites, "TS_TEST_TIER": "full"}
+			result := script.Run(t, script.Root(t), env, "bash", "scripts/ci/qualify-image.sh")
+			if result.Code != tc.code || !strings.Contains(result.Stdout+result.Stderr, tc.message) {
+				t.Fatalf("exit=%d stdout=%s stderr=%s", result.Code, result.Stdout, result.Stderr)
+			}
+			if tc.code == 2 {
+				if _, err := os.Stat(record); !os.IsNotExist(err) {
+					t.Fatal("invalid suites invoked Go")
+				}
+				return
+			}
+			lines := strings.Split(strings.TrimSpace(string(script.Read(t, record))), "\n")
+			if len(lines) != len(strings.Fields(tc.suites)) {
+				t.Fatalf("ran %d suites for %q", len(lines), tc.suites)
+			}
+			for _, line := range lines {
+				if !strings.HasPrefix(line, "qualification test -count=1 -v -timeout=") {
+					t.Fatalf("suite did not run as a fresh qualification-tier test: %q", line)
+				}
+				var seconds int
+				if _, err := fmt.Sscanf(strings.Fields(line)[4], "-timeout=%ds", &seconds); err != nil || seconds <= 0 || seconds > 2400 {
+					t.Fatalf("suite timeout is not drawn from the shared budget: %q", line)
+				}
+			}
+		})
+	}
+}
+
+// Every suite draws its -timeout from one shared budget, so qualification
+// cannot outgrow the image job's timeout; a spent budget fails the gate.
+func TestQualifyImageSharesOneBudget(t *testing.T) {
+	root := t.TempDir()
+	goTool := filepath.Join(root, "go")
+	script.Write(t, goTool, []byte(`#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$MOCK_RECORD"
+sleep 2
+printf -- '=== RUN   TestX\n--- PASS: TestX (0.00s)\nPASS\n'
+`), 0o755)
+	record := filepath.Join(root, "record")
+	env := map[string]string{"GO": goTool, "MOCK_RECORD": record, "TS_QUALIFICATION_SUITES": "terrabase-walkthrough terrabase-successor",
+		"TS_QUALIFICATION_BUDGET_SECONDS": "1"}
+	result := script.Run(t, script.Root(t), env, "bash", "scripts/ci/qualify-image.sh")
+	if result.Code != 1 || !strings.Contains(result.Stderr, "qualification suite terrabase-successor did not run: the 1s qualification budget is spent") {
+		t.Fatalf("exit=%d stdout=%s stderr=%s", result.Code, result.Stdout, result.Stderr)
+	}
+	if lines := strings.Split(strings.TrimSpace(string(script.Read(t, record))), "\n"); len(lines) != 1 || !strings.Contains(lines[0], "-timeout=1s") {
+		t.Fatalf("recorded runs: %q", lines)
+	}
+	env["TS_QUALIFICATION_BUDGET_SECONDS"] = "0"
+	if result := script.Run(t, script.Root(t), env, "bash", "scripts/ci/qualify-image.sh"); result.Code != 2 || !strings.Contains(result.Stderr, "must be a positive number") {
+		t.Fatalf("exit=%d stderr=%s", result.Code, result.Stderr)
 	}
 }

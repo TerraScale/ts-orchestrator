@@ -17,6 +17,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	staged "git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -24,14 +25,17 @@ import (
 var fingerprintPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 const (
-	operatorBindRecoveryTimeout      = 15 * time.Second
-	operatorBindAttemptTimeout       = 5 * time.Second
-	operatorAdmissionRecoveryTimeout = 30 * time.Second
-	operatorAdmissionAttemptTimeout  = 10 * time.Second
-	operatorSubmitSetupTimeout       = 10 * time.Second
-	operatorRetryInitialBackoff      = 100 * time.Millisecond
-	operatorRetryMaxBackoff          = 800 * time.Millisecond
+	operatorBindRecoveryTimeout     = 15 * time.Second
+	operatorBindAttemptTimeout      = 5 * time.Second
+	operatorAdmissionAttemptTimeout = 10 * time.Second
+	operatorSubmitSetupTimeout      = 10 * time.Second
+	operatorRetryInitialBackoff     = 100 * time.Millisecond
+	operatorRetryMaxBackoff         = 800 * time.Millisecond
 )
+
+// operatorAdmissionRecoveryTimeout bounds the replays of one signed artifact
+// claim; tests shorten it.
+var operatorAdmissionRecoveryTimeout = 30 * time.Second
 
 type operatorForwardFlags map[string]string
 
@@ -83,6 +87,8 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	sourceDigest := flags.String("source-digest", "", "TerraBase release prepared-source digest record")
 	compatibilityActor := flags.String("compatibility-actor", "", "trusted compatibility signer actor")
 	compatibilityKey := flags.String("compatibility-key", "", "owner-only compatibility signer key file")
+	soak := flags.Duration("soak", staged.DefaultSoak, "update: how long a promoted seat must keep serving before the next seat (0 disables)")
+	assumeCompatible := flags.Bool("assume-compatibility", false, "update: certify releases that publish no compatibility declaration as compatible (unverified)")
 	databaseID := flags.String("database-id", "", "managed database ID")
 	partitionID := flags.String("partition-id", "", "managed partition ID")
 	registrationPath := flags.String("registration", "", "JSON host registration")
@@ -117,13 +123,13 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	}
 	runtime, err := natscell.Start(ctx, connection)
 	if err != nil {
-		return err
+		return classifyConnectError(err)
 	}
 	defer runtime.Close()
 	readyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := runtime.WaitForCluster(readyCtx, cfg.NATS.Replicas); err != nil {
-		return err
+		return classifyControllerError(err)
 	}
 	switch operation {
 	case "terrabase-deploy":
@@ -133,12 +139,13 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 		return operatorTerraBaseDeploy(ctx, cfg, runtime, *planPath, *statePath, output)
 	case "terrabase-update":
 		if *statePath == "" || *qualification == "" || *releaseBinary == "" || *sourceDigest == "" ||
-			*compatibilityActor == "" || *compatibilityKey == "" || *wait < 0 {
-			return errors.New("terrabase-update requires --state, --qualification, --binary, --source-digest, --compatibility-actor and --compatibility-key")
+			*compatibilityActor == "" || *compatibilityKey == "" || *wait < 0 || *soak < 0 {
+			return errors.New("terrabase-update requires --state, --qualification, --binary, --source-digest, --compatibility-actor, --compatibility-key and a nonnegative --soak")
 		}
 		return operatorTerraBaseUpdate(ctx, cfg, runtime, *statePath,
 			terrabaseReleaseFiles{Qualification: *qualification, Binary: *releaseBinary, SourceDigest: *sourceDigest},
-			terrabaseCompatibilitySigner{Actor: *compatibilityActor, KeyFile: *compatibilityKey}, *wait, output)
+			terrabaseCompatibilitySigner{Actor: *compatibilityActor, KeyFile: *compatibilityKey},
+			terrabaseUpdateOptions{SeatWait: *wait, Soak: *soak, AssumeCompatible: *assumeCompatible}, output)
 	case "terrabase-status":
 		if *statePath == "" || *wait < 0 {
 			return errors.New("terrabase-status requires --state DIR and a nonnegative --wait")
@@ -271,6 +278,11 @@ func pushArtifact(ctx context.Context, cfg Config, runtime *natscell.Runtime, pa
 	return record, nil
 }
 
+// errControllerRetryable marks a controller reply that declared itself
+// retryable. It stays in the chain when the recovery window below expires,
+// so callers still classify the failure as transient.
+var errControllerRetryable = errors.New("controller reported a retryable backend failure")
+
 // Reuse the exact signed claim during the 30-second recovery window. A replay
 // can only confirm the same durable admission; the controller verifies its
 // signature, expiry, authorization and stored artifact on every request.
@@ -303,7 +315,7 @@ func requestArtifactAdmission(ctx context.Context, conn *nats.Conn, cell string,
 			if !response.Retryable {
 				return errors.New(response.Error)
 			}
-			requestErr = errors.New(response.Error)
+			requestErr = fmt.Errorf("%w: %s", errControllerRetryable, response.Error)
 		} else if !retryableOperatorBackendError(requestErr, attemptTimedOut) {
 			return fmt.Errorf("request controller artifact admission: %w", requestErr)
 		}

@@ -87,6 +87,14 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
    commands below use `--oci-profile DEFAULT`; configure that SDK profile with
    the same identity and target region. The helper passes the plan's region to
    regional OCI commands and records ready subscriptions and live inventory.
+   The preview, inventory, inspect-foundation, `import-image`, and
+   `public-api` commands now reach OCI through the Go SDK inside `ts-orch`,
+   reading the same `~/.oci/config` `DEFAULT` profile; the Python `oci` CLI is
+   no longer required for them. `TS_OCI_BACKEND=auto` (default) serves every
+   supported command in-binary and falls back to the CLI only for an
+   unsupported one, `sdk` never runs the CLI, and `cli` restores the previous
+   CLI behavior. `import-image` accepts a repeatable `--region` and imports
+   the same verified QCOW2 into each catalog region in parallel.
 3. Before creating the foundation, capture and review current inventory and a
    cost admission:
 
@@ -228,6 +236,42 @@ same hostname on 443; STUN uses 3478. Existing within-cell egress already
 permits direct peer traffic. Keep the server setup key restricted to the
 `gru-servers` group; `ts-orch netbird sync` reconciles the operator access
 policies.
+
+Enrollment is tuned for a fast boot. `netbird.service` is `Type=simple`, so
+`netbird-enroll` waits up to 15 s for the daemon's control socket rather than
+failing, and it retries transient Vault errors (transport, 429, 5xx) with
+jittered backoff inside one 15 s deadline. The enrollment unit starts after
+`systemd-time-wait-sync.service`, because instance-principal federation,
+Vault and the manager's TLS need a synced clock, and it restarts after 5 s
+when enrollment still fails. NetBird 0.79 does not dial any manager for a
+just-created configuration, so the first boot never contacts the default
+NetBird manager: enrollment pins the hosts entry, then runs a single
+`netbird up` with the setup key and skips the `down` that only an active
+client needs. On reboot, a daemon already reconnecting its saved identity is
+awaited instead of receiving a second `up`. Status checks back off from
+100 ms to 1 s.
+
+Cell servers reach NetBird only through the gateway `/32` and have no
+internet route, so ICE between a server and an operator device or the
+routing peer can never succeed. `netbird.service` therefore sets
+`NB_FORCE_RELAY=true`, which skips the ICE listener and goes straight to the
+manager's relay, and `NB_LAZY_CONN=on`, which opens a tunnel only when an
+operator connects. Both are daemon environment variables in NetBird 0.79;
+`netbird up --enable-lazy-connection` has had no effect since 0.74.1.
+
+#### Traffic boundaries
+
+Intra-region orchestrator traffic never uses NetBird. NATS client and route
+connections, host enrollment and TerraBase replication use OCI VCN private
+IPv4 addresses inside the cell; TerraBase replication endpoints must pass a
+private-IPv4 check that rejects NetBird's `100.64.0.0/10` addresses. No
+orchestrator unit orders after or requires a NetBird unit, so the cell forms
+and heals without the manager. NetBird is the operator access and
+cross-region management overlay only: operators reach private IPs through
+the ts-ops routing peer, and per-server peers exist for NetBird SSH.
+Enrollment keeps NetBird DNS and client and server routes disabled. Future
+cross-region orchestrator traffic (NATS gateways or leaf nodes) should use OCI
+private peering with the existing route mTLS, not NetBird.
 
 Record `secret_compartment_id`, `setup_key_secret_id`, `policy_id`, and
 `policy_name` in `plan.netbird`; foundation inspection requires every one. The
@@ -762,6 +806,12 @@ and the intended network boundary.
      --region <REVIEWED_REGION> \
      --from-json file:///ABSOLUTE/PATH/controller-a-launch.json
    ```
+
+   `ts-orch oci-region attempt --config attempt.json launch` submits the same
+   file in-binary through the OCI Go SDK instead (no Python CLI): it refuses
+   unknown or missing members, carries `subnetId`, `privateIp`, `nsgIds` and
+   `assignPublicIp` in `createVnicDetails` exactly as the CLI did, and sends
+   an `opc-retry-token` bound to the file bytes.
 
    Record the exact OCI instance OCID returned by the CLI. OCI accepting the
    launch request is not proof that the signed network profile was applied.

@@ -6,9 +6,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
-var cellRegions = map[string]string{"GRU": "sa-saopaulo-1", "SFO": "us-sanjose-1", "FRA": "eu-frankfurt-1"}
 var publicIDs = map[string]string{"internet_gateway": "internetgateway", "public_subnet": "subnet", "public_route_table": "routetable", "public_security_list": "securitylist", "network_load_balancer": "networkloadbalancer"}
 var resourceKinds = map[string]string{"control_compartment": "compartment", "network_compartment": "compartment", "workload_compartment": "compartment", "vault": "vault", "key": "key", "vcn": "vcn", "subnet": "subnet", "network_security_group": "networksecuritygroup", "workload_network_security_group": "networksecuritygroup", "security_list": "securitylist", "route_table": "routetable", "service_gateway": "servicegateway", "local_peering_gateway": "localpeeringgateway", "internet_gateway": "internetgateway", "public_subnet": "subnet", "public_route_table": "routetable", "public_security_list": "securitylist", "network_load_balancer": "networkloadbalancer", "controller_dynamic_group": "dynamicgroup", "controller_policy": "policy", "objectstorage_key_policy": "policy", "host_dynamic_group": "dynamicgroup", "host_policy": "policy"}
 var ingressLists = []string{"nsg_rules", "workload_nsg_rules", "security_list_ingress_rules"}
@@ -236,7 +237,7 @@ func validateNetbird(plan Object, gateway Object) {
 }
 func (e *Engine) loadPlan(path string) Object {
 	p := readJSON(path, 64*1024, "manual region plan")
-	if !eq(p["schema_version"], 2) || cellRegions[text(p["cell"])] == "" || p["region"] != cellRegions[text(p["cell"])] {
+	if !eq(p["schema_version"], 2) || catalog.OCIRegion(text(p["cell"])) == "" || p["region"] != catalog.OCIRegion(text(p["cell"])) {
 		fail("unexpected manual plan schema, cell, or OCI region")
 	}
 	p["_source_path"] = Path(must(filepath.Abs(path)))

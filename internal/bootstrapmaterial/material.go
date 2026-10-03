@@ -35,6 +35,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )
@@ -62,6 +63,12 @@ type Config struct {
 	SubnetCIDR    string `json:"subnetCidr"`
 	Slots         []Slot `json:"slots"`
 	ValidityHours int    `json:"validityHours"`
+	// GlobalHome issues the controller credentials of the global home region:
+	// they also publish the global authority and global state subjects
+	// (natscell.GlobalControllerPublishes). Every other region leaves it off.
+	// Material is immutable, so turning it on means issuing new material and
+	// rotating the controllers onto it before enabling controller.global.
+	GlobalHome bool `json:"globalHome,omitempty"`
 }
 
 type File struct {
@@ -271,7 +278,8 @@ func Load(directory string) (Record, error) {
 
 func sameConfig(a, b Config) bool {
 	return a.Environment == b.Environment && a.Region == b.Region && a.Cell == b.Cell && a.DeploymentID == b.DeploymentID && a.ClusterID == b.ClusterID &&
-		a.SubnetCIDR == b.SubnetCIDR && a.ValidityHours == b.ValidityHours && slices.Equal(a.Slots, b.Slots)
+		a.SubnetCIDR == b.SubnetCIDR && a.ValidityHours == b.ValidityHours && slices.Equal(a.Slots, b.Slots) &&
+		a.GlobalHome == b.GlobalHome
 }
 
 func expectedNames() []string {
@@ -451,13 +459,13 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 		claim := jwt.NewUserClaims(userID)
 		claim.IssuerAccount = cellID
 		claim.IssuedAt, claim.Expires = now.Unix(), expires.Unix()
-		claim.Pub.Allow = jwt.StringList{"ts.orch.v1." + cfg.Cell + ".>", "ts.control." + cfg.Cell + ".>", "$JS.API.>", "$KV.>", "$O.>", "ts.broker." + cfg.Cell + ".ticket.>", "ts.broker." + cfg.Cell + ".fence.>"}
-		claim.Sub.Allow = jwt.StringList{inbox(cfg.Cell, userID), "ts.broker." + cfg.Cell + ".ticket.>", "ts.broker." + cfg.Cell + ".fence." + slot.Name,
-			"ts.orch.v1." + cfg.Cell + ".broker.claim.apply", "ts.orch.v1." + cfg.Cell + ".agent.*.observation.*",
-			"ts.orch.v1." + cfg.Cell + ".delivery.artifact.admit", "ts.orch.v1." + cfg.Cell + ".host.register", "ts.orch.v1." + cfg.Cell + ".placement.apply",
-			"ts.orch.v1." + cfg.Cell + ".managed-update.prepare",
-			"ts.orch.v1." + cfg.Cell + ".backup.operation",
-			"ts.orch.v1." + cfg.Cell + ".terminal.>"}
+		claim.Pub.Allow = jwt.StringList{protocol.Regional(cfg.Cell, ">"), protocol.Control(cfg.Cell, ">"), "$JS.API.>", "$KV.>", "$O.>",
+			protocol.Broker(cfg.Cell, "ticket", ">"), protocol.Broker(cfg.Cell, "fence", ">")}
+		if cfg.GlobalHome {
+			claim.Pub.Allow.Add(natscell.GlobalControllerPublishes()...)
+		}
+		claim.Sub.Allow = jwt.StringList{inbox(cfg.Cell, userID), protocol.Broker(cfg.Cell, "ticket", ">"), protocol.Broker(cfg.Cell, "fence", slot.Name)}
+		claim.Sub.Allow = append(claim.Sub.Allow, natscell.ControllerSubscriptions(cfg.Cell)...)
 		claim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
 		files[slot.Name+".creds"], err = credentials(claim, cell, user)
 		user.Wipe()
@@ -490,14 +498,14 @@ func credentials(claim *jwt.UserClaims, account, user nkeys.KeyPair) ([]byte, er
 	return jwt.FormatUserConfig(raw, seed)
 }
 
-func inbox(cell, public string) string { return "ts.orch.v1." + cell + ".inbox." + public + ".>" }
+func inbox(cell, public string) string { return protocol.InboxGrant(cell, public) }
 
 func expectedHostScope(cell, issuer string) *jwt.UserScope {
 	scope := jwt.NewUserScope()
 	scope.Key = issuer
 	scope.Role = "host"
-	scope.Template.Pub.Allow = jwt.StringList{"ts.orch.v1." + cell + ".agent.{{subject()}}.observation.*"}
-	scope.Template.Sub.Allow = jwt.StringList{"ts.orch.v1." + cell + ".inbox.{{subject()}}.>"}
+	scope.Template.Pub.Allow = jwt.StringList{protocol.AgentObservation(cell, protocol.TemplateSubject, "*")}
+	scope.Template.Sub.Allow = jwt.StringList{protocol.InboxGrant(cell, protocol.TemplateSubject)}
 	return scope
 }
 

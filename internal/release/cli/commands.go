@@ -31,6 +31,8 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const (
@@ -75,13 +77,17 @@ func (c command) run(args []string) error {
 		return c.verifyImage(args[1:])
 	case "publish":
 		return c.publish(args[1:])
+	case "sign-update-delegation":
+		return c.signUpdateDelegation(args[1:])
+	case "sign-binary-update":
+		return c.signBinaryUpdate(args[1:])
 	default:
 		return usageError()
 	}
 }
 
 func usageError() error {
-	return errors.New("usage: ts-orch release <sign-delegation|binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish> [flags]")
+	return errors.New("usage: ts-orch release <sign-delegation|binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish|sign-update-delegation|sign-binary-update> [flags]")
 }
 
 func (c command) publish(args []string) error {
@@ -106,7 +112,7 @@ func (c command) publish(args []string) error {
 	if err := c.ctx.Err(); err != nil {
 		return err
 	}
-	ociRegion := map[string]string{"GRU": "sa-saopaulo-1", "SFO": "us-sanjose-1", "FRA": "eu-frankfurt-1"}[*region]
+	ociRegion := catalog.OCIRegion(*region)
 	provider, err := auth.InstancePrincipalConfigurationProviderForRegion(common.Region(ociRegion))
 	if err != nil {
 		return fmt.Errorf("create OCI instance-principal provider: %w", err)
@@ -1155,10 +1161,6 @@ func (c command) hashArtifact(reader io.Reader) ([]byte, int64, error) {
 
 func validOCIImageIDForRegion(value, region string) bool {
 	return release.ValidOCIImageIDForRegion(value, region)
-}
-
-func oracleRegion(region string) string {
-	return map[string]string{"GRU": "sa-saopaulo-1", "SFO": "us-sanjose-1", "FRA": "eu-frankfurt-1"}[region]
 }
 
 func validRegion(value string) bool {

@@ -58,7 +58,7 @@ type terminalGrantStatus func(context.Context, authority.TerminalIntent) error
 type terminalGrantFence func(context.Context, uint64, authority.TerminalIntent) error
 type terminalGrantProof func(context.Context, authority.TerminalIntent) error
 
-func terminalSubject(cell, action string) string { return "ts.orch.v1." + cell + ".terminal." + action }
+func terminalSubject(cell, action string) string { return protocol.TerminalSubject(cell, action) }
 
 func terminalOperatorCodec(cfg Config) (signerPolicy, error) {
 	policy, err := buildSignerPolicy(cfg)

@@ -1,0 +1,163 @@
+package dashboard
+
+// releasesBody shows every release's path from CI qualification to complete
+// or rolled back in each region, and the version every unit runs.
+templ releasesBody(current view) {
+	<div id="content">
+		<div class="page-head">
+			<h1>Releases and upgrades</h1>
+			<small class="muted">last 7 days of release decisions · click a step for its decision record</small>
+		</div>
+		@notes(current)
+		if current.Chain != nil {
+			@chainPanel(current, *current.Chain)
+		}
+		<article>
+			<div class="chart-title">
+				<h2>Version matrix <small>regions × units</small></h2>
+				<span class="legend">
+					@statusPill("ok", "on target")
+					@statusPill("warn", "drift or mixed")
+				</span>
+			</div>
+			@versionMatrix(current)
+		</article>
+		<h2>Release timelines</h2>
+		if current.Journal == nil || current.Journal.Decisions == nil {
+			@journalMissing("Release timelines")
+		} else if releases := current.releases(); len(releases) == 0 && current.decisionCoverage() != coverageComplete {
+			<article>
+				@historyUnavailable(current, "Release history")
+			</article>
+		} else if len(releases) == 0 {
+			<article>
+				<p class="empty">No release decisions in the last 7 days. The rollout and selfupdate slices record release_admitted, canary, batch and rollback decisions here as they run.</p>
+			</article>
+		} else {
+			if current.decisionCoverage() != coverageComplete {
+				@historyUnavailable(current, "Release history")
+			}
+			for _, release := range releases {
+				@releaseCard(current, release)
+			}
+		}
+	</div>
+}
+
+templ releaseCard(current view, release releaseView) {
+	<article class={ "edge", sClass(release.Status) }>
+		<div class="chart-title">
+			<h3>
+				<code>{ short(release.Name, 40) }</code>
+				if release.Name != release.ID {
+					<small class="mono">{ short(release.ID, 24) }</small>
+				}
+			</h3>
+			<span>
+				@statusPill(release.Status, release.Label)
+				<small class="muted">
+					{ " started " }
+					@ago(release.First)
+				</small>
+			</span>
+		</div>
+		if release.Reason != "" {
+			<p class={ "note", templ.KV("warn", release.Status != "ok") }>{ release.Reason }</p>
+		}
+		<div class="table-scroll">
+			<div class="steps">
+				<span></span>
+				for _, stage := range releaseStages {
+					<span class="head">{ releaseStageTitles[stage] }</span>
+				}
+				for _, lane := range release.Lanes {
+					<span class="lane"><a href={ safe(current.State.link("/region", "r", lane.Region)) }>{ upper(lane.Region) }</a></span>
+					for _, step := range lane.Steps {
+						if step.Decision == nil {
+							<span class="step none">-</span>
+						} else {
+							<a class={ "step", sClass(step.Status) } href={ safe(current.State.keep("/releases", "id", step.Decision.ID)) } title={ step.Decision.Summary + ": " + step.Decision.Reason }>
+								{ step.Label }
+								<small>
+									@ago(step.Decision.Time)
+								</small>
+							</a>
+						}
+					}
+				}
+			</div>
+		</div>
+	</article>
+}
+
+templ versionMatrix(current view) {
+	if len(current.Versions) == 0 {
+		@unavailable("No unit reported its version yet.")
+	} else {
+		if current.VersionsDerived {
+			<p class="note">Versions of orchestrator members, from each region's summary. Host agent and TerraBase seat versions appear once the rollout slice provides them.</p>
+		}
+		<div class="table-scroll">
+			<table class="matrix">
+				<thead>
+					<tr>
+						<th>Unit</th>
+						<th>Target</th>
+						for _, region := range current.matrixRegions() {
+							<th><a href={ safe(current.State.link("/region", "r", region)) }>{ upper(region) }</a></th>
+						}
+					</tr>
+				</thead>
+				<tbody>
+					for _, kind := range current.matrixKinds() {
+						<tr>
+							<th scope="row">{ unitKindTitle(kind) }</th>
+							<td><code>{ short(current.targetVersion(kind), 18) }</code></td>
+							for _, region := range current.matrixRegions() {
+								{{ cell := current.versionCell(region, kind) }}
+								<td class={ "cell", templ.KV("drift", cell.Drift) }>
+									if cell.Total == 0 {
+										<span class="muted">-</span>
+									} else {
+										for _, version := range cell.Versions {
+											<span class="vchip">
+												<span class={ "dot", sClass(versionStatus(version.Target)) }></span>
+												<code>{ short(version.Version, 18) }</code>
+												<small class="muted">×{ itoa(version.Count) }</small>
+											</span>
+										}
+										if len(cell.Versions) > 1 {
+											<br/>
+											<small class="warn">mixed versions</small>
+										}
+									}
+								</td>
+							}
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+		if drifted := current.driftedUnits(); len(drifted) > 0 {
+			<details>
+				<summary>{ itoa(len(drifted)) } units off the target version</summary>
+				<table>
+					<thead><tr><th>Region</th><th>Kind</th><th>Unit</th><th>Version</th><th>Since</th></tr></thead>
+					<tbody>
+						for _, unit := range drifted {
+							<tr class="drift">
+								<td>{ upper(unit.Region) }</td>
+								<td>{ unit.Kind }</td>
+								<td>{ unit.Unit }</td>
+								<td><code>{ unit.Version }</code></td>
+								<td>
+									@ago(unit.Since)
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</details>
+		}
+	}
+}

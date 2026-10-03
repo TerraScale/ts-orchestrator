@@ -77,6 +77,14 @@ func ObservationSubject(region, observation string) (string, error) {
 	return regionalSubject(region, "observation", observation)
 }
 
+// ObservabilitySubject is a read-only member telemetry route inside one
+// regional cell, for example ts.orch.v1.gru.obs.snapshot. Every controller
+// answers it; it carries no signed state and never drives a mutation.
+// ObservabilityGrant (families.go) is the subscribe grant covering every leaf.
+func ObservabilitySubject(region, leaf string) (string, error) {
+	return regionalSubject(region, "obs", leaf)
+}
+
 func AgentCommandSubject(region, nodeID, command string) (string, error) {
 	return agentSubject(region, nodeID, "command", command)
 }

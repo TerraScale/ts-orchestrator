@@ -1,0 +1,142 @@
+package dashboard
+
+import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+
+templ storageBody(current view) {
+	<div id="content">
+		<h1>Storage</h1>
+		@notes(current)
+		@scopeNote(current)
+		<div class="cols-2">
+			<article>
+				<div class="chart-title">
+					<h2>Block volumes</h2>
+					if len(current.Volumes) > 0 {
+						<small class="muted">{ current.volumeCounts() }</small>
+					}
+				</div>
+				if current.Journal == nil || current.Journal.Volumes == nil {
+					@unavailable("Volume lifecycle state appears once the storage slice reports volumes. Filesystems below come from each member's own view.")
+				} else if current.failed("volumes") {
+					@unavailable("Volume state could not be read right now, so attachments are unknown.")
+				} else if len(current.Volumes) == 0 {
+					<p class="empty">No block volume is attached in this region.</p>
+				} else {
+					<div class="table-scroll">
+						<table>
+							<thead><tr><th>Volume</th><th>Host</th><th>State</th><th>Since</th></tr></thead>
+							<tbody>
+								for _, volume := range current.Volumes {
+									<tr
+										if current.State.param("volume") == volume.ID {
+											class="drift"
+										}
+									>
+										<td><a href={ safe(current.State.keep("/storage", "volume", volume.ID)) }>{ volume.ID }</a></td>
+										<td>
+											if volume.Host != "" {
+												<a href={ safe(current.State.link("/members", "host", volume.Host)) }>{ volume.Host }</a>
+											} else {
+												<span class="muted">unattached</span>
+											}
+										</td>
+										<td>
+											@statusPill(volumeStatus(volume, current.Now), volume.State)
+										</td>
+										<td>
+											@ago(volume.StateSince)
+										</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				}
+			</article>
+			<article>
+				<h2>Capacity by member and filesystem</h2>
+				@chart("tall", current.filesystemTree())
+			</article>
+		</div>
+		<div class="cols-2">
+			<article>
+				<div class="chart-title">
+					<h2>Backups and volume changes <small>{ upper(current.region()) } · 24h at least</small></h2>
+					<a href={ safe(current.State.link("/decisions", "kind", "backup_taken,volume_resized,volume_reattached")) }>Journal →</a>
+				</div>
+				@timeline("", current.decisionTimeline(current.decisions(), true))
+				@decisionList(current, current.decisions(), 6)
+			</article>
+			<article>
+				<h2>JetStream store used</h2>
+				@chart("", current.lineChart("area", "bytes", current.historyRange(observability.HistJSStoreUsed, nil, "member", false), "No JetStream store history yet."))
+			</article>
+		</div>
+		<article>
+			<h2>JetStream store</h2>
+			if len(current.members()) == 0 {
+				@unavailable("No member has reported yet.")
+			} else {
+				<table class="striped">
+					<thead><tr><th>Member</th><th>Used</th><th>Limit</th><th>Usage</th></tr></thead>
+					<tbody>
+						for _, member := range current.members() {
+							if nats := member.NATS; nats != nil {
+								<tr>
+									<td>{ member.Member }</td>
+									<td>{ formatBytes(nats.StoreUsedBytes) }</td>
+									if nats.StoreLimitBytes > 0 {
+										<td>{ formatBytes(nats.StoreLimitBytes) }</td>
+										<td>
+											@ratioBar(storeUsed(nats))
+										</td>
+									} else {
+										<td>unlimited</td>
+										<td>-</td>
+									}
+								</tr>
+							} else {
+								<tr>
+									<td>{ member.Member }</td>
+									<td colspan="3" class="muted">no JetStream view on this member</td>
+								</tr>
+							}
+						}
+					</tbody>
+				</table>
+			}
+		</article>
+		<article>
+			<h2>Filesystems</h2>
+			{{ listed := 0 }}
+			<div class="table-scroll">
+				<table class="striped">
+					<thead><tr><th>Member</th><th>Role</th><th>Path</th><th>Size</th><th>Available</th><th>Usage</th><th>Inodes free</th></tr></thead>
+					<tbody>
+						for _, member := range current.members() {
+							if member.System != nil {
+								for _, filesystem := range member.System.Filesystems {
+									{{ listed++ }}
+									<tr>
+										<td>{ member.Member }</td>
+										<td>{ filesystem.Role }</td>
+										<td><code>{ filesystem.Path }</code></td>
+										<td>{ formatBytes(filesystem.SizeBytes) }</td>
+										<td>{ formatBytes(filesystem.AvailBytes) }</td>
+										<td>
+											@ratioBar(filesystemUsed(filesystem))
+										</td>
+										<td>{ itoa(filesystem.FilesFree) } / { itoa(filesystem.Files) }</td>
+									</tr>
+								}
+							}
+						}
+					</tbody>
+				</table>
+			</div>
+			if listed == 0 {
+				@unavailable("No filesystem was observed. The system section is collected on Linux only.")
+			}
+		</article>
+	</div>
+}

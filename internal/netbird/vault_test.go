@@ -28,7 +28,7 @@ func setupKeyBundle(id, key string) secrets.GetSecretBundleResponse {
 	}}
 }
 
-func TestVaultReadsCurrentSecretWithNoRetriesAndBoundedContext(t *testing.T) {
+func TestVaultReadsCurrentSecretWithNoSDKRetriesAndBoundedContext(t *testing.T) {
 	id := testConfig().SetupKeySecretID
 	client := fakeBundleClient(func(ctx context.Context, request secrets.GetSecretBundleRequest) (secrets.GetSecretBundleResponse, error) {
 		if request.SecretId == nil || *request.SecretId != id || request.Stage != secrets.GetSecretBundleStageCurrent ||
@@ -46,7 +46,79 @@ func TestVaultReadsCurrentSecretWithNoRetriesAndBoundedContext(t *testing.T) {
 	}
 }
 
+type fakeServiceError int
+
+func (status fakeServiceError) Error() string           { return "OCI service error" }
+func (status fakeServiceError) GetHTTPStatusCode() int  { return int(status) }
+func (status fakeServiceError) GetMessage() string      { return "OCI service error" }
+func (status fakeServiceError) GetCode() string         { return "Error" }
+func (status fakeServiceError) GetOpcRequestID() string { return "request" }
+
+func shortVaultBackoff(t *testing.T) {
+	t.Helper()
+	previous := vaultBackoff
+	vaultBackoff = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
+	t.Cleanup(func() { vaultBackoff = previous })
+}
+
+func TestVaultRetriesTransientFailuresWithinOneDeadline(t *testing.T) {
+	shortVaultBackoff(t)
+	id := testConfig().SetupKeySecretID
+	for name, failure := range map[string]error{
+		"transport": errors.New("connection reset"),
+		"throttled": fakeServiceError(http.StatusTooManyRequests),
+		"server":    fakeServiceError(http.StatusServiceUnavailable),
+	} {
+		t.Run(name, func(t *testing.T) {
+			attempts := 0
+			var deadline time.Time
+			client := fakeBundleClient(func(ctx context.Context, _ secrets.GetSecretBundleRequest) (secrets.GetSecretBundleResponse, error) {
+				attempts++
+				current, ok := ctx.Deadline()
+				if !ok || attempts > 1 && !current.Equal(deadline) {
+					t.Fatal("retries did not share one bounded deadline")
+				}
+				deadline = current
+				if attempts < 3 {
+					return secrets.GetSecretBundleResponse{}, failure
+				}
+				return setupKeyBundle(id, testSetupKey), nil
+			})
+			key, err := readCurrentSetupKey(t.Context(), id, client)
+			if err != nil || string(key) != testSetupKey || attempts != 3 {
+				t.Fatalf("transient failure was not retried: attempts=%d error=%v", attempts, err)
+			}
+		})
+	}
+}
+
+func TestVaultDoesNotRetryFinalOrPersistentFailures(t *testing.T) {
+	shortVaultBackoff(t)
+	id := testConfig().SetupKeySecretID
+	for name, tc := range map[string]struct {
+		failure  error
+		attempts int
+	}{
+		"unauthorized": {fakeServiceError(http.StatusUnauthorized), 1},
+		"not found":    {fakeServiceError(http.StatusNotFound), 1},
+		"canceled":     {context.Canceled, 1},
+		"persistent":   {errors.New("connection reset"), len(vaultBackoff) + 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			attempts := 0
+			client := fakeBundleClient(func(context.Context, secrets.GetSecretBundleRequest) (secrets.GetSecretBundleResponse, error) {
+				attempts++
+				return secrets.GetSecretBundleResponse{}, tc.failure
+			})
+			if key, err := readCurrentSetupKey(t.Context(), id, client); err == nil || key != nil || attempts != tc.attempts {
+				t.Fatalf("attempts=%d want %d error=%v", attempts, tc.attempts, err)
+			}
+		})
+	}
+}
+
 func TestVaultRejectsMismatchedMalformedAndOversizedSecretsWithoutLeaking(t *testing.T) {
+	shortVaultBackoff(t)
 	id := testConfig().SetupKeySecretID
 	for _, scenario := range []string{"error", "wrong-id", "missing-version", "oversized", "malformed-key", "malformed-base64", "missing-content"} {
 		t.Run(scenario, func(t *testing.T) {

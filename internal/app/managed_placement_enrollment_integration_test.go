@@ -33,6 +33,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -55,7 +56,7 @@ func TestManagedPlacementEnrollmentFromRenderedSFOBundle(t *testing.T) {
 	materialDirectory, materialSet := os.LookupEnv("TS_TEST_RENDERED_HOST_MATERIAL")
 	expectedBundleSHA256, hashSet := os.LookupEnv("TS_TEST_RENDERED_HOST_BUNDLE_SHA256")
 	if !bundleSet && !materialSet && !hashSet {
-		t.Skip("rendered SFO enrollment bundle fixture was not supplied")
+		tier.Unavailable(t, "rendered SFO enrollment bundle fixture was not supplied")
 	}
 	if !bundleSet || !materialSet || !hashSet || bundlePath == "" || materialDirectory == "" || expectedBundleSHA256 == "" {
 		t.Fatal("rendered SFO enrollment requires bundle, material directory, and bundle SHA-256 together")

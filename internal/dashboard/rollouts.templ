@@ -1,0 +1,138 @@
+package dashboard
+
+templ rolloutsBody(current view) {
+	<div id="content">
+		<h1>Deploys and rollouts</h1>
+		@notes(current)
+		<article>
+			<div class="chart-title">
+				<h2>Rollout phases</h2>
+				<a href={ safe(current.State.link("/releases")) }>Release timelines →</a>
+			</div>
+			if current.Journal == nil || current.Journal.Rollouts == nil {
+				@unavailable("Release rollout phases (canary, soak, batches) appear once the rollout slice reports them. Managed TerraBase updates are below.")
+			} else if current.failed("rollouts") {
+				<p class="empty unavailable">Release rollout phases are unavailable right now: the rollout provider did not answer.</p>
+			} else if len(current.Rollouts) == 0 {
+				<p class="empty">No release rollout is known in this region.</p>
+			} else {
+				for _, rollout := range current.Rollouts {
+					<div>
+						<div class="chart-title">
+							<h3>
+								<code>{ rollout.Release }</code>
+								<small class="mono">{ rollout.ID }</small>
+							</h3>
+							<span>
+								@statusPill(rolloutStatus(rollout, current.Now), rollout.Phase)
+								<small class="muted">
+									{ " phase started " }
+									@ago(rollout.PhaseStarted)
+									if !rollout.PhaseDeadline.IsZero() {
+										{ " · deadline " }
+										@ago(rollout.PhaseDeadline)
+									}
+								</small>
+							</span>
+						</div>
+						<div class="phase-row">
+							for _, phase := range rolloutPhases {
+								<span class={ "phase", sClass(phaseStatus(rollout, phase, current.Now)) }>{ phase }</span>
+							}
+						</div>
+					</div>
+				}
+			}
+		</article>
+		<div class="cols-2">
+			<article>
+				<div class="chart-title">
+					<h2>Release history <small>all regions, 7 days</small></h2>
+					<a href={ safe(current.State.link("/decisions", "actor", "rollout")) }>Journal →</a>
+				</div>
+				@timeline("", current.decisionTimeline(current.decisions(), false))
+				@decisionList(current, current.decisions(), 6)
+			</article>
+			<article>
+				<h2>Known-bad releases</h2>
+				if bad := current.knownBad(); len(bad) == 0 && current.decisionCoverage() == coverageMissing {
+					@journalMissing("Known-bad releases")
+				} else if len(bad) == 0 && current.decisionCoverage() != coverageComplete {
+					@historyUnavailable(current, "Rollback history")
+				} else if len(bad) == 0 {
+					<p class="empty">No release was rolled back in the last 7 days.</p>
+				} else {
+					if current.decisionCoverage() != coverageComplete {
+						@historyUnavailable(current, "Rollback history")
+					}
+					<ul class="mini-list">
+						for _, release := range bad {
+							<li>
+								@statusPill("serious", "rolled back")
+								<span class="grow" title={ release.Reason }><code>{ release.Name }</code> { short(release.Reason, 120) }</span>
+								<small class="muted">
+									@ago(release.Last)
+								</small>
+							</li>
+						}
+					</ul>
+				}
+			</article>
+		</div>
+		<article>
+			<h2>Managed runtime updates</h2>
+			if current.placement() == nil {
+				@unavailable("No placement view is available, so rollout progress cannot be shown.")
+			} else if rollouts := current.rollouts(); len(rollouts) == 0 {
+				@unavailable("No managed runtime update is in progress.")
+			} else {
+				<div class="table-scroll">
+					<table class="striped">
+						<thead>
+							<tr><th>Database</th><th>Partition</th><th>Operation</th><th>Artifact</th><th>Progress</th><th>Seats</th><th>Phases</th></tr>
+						</thead>
+						<tbody>
+							for _, database := range rollouts {
+								<tr>
+									<td>{ database.DatabaseID }</td>
+									<td>{ database.PartitionID }</td>
+									<td><code>{ short(database.Rollout.OperationID, 16) }</code></td>
+									<td><code>{ short(orDash(database.Rollout.ArtifactDigest), 19) }</code></td>
+									<td>
+										@ratioBar(database.Rollout.Progress())
+									</td>
+									<td>{ itoa(database.Rollout.Completed) } / { itoa(database.Rollout.Seats) }</td>
+									<td>{ counts(database.Rollout.Phases) }</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+			}
+		</article>
+		<article>
+			<h2>Delivery intents</h2>
+			{{ reported := 0 }}
+			<table class="striped">
+				<thead><tr><th>Member</th><th>Acknowledged</th><th>Deferred</th><th>Transport retries</th><th>Last acknowledged</th></tr></thead>
+				<tbody>
+					for _, member := range current.members() {
+						if delivery := member.Delivery; delivery != nil {
+							{{ reported++ }}
+							<tr>
+								<td>{ member.Member }</td>
+								<td>{ itoa(delivery.Acknowledged) }</td>
+								<td class={ templ.KV("warn", delivery.Deferred > 0) }>{ itoa(delivery.Deferred) }</td>
+								<td>{ itoa(delivery.TransportRetries) }</td>
+								<td>{ formatTime(delivery.LastAckAt) }</td>
+							</tr>
+						}
+					}
+				</tbody>
+			</table>
+			if reported == 0 {
+				@unavailable("No member reported delivery intent counters.")
+			}
+		</article>
+	</div>
+}

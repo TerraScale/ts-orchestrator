@@ -20,6 +20,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -56,6 +57,7 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 		}
 		return
 	}
+	tier.Integration(t)
 	// Each startup and shutdown has its own budget. A deadline shared by
 	// both boots can kill a healthy child during its graceful shutdown.
 	ctx, cancel := context.WithCancel(t.Context())
@@ -75,7 +77,7 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 		configs[index] = testJSONFile(t, root, instance+".json", Config{
 			NATS: natscell.Config{Cell: "lab", Instance: instance, Replicas: 3, Lab: true,
 				Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: clientPorts[index],
-					RouteHost: "127.0.0.1", RoutePort: routePorts[index], Routes: routes,
+					RouteHost: "127.0.0.1", RoutePort: routePorts[index], Routes: natscell.PeerRoutes(routes, routes[index]),
 					StoreDir: filepath.Join(root, instance), StoreMaxBytes: 2 << 30}},
 			Controller: ControllerConfig{CandidateID: instance, ResponseKeyFile: filepath.Join(root, "response.key"),
 				ArtifactStoreMaxBytes: 64 << 20,

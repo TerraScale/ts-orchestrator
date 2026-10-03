@@ -114,6 +114,12 @@ func (check LiveCredentials) verifyPaths(expected map[string]string, manifest bo
 	if e.RoutePasswordFile != "" {
 		paths = append(paths, e.RoutePasswordFile)
 	}
+	// The optional scoped membership user is signed material like every
+	// other credential: when configured it must be pinned, and when signed
+	// it must be configured.
+	if e.MembershipCredentialsFile != "" {
+		paths = append(paths, e.MembershipCredentialsFile)
+	}
 	paths = append(paths, check.ResponseKeyFile, check.BrokerTicketKeyFile,
 		check.HostNATSIssuerSeedFile, check.HostTLSIssuerKeyFile, check.HostTLSIssuerCertFile)
 	if check.HostNATSIssuerSeedFile != filepath.Join(check.directory, "host-nats-issuer.seed") ||

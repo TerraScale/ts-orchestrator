@@ -24,7 +24,7 @@ const (
 // handler applies the kind's own tighter limit.
 const maxManagedAdmissionWireBytes = 64 << 10
 
-func managedAdmissionSubject(cell string) string { return "ts.orch.v1." + cell + ".placement.apply" }
+func managedAdmissionSubject(cell string) string { return protocol.PlacementApplySubject(cell) }
 
 // serveManagedAdmissionKind subscribes one handler to the shared subject. Each
 // kind keeps its own subscription, so NATS delivers kinds concurrently while

@@ -41,7 +41,7 @@ const (
 
 var (
 	ErrInvalidIntent = errors.New("invalid TerraBase placement intent")
-	regionsInOrder   = [...]oci.Region{oci.RegionGRU, oci.RegionSFO, oci.RegionFRA}
+	regionsInOrder   = oci.Regions()
 )
 
 type Intent struct {
@@ -613,7 +613,7 @@ func DecodeCommittedIntent(payload []byte) (Intent, error) {
 func canonicalRegions(regions []oci.Region) bool {
 	previous := -1
 	for _, region := range regions {
-		index := slices.Index(regionsInOrder[:], region)
+		index := slices.Index(regionsInOrder, region)
 		if index < 0 || index <= previous {
 			return false
 		}
@@ -651,7 +651,7 @@ type Seat struct {
 	Kind          MemberKind
 }
 
-// DesiredSeats returns the fixed two-member topology for every selected region.
+// DesiredSeats returns the SeatsPerRegion-member topology for every selected region.
 // It never returns seats in a region absent from the admitted intent. Each seat
 // in a region gets a distinct configured OCI failure domain.
 func DesiredSeats(intent Intent, faultDomains map[oci.Region][]string) ([]Seat, error) {
@@ -663,21 +663,16 @@ func DesiredSeats(intent Intent, faultDomains map[oci.Region][]string) ([]Seat, 
 		selected[region] = struct{}{}
 	}
 
-	seats := make([]Seat, 0, len(selected)*2)
+	seats := make([]Seat, 0, len(selected)*SeatsPerRegion)
 	for _, region := range regionsInOrder {
 		if _, active := selected[region]; !active {
 			continue
 		}
-		domains := faultDomains[region]
-		if len(domains) < 2 || !validFailureDomain(domains[0]) ||
-			!validFailureDomain(domains[1]) || domains[0] == domains[1] {
-			return nil, fmt.Errorf("%w: region %s needs two distinct configured fault domains", ErrInvalidIntent, region)
+		regionSeats, err := RegionSeats(region, faultDomains[region], SeatsPerRegion)
+		if err != nil {
+			return nil, err
 		}
-		permanentID := permanentMember(region)
-		seats = append(seats,
-			Seat{MemberID: permanentID, Region: region, FailureDomain: domains[0], Kind: MemberPermanent},
-			Seat{MemberID: elasticMember(region), Region: region, FailureDomain: domains[1], Kind: MemberElastic},
-		)
+		seats = append(seats, regionSeats...)
 	}
 	return seats, nil
 }
@@ -708,8 +703,11 @@ func elasticMember(region oci.Region) string {
 	return "elastic-" + strings.ToLower(string(region))
 }
 
+// knownRegion admits a catalog region only once it has a permanent seat
+// mapping: a region added to the catalog without one is rejected instead of
+// placing a seat with an empty member ID.
 func knownRegion(region oci.Region) bool {
-	return slices.Contains(regionsInOrder[:], region)
+	return slices.Contains(regionsInOrder, region) && permanentMember(region) != ""
 }
 
 func validBoundedToken(value string, maxLength int) bool {
@@ -776,6 +774,17 @@ type MemberState struct {
 	HostGeneration           uint64               `json:"host_generation"`
 	OperationID              string               `json:"operation_id"`
 	UpdatedAt                time.Time            `json:"updated_at"`
+	// HostLostAt is when the member's OCI host was first seen missing or
+	// TERMINATED while it awaited its runtime contract. The lost-member
+	// replacement grace runs from it, not from the last persisted write,
+	// and it clears when the host is observed again.
+	HostLostAt time.Time `json:"host_lost_at,omitzero"`
+	// AttachRequestedAt is when the retained volume attach was first
+	// requested for this host attempt. The attach deadline runs from it:
+	// a production attach that stays ATTACHING is withheld from observation
+	// and fails its settle wait, so the member never reaches the stage that
+	// observes ATTACHING. It clears once the volume is attached.
+	AttachRequestedAt time.Time `json:"attach_requested_at,omitzero"`
 }
 
 type ManagedUpdateSeatPhase string
@@ -810,6 +819,10 @@ type ManagedRuntimeTarget struct {
 	SourceDigest              string                 `json:"source_digest"`
 	Phase                     ManagedUpdateSeatPhase `json:"phase"`
 	Outcome                   string                 `json:"outcome,omitempty"`
+	// RollbackOfHeld marks a target that returned a held seat to its
+	// predecessor. If it is held too, its own predecessor is the candidate
+	// that already failed, so it is never a rollback destination.
+	RollbackOfHeld bool `json:"rollback_of_held,omitzero"`
 }
 
 func (state MemberState) EffectiveRuntimeManifest() RuntimeManifest {
@@ -854,6 +867,8 @@ func (state MemberState) Validate() error {
 		!validToken(state.CreateKey) || state.HostAttempt == 0 || state.IntentGeneration == 0 ||
 		stageRequiresHostGeneration(state.Stage) && state.HostGeneration == 0 ||
 		!validToken(state.OperationID) || state.UpdatedAt.IsZero() || state.UpdatedAt.Location() != time.UTC ||
+		!state.HostLostAt.IsZero() && state.HostLostAt.Location() != time.UTC ||
+		!state.AttachRequestedAt.IsZero() && state.AttachRequestedAt.Location() != time.UTC ||
 		state.Kind == MemberPermanent && state.MemberID != permanentMember(state.Region) ||
 		state.Kind == MemberElastic && state.MemberID != elasticMember(state.Region) {
 		return errors.New("invalid TerraBase member state")
@@ -1049,6 +1064,16 @@ func CanRetire(intent Intent, candidate MemberObservation, survivors []MemberObs
 	if allowed, reason := retirementTopologySafe(intent, candidate, survivors); !allowed {
 		return false, reason
 	}
+	if allowed, reason := retirementEvidenceSafe(evidence, candidate, true); !allowed {
+		return false, reason
+	}
+	return true, "safe-to-retire"
+}
+
+// retirementEvidenceSafe holds the identity, replication, quorum, writer-stop
+// and retained-volume checks shared by retirement and lost-member
+// replacement. Drain is retirement-only: a lost member cannot be drained.
+func retirementEvidenceSafe(evidence RetirementEvidence, candidate MemberObservation, requireDrain bool) (bool, string) {
 	if !evidenceMatchesCandidate(evidence, candidate) {
 		return false, "retirement-evidence-identity-mismatch"
 	}
@@ -1058,7 +1083,7 @@ func CanRetire(intent Intent, candidate MemberObservation, survivors []MemberObs
 	if !evidence.QuorumSafe {
 		return false, "quorum-safety-unverified"
 	}
-	if !evidence.HostDrained {
+	if requireDrain && !evidence.HostDrained {
 		return false, "host-drain-unverified"
 	}
 	if !evidence.WriterStopped || len(evidence.WriterStopProof) == 0 {
@@ -1067,7 +1092,7 @@ func CanRetire(intent Intent, candidate MemberObservation, survivors []MemberObs
 	if !evidence.VolumeRetained {
 		return false, "retained-volume-decision-unverified"
 	}
-	return true, "safe-to-retire"
+	return true, "evidence-safe"
 }
 
 // CanBeginRetirement is the pre-drain gate. It permits cordon/drain only after

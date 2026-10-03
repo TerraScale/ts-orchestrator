@@ -196,6 +196,9 @@ func operatorTerraBaseDeploy(ctx context.Context, cfg Config, runtime *natscell.
 	if _, err := state.ensureJSON(deployArtifactFile, record); err != nil {
 		return err
 	}
+	if err := retainReleaseCompatibility(state, release); err != nil {
+		return err
+	}
 	if err := report("artifact", "admitted", record.Digest); err != nil {
 		return err
 	}
@@ -298,7 +301,7 @@ func openDeployState(path string) (deployState, error) {
 		return deployState{}, err
 	}
 	for _, directory := range []string{path, filepath.Join(path, deployCustomerDirectory),
-		filepath.Join(path, deployReleaseDirectory)} {
+		filepath.Join(path, deployReleaseDirectory), filepath.Join(path, deployKnownBadDirectory)} {
 		if err := os.Mkdir(directory, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
 			return deployState{}, err
 		}

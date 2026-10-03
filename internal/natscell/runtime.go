@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -27,6 +28,24 @@ import (
 )
 
 var cellName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
+// ErrEmbeddedServerStopped reports that the in-process broker has exited while
+// its owning process is still alive. Callers must treat it as terminal so the
+// service manager restarts the whole controller instead of waiting forever.
+var ErrEmbeddedServerStopped = errors.New("embedded regional NATS server has stopped")
+
+// ErrUnavailable matches a Start failure to reach the regional brokers or
+// their JetStream API, which a retry can resolve. Configuration, credential
+// and TLS material errors never match it: retrying cannot fix them.
+var ErrUnavailable = errors.New("regional NATS is unavailable")
+
+// unavailable keeps its cause's message and chain and also matches
+// ErrUnavailable.
+type unavailable struct{ error }
+
+func (u unavailable) Unwrap() error { return u.error }
+
+func (unavailable) Is(target error) bool { return target == ErrUnavailable }
 
 // DefaultStoreMaxBytes bounds the embedded JetStream file store when the
 // operator does not specify a per-node limit.
@@ -63,9 +82,21 @@ type Embedded struct {
 	SystemJWTFile         string      `json:"system_jwt_file,omitempty"`
 	CellJWTFile           string      `json:"cell_jwt_file,omitempty"`
 	SystemCredentialsFile string      `json:"system_credentials_file,omitempty"`
-	TicketPublicKeyFile   string      `json:"ticket_public_key_file,omitempty"`
-	BrokerIDs             []string    `json:"broker_ids,omitempty"`
+	// MembershipCredentialsFile is an optional system-account user limited to
+	// metadata peer remove and leader step-down; see OpenMembershipAdmin.
+	MembershipCredentialsFile string   `json:"membership_credentials_file,omitempty"`
+	TicketPublicKeyFile       string   `json:"ticket_public_key_file,omitempty"`
+	BrokerIDs                 []string `json:"broker_ids,omitempty"`
+	// InterRegion links this region to peers by leafnode. Nil or disabled
+	// keeps the region fully standalone.
+	InterRegion *InterRegion `json:"interregion,omitempty"`
 }
+
+// ServerName is the embedded NATS server name of a cell's controller
+// instance (a broker ID or controller slot). Cluster health, the controller
+// slot topology (membership.Topology.ServerName) and the JetStream metadata
+// peers all use this one shape, so a renamed slot reads as an unknown peer.
+func ServerName(cell, instance string) string { return cell + "-" + instance }
 
 // StoreLimitBytes returns the effective per-node JetStream file-store limit.
 func (e Embedded) StoreLimitBytes() int64 {
@@ -81,6 +112,9 @@ type NKeyGrant struct {
 	PublicKey string `json:"public_key"`
 	Role      string `json:"role"`
 	Node      string `json:"node,omitempty"`
+	// Global adds GlobalControllerPublishes to a controller in the global
+	// home region. It is refused for every other role.
+	Global bool `json:"global,omitempty"`
 }
 
 // Config describes a single regional cell. Lab permits an unauthenticated local
@@ -100,6 +134,10 @@ type Config struct {
 	// OperatorForward is a transient CLI-only TCP route. Its keys remain the
 	// configured controller TLS identities; values are local Bastion forwards.
 	OperatorForward map[string]string `json:"-"`
+	// ReloadClientMaterial, when set, is consulted on every connect and
+	// reconnect so renewed credentials take effect without a process restart.
+	// It must keep the startup NATS user key; failures use the startup files.
+	ReloadClientMaterial func() (ClientMaterial, error) `json:"-"`
 }
 
 // Runtime keeps the broker and client alive together. Closing it drains the
@@ -119,6 +157,8 @@ type Runtime struct {
 	bridge          *Bridge
 	claimMu         sync.Mutex
 	appliedSequence uint64
+	serverName      string
+	brokerNames     []string
 	once            sync.Once
 }
 
@@ -164,10 +204,18 @@ func (r *Runtime) ApplyCellClaim(ctx context.Context, sequence uint64, raw strin
 	if r.bridge != nil {
 		r.bridge.FenceClaim(sequence)
 	}
+	if claim, err := jwt.DecodeAccountClaims(raw); err != nil || !r.SignedByPinnedOperator(claim) {
+		return errors.New("cell claim is not signed by the pinned operator")
+	}
+	// Store runs the contract and issued-at checks; only then is the claim
+	// installed, locally and directly. The server ignores CLAIMS.UPDATE
+	// requests (see accountResolver.IsTrackingUpdate), so no routed or
+	// client-sent claim can skip these checks.
 	if err := r.resolver.Store(r.resolver.cell, raw); err != nil {
 		return err
 	}
-	if _, err := r.server.LookupAccount(r.resolver.cell); err != nil {
+	account, err := r.server.LookupAccount(r.resolver.cell)
+	if err != nil {
 		return err
 	}
 	current, err := r.server.Accountz(&server.AccountzOptions{Account: r.resolver.cell})
@@ -178,21 +226,12 @@ func (r *Runtime) ApplyCellClaim(ctx context.Context, sequence uint64, raw strin
 		return errors.New("cell account is not loaded")
 	}
 	if current.Account.Jwt != raw {
-		requestCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		defer cancel()
-		subject := "$SYS.REQ.ACCOUNT." + r.resolver.cell + ".CLAIMS.UPDATE"
-		if _, err := r.systemConn.RequestWithContext(requestCtx, subject, []byte(raw)); err != nil {
-			return fmt.Errorf("request cell account claim update: %w", err)
+		if err := r.server.UpdateAccountClaimJWT(account, raw); err != nil {
+			return fmt.Errorf("install cell account claim: %w", err)
 		}
-		for current.Account.Jwt != raw {
-			if err := requestCtx.Err(); err != nil {
-				return errors.New("cell JWT update lacks local exact readback")
-			}
-			time.Sleep(20 * time.Millisecond)
-			current, err = r.server.Accountz(&server.AccountzOptions{Account: r.resolver.cell})
-			if err != nil || current.Account == nil {
-				return errors.New("cell JWT update lacks local account readback")
-			}
+		current, err = r.server.Accountz(&server.AccountzOptions{Account: r.resolver.cell})
+		if err != nil || current.Account == nil || current.Account.Jwt != raw {
+			return errors.New("cell JWT update lacks local exact readback")
 		}
 	}
 	r.appliedSequence = sequence
@@ -252,6 +291,10 @@ func (r *Runtime) logHostConnection(state string, conn *nats.Conn, cause error) 
 	slog.Info("host regional NATS connection transition", "state", state, "endpoint", endpoint, "cause_class", class)
 }
 
+// Close shuts the runtime down in lame-duck order: stop accepting external
+// clients, drain the controller client, hand off JetStream leadership this
+// broker holds, and only then stop the embedded server. Every phase is bounded
+// so the whole sequence fits well inside the unit's stop timeout.
 func (r *Runtime) Close() error {
 	if r == nil {
 		return nil
@@ -264,12 +307,10 @@ func (r *Runtime) Close() error {
 			r.systemConn.Close()
 		}
 		if r.conn != nil {
-			r.conn.Drain()
-			r.conn.Close()
+			drainConnection(r.conn, closeDrainTimeout)
 		}
 		if r.server != nil {
-			r.server.Shutdown()
-			r.server.WaitForShutdown()
+			r.stopServer()
 		}
 	})
 	return nil
@@ -313,6 +354,10 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 			return nil, fmt.Errorf("create embedded NATS: %w", err)
 		}
 		r.server.ConfigureLogger()
+		r.serverName = options.ServerName
+		for _, id := range cfg.Embedded.BrokerIDs {
+			r.brokerNames = append(r.brokerNames, ServerName(cfg.Cell, id))
+		}
 		go r.server.Start()
 		if !serverReady(ctx, r.server) {
 			return nil, errors.New("embedded NATS did not become ready")
@@ -350,14 +395,14 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 	connectCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	connected := make(chan struct{})
-	var connectErr error
+	var connectErr, forwardErr error
 	go func() {
 		connectURL := cfg.URL
 		if !cfg.Lab && cfg.Embedded == nil {
 			if len(cfg.OperatorForward) != 0 {
-				selected, _, forwardErr := operatorForwarding(cfg)
+				var selected string
+				selected, _, forwardErr = operatorForwarding(cfg)
 				if forwardErr != nil {
-					connectErr = forwardErr
 					close(connected)
 					return
 				}
@@ -373,11 +418,22 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 		// nats.Connect has a bounded timeout of its own; wait for the goroutine
 		// before cleaning up to avoid a late client after server shutdown.
 		<-connected
-		return nil, connectCtx.Err()
+		if forwardErr != nil {
+			return nil, forwardErr
+		}
+		return nil, unavailable{connectCtx.Err()}
 	case <-connected:
 	}
+	if forwardErr != nil {
+		return nil, forwardErr
+	}
 	if connectErr != nil {
-		return nil, fmt.Errorf("connect regional NATS: %w", connectErr)
+		err := fmt.Errorf("connect regional NATS: %w", connectErr)
+		if errors.Is(connectErr, nats.ErrAuthorization) {
+			// The brokers answered and refused these credentials.
+			return nil, err
+		}
+		return nil, unavailable{err}
 	}
 	if cfg.Embedded != nil && !cfg.Lab {
 		systemCfg := cfg
@@ -414,7 +470,7 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 		infoCtx, infoCancel := context.WithTimeout(ctx, 10*time.Second)
 		defer infoCancel()
 		if _, err := r.js.AccountInfo(infoCtx); err != nil {
-			return nil, fmt.Errorf("regional JetStream unavailable: %w", err)
+			return nil, unavailable{fmt.Errorf("regional JetStream unavailable: %w", err)}
 		}
 	}
 	return r, nil
@@ -424,6 +480,7 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 // JetStream API response. Routes alone can form before JetStream metadata can
 // elect a leader; an existing R3 stream may recover with one broker absent.
 // A caller must do this before provisioning replicated durable resources.
+// It returns ErrEmbeddedServerStopped as soon as the embedded broker exits.
 func (r *Runtime) WaitForCluster(ctx context.Context, replicas int) error {
 	if replicas < 1 || replicas > 5 || replicas%2 == 0 {
 		return errors.New("regional replicas must be 1, 3, or 5")
@@ -432,6 +489,9 @@ func (r *Runtime) WaitForCluster(ctx context.Context, replicas int) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
+		if r.server != nil && !r.server.Running() {
+			return ErrEmbeddedServerStopped
+		}
 		if r.Ready() && (r.server == nil || r.peerCount() >= quorum && r.metadataReady(quorum)) {
 			probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			_, err := r.js.AccountInfo(probeCtx)
@@ -501,6 +561,11 @@ func (cfg Config) validate() error {
 	if !cellName.MatchString(cfg.Cell) || !cellName.MatchString(cfg.Instance) {
 		return errors.New("cell and instance must be lowercase NATS tokens")
 	}
+	// Every protocol subject builder refuses the reserved scope as a cell
+	// and returns "", which would surface far from here as empty grants.
+	if cfg.Cell == protocol.GlobalScope {
+		return errors.New("cell name is reserved for the global scope")
+	}
 	if cfg.Replicas != 1 && cfg.Replicas != 3 && cfg.Replicas != 5 {
 		return errors.New("regional replicas must be 1, 3, or 5")
 	}
@@ -526,6 +591,9 @@ func (cfg Config) validate() error {
 	}
 	if cfg.Embedded != nil {
 		e := cfg.Embedded
+		if err := e.InterRegion.validate(cfg); err != nil {
+			return err
+		}
 		if !cfg.Lab {
 			seen := make(map[string]struct{}, len(e.BrokerIDs))
 			for _, id := range e.BrokerIDs {
@@ -563,7 +631,7 @@ func serverOptions(cfg Config) (*server.Options, error) {
 		return nil, fmt.Errorf("create regional JetStream store: %w", err)
 	}
 	options := &server.Options{
-		ServerName:        cfg.Cell + "-" + cfg.Instance,
+		ServerName:        ServerName(cfg.Cell, cfg.Instance),
 		Host:              e.Host,
 		Port:              e.Port,
 		JetStream:         true,
@@ -577,6 +645,8 @@ func serverOptions(cfg Config) (*server.Options, error) {
 			Host: e.RouteHost,
 			Port: e.RoutePort,
 		},
+		LameDuckDuration:    lameDuckDuration,
+		LameDuckGracePeriod: lameDuckGracePeriod,
 	}
 	if !cfg.Lab {
 		operator, systemJWT, cellJWT, systemID, cellID, err := loadOperatorAccounts(e)
@@ -597,6 +667,11 @@ func serverOptions(cfg Config) (*server.Options, error) {
 		options.AccountResolver = resolver
 		options.DontListen = true
 		options.Cluster.NoAdvertise = true
+		if e.InterRegion.active() {
+			if err := interRegionServerOptions(cfg, options, resolver, operator); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if cfg.Replicas > 1 {
 		for _, raw := range e.Routes {
@@ -663,6 +738,12 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 		connectTimeout = 3 * time.Second
 	}
 	options := []nats.Option{nats.Name("terrascale-" + cfg.Cell + "-" + cfg.Instance), nats.Timeout(connectTimeout)}
+	// Renewal applies to every authentication mode: an NKey-seed client has
+	// no JWT to reload but must still present a renewed certificate.
+	var materials *clientMaterialSource
+	if cfg.ReloadClientMaterial != nil {
+		materials = newClientMaterialSource(cfg, "")
+	}
 	if cfg.CredentialsFile != "" {
 		data, err := readPrivateFile(cfg.CredentialsFile, 64<<10)
 		if err != nil {
@@ -679,15 +760,27 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 			return nil, err
 		}
 		options = append(options, nats.CustomInboxPrefix(inboxPrefix(cfg.Cell, public)))
+		source := materials
+		if source == nil {
+			source = newClientMaterialSource(cfg, public)
+		}
+		source.user = public
+		// The JWT and its signature come from one resolved file per handshake.
+		var handshake ClientMaterial
 		options = append(options, nats.UserJWT(func() (string, error) {
-			data, err := readPrivateFile(cfg.CredentialsFile, 64<<10)
+			handshake = source.current()
+			data, err := readPrivateFile(handshake.CredentialsFile, 64<<10)
 			if err != nil {
 				return "", err
 			}
 			defer clear(data)
 			return nkeys.ParseDecoratedJWT(data)
 		}, func(nonce []byte) ([]byte, error) {
-			return signNKeyFile(cfg.CredentialsFile, nonce)
+			path := handshake.CredentialsFile
+			if path == "" {
+				path = cfg.CredentialsFile
+			}
+			return signNKeyFile(path, nonce)
 		}))
 	}
 	if cfg.NKeySeedFile != "" {
@@ -716,9 +809,27 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 			return nil, err
 		}
 		if cfg.Lab {
+			if materials != nil {
+				// nats.Secure keeps one tls.Config for the connection's life;
+				// resolve the client certificate per handshake instead, so a
+				// renewed certificate is presented on reconnect here too.
+				tlsConfig = tlsConfig.Clone()
+				startup := tlsConfig.Certificates[0]
+				tlsConfig.Certificates = nil
+				tlsConfig.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+					current, err := materials.tlsConfig()
+					if err != nil || len(current.Certificates) == 0 {
+						return &startup, nil
+					}
+					return &current.Certificates[0], nil
+				}
+			}
 			options = append(options, nats.Secure(tlsConfig))
 		} else {
 			dialer := &tlsFirstDialer{config: tlsConfig, timeout: connectTimeout}
+			if materials != nil {
+				dialer.reload = materials.tlsConfig
+			}
 			if len(cfg.OperatorForward) != 0 {
 				_, destinations, err := operatorForwarding(cfg)
 				if err != nil {
@@ -734,31 +845,39 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 }
 
 func inboxPrefix(cell, publicKey string) string {
-	return "ts.orch.v1." + cell + ".inbox." + publicKey
+	return protocol.InboxPrefix(cell, publicKey)
 }
 
 func userPermissions(cell string, user NKeyGrant) (*server.Permissions, error) {
 	inbox := inboxPrefix(cell, user.PublicKey) + ".>"
-	root := "ts.orch.v1." + cell
 	permissions := &server.Permissions{Subscribe: &server.SubjectPermission{Allow: []string{inbox}}}
+	if user.Global && user.Role != "controller" {
+		return nil, errors.New("only a controller NATS user may carry global home grants")
+	}
 	switch user.Role {
 	case "host":
 		if !cellName.MatchString(user.Node) {
 			return nil, errors.New("host NATS user needs a valid node identity")
 		}
 		permissions.Publish = &server.SubjectPermission{Allow: []string{
-			root + ".agent." + user.PublicKey + ".observation.*",
+			protocol.AgentObservation(cell, user.PublicKey, "*"),
 		}}
 	case "controller":
 		if user.Node != "" {
 			return nil, errors.New("controller NATS user must not carry a host node")
 		}
 		permissions.Publish = &server.SubjectPermission{Allow: []string{
-			root + ".>", "ts.control." + cell + ".>", "$JS.API.>", "$KV.>", "$O.>",
+			protocol.Regional(cell, ">"), protocol.Control(cell, ">"), "$JS.API.>", "$KV.>", "$O.>",
 			"$JS.ACK.TS_DELIVERY_INTENTS.TS_DELIVERY_WORKER.>",
 		}}
+		if user.Global {
+			permissions.Publish.Allow = append(permissions.Publish.Allow, GlobalControllerPublishes()...)
+		}
 		permissions.Subscribe.Allow = append(permissions.Subscribe.Allow,
-			root+".agent.*.observation.*", root+".delivery.artifact.admit", root+".host.register", root+".placement.apply", root+".managed-update.prepare", root+".backup.operation", root+".broker.claim.apply", root+".terminal.>")
+			ControllerSubscriptions(cell)...)
+		// Read-only member telemetry: every controller answers observability
+		// snapshot requests for its cell.
+		permissions.Subscribe.Allow = append(permissions.Subscribe.Allow, protocol.ObservabilityGrant(cell))
 	case "operator":
 		if user.Node != "" {
 			return nil, errors.New("operator NATS user must not carry a host node")

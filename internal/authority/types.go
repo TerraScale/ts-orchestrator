@@ -10,11 +10,14 @@ import (
 	"strings"
 	"time"
 	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 const (
 	controlStreamName    = "TS_CONTROL_LOG"
-	controlSubjectRoot   = "ts.control"
+	controlSubjectRoot   = protocol.ControlRoot
 	defaultLeaseDuration = 15 * time.Second
 	defaultRenewInterval = 3 * time.Second
 	defaultReplicas      = 3
@@ -138,7 +141,7 @@ type TerminalIntent struct {
 func (intent TerminalIntent) Validate() error {
 	if !natsToken.MatchString(intent.Cell) || !natsToken.MatchString(intent.DatabaseID) ||
 		!natsToken.MatchString(intent.PartitionID) || !natsToken.MatchString(intent.Owner) ||
-		(intent.Region != "GRU" && intent.Region != "SFO" && intent.Region != "FRA") ||
+		!catalog.IsCell(intent.Region) ||
 		!strings.HasPrefix(intent.CompartmentID, "ocid1.compartment.") ||
 		intent.FleetGeneration == 0 || intent.PlacementGeneration == 0 ||
 		!validTerminalDigest(intent.PlacementPayloadDigest) || !natsToken.MatchString(intent.OperationID) ||

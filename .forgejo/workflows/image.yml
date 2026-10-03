@@ -1,9 +1,10 @@
 name: Qualified GRU ARM64 image
 
-# ci.yml dispatches this workflow as it starts on main (trigger "ci"), so
-# the image tools are prepared while the checks run; the build then waits
-# for the revision's ci.yml run and skips itself if that run fails or is
-# cancelled. Automatic builds queue rather than cancel each other, so a
+# ci.yml dispatches this workflow as its last step on main (trigger "ci"),
+# once the revision's release is retained, so this job never holds a builder
+# slot while the checks run. The gate still confirms that ci.yml run
+# succeeded and skips the build if it failed, was cancelled or has been
+# overtaken. Automatic builds queue rather than cancel each other, so a
 # build in progress always finishes, and a queued build that a newer
 # qualified revision has overtaken skips itself. An operator can dispatch
 # any CI-qualified main revision; those runs are always built.
@@ -37,11 +38,16 @@ jobs:
     if: ${{ forgejo.ref == 'refs/heads/main' }}
     name: build/qualified-gru-arm64-image
     runs-on: terrascale-builder
-    timeout-minutes: 165
+    # 100 minutes for the gate's wait (6000s), 40 for the qualification
+    # budget (scripts/ci/qualify-image.sh) and 65 for the build and release.
+    timeout-minutes: 205
     env:
       SOURCE_SHA: ${{ inputs.source_revision }}
       SOURCE_CI_RUN_ID: ${{ inputs.source_ci_run_id }}
       SOURCE_CI_RUN_NUMBER: ${{ inputs.source_ci_run_number }}
+      # Share ci.yml's persistent Go build and module caches.
+      GOCACHE: /cache/go/build
+      GOMODCACHE: /cache/go/mod
     steps:
       - name: Check out the named source revision
         uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -78,8 +84,8 @@ jobs:
           FORGEJO_SERVER_URL: ${{ github.server_url }}
         run: bash scripts/ci/configure-fj-profiles.sh "${RUNNER_TEMP}/forgejo"
 
-      # Overlaps the ci.yml checks: copying the pinned closure into this
-      # container's store is most of the image job's fixed cost.
+      # Copying the pinned closure into this container's store is most of the
+      # image job's fixed cost.
       - name: Prepare the pinned image tools
         shell: bash
         env:
@@ -96,6 +102,22 @@ jobs:
           FORGEJO_READ_TOKEN_FILE="${RUNNER_TEMP}/forgejo/read-token" \
             bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" "${SOURCE_CI_RUN_ID}" "${SOURCE_CI_RUN_NUMBER}" 6000
 
+      # Qualification tier (T2): real TerraBase and cross-language fixtures,
+      # before any image exists. It runs only where the runner supplies them:
+      # the repository variable TS_QUALIFICATION_SUITES names those suites
+      # and scripts/ci/qualify-image.sh lists what each one requires. A
+      # missing fixture or a skipped test fails the build.
+      - name: Qualify the revision against real infrastructure
+        if: ${{ steps.gate.outputs.skip != 'true' && vars.TS_QUALIFICATION_SUITES != '' }}
+        shell: bash
+        env:
+          TS_TEST_TIER: qualification
+          TS_QUALIFICATION_SUITES: ${{ vars.TS_QUALIFICATION_SUITES }}
+        run: bash scripts/ci/qualify-image.sh
+
+      # The gate has already waited for the dispatching ci.yml run, and a
+      # manual dispatch names a revision whose run has succeeded, so the
+      # build checks the run once instead of polling it again.
       - name: Build the image from the qualified candidate
         if: ${{ steps.gate.outputs.skip != 'true' }}
         shell: bash
@@ -109,7 +131,7 @@ jobs:
           XDG_DATA_HOME="${RUNNER_TEMP}/forgejo/read" \
           FORGEJO_READ_TOKEN_FILE="${RUNNER_TEMP}/forgejo/read-token" \
             bash deploy/image/tools.sh \
-            bash deploy/image/build-image.sh --source "${SOURCE_SHA}" --out dist/image --wait-for-ci 1800
+            bash deploy/image/build-image.sh --source "${SOURCE_SHA}" --out dist/image
 
       - name: Retain the image release
         if: ${{ steps.gate.outputs.skip != 'true' }}

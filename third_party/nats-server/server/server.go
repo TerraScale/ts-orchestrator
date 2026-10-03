@@ -2129,6 +2129,15 @@ func (s *Server) updateAccount(acc *Account) error {
 	return s.updateAccountWithClaimJWT(acc, claimJWT)
 }
 
+// UpdateAccountClaimJWT verifies claimJWT against the trusted operators and
+// applies it to acc, recording it as the account's current JWT. TerraScale:
+// an embedded resolver that reports IsTrackingUpdate() == true disables the
+// system-account CLAIMS.UPDATE subscription, so no routed or client-sent
+// claim bypasses its own checks; it then applies validated claims here.
+func (s *Server) UpdateAccountClaimJWT(acc *Account, claimJWT string) error {
+	return s.updateAccountWithClaimJWT(acc, claimJWT)
+}
+
 // updateAccountWithClaimJWT will check and apply the claim update.
 // Lock MUST NOT be held upon entry.
 func (s *Server) updateAccountWithClaimJWT(acc *Account, claimJWT string) error {

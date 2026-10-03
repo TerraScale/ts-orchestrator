@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 type Runner struct {
@@ -285,7 +287,7 @@ func (r *Runner) validateTarget(e Object) {
 	}
 	targets := sub(sub(sub(r.Manifest, "transport"), "ssh"), "targets")
 	regs := Object{}
-	regions := map[string]string{"GRU": "sa-saopaulo-1", "SFO": "us-sanjose-1", "FRA": "eu-frankfurt-1"}
+	regions := catalog.Map()
 	for _, label := range []string{"source", "peer"} {
 		want := sub(r.member(), label)
 		count := 0

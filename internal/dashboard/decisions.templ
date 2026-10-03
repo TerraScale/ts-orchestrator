@@ -1,0 +1,231 @@
+package dashboard
+
+import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+
+// decisionsBody is the global decision journal: what the orchestrator
+// decided in every region and why, filterable by region, kind, actor,
+// status and subject. Selecting a decision opens its whole chain.
+templ decisionsBody(current view) {
+	<div id="content">
+		<div class="page-head">
+			<h1>Decision journal</h1>
+			<small class="muted">what the orchestrator decided, and why · merged across regions</small>
+		</div>
+		@notes(current)
+		if current.Journal == nil || current.Journal.Decisions == nil {
+			@journalMissing("The decision journal")
+		}
+		<form method="get" action="/decisions" class="filters">
+			@stateFields(current.State)
+			<label>
+				Region
+				<select name="region">
+					<option value={ allRegions } selected?={ len(current.State.regionFilter()) == 0 }>all</option>
+					for _, region := range current.regionOptions() {
+						<option value={ region } selected?={ current.State.filtersRegion(region) }>{ upper(region) }</option>
+					}
+				</select>
+			</label>
+			<label>
+				Kind
+				<select name="kind">
+					<option value="">any</option>
+					for _, kind := range current.kindOptions() {
+						<option value={ kind } selected?={ current.State.param("kind") == kind }>{ kindLabel(decisionlog.Kind(kind)) }</option>
+					}
+				</select>
+			</label>
+			<label>
+				Actor
+				<select name="actor">
+					<option value="">any</option>
+					for _, actor := range current.actorOptions() {
+						<option value={ actor } selected?={ current.State.param("actor") == actor }>{ actor }</option>
+					}
+				</select>
+			</label>
+			<label>
+				Status
+				<select name="status">
+					<option value="">any</option>
+					for _, status := range decisionStatuses {
+						<option value={ string(status) } selected?={ current.State.param("status") == string(status) }>{ statusLabel(status) }</option>
+					}
+				</select>
+			</label>
+			<label>
+				Subject or text
+				<input type="search" name="q" value={ current.State.param("q") } placeholder="host, release, volume…"/>
+			</label>
+			<button type="submit" class="secondary">Filter</button>
+			if current.filterActive() {
+				<a href={ safe(current.State.link("/decisions")) }>Clear</a>
+			}
+		</form>
+		if current.Decisions != nil {
+			@regionStatuses(current.Decisions)
+		}
+		if current.Chain != nil {
+			@chainPanel(current, *current.Chain)
+		} else if current.State.param("id") != "" {
+			<p class="note warn">Decision { current.State.param("id") } was not found in any reachable region's journal.</p>
+		}
+		<article>
+			<div class="chart-title">
+				<h2>Timeline <small>{ current.State.Range.Key } · click a mark to open its chain</small></h2>
+				<span class="legend">
+					<span><span class="dot s-ok"></span>succeeded</span>
+					<span><span class="dot s-run"></span>in progress</span>
+					<span><span class="dot s-idle"></span>pending</span>
+					<span><span class="dot s-bad"></span>failed</span>
+					<span><span class="dot s-serious"></span>rolled back</span>
+				</span>
+			</div>
+			@timeline("tall", current.decisionTimeline(current.decisions(), len(current.State.regionFilter()) == 1))
+		</article>
+		<div class="cols-2">
+			<article>
+				<h2>Decisions <small>{ itoa(len(current.decisions())) } shown, newest first</small></h2>
+				@decisionTable(current, current.decisions())
+			</article>
+			<article>
+				<h2>By kind and region</h2>
+				@chart("tall", current.decisionKindChart())
+			</article>
+		</div>
+	</div>
+}
+
+templ regionStatuses(result *decisionlog.Result) {
+	if result.Partial || result.Truncated || len(unansweredRegions(result)) > 0 {
+		<p class="note warn">
+			if result.Truncated {
+				More decisions matched than are shown; narrow the filters or the time range.
+			}
+			if missing := unansweredRegions(result); len(missing) > 0 {
+				Some regions did not answer, so this list is partial:
+				for _, status := range missing {
+					<span class="tag">{ upper(status.Region) } { reachLabel(status.State) }</span>
+				}
+			} else if result.Partial {
+				Part of the requested history could not be searched (the journal may still be loading its history, or an archive search was cut short or failed), so this list may be incomplete.
+			}
+		</p>
+	}
+}
+
+templ decisionTable(current view, decisions []decisionlog.Decision) {
+	if current.Journal == nil || current.Journal.Decisions == nil {
+		@unavailable("The decision journal is not attached on this member yet.")
+	} else if len(decisions) == 0 {
+		<p class="empty">No decisions match in the last { current.State.Range.Key }.</p>
+	} else {
+		<div class="table-scroll">
+			<table>
+				<thead><tr><th>When</th><th>Region</th><th>Actor</th><th>Kind</th><th>Decision</th><th>Status</th></tr></thead>
+				<tbody>
+					for _, decision := range decisions {
+						<tr>
+							<td>
+								@ago(decision.Time)
+							</td>
+							<td><span class="tag">{ upper(decision.Region) }</span></td>
+							<td>{ decision.Actor.Slice }</td>
+							<td>{ kindLabel(decision.Kind) }</td>
+							<td class="wrap"><a href={ safe(current.State.keep("/decisions", "id", decision.ID)) } title={ decision.Reason }>{ decision.Summary }</a></td>
+							<td>
+								@statusPill(decisionStatus(decision.Status), statusLabel(decision.Status))
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	}
+}
+
+// chainPanel shows a decision with its parents and children, oldest first:
+// for each step why it was taken, the signals and gates it read, the rule
+// that fired and the alternatives it rejected.
+templ chainPanel(current view, chain decisionlog.Chain) {
+	<article class={ "edge", sClass(decisionStatus(chain.Latest.Status)) }>
+		<div class="chart-title">
+			<h2>
+				{ chain.Root.Summary }
+				<small>{ itoa(len(chain.Decisions)) } steps · now { statusLabel(chain.Latest.Status) }</small>
+			</h2>
+			<a href={ safe(current.State.keep(current.Page.href(), "id", "")) }>Close ✕</a>
+		</div>
+		if chain.Partial {
+			<p class="note warn">Part of this chain could not be searched, so steps may be missing and its current status may be out of date.</p>
+		}
+		if chain.Truncated {
+			<p class="note warn">This chain has more steps than are shown: the root, the selected decision and the newest steps are listed.</p>
+		}
+		<ol class="chain">
+			for _, decision := range chain.Decisions {
+				@decisionStep(current, decision)
+			}
+		</ol>
+	</article>
+}
+
+templ decisionStep(current view, decision decisionlog.Decision) {
+	<li class={ templ.KV("selected", decision.ID == current.State.param("id")) }>
+		<span class={ "dot", sClass(decisionStatus(decision.Status)) }></span>
+		<div>
+			<strong>{ decision.Summary }</strong>
+			@statusPill(decisionStatus(decision.Status), statusLabel(decision.Status))
+			<br/>
+			<small class="muted">
+				@ago(decision.Time)
+				{ " · " + upper(decision.Region) } · { kindLabel(decision.Kind) } by { decision.Actor.Slice }
+				if decision.Actor.Member != "" {
+					on { decision.Actor.Member }
+				}
+				if decision.Epoch > 0 {
+					· epoch { itoa(decision.Epoch) }
+				}
+				· { decision.Subject.String() }
+				if decision.Subject.Name != "" {
+					({ decision.Subject.Name })
+				}
+			</small>
+			if decision.Reason != "" {
+				<p>{ decision.Reason }</p>
+			}
+			if decision.Rule != "" {
+				<p><small class="muted">Rule:</small> { decision.Rule }</p>
+			}
+			if len(decision.Signals) > 0 {
+				<table class="signals">
+					<thead><tr><th>Signal</th><th>Value</th><th>Gate</th><th>Result</th></tr></thead>
+					<tbody>
+						for _, signal := range decision.Signals {
+							<tr>
+								<td>{ signal.Name }</td>
+								<td>{ signalValue(signal) }</td>
+								<td>{ orDash(signalGate(signal)) }</td>
+								<td class={ signalPassed(signal) }>{ signalMark(signal) }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			}
+			if len(decision.Alternatives) > 0 {
+				<p><small class="muted">Alternatives considered:</small></p>
+				<ul>
+					for _, alternative := range decision.Alternatives {
+						<li><strong>{ alternative.Option }</strong>: { alternative.Reason }</li>
+					}
+				</ul>
+			}
+			if decision.Outcome != "" {
+				<p><small class="muted">Outcome:</small> { decision.Outcome }</p>
+			}
+			if len(decision.Attrs) > 0 {
+				<small class="muted"><code>{ attrsText(decision.Attrs) }</code></small>
+			}
+		</div>
+	</li>
+}

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
 func successorFixture(t *testing.T, service PreparationService, spec InitialSpec, now time.Time) SuccessorRequest {
@@ -303,7 +305,7 @@ func TestProduceSuccessorRustInterop(t *testing.T) {
 	binary := os.Getenv("TS_D11_RUST_SERVER")
 	artifactDir := os.Getenv("TS_D11_PUBLIC_ARTIFACT_DIR")
 	if binary == "" && artifactDir == "" {
-		t.Skip("D11 public artifact interop was not requested")
+		tier.Unavailable(t, "D11 public artifact interop was not requested: set TS_D11_RUST_SERVER or TS_D11_PUBLIC_ARTIFACT_DIR")
 	}
 	service, _, _, _ := preparationFixture(t)
 	spec, recipientSigner, _ := initialSQLFixture(t)

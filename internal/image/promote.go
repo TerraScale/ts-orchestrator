@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const repository = "TerraScale/ts-orchestrator"
@@ -27,8 +29,29 @@ const orchestratorAsset = "terrascale-orchestrator-linux-arm64"
 
 type PromotionOptions struct {
 	ImageRelease, ImageDir, Out, Environment, Delegation, ImageDelegation, RootKey, BinaryReceipt, SigningKey, CompartmentID, Namespace, Bucket, DisplayName, FJ, ReleaseTool string
-	SignBinary, DryRun                                                                                                                                                        bool
+	SignBinary, DryRun, Resume                                                                                                                                                bool
+	// Importer builds the OCI image importer; nil uses the in-binary SDK
+	// over the operator's ~/.oci/config. It is not a flag.
+	Importer imageimport.ImporterFactory
 }
+
+// promotionState pins a resumable --out directory to one image, so a rerun
+// can never mix the assets of two promotions.
+type promotionState struct {
+	Schema       string `json:"schema"`
+	ImageRelease string `json:"image_release,omitempty"`
+	ImageDir     string `json:"image_dir,omitempty"`
+	ImageSHA256  string `json:"image_sha256,omitempty"`
+}
+
+const (
+	promotionStateFile  = "promotion-state.json"
+	promotionStateV1    = "terrascale.image.promotion-state.v1"
+	releaseToolDir      = "release-tool"
+	releaseToolRecord   = "release-tool.json"
+	releaseToolRecordV1 = "terrascale.image.release-tool.v1"
+)
+
 type imageManifest struct {
 	Schema         string `json:"schema"`
 	SourceRevision string `json:"source_revision"`
@@ -72,6 +95,11 @@ func BuildReleaseTool(ctx context.Context, root, work, source, prebuilt string, 
 	} else {
 		if !gitSHA.MatchString(source) {
 			result = errors.New("invalid image source revision")
+			return
+		}
+		// go build runs inside the source worktree: a relative -o would
+		// land in (and be removed with) that worktree.
+		if work, result = filepath.Abs(work); result != nil {
 			return
 		}
 		checkout := filepath.Join(work, "source")
@@ -157,6 +185,19 @@ func (p *promotion) run(capture bool, command ...string) (string, error) {
 	}
 	return out, nil
 }
+
+// fetch downloads asset unless a resumed promotion already holds a file
+// whose SHA-256 equals the expected pinned digest. Every caller still
+// verifies the digest of whatever file it ends up using.
+func (p *promotion) fetch(tag, asset, destination, expected string) (string, error) {
+	if p.o.Resume && expected != "" {
+		if digest, e := fileHash(destination); e == nil && digest == expected {
+			p.step("reusing verified " + asset)
+			return destination, nil
+		}
+	}
+	return p.download(tag, asset, destination)
+}
 func (p *promotion) download(tag, asset, destination string) (string, error) {
 	if e := os.MkdirAll(filepath.Dir(destination), 0755); e != nil {
 		return "", e
@@ -170,13 +211,26 @@ func (p *promotion) acquireImage() error {
 		if !regexp.MustCompile(`^image-[0-9a-f]{40}-run-[1-9][0-9]*-attempt-[1-9][0-9]*$`).MatchString(p.o.ImageRelease) {
 			return fmt.Errorf("not an image release tag: %s", p.o.ImageRelease)
 		}
-		for _, asset := range imageAssets {
-			if _, e := p.download(p.o.ImageRelease, asset, filepath.Join(imageDir, asset)); e != nil {
+		// SHA256SUMS is small and always fresh; it pins the large assets a
+		// resumed promotion may reuse.
+		if _, e := p.download(p.o.ImageRelease, imageAssets[3], filepath.Join(imageDir, imageAssets[3])); e != nil {
+			return e
+		}
+		pinned, e := readImageSums(filepath.Join(imageDir, imageAssets[3]))
+		if e != nil {
+			return e
+		}
+		for _, asset := range imageAssets[:3] {
+			if _, e := p.fetch(p.o.ImageRelease, asset, filepath.Join(imageDir, asset), pinned[asset]); e != nil {
 				return e
 			}
 		}
 	} else {
-		if e := os.Mkdir(imageDir, 0755); e != nil {
+		mkdir := os.Mkdir
+		if p.o.Resume {
+			mkdir = os.MkdirAll
+		}
+		if e := mkdir(imageDir, 0755); e != nil {
 			return e
 		}
 		for _, asset := range imageAssets {
@@ -189,29 +243,12 @@ func (p *promotion) acquireImage() error {
 			}
 		}
 	}
-	b, e := os.ReadFile(filepath.Join(imageDir, "SHA256SUMS"))
+	sums, e := readImageSums(filepath.Join(imageDir, "SHA256SUMS"))
 	if e != nil {
 		return e
 	}
-	sums := map[string]string{}
-	for line := range strings.SplitSeq(strings.TrimSuffix(string(b), "\n"), "\n") {
-		digest, name, ok := strings.Cut(line, "  ")
-		if !ok || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(digest) {
-			return errors.New("SHA256SUMS must list exactly the image, kernel and manifest")
-		}
-		if _, exists := sums[name]; exists {
-			return errors.New("SHA256SUMS must list exactly the image, kernel and manifest")
-		}
-		sums[name] = digest
-	}
-	if len(sums) != 3 {
-		return errors.New("SHA256SUMS must list exactly the image, kernel and manifest")
-	}
 	for _, asset := range imageAssets[:3] {
-		digest, ok := sums[asset]
-		if !ok {
-			return errors.New("SHA256SUMS must list exactly the image, kernel and manifest")
-		}
+		digest := sums[asset]
 		observed, e := fileHash(filepath.Join(imageDir, asset))
 		if e != nil {
 			return e
@@ -320,6 +357,162 @@ func (p *promotion) acquireImage() error {
 	return nil
 }
 
+// readImageSums parses SHA256SUMS, which must list exactly the image,
+// kernel and manifest.
+func readImageSums(path string) (map[string]string, error) {
+	invalid := errors.New("SHA256SUMS must list exactly the image, kernel and manifest")
+	b, e := os.ReadFile(path)
+	if e != nil {
+		return nil, e
+	}
+	sums := map[string]string{}
+	for line := range strings.SplitSeq(strings.TrimSuffix(string(b), "\n"), "\n") {
+		digest, name, ok := strings.Cut(line, "  ")
+		if !ok || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(digest) {
+			return nil, invalid
+		}
+		if _, exists := sums[name]; exists {
+			return nil, invalid
+		}
+		sums[name] = digest
+	}
+	if len(sums) != 3 {
+		return nil, invalid
+	}
+	for _, asset := range imageAssets[:3] {
+		if _, ok := sums[asset]; !ok {
+			return nil, invalid
+		}
+	}
+	return sums, nil
+}
+
+// checkResumeState refuses to resume an --out directory that belongs to a
+// different image release, directory or image digest, then records the pin.
+func (p *promotion) checkResumeState(imageSHA256 string) error {
+	path := filepath.Join(p.o.Out, promotionStateFile)
+	want := promotionState{Schema: promotionStateV1, ImageRelease: p.o.ImageRelease, ImageSHA256: imageSHA256}
+	if p.o.ImageDir != "" {
+		source, e := filepath.Abs(p.o.ImageDir)
+		if e != nil {
+			return e
+		}
+		want.ImageDir = source
+	}
+	var existing promotionState
+	if e := readJSON(path, &existing); e == nil {
+		if existing.Schema != promotionStateV1 || existing.ImageRelease != want.ImageRelease || existing.ImageDir != want.ImageDir ||
+			imageSHA256 != "" && existing.ImageSHA256 != "" && existing.ImageSHA256 != imageSHA256 {
+			return fmt.Errorf("--out %s belongs to a different promotion; use a new directory", p.o.Out)
+		}
+		if imageSHA256 == "" {
+			return nil
+		}
+	} else if !os.IsNotExist(e) {
+		return e
+	}
+	b, e := canonical(want)
+	if e != nil {
+		return e
+	}
+	return writeCheckpoint(path, b)
+}
+
+// writeCheckpoint publishes a resume checkpoint through a synced temporary
+// file and an atomic rename, so an interruption leaves either the previous
+// or the new checkpoint and never a truncated one. An identical checkpoint
+// is not rewritten.
+func writeCheckpoint(path string, b []byte) error {
+	if existing, e := os.ReadFile(path); e == nil && string(existing) == string(b) {
+		return nil
+	}
+	temporary, e := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-")
+	if e != nil {
+		return e
+	}
+	defer os.Remove(temporary.Name())
+	if _, e = temporary.Write(b); e == nil {
+		e = temporary.Sync()
+	}
+	if e == nil {
+		e = temporary.Chmod(0644)
+	}
+	if closeErr := temporary.Close(); e == nil {
+		e = closeErr
+	}
+	if e != nil {
+		return e
+	}
+	if e = os.Rename(temporary.Name(), path); e != nil {
+		return e
+	}
+	dir, e := os.Open(filepath.Dir(path))
+	if e != nil {
+		return e
+	}
+	defer dir.Close()
+	return dir.Sync()
+}
+
+// freshOutput makes path available to a generating release command, which
+// never overwrites its --out. On --resume an output an earlier run left
+// behind is moved aside (kept for audit) and regenerated from the verified
+// inputs; without --resume --out is new, so an existing file is an error.
+func (p *promotion) freshOutput(path string) error {
+	s, e := os.Lstat(path)
+	if os.IsNotExist(e) {
+		return nil
+	}
+	if e != nil {
+		return e
+	}
+	if !p.o.Resume || !s.Mode().IsRegular() {
+		return fmt.Errorf("promotion output already exists: %s", path)
+	}
+	aside := fmt.Sprintf("%s.superseded-%d", path, time.Now().UnixNano())
+	p.step("regenerating " + filepath.Base(path) + "; the earlier one is kept as " + filepath.Base(aside))
+	return os.Rename(path, aside)
+}
+
+// reuseReleaseTool returns the signer recorded by an earlier run of a resumed
+// promotion when its bytes still match the recorded digest and it was built
+// from the clean image source revision.
+func reuseReleaseTool(ctx context.Context, dir, source string, run Exec) (string, []string, map[string]any, bool) {
+	if run == nil {
+		run = Execute
+	}
+	var recorded struct {
+		Schema         string   `json:"schema"`
+		Path           string   `json:"path"`
+		SHA256         string   `json:"sha256"`
+		SourceRevision string   `json:"source_revision"`
+		Prefix         []string `json:"prefix"`
+	}
+	if readJSON(filepath.Join(dir, releaseToolRecord), &recorded) != nil || recorded.Schema != releaseToolRecordV1 ||
+		recorded.SourceRevision != source || filepath.Dir(filepath.Dir(recorded.Path)) != dir ||
+		!strings.HasPrefix(filepath.Base(filepath.Dir(recorded.Path)), "build-") {
+		return "", nil, nil, false
+	}
+	digest, e := fileHash(recorded.Path)
+	if e != nil || digest != recorded.SHA256 {
+		return "", nil, nil, false
+	}
+	metadata, e := run(ctx, "", nil, "go", "version", "-m", recorded.Path)
+	if e != nil || !strings.Contains(metadata, "vcs.revision="+source) || !strings.Contains(metadata, "vcs.modified=false") {
+		return "", nil, nil, false
+	}
+	return recorded.Path, recorded.Prefix, map[string]any{"path": recorded.Path, "sha256": digest, "reused": true}, true
+}
+
+func recordReleaseTool(dir, source string, prefix []string, record map[string]any) error {
+	b, e := canonical(map[string]any{"schema": releaseToolRecordV1, "path": record["path"], "sha256": record["sha256"],
+		"source_revision": source, "prefix": prefix})
+	if e != nil {
+		return e
+	}
+	return os.WriteFile(filepath.Join(dir, releaseToolRecord), b, 0644)
+}
+
 type candidateFiles struct{ qualification, binary, receipt, base string }
 
 func (p *promotion) acquireCandidate() (candidateFiles, error) {
@@ -327,10 +520,10 @@ func (p *promotion) acquireCandidate() (candidateFiles, error) {
 	c := p.manifest.Candidate
 	dir := filepath.Join(p.o.Out, "candidate")
 	var e error
-	if files.qualification, e = p.download(c.Tag, "qualification.json", filepath.Join(dir, "qualification.json")); e != nil {
+	if files.qualification, e = p.fetch(c.Tag, "qualification.json", filepath.Join(dir, "qualification.json"), c.QualificationSHA256); e != nil {
 		return files, e
 	}
-	if files.binary, e = p.download(c.Tag, orchestratorAsset, filepath.Join(dir, orchestratorAsset)); e != nil {
+	if files.binary, e = p.fetch(c.Tag, orchestratorAsset, filepath.Join(dir, orchestratorAsset), c.BinarySHA256); e != nil {
 		return files, e
 	}
 	qd, e := fileHash(files.qualification)
@@ -353,10 +546,17 @@ func (p *promotion) acquireCandidate() (candidateFiles, error) {
 		if _, e = p.download(c.Tag, p.o.Environment+"-linux-arm64.receipt.json", files.receipt); e != nil {
 			os.Remove(files.receipt)
 			files.receipt = ""
+			// A resumed promotion reuses the receipt it signed earlier;
+			// verify-binary still checks it against the exact binary.
+			signed := filepath.Join(p.o.Out, "binary.receipt.json")
+			if s, statErr := os.Stat(signed); p.o.Resume && statErr == nil && s.Mode().IsRegular() {
+				files.receipt = signed
+				p.step("reusing signed binary receipt")
+			}
 		}
 	}
 	base := p.manifest.Inputs.Manifest.Base
-	if files.base, e = p.download(base.ReleaseTag, "base-image.qcow2", filepath.Join(p.o.Out, "base-image.qcow2")); e != nil {
+	if files.base, e = p.fetch(base.ReleaseTag, "base-image.qcow2", filepath.Join(p.o.Out, "base-image.qcow2"), base.Assets.Base.SHA256); e != nil {
 		return files, e
 	}
 	digest, e := fileHash(files.base)
@@ -390,6 +590,13 @@ func (p *promotion) finish(outcome string) error {
 	return nil
 }
 func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer) error {
+	// The release tool is built with its working directory in a source
+	// worktree, so every path derived from --out must be absolute.
+	absoluteOut, e := filepath.Abs(o.Out)
+	if e != nil {
+		return e
+	}
+	o.Out = absoluteOut
 	work, e := os.MkdirTemp("", "ts-promote-")
 	if e != nil {
 		return e
@@ -426,7 +633,15 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 	}
 	tools := map[string]any{"fj": map[string]any{"path": p.fj, "sha256": digest}}
 	p.receipt = map[string]any{"schema": "terrascale.image.promotion.v1", "dry_run": o.DryRun, "started_at": time.Now().UTC().Format(time.RFC3339), "environment": o.Environment, "tools": tools}
-	if e = os.Mkdir(o.Out, 0755); e != nil {
+	if o.Resume {
+		p.receipt["resumed"] = true
+		if e = os.MkdirAll(o.Out, 0755); e != nil {
+			return e
+		}
+		if e = p.checkResumeState(""); e != nil {
+			return e
+		}
+	} else if e = os.Mkdir(o.Out, 0755); e != nil {
 		return e
 	}
 	if e = os.Mkdir(filepath.Join(work, "bin"), 0755); e != nil {
@@ -447,13 +662,42 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 	if e = p.acquireImage(); e != nil {
 		return e
 	}
+	if e = p.checkResumeState(p.manifest.Image.SHA256); e != nil {
+		return e
+	}
 	files, e := p.acquireCandidate()
 	if e != nil {
 		return e
 	}
-	tool, prefix, record, e := BuildReleaseTool(ctx, root, work, p.manifest.SourceRevision, o.ReleaseTool, nil)
-	if e != nil {
-		return e
+	// Build the signer inside --out so a rerun can reuse it by digest.
+	toolDir := filepath.Join(o.Out, releaseToolDir)
+	tool, prefix, record, reused := "", []string(nil), map[string]any(nil), false
+	if o.ReleaseTool == "" && o.Resume {
+		tool, prefix, record, reused = reuseReleaseTool(ctx, toolDir, p.manifest.SourceRevision, nil)
+	}
+	if !reused {
+		buildDir := toolDir
+		if o.ReleaseTool == "" {
+			if e = os.MkdirAll(toolDir, 0755); e != nil {
+				return e
+			}
+			// A fresh build directory per attempt: an interrupted earlier
+			// run may have left its source worktree behind, and git refuses
+			// to add a worktree at an existing path.
+			if buildDir, e = os.MkdirTemp(toolDir, "build-"); e != nil {
+				return e
+			}
+		}
+		if tool, prefix, record, e = BuildReleaseTool(ctx, root, buildDir, p.manifest.SourceRevision, o.ReleaseTool, nil); e != nil {
+			return e
+		}
+		if o.ReleaseTool == "" {
+			if e = recordReleaseTool(toolDir, p.manifest.SourceRevision, prefix, record); e != nil {
+				return e
+			}
+		}
+	} else {
+		p.step("reusing release tool sha256=" + record["sha256"].(string))
 	}
 	p.releasePrefix = prefix
 	tools["ts_release"] = record
@@ -483,6 +727,9 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 	}
 	if files.receipt == "" {
 		unsigned := filepath.Join(o.Out, "binary-candidate.json")
+		if e = p.freshOutput(unsigned); e != nil {
+			return e
+		}
 		if _, e = release(false, "binary-candidate", "--binary", files.binary, "--source-revision", p.manifest.SourceRevision, "--qualification", files.qualification, "--out", unsigned); e != nil {
 			return e
 		}
@@ -494,6 +741,9 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 			return p.finish("dry run stopped before the image candidate: the binary is not signed yet")
 		}
 		files.receipt = filepath.Join(o.Out, "binary.receipt.json")
+		if e = p.freshOutput(files.receipt); e != nil {
+			return e
+		}
 		args := []string{"sign-binary", "--candidate", unsigned, "--binary", files.binary, "--qualification", files.qualification, "--signing-key", o.SigningKey}
 		args = append(args, trust...)
 		args = append(args, "--out", files.receipt)
@@ -523,7 +773,15 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 		p.step(fmt.Sprintf("dry run: would import %s as %s", image, display))
 	} else {
 		importRecord := filepath.Join(o.Out, "oci-import.json")
-		if e = imageimport.Run(ctx, []string{"--qcow2", image, "--sha256", p.manifest.Image.SHA256, "--region", "sa-saopaulo-1", "--compartment-id", o.CompartmentID, "--namespace", o.Namespace, "--bucket", o.Bucket, "--display-name", display, "--out", importRecord}, out); e != nil {
+		importer := o.Importer
+		if importer == nil {
+			importer = Services{}.importer()
+		}
+		var previous map[string]any
+		if o.Resume && readJSON(importRecord, &previous) == nil && reusableImport(previous, p.manifest.Image.SHA256,
+			o.CompartmentID, o.Namespace, o.Bucket, display) {
+			p.step("reusing completed OCI import")
+		} else if e = imageimport.RunImporters(ctx, []string{"--qcow2", image, "--sha256", p.manifest.Image.SHA256, "--region", catalog.OCIRegion(catalog.Bootstrap), "--compartment-id", o.CompartmentID, "--namespace", o.Namespace, "--bucket", o.Bucket, "--display-name", display, "--out", importRecord}, out, importer); e != nil {
 			return e
 		}
 		var imported map[string]any
@@ -541,6 +799,9 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 		p.step("imported image_ocid=" + imageOCID)
 	}
 	imageCandidate := filepath.Join(o.Out, "image-candidate.json")
+	if e = p.freshOutput(imageCandidate); e != nil {
+		return e
+	}
 	args = append([]string{"image-candidate", "--binary-receipt", files.receipt, "--binary", files.binary, "--qualification", files.qualification}, trust...)
 	base := p.manifest.Inputs.Manifest.Base
 	args = append(args, "--image-file", image, "--base-image-ocid", base.OCIImageOCID, "--base-image-region", region, "--base-image-file", files.base, "--kernel-release", p.manifest.Kernel.Release, "--kernel-file", kernel, "--image-ocid", imageOCID, "--region", region, "--out", imageCandidate)
@@ -569,6 +830,9 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 	}
 	trustRecord["image_delegation_sha256"] = digest
 	signed := filepath.Join(o.Out, "image-receipt.json")
+	if e = p.freshOutput(signed); e != nil {
+		return e
+	}
 	args = []string{"sign-image", "--candidate", imageCandidate, "--binary-receipt", files.receipt, "--binary", files.binary, "--qualification", files.qualification, "--image-file", image, "--base-image-file", files.base, "--kernel-file", kernel, "--signing-key", o.SigningKey}
 	args = append(args, imageTrust...)
 	args = append(args, "--environment", o.Environment, "--out", signed)
@@ -589,7 +853,7 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 	p.step(verified)
 	return p.finish("promotion complete")
 }
-func runPromotion(ctx context.Context, root string, args []string, out, stderr io.Writer) (error, int) {
+func runPromotion(ctx context.Context, root string, args []string, out, stderr io.Writer, services Services) (error, int) {
 	fs := flag.NewFlagSet("image promote", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	o := PromotionOptions{Environment: "canary"}
@@ -602,6 +866,7 @@ func runPromotion(ctx context.Context, root string, args []string, out, stderr i
 	fs.StringVar(&o.Environment, "environment", "canary", "release environment")
 	fs.BoolVar(&o.SignBinary, "sign-binary", false, "sign unsigned binary candidate")
 	fs.BoolVar(&o.DryRun, "dry-run", false, "run every read-only gate")
+	fs.BoolVar(&o.Resume, "resume", false, "continue in an existing --out of the same image, reusing verified downloads, the recorded release tool and a completed OCI import")
 	if e := fs.Parse(args); e != nil {
 		if errors.Is(e, flag.ErrHelp) {
 			return nil, 0
@@ -631,8 +896,12 @@ func runPromotion(ctx context.Context, root string, args []string, out, stderr i
 	if o.DryRun && o.ImageDelegation != "" {
 		return errors.New("--dry-run never signs the image; drop --image-delegation"), 2
 	}
-	if _, e := os.Lstat(o.Out); e == nil || !os.IsNotExist(e) {
-		return fmt.Errorf("--out must be a new directory: %s", o.Out), 2
+	if s, e := os.Lstat(o.Out); o.Resume {
+		if e == nil && !s.IsDir() || e != nil && !os.IsNotExist(e) {
+			return fmt.Errorf("--resume needs --out to be a directory: %s", o.Out), 2
+		}
+	} else if e == nil || !os.IsNotExist(e) {
+		return fmt.Errorf("--out must be a new directory (or pass --resume): %s", o.Out), 2
 	}
 	if _, err := exec.LookPath("virt-cat"); err != nil && os.Getenv("TS_IMAGE_TOOLS_ID") == "" {
 		executable, err := os.Executable()
@@ -646,5 +915,18 @@ func runPromotion(ctx context.Context, root string, args []string, out, stderr i
 		}
 		return err, 0
 	}
+	o.Importer = services.importer()
 	return Promote(ctx, root, o, out), 0
+}
+
+// reusableImport reports whether a recorded OCI import is the one this run
+// would perform: the same image bytes into the same compartment, object
+// namespace and bucket under the same display name. A resume with any other
+// target re-imports instead of reusing an image in the wrong place.
+func reusableImport(previous map[string]any, sha256, compartmentID, namespace, bucket, display string) bool {
+	id, _ := previous["image_id"].(string)
+	object, _ := previous["object"].(string)
+	return previous["schema"] == "terrascale.oci.image-import.v1" && id != "" &&
+		previous["qcow2_sha256"] == sha256 && previous["compartment_id"] == compartmentID &&
+		previous["display_name"] == display && strings.HasPrefix(object, namespace+"/"+bucket+"/")
 }

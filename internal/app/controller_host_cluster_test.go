@@ -23,6 +23,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -48,7 +49,12 @@ func TestLabTLSHostSessionFencesAndRestartsAfterControllerLoss(t *testing.T) {
 	testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, true, true, true)
 }
 
+// The controller-loss labs run three controller processes and a host
+// against real lease and session timers, so they belong to the integration
+// tier. Their fencing invariants stay in the fast tier as single-process
+// tests in internal/host and internal/natscell.
 func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, production, blackhole, forceRestart bool) {
+	tier.Integration(t)
 	// Controller startup and shutdown must not consume the host scenario's
 	// deadline or cause CommandContext to kill a gracefully stopping child.
 	controllerCtx, cancel := context.WithCancel(t.Context())
@@ -91,7 +97,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 			NATS: natscell.Config{Cell: "lab", Instance: instance, Replicas: 3, Lab: true,
 				NKeySeedFile: controllerSeeds[index], TLS: tlsFiles, Embedded: &natscell.Embedded{
 					Host: "127.0.0.1", Port: clientPorts[index], RouteHost: "127.0.0.1", RoutePort: routePorts[index],
-					Routes: routes, StoreDir: filepath.Join(root, instance), StoreMaxBytes: 2 << 30, Users: grants,
+					Routes: natscell.PeerRoutes(routes, routes[index]), StoreDir: filepath.Join(root, instance), StoreMaxBytes: 2 << 30, Users: grants,
 					TLS: tlsFiles, RouteTLS: tlsFiles, RouteUser: r3RouteUser(production), RoutePasswordFile: routePasswordFile}},
 			Controller: ControllerConfig{CandidateID: instance, ResponseKeyFile: filepath.Join(root, "controller.key"),
 				ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},

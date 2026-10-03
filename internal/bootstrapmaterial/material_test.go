@@ -10,6 +10,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net/url"
 	"os"
@@ -151,6 +152,46 @@ func TestGeneratedTerminalCredentialGrants(t *testing.T) {
 			!slices.Contains(claim.Sub.Allow, "ts.orch.v1.gru.terminal.>") ||
 			slices.Contains(claim.Sub.Allow, "ts.orch.v1.gru.>") {
 			t.Fatalf("generated %s JWT has invalid terminal subscription", slot.Name)
+		}
+	}
+}
+
+// Only global home material grants the controller the global authority and
+// global state publishes; regional material keeps today's grants, and the
+// controller preflight tells the two apart before the global lease starts.
+func TestGlobalHomeMaterialGrantsGlobalPublishes(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	for name, globalHome := range map[string]bool{"regional": false, "home": true} {
+		cfg := testConfig()
+		cfg.GlobalHome = globalHome
+		directory := filepath.Join(t.TempDir(), name)
+		record, err := Generate(directory, cfg, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if record.Config.GlobalHome != globalHome {
+			t.Fatalf("%s record lost globalHome", name)
+		}
+		if again, err := Generate(directory, cfg, now); err != nil || again.Config.GlobalHome != globalHome {
+			t.Fatalf("%s regenerate = %v", name, err)
+		}
+		flipped := cfg
+		flipped.GlobalHome = !globalHome
+		if _, err := Generate(directory, flipped, now); err == nil {
+			t.Fatalf("%s material reused for a different global home role", name)
+		}
+		for _, slot := range cfg.Slots {
+			path := filepath.Join(directory, slot.Name+".creds")
+			if err := natscell.ValidateBrokerControllerCredentials(path, "gru", slot.Name); err != nil {
+				t.Fatalf("%s %s controller credentials rejected: %v", name, slot.Name, err)
+			}
+			err := natscell.ValidateGlobalControllerPermissions(natscell.Config{Cell: "gru", CredentialsFile: path})
+			if globalHome && err != nil {
+				t.Fatalf("home %s lacks global grants: %v", slot.Name, err)
+			}
+			if !globalHome && !errors.Is(err, natscell.ErrMissingGlobalGrants) {
+				t.Fatalf("regional %s preflight = %v, want missing global grants", slot.Name, err)
+			}
 		}
 	}
 }
