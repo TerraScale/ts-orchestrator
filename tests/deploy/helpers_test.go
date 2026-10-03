@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport/imageimporttest"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
@@ -98,13 +99,24 @@ func TestDeployTool(t *testing.T) {
 	if len(args) > 0 {
 		switch args[0] {
 		case "image":
-			code = image.Run(t.Context(), root, args[1:], os.Stdout, os.Stderr)
+			var services image.Services
+			// Promotion tests aim the real in-binary SDK importer at the
+			// stand-in OCI region their parent process serves.
+			if endpoint := os.Getenv(ociStandInEnv); endpoint != "" {
+				services.ImageImporter = imageimporttest.Importer(endpoint)
+			}
+			code = image.RunWith(t.Context(), root, args[1:], os.Stdout, os.Stderr, services)
 		case "netbird":
 			code = client.Run(t.Context(), root, args[1:], os.Stdout, os.Stderr)
 		}
 	}
 	os.Exit(code)
 }
+
+// ociStandInEnv carries the stand-in OCI endpoint from a test to the
+// TestDeployTool subprocess. Only this test binary reads it.
+const ociStandInEnv = "TS_TEST_OCI_STANDIN"
+
 func deployTool(t *testing.T) string {
 	t.Helper()
 	exe, err := os.Executable()

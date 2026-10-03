@@ -30,6 +30,9 @@ const orchestratorAsset = "terrascale-orchestrator-linux-arm64"
 type PromotionOptions struct {
 	ImageRelease, ImageDir, Out, Environment, Delegation, ImageDelegation, RootKey, BinaryReceipt, SigningKey, CompartmentID, Namespace, Bucket, DisplayName, FJ, ReleaseTool string
 	SignBinary, DryRun, Resume                                                                                                                                                bool
+	// Importer builds the OCI image importer; nil uses the in-binary SDK
+	// over the operator's ~/.oci/config. It is not a flag.
+	Importer imageimport.ImporterFactory
 }
 
 // promotionState pins a resumable --out directory to one image, so a rerun
@@ -696,11 +699,15 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 		p.step(fmt.Sprintf("dry run: would import %s as %s", image, display))
 	} else {
 		importRecord := filepath.Join(o.Out, "oci-import.json")
+		importer := o.Importer
+		if importer == nil {
+			importer = Services{}.importer()
+		}
 		var previous map[string]any
 		if o.Resume && readJSON(importRecord, &previous) == nil && previous["qcow2_sha256"] == p.manifest.Image.SHA256 &&
 			previous["schema"] == "terrascale.oci.image-import.v1" && previous["image_id"] != "" && previous["image_id"] != nil {
 			p.step("reusing completed OCI import")
-		} else if e = imageimport.Run(ctx, []string{"--qcow2", image, "--sha256", p.manifest.Image.SHA256, "--region", catalog.OCIRegion(catalog.Bootstrap), "--compartment-id", o.CompartmentID, "--namespace", o.Namespace, "--bucket", o.Bucket, "--display-name", display, "--out", importRecord}, out); e != nil {
+		} else if e = imageimport.RunImporters(ctx, []string{"--qcow2", image, "--sha256", p.manifest.Image.SHA256, "--region", catalog.OCIRegion(catalog.Bootstrap), "--compartment-id", o.CompartmentID, "--namespace", o.Namespace, "--bucket", o.Bucket, "--display-name", display, "--out", importRecord}, out, importer); e != nil {
 			return e
 		}
 		var imported map[string]any
@@ -766,7 +773,7 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 	p.step(verified)
 	return p.finish("promotion complete")
 }
-func runPromotion(ctx context.Context, root string, args []string, out, stderr io.Writer) (error, int) {
+func runPromotion(ctx context.Context, root string, args []string, out, stderr io.Writer, services Services) (error, int) {
 	fs := flag.NewFlagSet("image promote", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	o := PromotionOptions{Environment: "canary"}
@@ -828,5 +835,6 @@ func runPromotion(ctx context.Context, root string, args []string, out, stderr i
 		}
 		return err, 0
 	}
+	o.Importer = services.importer()
 	return Promote(ctx, root, o, out), 0
 }
