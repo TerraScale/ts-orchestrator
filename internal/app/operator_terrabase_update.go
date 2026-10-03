@@ -598,7 +598,7 @@ func classifyControllerError(err error) error {
 	if errors.Is(err, nats.ErrTimeout) || errors.Is(err, nats.ErrNoResponders) ||
 		errors.Is(err, nats.ErrConnectionClosed) || errors.Is(err, nats.ErrDisconnected) ||
 		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, authority.ErrFenced) ||
-		errors.Is(err, authority.ErrNotLeader) {
+		errors.Is(err, authority.ErrNotLeader) || errors.Is(err, errControllerRetryable) {
 		return staged.Transient(err)
 	}
 	return staged.Terminal(err)

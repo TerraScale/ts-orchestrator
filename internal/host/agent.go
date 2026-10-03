@@ -261,6 +261,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	if err := a.checkClock(); err != nil {
 		return err
 	}
+	if a.cfg.Initialized != nil {
+		a.cfg.Initialized()
+	}
 	if err := a.waitForSession(work); err != nil {
 		return err
 	}

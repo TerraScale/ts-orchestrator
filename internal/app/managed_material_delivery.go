@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"slices"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
@@ -23,19 +24,33 @@ type managedRuntimeTargetVerifier func(context.Context, host.Desired, host.Regis
 
 func admittedManagedMaterialProvider(service managedmaterial.PreparationService,
 	placements currentPlacementReader,
+	members placement.MemberPinReader,
 	credentials managedmaterial.CredentialService,
 	runtimeTarget managedRuntimeTargetVerifier,
 ) host.ManagedMaterialProvider {
 	return func(ctx context.Context, desired host.Desired, registration host.Registration) (map[string][]byte, error) {
 		if desired.ManagedMember == nil || desired.ManagedMember.Runtime == nil ||
 			registration.ManagedPlacement == nil || registration.ManagedMember == nil ||
-			registration.ManagedOCI == nil || desired.Withdrawn ||
+			registration.ManagedOCI == nil || desired.Withdrawn || members == nil ||
 			desired.ManagedMember.Member != *registration.ManagedMember ||
 			desired.ManagedMember.OCI != *registration.ManagedOCI ||
-			desired.ManagedMember.Member.HostAttempt != 1 {
+			desired.ManagedMember.Member.HostAttempt == 0 {
 			return nil, errors.New("managed material host binding is incomplete or stale")
 		}
 		placementBinding := *registration.ManagedPlacement
+		// The host attempt must be the seat's exact current durable attempt
+		// on this node and instance: attempt one for an initial member, the
+		// next attempt after a fenced replacement. A superseded attempt never
+		// receives material.
+		versioned, err := members.ReadMember(ctx, placementBinding.DatabaseID, placementBinding.PartitionID, placementBinding.SeatID)
+		if err != nil {
+			return nil, fmt.Errorf("read current managed seat: %w", err)
+		}
+		if seat := versioned.State; versioned.Revision == 0 ||
+			seat.HostAttempt != desired.ManagedMember.Member.HostAttempt || seat.HostNode != registration.Node ||
+			seat.InstanceID != registration.ManagedOCI.InstanceID || seat.CreateKey != registration.ManagedOCI.CreateKey {
+			return nil, errors.New("managed material host attempt is not the seat's current durable attempt")
+		}
 		entry, err := placements.ReadPlacementIntent(ctx, placementBinding.DatabaseID, placementBinding.PartitionID)
 		if err != nil {
 			return nil, err

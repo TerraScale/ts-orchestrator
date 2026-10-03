@@ -18,67 +18,81 @@ import (
 // JetStream StoreDir and publishes them to the regional TTL'd usage bucket.
 // It runs on every controller (each node measures itself) and only when
 // controller.storage_capacity.enabled is set.
-func startControllerStorageCapacity(ctx context.Context, cfg Config, runtime *natscell.Runtime, fullClusterReady func() bool) error {
+//
+// The returned stop cancels the collector and waits for it, so the controller
+// joins it on every return path before closing the NATS runtime it uses.
+func startControllerStorageCapacity(ctx context.Context, cfg Config, runtime *natscell.Runtime, fullClusterReady func() bool) (func(), error) {
 	settings := cfg.Controller.StorageCapacity
 	if !settings.Enabled {
-		return nil
+		return func() {}, nil
 	}
 	if err := settings.Validate(); err != nil {
-		return err
+		return nil, err
 	}
 	if cfg.NATS.Embedded == nil || runtime == nil {
-		return errors.New("storage capacity requires the embedded regional NATS server")
+		return nil, errors.New("storage capacity requires the embedded regional NATS server")
 	}
 	store, _, err := retryControllerOpen(ctx, "open storage usage bucket", fullClusterReady, false,
 		func(attempt context.Context) (*capacity.UsageStore, error) {
 			return capacity.OpenUsageStore(attempt, runtime.JetStream(), cfg.NATS.Replicas, settings.TTL(), settings.Policy)
 		}, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	collector := capacity.Collector{
 		Cell: cfg.NATS.Cell, Node: cfg.NATS.Instance,
-		Targets: capacity.ControllerTargets(cfg.NATS.Embedded.StoreDir, runtime.JetStream(), cfg.NATS.Embedded.StoreLimitBytes()),
+		Targets: capacity.ControllerTargets(cfg.NATS.Embedded.StoreDir, runtime.LocalStoreUsedBytes, cfg.NATS.Embedded.StoreLimitBytes()),
 	}
+	return ownedLoop(ctx, "controller storage capacity collector", func(ctx context.Context) error {
+		return capacity.Run(ctx, collector, store, settings.Policy, settings.Interval(), capacity.LogSignal)
+	}), nil
+}
+
+// ownedLoop runs a background service under a context the caller owns. The
+// returned stop cancels it and waits until it has returned, so no loop
+// outlives the dependencies the caller closes afterwards.
+func ownedLoop(parent context.Context, name string, run func(context.Context) error) func() {
+	ctx, cancel := context.WithCancel(parent)
+	done := make(chan struct{})
 	go func() {
-		if err := capacity.Run(ctx, collector, store, settings.Policy, settings.Interval(), capacity.LogSignal); err != nil && ctx.Err() == nil {
-			slog.Error("controller storage capacity collector stopped", "error", err)
+		defer close(done)
+		if err := run(ctx); err != nil && ctx.Err() == nil {
+			slog.Error(name+" stopped", "error", err)
 		}
 	}()
-	return nil
+	return func() {
+		cancel()
+		<-done
+	}
 }
 
 // startVolumeBackups runs the OCI volume backup policy on the authority
 // leader when controller.volume_backup.enabled is set. Followers evaluate
-// nothing; every OCI effect is epoch-guarded inside the runner.
+// nothing; every OCI effect is epoch-guarded inside the runner. The returned
+// stop cancels the runner and waits for it.
 func startVolumeBackups(ctx context.Context, cfg Config, managed *managedControllerConfig,
 	fencer authority.Fencer, store placement.Store,
-) error {
+) (func(), error) {
 	policy := cfg.Controller.VolumeBackup
 	if !policy.Enabled {
-		return nil
+		return func() {}, nil
 	}
 	if err := policy.Validate(); err != nil {
-		return err
+		return nil, err
 	}
 	if managed == nil || store == nil {
-		return errors.New("volume backups require a managed OCI controller")
+		return nil, errors.New("volume backups require a managed OCI controller")
 	}
 	provider, err := oci.NewInstancePrincipalVolumeBackupProvider(managed.region, managed.intent)
 	if err != nil {
-		return fmt.Errorf("start OCI volume backup client: %w", err)
+		return nil, fmt.Errorf("start OCI volume backup client: %w", err)
 	}
 	runner := backup.Runner{
 		Policy: policy, Provider: provider, Fencer: fencer,
 		Scope:   backup.Scope{Owner: managed.region.Owner, Region: managed.region.Region},
 		Volumes: func(ctx context.Context) ([]string, error) { return placementVolumeIDs(ctx, store) },
 	}
-	go func() {
-		if err := runner.Run(ctx); err != nil && ctx.Err() == nil {
-			slog.Error("volume backup runner stopped", "error", err)
-		}
-	}()
-	return nil
+	return ownedLoop(ctx, "volume backup runner", runner.Run), nil
 }
 
 // placementVolumeIDs lists the retained volumes of every placed member. An

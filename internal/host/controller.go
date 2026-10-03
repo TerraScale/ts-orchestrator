@@ -332,6 +332,16 @@ func (c *Controller) requireExclusiveManagedMember(ctx context.Context, candidat
 			return err
 		}
 		if exists && other.ManagedMember != nil && sameLogicalMember(other.ManagedMember.Scope, candidate.ManagedMember.Scope) {
+			// A replacement host carries the next host attempt of the same
+			// logical member. The verifier has already bound the candidate to
+			// the seat's current durable attempt, which the placement
+			// controller only advances through its fenced, evidence-gated
+			// replacement once the previous host is proven lost. An older
+			// attempt's registration therefore no longer owns the member;
+			// an equal or newer one still does.
+			if other.ManagedMember.HostAttempt < candidate.ManagedMember.HostAttempt {
+				continue
+			}
 			return errors.New("managed member is already bound to another host")
 		}
 	}

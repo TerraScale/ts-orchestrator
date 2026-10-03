@@ -71,7 +71,36 @@ func (provider *sdkProvider) ListVolumeBackups(ctx context.Context, volumeID str
 	if volumeID == "" {
 		return nil, errors.New("OCI volume backup listing requires a volume ID")
 	}
-	return provider.listVolumeBackups(ctx, new(volumeID), maxProviderItems)
+	return provider.newestVolumeBackups(ctx, volumeID, maxProviderItems)
+}
+
+// newestVolumeBackups lists at most bound backups of one volume, newest
+// first. A volume's backup history grows without limit when pruning is off;
+// the planner only needs the newest backups (latest, the run since the last
+// FULL, and the newest Retain to keep), and pruning walks older ones into
+// view on later passes. A long history therefore never stops scheduling.
+func (provider *sdkProvider) newestVolumeBackups(ctx context.Context, volumeID string, bound int) ([]CloudVolumeBackup, error) {
+	var backups []CloudVolumeBackup
+	var page *string
+	for {
+		response, err := provider.storage.ListVolumeBackups(ctx, core.ListVolumeBackupsRequest{
+			CompartmentId: new(provider.config.CompartmentID), VolumeId: new(volumeID), Page: page, Limit: new(100),
+			SortBy: core.ListVolumeBackupsSortByTimecreated, SortOrder: core.ListVolumeBackupsSortOrderDesc,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list OCI volume backups: %w", err)
+		}
+		for _, backup := range response.Items {
+			if len(backups) == bound {
+				return backups, nil
+			}
+			backups = append(backups, cloudVolumeBackup(backup, ""))
+		}
+		if response.OpcNextPage == nil || *response.OpcNextPage == "" {
+			return backups, nil
+		}
+		page = response.OpcNextPage
+	}
 }
 
 // maxCompartmentBackups bounds the compartment-wide backup listing.

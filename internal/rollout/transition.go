@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"time"
+	"unicode/utf8"
 )
 
 // Spec is the caller-supplied rollout definition. KnownBad is the cell's
@@ -119,6 +120,19 @@ func Apply(record Record, event Event) (Record, error) {
 	}
 	next := record.Clone()
 	at := event.At.UTC()
+	if completionEvent(event.Kind) {
+		// A completion that arrives after its phase deadline must not erase
+		// that deadline: enforce it first, exactly as a tick at the same
+		// instant would, and drop the late completion if it fired.
+		phase, wave := next.Phase, next.WaveIndex
+		next.tick(at)
+		if next.Phase != phase || next.WaveIndex != wave {
+			if err := next.Validate(); err != nil {
+				return Record{}, err
+			}
+			return next, nil
+		}
+	}
 	var err error
 	switch event.Kind {
 	case EventStart:
@@ -165,6 +179,26 @@ func Apply(record Record, event Event) (Record, error) {
 	return next, nil
 }
 
+// completionEvent reports events that complete a phase with a deadline.
+func completionEvent(kind EventKind) bool {
+	return kind == EventPreflightPassed || kind == EventPrepared || kind == EventHealthy
+}
+
+// boundReason keeps a stored reason within maxReason bytes without splitting
+// a UTF-8 rune, so a prefixed failure reason can never fail validation and
+// discard the rollback it describes.
+func boundReason(reason string) string {
+	if len(reason) <= maxReason {
+		return reason
+	}
+	const ellipsis = "..."
+	cut := maxReason - len(ellipsis)
+	for cut > 0 && !utf8.RuneStart(reason[cut]) {
+		cut--
+	}
+	return reason[:cut] + ellipsis
+}
+
 func reasonOr(reason, fallback string) string {
 	if reason == "" {
 		return fallback
@@ -183,7 +217,7 @@ func (record *Record) enter(phase Phase, at, deadline time.Time, reason string) 
 	record.Phase = phase
 	record.PhaseStartedAt = at
 	record.PhaseDeadline = deadline
-	record.Reason = reason
+	record.Reason = boundReason(reason)
 }
 
 func (record *Record) finish(phase Phase, at time.Time, reason string) {
@@ -226,6 +260,7 @@ func (record *Record) beginWave(wave int, at time.Time) {
 		progress := record.Units[id]
 		progress.State = UnitPreparing
 		progress.HealthyReports, progress.FirstHealthyAt, progress.ProcessID, progress.StartNonce = 0, time.Time{}, 0, ""
+		progress.LastHealthyAt = time.Time{}
 		record.Units[id] = progress
 	}
 	record.enter(phase, at, at.Add(seconds(record.Policy.ProofDeadlineSeconds)), "")
@@ -303,10 +338,16 @@ func (record *Record) healthy(unit string, health Health, at time.Time) error {
 		record.startRollback(at, fmt.Sprintf("unit %s restarted during soak", unit))
 		return nil
 	}
+	observed := health.ObservedAt.UTC()
+	if progress.HealthyReports > 0 && !observed.After(progress.LastHealthyAt) {
+		// A replayed or reordered report proves nothing new.
+		return nil
+	}
 	if progress.HealthyReports == 0 {
-		progress.FirstHealthyAt = health.ObservedAt.UTC()
+		progress.FirstHealthyAt = observed
 		progress.ProcessID, progress.StartNonce = health.ProcessID, health.StartNonce
 	}
+	progress.LastHealthyAt = observed
 	progress.HealthyReports++
 	record.Units[unit] = progress
 	record.advanceIfSoaked(at)
@@ -340,8 +381,10 @@ func (record *Record) advanceIfSoaked(at time.Time) {
 	}
 	for _, id := range record.Waves[record.WaveIndex] {
 		progress := record.Units[id]
+		// The observations, not elapsed tick time, must span the window: a
+		// unit that stopped reporting early never completes its soak.
 		if progress.State != UnitSoaking || progress.HealthyReports < record.Policy.MinHealthyReports ||
-			at.Before(progress.FirstHealthyAt.Add(record.soakDuration())) {
+			progress.LastHealthyAt.Before(progress.FirstHealthyAt.Add(record.soakDuration())) {
 			return
 		}
 	}
@@ -375,12 +418,12 @@ func (record *Record) tick(at time.Time) {
 		wave := record.WaveIndex
 		record.advanceIfSoaked(at)
 		// Every unit that proved itself before the serving-proof deadline
-		// has finished its soak window by deadline+soak. A wave still
-		// soaking then has a unit that stopped reporting (for example a
-		// hung process after one healthy report); it must not hold the
-		// cell's rollout slot forever.
+		// has finished its soak window by deadline+soak, and has reported
+		// again within minSoakGap after it. A wave still soaking then has a
+		// unit that stopped reporting (for example a hung process after one
+		// healthy report); it must not hold the cell's rollout slot forever.
 		if record.Phase.soaking() && record.WaveIndex == wave &&
-			!at.Before(record.PhaseDeadline.Add(record.soakDuration())) {
+			!at.Before(record.PhaseDeadline.Add(record.soakDuration()).Add(minSoakGap)) {
 			record.startRollback(at, "soak did not complete before its deadline")
 		}
 	case record.Phase == PhaseRollingBack && !at.Before(record.PhaseDeadline):

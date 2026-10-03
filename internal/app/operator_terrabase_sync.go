@@ -265,11 +265,19 @@ func syncTerraBaseWithPolicy(ctx context.Context, statePath, checkout string, ru
 		return err
 	}
 	if err := updateWithRetries(ctx, policy, func() error { return update(files) }, output); err != nil {
-		if ctx.Err() != nil {
-			return err // interruption resumes the same pin next invocation
+		// An explicit interruption resumes the same pin next invocation. An
+		// expired --timeout is a transient failure of this run: it counts
+		// toward --transient-block-after, or a timeout shorter than the
+		// rollout would keep a mixed-version deployment from ever escalating.
+		timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
+		if ctx.Err() != nil && !timedOut {
+			return err
 		}
 		reason := err.Error()
-		if staged.IsTransient(err) {
+		if timedOut {
+			reason = "sync deadline expired: " + reason
+		}
+		if timedOut || staged.IsTransient(err) {
 			// Keep the pin and resume it next run; escalate only once the
 			// failure has outlived the bound.
 			first, persistErr := cdTransientSince(state, candidate, reason)

@@ -57,8 +57,29 @@ func Watch(layout Layout, unit string, proof ProofCheck, now time.Time) (Outcome
 		recordResolution(activation, OutcomeRolledBack)
 		return OutcomeRolledBack, activation, nil
 	}
+	// rollback marks the target known bad before it moves the link and
+	// removes the record. A known-bad target therefore means a rollback was
+	// committed and interrupted: finish it instead of accepting a proof.
+	knownBad, err := layout.KnownBad()
+	if err != nil {
+		return OutcomePending, activation, err
+	}
+	if knownBad[activation.Target] {
+		slog.Warn("self-update rollback was interrupted; finishing it", "activation", activation.ActivationID)
+		if err := layout.rollback(activation); err != nil {
+			return OutcomeRolledBack, activation, err
+		}
+		recordResolution(activation, OutcomeRolledBack)
+		return OutcomeRolledBack, activation, nil
+	}
+	// Only a target that is actually selected can be confirmed. Otherwise
+	// the activation stays pending until its deadline rolls it back.
+	current, err := layout.Current()
+	if err != nil {
+		return OutcomePending, activation, err
+	}
 	targetErr := layout.VerifyRelease(activation.Target)
-	if targetErr == nil && len(proof.PublicKey) == ed25519.PublicKeySize {
+	if targetErr == nil && current == activation.Target && len(proof.PublicKey) == ed25519.PublicKeySize {
 		if wire, err := readProof(proof.File); err == nil {
 			if verified, err := VerifyVersionProof(wire, proof.PublicKey, activation, now); err == nil && !processRunning(verified.ProcessID) {
 				// A proof only confirms while the process that signed it
@@ -153,6 +174,11 @@ func (layout Layout) rollback(activation Activation) error {
 	if err := layout.flipCurrent(activation.Previous); err != nil {
 		return err
 	}
+	// The rejected process may still run: keep a restart obligation that
+	// outlives this invocation before the activation record goes away.
+	if err := layout.markRestartPending(activation.Unit); err != nil {
+		return err
+	}
 	if err := os.Remove(layout.activationPath()); err != nil {
 		return err
 	}
@@ -174,6 +200,13 @@ func Prepare(layout Layout, unit, bakedBinary string, proof ProofCheck, now time
 	outcome, _, err := Watch(layout, unit, ProofCheck{}, now)
 	if err != nil {
 		return outcome, err
+	}
+	// The unit is starting now, so any restart a rollback still owed it is
+	// being served by this start.
+	if unitRE.MatchString(unit) {
+		if err := layout.ClearRestartPending(unit); err != nil {
+			return outcome, err
+		}
 	}
 	current, err := layout.Current()
 	if err != nil {

@@ -313,22 +313,39 @@ func (e enroller) waitReady(ctx context.Context, manager string, first *daemonSt
 // while a fast one is seen within e.poll.
 func (e enroller) observe(ctx context.Context, limit time.Duration, first *daemonStatus, done func(daemonStatus) bool) (daemonStatus, bool, error) {
 	deadline := time.Now().Add(limit)
+	// Every status query is bounded by the limit too: the CLI's own command
+	// timeout is far longer, and a poll started near the limit must not run
+	// past it and consume the budget of later enrollment steps.
+	limited, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
 	delay := e.poll
+	var last daemonStatus
+	observed := false
 	for {
 		var status daemonStatus
 		if first != nil {
 			status, first = *first, nil
 		} else {
 			var err error
-			if status, err = e.status(ctx); err != nil {
+			if status, err = e.status(limited); err != nil {
 				// A query cut short by cancellation reports the cancellation,
 				// not an unreachable daemon.
 				if ctxErr := ctx.Err(); ctxErr != nil {
 					return daemonStatus{}, false, ctxErr
 				}
+				// A query cut short by the limit is the limit elapsing. With
+				// no observation yet there is nothing to report: a zero
+				// status would read as a daemon bound to no manager.
+				if limited.Err() != nil {
+					if !observed {
+						return daemonStatus{}, false, errors.Join(errors.New("NetBird status did not answer within its observation limit"), err)
+					}
+					return last, false, nil
+				}
 				return daemonStatus{}, false, err
 			}
 		}
+		last, observed = status, true
 		if done(status) {
 			return status, true, nil
 		}

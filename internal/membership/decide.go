@@ -60,7 +60,19 @@ func Decide(cfg Config, topology Topology, previous State, observation Observati
 				ok = true
 			}
 		}
-		if ok && status.Phase == PhaseReplacing {
+		if ok && status.Phase == PhaseReplacing && abandonedBeforeAdmission(slot, status, observation) {
+			// The successor was never admitted (the ledger still holds the
+			// completed prior attempt) and the evidence that would let it be
+			// admitted is gone. Nothing was launched, so release the gate and
+			// hold the slot for fresh evidence instead of blocking every
+			// other replacement for the rest of the term.
+			status.Phase, status.PendingAttempt, status.LastFailure, status.LastError = PhaseHeld, 0, timeZero, ""
+			next.Slots[slot] = status
+		}
+		if ok && status.Phase == PhaseReplacing || admittedSuccessor(observation.Ledger[slot]) {
+			// The verified ledger HEAD reserves the single replacement slot
+			// even when the evidence needed to resume it is not on hand:
+			// the founder persists the successor HEAD before any OCI launch.
 			replacing = true
 		}
 	}
@@ -181,6 +193,26 @@ func inFlightSuccessor(slot string, observation Observation) (uint64, bool) {
 		return 0, false
 	}
 	return ledger.Attempt, true
+}
+
+// admittedSuccessor reports a ledger HEAD that already admitted an incomplete
+// successor attempt through a retirement, whether or not this term holds the
+// evidence that admitted it.
+func admittedSuccessor(ledger LedgerSlot) bool {
+	return !ledger.Complete && ledger.Attempt >= 2 && ledger.Retirement != ""
+}
+
+// abandonedBeforeAdmission reports a remembered replacement whose successor
+// the ledger never admitted and whose evidence is no longer usable to admit
+// it: the ledger still records the completed prior attempt.
+func abandonedBeforeAdmission(slot string, status SlotStatus, observation Observation) bool {
+	previous := status.PendingAttempt - 1
+	ledger := observation.Ledger[slot]
+	if status.PendingAttempt == 0 || !ledger.Complete || ledger.Attempt != previous {
+		return false
+	}
+	evidence, ok := observation.Evidence[slot]
+	return !ok || evidence.Slot != slot || evidence.PreviousAttempt != previous || len(evidence.Wire) == 0
 }
 
 func healthy(status SlotStatus, reason string) SlotStatus {

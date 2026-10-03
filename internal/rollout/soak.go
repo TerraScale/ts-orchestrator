@@ -67,7 +67,11 @@ func (s *Soak) Observe(sample SoakSample) (bool, error) {
 		return false, errors.New("soak samples went back in time")
 	}
 	s.last = sample.At
-	if sample.Gap {
+	// Zero is "no live process reported", not a process: such a sample is
+	// unknown like a report gap. It neither sets nor breaks the pinned
+	// identity, cannot start the window and cannot complete it, so a soak
+	// is only ever passed by the process that started it.
+	if sample.Gap || sample.ProcessPID == 0 {
 		if s.Window <= 0 {
 			// A disabled soak checks only the controller's own fields.
 			return true, nil
@@ -81,16 +85,11 @@ func (s *Soak) Observe(sample SoakSample) (bool, error) {
 		return false, nil
 	}
 	s.reported = sample.At
-	// Zero is "no live process reported", not a process: it neither sets
-	// nor breaks the baseline, so a reporting gap cannot hide a later
-	// restart or fake one.
-	if sample.ProcessPID != 0 {
-		if s.lastPID != 0 && sample.ProcessPID != s.lastPID {
-			return false, Terminal(fmt.Errorf("%w: seat process restarted (pid %d -> %d)",
-				ErrSoakFailed, s.lastPID, sample.ProcessPID))
-		}
-		s.lastPID = sample.ProcessPID
+	if s.lastPID != 0 && sample.ProcessPID != s.lastPID {
+		return false, Terminal(fmt.Errorf("%w: seat process restarted (pid %d -> %d)",
+			ErrSoakFailed, s.lastPID, sample.ProcessPID))
 	}
+	s.lastPID = sample.ProcessPID
 	if s.first == nil {
 		first := sample
 		s.first = &first

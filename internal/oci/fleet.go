@@ -172,6 +172,24 @@ func (f *fleet) verifyRetainedVolumeHostImage(cloud CloudInstance) error {
 func (f *fleet) Region() Region { return f.config.Region }
 
 func (f *fleet) Observe(ctx context.Context) ([]Instance, error) {
+	return f.observe(ctx, nil)
+}
+
+// ObserveSelected lists the fleet once and fully verifies only the managed
+// instances whose ID or host node select accepts. Admission paths that need
+// one host use it instead of verifying every host: with verification costing
+// several Compute reads per host, a fleet-wide scan does not fit an
+// admission deadline under the shared OCI rate limit. Every selected
+// instance gets exactly the verification Observe gives it, so a caller still
+// sees every verified instance that shares the selected ID or node.
+func (f *fleet) ObserveSelected(ctx context.Context, selectInstance func(id, node string) bool) ([]Instance, error) {
+	if selectInstance == nil {
+		return nil, errors.New("selective OCI observation requires a selector")
+	}
+	return f.observe(ctx, selectInstance)
+}
+
+func (f *fleet) observe(ctx context.Context, selectInstance func(id, node string) bool) ([]Instance, error) {
 	cloudInstances, err := f.provider.ListInstances(ctx, f.config.CompartmentID)
 	if err != nil {
 		return nil, err
@@ -191,7 +209,10 @@ func (f *fleet) Observe(ctx context.Context) ([]Instance, error) {
 			slog.Warn("withholding OCI instance with out-of-scope identity tags", "instance_id", listed.ID, "region", f.config.Region)
 			continue
 		}
-		cloud, identity, err := f.reobserveInstance(observeOnly(ctx), listed.ID)
+		if selectInstance != nil && !selectInstance(listed.ID, tags[tagHostNode]) {
+			continue
+		}
+		cloud, identity, err := f.reobserveInstance(ctx, listed.ID)
 		if err != nil {
 			if errors.Is(err, ErrForeignResource) {
 				slog.Warn("withholding OCI instance without a verified regional identity", "instance_id", listed.ID, "region", f.config.Region)

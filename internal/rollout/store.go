@@ -73,6 +73,50 @@ func OpenStore(ctx context.Context, js jetstream.JetStream, cell string, replica
 
 func rolloutKey(id string) string { return "rollout." + id }
 
+// knownBadKey holds one durable known-bad record. The cell's KnownBad list is
+// bounded and ages out its oldest entries; these per-digest records do not,
+// so a rejected digest never becomes eligible again without a reviewed
+// removal of its record.
+func knownBadKey(digest string) string { return "knownbad." + digest }
+
+type knownBadEntry struct {
+	Digest string `json:"digest"`
+}
+
+// recordKnownBad durably records digest. It is idempotent.
+func (s *Store) recordKnownBad(ctx context.Context, epoch uint64, digest string) error {
+	if !digestRE.MatchString(digest) {
+		return fmt.Errorf("%w: known-bad digest", ErrInvalid)
+	}
+	encoded, err := protocol.EncodeJSON(knownBadEntry{Digest: digest})
+	if err != nil {
+		return err
+	}
+	if err := s.fencer.Guard(ctx, epoch); err != nil {
+		return err
+	}
+	if _, err := s.kv.Create(ctx, knownBadKey(digest), encoded); err != nil && !errors.Is(err, jetstream.ErrKeyExists) {
+		return fmt.Errorf("record known-bad digest: %w", err)
+	}
+	return nil
+}
+
+// knownBad reports whether digest is known bad in the cell list or in its
+// durable per-digest record.
+func (s *Store) knownBad(ctx context.Context, state CellState, digest string) (bool, error) {
+	if slices.Contains(state.KnownBad, digest) {
+		return true, nil
+	}
+	_, err := s.kv.Get(ctx, knownBadKey(digest))
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read known-bad digest: %w", err)
+	}
+	return true, nil
+}
+
 // Cell returns the cell slot and its revision (zero when absent).
 func (s *Store) Cell(ctx context.Context) (CellState, uint64, error) {
 	entry, err := s.kv.Get(ctx, cellKey)
@@ -128,6 +172,15 @@ func (s *Store) Begin(ctx context.Context, spec Spec, now time.Time) (Record, ui
 	if err := s.fencer.Guard(ctx, spec.AuthorityEpoch); err != nil {
 		return Record{}, 0, err
 	}
+	// An ID already bound to another rollout is refused before the cell
+	// slot is reserved or the target's attempt is counted.
+	if existing, _, err := s.Load(ctx, spec.RolloutID); err == nil {
+		if err := sameRollout(existing, spec); err != nil {
+			return Record{}, 0, err
+		}
+	} else if !errors.Is(err, jetstream.ErrKeyNotFound) {
+		return Record{}, 0, err
+	}
 	for range cellCASAttempts {
 		state, revision, err := s.Cell(ctx)
 		if err != nil {
@@ -163,8 +216,15 @@ func (s *Store) Begin(ctx context.Context, spec Spec, now time.Time) (Record, ui
 			}
 			continue
 		}
-		if slices.Contains(state.KnownBad, spec.ToDigest) {
+		if bad, err := s.knownBad(ctx, state, spec.ToDigest); err != nil {
+			return Record{}, 0, err
+		} else if bad {
 			return Record{}, 0, ErrKnownBad
+		}
+		if bad, err := s.knownBad(ctx, state, spec.FromDigest); err != nil {
+			return Record{}, 0, err
+		} else if bad {
+			return Record{}, 0, fmt.Errorf("%w: rollback target digest is known bad", ErrInvalid)
 		}
 		maxAttempts := spec.Policy.MaxAttempts
 		if state.Attempts[spec.ToDigest] >= maxAttempts {
@@ -191,6 +251,28 @@ func (s *Store) Begin(ctx context.Context, spec Spec, now time.Time) (Record, ui
 	return Record{}, 0, ErrConflict
 }
 
+// sameRollout reports whether an existing record is the rollout spec
+// describes. A retry must describe the same plan, not only the same target:
+// a changed unit set or policy would otherwise silently run the stored,
+// older plan.
+func sameRollout(existing Record, spec Spec) error {
+	if existing.FromDigest != spec.FromDigest || existing.ToDigest != spec.ToDigest || existing.Kind != spec.Kind {
+		return fmt.Errorf("%w: rollout ID is bound to a different rollout", ErrConflict)
+	}
+	waves, err := PlanWaves(spec.Units, spec.Policy)
+	if err != nil {
+		return err
+	}
+	policyDigest, err := spec.Policy.Digest()
+	if err != nil {
+		return err
+	}
+	if existing.PolicyDigest != policyDigest || !slices.EqualFunc(existing.Waves, waves, slices.Equal) {
+		return fmt.Errorf("%w: rollout ID is bound to a different plan", ErrConflict)
+	}
+	return nil
+}
+
 func withKnownBad(spec Spec, knownBad []string) Spec {
 	spec.KnownBad = append(slices.Clone(spec.KnownBad), knownBad...)
 	return spec
@@ -198,22 +280,8 @@ func withKnownBad(spec Spec, knownBad []string) Spec {
 
 func (s *Store) createRecord(ctx context.Context, spec Spec, state CellState, now time.Time) (Record, uint64, error) {
 	if existing, revision, err := s.Load(ctx, spec.RolloutID); err == nil {
-		if existing.FromDigest != spec.FromDigest || existing.ToDigest != spec.ToDigest || existing.Kind != spec.Kind {
-			return Record{}, 0, fmt.Errorf("%w: rollout ID is bound to a different rollout", ErrConflict)
-		}
-		// A retry must describe the same plan, not only the same target:
-		// a changed unit set or policy would otherwise silently run the
-		// stored, older plan.
-		waves, err := PlanWaves(spec.Units, spec.Policy)
-		if err != nil {
+		if err := sameRollout(existing, spec); err != nil {
 			return Record{}, 0, err
-		}
-		policyDigest, err := spec.Policy.Digest()
-		if err != nil {
-			return Record{}, 0, err
-		}
-		if existing.PolicyDigest != policyDigest || !slices.EqualFunc(existing.Waves, waves, slices.Equal) {
-			return Record{}, 0, fmt.Errorf("%w: rollout ID is bound to a different plan", ErrConflict)
 		}
 		return existing, revision, nil
 	} else if !errors.Is(err, jetstream.ErrKeyNotFound) {
@@ -330,11 +398,23 @@ func (s *Store) syncCell(ctx context.Context, record Record) error {
 		next.KnownBad = slices.Clone(state.KnownBad)
 		for _, digest := range record.KnownBad {
 			if !slices.Contains(next.KnownBad, digest) {
+				// Durable first: the cell list below is only a bounded
+				// cache of the per-digest records.
+				if err := s.recordKnownBad(ctx, record.AuthorityEpoch, digest); err != nil {
+					return err
+				}
 				next.KnownBad = append(next.KnownBad, digest)
 			}
 		}
 		// The list keeps insertion order; the oldest entries age out first.
+		// Every entry that ages out keeps its durable record, including
+		// entries listed before durable records existed.
 		if len(next.KnownBad) > MaxKnownBad {
+			for _, digest := range next.KnownBad[:len(next.KnownBad)-MaxKnownBad] {
+				if err := s.recordKnownBad(ctx, record.AuthorityEpoch, digest); err != nil {
+					return err
+				}
+			}
 			next.KnownBad = next.KnownBad[len(next.KnownBad)-MaxKnownBad:]
 		}
 		next.Attempts = maps.Clone(state.Attempts)

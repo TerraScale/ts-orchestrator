@@ -57,10 +57,18 @@ func OpenUsageStore(ctx context.Context, js jetstream.JetStream, replicas int, t
 		if err != nil {
 			return nil, fmt.Errorf("inspect storage usage bucket: %w", err)
 		}
-		if status.TTL() <= 0 || status.TTL() > time.Hour {
-			return nil, errors.New("existing storage usage bucket has no bounded TTL")
+		if status.TTL() != ttl {
+			// The requested TTL was validated against the collection
+			// interval; an older bucket TTL could expire live measurements
+			// before the next publish, so reconcile it.
+			if kv, err = js.UpdateKeyValue(ctx, jetstream.KeyValueConfig{
+				Bucket: UsageBucket, Description: "TTL'd storage capacity measurements",
+				MaxValueSize: usageMaxValueSize, History: 1, TTL: ttl,
+				Storage: jetstream.FileStorage, Replicas: replicas,
+			}); err != nil {
+				return nil, fmt.Errorf("reconcile storage usage bucket TTL from %s to %s: %w", status.TTL(), ttl, err)
+			}
 		}
-		ttl = status.TTL()
 	}
 	return &UsageStore{kv: kv, ttl: ttl, policy: policy, now: time.Now}, nil
 }

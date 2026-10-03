@@ -152,7 +152,20 @@ func Apply(state State, event Event, now time.Time, reason string) (State, error
 		// explicit retry restarts its deadline.
 		return state, nil
 	}
-	return State{Phase: next, Since: now}, nil
+	attempts := uint32(0)
+	if attachRetryCycle(from) && attachRetryCycle(next) {
+		// A force-detach-retry passes through Detaching and Detached back
+		// to Attaching. The same-host attach retry count must survive that
+		// cycle, or repeated stalls never escalate to host replacement. It
+		// resets once the attach succeeds or the volume leaves the cycle.
+		attempts = state.Attempts
+	}
+	return State{Phase: next, Since: now, Attempts: attempts}, nil
+}
+
+// attachRetryCycle reports the phases a same-host attach retry cycles through.
+func attachRetryCycle(phase Phase) bool {
+	return phase == Attaching || phase == Detaching || phase == Detached
 }
 
 type edge struct {

@@ -319,7 +319,7 @@ func startDeployTestCell(t *testing.T, consistentNaming, inTransit bool) *deploy
 	})
 	cell.runtimeTarget = runtimeTarget
 	credentials := managedmaterial.CredentialService{Preparation: material, Store: control}
-	cell.materials = admittedManagedMaterialProvider(material, control, credentials, runtimeTarget)
+	cell.materials = admittedManagedMaterialProvider(material, control, store, credentials, runtimeTarget)
 	cell.hosts, err = host.NewController(ctx, host.ControllerConfig{Cell: deployTestCell, Conn: broker.Conn(),
 		JS: broker.JetStream(), Artifacts: service.Artifacts(), StateReplicas: 1, ResponseKey: controllerPrivate,
 		HostMutations: control, AuthorityEpoch: func() uint64 { return control.Current().Epoch }, AuthorityGuard: control.Guard,

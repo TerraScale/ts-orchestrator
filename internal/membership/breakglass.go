@@ -46,13 +46,33 @@ type Inventory struct {
 
 // Confirm requires the operator to type phrase exactly, ending with a
 // newline. Anything else, including end of input before a newline, aborts.
-func Confirm(in io.Reader, out io.Writer, warning, phrase string) error {
-	fmt.Fprintf(out, "\nWARNING: %s\nType %q to continue: ", warning, phrase)
-	line, err := bufio.NewReader(in).ReadString('\n')
-	if err != nil {
-		return fmt.Errorf("confirmation was not entered; nothing was changed: %w", err)
+// Cancelling ctx (the first Ctrl-C or SIGTERM under signal.NotifyContext)
+// aborts the wait at once; the blocked read is abandoned, and nothing past
+// the prompt runs.
+func Confirm(ctx context.Context, in io.Reader, out io.Writer, warning, phrase string) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("confirmation was cancelled; nothing was changed: %w", err)
 	}
-	if strings.TrimSpace(line) != phrase {
+	fmt.Fprintf(out, "\nWARNING: %s\nType %q to continue: ", warning, phrase)
+	type answer struct {
+		line string
+		err  error
+	}
+	answered := make(chan answer, 1)
+	go func() {
+		line, err := bufio.NewReader(in).ReadString('\n')
+		answered <- answer{line, err}
+	}()
+	var reply answer
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("confirmation was cancelled; nothing was changed: %w", ctx.Err())
+	case reply = <-answered:
+	}
+	if reply.err != nil {
+		return fmt.Errorf("confirmation was not entered; nothing was changed: %w", reply.err)
+	}
+	if strings.TrimSpace(reply.line) != phrase {
 		return errors.New("confirmation phrase did not match; nothing was changed")
 	}
 	return nil
@@ -225,7 +245,7 @@ func Backup(ctx context.Context, target RecoveryTarget, destination string, in i
 	if err != nil {
 		return err
 	}
-	if err := Confirm(in, out, "this copies the stopped survivor store. Keep the controller stopped until recovery ends.",
+	if err := Confirm(ctx, in, out, "this copies the stopped survivor store. Keep the controller stopped until recovery ends.",
 		"back up "+target.Cell+"/"+target.Slot); err != nil {
 		return err
 	}

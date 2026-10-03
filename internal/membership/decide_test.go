@@ -155,7 +155,12 @@ func TestDecideHoldReasons(t *testing.T) {
 			s.Slots["controller-b"] = SlotStatus{Slot: "controller-b", Phase: PhaseHeld, OfflineSince: testEpoch,
 				LastFailure: testEpoch.Add(-time.Minute)}
 		}},
-		{name: "another replacement", want: ReasonOtherReplacement, mutate: withEvidenceB, prior: func(s *State) {
+		{name: "another replacement", want: ReasonOtherReplacement, mutate: func(o *Observation) {
+			withEvidenceB(o)
+			// The remembered replacement is still actionable: its evidence
+			// is on hand (an abandoned one releases the gate).
+			o.Evidence["controller-c"] = evidenceFor("controller-c", 1, instanceC)
+		}, prior: func(s *State) {
 			s.Slots["controller-c"] = SlotStatus{Slot: "controller-c", Phase: PhaseReplacing, PendingAttempt: 2}
 		}},
 	} {

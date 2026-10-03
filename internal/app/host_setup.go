@@ -660,11 +660,61 @@ func installHostEnrollment(root string, bundle hostenroll.PublicBundle, node str
 			InstallRoot:         bundle.InstallRoot, StateRoot: bundle.StateRoot,
 			ManagedRuntimeRoot: bundle.ManagedRuntimeRoot,
 			WorkloadUID:        bundle.WorkloadUID, WorkloadGID: bundle.WorkloadGID}}
+	// A renewal regenerates the credentials, not the operator's host-local
+	// options: carry them forward from the configuration being replaced.
+	local, err := readHostLocalOptions(filepath.Join(root, "host.json"))
+	if err != nil {
+		return err
+	}
+	local.applyTo(&config.Host)
 	wire, err := protocol.EncodeJSON(config)
 	if err != nil {
 		return err
 	}
 	return writeAtomicHostFile(filepath.Join(root, "host.json"), wire, 0o600)
+}
+
+// hostLocalOptions are the host.json settings an operator sets on the host
+// itself. Enrollment and credential renewal do not know them, so they are
+// preserved across a host.json rewrite.
+type hostLocalOptions struct {
+	ManagedVolumeOnlineGrow bool   `json:"managed_volume_online_grow,omitzero"`
+	SelfUpdateProofFile     string `json:"self_update_proof_file,omitempty"`
+	SelfUpdateRoot          string `json:"self_update_root,omitempty"`
+}
+
+func (o hostLocalOptions) applyTo(host *HostConfig) {
+	host.ManagedVolumeOnlineGrow = o.ManagedVolumeOnlineGrow
+	host.SelfUpdateProofFile = o.SelfUpdateProofFile
+	host.SelfUpdateRoot = o.SelfUpdateRoot
+}
+
+// readHostLocalOptions reads the host-local options of an existing host.json.
+// A first enrollment has none. An existing file that cannot be read or
+// decoded fails the rewrite rather than silently dropping the options.
+func readHostLocalOptions(path string) (hostLocalOptions, error) {
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return hostLocalOptions{}, nil
+	}
+	if err != nil {
+		return hostLocalOptions{}, fmt.Errorf("read existing host config: %w", err)
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, 1<<20+1))
+	if err != nil {
+		return hostLocalOptions{}, fmt.Errorf("read existing host config: %w", err)
+	}
+	if len(data) > 1<<20 {
+		return hostLocalOptions{}, errors.New("existing host config is too large")
+	}
+	var existing struct {
+		Host hostLocalOptions `json:"host"`
+	}
+	if err := json.Unmarshal(data, &existing); err != nil {
+		return hostLocalOptions{}, fmt.Errorf("decode existing host config %s (repair it before renewing): %w", path, err)
+	}
+	return existing.Host, nil
 }
 
 func writeAtomicHostFile(path string, data []byte, mode os.FileMode) error {

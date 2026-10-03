@@ -779,6 +779,12 @@ type MemberState struct {
 	// replacement grace runs from it, not from the last persisted write,
 	// and it clears when the host is observed again.
 	HostLostAt time.Time `json:"host_lost_at,omitzero"`
+	// AttachRequestedAt is when the retained volume attach was first
+	// requested for this host attempt. The attach deadline runs from it:
+	// a production attach that stays ATTACHING is withheld from observation
+	// and fails its settle wait, so the member never reaches the stage that
+	// observes ATTACHING. It clears once the volume is attached.
+	AttachRequestedAt time.Time `json:"attach_requested_at,omitzero"`
 }
 
 type ManagedUpdateSeatPhase string
@@ -862,6 +868,7 @@ func (state MemberState) Validate() error {
 		stageRequiresHostGeneration(state.Stage) && state.HostGeneration == 0 ||
 		!validToken(state.OperationID) || state.UpdatedAt.IsZero() || state.UpdatedAt.Location() != time.UTC ||
 		!state.HostLostAt.IsZero() && state.HostLostAt.Location() != time.UTC ||
+		!state.AttachRequestedAt.IsZero() && state.AttachRequestedAt.Location() != time.UTC ||
 		state.Kind == MemberPermanent && state.MemberID != permanentMember(state.Region) ||
 		state.Kind == MemberElastic && state.MemberID != elasticMember(state.Region) {
 		return errors.New("invalid TerraBase member state")

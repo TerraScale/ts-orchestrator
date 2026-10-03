@@ -3,6 +3,7 @@ package backup
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
@@ -69,6 +70,25 @@ func inProgress(state string) bool {
 	return state == "CREATING" || state == "REQUEST_RECEIVED"
 }
 
+// attemptKey derives the create key for slot. The key stays stable while an
+// outcome is ambiguous, so a retry replays the same OCI retry token. Each
+// owned backup of this slot observed in a terminal failure (FAULTY) moves the
+// key to a new attempt, so a replacement is a new request rather than a
+// replay of the failed one.
+func attemptKey(slot string, owned []oci.CloudVolumeBackup) string {
+	failed := 0
+	for _, backup := range owned {
+		key := backup.FreeformTags[tagBackupKey]
+		if backup.LifecycleState == "FAULTY" && (key == slot || strings.HasPrefix(key, slot+"/retry-")) {
+			failed++
+		}
+	}
+	if failed == 0 {
+		return slot
+	}
+	return fmt.Sprintf("%s/retry-%d", slot, failed)
+}
+
 // Plan decides the backup effects for one volume from its listed backups.
 // Only owned backups are considered. No create is planned while an owned
 // backup is queued or CREATING; prune never touches non-AVAILABLE backups and never
@@ -107,9 +127,9 @@ func Plan(policy Policy, scope Scope, volumeID string, backups []oci.CloudVolume
 		if !sawFull || sinceFull+1 >= policy.FullEvery {
 			kind = TypeFull
 		}
-		slot := now.UTC().Truncate(policy.Interval()).Unix()
+		slot := fmt.Sprintf("%s/%d", volumeID, now.UTC().Truncate(policy.Interval()).Unix())
 		actions = append(actions, Action{Kind: ActionCreate, VolumeID: volumeID, Type: kind,
-			Key: fmt.Sprintf("%s/%d", volumeID, slot)})
+			Key: attemptKey(slot, owned)})
 	}
 	if !policy.Prune {
 		return actions

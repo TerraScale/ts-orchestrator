@@ -14,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"runtime"
@@ -125,7 +126,11 @@ func (p proofFlags) check() (selfupdate.ProofCheck, error) {
 	}
 	public, err := readIdentityPublicKey(*p.key)
 	if err != nil {
-		return selfupdate.ProofCheck{}, err
+		// An unusable key disables confirmation, never rollback: the
+		// deadline logic still runs and restores the previous release.
+		slog.Warn("self-update proof key is unusable; activations cannot be confirmed and roll back at their deadline",
+			"key", *p.key, "error", err)
+		return selfupdate.ProofCheck{File: *p.file}, nil
 	}
 	return selfupdate.ProofCheck{File: *p.file, PublicKey: public}, nil
 }
@@ -189,18 +194,32 @@ func (c command) watchdog(args []string) error {
 		return err
 	}
 	outcome, activation, err := selfupdate.Watch(layout.layout(), *unit, check, c.now())
+	if err != nil {
+		unlock()
+		return err
+	}
+	// A rollback leaves a restart obligation until the unit restarts, so a
+	// failed systemctl call, an output error or a crash after the link moved
+	// is retried by the next timer run instead of reading as idle.
+	owed, err := layout.layout().RestartPending(*unit)
 	unlock()
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(c.output, "selfupdate watchdog unit=%s outcome=%s activation=%s target=%s\n",
-		*unit, outcome, activation.ActivationID, activation.Target); err != nil {
-		return err
+	_, printErr := fmt.Fprintf(c.output, "selfupdate watchdog unit=%s outcome=%s activation=%s target=%s\n",
+		*unit, outcome, activation.ActivationID, activation.Target)
+	if owed && *restart {
+		if err := c.restart(c.ctx, *unit); err != nil {
+			return errors.Join(err, printErr)
+		}
+		unlock, err := layout.layout().Lock()
+		if err != nil {
+			return errors.Join(err, printErr)
+		}
+		defer unlock()
+		return errors.Join(layout.layout().ClearRestartPending(*unit), printErr)
 	}
-	if outcome == selfupdate.OutcomeRolledBack && *restart {
-		return c.restart(c.ctx, *unit)
-	}
-	return nil
+	return printErr
 }
 
 func (c command) stage(args []string) error {

@@ -78,7 +78,18 @@ func soakWave(t *testing.T, record Record, at time.Time) (Record, time.Time) {
 		}
 		_ = report
 	}
+	// The observations themselves must span the soak window: every unit
+	// reports again once the window has passed.
 	at = at.Add(soak)
+	for _, id := range record.Waves[wave] {
+		if record.Phase.Terminal() || record.WaveIndex != wave {
+			break
+		}
+		record = apply(t, record, Event{Kind: EventHealthy, Unit: id, Health: health(at, 100), At: at})
+	}
+	if record.Phase.Terminal() {
+		return record, at
+	}
 	return apply(t, record, Event{Kind: EventTick, At: at}), at
 }
 
@@ -280,7 +291,7 @@ func TestDeadlinesRollBack(t *testing.T) {
 
 	// One healthy report followed by silence must not stall the soak forever.
 	silent := apply(t, record, Event{Kind: EventHealthy, Unit: "ctrl-b", Health: health(at.Add(time.Second), 10), At: at.Add(time.Second)})
-	soakEnd := deadline.Add(silent.soakDuration())
+	soakEnd := deadline.Add(silent.soakDuration()).Add(minSoakGap)
 	if next := apply(t, silent, Event{Kind: EventTick, At: soakEnd.Add(-time.Second)}); next.Phase != PhaseCanarySoak {
 		t.Fatalf("tick before the soak deadline changed phase: %s", next.Phase)
 	}

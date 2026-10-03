@@ -156,6 +156,13 @@ func (c *Controller[S, O]) deleteOne(ctx context.Context, epoch uint64, desired 
 		status.Drift = []Change{{Op: "delete", Detail: "waiting for tombstone not-before " + desired.Tombstone.NotBefore.Format(time.RFC3339)}}
 		return status, nil
 	}
+	if found && desired.Policy != PolicyEnforce {
+		// Report mode never mutates the cloud, deletes included: the pending
+		// delete is drift until an operator switches the record to enforce.
+		status.Drift = []Change{{Op: "delete", Detail: "tombstoned; report-only policy withholds the cloud delete"}}
+		slog.Info("OCI resource delete reported", "key", desired.Key.String())
+		return status, nil
+	}
 	if err := c.guard(ctx, epoch); err != nil {
 		return status, err
 	}

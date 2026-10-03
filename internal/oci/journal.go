@@ -414,9 +414,53 @@ func (journal *KVJournal) isOwned(ctx context.Context, kind string, identity Res
 	if kind == "volume" && staleVolumeOwnership(entry.Identity, identity) {
 		// A confirmed resize whose ownership advance was interrupted left the
 		// record at a smaller size; finish the advance from the receipt.
-		return journal.advanceFromConfirmedResize(ctx, identity)
+		owned, err := journal.advanceFromConfirmedResize(ctx, identity)
+		if err != nil || owned {
+			return owned, err
+		}
+		// A resize this controller journaled and OCI applied, whose receipt
+		// was never confirmed (the re-observation failed or the process
+		// stopped first), leaves the same stale record. Without this the
+		// create/recover path rejects the grown volume before the resize
+		// path can confirm its receipt.
+		return journal.advanceFromAppliedResizeIntent(ctx, entry.Identity, identity)
 	}
 	return false, nil
+}
+
+// advanceFromAppliedResizeIntent advances the ownership record of a volume
+// observed at exactly the target of this controller's own unconfirmed resize
+// intent, whose recorded predecessor is exactly the current ownership record.
+// Every scope field must match; any other size stays not owned. The receipt
+// itself is still confirmed only by ResizeRetainedVolume.
+func (journal *KVJournal) advanceFromAppliedResizeIntent(ctx context.Context, recorded, identity ResourceIdentity) (bool, error) {
+	key := OperationIntent{
+		Action: actionVolumeResize, Key: volumeResizeKey(identity.ID, identity.SizeGB),
+		Region: identity.Region, Generation: identity.Generation, Owner: identity.Owner,
+	}
+	entry, err := journal.read(ctx, operationKey(key))
+	if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	resize := entry.Intent
+	if entry.Kind != "operation" || resize.Action != actionVolumeResize || resize.Key != key.Key ||
+		resize.Region != identity.Region || resize.Generation != identity.Generation || resize.Owner != identity.Owner ||
+		resize.VolumeID != identity.ID || resize.CreateKey != identity.CreateKey ||
+		resize.AvailabilityDomain != identity.AvailabilityDomain || resize.SizeGB != identity.SizeGB ||
+		resize.PreviousSizeGB != recorded.SizeGB ||
+		!entry.Result.RecordedAt.IsZero() && !entry.Result.Unknown {
+		return false, nil
+	}
+	if err := journal.advanceVolumeOwnership(ctx, OperationResult{Intent: resize}); err != nil {
+		if errors.Is(err, errVolumeOwnershipMismatch) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // staleVolumeOwnership reports a recorded volume identity that differs from

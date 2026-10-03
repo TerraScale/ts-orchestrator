@@ -182,6 +182,11 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 		PollInterval:            time.Duration(cfg.Host.PollMillis) * time.Millisecond, SessionTrace: cfg.Host.SessionTrace,
 		ClockCheck:       clockCheck,
 		VolumeInitSocket: "/run/terrascale-orchestrator-volume-init.sock",
+		// The activation proof follows native recovery, so a release whose
+		// agent cannot recover its workloads is never confirmed.
+		Initialized: func() {
+			emitSelfUpdateProofWithKey(cfg.Host.SelfUpdateProofFile, cfg.Host.SelfUpdateRoot, key, hostUnit, output)
+		},
 	})
 	if err != nil {
 		return err
@@ -203,7 +208,6 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 		slog.Warn("systemd readiness notification failed", "error", err)
 	}
 	defer func() { _ = notifier.Stopping() }()
-	emitSelfUpdateProofWithKey(cfg.Host.SelfUpdateProofFile, cfg.Host.SelfUpdateRoot, key, hostUnit, output)
 	return hostRunResult(ctx, agent.Run(ctx))
 }
 

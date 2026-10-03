@@ -22,6 +22,12 @@ func observeOnly(ctx context.Context) context.Context {
 	return context.WithValue(ctx, observeOnlyKey{}, true)
 }
 
+// WithCachedVerification opts one Observe call into reusing a cached
+// storage and network verification. Only placement's periodic read sweep
+// passes it; admission paths (host enrollment, registration verification)
+// call Observe with a plain context and always verify afresh.
+func WithCachedVerification(ctx context.Context) context.Context { return observeOnly(ctx) }
+
 func isObserveOnly(ctx context.Context) bool {
 	marked, _ := ctx.Value(observeOnlyKey{}).(bool)
 	return marked

@@ -70,6 +70,12 @@ func (policy Policy) Validate() error {
 		policy.OrphanRetentionDays < 1 || policy.OrphanRetentionDays > 365 {
 		return errors.New("volume backup policy is outside its bounds")
 	}
+	// The full-backup cadence is derived from the retained history. Pruning
+	// below FullEvery would delete the last FULL and silently force fulls
+	// more often than configured.
+	if policy.Prune && policy.Retain < policy.FullEvery {
+		return errors.New("volume backup policy prunes below its full-backup cadence: retain must be at least full_every")
+	}
 	return nil
 }
 
