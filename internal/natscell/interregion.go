@@ -551,6 +551,20 @@ func (c InterRegionContract) verify(system, cell, interregion *jwt.AccountClaims
 	return nil
 }
 
+// VerifyClaims applies exactly the startup check of the installed account
+// JWTs to claims a tool is about to issue, so material that would make the
+// server refuse to start is never written.
+func (c InterRegionContract) VerifyClaims(system, cell, interregion *jwt.AccountClaims, links int) error {
+	return c.verify(system, cell, interregion, links)
+}
+
+// ValidateLeafCredentials is the remote-side check of a leaf credentials
+// file: a leaf-only user of peerAccount, issued by one of its scoped child
+// signing keys, without permissions or limits of its own.
+func ValidateLeafCredentials(path, peerAccount string) error {
+	return validateLeafCredentials(path, peerAccount)
+}
+
 func denyAll(permissions jwt.Permissions) bool {
 	return len(permissions.Pub.Allow) == 0 && len(permissions.Sub.Allow) == 0 &&
 		slices.Equal(permissions.Pub.Deny, jwt.StringList{">"}) && slices.Equal(permissions.Sub.Deny, jwt.StringList{">"}) &&

@@ -24,6 +24,7 @@ Commands:
   open-customer-material
   open-rotated-customer-material
   generate-controller-material
+  generate-interregion-material
   provision-controller-material
   sign-peer-receipt-delegation
   render-founder-continuity
