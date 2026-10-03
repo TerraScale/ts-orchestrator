@@ -220,7 +220,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	defer stopAuthority()
 	defer control.Close()
-	membershipReconciler, err := startControllerMembership(ctx, cfg, runtime, control)
+	membershipSupervisor, err := startControllerMembership(ctx, cfg, runtime, control)
 	if err != nil {
 		return fmt.Errorf("start controller membership supervision: %w", err)
 	}
@@ -620,8 +620,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if ociReconcile != nil {
 		workers.Go(func() { workerErrors <- ociReconcile.Run(runCtx) })
 	}
-	if membershipReconciler != nil {
-		workers.Go(func() { workerErrors <- membershipReconciler.Run(runCtx) })
+	if membershipSupervisor != nil {
+		workers.Go(func() { workerErrors <- membershipSupervisor.Run(runCtx) })
 	}
 	if workloadReconciler != nil {
 		workers.Go(func() { workerErrors <- workloadReconciler.Run(runCtx) })
