@@ -157,6 +157,9 @@ func (controller *Controller) verifyManagedUpdateBaselineChecked(ctx context.Con
 		candidate.ManifestDigest != update.CandidateManifestDigest || candidate.SourceDigest != update.CandidateSourceDigest {
 		return errors.New("managed update candidate bytes, manifest, or source admission changed")
 	}
+	if err := controller.refuseKnownBad(ctx, update.CandidateArtifactDigest); err != nil {
+		return err
+	}
 	seats, err := controller.localSeats(intent)
 	if err != nil {
 		return err
@@ -301,6 +304,24 @@ func managedUpdateRollsBackHeld(update ManagedUpdateIntent, state MemberState) b
 		update.CandidateArtifactDigest == predecessor.ArtifactDigest &&
 		update.CandidateSourceDigest == predecessor.SourceDigest &&
 		(state.Stage == StagePreparedDesired || state.Stage == StageAwaitingHealthy)
+}
+
+// refuseKnownBad enforces the cell's durable known-bad list in admission, so
+// a candidate a rollout rolled back is refused here even when the caller's
+// own list does not name it. A read failure refuses the update: admission
+// fails closed.
+func (controller *Controller) refuseKnownBad(ctx context.Context, digest string) error {
+	if controller.config.KnownBad == nil {
+		return nil
+	}
+	bad, err := controller.config.KnownBad.IsKnownBad(ctx, digest)
+	if err != nil {
+		return fmt.Errorf("read the cell known-bad release list: %w", err)
+	}
+	if bad {
+		return fmt.Errorf("%w: %s", ErrKnownBadCandidate, digest)
+	}
+	return nil
 }
 
 func managedUpdateSeatMatches(seat ManagedUpdateSeat, state MemberState) bool {

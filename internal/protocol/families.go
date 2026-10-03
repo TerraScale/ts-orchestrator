@@ -180,6 +180,33 @@ func DeliveryArtifactAdmitSubject(cell string) string {
 // RegionHealthSubject is the signed regional heartbeat exported to peers.
 func RegionHealthSubject(cell string) string { return Regional(cell, VerbRegionHealth) }
 
+// Rollout executor subjects. The leader publishes the active rollout's status
+// on RolloutStatusSubject; every unit publishes its signed version/health
+// proof on RolloutProofSubject; the leader sends each signed stage/activate
+// step to the unit's step agent on RolloutStepSubject. Unit identities are
+// hashed so caller-controlled names never become subject tokens.
+const rolloutFamily = "rollout"
+
+// RolloutStatusSubject is the leader's rollout status publication subject.
+func RolloutStatusSubject(cell string) string { return Regional(cell, rolloutFamily, "status") }
+
+// RolloutProofSubject is one unit's signed version/health proof subject. An
+// empty unit yields the subscribe grant for every unit's proofs.
+func RolloutProofSubject(cell, unit string) string {
+	if unit == "" {
+		return Regional(cell, rolloutFamily, "proof", "*")
+	}
+	return Regional(cell, rolloutFamily, "proof", HashToken(unit)[:32])
+}
+
+// RolloutStepSubject is one unit's signed stage/activate step subject.
+func RolloutStepSubject(cell, unit string) string {
+	if unit == "" {
+		return ""
+	}
+	return Regional(cell, rolloutFamily, "step", HashToken(unit)[:32])
+}
+
 // ObservabilityGrant is the subscribe grant covering every read-only member
 // telemetry leaf (ObservabilitySubject) of one regional cell.
 func ObservabilityGrant(cell string) string { return Regional(cell, "obs", ">") }

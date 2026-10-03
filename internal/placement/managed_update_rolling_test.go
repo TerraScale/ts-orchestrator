@@ -28,6 +28,16 @@ func (hosts rollingTestHosts) ApplyDesired(_ context.Context, desired host.Desir
 	return host.Receipt{Generation: desired.Generation, Revision: uint64(hosts.desiredWrites)}, nil
 }
 
+// fakeKnownBad is a fixed cell known-bad list.
+type fakeKnownBad struct {
+	bad map[string]bool
+	err error
+}
+
+func (list fakeKnownBad) IsKnownBad(_ context.Context, digest string) (bool, error) {
+	return list.bad[digest], list.err
+}
+
 // A release reaches both seats as two chained operations; the next release
 // replaces a completed target; a candidate that never serves is held with its
 // peer still serving, and a rollback operation restores the replaced artifact.
@@ -136,6 +146,20 @@ func TestManagedUpdateR3RollsReleasesAcrossSeatsAndRollsBackHeldCanary(t *testin
 	if seat(permanent).ManagedRuntimeTarget.OperationID != "release-2-permanent" {
 		t.Fatal("promoting the peer changed the served canary target")
 	}
+
+	// The cell's rollout known-bad list is enforced in admission, and an
+	// unreadable list refuses the update instead of admitting it.
+	knownBadUpdate := rollingManagedUpdate(t, fixture, controller, placementSequence, epoch, "release-3-known-bad", permanent, r2, r3)
+	knownBadRecord, _ := signedManagedUpdatePreparedRecord(t, knownBadUpdate)
+	controller.config.KnownBad = fakeKnownBad{bad: map[string]bool{r3.Digest: true}}
+	if _, err := controller.PrepareManagedUpdate(ctx, knownBadRecord); !errors.Is(err, ErrKnownBadCandidate) {
+		t.Fatalf("known-bad candidate admission = %v", err)
+	}
+	controller.config.KnownBad = fakeKnownBad{err: errors.New("rollout store unavailable")}
+	if _, err := controller.PrepareManagedUpdate(ctx, knownBadRecord); err == nil {
+		t.Fatal("an unreadable known-bad list admitted the update")
+	}
+	controller.config.KnownBad = fakeKnownBad{bad: map[string]bool{strings.Repeat("e", 64): true}}
 
 	prepare("release-3-permanent", permanent, r2, r3)
 	chained := seat(permanent).ManagedRuntimeTarget
