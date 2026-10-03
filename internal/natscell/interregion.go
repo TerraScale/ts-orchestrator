@@ -47,6 +47,14 @@ type InterRegion struct {
 	// account to permissions for its subtree alone (see
 	// InterRegionContract.ChildLeafPermissions). Required with Listen.
 	Subtrees map[string][]string `json:"subtrees,omitempty"`
+	// Topology is the whole reviewed leaf tree. When set, startup derives
+	// this region's view from it and refuses any other: Peers must be every
+	// other region of the tree, Subtrees exactly this region's children and
+	// their subtrees, Remotes exactly one link to this region's parent (none
+	// at the root), and GlobalHome, if set, the tree's hub. Configuration
+	// rendered from interregion material always carries it; without it only
+	// this region's local view is checked.
+	Topology *LeafTopology `json:"topology,omitempty"`
 }
 
 // LeafListen accepts leafnodes from child regions in the leaf topology. TLS is
@@ -161,6 +169,42 @@ func (ir *InterRegion) validate(cfg Config) error {
 				return fmt.Errorf("interregion remote %q URL must be nats-leaf://host:port", remote.Peer)
 			}
 		}
+	}
+	if ir.Topology != nil {
+		return ir.matchTopology(cfg.Cell, *ir.Topology)
+	}
+	return nil
+}
+
+// matchTopology requires this region's configuration to be exactly its view
+// of the whole leaf tree, so every region of one deployment links the same
+// acyclic tree: each child that dials this region is one this region accepts
+// with that child's subtree, and nothing outside the tree is in the contract.
+func (ir *InterRegion) matchTopology(cell string, topology LeafTopology) error {
+	if err := topology.Validate(); err != nil {
+		return fmt.Errorf("interregion topology: %w", err)
+	}
+	if !slices.Contains(topology.Regions(), cell) {
+		return fmt.Errorf("interregion topology does not contain this region %q", cell)
+	}
+	if ir.GlobalHome != "" && ir.GlobalHome != topology.Hub {
+		return fmt.Errorf("interregion global home %q is not the topology hub %q", ir.GlobalHome, topology.Hub)
+	}
+	if !slices.Equal(slices.Sorted(slices.Values(ir.Peers)), topology.Peers(cell)) {
+		return errors.New("interregion peers differ from the other regions of the topology")
+	}
+	expected := topology.Subtrees(cell)
+	if len(expected) != len(ir.Subtrees) {
+		return errors.New("interregion child subtrees differ from the topology")
+	}
+	for child, subtree := range expected {
+		if !slices.Equal(slices.Sorted(slices.Values(ir.Subtrees[child])), subtree) {
+			return fmt.Errorf("interregion subtree of child %q differs from the topology", child)
+		}
+	}
+	parent, dials := topology.Parent(cell)
+	if !dials && len(ir.Remotes) != 0 || dials && (len(ir.Remotes) != 1 || ir.Remotes[0].Peer != parent) {
+		return errors.New("interregion remotes must be exactly this region's topology parent")
 	}
 	return nil
 }
