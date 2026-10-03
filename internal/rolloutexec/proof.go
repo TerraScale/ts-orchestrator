@@ -30,7 +30,12 @@ const (
 	// DefaultProofInterval is how often a healthy unit publishes a proof.
 	DefaultProofInterval = 15 * time.Second
 	healthClockSkew      = time.Minute
-	maxProofUnits        = 4 * rollout.MaxUnits
+	// incarnationQuiet is how long a unit's newest incarnation must have
+	// been silent before a new incarnation whose clock reads earlier
+	// replaces it: a live incarnation keeps proving within it, so a
+	// delayed proof of a superseded process never displaces it.
+	incarnationQuiet = 2 * DefaultProofInterval
+	maxProofUnits    = 4 * rollout.MaxUnits
 )
 
 var (
@@ -195,7 +200,11 @@ func (c *Collector) Observe(subject string, wire []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	previous, exists := c.latest[unit]
-	if exists && !proof.ObservedAt.After(previous.ObservedAt) {
+	// Within one incarnation proofs only move forward. Another
+	// incarnation whose clock reads earlier (a clock stepped back across a
+	// restart) replaces the newest one only after that one went quiet.
+	if exists && !proof.ObservedAt.After(previous.ObservedAt) &&
+		(proof.sameIncarnation(previous) || proof.ReceivedAt.Sub(previous.ReceivedAt) <= incarnationQuiet) {
 		return nil
 	}
 	if !exists && len(c.latest) >= maxProofUnits {

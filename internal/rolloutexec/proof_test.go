@@ -150,3 +150,54 @@ func TestCollectorReclaimsExpiredUnitsWhenFull(t *testing.T) {
 		t.Fatal("an expired unit was kept")
 	}
 }
+
+// A restarted unit whose clock stepped back is accepted once its previous
+// incarnation went quiet; until then, and always within one incarnation,
+// an earlier-reading proof never replaces the newest one.
+func TestCollectorAcceptsANewIncarnationWhoseClockSteppedBack(t *testing.T) {
+	key, keys := testKey(t)
+	start := time.Now().UTC().Truncate(time.Second)
+	now := start
+	collector := NewCollector("gru", func(string) (trust.Keyring, error) { return keys, nil },
+		func() time.Time { return now })
+	subject := protocol.RolloutProofSubject("gru", "ctl-a")
+	observe := func(proof HealthProof) error {
+		t.Helper()
+		wire, err := SignHealthProof(proof, key, proof.ObservedAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return collector.Observe(subject, wire)
+	}
+	if err := observe(testProof("ctl-a", fromDigest, start)); err != nil {
+		t.Fatal(err)
+	}
+	restarted := func(at time.Time) HealthProof {
+		proof := testProof("ctl-a", toDigest, at)
+		proof.ProcessID, proof.StartNonce = 43, "fedcba9876543210fedcba9876543210"
+		return proof
+	}
+	// The old incarnation proved 5 s ago: an earlier-reading proof of
+	// another incarnation is not trusted to replace it yet.
+	now = start.Add(5 * time.Second)
+	if err := observe(restarted(start.Add(-40 * time.Second))); err != nil {
+		t.Fatal(err)
+	}
+	if proof, _ := collector.Latest("ctl-a"); proof.ProcessID != 42 {
+		t.Fatal("an earlier-reading proof replaced a live incarnation")
+	}
+	now = start.Add(incarnationQuiet + 5*time.Second)
+	if err := observe(restarted(start.Add(-10 * time.Second))); err != nil {
+		t.Fatal(err)
+	}
+	if proof, _ := collector.Latest("ctl-a"); proof.ProcessID != 43 || proof.BinarySHA256 != toDigest {
+		t.Fatalf("the restarted incarnation was not accepted: %+v", proof)
+	}
+	// Within the new incarnation, proofs still only move forward.
+	if err := observe(restarted(start.Add(-20 * time.Second))); err != nil {
+		t.Fatal(err)
+	}
+	if proof, _ := collector.Latest("ctl-a"); !proof.ObservedAt.Equal(start.Add(-10 * time.Second)) {
+		t.Fatalf("an older proof of the same incarnation replaced the newest: %s", proof.ObservedAt)
+	}
+}
