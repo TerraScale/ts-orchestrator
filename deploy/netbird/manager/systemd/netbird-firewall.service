@@ -1,0 +1,13 @@
+[Unit]
+Description=NetBird manager host firewall rule (ts-ops)
+After=netfilter-persistent.service
+Wants=netfilter-persistent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/libexec/homelab/netbird/netbird-firewall add
+ExecStop=/usr/local/libexec/homelab/netbird/netbird-firewall remove
+
+[Install]
+WantedBy=multi-user.target

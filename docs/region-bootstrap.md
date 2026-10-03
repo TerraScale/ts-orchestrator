@@ -56,7 +56,7 @@ cell has been deployed.
 | Controllers B and C in the admitted cell | `ts-orchestrator` founder after the handoff |
 | ARM managed workload hosts, persistent volumes, enrollment, and workload deployment | `ts-orchestrator` through its reviewed runtime path after the required cell-specific enrollment bundle is available |
 | Operator gateway peering: the LPG pair, the cell and ts-ops peering routes, and the gateway NSG rules | Runbook operator; `ts-orchestrator` never changes them |
-| NetBird server and routing peer on the ts-ops host | ts-ops host owner (HomeLab `ops/ts-ops/netbird/`) |
+| NetBird manager, routing peer and configuration | `ts-orchestrator` ([`deploy/netbird`](../deploy/netbird/README.md)) |
 | Shared Email Delivery | `ts-infra` (four email resources) |
 
 The handoff is a real ownership boundary. Do not launch B or C manually, run a
@@ -163,8 +163,8 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
 
 Operators reach the private cell through a NetBird routing peer on the ts-ops
 host (Forgejo and NetBird; private IP `10.250.10.155` in `ts-ops-vcn`
-`10.250.0.0/16`). The NetBird server and routing peer belong to that VM's owner
-and are documented in HomeLab `ops/ts-ops/netbird/`. This runbook
+`10.250.0.0/16`). The NetBird manager, routing peer and configuration are
+documented in [`deploy/netbird/README.md`](../deploy/netbird/README.md). This runbook
 owns the OCI peering and automatic server enrollment inputs: one local peering
 gateway (LPG) in each VCN, one route in each VCN's subnet route table, and the
 gateway rules in the cell NSGs. The routing peer masquerades, so every operator
@@ -226,8 +226,8 @@ DNS resolves the same hostname to ts-ops's public address for operator
 devices. The manager's signal and WebSocket relay endpoints must use that
 same hostname on 443; STUN uses 3478. Existing within-cell egress already
 permits direct peer traffic. Keep the server setup key restricted to the
-NetBird server group and configure explicit operator access policies in the
-manager.
+`gru-servers` group; `ts-orch netbird sync` reconciles the operator access
+policies.
 
 Record `secret_compartment_id`, `setup_key_secret_id`, `policy_id`, and
 `policy_name` in `plan.netbird`; foundation inspection requires every one. The
@@ -285,35 +285,37 @@ image's timesyncd configuration provides this).
 
 Peer traffic to a server's NetBird address is filtered by that server's NetBird
 firewall, independently of the OCI NSGs, and the manager denies it unless a
-policy allows it. The server setup key auto-assigns `ts-orch-servers`; a
+policy allows it. The server setup key auto-assigns `gru-servers`; the
 `netbird-ssh` policy targeting that group also makes the manager enable each
-member's SSH server. Add operator policies from the `operators` group to it:
+server's SSH server. ts-orchestrator owns these policies (see
+[`deploy/netbird/README.md`](../deploy/netbird/README.md)):
 
 | Policy | Protocol and ports |
 | --- | --- |
-| Operator SSH | `netbird-ssh` (port 22 is redirected to the SSH server's 22022) |
-| Operator internal tools | TCP 4222 (controllers), 9465 (members) and any other required tool port |
+| `operators-to-gru-servers-ssh` | `netbird-ssh` (port 22 is redirected to the SSH server's 22022) |
+| `operators-to-gru-cell-ops-ports` | TCP 22, 4222 (controllers), 9465 (members), routed through ts-ops |
 
-HomeLab `ops/ts-ops/netbird/admin.py configure-cell` reconciles the SSH policy
-as `operators-ssh-to-ts-orch-servers`, next to the routed `operators-to-gru-cell`
-policy. Do not allow 6222 or 8443 to operators. From an enrolled operator
-device:
+Do not allow 6222 or 8443 to operators. Servers enroll under stable peer
+names (`gru-controller-a`..`c`, `gru-member-1`..`2`) in `nb.ts.internal`, and
+operators resolve stable cell names in `gru.ts.internal`. From an enrolled
+operator device:
 
 ```sh
-netbird ssh root@SERVER_NETBIRD_NAME
-netbird ssh -L 8080:127.0.0.1:8080 root@SERVER_NETBIRD_NAME   # loopback-only tool
+netbird ssh root@gru-controller-a.nb.ts.internal
+netbird ssh -L 8080:127.0.0.1:8080 root@gru-controller-a.nb.ts.internal   # loopback-only tool
 ```
 
 Plain `ssh` to a NetBird name also uses NetBird SSH, through the NetBird
-client's OpenSSH drop-in. For OpenSSH, dial the private IP over the routing peer:
+client's OpenSSH drop-in. For OpenSSH, dial the private address over the
+routing peer:
 
 ```sh
-ssh -i ~/.ssh/terrascale-owner ubuntu@10.251.0.12
+ssh -i ~/.ssh/terrascale-owner ubuntu@controller-a.gru.ts.internal
 ```
 
 Controller A prints its host key to the serial console at first boot. For the
 other servers, compare the host key on first connection with
-`netbird ssh root@SERVER_NETBIRD_NAME ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`.
+`netbird ssh root@gru-member-1.nb.ts.internal ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`.
 The OCI Bastion remains the break-glass path.
 
 ### Apply

@@ -1,0 +1,36 @@
+[Unit]
+Description=NetBird combined server: management, signal, relay, STUN (ts-ops)
+After=network-online.target netbird-firewall.service
+Wants=network-online.target
+Requires=netbird-firewall.service
+
+[Container]
+Image=docker.io/netbirdio/netbird-server:0.80.0
+ContainerName=netbird-server
+Network=netbird.network
+# Caddy on the host terminates TLS for netbird.terrascale.tech and proxies to
+# the loopback publish. STUN must reach the container directly over UDP.
+PublishPort=127.0.0.1:18081:80
+PublishPort=3478:3478/udp
+# The embedded IdP issuer is the public name; reach it through host Caddy on
+# the bridge gateway instead of relying on OCI public-IP hairpinning (Podman
+# 4.9 Quadlet has neither AddHost nor the host-gateway alias).
+PodmanArgs=--add-host=netbird.terrascale.tech:10.89.77.1
+Volume=/var/srv/appdata/netbird/data:/var/lib/netbird:Z
+Volume=/etc/netbird/config.yaml:/etc/netbird/config.yaml:ro,Z
+Exec=--config /etc/netbird/config.yaml
+# Lets setup-owner.sh mint the owner PAT; /api/setup closes once an owner exists.
+Environment=NB_SETUP_PAT_ENABLED=true
+
+[Service]
+Restart=always
+RestartSec=5s
+TimeoutStartSec=120
+# Forgejo keeps the default CPU weight and wins under contention.
+CPUWeight=50
+MemoryHigh=256M
+MemoryMax=384M
+MemorySwapMax=256M
+
+[Install]
+WantedBy=multi-user.target

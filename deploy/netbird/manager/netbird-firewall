@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Open NetBird traffic through the host's persistent iptables ruleset, whose
+# INPUT and FORWARD chains end in REJECT and whose netavark rules only accept
+# established flows into containers. Each rule is scoped to NetBird and owned
+# by a netbird firewall unit; Forgejo's /etc/iptables/rules.v4 is never edited.
+#   manager       forwarded (DNAT) STUN into the netbird bridge subnet
+#   routing-peer  WireGuard to the routing peer's wt0 listener
+set -euo pipefail
+
+case "${2:-manager}" in
+  manager)
+    RULE=(FORWARD -d 10.89.77.0/24 -p udp --dport 3478 -m conntrack --ctstate DNAT
+      -m comment --comment netbird-stun -j ACCEPT)
+    ;;
+  routing-peer)
+    RULE=(INPUT -p udp --dport 51820 -m comment --comment netbird-wireguard -j ACCEPT)
+    ;;
+  *)
+    echo "Usage: netbird-firewall add|remove [manager|routing-peer]" >&2
+    exit 2
+    ;;
+esac
+
+case "${1:-}" in
+  add)
+    iptables -C "${RULE[@]}" 2>/dev/null || iptables -I "${RULE[0]}" 1 "${RULE[@]:1}"
+    ;;
+  remove)
+    while iptables -C "${RULE[@]}" 2>/dev/null; do
+      iptables -D "${RULE[@]}"
+    done
+    ;;
+  *)
+    echo "Usage: netbird-firewall add|remove [manager|routing-peer]" >&2
+    exit 2
+    ;;
+esac
