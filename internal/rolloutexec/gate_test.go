@@ -1,6 +1,7 @@
 package rolloutexec
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"testing"
@@ -18,7 +19,7 @@ type fakeCluster struct {
 func (c fakeCluster) ObserveCluster() (natscell.ClusterObservation, error) {
 	return c.observation, c.err
 }
-func (c fakeCluster) LaggingStreams() ([]string, error) { return c.lagging, nil }
+func (c fakeCluster) LaggingStreams(context.Context) ([]string, error) { return c.lagging, nil }
 
 func healthyCluster() natscell.ClusterObservation {
 	return natscell.ClusterObservation{ServerName: "a", Running: true, ExpectedPeers: []string{"a", "b", "c"},

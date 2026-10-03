@@ -34,8 +34,10 @@ type StepAction string
 const (
 	// StepPrepare moves the unit forward to the rollout's target digest.
 	StepPrepare StepAction = "prepare"
-	// StepRollback returns the unit to the rollout's FromDigest. The agent
-	// restages that release first when it was pruned.
+	// StepRollback restores the rollout's FromDigest over the rejected
+	// target (selfupdate.Restore): no pending activation is created, so a
+	// failed restore never lets the watchdog return to the rejected
+	// release. The agent restages FromDigest first when it was pruned.
 	StepRollback StepAction = "rollback"
 )
 
@@ -47,7 +49,10 @@ type Step struct {
 	OperationID string
 	Action      StepAction
 	Digest      string
-	Epoch       uint64
+	// Replaces is the rejected release a rollback restores over; it is
+	// empty for a forward step.
+	Replaces string
+	Epoch    uint64
 	// ProofWindow is how long the unit's watchdog waits for the new
 	// process's version proof before it rolls the activation back.
 	ProofWindow time.Duration
@@ -66,6 +71,7 @@ type StepCommand struct {
 	OperationID        string       `json:"operation_id"`
 	Action             StepAction   `json:"action"`
 	Digest             string       `json:"digest"`
+	Replaces           string       `json:"replaces,omitempty"`
 	Epoch              uint64       `json:"epoch"`
 	ProofWindowSeconds int64        `json:"proof_window_seconds"`
 	Receipt            []byte       `json:"receipt,omitempty"`
@@ -78,7 +84,9 @@ func (command StepCommand) validate() error {
 		!unitRE.MatchString(command.OperationID) || command.Action != StepPrepare && command.Action != StepRollback ||
 		!digestRE.MatchString(command.Digest) || command.Epoch == 0 || command.ProofWindowSeconds <= 0 ||
 		len(command.Receipt) > maxReleaseWire || len(command.Delegation) > maxReleaseWire ||
-		len(command.Delegation) > 0 && len(command.Receipt) == 0 {
+		len(command.Delegation) > 0 && len(command.Receipt) == 0 ||
+		command.Action == StepPrepare && command.Replaces != "" ||
+		command.Action == StepRollback && (!digestRE.MatchString(command.Replaces) || command.Replaces == command.Digest) {
 		return fmt.Errorf("%w: step command", ErrInvalid)
 	}
 	return nil
@@ -200,7 +208,7 @@ func (d NATSDriver) Step(ctx context.Context, step Step) (StepReply, error) {
 		now = d.Now
 	}
 	command := StepCommand{Schema: StepSchema, Cell: d.Cell, RolloutID: step.RolloutID, Kind: step.Kind, Unit: step.Unit,
-		OperationID: step.OperationID, Action: step.Action, Digest: step.Digest, Epoch: step.Epoch,
+		OperationID: step.OperationID, Action: step.Action, Digest: step.Digest, Replaces: step.Replaces, Epoch: step.Epoch,
 		ProofWindowSeconds: int64(step.ProofWindow / time.Second)}
 	if d.Releases != nil {
 		receipt, delegation, err := d.Releases.Receipt(ctx, step.Digest)

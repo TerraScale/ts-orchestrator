@@ -19,6 +19,8 @@ type fakeUnit struct {
 	pid    int64
 	nonce  string
 	down   bool
+	// age makes the unit's newest proof this old.
+	age time.Duration
 }
 
 // fakeFleet simulates unit agents and their health proofs. Proofs are
@@ -57,7 +59,7 @@ func (f *fakeFleet) Latest(unit string) (HealthProof, bool) {
 		return HealthProof{}, false
 	}
 	return HealthProof{Schema: HealthSchema, Cell: "gru", Unit: unit, BinarySHA256: u.digest, ProcessID: u.pid,
-		StartNonce: u.nonce, ObservedAt: f.clock.Now()}, true
+		StartNonce: u.nonce, ObservedAt: f.clock.Now().Add(-u.age)}, true
 }
 
 func (f *fakeFleet) Step(_ context.Context, step Step) (StepReply, error) {
@@ -350,5 +352,39 @@ func TestExecutorPreflightWaitsForProofsAndAbortsOnAForeignRelease(t *testing.T)
 	h.run(5, func() bool { return h.phase("rel1-controllers") == rollout.PhaseAborted })
 	if len(h.fleet.stepLog()) != 0 {
 		t.Fatalf("an aborted preflight sent steps: %v", h.fleet.stepLog())
+	}
+}
+
+func TestExecutorFencesEveryStepAndIgnoresStaleProofs(t *testing.T) {
+	h := newHarness(t)
+	h.program = h.program[:1]
+	h.gate.holds["ctl-b"] = 1
+	if err := h.executor.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	// The lease is lost after the tick's snapshot: no step leaves.
+	h.fence.lost.Store(true)
+	if err := h.executor.Tick(t.Context()); err == nil {
+		t.Fatal("a tick whose lease was lost before the step succeeded")
+	}
+	if steps := h.fleet.stepLog(); len(steps) != 0 {
+		t.Fatalf("a step left after the lease was lost: %v", steps)
+	}
+	h.fence.lost.Store(false)
+	// The canary only ever reports stale proofs: they never count towards
+	// its soak, however much later they were observed than the phase start.
+	h.fleet.units["ctl-b"].age = 2 * DefaultProofFreshness
+	for range 14 {
+		h.clock.Advance(20 * time.Second)
+		if err := h.executor.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record, _ := h.load("rel1-controllers")
+	if record.Phase != rollout.PhaseCanarySoak || record.Units["ctl-b"].HealthyReports != 0 {
+		t.Fatalf("stale proofs advanced the canary: %s %+v", record.Phase, record.Units["ctl-b"])
+	}
+	if steps := h.fleet.stepLog(); !slices.Equal(steps, []string{"prepare:ctl-b"}) {
+		t.Fatalf("steps = %v", steps)
 	}
 }

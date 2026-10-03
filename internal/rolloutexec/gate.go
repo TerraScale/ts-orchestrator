@@ -23,19 +23,21 @@ type Gate interface {
 // ClusterObserver is the embedded broker's read-only cluster view.
 type ClusterObserver interface {
 	ObserveCluster() (natscell.ClusterObservation, error)
-	LaggingStreams() ([]string, error)
+	LaggingStreams(ctx context.Context) ([]string, error)
 }
 
 // ClusterGate holds a step until the JetStream metadata group has a leader,
 // every expected broker is online, the group keeps its quorum without one
-// more broker (the one a controller step restarts), and no replicated
-// stream is leaderless or lagging on this broker.
+// more broker (the one a controller step restarts), and every replicated
+// stream has a leader and only current, online replicas as its leader
+// reports them. With every replica current, restarting any one broker keeps
+// each stream's quorum.
 type ClusterGate struct {
 	Cluster ClusterObserver
 }
 
 // Check implements Gate.
-func (g ClusterGate) Check(_ context.Context, record rollout.Record, _ string) error {
+func (g ClusterGate) Check(ctx context.Context, record rollout.Record, _ string) error {
 	if g.Cluster == nil {
 		return fmt.Errorf("%w: no cluster view", ErrGateHeld)
 	}
@@ -60,7 +62,7 @@ func (g ClusterGate) Check(_ context.Context, record rollout.Record, _ string) e
 		return fmt.Errorf("%w: restarting one controller would lose JetStream quorum (%d online, quorum %d)",
 			ErrGateHeld, online, observation.MetaQuorum)
 	}
-	lagging, err := g.Cluster.LaggingStreams()
+	lagging, err := g.Cluster.LaggingStreams(ctx)
 	if err != nil {
 		return fmt.Errorf("%w: read stream health: %v", ErrGateHeld, err)
 	}

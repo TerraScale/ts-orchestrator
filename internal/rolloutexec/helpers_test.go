@@ -30,6 +30,9 @@ var (
 type epochFence struct {
 	epoch  atomic.Uint64
 	leader atomic.Bool
+	// lost makes Guard fail while Current still reports the lease, as
+	// when the lease expires during a tick.
+	lost atomic.Bool
 }
 
 func newFence(epoch uint64) *epochFence {
@@ -45,7 +48,7 @@ func (fence *epochFence) Current() authority.Snapshot {
 }
 
 func (fence *epochFence) Guard(_ context.Context, epoch uint64) error {
-	if !fence.leader.Load() || epoch == 0 || epoch != fence.epoch.Load() {
+	if !fence.leader.Load() || fence.lost.Load() || epoch == 0 || epoch != fence.epoch.Load() {
 		return authority.ErrFenced
 	}
 	return nil

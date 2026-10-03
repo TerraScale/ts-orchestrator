@@ -1,10 +1,13 @@
 package natscell
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"slices"
+	"time"
 
-	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 // ClusterObservation is a point-in-time, read-only view of this broker's
@@ -71,46 +74,75 @@ func (r *Runtime) ObserveCluster() (ClusterObservation, error) {
 // maxLaggingStreams bounds the names LaggingStreams returns.
 const maxLaggingStreams = 8
 
-// LaggingStreams lists replicated streams that could lose availability if
-// one more broker restarted now: a stream without a leader, and a stream
-// this broker leads with an offline or not-current replica. Replica state of
-// streams led elsewhere is not judged, because a follower's view of it can
-// be stale. The rollout gate holds a controller step while any is listed.
-func (r *Runtime) LaggingStreams() ([]string, error) {
-	if r == nil || r.server == nil || !r.server.Running() {
+// laggingStreamTimeout bounds one stream info request; a stream whose
+// leader does not answer in time counts as lagging.
+const laggingStreamTimeout = 2 * time.Second
+
+// LaggingStreams lists the cell account's replicated streams that could lose
+// availability if one more broker restarted now: a stream whose leader does
+// not answer, and a stream with any offline or not-current replica. Each
+// stream's state comes from a STREAM.INFO request, which its leader answers
+// for every replica, including out-of-band catchup that the local Jsz
+// monitoring view does not show; so streams led by other brokers are judged
+// as strictly as this broker's own. The rollout gate holds a controller step
+// while any stream is listed.
+func (r *Runtime) LaggingStreams(ctx context.Context) ([]string, error) {
+	if r == nil || r.server == nil || !r.server.Running() || r.js == nil {
 		return nil, errors.New("embedded regional NATS server is not running")
 	}
-	info, err := r.server.Jsz(&server.JSzOptions{Accounts: true, Streams: true})
-	if err != nil {
+	if info, err := r.server.Jsz(nil); err != nil {
 		return nil, err
-	}
-	if info.Disabled {
+	} else if info.Disabled {
 		return nil, ErrJetStreamDisabled
 	}
-	name := r.server.Name()
+	lister := r.js.StreamNames(ctx)
+	var names []string
+	for name := range lister.Name() {
+		names = append(names, name)
+	}
+	if err := lister.Err(); err != nil {
+		return nil, fmt.Errorf("list streams: %w", err)
+	}
+	slices.Sort(names)
 	var lagging []string
-	for _, account := range info.AccountDetails {
-		if account == nil {
+	for _, name := range names {
+		requestCtx, cancel := context.WithTimeout(ctx, laggingStreamTimeout)
+		stream, err := r.js.Stream(requestCtx, name)
+		cancel()
+		if errors.Is(err, jetstream.ErrStreamNotFound) {
 			continue
 		}
-		for _, stream := range account.Streams {
-			cluster := stream.Cluster
-			if cluster == nil || len(cluster.Replicas) == 0 && cluster.Leader != "" {
-				continue
-			}
-			behind := cluster.Leader == ""
-			if cluster.Leader == name {
-				for _, peer := range cluster.Replicas {
-					behind = behind || peer == nil || peer.Offline || !peer.Current
-				}
-			}
-			if behind && len(lagging) < maxLaggingStreams {
-				lagging = append(lagging, stream.Name)
-			}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if (err != nil || StreamLagging(stream.CachedInfo())) && len(lagging) < maxLaggingStreams {
+			lagging = append(lagging, name)
 		}
 	}
-	slices.Sort(lagging)
 	return lagging, nil
+}
+
+// StreamLagging reports whether a stream, as its leader describes it, has
+// no leader or a replica that is offline or not current (including a
+// replica still receiving an out-of-band snapshot). An unreplicated stream
+// is never lagging.
+func StreamLagging(info *jetstream.StreamInfo) bool {
+	if info == nil {
+		return true
+	}
+	cluster := info.Cluster
+	if cluster == nil {
+		return false
+	}
+	if cluster.Leader == "" {
+		return true
+	}
+	for _, peer := range cluster.Replicas {
+		if peer == nil || peer.Offline || !peer.Current {
+			return true
+		}
+	}
+	return false
 }
 
 // PeerRoutes returns the production seed-route shape: every signed controller

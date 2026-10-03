@@ -31,7 +31,7 @@ func TestObserveClusterReportsDisabledJetStream(t *testing.T) {
 	if _, err := runtime.Observe(ctx); !errors.Is(err, ErrJetStreamDisabled) {
 		t.Fatalf("Observe error = %v", err)
 	}
-	if _, err := runtime.LaggingStreams(); !errors.Is(err, ErrJetStreamDisabled) {
+	if _, err := runtime.LaggingStreams(ctx); !errors.Is(err, ErrJetStreamDisabled) {
 		t.Fatalf("LaggingStreams error = %v", err)
 	}
 }
@@ -50,12 +50,41 @@ func TestLaggingStreamsIgnoresUnreplicatedStreams(t *testing.T) {
 	if _, err := runtime.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "LAGGING_TEST"}); err != nil {
 		t.Fatal(err)
 	}
-	lagging, err := runtime.LaggingStreams()
+	lagging, err := runtime.LaggingStreams(ctx)
 	if err != nil || len(lagging) != 0 {
 		t.Fatalf("lagging = %v, %v", lagging, err)
 	}
 	var stopped *Runtime
-	if _, err := stopped.LaggingStreams(); err == nil {
+	if _, err := stopped.LaggingStreams(ctx); err == nil {
 		t.Fatal("a missing runtime reported no lagging streams")
+	}
+}
+
+// The leader's STREAM.INFO marks a replica whose Raft log is current but
+// whose out-of-band snapshot catchup is incomplete as not current (with a
+// lag); such a stream is lagging, as is one without a leader or with an
+// offline replica, wherever it is led.
+func TestStreamLaggingJudgesEveryReplicaAsItsLeaderReports(t *testing.T) {
+	t.Parallel()
+
+	replicated := func(peers ...*jetstream.PeerInfo) *jetstream.StreamInfo {
+		return &jetstream.StreamInfo{Cluster: &jetstream.ClusterInfo{Leader: "b", Replicas: peers}}
+	}
+	for name, test := range map[string]struct {
+		info    *jetstream.StreamInfo
+		lagging bool
+	}{
+		"no answer":          {nil, true},
+		"unreplicated":       {&jetstream.StreamInfo{}, false},
+		"current replicas":   {replicated(&jetstream.PeerInfo{Name: "a", Current: true}, &jetstream.PeerInfo{Name: "c", Current: true}), false},
+		"snapshot catchup":   {replicated(&jetstream.PeerInfo{Name: "a", Current: true}, &jetstream.PeerInfo{Name: "c", Lag: 42}), true},
+		"offline replica":    {replicated(&jetstream.PeerInfo{Name: "a", Current: true, Offline: true}), true},
+		"leaderless":         {&jetstream.StreamInfo{Cluster: &jetstream.ClusterInfo{}}, true},
+		"single-replica R1":  {&jetstream.StreamInfo{Cluster: &jetstream.ClusterInfo{Leader: "a"}}, false},
+		"nil replica record": {replicated(nil), true},
+	} {
+		if got := StreamLagging(test.info); got != test.lagging {
+			t.Errorf("%s: lagging = %v, want %v", name, got, test.lagging)
+		}
 	}
 }

@@ -124,6 +124,9 @@ func (f *agentFixture) command(t *testing.T, action StepAction, digest string, e
 	command := StepCommand{Schema: StepSchema, Cell: "gru", RolloutID: "rel1-controllers", Kind: rollout.KindController,
 		Unit: "ctl-b", OperationID: rollout.OperationID("rel1-controllers", "ctl-b", rollout.PhaseCanary, 0),
 		Action: action, Digest: digest, Epoch: epoch, ProofWindowSeconds: 600, Receipt: []byte("signed receipt")}
+	if action == StepRollback {
+		command.Replaces = f.to
+	}
 	wire, err := SignStepCommand(command, f.key, f.now)
 	if err != nil {
 		t.Fatal(err)
@@ -148,10 +151,51 @@ func TestAgentActivatesOnceAndAnswersRetriesIdempotently(t *testing.T) {
 	if f.restarts.count() != 1 {
 		t.Fatalf("restarts = %d, want one", f.restarts.count())
 	}
-	// A rollback waits while the forward activation is pending; the
-	// watchdog resolves that activation by its deadline.
-	if reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeRetry {
+	// A rollback of the still-pending forward activation resolves it as
+	// the watchdog would: the target becomes known bad, the predecessor
+	// current, and no activation is left for the watchdog to revert.
+	if reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeActivated {
 		t.Fatalf("rollback during a pending activation = %+v", reply)
+	}
+	f.assertRestored(t)
+	if f.restarts.count() != 2 {
+		t.Fatalf("restarts = %d, want two", f.restarts.count())
+	}
+}
+
+// assertRestored checks that the unit runs the predecessor with no pending
+// activation, the rejected release known bad and no restart owed.
+func (f *agentFixture) assertRestored(t *testing.T) {
+	t.Helper()
+	layout := f.agent.Layout
+	if _, pending, err := layout.Pending(); err != nil || pending {
+		t.Fatalf("a restore left a pending activation: %v %v", pending, err)
+	}
+	if current, err := layout.Current(); err != nil || current != f.from {
+		t.Fatalf("current = %s %v, want the predecessor", current, err)
+	}
+	if bad, err := layout.KnownBad(); err != nil || !bad[f.to] {
+		t.Fatalf("rejected release is not known bad: %v %v", bad, err)
+	}
+	if owed, err := layout.RestartPending(agentUnit); err != nil || owed {
+		t.Fatalf("restart still owed after a successful restart: %v %v", owed, err)
+	}
+}
+
+// A matching pending activation whose link flip was interrupted is repaired
+// by the retry instead of being reported as done.
+func TestAgentRetryRepairsAnInterruptedActivation(t *testing.T) {
+	f := newAgentFixture(t)
+	ctx := t.Context()
+	if reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeActivated {
+		t.Fatalf("first step = %+v", reply)
+	}
+	pointCurrent(t, f.agent.Layout, f.from)
+	if reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomePending {
+		t.Fatalf("retry = %+v", reply)
+	}
+	if current, err := f.agent.Layout.Current(); err != nil || current != f.to {
+		t.Fatalf("retry did not repair the current link: %s %v", current, err)
 	}
 }
 
@@ -203,12 +247,36 @@ func TestAgentRestagesAPrunedRollbackTarget(t *testing.T) {
 	if reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeActivated {
 		t.Fatalf("rollback with a fetcher = %+v", reply)
 	}
-	activation, pending, err := f.agent.Layout.Pending()
-	if err != nil || !pending || activation.Target != f.from || activation.Previous != f.to || fetch.calls != 1 {
-		t.Fatalf("rollback activation = %+v %v %v (fetches %d)", activation, pending, err, fetch.calls)
+	if fetch.calls != 1 {
+		t.Fatalf("fetches = %d", fetch.calls)
+	}
+	f.assertRestored(t)
+	if reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeCurrent {
+		t.Fatalf("repeated rollback = %+v", reply)
 	}
 	if digestOf("release from") != f.from {
 		t.Fatal("test digests are inconsistent")
+	}
+}
+
+// A restore is never proof-gated, and it refuses a node that runs neither
+// release of the rollout or whose predecessor is known bad locally.
+func TestAgentRestoreRefusesUnrelatedOrKnownBadReleases(t *testing.T) {
+	f := newAgentFixture(t)
+	ctx := t.Context()
+	third := stageTestRelease(t, f.agent.Layout, "a third release", "")
+	if reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeRefused {
+		t.Fatalf("restore on a node running %s = %+v", short(third), reply)
+	}
+	pointCurrent(t, f.agent.Layout, f.to)
+	if reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeActivated {
+		t.Fatalf("restore = %+v", reply)
+	}
+	f.assertRestored(t)
+	// The restored predecessor is now current; a later forward step to the
+	// rejected release is refused on this node.
+	if reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeRefused {
+		t.Fatalf("forward step to the rejected release = %+v", reply)
 	}
 }
 
@@ -219,9 +287,17 @@ func TestAgentRetriesARestartThatFailed(t *testing.T) {
 	if reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeRetry {
 		t.Fatalf("step with a failed restart = %+v", reply)
 	}
+	// The failed restart is owed durably, so the watchdog retries it even
+	// if this agent is gone.
+	if owed, err := f.agent.Layout.RestartPending(agentUnit); err != nil || !owed {
+		t.Fatalf("failed restart is not owed durably: %v %v", owed, err)
+	}
 	f.restarts.fail = false
 	if reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomePending || f.restarts.count() != 1 {
 		t.Fatalf("retry = %+v restarts %d", reply, f.restarts.count())
+	}
+	if owed, err := f.agent.Layout.RestartPending(agentUnit); err != nil || owed {
+		t.Fatalf("served restart is still owed: %v %v", owed, err)
 	}
 	if reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomePending || f.restarts.count() != 1 {
 		t.Fatalf("second retry restarted again: %+v restarts %d", reply, f.restarts.count())

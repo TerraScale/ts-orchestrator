@@ -148,7 +148,11 @@ func (e *Executor) Tick(ctx context.Context) error {
 				return err
 			}
 		}
-		for _, event := range e.act(ctx, record) {
+		events, err := e.act(ctx, record)
+		if err != nil {
+			return err
+		}
+		for _, event := range events {
 			if err := e.apply(ctx, &record, &revision, event); err != nil {
 				return err
 			}
@@ -206,27 +210,33 @@ func sameRecord(a, b rollout.Record) (bool, error) {
 
 // act performs the effects of a stored record's next actions and returns
 // the events they observed.
-func (e *Executor) act(ctx context.Context, record rollout.Record) []rollout.Event {
+func (e *Executor) act(ctx context.Context, record rollout.Record) ([]rollout.Event, error) {
 	var events []rollout.Event
 	for _, action := range rollout.NextActions(record) {
 		var event *rollout.Event
+		var err error
 		switch action.Kind {
 		case rollout.ActionPreflight:
 			event = e.preflight(ctx, record)
 		case rollout.ActionPrepare:
-			event = e.prepare(ctx, record, action)
+			event, err = e.prepare(ctx, record, action)
 		case rollout.ActionAwaitHealth:
 			event = e.awaitHealth(record, action)
 		case rollout.ActionRollback:
-			event = e.rollback(ctx, record, action)
+			event, err = e.rollback(ctx, record, action)
 		case rollout.ActionPage:
 			e.page(record)
+		}
+		if err != nil {
+			// Events observed before the fence failed are dropped with
+			// it: the successor derives them again.
+			return nil, err
 		}
 		if event != nil {
 			events = append(events, *event)
 		}
 	}
-	return events
+	return events, nil
 }
 
 func (e *Executor) preflight(ctx context.Context, record rollout.Record) *rollout.Event {
@@ -251,14 +261,17 @@ func (e *Executor) preflight(ctx context.Context, record rollout.Record) *rollou
 	return &rollout.Event{Kind: rollout.EventPreflightPassed, At: now}
 }
 
-func (e *Executor) prepare(ctx context.Context, record rollout.Record, action rollout.Action) *rollout.Event {
+func (e *Executor) prepare(ctx context.Context, record rollout.Record, action rollout.Action) (*rollout.Event, error) {
 	if reason := e.peersServing(record, action.Peers); reason != "" {
 		e.hold(record, action.Unit, reason)
-		return nil
+		return nil, nil
 	}
 	if reason := e.checkGate(ctx, record, action.Unit); reason != "" {
 		e.hold(record, action.Unit, reason)
-		return nil
+		return nil, nil
+	}
+	if err := e.fence(ctx, record); err != nil {
+		return nil, err
 	}
 	step := e.track(stepKey(record.RolloutID, action.Unit, StepPrepare), action.Unit)
 	reply, err := e.Driver.Step(ctx, Step{RolloutID: record.RolloutID, Kind: record.Kind, Unit: action.Unit,
@@ -269,27 +282,29 @@ func (e *Executor) prepare(ctx context.Context, record rollout.Record, action ro
 		slog.Warn("rollout step was not delivered", "component", "rollout", "rollout", record.RolloutID,
 			"unit", action.Unit, "error", err)
 		e.hold(record, action.Unit, "the unit's step agent did not answer")
-		return nil
+		return nil, nil
 	case reply.Outcome.Accepted():
 		e.release(record, action.Unit)
 		if !step.accepted {
 			step.accepted = true
 			recordStep(record, action.Unit, StepPrepare, reply.Outcome)
 		}
-		return &rollout.Event{Kind: rollout.EventPrepared, Unit: action.Unit, At: e.now()}
+		return &rollout.Event{Kind: rollout.EventPrepared, Unit: action.Unit, At: e.now()}, nil
 	case reply.Outcome == OutcomeRefused:
 		e.release(record, action.Unit)
 		return &rollout.Event{Kind: rollout.EventHeld, Unit: action.Unit, At: e.now(),
-			Reason: "unit " + action.Unit + " refused the step: " + reply.Reason}
+			Reason: "unit " + action.Unit + " refused the step: " + reply.Reason}, nil
 	default:
 		e.hold(record, action.Unit, "the unit asked to retry: "+reply.Reason)
-		return nil
+		return nil, nil
 	}
 }
 
 func (e *Executor) awaitHealth(record rollout.Record, action rollout.Action) *rollout.Event {
 	proof, ok := e.Proofs.Latest(action.Unit)
-	if !ok || proof.ObservedAt.Before(record.PhaseStartedAt) {
+	// Only a fresh proof completes anything: a cached one cannot supply a
+	// soak report for a unit that has since stopped serving.
+	if !ok || proof.ObservedAt.Before(record.PhaseStartedAt) || !e.fresh(proof) {
 		return nil
 	}
 	if proof.BinarySHA256 == record.ToDigest {
@@ -311,45 +326,62 @@ func (e *Executor) awaitHealth(record rollout.Record, action rollout.Action) *ro
 	return nil
 }
 
-func (e *Executor) rollback(ctx context.Context, record rollout.Record, action rollout.Action) *rollout.Event {
+func (e *Executor) rollback(ctx context.Context, record rollout.Record, action rollout.Action) (*rollout.Event, error) {
 	key := stepKey(record.RolloutID, action.Unit, StepRollback) + "/" + action.OperationID
 	step, sent := e.issued[key]
 	if !sent || !step.accepted {
 		if reason := e.peersServing(record, action.Peers); reason != "" {
 			e.hold(record, action.Unit, reason)
-			return nil
+			return nil, nil
 		}
 		if reason := e.checkGate(ctx, record, action.Unit); reason != "" {
 			e.hold(record, action.Unit, reason)
-			return nil
+			return nil, nil
+		}
+		if err := e.fence(ctx, record); err != nil {
+			return nil, err
 		}
 		step = e.track(key, action.Unit)
 		reply, err := e.Driver.Step(ctx, Step{RolloutID: record.RolloutID, Kind: record.Kind, Unit: action.Unit,
-			OperationID: action.OperationID, Action: StepRollback, Digest: action.Digest, Epoch: record.AuthorityEpoch,
-			ProofWindow: time.Duration(record.Policy.RollbackDeadlineSeconds) * time.Second})
+			OperationID: action.OperationID, Action: StepRollback, Digest: action.Digest, Replaces: record.ToDigest,
+			Epoch: record.AuthorityEpoch, ProofWindow: time.Duration(record.Policy.RollbackDeadlineSeconds) * time.Second})
 		switch {
 		case err != nil:
 			slog.Warn("rollout rollback step was not delivered", "component", "rollout", "rollout", record.RolloutID,
 				"unit", action.Unit, "error", err)
 			e.hold(record, action.Unit, "the unit's step agent did not answer")
-			return nil
+			return nil, nil
 		case reply.Outcome == OutcomeRefused:
 			e.release(record, action.Unit)
 			return &rollout.Event{Kind: rollout.EventRollbackHeld, Unit: action.Unit, At: e.now(),
-				Reason: "unit " + action.Unit + " refused its rollback: " + reply.Reason}
+				Reason: "unit " + action.Unit + " refused its rollback: " + reply.Reason}, nil
 		case !reply.Outcome.Accepted():
 			e.hold(record, action.Unit, "the unit asked to retry its rollback: "+reply.Reason)
-			return nil
+			return nil, nil
 		}
 		e.release(record, action.Unit)
 		step.accepted = true
 		recordStep(record, action.Unit, StepRollback, reply.Outcome)
 	}
 	proof, ok := e.Proofs.Latest(action.Unit)
-	if ok && proof.BinarySHA256 == record.FromDigest && proof.ObservedAt.After(step.at) {
-		return &rollout.Event{Kind: rollout.EventRollbackServing, Unit: action.Unit, At: e.now()}
+	if ok && proof.BinarySHA256 == record.FromDigest && proof.ObservedAt.After(step.at) && e.fresh(proof) {
+		return &rollout.Event{Kind: rollout.EventRollbackServing, Unit: action.Unit, At: e.now()}, nil
+	}
+	return nil, nil
+}
+
+// fence re-checks the authority lease immediately before a step leaves the
+// leader: a lease lost while earlier steps, gates or reads ran must not
+// still move a unit. Store.Commit fences the record, not this effect.
+func (e *Executor) fence(ctx context.Context, record rollout.Record) error {
+	if err := e.Fencer.Guard(ctx, record.AuthorityEpoch); err != nil {
+		return fmt.Errorf("authority lease lost before a rollout step: %w", err)
 	}
 	return nil
+}
+
+func (e *Executor) fresh(proof HealthProof) bool {
+	return e.now().Sub(proof.ObservedAt) <= e.freshness()
 }
 
 func (e *Executor) page(record rollout.Record) {

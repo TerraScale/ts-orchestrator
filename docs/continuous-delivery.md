@@ -317,15 +317,21 @@ Nothing in this change starts it; the pieces are:
   health proof from every group peer (on either side of the rollout) and
   checks its `Gate`. `ClusterGate` holds a step while the JetStream metadata
   group has no leader, an expected broker is offline, a controller restart
-  would drop the metadata group below quorum, or a replicated stream is
-  leaderless or lagging on this broker (`natscell.LaggingStreams`). A held
-  step only waits; the phase deadline decides when waiting becomes a
-  rollback.
+  would drop the metadata group below quorum, or any replicated stream has
+  no leader or a replica that is offline or not current
+  (`natscell.LaggingStreams`). Stream state comes from each stream's leader
+  through `STREAM.INFO`, which also reports a replica still catching up
+  from an out-of-band snapshot, so remote-led streams are judged as
+  strictly as local ones. A held step only waits; the phase deadline
+  decides when waiting becomes a rollback. Immediately before a step leaves
+  the leader, the executor calls the authority `Guard` for the record's
+  epoch, so a lease lost during the tick never moves a unit.
 - **Signed health proofs** (`ts.orch.v1.<cell>.rollout.proof.<hash(unit)>`).
   A running unit signs `{cell, unit, binary digest, pid, start nonce,
   observed_at}` (trust domain `terrascale.orchestrator.rollout-health`, 2
   minute lifetime) while it is healthy. The collector accepts a proof only
-  on its own unit's subject and from the unit's resolved keys. A proof on the
+  on its own unit's subject and from the unit's resolved keys, and only a
+  proof younger than the freshness limit (60 s) completes anything. A proof on the
   target feeds `healthy`; a new incarnation on another release after the
   step feeds `unhealthy` (the watchdog rolled the unit back); a proof on the
   predecessor after a rollback step feeds `rollback-serving`. Controllers
@@ -339,9 +345,21 @@ Nothing in this change starts it; the pieces are:
   keys, refuses a step from an older epoch than one it already applied,
   restages a pruned release through its `Fetcher` (the receipt is verified
   by `selfupdate` against the node's own release roots before any byte is
-  kept), activates it with `selfupdate.Activate` and restarts the unit. It
-  is idempotent per operation: a retried step answers `pending` or
-  `current`. The reply is unsigned and only says whether to wait; completion
+  kept), then:
+  - a forward step activates the target with `selfupdate.Activate` (proof
+    gated, so the watchdog rolls an unproven target back); a retry of a
+    matching pending activation goes through `Activate` again, so an
+    interrupted link flip is repaired;
+  - a rollback restores the predecessor with `selfupdate.Restore`: it marks
+    the rejected release known bad on the node, moves the link and records
+    a restart obligation, but creates no pending activation, so a failed
+    restart or missing proof can never let the watchdog return the node to
+    the rejected release. A pending activation of the rejected release is
+    rolled back exactly as the watchdog would.
+
+  A restart that fails is recorded as a durable restart obligation that the
+  watchdog retries. Steps are idempotent per operation: a retry answers
+  `pending` or `current`. The reply is unsigned and only says whether to wait; completion
   is proven by health proofs. A forged `refused` reply can at worst start a
   rollback (or freeze one), never move a unit forward.
 - **Status** (`ts.orch.v1.<cell>.rollout.status`). Read-only JSON with the
