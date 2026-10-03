@@ -435,12 +435,6 @@ func (a *Attempt) controllerObjectGrants(plan Object) {
 		a.fail(fmt.Errorf("OCI policy %s read returned no ETag; refusing an unconditional update", policyID))
 		return
 	}
-	want, e := json.Marshal(expected)
-	a.fail(e)
-	path := a.Path("controller-policy-statements.json")
-	if a.err == nil {
-		a.fail(os.WriteFile(path, want, 0600))
-	}
 	if cloud = a.cloud("UpdatePolicy"); cloud != nil {
 		a.fail(cloud.ReplacePolicyStatements(a.ctx, policyID, etag, expected))
 	}
@@ -818,11 +812,12 @@ func (a *Attempt) PhaseComplete() {
 	a.fail(e)
 	instance := strings.TrimSpace(string(b))
 	running := false
+	// Announce the poll once; the seam is reused for every attempt.
+	cloud := a.cloud("GetInstance (polling until RUNNING)")
+	if cloud == nil {
+		return
+	}
 	for range 60 {
-		cloud := a.cloud("GetInstance")
-		if cloud == nil {
-			return
-		}
 		state, e := cloud.GetInstance(a.ctx, instance)
 		a.fail(e)
 		if a.err != nil {
@@ -865,12 +860,16 @@ func (a *Attempt) PhaseContinuity() {
 		marker := filepath.Join(continuity, slot+".marker.json")
 		name := a.markerObject(slot)
 		deadline := a.Now().Add(20 * time.Minute)
+		if exists(marker) {
+			continue
+		}
+		// Announce the poll once per slot; the seam is reused for every read.
+		cloud := a.cloud("GetObject " + slot + " accepted-install marker (polling)")
+		if cloud == nil {
+			return
+		}
 		for !exists(marker) {
 			if a.err != nil {
-				return
-			}
-			cloud := a.cloud("GetObject " + slot + " accepted-install marker")
-			if cloud == nil {
 				return
 			}
 			// A read error is retried like an absent marker until the

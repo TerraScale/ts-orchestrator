@@ -172,3 +172,55 @@ func TestContinuityMarkerReadRetriesThenWritesExactBytes(t *testing.T) {
 		t.Fatal("slept", slept)
 	}
 }
+
+func TestContinuityMarkerPollAnnouncesOncePerSlot(t *testing.T) {
+	a := smallAttempt(t)
+	var out strings.Builder
+	a.Out, a.ErrOut = &out, io.Discard
+	cloud := &policyCloud{objects: map[string][]byte{}}
+	a.Cloud = cloud
+	slept := 0
+	a.Sleep = func(context.Context, time.Duration) error {
+		// Publish every marker only after several empty polls.
+		if slept++; slept == 3 {
+			for _, slot := range Slots {
+				cloud.objects[a.markerObject(slot)] = []byte(`{"slot":"` + slot + `"}`)
+			}
+		}
+		return nil
+	}
+	a.writeJSON(a.Plan(), Object{"foundation_buckets": Object{"head": "head"}})
+	a.Runner = func(context.Context, Command) (string, error) { return "", errors.New("stop after markers") }
+	a.PhaseContinuity()
+	if cloud.reads < 3 {
+		t.Fatalf("polled %d times, want several", cloud.reads)
+	}
+	if banners := strings.Count(out.String(), "accepted-install marker"); banners != len(Slots) {
+		t.Fatalf("%d poll banners for %d slots:\n%s", banners, len(Slots), out.String())
+	}
+}
+
+// The launch input writer and this strict reader live in different packages;
+// a member added to or dropped from the writer must fail here, not at the
+// next real launch.
+func TestLaunchDetailsDecodesTheSeedLaunchWriterOutput(t *testing.T) {
+	reviewed := ociregion.Object{"availability_domain": "AD-1", "fault_domain": "FAULT-DOMAIN-1",
+		"compartment_id": "ocid1.compartment.oc1..c", "shape": "VM.Standard.A1.Flex", "ocpus": 1, "memory_gb": 6,
+		"image_id": "ocid1.image.fixture", "boot_gb": 50, "boot_vpus_per_gb": 10, "subnet_id": "ocid1.subnet.oc1..s",
+		"network_security_group_ids": []any{"ocid1.networksecuritygroup.oc1..n"}, "assign_public_ip": false,
+		"create_identity": "seed-a"}
+	host := ociregion.Object{"slot": "controller-a", "private_ip": "10.0.0.11"}
+	metadata := ociregion.Object{"terrascale-bootstrap": `{"schemaVersion":1,"slot":"controller-a"}`, "user_data": "Y2xvdWQtaW5pdA=="}
+	wire, err := json.Marshal(ociregion.SeedLaunchDocument(reviewed, host, "deployment-a", metadata))
+	if err != nil {
+		t.Fatal(err)
+	}
+	details, err := LaunchDetails(wire)
+	if err != nil {
+		t.Fatalf("the seed-launch writer output does not decode: %v", err)
+	}
+	if *details.DisplayName != "deployment-a-controller-a" || *details.CreateVnicDetails.PrivateIp != "10.0.0.11" ||
+		details.FreeformTags["BootstrapCreateKey"] != "seed-a" {
+		t.Fatalf("details=%+v", details)
+	}
+}
