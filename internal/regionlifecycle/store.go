@@ -72,6 +72,15 @@ func NewStore(kv jetstream.KeyValue, fencer authority.Fencer) (*Store, error) {
 	return &Store{kv: kv, fencer: fencer}, nil
 }
 
+// Guard proves the global lease at epoch; the driver calls it immediately
+// before every external effect.
+func (s *Store) Guard(ctx context.Context, epoch uint64) error {
+	if epoch == 0 {
+		return authority.ErrFenced
+	}
+	return s.fencer.Guard(ctx, epoch)
+}
+
 // Get returns the record and its KV revision.
 func (s *Store) Get(ctx context.Context, cell string) (Record, uint64, error) {
 	if !cellToken.MatchString(cell) {
@@ -143,6 +152,14 @@ func (s *Store) Create(ctx context.Context, epoch uint64, record Record) (uint64
 func (s *Store) Update(ctx context.Context, epoch uint64, prior, next Record, revision uint64) (uint64, error) {
 	if next.Cell != prior.Cell || next.Generation != prior.Generation+1 || next.Proposal.ID != prior.Proposal.ID ||
 		next.ProposalGeneration != prior.ProposalGeneration {
+		return 0, ErrInvalidTransition
+	}
+	// A record whose intent a newer leader claimed is that leader's; an
+	// intent can never be stamped with an epoch other than the writer's.
+	if prior.Pending != nil && prior.Pending.Epoch > epoch {
+		return 0, authority.ErrFenced
+	}
+	if next.Pending != nil && next.Pending.Epoch > epoch {
 		return 0, ErrInvalidTransition
 	}
 	return s.write(ctx, epoch, next, revision)

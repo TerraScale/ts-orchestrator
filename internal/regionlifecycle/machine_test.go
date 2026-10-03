@@ -250,8 +250,10 @@ func TestSpendingStepsNeedFreshAdmissionAndLiveApproval(t *testing.T) {
 	if _, _, err := f.machine.BeginStep(record, testEpoch.Add(49*time.Hour)); !errors.Is(err, ErrApprovalRequired) {
 		t.Fatalf("step after approval expiry = %v", err)
 	}
-	if _, err := f.machine.Readmit(Record{Phase: SeedLaunching}, f.admission(), Fleet{}, f.now); !errors.Is(err, ErrInvalidTransition) {
-		t.Fatalf("readmit while a step runs = %v", err)
+	// A running step may be readmitted (a recovered intent needs a fresh
+	// admission to re-execute), but a retirement never is.
+	if _, err := f.machine.Readmit(Record{Phase: Draining}, f.admission(), Fleet{}, f.now); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("readmit during retirement = %v", err)
 	}
 }
 
@@ -536,7 +538,7 @@ func TestFleetCountsOnlySlotHoldingOtherRegions(t *testing.T) {
 	proposed.Cell, proposed.Phase = "iad", Proposed
 	retired := admitted
 	retired.Cell, retired.Phase = "lhr", Retired
-	fleet := FleetOf([]Record{admitted, gru, fra, proposed, retired}, "sfo")
+	fleet := FleetOf([]Record{admitted, gru, fra, proposed, retired}, "sfo", Home{})
 	if fleet.Regions != 2 || fleet.CommittedMonthlyCents != 18_000 {
 		t.Fatalf("fleet = %+v", fleet)
 	}
