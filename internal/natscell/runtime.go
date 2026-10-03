@@ -191,10 +191,18 @@ func (r *Runtime) ApplyCellClaim(ctx context.Context, sequence uint64, raw strin
 	if r.bridge != nil {
 		r.bridge.FenceClaim(sequence)
 	}
+	if claim, err := jwt.DecodeAccountClaims(raw); err != nil || !r.SignedByPinnedOperator(claim) {
+		return errors.New("cell claim is not signed by the pinned operator")
+	}
+	// Store runs the contract and issued-at checks; only then is the claim
+	// installed, locally and directly. The server ignores CLAIMS.UPDATE
+	// requests (see accountResolver.IsTrackingUpdate), so no routed or
+	// client-sent claim can skip these checks.
 	if err := r.resolver.Store(r.resolver.cell, raw); err != nil {
 		return err
 	}
-	if _, err := r.server.LookupAccount(r.resolver.cell); err != nil {
+	account, err := r.server.LookupAccount(r.resolver.cell)
+	if err != nil {
 		return err
 	}
 	current, err := r.server.Accountz(&server.AccountzOptions{Account: r.resolver.cell})
@@ -205,21 +213,12 @@ func (r *Runtime) ApplyCellClaim(ctx context.Context, sequence uint64, raw strin
 		return errors.New("cell account is not loaded")
 	}
 	if current.Account.Jwt != raw {
-		requestCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		defer cancel()
-		subject := "$SYS.REQ.ACCOUNT." + r.resolver.cell + ".CLAIMS.UPDATE"
-		if _, err := r.systemConn.RequestWithContext(requestCtx, subject, []byte(raw)); err != nil {
-			return fmt.Errorf("request cell account claim update: %w", err)
+		if err := r.server.UpdateAccountClaimJWT(account, raw); err != nil {
+			return fmt.Errorf("install cell account claim: %w", err)
 		}
-		for current.Account.Jwt != raw {
-			if err := requestCtx.Err(); err != nil {
-				return errors.New("cell JWT update lacks local exact readback")
-			}
-			time.Sleep(20 * time.Millisecond)
-			current, err = r.server.Accountz(&server.AccountzOptions{Account: r.resolver.cell})
-			if err != nil || current.Account == nil {
-				return errors.New("cell JWT update lacks local account readback")
-			}
+		current, err = r.server.Accountz(&server.AccountzOptions{Account: r.resolver.cell})
+		if err != nil || current.Account == nil || current.Account.Jwt != raw {
+			return errors.New("cell JWT update lacks local exact readback")
 		}
 	}
 	r.appliedSequence = sequence
