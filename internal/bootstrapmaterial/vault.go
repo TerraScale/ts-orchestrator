@@ -17,7 +17,7 @@ import (
 	"uuid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 )
@@ -41,15 +41,10 @@ type VaultTarget struct {
 	KMSKeyOCID      string `json:"kmsKeyOcid"`
 }
 
-func supportedMaterialRegion(region string) bool {
-	for _, cell := range []oci.Region{oci.RegionGRU, oci.RegionSFO, oci.RegionFRA} {
-		mapped, _ := cell.OCIRegion()
-		if region == mapped {
-			return true
-		}
-	}
-	return false
-}
+// supportedMaterialRegion admits exactly the OCI regions of the region
+// catalog, so adding a cell there is the only change material publication
+// needs.
+func supportedMaterialRegion(region string) bool { return catalog.IsOCIRegion(region) }
 
 func regionalResourceOCID(id, kind, region string) bool {
 	prefix := "ocid1." + kind + ".oc1." + region + "."

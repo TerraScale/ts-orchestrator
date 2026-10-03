@@ -13,7 +13,24 @@ import (
 
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
+
+// Material publication admits exactly the region catalog, so a new catalog
+// cell needs no edit here and an uncataloged region stays rejected.
+func TestMaterialRegionsFollowTheRegionCatalog(t *testing.T) {
+	for _, entry := range catalog.Entries() {
+		if !supportedMaterialRegion(entry.OCIRegion) {
+			t.Fatalf("catalog region %s rejected", entry.OCIRegion)
+		}
+	}
+	for _, region := range []string{"", "us-ashburn-1", "SA-SAOPAULO-1", "GRU"} {
+		if supportedMaterialRegion(region) {
+			t.Fatalf("uncataloged region %q admitted", region)
+		}
+	}
+}
 
 type fakeSecret struct {
 	id, name, content string
