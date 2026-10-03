@@ -8,12 +8,18 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/autoscale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
+
+// hostLoadSamplesPerSeries bounds each autoscale series: about 100
+// replicas reporting every 15s for the longest (one hour) window.
+const hostLoadSamplesPerSeries = 24000
 
 // AutoscaleConfig enables continuous reconciliation of generic services. It
 // is part of the signed controller config and is off unless Enabled is set:
@@ -25,6 +31,12 @@ type AutoscaleConfig struct {
 	// NodePools are planned in recommend-only mode until a generic host
 	// provisioner exists; plans are logged, never applied.
 	NodePools []hostpool.NodePool `json:"node_pools,omitempty"`
+	// HostTelemetry makes the authority leader accept host load reports
+	// (the "load" host operation) and feed them to the autoscaler as its
+	// signal source. It is a trust decision: an authenticated host's
+	// self-reported load can then move a service within its signed replica
+	// bounds. Off by default; scaling policies are refused without it.
+	HostTelemetry bool `json:"host_telemetry,omitzero"`
 }
 
 func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]WorkloadProfile) error {
@@ -44,11 +56,20 @@ func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]Worklo
 			// nothing.
 			return fmt.Errorf("autoscale service %q: stateful services are not reconciled yet", spec.Role)
 		}
+		if spec.Scaling != nil && !config.HostTelemetry {
+			// Host telemetry is the only signal source. Without it a
+			// scaling policy would only ever hold with no-signal-data;
+			// bounds and self-healing work without one.
+			return fmt.Errorf("autoscale service %q: signal-driven scaling needs host_telemetry; set replicas bounds only", spec.Role)
+		}
 		if spec.Scaling != nil {
-			// No telemetry producer feeds the autoscaler's signal source
-			// yet, so a scaling policy would only ever hold with
-			// no-signal-data. Bounds and self-healing work without one.
-			return fmt.Errorf("autoscale service %q: signal-driven scaling has no signal source yet; set replicas bounds only", spec.Role)
+			for _, signal := range spec.Scaling.Signals {
+				if !hostload.StatelessSignal(signal.Name) {
+					// Request rates and TerraBase signals have no producer
+					// for the stateless services this reconciler owns.
+					return fmt.Errorf("autoscale service %q: signal %q has no producer for stateless services", spec.Role, signal.Name)
+				}
+			}
 		}
 		if spec.Role == "terrabase" {
 			// TerraBase members are owned by placement, never by the
@@ -93,10 +114,28 @@ func startWorkloadAutoscale(cell string, config *AutoscaleConfig, profiles map[s
 		}
 		requester = scaler
 	}
+	var signals autoscale.Source
+	var load *hostload.Aggregator
+	if config.HostTelemetry {
+		requests := make(map[string]hostload.Request, len(resources))
+		for role, request := range resources {
+			requests[role] = hostload.Request{CPUCores: float64(request.CPU), MemoryBytes: request.MemoryBytes}
+		}
+		load = hostload.NewAggregator(hostload.AggregatorConfig{
+			Store: autoscale.NewWindowStore(0, hostLoadSamplesPerSeries), Requests: requests})
+		signals = load
+	}
 	reconciler, err := workload.New(workload.Config{Cell: cell, Specs: config.Services, Profiles: resources,
-		Hosts: hosts, Writer: hosts, Fencer: fencer, Capacity: requester, Interval: interval, Logf: log.Printf})
+		Hosts: hosts, Writer: hosts, Fencer: fencer, Signals: signals, Capacity: requester, Interval: interval,
+		Logf: log.Printf})
 	if err != nil {
 		return nil, nil, fmt.Errorf("start workload reconciler: %w", err)
+	}
+	if load != nil {
+		// Only the authority leader serves host requests, so only its
+		// aggregator fills; a new leader starts empty and its reconciler
+		// holds with no-signal-data until a full window arrives.
+		hosts.SetLoadSink(load.Record)
 	}
 	return reconciler, scaler, nil
 }

@@ -115,7 +115,8 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	}
 	history := observability.NewHistory(observability.HistoryConfig{})
 	runtime.registry.Register(observability.HistoryMetrics)
-	go runHistorySampler(ctx, observed, runtime.member, history, observability.ClusterCollect(cluster, collector))
+	go runHistorySampler(ctx, observed, runtime.member, history,
+		withAutoscaleSamples(observability.ClusterCollect(cluster, collector), observed.autoscalers))
 	regions := &regionview.Provider{Cell: runtime.cell, Cluster: cluster, Snapshot: collector, History: history,
 		Decisions: journal, Links: links}
 	insightConfig := insights.Config{Region: runtime.cell, Cluster: cluster, Local: collector,

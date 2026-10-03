@@ -181,6 +181,7 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 		WorkloadIdentity:        identity,
 		PollInterval:            time.Duration(cfg.Host.PollMillis) * time.Millisecond, SessionTrace: cfg.Host.SessionTrace,
 		ClockCheck:       clockCheck,
+		LoadInterval:     time.Duration(cfg.Host.LoadTelemetrySeconds) * time.Second,
 		VolumeInitSocket: "/run/terrascale-orchestrator-volume-init.sock",
 		// The activation proof follows native recovery, so a release whose
 		// agent cannot recover its workloads is never confirmed.

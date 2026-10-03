@@ -124,6 +124,17 @@ func (a *Aggregator) Record(origin Origin, report Report) error {
 	return nil
 }
 
+// StatelessSignal reports whether host telemetry produces the signal for a
+// generic (non-TerraBase) role.
+func StatelessSignal(name autoscale.SignalName) bool {
+	switch name {
+	case autoscale.SignalCPUUtilization, autoscale.SignalMemoryUtilization, autoscale.SignalDiskUtilization:
+		return true
+	default:
+		return false
+	}
+}
+
 // roleSignals maps one role's usage onto the autoscale signal vocabulary.
 // A signal whose input or request is missing is not recorded at all, so
 // the autoscaler sees it as unavailable rather than as zero load.

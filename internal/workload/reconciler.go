@@ -58,6 +58,9 @@ type Result struct {
 	Replicas int
 	Target   int
 	Decision *autoscale.Decision
+	// Readings are the signal readings the decision used; empty when the
+	// service has no scaling policy or was not converged.
+	Readings []autoscale.Reading
 	Step     Step
 	Reason   string
 }
@@ -119,6 +122,14 @@ func New(config Config) (*Reconciler, error) {
 	}
 	return &Reconciler{config: config, specs: specs, history: make(map[string]autoscale.History),
 		goal: make(map[string]int), last: make(map[string]Result)}, nil
+}
+
+// Signals returns the configured signal source, nil when none.
+func (r *Reconciler) Signals() autoscale.Source {
+	if r == nil {
+		return nil
+	}
+	return r.config.Signals
 }
 
 // Owns reports whether the role is reconciled here, which changes how the
@@ -275,6 +286,7 @@ func (r *Reconciler) reconcile(ctx context.Context, spec ServiceSpec, epoch uint
 			Readings: readings, Now: now}, history)
 		history = decision.History
 		result.Decision = &decision
+		result.Readings = readings
 		target, result.Reason = decision.To, decision.Reason
 	}
 	result.Target = target
