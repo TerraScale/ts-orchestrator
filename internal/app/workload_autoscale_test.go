@@ -134,7 +134,12 @@ func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
 		hostload.Report{SchemaVersion: 1, Roles: []hostload.RoleUsage{{Role: "terrabase", TerraBase: tbLoad}}}); err != nil {
 		t.Fatal(err)
 	}
-	samples := withAutoscaleSamples(func(context.Context) []observability.Sample { return nil }, reconciler)(t.Context())
+	// The reconciler has not ticked in this term yet, so the history gate
+	// stays closed; the leader's samples themselves carry the load.
+	if samples := withAutoscaleSamples(func(context.Context) []observability.Sample { return nil }, reconciler)(t.Context()); len(samples) != 0 {
+		t.Fatalf("samples recorded before the reconciler adopted the term: %+v", samples)
+	}
+	samples := leaderAutoscaleSamples(reconciler, load)
 	found := map[string]float64{}
 	for _, sample := range samples {
 		found[sample.Metric] = sample.Value

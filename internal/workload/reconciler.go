@@ -132,10 +132,18 @@ func (r *Reconciler) Signals() autoscale.Source {
 	return r.config.Signals
 }
 
-// Leading reports whether this member's authority may mutate right now, so
-// its reconciliation results and signal source are current.
+// Leading reports whether this member's authority may mutate right now and
+// the reconciler has already ticked in the current term, so its results and
+// signal source belong to this term. Between a re-acquired lease and the
+// first tick of the new term it reports false.
 func (r *Reconciler) Leading() bool {
-	return r != nil && r.config.Fencer.Current().CanMutate()
+	if r == nil {
+		return false
+	}
+	snapshot := r.config.Fencer.Current()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return snapshot.CanMutate() && snapshot.Epoch == r.epoch
 }
 
 // Owns reports whether the role is reconciled here, which changes how the
@@ -188,22 +196,25 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 	}
 	now := r.config.Now()
 	r.mu.Lock()
-	newTerm := r.epoch != snapshot.Epoch
-	if newTerm {
+	if r.epoch != snapshot.Epoch {
+		if source, resettable := r.config.Signals.(interface{ Reset() }); resettable {
+			// Signals kept from an earlier term (for example by a leader
+			// that returns after a short failover) are not this term's
+			// observation: the new term must see a fresh window before it
+			// scales. Reset before the epoch is adopted, so Leading never
+			// reports the old samples as this term's.
+			source.Reset()
+		}
 		r.epoch = snapshot.Epoch
-		// A new term re-derives goals from the observed replica count.
+		// A new term re-derives goals from the observed replica count, and
+		// the earlier term's results are no longer current.
 		clear(r.goal)
+		clear(r.last)
 		for _, spec := range r.specs {
 			r.history[spec.Role] = autoscale.Reset(now)
 		}
 	}
 	r.mu.Unlock()
-	if source, resettable := r.config.Signals.(interface{ Reset() }); newTerm && resettable {
-		// Signals kept from an earlier term (for example by a leader that
-		// returns after a short failover) are not this term's observation:
-		// the new term must see a fresh window before it scales.
-		source.Reset()
-	}
 	hosts, err := r.config.Hosts.ListHosts(ctx)
 	if err != nil {
 		return err

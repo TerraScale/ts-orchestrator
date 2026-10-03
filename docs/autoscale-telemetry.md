@@ -56,7 +56,9 @@ bounded `autoscale.WindowStore` **per node** (at most one sample per 5s for
 an hour, so a large replica set can never truncate a configured window).
 A reading reduces each node's samples in the window with the signal's
 aggregation and then reduces the per-node values the same way, so every
-reporting replica counts once whatever its report interval:
+reporting replica counts once whatever its report interval. A node that has
+not supplied a series for 5 minutes (scaled down, replaced or silent) no
+longer contributes to it, even inside a longer window:
 
 | Signal | Value |
 | --- | --- |
@@ -82,8 +84,9 @@ cell whose hosts went silent holds with `no-signal-data` instead of scaling
 on a partial or stale window. The reconciler's history reset on every term
 change applies the cooldowns from the start of the term on top. Host load
 intervals should therefore stay below 5 minutes. Members that are not the
-leader record no autoscale or TerraBase load history, and a demoted leader
-stops presenting its last results.
+leader record no autoscale or TerraBase load history, and a demoted leader,
+or one whose re-acquired lease the reconciler has not adopted yet, stops
+presenting its last results.
 
 ## Trust decision
 

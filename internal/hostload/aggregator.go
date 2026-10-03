@@ -68,6 +68,10 @@ const nodeRetention = time.Hour
 type nodeState struct {
 	latest NodeLoad
 	store  *autoscale.WindowStore
+	// series is when this node last supplied each series. A node that
+	// stopped supplying one (scaled down, replaced, or silent) stops
+	// contributing to it after StaleAfter, even inside a longer window.
+	series map[seriesKey]time.Time
 }
 
 // Aggregator turns accepted host reports into autoscale samples. It is an
@@ -146,9 +150,12 @@ func (a *Aggregator) Read(ctx context.Context, target autoscale.Target, signal a
 		return reading, nil
 	}
 	a.pruneLocked(a.config.Now(), nodeRetention)
+	key := seriesKey{target: target, signal: signal.Name}
 	stores := make([]*autoscale.WindowStore, 0, len(a.nodes))
 	for _, node := range a.nodes {
-		stores = append(stores, node.store)
+		if last, ok := node.series[key]; ok && now.Sub(last) <= a.config.StaleAfter {
+			stores = append(stores, node.store)
+		}
 	}
 	a.mu.Unlock()
 	values := make([]float64, 0, len(stores))
@@ -189,7 +196,8 @@ func (a *Aggregator) Record(origin Origin, report Report) error {
 			a.mu.Unlock()
 			return ErrTooManyNodes
 		}
-		node = &nodeState{store: autoscale.NewWindowStore(nodeRetention, a.nodePoints())}
+		node = &nodeState{store: autoscale.NewWindowStore(nodeRetention, a.nodePoints()),
+			series: make(map[seriesKey]time.Time)}
 		a.nodes[origin.Node] = node
 	}
 	node.latest = NodeLoad{Origin: origin, At: now, Report: report}
@@ -200,6 +208,7 @@ func (a *Aggregator) Record(origin Origin, report Report) error {
 		for name, value := range roleSignals(role, report.Host, a.config.Requests[role.Role]) {
 			node.store.Record(target, name, autoscale.Sample{At: now, Value: value})
 			key := seriesKey{target: target, signal: name}
+			node.series[key] = now
 			current := a.runs[key]
 			if current.last.IsZero() || now.Sub(current.last) > a.config.StaleAfter {
 				current.since = now

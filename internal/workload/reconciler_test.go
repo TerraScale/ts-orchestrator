@@ -248,6 +248,15 @@ func TestReconcilerFollowerAndFencedLeaderDoNotWrite(t *testing.T) {
 	if err := demoted.Tick(context.Background()); err != nil || !demoted.Leading() || len(demoted.Last()) != 1 {
 		t.Fatalf("leader tick: last=%#v (%v)", demoted.Last(), err)
 	}
+	// A re-acquired lease of a new term is not "leading" until the
+	// reconciler has adopted the term.
+	fencer.epoch = 2
+	if demoted.Leading() {
+		t.Fatal("leading with the previous term's results")
+	}
+	if err := demoted.Tick(context.Background()); err != nil || !demoted.Leading() {
+		t.Fatalf("new term tick: leading=%v (%v)", demoted.Leading(), err)
+	}
 	fencer.leader = false
 	if err := demoted.Tick(context.Background()); err != nil || demoted.Leading() || len(demoted.Last()) != 0 {
 		t.Fatalf("demoted leader kept results: %#v (%v)", demoted.Last(), err)

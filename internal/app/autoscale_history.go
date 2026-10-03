@@ -24,13 +24,18 @@ func withAutoscaleSamples(collect func(context.Context) []observability.Sample, 
 	return func(ctx context.Context) []observability.Sample {
 		samples := collect(ctx)
 		if !reconciler.Leading() {
-			// A former leader's last results and cached host reports are
-			// not current; recording them would chart stale state as live.
+			// A former leader's last results and cached host reports, or a
+			// re-acquired lease's not yet reset ones, are not current;
+			// recording them would chart stale state as live.
 			return samples
 		}
-		samples = append(samples, autoscaleSamples(reconciler)...)
-		return append(samples, terraBaseLoadSamples(load)...)
+		return append(samples, leaderAutoscaleSamples(reconciler, load)...)
 	}
+}
+
+// leaderAutoscaleSamples is what the current term's leader records.
+func leaderAutoscaleSamples(reconciler *workload.Reconciler, load *hostload.Aggregator) []observability.Sample {
+	return append(autoscaleSamples(reconciler), terraBaseLoadSamples(load)...)
 }
 
 // autoscaleSamples reports every reconciled service that has a result.

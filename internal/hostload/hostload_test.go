@@ -334,6 +334,45 @@ func TestAggregatorWarmUpRestartsAfterAGap(t *testing.T) {
 	}
 }
 
+// A node that stops supplying a series (scaled down, replaced or silent)
+// stops contributing after StaleAfter, even inside a longer window, while
+// another node keeps the series fresh.
+func TestAggregatorDropsSilentContributors(t *testing.T) {
+	start := time.Unix(120_000, 0)
+	now := start
+	aggregator := NewAggregator(AggregatorConfig{Requests: map[string]Request{"api": {CPUCores: 1, MemoryBytes: 1}},
+		Now: func() time.Time { return now }})
+	record := func(node string, cores float64) {
+		t.Helper()
+		if err := aggregator.Record(Origin{Cell: "gru", Environment: "prod", Node: node},
+			Report{SchemaVersion: 1, Roles: []RoleUsage{{Role: "api", CPUCores: ptr(cores)}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := autoscale.Target{Cell: "gru", Environment: "prod", Role: "api"}
+	hour := autoscale.Signal{Name: autoscale.SignalCPUUtilization, Target: 1, WindowSeconds: 3600}
+	for step := range 721 {
+		now = start.Add(time.Duration(step) * 5 * time.Second)
+		record("live", 0.2)
+		if now.Before(start.Add(50 * time.Minute)) {
+			record("gone", 0.9)
+		} else if step%12 == 0 {
+			// Still reporting, but no longer running the role.
+			if err := aggregator.Record(Origin{Cell: "gru", Environment: "prod", Node: "gone"},
+				Report{SchemaVersion: 1}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	reading, err := aggregator.Read(t.Context(), target, hour, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(reading.Value-0.2) > 1e-9 || reading.Samples != 721 {
+		t.Fatalf("reading = %+v, want only the live node (0.2 over 721 samples)", reading)
+	}
+}
+
 func TestAggregatorConcurrentRecordAndRead(t *testing.T) {
 	aggregator := NewAggregator(AggregatorConfig{Requests: map[string]Request{"api": {CPUCores: 1, MemoryBytes: 1}},
 		MinInterval: time.Nanosecond})
