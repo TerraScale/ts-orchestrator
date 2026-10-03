@@ -137,7 +137,9 @@ func ValidateConfig(path string) (Config, error) {
 	if !netbird.ValidSecretID(c.Region, c.SetupKeySecretID) {
 		return c, errors.New("NetBird setup_key_secret_id must identify an OCI Vault secret in the configured region")
 	}
-	if _, ok := fields["admin_pat_secret_id"]; ok && !netbird.ValidSecretID(c.Region, c.AdminPATSecretID) {
+	// An empty or null admin_pat_secret_id means absent, as in the
+	// controller's netbird.Config.
+	if c.AdminPATSecretID != "" && !netbird.ValidSecretID(c.Region, c.AdminPATSecretID) {
 		return c, errors.New("NetBird admin_pat_secret_id must identify an OCI Vault secret in the configured region")
 	}
 	if _, ok := fields["management_ip"]; ok {

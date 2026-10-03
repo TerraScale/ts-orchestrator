@@ -222,16 +222,25 @@ func (d Desired) Validate() error {
 			return fmt.Errorf("desired NetBird policy %q needs exactly one destination kind", policy.Name)
 		}
 	}
-	seenIP, seenName := map[string]bool{}, map[string]bool{}
+	seenIP, seenName, roles := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, slot := range d.Slots {
 		ip, err := netip.ParseAddr(slot.IP)
 		if err != nil || !ip.Is4() || ip.String() != slot.IP || seenIP[slot.IP] || seenName[slot.Name] || slot.Name == "" {
 			return fmt.Errorf("desired NetBird slot %q is invalid or repeated", slot.Name)
 		}
+		if !ip.IsPrivate() || !subnet.Contains(ip) {
+			return fmt.Errorf("desired NetBird slot %q address %s is not a private address inside the cell subnet %s", slot.Name, slot.IP, subnet)
+		}
+		roles[slot.Role] = true
 		if _, alias := d.RoleAliases[slot.Name]; alias {
 			return fmt.Errorf("desired NetBird slot %q collides with a role alias", slot.Name)
 		}
 		seenIP[slot.IP], seenName[slot.Name] = true, true
+	}
+	for _, alias := range slices.Sorted(maps.Keys(d.RoleAliases)) {
+		if role := d.RoleAliases[alias]; role == "" || !roles[role] {
+			return fmt.Errorf("desired NetBird role alias %q targets unknown role %q", alias, role)
+		}
 	}
 	return nil
 }

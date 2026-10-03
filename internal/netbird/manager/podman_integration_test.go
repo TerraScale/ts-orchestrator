@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -48,8 +49,10 @@ func TestPodmanManagerSyncAndPrune(t *testing.T) {
 
 	seeded := stack.seedLegacy(owner)
 	d := GRU()
+	// Slot addresses become this test network's fixed container IPs, inside
+	// the test cell subnet as Validate requires.
+	d.Network.Resource.Address = stack.cellSubnet()
 	for i := range d.Slots {
-		// Slot addresses become this test network's fixed container IPs.
 		d.Slots[i].IP = stack.slotIP(d.Slots[i].IP)
 	}
 	api, err := NewAPI(stack.base, admin)
@@ -176,10 +179,18 @@ func newPodmanStack(ctx context.Context, t *testing.T) *podmanStack {
 	return s
 }
 
-// slotIP maps a production slot address onto the test subnet, keeping the
-// last octet.
+// cellSubnet is the test stand-in for the GRU cell subnet: the upper half
+// of the test network, so it never covers the server at .2.
+func (s *podmanStack) cellSubnet() string { return s.subnet + ".128/25" }
+
+// slotIP maps a production slot address into cellSubnet, offsetting the last
+// octet by 128.
 func (s *podmanStack) slotIP(production string) string {
-	return s.subnet + production[strings.LastIndex(production, "."):]
+	octet, err := strconv.Atoi(production[strings.LastIndex(production, ".")+1:])
+	if err != nil || octet <= 0 || octet >= 127 {
+		s.t.Fatalf("slot address %s cannot be mapped into the test cell subnet", production)
+	}
+	return fmt.Sprintf("%s.%d", s.subnet, 128+octet)
 }
 
 func (s *podmanStack) podman(args ...string) string {
@@ -443,7 +454,7 @@ func (s *podmanStack) seedLegacy(owner string) podmanSeed {
 	var network, resource, router created
 	s.must(owner, "POST", "/networks", map[string]any{"name": "gru-cell", "description": "TerraScale GRU private cell"}, &network)
 	s.must(owner, "POST", "/networks/"+network.ID+"/resources", map[string]any{"name": "gru-cell",
-		"description": "TerraScale GRU private subnet", "address": "10.251.0.0/25", "enabled": true, "groups": []string{}}, &resource)
+		"description": "TerraScale GRU private subnet", "address": s.cellSubnet(), "enabled": true, "groups": []string{}}, &resource)
 	s.must(owner, "POST", "/networks/"+network.ID+"/routers", map[string]any{"peer": seed.peers["ts-ops"],
 		"metric": 100, "masquerade": true, "enabled": true}, &router)
 	seed.network, seed.resource, seed.router = network.ID, resource.ID, router.ID

@@ -386,18 +386,25 @@ func TestGRUNetbirdInputNamesEveryCellSlotStably(t *testing.T) {
 }
 
 func TestNetbirdPublicConfigAdminPATSecretMustBeInRegion(t *testing.T) {
-	for id, ok := range map[string]bool{
-		"ocid1.vaultsecret.oc1.sa-saopaulo-1.adminpat": true,
-		"ocid1.vaultsecret.oc1.us-ashburn-1.adminpat":  false,
-		"": false,
+	// An empty or null ID means absent, matching netbird.Config.
+	for _, tc := range []struct {
+		id   any
+		ok   bool
+		want string
+	}{
+		{"ocid1.vaultsecret.oc1.sa-saopaulo-1.adminpat", true, "ocid1.vaultsecret.oc1.sa-saopaulo-1.adminpat"},
+		{"ocid1.vaultsecret.oc1.us-ashburn-1.adminpat", false, ""},
+		{"not-an-ocid", false, ""},
+		{"", true, ""},
+		{nil, true, ""},
 	} {
 		path := filepath.Join(t.TempDir(), "config.json")
 		config := validNetbirdConfig()
-		config["admin_pat_secret_id"] = id
+		config["admin_pat_secret_id"] = tc.id
 		write(t, path, jsonBytes(t, config), 0600)
 		parsed, err := client.ValidateConfig(path)
-		if ok != (err == nil) || ok && parsed.AdminPATSecretID != id {
-			t.Fatalf("admin PAT secret %q: %+v %v", id, parsed, err)
+		if tc.ok != (err == nil) || tc.ok && parsed.AdminPATSecretID != tc.want {
+			t.Fatalf("admin PAT secret %v: %+v %v", tc.id, parsed, err)
 		}
 	}
 }

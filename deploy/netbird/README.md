@@ -449,6 +449,10 @@ Full removal, then remove the Caddy block and reload Caddy. Add
 sudo bash /opt/ts-ops/netbird/uninstall.sh
 ```
 
+Uninstall also deletes the routing peer's identity (`/var/lib/netbird`), so
+delete the `ts-ops` peer in the manager as well; a reinstall enrolls it with a
+new setup key.
+
 ## Server enrollment
 
 The shared GRU image installs NetBird 0.79.0 for every controller and managed

@@ -15,15 +15,17 @@ LIBEXEC=/usr/local/libexec/homelab/netbird
 
 usage() {
   cat <<'USAGE'
-Usage: install-routing-peer.sh --setup-key-file PATH [--dry-run]
+Usage: install-routing-peer.sh [--setup-key-file PATH] [--dry-run]
 
 Registers this host with https://netbird.terrascale.tech as routing peer
 ts-ops. It installs and holds netbird=0.79.0 from the fingerprint-
 verified NetBird apt repository, enables IPv4 forwarding, and opens UDP 51820
 through the host firewall (netbird-peer-firewall.service). DNS management and
 client routes stay off, the NetBird SSH server stays disabled, and the public
-address is pinned so peers connect directly. The one-off setup key file must
-be root-owned mode 0600; delete it afterwards.
+address is pinned so peers connect directly. First enrollment needs
+--setup-key-file naming the one-off setup key, root-owned mode 0600; delete it
+afterwards. Re-runs on an enrolled peer (client state in /var/lib/netbird and
+`netbird status` logged in) omit the key and keep the peer's identity.
 USAGE
 }
 
@@ -32,7 +34,12 @@ dry_run=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --setup-key-file)
-      key_file=${2:-}
+      [[ $# -ge 2 ]] || {
+        echo "install-routing-peer.sh: --setup-key-file needs a path" >&2
+        usage >&2
+        exit 2
+      }
+      key_file=$2
       shift
       ;;
     --dry-run) dry_run=1 ;;
@@ -56,8 +63,19 @@ fail() {
 
 [[ $EUID -eq 0 ]] || fail "run as root"
 [[ "$(hostname -s)" == ts-ops ]] || fail "refusing to run outside ts-ops"
-[[ -n "$key_file" && -f "$key_file" && ! -L "$key_file" && "$(stat -c '%U %a' "$key_file")" == 'root 600' ]] \
-  || fail "--setup-key-file must name a root-owned 0600 file"
+# An enrolled peer keeps its identity in /var/lib/netbird and needs no key;
+# a daemon that is down or logged out counts as not enrolled.
+enrolled=0
+if compgen -G '/var/lib/netbird/*.json' >/dev/null && command -v netbird >/dev/null \
+  && peer_status=$(netbird status 2>/dev/null) && [[ "$peer_status" != *NeedsLogin* && "$peer_status" != *LoginFailed* ]]; then
+  enrolled=1
+fi
+if [[ -n "$key_file" ]]; then
+  [[ -f "$key_file" && ! -L "$key_file" && "$(stat -c '%U %a' "$key_file")" == 'root 600' ]] \
+    || fail "--setup-key-file must name a root-owned 0600 file"
+elif [[ "$enrolled" -eq 0 ]]; then
+  fail "ts-ops is not enrolled yet: first enrollment needs --setup-key-file"
+fi
 systemctl is-active --quiet netbird-server.service || fail "install the NetBird manager (install.sh) first"
 if ! ip link show wt0 >/dev/null 2>&1; then
   holder=$(ss -Hlnu "sport = :51820" || true)
@@ -65,7 +83,12 @@ if ! ip link show wt0 >/dev/null 2>&1; then
 fi
 
 if [[ "$dry_run" -eq 1 ]]; then
-  echo "[dry-run] preflight passed; would install and hold netbird=$CLIENT_VERSION, enable IPv4 forwarding and the peer firewall, apply client limits, and enroll ts-ops with the protected setup-key file"
+  if [[ -n "$key_file" ]]; then
+    enrollment="enroll ts-ops with the protected setup-key file"
+  else
+    enrollment="bring the enrolled ts-ops peer up without a setup key"
+  fi
+  echo "[dry-run] preflight passed; would install and hold netbird=$CLIENT_VERSION, enable IPv4 forwarding and the peer firewall, apply client limits, and $enrollment"
   exit 0
 fi
 
@@ -107,9 +130,10 @@ else
   systemctl enable --now netbird.service
 fi
 
+up_args=(--management-url https://netbird.terrascale.tech)
+[[ -z "$key_file" ]] || up_args+=(--setup-key-file "$key_file")
 netbird up \
-  --management-url https://netbird.terrascale.tech \
-  --setup-key-file "$key_file" \
+  "${up_args[@]}" \
   --hostname ts-ops \
   --disable-dns \
   --disable-client-routes \

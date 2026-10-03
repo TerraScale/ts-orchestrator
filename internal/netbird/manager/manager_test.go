@@ -277,6 +277,64 @@ func TestPruneLeavesAmbiguousSlotsAlone(t *testing.T) {
 	}
 }
 
+func TestPruneLeavesSlotWhoseNameIsHeldByAnotherConnectedPeerAlone(t *testing.T) {
+	f := newFakeManager(t)
+	ids := f.seedLegacy(t)
+	now := time.Now()
+	stale := f.addPeer("gru-controller-b-old", "10.251.0.12", false, now.Add(-72*time.Hour), ids.servers)
+	live := f.addPeer("ip-10-251-0-12", "10.251.0.12", true, now, ids.servers)
+	squatter := f.addPeer("gru-controller-b", "10.251.0.99", true, now, ids.servers)
+	api := f.api(t)
+	for run := range 2 {
+		report, err := Prune(t.Context(), api, GRU(), PruneOptions{Now: now}, true)
+		if err != nil || len(report.Changes) != 0 || len(report.Warnings) != 1 || len(f.mutations) != 0 {
+			t.Fatalf("prune %d: changes %v warnings %v mutations %v error %v", run, report.Changes, report.Warnings, f.mutations, err)
+		}
+	}
+	for _, id := range []string{stale, live, squatter} {
+		if f.peer(id) == nil {
+			t.Errorf("peer %s was deleted", id)
+		}
+	}
+	if f.peer(live).Name != "ip-10-251-0-12" || f.peer(squatter).Name != "gru-controller-b" {
+		t.Fatal("a peer of the contested slot was renamed")
+	}
+}
+
+func TestValidateRejectsSlotsOutsideThePrivateCellSubnetAndUnknownAliasRoles(t *testing.T) {
+	for name, mutate := range map[string]func(*Desired){
+		"slot outside the cell subnet":  func(d *Desired) { d.Slots[0].IP = "10.251.0.200" },
+		"slot in another private range": func(d *Desired) { d.Slots[0].IP = "192.168.0.11" },
+		"public slot in a public subnet": func(d *Desired) {
+			d.Network.Resource.Address = "203.0.113.0/24"
+			for i := range d.Slots {
+				d.Slots[i].IP = "203.0.113." + strings.TrimPrefix(d.Slots[i].IP, "10.251.0.")
+			}
+		},
+		"alias to an unknown role": func(d *Desired) { d.RoleAliases["nats"] = "controllers" },
+		"alias to an empty role":   func(d *Desired) { d.RoleAliases["nats"] = "" },
+	} {
+		d := GRU()
+		mutate(&d)
+		if err := d.Validate(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+func TestLoopWithoutCallbacksNeitherPanicsNorActs(t *testing.T) {
+	var loop Loop
+	loop = loop.withDefaults()
+	if loop.Leader() {
+		t.Fatal("a loop without a leadership check acts as the leader")
+	}
+	loop.Logf("ignored %d", 1)
+	// Run on a zero Loop must not dereference the nil callbacks.
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	Loop{initialDelay: time.Millisecond, Interval: time.Millisecond}.Run(ctx)
+}
+
 func TestAPIRefusesRedirectsAndHidesBodies(t *testing.T) {
 	redirect := httptest.NewServer(http.RedirectHandler("https://attacker.invalid/api/groups", http.StatusFound))
 	defer redirect.Close()

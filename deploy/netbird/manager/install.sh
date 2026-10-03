@@ -54,10 +54,11 @@ fail() {
 grep -q '{{' "$CONFIG" && fail "$CONFIG still contains template placeholders"
 
 # The ports must be free or already held by this stack.
-for spec in tcp:127.0.0.1:18080 tcp:127.0.0.1:18081 udp:0.0.0.0:3478; do
-  IFS=: read -r proto address port <<<"$spec"
+# Any listener on the port counts, whatever address it binds.
+for spec in tcp:18080 tcp:18081 udp:3478; do
+  IFS=: read -r proto port <<<"$spec"
   holder=$(ss -Hlnp --"$proto" "sport = :$port" | grep -v -E 'netbird|conmon|podman|netavark|aardvark' || true)
-  [[ -z "$holder" ]] || fail "$proto $address:$port is already in use: $holder"
+  [[ -z "$holder" ]] || fail "$proto port $port is already in use: $holder"
 done
 
 if [[ "$dry_run" -eq 1 ]]; then

@@ -120,17 +120,25 @@ func Prune(ctx context.Context, api *API, d Desired, options PruneOptions, apply
 			continue
 		}
 		current := live[0]
+		// A connected peer at another address holding the slot's name would
+		// make the rename fail or churn every cycle: leave the whole slot
+		// alone until an operator resolves it, so prune converges.
+		squatter := slices.IndexFunc(holders, func(peer apiPeer) bool {
+			return peer.ID != current.ID && peer.Connected
+		})
+		if squatter >= 0 {
+			peer := holders[squatter]
+			p.warn("connected peer %s at %s holds slot name %s; slot %s left alone", peer.Name, slotIP(peer), name, slot.Name)
+			for _, peer := range holders {
+				handled[peer.ID] = true
+			}
+			continue
+		}
 		handled[current.ID] = true
 		for _, peer := range holders {
-			if peer.ID == current.ID {
-				continue
+			if peer.ID != current.ID {
+				deletePeer(peer, "replaced revision of "+slot.Name)
 			}
-			if peer.Connected {
-				p.warn("connected peer %s at %s holds slot name %s", peer.Name, slotIP(peer), name)
-				handled[peer.ID] = true
-				continue
-			}
-			deletePeer(peer, "replaced revision of "+slot.Name)
 		}
 		if current.Name == name && cleanLabel(current, name) {
 			continue

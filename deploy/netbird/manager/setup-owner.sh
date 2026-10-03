@@ -21,7 +21,12 @@ API=http://127.0.0.1:18081/api
 }
 
 status=$(curl -fsS "$API/instance")
-[[ "$status" == *'"setup_required":true'* ]] || {
+# python3 is on ts-ops already (netbird-backup); jq is not guaranteed.
+setup_required=$(python3 -c 'import json, sys; print(str(json.load(sys.stdin).get("setup_required") is True).lower())' <<<"$status") || {
+  echo "setup-owner.sh: unexpected instance status: $status" >&2
+  exit 1
+}
+[[ "$setup_required" == true ]] || {
   echo "setup-owner.sh: instance is already set up: $status" >&2
   exit 1
 }

@@ -42,6 +42,15 @@ func (l Loop) withDefaults() Loop {
 	if l.newAPI == nil {
 		l.newAPI = NewAPI
 	}
+	// A loop without a leadership check must never mutate the manager, so a
+	// nil Leader means "not the leader" rather than "always lead": every
+	// controller of a cell would otherwise reconcile concurrently.
+	if l.Leader == nil {
+		l.Leader = func() bool { return false }
+	}
+	if l.Logf == nil {
+		l.Logf = func(string, ...any) {}
+	}
 	return l
 }
 
