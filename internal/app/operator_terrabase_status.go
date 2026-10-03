@@ -229,24 +229,32 @@ func holdReasons(records []placementHoldRecord) []string {
 	return reasons
 }
 
+// statusRejected marks a placement status failure that no retry can fix:
+// the operator's own authorization or key configuration, or a reply that
+// fails verification or answers another request. Transport, timeout and
+// authority-lease failures stay unmarked and are retryable.
+type statusRejected struct{ error }
+
+func (s statusRejected) Unwrap() error { return s.error }
+
 func requestPlacementStatus(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 	database, partition string,
 ) (placementStatusReport, error) {
 	policy, err := buildSignerPolicy(cfg)
 	if err != nil {
-		return placementStatusReport{}, err
+		return placementStatusReport{}, statusRejected{err}
 	}
 	grant, exists := policy.grants[cfg.Operator.Actor]
 	if !exists || !grant.CanPlaceTerraBase {
-		return placementStatusReport{}, errors.New("operator is not authorized to read TerraBase placement status")
+		return placementStatusReport{}, statusRejected{errors.New("operator is not authorized to read TerraBase placement status")}
 	}
 	codec, err := policy.withOperator(cfg.Operator)
 	if err != nil {
-		return placementStatusReport{}, err
+		return placementStatusReport{}, statusRejected{err}
 	}
 	controllerKey, err := decodePublicKey(cfg.Operator.ControllerPublicKey)
 	if err != nil {
-		return placementStatusReport{}, fmt.Errorf("operator controller key pin: %w", err)
+		return placementStatusReport{}, statusRejected{fmt.Errorf("operator controller key pin: %w", err)}
 	}
 	epoch, err := authoritySnapshot(ctx, runtime, cfg.NATS.Cell)
 	if err != nil {
@@ -280,20 +288,20 @@ func requestPlacementStatus(ctx context.Context, cfg Config, runtime *natscell.R
 	}
 	var signed protocol.Envelope
 	if err := protocol.DecodeStrict(message.Data, &signed, maxPlacementStatusReplyBytes); err != nil {
-		return placementStatusReport{}, err
+		return placementStatusReport{}, statusRejected{err}
 	}
 	scope.Kind, scope.Actor = placementStatusReplyKind, "controller"
 	if err := protocol.VerifyEnvelope(signed, scope, controllerKey, time.Now().UTC(),
 		protocol.VerifyPolicy{MaxLifetime: time.Minute, ClockSkew: 30 * time.Second}); err != nil {
-		return placementStatusReport{}, fmt.Errorf("unauthenticated placement status: %w", err)
+		return placementStatusReport{}, statusRejected{fmt.Errorf("unauthenticated placement status: %w", err)}
 	}
 	var report placementStatusReport
 	if err := protocol.DecodeStrict(signed.Payload, &report, maxPlacementStatusReplyBytes); err != nil {
-		return placementStatusReport{}, err
+		return placementStatusReport{}, statusRejected{err}
 	}
 	if report.Cell != cfg.NATS.Cell || report.DatabaseID != database || report.PartitionID != partition ||
 		report.Nonce != request.Nonce {
-		return placementStatusReport{}, errors.New("placement status reply answers a different request")
+		return placementStatusReport{}, statusRejected{errors.New("placement status reply answers a different request")}
 	}
 	return report, nil
 }

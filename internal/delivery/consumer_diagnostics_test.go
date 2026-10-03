@@ -64,6 +64,25 @@ func TestDeliveryFailureClassUsesSafeKnownCategories(t *testing.T) {
 	}
 }
 
+// Both host snapshot classes are retryable races, so neither may count
+// toward holding an intent; capacity and workload refusals do.
+func TestPlannerRefusalExemptsRetryableHostSnapshotClasses(t *testing.T) {
+	for _, test := range []struct {
+		err     error
+		refusal bool
+	}{
+		{errors.New("report changed during host status read"), false},
+		{errors.New("unverified host status cannot drive placement"), false},
+		{context.DeadlineExceeded, false},
+		{fmt.Errorf("no room: %w", placement.ErrInsufficientCapacity), true},
+		{errors.New("unknown planner failure"), true},
+	} {
+		if got := plannerRefusal(stageDeliveryError("planner", test.err)); got != test.refusal {
+			t.Errorf("plannerRefusal(%v) = %t, want %t", test.err, got, test.refusal)
+		}
+	}
+}
+
 func TestDeliveryRetryDiagnosticIsRateLimitedAndOmitsRawError(t *testing.T) {
 	var output bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&output, nil))

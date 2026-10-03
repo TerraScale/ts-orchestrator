@@ -339,7 +339,7 @@ func (s *Service) process(ctx context.Context, wire []byte) (terminal bool, proc
 func plannerRefusal(err error) bool {
 	switch class, _ := deliveryFailureClass(err); class {
 	case "not_leader", "authority_fenced", "timeout", "canceled", "disconnected", "no_responders",
-		"jetstream_api", "host_snapshot_changed":
+		"jetstream_api", "host_snapshot_changed", "host_status_unverified":
 		return false
 	}
 	return true

@@ -337,14 +337,7 @@ func (rollout *terrabaseRollout) soak(ctx context.Context, seatID, operation, di
 			return staged.Terminal(fmt.Errorf("seat %s disappeared from placement status", seatID))
 		}
 		member := status.Members[index]
-		sample := staged.SoakSample{At: time.Now(), ArtifactDigest: member.ArtifactDigest,
-			Serving: member.Stage == string(placement.StageServing)}
-		if member.Update != nil {
-			sample.OperationID, sample.Phase = member.Update.OperationID, member.Update.Phase
-		}
-		if member.Host != nil {
-			sample.ProcessPID = member.Host.ProcessPID
-		}
+		sample := soakSample(member, time.Now())
 		if sample.OperationID != operation {
 			sample.Phase = "replaced"
 		}
@@ -363,6 +356,27 @@ func (rollout *terrabaseRollout) soak(ctx context.Context, seatID, operation, di
 		case <-timer.C:
 		}
 	}
+}
+
+// soakSample reads one soak observation from placement status. A promoted
+// canary keeps Stage serving even after it loses its serving proof (the
+// controller only records a hold), so serving also requires the host's
+// current report to carry a serving proof and no error. Without a current
+// host session or report the sample is a gap: unknown, not failed.
+func soakSample(member placementMemberStatus, now time.Time) staged.SoakSample {
+	sample := staged.SoakSample{At: now, ArtifactDigest: member.ArtifactDigest,
+		Serving: member.Stage == string(placement.StageServing)}
+	if member.Update != nil {
+		sample.OperationID, sample.Phase = member.Update.OperationID, member.Update.Phase
+	}
+	host := member.Host
+	if host == nil || !host.SessionCurrent || host.ReportState == "" {
+		sample.Gap = true
+		return sample
+	}
+	sample.ProcessPID = host.ProcessPID
+	sample.Serving = sample.Serving && host.ServingProof && host.ReportError == ""
+	return sample
 }
 
 func (rollout *terrabaseRollout) prepare(ctx context.Context, status placementStatusReport,
@@ -450,14 +464,19 @@ func (rollout *terrabaseRollout) compatibilityVerdict(old, candidate string) (st
 		}
 		return verdict, nil
 	}
-	missing := old
-	if oldKnown {
-		missing = candidate
+	// Name every release that lacks a declaration, so the operator publishes
+	// all of them at once.
+	var missing []string
+	if !oldKnown {
+		missing = append(missing, old)
+	}
+	if !candidateKnown {
+		missing = append(missing, candidate)
 	}
 	if !rollout.options.AssumeCompatible {
 		return staged.CompatibilityVerdict{}, staged.Terminal(fmt.Errorf(
-			"%w: %s; publish compatibility in its qualification.json or pass --assume-compatibility to certify it unverified",
-			staged.ErrNoCompatibilityData, missing))
+			"%w: %s; publish compatibility in each qualification.json or pass --assume-compatibility to certify it unverified",
+			staged.ErrNoCompatibilityData, strings.Join(missing, ", ")))
 	}
 	if err := rollout.report("compatibility", "assumed", old+" -> "+candidate); err != nil {
 		return staged.CompatibilityVerdict{}, err
@@ -499,11 +518,13 @@ func (rollout *terrabaseRollout) await(ctx context.Context, seatID, operation st
 	}
 }
 
-// status reads signed placement status; a failed read is transient.
+// status reads signed placement status. Transport, timeout and authority
+// lease failures are transient; authorization, key and reply verification
+// failures are terminal, because no retry can fix them.
 func (rollout *terrabaseRollout) status(ctx context.Context) (placementStatusReport, error) {
 	status, err := requestPlacementStatus(ctx, rollout.cfg, rollout.runtime, rollout.intent.DatabaseID, rollout.intent.PartitionID)
 	if err != nil {
-		return placementStatusReport{}, staged.Transient(err)
+		return placementStatusReport{}, classifyStatusError(err)
 	}
 	return status, nil
 }
@@ -549,6 +570,25 @@ func (state deployState) knownBad() (staged.KnownBadSet, error) {
 		set[record.Digest] = record
 	}
 	return set, nil
+}
+
+// classifyStatusError keeps a placement status read retryable unless
+// requestPlacementStatus marked it rejected.
+func classifyStatusError(err error) error {
+	if _, rejected := errors.AsType[statusRejected](err); rejected {
+		return staged.Terminal(err)
+	}
+	return staged.Transient(err)
+}
+
+// classifyConnectError keeps an unreachable broker retryable while
+// configuration, credential and TLS material errors, which no retry can fix,
+// stop the run at once.
+func classifyConnectError(err error) error {
+	if errors.Is(err, natscell.ErrUnavailable) {
+		return staged.Transient(err)
+	}
+	return classifyControllerError(err)
 }
 
 // classifyControllerError marks controller transport, leadership and

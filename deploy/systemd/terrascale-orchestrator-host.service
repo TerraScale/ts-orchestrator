@@ -4,9 +4,12 @@ Wants=network-online.target
 Requires=terrascale-orchestrator-host-setup.service
 After=network-online.target terrascale-orchestrator-host-setup.service
 ConditionPathExists=/etc/terrascale-orchestrator/host.json
-# A crash-looping host runtime becomes visibly failed. The window tolerates
-# about an hour of controller outage at the capped restart backoff, and the
-# host-setup timer starts it again afterwards.
+# Availability first: the restart backoff below reaches its 5min cap after
+# seven starts (about 10 minutes), so at most about 17 starts fit in any hour
+# and a loop at the capped backoff never reaches this burst; the host keeps
+# retrying through a controller outage of any length. The limit only fails a
+# runtime that restarts faster than that backoff (for example after a manual
+# reset-failed), and the host-setup timer starts a failed runtime again.
 StartLimitIntervalSec=1h
 StartLimitBurst=20
 
