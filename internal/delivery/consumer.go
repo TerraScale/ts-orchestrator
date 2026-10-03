@@ -581,7 +581,8 @@ func (op operation) planShape() PlanShape {
 
 func validatePlan(intent Intent, shape PlanShape, plan []host.Desired) error {
 	// A shaped release may only move the desired generation forward and must
-	// stay within the intent's replica bound.
+	// stay within the autoscaler's replica bound (ReleaseShape already clamps
+	// it to the signed spec bounds; it need not equal the intent's count).
 	if shape.Generation < intent.Generation || shape.Replicas < 0 || shape.Replicas > maxReplicas {
 		return ErrInvalid
 	}
