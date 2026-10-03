@@ -302,11 +302,14 @@ func retryDeliveryTransport(ctx context.Context, err error) (bool, error) {
 }
 
 // plannerRefusalCounter counts planner refusals per intent observed by this
-// worker. An entry ends with the intent's held receipt; the map is bounded so
-// abandoned intents cannot grow it without limit.
+// worker. An entry ends when the intent plans successfully or settles with a
+// receipt; the map is bounded so abandoned intents cannot grow it without
+// limit, and at the bound only the oldest entry is evicted, never the
+// histories of every other pending intent.
 type plannerRefusalCounter struct {
 	mu     sync.Mutex
 	counts map[string]int
+	order  []string
 }
 
 const maxTrackedPlannerRefusals = 4096
@@ -317,8 +320,13 @@ func (c *plannerRefusalCounter) note(key string) int {
 	if c.counts == nil {
 		c.counts = map[string]int{}
 	}
-	if _, tracked := c.counts[key]; !tracked && len(c.counts) >= maxTrackedPlannerRefusals {
-		clear(c.counts)
+	if _, tracked := c.counts[key]; !tracked {
+		for len(c.counts) >= maxTrackedPlannerRefusals && len(c.order) > 0 {
+			oldest := c.order[0]
+			c.order = c.order[1:]
+			delete(c.counts, oldest)
+		}
+		c.order = append(c.order, key)
 	}
 	c.counts[key]++
 	return c.counts[key]
@@ -327,7 +335,13 @@ func (c *plannerRefusalCounter) note(key string) int {
 func (c *plannerRefusalCounter) forget(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if _, tracked := c.counts[key]; !tracked {
+		return
+	}
 	delete(c.counts, key)
+	if index := slices.Index(c.order, key); index >= 0 {
+		c.order = slices.Delete(c.order, index, index+1)
+	}
 }
 
 func (s *Service) process(ctx context.Context, wire []byte) (terminal bool, processErr error) {
@@ -442,6 +456,8 @@ func (s *Service) processDelivery(ctx context.Context, wire []byte, delivered ui
 			}
 			return false, stageDeliveryError("planner", planErr)
 		}
+		// The intent planned: its refusal history is over.
+		s.plannerRefusals.forget(intent.OperationID + "\x00" + fingerprint)
 		if err := validatePlan(intent, shape, plan); err != nil {
 			return s.rejectIntent(ctx, wire, intent, actor, "invalid desired placement plan")
 		}
@@ -686,7 +702,11 @@ func (s *Service) recordIntentReceipt(ctx context.Context, wire []byte, intent I
 	}
 	key := operationKey(intent.OperationID)
 	if _, err := s.operations.Create(ctx, key, b); err == nil {
-		recordIntentDecision(ctx, intent, decisionlog.KindDeliveryRejected, decisionlog.StatusFailed, 0, reason)
+		kind := decisionlog.KindDeliveryRejected
+		if status == "held" {
+			kind = decisionlog.KindDeliveryHeld
+		}
+		recordIntentDecision(ctx, intent, kind, decisionlog.StatusFailed, 0, reason)
 		return true, nil
 	} else if !errors.Is(err, jetstream.ErrKeyExists) {
 		return false, fmt.Errorf("record %s intent: %w", status, err)

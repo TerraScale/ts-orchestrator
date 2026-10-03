@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -67,5 +68,28 @@ func TestDeliveryCellsFollowProtocolRegionTokens(t *testing.T) {
 		if validCell(cell) {
 			t.Errorf("cell %q accepted although its subjects are empty", cell)
 		}
+	}
+}
+
+// At its bound the refusal counter evicts only the oldest entry, so other
+// pending intents keep their refusal budgets.
+func TestPlannerRefusalCounterEvictsOnlyTheOldest(t *testing.T) {
+	var counter plannerRefusalCounter
+	counter.note("kept")
+	counter.note("kept")
+	for index := range maxTrackedPlannerRefusals - 1 {
+		counter.note(fmt.Sprint("other-", index))
+	}
+	counter.note("newcomer")
+	if got := counter.note("kept"); got != 1 {
+		// "kept" was the oldest, so it alone was evicted.
+		t.Fatalf("oldest entry count = %d, want a fresh 1 after its eviction", got)
+	}
+	if got := counter.note("other-5"); got != 2 {
+		t.Fatalf("an unrelated pending intent lost its history: %d", got)
+	}
+	counter.forget("other-5")
+	if got := counter.note("other-5"); got != 1 {
+		t.Fatalf("forgotten entry count = %d", got)
 	}
 }
