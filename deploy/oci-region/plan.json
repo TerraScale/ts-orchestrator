@@ -1,6 +1,6 @@
 {
     "schema_version": 2,
-    "purpose": "Manually operated GRU region bootstrap; reviewed IDs are operator-filled after resource creation",
+    "purpose": "TS-470 gru-1 rebuild proposal; live creates require separate COS-relayed confirmation and authenticated readback",
     "cell": "GRU",
     "region": "sa-saopaulo-1",
     "availability_domain": "YDvv:SA-SAOPAULO-1-AD-1",
@@ -19,17 +19,28 @@
         "expected_volume_gb": 50,
         "expected_volume_vpus_per_gb": 10
     },
-    "operator_gateway": null,
-    "netbird": null,
+    "operator_gateway": {
+        "private_ip": "10.250.10.155",
+        "vcn_cidr": "10.250.0.0/16",
+        "local_peering_gateway_id": null
+    },
+    "netbird": {
+        "management_url": "https://netbird.terrascale.tech",
+        "management_ip": "10.250.10.155",
+        "secret_compartment_id": null,
+        "setup_key_secret_id": null,
+        "policy_id": null,
+        "policy_name": "gru-1-netbird-enrollment"
+    },
     "public_api": {
         "subnet_cidr": "10.251.0.128/26",
         "listener_port": 443,
         "client_port": 9465
     },
     "preview_compartment_names": {
-        "control": "terrascale-control",
-        "network": "terrascale-network",
-        "workload": "terrascale-workload"
+        "control": "gru-1-control",
+        "network": "gru-1-network",
+        "workload": "gru-1-workload"
     },
     "foundation_buckets": {
         "ledger": "gru-1-ledger",
@@ -83,6 +94,32 @@
                 "direction": "INGRESS",
                 "protocol": "6",
                 "source": "10.251.0.18/32",
+                "source_type": "CIDR_BLOCK",
+                "destination": null,
+                "destination_type": null,
+                "tcp_min": 22,
+                "tcp_max": 22,
+                "udp_min": null,
+                "udp_max": null,
+                "stateless": false
+            },
+            {
+                "direction": "INGRESS",
+                "protocol": "6",
+                "source": "10.250.10.155/32",
+                "source_type": "CIDR_BLOCK",
+                "destination": null,
+                "destination_type": null,
+                "tcp_min": 4222,
+                "tcp_max": 4222,
+                "udp_min": null,
+                "udp_max": null,
+                "stateless": false
+            },
+            {
+                "direction": "INGRESS",
+                "protocol": "6",
+                "source": "10.250.10.155/32",
                 "source_type": "CIDR_BLOCK",
                 "destination": null,
                 "destination_type": null,
@@ -158,6 +195,32 @@
                 "udp_min": null,
                 "udp_max": null,
                 "stateless": false
+            },
+            {
+                "direction": "INGRESS",
+                "protocol": "6",
+                "source": "10.250.10.155/32",
+                "source_type": "CIDR_BLOCK",
+                "destination": null,
+                "destination_type": null,
+                "tcp_min": 9465,
+                "tcp_max": 9465,
+                "udp_min": null,
+                "udp_max": null,
+                "stateless": false
+            },
+            {
+                "direction": "INGRESS",
+                "protocol": "6",
+                "source": "10.250.10.155/32",
+                "source_type": "CIDR_BLOCK",
+                "destination": null,
+                "destination_type": null,
+                "tcp_min": 22,
+                "tcp_max": 22,
+                "udp_min": null,
+                "udp_max": null,
+                "stateless": false
             }
         ],
         "security_list_ingress_rules": [],
@@ -200,6 +263,32 @@
                 "udp_min": null,
                 "udp_max": null,
                 "stateless": false
+            },
+            {
+                "direction": "EGRESS",
+                "protocol": "6",
+                "source": null,
+                "source_type": null,
+                "destination": "10.250.10.155/32",
+                "destination_type": "CIDR_BLOCK",
+                "tcp_min": 443,
+                "tcp_max": 443,
+                "udp_min": null,
+                "udp_max": null,
+                "stateless": false
+            },
+            {
+                "direction": "EGRESS",
+                "protocol": "17",
+                "source": null,
+                "source_type": null,
+                "destination": "10.250.10.155/32",
+                "destination_type": "CIDR_BLOCK",
+                "tcp_min": null,
+                "tcp_max": null,
+                "udp_min": 3478,
+                "udp_max": 3478,
+                "stateless": false
             }
         ],
         "route_rules": [
@@ -207,17 +296,22 @@
                 "destination": "all-gru-services-in-oracle-services-network",
                 "destination_type": "SERVICE_CIDR_BLOCK",
                 "network_entity_id": "{service_gateway_id}"
+            },
+            {
+                "destination": "10.250.10.155/32",
+                "destination_type": "CIDR_BLOCK",
+                "network_entity_id": "{local_peering_gateway_id}"
             }
         ],
         "service_gateway_service_id": "ocid1.service.oc1.sa-saopaulo-1.aaaaaaaacd57uig6rzxm2qfipukbqpje2bhztqszh3aj7zk2jtvf6gvntena",
         "service_gateway_cidr_block": "all-gru-services-in-oracle-services-network"
     },
     "identity": {
-        "controller_dynamic_group_name": "terrascale-orchestrator",
-        "controller_policy_name": "terrascale-orchestrator-least-privilege",
-        "objectstorage_key_policy_name": "terrascale-control-objectstorage-key",
-        "host_dynamic_group_name": "terrascale-workload-hosts",
-        "host_policy_name": "terrascale-workload-live-s3-secret"
+        "controller_dynamic_group_name": "gru-1-controllers",
+        "controller_policy_name": "gru-1-controller-policy",
+        "objectstorage_key_policy_name": "gru-1-objectstorage-key",
+        "host_dynamic_group_name": "gru-1-hosts",
+        "host_policy_name": "gru-1-host-live-s3-secret"
     },
     "host_credential_secret": {
         "compartment_id": null,
@@ -275,7 +369,7 @@
             "private_ip": "10.251.0.21",
             "roles": [
                 "host",
-                "terrabase-member"
+                "terrabase"
             ],
             "shape": "VM.Standard.A1.Flex",
             "ocpus": 1,
@@ -289,7 +383,7 @@
             "private_ip": "10.251.0.22",
             "roles": [
                 "host",
-                "terrabase-member"
+                "terrabase"
             ],
             "shape": "VM.Standard.A1.Flex",
             "ocpus": 1,
@@ -365,5 +459,6 @@
             "member-a": null,
             "member-b": null
         }
-    }
+    },
+    "bootstrap_object_prefix": ""
 }

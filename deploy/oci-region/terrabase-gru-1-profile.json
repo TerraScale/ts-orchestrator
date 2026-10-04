@@ -1,0 +1,8 @@
+{
+  "resources": {"cpu": 1, "memory_bytes": 4294967296, "disk_bytes": 21474836480},
+  "env": {
+    "TERRABASE_PEER_PORT": "9443",
+    "TERRABASE_CLIENT_PORT": "9465",
+    "TERRABASE_PEERS": "gru-1-db-1=10.251.0.21:9443,gru-1-db-2=10.251.0.22:9443"
+  }
+}

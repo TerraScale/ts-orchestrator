@@ -595,7 +595,13 @@ owner's approval. Keep the automation PAT in a root-owned `0600` file `$PAT`.
    ts-orch netbird setup-key --pat-file "$PAT" --out netbird-gru-servers.key --apply
    ```
 
-3. Store it in OpenBao `/infra/netbird/servers-gru` and in a new OCI Vault
+3. For the TS-470 GRU rebuild, COS's 2026-10-04 instruction overrides the
+   OpenBao write below: leave `secret/homelab/infra/netbird/servers-gru`
+   unchanged. Keep the new key in its owner-only local file until it is
+   mirrored into a freshly approved OCI secret, then remove the local copies.
+   Use the [rebuild proposal](../../docs/evidence/gru-rebuild-plan-20261004.md)
+   and its unbound NetBird template; the checked-in image's old secret OCID
+   must not be reused. For other runs, store it in OpenBao `/infra/netbird/servers-gru` and in a new OCI Vault
    secret in `sa-saopaulo-1` (the old one went with the reset), never on a
    command line, then shred both files:
 

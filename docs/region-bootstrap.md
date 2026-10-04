@@ -46,24 +46,34 @@ the listed resources in dependency order, never touches one already deleting,
 and deletes the control compartment only once everything else is gone.
 Current cleanup state is in the
 [HomeLab ts-ops runbook](https://git.terrascale.tech/mariogk/HomeLab/src/branch/main/fleet/hosts/ts-ops.md#netbird-operator-gateway).
-The old OpenBao `/infra/netbird/servers-gru` group/key IDs are invalid;
-replace the enrollment input and create a fresh OCI mirror before using it.
+COS relayed the user's 2026-10-04 decision: keep these purge dates, do not
+run OCI `--apply` now, and wait for COS to request it after 2026-10-11.
+The approved stale Cloudflare `gru.api.terrascale.tech` A record was deleted
+and its absence verified; both email DKIM records remain. See the
+[confirmed dry-run and DNS evidence](evidence/gru-teardown-dryrun-20261004.md).
+The old OpenBao `/infra/netbird/servers-gru` entry stays unchanged, including
+its two versions. Its old group/key IDs are invalid for enrollment; the
+rebuild prepares a new local key and a fresh OCI secret without reading,
+deleting or overwriting this entry.
 
 ### TS-470 rebuild preparation
 
-TS-466 (#148) and TS-467 (#147) are merged. The reviewed rebuild uses
+TS-466 (#148), TS-467 (#147), and TS-468 (#146) are merged. The proposed rebuild uses
 `deploy/oci-region/plan.json`, a new attempt owner `ts-470-gru-rebuild-2`,
 three controllers `gru-1-ctl-1`..`3`, and two database hosts
 `gru-1-db-1`..`2`. Keep the plan's two-member count; the three-member profile
 in [TerraBase deployment](terrabase-deployment.md) is an example.
 
-Before any live create, finish the old-cell teardown and present the exact
-foundation, image, credential, host and enrollment inputs as a separate
-`NEEDS CONFIRM` plan. COS must relay the user's confirmation for each live
-change. The pending control vault prevents reuse of its compartment name
-until its purge finishes. Every resource ID in `resource_ids` remains
-unset until a confirmed create and its readback; shared ts-ops and Email
-Delivery stay untouched.
+The new foundation uses `gru-1-control`, `gru-1-network`, and
+`gru-1-workload`, distinct from the pending old `terrascale-control`.
+Its [itemized create proposal](evidence/gru-rebuild-plan-20261004.md) names
+every target, cost, dependency, and hold. Before any live create, present
+that exact stage as `NEEDS CONFIRM` and wait for COS to relay approval.
+The new compartment names allow foundation preparation while old purges
+continue. Every resource ID remains unset until a confirmed create and
+authenticated readback. NetBird requires an LPG in the shared ts-ops VCN
+and additive route/NSG changes; these are explicitly proposed for separate
+approval. Forgejo, the manager, shared storage and Email Delivery remain.
 
 Use TS-467's C# release path after controllers are healthy. Its prerequisites
 include a verified `terrabase-linux-arm64` release, member CA files on all
@@ -103,8 +113,9 @@ on this rollout gate alone.
 `generate-controller-material`, the first-seed commands, and the preview
 helper validate only the three mappings listed above. The checked-in
 `deploy/oci-region/plan.json` remains populated for GRU, including its existing
-ts-ops resources. Its optional [operator gateway](#operator-gateway-peering)
-and NetBird enrollment are unset after the testing reset. For SFO or FRA,
+ts-ops resources. Its [operator gateway](#operator-gateway-peering)
+and NetBird enrollment use ts-ops at `10.250.10.155`, with all fresh LPG,
+secret and IAM IDs deliberately unset until approved creation. For SFO or FRA,
 copy it to a separate reviewed plan and fill
 the cell, region, tenancy, availability domain, compartments, network, Vault,
 key, buckets, IAM identities, host credential secret, resource inventory, and
