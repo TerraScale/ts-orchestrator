@@ -37,7 +37,8 @@ those only from a newly reviewed live inventory.
 OCI has accepted delayed deletion of all 502 cell secrets for
 `2026-10-05T01:45:58.728Z` and the dedicated vault/key for
 `2026-10-11T01:48:37.642Z`. The control compartment and its TerraScale parent
-remain until that purge; network/workload compartment deletion is requested.
+remain until that purge. The network compartment is deleted; workload
+compartment deletion is in progress.
 Verify provider deletion before removing the remaining empty compartments or
 claiming a completely empty foundation. Current cleanup state is in the
 [HomeLab ts-ops runbook](https://git.terrascale.tech/mariogk/HomeLab/src/branch/main/fleet/hosts/ts-ops.md#netbird-operator-gateway).
