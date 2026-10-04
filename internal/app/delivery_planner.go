@@ -12,6 +12,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
 
@@ -53,8 +54,40 @@ func validateWorkloadProfiles(profiles map[string]WorkloadProfile) error {
 				return fmt.Errorf("workload environment for %q is invalid", role)
 			}
 		}
+		// A terrabase profile with settings configures the C# TerraBase
+		// binary. Arguments would override the host-owned settings.
+		if role == terrabase.Role && len(profile.Env) != 0 {
+			if _, err := terrabase.ParseProfile(profile.Env); err != nil {
+				return fmt.Errorf("workload profile for %q: %w", role, err)
+			}
+			if len(profile.Args) != 0 {
+				return fmt.Errorf("workload profile for %q sets TerraBase settings only through env", role)
+			}
+		}
 	}
 	return nil
+}
+
+// terraBasePlacement places one C# member on each host the signed peer list
+// names, so a member never moves: while a listed host is unavailable the
+// release cannot be placed. A member's data lives on its host, so a failed
+// member, for example a release that never started, is replaced in place.
+func terraBasePlacement(profile WorkloadProfile, replicas int, candidates []placement.WorkloadHost, previous []placement.Assignment,
+) ([]placement.WorkloadHost, []placement.Assignment, error) {
+	if members, err := terrabase.ParseProfile(profile.Env); err == nil {
+		if replicas != len(members.Peers) {
+			return nil, nil, fmt.Errorf("terrabase release asks for %d members, %s lists %d", replicas, terrabase.EnvPeers, len(members.Peers))
+		}
+		candidates = slices.DeleteFunc(slices.Clone(candidates), func(candidate placement.WorkloadHost) bool {
+			_, listed := members.Peer(candidate.Node)
+			return !listed
+		})
+	}
+	previous = slices.Clone(previous)
+	for i := range previous {
+		previous[i].Pending = true
+	}
+	return candidates, previous, nil
 }
 
 // Plan plans a release with the intent's own generation and replica count.
@@ -93,9 +126,15 @@ func (p *regionalDeliveryPlanner) plan(ctx context.Context, intent delivery.Inte
 	if *shape, err = shapeOf(observation); err != nil {
 		return nil, err
 	}
+	candidates, previous := observation.Candidates, observation.Assignments
+	if intent.Role == terrabase.Role {
+		if candidates, previous, err = terraBasePlacement(profile, shape.Replicas, candidates, previous); err != nil {
+			return nil, err
+		}
+	}
 	assignments, err := placement.PlanWorkload(placement.WorkloadRequest{
 		Cell: intent.Cell, Role: intent.Role, Replicas: shape.Replicas,
-		Request: profile.Resources, Hosts: observation.Candidates, Previous: observation.Assignments,
+		Request: profile.Resources, Hosts: candidates, Previous: previous,
 	})
 	if err != nil {
 		return nil, err

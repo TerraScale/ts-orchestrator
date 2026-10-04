@@ -25,6 +25,10 @@ import (
 // ConfigDigestOf binds executable arguments and environment to an intent.
 // Callers should resolve secrets on the host; durable desired state is readable
 // by the regional control-plane identity.
+// PlannerRefusedHold starts the error of a receipt held because placement
+// never planned the intent: no host desired was written.
+const PlannerRefusedHold = "placement planner refused the intent"
+
 func ConfigDigestOf(args []string, env map[string]string) string {
 	if args == nil {
 		args = []string{}
@@ -450,7 +454,7 @@ func (s *Service) processDelivery(ctx context.Context, wire []byte, delivered ui
 				if delivered >= uint64(limit) && refusals >= limit {
 					class, _ := deliveryFailureClass(planErr)
 					terminal, err := s.recordIntentReceipt(ctx, wire, intent, actor, "held",
-						fmt.Sprintf("placement planner refused the intent %d times (%s); reconcile with a new intent", refusals, class))
+						fmt.Sprintf("%s %d times (%s); reconcile with a new intent", PlannerRefusedHold, refusals, class))
 					if terminal {
 						s.plannerRefusals.forget(key)
 					}

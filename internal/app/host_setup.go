@@ -681,12 +681,14 @@ type hostLocalOptions struct {
 	ManagedVolumeOnlineGrow bool   `json:"managed_volume_online_grow,omitzero"`
 	SelfUpdateProofFile     string `json:"self_update_proof_file,omitempty"`
 	SelfUpdateRoot          string `json:"self_update_root,omitempty"`
+	TerraBaseRoot           string `json:"terrabase_root,omitempty"`
 }
 
 func (o hostLocalOptions) applyTo(host *HostConfig) {
 	host.ManagedVolumeOnlineGrow = o.ManagedVolumeOnlineGrow
 	host.SelfUpdateProofFile = o.SelfUpdateProofFile
 	host.SelfUpdateRoot = o.SelfUpdateRoot
+	host.TerraBaseRoot = o.TerraBaseRoot
 }
 
 // readHostLocalOptions reads the host-local options of an existing host.json.

@@ -379,9 +379,10 @@ func TestMembershipReplacesTerminatedControllerUnderSameServerName(t *testing.T)
 	fake.mu.Lock()
 	fake.lifecycle[oldInstance] = membership.LifecycleTerminated
 	fake.mu.Unlock()
-	if err := reconciler.Tick(ctx); err != nil {
-		t.Fatal(err)
-	}
+	// Closing the old instance may also trigger a metadata leader election.
+	waitMembership(t, ctx, "terminated slot replacement after metadata settles", func() bool {
+		return reconciler.Tick(ctx) == nil && len(fake.replaced) > 0
+	})
 	if len(fake.replaced) != 1 {
 		t.Fatalf("terminated slot replacement calls = %d status=%+v", len(fake.replaced), status("broker-b"))
 	}

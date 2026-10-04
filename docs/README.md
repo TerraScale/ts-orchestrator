@@ -20,6 +20,7 @@ These pages describe the current greenfield Go implementation.
 | [Qualification status 2026-09-26](qualification-status-20260926.md) | Dated migration and qualification snapshot; not the current gate ledger |
 | [Production readiness checkpoint](production-readiness.md) | Checkpoint status and open areas |
 | [Production readiness plan](production-readiness-plan.md) | Dated readiness audit, historical canary, and open gate order |
-| [TerraBase runtime contract](terrabase-runtime-contract.md) | Managed-member placement, host, and member-status boundary |
-| [TerraBase serving lifecycle plan](terrabase-serving-lifecycle-plan.md) | Proposed managed-Raft serving and retirement direction |
+| [TerraBase runtime contract](terrabase-runtime-contract.md) | C# TerraBase binary: release assets, settings, member certificates, host launch, health gate and drain |
+| [TerraBase deployment](terrabase-deployment.md) | Member CA, workload profile and `operator terrabase-release` rollout with automatic rollback |
+| [TerraBase serving lifecycle](terrabase-serving-lifecycle-plan.md) | Current health gate, drain and rollback; open replication, membership, serving proof and scale-in work |
 | [Deployment convergence benchmark](benchmarks/deployment-convergence-20260925.md) | In-memory deploy-to-apply latency measurement |

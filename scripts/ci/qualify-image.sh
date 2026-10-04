@@ -21,6 +21,8 @@
 #   rendered-sfo-enrollment  TS_TEST_RENDERED_HOST_BUNDLE,
 #                            TS_TEST_RENDERED_HOST_MATERIAL and
 #                            TS_TEST_RENDERED_HOST_BUNDLE_SHA256.
+#   terrabase-binary         TS_TERRABASE_BINARY: a C# TerraBase release asset
+#   terrabase-release        (terrabase-linux-<arch>) with its .sha256 beside it.
 #
 # The D10 backup bridges (TestBackupGoRust*ProcessBridge) are not a suite:
 # each is a child process that a TerraBase Rust parent test starts with its
@@ -52,12 +54,16 @@ declare -A packages=(
 	[terrabase-successor]=./internal/managedmaterial
 	[native-validator]=./internal/managedmaterial
 	[rendered-sfo-enrollment]=./internal/app
+	[terrabase-binary]=./internal/terrabase
+	[terrabase-release]=./internal/app
 )
 declare -A tests=(
 	[terrabase-walkthrough]='^TestTerraBaseWalkthroughAgainstRealMembers$'
 	[terrabase-successor]='^TestProduceSuccessorRustInterop$'
 	[native-validator]='^TestPrepareInitialUsesAdmittedPackagedNativeValidator$'
 	[rendered-sfo-enrollment]='^TestManagedPlacementEnrollmentFromRenderedSFOBundle$'
+	[terrabase-binary]='^TestTerraBaseBinaryPeerMesh$'
+	[terrabase-release]='^TestTerraBaseReleaseDeployUpgradeRollback$'
 )
 for suite in "${suites[@]}"; do
 	[[ -n ${packages[$suite]:-} ]] || { echo "unknown qualification suite: $suite" >&2; exit 2; }

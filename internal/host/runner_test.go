@@ -534,6 +534,66 @@ func TestNativeReplacementStartsAfterCgroupKill(t *testing.T) {
 	}
 }
 
+// TestNativeDrainSendsTermBeforeKill stops a workload with a drain timeout:
+// it receives SIGTERM and may exit on its own; one that ignores SIGTERM is
+// killed once the timeout passes.
+func TestNativeDrainSendsTermBeforeKill(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	runner := NewProcessRunner(root, testWorkloadIdentity).(*processRunner)
+	if err := runner.Recover(t.Context()); err != nil {
+		if runner.lock != nil {
+			_ = syscall.Flock(int(runner.lock.Fd()), syscall.LOCK_UN)
+			_ = runner.lock.Close()
+		}
+		if nativeTestCgroupUnavailable(err) {
+			t.Skipf("requires systemd delegated writable cgroup v2 and root supervisor: %v", err)
+		}
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := runner.Close(ctx); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+		_ = os.Remove(runner.cgroups)
+	})
+	install := nativeTestInstallDir(t)
+	marker := nativeTestReadableMarker(t, "drain")
+	for name, body := range map[string]string{
+		"drains":  "#!/bin/sh\ntrap 'echo drained > \"" + marker + "\"; exit 0' TERM\nwhile :; do sleep 0.1; done\n",
+		"ignores": "#!/bin/sh\ntrap '' TERM\nwhile :; do sleep 0.1; done\n",
+	} {
+		script := filepath.Join(install, name)
+		writeNativeTestExecutable(t, script, body)
+		digest := fmt.Sprintf("%064x", len(name))
+		if err := runner.Apply(t.Context(), Workload{Role: "terrabase", Digest: digest, Fingerprint: digest,
+			Executable: script, DrainTimeout: 2 * time.Second}); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(300 * time.Millisecond)
+		started := time.Now()
+		if err := runner.Stop(t.Context(), "terrabase"); err != nil {
+			t.Fatal(err)
+		}
+		elapsed := time.Since(started)
+		data, _ := os.ReadFile(marker)
+		switch name {
+		case "drains":
+			if strings.TrimSpace(string(data)) != "drained" || elapsed >= 2*time.Second {
+				t.Fatalf("workload did not drain on SIGTERM: marker %q after %s", data, elapsed)
+			}
+		case "ignores":
+			if elapsed < 2*time.Second || elapsed > 5*time.Second {
+				t.Fatalf("workload ignoring SIGTERM stopped after %s, want the 2s drain timeout", elapsed)
+			}
+		}
+		if observed, err := runner.Observe(t.Context(), "terrabase"); err != nil || observed.Running {
+			t.Fatalf("%s: workload still running: %+v, %v", name, observed, err)
+		}
+	}
+}
+
 func TestNativeWorkloadReceivesOnlyExplicitEnvironment(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "state")
 	runner := NewProcessRunner(root, testWorkloadIdentity).(*processRunner)

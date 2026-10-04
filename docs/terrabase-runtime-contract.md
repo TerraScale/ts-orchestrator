@@ -1,124 +1,298 @@
-# TerraBase managed-member runtime contract
+# TerraBase runtime contract
 
-Status: **A and C source snapshots are frozen and accepted; B has matching Go/Rust source support but remains unqualified as an integrated managed launch**. A freezes the reviewed schema-5 placement and bounded member-status source set. C freezes the three-file mounted-volume claim/layout source set. The current Go source also has a managed-volume initialization path, but it has no live OCI guest/device qualification. B's Go caller supplies the pinned managed-material arguments accepted by TerraBase; startup and reload use the same pinned manifest. Existing source tests do not establish a Go-to-TerraBase managed launch on a mounted OCI guest, serving, or drain policy. These observations do not authorize production launch.
+Status: **implemented in source and tested locally against a published
+release; not deployed or tested on OCI.** This is the contract between the
+orchestrator and the C# TerraBase single-file binary (repository
+`TerraScale/terrabase`). Package [`internal/terrabase`](../internal/terrabase)
+holds the orchestrator side: release assets
+([`release.go`](../internal/terrabase/release.go)), settings, peer list,
+layout and health probe ([`contract.go`](../internal/terrabase/contract.go)),
+member certificates ([`ca.go`](../internal/terrabase/ca.go)) and the
+`ts-orch terrabase` command ([`cli.go`](../internal/terrabase/cli.go)). The
+host side is [`internal/host/terrabase.go`](../internal/host/terrabase.go).
 
-## Deployment workflow
+The operator workflow is in [TerraBase deployment](terrabase-deployment.md);
+what serving, replication and scale-in still need is in
+[TerraBase serving lifecycle](terrabase-serving-lifecycle-plan.md).
 
-The operator deploys, observes and exercises a managed partition with
-`operator terrabase-deploy`, `terrabase-status` and `terrabase-walkthrough`;
-see [TerraBase deployment into a running cell](terrabase-deployment.md). The
-command derives every runtime-manifest pin below from the controller-signed
-preparation receipt. The host agent creates each attempt's root-owned member,
-material (0750) and control (0730) directories below the image-provisioned
-runtime root before material delivery. The mount check pins the mount the
-kernel reports as visible at the member's target, because the host unit's
-own mount namespace lists a propagated volume mount once per slave copy of
-the runtime root; a mount of the device anywhere else is still rejected.
+## Release
 
-## Current boundary
+Every TerraBase `main` push that passes CI publishes the prerelease
+`ci-<commit>-run-<run id>`; a version tag `v<Version>` publishes the release
+`v<Version>`. Each carries two assets: `terrabase-linux-amd64` and
+`terrabase-linux-amd64.sha256` (one `sha256sum` line). The first published
+release is `ci-641274f7482bcf0ce2ae556af8be162d49e445be-run-13121`, SHA-256
+`69d132e76471089268ef1a807e69d4aef1e00a92995930817b0457ada0c02194`.
 
-The operator's explicit whole-workload teardown path for the current
-disposable GRU preview is documented in
-[Explicit disposable workload teardown](disposable-workload-teardown.md).
-That procedure covers terminal workload removal and its provider readbacks.
+**ARM64 gap.** OCI workload hosts are ARM64 (`VM.Standard.A1.Flex`), but
+TerraBase CI builds only `linux-x64` and publishes only
+`terrabase-linux-amd64`. A live OCI deployment needs TerraBase CI to also
+publish `terrabase-linux-arm64` and `terrabase-linux-arm64.sha256`. The
+orchestrator already accepts either asset name.
 
-| Area | Verified source behavior | Remaining gap |
+`terrabase.VerifyRelease` checks that the file is named
+`terrabase-linux-amd64` or `terrabase-linux-arm64`, starts with the ELF
+magic, is at most 512 MiB (the controller's artifact admission limit), and
+matches the single line of its `.sha256` asset. The verified digest is the
+artifact digest the rollout pins. TerraBase publishes no source digest, so
+the artifact's source claim is repository
+`https://git.terrascale.tech/TerraScale/terrabase`, the commit, and the
+SHA-256 of `git archive --format=tar <commit>` in a TerraBase checkout.
+
+## The binary
+
+The executable is a self-contained single-file .NET 11 JIT build with
+invariant globalization (no ICU). Its native libraries are extracted at
+startup to `DOTNET_BUNDLE_EXTRACT_BASE_DIR`, or to a writable `HOME`; with
+neither it exits with `DOTNET_BUNDLE_EXTRACT_BASE_DIR is not set`. The host
+sets that variable.
+
+Every setting is a `TERRABASE_<NAME>` environment variable or a
+`--name=value` argument. The argument wins, and an empty value means unset.
+An unknown `--name` exits with code 2; unknown `TERRABASE_*` variables are
+ignored. A configuration error exits with code 2 and never prints a value.
+
+| Setting | Default | Meaning |
 | --- | --- | --- |
-| Placement identity | New managed placement admission accepts schema 5. Schemas 1–4 remain decodable as history; schema 5 is the only admission schema. It pins a canonical roster with two seat rows per active region and a runtime manifest per roster row. The top-level placement `database_id` / `partition_id`, roster `database_id` / numeric `shard_id`, `seat_id`, and TerraBase `member_id` are distinct fields. Schema 5 validates canonical native UUID strings for roster tenant, database, and member IDs; cluster ID is 16 bytes encoded as 32 lowercase hex characters. [`Intent.ValidateForAdmission`](../internal/placement/terrabase.go), [`verifyAndApplyPlacement`](../internal/app/placement_admission.go), [`verifyManagedRegistration`](../internal/app/managed_enrollment.go). | A accepts the pinned placement/member-status source set listed below. Keep `seat_id` as the placement key and `member_id` as the TerraBase identity; the signed row is the binding between them. Do not infer an alias or equate top-level placement `database_id` with roster `database_id`. The current controller reconciles only one active region because the fixed outbound sender is bound to a two-member authority. |
-| Host and desired state | Placement persists the signed per-seat runtime manifest, prepares desired state, and calls the host desired writer. The host path validates the managed mount, material and process, reads TerraBase member status and serving proof, and publishes a signed report containing host-observed mount/process fields alongside a separately typed native serving proof. The app currently passes `ManagedRuntimeRoot` into `host.NewAgent`. [`Controller.advanceMember`](../internal/placement/controller.go), [`Agent.reconcileManaged`](../internal/host/managed_runtime.go), [`ReadMemberStatus`](../internal/host/member_status.go), [`readManagedServingProof`](../internal/host/member_lifecycle_proof.go), [`ManagedRuntimeReport`](../internal/host/types.go), [`runHost`](../internal/app/app.go). | Mount and process fields are host-local observations; they do not themselves prove client serving or peer durability, or establish independent OCI guest-device identity. Placement can promote `awaiting-healthy` only after validating a fresh serving proof bound to the expected member, authority, process and peer. A successful source-level host path is not an end-to-end serving qualification. |
-| Managed host resource profile (D15) | Host mode reads the root-owned baked runtime-priority reserve profile and passes its value to the agent; enrollment checks registration allocatable memory and reserve against placement pins, and managed launch requires registration, signed desired state, and baked reserve to agree. The signed per-member fields require process memory of at least 4 GiB, headroom of at least max(1 GiB, 25% of process memory), and a cgroup cap between the process limit and allocatable memory; allocatable memory plus reserve must fit nominal compute RAM and each ancestor `memory.max`. The image builder renders profile-bound `MemoryMin`/`MemoryLow` drop-ins for `system.slice` and the controller and host units from explicit inputs, then packages them with the baked reserve profile and read-only probe. Before launch, the native runner verifies that the host service and ancestors preserve the signed reserve; it copies the service floors to the `supervisor` subgroup, gives that subgroup CPU/I/O weight 10000 versus 1000 for workload roles, sets and reads back its nonrecursive `user.oomd_omit=1`, and clears those reservations from workload roles. Workload `cpu.max` is derived at 75% of effective CPU capacity; each managed role gets its signed `memory.max`. The units use normal scheduling (`CPUSchedulingPolicy=other`), `Nice=-20`, best-effort I/O priority 0, `OOMScoreAdjust=-1000`, `ManagedOOMPreference=omit`, and restart-on-failure; the native helper resets workload nice, `oom_score_adj`, and I/O priority to best-effort/4. [`runHost`](../internal/app/app.go), [`VerifyManagedRegistration`](../internal/app/managed_enrollment.go), [`readBakedRuntimePriorityProfile`](../internal/app/runtime_priority.go), [`validateManagedMemberLaunch`](../internal/host/types.go), [`prepareManagedRuntime`](../internal/host/managed_runtime.go), [`configureNativeSiblingResources` and `validateNativeSupervisorReservation`](../internal/host/native_boundary.go), [`dropNativePrivileges`](../internal/host/native_exec.go), [`build-offline.sh`](../deploy/image/build-offline.sh), [`runtime-priority qualifier`](../internal/runtimepriority/qualify.go), [`build_offline_test.go`](../tests/deploy/build_offline_test.go), [host unit](../deploy/systemd/terrascale-orchestrator-host.service), [controller unit](../deploy/systemd/terrascale-orchestrator-controller.service). | `ManagedOOMPreference=omit` applies nonrecursively to the unit cgroup; the explicit supervisor attribute protects that subgroup, while the native runner and managed role remain eligible for systemd-oomd. The generated values are operator-supplied allocations; source and profile/render tests do not establish measured memory needs or pressure behavior on the packaged ARM64 image. No accepted live CPU, memory or I/O pressure run, OOM/process restart recovery receipt, or exact image/profile qualification is recorded. The [runtime-priority guide](../tests/runtime_priority/README.md) describes the target guest checks. |
-| Managed volume claim/layout (C) | The accepted three-file C snapshot records a root-level `.terrascale-member-claim` binding volume and filesystem identity, stable member scope/incarnation, authority epoch/configuration/certificate, and trusted-key digest. The claim intentionally omits host-attempt and attachment IDs; reuse requires an exact claim and compatible retained layout/authority state. Its tests cover stable host replacement and rejection of changed incarnation, authority, or partial/ambiguous shard state. [`managed_volume_claim.go`](../internal/host/managed_volume_claim.go), [`managed_volume_claim_test.go`](../internal/host/managed_volume_claim_test.go), [`Agent.reconcileManaged`](../internal/host/managed_runtime.go). | C is accepted source and test evidence, not a mounted-VM or OCI guest-device qualification. The identity of a real mounted device and its guest-visible behavior remain unproven. C also does not establish client serving or durable drain. |
-| Managed volume initialization (current source) | Before managed runtime preparation, [`Agent.reconcileManaged`](../internal/host/managed_runtime.go) checks the expected mount and calls [`ensureManagedVolume`](../internal/host/managed_volume_init.go). If initialization is needed, the host obtains a short-lived controller-signed permit tied to its current session and desired/registration revisions. The controller rechecks those revisions under the workload-effect gate and asks OCI to inspect the running owned instance, boot descriptor, exact current attachment and retained volume, and creation/attachment journal. OCI grants first-format authority only for one positively recorded volume creation and exact first attachment with no other attachment or detach effects; the OCI journal's one-way permit claim has one winner. [`serveVolumeInit`](../internal/host/managed_volume_init.go), [`InspectVolumeInitialization`](../internal/oci/volume_init.go), [`ClaimVolumeFormatPermit`](../internal/oci/volume_init_journal.go). | The socket-activated root helper verifies the signed permit against host metadata and exact device pins. It rejects mounted, foreign, or ambiguous device contents. For a blank volume, it first writes and syncs a host-local one-way format marker, then formats ext4 with the signed UUID and verifies the result before mounting. Fresh formatting supports ext4 only. An existing filesystem with the exact signed UUID and type can be mounted without formatting, subject to the retained-volume claim/layout checks; the claim still gates reuse. If permit, provenance, or post-format readback is missing or uncertain, the blank volume remains held and is not automatically reformatted. The helper mounts in the host-visible mount namespace through a root-only socket and a service bounded to `CAP_SYS_ADMIN` and `CAP_CHOWN`. The first-format record is separate from the OCI operation inventory, so it does not itself create pending teardown work. Terminal completion still requires each pinned instance, boot volume, and data volume to be absent, no active attachment, terminal operation readbacks settled, and enrollment grants absent or durably disabled at readback ([teardown contract](disposable-workload-teardown.md)). [`executeVolumeInitAction` and `prepareManagedVolumeDevice`](../internal/host/managed_volume_helper.go), [initializer service](../deploy/systemd/terrascale-orchestrator-host-volume-init.service), [initializer socket](../deploy/systemd/terrascale-orchestrator-host-volume-init.socket). Source tests cover permit binding, one-winner issuance, and fail-closed device decisions; they do not qualify formatting or mount behavior on a live OCI guest. [`managed_volume_init_test.go`](../internal/host/managed_volume_init_test.go), [`volume_init_test.go`](../internal/oci/volume_init_test.go). |
-| Managed client HTTPS material (B) | The Go managed-host caller validates the client manifest, deterministic config/material paths, ownership, mode, file types, and digests, then appends `--client-config`, `--client-managed-material-manifest`, and `--client-managed-material-manifest-sha256`. TerraBase's current argument parser accepts both manifest flags and requires them together with `--client-config` for the signed-v2 distributed HTTPS path. Startup opens the manifest using the expected hash and loads the pinned config and credential generation. SIGHUP reload repeats those checks against the original in-process pins; it does not accept a replacement manifest digest, and changed pinned bytes close admissions until the original bytes are restored. [`readManagedClientMaterial`](../internal/host/managed_client_material.go), [`prepareManagedRuntime`](../internal/host/managed_runtime.go), [`Arguments` and startup caller](../../terrabase/crates/tb-server/src/main.rs), [`ManagedClientMaterial`](../../terrabase/crates/tb-server/src/managed_client_material.rs), [`load_client_generation` and `spawn_client_reload_task`](../../terrabase/crates/tb-server/src/local_v1_runtime.rs). | The Go caller and TerraBase parser now agree at source level. Go and TerraBase process tests cover their respective argument/material paths, including pinned startup and reload failure/recovery, but no qualified Go-to-TerraBase launch on a mounted OCI guest is established. A production path for replacing material, updating its signed digest, and restarting the member remains open. [`TestManagedClientMaterialPinsFilesAndDeterministicPaths`](../internal/host/managed_client_material_test.go), [`signed_v2_managed_material_pins_close_reload_and_original_pins_recover`](../../terrabase/crates/tb-server/tests/distributed_client_process.rs). |
-| TerraBase startup and authority | Network mode requires replication data, authority and local identity options, mTLS inputs, and a nonzero shard ID. Signed-v2 HTTPS client mode also requires `--client-config`, replication mode and the complete outbound peer triple. Native authority encodes UUID identities using its signed identity flag. The general certificate parser permits 2–64 members; the optional outbound fixed-peer profile requires the peer to be the sole other member, so that profile uses exactly two. Authority installation creates a fresh directory or reopens an existing exact record; it does not apply a successor authority in place. [`Arguments::replication_config`](../../terrabase/crates/tb-server/src/main.rs), [`parse_local_authority_scope`](../../terrabase/crates/tb-server/src/replication_config.rs), [`AuthorityPayload`](../../terrabase/crates/tb-replication/src/authority.rs), [`AcceptedAuthority::open_or_install`](../../terrabase/crates/tb-replication/src/authority.rs). | There is no managed live authority-transition protocol. The producer and placement owners must freeze authority identity encoding, seat/member mapping, epoch replacement, and old-writer fencing order before replacement or scale-in can be automated. |
-| TLS files and reload | TerraBase reads bounded authority, trust key, server certificate, private key and CA-root files during network startup. Its reviewed reader does not check private-key ownership or mode. The Go host path requires these material files to be root-owned, assigned to the workload group, mode `0440`, regular non-symlink files, and digest-matched before passing their paths to the process. No reload path for network authority or replication TLS material was found in the reviewed server path. The member-control socket separately requires a root-owned parent directory with mode `0730` and creates the socket with mode `0602`; these checks do not establish TLS-file protection. [`prepareManagedRuntime`](../internal/host/managed_runtime.go), [`verifyManagedMaterial`](../internal/host/managed_runtime.go), [`ReplicationServer::open`](../../terrabase/crates/tb-server/src/replication_server.rs), [`read_bounded`](../../terrabase/crates/tb-server/src/replication_server.rs), [`bind_member_control`](../../terrabase/crates/tb-server/src/member_control.rs). | Freeze who provisions secret files, replacement procedure, and whether rotation requires process restart. The observed host mode is implementation evidence, not an owner-frozen cross-component file contract. |
-| Local readiness and replication | `/readyz` reflects local recovery and listener startup. The network server accepts inbound `Replication.Sync`; an optional outbound sender connects to its one fixed certified peer. The receiver emits `DurableAck` after durable append and `AppliedAck` after apply advances. The sender validates those ACK contexts and keeps received/durable/applied prefixes in stream memory. The schema 1 serving proof reports the peer's received, durable and applied prefixes of the local origin and the local inbox's received, durable and applied prefixes of the peer origin; Go accepts a proof from a TerraBase release that omits both received prefixes and otherwise requires received ≥ durable ≥ applied in each direction ([`ReplicationProof`](../internal/memberstatus/types.go)). In `StatusOnly` control mode, `/v1/member/status` returns schema 1 with `serving` and serving/drain capabilities false; serving-proof and drain routes return HTTP `501`. The Go managed launch passes `--signed-v2-s3-config` and `--member-control-socket`, selecting the signed `ObjectDurable` path whose lifecycle control serves status schema 2, a schema 1 serving proof when evidence permits, and drain request/status routes whose responses expose durable receipt state. [`run`](../../terrabase/crates/tb-server/src/main.rs), [`run_distributed_process`](../../terrabase/crates/tb-server/src/local_v1_runtime.rs), [`dispatch_status_only` and `dispatch_object`](../../terrabase/crates/tb-server/src/member_control.rs), [`prepareManagedRuntime`](../internal/host/managed_runtime.go). | `/readyz` and local recovered/listener/healthy status are not serving claims. Current ACK stream state is not a durable peer receipt. The implemented control paths and focused tests do not establish an integrated current-source managed guest run proving client admission, real-peer catch-up/applied visibility, completed drain, or the selected failure-domain/durability policy. |
-| Go member-status caller | Go reads `GET /v1/member/status?nonce=…` over the workload's Unix socket, checks native process PID/start/cgroup, socket inode and peer credentials, and requires the exact expected signed identity. Its status decoder requires schema 2 and serving/drain capability fields; when native status reports serving, Go separately requests and verifies the schema 1 serving proof against the same process. The host reporter publishes that typed proof alongside host-observed mount/process fields. [`ReadMemberStatus`](../internal/host/member_status.go), [`decodeMemberStatus`](../internal/host/member_status.go), [`readManagedServingProof`](../internal/host/member_lifecycle_proof.go), [`reportManagedStatus`](../internal/host/managed_runtime.go), [`Controller.hasServingReport`](../internal/placement/controller.go). | Current Go and TerraBase source implement these paths, but they are not an integrated managed OCI guest qualification. The earlier run below used an older status-only path and does not qualify current managed serving or drain behavior. |
-| Native OCI authoritative root | The hash-verified signed-v2 S3 configuration selects the native path only when its optional `native_oci_root.namespace` is present and the namespace, region, bucket, and canonical regional OCI compatibility endpoint validate. The target digest binds region, namespace, bucket, endpoint, and both fixed prefixes, but excludes credentials; the publication digest is derived from the signed cluster, tenant, database, shard, member, and incarnation identity. Go derives only `tb-roots/v2/<publication-digest>` for the authoritative pointer and the separate `tb-object-probes/v1/native-oci-update/<publication-digest>` key for conditional-update probing. TerraBase attaches `NativeOciRootClient` only when that selection and the absolute host-supplied socket path agree; its root backend rejects paths outside the exact V2 pointer. V3 history at `tb-roots/v3-history/<publication-digest>/<sha256>` is created with ordinary S3 create-only writes and read back through the S3 provider; data and immutable-object uploads also remain on that provider. For a selected native target, the host keeps OCI's native Object Storage client under instance principal and passes the Rust member only a per-member Unix socket. The Go listener uses root ownership and workload GID; for each OCI operation, the host revalidates the SO_PEERCRED UID/GID/PID tuple captured for that connection against the active desired fingerprint and session execution lease, observed runner PID/digest/fingerprint/cgroup cap, and PID containment in the role cgroup. Create uses `If-None-Match: *`, update uses `If-Match`, and `probe_update` checks stale-write rejection and readback on its separate key. A stale precondition maps to conflict; an ambiguous write result maps to `Uncertain`, and the Go helper does not retry a PUT. [`LiveS3Target`](../internal/managedmaterial/s3.go), [`TargetFromSignedConfig`](../internal/nativerootoci/config.go), [`Target`](../internal/nativerootoci/target.go), [`Agent.ensureManagedNativeRoot` and `Agent.authorizeManagedNativeRoot`](../internal/host/managed_native_root.go), [`prepareManagedRuntime`](../internal/host/managed_runtime.go), [`NativeOciRootClient`](../../terrabase/crates/tb-server/src/native_oci_root.rs), [`S3Provider::connect`](../../terrabase/crates/tb-server/src/s3_runtime.rs), [`read_root` and `ensure_v3_history_root`](../../terrabase/crates/tb-object/src/tier.rs). | The exact Go candidate's focused race run covers the host authorizer at component level; a separate Go↔Rust process check used fake OCI and a custom authorizer. These do not establish `runHost`, a real managed runner launch, actual OCI instance-principal access or conditional requests through this adapter, or a live OCI guest qualification. The Go fake-client tests exercise the capability probe, but the cross-language scratch run did not exercise `probe_update` against OCI. |
+| `admin-port` | 9464 | Loopback-only (`127.0.0.1`) HTTP listener: `GET /healthz` answers 200 `{"status":"ok","version":"0.1.0"}`; also `/metrics` (Prometheus) and OpenAPI. |
+| `data-directory` | `data` | One SQLite file per database. |
+| `client-port`, `client-certificate`, `client-private-key` | unset | HTTPS client API on all interfaces, HTTP/1.1 and HTTP/2. All three or none. |
+| `peer-port`, `peer-certificate`, `peer-private-key`, `peer-client-ca` | unset | Inter-node gRPC service `terrabase.v1.Replication/Sync` over HTTP/2 with mutual TLS on all interfaces. A connecting peer's client certificate must chain to `peer-client-ca` and carry the clientAuth EKU. All four or none. |
 
-## Volume initialization recovery
+There is no `/readyz`: `/healthz` is liveness only. The `Sync` service exists
+but rejects the handshake with `Unimplemented` until TerraBase TS-464. The
+binary has no peer-list setting yet; N-node membership is TerraBase TS-469.
 
-The OCI journal consumes the one-way first-format grant before the signed
-response reaches the guest. The root helper then syncs its local attempt marker
-before running `mkfs`. A lost response, helper outage, or expired permit can
-therefore leave a blank volume held; a later reconcile can mount only when the
-exact filesystem and retained-volume provenance/claim checks pass, and cannot
-receive another first-format grant for the same volume. For this disposable
-GRU preview, recovery is exact-scope signed terminal cleanup followed by a
-separately reviewed deployment. The terminal marker is irreversible for its
-database and partition, and the procedure requires explicit disposable-workload,
-permanent data-loss, and forced-stop consent
-([teardown contract](disposable-workload-teardown.md)).
-This disposal path does not apply to retained data: leave such a volume held for
-owner direction; deletion requires a separate exact terminal intent with
-explicit loss consent. Do not use SSH or manual `mkfs` as a recovery step.
+On SIGTERM the binary runs ASP.NET Core shutdown: it stops accepting,
+drains in-flight requests (default host shutdown timeout 30 s), and exits 0.
 
-## Producer requirements still to freeze
+## Workload profile
 
-These are semantic requirements for a future producer/consumer contract, not agreed method names or a wire schema:
+A member is a native workload of role `terrabase`. Its settings come from
+the signed controller config `controller.workloads.terrabase`
+(`{resources, env}`); every member of the role gets the same `env`. A C#
+profile sets no `args`: the binary lets an argument override the host-owned
+settings, so the controller rejects them and the host refuses a member with
+arguments. When a `terrabase` profile has a non-empty `env`, the controller
+validates it at startup and refuses to start when it fails these checks:
 
-* A fresh member observation must bind the process and local recovery to the exact cluster, tenant, database, shard, member, incarnation, authority epoch/configuration, certificate and host session. If it reports peer state, it must identify each certified peer and distinguish received, durable and applied frontiers for a specific origin incarnation.
-* Serving must be decided from the actual client data path, its declared read/write admission, required visibility frontier and selected durability/failure-domain policy. `/readyz`, a listening port, `Welcome`, or one ACK frame is not enough. The owners still need to choose the serving predicate and its policy identity.
-* Retirement needs a durable writer fence and a receipt that resolves admitted writes and required outgoing replication obligations against named surviving members. The owners still need to choose command idempotency, receipt persistence/recovery, and the order between fencing and authority change. SIGTERM or process exit is not such a receipt.
-* The v2 member status may carry an optional `load` object (`connections`, `storage_bytes`, `replication_lag_seq`, `write_qps`; all four required when present). It is operational telemetry for the autoscaler and dashboard only, never lifecycle evidence; an incomplete or out-of-range block is dropped without failing the status. See [autoscale-telemetry.md](autoscale-telemetry.md).
-* Host reports bind host-observed mount/process/session fields and a separate typed native serving-proof field. The mount/process observations alone do not prove serving; placement must validate native serving or survivor proof against the same member and authority generation.
-
-The managed placement state enters `awaiting-healthy` after desired state is applied and remains held until a fresh bound native serving proof appears in an admitted host report; a valid proof can promote it to `serving`. Missing proof holds it there, while a `serving` member whose current host, attachment or proof no longer validates returns to `awaiting-runtime-contract`. Current retirement stages remain held pending the integrated evidence-driven scale-in path. `CanBeginRetirement` has a two-other-serving-members-per-selected-region safety floor; that Go floor is not evidence of TerraBase replication factor or a product quorum policy. The TerraBase certificate allows 2–64 members, while this outbound managed sender profile uses exactly two. Product owners must resolve scale-in and durability policy rather than treating either count as a quorum rule.
-
-## Qualification evidence and limits
-
-The native OCI root implementation below is a proposed next Go batch, not an integrated deployment. Its source base is ts-orchestrator main `48e3f39c46ed462b1368487cfad96a850247cab9` / tree `234ce837d558fdf0d62a4975327e4902a8c8e8b2`, plus the exact 14-path candidate patch (SHA-256 `ca61b5b838d76eb36747b7fe3d9133ae90574e9f95d75139dd2de5617da82aad`). The candidate's exact-source focused race run passed `internal/nativerootoci`, `internal/managedmaterial`, and `internal/host`; it includes the live PID/cgroup positive authorizer case and 12 denial cases. Its full log SHA-256 is `7c72e7bb7ca8059bd38f6253151ac6425748b49d7cbfda24e14fc34c5a393e0d`. This is component evidence and does not run `runHost` or launch the managed member.
-
-A separate Go↔Rust scratch process check used Go source snapshot `c50d7fcf205d2e8672f0dcda60ccf79046578210` with uncommitted relevant files and TerraBase native-client snapshot `8e330bbcf41537cb15728bf2ca81ceee6c889d11`. It exercised the actual Go `Serve`/`Service` and Rust `NativeOciRootClient` against a fake OCI client and custom authorizer: absent/read, create/read, update, stale `If-Match` rejection with the winner retained, wrong target digest/peer rejection without extra OCI calls, and socket-close as `Uncertain`. Evidence SHA-256 `de77ceb90171c0e871a162f8b103bfce6c9b727a0fca195329d7c281caf33de7`; run log SHA-256 `ff0d4556865ca229e65ec8eec0545e35310ff37430cb2fc8b6180967a5c39e39`. That scratch check does not test the production Agent authorizer, OCI instance principal, `runHost`, live OCI conditional behavior, or `probe_update`. No integrated managed guest or live OCI root qualification is established by these results.
-
-The current managed-placement qualification records focused Go placement/host tests, race tests and vet as passing for its then-recorded files. Its full `go test ./internal/app` run failed on a founder bootstrap fixture error (`open baked bootstrap directory: no such file or directory`); that failure was reported outside the owned placement change. The host-bridge qualification recorded its own focused and package test results and explicitly limited its claims to host-local state. Those test results are evidence for their recorded snapshots, not a qualification of the moving source snapshot below.
-
-The 2026-09-26 member-status run-03 used TerraBase commit `12850214606652f036e9fde000695fe5743b374b` and passed both the focused Go cgroup test and the Rust cross-language status test in one isolated guest; see the [qualification status](qualification-status-20260926.md). That binary used the older status-only schema 1 path. Its sender-enabled phase used a dummy loopback listener and did not prove replication or a peer ACK; the run establishes neither serving nor replication. It is separate from C's mounted-volume claim/layout snapshot and is not a current-source runtime result or owner freeze. Current source has focused tests for the Go decoder and placement checks, and TerraBase serving-proof and drain routes, but no integrated current-source managed OCI guest run joining them to a real peer and completed drain.
-
-The D15 image-builder suite at the source observation below passed `python3 -m unittest discover -s tests/deploy -p 'test_build_offline.py'` (20/20). `systemd-analyze --root <temporary-root> --man=no --generators=no verify <bootstrap> <controller> <host>` also exited 0 with isolated unit and target stubs. These checks cover profile packaging and unit syntax; they do not establish measured floor adequacy or live ARM pressure, OOM, or restart behavior.
-
-## Source identity
-
-The entries below preserve the accepted C source snapshot plus historical B and D15 source observations. The managed-control behavior documented above was checked against the current Go and TerraBase worktree revisions and file hashes below; those identities pin source observations, not an integrated runtime qualification. Shared worktrees can move independently, so recheck before relying on these paths for deployment.
-
-| Reviewed file or evidence | SHA-256 |
+| Key | Rule |
 | --- | --- |
-| Proposed native Go root batch base: ts-orchestrator main `48e3f39c46ed462b1368487cfad96a850247cab9` / tree `234ce837d558fdf0d62a4975327e4902a8c8e8b2`, plus the exact 14-path patch | `ca61b5b838d76eb36747b7fe3d9133ae90574e9f95d75139dd2de5617da82aad` |
-| Proposed native Go candidate manifest and verification record | `81d755be0214438f04ff0010c4614c5dbf2fcd0f3394177e313ec626a1cc3525`; `51422d358232d84ae99202f354d66c88a9908b9ea3939c193d7ede91c3b75b0f` |
-| Exact native Go candidate focused race log | `7c72e7bb7ca8059bd38f6253151ac6425748b49d7cbfda24e14fc34c5a393e0d` |
-| TerraBase native OCI client snapshot `8e330bbcf41537cb15728bf2ca81ceee6c889d11`, `crates/tb-server/src/native_oci_root.rs` | `6f82c599ab1d8da8f58a54738bf3abc149fe72d98c5994fefa16f2181eb1f781` |
-| TerraBase caller and routing files from the retained native client snapshot: `crates/tb-server/src/config.rs`, `main.rs`, `s3_runtime.rs`; `crates/tb-object/src/tier.rs`, `client.rs` | `33e163072e1d707bf9b6c33cbb18d96bcf7afb222ca00e43a5ffe4151f5023ab`; `a0f491ed981053624410eab1b494c3cad0b5bcfe0c7f1465d11520c94a625e5c`; `13d55d2b170ca685e0550fb3160ae617f356b59fb92a2ea16cc8e8755e3aa622`; `e35ef815f09e9a45b2db5c8877b2226a48524046cf607267604d76c8a479b8b0`; `42da0412cb491ca1eaba3300f45ecb7736ae1d707df6227f6adc4f66440420c9` |
-| Separate scratch Go↔Rust IPC evidence and run log (fake OCI) | `de77ceb90171c0e871a162f8b103bfce6c9b727a0fca195329d7c281caf33de7`; `ff0d4556865ca229e65ec8eec0545e35310ff37430cb2fc8b6180967a5c39e39` |
-| C review base: Go HEAD `17fb8d4612c02d376ffb735499c8d8989d54b019`; the three listed files are the accepted worktree snapshot, not a claim that C was committed | — |
-| C `internal/host/managed_runtime.go` (accepted snapshot) | `8862cac49cc96b91b114b497d10f27b27c708c88043e6e3cd88d7d508e1e3de2` |
-| C `internal/host/managed_volume_claim.go` | `9f9104b9dd51d67131fce8aca51e7e51c1b55c9ea18420fd5578df36ea921811` |
-| C `internal/host/managed_volume_claim_test.go` | `c6b70c12f34e451535b84a57ccd83caa52d8b8f12b132fe41990253152caa229` |
-| Go `internal/host/types.go` (B source observation, 2026-09-26) | `70683498517b799d4294ed424afaf08b53dab68a8cbc9a2dba71576303522745` |
-| Go `internal/host/managed_runtime.go` (B source observation, 2026-09-26) | `52c57ba4abedfbe1633abac2ef35817d32c3c19d70a3d14aae124fd17e7a18c8` |
-| Go `internal/host/managed_client_material.go` (B source observation, 2026-09-26) | `8d3c695d1246b31f0732736915f26c99439694b09b0fd5d493eb126a8b6d9582` |
-| Go `internal/host/managed_client_material_test.go` (B source observation, 2026-09-26) | `315a7a3f18dfd064896cdf13b285c2e5e75f00da938147ac1480c037183115d0` |
-| TerraBase `crates/tb-server/src/main.rs` (B source observation, 2026-09-26) | `fc055c880067e91819058e5311b869d7ea7ddd9bec322bc44061e1155ad1de52` |
-| TerraBase `crates/tb-server/src/managed_client_material.rs` (B source observation, 2026-09-26) | `92f6b52881a95cbce49024d8259025d3e3d36fdd23428969aa55d549efe72a64` |
-| TerraBase `crates/tb-server/src/local_v1_runtime.rs` (B source observation, 2026-09-26) | `789bd12fe86ee6fc006a02ff8a5656be27912b817ec70a95ffb5be4552660d0a` |
-| TerraBase `crates/tb-server/src/client_http.rs` (B source observation, 2026-09-26) | `1309674bea92dfd460302ff20ad99746c2aae069cf750e2604e2f2228c117fb2` |
-| Go `internal/host/managed_client_material_test.go` and TerraBase `tests/distributed_client_process.rs` (B source tests, 2026-09-26) | `315a7a3f18dfd064896cdf13b285c2e5e75f00da938147ac1480c037183115d0`; `a54f6fe82656a17846daf5eb14f27ed0e1b3621d6d1ce2bd548abc8e9859713e` |
-| Isolated, unintegrated Rust B patch [`managed-client-material.patch`](../tests/firecracker/managedmaterial/fixtures/managed-client-material.patch) | `9b1e37740290dda326930d95641ba9c72ef43a125df38f559195cab694739b08` |
-| D15 source observation: ts-orchestrator HEAD `c845e6ca2c04f5cd435c9c3039d731f8a453ebfa`; worktree is dirty and the following hashes pin the inspected bytes | — |
-| Go `internal/app/runtime_priority.go` (D15, 2026-09-26) | `be1d5826a668f0e68d1e38b1f5a110e2fa976b82aabce79004ffe3a0484f5d5b` |
-| Go `internal/app/app.go` and `internal/app/managed_enrollment.go` (D15, 2026-09-26) | `dfcc693a32b2c365e8536518746e6b2ce539354c6736e1559218c56a7cbb6e94`; `df7490199a8adc365f640628b9f55c8b607b3d85f266ac42d19166186c38e118` |
-| Go `internal/app/runtime_priority_test.go` (D15, 2026-09-26) | `9c97e14eabf8dcf030823dbceb88548632ca5cec642e3b2f44d4357fc5ae1f78` |
-| Go `internal/host/types.go`, `internal/host/managed_runtime.go`, and `internal/host/runner.go` (D15, 2026-09-26) | `a5d37c3a8b96678fe0c126df66c5fa641cd1796d3af26b74b0cb6b2869855fc1`; `9e1a46aafb7486bad6193e17e535d891f1ac51f0a79954812bae1effdc029d95`; `6e28fb1cdf32024e10550f19dd17dc29c6ee8fabe4386a1355064d04549731fb` |
-| Go `internal/host/native_boundary.go` and `internal/host/native_exec.go` (D15, 2026-09-26) | `261f5b7959e10d1453cb7a93ad23afe0e23f8ce2d89aab2464504bcfb3c8a969`; `844bbd53ca6785166489b5cd1104157c6483c33f8116a2d9d444bed53d4a7587` |
-| Go `internal/host/managed_contract_test.go`, `internal/host/native_boundary_test.go`, and `internal/host/native_exec_test.go` (D15, 2026-09-26) | `df2fb9d1c34adc2ac142ddce60f4cb604ee991f3bea42d69ae5114f640531220`; `e932b9b257707037a28be864ea16368971d35d15c33ea1a2262581e4e3883d66`; `8846cce2dbc98a4981e73c0fb742bc338873aaaa30a63771774b96197bbf944b` |
-| Go `deploy/image/build-offline.sh` (D15, 2026-09-26) | `df0a980775b3a68b5e67717af362fc33a2100858589b60dddde6ead879902a79` |
-| Go `deploy/systemd/terrascale-orchestrator-host.service` and `terrascale-orchestrator-controller.service` (D15, 2026-09-26) | `e241c56282f4e30cca4eb6b5010640856a7be70244a50ddfe49816c3706da39d`; `4426205d4c814980f5bc87a9e6d9848ceb0aec1b08312f07360ddb42d5238766` |
-| Go `ts-orch runtime-priority qualify` and `tests/runtime_priority/README.md` (D15, 2026-09-26) | `82a21c42114b9b79dea788c9027c9a3235fd374d55ed2822fb606b3889de616d`; `b2e45714e7db5e3cfbe947457b7430c7063eb7f0558e3cb7ae03120c50093f97` |
-| Go `tests/deploy/test_build_offline.py` (D15, 2026-09-26) | `b1ac6213516c7082d7115513b25b019e653fbb8d97f19146d03593b46b98dbf0` |
-| Current member-control source review: Go HEAD `cc408f1e171d245dd105efa34a19ed9dfc7424e`, tree `246fbc683aa78b3b35db6188b4b7e673a01ea391`; TerraBase HEAD `25c9686e9b9a25aa1836215890bd287e3ec6c085`, tree `74b1265baf9a3eea98a437cdfb45049b81f91888` | — |
-| Go `internal/host/managed_runtime.go`, `internal/host/member_status.go`, and `internal/host/member_lifecycle_proof.go` | `c82f77a0d11bac65c4ff575c423bbe841f47bd56469687bf713a4bf3bcc58ddb`; `f73ca7d77777fca3e8f5e455d53bda115667107e093d7eeb6063858ea1bc00ac`; `37d107c9b41ea5ed73f0c91342c031cc166e40c0d4fe67fec9f8bb4975f7abce` |
-| Go `internal/memberstatus/client.go`, `internal/memberstatus/drain.go`, and `internal/host/types.go` | `aa8ad3569ecec8c730682dc2f970feade21cbb7c853b74b36e980aa1a6fc42bc`; `5a655f12e642c5e84a04df68d04495968d54fadb955a776eb4c4d1794fc11b23`; `2fb3b3d3a434bc96a179d60156994883affd262644b269238457ba930841efe0` |
-| Go `internal/placement/controller.go`, `internal/host/member_status_test.go`, and `internal/placement/serving_test.go` | `428ddff4df15fddfe62619bb7224ad4a829759fd8514786229ff5e2edba28783`; `278dc5267261a23de414aba5b5a7a44f74ce203e52bc1ea8ae0ae09e2ab5f4f2`; `f86a6498004097d5859a5e80583e8faaa9bf2af3039df89390c8c0199e5223a7` |
-| TerraBase `crates/tb-server/src/main.rs`, `crates/tb-server/src/local_v1_runtime.rs`, and `crates/tb-server/src/member_control.rs` | `a26c3fff2dd8b0e9d87622db3bf802d52d59fab2337b0a16da7ac73b6025a419`; `4034e28a2d3cdaa148ea2719c0acd7f00246f43fc4910f3d1cd784d159b1a7fa`; `7de9f8a7f7c426ce4a2a4adf5f1786e12ff2cda3252aa9ebaa7394b7c08f69fa` |
-| TerraBase `crates/tb-server/tests/distributed_object_process.rs` and `crates/tb-server/tests/replication_process.rs` | `39fd3b5684f42feda1377feb6060519ed0bb1cfd52f27b98635f71a1b5703703`; `5a87a5a8a9b0d9c291ca80adca7d772003ad724711def271c0665dd1e33f626d` |
+| `TERRABASE_PEER_PORT` | Required port. |
+| `TERRABASE_ADMIN_PORT` | Optional port, default 9464. |
+| `TERRABASE_CLIENT_PORT` | Optional port; unset disables the client listener. |
+| `TERRABASE_PEERS` | Required. Comma-separated `name=ip:port` for every member of the cell, this one included. `name` is the member host's node name (lowercase letters, digits and `-`, at most 63 characters). Names and addresses are unique, every port equals `TERRABASE_PEER_PORT`, at most 64 entries. |
 
-No tests or runtime commands were run for this documentation update. Before production qualification, connect and run the managed Go caller against the TerraBase process on a mounted guest, freeze how replacement material and digests are delivered, close serving/drain policy, and verify the real peer under the selected durability policy.
+The admin, peer and client ports must differ. A profile must not set the
+host-owned keys `TERRABASE_DATA_DIRECTORY`, `TERRABASE_PEER_CERTIFICATE`,
+`TERRABASE_PEER_PRIVATE_KEY`, `TERRABASE_PEER_CLIENT_CA`,
+`TERRABASE_CLIENT_CERTIFICATE`, `TERRABASE_CLIENT_PRIVATE_KEY` or
+`DOTNET_BUNDLE_EXTRACT_BASE_DIR`.
+
+Recommended GRU values: `TERRABASE_PEER_PORT=9443`,
+`TERRABASE_CLIENT_PORT=9465`, admin port 9464 (loopback). Cell and host
+names follow `<region>-<index>`: cell `gru-1`, members `gru-1-db-1`,
+`gru-1-db-2`, `gru-1-db-3`:
+
+```text
+TERRABASE_PEERS=gru-1-db-1=10.251.0.21:9443,gru-1-db-2=10.251.0.22:9443,gru-1-db-3=10.251.0.23:9443
+```
+
+**`TERRABASE_PEERS` is a PROPOSED setting.** The current binary ignores it as
+an unknown variable. TerraBase TS-469 must adopt a `peers` setting with this
+`name=ip:port` format, or the orchestrator renames it. The orchestrator uses
+it today to decide which hosts may hold a member certificate and which name
+and address the certificate carries. The list is static per signed profile:
+a membership change needs a signed controller config change and a new
+release, and a running member reads it only at start.
+
+## Member CA and certificates
+
+`ts-orch terrabase member-ca --cell gru-1 --out DIR` creates a new directory
+`DIR` (0700) with `member-ca.pem` (0644) and the owner-only `member-ca.key`
+(0600): an ECDSA P-256 CA valid for 10 years. It refuses an existing `DIR`,
+so a CA is never overwritten. The controller config keys
+`controller.terrabase_ca_cert_file` and `controller.terrabase_ca_key_file`
+point at the two files; the key must be a regular file, not a symlink,
+owned and readable only by the controller's user. Without them the
+controller refuses every member certificate request, and members never
+start. Hosts never see the CA key.
+
+The host agent creates `<terrabase_root>/tls/member.key` (ECDSA P-256, PKCS#8)
+once; the key never leaves the host. When the member certificate is missing,
+does not match the key, does not chain to `ca.pem`, does not name this
+member, or has fewer than 30 days left, the host sends a certificate request
+over its authenticated session as host operation `terrabase-peer`. The
+controller signs it only when the CSR is a valid ECDSA P-256 request, the
+host's registration has role `terrabase` and no `managed_oci` binding, and
+the host's current desired for `terrabase` is active, non-managed, valid for
+its current registration (including its environment), and has a profile
+whose `TERRABASE_PEERS` lists this node. It ignores any names in the
+request and issues:
+
+- CN and DNS SAN: the node name; IP SAN: the listed IP;
+- EKU serverAuth and clientAuth; validity 90 days, capped at the CA's expiry.
+
+The host writes `member.pem` and `ca.pem` atomically. The same certificate is
+the peer listener's server certificate, the client certificate a member
+presents to other members, and, when `TERRABASE_CLIENT_PORT` is set, the
+client HTTPS certificate; clients trust `member-ca.pem`.
+
+Renewal runs on every poll while the member runs and is best effort: an
+error is reported but does not stop the member. The host replaces each file
+atomically (write, fsync, rename). A binary with TerraBase TS-464 re-reads
+the peer certificate, key and CA on its next TLS handshake after they
+change, so peer renewal is live; its client listener still loads its
+certificate once, so a member with a client port still restarts once per
+renewal. The current release binary loads all of them only at start. Between one and seven days (a fixed offset per node, so a cell's
+members do not restart together) before the certificate the member started
+with expires, the host completes a TLS handshake with the member's peer
+listener, and client listener when set, on loopback, presenting the
+member's own certificate. If a listener still serves an expiring
+certificate, or the handshake fails, the host restarts the member with a
+drain so it loads the renewed one; a member whose listeners already serve
+the renewed certificate keeps running. If the stop fails, the host retries
+on the next poll. Releases restart members long before
+that.
+
+## Host layout and launch
+
+Host config `host.terrabase_root` enables C# members on a host. It must be
+absolute, clean, not `/`, and separate from the install and state roots.
+Every ancestor must already exist; only the member root may be created.
+The root and every ancestor must be real directories, not symlinks, that
+the workload identity can traverse but not replace, the workload must not
+be able to create entries in the root's parent (sticky or not), and the
+path must resolve to itself; the agent checks this at start and again before every
+member preparation. It changes the owner and mode of each managed
+directory through a descriptor opened with `O_NOFOLLOW`, so a symlink is
+never followed.
+Use `/srv/ts-managed/terrabase` on the image: the host unit
+(`ProtectSystem=strict`) can write only below `/srv/ts-managed`, so another
+root needs a unit drop-in. It is a host-local option: a host credential
+renewal that rewrites `host.json` keeps it. On such a host a
+non-managed `terrabase` desired is launched as a C# member.
+
+| Path | Owner, group, mode | Content |
+| --- | --- | --- |
+| `<root>` | supervisor, workload group, 0750 | |
+| `<root>/tls` | supervisor, workload group, 0750 | `member.key`, `member.pem`, `ca.pem`, each supervisor-owned, workload group, 0440 |
+| `<root>/data` | workload user, 0700 | SQLite databases |
+| `<root>/bundle` | workload user, 0700 | Extracted native libraries |
+
+The member's environment is the host base environment
+(`HOME=/ LANG=C PATH=/usr/bin:/bin`), then the profile `env`, then:
+
+| Variable | Value |
+| --- | --- |
+| `TERRABASE_DATA_DIRECTORY` | `<root>/data` |
+| `DOTNET_BUNDLE_EXTRACT_BASE_DIR` | `<root>/bundle` |
+| `TERRABASE_PEER_CERTIFICATE` | `<root>/tls/member.pem` |
+| `TERRABASE_PEER_PRIVATE_KEY` | `<root>/tls/member.key` |
+| `TERRABASE_PEER_CLIENT_CA` | `<root>/tls/ca.pem` |
+| `TERRABASE_CLIENT_CERTIFICATE`, `TERRABASE_CLIENT_PRIVATE_KEY` | The member certificate and key, only when `TERRABASE_CLIENT_PORT` is set |
+
+The process runs as the workload user (`terrascale-workload`, uid/gid 2000 on
+the image) in its own cgroup under the host agent. There is no per-member
+systemd unit: the host agent
+([`terrascale-orchestrator-host.service`](../deploy/systemd/terrascale-orchestrator-host.service))
+is the supervisor, and the member's stdout and stderr go to that unit's
+journal. The C# path attaches no block volume: member data lives on the
+host's filesystem under `terrabase_root` and does not survive replacement
+of the host.
+
+## Readiness
+
+After launch the host reports the member `starting`. On every poll (5 s by
+default) it calls `GET http://127.0.0.1:<admin-port>/healthz` and reports
+`running` only when the answer is 200 with `{"status":"ok"}`. A member that
+stops answering goes back to `starting` with the probe error. A member
+whose process exits is reported `failed` once and relaunched on the next
+poll, so a release that crashes after start fails its gate at once.
+`operator terrabase-release` counts only `running` as ready.
+This is liveness, not a serving or replication claim.
+
+## Stop and drain
+
+Stopping or replacing a C# member sends SIGTERM through a pidfd and waits up
+to 45 s for its cgroup to empty, then kills the cgroup. The host unit's
+`TimeoutStopSec=90s` leaves room for it. Session loss, agent shutdown and
+agent restart recovery still kill the cgroup at once: workloads must stop before the host lease
+reserve runs out. The drain is not a durable drain receipt.
+
+## Qualification
+
+T0 unit tests in [`internal/terrabase`](../internal/terrabase) cover profile
+and peer parsing, the host-owned environment, release verification, CA and
+member certificate issue and renewal checks, and the health probe.
+`TestTerraBaseReleaseGateWithFakeMember` (`internal/app`, T0) runs
+`operator terrabase-release` against an in-process controller and host agent
+with an in-process stand-in for the binary that serves `/healthz` only when
+the host prepared its data directory and a member certificate chaining to
+the cell CA: deploy, upgrade, and a release that crashes after start, which
+fails the gate at once and is rolled back in place.
+`TestTerraBasePlacementKeepsMembersOnListedHosts` checks that members are
+placed only on listed hosts and replaced in place. In `internal/host`,
+`TestTerraBaseMemberRestartsBeforeLoadedCertificateExpires` (against a TLS
+listener serving the renewed or the expiring certificate),
+`TestTerraBaseExitReportedOnceBeforeRelaunch`,
+`TestTerraBasePeerCertificateFollowsCurrentRegistration`,
+`TestTerraBaseRootMustBeSeparate` and `TestTerraBaseMemberRefusesArguments`
+cover the certificate restart, exit reporting, certificate signing against
+the current registration, root validation and argument refusal. In
+`internal/app`, `TestTerraBaseReleaseStateRules`,
+`TestTerraBaseProfileRejectsArguments` and the broken-stdout step of the
+fake-member test cover the gate's state rules, profile arguments and
+output errors. `TestNativeDrainSendsTermBeforeKill`
+(`internal/host`) checks the cgroup runner's SIGTERM drain and its kill after
+the timeout; like the other native runner tests it needs root and a
+delegated cgroup and skips otherwise.
+
+Two T2 tests run the real binary. They skip unless `TS_TERRABASE_BINARY`
+names a `terrabase-linux-<arch>` asset with its `.sha256` file beside it:
+
+- `TestTerraBaseBinaryPeerMesh` (`internal/terrabase`): three members on
+  local ports, configured only through the host's environment contract. The
+  mutual-TLS mesh accepts orchestrator-issued peer certificates and rejects
+  foreign-CA and certificate-less clients; SIGTERM drains and exits 0.
+- `TestTerraBaseReleaseDeployUpgradeRollback` (`internal/app`): an
+  in-process controller and host agent with the real binary: deploy,
+  readiness, upgrade to a second digest, and a broken release rolled back
+  automatically.
+
+Run them with `make terrabase-release-process TERRABASE_BINARY=<path>`, or
+as the `terrabase-binary` and `terrabase-release` suites of
+`scripts/ci/qualify-image.sh`. Both passed locally against the linux-amd64
+asset of `ci-641274f7482bcf0ce2ae556af8be162d49e445be-run-13121`: the mesh
+members answered `Replication/Sync` with gRPC status 12 (`Unimplemented`)
+over mutual TLS, which shows the call reached the service.
+
+`TestLiveOCITerraBaseHostsReadOnly` (`internal/terrabase`) is an opt-in,
+read-only check against the real OCI API through the shared client factory
+and the operator's `~/.oci/config` DEFAULT profile. With
+`TS_OCI_LIVE_COMPARTMENT_ID` set (optional `TS_OCI_LIVE_REGION`,
+`TS_OCI_LIVE_HOST_PREFIX`, default `gru-1-db-`, and `TS_OCI_LIVE_PEER_PORT`,
+default 9443) it checks that the region offers `VM.Standard.A1.Flex`
+(Ampere, 1 OCPU, 6 GB per OCPU), that A1 cores are left, and that an Ubuntu
+ARM64 image fits A1. For the running hosts of the prefix it checks the A1
+shape, distinct fault domains and that every member's NSGs let the others
+reach the peer port, and logs the `TERRABASE_PEERS` value their primary
+private IPs give. It only lists and gets. On 2026-10-04 it passed for
+`sa-saopaulo-1` (A1 offered, 248 A1 cores available, 17 Ubuntu A1 images;
+GRU had no TerraBase hosts during its rebuild), and its host path read the
+VNIC and private IP of the running `ts-ops` A1 instance.
+
+Not tested: any live OCI host running a member, ARM64, the cgroup process runner as root with
+the real binary (its drain is covered by a root-only runner test), and real
+replication, which the binary does not implement yet.
+
+## Retired terrabase-rust managed path
+
+Before this contract, TerraBase was the Rust `tb-server`, launched through a
+managed-member path: schema-5 placement in `internal/placement`, pinned
+member material in `internal/managedmaterial`, retained OCI volumes mounted
+by the host, and a native serving proof read through `internal/memberstatus`.
+That code remains in the repository with its operator commands, but it
+targets the retired binary and must not be used for the C# binary. Git
+history keeps the full previous text of this document, including its source
+identities and qualification records.

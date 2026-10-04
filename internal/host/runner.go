@@ -30,6 +30,9 @@ type Workload struct {
 	Env                  map[string]string
 	CgroupMemoryMaxBytes uint64 // Zero leaves the role cgroup's default limit unchanged.
 	SystemReserveBytes   uint64 // Signed managed reserve; zero for non-managed workloads.
+	// DrainTimeout, when nonzero, makes Stop send SIGTERM and wait this long
+	// for the workload to exit before its cgroup is killed.
+	DrainTimeout time.Duration
 }
 
 // WorkloadIdentity is the dedicated, unprivileged identity for every native
@@ -63,6 +66,7 @@ type processRecord struct {
 	Fingerprint string `json:"fingerprint"`
 	PID         int    `json:"pid"`
 	StartTime   string `json:"start_time"`
+	DrainMillis int64  `json:"-"` // Recover kills every cgroup; older agents decode the inventory strictly.
 }
 
 type processRunner struct {
@@ -323,7 +327,8 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 		<-waited
 		return errors.New("cannot identify native process")
 	}
-	record := processRecord{Role: w.Role, Digest: w.Digest, Fingerprint: w.Fingerprint, PID: cmd.Process.Pid, StartTime: start}
+	record := processRecord{Role: w.Role, Digest: w.Digest, Fingerprint: w.Fingerprint, PID: cmd.Process.Pid, StartTime: start,
+		DrainMillis: w.DrainTimeout.Milliseconds()}
 	p.records[w.Role] = record
 	p.commands[w.Role] = cmd
 	if err := p.persistLocked(); err != nil {
@@ -475,6 +480,9 @@ func (p *processRunner) Stop(ctx context.Context, role string) error {
 	p.mu.Lock()
 	record, exists := p.records[role]
 	p.mu.Unlock()
+	if exists && record.DrainMillis > 0 {
+		p.drain(ctx, record)
+	}
 	if err := terminateCgroup(ctx, filepath.Join(p.cgroups, role)); err != nil {
 		return err
 	}

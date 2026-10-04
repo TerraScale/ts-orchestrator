@@ -1,309 +1,219 @@
 # TerraBase deployment into a running cell
 
-This is the operator workflow after the regional controllers have formed.
-One resumable command deploys a two-member TerraBase partition; one command
-reports and waits for member state; one command runs the customer walkthrough.
-No signed document is written by hand.
-
-The commands are subcommands of the orchestrator binary:
+This is the operator workflow for the C# TerraBase binary after the regional
+controllers have formed. One local command creates the cell's member CA; one
+operator command verifies a published release, admits it, deploys it to
+every member, waits for readiness and rolls back a release that fails. The
+binary and host contract are in
+[TerraBase runtime contract](terrabase-runtime-contract.md).
 
 | Command | Effect |
 | --- | --- |
-| `operator terrabase-deploy --plan FILE --state DIR` | Verifies the release, pushes and admits the artifact, generates identities once, signs the recipient grant, prepares material, opens the customer envelope, renders the schema-5 placement from the signed receipt, and applies it. |
-| `operator terrabase-status --state DIR [--wait 30m]` | Prints the controller-signed durable stage of each member, its OCI host, volume and attachment, desired generation, host session, latest host report, and recent placement holds. With `--wait` it reprints only when a member moves and exits 0 once both members serve. |
-| `operator terrabase-update --state DIR --qualification F --binary F --source-digest F --compatibility-actor A --compatibility-key F [--wait 20m]` | Rolls a newer TerraBase release across the pair one seat at a time; see [Continuous delivery](#continuous-delivery). |
-| `operator terrabase-sync --state DIR --source-checkout DIR --compatibility-actor A --compatibility-key F` | Discovers and verifies a newer published release, then invokes the signed updater; opt-in operator-host timer entry point with durable resume and failure stop. |
-| `operator terrabase-walkthrough --state DIR [--forward IP:PORT=127.0.0.1:PORT]...` | Customer scenario over HTTPS: rejected missing, invalid and wrong-tenant credentials, then create, exact retry, cross-member read, update and delete of one disposable document. It uses no controller or NATS access. |
+| `ts-orch terrabase member-ca --cell CELL --out DIR` | Creates the cell's member CA: `DIR/member-ca.pem` and owner-only `DIR/member-ca.key`. Local; no NATS. |
+| `ts-orch operator terrabase-release --config FILE [--nats-forward ...] --binary F --sha256 F --source-checkout DIR --commit SHA --environment ENV --profile F [--wait 10m]` | Verifies, admits and rolls out one release to all members; see [Run](#run). |
+| `ts-orch operator hosts --config FILE [--nats-forward ...]` | Prints each host's registration, session and latest reports, including each member's digest and state. |
 
-`terrabase-deploy` and `terrabase-status` take the usual `--config
-/var/lib/terrascale-operator/operator.json` and `--nats-forward` flags.
+On the operator host the installed binary is `terrascale-orchestrator`; it
+exposes the same commands. The operator config is
+`/var/lib/terrascale-operator/operator.json`. Add
+`--nats-forward CONTROLLER_IP:4222=127.0.0.1:PORT` only when reaching a
+controller through an OCI Bastion forward.
 
 ## Prerequisites
 
-The deploy command fails closed when any of these is missing; each item names
-the step that would hold.
+1. **Orchestrator revision.** Controllers, host agents and the operator CLI
+   run a revision that contains this contract (the `terrabase-peer` host
+   operation, `host.terrabase_root`, `controller.terrabase_ca_*` and
+   `operator terrabase-release`). Signed command and artifact claims change
+   between revisions, so a CLI from another revision can be rejected by the
+   controllers; `ts-orch oci-region attempt operator` verifies the cell's
+   qualified CLI and prints its path.
+2. **ARM64 release asset.** OCI hosts are ARM64. TerraBase CI publishes only
+   `terrabase-linux-amd64` today; it must also publish
+   `terrabase-linux-arm64` and its `.sha256` before an OCI deployment.
+3. **Member CA on every controller.** Any controller may be the authority
+   leader that signs member certificates, so each needs the files named by
+   `controller.terrabase_ca_cert_file` and `controller.terrabase_ca_key_file`.
+   Without them member certificate requests are refused and members never
+   start.
+4. **Workload profile.** The signed controller config carries
+   `controller.workloads.terrabase`; see [Workload profile](#workload-profile).
+5. **TerraBase hosts.** The hosts named in `TERRABASE_PEERS` are registered
+   in the target environment with role `terrabase`, without `managed_oci`,
+   `managed_placement` or `managed_member` bindings, with a current host
+   session and capacity for the profile's `resources`. Their `host.json`
+   sets `terrabase_root` (`/srv/ts-managed/terrabase`). The controller
+   places exactly one member on each of these hosts and never moves a
+   member: while a listed host is unavailable, a release cannot be placed;
+   its delivery is retried and eventually held without writing any member. Hosts that
+   self-enroll through host setup register a `managed_oci` binding to a
+   schema-5 placement seat and cannot run C# members.
+6. **Network.** The workload NSG allows the peer port (9443) between member
+   IPs and the client port (9465) from clients and the Bastion endpoint.
+   The admin port (9464) is loopback-only and needs no rule. Hosts reach
+   controllers on 4222 (NATS).
+7. **Operator grant.** The operator's signer grant lists role `terrabase`
+   and the target environment; if it lists repositories, it includes
+   `https://git.terrascale.tech/TerraScale/terrabase`.
 
-1. **Controller and host image** built from a source that contains the
-   workload fixes listed in [Defects fixed for the first deployment](#defects-fixed-for-the-first-deployment).
-   Earlier images answer material preparation with a decode error and never
-   launch a member.
-2. **Controller material IAM.** The controller writes material objects under
-   `material/v2/<cell>/...`. The controller policy must grant
-   `OBJECT_READ` and `OBJECT_CREATE` on `target.object.name='material/v2/*'`
-   in the material bucket. The reviewed statement in
-   `ts-orch oci-region preview` still names `material/v1/*`.
-3. **Retained-volume device naming.** Placement attaches the data volume
-   paravirtualized with PV in-transit encryption, at the lowest free OCI device
-   path (`/dev/oracleoci/oraclevdb` for the first data volume), and only to an
-   instance that reports consistent volume naming. The image capability schema
-   written by `ts-orch oci-region import-image` enables both launch options.
-   Inside the guest, `/etc/udev/rules.d/65-terrascale-oci-device-paths.rules`
-   (from `deploy/udev/`) links each `ORACLE BlockVolume` disk on the
-   virtio-scsi controller to `/dev/oracleoci/oraclevd<x>` by its LUN, as OCI
-   assigns them: `a` is LUN 1 (the boot volume), `b` LUN 2, through `af`, LUN 32.
-   An image without that rule holds every member at `awaiting-healthy` with the
-   device alias missing.
-4. **Workload network.** Hosts use the workload-member NSG named in the
-   signed `oci-region.json`. Replication uses port 9443 between the two
-   member IPs, and the HTTPS client listener uses port 9465 from the Bastion
-   endpoint. Hosts reach controllers on 4222 (NATS) and 8443 (enrollment).
-5. **LiveS3 credential.** Pin the current Vault secret version. Its content is
-   Vault BASE64 of exactly
-   `{"version":1,"access_key_id":"…","secret_access_key":"…"}`. Hosts read it
-   with instance principals through the host LiveS3 secret policy, and use
-   native Object Storage for the `tb-roots/v2/` and
-   `tb-object-probes/v1/native-oci-update/` prefixes of the live bucket.
-6. **Recipient keys owned by the operator user.** The operator runs as root
-   because `operator.json` is root-only, and private keys must be owned by
-   the process user:
+## Workload profile
 
-   ```sh
-   sudo install -d -o root -g root -m 0700 /var/lib/terrascale-operator/recipient
-   sudo install -o root -g root -m 0600 KEYS/recipient-signer.private.pem KEYS/recipient.private.pem \
-     /var/lib/terrascale-operator/recipient/
-   sudo install -o root -g root -m 0644 KEYS/recipient-signer.public.pem /var/lib/terrascale-operator/recipient/
-   ```
-
-   The recipient signer must be the one pinned by the controllers' signed
-   material domain.
-
-## Plan
-
-Members are in placement seat order: the first member is the permanent seat
-and must use the controller's first configured fault domain. For the GRU
-preview:
+The profile is `controller.workloads.terrabase` in the signed controller
+config, and the same JSON is passed to `--profile`. The controller compares
+the configuration digest of `args` and `env` and rejects a rollout whose
+profile differs. For cell `gru-1` with three members:
 
 ```json
 {
-  "version": 1,
-  "placement_database_id": "preview",
-  "partition_id": "p1",
-  "role": "terrabase",
-  "environment": "canary",
-  "release": {
-    "qualification": "/RELEASE/qualification.json",
-    "binary": "/RELEASE/tb-server-linux-arm64",
-    "source_digest": "/RELEASE/source-digest-candidate-v1.json"
-  },
-  "host_profile": {
-    "compute": {"shape": "VM.Standard.A1.Flex", "whole_ocpus": 1, "memory_in_gbs": 6},
-    "process_memory_bytes": 4294967296,
-    "memory_headroom_bytes": 1073741824,
-    "cgroup_memory_max_bytes": 4294967296,
-    "system_reserve_bytes": 1073741824,
-    "allocatable_memory_bytes": 4294967296
-  },
-  "managed_runtime_root": "/srv/ts-managed",
-  "members": [
-    {"private_ip": "10.251.0.21", "fault_domain": "FAULT-DOMAIN-1"},
-    {"private_ip": "10.251.0.22", "fault_domain": "FAULT-DOMAIN-2"}
-  ],
-  "replication_port": 9443,
-  "client_port": 9465,
-  "live_s3": {
-    "bucket": "ts-preview-gru-20260926-terrabase-live",
-    "region": "sa-saopaulo-1",
-    "endpoint": "https://grxnmoqvrcdv.compat.objectstorage.sa-saopaulo-1.oci.customer-oci.com",
-    "credential": {"secret_ocid": "LIVE_S3_SECRET_OCID", "version_number": 2},
-    "native_oci_root": {"namespace": "grxnmoqvrcdv"}
-  },
-  "collections": 1,
-  "recipient": {
-    "signer_key": "/var/lib/terrascale-operator/recipient/recipient-signer.private.pem",
-    "signer_public_key": "/var/lib/terrascale-operator/recipient/recipient-signer.public.pem",
-    "recipient_key": "/var/lib/terrascale-operator/recipient/recipient.private.pem",
-    "grant_validity_hours": 168
+  "resources": {"cpu": 1, "memory_bytes": 4294967296, "disk_bytes": 21474836480},
+  "env": {
+    "TERRABASE_PEER_PORT": "9443",
+    "TERRABASE_CLIENT_PORT": "9465",
+    "TERRABASE_PEERS": "gru-1-db-1=10.251.0.21:9443,gru-1-db-2=10.251.0.22:9443,gru-1-db-3=10.251.0.23:9443"
   }
 }
 ```
 
-The release files are one TerraBase CI release: its `qualification.json`
-(schema `terrascale.terrabase.qualification.v2`, successful Fast run), the
-ARM64 `tb-server` whose size and SHA-256 match it, and the accepted
-prepared-source digest record for the same revision, qualification and
-server bytes. The source digest is the artifact's source claim; the Git tree
-SHA-1 is not.
+The `resources` values are an example; size them to the registered host
+capacity. The controller config also names the member CA:
 
-This orchestrator pairs with TerraBase releases that contain `dfa00c40`
-(named JSON documents; TerraBase `main` from `b05b0828` onward). Their client
-API addresses document fields by name: the walkthrough writes
-`{"kind":"live","document":{"title":"…"}}` without a catalog generation,
-digest or field ID. Earlier TerraBase releases, such as `743c569` in the R22
-preview with orchestrator `7aae8102`, accept only the removed typed write and
-reject it. The generation-one deployment catalog is unchanged, so material
-and updates do not depend on the pairing, but a state directory written by
-an earlier orchestrator holds a version-1 `customer/client.json` that this
-walkthrough cannot read. Keep each candidate pair together.
-`make terrabase-walkthrough-process TERRABASE_SERVER=<tb-server>` runs this
-walkthrough against two local members serving freshly generated deployment
-material, with a `tb-server` built from the paired TerraBase revision.
+```json
+"terrabase_ca_cert_file": "/etc/terrascale-orchestrator/terrabase/member-ca.pem",
+"terrabase_ca_key_file": "/etc/terrascale-orchestrator/terrabase/member-ca.key"
+```
 
-The memory profile is the tightest that TerraBase and the host accept on a
-1 OCPU / 6 GB A1 guest: process and cgroup limits of 4 GiB, 1 GiB headroom,
-and the image's 1 GiB system reserve. TerraBase replication admission also
-requires `memory.current + request + 512 MiB <= memory.max`; page cache
-counts toward `memory.current`, so a sustained write burst can defer
-replication admission.
+These paths are an example. `TERRABASE_PEERS` is a proposed setting that the
+current binary ignores; see the
+[runtime contract](terrabase-runtime-contract.md#workload-profile).
+
+## Release files
+
+```sh
+TAG=ci-<commit>-run-<run id>   # or v<Version>
+COMMIT=<full 40-character commit of the release>
+WORK=$(mktemp -d) && cd "$WORK"
+fj -H git.terrascale.tech release asset download -r TerraScale/terrabase "$TAG" terrabase-linux-arm64
+fj -H git.terrascale.tech release asset download -r TerraScale/terrabase "$TAG" terrabase-linux-arm64.sha256
+sha256sum -c terrabase-linux-arm64.sha256
+fj repo clone -H https://git.terrascale.tech TerraScale/terrabase "$WORK/terrabase"
+```
+
+Keep the asset file names: the command checks them. `--commit` must be a
+full lowercase commit SHA present in the checkout; for a `v<Version>` tag
+use `git -C "$WORK/terrabase" rev-parse "v<Version>^{commit}"`.
 
 ## Run
 
-Use the cell's own qualified operator CLI: `ts-orch oci-region attempt operator` verifies it
-and prints its path. Signed command and artifact claims change between
-revisions, so a CLI from another revision is rejected by the controllers.
-
 ```sh
-F=(--nats-forward 10.251.0.11:4222=127.0.0.1:14222)
-sudo terrascale-orchestrator operator terrabase-deploy --config /var/lib/terrascale-operator/operator.json \
-  "${F[@]}" --plan PLAN.json --state /var/lib/terrascale-operator/terrabase-preview-p1
-sudo terrascale-orchestrator operator terrabase-status --config /var/lib/terrascale-operator/operator.json \
-  "${F[@]}" --state /var/lib/terrascale-operator/terrabase-preview-p1 --wait 45m
-sudo terrascale-orchestrator operator terrabase-walkthrough --state /var/lib/terrascale-operator/terrabase-preview-p1 \
-  --forward 10.251.0.21:9465=127.0.0.1:19465 --forward 10.251.0.22:9465=127.0.0.1:19466
+F=(--nats-forward 10.251.0.11:4222=127.0.0.1:14222)   # Bastion only
+sudo terrascale-orchestrator operator terrabase-release \
+  --config /var/lib/terrascale-operator/operator.json "${F[@]}" \
+  --binary "$WORK/terrabase-linux-arm64" --sha256 "$WORK/terrabase-linux-arm64.sha256" \
+  --source-checkout "$WORK/terrabase" --commit "$COMMIT" \
+  --environment canary --profile /var/lib/terrascale-operator/terrabase-gru-1-profile.json \
+  --wait 10m
 ```
 
-`terrabase-deploy` prints one JSON line per step (`identity`, `artifact`,
-`spec`, `material`, `customer`, `placement`, `deploy`) with `generated`,
-`signed`, `prepared`, `opened`, `admitted` or `reused`. Rerun the same
-command after any failure: completed steps are reused, and the artifact and
-placement admissions are idempotent. A different plan with the same state
-directory is rejected; deploy a changed plan with a new state directory and
-partition ID.
+The member count is the number of `TERRABASE_PEERS` entries. The command:
 
-The recipient grant is valid for `grant_validity_hours` (at most 30 days).
-Material preparation checks it, so rerun within that window if preparation
-has not completed. After preparation the retained reply is used and the
-grant is not checked again.
+1. Verifies the asset name (`terrabase-linux-amd64` or `-arm64`), ELF magic,
+   size (at most 512 MiB) and SHA-256 against the `.sha256` asset. That
+   digest is pinned for the rest of the run.
+2. Builds the source claim: the TerraBase repository, `--commit`, and the
+   SHA-256 of `git archive --format=tar <commit>` in the checkout.
+3. Reads the members' reports in `--environment`: the digest the `running`
+   members serve (it refuses when they disagree) is the rollback target, and
+   the command resolves its admitted artifact before changing anything. The
+   next generation is above every committed `terrabase` desired, withdrawals
+   included.
+4. Pushes the binary and obtains the signed artifact admission; prints
+   `{"step":"artifact", ...}` with the digest and the previous digest.
+5. Submits the signed delivery intent for one member per peer; prints
+   `{"step":"deploy", ...}` with the digest and generation once accepted.
+6. Waits for the readiness gate: every replica in `--environment` reports
+   the new digest `running` within `--wait`. A `failed` member, including one whose
+   process exited, fails the gate at once; read errors are retried until
+   `--wait`. Prints `{"step":"ready", ...}` with the member count.
+7. On a gate failure, rolls back: a new intent with generation + 1 and the
+   previous digest, which must pass the same gate. It does so whenever the
+   release may have written members or may still write them. A submit that
+   failed before the intent was signed and published changed nothing and is
+   not rolled back. After any later submit error, an interrupt, or a
+   delivery still undecided at `--wait`, the intent may have been
+   published: the command reads the durable operation back (once more on a
+   fresh context after an interrupt), gates it like any release when it was
+   accepted, and rolls back unless a receipt proves that no member changed:
+   `rejected`, or held because placement never planned it (for example a
+   listed host is unavailable). The rollback's higher generation also keeps
+   a late original from landing. The rollback runs on a fresh context with
+   its own deadline, so it completes after Ctrl-C or SIGTERM. The command exits non-zero either way and says whether the
+   rollback succeeded. A first deployment has no previous digest and is not
+   rolled back. A failure to write progress to stdout never counts as a
+   gate failure; the command reports it when it exits.
 
-### State directory
+All members switch together: the delivery path writes every host's desired
+at once, so every member restarts on the new binary. Per-member canary or
+rolling updates are future work once replication exists. Old binaries stay
+installed on the hosts, so a rollback reuses the cached file. A member's data
+lives on its host, so the controller replaces a failed member in place
+instead of moving it to another host, which is what lets the rollback land on
+the hosts the failed release took over. When members
+report different digests, for example after a failed rollback, the command
+refuses until they agree.
 
-The directory and every file are owner-only and written once.
+Until replication exists (TerraBase TS-464), each member is an independent
+database: a write to one member is not on the others.
 
-| File | Content |
-| --- | --- |
-| `identity.json` | Cluster, tenant, database, member, incarnation, filesystem and collection identities plus the plan pins they were generated for. |
-| `artifact.json` | The admitted artifact record. |
-| `spec.json` | The signed generation-one material spec. |
-| `material-reply.json` | The controller-signed preparation receipt and customer envelope. |
-| `customer/credentials.json` | The customer API key and HTTPS CA. Secret. |
-| `customer/https-ca.pem` | The HTTPS CA. |
-| `customer/client.json` | Version 2: tenant, database, shard, member URLs, and for each collection its UTF-8 field names and the catalog generation and digest that its live documents report. |
-| `placement-intent.json` | The applied schema-5 placement intent. |
-| `placement-receipt.json` | The first admission receipt. |
+## gru-1 live deployment runbook
 
-## Member stages
+**Prepared, not executed. Requires human confirmation before any step that
+changes the cell.** Blast radius: every TerraBase member of cell `gru-1`
+starts, or restarts, on the new binary at once. GRU is being wiped; there is
+no terrabase-rust data to migrate.
 
-`terrabase-status` reports the durable placement stage of each seat:
-`prepared-host` → `awaiting-host` (instance launched, waiting for host
-enrollment) → `prepared-volume` → `prepared-attach` → `awaiting-attach` →
-`awaiting-runtime-contract` → `prepared-desired` → `awaiting-healthy`
-(desired written; host fetching material, formatting and mounting the
-volume, starting TerraBase) → `serving` (a fresh host report carries
-TerraBase's serving proof for the exact member, authority and peer). `host`
-shows the host's session and latest report for the member; `holds` shows the
-controller's recent reasons for not advancing, including reconciliation
-errors. The report is signed by the controller response key pinned in the
-operator config.
+1. Wait for a TerraBase release that publishes `terrabase-linux-arm64`, then
+   download and verify it as in [Release files](#release-files).
+2. On the operator host, create the member CA:
+   `sudo terrascale-orchestrator terrabase member-ca --cell gru-1 --out /var/lib/terrascale-operator/terrabase-ca-gru-1`.
+3. Install `member-ca.pem` and `member-ca.key` (root-owned, key 0600) on all
+   three controllers at the paths the controller config names. **Open:** no
+   current command distributes these files; the signed config installer
+   installs only `controller.json`, the manifest and its three sidecars.
+4. Add `terrabase_ca_cert_file`, `terrabase_ca_key_file` and
+   `workloads.terrabase` to the controller config and install it through
+   the signed controller config path
+   ([production role configuration](production-role-config.md)). **Open:**
+   `ts-orch bootstrap render-controller-config` does not render these fields
+   today.
+5. Make sure `gru-1-db-1`, `gru-1-db-2` and `gru-1-db-3` are registered as in
+   [Prerequisites](#prerequisites) item 5 and the NSG as in item 6. Check
+   with `sudo terrascale-orchestrator operator hosts --config /var/lib/terrascale-operator/operator.json`.
+   **Open:** there is no documented procedure yet for provisioning and
+   registering non-managed TerraBase hosts on OCI.
+6. Check the rebuilt hosts read-only and take `TERRABASE_PEERS` from the
+   log line it prints:
+   `TS_OCI_LIVE_COMPARTMENT_ID=<gru-1 compartment> go test -count=1 -v -run '^TestLiveOCITerraBaseHostsReadOnly$' ./internal/terrabase`.
+   It fails when a host is not A1, two hosts share a fault domain, or an
+   NSG keeps a member from another member's peer port.
+7. Write the profile file with the same `resources` and `env` as the signed
+   config and run `operator terrabase-release` as in [Run](#run).
+8. Confirm three `ready` members, and that `operator hosts` shows a
+   `terrabase` report `running` with the new digest on each host.
 
-## Continuous delivery
+## Qualification
 
-A published TerraBase release reaches both members through signed managed
-updates, one seat at a time:
+Unit and real-binary tests are listed in the
+[runtime contract](terrabase-runtime-contract.md#qualification).
+`make terrabase-release-process TERRABASE_BINARY=<path>` runs the real-binary
+deploy, upgrade and rollback test against an in-process controller and host
+agent. Nothing in this workflow has run on OCI.
 
-1. `terrabase-update` verifies the release files exactly as deploy does and
-   pushes and admits the artifact.
-2. For the first seat in placement order that does not run the release, it
-   signs a Prepare that pins both seats as the controller reports them, with
-   a compatibility statement signed by a separate compatibility signer.
-3. The controller writes the candidate desired for that seat only. The seat
-   must return a fresh serving proof for the candidate within 15 minutes;
-   otherwise, or when the host reports the candidate failed, the controller
-   holds it. The peer keeps serving the prior artifact either way.
-4. After the canary serves, the command updates the peer the same way, then
-   reports `rollout complete`.
-5. A held seat is rolled back to the artifact its candidate replaced, and the
-   command fails with the held outcome. No held candidate is ever promoted
-   to the peer.
+## Retired terrabase-rust managed path
 
-The controller keeps every step durable: a later release replaces a served
-target and records the artifact and source it replaced, a successor
-operation is admitted only after the previous operation's outcome, and a
-completed seat stays current for material delivery and volume checks after
-later operations. Rerunning the command resumes from that state; a
-completed rollout does nothing. A binary rollback is only safe while the
-persistent format stays readable by the older release; the compatibility
-statement is the assertion that it does.
-
-### Running it on every release
-
-`operator terrabase-sync` implements the timer entry point described below.
-See [Continuous delivery](continuous-delivery.md) for its invocation,
-provenance/ancestry gates, durable pin and stop marker, rollout policy and
-human signing decisions. It is not enabled on any live cell by this change.
-
-The command runs where the operator config and a Bastion forward already
-exist. The simplest trigger is a timer on that operator host that, for each
-new successful TerraBase `main` release, downloads `qualification.json`,
-`tb-server-linux-arm64` and the release's prepared-source digest record with
-`fj release asset download`, opens a Bastion forward to one controller, and
-runs `terrabase-update`. A Forgejo job cannot do this without holding the
-operator's NATS credentials, two signing keys and OCI Bastion credentials in
-repository secrets, and the controllers have no route to Forgejo.
-
-This needs three decisions:
-
-- **Update and compatibility signers.** The current GRU operator grant has
-  neither `can_update_terrabase_runtime` nor a compatibility signer, so
-  managed updates are refused. A new signed controller config must add an
-  automation actor with `can_update_terrabase_runtime` and
-  `can_place_terrabase`, and a separate actor with
-  `can_certify_terrabase_compatibility`. Both grants must list the
-  `terrabase` role and the `canary` and `production` environments, and the
-  update actor the TerraBase repository. Their private keys live on the
-  operator host, owner-only.
-- **What the compatibility signature asserts.** Today it would assert that
-  every release on `main` keeps mixed-version replication, client data and
-  persistent formats compatible with the release it replaces. Either accept
-  that as TerraBase policy, or have TerraBase CI publish a compatibility
-  result per release that the timer checks before signing.
-- **Source digest in the release.** TerraBase CI publishes no
-  prepared-source digest record. Its release job should publish
-  `source-digest.json` (schema `terrascale.terrabase.source-digest-candidate.v1`)
-  next to `qualification.json`, so the timer needs no TerraBase checkout.
-
-## Offline qualification
-
-`internal/app/operator_terrabase_deploy_integration_test.go` runs the real
-`operator terrabase-deploy` and `terrabase-status` against an in-process
-cell: embedded NATS, the authority log, artifact admission, material
-preparation with the controller's signed receipt, placement admission with
-material verification, the placement controller, host registration and
-sessions, and an in-memory OCI region. It checks both hosts' launch requests,
-volume creation and attachment, the desired launch pins, that the controller
-delivers exactly the pinned material bytes to each host, that volume
-initialization accepts the seat, resume and changed-plan behavior, and that an
-instance without consistent volume naming is held before attachment with the
-reason in status. It does not run the host's mount, native runner or
-`tb-server`; the Firecracker harness and the live hosts cover those.
-
-`internal/placement/managed_update_rolling_test.go` drives the controller's
-managed updates against the real authority log: release 2 on the canary
-seat, then the peer, release 3 chained on the canary, held at its proof
-deadline with the peer serving, promotion refused, and the seat rolled back.
-`internal/app/operator_terrabase_update_test.go` runs `terrabase-update`
-against the real cell's artifact admission and admission checks, including
-resume and rollback of a failing release.
-
-## Defects fixed for the first deployment
-
-These were found by the offline chain and source review. Each needs the
-controller and host image rebuilt from a source that contains it.
-
-| Defect | Effect before the fix |
-| --- | --- |
-| Controller NATS credentials grant no `material.*` subscription | Material preparation, credential rotation and status had no responder. Managed requests now share the granted admission subject. |
-| Desired and runtime-target verifiers read member state by TerraBase member UUID instead of placement seat | Every initial managed desired write failed; volume initialization could not verify its seat. |
-| Hosts never created the per-attempt member, material and control directories | Material delivery failed on a fresh host; only test harnesses pre-created them. |
-| The mount check required one mountinfo entry | Inside the host unit's mount namespace the volume appears once per slave copy of `/srv/ts-managed`; every live mount was rejected. |
-| No operator view of placement stages | Launch, volume and attachment progress was only in controller logs. |
-| Managed update stopped after one canary seat | A release never reached the peer, a second release could not start, and a held candidate had no recovery. |
-| The image had no OCI device-path rule, and the fleet picked `oraclevdaa` | The host never found `/dev/oracleoci/oraclevd*`, so no volume could be formatted or mounted. |
+The previous workflow deployed the Rust `tb-server` as a two-member managed
+partition with `operator terrabase-deploy`, `terrabase-status`,
+`terrabase-update`, `terrabase-sync` and `terrabase-walkthrough`, using
+schema-5 placement, controller-prepared member material and retained OCI
+volumes. Those commands and their code remain, but they target the retired
+binary and must not be used for the C# binary. Git history keeps the full
+previous text of this document.

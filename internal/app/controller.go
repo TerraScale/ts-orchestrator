@@ -26,6 +26,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -115,6 +116,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	responseKey, err := readPrivateKey(cfg.Controller.ResponseKeyFile)
 	if err != nil {
 		return fmt.Errorf("controller response key: %w", err)
+	}
+	var terraBaseCA *terrabase.CA
+	if cfg.Controller.TerraBaseCACertFile != "" || cfg.Controller.TerraBaseCAKeyFile != "" {
+		if terraBaseCA, err = terrabase.LoadCA(cfg.Controller.TerraBaseCACertFile, cfg.Controller.TerraBaseCAKeyFile); err != nil {
+			return err
+		}
 	}
 	ticketPrivate, ticketPublic, err := brokerTicketKeys(cfg)
 	if err != nil {
@@ -414,6 +421,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				ManagedMaterialProvider:     materialProvider,
 				ManagedCredentialFloor:      credentialFloor,
 				ManagedVolumeInspector:      volumeInspector,
+				TerraBaseCA:                 terraBaseCA,
 			})
 		}, nil)
 	if err != nil {

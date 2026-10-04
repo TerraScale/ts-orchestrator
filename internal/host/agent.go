@@ -44,6 +44,7 @@ type Agent struct {
 	sessionSafeUntil time.Time
 	processID        string
 	pending          map[string]pendingCycle
+	terraBase        map[string]terraBaseMember
 	sessionLost      atomic.Bool
 	sessionFailOnce  sync.Once
 	diagMu           sync.Mutex
@@ -109,6 +110,11 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 			return nil, errors.New("managed runtime root must be clean, absolute and separate from host roots")
 		}
 	}
+	if cfg.TerraBaseRoot != "" {
+		if err := validateTerraBaseRoot(cfg.TerraBaseRoot, cfg.InstallRoot, cfg.StateRoot, cfg.WorkloadIdentity); err != nil {
+			return nil, err
+		}
+	}
 	if cfg.PollInterval == 0 {
 		cfg.PollInterval = 5 * time.Second
 	}
@@ -127,7 +133,7 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 		return nil, err
 	}
 	return &Agent{cfg: cfg, runner: runner, processID: id, pending: make(map[string]pendingCycle),
-		nativeRoots: make(map[string]*managedNativeRoot)}, nil
+		terraBase: make(map[string]terraBaseMember), nativeRoots: make(map[string]*managedNativeRoot)}, nil
 }
 
 // ValidateWorkloadPaths rejects roots that could expose supervisor state or
@@ -785,6 +791,9 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	if err != nil {
 		return err
 	}
+	if a.terraBaseMember(d) && a.terraBaseExited(current, d, fingerprint) {
+		return errors.New("terrabase member exited; it is relaunched on the next poll")
+	}
 	if current.Running && current.Digest == d.Digest && current.Fingerprint == fingerprint {
 		if hasPending {
 			pending.query.Succeeded = true
@@ -793,6 +802,9 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 			if err := a.flushCycle(ctx, role); err != nil {
 				return err
 			}
+		}
+		if a.terraBaseMember(d) {
+			return a.publishReport(ctx, a.terraBaseRunningReport(ctx, d))
 		}
 		return a.publishReport(ctx, a.reportFor(d, "running", nil))
 	}
@@ -836,6 +848,14 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	if err != nil {
 		return err
 	}
+	workload := Workload{Role: role, Digest: d.Digest, Fingerprint: fingerprint, Executable: executable, Args: d.Args, Env: d.Env}
+	started, certificateExpiry := "running", time.Time{}
+	if a.terraBaseMember(d) {
+		if workload.Env, certificateExpiry, err = a.prepareTerraBase(ctx, d); err != nil {
+			return err
+		}
+		workload.DrainTimeout, started = terraBaseDrain, "starting"
+	}
 	var latest desiredReply
 	if err := a.request(ctx, "desired", struct {
 		Role string `json:"role"`
@@ -858,8 +878,11 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	if _, _, err := a.executionLease(); err != nil {
 		return err
 	}
-	if err := a.runner.Apply(ctx, Workload{Role: role, Digest: d.Digest, Fingerprint: fingerprint, Executable: executable, Args: d.Args, Env: d.Env}); err != nil {
+	if err := a.runner.Apply(ctx, workload); err != nil {
 		return err
+	}
+	if !certificateExpiry.IsZero() {
+		a.terraBase[role] = terraBaseMember{certificateExpiry: certificateExpiry}
 	}
 	observed, err := a.runner.Observe(ctx, role)
 	if err != nil {
@@ -876,7 +899,7 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	if err := a.flushCycle(ctx, role); err != nil {
 		return err
 	}
-	if err := a.publishReport(ctx, a.reportFor(d, "running", nil)); err != nil {
+	if err := a.publishReport(ctx, a.reportFor(d, started, nil)); err != nil {
 		return err
 	}
 	return nil

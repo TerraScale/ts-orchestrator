@@ -53,13 +53,14 @@ func TestHostEnrollmentRenewalKeepsHostLocalOptions(t *testing.T) {
 		return cfg
 	}
 	first := install("-1")
-	if first.Host.ManagedVolumeOnlineGrow || first.Host.SelfUpdateProofFile != "" {
+	if first.Host.ManagedVolumeOnlineGrow || first.Host.SelfUpdateProofFile != "" || first.Host.TerraBaseRoot != "" {
 		t.Fatalf("first enrollment invented host-local options: %+v", first.Host)
 	}
 	// The operator enables the host-local options.
 	first.Host.ManagedVolumeOnlineGrow = true
 	first.Host.SelfUpdateProofFile = "/run/terrascale-orchestrator/host-proof.json"
 	first.Host.SelfUpdateRoot = "/var/lib/terrascale-orchestrator/releases"
+	first.Host.TerraBaseRoot = "/srv/ts-managed/terrabase"
 	wire, err := protocol.EncodeJSON(first)
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +70,7 @@ func TestHostEnrollmentRenewalKeepsHostLocalOptions(t *testing.T) {
 	}
 	renewed := install("-2")
 	if !renewed.Host.ManagedVolumeOnlineGrow || renewed.Host.SelfUpdateProofFile != first.Host.SelfUpdateProofFile ||
-		renewed.Host.SelfUpdateRoot != first.Host.SelfUpdateRoot {
+		renewed.Host.SelfUpdateRoot != first.Host.SelfUpdateRoot || renewed.Host.TerraBaseRoot != first.Host.TerraBaseRoot {
 		t.Fatalf("renewal dropped host-local options: %+v", renewed.Host)
 	}
 	if renewed.NATS.TLS.CertFile == first.NATS.TLS.CertFile {

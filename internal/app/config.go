@@ -45,6 +45,11 @@ type ControllerConfig struct {
 	PlacementConfig             string                     `json:"placement_config,omitempty"`
 	TrustedSigners              []TrustedSignerConfig      `json:"trusted_signers,omitempty"`
 	Workloads                   map[string]WorkloadProfile `json:"workloads,omitempty"`
+	// TerraBaseCACertFile and TerraBaseCAKeyFile are the cell's C# TerraBase
+	// member CA (ts-orch terrabase member-ca). Hosts' member certificate
+	// requests are refused while they are unset.
+	TerraBaseCACertFile string `json:"terrabase_ca_cert_file,omitempty"`
+	TerraBaseCAKeyFile  string `json:"terrabase_ca_key_file,omitempty"`
 	// OfflineRestartAdmission lets a restarted production controller form
 	// broker routes after local, OCI-free admission (root-owned marker, IMDS
 	// instance ID, signed manifest and config digest, installed materials).
@@ -137,6 +142,7 @@ type HostConfig struct {
 	InstallRoot         string   `json:"install_root"`
 	StateRoot           string   `json:"state_root"`
 	ManagedRuntimeRoot  string   `json:"managed_runtime_root,omitempty"`
+	TerraBaseRoot       string   `json:"terrabase_root,omitempty"` // C# TerraBase member data and TLS files.
 	WorkloadUID         uint32   `json:"workload_uid"`
 	WorkloadGID         uint32   `json:"workload_gid"`
 	PollMillis          int      `json:"poll_millis,omitzero"`

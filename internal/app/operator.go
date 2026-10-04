@@ -58,7 +58,7 @@ func (forwards *operatorForwardFlags) Set(value string) error {
 
 func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: operator <terrabase-deploy|terrabase-update|terrabase-sync|terrabase-status|terrabase-walkthrough|hosts|host-register|host-enrollment-revoke|material-credentials|material-credentials-status|placement-apply|managed-update-prepare|placement-list|terminal-plan|terminal-apply|terminal-status|backup-start|backup-abort|backup-status|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
+		return errors.New("usage: operator <terrabase-release|terrabase-deploy|terrabase-update|terrabase-sync|terrabase-status|terrabase-walkthrough|hosts|host-register|host-enrollment-revoke|material-credentials|material-credentials-status|placement-apply|managed-update-prepare|placement-list|terminal-plan|terminal-apply|terminal-status|backup-start|backup-abort|backup-status|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
 	}
 	operation := args[0]
 	if operation == "terrabase-walkthrough" {
@@ -83,7 +83,10 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	statePath := flags.String("state", "", "owner-only TerraBase deployment state directory")
 	wait := flags.Duration("wait", 0, "status: wait until every member serves; update: bound each seat's outcome wait")
 	qualification := flags.String("qualification", "", "TerraBase release qualification.json")
-	releaseBinary := flags.String("binary", "", "TerraBase release tb-server-linux-arm64")
+	releaseBinary := flags.String("binary", "", "TerraBase release executable")
+	releaseChecksum := flags.String("sha256", "", "terrabase-release: the executable's .sha256 release asset")
+	sourceCheckout := flags.String("source-checkout", "", "terrabase-release: TerraBase checkout containing --commit")
+	profilePath := flags.String("profile", "", "terrabase-release: the signed controller workloads.terrabase profile JSON")
 	sourceDigest := flags.String("source-digest", "", "TerraBase release prepared-source digest record")
 	compatibilityActor := flags.String("compatibility-actor", "", "trusted compatibility signer actor")
 	compatibilityKey := flags.String("compatibility-key", "", "owner-only compatibility signer key file")
@@ -146,6 +149,14 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 			terrabaseReleaseFiles{Qualification: *qualification, Binary: *releaseBinary, SourceDigest: *sourceDigest},
 			terrabaseCompatibilitySigner{Actor: *compatibilityActor, KeyFile: *compatibilityKey},
 			terrabaseUpdateOptions{SeatWait: *wait, Soak: *soak, AssumeCompatible: *assumeCompatible}, output)
+	case "terrabase-release":
+		if *releaseBinary == "" || *releaseChecksum == "" || *sourceCheckout == "" || *commit == "" ||
+			*environment == "" || *profilePath == "" || *wait < 0 {
+			return errors.New("terrabase-release requires --binary, --sha256, --source-checkout, --commit, --environment, --profile and a nonnegative --wait")
+		}
+		return operatorTerraBaseRelease(ctx, cfg, runtime, terraBaseReleaseOptions{Binary: *releaseBinary,
+			Checksum: *releaseChecksum, SourceCheckout: *sourceCheckout, Commit: *commit, Environment: *environment,
+			Profile: *profilePath, Wait: *wait}, output)
 	case "terrabase-status":
 		if *statePath == "" || *wait < 0 {
 			return errors.New("terrabase-status requires --state DIR and a nonnegative --wait")
@@ -470,6 +481,22 @@ func operatorSubmit(ctx context.Context, cfg Config, runtime *natscell.Runtime, 
 	if err := json.Unmarshal(data, &intent, json.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("parse delivery intent: %w", err)
 	}
+	intent, fingerprint, err := submitIntent(ctx, cfg, runtime, intent)
+	if err != nil {
+		return err
+	}
+	return printJSON(output, struct {
+		OperationID string `json:"operationId"`
+		Fingerprint string `json:"fingerprint"`
+		Status      string `json:"status"`
+	}{intent.OperationID, fingerprint, "submitted"})
+}
+
+// submitIntent fills an intent's defaults, signs and submits it, and returns
+// the submitted intent with its fingerprint. The fingerprint is set once
+// Submit was called, even when it failed: only then may the intent have been
+// published.
+func submitIntent(ctx context.Context, cfg Config, runtime *natscell.Runtime, intent delivery.Intent) (delivery.Intent, string, error) {
 	if intent.SchemaVersion == 0 {
 		intent.SchemaVersion = delivery.SchemaVersion
 	}
@@ -477,7 +504,7 @@ func operatorSubmit(ctx context.Context, cfg Config, runtime *natscell.Runtime, 
 		intent.Cell = cfg.NATS.Cell
 	}
 	if intent.Cell != cfg.NATS.Cell {
-		return errors.New("delivery intent belongs to another cell")
+		return intent, "", errors.New("delivery intent belongs to another cell")
 	}
 	if intent.OperationID == "" {
 		intent.OperationID = uuid.New().String()
@@ -491,28 +518,24 @@ func operatorSubmit(ctx context.Context, cfg Config, runtime *natscell.Runtime, 
 			return authority.Observe(attemptCtx, runtime.JetStream(), cfg.NATS.Cell)
 		})
 		if err != nil {
-			return err
+			return intent, "", err
 		}
 		intent.AuthorityEpoch = epoch
 	}
 	fingerprint, err := intent.Fingerprint()
 	if err != nil {
-		return err
+		return intent, "", err
 	}
 	service, err := retryOperatorMetadata(setupCtx, func(attemptCtx context.Context) (*delivery.Service, error) {
 		return operatorService(attemptCtx, cfg, runtime, true)
 	})
 	if err != nil {
-		return fmt.Errorf("bind delivery client: %w", err)
+		return intent, "", fmt.Errorf("bind delivery client: %w", err)
 	}
 	if err := service.Submit(ctx, intent); err != nil {
-		return fmt.Errorf("submit operation %s fingerprint %s: %w", intent.OperationID, fingerprint, err)
+		return intent, fingerprint, fmt.Errorf("submit operation %s fingerprint %s: %w", intent.OperationID, fingerprint, err)
 	}
-	return printJSON(output, struct {
-		OperationID string `json:"operationId"`
-		Fingerprint string `json:"fingerprint"`
-		Status      string `json:"status"`
-	}{intent.OperationID, fingerprint, "submitted"})
+	return intent, fingerprint, nil
 }
 
 func operatorStatus(ctx context.Context, cfg Config, runtime *natscell.Runtime, operationID, fingerprint string, output io.Writer) error {
@@ -538,11 +561,7 @@ func operatorStatus(ctx context.Context, cfg Config, runtime *natscell.Runtime, 
 }
 
 func operatorHosts(ctx context.Context, cfg Config, runtime *natscell.Runtime, output io.Writer) error {
-	reader, err := authority.OpenReader(ctx, runtime.JetStream(), cfg.NATS.Cell)
-	if err != nil {
-		return err
-	}
-	hostReader, err := host.NewReader(ctx, host.ReaderConfig{Cell: cfg.NATS.Cell, Conn: runtime.Conn(), JS: runtime.JetStream(), StateReplicas: cfg.NATS.Replicas, HostMutations: reader})
+	hostReader, err := operatorHostReader(ctx, cfg, runtime)
 	if err != nil {
 		return err
 	}
@@ -551,6 +570,15 @@ func operatorHosts(ctx context.Context, cfg Config, runtime *natscell.Runtime, o
 		return err
 	}
 	return printJSON(output, statuses)
+}
+
+func operatorHostReader(ctx context.Context, cfg Config, runtime *natscell.Runtime) (*host.Reader, error) {
+	reader, err := authority.OpenReader(ctx, runtime.JetStream(), cfg.NATS.Cell)
+	if err != nil {
+		return nil, err
+	}
+	return host.NewReader(ctx, host.ReaderConfig{Cell: cfg.NATS.Cell, Conn: runtime.Conn(), JS: runtime.JetStream(),
+		StateReplicas: cfg.NATS.Replicas, HostMutations: reader})
 }
 
 func printJSON(output io.Writer, value any) error {

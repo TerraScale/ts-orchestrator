@@ -18,6 +18,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
@@ -228,6 +229,7 @@ type AgentConfig struct {
 	InstallRoot             string
 	StateRoot               string
 	ManagedRuntimeRoot      string
+	TerraBaseRoot           string // Set: launch a non-managed "terrabase" desired as a C# TerraBase member.
 	ManagedS3Credentials    ManagedS3CredentialResolver
 	ManagedBackupDataKeys   ManagedBackupDataKeyResolver
 	BakedSystemReserveBytes uint64
@@ -267,6 +269,8 @@ type ControllerConfig struct {
 	ManagedCredentialFloor      func(context.Context, Registration) (uint64, error)
 	ManagedVolumeInspector      ManagedVolumeInspector
 	ControlLog                  jetstream.Stream
+	// TerraBaseCA signs C# TerraBase member certificates; nil refuses them.
+	TerraBaseCA *terrabase.CA
 }
 
 // ManagedVolumeInspector independently reobserves the exact owned OCI host,

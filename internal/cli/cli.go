@@ -29,6 +29,7 @@ import (
 	releasecli "git.terrascale.tech/TerraScale/ts-orchestrator/internal/release/cli"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/runtimepriority"
 	selfupdatecli "git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate/cli"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
 const usage = `Usage: ts-orch <command> [flags]
@@ -54,6 +55,7 @@ Operator tooling:
   netbird                Install the NetBird client; manage the NetBird manager (sync, peers, setup key)
   qualification          Run source-backed operational qualification
   source-digest          Compute the versioned TerraBase source-tree digest
+  terrabase              Create a cell's C# TerraBase member CA
   runtime-priority       Qualify runtime resources and run bounded pressure
   cluster                Break-glass controller quorum-loss recovery
 
@@ -97,6 +99,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 			code = netbirdclient.Run(ctx, root, args[1:], commandio.NewWriter(output), &diagnostics)
 		}
 		return commandStatus(ctx, code, &diagnostics)
+	case "terrabase":
+		return terrabase.Run(ctx, args[1:], commandio.NewWriter(output))
 	case "source-digest":
 		var diagnostics bytes.Buffer
 		return commandStatus(ctx, sourcedigest.Run(ctx, args[1:], commandio.NewWriter(output), &diagnostics), &diagnostics)

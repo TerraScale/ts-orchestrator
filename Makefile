@@ -15,7 +15,7 @@ BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
 TS_TEST_TIER ?= full
 export TS_TEST_TIER
 
-.PHONY: verify ci-verify format-check generate generate-check test test-fast dashboard-preview vet fixturetest-check race-test terrabase-walkthrough-process netbird-backup-check netbird-podman-test shellcheck build build-linux release-linux release-check image run host check clean
+.PHONY: verify ci-verify format-check generate generate-check test test-fast dashboard-preview vet fixturetest-check race-test terrabase-walkthrough-process terrabase-release-process netbird-backup-check netbird-podman-test shellcheck build build-linux release-linux release-check image run host check clean
 
 verify: format-check generate-check vet race-test netbird-backup-check
 
@@ -79,6 +79,14 @@ terrabase-walkthrough-process:
 	@test -n "$(TERRABASE_SERVER)" || { echo 'usage: make terrabase-walkthrough-process TERRABASE_SERVER=<tb-server>' >&2; exit 2; }
 	systemd-run --user --scope --quiet -p MemoryMax=10G env TS_TERRABASE_SERVER="$(abspath $(TERRABASE_SERVER))" \
 		$(GO) test ./internal/app -run '^TestTerraBaseWalkthroughAgainstRealMembers$$' -count=1 -v
+
+# Deploy, upgrade and roll back the real C# TerraBase release binary and
+# check its peer mesh; its .sha256 release asset must sit beside it:
+# make terrabase-release-process TERRABASE_BINARY=<terrabase-linux-amd64>
+terrabase-release-process:
+	@test -n "$(TERRABASE_BINARY)" || { echo 'usage: make terrabase-release-process TERRABASE_BINARY=<terrabase-linux-amd64>' >&2; exit 2; }
+	TS_TERRABASE_BINARY="$(abspath $(TERRABASE_BINARY))" $(GO) test ./internal/terrabase ./internal/app \
+		-run '^(TestTerraBaseBinaryPeerMesh|TestTerraBaseReleaseDeployUpgradeRollback)$$' -count=1 -v
 
 # Lint the tracked shell scripts (needs shellcheck >= 0.11 on PATH; the
 # ts-builder image ships it).

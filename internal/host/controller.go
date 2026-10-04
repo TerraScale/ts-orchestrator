@@ -17,6 +17,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -37,6 +38,7 @@ type Controller struct {
 	materialProvider       ManagedMaterialProvider
 	credentialFloor        func(context.Context, Registration) (uint64, error)
 	volumeInspector        ManagedVolumeInspector
+	terraBaseCA            *terrabase.CA
 	artifacts              ArtifactStore
 	responseKey            ed25519.PrivateKey
 	registrationMu         sync.Mutex
@@ -115,7 +117,7 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 		managedVerifier: cfg.ManagedRegistrationVerifier, managedDesiredVerifier: cfg.ManagedDesiredVerifier,
 		managedEffectGate: managedEffectGate, materialProvider: cfg.ManagedMaterialProvider,
 		credentialFloor: cfg.ManagedCredentialFloor, volumeInspector: cfg.ManagedVolumeInspector,
-		artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}),
+		terraBaseCA: cfg.TerraBaseCA, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}),
 		authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, authorityLeader: cfg.AuthorityLeader,
 		cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
 }
@@ -568,7 +570,7 @@ func sameReportMeaning(a, b Report) bool {
 
 // hostOperations are the host request subjects a leader serves.
 var hostOperations = []string{"session", "desired", "artifact", "material", "cycle", "report",
-	"drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load"}
+	"drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer"}
 
 // hostLeaderPoll is how often Run follows authority leadership.
 const hostLeaderPoll = 500 * time.Millisecond
@@ -670,7 +672,7 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	switch req.Operation {
 	case "session":
 		payload, err = c.handleSession(ctx, req)
-	case "desired", "artifact", "cycle", "report", "material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load":
+	case "desired", "artifact", "cycle", "report", "material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer":
 		payload, err = c.handleAuthorized(ctx, req)
 	default:
 		err = errors.New("unknown host operation")
@@ -1003,6 +1005,8 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (any, er
 		return c.storeReport(ctx, req, r, s)
 	case "load":
 		return c.storeLoad(ctx, req, r)
+	case "terrabase-peer":
+		return c.serveTerraBasePeer(ctx, req, r)
 	}
 	return nil, errors.New("unknown host operation")
 }
