@@ -715,7 +715,7 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 	} else {
 		// Do not create a new journal operation around an attachment that was
 		// already present. Only a prior durable operation can bind that resource.
-		attachments, err := f.findVolumeAttachments(ctx, request.VolumeID)
+		attachments, err := f.attachAttachments(ctx, request)
 		if err != nil {
 			return Attachment{}, err
 		}
@@ -749,7 +749,7 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 	if err != nil {
 		return Attachment{}, fmt.Errorf("read OCI volume attachment result: %w", err)
 	}
-	attachments, err := f.findVolumeAttachments(ctx, request.VolumeID)
+	attachments, err := f.attachAttachments(ctx, request)
 	if err != nil {
 		return Attachment{}, errors.Join(retryWindowErr, err)
 	}
@@ -797,7 +797,7 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 		IsReadOnly: intent.IsReadOnly, IsShareable: intent.IsShareable,
 		IsPvEncryptionInTransitEnabled: intent.IsPvEncryptionInTransitEnabled,
 	})
-	attachments, observeErr := f.findVolumeAttachments(ctx, request.VolumeID)
+	attachments, observeErr := f.attachAttachments(ctx, request)
 	if observeErr != nil {
 		return Attachment{}, errors.Join(ErrOutcomeUnknown, attachErr, observeErr,
 			f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))

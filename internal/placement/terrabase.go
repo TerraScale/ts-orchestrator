@@ -785,6 +785,10 @@ type MemberState struct {
 	// and fails its settle wait, so the member never reaches the stage that
 	// observes ATTACHING. It clears once the volume is attached.
 	AttachRequestedAt time.Time `json:"attach_requested_at,omitzero"`
+	// PreviousInstanceID is the lost instance a replacement host attempt
+	// succeeded. Reattach on host loss moves the retained volume from it
+	// only after OCI reports it TERMINATED. It is empty for a first attempt.
+	PreviousInstanceID string `json:"previous_instance_id,omitempty"`
 }
 
 type ManagedUpdateSeatPhase string
@@ -869,6 +873,7 @@ func (state MemberState) Validate() error {
 		!validToken(state.OperationID) || state.UpdatedAt.IsZero() || state.UpdatedAt.Location() != time.UTC ||
 		!state.HostLostAt.IsZero() && state.HostLostAt.Location() != time.UTC ||
 		!state.AttachRequestedAt.IsZero() && state.AttachRequestedAt.Location() != time.UTC ||
+		state.PreviousInstanceID != "" && (state.HostAttempt < 2 || state.PreviousInstanceID == state.InstanceID) ||
 		state.Kind == MemberPermanent && state.MemberID != permanentMember(state.Region) ||
 		state.Kind == MemberElastic && state.MemberID != elasticMember(state.Region) {
 		return errors.New("invalid TerraBase member state")

@@ -51,3 +51,74 @@ func (journal *KVJournal) ClaimVolumeFormatPermit(ctx context.Context, record Vo
 	}
 	return false, nil
 }
+
+type volumeMountPermitEntry struct {
+	SchemaVersion int                     `json:"schema_version"`
+	Record        VolumeMountPermitRecord `json:"record"`
+}
+
+func volumeMountPermitKey(region Region, generation uint64, owner, volumeID, attachmentID string) string {
+	return "volume-mount-permit." + digest(string(region), fmt.Sprint(generation), owner, volumeID, attachmentID)
+}
+
+func validVolumeMountPermitRecord(record VolumeMountPermitRecord) bool {
+	return record.Region != "" && record.Generation != 0 && record.Owner != "" &&
+		record.DatabaseID != "" && record.PartitionID != "" && record.VolumeID != "" &&
+		record.AttachmentID != "" && record.ReplacementInstanceID != "" && record.FencedInstanceID != "" &&
+		record.ReplacementInstanceID != record.FencedInstanceID && record.FencedInstanceState == instanceStateTerminated
+}
+
+// RecordVolumeMountPermit creates the immutable mount-existing permit of one
+// replacement attachment. A retry with the exact record succeeds; any other
+// record under the same key is refused.
+func (journal *KVJournal) RecordVolumeMountPermit(ctx context.Context, record VolumeMountPermitRecord) error {
+	if journal == nil || !validVolumeMountPermitRecord(record) {
+		return errors.New("volume mount permit record is incomplete")
+	}
+	data, err := json.Marshal(volumeMountPermitEntry{SchemaVersion: 1, Record: record})
+	if err != nil {
+		return err
+	}
+	key := volumeMountPermitKey(record.Region, record.Generation, record.Owner, record.VolumeID, record.AttachmentID)
+	if _, err := journal.kv.Create(ctx, key, data); err == nil {
+		return nil
+	} else if !errors.Is(err, jetstream.ErrKeyExists) {
+		return fmt.Errorf("create volume mount permit: %w", err)
+	}
+	current, found, err := journal.GetVolumeMountPermit(ctx, record.Region, record.Generation, record.Owner,
+		record.VolumeID, record.AttachmentID)
+	if err != nil {
+		return err
+	}
+	if !found || current != record {
+		return errors.New("volume mount permit key belongs to a different immutable binding")
+	}
+	return nil
+}
+
+// GetVolumeMountPermit reads the mount-existing permit of one attachment.
+func (journal *KVJournal) GetVolumeMountPermit(ctx context.Context, region Region, generation uint64,
+	owner, volumeID, attachmentID string,
+) (VolumeMountPermitRecord, bool, error) {
+	if journal == nil || region == "" || generation == 0 || owner == "" || volumeID == "" || attachmentID == "" {
+		return VolumeMountPermitRecord{}, false, errors.New("volume mount permit lookup is incomplete")
+	}
+	entry, err := journal.kv.Get(ctx, volumeMountPermitKey(region, generation, owner, volumeID, attachmentID))
+	if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted) {
+		return VolumeMountPermitRecord{}, false, nil
+	}
+	if err != nil {
+		return VolumeMountPermitRecord{}, false, err
+	}
+	var current volumeMountPermitEntry
+	if err := json.Unmarshal(entry.Value(), &current, json.RejectUnknownMembers(true)); err != nil {
+		return VolumeMountPermitRecord{}, false, err
+	}
+	record := current.Record
+	if current.SchemaVersion != 1 || !validVolumeMountPermitRecord(record) || record.Region != region ||
+		record.Generation != generation || record.Owner != owner || record.VolumeID != volumeID ||
+		record.AttachmentID != attachmentID {
+		return VolumeMountPermitRecord{}, false, errors.New("volume mount permit record is corrupt")
+	}
+	return record, true, nil
+}
