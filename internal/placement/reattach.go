@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/failover"
 )
@@ -25,6 +26,16 @@ func (controller *Controller) reattachRetainedVolume(ctx context.Context, epoch 
 		controller.hold(fmt.Sprintf("member %s replacement needs reattach on host loss, which the OCI fleet does not support", seat.MemberID))
 		return false, nil
 	}
+	// Hold one workload effect bound to this tick's epoch for the whole step.
+	// Every nested OCI effect joins it through the shared effect context, so
+	// an authority loss and reacquire mid-step fences the nested effect
+	// instead of letting it run under the new epoch with this tick's inputs.
+	ctx = authority.WithActiveWorkloadEffectContext(ctx)
+	release, err := controller.beginWorkloadEffect(ctx, epoch, intent)
+	if err != nil {
+		return false, err
+	}
+	defer release()
 	if state.AttachRequestedAt.IsZero() {
 		// The attach deadline runs from the first reattach step, durably.
 		state.AttachRequestedAt = controller.currentTime().UTC()

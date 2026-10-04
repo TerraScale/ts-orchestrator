@@ -35,7 +35,11 @@ func (fleet *reattachTestFleet) RetainedVolumeAttachments(context.Context, strin
 	return append([]oci.Attachment(nil), fleet.attachments...), nil
 }
 
-func (fleet *reattachTestFleet) DetachFencedAttachment(_ context.Context, request oci.FencedDetachRequest) error {
+func (fleet *reattachTestFleet) DetachFencedAttachment(ctx context.Context, request oci.FencedDetachRequest) error {
+	// The effect must join the tick's epoch-bound workload effect.
+	if authority.WithActiveWorkloadEffectContext(ctx) != ctx {
+		return errors.New("fenced detach ran outside the tick's shared workload effect context")
+	}
 	if fleet.states[request.InstanceID] != "TERMINATED" {
 		return oci.ErrWriterStopUnverified
 	}
@@ -48,7 +52,10 @@ func (fleet *reattachTestFleet) DetachFencedAttachment(_ context.Context, reques
 	return nil
 }
 
-func (fleet *reattachTestFleet) AttachRetainedVolume(_ context.Context, request oci.VolumeAttachRequest) (oci.Attachment, error) {
+func (fleet *reattachTestFleet) AttachRetainedVolume(ctx context.Context, request oci.VolumeAttachRequest) (oci.Attachment, error) {
+	if authority.WithActiveWorkloadEffectContext(ctx) != ctx {
+		return oci.Attachment{}, errors.New("replacement attach ran outside the tick's shared workload effect context")
+	}
 	fleet.attachRequests = append(fleet.attachRequests, request)
 	attachment := oci.Attachment{ID: "ocid1.volumeattachment.replacement", VolumeID: request.VolumeID,
 		InstanceID: request.InstanceID, State: "ATTACHED", ETag: "replacement-etag", Device: "/dev/oracleoci/oraclevdb"}
@@ -56,7 +63,10 @@ func (fleet *reattachTestFleet) AttachRetainedVolume(_ context.Context, request 
 	return attachment, nil
 }
 
-func (fleet *reattachTestFleet) GrantVolumeMountExisting(_ context.Context, permit oci.VolumeMountPermit) error {
+func (fleet *reattachTestFleet) GrantVolumeMountExisting(ctx context.Context, permit oci.VolumeMountPermit) error {
+	if authority.WithActiveWorkloadEffectContext(ctx) != ctx {
+		return errors.New("mount permit grant ran outside the tick's shared workload effect context")
+	}
 	fleet.permits = append(fleet.permits, permit)
 	return nil
 }

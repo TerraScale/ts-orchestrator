@@ -1021,16 +1021,22 @@ func (controller *Controller) hasServingReport(intent Intent, state MemberState,
 	return false
 }
 
-func (controller *Controller) persist(ctx context.Context, epoch, revision uint64, state MemberState) (uint64, error) {
+// beginWorkloadEffect holds the terminal-aware workload gate of intent's
+// partition at epoch until the returned release runs.
+func (controller *Controller) beginWorkloadEffect(ctx context.Context, epoch uint64, intent Intent) (func(), error) {
 	barrier, ok := controller.fencer.(interface {
 		BeginActiveWorkloadEffect(context.Context, uint64, authority.WorkloadScope) (func(), error)
 	})
 	if !ok {
-		return 0, errors.New("placement authority lacks terminal workload fence")
+		return nil, errors.New("placement authority lacks terminal workload fence")
 	}
-	release, err := barrier.BeginActiveWorkloadEffect(ctx, epoch, authority.WorkloadScope{
-		DatabaseID: state.DatabaseID, PartitionID: state.PartitionID,
+	return barrier.BeginActiveWorkloadEffect(ctx, epoch, authority.WorkloadScope{
+		DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
 	})
+}
+
+func (controller *Controller) persist(ctx context.Context, epoch, revision uint64, state MemberState) (uint64, error) {
+	release, err := controller.beginWorkloadEffect(ctx, epoch, Intent{DatabaseID: state.DatabaseID, PartitionID: state.PartitionID})
 	if err != nil {
 		return 0, err
 	}

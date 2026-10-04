@@ -101,6 +101,38 @@ func TestTerminalMarkerWaitsForNestedWorkloadEffectAndFencesPlacement(t *testing
 	}
 }
 
+// A caller that binds its inputs to one epoch holds an outer effect in a
+// shared effect context; a nested effect under any other epoch is fenced.
+func TestNestedWorkloadEffectUnderAnotherEpochIsFenced(t *testing.T) {
+	js := newAuthorityTestJetStream(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+	defer cancel()
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "nested-epoch-test", Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+	epoch := runtime.Current().Epoch
+	scope := WorkloadScope{DatabaseID: "db-a", PartitionID: "partition-a"}
+	effectCtx := WithActiveWorkloadEffectContext(ctx)
+	releaseOuter, err := runtime.BeginActiveWorkloadEffect(effectCtx, epoch, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseOuter()
+	if release, err := runtime.BeginActiveWorkloadEffect(effectCtx, epoch+1, scope); !errors.Is(err, ErrFenced) {
+		if release != nil {
+			release()
+		}
+		t.Fatalf("nested effect under another epoch = %v, want ErrFenced", err)
+	}
+	releaseNested, err := runtime.BeginActiveWorkloadEffect(effectCtx, epoch, scope)
+	if err != nil {
+		t.Fatalf("nested effect under the bound epoch: %v", err)
+	}
+	releaseNested()
+}
+
 func TestEnrollmentEffectIsDurableTerminalAdmissionHold(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)

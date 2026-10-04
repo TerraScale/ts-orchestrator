@@ -90,7 +90,10 @@ volume directly. Each placement tick runs one `failover.Reattacher` step:
 
 Each step is guarded against the tick's authority epoch and bound to it
 (`Reattacher.ExpectedEpoch`), so member state read under one epoch never
-drives a detach or attach under a later one.
+drives a detach or attach under a later one. Placement also holds one
+workload effect at that epoch for the whole step in a shared effect context
+(`authority.WithActiveWorkloadEffectContext`); every nested OCI effect joins
+it, and a nested effect under another epoch is fenced.
 
 `InspectVolumeInitialization` admits a volume with DETACHED attachment
 history only when that permit names exactly the pinned attachment, workload
