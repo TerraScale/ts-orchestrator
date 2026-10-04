@@ -9,6 +9,7 @@ AI IS NOT ALLOWED TO EDIT THIS FILE ONLY HUMANS CAN!
 - The orchestrator MUST scale terrabase up and down as neeeded
 
 # Rules
+- Never add AI attribution to commits, PR titles, or PR descriptions: no `Co-Authored-By:` trailers, no `🤖 Generated with [Claude Code]` or similar generated-by notices.
 - This project MUST to use GO
 - This MUST to be deployed as a single binary to be easy to deployed and updated
 - Commit and push often after every major change automatically
