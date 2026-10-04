@@ -23,6 +23,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
@@ -39,6 +40,11 @@ func (c *testBrokerClock) Measure() (brokerauth.ClockBound, error) {
 
 func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 	// Includes four adversarial CLI requests before the ordinary R3 fence path.
+	// The fast tier covers the forged replies in
+	// TestBrokerClaimReplyRejectsForgedReceipts and a ticket for a revoked
+	// claim in brokerauth; this lab adds three real brokers, the host
+	// disconnect and the offline-broker pending path.
+	tier.Integration(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 	root := t.TempDir()

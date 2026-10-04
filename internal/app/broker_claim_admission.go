@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
@@ -55,6 +56,44 @@ type brokerClaimApplyReply struct {
 func brokerClaimOperationID(raw string) string {
 	digest := sha256.Sum256([]byte(raw))
 	return "broker-claim-" + hex.EncodeToString(digest[:])
+}
+
+// verifyBrokerClaimReply checks a claim-apply reply against the exact
+// request: it must be a strict, signed broker.claim.receipt from the broker
+// controller key for this operation and authority epoch, and its signed
+// response must bind the cell, account, request hash, expected sequence and
+// JWT digest. The caller still confirms the durable claim and the current
+// authority before trusting a fenced or pending outcome.
+func verifyBrokerClaimReply(data []byte, cell, account, raw string, wire []byte, expected, epoch uint64,
+	public ed25519.PublicKey, now time.Time) (brokerClaimApplyReply, brokerClaimApplyResponse, error) {
+	var reply brokerClaimApplyReply
+	if err := json.Unmarshal(data, &reply, json.RejectUnknownMembers(true)); err != nil {
+		return reply, brokerClaimApplyResponse{}, fmt.Errorf("decode untrusted broker claim reply: %w", err)
+	}
+	if reply.Proof == nil {
+		return reply, brokerClaimApplyResponse{}, errors.New("unsigned broker claim reply")
+	}
+	var response brokerClaimApplyResponse
+	if err := protocol.DecodeStrict(reply.Proof.Payload, &response, 4096); err != nil {
+		return reply, response, err
+	}
+	if err := protocol.VerifyEnvelope(*reply.Proof, protocol.EnvelopeScope{
+		Region: cell, Kind: "broker.claim.receipt", Actor: "broker-controller",
+		OperationID: brokerClaimOperationID(raw), Generation: response.Sequence, Epoch: epoch,
+	}, public, now, protocol.VerifyPolicy{MaxLifetime: time.Minute, ClockSkew: 30 * time.Second}); err != nil {
+		return reply, response, err
+	}
+	digest := sha256.Sum256([]byte(raw))
+	requestDigest := sha256.Sum256(wire)
+	if response.Cell != cell || response.Account != account ||
+		response.RequestHash != hex.EncodeToString(requestDigest[:]) || response.ExpectedSequence != expected ||
+		response.Sequence == 0 || response.Hash != hex.EncodeToString(digest[:]) ||
+		response.Status != "fenced" && response.Status != "pending" ||
+		response.Status == "fenced" && len(response.Pending) != 0 ||
+		response.Status == "pending" && len(response.Pending) == 0 {
+		return reply, response, errors.New("signed broker claim receipt does not match the request")
+	}
+	return reply, response, nil
 }
 
 func operatorBrokerClaimApply(ctx context.Context, cfg Config, runtime *natscell.Runtime, path, expectedText string, output io.Writer) error {
@@ -137,58 +176,35 @@ func operatorBrokerClaimApply(ctx context.Context, cfg Config, runtime *natscell
 		cancel()
 		if requestErr == nil {
 			var reply brokerClaimApplyReply
-			if err := json.Unmarshal(message.Data, &reply, json.RejectUnknownMembers(true)); err != nil {
-				requestErr = fmt.Errorf("decode untrusted broker claim reply: %w", err)
-			} else if reply.Proof == nil {
-				requestErr = errors.New("unsigned broker claim reply")
-			} else {
-				var response brokerClaimApplyResponse
-				requestErr = protocol.DecodeStrict(reply.Proof.Payload, &response, 4096)
-				if requestErr == nil {
-					requestErr = protocol.VerifyEnvelope(*reply.Proof, protocol.EnvelopeScope{
-						Region: cfg.NATS.Cell, Kind: "broker.claim.receipt", Actor: "broker-controller",
-						OperationID: brokerClaimOperationID(raw), Generation: response.Sequence, Epoch: snapshot.Epoch,
-					}, public, time.Now().UTC(), protocol.VerifyPolicy{MaxLifetime: time.Minute, ClockSkew: 30 * time.Second})
-				}
-				if requestErr == nil {
-					digest := sha256.Sum256([]byte(raw))
-					requestDigest := sha256.Sum256(wire)
-					if response.Cell != cfg.NATS.Cell || response.Account != decoded.Subject ||
-						response.RequestHash != hex.EncodeToString(requestDigest[:]) || response.ExpectedSequence != expected ||
-						response.Sequence == 0 || response.Hash != hex.EncodeToString(digest[:]) ||
-						response.Status != "fenced" && response.Status != "pending" ||
-						response.Status == "fenced" && len(response.Pending) != 0 ||
-						response.Status == "pending" && len(response.Pending) == 0 {
-						requestErr = errors.New("signed broker claim receipt does not match the request")
+			var response brokerClaimApplyResponse
+			reply, response, requestErr = verifyBrokerClaimReply(message.Data, cfg.NATS.Cell, decoded.Subject, raw, wire,
+				expected, snapshot.Epoch, public, time.Now().UTC())
+			if requestErr == nil {
+				store, err := brokerauth.OpenStore(ctx, active.JetStream(), cfg.NATS.Cell, nil)
+				if err == nil {
+					var current brokerauth.Claim
+					current, err = store.Read(ctx, decoded.Subject)
+					if err == nil && (current.Sequence != response.Sequence || current.Hash != response.Hash || current.JWT != raw) {
+						err = errors.New("durable claim differs from signed receipt")
 					}
 				}
-				if requestErr == nil {
-					store, err := brokerauth.OpenStore(ctx, active.JetStream(), cfg.NATS.Cell, nil)
-					if err == nil {
-						var current brokerauth.Claim
-						current, err = store.Read(ctx, decoded.Subject)
-						if err == nil && (current.Sequence != response.Sequence || current.Hash != response.Hash || current.JWT != raw) {
-							err = errors.New("durable claim differs from signed receipt")
-						}
+				if err == nil {
+					var lease authority.Snapshot
+					lease, err = authority.Observe(ctx, active.JetStream(), cfg.NATS.Cell)
+					if err == nil && (!lease.Ready || lease.Epoch != reply.Proof.Epoch || !time.Now().Before(lease.ExpiresAt)) {
+						err = errors.New("regional authority changed after the signed broker receipt")
 					}
-					if err == nil {
-						var lease authority.Snapshot
-						lease, err = authority.Observe(ctx, active.JetStream(), cfg.NATS.Cell)
-						if err == nil && (!lease.Ready || lease.Epoch != reply.Proof.Epoch || !time.Now().Before(lease.ExpiresAt)) {
-							err = errors.New("regional authority changed after the signed broker receipt")
-						}
-					}
-					if err == nil {
-						if err := printJSON(output, response); err != nil {
-							return err
-						}
-						if response.Status == "pending" {
-							return ErrBrokerFencePending
-						}
-						return nil
-					}
-					requestErr = err
 				}
+				if err == nil {
+					if err := printJSON(output, response); err != nil {
+						return err
+					}
+					if response.Status == "pending" {
+						return ErrBrokerFencePending
+					}
+					return nil
+				}
+				requestErr = err
 			}
 		}
 		if attempt == 2 || ctx.Err() != nil {
