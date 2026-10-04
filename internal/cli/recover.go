@@ -72,6 +72,21 @@ var refoundReplacer = func(ctx context.Context, accepted bootstrapstart.Accepted
 	return bootstrapstart.NewAdmittedFounderReplacer(ctx, baked, accepted, uint32(uid), uint32(gid))
 }
 
+// refoundLedger reads every controller slot's verified ledger HEAD; tests
+// replace it.
+var refoundLedger = func(ctx context.Context) (map[string]membership.LedgerSlot, error) {
+	return app.ControllerSlotLedger(ctx)
+}
+
+// refoundGuard keeps re-founding to one slot at a time and waits for each
+// re-founded slot to report current; tests replace it and the wait bounds.
+var (
+	refoundGuard = membership.RefoundGuard{PendingPath: membership.DefaultRefoundPendingFile,
+		HealthPath: membership.DefaultClusterHealthFile}
+	refoundPoll = 5 * time.Second
+	refoundWait = 30 * time.Minute
+)
+
 // recoverFlags lists the flags each recover-quorum command honours; any
 // other flag is an error rather than silently ignored.
 var recoverFlags = map[string][]string{
@@ -257,6 +272,22 @@ func refound(ctx context.Context, target membership.RecoveryTarget, accepted boo
 	if err := membership.BrokerRunning(ctx, target); err != nil {
 		return err
 	}
+	// One slot at a time: no other slot may be mid-replacement in the
+	// ledger, and the slot re-founded before must report current. The host
+	// lock covers admission through the wait, so a concurrent refound for
+	// another slot cannot pass admission on the same old ledger.
+	release, err := refoundGuard.Lock()
+	if err != nil {
+		return err
+	}
+	defer release()
+	ledger, err := refoundLedger(ctx)
+	if err != nil {
+		return fmt.Errorf("read the controller slot ledger: %w", err)
+	}
+	if err := refoundGuard.Admit(target.Cell, slot, ledger); err != nil {
+		return err
+	}
 	files, err := membership.VerifyBackupFor(backup, target, time.Now(), membership.BackupMaxAge)
 	if err != nil {
 		return fmt.Errorf("refound requires a verified backup of this survivor: %w", err)
@@ -284,10 +315,19 @@ func refound(ctx context.Context, target membership.RecoveryTarget, accepted boo
 	if err != nil {
 		return err
 	}
+	serverName := membership.Topology{Cell: target.Cell}.ServerName(slot)
+	pending := membership.RefoundPending{Cell: target.Cell, Slot: slot, ServerName: serverName,
+		Attempt: evidence.PreviousAttempt + 1, StartedAt: time.Now().UTC()}
+	if err := refoundGuard.Begin(pending); err != nil {
+		return fmt.Errorf("record the pending refound: %w", err)
+	}
 	if err := replacer.Replace(ctx, slot, wire); err != nil {
 		return fmt.Errorf("re-found %s: %w", slot, err)
 	}
-	_, err = fmt.Fprintf(out, "re-founded %s as attempt %d; wait until it reports current before re-founding the next slot\n",
-		slot, evidence.PreviousAttempt+1)
+	fmt.Fprintf(out, "re-founded %s as attempt %d; waiting until it reports current\n", slot, evidence.PreviousAttempt+1)
+	if err := refoundGuard.WaitCurrent(ctx, pending, refoundPoll, refoundWait, out); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(out, "%s reports current; the next lost slot may be re-founded\n", serverName)
 	return err
 }

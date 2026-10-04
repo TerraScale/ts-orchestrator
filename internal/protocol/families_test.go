@@ -22,6 +22,7 @@ func TestSubjectFamiliesKeepWireFormat(t *testing.T) {
 		HostRegisterSubject("gru"):                    "ts.orch.v1.gru.host.register",
 		BackupOperationSubject("gru"):                 "ts.orch.v1.gru.backup.operation",
 		BrokerClaimApplySubject("gru"):                "ts.orch.v1.gru.broker.claim.apply",
+		MembershipReplaceSubject("gru"):               "ts.orch.v1.gru.membership.replace",
 		PlacementApplySubject("sfo"):                  "ts.orch.v1.sfo.placement.apply",
 		ManagedUpdatePrepareSubject("gru"):            "ts.orch.v1.gru.managed-update.prepare",
 		MaterialPrepareSubject("gru"):                 "ts.orch.v1.gru.material.prepare",

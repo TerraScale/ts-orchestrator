@@ -18,6 +18,8 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
@@ -137,7 +139,14 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	defer runtime.Close()
 	healthCtx, stopHealth := context.WithCancel(ctx)
-	_, brokerStopped, waitHealth := startClusterHealth(healthCtx, runtime, nil)
+	var healthReporter clusterhealth.Reporter
+	if !cfg.NATS.Lab {
+		// Local operator tools (break-glass refound) read the running
+		// controller's cluster view from its state directory.
+		healthReporter = &clusterhealth.StatusFile{Path: membership.DefaultClusterHealthFile,
+			Logger: slog.Default().With("component", "membership")}
+	}
+	_, brokerStopped, waitHealth := startClusterHealth(healthCtx, runtime, healthReporter)
 	defer waitHealth()
 	defer stopHealth()
 	// Every later startup step runs under the broker's lifetime: a broker
@@ -219,7 +228,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	defer stopAuthority()
 	defer control.Close()
-	membershipReconciler, err := startControllerMembership(ctx, cfg, runtime, control)
+	membershipSupervisor, err := startControllerMembership(ctx, cfg, runtime, control)
 	if err != nil {
 		return fmt.Errorf("start controller membership supervision: %w", err)
 	}
@@ -619,8 +628,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if ociReconcile != nil {
 		workers.Go(func() { workerErrors <- ociReconcile.runner.Run(runCtx) })
 	}
-	if membershipReconciler != nil {
-		workers.Go(func() { workerErrors <- membershipReconciler.Run(runCtx) })
+	if membershipSupervisor != nil {
+		workers.Go(func() { workerErrors <- membershipSupervisor.Run(runCtx) })
 	}
 	if workloadReconciler != nil {
 		workers.Go(func() { workerErrors <- workloadReconciler.Run(runCtx) })

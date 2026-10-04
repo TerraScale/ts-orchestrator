@@ -94,6 +94,7 @@ const (
 	VerbDeliveryIntent        = "delivery.intent"
 	VerbDeliveryArtifactAdmit = "delivery.artifact.admit"
 	VerbRegionHealth          = "region.health"
+	VerbMembershipReplace     = "membership.replace"
 )
 
 // Regional joins a regional root and dot-separated tokens. Each token may be a
@@ -151,6 +152,11 @@ func HostRegisterSubject(cell string) string { return Regional(cell, VerbHostReg
 
 // BackupOperationSubject is the signed backup operation request subject.
 func BackupOperationSubject(cell string) string { return Regional(cell, VerbBackupOperation) }
+
+// MembershipReplaceSubject is the epoch-fenced controller slot replacement
+// request a non-seed authority leader sends to the seed controller, which
+// alone holds the founder signer.
+func MembershipReplaceSubject(cell string) string { return Regional(cell, VerbMembershipReplace) }
 
 // BrokerClaimApplySubject is the signed broker account claim request subject.
 func BrokerClaimApplySubject(cell string) string { return Regional(cell, VerbBrokerClaimApply) }
