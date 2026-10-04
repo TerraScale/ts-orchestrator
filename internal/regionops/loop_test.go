@@ -303,6 +303,54 @@ func TestAdmissionRefusalsAreJournaledOnce(t *testing.T) {
 	if kinds := journal.kinds(); !slices.Equal(kinds, []decisionlog.Kind{decisionlog.KindHeld}) {
 		t.Fatalf("journal = %v", kinds)
 	}
+	// A replacement proposal refused for the same reason is a new attempt and
+	// journals its own refusal, even when no tick saw the rejected record.
+	stored, revision, err = store.Get(ctx, "fra")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejected, err := machine.Reject(stored, "operator: replan", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revision, err = store.Update(ctx, leader.Current().Epoch, stored, rejected, revision); err != nil {
+		t.Fatal(err)
+	}
+	second := proposal
+	second.ID = "fra-g2-0123456789ab"
+	reproposed, err := machine.Repropose(rejected, second, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revision, err = store.Repropose(ctx, leader.Current().Epoch, rejected, reproposed, revision); err != nil {
+		t.Fatal(err)
+	}
+	payload, err = protocol.EncodeJSON(regionlifecycle.ApprovalPayload{Cell: "fra", ProposalDigest: second.Digest(),
+		MaxMonthlyCents: 10_000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err = protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: "fra",
+		Kind: regionlifecycle.ApproveExpansionKind, Actor: approver, OperationID: second.ID,
+		Generation: reproposed.ProposalGeneration}, now, now.Add(time.Hour), private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvedAgain, err := machine.Approve(reproposed, envelope, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Update(ctx, leader.Current().Epoch, reproposed, approvedAgain, revision); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if report := loop.Tick(ctx); len(report.Admitted) != 0 || !slices.Equal(report.Waiting, []string{"fra"}) {
+			t.Fatalf("refused tick after repropose = %+v", report)
+		}
+	}
+	if kinds := journal.kinds(); !slices.Equal(kinds, []decisionlog.Kind{decisionlog.KindHeld, decisionlog.KindHeld}) {
+		t.Fatalf("journal after repropose = %v", kinds)
+	}
 	if _, err := (PriceList{}).Estimate(ctx, approved, now); err == nil {
 		t.Fatal("a region without a price was estimated")
 	}

@@ -89,7 +89,8 @@ type Loop struct {
 
 	mu sync.Mutex
 	// noted is the last wait or refusal journaled per cell, so a region
-	// that waits for many ticks is journaled once.
+	// that waits for many ticks is journaled once. The key carries the
+	// proposal generation, so a replaced proposal journals its own waits.
 	noted map[string]string
 }
 
@@ -361,7 +362,7 @@ func (loop *Loop) note(ctx context.Context, epoch uint64, record regionlifecycle
 	if loop.noted == nil {
 		loop.noted = map[string]string{}
 	}
-	key := string(record.Phase) + "\x00" + why
+	key := strconv.FormatUint(record.ProposalGeneration, 10) + "\x00" + string(record.Phase) + "\x00" + why
 	if loop.noted[record.Cell] == key {
 		loop.mu.Unlock()
 		return
