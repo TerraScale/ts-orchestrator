@@ -6,7 +6,11 @@
 # this script) estimates what each test costs under the race detector. The
 # tests of the slowest packages are packed by that cost into at most
 # TS_RACE_SHARDS shards per package, longest test first into the least
-# loaded shard; tests marked solo or idle get a shard of their own. Every
+# loaded shard; tests marked solo or idle get a shard of their own. Tests
+# marked norace are packed the same way into CPU shards that run without
+# the race detector: single-goroutine suites whose code paths start no
+# goroutine, where instrumentation costs about twelve times the CPU and can
+# find nothing. Every
 # shard, and one shard for all other packages, then joins a single queue
 # ordered by estimated cost, so the slowest work starts first.
 #
@@ -60,7 +64,7 @@ esac
 export GORACE="${GORACE:+$GORACE }atexit_sleep_ms=0"
 
 # Each line: <package> <test or glob> <seconds>[/<seconds under -short>]
-# [cpu|solo|idle], or "rest - <seconds>" for the shard of all other
+# [cpu|solo|idle|norace], or "rest - <seconds>" for the shard of all other
 # packages. The first matching line wins; unmatched tests cost one second.
 entry_package=()
 entry_test=()
@@ -76,8 +80,8 @@ while IFS= read -r line || [[ -n $line ]]; do
 	[[ -n $package ]] || continue
 	pool=${pool:-cpu}
 	# No leading zeros: arithmetic would read them as octal.
-	[[ -n $test && $cost =~ ^(0|[1-9][0-9]*)(/(0|[1-9][0-9]*))?$ && $pool =~ ^(cpu|solo|idle)$ && -z $extra ]] || {
-		echo "$durations:$line_number: want <package> <test> <seconds>[/<short seconds>] [cpu|solo|idle]" >&2
+	[[ -n $test && $cost =~ ^(0|[1-9][0-9]*)(/(0|[1-9][0-9]*))?$ && $pool =~ ^(cpu|solo|idle|norace)$ && -z $extra ]] || {
+		echo "$durations:$line_number: want <package> <test> <seconds>[/<short seconds>] [cpu|solo|idle|norace]" >&2
 		exit 2
 	}
 	if [[ $tier == pr ]]; then cost=${cost#*/}; else cost=${cost%%/*}; fi
@@ -208,26 +212,13 @@ declare -A matched=()
 if ((${#other_packages[@]})); then
 	printf '%s\tpackages\tcpu\t\t\n' "$rest_cost" >> "$logs/queue"
 fi
-for package in "${sharded_packages[@]}"; do
-	base=${package##*/}
-	mapfile -t tests < <(grep -E '^(Test|Example|Fuzz)[A-Za-z0-9_]*$' "$logs/$base.list" | LC_ALL=C sort)
-	((${#tests[@]} > 0)) || { echo "no tests listed in $package" >&2; exit 1; }
-	: > "$logs/$base.packed"
-	covered=0
-	for test in "${tests[@]}"; do
-		estimate "$package" "$test"
-		if [[ $est_pool == cpu ]]; then
-			printf '%s %s\n' "$est_cost" "$test" >> "$logs/$base.packed"
-		else
-			printf '%s\t%s-%s\t%s\t%s\t^(%s)$\n' "$est_cost" "$base" "$test" "${est_pool/solo/cpu}" "$package" "$test" >> "$logs/queue"
-			covered=$((covered + 1))
-		fi
-	done
-	# Longest processing time first: each test joins the shard with the least
-	# estimated work so far, or the fewest tests when estimates tie.
-	loads=()
-	counts=()
-	members=()
+# pack <package> <packed list> <shard name prefix> <pool>: longest processing
+# time first, each test joins the shard with the least estimated work so
+# far, or the fewest tests when estimates tie. Adds the packed tests to
+# covered.
+pack() {
+	local package=$1 list=$2 prefix=$3 pool=$4 bin best cost test shard=0 expression
+	local -a loads=() counts=() members=()
 	for ((bin = 0; bin < shards; bin++)); do loads[bin]=0; counts[bin]=0; members[bin]=; done
 	while read -r cost test; do
 		best=0
@@ -239,15 +230,35 @@ for package in "${sharded_packages[@]}"; do
 		loads[best]=$((loads[best] + cost))
 		counts[best]=$((counts[best] + 1))
 		members[best]="${members[best]:+${members[best]}|}$test"
-	done < <(LC_ALL=C sort -k1,1nr -k2,2 "$logs/$base.packed")
-	shard=0
+	done < <(LC_ALL=C sort -k1,1nr -k2,2 "$list")
 	for ((bin = 0; bin < shards; bin++)); do
 		[[ -n ${members[bin]} ]] || continue
 		expression=$(tr '|' '\n' <<< "${members[bin]}" | LC_ALL=C sort | paste -s -d '|')
 		covered=$((covered + $(tr '|' '\n' <<< "$expression" | wc -l)))
-		printf '%s\t%s-%s\t%s\t%s\t^(%s)$\n' "${loads[bin]}" "$base" "$shard" cpu "$package" "$expression" >> "$logs/queue"
+		printf '%s\t%s-%s\t%s\t%s\t^(%s)$\n' "${loads[bin]}" "$prefix" "$shard" "$pool" "$package" "$expression" >> "$logs/queue"
 		shard=$((shard + 1))
 	done
+}
+for package in "${sharded_packages[@]}"; do
+	base=${package##*/}
+	mapfile -t tests < <(grep -E '^(Test|Example|Fuzz)[A-Za-z0-9_]*$' "$logs/$base.list" | LC_ALL=C sort)
+	((${#tests[@]} > 0)) || { echo "no tests listed in $package" >&2; exit 1; }
+	: > "$logs/$base.packed"
+	: > "$logs/$base.norace"
+	covered=0
+	for test in "${tests[@]}"; do
+		estimate "$package" "$test"
+		case $est_pool in
+			cpu) printf '%s %s\n' "$est_cost" "$test" >> "$logs/$base.packed" ;;
+			norace) printf '%s %s\n' "$est_cost" "$test" >> "$logs/$base.norace" ;;
+			*)
+				printf '%s\t%s-%s\t%s\t%s\t^(%s)$\n' "$est_cost" "$base" "$test" "${est_pool/solo/cpu}" "$package" "$test" >> "$logs/queue"
+				covered=$((covered + 1))
+				;;
+		esac
+	done
+	pack "$package" "$logs/$base.packed" "$base" cpu
+	pack "$package" "$logs/$base.norace" "$base-norace" norace
 	[[ $covered == "${#tests[@]}" ]] || { echo "shards of $package cover $covered of ${#tests[@]} tests" >&2; exit 1; }
 done
 mapfile -t queue < <(LC_ALL=C sort -t "$tab" -k1,1nr -k2,2 "$logs/queue")
@@ -297,7 +308,9 @@ while ((${#queue[@]})); do
 		# ten minutes.
 		start "$name" "$pool" "${go[@]}" test -race -vet=off -timeout=20m "${short[@]}" -p "$package_jobs" -parallel "$test_jobs" "${other_packages[@]}"
 	else
-		start "$name" "$pool" "${go[@]}" test -race -vet=off -timeout=20m "${short[@]}" -parallel "$test_jobs" -run "$expression" "$package"
+		race=(-race)
+		[[ $pool != norace ]] || race=()
+		start "$name" "$pool" "${go[@]}" test "${race[@]}" -vet=off -timeout=20m "${short[@]}" -parallel "$test_jobs" -run "$expression" "$package"
 	fi
 done
 

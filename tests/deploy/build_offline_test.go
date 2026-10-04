@@ -451,6 +451,14 @@ func (f *offlineFixture) cleanTemp() {
 // Every other case pays for its own complete offline build through hundreds
 // of command fakes, so it runs in the integration tier, which still gates
 // every image: image.yml builds only revisions whose full ci.yml run passed.
+// guestName names a subtest after a guest path without '/', which -run
+// reads as a subtest separator: /usr/local/bin becomes usr_local_bin, so
+// one case can be selected, for example
+// -run '^TestOfflineRejectsSymlinkedUploadParents$/^usr_local_bin$'.
+func guestName(guest string) string {
+	return strings.ReplaceAll(strings.TrimPrefix(guest, "/"), "/", "_")
+}
+
 func representative(t *testing.T, fast bool) {
 	t.Helper()
 	if !fast {
@@ -564,7 +572,7 @@ func TestOfflineRejectsBadPublicInputsBeforeImageEffects(t *testing.T) {
 func TestOfflineReadbackMismatchDiscardsCandidate(t *testing.T) {
 	t.Parallel()
 	for _, guest := range []string{netbirdGuest, netbirdConfigGuest, "/usr/local/bin/terrascale-orchestrator", verifierGuest, ociRuleGuest, kernelGuest} {
-		t.Run(guest, func(t *testing.T) {
+		t.Run(guestName(guest), func(t *testing.T) {
 			representative(t, guest == "/usr/local/bin/terrascale-orchestrator")
 			t.Parallel()
 			f := newOffline(t)
@@ -583,7 +591,7 @@ func TestOfflineRejectsBaseArtifacts(t *testing.T) {
 	paths = append(paths, priorityHelperGuest)
 	fast := []string{ociRuleGuest, deploymentPaths[0], deploymentPaths[2], priorityProfileGuest}
 	for _, guest := range paths {
-		t.Run(guest, func(t *testing.T) {
+		t.Run(guestName(guest), func(t *testing.T) {
 			representative(t, slices.Contains(fast, guest))
 			t.Parallel()
 			f := newOffline(t)
@@ -820,7 +828,7 @@ func TestOfflineRejectsReservedWorkloadIdentityBeforeInstall(t *testing.T) {
 func TestOfflineRejectsSymlinkedUploadParents(t *testing.T) {
 	t.Parallel()
 	for i, guest := range []string{"/etc/sysusers.d", "/usr/local/bin"} {
-		t.Run(guest, func(t *testing.T) {
+		t.Run(guestName(guest), func(t *testing.T) {
 			representative(t, i == 0)
 			t.Parallel()
 			f := newOffline(t)
