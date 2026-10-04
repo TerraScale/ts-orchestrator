@@ -23,11 +23,33 @@ for current scope and evidence.
 
 ## Supported scope and ownership
 
+### Current GRU reset
+
+The operator-requested testing reset removed the GRU controllers, workload
+hosts, disks, images, buckets and every object version, networking, public
+load balancer, bastion, IAM grants and workload storage identity. GRU NetBird
+peers, setup keys, group, policies, network and DNS zone are also removed.
+Forgejo, its storage and network, shared Email Delivery, and the NetBird
+manager/routing peer remain available. The checked-in example now has no
+operator gateway, enrollment secret/policy binding or cell LPG ID; recreate
+those only from a newly reviewed live inventory.
+
+OCI has accepted delayed deletion of all 502 cell secrets for
+`2026-10-05T01:45:58.728Z` and the dedicated vault/key for
+`2026-10-11T01:48:37.642Z`. The control compartment and its TerraScale parent
+remain until that purge; network/workload compartment deletion is requested.
+Verify provider deletion before removing the remaining empty compartments or
+claiming a completely empty foundation. Current cleanup state is in the
+[HomeLab ts-ops runbook](https://git.terrascale.tech/mariogk/HomeLab/src/branch/main/fleet/hosts/ts-ops.md#netbird-operator-gateway).
+The old OpenBao `/infra/netbird/servers-gru` group/key IDs are invalid;
+replace the enrollment input and create a fresh OCI mirror before using it.
+
 `generate-controller-material`, the first-seed commands, and the preview
 helper validate only the three mappings listed above. The checked-in
 `deploy/oci-region/plan.json` remains populated for GRU, including its existing
-ts-ops resources and the [operator gateway](#operator-gateway-peering) that
-the ts-ops host runs. For SFO or FRA, copy it to a separate reviewed plan and fill
+ts-ops resources. Its optional [operator gateway](#operator-gateway-peering)
+and NetBird enrollment are unset after the testing reset. For SFO or FRA,
+copy it to a separate reviewed plan and fill
 the cell, region, tenancy, availability domain, compartments, network, Vault,
 key, buckets, IAM identities, host credential secret, resource inventory, and
 cell-specific host profiles. Changing only `cell` and `region` is not enough.
