@@ -89,6 +89,11 @@ type Server struct {
 	workIDs  map[string]string
 	schemas  []schema
 	shapes   map[string][]shape
+
+	uploads   map[string]*upload
+	uploadSeq int
+	aborted   int
+	partHook  func(part int)
 }
 
 // Start runs a stand-in region whose first imported image is imageID. It is
@@ -96,7 +101,8 @@ type Server struct {
 func Start(t testing.TB, imageID string) *Server {
 	t.Helper()
 	s := &Server{imageID: imageID, created: time.Now().UTC().Truncate(time.Second), objects: map[string]object{},
-		work: map[string]int{}, workIDs: map[string]string{}, shapes: map[string][]shape{}}
+		work: map[string]int{}, workIDs: map[string]string{}, shapes: map[string][]shape{},
+		uploads: map[string]*upload{}}
 	server := httptest.NewServer(s.handler())
 	t.Cleanup(server.Close)
 	s.URL = server.URL
@@ -159,6 +165,7 @@ func (s *Server) handler() http.Handler {
 	const core = "/20160918"
 	mux.HandleFunc("HEAD /n/{namespace}/b/{bucket}/o/{object...}", s.headObject)
 	mux.HandleFunc("PUT /n/{namespace}/b/{bucket}/o/{object...}", s.putObject)
+	s.routeMultipart(mux)
 	mux.HandleFunc("GET "+core+"/images", s.listImages)
 	mux.HandleFunc("POST "+core+"/images", s.createImage)
 	mux.HandleFunc("GET "+core+"/images/{id}", s.getImage)
@@ -217,6 +224,10 @@ func (s *Server) putObject(w http.ResponseWriter, r *http.Request) {
 	data, err := io.ReadAll(r.Body)
 	if err != nil {
 		refuse(w, http.StatusBadRequest, "InvalidParameter", err.Error())
+		return
+	}
+	if want := r.Header.Get("Content-MD5"); want != "" && want != contentMD5(data) {
+		refuse(w, http.StatusBadRequest, "InvalidContentMD5", "object MD5 mismatch")
 		return
 	}
 	metadata := map[string]string{}
