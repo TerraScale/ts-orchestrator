@@ -1,8 +1,9 @@
 # Multi-region foundation
 
-Status: foundation only. Every piece below is off by default; a controller
-without the new configuration blocks behaves exactly as before. Nothing here
-creates OCI resources.
+Status: foundation plus the first operations. Every piece below is off by
+default; a controller without the new configuration blocks behaves exactly as
+before. The only OCI effect is the opt-in region subscription
+(`controller.region_planner.subscribe_regions`).
 
 ## Topology
 
@@ -27,6 +28,54 @@ Each region stays its own NATS/JetStream cluster with its own operator. When
 - A region with a leaf listener names each direct child's subtree
   (`nats.embedded.interregion.subtrees`, child to the regions reached through
   it, `LeafTopology.Subtrees`); listener and subtrees are configured together.
+- `nats.embedded.interregion.topology` carries the whole reviewed tree
+  (`hub`, `parents`). When it is set, startup derives this region's view from
+  it and refuses any other: `peers` must be every other region of the tree,
+  `subtrees` exactly this region's children and their subtrees, `remotes`
+  exactly one link to the parent (none at the root), and `global_home` the
+  hub. Without it only the region's local view is checked, as before.
+
+## Interregion material
+
+`ts-orch bootstrap generate-interregion-material --material-directory
+<controller material> --config <reviewed config> --config-sha256 <digest>
+--directory <new private dir> --out <public inventory>` issues a region's
+interregion credentials from its controller material
+(`bootstrapmaterial.GenerateInterRegion`). The reviewed config is
+`{"topology": {"hub": "gru", "parents": {...}}, "listenPort": 7422}`; the
+port is required exactly when the region has children. Into a new
+owner-only directory it writes:
+
+- `interregion.jwt`: the interregion account, signed by the regional
+  operator: exactly the contract's exports and imports, deny-all default leaf
+  permissions, `DisallowBearer`, no JetStream, and one scoped signing key per
+  direct child whose template is that child's subtree permissions,
+  leafnode-only.
+- `cell-interregion.jwt` and `system-interregion.jwt`: the material's cell
+  and system accounts reissued with the contract and `LeafNodeConn = 0`.
+  Point the embedded broker at these instead of `cell.jwt` and `system.jwt`.
+- per child, `child-<cell>.seed` (its scoped signing key, kept for rotation)
+  and `leaf-<cell>.creds`: one leaf-only user that key issued, with no
+  permissions or limits of its own. These credentials are pairwise: each
+  parent/child link has its own, and they go to that child only.
+
+Before anything is written, the claims pass the same contract verifier the
+server runs at startup, and the credentials pass the dialing side's check.
+The material is immutable like the controller material: a second run with
+the same input returns it, any other input is refused. Its metadata
+(`interregion.json`, also the public inventory) records each file's SHA-256,
+the controller material digest it was issued from, and `ledgerDigest`, the
+SHA-256 of the whole record, which is the value the deployment's signed
+bootstrap ledger records for this material.
+
+A child's remote comes only from the reviewed private-peer receipt
+(`bootstrapmaterial.LeafRemote`): the receipt's exact bytes must hash to the
+reviewed digest, and it must be a passing, unexpired
+`oci_private_peer_foundation_configuration_readback` of exactly the
+parent/child peering that allows the parent's leaf port. Every URL is a
+parent controller address inside the parent subnet the receipt observed, and
+the credentials file must be byte-identical to the parent's issued
+`leaf-<child>.creds`.
 
 ## Subject contract
 
@@ -172,20 +221,73 @@ proposal takes no slot.
 
 `internal/regionplanner` turns unplaceable placement intents, classified OCI
 capacity and limit errors, and latency rollups into proposals. It only
-proposes; a human or policy approval is always required. With
+proposes; a human or policy approval is always required. Proposal IDs carry
+the target proposal generation (`<cell>-g<generation>-<hash>`), so no two
+attempts on one cell ever share a proposal ID. With
 `controller.region_planner` enabled (global home only, off by default) it runs
 on the global leader and feeds its budgets to the insight engine;
 `controller.rollouts` likewise opens the rollout store for the dashboard and
 insights.
 
+Its signals are the home's own capacity and limit placement holds and, with
+`peer_signals` (off by default), every interregion peer's: the planner
+queries each peer's decision journal over the observability contract for
+placement `held` decisions and keeps only those about that peer, paging
+back through truncated results (at most 8 pages of 256 per peer and round).
+The query federation runs on the cell connection, independent of the HTTP
+observability listener; `peer_signals` without interregion peers refuses
+to start. A peer's
+journal is another region's data; a forged hold can at most propose the
+peer's overflow region, which still needs a signed approval. Latency signals
+have no source yet: TerraBase member status carries no client latency.
+
+### Region operations loop
+
+`internal/regionops` is the global leader's loop, run every
+`interval_seconds` while the controller holds the global lease. Each tick it:
+
+1. runs the planner;
+2. with `admit`, admits an Approved region at its `region_monthly_cents`
+   price under the region maximum, the ceiling and the approval's cap, and
+   readmits an in-flight region before it starts a new spending step once
+   its admission is in the last third of its TTL. A refused readmission
+   blocks that step even while the older admission is still fresh. A
+   journaled (recovered) spending intent is observed first: an existing
+   effect is recorded regardless of budget, and an absent one is re-run
+   only after a successful readmission. The price is signed policy, not a
+   live quote; the admission is re-evaluated against the current fleet each
+   time;
+3. with `drive`, calls `Driver.Advance` once per region whose next step has
+   an effector, and resumes a Held region only when an observation finds
+   its pending effect (an absent effect stays held for an operator).
+
+`admit` and `drive` need `approvers` (actor to base64 Ed25519 key); nothing
+is admitted or driven without a verifiable signed approval. Waits (no
+approval, stale admission, no effector, an OCI effect in progress) and
+refusals are journaled once per region and reason.
+
+The only effector so far is `subscribe_regions` (needs `drive`): the home's
+instance principal subscribes the tenancy to the proposal's catalog region
+(`catalog.Entry.OCIRegionKey`, for example `SJC`), with the step's create key
+as the `opc-retry-token`. An accepted but not yet READY subscription holds
+the step, and the loop completes it once a later observation finds it READY.
+Every other step waits, journaled.
+
 ## Not yet done
 
-- Effectors for the lifecycle steps (subscription, foundation, image,
-  material, seed, link, public API, teardown), and their wiring into a global
-  leader loop.
-- Issuing interregion account JWTs, per-child scoped signing keys and leaf
-  credentials in `internal/bootstrapmaterial`, bound to the signed ledger, and taking leaf
-  remote URLs only from the reviewed private-peer receipt.
+- Effectors for the remaining lifecycle steps. Foundation (inspect then
+  provision) and image import can reuse `internal/ociregion` and
+  `internal/ociregion/imageimport`, but those are operator tools built on
+  plan files and an admission inventory, not on lifecycle records; they need
+  a record-to-plan mapping and ownership tags by create key first. Material,
+  seed, link, public API, handoff, activation and teardown are not started.
+- A signed path for operators to submit approvals (and renewals) into
+  lifecycle records; today approvals can only be stored by code.
+- Appending interregion material's `ledgerDigest` to the OCI bootstrap
+  ledger as its own record kind, and rendering controller configuration
+  (cell/system JWT paths, listener, subtrees, topology, remotes) from the
+  material.
+- A latency signal source (TerraBase client latency rollups).
 - Granting controllers publish rights on peer `query` subjects, signed region
   health heartbeats (`internal/regionhealth`), and directory-gated placement
   admission.

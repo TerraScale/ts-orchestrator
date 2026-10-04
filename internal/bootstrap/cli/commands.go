@@ -36,7 +36,7 @@ func (c command) run(args []string) error {
 
 func (c command) runAt(args []string, now time.Time) error {
 	if len(args) == 0 {
-		return errors.New("usage: ts-orch bootstrap verify-anchor | verify-manifest | sign-ledger-delegation | sign-anchor | render-controller-config | render-operator-config | render-host-enrollment-public | install-operator-material | open-customer-material | open-rotated-customer-material | sign-manifest | generate-controller-material | provision-controller-material | sign-peer-receipt-delegation | sign-founder-plan | sign-initial-founder-selection | publish-initial-founder-selection | sign-external-seed-reservation | publish-external-seed-reservation | observe-external-seed | sign-external-seed-completion | publish-external-seed-completion | render-founder-continuity | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
+		return errors.New("usage: ts-orch bootstrap verify-anchor | verify-manifest | sign-ledger-delegation | sign-anchor | render-controller-config | render-operator-config | render-host-enrollment-public | install-operator-material | open-customer-material | open-rotated-customer-material | sign-manifest | generate-controller-material | generate-interregion-material | provision-controller-material | sign-peer-receipt-delegation | sign-founder-plan | sign-initial-founder-selection | publish-initial-founder-selection | sign-external-seed-reservation | publish-external-seed-reservation | observe-external-seed | sign-external-seed-completion | publish-external-seed-completion | render-founder-continuity | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
 	}
 	switch args[0] {
 	case "verify-anchor":
@@ -63,6 +63,8 @@ func (c command) runAt(args []string, now time.Time) error {
 		return c.openRotatedCustomerMaterialAt(args[1:])
 	case "generate-controller-material":
 		return c.runGenerateControllerMaterial(args[1:])
+	case "generate-interregion-material":
+		return c.runGenerateInterRegionMaterial(args[1:])
 	case "provision-controller-material":
 		return c.runProvisionControllerMaterial(args[1:])
 	case "sign-peer-receipt-delegation":
@@ -94,7 +96,7 @@ func (c command) runAt(args []string, now time.Time) error {
 	case "publish-founder-selection":
 		return c.publishFounderSelectionAt(args[1:], now)
 	default:
-		return errors.New("usage: ts-orch bootstrap verify-anchor | verify-manifest | sign-ledger-delegation | sign-anchor | render-controller-config | render-operator-config | render-host-enrollment-public | install-operator-material | open-customer-material | open-rotated-customer-material | sign-manifest | generate-controller-material | provision-controller-material | sign-peer-receipt-delegation | sign-founder-plan | sign-initial-founder-selection | publish-initial-founder-selection | sign-external-seed-reservation | publish-external-seed-reservation | observe-external-seed | sign-external-seed-completion | publish-external-seed-completion | render-founder-continuity | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
+		return errors.New("usage: ts-orch bootstrap verify-anchor | verify-manifest | sign-ledger-delegation | sign-anchor | render-controller-config | render-operator-config | render-host-enrollment-public | install-operator-material | open-customer-material | open-rotated-customer-material | sign-manifest | generate-controller-material | generate-interregion-material | provision-controller-material | sign-peer-receipt-delegation | sign-founder-plan | sign-initial-founder-selection | publish-initial-founder-selection | sign-external-seed-reservation | publish-external-seed-reservation | observe-external-seed | sign-external-seed-completion | publish-external-seed-completion | render-founder-continuity | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -24,6 +25,55 @@ func testPlannerConfig() *RegionPlannerConfig {
 		RegionMonthlyCents: map[string]uint64{"gru": 9_000, "fra": 9_500, "sfo": 9_000}, Overflow: map[string]string{"gru": "sfo"}}
 }
 
+// testApproverKey is a base64 Ed25519 public key (32 zero bytes are a valid
+// encoding for configuration parsing).
+const testApproverKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
+// TestPeerSignalsNeedOnlyTheCellConnection pins ts-reviewer 13224: peer
+// signals use a federation over the cell connection, not the HTTP
+// listener's providers, and fail loudly without peers or a connection.
+func TestPeerSignalsNeedOnlyTheCellConnection(t *testing.T) {
+	t.Parallel()
+	if _, err := peerDecisions("gru", nil, []string{"sfo"}); err == nil {
+		t.Error("peer decisions without a connection")
+	}
+	if _, err := peerDecisions("gru", &nats.Conn{}, nil); err == nil {
+		t.Error("peer decisions without peers")
+	}
+	source, err := peerDecisions("gru", &nats.Conn{}, []string{"sfo", "fra"})
+	federation, ok := source.(decisionlog.Federation)
+	if err != nil || !ok || federation.Local != nil || !slices.Equal(federation.Links.Regions(), []string{"gru", "fra", "sfo"}) {
+		t.Fatalf("federation = %+v, %v", source, err)
+	}
+}
+
+func TestTenancyHomeRegionComesFromTheCatalog(t *testing.T) {
+	t.Parallel()
+	for key, want := range map[string]string{"GRU": "sa-saopaulo-1", "sjc": "us-sanjose-1", "FRA": "eu-frankfurt-1"} {
+		if got, err := tenancyHomeRegion(&key); err != nil || got != want {
+			t.Errorf("%s = %q, %v", key, got, err)
+		}
+	}
+	unknown := "IAD"
+	if _, err := tenancyHomeRegion(&unknown); err == nil {
+		t.Error("a home region outside the catalog was accepted")
+	}
+	if _, err := tenancyHomeRegion(nil); err == nil {
+		t.Error("a tenancy without a home region key was accepted")
+	}
+}
+
+func TestRegionPlannerApproversEnableAdmitAndDrive(t *testing.T) {
+	t.Parallel()
+	config := testPlannerConfig()
+	config.Admit, config.Drive, config.SubscribeRegions = true, true, true
+	config.Approvers = map[string]string{"operator:mario": testApproverKey}
+	_, lifecycle, err := config.plannerPolicy("gru")
+	if err != nil || len(lifecycle.Approvers["operator:mario"]) != 32 {
+		t.Fatalf("lifecycle = %+v, %v", lifecycle, err)
+	}
+}
+
 func TestRegionPlannerPolicyCountsTheHomeAndValidates(t *testing.T) {
 	t.Parallel()
 
@@ -36,10 +86,18 @@ func TestRegionPlannerPolicyCountsTheHomeAndValidates(t *testing.T) {
 		t.Fatalf("policy = %+v, lifecycle = %+v", policy, lifecycle)
 	}
 	for name, mutate := range map[string]func(*RegionPlannerConfig){
-		"no ceiling":    func(c *RegionPlannerConfig) { c.MonthlyCeilingCents = 0 },
-		"no max":        func(c *RegionPlannerConfig) { c.MaxRegions = 0 },
-		"no home cost":  func(c *RegionPlannerConfig) { c.HomeMonthlyCents = 0 },
-		"empty catalog": func(c *RegionPlannerConfig) { c.RegionMonthlyCents = nil },
+		"no ceiling":              func(c *RegionPlannerConfig) { c.MonthlyCeilingCents = 0 },
+		"no max":                  func(c *RegionPlannerConfig) { c.MaxRegions = 0 },
+		"no home cost":            func(c *RegionPlannerConfig) { c.HomeMonthlyCents = 0 },
+		"empty catalog":           func(c *RegionPlannerConfig) { c.RegionMonthlyCents = nil },
+		"admit without approvers": func(c *RegionPlannerConfig) { c.Admit = true },
+		"drive without approvers": func(c *RegionPlannerConfig) { c.Drive = true },
+		"subscribe without drive": func(c *RegionPlannerConfig) {
+			c.SubscribeRegions = true
+			c.Approvers = map[string]string{"operator:mario": testApproverKey}
+		},
+		"bad approver key":     func(c *RegionPlannerConfig) { c.Approvers = map[string]string{"operator:mario": "AAAA"} },
+		"empty approver actor": func(c *RegionPlannerConfig) { c.Approvers = map[string]string{"": testApproverKey} },
 	} {
 		config := testPlannerConfig()
 		mutate(config)
@@ -54,15 +112,15 @@ func TestRegionPlannerRunsOnlyInTheGlobalHome(t *testing.T) {
 
 	cfg := Config{NATS: natscell.Config{Cell: "sfo", Replicas: 1}}
 	cfg.Controller.RegionPlanner = testPlannerConfig()
-	if _, err := startRegionPlanner(t.Context(), cfg, nil, nil, nil, func() bool { return true }); err == nil {
+	if _, err := startRegionPlanner(t.Context(), cfg, nil, nil, nil, nil, func() bool { return true }); err == nil {
 		t.Fatal("region planner started without global control")
 	}
 	cfg.Controller.Global = &GlobalControlConfig{Enabled: true, Home: "gru"}
-	if _, err := startRegionPlanner(t.Context(), cfg, nil, &globalControl{}, nil, func() bool { return true }); err == nil {
+	if _, err := startRegionPlanner(t.Context(), cfg, nil, &globalControl{}, nil, nil, func() bool { return true }); err == nil {
 		t.Fatal("region planner started outside the global home")
 	}
 	cfg.Controller.RegionPlanner.Enabled = false
-	if budgets, err := startRegionPlanner(t.Context(), cfg, nil, nil, nil, nil); err != nil || budgets != nil {
+	if budgets, err := startRegionPlanner(t.Context(), cfg, nil, nil, nil, nil, nil); err != nil || budgets != nil {
 		t.Fatalf("disabled planner = %v, %v", budgets, err)
 	}
 	if rollouts, err := startRollouts(t.Context(), cfg, nil, nil, nil, nil); err != nil || rollouts != nil {

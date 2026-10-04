@@ -15,6 +15,9 @@ type Entry struct {
 	Cell string
 	// OCIRegion is the canonical OCI region identifier, for example sa-saopaulo-1.
 	OCIRegion string
+	// OCIRegionKey is the OCI region key a tenancy subscribes with, for
+	// example SJC for us-sanjose-1; it differs from the product cell code.
+	OCIRegionKey string
 	// City, Latitude and Longitude are display metadata for operator views
 	// (the dashboard world map). They authorize nothing.
 	City                string
@@ -35,9 +38,9 @@ const (
 
 // entries is ordered: placement assigns permanent members in this order.
 var entries = [...]Entry{
-	{Cell: GRU, OCIRegion: "sa-saopaulo-1", City: "São Paulo", Latitude: -23.43, Longitude: -46.47},
-	{Cell: SFO, OCIRegion: "us-sanjose-1", City: "San Jose", Latitude: 37.34, Longitude: -121.89},
-	{Cell: FRA, OCIRegion: "eu-frankfurt-1", City: "Frankfurt", Latitude: 50.11, Longitude: 8.68},
+	{Cell: GRU, OCIRegion: "sa-saopaulo-1", OCIRegionKey: "GRU", City: "São Paulo", Latitude: -23.43, Longitude: -46.47},
+	{Cell: SFO, OCIRegion: "us-sanjose-1", OCIRegionKey: "SJC", City: "San Jose", Latitude: 37.34, Longitude: -121.89},
+	{Cell: FRA, OCIRegion: "eu-frankfurt-1", OCIRegionKey: "FRA", City: "Frankfurt", Latitude: 50.11, Longitude: 8.68},
 }
 
 // Len is the number of supported cells.

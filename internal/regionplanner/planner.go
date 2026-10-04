@@ -13,6 +13,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -79,7 +80,11 @@ var (
 	digestToken = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
-const maxEvidence = 16
+const (
+	maxEvidence = 16
+	// maxProposalID is the lifecycle's proposal ID length bound.
+	maxProposalID = 63
+)
 
 func (p Policy) validate() error {
 	if len(p.Catalog) == 0 || p.Window <= 0 || p.CapacityThreshold < 1 || p.LatencyThresholdMillis == 0 ||
@@ -189,7 +194,7 @@ func (p Planner) Plan(signals []Signal, records []regionlifecycle.Record, now ti
 			!regionlifecycle.FitsCeiling(fleet.CommittedMonthlyCents, entry.EstimatedMonthlyCents, p.Policy.MonthlyCeilingCents) {
 			continue
 		}
-		proposal := p.proposal(entry, candidates[cell], now)
+		proposal := p.proposal(entry, candidates[cell], nextProposalGeneration(records, cell), now)
 		if err := proposal.Validate(); err != nil {
 			return nil, err
 		}
@@ -213,7 +218,19 @@ func blocked(records []regionlifecycle.Record, cell string, since time.Time) boo
 	return false
 }
 
-func (p Planner) proposal(entry CatalogEntry, found *candidate, now time.Time) regionlifecycle.Proposal {
+// nextProposalGeneration is the ProposalGeneration a proposal for cell would
+// get: 1 for a new cell, or the next record generation when it replaces a
+// terminal record (Machine.Repropose).
+func nextProposalGeneration(records []regionlifecycle.Record, cell string) uint64 {
+	for _, record := range records {
+		if record.Cell == cell {
+			return record.Generation + 1
+		}
+	}
+	return 1
+}
+
+func (p Planner) proposal(entry CatalogEntry, found *candidate, generation uint64, now time.Time) regionlifecycle.Proposal {
 	evidence := slices.Sorted(maps.Keys(found.evidence))
 	if len(evidence) > maxEvidence {
 		evidence = evidence[:maxEvidence]
@@ -226,10 +243,23 @@ func (p Planner) proposal(entry CatalogEntry, found *candidate, now time.Time) r
 	// digests are stable across windows, and Repropose refuses the previous
 	// proposal ID, so without it persistent demand could never propose the
 	// cell again after a terminal decision.
+	//
+	// The target proposal generation is part of it too. Repropose refuses
+	// only the immediately preceding ID, so an ID that could recur for a
+	// later attempt would let that attempt share an earlier attempt's
+	// identity in approvals, journal records and retry tokens. With the
+	// generation, no two attempts on one cell ever share a proposal ID.
 	round := now.UTC().Truncate(p.Policy.Window).Format(time.RFC3339)
-	identity := sha256.Sum256([]byte(entry.Cell + "\x00" + round + "\x00" + strings.Join(evidence, ",")))
+	gen := strconv.FormatUint(generation, 10)
+	identity := sha256.Sum256([]byte(entry.Cell + "\x00" + gen + "\x00" + round + "\x00" + strings.Join(evidence, ",")))
+	id := entry.Cell + "-g" + gen + "-" + hex.EncodeToString(identity[:6])
+	if len(id) > maxProposalID {
+		// A long cell and generation still get a unique, valid ID: the
+		// generation stays inside the hashed identity.
+		id = entry.Cell + "-" + hex.EncodeToString(identity[:6])
+	}
 	return regionlifecycle.Proposal{
-		ID: entry.Cell + "-" + hex.EncodeToString(identity[:6]), Cell: entry.Cell, OCIRegion: entry.OCIRegion,
+		ID: id, Cell: entry.Cell, OCIRegion: entry.OCIRegion,
 		Reason: "planner: " + strings.Join(reasons, ", "), EvidenceDigests: evidence,
 		EstimatedMonthlyCents: entry.EstimatedMonthlyCents, ProposedAt: now.UTC(),
 	}

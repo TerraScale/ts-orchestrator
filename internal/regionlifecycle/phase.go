@@ -189,3 +189,39 @@ func (p Phase) OccupiesSlot() bool {
 // Open reports whether a record in phase p still blocks a new proposal for
 // the same cell.
 func (p Phase) Open() bool { return !p.Terminal() }
+
+// NextStep returns the step whose effect Driver.Advance would run or observe
+// next for record: the pending intent's step if one is journaled (also while
+// held, rolling back or settling before retirement), otherwise the step that
+// starts in the record's phase. Phases that start no step return false.
+func NextStep(record Record) (Step, bool) {
+	if record.Pending != nil {
+		return record.Pending.Step, true
+	}
+	if def, ok := stepFrom(record.Phase); ok {
+		return def.step, true
+	}
+	return "", false
+}
+
+// Spends reports whether step creates billable resources, so it needs a
+// cost admission younger than the policy's AdmissionTTL when it begins.
+func (s Step) Spends() bool {
+	for _, def := range steps {
+		if def.step == s {
+			return def.spends
+		}
+	}
+	return false
+}
+
+// Retire reports whether step belongs to retirement, which needs the signed
+// retirement approval instead of the expansion approval and admission.
+func (s Step) Retire() bool {
+	for _, def := range steps {
+		if def.step == s {
+			return def.retire
+		}
+	}
+	return false
+}

@@ -43,6 +43,8 @@ const (
 	KindVolumeReattached   Kind = "volume_reattached"
 	KindBackupTaken        Kind = "backup_taken"
 	KindRegionProposed     Kind = "region_proposed"
+	KindRegionAdmitted     Kind = "region_admitted"
+	KindRegionStep         Kind = "region_step"
 	KindLeaderChanged      Kind = "leader_changed"
 	KindQuorumDegraded     Kind = "quorum_degraded"
 	KindQuorumRestored     Kind = "quorum_restored"
