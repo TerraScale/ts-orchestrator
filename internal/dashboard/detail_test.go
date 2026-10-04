@@ -184,6 +184,34 @@ func TestDetailPagesRenderWithoutProviders(t *testing.T) {
 	}
 }
 
+func TestOCIPageCountsTheFleetByLifecycleState(t *testing.T) {
+	t.Parallel()
+	older, newer := memberSnapshot(), memberSnapshot()
+	older.OCI.Fleet = []observability.OCIFleetView{{Region: "fra", ObservedAt: testNow.Add(-time.Hour),
+		Instances: map[string]int{"STOPPED": 9}}}
+	newer.Member = "ctl-2"
+	newer.OCI.Fleet = []observability.OCIFleetView{{Region: "fra", ObservedAt: testNow.Add(-time.Minute),
+		Instances: map[string]int{"RUNNING": 3, "PROVISIONING": 1}, Volumes: map[string]int{"AVAILABLE": 3},
+		Attachments: map[string]int{"ATTACHED": 2, "ATTACHING": 1}}}
+	handler := newTestDashboard(Options{Snapshots: fixedSnapshots{snapshot: older},
+		Cluster: fixedCluster{snapshot: observability.ClusterSnapshot{Cell: "fra",
+			Members: []observability.MemberSnapshot{older, newer}}}}).Handler()
+	body := get(t, handler, "/oci").Body.String()
+	for _, want := range []string{"Fleet by lifecycle state", "RUNNING 3", "PROVISIONING 1", "AVAILABLE 3",
+		"ATTACHED 2", "ATTACHING 1"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("/oci lacks %q", want)
+		}
+	}
+	if strings.Contains(body, "STOPPED 9") {
+		t.Error("/oci shows an older sweep of the same region")
+	}
+	if body := get(t, newTestDashboard(Options{}).Handler(), "/oci").Body.String(); !strings.Contains(body,
+		"No member reported an OCI fleet sweep") {
+		t.Error("/oci does not explain a missing fleet sweep")
+	}
+}
+
 func TestDeepRegionLinksAreKept(t *testing.T) {
 	t.Parallel()
 	state := parseState(nil)

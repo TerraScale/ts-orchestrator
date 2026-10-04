@@ -110,11 +110,14 @@ func (stats *operationStats) record(service, operation string, status int, trans
 	}
 }
 
-// APIView returns per-operation OCI API usage since process start.
+// APIView returns per-operation OCI API usage since process start and the
+// latest fleet inventory by lifecycle state.
 func APIView() observability.OCIView {
+	fleet := FleetInventory()
 	apiStats.mu.Lock()
 	defer apiStats.mu.Unlock()
-	view := observability.OCIView{Operations: make([]observability.OCIOperationView, 0, len(apiStats.byKey))}
+	view := observability.OCIView{Operations: make([]observability.OCIOperationView, 0, len(apiStats.byKey)),
+		Fleet: fleet}
 	for _, operation := range apiStats.byKey {
 		view.Operations = append(view.Operations, *operation)
 	}
