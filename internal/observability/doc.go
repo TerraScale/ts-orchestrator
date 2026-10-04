@@ -15,6 +15,7 @@
 // or authority state, and nothing it serves is used as admission evidence.
 //
 // The HTTP listener serves /metrics, /healthz and /readyz on a private
-// address only: loopback by default, or an explicitly configured private or
-// NetBird (CGNAT) address. Unspecified and public addresses are rejected.
+// address only: loopback by default, or an explicitly configured private
+// address, such as a VCN or NetBird (10.200.0.0/16) one. Unspecified, CGNAT
+// and public addresses are rejected.
 package observability

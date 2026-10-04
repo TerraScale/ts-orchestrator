@@ -91,11 +91,11 @@ func TestPodmanManagerSyncAndPrune(t *testing.T) {
 		t.Fatalf("network_admin peer update returned HTTP %d, want 403", status)
 	}
 
-	// Replace member-1: the old revision goes offline, a new identity at the
+	// Replace db-1: the old revision goes offline, a new identity at the
 	// same slot IP registers under its OS hostname.
 	slot := d.Slots[3]
-	stack.removeContainer("gru-member-1")
-	stale := seeded.peers["gru-member-1"]
+	stack.removeContainer("gru-1-db-1")
+	stale := seeded.peers["gru-1-db-1"]
 	stack.wait("replaced revision to disconnect", 90*time.Second, func() bool {
 		var peer apiPeer
 		return stack.call(owner, "GET", "/peers/"+stale, nil, &peer) == nil && !peer.Connected
@@ -120,12 +120,60 @@ func TestPodmanManagerSyncAndPrune(t *testing.T) {
 		t.Fatalf("live peer was not renamed to its slot name: %+v", peers[index])
 	}
 	if !slices.ContainsFunc(peers, func(p apiPeer) bool { return p.ID == seeded.peers["operator-1"] }) ||
-		!slices.ContainsFunc(peers, func(p apiPeer) bool { return p.ID == seeded.peers["gru-controller-a"] }) {
+		!slices.ContainsFunc(peers, func(p apiPeer) bool { return p.ID == seeded.peers["gru-1-ctl-1"] }) {
 		t.Fatal("prune deleted a peer it must keep")
 	}
 	again, err := Prune(ctx, api, d, PruneOptions{}, true)
 	if err != nil || len(again.Changes) != 0 {
 		t.Fatalf("second prune was not a no-op: %v %v", again.Changes, err)
+	}
+
+	// Decommission ctl-1: prune keeps a down slot's last peer, so
+	// remove-peers deletes it once its server is gone.
+	stack.removeContainer("gru-1-ctl-1")
+	controllerA := seeded.peers["gru-1-ctl-1"]
+	stack.wait("decommissioned server to disconnect", 90*time.Second, func() bool {
+		var peer apiPeer
+		return stack.call(owner, "GET", "/peers/"+controllerA, nil, &peer) == nil && !peer.Connected
+	})
+	removed, err := Remove(ctx, api, d, []string{d.Slots[0].Name}, true)
+	if err != nil || len(removed.Changes) != 1 {
+		t.Fatalf("remove-peers: %v %v", removed.Changes, err)
+	}
+	if err := stack.call(owner, "GET", "/peers", nil, &peers); err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(peers, func(p apiPeer) bool { return p.ID == controllerA }) ||
+		!slices.ContainsFunc(peers, func(p apiPeer) bool { return p.ID == live }) {
+		t.Fatal("remove-peers deleted the wrong peers")
+	}
+
+	// A fresh server setup key enrolls the slot's next server into the
+	// servers group only.
+	var fresh bytes.Buffer
+	if _, err := CreateServerSetupKey(ctx, api, d, &fresh, true); err != nil {
+		t.Fatal(err)
+	}
+	var keys []apiSetupKey
+	if err := stack.call(owner, "GET", "/setup-keys", nil, &keys); err != nil {
+		t.Fatal(err)
+	}
+	servers := seeded.groups["ts-orch-servers"]
+	seedKey := keys[slices.IndexFunc(keys, func(k apiSetupKey) bool { return k.ID == seeded.keyID })]
+	if !slices.ContainsFunc(keys, func(k apiSetupKey) bool {
+		return k.ID != seeded.keyID && k.Name == d.SetupKeyName && k.Type == "reusable" && k.Valid &&
+			k.Expires.Equal(seedKey.Expires) && slices.Equal(k.AutoGroups, []string{servers})
+	}) {
+		t.Fatalf("fresh setup key not found: %+v", keys)
+	}
+	stack.client("gru-1-ctl-1-next", strings.TrimSpace(fresh.String()), d.Slots[0].IP, false)
+	var next apiPeer
+	if err := stack.call(owner, "GET", "/peers/"+stack.peerID(owner, "gru-1-ctl-1-next"), nil, &next); err != nil {
+		t.Fatal(err)
+	}
+	groups := slices.DeleteFunc(slices.Clone(next.Groups), func(g groupMinimum) bool { return g.Name == "All" })
+	if !slices.Equal(minimumIDs(groups), []string{servers}) {
+		t.Fatalf("next server groups: %+v", next.Groups)
 	}
 }
 
@@ -442,13 +490,13 @@ func (s *podmanStack) seedLegacy(owner string) podmanSeed {
 		return out.ID, out.Key
 	}
 	_, gatewayKey := key("gateway", "one-off", "gateway")
-	seed.keyID, seed.serverKey = key("gru-ts-orch-servers", "reusable", "ts-orch-servers")
+	seed.keyID, seed.serverKey = key("gru-servers", "reusable", "ts-orch-servers")
 	_, operatorKey := key("test-operator", "one-off", "operators")
 	s.client("ts-ops", gatewayKey, "", false)
 	s.client("operator-1", operatorKey, "", true)
-	s.client("gru-controller-a", seed.serverKey, s.slotIP("10.251.0.11"), false)
-	s.client("gru-member-1", seed.serverKey, s.slotIP("10.251.0.21"), false)
-	for _, host := range []string{"ts-ops", "operator-1", "gru-controller-a", "gru-member-1"} {
+	s.client("gru-1-ctl-1", seed.serverKey, s.slotIP("10.251.0.11"), false)
+	s.client("gru-1-db-1", seed.serverKey, s.slotIP("10.251.0.21"), false)
+	for _, host := range []string{"ts-ops", "operator-1", "gru-1-ctl-1", "gru-1-db-1"} {
 		seed.peers[host] = s.peerID(owner, host)
 	}
 	var network, resource, router created
@@ -516,7 +564,7 @@ func (s *podmanStack) verifySynced(owner string, d Desired, seed podmanSeed) {
 		slices.Sort(ids)
 		return ids
 	}
-	wantServers := []string{seed.peers["gru-controller-a"], seed.peers["gru-member-1"]}
+	wantServers := []string{seed.peers["gru-1-ctl-1"], seed.peers["gru-1-db-1"]}
 	slices.Sort(wantServers)
 	if !slices.Equal(members("gateway"), []string{seed.peers["ts-ops"]}) || !slices.Equal(members("operators"), []string{seed.peers["operator-1"]}) ||
 		!slices.Equal(members("ts-orch-servers"), wantServers) {

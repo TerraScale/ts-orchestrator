@@ -17,14 +17,14 @@ import (
 func TestValidateListenAddressAcceptsOnlyPrivateLiterals(t *testing.T) {
 	t.Parallel()
 	for _, address := range []string{"127.0.0.1:9464", "[::1]:9464", "10.0.1.5:9464", "172.16.4.2:9464",
-		"192.168.1.10:9464", "100.90.12.3:9464", "[fd00::1]:9464"} {
+		"192.168.1.10:9464", "10.200.106.253:9464", "[fd00::1]:9464"} {
 		if _, err := ValidateListenAddress(address); err != nil {
 			t.Errorf("ValidateListenAddress(%q) = %v", address, err)
 		}
 	}
 	for _, address := range []string{"0.0.0.0:9464", "[::]:9464", ":9464", "localhost:9464", "8.8.8.8:9464",
 		"169.254.1.1:9464", "224.0.0.1:9464", "127.0.0.1:0", "127.0.0.1", "[fe80::1%eth0]:9464",
-		"127.000.0.1:9464", "[::ffff:8.8.8.8]:9464"} {
+		"127.000.0.1:9464", "[::ffff:8.8.8.8]:9464", "100.90.12.3:9464"} {
 		if _, err := ValidateListenAddress(address); err == nil {
 			t.Errorf("ValidateListenAddress(%q) accepted a non-private or ambiguous address", address)
 		}

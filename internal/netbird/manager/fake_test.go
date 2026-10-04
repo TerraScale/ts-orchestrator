@@ -421,6 +421,16 @@ func (f *fakeManager) serve(w http.ResponseWriter, r *http.Request) {
 		f.write(w, zone)
 	case "GET setup-keys":
 		f.write(w, f.setupKeys)
+	case "POST setup-keys":
+		var request setupKeyRequest
+		if f.read(r, &request) {
+			key := map[string]any{"id": f.id("sk"), "name": request.Name, "key": "NEW-SECRET-SETUP-KEY",
+				"type": request.Type, "state": "valid", "valid": true, "revoked": false,
+				"auto_groups": request.AutoGroups, "ephemeral": request.Ephemeral, "usage_limit": request.UsageLimit,
+				"expires_in": request.ExpiresIn}
+			f.setupKeys = append(f.setupKeys, key)
+			f.write(w, key)
+		}
 	case "GET dns/zones/*/records", "POST dns/zones/*/records", "PUT dns/zones/*/records/*", "DELETE dns/zones/*/records/*":
 		f.serveRecords(w, r, path)
 	default:
@@ -480,7 +490,7 @@ func (f *fakeManager) seedLegacy(t *testing.T) legacyIDs {
 	ids.servers = f.addGroup("ts-orch-servers")
 	now := time.Now()
 	ids.tsOps = f.addPeer("ts-ops", "10.250.10.155", true, now, ids.gateway)
-	ids.server1 = f.addPeer("gru-controller-a", "10.251.0.11", true, now, ids.servers)
+	ids.server1 = f.addPeer("gru-1-ctl-1", "10.251.0.11", true, now, ids.servers)
 	ids.operator1 = f.addPeer("laptop", "203.0.113.7", true, now, ids.operators)
 	ids.network, ids.resource, ids.router = "n-legacy", "res-legacy", "rt-legacy"
 	f.networks = append(f.networks, &fakeNetwork{
@@ -504,7 +514,7 @@ func (f *fakeManager) seedLegacy(t *testing.T) legacyIDs {
 		Protocol: "tcp", Ports: []string{"22", "443", "2022"}, Sources: []string{ids.operators}, Destinations: []string{ids.gateway}})
 	ids.ping = add("operators-ping-to-forgejo", ruleRequest{Name: "forgejo-ping", Enabled: true, Action: "accept",
 		Bidirectional: true, Protocol: "icmp", Sources: []string{ids.operators}, Destinations: []string{ids.gateway}})
-	f.setupKeys = []map[string]any{{"id": "sk1", "name": "gru-ts-orch-servers", "key": "SECRET-SETUP-KEY-VALUE",
+	f.setupKeys = []map[string]any{{"id": "sk1", "name": "gru-servers", "key": "SECRET-SETUP-KEY-VALUE",
 		"type": "reusable", "state": "valid", "valid": true, "revoked": false, "auto_groups": []string{ids.servers}}}
 	return ids
 }

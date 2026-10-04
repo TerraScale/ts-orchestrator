@@ -352,9 +352,9 @@ func TestNetbirdCancelledFetchPreservesExistingClient(t *testing.T) {
 
 func TestNetbirdPublicConfigRejectsInvalidPeerNames(t *testing.T) {
 	for name, names := range map[string]map[string]string{
-		"public address": {"8.8.8.8": "gru-controller-a"},
+		"public address": {"8.8.8.8": "gru-1-ctl-1"},
 		"invalid label":  {"10.251.0.11": "GRU_controller_a"},
-		"duplicate name": {"10.251.0.11": "gru-controller-a", "10.251.0.12": "gru-controller-a"},
+		"duplicate name": {"10.251.0.11": "gru-1-ctl-1", "10.251.0.12": "gru-1-ctl-1"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.json")
@@ -382,8 +382,8 @@ func TestGRUNetbirdInputNamesEveryCellSlotStably(t *testing.T) {
 	if err := json.Unmarshal(read(t, filepath.Join(deployRoot(t), "deploy/oci-region/plan.json")), &plan); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"controller-a": "gru-controller-a", "controller-b": "gru-controller-b",
-		"controller-c": "gru-controller-c", "member-a": "gru-member-1", "member-b": "gru-member-2"}
+	want := map[string]string{"controller-a": "gru-1-ctl-1", "controller-b": "gru-1-ctl-2",
+		"controller-c": "gru-1-ctl-3", "member-a": "gru-1-db-1", "member-b": "gru-1-db-2"}
 	if len(plan.Hosts) != len(want) || len(config.PeerNames) != len(want) {
 		t.Fatalf("plan slots %d and peer names %d differ from %d", len(plan.Hosts), len(config.PeerNames), len(want))
 	}

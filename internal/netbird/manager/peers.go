@@ -55,32 +55,9 @@ func Prune(ctx context.Context, api *API, d Desired, options PruneOptions, apply
 	if options.Now.IsZero() {
 		options.Now = time.Now()
 	}
-	var groups []apiGroup
-	if err := api.do(ctx, "GET", "/groups", nil, &groups); err != nil {
-		return Report{}, err
-	}
-	var spec GroupSpec
-	for _, group := range d.Groups {
-		if group.Name == d.ServersGroup {
-			spec = group
-		}
-	}
-	servers, err := matchName(groups, func(g apiGroup) string { return g.Name }, spec.Name, spec.RenamedFrom, "group")
+	peers, err := serverPeers(ctx, api, d)
 	if err != nil {
 		return Report{}, err
-	}
-	if servers == nil {
-		return Report{}, fmt.Errorf("NetBird group %s does not exist", d.ServersGroup)
-	}
-	var all []apiPeer
-	if err := api.do(ctx, "GET", "/peers", nil, &all); err != nil {
-		return Report{}, err
-	}
-	var peers []apiPeer
-	for _, peer := range all {
-		if hasGroup(peer.Groups, servers.ID) {
-			peers = append(peers, peer)
-		}
 	}
 	p := &plan{}
 	handled := map[string]bool{}
@@ -194,6 +171,87 @@ func Prune(ctx context.Context, api *API, d Desired, options PruneOptions, apply
 		return boolOrder(a.change.Action != "delete") - boolOrder(b.change.Action != "delete")
 	})
 	return p.run(ctx, apply)
+}
+
+// Remove deletes the disconnected server peers of the named slots, matched
+// by slot IP or slot peer name, or every disconnected server peer when slots
+// is empty. It decommissions a torn-down server or cell, whose last peers
+// prune keeps for the slot's return. Connected peers are left alone.
+func Remove(ctx context.Context, api *API, d Desired, slots []string, apply bool) (Report, error) {
+	if err := d.Validate(); err != nil {
+		return Report{}, err
+	}
+	var targets []Slot
+	for _, name := range slots {
+		index := slices.IndexFunc(d.Slots, func(slot Slot) bool { return slot.Name == name })
+		if index < 0 {
+			return Report{}, fmt.Errorf("NetBird desired state has no slot %q", name)
+		}
+		targets = append(targets, d.Slots[index])
+	}
+	peers, err := serverPeers(ctx, api, d)
+	if err != nil {
+		return Report{}, err
+	}
+	p := &plan{}
+	for _, peer := range peers {
+		if len(targets) > 0 && !slices.ContainsFunc(targets, func(slot Slot) bool {
+			return slotIP(peer) == slot.IP || peer.Name == d.PeerName(slot)
+		}) {
+			continue
+		}
+		if peer.Connected {
+			p.warn("peer %s at %s is connected; stop its server first", peer.Name, slotIP(peer))
+			continue
+		}
+		id := peer.ID
+		p.add(Change{"delete", "peer", peer.Name, "decommissioned"}, func(ctx context.Context, _ *refs) error {
+			return api.do(ctx, "DELETE", "/peers/"+id, nil, nil)
+		})
+	}
+	return p.run(ctx, apply)
+}
+
+// serverPeers lists the peers in the servers group. Peers outside it are
+// never touched.
+func serverPeers(ctx context.Context, api *API, d Desired) ([]apiPeer, error) {
+	servers, err := serversGroupID(ctx, api, d)
+	if err != nil {
+		return nil, err
+	}
+	var all []apiPeer
+	if err := api.do(ctx, "GET", "/peers", nil, &all); err != nil {
+		return nil, err
+	}
+	var peers []apiPeer
+	for _, peer := range all {
+		if hasGroup(peer.Groups, servers) {
+			peers = append(peers, peer)
+		}
+	}
+	return peers, nil
+}
+
+// serversGroupID finds the servers group by its name or a former name.
+func serversGroupID(ctx context.Context, api *API, d Desired) (string, error) {
+	var groups []apiGroup
+	if err := api.do(ctx, "GET", "/groups", nil, &groups); err != nil {
+		return "", err
+	}
+	var spec GroupSpec
+	for _, group := range d.Groups {
+		if group.Name == d.ServersGroup {
+			spec = group
+		}
+	}
+	servers, err := matchName(groups, func(g apiGroup) string { return g.Name }, spec.Name, spec.RenamedFrom, "group")
+	if err != nil {
+		return "", err
+	}
+	if servers == nil {
+		return "", fmt.Errorf("NetBird group %s does not exist", d.ServersGroup)
+	}
+	return servers.ID, nil
 }
 
 func boolOrder(value bool) int {

@@ -530,8 +530,8 @@ func TestFirstRegistrationUsesStableSlotPeerName(t *testing.T) {
 	for name, tc := range map[string]struct {
 		ip, want string
 	}{
-		"mapped controller": {"10.251.0.12", "gru-controller-b"},
-		"mapped member":     {"10.251.0.21", "gru-member-1"},
+		"mapped controller": {"10.251.0.12", "gru-1-ctl-2"},
+		"mapped member":     {"10.251.0.21", "gru-1-db-1"},
 		"unmapped server":   {"10.251.0.40", "ts-gru-server-1"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -539,7 +539,7 @@ func TestFirstRegistrationUsesStableSlotPeerName(t *testing.T) {
 			e.primaryIP = func(context.Context) (netip.Addr, error) { return netip.MustParseAddr(tc.ip), nil }
 			e.readKey = func(context.Context, Config) ([]byte, error) { return []byte(testSetupKey), nil }
 			cfg := testConfig()
-			cfg.PeerNames = map[string]string{"10.251.0.12": "gru-controller-b", "10.251.0.21": "gru-member-1"}
+			cfg.PeerNames = map[string]string{"10.251.0.12": "gru-1-ctl-2", "10.251.0.21": "gru-1-db-1"}
 			var registered string
 			e.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
 				switch args[0] {
@@ -574,7 +574,7 @@ func TestPeerNameMetadataFailureDoesNotConsumeSetupKey(t *testing.T) {
 		return statusJSON("NeedsLogin", DefaultManagementURL, false), nil
 	}
 	cfg := testConfig()
-	cfg.PeerNames = map[string]string{"10.251.0.11": "gru-controller-a"}
+	cfg.PeerNames = map[string]string{"10.251.0.11": "gru-1-ctl-1"}
 	if err := e.enroll(t.Context(), cfg); err == nil || !strings.Contains(err.Error(), "primary private IPv4") {
 		t.Fatalf("enrollment without the slot address registered a peer: %v", err)
 	}
@@ -593,7 +593,7 @@ func TestConnectedServerDoesNotReadPeerNameMetadata(t *testing.T) {
 		return statusJSON("Connected", DefaultManagementURL, true), nil
 	}
 	cfg := testConfig()
-	cfg.PeerNames = map[string]string{"10.251.0.11": "gru-controller-a"}
+	cfg.PeerNames = map[string]string{"10.251.0.11": "gru-1-ctl-1"}
 	if err := e.enroll(t.Context(), cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -653,7 +653,7 @@ func TestPeerNameMetadataFailureKeepsConnectedIdentityUp(t *testing.T) {
 		return nil, nil
 	}
 	cfg := testConfig()
-	cfg.PeerNames = map[string]string{"10.251.0.11": "gru-controller-a"}
+	cfg.PeerNames = map[string]string{"10.251.0.11": "gru-1-ctl-1"}
 	if err := e.enroll(t.Context(), cfg); err == nil {
 		t.Fatal("re-applied settings without the slot peer name")
 	}

@@ -41,8 +41,8 @@ func TestGRUDesiredStateIsConsistentWithTheImageInput(t *testing.T) {
 	if err := json.Unmarshal(wire, &input); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"10.251.0.11": "gru-controller-a", "10.251.0.12": "gru-controller-b",
-		"10.251.0.13": "gru-controller-c", "10.251.0.21": "gru-member-1", "10.251.0.22": "gru-member-2"}
+	want := map[string]string{"10.251.0.11": "gru-1-ctl-1", "10.251.0.12": "gru-1-ctl-2",
+		"10.251.0.13": "gru-1-ctl-3", "10.251.0.21": "gru-1-db-1", "10.251.0.22": "gru-1-db-2"}
 	if got := d.PeerNames(); !mapsEqual(got, want) || !mapsEqual(input.PeerNames, want) {
 		t.Fatalf("slot peer names: desired %v, image input %v", got, input.PeerNames)
 	}
@@ -51,9 +51,9 @@ func TestGRUDesiredStateIsConsistentWithTheImageInput(t *testing.T) {
 		records = append(records, r.Name+"="+r.Content)
 	}
 	wantRecords := []string{
-		"controller-a.gru.ts.internal=10.251.0.11", "controller-b.gru.ts.internal=10.251.0.12",
-		"controller-c.gru.ts.internal=10.251.0.13", "member-1.gru.ts.internal=10.251.0.21",
-		"member-2.gru.ts.internal=10.251.0.22", "nats.gru.ts.internal=10.251.0.11",
+		"ctl-1.gru.ts.internal=10.251.0.11", "ctl-2.gru.ts.internal=10.251.0.12",
+		"ctl-3.gru.ts.internal=10.251.0.13", "db-1.gru.ts.internal=10.251.0.21",
+		"db-2.gru.ts.internal=10.251.0.22", "nats.gru.ts.internal=10.251.0.11",
 		"nats.gru.ts.internal=10.251.0.12", "nats.gru.ts.internal=10.251.0.13",
 		"terrabase.gru.ts.internal=10.251.0.21", "terrabase.gru.ts.internal=10.251.0.22",
 	}
@@ -270,7 +270,7 @@ func TestSyncWarnsAboutSetupKeyWithoutChangingIt(t *testing.T) {
 func TestSyncIgnoresRevokedSetupKeysWithTheServerKeyName(t *testing.T) {
 	f := newFakeManager(t)
 	f.seedLegacy(t)
-	f.setupKeys = append(f.setupKeys, map[string]any{"id": "sk0", "name": "gru-ts-orch-servers",
+	f.setupKeys = append(f.setupKeys, map[string]any{"id": "sk0", "name": "gru-servers",
 		"type": "reusable", "state": "revoked", "valid": false, "revoked": true, "auto_groups": f.setupKeys[0]["auto_groups"]})
 	report, err := Sync(t.Context(), f.api(t), GRU(), false)
 	if err != nil || len(report.Warnings) != 0 {
@@ -285,21 +285,21 @@ func TestPruneDeletesReplacedRevisionsAndRestoresSlotNames(t *testing.T) {
 	old := now.Add(-2 * time.Hour)
 	ancient := now.Add(-72 * time.Hour)
 	servers := ids.servers
-	// controller-b: the replaced revision is offline under the slot name;
+	// ctl-2: the replaced revision is offline under the slot name;
 	// the new revision registered with a suffixed label.
-	staleB := f.addPeer("gru-controller-b", "10.251.0.12", false, old, servers)
-	liveB := f.addPeer("gru-controller-b", "10.251.0.12", true, now, servers)
-	// member-1: the live revision registered under its OS hostname.
-	staleM := f.addPeer("gru-member-1", "10.251.0.21", false, old, servers)
+	staleB := f.addPeer("gru-1-ctl-2", "10.251.0.12", false, old, servers)
+	liveB := f.addPeer("gru-1-ctl-2", "10.251.0.12", true, now, servers)
+	// db-1: the live revision registered under its OS hostname.
+	staleM := f.addPeer("gru-1-db-1", "10.251.0.21", false, old, servers)
 	liveM := f.addPeer("ip-10-251-0-21", "10.251.0.21", true, now, servers)
-	// member-2 is down: keep its newest peer, delete an ancient one.
-	keepM2 := f.addPeer("gru-member-2", "10.251.0.22", false, ancient.Add(time.Hour), servers)
-	oldM2 := f.addPeer("gru-member-2-old", "10.251.0.22", false, ancient, servers)
+	// db-2 is down: keep its newest peer, delete an ancient one.
+	keepM2 := f.addPeer("gru-1-db-2", "10.251.0.22", false, ancient.Add(time.Hour), servers)
+	oldM2 := f.addPeer("gru-1-db-2-old", "10.251.0.22", false, ancient, servers)
 	// An unattributed server peer, long offline, and a recent one.
 	orphan := f.addPeer("scratch", "10.251.0.50", false, ancient, servers)
 	recent := f.addPeer("scratch-2", "10.251.0.51", false, old, servers)
 	// A disconnected peer outside the servers group is never touched.
-	outside := f.addPeer("gru-controller-c", "10.251.0.13", false, ancient, ids.operators)
+	outside := f.addPeer("gru-1-ctl-3", "10.251.0.13", false, ancient, ids.operators)
 	api := f.api(t)
 	d := GRU()
 
@@ -323,11 +323,11 @@ func TestPruneDeletesReplacedRevisionsAndRestoresSlotNames(t *testing.T) {
 			t.Errorf("peer %s was deleted", id)
 		}
 	}
-	if p := f.peer(liveB); p.Name != "gru-controller-b" || p.DNSLabel != "gru-controller-b.netbird.selfhosted" {
-		t.Fatalf("controller-b: %+v", p.apiPeer)
+	if p := f.peer(liveB); p.Name != "gru-1-ctl-2" || p.DNSLabel != "gru-1-ctl-2.netbird.selfhosted" {
+		t.Fatalf("ctl-2: %+v", p.apiPeer)
 	}
-	if p := f.peer(liveM); p.Name != "gru-member-1" || p.DNSLabel != "gru-member-1.netbird.selfhosted" || !p.SSHEnabled {
-		t.Fatalf("member-1: %+v", p.apiPeer)
+	if p := f.peer(liveM); p.Name != "gru-1-db-1" || p.DNSLabel != "gru-1-db-1.netbird.selfhosted" || !p.SSHEnabled {
+		t.Fatalf("db-1: %+v", p.apiPeer)
 	}
 	f.mutations = nil
 	again, err := Prune(t.Context(), api, d, PruneOptions{Now: now}, true)
@@ -340,7 +340,7 @@ func TestPruneLeavesAmbiguousSlotsAlone(t *testing.T) {
 	f := newFakeManager(t)
 	ids := f.seedLegacy(t)
 	f.addPeer("other", "10.251.0.11", true, time.Now(), ids.servers)
-	f.addPeer("gru-controller-a", "10.251.0.11", false, time.Now().Add(-48*time.Hour), ids.servers)
+	f.addPeer("gru-1-ctl-1", "10.251.0.11", false, time.Now().Add(-48*time.Hour), ids.servers)
 	report, err := Prune(t.Context(), f.api(t), GRU(), PruneOptions{}, true)
 	if err != nil || len(report.Changes) != 0 || len(report.Warnings) != 1 {
 		t.Fatalf("ambiguous slot: %v %v %v", report.Changes, report.Warnings, err)
@@ -351,13 +351,13 @@ func TestPruneReportsDNSLabelHeldOutsideTheServersGroup(t *testing.T) {
 	f := newFakeManager(t)
 	ids := f.seedLegacy(t)
 	now := time.Now()
-	f.addPeer("gru-controller-b", "203.0.113.9", true, now, ids.operators)
+	f.addPeer("gru-1-ctl-2", "203.0.113.9", true, now, ids.operators)
 	live := f.addPeer("ip-10-251-0-12", "10.251.0.12", true, now, ids.servers)
 	_, err := Prune(t.Context(), f.api(t), GRU(), PruneOptions{Now: now}, true)
-	if err == nil || !strings.Contains(err.Error(), "another peer holds the DNS label gru-controller-b") {
+	if err == nil || !strings.Contains(err.Error(), "another peer holds the DNS label gru-1-ctl-2") {
 		t.Fatalf("prune error = %v", err)
 	}
-	if f.peer(live).Name != "gru-controller-b" {
+	if f.peer(live).Name != "gru-1-ctl-2" {
 		t.Fatalf("live peer: %+v", f.peer(live).apiPeer)
 	}
 }
@@ -366,9 +366,9 @@ func TestPruneLeavesSlotWhoseNameIsHeldByAnotherConnectedPeerAlone(t *testing.T)
 	f := newFakeManager(t)
 	ids := f.seedLegacy(t)
 	now := time.Now()
-	stale := f.addPeer("gru-controller-b-old", "10.251.0.12", false, now.Add(-72*time.Hour), ids.servers)
+	stale := f.addPeer("gru-1-ctl-2-old", "10.251.0.12", false, now.Add(-72*time.Hour), ids.servers)
 	live := f.addPeer("ip-10-251-0-12", "10.251.0.12", true, now, ids.servers)
-	squatter := f.addPeer("gru-controller-b", "10.251.0.99", true, now, ids.servers)
+	squatter := f.addPeer("gru-1-ctl-2", "10.251.0.99", true, now, ids.servers)
 	api := f.api(t)
 	for run := range 2 {
 		report, err := Prune(t.Context(), api, GRU(), PruneOptions{Now: now}, true)
@@ -381,7 +381,7 @@ func TestPruneLeavesSlotWhoseNameIsHeldByAnotherConnectedPeerAlone(t *testing.T)
 			t.Errorf("peer %s was deleted", id)
 		}
 	}
-	if f.peer(live).Name != "ip-10-251-0-12" || f.peer(squatter).Name != "gru-controller-b" {
+	if f.peer(live).Name != "ip-10-251-0-12" || f.peer(squatter).Name != "gru-1-ctl-2" {
 		t.Fatal("a peer of the contested slot was renamed")
 	}
 }
@@ -534,7 +534,7 @@ func TestCLIReadsPATSafelyAndPrintsNoSecrets(t *testing.T) {
 	if err := Run(t.Context(), []string{"inventory", "--pat-file", patFile, "--management-url", f.server.URL}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out.String(), "SECRET") || !strings.Contains(out.String(), `"gru-ts-orch-servers"`) {
+	if strings.Contains(out.String(), "SECRET") || !strings.Contains(out.String(), `"gru-servers"`) {
 		t.Fatalf("inventory output: %s", out.String())
 	}
 	out.Reset()
@@ -628,8 +628,8 @@ func TestLoopPrunesEvenWhenSyncRefuses(t *testing.T) {
 	// A routing-peer reinstall enrolled before the old peer was removed: two
 	// ts-ops peers in the gateway group make sync refuse the existing network.
 	f.addPeer("ts-ops", "10.250.10.155", true, now, ids.gateway)
-	stale := f.addPeer("gru-controller-b", "10.251.0.12", false, now.Add(-2*time.Hour), ids.servers)
-	f.addPeer("gru-controller-b", "10.251.0.12", true, now, ids.servers)
+	stale := f.addPeer("gru-1-ctl-2", "10.251.0.12", false, now.Add(-2*time.Hour), ids.servers)
+	f.addPeer("gru-1-ctl-2", "10.251.0.12", true, now, ids.servers)
 	loop := Loop{
 		Leader:        func() bool { return true },
 		Token:         func(context.Context) ([]byte, error) { return []byte(testPAT), nil },
@@ -641,5 +641,113 @@ func TestLoopPrunesEvenWhenSyncRefuses(t *testing.T) {
 	}
 	if f.peer(stale) != nil {
 		t.Fatal("a sync refusal stopped peer hygiene")
+	}
+}
+
+func TestSyncWarnsAboutUnmanagedPoliciesAndBroadSetupKeysWithoutChangingThem(t *testing.T) {
+	f := newFakeManager(t)
+	ids := f.seedLegacy(t)
+	all := f.addGroup("All")
+	f.policies = append(f.policies, f.policyFrom(f.id("pol"), policyRequest{Name: "Default", Enabled: true,
+		SourcePostureChecks: []string{}, Rules: []ruleRequest{{Name: "Default", Enabled: true, Action: "accept",
+			Bidirectional: true, Protocol: "all", Sources: []string{all}, Destinations: []string{all}}}}))
+	f.setupKeys[0]["auto_groups"] = []string{ids.servers, ids.operators}
+	if _, err := Sync(t.Context(), f.api(t), GRU(), true); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Sync(t.Context(), f.api(t), GRU(), true)
+	if err != nil || len(report.Changes) != 0 {
+		t.Fatalf("second sync: %v %v", report.Changes, err)
+	}
+	want := []string{"policy Default is not in the desired state of cell gru-1",
+		"setup key gru-servers must auto-assign only group gru-servers"}
+	if !slices.Equal(report.Warnings, want) {
+		t.Fatalf("warnings %q", report.Warnings)
+	}
+	if !slices.ContainsFunc(f.policies, func(p apiPolicy) bool { return p.Name == "Default" && p.Enabled }) ||
+		len(f.setupKeys[0]["auto_groups"].([]string)) != 2 {
+		t.Fatal("sync changed an unmanaged policy or the setup key")
+	}
+}
+
+func TestRemovePeersDeletesOnlyDisconnectedServerPeersOfTheNamedSlots(t *testing.T) {
+	f := newFakeManager(t)
+	ids := f.seedLegacy(t)
+	old := time.Now().Add(-time.Hour)
+	// ctl-1's live peer (ids.server1) is connected; its replaced
+	// revision is not. db-1 is down and matches only by name; db-2
+	// registered under its hostname; a slot-named peer outside the servers
+	// group is no server.
+	staleA := f.addPeer("gru-1-ctl-1-old", "10.251.0.11", false, old, ids.servers)
+	member1 := f.addPeer("gru-1-db-1", "10.251.0.99", false, old, ids.servers)
+	member2 := f.addPeer("ip-10-251-0-22", "10.251.0.22", false, old, ids.servers)
+	scratch := f.addPeer("scratch", "10.251.0.50", false, old, ids.servers)
+	outside := f.addPeer("gru-1-db-1", "203.0.113.9", false, old, ids.operators)
+	api, d := f.api(t), GRU()
+
+	if _, err := Remove(t.Context(), api, d, []string{"controller-z"}, false); err == nil {
+		t.Fatal("accepted an unknown slot")
+	}
+	plan, err := Remove(t.Context(), api, d, []string{"ctl-1", "db-1"}, false)
+	if err != nil || len(plan.Changes) != 2 || len(plan.Warnings) != 1 || len(f.mutations) != 0 {
+		t.Fatalf("dry run: %v %v %v %v", plan.Changes, plan.Warnings, f.mutations, err)
+	}
+	if _, err := Remove(t.Context(), api, d, []string{"ctl-1", "db-1"}, true); err != nil {
+		t.Fatal(err)
+	}
+	for id, kept := range map[string]bool{staleA: false, member1: false, ids.server1: true, member2: true,
+		scratch: true, outside: true, ids.tsOps: true} {
+		if (f.peer(id) != nil) != kept {
+			t.Errorf("peer %s kept=%t, want %t", id, f.peer(id) != nil, kept)
+		}
+	}
+	report, err := Remove(t.Context(), api, d, nil, true)
+	if err != nil || len(report.Changes) != 2 || f.peer(member2) != nil || f.peer(scratch) != nil ||
+		f.peer(ids.server1) == nil || f.peer(outside) == nil {
+		t.Fatalf("remove all: %v %v", report.Changes, err)
+	}
+}
+
+func TestSetupKeyCommandWritesTheKeyOnlyToANewOwnerOnlyFile(t *testing.T) {
+	f := newFakeManager(t)
+	ids := f.seedLegacy(t)
+	t.Setenv("NB_PAT", testPAT)
+	out := filepath.Join(t.TempDir(), "servers.key")
+	var stdout bytes.Buffer
+	run := func(args ...string) error {
+		stdout.Reset()
+		return Run(t.Context(), append(append([]string{"setup-key"}, args...), "--management-url", f.server.URL), &stdout)
+	}
+	if err := run("--out", out); err != nil || len(f.mutations) != 0 ||
+		!strings.Contains(stdout.String(), "plan: create setup-key gru-servers") ||
+		!strings.Contains(stdout.String(), "warning: setup key gru-servers (sk1) is still valid") {
+		t.Fatalf("dry run: %q %v %v", stdout.String(), f.mutations, err)
+	}
+	if _, err := os.Lstat(out); !os.IsNotExist(err) {
+		t.Fatalf("dry run created the key file: %v", err)
+	}
+	if err := run("--out", out, "--apply"); err != nil {
+		t.Fatalf("apply: %q %v", stdout.String(), err)
+	}
+	wire, err := os.ReadFile(out)
+	info, statErr := os.Stat(out)
+	if err != nil || statErr != nil || string(wire) != "NEW-SECRET-SETUP-KEY\n" || info.Mode().Perm() != 0o600 ||
+		strings.Contains(stdout.String(), "NEW-SECRET") {
+		t.Fatalf("key file %q %v %v, output %q", wire, info, err, stdout.String())
+	}
+	key := f.setupKeys[len(f.setupKeys)-1]
+	if key["name"] != "gru-servers" || key["type"] != "reusable" || key["expires_in"] != 0 || key["usage_limit"] != 0 ||
+		key["ephemeral"] != false || !slices.Equal(key["auto_groups"].([]string), []string{ids.servers}) {
+		t.Fatalf("created key %v", key)
+	}
+	// An existing file is refused before any key is created.
+	f.mutations = nil
+	if err := run("--out", out, "--apply"); err == nil || len(f.mutations) != 0 {
+		t.Fatalf("existing file: %v %v", f.mutations, err)
+	}
+	for _, args := range [][]string{{"setup-key"}, {"remove-peers"}, {"remove-peers", "--all", "--slot", "db-1"}} {
+		if err := Run(t.Context(), args, &stdout); err == nil {
+			t.Errorf("%v accepted", args)
+		}
 	}
 }

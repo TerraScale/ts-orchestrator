@@ -286,8 +286,10 @@ operator connects. Both are daemon environment variables in NetBird 0.79;
 
 Intra-region orchestrator traffic never uses NetBird. NATS client and route
 connections, host enrollment and TerraBase replication use OCI VCN private
-IPv4 addresses inside the cell; TerraBase replication endpoints must pass a
-private-IPv4 check that rejects NetBird's `100.64.0.0/10` addresses. No
+IPv4 addresses inside the cell; TerraBase replication endpoints come from
+the members' VCN seats and must be private IPv4 addresses. NetBird peers use
+`10.200.0.0/16`, which is private too, so that check does not exclude a
+NetBird address. No
 orchestrator unit orders after or requires a NetBird unit, so the cell forms
 and heals without the manager. NetBird is the operator access and
 cross-region management overlay only: operators reach private IPs through
@@ -313,7 +315,13 @@ without reading secret contents. Preserve the host's separate exact
 `LiveS3Credential` policy. Update the Vault value when rotating the manager's
 server setup key so subsequent server enrollment remains available.
 
-Generate the public image input from the fully populated reviewed plan:
+For GRU, set `setup_key_secret_id` in the checked-in
+`deploy/image/inputs/netbird-gru.json` to the plan's value and keep its
+`peer_names`, which a test checks against the `ts-orch netbird` desired state
+(see [Fresh cell enrollment](../deploy/netbird/README.md#fresh-cell-enrollment)).
+Another region has no NetBird desired state yet: generate its input from the
+fully populated reviewed plan, and its servers register under their OS
+hostnames:
 
 ```sh
 jq '{management_url: .netbird.management_url, management_ip: .netbird.management_ip,
@@ -363,13 +371,13 @@ server's SSH server. ts-orchestrator owns these policies (see
 | `operators-to-gru-cell-ops-ports` | TCP 22, 4222 (controllers), 9465 (members), routed through ts-ops |
 
 Do not allow 6222 or 8443 to operators. Servers enroll under stable peer
-names (`gru-controller-a`..`c`, `gru-member-1`..`2`) in `nb.ts.internal`, and
+names (`gru-1-ctl-1`..`3`, `gru-1-db-1`..`2`) in `nb.ts.internal`, and
 operators resolve stable cell names in `gru.ts.internal`. From an enrolled
 operator device:
 
 ```sh
-netbird ssh root@gru-controller-a.nb.ts.internal
-netbird ssh -L 8080:127.0.0.1:8080 root@gru-controller-a.nb.ts.internal   # loopback-only tool
+netbird ssh root@gru-1-ctl-1.nb.ts.internal
+netbird ssh -L 8080:127.0.0.1:8080 root@gru-1-ctl-1.nb.ts.internal   # loopback-only tool
 ```
 
 Plain `ssh` to a NetBird name also uses NetBird SSH, through the NetBird
@@ -377,12 +385,12 @@ client's OpenSSH drop-in. For OpenSSH, dial the private address over the
 routing peer:
 
 ```sh
-ssh -i ~/.ssh/terrascale-owner ubuntu@controller-a.gru.ts.internal
+ssh -i ~/.ssh/terrascale-owner ubuntu@ctl-1.gru.ts.internal
 ```
 
 Controller A prints its host key to the serial console at first boot. For the
 other servers, compare the host key on first connection with
-`netbird ssh root@gru-member-1.nb.ts.internal ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`.
+`netbird ssh root@gru-1-db-1.nb.ts.internal ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`.
 The OCI Bastion remains the break-glass path.
 
 ### Apply

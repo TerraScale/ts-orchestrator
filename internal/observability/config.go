@@ -12,7 +12,7 @@ import (
 
 const (
 	// DefaultListenAddress keeps the observability listener on loopback
-	// unless an operator selects a private or NetBird address explicitly.
+	// unless an operator selects a private address explicitly.
 	DefaultListenAddress = "127.0.0.1:9464"
 	// DisabledListenAddress turns the listener off.
 	DisabledListenAddress = "off"
@@ -21,16 +21,14 @@ const (
 	maxBearerTokenBytes = 4096
 )
 
-// netBirdPrefix is the CGNAT range NetBird assigns peer addresses from.
-var netBirdPrefix = netip.MustParsePrefix("100.64.0.0/10")
-
 // Config is the observability section of a role configuration. Its zero
 // value is the default: JSON logs, a loopback listener without a token and no
 // cross-member aggregation.
 type Config struct {
 	// ListenAddress is an IP:port literal. Empty selects
-	// DefaultListenAddress; "off" disables the listener. Only loopback,
-	// RFC 1918/ULA private and NetBird CGNAT addresses are accepted.
+	// DefaultListenAddress; "off" disables the listener. Only loopback and
+	// RFC 1918/ULA private addresses are accepted; NetBird peers use
+	// 10.200.0.0/16, so a NetBird address is private too.
 	ListenAddress string `json:"listen_address,omitempty"`
 	// BearerTokenFile is required for any non-loopback address. /metrics and
 	// the JSON views then require "Authorization: Bearer <token>".
@@ -100,8 +98,8 @@ func ValidateListenAddress(raw string) (netip.AddrPort, error) {
 	if ip.IsUnspecified() || ip.IsMulticast() || ip.IsLinkLocalUnicast() {
 		return netip.AddrPort{}, errors.New("observability listener must bind one private address, not a wildcard")
 	}
-	if !ip.IsLoopback() && !ip.IsPrivate() && !netBirdPrefix.Contains(ip) {
-		return netip.AddrPort{}, errors.New("observability listener must bind loopback, a private VCN or a NetBird address")
+	if !ip.IsLoopback() && !ip.IsPrivate() {
+		return netip.AddrPort{}, errors.New("observability listener must bind loopback or a private VCN or NetBird address")
 	}
 	return address, nil
 }

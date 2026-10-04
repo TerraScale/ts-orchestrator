@@ -380,10 +380,14 @@ func (p *plan) planPolicies(ctx context.Context, api *API, d Desired) error {
 	if err := api.do(ctx, "GET", "/policies", nil, &policies); err != nil {
 		return err
 	}
+	managed := map[string]bool{}
 	for _, spec := range d.Policies {
 		current, err := matchName(policies, func(p apiPolicy) string { return p.Name }, spec.Name, spec.RenamedFrom, "policy")
 		if err != nil {
 			return err
+		}
+		if current != nil {
+			managed[current.ID] = true
 		}
 		if spec.DestinationResource != "" && p.networkDeferred {
 			p.warn("policy %s deferred until network resource %s exists", spec.Name, spec.DestinationResource)
@@ -445,6 +449,13 @@ func (p *plan) planPolicies(ctx context.Context, api *API, d Desired) error {
 			}
 			return api.do(ctx, "PUT", "/policies/"+snapshot.ID, request, nil)
 		})
+	}
+	// Policies are never deleted here, but an unmanaged one (such as the
+	// default All policy) grants access outside the desired state.
+	for _, policy := range policies {
+		if !managed[policy.ID] {
+			p.warn("policy %s is not in the desired state of cell %s", policy.Name, d.Cell)
+		}
 	}
 	return nil
 }
@@ -712,8 +723,10 @@ func (p *plan) verifySetupKey(ctx context.Context, api *API, d Desired) error {
 	if !key.Valid || key.Revoked || key.State != "valid" || key.Type != "reusable" {
 		p.warn("setup key %s is not a valid reusable key (state %s, revoked %t)", key.Name, key.State, key.Revoked)
 	}
-	if servers == "" || !slices.Contains(key.AutoGroups, servers) {
-		p.warn("setup key %s does not auto-assign group %s", key.Name, d.ServersGroup)
+	// Any other auto-group would hand every enrolled server, and anyone who
+	// reads the key from Vault, that group's access.
+	if servers == "" || !slices.Equal(key.AutoGroups, []string{servers}) {
+		p.warn("setup key %s must auto-assign only group %s", key.Name, d.ServersGroup)
 	}
 	return nil
 }

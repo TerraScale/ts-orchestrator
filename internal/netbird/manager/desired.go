@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"maps"
 	"net/netip"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -21,7 +22,7 @@ const DefaultManagementURL = "https://netbird.terrascale.tech"
 // Slot is one fixed cell address. Every revision of the slot's server uses
 // the same private IP, NetBird peer name and cell DNS name.
 type Slot struct {
-	Name string // DNS label inside the cell zone, e.g. controller-a
+	Name string // <role>-<n>, also its DNS label in the cell zone, e.g. ctl-1
 	IP   string // fixed primary private IPv4 address
 	Role string // controller or member
 }
@@ -73,6 +74,7 @@ type ZoneSpec struct {
 // Desired is the complete managed shape of one NetBird account.
 type Desired struct {
 	Cell              string
+	Region            string // OCI region; only its controllers reconcile this state
 	Groups            []GroupSpec
 	ServersGroup      string
 	Network           NetworkSpec
@@ -90,7 +92,7 @@ type Desired struct {
 // GRU returns the canonical desired state of the TerraScale manager.
 func GRU() Desired {
 	return Desired{
-		Cell: "gru",
+		Cell: "gru-1", Region: "sa-saopaulo-1",
 		Groups: []GroupSpec{
 			{Name: "operators"},
 			{Name: "ts-ops-gateway", RenamedFrom: []string{"gateway"}},
@@ -126,18 +128,21 @@ func GRU() Desired {
 		Zone: ZoneSpec{Name: "gru-cell", Domain: "gru.ts.internal",
 			DistributionGroups: []string{"operators"}, TTL: 300},
 		Slots: []Slot{
-			{Name: "controller-a", IP: "10.251.0.11", Role: "controller"},
-			{Name: "controller-b", IP: "10.251.0.12", Role: "controller"},
-			{Name: "controller-c", IP: "10.251.0.13", Role: "controller"},
-			{Name: "member-1", IP: "10.251.0.21", Role: "member"},
-			{Name: "member-2", IP: "10.251.0.22", Role: "member"},
+			{Name: "ctl-1", IP: "10.251.0.11", Role: "controller"},
+			{Name: "ctl-2", IP: "10.251.0.12", Role: "controller"},
+			{Name: "ctl-3", IP: "10.251.0.13", Role: "controller"},
+			{Name: "db-1", IP: "10.251.0.21", Role: "member"},
+			{Name: "db-2", IP: "10.251.0.22", Role: "member"},
 		},
 		RoleAliases:  map[string]string{"nats": "controller", "terrabase": "member"},
-		SetupKeyName: "gru-ts-orch-servers",
+		SetupKeyName: "gru-servers",
 	}
 }
 
-// PeerName is the stable NetBird peer name of a slot, e.g. gru-controller-a.
+// peerNamePattern is the static cell naming scheme <region>-<index>-<role>-<n>.
+var peerNamePattern = regexp.MustCompile(`^[a-z]{3}-[1-9][0-9]*-[a-z]+-[1-9][0-9]*$`)
+
+// PeerName is the stable NetBird peer name of a slot, e.g. gru-1-ctl-1.
 func (d Desired) PeerName(slot Slot) string { return d.Cell + "-" + slot.Name }
 
 // PeerNames maps every slot's private IP to its stable peer name. It is the
@@ -152,7 +157,7 @@ func (d Desired) PeerNames() map[string]string {
 
 // Record is one desired A record in the cell zone.
 type Record struct {
-	Name    string // fully qualified, e.g. controller-a.gru.ts.internal
+	Name    string // fully qualified, e.g. ctl-1.gru.ts.internal
 	Content string
 }
 
@@ -230,6 +235,9 @@ func (d Desired) Validate() error {
 		ip, err := netip.ParseAddr(slot.IP)
 		if err != nil || !ip.Is4() || ip.String() != slot.IP || seenIP[slot.IP] || seenName[slot.Name] || slot.Name == "" {
 			return fmt.Errorf("desired NetBird slot %q is invalid or repeated", slot.Name)
+		}
+		if name := d.PeerName(slot); !peerNamePattern.MatchString(name) {
+			return fmt.Errorf("desired NetBird peer name %q does not follow <region>-<index>-<role>-<n>", name)
 		}
 		if !ip.IsPrivate() || !subnet.Contains(ip) {
 			return fmt.Errorf("desired NetBird slot %q address %s is not a private address inside the cell subnet %s", slot.Name, slot.IP, subnet)

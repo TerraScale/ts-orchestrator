@@ -3,8 +3,9 @@
 Current state: the GRU testing reset removed its server peers, setup keys,
 group, access policies, routing network and `gru.ts.internal` zone. The manager,
 ts-ops peer, operator devices and Forgejo access policies are preserved.
-Recreate GRU resources and replace the owner-only enrollment input before
-applying the GRU desired state below. See
+The GRU cell is wiped entirely and rebuilt as `gru-1` while ts-ops (Forgejo
+and the manager) stays: follow [Fresh cell enrollment](#fresh-cell-enrollment).
+See
 [current regional reset](../../docs/region-bootstrap.md#current-gru-reset).
 
 Self-hosted NetBird at `https://netbird.terrascale.tech` gives enrolled
@@ -62,6 +63,8 @@ and release it like any other change.
 | --- | --- |
 | `ts-orch netbird sync [--apply] [--pat-file FILE]` | Compares the manager with the desired state and prints the plan; `--apply` reconciles it |
 | `ts-orch netbird prune-peers [--apply] [--offline-for DURATION]` | Plans peer hygiene for `gru-servers`: deletes disconnected peers that hold a live slot's IP or name, deletes unmatched peers offline longer than the threshold (default `24h`, minimum `1h`), and renames each slot's live peer to its slot name; `--apply` performs it |
+| `ts-orch netbird remove-peers (--slot NAME... \| --all) [--apply]` | Plans deleting the disconnected `gru-servers` peers of decommissioned slots (matched by slot IP or slot peer name, e.g. `--slot ctl-1`), or every disconnected server peer with `--all`; connected peers are reported and kept |
+| `ts-orch netbird setup-key --out FILE [--apply]` | Plans the server setup key `gru-servers`: reusable, never expiring, auto-assigning only `gru-servers`; `--apply` creates it and writes its value only to FILE, a new `0600` file |
 | `ts-orch netbird inventory` | Prints groups, policies, networks, DNS and peers as the manager reports them |
 
 Without `--apply` the commands only read. Keep the PAT in a root-owned `0600`
@@ -73,7 +76,10 @@ matched by name; a `renamed_from` list renames legacy objects in place, keeping
 their IDs, members and setup-key auto-groups. Groups, policies, networks and
 zones are never deleted; the `gru.ts.internal` zone is fully owned, so stray
 records in it are removed. The server setup key is only checked, never
-changed. `sync` refuses before any change when the subnet differs, an
+changed; `sync` warns when it auto-assigns any group besides `gru-servers`.
+`sync` also warns about every policy outside the desired state, such as the
+default `All` policy; delete those in the dashboard. `sync` refuses before any
+change when the subnet differs, an
 unexpected router exists, or a name is ambiguous. On a fresh account, before
 the `ts-ops` peer is in `ts-ops-gateway`, it creates the groups and other
 policies and defers the network, its resource and router and the policy
@@ -81,7 +87,10 @@ targeting the resource with a warning; the next sync after the routing peer
 joins creates them. An existing network without its router peer is refused.
 
 The cell's leader controller reconciles automatically when an admin PAT
-secret is configured: it runs `sync --apply` and prunes replaced servers' peers
+secret is configured and its `netbird.json` belongs to cell `gru-1`: region
+`sa-saopaulo-1` and `peer_names` equal to the desired state. Any other cell's
+controller logs `NetBird manager reconciliation disabled: …` instead of
+reconciling, or pruning, `gru-1`. It runs `sync --apply` and prunes replaced servers' peers
 on a loop. Every controller runs the loop but only the authority lease holder
 (`CanMutate`) acts: first pass about 30 s after start, then every 5 min ±20%,
 backing off from 30 s to 30 min after failures. NetBird errors are logged and
@@ -145,14 +154,14 @@ The dashboard's Control Center draws every policy; keep it readable:
 - Never use `All` as a source or destination.
 - Three ports or fewer per rule.
 - No bidirectional rules unless the destination must open connections back.
-- Short peer names (`ts-ops`, `gru-controller-a`); they become DNS labels.
+- Short peer names (`ts-ops`, `gru-1-ctl-1`); they become DNS labels.
 - Delete disabled or stale policies, and prune stale peers.
 
 ## DNS
 
 | Domain | Holds | Served to |
 | --- | --- | --- |
-| `nb.ts.internal` | Peer names (account DNS domain), e.g. `ts-ops`, `gru-controller-a`, `mariogk-laptop` | Every peer with NetBird DNS on |
+| `nb.ts.internal` | Peer names (account DNS domain), e.g. `ts-ops`, `gru-1-ctl-1`, `mariogk-laptop` | Every peer with NetBird DNS on |
 | `gru.ts.internal` | Stable cell names (custom zone, no search domain) | `operators` only |
 
 `gru-servers` keep NetBird DNS management disabled, matching their
@@ -162,19 +171,19 @@ IPs and never change across GRU revisions or deployments.
 
 | Name | Address and port | What it is |
 | --- | --- | --- |
-| `controller-a.gru.ts.internal` | `10.251.0.11:22` | OpenSSH, controller A |
-| `controller-b.gru.ts.internal` | `10.251.0.12:22` | OpenSSH, controller B |
-| `controller-c.gru.ts.internal` | `10.251.0.13:22` | OpenSSH, controller C |
-| `member-1.gru.ts.internal` | `10.251.0.21:22` | OpenSSH, member 1 |
-| `member-2.gru.ts.internal` | `10.251.0.22:22` | OpenSSH, member 2 |
+| `ctl-1.gru.ts.internal` | `10.251.0.11:22` | OpenSSH, controller 1 |
+| `ctl-2.gru.ts.internal` | `10.251.0.12:22` | OpenSSH, controller 2 |
+| `ctl-3.gru.ts.internal` | `10.251.0.13:22` | OpenSSH, controller 3 |
+| `db-1.gru.ts.internal` | `10.251.0.21:22` | OpenSSH, TerraBase member 1 |
+| `db-2.gru.ts.internal` | `10.251.0.22:22` | OpenSSH, TerraBase member 2 |
 | `nats.gru.ts.internal` | `10.251.0.11-13:4222` | NATS TLS on the controllers |
 | `terrabase.gru.ts.internal` | `10.251.0.21-22:9465` | TerraBase HTTPS API on the members |
-| `gru-controller-a.nb.ts.internal` etc. | peer NetBird IP | NetBird SSH to a GRU server |
+| `gru-1-ctl-1.nb.ts.internal` etc. | peer NetBird IP | NetBird SSH to a GRU server |
 | `ts-ops.nb.ts.internal` | `10.200.106.253:2022` | ts-ops host admin SSH |
 
 ```sh
-netbird ssh root@gru-controller-a.nb.ts.internal
-ssh -i ~/.ssh/terrascale-owner ubuntu@controller-a.gru.ts.internal
+netbird ssh root@gru-1-ctl-1.nb.ts.internal
+ssh -i ~/.ssh/terrascale-owner ubuntu@ctl-1.gru.ts.internal
 ssh -p 2022 mariogk@ts-ops.nb.ts.internal
 ```
 
@@ -184,7 +193,7 @@ admin endpoints (`/healthz`, `/readyz`, `/metrics`) listen on `127.0.0.1:9464`
 of each member and are reached only through a NetBird SSH tunnel:
 
 ```sh
-netbird ssh -L 9464:127.0.0.1:9464 root@gru-member-1.nb.ts.internal
+netbird ssh -L 9464:127.0.0.1:9464 root@gru-1-db-1.nb.ts.internal
 curl -fsS http://127.0.0.1:9464/readyz
 ```
 
@@ -194,20 +203,28 @@ because Caddy routes by Host; over NetBird, pin the name to ts-ops' NetBird IP
 
 ### Stable peer names
 
-Servers enroll under slot names `gru-controller-a`..`c` and
-`gru-member-1`..`2`, taken from the `peer_names` map in `netbird.json`
+Servers enroll under static names `<region>-<index>-<role>-<n>`:
+controllers `gru-1-ctl-1`..`3` and TerraBase members `gru-1-db-1`..`2`, taken from the `peer_names` map in `netbird.json`
 (private IP → name), read from the primary VNIC's private IPv4 in OCI
 instance metadata:
 
 ```json
 "peer_names": {
-  "10.251.0.11": "gru-controller-a",
-  "10.251.0.12": "gru-controller-b",
-  "10.251.0.13": "gru-controller-c",
-  "10.251.0.21": "gru-member-1",
-  "10.251.0.22": "gru-member-2"
+  "10.251.0.11": "gru-1-ctl-1",
+  "10.251.0.12": "gru-1-ctl-2",
+  "10.251.0.13": "gru-1-ctl-3",
+  "10.251.0.21": "gru-1-db-1",
+  "10.251.0.22": "gru-1-db-2"
 }
 ```
+
+The names are `<cell>-<slot>` (cell `gru-1`, slots `ctl-1`, `db-1`, …) from
+`manager.GRU()` in
+[`internal/netbird/manager/desired.go`](../../internal/netbird/manager/desired.go),
+the single source. Its validation rejects a name outside the scheme, the
+image input repeats them for enrollment, and
+`TestGRUDesiredStateIsConsistentWithTheImageInput` fails when they differ.
+The cell zone uses the slot names (`ctl-1.gru.ts.internal`).
 
 A server whose address has no entry registers under its OS hostname. The name
 applies at first registration; NetBird keeps a peer's name afterwards, and
@@ -217,7 +234,9 @@ the name, so replaced revisions' offline peers are pruned: automatically by
 the leader controller, or with `ts-orch netbird prune-peers --apply`.
 
 The 2026-10-02 change from `netbird.selfhosted` to `nb.ts.internal` and to
-slot names renamed every peer: update saved SSH aliases and `known_hosts`.
+slot names renamed every peer, and the rebuilt GRU cell replaces
+`gru-controller-a`/`gru-member-1` and `controller-a.gru.ts.internal` with the
+static names above: update saved SSH aliases and `known_hosts`.
 
 ## Operator devices
 
@@ -259,7 +278,7 @@ device's resolver.
 `resolvectl status wt0` must show `DefaultRoute: no`. Check both VPNs:
 
 ```sh
-resolvectl query alpha.tail057f.ts.net ts-ops.nb.ts.internal controller-a.gru.ts.internal
+resolvectl query alpha.tail057f.ts.net ts-ops.nb.ts.internal ctl-1.gru.ts.internal
 ip route get 10.200.106.253
 ssh -p 2022 mariogk@ts-ops.nb.ts.internal hostname
 curl --resolve git.terrascale.tech:443:10.200.106.253 https://git.terrascale.tech/api/v1/version
@@ -293,7 +312,7 @@ bytes in base64 (`openssl rand -base64 32`): `NETBIRD_DATASTORE_ENCRYPTION_KEY`,
 | Owner login `mariogk@terrascale.tech` | OpenBao `/infra/netbird/owner` (`NETBIRD_OWNER_EMAIL`, `NETBIRD_OWNER_PASSWORD`) | Dashboard only; automation never uses a human login |
 | Operator automation PAT | OpenBao `/infra/netbird/automation` (`NETBIRD_AUTOMATION_USER_ID`, `_PAT`, `_PAT_ID`, `_PAT_EXPIRES`) | Operator API calls and `ts-orch netbird` by hand |
 | Controller admin PAT | Service user `ts-orchestrator` (role `admin`: `network_admin` cannot rename or delete peers or change account settings). OCI Vault secret referenced by `admin_pat_secret_id` | Leader controller reconciliation |
-| Server setup key | OpenBao `/infra/netbird/servers-gru`, mirrored to OCI Vault `ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqah36eekkgznp466jwk24f4zcoxpjtjvznlqs4z6zsrdta` | Server enrollment through instance principals |
+| Server setup key | OpenBao `/infra/netbird/servers-gru`, mirrored to the OCI Vault secret named by `setup_key_secret_id` in `deploy/image/inputs/netbird-gru.json`. The reset invalidated the pinned `…zsrdta`; [Fresh cell enrollment](#fresh-cell-enrollment) replaces it | Server enrollment through instance principals |
 
 ### PATs
 
@@ -325,18 +344,23 @@ Gateway and operator setup keys are one-off: create them in the dashboard
 with the right auto-group, write them to protected `0600` files, enroll, then
 delete the files.
 
-GRU servers use one reusable, nonexpiring key that assigns only
-`gru-servers`. It keeps its legacy name `gru-ts-orch-servers` until rotation,
-because renaming a key replaces it and mints a new secret. No server receives
-a PAT. Joined peers keep their identities when a key is revoked. Rotate:
+GRU servers use one reusable, nonexpiring key named `gru-servers` that
+assigns only `gru-servers`, so every revision and autoscaled host enrolls with
+it. The testing reset deleted the legacy `gru-ts-orch-servers` key. No server
+receives a PAT. Joined peers keep their identities when a key is revoked.
+Create or rotate it:
 
-1. `POST /api/setup-keys` with `{"name": "gru-servers", "type": "reusable",
-   "expires_in": 0, "usage_limit": 0, "ephemeral": false, "auto_groups":
-   ["<gru-servers ID>"]}`.
-2. Write it to `/infra/netbird/servers-gru`, add a new Vault secret version,
-   and verify `CURRENT` decrypts to the new key.
+1. `ts-orch netbird setup-key --pat-file PAT --out /root/netbird-gru-servers.key`,
+   review the plan, then rerun with `--apply`. The value goes only to the new
+   `0600` file; the command fails before creating a key if the file exists.
+2. Write it to `/infra/netbird/servers-gru` and to OCI Vault
+   ([Fresh cell enrollment](#fresh-cell-enrollment) step 3; for a rotation
+   use `oci vault secret update-base64 --secret-id <ID>` with the same
+   `--from-json` file), verify `CURRENT` decrypts to the new key, and shred
+   both files.
 3. Enroll one test server with the Vault key, then revoke the old key
-   (`PUT /api/setup-keys/<old ID>` with `"revoked": true`).
+   (`PUT /api/setup-keys/<old ID>` with `"revoked": true`). Until then `sync`
+   warns that two valid keys carry the name.
 
 ## Manager on ts-ops
 
@@ -537,9 +561,85 @@ reconnected with its saved identity. Production enrollment proof is in
 [`manager/enrollment-verification.json`](manager/enrollment-verification.json).
 That record attests the enrollment config before `peer_names`
 (`verified_enrollment_config_sha256` `ada24468…`). The shipped
-`deploy/image/inputs/netbird-gru.json` (`3534acc1…`) adds stable slot peer
+`deploy/image/inputs/netbird-gru.json` (`f6124f6f…`) adds the static peer
 names and is not yet covered: refresh the record after its first verified
-rollout.
+rollout, and again once [Fresh cell enrollment](#fresh-cell-enrollment) step 5
+sets the new setup-key secret.
+
+## Fresh cell enrollment
+
+The procedure for a rebuilt cell, first the wiped GRU cell rebuilt as
+`gru-1`: the manager, the `ts-ops` routing peer and operator devices exist;
+GRU's group, policies, network, zone, setup key and server peers do not. If
+`ts-orch netbird inventory` still lists server peers of the wiped cell, remove
+them first ([decommission](#decommission)). Every step that
+changes the manager, OpenBao, OCI or an image is a live action that needs the
+owner's approval. Keep the automation PAT in a root-owned `0600` file `$PAT`.
+
+1. Reconcile the manager objects:
+   `ts-orch netbird sync --pat-file "$PAT"`. The plan creates `gru-servers`,
+   the four policies, network `gru-cell` with its resource and the `ts-ops`
+   router, the DNS settings and the `gru.ts.internal` zone with its records;
+   it warns that no `gru-servers` setup key exists and about any unmanaged
+   policy. Rerun with `--apply`. Delete every policy it flags as outside the
+   desired state in the dashboard (a default `All` policy would open the
+   servers to everything); a third `sync` must print only the setup-key
+   warning.
+2. Create the server setup key ([Setup keys](#setup-keys)):
+
+   ```sh
+   umask 077
+   ts-orch netbird setup-key --pat-file "$PAT" --out netbird-gru-servers.key
+   ts-orch netbird setup-key --pat-file "$PAT" --out netbird-gru-servers.key --apply
+   ```
+
+3. Store it in OpenBao `/infra/netbird/servers-gru` and in a new OCI Vault
+   secret in `sa-saopaulo-1` (the old one went with the reset), never on a
+   command line, then shred both files:
+
+   ```sh
+   # First write netbird-gru-servers.key to OpenBao /infra/netbird/servers-gru.
+   jq -n --rawfile key netbird-gru-servers.key \
+     '{secretContentContent: ($key | rtrimstr("\n") | @base64)}' > netbird-gru-servers.json
+   oci vault secret create-base64 --compartment-id "$SECRET_COMPARTMENT" \
+     --vault-id "$VAULT" --key-id "$VAULT_KEY" --secret-name netbird-gru-servers \
+     --from-json file://netbird-gru-servers.json --wait-for-state ACTIVE \
+     --query data.id --raw-output
+   shred -u netbird-gru-servers.json netbird-gru-servers.key
+   ```
+
+4. After the [operator gateway peering](../../docs/region-bootstrap.md#operator-gateway-peering),
+   grant the cell's controller and host dynamic groups read access to exactly
+   that secret and record it in `plan.netbird`
+   ([automatic server enrollment](../../docs/region-bootstrap.md#automatic-server-enrollment)).
+5. Set the secret OCID as `setup_key_secret_id` in
+   `deploy/image/inputs/netbird-gru.json`, and the controller admin PAT secret
+   as `admin_pat_secret_id` ([Desired state and reconciliation](#desired-state-and-reconciliation)
+   step 1) so one image enables controller reconciliation; update its SHA-256
+   (`sha256sum deploy/image/inputs/netbird-gru.json`) in
+   `deploy/image/image-inputs.json`, run
+   `go test ./internal/netbird/... ./tests/deploy/`, and build the image.
+   Keep `peer_names`: the test checks them against the desired state.
+6. Launch the cell from that image. Each controller and host enrolls through
+   `terrascale-netbird-enroll.service` under its slot name
+   (`gru-1-ctl-1`..`3`, `gru-1-db-1`..`2`); NetBird SSH works once it
+   is connected.
+7. Verify: `ts-orch netbird inventory` lists the five server peers under slot
+   names in `gru-servers`, `sync` and `prune-peers` print `no changes` without
+   warnings, and the [Verify](#verify) checks pass. Controller logs show
+   `NetBird manager reconciliation enabled on the cell authority holder`.
+
+### Decommission
+
+To decommission servers or a whole cell, terminate the instances, then remove
+their peers; `prune-peers` keeps each down slot's last peer for its return:
+
+```sh
+ts-orch netbird remove-peers --pat-file "$PAT" --slot db-2   # or --all for the whole cell
+ts-orch netbird remove-peers --pat-file "$PAT" --slot db-2 --apply
+```
+
+Revoke the setup key too when the cell is gone for good.
 
 ## Verify
 
@@ -566,7 +666,7 @@ sudo netbird debug config | grep -i ssh
 ```
 
 From an operator device: TCP 4222 on the controllers, 22 and 9465 on the
-members connect; 8443 and 6222 do not; `controller-a.gru.ts.internal`
+members connect; 8443 and 6222 do not; `ctl-1.gru.ts.internal`
 resolves to `10.251.0.11`; `netbird ssh` opens a root session on every
 server.
 
@@ -574,7 +674,7 @@ server.
 
 | Symptom | Check |
 | --- | --- |
-| Peer named `gru-controller-a-x-y` | A replaced revision's peer still holds the name: `ts-orch netbird prune-peers`, then `--apply` |
+| Peer named `gru-1-ctl-1-x-y` | A replaced revision's peer still holds the name: `ts-orch netbird prune-peers`, then `--apply` |
 | Dashboard "Connection IP" is `10.89.77.1` | Forwarded-address trust (`trustedHTTPProxies`/`trustedPeers`) in the rendered config |
 | NetBird dead on a dual-stack device | Peer range back in `100.64.0.0/10`; Tailscale drops it outside `tailscale0` |
 | Stale address or peer map on a Linux client | `sudo systemctl restart netbird`; compare `netbird status -d` with the `wt0` address |

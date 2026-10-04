@@ -18,15 +18,20 @@ import (
 const maxPATFileBytes = 4 << 10
 
 // Commands lists the subcommands Run handles.
-var Commands = []string{"sync", "prune-peers", "inventory"}
+var Commands = []string{"sync", "prune-peers", "remove-peers", "setup-key", "inventory"}
 
 const usage = `Usage:
   ts-orch netbird sync [--apply] [--pat-file FILE] [--management-url URL]
   ts-orch netbird prune-peers [--apply] [--offline-for 24h] [--pat-file FILE] [--management-url URL]
+  ts-orch netbird remove-peers (--slot NAME... | --all) [--apply] [--pat-file FILE] [--management-url URL]
+  ts-orch netbird setup-key --out FILE [--apply] [--pat-file FILE] [--management-url URL]
   ts-orch netbird inventory [--pat-file FILE] [--management-url URL]
 
-Without --apply, sync and prune-peers print the planned changes only. The
-admin PAT comes from --pat-file (a regular owner-only file) or NB_PAT.
+Without --apply, sync, prune-peers, remove-peers and setup-key print the
+planned changes only. remove-peers deletes the disconnected server peers of
+decommissioned slots. setup-key creates the servers' setup key and writes its
+value to a new owner-only file. The admin PAT comes from --pat-file (a regular
+owner-only file) or NB_PAT.
 `
 
 // Run executes one manager subcommand.
@@ -40,14 +45,26 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 	flags.SetOutput(io.Discard)
 	patFile := flags.String("pat-file", "", "file holding the NetBird admin PAT")
 	managementURL := flags.String("management-url", DefaultManagementURL, "NetBird management origin")
-	var apply *bool
+	var apply, all *bool
 	var offlineFor *time.Duration
+	var out *string
+	var slots []string
 	switch command {
 	case "sync":
 		apply = flags.Bool("apply", false, "apply the changes")
 	case "prune-peers":
 		apply = flags.Bool("apply", false, "apply the changes")
 		offlineFor = flags.Duration("offline-for", DefaultOfflineFor, "delete unattributed server peers offline this long")
+	case "remove-peers":
+		apply = flags.Bool("apply", false, "apply the changes")
+		all = flags.Bool("all", false, "remove every disconnected server peer")
+		flags.Func("slot", "remove the disconnected peers of this slot (repeatable)", func(value string) error {
+			slots = append(slots, value)
+			return nil
+		})
+	case "setup-key":
+		apply = flags.Bool("apply", false, "create the key")
+		out = flags.String("out", "", "new owner-only file that receives the key value")
 	case "inventory":
 	default:
 		return fmt.Errorf("unknown netbird command %q", command)
@@ -64,6 +81,12 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	if offlineFor != nil && *offlineFor < time.Hour {
 		return errors.New("netbird prune-peers --offline-for must be at least 1h")
+	}
+	if all != nil && *all == (len(slots) > 0) {
+		return errors.New("netbird remove-peers needs either --slot or --all")
+	}
+	if out != nil && *out == "" {
+		return errors.New("netbird setup-key requires --out")
 	}
 	token, err := readToken(*patFile)
 	if err != nil {
@@ -90,9 +113,37 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		report, err := Prune(ctx, api, GRU(), PruneOptions{OfflineFor: *offlineFor}, *apply)
 		writeReport(stdout, report, *apply, err)
 		return err
+	case "remove-peers":
+		report, err := Remove(ctx, api, GRU(), slots, *apply)
+		writeReport(stdout, report, *apply, err)
+		return err
+	case "setup-key":
+		report, err := createSetupKeyFile(ctx, api, *out, *apply)
+		writeReport(stdout, report, *apply, err)
+		return err
 	default:
 		return fmt.Errorf("unknown netbird command %q", command)
 	}
+}
+
+// createSetupKeyFile creates the file before the key, so a refused path
+// never leaves an unsaved key behind, and removes it when the run fails.
+func createSetupKeyFile(ctx context.Context, api *API, path string, apply bool) (Report, error) {
+	if !apply {
+		return CreateServerSetupKey(ctx, api, GRU(), io.Discard, false)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return Report{}, fmt.Errorf("cannot create the setup key file: %w", err)
+	}
+	report, err := CreateServerSetupKey(ctx, api, GRU(), file, true)
+	if closeErr := file.Close(); err == nil && closeErr != nil {
+		err = fmt.Errorf("setup key file was not saved, revoke the new key: %w", closeErr)
+	}
+	if err != nil {
+		os.Remove(path)
+	}
+	return report, err
 }
 
 // writeReport prints the changes a run planned or applied, including a

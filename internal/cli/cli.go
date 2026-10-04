@@ -50,7 +50,7 @@ Operator tooling:
   release                Prepare, sign, verify, and publish release receipts
   oci-region             Plan and deploy regional OCI resources
   image                  Validate inputs, build, inspect, and promote images
-  netbird                Install the NetBird client; sync, prune-peers, inventory the manager
+  netbird                Install the NetBird client; manage the NetBird manager (sync, peers, setup key)
   qualification          Run source-backed operational qualification
   source-digest          Compute the versioned TerraBase source-tree digest
   runtime-priority       Qualify runtime resources and run bounded pressure

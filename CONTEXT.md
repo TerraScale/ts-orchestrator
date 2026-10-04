@@ -151,7 +151,7 @@ ts-orchestrator; see `deploy/netbird/README.md`.
 **Operator SSH**
 
 Two independent SSH paths into every controller and managed host. NetBird SSH
-listens on the server's NetBird address (`gru-controller-a.nb.ts.internal`)
+listens on the server's NetBird address (`gru-1-ctl-1.nb.ts.internal`)
 and requires the operator's NetBird identity-provider login and the
 `operators-to-gru-servers-ssh` policy. OpenSSH listens on the private
 IP and accepts the owner's Ed25519 key, which controller A receives in OCI

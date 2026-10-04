@@ -26,7 +26,7 @@ exact bytes.
 
 | Field | Default | Rule |
 | --- | --- | --- |
-| `listen_address` | `127.0.0.1:9464` | Literal `IP:port`. Loopback, RFC 1918/ULA private or NetBird CGNAT (`100.64.0.0/10`) only. `off` disables the listener. Wildcard, public, link-local and multicast addresses are rejected at config load. |
+| `listen_address` | `127.0.0.1:9464` | Literal `IP:port`. Loopback or RFC 1918/ULA private only; NetBird addresses (`10.200.0.0/16`) are private. CGNAT (`100.64.0.0/10`) is rejected. `off` disables the listener. Wildcard, public, link-local and multicast addresses are rejected at config load. |
 | `bearer_token_file` | none | Required for any non-loopback address. A private (`0600`) file holding one 32-4096 byte token. |
 | `tls_cert_file`, `tls_key_file` | none | Optional pair; serves TLS 1.3. |
 | `log_format` | `json` | `json` or `logfmt`. |

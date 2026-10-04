@@ -345,6 +345,16 @@ type apiSetupKey struct {
 	Expires    time.Time `json:"expires"`
 }
 
+type setupKeyRequest struct {
+	Name                string   `json:"name"`
+	Type                string   `json:"type"`
+	ExpiresIn           int      `json:"expires_in"`
+	AutoGroups          []string `json:"auto_groups"`
+	UsageLimit          int      `json:"usage_limit"`
+	Ephemeral           bool     `json:"ephemeral"`
+	AllowExtraDNSLabels bool     `json:"allow_extra_dns_labels"`
+}
+
 type created struct {
 	ID string `json:"id"`
 }

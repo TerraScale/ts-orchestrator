@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"maps"
 	"os"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
@@ -24,11 +25,20 @@ func netbirdManagementLoop(path string, leader func() bool) (*manager.Loop, stri
 	case cfg.AdminPATSecretID == "":
 		return nil, "admin_pat_secret_id is not configured"
 	}
+	// The desired state is cell gru-1's: another cell's controller would
+	// reconcile, and prune, its servers.
+	desired := manager.GRU()
+	if cfg.Region != desired.Region {
+		return nil, "no desired NetBird state for region " + cfg.Region
+	}
+	if !maps.Equal(cfg.PeerNames, desired.PeerNames()) {
+		return nil, "peer_names do not match the desired NetBird cell " + desired.Cell
+	}
 	return &manager.Loop{
 		Leader:        leader,
 		Token:         func(ctx context.Context) ([]byte, error) { return netbird.ReadAdminPAT(ctx, cfg) },
 		ManagementURL: cfg.ManagementURL,
-		Desired:       manager.GRU(),
+		Desired:       desired,
 		Logf:          log.Printf,
 	}, ""
 }

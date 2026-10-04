@@ -5,10 +5,10 @@
   "setup_key_secret_id": "REQUIRED_SECRET_OCID",
   "admin_pat_secret_id": "OPTIONAL_ADMIN_PAT_SECRET_OCID",
   "peer_names": {
-    "10.251.0.11": "gru-controller-a",
-    "10.251.0.12": "gru-controller-b",
-    "10.251.0.13": "gru-controller-c",
-    "10.251.0.21": "gru-member-1",
-    "10.251.0.22": "gru-member-2"
+    "10.251.0.11": "gru-1-ctl-1",
+    "10.251.0.12": "gru-1-ctl-2",
+    "10.251.0.13": "gru-1-ctl-3",
+    "10.251.0.21": "gru-1-db-1",
+    "10.251.0.22": "gru-1-db-2"
   }
 }
