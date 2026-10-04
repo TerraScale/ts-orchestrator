@@ -27,12 +27,19 @@ or wrap a separate test runner.
 
 The shared script helper records repository source inputs for Go's test
 cache, bounds subprocess lifetimes, and terminates their process group on
-cancellation. Use it for tests that invoke repository scripts. Its `Run`
-records every repository file's modification time, so such tests re-run
-after any checkout. A test whose script inputs are embedded with `go:embed`,
-such as `scripts/ci/racetest`, uses `script.Exec` instead and stays cached
-until those inputs change. Use separate bounded cleanup contexts when cleanup
-runs after `t.Context()` is canceled.
+cancellation. Use it for tests that invoke repository scripts. Go's test
+cache cannot see what a subprocess reads, so name the repository paths the
+command reads with `script.Track` and run it with `script.Exec`:
+`tests/deploy` tracks `deploy/` and `tests/ci` tracks `scripts/ci/`. A
+command that reads only inputs the test itself opened, copied into a
+temporary directory or embedded with `go:embed` (as `scripts/ci/racetest`
+does) needs no `Track`. `script.Run` still tracks the whole tree, so any
+edit re-runs its test; prefer `Track`. Go keys tracked files on size and
+modification time, and CI stamps every tracked file of its fresh checkout
+with a time derived from its git object id (`scripts/ci/stablemtime`), so a
+test whose inputs did not change is served from the persistent cache. Use
+separate bounded cleanup contexts when cleanup runs after `t.Context()` is
+canceled.
 
 Tests are tiered (see [CONTRIBUTING.md](../CONTRIBUTING.md#test-tiers)):
 pull requests run `go test -short`, which skips tests that call

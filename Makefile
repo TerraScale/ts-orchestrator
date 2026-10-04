@@ -22,7 +22,7 @@ verify: format-check generate-check vet race-test netbird-backup-check
 # CI runs the independent checks and the release build at once. The race
 # scheduler prints complete shard logs; stream them as each shard finishes.
 ci-verify:
-	$(MAKE) --jobs --keep-going --output-sync=none format-check generate-check vet race-test release-check netbird-backup-check \
+	$(MAKE) --jobs --keep-going --output-sync=none format-check generate-check vet shellcheck race-test release-check netbird-backup-check \
 		$(if $(filter pr,$(TS_TEST_TIER)),,fixturetest-check)
 
 format-check:
@@ -80,8 +80,8 @@ terrabase-walkthrough-process:
 	systemd-run --user --scope --quiet -p MemoryMax=10G env TS_TERRABASE_SERVER="$(abspath $(TERRABASE_SERVER))" \
 		$(GO) test ./internal/app -run '^TestTerraBaseWalkthroughAgainstRealMembers$$' -count=1 -v
 
-# Lint the tracked shell scripts (needs shellcheck >= 0.11 on PATH). It joins
-# ci-verify once the builder image ships shellcheck.
+# Lint the tracked shell scripts (needs shellcheck >= 0.11 on PATH; the
+# ts-builder image ships it).
 shellcheck:
 	git ls-files -z -- 'scripts/*.sh' 'deploy/*.sh' deploy/netbird/manager/netbird-firewall | xargs -0 shellcheck -S warning
 

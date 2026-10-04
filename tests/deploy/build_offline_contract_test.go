@@ -14,7 +14,6 @@ import (
 	"testing"
 
 	rp "git.terrascale.tech/TerraScale/ts-orchestrator/internal/runtimepriority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 func capture(t *testing.T, source, pattern string) []string {
@@ -163,10 +162,10 @@ func TestOfflineHostSandboxWritableManagedPathOnly(t *testing.T) {
 			t.Skip("requires nonroot user, systemd and passwordless sudo")
 		}
 	}
-	if script.Run(t, deployRoot(t), nil, "sudo", "-n", "true").Code != 0 {
+	if runDeploy(t, deployRoot(t), nil, "sudo", "-n", "true").Code != 0 {
 		t.Skip("passwordless sudo unavailable")
 	}
-	if script.Run(t, deployRoot(t), nil, "systemctl", "show", "--property=Version", "--value").Code != 0 {
+	if runDeploy(t, deployRoot(t), nil, "systemctl", "show", "--property=Version", "--value").Code != 0 {
 		t.Skip("systemd manager unavailable")
 	}
 	d := unitDirectives(string(read(t, filepath.Join(deployRoot(t), "deploy/systemd/terrascale-orchestrator-host.service"))), "")
@@ -178,10 +177,10 @@ func TestOfflineHostSandboxWritableManagedPathOnly(t *testing.T) {
 	}
 	allowed, denied := filepath.Join(base, "allowed"), filepath.Join(base, "denied")
 	defer func() {
-		successful(t, script.Run(t, deployRoot(t), nil, "sudo", "-n", "rm", "-rf", "--", allowed, denied))
+		successful(t, runDeploy(t, deployRoot(t), nil, "sudo", "-n", "rm", "-rf", "--", allowed, denied))
 	}()
 	for _, path := range []string{allowed, denied} {
-		successful(t, script.Run(t, deployRoot(t), nil, "sudo", "-n", "install", "-d", "-o", "root", "-g", "root", "-m", "0755", path))
+		successful(t, runDeploy(t, deployRoot(t), nil, "sudo", "-n", "install", "-d", "-o", "root", "-g", "root", "-m", "0755", path))
 	}
 	args := []string{"-n", "systemd-run", "--wait", "--collect", "--unit=ts-managed-sandbox-" + filepath.Base(base)}
 	for _, key := range []string{"ProtectSystem", "NoNewPrivileges", "CapabilityBoundingSet", "AmbientCapabilities"} {
@@ -190,7 +189,7 @@ func TestOfflineHostSandboxWritableManagedPathOnly(t *testing.T) {
 	sh, _ := exec.LookPath("sh")
 	touch, _ := exec.LookPath("touch")
 	args = append(args, "--property=ReadWritePaths=-"+allowed, sh, "-c", `"$3" "$1/created" || exit 21; if "$3" "$2/created"; then exit 22; fi; exit 0`, "probe", allowed, denied, touch)
-	successful(t, script.Run(t, deployRoot(t), nil, "sudo", args...))
+	successful(t, runDeploy(t, deployRoot(t), nil, "sudo", args...))
 	if _, err := os.Stat(filepath.Join(allowed, "created")); err != nil {
 		t.Fatal(err)
 	}

@@ -2,61 +2,71 @@
 # (go test -race, GOMAXPROCS=2). Only the order and packing of shards depend
 # on these numbers; every listed test runs whatever they say. Columns:
 #
-#   <package> <test or glob> <seconds>[/<seconds under -short>] [cpu|solo|idle]
+#   <package> <test or glob> <seconds>[/<seconds under -short>] [cpu|solo|idle|norace]
 #   rest - <seconds>[/<seconds under -short>]
 #
 # cpu tests are packed into shards by cost, solo tests get a CPU shard of
 # their own and idle tests a shard in the pool for timer-bound process labs.
+# norace tests are packed into CPU shards that run without the race
+# detector: mark only tests whose code paths start no goroutine, and give
+# their cost without it.
 # The first matching line wins; a test no line matches costs one second.
 # "rest" is the one shard of every package that is not sharded.
 #
-# Seeded from the shard times of CI runs 840 (PR) and 841 (main). After a
+# Refreshed from CI run 883 (main, 2026-10-03) and local timings at
+# GOMAXPROCS=2 scaled to the builder. After a
 # large change, refresh them from a CI log: each shard prints
 # "race <shard> elapsed=<seconds>s", and `go test -race -json -run '^Name$'`
 # times one test. Keep the numbers rounded; changing a cpu estimate can move
 # tests between shards, which re-runs those shards once.
 
-rest - 200/190
+rest - 130/60
 
 # Multi-process controller and host labs: real 10-30s lease and session
 # timers, little CPU. tier.Integration skips them under -short.
-./internal/app TestLabTLSHostSessionFencesAndRestartsAfterControllerLoss 95/1 idle
-./internal/app TestControllerThreeProcessBootstrapAndRestart 80/1 idle
-./internal/app TestLabTLSHostSessionRecoversAfterBlackholedController 65/1 idle
-./internal/app TestLabTLSHostSessionRecoversAfterControllerLoss 38/1 idle
-./internal/app TestAuthenticatedOperatorToHostDeliveryWithControllerLoss 32/1 idle
-./internal/app TestBrokerGateR3TicketRevocationAndOfflineFence 40
-./internal/app TestR3CallerStreamQuorumRequiresEverySurvivingReplica 15
+./internal/app TestLabTLSHostSessionFencesAndRestartsAfterControllerLoss 70/1 idle
+./internal/app TestControllerThreeProcessBootstrapAndRestart 55/1 idle
+./internal/app TestLabTLSHostSessionRecoversAfterBlackholedController 55/1 idle
+./internal/app TestBrokerGateR3TicketRevocationAndOfflineFence 40/1 idle
+./internal/app TestLabTLSHostSessionRecoversAfterControllerLoss 30/1 idle
+./internal/app TestAuthenticatedOperatorToHostDeliveryWithControllerLoss 25/1 idle
 ./internal/app TestRunControllerOperatorBrokerClaimApply 15
-./internal/app * 2
+./internal/app * 1
 
-# Founder runtime tests re-verify signed plans on every step; the race
-# detector makes them about twelve times slower.
-./internal/bootstrapstart TestFounderRuntime* 25
+# Founder runtime and replacement tests re-verify signed plans on every
+# step in one goroutine (bootstrapstart and its signing dependencies start
+# none outside the supervisor). The race detector made them about fifteen
+# times slower and could find nothing, so they run without it; about 80s
+# of the package's former 1300s race time on the builder stays under -race.
+./internal/bootstrapstart TestFounderRuntime* 3 norace
+./internal/bootstrapstart TestFounderReplacement* 6 norace
+./internal/bootstrapstart TestReplacement* 6 norace
+./internal/bootstrapstart TestFencedReplacementStopsBeforeEveryMutation 6 norace
+./internal/bootstrapstart TestFounderFloorArtifactsMatchInitializedPeerFloor 25
 ./internal/bootstrapstart * 1
 
-# Offline image builder: a successful build is about 90s, a rejection inside
-# the guest phase about 20s, a rejection before image effects a few seconds.
+# Offline image builder: a successful build is about 25s, a rejection inside
+# the guest phase about 6s, a rejection before image effects a few seconds.
 # Under -short each rejection family keeps one case.
-./tests/deploy TestOfflineReadbackMismatchDiscardsCandidate 300/100 solo
-./tests/deploy TestOfflineRejectsBaseArtifacts 64/30 solo
-./tests/deploy TestOfflineVerifiedInputsInstalled 90
-./tests/deploy TestOfflineDeploymentMaterialNeverBaked 90
-./tests/deploy TestOfflineManagedRootAndVolumeInitUnits 90
-./tests/deploy TestOfflineClockProbeUnitsKeepReadOnlyAdjtimex 90
-./tests/deploy TestOfflineCreatesMissingUploadParents 90
-./tests/deploy TestOfflineBuildAcceptsRelativeOutputPaths 90/1
-./tests/deploy TestOfflineTimesyncSectionsAndMaskPrecedence 90/1
-./tests/deploy TestOfflineBaseKernelMustBeOneARM64ImageWithModules 110/20
-./tests/deploy TestOfflineTimesyncConfigRequiredExplicitAndExcludesLabRange 100/15
-./tests/deploy TestOfflineRejectsUnsafeNativeVerifierParents 60/20
-./tests/deploy TestOfflineEveryImageRequiresEnabledOpenSSHServer 40/20
-./tests/deploy TestOfflineRejectsReservedWorkloadIdentityBeforeInstall 20
-./tests/deploy TestOfflineRejectsSymlinkedUploadParents 20
-./tests/deploy TestOfflineRequiresAuditedSystemdAndInstallDirectives 20
-./tests/deploy TestOfflineRequiresPinnedVolumeTools 20
-./tests/deploy TestOfflineRejectsCompetingTimesyncConfiguration 20
-./tests/deploy TestOfflineMissingTimeSyncUnitsAbortImage 20/1
-./tests/deploy TestOfflineRejectsBadPublicInputsBeforeImageEffects 20
-./tests/deploy TestOfflineRejectsDeploymentFlagsBeforeImageEffects 15
-./tests/deploy * 5
+./tests/deploy TestOfflineReadbackMismatchDiscardsCandidate 60/25 solo
+./tests/deploy TestOfflineRejectsBaseArtifacts 15/10 solo
+./tests/deploy TestOfflineVerifiedInputsInstalled 25
+./tests/deploy TestOfflineDeploymentMaterialNeverBaked 25
+./tests/deploy TestOfflineManagedRootAndVolumeInitUnits 25
+./tests/deploy TestOfflineClockProbeUnitsKeepReadOnlyAdjtimex 25
+./tests/deploy TestOfflineCreatesMissingUploadParents 25
+./tests/deploy TestOfflineBuildAcceptsRelativeOutputPaths 25/1
+./tests/deploy TestOfflineTimesyncSectionsAndMaskPrecedence 25/1
+./tests/deploy TestOfflineBaseKernelMustBeOneARM64ImageWithModules 30/6
+./tests/deploy TestOfflineTimesyncConfigRequiredExplicitAndExcludesLabRange 28/5
+./tests/deploy TestOfflineRejectsUnsafeNativeVerifierParents 18/6
+./tests/deploy TestOfflineEveryImageRequiresEnabledOpenSSHServer 12/6
+./tests/deploy TestOfflineRejectsReservedWorkloadIdentityBeforeInstall 6
+./tests/deploy TestOfflineRejectsSymlinkedUploadParents 6
+./tests/deploy TestOfflineRequiresAuditedSystemdAndInstallDirectives 6
+./tests/deploy TestOfflineRequiresPinnedVolumeTools 6
+./tests/deploy TestOfflineRejectsCompetingTimesyncConfiguration 6
+./tests/deploy TestOfflineMissingTimeSyncUnitsAbortImage 6/1
+./tests/deploy TestOfflineRejectsBadPublicInputsBeforeImageEffects 6
+./tests/deploy TestOfflineRejectsDeploymentFlagsBeforeImageEffects 5
+./tests/deploy * 2

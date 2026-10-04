@@ -59,7 +59,7 @@ func newAdmissionCache(t *testing.T) admissionCacheFixture {
 func (f admissionCacheFixture) run(t *testing.T, label string) script.Result {
 	t.Helper()
 	output := filepath.Join(f.root, label)
-	r := script.Run(t, f.root, f.env, "bash", f.prepare, output)
+	r := script.Exec(t, f.root, f.env, "bash", f.prepare, output)
 	if r.Code != 0 {
 		t.Fatalf("prepare exit %d: %s\n%s", r.Code, r.Stdout, r.Stderr)
 	}
