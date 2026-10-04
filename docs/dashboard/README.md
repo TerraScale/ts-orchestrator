@@ -35,7 +35,7 @@ decision's whole chain; picking a decision opens its chain in place.
 | Page | Entity |
 |------|--------|
 | `/members/{id}` | An orchestrator member: role, lease, build, readiness checks, CPU, memory, disk and NATS traffic. |
-| `/terrabase/{db}/{partition}` | A TerraBase partition: seats with stage, host and update phase, serving vs desired seats over time, and the **placement hold history** (each hold reason as the hold journal recorded it, once per 15 minutes while re-asserted, and when it cleared). A hold that names only a seat ID that another partition also has is flagged. |
+| `/terrabase/{db}/{partition}` | A TerraBase partition: seats with stage, host and update phase, serving vs desired seats over time, and the **placement hold history** (each hold reason as the hold journal recorded it, once per 15 minutes while re-asserted). The placement reconciler does not journal a hold's clearing yet, so a hold that is no longer re-asserted simply stops recurring; a `hold_cleared` decision about the partition is shown when one is recorded. A hold that names only a seat ID that another partition also has is flagged. |
 | `/rollouts/{id}` | A release rollout (phase diagram, deadline) or a managed TerraBase update by operation ID (artifact, progress chart). |
 | `/volumes/{id}` | A block volume: state, since when, host. |
 | `/regions/{r}/hosts/{h}` | A host: the seats and volumes placed on it in this member's region. Hosts of another region show that region's decisions and insights only. Host agents do not report their CPU and memory to the controller yet, so the host charts stay empty. |

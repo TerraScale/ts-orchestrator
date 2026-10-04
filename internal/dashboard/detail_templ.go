@@ -1378,7 +1378,7 @@ func holdHistoryCard(current view) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 120, "</ul><p class=\"legend-note\">A hold that is re-asserted every reconcile tick is journaled once per reason every 15 minutes.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 120, "</ul><p class=\"legend-note\">A hold that is re-asserted every reconcile tick is journaled once per reason every 15 minutes. Placement does not journal a hold's clearing yet: a hold that is no longer re-asserted stops recurring.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
