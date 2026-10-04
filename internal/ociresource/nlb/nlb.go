@@ -305,30 +305,5 @@ func Publish(ctx context.Context, store ociresource.Store, key ociresource.Key, 
 	if key.Kind != Kind {
 		return false, errors.New("NLB backends must be published under the nlb-backends kind")
 	}
-	if err := spec.Validate(); err != nil {
-		return false, err
-	}
-	generation := uint64(1)
-	current, err := store.Get(ctx, key)
-	switch {
-	case errors.Is(err, ociresource.ErrNotFound):
-	case err != nil:
-		return false, err
-	default:
-		if current.Tombstone != nil {
-			return false, errors.New("NLB backend record is being deleted")
-		}
-		generation = current.Generation + 1
-	}
-	desired, err := ociresource.NewDesired(key, generation, policy, spec)
-	if err != nil {
-		return false, err
-	}
-	if generation > 1 && desired.SpecDigest == current.SpecDigest && policy == current.Policy {
-		return false, nil
-	}
-	if _, err := store.Put(ctx, desired); err != nil {
-		return false, err
-	}
-	return true, nil
+	return ociresource.Publish(ctx, store, key, policy, spec)
 }
