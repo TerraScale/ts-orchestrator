@@ -291,6 +291,135 @@ batch-soak → … → complete`, or `rolling-back → rolled-back`, `frozen` an
 Executors derive their next step from `NextActions`, whose operation IDs are
 deterministic per rollout, unit, phase and attempt.
 
+When the rollout store is enabled (`controller.rollouts.enabled`), managed
+TerraBase update admission also refuses a candidate the cell's known-bad list
+names (`placement.Config.KnownBad`). An unreadable list, or a store that has
+not opened yet, refuses the update: admission fails closed. With the store
+disabled nothing changes; the operator's `known-bad/` directory still applies.
+
+### Rollout executor (library, not yet started by the controller)
+
+`internal/rolloutexec` drives the state machine on the authority leader.
+Nothing in this change starts it; the pieces are:
+
+- **Executor.** Each tick, the leader loads the cell's active rollout, adopts
+  it under its own epoch after a leader change (`Store.Adopt`), performs the
+  record's `NextActions`, and commits the events it observed through the
+  fenced store. A follower does nothing and forgets its leader-local memory.
+  A `Program` lists rollouts in order; the next one starts only after the
+  previous one completed, so `SelfUpdateProgram` runs the controllers (one per
+  wave, the seed last) and then the hosts. A rollout that ends any other way
+  stops the program.
+- **Host grouping.** `HostUnits` puts hosts that share a TerraBase partition,
+  directly or through other hosts, in one group, so a wave never takes two
+  seats of a partition.
+- **Gates.** Before preflight and every step the executor requires a fresh
+  health proof from every group peer (on either side of the rollout) and
+  checks its `Gate`. `ClusterGate` holds a step while the JetStream metadata
+  group has no leader, an expected broker is offline, a controller restart
+  would drop the metadata group below quorum, or any stream has no leader
+  or a replica that is offline or not current (`natscell.StreamHealth`).
+  For a controller step it also holds while a stream on the restarting
+  broker would lose its quorum without it (an R1 or R2 stream there; every
+  stream counts when `ClusterGate.ServerOf` cannot name the unit's
+  broker). Preflight restarts no broker and skips this per-broker check. Stream state comes from each stream's leader
+  through `STREAM.INFO`, which also reports a replica still catching up
+  from an out-of-band snapshot, so remote-led streams are judged as
+  strictly as local ones. A held step only waits; the phase deadline
+  decides when waiting becomes a rollback. Each round commits expired
+  deadlines before it derives any step, and a step whose deadline passed
+  while its gates ran is not sent. Immediately before a step leaves the
+  leader, the executor calls the authority `Guard` for the record's epoch,
+  and the driver checks it again after its receipt lookup and signing,
+  immediately before the step is sent, so a lease lost during the tick
+  never moves a unit. A program step counts as done only if its completed
+  record matches the step's spec (`Record.Matches`).
+- **Signed health proofs** (`ts.orch.v1.<cell>.rollout.proof.<hash(unit)>`).
+  A running unit signs `{cell, unit, binary digest, pid, start nonce,
+  observed_at}` (trust domain `terrascale.orchestrator.rollout-health`, 2
+  minute lifetime) while it is healthy. The collector accepts a proof only
+  on its own unit's subject and from the unit's resolved keys, and only a
+  proof younger than the freshness limit (60 s) completes anything. While a
+  unit of the current wave that already reported has no fresh proof, no
+  healthy report can complete the wave around it, and a unit that restarted
+  after it reported is reported (and rolls the wave back) before any other
+  unit's report is fed. A unit an earlier wave promoted whose fresh proof
+  (newer than its last healthy report) serves another release rolls the
+  rollout back before a later wave moves or completes, and while a promoted
+  unit has no fresh proof on the target no healthy report completes a wave,
+  so the rollout never completes around it. Proofs are ordered against
+  phases, soak windows and steps by when the leader received them, on the
+  leader's clock; the signed `observed_at` only bounds replay (a proof is
+  fresh when it arrived within 60 s and was observed within 60 s plus the
+  verified one-minute skew). A full collector
+  reclaims units whose proofs expired before it refuses a new one. Within
+  one incarnation proofs only move forward; a new incarnation whose clock
+  reads earlier replaces the newest one after that one was quiet for two
+  proof intervals, and an incarnation a newer one superseded is refused
+  for as long as any proof it signed can still verify. A proof
+  on the target
+  feeds `healthy`; a new incarnation on another release after the
+  step feeds `unhealthy` (the watchdog rolled the unit back); a proof on the
+  predecessor after a rollback step feeds `rollback-serving`. Controllers
+  share the regional response key, so one controller can sign for another;
+  that is within the controller trust domain.
+- **Signed steps** (`ts.orch.v1.<cell>.rollout.step.<hash(unit)>`). The leader
+  signs `{rollout, unit, operation, action, digest, replaces, epoch, proof
+  window}`
+  plus the release receipt (trust domain
+  `terrascale.orchestrator.rollout-step`, scope bound to operation, action
+  and unit). The signature expires after 2 minutes or at the step's phase
+  deadline, whichever is sooner, so no agent applies a step after the
+  leader gave up on it. The agent verifies it against the controller
+  keys, refuses to act once the signed command has expired (staging is
+  bounded by that expiry and the expiry is re-checked under the release
+  lock before the selection changes), records the step's authority epoch
+  durably in the release root
+  (`authority-epoch`) and refuses a step from an older epoch, even after
+  the agent restarted,
+  restages a pruned release through its `Fetcher` (the receipt is verified
+  by `selfupdate` against the node's own release roots before any byte is
+  kept), then:
+  - a forward step activates the target with `selfupdate.Activate` (proof
+    gated, so the watchdog rolls an unproven target back) only while the
+    unit runs the step's `replaces` release (the rollout's predecessor), so
+    a still-valid step of an earlier rollout replayed after a later update
+    settled is refused; a retry of a
+    matching pending activation goes through `Activate` again, so an
+    interrupted link flip is repaired;
+  - a rollback restores the predecessor with `selfupdate.Restore`: it
+    first writes a restore intent (`restore-<unit>.json`), then marks the
+    rejected release known bad, records a restart obligation, moves the
+    link and removes the intent. `selfupdate.Watch` (the watchdog and the
+    unit's prepare step), `Activate` and `Restore` all finish an
+    interrupted restore from its intent before they change anything, so
+    its recovery never overwrites a newer selection.
+    A rollback of a unit that never left the predecessor changes nothing but
+    still marks the rejected release known bad on the node. It creates no
+    pending activation, so a failed
+    restart or missing proof can never let the watchdog return the node to
+    the rejected release. A pending activation of the rejected release is
+    rolled back exactly as the watchdog would.
+
+  The restart obligation is durable before the link moves and is cleared
+  only by the unit's own start (`selfupdate prepare`), so an agent that
+  dies in between leaves the watchdog, and the next agent's retry, a
+  restart to finish; an agent restarts the unit once per operation. Steps are idempotent per operation: a retry answers
+  `pending` or `current`. The reply is unsigned and only says whether to wait; completion
+  is proven by health proofs. A forged `refused` reply can at worst start a
+  rollback (or freeze one), never move a unit forward.
+- **Status** (`ts.orch.v1.<cell>.rollout.status`). Read-only JSON with the
+  phase, waves, per-unit state, newest proof digest and current holds.
+- **Journal.** Phase changes are journaled by the store; the executor adds
+  gate holds, hold releases and every accepted step, chained under the
+  release admission.
+
+Remaining before it can run in a cell: a root step agent with NATS
+credentials limited to its step subject (the controller runs unprivileged
+and cannot write the release root), host steps and proofs over the host
+session with the chunked artifact path, and a signed operator request that
+supplies the program.
+
 ### Resumable image promotion
 
 `ts-orch image promote --resume` continues in an existing `--out` directory

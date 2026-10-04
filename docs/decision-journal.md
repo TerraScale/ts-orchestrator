@@ -102,8 +102,9 @@ chain's status).
 | Volume backups | `backup_taken` | `backup.Runner.RunOnce`, after OCI accepted the create |
 | Volume reattach on host loss | `volume_reattached` | `failover.Reattacher.Step`, after the replacement attach |
 | Volume auto-grow | `volume_resized` | `placement.Controller.growVolume`, after the journaled resize |
-| Controller slot replacement | `controller_replaced` | `membership.Reconciler`, after the founder accepted the replacement |
+| Controller slot replacement | `controller_replaced` | `membership.Reconciler`, after the founder (or the seed, when routed) accepted the replacement; `membership.SeedServer` on the seed when a routed replacement finishes or fails (rule `membership.seed_routed`) |
 | Region proposals | `region_proposed` | `regionplanner.Submit`, after the lifecycle record was stored |
+| OCI declarative reconcile | `oci_desired_published`, `oci_drift_corrected`, `oci_resource_deleted`, `oci_resource_released` | `app.desiredPass` after the KV writes; `ociresource.Controller` after the cloud write or the purge |
 
 ### Providers of the other slices
 
@@ -114,6 +115,7 @@ chain's status).
 | `insights.VolumeProvider` (also the dashboard storage page) | `app.placementVolumes` over the placement member states | on managed controllers |
 | `insights.RolloutProvider` | `rollout.Store.Rollouts` | available; no controller opens the rollout store yet |
 | `insights.BudgetProvider` | `regionplanner.Budgets` | available; the planner is not scheduled yet |
+| `insights.OCIResourceProvider` (rule `oci_drift`) | `app.ociResourceStatuses` over `TS_OCI_OBSERVED` | when `controller.oci_reconcile.enabled` |
 
 ### Original contract for the parallel slices
 

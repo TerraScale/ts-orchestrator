@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -129,7 +130,7 @@ func (dashboard *Dashboard) SetCluster(source observability.ClusterSource) {
 func (dashboard *Dashboard) Mount(mounter Mounter) {
 	mounter.HandleStatic("GET /assets/{hash}/{file}", http.HandlerFunc(serveAsset))
 	mounter.HandleLogin(dashboard.guard(http.HandlerFunc(dashboard.login)))
-	for _, page := range pages {
+	for _, page := range slices.Concat(pages, detailPages) {
 		mounter.Handle("GET "+page.path(), dashboard.guard(dashboard.pageHandler(page)))
 		mounter.Handle("GET "+page.streamPath(), dashboard.guard(dashboard.streamHandler(page)))
 	}
@@ -184,9 +185,13 @@ func literalHost(host string) bool { return observability.LiteralHost(host) }
 
 // load gathers the view every page renders from. Missing providers and
 // failing sections become notes on the view, never a failed request.
-func (dashboard *Dashboard) load(ctx context.Context, page page, query url.Values) view {
+func (dashboard *Dashboard) load(ctx context.Context, page page, query url.Values, path map[string]string) view {
 	current := view{Page: page, Now: dashboard.options.Now().UTC(), SignOut: dashboard.options.SignOut,
-		Filter: parseEventFilter(query), State: parseState(query)}
+		Filter: parseEventFilter(query), State: parseState(query), Path: path}
+	if region := path["r"]; region != "" {
+		// A detail page whose path names its region shows that region.
+		current.State.Region = region
+	}
 	if health := dashboard.options.Health; health != nil {
 		current.Ready, current.Checks = health.Evaluate(ctx)
 	}

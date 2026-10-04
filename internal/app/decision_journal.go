@@ -137,6 +137,9 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	if observed.budgets != nil {
 		insightConfig.Budgets = observed.budgets
 	}
+	if observed.ociResources != nil {
+		insightConfig.OCIResources = observed.ociResources
+	}
 	engine := insights.NewEngine(insightConfig)
 	regions.Insights = engine
 	go func() { _ = engine.Run(ctx) }()

@@ -55,6 +55,12 @@ type Thresholds struct {
 	// RepeatedHolds is how many holds of one subject within an hour raise
 	// an insight from the decision journal.
 	RepeatedHolds int
+	// OCIDrift is how long an OCI resource may stay out of sync with its
+	// desired spec before it raises an insight.
+	OCIDrift time.Duration
+	// OCIStale is how old an OCI reconcile observation may be before it is
+	// treated as unknown rather than as evidence.
+	OCIStale time.Duration
 }
 
 func (thresholds Thresholds) withDefaults() Thresholds {
@@ -67,7 +73,7 @@ func (thresholds Thresholds) withDefaults() Thresholds {
 		ConsumerPendingFor: 10 * time.Minute, CertificateWarning: 14 * 24 * time.Hour,
 		CertificateCritical: 3 * 24 * time.Hour, PeerOffline: 5 * time.Minute,
 		AutoscalerAtMax: 15 * time.Minute, BudgetWarning: 0.9, RegionUnreachable: time.Minute,
-		RepeatedHolds: 3,
+		RepeatedHolds: 3, OCIDrift: 10 * time.Minute, OCIStale: 3 * time.Hour,
 	}
 	merged := thresholds
 	if merged.MemberNotReady <= 0 {
@@ -136,6 +142,12 @@ func (thresholds Thresholds) withDefaults() Thresholds {
 	if merged.RepeatedHolds <= 0 {
 		merged.RepeatedHolds = defaults.RepeatedHolds
 	}
+	if merged.OCIDrift <= 0 {
+		merged.OCIDrift = defaults.OCIDrift
+	}
+	if merged.OCIStale <= 0 {
+		merged.OCIStale = defaults.OCIStale
+	}
 	return merged
 }
 
@@ -160,6 +172,8 @@ func DefaultRules() []Rule {
 		{Name: "netbird_peer", Description: "A NetBird peer is offline or relayed.", Evaluate: netbirdPeers},
 		{Name: "autoscaler_at_max", Description: "An autoscaler is pinned at its maximum.", Evaluate: autoscalerAtMax},
 		{Name: "budget_ceiling", Description: "A budget is near its ceiling.", Evaluate: budgetCeiling},
+		{Name: "oci_drift", Description: "An OCI resource drifts from its desired spec, is foreign, or fails to reconcile.",
+			Evaluate: ociDrift},
 	}
 }
 
@@ -172,7 +186,16 @@ func members(inputs *Inputs) []observability.MemberSnapshot {
 	return inputs.Cluster.Members
 }
 
-func memberHref(member string) string { return "/members#member-" + member }
+// Entity links open the dashboard detail pages.
+func memberHref(member string) string { return "/members/" + url.PathEscape(member) }
+
+func rolloutHref(id string) string { return "/rollouts/" + url.PathEscape(id) }
+
+func volumeHref(id string) string { return "/volumes/" + url.PathEscape(id) }
+
+func partitionHref(database, partition string) string {
+	return "/terrabase/" + url.PathEscape(database) + "/" + url.PathEscape(partition)
+}
 
 func quorumAtRisk(inputs *Inputs) []Insight {
 	cluster := inputs.Cluster
@@ -392,7 +415,7 @@ func rolloutStalled(inputs *Inputs) []Insight {
 			Title: "Rollout " + shortID(rollout.OperationID) + " is not progressing",
 			Why: fmt.Sprintf("The managed update of %s/%s has stayed at %d of %d seats for %s.",
 				database.DatabaseID, database.PartitionID, rollout.Completed, rollout.Seats, roundDuration(held)),
-			Entity: Entity{Kind: "rollout", ID: rollout.OperationID, Href: "/rollouts"},
+			Entity: Entity{Kind: "rollout", ID: rollout.OperationID, Href: rolloutHref(rollout.OperationID)},
 			Evidence: []Evidence{{Label: "Progress", Metric: observability.HistRolloutProgress,
 				Labels: map[string]string{"operation": rollout.OperationID}, Value: rollout.Progress(), Unit: "ratio"},
 				{Label: "Unchanged for", Value: held.Seconds(), Unit: "s", Comparison: "<",
@@ -418,7 +441,7 @@ func rolloutDeadline(inputs *Inputs) []Insight {
 			Title: fmt.Sprintf("Rollout %s is past its %s deadline", shortID(rollout.ID), rollout.Phase),
 			Why: fmt.Sprintf("Release %s has been in %s since %s, %s past its deadline.", shortID(rollout.Release),
 				rollout.Phase, rollout.PhaseStarted.Format(time.RFC3339), roundDuration(over)),
-			Entity: Entity{Kind: "rollout", ID: rollout.ID, Href: "/rollouts"},
+			Entity: Entity{Kind: "rollout", ID: rollout.ID, Href: rolloutHref(rollout.ID)},
 			Evidence: []Evidence{{Label: "Past deadline by", Value: over.Seconds(), Unit: "s", Comparison: "<=",
 				Threshold: threshold(0)}},
 			Actions: []Action{{Label: "Open rollouts", Href: "/rollouts"}}})
@@ -441,7 +464,7 @@ func memberHeld(inputs *Inputs) []Insight {
 					Title: "Managed update held on seat " + member.SeatID,
 					Why: fmt.Sprintf("The managed runtime update of %s/%s is durably held on seat %s; it will not "+
 						"advance or roll forward without an operator.", database.DatabaseID, database.PartitionID, member.SeatID),
-					Entity:   Entity{Kind: "seat", ID: seat, Href: "/terrabase"},
+					Entity:   Entity{Kind: "seat", ID: seat, Href: partitionHref(database.DatabaseID, database.PartitionID)},
 					Evidence: []Evidence{{Label: "Update phase", Text: member.UpdatePhase}},
 					Actions: []Action{{Label: "Inspect the hold", Command: "ts-orch operator terrabase-status --state DIR"},
 						{Label: "Open TerraBase", Href: "/terrabase"}}})
@@ -531,7 +554,7 @@ func volumeStuck(inputs *Inputs) []Insight {
 					Title: "Volume stuck attaching for seat " + member.SeatID,
 					Why: fmt.Sprintf("Seat %s has waited in %s for %s; its retained volume is not attached.",
 						member.SeatID, member.Stage, roundDuration(stuck)),
-					Entity: Entity{Kind: "seat", ID: seat, Href: "/storage"},
+					Entity: Entity{Kind: "seat", ID: seat, Href: partitionHref(database.DatabaseID, database.PartitionID)},
 					Evidence: []Evidence{{Label: "Waiting", Value: stuck.Seconds(), Unit: "s", Comparison: "<",
 						Threshold: threshold(limit.Seconds())}},
 					Actions: []Action{{Label: "Inspect the attachment",
@@ -552,7 +575,7 @@ func volumeStuck(inputs *Inputs) []Insight {
 		out = append(out, Insight{inputs: []string{"volumes"}, Severity: SeverityWarning, Score: stuck.Seconds(),
 			Title:  "Volume " + shortID(volume.ID) + " stuck attaching",
 			Why:    fmt.Sprintf("Volume %s has been %s for %s.", volume.ID, volume.State, roundDuration(stuck)),
-			Entity: Entity{Kind: "volume", ID: volume.ID, Href: "/storage"},
+			Entity: Entity{Kind: "volume", ID: volume.ID, Href: volumeHref(volume.ID)},
 			Evidence: []Evidence{{Label: "Attaching for", Value: stuck.Seconds(), Unit: "s", Comparison: "<",
 				Threshold: threshold(limit.Seconds())}},
 			Actions: []Action{{Label: "Open storage", Href: "/storage"}}})

@@ -76,9 +76,15 @@ type Status struct {
 	Offline      []string      `json:"offline,omitempty"`
 	Missing      []string      `json:"missing,omitempty"`
 	Lagging      []LaggingPeer `json:"lagging,omitempty"`
-	Unknown      []string      `json:"unknown,omitempty"`
-	Unrouted     []string      `json:"unrouted,omitempty"`
-	Error        string        `json:"error,omitempty"`
+	// CaughtUp lists the remote peers this broker positively knows are
+	// current with zero lag: a follower the metadata leader reports current,
+	// or the metadata leader itself as seen by a follower that heard from it
+	// recently. A follower knows nothing about other followers, so absence
+	// from Lagging never means caught up; only this list does.
+	CaughtUp []string `json:"caughtUp,omitempty"`
+	Unknown  []string `json:"unknown,omitempty"`
+	Unrouted []string `json:"unrouted,omitempty"`
+	Error    string   `json:"error,omitempty"`
 }
 
 // Healthy reports whether the cluster is fully formed and caught up.
@@ -116,7 +122,7 @@ func Evaluate(observation Observation, lagThreshold uint64, now time.Time) Statu
 	}
 	known := map[string]bool{observation.ServerName: true}
 	online := []string{observation.ServerName}
-	var offline, unknown []string
+	var offline, unknown, caughtUp []string
 	for _, peer := range observation.Peers {
 		if peer.Name == "" || peer.Name == observation.ServerName || known[peer.Name] {
 			continue
@@ -132,6 +138,8 @@ func Evaluate(observation Observation, lagThreshold uint64, now time.Time) Statu
 			online = append(online, peer.Name)
 			if peerLagging(observation, peer, lagThreshold) {
 				status.Lagging = append(status.Lagging, LaggingPeer{Name: peer.Name, Lag: peer.Lag})
+			} else if peerCaughtUp(observation, peer) {
+				caughtUp = append(caughtUp, peer.Name)
 			}
 		}
 	}
@@ -152,6 +160,7 @@ func Evaluate(observation Observation, lagThreshold uint64, now time.Time) Statu
 		}
 	}
 	status.Online, status.Offline = sortedUnique(online), sortedUnique(offline)
+	status.CaughtUp = sortedUnique(caughtUp)
 	status.Missing, status.Unknown, status.Unrouted = missing, sortedUnique(unknown), unrouted
 	slices.SortFunc(status.Lagging, func(a, b LaggingPeer) int {
 		switch {
@@ -199,6 +208,17 @@ func peerLagging(observation Observation, peer Peer, lagThreshold uint64) bool {
 	default:
 		return false
 	}
+}
+
+// peerCaughtUp reports positive catch-up evidence only. The metadata leader
+// tracks every follower and reports one current exactly when its lag is
+// zero; it also requires recent contact. A follower can vouch only for the
+// leader it heard from recently.
+func peerCaughtUp(observation Observation, peer Peer) bool {
+	if peer.Offline || !peer.Current || peer.Lag != 0 || peer.Active > StaleContact {
+		return false
+	}
+	return observation.MetaLeader == observation.ServerName || peer.Name == observation.MetaLeader
 }
 
 func sortedUnique(names []string) []string {

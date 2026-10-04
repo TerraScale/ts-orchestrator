@@ -29,6 +29,48 @@ templ ociBody(current view) {
 			</article>
 		</div>
 		<article>
+			<h2>Fleet by lifecycle state <small>latest complete sweep</small></h2>
+			if fleets := current.fleetViews(); len(fleets) == 0 {
+				@unavailable("No member reported an OCI fleet sweep. Controllers of a cell that manages TerraBase placement report one after their first complete Observe.")
+			} else {
+				for _, fleet := range fleets {
+					<div class="cols-2">
+						<div>
+							<h3>
+								{ upper(fleet.Region) }
+								<small class="muted">
+									{ "swept " }
+									@ago(fleet.ObservedAt)
+								</small>
+							</h3>
+							<table class="striped">
+								<thead><tr><th>Kind</th><th>By lifecycle state</th></tr></thead>
+								<tbody>
+									for _, kind := range fleetKinds {
+										<tr>
+											<td>{ kind }</td>
+											<td>
+												if counts := fleetCounts(fleet, kind); len(counts) == 0 {
+													<span class="muted">none</span>
+												} else {
+													for _, state := range sortedStates(counts) {
+														@statusPill(lifecycleStatus(state), state+" "+itoa(counts[state]))
+														{ " " }
+													}
+												}
+											</td>
+										</tr>
+									}
+								</tbody>
+							</table>
+						</div>
+						@chart("short", fleetChart(fleet))
+					</div>
+				}
+				<p class="legend-note">Instances in the fleet's identity scope, including ones the controller withholds; volumes and attachments of the hosts it verified. Unattached retained volumes are not listed by the sweep.</p>
+			}
+		</article>
+		<article>
 			<div class="chart-title">
 				<h2>Resource inventory</h2>
 				if len(current.Inventory) > 0 {

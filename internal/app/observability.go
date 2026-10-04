@@ -143,6 +143,8 @@ type controllerObservation struct {
 	// budgets, when their feature flags enable them.
 	rollouts insights.RolloutProvider
 	budgets  insights.BudgetProvider
+	// ociResources is the OCI reconcile's last observations, when enabled.
+	ociResources insights.OCIResourceProvider
 }
 
 // attachController registers controller metrics, readiness checks and the

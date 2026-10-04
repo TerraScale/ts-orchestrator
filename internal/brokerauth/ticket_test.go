@@ -97,6 +97,10 @@ func TestTicketBindsDurableClaimBrokerNonceAndMonotonicDeadline(t *testing.T) {
 		{"clock error too large", sign(ticket), request, ClockBound{SampledAt: finish, MaxError: MaxClockError + time.Millisecond}, claim, lease, finish},
 		{"slow reply", sign(ticket), request, bound, claim, lease, start.Add(MaxTicketRoundTrip + time.Millisecond)},
 		{"new epoch", sign(ticket), request, bound, claim, authority.Snapshot{Scope: "gru", Ready: true, Epoch: 3, Revision: 23, ExpiresAt: lease.ExpiresAt}, finish},
+		// A revocation commits the next claim. A ticket the leader signed
+		// for the pre-revocation claim must not admit the broker, even within
+		// its lifetime and the same authority epoch.
+		{"revoked by the next claim", sign(ticket), request, bound, Claim{Cell: claim.Cell, Account: claim.Account, Sequence: claim.Sequence + 1, Hash: "revoked-hash", JWT: "revoked-jwt", Epoch: claim.Epoch}, lease, finish},
 	}
 	for _, test := range checks {
 		t.Run(test.name, func(t *testing.T) {

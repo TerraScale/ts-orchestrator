@@ -84,7 +84,7 @@ templ membersBody(current view) {
 						<tbody>
 							for _, member := range members {
 								<tr>
-									<td><a href={ safe(current.State.link("/members", "host", member.Member)) }>{ member.Member }</a></td>
+									<td><a href={ safe(current.State.memberLink(member.Member)) }>{ member.Member }</a></td>
 									<td>{ member.Role }</td>
 									<td class={ okClass(member.Ready) }>{ yesNo(member.Ready) }</td>
 									<td>{ short(orDash(member.BuildVersion), 14) }</td>
@@ -145,7 +145,7 @@ templ membersBody(current view) {
 					<tbody>
 						for _, host := range hosts {
 							<tr>
-								<td><a href={ safe(current.State.link("/terrabase", "host", host.Node)) }>{ host.Node }</a></td>
+								<td><a href={ safe(current.State.hostLink(current.localRegion(), host.Node)) }>{ host.Node }</a></td>
 								<td>{ orDash(strings.Join(host.Domains, ", ")) }</td>
 								<td>{ itoa(host.Seats) }</td>
 								<td>{ itoa(host.Serving) }</td>

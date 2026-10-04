@@ -36,13 +36,81 @@ type VolumeUpdater interface {
 	UpdateVolumeSize(ctx context.Context, volumeID, etag string, sizeGB int64, tags map[string]string) (CloudVolume, error)
 }
 
+// maxVolumeResizeAttempts bounds the attempts of one resize target. A new
+// attempt starts only after the previous one can no longer land, so this
+// only stops a volume whose ETag keeps moving under every attempt.
+const maxVolumeResizeAttempts = 8
+
 func volumeResizeKey(volumeID string, sizeGB int64) string {
-	return fmt.Sprintf("%s/%d", volumeID, sizeGB)
+	return volumeResizeAttemptKey(volumeID, sizeGB, 1)
+}
+
+// volumeResizeAttemptKey is the journal key of one attempt to resize a volume
+// to sizeGB. The first attempt keeps the original "<volume>/<size>" key, so
+// intents written before attempts existed stay attempt 1.
+func volumeResizeAttemptKey(volumeID string, sizeGB int64, attempt int) string {
+	if attempt <= 1 {
+		return fmt.Sprintf("%s/%d", volumeID, sizeGB)
+	}
+	return fmt.Sprintf("%s/%d/attempt-%d", volumeID, sizeGB, attempt)
+}
+
+// validVolumeResizeKey reports whether key is the key of some bounded
+// attempt to resize volumeID to sizeGB.
+func validVolumeResizeKey(key, volumeID string, sizeGB int64) bool {
+	for attempt := 1; attempt <= maxVolumeResizeAttempts; attempt++ {
+		if key == volumeResizeAttemptKey(volumeID, sizeGB, attempt) {
+			return true
+		}
+	}
+	return false
+}
+
+// selectResizeAttempt returns the attempt of a resize to drive: the first
+// attempt that is missing or not superseded. An attempt is superseded when
+// it never confirmed, the volume is still below its target, and the volume
+// ETag no longer matches the attempt's If-Match ETag, so that request can
+// never land as journaled (finding 11583 item 2). Attempts are written in
+// order, so the first missing key ends the lookup.
+func (f *fleet) selectResizeAttempt(ctx context.Context, cloud CloudVolume, sizeGB int64) (OperationScope, OperationIntent, bool, error) {
+	for attempt := 1; attempt <= maxVolumeResizeAttempts; attempt++ {
+		scope := OperationScope{
+			Action: actionVolumeResize, Key: volumeResizeAttemptKey(cloud.ID, sizeGB, attempt),
+			Region: f.config.Region, Generation: f.config.Generation, Owner: f.config.Owner,
+		}
+		intent, found, err := f.journal.GetOperation(ctx, scope)
+		if err != nil {
+			return OperationScope{}, OperationIntent{}, false, fmt.Errorf("read OCI volume resize intent: %w", err)
+		}
+		if !found {
+			return scope, OperationIntent{}, false, nil
+		}
+		superseded, err := f.resizeAttemptSuperseded(ctx, intent, cloud)
+		if err != nil {
+			return OperationScope{}, OperationIntent{}, false, err
+		}
+		if !superseded {
+			return scope, intent, true, nil
+		}
+	}
+	return OperationScope{}, OperationIntent{}, false, fmt.Errorf("%w: resize of %s to %d GiB used all %d attempts",
+		ErrStaleETag, cloud.ID, sizeGB, maxVolumeResizeAttempts)
+}
+
+func (f *fleet) resizeAttemptSuperseded(ctx context.Context, intent OperationIntent, cloud CloudVolume) (bool, error) {
+	if intent.VolumeID != cloud.ID || cloud.SizeGB >= intent.SizeGB || cloud.ETag == "" || cloud.ETag == intent.ExpectedETag {
+		return false, nil
+	}
+	result, recorded, err := f.journal.GetResult(ctx, intent)
+	if err != nil {
+		return false, fmt.Errorf("read OCI volume resize result: %w", err)
+	}
+	return !recorded || result.Unknown, nil
 }
 
 // ResizeRetainedVolume grows an owned volume through a journaled, epoch-fenced
-// OCI UpdateVolume. The immutable intent (keyed by volume and target size)
-// records the exact predecessor size and ETag; the confirmed result advances
+// OCI UpdateVolume. The immutable intent (keyed by volume, target size and a
+// bounded attempt number) records the exact predecessor size and ETag; the confirmed result advances
 // the volume ownership record, so the larger volume stays owned instead of
 // looking foreign. The host grows its filesystem separately.
 func (f *fleet) ResizeRetainedVolume(ctx context.Context, request VolumeResizeRequest) (RetainedVolume, error) {
@@ -69,13 +137,9 @@ func (f *fleet) ResizeRetainedVolume(ctx context.Context, request VolumeResizeRe
 	if err != nil {
 		return RetainedVolume{}, err
 	}
-	scope := OperationScope{
-		Action: actionVolumeResize, Key: volumeResizeKey(request.VolumeID, request.SizeGB),
-		Region: f.config.Region, Generation: f.config.Generation, Owner: f.config.Owner,
-	}
-	intent, hasIntent, err := f.journal.GetOperation(ctx, scope)
+	scope, intent, hasIntent, err := f.selectResizeAttempt(ctx, cloud, request.SizeGB)
 	if err != nil {
-		return RetainedVolume{}, fmt.Errorf("read OCI volume resize intent: %w", err)
+		return RetainedVolume{}, err
 	}
 	if hasIntent && (intent.VolumeID != request.VolumeID || intent.CreateKey != identity.CreateKey) {
 		return RetainedVolume{}, fmt.Errorf("%w: resize operation is bound to a different volume", ErrForeignResource)

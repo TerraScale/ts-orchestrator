@@ -69,7 +69,24 @@ type Config struct {
 	// Material is immutable, so turning it on means issuing new material and
 	// rotating the controllers onto it before enabling controller.global.
 	GlobalHome bool `json:"globalHome,omitempty"`
+	// GrantVersion is the controller grant set the material issues. Zero
+	// (or GrantVersionBase) issues today's grants. GrantVersionObservability
+	// adds the subscribe grant ts.orch.v1.<cell>.obs.>, which the read-only
+	// cell-wide telemetry responders need before observability
+	// cluster_aggregation can be enabled. Material is immutable: raising it
+	// means issuing new material and rotating the controllers onto it.
+	GrantVersion int `json:"grantVersion,omitempty"`
 }
+
+// Controller grant versions.
+const (
+	GrantVersionBase          = 1
+	GrantVersionObservability = 2
+)
+
+// observabilityGrant reports that the material grants controllers the
+// read-only telemetry subscriptions.
+func (cfg Config) observabilityGrant() bool { return cfg.GrantVersion >= GrantVersionObservability }
 
 type File struct {
 	Name     string                  `json:"name"`
@@ -117,7 +134,7 @@ func (cfg Config) validate() error {
 		!identityRE.MatchString(cfg.DeploymentID) ||
 		!clusterRE.MatchString(cfg.ClusterID) ||
 		cfg.ValidityHours < int(minValidity.Hours()) || cfg.ValidityHours > int(MaxValidity.Hours()) ||
-		len(cfg.Slots) != 3 {
+		len(cfg.Slots) != 3 || cfg.GrantVersion < 0 || cfg.GrantVersion > GrantVersionObservability {
 		return ErrMaterial
 	}
 	prefix, err := netip.ParsePrefix(cfg.SubnetCIDR)
@@ -279,7 +296,7 @@ func Load(directory string) (Record, error) {
 func sameConfig(a, b Config) bool {
 	return a.Environment == b.Environment && a.Region == b.Region && a.Cell == b.Cell && a.DeploymentID == b.DeploymentID && a.ClusterID == b.ClusterID &&
 		a.SubnetCIDR == b.SubnetCIDR && a.ValidityHours == b.ValidityHours && slices.Equal(a.Slots, b.Slots) &&
-		a.GlobalHome == b.GlobalHome
+		a.GlobalHome == b.GlobalHome && max(a.GrantVersion, GrantVersionBase) == max(b.GrantVersion, GrantVersionBase)
 }
 
 func expectedNames() []string {
@@ -466,6 +483,9 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 		}
 		claim.Sub.Allow = jwt.StringList{inbox(cfg.Cell, userID), protocol.Broker(cfg.Cell, "ticket", ">"), protocol.Broker(cfg.Cell, "fence", slot.Name)}
 		claim.Sub.Allow = append(claim.Sub.Allow, natscell.ControllerSubscriptions(cfg.Cell)...)
+		if cfg.observabilityGrant() {
+			claim.Sub.Allow.Add(protocol.ObservabilityGrant(cfg.Cell))
+		}
 		claim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
 		files[slot.Name+".creds"], err = credentials(claim, cell, user)
 		user.Wipe()

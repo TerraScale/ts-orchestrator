@@ -37,6 +37,9 @@ var schedulerLabs = []string{
 
 const solo = "TestOfflineReadbackMismatchDiscardsCandidate"
 
+// noraceTest is the fixture test estimated as norace.
+const noraceTest = "TestRetry"
+
 // The fixture estimates make cost order differ from name order: round-robin
 // by name would pair TestThree with TestFail and TestOne with Example.
 const fixtureDurations = `# fixture estimates
@@ -50,6 +53,7 @@ rest - 5
 ./internal/app TestOne 12
 ./internal/app Test* 1
 ./internal/bootstrapstart TestStart 30
+./internal/bootstrapstart TestRetry 4 norace
 ./tests/deploy TestOfflineReadbackMismatchDiscardsCandidate 300/60 solo
 ./tests/deploy * 10
 `
@@ -281,8 +285,11 @@ func (f schedulerFixture) complete(t *testing.T, r script.Result, short bool) {
 	}
 	discovery := 0
 	for _, args := range commands {
-		if !slices.Contains(args, "-race") || !slices.Contains(args, "-vet=off") {
-			t.Fatalf("missing race/vet flags: %v", args)
+		// Only the norace shard runs without the race detector, and it
+		// runs exactly the norace test.
+		norace := slices.Contains(args, "^("+noraceTest+")$")
+		if slices.Contains(args, "-race") == norace || !slices.Contains(args, "-vet=off") {
+			t.Fatalf("wrong race/vet flags: %v", args)
 		}
 		if slices.Contains(args, "-list") {
 			discovery++
@@ -300,7 +307,7 @@ func (f schedulerFixture) complete(t *testing.T, r script.Result, short bool) {
 	}
 	// Solo and idle tests own a shard, and cost, not name order, packs the
 	// rest: the two costly app tests do not share a shard.
-	for _, owner := range append(slices.Clone(schedulerLabs), solo, "TestThree", "TestOne", "TestStart") {
+	for _, owner := range append(slices.Clone(schedulerLabs), solo, "TestThree", "TestOne", "TestStart", noraceTest) {
 		var matching []string
 		for _, expression := range shards(commands) {
 			ok, err := regexp.MatchString(expression, owner)
@@ -329,6 +336,7 @@ func (f schedulerFixture) complete(t *testing.T, r script.Result, short bool) {
 		}
 		estimates = append(estimates, seconds)
 	}
+	requireText(t, r.Stdout, "race queue bootstrapstart-norace-0 pool=norace estimate=4s")
 	if len(queue) != 14 || !slices.IsSortedFunc(estimates, func(a, b int) int { return b - a }) {
 		t.Fatalf("queue is not longest first: %v", queue)
 	}
@@ -432,9 +440,9 @@ func TestRaceScheduler(t *testing.T) {
 		for _, lab := range schedulerLabs {
 			requireText(t, r.Stdout, "race queue app-"+lab+" pool=idle ")
 		}
-		requireText(t, r.Stdout, "race queue deploy-"+solo+" pool=cpu estimate=300s")
+		requireText(t, r.Stdout, "race queue deploy-"+solo+" pool=cpu estimate=60s")
 	})
-	for setting, value := range map[string]string{"TS_RACE_SHARDS": "0", "TS_RACE_JOBS": "0", "TS_RACE_IDLE_JOBS": "0", "TS_RACE_PACKAGE_JOBS": "0", "TS_RACE_TEST_JOBS": "0", "TS_TEST_TIER": "qualification"} {
+	for setting, value := range map[string]string{"TS_RACE_SHARDS": "0", "TS_RACE_NORACE_SHARDS": "0", "TS_RACE_JOBS": "0", "TS_RACE_IDLE_JOBS": "0", "TS_RACE_PACKAGE_JOBS": "0", "TS_RACE_TEST_JOBS": "0", "TS_TEST_TIER": "qualification"} {
 		t.Run("invalid_"+setting, func(t *testing.T) {
 			t.Parallel()
 			f := newScheduler(t)

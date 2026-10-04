@@ -209,3 +209,27 @@ func TestReattacherRefusesDisabledFollowerFencedAndForeignAttachments(t *testing
 		t.Fatalf("refused reattach performed effects: detach=%d attach=%d", volumes.detaches, volumes.attaches)
 	}
 }
+
+func TestReattacherSeparatesFailedLookupsAndBindsTheExpectedEpoch(t *testing.T) {
+	volumes := &fakeVolumes{attachments: []Attachment{attachment("a", "old", "ATTACHED")}}
+	permits := &fakePermits{granted: map[string]bool{}}
+	reattacher := Reattacher{Config: Config{Enabled: true}, Fencer: &fakeFencer{snapshot: leader()},
+		Instances: fakeInstances{}, Volumes: volumes, Permits: permits}
+	step, err := reattacher.Step(t.Context(), request)
+	if step.Kind != StepProveFence || !errors.Is(err, ErrFenceUnobserved) || !errors.Is(err, storage.ErrWriterNotFenced) {
+		t.Fatalf("failed lookup: %+v %v", step, err)
+	}
+	reattacher.Instances = fakeInstances{"old": "STOPPED"}
+	if _, err := reattacher.Step(t.Context(), request); errors.Is(err, ErrFenceUnobserved) {
+		t.Fatalf("an observed STOPPED state was reported as a failed lookup: %v", err)
+	}
+	reattacher.Instances = fakeInstances{"old": "TERMINATED"}
+	reattacher.ExpectedEpoch = leader().Epoch + 1
+	if _, err := reattacher.Step(t.Context(), request); !errors.Is(err, authority.ErrFenced) || volumes.detaches != 0 || volumes.listings != 0 {
+		t.Fatalf("stale expected epoch: %v detaches=%d listings=%d", err, volumes.detaches, volumes.listings)
+	}
+	reattacher.ExpectedEpoch = leader().Epoch
+	if step, err := reattacher.Step(t.Context(), request); err != nil || step.Kind != StepDetach || volumes.detaches != 1 {
+		t.Fatalf("current expected epoch: %+v %v detaches=%d", step, err, volumes.detaches)
+	}
+}

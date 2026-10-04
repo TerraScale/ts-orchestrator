@@ -9,8 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 func deviceLines(t *testing.T) []string {
@@ -79,5 +77,5 @@ func TestOCIDevicePathsParseUnderUdev(t *testing.T) {
 	if _, err := exec.LookPath("udevadm"); err != nil {
 		t.Skip("udevadm is not installed")
 	}
-	successful(t, script.Run(t, deployRoot(t), nil, "udevadm", "verify", filepath.Join(deployRoot(t), "deploy/udev/65-terrascale-oci-device-paths.rules")))
+	successful(t, runDeploy(t, deployRoot(t), nil, "udevadm", "verify", filepath.Join(deployRoot(t), "deploy/udev/65-terrascale-oci-device-paths.rules")))
 }

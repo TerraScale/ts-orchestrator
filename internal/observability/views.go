@@ -170,6 +170,22 @@ type DeliveryView struct {
 // OCIView is per-operation OCI API usage since this process started.
 type OCIView struct {
 	Operations []OCIOperationView `json:"operations,omitempty"`
+	// Fleet is the latest complete inventory sweep of each region this
+	// member observes, when it manages OCI hosts.
+	Fleet []OCIFleetView `json:"fleet,omitempty"`
+}
+
+// OCIFleetView counts one region's managed OCI resources by lifecycle
+// state as of its latest complete Observe sweep: instances in scope of the
+// fleet's identity tags (owned or withheld), and the retained data volumes
+// and volume attachments of the instances it verified. Unattached retained
+// volumes are not listed by the sweep.
+type OCIFleetView struct {
+	Region      string         `json:"region"`
+	ObservedAt  time.Time      `json:"observed_at"`
+	Instances   map[string]int `json:"instances,omitempty"`
+	Volumes     map[string]int `json:"volumes,omitempty"`
+	Attachments map[string]int `json:"attachments,omitempty"`
 }
 
 // OCIOperationView counts calls of one templated OCI API operation.

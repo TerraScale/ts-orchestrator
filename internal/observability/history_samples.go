@@ -47,6 +47,9 @@ const (
 	HistSeatsServing     = "terrabase_seats_serving"
 	HistStageMembers     = "terrabase_stage_members" // stage
 	HistRolloutProgress  = "terrabase_rollout_progress"
+	// Per-partition seats, for the TerraBase detail pages: database, partition.
+	HistPartitionDesired = "terrabase_partition_seats_desired"
+	HistPartitionServing = "terrabase_partition_seats_serving"
 	HistDeliveryAcked    = "delivery_acknowledged_total" // member; counter
 	HistDeliveryDeferred = "delivery_deferred_total"
 )
@@ -70,6 +73,8 @@ const (
 	maxSampledMembers    = 512
 	maxSampledOperations = 256
 	maxSampledStages     = 64
+	// maxSampledPartitions bounds the per-partition series of one sample.
+	maxSampledPartitions = 128
 )
 
 // SnapshotSampler turns cluster snapshots into history samples. It keeps
@@ -306,9 +311,15 @@ func (sampler *SnapshotSampler) Samples(cluster ClusterSnapshot) []Sample {
 	if placement != nil {
 		gauge(HistDatabases, float64(len(placement.Databases)))
 		desired, serving := 0, 0
-		for _, database := range placement.Databases {
+		for index, database := range placement.Databases {
 			desired += database.DesiredSeats
 			serving += database.Serving
+			if index < maxSampledPartitions {
+				gauge(HistPartitionDesired, float64(database.DesiredSeats),
+					"database", database.DatabaseID, "partition", database.PartitionID)
+				gauge(HistPartitionServing, float64(database.Serving),
+					"database", database.DatabaseID, "partition", database.PartitionID)
+			}
 			if rollout := database.Rollout; rollout != nil {
 				gauge(HistRolloutProgress, rollout.Progress(), "operation", rollout.OperationID)
 			}

@@ -127,7 +127,20 @@ func deployTool(t *testing.T) string {
 	write(t, path, []byte("#!/bin/sh\nGOMAXPROCS=2 GORACE=\"${GORACE:+$GORACE }atexit_sleep_ms=0\" exec "+shellQuote(exe)+" -test.run=^TestDeployTool$ -- \"$@\"\n"), 0755)
 	return path
 }
+
+// runDeploy runs a deploy command. Its subprocesses (the offline builder,
+// the promotion tool and this binary re-executed as ts-orch) read only
+// repository files under deploy/: the pinned image inputs, systemd and udev
+// units and the shell entry points. Tracking that tree alone keeps the
+// suite's cached results valid across edits elsewhere; Go records every
+// file the test process opens itself.
+func runDeploy(t *testing.T, dir string, env map[string]string, name string, args ...string) script.Result {
+	t.Helper()
+	script.Track(t, "deploy")
+	return script.Exec(t, dir, env, name, args...)
+}
+
 func runTool(t *testing.T, args ...string) script.Result {
 	t.Helper()
-	return script.Run(t, deployRoot(t), nil, deployTool(t), args...)
+	return runDeploy(t, deployRoot(t), nil, deployTool(t), args...)
 }

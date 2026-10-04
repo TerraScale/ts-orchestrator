@@ -276,6 +276,30 @@ func (world *World) seedDecisions(now time.Time) {
 			Rule: "host enrollment with a one-time setup key"})
 	}
 	world.seedCurrentRelease(now, healthGates)
+	// Placement holds on one GRU partition, as the hold journal records
+	// them: once per reason every 15 minutes while re-asserted, then
+	// cleared.
+	gru := world.regions[0]
+	held := gru.databases[0]
+	partition := held.id + "/p0"
+	seat := held.id + "-2"
+	for _, minutes := range []int{140, 125, 110} {
+		world.store.record(decisionlog.Decision{Time: ago(time.Duration(minutes) * time.Minute), Region: gru.name,
+			Actor: decisionlog.Actor{Slice: "placement", Member: gru.leader}, Kind: decisionlog.KindHeld,
+			Subject: decisionlog.Subject{Kind: "seat", ID: seat}, Summary: "Placement held seat/" + seat,
+			Reason: "member " + seat + " retained volume attachment is ATTACHING; desired state remains withheld",
+			Rule:   "placement reconciliation safety gate", Status: decisionlog.StatusPending})
+	}
+	world.store.record(decisionlog.Decision{Time: ago(95 * time.Minute), Region: gru.name, Actor: decisionlog.Actor{Slice: "placement", Member: gru.leader},
+		Kind: decisionlog.KindHeld, Subject: decisionlog.Subject{Kind: "database", ID: partition},
+		Summary: "Placement held database/" + partition,
+		Reason:  "database " + partition + " has no admitted managed placement profile; host reconciliation is held",
+		Rule:    "placement reconciliation safety gate", Status: decisionlog.StatusPending})
+	world.store.record(decisionlog.Decision{Time: ago(70 * time.Minute), Region: gru.name, Actor: decisionlog.Actor{Slice: "placement", Member: gru.leader},
+		Kind: decisionlog.KindHoldCleared, Subject: decisionlog.Subject{Kind: "database", ID: partition},
+		Summary: "Placement hold on " + partition + " cleared",
+		Reason:  "The signed placement profile was admitted and the seat's volume attached.",
+		Rule:    "placement reconciliation safety gate", Status: decisionlog.StatusSucceeded})
 	fra := world.regions[2]
 	world.store.record(decisionlog.Decision{Time: ago(3 * time.Hour), Region: fra.name,
 		Actor: decisionlog.Actor{Slice: "cluster", Member: fra.leader}, Kind: decisionlog.KindQuorumDegraded,

@@ -34,6 +34,12 @@ type ProofCheck struct {
 // current link back to the previous release and marks the target known bad
 // on this node. Callers restart the unit after OutcomeRolledBack.
 func Watch(layout Layout, unit string, proof ProofCheck, now time.Time) (Outcome, Activation, error) {
+	// A rollout restore interrupted before its link moved is finished
+	// first, so neither the watchdog's restart nor the unit's start ever
+	// runs the release the restore rejected.
+	if err := layout.finishRestores(); err != nil {
+		return OutcomeIdle, Activation{}, fmt.Errorf("finish interrupted restore: %w", err)
+	}
 	activation, pending, err := layout.Pending()
 	if errors.Is(err, errUnreadableActivation) {
 		return layout.resolveUnreadable(err)

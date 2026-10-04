@@ -26,6 +26,10 @@ type managedPlacementSettings struct {
 	// AutoGrowVolumes opts into grow-only resize of retained volumes created
 	// under a smaller resource profile. Off by default.
 	AutoGrowVolumes bool `json:"auto_grow_volumes,omitzero"`
+	// ReattachOnHostLoss opts into moving a lost member's retained volume
+	// to its replacement host once OCI reports the old host TERMINATED.
+	// Off by default.
+	ReattachOnHostLoss bool `json:"reattach_on_host_loss,omitzero"`
 }
 
 type managedControllerConfig struct {
@@ -41,10 +45,20 @@ func (m managedControllerConfig) placementConfig(cell string, onError func(error
 		ManagedOwner: m.region.Owner, FleetGeneration: m.region.Generation,
 		ImageID:     m.region.ImageID,
 		Environment: settings.Environment, MemberRole: settings.MemberRole, Resources: settings.Resources,
-		TickInterval:    time.Duration(settings.TickMillis) * time.Millisecond,
-		AutoGrowVolumes: settings.AutoGrowVolumes,
-		OnError:         onError, OnHold: onHold,
+		TickInterval:       time.Duration(settings.TickMillis) * time.Millisecond,
+		AutoGrowVolumes:    settings.AutoGrowVolumes,
+		ReattachOnHostLoss: settings.ReattachOnHostLoss,
+		OnError:            onError, OnHold: onHold,
 	}
+}
+
+// withKnownBad makes managed update admission enforce the cell's rollout
+// known-bad list; a nil source (rollout store disabled) leaves it unset.
+func withKnownBad(config placement.Config, knownBad *rolloutKnownBad) placement.Config {
+	if knownBad != nil {
+		config.KnownBad = knownBad
+	}
+	return config
 }
 
 func loadManagedControllerConfig(cfg Config) (*managedControllerConfig, error) {
