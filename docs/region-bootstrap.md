@@ -49,6 +49,57 @@ Current cleanup state is in the
 The old OpenBao `/infra/netbird/servers-gru` group/key IDs are invalid;
 replace the enrollment input and create a fresh OCI mirror before using it.
 
+### TS-470 rebuild preparation
+
+TS-466 (#148) and TS-467 (#147) are merged. The reviewed rebuild uses
+`deploy/oci-region/plan.json`, a new attempt owner `ts-470-gru-rebuild-2`,
+three controllers `gru-1-ctl-1`..`3`, and two database hosts
+`gru-1-db-1`..`2`. Keep the plan's two-member count; the three-member profile
+in [TerraBase deployment](terrabase-deployment.md) is an example.
+
+Before any live create, finish the old-cell teardown and present the exact
+foundation, image, credential, host and enrollment inputs as a separate
+`NEEDS CONFIRM` plan. COS must relay the user's confirmation for each live
+change. The pending control vault prevents reuse of its compartment name
+until its purge finishes. Every resource ID in `resource_ids` remains
+unset until a confirmed create and its readback; shared ts-ops and Email
+Delivery stay untouched.
+
+Use TS-467's C# release path after controllers are healthy. Its prerequisites
+include a verified `terrabase-linux-arm64` release, member CA files on all
+controllers, and a signed `controller.workloads.terrabase` profile. The two
+database hosts must register with role `terrabase` without the managed Rust
+placement bindings. The current bootstrap does not yet automate these
+config/CA and non-managed-host inputs; see the open steps in the
+[live deployment runbook](terrabase-deployment.md#gru-1-live-deployment-runbook).
+Pin the asset SHA-256 and source commit before requesting rollout approval.
+The profile's peer list is:
+
+```text
+gru-1-db-1=10.251.0.21:9443,gru-1-db-2=10.251.0.22:9443
+```
+
+These are the supported commands, prepared here but not executed:
+
+```sh
+ts-orch terrabase member-ca --cell gru-1 --out /var/lib/terrascale-operator/terrabase-ca-gru-1
+ts-orch operator hosts --config /var/lib/terrascale-operator/operator.json
+ts-orch operator terrabase-release \
+  --config /var/lib/terrascale-operator/operator.json \
+  --binary "$WORK/terrabase-linux-arm64" --sha256 "$WORK/terrabase-linux-arm64.sha256" \
+  --source-checkout "$WORK/terrabase" --commit "$COMMIT" \
+  --environment canary --profile /var/lib/terrascale-operator/terrabase-gru-1-profile.json \
+  --wait 10m
+```
+
+`WORK` and `COMMIT` come from the verified release workflow. Capture controller
+health, both members' digest/status, static NetBird peer names, and ts-status
+reachability in `docs/evidence`. The current C# runtime has no replication
+implementation or readiness endpoint: a `running` report proves process
+liveness only. TS-470's replication acceptance remains open until TerraBase
+TS-464/TS-469 support it; do not report the rebuilt cell as replicating based
+on this rollout gate alone.
+
 `generate-controller-material`, the first-seed commands, and the preview
 helper validate only the three mappings listed above. The checked-in
 `deploy/oci-region/plan.json` remains populated for GRU, including its existing

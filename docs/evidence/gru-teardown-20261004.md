@@ -96,14 +96,26 @@ incomplete: gone 0, absent 0, pending 505, delete 0, held 1, keep 9
 All 505 vault, key and secret deletions are already accepted by OCI; the
 command only waits for them. `terrascale-control` is held until they are gone.
 
+Read-only refresh at 2026-10-04 20:42 UTC on branch
+`cos-hold/ts-470-gru-rebuild-2`, based on `325764c3` (TS-466 and TS-467
+merged), reproduced the full dry run byte for byte (SHA-256
+`c67c0e5822a67112f00db20ff8faed52b889652e1e62cb6ab5b6fbc69beb0b49`).
+The vault's live key and secret metadata matched the cell-owned inventory;
+no unknown or shared content was found. `iam region-subscription list`
+identified `sa-saopaulo-1` as the ready home region; Frankfurt and San Jose
+were ready non-home subscriptions. No resource was changed.
+
 The plan records each resource's compartment (the parent for compartments).
 The command checks names and compartment IDs before printing the complete
 diff, including shared resources, and only then can `--apply` mutate OCI.
 It rejects a kept resource whose vault or compartment is deleted, and refuses
 to schedule a vault unless every remaining key and secret has a verified
-name and compartment matching the deletion plan; keys must also bind that
-vault. This check includes every tenancy compartment and fails if a list
-cannot be read. Identity requests use the tenancy's observed home region;
+name, compartment and vault binding in the live list matching the reviewed
+cell-owned inventory. This check includes every tenancy compartment and
+already-pending vaults, and fails if a list cannot be read. Unexpected contents
+are printed as `blocked` in the dry run; no mutation is permitted. The contents
+are listed and checked again immediately before scheduling a vault deletion.
+Identity requests use the ready region subscription marked `isHomeRegion`;
 KMS clients stay in the cell's region. Parents wait for planned child
 compartments to finish deletion.
 An OCI `NotAuthorizedOrNotFound` response is reported as unverified `absent`,

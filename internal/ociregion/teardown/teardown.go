@@ -61,9 +61,9 @@ type Observed struct {
 type Provider interface {
 	Get(context.Context, Resource) (Observed, error)
 	Delete(context.Context, Resource) error
-	// VaultContents lists the IDs of every key and secret in a vault that is
-	// not deleted yet; deleting the vault deletes them too.
-	VaultContents(context.Context, Resource) ([]string, error)
+	// VaultContents lists live identities and ownership of every remaining
+	// key and secret; deleting the vault deletes them too.
+	VaultContents(context.Context, Resource) ([]Resource, error)
 }
 
 func Run(ctx context.Context, args []string, out io.Writer) error {
@@ -213,20 +213,15 @@ func Teardown(ctx context.Context, plan Plan, provider Provider, apply bool, out
 			s.action, s.detail = "held", fmt.Sprintf("waits for %d resources inside it to be gone", inside)
 		}
 	}
-	for _, s := range steps {
-		if s.Kind != "kms-vault" || s.action != "delete" {
+	var blocked []error
+	for i := range steps {
+		s := &steps[i]
+		if s.Kind != "kms-vault" || s.action == "gone" || s.action == "absent" {
 			continue
 		}
-		contents, err := provider.VaultContents(ctx, s.Resource)
-		if err != nil {
-			return fmt.Errorf("list vault %s: %w", s.ID, err)
-		}
-		for _, id := range contents {
-			child, ok := verified[id]
-			if !ok || (child.Kind != "kms-key" && child.Kind != "vault-secret") ||
-				(child.Kind == "kms-key" && child.VaultID != s.ID) {
-				return fmt.Errorf("vault %s holds %s without a verified planned identity and vault binding", s.ID, id)
-			}
+		if err := verifyVaultContents(ctx, provider, s.Resource, verified); err != nil {
+			s.action, s.detail = "blocked", err.Error()
+			blocked = append(blocked, err)
 		}
 	}
 
@@ -257,6 +252,12 @@ func Teardown(ctx context.Context, plan Plan, provider Provider, apply bool, out
 		counts["gone"], counts["absent"], counts["pending"], counts["delete"], counts["held"], len(plan.Keep)); err != nil {
 		return err
 	}
+	if len(blocked) > 0 {
+		if _, err := fmt.Fprintf(out, "blocked: %d vaults; no mutations permitted\n", len(blocked)); err != nil {
+			return errors.Join(err, errors.Join(blocked...))
+		}
+		return errors.Join(blocked...)
+	}
 	if !apply {
 		return nil
 	}
@@ -264,6 +265,14 @@ func Teardown(ctx context.Context, plan Plan, provider Provider, apply bool, out
 	for _, s := range steps {
 		if s.action != "delete" {
 			continue
+		}
+		if s.Kind == "kms-vault" {
+			if err := verifyVaultContents(ctx, provider, s.Resource, verified); err != nil {
+				if _, writeErr := fmt.Fprintf(out, "blocked  kms-vault    %s %s %s\n", s.Name, s.ID, err); writeErr != nil {
+					return errors.Join(err, writeErr)
+				}
+				return fmt.Errorf("refuse vault deletion after %d deletions: %w", deleted, err)
+			}
 		}
 		if err := provider.Delete(ctx, s.Resource); err != nil {
 			return fmt.Errorf("delete %s %s after %d deletions: %w", s.Kind, s.ID, deleted, err)
@@ -275,4 +284,22 @@ func Teardown(ctx context.Context, plan Plan, provider Provider, apply bool, out
 	}
 	_, err := fmt.Fprintf(out, "applied: deleted %d; rerun to follow pending deletions\n", deleted)
 	return err
+}
+
+func verifyVaultContents(ctx context.Context, provider Provider, vault Resource, verified map[string]Resource) error {
+	contents, err := provider.VaultContents(ctx, vault)
+	if err != nil {
+		return fmt.Errorf("list vault %s: %w", vault.ID, err)
+	}
+	var unexpected []error
+	for _, live := range contents {
+		inventory, ok := verified[live.ID]
+		if !ok || (live.Kind != "kms-key" && live.Kind != "vault-secret") || live.Kind != inventory.Kind ||
+			live.Name != inventory.Name || live.Compartment != inventory.Compartment || live.VaultID != vault.ID ||
+			(live.Kind == "kms-key" && inventory.VaultID != vault.ID) {
+			unexpected = append(unexpected, fmt.Errorf("vault %s has unexpected %s %s %q in compartment %s (vault %s); not verified as cell-owned by the inventory",
+				vault.ID, live.Kind, live.ID, live.Name, live.Compartment, live.VaultID))
+		}
+	}
+	return errors.Join(unexpected...)
 }

@@ -19,9 +19,10 @@ const (
 // DELETED and makes everything else answer 404.
 type fakeOCI struct {
 	state    map[string]Observed
-	contents map[string][]string
+	contents map[string][]Resource
 	deleted  []string
 	out      *strings.Builder
+	onDelete func(Resource)
 }
 
 func (f *fakeOCI) Get(_ context.Context, r Resource) (Observed, error) {
@@ -43,10 +44,13 @@ func (f *fakeOCI) Delete(_ context.Context, r Resource) error {
 	}
 	f.state[r.ID] = o
 	f.deleted = append(f.deleted, r.ID)
+	if f.onDelete != nil {
+		f.onDelete(r)
+	}
 	return nil
 }
 
-func (f *fakeOCI) VaultContents(_ context.Context, r Resource) ([]string, error) {
+func (f *fakeOCI) VaultContents(_ context.Context, r Resource) ([]Resource, error) {
 	return f.contents[r.ID], nil
 }
 
@@ -81,7 +85,10 @@ func liveCell() *fakeOCI {
 		"vault":         {Name: "terrascale-control-vault-gru", Compartment: cellCompartment, State: "ACTIVE"},
 		"key":           {Name: "terrascale-control-key-gru", Compartment: cellCompartment, State: "ENABLED"},
 		"secret":        {Name: "terrascale-gru-netbird-setup-key", Compartment: cellCompartment, State: "ACTIVE"},
-	}, contents: map[string][]string{"vault": {"key", "secret"}}}
+	}, contents: map[string][]Resource{"vault": {
+		{Kind: "kms-key", ID: "key", Name: "terrascale-control-key-gru", Compartment: cellCompartment, VaultID: "vault"},
+		{Kind: "vault-secret", ID: "secret", Name: "terrascale-gru-netbird-setup-key", Compartment: cellCompartment, VaultID: "vault"},
+	}}}
 }
 
 func run(t *testing.T, plan Plan, oci *fakeOCI, apply bool) string {
@@ -170,8 +177,12 @@ func TestRefusesResourcesOutsideThePlan(t *testing.T) {
 		"other compartment": func(f *fakeOCI) {
 			f.state["vault"] = Observed{Name: "terrascale-control-vault-gru", Compartment: "ocid1.compartment.oc1..ts-ops", State: "ACTIVE"}
 		},
-		"vault holds an unlisted key":    func(f *fakeOCI) { f.contents["vault"] = append(f.contents["vault"], "ts-ops-key") },
-		"vault holds an unlisted secret": func(f *fakeOCI) { f.contents["vault"] = append(f.contents["vault"], "ts-ops-secret") },
+		"vault holds an unlisted key": func(f *fakeOCI) {
+			f.contents["vault"] = append(f.contents["vault"], Resource{Kind: "kms-key", ID: "ts-ops-key", Name: "shared key", Compartment: "ts-ops", VaultID: "vault"})
+		},
+		"vault holds an unlisted secret": func(f *fakeOCI) {
+			f.contents["vault"] = append(f.contents["vault"], Resource{Kind: "vault-secret", ID: "ts-ops-secret", Name: "shared secret", Compartment: "ts-ops", VaultID: "vault"})
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			oci := liveCell()
@@ -197,6 +208,12 @@ func TestVaultDeletionRequiresVerifiedContents(t *testing.T) {
 		"key belongs to a different vault": func(p *Plan, _ *fakeOCI) {
 			p.Delete[2].VaultID = "other-vault"
 		},
+		"listed key moved to a shared compartment": func(_ *Plan, f *fakeOCI) {
+			f.contents["vault"][0].Compartment = "ts-ops"
+		},
+		"listed secret renamed in the live list": func(_ *Plan, f *fakeOCI) {
+			f.contents["vault"][1].Name = "shared secret"
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			for _, apply := range []bool{false, true} {
@@ -204,11 +221,50 @@ func TestVaultDeletionRequiresVerifiedContents(t *testing.T) {
 				mutate(&plan, oci)
 				oci.out = &strings.Builder{}
 				err := Teardown(t.Context(), plan, oci, apply, oci.out)
-				if err == nil || len(oci.deleted) != 0 || oci.out.Len() != 0 {
+				if err == nil || len(oci.deleted) != 0 || !strings.Contains(oci.out.String(), "blocked  kms-vault") ||
+					!strings.Contains(oci.out.String(), "not verified as cell-owned by the inventory") {
 					t.Fatalf("apply %v: err %v, deleted %v, output %s", apply, err, oci.deleted, oci.out)
 				}
 			}
 		})
+	}
+}
+
+func TestDryRunReportsEveryUnexpectedVaultContent(t *testing.T) {
+	for _, pending := range []bool{false, true} {
+		oci := liveCell()
+		if pending {
+			observed := oci.state["vault"]
+			observed.State = "PENDING_DELETION"
+			oci.state["vault"] = observed
+		}
+		oci.contents["vault"] = append(oci.contents["vault"],
+			Resource{Kind: "kms-key", ID: "unknown-key", Name: "shared key", Compartment: "ts-ops", VaultID: "vault"},
+			Resource{Kind: "vault-secret", ID: "unknown-secret", Name: "shared secret", Compartment: "ts-ops", VaultID: "vault"})
+		oci.out = &strings.Builder{}
+		err := Teardown(t.Context(), gruPlan(), oci, false, oci.out)
+		for _, want := range []string{"unknown-key", "shared key", "unknown-secret", "shared secret", "keep     instance"} {
+			if !strings.Contains(oci.out.String(), want) {
+				t.Fatalf("pending %v: output lacks %q: %s", pending, want, oci.out)
+			}
+		}
+		if err == nil || len(oci.deleted) != 0 || !strings.Contains(oci.out.String(), "blocked: 1 vaults") {
+			t.Fatalf("err %v, deleted %v, output %s", err, oci.deleted, oci.out)
+		}
+	}
+}
+
+func TestVaultContentsRecheckedBeforeScheduling(t *testing.T) {
+	oci := liveCell()
+	oci.onDelete = func(r Resource) {
+		if r.Kind == "kms-key" {
+			oci.contents["vault"] = append(oci.contents["vault"], Resource{Kind: "kms-key", ID: "late-key", Name: "shared key", Compartment: "ts-ops", VaultID: "vault"})
+		}
+	}
+	oci.out = &strings.Builder{}
+	err := Teardown(t.Context(), gruPlan(), oci, true, oci.out)
+	if err == nil || strings.Join(oci.deleted, ",") != "secret,key" || !strings.Contains(oci.out.String(), "late-key") {
+		t.Fatalf("err %v, deleted %v, output %s", err, oci.deleted, oci.out)
 	}
 }
 

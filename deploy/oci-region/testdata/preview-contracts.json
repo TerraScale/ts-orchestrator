@@ -6822,7 +6822,7 @@
           "$fixture": "fixture-0562"
         },
         "operator_gateway": null,
-        "orchestrator_owner": "ts-preview-gru-20260926",
+        "orchestrator_owner": "ts-470-gru-rebuild-2",
         "parent_compartment_id": {
           "$fixture": "fixture-0004"
         },

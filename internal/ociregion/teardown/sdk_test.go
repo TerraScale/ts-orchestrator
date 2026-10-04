@@ -95,9 +95,9 @@ func TestSDKVaultContentsAcrossCompartmentsAndPages(t *testing.T) {
 				case strings.HasSuffix(r.URL.Path, "/keys") && compartment == "shared":
 					if page == "" {
 						w.Header().Set("opc-next-page", "next")
-						_, _ = io.WriteString(w, `[{"id":"key-1","lifecycleState":"ENABLED"}]`)
+						_, _ = io.WriteString(w, `[{"id":"key-1","displayName":"first key","compartmentId":"shared","vaultId":"vault","lifecycleState":"ENABLED"}]`)
 					} else {
-						_, _ = io.WriteString(w, `[{"id":"key-2","lifecycleState":"PENDING_DELETION"}]`)
+						_, _ = io.WriteString(w, `[{"id":"key-2","displayName":"second key","compartmentId":"shared","vaultId":"vault","lifecycleState":"PENDING_DELETION"}]`)
 					}
 				case strings.HasSuffix(r.URL.Path, "/secrets") && compartment == "shared":
 					if r.URL.Query().Get("vaultId") != "vault" {
@@ -105,9 +105,9 @@ func TestSDKVaultContentsAcrossCompartmentsAndPages(t *testing.T) {
 					}
 					if page == "" {
 						w.Header().Set("opc-next-page", "next")
-						_, _ = io.WriteString(w, `[{"id":"secret-1","lifecycleState":"ACTIVE"}]`)
+						_, _ = io.WriteString(w, `[{"id":"secret-1","secretName":"first secret","compartmentId":"shared","vaultId":"vault","lifecycleState":"ACTIVE"}]`)
 					} else {
-						_, _ = io.WriteString(w, `[{"id":"secret-2","lifecycleState":"PENDING_DELETION"}]`)
+						_, _ = io.WriteString(w, `[{"id":"secret-2","secretName":"second secret","compartmentId":"shared","vaultId":"vault","lifecycleState":"PENDING_DELETION"}]`)
 					}
 				default:
 					_, _ = io.WriteString(w, `[]`)
@@ -121,7 +121,13 @@ func TestSDKVaultContentsAcrossCompartmentsAndPages(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || !slices.Equal(contents, []string{"key-1", "key-2", "secret-1", "secret-2"}) {
+			want := []Resource{
+				{Kind: "kms-key", ID: "key-1", Name: "first key", Compartment: "shared", VaultID: "vault"},
+				{Kind: "kms-key", ID: "key-2", Name: "second key", Compartment: "shared", VaultID: "vault"},
+				{Kind: "vault-secret", ID: "secret-1", Name: "first secret", Compartment: "shared", VaultID: "vault"},
+				{Kind: "vault-secret", ID: "secret-2", Name: "second secret", Compartment: "shared", VaultID: "vault"},
+			}
+			if err != nil || !slices.Equal(contents, want) {
 				t.Fatalf("contents %v, err %v", contents, err)
 			}
 		})
@@ -142,13 +148,19 @@ func (c *recordingIdentityClient) Do(r *http.Request) (*http.Response, error) {
 }
 
 func TestSDKCompartmentDeletionUsesTenancyHomeRegion(t *testing.T) {
-	for _, homeKey := range []string{"sJc", "", "unknown"} {
-		t.Run(homeKey, func(t *testing.T) {
+	for name, subscriptions := range map[string]string{
+		"different home": `[{"regionKey":"GRU","regionName":"sa-saopaulo-1","status":"READY","isHomeRegion":false},{"regionKey":"SJC","regionName":"us-sanjose-1","status":"READY","isHomeRegion":true}]`,
+		"no home":        `[{"regionKey":"GRU","regionName":"sa-saopaulo-1","status":"READY","isHomeRegion":false}]`,
+		"unknown home":   `[{"regionKey":"unknown","regionName":"unknown","status":"READY","isHomeRegion":true}]`,
+		"multiple homes": `[{"regionKey":"GRU","regionName":"sa-saopaulo-1","status":"READY","isHomeRegion":true},{"regionKey":"SJC","regionName":"us-sanjose-1","status":"READY","isHomeRegion":true}]`,
+		"home not ready": `[{"regionKey":"SJC","regionName":"us-sanjose-1","status":"IN_PROGRESS","isHomeRegion":true}]`,
+	} {
+		t.Run(name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				switch {
-				case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/tenancies/ocid1.tenancy.oc1..t"):
-					_, _ = fmt.Fprintf(w, `{"id":"ocid1.tenancy.oc1..t","homeRegionKey":%q}`, homeKey)
+				case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/tenancies/ocid1.tenancy.oc1..t/regionSubscriptions"):
+					_, _ = io.WriteString(w, subscriptions)
 				case r.Method == http.MethodDelete && strings.HasSuffix(r.URL.Path, "/compartments/"+cellCompartment):
 					w.WriteHeader(http.StatusNoContent)
 				default:
@@ -164,7 +176,7 @@ func TestSDKCompartmentDeletionUsesTenancyHomeRegion(t *testing.T) {
 			client := &recordingIdentityClient{server: server}
 			p.identity.HTTPClient = client
 			err := p.useHomeIdentity(t.Context())
-			if homeKey != "sJc" {
+			if name != "different home" {
 				if err == nil {
 					t.Fatal("unresolved home region accepted")
 				}

@@ -223,7 +223,7 @@
         "compartment_id": null,
         "secret_id": null
     },
-    "orchestrator_owner": "ts-preview-gru-20260926",
+    "orchestrator_owner": "ts-470-gru-rebuild-2",
     "seed_a_create_identity": null,
     "network_cidr": "10.251.0.0/24",
     "subnet_cidr": "10.251.0.0/25",

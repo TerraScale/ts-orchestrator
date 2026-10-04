@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -68,17 +67,26 @@ func (p *SDKProvider) useHomeIdentity(ctx context.Context) error {
 	}
 	lookup, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	response, err := p.identity.GetTenancy(lookup, identity.GetTenancyRequest{TenancyId: &tenancy})
+	response, err := p.identity.ListRegionSubscriptions(lookup, identity.ListRegionSubscriptionsRequest{TenancyId: &tenancy})
 	if err != nil {
 		return fmt.Errorf("read the tenancy home region: %w", err)
 	}
-	for _, entry := range catalog.Entries() {
-		if strings.EqualFold(entry.OCIRegionKey, deref(response.HomeRegionKey)) {
-			p.identity.SetRegion(entry.OCIRegion)
-			return nil
+	home := ""
+	for _, subscription := range response.Items {
+		if subscription.IsHomeRegion == nil || !*subscription.IsHomeRegion {
+			continue
 		}
+		region := deref(subscription.RegionName)
+		if home != "" || !catalog.IsOCIRegion(region) || subscription.Status != identity.RegionSubscriptionStatusReady {
+			return fmt.Errorf("invalid or ambiguous home-region subscription %q", region)
+		}
+		home = region
 	}
-	return fmt.Errorf("tenancy home region %q is not a catalog region", deref(response.HomeRegionKey))
+	if home == "" {
+		return fmt.Errorf("region subscriptions do not identify a home region")
+	}
+	p.identity.SetRegion(home)
+	return nil
 }
 
 func (p *SDKProvider) Get(ctx context.Context, r Resource) (Observed, error) {
@@ -173,7 +181,7 @@ func (p *SDKProvider) keys(ctx context.Context, vaultID string) (*keymanagement.
 
 // VaultContents lists the vault's keys and secrets in every compartment of
 // the tenancy, since either may live outside the vault's compartment.
-func (p *SDKProvider) VaultContents(ctx context.Context, r Resource) ([]string, error) {
+func (p *SDKProvider) VaultContents(ctx context.Context, r Resource) ([]Resource, error) {
 	keys, state, err := p.keys(ctx, r.ID)
 	if err != nil {
 		return nil, err
@@ -205,7 +213,7 @@ func (p *SDKProvider) VaultContents(ctx context.Context, r Resource) ([]string, 
 			break
 		}
 	}
-	var ids []string
+	var contents []Resource
 	for _, compartment := range compartments {
 		for page = nil; ; {
 			resp, err := keys.ListKeys(ctx, keymanagement.ListKeysRequest{CompartmentId: &compartment, Page: page})
@@ -214,7 +222,8 @@ func (p *SDKProvider) VaultContents(ctx context.Context, r Resource) ([]string, 
 			}
 			for _, k := range resp.Items {
 				if k.LifecycleState != keymanagement.KeySummaryLifecycleStateDeleted {
-					ids = append(ids, deref(k.Id))
+					contents = append(contents, Resource{Kind: "kms-key", ID: deref(k.Id), Name: deref(k.DisplayName),
+						Compartment: deref(k.CompartmentId), VaultID: deref(k.VaultId)})
 				}
 			}
 			if page = resp.OpcNextPage; page == nil {
@@ -228,7 +237,8 @@ func (p *SDKProvider) VaultContents(ctx context.Context, r Resource) ([]string, 
 			}
 			for _, s := range resp.Items {
 				if s.LifecycleState != vault.SecretSummaryLifecycleStateDeleted {
-					ids = append(ids, deref(s.Id))
+					contents = append(contents, Resource{Kind: "vault-secret", ID: deref(s.Id), Name: deref(s.SecretName),
+						Compartment: deref(s.CompartmentId), VaultID: deref(s.VaultId)})
 				}
 			}
 			if page = resp.OpcNextPage; page == nil {
@@ -236,7 +246,7 @@ func (p *SDKProvider) VaultContents(ctx context.Context, r Resource) ([]string, 
 			}
 		}
 	}
-	return ids, nil
+	return contents, nil
 }
 
 func notFound(err error) bool {
