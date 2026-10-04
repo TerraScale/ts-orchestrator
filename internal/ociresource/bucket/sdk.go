@@ -16,7 +16,9 @@ import (
 
 const maxPages = 8
 
-type sdkAPI struct{ objects objectstorage.ObjectStorageClient }
+type sdkAPI struct {
+	objects objectstorage.ObjectStorageClient
+}
 
 // NewSDKAPI builds the bucket API on the shared rate-limited factory.
 func NewSDKAPI(factory *ociclient.Factory) (API, error) { return newSDKAPI(factory, "") }

@@ -85,6 +85,8 @@ var kindNouns = map[decisionlog.Kind][2]string{
 	decisionlog.KindDeliveryRejected:   {"delivery rejected", "deliveries rejected"},
 	decisionlog.KindFounderLaunched:    {"founder launch", "founder launches"},
 	decisionlog.KindPeerEnrolled:       {"peer enrollment", "peer enrollments"},
+
+	// OCI declarative reconcile.
 	decisionlog.KindOCIDesiredPublished: {"OCI desired spec published", "OCI desired specs published"},
 	decisionlog.KindOCIDriftCorrected:   {"OCI drift correction", "OCI drift corrections"},
 	decisionlog.KindOCIResourceDeleted:  {"OCI resource deletion", "OCI resource deletions"},
