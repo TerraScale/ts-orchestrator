@@ -106,9 +106,12 @@ type ImportRequest struct {
 // UploadRequest uploads one local file without overwriting an existing object.
 type UploadRequest struct {
 	Namespace, Bucket, Object, Path string
-	Metadata                        map[string]string
-	PartSize                        int64
-	Parallelism                     int
+	// SHA256 is the expected digest of the file. The client hashes exactly
+	// the bytes it sends and never commits an object whose bytes differ.
+	SHA256      string
+	Metadata    map[string]string
+	PartSize    int64
+	Parallelism int
 }
 
 // API is the narrow, typed OCI seam for one region. Fakes exercise admission,
@@ -552,7 +555,7 @@ func (i Importer) importVerified(ctx context.Context, o Options, logf func(strin
 				parallelism = defaultUploadParallelism
 			}
 			if err := i.Client.UploadObject(ctx, UploadRequest{Namespace: o.Namespace, Bucket: o.Bucket, Object: objectName,
-				Path: o.QCOW2, Metadata: map[string]string{"sha256": o.SHA256},
+				Path: o.QCOW2, SHA256: o.SHA256, Metadata: map[string]string{"sha256": o.SHA256},
 				PartSize: int64(partSize) << 20, Parallelism: parallelism}); err != nil {
 				return nil, err
 			}

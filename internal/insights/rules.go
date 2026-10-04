@@ -55,6 +55,12 @@ type Thresholds struct {
 	// RepeatedHolds is how many holds of one subject within an hour raise
 	// an insight from the decision journal.
 	RepeatedHolds int
+	// OCIDrift is how long an OCI resource may stay out of sync with its
+	// desired spec before it raises an insight.
+	OCIDrift time.Duration
+	// OCIStale is how old an OCI reconcile observation may be before it is
+	// treated as unknown rather than as evidence.
+	OCIStale time.Duration
 }
 
 func (thresholds Thresholds) withDefaults() Thresholds {
@@ -67,7 +73,7 @@ func (thresholds Thresholds) withDefaults() Thresholds {
 		ConsumerPendingFor: 10 * time.Minute, CertificateWarning: 14 * 24 * time.Hour,
 		CertificateCritical: 3 * 24 * time.Hour, PeerOffline: 5 * time.Minute,
 		AutoscalerAtMax: 15 * time.Minute, BudgetWarning: 0.9, RegionUnreachable: time.Minute,
-		RepeatedHolds: 3,
+		RepeatedHolds: 3, OCIDrift: 10 * time.Minute, OCIStale: 3 * time.Hour,
 	}
 	merged := thresholds
 	if merged.MemberNotReady <= 0 {
@@ -136,6 +142,12 @@ func (thresholds Thresholds) withDefaults() Thresholds {
 	if merged.RepeatedHolds <= 0 {
 		merged.RepeatedHolds = defaults.RepeatedHolds
 	}
+	if merged.OCIDrift <= 0 {
+		merged.OCIDrift = defaults.OCIDrift
+	}
+	if merged.OCIStale <= 0 {
+		merged.OCIStale = defaults.OCIStale
+	}
 	return merged
 }
 
@@ -160,6 +172,8 @@ func DefaultRules() []Rule {
 		{Name: "netbird_peer", Description: "A NetBird peer is offline or relayed.", Evaluate: netbirdPeers},
 		{Name: "autoscaler_at_max", Description: "An autoscaler is pinned at its maximum.", Evaluate: autoscalerAtMax},
 		{Name: "budget_ceiling", Description: "A budget is near its ceiling.", Evaluate: budgetCeiling},
+		{Name: "oci_drift", Description: "An OCI resource drifts from its desired spec, is foreign, or fails to reconcile.",
+			Evaluate: ociDrift},
 	}
 }
 

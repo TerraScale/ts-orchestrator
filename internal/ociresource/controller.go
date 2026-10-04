@@ -6,7 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 )
 
 // Authority is the mutation fence. The authority package's Fencer satisfies it.
@@ -101,7 +107,8 @@ func (c *Controller[S, O]) guard(ctx context.Context, epoch uint64) error {
 }
 
 func (c *Controller[S, O]) reconcileOne(ctx context.Context, epoch uint64, desired Desired) (Status, error) {
-	status := Status{Key: desired.Key, Generation: desired.Generation, SpecDigest: desired.SpecDigest, ObservedAt: c.now()}
+	status := Status{Key: desired.Key, Generation: desired.Generation, SpecDigest: desired.SpecDigest, ObservedAt: c.now(),
+		Policy: desired.Policy}
 	if desired.Key.Region != c.Region || desired.Key.Kind != c.Resource.Kind() {
 		return status, errors.New("OCI desired record is outside this controller's scope")
 	}
@@ -146,6 +153,9 @@ func (c *Controller[S, O]) reconcileOne(ctx context.Context, epoch uint64, desir
 	}
 	status.Applied = true
 	slog.Info("OCI resource drift corrected", "key", desired.Key.String(), "plan", plan.String())
+	recordDecision(ctx, desired, epoch, decisionlog.KindOCIDriftCorrected,
+		fmt.Sprintf("Corrected drift on %s (%d changes)", desired.Key, len(plan.Changes)),
+		"The observed OCI resource differed from its enforced desired spec.", plan)
 	return status, nil
 }
 
@@ -174,11 +184,47 @@ func (c *Controller[S, O]) deleteOne(ctx context.Context, epoch uint64, desired 
 		// Re-observe on the next pass before purging, so a delete whose
 		// response was lost is confirmed rather than assumed.
 		status.Drift = []Change{{Op: "delete", Detail: "awaiting confirmation"}}
+		recordDecision(ctx, desired, epoch, decisionlog.KindOCIResourceDeleted,
+			"Deleted the managed parts of "+desired.Key.String(),
+			"Its desired record was tombstoned and the not-before instant passed.", Plan{})
 		return status, nil
 	}
 	if err := c.Store.Purge(ctx, desired); err != nil {
 		return status, fmt.Errorf("purge desired record: %w", err)
 	}
 	status.Deleted = true
+	recordDecision(ctx, desired, epoch, decisionlog.KindOCIResourceReleased,
+		"Released "+desired.Key.String()+" from reconcile",
+		"A pass after the tombstone confirmed nothing managed is left.", Plan{})
 	return status, nil
+}
+
+// recordDecision journals one committed reconcile effect. It never blocks
+// and never changes the reconcile path.
+func recordDecision(ctx context.Context, desired Desired, epoch uint64, kind decisionlog.Kind, summary, reason string,
+	plan Plan,
+) {
+	signals := []decisionlog.Signal{{Name: "generation", Value: float64(desired.Generation)}}
+	if len(plan.Changes) > 0 {
+		signals = append(signals, decisionlog.Signal{Name: "changes", Value: float64(len(plan.Changes))})
+	}
+	ops := map[string]int{}
+	for _, change := range plan.Changes {
+		ops[change.Op]++
+	}
+	attrs := map[string]string{"spec_digest": desired.SpecDigest, "policy": string(desired.Policy)}
+	for _, op := range slices.Sorted(maps.Keys(ops)) {
+		if len(attrs) >= 12 {
+			break
+		}
+		attrs["op_"+op] = strconv.Itoa(ops[op])
+	}
+	decisionlog.Record(ctx, decisionlog.Decision{
+		Region:  strings.ToLower(desired.Key.Region),
+		Actor:   decisionlog.Actor{Slice: "ociresource"},
+		Kind:    kind,
+		Subject: decisionlog.Subject{Kind: "oci-" + desired.Key.Kind, ID: desired.Key.String(), Name: desired.Key.Name},
+		Summary: summary, Reason: reason, Rule: "ociresource." + desired.Key.Kind,
+		Signals: signals, Status: decisionlog.StatusSucceeded, Epoch: epoch, Attrs: attrs,
+	})
 }

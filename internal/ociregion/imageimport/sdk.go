@@ -9,7 +9,6 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
-	"github.com/oracle/oci-go-sdk/v65/objectstorage/transfer"
 	"github.com/oracle/oci-go-sdk/v65/workrequests"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
@@ -22,7 +21,6 @@ type sdkClient struct {
 	compute     core.ComputeClient
 	objects     objectstorage.ObjectStorageClient
 	workRequest workrequests.WorkRequestClient
-	upload      *transfer.UploadManager
 	// uploadRetry treats the content-addressed part PUTs as replayable: a part
 	// upload of the same bytes to the same part number is idempotent, and the
 	// commit refuses to overwrite an existing object.
@@ -66,7 +64,7 @@ func newSDKClient(factory *ociclient.Factory, endpoint string) (*sdkClient, erro
 	ociclient.PinHost(&compute.BaseClient, endpoint)
 	ociclient.PinHost(&objects.BaseClient, endpoint)
 	ociclient.PinHost(&work.BaseClient, endpoint)
-	return &sdkClient{compute: compute, objects: objects, workRequest: work, upload: transfer.NewUploadManager(),
+	return &sdkClient{compute: compute, objects: objects, workRequest: work,
 		uploadRetry: ociclient.IdempotentPutRetryPolicy(ociclient.RetryOptions{})}, nil
 }
 
@@ -129,21 +127,7 @@ func (c *sdkClient) HeadObject(ctx context.Context, namespace, bucket, object st
 }
 
 func (c *sdkClient) UploadObject(ctx context.Context, request UploadRequest) error {
-	_, err := c.upload.UploadFile(ctx, transfer.UploadFileRequest{
-		UploadRequest: transfer.UploadRequest{
-			NamespaceName: new(request.Namespace), BucketName: new(request.Bucket), ObjectName: new(request.Object),
-			PartSize: new(request.PartSize), NumberOfGoroutines: new(request.Parallelism),
-			AllowMultipartUploads: new(true), AllowParrallelUploads: new(true),
-			EnableMultipartChecksumVerification: new(true),
-			ObjectStorageClient:                 &c.objects, IfNoneMatch: new("*"), Metadata: request.Metadata,
-			RequestMetadata: common.RequestMetadata{RetryPolicy: &c.uploadRetry},
-		},
-		FilePath: request.Path,
-	})
-	if err != nil {
-		return fmt.Errorf("upload OCI object: %w", err)
-	}
-	return nil
+	return c.streamUpload(ctx, request)
 }
 
 func (c *sdkClient) ImportImage(ctx context.Context, request ImportRequest) (Image, string, error) {

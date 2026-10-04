@@ -43,6 +43,7 @@ type Config struct {
 	Budgets      BudgetProvider
 	Reachability ReachabilityProvider
 	Holds        HoldProvider
+	OCIResources OCIResourceProvider
 	Thresholds   Thresholds
 	// Rules replaces DefaultRules.
 	Rules    []Rule
@@ -67,6 +68,7 @@ type Inputs struct {
 	Budgets      []Budget
 	Reachability []RegionReach
 	Holds        []Hold
+	OCIResources []OCIResource
 
 	conditions map[string]time.Time
 	touched    map[string]struct{}
@@ -240,6 +242,10 @@ func (engine *Engine) gather(ctx context.Context, now time.Time) (*Inputs, []str
 	if config.Holds != nil {
 		inputs.Holds = config.Holds.Holds(now)
 	}
+	if config.OCIResources != nil {
+		inputs.OCIResources, err = config.OCIResources.OCIResources(ctx)
+		check("oci_resources", err)
+	}
 	if inputs.Cluster != nil {
 		sections := map[string]bool{}
 		for _, member := range inputs.Cluster.Members {
@@ -275,6 +281,7 @@ var ruleInputs = map[string][]string{
 	"netbird_peer":         {"netbird"},
 	"autoscaler_at_max":    {"autoscalers"},
 	"budget_ceiling":       {"budgets"},
+	"oci_drift":            {"oci_resources"},
 }
 
 // blindRules lists the rules that lacked an input on this pass.

@@ -46,7 +46,9 @@ func (a sdkAPI) GetGroup(ctx context.Context, id string) (Group, error) {
 		Tags: ociresource.Tags{Freeform: response.FreeformTags, Defined: response.DefinedTags}}, nil
 }
 
-func portRange(options *core.TcpOptions, udp *core.UdpOptions) (int, int, bool) {
+// PortRange extracts the destination port range of TCP or UDP options. ok is
+// false when a source port range is set, which Rule does not model.
+func PortRange(options *core.TcpOptions, udp *core.UdpOptions) (int, int, bool) {
 	var destination, source *core.PortRange
 	if options != nil {
 		destination, source = options.DestinationPortRange, options.SourcePortRange
@@ -77,7 +79,7 @@ func normalize(rule core.SecurityRule) Rule {
 	if normalized.PeerType == PeerCIDR {
 		normalized.PeerType = ""
 	}
-	low, high, ok := portRange(rule.TcpOptions, rule.UdpOptions)
+	low, high, ok := PortRange(rule.TcpOptions, rule.UdpOptions)
 	normalized.PortMin, normalized.PortMax = low, high
 	if !ok || rule.IcmpOptions != nil {
 		normalized.unsupported = true
@@ -116,16 +118,24 @@ func addDetails(rule Rule) core.AddSecurityRuleDetails {
 	} else {
 		details.Destination, details.DestinationType = new(rule.Peer), core.AddSecurityRuleDetailsDestinationTypeEnum(rule.peerType())
 	}
-	if rule.PortMin != 0 {
-		ports := &core.PortRange{Min: new(rule.PortMin), Max: new(rule.PortMax)}
-		switch rule.Protocol {
-		case ProtocolTCP:
-			details.TcpOptions = &core.TcpOptions{DestinationPortRange: ports}
-		case ProtocolUDP:
-			details.UdpOptions = &core.UdpOptions{DestinationPortRange: ports}
-		}
-	}
+	details.TcpOptions, details.UdpOptions = PortOptions(rule)
 	return details
+}
+
+// PortOptions returns the TCP or UDP destination-port options of rule, or
+// nil options when the rule has no port range.
+func PortOptions(rule Rule) (*core.TcpOptions, *core.UdpOptions) {
+	if rule.PortMin == 0 {
+		return nil, nil
+	}
+	ports := &core.PortRange{Min: new(rule.PortMin), Max: new(rule.PortMax)}
+	switch rule.Protocol {
+	case ProtocolTCP:
+		return &core.TcpOptions{DestinationPortRange: ports}, nil
+	case ProtocolUDP:
+		return nil, &core.UdpOptions{DestinationPortRange: ports}
+	}
+	return nil, nil
 }
 
 func (a sdkAPI) AddRules(ctx context.Context, id string, rules []Rule) error {
