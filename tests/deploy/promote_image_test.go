@@ -174,7 +174,7 @@ func (f *promotionFixture) promote(image []string, env map[string]string, extra 
 	for k, v := range env {
 		environment[k] = v
 	}
-	return script.Run(f.t, deployRoot(f.t), environment, deployTool(f.t), args...)
+	return runDeploy(f.t, deployRoot(f.t), environment, deployTool(f.t), args...)
 }
 func (f *promotionFixture) importArgs() []string {
 	return []string{"--compartment-id", "ocid1.compartment.oc1..c", "--namespace", "ns", "--bucket", "images"}
@@ -477,7 +477,7 @@ func TestPromotionAutomaticBuildSelectsPinnedCommands(t *testing.T) {
 			if unified {
 				args = append([]string{"release"}, args...)
 			}
-			successful(t, script.Run(t, work, nil, tool, args...))
+			successful(t, runDeploy(t, work, nil, tool, args...))
 			equal(t, r["receipt"].(map[string]any)["tools"].(map[string]any)["ts_release"].(map[string]any)["sha256"], digest(read(t, tool)))
 		})
 	}

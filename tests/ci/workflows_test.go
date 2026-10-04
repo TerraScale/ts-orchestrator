@@ -22,6 +22,15 @@ func workflowText(t *testing.T, path string) string {
 	return string(script.Read(t, filepath.Join(script.Root(t), path)))
 }
 
+// runCI runs a CI script from the repository root. The scripts these tests
+// run read no repository file outside scripts/ci (their fakes come from
+// each test's temporary directory), so only that tree is tracked.
+func runCI(t *testing.T, env map[string]string, name string, args ...string) script.Result {
+	t.Helper()
+	script.Track(t, "scripts/ci")
+	return script.Exec(t, script.Root(t), env, name, args...)
+}
+
 func requireText(t *testing.T, text, fragment string) {
 	t.Helper()
 	if !strings.Contains(text, fragment) {
@@ -158,7 +167,7 @@ func TestWorkflowContracts(t *testing.T) {
 
 func TestImageGateWaitsForDispatchingRun(t *testing.T) {
 	t.Run("zero-budget-is-invalid", func(t *testing.T) {
-		result := script.Run(t, script.Root(t), nil, "bash", "scripts/ci/image-superseded.sh", strings.Repeat("a", 40), "42", "7", "0")
+		result := runCI(t, nil, "bash", "scripts/ci/image-superseded.sh", strings.Repeat("a", 40), "42", "7", "0")
 		if result.Code != 2 || !strings.Contains(result.Stderr, "usage:") {
 			t.Fatalf("zero budget: %+v", result)
 		}
@@ -205,7 +214,7 @@ func TestImageGateWaitsForDispatchingRun(t *testing.T) {
 				"MOCK_SOURCE": strings.Repeat("a", 40), "FORGEJO_READ_TOKEN_FILE": token,
 				"FORGEJO_SERVER_URL": "https://forgejo.invalid", "GITHUB_OUTPUT": output,
 			}
-			result := script.Run(t, script.Root(t), env, "bash", "scripts/ci/image-superseded.sh", env["MOCK_SOURCE"], "42", "7", budget)
+			result := runCI(t, env, "bash", "scripts/ci/image-superseded.sh", env["MOCK_SOURCE"], "42", "7", budget)
 			if result.Code != test.code || string(script.Read(t, output)) != test.output {
 				t.Fatalf("exit=%d output=%q stdout=%s stderr=%s", result.Code, script.Read(t, output), result.Stdout, result.Stderr)
 			}
@@ -228,7 +237,7 @@ func TestImageDispatchPinsRun(t *testing.T) {
 		"FORGEJO_TOKEN": "fixture-token", "FORGEJO_SERVER_URL": "https://forgejo.invalid",
 		"GITHUB_SHA": strings.Repeat("a", 40), "GITHUB_RUN_ID": "42", "GITHUB_RUN_NUMBER": "7", "GITHUB_REF": "refs/heads/main",
 	}
-	result := script.Run(t, script.Root(t), env, "bash", "scripts/ci/dispatch-image.sh")
+	result := runCI(t, env, "bash", "scripts/ci/dispatch-image.sh")
 	if result.Code != 0 {
 		t.Fatalf("dispatch: %s %s", result.Stdout, result.Stderr)
 	}
@@ -280,7 +289,7 @@ esac
 			t.Parallel()
 			goTool, record := fake(t)
 			env := map[string]string{"GO": goTool, "MOCK_RECORD": record, "MOCK_RESULT": tc.result, "TS_QUALIFICATION_SUITES": tc.suites, "TS_TEST_TIER": "full"}
-			result := script.Run(t, script.Root(t), env, "bash", "scripts/ci/qualify-image.sh")
+			result := runCI(t, env, "bash", "scripts/ci/qualify-image.sh")
 			if result.Code != tc.code || !strings.Contains(result.Stdout+result.Stderr, tc.message) {
 				t.Fatalf("exit=%d stdout=%s stderr=%s", result.Code, result.Stdout, result.Stderr)
 			}
@@ -320,7 +329,7 @@ printf -- '=== RUN   TestX\n--- PASS: TestX (0.00s)\nPASS\n'
 	record := filepath.Join(root, "record")
 	env := map[string]string{"GO": goTool, "MOCK_RECORD": record, "TS_QUALIFICATION_SUITES": "terrabase-walkthrough terrabase-successor",
 		"TS_QUALIFICATION_BUDGET_SECONDS": "1"}
-	result := script.Run(t, script.Root(t), env, "bash", "scripts/ci/qualify-image.sh")
+	result := runCI(t, env, "bash", "scripts/ci/qualify-image.sh")
 	if result.Code != 1 || !strings.Contains(result.Stderr, "qualification suite terrabase-successor did not run: the 1s qualification budget is spent") {
 		t.Fatalf("exit=%d stdout=%s stderr=%s", result.Code, result.Stdout, result.Stderr)
 	}
@@ -328,7 +337,7 @@ printf -- '=== RUN   TestX\n--- PASS: TestX (0.00s)\nPASS\n'
 		t.Fatalf("recorded runs: %q", lines)
 	}
 	env["TS_QUALIFICATION_BUDGET_SECONDS"] = "0"
-	if result := script.Run(t, script.Root(t), env, "bash", "scripts/ci/qualify-image.sh"); result.Code != 2 || !strings.Contains(result.Stderr, "must be a positive number") {
+	if result := runCI(t, env, "bash", "scripts/ci/qualify-image.sh"); result.Code != 2 || !strings.Contains(result.Stderr, "must be a positive number") {
 		t.Fatalf("exit=%d stderr=%s", result.Code, result.Stderr)
 	}
 }

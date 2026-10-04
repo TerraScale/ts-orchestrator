@@ -398,7 +398,7 @@ func (f *offlineFixture) run(roots []string, replace, env map[string]string, ext
 	for k, v := range env {
 		environment[k] = v
 	}
-	return script.Run(f.t, deployRoot(f.t), environment, filepath.Join(deployRoot(f.t), "deploy/image/build-offline.sh"), args...)
+	return runDeploy(f.t, deployRoot(f.t), environment, filepath.Join(deployRoot(f.t), "deploy/image/build-offline.sh"), args...)
 }
 func (f *offlineFixture) eventText() string {
 	b, err := os.ReadFile(f.events)

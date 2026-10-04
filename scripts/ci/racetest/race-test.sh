@@ -127,7 +127,7 @@ cleanup() {
 }
 trap cleanup EXIT
 finish() {
-	local completed= status rc=0 pid
+	local completed='' status rc=0 pid
 	wait -n -p completed "${!active[@]}" || rc=$?
 	if [[ -z $completed ]]; then
 		# Some bash releases stop reporting a shard to wait -n once it has

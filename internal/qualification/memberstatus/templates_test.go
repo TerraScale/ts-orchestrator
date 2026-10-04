@@ -153,6 +153,6 @@ func TestMemberStatusServicePrivilegeSeparation(t *testing.T) {
 	templateExcludes(t, legacy, "CAP_DAC_OVERRIDE")
 	path := filepath.Join(t.TempDir(), "setup.sh")
 	script.Write(t, path, []byte(setup), 0600)
-	checked := script.Run(t, script.Root(t), nil, "/bin/sh", "-n", path)
+	checked := script.Exec(t, script.Root(t), nil, "/bin/sh", "-n", path)
 	templateEqual(t, checked.Code, 0)
 }

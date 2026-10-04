@@ -578,7 +578,7 @@ func mmSudo(t *testing.T, commands ...string) {
 			t.Skip("requires " + name)
 		}
 	}
-	if out := script.Run(t, "", nil, "sudo", "-n", "true"); out.Code != 0 {
+	if out := script.Exec(t, "", nil, "sudo", "-n", "true"); out.Code != 0 {
 		t.Skip("passwordless sudo unavailable")
 	}
 }
@@ -597,12 +597,12 @@ func TestManagedMemberRootSupervisorReadSearchPermission(t *testing.T) {
 		t.Fatal(e)
 	}
 	replication := filepath.Join(base, "replication")
-	if out := script.Run(t, "", nil, "sudo", "-n", "install", "-d", "-o", "65534", "-g", "65534", "-m", "0700", replication); out.Code != 0 {
+	if out := script.Exec(t, "", nil, "sudo", "-n", "install", "-d", "-o", "65534", "-g", "65534", "-m", "0700", replication); out.Code != 0 {
 		t.Fatal(out)
 	}
 	t.Cleanup(func() { mmCleanupSudo(t, replication) })
 	for _, tc := range [][2]string{{"-dac_override,-dac_read_search", "Permission denied"}, {"-dac_override", "No such file or directory"}} {
-		out := script.Run(t, "", map[string]string{"LC_ALL": "C"}, "sudo", "-n", "setpriv", "--nnp", "--bounding-set="+tc[0], "stat", "--", filepath.Join(replication, "shard"))
+		out := script.Exec(t, "", map[string]string{"LC_ALL": "C"}, "sudo", "-n", "setpriv", "--nnp", "--bounding-set="+tc[0], "stat", "--", filepath.Join(replication, "shard"))
 		if out.Code != 1 || !strings.Contains(out.Stderr, tc[1]) {
 			t.Fatal(out)
 		}
@@ -665,7 +665,7 @@ func TestManagedMemberRealProtectedMaterialStaging(t *testing.T) {
 		argv = append(argv, filepath.Join(mount, strings.TrimPrefix(fc.ManagedMemberDirs["a"], "/"), "material", pair[1]))
 		records = append(records, "0:65534:8120")
 	}
-	stat := script.Run(t, "", nil, "sudo", argv...)
+	stat := script.Exec(t, "", nil, "sudo", argv...)
 	if stat.Code != 0 || strings.TrimSpace(stat.Stdout) != strings.Join(records, "\n") {
 		t.Fatal(stat)
 	}
