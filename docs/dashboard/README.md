@@ -31,6 +31,13 @@ page per entity. Each shows the entity's live state and charts, the open
 insights that name it, a timeline and table of the decisions about it (at
 least the last day; a week for rollouts and volumes) and the newest
 decision's whole chain; picking a decision opens its chain in place.
+A decision is about the entity when its subject or summary names the
+entity's ID as a whole identifier (`gru-c1` does not match `gru-c10`); a
+host page also lists the placement decisions whose `host_node` is the host,
+and a partition page those whose database and partition are its own. Host
+and partition pages read up to 1000 of the region's decisions of the last
+day and narrow them, so in a very busy region the history can be partial,
+which the page says.
 
 | Page | Entity |
 |------|--------|

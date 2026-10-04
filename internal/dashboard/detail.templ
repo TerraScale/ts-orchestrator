@@ -429,6 +429,8 @@ templ hostDetailBody(current view) {
 					<h2>Volumes</h2>
 					if current.Journal == nil || current.Journal.Volumes == nil {
 						@unavailable("Volume state appears once the storage slice reports volumes.")
+					} else if current.failed("volumes") {
+						<p class="note warn">Volume state could not be read right now.</p>
 					} else if volumes := current.hostVolumes(); len(volumes) == 0 {
 						<p class="empty">No volume is attached to this host.</p>
 					} else {

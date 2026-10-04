@@ -225,3 +225,42 @@ func TestDeepRegionLinksAreKept(t *testing.T) {
 		t.Fatalf("hostLink = %q", got)
 	}
 }
+
+// TestDetailPagesListOnlyTheirEntitysDecisions pins that a detail page does
+// not list a decision that merely contains the entity's ID inside a longer
+// identifier, and that a host page lists the placement decisions whose
+// host is named only in the host_node attribute.
+func TestDetailPagesListOnlyTheirEntitysDecisions(t *testing.T) {
+	t.Parallel()
+	journal, _, _ := fullJournal()
+	at := testNow.Add(-5 * time.Minute)
+	journal.Decisions = &fakeDecisions{complete: true, decisions: append(detailDecisions(),
+		decisionlog.Decision{ID: "m10", Time: at, Region: "fra", Actor: decisionlog.Actor{Slice: "cluster"},
+			Kind: decisionlog.KindMemberReplaced, Subject: decisionlog.Subject{Kind: "member", ID: "ctl-10"},
+			Summary: "Replaced member ctl-10", Status: decisionlog.StatusSucceeded},
+		decisionlog.Decision{ID: "hb", Time: at, Region: "fra", Actor: decisionlog.Actor{Slice: "hostpool"},
+			Kind: decisionlog.KindHostLaunched, Subject: decisionlog.Subject{Kind: "host", ID: "host-ab", Name: "pool/host-ab"},
+			Summary: "Launched host host-ab", Status: decisionlog.StatusSucceeded})}
+	handler := newTestDashboard(Options{Health: readyHealth(true), Journal: journal,
+		Snapshots: fixedSnapshots{snapshot: memberSnapshot()}}).Handler()
+	member := get(t, handler, "/members/ctl-1").Body.String()
+	if strings.Contains(member, "Replaced member ctl-10") {
+		t.Error("the ctl-1 page lists ctl-10's decision")
+	}
+	host := get(t, handler, "/regions/fra/hosts/host-a").Body.String()
+	if strings.Contains(host, "Launched host host-ab") {
+		t.Error("the host-a page lists host-ab's decision")
+	}
+	if !strings.Contains(host, "Seat s3 moved to joining") || !strings.Contains(host, "Launched host host-a") {
+		t.Error("the host page lacks the decisions naming the host in host_node or the subject")
+	}
+	for text, want := range map[[2]string]bool{
+		{"Replaced member ctl-1", "ctl-1"}: true, {"member ctl-10 left", "ctl-1"}: false,
+		{"pool/HOST-A", "host-a"}: true, {"host-ab", "host-a"}: false, {"ctl-10 and ctl-1.", "ctl-1"}: true,
+		{"", "x"}: false, {"x", ""}: false,
+	} {
+		if got := mentionsID(text[0], text[1]); got != want {
+			t.Errorf("mentionsID(%q, %q) = %v", text[0], text[1], got)
+		}
+	}
+}

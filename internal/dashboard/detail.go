@@ -150,9 +150,13 @@ func volumeDetailDecisions(current view) *decisionlog.Query {
 		Since: current.since(rolloutHistory), Limit: 200}
 }
 
+// hostDetailDecisions reads the region's recent decisions and narrows them
+// to the host in entityDecisions: placement journals a seat's changes with
+// the seat as subject and its host only in the host_node attribute, which
+// no subject filter can match.
 func hostDetailDecisions(current view) *decisionlog.Query {
-	return &decisionlog.Query{Regions: []string{current.Path["r"]}, Subject: current.Path["h"],
-		Since: current.since(detailHistory), Limit: 200}
+	return &decisionlog.Query{Regions: []string{current.Path["r"]},
+		Since: current.since(detailHistory), Limit: decisionlog.MaxQueryLimit}
 }
 
 // newestDecision opens the chain of the entity's newest decision.
@@ -166,16 +170,63 @@ func newestDecision(current view) string {
 // entityDecisions are the loaded decisions about the page's entity, newest
 // first.
 func (current view) entityDecisions() []decisionlog.Decision {
-	if current.Page.slug != "partition" {
+	var about func(decisionlog.Decision) bool
+	switch current.Page.slug {
+	case "partition":
+		about = current.partitionDecision
+	case "host":
+		host := current.Path["h"]
+		about = func(decision decisionlog.Decision) bool {
+			return decision.Attrs["host_node"] == host || namesID(decision, host)
+		}
+	case "member", "rollout", "volume":
+		id := current.Path["id"]
+		about = func(decision decisionlog.Decision) bool { return namesID(decision, id) }
+	default:
 		return current.decisions()
 	}
 	var out []decisionlog.Decision
 	for _, decision := range current.decisions() {
-		if current.partitionDecision(decision) {
+		if about(decision) {
 			out = append(out, decision)
 		}
 	}
 	return out
+}
+
+// namesID reports that a decision names id as a whole identifier in its
+// subject ID, subject name or summary. The journal's subject search matches
+// any substring, so a page for gru-c1 would otherwise list gru-c10's
+// decisions too.
+func namesID(decision decisionlog.Decision, id string) bool {
+	return mentionsID(decision.Subject.ID, id) || mentionsID(decision.Subject.Name, id) ||
+		mentionsID(decision.Summary, id)
+}
+
+// mentionsID reports that text contains id, case-insensitively, not as a
+// part of a longer identifier: the characters around it are not letters,
+// digits, '-' or '_'.
+func mentionsID(text, id string) bool {
+	if id == "" {
+		return false
+	}
+	text, id = strings.ToLower(text), strings.ToLower(id)
+	for offset := 0; offset+len(id) <= len(text); {
+		index := strings.Index(text[offset:], id)
+		if index < 0 {
+			return false
+		}
+		start, end := offset+index, offset+index+len(id)
+		if (start == 0 || !identifierByte(text[start-1])) && (end == len(text) || !identifierByte(text[end])) {
+			return true
+		}
+		offset = start + 1
+	}
+	return false
+}
+
+func identifierByte(char byte) bool {
+	return char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || char == '-' || char == '_'
 }
 
 // partitionDecision reports that a placement decision is about the shown
