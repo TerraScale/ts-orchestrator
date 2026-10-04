@@ -129,3 +129,25 @@ type Hold struct {
 	FirstSeen time.Time `json:"first_seen"`
 	LastSeen  time.Time `json:"last_seen"`
 }
+
+// OCIResourceProvider supplies the declarative OCI reconcile's last
+// observation of every desired resource in the region.
+type OCIResourceProvider interface {
+	OCIResources(ctx context.Context) ([]OCIResource, error)
+}
+
+// OCIResource is one desired OCI resource as the reconcile last saw it.
+type OCIResource struct {
+	// Key is <CELL>/<kind>/<name>.
+	Key  string `json:"key"`
+	Kind string `json:"kind"`
+	// Policy is enforce or report.
+	Policy  string `json:"policy"`
+	Found   bool   `json:"found"`
+	InSync  bool   `json:"in_sync"`
+	Foreign bool   `json:"foreign,omitempty"`
+	// Drift lists the pending changes, one "<op> <detail>" each.
+	Drift      []string  `json:"drift,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	ObservedAt time.Time `json:"observed_at"`
+}
