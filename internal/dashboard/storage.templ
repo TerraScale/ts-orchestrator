@@ -32,10 +32,10 @@ templ storageBody(current view) {
 											class="drift"
 										}
 									>
-										<td><a href={ safe(current.State.keep("/storage", "volume", volume.ID)) }>{ volume.ID }</a></td>
+										<td><a href={ safe(current.State.volumeLink(volume.ID)) }>{ volume.ID }</a></td>
 										<td>
 											if volume.Host != "" {
-												<a href={ safe(current.State.link("/members", "host", volume.Host)) }>{ volume.Host }</a>
+												<a href={ safe(current.State.hostLink(current.localRegion(), volume.Host)) }>{ volume.Host }</a>
 											} else {
 												<span class="muted">unattached</span>
 											}

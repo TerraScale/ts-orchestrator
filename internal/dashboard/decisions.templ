@@ -154,7 +154,11 @@ templ chainPanel(current view, chain decisionlog.Chain) {
 				{ chain.Root.Summary }
 				<small>{ itoa(len(chain.Decisions)) } steps · now { statusLabel(chain.Latest.Status) }</small>
 			</h2>
-			<a href={ safe(current.State.keep(current.Page.href(), "id", "")) }>Close ✕</a>
+			if current.State.param("id") != "" {
+				<a href={ safe(current.State.keep(current.here(), "id", "")) }>Close ✕</a>
+			} else {
+				<small class="muted">newest decision's chain</small>
+			}
 		</div>
 		if chain.Partial {
 			<p class="note warn">Part of this chain could not be searched, so steps may be missing and its current status may be out of date.</p>

@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"cmp"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -32,6 +33,14 @@ type page struct {
 	// decisions returns the decision query the page lists, or nil.
 	decisions func(current view) *decisionlog.Query
 	body      func(view) templ.Component
+	// pattern is a detail page's route with its path parameters, for
+	// example /members/{id}. Detail pages are not in the sidebar; parent
+	// is the slug of the sidebar page they belong to.
+	pattern string
+	parent  string
+	// chain names the decision whose chain a detail page opens when its
+	// link names none with id=, or "".
+	chain func(current view) string
 }
 
 type needs uint16
@@ -50,6 +59,9 @@ const (
 )
 
 func (page page) path() string {
+	if page.pattern != "" {
+		return page.pattern
+	}
 	if page.slug == "" {
 		return "/{$}"
 	}
@@ -58,7 +70,13 @@ func (page page) path() string {
 
 func (page page) href() string { return "/" + page.slug }
 
+// navSlug is the sidebar entry the page highlights.
+func (page page) navSlug() string { return cmp.Or(page.parent, page.slug) }
+
 func (page page) streamPath() string {
+	if page.pattern != "" {
+		return page.pattern + "/stream"
+	}
 	if page.slug == "" {
 		return "/global/stream"
 	}
@@ -119,7 +137,9 @@ type view struct {
 	Events  []observability.Event
 	Filter  eventFilter
 	State   uiState
-	Notes   []string
+	// Path holds a detail page's validated path parameters.
+	Path  map[string]string
+	Notes []string
 
 	// Journal is nil until a controller attaches its providers.
 	Journal    *Journal
@@ -240,6 +260,9 @@ func (current view) sectionErrors() []string {
 
 func (current view) streamAction() string {
 	target := current.Page.streamPath()
+	if current.Page.pattern != "" {
+		target = current.here() + "/stream"
+	}
 	if query := current.State.query(); query != "" {
 		target += "?" + query
 	}

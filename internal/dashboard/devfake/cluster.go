@@ -274,6 +274,17 @@ func (region *region) oci(t, start time.Time) *observability.OCIView {
 			Calls: uint64(calls), Errors: uint64(errors), Throttled: uint64(throttled), TotalSeconds: seconds,
 			MaxSeconds: op.latency * 6, LastStatus: status, LastErrorCode: code})
 	}
+	// The fleet sweep: every host runs with one attached data volume, except
+	// one volume that keeps getting stuck attaching and one host that is
+	// still provisioning every other 10 minutes.
+	hosts := len(region.hosts)
+	instances := map[string]int{"RUNNING": hosts}
+	if t.Minute()%20 < 10 {
+		instances["RUNNING"], instances["PROVISIONING"] = hosts-1, 1
+	}
+	view.Fleet = []observability.OCIFleetView{{Region: region.name, ObservedAt: t.Add(-7 * time.Second),
+		Instances: instances, Volumes: map[string]int{"AVAILABLE": hosts},
+		Attachments: map[string]int{"ATTACHED": hosts - 1, "ATTACHING": 1}}}
 	return view
 }
 

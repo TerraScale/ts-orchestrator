@@ -21,7 +21,7 @@ templ rolloutsBody(current view) {
 						<div class="chart-title">
 							<h3>
 								<code>{ rollout.Release }</code>
-								<small class="mono">{ rollout.ID }</small>
+								<a href={ safe(current.State.rolloutLink(rollout.ID)) }><small class="mono">{ rollout.ID }</small></a>
 							</h3>
 							<span>
 								@statusPill(rolloutStatus(rollout, current.Now), rollout.Phase)
@@ -96,7 +96,7 @@ templ rolloutsBody(current view) {
 								<tr>
 									<td>{ database.DatabaseID }</td>
 									<td>{ database.PartitionID }</td>
-									<td><code>{ short(database.Rollout.OperationID, 16) }</code></td>
+									<td><a href={ safe(current.State.rolloutLink(database.Rollout.OperationID)) }><code>{ short(database.Rollout.OperationID, 16) }</code></a></td>
 									<td><code>{ short(orDash(database.Rollout.ArtifactDigest), 19) }</code></td>
 									<td>
 										@ratioBar(database.Rollout.Progress())

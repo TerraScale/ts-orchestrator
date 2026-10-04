@@ -197,6 +197,13 @@ func (f *fleet) observe(ctx context.Context, selectInstance func(id, node string
 	if len(cloudInstances) > maxFleetInstances {
 		return nil, errors.New("OCI member host list exceeds its safety bound")
 	}
+	// A complete sweep also counts the fleet by lifecycle state for the
+	// dashboard; the tally never changes what the sweep returns.
+	var tally *inventoryTally
+	if selectInstance == nil {
+		tally = newInventoryTally()
+		ctx = withInventoryTally(ctx, tally)
+	}
 	instances := make([]Instance, 0, len(cloudInstances))
 	for _, listed := range cloudInstances {
 		tags := listed.FreeformTags
@@ -209,6 +216,7 @@ func (f *fleet) observe(ctx context.Context, selectInstance func(id, node string
 			slog.Warn("withholding OCI instance with out-of-scope identity tags", "instance_id", listed.ID, "region", f.config.Region)
 			continue
 		}
+		tally.instance(listed.LifecycleState)
 		if selectInstance != nil && !selectInstance(listed.ID, tags[tagHostNode]) {
 			continue
 		}
@@ -249,6 +257,9 @@ func (f *fleet) observe(ctx context.Context, selectInstance func(id, node string
 			return nil, err
 		}
 		instances = append(instances, instance)
+	}
+	if tally != nil {
+		publishInventory(f.config.Region, tally, f.now())
 	}
 	return instances, nil
 }
@@ -1047,11 +1058,13 @@ func (f *fleet) instanceFromCloud(ctx context.Context, cloud CloudInstance, iden
 		BootDescriptorSHA256: observedDigest, ETag: cloud.ETag,
 		State: cloud.LifecycleState,
 	}
+	volumeStates := make([]string, 0, len(attachments))
 	for _, listed := range attachments {
 		if listed.InstanceID != cloud.ID || listed.VolumeID == "" || listed.ID == "" {
 			return Instance{}, fmt.Errorf("%w: OCI attachment scope changed", ErrForeignResource)
 		}
-		if _, err := f.ownedVolume(ctx, listed.VolumeID); err != nil {
+		volume, err := f.ownedVolume(ctx, listed.VolumeID)
+		if err != nil {
 			return Instance{}, err
 		}
 		attachment, err := f.reobserveAttachment(ctx, listed.ID, listed.VolumeID, cloud.ID, "")
@@ -1072,8 +1085,17 @@ func (f *fleet) instanceFromCloud(ctx context.Context, cloud CloudInstance, iden
 		if !owned {
 			return Instance{}, fmt.Errorf("%w: attachment %s has no matching confirmed operation", ErrAttachmentRecoveryHold, attachment.ID)
 		}
+		volumeStates = append(volumeStates, volume.LifecycleState)
 		result.DataVolumes = append(result.DataVolumes, attachment.VolumeID)
 		result.Attachments = append(result.Attachments, attachment)
+	}
+	// Count the host's volumes and attachments only once every attachment
+	// verified: a host withheld partway through is not in the inventory.
+	if tally := inventoryTallyFrom(ctx); tally != nil {
+		for index, attachment := range result.Attachments {
+			tally.volume(volumeStates[index])
+			tally.attachment(attachment.State)
+		}
 	}
 	return result, nil
 }
