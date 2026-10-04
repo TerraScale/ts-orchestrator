@@ -46,13 +46,15 @@ templ entityAttention(current view, what string) {
 templ entityJournal(current view, title string) {
 	<article>
 		<div class="chart-title">
-			<h2>{ title } <small>{ current.State.Range.Key } at least</small></h2>
+			<h2>{ title } <small>{ current.detailWindow() }</small></h2>
 			<a href={ safe(current.State.link("/decisions", "q", current.journalSearch())) }>Journal →</a>
 		</div>
 		if current.Decisions != nil {
 			@regionStatuses(current.Decisions)
 		}
-		@timeline("", current.decisionTimeline(current.entityDecisions(), true))
+		if decisions := current.entityDecisions(); len(decisions) > 0 {
+			@timeline("", current.decisionTimeline(decisions, true))
+		}
 		@detailDecisionTable(current, current.entityDecisions())
 	</article>
 	if current.Chain != nil {
@@ -257,7 +259,7 @@ templ partitionDetailBody(current view) {
 templ holdHistoryCard(current view) {
 	<article>
 		<div class="chart-title">
-			<h2>Placement hold history <small>{ current.State.Range.Key } at least</small></h2>
+			<h2>Placement hold history <small>{ current.detailWindow() }</small></h2>
 			<a href={ safe(current.State.link("/decisions", "kind", "held", "q", current.Path["db"])) }>All holds →</a>
 		</div>
 		if holds := current.holdHistory(); len(holds) == 0 {

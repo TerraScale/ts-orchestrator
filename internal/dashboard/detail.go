@@ -408,6 +408,19 @@ func (current view) hostVolumes() []insights.Volume {
 	return out
 }
 
+// detailWindow names how far back the page's decision query looks: the
+// selected range, but at least a day (a week for rollouts and volumes).
+func (current view) detailWindow() string {
+	minimum := detailHistory
+	if current.Page.slug == "rollout" || current.Page.slug == "volume" {
+		minimum = rolloutHistory
+	}
+	if window := max(current.State.Range.Duration, minimum); window > 24*time.Hour {
+		return "last " + itoa(int(window/(24*time.Hour))) + " days"
+	}
+	return "last 24h"
+}
+
 // journalSearch is the decision journal search that lists the page's
 // entity.
 func (current view) journalSearch() string {
