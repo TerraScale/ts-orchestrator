@@ -89,3 +89,30 @@ func sum(counts map[string]int) int {
 	}
 	return total
 }
+
+// TestInventoryCountsOnlyVerifiedHosts pins that a host withheld partway
+// through its attachments contributes no volume or attachment, whichever
+// order OCI lists them in.
+func TestInventoryCountsOnlyVerifiedHosts(t *testing.T) {
+	ctx := t.Context()
+	_, provider, _, subject, host, volume := newAttachTestState(t)
+	if _, err := subject.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main",
+		VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-inventory-partial",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provider.attachments["attachment-unconfirmed"] = observeTestAttachment("attachment-unconfirmed", volume.ID, host.ID)
+	for range 8 {
+		observed, err := subject.Observe(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(observed) != 0 {
+			t.Fatalf("observed %d hosts, want the host withheld", len(observed))
+		}
+		instances, volumes, attachments, _ := fleetView(t, host.Region)
+		if sum(instances) != 1 || sum(volumes) != 0 || sum(attachments) != 0 {
+			t.Fatalf("inventory = instances %v volumes %v attachments %v", instances, volumes, attachments)
+		}
+	}
+}

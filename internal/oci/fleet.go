@@ -1058,6 +1058,7 @@ func (f *fleet) instanceFromCloud(ctx context.Context, cloud CloudInstance, iden
 		BootDescriptorSHA256: observedDigest, ETag: cloud.ETag,
 		State: cloud.LifecycleState,
 	}
+	volumeStates := make([]string, 0, len(attachments))
 	for _, listed := range attachments {
 		if listed.InstanceID != cloud.ID || listed.VolumeID == "" || listed.ID == "" {
 			return Instance{}, fmt.Errorf("%w: OCI attachment scope changed", ErrForeignResource)
@@ -1084,11 +1085,17 @@ func (f *fleet) instanceFromCloud(ctx context.Context, cloud CloudInstance, iden
 		if !owned {
 			return Instance{}, fmt.Errorf("%w: attachment %s has no matching confirmed operation", ErrAttachmentRecoveryHold, attachment.ID)
 		}
-		tally := inventoryTallyFrom(ctx)
-		tally.volume(volume.LifecycleState)
-		tally.attachment(attachment.State)
+		volumeStates = append(volumeStates, volume.LifecycleState)
 		result.DataVolumes = append(result.DataVolumes, attachment.VolumeID)
 		result.Attachments = append(result.Attachments, attachment)
+	}
+	// Count the host's volumes and attachments only once every attachment
+	// verified: a host withheld partway through is not in the inventory.
+	if tally := inventoryTallyFrom(ctx); tally != nil {
+		for index, attachment := range result.Attachments {
+			tally.volume(volumeStates[index])
+			tally.attachment(attachment.State)
+		}
 	}
 	return result, nil
 }
