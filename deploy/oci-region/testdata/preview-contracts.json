@@ -6801,7 +6801,10 @@
           "$fixture": "fixture-0012"
         },
         "foundation_buckets": {
-          "$fixture": "fixture-0019"
+          "backup": "gru-1-backup",
+          "head": "gru-1-head",
+          "ledger": "gru-1-ledger",
+          "material": "gru-1-material"
         },
         "host_credential_secret": {
           "compartment_id": null,

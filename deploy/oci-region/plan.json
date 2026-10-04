@@ -32,10 +32,10 @@
         "workload": "terrascale-workload"
     },
     "foundation_buckets": {
-        "ledger": "ts-preview-gru-20260926-ledger",
-        "head": "ts-preview-gru-20260926-head",
-        "backup": "ts-preview-gru-20260926-backup",
-        "material": "ts-preview-gru-20260926-material"
+        "ledger": "gru-1-ledger",
+        "head": "gru-1-head",
+        "backup": "gru-1-backup",
+        "material": "gru-1-material"
     },
     "bucket_retention_days": 35,
     "network_security": {

@@ -36,11 +36,15 @@ those only from a newly reviewed live inventory.
 
 OCI has accepted delayed deletion of all 502 cell secrets for
 `2026-10-05T01:45:58.728Z` and the dedicated vault/key for
-`2026-10-11T01:48:37.642Z`. The control compartment and its TerraScale parent
-remain until that purge. The network compartment is deleted; workload
-compartment deletion is in progress.
-Verify provider deletion before removing the remaining empty compartments or
-claiming a completely empty foundation. Current cleanup state is in the
+`2026-10-11T01:48:37.642Z`. The network and workload compartments are
+deleted. The control compartment remains until that purge; the shared
+TerraScale parent stays. The [2026-10-04 inventory](evidence/gru-teardown-20261004.md)
+lists what remains and its reviewed teardown plan. Rerun
+`ts-orch oci-region teardown --plan docs/evidence/gru-teardown-20261004-plan.json`
+to print the diff, and add `--apply` only with the owner's approval: it deletes
+the listed resources in dependency order, never touches one already deleting,
+and deletes the control compartment only once everything else is gone.
+Current cleanup state is in the
 [HomeLab ts-ops runbook](https://git.terrascale.tech/mariogk/HomeLab/src/branch/main/fleet/hosts/ts-ops.md#netbird-operator-gateway).
 The old OpenBao `/infra/netbird/servers-gru` group/key IDs are invalid;
 replace the enrollment input and create a fresh OCI mirror before using it.
@@ -243,9 +247,11 @@ These names do not follow the scheme:
   and `terrascale_host_node` metadata and are not display names.
 - Image display names (`terrascale-arm64-<rev>-<sha>`), which are release
   artifacts.
-- Bucket names and `orchestrator_owner` in `deploy/oci-region/plan.json`
-  (`ts-preview-gru-20260926-*`) still carry a date; they change with the
-  reviewed plan for the GRU rebuild.
+- `orchestrator_owner` in `deploy/oci-region/plan.json`. It is the bootstrap
+  attempt's deployment ID, which managed hosts carry in their
+  `terrascale-owner` tag, so set it to the attempt's deployment ID in the
+  reviewed plan for each attempt. The plan's foundation buckets are static
+  (`gru-1-ledger`, `-head`, `-backup`, `-material`).
 - Backup names, which stay per backup.
 
 A cell hosts one TerraBase database's member pair: its members occupy the

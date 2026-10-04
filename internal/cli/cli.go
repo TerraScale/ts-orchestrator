@@ -23,6 +23,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/teardown"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/qualification/firecracker"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/qualification/memberstatus"
 	releasecli "git.terrascale.tech/TerraScale/ts-orchestrator/internal/release/cli"
@@ -120,7 +121,7 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 
 func runOCIRegion(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
-		_, err := io.WriteString(output, "Usage: ts-orch oci-region <command> [flags]\n\n  preview       Inventory, estimate, admit, and inspect regional resources\n  attempt       Resume an admitted regional bootstrap attempt\n  import-image  Import a qualified ARM64 QCOW2 and enforce the A1 launch contract\n  public-api    Expose member HTTPS through an OCI network load balancer\n")
+		_, err := io.WriteString(output, "Usage: ts-orch oci-region <command> [flags]\n\n  preview       Inventory, estimate, admit, and inspect regional resources\n  attempt       Resume an admitted regional bootstrap attempt\n  import-image  Import a qualified ARM64 QCOW2 and enforce the A1 launch contract\n  public-api    Expose member HTTPS through an OCI network load balancer\n  teardown      Delete a reviewed cell teardown plan's OCI resources in dependency order\n")
 		return err
 	}
 	switch args[0] {
@@ -137,6 +138,8 @@ func runOCIRegion(ctx context.Context, args []string, output io.Writer) error {
 		return imageimport.Run(ctx, args[1:], output)
 	case "public-api":
 		return publicapi.Run(ctx, args[1:], output)
+	case "teardown":
+		return teardown.Run(ctx, args[1:], output)
 	default:
 		return fmt.Errorf("unknown oci-region command %q", args[0])
 	}
