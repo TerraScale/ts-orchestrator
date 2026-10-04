@@ -81,7 +81,7 @@ validates it at startup and refuses to start when it fails these checks:
 | `TERRABASE_PEER_PORT` | Required port. |
 | `TERRABASE_ADMIN_PORT` | Optional port, default 9464. |
 | `TERRABASE_CLIENT_PORT` | Optional port; unset disables the client listener. |
-| `TERRABASE_PEERS` | Required. Comma-separated `name=ip:port` for every member of the cell, this one included. `name` is the member host's node name (lowercase letters, digits and `-`, at most 63 characters). Names and addresses are unique, every port equals `TERRABASE_PEER_PORT`, at most 64 entries. |
+| `TERRABASE_PEERS` | Required. Comma-separated `name=ip:port` for every member of the cell, this one included. `name` is the member host's node name (lowercase letters, digits and `-`, at most 63 characters). IPs must not have zone identifiers or be link-local. Names and addresses are unique, every port equals `TERRABASE_PEER_PORT`, at most 64 entries. |
 
 The admin, peer and client ports must differ. A profile must not set the
 host-owned keys `TERRABASE_DATA_DIRECTORY`, `TERRABASE_PEER_CERTIFICATE`,

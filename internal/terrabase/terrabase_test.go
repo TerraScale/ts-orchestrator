@@ -51,6 +51,20 @@ func TestParseProfile(t *testing.T) {
 	}
 }
 
+func TestParsePeersRejectsScopedAddresses(t *testing.T) {
+	for _, address := range []string{"[fe80::1%eth0]:7443", "[2001:db8::1%eth0]:7443", "[fe80::1]:7443",
+		"169.254.1.2:7443", "[::ffff:169.254.1.2]:7443", "[ff02::1]:7443", "224.0.0.1:7443"} {
+		_, err := ParsePeers("gru-1-db-1=" + address)
+		if err == nil || !strings.Contains(err.Error(), "zone identifiers and link-local addresses are not supported") {
+			t.Errorf("address %s: got %v", address, err)
+		}
+	}
+	if _, err := ParseProfile(map[string]string{EnvPeerPort: "7443",
+		EnvPeers: "gru-1-db-1=10.251.0.21:7443,gru-1-db-2=[2001:db8::1]:7443"}); err != nil {
+		t.Fatalf("valid IPv4/IPv6 profile: %v", err)
+	}
+}
+
 func TestLayoutEnvAddsHostOwnedPaths(t *testing.T) {
 	profile := Profile{PeerPort: 9443, ClientPort: 9465}
 	env := Layout("/srv/ts-managed/terrabase").Env(map[string]string{EnvPeerPort: "9443"}, profile)

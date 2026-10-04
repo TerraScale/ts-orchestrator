@@ -160,6 +160,9 @@ func ParsePeers(raw string) ([]Peer, error) {
 			addrPort.Port() == 0 || !addrPort.Addr().IsValid() || addrPort.Addr().IsUnspecified() {
 			return nil, fmt.Errorf("%s entry %q is not name=ip:port", EnvPeers, entry)
 		}
+		if addrPort.Addr().Zone() != "" || addrPort.Addr().IsLinkLocalUnicast() || addrPort.Addr().IsLinkLocalMulticast() {
+			return nil, fmt.Errorf("%s entry %q: zone identifiers and link-local addresses are not supported", EnvPeers, entry)
+		}
 		if slices.ContainsFunc(peers, func(p Peer) bool { return p.Name == name || p.Address == addrPort }) {
 			return nil, fmt.Errorf("%s repeats member %q or its address", EnvPeers, name)
 		}

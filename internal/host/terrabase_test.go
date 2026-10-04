@@ -40,7 +40,7 @@ func (r *stopRecorder) Stop(_ context.Context, role string) error {
 // once it serves the renewed certificate (a reloading binary), and is
 // restarted when it still serves the expiring one or cannot be probed.
 func TestTerraBaseMemberRestartsBeforeLoadedCertificateExpires(t *testing.T) {
-	for _, address := range []string{"127.0.0.1", "fe80::1%eth0"} {
+	for _, address := range []string{"127.0.0.1", "2001:db8::1"} {
 		t.Run(address, func(t *testing.T) {
 			testTerraBaseMemberCertificateRenewal(t, address)
 		})
