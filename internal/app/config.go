@@ -151,6 +151,11 @@ type HostConfig struct {
 	// SelfUpdateRoot is the release root the selfupdate prepare and watchdog
 	// steps use (their --root); empty means selfupdate.DefaultRoot.
 	SelfUpdateRoot string `json:"self_update_root,omitempty"`
+	// LoadTelemetrySeconds, when nonzero (5..3600), makes the host agent
+	// publish cgroup, disk and TerraBase load to its controller that often.
+	// Off by default; the controller also needs
+	// controller.autoscale.host_telemetry to accept it.
+	LoadTelemetrySeconds int `json:"load_telemetry_seconds,omitzero"`
 }
 
 func LoadConfig(path string) (Config, error) {

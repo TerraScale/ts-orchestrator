@@ -1,12 +1,19 @@
 package app
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/autoscale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
@@ -76,6 +83,92 @@ func TestAutoscaleConfigRefusesInertEntries(t *testing.T) {
 		Scaling: &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.6}}}}}}
 	if err := validateAutoscaleConfig(scaling, profiles); err == nil {
 		t.Fatal("a scaling policy was accepted although no signal source feeds it")
+	}
+	// Host telemetry is the signal source: with it the policy is accepted,
+	// but only for signals it produces for stateless roles.
+	scaling.HostTelemetry = true
+	if err := validateAutoscaleConfig(scaling, profiles); err != nil {
+		t.Fatalf("a cpu_util policy with host telemetry was refused: %v", err)
+	}
+	for _, name := range []autoscale.SignalName{autoscale.SignalRequestRatePerReplica, autoscale.SignalTerraBaseWriteQPS} {
+		scaling.Services[0].Scaling.Signals[0].Name = name
+		if err := validateAutoscaleConfig(scaling, profiles); err == nil {
+			t.Errorf("signal %s without a stateless producer was accepted", name)
+		}
+	}
+}
+
+func TestLoadTelemetrySecondsIsCheckedBeforeConversion(t *testing.T) {
+	for _, valid := range []int{0, 5, 15, 3600} {
+		if err := validateLoadTelemetrySeconds(valid); err != nil {
+			t.Errorf("%d refused: %v", valid, err)
+		}
+	}
+	// 1<<55 seconds overflows a time.Duration to zero.
+	for _, invalid := range []int{-1, 1, 4, 3601, 1 << 55} {
+		if err := validateLoadTelemetrySeconds(invalid); err == nil {
+			t.Errorf("%d accepted", invalid)
+		}
+	}
+}
+
+// Host telemetry starts an aggregator as the reconciler's signal source,
+// installs it as the host controller's load sink, and its readings and the
+// reconciler's results reach the metric history.
+func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
+	resources := placement.Resources{CPU: 2, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
+	config := &AutoscaleConfig{Enabled: true, HostTelemetry: true, Services: []workload.ServiceSpec{{Role: "api",
+		Environment: "prod", Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Min: 1, Max: 3},
+		Scaling: &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.6}}}}}}
+	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, Leader: true, Epoch: 1, Revision: 1,
+		ExpiresAt: time.Now().Add(time.Hour)}}
+	reconciler, _, err := startWorkloadAutoscale("gru", config, map[string]WorkloadProfile{"api": {Resources: resources}},
+		&host.Controller{}, fencer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	load, ok := reconciler.Signals().(*hostload.Aggregator)
+	if !ok {
+		t.Fatalf("signal source = %T, want the host load aggregator", reconciler.Signals())
+	}
+	cores := 1.0
+	if err := load.Record(hostload.Origin{Cell: "gru", Environment: "prod", Node: "pool-1"},
+		hostload.Report{SchemaVersion: 1, Roles: []hostload.RoleUsage{{Role: "api", CPUCores: &cores}}}); err != nil {
+		t.Fatal(err)
+	}
+	// The aggregator holds until reports cover the signal window; one
+	// report covers a 10s window five seconds later.
+	reading, err := load.Read(t.Context(), autoscale.Target{Cell: "gru", Environment: "prod", Role: "api"},
+		autoscale.Signal{Name: autoscale.SignalCPUUtilization, Target: 0.6, WindowSeconds: 10}, time.Now().Add(5*time.Second))
+	if err != nil || reading.Samples != 1 || reading.Value != 0.5 {
+		t.Fatalf("cpu_util normalized by the signed 2-core request = %+v, %v", reading, err)
+	}
+	tbLoad := &memberstatus.Load{Connections: 4, ReplicationLagSeq: 2}
+	if err := load.Record(hostload.Origin{Cell: "gru", Environment: "prod", Node: "tb-1"},
+		hostload.Report{SchemaVersion: 1, Roles: []hostload.RoleUsage{{Role: "terrabase", TerraBase: tbLoad}}}); err != nil {
+		t.Fatal(err)
+	}
+	// The reconciler has not ticked in this term yet, so the history gate
+	// stays closed; the leader's samples themselves carry the load.
+	if samples := withAutoscaleSamples(func(context.Context) []observability.Sample { return nil }, reconciler)(t.Context()); len(samples) != 0 {
+		t.Fatalf("samples recorded before the reconciler adopted the term: %+v", samples)
+	}
+	samples := leaderAutoscaleSamples(reconciler, load)
+	found := map[string]float64{}
+	for _, sample := range samples {
+		found[sample.Metric] = sample.Value
+	}
+	if found[observability.HistTerraBaseConnections] != 4 || found[observability.HistTerraBaseLagSeq] != 2 {
+		t.Fatalf("terrabase load samples = %+v", samples)
+	}
+	if _, present := found[observability.HistAutoscaleReplicas]; present {
+		t.Fatal("a service without a reconciliation result was sampled")
+	}
+	// A member that is not (or no longer) the authority leader records
+	// nothing extra: its cached reports and last results are not current.
+	fencer.set(authority.Snapshot{})
+	if samples := withAutoscaleSamples(func(context.Context) []observability.Sample { return nil }, reconciler)(t.Context()); len(samples) != 0 {
+		t.Fatalf("follower recorded autoscale samples: %+v", samples)
 	}
 }
 

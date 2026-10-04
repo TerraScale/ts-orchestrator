@@ -63,7 +63,9 @@ type Status struct {
 	Serving              bool         `json:"serving"`
 	Capabilities         Capabilities `json:"capabilities"`
 	CredentialGeneration uint64       `json:"client_credential_generation,omitzero"`
-	verified             bool
+	// Load is optional operational telemetry; see Load.
+	Load     *Load `json:"load,omitempty"`
+	verified bool
 }
 
 type Listeners struct {

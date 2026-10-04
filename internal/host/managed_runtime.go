@@ -630,6 +630,11 @@ func readManagedStatus(ctx context.Context, runner Runner, d Desired, socket str
 func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredReply,
 	backupPending bool,
 ) (resultErr error) {
+	// Load telemetry belongs to the process this pass verifies: forget the
+	// previous block now, so a member this pass stops, fails or replaces
+	// never keeps publishing its predecessor's load. A successful status
+	// report records the new block.
+	a.noteTerraBaseLoad(d.Role, nil)
 	defer func() {
 		if resultErr != nil {
 			resultErr = errors.Join(resultErr, a.stopManagedNativeRoot(d.Role))
@@ -896,6 +901,9 @@ func (a *Agent) reportManagedStatus(ctx context.Context, d Desired, mount manage
 	if err := a.publishReport(ctx, report); err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
 	}
+	// Only a status that passed every identity, mount and serving check and
+	// was reported may contribute TerraBase load telemetry.
+	a.noteTerraBaseLoad(d.Role, status.Load)
 	return nil
 }
 

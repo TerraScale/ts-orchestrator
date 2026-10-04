@@ -316,7 +316,7 @@ func TestJournalPagesSayWhenProvidersAreMissing(t *testing.T) {
 		"/ci":        "No qualification results are published",
 		"/storage":   "appears once the storage slice reports volumes",
 		"/oci":       "OCI inventory provider is attached",
-		"/terrabase": "does not export per-seat replication lag",
+		"/terrabase": "No TerraBase load yet",
 	} {
 		if body := get(t, handler, path).Body.String(); !strings.Contains(body, want) {
 			t.Errorf("GET %s lacks %q", path, want)

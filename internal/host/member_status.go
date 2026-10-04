@@ -22,6 +22,8 @@ import (
 	"uuid"
 
 	"golang.org/x/sys/unix"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 )
 
 // MemberScope and MemberAuthority are expected from a verified, signed member
@@ -72,7 +74,10 @@ type MemberStatus struct {
 	Serving              bool               `json:"serving"`
 	Capabilities         MemberCapabilities `json:"capabilities"`
 	CredentialGeneration uint64             `json:"client_credential_generation,omitzero"`
-	ObservedAt           time.Time          `json:"-"`
+	// Load is the optional TerraBase load block. It feeds host telemetry
+	// only and is never lifecycle evidence.
+	Load       *memberstatus.Load `json:"load,omitempty"`
+	ObservedAt time.Time          `json:"-"`
 }
 
 type ExpectedMemberStatus struct {
@@ -361,8 +366,12 @@ func observeMemberProcess(ctx context.Context, p *processRunner, role string) (i
 }
 
 func decodeMemberStatus(data []byte, nonce string, pid int, expected ExpectedMemberStatus) (MemberStatus, error) {
+	// The optional load block is split off first, so no value inside it (a
+	// wrong type, a negative counter, 1e400, a repeated or unknown member)
+	// can fail the strict decode of the lifecycle evidence around it.
+	evidence, load := memberstatus.SplitLoad(data)
 	var wire memberStatusWire
-	if err := json.Unmarshal(data, &wire, json.RejectUnknownMembers(true)); err != nil {
+	if err := json.Unmarshal(evidence, &wire, json.RejectUnknownMembers(true)); err != nil {
 		return MemberStatus{}, fmt.Errorf("invalid member status JSON: %w", err)
 	}
 	if wire.SchemaVersion == nil || wire.Nonce == nil || wire.Process == nil || wire.Scope == nil || wire.Authority == nil ||
@@ -390,6 +399,10 @@ func decodeMemberStatus(data []byte, nonce string, pid int, expected ExpectedMem
 	if wire.CredentialGeneration != nil {
 		status.CredentialGeneration = *wire.CredentialGeneration
 	}
+	// The optional TerraBase load block is telemetry, never evidence: a
+	// malformed, incomplete or out-of-range block is dropped instead of
+	// failing the status, so a telemetry bug can never stop a serving member.
+	status.Load = memberstatus.DecodeLoad(load)
 	if status.SchemaVersion != 2 || status.Nonce != nonce || status.Process.PID != pid || !lowerHex(status.Process.StartNonce, 32) ||
 		status.Scope.ShardID == 0 || !canonicalMemberID(status.Scope.TenantID) ||
 		!canonicalMemberID(status.Scope.DatabaseID) || !canonicalMemberID(status.Scope.MemberID) ||

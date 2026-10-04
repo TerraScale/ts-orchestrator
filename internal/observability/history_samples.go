@@ -54,6 +54,20 @@ const (
 	HistDeliveryDeferred = "delivery_deferred_total"
 )
 
+// History metric names the controller's autoscaler and host load
+// aggregator add on the authority leader (they are not part of cluster
+// snapshots, so other members do not record them).
+const (
+	HistAutoscaleReplicas     = "autoscale_replicas"      // service
+	HistAutoscaleGoal         = "autoscale_goal"          // service
+	HistAutoscaleSignal       = "autoscale_signal"        // service, signal; per-replica value
+	HistAutoscaleSignalTarget = "autoscale_signal_target" // service, signal
+	HistTerraBaseConnections  = "terrabase_connections"   // member, role
+	HistTerraBaseStorage      = "terrabase_storage_bytes" // member, role
+	HistTerraBaseLagSeq       = "terrabase_replication_lag_seq"
+	HistTerraBaseWriteQPS     = "terrabase_write_qps"
+)
+
 // Bounds on what the sampler remembers between snapshots.
 const (
 	maxSampledMembers    = 512

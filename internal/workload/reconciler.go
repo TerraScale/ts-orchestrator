@@ -58,6 +58,9 @@ type Result struct {
 	Replicas int
 	Target   int
 	Decision *autoscale.Decision
+	// Readings are the signal readings the decision used; empty when the
+	// service has no scaling policy or was not converged.
+	Readings []autoscale.Reading
 	Step     Step
 	Reason   string
 }
@@ -121,6 +124,28 @@ func New(config Config) (*Reconciler, error) {
 		goal: make(map[string]int), last: make(map[string]Result)}, nil
 }
 
+// Signals returns the configured signal source, nil when none.
+func (r *Reconciler) Signals() autoscale.Source {
+	if r == nil {
+		return nil
+	}
+	return r.config.Signals
+}
+
+// Leading reports whether this member's authority may mutate right now and
+// the reconciler has already ticked in the current term, so its results and
+// signal source belong to this term. Between a re-acquired lease and the
+// first tick of the new term it reports false.
+func (r *Reconciler) Leading() bool {
+	if r == nil {
+		return false
+	}
+	snapshot := r.config.Fencer.Current()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return snapshot.CanMutate() && snapshot.Epoch == r.epoch
+}
+
 // Owns reports whether the role is reconciled here, which changes how the
 // delivery planner shapes its releases.
 func (r *Reconciler) Owns(role string) (ServiceSpec, bool) {
@@ -162,14 +187,29 @@ func (r *Reconciler) Run(ctx context.Context) error {
 func (r *Reconciler) Tick(ctx context.Context) error {
 	snapshot := r.config.Fencer.Current()
 	if !snapshot.CanMutate() {
+		// A former leader's results are no longer current; Last must not
+		// keep presenting them to history, insights or the dashboard.
+		r.mu.Lock()
+		clear(r.last)
+		r.mu.Unlock()
 		return nil
 	}
 	now := r.config.Now()
 	r.mu.Lock()
 	if r.epoch != snapshot.Epoch {
+		if source, resettable := r.config.Signals.(interface{ Reset() }); resettable {
+			// Signals kept from an earlier term (for example by a leader
+			// that returns after a short failover) are not this term's
+			// observation: the new term must see a fresh window before it
+			// scales. Reset before the epoch is adopted, so Leading never
+			// reports the old samples as this term's.
+			source.Reset()
+		}
 		r.epoch = snapshot.Epoch
-		// A new term re-derives goals from the observed replica count.
+		// A new term re-derives goals from the observed replica count, and
+		// the earlier term's results are no longer current.
 		clear(r.goal)
+		clear(r.last)
 		for _, spec := range r.specs {
 			r.history[spec.Role] = autoscale.Reset(now)
 		}
@@ -275,6 +315,7 @@ func (r *Reconciler) reconcile(ctx context.Context, spec ServiceSpec, epoch uint
 			Readings: readings, Now: now}, history)
 		history = decision.History
 		result.Decision = &decision
+		result.Readings = readings
 		target, result.Reason = decision.To, decision.Reason
 	}
 	result.Target = target

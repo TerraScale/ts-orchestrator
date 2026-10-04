@@ -70,10 +70,15 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 	if code != http.StatusOK {
 		return Status{}, fmt.Errorf("member status HTTP %d", code)
 	}
+	// The load block is telemetry, never evidence: it is split off before
+	// the strict decode, and a malformed, incomplete or out-of-range block
+	// is dropped instead of failing the status.
+	evidence, load := SplitLoad(body)
 	var status Status
-	if err := decodeRequired(body, &status, statusPaths...); err != nil {
+	if err := decodeRequired(evidence, &status, statusPaths...); err != nil {
 		return Status{}, err
 	}
+	status.Load = DecodeLoad(load)
 	if status.SchemaVersion != 2 || status.Nonce != challenge || status.Process.PID != process.PID ||
 		!status.Process.valid() || status.Scope != c.scope || status.Authority != c.authority ||
 		!status.Capabilities.ServingProof || !status.Capabilities.DurableDrain {

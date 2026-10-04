@@ -239,6 +239,28 @@ func TestReconcilerFollowerAndFencedLeaderDoNotWrite(t *testing.T) {
 	if err := follower.Tick(context.Background()); err != nil || len(cell.writes) != 0 {
 		t.Fatalf("follower wrote %v (%v)", cell.writes, err)
 	}
+	if follower.Leading() || len(follower.Last()) != 0 {
+		t.Fatalf("follower leading=%v last=%#v", follower.Leading(), follower.Last())
+	}
+	// A demoted leader stops presenting its last results as current.
+	fencer := &fakeFencer{leader: true, epoch: 1}
+	demoted := newTestReconciler(t, cell, fencer, statelessSpec(1, 5))
+	if err := demoted.Tick(context.Background()); err != nil || !demoted.Leading() || len(demoted.Last()) != 1 {
+		t.Fatalf("leader tick: last=%#v (%v)", demoted.Last(), err)
+	}
+	// A re-acquired lease of a new term is not "leading" until the
+	// reconciler has adopted the term.
+	fencer.epoch = 2
+	if demoted.Leading() {
+		t.Fatal("leading with the previous term's results")
+	}
+	if err := demoted.Tick(context.Background()); err != nil || !demoted.Leading() {
+		t.Fatalf("new term tick: leading=%v (%v)", demoted.Leading(), err)
+	}
+	fencer.leader = false
+	if err := demoted.Tick(context.Background()); err != nil || demoted.Leading() || len(demoted.Last()) != 0 {
+		t.Fatalf("demoted leader kept results: %#v (%v)", demoted.Last(), err)
+	}
 	fenced := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1, fenced: true}, statelessSpec(3, 5))
 	if err := fenced.Tick(context.Background()); !errors.Is(err, authority.ErrFenced) || len(cell.writes) != 0 {
 		t.Fatalf("fenced leader wrote %v (%v)", cell.writes, err)
@@ -305,9 +327,43 @@ func TestReconcilerAutoscalesFromSignals(t *testing.T) {
 	if last.Decision == nil || last.Decision.Reason != autoscale.ReasonScaleUp || last.Target != 4 {
 		t.Fatalf("decision = %#v", last)
 	}
+	if len(last.Readings) != 1 || last.Readings[0].Signal != autoscale.SignalCPUUtilization ||
+		last.Readings[0].Value != 0.9 || last.Readings[0].Samples != 1 {
+		t.Fatalf("readings behind the decision = %#v", last.Readings)
+	}
 	// Not converged: the decision core is not consulted while replicas start.
 	if err := reconciler.Tick(context.Background()); err != nil || reconciler.Last()["api"].Decision != nil {
 		t.Fatalf("autoscaled while unconverged: %#v (%v)", reconciler.Last()["api"], err)
+	}
+}
+
+type resettableSignals struct {
+	autoscale.Source
+	resets int
+}
+
+func (s *resettableSignals) Reset() { s.resets++ }
+
+// Every new authority term resets a resettable signal source once, so a
+// returning leader never scales on samples from its earlier term.
+func TestReconcilerNewTermResetsSignalSource(t *testing.T) {
+	cell := threeHostCell()
+	cell.seed("node-a", "api", testDigest, 4)
+	cell.runAll()
+	signals := &resettableSignals{Source: autoscale.NewWindowStore(time.Hour, 100)}
+	fencer := &fakeFencer{leader: true, epoch: 1}
+	reconciler := newTestReconciler(t, cell, fencer, statelessSpec(1, 4), func(c *Config) { c.Signals = signals })
+	for range 2 {
+		if err := reconciler.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fencer.epoch = 2
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if signals.resets != 2 {
+		t.Fatalf("resets = %d, want one per term", signals.resets)
 	}
 }
 

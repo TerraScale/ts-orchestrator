@@ -1,5 +1,7 @@
 package dashboard
 
+import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+
 templ terrabaseBody(current view) {
 	<div id="content">
 		<h1>TerraBase instances</h1>
@@ -79,10 +81,32 @@ templ terrabaseBody(current view) {
 				@decisionList(current, current.decisions(), 6)
 			</article>
 			<article>
-				<h2>Replication lag and connections</h2>
-				@unavailable("TerraBase does not export per-seat replication lag or client connections to the orchestrator yet. JetStream replica lag is on the NATS page.")
+				<h2>Replication lag <small>source events not applied by the slowest peer</small></h2>
+				@chart("", current.terraBaseLoadChart(observability.HistTerraBaseLagSeq, "count"))
+				<h2>Client connections</h2>
+				@chart("", current.terraBaseLoadChart(observability.HistTerraBaseConnections, "count"))
 			</article>
 		</div>
+		<article>
+			<div class="chart-title">
+				<h2>Autoscaled services <small>replicas vs goal, signals vs target</small></h2>
+				<a href={ safe(current.State.link("/decisions", "actor", "autoscale,hostpool")) }>Journal →</a>
+			</div>
+			if autoscaled := current.autoscaledServices(); len(autoscaled.Services) == 0 {
+				@unavailable("No autoscaled service has reported yet. Autoscaling is off in this cell, or this member is not the authority leader.")
+			} else {
+				for _, service := range autoscaled.Services {
+					<h3>{ service.Name }</h3>
+					<div class="cols-2">
+						@chart("", service.Replicas)
+						@chart("", service.Signals)
+					</div>
+				}
+				if notice := autoscaled.hiddenNotice(); notice != "" {
+					<p><small>{ notice }</small></p>
+				}
+			}
+		</article>
 		if placement := current.placement(); placement == nil {
 			<article>
 				@unavailable("No placement view is available. This cell does not manage TerraBase placement, or the placement store is not open yet.")

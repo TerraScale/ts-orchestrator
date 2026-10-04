@@ -223,3 +223,45 @@ func TestMemberStatusRejectsUnboundRunner(t *testing.T) {
 		t.Fatalf("unbound runner error = %v", err)
 	}
 }
+
+func TestDecodeMemberStatusOptionalLoadBlock(t *testing.T) {
+	nonce := "00000000000000000000000000000001"
+	expected := memberFixtureExpectation()
+	withLoad := func(load string) string {
+		return strings.Replace(memberStatusFixture, `"receiver_only":false`, `"load":`+load+`,"receiver_only":false`, 1)
+	}
+	status, err := decodeMemberStatus([]byte(withLoad(`{"connections":12,"storage_bytes":4096,"replication_lag_seq":3,"write_qps":1.5}`)), nonce, 123, expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Load == nil || status.Load.Connections != 12 || status.Load.StorageBytes != 4096 ||
+		status.Load.ReplicationLagSeq != 3 || status.Load.WriteQPS != 1.5 {
+		t.Fatalf("load block not decoded: %+v", status.Load)
+	}
+	// Telemetry problems never fail the status itself: the block is dropped.
+	for name, load := range map[string]string{
+		"incomplete": `{"connections":12}`,
+		"negative":   `{"connections":1,"storage_bytes":1,"replication_lag_seq":1,"write_qps":-1}`,
+		"oversized":  `{"connections":99999999999,"storage_bytes":1,"replication_lag_seq":1,"write_qps":1}`,
+		// Values the typed decoder itself would refuse must not fail the
+		// status either.
+		"negative counter": `{"connections":-1,"storage_bytes":1,"replication_lag_seq":1,"write_qps":1}`,
+		"overflowing qps":  `{"connections":1,"storage_bytes":1,"replication_lag_seq":1,"write_qps":1e400}`,
+		"string counter":   `{"connections":"1","storage_bytes":1,"replication_lag_seq":1,"write_qps":1}`,
+		"not an object":    `[1,2]`,
+		"null":             `null`,
+		"repeated counter": `{"connections":1,"connections":2,"storage_bytes":1,"replication_lag_seq":1,"write_qps":1}`,
+		// A newer TerraBase that adds a counter only loses its telemetry.
+		"unknown member": `{"connections":1,"storage_bytes":1,"replication_lag_seq":1,"write_qps":1,"extra":1}`,
+	} {
+		status, err := decodeMemberStatus([]byte(withLoad(load)), nonce, 123, expected)
+		if err != nil || status.Load != nil {
+			t.Errorf("%s load: status=%+v err=%v, want accepted status without load", name, status.Load, err)
+		}
+	}
+	// The evidence around the block stays strict.
+	if _, err := decodeMemberStatus([]byte(strings.Replace(withLoad(`{"connections":1,"storage_bytes":1,"replication_lag_seq":1,"write_qps":1}`),
+		`"receiver_only":false`, `"receiver_only":false,"extra":1`, 1)), nonce, 123, expected); err == nil {
+		t.Error("unknown status member accepted next to a load block")
+	}
+}
