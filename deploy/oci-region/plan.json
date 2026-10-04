@@ -19,19 +19,8 @@
         "expected_volume_gb": 50,
         "expected_volume_vpus_per_gb": 10
     },
-    "operator_gateway": {
-        "private_ip": "10.250.10.155",
-        "vcn_cidr": "10.250.0.0/16",
-        "local_peering_gateway_id": "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.aaaaaaaaaucpuf5xwevoskfiigcilm4vbradfpqsd55pcc4aetpji5sz7t6q"
-    },
-    "netbird": {
-        "management_url": "https://netbird.terrascale.tech",
-        "management_ip": "10.250.10.155",
-        "secret_compartment_id": "ocid1.compartment.oc1..aaaaaaaaifvroeyjgu4l5h5gy4qzv7t6yfbcbd3fwwqxmzbamqkbjc5nvria",
-        "setup_key_secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqah36eekkgznp466jwk24f4zcoxpjtjvznlqs4z6zsrdta",
-        "policy_id": "ocid1.policy.oc1..aaaaaaaai6mfxu6q525tsbhyw2mahtmzoywhkw4iyfvoykvuao36z4r3c5zq",
-        "policy_name": "terrascale-netbird-server-enrollment"
-    },
+    "operator_gateway": null,
+    "netbird": null,
     "public_api": {
         "subnet_cidr": "10.251.0.128/26",
         "listener_port": 443,
@@ -55,19 +44,6 @@
                 "direction": "INGRESS",
                 "protocol": "6",
                 "source": "10.251.0.0/25",
-                "source_type": "CIDR_BLOCK",
-                "destination": null,
-                "destination_type": null,
-                "tcp_min": 4222,
-                "tcp_max": 4222,
-                "udp_min": null,
-                "udp_max": null,
-                "stateless": false
-            },
-            {
-                "direction": "INGRESS",
-                "protocol": "6",
-                "source": "10.250.10.155/32",
                 "source_type": "CIDR_BLOCK",
                 "destination": null,
                 "destination_type": null,
@@ -107,19 +83,6 @@
                 "direction": "INGRESS",
                 "protocol": "6",
                 "source": "10.251.0.18/32",
-                "source_type": "CIDR_BLOCK",
-                "destination": null,
-                "destination_type": null,
-                "tcp_min": 22,
-                "tcp_max": 22,
-                "udp_min": null,
-                "udp_max": null,
-                "stateless": false
-            },
-            {
-                "direction": "INGRESS",
-                "protocol": "6",
-                "source": "10.250.10.155/32",
                 "source_type": "CIDR_BLOCK",
                 "destination": null,
                 "destination_type": null,
@@ -173,19 +136,6 @@
             {
                 "direction": "INGRESS",
                 "protocol": "6",
-                "source": "10.250.10.155/32",
-                "source_type": "CIDR_BLOCK",
-                "destination": null,
-                "destination_type": null,
-                "tcp_min": 9465,
-                "tcp_max": 9465,
-                "udp_min": null,
-                "udp_max": null,
-                "stateless": false
-            },
-            {
-                "direction": "INGRESS",
-                "protocol": "6",
                 "source": "10.251.0.128/26",
                 "source_type": "CIDR_BLOCK",
                 "destination": null,
@@ -200,19 +150,6 @@
                 "direction": "INGRESS",
                 "protocol": "6",
                 "source": "10.251.0.18/32",
-                "source_type": "CIDR_BLOCK",
-                "destination": null,
-                "destination_type": null,
-                "tcp_min": 22,
-                "tcp_max": 22,
-                "udp_min": null,
-                "udp_max": null,
-                "stateless": false
-            },
-            {
-                "direction": "INGRESS",
-                "protocol": "6",
-                "source": "10.250.10.155/32",
                 "source_type": "CIDR_BLOCK",
                 "destination": null,
                 "destination_type": null,
@@ -263,32 +200,6 @@
                 "udp_min": null,
                 "udp_max": null,
                 "stateless": false
-            },
-            {
-                "direction": "EGRESS",
-                "protocol": "6",
-                "source": null,
-                "source_type": null,
-                "destination": "10.250.10.155/32",
-                "destination_type": "CIDR_BLOCK",
-                "tcp_min": 443,
-                "tcp_max": 443,
-                "udp_min": null,
-                "udp_max": null,
-                "stateless": false
-            },
-            {
-                "direction": "EGRESS",
-                "protocol": "17",
-                "source": null,
-                "source_type": null,
-                "destination": "10.250.10.155/32",
-                "destination_type": "CIDR_BLOCK",
-                "tcp_min": null,
-                "tcp_max": null,
-                "udp_min": 3478,
-                "udp_max": 3478,
-                "stateless": false
             }
         ],
         "route_rules": [
@@ -296,11 +207,6 @@
                 "destination": "all-gru-services-in-oracle-services-network",
                 "destination_type": "SERVICE_CIDR_BLOCK",
                 "network_entity_id": "{service_gateway_id}"
-            },
-            {
-                "destination": "10.250.10.155/32",
-                "destination_type": "CIDR_BLOCK",
-                "network_entity_id": "{local_peering_gateway_id}"
             }
         ],
         "service_gateway_service_id": "ocid1.service.oc1.sa-saopaulo-1.aaaaaaaacd57uig6rzxm2qfipukbqpje2bhztqszh3aj7zk2jtvf6gvntena",
@@ -430,7 +336,7 @@
         "security_list": null,
         "route_table": null,
         "service_gateway": null,
-        "local_peering_gateway": "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.aaaaaaaans6aplo5dludjejwdctpdd3zqwwgcqhcj2w4763rwrrvauasninq",
+        "local_peering_gateway": null,
         "internet_gateway": null,
         "public_subnet": null,
         "public_route_table": null,

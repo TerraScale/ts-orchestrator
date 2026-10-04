@@ -30,7 +30,9 @@ jobs:
       # deadlines even when Rust jobs saturate the shared Docker disk. This
       # per-job scratch mount retains files across child-process restarts;
       # dependency/build caches and published binaries remain persistent.
-      options: --tmpfs /tmp:rw,exec,nosuid,nodev,size=8g
+      # --init reaps the orphans that killed test shards and their helper
+      # processes leave behind, instead of tail as PID 1.
+      options: --init --tmpfs /tmp:rw,exec,nosuid,nodev,size=8g
     timeout-minutes: 90
     env:
       SOURCE_SHA: ${{ forgejo.sha }}
@@ -81,6 +83,13 @@ jobs:
           done
           printf 'source=%s tree=%s go=%s\n' \
             "${source_commit}" "$(git rev-parse "HEAD^{tree}")" "${go_version}"
+
+      # Go's test cache keys the repository files a test reads on size and
+      # modification time. Content-derived times let tests whose inputs did
+      # not change hit the persistent cache after this fresh checkout.
+      - name: Stamp tracked files with content-derived times
+        shell: bash
+        run: go run ./scripts/ci/stablemtime
 
       - name: Check, test and build static binaries in parallel
         shell: bash

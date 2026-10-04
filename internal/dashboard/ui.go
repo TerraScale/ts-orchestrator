@@ -192,6 +192,9 @@ const (
 	scopeGlobal
 	// scopeLocal pages show this member's live state only.
 	scopeLocal
+	// scopeEntity pages show one entity of the region their path names;
+	// the switcher goes to another region's overview.
+	scopeEntity
 )
 
 func (page page) scope() scope {
@@ -202,6 +205,8 @@ func (page page) scope() scope {
 		return scopeFiltered
 	case "", "releases", "ci", "topology":
 		return scopeGlobal
+	case "host":
+		return scopeEntity
 	default:
 		return scopeLocal
 	}
@@ -213,9 +218,9 @@ func (page page) scope() scope {
 func (current view) switchLink(region string) string {
 	switch current.Page.scope() {
 	case scopeRegional:
-		return current.State.link(current.Page.href(), "r", region)
+		return current.State.link(current.here(), "r", region)
 	case scopeFiltered:
-		return current.State.keep(current.Page.href(), "r", region, "region", "")
+		return current.State.keep(current.here(), "r", region, "region", "")
 	default:
 		return current.State.link("/region", "r", region)
 	}
@@ -237,9 +242,9 @@ func (current view) globalScope() bool {
 func (current view) allRegionsLink() string {
 	switch current.Page.scope() {
 	case scopeFiltered:
-		return current.State.keep(current.Page.href(), "r", "", "region", "")
+		return current.State.keep(current.here(), "r", "", "region", "")
 	case scopeGlobal:
-		return current.State.keep(current.Page.href(), "r", "")
+		return current.State.keep(current.here(), "r", "")
 	}
 	return current.State.link("/", "r", "")
 }
@@ -276,7 +281,7 @@ func (current view) paletteJSON() string {
 	}
 	for _, choice := range timeRanges {
 		items = append(items, paletteItem{Label: "Time range " + choice.Key, Group: "Range",
-			Href: current.State.keep(current.Page.href(), "range", choice.Key)})
+			Href: current.State.keep(current.here(), "range", choice.Key)})
 	}
 	live := "Pause live updates"
 	liveValue := "0"
@@ -284,7 +289,7 @@ func (current view) paletteJSON() string {
 		live, liveValue = "Resume live updates", "1"
 	}
 	items = append(items,
-		paletteItem{Label: live, Group: "Action", Href: current.State.keep(current.Page.href(), "live", liveValue)},
+		paletteItem{Label: live, Group: "Action", Href: current.State.keep(current.here(), "live", liveValue)},
 		paletteItem{Label: "Toggle dark / light theme", Group: "Action", Action: "theme"},
 		paletteItem{Label: "Toggle browser notifications for new insights", Group: "Action", Action: "notify"},
 		paletteItem{Label: "Decisions: rollbacks", Group: "Search", Href: current.State.link("/decisions", "kind", "rollback")},

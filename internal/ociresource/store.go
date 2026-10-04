@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -89,13 +90,15 @@ type Status struct {
 	Generation uint64    `json:"generation"`
 	SpecDigest string    `json:"specDigest"`
 	ObservedAt time.Time `json:"observedAt"`
-	Found      bool      `json:"found"`
-	InSync     bool      `json:"inSync"`
-	Foreign    bool      `json:"foreign,omitempty"`
-	Drift      []Change  `json:"drift,omitempty"`
-	Applied    bool      `json:"applied,omitempty"`
-	Deleted    bool      `json:"deleted,omitempty"`
-	Error      string    `json:"error,omitempty"`
+	// Policy is the desired record's drift policy at this observation.
+	Policy  DriftPolicy `json:"policy,omitempty"`
+	Found   bool        `json:"found"`
+	InSync  bool        `json:"inSync"`
+	Foreign bool        `json:"foreign,omitempty"`
+	Drift   []Change    `json:"drift,omitempty"`
+	Applied bool        `json:"applied,omitempty"`
+	Deleted bool        `json:"deleted,omitempty"`
+	Error   string      `json:"error,omitempty"`
 }
 
 // Store is the desired/observed state seam. KVStore is the replicated
@@ -368,6 +371,62 @@ func (s *KVStore) GetStatus(ctx context.Context, key Key) (Status, bool, error) 
 	return status, true, nil
 }
 
+// StatusLister lists the last observations of one region, for read-only
+// views such as the dashboard's drift insights.
+type StatusLister interface {
+	ListStatus(ctx context.Context, region string) ([]Status, error)
+}
+
+// ListStatus returns every observation of region, sorted by key. A record
+// that cannot be decoded fails the listing rather than hiding drift.
+func (s *KVStore) ListStatus(ctx context.Context, region string) ([]Status, error) {
+	if err := (Key{Region: region, Kind: "x", Name: "x"}).Validate(); err != nil {
+		return nil, err
+	}
+	lister, err := s.observed.ListKeysFiltered(ctx, region+".*.*")
+	if err != nil {
+		if errors.Is(err, jetstream.ErrNoKeysFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("list OCI observed keys: %w", err)
+	}
+	var keys []string
+	for key := range lister.Keys() {
+		if len(keys) >= maxListedKeys {
+			_ = lister.Stop()
+			return nil, errors.New("OCI observed key list exceeds its safety bound")
+		}
+		keys = append(keys, key)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("list OCI observed keys: %w", err)
+	}
+	slices.Sort(keys)
+	keys = slices.Compact(keys)
+	statuses := make([]Status, 0, len(keys))
+	for _, subject := range keys {
+		entry, err := s.observed.Get(ctx, subject)
+		if errors.Is(err, jetstream.ErrKeyNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read OCI observed record: %w", err)
+		}
+		if len(entry.Value()) > maxRecordBytes {
+			return nil, errors.New("OCI observed record exceeds its size bound")
+		}
+		var status Status
+		if err := json.Unmarshal(entry.Value(), &status); err != nil {
+			return nil, fmt.Errorf("decode OCI observed record: %w", err)
+		}
+		if status.Key.subject() != subject {
+			return nil, errors.New("OCI observed record key differs from its bucket key")
+		}
+		statuses = append(statuses, status)
+	}
+	return statuses, nil
+}
+
 // MemoryStore is an in-process Store with the same CAS semantics, for tests
 // and dry runs.
 type MemoryStore struct {
@@ -471,4 +530,17 @@ func (s *MemoryStore) GetStatus(_ context.Context, key Key) (Status, bool, error
 	defer s.mu.Unlock()
 	status, ok := s.status[key]
 	return status, ok, nil
+}
+
+func (s *MemoryStore) ListStatus(_ context.Context, region string) ([]Status, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var statuses []Status
+	for key, status := range s.status {
+		if key.Region == region {
+			statuses = append(statuses, status)
+		}
+	}
+	slices.SortFunc(statuses, func(a, b Status) int { return strings.Compare(a.Key.String(), b.Key.String()) })
+	return statuses, nil
 }

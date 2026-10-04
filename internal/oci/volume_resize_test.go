@@ -158,14 +158,73 @@ func TestResizeRetainedVolumeRecoversLostResponseAndHoldsStaleState(t *testing.T
 	if journal.volumes[created.ID].SizeGB != 80 {
 		t.Fatal("unknown resize changed ownership")
 	}
-	// The immutable intent pinned the ETag; a concurrent change holds.
+	// The immutable intent pinned the ETag. Once the ETag moved, that
+	// attempt can never land, so a same-size retry starts attempt 2 with
+	// the fresh ETag instead of holding (finding 11583 item 2).
 	volume := provider.volumes[created.ID]
 	volume.ETag = "changed-elsewhere"
 	provider.volumes[created.ID] = volume
 	provider.updateErr = nil
 	updates := provider.updates
-	if _, err := fleet.ResizeRetainedVolume(ctx, resizeRequest(created.ID, 120)); !errors.Is(err, ErrStaleETag) || provider.updates != updates {
-		t.Fatalf("stale resize was retried: %v updates=%d", err, provider.updates)
+	resized, err := fleet.ResizeRetainedVolume(ctx, resizeRequest(created.ID, 120))
+	if err != nil || resized.SizeGB != 120 || provider.updates != updates+1 {
+		t.Fatalf("same-size retry after an unknown outcome: %+v, %v updates=%d", resized, err, provider.updates)
+	}
+	if journal.volumes[created.ID].SizeGB != 120 {
+		t.Fatal("the second attempt did not advance ownership")
+	}
+	second, found, err := journal.GetOperation(ctx, OperationScope{Action: actionVolumeResize,
+		Key: volumeResizeAttemptKey(created.ID, 120, 2), Region: fleet.config.Region,
+		Generation: fleet.config.Generation, Owner: fleet.config.Owner})
+	if err != nil || !found || second.ExpectedETag != "changed-elsewhere" || second.PreviousSizeGB != 80 {
+		t.Fatalf("attempt 2 intent = %+v found=%v err=%v", second, found, err)
+	}
+	if result, recorded, err := journal.GetResult(ctx, second); err != nil || !recorded || result.Unknown {
+		t.Fatalf("attempt 2 result = %+v recorded=%v err=%v", result, recorded, err)
+	}
+	// A replay of the landed resize is a no-op on the same attempt.
+	if again, err := fleet.ResizeRetainedVolume(ctx, resizeRequest(created.ID, 120)); err != nil ||
+		again.SizeGB != 120 || provider.updates != updates+1 {
+		t.Fatalf("replay after attempt 2: %+v, %v updates=%d", again, err, provider.updates)
+	}
+}
+
+func TestResizeAttemptsKeepTheUnmovedETagAndAreBounded(t *testing.T) {
+	ctx := t.Context()
+	fleet, provider, journal, _, created := resizeFixture(t)
+	provider.updateErr = errors.New("service unavailable")
+	// With the ETag unchanged an unknown attempt is retried on its own key.
+	for range 2 {
+		if _, err := fleet.ResizeRetainedVolume(ctx, resizeRequest(created.ID, 60)); !errors.Is(err, ErrOutcomeUnknown) {
+			t.Fatalf("failed update was not unknown: %v", err)
+		}
+	}
+	if _, found, _ := journal.GetOperation(ctx, OperationScope{Action: actionVolumeResize,
+		Key: volumeResizeAttemptKey(created.ID, 60, 2), Region: fleet.config.Region,
+		Generation: fleet.config.Generation, Owner: fleet.config.Owner}); found {
+		t.Fatal("a retry with an unchanged ETag opened a second attempt")
+	}
+	// An ETag that moves under every attempt stops after the bound.
+	for attempt := 2; attempt <= maxVolumeResizeAttempts+1; attempt++ {
+		volume := provider.volumes[created.ID]
+		volume.ETag = fmt.Sprintf("moved-%d", attempt)
+		provider.volumes[created.ID] = volume
+		_, err := fleet.ResizeRetainedVolume(ctx, resizeRequest(created.ID, 60))
+		if attempt <= maxVolumeResizeAttempts && !errors.Is(err, ErrOutcomeUnknown) {
+			t.Fatalf("attempt %d: %v", attempt, err)
+		}
+		if attempt > maxVolumeResizeAttempts && !errors.Is(err, ErrStaleETag) {
+			t.Fatalf("resize past the attempt bound: %v", err)
+		}
+	}
+	for _, key := range []string{volumeResizeKey(created.ID, 60), volumeResizeAttemptKey(created.ID, 60, 3)} {
+		if !validVolumeResizeKey(key, created.ID, 60) {
+			t.Fatalf("attempt key %q rejected", key)
+		}
+	}
+	if validVolumeResizeKey(volumeResizeAttemptKey(created.ID, 60, maxVolumeResizeAttempts+1), created.ID, 60) ||
+		validVolumeResizeKey(volumeResizeAttemptKey(created.ID, 60, 2), created.ID, 61) {
+		t.Fatal("an out-of-bound or mismatched attempt key was accepted")
 	}
 }
 
@@ -333,5 +392,59 @@ func TestTerminalSettlesAResizeWhoseETagCanNoLongerMatch(t *testing.T) {
 	provider.volumes[created.ID] = volume
 	if !fleet.resizeSettled(t.Context(), op, listed) {
 		t.Fatal("a resize whose If-Match ETag is gone stayed unsettled")
+	}
+}
+
+// A lost ownership projection of a volume grown by a second resize attempt
+// is rebuilt from that attempt's confirmed receipt.
+func TestKVJournalRepairsOwnershipFromALaterResizeAttempt(t *testing.T) {
+	ctx := t.Context()
+	kv := testJournalBucket(t)
+	journal, err := NewKVJournal(kv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, _ := testRegionConfig()
+	volumeID := "ocid1.volume.kv-attempt"
+	create := OperationIntent{Action: actionVolumeCreate, Key: "kv-attempt", Region: config.Region,
+		Generation: config.Generation, Owner: config.Owner, CreateKey: "kv-attempt",
+		AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50, CreatedAt: time.Now().UTC()}
+	if err := journal.RecordIntent(ctx, create); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.RecordResult(ctx, OperationResult{Intent: create, ResourceID: volumeID}); err != nil {
+		t.Fatal(err)
+	}
+	first := OperationIntent{Action: actionVolumeResize, Key: volumeResizeKey(volumeID, 100), Region: config.Region,
+		Generation: config.Generation, Owner: config.Owner, ResourceID: volumeID, VolumeID: volumeID,
+		CreateKey: "kv-attempt", ExpectedETag: "etag-50", AvailabilityDomain: config.AvailabilityDomain,
+		SizeGB: 100, PreviousSizeGB: 50, CreatedAt: time.Now().UTC()}
+	if err := journal.RecordIntent(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.RecordResult(ctx, OperationResult{Intent: first, Unknown: true}); err != nil {
+		t.Fatal(err)
+	}
+	second := first
+	second.Key, second.ExpectedETag = volumeResizeAttemptKey(volumeID, 100, 2), "etag-50-moved"
+	if err := journal.RecordIntent(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.RecordResult(ctx, OperationResult{Intent: second, ResourceID: volumeID, ETag: "etag-100"}); err != nil {
+		t.Fatal(err)
+	}
+	grown := ResourceIdentity{ID: volumeID, Region: config.Region, Generation: config.Generation,
+		Owner: config.Owner, CreateKey: "kv-attempt", AvailabilityDomain: config.AvailabilityDomain, SizeGB: 100}
+	if owned, err := journal.IsOwnedVolume(ctx, grown); err != nil || !owned {
+		t.Fatalf("volume grown by attempt 2 not owned: %v %v", owned, err)
+	}
+	if err := kv.Delete(ctx, ownershipKey("volume", volumeID)); err != nil {
+		t.Fatal(err)
+	}
+	if owned, err := journal.IsOwnedVolume(ctx, grown); err != nil || !owned {
+		t.Fatalf("ownership was not rebuilt from attempt 2: %v %v", owned, err)
+	}
+	if operations, err := journal.ListOperations(ctx); err != nil || len(operations) != 3 {
+		t.Fatalf("attempt keys broke the operation inventory: %d %v", len(operations), err)
 	}
 }

@@ -61,11 +61,28 @@ type Rule struct {
 
 func (r Rule) peerType() string { return cmp.Or(r.PeerType, PeerCIDR) }
 
+// EffectivePeerType is the peer type with the CIDR_BLOCK default applied.
+func (r Rule) EffectivePeerType() string { return r.peerType() }
+
 // identity is the rule's semantic tuple; descriptions do not affect matching.
 func (r Rule) identity() string {
 	return fmt.Sprintf("%s|%s|%s|%s|%d-%d|%t|%t", r.Direction, r.Protocol, r.peerType(), r.Peer, r.PortMin, r.PortMax,
 		r.Stateless, r.unsupported)
 }
+
+// Identity is the rule's semantic tuple. The security-list reconciler models
+// the same rule shape and matches rules by it.
+func (r Rule) Identity() string { return r.identity() }
+
+// MarkUnsupported returns the rule flagged as using OCI features Rule does
+// not model (source ports, ICMP filters), so it never matches a desired rule.
+func (r Rule) MarkUnsupported() Rule {
+	r.unsupported = true
+	return r
+}
+
+// Validate checks one rule in isolation.
+func (r Rule) Validate() error { return r.validate() }
 
 func (r Rule) validate() error {
 	if r.Direction != DirectionIngress && r.Direction != DirectionEgress {

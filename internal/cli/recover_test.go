@@ -16,6 +16,8 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -50,6 +52,7 @@ func recoveryFixture(t *testing.T) (string, string, string) {
 		return bootstrapstart.AcceptedInstall{Cell: "GRU", Slot: "controller-a", SeedSlot: "controller-a",
 			PrimaryPrivateIP: "127.0.0.1"}, nil
 	}
+	stubRefoundGuard(t, root)
 	_, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -74,6 +77,31 @@ func recoveryFixture(t *testing.T) (string, string, string) {
 		t.Fatal(err)
 	}
 	return config, retirement, root
+}
+
+// stubRefoundGuard gives refound a complete ledger and a survivor whose
+// cluster view already reports controller-b current.
+func stubRefoundGuard(t *testing.T, root string) membership.RefoundGuard {
+	t.Helper()
+	previousLedger, previousGuard, previousPoll, previousWait := refoundLedger, refoundGuard, refoundPoll, refoundWait
+	t.Cleanup(func() {
+		refoundLedger, refoundGuard, refoundPoll, refoundWait = previousLedger, previousGuard, previousPoll, previousWait
+	})
+	refoundLedger = func(context.Context) (map[string]membership.LedgerSlot, error) {
+		return map[string]membership.LedgerSlot{"controller-a": {Attempt: 1, Complete: true},
+			"controller-b": {Attempt: 1, Complete: true}, "controller-c": {Attempt: 1, Complete: true}}, nil
+	}
+	refoundGuard = membership.RefoundGuard{PendingPath: filepath.Join(root, "state", "refound-pending.json"),
+		HealthPath: filepath.Join(root, "state", "cluster-health.json")}
+	refoundPoll, refoundWait = time.Millisecond, time.Second
+	// The survivor (metadata leader) reports b current with zero lag in a
+	// view observed after the relaunch begins.
+	if err := clusterhealth.WriteStatusFile(refoundGuard.HealthPath, clusterhealth.Status{
+		ObservedAt: time.Now().UTC().Add(30 * time.Second), MetaLeader: "gru-controller-a",
+		Online: []string{"gru-controller-a", "gru-controller-b"}, CaughtUp: []string{"gru-controller-b"}}); err != nil {
+		t.Fatal(err)
+	}
+	return refoundGuard
 }
 
 func TestRecoverQuorumRefoundRequiresBackupAndConfirmation(t *testing.T) {
@@ -124,7 +152,7 @@ func TestRecoverQuorumRefoundRequiresBackupAndConfirmation(t *testing.T) {
 	}
 	out, err := run("re-found gru/controller-b\n", refoundArgs...)
 	if err != nil || len(recorder.slots) != 1 || recorder.slots[0] != "controller-b" ||
-		!strings.Contains(out, "attempt 2") {
+		!strings.Contains(out, "attempt 2") || !strings.Contains(out, "gru-controller-b reports current") {
 		t.Fatalf("refound = %q, %v, %v", out, err, recorder.slots)
 	}
 	survivor := append([]string(nil), refoundArgs...)
@@ -201,4 +229,57 @@ func listenOn(t *testing.T, config string) net.Listener {
 		t.Fatal(err)
 	}
 	return listener
+}
+
+// refound relaunches one slot, waits for it to report current, and refuses a
+// second slot until then.
+func TestRecoverQuorumRefoundReFoundsOneSlotAtATime(t *testing.T) {
+	config, retirement, root := recoveryFixture(t)
+	recorder := &recordingRefound{}
+	previousInput, previousReplacer := recoveryInput, refoundReplacer
+	t.Cleanup(func() { recoveryInput, refoundReplacer = previousInput, previousReplacer })
+	refoundReplacer = func(context.Context, bootstrapstart.AcceptedInstall) (interface {
+		Replace(context.Context, string, []byte) error
+	}, error) {
+		return recorder, nil
+	}
+	backup := filepath.Join(root, "backup")
+	run := func(input string, args ...string) (string, error) {
+		recoveryInput = strings.NewReader(input)
+		var output bytes.Buffer
+		err := Run(t.Context(), append([]string{"cluster", "recover-quorum"}, args...), &output)
+		return output.String(), err
+	}
+	if _, err := run("back up gru/controller-a\n", "backup", "--config", config, "--out", backup); err != nil {
+		t.Fatal(err)
+	}
+	survivorBroker := listenOn(t, config)
+	defer survivorBroker.Close()
+	// b never catches up: refound times out and keeps b pending.
+	if err := clusterhealth.WriteStatusFile(refoundGuard.HealthPath, clusterhealth.Status{
+		ObservedAt: time.Now().UTC(), MetaLeader: "gru-controller-a", Online: []string{"gru-controller-a"},
+		Missing: []string{"gru-controller-b"}}); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"refound", "--config", config, "--slot", "controller-b", "--retirement", retirement,
+		"--backup", backup}
+	if _, err := run("re-found gru/controller-b\n", args...); err == nil ||
+		!strings.Contains(err.Error(), "did not report current") || len(recorder.slots) != 1 {
+		t.Fatalf("refound of a slot that never caught up = %v (%v)", err, recorder.slots)
+	}
+	other := append([]string(nil), args...)
+	other[4] = "controller-c"
+	if _, err := run("re-found gru/controller-c\n", other...); err == nil ||
+		!strings.Contains(err.Error(), "controller-b re-founded at") || len(recorder.slots) != 1 {
+		t.Fatalf("second slot while b is pending = %v (%v)", err, recorder.slots)
+	}
+	// A slot with an incomplete successor in the ledger also blocks.
+	refoundLedger = func(context.Context) (map[string]membership.LedgerSlot, error) {
+		return map[string]membership.LedgerSlot{"controller-a": {Attempt: 1, Complete: true},
+			"controller-b": {Attempt: 1, Complete: true}, "controller-c": {Attempt: 2}}, nil
+	}
+	if _, err := run("re-found gru/controller-b\n", args...); err == nil ||
+		!strings.Contains(err.Error(), "controller-c has an incomplete re-founded attempt") {
+		t.Fatalf("refound while c is mid-replacement = %v", err)
+	}
 }

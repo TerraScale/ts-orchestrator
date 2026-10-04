@@ -408,29 +408,39 @@ func (runtime backupOperationRuntime) currentRoster(ctx context.Context,
 	}
 	members := make([]authority.BackupOperationMember, 0, 2)
 	for _, row := range intent.CanonicalRoster.Rows {
-		found := false
-		for _, versioned := range states {
-			state := versioned.State
-			if state.CanonicalRosterRow == row && state.Stage == placement.StageServing &&
-				state.HostNode != "" && state.HostAttempt == 1 &&
-				state.IntentGeneration == intent.Generation &&
-				state.IntentPayloadDigest == intent.PayloadDigest() {
-				members = append(members, authority.BackupOperationMember{
-					Origin:   strings.ReplaceAll(row.MemberID, "-", "") + row.Incarnation,
-					MemberID: row.MemberID, Incarnation: row.Incarnation,
-					TLSLeafSHA256: row.TLSLeafSHA256, Node: state.HostNode, Role: runtime.memberRole})
-				found = true
-				break
-			}
-		}
+		member, found := backupServingMember(intent, row, states, runtime.memberRole)
 		if !found {
 			return nil, 0, errors.New("backup roster member is not serving on its exact host")
 		}
+		members = append(members, member)
 	}
 	slices.SortFunc(members, func(left, right authority.BackupOperationMember) int {
 		return strings.Compare(left.Origin, right.Origin)
 	})
 	return members, entry.Sequence, nil
+}
+
+// backupServingMember finds the roster row's member serving on its current
+// host attempt. A replaced member keeps its roster row, volume and private
+// IP and serves from the host of a later attempt, so any current attempt
+// counts; the replacement cleared every identity of the lost host, so a
+// serving state with a host node always names the current one.
+func backupServingMember(intent placement.Intent, row placement.CanonicalRosterRow,
+	states []placement.VersionedMemberState, role string,
+) (authority.BackupOperationMember, bool) {
+	for _, versioned := range states {
+		state := versioned.State
+		if state.CanonicalRosterRow == row && state.Stage == placement.StageServing &&
+			state.HostNode != "" && state.HostAttempt >= 1 &&
+			state.IntentGeneration == intent.Generation &&
+			state.IntentPayloadDigest == intent.PayloadDigest() {
+			return authority.BackupOperationMember{
+				Origin:   strings.ReplaceAll(row.MemberID, "-", "") + row.Incarnation,
+				MemberID: row.MemberID, Incarnation: row.Incarnation,
+				TLSLeafSHA256: row.TLSLeafSHA256, Node: state.HostNode, Role: role}, true
+		}
+	}
+	return authority.BackupOperationMember{}, false
 }
 
 func sameBackupServingRoster(left, right []authority.BackupOperationMember) bool {

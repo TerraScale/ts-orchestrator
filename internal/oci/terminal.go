@@ -113,7 +113,8 @@ func (f *fleet) DiscoverTerminalTargets(ctx context.Context, intent authority.Te
 		}
 		if (allowedHosts[op.CreateKey] || allowedData[op.CreateKey] || terminalOperationTouches(op, targets)) &&
 			op.Action != actionTerminalTerminate && op.Action != actionTerminalBootDelete && op.Action != actionTerminalDataDelete &&
-			(record.Result.RecordedAt.IsZero() || record.Result.Unknown) && !f.resizeSettled(ctx, op, volumes) {
+			(record.Result.RecordedAt.IsZero() || record.Result.Unknown) && !f.resizeSettled(ctx, op, volumes) &&
+			!f.detachSettled(ctx, op) {
 			return nil, fmt.Errorf("%w: prior OCI operation %s remains unsettled", ErrOutcomeUnknown, op.Action)
 		}
 	}

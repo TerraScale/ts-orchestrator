@@ -34,7 +34,7 @@ func TestSourceDigestReadsTrackedObjectsWithModesAndArbitraryPaths(t *testing.T)
 	repo := t.TempDir()
 	git := func(args ...string) string {
 		t.Helper()
-		r := script.Run(t, repo, nil, "git", args...)
+		r := script.Exec(t, repo, nil, "git", args...)
 		if r.Code != 0 {
 			t.Fatal(args, r.Stderr)
 		}

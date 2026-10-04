@@ -197,6 +197,13 @@ func (f *fleet) observe(ctx context.Context, selectInstance func(id, node string
 	if len(cloudInstances) > maxFleetInstances {
 		return nil, errors.New("OCI member host list exceeds its safety bound")
 	}
+	// A complete sweep also counts the fleet by lifecycle state for the
+	// dashboard; the tally never changes what the sweep returns.
+	var tally *inventoryTally
+	if selectInstance == nil {
+		tally = newInventoryTally()
+		ctx = withInventoryTally(ctx, tally)
+	}
 	instances := make([]Instance, 0, len(cloudInstances))
 	for _, listed := range cloudInstances {
 		tags := listed.FreeformTags
@@ -209,6 +216,7 @@ func (f *fleet) observe(ctx context.Context, selectInstance func(id, node string
 			slog.Warn("withholding OCI instance with out-of-scope identity tags", "instance_id", listed.ID, "region", f.config.Region)
 			continue
 		}
+		tally.instance(listed.LifecycleState)
 		if selectInstance != nil && !selectInstance(listed.ID, tags[tagHostNode]) {
 			continue
 		}
@@ -249,6 +257,9 @@ func (f *fleet) observe(ctx context.Context, selectInstance func(id, node string
 			return nil, err
 		}
 		instances = append(instances, instance)
+	}
+	if tally != nil {
+		publishInventory(f.config.Region, tally, f.now())
 	}
 	return instances, nil
 }
@@ -715,7 +726,7 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 	} else {
 		// Do not create a new journal operation around an attachment that was
 		// already present. Only a prior durable operation can bind that resource.
-		attachments, err := f.findVolumeAttachments(ctx, request.VolumeID)
+		attachments, err := f.attachAttachments(ctx, request)
 		if err != nil {
 			return Attachment{}, err
 		}
@@ -749,7 +760,7 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 	if err != nil {
 		return Attachment{}, fmt.Errorf("read OCI volume attachment result: %w", err)
 	}
-	attachments, err := f.findVolumeAttachments(ctx, request.VolumeID)
+	attachments, err := f.attachAttachments(ctx, request)
 	if err != nil {
 		return Attachment{}, errors.Join(retryWindowErr, err)
 	}
@@ -797,7 +808,7 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 		IsReadOnly: intent.IsReadOnly, IsShareable: intent.IsShareable,
 		IsPvEncryptionInTransitEnabled: intent.IsPvEncryptionInTransitEnabled,
 	})
-	attachments, observeErr := f.findVolumeAttachments(ctx, request.VolumeID)
+	attachments, observeErr := f.attachAttachments(ctx, request)
 	if observeErr != nil {
 		return Attachment{}, errors.Join(ErrOutcomeUnknown, attachErr, observeErr,
 			f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
@@ -1047,11 +1058,13 @@ func (f *fleet) instanceFromCloud(ctx context.Context, cloud CloudInstance, iden
 		BootDescriptorSHA256: observedDigest, ETag: cloud.ETag,
 		State: cloud.LifecycleState,
 	}
+	volumeStates := make([]string, 0, len(attachments))
 	for _, listed := range attachments {
 		if listed.InstanceID != cloud.ID || listed.VolumeID == "" || listed.ID == "" {
 			return Instance{}, fmt.Errorf("%w: OCI attachment scope changed", ErrForeignResource)
 		}
-		if _, err := f.ownedVolume(ctx, listed.VolumeID); err != nil {
+		volume, err := f.ownedVolume(ctx, listed.VolumeID)
+		if err != nil {
 			return Instance{}, err
 		}
 		attachment, err := f.reobserveAttachment(ctx, listed.ID, listed.VolumeID, cloud.ID, "")
@@ -1072,8 +1085,17 @@ func (f *fleet) instanceFromCloud(ctx context.Context, cloud CloudInstance, iden
 		if !owned {
 			return Instance{}, fmt.Errorf("%w: attachment %s has no matching confirmed operation", ErrAttachmentRecoveryHold, attachment.ID)
 		}
+		volumeStates = append(volumeStates, volume.LifecycleState)
 		result.DataVolumes = append(result.DataVolumes, attachment.VolumeID)
 		result.Attachments = append(result.Attachments, attachment)
+	}
+	// Count the host's volumes and attachments only once every attachment
+	// verified: a host withheld partway through is not in the inventory.
+	if tally := inventoryTallyFrom(ctx); tally != nil {
+		for index, attachment := range result.Attachments {
+			tally.volume(volumeStates[index])
+			tally.attachment(attachment.State)
+		}
 	}
 	return result, nil
 }

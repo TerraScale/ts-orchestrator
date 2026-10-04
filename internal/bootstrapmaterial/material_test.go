@@ -196,6 +196,67 @@ func TestGlobalHomeMaterialGrantsGlobalPublishes(t *testing.T) {
 	}
 }
 
+// TestObservabilityGrantFollowsTheGrantVersion pins that only material of
+// grant version 2 lets controllers subscribe to the read-only telemetry
+// subjects, that the production validator accepts both versions, and that
+// material is never reused across a grant version change.
+func TestObservabilityGrantFollowsTheGrantVersion(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	for name, version := range map[string]int{"default": 0, "base": GrantVersionBase,
+		"observability": GrantVersionObservability} {
+		cfg := testConfig()
+		cfg.GrantVersion = version
+		directory := filepath.Join(t.TempDir(), name)
+		record, err := Generate(directory, cfg, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ValidateLive(directory, record); err != nil {
+			t.Fatalf("%s material failed live validation: %v", name, err)
+		}
+		if loaded, err := Load(directory); err != nil || loaded.Config.GrantVersion != version {
+			t.Fatalf("%s record = %+v, %v", name, loaded.Config, err)
+		}
+		flipped := cfg
+		flipped.GrantVersion = GrantVersionObservability
+		if version == GrantVersionObservability {
+			flipped.GrantVersion = GrantVersionBase
+		}
+		if _, err := Generate(directory, flipped, now); err == nil {
+			t.Fatalf("%s material reused for another grant version", name)
+		}
+		for _, slot := range cfg.Slots {
+			path := filepath.Join(directory, slot.Name+".creds")
+			if err := natscell.ValidateBrokerControllerCredentials(path, "gru", slot.Name); err != nil {
+				t.Fatalf("%s %s controller credentials rejected: %v", name, slot.Name, err)
+			}
+			wire, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := nkeys.ParseDecoratedJWT(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			claim, err := jwt.DecodeUserClaims(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			granted := slices.Contains(claim.Sub.Allow, "ts.orch.v1.gru.obs.>")
+			if granted != (version == GrantVersionObservability) {
+				t.Fatalf("%s %s observability grant = %v", name, slot.Name, granted)
+			}
+		}
+	}
+	cfg := testConfig()
+	for _, invalid := range []int{-1, GrantVersionObservability + 1} {
+		cfg.GrantVersion = invalid
+		if _, err := Generate(filepath.Join(t.TempDir(), "invalid"), cfg, now); err == nil {
+			t.Fatalf("grant version %d accepted", invalid)
+		}
+	}
+}
+
 func TestHostIssuerConstraintsAndOfflineOperatorFiles(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "material")
 	now := time.Now().UTC().Truncate(time.Second)

@@ -61,7 +61,11 @@ func (dashboard *Dashboard) loadJournal(ctx context.Context, current *view) {
 			}
 		}
 	}
-	if id := current.State.param("id"); needs&needChain != 0 && id != "" && journal.Decisions != nil {
+	id := current.State.param("id")
+	if id == "" && current.Page.chain != nil {
+		id = current.Page.chain(*current)
+	}
+	if needs&needChain != 0 && id != "" && journal.Decisions != nil {
 		// Cached like the decision queries: a chain lookup may fan out to
 		// every linked region, and every open stream re-renders each tick.
 		chain, err := dashboard.chains.get(ctx, id, func(ctx context.Context) (decisionlog.Chain, error) {

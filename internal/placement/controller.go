@@ -68,8 +68,15 @@ type Config struct {
 	// smaller resource profile through the fleet's grow-only resize. Off by
 	// default: a smaller volume stays an error for the operator instead.
 	AutoGrowVolumes bool
-	OnError         func(error)
-	OnHold          func(string)
+	// ReattachOnHostLoss lets a replacement host attempt take over the
+	// retained volume of its lost predecessor through storage/failover:
+	// only after OCI reports the predecessor TERMINATED, with a journaled
+	// fenced detach, an attach over DETACHED history and a mount-existing
+	// (never format) permit. Off by default: the replacement's attach then
+	// holds on the predecessor's attachment history, as before.
+	ReattachOnHostLoss bool
+	OnError            func(error)
+	OnHold             func(string)
 	// LostMemberEvidence enables replacing a member whose OCI host is gone.
 	// Nil keeps such members held without replacement.
 	LostMemberEvidence LostMemberEvidence
@@ -549,6 +556,9 @@ func (controller *Controller) advanceMember(
 		if err := controller.verifyPinnedImage(ctx); err != nil {
 			return false, err
 		}
+		if controller.config.ReattachOnHostLoss && state.PreviousInstanceID != "" {
+			return controller.reattachRetainedVolume(ctx, epoch, intent, seat, versioned)
+		}
 		var attachment *oci.Attachment
 		for index := range instance.Attachments {
 			if instance.Attachments[index].VolumeID == state.VolumeID {
@@ -1011,16 +1021,22 @@ func (controller *Controller) hasServingReport(intent Intent, state MemberState,
 	return false
 }
 
-func (controller *Controller) persist(ctx context.Context, epoch, revision uint64, state MemberState) (uint64, error) {
+// beginWorkloadEffect holds the terminal-aware workload gate of intent's
+// partition at epoch until the returned release runs.
+func (controller *Controller) beginWorkloadEffect(ctx context.Context, epoch uint64, intent Intent) (func(), error) {
 	barrier, ok := controller.fencer.(interface {
 		BeginActiveWorkloadEffect(context.Context, uint64, authority.WorkloadScope) (func(), error)
 	})
 	if !ok {
-		return 0, errors.New("placement authority lacks terminal workload fence")
+		return nil, errors.New("placement authority lacks terminal workload fence")
 	}
-	release, err := barrier.BeginActiveWorkloadEffect(ctx, epoch, authority.WorkloadScope{
-		DatabaseID: state.DatabaseID, PartitionID: state.PartitionID,
+	return barrier.BeginActiveWorkloadEffect(ctx, epoch, authority.WorkloadScope{
+		DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
 	})
+}
+
+func (controller *Controller) persist(ctx context.Context, epoch, revision uint64, state MemberState) (uint64, error) {
+	release, err := controller.beginWorkloadEffect(ctx, epoch, Intent{DatabaseID: state.DatabaseID, PartitionID: state.PartitionID})
 	if err != nil {
 		return 0, err
 	}

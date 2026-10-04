@@ -1,7 +1,15 @@
 # NetBird
 
+Current state: the GRU testing reset removed its server peers, setup keys,
+group, access policies, routing network and `gru.ts.internal` zone. The manager,
+ts-ops peer, operator devices and Forgejo access policies are preserved.
+Recreate GRU resources and replace the owner-only enrollment input before
+applying the GRU desired state below. See
+[current regional reset](../../docs/region-bootstrap.md#current-gru-reset).
+
 Self-hosted NetBird at `https://netbird.terrascale.tech` gives enrolled
-operator devices private access to the GRU cell (private subnet
+operator devices private access to ts-ops. The intended GRU topology below
+adds access to the cell (private subnet
 `10.251.0.0/25`) and to Forgejo on ts-ops. The manager (combined server and
 dashboard) and the routing peer run on ts-ops, next to Forgejo. Every GRU
 controller and managed host is also a NetBird peer, reached with NetBird SSH.

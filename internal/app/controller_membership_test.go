@@ -308,10 +308,15 @@ func TestMembershipReplacesTerminatedControllerUnderSameServerName(t *testing.T)
 			Subjects: []string{"ts.membership.replacement"}, Replicas: 3, Storage: jetstream.FileStorage})
 		return err == nil
 	})
+	// The new stream's leader may still be settling after the step-down; a
+	// publish can briefly get no stream response, so retry each one under a
+	// message ID that deduplicates a retried publish the stream did store.
 	for index := range 10 {
-		if _, err := seed.JetStream().Publish(ctx, "ts.membership.replacement", fmt.Appendf(nil, "before-%d", index)); err != nil {
-			t.Fatal(err)
-		}
+		waitMembership(t, ctx, "publish before the loss", func() bool {
+			_, err = seed.JetStream().Publish(ctx, "ts.membership.replacement", fmt.Appendf(nil, "before-%d", index),
+				jetstream.WithMsgID(fmt.Sprintf("before-%d", index)))
+			return err == nil
+		})
 	}
 
 	const oldInstance = "ocid1.instance.oc1.sa-saopaulo-1.broker-b"

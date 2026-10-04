@@ -32,7 +32,7 @@ func TestD15PublisherReadback(t *testing.T) {
 			for _, name := range []string{"git", "go", "sleep", "fj"} {
 				script.Write(t, filepath.Join(root, "bin", name), script.Read(t, filepath.Join(repo, "tests/runtime_priority/testdata/publisher", name)), 0o755)
 			}
-			r := script.Run(t, root, map[string]string{
+			r := script.Exec(t, root, map[string]string{
 				"PATH":          filepath.Join(root, "bin") + string(os.PathListSeparator) + os.Getenv("PATH"),
 				"GITHUB_RUN_ID": "123", "GITHUB_RUN_NUMBER": "7", "GITHUB_SHA": strings.Repeat("a", 40), "FIXTURE_TREE": strings.Repeat("b", 40),
 				"FORGEJO_TOKEN": "fixture-write-token", "FORGEJO_READ_TOKEN": "fixture-read-token", "FORGEJO_SERVER_URL": "https://fixture.invalid",

@@ -6240,6 +6240,180 @@
         "$fixture": "fixture-0560"
       },
       "mode": 420
+    },
+    "fixture-0562": {
+      "nsg_rules": [
+        {
+          "direction": "INGRESS",
+          "protocol": "6",
+          "source": "10.251.0.0/25",
+          "source_type": "CIDR_BLOCK",
+          "destination": null,
+          "destination_type": null,
+          "tcp_min": 4222,
+          "tcp_max": 4222,
+          "udp_min": null,
+          "udp_max": null,
+          "stateless": false
+        },
+        {
+          "direction": "INGRESS",
+          "protocol": "6",
+          "source": "10.251.0.0/25",
+          "source_type": "CIDR_BLOCK",
+          "destination": null,
+          "destination_type": null,
+          "tcp_min": 6222,
+          "tcp_max": 6222,
+          "udp_min": null,
+          "udp_max": null,
+          "stateless": false
+        },
+        {
+          "direction": "INGRESS",
+          "protocol": "6",
+          "source": "10.251.0.0/25",
+          "source_type": "CIDR_BLOCK",
+          "destination": null,
+          "destination_type": null,
+          "tcp_min": 8443,
+          "tcp_max": 8443,
+          "udp_min": null,
+          "udp_max": null,
+          "stateless": false
+        },
+        {
+          "direction": "INGRESS",
+          "protocol": "6",
+          "source": "10.251.0.18/32",
+          "source_type": "CIDR_BLOCK",
+          "destination": null,
+          "destination_type": null,
+          "tcp_min": 22,
+          "tcp_max": 22,
+          "udp_min": null,
+          "udp_max": null,
+          "stateless": false
+        }
+      ],
+      "workload_nsg_rules": [
+        {
+          "direction": "INGRESS",
+          "protocol": "6",
+          "source": "10.251.0.21/32",
+          "source_type": "CIDR_BLOCK",
+          "destination": null,
+          "destination_type": null,
+          "tcp_min": 9443,
+          "tcp_max": 9443,
+          "udp_min": null,
+          "udp_max": null,
+          "stateless": false
+        },
+        {
+          "direction": "INGRESS",
+          "protocol": "6",
+          "source": "10.251.0.22/32",
+          "source_type": "CIDR_BLOCK",
+          "destination": null,
+          "destination_type": null,
+          "tcp_min": 9443,
+          "tcp_max": 9443,
+          "udp_min": null,
+          "udp_max": null,
+          "stateless": false
+        },
+        {
+          "direction": "INGRESS",
+          "protocol": "6",
+          "source": "10.251.0.18/32",
+          "source_type": "CIDR_BLOCK",
+          "destination": null,
+          "destination_type": null,
+          "tcp_min": 9465,
+          "tcp_max": 9465,
+          "udp_min": null,
+          "udp_max": null,
+          "stateless": false
+        },
+        {
+          "direction": "INGRESS",
+          "protocol": "6",
+          "source": "10.251.0.128/26",
+          "source_type": "CIDR_BLOCK",
+          "destination": null,
+          "destination_type": null,
+          "tcp_min": 9465,
+          "tcp_max": 9465,
+          "udp_min": null,
+          "udp_max": null,
+          "stateless": false
+        },
+        {
+          "direction": "INGRESS",
+          "protocol": "6",
+          "source": "10.251.0.18/32",
+          "source_type": "CIDR_BLOCK",
+          "destination": null,
+          "destination_type": null,
+          "tcp_min": 22,
+          "tcp_max": 22,
+          "udp_min": null,
+          "udp_max": null,
+          "stateless": false
+        }
+      ],
+      "security_list_ingress_rules": [],
+      "security_list_egress_rules": [
+        {
+          "direction": "EGRESS",
+          "protocol": "all",
+          "source": null,
+          "source_type": null,
+          "destination": "10.251.0.0/24",
+          "destination_type": "CIDR_BLOCK",
+          "tcp_min": null,
+          "tcp_max": null,
+          "udp_min": null,
+          "udp_max": null,
+          "stateless": false
+        },
+        {
+          "direction": "EGRESS",
+          "protocol": "17",
+          "source": null,
+          "source_type": null,
+          "destination": "169.254.169.254/32",
+          "destination_type": "CIDR_BLOCK",
+          "tcp_min": null,
+          "tcp_max": null,
+          "udp_min": 123,
+          "udp_max": 123,
+          "stateless": false
+        },
+        {
+          "direction": "EGRESS",
+          "protocol": "all",
+          "source": null,
+          "source_type": null,
+          "destination": "all-gru-services-in-oracle-services-network",
+          "destination_type": "SERVICE_CIDR_BLOCK",
+          "tcp_min": null,
+          "tcp_max": null,
+          "udp_min": null,
+          "udp_max": null,
+          "stateless": false
+        }
+      ],
+      "route_rules": [
+        {
+          "destination": "all-gru-services-in-oracle-services-network",
+          "destination_type": "SERVICE_CIDR_BLOCK",
+          "network_entity_id": "{service_gateway_id}"
+        }
+      ],
+      "service_gateway_service_id": "ocid1.service.oc1.sa-saopaulo-1.aaaaaaaacd57uig6rzxm2qfipukbqpje2bhztqszh3aj7zk2jtvf6gvntena",
+      "service_gateway_cidr_block": "all-gru-services-in-oracle-services-network"
     }
   },
   "cases": [
@@ -6639,20 +6813,12 @@
         "identity": {
           "$fixture": "fixture-0044"
         },
-        "netbird": {
-          "$fixture": "fixture-0017"
-        },
+        "netbird": null,
         "network_cidr": "10.251.0.0/24",
         "network_security": {
-          "$fixture": "fixture-0043"
+          "$fixture": "fixture-0562"
         },
-        "operator_gateway": {
-          "local_peering_gateway_id": {
-            "$fixture": "fixture-0100"
-          },
-          "private_ip": "10.250.10.155",
-          "vcn_cidr": "10.250.0.0/16"
-        },
+        "operator_gateway": null,
         "orchestrator_owner": "ts-preview-gru-20260926",
         "parent_compartment_id": {
           "$fixture": "fixture-0004"
@@ -6687,9 +6853,7 @@
           },
           "internet_gateway": null,
           "key": null,
-          "local_peering_gateway": {
-            "$fixture": "fixture-0101"
-          },
+          "local_peering_gateway": null,
           "network_compartment": null,
           "network_load_balancer": null,
           "network_security_group": null,

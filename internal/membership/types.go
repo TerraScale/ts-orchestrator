@@ -146,6 +146,9 @@ type Action struct {
 	PriorInstanceOCID string
 	Retirement        Evidence
 	Reason            string
+	// Epoch is the authority term that decided the action. The reconciler
+	// sets it when executing; a seed-routed request carries it.
+	Epoch uint64 `json:"-"`
 	// Fence is the authority guard of the term that decided the action. A
 	// Replacer checks it immediately before every durable or OCI mutation.
 	// Decide leaves it nil; the reconciler sets it when executing.

@@ -18,11 +18,12 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/nats-io/nats.go"
@@ -138,7 +139,14 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	defer runtime.Close()
 	healthCtx, stopHealth := context.WithCancel(ctx)
-	_, brokerStopped, waitHealth := startClusterHealth(healthCtx, runtime, nil)
+	var healthReporter clusterhealth.Reporter
+	if !cfg.NATS.Lab {
+		// Local operator tools (break-glass refound) read the running
+		// controller's cluster view from its state directory.
+		healthReporter = &clusterhealth.StatusFile{Path: membership.DefaultClusterHealthFile,
+			Logger: slog.Default().With("component", "membership")}
+	}
+	_, brokerStopped, waitHealth := startClusterHealth(healthCtx, runtime, healthReporter)
 	defer waitHealth()
 	defer stopHealth()
 	// Every later startup step runs under the broker's lifetime: a broker
@@ -220,7 +228,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	defer stopAuthority()
 	defer control.Close()
-	membershipReconciler, err := startControllerMembership(ctx, cfg, runtime, control)
+	membershipSupervisor, err := startControllerMembership(ctx, cfg, runtime, control)
 	if err != nil {
 		return fmt.Errorf("start controller membership supervision: %w", err)
 	}
@@ -263,7 +271,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	var materialService *managedmaterial.PreparationService
 	var backupRuntime *backupOperationRuntime
 	var materialAdmission placementMaterialAdmission
-	var ociReconcile *ociresource.Runner
+	var ociReconcile *ociReconcileRuntime
 	managedRuntimeVerifier := managedRuntimeTargetVerifier(func(ctx context.Context, desired host.Desired,
 		registration host.Registration,
 	) (bool, error) {
@@ -354,7 +362,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		defer stopBackups()
 		if reconcile := cfg.Controller.OciReconcile; reconcile != nil && reconcile.Enabled {
 			ociReconcile, _, err = retryControllerOpen(ctx, "open OCI resource reconcile state", fullClusterReady, false,
-				func(attempt context.Context) (*ociresource.Runner, error) {
+				func(attempt context.Context) (*ociReconcileRuntime, error) {
 					return newOCIReconcileRunner(attempt, *reconcile, managed.region, runtime.JetStream(),
 						cfg.NATS.Replicas, control, fleet)
 				}, nil)
@@ -601,7 +609,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
 		brokerIDs: cfg.NATS.Embedded.BrokerIDs, authority: control, placements: placementStore, managed: managed != nil,
 		holds: placementHolds, autoscalers: workloadReconciler, linkedPeers: globalMirrorPeers(cfg.NATS),
-		rollouts: rollouts, budgets: budgets},
+		rollouts: rollouts, budgets: budgets, ociResources: ociReconcile.resources()},
 		[]observability.FilesystemRole{{Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
 		return fmt.Errorf("attach controller observability: %w", err)
 	}
@@ -619,10 +627,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		workers.Go(func() { workerErrors <- terminalRuntime.Run(runCtx) })
 	}
 	if ociReconcile != nil {
-		workers.Go(func() { workerErrors <- ociReconcile.Run(runCtx) })
+		workers.Go(func() { workerErrors <- ociReconcile.runner.Run(runCtx) })
 	}
-	if membershipReconciler != nil {
-		workers.Go(func() { workerErrors <- membershipReconciler.Run(runCtx) })
+	if membershipSupervisor != nil {
+		workers.Go(func() { workerErrors <- membershipSupervisor.Run(runCtx) })
 	}
 	if workloadReconciler != nil {
 		workers.Go(func() { workerErrors <- workloadReconciler.Run(runCtx) })

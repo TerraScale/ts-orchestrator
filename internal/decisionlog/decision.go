@@ -53,6 +53,11 @@ const (
 	KindDeliveryRejected   Kind = "delivery_rejected"
 	KindFounderLaunched    Kind = "founder_launched"
 	KindPeerEnrolled       Kind = "peer_enrolled"
+	// OCI declarative reconcile (internal/ociresource).
+	KindOCIDesiredPublished Kind = "oci_desired_published"
+	KindOCIDriftCorrected   Kind = "oci_drift_corrected"
+	KindOCIResourceDeleted  Kind = "oci_resource_deleted"
+	KindOCIResourceReleased Kind = "oci_resource_released"
 )
 
 // Status is where a decision's effect stands. A decision is immutable once

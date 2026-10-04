@@ -96,10 +96,27 @@ as missing. Only controllers may publish on that subject: operator
 credentials have an exact publish list and host credentials publish only their
 own observation subjects.
 
-Production controller credentials do not yet carry the subscribe grant
-`ts.orch.v1.<cell>.obs.>`. The credential validator accepts the grant but the
-bootstrap issuer does not add it; adding it is a trust decision for the next
-credential rotation. Until then leave `cluster_aggregation` off in production.
+Production controller credentials carry the subscribe grant
+`ts.orch.v1.<cell>.obs.>` only when their bootstrap material was issued with
+`"grantVersion": 2` in the reviewed controller configuration
+(`generate-controller-material`). The default (absent, `0` or `1`) issues the
+earlier grant set without it, so existing material is unchanged. The grant is
+subscribe-only: it lets each controller answer the read-only telemetry
+requests (`obs.snapshot`, region summaries, decision queries); publishing on
+`obs.*` is unchanged. The credential validator accepts both grant sets.
+
+Material is immutable, so enabling it is a rotation:
+
+1. Add `"grantVersion": 2` to the reviewed controller configuration, record
+   its new SHA-256, and issue new material into a new directory.
+2. Roll the controllers onto the new credentials one at a time.
+3. Only then set `cluster_aggregation: true` in the signed controller
+   configuration. A controller whose credentials lack the grant logs that
+   its responders were skipped and keeps running.
+
+Rolling back is the same rotation with the grant version removed. Leave
+`cluster_aggregation` off until every controller of the cell runs material of
+grant version 2.
 
 ## Dashboard
 

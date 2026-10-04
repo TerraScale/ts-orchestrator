@@ -22,33 +22,62 @@ type Result struct {
 	Code   int
 }
 
-var sourceOnce sync.Once
-var sourceError error
+// tracked memoizes Track per repository-relative path: the first walk puts
+// the inputs in this test binary's log, and later calls share its result.
+var tracked sync.Map // string -> *trackedPath
 
-// External commands do not report their file reads to Go's test cache.
-// Record repository inputs here so editing an invoked script or its inputs
-// invalidates cached Go contract results just like editing Go source does.
-func trackSources(t *testing.T) {
+type trackedPath struct {
+	once sync.Once
+	err  error
+}
+
+// Track records every file under each repository-relative path (a file or a
+// directory tree) as an input of the running test binary. External commands
+// do not report their file reads to Go's test cache, so a test that runs
+// one names the repository files the command may read: editing any of them
+// then invalidates the cached result just like editing Go source does. Files
+// the test process opens or stats itself are recorded by Go already.
+//
+// Go keys a recorded file on its size and modification time. Naming only a
+// command's real inputs, instead of the whole tree, keeps the result cached
+// across unrelated edits. CI stamps a clean checkout with content-derived
+// modification times (scripts/ci/stablemtime), so unchanged inputs also stay
+// cached across fresh checkouts.
+func Track(t testing.TB, paths ...string) {
 	t.Helper()
-	sourceOnce.Do(func() {
-		sourceError = filepath.WalkDir(Root(t), func(path string, entry os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if entry.IsDir() {
-				switch entry.Name() {
-				case ".git", "dist", "docs", ".qualification", "__pycache__":
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			_, err = os.Stat(path)
-			return err
-		})
-	})
-	if sourceError != nil {
-		t.Fatal(sourceError)
+	root := Root(t)
+	for _, path := range paths {
+		clean := filepath.Clean(path)
+		if !filepath.IsLocal(clean) {
+			t.Fatalf("tracked input %q is not a repository-relative path", path)
+		}
+		value, _ := tracked.LoadOrStore(clean, &trackedPath{})
+		entry := value.(*trackedPath)
+		entry.once.Do(func() { entry.err = record(filepath.Join(root, clean)) })
+		if entry.err != nil {
+			t.Fatal(entry.err)
+		}
 	}
+}
+
+// record stats every file below path and lists every directory, which puts
+// them in the test log. Generated and evidence directories are skipped: they
+// are no command's input and change underneath concurrent CI jobs.
+func record(path string) error {
+	return filepath.WalkDir(path, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			switch entry.Name() {
+			case ".git", "dist", "docs", ".qualification", "__pycache__":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		_, err = os.Stat(path)
+		return err
+	})
 }
 
 func Root(t testing.TB) string {
@@ -82,17 +111,20 @@ func Read(t testing.TB, path string) []byte {
 	return data
 }
 
+// Run runs a command after recording the whole repository tree as its
+// input, so any edit anywhere re-runs the test. Prefer Track with the
+// command's real inputs, then Exec.
 func Run(t *testing.T, dir string, env map[string]string, name string, args ...string) Result {
 	t.Helper()
-	trackSources(t)
+	Track(t, ".")
 	return Exec(t, dir, env, name, args...)
 }
 
 // Exec is Run without recording the repository tree. Use it only when the
-// command's every repository input is already part of the test's cache key,
-// for example embedded with go:embed: the tree's modification times then
-// cannot invalidate a cached result, so the test re-runs only when its own
-// package or those inputs change.
+// command's every repository input is already part of the test's cache key:
+// embedded with go:embed, opened by the test process itself (including
+// copies it makes into a temporary directory), or named with Track. The test
+// then re-runs only when its own package or those inputs change.
 func Exec(t *testing.T, dir string, env map[string]string, name string, args ...string) Result {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)

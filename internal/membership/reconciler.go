@@ -279,6 +279,7 @@ func (r *Reconciler) execute(ctx context.Context, epoch uint64, action Action, s
 	// replacer rechecks the guard right before each mutation.
 	fencedCtx, stopFence := r.termContext(ctx, epoch)
 	defer stopFence()
+	action.Epoch = epoch
 	action.Fence = func(fenceCtx context.Context) error { return r.deps.Leadership.Guard(fenceCtx, epoch) }
 	if err := r.deps.Replacer.Replace(fencedCtx, action); err != nil {
 		if errors.Is(err, ErrReplacerUnavailable) {

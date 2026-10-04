@@ -469,7 +469,10 @@ writes acknowledged only by lost controllers may be lost.
     at a time:
     ts-orch cluster recover-quorum refound --config <controller.json> --slot <slot> \
         --retirement <slot>.retirement --backup <dir>
-    refound refuses while the survivor broker is not running. Each lost slot
+    refound refuses while the survivor broker is not running, while another
+    slot has an incomplete re-founded attempt, or while the slot re-founded
+    before has not reported current; after relaunching it waits until the
+    re-founded slot reports current. Each lost slot
     is relaunched as its next ledger attempt with the same private IP and
     NATS server name, so it rejoins the survivor's raft groups with an empty
     store (the survivor's longer log wins every election) instead of needing

@@ -104,7 +104,17 @@ func (f *fleet) InspectVolumeInitialization(ctx context.Context, pins VolumeInit
 		return VolumeInitializationProof{}, err
 	}
 	if len(attachments) != 1 || attachments[0].ID != pins.AttachmentID || attachments[0].InstanceID != pins.InstanceID {
-		return VolumeInitializationProof{}, fmt.Errorf("%w: volume has another attachment history", ErrForeignResource)
+		// A reattached volume keeps the DETACHED attachment of its fenced
+		// host. Only a recorded mount-existing permit for exactly this
+		// attachment admits that history, and it never grants a format.
+		mountOnly, err := f.mountExistingPermitted(ctx, pins, attachments)
+		if err != nil {
+			return VolumeInitializationProof{}, err
+		}
+		if !mountOnly {
+			return VolumeInitializationProof{}, fmt.Errorf("%w: volume has another attachment history", ErrForeignResource)
+		}
+		return VolumeInitializationProof{BootDescriptorSHA256: selected.BootDescriptorSHA256}, nil
 	}
 	operations, err := f.journal.ListOperations(ctx)
 	if err != nil {
@@ -160,4 +170,20 @@ func (f *fleet) InspectVolumeInitialization(ctx context.Context, pins VolumeInit
 		return VolumeInitializationProof{}, err
 	}
 	return proof, nil
+}
+
+// mountExistingPermitted reports a reattached volume whose only live
+// attachment is the pinned one and whose pinned attachment holds a recorded
+// mount-existing permit for exactly this workload and instance.
+func (f *fleet) mountExistingPermitted(ctx context.Context, pins VolumeInitializationPins, attachments []CloudAttachment) (bool, error) {
+	live := liveAttachments(attachments)
+	if len(live) != 1 || live[0].ID != pins.AttachmentID || live[0].InstanceID != pins.InstanceID {
+		return false, nil
+	}
+	permit, found, err := f.mountPermit(ctx, pins.VolumeID, pins.AttachmentID)
+	if err != nil {
+		return false, fmt.Errorf("read volume mount permit: %w", err)
+	}
+	return found && permit.DatabaseID == pins.DatabaseID && permit.PartitionID == pins.PartitionID &&
+		permit.ReplacementInstanceID == pins.InstanceID, nil
 }

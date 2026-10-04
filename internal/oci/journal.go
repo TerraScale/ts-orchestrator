@@ -434,33 +434,54 @@ func (journal *KVJournal) isOwned(ctx context.Context, kind string, identity Res
 // Every scope field must match; any other size stays not owned. The receipt
 // itself is still confirmed only by ResizeRetainedVolume.
 func (journal *KVJournal) advanceFromAppliedResizeIntent(ctx context.Context, recorded, identity ResourceIdentity) (bool, error) {
-	key := OperationIntent{
-		Action: actionVolumeResize, Key: volumeResizeKey(identity.ID, identity.SizeGB),
-		Region: identity.Region, Generation: identity.Generation, Owner: identity.Owner,
-	}
-	entry, err := journal.read(ctx, operationKey(key))
-	if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted) {
-		return false, nil
-	}
+	attempts, err := journal.resizeAttempts(ctx, identity)
 	if err != nil {
 		return false, err
 	}
-	resize := entry.Intent
-	if entry.Kind != "operation" || resize.Action != actionVolumeResize || resize.Key != key.Key ||
-		resize.Region != identity.Region || resize.Generation != identity.Generation || resize.Owner != identity.Owner ||
-		resize.VolumeID != identity.ID || resize.CreateKey != identity.CreateKey ||
-		resize.AvailabilityDomain != identity.AvailabilityDomain || resize.SizeGB != identity.SizeGB ||
-		resize.PreviousSizeGB != recorded.SizeGB ||
-		!entry.Result.RecordedAt.IsZero() && !entry.Result.Unknown {
-		return false, nil
-	}
-	if err := journal.advanceVolumeOwnership(ctx, OperationResult{Intent: resize}); err != nil {
-		if errors.Is(err, errVolumeOwnershipMismatch) {
-			return false, nil
+	for _, entry := range attempts {
+		resize := entry.Intent
+		if resize.PreviousSizeGB != recorded.SizeGB || !entry.Result.RecordedAt.IsZero() && !entry.Result.Unknown {
+			continue
 		}
-		return false, err
+		if err := journal.advanceVolumeOwnership(ctx, OperationResult{Intent: resize}); err != nil {
+			if errors.Is(err, errVolumeOwnershipMismatch) {
+				return false, nil
+			}
+			return false, err
+		}
+		return true, nil
 	}
-	return true, nil
+	return false, nil
+}
+
+// resizeAttempts reads the journaled attempts to resize identity.ID to
+// exactly identity.SizeGB, in attempt order, keeping only intents that match
+// identity in every scope field. Attempts are written in order, so the first
+// missing key ends the bounded lookup.
+func (journal *KVJournal) resizeAttempts(ctx context.Context, identity ResourceIdentity) ([]journalEntry, error) {
+	var attempts []journalEntry
+	for attempt := 1; attempt <= maxVolumeResizeAttempts; attempt++ {
+		key := OperationIntent{
+			Action: actionVolumeResize, Key: volumeResizeAttemptKey(identity.ID, identity.SizeGB, attempt),
+			Region: identity.Region, Generation: identity.Generation, Owner: identity.Owner,
+		}
+		entry, err := journal.read(ctx, operationKey(key))
+		if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted) {
+			return attempts, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		resize := entry.Intent
+		if entry.Kind != "operation" || resize.Action != actionVolumeResize || resize.Key != key.Key ||
+			resize.Region != identity.Region || resize.Generation != identity.Generation || resize.Owner != identity.Owner ||
+			resize.VolumeID != identity.ID || resize.CreateKey != identity.CreateKey ||
+			resize.AvailabilityDomain != identity.AvailabilityDomain || resize.SizeGB != identity.SizeGB {
+			continue
+		}
+		attempts = append(attempts, entry)
+	}
+	return attempts, nil
 }
 
 // staleVolumeOwnership reports a recorded volume identity that differs from
@@ -668,26 +689,16 @@ func (journal *KVJournal) repairResizedVolumeOwnership(ctx context.Context, iden
 // confirmedResize returns the confirmed resize of identity.ID to exactly
 // identity.SizeGB when its intent matches identity in every scope field.
 func (journal *KVJournal) confirmedResize(ctx context.Context, identity ResourceIdentity) (OperationResult, bool, error) {
-	intent := OperationIntent{
-		Action: actionVolumeResize, Key: volumeResizeKey(identity.ID, identity.SizeGB),
-		Region: identity.Region, Generation: identity.Generation, Owner: identity.Owner,
-	}
-	entry, err := journal.read(ctx, operationKey(intent))
-	if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted) {
-		return OperationResult{}, false, nil
-	}
+	attempts, err := journal.resizeAttempts(ctx, identity)
 	if err != nil {
 		return OperationResult{}, false, err
 	}
-	resize := entry.Intent
-	if entry.Kind != "operation" || resize.Action != actionVolumeResize || resize.Key != intent.Key ||
-		resize.Region != identity.Region || resize.Generation != identity.Generation || resize.Owner != identity.Owner ||
-		resize.VolumeID != identity.ID || resize.CreateKey != identity.CreateKey ||
-		resize.AvailabilityDomain != identity.AvailabilityDomain || resize.SizeGB != identity.SizeGB ||
-		entry.Result.RecordedAt.IsZero() || entry.Result.Unknown || entry.Result.ResourceID != identity.ID {
-		return OperationResult{}, false, nil
+	for _, entry := range attempts {
+		if !entry.Result.RecordedAt.IsZero() && !entry.Result.Unknown && entry.Result.ResourceID == identity.ID {
+			return entry.Result, true, nil
+		}
 	}
-	return entry.Result, true, nil
+	return OperationResult{}, false, nil
 }
 
 func validateIntent(intent OperationIntent) error {
@@ -712,7 +723,7 @@ func validateIntent(intent OperationIntent) error {
 	}
 	if intent.Action == actionVolumeResize && (intent.ResourceID == "" || intent.VolumeID != intent.ResourceID ||
 		intent.CreateKey == "" || intent.ExpectedETag == "" || intent.AvailabilityDomain == "" ||
-		intent.PreviousSizeGB <= 0 || intent.SizeGB <= intent.PreviousSizeGB || intent.Key != volumeResizeKey(intent.VolumeID, intent.SizeGB)) {
+		intent.PreviousSizeGB <= 0 || intent.SizeGB <= intent.PreviousSizeGB || !validVolumeResizeKey(intent.Key, intent.VolumeID, intent.SizeGB)) {
 		return errors.New("OCI volume resize intent requires an exact grow-only volume target")
 	}
 	if intent.Action != actionVolumeResize && intent.PreviousSizeGB != 0 {

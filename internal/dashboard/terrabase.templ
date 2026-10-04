@@ -18,7 +18,7 @@ templ terrabaseBody(current view) {
 				<div class="cols">
 					for _, database := range placement.Databases {
 						<div>
-							<strong>{ database.DatabaseID }</strong>
+							<strong><a href={ safe(current.State.partitionLink(database.DatabaseID, database.PartitionID)) }>{ database.DatabaseID }</a></strong>
 							<small class="muted">{ database.PartitionID } · { itoa(database.Serving) }/{ itoa(database.DesiredSeats) } serving</small>
 							<div class="seat-grid">
 								for _, member := range database.Members {
@@ -109,7 +109,7 @@ templ terrabaseBody(current view) {
 								for _, database := range placement.Databases {
 									<tr>
 										<td>
-											{ database.DatabaseID }
+											<a href={ safe(current.State.partitionLink(database.DatabaseID, database.PartitionID)) }>{ database.DatabaseID }</a>
 											if database.Terminal {
 												<small class="muted">(terminal)</small>
 											}
