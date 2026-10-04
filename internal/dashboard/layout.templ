@@ -51,7 +51,7 @@ templ layout(current view) {
 								<li>
 									<a
 										href={ safe(current.State.link(entry.href())) }
-										if entry.slug == current.Page.slug {
+										if entry.slug == current.Page.navSlug() {
 											aria-current="page"
 										}
 									>
@@ -78,7 +78,7 @@ templ layout(current view) {
 					<nav class="segmented" aria-label="Time range">
 						for _, choice := range timeRanges {
 							<a
-								href={ safe(current.State.keep(current.Page.href(), "range", choice.Key)) }
+								href={ safe(current.State.keep(current.here(), "range", choice.Key)) }
 								if choice.Key == current.State.Range.Key {
 									aria-current="true"
 								}
@@ -87,9 +87,9 @@ templ layout(current view) {
 					</nav>
 					<nav class="segmented" aria-label="Live updates">
 						if current.State.Live {
-							<a href={ safe(current.State.keep(current.Page.href(), "live", "0")) } aria-current="true" title="Live updates are on; click to pause"><span class="dot s-ok s-run"></span>Live</a>
+							<a href={ safe(current.State.keep(current.here(), "live", "0")) } aria-current="true" title="Live updates are on; click to pause"><span class="dot s-ok s-run"></span>Live</a>
 						} else {
-							<a href={ safe(current.State.keep(current.Page.href(), "live", "")) } title="Live updates are paused; click to resume"><span class="dot s-idle"></span>Paused</a>
+							<a href={ safe(current.State.keep(current.here(), "live", "")) } title="Live updates are paused; click to resume"><span class="dot s-idle"></span>Paused</a>
 						}
 					</nav>
 					@attentionBadge(current)

@@ -1,0 +1,461 @@
+package dashboard
+
+import (
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+)
+
+// detailHead is a detail page's title with the way back to its list.
+templ detailHead(current view, kind, name, back, backLabel string) {
+	<div class="page-head">
+		<h1>
+			<small class="muted">{ kind }</small>
+			<code>{ name }</code>
+		</h1>
+		<a href={ safe(current.State.link(back)) }>← { backLabel }</a>
+	</div>
+	@notes(current)
+}
+
+// entityAttention lists the open insights that name the page's entity.
+templ entityAttention(current view, what string) {
+	<article>
+		<h2>Needs attention</h2>
+		if current.Journal == nil || current.Journal.Insights == nil && len(current.Regions) == 0 {
+			@unavailable("The insight engine is not running on this member yet.")
+		} else if list := current.entityInsights(); len(list) == 0 {
+			<p class="empty">No open insight names this { what }.</p>
+		} else {
+			<ul class="mini-list">
+				for _, insight := range list {
+					<li>
+						@statusPill(severityStatus(insight.Severity), string(insight.Severity))
+						<a class="grow" href={ safe(current.insightLink(insight)) } title={ insight.Why }>{ insight.Title }</a>
+						<small class="muted">
+							@ago(insight.FirstSeen)
+						</small>
+					</li>
+				}
+			</ul>
+		}
+	</article>
+}
+
+// entityJournal is the timeline and list of the decisions about the page's
+// entity and the newest (or selected) decision's whole chain.
+templ entityJournal(current view, title string) {
+	<article>
+		<div class="chart-title">
+			<h2>{ title } <small>{ current.State.Range.Key } at least</small></h2>
+			<a href={ safe(current.State.link("/decisions", "q", current.journalSearch())) }>Journal →</a>
+		</div>
+		if current.Decisions != nil {
+			@regionStatuses(current.Decisions)
+		}
+		@timeline("", current.decisionTimeline(current.entityDecisions(), true))
+		@detailDecisionTable(current, current.entityDecisions())
+	</article>
+	if current.Chain != nil {
+		@chainPanel(current, *current.Chain)
+	}
+}
+
+// detailDecisionTable lists decisions; each opens its chain on this page.
+templ detailDecisionTable(current view, decisions []decisionlog.Decision) {
+	if current.Journal == nil || current.Journal.Decisions == nil {
+		@unavailable("The decision journal is not attached on this member yet.")
+	} else if len(decisions) == 0 {
+		switch current.decisionCoverage() {
+			case coverageFailed, coveragePartial:
+				@historyUnavailable(current, "The decision history")
+			default:
+				<p class="empty">No decision about it was recorded in the searched history.</p>
+		}
+	} else {
+		<div class="table-scroll">
+			<table>
+				<thead><tr><th>When</th><th>Actor</th><th>Kind</th><th>Decision</th><th>Status</th></tr></thead>
+				<tbody>
+					for _, decision := range decisions[:min(len(decisions), 50)] {
+						<tr class={ templ.KV("drift", current.Chain != nil && current.Chain.Latest.ID == decision.ID) }>
+							<td>
+								@ago(decision.Time)
+							</td>
+							<td>{ decision.Actor.Slice }</td>
+							<td>{ kindLabel(decision.Kind) }</td>
+							<td class="wrap"><a href={ safe(current.State.keep(current.here(), "id", decision.ID)) } title={ decision.Reason }>{ decision.Summary }</a></td>
+							<td>
+								@statusPill(decisionStatus(decision.Status), statusLabel(decision.Status))
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	}
+}
+
+templ memberDetailBody(current view) {
+	<div id="content">
+		@detailHead(current, "Member", current.Path["id"], "/members", "All hosts")
+		if member := current.detailMember(); member != nil {
+			{{ checks, ready := current.memberChecks(*member) }}
+			<div class="cols-2">
+				<article>
+					<h2>State</h2>
+					<dl class="kv">
+						<dt>Role</dt>
+						<dd>{ orDash(member.Role) }</dd>
+						<dt>Ready</dt>
+						<dd class={ okClass(ready) }>{ yesNo(ready) }</dd>
+						<dt>Build</dt>
+						<dd><code>{ orDash(member.BuildVersion) }</code></dd>
+						<dt>Up</dt>
+						<dd>{ age(current.Now, member.StartedAt) }</dd>
+						<dt>Lease</dt>
+						<dd>
+							if member.Authority == nil {
+								-
+							} else if member.Authority.Leader {
+								<span class="ok">leader</span> · epoch { itoa(member.Authority.Epoch) }
+							} else {
+								follower · epoch { itoa(member.Authority.Epoch) }
+							}
+						</dd>
+						if member.NATS != nil {
+							<dt>NATS</dt>
+							<dd>{ itoa(member.NATS.Routes) } routes · { itoa(member.NATS.Connections) } connections</dd>
+						}
+						if system := member.System; system != nil {
+							<dt>CPUs</dt>
+							<dd>{ itoa(system.CPUCount) } · load { formatFloat(system.Load1, 2) } / { formatFloat(system.Load5, 2) } / { formatFloat(system.Load15, 2) }</dd>
+							<dt>Memory</dt>
+							<dd>
+								@ratioBar(memoryUsed(system))
+							</dd>
+						}
+						<dt>Observed</dt>
+						<dd>{ age(current.Now, member.ObservedAt) } ago</dd>
+					</dl>
+				</article>
+				<article>
+					<h2>Readiness checks</h2>
+					if len(checks) == 0 {
+						@unavailable("This member reported no readiness checks.")
+					} else {
+						<ul class="mini-list">
+							for _, check := range checks {
+								<li>
+									@statusPill(boolStatus(check.OK), check.Name)
+									<span class="grow">{ orDash(check.Detail) }</span>
+								</li>
+							}
+						</ul>
+					}
+				</article>
+			</div>
+		} else if current.detailMissing() {
+			<p class="note warn">{ current.Path["id"] } is expected but did not answer the cell-wide snapshot request.</p>
+		} else {
+			<p class="note warn">{ current.Path["id"] } is not a member that answered in { upper(current.localRegion()) }. Its decisions and insights are listed if the journal has any.</p>
+		}
+		<div class="cols">
+			<article>
+				<h2>CPU</h2>
+				@chart("", current.memberChart(observability.HistCPUUtilization, "percent", false, "No CPU history for this member yet."))
+			</article>
+			<article>
+				<h2>Memory used</h2>
+				@chart("", current.memberChart(observability.HistMemoryRatio, "percent", false, "No memory history for this member yet."))
+			</article>
+			<article>
+				<h2>Disk used <small>per filesystem</small></h2>
+				@chart("", current.filesystemChart())
+			</article>
+			<article>
+				<h2>Network <small>NATS bytes in per second</small></h2>
+				@chart("", current.memberChart(observability.HistNATSInBytes, "bytes_rate", true, "No NATS traffic history for this member yet."))
+			</article>
+		</div>
+		@entityAttention(current, "member")
+		@entityJournal(current, "Decisions about this member")
+	</div>
+}
+
+templ partitionDetailBody(current view) {
+	<div id="content">
+		@detailHead(current, "TerraBase partition", current.Path["db"]+" / "+current.Path["partition"], "/terrabase", "All TerraBase")
+		if database := current.partition(); database != nil {
+			<div class="cols-2">
+				<article>
+					<h2>Seats</h2>
+					<dl class="kv">
+						<dt>Generation</dt>
+						<dd>{ itoa(database.Generation) }</dd>
+						<dt>Serving</dt>
+						<dd class={ templ.KV("warn", !database.Terminal && database.Serving < database.DesiredSeats) }>{ itoa(database.Serving) } of { itoa(database.DesiredSeats) } desired</dd>
+						<dt>Stages</dt>
+						<dd>{ counts(database.Stages) }</dd>
+						if database.Terminal {
+							<dt>Teardown</dt>
+							<dd class="muted">terminal</dd>
+						}
+						if database.Rollout != nil {
+							<dt>Managed update</dt>
+							<dd>
+								<a href={ safe(current.State.rolloutLink(database.Rollout.OperationID)) }><code>{ short(database.Rollout.OperationID, 24) }</code></a>
+								@ratioBar(database.Rollout.Progress())
+							</dd>
+						}
+					</dl>
+					<div class="table-scroll">
+						<table class="striped">
+							<thead><tr><th>Seat</th><th>Stage</th><th>Host</th><th>Failure domain</th><th>Update</th><th>Updated</th></tr></thead>
+							<tbody>
+								for _, member := range database.Members {
+									<tr>
+										<td>{ member.SeatID }</td>
+										<td>
+											@statusPill(stageStatus(member.Stage), member.Stage)
+										</td>
+										<td>
+											if member.HostNode != "" {
+												<a href={ safe(current.State.hostLink(current.localRegion(), member.HostNode)) }>{ member.HostNode }</a>
+											} else {
+												-
+											}
+										</td>
+										<td>{ orDash(member.FailureDomain) }</td>
+										<td>{ orDash(member.UpdatePhase) }</td>
+										<td>
+											@ago(member.UpdatedAt)
+										</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				</article>
+				<article>
+					<h2>Seats serving vs desired</h2>
+					@chart("", current.partitionChart())
+				</article>
+			</div>
+		} else if current.placement() == nil {
+			<p class="note warn">No placement view is available. This cell does not manage TerraBase placement, or the placement store is not open yet.</p>
+		} else {
+			<p class="note warn">This partition is not in { upper(current.localRegion()) }'s placement view{ truncatedNote(current) }. Its decisions are listed if the journal has any.</p>
+		}
+		@holdHistoryCard(current)
+		@entityAttention(current, "partition")
+		@entityJournal(current, "Placement decisions")
+	</div>
+}
+
+// holdHistoryCard lists the placement holds journaled for the partition:
+// each reason once per 15 minutes while it is re-asserted.
+templ holdHistoryCard(current view) {
+	<article>
+		<div class="chart-title">
+			<h2>Placement hold history <small>{ current.State.Range.Key } at least</small></h2>
+			<a href={ safe(current.State.link("/decisions", "kind", "held", "q", current.Path["db"])) }>All holds →</a>
+		</div>
+		if holds := current.holdHistory(); len(holds) == 0 {
+			if current.decisionCoverage() == coverageComplete {
+				<p class="empty">The reconciler did not hold this partition in the searched history.</p>
+			} else if current.decisionCoverage() == coverageMissing {
+				@journalMissing("Hold history")
+			} else {
+				@historyUnavailable(current, "Hold history")
+			}
+		} else {
+			@timeline("short", current.decisionTimeline(holds, false))
+			<ul class="mini-list">
+				for _, hold := range holds[:min(len(holds), 20)] {
+					<li>
+						if hold.Kind == decisionlog.KindHoldCleared {
+							@statusPill("ok", "cleared")
+						} else {
+							@statusPill("warn", "held")
+						}
+						<a class="grow" href={ safe(current.State.keep(current.here(), "id", hold.ID)) } title={ hold.Reason }>{ short(hold.Reason, 160) }</a>
+						if hold.Subject.Kind == "seat" && current.ambiguousSeat(hold.Subject.ID) {
+							<small class="warn" title="Seat IDs repeat across partitions; this hold names the seat only.">seat ID shared</small>
+						}
+						<small class="muted">
+							@ago(hold.Time)
+						</small>
+					</li>
+				}
+			</ul>
+			<p class="legend-note">A hold that is re-asserted every reconcile tick is journaled once per reason every 15 minutes.</p>
+		}
+	</article>
+}
+
+templ rolloutDetailBody(current view) {
+	<div id="content">
+		@detailHead(current, "Rollout", current.Path["id"], "/rollouts", "All rollouts")
+		if rollout := current.detailRollout(); rollout != nil {
+			<article>
+				<div class="chart-title">
+					<h2><code>{ rollout.Release }</code></h2>
+					<span>
+						@statusPill(rolloutStatus(*rollout, current.Now), rollout.Phase)
+						<small class="muted">
+							{ " phase started " }
+							@ago(rollout.PhaseStarted)
+							if !rollout.PhaseDeadline.IsZero() {
+								{ " · deadline " }
+								@ago(rollout.PhaseDeadline)
+							}
+						</small>
+					</span>
+				</div>
+				<div class="phase-row">
+					for _, phase := range rolloutPhases {
+						<span class={ "phase", sClass(phaseStatus(*rollout, phase, current.Now)) }>{ phase }</span>
+					}
+				</div>
+			</article>
+		} else if database := current.managedUpdate(); database != nil {
+			<div class="cols-2">
+				<article>
+					<h2>Managed TerraBase update</h2>
+					<dl class="kv">
+						<dt>Partition</dt>
+						<dd><a href={ safe(current.State.partitionLink(database.DatabaseID, database.PartitionID)) }>{ database.DatabaseID } / { database.PartitionID }</a></dd>
+						<dt>Artifact</dt>
+						<dd><code>{ orDash(database.Rollout.ArtifactDigest) }</code></dd>
+						<dt>Progress</dt>
+						<dd>
+							@ratioBar(database.Rollout.Progress())
+							{ itoa(database.Rollout.Completed) } of { itoa(database.Rollout.Seats) } seats
+						</dd>
+						<dt>Phases</dt>
+						<dd>{ counts(database.Rollout.Phases) }</dd>
+					</dl>
+				</article>
+				<article>
+					<h2>Progress</h2>
+					@chart("", current.rolloutProgressChart())
+				</article>
+			</div>
+		} else if current.failed("rollouts") {
+			<p class="note warn">The rollout provider did not answer, so this rollout's live phase is unknown. Its decisions are listed if the journal has any.</p>
+		} else {
+			<p class="note">No active rollout or managed update has this ID in { upper(current.localRegion()) }; it may have finished. Its decisions are listed if the journal has any.</p>
+		}
+		@entityAttention(current, "rollout")
+		@entityJournal(current, "Rollout decisions")
+	</div>
+}
+
+templ volumeDetailBody(current view) {
+	<div id="content">
+		@detailHead(current, "Volume", current.Path["id"], "/storage", "Storage")
+		if volume := current.detailVolume(); volume != nil {
+			<article>
+				<h2>State</h2>
+				<dl class="kv">
+					<dt>State</dt>
+					<dd>
+						@statusPill(volumeStatus(*volume, current.Now), volume.State)
+						if volume.Detail != "" {
+							<small class="muted">{ volume.Detail }</small>
+						}
+					</dd>
+					<dt>Since</dt>
+					<dd>
+						@ago(volume.StateSince)
+					</dd>
+					<dt>Host</dt>
+					<dd>
+						if volume.Host != "" {
+							<a href={ safe(current.State.hostLink(current.localRegion(), volume.Host)) }>{ volume.Host }</a>
+						} else {
+							<span class="muted">unattached</span>
+						}
+					</dd>
+				</dl>
+			</article>
+		} else if current.Journal == nil || current.Journal.Volumes == nil {
+			<p class="note">Volume state appears once the storage slice reports volumes on this member.</p>
+		} else if current.failed("volumes") {
+			<p class="note warn">Volume state could not be read right now.</p>
+		} else {
+			<p class="note">No volume with this ID is known in { upper(current.localRegion()) }. Its decisions are listed if the journal has any.</p>
+		}
+		@entityAttention(current, "volume")
+		@entityJournal(current, "Volume decisions")
+	</div>
+}
+
+templ hostDetailBody(current view) {
+	<div id="content">
+		@detailHead(current, "Host in "+upper(current.Path["r"]), current.Path["h"], "/members", "All hosts")
+		if current.Path["r"] != current.localRegion() {
+			<p class="note">Live seats and volumes of { upper(current.Path["r"]) } hosts are served by that region's controllers; this page shows the decisions and insights { upper(current.Path["r"]) } reports about this host.</p>
+		} else {
+			<div class="cols-2">
+				<article>
+					<h2>TerraBase seats on this host</h2>
+					if seats := current.hostSeats(); len(seats) == 0 {
+						@unavailable("No TerraBase seat is placed on this host in the placement view.")
+					} else {
+						<table class="striped">
+							<thead><tr><th>Partition</th><th>Seat</th><th>Stage</th><th>Failure domain</th><th>Updated</th></tr></thead>
+							<tbody>
+								for _, seat := range seats {
+									<tr>
+										<td><a href={ safe(current.State.partitionLink(seat.Database.DatabaseID, seat.Database.PartitionID)) }>{ seat.Database.DatabaseID } / { seat.Database.PartitionID }</a></td>
+										<td>{ seat.Seat.SeatID }</td>
+										<td>
+											@statusPill(stageStatus(seat.Seat.Stage), seat.Seat.Stage)
+										</td>
+										<td>{ orDash(seat.Seat.FailureDomain) }</td>
+										<td>
+											@ago(seat.Seat.UpdatedAt)
+										</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					}
+				</article>
+				<article>
+					<h2>Volumes</h2>
+					if current.Journal == nil || current.Journal.Volumes == nil {
+						@unavailable("Volume state appears once the storage slice reports volumes.")
+					} else if volumes := current.hostVolumes(); len(volumes) == 0 {
+						<p class="empty">No volume is attached to this host.</p>
+					} else {
+						<ul class="mini-list">
+							for _, volume := range volumes {
+								<li>
+									@statusPill(volumeStatus(volume, current.Now), volume.State)
+									<a class="grow" href={ safe(current.State.volumeLink(volume.ID)) }>{ volume.ID }</a>
+									<small class="muted">
+										@ago(volume.StateSince)
+									</small>
+								</li>
+							}
+						</ul>
+					}
+				</article>
+			</div>
+			<div class="cols">
+				<article>
+					<h2>CPU</h2>
+					@chart("", current.memberChart(observability.HistCPUUtilization, "percent", false, "No CPU history for this host: host agents report their system view on their own listener, not to the controller yet."))
+				</article>
+				<article>
+					<h2>Disk used <small>per filesystem</small></h2>
+					@chart("", current.filesystemChart())
+				</article>
+			</div>
+		}
+		@entityAttention(current, "host")
+		@entityJournal(current, "Decisions about this host")
+	</div>
+}

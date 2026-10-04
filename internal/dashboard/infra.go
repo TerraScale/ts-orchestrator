@@ -13,6 +13,9 @@ import (
 
 // hostFilter narrows member series to the host drill-down, if any.
 func (current view) hostFilter() map[string]string {
+	if filter := current.detailFilter(); filter != nil {
+		return filter
+	}
 	if host := current.State.param("host"); host != "" {
 		return map[string]string{"member": host}
 	}

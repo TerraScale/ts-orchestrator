@@ -207,7 +207,10 @@ func (state uiState) adopt(link, region string) string {
 	switch {
 	case parsed.Path == "/regions" || parsed.Path == "/regions/":
 		parsed.Path = "/"
-	case strings.HasPrefix(parsed.Path, "/regions/"):
+	case strings.HasPrefix(parsed.Path, "/regions/") &&
+		!strings.Contains(strings.TrimSuffix(strings.TrimPrefix(parsed.Path, "/regions/"), "/"), "/"):
+		// /regions/<r> is the region overview; deeper paths such as
+		// /regions/<r>/hosts/<h> are detail pages and kept as they are.
 		if named := strings.ToLower(strings.TrimPrefix(parsed.Path, "/regions/")); validRegion(named) {
 			values.Set("r", named)
 		}

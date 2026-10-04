@@ -176,7 +176,7 @@ func TestSnapshotSamplerDerivesSeries(t *testing.T) {
 			NATS: &NATSView{ServerName: "c1", InMsgs: 10, Streams: []StreamView{{Name: "S", Messages: 3, Leader: "c1"}},
 				Consumers: []ConsumerView{{Stream: "S", Name: "C", NumPending: 4}}},
 			OCI: &OCIView{Operations: []OCIOperationView{{Service: "compute", Operation: "Launch", Calls: 5, Throttled: 1}}},
-			Placement: &PlacementView{Databases: []DatabaseView{{DesiredSeats: 2, Serving: 1,
+			Placement: &PlacementView{Databases: []DatabaseView{{DatabaseID: "orders", PartitionID: "p0", DesiredSeats: 2, Serving: 1,
 				Rollout: &RolloutView{OperationID: "op", Seats: 2, Completed: 1}}}, StageCounts: map[string]int{"serving": 1}},
 		}
 	}
@@ -188,18 +188,20 @@ func TestSnapshotSamplerDerivesSeries(t *testing.T) {
 		values[seriesKey(sample.Metric, sortedLabels(sample.Labels))] = sample.Value
 	}
 	checks := map[string]float64{
-		HistMembersExpected:                                         2,
-		HistMembersAnswering:                                        1,
-		HistMembersReady:                                            1,
-		HistAuthorityEpoch:                                          7,
-		Series(HistCPUUtilization, "member", "c1"):                  0.5,
-		Series(HistMemoryRatio, "member", "c1"):                     0.75,
-		Series(HistFSRatio, "member", "c1", "role", "nats"):         0.75,
-		Series(HistStreamMessages, "stream", "S"):                   3,
-		Series(HistConsumerPending, "consumer", "C", "stream", "S"): 4,
-		Series(HistOCIThrottled, "operation", "compute.Launch"):     1,
-		Series(HistRolloutProgress, "operation", "op"):              0.5,
-		Series(HistStageMembers, "stage", "serving"):                1,
+		HistMembersExpected:                                                   2,
+		HistMembersAnswering:                                                  1,
+		HistMembersReady:                                                      1,
+		HistAuthorityEpoch:                                                    7,
+		Series(HistCPUUtilization, "member", "c1"):                            0.5,
+		Series(HistMemoryRatio, "member", "c1"):                               0.75,
+		Series(HistFSRatio, "member", "c1", "role", "nats"):                   0.75,
+		Series(HistStreamMessages, "stream", "S"):                             3,
+		Series(HistConsumerPending, "consumer", "C", "stream", "S"):           4,
+		Series(HistOCIThrottled, "operation", "compute.Launch"):               1,
+		Series(HistRolloutProgress, "operation", "op"):                        0.5,
+		Series(HistStageMembers, "stage", "serving"):                          1,
+		Series(HistPartitionDesired, "database", "orders", "partition", "p0"): 2,
+		Series(HistPartitionServing, "database", "orders", "partition", "p0"): 1,
 	}
 	for key, want := range checks {
 		if got, ok := values[key]; !ok || got != want {

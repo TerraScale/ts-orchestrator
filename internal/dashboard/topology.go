@@ -260,7 +260,7 @@ func (current view) localTopology(spec *topologySpec, addNode func(topologyNode)
 			details["load 1m"] = formatFloat(member.System.Load1, 2)
 		}
 		addNode(topologyNode{ID: id, Region: local, Name: member.Member, Kind: kind, State: state, StateLabel: label,
-			Href: current.State.link("/members", "host", member.Member), Details: details})
+			Href: current.State.memberLink(member.Member), Details: details})
 		if kind == "controller" {
 			controllers = append(controllers, member.Member)
 			spec.Links = append(spec.Links, topologyLink{Source: regionID, Target: id, Kind: "member"})
@@ -336,7 +336,7 @@ func (current view) localTopology(spec *topologySpec, addNode func(topologyNode)
 			state = boolStatus(member.Ready)
 		}
 		addNode(topologyNode{ID: id, Region: local, Name: host, Kind: "host", State: state, StateLabel: "carries seats",
-			Href:    current.State.link("/members", "host", host),
+			Href:    current.State.hostLink(local, host),
 			Details: map[string]string{"seats": itoa(len(hosts[host])), "serving": itoa(serving)}})
 		if id != hub {
 			spec.Links = append(spec.Links, topologyLink{Source: hub, Target: id, Kind: "leaf", Label: "NATS leaf / client"})
@@ -348,7 +348,7 @@ func (current view) localTopology(spec *topologySpec, addNode func(topologyNode)
 			seats++
 			seatID := "seat:" + local + ":" + seat.database + "/" + seat.partition + "/" + seat.SeatID
 			addNode(topologyNode{ID: seatID, Region: local, Name: seat.SeatID, Kind: "seat", State: stageStatus(seat.Stage),
-				StateLabel: seat.Stage, Href: current.State.link("/terrabase", "host", host),
+				StateLabel: seat.Stage, Href: current.State.partitionLink(seat.database, seat.partition),
 				Details: map[string]string{"host": host, "database": orDash(seat.database), "partition": orDash(seat.partition),
 					"failure domain": orDash(seat.FailureDomain), "update phase": orDash(seat.UpdatePhase),
 					"updated": formatTime(seat.UpdatedAt)}})

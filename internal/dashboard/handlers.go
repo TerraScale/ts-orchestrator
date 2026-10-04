@@ -22,7 +22,12 @@ const eventBatch = 64
 
 func (dashboard *Dashboard) pageHandler(page page) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		current := dashboard.load(request.Context(), page, request.URL.Query())
+		path, found := page.pathValues(request)
+		if !found {
+			http.NotFound(writer, request)
+			return
+		}
+		current := dashboard.load(request.Context(), page, request.URL.Query(), path)
 		render(writer, request, layout(current))
 	})
 }
@@ -67,13 +72,18 @@ func (dashboard *Dashboard) streamHandler(page page) http.Handler {
 			return
 		}
 		defer dashboard.releaseStream()
+		path, found := page.pathValues(request)
+		if !found {
+			http.NotFound(writer, request)
+			return
+		}
 		query := request.URL.Query()
 		sse := datastar.NewSSE(writer, request)
 		if page.slug == "events" && dashboard.options.Events != nil {
 			dashboard.streamEvents(request.Context(), sse, page, query)
 			return
 		}
-		dashboard.streamContent(request.Context(), sse, page, query)
+		dashboard.streamContent(request.Context(), sse, page, query, path)
 	})
 }
 
@@ -81,7 +91,7 @@ func (dashboard *Dashboard) streamHandler(page page) http.Handler {
 // chrome (region switcher, attention badge) every tick, and raises a toast
 // as soon as the insight engine opens or escalates an insight.
 func (dashboard *Dashboard) streamContent(ctx context.Context, sse *datastar.ServerSentEventGenerator, page page,
-	query url.Values,
+	query url.Values, path map[string]string,
 ) {
 	ticker := time.NewTicker(dashboard.options.Interval)
 	defer ticker.Stop()
@@ -93,7 +103,7 @@ func (dashboard *Dashboard) streamContent(ctx context.Context, sse *datastar.Ser
 				changes = journal.Insights.Subscribe(ctx, 16)
 			}
 		}
-		current := dashboard.load(ctx, page, query)
+		current := dashboard.load(ctx, page, query, path)
 		var body bytes.Buffer
 		if err := page.body(current).Render(ctx, &body); err != nil {
 			return
@@ -159,7 +169,7 @@ type chromeRender struct {
 }
 
 func (refresher *chromeRefresher) render(ctx context.Context) chromeRender {
-	current := refresher.dashboard.load(ctx, refresher.page, refresher.query)
+	current := refresher.dashboard.load(ctx, refresher.page, refresher.query, nil)
 	var body bytes.Buffer
 	err := chrome(current).Render(ctx, &body)
 	return chromeRender{state: current.State, html: body.String(), err: err}
