@@ -440,9 +440,9 @@ func TestRaceScheduler(t *testing.T) {
 		for _, lab := range schedulerLabs {
 			requireText(t, r.Stdout, "race queue app-"+lab+" pool=idle ")
 		}
-		requireText(t, r.Stdout, "race queue deploy-"+solo+" pool=cpu estimate=300s")
+		requireText(t, r.Stdout, "race queue deploy-"+solo+" pool=cpu estimate=60s")
 	})
-	for setting, value := range map[string]string{"TS_RACE_SHARDS": "0", "TS_RACE_JOBS": "0", "TS_RACE_IDLE_JOBS": "0", "TS_RACE_PACKAGE_JOBS": "0", "TS_RACE_TEST_JOBS": "0", "TS_TEST_TIER": "qualification"} {
+	for setting, value := range map[string]string{"TS_RACE_SHARDS": "0", "TS_RACE_NORACE_SHARDS": "0", "TS_RACE_JOBS": "0", "TS_RACE_IDLE_JOBS": "0", "TS_RACE_PACKAGE_JOBS": "0", "TS_RACE_TEST_JOBS": "0", "TS_TEST_TIER": "qualification"} {
 		t.Run("invalid_"+setting, func(t *testing.T) {
 			t.Parallel()
 			f := newScheduler(t)

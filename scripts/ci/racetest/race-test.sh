@@ -31,6 +31,8 @@ set -euo pipefail
 # GO may be a command with arguments, such as "mise exec -- go".
 read -r -a go <<< "${GO:-go}"
 shards=${TS_RACE_SHARDS:-6}
+# Uninstrumented tests are cheap; fewer shards avoid extra test binaries.
+norace_shards=${TS_RACE_NORACE_SHARDS:-2}
 jobs=${TS_RACE_JOBS:-6}
 idle_jobs=${TS_RACE_IDLE_JOBS:-5}
 package_jobs=${TS_RACE_PACKAGE_JOBS:-4}
@@ -48,6 +50,7 @@ for package in "${sharded_packages[@]}"; do
 	seen_base[${package##*/}]=1
 done
 [[ $shards =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_SHARDS must be a positive integer' >&2; exit 2; }
+[[ $norace_shards =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_NORACE_SHARDS must be a positive integer' >&2; exit 2; }
 [[ $jobs =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_JOBS must be a positive integer' >&2; exit 2; }
 [[ $idle_jobs =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_IDLE_JOBS must be a positive integer' >&2; exit 2; }
 [[ $package_jobs =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_PACKAGE_JOBS must be a positive integer' >&2; exit 2; }
@@ -212,17 +215,17 @@ declare -A matched=()
 if ((${#other_packages[@]})); then
 	printf '%s\tpackages\tcpu\t\t\n' "$rest_cost" >> "$logs/queue"
 fi
-# pack <package> <packed list> <shard name prefix> <pool>: longest processing
+# pack <package> <packed list> <shard name prefix> <pool> <shards>: longest processing
 # time first, each test joins the shard with the least estimated work so
 # far, or the fewest tests when estimates tie. Adds the packed tests to
 # covered.
 pack() {
-	local package=$1 list=$2 prefix=$3 pool=$4 bin best cost test shard=0 expression
+	local package=$1 list=$2 prefix=$3 pool=$4 bins=$5 bin best cost test shard=0 expression
 	local -a loads=() counts=() members=()
-	for ((bin = 0; bin < shards; bin++)); do loads[bin]=0; counts[bin]=0; members[bin]=; done
+	for ((bin = 0; bin < bins; bin++)); do loads[bin]=0; counts[bin]=0; members[bin]=; done
 	while read -r cost test; do
 		best=0
-		for ((bin = 1; bin < shards; bin++)); do
+		for ((bin = 1; bin < bins; bin++)); do
 			if ((loads[bin] < loads[best] || (loads[bin] == loads[best] && counts[bin] < counts[best]))); then
 				best=$bin
 			fi
@@ -231,7 +234,7 @@ pack() {
 		counts[best]=$((counts[best] + 1))
 		members[best]="${members[best]:+${members[best]}|}$test"
 	done < <(LC_ALL=C sort -k1,1nr -k2,2 "$list")
-	for ((bin = 0; bin < shards; bin++)); do
+	for ((bin = 0; bin < bins; bin++)); do
 		[[ -n ${members[bin]} ]] || continue
 		expression=$(tr '|' '\n' <<< "${members[bin]}" | LC_ALL=C sort | paste -s -d '|')
 		covered=$((covered + $(tr '|' '\n' <<< "$expression" | wc -l)))
@@ -257,8 +260,8 @@ for package in "${sharded_packages[@]}"; do
 				;;
 		esac
 	done
-	pack "$package" "$logs/$base.packed" "$base" cpu
-	pack "$package" "$logs/$base.norace" "$base-norace" norace
+	pack "$package" "$logs/$base.packed" "$base" cpu "$shards"
+	pack "$package" "$logs/$base.norace" "$base-norace" norace "$norace_shards"
 	[[ $covered == "${#tests[@]}" ]] || { echo "shards of $package cover $covered of ${#tests[@]} tests" >&2; exit 1; }
 done
 mapfile -t queue < <(LC_ALL=C sort -t "$tab" -k1,1nr -k2,2 "$logs/queue")

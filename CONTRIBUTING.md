@@ -113,7 +113,12 @@ variable is unset, `image.yml` skips the step.
 the slowest packages into shards by the estimates in
 `scripts/ci/racetest/race-durations.txt` and starts the longest shards first.
 Timer-bound labs (`idle` there) run in a separate pool of
-`TS_RACE_IDLE_JOBS` slots beside the `TS_RACE_JOBS` CPU slots. When you add a
+`TS_RACE_IDLE_JOBS` slots beside the `TS_RACE_JOBS` CPU slots. Tests marked
+`norace` run in CPU shards without the race detector (at most
+`TS_RACE_NORACE_SHARDS`, default 2); mark only tests whose code paths start
+no goroutine, such as the bootstrapstart founder runtime and replacement
+tests, where `-race` cost about fifteen times the CPU and could find
+nothing. When you add a
 test that runs for more than a few seconds under `-race`, add its estimate,
 with a `/<seconds>` suffix if `-short` changes it.
 
