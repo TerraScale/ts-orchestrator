@@ -14,6 +14,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 )
 
 const (
@@ -268,6 +269,9 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 	if !validCreateKey(request.CreateKey) || !slices.Contains(f.config.FaultDomains, request.FaultDomain) {
 		return Instance{}, errors.New("OCI host launch has an invalid create key or unsupported fault domain")
 	}
+	if !f.memberName(request.Name, false) {
+		return Instance{}, fmt.Errorf("OCI host launch name %q is not a member name of this cell", request.Name)
+	}
 	if !validManagedPrivateIP(request.PrivateIP) {
 		return Instance{}, errors.New("OCI host launch requires a signed private IPv4 address")
 	}
@@ -366,8 +370,9 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 	}
 	node := hostNode(f.config, request.CreateKey)
 	launch := LaunchRequest{
-		CreateKey: request.CreateKey,
-		Node:      node,
+		DisplayName: request.Name,
+		CreateKey:   request.CreateKey,
+		Node:        node,
 		RetryToken: retryToken(strings.Join([]string{
 			f.config.Owner, string(f.config.Region), fmt.Sprint(f.config.Generation), request.CreateKey,
 		}, ":")),
@@ -470,6 +475,9 @@ func (f *fleet) captureBootBinding(ctx context.Context, epoch uint64, cloud Clou
 func (f *fleet) CreateRetainedVolume(ctx context.Context, request VolumeCreateRequest) (RetainedVolume, error) {
 	if !validCreateKey(request.CreateKey) {
 		return RetainedVolume{}, errors.New("retained OCI volume requires a valid create key")
+	}
+	if !f.memberName(request.Name, true) {
+		return RetainedVolume{}, fmt.Errorf("retained OCI volume name %q is not a member data name of this cell", request.Name)
 	}
 	if request.SizeGB < minRetainedVolumeSizeGB || request.SizeGB > f.config.MaxDataVolumeGB {
 		return RetainedVolume{}, fmt.Errorf("retained OCI volume size must be between %d GiB and the configured fleet bound %d GiB", minRetainedVolumeSizeGB, f.config.MaxDataVolumeGB)
@@ -1385,6 +1393,15 @@ func volumeTags(config RegionConfig, request VolumeCreateRequest) map[string]str
 		tagCreateKey:  request.CreateKey,
 		tagVolumeSize: fmt.Sprint(request.SizeGB),
 	}
+}
+
+// memberName reports whether name is a member host name of this fleet's cell
+// or, with data, a member data volume name. Display names carry no owner,
+// generation or digest; those stay in the resource tags.
+func (f *fleet) memberName(name string, data bool) bool {
+	cell, err := naming.RegionCell(string(f.config.Region)).Name()
+	return err == nil && naming.Validate(name) == nil && strings.HasPrefix(name, cell+"-"+naming.Member+"-") &&
+		strings.HasSuffix(name, "-data") == data
 }
 
 func hostNode(config RegionConfig, createKey string) string {

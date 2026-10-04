@@ -345,7 +345,7 @@ func (e *Engine) verifyInventory(plan, inventory Object, path string, now time.T
 		tags := obj(m["freeform-tags"])
 		if compartment == ids["workload"] && tags["terrascale-managed-by"] == "ts-orchestrator" && tags["terrascale-owner"] == plan["orchestrator_owner"] && tags["terrascale-resource"] == "member-host" {
 			memberCount++
-		} else if compartment == ids["control"] && (m["id"] == seedID || contains([]string{"controller-b", "controller-c"}, m["display-name"])) {
+		} else if compartment == ids["control"] && (m["id"] == seedID || contains([]string{controllerName(plan, "controller-b"), controllerName(plan, "controller-c")}, m["display-name"])) {
 			controllerCount++
 		} else {
 			fail("preview instance has no approved owner: " + str(m["id"]))

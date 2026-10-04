@@ -7,7 +7,10 @@ before. The only OCI effect is the opt-in region subscription
 
 ## Topology
 
-Each region stays its own NATS/JetStream cluster with its own operator. When
+Each region stays its own NATS/JetStream cluster with its own operator. Its
+servers follow the [static names](region-bootstrap.md#static-names) of
+`internal/naming` (`<region>-1-ctl-N`, `<region>-1-db-N`); the JetStream
+domain and NATS cluster name stay the lower-case cell token (`gru`). When
 `nats.embedded.interregion.enabled` is set:
 
 - The JetStream domain is the cell name (`gru`, `sfo`, `fra`).

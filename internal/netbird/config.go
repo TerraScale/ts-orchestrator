@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 )
 
 const (
@@ -24,7 +26,6 @@ const (
 
 var regionPattern = regexp.MustCompile(`^[a-z]{2}-[a-z]+-[1-9][0-9]*$`)
 var secretSuffixPattern = regexp.MustCompile(`^[a-z0-9]+(?:\.[a-z0-9]+)*$`)
-var peerNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 
 // Config is public image configuration. The setup key stays in OCI Vault.
 type Config struct {
@@ -52,8 +53,8 @@ func ValidSecretID(region, id string) bool {
 		secretSuffixPattern.MatchString(strings.TrimPrefix(id, prefix))
 }
 
-// ValidatePeerNames requires canonical private IPv4 keys and unique lowercase
-// DNS labels of at most 63 characters.
+// ValidatePeerNames requires canonical private IPv4 keys and unique server
+// names of the naming scheme (internal/naming), e.g. gru-1-ctl-1.
 func ValidatePeerNames(names map[string]string) error {
 	if len(names) > maxPeerNames {
 		return errors.New("NetBird peer_names has too many entries")
@@ -64,8 +65,8 @@ func ValidatePeerNames(names map[string]string) error {
 		if err != nil || !ip.Is4() || !ip.IsPrivate() || ip.String() != address {
 			return errors.New("NetBird peer_names keys must be canonical private IPv4 addresses")
 		}
-		if !peerNamePattern.MatchString(name) || seen[name] {
-			return errors.New("NetBird peer_names values must be unique lowercase DNS labels of at most 63 characters")
+		if err := naming.Validate(name); err != nil || seen[name] {
+			return fmt.Errorf("NetBird peer_names values must be unique cell server names: %q", name)
 		}
 		seen[name] = true
 	}

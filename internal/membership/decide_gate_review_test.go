@@ -15,11 +15,11 @@ func TestDecideAdmittedSuccessorReservesTheGateWithoutEvidence(t *testing.T) {
 	observation := lostB(testEpoch)
 	observation.Ledger["controller-b"] = LedgerSlot{Attempt: 2, Retirement: evidenceID}
 	delete(observation.Lifecycle, "controller-b")
-	observation = withPeer(observation, "gru-controller-c", false)
+	observation = withPeer(observation, "gru-1-ctl-3", false)
 	observation.Lifecycle["controller-c"] = LifecycleTerminated
 	observation.Evidence["controller-c"] = evidenceFor("controller-c", 1, instanceC)
-	observation.Meta.Peers = append(observation.Meta.Peers, Peer{Name: "gru-controller-d", Online: true},
-		Peer{Name: "gru-controller-e", Online: true})
+	observation.Meta.Peers = append(observation.Meta.Peers, Peer{Name: "gru-1-ctl-4", Online: true},
+		Peer{Name: "gru-1-ctl-5", Online: true})
 	for name, evidence := range map[string]*Evidence{
 		"absent": nil,
 		"foreign": {Slot: "controller-b", PreviousAttempt: 1, PriorInstanceOCID: instanceB,
@@ -47,8 +47,8 @@ func TestDecideAbandonedUnadmittedReplacementReleasesTheGate(t *testing.T) {
 	topology.Slots = append(topology.Slots, "controller-d", "controller-e")
 	observation := lostB(testEpoch)
 	withEvidenceB(&observation)
-	observation.Meta.Peers = append(observation.Meta.Peers, Peer{Name: "gru-controller-d", Online: true},
-		Peer{Name: "gru-controller-e", Online: true})
+	observation.Meta.Peers = append(observation.Meta.Peers, Peer{Name: "gru-1-ctl-4", Online: true},
+		Peer{Name: "gru-1-ctl-5", Online: true})
 	state, actions := Decide(testConfig(), topology, State{}, observation)
 	if len(actions) != 1 || state.Slots["controller-b"].Phase != PhaseReplacing {
 		t.Fatalf("start = %+v %+v", state.Slots["controller-b"], actions)
@@ -57,7 +57,7 @@ func TestDecideAbandonedUnadmittedReplacementReleasesTheGate(t *testing.T) {
 	// AdvanceSlot rejected the envelope and the operator removed it. The
 	// ledger still holds the completed attempt 1.
 	delete(observation.Evidence, "controller-b")
-	observation = withPeer(observation, "gru-controller-c", false)
+	observation = withPeer(observation, "gru-1-ctl-3", false)
 	observation.Lifecycle["controller-c"] = LifecycleTerminated
 	observation.Evidence["controller-c"] = evidenceFor("controller-c", 1, instanceC)
 	observation.At = observation.At.Add(time.Minute)

@@ -25,9 +25,9 @@ const (
 // healthyObservation is a full three-slot cell with every peer online.
 func healthyObservation(at time.Time) Observation {
 	return Observation{At: at,
-		Meta: Meta{Leader: "gru-controller-a", Size: 3, Peers: []Peer{
-			{Name: "gru-controller-b", Online: true, Current: true},
-			{Name: "gru-controller-c", Online: true, Current: true}}},
+		Meta: Meta{Leader: "gru-1-ctl-1", Size: 3, Peers: []Peer{
+			{Name: "gru-1-ctl-2", Online: true, Current: true},
+			{Name: "gru-1-ctl-3", Online: true, Current: true}}},
 		Ledger: map[string]LedgerSlot{
 			"controller-a": {Attempt: 1, InstanceOCID: instanceA, Complete: true},
 			"controller-b": {Attempt: 1, InstanceOCID: instanceB, Complete: true},
@@ -55,7 +55,7 @@ func evidenceFor(slot string, attempt uint64, instance string) Evidence {
 }
 
 func lostB(at time.Time) Observation {
-	observation := withPeer(healthyObservation(at), "gru-controller-b", false)
+	observation := withPeer(healthyObservation(at), "gru-1-ctl-2", false)
 	observation.Lifecycle["controller-b"] = LifecycleTerminated
 	return observation
 }
@@ -77,7 +77,7 @@ func TestDecideHealthyCellTakesNoAction(t *testing.T) {
 
 func TestDecideOfflinePeerWaitsForGraceThenRequiresTermination(t *testing.T) {
 	cfg := testConfig()
-	observation := withPeer(healthyObservation(testEpoch), "gru-controller-b", false)
+	observation := withPeer(healthyObservation(testEpoch), "gru-1-ctl-2", false)
 	observation.Evidence["controller-b"] = evidenceFor("controller-b", 1, instanceB)
 	state, actions := Decide(cfg, testTopology(), State{}, observation)
 	if len(actions) != 0 || state.Slots["controller-b"].Phase != PhaseSuspect ||
@@ -134,7 +134,7 @@ func TestDecideHoldReasons(t *testing.T) {
 			mutate: withEvidenceB},
 		{name: "quorum lost", want: ReasonQuorumLost, mutate: func(o *Observation) {
 			withEvidenceB(o)
-			*o = withPeer(*o, "gru-controller-c", false)
+			*o = withPeer(*o, "gru-1-ctl-3", false)
 		}},
 		{name: "no metadata leader", want: ReasonQuorumLost, mutate: func(o *Observation) {
 			withEvidenceB(o)
@@ -199,7 +199,7 @@ func TestDecideNeverReplacesSeedOrSelf(t *testing.T) {
 	topology := testTopology()
 	topology.SelfSlot = "controller-b"
 	observation := healthyObservation(testEpoch)
-	observation.Meta.Peers = []Peer{{Name: "gru-controller-a", Online: false}, {Name: "gru-controller-c", Online: true}}
+	observation.Meta.Peers = []Peer{{Name: "gru-1-ctl-1", Online: false}, {Name: "gru-1-ctl-3", Online: true}}
 	observation.Lifecycle = map[string]string{"controller-a": LifecycleTerminated, "controller-c": LifecycleRunning}
 	observation.Evidence["controller-a"] = evidenceFor("controller-a", 1, instanceA)
 	state, actions := Decide(testConfig(), topology, State{}, observation)
@@ -224,8 +224,8 @@ func TestDecideReplacesOneSlotAtATime(t *testing.T) {
 		Slots: []string{"controller-a", "controller-b", "controller-c", "controller-d", "controller-e"}}
 	observation := lostB(testEpoch)
 	observation.Meta.Peers = append(observation.Meta.Peers,
-		Peer{Name: "gru-controller-d", Online: true}, Peer{Name: "gru-controller-e", Online: true})
-	observation = withPeer(observation, "gru-controller-c", false)
+		Peer{Name: "gru-1-ctl-4", Online: true}, Peer{Name: "gru-1-ctl-5", Online: true})
+	observation = withPeer(observation, "gru-1-ctl-3", false)
 	observation.Ledger["controller-c"] = LedgerSlot{Attempt: 1, InstanceOCID: instanceC, Complete: true}
 	observation.Ledger["controller-d"] = LedgerSlot{Attempt: 1, InstanceOCID: instanceC + "d", Complete: true}
 	observation.Lifecycle["controller-c"] = LifecycleTerminated
@@ -281,7 +281,7 @@ func TestDecideReplacementLifecycle(t *testing.T) {
 		t.Fatalf("stale evidence = %+v %+v", state.Slots["controller-b"], actions)
 	}
 	// The rejoined successor is healthy again.
-	observation = withPeer(observation, "gru-controller-b", true)
+	observation = withPeer(observation, "gru-1-ctl-2", true)
 	observation.Lifecycle["controller-b"] = LifecycleRunning
 	state, _ = Decide(cfg, testTopology(), state, observation)
 	if state.Slots["controller-b"].Phase != PhaseHealthy || !state.Slots["controller-b"].OfflineSince.IsZero() {
@@ -293,7 +293,7 @@ func TestDecideReplacingHoldsWithoutQuorum(t *testing.T) {
 	observation := lostB(testEpoch)
 	withEvidenceB(&observation)
 	state, _ := Decide(testConfig(), testTopology(), State{}, observation)
-	observation = withPeer(observation, "gru-controller-c", false)
+	observation = withPeer(observation, "gru-1-ctl-3", false)
 	state, actions := Decide(testConfig(), testTopology(), state, observation)
 	if len(actions) != 0 || state.Slots["controller-b"].Reason != ReasonQuorumLost {
 		t.Fatalf("replacing without quorum = %+v %+v", state.Slots["controller-b"], actions)
@@ -310,11 +310,11 @@ func TestDecideNewTermResumesAdmittedSuccessor(t *testing.T) {
 	withEvidenceB(&observation)
 	observation.Ledger["controller-b"] = LedgerSlot{Attempt: 2, Retirement: evidenceID}
 	delete(observation.Lifecycle, "controller-b")
-	observation = withPeer(observation, "gru-controller-c", false)
+	observation = withPeer(observation, "gru-1-ctl-3", false)
 	observation.Lifecycle["controller-c"] = LifecycleTerminated
 	observation.Evidence["controller-c"] = evidenceFor("controller-c", 1, instanceC)
-	observation.Meta.Peers = append(observation.Meta.Peers, Peer{Name: "gru-controller-d", Online: true},
-		Peer{Name: "gru-controller-e", Online: true})
+	observation.Meta.Peers = append(observation.Meta.Peers, Peer{Name: "gru-1-ctl-4", Online: true},
+		Peer{Name: "gru-1-ctl-5", Online: true})
 	state, actions := Decide(testConfig(), topology, State{}, observation)
 	if len(actions) != 1 || actions[0].Slot != "controller-b" || actions[0].PreviousAttempt != 1 ||
 		actions[0].Reason != "resume replacement" {

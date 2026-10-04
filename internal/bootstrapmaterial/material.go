@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -587,7 +588,7 @@ func makeLeaf(cfg Config, slot Slot, now, expires time.Time, ca *x509.Certificat
 	if err != nil {
 		return nil, nil, err
 	}
-	cert := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: cfg.Cell + "-" + slot.Name},
+	cert := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: naming.NATSServer(cfg.Cell, slot.Name)},
 		NotBefore: now.Add(-time.Minute), NotAfter: expires, KeyUsage: x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		IPAddresses: []net.IP{net.ParseIP(slot.PrivateIP)}, DNSNames: []string{slot.Name}}

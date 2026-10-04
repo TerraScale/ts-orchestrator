@@ -131,6 +131,9 @@ func TestSignedPlacementSizingReachesProviderThroughController(t *testing.T) {
 		t.Fatalf("provider launches = %d, want one", len(provider.launches))
 	}
 	launch := provider.launches[0]
+	if want := map[string]string{"permanent-a": "gru-1-db-1", "elastic-gru": "gru-1-db-2"}[rosterRow.SeatID]; launch.DisplayName != want {
+		t.Fatalf("placement launched seat %s as %q, want its static name %q", rosterRow.SeatID, launch.DisplayName, want)
+	}
 	descriptor, err := hostboot.Parse([]byte(launch.BootDescriptor))
 	if err != nil {
 		t.Fatalf("provider did not receive canonical public boot descriptor: %v", err)
@@ -187,7 +190,7 @@ func TestSignedPlacementSizingReachesProviderThroughController(t *testing.T) {
 		t.Fatal(err)
 	}
 	retry, err := restarted.EnsureHost(ctx, oci.EnsureRequest{
-		CreateKey: prepared.State.CreateKey, PrivateIP: launch.PrivateIP, FaultDomain: prepared.State.FailureDomain,
+		Name: launch.DisplayName, CreateKey: prepared.State.CreateKey, PrivateIP: launch.PrivateIP, FaultDomain: prepared.State.FailureDomain,
 		Shape: profile.Compute.Shape, WholeOCPUs: profile.Compute.WholeOCPUs,
 		MemoryInGBs: profile.Compute.MemoryInGBs, PlacementProfileDigest: profileDigest,
 		PlacementGeneration: prepared.State.IntentGeneration,
@@ -367,3 +370,95 @@ func (p *placementSizingProvider) ListVolumeAttachments(_ context.Context, compa
 var _ authority.Fencer = placementSizingFencer{}
 var _ placement.HostView = placementSizingHosts{}
 var _ oci.Provider = (*placementSizingProvider)(nil)
+
+// A release re-signs the region config under a new owner and fleet
+// generation. Placement launches the same seat under the same static name
+// each time; the release identity moves to the instance tags.
+func TestPlacementLaunchNameIsStableAcrossReleases(t *testing.T) {
+	var launches []oci.LaunchRequest
+	for i, owner := range []string{"ts-preview-gru-20260929-r4", "ts-preview-gru-20261004-r5"} {
+		launches = append(launches, launchPermanentSeat(t, owner, uint64(i+1)))
+	}
+	before, after := launches[0], launches[1]
+	if before.DisplayName != "gru-1-db-1" || after.DisplayName != before.DisplayName || before.Node == after.Node ||
+		before.FreeformTags["terrascale-owner"] != "ts-preview-gru-20260929-r4" ||
+		after.FreeformTags["terrascale-owner"] != "ts-preview-gru-20261004-r5" {
+		t.Fatalf("release changed the launched name or lost its tagged identity: before=%+v after=%+v", before, after)
+	}
+}
+
+// launchPermanentSeat runs a fresh controller for one release until it
+// launches the permanent GRU seat and returns that launch.
+func launchPermanentSeat(t *testing.T, owner string, generation uint64) oci.LaunchRequest {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	broker, err := natscell.Start(ctx, natscell.Config{
+		Cell: "gru", Instance: "placement-release", Replicas: 1, Lab: true,
+		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broker.Close()
+	policy, privateKey := newPlacementAdmissionPolicy(t)
+	control := newPlacementAdmissionControl()
+	intent := testManagedPlacementIntent()
+	if _, err := verifyAndApplyPlacement(ctx, signedPlacementEnvelope(t, intent, privateKey, protocol.EncodeJSON), "gru", policy, control); err != nil {
+		t.Fatal(err)
+	}
+	reader := admittedPlacementReader{cell: "gru", store: control}
+	committed, err := reader.ListPlacementIntents(ctx, "gru")
+	if err != nil || len(committed) != 1 {
+		t.Fatalf("admitted intents=%+v err=%v", committed, err)
+	}
+	profile, err := committed[0].ManagedHostProfile(oci.RegionGRU)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := placement.NewJetStreamStore(ctx, broker.JetStream(), "gru", 1, reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal, err := oci.OpenJournal(ctx, broker.JetStream(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	regionIntent := oci.RegionIntent{
+		SchemaVersion: 1, Generation: generation, BootstrapRegion: oci.RegionGRU,
+		Regions: []oci.RegionMapping{{Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1"}},
+	}
+	regionConfig := oci.RegionConfig{
+		Region: oci.RegionGRU, Generation: generation, Endpoint: "https://iaas.sa-saopaulo-1.oraclecloud.com",
+		CompartmentID: "ocid1.compartment.oc1..owned", ImageCompartmentID: "ocid1.compartment.oc1..image", AvailabilityDomain: "AD-1",
+		FaultDomains: []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"},
+		SubnetID:     "ocid1.subnet.oc1..owned", ImageID: "ocid1.image.oc1..owned",
+		NetworkSecurityGroupIDs: []string{"ocid1.networksecuritygroup.oc1..owned"},
+		BootVolumeGB:            50, BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 50,
+		Shape: profile.Compute.Shape, Owner: owner,
+	}
+	provider := &placementSizingProvider{config: regionConfig}
+	fencer := placementSizingFencer{control: control}
+	fleet, err := oci.NewFleet(regionConfig, regionIntent, provider, journal, fencer, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller, err := placement.StartController(ctx, placement.Config{
+		Cell: "gru", Region: oci.RegionGRU, FaultDomains: regionConfig.FaultDomains,
+		ManagedOwner: owner, FleetGeneration: generation, ImageID: regionConfig.ImageID,
+		Environment: "production", MemberRole: "terrabase",
+		Resources: placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 32 << 30},
+	}, store, fencer, fleet, placementSizingHosts{}, placementSizingHosts{}, testPlacementAdmittedArtifact(intent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := controller.Tick(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(provider.launches) != 1 {
+		t.Fatalf("provider launches = %d, want one", len(provider.launches))
+	}
+	return provider.launches[0]
+}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
@@ -270,6 +271,11 @@ func founderLaunchSDKRequest(request bootstrap.FounderPeerLaunchRequest, materia
 	if err != nil {
 		return core.LaunchInstanceRequest{}, err
 	}
+	// The deployment ID stays in the manifest launch metadata, not the name.
+	name, err := naming.RegionCell(string(request.Cell)).ControllerSlot(request.Slot)
+	if err != nil {
+		return core.LaunchInstanceRequest{}, ErrFounderOCI
+	}
 	metadata := material.ControllerMetadata()
 	metadata["terrascale-bootstrap"] = string(descriptor)
 	metadata["terrascale-controller-manifest-v1"] = string(request.ManifestWire)
@@ -278,7 +284,7 @@ func founderLaunchSDKRequest(request bootstrap.FounderPeerLaunchRequest, materia
 		LaunchInstanceDetails: core.LaunchInstanceDetails{
 			AvailabilityDomain: new(row.AvailabilityDomain), CompartmentId: new(row.CompartmentOCID),
 			FaultDomain: new(row.FaultDomain), Shape: new(row.Shape),
-			DisplayName: new(request.Slot),
+			DisplayName: new(name),
 			Metadata:    metadata,
 			ShapeConfig: &core.LaunchInstanceShapeConfigDetails{
 				Ocpus: new(float32(row.WholeOCPUs)), MemoryInGBs: new(float32(row.MemoryInGB)),

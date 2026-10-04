@@ -17,6 +17,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/lifecycle"
 )
@@ -521,8 +522,14 @@ func (controller *Controller) advanceMember(
 		if err := controller.guard(ctx, epoch); err != nil {
 			return false, err
 		}
+		member, err := seatMemberName(seat.Region, seat.MemberID)
+		if err != nil {
+			return false, err
+		}
+		// A member name always has a data name; the fleet checks it again.
+		name, _ := naming.Data(member)
 		volume, err := controller.fleet.CreateRetainedVolume(ctx, oci.VolumeCreateRequest{
-			DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
+			Name: name, DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
 			MemberID:  seat.MemberID,
 			CreateKey: volumeCreateKey(intent, seat), SizeGB: sizeGB,
 		})
@@ -860,8 +867,10 @@ func (controller *Controller) initialState(intent Intent, seat Seat, row Canonic
 
 func pinnedEnsureRequest(state MemberState) oci.EnsureRequest {
 	privateIP, _, _ := net.SplitHostPort(state.RuntimeManifest.ReplicationListenAddress)
+	// The fleet rejects an empty name, so an unnamed seat fails closed there.
+	name, _ := seatMemberName(state.Region, state.MemberID)
 	return oci.EnsureRequest{
-		CreateKey: state.CreateKey, PrivateIP: privateIP, FaultDomain: state.FailureDomain,
+		Name: name, CreateKey: state.CreateKey, PrivateIP: privateIP, FaultDomain: state.FailureDomain,
 		Shape: state.ManagedHostProfile.Compute.Shape, WholeOCPUs: state.ManagedHostProfile.Compute.WholeOCPUs,
 		MemoryInGBs:            state.ManagedHostProfile.Compute.MemoryInGBs,
 		PlacementProfileDigest: state.ManagedHostProfileDigest, PlacementGeneration: state.IntentGeneration,

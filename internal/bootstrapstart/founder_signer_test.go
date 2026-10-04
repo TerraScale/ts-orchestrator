@@ -243,7 +243,7 @@ func TestRestartRejectsTamperedAcceptedSeedRole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	marker.SeedSlot = "controller-b"
+	marker.SeedSlot = "controller-z"
 	wire, err := protocol.EncodeJSON(marker)
 	if err != nil {
 		t.Fatal(err)

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"slices"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 )
 
 // OCI instance lifecycle states the reconciler distinguishes. Every other
@@ -46,7 +48,7 @@ func (t Topology) Validate() error {
 // ServerName is the embedded NATS server name of slot. It is stable across
 // replacement attempts so a relaunched controller keeps its raft identity.
 // It must match natscell.ServerName; a test in app pins the two together.
-func (t Topology) ServerName(slot string) string { return t.Cell + "-" + slot }
+func (t Topology) ServerName(slot string) string { return naming.NATSServer(t.Cell, slot) }
 
 func (t Topology) quorum() int { return len(t.Slots)/2 + 1 }
 

@@ -11,9 +11,10 @@ import (
 	"fmt"
 	"maps"
 	"net/netip"
-	"regexp"
 	"slices"
 	"strings"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 )
 
 // DefaultManagementURL is the TerraScale NetBird manager.
@@ -139,9 +140,6 @@ func GRU() Desired {
 	}
 }
 
-// peerNamePattern is the static cell naming scheme <region>-<index>-<role>-<n>.
-var peerNamePattern = regexp.MustCompile(`^[a-z]{3}-[1-9][0-9]*-[a-z]+-[1-9][0-9]*$`)
-
 // PeerName is the stable NetBird peer name of a slot, e.g. gru-1-ctl-1.
 func (d Desired) PeerName(slot Slot) string { return d.Cell + "-" + slot.Name }
 
@@ -236,8 +234,8 @@ func (d Desired) Validate() error {
 		if err != nil || !ip.Is4() || ip.String() != slot.IP || seenIP[slot.IP] || seenName[slot.Name] || slot.Name == "" {
 			return fmt.Errorf("desired NetBird slot %q is invalid or repeated", slot.Name)
 		}
-		if name := d.PeerName(slot); !peerNamePattern.MatchString(name) {
-			return fmt.Errorf("desired NetBird peer name %q does not follow <region>-<index>-<role>-<n>", name)
+		if err := naming.Validate(d.PeerName(slot)); err != nil {
+			return fmt.Errorf("desired NetBird peer name: %w", err)
 		}
 		if !ip.IsPrivate() || !subnet.Contains(ip) {
 			return fmt.Errorf("desired NetBird slot %q address %s is not a private address inside the cell subnet %s", slot.Name, slot.IP, subnet)

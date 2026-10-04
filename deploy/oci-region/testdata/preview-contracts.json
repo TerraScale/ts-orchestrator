@@ -5013,7 +5013,7 @@
     },
     "fixture-0444": {
       "compartment-id": "ocid1.compartment.control",
-      "display-name": "controller-b",
+      "display-name": "gru-1-ctl-2",
       "id": "ocid1.instance.preview-1",
       "kind": "instance",
       "lifecycle-state": "RUNNING",
@@ -5026,7 +5026,7 @@
     },
     "fixture-0445": {
       "compartment-id": "ocid1.compartment.control",
-      "display-name": "controller-c",
+      "display-name": "gru-1-ctl-3",
       "id": "ocid1.instance.preview-2",
       "kind": "instance",
       "lifecycle-state": "RUNNING",
@@ -22456,7 +22456,7 @@
         "assignPublicIp": false,
         "availabilityDomain": "AD-1",
         "compartmentId": "ocid1.compartment.oc1..control",
-        "displayName": "ts-preview-gru-r6-controller-a",
+        "displayName": "gru-1-ctl-1",
         "faultDomain": "FAULT-DOMAIN-1",
         "freeformTags": {
           "BootstrapCreateKey": "seed-a-r6"

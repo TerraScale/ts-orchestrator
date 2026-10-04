@@ -82,6 +82,8 @@ type Attachment struct {
 // signed regional placement compute profile. Image, network, compartment, and
 // OCI region generation remain pinned by the region-bound Fleet configuration.
 type EnsureRequest struct {
+	// Name is the host's static member name from internal/naming, e.g. gru-1-db-1.
+	Name                   string
 	CreateKey              string
 	PrivateIP              string
 	FaultDomain            string
@@ -124,6 +126,8 @@ type VolumeAttachRequest struct {
 // VolumeCreateRequest defines one retained member data volume in the region
 // pinned by a Fleet. AvailabilityDomain may be empty to use the configured AD.
 type VolumeCreateRequest struct {
+	// Name is the volume's static name from internal/naming, e.g. gru-1-db-1-data.
+	Name               string
 	DatabaseID         string
 	PartitionID        string
 	MemberID           string
@@ -457,6 +461,7 @@ type CloudBootAttachment struct {
 // provider. It cannot specify a different endpoint or compartment than the
 // Fleet's RegionConfig.
 type LaunchRequest struct {
+	DisplayName            string
 	CreateKey              string
 	PrivateIP              string
 	Node                   string

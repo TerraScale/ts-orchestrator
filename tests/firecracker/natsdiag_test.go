@@ -391,9 +391,9 @@ func TestDiagnosticTopologyUsesControllerSlotAndRouteOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantEndpoints := []string{"tls://10.251.0.11:4222", "tls://10.251.0.12:4222", "tls://10.251.0.13:4222"}
-	wantMembers := []string{"gru-controller-a", "gru-controller-b", "gru-controller-c"}
+	wantMembers := []string{"gru-1-ctl-1", "gru-1-ctl-2", "gru-1-ctl-3"}
 	if !slices.Equal(topology.endpoints, wantEndpoints) || !slices.Equal(topology.memberNames, wantMembers) ||
-		topology.localMember != "gru-controller-b" || !topology.managed {
+		topology.localMember != "gru-1-ctl-2" || !topology.managed {
 		t.Fatalf("controller topology = %#v", topology)
 	}
 	config.NATS.Embedded.Routes[0] = "nats-route://127.0.0.1:6222"
@@ -417,36 +417,36 @@ func TestDiagnosticFormationStatusesAndReplicaReadiness(t *testing.T) {
 	}
 
 	info := &jetstream.StreamInfo{Config: jetstream.StreamConfig{Replicas: 3}, Cluster: &jetstream.ClusterInfo{
-		Name: "gru", Leader: "gru-controller-a", Replicas: []*jetstream.PeerInfo{
-			{Name: "gru-controller-b", Current: true}, {Name: "gru-controller-c", Current: true},
+		Name: "gru", Leader: "gru-1-ctl-1", Replicas: []*jetstream.PeerInfo{
+			{Name: "gru-1-ctl-2", Current: true}, {Name: "gru-1-ctl-3", Current: true},
 		},
 	}}
 	steady := formationExpectation{cell: "gru", replicas: 3, phase: "steady",
-		members:         []string{"gru-controller-a", "gru-controller-b", "gru-controller-c"},
-		connectedMember: "gru-controller-a"}
+		members:         []string{"gru-1-ctl-1", "gru-1-ctl-2", "gru-1-ctl-3"},
+		connectedMember: "gru-1-ctl-1"}
 	if assessment := assessStream(info, steady); assessment["ready"] != true {
 		t.Fatalf("healthy R3 stream readiness = %v", assessment)
 	}
 
 	outage := steady
 	outage.phase = "controller-outage"
-	outage.missingMember = "gru-controller-a"
-	outage.connectedMember = "gru-controller-b"
-	info.Cluster.Leader = "gru-controller-b"
-	info.Cluster.Replicas[0] = &jetstream.PeerInfo{Name: "gru-controller-a", Offline: true}
+	outage.missingMember = "gru-1-ctl-1"
+	outage.connectedMember = "gru-1-ctl-2"
+	info.Cluster.Leader = "gru-1-ctl-2"
+	info.Cluster.Replicas[0] = &jetstream.PeerInfo{Name: "gru-1-ctl-1", Offline: true}
 	info.Cluster.Replicas[1].Current = false
 	if assessment := assessStream(info, outage); assessment["ready"] != true {
 		t.Fatalf("surviving quorum required every follower current: %v", assessment)
 	}
-	info.Cluster.Replicas[1] = &jetstream.PeerInfo{Name: "gru-controller-c", Pending: true}
+	info.Cluster.Replicas[1] = &jetstream.PeerInfo{Name: "gru-1-ctl-3", Pending: true}
 	if assessment := assessStream(info, outage); assessment["ready"] == true {
 		t.Fatalf("pending follower counted toward the surviving quorum: %v", assessment)
 	}
-	info.Cluster.Replicas[1] = &jetstream.PeerInfo{Name: "gru-controller-c", Current: false}
-	if serverMatchesExpectation(map[string]string{"id": "id-b", "name": "gru-controller-a", "cluster": "gru"}, outage) {
+	info.Cluster.Replicas[1] = &jetstream.PeerInfo{Name: "gru-1-ctl-3", Current: false}
+	if serverMatchesExpectation(map[string]string{"id": "id-b", "name": "gru-1-ctl-1", "cluster": "gru"}, outage) {
 		t.Fatal("controller-outage accepted the offline controller identity")
 	}
-	if !serverMatchesExpectation(map[string]string{"id": "id-b", "name": "gru-controller-b", "cluster": "gru"}, outage) {
+	if !serverMatchesExpectation(map[string]string{"id": "id-b", "name": "gru-1-ctl-2", "cluster": "gru"}, outage) {
 		t.Fatal("controller-outage rejected a surviving controller identity")
 	}
 
@@ -468,20 +468,20 @@ func TestDiagnosticFormationStatusesAndReplicaReadiness(t *testing.T) {
 func TestDiagnosticEndpointMappingsRequireCompleteAndExactCoverage(t *testing.T) {
 	topology := &diagnosticTopology{
 		endpoints:   []string{"tls://10.251.0.11:4222", "tls://10.251.0.12:4222", "tls://10.251.0.13:4222"},
-		memberNames: []string{"gru-controller-a", "gru-controller-b", "gru-controller-c"},
+		memberNames: []string{"gru-1-ctl-1", "gru-1-ctl-2", "gru-1-ctl-3"},
 		endpointNames: map[string]string{
-			"tls://10.251.0.11:4222": "gru-controller-a",
-			"tls://10.251.0.12:4222": "gru-controller-b",
-			"tls://10.251.0.13:4222": "gru-controller-c",
+			"tls://10.251.0.11:4222": "gru-1-ctl-1",
+			"tls://10.251.0.12:4222": "gru-1-ctl-2",
+			"tls://10.251.0.13:4222": "gru-1-ctl-3",
 		},
-		localEndpoint: "10.251.0.12:4222", localMember: "gru-controller-b",
+		localEndpoint: "10.251.0.12:4222", localMember: "gru-1-ctl-2",
 	}
 	if _, _, err := mapTopologyDiagnosticEndpoints(topology.endpoints[:1], topology,
 		topology.memberNames, "steady"); err == nil {
 		t.Fatal("steady topology accepted only a subset of controller endpoints")
 	}
 	if _, _, err := mapTopologyDiagnosticEndpoints(topology.endpoints, topology,
-		[]string{"gru-controller-a", "gru-controller-c", "gru-controller-b"}, "recovered"); err == nil {
+		[]string{"gru-1-ctl-1", "gru-1-ctl-3", "gru-1-ctl-2"}, "recovered"); err == nil {
 		t.Fatal("topology accepted members in an order different from broker slots")
 	}
 	if _, _, err := mapTopologyDiagnosticEndpoints([]string{
@@ -494,7 +494,7 @@ func TestDiagnosticEndpointMappingsRequireCompleteAndExactCoverage(t *testing.T)
 		topology.endpoints[0], topology.endpoints[2],
 	}, topology, topology.memberNames, "controller-outage")
 	if err != nil || len(forwarded) != 2 || !slices.Equal(responding,
-		[]string{"gru-controller-a", "gru-controller-c"}) {
+		[]string{"gru-1-ctl-1", "gru-1-ctl-3"}) {
 		t.Fatalf("valid outage endpoint mapping = %v, %v, %v", forwarded, responding, err)
 	}
 

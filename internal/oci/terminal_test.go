@@ -36,7 +36,7 @@ func terminalFixture(t *testing.T) (*fleet, *fakeProvider, *fakeJournal, *fakeFe
 		}
 		dataKey := terminalDigestToken("tv", intent.DatabaseID, intent.PartitionID, intent.Region, seat)
 		volume, err := fleet.CreateRetainedVolume(t.Context(), VolumeCreateRequest{
-			DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
+			Name: "gru-1-db-1-data", DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
 			MemberID: seat, CreateKey: dataKey, SizeGB: 50,
 		})
 		if err != nil {

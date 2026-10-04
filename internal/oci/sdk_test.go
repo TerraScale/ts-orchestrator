@@ -50,7 +50,7 @@ func TestTerminalSDKDeletesUseExactIfMatchAndPreserveBoot(t *testing.T) {
 func TestLaunchInstanceMapsSignedProfileIntoOCIRequest(t *testing.T) {
 	config, _ := testRegionConfig()
 	request := LaunchRequest{
-		CreateKey: "sdk-shape-config", PrivateIP: "10.251.0.21", Node: hostNode(config, "sdk-shape-config"), RetryToken: "retry-token-sdk-shape-config",
+		DisplayName: "gru-1-db-1", CreateKey: "sdk-shape-config", PrivateIP: "10.251.0.21", Node: hostNode(config, "sdk-shape-config"), RetryToken: "retry-token-sdk-shape-config",
 		FaultDomain: "FAULT-DOMAIN-1", Shape: config.Shape, WholeOCPUs: 2, MemoryInGBs: 12,
 		PlacementProfileDigest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		PlacementGeneration:    9,
@@ -110,7 +110,7 @@ func TestLaunchInstanceMapsSignedProfileIntoOCIRequest(t *testing.T) {
 	if details.FreeformTags[tagManagedBy] != managedByValue {
 		t.Fatalf("launch lost the caller's non-profile resource tags: %v", details.FreeformTags)
 	}
-	if details.DisplayName == nil || *details.DisplayName != config.Owner+"-"+request.Node ||
+	if details.DisplayName == nil || *details.DisplayName != request.DisplayName ||
 		details.CreateVnicDetails == nil || details.CreateVnicDetails.AssignPublicIp == nil ||
 		*details.CreateVnicDetails.AssignPublicIp || details.CreateVnicDetails.PrivateIp == nil ||
 		*details.CreateVnicDetails.PrivateIp != request.PrivateIP ||

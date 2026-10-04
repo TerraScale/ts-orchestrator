@@ -58,6 +58,59 @@ func TestEnsureHostRecoversLostLaunchResponse(t *testing.T) {
 	}
 }
 
+// A release re-signs the fleet under a new owner and generation, and the
+// replacement host gets a new create key and node. The fleet launches the
+// caller's static name unchanged and keeps the release identity in the tags;
+// placement's side is TestPlacementLaunchNameIsStableAcrossReleases.
+func TestEnsureHostKeepsStaticNameAcrossReleases(t *testing.T) {
+	var launches []LaunchRequest
+	for i, owner := range []string{"ts-preview-gru-20260929-r4", "ts-preview-gru-20261004-r5"} {
+		config, intent := testRegionConfig()
+		intent.Generation += uint64(i)
+		config.Owner, config.Generation = owner, intent.Generation
+		provider := newFakeProvider(config)
+		fleet, err := newTestFleet(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fleet.EnsureHost(t.Context(), testEnsureRequest(fmt.Sprintf("node-release-%d", i))); err != nil {
+			t.Fatal(err)
+		}
+		launches = append(launches, provider.launchRequests[0])
+	}
+	before, after := launches[0], launches[1]
+	if before.DisplayName != "gru-1-db-1" || after.DisplayName != before.DisplayName ||
+		before.Node == after.Node || before.FreeformTags[tagOwner] != "ts-preview-gru-20260929-r4" ||
+		after.FreeformTags[tagOwner] != "ts-preview-gru-20261004-r5" || after.FreeformTags[tagGeneration] != "8" {
+		t.Fatalf("release changed the host name or lost its tagged identity: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestFleetRejectsNamesOutsideItsCellBeforeAnyEffect(t *testing.T) {
+	config, intent := testRegionConfig()
+	provider := newFakeProvider(config)
+	fleet, err := newTestFleet(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"", "orchestrator-host-0123456789abcdef01234567", "gru-controller-a", "gru-1-ctl-1", "sfo-1-db-1", "gru-1-db-1-data"} {
+		request := testEnsureRequest("node-bad-name")
+		request.Name = name
+		if _, err := fleet.EnsureHost(t.Context(), request); err == nil {
+			t.Fatalf("host name %q was accepted", name)
+		}
+	}
+	for _, name := range []string{"", "ts-member-data-0123456789ab", "gru-1-db-1", "sfo-1-db-1-data"} {
+		request := VolumeCreateRequest{Name: name, DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-bad-name", SizeGB: 50}
+		if _, err := fleet.CreateRetainedVolume(t.Context(), request); err == nil {
+			t.Fatalf("volume name %q was accepted", name)
+		}
+	}
+	if provider.launchCalls != 0 || provider.volumeCreateCalls != 0 {
+		t.Fatalf("an out-of-scheme name reached OCI: launches=%d volumes=%d", provider.launchCalls, provider.volumeCreateCalls)
+	}
+}
+
 func TestEnsureHostHoldsChangedBootPinsAndImageAcrossRetry(t *testing.T) {
 	config, regionIntent := testRegionConfig()
 	provider := newFakeProvider(config)
@@ -158,7 +211,7 @@ func TestEnsureHostRejectsMissingSignedComputeProfileBeforePersistence(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = fleet.EnsureHost(t.Context(), EnsureRequest{CreateKey: "node-unsigned", PrivateIP: "10.251.0.21", FaultDomain: "FAULT-DOMAIN-1"})
+	_, err = fleet.EnsureHost(t.Context(), EnsureRequest{Name: "gru-1-db-1", CreateKey: "node-unsigned", PrivateIP: "10.251.0.21", FaultDomain: "FAULT-DOMAIN-1"})
 	if !errors.Is(err, ErrPlacementProfileMismatch) {
 		t.Fatalf("missing signed profile was not held: %v", err)
 	}
@@ -419,7 +472,7 @@ func TestCreateRetainedVolumeHoldsExpiredUnknownWithoutProviderCall(t *testing.T
 		t.Fatal(err)
 	}
 
-	_, err = fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: operation.CreateKey, SizeGB: operation.SizeGB})
+	_, err = fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: operation.CreateKey, SizeGB: operation.SizeGB})
 	if !errors.Is(err, ErrCreateRecoveryHold) {
 		t.Fatalf("expired unknown volume create was not held for operator reconciliation: %v", err)
 	}
@@ -450,7 +503,7 @@ func TestCreateRetainedVolumeHoldsExpiredUnconfirmedIntentWithoutProviderCall(t 
 		t.Fatal(err)
 	}
 
-	_, err = fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: operation.CreateKey, SizeGB: operation.SizeGB})
+	_, err = fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: operation.CreateKey, SizeGB: operation.SizeGB})
 	if !errors.Is(err, ErrCreateRecoveryHold) {
 		t.Fatalf("expired unconfirmed volume create was not held for operator reconciliation: %v", err)
 	}
@@ -499,7 +552,7 @@ func TestConfirmedMissingVolumeRequiresOperatorReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := VolumeCreateRequest{DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "volume-confirmed-missing", SizeGB: 50}
+	request := VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "volume-confirmed-missing", SizeGB: 50}
 	created, err := fleet.CreateRetainedVolume(ctx, request)
 	if err != nil {
 		t.Fatal(err)
@@ -569,7 +622,7 @@ func TestCreateRetainedVolumeRecoversLostResponseAndIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	request := VolumeCreateRequest{DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-volume-create-01", SizeGB: 50}
+	request := VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-volume-create-01", SizeGB: 50}
 	created, err := fleet.CreateRetainedVolume(ctx, request)
 	if err != nil {
 		t.Fatalf("CreateRetainedVolume after lost response: %v", err)
@@ -614,7 +667,7 @@ func TestCreateRetainedVolumeRejectsForeignScopeAndDuplicateCreateKeys(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-volume-foreign", SizeGB: 50}); !errors.Is(err, ErrForeignResource) {
+	if _, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-volume-foreign", SizeGB: 50}); !errors.Is(err, ErrForeignResource) {
 		t.Fatalf("foreign tagged volume was not refused: %v", err)
 	}
 	if provider.volumeCreates != 0 {
@@ -627,13 +680,13 @@ func TestCreateRetainedVolumeRejectsForeignScopeAndDuplicateCreateKeys(t *testin
 	provider.volumes["ocid1.volume.seeded"] = CloudVolume{
 		ID: "ocid1.volume.seeded", CompartmentID: config.CompartmentID,
 		AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50, VPUsPerGB: 10, LifecycleState: "AVAILABLE",
-		FreeformTags: volumeTags(config, VolumeCreateRequest{DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: key, SizeGB: 50}),
+		FreeformTags: volumeTags(config, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: key, SizeGB: 50}),
 	}
 	fleet, err = newTestFleet(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: key, SizeGB: 50}); !errors.Is(err, ErrRetainedVolumeUnknown) {
+	if _, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: key, SizeGB: 50}); !errors.Is(err, ErrRetainedVolumeUnknown) {
 		t.Fatalf("unowned matching-tag volume was adopted instead of refused: %v", err)
 	}
 	if provider.volumeCreates != 0 {
@@ -647,14 +700,14 @@ func TestCreateRetainedVolumeRejectsForeignScopeAndDuplicateCreateKeys(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-volume-duplicate", SizeGB: 64})
+	created, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-volume-duplicate", SizeGB: 64})
 	if err != nil {
 		t.Fatal(err)
 	}
 	duplicate := provider.volumes[created.ID]
 	duplicate.ID = "ocid1.volume.duplicate"
 	provider.volumes[duplicate.ID] = duplicate
-	if _, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-volume-duplicate", SizeGB: 64}); !errors.Is(err, ErrDuplicateCreateKey) {
+	if _, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-volume-duplicate", SizeGB: 64}); !errors.Is(err, ErrDuplicateCreateKey) {
 		t.Fatalf("duplicate create key selected an arbitrary volume: %v", err)
 	}
 }
@@ -672,7 +725,7 @@ func TestCreateRetainedVolumeRejectsObservedPerformanceTierDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = fleet.CreateRetainedVolume(t.Context(), VolumeCreateRequest{DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "tier-drift", SizeGB: 50})
+	_, err = fleet.CreateRetainedVolume(t.Context(), VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "tier-drift", SizeGB: 50})
 	if !errors.Is(err, ErrForeignResource) {
 		t.Fatalf("retained volume with unbudgeted tier was accepted: %v", err)
 	}
@@ -686,7 +739,7 @@ func TestCreateRetainedVolumeEnforcesFleetSizeCeilingBeforeOCI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fleet.CreateRetainedVolume(t.Context(), VolumeCreateRequest{DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "oversize-preview", SizeGB: 51}); err == nil {
+	if _, err := fleet.CreateRetainedVolume(t.Context(), VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "oversize-preview", SizeGB: 51}); err == nil {
 		t.Fatal("volume above the preview fleet ceiling reached creation")
 	}
 	if provider.volumeCreateCalls != 0 {
@@ -703,8 +756,8 @@ func TestCreateRetainedVolumePinsProfileBeforeMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, request := range []VolumeCreateRequest{
-		{DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "too-small", SizeGB: 49},
-		{DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "wrong-ad", SizeGB: 50, AvailabilityDomain: "another-AD"},
+		{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "too-small", SizeGB: 49},
+		{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "wrong-ad", SizeGB: 50, AvailabilityDomain: "another-AD"},
 	} {
 		if _, err := fleet.CreateRetainedVolume(ctx, request); err == nil {
 			t.Fatalf("invalid volume profile was accepted: %+v", request)
@@ -728,7 +781,7 @@ func TestCreateRetainedVolumeDoesNotReplayAfterAuthorityIsFenced(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-volume-fenced-retry", SizeGB: 50})
+	_, err = fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-volume-fenced-retry", SizeGB: 50})
 	if !errors.Is(err, authority.ErrFenced) || !errors.Is(err, ErrOutcomeUnknown) {
 		t.Fatalf("lost response was replayed after authority fencing: %v", err)
 	}
@@ -748,7 +801,7 @@ func TestCreateRetainedVolumeKeepsUnconfirmedOutcomeUnowned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := VolumeCreateRequest{DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-volume-unconfirmed", SizeGB: 50}
+	request := VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-volume-unconfirmed", SizeGB: 50}
 	if _, err := fleet.CreateRetainedVolume(ctx, request); !errors.Is(err, ErrOutcomeUnknown) {
 		t.Fatalf("ambiguous provider outcome was not held: %v", err)
 	}
@@ -1097,7 +1150,7 @@ func TestRetainedVolumeOperationsHoldWithoutImageVerifier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := nilVerifierFleet.CreateRetainedVolume(ctx, VolumeCreateRequest{DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "no-qualification", SizeGB: 50}); !errors.Is(err, ErrImageQualificationUnavailable) {
+	if _, err := nilVerifierFleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "no-qualification", SizeGB: 50}); !errors.Is(err, ErrImageQualificationUnavailable) {
 		t.Fatalf("volume creation without image evidence was not held: %v", err)
 	}
 	if _, err := nilVerifierFleet.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main",
@@ -1417,7 +1470,7 @@ func TestObserveWithholdsOnlyUnverifiedRetainedVolumeHost(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			owned, err := setup.CreateRetainedVolume(ctx, VolumeCreateRequest{DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "observe-attachment-volume", SizeGB: 50})
+			owned, err := setup.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "observe-attachment-volume", SizeGB: 50})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1548,7 +1601,7 @@ func testRegionConfig() (RegionConfig, RegionIntent) {
 
 func testEnsureRequest(createKey string) EnsureRequest {
 	return EnsureRequest{
-		CreateKey: createKey, PrivateIP: "10.251.0.21", FaultDomain: "FAULT-DOMAIN-1", Shape: "VM.Standard.E5.Flex",
+		Name: "gru-1-db-1", CreateKey: createKey, PrivateIP: "10.251.0.21", FaultDomain: "FAULT-DOMAIN-1", Shape: "VM.Standard.E5.Flex",
 		WholeOCPUs: 1, MemoryInGBs: 6, PlacementProfileDigest: strings.Repeat("a", 64), PlacementGeneration: 3,
 		BootPins: HostBootPins{
 			DatabaseID: "db-main", PartitionID: "partition-main", SeatID: "permanent-gru",
@@ -1564,7 +1617,7 @@ func ensureRequestForIntent(intent OperationIntent) EnsureRequest {
 		panic(err)
 	}
 	return EnsureRequest{
-		CreateKey: intent.CreateKey, PrivateIP: intent.PrivateIP, FaultDomain: intent.FaultDomain, Shape: intent.Shape,
+		Name: "gru-1-db-1", CreateKey: intent.CreateKey, PrivateIP: intent.PrivateIP, FaultDomain: intent.FaultDomain, Shape: intent.Shape,
 		WholeOCPUs: intent.WholeOCPUs, MemoryInGBs: intent.MemoryInGBs,
 		PlacementProfileDigest: intent.PlacementProfileDigest, PlacementGeneration: intent.PlacementGeneration,
 		BootPins: HostBootPins{
@@ -1991,7 +2044,7 @@ func newAttachTestState(t *testing.T) (RegionConfig, *fakeProvider, *fakeJournal
 	if err != nil {
 		t.Fatal(err)
 	}
-	volume, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "attach-test-volume", SizeGB: 50})
+	volume, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "attach-test-volume", SizeGB: 50})
 	if err != nil {
 		t.Fatal(err)
 	}

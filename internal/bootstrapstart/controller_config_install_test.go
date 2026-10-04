@@ -19,7 +19,7 @@ func TestVerifyControllerConfigInstallBindsSignedEnvelopeAndOCIInstance(t *testi
 			Environment: gate.Expected.Environment, Cell: gate.Expected.Cell}}
 	manifest, observed, err := VerifyControllerConfigInstall(t.Context(), baked, wire,
 		gate.Descriptor, gate.Instances, *fixture.now)
-	if err != nil || manifest.Slot != "broker-a" || observed.InstanceOCID == "" {
+	if err != nil || manifest.Slot != "controller-b" || observed.InstanceOCID == "" {
 		t.Fatalf("valid signed controller install proof rejected: manifest=%+v observed=%+v err=%v", manifest, observed, err)
 	}
 	tampered := bytes.Clone(wire)
@@ -32,7 +32,7 @@ func TestVerifyControllerConfigInstallBindsSignedEnvelopeAndOCIInstance(t *testi
 	}{
 		{name: "tampered envelope", wire: tampered, descriptor: gate.Descriptor, observer: gate.Instances},
 		{name: "wrong slot", wire: wire, descriptor: fixedDescriptor{slot: "wrong-slot", instance: observed.InstanceOCID}, observer: gate.Instances},
-		{name: "wrong instance", wire: wire, descriptor: fixedDescriptor{slot: "broker-a", instance: "ocid1.instance.oc1.sa-saopaulo-1.wrong"}, observer: gate.Instances},
+		{name: "wrong instance", wire: wire, descriptor: fixedDescriptor{slot: "controller-b", instance: "ocid1.instance.oc1.sa-saopaulo-1.wrong"}, observer: gate.Instances},
 		{name: "wrong image", wire: wire, descriptor: gate.Descriptor, observer: fakeInstanceObserver{func() InstanceObservation {
 			changed := observed
 			changed.ImageOCID = "ocid1.image.oc1.sa-saopaulo-1.wrong"

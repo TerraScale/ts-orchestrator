@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
@@ -1540,8 +1541,13 @@ func (fake *founderFakeOCI) LaunchInstance(_ context.Context, request core.Launc
 	if request.DisplayName == nil || request.OpcRetryToken == nil {
 		return core.LaunchInstanceResponse{}, errors.New("unpinned founder launch")
 	}
-	row, ok := fake.rows[*request.DisplayName]
-	if !ok {
+	var row bootstrap.FounderPeerRow
+	for slot, candidate := range fake.rows {
+		if name, _ := naming.RegionCell("GRU").ControllerSlot(slot); name == *request.DisplayName {
+			row = candidate
+		}
+	}
+	if row.Slot == "" {
 		return core.LaunchInstanceResponse{}, errors.New("unknown founder slot")
 	}
 	fake.launches++

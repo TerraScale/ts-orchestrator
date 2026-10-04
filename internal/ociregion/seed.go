@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 )
 
 var seedFields = []string{"schema_version", "slot", "shape", "ocpus", "memory_gb", "boot_gb", "boot_vpus_per_gb", "assign_public_ip", "compartment_id", "availability_domain", "fault_domain", "subnet_id", "network_security_group_ids", "image_id", "anchor_sha256", "manifest_sha256", "image_receipt_sha256", "admission_sha256", "inventory_sha256", "admission_admitted_at", "admission_expires_at", "monthly_estimate_usd", "create_identity"}
@@ -112,8 +114,7 @@ func (e *Engine) seedLaunch(plan Object, reviewedPath, manifestPath, identityPat
 	identity := launchMaterial(identityPath, "bootstrap identity")
 	var id Object
 	must(true, json.Unmarshal([]byte(identity), &id))
-	deployment := id["deploymentId"]
-	if !safeMatch(`[A-Za-z0-9][A-Za-z0-9._:-]{0,127}`, deployment) {
+	if !safeMatch(`[A-Za-z0-9][A-Za-z0-9._:-]{0,127}`, id["deploymentId"]) {
 		fail("bootstrap identity has an invalid deployment ID")
 	}
 	var host Object
@@ -134,14 +135,24 @@ func (e *Engine) seedLaunch(plan Object, reviewedPath, manifestPath, identityPat
 	if size > 32000 {
 		fail("controller-a launch metadata exceeds the OCI instance metadata limit")
 	}
-	return SeedLaunchDocument(reviewed, host, str(deployment), metadata)
+	return SeedLaunchDocument(reviewed, host, controllerName(plan, "controller-a"), metadata)
+}
+
+// controllerName is a controller slot's static name in the plan's cell, e.g.
+// gru-1-ctl-1. The deployment ID stays in the identity launch metadata.
+func controllerName(plan Object, slot string) string {
+	name, err := naming.RegionCell(str(plan["cell"])).ControllerSlot(slot)
+	if err != nil {
+		fail("plan cell has no static controller name: " + err.Error())
+	}
+	return name
 }
 
 // SeedLaunchDocument is the controller-a launch input `preview seed-launch`
 // writes. internal/attempt decodes it strictly, so its members are pinned by
 // a round-trip test there.
-func SeedLaunchDocument(reviewed, host Object, deployment string, metadata Object) Object {
-	return Object{"availabilityDomain": reviewed["availability_domain"], "faultDomain": reviewed["fault_domain"], "compartmentId": reviewed["compartment_id"], "displayName": deployment + "-controller-a", "shape": reviewed["shape"], "shapeConfig": Object{"ocpus": reviewed["ocpus"], "memoryInGBs": reviewed["memory_gb"]}, "sourceDetails": Object{"sourceType": "image", "imageId": reviewed["image_id"], "bootVolumeSizeInGBs": reviewed["boot_gb"], "bootVolumeVpusPerGB": reviewed["boot_vpus_per_gb"]}, "subnetId": reviewed["subnet_id"], "privateIp": host["private_ip"], "nsgIds": reviewed["network_security_group_ids"], "assignPublicIp": reviewed["assign_public_ip"], "metadata": metadata, "freeformTags": Object{"BootstrapCreateKey": reviewed["create_identity"]}}
+func SeedLaunchDocument(reviewed, host Object, name string, metadata Object) Object {
+	return Object{"availabilityDomain": reviewed["availability_domain"], "faultDomain": reviewed["fault_domain"], "compartmentId": reviewed["compartment_id"], "displayName": name, "shape": reviewed["shape"], "shapeConfig": Object{"ocpus": reviewed["ocpus"], "memoryInGBs": reviewed["memory_gb"]}, "sourceDetails": Object{"sourceType": "image", "imageId": reviewed["image_id"], "bootVolumeSizeInGBs": reviewed["boot_gb"], "bootVolumeVpusPerGB": reviewed["boot_vpus_per_gb"]}, "subnetId": reviewed["subnet_id"], "privateIp": host["private_ip"], "nsgIds": reviewed["network_security_group_ids"], "assignPublicIp": reviewed["assign_public_ip"], "metadata": metadata, "freeformTags": Object{"BootstrapCreateKey": reviewed["create_identity"]}}
 }
 func verifiedPrefix(plan, ids, anchor, manifest Object, namespace string) string {
 	domain := obj(anchor["storageDomain"])

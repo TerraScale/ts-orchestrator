@@ -40,7 +40,7 @@ func TestRefoundGuardReFoundsOneSlotAtATime(t *testing.T) {
 	if err := guard.Admit("gru", "controller-b", completeLedger()); err != nil {
 		t.Fatalf("first refound refused: %v", err)
 	}
-	if err := guard.Begin(RefoundPending{Cell: "gru", Slot: "controller-b", ServerName: "gru-controller-b",
+	if err := guard.Begin(RefoundPending{Cell: "gru", Slot: "controller-b", ServerName: "gru-1-ctl-2",
 		Attempt: 2, StartedAt: now}); err != nil {
 		t.Fatal(err)
 	}
@@ -63,34 +63,34 @@ func TestRefoundGuardReFoundsOneSlotAtATime(t *testing.T) {
 	if err := guard.Admit("gru", "controller-c", ledger); err == nil || !strings.Contains(err.Error(), "not current yet") {
 		t.Fatalf("second slot without health: %v", err)
 	}
-	writeHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: "gru-controller-a",
-		Online:  []string{"gru-controller-a", "gru-controller-b"},
-		Lagging: []clusterhealth.LaggingPeer{{Name: "gru-controller-b", Lag: 900}}})
+	writeHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: "gru-1-ctl-1",
+		Online:  []string{"gru-1-ctl-1", "gru-1-ctl-2"},
+		Lagging: []clusterhealth.LaggingPeer{{Name: "gru-1-ctl-2", Lag: 900}}})
 	if err := guard.Admit("gru", "controller-c", ledger); err == nil || !strings.Contains(err.Error(), "catching up") {
 		t.Fatalf("second slot while b lags: %v", err)
 	}
 	stale := now.Add(-2 * RefoundHealthFreshness)
-	writeHealth(t, guard, clusterhealth.Status{ObservedAt: stale, MetaLeader: "gru-controller-a",
-		Online: []string{"gru-controller-a", "gru-controller-b"}})
+	writeHealth(t, guard, clusterhealth.Status{ObservedAt: stale, MetaLeader: "gru-1-ctl-1",
+		Online: []string{"gru-1-ctl-1", "gru-1-ctl-2"}})
 	if err := guard.Admit("gru", "controller-c", ledger); err == nil || !strings.Contains(err.Error(), "last observed") {
 		t.Fatalf("second slot on stale health: %v", err)
 	}
 	// Online and not lagging is not caught up without positive evidence.
-	writeHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: "gru-controller-a",
-		Online: []string{"gru-controller-a", "gru-controller-b"}, Missing: []string{"gru-controller-c"}})
+	writeHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: "gru-1-ctl-1",
+		Online: []string{"gru-1-ctl-1", "gru-1-ctl-2"}, Missing: []string{"gru-1-ctl-3"}})
 	if err := guard.Admit("gru", "controller-c", ledger); err == nil || !strings.Contains(err.Error(), "zero lag") {
 		t.Fatalf("second slot without positive catch-up evidence: %v", err)
 	}
 	// A fresh view observed before b's relaunch began says nothing about
 	// the successor that reuses its server name.
-	writeHealth(t, guard, clusterhealth.Status{ObservedAt: now.Add(-time.Second), MetaLeader: "gru-controller-a",
-		Online: []string{"gru-controller-a", "gru-controller-b"}, CaughtUp: []string{"gru-controller-b"}})
+	writeHealth(t, guard, clusterhealth.Status{ObservedAt: now.Add(-time.Second), MetaLeader: "gru-1-ctl-1",
+		Online: []string{"gru-1-ctl-1", "gru-1-ctl-2"}, CaughtUp: []string{"gru-1-ctl-2"}})
 	if err := guard.Admit("gru", "controller-c", ledger); err == nil || !strings.Contains(err.Error(), "last observed") {
 		t.Fatalf("second slot on a view from before the relaunch: %v", err)
 	}
-	writeHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: "gru-controller-a",
-		Online: []string{"gru-controller-a", "gru-controller-b"}, CaughtUp: []string{"gru-controller-b"},
-		Missing: []string{"gru-controller-c"}})
+	writeHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: "gru-1-ctl-1",
+		Online: []string{"gru-1-ctl-1", "gru-1-ctl-2"}, CaughtUp: []string{"gru-1-ctl-2"},
+		Missing: []string{"gru-1-ctl-3"}})
 	if err := guard.Admit("gru", "controller-c", ledger); err != nil {
 		t.Fatalf("second slot after b is current: %v", err)
 	}
@@ -102,13 +102,13 @@ func TestRefoundGuardReFoundsOneSlotAtATime(t *testing.T) {
 func TestRefoundGuardWaitsUntilTheSlotIsCurrent(t *testing.T) {
 	now := time.Now().UTC()
 	guard := testRefoundGuard(t, &now)
-	pending := RefoundPending{Cell: "gru", Slot: "controller-b", ServerName: "gru-controller-b",
+	pending := RefoundPending{Cell: "gru", Slot: "controller-b", ServerName: "gru-1-ctl-2",
 		Attempt: 2, StartedAt: now}
 	if err := guard.Begin(pending); err != nil {
 		t.Fatal(err)
 	}
-	writeHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: "gru-controller-a",
-		Online: []string{"gru-controller-a"}, Missing: []string{"gru-controller-b"}})
+	writeHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: "gru-1-ctl-1",
+		Online: []string{"gru-1-ctl-1"}, Missing: []string{"gru-1-ctl-2"}})
 	var out bytes.Buffer
 	if err := guard.WaitCurrent(t.Context(), pending, time.Millisecond, 0, &out); err == nil ||
 		!strings.Contains(err.Error(), "has not joined") {
@@ -122,8 +122,8 @@ func TestRefoundGuardWaitsUntilTheSlotIsCurrent(t *testing.T) {
 		done <- guard.WaitCurrent(context.Background(), pending, time.Millisecond, time.Hour, &out)
 	}()
 	time.Sleep(20 * time.Millisecond)
-	writeHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: "gru-controller-a",
-		Online: []string{"gru-controller-a", "gru-controller-b"}, CaughtUp: []string{"gru-controller-b"}})
+	writeHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: "gru-1-ctl-1",
+		Online: []string{"gru-1-ctl-1", "gru-1-ctl-2"}, CaughtUp: []string{"gru-1-ctl-2"}})
 	select {
 	case err := <-done:
 		if err != nil {
@@ -135,7 +135,7 @@ func TestRefoundGuardWaitsUntilTheSlotIsCurrent(t *testing.T) {
 	if _, err := os.Stat(guard.PendingPath); !os.IsNotExist(err) {
 		t.Fatalf("pending record survived: %v", err)
 	}
-	if !strings.Contains(out.String(), "waiting for gru-controller-b") {
+	if !strings.Contains(out.String(), "waiting for gru-1-ctl-2") {
 		t.Fatalf("progress = %q", out.String())
 	}
 }

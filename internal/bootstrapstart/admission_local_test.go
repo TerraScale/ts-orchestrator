@@ -31,7 +31,7 @@ func TestLocalRestartAdmissionNeedsNoOCIOrClock(t *testing.T) {
 	}
 
 	other := local
-	other.Descriptor = fixedDescriptor{slot: "broker-a", instance: "ocid1.instance.oc1.sa-saopaulo-1.other"}
+	other.Descriptor = fixedDescriptor{slot: "controller-b", instance: "ocid1.instance.oc1.sa-saopaulo-1.other"}
 	if _, err := other.AdmitRestartLocal(t.Context(), manifestWire); !errors.Is(err, ErrAdmission) {
 		t.Fatalf("a different VM passed local restart admission: %v", err)
 	}

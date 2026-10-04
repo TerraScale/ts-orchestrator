@@ -87,7 +87,7 @@ func TestFounderOCIProjectionUsesPinnedFlexNetworkImageAndBootTier(t *testing.T)
 	row := request.Row
 	if value(sdk.AvailabilityDomain) != row.AvailabilityDomain || value(sdk.CompartmentId) != row.CompartmentOCID ||
 		value(sdk.FaultDomain) != row.FaultDomain || value(sdk.Shape) != row.Shape ||
-		value(sdk.OpcRetryToken) != request.RetryToken || value(sdk.DisplayName) != request.Slot {
+		value(sdk.OpcRetryToken) != request.RetryToken || value(sdk.DisplayName) != "gru-1-ctl-2" {
 		t.Fatalf("launch request omitted signed placement, shape, or retry token: %+v", sdk)
 	}
 	if sdk.RequestMetadata.RetryPolicy == nil || sdk.RequestMetadata.RetryPolicy.MaximumNumberAttempts != 1 ||

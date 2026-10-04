@@ -179,7 +179,7 @@ func TestNonSeedLeaderRoutesReplacementToTheSeed(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The local slot is c, so the lost peer b is routed to the seed a.
-	cell.meta.Peers = []Peer{{Name: "gru-controller-a", Online: true, Current: true}}
+	cell.meta.Peers = []Peer{{Name: "gru-1-ctl-1", Online: true, Current: true}}
 	if err := reconciler.Tick(t.Context()); err != nil {
 		t.Fatal(err)
 	}

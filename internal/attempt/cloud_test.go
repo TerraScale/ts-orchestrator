@@ -18,7 +18,7 @@ import (
 
 // sampleLaunch has exactly the members `oci-region preview seed-launch`
 // writes (internal/ociregion/seed.go seedLaunch).
-const sampleLaunch = `{"availabilityDomain":"AD-1","faultDomain":"FAULT-DOMAIN-1","compartmentId":"ocid1.compartment.oc1..c","displayName":"deployment-a-controller-a","shape":"VM.Standard.A1.Flex","shapeConfig":{"ocpus":1,"memoryInGBs":6},"sourceDetails":{"sourceType":"image","imageId":"ocid1.image.fixture","bootVolumeSizeInGBs":50,"bootVolumeVpusPerGB":10},"subnetId":"ocid1.subnet.oc1..s","privateIp":"10.0.0.11","nsgIds":["ocid1.networksecuritygroup.oc1..n"],"assignPublicIp":false,"metadata":{"terrascale-bootstrap":"{\"schemaVersion\":1,\"slot\":\"controller-a\"}","user_data":"Y2xvdWQtaW5pdA=="},"freeformTags":{"BootstrapCreateKey":"seed-a"}}`
+const sampleLaunch = `{"availabilityDomain":"AD-1","faultDomain":"FAULT-DOMAIN-1","compartmentId":"ocid1.compartment.oc1..c","displayName":"gru-1-ctl-1","shape":"VM.Standard.A1.Flex","shapeConfig":{"ocpus":1,"memoryInGBs":6},"sourceDetails":{"sourceType":"image","imageId":"ocid1.image.fixture","bootVolumeSizeInGBs":50,"bootVolumeVpusPerGB":10},"subnetId":"ocid1.subnet.oc1..s","privateIp":"10.0.0.11","nsgIds":["ocid1.networksecuritygroup.oc1..n"],"assignPublicIp":false,"metadata":{"terrascale-bootstrap":"{\"schemaVersion\":1,\"slot\":\"controller-a\"}","user_data":"Y2xvdWQtaW5pdA=="},"freeformTags":{"BootstrapCreateKey":"seed-a"}}`
 
 func TestLaunchDetailsCarriesTheSeedLaunchInputIntoTheVNIC(t *testing.T) {
 	details, err := LaunchDetails([]byte(sampleLaunch))
@@ -38,7 +38,7 @@ func TestLaunchDetailsCarriesTheSeedLaunchInputIntoTheVNIC(t *testing.T) {
 	if !ok || *source.ImageId != "ocid1.image.fixture" || *source.BootVolumeSizeInGBs != 50 || *source.BootVolumeVpusPerGB != 10 {
 		t.Fatalf("source=%+v", details.SourceDetails)
 	}
-	if *details.ShapeConfig.Ocpus != 1 || *details.ShapeConfig.MemoryInGBs != 6 || *details.DisplayName != "deployment-a-controller-a" ||
+	if *details.ShapeConfig.Ocpus != 1 || *details.ShapeConfig.MemoryInGBs != 6 || *details.DisplayName != "gru-1-ctl-1" ||
 		*details.FaultDomain != "FAULT-DOMAIN-1" || details.Metadata["terrascale-bootstrap"] == "" || details.FreeformTags["BootstrapCreateKey"] != "seed-a" {
 		t.Fatalf("details=%+v", details)
 	}
@@ -211,7 +211,7 @@ func TestLaunchDetailsDecodesTheSeedLaunchWriterOutput(t *testing.T) {
 		"create_identity": "seed-a"}
 	host := ociregion.Object{"slot": "controller-a", "private_ip": "10.0.0.11"}
 	metadata := ociregion.Object{"terrascale-bootstrap": `{"schemaVersion":1,"slot":"controller-a"}`, "user_data": "Y2xvdWQtaW5pdA=="}
-	wire, err := json.Marshal(ociregion.SeedLaunchDocument(reviewed, host, "deployment-a", metadata))
+	wire, err := json.Marshal(ociregion.SeedLaunchDocument(reviewed, host, "gru-1-ctl-1", metadata))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestLaunchDetailsDecodesTheSeedLaunchWriterOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the seed-launch writer output does not decode: %v", err)
 	}
-	if *details.DisplayName != "deployment-a-controller-a" || *details.CreateVnicDetails.PrivateIp != "10.0.0.11" ||
+	if *details.DisplayName != "gru-1-ctl-1" || *details.CreateVnicDetails.PrivateIp != "10.0.0.11" ||
 		details.FreeformTags["BootstrapCreateKey"] != "seed-a" {
 		t.Fatalf("details=%+v", details)
 	}

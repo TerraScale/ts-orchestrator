@@ -45,7 +45,7 @@ func verifiedAnchorFixture(t *testing.T) (bootstrap.VerifiedBootstrapAnchor, boo
 	if err != nil {
 		t.Fatal(err)
 	}
-	slots := []string{"broker-a"}
+	slots := []string{"controller-b"}
 	capabilities := make([]trust.Capability, 0, 5)
 	for _, domain := range []string{"bootstrap-slot-head", "bootstrap-intent", "bootstrap-result", "bootstrap-candidate", "bootstrap-progress"} {
 		capabilities = append(capabilities, trust.Capability{Domain: domain, DeploymentID: "deployment-a",
@@ -131,7 +131,7 @@ func TestLedgerOpenerUsesExactVerifiedGrantAndBakedRoots(t *testing.T) {
 	for _, config := range []bootstrap.LedgerConfig{currentConfig, historicalConfig} {
 		if config.DeploymentID != "deployment-a" || config.Cell != oci.RegionGRU ||
 			config.Namespace != "namespace-a" || config.Bucket != "ledger-bucket" ||
-			config.HeadBucket != "head-bucket" || !slices.Equal(config.ControllerSlots, []string{"broker-a"}) ||
+			config.HeadBucket != "head-bucket" || !slices.Equal(config.ControllerSlots, []string{"controller-b"}) ||
 			len(config.TrustRoots) != 1 || len(config.Delegations) != 1 {
 			t.Fatalf("ledger opener lost exact root/grant/storage/slot contract: %+v", config)
 		}

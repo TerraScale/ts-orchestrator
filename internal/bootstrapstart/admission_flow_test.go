@@ -217,7 +217,7 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 	now := time.Now().UTC().Truncate(time.Second)
 	if peer {
 		anchored := anchor.Anchor()
-		anchored.ControllerSlots = []string{"broker-a", "seed-a"}
+		anchored.ControllerSlots = []string{"controller-b", "seed-a"}
 		ledgerPublic, _, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
 			t.Fatal(err)
@@ -240,7 +240,7 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 	imageID := "ocid1.image.oc1.sa-saopaulo-1.image-a"
 	instanceID := "ocid1.instance.oc1.sa-saopaulo-1.example"
 	compartmentID := "ocid1.compartment.oc1..example"
-	profile := bootstrap.LaunchProfile{Slot: "broker-a", CompartmentOCID: compartmentID,
+	profile := bootstrap.LaunchProfile{Slot: "controller-b", CompartmentOCID: compartmentID,
 		AvailabilityDomain: "SA-SAOPAULO-1-AD-1", FaultDomain: "FAULT-DOMAIN-1",
 		SubnetOCID: "ocid1.subnet.oc1.sa-saopaulo-1.subnet-a", Shape: "VM.Standard.E5.Flex",
 		NetworkSecurityGroupOCIDs: []string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1.nsg-a"}}
@@ -284,11 +284,11 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 		DeploymentID: anchored.DeploymentID, Environment: anchored.Environment,
 		ClusterID: anchored.ClusterID, Cell: anchored.Cell, OCIRegion: anchored.OCIRegion,
 		IntentGeneration: anchored.InitialRegionIntentGeneration, IntentSHA256: anchored.InitialRegionIntentSHA256,
-		ControllerRole: "controller", Slot: "broker-a", SeedSlot: "broker-a", ControllerSlots: []string{"broker-a"},
+		ControllerRole: "controller", Slot: "controller-b", SeedSlot: "controller-b", ControllerSlots: []string{"controller-b"},
 		Profiles: []bootstrap.LaunchProfile{profile}, ImageOCID: imageID, ImageArchitecture: "linux-amd64",
 		ReleaseReceiptSHA256: digest(imageWire), ReleaseImageReceiptWire: imageWire,
 		ReleaseDelegationWire: releaseGrantWire, StorageDomain: anchored.StorageDomain,
-		Secrets: []bootstrap.SecretReference{{Purpose: bootstrap.SecretController, Slot: "broker-a",
+		Secrets: []bootstrap.SecretReference{{Purpose: bootstrap.SecretController, Slot: "controller-b",
 			SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.controller", VersionNumber: 1,
 			SHA256: digest([]byte("credential fixture")), MaxBytes: 128, TargetFile: "controller.creds"},
 			{Purpose: bootstrap.SecretRegionalShared,
@@ -297,7 +297,7 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 	var peerPrivate ed25519.PrivateKey
 	if peer {
 		manifest.SeedSlot = "seed-a"
-		manifest.ControllerSlots = []string{"broker-a", "seed-a"}
+		manifest.ControllerSlots = []string{"controller-b", "seed-a"}
 		seedProfile := profile
 		seedProfile.Slot = "seed-a"
 		manifest.Profiles = append(manifest.Profiles, seedProfile)
@@ -307,7 +307,7 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 		}
 		peerPrivate = private
 		delegationWire := signTestDelegation(t, rootPrivate, peerPublic,
-			[]string{"terrascale.bootstrap.peer-receipt"}, []string{"broker-a"},
+			[]string{"terrascale.bootstrap.peer-receipt"}, []string{"controller-b"},
 			now.Add(-10*time.Minute), now.Add(2*time.Hour))
 		delegation, err := trust.DecodeEnvelope(delegationWire)
 		if err != nil {
@@ -321,7 +321,7 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 		t.Fatal(err)
 	}
 	manifestWire := envelopeWire(t, manifestEnvelope)
-	manifestExpected, err := anchor.ManifestExpectation("broker-a", imageID)
+	manifestExpected, err := anchor.ManifestExpectation("controller-b", imageID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +333,7 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 		Head: bootstrap.SlotHead{Attempt: 1, Generation: 1, ResultDigest: strings.Repeat("e", 64)},
 		Intent: bootstrap.Intent{Mode: bootstrap.IntentModeExternalSeed,
 			DeploymentID: anchored.DeploymentID, Environment: anchored.Environment,
-			Cell: string(anchored.Cell), Role: "controller", Slot: "broker-a", ImageOCID: imageID,
+			Cell: string(anchored.Cell), Role: "controller", Slot: "controller-b", ImageOCID: imageID,
 			ManifestDigest: verifiedManifest.Digest(), ReleaseReceiptDigest: digest(imageWire),
 			CompartmentOCID: compartmentID, CreateKey: "create-a", OCIRegion: anchored.OCIRegion,
 			AvailabilityDomain: profile.AvailabilityDomain, FaultDomain: profile.FaultDomain,
@@ -388,7 +388,7 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 	gate := Gate{Roots: roots, AnchorWire: anchorWire, Expected: bootstrap.BootstrapAnchorExpectation{
 		DeploymentID: anchored.DeploymentID, Environment: anchored.Environment, Cell: anchored.Cell},
 		LoadedControllerConfigSHA256: manifest.ControllerConfigSHA256,
-		Descriptor:                   fixedDescriptor{slot: "broker-a", instance: instanceID}, Instances: fakeInstanceObserver{observation},
+		Descriptor:                   fixedDescriptor{slot: "controller-b", instance: instanceID}, Instances: fakeInstanceObserver{observation},
 		Ledgers: ledger, Binary: fixedBinaryChecker{}, Material: material, Credentials: credentials,
 		Markers:             MarkerStore{directory: markerDirectory, ownerUID: uint32(os.Getuid()), allowUnsafeAncestors: true},
 		ClockCheck:          func() error { return nil },
@@ -452,7 +452,7 @@ func TestGateInitialAndRestartThroughFakeAdapters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("initial admission: %v", err)
 	}
-	if marker.Slot != "broker-a" || fixture.ledger.currentCalls != 1 || fixture.ledger.historyCalls != 0 ||
+	if marker.Slot != "controller-b" || fixture.ledger.currentCalls != 1 || fixture.ledger.historyCalls != 0 ||
 		fixture.material.initialCalls != 1 || fixture.credentials.calls != 1 {
 		t.Fatalf("initial gate did not reach exact adapters: marker=%+v ledger=%+v material=%+v credentials=%+v",
 			marker, fixture.ledger, fixture.material, fixture.credentials)

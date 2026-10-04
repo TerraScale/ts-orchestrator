@@ -84,9 +84,9 @@ func TestLoadConfigRejectsUnknownDuplicatesSymlinksAndWritableConfig(t *testing.
 	}
 }
 
-func TestPeerNamesRequirePrivateIPv4KeysAndUniqueDNSLabels(t *testing.T) {
+func TestPeerNamesRequirePrivateIPv4KeysAndUniqueServerNames(t *testing.T) {
 	cfg := testConfig()
-	cfg.PeerNames = map[string]string{"10.251.0.11": "gru-1-ctl-1", "10.251.0.21": "gru-1-db-1", "10.251.0.22": strings.Repeat("m", 63)}
+	cfg.PeerNames = map[string]string{"10.251.0.11": "gru-1-ctl-1", "10.251.0.12": "gru-1-ctl-2", "10.251.0.22": "gru-1-db-2"}
 	if _, err := cfg.normalized(); err != nil {
 		t.Fatal(err)
 	}
@@ -95,13 +95,14 @@ func TestPeerNamesRequirePrivateIPv4KeysAndUniqueDNSLabels(t *testing.T) {
 		"ipv6 address":        {"fd00::1": "gru-1-ctl-1"},
 		"noncanonical":        {"010.251.0.11": "gru-1-ctl-1"},
 		"cidr":                {"10.251.0.0/24": "gru-1-ctl-1"},
-		"uppercase":           {"10.251.0.11": "GRU-controller-a"},
-		"dotted":              {"10.251.0.11": "gru.controller-a"},
+		"pre-scheme name":     {"10.251.0.11": "gru-controller-a"},
+		"unknown region":      {"10.251.0.11": "xyz-1-ctl-1"},
+		"uppercase":           {"10.251.0.11": "GRU-1-ctl-1"},
+		"dotted":              {"10.251.0.11": "gru.1-ctl-1"},
 		"leading hyphen":      {"10.251.0.11": "-gru-1-ctl-1"},
 		"trailing hyphen":     {"10.251.0.11": "gru-1-ctl-1-"},
 		"empty":               {"10.251.0.11": ""},
-		"too long":            {"10.251.0.11": strings.Repeat("m", 64)},
-		"newline":             {"10.251.0.11": "gru\ncontroller"},
+		"newline":             {"10.251.0.11": "gru-1\nctl-1"},
 		"duplicate peer name": {"10.251.0.11": "gru-1-ctl-1", "10.251.0.12": "gru-1-ctl-1"},
 	} {
 		cfg := testConfig()

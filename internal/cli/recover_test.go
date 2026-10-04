@@ -97,8 +97,8 @@ func stubRefoundGuard(t *testing.T, root string) membership.RefoundGuard {
 	// The survivor (metadata leader) reports b current with zero lag in a
 	// view observed after the relaunch begins.
 	if err := clusterhealth.WriteStatusFile(refoundGuard.HealthPath, clusterhealth.Status{
-		ObservedAt: time.Now().UTC().Add(30 * time.Second), MetaLeader: "gru-controller-a",
-		Online: []string{"gru-controller-a", "gru-controller-b"}, CaughtUp: []string{"gru-controller-b"}}); err != nil {
+		ObservedAt: time.Now().UTC().Add(30 * time.Second), MetaLeader: "gru-1-ctl-1",
+		Online: []string{"gru-1-ctl-1", "gru-1-ctl-2"}, CaughtUp: []string{"gru-1-ctl-2"}}); err != nil {
 		t.Fatal(err)
 	}
 	return refoundGuard
@@ -152,7 +152,7 @@ func TestRecoverQuorumRefoundRequiresBackupAndConfirmation(t *testing.T) {
 	}
 	out, err := run("re-found gru/controller-b\n", refoundArgs...)
 	if err != nil || len(recorder.slots) != 1 || recorder.slots[0] != "controller-b" ||
-		!strings.Contains(out, "attempt 2") || !strings.Contains(out, "gru-controller-b reports current") {
+		!strings.Contains(out, "attempt 2") || !strings.Contains(out, "gru-1-ctl-2 reports current") {
 		t.Fatalf("refound = %q, %v, %v", out, err, recorder.slots)
 	}
 	survivor := append([]string(nil), refoundArgs...)
@@ -257,8 +257,8 @@ func TestRecoverQuorumRefoundReFoundsOneSlotAtATime(t *testing.T) {
 	defer survivorBroker.Close()
 	// b never catches up: refound times out and keeps b pending.
 	if err := clusterhealth.WriteStatusFile(refoundGuard.HealthPath, clusterhealth.Status{
-		ObservedAt: time.Now().UTC(), MetaLeader: "gru-controller-a", Online: []string{"gru-controller-a"},
-		Missing: []string{"gru-controller-b"}}); err != nil {
+		ObservedAt: time.Now().UTC(), MetaLeader: "gru-1-ctl-1", Online: []string{"gru-1-ctl-1"},
+		Missing: []string{"gru-1-ctl-2"}}); err != nil {
 		t.Fatal(err)
 	}
 	args := []string{"refound", "--config", config, "--slot", "controller-b", "--retirement", retirement,

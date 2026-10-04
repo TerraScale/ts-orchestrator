@@ -76,7 +76,7 @@ func resizeFixture(t *testing.T) (*fleet, *resizeProvider, *fakeJournal, *fakeFe
 		t.Fatal(err)
 	}
 	created, err := built.CreateRetainedVolume(t.Context(), VolumeCreateRequest{
-		DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "resize-volume", SizeGB: 50,
+		Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "resize-volume", SizeGB: 50,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -112,14 +112,14 @@ func TestResizeRetainedVolumeGrowsAndKeepsDurableOwnership(t *testing.T) {
 		t.Fatalf("resized volume looks foreign: %v", err)
 	}
 	again, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{
-		DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "resize-volume", SizeGB: 50,
+		Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "resize-volume", SizeGB: 50,
 	})
 	if err != nil || again.ID != created.ID || again.SizeGB != 100 {
 		t.Fatalf("re-ensure of resized volume failed: %+v, %v", again, err)
 	}
 	// A raised desired size never issues a second create for the same key.
 	raised, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{
-		DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "resize-volume", SizeGB: 200,
+		Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "resize-volume", SizeGB: 200,
 	})
 	if err != nil || raised.ID != created.ID || provider.volumeCreates != 1 {
 		t.Fatalf("raised desired size broke re-ensure: %+v, %v creates=%d", raised, err, provider.volumeCreates)

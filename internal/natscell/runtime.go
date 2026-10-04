@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats-server/v2/server"
@@ -95,8 +96,9 @@ type Embedded struct {
 // ServerName is the embedded NATS server name of a cell's controller
 // instance (a broker ID or controller slot). Cluster health, the controller
 // slot topology (membership.Topology.ServerName) and the JetStream metadata
-// peers all use this one shape, so a renamed slot reads as an unknown peer.
-func ServerName(cell, instance string) string { return cell + "-" + instance }
+// peers all use this one shape (naming.NATSServer, e.g. gru-1-ctl-1), so a
+// renamed slot reads as an unknown peer.
+func ServerName(cell, instance string) string { return naming.NATSServer(cell, instance) }
 
 // StoreLimitBytes returns the effective per-node JetStream file-store limit.
 func (e Embedded) StoreLimitBytes() int64 {
@@ -630,8 +632,12 @@ func serverOptions(cfg Config) (*server.Options, error) {
 	if err := os.MkdirAll(e.StoreDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create regional JetStream store: %w", err)
 	}
+	name := ServerName(cfg.Cell, cfg.Instance)
+	if err := pinStoreIdentity(e.StoreDir, name, cfg.Cell+"-"+cfg.Instance); err != nil {
+		return nil, err
+	}
 	options := &server.Options{
-		ServerName:        ServerName(cfg.Cell, cfg.Instance),
+		ServerName:        name,
 		Host:              e.Host,
 		Port:              e.Port,
 		JetStream:         true,

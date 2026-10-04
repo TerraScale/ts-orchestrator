@@ -17,7 +17,9 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/manager"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -131,6 +133,16 @@ func loadTerraBaseDeployPlan(path string, cell string) (terrabaseDeployPlan, oci
 	}
 	if err := plan.HostProfile.Validate(); err != nil {
 		return terrabaseDeployPlan{}, "", err
+	}
+	// Placement names member i gru-1-db-i by seat order and NetBird names it by
+	// address; GRU's fixed cell slots keep the two the same host.
+	if region == oci.RegionGRU {
+		slots := manager.GRU().PeerNames()
+		for index, member := range plan.Members {
+			if want, err := naming.RegionCell(string(region)).Server(naming.Member, index+1); err != nil || slots[member.PrivateIP] != want {
+				return terrabaseDeployPlan{}, "", fmt.Errorf("TerraBase deployment member %d must use the %s cell address", index+1, want)
+			}
+		}
 	}
 	// Validate every plan-owned pin with throwaway identities before any effect.
 	candidate, err := managedmaterial.NewDeploymentIdentity(plan.base(region), plan.Collections)

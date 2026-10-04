@@ -638,3 +638,17 @@ func (cell *deployTestCellServices) enrollMembers(t *testing.T, intent placement
 		}
 	}
 }
+
+func TestTerraBaseDeployPlanKeepsGRUMembersOnTheirNamedSlots(t *testing.T) {
+	root := t.TempDir()
+	path, _ := writeDeployTestPlan(t, root, 9465)
+	plan, _, err := loadTerraBaseDeployPlan(path, "gru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.Members[0], plan.Members[1] = plan.Members[1], plan.Members[0]
+	swapped := testJSONFile(t, root, "swapped.json", plan)
+	if _, _, err := loadTerraBaseDeployPlan(swapped, "gru"); err == nil || !strings.Contains(err.Error(), "gru-1-db-1") {
+		t.Fatalf("member 1 on gru-1-db-2's address was accepted: %v", err)
+	}
+}

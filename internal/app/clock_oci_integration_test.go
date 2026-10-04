@@ -87,7 +87,7 @@ func TestUnhealthyAuthorityClockStopsOCILaunchBeforeIntent(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = fleet.EnsureHost(ctx, oci.EnsureRequest{
-		CreateKey: "clock-fenced-host", PrivateIP: "10.251.0.21", FaultDomain: "FAULT-DOMAIN-1",
+		Name: "gru-1-db-1", CreateKey: "clock-fenced-host", PrivateIP: "10.251.0.21", FaultDomain: "FAULT-DOMAIN-1",
 		Shape: region.Shape, WholeOCPUs: 1, MemoryInGBs: 6,
 		PlacementProfileDigest: strings.Repeat("a", 64), PlacementGeneration: 1,
 		BootPins: oci.HostBootPins{

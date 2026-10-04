@@ -276,7 +276,7 @@ func TestAttemptFreshAdmissionAndEmptyPrefixPrecedeReservation(t *testing.T) {
 				if a.Err() != nil || !reserved || !existsTest(a.Path("launch", "controller-a.ocid")) {
 					t.Fatal(calls, a.Err())
 				}
-				if len(cloud.launched) != 1 || *cloud.launched[0].DisplayName != "deployment-a-controller-a" ||
+				if len(cloud.launched) != 1 || *cloud.launched[0].DisplayName != "gru-1-ctl-1" ||
 					cloud.launched[0].Metadata["terrascale-bootstrap"] == "" || cloud.tokens[0] != attempt.LaunchRetryToken([]byte(launchInput)) {
 					t.Fatal(cloud.launched, cloud.tokens)
 				}
@@ -299,7 +299,7 @@ func existsTest(path string) bool { _, e := os.Stat(path); return e == nil }
 
 // launchInput is a seed-launch document in the camelCase shape
 // `oci-region preview seed-launch` writes.
-const launchInput = `{"availabilityDomain":"AD-1","faultDomain":"FAULT-DOMAIN-1","compartmentId":"ocid1.compartment.oc1..c","displayName":"deployment-a-controller-a","shape":"VM.Standard.A1.Flex","shapeConfig":{"ocpus":1,"memoryInGBs":6},"sourceDetails":{"sourceType":"image","imageId":"ocid1.image.fixture","bootVolumeSizeInGBs":50,"bootVolumeVpusPerGB":10},"subnetId":"ocid1.subnet.oc1..s","privateIp":"10.0.0.11","nsgIds":["ocid1.networksecuritygroup.oc1..n"],"assignPublicIp":false,"metadata":{"terrascale-bootstrap":"{\"schemaVersion\":1,\"slot\":\"controller-a\"}","user_data":"Y2xvdWQtaW5pdA=="},"freeformTags":{"BootstrapCreateKey":"seed-a"}}`
+const launchInput = `{"availabilityDomain":"AD-1","faultDomain":"FAULT-DOMAIN-1","compartmentId":"ocid1.compartment.oc1..c","displayName":"gru-1-ctl-1","shape":"VM.Standard.A1.Flex","shapeConfig":{"ocpus":1,"memoryInGBs":6},"sourceDetails":{"sourceType":"image","imageId":"ocid1.image.fixture","bootVolumeSizeInGBs":50,"bootVolumeVpusPerGB":10},"subnetId":"ocid1.subnet.oc1..s","privateIp":"10.0.0.11","nsgIds":["ocid1.networksecuritygroup.oc1..n"],"assignPublicIp":false,"metadata":{"terrascale-bootstrap":"{\"schemaVersion\":1,\"slot\":\"controller-a\"}","user_data":"Y2xvdWQtaW5pdA=="},"freeformTags":{"BootstrapCreateKey":"seed-a"}}`
 
 // fakeCloud is the attempt's typed OCI seam without cloud access.
 type fakeCloud struct {

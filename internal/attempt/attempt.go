@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 )
@@ -982,8 +983,11 @@ func (a *Attempt) PhaseStatus() {
 		a.fail(e)
 		instances = append(instances, listed...)
 	}
+	// Cell server names are static (internal/naming), so this lists every
+	// server of the GRU cell, not only this deployment's.
+	cell, _ := naming.RegionCell("GRU").Name()
 	for _, instance := range instances {
-		if instance.LifecycleState != "TERMINATED" && strings.HasPrefix(instance.DisplayName, a.Deployment) {
+		if instance.LifecycleState != "TERMINATED" && strings.HasPrefix(instance.DisplayName, cell+"-") {
 			fmt.Fprintf(a.Out, "instance %v %v %v\n", instance.DisplayName, instance.LifecycleState, instance.ID)
 		}
 	}

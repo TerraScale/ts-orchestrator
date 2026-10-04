@@ -44,3 +44,28 @@ func TestRegionSeatsGeneralizesTheTwoSeatTopology(t *testing.T) {
 		t.Fatal("elastic seat IDs changed")
 	}
 }
+
+func TestSeatMemberNamesFollowPlacementOrderAndIgnoreAttempts(t *testing.T) {
+	seats, err := RegionSeats(oci.RegionSFO, []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2", "FAULT-DOMAIN-3"}, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, seat := range seats {
+		name, err := seatMemberName(seat.Region, seat.MemberID)
+		if want := []string{"sfo-1-db-1", "sfo-1-db-2", "sfo-1-db-3"}[i]; err != nil || name != want {
+			t.Fatalf("seat %s is %q, %v; want %q", seat.MemberID, name, err, want)
+		}
+	}
+	for _, rejected := range []string{"", "permanent-a", "elastic-sfo-1", "elastic-sfo-0", "elastic-sfo-02", "elastic-sfo--2", "elastic-gru"} {
+		if name, err := seatMemberName(oci.RegionSFO, rejected); !errors.Is(err, ErrInvalidIntent) || name != "" {
+			t.Fatalf("seat %q got name %q, %v", rejected, name, err)
+		}
+	}
+	// A replacement host is a new attempt with a new create key; its name stays.
+	state := MemberState{Region: oci.RegionGRU, MemberID: "elastic-gru", HostAttempt: 1, CreateKey: "th-first"}
+	first := pinnedEnsureRequest(state)
+	state.HostAttempt, state.CreateKey = 2, "th-second"
+	if second := pinnedEnsureRequest(state); first.Name != "gru-1-db-2" || second.Name != first.Name {
+		t.Fatalf("host attempts changed the name: %q then %q", first.Name, second.Name)
+	}
+}

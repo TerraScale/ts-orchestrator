@@ -23,7 +23,7 @@ flowchart LR
     rp["Routing peer ts-ops<br/>(ts-ops-gateway)"]
   end
   subgraph gru["GRU cell 10.251.0.0/25"]
-    srv["controllers .11-.13<br/>members .21-.22<br/>(gru-servers)"]
+    srv["gru-1-ctl-1..3 .11-.13<br/>gru-1-db-1..2 .21-.22<br/>(gru-servers)"]
   end
   dev -. control plane .-> mgr
   srv -. control plane, private IP .-> mgr
@@ -203,8 +203,9 @@ because Caddy routes by Host; over NetBird, pin the name to ts-ops' NetBird IP
 
 ### Stable peer names
 
-Servers enroll under static names `<region>-<index>-<role>-<n>`:
-controllers `gru-1-ctl-1`..`3` and TerraBase members `gru-1-db-1`..`2`, taken from the `peer_names` map in `netbird.json`
+Servers enroll under their [static names](../../docs/region-bootstrap.md#static-names)
+`<region>-<index>-<role>-<n>`: controllers `gru-1-ctl-1`..`3` and TerraBase
+members `gru-1-db-1`..`2`, taken from the `peer_names` map in `netbird.json`
 (private IP → name), read from the primary VNIC's private IPv4 in OCI
 instance metadata:
 
@@ -221,14 +222,15 @@ instance metadata:
 The names are `<cell>-<slot>` (cell `gru-1`, slots `ctl-1`, `db-1`, …) from
 `manager.GRU()` in
 [`internal/netbird/manager/desired.go`](../../internal/netbird/manager/desired.go),
-the single source. Its validation rejects a name outside the scheme, the
-image input repeats them for enrollment, and
+the single source. Its validation, like every `netbird.json` reader including
+the image builder, rejects a name outside `internal/naming`; the image input
+repeats them for enrollment, and
 `TestGRUDesiredStateIsConsistentWithTheImageInput` fails when they differ.
 The cell zone uses the slot names (`ctl-1.gru.ts.internal`).
 
 A server whose address has no entry registers under its OS hostname. The name
 applies at first registration; NetBird keeps a peer's name afterwards, and
-`prune-peers` renames a live peer back to its slot name. A new GRU revision's peer would
+`prune-peers` renames a live peer back to its static name. A new GRU revision's peer would
 otherwise get a `-x-y` suffix while the replaced revision's peer still holds
 the name, so replaced revisions' offline peers are pruned: automatically by
 the leader controller, or with `ts-orch netbird prune-peers --apply`.

@@ -190,6 +190,74 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
    cost above the ceiling is a stop condition. The ceiling is an admission
    condition and remains a constraint on each resource action.
 
+## Static names
+
+Every cell server has one static name from `internal/naming`. A cell is
+`<region>-<index>` (`gru-1`; every region runs cell 1 today), and a server is
+`<cell>-<role>-<n>` with role `ctl` (controller), `db` (TerraBase member) or
+`gw` (gateway): `gru-1-ctl-1`..`3`, `gru-1-db-1`..`2` and `gru-1-gw-1`. A
+member's retained data volume is `<member>-data` (`gru-1-db-1-data`).
+`naming.Validate` rejects any other name, such as `gru-controller-a`,
+`controller-b`, a deployment- or digest-derived name, or an unknown region.
+No cell server takes the `gw` role yet.
+
+Signed controller slots map by letter: `controller-a`, `-b` and `-c` are
+`ctl-1`, `-2` and `-3`. Member seats map in placement order: the permanent
+seat is `db-1` and elastic seat k is `db-(k+1)` (`elastic-gru` is
+`gru-1-db-2`). GRU's fixed addresses are `10.251.0.11`–`.13` for
+`gru-1-ctl-1`..`3` and `10.251.0.21`–`.22` for `gru-1-db-1`..`2`.
+
+The name is the OCI display name of controller A (`ts-orch oci-region preview
+seed-launch`), of the founder-launched B and C, of each managed member host
+and of its retained data volume. It is also the controller's NATS server name
+and TLS certificate common name, the NetBird peer name and the peer DNS name
+(`gru-1-ctl-1.nb.ts.internal`); the cell zone record uses the role and number
+(`ctl-1.gru.ts.internal`). The NATS cluster name and JetStream domain
+stay the cell token (`gru`), which also names the cell's NATS subjects; the
+zone `gru.ts.internal` and its role aliases `nats.gru.ts.internal` and
+`terrabase.gru.ts.internal` keep their names. Preview inventory admission
+recognises B and C as `gru-1-ctl-2` and `gru-1-ctl-3`, and `ts-orch
+oci-region attempt` phase status lists the instances whose names start with
+`gru-1-`.
+
+Names never carry a release, deployment ID, date, generation or digest, so a
+rollout, a new bootstrap attempt (a new deployment ID such as
+`ts-preview-gru-20260929-r4`) or a host replacement keeps them. Release
+identity lives in launch metadata and tags: the deployment ID in the
+`terrascale-bootstrap-identity-v1` and controller manifest launch metadata and
+in the `BootstrapCreateKey` tag. Managed hosts and volumes keep the
+`terrascale-owner`, `terrascale-generation`, `terrascale-create-key` and
+`terrascale-host-node` freeform tags.
+
+The OCI fleet refuses to launch a host or create a volume whose name is not a
+member name of its own cell, before any OCI call. Founder launch refuses a
+slot other than `controller-<letter>`. A GRU TerraBase deployment plan must
+put member i on the cell address of `gru-1-db-i`, so the OCI name (seat
+order) and the NetBird name (address) are the same host. NetBird desired
+state and every `netbird.json` reader, including the image builder, reject a
+peer name outside the scheme.
+
+These names do not follow the scheme:
+
+- Host node IDs (`host-<hash>`). They identify one host incarnation in tags
+  and `terrascale_host_node` metadata and are not display names.
+- Image display names (`terrascale-arm64-<rev>-<sha>`), which are release
+  artifacts.
+- Bucket names and `orchestrator_owner` in `deploy/oci-region/plan.json`
+  (`ts-preview-gru-20260926-*`) still carry a date; they change with the
+  reviewed plan for the GRU rebuild.
+- Backup names, which stay per backup.
+
+A cell hosts one TerraBase database's member pair: its members occupy the
+cell's fixed member addresses, so a second database in a region needs a second
+cell (`gru-2`).
+
+GRU is rebuilt from scratch under these names (TS-470). Nothing renames or
+adopts a server launched before this scheme. JetStream derives a server's Raft
+node ID from its name, so a controller records its server name in its NATS
+store and refuses to start on a store of another name, including a pre-scheme
+store of `gru-controller-a`: such a cell must be rebuilt.
+
 ## Operator gateway peering
 
 Operators reach the private cell through a NetBird routing peer on the ts-ops
@@ -370,10 +438,10 @@ server's SSH server. ts-orchestrator owns these policies (see
 | `operators-to-gru-servers-ssh` | `netbird-ssh` (port 22 is redirected to the SSH server's 22022) |
 | `operators-to-gru-cell-ops-ports` | TCP 22, 4222 (controllers), 9465 (members), routed through ts-ops |
 
-Do not allow 6222 or 8443 to operators. Servers enroll under stable peer
-names (`gru-1-ctl-1`..`3`, `gru-1-db-1`..`2`) in `nb.ts.internal`, and
-operators resolve stable cell names in `gru.ts.internal`. From an enrolled
-operator device:
+Do not allow 6222 or 8443 to operators. Servers enroll under their
+[static names](#static-names) (`gru-1-ctl-1`..`3`, `gru-1-db-1`..`2`) in
+`nb.ts.internal`, and operators resolve stable cell names in `gru.ts.internal`.
+From an enrolled operator device:
 
 ```sh
 netbird ssh root@gru-1-ctl-1.nb.ts.internal

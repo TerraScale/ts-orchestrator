@@ -60,7 +60,7 @@ func newVolumeInitFixture(t *testing.T) (*fleet, *fakeProvider, *KVJournal, Volu
 	instance.LifecycleState = "RUNNING"
 	provider.instances[host.ID] = instance
 	volume, err := fleet.CreateRetainedVolume(t.Context(), VolumeCreateRequest{
-		DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "volume-init-owned-create", SizeGB: 50,
+		Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "volume-init-owned-create", SizeGB: 50,
 	})
 	if err != nil {
 		t.Fatal(err)

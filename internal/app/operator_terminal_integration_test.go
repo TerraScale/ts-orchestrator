@@ -180,8 +180,9 @@ func TestOperatorTerminalTeardownThroughSignedRuntimeAndGrantReadback(t *testing
 			t.Fatal(err)
 		}
 		privateIP := fmt.Sprintf("10.251.0.%d", index+21)
+		name := fmt.Sprintf("gru-1-db-%d", index+1)
 		host, err := fleet.EnsureHost(ctx, oci.EnsureRequest{
-			CreateKey: target.HostCreateKey, PrivateIP: privateIP, FaultDomain: seat.FailureDomain,
+			Name: name, CreateKey: target.HostCreateKey, PrivateIP: privateIP, FaultDomain: seat.FailureDomain,
 			Shape: profile.Compute.Shape, WholeOCPUs: profile.Compute.WholeOCPUs,
 			MemoryInGBs:            profile.Compute.MemoryInGBs,
 			PlacementProfileDigest: profileDigest, PlacementGeneration: intent.Generation,
@@ -195,7 +196,7 @@ func TestOperatorTerminalTeardownThroughSignedRuntimeAndGrantReadback(t *testing
 			t.Fatalf("create exact fake OCI host for %s: %v", seat.MemberID, err)
 		}
 		volume, err := fleet.CreateRetainedVolume(ctx, oci.VolumeCreateRequest{
-			DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
+			Name: name + "-data", DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
 			MemberID: seat.MemberID, CreateKey: target.DataCreateKey, SizeGB: 50,
 		})
 		if err != nil {
