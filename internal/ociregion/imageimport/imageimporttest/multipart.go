@@ -34,6 +34,13 @@ func (s *Server) SetPartHook(hook func(part int)) {
 	s.mu.Unlock()
 }
 
+// SetPartFailure makes every later part upload fail with status (0 clears).
+func (s *Server) SetPartFailure(status int) {
+	s.mu.Lock()
+	s.partFailure = status
+	s.mu.Unlock()
+}
+
 func (s *Server) routeMultipart(mux *http.ServeMux) {
 	mux.HandleFunc("POST /n/{namespace}/b/{bucket}/u", s.createUpload)
 	mux.HandleFunc("PUT /n/{namespace}/b/{bucket}/u/{object...}", s.uploadPart)
@@ -94,6 +101,11 @@ func (s *Server) uploadPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
+	if s.partFailure != 0 {
+		s.mu.Unlock()
+		refuse(w, s.partFailure, "NotAuthorizedOrNotFound", "part refused")
+		return
+	}
 	hook := s.partHook
 	stored := s.openUpload(w, r)
 	if stored != nil {

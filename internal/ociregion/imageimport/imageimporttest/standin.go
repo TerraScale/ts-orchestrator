@@ -94,6 +94,8 @@ type Server struct {
 	uploadSeq int
 	aborted   int
 	partHook  func(part int)
+	// partFailure, when set, is the status every part upload fails with.
+	partFailure int
 }
 
 // Start runs a stand-in region whose first imported image is imageID. It is

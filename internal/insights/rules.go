@@ -58,6 +58,9 @@ type Thresholds struct {
 	// OCIDrift is how long an OCI resource may stay out of sync with its
 	// desired spec before it raises an insight.
 	OCIDrift time.Duration
+	// OCIStale is how old an OCI reconcile observation may be before it is
+	// treated as unknown rather than as evidence.
+	OCIStale time.Duration
 }
 
 func (thresholds Thresholds) withDefaults() Thresholds {
@@ -70,7 +73,7 @@ func (thresholds Thresholds) withDefaults() Thresholds {
 		ConsumerPendingFor: 10 * time.Minute, CertificateWarning: 14 * 24 * time.Hour,
 		CertificateCritical: 3 * 24 * time.Hour, PeerOffline: 5 * time.Minute,
 		AutoscalerAtMax: 15 * time.Minute, BudgetWarning: 0.9, RegionUnreachable: time.Minute,
-		RepeatedHolds: 3, OCIDrift: 10 * time.Minute,
+		RepeatedHolds: 3, OCIDrift: 10 * time.Minute, OCIStale: 3 * time.Hour,
 	}
 	merged := thresholds
 	if merged.MemberNotReady <= 0 {
@@ -141,6 +144,9 @@ func (thresholds Thresholds) withDefaults() Thresholds {
 	}
 	if merged.OCIDrift <= 0 {
 		merged.OCIDrift = defaults.OCIDrift
+	}
+	if merged.OCIStale <= 0 {
+		merged.OCIStale = defaults.OCIStale
 	}
 	return merged
 }

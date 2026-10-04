@@ -58,8 +58,13 @@ func (c *sdkClient) streamUpload(ctx context.Context, request UploadRequest) err
 		return fmt.Errorf("open QCOW2: %w", err)
 	}
 	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("stat QCOW2: %w", err)
+	}
+	parts := &partReader{file: file, partSize: request.PartSize, expected: info.Size()}
 	digest := sha256.New()
-	first, release, err := readPart(ctx, file, request.PartSize)
+	first, release, err := parts.next(ctx)
 	if err != nil {
 		return err
 	}
@@ -79,23 +84,36 @@ func (c *sdkClient) streamUpload(ctx context.Context, request UploadRequest) err
 		}
 		return nil
 	}
-	return c.multipartUpload(ctx, request, file, digest, first, release)
+	return c.multipartUpload(ctx, request, parts, digest, first, release)
 }
 
-// readPart reads up to size bytes after reserving them from the process
-// buffer budget. release returns the reservation.
-func readPart(ctx context.Context, file io.Reader, size int64) ([]byte, func(), error) {
+// partReader reads the QCOW2 sequentially in parts. Buffers are sized by
+// the bytes the file was stated to have left (plus one, so growth is still
+// read and fails the digest), never by the part size alone: a small file
+// with a huge configured part size does not allocate the part size.
+type partReader struct {
+	file     io.Reader
+	partSize int64
+	expected int64
+	offset   int64
+}
+
+// next reads the next part after reserving its buffer from the process
+// budget. release returns the reservation.
+func (p *partReader) next(ctx context.Context) ([]byte, func(), error) {
+	size := min(p.partSize, max(p.expected-p.offset, 0)+1)
 	weight := min(size, uploadBufferBudget)
 	if err := uploadBuffers.Acquire(ctx, weight); err != nil {
 		return nil, nil, err
 	}
 	release := sync.OnceFunc(func() { uploadBuffers.Release(weight) })
 	buffer := make([]byte, size)
-	n, err := io.ReadFull(file, buffer)
+	n, err := io.ReadFull(p.file, buffer)
 	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 		release()
 		return nil, nil, fmt.Errorf("read QCOW2: %w", err)
 	}
+	p.offset += int64(n)
 	return buffer[:n], release, nil
 }
 
@@ -106,7 +124,7 @@ func matches(digest hash.Hash, want string) error {
 	return nil
 }
 
-func (c *sdkClient) multipartUpload(ctx context.Context, request UploadRequest, file io.Reader, digest hash.Hash,
+func (c *sdkClient) multipartUpload(ctx context.Context, request UploadRequest, parts *partReader, digest hash.Hash,
 	first []byte, release func(),
 ) (err error) {
 	created, err := c.objects.CreateMultipartUpload(ctx, objectstorage.CreateMultipartUploadRequest{
@@ -147,8 +165,8 @@ func (c *sdkClient) multipartUpload(ctx context.Context, request UploadRequest, 
 		part++
 		if part > maxUploadParts {
 			release()
-			_ = group.Wait()
-			return fmt.Errorf("QCOW2 needs more than %d parts; raise the part size", maxUploadParts)
+			return errors.Join(group.Wait(),
+				fmt.Errorf("QCOW2 needs more than %d parts; raise the part size", maxUploadParts))
 		}
 		digest.Write(buffer)
 		sum := md5.Sum(buffer)
@@ -177,8 +195,12 @@ func (c *sdkClient) multipartUpload(ctx context.Context, request UploadRequest, 
 		if int64(len(buffer)) < request.PartSize {
 			break
 		}
-		if buffer, release, err = readPart(groupCtx, file, request.PartSize); err != nil {
-			_ = group.Wait()
+		if buffer, release, err = parts.next(groupCtx); err != nil {
+			// A failed part cancels groupCtx; report its cause, not the
+			// cancellation it caused here.
+			if workerErr := group.Wait(); workerErr != nil {
+				return workerErr
+			}
 			return err
 		}
 		if len(buffer) == 0 {
@@ -208,12 +230,16 @@ func (c *sdkClient) multipartUpload(ctx context.Context, request UploadRequest, 
 		// The stored object is not the verified bytes; remove exactly that
 		// object version so its sha256 metadata can never vouch for it.
 		mismatch := fmt.Errorf("committed OCI object multipart MD5 differs from the bytes sent (want %s)", want)
-		deleteRequest := objectstorage.DeleteObjectRequest{NamespaceName: new(request.Namespace),
-			BucketName: new(request.Bucket), ObjectName: new(request.Object)}
-		if response.ETag != nil {
-			deleteRequest.IfMatch = response.ETag
+		if response.ETag == nil || *response.ETag == "" {
+			// Without the commit's ETag a delete could remove a different
+			// object written since; leave it for an operator instead.
+			return fmt.Errorf("%w; the commit returned no ETag, so the object was not deleted", mismatch)
 		}
-		if _, deleteErr := c.objects.DeleteObject(context.WithoutCancel(ctx), deleteRequest); deleteErr != nil {
+		deleteCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), abortTimeout)
+		defer cancel()
+		if _, deleteErr := c.objects.DeleteObject(deleteCtx, objectstorage.DeleteObjectRequest{
+			NamespaceName: new(request.Namespace), BucketName: new(request.Bucket), ObjectName: new(request.Object),
+			IfMatch: response.ETag}); deleteErr != nil {
 			return errors.Join(mismatch, fmt.Errorf("delete mismatched OCI object: %w", deleteErr))
 		}
 		return mismatch

@@ -2,11 +2,14 @@ package imageimport_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
@@ -88,6 +91,42 @@ func TestStreamingUploadAbortsWhenTheFileChangesMidUpload(t *testing.T) {
 	}
 	if open, aborted := region.Multipart(); open != 0 || aborted != 1 {
 		t.Fatalf("open=%d aborted=%d", open, aborted)
+	}
+}
+
+// A part failure is reported as itself, not as the cancellation it caused,
+// and the upload is aborted.
+func TestStreamingUploadReportsThePartFailure(t *testing.T) {
+	region := imageimporttest.Start(t, "ocid1.image.oc1..x")
+	client, err := imageimporttest.Client(region.URL, "sa-saopaulo-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	region.SetPartFailure(http.StatusForbidden)
+	path, _, digest := uploadFixture(t, 64*1024)
+	err = client.UploadObject(t.Context(), uploadRequest(path, digest, 1024))
+	if err == nil || !strings.Contains(err.Error(), "upload OCI part") || errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v", err)
+	}
+	if open, aborted := region.Multipart(); open != 0 || aborted != 1 {
+		t.Fatalf("open=%d aborted=%d", open, aborted)
+	}
+}
+
+// A huge configured part size does not allocate the part size for a small
+// file: buffers follow the file's size.
+func TestStreamingUploadSizesBuffersByTheFile(t *testing.T) {
+	region := imageimporttest.Start(t, "ocid1.image.oc1..x")
+	client, err := imageimporttest.Client(region.URL, "sa-saopaulo-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, data, digest := uploadFixture(t, 4096)
+	if err := client.UploadObject(t.Context(), uploadRequest(path, digest, 64<<30)); err != nil {
+		t.Fatal(err)
+	}
+	if stored, _, ok := region.Object("ns", "images", "images/"+digest+".qcow2"); !ok || !bytes.Equal(stored, data) {
+		t.Fatal("object not stored")
 	}
 }
 

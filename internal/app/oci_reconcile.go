@@ -183,7 +183,8 @@ func desiredPass(cell string, store ociresource.Store, fencer authority.Fencer, 
 			if err := fencer.Guard(ctx, epoch); err != nil {
 				return fmt.Errorf("%w: %w", ociresource.ErrFenced, err)
 			}
-			result, err := ociresource.PublishSet(ctx, store, cell, set.kind, set.entries, prune, time.Now().UTC(), delay)
+			result, err := ociresource.PublishSet(ctx, store, cell, set.kind, set.entries, prune, time.Now().UTC(), delay,
+				func(ctx context.Context) error { return fencer.Guard(ctx, epoch) })
 			if result.Published > 0 || result.Tombstoned > 0 {
 				decisionlog.Record(ctx, decisionlog.Decision{
 					Region: strings.ToLower(cell), Actor: decisionlog.Actor{Slice: "ociresource"},
@@ -243,7 +244,7 @@ func (s ociResourceStatuses) OCIResources(ctx context.Context) ([]insights.OCIRe
 			continue
 		}
 		resource := insights.OCIResource{Key: status.Key.String(), Kind: status.Key.Kind, Policy: string(status.Policy),
-			Found: status.Found, InSync: status.InSync, Foreign: status.Foreign, Error: status.Error,
+			Found: status.Found, InSync: status.InSync, Foreign: status.Foreign, Applied: status.Applied, Error: status.Error,
 			ObservedAt: status.ObservedAt}
 		for _, change := range status.Drift {
 			resource.Drift = append(resource.Drift, change.Op+" "+change.Detail)

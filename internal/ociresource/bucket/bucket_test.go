@@ -103,7 +103,7 @@ func TestBucketRetentionConvergesAndLeavesOperatorRulesAlone(t *testing.T) {
 	if result, err := reconcile(t, api, store, spec, ociresource.PolicyEnforce); err != nil || result.Applied != 1 {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	if !slices.Contains(api.rules, operator) || len(api.rules) != 2 || api.rules[1].DisplayName != "terrascale-backups-daily" {
+	if !slices.Contains(api.rules, operator) || len(api.rules) != 2 || api.rules[1].DisplayName != "terrascale/backups/daily" {
 		t.Fatalf("rules=%+v", api.rules)
 	}
 	if api.bucket.Tags.Freeform["team"] != "data" || !owner.Owns(key, api.bucket.Tags) {
@@ -142,7 +142,7 @@ func TestBucketSwitchesFromRetentionToVersioningInASafeOrder(t *testing.T) {
 }
 
 func TestBucketLockedManagedRuleBlocksInsteadOfChanging(t *testing.T) {
-	api := &fakeAPI{bucket: ownedBucket(), rules: []Rule{{ID: "r9", DisplayName: "terrascale-backups-daily", Amount: 10,
+	api := &fakeAPI{bucket: ownedBucket(), rules: []Rule{{ID: "r9", DisplayName: "terrascale/backups/daily", Amount: 10,
 		Unit: UnitDays, Locked: true}}}
 	store := ociresource.NewMemoryStore()
 	spec := Spec{Namespace: "tenancy", Bucket: "backups", Retention: []Retention{{Name: "daily", Days: 30}}}
@@ -153,6 +153,37 @@ func TestBucketLockedManagedRuleBlocksInsteadOfChanging(t *testing.T) {
 	status, _, _ := store.GetStatus(t.Context(), key)
 	if !slices.ContainsFunc(status.Drift, func(change ociresource.Change) bool { return change.Op == "blocked" }) {
 		t.Fatalf("status=%+v", status)
+	}
+}
+
+// Enabling versioning while a rule this reconciler does not own exists can
+// never succeed, so nothing is changed: managed protection is not removed
+// for a switch OCI would refuse.
+func TestBucketUnmanagedRuleBlocksVersioningBeforeAnyMutation(t *testing.T) {
+	operator := Rule{ID: "op", DisplayName: "legal-hold", Amount: 1, Unit: UnitYears}
+	api := &fakeAPI{bucket: ownedBucket(), rules: []Rule{operator,
+		{ID: "r1", DisplayName: "terrascale/backups/daily", Amount: 30, Unit: UnitDays}}}
+	store := ociresource.NewMemoryStore()
+	result, err := reconcile(t, api, store, Spec{Namespace: "tenancy", Bucket: "backups", Versioning: VersioningEnabled},
+		ociresource.PolicyEnforce)
+	if err == nil || result.Failed != 1 || len(api.calls) != 0 || len(api.rules) != 2 {
+		t.Fatalf("result=%+v err=%v calls=%v", result, err, api.calls)
+	}
+}
+
+// Rules of another logical key never look managed, even when names with
+// hyphens would collide under a hyphen-joined marker.
+func TestBucketMarkerIsUnambiguousAcrossKeys(t *testing.T) {
+	other := Rule{ID: "x", DisplayName: "terrascale/backups-prod/daily", Amount: 90, Unit: UnitDays}
+	nested := Rule{ID: "y", DisplayName: "terrascale/backups/prod/daily", Amount: 90, Unit: UnitDays}
+	api := &fakeAPI{bucket: ownedBucket(), rules: []Rule{other, nested}}
+	store := ociresource.NewMemoryStore()
+	spec := Spec{Namespace: "tenancy", Bucket: "backups", Retention: []Retention{{Name: "prod-daily", Days: 7}}}
+	if _, err := reconcile(t, api, store, spec, ociresource.PolicyEnforce); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(api.rules, other) || !slices.Contains(api.rules, nested) || len(api.rules) != 3 {
+		t.Fatalf("rules=%+v calls=%v", api.rules, api.calls)
 	}
 }
 
@@ -213,7 +244,7 @@ func TestSDKRequestsCarryIfMatchAndNeverLock(t *testing.T) {
 		requests = append(requests, r.Method+" "+r.URL.Path+" if-match="+r.Header.Get("if-match"))
 		switch {
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/retentionRules"):
-			_, _ = io.WriteString(w, `{"items":[{"id":"r1","displayName":"terrascale-backups-daily","etag":"re",`+
+			_, _ = io.WriteString(w, `{"items":[{"id":"r1","displayName":"terrascale/backups/daily","etag":"re",`+
 				`"timeCreated":"2026-01-01T00:00:00Z","timeModified":"2026-01-01T00:00:00Z",`+
 				`"duration":{"timeAmount":30,"timeUnit":"DAYS"},"timeRuleLocked":"2027-01-01T00:00:00Z"}]}`)
 		case r.Method == http.MethodGet:
@@ -247,7 +278,7 @@ func TestSDKRequestsCarryIfMatchAndNeverLock(t *testing.T) {
 	if err := api.UpdateBucket(t.Context(), "tenancy", "backups", "be", VersioningSuspended, bucket.Tags); err != nil {
 		t.Fatal(err)
 	}
-	if err := api.CreateRetentionRule(t.Context(), "tenancy", "backups", "terrascale-backups-weekly", 1, UnitYears); err != nil {
+	if err := api.CreateRetentionRule(t.Context(), "tenancy", "backups", "terrascale/backups/weekly", 1, UnitYears); err != nil {
 		t.Fatal(err)
 	}
 	if err := api.DeleteRetentionRule(t.Context(), "tenancy", "backups", "r1", "re"); err != nil {
@@ -256,7 +287,7 @@ func TestSDKRequestsCarryIfMatchAndNeverLock(t *testing.T) {
 	if err := api.UpdateBucket(t.Context(), "tenancy", "backups", "", "", bucket.Tags); err == nil {
 		t.Fatal("unconditional bucket update accepted")
 	}
-	if _, locked := created["timeRuleLocked"]; locked || created["displayName"] != "terrascale-backups-weekly" {
+	if _, locked := created["timeRuleLocked"]; locked || created["displayName"] != "terrascale/backups/weekly" {
 		t.Fatalf("created=%v", created)
 	}
 	want := []string{"POST /n/tenancy/b/backups if-match=be", "DELETE /n/tenancy/b/backups/retentionRules/r1 if-match=re"}

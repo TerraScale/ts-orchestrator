@@ -159,8 +159,15 @@ var _ ociresource.Resource[Spec, Observed] = Reconciler{}
 func (Reconciler) Kind() string { return Kind }
 
 // marker prefixes the display name of every retention rule the reconciler
-// manages for key.
-func marker(key ociresource.Key) string { return "terrascale-" + key.Name + "-" }
+// manages for key. Key names and rule names never contain "/", so the
+// marker of one key can never match a rule of another key.
+func marker(key ociresource.Key) string { return "terrascale/" + key.Name + "/" }
+
+// managedName reports whether displayName is exactly marker+<rule name>.
+func managedName(key ociresource.Key, displayName string) bool {
+	name, ok := strings.CutPrefix(displayName, marker(key))
+	return ok && ruleNamePattern.MatchString(name)
+}
 
 func (r Reconciler) Observe(ctx context.Context, target ociresource.Target[Spec]) (Observed, bool, error) {
 	if err := target.Spec.Validate(); err != nil {
@@ -204,8 +211,6 @@ type changes struct {
 	blocked []string
 }
 
-func (c changes) retentionChanged() bool { return len(c.create)+len(c.update)+len(c.remove) > 0 }
-
 func versioningInSync(want, have string) bool {
 	return want == "" || want == have || want == VersioningSuspended && have == VersioningDisabled
 }
@@ -216,7 +221,12 @@ func diff(target ociresource.Target[Spec], observed Observed) changes {
 	prefix := marker(target.Key)
 	managed := map[string]Rule{}
 	for _, rule := range observed.Rules {
-		if !strings.HasPrefix(rule.DisplayName, prefix) {
+		if !managedName(target.Key, rule.DisplayName) {
+			if out.versioning && target.Spec.Versioning == VersioningEnabled {
+				// OCI refuses versioning while any retention rule exists;
+				// a rule this reconciler does not own blocks the switch.
+				out.blocked = append(out.blocked, rule.DisplayName+" (unmanaged; blocks versioning)")
+			}
 			continue
 		}
 		if _, duplicate := managed[rule.DisplayName]; duplicate {
@@ -277,7 +287,7 @@ func (Reconciler) Diff(target ociresource.Target[Spec], observed Observed, found
 		plan.Add("remove-retention", "%s", rule.DisplayName)
 	}
 	for _, name := range c.blocked {
-		plan.Add("blocked", "retention rule %s is locked", name)
+		plan.Add("blocked", "retention rule %s cannot be changed", name)
 	}
 	if target.Ownership.Stale(observed.Bucket.Tags, target.Generation, target.SpecDigest) {
 		plan.Add("tag", "restamp ownership generation %d", target.Generation)
@@ -294,7 +304,7 @@ func (r Reconciler) Apply(ctx context.Context, target ociresource.Target[Spec], 
 	}
 	c := diff(target, observed)
 	if len(c.blocked) > 0 {
-		return fmt.Errorf("bucket retention rules %s are locked and differ from the spec", strings.Join(c.blocked, ", "))
+		return fmt.Errorf("bucket retention rules %s are locked or block versioning; nothing was changed", strings.Join(c.blocked, ", "))
 	}
 	spec := target.Spec
 	for _, rule := range c.remove {

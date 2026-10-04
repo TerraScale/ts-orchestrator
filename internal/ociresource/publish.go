@@ -64,7 +64,7 @@ type SetResult struct {
 // kind that is no longer listed is tombstoned to be released at
 // now+pruneDelay; without it, unlisted records are left alone.
 func PublishSet(ctx context.Context, store Store, region, kind string, entries []Entry, prune bool,
-	now time.Time, pruneDelay time.Duration,
+	now time.Time, pruneDelay time.Duration, guard func(context.Context) error,
 ) (SetResult, error) {
 	var result SetResult
 	names := make([]string, 0, len(entries))
@@ -90,7 +90,21 @@ func PublishSet(ctx context.Context, store Store, region, kind string, entries [
 	// One entry that cannot be written (for example a name whose earlier
 	// record is still being deleted) does not hold back the others.
 	var failures []error
+	fence := func() error {
+		if guard == nil {
+			return nil
+		}
+		if err := guard(ctx); err != nil {
+			return fmt.Errorf("%w: %w", ErrFenced, err)
+		}
+		return nil
+	}
 	for _, entry := range entries {
+		// Re-check authority before every write, so a controller that loses
+		// leadership mid-set never publishes stale desired state.
+		if err := fence(); err != nil {
+			return result, err
+		}
 		wrote, err := Publish(ctx, store, Key{Region: region, Kind: kind, Name: entry.Name}, entry.Policy, entry.Spec)
 		switch {
 		case err != nil:
@@ -117,6 +131,9 @@ func PublishSet(ctx context.Context, store Store, region, kind string, entries [
 	for _, record := range records {
 		if record.Tombstone != nil || slices.Contains(names, record.Key.Name) {
 			continue
+		}
+		if err := fence(); err != nil {
+			return result, err
 		}
 		if _, err := store.MarkDeleted(ctx, record.Key, now, now.Add(pruneDelay)); err != nil {
 			return result, fmt.Errorf("%s: tombstone unlisted record: %w", record.Key, err)

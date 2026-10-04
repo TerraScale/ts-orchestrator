@@ -146,6 +146,9 @@ type OCIResource struct {
 	Found   bool   `json:"found"`
 	InSync  bool   `json:"in_sync"`
 	Foreign bool   `json:"foreign,omitempty"`
+	// Applied is set when this observation's pass applied a change; its
+	// drift is what was just corrected, not evidence of drift.
+	Applied bool `json:"applied,omitempty"`
 	// Drift lists the pending changes, one "<op> <detail>" each.
 	Drift      []string  `json:"drift,omitempty"`
 	Error      string    `json:"error,omitempty"`

@@ -65,7 +65,7 @@ retention stay as they were. Other safety rules:
 - The reconciler never creates a locked retention rule and never changes or
   deletes a locked one: a locked managed rule that differs from the spec
   fails the record and shows as an insight. Retention rules created by
-  other tools (without the `terrascale-<name>-` display-name prefix) are
+  other tools (without the `terrascale/<name>/` display-name prefix) are
   left alone.
 
 ## Decisions and insights
@@ -76,7 +76,15 @@ are journaled (`oci_desired_published`, `oci_drift_corrected`,
 reconcile enabled reads `TS_OCI_OBSERVED` for the dashboard's `oci_drift`
 insight: a foreign object raises a warning at once; a record that keeps
 failing, or stays out of sync for ten minutes, raises a warning under
-`enforce` and an info item under `report`.
+`enforce` and an info item under `report`. Persistence needs a later pass
+that observed the condition again (re-reading one stored observation is
+not evidence), and the drift of a pass that just applied a correction is
+not counted. Observations older than three hours are treated as unknown
+and raise one "observations are stale" info item instead.
+
+Desired publication re-checks the authority epoch before every desired
+write and every prune tombstone, so a controller that loses leadership in
+the middle of a set stops at once.
 
 ## Ownership must exist before enforcement
 

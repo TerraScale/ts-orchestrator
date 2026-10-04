@@ -3,6 +3,7 @@ package insights
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 const maxOCIErrorText = 160
@@ -11,9 +12,20 @@ const maxOCIErrorText = 160
 // failing, or out of sync for longer than the OCIDrift threshold. Drift on
 // a report-only resource is expected until an operator acts, so it is info;
 // drift that an enforcing reconcile does not clear is a warning.
+//
+// Observations are read from a persistent bucket and the reconcile may run
+// rarely or not at all (no ready leader), so re-reading one observation is
+// not evidence that a condition persists. A failure or drift fires only
+// once a pass observed it again after the condition was first seen, and an
+// observation older than OCIStale is treated as unknown.
 func ociDrift(inputs *Inputs) []Insight {
 	var out []Insight
+	var stale []string
 	for _, resource := range inputs.OCIResources {
+		if resource.ObservedAt.IsZero() || inputs.Now.Sub(resource.ObservedAt) > inputs.Thresholds.OCIStale {
+			stale = append(stale, resource.Key)
+			continue
+		}
 		entity := Entity{Kind: "oci-resource", ID: resource.Key, Href: "/insights"}
 		inspect := Action{Label: "Inspect the observed state",
 			Command: "nats kv get TS_OCI_OBSERVED " + strings.ReplaceAll(resource.Key, "/", ".")}
@@ -27,8 +39,8 @@ func ociDrift(inputs *Inputs) []Insight {
 				Actions: []Action{{Label: "Tag the object with the controller's ownership after review",
 					Href: "/insights"}, inspect}})
 		case resource.Error != "":
-			held := inputs.Since("oci_drift:error:" + resource.Key)
-			if held < inputs.Thresholds.OCIDrift {
+			held, ok := persisted(inputs, "oci_drift:error:"+resource.Key, resource.ObservedAt)
+			if !ok {
 				continue
 			}
 			out = append(out, Insight{Severity: SeverityWarning, Score: held.Seconds(), Key: "oci_drift:error:" + resource.Key,
@@ -39,9 +51,9 @@ func ociDrift(inputs *Inputs) []Insight {
 					{Label: "Failing for", Value: held.Seconds(), Unit: "s", Comparison: "<",
 						Threshold: threshold(inputs.Thresholds.OCIDrift.Seconds())}},
 				Actions: []Action{inspect}})
-		case !resource.InSync:
-			held := inputs.Since("oci_drift:drift:" + resource.Key)
-			if held < inputs.Thresholds.OCIDrift {
+		case !resource.InSync && !resource.Applied:
+			held, ok := persisted(inputs, "oci_drift:drift:"+resource.Key, resource.ObservedAt)
+			if !ok {
 				continue
 			}
 			severity, why := SeverityWarning,
@@ -60,7 +72,26 @@ func ociDrift(inputs *Inputs) []Insight {
 				Actions: []Action{inspect}})
 		}
 	}
+	if len(stale) > 0 {
+		// Unknown is not healthy: say that the reconcile stopped observing
+		// instead of letting its earlier problems silently resolve.
+		out = append(out, Insight{Severity: SeverityInfo, Score: float64(len(stale)), Key: "oci_drift:stale",
+			Title: fmt.Sprintf("%d OCI reconcile observations are stale", len(stale)),
+			Why: fmt.Sprintf("No reconcile pass observed %s within %s; the regional leader may not be running "+
+				"the OCI reconcile.", truncate(strings.Join(stale, ", "), 2*maxOCIErrorText),
+				roundDuration(inputs.Thresholds.OCIStale)),
+			Entity:  Entity{Kind: "oci-resource", ID: "stale", Href: "/insights"},
+			Actions: []Action{{Label: "Check the authority leader and its OCI reconcile logs", Href: "/members"}}})
+	}
 	return out
+}
+
+// persisted reports how long condition has held and whether it counts: it
+// must have held for OCIDrift and been observed again by a pass that ran
+// after the condition was first seen.
+func persisted(inputs *Inputs, condition string, observedAt time.Time) (time.Duration, bool) {
+	held := inputs.Since(condition)
+	return held, held >= inputs.Thresholds.OCIDrift && observedAt.After(inputs.Now.Add(-held))
 }
 
 func truncate(text string, limit int) string {
