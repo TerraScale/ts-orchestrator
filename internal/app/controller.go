@@ -436,8 +436,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	placementHolds := new(placementHoldLog)
 	holdDecisions := newHoldJournal(cfg.NATS.Cell)
+	rolloutKnownBadReleases := newRolloutKnownBad(cfg)
 	if managed != nil {
-		managedController, err = placement.StartController(ctx, managed.placementConfig(cfg.NATS.Cell,
+		managedController, err = placement.StartController(ctx, withKnownBad(managed.placementConfig(cfg.NATS.Cell,
 			func(err error) {
 				changed := placementHolds.recordChange("reconciliation error: " + err.Error())
 				slog.Warn("TerraBase placement reconciliation failed", observability.ComponentKey, "placement",
@@ -448,7 +449,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				slog.Info("TerraBase placement held", observability.ComponentKey, "placement",
 					"reason", reason, observability.EventKey, changed)
 				holdDecisions.record(ctx, reason, time.Now())
-			}),
+			}), rolloutKnownBadReleases),
 			placement.JournaledStore(placementStore, cfg.NATS.Cell), control, fleet, hostController, hostController,
 			func(ctx context.Context, digest, role, environment string) (placement.AdmittedArtifact, error) {
 				record, err := service.ResolveAdmittedArtifact(ctx, digest, role, environment)
@@ -595,7 +596,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		defer brokerSub.Unsubscribe()
 	}
 	// Optional rollout and region planner providers, behind their flags.
-	rollouts, err := startRollouts(runCtx, cfg, runtime.JetStream(), control, fullClusterReady)
+	rollouts, err := startRollouts(runCtx, cfg, runtime.JetStream(), control, fullClusterReady, rolloutKnownBadReleases)
 	if err != nil {
 		return fmt.Errorf("start rollout store: %w", err)
 	}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
@@ -78,9 +79,10 @@ func (c *RegionPlannerConfig) plannerPolicy(home string) (regionplanner.Policy, 
 	return policy, lifecycle, nil
 }
 
-// startRollouts opens the rollout store when enabled.
+// startRollouts opens the rollout store when enabled. knownBad, when set,
+// is pointed at the store so placement admission enforces its list.
 func startRollouts(ctx context.Context, cfg Config, js jetstream.JetStream, control authority.Fencer,
-	fullClusterReady func() bool,
+	fullClusterReady func() bool, knownBad *rolloutKnownBad,
 ) (insights.RolloutProvider, error) {
 	if cfg.Controller.Rollouts == nil || !cfg.Controller.Rollouts.Enabled {
 		return nil, nil
@@ -92,7 +94,35 @@ func startRollouts(ctx context.Context, cfg Config, js jetstream.JetStream, cont
 	if err != nil {
 		return nil, err
 	}
+	if knownBad != nil {
+		knownBad.store.Store(store)
+	}
 	return store, nil
+}
+
+// rolloutKnownBad lets placement admission, which starts before the rollout
+// store opens, read the cell's known-bad list. It exists only when the
+// rollout store is enabled; until the store opens it refuses, so admission
+// fails closed instead of skipping the list.
+type rolloutKnownBad struct {
+	store atomic.Pointer[rollout.Store]
+}
+
+// newRolloutKnownBad returns the placement known-bad source for cfg, or nil
+// when the rollout store is disabled and no cell list exists.
+func newRolloutKnownBad(cfg Config) *rolloutKnownBad {
+	if cfg.Controller.Rollouts == nil || !cfg.Controller.Rollouts.Enabled {
+		return nil
+	}
+	return &rolloutKnownBad{}
+}
+
+func (k *rolloutKnownBad) IsKnownBad(ctx context.Context, digest string) (bool, error) {
+	store := k.store.Load()
+	if store == nil {
+		return false, errors.New("the rollout store is not open yet")
+	}
+	return store.IsKnownBad(ctx, digest)
 }
 
 // startRegionPlanner opens the region lifecycle store on the global home and

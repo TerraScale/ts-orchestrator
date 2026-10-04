@@ -4,11 +4,13 @@ import (
 	"context"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlifecycle"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionplanner"
@@ -63,8 +65,34 @@ func TestRegionPlannerRunsOnlyInTheGlobalHome(t *testing.T) {
 	if budgets, err := startRegionPlanner(t.Context(), cfg, nil, nil, nil, nil); err != nil || budgets != nil {
 		t.Fatalf("disabled planner = %v, %v", budgets, err)
 	}
-	if rollouts, err := startRollouts(t.Context(), cfg, nil, nil, nil); err != nil || rollouts != nil {
+	if rollouts, err := startRollouts(t.Context(), cfg, nil, nil, nil, nil); err != nil || rollouts != nil {
 		t.Fatalf("disabled rollouts = %v, %v", rollouts, err)
+	}
+	if newRolloutKnownBad(cfg) != nil {
+		t.Fatal("placement got a known-bad source without a rollout store")
+	}
+}
+
+// Placement starts before the rollout store opens: until it does, the
+// known-bad source refuses instead of reporting a clean list.
+func TestRolloutKnownBadFailsClosedUntilTheStoreOpens(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{}
+	cfg.Controller.Rollouts = &RolloutsConfig{Enabled: true}
+	knownBad := newRolloutKnownBad(cfg)
+	if knownBad == nil {
+		t.Fatal("no known-bad source with the rollout store enabled")
+	}
+	if bad, err := knownBad.IsKnownBad(t.Context(), strings.Repeat("a", 64)); err == nil || bad {
+		t.Fatalf("unopened store = %v, %v", bad, err)
+	}
+	if withKnownBad(placement.Config{}, knownBad).KnownBad == nil {
+		t.Fatal("placement config lost the known-bad source")
+	}
+	// A disabled store must leave the interface nil, not a typed nil.
+	if withKnownBad(placement.Config{}, nil).KnownBad != nil {
+		t.Fatal("a disabled rollout store set a known-bad source")
 	}
 }
 

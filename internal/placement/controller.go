@@ -82,7 +82,22 @@ type Config struct {
 	LostMemberEvidence LostMemberEvidence
 	// LostMemberGrace defaults to DefaultLostMemberGrace.
 	LostMemberGrace time.Duration
+	// KnownBad, when set, is the cell's durable known-bad release list
+	// (internal/rollout). Managed update admission refuses a candidate it
+	// names, and an error reading it refuses the update. Nil keeps the
+	// previous behaviour, where only the operator's list applies.
+	KnownBad KnownBadReleases
 }
+
+// KnownBadReleases answers whether a release digest was rolled back by a
+// rollout in this cell and must never be prepared again.
+type KnownBadReleases interface {
+	IsKnownBad(ctx context.Context, digest string) (bool, error)
+}
+
+// ErrKnownBadCandidate refuses a managed update whose candidate the cell
+// rolled back before.
+var ErrKnownBadCandidate = errors.New("managed update candidate is known bad in this cell")
 
 type Controller struct {
 	config          Config

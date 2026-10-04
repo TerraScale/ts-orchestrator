@@ -102,6 +102,11 @@ func Activate(layout Layout, digest, unit string, now time.Time, window time.Dur
 	if window < MinProofWindow || window > MaxProofWindow || !unitRE.MatchString(unit) || now.IsZero() {
 		return Activation{}, fmt.Errorf("%w: activation unit or proof window", ErrInvalid)
 	}
+	// An interrupted rollout restore is finished before the selection
+	// changes again, so its recovery can never overwrite this activation.
+	if err := layout.finishRestores(); err != nil {
+		return Activation{}, err
+	}
 	if pending, exists, err := layout.Pending(); err != nil {
 		return Activation{}, err
 	} else if exists {

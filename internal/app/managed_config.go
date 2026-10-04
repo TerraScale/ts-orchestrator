@@ -52,6 +52,15 @@ func (m managedControllerConfig) placementConfig(cell string, onError func(error
 	}
 }
 
+// withKnownBad makes managed update admission enforce the cell's rollout
+// known-bad list; a nil source (rollout store disabled) leaves it unset.
+func withKnownBad(config placement.Config, knownBad *rolloutKnownBad) placement.Config {
+	if knownBad != nil {
+		config.KnownBad = knownBad
+	}
+	return config
+}
+
 func loadManagedControllerConfig(cfg Config) (*managedControllerConfig, error) {
 	controller := cfg.Controller
 	configured := controller.OciRegionIntentFile != "" || controller.OciRegionConfig != "" || controller.PlacementConfig != ""
