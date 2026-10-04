@@ -11,7 +11,7 @@ from tags alone.
 | `storage/hostvolume` | Host-side primitives for the root volume initializer: hardened mount flags, ext4/xfs format commands, online grow. |
 | `storage/capacity` | statfs collector, the TTL'd `TS_STORAGE_USAGE` KV bucket, and pressure signals for placement and autoscaling. |
 | `storage/backup` | OCI volume backup policy, planner and leader-only runner with fenced retention. |
-| `storage/failover` | Core for reattaching a volume after its host is lost. It requires proof that the old instance is TERMINATED. |
+| `storage/failover` | Reattaches a volume after its host is lost. It requires proof that the old instance is TERMINATED. Placement drives it for replacement host attempts through the OCI boundary in `failover/oci.go`. |
 
 ## Mounts
 
@@ -38,25 +38,73 @@ Every feature below is off by default.
 | controller `storage_capacity.enabled` | Each controller publishes its boot root and JetStream StoreDir usage. The unused JetStream max-store reservation counts as used, and it is also subtracted from the node's boot headroom when the StoreDir is on the boot filesystem. Pressure is logged, and critical pressure is logged as an error. | None. |
 | controller `volume_backup.enabled` | The leader keeps crash-consistent OCI volume backups of placed members' retained volumes: every `interval_hours`, with a FULL backup every `full_every` and INCREMENTAL backups otherwise. With `prune` set, `retain` must be at least `full_every`, so pruning never deletes the last FULL. | The controller dynamic group needs `manage volume-backups` in the compartment. |
 | controller `volume_backup.prune` | Deletes owned AVAILABLE backups beyond `retain`. Before each delete it re-reads the backup's tags, source volume and state, and deletes with If-Match on the ETag. Owned backups of a volume that has left placement and no longer exists in OCI (404 or TERMINATED) are deleted once they are older than `orphan_retention_days` (default 30). Orphan retention runs only when every placement partition was readable on that pass. | `volume_backup.enabled`. |
-| `failover.Config.Enabled` | Reattach core only. It is not wired yet. | Follow-up OCI fleet support (see below). |
+| placement `reattach_on_host_loss` | A replacement host attempt takes over its lost predecessor's retained volume (see Reattach on host loss). | The lost-member replacement itself needs a `LostMemberEvidence` source. Roll every controller to this version first (new durable field). |
 
 ## Resize and ownership
 
-A `volume-resize` operation is keyed by volume and target size. Its intent
-records the predecessor size and ETag. One If-Match `UpdateVolume` changes
-both the size and the `terrascale-volume-size-gib` tag. The confirmed result
-advances the volume ownership record by CAS. If that ownership record is lost,
-it is rebuilt from the confirmed create plus the confirmed resize. A size
+A `volume-resize` operation is keyed by volume, target size and attempt.
+Attempt 1 keeps the original `<volume>/<size>` key; later attempts use
+`<volume>/<size>/attempt-<n>`, up to 8. Its intent records the predecessor
+size and ETag. One If-Match `UpdateVolume` changes both the size and the
+`terrascale-volume-size-gib` tag. The confirmed result advances the volume
+ownership record by CAS. If that ownership record is lost, it is rebuilt
+from the confirmed create plus a confirmed attempt of the resize. A size
 change made out of band (for example in the OCI console without the tag)
 still makes the volume foreign, by design.
+
+A new attempt starts only when the previous attempt of the same target never
+confirmed, the volume is still below the target, and its ETag no longer
+matches the attempt's If-Match ETag, so that request can never land as
+journaled. Before attempts existed, such a same-size retry held with
+`ErrStaleETag` (#133, finding 11583 item 2). With the ETag unchanged an
+unknown attempt is retried on its own key, as before. A volume whose ETag
+moves under all 8 attempts holds with `ErrStaleETag`.
+
+## Reattach on host loss
+
+With placement `reattach_on_host_loss`, a replacement host attempt (whose
+member state records `previous_instance_id`) does not attach its retained
+volume directly. Each placement tick runs one `failover.Reattacher` step:
+
+1. Prove the old instance fenced: OCI must report it `TERMINATED`. A
+   STOPPED, TERMINATING, missing (404) or unreachable instance holds the
+   member; the attach deadline still reports a stall.
+2. Detach a live attachment of the old instance through
+   `Fleet.DetachFencedAttachment`: a journaled `volume-detach` (same key as
+   the evidence-driven detach of that attachment fence) whose fence is
+   re-read after the authority guard, right before the effect. A detach
+   that does not reach DETACHED within the settle window is recorded
+   Unknown; terminal discovery treats a detach whose exact attachment is
+   now DETACHED or gone as settled.
+3. Wait until OCI reports that attachment DETACHED.
+4. Attach to the replacement with `AllowDetachedHistory`: DETACHED records
+   no longer hold the attach. Any other live attachment still holds it, and
+   a live attachment on an unrelated instance holds the reattach for an
+   operator.
+5. Record a mount-existing permit (`volume-mount-permit.*` in the OCI
+   journal bucket, immutable) once the replacement holds the volume's only
+   live attachment and it is journal-owned.
+
+`InspectVolumeInitialization` admits a volume with DETACHED attachment
+history only when that permit names exactly the pinned attachment, workload
+and replacement instance, and the pinned attachment is the only live one.
+It then answers without format authority: the replacement mounts the
+existing filesystem and never formats it. A replacement whose volume was
+never formatted therefore fails closed at initialization.
+
+Each fenced detach, replacement attach and mount permit is recorded in the
+decision journal (`volume_reattached`, rule
+`storage.reattach_on_host_loss`).
 
 ## Follow-ups
 
 - Host-side usage of managed mounts: hosts may publish only their
-  observation subject. Carry usage in the host observation and let the
-  controller republish it.
-- Reattach wiring in `internal/oci`: a journaled detach for an attachment of
-  a TERMINATED instance, attach over DETACHED attachment history, and a
-  mount-existing (never format) permit in `InspectVolumeInitialization`.
-- A signed grow verb or a desired volume size field so a live member's
-  filesystem grows without waiting for the next initializer run.
+  observation subject. Carry usage in `memberstatus`, republish it from the
+  controller, feed `SignalSource` and `NodeHeadroomBytes` into placement
+  instead of the configured `DiskBytes`, and cordon on critical JetStream
+  pressure.
+- A per-member desired volume size and a signed grow request to the host
+  initializer, so a live member's filesystem grows without waiting for the
+  next initializer run.
+- Reattach after the old instance has been purged from OCI (404) needs a
+  separate proof; today it holds.
