@@ -145,6 +145,22 @@ func TestWorkflowContracts(t *testing.T) {
 		requireText(t, makefile, "$(GO) vet -tags fixturetest ./...")
 		requireText(t, makefile, "GO=\"$(GO)\" bash scripts/ci/racetest/race-test.sh")
 	})
+	t.Run("cacheable_checkout_and_lint", func(t *testing.T) {
+		// Content-derived times must be in place before any test runs, or
+		// every test that reads a repository file misses the test cache.
+		steps := matches(ci, `(?m)^      - name: (.+)$`)
+		stamp := slices.Index(steps, "Stamp tracked files with content-derived times")
+		verify := slices.Index(steps, "Check, test and build static binaries in parallel")
+		if stamp < 0 || verify != stamp+1 || slices.Index(steps, "Verify the source revision and Go toolchain") > stamp {
+			t.Fatalf("the checkout must be stamped right before the checks: %v", steps)
+		}
+		requireText(t, ci, "run: go run ./scripts/ci/stablemtime\n")
+		requireText(t, ci, "      options: --init --tmpfs /tmp:")
+		makefile := workflowText(t, "Makefile")
+		_, ciVerify, _ := strings.Cut(makefile, "\nci-verify:\n")
+		ciVerify, _, _ = strings.Cut(ciVerify, "\n\n")
+		requireText(t, ciVerify, " shellcheck ")
+	})
 	t.Run("image_inputs", func(t *testing.T) {
 		root := script.Root(t)
 		var stdout, stderr bytes.Buffer
