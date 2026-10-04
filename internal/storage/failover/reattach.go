@@ -152,13 +152,19 @@ type InstanceObserver interface {
 func ProveFenced(ctx context.Context, observer InstanceObserver, instanceID string, now time.Time) (FenceProof, error) {
 	state, err := observer.InstanceLifecycleState(ctx, instanceID)
 	if err != nil {
-		return FenceProof{}, errors.Join(storage.ErrWriterNotFenced, err)
+		return FenceProof{}, errors.Join(storage.ErrWriterNotFenced, ErrFenceUnobserved, err)
 	}
 	if state != "TERMINATED" {
 		return FenceProof{}, fmt.Errorf("%w: instance %s is %s", storage.ErrWriterNotFenced, instanceID, state)
 	}
 	return FenceProof{InstanceID: instanceID, State: state, ObservedAt: now.UTC()}, nil
 }
+
+// ErrFenceUnobserved marks a missing fence proof caused by a failed lifecycle
+// lookup (authorization, network, cancellation, a purged instance) rather
+// than an observed non-TERMINATED state. Callers report it as an error
+// instead of a normal wait.
+var ErrFenceUnobserved = errors.New("lost instance lifecycle state could not be observed")
 
 // VolumeAttacher is the journaled OCI attachment boundary used by reattach.
 type VolumeAttacher interface {
@@ -183,6 +189,10 @@ type Reattacher struct {
 	Volumes   VolumeAttacher
 	Permits   MountPermitter
 	Now       func() time.Time
+	// ExpectedEpoch, when non-zero, binds the step to the authority epoch
+	// under which the caller read its inputs: a step under any other epoch
+	// is fenced before anything is read or changed.
+	ExpectedEpoch uint64
 }
 
 // Step decides and executes the next step and returns it. StepHold and
@@ -202,6 +212,9 @@ func (reattacher Reattacher) Step(ctx context.Context, request Request) (Step, e
 		return Step{}, authority.ErrNotLeader
 	}
 	epoch := snapshot.Epoch
+	if reattacher.ExpectedEpoch != 0 && epoch != reattacher.ExpectedEpoch {
+		return Step{}, authority.ErrFenced
+	}
 	now := time.Now
 	if reattacher.Now != nil {
 		now = reattacher.Now

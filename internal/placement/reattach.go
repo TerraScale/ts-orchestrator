@@ -40,15 +40,27 @@ func (controller *Controller) reattachRetainedVolume(ctx context.Context, epoch 
 	reattacher := failover.Reattacher{
 		Config: failover.Config{Enabled: true}, Fencer: controller.fencer,
 		Instances: boundary, Volumes: boundary, Permits: boundary, Now: controller.currentTime,
+		// The member state was read under this tick's epoch; a step under a
+		// later epoch must not act on it.
+		ExpectedEpoch: epoch,
 	}
 	request := failover.Request{
 		DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID, VolumeID: state.VolumeID,
 		OldInstanceID: state.PreviousInstanceID, ReplacementInstanceID: state.InstanceID,
 		AttachKey: memberOperationID(intent, seat.MemberID, state.HostAttempt, "attach-volume"),
 	}
+	if err := controller.guard(ctx, epoch); err != nil {
+		return false, err
+	}
 	step, err := reattacher.Step(ctx, request)
 	switch step.Kind {
 	case failover.StepProveFence:
+		if errors.Is(err, failover.ErrFenceUnobserved) {
+			// A failed lookup is not a wait for TERMINATED: report it.
+			controller.holdStalledAttachRequest(seat.MemberID, state)
+			return false, fmt.Errorf("reattach retained member volume %s/%s: prove lost instance %s fenced: %w",
+				intent.DatabaseID, seat.MemberID, state.PreviousInstanceID, err)
+		}
 		controller.hold(fmt.Sprintf("member %s replacement waits for OCI to report lost instance %s TERMINATED before its volume moves",
 			seat.MemberID, state.PreviousInstanceID))
 		controller.holdStalledAttachRequest(seat.MemberID, state)

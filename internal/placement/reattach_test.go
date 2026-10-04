@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/failover"
 )
 
 // reattachTestFleet adds the reattach boundary to the placement test fleet.
@@ -173,6 +175,44 @@ func TestReattachHoldsOnALiveThirdAttachmentAndUnsupportedFleets(t *testing.T) {
 	acted, err = controller.reattachRetainedVolume(t.Context(), 1, intent, seat, store.members[seat.MemberID])
 	if err != nil || acted || plain.attachCalls != 0 || !strings.Contains(strings.Join(holds, "\n"), "does not support") {
 		t.Fatalf("unsupported fleet: acted=%v err=%v holds=%q", acted, err, holds)
+	}
+}
+
+func TestReattachReportsFailedFenceLookupsAndRejectsAStaleEpoch(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	seat := Seat{MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU,
+		FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent}
+	store := newPlacementMemoryStore(t, intent)
+	lost := store.members[seat.MemberID].State
+	replacement, err := replacementMemberState(intent, seat, lost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement.InstanceID, replacement.HostGeneration, replacement.Stage = "ocid1.instance.replacement", 1, StagePreparedAttach
+	replacement.AttachRequestedAt = time.Now().UTC()
+	store.members[seat.MemberID] = VersionedMemberState{State: replacement, Revision: 1}
+	// The lost instance lookup fails: that is an error, not a wait.
+	fleet := &reattachTestFleet{
+		placementTestFleet: &placementTestFleet{},
+		states:             map[string]string{},
+		attachments: []oci.Attachment{{ID: lost.AttachmentID, VolumeID: lost.VolumeID, InstanceID: lost.InstanceID,
+			State: "ATTACHED", ETag: "lost-etag"}},
+	}
+	controller := startTestPlacementController(t, store, fleet, &placementTestHosts{}, func(string) {})
+	acted, err := controller.reattachRetainedVolume(t.Context(), 1, intent, seat, store.members[seat.MemberID])
+	if acted || !errors.Is(err, failover.ErrFenceUnobserved) || len(fleet.detaches) != 0 {
+		t.Fatalf("failed fence lookup: acted=%v err=%v detaches=%d", acted, err, len(fleet.detaches))
+	}
+
+	// Inputs read under another epoch never drive an effect.
+	fleet.states[lost.InstanceID] = "TERMINATED"
+	acted, err = controller.reattachRetainedVolume(t.Context(), 7, intent, seat, store.members[seat.MemberID])
+	if acted || !errors.Is(err, authority.ErrFenced) || len(fleet.detaches) != 0 {
+		t.Fatalf("stale epoch: acted=%v err=%v detaches=%d", acted, err, len(fleet.detaches))
+	}
+	if acted, err := controller.reattachRetainedVolume(t.Context(), 1, intent, seat, store.members[seat.MemberID]); err != nil ||
+		!acted || len(fleet.detaches) != 1 {
+		t.Fatalf("current epoch: acted=%v err=%v detaches=%d", acted, err, len(fleet.detaches))
 	}
 }
 

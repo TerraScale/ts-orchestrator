@@ -68,7 +68,10 @@ volume directly. Each placement tick runs one `failover.Reattacher` step:
 
 1. Prove the old instance fenced: OCI must report it `TERMINATED`. A
    STOPPED, TERMINATING, missing (404) or unreachable instance holds the
-   member; the attach deadline still reports a stall.
+   member; the attach deadline still reports a stall. An observed
+   non-TERMINATED state is a normal hold; a failed lifecycle lookup
+   (`failover.ErrFenceUnobserved`: authorization, network, cancellation or a
+   purged instance) also holds but is reported as a controller error.
 2. Detach a live attachment of the old instance through
    `Fleet.DetachFencedAttachment`: a journaled `volume-detach` (same key as
    the evidence-driven detach of that attachment fence) whose fence is
@@ -84,6 +87,10 @@ volume directly. Each placement tick runs one `failover.Reattacher` step:
 5. Record a mount-existing permit (`volume-mount-permit.*` in the OCI
    journal bucket, immutable) once the replacement holds the volume's only
    live attachment and it is journal-owned.
+
+Each step is guarded against the tick's authority epoch and bound to it
+(`Reattacher.ExpectedEpoch`), so member state read under one epoch never
+drives a detach or attach under a later one.
 
 `InspectVolumeInitialization` admits a volume with DETACHED attachment
 history only when that permit names exactly the pinned attachment, workload
