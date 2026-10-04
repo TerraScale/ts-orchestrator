@@ -80,6 +80,7 @@ func replacementMemberState(intent Intent, seat Seat, state MemberState) (Member
 	next.HostAttempt = state.HostAttempt + 1
 	next.CreateKey = hostCreateKey(intent, seat, next.HostAttempt)
 	next.Stage = StagePreparedHost
+	next.PreviousInstanceID = state.InstanceID
 	next.HostNode, next.InstanceID, next.InstanceETag = "", "", ""
 	next.AttachmentID, next.AttachmentDevice, next.AttachmentETag = "", "", ""
 	next.HostGeneration, next.DesiredGeneration = 0, 0

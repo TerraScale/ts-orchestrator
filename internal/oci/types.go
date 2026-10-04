@@ -114,6 +114,11 @@ type VolumeAttachRequest struct {
 	VolumeID       string
 	InstanceID     string
 	IdempotencyKey string
+	// AllowDetachedHistory lets the attach proceed over DETACHED attachment
+	// records of the volume. Only the reattach-on-host-loss path sets it,
+	// after proving the previous instance TERMINATED; a live attachment
+	// anywhere still holds.
+	AllowDetachedHistory bool
 }
 
 // VolumeCreateRequest defines one retained member data volume in the region

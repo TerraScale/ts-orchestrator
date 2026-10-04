@@ -152,13 +152,19 @@ type InstanceObserver interface {
 func ProveFenced(ctx context.Context, observer InstanceObserver, instanceID string, now time.Time) (FenceProof, error) {
 	state, err := observer.InstanceLifecycleState(ctx, instanceID)
 	if err != nil {
-		return FenceProof{}, errors.Join(storage.ErrWriterNotFenced, err)
+		return FenceProof{}, errors.Join(storage.ErrWriterNotFenced, ErrFenceUnobserved, err)
 	}
 	if state != "TERMINATED" {
 		return FenceProof{}, fmt.Errorf("%w: instance %s is %s", storage.ErrWriterNotFenced, instanceID, state)
 	}
 	return FenceProof{InstanceID: instanceID, State: state, ObservedAt: now.UTC()}, nil
 }
+
+// ErrFenceUnobserved marks a missing fence proof caused by a failed lifecycle
+// lookup (authorization, network, cancellation, a purged instance) rather
+// than an observed non-TERMINATED state. Callers report it as an error
+// instead of a normal wait.
+var ErrFenceUnobserved = errors.New("lost instance lifecycle state could not be observed")
 
 // VolumeAttacher is the journaled OCI attachment boundary used by reattach.
 type VolumeAttacher interface {
@@ -183,6 +189,10 @@ type Reattacher struct {
 	Volumes   VolumeAttacher
 	Permits   MountPermitter
 	Now       func() time.Time
+	// ExpectedEpoch, when non-zero, binds the step to the authority epoch
+	// under which the caller read its inputs: a step under any other epoch
+	// is fenced before anything is read or changed.
+	ExpectedEpoch uint64
 }
 
 // Step decides and executes the next step and returns it. StepHold and
@@ -202,6 +212,9 @@ func (reattacher Reattacher) Step(ctx context.Context, request Request) (Step, e
 		return Step{}, authority.ErrNotLeader
 	}
 	epoch := snapshot.Epoch
+	if reattacher.ExpectedEpoch != 0 && epoch != reattacher.ExpectedEpoch {
+		return Step{}, authority.ErrFenced
+	}
 	now := time.Now
 	if reattacher.Now != nil {
 		now = reattacher.Now
@@ -238,7 +251,11 @@ func (reattacher Reattacher) Step(ctx context.Context, request Request) (Step, e
 	}
 	switch step.Kind {
 	case StepDetach:
-		return step, reattacher.Volumes.DetachFenced(ctx, request, step.Attachment, proof)
+		err := reattacher.Volumes.DetachFenced(ctx, request, step.Attachment, proof)
+		if err == nil {
+			recordFencedDetach(ctx, epoch, request, proof, step.Attachment)
+		}
+		return step, err
 	case StepAttach:
 		attached, err := reattacher.Volumes.AttachReplacement(ctx, request, proof)
 		step.Attachment = attached
@@ -247,7 +264,11 @@ func (reattacher Reattacher) Step(ctx context.Context, request Request) (Step, e
 		}
 		return step, err
 	case StepGrantMount:
-		return step, reattacher.Permits.GrantMountExisting(ctx, request, step.Attachment)
+		err := reattacher.Permits.GrantMountExisting(ctx, request, step.Attachment)
+		if err == nil {
+			recordMountGranted(ctx, epoch, request, step.Attachment)
+		}
+		return step, err
 	default:
 		return step, fmt.Errorf("unknown reattach step %q", step.Kind)
 	}
@@ -279,6 +300,53 @@ func recordReattach(ctx context.Context, epoch uint64, request Request, proof Fe
 		Epoch:   epoch,
 		Attrs: map[string]string{"database": request.DatabaseID, "partition": request.PartitionID,
 			"old_instance": request.OldInstanceID, "attachment": attached.ID},
+	})
+	decisionlog.Correlate(key, id)
+}
+
+// recordFencedDetach journals the detach of the lost instance's attachment,
+// once per attachment, before the replacement attach.
+func recordFencedDetach(ctx context.Context, epoch uint64, request Request, proof FenceProof, attachment Attachment) {
+	key := "reattach-detach:" + request.AttachKey + ":" + attachment.ID
+	if decisionlog.Correlated(key) != "" {
+		return
+	}
+	id := decisionlog.Record(ctx, decisionlog.Decision{
+		Actor:   decisionlog.Actor{Slice: "storage"},
+		Kind:    decisionlog.KindVolumeReattached,
+		Subject: decisionlog.Subject{Kind: "volume", ID: request.VolumeID},
+		Summary: "Detached volume " + request.VolumeID + " from lost instance " + request.OldInstanceID,
+		Reason:  "OCI reports the lost instance " + proof.State + ", so it can no longer write.",
+		Rule:    "storage.reattach_on_host_loss",
+		Signals: []decisionlog.Signal{{Name: "old_instance_state", Text: proof.State},
+			{Name: "old_attachment_state", Text: attachment.State}},
+		Status: decisionlog.StatusInProgress,
+		Epoch:  epoch,
+		Attrs: map[string]string{"database": request.DatabaseID, "partition": request.PartitionID,
+			"old_instance": request.OldInstanceID, "attachment": attachment.ID},
+	})
+	decisionlog.Correlate(key, id)
+}
+
+// recordMountGranted closes the reattach chain: the replacement may mount
+// the existing filesystem and is never allowed to format it.
+func recordMountGranted(ctx context.Context, epoch uint64, request Request, attachment Attachment) {
+	key := "reattach-mount:" + request.AttachKey
+	if decisionlog.Correlated(key) != "" {
+		return
+	}
+	id := decisionlog.Record(ctx, decisionlog.Decision{
+		Actor:    decisionlog.Actor{Slice: "storage"},
+		Kind:     decisionlog.KindVolumeReattached,
+		Subject:  decisionlog.Subject{Kind: "volume", ID: request.VolumeID},
+		Summary:  "Granted a mount-existing permit for volume " + request.VolumeID + " on its replacement instance",
+		Reason:   "The volume is attached only to the replacement; its filesystem is mounted as is and never formatted.",
+		Rule:     "storage.reattach_on_host_loss",
+		Status:   decisionlog.StatusSucceeded,
+		Epoch:    epoch,
+		ParentID: decisionlog.Correlated("reattach:" + request.AttachKey),
+		Attrs: map[string]string{"database": request.DatabaseID, "partition": request.PartitionID,
+			"replacement_instance": request.ReplacementInstanceID, "attachment": attachment.ID},
 	})
 	decisionlog.Correlate(key, id)
 }
