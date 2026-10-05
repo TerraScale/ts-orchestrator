@@ -224,3 +224,29 @@ func TestLaunchDetailsDecodesTheSeedLaunchWriterOutput(t *testing.T) {
 		t.Fatalf("details=%+v", details)
 	}
 }
+
+// `oci-region preview member-launch` writes a C# database host launch input
+// with the same strict shape; the static host tags must survive the decode.
+func TestLaunchDetailsDecodesTheMemberLaunchWriterOutput(t *testing.T) {
+	plan := ociregion.Object{"availability_domain": "AD-1", "volume_vpus_per_gb": 10, "orchestrator_owner": "ts-470-gru-rebuild-2",
+		"resource_ids": ociregion.Object{"workload_compartment": "ocid1.compartment.oc1..w", "subnet": "ocid1.subnet.oc1..s",
+			"workload_network_security_group": "ocid1.networksecuritygroup.oc1..w"}}
+	host := ociregion.Object{"slot": "member-a", "fault_domain": "FAULT-DOMAIN-1", "private_ip": "10.251.0.21",
+		"shape": "VM.Standard.A1.Flex", "ocpus": 1, "memory_gb": 6, "boot_gb": 50}
+	metadata := ociregion.Object{"terrascale_hostboot_v1": `{"schema_version":2,"cell":"gru","region":"GRU","node":"gru-1-db-1"}`}
+	wire, err := json.Marshal(ociregion.MemberLaunchDocument(plan, host, "gru-1-db-1", "ocid1.image.fixture", metadata))
+	if err != nil {
+		t.Fatal(err)
+	}
+	details, err := LaunchDetails(wire)
+	if err != nil {
+		t.Fatalf("the member-launch writer output does not decode: %v", err)
+	}
+	if *details.DisplayName != "gru-1-db-1" || *details.CreateVnicDetails.PrivateIp != "10.251.0.21" ||
+		!slices.Equal(details.CreateVnicDetails.NsgIds, []string{"ocid1.networksecuritygroup.oc1..w"}) ||
+		*details.CompartmentId != "ocid1.compartment.oc1..w" || *details.CreateVnicDetails.AssignPublicIp ||
+		len(details.FreeformTags) != 3 || details.FreeformTags["terrascale-owner"] != "ts-470-gru-rebuild-2" ||
+		details.FreeformTags["terrascale-resource"] != "terrabase-host" || details.FreeformTags["terrascale-host-node"] != "gru-1-db-1" {
+		t.Fatalf("details=%+v", details)
+	}
+}

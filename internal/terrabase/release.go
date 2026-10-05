@@ -3,6 +3,8 @@ package terrabase
 import (
 	"bytes"
 	"crypto/sha256"
+	"debug/elf"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -49,17 +51,25 @@ func VerifyRelease(binaryPath, checksumPath string) (string, error) {
 		return "", err
 	}
 	defer file.Close()
-	magic := make([]byte, 4)
-	if _, err := io.ReadFull(file, magic); err != nil || !bytes.Equal(magic, []byte("\x7fELF")) {
+	hash := sha256.New()
+	// The asset name is the architecture the hosts run: an executable built
+	// for another machine would otherwise fail only once it reached them.
+	var header elf.Header64
+	if err := binary.Read(io.TeeReader(file, hash), binary.LittleEndian, &header); err != nil || string(header.Ident[:4]) != elf.ELFMAG {
 		return "", fmt.Errorf("%s is not an ELF executable", binaryPath)
 	}
-	hash := sha256.New()
-	hash.Write(magic)
+	if elf.Class(header.Ident[elf.EI_CLASS]) != elf.ELFCLASS64 || elf.Data(header.Ident[elf.EI_DATA]) != elf.ELFDATA2LSB {
+		return "", fmt.Errorf("%s is not a 64-bit little-endian ELF executable", binaryPath)
+	}
+	want := map[string]elf.Machine{"amd64": elf.EM_X86_64, "arm64": elf.EM_AARCH64}[strings.TrimPrefix(name, "terrabase-linux-")]
+	if got := elf.Machine(header.Machine); got != want {
+		return "", fmt.Errorf("%s must be built for %v, found %v", name, want, got)
+	}
 	size, err := io.Copy(hash, io.LimitReader(file, maxBinaryBytes))
 	if err != nil {
 		return "", err
 	}
-	if size+4 > maxBinaryBytes {
+	if size+int64(binary.Size(header)) > maxBinaryBytes {
 		return "", errors.New("release executable exceeds the artifact admission limit")
 	}
 	if digest := hex.EncodeToString(hash.Sum(nil)); digest != fields[0] {

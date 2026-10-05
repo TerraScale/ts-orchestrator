@@ -27,13 +27,20 @@ release is `ci-641274f7482bcf0ce2ae556af8be162d49e445be-run-13121`, SHA-256
 **ARM64 gap.** OCI workload hosts are ARM64 (`VM.Standard.A1.Flex`), but
 TerraBase CI builds only `linux-x64` and publishes only
 `terrabase-linux-amd64`. A live OCI deployment needs TerraBase CI to also
-publish `terrabase-linux-arm64` and `terrabase-linux-arm64.sha256`. The
-orchestrator already accepts either asset name.
+publish `terrabase-linux-arm64` and `terrabase-linux-arm64.sha256`
+(TerraBase TS-483). The orchestrator side is ready: `operator
+terrabase-release` and the attempt's `terrabase` phase consume the arm64
+asset, tested with the checked-in stand-in
+`internal/terrabase/testdata/terrabase-linux-arm64` (a bare aarch64 ELF
+header) and its `.sha256` until TerraBase publishes the real asset.
 
 `terrabase.VerifyRelease` checks that the file is named
-`terrabase-linux-amd64` or `terrabase-linux-arm64`, starts with the ELF
-magic, is at most 512 MiB (the controller's artifact admission limit), and
-matches the single line of its `.sha256` asset. The verified digest is the
+`terrabase-linux-amd64` or `terrabase-linux-arm64`, starts with an ELF64
+little-endian header whose machine matches the asset name (`EM_X86_64` for
+amd64, `EM_AARCH64` for arm64, so an x86-64 build published under the arm64
+name is refused before it reaches a host), is at most 512 MiB (the
+controller's artifact admission limit), and matches the single line of its
+`.sha256` asset. The verified digest is the
 artifact digest the rollout pins. TerraBase publishes no source digest, so
 the artifact's source claim is repository
 `https://git.terrascale.tech/TerraScale/terrabase`, the commit, and the

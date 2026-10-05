@@ -331,7 +331,8 @@ func TestManifestValidationRejectsUnboundProfilesAndSecretOutputs(t *testing.T) 
 func TestManifestKeepsIssuerAndOperatorLocalFilesInTheirRoles(t *testing.T) {
 	manifest := newTestBootstrapAuthority(t).manifest
 	reference := manifest.Secrets[0]
-	for _, name := range []string{"host-nats-issuer.seed", "host-tls-issuer-key.pem", "host-tls-issuer-cert.pem"} {
+	for _, name := range []string{"host-nats-issuer.seed", "host-tls-issuer-key.pem", "host-tls-issuer-cert.pem",
+		"terrabase-member-ca.pem", "terrabase-member-ca.key"} {
 		reference.TargetFile = name
 		reference.Purpose = SecretRegionalShared
 		if err := reference.validate(manifest); !errors.Is(err, ErrManifestInvalid) {

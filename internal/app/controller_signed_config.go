@@ -17,6 +17,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
 const controllerConfigDirectory = "/etc/terrascale-orchestrator"
@@ -124,6 +125,27 @@ func ValidateSignedControllerConfig(manifest bootstrap.Manifest, observedPrivate
 			return Config{}, fmt.Errorf("controller credential %s is absent from signed material", name)
 		}
 	}
+	// The C# TerraBase member CA is host-issuer material: configured exactly
+	// when signed, at its fixed paths, as the live credential check requires.
+	_, signedCACert := secretFiles["terrabase-member-ca.pem"]
+	_, signedCAKey := secretFiles["terrabase-member-ca.key"]
+	if cfg.Controller.TerraBaseCACertFile != "" || cfg.Controller.TerraBaseCAKeyFile != "" || signedCACert || signedCAKey {
+		if !signedCACert || !signedCAKey ||
+			cfg.Controller.TerraBaseCACertFile != filepath.Join(bootstrapstart.MaterialDirectory, "terrabase-member-ca.pem") ||
+			cfg.Controller.TerraBaseCAKeyFile != filepath.Join(bootstrapstart.MaterialDirectory, "terrabase-member-ca.key") {
+			return Config{}, errors.New("TerraBase member CA is not the signed slot material")
+		}
+	}
+	// Without the member CA no member gets a certificate or starts.
+	if _, terraBase := cfg.Controller.Workloads[terrabase.Role]; terraBase && !signedCACert {
+		return Config{}, errors.New("a signed TerraBase workload profile needs the signed member CA")
+	}
+	if err := validateWorkloadProfiles(cfg.Controller.Workloads); err != nil {
+		return Config{}, fmt.Errorf("signed controller workloads: %w", err)
+	}
+	if err := validateAutoscaleConfig(cfg.Controller.Autoscale, cfg.Controller.Workloads); err != nil {
+		return Config{}, fmt.Errorf("signed controller autoscale: %w", err)
+	}
 	if path := cfg.NATS.Embedded.MembershipCredentialsFile; path != "" {
 		if _, signed := secretFiles["membership.creds"]; !signed ||
 			path != filepath.Join(bootstrapstart.MaterialDirectory, "membership.creds") {
@@ -160,6 +182,10 @@ func ValidateSignedControllerConfig(manifest bootstrap.Manifest, observedPrivate
 		placement.TickMillis < 0 || placement.TickMillis > 300_000 ||
 		placement.TickMillis > 0 && placement.TickMillis < 100 {
 		return Config{}, errors.New("controller placement config differs from signed environment")
+	}
+	// Controller start refuses the same overlap; refuse it before signing.
+	if _, exists := cfg.Controller.Workloads[placement.MemberRole]; exists {
+		return Config{}, fmt.Errorf("placement member role %q overlaps a generic delivery workload profile", placement.MemberRole)
 	}
 	return cfg, nil
 }

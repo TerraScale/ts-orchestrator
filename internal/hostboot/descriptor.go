@@ -10,7 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
@@ -36,25 +38,43 @@ var (
 // Descriptor is a strict public hint for one managed-host launch. OCI values
 // are supplied by the region-pinned Fleet and placement values by its durable
 // member record. Instance identity is not known until after launch.
+//
+// A static descriptor (schema 2, see Static) names only the cell, region and
+// node of an operator-launched C# TerraBase host. Its managed members are
+// zero and omitted, so a schema-1 descriptor keeps its exact bytes.
 type Descriptor struct {
 	SchemaVersion            int    `json:"schema_version"`
 	Cell                     string `json:"cell"`
 	Region                   string `json:"region"`
 	Node                     string `json:"node"`
-	Owner                    string `json:"owner"`
-	FleetGeneration          uint64 `json:"fleet_generation"`
-	CreateKey                string `json:"create_key"`
-	ImageID                  string `json:"image_id"`
-	DatabaseID               string `json:"database_id"`
-	PartitionID              string `json:"partition_id"`
-	SeatID                   string `json:"seat_id"`
-	HostAttempt              uint64 `json:"host_attempt"`
-	IntentGeneration         uint64 `json:"intent_generation"`
-	IntentPayloadDigest      string `json:"intent_payload_digest"`
-	CanonicalRosterDigest    string `json:"canonical_roster_digest"`
-	ManagedHostProfileDigest string `json:"managed_host_profile_digest"`
-	RuntimeManifestDigest    string `json:"runtime_manifest_digest"`
+	Owner                    string `json:"owner,omitzero"`
+	FleetGeneration          uint64 `json:"fleet_generation,omitzero"`
+	CreateKey                string `json:"create_key,omitzero"`
+	ImageID                  string `json:"image_id,omitzero"`
+	DatabaseID               string `json:"database_id,omitzero"`
+	PartitionID              string `json:"partition_id,omitzero"`
+	SeatID                   string `json:"seat_id,omitzero"`
+	HostAttempt              uint64 `json:"host_attempt,omitzero"`
+	IntentGeneration         uint64 `json:"intent_generation,omitzero"`
+	IntentPayloadDigest      string `json:"intent_payload_digest,omitzero"`
+	CanonicalRosterDigest    string `json:"canonical_roster_digest,omitzero"`
+	ManagedHostProfileDigest string `json:"managed_host_profile_digest,omitzero"`
+	RuntimeManifestDigest    string `json:"runtime_manifest_digest,omitzero"`
 }
+
+// StaticSchemaVersion is the schema of a static C# TerraBase host descriptor.
+const StaticSchemaVersion = 2
+
+// Static is the descriptor of the operator-launched C# TerraBase host node
+// (a <cell>-db-<n> server name) in a cell. It grants nothing by itself: the
+// controller enrolls the host only when its signed TerraBase profile lists
+// node at the host's private address and OCI shows that instance.
+func Static(cell, region, node string) Descriptor {
+	return Descriptor{SchemaVersion: StaticSchemaVersion, Cell: cell, Region: region, Node: node}
+}
+
+// IsStatic reports whether the descriptor names a static C# TerraBase host.
+func (descriptor Descriptor) IsStatic() bool { return descriptor.SchemaVersion == StaticSchemaVersion }
 
 // Validate checks the closed v1 identity and digest bindings and the bounded
 // canonical wire size. It performs no signature or live-resource checks.
@@ -89,9 +109,19 @@ func (descriptor Descriptor) Digest() (string, error) {
 	return hex.EncodeToString(digest[:]), nil
 }
 
-// Parse decodes one exact canonical v1 descriptor. Unknown members, duplicate
-// names, oversized input, and alternate noncanonical encodings are rejected.
+// Parse decodes one exact canonical v1 managed descriptor. Unknown members,
+// duplicate names, oversized input, and alternate noncanonical encodings are
+// rejected, and so is a static descriptor.
 func Parse(wire []byte) (Descriptor, error) {
+	descriptor, err := ParseHost(wire)
+	if err == nil && descriptor.IsStatic() {
+		return Descriptor{}, fmt.Errorf("%w: a static host is not a managed launch", ErrInvalidDescriptor)
+	}
+	return descriptor, err
+}
+
+// ParseHost decodes one exact canonical managed or static descriptor.
+func ParseHost(wire []byte) (Descriptor, error) {
 	if len(wire) == 0 || len(wire) > MaxDescriptorBytes {
 		return Descriptor{}, fmt.Errorf("%w: wire is absent or exceeds %d bytes", ErrInvalidDescriptor, MaxDescriptorBytes)
 	}
@@ -110,6 +140,16 @@ func Parse(wire []byte) (Descriptor, error) {
 }
 
 func (descriptor Descriptor) validateFields() error {
+	if descriptor.IsStatic() {
+		cell, err := naming.RegionCell(descriptor.Region).Name()
+		number, ok := strings.CutPrefix(descriptor.Node, cell+"-"+naming.Member+"-")
+		if err != nil || !validCellRegion(descriptor.Cell, descriptor.Region) || !ok ||
+			naming.Validate(descriptor.Node) != nil || strings.Contains(number, "-") ||
+			descriptor != Static(descriptor.Cell, descriptor.Region, descriptor.Node) {
+			return fmt.Errorf("%w: static host must name one database server of its cell and nothing else", ErrInvalidDescriptor)
+		}
+		return nil
+	}
 	if descriptor.SchemaVersion != SchemaVersion || !validCellRegion(descriptor.Cell, descriptor.Region) ||
 		!descriptorToken.MatchString(descriptor.Node) || !descriptorToken.MatchString(descriptor.Owner) ||
 		!validCreateKey(descriptor.CreateKey) || !descriptorImageID.MatchString(descriptor.ImageID) ||

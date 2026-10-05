@@ -78,7 +78,14 @@ type Image struct {
 	ID             string
 	LifecycleState string
 	BillableSizeGB *int64
+	// SHA256 is the imported QCOW2 digest from the image's SHA256Tag.
+	SHA256 string
 }
+
+// SHA256Tag is the freeform tag that names an imported image's QCOW2
+// SHA-256, so a later import under the same display name can tell its own
+// image from another one.
+const SHA256Tag = "terrascale-qcow2-sha256"
 
 // CapabilitySchema is a created or existing image capability schema.
 type CapabilitySchema struct {
@@ -100,7 +107,7 @@ const (
 
 // ImportRequest creates one image from an Object Storage QCOW2.
 type ImportRequest struct {
-	Compartment, Namespace, Bucket, Object, DisplayName string
+	Compartment, Namespace, Bucket, Object, DisplayName, SHA256 string
 }
 
 // UploadRequest uploads one local file without overwriting an existing object.
@@ -535,6 +542,12 @@ func (i Importer) importVerified(ctx context.Context, o Options, logf func(strin
 	if err != nil {
 		return nil, err
 	}
+	// Display names are static (gru-1-arm64), so a live image of this name
+	// may hold another QCOW2. Resume only the import of these exact bytes.
+	if image != nil && image.SHA256 != o.SHA256 {
+		return nil, fmt.Errorf("live image %s is named %s but holds QCOW2 %q, not %s; retire it before importing",
+			image.ID, o.DisplayName, image.SHA256, o.SHA256)
+	}
 	workRequest := ""
 	if image == nil {
 		exists, metadata, err := i.Client.HeadObject(ctx, o.Namespace, o.Bucket, objectName)
@@ -562,7 +575,7 @@ func (i Importer) importVerified(ctx context.Context, o Options, logf func(strin
 		}
 		logf("importing image\n")
 		created, request, err := i.Client.ImportImage(ctx, ImportRequest{Compartment: o.Compartment, Namespace: o.Namespace,
-			Bucket: o.Bucket, Object: objectName, DisplayName: o.DisplayName})
+			Bucket: o.Bucket, Object: objectName, DisplayName: o.DisplayName, SHA256: o.SHA256})
 		if err != nil {
 			return nil, err
 		}

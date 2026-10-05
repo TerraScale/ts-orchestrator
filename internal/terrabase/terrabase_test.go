@@ -1,8 +1,11 @@
 package terrabase
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"crypto/x509"
+	"debug/elf"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/pem"
 	"net"
@@ -87,10 +90,60 @@ func TestLayoutEnvAddsHostOwnedPaths(t *testing.T) {
 	}
 }
 
+// elfHeader is the 64-byte ELF64 little-endian header of an executable built
+// for machine, with no program or section headers.
+func elfHeader(machine elf.Machine) []byte {
+	header := elf.Header64{Type: uint16(elf.ET_EXEC), Machine: uint16(machine), Version: uint32(elf.EV_CURRENT), Ehsize: 64}
+	copy(header.Ident[:], elf.ELFMAG)
+	header.Ident[elf.EI_CLASS], header.Ident[elf.EI_DATA], header.Ident[elf.EI_VERSION] = byte(elf.ELFCLASS64), byte(elf.ELFDATA2LSB), byte(elf.EV_CURRENT)
+	var b bytes.Buffer
+	binary.Write(&b, binary.LittleEndian, header)
+	return b.Bytes()
+}
+
+// testdata/terrabase-linux-arm64 is a bare aarch64 ELF header with its
+// sha256sum line. It stands in for the asset TerraBase CI publishes once
+// TS-483 lands, so the arm64 rollout path is exercised before then.
+func TestVerifyReleaseAcceptsTheARM64Fixture(t *testing.T) {
+	binary := filepath.Join("testdata", "terrabase-linux-arm64")
+	data, err := os.ReadFile(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	if got, err := VerifyRelease(binary, binary+".sha256"); err != nil || got != hex.EncodeToString(sum[:]) {
+		t.Fatalf("VerifyRelease = %q, %v", got, err)
+	}
+}
+
+func TestVerifyReleaseRequiresTheAssetMachine(t *testing.T) {
+	dir := t.TempDir()
+	binary, checksum := filepath.Join(dir, "terrabase-linux-arm64"), filepath.Join(dir, "terrabase-linux-arm64.sha256")
+	for name, data := range map[string][]byte{
+		"x86-64 as arm64":  append(elfHeader(elf.EM_X86_64), "terrabase"...),
+		"truncated header": elfHeader(elf.EM_AARCH64)[:40],
+		"32-bit":           append([]byte("\x7fELF\x01\x01\x01"), make([]byte, 57)...),
+	} {
+		sum := sha256.Sum256(data)
+		if err := os.WriteFile(binary, data, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(checksum, []byte(hex.EncodeToString(sum[:])+"  terrabase-linux-arm64\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := VerifyRelease(binary, checksum)
+		if err == nil {
+			t.Errorf("%s: accepted", name)
+		} else if name == "x86-64 as arm64" && !strings.Contains(err.Error(), "EM_AARCH64, found EM_X86_64") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
 func TestVerifyRelease(t *testing.T) {
 	dir := t.TempDir()
 	binary := filepath.Join(dir, "terrabase-linux-arm64")
-	data := append([]byte("\x7fELF"), []byte("terrabase")...)
+	data := append(elfHeader(elf.EM_AARCH64), "terrabase"...)
 	if err := os.WriteFile(binary, data, 0o755); err != nil {
 		t.Fatal(err)
 	}

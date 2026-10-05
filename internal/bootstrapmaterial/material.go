@@ -37,6 +37,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )
@@ -239,7 +240,8 @@ func Load(directory string) (Record, error) {
 	}
 	var record Record
 	if err := json.Unmarshal(metadata, &record); err != nil || record.SchemaVersion != 1 ||
-		record.Config.validate() != nil || len(record.Files) != 32 ||
+		record.Config.validate() != nil ||
+		len(record.Files) != len(expectedNames())+len(memberCANames)*boolInt(record.HasMemberCA()) ||
 		record.ExpiresAt.Sub(record.IssuedAt) != time.Duration(record.Config.ValidityHours)*time.Hour {
 		return Record{}, ErrMaterial
 	}
@@ -261,6 +263,9 @@ func Load(directory string) (Record, error) {
 		if !seen[name] {
 			return Record{}, ErrMaterial
 		}
+	}
+	if seen[memberCANames[0]] != seen[memberCANames[1]] {
+		return Record{}, ErrMaterial
 	}
 	entries, err := os.ReadDir(directory)
 	if err != nil {
@@ -300,6 +305,24 @@ func sameConfig(a, b Config) bool {
 		a.GlobalHome == b.GlobalHome && max(a.GrantVersion, GrantVersionBase) == max(b.GrantVersion, GrantVersionBase)
 }
 
+// memberCANames are the cell's C# TerraBase member CA. Generate always
+// creates them; material generated before they existed lacks both and still
+// loads, but cannot serve a TerraBase workload.
+var memberCANames = [2]string{"terrabase-member-ca.pem", "terrabase-member-ca.key"}
+
+// HasMemberCA reports whether the material carries the member CA pair.
+func (record Record) HasMemberCA() bool {
+	return slices.ContainsFunc(record.Files, func(file File) bool { return file.Name == memberCANames[0] })
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// expectedNames are the files every material source has.
 func expectedNames() []string {
 	names := []string{"issuer-operator.seed", "issuer-system.seed", "issuer-cell.seed", "issuer-ca.key",
 		"operator.jwt", "operator.creds", "operator-tls-cert.pem", "operator-tls-key.pem",
@@ -429,6 +452,16 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 	}
 	files["host-tls-issuer-cert.pem"] = hostCAPEM
 	files["host-tls-issuer-key.pem"] = hostCAKeyPEM
+	// Every controller holds the cell's C# TerraBase member CA and signs
+	// member certificates with it; database hosts never see the key.
+	memberCell, err := naming.RegionCell(strings.ToUpper(cfg.Cell)).Name()
+	if err != nil {
+		return nil, Public{}, err
+	}
+	files["terrabase-member-ca.pem"], files["terrabase-member-ca.key"], err = terrabase.NewCA(memberCell, now)
+	if err != nil {
+		return nil, Public{}, err
+	}
 	operatorCert, operatorKey, err := makeOperatorLeaf(cfg, now, expires, ca, caKey)
 	if err != nil {
 		return nil, Public{}, err
@@ -635,7 +668,8 @@ func classify(name string) (bootstrap.SecretPurpose, string) {
 		return bootstrap.SecretSeedFounder, "controller-a"
 	case "founder-ledger.key":
 		return bootstrap.SecretSeedLedgerSigner, "controller-a"
-	case "host-nats-issuer.seed", "host-tls-issuer-key.pem", "host-tls-issuer-cert.pem":
+	case "host-nats-issuer.seed", "host-tls-issuer-key.pem", "host-tls-issuer-cert.pem",
+		"terrabase-member-ca.pem", "terrabase-member-ca.key":
 		return bootstrap.SecretHostIssuer, ""
 	case "operator.jwt", "system.jwt", "cell.jwt", "system.creds", "ca.pem", "route-password", "ticket.pub", "ticket.key":
 		return bootstrap.SecretRegionalShared, ""
@@ -1001,6 +1035,13 @@ func validateSignerFiles(directory string, record Record) error {
 		!slices.Equal(hostCert.PermittedURIDomains, []string{"hosts." + record.Config.Cell + ".terrascale.internal"}) ||
 		hostCert.CheckSignatureFrom(ca) != nil || hostCert.NotAfter.After(ca.NotAfter) {
 		return ErrMaterial
+	}
+	// Controllers load the member CA exactly this way at start.
+	if record.HasMemberCA() {
+		if _, err := terrabase.LoadCA(filepath.Join(directory, memberCANames[0]),
+			filepath.Join(directory, memberCANames[1])); err != nil {
+			return ErrMaterial
+		}
 	}
 	return nil
 }

@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"debug/elf"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -15,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,8 +59,17 @@ func TestTerraBaseReleaseGateWithFakeMember(t *testing.T) {
 	testTerraBaseRelease(t, release, true)
 }
 
-// fakeTerraBaseMagic starts every release the fake member serves.
-const fakeTerraBaseMagic = "\x7fELF fake terrabase"
+// fakeTerraBaseMagic starts every release the fake member serves: the ELF
+// header of an executable for this machine, the one the asset name states.
+var fakeTerraBaseMagic = func() string {
+	header := elf.Header64{Type: uint16(elf.ET_EXEC), Version: uint32(elf.EV_CURRENT), Ehsize: 64,
+		Machine: uint16(map[string]elf.Machine{"amd64": elf.EM_X86_64, "arm64": elf.EM_AARCH64}[runtime.GOARCH])}
+	copy(header.Ident[:], elf.ELFMAG)
+	header.Ident[elf.EI_CLASS], header.Ident[elf.EI_DATA], header.Ident[elf.EI_VERSION] = byte(elf.ELFCLASS64), byte(elf.ELFDATA2LSB), byte(elf.EV_CURRENT)
+	var b bytes.Buffer
+	binary.Write(&b, binary.LittleEndian, header)
+	return b.String() + " fake terrabase"
+}()
 
 func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
@@ -321,18 +333,19 @@ func terraBaseSourceCheckout(t *testing.T) (string, string) {
 	return dir, strings.TrimSpace(string(commit))
 }
 
-// writeTerraBaseRelease writes data as a release asset with its .sha256.
+// writeTerraBaseRelease writes data as the release asset of this machine with
+// its .sha256.
 func writeTerraBaseRelease(t *testing.T, dir string, data []byte) string {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, "terrabase-linux-amd64")
+	path := filepath.Join(dir, "terrabase-linux-"+runtime.GOARCH)
 	if err := os.WriteFile(path, data, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(data)
-	if err := os.WriteFile(path+".sha256", []byte(hex.EncodeToString(sum[:])+"  terrabase-linux-amd64\n"), 0o644); err != nil {
+	if err := os.WriteFile(path+".sha256", []byte(hex.EncodeToString(sum[:])+"  "+filepath.Base(path)+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return path

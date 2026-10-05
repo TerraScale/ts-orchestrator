@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
 	"math/big"
@@ -21,7 +22,9 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )
@@ -77,7 +80,7 @@ func TestGenerateStableAndProductionValid(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(first, second) {
 		t.Fatalf("rerun changed material: %v", err)
 	}
-	if len(first.Files) != 32 || first.Public.PeerSignerPublicKey == first.Public.LedgerSignerPublicKey {
+	if len(first.Files) != 34 || first.Public.PeerSignerPublicKey == first.Public.LedgerSignerPublicKey {
 		t.Fatal("incomplete or reused signing identities")
 	}
 	for _, name := range expectedNames() {
@@ -85,6 +88,45 @@ func TestGenerateStableAndProductionValid(t *testing.T) {
 		if err != nil || info.Mode().Perm() != 0o600 {
 			t.Fatalf("%s is not owner-only: %v", name, err)
 		}
+	}
+}
+
+// Every controller receives the cell's C# TerraBase member CA as host-issuer
+// material, written owner-only so terrabase.LoadCA accepts it.
+func TestGenerateDistributesTerraBaseMemberCA(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "material")
+	now := time.Now().UTC().Truncate(time.Second)
+	record, err := Generate(directory, testConfig(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"terrabase-member-ca.pem", "terrabase-member-ca.key"} {
+		if !slices.ContainsFunc(record.Files, func(file File) bool {
+			return file.Name == name && file.Purpose == bootstrap.SecretHostIssuer && file.Slot == ""
+		}) {
+			t.Fatalf("%s is not host-issuer material: %+v", name, record.Files)
+		}
+	}
+	ca, err := terrabase.LoadCA(filepath.Join(directory, "terrabase-member-ca.pem"),
+		filepath.Join(directory, "terrabase-member-ca.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(ca.CertificatePEM())
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil || certificate.Subject.CommonName != "TerraBase member CA gru-1" {
+		t.Fatalf("member CA is not the gru-1 cell CA: %v %v", certificate.Subject, err)
+	}
+	peers, err := terrabase.ParsePeers("gru-1-db-1=10.251.0.21:9443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, csr, err := terrabase.NewMemberKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ca.Issue(csr, peers[0], now); err != nil {
+		t.Fatalf("material member CA cannot issue: %v", err)
 	}
 }
 
@@ -437,5 +479,76 @@ func TestLoadRejectsWorldReadableOrLinkedMaterial(t *testing.T) {
 	}
 	if _, err := Load(directory); err == nil {
 		t.Fatal("hard-linked private key loaded")
+	}
+}
+
+// legacyMaterial rewrites generated material as a source generated before
+// the member CA existed: 32 files, no CA pair.
+func legacyMaterial(t *testing.T, directory string, record Record) Record {
+	t.Helper()
+	record.Files = slices.DeleteFunc(slices.Clone(record.Files), func(file File) bool {
+		return slices.Contains(memberCANames[:], file.Name)
+	})
+	for _, name := range memberCANames {
+		if err := os.Remove(filepath.Join(directory, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	metadata, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string][]byte{metadataName: metadata, readyName: []byte(digest(metadata) + "\n")} {
+		if err := os.WriteFile(filepath.Join(directory, name), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return record
+}
+
+// Material generated before the member CA existed still loads, resumes and
+// validates; half a CA pair does not.
+func TestLegacyMaterialWithoutMemberCAStillLoads(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "material")
+	now := time.Now().UTC().Truncate(time.Second)
+	generated, err := Generate(directory, testConfig(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := legacyMaterial(t, directory, generated)
+	if len(legacy.Files) != 32 || legacy.HasMemberCA() || !generated.HasMemberCA() {
+		t.Fatalf("legacy fixture has %d files", len(legacy.Files))
+	}
+	loaded, err := Load(directory)
+	if err != nil || !reflect.DeepEqual(loaded, legacy) {
+		t.Fatalf("legacy material did not load: %v", err)
+	}
+	if resumed, err := Generate(directory, testConfig(), now.Add(time.Hour)); err != nil || !reflect.DeepEqual(resumed, legacy) {
+		t.Fatalf("legacy material did not resume: %v", err)
+	}
+	if err := ValidateLive(directory, legacy); err != nil {
+		t.Fatalf("legacy material failed live validation: %v", err)
+	}
+	half := filepath.Join(t.TempDir(), "material")
+	record, err := Generate(half, testConfig(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Files = slices.DeleteFunc(record.Files, func(file File) bool { return file.Name == memberCANames[1] })
+	if err := os.Remove(filepath.Join(half, memberCANames[1])); err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(half, metadataName), metadata, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(half, readyName), []byte(digest(metadata)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(half); err == nil {
+		t.Fatal("loaded material with half a member CA pair")
 	}
 }

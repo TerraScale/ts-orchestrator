@@ -468,7 +468,8 @@ func (secret SecretReference) validate(manifest Manifest) error {
 		strings.Contains(secret.TargetFile, "..") {
 		return fmt.Errorf("%w: secret reference identity or bound", ErrManifestInvalid)
 	}
-	hostIssuerFiles := []string{"host-nats-issuer.seed", "host-tls-issuer-key.pem", "host-tls-issuer-cert.pem"}
+	hostIssuerFiles := []string{"host-nats-issuer.seed", "host-tls-issuer-key.pem", "host-tls-issuer-cert.pem",
+		"terrabase-member-ca.pem", "terrabase-member-ca.key"}
 	if slices.Contains(hostIssuerFiles, secret.TargetFile) && secret.Purpose != SecretHostIssuer ||
 		slices.Contains([]string{"issuer-operator.seed", "issuer-system.seed", "issuer-cell.seed", "issuer-ca.key",
 			"operator.creds", "operator-tls-cert.pem", "operator-tls-key.pem"}, secret.TargetFile) {

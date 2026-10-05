@@ -169,6 +169,8 @@ func admitProductionControllerRestartLocal(ctx context.Context, cfg Config) erro
 	if err != nil {
 		return err
 	}
+	checker.TerraBaseCACertFile = cfg.Controller.TerraBaseCACertFile
+	checker.TerraBaseCAKeyFile = cfg.Controller.TerraBaseCAKeyFile
 	material, err := bootstrapstart.NewMaterialStore(nil, serviceUID, serviceGID)
 	if err != nil {
 		return err

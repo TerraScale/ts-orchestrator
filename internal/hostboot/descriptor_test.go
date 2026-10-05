@@ -160,3 +160,38 @@ func testDescriptor() Descriptor {
 		RuntimeManifestDigest:    strings.Repeat("d", 64),
 	}
 }
+
+func TestStaticDescriptorNamesOnlyACellDatabaseServer(t *testing.T) {
+	static := Static("gru", "GRU", "gru-1-db-2")
+	wire, err := static.CanonicalBytes()
+	if err != nil || string(wire) != `{"schema_version":2,"cell":"gru","region":"GRU","node":"gru-1-db-2"}` {
+		t.Fatalf("CanonicalBytes() = %s, %v", wire, err)
+	}
+	if parsed, err := ParseHost(wire); err != nil || parsed != static || !parsed.IsStatic() {
+		t.Fatalf("ParseHost() = %+v, %v", parsed, err)
+	}
+	if _, err := Parse(wire); err == nil {
+		t.Fatal("managed Parse accepted a static host")
+	}
+	managed, err := testDescriptor().CanonicalBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed, err := ParseHost(managed); err != nil || parsed.IsStatic() {
+		t.Fatalf("ParseHost(managed) = %+v, %v", parsed, err)
+	}
+	withOwner := static
+	withOwner.Owner = "terrascale"
+	for _, candidate := range []Descriptor{
+		Static("gru", "GRU", "gru-1-ctl-1"), Static("gru", "GRU", "gru-1-db-1-data"),
+		Static("gru", "GRU", "sfo-1-db-1"), Static("gru", "GRU", "gru-2-db-1"),
+		Static("sfo", "GRU", "gru-1-db-1"), Static("gru", "GRU", "host-0123456789abcdef01234567"), withOwner,
+	} {
+		if err := candidate.Validate(); err == nil {
+			t.Fatalf("accepted static descriptor %+v", candidate)
+		}
+	}
+	if _, err := ParseHost([]byte(`{"schema_version":2,"cell":"gru","region":"GRU","node":"gru-1-db-2","owner":""}`)); err == nil {
+		t.Fatal("ParseHost accepted a noncanonical static descriptor")
+	}
+}

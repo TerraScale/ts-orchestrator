@@ -75,7 +75,9 @@ func ParseRequest(wire []byte, now time.Time) (Request, hostboot.Descriptor, err
 		now.Sub(request.IssuedAt) > 48*time.Hour {
 		return Request{}, hostboot.Descriptor{}, errors.New("host enrollment request identity or time is invalid")
 	}
-	descriptor, err := hostboot.Parse([]byte(request.Descriptor))
+	// A static C# TerraBase host enrolls with the same request; callers
+	// that handle only managed launches must check IsStatic.
+	descriptor, err := hostboot.ParseHost([]byte(request.Descriptor))
 	if err != nil {
 		return Request{}, hostboot.Descriptor{}, err
 	}

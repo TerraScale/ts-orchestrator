@@ -75,13 +75,14 @@ authenticated readback. NetBird requires an LPG in the shared ts-ops VCN
 and additive route/NSG changes; these are explicitly proposed for separate
 approval. Forgejo, the manager, shared storage and Email Delivery remain.
 
-Use TS-467's C# release path after controllers are healthy. Its prerequisites
-include a verified `terrabase-linux-arm64` release, member CA files on all
-controllers, and a signed `controller.workloads.terrabase` profile. The two
-database hosts must register with role `terrabase` without the managed Rust
-placement bindings. The current bootstrap does not yet automate these
-config/CA and non-managed-host inputs; see the open steps in the
-[live deployment runbook](terrabase-deployment.md#gru-1-live-deployment-runbook).
+Use TS-467's C# release path after controllers are healthy. The bootstrap
+attempt now provides its inputs: controller material carries the member CA
+for every controller, `sign` renders `controller.workloads.terrabase` into
+each signed controller config, `members` launches the two database hosts,
+which enroll themselves with role `terrabase` and no managed Rust placement
+binding, and `terrabase` verifies and rolls out the `terrabase-linux-arm64`
+release. Follow the exact
+[bring-up runbook](terrabase-deployment.md#gru-1-bring-up-runbook).
 Pin the asset SHA-256 and source commit before requesting rollout approval.
 The profile's peer list is:
 
@@ -806,8 +807,10 @@ and the intended network boundary.
    The inspector performs live reads for the plan-bound compartments, Vault
    and KMS key, network and rules, buckets and retention, controller dynamic
    group and policy, including ledger and HEAD grants for both `bootstrap/v1/*`
-   and `bootstrap/v2/*` beneath the plan prefix. It also checks the selected
-   workload-host dynamic group and `LiveS3Credential` secret policy. It writes
+   and `bootstrap/v2/*` beneath the plan prefix. It also checks the
+   workload-host dynamic group, and the Rust-era `LiveS3Credential` secret
+   policy and public API resources only when the plan binds them; a C# cell
+   leaves both unbound, and a partial binding fails. It writes
    a readback bound to the plan and
    inventory hashes, with the tenancy, cell, region, compartment, Vault, and key
    identities and inspection time. It does not create resources, prove there

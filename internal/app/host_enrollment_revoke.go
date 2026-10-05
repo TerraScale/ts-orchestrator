@@ -182,6 +182,9 @@ func (enrollment *managedHostEnrollment) revoke(ctx context.Context, epoch uint6
 		return hostEnrollmentRevokeReceipt{}, errors.New("host enrollment grant request is invalid")
 	}
 	request, descriptor, err := hostenroll.ParseRequest(grant.Request, original.IssuedAt.Add(time.Second))
+	if err == nil && descriptor.IsStatic() {
+		return enrollment.revokeStatic(ctx, epoch, instanceID, grant, request, descriptor)
+	}
 	if err != nil || request.Operation != "enroll" || request.InstanceID != instanceID ||
 		descriptor.Cell != enrollment.cell || descriptor.Region != string(enrollment.region) ||
 		descriptor.Owner != enrollment.owner || descriptor.FleetGeneration != enrollment.generation ||

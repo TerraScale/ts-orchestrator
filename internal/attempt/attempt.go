@@ -19,16 +19,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/oracle/oci-go-sdk/v65/core"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
 const Region = "sa-saopaulo-1"
 const OperatorCLI = "terrascale-orchestrator-linux-amd64"
 
 var Slots = []string{"controller-a", "controller-b", "controller-c"}
-var Phases = []string{"material", "release", "image", "sign", "launch", "complete", "continuity", "operator"}
+var Phases = []string{"material", "release", "image", "sign", "launch", "complete", "continuity", "operator", "members", "terrabase"}
 
 type Object = map[string]any
 type Command struct {
@@ -374,10 +377,18 @@ func (a *Attempt) rootSHA(path string) string {
 }
 func (a *Attempt) FreshAdmission(name string) (string, string) {
 	inventory, admission := a.Path(name+"-inventory.json"), a.Path(name+"-admission.json")
+	a.captureInventory(a.Plan(), inventory)
+	a.preview("admit", "--plan", a.Plan(), "--inventory", inventory, "--out", admission)
+	return inventory, admission
+}
+
+// captureInventory writes a live inventory of plan, trying the read three
+// times.
+func (a *Attempt) captureInventory(plan, inventory string) {
 	if a.err != nil {
-		return inventory, admission
+		return
 	}
-	command := Command{Args: []string{a.Executable, "oci-region", "preview", "inventory", "--plan", a.Plan(), "--out", inventory}, Dir: "/tmp", Env: a.Env}
+	command := Command{Args: []string{a.Executable, "oci-region", "preview", "inventory", "--plan", plan, "--out", inventory}, Dir: "/tmp", Env: a.Env}
 	var e error
 	for range 3 {
 		_, e = a.Runner(a.ctx, command)
@@ -390,10 +401,7 @@ func (a *Attempt) FreshAdmission(name string) (string, string) {
 	}
 	if e != nil {
 		a.fail(fmt.Errorf("live inventory failed three times: %w", e))
-		return inventory, admission
 	}
-	a.preview("admit", "--plan", a.Plan(), "--inventory", inventory, "--out", admission)
-	return inventory, admission
 }
 func (a *Attempt) BuildTools() {
 	orch := object(a.Config["orchestrator"])
@@ -587,7 +595,11 @@ func (a *Attempt) PhaseImage() {
 			a.fail(fmt.Errorf("image source or digest is malformed"))
 			return
 		}
-		a.run(a.Executable, "oci-region", "import-image", "--qcow2", qcow2, "--sha256", digest, "--compartment-id", str(object(plan["resource_ids"]), "control_compartment"), "--namespace", str(a.Config, "namespace"), "--bucket", str(image, "bucket"), "--display-name", "terrascale-arm64-"+revision[:12]+"-"+digest[:12], "--out", imported)
+		// The cell image name is static; the revision and digest are in the
+		// signed image receipt.
+		name, e := naming.RegionCell("GRU").Image()
+		a.fail(e)
+		a.run(a.Executable, "oci-region", "import-image", "--qcow2", qcow2, "--sha256", digest, "--compartment-id", str(object(plan["resource_ids"]), "control_compartment"), "--namespace", str(a.Config, "namespace"), "--bucket", str(image, "bucket"), "--display-name", name, "--out", imported)
 	}
 	imageID := str(a.read(imported), "image_id")
 	issued, expires := a.validity()
@@ -616,7 +628,7 @@ func (a *Attempt) PhaseSign() {
 	references := rows(a.read(a.Path("controller-vault-references.json"))["references"])
 	members := []Object{hosts["member-a"], hosts["member-b"]}
 	region := a.Path("signed", "oci-region.json")
-	a.writeJSON(region, Object{"region": "GRU", "generation": 1, "endpoint": "https://iaas." + Region + ".oraclecloud.com", "compartment_id": ids["workload_compartment"], "image_compartment_id": ids["control_compartment"], "availability_domain": plan["availability_domain"], "fault_domains": []any{members[0]["fault_domain"], members[1]["fault_domain"]}, "subnet_id": ids["subnet"], "network_security_group_ids": []any{a.Config["workload_nsg"]}, "image_id": a.ImageID(), "shape": "VM.Standard.A1.Flex", "boot_volume_gb": 50, "boot_volume_vpus_per_gb": plan["volume_vpus_per_gb"], "data_volume_vpus_per_gb": plan["volume_vpus_per_gb"], "max_data_volume_gb": max(num(members[0]["data_gb"]), num(members[1]["data_gb"])), "owner": a.Deployment})
+	a.writeJSON(region, Object{"region": "GRU", "generation": 1, "endpoint": "https://iaas." + Region + ".oraclecloud.com", "compartment_id": ids["workload_compartment"], "image_compartment_id": ids["control_compartment"], "availability_domain": plan["availability_domain"], "fault_domains": []any{members[0]["fault_domain"], members[1]["fault_domain"]}, "subnet_id": ids["subnet"], "network_security_group_ids": []any{ids["workload_network_security_group"]}, "image_id": a.ImageID(), "shape": "VM.Standard.A1.Flex", "boot_volume_gb": 50, "boot_volume_vpus_per_gb": plan["volume_vpus_per_gb"], "data_volume_vpus_per_gb": plan["volume_vpus_per_gb"], "max_data_volume_gb": max(num(members[0]["data_gb"]), num(members[1]["data_gb"])), "owner": a.Deployment})
 	sidecars := join(a.pair(str(a.Config, "region_intent"), "--oci-region-intent"), a.pair(region, "--oci-region-config"), a.pair(str(a.Config, "placement_config"), "--placement-config"))
 	receipt, delegation := a.ImageReceipt(), a.Path("image", "image-delegation.signed.json")
 	peer := a.read(a.Path("peer-receipt-delegation.signed.json"))
@@ -642,7 +654,11 @@ func (a *Attempt) PhaseSign() {
 		candidate, config := a.Path("signed", slot+".candidate.json"), a.Path("signed", slot+".config.json")
 		a.writeJSON(candidate, Object{"schemaVersion": 2, "deploymentId": a.Deployment, "environment": "canary", "clusterId": a.Deployment, "cell": "GRU", "ociRegion": Region, "intentGeneration": anchorPayload["initialRegionIntentGeneration"], "intentSha256": anchorPayload["initialRegionIntentSha256"], "controllerRole": "controller", "slot": slot, "seedSlot": "controller-a", "controllerSlots": Slots, "profiles": profiles, "imageOcid": a.ImageID(), "imageArchitecture": "linux-arm64", "releaseReceiptSha256": a.sha(receipt), "peerReceiptDelegation": peer, "storageDomain": anchorPayload["storageDomain"], "managedMaterial": domain, "secrets": secrets})
 		if !exists(config) {
-			a.RunBootstrap(join([]string{"render-controller-config"}, a.pair(candidate, "--candidate"), a.pair(a.Path("controller-material.json"), "--material-record"), a.pair(str(a.Config, "operator_grant"), "--operator-grant"), sidecars, []string{"--out", config})...)
+			args := join([]string{"render-controller-config"}, a.pair(candidate, "--candidate"), a.pair(a.Path("controller-material.json"), "--material-record"), a.pair(str(a.Config, "operator_grant"), "--operator-grant"), sidecars)
+			if profile := str(a.Config, "terrabase_profile"); profile != "" {
+				args = append(args, a.pair(profile, "--terrabase-profile")...)
+			}
+			a.RunBootstrap(append(args, "--out", config)...)
 		}
 		a.RunBootstrap(join([]string{"sign-manifest", "--candidate", candidate}, a.pair(config, "--controller-config"), sidecars, []string{"--anchor", anchor, "--image-receipt", receipt, "--release-delegation", delegation, "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--out", manifest, "--valid-for", a.validFor()})...)
 		verified := a.bootstrapCapture("verify-manifest", "--anchor", anchor, "--manifest", manifest, "--identity", a.Path("identity.json"), "--slot", slot, "--image-ocid", a.ImageID(), "--root-key", a.trust("root_public"))
@@ -767,10 +783,7 @@ func (a *Attempt) PhaseLaunch() {
 			}
 		}
 	}
-	expires, e := time.Parse(time.RFC3339Nano, str(a.read(admission), "expires_at"))
-	a.fail(e)
-	if expires.Sub(a.Now()) < 180*time.Second {
-		a.fail(fmt.Errorf("cost admission has less than 180 seconds left"))
+	if a.requireAdmission(admission); a.err != nil {
 		return
 	}
 	reservation := filepath.Join(launch, "seed-reservation.json")
@@ -778,14 +791,27 @@ func (a *Attempt) PhaseLaunch() {
 	createIdentity := str(a.read(reviewed), "create_identity")
 	a.RunBootstrap(join([]string{"sign-external-seed-reservation"}, a.SeedArgs(), []string{"--reviewed-plan", reviewed, "--reviewed-plan-sha256", reviewedSHA, "--create-identity", createIdentity, "--ledger-signing-key", a.Path("material", "founder-ledger.key"), "--out", reservation})...)
 	a.RunBootstrap(join([]string{"publish-external-seed-reservation"}, a.SeedArgs(), []string{"--reservation", reservation, "--oci-config", ociConfig(), "--oci-profile", "DEFAULT"})...)
+	a.launchInstance("controller A", details, wire, filepath.Join(launch, "controller-a-launch-submit.json"), ocid)
+}
+func (a *Attempt) requireAdmission(admission string) {
+	expires, e := time.Parse(time.RFC3339Nano, str(a.read(admission), "expires_at"))
+	a.fail(e)
+	if expires.Sub(a.Now()) < 180*time.Second {
+		a.fail(fmt.Errorf("cost admission has less than 180 seconds left"))
+	}
+}
+
+// launchInstance submits the exact launch input, then records the CLI-shaped
+// submit document and the instance ID.
+func (a *Attempt) launchInstance(who string, details core.LaunchInstanceDetails, wire []byte, submit, ocid string) string {
 	cloud := a.cloud("LaunchInstance")
 	if cloud == nil {
-		return
+		return ""
 	}
 	launched, workRequest, e := cloud.LaunchInstance(a.ctx, details, LaunchRetryToken(wire))
 	a.fail(e)
 	if a.err != nil {
-		return
+		return ""
 	}
 	data, e := sdkcli.Render(launched)
 	a.fail(e)
@@ -794,25 +820,23 @@ func (a *Attempt) PhaseLaunch() {
 		a.fail(json.Unmarshal(data, &rendered))
 	}
 	if a.err != nil {
-		return
+		return ""
 	}
 	// The retained record keeps the CLI-shaped {"data": ...} document.
 	submitted := Object{"data": rendered, "opc-work-request-id": workRequest}
 	id := str(object(rendered), "id")
 	if id == "" {
-		a.fail(fmt.Errorf("controller launch omitted instance ID"))
-		return
+		a.fail(fmt.Errorf("%s launch omitted instance ID", who))
+		return ""
 	}
-	a.writeJSON(filepath.Join(launch, "controller-a-launch-submit.json"), submitted)
+	a.writeJSON(submit, submitted)
 	a.WriteNew(ocid, []byte(id+"\n"))
-	fmt.Fprintln(a.Out, "launched controller A", id)
+	fmt.Fprintln(a.Out, "launched", who, id)
+	return id
 }
-func (a *Attempt) PhaseComplete() {
-	launch := a.Path("launch")
-	b, e := os.ReadFile(filepath.Join(launch, "controller-a.ocid"))
-	a.fail(e)
-	instance := strings.TrimSpace(string(b))
-	running := false
+
+// waitRunning polls an instance until it is RUNNING, 60 times 10 s apart.
+func (a *Attempt) waitRunning(who, instance string) {
 	// Announce the poll once; the seam is reused for every attempt.
 	cloud := a.cloud("GetInstance (polling until RUNNING)")
 	if cloud == nil {
@@ -821,17 +845,19 @@ func (a *Attempt) PhaseComplete() {
 	for range 60 {
 		state, e := cloud.GetInstance(a.ctx, instance)
 		a.fail(e)
-		if a.err != nil {
+		if a.err != nil || state.LifecycleState == "RUNNING" {
 			return
-		}
-		if state.LifecycleState == "RUNNING" {
-			running = true
-			break
 		}
 		a.fail(a.Sleep(a.ctx, 10*time.Second))
 	}
-	if !running {
-		a.fail(fmt.Errorf("controller A did not reach RUNNING"))
+	a.fail(fmt.Errorf("%s did not reach RUNNING", who))
+}
+func (a *Attempt) PhaseComplete() {
+	launch := a.Path("launch")
+	b, e := os.ReadFile(filepath.Join(launch, "controller-a.ocid"))
+	a.fail(e)
+	instance := strings.TrimSpace(string(b))
+	if a.waitRunning("controller A", instance); a.err != nil {
 		return
 	}
 	reviewed := filepath.Join(launch, "reviewed-seed-plan.json")
@@ -966,6 +992,189 @@ func (a *Attempt) PhaseOperator() {
 		fmt.Fprintln(a.Out, "operator CLI for this cell:", cli)
 	}
 }
+
+// PhaseMembers launches the plan's database hosts. They enroll with the
+// controllers themselves through host-setup.
+func (a *Attempt) PhaseMembers() {
+	launch := a.Path("launch")
+	a.mkdir(launch)
+	for _, v := range rows(a.read(a.Plan())["hosts"]) {
+		slot := str(object(v), "slot")
+		if !strings.HasPrefix(slot, "member-") {
+			continue
+		}
+		name, e := naming.RegionCell("GRU").MemberSlot(slot)
+		a.fail(e)
+		if a.err != nil {
+			return
+		}
+		ocid, launchInput := filepath.Join(launch, name+".ocid"), filepath.Join(launch, name+"-launch.json")
+		var id string
+		if exists(ocid) {
+			b, e := os.ReadFile(ocid)
+			a.fail(e)
+			id = strings.TrimSpace(string(b))
+			fmt.Fprintln(a.Out, name, "already launched:", id)
+		} else if id = a.adoptMember(name, launchInput, ocid); a.err != nil {
+			return
+		} else if id != "" {
+			fmt.Fprintln(a.Out, name, "was launched before its OCID was recorded:", id)
+		} else {
+			// An earlier input may be the record of a launch OCI has not listed
+			// yet, which adoption needs: replace it only once a new input is
+			// admitted and about to be launched.
+			inventory, admission := a.FreshAdmission("launch/" + name)
+			next := filepath.Join(launch, name+"-launch.next.json")
+			a.remove(next)
+			a.preview("member-launch", "--plan", a.Plan(), "--inventory", inventory, "--admission", admission, "--slot", slot, "--image-ocid", a.ImageID(), "--host-enrollment", a.Path("host-enrollment-public.json"), "--owner-ssh-public-key", str(a.Config, "owner_ssh_public_key"), "--out", next)
+			if a.err != nil {
+				return
+			}
+			wire, e := os.ReadFile(next)
+			a.fail(e)
+			if a.err != nil {
+				return
+			}
+			details, e := LaunchDetails(wire)
+			a.fail(e)
+			if a.requireAdmission(admission); a.err != nil {
+				return
+			}
+			a.fail(os.Rename(next, launchInput))
+			if a.err != nil {
+				return
+			}
+			id = a.launchInstance(name, details, wire, filepath.Join(launch, name+"-launch-submit.json"), ocid)
+		}
+		// A resumed host may still be booting: wait for it either way.
+		if a.waitRunning(name, id); a.err != nil {
+			return
+		}
+	}
+}
+
+// adoptMember records the instance an interrupted members run launched
+// before it wrote the OCID. It adopts the one live workload instance with
+// the host's static name only when it is exactly the launch of this
+// attempt's retained input, whose metadata carries this attempt's
+// enrollment bundle; any other instance of the name needs reconciliation.
+// member-launch refuses a name the inventory already holds.
+func (a *Attempt) adoptMember(name, launchInput, ocid string) string {
+	cloud := a.cloud("ListInstances workload_compartment")
+	if cloud == nil {
+		return ""
+	}
+	listed, e := cloud.ListInstances(a.ctx, str(object(a.read(a.Plan())["resource_ids"]), "workload_compartment"))
+	a.fail(e)
+	var ids []string
+	for _, instance := range listed {
+		if instance.DisplayName == name && instance.LifecycleState != "TERMINATED" && instance.LifecycleState != "TERMINATING" {
+			ids = append(ids, instance.ID)
+		}
+	}
+	if a.err != nil || len(ids) == 0 {
+		return ""
+	}
+	wire, e := os.ReadFile(launchInput)
+	if e != nil || len(ids) != 1 {
+		a.fail(fmt.Errorf("%d live instances are named %s and this attempt has no single launch input for them; reconcile before retrying", len(ids), name))
+		return ""
+	}
+	details, e := LaunchDetails(wire)
+	a.fail(e)
+	var launched Instance
+	if a.err == nil {
+		launched, e = cloud.GetInstance(a.ctx, ids[0])
+		a.fail(e)
+	}
+	if a.err == nil && !launchedFrom(launched, details) {
+		a.fail(fmt.Errorf("%s (%s) is not the launch of this attempt's %s; reconcile before retrying", name, ids[0], filepath.Base(launchInput)))
+	}
+	if a.err != nil {
+		return ""
+	}
+	a.fail(a.WriteNew(ocid, []byte(ids[0]+"\n")))
+	return ids[0]
+}
+
+// PhasePlan prints the phase-2 cell plan and its cost estimate against a
+// fresh inventory. It changes nothing. Before material writes the attempt
+// plan, it reads the reviewed base plan.
+func (a *Attempt) PhasePlan() {
+	plan := a.Plan()
+	if !exists(plan) {
+		plan = str(a.Config, "base_plan")
+	}
+	inventory := a.Path("plan-inventory.json")
+	a.captureInventory(plan, inventory)
+	args := []string{"cell-plan", "--plan", plan, "--inventory", inventory}
+	if profile := str(a.Config, "terrabase_profile"); profile != "" {
+		args = append(args, "--profile", profile)
+	}
+	a.preview(args...)
+}
+
+// PhaseTerraBase fetches and verifies the C# TerraBase arm64 release, then
+// rolls it out with the qualified operator CLI of this attempt.
+func (a *Attempt) PhaseTerraBase() {
+	release := object(a.Config["terrabase"])
+	tag, commit, environment, profile := str(release, "tag"), str(release, "commit"), str(release, "environment"), str(a.Config, "terrabase_profile")
+	if tag == "" || filepath.Base(tag) != tag || strings.HasPrefix(tag, ".") || len(commit) != 40 ||
+		strings.Trim(commit, "0123456789abcdef") != "" || environment == "" || profile == "" {
+		a.fail(fmt.Errorf("attempt config needs terrabase tag, a 40-hex commit and environment, and terrabase_profile"))
+		return
+	}
+	// The rollout records commit as the binary's source, so it must be the
+	// commit the release tag names: a CI prerelease tag carries it, and a
+	// version tag is resolved in the clone below.
+	tagged, ciTag := ciReleaseCommit(tag)
+	if ciTag && tagged != commit {
+		a.fail(fmt.Errorf("terrabase release %s is commit %s, not the configured %s", tag, tagged, commit))
+		return
+	}
+	// Assets are kept per tag: a new release never reuses the previous
+	// release's downloads under its own commit.
+	dir := a.Path("terrabase", tag)
+	a.mkdir(dir)
+	binary := filepath.Join(dir, "terrabase-linux-arm64")
+	checksum := binary + ".sha256"
+	for _, asset := range []string{binary, checksum} {
+		if !exists(asset) {
+			a.run("fj", "release", "asset", "download", "-r", "TerraScale/terrabase", tag, filepath.Base(asset), "-o", asset)
+		}
+	}
+	if a.err != nil {
+		return
+	}
+	_, e := terrabase.VerifyRelease(binary, checksum)
+	a.fail(e)
+	source := a.Path("terrabase", "source")
+	if !exists(source) {
+		a.run("git", "clone", "--quiet", terrabase.Repository, source)
+	} else {
+		a.run("git", "-C", source, "fetch", "--quiet", "--tags", "origin")
+	}
+	a.run("git", "-C", source, "cat-file", "-e", commit+"^{commit}")
+	if !ciTag {
+		if resolved := strings.TrimSpace(a.capture("git", "-C", source, "rev-parse", "--verify", "--end-of-options", tag+"^{commit}")); a.err == nil && resolved != commit {
+			a.fail(fmt.Errorf("terrabase release %s is commit %s, not the configured %s", tag, resolved, commit))
+			return
+		}
+	}
+	a.sudo(false, a.Path("release", OperatorCLI), "operator", "terrabase-release", "--config", "/var/lib/terrascale-operator/operator.json", "--binary", binary, "--sha256", checksum, "--source-checkout", source, "--commit", commit, "--environment", environment, "--profile", profile, "--wait", "10m")
+}
+
+// ciReleaseCommit returns the commit of a TerraBase CI prerelease tag,
+// ci-<commit>-run-<run id>.
+func ciReleaseCommit(tag string) (string, bool) {
+	rest, ok := strings.CutPrefix(tag, "ci-")
+	commit, run, found := strings.Cut(rest, "-run-")
+	if !ok || !found || len(commit) != 40 || strings.Trim(commit, "0123456789abcdef") != "" ||
+		run == "" || strings.Trim(run, "0123456789") != "" {
+		return "", false
+	}
+	return commit, true
+}
 func (a *Attempt) PhaseStatus() {
 	plan := a.read(a.Plan())
 	for _, bucket := range []string{"head", "ledger"} {
@@ -1013,6 +1222,12 @@ func (a *Attempt) Phase(phase string) error {
 		a.PhaseContinuity()
 	case "operator":
 		a.PhaseOperator()
+	case "members":
+		a.PhaseMembers()
+	case "plan":
+		a.PhasePlan()
+	case "terrabase":
+		a.PhaseTerraBase()
 	case "status":
 		a.PhaseStatus()
 	case "up":

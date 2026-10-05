@@ -34,6 +34,10 @@ type LiveCredentials struct {
 	HostNATSIssuerSeedFile string
 	HostTLSIssuerKeyFile   string
 	HostTLSIssuerCertFile  string
+	// TerraBaseCACertFile and TerraBaseCAKeyFile are the optional C# TerraBase
+	// member CA; set both or neither.
+	TerraBaseCACertFile    string
+	TerraBaseCAKeyFile     string
 	ValidateControllerKeys func() error
 	directory              string
 	allowUnsafeAncestors   bool
@@ -126,6 +130,15 @@ func (check LiveCredentials) verifyPaths(expected map[string]string, manifest bo
 		check.HostTLSIssuerKeyFile != filepath.Join(check.directory, "host-tls-issuer-key.pem") ||
 		check.HostTLSIssuerCertFile != filepath.Join(check.directory, "host-tls-issuer-cert.pem") {
 		return fmt.Errorf("%w: host issuer paths differ from fixed roles", ErrLiveCredentials)
+	}
+	// The member CA follows the membership rule: pinned when configured, and
+	// the inventory loop below requires it configured when signed.
+	if check.TerraBaseCACertFile != "" || check.TerraBaseCAKeyFile != "" {
+		if check.TerraBaseCACertFile != filepath.Join(check.directory, "terrabase-member-ca.pem") ||
+			check.TerraBaseCAKeyFile != filepath.Join(check.directory, "terrabase-member-ca.key") {
+			return fmt.Errorf("%w: TerraBase member CA paths differ from fixed roles", ErrLiveCredentials)
+		}
+		paths = append(paths, check.TerraBaseCACertFile, check.TerraBaseCAKeyFile)
 	}
 	seen := make(map[string]bool, len(paths))
 	for _, path := range paths {

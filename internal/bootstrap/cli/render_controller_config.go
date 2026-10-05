@@ -22,6 +22,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
 // renderControllerConfigAt creates one deterministic production role config
@@ -42,6 +43,8 @@ func (c command) renderControllerConfigAt(args []string, now time.Time) error {
 	regionSHA := flags.String("oci-region-config-sha256", "", "reviewed fleet SHA-256")
 	placementPath := flags.String("placement-config", "", "reviewed placement JSON")
 	placementSHA := flags.String("placement-config-sha256", "", "reviewed placement SHA-256")
+	profilePath := flags.String("terrabase-profile", "", "optional reviewed C# TerraBase workload profile JSON")
+	profileSHA := flags.String("terrabase-profile-sha256", "", "reviewed TerraBase workload profile SHA-256")
 	outputPath := flags.String("out", "", "new canonical controller role JSON")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -84,6 +87,22 @@ func (c command) renderControllerConfigAt(args []string, now time.Time) error {
 	cfg, err := controllerConfigFromRecord(manifest, record, grant, now)
 	if err != nil {
 		return err
+	}
+	// The C# release path delivers TerraBase as a generic workload profile;
+	// ValidateSignedControllerConfig below checks it as controller start does.
+	if *profilePath != "" || *profileSHA != "" {
+		profileWire, err := readPinnedControllerFile(*profilePath, *profileSHA, 64<<10)
+		if err != nil {
+			return fmt.Errorf("read reviewed TerraBase profile: %w", err)
+		}
+		var profile app.WorkloadProfile
+		if err := protocol.DecodeStrict(profileWire, &profile, 64<<10); err != nil {
+			return fmt.Errorf("decode reviewed TerraBase profile: %w", err)
+		}
+		if cfg.Controller.TerraBaseCACertFile == "" {
+			return errors.New("a TerraBase profile needs the member CA; regenerate the controller material")
+		}
+		cfg.Controller.Workloads = map[string]app.WorkloadProfile{terrabase.Role: profile}
 	}
 	wire, err := protocol.EncodeJSON(cfg)
 	if err != nil || len(wire) > bootstrap.MaxControllerConfigBytes {
@@ -144,6 +163,14 @@ func controllerConfigFromRecord(manifest bootstrap.Manifest, record bootstrapmat
 			return app.Config{}, fmt.Errorf("signed material reference %s differs from reviewed source", reference.TargetFile)
 		}
 	}
+	// Material generated before the member CA existed renders without it.
+	for _, name := range []string{"terrabase-member-ca.pem", "terrabase-member-ca.key"} {
+		if record.HasMemberCA() && !slices.ContainsFunc(manifest.Secrets, func(reference bootstrap.SecretReference) bool {
+			return reference.TargetFile == name && reference.Purpose == bootstrap.SecretHostIssuer
+		}) {
+			return app.Config{}, fmt.Errorf("candidate manifest does not reference the TerraBase member CA secret %s", name)
+		}
+	}
 	addresses := make(map[string]string, len(record.Config.Slots))
 	for index, slot := range record.Config.Slots {
 		address, err := netip.ParseAddr(slot.PrivateIP)
@@ -171,7 +198,7 @@ func controllerConfigFromRecord(manifest bootstrap.Manifest, record bootstrapmat
 			routes = append(routes, "nats-route://"+slot.PrivateIP+":6222")
 		}
 	}
-	return app.Config{
+	cfg := app.Config{
 		NATS: natscell.Config{Cell: record.Config.Cell, Instance: manifest.Slot, Replicas: len(record.Config.Slots),
 			ClientRole: "controller", URL: "tls://" + host + ":4222", CredentialsFile: path(manifest.Slot + ".creds"),
 			TLS: tls, Embedded: &natscell.Embedded{Host: host, Port: 4222, RouteHost: host, RoutePort: 6222,
@@ -190,7 +217,12 @@ func controllerConfigFromRecord(manifest bootstrap.Manifest, record bootstrapmat
 			OciRegionConfig:             "/etc/terrascale-orchestrator/oci-region.json",
 			PlacementConfig:             "/etc/terrascale-orchestrator/placement.json",
 			TrustedSigners:              []app.TrustedSignerConfig{grant}},
-	}, nil
+	}
+	if record.HasMemberCA() {
+		cfg.Controller.TerraBaseCACertFile = path("terrabase-member-ca.pem")
+		cfg.Controller.TerraBaseCAKeyFile = path("terrabase-member-ca.key")
+	}
+	return cfg, nil
 }
 
 func controllerConfigDigest(wire []byte) string {

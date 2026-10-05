@@ -23,13 +23,41 @@ func requireRouteIDs(plan, ids Object) {
 	if plan["operator_gateway"] != nil && (!truth(ids["local_peering_gateway"]) || !truth(obj(plan["operator_gateway"])["local_peering_gateway_id"])) {
 		fail("foundation inspection requires the exact cell and operator gateway local peering gateway IDs")
 	}
-	if plan["public_api"] != nil {
-		for key := range publicIDs {
-			if !truth(ids[key]) {
-				fail("foundation inspection requires every public API resource ID")
-			}
+	publicBound(plan, ids)
+}
+
+// publicBound reports whether the declared public API exists yet. Its
+// resources are created together in a later stage, so all or none are bound.
+func publicBound(plan, ids Object) bool {
+	if plan["public_api"] == nil {
+		return false
+	}
+	n := 0
+	for key := range publicIDs {
+		if truth(ids[key]) {
+			n++
 		}
 	}
+	if n != 0 && n != len(publicIDs) {
+		fail("foundation inspection requires every public API resource ID or none")
+	}
+	return n > 0
+}
+
+// liveS3Bound reports whether the Rust-era host LiveS3Credential secret and
+// its policy are bound. A C# cell creates neither.
+func liveS3Bound(plan, ids Object) bool {
+	secret := obj(plan["host_credential_secret"])
+	n := 0
+	for _, v := range []any{secret["compartment_id"], secret["secret_id"], ids["host_policy"]} {
+		if truth(v) {
+			n++
+		}
+	}
+	if n != 0 && n != 3 {
+		fail("foundation inspection requires the host LiveS3Credential secret and policy together or not at all")
+	}
+	return n == 3
 }
 func requireNetbirdIDs(plan Object) {
 	if plan["netbird"] != nil {
@@ -43,15 +71,12 @@ func requireNetbirdIDs(plan Object) {
 }
 func (e *Engine) requiredIDs(plan Object) Object {
 	ids := obj(plan["resource_ids"])
-	for _, key := range []string{"control_compartment", "network_compartment", "workload_compartment", "vault", "key", "vcn", "subnet", "network_security_group", "security_list", "controller_dynamic_group", "controller_policy", "objectstorage_key_policy", "host_dynamic_group", "host_policy"} {
+	for _, key := range []string{"control_compartment", "network_compartment", "workload_compartment", "vault", "key", "vcn", "subnet", "network_security_group", "security_list", "controller_dynamic_group", "controller_policy", "objectstorage_key_policy", "host_dynamic_group"} {
 		if !truth(ids[key]) {
 			fail("foundation inspection requires every plan-bound compartment, network, Vault, key, and IAM OCID")
 		}
 	}
-	secret := obj(plan["host_credential_secret"])
-	if !truth(secret["compartment_id"]) || !truth(secret["secret_id"]) {
-		fail("foundation inspection requires the operator-selected host LiveS3Credential secret OCIDs")
-	}
+	liveS3Bound(plan, ids)
 	requireRouteIDs(plan, ids)
 	requireNetbirdIDs(plan)
 	return ids
@@ -190,7 +215,7 @@ func tcpRule(port any, extra Object) Object {
 	return r
 }
 func (e *Engine) livePublic(plan, ids Object) {
-	if plan["public_api"] == nil {
+	if !publicBound(plan, ids) {
 		return
 	}
 	public := obj(plan["public_api"])
@@ -382,6 +407,7 @@ func (e *Engine) liveNetbirdIAM(plan Object) {
 }
 func (e *Engine) liveIAM(plan, ids Object, prefix string) {
 	identity := obj(plan["identity"])
+	bound := liveS3Bound(plan, ids)
 	group := requireLiveID(e.oci("", "iam", "dynamic-group", "get", "--dynamic-group-id", str(ids["controller_dynamic_group"])), ids["controller_dynamic_group"], "controller dynamic group")
 	if group["lifecycle-state"] != "ACTIVE" || group["name"] != identity["controller_dynamic_group_name"] || group["matching-rule"] != fmt.Sprintf("ALL {instance.compartment.id = '%s'}", str(ids["control_compartment"])) {
 		fail("live controller dynamic group does not exactly isolate controller instances")
@@ -398,15 +424,16 @@ func (e *Engine) liveIAM(plan, ids Object, prefix string) {
 	if !eq(kp["statements"], []string{statement}) {
 		fail("Object Storage key policy is not limited to the reviewed region and key")
 	}
-	secretConfig := obj(plan["host_credential_secret"])
-	compartment, secretID := secretConfig["compartment_id"], secretConfig["secret_id"]
-	if !truth(compartment) || !truth(secretID) {
-		fail("foundation inspection requires the operator-selected host LiveS3Credential secret OCIDs")
-	}
 	hg := requireLiveID(e.oci("", "iam", "dynamic-group", "get", "--dynamic-group-id", str(ids["host_dynamic_group"])), ids["host_dynamic_group"], "workload host dynamic group")
 	if hg["lifecycle-state"] != "ACTIVE" || hg["name"] != identity["host_dynamic_group_name"] || hg["matching-rule"] != fmt.Sprintf("ALL {instance.compartment.id = '%s'}", str(ids["workload_compartment"])) {
 		fail("live workload host dynamic group does not exactly isolate workload instances")
 	}
+	if !bound {
+		e.call("check_live_netbird_iam", []any{plan}, Object{})
+		return
+	}
+	secretConfig := obj(plan["host_credential_secret"])
+	compartment, secretID := secretConfig["compartment_id"], secretConfig["secret_id"]
 	hp := requireLiveID(e.oci("", "iam", "policy", "get", "--policy-id", str(ids["host_policy"])), ids["host_policy"], "host LiveS3Credential IAM policy")
 	statement = fmt.Sprintf("Allow dynamic-group %s to read secret-bundles in compartment id %s where target.secret.id = '%s'", str(identity["host_dynamic_group_name"]), str(compartment), str(secretID))
 	if hp["lifecycle-state"] != "ACTIVE" || hp["name"] != identity["host_policy_name"] || hp["compartment-id"] != compartment || !eq(hp["statements"], []string{statement}) {

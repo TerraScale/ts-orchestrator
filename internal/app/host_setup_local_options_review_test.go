@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
@@ -39,7 +40,7 @@ func TestHostEnrollmentRenewalKeepsHostLocalOptions(t *testing.T) {
 	install := func(jwtSuffix string) Config {
 		t.Helper()
 		response := hostenroll.Response{NATSUserJWT: token, TLSCertificatePEM: "cert" + jwtSuffix}
-		if err := installHostEnrollment(root, bundle, "node-a", pending, response, uint32(os.Getuid())); err != nil {
+		if err := installHostEnrollment(root, bundle, hostboot.Descriptor{Node: "node-a"}, pending, response, uint32(os.Getuid())); err != nil {
 			t.Fatal(err)
 		}
 		data, err := os.ReadFile(filepath.Join(root, "host.json"))
@@ -82,7 +83,7 @@ func TestHostEnrollmentRenewalKeepsHostLocalOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	response := hostenroll.Response{NATSUserJWT: token, TLSCertificatePEM: "cert-3"}
-	err = installHostEnrollment(root, bundle, "node-a", pending, response, uint32(os.Getuid()))
+	err = installHostEnrollment(root, bundle, hostboot.Descriptor{Node: "node-a"}, pending, response, uint32(os.Getuid()))
 	if err == nil || !strings.Contains(err.Error(), "existing host config") {
 		t.Fatalf("corrupt existing host config = %v", err)
 	}

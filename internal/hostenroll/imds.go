@@ -19,8 +19,9 @@ const (
 	maxIMDSIDBytes    = 255
 )
 
-// ErrNotManagedHost reports an instance launched without a managed host
-// descriptor, such as a controller sharing the qualified image.
+// ErrNotManagedHost reports an instance launched without a host descriptor,
+// such as a controller sharing the qualified image. An operator-launched C#
+// TerraBase host carries a static descriptor (hostboot.Static) instead.
 var ErrNotManagedHost = errors.New("instance has no managed host descriptor")
 
 type HTTPDoer interface {
@@ -67,7 +68,7 @@ func ReadInstanceMetadata(ctx context.Context, client HTTPDoer) (InstanceMetadat
 	if err != nil {
 		return InstanceMetadata{}, fmt.Errorf("read OCI IMDSv2 host descriptor: %w", err)
 	}
-	descriptor, err := hostboot.Parse(encoded)
+	descriptor, err := hostboot.ParseHost(encoded)
 	if err != nil {
 		return InstanceMetadata{}, fmt.Errorf("parse OCI IMDSv2 host descriptor: %w", err)
 	}

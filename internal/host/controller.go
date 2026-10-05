@@ -771,7 +771,7 @@ func (c *Controller) handleSession(ctx context.Context, req request) (payload an
 			if req.Epoch != 0 {
 				return nil, errors.New("acquire requires epoch zero")
 			}
-			if exists && old.RegistrationGeneration == r.Generation && now.Before(old.ExpiresAt) {
+			if exists && sessionHeld(old, r, now) {
 				return nil, errSessionOwned
 			}
 			next = session{RegistrationGeneration: r.Generation, SessionID: req.SessionID, Epoch: 1, ExpiresAt: req.IssuedAt.Add(sessionTTL), LastNonce: req.Nonce, LastIssuedAt: req.IssuedAt}
@@ -838,7 +838,7 @@ func (c *Controller) handleSession(ctx context.Context, req request) (payload an
 		if req.Epoch != 0 {
 			return nil, errors.New("acquire requires epoch zero")
 		}
-		if exists && old.RegistrationGeneration == r.Generation && now.Before(old.ExpiresAt) {
+		if exists && sessionHeld(old, r, now) {
 			return nil, errSessionOwned
 		}
 	case "renew":
@@ -872,6 +872,16 @@ func exactSessionReplay(old session, r Registration, req request, kind string, n
 	replayEpoch := kind == "acquire" && req.Epoch == 0 || kind == "renew" && req.Epoch == old.Epoch
 	return replayEpoch && old.RegistrationGeneration == r.Generation && old.SessionID == req.SessionID &&
 		old.LastNonce == req.Nonce && old.LastIssuedAt.Equal(req.IssuedAt) && now.Before(old.ExpiresAt)
+}
+
+// sessionHeld reports whether an unexpired session keeps the node from a
+// new acquire. A controller-launched managed host's next generation takes
+// over at once. Any other host's next generation, for example a static C#
+// TerraBase host replacement that registered itself, waits until the
+// previous generation's session expires: that host can still be running
+// its members until its lease runs out.
+func sessionHeld(old session, r Registration, now time.Time) bool {
+	return now.Before(old.ExpiresAt) && (old.RegistrationGeneration == r.Generation || r.ManagedOCI == nil)
 }
 
 func renewableSession(old session, r Registration, req request, now time.Time) bool {

@@ -19,11 +19,14 @@ func (e *Engine) Run(args []string, out io.Writer) error {
 
 Read-only inventory and admission commands:
   inventory, admit, estimate, seed-preflight, seed-launch
+  cell-plan, member-launch
   inspect-foundation, inspect-private-peer
   import-inventory, import-admit, import-reconcile
 
 Use --plan PLAN.json --inventory INVENTORY.json --admission ADMISSION.json.
 Write records with --out PATH; import admission also requires --projection PATH.
+member-launch requires --slot, --image-ocid, --host-enrollment, --owner-ssh-public-key and --out;
+cell-plan accepts --profile TERRABASE-PROFILE.json.
 Private peer inspection requires --pair-intent and both regional --left-* and --right-* evidence paths.`)
 			return err
 		}
@@ -60,7 +63,7 @@ func (e *Engine) run(argv []string) {
 		root = "deploy/oci-region"
 	}
 	defaults := map[string]string{"plan": e.PlanPath, "inventory": filepath.Join(root, "inventory.json"), "admission": filepath.Join(root, "admission.json")}
-	for _, name := range []string{"plan", "inventory", "out", "admission", "pair-intent", "left-plan", "left-inventory", "left-admission", "right-plan", "right-inventory", "right-admission", "bootstrap-tool", "anchor", "manifest", "identity", "image-ocid", "release-tool", "image-receipt", "release-delegation", "release-root", "image-file", "base-image-file", "kernel-file", "owner-ssh-public-key", "reviewed-plan", "host-enrollment", "projection", "phase", "staged-versions", "imported-images", "previous-admission", "previous-projection", "previous-inventory", "previous-imported-images", "previous-staged-versions"} {
+	for _, name := range []string{"plan", "inventory", "out", "admission", "pair-intent", "left-plan", "left-inventory", "left-admission", "right-plan", "right-inventory", "right-admission", "bootstrap-tool", "anchor", "manifest", "identity", "image-ocid", "release-tool", "image-receipt", "release-delegation", "release-root", "image-file", "base-image-file", "kernel-file", "owner-ssh-public-key", "reviewed-plan", "host-enrollment", "slot", "profile", "projection", "phase", "staged-versions", "imported-images", "previous-admission", "previous-projection", "previous-inventory", "previous-imported-images", "previous-staged-versions"} {
 		args[strings.ReplaceAll(name, "-", "_")] = defaults[name]
 		f.Func(name, "", func(v string) error { args[strings.ReplaceAll(name, "-", "_")] = v; return nil })
 	}
@@ -106,6 +109,20 @@ func (e *Engine) run(argv []string) {
 		if e.Stdout != nil {
 			fmt.Fprintf(e.Stdout, "wrote controller-a launch input bytes=%d sha256=%s\n", len(wire), wireSHA(wire))
 		}
+		return
+	}
+	if command == "member-launch" {
+		require("member launch requires --slot, --image-ocid, --host-enrollment, --owner-ssh-public-key and --out", "slot", "image_ocid", "host_enrollment", "owner_ssh_public_key", "out")
+		launch := e.memberLaunch(plan, must(filepath.Abs(path)), get("inventory"), get("admission"), get("slot"), get("image_ocid"), get("host_enrollment"), get("owner_ssh_public_key"))
+		wire := append(must(json.Marshal(launch, json.Deterministic(true), jsontext.Multiline(true))), '\n')
+		writeBytes(get("out"), wire, 0600)
+		if e.Stdout != nil {
+			fmt.Fprintf(e.Stdout, "wrote %s launch input bytes=%d sha256=%s\n", str(launch["displayName"]), len(wire), wireSHA(wire))
+		}
+		return
+	}
+	if command == "cell-plan" {
+		e.print(e.cellPlan(plan, readJSON(get("inventory"), 4*1024*1024, "manual region inventory"), must(filepath.Abs(path)), get("profile")))
 		return
 	}
 	if command == "seed-preflight" {

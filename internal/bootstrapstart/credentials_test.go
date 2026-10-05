@@ -71,6 +71,26 @@ func TestCredentialCheckerBindsPathsAndExactInventory(t *testing.T) {
 	}
 }
 
+// The signed TerraBase member CA needs its configured role, at the fixed
+// material paths.
+func TestCredentialCheckerBindsTerraBaseMemberCA(t *testing.T) {
+	check, expected := credentialPathFixture(t)
+	expected["terrabase-member-ca.pem"] = digest([]byte("ca"))
+	expected["terrabase-member-ca.key"] = digest([]byte("key"))
+	if err := check.verifyPaths(expected, peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
+		t.Fatalf("signed member CA without a role = %v, want refusal", err)
+	}
+	check.TerraBaseCACertFile = filepath.Join(check.directory, "terrabase-member-ca.pem")
+	check.TerraBaseCAKeyFile = filepath.Join(check.directory, "terrabase-member-ca.key")
+	if err := check.verifyPaths(expected, peerCredentialManifest); err != nil {
+		t.Fatal(err)
+	}
+	check.TerraBaseCAKeyFile = filepath.Join(t.TempDir(), "terrabase-member-ca.key")
+	if err := check.verifyPaths(expected, peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
+		t.Fatalf("member CA key outside material = %v, want refusal", err)
+	}
+}
+
 func TestCredentialCheckerRejectsExtraAndChangedInstalledFiles(t *testing.T) {
 	check, expected := credentialPathFixture(t)
 	path := filepath.Join(check.directory, "controller.creds")

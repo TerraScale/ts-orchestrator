@@ -218,6 +218,8 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 	if err != nil {
 		return err
 	}
+	checker.TerraBaseCACertFile = cfg.Controller.TerraBaseCACertFile
+	checker.TerraBaseCAKeyFile = cfg.Controller.TerraBaseCAKeyFile
 	anchorEnvelope, err := trust.DecodeEnvelope(baked.AnchorWire)
 	if err != nil {
 		return fmt.Errorf("decode baked controller anchor: %w", err)

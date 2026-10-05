@@ -45,6 +45,17 @@ func (c Cell) Name() (string, error) {
 	return valid(fmt.Sprintf("%s-%d", strings.ToLower(c.Region), c.Index))
 }
 
+// Image returns the name of the cell's qualified ARM64 host image, e.g.
+// gru-1-arm64. A new image import reuses the name; the source revision and
+// digest belong in its signed receipt.
+func (c Cell) Image() (string, error) {
+	name, err := c.Name()
+	if err != nil {
+		return "", err
+	}
+	return name + "-arm64", nil
+}
+
 // Server returns the name of the cell's n-th server of role, e.g. gru-1-ctl-1.
 func (c Cell) Server(role string, n int) (string, error) {
 	return valid(fmt.Sprintf("%s-%d-%s-%d", strings.ToLower(c.Region), c.Index, role, n))
@@ -53,11 +64,19 @@ func (c Cell) Server(role string, n int) (string, error) {
 // ControllerSlot returns the server name of a signed controller slot:
 // controller-a, -b and -c are ctl-1, -2 and -3.
 func (c Cell) ControllerSlot(slot string) (string, error) {
-	letter, ok := strings.CutPrefix(slot, "controller-")
+	return c.slot(slot, "controller-", Controller)
+}
+
+// MemberSlot returns the server name of a regional plan's database host
+// slot: member-a and -b are db-1 and -2.
+func (c Cell) MemberSlot(slot string) (string, error) { return c.slot(slot, "member-", Member) }
+
+func (c Cell) slot(slot, prefix, role string) (string, error) {
+	letter, ok := strings.CutPrefix(slot, prefix)
 	if !ok || len(letter) != 1 || letter[0] < 'a' || letter[0] > 'z' {
-		return "", fmt.Errorf("%w: controller slot %q", ErrName, slot)
+		return "", fmt.Errorf("%w: %sslot %q", ErrName, prefix, slot)
 	}
-	return c.Server(Controller, int(letter[0]-'a')+1)
+	return c.Server(role, int(letter[0]-'a')+1)
 }
 
 // Data returns the name of a member's retained data volume, e.g. gru-1-db-1-data.

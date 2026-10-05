@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,6 +37,12 @@ func TestRenderedConfigsPreserveTerraBaseTeardownGrant(t *testing.T) {
 		Environment: material.Environment, Cell: oci.RegionGRU, OCIRegion: material.Region,
 		Slot:            material.Slots[0].Name,
 		ControllerSlots: []string{material.Slots[0].Name, material.Slots[1].Name, material.Slots[2].Name},
+	}
+	for _, file := range record.Files {
+		if strings.HasPrefix(file.Name, "terrabase-member-ca.") {
+			manifest.Secrets = append(manifest.Secrets, bootstrap.SecretReference{Purpose: file.Purpose,
+				SHA256: file.SHA256, MaxBytes: file.MaxBytes, TargetFile: file.Name})
+		}
 	}
 
 	for _, test := range []struct {

@@ -178,7 +178,7 @@ func TestMappedRegionalVaultPublicationAndCrossRegionRejection(t *testing.T) {
 			if _, err := Provision(t.Context(), directory, target, fake, fake, time.Now().UTC()); err != nil {
 				t.Fatalf("regional material could not be published: %v", err)
 			}
-			if fake.create != 25 {
+			if fake.create != 27 {
 				t.Fatalf("regional publication created %d secrets", fake.create)
 			}
 			wrong := target
@@ -207,7 +207,7 @@ func TestProvisionExactReadbackAndStableReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first.References) != 25 || fake.create != 25 {
+	if len(first.References) != 27 || fake.create != 27 {
 		t.Fatalf("references=%d creates=%d", len(first.References), fake.create)
 	}
 	for _, reference := range first.References {
@@ -219,7 +219,7 @@ func TestProvisionExactReadbackAndStableReplay(t *testing.T) {
 		}
 	}
 	second, err := Provision(t.Context(), directory, target, fake, fake, time.Now().UTC())
-	if err != nil || len(second.References) != 25 || fake.create != 25 {
+	if err != nil || len(second.References) != 27 || fake.create != 27 {
 		t.Fatalf("replay references=%d creates=%d err=%v", len(second.References), fake.create, err)
 	}
 }
@@ -282,7 +282,7 @@ func TestProvisionRecoversUncertainCreateOnlyAfterExactReadback(t *testing.T) {
 		t.Fatalf("wrong readback accepted or new create issued: creates=%d err=%v", fake.create, err)
 	}
 	fake.wrongBytes = false
-	if _, err := Provision(t.Context(), directory, target, fake, fake, time.Now().UTC()); err != nil || fake.create != 25 {
+	if _, err := Provision(t.Context(), directory, target, fake, fake, time.Now().UTC()); err != nil || fake.create != 27 {
 		t.Fatalf("exact recovery failed: creates=%d err=%v", fake.create, err)
 	}
 }
@@ -319,8 +319,8 @@ func TestProvisionRetriesUnknownCreateWithSameToken(t *testing.T) {
 	if _, err := Provision(t.Context(), directory, target, fake, fake, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	// The failed first create is retried, then all 25 secrets are published.
-	if fake.create != 26 || len(fake.tokens) != 26 || fake.tokens[0] != fake.tokens[1] {
+	// The failed first create is retried, then all 27 secrets are published.
+	if fake.create != 28 || len(fake.tokens) != 28 || fake.tokens[0] != fake.tokens[1] {
 		t.Fatalf("retry did not retain token: creates=%d tokens=%v", fake.create, fake.tokens[:2])
 	}
 }

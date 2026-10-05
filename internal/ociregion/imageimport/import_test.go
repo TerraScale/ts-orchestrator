@@ -68,7 +68,7 @@ func (f *fakeOCI) UploadObject(_ context.Context, request UploadRequest) error {
 }
 func (f *fakeOCI) ImportImage(_ context.Context, request ImportRequest) (Image, string, error) {
 	f.importRequest = request
-	return Image{ID: f.image.ID, LifecycleState: "IMPORTING"}, "work", f.record("import image")
+	return Image{ID: f.image.ID, LifecycleState: "IMPORTING", SHA256: request.SHA256}, "work", f.record("import image")
 }
 func (f *fakeOCI) GetWorkRequest(context.Context, string) (WorkRequestStatus, error) {
 	if err := f.record("get work request"); err != nil {
@@ -144,6 +144,9 @@ func TestImportAndResume(t *testing.T) {
 		t.Run(map[bool]string{false: "new", true: "resume"}[resume], func(t *testing.T) {
 			o := qualified(t)
 			f := newFake(resume)
+			if resume {
+				f.images[0].SHA256 = o.SHA256
+			}
 			r, err := (Importer{Client: f, Pause: noPause}).Import(t.Context(), o, io.Discard)
 			if err != nil {
 				t.Fatal(err)
@@ -178,11 +181,29 @@ func TestImportAndResume(t *testing.T) {
 					upload.Object != "images/"+o.SHA256+".qcow2" {
 					t.Fatalf("upload=%+v", upload)
 				}
-				if f.importRequest.Object != upload.Object || f.importRequest.DisplayName != "qualified" {
+				if f.importRequest.Object != upload.Object || f.importRequest.DisplayName != "qualified" ||
+					f.importRequest.SHA256 != o.SHA256 {
 					t.Fatalf("import=%+v", f.importRequest)
 				}
 			}
 		})
+	}
+}
+
+// Image names are static, so a live image of the same name may hold an
+// older QCOW2; importing other bytes must not adopt it.
+func TestImportRefusesALiveImageOfTheNameWithOtherBytes(t *testing.T) {
+	for _, digest := range []string{"", strings.Repeat("a", 64)} {
+		o := qualified(t)
+		f := newFake(true)
+		f.images[0].SHA256 = digest
+		if _, err := (Importer{Client: f, Pause: noPause}).Import(t.Context(), o, io.Discard); err == nil ||
+			!strings.Contains(err.Error(), "retire it before importing") {
+			t.Fatalf("adopted an image holding %q: %v", digest, err)
+		}
+		if !slices.Equal(f.calls, []string{"list images"}) {
+			t.Fatalf("calls=%v", f.calls)
+		}
 	}
 }
 

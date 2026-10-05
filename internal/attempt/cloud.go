@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -22,6 +23,11 @@ import (
 // Instance is the normalized Compute instance state the attempt reads.
 type Instance struct {
 	ID, DisplayName, LifecycleState string
+	// The launch identity, compared with a retained launch input.
+	CompartmentID, AvailabilityDomain, FaultDomain, Shape, ImageID string
+	// OCPUs and MemoryInGBs size a flexible shape, which its name does not.
+	OCPUs, MemoryInGBs     float32
+	Metadata, FreeformTags map[string]string
 }
 
 // Cloud is the typed OCI seam of an attempt. The default implementation is
@@ -213,7 +219,32 @@ func (c *sdkCloud) LaunchInstance(ctx context.Context, details core.LaunchInstan
 }
 
 func instance(item core.Instance) Instance {
-	return Instance{ID: deref(item.Id), DisplayName: deref(item.DisplayName), LifecycleState: string(item.LifecycleState)}
+	image := deref(item.ImageId)
+	if source, ok := item.SourceDetails.(core.InstanceSourceViaImageDetails); ok {
+		image = deref(source.ImageId)
+	}
+	launched := Instance{ID: deref(item.Id), DisplayName: deref(item.DisplayName), LifecycleState: string(item.LifecycleState),
+		CompartmentID: deref(item.CompartmentId), AvailabilityDomain: deref(item.AvailabilityDomain),
+		FaultDomain: deref(item.FaultDomain), Shape: deref(item.Shape), ImageID: image,
+		Metadata: item.Metadata, FreeformTags: item.FreeformTags}
+	if config := item.ShapeConfig; config != nil && config.Ocpus != nil && config.MemoryInGBs != nil {
+		launched.OCPUs, launched.MemoryInGBs = *config.Ocpus, *config.MemoryInGBs
+	}
+	return launched
+}
+
+// launchedFrom reports whether instance is the launch of details: the same
+// name, compartment, placement, shape and its OCPUs and memory, boot image,
+// metadata and tags.
+func launchedFrom(instance Instance, details core.LaunchInstanceDetails) bool {
+	source, ok := details.SourceDetails.(core.InstanceSourceViaImageDetails)
+	config := details.ShapeConfig
+	return ok && config != nil && config.Ocpus != nil && config.MemoryInGBs != nil &&
+		instance.OCPUs == *config.Ocpus && instance.MemoryInGBs == *config.MemoryInGBs &&
+		instance.DisplayName == deref(details.DisplayName) && instance.CompartmentID == deref(details.CompartmentId) &&
+		instance.AvailabilityDomain == deref(details.AvailabilityDomain) && instance.FaultDomain == deref(details.FaultDomain) &&
+		instance.Shape == deref(details.Shape) && instance.ImageID == deref(source.ImageId) &&
+		maps.Equal(instance.Metadata, details.Metadata) && maps.Equal(instance.FreeformTags, details.FreeformTags)
 }
 
 func (c *sdkCloud) GetInstance(ctx context.Context, id string) (Instance, error) {

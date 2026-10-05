@@ -96,7 +96,8 @@ func (c *sdkClient) ListImages(ctx context.Context, compartment, displayName str
 }
 
 func image(item core.Image) Image {
-	return Image{ID: deref(item.Id), LifecycleState: string(item.LifecycleState), BillableSizeGB: item.BillableSizeInGBs}
+	return Image{ID: deref(item.Id), LifecycleState: string(item.LifecycleState), BillableSizeGB: item.BillableSizeInGBs,
+		SHA256: item.FreeformTags[SHA256Tag]}
 }
 
 func deref(value *string) string {
@@ -134,7 +135,8 @@ func (c *sdkClient) ImportImage(ctx context.Context, request ImportRequest) (Ima
 	response, err := c.compute.CreateImage(ctx, core.CreateImageRequest{
 		CreateImageDetails: core.CreateImageDetails{
 			CompartmentId: new(request.Compartment), DisplayName: new(request.DisplayName),
-			LaunchMode: core.CreateImageDetailsLaunchModeParavirtualized,
+			FreeformTags: map[string]string{SHA256Tag: request.SHA256},
+			LaunchMode:   core.CreateImageDetailsLaunchModeParavirtualized,
 			ImageSourceDetails: core.ImageSourceViaObjectStorageTupleDetails{
 				NamespaceName: new(request.Namespace), BucketName: new(request.Bucket), ObjectName: new(request.Object),
 				SourceImageType: core.ImageSourceDetailsSourceImageTypeQcow2,

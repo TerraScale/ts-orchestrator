@@ -94,7 +94,7 @@ func runHostSetupWithMetadata(ctx context.Context, bundle hostenroll.PublicBundl
 	if err := bundle.Validate(); err != nil {
 		return err
 	}
-	currentDescriptor, err := hostboot.Parse(metadata.Wire)
+	currentDescriptor, err := hostboot.ParseHost(metadata.Wire)
 	if err != nil || currentDescriptor != metadata.Descriptor || !validEnrollmentInstanceID(metadata.InstanceID) {
 		return errors.New("current OCI host metadata is invalid")
 	}
@@ -199,7 +199,7 @@ func runHostSetupWithMetadata(ctx context.Context, bundle hostenroll.PublicBundl
 	if err := validateHostCredentials(bundle, descriptor.Node, pending, request, response); err != nil {
 		return err
 	}
-	if err := installHostEnrollment(outputRoot, bundle, descriptor.Node, pending, response, runtime.ownerUID); err != nil {
+	if err := installHostEnrollment(outputRoot, bundle, descriptor, pending, response, runtime.ownerUID); err != nil {
 		return err
 	}
 	if request.Operation == "renew" {
@@ -610,9 +610,10 @@ func validateHostCredentials(bundle hostenroll.PublicBundle, node string, pendin
 	return nil
 }
 
-func installHostEnrollment(root string, bundle hostenroll.PublicBundle, node string,
+func installHostEnrollment(root string, bundle hostenroll.PublicBundle, descriptor hostboot.Descriptor,
 	pending pendingHostEnrollment, response hostenroll.Response, ownerUID uint32,
 ) error {
+	node := descriptor.Node
 	responseWire, err := protocol.EncodeJSON(response)
 	if err != nil {
 		return err
@@ -667,6 +668,11 @@ func installHostEnrollment(root string, bundle hostenroll.PublicBundle, node str
 		return err
 	}
 	local.applyTo(&config.Host)
+	// A static host exists to run C# TerraBase members; it gets the image's
+	// member root unless the operator chose another one.
+	if descriptor.IsStatic() && config.Host.TerraBaseRoot == "" {
+		config.Host.TerraBaseRoot = filepath.Join(bundle.ManagedRuntimeRoot, "terrabase")
+	}
 	wire, err := protocol.EncodeJSON(config)
 	if err != nil {
 		return err

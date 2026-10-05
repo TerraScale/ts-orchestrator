@@ -2,6 +2,7 @@ package ociregion
 
 import (
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -329,6 +330,12 @@ func (e *Engine) verifyInventory(plan, inventory Object, path string, now time.T
 	}
 	controllerCount, memberCount := 0, 0
 	preview := []any{}
+	hosts, seenHosts := []string{}, map[string]bool{}
+	for _, v := range arr(plan["hosts"]) {
+		if slot := text(obj(v)["slot"]); strings.HasPrefix(slot, "member-") {
+			hosts = append(hosts, memberName(plan, slot))
+		}
+	}
 	for _, v := range instances {
 		m := obj(v)
 		shape := obj(m["shape-config"])
@@ -344,6 +351,12 @@ func (e *Engine) verifyInventory(plan, inventory Object, path string, now time.T
 		}
 		tags := obj(m["freeform-tags"])
 		if compartment == ids["workload"] && tags["terrascale-managed-by"] == "ts-orchestrator" && tags["terrascale-owner"] == plan["orchestrator_owner"] && tags["terrascale-resource"] == "member-host" {
+			memberCount++
+		} else if name := text(m["display-name"]); compartment == ids["workload"] && slices.Contains(hosts, name) && eq(tags, memberTags(plan, name)) {
+			if seenHosts[name] {
+				fail("two active instances share the C# database host name " + name)
+			}
+			seenHosts[name] = true
 			memberCount++
 		} else if compartment == ids["control"] && (m["id"] == seedID || contains([]string{controllerName(plan, "controller-b"), controllerName(plan, "controller-c")}, m["display-name"])) {
 			controllerCount++

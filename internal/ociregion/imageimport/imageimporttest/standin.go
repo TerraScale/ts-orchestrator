@@ -43,12 +43,13 @@ const WorkRequestPolls = 2
 const BillableSizeGB = 3
 
 type image struct {
-	ID            string `json:"id"`
-	CompartmentID string `json:"compartmentId"`
-	DisplayName   string `json:"displayName"`
-	State         string `json:"lifecycleState"`
-	Billable      int64  `json:"billableSizeInGBs"`
-	TimeCreated   string `json:"timeCreated"`
+	ID            string            `json:"id"`
+	CompartmentID string            `json:"compartmentId"`
+	DisplayName   string            `json:"displayName"`
+	State         string            `json:"lifecycleState"`
+	Billable      int64             `json:"billableSizeInGBs"`
+	TimeCreated   string            `json:"timeCreated"`
+	FreeformTags  map[string]string `json:"freeformTags,omitempty"`
 }
 
 type object struct {
@@ -273,9 +274,10 @@ func (s *Server) listImages(w http.ResponseWriter, r *http.Request) {
 }
 
 type createImage struct {
-	CompartmentID string `json:"compartmentId"`
-	DisplayName   string `json:"displayName"`
-	LaunchMode    string `json:"launchMode"`
+	CompartmentID string            `json:"compartmentId"`
+	DisplayName   string            `json:"displayName"`
+	FreeformTags  map[string]string `json:"freeformTags"`
+	LaunchMode    string            `json:"launchMode"`
 	Source        struct {
 		Type            string `json:"sourceType"`
 		Namespace       string `json:"namespaceName"`
@@ -306,7 +308,7 @@ func (s *Server) createImage(w http.ResponseWriter, r *http.Request) {
 		id = fmt.Sprintf("%s.%d", s.imageID, len(s.images))
 	}
 	created := &image{ID: id, CompartmentID: request.CompartmentID, DisplayName: request.DisplayName, State: "IMPORTING",
-		Billable: BillableSizeGB, TimeCreated: s.created.Format(time.RFC3339)}
+		Billable: BillableSizeGB, TimeCreated: s.created.Format(time.RFC3339), FreeformTags: request.FreeformTags}
 	s.images = append(s.images, created)
 	work := fmt.Sprintf("ocid1.coreservicesworkrequest.standin.%d", len(s.work)+1)
 	s.work[work] = WorkRequestPolls

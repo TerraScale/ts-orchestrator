@@ -71,6 +71,9 @@ type managedHostEnrollment struct {
 	issuer      *hostenroll.Issuer
 	responseKey ed25519.PrivateKey
 	fencer      authority.Fencer
+	// terraBase is the signed C# TerraBase workload profile; a static host
+	// (hostboot.Static) enrolls only as one of its listed members.
+	terraBase *staticTerraBaseMembers
 }
 
 var errStaleUnclaimedRenewal = errors.New("stale unclaimed host renewal")
@@ -106,6 +109,10 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	terraBase, err := newStaticTerraBaseMembers(cfg.Controller.Workloads)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	listenIP, listenPort, err := net.SplitHostPort(cfg.Controller.HostEnrollmentListenAddress)
 	if err != nil || listenPort != "8443" || net.ParseIP(listenIP) == nil || listenIP != cfg.NATS.Embedded.Host {
 		return nil, nil, nil, errors.New("host enrollment listener must bind the exact private broker IP on port 8443")
@@ -120,7 +127,7 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 		generation: managed.region.Generation, environment: placementConfig.Environment,
 		diskBytes: placementConfig.Resources.DiskBytes,
 		fleet:     fleet, intents: intents, members: members, controller: controller, verifier: verifier,
-		grants: grantStore, issuer: issuer, responseKey: responseKey, fencer: fencer,
+		grants: grantStore, issuer: issuer, responseKey: responseKey, fencer: fencer, terraBase: terraBase,
 	}
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second,
 		MaxHeaderBytes: 4096, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13,
@@ -175,14 +182,7 @@ func (enrollment *managedHostEnrollment) ServeHTTP(writer http.ResponseWriter, r
 			return
 		}
 	}
-	requestCtx := authority.WithActiveWorkloadEffectContext(request.Context())
-	release, err := enrollment.beginActiveEffect(requestCtx, snapshot.Epoch, descriptor)
-	if err != nil {
-		http.Error(writer, "host enrollment held", http.StatusConflict)
-		return
-	}
-	defer release()
-	response, err := enrollment.enrollActive(requestCtx, snapshot.Epoch, peerIP, wire, enrollmentRequest, descriptor)
+	response, err := enrollment.enroll(request.Context(), snapshot.Epoch, peerIP, wire, enrollmentRequest, descriptor)
 	if err != nil {
 		if errors.Is(err, errStaleUnclaimedRenewal) {
 			writer.Header().Set("X-TerraScale-Host-Enrollment-Error", staleUnclaimedRenewal)
@@ -200,6 +200,9 @@ func (enrollment *managedHostEnrollment) ServeHTTP(writer http.ResponseWriter, r
 func (enrollment *managedHostEnrollment) enroll(ctx context.Context, epoch uint64, peerIP string, wire []byte,
 	request hostenroll.Request, descriptor hostboot.Descriptor,
 ) ([]byte, error) {
+	if descriptor.IsStatic() {
+		return enrollment.enrollStatic(ctx, epoch, peerIP, wire, request, descriptor)
+	}
 	ctx = authority.WithActiveWorkloadEffectContext(ctx)
 	release, err := enrollment.beginActiveEffect(ctx, epoch, descriptor)
 	if err != nil {
