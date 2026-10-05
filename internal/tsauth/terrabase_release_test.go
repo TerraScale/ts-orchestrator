@@ -91,7 +91,8 @@ func TestBootstrapAgainstTerraBaseRelease(t *testing.T) {
 	env := layout.Env(map[string]string{terrabase.EnvAdminPort: strconv.Itoa(adminPort), terrabase.EnvPeerPort: strconv.Itoa(peerPort),
 		terrabase.EnvClientPort: strconv.Itoa(clientPort), terrabase.EnvPeers: member.Name + "=" + member.Address.String()},
 		terrabase.Profile{PeerPort: peerPort, ClientPort: clientPort})
-	env["TERRABASE_DASHBOARD_CREDENTIAL_FILE"] = credentialPath
+	env["TERRABASE_MANAGEMENT_CREDENTIAL_FILE"] = credentialPath
+	env["TERRABASE_REGION"] = "gru-1"
 	log := startTerraBase(t, binary, env, adminPort)
 
 	clientURL, adminURL := "https://127.0.0.1:"+strconv.Itoa(clientPort), "http://127.0.0.1:"+strconv.Itoa(adminPort)
@@ -99,6 +100,8 @@ func TestBootstrapAgainstTerraBaseRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// From TS-519 the credential works only on the loopback admin listener.
+	terraBase.ManagementOnAdmin = true
 	vault := newVault(t)
 	type result struct {
 		Tenant  Tenant   `json:"tenant"`
@@ -210,15 +213,11 @@ func TestBootstrapAgainstTerraBaseRelease(t *testing.T) {
 	}
 	tsAuthUsers = []map[string]any{{"id": "usr_other", "email": "someone@terrascale.tech", "email_verified": true},
 		{"id": "usr_mario", "email": "MarioGK@terrascale.tech", "email_verified": true}}
-	// An invitation of an interrupted run is replaced: its token is lost.
-	if _, err := terraBase.invite(t.Context(), organization, email); err != nil {
-		t.Fatal(err)
-	}
-	if result := owned(); fmt.Sprint(result["steps"]) != "[joined transferred kept ts-orchestrator as admin]" ||
+	if result := owned(); fmt.Sprint(result["steps"]) != "[added transferred kept ts-orchestrator as admin]" ||
 		result["owner"] != "usr_mario" || result["admin"] != BootstrapUser || result["organization_id"] != organization {
 		t.Fatalf("ownership: %v", result)
 	}
-	roles, err := TerraBase{HTTP: terraBase.HTTP, ClientURL: clientURL, Credential: terraBase.Credential, User: "usr_mario"}.roles(t.Context(), organization)
+	roles, err := TerraBase{HTTP: terraBase.HTTP, AdminURL: adminURL, Credential: terraBase.Credential, User: "usr_mario", ManagementOnAdmin: true}.roles(t.Context(), organization)
 	if err != nil || len(roles) != 2 || roles["usr_mario"] != "owner" || roles[BootstrapUser] != "admin" {
 		t.Fatalf("roles %v: %v", roles, err)
 	}
@@ -240,7 +239,7 @@ func TestBootstrapAgainstTerraBaseRelease(t *testing.T) {
 
 	// A key for another tenant does not reach this database.
 	foreign, err := TerraBase{HTTP: terraBase.HTTP, ClientURL: clientURL, AdminURL: adminURL, Credential: terraBase.Credential,
-		User: "someone-else"}.EnsureTenant(t.Context(), Projects[0])
+		User: "someone-else", ManagementOnAdmin: true}.EnsureTenant(t.Context(), Projects[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,11 +257,18 @@ func TestBootstrapAgainstTerraBaseRelease(t *testing.T) {
 		strings.Contains(err.Error(), wrong.Credential) {
 		t.Fatalf("wrong credential: %v", err)
 	}
+	// The client listener refuses the credential, and it serves Management
+	// only to ts-auth tokens.
+	public := terraBase
+	public.ManagementOnAdmin = false
+	if _, err := public.EnsureTenant(t.Context(), Projects[0]); err == nil || !strings.Contains(err.Error(), "HTTP 401") {
+		t.Fatalf("credential on the client listener: %v", err)
+	}
 	other, err := memberClient(clientURL, adminURL, "gru-1-db-2", caPath, credentialPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := other.EnsureTenant(t.Context(), Projects[0]); err == nil {
+	if err := other.CheckKey(t.Context(), tenant, issued[ProjectName]); err == nil {
 		t.Fatal("trusted a member certificate that names another member")
 	}
 }

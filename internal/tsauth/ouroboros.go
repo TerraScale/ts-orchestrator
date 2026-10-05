@@ -44,9 +44,9 @@ func ouroborosUsage() string {
       Management requests use the client listener, or with
       --management-listener admin the loopback admin listener, the only one
       that accepts the credential from TerraBase TS-519 on.
-      With --owner-email, once that address has signed in to ts-auth: make its
-      ts-auth user the owner and keep %[3]s as an admin. Prints the steps
-      taken.
+      With --owner-email and --management-listener admin, once that address
+      has signed in to ts-auth: add its ts-auth user as a member, make it the
+      owner and keep %[3]s as an admin. Prints the steps taken.
   fly-secrets  --plan FILE
       Hand the dashboard, Fly app %[4]s, TERRABASE_URL, TERRABASE_PROJECT_ID,
       TERRABASE_DATABASE and TERRABASE_API_KEY. With FLY_API_TOKEN set, stage
@@ -93,6 +93,9 @@ func RunOuroboros(ctx context.Context, args []string, output io.Writer, loadPlan
 		if *ownerEmail != "" || *instance != "" || *keyFile != "" {
 			if address, err := mail.ParseAddress(*ownerEmail); err != nil || address.Address != *ownerEmail || *instance == "" || *keyFile == "" {
 				return errors.New("--owner-email needs one plain address, --ts-auth-instance and --ts-auth-key-file")
+			}
+			if *listener != "admin" {
+				return errors.New("--owner-email needs --management-listener admin: only TerraBase's admin listener adds a member (TS-535)")
 			}
 			var err error
 			if users, err = tsAuthUsers(*tsAuthURL, *instance, *keyFile); err != nil {

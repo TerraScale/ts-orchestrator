@@ -13,7 +13,7 @@ side is [`internal/host/tsauth.go`](../internal/host/tsauth.go).
 | Command | Where | Effect |
 | --- | --- | --- |
 | `ts-orch ts-auth secrets --plan FILE` | operator host, `~/.oci/config` | Generates `TS_AUTH_MASTER_KEY`, `TS_AUTH_AUDIT_SIGNING_KEY` and `TS_AUTH_OPERATOR_KEY` once into the cell's Vault. |
-| `ts-orch ouroboros bootstrap --plan FILE --client-url URL --admin-url URL --member NODE --member-ca FILE --dashboard-credential-file FILE [--management-listener client\|admin] [--owner-email EMAIL --ts-auth-instance SLUG --ts-auth-key-file FILE [--ts-auth-url URL]]` | operator host, SSH forward to `gru-1-db-1` | Finds or creates TerraScale's TerraBase organization and the ts-auth and ts-dashboard projects and databases; stores each project ID and, once, a new API key in the Vault. With `--owner-email`, makes that ts-auth user the organization's owner. |
+| `ts-orch ouroboros bootstrap --plan FILE --client-url URL --admin-url URL --member NODE --member-ca FILE --dashboard-credential-file FILE [--management-listener client\|admin] [--owner-email EMAIL --ts-auth-instance SLUG --ts-auth-key-file FILE [--ts-auth-url URL]]` | operator host, SSH forward to `gru-1-db-1` | Finds or creates TerraScale's TerraBase organization and the ts-auth and ts-dashboard projects and databases; stores each project ID and, once, a new API key in the Vault. With `--owner-email` (needs `--management-listener admin`), makes that ts-auth user the organization's owner. |
 | `ts-orch ouroboros fly-secrets --plan FILE` | operator host, `~/.oci/config` | Hands the dashboard's TerraBase settings to Fly app `ts-dashboard`: stages them with `FLY_API_TOKEN`, otherwise prints the non-secret ones. |
 | `ts-orch ts-auth env-file --host-config FILE --vault-id OCID` | each controller, as root | Reads the five secrets with the instance principal and writes `<ts_auth_root>/ts-auth.env`, mode 0600, owned by the workload user. |
 | `ts-orch ts-auth metadata-rules` | operator host, no OCI access | Renders the nftables metadata block installed on each controller in step 3. |
@@ -224,9 +224,10 @@ The names are stable: `<cell>-<key lowercased, _ replaced by ->`.
 ### Phase A: tenants and keys (always)
 
 `ouroboros bootstrap` acts as the fixed service identity `ts-orchestrator`
-(header `X-TerraBase-User-Id: ts-orchestrator`, with the member's dashboard
-credential). The Management API needs that credential
-(`TERRABASE_DASHBOARD_CREDENTIAL_FILE`); without one it answers 401 and the
+(header `X-TerraBase-User-Id: ts-orchestrator`, with the member's Management
+service credential). The Management API needs that credential
+(`TERRABASE_MANAGEMENT_CREDENTIAL_FILE` from TerraBase TS-519 on, before it
+`TERRABASE_DASHBOARD_CREDENTIAL_FILE`); without one it answers 401 and the
 command stops. The creator of an organization becomes its first owner, so a
 new organization is owned by `ts-orchestrator`. The command reaches both
 listeners through an SSH forward to `gru-1-db-1`, trusts the cell's member CA
@@ -267,6 +268,13 @@ the tenants to every member, or while the API's backend set holds
 
 ### Phase B: ownership (with `--owner-email`)
 
+Phase B needs `--management-listener admin` and a TerraBase release with
+TS-535: it adds the person as a member with the admin-listener-only
+`PUT /v1/management/organizations/{organization}/members/{user}` and
+`{email}`. The credential carries no verified email, so it cannot accept an
+invitation (TS-519). Without `--management-listener admin` the command stops
+before phase A.
+
 Run it once ts-auth is live and the person has signed in once (for example
 on the dashboard). The command resolves the address through ts-auth's
 Management API, `GET {ts-auth-url}/v1/{instance}/users?limit=100&starting_after=ID`
@@ -283,8 +291,8 @@ served.
 
 Then, only for the steps still undone:
 
-1. Invite the email as a member and accept it acting as the user. An earlier
-   pending invitation for that email, whose token was lost, is revoked first.
+1. Add the user as a member, acting as `ts-orchestrator`. TerraBase records
+   the address only in the audit event `member.added`.
 2. Start the ownership transfer to the user (as `ts-orchestrator`) and
    confirm it acting as the user. Confirming demotes `ts-orchestrator` to
    member.
@@ -543,7 +551,7 @@ afterwards:
 terrascale-orchestrator ouroboros bootstrap --plan "$PLAN" \
   --client-url https://127.0.0.1:19465 --admin-url http://127.0.0.1:19464 --member gru-1-db-1 \
   --member-ca "$WORK/member-ca.pem" \
-  --dashboard-credential-file "$WORK/dashboard-credential" \
+  --dashboard-credential-file "$WORK/dashboard-credential" --management-listener admin \
   --owner-email mariogk@terrascale.tech --ts-auth-instance <slug> \
   --ts-auth-key-file "$WORK/ts-auth-sk"
 shred -u "$WORK/dashboard-credential" "$WORK/ts-auth-sk"
@@ -585,18 +593,23 @@ TerraBase release binary.
   `scripts/ci/qualify-image.sh`; locally
   `make terrabase-release-process TERRABASE_BINARY=<terrabase-linux-amd64>`):
   `TestBootstrapAgainstTerraBaseRelease` starts a member of the release
-  named by `TS_TERRABASE_BINARY` with a cell-CA member certificate on its
-  client listener and a dashboard credential, runs `ouroboros bootstrap`
-  twice (organization `terrascale`, projects `ts-auth` and `ts-dashboard`, four
+  named by `TS_TERRABASE_BINARY` (TS-535 or later) with a cell-CA member
+  certificate on its client listener and a Management service credential,
+  runs `ouroboros bootstrap` through the admin listener twice (organization `terrascale`, projects `ts-auth` and `ts-dashboard`, four
   secrets; the rerun issues no key) and checks that each project's key
   cannot read the other project's database, and that another tenant's key, a
-  wrong credential and a certificate for another member are refused. It then
-  runs phase B against a fake ts-auth users API: the missing-user message, an
-  interrupted earlier invitation, the ownership transfer with `ts-orchestrator`
-  kept as admin, a no-op rerun, and a phase A rerun after the transfer.
-  Passed locally against `terrabase-linux-amd64` SHA-256
-  `8abcedaa6b8487f08ecafe4485862f1f9309154e58ac1a74eda2278b78500968`.
-- `internal/tsauth` (T0): `TestOuroborosTSAuthUserLookup` (paging;
+  wrong credential, the credential on the client listener and a certificate
+  for another member are refused. It then runs phase B against a fake
+  ts-auth users API: the missing-user message, the member add and ownership
+  transfer with `ts-orchestrator` kept as admin, a no-op rerun, and a phase A
+  rerun after the transfer. Passed locally against
+  `ci-7f743f1abe3180aeca77fe23d0eabefdf8c6a5af-run-13654`
+  (`terrabase-linux-amd64`, SHA-256
+  `68b8c15719a5f2d59ef6934b0312fab1fc587a696e5621932f56a7d9116da897`).
+- `internal/tsauth` (T0): `TestEnsureOwnerAddsTransfersAndKeepsTheBootstrapAdmin`
+  (phase B's calls and acting users against a fake admin listener with
+  TerraBase's role rules; a rerun only lists members),
+  `TestOuroborosTSAuthUserLookup` (paging;
   unverified, banned, duplicate and missing users; HTTP errors without the
   key) and `TestOuroborosFlySecrets` (no-token mode reads no API key; token
   mode stages through a stub `flyctl` with the values on stdin and redacts the

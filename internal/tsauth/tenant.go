@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 )
 
 // TerraScale's own organization in the production TerraBase, the one end
@@ -209,11 +208,13 @@ func (t TerraBase) CheckKey(ctx context.Context, tenant Tenant, key string) erro
 
 // EnsureOwner makes owner, the ts-auth user whose verified address is email,
 // the organization's owner and keeps the acting user, BootstrapUser, as an
-// admin. As the acting user it invites email and offers owner the ownership;
-// as owner it accepts the invitation, confirms the transfer and, since
-// confirming leaves the acting user a member, makes it an admin again. Each
-// step runs only while the members show it undone, so a rerun changes
-// nothing. It returns the steps it took.
+// admin. As the acting user it adds owner as a member and offers it the
+// ownership; as owner it confirms the transfer and, since confirming leaves
+// the acting user a member, makes it an admin again. Each step runs only
+// while the members show it undone, so a rerun changes nothing. It returns
+// the steps it took. Adding a member with the credential needs TerraBase
+// TS-535 and so the admin listener: the credential carries no verified
+// email, so it cannot accept an invitation.
 func (t TerraBase) EnsureOwner(ctx context.Context, organization, owner, email string) ([]string, error) {
 	nominee := t
 	nominee.User = owner
@@ -224,15 +225,11 @@ func (t TerraBase) EnsureOwner(ctx context.Context, organization, owner, email s
 	}
 	var steps []string
 	if roles[owner] == "" {
-		token, err := t.invite(ctx, organization, email)
-		if err != nil {
-			return steps, fmt.Errorf("invite %s: %w", email, err)
+		add := path + "/members/" + url.PathEscape(owner)
+		if err := t.management(ctx, http.MethodPut, organization, add, map[string]string{"email": email}, http.StatusOK, nil); err != nil {
+			return steps, fmt.Errorf("add %s as a member: %w", owner, err)
 		}
-		accept := map[string]string{"token": token, "email": email}
-		if err := nominee.management(ctx, http.MethodPost, "", "/v1/management/invitations/accept", accept, http.StatusOK, nil); err != nil {
-			return steps, fmt.Errorf("accept the invitation as %s: %w", owner, err)
-		}
-		steps = append(steps, "joined")
+		steps = append(steps, "added")
 	}
 	if roles[owner] != "owner" {
 		transfer := path + "/ownership-transfer"
@@ -271,37 +268,6 @@ func (t TerraBase) roles(ctx context.Context, organization string) (map[string]s
 		roles[member.UserID] = member.Role
 	}
 	return roles, nil
-}
-
-// invite invites email as a member and returns the acceptance token.
-// TerraBase returns a token only once, so an invitation for email left by
-// an interrupted run is revoked and replaced.
-func (t TerraBase) invite(ctx context.Context, organization, email string) (string, error) {
-	invitations := "/v1/management/organizations/" + url.PathEscape(organization) + "/invitations"
-	pending, err := list[struct {
-		ID    string `json:"id"`
-		Email string `json:"email"`
-	}](ctx, t, organization, invitations)
-	if err != nil {
-		return "", err
-	}
-	for _, invitation := range pending {
-		if strings.EqualFold(invitation.Email, email) {
-			if err := t.management(ctx, http.MethodDelete, organization, invitations+"/"+url.PathEscape(invitation.ID), nil, http.StatusNoContent, nil); err != nil {
-				return "", err
-			}
-		}
-	}
-	var created struct {
-		Token string `json:"token"`
-	}
-	if err := t.management(ctx, http.MethodPost, organization, invitations, map[string]string{"email": email, "role": "member"}, http.StatusCreated, &created); err != nil {
-		return "", err
-	}
-	if created.Token == "" {
-		return "", errors.New("TerraBase created an invitation without its token")
-	}
-	return created.Token, nil
 }
 
 // call sends one JSON request and decodes the reply into result, unless it
