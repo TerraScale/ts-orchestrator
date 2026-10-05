@@ -103,7 +103,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if managed == nil && len(cfg.Controller.Workloads) == 0 {
 		return errors.New("controller requires a managed placement config or explicit workload profiles")
 	}
-	if err := validateWorkloadProfiles(cfg.Controller.Workloads); err != nil {
+	if err := validateWorkloadProfiles(cfg.NATS.Cell, cfg.Controller.Workloads); err != nil {
 		return err
 	}
 	if err := validateAutoscaleConfig(cfg.Controller.Autoscale, cfg.Controller.Workloads); err != nil {

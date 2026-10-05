@@ -37,7 +37,8 @@ func TestHostCredentialReloaderAcceptsOnlyRenewedCredentialPaths(t *testing.T) {
 			TLS: natscell.TLSFiles{CAFile: filepath.Join(credentialRoot, "ca.pem"),
 				CertFile: filepath.Join(credentialRoot, "host-tls-cert.pem"), KeyFile: filepath.Join(credentialRoot, "host-tls-key.pem")}},
 			Host: HostConfig{Node: "host-a", Environment: "production", Roles: []string{"terrabase"},
-				IdentityKeyFile: keyFile, InstallRoot: "/opt/ts", StateRoot: "/var/lib/ts", WorkloadUID: 2000, WorkloadGID: 2000}}
+				IdentityKeyFile: keyFile, InstallRoot: "/opt/ts", StateRoot: "/var/lib/ts", ManagedRuntimeRoot: "/srv/ts-managed",
+				TerraBaseRoot: "/srv/ts-managed/terrabase", TSAuthRoot: "/srv/ts-managed/ts-auth", WorkloadUID: 2000, WorkloadGID: 2000}}
 	}
 	path := filepath.Join(root, "host.json")
 	install := func(cfg Config) {
@@ -69,6 +70,12 @@ func TestHostCredentialReloaderAcceptsOnlyRenewedCredentialPaths(t *testing.T) {
 	install(moved)
 	if _, err := reload(); err == nil {
 		t.Fatal("a non-credential host change was hot-reloaded")
+	}
+	retargetedWorkload := renewed
+	retargetedWorkload.Host.TSAuthRoot = "/srv/other/ts-auth"
+	install(retargetedWorkload)
+	if _, err := reload(); err == nil {
+		t.Fatal("a ts-auth root change was hot-reloaded")
 	}
 	retargeted := renewed
 	retargeted.NATS.URL = "tls://10.0.0.9:4222"

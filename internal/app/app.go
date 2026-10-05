@@ -189,6 +189,7 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 		InstallRoot: cfg.Host.InstallRoot, StateRoot: cfg.Host.StateRoot,
 		ManagedRuntimeRoot:      cfg.Host.ManagedRuntimeRoot,
 		TerraBaseRoot:           cfg.Host.TerraBaseRoot,
+		TSAuthRoot:              cfg.Host.TSAuthRoot,
 		ManagedS3Credentials:    managedS3Credentials,
 		ManagedBackupDataKeys:   managedBackupDataKeys,
 		BakedSystemReserveBytes: bakedSystemReserveBytes,

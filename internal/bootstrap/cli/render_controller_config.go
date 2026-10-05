@@ -23,6 +23,8 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
 
 // renderControllerConfigAt creates one deterministic production role config
@@ -45,12 +47,20 @@ func (c command) renderControllerConfigAt(args []string, now time.Time) error {
 	placementSHA := flags.String("placement-config-sha256", "", "reviewed placement SHA-256")
 	profilePath := flags.String("terrabase-profile", "", "optional reviewed C# TerraBase workload profile JSON")
 	profileSHA := flags.String("terrabase-profile-sha256", "", "reviewed TerraBase workload profile SHA-256")
+	authProfilePath := flags.String("ts-auth-profile", "", "optional reviewed ts-auth workload profile JSON; requires pinned service")
+	authProfileSHA := flags.String("ts-auth-profile-sha256", "", "reviewed ts-auth workload profile SHA-256")
+	authServicePath := flags.String("ts-auth-service", "", "reviewed ts-auth service spec JSON; requires pinned profile")
+	authServiceSHA := flags.String("ts-auth-service-sha256", "", "reviewed ts-auth service spec SHA-256")
 	outputPath := flags.String("out", "", "new canonical controller role JSON")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 || *outputPath == "" {
 		return errors.New("render-controller-config requires one new --out and no positional arguments")
+	}
+	withTSAuth := *authProfilePath != "" || *authProfileSHA != "" || *authServicePath != "" || *authServiceSHA != ""
+	if withTSAuth && (*authProfilePath == "" || *authProfileSHA == "" || *authServicePath == "" || *authServiceSHA == "") {
+		return errors.New("ts-auth requires --ts-auth-profile, --ts-auth-profile-sha256, --ts-auth-service, and --ts-auth-service-sha256 together")
 	}
 	candidateWire, err := readPinnedControllerFile(*candidatePath, *candidateSHA, bootstrap.MaxManifestBytes)
 	if err != nil {
@@ -103,6 +113,32 @@ func (c command) renderControllerConfigAt(args []string, now time.Time) error {
 			return errors.New("a TerraBase profile needs the member CA; regenerate the controller material")
 		}
 		cfg.Controller.Workloads = map[string]app.WorkloadProfile{terrabase.Role: profile}
+	}
+	if withTSAuth {
+		profileWire, err := readPinnedControllerFile(*authProfilePath, *authProfileSHA, 64<<10)
+		if err != nil {
+			return fmt.Errorf("read reviewed ts-auth profile: %w", err)
+		}
+		var profile app.WorkloadProfile
+		if err := protocol.DecodeStrict(profileWire, &profile, 64<<10); err != nil {
+			return fmt.Errorf("decode reviewed ts-auth profile: %w", err)
+		}
+		serviceWire, err := readPinnedControllerFile(*authServicePath, *authServiceSHA, 64<<10)
+		if err != nil {
+			return fmt.Errorf("read reviewed ts-auth service: %w", err)
+		}
+		var service workload.ServiceSpec
+		if err := protocol.DecodeStrict(serviceWire, &service, 64<<10); err != nil {
+			return fmt.Errorf("decode reviewed ts-auth service: %w", err)
+		}
+		if service.Role != tsauth.Role || service.Environment != manifest.Environment {
+			return errors.New("reviewed ts-auth service must use role ts-auth and the candidate environment")
+		}
+		if cfg.Controller.Workloads == nil {
+			cfg.Controller.Workloads = make(map[string]app.WorkloadProfile)
+		}
+		cfg.Controller.Workloads[tsauth.Role] = profile
+		cfg.Controller.Autoscale = &app.AutoscaleConfig{Enabled: true, Services: []workload.ServiceSpec{service}}
 	}
 	wire, err := protocol.EncodeJSON(cfg)
 	if err != nil || len(wire) > bootstrap.MaxControllerConfigBytes {

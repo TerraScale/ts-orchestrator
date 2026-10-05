@@ -288,11 +288,11 @@ func TestTerraBaseProfileRejectsArguments(t *testing.T) {
 	profile := WorkloadProfile{Resources: placement.Resources{CPU: 1, MemoryBytes: 1 << 20, DiskBytes: 1 << 20},
 		Args: []string{"--peer-client-ca=/etc/ssl/certs/ca-certificates.crt"},
 		Env:  map[string]string{terrabase.EnvPeerPort: "9443", terrabase.EnvPeers: "gru-1-db-1=10.0.0.1:9443"}}
-	if err := validateWorkloadProfiles(map[string]WorkloadProfile{"terrabase": profile}); err == nil {
+	if err := validateWorkloadProfiles("gru", map[string]WorkloadProfile{"terrabase": profile}); err == nil {
 		t.Fatal("accepted a TerraBase profile whose arguments override host-owned settings")
 	}
 	profile.Args = nil
-	if err := validateWorkloadProfiles(map[string]WorkloadProfile{"terrabase": profile}); err != nil {
+	if err := validateWorkloadProfiles("gru", map[string]WorkloadProfile{"terrabase": profile}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -391,11 +391,11 @@ func TestTerraBaseReleaseStateRules(t *testing.T) {
 	statuses := []host.HostStatus{report("a", "prod", "d1", "running", 4), report("b", "prod", "d2", "failed", 5),
 		report("c", "test", "d9", "running", 2)}
 	desired := []host.Desired{{Node: "a", Role: "terrabase", Generation: 4}, {Node: "x", Role: "terrabase", Generation: 7, Withdrawn: true}}
-	current, next, err := terraBaseCurrent(statuses, desired, "prod")
+	current, next, err := releaseCurrent(statuses, desired, terrabase.Role, "prod")
 	if err != nil || current != "d1" || next != 8 {
 		t.Fatalf("current %q, next %d, %v; want the running digest and a generation above every desired", current, next, err)
 	}
-	if _, _, err := terraBaseCurrent(append(statuses, report("d", "prod", "d3", "running", 4)), desired, "prod"); err == nil {
+	if _, _, err := releaseCurrent(append(statuses, report("d", "prod", "d3", "running", 4)), desired, terrabase.Role, "prod"); err == nil {
 		t.Fatal("running members on two digests were accepted")
 	}
 	intent := delivery.Intent{Role: "terrabase", Environment: "prod", ArtifactDigest: "d9", Generation: 2, DesiredReplicas: 1}
@@ -439,8 +439,9 @@ func readFileString(path string) string {
 // kill once the drain timeout passes. With fake set it runs fakeMember
 // instead of the executable.
 type childRunner struct {
-	log  string
-	fake bool
+	log   string
+	fake  bool
+	serve func(host.Workload) (func(), chan struct{}, error) // fake process; nil means fakeMember
 
 	mu       sync.Mutex
 	command  *exec.Cmd
@@ -457,7 +458,11 @@ func (r *childRunner) Apply(ctx context.Context, w host.Workload) error {
 		return err
 	}
 	if r.fake {
-		stop, exited, err := fakeMember(w)
+		serve := r.serve
+		if serve == nil {
+			serve = fakeMember
+		}
+		stop, exited, err := serve(w)
 		if err != nil {
 			return err
 		}

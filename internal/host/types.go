@@ -230,6 +230,8 @@ type AgentConfig struct {
 	StateRoot               string
 	ManagedRuntimeRoot      string
 	TerraBaseRoot           string // Set: launch a non-managed "terrabase" desired as a C# TerraBase member.
+	TSAuthRoot              string // Set: launch a "ts-auth" desired with the secrets of its env file.
+	TSAuthPort              int    // The port a ts-auth replica serves and the host probes; zero means tsauth.Port.
 	ManagedS3Credentials    ManagedS3CredentialResolver
 	ManagedBackupDataKeys   ManagedBackupDataKeyResolver
 	BakedSystemReserveBytes uint64

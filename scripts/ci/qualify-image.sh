@@ -23,6 +23,8 @@
 #                            TS_TEST_RENDERED_HOST_BUNDLE_SHA256.
 #   terrabase-binary         TS_TERRABASE_BINARY: a C# TerraBase release asset
 #   terrabase-release        (terrabase-linux-<arch>) with its .sha256 beside it.
+#   ts-auth-terrabase       TS_TERRABASE_BINARY: a C# TerraBase release asset
+#                            (terrabase-linux-<arch>) with its .sha256 beside it.
 #   cellscale-oci-readonly   TS_CELLSCALE_OCI_REGION and
 #                            TS_CELLSCALE_OCI_COMPARTMENT, with the runner's
 #                            ~/.oci/config DEFAULT profile; optional
@@ -62,6 +64,7 @@ declare -A packages=(
 	[terrabase-binary]=./internal/terrabase
 	[terrabase-release]=./internal/app
 	[cellscale-oci-readonly]=./internal/cellscale
+	[ts-auth-terrabase]=./internal/tsauth
 )
 declare -A tests=(
 	[terrabase-walkthrough]='^TestTerraBaseWalkthroughAgainstRealMembers$'
@@ -71,6 +74,7 @@ declare -A tests=(
 	[terrabase-binary]='^TestTerraBaseBinaryPeerMesh$'
 	[terrabase-release]='^TestTerraBaseReleaseDeployUpgradeRollback$'
 	[cellscale-oci-readonly]='^TestOCIReadOnlyAgainstRealAPI$'
+	[ts-auth-terrabase]='^TestBootstrapAgainstTerraBaseRelease$'
 )
 for suite in "${suites[@]}"; do
 	[[ -n ${packages[$suite]:-} ]] || { echo "unknown qualification suite: $suite" >&2; exit 2; }

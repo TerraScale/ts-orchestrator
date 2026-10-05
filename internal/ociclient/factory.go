@@ -41,6 +41,7 @@ const (
 	ServiceKMS           Service = "kms"
 	ServiceSearch        Service = "resourcesearch"
 	ServiceLimits        Service = "limits"
+	ServiceVault         Service = "vault"
 )
 
 // Limit is one token bucket: a sustained rate and a burst.
@@ -62,6 +63,7 @@ var DefaultLimits = map[Service]Limit{
 	ServiceKMS:           {PerSecond: 4, Burst: 8},
 	ServiceSearch:        {PerSecond: 4, Burst: 8},
 	ServiceLimits:        {PerSecond: 4, Burst: 8},
+	ServiceVault:         {PerSecond: 4, Burst: 8},
 }
 
 var defaultLimit = Limit{PerSecond: 4, Burst: 8}

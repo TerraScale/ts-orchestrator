@@ -6939,6 +6939,19 @@
             {
               "direction": "INGRESS",
               "protocol": "6",
+              "source": "10.251.0.128/26",
+              "source_type": "CIDR_BLOCK",
+              "destination": null,
+              "destination_type": null,
+              "tcp_min": 8080,
+              "tcp_max": 8080,
+              "udp_min": null,
+              "udp_max": null,
+              "stateless": false
+            },
+            {
+              "direction": "INGRESS",
+              "protocol": "6",
               "source": "10.251.0.18/32",
               "source_type": "CIDR_BLOCK",
               "destination": null,

@@ -14,6 +14,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
 
@@ -71,6 +72,10 @@ func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]Worklo
 			// TerraBase members are owned by placement, never by the
 			// stateless reconciler or release shaping.
 			return fmt.Errorf("autoscale service %q is a managed TerraBase role", spec.Role)
+		}
+		if spec.Role == tsauth.Role && (spec.Replicas.Min != tsauth.Replicas ||
+			spec.Replicas.Max != tsauth.Replicas || spec.Placement.MaxPerFailureDomain != 1) {
+			return fmt.Errorf("autoscale service %q must keep exactly %d replicas with one per failure domain", spec.Role, tsauth.Replicas)
 		}
 		profile, exists := profiles[spec.Role]
 		if !exists {

@@ -80,13 +80,14 @@ terrabase-walkthrough-process:
 	systemd-run --user --scope --quiet -p MemoryMax=10G env TS_TERRABASE_SERVER="$(abspath $(TERRABASE_SERVER))" \
 		$(GO) test ./internal/app -run '^TestTerraBaseWalkthroughAgainstRealMembers$$' -count=1 -v
 
-# Deploy, upgrade and roll back the real C# TerraBase release binary and
-# check its peer mesh; its .sha256 release asset must sit beside it:
+# Deploy, upgrade and roll back the real C# TerraBase release binary, check
+# its peer mesh and bootstrap ts-auth's tenant on it; its .sha256 release
+# asset must sit beside it:
 # make terrabase-release-process TERRABASE_BINARY=<terrabase-linux-amd64>
 terrabase-release-process:
 	@test -n "$(TERRABASE_BINARY)" || { echo 'usage: make terrabase-release-process TERRABASE_BINARY=<terrabase-linux-amd64>' >&2; exit 2; }
-	TS_TERRABASE_BINARY="$(abspath $(TERRABASE_BINARY))" $(GO) test ./internal/terrabase ./internal/app \
-		-run '^(TestTerraBaseBinaryPeerMesh|TestTerraBaseReleaseDeployUpgradeRollback)$$' -count=1 -v
+	TS_TERRABASE_BINARY="$(abspath $(TERRABASE_BINARY))" $(GO) test ./internal/terrabase ./internal/app ./internal/tsauth \
+		-run '^(TestTerraBaseBinaryPeerMesh|TestTerraBaseReleaseDeployUpgradeRollback|TestBootstrapAgainstTerraBaseRelease)$$' -count=1 -v
 
 # Lint the tracked shell scripts (needs shellcheck >= 0.11 on PATH; the
 # ts-builder image ships it).

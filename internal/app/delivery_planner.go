@@ -13,6 +13,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
 
@@ -34,7 +35,7 @@ func (p *regionalDeliveryPlanner) resourceProfiles() map[string]placement.Resour
 	return resources
 }
 
-func validateWorkloadProfiles(profiles map[string]WorkloadProfile) error {
+func validateWorkloadProfiles(cell string, profiles map[string]WorkloadProfile) error {
 	for role, profile := range profiles {
 		if !grantToken.MatchString(role) || profile.Resources.CPU <= 0 || profile.Resources.CPU > 4096 ||
 			profile.Resources.MemoryBytes <= 0 || profile.Resources.MemoryBytes > 1<<50 ||
@@ -64,6 +65,13 @@ func validateWorkloadProfiles(profiles map[string]WorkloadProfile) error {
 				return fmt.Errorf("workload profile for %q sets TerraBase settings only through env", role)
 			}
 		}
+		// The ts-auth profile is signed and readable: it must hold every
+		// setting but no secret, which hosts add from their env file.
+		if role == tsauth.Role {
+			if err := tsauth.ValidateProfile(cell, profile.Args, profile.Env); err != nil {
+				return fmt.Errorf("workload profile for %q: %w", role, err)
+			}
+		}
 	}
 	return nil
 }
@@ -88,6 +96,21 @@ func terraBasePlacement(profile WorkloadProfile, replicas int, candidates []plac
 		previous[i].Pending = true
 	}
 	return candidates, previous, nil
+}
+
+// releaseFailures is the observed assignments for planning a release of
+// digest. A failed replica of another digest failed with its own release,
+// not with its host, so the release replaces it in place instead of
+// quarantining the host: the rollback of a release that crashed on every
+// replica must not need as many spare hosts as there are replicas.
+func releaseFailures(observation workload.Observation, digest string) []placement.Assignment {
+	previous := slices.Clone(observation.Assignments)
+	for i, assignment := range previous {
+		if active, ok := observation.Active[assignment.Node]; ok && active.Digest != digest {
+			previous[i].Pending = true
+		}
+	}
+	return previous
 }
 
 // Plan plans a release with the intent's own generation and replica count.
@@ -126,15 +149,16 @@ func (p *regionalDeliveryPlanner) plan(ctx context.Context, intent delivery.Inte
 	if *shape, err = shapeOf(observation); err != nil {
 		return nil, err
 	}
-	candidates, previous := observation.Candidates, observation.Assignments
+	candidates, previous := observation.Candidates, releaseFailures(observation, intent.ArtifactDigest)
 	if intent.Role == terrabase.Role {
 		if candidates, previous, err = terraBasePlacement(profile, shape.Replicas, candidates, previous); err != nil {
 			return nil, err
 		}
 	}
+	maxPerFailureDomain := releasePlacementDomainCap(intent.Role)
 	assignments, err := placement.PlanWorkload(placement.WorkloadRequest{
 		Cell: intent.Cell, Role: intent.Role, Replicas: shape.Replicas,
-		Request: profile.Resources, Hosts: candidates, Previous: previous,
+		Request: profile.Resources, Hosts: candidates, Previous: previous, MaxPerFailureDomain: maxPerFailureDomain,
 	})
 	if err != nil {
 		return nil, err
@@ -159,4 +183,11 @@ func (p *regionalDeliveryPlanner) plan(ctx context.Context, intent delivery.Inte
 	}
 	slices.SortFunc(result, func(a, b host.Desired) int { return strings.Compare(a.Node, b.Node) })
 	return result, nil
+}
+
+func releasePlacementDomainCap(role string) int {
+	if role == tsauth.Role {
+		return 1
+	}
+	return 0
 }

@@ -1,0 +1,16 @@
+[Unit]
+Description=Reserve OCI instance metadata for root and controller on ts-auth hosts
+Before=terrascale-orchestrator-host.service
+
+[Service]
+Type=oneshot
+# The nft file replaces the owned table. Seed it on first boot so its
+# destroy command is valid without touching any unrelated table.
+ExecStartPre=/bin/sh -c '/usr/sbin/nft list table inet terrascale_metadata >/dev/null 2>&1 || /usr/sbin/nft add table inet terrascale_metadata'
+ExecStart=/usr/sbin/nft -f /etc/terrascale-orchestrator/ts-auth-metadata.nft
+RemainAfterExit=no
+# Returning inactive reapplies the rules on every host start, not just boot.
+# Stopping this unit must not remove the metadata block.
+
+[Install]
+RequiredBy=terrascale-orchestrator-host.service

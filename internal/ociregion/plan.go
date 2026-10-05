@@ -13,6 +13,12 @@ import (
 var publicIDs = map[string]string{"internet_gateway": "internetgateway", "public_subnet": "subnet", "public_route_table": "routetable", "public_security_list": "securitylist", "network_load_balancer": "networkloadbalancer"}
 var resourceKinds = map[string]string{"control_compartment": "compartment", "network_compartment": "compartment", "workload_compartment": "compartment", "vault": "vault", "key": "key", "vcn": "vcn", "subnet": "subnet", "network_security_group": "networksecuritygroup", "workload_network_security_group": "networksecuritygroup", "security_list": "securitylist", "route_table": "routetable", "service_gateway": "servicegateway", "local_peering_gateway": "localpeeringgateway", "internet_gateway": "internetgateway", "public_subnet": "subnet", "public_route_table": "routetable", "public_security_list": "securitylist", "network_load_balancer": "networkloadbalancer", "controller_dynamic_group": "dynamicgroup", "controller_policy": "policy", "objectstorage_key_policy": "policy", "host_dynamic_group": "dynamicgroup", "host_policy": "policy"}
 var ingressLists = []string{"nsg_rules", "workload_nsg_rules", "security_list_ingress_rules"}
+
+// TSAuthPort is ts-auth's plain-HTTP port on the controllers. The public API
+// load balancer in the public API subnet reaches it through one exact
+// controller NSG rule.
+const TSAuthPort = 8080
+
 var ruleFields = []string{"direction", "protocol", "source", "source_type", "destination", "destination_type", "tcp_min", "tcp_max", "udp_min", "udp_max", "stateless"}
 
 func requireOCID(value any, kind, region string) string {
@@ -176,7 +182,7 @@ func validateBoundary(sec Object, network netip.Prefix, gateway, public Object) 
 			} else if public != nil {
 				p, _ := prefix(public["subnet_cidr"])
 				s, _ := prefix(r["source"])
-				if p.Overlaps(s) && (key != "workload_nsg_rules" || r["source"] != public["subnet_cidr"] || r["protocol"] != "6" || !eq(r["tcp_min"], public["client_port"]) || !eq(r["tcp_max"], public["client_port"])) {
+				if p.Overlaps(s) && !tsAuthBackendRule(key, r, public) && (key != "workload_nsg_rules" || r["source"] != public["subnet_cidr"] || r["protocol"] != "6" || !eq(r["tcp_min"], public["client_port"]) || !eq(r["tcp_max"], public["client_port"])) {
 					fail("manual plan " + key + " admits the public API subnet beyond the member client port")
 				}
 			}
@@ -202,6 +208,13 @@ func validateBoundary(sec Object, network netip.Prefix, gateway, public Object) 
 	if gateway != nil && len(seen) != 2 {
 		fail("manual plan must allow NetBird HTTPS and STUN to the operator gateway")
 	}
+}
+
+// tsAuthBackendRule is the controller NSG rule that lets the public API load
+// balancer's subnet reach ts-auth: TCP TSAuthPort and nothing else.
+func tsAuthBackendRule(key string, r, public Object) bool {
+	return key == "nsg_rules" && r["source"] == public["subnet_cidr"] && r["protocol"] == "6" &&
+		eq(r["tcp_min"], TSAuthPort) && eq(r["tcp_max"], TSAuthPort)
 }
 func validateNetbird(plan Object, gateway Object) {
 	v, ok := plan["netbird"]

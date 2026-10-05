@@ -16,6 +16,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
 
@@ -184,5 +185,14 @@ func TestUnownedShapeKeepsReleaseScopedGenerations(t *testing.T) {
 	shaped, err := unownedShape(intent, workload.Observation{NodeHighWater: map[string]uint64{"node-a": shapedBefore + 5}})
 	if err != nil || shaped.Generation <= shapedBefore+5 || shaped.Replicas != 2 {
 		t.Fatalf("formerly shaped role = %+v (%v), want a generation above %d", shaped, err, shapedBefore+5)
+	}
+}
+
+func TestTSAuthReleasePlacementCapsFailureDomains(t *testing.T) {
+	if cap := releasePlacementDomainCap(tsauth.Role); cap != 1 {
+		t.Fatalf("ts-auth release domain cap = %d, want 1", cap)
+	}
+	if cap := releasePlacementDomainCap("api"); cap != 0 {
+		t.Fatalf("generic release domain cap = %d, want 0", cap)
 	}
 }

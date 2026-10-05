@@ -74,6 +74,9 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 			return nil, err
 		}
 	}
+	if cfg.TSAuthPort != 0 && (cfg.TSAuthPort < 1 || cfg.TSAuthPort > 65535) {
+		return nil, errors.New("ts-auth port must be between 1 and 65535")
+	}
 	if cfg.Conn == nil || len(cfg.Identity) != ed25519.PrivateKeySize || len(cfg.ControllerPublicKey) != ed25519.PublicKeySize {
 		return nil, errors.New("agent requires NATS connection, Ed25519 identity and pinned controller public key")
 	}
@@ -112,6 +115,12 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 	}
 	if cfg.TerraBaseRoot != "" {
 		if err := validateTerraBaseRoot(cfg.TerraBaseRoot, cfg.InstallRoot, cfg.StateRoot, cfg.WorkloadIdentity); err != nil {
+			return nil, err
+		}
+	}
+	if cfg.TSAuthRoot != "" {
+		if err := validateWorkloadRoot("ts-auth", cfg.TSAuthRoot, cfg.WorkloadIdentity, cfg.InstallRoot, cfg.StateRoot,
+			cfg.TerraBaseRoot); err != nil {
 			return nil, err
 		}
 	}
@@ -791,8 +800,8 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	if err != nil {
 		return err
 	}
-	if a.terraBaseMember(d) && a.terraBaseExited(current, d, fingerprint) {
-		return errors.New("terrabase member exited; it is relaunched on the next poll")
+	if (a.terraBaseMember(d) || a.tsAuthReplica(d)) && a.terraBaseExited(current, d, fingerprint) {
+		return errors.New(role + " exited; it is relaunched on the next poll")
 	}
 	if current.Running && current.Digest == d.Digest && current.Fingerprint == fingerprint {
 		if hasPending {
@@ -805,6 +814,9 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		}
 		if a.terraBaseMember(d) {
 			return a.publishReport(ctx, a.terraBaseRunningReport(ctx, d))
+		}
+		if a.tsAuthReplica(d) {
+			return a.publishReport(ctx, a.tsAuthRunningReport(ctx, d))
 		}
 		return a.publishReport(ctx, a.reportFor(d, "running", nil))
 	}
@@ -855,6 +867,14 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 			return err
 		}
 		workload.DrainTimeout, started = terraBaseDrain, "starting"
+	}
+	if a.tsAuthReplica(d) {
+		if workload.Env, err = a.prepareTSAuth(d); err != nil {
+			return err
+		}
+		workload.DrainTimeout, started = tsAuthDrain, "starting"
+	} else if a.tsAuthMisplaced(d) {
+		return errors.New("ts-auth needs ts_auth_root on this host for its secrets and readiness probe")
 	}
 	var latest desiredReply
 	if err := a.request(ctx, "desired", struct {

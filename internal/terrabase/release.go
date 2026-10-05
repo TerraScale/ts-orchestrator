@@ -30,9 +30,15 @@ const maxBinaryBytes = 512 << 20
 // published .sha256 asset and returns the digest to pin. The checksum file
 // must hold exactly one sha256sum line naming the executable's asset.
 func VerifyRelease(binaryPath, checksumPath string) (string, error) {
+	return VerifyAsset(binaryPath, checksumPath, assetRE)
+}
+
+// VerifyAsset is VerifyRelease for any single-file release executable whose
+// asset name matches asset, such as ts-auth-linux-arm64.
+func VerifyAsset(binaryPath, checksumPath string, asset *regexp.Regexp) (string, error) {
 	name := filepath.Base(binaryPath)
-	if !assetRE.MatchString(name) {
-		return "", fmt.Errorf("release executable %q is not terrabase-linux-amd64 or terrabase-linux-arm64", name)
+	if !asset.MatchString(name) {
+		return "", fmt.Errorf("release executable %q is not one of %s", name, asset)
 	}
 	checksum, err := os.ReadFile(checksumPath)
 	if err != nil {
@@ -61,7 +67,7 @@ func VerifyRelease(binaryPath, checksumPath string) (string, error) {
 	if elf.Class(header.Ident[elf.EI_CLASS]) != elf.ELFCLASS64 || elf.Data(header.Ident[elf.EI_DATA]) != elf.ELFDATA2LSB {
 		return "", fmt.Errorf("%s is not a 64-bit little-endian ELF executable", binaryPath)
 	}
-	want := map[string]elf.Machine{"amd64": elf.EM_X86_64, "arm64": elf.EM_AARCH64}[strings.TrimPrefix(name, "terrabase-linux-")]
+	want := map[string]elf.Machine{"amd64": elf.EM_X86_64, "arm64": elf.EM_AARCH64}[name[strings.LastIndexByte(name, '-')+1:]]
 	if got := elf.Machine(header.Machine); got != want {
 		return "", fmt.Errorf("%s must be built for %v, found %v", name, want, got)
 	}

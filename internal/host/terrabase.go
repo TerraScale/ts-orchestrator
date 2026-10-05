@@ -80,27 +80,33 @@ func (c *Controller) serveTerraBasePeer(ctx context.Context, req request, r Regi
 	return terraBasePeerReply{Certificate: certificate, CA: c.terraBaseCA.CertificatePEM()}, nil
 }
 
-// validateTerraBaseRoot keeps the member's files apart from the agent's. The
-// agent chowns the root and creates the member's directories below it, so
-// neither the root nor any ancestor may be a symlink or replaceable by the
-// workload identity, and the workload must be able to traverse to its data.
+// validateTerraBaseRoot keeps the member's files apart from the agent's.
 func validateTerraBaseRoot(root, installRoot, stateRoot string, identity WorkloadIdentity) error {
+	return validateWorkloadRoot("terrabase", root, identity, installRoot, stateRoot)
+}
+
+// validateWorkloadRoot keeps one workload's files apart from the agent's and
+// from the other roots. The agent chowns the root and creates the workload's
+// directories below it, so neither the root nor any ancestor may be a symlink
+// or replaceable by the workload identity, and the workload must be able to
+// traverse to its data.
+func validateWorkloadRoot(name, root string, identity WorkloadIdentity, others ...string) error {
 	separator := string(filepath.Separator)
-	for _, other := range []string{installRoot, stateRoot} {
+	for _, other := range others {
 		if other != "" && (root == other || strings.HasPrefix(root, other+separator) || strings.HasPrefix(other, root+separator)) {
-			return errors.New("terrabase root must be separate from the install and state roots")
+			return errors.New(name + " root must be separate from the install, state and other workload roots")
 		}
 	}
 	if !filepath.IsAbs(root) || filepath.Clean(root) != root || root == separator {
-		return errors.New("terrabase root must be a clean absolute path other than /")
+		return errors.New(name + " root must be a clean absolute path other than /")
 	}
-	// Only the member root may be absent; every parent must already be safe.
+	// Only the workload root may be absent; every parent must already be safe.
 	if err := inspectWorkloadPath(filepath.Dir(root), identity, true, false, false); err != nil {
-		return fmt.Errorf("terrabase root parent: %w", err)
+		return fmt.Errorf("%s root parent: %w", name, err)
 	}
 	// Every existing component is a real, non-replaceable directory...
 	if err := inspectWorkloadPath(root, identity, true, true, false); err != nil {
-		return fmt.Errorf("terrabase root: %w", err)
+		return fmt.Errorf("%s root: %w", name, err)
 	}
 	// ...and the workload cannot create the root before the agent does, not
 	// even in a sticky parent such as /tmp.
@@ -114,7 +120,7 @@ func validateTerraBaseRoot(root, installRoot, stateRoot string, identity Workloa
 			write = info.Mode().Perm() & 0o200
 		}
 		if write != 0 {
-			return errors.New("the workload identity can create entries next to the terrabase root")
+			return errors.New("the workload identity can create entries next to the " + name + " root")
 		}
 	}
 	// ...so the path resolves to itself.
@@ -126,7 +132,7 @@ func validateTerraBaseRoot(root, installRoot, stateRoot string, identity Workloa
 		existing = filepath.Dir(existing)
 	}
 	if resolved, err := filepath.EvalSymlinks(existing); err != nil || resolved != existing {
-		return fmt.Errorf("terrabase root %s does not resolve to itself", existing)
+		return fmt.Errorf("%s root %s does not resolve to itself", name, existing)
 	}
 	return nil
 }

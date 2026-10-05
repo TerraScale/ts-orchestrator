@@ -140,7 +140,7 @@ func ValidateSignedControllerConfig(manifest bootstrap.Manifest, observedPrivate
 	if _, terraBase := cfg.Controller.Workloads[terrabase.Role]; terraBase && !signedCACert {
 		return Config{}, errors.New("a signed TerraBase workload profile needs the signed member CA")
 	}
-	if err := validateWorkloadProfiles(cfg.Controller.Workloads); err != nil {
+	if err := validateWorkloadProfiles(cfg.NATS.Cell, cfg.Controller.Workloads); err != nil {
 		return Config{}, fmt.Errorf("signed controller workloads: %w", err)
 	}
 	if err := validateAutoscaleConfig(cfg.Controller.Autoscale, cfg.Controller.Workloads); err != nil {

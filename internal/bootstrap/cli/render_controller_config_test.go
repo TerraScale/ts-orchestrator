@@ -14,6 +14,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
 
 // renderInputs writes reviewed render inputs for controller-a of a three
@@ -108,6 +109,141 @@ func checkedInTerraBaseProfile(t *testing.T) (string, app.WorkloadProfile) {
 	return path, profile
 }
 
+func checkedInTSAuthInputs(t *testing.T, environment string) (string, string, app.WorkloadProfile, workload.ServiceSpec) {
+	t.Helper()
+	profilePath, err := filepath.Abs("../../../deploy/oci-region/ts-auth-gru-1-profile.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileWire, err := os.ReadFile(profilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var profile app.WorkloadProfile
+	if err := protocol.DecodeStrict(profileWire, &profile, 64<<10); err != nil {
+		t.Fatal(err)
+	}
+	servicePath := filepath.Join(t.TempDir(), "ts-auth-service.json")
+	serviceWire, err := os.ReadFile(filepath.Join(filepath.Dir(profilePath), "ts-auth-gru-1-service.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var service workload.ServiceSpec
+	if err := protocol.DecodeStrict(serviceWire, &service, 64<<10); err != nil {
+		t.Fatal(err)
+	}
+	service.Environment = environment
+	serviceWire, err = protocol.EncodeJSON(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, servicePath, serviceWire, 0o600)
+	return profilePath, servicePath, profile, service
+}
+
+func TestRenderControllerConfigWritesTSAuthAndSignsInitialManifest(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	args, manifest := renderInputs(t, now, keepEverySecret)
+	terrabasePath, terrabaseProfile := checkedInTerraBaseProfile(t)
+	authProfilePath, authServicePath, authProfile, authService := checkedInTSAuthInputs(t, manifest.Environment)
+	output := filepath.Join(t.TempDir(), "controller.json")
+	renderArgs := append(args,
+		"--terrabase-profile", terrabasePath, "--terrabase-profile-sha256", fixtureFileDigest(terrabasePath),
+		"--ts-auth-profile", authProfilePath, "--ts-auth-profile-sha256", fixtureFileDigest(authProfilePath),
+		"--ts-auth-service", authServicePath, "--ts-auth-service-sha256", fixtureFileDigest(authServicePath),
+		"--out", output)
+	if err := renderControllerConfigAt(renderArgs, now); err != nil {
+		t.Fatal(err)
+	}
+	wire, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg app.Config
+	if err := protocol.DecodeStrict(wire, &cfg, bootstrap.MaxControllerConfigBytes); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cfg.Controller.Workloads, map[string]app.WorkloadProfile{
+		"terrabase": terrabaseProfile, "ts-auth": authProfile,
+	}) || cfg.Controller.Autoscale == nil || !cfg.Controller.Autoscale.Enabled ||
+		!reflect.DeepEqual(cfg.Controller.Autoscale.Services, []workload.ServiceSpec{authService}) {
+		t.Fatalf("rendered ts-auth config = %+v", cfg.Controller)
+	}
+	if !strings.Contains(string(wire), `"ts-auth"`) {
+		t.Fatal("canonical config omitted ts-auth")
+	}
+}
+
+func TestRenderControllerConfigRejectsIncompleteOrInvalidTSAuthInputs(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	for _, test := range []struct {
+		name   string
+		mutate func(t *testing.T, profilePath, servicePath string, profile app.WorkloadProfile, service workload.ServiceSpec) (string, string, string)
+		want   string
+	}{
+		{name: "incomplete group", mutate: func(_ *testing.T, profilePath, servicePath string, _ app.WorkloadProfile, _ workload.ServiceSpec) (string, string, string) {
+			return profilePath, "", "ts-auth requires"
+		}, want: "ts-auth requires"},
+		{name: "wrong profile digest", mutate: func(_ *testing.T, profilePath, servicePath string, _ app.WorkloadProfile, _ workload.ServiceSpec) (string, string, string) {
+			return profilePath, servicePath, strings.Repeat("0", 64)
+		}, want: "reviewed ts-auth profile"},
+		{name: "secret profile", mutate: func(t *testing.T, _ string, servicePath string, profile app.WorkloadProfile, _ workload.ServiceSpec) (string, string, string) {
+			profile.Env["TS_AUTH_MASTER_KEY"] = "secret"
+			path := filepath.Join(t.TempDir(), "profile.json")
+			wire, err := protocol.EncodeJSON(profile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFixture(t, path, wire, 0o600)
+			return path, servicePath, fixtureFileDigest(path)
+		}, want: "ts-auth"},
+		{name: "wrong service role", mutate: func(t *testing.T, profilePath, _ string, _ app.WorkloadProfile, service workload.ServiceSpec) (string, string, string) {
+			service.Role = "other"
+			path := filepath.Join(t.TempDir(), "service.json")
+			wire, err := protocol.EncodeJSON(service)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFixture(t, path, wire, 0o600)
+			return profilePath, path, fixtureFileDigest(path)
+		}, want: "role ts-auth"},
+		{name: "invalid service", mutate: func(t *testing.T, profilePath, _ string, _ app.WorkloadProfile, service workload.ServiceSpec) (string, string, string) {
+			service.Kind = workload.KindStateful
+			path := filepath.Join(t.TempDir(), "service.json")
+			wire, err := protocol.EncodeJSON(service)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFixture(t, path, wire, 0o600)
+			return profilePath, path, fixtureFileDigest(path)
+		}, want: "signed controller autoscale"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			args, manifest := renderInputs(t, now, keepEverySecret)
+			profilePath, servicePath, profile, service := checkedInTSAuthInputs(t, manifest.Environment)
+			profilePath, servicePath, _ = test.mutate(t, profilePath, servicePath, profile, service)
+			serviceDigest := fixtureFileDigest(servicePath)
+			output := filepath.Join(t.TempDir(), "controller.json")
+			profileDigest := fixtureFileDigest(profilePath)
+			if test.name == "wrong profile digest" {
+				profileDigest = strings.Repeat("0", 64)
+			}
+			extra := []string{"--ts-auth-profile", profilePath, "--ts-auth-profile-sha256", profileDigest,
+				"--ts-auth-service", servicePath, "--ts-auth-service-sha256", serviceDigest}
+			if test.name == "incomplete group" {
+				extra = []string{"--ts-auth-profile", profilePath}
+			}
+			err := renderControllerConfigAt(append(append(args, extra...), "--out", output), now)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("render error = %v, want %q", err, test.want)
+			}
+			if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
+				t.Fatal("rejected ts-auth render wrote output")
+			}
+		})
+	}
+}
+
 func TestRenderControllerConfigWritesTerraBaseCAAndProfile(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	args, _ := renderInputs(t, now, keepEverySecret)
@@ -131,6 +267,52 @@ func TestRenderControllerConfigWritesTerraBaseCAAndProfile(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cfg.Controller.Workloads, map[string]app.WorkloadProfile{"terrabase": profile}) {
 		t.Fatalf("rendered workloads = %+v", cfg.Controller.Workloads)
+	}
+}
+
+func TestRenderControllerConfigWritesCanonicalTSAuthProfileAndService(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	args, _ := renderInputs(t, now, keepEverySecret)
+	profile, err := filepath.Abs("../../../deploy/oci-region/ts-auth-gru-1-profile.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := filepath.Abs("../../../deploy/oci-region/ts-auth-gru-1-service.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceWire, err := os.ReadFile(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceCopy := filepath.Join(t.TempDir(), "ts-auth-service.json")
+	serviceWire = []byte(strings.Replace(string(serviceWire), `"canary"`, `"production"`, 1))
+	if err := os.WriteFile(serviceCopy, serviceWire, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service = serviceCopy
+	output := filepath.Join(t.TempDir(), "controller.json")
+	args = append(args,
+		"--ts-auth-profile", profile, "--ts-auth-profile-sha256", fixtureFileDigest(profile),
+		"--ts-auth-service", service, "--ts-auth-service-sha256", fixtureFileDigest(service), "--out", output)
+	if err := renderControllerConfigAt(args, now); err != nil {
+		t.Fatal(err)
+	}
+	wire, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg app.Config
+	if err := protocol.DecodeStrict(wire, &cfg, bootstrap.MaxControllerConfigBytes); err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := protocol.EncodeJSON(cfg)
+	if err != nil || !reflect.DeepEqual(canonical, wire) {
+		t.Fatal("renderer output is not canonical app.Config JSON")
+	}
+	if cfg.Controller.Autoscale == nil || !cfg.Controller.Autoscale.Enabled || len(cfg.Controller.Autoscale.Services) != 1 ||
+		cfg.Controller.Autoscale.Services[0].Role != "ts-auth" {
+		t.Fatalf("ts-auth autoscale config = %+v", cfg.Controller.Autoscale)
 	}
 }
 

@@ -58,7 +58,7 @@ func (forwards *operatorForwardFlags) Set(value string) error {
 
 func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: operator <terrabase-release|terrabase-deploy|terrabase-update|terrabase-sync|terrabase-status|terrabase-walkthrough|hosts|host-register|host-enrollment-revoke|material-credentials|material-credentials-status|placement-apply|managed-update-prepare|placement-list|terminal-plan|terminal-apply|terminal-status|backup-start|backup-abort|backup-status|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
+		return errors.New("usage: operator <terrabase-release|ts-auth-release|terrabase-deploy|terrabase-update|terrabase-sync|terrabase-status|terrabase-walkthrough|hosts|host-register|host-enrollment-revoke|material-credentials|material-credentials-status|placement-apply|managed-update-prepare|placement-list|terminal-plan|terminal-apply|terminal-status|backup-start|backup-abort|backup-status|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
 	}
 	operation := args[0]
 	if operation == "terrabase-walkthrough" {
@@ -84,9 +84,9 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	wait := flags.Duration("wait", 0, "status: wait until every member serves; update: bound each seat's outcome wait")
 	qualification := flags.String("qualification", "", "TerraBase release qualification.json")
 	releaseBinary := flags.String("binary", "", "TerraBase release executable")
-	releaseChecksum := flags.String("sha256", "", "terrabase-release: the executable's .sha256 release asset")
-	sourceCheckout := flags.String("source-checkout", "", "terrabase-release: TerraBase checkout containing --commit")
-	profilePath := flags.String("profile", "", "terrabase-release: the signed controller workloads.terrabase profile JSON")
+	releaseChecksum := flags.String("sha256", "", "terrabase-release, ts-auth-release: the executable's .sha256 release asset")
+	sourceCheckout := flags.String("source-checkout", "", "terrabase-release, ts-auth-release: source checkout containing --commit")
+	profilePath := flags.String("profile", "", "terrabase-release, ts-auth-release: the role's signed controller workloads profile JSON")
 	sourceDigest := flags.String("source-digest", "", "TerraBase release prepared-source digest record")
 	compatibilityActor := flags.String("compatibility-actor", "", "trusted compatibility signer actor")
 	compatibilityKey := flags.String("compatibility-key", "", "owner-only compatibility signer key file")
@@ -155,6 +155,14 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 			return errors.New("terrabase-release requires --binary, --sha256, --source-checkout, --commit, --environment, --profile and a nonnegative --wait")
 		}
 		return operatorTerraBaseRelease(ctx, cfg, runtime, terraBaseReleaseOptions{Binary: *releaseBinary,
+			Checksum: *releaseChecksum, SourceCheckout: *sourceCheckout, Commit: *commit, Environment: *environment,
+			Profile: *profilePath, Wait: *wait}, output)
+	case "ts-auth-release":
+		if *releaseBinary == "" || *releaseChecksum == "" || *sourceCheckout == "" || *commit == "" ||
+			*environment == "" || *profilePath == "" || *wait < 0 {
+			return errors.New("ts-auth-release requires --binary, --sha256, --source-checkout, --commit, --environment, --profile and a nonnegative --wait")
+		}
+		return operatorTSAuthRelease(ctx, cfg, runtime, terraBaseReleaseOptions{Binary: *releaseBinary,
 			Checksum: *releaseChecksum, SourceCheckout: *sourceCheckout, Commit: *commit, Environment: *environment,
 			Profile: *profilePath, Wait: *wait}, output)
 	case "terrabase-status":

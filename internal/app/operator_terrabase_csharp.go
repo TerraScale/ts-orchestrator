@@ -16,6 +16,8 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
 
 // terraBaseReleaseOptions select one C# TerraBase release and its rollout.
@@ -42,25 +44,71 @@ func operatorTerraBaseRelease(ctx context.Context, cfg Config, runtime *natscell
 }
 
 func releaseTerraBase(ctx context.Context, cfg Config, runtime *natscell.Runtime, options terraBaseReleaseOptions, output io.Writer) error {
-	if options.Wait == 0 {
-		options.Wait = 10 * time.Minute
-	}
 	digest, err := terrabase.VerifyRelease(options.Binary, options.Checksum)
 	if err != nil {
 		return err
 	}
-	data, err := readBoundedConfigFile(options.Profile)
+	profile, err := readReleaseProfile(options.Profile)
 	if err != nil {
 		return err
-	}
-	var profile WorkloadProfile
-	if err := json.Unmarshal(data, &profile, json.RejectUnknownMembers(true)); err != nil {
-		return fmt.Errorf("parse terrabase workload profile: %w", err)
 	}
 	members, err := terrabase.ParseProfile(profile.Env)
 	if err != nil {
 		return err
 	}
+	return releaseNative(ctx, cfg, runtime, nativeRelease{Role: terrabase.Role, Repository: terrabase.Repository,
+		Digest: digest, Replicas: len(members.Peers), Profile: profile}, options, output)
+}
+
+// operatorTSAuthRelease admits a ts-auth release and rolls its replicas to
+// it through the same readiness gate and rollback as a TerraBase release. A
+// replica reports running only while its /healthz and /readyz answer.
+func operatorTSAuthRelease(ctx context.Context, cfg Config, runtime *natscell.Runtime, options terraBaseReleaseOptions, output io.Writer) error {
+	progress := &stickyWriter{writer: output}
+	err := func() error {
+		digest, err := tsauth.VerifyRelease(options.Binary, options.Checksum)
+		if err != nil {
+			return err
+		}
+		profile, err := readReleaseProfile(options.Profile)
+		if err != nil {
+			return err
+		}
+		if err := tsauth.ValidateProfile(cfg.NATS.Cell, profile.Args, profile.Env); err != nil {
+			return err
+		}
+		return releaseNative(ctx, cfg, runtime, nativeRelease{Role: tsauth.Role, Repository: tsauth.Repository,
+			Digest: digest, Replicas: tsauth.Replicas, Profile: profile}, options, progress)
+	}()
+	return errors.Join(err, progress.err)
+}
+
+// readReleaseProfile reads the role's signed controller workload profile.
+func readReleaseProfile(path string) (WorkloadProfile, error) {
+	data, err := readBoundedConfigFile(path)
+	if err != nil {
+		return WorkloadProfile{}, err
+	}
+	var profile WorkloadProfile
+	if err := json.Unmarshal(data, &profile, json.RejectUnknownMembers(true)); err != nil {
+		return WorkloadProfile{}, fmt.Errorf("parse workload profile: %w", err)
+	}
+	return profile, nil
+}
+
+// nativeRelease is one verified single-file release of a role and the
+// replica count its readiness gate waits for.
+type nativeRelease struct {
+	Role, Repository, Digest string
+	Replicas                 int
+	Profile                  WorkloadProfile
+}
+
+func releaseNative(ctx context.Context, cfg Config, runtime *natscell.Runtime, release nativeRelease, options terraBaseReleaseOptions, output io.Writer) error {
+	if options.Wait == 0 {
+		options.Wait = 10 * time.Minute
+	}
+	role, digest, profile := release.Role, release.Digest, release.Profile
 	tree, err := sourceTreeDigest(ctx, options.SourceCheckout, options.Commit)
 	if err != nil {
 		return err
@@ -73,11 +121,11 @@ func releaseTerraBase(ctx context.Context, cfg Config, runtime *natscell.Runtime
 	if err != nil {
 		return err
 	}
-	desired, err := reader.ListDesired(ctx, terrabase.Role)
+	desired, err := reader.ListDesired(ctx, role)
 	if err != nil {
 		return err
 	}
-	previous, generation, err := terraBaseCurrent(statuses, desired, options.Environment)
+	previous, generation, err := releaseCurrent(statuses, desired, role, options.Environment)
 	if err != nil {
 		return err
 	}
@@ -88,13 +136,13 @@ func releaseTerraBase(ctx context.Context, cfg Config, runtime *natscell.Runtime
 	var rollback delivery.ArtifactRecord
 	if previous != "" && previous != digest {
 		// Resolve the rollback target before anything changes.
-		if rollback, err = service.ResolveAdmittedArtifact(ctx, previous, terrabase.Role, options.Environment); err != nil {
+		if rollback, err = service.ResolveAdmittedArtifact(ctx, previous, role, options.Environment); err != nil {
 			return fmt.Errorf("resolve rollback artifact %s: %w", previous, err)
 		}
 	}
 	record, err := pushArtifact(ctx, cfg, runtime, options.Binary, delivery.ArtifactClaimRequest{
-		Source: delivery.ArtifactSource{Repository: terrabase.Repository, Commit: options.Commit, TreeDigest: tree},
-		Cell:   cfg.NATS.Cell, Role: terrabase.Role, Environment: options.Environment,
+		Source: delivery.ArtifactSource{Repository: release.Repository, Commit: options.Commit, TreeDigest: tree},
+		Cell:   cfg.NATS.Cell, Role: role, Environment: options.Environment,
 	})
 	if err != nil {
 		return err
@@ -106,16 +154,16 @@ func releaseTerraBase(ctx context.Context, cfg Config, runtime *natscell.Runtime
 		return err
 	}
 	intent := delivery.Intent{Source: record.Source, ArtifactDigest: record.Digest, ManifestDigest: record.ManifestDigest,
-		Role: terrabase.Role, Environment: options.Environment, Generation: generation, DesiredReplicas: len(members.Peers),
+		Role: role, Environment: options.Environment, Generation: generation, DesiredReplicas: release.Replicas,
 		ConfigDigest: delivery.ConfigDigestOf(profile.Args, profile.Env)}
 	changed, gateErr := rollOutTerraBase(ctx, cfg, runtime, service, reader, intent, options.Wait, output)
 	switch {
 	case gateErr == nil:
 		return nil
 	case !changed:
-		return fmt.Errorf("terrabase release %s did not reach the members: %w", digest, gateErr)
+		return fmt.Errorf("%s release %s did not reach the members: %w", role, digest, gateErr)
 	case rollback.Digest == "":
-		return fmt.Errorf("terrabase release %s failed its readiness gate and there is no previous digest to roll back to: %w", digest, gateErr)
+		return fmt.Errorf("%s release %s failed its readiness gate and there is no previous digest to roll back to: %w", role, digest, gateErr)
 	}
 	intent.Source, intent.ArtifactDigest, intent.ManifestDigest = rollback.Source, rollback.Digest, rollback.ManifestDigest
 	intent.OperationID, intent.AuthorityEpoch, intent.Generation = "", 0, generation+1
@@ -124,9 +172,9 @@ func releaseTerraBase(ctx context.Context, cfg Config, runtime *natscell.Runtime
 	recovery, cancel := context.WithTimeout(context.Background(), options.Wait+time.Minute)
 	defer cancel()
 	if _, err := rollOutTerraBase(recovery, cfg, runtime, service, reader, intent, options.Wait, output); err != nil {
-		return fmt.Errorf("terrabase release %s failed its readiness gate (%w) and rollback to %s failed: %w", digest, gateErr, previous, err)
+		return fmt.Errorf("%s release %s failed its readiness gate (%w) and rollback to %s failed: %w", role, digest, gateErr, previous, err)
 	}
-	return fmt.Errorf("terrabase release %s failed its readiness gate and was rolled back to %s: %w", digest, previous, gateErr)
+	return fmt.Errorf("%s release %s failed its readiness gate and was rolled back to %s: %w", role, digest, previous, gateErr)
 }
 
 // submitTerraBaseIntent is submitIntent; tests replace it to lose a publish
@@ -186,7 +234,7 @@ func rollOutTerraBase(ctx context.Context, cfg Config, runtime *natscell.Runtime
 		case <-gateCtx.Done():
 			if accepted {
 				return true, errors.Join(gateCtx.Err(), fmt.Errorf(
-					"terrabase members did not report %s running within %s (last error: %v)", intent.ArtifactDigest, wait, last))
+					"%s replicas did not report %s running within %s (last error: %v)", intent.Role, intent.ArtifactDigest, wait, last))
 			}
 			// Interrupted or undecided: read the stored outcome once more on a
 			// fresh context. Without a receipt that proves no change, the
@@ -227,22 +275,27 @@ type terraBaseReleaseStep struct {
 	Members    int    `json:"members,omitzero"`
 }
 
-// terraBaseCurrent returns the digest the role's running members serve, the
+// releaseCurrent returns the digest the role's running replicas serve, the
 // only safe rollback target, and the next intent generation, above every
-// committed desired of the role, withdrawals included. Running members that
-// disagree must be reconciled first.
-func terraBaseCurrent(statuses []host.HostStatus, desired []host.Desired, environment string) (string, uint64, error) {
+// committed desired of the role, withdrawals included. A role the workload
+// reconciler owns commits release-scoped generations (release <<
+// workload.ReleaseShift), so its next intent is the next release. Running
+// replicas that disagree must be reconciled first.
+func releaseCurrent(statuses []host.HostStatus, desired []host.Desired, role, environment string) (string, uint64, error) {
 	current, highest := "", uint64(0)
 	for _, d := range desired {
 		highest = max(highest, d.Generation)
 	}
+	if release := workload.ReleaseOf(highest); release > 0 {
+		highest = release
+	}
 	for _, status := range statuses {
 		for _, report := range status.Reports {
-			if report.Role != terrabase.Role || report.Environment != environment || report.State != "running" {
+			if report.Role != role || report.Environment != environment || report.State != "running" {
 				continue
 			}
 			if current != "" && report.Digest != current {
-				return "", 0, fmt.Errorf("terrabase members run %s and %s; finish the previous release first", current, report.Digest)
+				return "", 0, fmt.Errorf("%s replicas run %s and %s; finish the previous release first", role, current, report.Digest)
 			}
 			current = report.Digest
 		}
@@ -251,17 +304,18 @@ func terraBaseCurrent(statuses []host.HostStatus, desired []host.Desired, enviro
 }
 
 // terraBaseReady reports whether the intent's replicas all run its digest.
-// A failed member fails the gate at once.
+// A reconciled role reports the release-scoped generation of the intent. A
+// failed replica fails the gate at once.
 func terraBaseReady(statuses []host.HostStatus, intent delivery.Intent, now time.Time) (bool, error) {
 	running := 0
 	for _, status := range statuses {
 		for _, report := range status.Reports {
-			if report.Role != terrabase.Role || report.Environment != intent.Environment ||
-				report.Digest != intent.ArtifactDigest || report.Generation != intent.Generation {
+			if report.Role != intent.Role || report.Environment != intent.Environment || report.Digest != intent.ArtifactDigest ||
+				report.Generation != intent.Generation && workload.ReleaseOf(report.Generation) != intent.Generation {
 				continue
 			}
 			if report.State == "failed" {
-				return false, fmt.Errorf("terrabase member %s failed: %s", report.Node, report.Error)
+				return false, fmt.Errorf("%s replica %s failed: %s", intent.Role, report.Node, report.Error)
 			}
 			if report.State == "running" && now.Sub(report.ObservedAt) < host.ReportMaxAge {
 				running++

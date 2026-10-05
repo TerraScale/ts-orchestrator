@@ -143,6 +143,7 @@ type HostConfig struct {
 	StateRoot           string   `json:"state_root"`
 	ManagedRuntimeRoot  string   `json:"managed_runtime_root,omitempty"`
 	TerraBaseRoot       string   `json:"terrabase_root,omitempty"` // C# TerraBase member data and TLS files.
+	TSAuthRoot          string   `json:"ts_auth_root,omitempty"`   // ts-auth's env file and extracted libraries.
 	WorkloadUID         uint32   `json:"workload_uid"`
 	WorkloadGID         uint32   `json:"workload_gid"`
 	PollMillis          int      `json:"poll_millis,omitzero"`
