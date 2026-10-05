@@ -65,16 +65,24 @@ type Descriptor struct {
 // StaticSchemaVersion is the schema of a static C# TerraBase host descriptor.
 const StaticSchemaVersion = 2
 
-// Static is the descriptor of the operator-launched C# TerraBase host node
-// (a <cell>-db-<n> server name) in a cell. It grants nothing by itself: the
-// controller enrolls the host only when its signed TerraBase profile lists
-// node at the host's private address and OCI shows that instance.
+// Static is the descriptor of an operator-launched C# TerraBase host node
+// (a <cell>-db-<n> server name), or of the host agent on a controller VM
+// (<cell>-ctl-<n>), in a cell. It grants nothing by itself: the controller
+// enrolls a TerraBase host only when its signed profile lists node at the
+// host's private address, and a controller host only from a controller's
+// private address; OCI must show that instance either way.
 func Static(cell, region, node string) Descriptor {
 	return Descriptor{SchemaVersion: StaticSchemaVersion, Cell: cell, Region: region, Node: node}
 }
 
-// IsStatic reports whether the descriptor names a static C# TerraBase host.
+// IsStatic reports whether the descriptor names a static host.
 func (descriptor Descriptor) IsStatic() bool { return descriptor.SchemaVersion == StaticSchemaVersion }
+
+// IsController reports whether a static descriptor names a controller VM.
+func (descriptor Descriptor) IsController() bool {
+	cell, err := naming.RegionCell(descriptor.Region).Name()
+	return descriptor.IsStatic() && err == nil && strings.HasPrefix(descriptor.Node, cell+"-"+naming.Controller+"-")
+}
 
 // Validate checks the closed v1 identity and digest bindings and the bounded
 // canonical wire size. It performs no signature or live-resource checks.
@@ -143,10 +151,13 @@ func (descriptor Descriptor) validateFields() error {
 	if descriptor.IsStatic() {
 		cell, err := naming.RegionCell(descriptor.Region).Name()
 		number, ok := strings.CutPrefix(descriptor.Node, cell+"-"+naming.Member+"-")
+		if !ok {
+			number, ok = strings.CutPrefix(descriptor.Node, cell+"-"+naming.Controller+"-")
+		}
 		if err != nil || !validCellRegion(descriptor.Cell, descriptor.Region) || !ok ||
 			naming.Validate(descriptor.Node) != nil || strings.Contains(number, "-") ||
 			descriptor != Static(descriptor.Cell, descriptor.Region, descriptor.Node) {
-			return fmt.Errorf("%w: static host must name one database server of its cell and nothing else", ErrInvalidDescriptor)
+			return fmt.Errorf("%w: static host must name one database or controller server of its cell and nothing else", ErrInvalidDescriptor)
 		}
 		return nil
 	}

@@ -3,6 +3,7 @@ package hostenroll
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"slices"
@@ -144,5 +145,43 @@ func TestNewIMDSClientRetainsBoundedTransport(t *testing.T) {
 	}
 	if _, err := ReadInstanceMetadata(context.Background(), nil); err == nil {
 		t.Fatal("nil IMDS client was accepted")
+	}
+}
+
+// A controller VM's host descriptor names the server of its launch slot; an
+// instance without a slot is not a host, and a malformed slot is refused.
+func TestReadControllerHostMetadataNamesTheControllerSlot(t *testing.T) {
+	instanceID := "ocid1.instance.oc1.sa-saopaulo-1.ctl2"
+	slot := []byte(`{"schemaVersion":1,"slot":"controller-b"}`)
+	client := imdsDoFunc(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.String() {
+		case imdsInstanceURL:
+			return imdsResponse(http.StatusOK, []byte(instanceID), -1), nil
+		case imdsBootstrapURL:
+			if slot == nil {
+				return imdsResponse(http.StatusNotFound, nil, 0), nil
+			}
+			return imdsResponse(http.StatusOK, slot, int64(len(slot))), nil
+		default:
+			t.Fatalf("unexpected IMDS endpoint %s", request.URL)
+			return nil, nil
+		}
+	})
+	metadata, err := ReadControllerHostMetadata(t.Context(), client, "gru", "GRU")
+	if err != nil || metadata.InstanceID != instanceID || metadata.Descriptor != hostboot.Static("gru", "GRU", "gru-1-ctl-2") ||
+		!metadata.Descriptor.IsController() ||
+		string(metadata.Wire) != `{"schema_version":2,"cell":"gru","region":"GRU","node":"gru-1-ctl-2"}` {
+		t.Fatalf("controller host metadata = %+v, %v", metadata, err)
+	}
+	for _, invalid := range [][]byte{[]byte(`{"schemaVersion":1,"slot":"member-a"}`),
+		[]byte(`{"schemaVersion":2,"slot":"controller-a"}`), []byte(`{"slot":"controller-a","extra":1}`)} {
+		slot = invalid
+		if _, err := ReadControllerHostMetadata(t.Context(), client, "gru", "GRU"); err == nil {
+			t.Errorf("accepted controller slot %s", invalid)
+		}
+	}
+	slot = nil
+	if _, err := ReadControllerHostMetadata(t.Context(), client, "gru", "GRU"); !errors.Is(err, ErrNotManagedHost) {
+		t.Fatalf("an instance without a controller slot: %v", err)
 	}
 }

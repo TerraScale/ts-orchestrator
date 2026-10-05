@@ -29,6 +29,8 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )
@@ -56,20 +58,33 @@ func runHostSetup(ctx context.Context, args []string, output io.Writer) error {
 	}
 	imds := hostenroll.NewIMDSClient()
 	metadata, err := hostenroll.ReadInstanceMetadata(ctx, imds)
-	if errors.Is(err, hostenroll.ErrNotManagedHost) {
+	controller := errors.Is(err, hostenroll.ErrNotManagedHost)
+	if err != nil && !controller {
+		return err
+	}
+	bundleWire, err := hostenroll.ReadEnrollmentMetadata(ctx, imds)
+	if err != nil && controller {
 		_, _ = fmt.Fprintln(output, "instance is not a managed host; nothing to enroll")
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	bundleWire, err := hostenroll.ReadEnrollmentMetadata(ctx, imds)
-	if err != nil {
-		return err
-	}
 	bundle, err := hostenroll.InstallPublicBundle(*publicPath, bundleWire)
 	if err != nil {
 		return err
+	}
+	// A controller VM carries the bundle but no host descriptor: its own
+	// host agent enrolls under the controller's server name.
+	if controller {
+		metadata, err = hostenroll.ReadControllerHostMetadata(ctx, imds, bundle.Cell, bundle.Region)
+		if errors.Is(err, hostenroll.ErrNotManagedHost) {
+			_, _ = fmt.Fprintln(output, "instance is not a managed host; nothing to enroll")
+			return nil
+		}
+		if err != nil {
+			return err
+		}
 	}
 	return runHostSetupWithMetadata(ctx, bundle, metadata, *outputRoot, output,
 		hostSetupRuntime{post: postHostEnrollment, ownerUID: 0})
@@ -655,7 +670,7 @@ func installHostEnrollment(root string, bundle hostenroll.PublicBundle, descript
 		URL: strings.Join(bundle.NATSURLs, ","), CredentialsFile: filepath.Join(credentialRoot, "host-nats.creds"),
 		TLS: natscell.TLSFiles{CAFile: filepath.Join(credentialRoot, "ca.pem"),
 			CertFile: filepath.Join(credentialRoot, "host-tls-cert.pem"), KeyFile: filepath.Join(credentialRoot, "host-tls-key.pem")}},
-		Host: HostConfig{Node: node, Environment: bundle.Environment, Roles: []string{"terrabase"},
+		Host: HostConfig{Node: node, Environment: bundle.Environment, Roles: []string{terrabase.Role},
 			IdentityKeyFile:     filepath.Join(credentialRoot, "host-identity.key"),
 			ControllerPublicKey: bundle.ControllerResponsePublicKey,
 			InstallRoot:         bundle.InstallRoot, StateRoot: bundle.StateRoot,
@@ -668,9 +683,18 @@ func installHostEnrollment(root string, bundle hostenroll.PublicBundle, descript
 		return err
 	}
 	local.applyTo(&config.Host)
-	// A static host exists to run C# TerraBase members; it gets the image's
-	// member root unless the operator chose another one.
-	if descriptor.IsStatic() && config.Host.TerraBaseRoot == "" {
+	// A static host exists to run C# TerraBase members, and a controller host
+	// ts-auth replicas; each gets the image's root for its role unless the
+	// operator chose another one.
+	switch {
+	case descriptor.IsController():
+		config.Host.Roles = []string{tsauth.Role}
+		if config.Host.TSAuthRoot == "" {
+			config.Host.TSAuthRoot = filepath.Join(bundle.ManagedRuntimeRoot, "ts-auth")
+		}
+		// The controller holds the default observability port.
+		config.Observability.ListenAddress = controllerHostObservability
+	case descriptor.IsStatic() && config.Host.TerraBaseRoot == "":
 		config.Host.TerraBaseRoot = filepath.Join(bundle.ManagedRuntimeRoot, "terrabase")
 	}
 	wire, err := protocol.EncodeJSON(config)
@@ -679,6 +703,10 @@ func installHostEnrollment(root string, bundle hostenroll.PublicBundle, descript
 	}
 	return writeAtomicHostFile(filepath.Join(root, "host.json"), wire, 0o600)
 }
+
+// controllerHostObservability is the host agent's listener on a controller
+// VM, next to the controller's default one.
+const controllerHostObservability = "127.0.0.1:9466"
 
 // hostLocalOptions are the host.json settings an operator sets on the host
 // itself. Enrollment and credential renewal do not know them, so they are

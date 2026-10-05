@@ -301,3 +301,54 @@ func (client *fakeLaunchSDKClient) LaunchInstance(_ context.Context, request cor
 	client.request = new(request)
 	return client.response, client.err
 }
+
+// A controller host is the running instance of its name whose single
+// primary VNIC is available and private; its address comes from that VNIC.
+func TestControllerHostObservationRequiresTheNamedRunningPrivateInstance(t *testing.T) {
+	instanceID, vnicID := "ocid1.instance.controller", "ocid1.vnic.controller"
+	instance := CloudInstance{ID: instanceID, DisplayName: "gru-1-ctl-1", CompartmentID: "ocid1.compartment.control",
+		LifecycleState: "RUNNING"}
+	reader := &fakeInstanceReadback{
+		attachments: core.ListVnicAttachmentsResponse{Items: []core.VnicAttachment{{
+			VnicId: new(vnicID), InstanceId: new(instanceID), LifecycleState: core.VnicAttachmentLifecycleStateAttached,
+		}}},
+		vnic: core.GetVnicResponse{Vnic: core.Vnic{Id: new(vnicID), PrivateIp: new("10.251.0.11"),
+			LifecycleState: core.VnicLifecycleStateAvailable}},
+	}
+	observed, err := observeControllerHost(t.Context(), instance, instanceID, "gru-1-ctl-1", reader, reader)
+	if err != nil || observed.PrivateIP != "10.251.0.11" {
+		t.Fatalf("controller refused: %+v %v", observed, err)
+	}
+	stopped := instance
+	stopped.LifecycleState = "STOPPED"
+	for name, check := range map[string]func() error{
+		"another name": func() error {
+			_, err := observeControllerHost(t.Context(), instance, instanceID, "gru-1-ctl-2", reader, reader)
+			return err
+		},
+		"another instance": func() error {
+			_, err := observeControllerHost(t.Context(), instance, "ocid1.instance.other", "gru-1-ctl-1", reader, reader)
+			return err
+		},
+		"stopped": func() error {
+			_, err := observeControllerHost(t.Context(), stopped, instanceID, "gru-1-ctl-1", reader, reader)
+			return err
+		},
+		"public VNIC": func() error {
+			reader.vnic.PublicIp = new("203.0.113.5")
+			defer func() { reader.vnic.PublicIp = nil }()
+			_, err := observeControllerHost(t.Context(), instance, instanceID, "gru-1-ctl-1", reader, reader)
+			return err
+		},
+		"second VNIC": func() error {
+			reader.attachments.Items = append(reader.attachments.Items, reader.attachments.Items[0])
+			defer func() { reader.attachments.Items = reader.attachments.Items[:1] }()
+			_, err := observeControllerHost(t.Context(), instance, instanceID, "gru-1-ctl-1", reader, reader)
+			return err
+		},
+	} {
+		if err := check(); !errors.Is(err, ErrForeignResource) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}

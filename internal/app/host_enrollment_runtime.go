@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"reflect"
 	"time"
@@ -74,15 +75,34 @@ type managedHostEnrollment struct {
 	// terraBase is the signed C# TerraBase workload profile; a static host
 	// (hostboot.Static) enrolls only as one of its listed members.
 	terraBase *staticTerraBaseMembers
+	// controllerIPs are the signed private addresses of the cell's
+	// controllers, whose own host agents enroll for ts-auth.
+	controllerIPs []string
+	// profiles returns the cell's current delivery profiles.
+	profiles func() map[string]WorkloadProfile
 }
 
 var errStaleUnclaimedRenewal = errors.New("stale unclaimed host renewal")
+
+// signedControllerIPs is this controller's broker address and the addresses
+// of its signed cluster routes: every controller of the cell.
+func signedControllerIPs(embedded *natscell.Embedded) ([]string, error) {
+	ips := []string{embedded.Host}
+	for _, route := range embedded.Routes {
+		parsed, err := url.Parse(route)
+		if err != nil || net.ParseIP(parsed.Hostname()) == nil {
+			return nil, fmt.Errorf("controller route %q has no private address", route)
+		}
+		ips = append(ips, parsed.Hostname())
+	}
+	return ips, nil
+}
 
 func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 	managed *managedControllerConfig, fleet oci.Fleet, intents placementIntentLookup,
 	members placement.MemberPinReader, controller *host.Controller, verifier host.ManagedRegistrationVerifier,
 	responseKey ed25519.PrivateKey,
-	fencer authority.Fencer,
+	fencer authority.Fencer, profiles func() map[string]WorkloadProfile,
 ) (*http.Server, net.Listener, <-chan error, error) {
 	if managed == nil || fleet == nil || intents == nil || members == nil || controller == nil || verifier == nil ||
 		cfg.NATS.Embedded == nil || cfg.Controller.HostEnrollmentListenAddress == "" {
@@ -117,6 +137,10 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 	if err != nil || listenPort != "8443" || net.ParseIP(listenIP) == nil || listenIP != cfg.NATS.Embedded.Host {
 		return nil, nil, nil, errors.New("host enrollment listener must bind the exact private broker IP on port 8443")
 	}
+	controllerIPs, err := signedControllerIPs(cfg.NATS.Embedded)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	listener, err := net.Listen("tcp", cfg.Controller.HostEnrollmentListenAddress)
 	if err != nil {
 		return nil, nil, nil, err
@@ -128,6 +152,7 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 		diskBytes: placementConfig.Resources.DiskBytes,
 		fleet:     fleet, intents: intents, members: members, controller: controller, verifier: verifier,
 		grants: grantStore, issuer: issuer, responseKey: responseKey, fencer: fencer, terraBase: terraBase,
+		controllerIPs: controllerIPs, profiles: profiles,
 	}
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second,
 		MaxHeaderBytes: 4096, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13,

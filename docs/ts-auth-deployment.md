@@ -344,18 +344,21 @@ one env file each, one ts-auth replica on two of them).
    member with only that variable answers every bootstrap call with 401. **Open:** the committed
    [`terrabase-gru-1-profile.json`](../deploy/oci-region/terrabase-gru-1-profile.json)
    does not set it yet; TS-470 adds it with the TerraBase deployment.
-3. **Controller hosts (manual TS-470 prerequisite).** Prepare host-agent
-   registration, NATS/TLS credentials and `/etc/terrascale-orchestrator/host.json`
-   on `gru-1-ctl-1`, `-2` and `-3`, with role `ts-auth`, environment `canary`,
-   `failure_domain` `fault-domain-1`, `-2`, `-3` (lowercase tokens),
-   no managed bindings and capacity for the profile's `resources` (1 CPU,
-   1 GiB memory, 2 GiB disk). Use the qualified image's distinct workload
-   UID/GID `2000:2000`; keep the host agent stopped until step 3 prepares its
-   env file and firewall dependency. TS-484 enrolls database hosts; controllers
-   lack the host descriptor, so their automatic `host-setup` does not create
-   these files or registrations. An authorized operator registers each reviewed
-   host record with `ts-orch operator host-register --config /var/lib/terrascale-operator/operator.json --registration FILE`.
-   Stop before step 3 if this manual preparation is incomplete.
+3. **Controller hosts.** Each controller VM's own host agent enrolls itself
+   once the cell has a `ts-auth` profile (signed config or service set). At
+   boot, and on its 12-hour timer, `host-setup` finds no host descriptor but
+   finds the controller's launch slot (`terrascale-bootstrap`). It enrolls as
+   that controller's server name (`gru-1-ctl-N`, static descriptor) with the
+   public bundle every controller already carries. The controller accepts it
+   only from one of the signed controller addresses (its broker host and NATS
+   routes) when OCI shows the running instance of that name holding the
+   address. The registration has role `ts-auth`, environment from the placement
+   config, the instance's fault domain, and the `ts-auth` profile's `resources`
+   as capacity (one replica). `host.json` gets `ts_auth_root`
+   `/srv/ts-managed/ts-auth` and the agent's observability listener on
+   `127.0.0.1:9466`, next to the controller's. The host agent starts right
+   after enrollment, so install the metadata firewall in step 3 before the
+   first ts-auth release.
 4. **Load balancer.** TS-486 is merged and applied: `gru-1-api` with the
    ts-auth backend set and hostname rule, its Origin CA certificate and the
    proxied DNS record for `gru.auth.terrascale.tech`. Step 0 opens the controller

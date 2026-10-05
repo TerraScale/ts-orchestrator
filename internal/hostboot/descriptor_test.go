@@ -161,7 +161,7 @@ func testDescriptor() Descriptor {
 	}
 }
 
-func TestStaticDescriptorNamesOnlyACellDatabaseServer(t *testing.T) {
+func TestStaticDescriptorNamesOnlyACellDatabaseOrControllerServer(t *testing.T) {
 	static := Static("gru", "GRU", "gru-1-db-2")
 	wire, err := static.CanonicalBytes()
 	if err != nil || string(wire) != `{"schema_version":2,"cell":"gru","region":"GRU","node":"gru-1-db-2"}` {
@@ -180,10 +180,16 @@ func TestStaticDescriptorNamesOnlyACellDatabaseServer(t *testing.T) {
 	if parsed, err := ParseHost(managed); err != nil || parsed.IsStatic() {
 		t.Fatalf("ParseHost(managed) = %+v, %v", parsed, err)
 	}
+	if static.IsController() {
+		t.Fatal("a database server descriptor names a controller")
+	}
+	if controller := Static("gru", "GRU", "gru-1-ctl-1"); controller.Validate() != nil || !controller.IsController() {
+		t.Fatalf("controller descriptor %+v is refused or not a controller", controller)
+	}
 	withOwner := static
 	withOwner.Owner = "terrascale"
 	for _, candidate := range []Descriptor{
-		Static("gru", "GRU", "gru-1-ctl-1"), Static("gru", "GRU", "gru-1-db-1-data"),
+		Static("gru", "GRU", "gru-1-ctl-1-data"), Static("gru", "GRU", "gru-1-gw-1"), Static("gru", "GRU", "gru-1-db-1-data"),
 		Static("gru", "GRU", "sfo-1-db-1"), Static("gru", "GRU", "gru-2-db-1"),
 		Static("sfo", "GRU", "gru-1-db-1"), Static("gru", "GRU", "host-0123456789abcdef01234567"), withOwner,
 	} {

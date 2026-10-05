@@ -10,13 +10,17 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 const (
 	imdsInstanceURL   = "http://169.254.169.254/opc/v2/instance/id"
 	imdsDescriptorURL = "http://169.254.169.254/opc/v2/instance/metadata/" + hostboot.MetadataKey
 	imdsEnrollmentURL = "http://169.254.169.254/opc/v2/instance/metadata/" + hostboot.EnrollmentMetadataKey
-	maxIMDSIDBytes    = 255
+	// imdsBootstrapURL is the controller launch hint naming its signed slot.
+	imdsBootstrapURL = "http://169.254.169.254/opc/v2/instance/metadata/terrascale-bootstrap"
+	maxIMDSIDBytes   = 255
 )
 
 // ErrNotManagedHost reports an instance launched without a host descriptor,
@@ -49,17 +53,9 @@ type InstanceMetadata struct {
 }
 
 func ReadInstanceMetadata(ctx context.Context, client HTTPDoer) (InstanceMetadata, error) {
-	if client == nil {
-		return InstanceMetadata{}, errors.New("IMDS client is required")
-	}
-	idWire, err := readIMDS(ctx, client, imdsInstanceURL, maxIMDSIDBytes)
+	instanceID, err := readInstanceID(ctx, client)
 	if err != nil {
-		return InstanceMetadata{}, fmt.Errorf("read OCI IMDSv2 instance ID: %w", err)
-	}
-	instanceID := strings.TrimSpace(string(idWire))
-	if !strings.HasPrefix(instanceID, "ocid1.instance.") || len(instanceID) > maxIMDSIDBytes ||
-		strings.ContainsAny(instanceID, " \t\r\n\f\v") {
-		return InstanceMetadata{}, errors.New("OCI IMDSv2 instance ID is invalid")
+		return InstanceMetadata{}, err
 	}
 	encoded, err := readIMDS(ctx, client, imdsDescriptorURL, hostboot.MaxDescriptorBytes)
 	if errors.Is(err, errIMDSKeyAbsent) {
@@ -71,6 +67,56 @@ func ReadInstanceMetadata(ctx context.Context, client HTTPDoer) (InstanceMetadat
 	descriptor, err := hostboot.ParseHost(encoded)
 	if err != nil {
 		return InstanceMetadata{}, fmt.Errorf("parse OCI IMDSv2 host descriptor: %w", err)
+	}
+	return InstanceMetadata{InstanceID: instanceID, Descriptor: descriptor, Wire: encoded}, nil
+}
+
+func readInstanceID(ctx context.Context, client HTTPDoer) (string, error) {
+	if client == nil {
+		return "", errors.New("IMDS client is required")
+	}
+	idWire, err := readIMDS(ctx, client, imdsInstanceURL, maxIMDSIDBytes)
+	if err != nil {
+		return "", fmt.Errorf("read OCI IMDSv2 instance ID: %w", err)
+	}
+	instanceID := strings.TrimSpace(string(idWire))
+	if !strings.HasPrefix(instanceID, "ocid1.instance.") || len(instanceID) > maxIMDSIDBytes ||
+		strings.ContainsAny(instanceID, " \t\r\n\f\v") {
+		return "", errors.New("OCI IMDSv2 instance ID is invalid")
+	}
+	return instanceID, nil
+}
+
+// ReadControllerHostMetadata returns the static descriptor of the host agent
+// on a controller VM: the server name of the controller's launch slot in
+// cell and region. An instance without a controller slot is not a host.
+func ReadControllerHostMetadata(ctx context.Context, client HTTPDoer, cell, region string) (InstanceMetadata, error) {
+	instanceID, err := readInstanceID(ctx, client)
+	if err != nil {
+		return InstanceMetadata{}, err
+	}
+	wire, err := readIMDS(ctx, client, imdsBootstrapURL, 256)
+	if errors.Is(err, errIMDSKeyAbsent) {
+		return InstanceMetadata{}, ErrNotManagedHost
+	}
+	if err != nil {
+		return InstanceMetadata{}, fmt.Errorf("read OCI IMDSv2 controller slot: %w", err)
+	}
+	var bootstrap struct {
+		SchemaVersion int    `json:"schemaVersion"`
+		Slot          string `json:"slot"`
+	}
+	if err := protocol.DecodeStrict(wire, &bootstrap, 256); err != nil || bootstrap.SchemaVersion != 1 {
+		return InstanceMetadata{}, errors.New("OCI IMDSv2 controller slot is invalid")
+	}
+	node, err := naming.RegionCell(region).ControllerSlot(bootstrap.Slot)
+	if err != nil {
+		return InstanceMetadata{}, err
+	}
+	descriptor := hostboot.Static(cell, region, node)
+	encoded, err := descriptor.CanonicalBytes()
+	if err != nil {
+		return InstanceMetadata{}, err
 	}
 	return InstanceMetadata{InstanceID: instanceID, Descriptor: descriptor, Wire: encoded}, nil
 }
