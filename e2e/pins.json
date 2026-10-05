@@ -1,0 +1,17 @@
+{
+  "terrabase": {
+    "commit": "62801f5b3832b9fbef8895259bc62ca9a2f6f1fe",
+    "release": "ci-62801f5b3832b9fbef8895259bc62ca9a2f6f1fe-run-13363",
+    "sha256": "eb696e9c9a9a1c305c89239a325ca78a85a3997b0de304e743118ac000b985b7"
+  },
+  "sources": {
+    "ts-auth": "7187b27cfcad2a0fb48ef75dca3021e3ff4853e0",
+    "ts-dotnet": "20862d391a8c0e746af010b289a1a6dc7ae7867b",
+    "ts-libs": "55b260872f8d4fb1cfa0975576632b4e022e4c91",
+    "ts-dashboard": "736b196fcca3d1f28356efdda860dd8a8af7c869"
+  },
+  "pending": {
+    "auth": "TS-428,TS-489: pinned auth registers UnavailableStorageHealth; native-v1 storage has not shipped",
+    "dashboard": "TS-472,TS-492: pinned dashboard rejects live persistence; demo storage is forbidden in this suite"
+  }
+}
