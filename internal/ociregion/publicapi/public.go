@@ -43,8 +43,7 @@ func ParsePlan(wire []byte) (Desired, error) {
 
 const (
 	tcp = "6"
-	// AuthHost serves ts-auth, on every controller's AuthPort (TS-487).
-	AuthHost = "auth.terrascale.tech"
+	// AuthPort is ts-auth's port on every controller (TS-487).
 	AuthPort = 8080
 	// HealthPath answers 200 on a ready TerraBase member (TS-483) and ts-auth.
 	HealthPath = "/readyz"
@@ -90,7 +89,7 @@ type Desired struct {
 	Cell, Region                                      string
 	Network, Control, VCN, ControllerNSG, WorkloadNSG string
 	Vault, Key                                        string
-	PrivateCIDR, PublicCIDR, APIHost                  string
+	PrivateCIDR, PublicCIDR, APIHost, AuthHost        string
 	ClientPort, MinMbps, MaxMbps                      int
 	Names                                             Names
 	TerraBase, Auth                                   []Backend
@@ -175,7 +174,8 @@ func (p planFile) desired() (Desired, error) {
 	d := Desired{Cell: cellName, Region: p.Region, Network: id("network_compartment"),
 		Control: id("control_compartment"), VCN: id("vcn"), ControllerNSG: id("network_security_group"), WorkloadNSG: id("workload_network_security_group"),
 		Vault: id("vault"), Key: id("key"), PrivateCIDR: private.String(), PublicCIDR: subnet.String(),
-		APIHost: strings.ToLower(p.Cell) + ".api.terrascale.tech", ClientPort: public.ClientPort,
+		// <region>.<service>.terrascale.tech; Atlas fronts the global names.
+		APIHost: strings.ToLower(p.Cell) + ".api.terrascale.tech", AuthHost: strings.ToLower(p.Cell) + ".auth.terrascale.tech", ClientPort: public.ClientPort,
 		MinMbps: public.MinMbps, MaxMbps: public.MaxMbps, Names: names}
 	// Unbound templates remain previewable; operational paths require this
 	// reviewed customer CA and uploaded Cloudflare client certificate.
@@ -300,16 +300,19 @@ func (d Desired) backendSets() map[string]map[string]any {
 	}
 }
 
+// httpsListener is the HTTPS listener for a backend set's hostname, serving
+// certificate and requiring Cloudflare's origin-pull client certificate.
+func (d Desired) httpsListener(set, certificate string) map[string]any {
+	return map[string]any{"defaultBackendSetName": set, "port": 443, "protocol": "HTTP", "hostnameNames": []string{set},
+		"sslConfiguration":        map[string]any{"certificateName": certificate, "verifyPeerCertificate": true, "verifyDepth": 1},
+		"connectionConfiguration": map[string]any{"idleTimeout": IdleTimeout}, "ruleSetNames": []string{"security-headers"}}
+}
+
 // loadBalancer is the load balancer's configuration: HTTPS on 443 routed by
 // hostname, each listener requiring Cloudflare's client certificate, and 80
 // redirecting to HTTPS. TerraBase backends speak TLS verified against the
 // member CA.
 func (d Desired) loadBalancer(origin, key, members string) map[string]string {
-	https := func(set string) map[string]any {
-		return map[string]any{"defaultBackendSetName": set, "port": 443, "protocol": "HTTP", "hostnameNames": []string{set},
-			"sslConfiguration":        map[string]any{"certificateName": originCertificate, "verifyPeerCertificate": true, "verifyDepth": 1},
-			"connectionConfiguration": map[string]any{"idleTimeout": IdleTimeout}, "ruleSetNames": []string{"security-headers"}}
-	}
 	header := func(name, value string) map[string]any {
 		return map[string]any{"action": "ADD_HTTP_RESPONSE_HEADER", "header": name, "value": value}
 	}
@@ -320,11 +323,11 @@ func (d Desired) loadBalancer(origin, key, members string) map[string]string {
 			memberCA:          map[string]any{"certificateName": memberCA, "caCertificate": members}}),
 		"hostnames": command.JSON(map[string]any{
 			"terrabase": map[string]any{"name": "terrabase", "hostname": d.APIHost},
-			"ts-auth":   map[string]any{"name": "ts-auth", "hostname": AuthHost}}),
+			"ts-auth":   map[string]any{"name": "ts-auth", "hostname": d.AuthHost}}),
 		"backend-sets": command.JSON(d.backendSets()),
 		"listeners": command.JSON(map[string]any{
 			"http":      map[string]any{"defaultBackendSetName": "terrabase", "port": 80, "protocol": "HTTP", "ruleSetNames": []string{"https-redirect"}},
-			"terrabase": https("terrabase"), "ts-auth": https("ts-auth")}),
+			"terrabase": d.httpsListener("terrabase", originCertificate), "ts-auth": d.httpsListener("ts-auth", originCertificate)}),
 		"rule-sets": command.JSON(map[string]any{
 			"https-redirect": map[string]any{"items": []any{map[string]any{"action": "REDIRECT", "responseCode": 301,
 				"conditions":  []any{map[string]any{"attributeName": "PATH", "attributeValue": "/", "operator": "PREFIX_MATCH"}},
@@ -352,16 +355,16 @@ func (d Desired) Preview() []string {
 		fmt.Sprintf("network-security-group %s: tcp/80 and tcp/443 from each Cloudflare IPv4 range only (public-api origin-ips)", d.Names.NSG),
 		fmt.Sprintf("nsg-rule %s: tcp/%d from %s (load balancer to TerraBase)", or(d.WorkloadNSG, "workload NSG"), d.ClientPort, d.PublicCIDR),
 		fmt.Sprintf("nsg-rule %s: tcp/%d from %s (load balancer to ts-auth)", or(d.ControllerNSG, "controller NSG"), AuthPort, d.PublicCIDR),
-		fmt.Sprintf("vault-secret %s: Cloudflare Origin CA certificate and RSA key for %s and %s, %d days (public-api cert)", d.Names.Secret, d.APIHost, AuthHost, originValidityDays),
+		fmt.Sprintf("vault-secret %s: Cloudflare Origin CA certificate and RSA key for %s and %s, %d days (public-api cert)", d.Names.Secret, d.APIHost, d.AuthHost, originValidityDays),
 		fmt.Sprintf("load-balancer %s: public, flexible %d-%d Mbps, NSG %s, idle timeout %ds", d.Names.LB, d.MinMbps, d.MaxMbps, d.Names.NSG, IdleTimeout),
 		fmt.Sprintf("listener https %s: :443, Origin CA certificate, requires the customer origin-pull client certificate, to backend set terrabase", d.APIHost),
-		fmt.Sprintf("listener https %s: :443, Origin CA certificate, requires the customer origin-pull client certificate, to backend set ts-auth", AuthHost),
+		fmt.Sprintf("listener https %s: :443, Origin CA certificate, requires the customer origin-pull client certificate, to backend set ts-auth", d.AuthHost),
 		"listener http: :80, 301 to https",
 		fmt.Sprintf("backend-set terrabase: %s, TLS verified against the member CA, GET %s", names(d.TerraBase), HealthPath),
 		fmt.Sprintf("backend-set ts-auth: %s, GET %s", names(d.Auth), HealthPath),
-		fmt.Sprintf("cloudflare: SSL Full (strict) for %s and %s, custom zone Authenticated Origin Pulls on; requires public_api.origin_pull CA and certificate ID (oci-region dns)", d.APIHost, AuthHost),
+		fmt.Sprintf("cloudflare: SSL Full (strict) for %s and %s, custom zone Authenticated Origin Pulls on; requires public_api.origin_pull CA and certificate ID (oci-region dns)", d.APIHost, d.AuthHost),
 		fmt.Sprintf("dns-record %s: A to the %s public IP, proxied (oci-region dns)", d.APIHost, d.Names.LB),
-		fmt.Sprintf("dns-record %s: A to the %s public IP, proxied (oci-region dns)", AuthHost, d.Names.LB),
+		fmt.Sprintf("dns-record %s: A to the %s public IP, proxied (oci-region dns)", d.AuthHost, d.Names.LB),
 	}
 }
 
@@ -827,7 +830,7 @@ func (p Provisioner) Provision(ctx context.Context, d Desired, cloudflare Cloudf
 		if secret == nil {
 			return nil, fmt.Errorf("vault secret %s does not exist; run public-api cert --apply first", d.Names.Secret)
 		}
-		if origin, key, err = p.originBundle(ctx, secret, []string{d.APIHost, AuthHost}); err != nil {
+		if origin, key, err = p.originBundle(ctx, secret, []string{d.APIHost, d.AuthHost}); err != nil {
 			return nil, err
 		}
 	}
@@ -876,6 +879,11 @@ func (p Provisioner) Provision(ctx context.Context, d Desired, cloudflare Cloudf
 	}
 	if err := d.checkAttachments(balancer, edge.subnet, edge.nsg); err != nil {
 		return nil, err
+	}
+	// Renaming a host before its certificate names it would serve a mismatch.
+	served, _ := field(balancer, "certificates", servedCertificate(balancer), "public-certificate").(string)
+	if _, err := checkOriginCertificate(served, []string{d.APIHost, d.AuthHost}, time.Now()); err != nil {
+		return nil, fmt.Errorf("load balancer %s origin certificate: %w; run public-api cert --apply first", d.Names.LB, err)
 	}
 	if balancer, err = p.converge(ctx, d, balancer); err != nil {
 		return nil, err
@@ -929,6 +937,19 @@ func (p Provisioner) converge(ctx context.Context, d Desired, balancer map[strin
 		}
 		if balancer, err = p.await(ctx, d.Names.LB, func() (map[string]any, error) { return p.balancer(ctx, d) }, func(r map[string]any) bool {
 			return r["lifecycle-state"] == "ACTIVE" && bandwidth(r)
+		}); err != nil {
+			return nil, err
+		}
+	}
+	for name, host := range map[string]string{"terrabase": d.APIHost, "ts-auth": d.AuthHost} {
+		if field(balancer, "hostnames", name, "hostname") == host {
+			continue
+		}
+		if _, err := p.Client.Call(ctx, "lb", "hostname", "update", "--load-balancer-id", id, "--name", name, "--hostname", host); err != nil {
+			return nil, err
+		}
+		if balancer, err = p.await(ctx, d.Names.LB, func() (map[string]any, error) { return p.balancer(ctx, d) }, func(r map[string]any) bool {
+			return r["lifecycle-state"] == "ACTIVE" && field(r, "hostnames", name, "hostname") == host
 		}); err != nil {
 			return nil, err
 		}
@@ -996,7 +1017,7 @@ func (p Provisioner) RunDNS(ctx context.Context, d Desired, cloudflare Cloudflar
 	if err != nil {
 		return err
 	}
-	steps, err := cloudflare.edgeSteps(ctx, []string{d.APIHost, AuthHost}, address, d.Cell, d.OriginPull)
+	steps, err := cloudflare.edgeSteps(ctx, []string{d.APIHost, d.AuthHost}, address, d.Cell, d.OriginPull)
 	if err != nil {
 		return err
 	}

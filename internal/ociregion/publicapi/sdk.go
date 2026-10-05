@@ -56,7 +56,10 @@ var creators = map[string]creator{
 	"lb certificate create":           createLBCertificate,
 	"lb load-balancer update-shape":   updateLBShape,
 	"lb backend-set update":           updateBackendSet,
+	"lb hostname update":              updateHostname,
+	"lb listener update":              updateListener,
 	"vault secret create-base64":      createSecret,
+	"vault secret update-base64":      updateSecret,
 	"vault secret list":               listSecrets,
 	"secrets secret-bundle get":       getSecretBundle,
 }
@@ -77,14 +80,17 @@ var createFlags = map[string][]string{
 	"lb certificate create":         {"load-balancer-id", "certificate"},
 	"lb load-balancer update-shape": {"load-balancer-id", "shape-name", "shape-details"},
 	"lb backend-set update":         {"load-balancer-id", "backend-set-name", "details"},
+	"lb hostname update":            {"load-balancer-id", "name", "hostname"},
+	"lb listener update":            {"load-balancer-id", "listener-name", "details"},
 	"vault secret create-base64":    {"compartment-id", "vault-id", "key-id", "secret-name", "description", "secret-content-content"},
+	"vault secret update-base64":    {"secret-id", "secret-content-content"},
 	"vault secret list":             {"compartment-id", "vault-id", "name"},
 	"secrets secret-bundle get":     {"secret-id"},
 }
 
 // secretBearing commands carry private keys; they never reach the oci CLI,
 // whose arguments other local users can read.
-var secretBearing = []string{"lb load-balancer create", "lb certificate create", "vault secret create-base64", "secrets secret-bundle get"}
+var secretBearing = []string{"lb load-balancer create", "lb certificate create", "vault secret create-base64", "vault secret update-base64", "secrets secret-bundle get"}
 
 // unacceptedCreateFlags returns, sorted, the flags of a create command that
 // its creator does not consume.
@@ -494,6 +500,38 @@ func updateBackendSet(ctx context.Context, c *SDKClient, command sdkcli.Command)
 	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
 }
 
+func updateHostname(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {
+	values, err := flags(command, "load-balancer-id", "name", "hostname")
+	if err != nil {
+		return nil, err
+	}
+	client, err := c.loadBalancer()
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.UpdateHostname(ctx, loadbalancer.UpdateHostnameRequest{LoadBalancerId: &values[0], Name: &values[1],
+		UpdateHostnameDetails: loadbalancer.UpdateHostnameDetails{Hostname: &values[2]}})
+	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
+}
+
+func updateListener(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {
+	values, err := flags(command, "load-balancer-id", "listener-name")
+	if err != nil {
+		return nil, err
+	}
+	var details loadbalancer.UpdateListenerDetails
+	if err := jsonFlag(command, "details", &details); err != nil {
+		return nil, err
+	}
+	client, err := c.loadBalancer()
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.UpdateListener(ctx, loadbalancer.UpdateListenerRequest{LoadBalancerId: &values[0], ListenerName: &values[1],
+		UpdateListenerDetails: details})
+	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
+}
+
 func (c *SDKClient) vaults() (vault.VaultsClient, error) {
 	factory := c.reader.Factory()
 	client, err := vault.NewVaultsClientWithConfigurationProvider(factory.Provider())
@@ -517,6 +555,24 @@ func createSecret(ctx context.Context, c *SDKClient, command sdkcli.Command) (an
 	response, err := client.CreateSecret(ctx, vault.CreateSecretRequest{CreateSecretDetails: vault.CreateSecretDetails{
 		CompartmentId: &values[0], VaultId: &values[1], KeyId: &values[2], SecretName: &values[3], Description: &values[4],
 		SecretContent: vault.Base64SecretContentDetails{Content: &values[5]}}})
+	if err != nil {
+		return nil, err
+	}
+	return response.Secret, nil
+}
+
+// updateSecret adds a new current version; earlier versions stay readable.
+func updateSecret(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {
+	values, err := flags(command, "secret-id", "secret-content-content")
+	if err != nil {
+		return nil, err
+	}
+	client, err := c.vaults()
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.UpdateSecret(ctx, vault.UpdateSecretRequest{SecretId: &values[0], UpdateSecretDetails: vault.UpdateSecretDetails{
+		SecretContent: vault.Base64SecretContentDetails{Content: &values[1]}}})
 	if err != nil {
 		return nil, err
 	}

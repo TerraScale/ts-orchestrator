@@ -1,7 +1,7 @@
 {
   "resources": {"cpu": 1, "memory_bytes": 1073741824, "disk_bytes": 2147483648},
   "env": {
-    "TS_AUTH_PUBLIC_ORIGIN": "https://auth.terrascale.tech",
+    "TS_AUTH_PUBLIC_ORIGIN": "https://gru.auth.terrascale.tech",
     "TS_AUTH_TERRASCALE_API_URL": "https://gru.api.terrascale.tech",
     "TS_AUTH_DATABASE": "auth"
   }

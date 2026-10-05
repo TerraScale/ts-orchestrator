@@ -16,7 +16,7 @@ func TestBackendSet(t *testing.T) {
 	host := func(slot, ip string) ociregion.Object { return ociregion.Object{"slot": slot, "private_ip": ip} }
 	set, err := tsauth.BackendSet(ociregion.Object{"hosts": []any{host("controller-a", "10.251.0.11"),
 		host("controller-b", "10.251.0.12"), host("controller-c", "10.251.0.13"), host("member-a", "10.251.0.21")}})
-	want := tsauth.LoadBalancer{Hostname: "auth.terrascale.tech", Backends: []string{"10.251.0.11", "10.251.0.12", "10.251.0.13"},
+	want := tsauth.LoadBalancer{Hostname: "gru.auth.terrascale.tech", Backends: []string{"10.251.0.11", "10.251.0.12", "10.251.0.13"},
 		Port: 8080, HealthPath: "/readyz"}
 	if err != nil || !reflect.DeepEqual(set, want) {
 		t.Fatalf("backend set %+v: %v", set, err)

@@ -2,6 +2,7 @@ package publicapi
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
 	"strings"
@@ -46,6 +47,15 @@ func TestSDKDecodesEveryCommandTheProvisionerSends(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// A renamed auth host rotates the origin certificate and the hostname.
+	renamed := grown
+	renamed.AuthHost = "gru.login.terrascale.tech"
+	if steps, err := p.certSteps(t.Context(), renamed, cloudflare); err != nil || run(t.Context(), steps, true, io.Discard) != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Provision(t.Context(), renamed, cloudflare, members); err != nil {
+		t.Fatal(err)
+	}
 	decoded := map[string]bool{}
 	for _, args := range f.calls {
 		command, err := sdkcli.Parse(args)
@@ -82,7 +92,7 @@ func TestSDKDecodesEveryCommandTheProvisionerSends(t *testing.T) {
 		case "lb certificate create":
 			var details loadbalancer.CreateCertificateDetails
 			err2 = jsonFlag(command, "certificate", &details)
-			if err2 == nil && (*details.CertificateName != originCertificate || *details.CaCertificate != d.OriginPull.CACertificate) {
+			if err2 == nil && (!strings.HasPrefix(*details.CertificateName, originCertificate) || *details.CaCertificate != d.OriginPull.CACertificate) {
 				t.Fatalf("certificate %v", *details.CertificateName)
 			}
 		case "lb load-balancer update-shape":
@@ -93,6 +103,21 @@ func TestSDKDecodesEveryCommandTheProvisionerSends(t *testing.T) {
 			err2 = jsonFlag(command, "details", &details)
 			if err2 == nil && (len(details.Backends) != 2 || *details.SslConfiguration.CertificateName != memberCA || *details.HealthChecker.UrlPath != HealthPath) {
 				t.Fatalf("backend set %+v", details)
+			}
+		case "lb listener update":
+			var details loadbalancer.UpdateListenerDetails
+			err2 = jsonFlag(command, "details", &details)
+			if err2 == nil && (*details.Port != 443 || !strings.HasPrefix(*details.SslConfiguration.CertificateName, originCertificate+"-") ||
+				*details.SslConfiguration.VerifyPeerCertificate != true) {
+				t.Fatalf("listener %+v", details)
+			}
+		case "lb hostname update":
+			if command.Flags["name"] != "ts-auth" || command.Flags["hostname"] != renamed.AuthHost {
+				t.Fatalf("hostname %v", command.Flags)
+			}
+		case "vault secret update-base64":
+			if _, err2 = base64.StdEncoding.DecodeString(command.Flags["secret-content-content"]); err2 == nil && command.Flags["secret-id"] == "" {
+				t.Fatal("secret update without an ID")
 			}
 		case "network nsg rules remove":
 			var ids []string

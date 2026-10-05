@@ -683,7 +683,9 @@ rules are not restored; nothing listens on those ports.
 
 The cell's public API is an OCI flexible load balancer behind proxied
 Cloudflare DNS. `gru.api.terrascale.tech` reaches TerraBase and
-`auth.terrascale.tech` reaches ts-auth (TS-487). Names come from
+`gru.auth.terrascale.tech` reaches ts-auth (TS-487): regional hosts follow
+`<region>.<service>.terrascale.tech`, and ts-atlas fronts the global
+`api.terrascale.tech` and `auth.terrascale.tech`. Names come from
 `internal/naming`: load balancer `gru-1-api`, `gru-1-api-igw`,
 `gru-1-api-routes`, `gru-1-api-security`, `gru-1-api-subnet`,
 `gru-1-api-nsg`, and the Vault secret `gru-1-api-origin`.
@@ -756,37 +758,28 @@ The plan entry:
 }
 ```
 
-Remove hostname-specific overrides for the two targets using Cloudflare's
-[documented voided-association operation](https://developers.cloudflare.com/api/resources/origin_tls_client_auth/subresources/hostnames/methods/update/):
-
-```http
-PUT /zones/<zone-id>/origin_tls_client_auth/hostnames
-Content-Type: application/json
-
-{"config":[{"hostname":"gru.api.terrascale.tech","enabled":null},{"hostname":"auth.terrascale.tech","enabled":null}]}
-```
-
-The `cf` equivalent, and the readback:
+A hostname-level origin pull association overrides zone AOP, so neither
+target may have one. Check both:
 
 ```sh
-cf origin-tls-client-auth hostnames update -z terrascale.tech \
-  --config '[{"hostname":"gru.api.terrascale.tech","enabled":null},{"hostname":"auth.terrascale.tech","enabled":null}]'
 cf origin-tls-client-auth hostnames get gru.api.terrascale.tech -z terrascale.tech
-cf origin-tls-client-auth hostnames get auth.terrascale.tech -z terrascale.tech
+cf origin-tls-client-auth hostnames get gru.auth.terrascale.tech -z terrascale.tech
 ```
 
-Each target's `GET .../hostnames/<hostname>` must then succeed with the
-matching hostname and an explicit `enabled: null`. An enabled or disabled
-hostname association overrides zone AOP, so both are refused. The API has
-no documented distinction between an absent association and an unsupported
-GET endpoint; a 404 stops DNS publication. Operator qualification must
-confirm this voided-association readback before the live deployment; it has
-only fake-provider coverage here.
+Each must answer `404` with error `1553` ("Auth origin pull setting for this
+hostname not found"), which is how Cloudflare reports no association, or
+succeed with an explicit `enabled: null`. Cloudflare cannot store a voided
+association: `PUT .../hostnames` with `enabled: null` and no certificate
+fails with `1404` (verified live 2026-10-05). `dns` accepts exactly those two
+answers and refuses an enabled or disabled association, a foreign hostname,
+and every other error. Remove an existing association by hand first.
 
 Unbound plans can be previewed without these inputs; `cert`, `apply`, and
 DNS security validation require them. Every cell uses the same reviewed
-zone certificate. The shared `auth.terrascale.tech` record belongs to
-`gru-1`; another cell cannot publish it. Zone AOP also affects other origins
+zone certificate. Each cell publishes only its own regional names,
+`<region>.api.terrascale.tech` and `<region>.auth.terrascale.tech`. The global
+`api.terrascale.tech` and `auth.terrascale.tech` are ts-atlas Worker routes
+that forward to them; `dns` never touches them. Zone AOP also affects other origins
 in this zone that request client certificates: coordinate their trust before
 enabling it. The DNS command does not upload, replace, or delete AOP keys.
 
@@ -813,6 +806,13 @@ ts-orch oci-region dns --plan deploy/oci-region/plan.json --apply
    the load balancer already exists without the certificate, `cert` installs
    it. Reused Vault bundles must name both planned hostnames. The key never
    leaves Vault, the load balancer and `ts-orch`'s memory.
+   When the stored certificate misses a planned name or expires within a
+   year, `cert` issues a new one into a new version of the same secret,
+   installs it on the load balancer as `origin-<hash>` and points both HTTPS
+   listeners at it. The previous certificate stays installed, and its Origin
+   CA certificate stays in Cloudflare, until an operator removes them. `apply`
+   refuses to rename a hostname until the served certificate names it, then
+   updates the hostname in place.
 3. `apply` reads that secret, fetches Cloudflare's ranges, creates the
    network and NSG rules, and creates the load balancer with its
    certificates, listeners, backend sets and rule sets. On an existing load
@@ -837,8 +837,8 @@ ts-orch oci-region dns --plan deploy/oci-region/plan.json --apply
    Cloudflare's ranges and adds and removes NSG rules, including duplicates,
    to match. Run it when Cloudflare announces a range change.
 
-The Cloudflare token needs Zone DNS Edit, Zone Settings Edit, Config Rules
-Edit and SSL and Certificates Edit on `terrascale.tech`. `cert` and `apply`
+The Cloudflare token needs Zone DNS Edit, Config Rules Edit and SSL and
+Certificates Edit on `terrascale.tech`. `cert` and `apply`
 refuse `TS_OCI_BACKEND=cli` and OCI SDK debug or endpoint overrides such as
 `OCI_GO_SDK_DEBUG`, so key material never appears in `oci` arguments or
 SDK logs.

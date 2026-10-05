@@ -37,7 +37,7 @@ func unsafeOriginChecks(t *testing.T) map[string]originCheck {
 		"malformed certificate DER":  string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("invalid DER")})),
 	}
 	for name, edit := range map[string]func(*x509.Certificate){
-		"missing TerraBase SAN": func(c *x509.Certificate) { c.DNSNames = []string{AuthHost} },
+		"missing TerraBase SAN": func(c *x509.Certificate) { c.DNSNames = []string{"gru.auth.terrascale.tech"} },
 		"missing ts-auth SAN":   func(c *x509.Certificate) { c.DNSNames = c.DNSNames[:1] },
 		"foreign SANs":          func(c *x509.Certificate) { c.DNSNames = []string{"other.terrascale.tech"} },
 		"wildcard SAN":          func(c *x509.Certificate) { c.DNSNames[0] = "*.api.terrascale.tech" },

@@ -149,7 +149,7 @@ func TestRunOuroborosRejectsIncompleteCommands(t *testing.T) {
 		{append(slices.Clone(member), "--owner-email", "mariogk@terrascale.tech", "--ts-auth-instance", "terrascale", "--ts-auth-key-file", key),
 			"--management-listener admin"},
 		{append(slices.Clone(member), "--management-listener", "admin", "--owner-email", "mariogk@terrascale.tech", "--ts-auth-instance", "terrascale",
-			"--ts-auth-key-file", key, "--ts-auth-url", "http://auth.terrascale.tech"), "must be https"},
+			"--ts-auth-key-file", key, "--ts-auth-url", "http://gru.auth.terrascale.tech"), "must be https"},
 		{append(slices.Clone(member), "--management-listener", "admin", "--owner-email", "mariogk@terrascale.tech", "--ts-auth-instance", "terrascale",
 			"--ts-auth-key-file", writeFile(t, "sk_test\n", 0o644)), "owner-only"},
 	} {

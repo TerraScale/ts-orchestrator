@@ -34,7 +34,7 @@ const (
 	// Repository is the source of every ts-auth release.
 	Repository = "https://git.terrascale.tech/TerraScale/ts-auth"
 	// Port is the plain-HTTP listener on every interface of a replica's
-	// host. The public API load balancer (TS-486) sends auth.terrascale.tech
+	// host. The public API load balancer (TS-486) sends gru.auth.terrascale.tech
 	// to it; the cell plan admits the load balancer's subnet on it.
 	Port = 8080
 	// HealthPath answers 200 while the process serves requests.
@@ -42,8 +42,9 @@ const (
 	// ReadyPath answers 200 once TerraBase answered a probe; the host and
 	// the load balancer send traffic only to a ready replica.
 	ReadyPath = "/readyz"
-	// Hostname is ts-auth's public name, the load balancer's hostname rule.
-	Hostname = "auth.terrascale.tech"
+	// Hostname is ts-auth's regional name, <region>.auth.terrascale.tech, the
+	// load balancer's hostname rule. Atlas serves auth.terrascale.tech.
+	Hostname = Cell + ".auth.terrascale.tech"
 	// Replicas is the replica count: ts-auth keeps all of its state in
 	// TerraBase, so two replicas on distinct controllers serve together.
 	Replicas = 2
@@ -51,7 +52,7 @@ const (
 	Cell = "gru"
 
 	PublicOrigin = "https://" + Hostname
-	APIURL       = "https://gru.api.terrascale.tech"
+	APIURL       = "https://" + Cell + ".api.terrascale.tech"
 	// Database is ts-auth's own TerraBase database, TS_AUTH_DATABASE.
 	Database = "auth"
 )

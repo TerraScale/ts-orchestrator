@@ -125,7 +125,7 @@ func TestOriginPullRefusesUnreviewedZoneCertificateBeforeWrites(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f, cloudflare := newFakeCloudflare(t)
 			edit(f)
-			steps, err := cloudflare.edgeSteps(t.Context(), []string{"gru.api.terrascale.tech", AuthHost}, netip.MustParseAddr("203.0.113.10"), "gru-1", testOriginPull(t))
+			steps, err := cloudflare.edgeSteps(t.Context(), []string{"gru.api.terrascale.tech", "gru.auth.terrascale.tech"}, netip.MustParseAddr("203.0.113.10"), "gru-1", testOriginPull(t))
 			if err == nil || len(steps) != 0 || len(f.writes) != 0 {
 				t.Fatalf("steps=%d writes=%v err=%v", len(steps), f.writes, err)
 			}
@@ -156,12 +156,21 @@ func TestOriginPullHostnameOverrideAndUnverifiableState(t *testing.T) {
 		map[string]any{"hostname": name, "enabled": false},
 		map[string]any{"hostname": name},
 		map[string]any{"hostname": "other.example", "enabled": nil},
-		nil,
 	} {
 		f, cloudflare := newFakeCloudflare(t)
 		f.hostnameOverrides[name] = association
 		if _, err := cloudflare.edgeSteps(t.Context(), []string{name}, netip.MustParseAddr("203.0.113.10"), "gru-1", testOriginPull(t)); err == nil || len(f.writes) != 0 {
 			t.Fatalf("accepted override %+v: writes=%v err=%v", association, f.writes, err)
+		}
+	}
+	// An explicit null association and Cloudflare's 1553 absence both leave zone AOP in force.
+	for _, association := range []any{map[string]any{"hostname": name, "enabled": nil}, nil} {
+		f, cloudflare := newFakeCloudflare(t)
+		if association != nil {
+			f.hostnameOverrides[name] = association
+		}
+		if _, err := cloudflare.edgeSteps(t.Context(), []string{name}, netip.MustParseAddr("203.0.113.10"), "gru-1", testOriginPull(t)); err != nil {
+			t.Fatalf("refused association %+v: %v", association, err)
 		}
 	}
 	for _, path := range []string{"", "/settings", "/hostnames/" + name} {
@@ -191,7 +200,7 @@ func TestOriginPullReadbackBlocksDNSWrites(t *testing.T) {
 			t.Run(failure+" enabled="+strconv.FormatBool(alreadyEnabled), func(t *testing.T) {
 				f, cloudflare := newFakeCloudflare(t)
 				f.aop = alreadyEnabled
-				names := []string{"gru.api.terrascale.tech", AuthHost}
+				names := []string{"gru.api.terrascale.tech", "gru.auth.terrascale.tech"}
 				steps, err := cloudflare.edgeSteps(t.Context(), names, netip.MustParseAddr("203.0.113.10"), "gru-1", testOriginPull(t))
 				if err != nil {
 					t.Fatal(err)
@@ -200,7 +209,7 @@ func TestOriginPullReadbackBlocksDNSWrites(t *testing.T) {
 				case "foreign certificate":
 					f.certificates = append(f.certificates, originPullCertificate{ID: "foreign", Certificate: f.certificates[0].Certificate, Status: "active"})
 				case "hostname override":
-					f.hostnameOverrides[AuthHost] = map[string]any{"hostname": AuthHost, "enabled": false}
+					f.hostnameOverrides["gru.auth.terrascale.tech"] = map[string]any{"hostname": "gru.auth.terrascale.tech", "enabled": false}
 				case "disabled settings":
 					f.aop = false
 					f.staleAOP = true
@@ -229,7 +238,7 @@ func TestOriginPullRechecksAfterEnableAndBeforeEachDNSWrite(t *testing.T) {
 	for _, changedAfter := range []string{"/origin_tls_client_auth/settings", "/dns_records"} {
 		t.Run(changedAfter, func(t *testing.T) {
 			f, cloudflare := newFakeCloudflare(t)
-			steps, err := cloudflare.edgeSteps(t.Context(), []string{"gru.api.terrascale.tech", AuthHost}, netip.MustParseAddr("203.0.113.10"), "gru-1", testOriginPull(t))
+			steps, err := cloudflare.edgeSteps(t.Context(), []string{"gru.api.terrascale.tech", "gru.auth.terrascale.tech"}, netip.MustParseAddr("203.0.113.10"), "gru-1", testOriginPull(t))
 			if err != nil {
 				t.Fatal(err)
 			}

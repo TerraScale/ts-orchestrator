@@ -4,7 +4,7 @@ Status: **implemented in source and tested locally with fake OCI Vault,
 the real TerraBase release and fake replicas; not run on OCI.** ts-auth (repository
 `TerraScale/ts-auth`, C# .NET 10) runs as a native single-file workload of
 role `ts-auth` on the gru-1 controllers and is served publicly at
-`https://auth.terrascale.tech` through the OCI L7 load balancer `gru-1-api`
+`https://gru.auth.terrascale.tech` through the OCI L7 load balancer `gru-1-api`
 (TS-486). Package
 [`internal/tsauth`](../internal/tsauth) holds the contract, the Vault secrets,
 the TerraBase tenant bootstrap and the `ts-orch ts-auth` command; the host
@@ -71,7 +71,7 @@ breaks these rules:
 
 | Key | Rule |
 | --- | --- |
-| `TS_AUTH_PUBLIC_ORIGIN` | Exactly `https://auth.terrascale.tech`. |
+| `TS_AUTH_PUBLIC_ORIGIN` | Exactly `https://gru.auth.terrascale.tech`. |
 | `TS_AUTH_TERRASCALE_API_URL` | Exactly `https://gru.api.terrascale.tech`. |
 | `TS_AUTH_DATABASE` | Exactly `auth`, the database `ouroboros bootstrap` creates. |
 | Env file keys, `TS_AUTH_LISTEN`, `DOTNET_BUNDLE_EXTRACT_BASE_DIR` | Must not be set. |
@@ -164,16 +164,16 @@ before the cgroup is killed.
 
 ### Load balancer
 
-`auth.terrascale.tech` is a proxied Cloudflare record for the OCI L7 load
+`gru.auth.terrascale.tech` is a proxied Cloudflare record for the OCI L7 load
 balancer `gru-1-api` in the public API subnet (`10.251.0.128/26`), which
 TS-486 creates. TLS ends at the load balancer with a Cloudflare Origin CA
-certificate; a hostname rule sends `auth.terrascale.tech` to the ts-auth
+certificate; a hostname rule sends `gru.auth.terrascale.tech` to the ts-auth
 backend set over plain HTTP. These are the values it consumes,
 `tsauth.BackendSet(plan)`:
 
 | Value | gru-1 | Source |
 | --- | --- | --- |
-| Hostname | `auth.terrascale.tech` | `tsauth.Hostname` |
+| Hostname | `gru.auth.terrascale.tech` | `tsauth.Hostname` |
 | Backends | `10.251.0.11`, `10.251.0.12`, `10.251.0.13` | every controller `private_ip` in `plan.json`: a replica may run on any of them |
 | Port | `8080` | `tsauth.Port` = `ociregion.TSAuthPort` |
 | Health check | HTTP `GET /readyz`, 200, body `{"status":"ready"}` | `tsauth.ReadyPath` |
@@ -279,7 +279,7 @@ before phase A.
 Run it once ts-auth is live and the person has signed in once (for example
 on the dashboard). The command resolves the address through ts-auth's
 Management API, `GET {ts-auth-url}/v1/{instance}/users?limit=100&starting_after=ID`
-(`--ts-auth-url` defaults to `https://auth.terrascale.tech`), with the
+(`--ts-auth-url` defaults to `https://gru.auth.terrascale.tech`), with the
 instance's `sk_` management key from an owner-only file. This needs the
 management users API (the `/v1/{slug}/users` contract, TS-490 and later) to be
 served.
@@ -342,7 +342,7 @@ one env file each, one ts-auth replica on two of them).
    Stop before step 3 if this manual preparation is incomplete.
 4. **Load balancer.** TS-486 is merged and applied: `gru-1-api` with the
    ts-auth backend set and hostname rule, its Origin CA certificate and the
-   proxied DNS record for `auth.terrascale.tech`. Step 0 opens the controller
+   proxied DNS record for `gru.auth.terrascale.tech`. Step 0 opens the controller
    NSG to it.
 5. **Release.** A ts-auth release with `ts-auth-linux-arm64` and its
    `.sha256` (TS-488).
@@ -530,7 +530,7 @@ WORK=$(mktemp -d)
 
    ```sh
    sudo terrascale-orchestrator operator hosts --config /var/lib/terrascale-operator/operator.json "${F[@]}"
-   curl -fsS https://auth.terrascale.tech/readyz
+   curl -fsS https://gru.auth.terrascale.tech/readyz
    ```
 
    Expect two `ts-auth` reports `running` with the new digest on two

@@ -19,8 +19,6 @@ import (
 const (
 	// Zone is the Cloudflare zone of every public name.
 	Zone = "terrascale.tech"
-	// authCell alone owns the shared auth.terrascale.tech DNS record.
-	authCell = "gru-1"
 	// TokenEnv names the Cloudflare API token, OCI Vault secret
 	// gru-1-cloudflare-dns-edit-token (docs/secrets.md).
 	TokenEnv      = "CF_API_TOKEN"
@@ -41,6 +39,7 @@ type Cloudflare struct {
 type cloudflareError struct {
 	Status int
 	Detail string
+	Codes  []int
 }
 
 func (e *cloudflareError) Error() string { return fmt.Sprintf("HTTP %d: %s", e.Status, e.Detail) }
@@ -77,10 +76,16 @@ func (c Cloudflare) do(ctx context.Context, method, path string, body, result an
 		Result  jsontext.Value `json:"result"`
 	}
 	if err := json.UnmarshalRead(io.LimitReader(response.Body, 1<<20), &envelope); err != nil {
-		return fmt.Errorf("Cloudflare %s %s: %w", method, path, &cloudflareError{response.StatusCode, err.Error()})
+		return fmt.Errorf("Cloudflare %s %s: %w", method, path, &cloudflareError{Status: response.StatusCode, Detail: err.Error()})
 	}
 	if !envelope.Success || response.StatusCode/100 != 2 {
-		return fmt.Errorf("Cloudflare %s %s: %w", method, path, &cloudflareError{response.StatusCode, fmt.Sprint(envelope.Errors)})
+		var codes []int
+		for _, e := range envelope.Errors {
+			if code, ok := field(e, "code").(float64); ok {
+				codes = append(codes, int(code))
+			}
+		}
+		return fmt.Errorf("Cloudflare %s %s: %w", method, path, &cloudflareError{response.StatusCode, fmt.Sprint(envelope.Errors), codes})
 	}
 	if result == nil {
 		return nil
@@ -178,9 +183,6 @@ func (c Cloudflare) checkStrictTLS(ctx context.Context, entry string, want confi
 // Settings come first so no proxied request reaches the origin without its
 // client certificate. A name holding any other record is refused.
 func (c Cloudflare) edgeSteps(ctx context.Context, names []string, address netip.Addr, cell string, originPull OriginPull) ([]step, error) {
-	if slices.Contains(names, AuthHost) && cell != authCell {
-		return nil, fmt.Errorf("%s is owned by cell %s; cell %s cannot publish it", AuthHost, authCell, cell)
-	}
 	if !address.Is4() || !address.IsGlobalUnicast() || address.IsPrivate() {
 		return nil, fmt.Errorf("%s is not a public IPv4 address", address)
 	}

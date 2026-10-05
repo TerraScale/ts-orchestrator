@@ -23,7 +23,7 @@ func TestDNSSecurityPreflightRefusesUnsafeOrigin(t *testing.T) {
 		}, "state or shape"},
 		"missing listener TLS": {func(f *fakeOCI) {
 			delete(field(f.balancer, "listeners", "terrabase").(map[string]any), "ssl-configuration")
-		}, "listener terrabase"},
+		}, "origin certificate"},
 		"missing listener peer auth": {func(f *fakeOCI) {
 			delete(field(f.balancer, "listeners", "ts-auth", "ssl-configuration").(map[string]any), "verify-peer-certificate")
 		}, "listener ts-auth"},
@@ -131,7 +131,7 @@ func TestDNSSecurityPreflightAcceptsProvisionedOriginIdempotently(t *testing.T) 
 	if err := p.RunDNS(t.Context(), d, cloudflare, true, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{d.APIHost, AuthHost} {
+	for _, name := range []string{d.APIHost, "gru.auth.terrascale.tech"} {
 		records := fc.records[name]
 		if len(records) != 1 || records[0].Type != "A" || records[0].Content != "203.0.113.10" || !records[0].Proxied {
 			t.Fatalf("DNS did not publish the safe origin for %s: %v", name, records)

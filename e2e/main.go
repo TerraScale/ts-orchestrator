@@ -111,7 +111,7 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 	return code
 }
 func production() (*environment, error) {
-	e := &environment{Target: "prod", TerraBaseURL: envDefault("E2E_TERRABASE_URL", "https://gru.api.terrascale.tech"), AuthURL: envDefault("E2E_AUTH_URL", "https://auth.terrascale.tech"), DashboardURL: os.Getenv("E2E_DASHBOARD_URL"), StatusURL: envDefault("E2E_STATUS_URL", "https://status.terrascale.tech"), Region: envDefault("E2E_REGION", "gru-1"), Credential: os.Getenv("E2E_MANAGEMENT_CREDENTIAL"), UserID: os.Getenv("E2E_USER_ID"), OrganizationID: os.Getenv("E2E_ORGANIZATION_ID"), APIKey: os.Getenv("E2E_API_KEY"), HTTP: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	e := &environment{Target: "prod", TerraBaseURL: envDefault("E2E_TERRABASE_URL", "https://gru.api.terrascale.tech"), AuthURL: envDefault("E2E_AUTH_URL", "https://gru.auth.terrascale.tech"), DashboardURL: os.Getenv("E2E_DASHBOARD_URL"), StatusURL: envDefault("E2E_STATUS_URL", "https://status.terrascale.tech"), Region: envDefault("E2E_REGION", "gru-1"), Credential: os.Getenv("E2E_MANAGEMENT_CREDENTIAL"), UserID: os.Getenv("E2E_USER_ID"), OrganizationID: os.Getenv("E2E_ORGANIZATION_ID"), APIKey: os.Getenv("E2E_API_KEY"), HTTP: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	for name, value := range map[string]string{"E2E_MANAGEMENT_CREDENTIAL": e.Credential, "E2E_USER_ID": e.UserID, "E2E_ORGANIZATION_ID": e.OrganizationID, "E2E_API_KEY": e.APIKey, "E2E_DASHBOARD_URL": e.DashboardURL} {
 		if strings.TrimSpace(value) == "" {
 			return nil, fmt.Errorf("%s is required for prod", name)

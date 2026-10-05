@@ -175,6 +175,21 @@ func (f *fakeOCI) Call(_ context.Context, args ...string) (map[string]any, error
 		}
 		f.balancer["certificates"].(map[string]any)[*certificate.CertificateName] = f.render(certificate)
 		return data(map[string]any{}), nil
+	case c.Path == "lb listener update":
+		var listener loadbalancer.UpdateListenerDetails
+		if err := jsonFlag(c, "details", &listener); err != nil {
+			f.t.Fatal(err)
+		}
+		rendered := f.render(listener)
+		rendered["name"] = c.Flags["listener-name"]
+		f.balancer["listeners"].(map[string]any)[c.Flags["listener-name"]] = rendered
+		return data(map[string]any{}), nil
+	case c.Path == "lb hostname update":
+		f.balancer["hostnames"].(map[string]any)[c.Flags["name"]] = map[string]any{"name": c.Flags["name"], "hostname": c.Flags["hostname"]}
+		return data(map[string]any{}), nil
+	case c.Path == "vault secret update-base64":
+		f.content = c.Flags["secret-content-content"]
+		return data(f.secret), nil
 	case c.Path == "vault secret list":
 		return data(rowsOf(f.secret)), nil
 	case c.Path == "vault secret create-base64":
@@ -254,7 +269,7 @@ func testOriginCertificate(t *testing.T, edit func(*x509.Certificate)) string {
 		t.Fatal(err)
 	}
 	certificate := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "TEST ONLY origin server"},
-		DNSNames:  []string{"gru.api.terrascale.tech", AuthHost},
+		DNSNames:  []string{"gru.api.terrascale.tech", "gru.auth.terrascale.tech"},
 		NotBefore: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), NotAfter: time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)}
 	edit(certificate)
 	der, err := x509.CreateCertificate(rand.Reader, certificate, certificate, &key.PublicKey, key)
@@ -567,7 +582,7 @@ func TestLoadBalancerRoutesByHostnameAndRequiresCloudflare(t *testing.T) {
 	if http := listeners["http"]; http.Port != 80 || http.SSL != nil || !slices.Equal(http.RuleSetNames, []string{"https-redirect"}) {
 		t.Fatalf("http listener %+v", http)
 	}
-	if hostnames["terrabase"]["hostname"] != "gru.api.terrascale.tech" || hostnames["ts-auth"]["hostname"] != AuthHost {
+	if hostnames["terrabase"]["hostname"] != "gru.api.terrascale.tech" || hostnames["ts-auth"]["hostname"] != "gru.auth.terrascale.tech" {
 		t.Fatal(hostnames)
 	}
 	terrabase, auth := sets["terrabase"], sets["ts-auth"]
@@ -647,7 +662,8 @@ func TestCertIssuesIntoVaultThenInstallsOnTheLoadBalancer(t *testing.T) {
 	d := testDesired(t, testPlan)
 	f := newFakeOCI(t)
 	fc, cloudflare := newFakeCloudflare(t)
-	f.balancer = map[string]any{"id": "lb", "display-name": "gru-1-api", "lifecycle-state": "ACTIVE", "certificates": map[string]any{}}
+	f.balancer = map[string]any{"id": "lb", "display-name": "gru-1-api", "lifecycle-state": "ACTIVE", "certificates": map[string]any{},
+		"listeners": map[string]any{"terrabase": map[string]any{}, "ts-auth": map[string]any{}}}
 	p := Provisioner{Client: f, Pause: func(context.Context, time.Duration) error { return nil }}
 	steps, err := p.certSteps(t.Context(), d, cloudflare)
 	if err != nil {
@@ -657,8 +673,8 @@ func TestCertIssuesIntoVaultThenInstallsOnTheLoadBalancer(t *testing.T) {
 	if err := run(t.Context(), steps, false, &out); err != nil || fc.issued != 0 || len(f.mutations()) != 0 {
 		t.Fatalf("dry run issued %d, mutated %v: %v", fc.issued, f.mutations(), err)
 	}
-	want := `plan: create a Cloudflare Origin CA certificate for gru.api.terrascale.tech and auth.terrascale.tech (RSA 2048, 5475 days) into vault secret gru-1-api-origin
-plan: install certificate origin on gru-1-api
+	want := `plan: create a Cloudflare Origin CA certificate for gru.api.terrascale.tech and gru.auth.terrascale.tech (RSA 2048, 5475 days) into vault secret gru-1-api-origin
+plan: install the origin certificate on gru-1-api and serve it on both HTTPS listeners
 2 changes planned; rerun with --apply to apply them
 `
 	if out.String() != want {
@@ -668,7 +684,7 @@ plan: install certificate origin on gru-1-api
 		t.Fatal(err)
 	}
 	wire, _ := base64.StdEncoding.DecodeString(f.content)
-	certificate, key, err := p.originBundle(t.Context(), f.secret, []string{d.APIHost, AuthHost})
+	certificate, key, err := p.originBundle(t.Context(), f.secret, []string{d.APIHost, "gru.auth.terrascale.tech"})
 	if err != nil || !strings.Contains(string(wire), "RSA PRIVATE KEY") || certificate+key != string(wire) {
 		t.Fatalf("vault bundle: %v", err)
 	}
@@ -683,8 +699,13 @@ plan: install certificate origin on gru-1-api
 			install = append(install, installed["certificateName"])
 		}
 	}
-	if !slices.Equal(install, []string{"origin"}) || fc.issued != 1 {
+	if !slices.Equal(install, []string{certificateName(certificate)}) || fc.issued != 1 {
 		t.Fatalf("installed %v, issued %d", install, fc.issued)
+	}
+	for _, listener := range []string{"terrabase", "ts-auth"} {
+		if got := field(f.balancer, "listeners", listener, "ssl-configuration", "certificate-name"); got != install[0] {
+			t.Fatalf("listener %s serves %v", listener, got)
+		}
 	}
 	if steps, err := p.certSteps(t.Context(), d, cloudflare); err != nil || len(steps) != 0 {
 		t.Fatalf("rerun planned %d: %v", len(steps), err)
@@ -716,8 +737,8 @@ func TestCertRefusesAShortOrForeignCertificate(t *testing.T) {
 func TestVaultBundleMustNameBothPlannedHostsBeforeAnyWrite(t *testing.T) {
 	d := testDesired(t, testPlan)
 	fc, cloudflare := newFakeCloudflare(t)
-	for _, missing := range []string{d.APIHost, AuthHost} {
-		hostnames := []string{d.APIHost, AuthHost}
+	for _, missing := range []string{d.APIHost, "gru.auth.terrascale.tech"} {
+		hostnames := []string{d.APIHost, "gru.auth.terrascale.tech"}
 		hostnames[slices.Index(hostnames, missing)] = "other.terrascale.tech"
 		certificate, key, _, err := issueOrigin(t.Context(), cloudflare, hostnames)
 		if err != nil {
@@ -732,8 +753,13 @@ func TestVaultBundleMustNameBothPlannedHostsBeforeAnyWrite(t *testing.T) {
 				p := Provisioner{Client: f}
 				var err error
 				if operation == "install" {
+					// cert replaces the bundle with a new version instead of installing it.
 					f.balancer = map[string]any{"id": "lb", "display-name": d.Names.LB, "lifecycle-state": "ACTIVE", "certificates": map[string]any{}}
-					_, err = p.certSteps(t.Context(), d, cloudflare)
+					steps, err := p.certSteps(t.Context(), d, cloudflare)
+					if err != nil || len(steps) != 2 || !strings.Contains(steps[0].what, "new version of vault secret") || len(f.mutations()) != 0 || len(fc.writes) != 0 {
+						t.Fatalf("did not plan a new version for a bundle without %s: %v, %d", missing, err, len(steps))
+					}
+					return
 				} else {
 					_, err = p.Provision(t.Context(), d, cloudflare, testCA(t))
 				}
@@ -810,5 +836,59 @@ func TestOriginTrustRequiredBeforeCertificateOrProvision(t *testing.T) {
 		if len(f.calls) != 0 || len(fc.writes) != 0 {
 			t.Fatalf("invalid origin trust reached OCI or Cloudflare: %v, %v", f.calls, fc.writes)
 		}
+	}
+}
+
+func TestRenamedAuthHostRotatesTheOriginInPlace(t *testing.T) {
+	d := testDesired(t, testPlan)
+	f := newFakeOCI(t)
+	fc, cloudflare := newFakeCloudflare(t)
+	p := Provisioner{Client: f, Pause: func(context.Context, time.Duration) error { return nil }}
+	members := testCA(t)
+	steps, err := p.certSteps(t.Context(), d, cloudflare)
+	if err != nil || run(t.Context(), steps, true, io.Discard) != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil {
+		t.Fatal(err)
+	}
+	renamed := d
+	renamed.AuthHost = "gru.login.terrascale.tech"
+	before := len(f.mutations())
+	if _, err := p.Provision(t.Context(), renamed, cloudflare, members); err == nil || len(f.mutations()) != before {
+		t.Fatalf("apply ran before the bundle names the new host: %v, %v", err, f.mutations()[before:])
+	}
+	steps, err = p.certSteps(t.Context(), renamed, cloudflare)
+	if err != nil || len(steps) != 2 || !strings.Contains(steps[0].what, "new version of vault secret") {
+		t.Fatalf("rotation plan: %v, %d", err, len(steps))
+	}
+	issued := fc.issued
+	if err := run(t.Context(), steps, false, io.Discard); err != nil || fc.issued != issued || len(f.mutations()) != before {
+		t.Fatalf("dry run issued or wrote: %v", err)
+	}
+	if err := run(t.Context(), steps, true, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Provision(t.Context(), renamed, cloudflare, members); err != nil {
+		t.Fatal(err)
+	}
+	if got := field(f.balancer, "hostnames", "ts-auth", "hostname"); got != renamed.AuthHost {
+		t.Fatalf("ts-auth hostname %v", got)
+	}
+	served := servedCertificate(f.balancer)
+	if served == originCertificate || field(f.balancer, "certificates", originCertificate) == nil || renamed.CheckBalancer(f.balancer) != nil {
+		t.Fatalf("serves %s; first certificate kept: %v", served, field(f.balancer, "certificates", originCertificate) != nil)
+	}
+	for _, path := range f.mutations()[before:] {
+		if strings.Contains(path, "delete") {
+			t.Fatalf("rotation deleted: %s", path)
+		}
+	}
+	before = len(f.mutations())
+	if steps, err := p.certSteps(t.Context(), renamed, cloudflare); err != nil || len(steps) != 0 {
+		t.Fatalf("rerun planned %d: %v", len(steps), err)
+	}
+	if _, err := p.Provision(t.Context(), renamed, cloudflare, members); err != nil || len(f.mutations()) != before {
+		t.Fatalf("rerun changed %v: %v", f.mutations()[before:], err)
 	}
 }

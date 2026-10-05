@@ -141,7 +141,13 @@ func (f *fakeCloudflare) serve(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(path, "/zones/zone/origin_tls_client_auth/hostnames/")
 		association, ok := f.hostnameOverrides[name]
 		if !ok {
-			association = map[string]any{"hostname": name, "enabled": nil}
+			// Cloudflare's answer for a hostname without an association.
+			w.WriteHeader(http.StatusNotFound)
+			if err := json.MarshalWrite(w, map[string]any{"success": false, "errors": []any{map[string]any{"code": 1553,
+				"message": "Auth origin pull setting for this hostname not found."}}, "result": nil}); err != nil {
+				f.t.Error(err)
+			}
+			return
 		}
 		f.reply(w, 200, association)
 	case path == "/zones/zone/origin_tls_client_auth/settings" && (r.Method == http.MethodGet || r.Method == http.MethodPut):
@@ -223,23 +229,9 @@ func TestOriginIPsAcceptOnlyPublicIPv4Ranges(t *testing.T) {
 	}
 }
 
-func TestSharedAuthDNSBelongsToGRU(t *testing.T) {
-	f, cloudflare := newFakeCloudflare(t)
-	f.records[AuthHost] = []record{{ID: "auth", Type: "A", Name: AuthHost, Content: "203.0.113.10", Proxied: true}}
-	for _, address := range []string{"203.0.113.10", "203.0.113.20"} {
-		steps, err := cloudflare.edgeSteps(t.Context(), []string{"sfo.api.terrascale.tech", AuthHost}, netip.MustParseAddr(address), "sfo-1", testOriginPull(t))
-		if err == nil || !strings.Contains(err.Error(), "owned by cell gru-1") || len(steps) != 0 || len(f.writes) != 0 {
-			t.Fatalf("SFO planned changes to shared auth: steps=%d writes=%v err=%v", len(steps), f.writes, err)
-		}
-		if f.records[AuthHost][0].Content != "203.0.113.10" {
-			t.Fatal("shared auth target changed")
-		}
-	}
-}
-
 func TestEdgeStepsSetStrictTLSAndOriginPullsBeforeProxiedRecords(t *testing.T) {
 	f, cloudflare := newFakeCloudflare(t)
-	names := []string{"gru.api.terrascale.tech", AuthHost}
+	names := []string{"gru.api.terrascale.tech", "gru.auth.terrascale.tech"}
 	address := netip.MustParseAddr("203.0.113.10")
 	var out bytes.Buffer
 	steps, err := cloudflare.edgeSteps(t.Context(), names, address, "gru-1", testOriginPull(t))
@@ -249,10 +241,10 @@ func TestEdgeStepsSetStrictTLSAndOriginPullsBeforeProxiedRecords(t *testing.T) {
 	if err := run(t.Context(), steps, false, &out); err != nil || len(f.writes) != 0 {
 		t.Fatalf("dry run wrote %v: %v", f.writes, err)
 	}
-	want := `plan: set SSL Full (strict) for gru.api.terrascale.tech, auth.terrascale.tech (configuration rule ts-orch-gru-1-api-ssl-strict)
+	want := `plan: set SSL Full (strict) for gru.api.terrascale.tech, gru.auth.terrascale.tech (configuration rule ts-orch-gru-1-api-ssl-strict)
 plan: enable custom zone Authenticated Origin Pulls
 plan: create A gru.api.terrascale.tech 203.0.113.10 (proxied)
-plan: create A auth.terrascale.tech 203.0.113.10 (proxied)
+plan: create A gru.auth.terrascale.tech 203.0.113.10 (proxied)
 4 changes planned; rerun with --apply to apply them
 `
 	if out.String() != want {
@@ -266,7 +258,7 @@ plan: create A auth.terrascale.tech 203.0.113.10 (proxied)
 		t.Fatalf("writes=%v", f.writes)
 	}
 	rule := f.ruleset.Rules[0]
-	if rule.Action != "set_config" || rule.Parameters["ssl"] != "strict" || rule.Expression != `(http.host in {"gru.api.terrascale.tech" "auth.terrascale.tech"})` || !f.aop {
+	if rule.Action != "set_config" || rule.Parameters["ssl"] != "strict" || rule.Expression != `(http.host in {"gru.api.terrascale.tech" "gru.auth.terrascale.tech"})` || !f.aop {
 		t.Fatalf("rule=%+v aop=%t", rule, f.aop)
 	}
 	for _, name := range names {
@@ -286,8 +278,8 @@ func TestEdgeStepsKeepOtherRulesAndRepairDrift(t *testing.T) {
 	f.ruleset = &fakeRuleset{"rs", []configRule{other}}
 	f.aop = true
 	f.records["gru.api.terrascale.tech"] = []record{{ID: "old", Type: "A", Name: "gru.api.terrascale.tech", Content: "198.51.100.7", TTL: 300}}
-	f.records[AuthHost] = []record{{ID: "auth", Type: "A", Name: AuthHost, Content: "203.0.113.10", Proxied: true, TTL: 1}}
-	names := []string{"gru.api.terrascale.tech", AuthHost}
+	f.records["gru.auth.terrascale.tech"] = []record{{ID: "auth", Type: "A", Name: "gru.auth.terrascale.tech", Content: "203.0.113.10", Proxied: true, TTL: 1}}
+	names := []string{"gru.api.terrascale.tech", "gru.auth.terrascale.tech"}
 	steps, err := cloudflare.edgeSteps(t.Context(), names, netip.MustParseAddr("203.0.113.10"), "gru-1", testOriginPull(t))
 	if err != nil {
 		t.Fatal(err)
@@ -315,8 +307,8 @@ func TestEdgeStepsKeepOtherRulesAndRepairDrift(t *testing.T) {
 
 func TestEdgeStepsRefuseBeforeAnyWrite(t *testing.T) {
 	f, cloudflare := newFakeCloudflare(t)
-	f.records[AuthHost] = []record{{ID: "c", Type: "CNAME", Name: AuthHost, Content: "elsewhere.example"}}
-	names := []string{"gru.api.terrascale.tech", AuthHost}
+	f.records["gru.auth.terrascale.tech"] = []record{{ID: "c", Type: "CNAME", Name: "gru.auth.terrascale.tech", Content: "elsewhere.example"}}
+	names := []string{"gru.api.terrascale.tech", "gru.auth.terrascale.tech"}
 	if _, err := cloudflare.edgeSteps(t.Context(), names, netip.MustParseAddr("203.0.113.10"), "gru-1", testOriginPull(t)); err == nil || !strings.Contains(err.Error(), "resolve them by hand") {
 		t.Fatalf("accepted a CNAME: %v", err)
 	}
@@ -341,7 +333,7 @@ func TestStrictTLSRuleCannotBeOverriddenBeforeDNS(t *testing.T) {
 	for _, stale := range []bool{false, true} {
 		t.Run(fmt.Sprintf("stale-position=%t", stale), func(t *testing.T) {
 			f, cloudflare := newFakeCloudflare(t)
-			names := []string{"gru.api.terrascale.tech", AuthHost}
+			names := []string{"gru.api.terrascale.tech", "gru.auth.terrascale.tech"}
 			address := netip.MustParseAddr("203.0.113.10")
 			steps, err := cloudflare.edgeSteps(t.Context(), names, address, "gru-1", testOriginPull(t))
 			if err != nil || run(t.Context(), steps, true, io.Discard) != nil {
@@ -382,7 +374,7 @@ func TestStrictTLSReadbackBlocksLateDrift(t *testing.T) {
 	for _, drift := range []string{"downgrade", "disabled", "duplicated", "removed"} {
 		t.Run(drift, func(t *testing.T) {
 			f, cloudflare := newFakeCloudflare(t)
-			names := []string{"gru.api.terrascale.tech", AuthHost}
+			names := []string{"gru.api.terrascale.tech", "gru.auth.terrascale.tech"}
 			address := netip.MustParseAddr("203.0.113.10")
 			steps, err := cloudflare.edgeSteps(t.Context(), names, address, "gru-1", testOriginPull(t))
 			if err != nil || run(t.Context(), steps, true, io.Discard) != nil {

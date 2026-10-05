@@ -209,7 +209,7 @@ func own(ctx context.Context, terraBase TerraBase, users TSAuthUsers, organizati
 // GET /v1/{instance}/users with the instance's sk_ management key.
 type TSAuthUsers struct {
 	HTTP     *http.Client
-	URL      string // ts-auth's origin, for example https://auth.terrascale.tech
+	URL      string // ts-auth's origin, for example https://gru.auth.terrascale.tech
 	Instance string
 	Key      string
 }

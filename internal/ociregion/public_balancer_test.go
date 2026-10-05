@@ -89,7 +89,7 @@ const liveBalancer = `{"id":"` + testBalancerID + `","lifecycle-state":"ACTIVE",
 "is-private":false,"shape-name":"flexible","shape-details":{"minimum-bandwidth-in-mbps":10,"maximum-bandwidth-in-mbps":100},
 "subnet-ids":["ocid1.subnet.oc1.sa-saopaulo-1.public"],"network-security-group-ids":["ocid1.networksecuritygroup.oc1.sa-saopaulo-1.edge"],
 "certificates":{"origin":{"certificate-name":"origin"},"member-ca":{"certificate-name":"member-ca"}},
-"hostnames":{"terrabase":{"name":"terrabase","hostname":"gru.api.terrascale.tech"},"ts-auth":{"name":"ts-auth","hostname":"auth.terrascale.tech"}},
+"hostnames":{"terrabase":{"name":"terrabase","hostname":"gru.api.terrascale.tech"},"ts-auth":{"name":"ts-auth","hostname":"gru.auth.terrascale.tech"}},
 "listeners":{
  "http":{"port":80,"protocol":"HTTP","default-backend-set-name":"terrabase","rule-set-names":["https-redirect"]},
  "terrabase":{"port":443,"protocol":"HTTP","default-backend-set-name":"terrabase","hostname-names":["terrabase"],"rule-set-names":["security-headers"],

@@ -60,6 +60,10 @@ func (o OriginPull) root() (*x509.Certificate, error) {
 	return root, nil
 }
 
+// hostnameNotFound is Cloudflare's error code for a hostname without an
+// origin pull association.
+const hostnameNotFound = 1553
+
 type originPullCertificate struct {
 	ID          string `json:"id"`
 	Certificate string `json:"certificate"`
@@ -106,9 +110,16 @@ func (c Cloudflare) originPullState(ctx context.Context, zone string, names []st
 			Enabled  jsontext.Value `json:"enabled"`
 		}
 		// The supported GET is per hostname; collection /hostnames is PUT only.
-		// A successful explicit null voids the association. A 404 cannot prove
-		// absence rather than an unsupported endpoint, so every error fails closed.
-		if err := c.do(ctx, http.MethodGet, path+"/hostnames/"+url.PathEscape(name), nil, &association); err != nil {
+		// Cloudflare stores no association without a certificate (PUT fails
+		// with 1404), so 404 with code 1553 is the absent state and zone AOP
+		// applies; verified live 2026-10-05. A successful explicit null also
+		// voids it. Every other error fails closed.
+		err := c.do(ctx, http.MethodGet, path+"/hostnames/"+url.PathEscape(name), nil, &association)
+		var cf *cloudflareError
+		if errors.As(err, &cf) && cf.Status == http.StatusNotFound && slices.Contains(cf.Codes, hostnameNotFound) {
+			continue
+		}
+		if err != nil {
 			return false, fmt.Errorf("cannot verify origin pull override for %s: %w", name, err)
 		}
 		if association.Hostname != name || string(association.Enabled) != "null" {

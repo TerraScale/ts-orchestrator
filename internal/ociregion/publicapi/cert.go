@@ -5,9 +5,11 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -37,45 +39,115 @@ func (p Provisioner) certSteps(ctx context.Context, d Desired, cloudflare Cloudf
 	if err != nil {
 		return nil, err
 	}
-	hostnames := []string{d.APIHost, AuthHost}
+	hostnames := []string{d.APIHost, d.AuthHost}
 	var origin, key string
+	rotate := false
 	if secret != nil {
-		if origin, key, err = p.originBundle(ctx, secret, hostnames); err != nil {
+		if origin, key, err = p.originBundle(ctx, secret, nil); err != nil {
 			return nil, err
 		}
+		// A bundle missing a planned name, or within a year of expiry, gets a
+		// new version; earlier versions stay in the Vault.
+		rotate = checkOrigin(origin, key, hostnames, time.Now().AddDate(1, 0, 0)) != nil
 	}
+	issue := func(ctx context.Context, store func(string) error) error {
+		certificate, private, id, err := issueOrigin(ctx, cloudflare, hostnames)
+		if err != nil {
+			return err
+		}
+		if err := store(certificate + private); err != nil {
+			return fmt.Errorf("%w; revoke unused Origin CA certificate %s in Cloudflare", err, id)
+		}
+		origin, key = certificate, private
+		return nil
+	}
+	what := fmt.Sprintf("a Cloudflare Origin CA certificate for %s and %s (RSA 2048, %d days)", d.APIHost, d.AuthHost, originValidityDays)
 	var steps []step
-	if secret == nil {
-		steps = append(steps, step{fmt.Sprintf("create a Cloudflare Origin CA certificate for %s and %s (RSA 2048, %d days) into vault secret %s",
-			d.APIHost, AuthHost, originValidityDays, d.Names.Secret), func(ctx context.Context) error {
-			certificate, private, id, err := issueOrigin(ctx, cloudflare, hostnames)
-			if err != nil {
-				return err
-			}
-			if err := p.storeSecret(ctx, d, certificate+private); err != nil {
-				return fmt.Errorf("%w; revoke unused Origin CA certificate %s in Cloudflare", err, id)
-			}
-			origin, key = certificate, private
-			return nil
+	switch {
+	case secret == nil:
+		steps = append(steps, step{fmt.Sprintf("create %s into vault secret %s", what, d.Names.Secret), func(ctx context.Context) error {
+			return issue(ctx, func(bundle string) error { return p.storeSecret(ctx, d, bundle) })
+		}})
+	case rotate:
+		steps = append(steps, step{fmt.Sprintf("add %s as a new version of vault secret %s", what, d.Names.Secret), func(ctx context.Context) error {
+			return issue(ctx, func(bundle string) error { return p.rotateSecret(ctx, d, secret, bundle) })
 		}})
 	}
 	if balancer != nil {
-		if certificates, _ := balancer["certificates"].(map[string]any); certificates[originCertificate] == nil {
+		served, _ := field(balancer, "certificates", servedCertificate(balancer), "public-certificate").(string)
+		if secret == nil || rotate || !sameCertificate(served, origin) {
 			id := fmt.Sprint(balancer["id"])
-			steps = append(steps, step{fmt.Sprintf("install certificate %s on %s", originCertificate, d.Names.LB), func(ctx context.Context) error {
-				if _, err := p.Client.Call(ctx, "lb", "certificate", "create", "--load-balancer-id", id, "--certificate", command.JSON(map[string]string{
-					"certificateName": originCertificate, "publicCertificate": origin, "privateKey": key, "caCertificate": d.OriginPull.CACertificate})); err != nil {
-					return err
-				}
-				_, err := p.await(ctx, d.Names.LB, func() (map[string]any, error) { return p.balancer(ctx, d) }, func(r map[string]any) bool {
-					certificates, _ := r["certificates"].(map[string]any)
-					return certificates[originCertificate] != nil && r["lifecycle-state"] == "ACTIVE"
-				})
-				return err
-			}})
+			steps = append(steps, step{fmt.Sprintf("install the origin certificate on %s and serve it on both HTTPS listeners", d.Names.LB),
+				func(ctx context.Context) error { return p.serveOrigin(ctx, d, id, origin, key) }})
 		}
 	}
 	return steps, nil
+}
+
+// serveOrigin installs an origin certificate under a name derived from its
+// content, since a load balancer certificate cannot be replaced in place, and
+// points both HTTPS listeners at it. The certificate it replaces stays
+// installed until an operator deletes it.
+func (p Provisioner) serveOrigin(ctx context.Context, d Desired, id, origin, key string) error {
+	name := certificateName(origin)
+	balancer, err := p.balancer(ctx, d)
+	if err != nil {
+		return err
+	}
+	reload := func(ready func(map[string]any) bool) error {
+		balancer, err = p.await(ctx, d.Names.LB, func() (map[string]any, error) { return p.balancer(ctx, d) }, func(r map[string]any) bool {
+			return r["lifecycle-state"] == "ACTIVE" && ready(r)
+		})
+		return err
+	}
+	if field(balancer, "certificates", name) == nil {
+		if _, err := p.Client.Call(ctx, "lb", "certificate", "create", "--load-balancer-id", id, "--certificate", command.JSON(map[string]string{
+			"certificateName": name, "publicCertificate": origin, "privateKey": key, "caCertificate": d.OriginPull.CACertificate})); err != nil {
+			return err
+		}
+		if err := reload(func(r map[string]any) bool { return field(r, "certificates", name) != nil }); err != nil {
+			return err
+		}
+	}
+	for _, listener := range []string{"terrabase", "ts-auth"} {
+		if field(balancer, "listeners", listener, "ssl-configuration", "certificate-name") == name {
+			continue
+		}
+		if _, err := p.Client.Call(ctx, "lb", "listener", "update", "--load-balancer-id", id, "--listener-name", listener,
+			"--details", command.JSON(d.httpsListener(listener, name))); err != nil {
+			return err
+		}
+		if err := reload(func(r map[string]any) bool {
+			return field(r, "listeners", listener, "ssl-configuration", "certificate-name") == name
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// servedCertificate is the certificate the TerraBase HTTPS listener serves.
+func servedCertificate(lb map[string]any) string {
+	name, _ := field(lb, "listeners", "terrabase", "ssl-configuration", "certificate-name").(string)
+	return name
+}
+
+// certificateName names an origin certificate installed after the first by
+// its content, so a rerun finds it.
+func certificateName(certificatePEM string) string {
+	block, _ := pem.Decode([]byte(certificatePEM))
+	if block == nil {
+		return originCertificate
+	}
+	sum := sha256.Sum256(block.Bytes)
+	return originCertificate + "-" + hex.EncodeToString(sum[:6])
+}
+
+// sameCertificate compares two PEM certificates by DER.
+func sameCertificate(a, b string) bool {
+	x, _ := pem.Decode([]byte(a))
+	y, _ := pem.Decode([]byte(b))
+	return x != nil && y != nil && bytes.Equal(x.Bytes, y.Bytes)
 }
 
 // issueOrigin creates a key and has Cloudflare's Origin CA certify it.
@@ -165,6 +237,26 @@ func (p Provisioner) secret(ctx context.Context, d Desired) (map[string]any, err
 		}
 	}
 	return found, nil
+}
+
+// rotateSecret adds bundle as the secret's new current version.
+func (p Provisioner) rotateSecret(ctx context.Context, d Desired, secret map[string]any, bundle string) error {
+	id, err := command.ID(secret)
+	if err != nil {
+		return err
+	}
+	if _, err := p.Client.Call(ctx, "vault", "secret", "update-base64", "--secret-id", id,
+		"--secret-content-content", base64.StdEncoding.EncodeToString([]byte(bundle))); err != nil {
+		return err
+	}
+	_, err = p.await(ctx, d.Names.Secret, func() (map[string]any, error) { return p.secret(ctx, d) }, func(r map[string]any) bool {
+		if r["lifecycle-state"] != "ACTIVE" {
+			return false
+		}
+		current, _, err := p.originBundle(ctx, r, nil)
+		return err == nil && sameCertificate(current, bundle)
+	})
+	return err
 }
 
 func (p Provisioner) storeSecret(ctx context.Context, d Desired, bundle string) error {

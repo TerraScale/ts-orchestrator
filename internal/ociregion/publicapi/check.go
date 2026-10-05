@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/command"
@@ -37,7 +38,7 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 		!same(field(lb, "shape-details", "minimum-bandwidth-in-mbps"), d.MinMbps) || !same(field(lb, "shape-details", "maximum-bandwidth-in-mbps"), d.MaxMbps) {
 		return differs("state or shape", []any{lb["lifecycle-state"], lb["is-private"], lb["shape-name"], lb["shape-details"]})
 	}
-	hostnames := map[string]string{"terrabase": d.APIHost, "ts-auth": AuthHost}
+	hostnames := map[string]string{"terrabase": d.APIHost, "ts-auth": d.AuthHost}
 	live, _ := lb["hostnames"].(map[string]any)
 	if !slices.Equal(slices.Sorted(maps.Keys(live)), slices.Sorted(maps.Keys(hostnames))) {
 		return differs("hostnames", live)
@@ -48,6 +49,11 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 		}
 	}
 	listeners, _ := lb["listeners"].(map[string]any)
+	// Both HTTPS listeners serve the first origin certificate or a rotation of it.
+	served := servedCertificate(lb)
+	if served != originCertificate && !strings.HasPrefix(served, originCertificate+"-") {
+		return differs("origin certificate", served)
+	}
 	if !slices.Equal(slices.Sorted(maps.Keys(listeners)), []string{"http", "terrabase", "ts-auth"}) {
 		return differs("listeners", slices.Sorted(maps.Keys(listeners)))
 	}
@@ -61,7 +67,7 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 		} else {
 			ok = ok && same(l["port"], 443) && l["default-backend-set-name"] == name && same(l["hostname-names"], []string{name}) &&
 				same(l["rule-set-names"], []string{"security-headers"}) && l["path-route-set-name"] == nil && l["routing-policy-name"] == nil &&
-				field(l, "ssl-configuration", "certificate-name") == originCertificate && field(l, "ssl-configuration", "verify-peer-certificate") == true &&
+				field(l, "ssl-configuration", "certificate-name") == served && field(l, "ssl-configuration", "verify-peer-certificate") == true &&
 				same(field(l, "connection-configuration", "idle-timeout"), IdleTimeout)
 		}
 		if !ok {
@@ -115,16 +121,16 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 			return differs("backend set "+name, set)
 		}
 	}
-	for _, name := range []string{originCertificate, memberCA} {
+	for _, name := range []string{served, memberCA} {
 		if field(lb, "certificates", name) == nil {
 			return differs("certificate "+name, "missing")
 		}
 	}
-	if !sameCA(lb, originCertificate, d.OriginPull.CACertificate) {
+	if !sameCA(lb, served, d.OriginPull.CACertificate) {
 		return differs("origin-pull CA", "missing or different from the reviewed customer CA")
 	}
-	publicCertificate, _ := field(lb, "certificates", originCertificate, "public-certificate").(string)
-	if _, err := checkOriginCertificate(publicCertificate, []string{d.APIHost, AuthHost}, time.Now()); err != nil {
+	publicCertificate, _ := field(lb, "certificates", served, "public-certificate").(string)
+	if _, err := checkOriginCertificate(publicCertificate, []string{d.APIHost, d.AuthHost}, time.Now()); err != nil {
 		return fmt.Errorf("load balancer %s origin certificate: %w", d.Names.LB, err)
 	}
 	return nil
