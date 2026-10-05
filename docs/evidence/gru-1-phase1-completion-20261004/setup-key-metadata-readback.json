@@ -1,0 +1,17 @@
+[
+  {
+    "id": "db1dp3ka0rgg00dt35fg",
+    "name": "gru-servers",
+    "type": "reusable",
+    "state": "valid",
+    "valid": true,
+    "revoked": false,
+    "ephemeral": false,
+    "used_times": 0,
+    "expires": "0001-01-01T00:00:00Z",
+    "usage_limit": 0,
+    "auto_groups": [
+      "db1dl8ka0rgg00dt33l0"
+    ]
+  }
+]

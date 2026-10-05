@@ -1,0 +1,158 @@
+{
+  "data": [
+    {
+      "description": null,
+      "destination": null,
+      "destination-type": null,
+      "direction": "INGRESS",
+      "icmp-options": null,
+      "id": "4C7FDA",
+      "is-stateless": false,
+      "is-valid": true,
+      "protocol": "6",
+      "source": "10.251.0.21/32",
+      "source-type": "CIDR_BLOCK",
+      "tcp-options": {
+        "destination-port-range": {
+          "max": 9443,
+          "min": 9443
+        },
+        "source-port-range": null
+      },
+      "time-created": "2026-10-04T22:20:17.742000+00:00",
+      "udp-options": null
+    },
+    {
+      "description": null,
+      "destination": null,
+      "destination-type": null,
+      "direction": "INGRESS",
+      "icmp-options": null,
+      "id": "708207",
+      "is-stateless": false,
+      "is-valid": true,
+      "protocol": "6",
+      "source": "10.251.0.22/32",
+      "source-type": "CIDR_BLOCK",
+      "tcp-options": {
+        "destination-port-range": {
+          "max": 9443,
+          "min": 9443
+        },
+        "source-port-range": null
+      },
+      "time-created": "2026-10-04T22:20:17.742000+00:00",
+      "udp-options": null
+    },
+    {
+      "description": null,
+      "destination": null,
+      "destination-type": null,
+      "direction": "INGRESS",
+      "icmp-options": null,
+      "id": "4F42C5",
+      "is-stateless": false,
+      "is-valid": true,
+      "protocol": "6",
+      "source": "10.251.0.18/32",
+      "source-type": "CIDR_BLOCK",
+      "tcp-options": {
+        "destination-port-range": {
+          "max": 9465,
+          "min": 9465
+        },
+        "source-port-range": null
+      },
+      "time-created": "2026-10-04T22:20:17.742000+00:00",
+      "udp-options": null
+    },
+    {
+      "description": null,
+      "destination": null,
+      "destination-type": null,
+      "direction": "INGRESS",
+      "icmp-options": null,
+      "id": "2D5912",
+      "is-stateless": false,
+      "is-valid": true,
+      "protocol": "6",
+      "source": "10.251.0.128/26",
+      "source-type": "CIDR_BLOCK",
+      "tcp-options": {
+        "destination-port-range": {
+          "max": 9465,
+          "min": 9465
+        },
+        "source-port-range": null
+      },
+      "time-created": "2026-10-04T22:20:17.743000+00:00",
+      "udp-options": null
+    },
+    {
+      "description": null,
+      "destination": null,
+      "destination-type": null,
+      "direction": "INGRESS",
+      "icmp-options": null,
+      "id": "EC969A",
+      "is-stateless": false,
+      "is-valid": true,
+      "protocol": "6",
+      "source": "10.251.0.18/32",
+      "source-type": "CIDR_BLOCK",
+      "tcp-options": {
+        "destination-port-range": {
+          "max": 22,
+          "min": 22
+        },
+        "source-port-range": null
+      },
+      "time-created": "2026-10-04T22:20:17.743000+00:00",
+      "udp-options": null
+    },
+    {
+      "description": null,
+      "destination": null,
+      "destination-type": null,
+      "direction": "INGRESS",
+      "icmp-options": null,
+      "id": "4C8DC5",
+      "is-stateless": false,
+      "is-valid": true,
+      "protocol": "6",
+      "source": "10.250.10.155/32",
+      "source-type": "CIDR_BLOCK",
+      "tcp-options": {
+        "destination-port-range": {
+          "max": 9465,
+          "min": 9465
+        },
+        "source-port-range": null
+      },
+      "time-created": "2026-10-04T22:20:17.743000+00:00",
+      "udp-options": null
+    },
+    {
+      "description": null,
+      "destination": null,
+      "destination-type": null,
+      "direction": "INGRESS",
+      "icmp-options": null,
+      "id": "52C206",
+      "is-stateless": false,
+      "is-valid": true,
+      "protocol": "6",
+      "source": "10.250.10.155/32",
+      "source-type": "CIDR_BLOCK",
+      "tcp-options": {
+        "destination-port-range": {
+          "max": 22,
+          "min": 22
+        },
+        "source-port-range": null
+      },
+      "time-created": "2026-10-04T22:20:17.743000+00:00",
+      "udp-options": null
+    }
+  ]
+}

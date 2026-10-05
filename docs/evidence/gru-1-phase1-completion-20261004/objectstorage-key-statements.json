@@ -1,0 +1,3 @@
+[
+  "Allow service objectstorage-sa-saopaulo-1 to use keys in compartment gru-1-control where all {target.key.id='ocid1.key.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr57gu27ray2ukib2irijktpd6eqa6ou5zeqstsmasvqcr7hmfu2ia', any {request.permission='KEY_READ', request.permission='KEY_ENCRYPT', request.permission='KEY_DECRYPT'}}"
+]

@@ -1,0 +1,44 @@
+2026-10-04T22:49:38Z COS-relayed user instruction: finish phase 1; resume after recorded local jq preparation halt; phase 2 approved per gates; deletes/terminates still held
+2026-10-04T22:49:48Z existing compartments/vault/key read back unchanged; NetBird apply diff unchanged; OpenBao unchanged
+2026-10-04T22:51:45Z policy/group/bucket names verified absent; home region verified sa-saopaulo-1
+2026-10-04T22:54:15Z create policy gru-1-objectstorage-key start
+2026-10-04T22:54:22Z policy gru-1-objectstorage-key verified ocid1.policy.oc1..aaaaaaaaqyet7moovg7nnsy365k3ftw7dtdzk4xphgiva5kbenagaa36j2ga
+2026-10-04T22:55:21Z existing VCN/subnet/service gateway/routes/security read back unchanged
+2026-10-04T22:57:33Z create bucket gru-1-ledger start
+2026-10-04T22:57:38Z bucket gru-1-ledger verified ocid1.bucket.oc1.sa-saopaulo-1.aaaaaaaabo2rgaha4aipromni7xlycj6h6naxuzyx66sv5dg2hc5eh2uh7rq
+2026-10-04T22:57:38Z create bucket gru-1-head start
+2026-10-04T22:57:43Z bucket gru-1-head verified ocid1.bucket.oc1.sa-saopaulo-1.aaaaaaaacyfv72dwi7i4lzlqoqkrwgrchshwyd27q73ow545edbaodta5qda
+2026-10-04T22:57:43Z create bucket gru-1-backup start
+2026-10-04T22:57:50Z bucket gru-1-backup verified ocid1.bucket.oc1.sa-saopaulo-1.aaaaaaaatqi3yaului46jaitulx2nceewvb656p2ldiusd4ext6vi3glrg2q
+2026-10-04T22:57:50Z create bucket gru-1-material start
+2026-10-04T22:57:54Z bucket gru-1-material verified ocid1.bucket.oc1.sa-saopaulo-1.aaaaaaaaxv6xjdruu4kgdl6sov75e2o6dkfbnrta652fhgfepxqjblkktska
+2026-10-04T22:57:55Z create retention ledger-retention start
+2026-10-04T22:58:02Z retention ledger-retention verified ea20e32a-8a92-471a-a8e6-e0d7821b4c86
+2026-10-04T22:58:02Z create retention backup-retention start
+2026-10-04T22:58:07Z retention backup-retention verified 815f8687-54f9-47af-859e-c09d8156794b
+2026-10-04T22:59:12Z create dynamic group gru-1-controllers start
+2026-10-04T22:59:15Z dynamic group gru-1-controllers verified ocid1.dynamicgroup.oc1..aaaaaaaagrzcjyxnxf4uabwca7munbukusn3nvnhvnnkquk66gxb36jvu47q
+2026-10-04T22:59:15Z create dynamic group gru-1-hosts start
+2026-10-04T22:59:19Z dynamic group gru-1-hosts verified ocid1.dynamicgroup.oc1..aaaaaaaazgthpwxmpjls4lrxqxbpv66dyxqsxjn423ieny6s7otuuliukolq
+2026-10-04T22:59:19Z create policy gru-1-controller-policy start
+2026-10-04T22:59:22Z policy gru-1-controller-policy verified ocid1.policy.oc1..aaaaaaaa3q47uueq3c7oqaglwqlnjgmb5tjbbhz2vomxvkpyyic6rlsqpfoq
+2026-10-04T23:00:47Z apply approved 18-change NetBird sync start
+2026-10-04T23:00:52Z approved NetBird sync verified; zero pending changes; shared peers/account/policies preserved
+2026-10-04T23:08:37Z read-only verification CLI noun corrected from email-domain to domain; all three Email Delivery readbacks unchanged and ACTIVE; no mutation request occurred
+2026-10-04T23:09:02Z create setup key gru-servers start
+2026-10-04T23:10:06Z setup key gru-servers independently verified; never expires, usage_limit=0, only approved auto-group
+2026-10-04T23:10:06Z create secret gru-1-netbird-setup-key start
+2026-10-04T23:10:29Z secret gru-1-netbird-setup-key verified ACTIVE version=1; independent CURRENT bundle matched privately; ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqaj7iuycp5pjd36u35pmekfwrubyvhtalvzvjun2xtdv3q
+2026-10-04T23:10:29Z create secret gru-1-netbird-admin-pat start
+2026-10-04T23:10:43Z secret gru-1-netbird-admin-pat verified ACTIVE version=1; independent CURRENT bundle matched privately; ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqa47dfouwhtievxunck43w4pyccvjgwkfvfglthsopvszq
+2026-10-04T23:11:41Z create policy gru-1-netbird-enrollment start; home region sa-saopaulo-1
+2026-10-04T23:11:45Z policy gru-1-netbird-enrollment verified ACTIVE with exact statements; ocid1.policy.oc1..aaaaaaaa3ro6gkfcrqwwdeolyewx54hrchvvujoqhakf6ycde5mawnd7spnq
+2026-10-04T23:11:45Z create policy gru-1-netbird-admin-pat start; home region sa-saopaulo-1
+2026-10-04T23:11:48Z policy gru-1-netbird-admin-pat verified ACTIVE with exact statements; ocid1.policy.oc1..aaaaaaaaiecrdwbzadi3oeiojyve2qbwzg75k7j2qmytrebzz5sptlzjb4eq
+2026-10-04T23:11:49Z phase-1 remaining creates completed; final NetBird dry-run no changes and no warnings
+2026-10-04T23:15:58Z final read-only checks corrected OCI CLI nsg-id spelling and removed an unnecessary jq aggregation; no mutation request occurred
+2026-10-04T23:15:58Z shared preservation verified: NetBird account/peers/config unchanged apart from approved setup key and volatile status; ts-ops VNIC/routes/NSG, Forgejo, Email Delivery and OpenBao unchanged
+2026-10-04T23:18:30Z local format/generated/vet/PR-tier race tests/backup self-check/shellcheck/build passed; image inputs check passed
+2026-10-04T23:20:31Z IAM shared before/after preserved apart from two approved dynamic groups and four approved policies; earlier read-only jq argument error corrected with direct file comparison
+2026-10-04T23:20:31Z final native admission verified 91.16 USD/month; expires 2026-10-04T23:33:49Z; image not imported
+2026-10-04T23:21:53Z evidence JSON/hash/scope/secret-exclusion checks passed; no scoped image/compute created; four empty private encrypted buckets verified

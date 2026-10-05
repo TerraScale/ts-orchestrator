@@ -1,0 +1,36 @@
+{
+  "data": {
+    "auto-key-rotation-details": null,
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaaifvroeyjgu4l5h5gy4qzv7t6yfbcbd3fwwqxmzbamqkbjc5nvria",
+    "current-key-version": "ocid1.keyversion.oc1.sa-saopaulo-1.ffvlrlvkaaaw6.eeqpnk4mmiaaa.abtxeljrliwhm5rlgz35hsqdffqg7dz2wpvdy5iepf2vu7xkaojnrt6s5mra",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-09-27T07:30:40.647Z"
+      }
+    },
+    "display-name": "terrascale-control-key-gru",
+    "external-key-reference-details": null,
+    "freeform-tags": {
+      "ManagedBy": "ts-infra",
+      "Region": "GRU",
+      "Service": "TerraScale"
+    },
+    "id": "ocid1.key.oc1.sa-saopaulo-1.ffvlrlvkaaaw6.abtxeljrnnobtfquqr72nookj62d552db3dmth4l2iopbxspcsd4t3lddj5q",
+    "is-auto-rotation-enabled": false,
+    "is-primary": true,
+    "key-shape": {
+      "algorithm": "AES",
+      "curve-id": null,
+      "length": 32
+    },
+    "lifecycle-state": "PENDING_DELETION",
+    "protection-mode": "HSM",
+    "replica-details": null,
+    "restored-from-key-id": null,
+    "time-created": "2026-09-27T07:30:40.838000+00:00",
+    "time-of-deletion": "2026-10-11T01:48:37.642000+00:00",
+    "vault-id": "ocid1.vault.oc1.sa-saopaulo-1.ffvlrlvkaaaw6.abtxeljrrjahmb7sqvwq2hlh3sa75a6qbrp44mcdg4kuof7vcyr2it3qs5oq"
+  },
+  "etag": "6b59c76eaa808e65ea6248512603d6070ae7d156--gzip"
+}

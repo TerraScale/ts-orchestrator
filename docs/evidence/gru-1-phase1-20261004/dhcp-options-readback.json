@@ -1,0 +1,36 @@
+{
+  "data": {
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaalwvfqxlo5qul4f4xehx3rct5yk5dv673rlz5tqern4zd6kzjvu4a",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-10-04T22:12:25.857Z"
+      }
+    },
+    "display-name": "Default DHCP Options for gru-1-vcn",
+    "domain-name-type": "CUSTOM_DOMAIN",
+    "freeform-tags": {
+      "terrascale-cell": "gru-1",
+      "terrascale-owner": "ts-470-gru-rebuild-2",
+      "terrascale-ticket": "TS-470"
+    },
+    "id": "ocid1.dhcpoptions.oc1.sa-saopaulo-1.aaaaaaaaz7hga4rehb4h7v2vwm4gqwjlnbhhr6eyvhqhcycyzfeqlv6kuctq",
+    "lifecycle-state": "AVAILABLE",
+    "options": [
+      {
+        "custom-dns-servers": [],
+        "server-type": "VcnLocalPlusInternet",
+        "type": "DomainNameServer"
+      },
+      {
+        "search-domain-names": [
+          "gru1.oraclevcn.com"
+        ],
+        "type": "SearchDomain"
+      }
+    ],
+    "time-created": "2026-10-04T22:12:26.021000+00:00",
+    "vcn-id": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqaqb5yhudvuikbvcowjufiue2wi5jx72xujzulqkq6jvhq"
+  },
+  "etag": "1caa1806"
+}

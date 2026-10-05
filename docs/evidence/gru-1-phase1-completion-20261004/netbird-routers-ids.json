@@ -1,0 +1,12 @@
+[
+  {
+    "id": "db1dl8ka0rgg00dt33pg",
+    "name": null,
+    "address": null,
+    "peer": "dauk7uca0rgg00bik16g",
+    "peer_groups": null,
+    "metric": 100,
+    "masquerade": true,
+    "enabled": true
+  }
+]

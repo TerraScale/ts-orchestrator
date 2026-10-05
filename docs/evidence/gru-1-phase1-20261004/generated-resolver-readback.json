@@ -1,0 +1,29 @@
+{
+  "data": {
+    "-self": "https://dns.sa-saopaulo-1.oci.oraclecloud.com/20180115/resolvers/ocid1.dnsresolver.oc1.sa-saopaulo-1.amaaaaaappuhpdqaaeodycn6egruziwdkbd2rcgmc5jxskj7fyw5rajvjvba",
+    "attached-vcn-id": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqaqb5yhudvuikbvcowjufiue2wi5jx72xujzulqkq6jvhq",
+    "attached-views": [],
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaalwvfqxlo5qul4f4xehx3rct5yk5dv673rlz5tqern4zd6kzjvu4a",
+    "default-view-id": "ocid1.dnsview.oc1.sa-saopaulo-1.aaaaaaaahb64rges4lm23rkln5ihjsba2772c5d44ib6vsf5yqpv74qjswcq",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-10-04T22:12:25.857Z"
+      }
+    },
+    "display-name": "gru-1-vcn",
+    "endpoints": [],
+    "freeform-tags": {
+      "terrascale-cell": "gru-1",
+      "terrascale-owner": "ts-470-gru-rebuild-2",
+      "terrascale-ticket": "TS-470"
+    },
+    "id": "ocid1.dnsresolver.oc1.sa-saopaulo-1.amaaaaaappuhpdqaaeodycn6egruziwdkbd2rcgmc5jxskj7fyw5rajvjvba",
+    "is-protected": true,
+    "lifecycle-state": "ACTIVE",
+    "rules": [],
+    "time-created": "2026-10-04T22:12:27.856000+00:00",
+    "time-updated": "2026-10-04T22:12:27.856000+00:00"
+  },
+  "etag": "\"1#application/json\""
+}

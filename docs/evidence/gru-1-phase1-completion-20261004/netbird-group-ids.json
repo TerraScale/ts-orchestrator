@@ -1,0 +1,26 @@
+[
+  {
+    "id": "dau6o5ka0rgg00bijsjg",
+    "name": "All",
+    "peers": 4,
+    "resources": 0
+  },
+  {
+    "id": "dau6qfsa0rgg00bijsrg",
+    "name": "operators",
+    "peers": 3,
+    "resources": 0
+  },
+  {
+    "id": "dauk6uka0rgg00bik0p0",
+    "name": "ts-ops-gateway",
+    "peers": 1,
+    "resources": 0
+  },
+  {
+    "id": "db1dl8ka0rgg00dt33l0",
+    "name": "gru-servers",
+    "peers": 0,
+    "resources": 0
+  }
+]

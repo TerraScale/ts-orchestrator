@@ -1,0 +1,232 @@
+{
+	"buckets": [
+		{
+			"bytes": 72941678704,
+			"compartment_id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
+			"kms_key_id": null,
+			"name": "ts-forgejo",
+			"object_count": 15813,
+			"public_access_type": "NoPublicAccess",
+			"region": "sa-saopaulo-1",
+			"storage_tier": "Standard",
+			"versioning": "Disabled"
+		},
+		{
+			"bytes": 46167014592,
+			"compartment_id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
+			"kms_key_id": null,
+			"name": "ts-forgejo-backup",
+			"object_count": 2690,
+			"public_access_type": "NoPublicAccess",
+			"region": "sa-saopaulo-1",
+			"storage_tier": "Standard",
+			"versioning": "Disabled"
+		}
+	],
+	"captured_at": "2026-10-04T22:07:17.293143+00:00",
+	"images": [],
+	"plan_sha256": "31c021753154227923400d1493238c7e952bf8d45f2e849313cf0a2b8527c606",
+	"preview_compartment_ids": {
+		"control": null,
+		"network": null,
+		"workload": null
+	},
+	"regions": [
+		"eu-frankfurt-1",
+		"sa-saopaulo-1",
+		"us-sanjose-1"
+	],
+	"resources": [
+		{
+			"availability-domain": "YDvv:SA-SAOPAULO-1-AD-1",
+			"compartment-id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
+			"display-name": "ts-ops",
+			"fault-domain": "FAULT-DOMAIN-2",
+			"freeform-tags": {
+				"ManagedBy": "HomeLab",
+				"Migration": "oci",
+				"Role": "staging",
+				"Service": "Forgejo"
+			},
+			"id": "ocid1.instance.oc1.sa-saopaulo-1.antxeljrppuhpdqc53olclenle4v5cjyionsslnbelqojmund72yjdppmuna",
+			"kind": "instance",
+			"lifecycle-state": "RUNNING",
+			"region": "sa-saopaulo-1",
+			"shape": "VM.Standard.A1.Flex",
+			"shape-config": {
+				"gpu-description": null,
+				"gpus": 0,
+				"local-disk-description": null,
+				"local-disks": 0,
+				"local-disks-total-size-in-gbs": null,
+				"local-volume-size-in-gbs": null,
+				"max-vnic-attachments": 2,
+				"memory-in-gbs": 4,
+				"networking-bandwidth-in-gbps": 2,
+				"ocpus": 2,
+				"processor-description": "3.0 GHz Ampere® Altra™",
+				"vcpus": 2
+			},
+			"time-created": "2026-09-17T14:10:37.222Z"
+		},
+		{
+			"availability-domain": "YDvv:SA-SAOPAULO-1-AD-1",
+			"compartment-id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
+			"display-name": "ts-forgejo-data",
+			"freeform-tags": {},
+			"id": "ocid1.volume.oc1.sa-saopaulo-1.abtxeljrftl5rmofsk5lpo43o2aaud4byu7rg2tvonqoh3i7t76hcx23pkna",
+			"kind": "volume",
+			"lifecycle-state": "AVAILABLE",
+			"region": "sa-saopaulo-1",
+			"size-in-gbs": 50,
+			"time-created": "2026-09-18T15:19:07.552Z",
+			"vpus-per-gb": 10
+		},
+		{
+			"cidr-block": "10.250.0.0/16",
+			"compartment-id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
+			"display-name": "ts-ops-vcn",
+			"freeform-tags": {
+				"ManagedBy": "HomeLab",
+				"Migration": "oci",
+				"Service": "Forgejo"
+			},
+			"id": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqacrdeeo2nt2raxsm5vs4wuevdt6nygxt33j25pxobnr2a",
+			"kind": "vcn",
+			"lifecycle-state": "AVAILABLE",
+			"region": "sa-saopaulo-1",
+			"time-created": "2026-09-17T14:04:46.612Z"
+		},
+		{
+			"availability-domain": null,
+			"cidr-block": "10.250.10.0/24",
+			"compartment-id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
+			"display-name": "ts-ops-public",
+			"freeform-tags": {
+				"ManagedBy": "HomeLab",
+				"Migration": "oci",
+				"Service": "Forgejo"
+			},
+			"id": "ocid1.subnet.oc1.sa-saopaulo-1.aaaaaaaalmgzqpofr7t2wjomaaqz2ou4v23ymulkec2zdgpyekxhtm3r4dpa",
+			"kind": "subnet",
+			"lifecycle-state": "AVAILABLE",
+			"prohibit-internet-ingress": false,
+			"prohibit-public-ip-on-vnic": false,
+			"region": "sa-saopaulo-1",
+			"time-created": "2026-09-17T14:04:59.331Z",
+			"vcn-id": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqacrdeeo2nt2raxsm5vs4wuevdt6nygxt33j25pxobnr2a"
+		},
+		{
+			"compartment-id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
+			"display-name": "ts-ops-nsg",
+			"freeform-tags": {
+				"ManagedBy": "HomeLab",
+				"Migration": "oci",
+				"Service": "Forgejo"
+			},
+			"id": "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.aaaaaaaabtl6qvnet4njhx322ouuk7s6dyclt4iyhecwpwpxti6hwtaeqmrq",
+			"kind": "network-security-group",
+			"lifecycle-state": "AVAILABLE",
+			"region": "sa-saopaulo-1",
+			"time-created": "2026-09-17T14:04:53.895Z",
+			"vcn-id": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqacrdeeo2nt2raxsm5vs4wuevdt6nygxt33j25pxobnr2a"
+		},
+		{
+			"compartment-id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
+			"display-name": "Default Security List for ts-ops-vcn",
+			"freeform-tags": {
+				"ManagedBy": "HomeLab",
+				"Migration": "oci",
+				"Service": "Forgejo"
+			},
+			"id": "ocid1.securitylist.oc1.sa-saopaulo-1.aaaaaaaazxjyfzp2qpjvhmpblthrlaajav6tpxhsbwlrxlc7dvfxoeq7ugsa",
+			"kind": "security-list",
+			"lifecycle-state": "AVAILABLE",
+			"region": "sa-saopaulo-1",
+			"time-created": "2026-09-17T14:04:46.612Z",
+			"vcn-id": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqacrdeeo2nt2raxsm5vs4wuevdt6nygxt33j25pxobnr2a"
+		},
+		{
+			"compartment-id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
+			"display-name": "ts-ops-public-rt",
+			"freeform-tags": {
+				"ManagedBy": "HomeLab",
+				"Migration": "oci",
+				"Service": "Forgejo"
+			},
+			"id": "ocid1.routetable.oc1.sa-saopaulo-1.aaaaaaaaikzkrgryjmv2lok7zplayqp4xaqwsj6h5liaaqaes7wdtgmik3ba",
+			"kind": "route-table",
+			"lifecycle-state": "AVAILABLE",
+			"region": "sa-saopaulo-1",
+			"time-created": "2026-09-17T14:04:51.585Z",
+			"vcn-id": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqacrdeeo2nt2raxsm5vs4wuevdt6nygxt33j25pxobnr2a"
+		},
+		{
+			"compartment-id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
+			"display-name": "Default Route Table for ts-ops-vcn",
+			"freeform-tags": {
+				"ManagedBy": "HomeLab",
+				"Migration": "oci",
+				"Service": "Forgejo"
+			},
+			"id": "ocid1.routetable.oc1.sa-saopaulo-1.aaaaaaaalsdrlwer74meox7bffk35qor4dgdzg7snzqaw6m5ldgmef6psk7q",
+			"kind": "route-table",
+			"lifecycle-state": "AVAILABLE",
+			"region": "sa-saopaulo-1",
+			"time-created": "2026-09-17T14:04:46.612Z",
+			"vcn-id": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqacrdeeo2nt2raxsm5vs4wuevdt6nygxt33j25pxobnr2a"
+		},
+		{
+			"compartment-id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
+			"display-name": "ts-ops-igw",
+			"freeform-tags": {
+				"ManagedBy": "HomeLab",
+				"Migration": "oci",
+				"Service": "Forgejo"
+			},
+			"id": "ocid1.internetgateway.oc1.sa-saopaulo-1.aaaaaaaaubi6okhp3hff5uojvcszg36r4jkay6zctgyejzfmr44tkyeauona",
+			"kind": "internet-gateway",
+			"lifecycle-state": "AVAILABLE",
+			"region": "sa-saopaulo-1",
+			"time-created": "2026-09-17T14:04:48.932Z",
+			"vcn-id": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqacrdeeo2nt2raxsm5vs4wuevdt6nygxt33j25pxobnr2a"
+		},
+		{
+			"availability-domain": "YDvv:SA-SAOPAULO-1-AD-1",
+			"compartment-id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
+			"display-name": "ts-ops (Boot Volume)",
+			"freeform-tags": {
+				"ManagedBy": "HomeLab",
+				"Migration": "oci",
+				"Role": "staging",
+				"Service": "Forgejo"
+			},
+			"id": "ocid1.bootvolume.oc1.sa-saopaulo-1.abtxeljrjnf4m3cln7mhnd6yjfr3ju3sak3mkntjgkqp2sp5ick7c72griva",
+			"kind": "boot-volume",
+			"lifecycle-state": "AVAILABLE",
+			"region": "sa-saopaulo-1",
+			"size-in-gbs": 50,
+			"time-created": "2026-09-17T14:10:41.398Z",
+			"vpus-per-gb": 10
+		},
+		{
+			"availability-domain": null,
+			"compartment-id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
+			"display-name": "ts-ops-public-ip",
+			"freeform-tags": {
+				"ManagedBy": "HomeLab",
+				"Migration": "oci",
+				"Service": "Forgejo"
+			},
+			"id": "ocid1.publicip.oc1.sa-saopaulo-1.amaaaaaappuhpdqa7p425o26upbrbhao3gxbpce5oze5546veezc3zwl4kja",
+			"ip-address": "163.176.73.79",
+			"kind": "public-ip",
+			"lifecycle-state": "ASSIGNED",
+			"region": "sa-saopaulo-1",
+			"scope": "REGION",
+			"time-created": "2026-09-17T14:10:12.154Z"
+		}
+	],
+	"schema_version": 2,
+	"tenancy_id": "ocid1.tenancy.oc1..aaaaaaaae4zbeypc66rholaayphrk6h2eg7j4up6tfncehv6agji6o5v4yga"
+}

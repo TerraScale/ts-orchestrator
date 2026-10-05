@@ -1,0 +1,11 @@
+[
+  {
+    "id": "db1dl8ka0rgg00dt33ug",
+    "name": "gru-cell",
+    "domain": "gru.ts.internal",
+    "enabled": true,
+    "distribution_groups": [
+      "dau6qfsa0rgg00bijsrg"
+    ]
+  }
+]

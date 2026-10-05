@@ -1,0 +1,369 @@
+{
+  "account": {
+    "network_range": "10.200.0.0/16",
+    "dns_domain": "nb.ts.internal"
+  },
+  "dns": {
+    "disabled_management_groups": [
+      "gru-servers"
+    ]
+  },
+  "groups": [
+    {
+      "name": "All",
+      "peers": 4,
+      "resources": 0
+    },
+    {
+      "name": "gru-servers",
+      "peers": 0,
+      "resources": 0
+    },
+    {
+      "name": "operators",
+      "peers": 3,
+      "resources": 0
+    },
+    {
+      "name": "ts-ops-gateway",
+      "peers": 1,
+      "resources": 0
+    }
+  ],
+  "peers": [
+    {
+      "name": "beta",
+      "dns_label": "beta.nb.ts.internal",
+      "ip": "10.200.186.149",
+      "connection_ip": "179.124.206.245",
+      "connected": true,
+      "last_seen": "2026-10-03T23:20:38Z",
+      "version": "v0.71.4",
+      "groups": [
+        "All",
+        "operators"
+      ]
+    },
+    {
+      "name": "delta",
+      "dns_label": "delta.nb.ts.internal",
+      "ip": "10.200.87.10",
+      "connection_ip": "179.124.206.245",
+      "connected": true,
+      "last_seen": "2026-10-04T12:09:23Z",
+      "version": "v0.71.4",
+      "groups": [
+        "All",
+        "operators"
+      ]
+    },
+    {
+      "name": "mariogk-laptop",
+      "dns_label": "mariogk-laptop.nb.ts.internal",
+      "ip": "10.200.72.78",
+      "connection_ip": "179.124.206.245",
+      "connected": false,
+      "last_seen": "2026-10-04T18:50:06Z",
+      "version": "0.79.0",
+      "groups": [
+        "All",
+        "operators"
+      ]
+    },
+    {
+      "name": "ts-ops",
+      "dns_label": "ts-ops.nb.ts.internal",
+      "ip": "10.200.106.253",
+      "connection_ip": "163.176.73.79",
+      "connected": true,
+      "last_seen": "2026-10-03T06:30:33Z",
+      "version": "0.79.0",
+      "groups": [
+        "All",
+        "ts-ops-gateway"
+      ]
+    }
+  ],
+  "policies": [
+    {
+      "name": "operators-to-ts-ops-forgejo",
+      "description": "Operators → ts-ops: Git SSH 22, HTTPS 443, admin SSH 2022",
+      "enabled": true,
+      "rules": [
+        {
+          "name": "operators-to-ts-ops-forgejo",
+          "enabled": true,
+          "action": "accept",
+          "bidirectional": false,
+          "protocol": "tcp",
+          "ports": [
+            "22",
+            "443",
+            "2022"
+          ],
+          "sources": [
+            "operators"
+          ],
+          "destinations": [
+            "ts-ops-gateway"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "operators-to-ts-ops-ping",
+      "description": "Operators → ts-ops: ICMP ping",
+      "enabled": true,
+      "rules": [
+        {
+          "name": "operators-to-ts-ops-ping",
+          "enabled": true,
+          "action": "accept",
+          "bidirectional": false,
+          "protocol": "icmp",
+          "ports": [],
+          "sources": [
+            "operators"
+          ],
+          "destinations": [
+            "ts-ops-gateway"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "operators-to-gru-cell-ops-ports",
+      "description": "Operators → GRU cell subnet: SSH 22, NATS 4222, TerraBase 9465",
+      "enabled": true,
+      "rules": [
+        {
+          "name": "operators-to-gru-cell-ops-ports",
+          "enabled": true,
+          "action": "accept",
+          "bidirectional": false,
+          "protocol": "tcp",
+          "ports": [
+            "22",
+            "4222",
+            "9465"
+          ],
+          "sources": [
+            "operators"
+          ],
+          "destinations": [],
+          "destination_resource": "gru-cell/gru-cell-private-subnet"
+        }
+      ]
+    },
+    {
+      "name": "operators-to-gru-servers-ssh",
+      "description": "Operators → GRU servers: NetBird SSH with identity-provider login",
+      "enabled": true,
+      "rules": [
+        {
+          "name": "operators-to-gru-servers-ssh",
+          "enabled": true,
+          "action": "accept",
+          "bidirectional": false,
+          "protocol": "netbird-ssh",
+          "ports": [],
+          "sources": [
+            "operators"
+          ],
+          "destinations": [
+            "gru-servers"
+          ]
+        }
+      ]
+    }
+  ],
+  "networks": [
+    {
+      "name": "gru-cell",
+      "description": "TerraScale GRU private cell",
+      "resources": [
+        {
+          "name": "gru-cell-private-subnet",
+          "address": "10.251.0.0/25",
+          "enabled": true,
+          "groups": []
+        }
+      ],
+      "routers": [
+        {
+          "peer": "ts-ops",
+          "peer_groups": 0,
+          "metric": 100,
+          "masquerade": true,
+          "enabled": true
+        }
+      ]
+    }
+  ],
+  "zones": [
+    {
+      "name": "gru-cell",
+      "domain": "gru.ts.internal",
+      "enabled": true,
+      "enable_search_domain": false,
+      "distribution_groups": [
+        "operators"
+      ],
+      "records": [
+        {
+          "name": "ctl-1.gru.ts.internal",
+          "type": "A",
+          "content": "10.251.0.11",
+          "ttl": 300
+        },
+        {
+          "name": "ctl-2.gru.ts.internal",
+          "type": "A",
+          "content": "10.251.0.12",
+          "ttl": 300
+        },
+        {
+          "name": "ctl-3.gru.ts.internal",
+          "type": "A",
+          "content": "10.251.0.13",
+          "ttl": 300
+        },
+        {
+          "name": "db-1.gru.ts.internal",
+          "type": "A",
+          "content": "10.251.0.21",
+          "ttl": 300
+        },
+        {
+          "name": "db-2.gru.ts.internal",
+          "type": "A",
+          "content": "10.251.0.22",
+          "ttl": 300
+        },
+        {
+          "name": "nats.gru.ts.internal",
+          "type": "A",
+          "content": "10.251.0.11",
+          "ttl": 300
+        },
+        {
+          "name": "nats.gru.ts.internal",
+          "type": "A",
+          "content": "10.251.0.12",
+          "ttl": 300
+        },
+        {
+          "name": "nats.gru.ts.internal",
+          "type": "A",
+          "content": "10.251.0.13",
+          "ttl": 300
+        },
+        {
+          "name": "terrabase.gru.ts.internal",
+          "type": "A",
+          "content": "10.251.0.21",
+          "ttl": 300
+        },
+        {
+          "name": "terrabase.gru.ts.internal",
+          "type": "A",
+          "content": "10.251.0.22",
+          "ttl": 300
+        }
+      ]
+    }
+  ],
+  "setup_keys": [
+    {
+      "name": "ts-forgejo-gateway",
+      "type": "one-off",
+      "state": "expired",
+      "valid": false,
+      "revoked": true,
+      "ephemeral": false,
+      "used_times": 1,
+      "expires": "2026-10-01T17:14:37.702047765Z",
+      "auto_groups": [
+        "ts-ops-gateway"
+      ]
+    },
+    {
+      "name": "netbird-routing-verification-20260930",
+      "type": "one-off",
+      "state": "expired",
+      "valid": false,
+      "revoked": true,
+      "ephemeral": true,
+      "used_times": 1,
+      "expires": "2026-10-01T18:22:54.055615219Z",
+      "auto_groups": [
+        "operators"
+      ]
+    },
+    {
+      "name": "beta",
+      "type": "one-off",
+      "state": "overused",
+      "valid": false,
+      "revoked": false,
+      "ephemeral": false,
+      "used_times": 1,
+      "expires": "2026-10-10T02:45:59.588763314Z",
+      "auto_groups": [
+        "operators"
+      ]
+    },
+    {
+      "name": "delta",
+      "type": "one-off",
+      "state": "overused",
+      "valid": false,
+      "revoked": false,
+      "ephemeral": false,
+      "used_times": 1,
+      "expires": "2026-10-10T02:46:00.505230413Z",
+      "auto_groups": [
+        "operators"
+      ]
+    },
+    {
+      "name": "beta-fctest",
+      "type": "one-off",
+      "state": "expired",
+      "valid": false,
+      "revoked": false,
+      "ephemeral": false,
+      "used_times": 1,
+      "expires": "2026-10-04T03:00:47.962732637Z",
+      "auto_groups": [
+        "operators"
+      ]
+    },
+    {
+      "name": "beta-fctest2",
+      "type": "one-off",
+      "state": "expired",
+      "valid": false,
+      "revoked": false,
+      "ephemeral": false,
+      "used_times": 1,
+      "expires": "2026-10-04T03:30:05.95034426Z",
+      "auto_groups": [
+        "operators"
+      ]
+    },
+    {
+      "name": "beta",
+      "type": "one-off",
+      "state": "expired",
+      "valid": false,
+      "revoked": false,
+      "ephemeral": false,
+      "used_times": 1,
+      "expires": "2026-10-04T19:53:27.498922111Z",
+      "auto_groups": [
+        "operators"
+      ]
+    }
+  ]
+}

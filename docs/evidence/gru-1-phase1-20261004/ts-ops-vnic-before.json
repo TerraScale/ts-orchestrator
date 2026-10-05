@@ -1,0 +1,37 @@
+{
+  "data": {
+    "availability-domain": "YDvv:SA-SAOPAULO-1-AD-1",
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-09-17T14:10:36.908Z"
+      }
+    },
+    "display-name": "ts-ops",
+    "freeform-tags": {
+      "ManagedBy": "HomeLab",
+      "Migration": "oci",
+      "Role": "staging",
+      "Service": "Forgejo"
+    },
+    "hostname-label": "ts-ops",
+    "id": "ocid1.vnic.oc1.sa-saopaulo-1.abtxeljro7re4bsi2baknkl3iw5duxcxlayxd6ibfzl737okbfebhqw46ewq",
+    "ipv6-addresses": null,
+    "is-primary": true,
+    "lifecycle-state": "AVAILABLE",
+    "mac-address": "02:00:17:09:4A:5B",
+    "nsg-ids": [
+      "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.aaaaaaaabtl6qvnet4njhx322ouuk7s6dyclt4iyhecwpwpxti6hwtaeqmrq"
+    ],
+    "private-ip": "10.250.10.155",
+    "public-ip": "163.176.73.79",
+    "route-table-id": null,
+    "security-attributes": {},
+    "skip-source-dest-check": false,
+    "subnet-id": "ocid1.subnet.oc1.sa-saopaulo-1.aaaaaaaalmgzqpofr7t2wjomaaqz2ou4v23ymulkec2zdgpyekxhtm3r4dpa",
+    "time-created": "2026-09-17T14:10:41.799000+00:00",
+    "vlan-id": null
+  },
+  "etag": "fef68c02"
+}

@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "cidr-block": "all-gru-services-in-oracle-services-network",
+      "description": "All GRU Services In Oracle Services Network",
+      "id": "ocid1.service.oc1.sa-saopaulo-1.aaaaaaaacd57uig6rzxm2qfipukbqpje2bhztqszh3aj7zk2jtvf6gvntena",
+      "name": "All GRU Services In Oracle Services Network"
+    },
+    {
+      "cidr-block": "oci-gru-objectstorage",
+      "description": "OCI GRU Object Storage",
+      "id": "ocid1.service.oc1.sa-saopaulo-1.aaaaaaaalrthnhiysrsux6lnhougwb2wvq37bd2tpf2au4ieahtg57zw7ura",
+      "name": "OCI GRU Object Storage"
+    }
+  ]
+}

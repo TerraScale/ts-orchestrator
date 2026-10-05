@@ -1,0 +1,27 @@
+{
+  "data": {
+    "cname-record-value": "terrascale-tech-dkim.terrascale.tech.dkim.gru1.oracleemaildelivery.com",
+    "compartment-id": "ocid1.tenancy.oc1..aaaaaaaae4zbeypc66rholaayphrk6h2eg7j4up6tfncehv6agji6o5v4yga",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-09-20T20:15:36.283Z"
+      }
+    },
+    "description": null,
+    "dns-subdomain-name": "terrascale-tech-dkim._domainkey.terrascale.tech.",
+    "email-domain-id": "ocid1.emaildomain.oc1.sa-saopaulo-1.amaaaaaappuhpdqag3fj4is2ojjloo27y3qk5tmqn4oc6zoz4c2hxs7cynnq",
+    "freeform-tags": {},
+    "id": "ocid1.emaildkim.oc1.sa-saopaulo-1.amaaaaaappuhpdqaixwfllnm5bwdfkslodprj2f4mlgvx2pz65eggqiaq5ea",
+    "is-imported": false,
+    "key-length": 2048,
+    "lifecycle-details": null,
+    "lifecycle-state": "ACTIVE",
+    "name": "terrascale-tech-dkim",
+    "system-tags": {},
+    "time-created": "2026-09-20T20:15:36.357000+00:00",
+    "time-updated": "2026-09-21T17:53:16.204000+00:00",
+    "txt-record-value": "v=DKIM1;h=sha256;p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsDkYFUeizG9ncKmiXlclHvkm0FTXym+SagTWkIbO+gigbTEz5Dcb99k/d/amKx9/Gytk89GG4/bDu8D767CpCkKDqGmTFyuHFDaMCj/EaIDcFgk4dYCbbgYi15XAoOAEeXO1P8btWS1q1REmO5Zl2t6wGGaJjbF/b+q22UylIrHT67px0w7kERNMXJKrn2iqsq9qJrsnJOfpzVo6e1xbGJ6E1eLQLyjpUSygV0hTdg5C8Zs4he9iMxKdHHebIDlEoO6bdOusJBS+t2CqvJQTaH7r/6PA7nwr2b+OYDnoljQHKQ3M+Q6SnyKFbjwdb6glUk27CmJL3JSXx981gQv+SQIDAQAB"
+  },
+  "etag": "b8bbe37ec968b6e5fc6e95b65b5039ddaca8732e4b3490110b37b648921f9504--gzip"
+}

@@ -1,0 +1,3 @@
+[
+  "Allow dynamic-group gru-1-controllers to read secret-bundles in compartment id ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq where target.secret.id = 'ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqa47dfouwhtievxunck43w4pyccvjgwkfvfglthsopvszq'"
+]

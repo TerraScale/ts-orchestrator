@@ -1,0 +1,40 @@
+/tmp/ts470-phase1-ts-orch: go1.27.1
+	path	git.terrascale.tech/TerraScale/ts-orchestrator/cmd/terrascale-orchestrator
+	mod	git.terrascale.tech/TerraScale/ts-orchestrator	v0.0.0-20261004214133-052a96bebdb8
+	dep	github.com/CAFxX/httpcompression	v0.0.9	h1:0ue2X8dOLEpxTm8tt+OdHcgA+gbDge0OqFQWGKSqgrg=
+	dep	github.com/VictoriaMetrics/metrics	v1.44.1	h1:OMyGrMkhI3hnq+IpJ1gZK9VhXcsOjUX1CoOFv//bJ0I=
+	dep	github.com/a-h/templ	v0.3.1020	h1:ypAT/L5ySWEnZ6Zft/5yfoWXYYkhFNvEFOeeqecg4tw=
+	dep	github.com/andybalholm/brotli	v1.2.0	h1:ukwgCxwYrmACq68yiUqwIWnGY0cTPox/M94sVwToPjQ=
+	dep	github.com/antithesishq/antithesis-sdk-go	v0.8.0-default-no-op	h1:1BOWQJweNyvZMlpAHXGLiZQn9S+QXGcz3xh94lC0w6E=
+	dep	github.com/gofrs/flock	v0.10.0	h1:SHMXenfaB03KbroETaCMtbBg3Yn29v4w1r+tgy4ff4k=
+	dep	github.com/klauspost/compress	v1.20.0	h1:a3C1ke2ohxFymNlb2HWAHjDeKCI90scRskErZkR0ezA=
+	dep	github.com/minio/highwayhash	v1.0.4	h1:asJizugGgchQod2ja9NJlGOWq4s7KsAWr5XUc9Clgl4=
+	dep	github.com/nats-io/jwt/v2	v2.8.2	h1:XXRgB60MSTnqsRwejQurVDs/hcv2dkt+86GjI+I/bMc=
+	dep	github.com/nats-io/nats-server/v2	v2.15.0
+	=>	./third_party/nats-server	(devel)
+
+	dep	github.com/nats-io/nats.go	v1.54.0	h1:vsXoOxjHp/GmPUN+EcI7uOf/uB+iAP+kEsAFNQN0yzA=
+	dep	github.com/nats-io/nkeys	v0.4.16	h1:rd5oAuLOb8mnAycB0xleuEBNS1pVVnN0fv/FF34Eypg=
+	dep	github.com/nats-io/nuid	v1.0.1	h1:5iA8DT8V7q8WK2EScv2padNa/rTESc1KdnPw4TC2paw=
+	dep	github.com/oracle/oci-go-sdk/v65	v65.126.0	h1:RuV0MEcLOOgNOBadYbbkUQriCK4Gm5348F/GdWvYPcI=
+	dep	github.com/sony/gobreaker/v2	v2.4.0	h1:g2KJRW1Ubty3+ZOcSEUN7K+REQJdN6yo6XvaML+jptg=
+	dep	github.com/starfederation/datastar-go	v1.2.2	h1:f+U2y5FY5tXgXaTVXkuKu+Tz9uh7BU1j8jxthYmcC9Q=
+	dep	github.com/valyala/bytebufferpool	v1.0.0	h1:GqA5TC/0021Y/b9FG4Oi9Mr3q7XYx6KllzawFIhcdPw=
+	dep	github.com/valyala/fastrand	v1.1.0	h1:f+5HkLW4rsgzdNoleUOB69hyT9IlD2ZQh9GyDMfb5G8=
+	dep	github.com/valyala/histogram	v1.2.0	h1:wyYGAZZt3CpwUiIb9AU/Zbllg1llXyrtApRS815OLoQ=
+	dep	github.com/youmark/pkcs8	v0.0.0-20240726163527-a2c0da244d78	h1:ilQV1hzziu+LLM3zUTJ0trRztfwgjqKnBWNtSRkbmwM=
+	dep	golang.org/x/crypto	v0.57.0	h1:3ZVCjf8Ggz7zneR/EHRVx68Ctf+2pmIMP2UFhh9cC6M=
+	dep	golang.org/x/sync	v0.19.0	h1:vV+1eWNmZ5geRlYjzm2adRgW2/mcpevXNg50YZtPCE4=
+	dep	golang.org/x/sys	v0.48.0	h1:bbX/i/6MgT9BVLM9RT1thmxL04yeTAhbEz4SyadbXoo=
+	dep	golang.org/x/time	v0.16.0	h1:vMb6ptszcQMkcwiRTAuNNU50gom6++Q/6gY2hDM6VDE=
+	build	-buildmode=exe
+	build	-compiler=gc
+	build	-trimpath=true
+	build	CGO_ENABLED=1
+	build	GOARCH=amd64
+	build	GOOS=linux
+	build	GOAMD64=v1
+	build	vcs=git
+	build	vcs.revision=052a96bebdb871edd197e4efaed216829ba8f04f
+	build	vcs.time=2026-10-04T21:41:33Z
+	build	vcs.modified=false

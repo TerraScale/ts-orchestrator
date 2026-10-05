@@ -1,0 +1,24 @@
+{
+  "data": {
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaangcm4a4gp4epa2jec7mizqkomvgjnymdrxecimlroa42ozvk7cna",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-10-04T22:10:22.355Z"
+      }
+    },
+    "description": "TS-470 gru-1 workload foundation; COS-approved phase 1",
+    "freeform-tags": {
+      "terrascale-cell": "gru-1",
+      "terrascale-owner": "ts-470-gru-rebuild-2",
+      "terrascale-ticket": "TS-470"
+    },
+    "id": "ocid1.compartment.oc1..aaaaaaaazbzmxwi73zezjytvpp6dq3r4ys2t6akch6shdmsvwpgqnyoglzaa",
+    "inactive-status": null,
+    "is-accessible": true,
+    "lifecycle-state": "ACTIVE",
+    "name": "gru-1-workload",
+    "time-created": "2026-10-04T22:10:22.462000+00:00"
+  },
+  "etag": "5cf4ec4bfe5566d8341f68d031b09a60fdcdbbc3"
+}

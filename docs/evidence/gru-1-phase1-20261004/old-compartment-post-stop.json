@@ -1,0 +1,24 @@
+{
+  "data": {
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaangcm4a4gp4epa2jec7mizqkomvgjnymdrxecimlroa42ozvk7cna",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-09-27T05:50:25.254Z"
+      }
+    },
+    "description": "TerraScale regional controllers, Vaults, and durable control storage.",
+    "freeform-tags": {
+      "ManagedBy": "ts-infra",
+      "Role": "control",
+      "Service": "TerraScale"
+    },
+    "id": "ocid1.compartment.oc1..aaaaaaaaifvroeyjgu4l5h5gy4qzv7t6yfbcbd3fwwqxmzbamqkbjc5nvria",
+    "inactive-status": null,
+    "is-accessible": true,
+    "lifecycle-state": "ACTIVE",
+    "name": "terrascale-control",
+    "time-created": "2026-09-27T05:50:25.899000+00:00"
+  },
+  "etag": "fec631295cf329ffe29dad6de11ae7faaf887646"
+}

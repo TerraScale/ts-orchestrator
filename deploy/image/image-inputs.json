@@ -73,7 +73,7 @@
     },
     "enrollment_config": {
       "path": "deploy/image/inputs/netbird-gru.json",
-      "sha256": "f6124f6f4ebd6a257cb901033ef4793adbd87cb2a20776989571916cdbf432a8"
+      "sha256": "20a6ab257cb119e2ab3c7d5576e7f8f41108bc704b37d7a556bca736f1e95573"
     }
   }
 }

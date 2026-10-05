@@ -1,0 +1,24 @@
+{
+  "data": {
+    "compartment-id": "ocid1.tenancy.oc1..aaaaaaaae4zbeypc66rholaayphrk6h2eg7j4up6tfncehv6agji6o5v4yga",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-10-04T22:59:16.997Z"
+      }
+    },
+    "description": "Exact gru-1 workload compartment instances",
+    "freeform-tags": {
+      "terrascale-cell": "gru-1",
+      "terrascale-owner": "ts-470-gru-rebuild-2",
+      "terrascale-ticket": "TS-470"
+    },
+    "id": "ocid1.dynamicgroup.oc1..aaaaaaaazgthpwxmpjls4lrxqxbpv66dyxqsxjn423ieny6s7otuuliukolq",
+    "inactive-status": null,
+    "lifecycle-state": "ACTIVE",
+    "matching-rule": "ALL {instance.compartment.id = 'ocid1.compartment.oc1..aaaaaaaazbzmxwi73zezjytvpp6dq3r4ys2t6akch6shdmsvwpgqnyoglzaa'}",
+    "name": "gru-1-hosts",
+    "time-created": "2026-10-04T22:59:17.030000+00:00"
+  },
+  "etag": "0bcdd20319a34d4c9b9bc072d9073b08"
+}

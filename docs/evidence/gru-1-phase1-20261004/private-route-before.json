@@ -1,0 +1,23 @@
+{
+  "data": {
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaalwvfqxlo5qul4f4xehx3rct5yk5dv673rlz5tqern4zd6kzjvu4a",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-10-04T22:12:25.857Z"
+      }
+    },
+    "display-name": "Default Route Table for gru-1-vcn",
+    "freeform-tags": {
+      "terrascale-cell": "gru-1",
+      "terrascale-owner": "ts-470-gru-rebuild-2",
+      "terrascale-ticket": "TS-470"
+    },
+    "id": "ocid1.routetable.oc1.sa-saopaulo-1.aaaaaaaau4evg57oq3pjgion2qewtiy427gpvhj4ayvpmft55sbfwkdo4aoa",
+    "lifecycle-state": "AVAILABLE",
+    "route-rules": [],
+    "time-created": "2026-10-04T22:12:25.929000+00:00",
+    "vcn-id": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqaqb5yhudvuikbvcowjufiue2wi5jx72xujzulqkq6jvhq"
+  },
+  "etag": "5197da3c"
+}

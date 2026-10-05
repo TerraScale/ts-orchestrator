@@ -1,0 +1,24 @@
+{
+  "data": {
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaangcm4a4gp4epa2jec7mizqkomvgjnymdrxecimlroa42ozvk7cna",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-10-04T22:09:56.861Z"
+      }
+    },
+    "description": "TS-470 gru-1 control foundation; COS-approved phase 1",
+    "freeform-tags": {
+      "terrascale-cell": "gru-1",
+      "terrascale-owner": "ts-470-gru-rebuild-2",
+      "terrascale-ticket": "TS-470"
+    },
+    "id": "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq",
+    "inactive-status": null,
+    "is-accessible": true,
+    "lifecycle-state": "ACTIVE",
+    "name": "gru-1-control",
+    "time-created": "2026-10-04T22:09:57.013000+00:00"
+  },
+  "etag": "bc4842ccbcccd953e86d5735adc4027ff26c5398"
+}

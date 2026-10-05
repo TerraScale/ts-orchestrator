@@ -1,0 +1,2 @@
+plan: create setup-key gru-servers (reusable, never expires, auto-group gru-servers)
+1 changes planned; rerun with --apply to apply them

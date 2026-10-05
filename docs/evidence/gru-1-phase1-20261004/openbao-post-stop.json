@@ -1,0 +1,24 @@
+{
+  "cas_required": false,
+  "created_time": "2026-09-30T17:14:55.502806296Z",
+  "current_metadata_version": 0,
+  "current_version": 2,
+  "custom_metadata": null,
+  "delete_version_after": "0s",
+  "max_versions": 0,
+  "metadata_cas_required": false,
+  "oldest_version": 0,
+  "updated_time": "2026-09-30T17:20:01.692597004Z",
+  "versions": {
+    "1": {
+      "created_time": "2026-09-30T17:14:55.502806296Z",
+      "deletion_time": "",
+      "destroyed": false
+    },
+    "2": {
+      "created_time": "2026-09-30T17:20:01.692597004Z",
+      "deletion_time": "",
+      "destroyed": false
+    }
+  }
+}

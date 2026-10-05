@@ -1,0 +1,15 @@
+{
+  "data": {
+    "display-name": "backup-retention",
+    "duration": {
+      "time-amount": 35,
+      "time-unit": "DAYS"
+    },
+    "etag": "620dcd43-8ef6-45b4-997d-0052964fa56d",
+    "id": "815f8687-54f9-47af-859e-c09d8156794b",
+    "time-created": "2026-10-04T22:58:03.939000+00:00",
+    "time-modified": "2026-10-04T22:58:03.939000+00:00",
+    "time-rule-locked": null
+  },
+  "etag": "620dcd43-8ef6-45b4-997d-0052964fa56d"
+}

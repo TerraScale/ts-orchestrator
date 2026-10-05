@@ -1,0 +1,27 @@
+{
+  "data": {
+    "auto-key-rotation-details": null,
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaaifvroeyjgu4l5h5gy4qzv7t6yfbcbd3fwwqxmzbamqkbjc5nvria",
+    "current-key-version": "ocid1.keyversion.oc1.sa-saopaulo-1.ffvlrlvkaaaw6.eeesnk4k5qiaa.abtxeljrc5fo3y2tjrjmlcptdgygctozide57tkxfyrgqnr77mqfapsxvbtq",
+    "defined-tags": {},
+    "display-name": "RSA wrapping key",
+    "external-key-reference-details": null,
+    "freeform-tags": {},
+    "id": "ocid1.key.oc1.sa-saopaulo-1.ffvlrlvkaaaw6.abtxeljrshpju5q3tb37rqwcd5majo6d3crygsn2qkg3qgvpodykru3fxgsa",
+    "is-auto-rotation-enabled": false,
+    "is-primary": true,
+    "key-shape": {
+      "algorithm": "RSA",
+      "curve-id": null,
+      "length": 512
+    },
+    "lifecycle-state": "PENDING_DELETION",
+    "protection-mode": "HSM",
+    "replica-details": null,
+    "restored-from-key-id": null,
+    "time-created": "2026-09-27T05:50:57.865000+00:00",
+    "time-of-deletion": "2026-10-11T01:48:37.642000+00:00",
+    "vault-id": "ocid1.vault.oc1.sa-saopaulo-1.ffvlrlvkaaaw6.abtxeljrrjahmb7sqvwq2hlh3sa75a6qbrp44mcdg4kuof7vcyr2it3qs5oq"
+  },
+  "etag": "2579085dcea63d6326fdffbc86535657ab1874d5--gzip"
+}

@@ -261,8 +261,9 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
 Every cell server has one static name from `internal/naming`. A cell is
 `<region>-<index>` (`gru-1`; every region runs cell 1 today), and a server is
 `<cell>-<role>-<n>` with role `ctl` (controller), `db` (TerraBase member) or
-`gw` (gateway): `gru-1-ctl-1`..`3`, `gru-1-db-1`..`2` and `gru-1-gw-1`. A
-member's retained data volume is `<member>-data` (`gru-1-db-1-data`).
+`gw` (gateway). The GRU rebuild has only `gru-1-ctl-1`..`3` and
+`gru-1-db-1`..`2`; its public edge is the OCI L7 Load Balancer `gru-1-api`.
+A member's retained data volume is `<member>-data` (`gru-1-db-1-data`).
 `naming.Validate` rejects any other name, such as `gru-controller-a`,
 `controller-b`, a deployment- or digest-derived name, or an unknown region.
 No cell server takes the `gw` role yet.
@@ -679,30 +680,29 @@ rules are not restored; nothing listens on those ports.
 
 ## Public TerraBase API
 
-`ts-orch oci-region public-api` exposes the members' TerraBase HTTPS API
-through a public Network Load Balancer. It creates an internet gateway, the
-public subnet `10.251.0.128/26` with its own route table and security list, a
-TCP passthrough NLB on 443 to each member's client port, and the one
-workload-NSG rule that admits the client port from the public subnet. Members
-keep private addresses, and TerraBase terminates TLS and authenticates every
-request.
+For the TS-470 GRU rebuild, the user's **2026-10-04 edge decision** approves
+an OCI flexible **L7 Load Balancer `gru-1-api`**, terminating origin TLS
+with a **Cloudflare Origin CA certificate**. Cloudflare records for
+`gru.api.terrascale.tech` (TerraBase) and `auth.terrascale.tech` (ts-auth)
+must both be **PROXIED**. Creating the LB, Origin CA certificate and these
+two proxied records is approved. The plan contains no `gru-1-gw-1` host,
+Caddy, Let's Encrypt or NLB.
 
-The plan declares this as `public_api` (`subnet_cidr`, `listener_port`,
-`client_port`). After `ts-orch oci-region public-api` runs, record `internet_gateway`,
-`public_subnet`, `public_route_table`, `public_security_list`, and
-`network_load_balancer` in the reviewed plan copy. `load_plan` requires the
-public subnet to be inside the VCN and outside the private subnet, and admits
-it only as the member client-port source. `inspect-foundation` reads back:
+Use **TS-486's native commands once merged** for the LB, certificate and DNS
+operations. Capture the exact flexible bandwidth range, network/NSG rules,
+host routing and backend configuration from its reviewed plan; do not invent
+replacement commands or substitute the current `public-api` NLB path. The
+existing `public_api`/`network_load_balancer` schema is pending TS-486's
+migration, and its unbound fields do not authorize a legacy NLB creation.
 
-- the gateway: enabled, in the cell VCN, with no route table of its own;
-- the public subnet: public IPs allowed, with its own route table and security
-  list;
-- the route table: exactly `0.0.0.0/0` to the gateway;
-- the security list: exactly TCP 443 in from anywhere and the client port out
-  to the private subnet;
-- the NLB: public, TCP only, with one listener on 443, no NSGs, and
-  source/destination preservation off, whose backends are only the planned
-  members on the client port.
+After the image, three controllers and two database hosts/data volumes have
+clean readbacks, refresh inventory and native cost admission including the
+L7 LB's actual charges; the combined forecast must stay below **USD 200/month**.
+Use TS-487's ts-auth deployment path as it merges. Verify each edge resource
+and certificate binding by readback, both DNS records' `proxied=true`, backend
+health, and both public HTTPS URLs. Keep certificate private key material out
+of logs and evidence. Stop on the first error; deletes and terminations still
+require user approval.
 
 ## Inter-region private networking (future authorization only)
 

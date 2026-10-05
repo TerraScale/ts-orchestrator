@@ -1,0 +1,28 @@
+[
+  {
+    "direction": "INGRESS",
+    "protocol": "6",
+    "source": "10.251.0.0/25",
+    "sourceType": "CIDR_BLOCK",
+    "isStateless": false,
+    "tcpOptions": {
+      "destinationPortRange": {
+        "min": 443,
+        "max": 443
+      }
+    }
+  },
+  {
+    "direction": "INGRESS",
+    "protocol": "17",
+    "source": "10.251.0.0/25",
+    "sourceType": "CIDR_BLOCK",
+    "isStateless": false,
+    "udpOptions": {
+      "destinationPortRange": {
+        "min": 3478,
+        "max": 3478
+      }
+    }
+  }
+]

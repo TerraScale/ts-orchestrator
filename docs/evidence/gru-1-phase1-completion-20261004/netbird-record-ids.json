@@ -1,0 +1,72 @@
+[
+  {
+    "id": "db1dl8ka0rgg00dt33vg",
+    "name": "ctl-1.gru.ts.internal",
+    "type": "A",
+    "content": "10.251.0.11",
+    "ttl": 300
+  },
+  {
+    "id": "db1dl8ka0rgg00dt340g",
+    "name": "ctl-2.gru.ts.internal",
+    "type": "A",
+    "content": "10.251.0.12",
+    "ttl": 300
+  },
+  {
+    "id": "db1dl8ka0rgg00dt341g",
+    "name": "ctl-3.gru.ts.internal",
+    "type": "A",
+    "content": "10.251.0.13",
+    "ttl": 300
+  },
+  {
+    "id": "db1dl8ka0rgg00dt342g",
+    "name": "db-1.gru.ts.internal",
+    "type": "A",
+    "content": "10.251.0.21",
+    "ttl": 300
+  },
+  {
+    "id": "db1dl8ka0rgg00dt343g",
+    "name": "db-2.gru.ts.internal",
+    "type": "A",
+    "content": "10.251.0.22",
+    "ttl": 300
+  },
+  {
+    "id": "db1dl8ka0rgg00dt344g",
+    "name": "nats.gru.ts.internal",
+    "type": "A",
+    "content": "10.251.0.11",
+    "ttl": 300
+  },
+  {
+    "id": "db1dl8ka0rgg00dt345g",
+    "name": "nats.gru.ts.internal",
+    "type": "A",
+    "content": "10.251.0.12",
+    "ttl": 300
+  },
+  {
+    "id": "db1dl8ka0rgg00dt346g",
+    "name": "nats.gru.ts.internal",
+    "type": "A",
+    "content": "10.251.0.13",
+    "ttl": 300
+  },
+  {
+    "id": "db1dl8ka0rgg00dt347g",
+    "name": "terrabase.gru.ts.internal",
+    "type": "A",
+    "content": "10.251.0.21",
+    "ttl": 300
+  },
+  {
+    "id": "db1dl8sa0rgg00dt348g",
+    "name": "terrabase.gru.ts.internal",
+    "type": "A",
+    "content": "10.251.0.22",
+    "ttl": 300
+  }
+]

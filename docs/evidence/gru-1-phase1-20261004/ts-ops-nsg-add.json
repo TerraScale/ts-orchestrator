@@ -1,0 +1,50 @@
+{
+  "data": {
+    "security-rules": [
+      {
+        "description": null,
+        "destination": null,
+        "destination-type": null,
+        "direction": "INGRESS",
+        "icmp-options": null,
+        "id": "D3A6C8",
+        "is-stateless": false,
+        "is-valid": true,
+        "protocol": "6",
+        "source": "10.251.0.0/25",
+        "source-type": "CIDR_BLOCK",
+        "tcp-options": {
+          "destination-port-range": {
+            "max": 443,
+            "min": 443
+          },
+          "source-port-range": null
+        },
+        "time-created": "2026-10-04T22:28:50.562000+00:00",
+        "udp-options": null
+      },
+      {
+        "description": null,
+        "destination": null,
+        "destination-type": null,
+        "direction": "INGRESS",
+        "icmp-options": null,
+        "id": "F3C2D3",
+        "is-stateless": false,
+        "is-valid": true,
+        "protocol": "17",
+        "source": "10.251.0.0/25",
+        "source-type": "CIDR_BLOCK",
+        "tcp-options": null,
+        "time-created": "2026-10-04T22:28:50.563000+00:00",
+        "udp-options": {
+          "destination-port-range": {
+            "max": 3478,
+            "min": 3478
+          },
+          "source-port-range": null
+        }
+      }
+    ]
+  }
+}

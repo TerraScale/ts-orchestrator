@@ -1,8 +1,20 @@
-# NEEDS CONFIRM: gru-1 rebuild proposal, 2026-10-04
+# gru-1 rebuild plan, 2026-10-04
 
-TS-470, branch `cos-hold/ts-470-gru-rebuild-2`, based on main
+**Current authority:** COS relayed approval for phase 1 (now
+[complete](gru-1-phase1-completion-20261004.md)) and phase 2 in gated stages.
+The user's 2026-10-04 edge change approves an OCI flexible **L7 Load Balancer
+`gru-1-api`**, a **Cloudflare Origin CA certificate**, and **PROXIED** records
+for `gru.api.terrascale.tech` and `auth.terrascale.tech`. `gru-1-gw-1`, Caddy,
+Let's Encrypt and the NLB are removed from phase 2. Use TS-486's commands
+once merged, with fresh cost admission below USD 200/month and clean
+preceding-stage readbacks. Deletes and terminations still need the user.
+
+The original proposal below was prepared for TS-470 on branch
+`cos-hold/ts-470-gru-rebuild-2`, based on main
 `e8ea4844370334a483f687b26d2a5c4c5520b06b`. TS-466 (#148), TS-467 (#147),
-and TS-468 (#146) are merged. **No live create is authorized or executed.**
+and TS-468 (#146) were merged. Its phase-1 lists and pre-create observations
+remain the reviewed historical basis; the phase-2 targets below reflect the
+subsequent approvals and edge change.
 This proposal reuses their Go CLI paths; it does not introduce a second
 provisioner. [The confirmed teardown evidence](gru-teardown-dryrun-20261004.md)
 records the approved Cloudflare deletion and the retained shared resources.
@@ -117,7 +129,7 @@ warning: expected one unrevoked setup key named gru-servers, found 0
 18 changes planned; rerun with --apply to apply them
 ```
 
-## Later stages: named targets, held pending exact inputs and confirmation
+## Phase 2: approved targets, gated on merged commands and qualified inputs
 
 | Type/count | Static target names | Shape/size | Monthly USD before free allowances |
 |---|---|---|---:|
@@ -126,7 +138,9 @@ warning: expected one unrevoked setup key named gru-servers, found 0
 | C# database hosts ×2 | `gru-1-db-1`, `gru-1-db-2` | Each A1 Flex, 1 OCPU, 6 GiB, 50 GiB boot + 50 GiB data; private `.21/.22`; FD 1/2 | Compute 13.68 + disks 4.25 each |
 | Boot volumes ×5; data volumes ×2 | Boot attached to each static host; data `gru-1-db-1-data`, `gru-1-db-2-data` | 350 GiB total, 10 VPUs/GiB; included in host rows | 14.875 total |
 | Primary VNICs ×5; NetBird enrolled peers ×5 | Each host's static name above | Private IPs and corresponding static peer_names | 0 separately |
-| Public API network ×5 | `gru-1-api-igw`, `gru-1-api-routes`, `gru-1-api-security`, `gru-1-api-subnet`, `gru-1-api-nlb` | IGW; public subnet `10.251.0.128/26`; NLB TCP 443 → db-1/db-2 TCP 9465 | 0 resource fees; usage within egress reserve |
+| Public L7 Load Balancer ×1 and required network/NSGs | `gru-1-api`; network/NSG names from merged TS-486 plan | OCI flexible L7 LB; exact bandwidth range, listeners, host routing and private backends from TS-486 | Recompute LB charges in native admission before edge creation |
+| Cloudflare Origin CA certificate ×1 | Covers `gru.api.terrascale.tech` and `auth.terrascale.tech` | TLS certificate for the OCI L7 LB; parameters from TS-486 | Include any applicable charges in the edge estimate |
+| Cloudflare DNS records ×2 | `gru.api.terrascale.tech`, `auth.terrascale.tech` | **PROXIED**, pointing at the new LB's read-back public address | Include any applicable charges in the edge estimate |
 
 OCI generates immutable IDs for boot volumes/VNICs. Pin them per slot after
 creation; static host display/host/peer names follow TS-466. Do not launch
@@ -150,12 +164,14 @@ inventory admission also currently identifies workload instances through
 managed-member ownership tags; a C# host path must retain explicit ownership
 and cost checks while avoiding the runtime's Rust placement bindings.
 
-The public API remains a reviewed future target. Its native `public-api`
-command currently chooses generic resource display names; review/adjust its
-name inputs before executing it. No Cloudflare A-record create is approved
-here: after a healthy API and its new public IP are read back, propose the
-exact record content as a separate live-create confirmation. ts-status's
-`data-api-oci-gru` remains unavailable until that endpoint and probe succeed.
+The public edge follows the approved L7 design above. Use TS-486 once merged
+for the flexible LB, Origin CA and proxied records; the current `public-api`
+NLB implementation and unbound legacy plan fields are not the GRU rebuild
+path. Do not create a gateway host or hand-roll the replacement feature.
+Read back the LB, certificate binding, backends and public address before
+creating the two approved proxied records. TS-487 supplies the ts-auth
+deployment. ts-status's `data-api-oci-gru` remains unavailable until that
+endpoint and probe succeed.
 
 ## Cost basis and admission
 
@@ -179,7 +195,10 @@ estimator's 1,500 free OCPU-hours, 9,000 free GiB-hours, 200 GiB block and
 image storage, to be recomputed from authenticated import readback.
 Additional tenancy usage can consume those allowances;
 the conservative envelope does not require them. Both figures include
-shared costs, reserves and image storage; neither is a spending cap.
+shared costs, reserves and image storage; neither is a spending cap. **These
+five-host figures exclude the new flexible L7 LB charges.** Add TS-486's
+exact bandwidth configuration and cost before the edge admission. There is
+no gateway-host compute or boot-volume charge in the revised plan.
 
 Real read-only inventory completed at `2026-10-04T21:34:42.535669Z`: all three
 new compartment names were absent, with 11 shared OCI resources, two protected
@@ -240,7 +259,8 @@ dependencies have no established completion date.
    `bootstrap generate-controller-material` locally; propose its exact
    secrets/objects before `bootstrap provision-controller-material`. Propose
    image import and controller-A seed with pinned digests, then let A form
-   B/C after the explicit handoff. Every live publication/create is a
+   B/C after the explicit handoff. The listed phase-2 creates are approved
+   per stage; unlisted controller-material secrets/objects retain their
    separate confirmation gate.
 4. **C# gate.** Verify an actual `terrabase-linux-arm64` release and full
    source SHA. Generate the member CA locally with `ts-orch terrabase
@@ -249,7 +269,10 @@ dependencies have no established completion date.
    `deploy/oci-region/terrabase-gru-1-profile.json`, then register both hosts
    as role `terrabase` without Rust placement bindings. The bootstrap
    renderer does not automate those inputs today. Capture exact changed
-   configs and C# asset pins before rollout approval.
+   configs and C# asset pins before rollout approval. After clean host
+   readbacks, use merged TS-486 for the approved L7 LB/Origin CA/proxied DNS
+   edge and merged TS-487 for ts-auth. Refresh cost admission with the LB
+   charges and verify every edge resource before advancing.
 5. **Verification gate.** Confirm three healthy controllers; five connected
    static NetBird peers; clean `sync`/`prune-peers` dry runs; both C# members
    reporting the approved digest; peer-port/client-port reachability; and

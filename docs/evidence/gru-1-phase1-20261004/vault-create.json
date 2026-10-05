@@ -1,0 +1,31 @@
+{
+  "data": {
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq",
+    "crypto-endpoint": "https://ffvmfu2naagt6-crypto.kms.sa-saopaulo-1.oraclecloud.com",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-10-04T22:29:32.509Z"
+      }
+    },
+    "display-name": "gru-1-vault",
+    "external-key-manager-metadata-summary": null,
+    "freeform-tags": {
+      "terrascale-cell": "gru-1",
+      "terrascale-owner": "ts-470-gru-rebuild-2",
+      "terrascale-ticket": "TS-470"
+    },
+    "id": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq",
+    "is-primary": true,
+    "is-vault-replicable": true,
+    "lifecycle-state": "ACTIVE",
+    "management-endpoint": "https://ffvmfu2naagt6-management.kms.sa-saopaulo-1.oraclecloud.com",
+    "replica-details": null,
+    "restored-from-vault-id": null,
+    "time-created": "2026-10-04T22:29:33.833000+00:00",
+    "time-of-deletion": null,
+    "vault-type": "DEFAULT",
+    "wrappingkey-id": "ocid1.key.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7esfddcmhkkuwmzqdjddtctedxrgeyy46f2ulgnaewppzlxig2kq"
+  },
+  "etag": "10210bbd667e5db0321c0f7f83dc985daf618063--gzip"
+}

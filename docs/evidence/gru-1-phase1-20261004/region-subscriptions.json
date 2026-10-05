@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "is-home-region": false,
+      "region-key": "FRA",
+      "region-name": "eu-frankfurt-1",
+      "status": "READY"
+    },
+    {
+      "is-home-region": true,
+      "region-key": "GRU",
+      "region-name": "sa-saopaulo-1",
+      "status": "READY"
+    },
+    {
+      "is-home-region": false,
+      "region-key": "SJC",
+      "region-name": "us-sanjose-1",
+      "status": "READY"
+    }
+  ]
+}

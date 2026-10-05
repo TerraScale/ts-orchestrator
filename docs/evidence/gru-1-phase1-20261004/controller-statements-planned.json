@@ -1,0 +1,16 @@
+[
+  "Allow dynamic-group gru-1-controllers to manage instance-family in compartment gru-1-control",
+  "Allow dynamic-group gru-1-controllers to manage instance-family in compartment gru-1-workload",
+  "Allow dynamic-group gru-1-controllers to read instance-images in compartment gru-1-control",
+  "Allow dynamic-group gru-1-controllers to use virtual-network-family in compartment gru-1-network",
+  "Allow dynamic-group gru-1-controllers to manage volume-family in compartment gru-1-control",
+  "Allow dynamic-group gru-1-controllers to manage volume-family in compartment gru-1-workload",
+  "Allow dynamic-group gru-1-controllers to read secret-bundles in compartment gru-1-control",
+  "Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-ledger', target.object.name='bootstrap/v1/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE'}}",
+  "Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-ledger', target.object.name='bootstrap/v2/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE'}}",
+  "Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-head', target.object.name='bootstrap/v1/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}",
+  "Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-head', target.object.name='bootstrap/v2/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}",
+  "Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-material', target.object.name='material/v2/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE'}}",
+  "Allow dynamic-group gru-1-controllers to use keys in compartment gru-1-control where all {target.key.id='ocid1.key.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr57gu27ray2ukib2irijktpd6eqa6ou5zeqstsmasvqcr7hmfu2ia', any {request.permission='KEY_ENCRYPT', request.permission='KEY_DECRYPT'}}",
+  "Allow dynamic-group gru-1-controllers to use key-delegate in compartment gru-1-control where target.key.id='ocid1.key.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr57gu27ray2ukib2irijktpd6eqa6ou5zeqstsmasvqcr7hmfu2ia'"
+]

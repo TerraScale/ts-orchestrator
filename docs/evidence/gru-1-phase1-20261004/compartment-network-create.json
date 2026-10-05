@@ -1,0 +1,24 @@
+{
+  "data": {
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaangcm4a4gp4epa2jec7mizqkomvgjnymdrxecimlroa42ozvk7cna",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-10-04T22:10:09.541Z"
+      }
+    },
+    "description": "TS-470 gru-1 network foundation; COS-approved phase 1",
+    "freeform-tags": {
+      "terrascale-cell": "gru-1",
+      "terrascale-owner": "ts-470-gru-rebuild-2",
+      "terrascale-ticket": "TS-470"
+    },
+    "id": "ocid1.compartment.oc1..aaaaaaaalwvfqxlo5qul4f4xehx3rct5yk5dv673rlz5tqern4zd6kzjvu4a",
+    "inactive-status": null,
+    "is-accessible": true,
+    "lifecycle-state": "ACTIVE",
+    "name": "gru-1-network",
+    "time-created": "2026-10-04T22:10:09.685000+00:00"
+  },
+  "etag": "94d9edc5ac78828d20ac84d8eed9f6ca36ee8483"
+}

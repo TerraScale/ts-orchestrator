@@ -1,0 +1,77 @@
+{
+  "data": [
+    {
+      "compartment-id": "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq",
+      "defined-tags": {
+        "Oracle-Tags": {
+          "CreatedBy": "default/mariogk@terrascale.tech",
+          "CreatedOn": "2026-10-04T23:11:47.055Z"
+        }
+      },
+      "description": "TS-470 gru-1 exact-secret NetBird enrollment grant",
+      "freeform-tags": {
+        "terrascale-cell": "gru-1",
+        "terrascale-owner": "ts-470-gru-rebuild-2",
+        "terrascale-ticket": "TS-470"
+      },
+      "id": "ocid1.policy.oc1..aaaaaaaaiecrdwbzadi3oeiojyve2qbwzg75k7j2qmytrebzz5sptlzjb4eq",
+      "inactive-status": null,
+      "lifecycle-state": "ACTIVE",
+      "name": "gru-1-netbird-admin-pat",
+      "statements": [
+        "Allow dynamic-group gru-1-controllers to read secret-bundles in compartment id ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq where target.secret.id = 'ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqa47dfouwhtievxunck43w4pyccvjgwkfvfglthsopvszq'"
+      ],
+      "time-created": "2026-10-04T23:11:47.107000+00:00",
+      "version-date": null
+    },
+    {
+      "compartment-id": "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq",
+      "defined-tags": {
+        "Oracle-Tags": {
+          "CreatedBy": "default/mariogk@terrascale.tech",
+          "CreatedOn": "2026-10-04T23:11:43.358Z"
+        }
+      },
+      "description": "TS-470 gru-1 exact-secret NetBird enrollment grant",
+      "freeform-tags": {
+        "terrascale-cell": "gru-1",
+        "terrascale-owner": "ts-470-gru-rebuild-2",
+        "terrascale-ticket": "TS-470"
+      },
+      "id": "ocid1.policy.oc1..aaaaaaaa3ro6gkfcrqwwdeolyewx54hrchvvujoqhakf6ycde5mawnd7spnq",
+      "inactive-status": null,
+      "lifecycle-state": "ACTIVE",
+      "name": "gru-1-netbird-enrollment",
+      "statements": [
+        "Allow dynamic-group gru-1-controllers to read secret-bundles in compartment id ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq where target.secret.id = 'ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqaj7iuycp5pjd36u35pmekfwrubyvhtalvzvjun2xtdv3q'",
+        "Allow dynamic-group gru-1-hosts to read secret-bundles in compartment id ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq where target.secret.id = 'ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqaj7iuycp5pjd36u35pmekfwrubyvhtalvzvjun2xtdv3q'"
+      ],
+      "time-created": "2026-10-04T23:11:43.412000+00:00",
+      "version-date": null
+    },
+    {
+      "compartment-id": "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq",
+      "defined-tags": {
+        "Oracle-Tags": {
+          "CreatedBy": "default/mariogk@terrascale.tech",
+          "CreatedOn": "2026-10-04T22:54:20.544Z"
+        }
+      },
+      "description": "Regional Object Storage access to the exact gru-1 HSM key",
+      "freeform-tags": {
+        "terrascale-cell": "gru-1",
+        "terrascale-owner": "ts-470-gru-rebuild-2",
+        "terrascale-ticket": "TS-470"
+      },
+      "id": "ocid1.policy.oc1..aaaaaaaaqyet7moovg7nnsy365k3ftw7dtdzk4xphgiva5kbenagaa36j2ga",
+      "inactive-status": null,
+      "lifecycle-state": "ACTIVE",
+      "name": "gru-1-objectstorage-key",
+      "statements": [
+        "Allow service objectstorage-sa-saopaulo-1 to use keys in compartment gru-1-control where all {target.key.id='ocid1.key.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr57gu27ray2ukib2irijktpd6eqa6ou5zeqstsmasvqcr7hmfu2ia', any {request.permission='KEY_READ', request.permission='KEY_ENCRYPT', request.permission='KEY_DECRYPT'}}"
+      ],
+      "time-created": "2026-10-04T22:54:20.589000+00:00",
+      "version-date": null
+    }
+  ]
+}

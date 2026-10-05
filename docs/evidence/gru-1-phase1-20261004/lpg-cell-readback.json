@@ -1,0 +1,30 @@
+{
+  "data": {
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaalwvfqxlo5qul4f4xehx3rct5yk5dv673rlz5tqern4zd6kzjvu4a",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-10-04T22:16:00.300Z"
+      }
+    },
+    "display-name": "gru-1-netbird-lpg",
+    "freeform-tags": {
+      "terrascale-cell": "gru-1",
+      "terrascale-owner": "ts-470-gru-rebuild-2",
+      "terrascale-ticket": "TS-470"
+    },
+    "id": "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.aaaaaaaayqdnpy77rzq2xvcfdlk356qchcj7hcsfysuyogxfozvffmeauhyq",
+    "is-cross-tenancy-peering": false,
+    "lifecycle-state": "AVAILABLE",
+    "peer-advertised-cidr": null,
+    "peer-advertised-cidr-details": null,
+    "peer-id": null,
+    "peering-status": "NEW",
+    "peering-status-details": "Not connected to a peer.",
+    "route-table-id": null,
+    "security-attributes": null,
+    "time-created": "2026-10-04T22:16:00.349000+00:00",
+    "vcn-id": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqaqb5yhudvuikbvcowjufiue2wi5jx72xujzulqkq6jvhq"
+  },
+  "etag": "9e394480"
+}

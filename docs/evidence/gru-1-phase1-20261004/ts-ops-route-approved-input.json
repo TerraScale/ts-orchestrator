@@ -1,0 +1,14 @@
+[
+  {
+    "destination": "0.0.0.0/0",
+    "destinationType": "CIDR_BLOCK",
+    "networkEntityId": "ocid1.internetgateway.oc1.sa-saopaulo-1.aaaaaaaaubi6okhp3hff5uojvcszg36r4jkay6zctgyejzfmr44tkyeauona",
+    "routeType": "STATIC",
+    "description": null
+  },
+  {
+    "destination": "10.251.0.0/25",
+    "destinationType": "CIDR_BLOCK",
+    "networkEntityId": "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.aaaaaaaaull5hl6p45bcresgenubvy3taefyid4kdvshbzpz4ox7uulnnu4a"
+  }
+]

@@ -1,0 +1,152 @@
+{
+  "data": [
+    {
+      "description": null,
+      "destination": "0.0.0.0/0",
+      "destination-type": "CIDR_BLOCK",
+      "direction": "EGRESS",
+      "icmp-options": null,
+      "id": "5F86CC",
+      "is-stateless": false,
+      "is-valid": true,
+      "protocol": "all",
+      "source": null,
+      "source-type": null,
+      "tcp-options": null,
+      "time-created": "2026-09-17T14:04:56.869000+00:00",
+      "udp-options": null
+    },
+    {
+      "description": null,
+      "destination": null,
+      "destination-type": null,
+      "direction": "INGRESS",
+      "icmp-options": null,
+      "id": "7958B1",
+      "is-stateless": false,
+      "is-valid": true,
+      "protocol": "6",
+      "source": "0.0.0.0/0",
+      "source-type": "CIDR_BLOCK",
+      "tcp-options": {
+        "destination-port-range": {
+          "max": 22,
+          "min": 22
+        },
+        "source-port-range": null
+      },
+      "time-created": "2026-09-17T15:25:29.673000+00:00",
+      "udp-options": null
+    },
+    {
+      "description": null,
+      "destination": null,
+      "destination-type": null,
+      "direction": "INGRESS",
+      "icmp-options": null,
+      "id": "F8110B",
+      "is-stateless": false,
+      "is-valid": true,
+      "protocol": "6",
+      "source": "0.0.0.0/0",
+      "source-type": "CIDR_BLOCK",
+      "tcp-options": {
+        "destination-port-range": {
+          "max": 80,
+          "min": 80
+        },
+        "source-port-range": null
+      },
+      "time-created": "2026-09-17T15:25:29.674000+00:00",
+      "udp-options": null
+    },
+    {
+      "description": null,
+      "destination": null,
+      "destination-type": null,
+      "direction": "INGRESS",
+      "icmp-options": null,
+      "id": "B26E1D",
+      "is-stateless": false,
+      "is-valid": true,
+      "protocol": "6",
+      "source": "0.0.0.0/0",
+      "source-type": "CIDR_BLOCK",
+      "tcp-options": {
+        "destination-port-range": {
+          "max": 443,
+          "min": 443
+        },
+        "source-port-range": null
+      },
+      "time-created": "2026-09-17T15:25:29.674000+00:00",
+      "udp-options": null
+    },
+    {
+      "description": null,
+      "destination": null,
+      "destination-type": null,
+      "direction": "INGRESS",
+      "icmp-options": null,
+      "id": "08A31E",
+      "is-stateless": false,
+      "is-valid": true,
+      "protocol": "6",
+      "source": "179.124.206.245/32",
+      "source-type": "CIDR_BLOCK",
+      "tcp-options": {
+        "destination-port-range": {
+          "max": 2022,
+          "min": 2022
+        },
+        "source-port-range": null
+      },
+      "time-created": "2026-09-17T15:25:29.674000+00:00",
+      "udp-options": null
+    },
+    {
+      "description": "NetBird STUN (netbird-server)",
+      "destination": null,
+      "destination-type": null,
+      "direction": "INGRESS",
+      "icmp-options": null,
+      "id": "1657FB",
+      "is-stateless": false,
+      "is-valid": true,
+      "protocol": "17",
+      "source": "0.0.0.0/0",
+      "source-type": "CIDR_BLOCK",
+      "tcp-options": null,
+      "time-created": "2026-09-30T01:48:59.390000+00:00",
+      "udp-options": {
+        "destination-port-range": {
+          "max": 3478,
+          "min": 3478
+        },
+        "source-port-range": null
+      }
+    },
+    {
+      "description": "NetBird operator gateway",
+      "destination": null,
+      "destination-type": null,
+      "direction": "INGRESS",
+      "icmp-options": null,
+      "id": "98C603",
+      "is-stateless": false,
+      "is-valid": true,
+      "protocol": "17",
+      "source": "0.0.0.0/0",
+      "source-type": "CIDR_BLOCK",
+      "tcp-options": null,
+      "time-created": "2026-09-30T17:22:22.031000+00:00",
+      "udp-options": {
+        "destination-port-range": {
+          "max": 51820,
+          "min": 51820
+        },
+        "source-port-range": null
+      }
+    }
+  ]
+}

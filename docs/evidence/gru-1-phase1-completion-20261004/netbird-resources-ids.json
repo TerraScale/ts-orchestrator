@@ -1,0 +1,12 @@
+[
+  {
+    "id": "db1dl8ka0rgg00dt33o0",
+    "name": "gru-cell-private-subnet",
+    "address": "10.251.0.0/25",
+    "peer": null,
+    "peer_groups": null,
+    "metric": null,
+    "masquerade": null,
+    "enabled": true
+  }
+]

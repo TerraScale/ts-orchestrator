@@ -1,0 +1,464 @@
+{
+  "schema_version": 2,
+  "purpose": "TS-470 gru-1 rebuild proposal; live creates require separate COS-relayed confirmation and authenticated readback",
+  "cell": "GRU",
+  "region": "sa-saopaulo-1",
+  "availability_domain": "YDvv:SA-SAOPAULO-1-AD-1",
+  "tenancy_id": "ocid1.tenancy.oc1..aaaaaaaae4zbeypc66rholaayphrk6h2eg7j4up6tfncehv6agji6o5v4yga",
+  "parent_compartment_id": "ocid1.compartment.oc1..aaaaaaaangcm4a4gp4epa2jec7mizqkomvgjnymdrxecimlroa42ozvk7cna",
+  "shared_compartment_id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
+  "existing_forgejo": {
+    "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.antxeljrppuhpdqc53olclenle4v5cjyionsslnbelqojmund72yjdppmuna",
+    "boot_volume_id": "ocid1.bootvolume.oc1.sa-saopaulo-1.abtxeljrjnf4m3cln7mhnd6yjfr3ju3sak3mkntjgkqp2sp5ick7c72griva",
+    "data_volume_id": "ocid1.volume.oc1.sa-saopaulo-1.abtxeljrftl5rmofsk5lpo43o2aaud4byu7rg2tvonqoh3i7t76hcx23pkna",
+    "public_ip_id": "ocid1.publicip.oc1.sa-saopaulo-1.amaaaaaappuhpdqa7p425o26upbrbhao3gxbpce5oze5546veezc3zwl4kja",
+    "vcn_id": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqacrdeeo2nt2raxsm5vs4wuevdt6nygxt33j25pxobnr2a",
+    "internet_gateway_id": "ocid1.internetgateway.oc1.sa-saopaulo-1.aaaaaaaaubi6okhp3hff5uojvcszg36r4jkay6zctgyejzfmr44tkyeauona",
+    "expected_ocpus": 2,
+    "expected_memory_gb": 4,
+    "expected_volume_gb": 50,
+    "expected_volume_vpus_per_gb": 10
+  },
+  "operator_gateway": {
+    "private_ip": "10.250.10.155",
+    "vcn_cidr": "10.250.0.0/16",
+    "local_peering_gateway_id": "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.aaaaaaaaull5hl6p45bcresgenubvy3taefyid4kdvshbzpz4ox7uulnnu4a"
+  },
+  "netbird": {
+    "management_url": "https://netbird.terrascale.tech",
+    "management_ip": "10.250.10.155",
+    "secret_compartment_id": "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq",
+    "setup_key_secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqaj7iuycp5pjd36u35pmekfwrubyvhtalvzvjun2xtdv3q",
+    "policy_id": "ocid1.policy.oc1..aaaaaaaa3ro6gkfcrqwwdeolyewx54hrchvvujoqhakf6ycde5mawnd7spnq",
+    "policy_name": "gru-1-netbird-enrollment"
+  },
+  "public_api": {
+    "subnet_cidr": "10.251.0.128/26",
+    "listener_port": 443,
+    "client_port": 9465
+  },
+  "preview_compartment_names": {
+    "control": "gru-1-control",
+    "network": "gru-1-network",
+    "workload": "gru-1-workload"
+  },
+  "foundation_buckets": {
+    "ledger": "gru-1-ledger",
+    "head": "gru-1-head",
+    "backup": "gru-1-backup",
+    "material": "gru-1-material"
+  },
+  "bucket_retention_days": 35,
+  "network_security": {
+    "nsg_rules": [
+      {
+        "direction": "INGRESS",
+        "protocol": "6",
+        "source": "10.251.0.0/25",
+        "source_type": "CIDR_BLOCK",
+        "destination": null,
+        "destination_type": null,
+        "tcp_min": 4222,
+        "tcp_max": 4222,
+        "udp_min": null,
+        "udp_max": null,
+        "stateless": false
+      },
+      {
+        "direction": "INGRESS",
+        "protocol": "6",
+        "source": "10.251.0.0/25",
+        "source_type": "CIDR_BLOCK",
+        "destination": null,
+        "destination_type": null,
+        "tcp_min": 6222,
+        "tcp_max": 6222,
+        "udp_min": null,
+        "udp_max": null,
+        "stateless": false
+      },
+      {
+        "direction": "INGRESS",
+        "protocol": "6",
+        "source": "10.251.0.0/25",
+        "source_type": "CIDR_BLOCK",
+        "destination": null,
+        "destination_type": null,
+        "tcp_min": 8443,
+        "tcp_max": 8443,
+        "udp_min": null,
+        "udp_max": null,
+        "stateless": false
+      },
+      {
+        "direction": "INGRESS",
+        "protocol": "6",
+        "source": "10.251.0.18/32",
+        "source_type": "CIDR_BLOCK",
+        "destination": null,
+        "destination_type": null,
+        "tcp_min": 22,
+        "tcp_max": 22,
+        "udp_min": null,
+        "udp_max": null,
+        "stateless": false
+      },
+      {
+        "direction": "INGRESS",
+        "protocol": "6",
+        "source": "10.250.10.155/32",
+        "source_type": "CIDR_BLOCK",
+        "destination": null,
+        "destination_type": null,
+        "tcp_min": 4222,
+        "tcp_max": 4222,
+        "udp_min": null,
+        "udp_max": null,
+        "stateless": false
+      },
+      {
+        "direction": "INGRESS",
+        "protocol": "6",
+        "source": "10.250.10.155/32",
+        "source_type": "CIDR_BLOCK",
+        "destination": null,
+        "destination_type": null,
+        "tcp_min": 22,
+        "tcp_max": 22,
+        "udp_min": null,
+        "udp_max": null,
+        "stateless": false
+      }
+    ],
+    "workload_nsg_rules": [
+      {
+        "direction": "INGRESS",
+        "protocol": "6",
+        "source": "10.251.0.21/32",
+        "source_type": "CIDR_BLOCK",
+        "destination": null,
+        "destination_type": null,
+        "tcp_min": 9443,
+        "tcp_max": 9443,
+        "udp_min": null,
+        "udp_max": null,
+        "stateless": false
+      },
+      {
+        "direction": "INGRESS",
+        "protocol": "6",
+        "source": "10.251.0.22/32",
+        "source_type": "CIDR_BLOCK",
+        "destination": null,
+        "destination_type": null,
+        "tcp_min": 9443,
+        "tcp_max": 9443,
+        "udp_min": null,
+        "udp_max": null,
+        "stateless": false
+      },
+      {
+        "direction": "INGRESS",
+        "protocol": "6",
+        "source": "10.251.0.18/32",
+        "source_type": "CIDR_BLOCK",
+        "destination": null,
+        "destination_type": null,
+        "tcp_min": 9465,
+        "tcp_max": 9465,
+        "udp_min": null,
+        "udp_max": null,
+        "stateless": false
+      },
+      {
+        "direction": "INGRESS",
+        "protocol": "6",
+        "source": "10.251.0.128/26",
+        "source_type": "CIDR_BLOCK",
+        "destination": null,
+        "destination_type": null,
+        "tcp_min": 9465,
+        "tcp_max": 9465,
+        "udp_min": null,
+        "udp_max": null,
+        "stateless": false
+      },
+      {
+        "direction": "INGRESS",
+        "protocol": "6",
+        "source": "10.251.0.18/32",
+        "source_type": "CIDR_BLOCK",
+        "destination": null,
+        "destination_type": null,
+        "tcp_min": 22,
+        "tcp_max": 22,
+        "udp_min": null,
+        "udp_max": null,
+        "stateless": false
+      },
+      {
+        "direction": "INGRESS",
+        "protocol": "6",
+        "source": "10.250.10.155/32",
+        "source_type": "CIDR_BLOCK",
+        "destination": null,
+        "destination_type": null,
+        "tcp_min": 9465,
+        "tcp_max": 9465,
+        "udp_min": null,
+        "udp_max": null,
+        "stateless": false
+      },
+      {
+        "direction": "INGRESS",
+        "protocol": "6",
+        "source": "10.250.10.155/32",
+        "source_type": "CIDR_BLOCK",
+        "destination": null,
+        "destination_type": null,
+        "tcp_min": 22,
+        "tcp_max": 22,
+        "udp_min": null,
+        "udp_max": null,
+        "stateless": false
+      }
+    ],
+    "security_list_ingress_rules": [],
+    "security_list_egress_rules": [
+      {
+        "direction": "EGRESS",
+        "protocol": "all",
+        "source": null,
+        "source_type": null,
+        "destination": "10.251.0.0/24",
+        "destination_type": "CIDR_BLOCK",
+        "tcp_min": null,
+        "tcp_max": null,
+        "udp_min": null,
+        "udp_max": null,
+        "stateless": false
+      },
+      {
+        "direction": "EGRESS",
+        "protocol": "17",
+        "source": null,
+        "source_type": null,
+        "destination": "169.254.169.254/32",
+        "destination_type": "CIDR_BLOCK",
+        "tcp_min": null,
+        "tcp_max": null,
+        "udp_min": 123,
+        "udp_max": 123,
+        "stateless": false
+      },
+      {
+        "direction": "EGRESS",
+        "protocol": "all",
+        "source": null,
+        "source_type": null,
+        "destination": "all-gru-services-in-oracle-services-network",
+        "destination_type": "SERVICE_CIDR_BLOCK",
+        "tcp_min": null,
+        "tcp_max": null,
+        "udp_min": null,
+        "udp_max": null,
+        "stateless": false
+      },
+      {
+        "direction": "EGRESS",
+        "protocol": "6",
+        "source": null,
+        "source_type": null,
+        "destination": "10.250.10.155/32",
+        "destination_type": "CIDR_BLOCK",
+        "tcp_min": 443,
+        "tcp_max": 443,
+        "udp_min": null,
+        "udp_max": null,
+        "stateless": false
+      },
+      {
+        "direction": "EGRESS",
+        "protocol": "17",
+        "source": null,
+        "source_type": null,
+        "destination": "10.250.10.155/32",
+        "destination_type": "CIDR_BLOCK",
+        "tcp_min": null,
+        "tcp_max": null,
+        "udp_min": 3478,
+        "udp_max": 3478,
+        "stateless": false
+      }
+    ],
+    "route_rules": [
+      {
+        "destination": "all-gru-services-in-oracle-services-network",
+        "destination_type": "SERVICE_CIDR_BLOCK",
+        "network_entity_id": "{service_gateway_id}"
+      },
+      {
+        "destination": "10.250.10.155/32",
+        "destination_type": "CIDR_BLOCK",
+        "network_entity_id": "{local_peering_gateway_id}"
+      }
+    ],
+    "service_gateway_service_id": "ocid1.service.oc1.sa-saopaulo-1.aaaaaaaacd57uig6rzxm2qfipukbqpje2bhztqszh3aj7zk2jtvf6gvntena",
+    "service_gateway_cidr_block": "all-gru-services-in-oracle-services-network"
+  },
+  "identity": {
+    "controller_dynamic_group_name": "gru-1-controllers",
+    "controller_policy_name": "gru-1-controller-policy",
+    "objectstorage_key_policy_name": "gru-1-objectstorage-key",
+    "host_dynamic_group_name": "gru-1-hosts",
+    "host_policy_name": "gru-1-host-live-s3-secret"
+  },
+  "host_credential_secret": {
+    "compartment_id": null,
+    "secret_id": null
+  },
+  "orchestrator_owner": "ts-470-gru-rebuild-2",
+  "seed_a_create_identity": null,
+  "network_cidr": "10.251.0.0/24",
+  "subnet_cidr": "10.251.0.0/25",
+  "controller_replicas": 3,
+  "database_members": 2,
+  "hosts": [
+    {
+      "slot": "controller-a",
+      "fault_domain": "FAULT-DOMAIN-1",
+      "private_ip": "10.251.0.11",
+      "roles": [
+        "controller"
+      ],
+      "shape": "VM.Standard.A1.Flex",
+      "ocpus": 1,
+      "memory_gb": 6,
+      "boot_gb": 50,
+      "data_gb": 0
+    },
+    {
+      "slot": "controller-b",
+      "fault_domain": "FAULT-DOMAIN-2",
+      "private_ip": "10.251.0.12",
+      "roles": [
+        "controller"
+      ],
+      "shape": "VM.Standard.A1.Flex",
+      "ocpus": 1,
+      "memory_gb": 6,
+      "boot_gb": 50,
+      "data_gb": 0
+    },
+    {
+      "slot": "controller-c",
+      "fault_domain": "FAULT-DOMAIN-3",
+      "private_ip": "10.251.0.13",
+      "roles": [
+        "controller"
+      ],
+      "shape": "VM.Standard.A1.Flex",
+      "ocpus": 1,
+      "memory_gb": 6,
+      "boot_gb": 50,
+      "data_gb": 0
+    },
+    {
+      "slot": "member-a",
+      "fault_domain": "FAULT-DOMAIN-1",
+      "private_ip": "10.251.0.21",
+      "roles": [
+        "host",
+        "terrabase"
+      ],
+      "shape": "VM.Standard.A1.Flex",
+      "ocpus": 1,
+      "memory_gb": 6,
+      "boot_gb": 50,
+      "data_gb": 50
+    },
+    {
+      "slot": "member-b",
+      "fault_domain": "FAULT-DOMAIN-2",
+      "private_ip": "10.251.0.22",
+      "roles": [
+        "host",
+        "terrabase"
+      ],
+      "shape": "VM.Standard.A1.Flex",
+      "ocpus": 1,
+      "memory_gb": 6,
+      "boot_gb": 50,
+      "data_gb": 50
+    }
+  ],
+  "volume_vpus_per_gb": 10,
+  "budget": {
+    "currency": "USD",
+    "monthly_limit": 200,
+    "month_hours": 720,
+    "replacement_overlap_hours_max": 72,
+    "replacement_hosts_max": 1,
+    "object_storage_gb_max": 10,
+    "staging_object_storage_gb_max": 10,
+    "object_requests_max": 1000000,
+    "egress_gb_max": 100,
+    "snapshot_gb_max": 350,
+    "baseline_object_storage_gb": 57.93,
+    "baseline_object_requests_usd": 0.27,
+    "misc_reserve_usd": 5,
+    "rates": {
+      "a1_ocpu_hour": 0.01,
+      "a1_memory_gb_hour": 0.0015,
+      "block_gb_month": 0.0255,
+      "block_vpu_gb_month": 0.0017,
+      "object_gb_month": 0.0255,
+      "object_10000_requests": 0.0034,
+      "egress_gb": 0.025
+    }
+  },
+  "resource_ids": {
+    "control_compartment": "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq",
+    "network_compartment": "ocid1.compartment.oc1..aaaaaaaalwvfqxlo5qul4f4xehx3rct5yk5dv673rlz5tqern4zd6kzjvu4a",
+    "workload_compartment": "ocid1.compartment.oc1..aaaaaaaazbzmxwi73zezjytvpp6dq3r4ys2t6akch6shdmsvwpgqnyoglzaa",
+    "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq",
+    "key": "ocid1.key.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr57gu27ray2ukib2irijktpd6eqa6ou5zeqstsmasvqcr7hmfu2ia",
+    "vcn": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqaqb5yhudvuikbvcowjufiue2wi5jx72xujzulqkq6jvhq",
+    "subnet": "ocid1.subnet.oc1.sa-saopaulo-1.aaaaaaaaozmgldnfcv6ed4hvk2p6e5dxx4lj7aql42suvjhd4sssuosvgrcq",
+    "network_security_group": "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.aaaaaaaalt5nfmgj43snm7uwhatkudk5n7463vd4mgw7idu52dyfqoawfxba",
+    "workload_network_security_group": "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.aaaaaaaacr2go56he4w3gz4a2v3kuavn4of46hr73n54s67vsblh226hphuq",
+    "security_list": "ocid1.securitylist.oc1.sa-saopaulo-1.aaaaaaaa2m2udyy7rrdxgchgplt36tb6z4oao5kkt2eyfcg7xtiufdr6yqha",
+    "route_table": "ocid1.routetable.oc1.sa-saopaulo-1.aaaaaaaau4evg57oq3pjgion2qewtiy427gpvhj4ayvpmft55sbfwkdo4aoa",
+    "service_gateway": "ocid1.servicegateway.oc1.sa-saopaulo-1.aaaaaaaa6eqxxbtbzjg4xjhdtgatk77l5xtuufapm6hoxwdfjmiuimthuuxq",
+    "local_peering_gateway": "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.aaaaaaaayqdnpy77rzq2xvcfdlk356qchcj7hcsfysuyogxfozvffmeauhyq",
+    "internet_gateway": null,
+    "public_subnet": null,
+    "public_route_table": null,
+    "public_security_list": null,
+    "network_load_balancer": null,
+    "controller_dynamic_group": "ocid1.dynamicgroup.oc1..aaaaaaaagrzcjyxnxf4uabwca7munbukusn3nvnhvnnkquk66gxb36jvu47q",
+    "controller_policy": "ocid1.policy.oc1..aaaaaaaa3q47uueq3c7oqaglwqlnjgmb5tjbbhz2vomxvkpyyic6rlsqpfoq",
+    "objectstorage_key_policy": "ocid1.policy.oc1..aaaaaaaaqyet7moovg7nnsy365k3ftw7dtdzk4xphgiva5kbenagaa36j2ga",
+    "host_dynamic_group": "ocid1.dynamicgroup.oc1..aaaaaaaazgthpwxmpjls4lrxqxbpv66dyxqsxjn423ieny6s7otuuliukolq",
+    "host_policy": null,
+    "instances": {
+      "controller-a": null,
+      "controller-b": null,
+      "controller-c": null,
+      "member-a": null,
+      "member-b": null
+    },
+    "boot_volumes": {
+      "controller-a": null,
+      "controller-b": null,
+      "controller-c": null,
+      "member-a": null,
+      "member-b": null
+    },
+    "data_volumes": {
+      "member-a": null,
+      "member-b": null
+    }
+  },
+  "bootstrap_object_prefix": ""
+}

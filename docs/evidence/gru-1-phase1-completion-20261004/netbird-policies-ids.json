@@ -1,0 +1,12 @@
+[
+  {
+    "id": "db1dl8ka0rgg00dt33r0",
+    "name": "operators-to-gru-cell-ops-ports",
+    "enabled": true
+  },
+  {
+    "id": "db1dl8ka0rgg00dt33sg",
+    "name": "operators-to-gru-servers-ssh",
+    "enabled": true
+  }
+]

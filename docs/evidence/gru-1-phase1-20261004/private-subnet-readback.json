@@ -1,0 +1,41 @@
+{
+  "data": {
+    "availability-domain": null,
+    "cidr-block": "10.251.0.0/25",
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaalwvfqxlo5qul4f4xehx3rct5yk5dv673rlz5tqern4zd6kzjvu4a",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-10-04T22:18:37.162Z"
+      }
+    },
+    "dhcp-options-id": "ocid1.dhcpoptions.oc1.sa-saopaulo-1.aaaaaaaaz7hga4rehb4h7v2vwm4gqwjlnbhhr6eyvhqhcycyzfeqlv6kuctq",
+    "display-name": "gru-1-private",
+    "dns-label": "private",
+    "freeform-tags": {
+      "terrascale-cell": "gru-1",
+      "terrascale-owner": "ts-470-gru-rebuild-2",
+      "terrascale-ticket": "TS-470"
+    },
+    "id": "ocid1.subnet.oc1.sa-saopaulo-1.aaaaaaaaozmgldnfcv6ed4hvk2p6e5dxx4lj7aql42suvjhd4sssuosvgrcq",
+    "ipv4-cidr-blocks": [
+      "10.251.0.0/25"
+    ],
+    "ipv6-cidr-block": null,
+    "ipv6-cidr-blocks": null,
+    "ipv6-virtual-router-ip": null,
+    "lifecycle-state": "AVAILABLE",
+    "prohibit-internet-ingress": true,
+    "prohibit-public-ip-on-vnic": true,
+    "route-table-id": "ocid1.routetable.oc1.sa-saopaulo-1.aaaaaaaau4evg57oq3pjgion2qewtiy427gpvhj4ayvpmft55sbfwkdo4aoa",
+    "security-list-ids": [
+      "ocid1.securitylist.oc1.sa-saopaulo-1.aaaaaaaa2m2udyy7rrdxgchgplt36tb6z4oao5kkt2eyfcg7xtiufdr6yqha"
+    ],
+    "subnet-domain-name": "private.gru1.oraclevcn.com",
+    "time-created": "2026-10-04T22:18:37.215000+00:00",
+    "vcn-id": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqaqb5yhudvuikbvcowjufiue2wi5jx72xujzulqkq6jvhq",
+    "virtual-router-ip": "10.251.0.1",
+    "virtual-router-mac": "00:00:17:AA:29:C8"
+  },
+  "etag": "914ca2fd"
+}

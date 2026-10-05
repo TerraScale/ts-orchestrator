@@ -1,0 +1,24 @@
+{
+  "data": {
+    "compartment-id": "ocid1.tenancy.oc1..aaaaaaaae4zbeypc66rholaayphrk6h2eg7j4up6tfncehv6agji6o5v4yga",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-10-04T22:59:13.791Z"
+      }
+    },
+    "description": "Exact gru-1 control compartment instances",
+    "freeform-tags": {
+      "terrascale-cell": "gru-1",
+      "terrascale-owner": "ts-470-gru-rebuild-2",
+      "terrascale-ticket": "TS-470"
+    },
+    "id": "ocid1.dynamicgroup.oc1..aaaaaaaagrzcjyxnxf4uabwca7munbukusn3nvnhvnnkquk66gxb36jvu47q",
+    "inactive-status": null,
+    "lifecycle-state": "ACTIVE",
+    "matching-rule": "ALL {instance.compartment.id = 'ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq'}",
+    "name": "gru-1-controllers",
+    "time-created": "2026-10-04T22:59:13.834000+00:00"
+  },
+  "etag": "8b528e0d42ff464b9e868be2f387aa10"
+}

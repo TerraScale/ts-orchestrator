@@ -1,0 +1,19 @@
+applied: create group gru-servers
+applied: create network gru-cell
+applied: create network resource gru-cell-private-subnet (10.251.0.0/25)
+applied: create network router gru-cell/ts-ops
+applied: create policy operators-to-gru-cell-ops-ports
+applied: create policy operators-to-gru-servers-ssh
+applied: update dns settings disabled_management_groups (gru-servers)
+applied: create dns zone gru-cell (gru.ts.internal)
+applied: create dns record ctl-1.gru.ts.internal A 10.251.0.11
+applied: create dns record ctl-2.gru.ts.internal A 10.251.0.12
+applied: create dns record ctl-3.gru.ts.internal A 10.251.0.13
+applied: create dns record db-1.gru.ts.internal A 10.251.0.21
+applied: create dns record db-2.gru.ts.internal A 10.251.0.22
+applied: create dns record nats.gru.ts.internal A 10.251.0.11
+applied: create dns record nats.gru.ts.internal A 10.251.0.12
+applied: create dns record nats.gru.ts.internal A 10.251.0.13
+applied: create dns record terrabase.gru.ts.internal A 10.251.0.21
+applied: create dns record terrabase.gru.ts.internal A 10.251.0.22
+warning: expected one unrevoked setup key named gru-servers, found 0

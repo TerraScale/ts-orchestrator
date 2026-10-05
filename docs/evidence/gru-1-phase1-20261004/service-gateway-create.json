@@ -1,0 +1,30 @@
+{
+  "data": {
+    "block-traffic": false,
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaalwvfqxlo5qul4f4xehx3rct5yk5dv673rlz5tqern4zd6kzjvu4a",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-10-04T22:14:25.641Z"
+      }
+    },
+    "display-name": "gru-1-service-gateway",
+    "freeform-tags": {
+      "terrascale-cell": "gru-1",
+      "terrascale-owner": "ts-470-gru-rebuild-2",
+      "terrascale-ticket": "TS-470"
+    },
+    "id": "ocid1.servicegateway.oc1.sa-saopaulo-1.aaaaaaaa6eqxxbtbzjg4xjhdtgatk77l5xtuufapm6hoxwdfjmiuimthuuxq",
+    "lifecycle-state": "AVAILABLE",
+    "route-table-id": null,
+    "services": [
+      {
+        "service-id": "ocid1.service.oc1.sa-saopaulo-1.aaaaaaaacd57uig6rzxm2qfipukbqpje2bhztqszh3aj7zk2jtvf6gvntena",
+        "service-name": "All GRU Services In Oracle Services Network"
+      }
+    ],
+    "time-created": "2026-10-04T22:14:26.369000+00:00",
+    "vcn-id": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqaqb5yhudvuikbvcowjufiue2wi5jx72xujzulqkq6jvhq"
+  },
+  "etag": "6df0071e"
+}

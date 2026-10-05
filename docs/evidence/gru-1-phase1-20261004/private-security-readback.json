@@ -1,0 +1,93 @@
+{
+  "data": {
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaalwvfqxlo5qul4f4xehx3rct5yk5dv673rlz5tqern4zd6kzjvu4a",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-10-04T22:12:25.857Z"
+      }
+    },
+    "display-name": "gru-1-private-security",
+    "egress-security-rules": [
+      {
+        "description": null,
+        "destination": "10.251.0.0/24",
+        "destination-type": "CIDR_BLOCK",
+        "icmp-options": null,
+        "is-stateless": false,
+        "protocol": "all",
+        "tcp-options": null,
+        "udp-options": null
+      },
+      {
+        "description": null,
+        "destination": "169.254.169.254/32",
+        "destination-type": "CIDR_BLOCK",
+        "icmp-options": null,
+        "is-stateless": false,
+        "protocol": "17",
+        "tcp-options": null,
+        "udp-options": {
+          "destination-port-range": {
+            "max": 123,
+            "min": 123
+          },
+          "source-port-range": null
+        }
+      },
+      {
+        "description": null,
+        "destination": "all-gru-services-in-oracle-services-network",
+        "destination-type": "SERVICE_CIDR_BLOCK",
+        "icmp-options": null,
+        "is-stateless": false,
+        "protocol": "all",
+        "tcp-options": null,
+        "udp-options": null
+      },
+      {
+        "description": null,
+        "destination": "10.250.10.155/32",
+        "destination-type": "CIDR_BLOCK",
+        "icmp-options": null,
+        "is-stateless": false,
+        "protocol": "6",
+        "tcp-options": {
+          "destination-port-range": {
+            "max": 443,
+            "min": 443
+          },
+          "source-port-range": null
+        },
+        "udp-options": null
+      },
+      {
+        "description": null,
+        "destination": "10.250.10.155/32",
+        "destination-type": "CIDR_BLOCK",
+        "icmp-options": null,
+        "is-stateless": false,
+        "protocol": "17",
+        "tcp-options": null,
+        "udp-options": {
+          "destination-port-range": {
+            "max": 3478,
+            "min": 3478
+          },
+          "source-port-range": null
+        }
+      }
+    ],
+    "freeform-tags": {
+      "terrascale-cell": "gru-1",
+      "terrascale-owner": "ts-470-gru-rebuild-2",
+      "terrascale-ticket": "TS-470"
+    },
+    "id": "ocid1.securitylist.oc1.sa-saopaulo-1.aaaaaaaa2m2udyy7rrdxgchgplt36tb6z4oao5kkt2eyfcg7xtiufdr6yqha",
+    "ingress-security-rules": [],
+    "lifecycle-state": "AVAILABLE",
+    "time-created": "2026-10-04T22:12:25.929000+00:00",
+    "vcn-id": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqaqb5yhudvuikbvcowjufiue2wi5jx72xujzulqkq6jvhq"
+  },
+  "etag": "25fbcb6e"
+}

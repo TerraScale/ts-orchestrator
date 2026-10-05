@@ -1,0 +1,32 @@
+{
+  "data": {
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-10-04T22:16:04.155Z"
+      }
+    },
+    "display-name": "ts-ops-gru-1-lpg",
+    "freeform-tags": {
+      "terrascale-cell": "gru-1",
+      "terrascale-owner": "ts-470-gru-rebuild-2",
+      "terrascale-ticket": "TS-470"
+    },
+    "id": "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.aaaaaaaaull5hl6p45bcresgenubvy3taefyid4kdvshbzpz4ox7uulnnu4a",
+    "is-cross-tenancy-peering": false,
+    "lifecycle-state": "AVAILABLE",
+    "peer-advertised-cidr": "10.251.0.0/24",
+    "peer-advertised-cidr-details": [
+      "10.251.0.0/24"
+    ],
+    "peer-id": "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.aaaaaaaayqdnpy77rzq2xvcfdlk356qchcj7hcsfysuyogxfozvffmeauhyq",
+    "peering-status": "PEERED",
+    "peering-status-details": "Connected to a peer.",
+    "route-table-id": null,
+    "security-attributes": null,
+    "time-created": "2026-10-04T22:16:04.191000+00:00",
+    "vcn-id": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqacrdeeo2nt2raxsm5vs4wuevdt6nygxt33j25pxobnr2a"
+  },
+  "etag": "2cb98b20"
+}

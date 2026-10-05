@@ -2,7 +2,8 @@
   "management_url": "https://netbird.terrascale.tech",
   "management_ip": "10.250.10.155",
   "region": "sa-saopaulo-1",
-  "setup_key_secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqah36eekkgznp466jwk24f4zcoxpjtjvznlqs4z6zsrdta",
+  "setup_key_secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqaj7iuycp5pjd36u35pmekfwrubyvhtalvzvjun2xtdv3q",
+  "admin_pat_secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqa47dfouwhtievxunck43w4pyccvjgwkfvfglthsopvszq",
   "peer_names": {
     "10.251.0.11": "gru-1-ctl-1",
     "10.251.0.12": "gru-1-ctl-2",

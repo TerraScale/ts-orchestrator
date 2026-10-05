@@ -1,0 +1,35 @@
+{
+  "data": {
+    "byoipv6-cidr-blocks": null,
+    "cidr-block": "10.251.0.0/24",
+    "cidr-blocks": [
+      "10.251.0.0/24"
+    ],
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaalwvfqxlo5qul4f4xehx3rct5yk5dv673rlz5tqern4zd6kzjvu4a",
+    "default-dhcp-options-id": "ocid1.dhcpoptions.oc1.sa-saopaulo-1.aaaaaaaaz7hga4rehb4h7v2vwm4gqwjlnbhhr6eyvhqhcycyzfeqlv6kuctq",
+    "default-route-table-id": "ocid1.routetable.oc1.sa-saopaulo-1.aaaaaaaau4evg57oq3pjgion2qewtiy427gpvhj4ayvpmft55sbfwkdo4aoa",
+    "default-security-list-id": "ocid1.securitylist.oc1.sa-saopaulo-1.aaaaaaaa2m2udyy7rrdxgchgplt36tb6z4oao5kkt2eyfcg7xtiufdr6yqha",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-10-04T22:12:25.857Z"
+      }
+    },
+    "display-name": "gru-1-vcn",
+    "dns-label": "gru1",
+    "freeform-tags": {
+      "terrascale-cell": "gru-1",
+      "terrascale-owner": "ts-470-gru-rebuild-2",
+      "terrascale-ticket": "TS-470"
+    },
+    "id": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqaqb5yhudvuikbvcowjufiue2wi5jx72xujzulqkq6jvhq",
+    "ipv6-cidr-blocks": null,
+    "ipv6-private-cidr-blocks": null,
+    "is-zpr-only": null,
+    "lifecycle-state": "AVAILABLE",
+    "security-attributes": {},
+    "time-created": "2026-10-04T22:12:25.929000+00:00",
+    "vcn-domain-name": "gru1.oraclevcn.com"
+  },
+  "etag": "b51f9eef"
+}

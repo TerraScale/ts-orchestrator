@@ -1,0 +1,27 @@
+{
+  "data": {
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-10-04T23:11:47.055Z"
+      }
+    },
+    "description": "TS-470 gru-1 exact-secret NetBird enrollment grant",
+    "freeform-tags": {
+      "terrascale-cell": "gru-1",
+      "terrascale-owner": "ts-470-gru-rebuild-2",
+      "terrascale-ticket": "TS-470"
+    },
+    "id": "ocid1.policy.oc1..aaaaaaaaiecrdwbzadi3oeiojyve2qbwzg75k7j2qmytrebzz5sptlzjb4eq",
+    "inactive-status": null,
+    "lifecycle-state": "ACTIVE",
+    "name": "gru-1-netbird-admin-pat",
+    "statements": [
+      "Allow dynamic-group gru-1-controllers to read secret-bundles in compartment id ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq where target.secret.id = 'ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqa47dfouwhtievxunck43w4pyccvjgwkfvfglthsopvszq'"
+    ],
+    "time-created": "2026-10-04T23:11:47.107000+00:00",
+    "version-date": null
+  },
+  "etag": "16d1cf8cb4f0292ee78b8b12ccb1cf1bc13b2adc"
+}

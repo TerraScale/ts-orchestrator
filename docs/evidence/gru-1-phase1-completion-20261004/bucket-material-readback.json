@@ -1,0 +1,35 @@
+{
+  "data": {
+    "approximate-count": null,
+    "approximate-size": null,
+    "auto-tiering": null,
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq",
+    "created-by": "ocid1.user.oc1..aaaaaaaadrbn2z4cbc4kpfduzxmgekgxroeanzrq7jrckccakuirfo5ejvkq",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-10-04T22:57:51.442Z"
+      }
+    },
+    "etag": "1e45c691-0234-4422-8145-0603b957595f",
+    "freeform-tags": {
+      "terrascale-cell": "gru-1",
+      "terrascale-owner": "ts-470-gru-rebuild-2",
+      "terrascale-ticket": "TS-470"
+    },
+    "id": "ocid1.bucket.oc1.sa-saopaulo-1.aaaaaaaaxv6xjdruu4kgdl6sov75e2o6dkfbnrta652fhgfepxqjblkktska",
+    "is-read-only": false,
+    "kms-key-id": "ocid1.key.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr57gu27ray2ukib2irijktpd6eqa6ou5zeqstsmasvqcr7hmfu2ia",
+    "metadata": {},
+    "name": "gru-1-material",
+    "namespace": "grxnmoqvrcdv",
+    "object-events-enabled": false,
+    "object-lifecycle-policy-etag": null,
+    "public-access-type": "NoPublicAccess",
+    "replication-enabled": false,
+    "storage-tier": "Standard",
+    "time-created": "2026-10-04T22:57:51.468000+00:00",
+    "versioning": "Enabled"
+  },
+  "etag": "1e45c691-0234-4422-8145-0603b957595f"
+}

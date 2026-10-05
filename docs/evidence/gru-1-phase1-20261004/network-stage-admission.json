@@ -1,0 +1,41 @@
+{
+	"admitted_at": "2026-10-04T22:28:04.618151+00:00",
+	"estimate": {
+		"assumptions": {
+			"a1_free_memory_gb_hours": 9000,
+			"a1_free_ocpu_hours": 1500,
+			"backup_reserve_pricing": "350 GB at block capacity rate; provisional",
+			"custom_image_size_source": "OCI billableSizeInGBs for scoped custom images",
+			"custom_image_storage_rate": "0.0255",
+			"free_block_gb": 200,
+			"free_object_gb": 10,
+			"object_growth_reserve_gb": "10",
+			"object_staging_reserve_gb": "10"
+		},
+		"currency": "USD",
+		"headroom": "108.84",
+		"items": {
+			"block_storage": "10.6250",
+			"compute": "58.6200",
+			"custom_image_storage": "0.0000",
+			"egress": "2.5000",
+			"misc_reserve": "5.0000",
+			"object_requests": "0.6100",
+			"object_storage": "3.0864",
+			"replacement_compute": "1.3680",
+			"replacement_storage": "0.4250",
+			"snapshot_reserve": "8.9250"
+		},
+		"limit": "200",
+		"total": "91.16"
+	},
+	"expires_at": "2026-10-04T22:43:04.618161+00:00",
+	"inventory_sha256": "46aa78919811b5b2a6e454e142f2af143dddc1d006891899256105ced3d4ccf1",
+	"plan_sha256": "d0c66adde3073cc563c475792a3f20cd0a8fb6b2d77bb50fef2e1933c118fb10",
+	"preview_compartment_ids": {
+		"control": "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq",
+		"network": "ocid1.compartment.oc1..aaaaaaaalwvfqxlo5qul4f4xehx3rct5yk5dv673rlz5tqern4zd6kzjvu4a",
+		"workload": "ocid1.compartment.oc1..aaaaaaaazbzmxwi73zezjytvpp6dq3r4ys2t6akch6shdmsvwpgqnyoglzaa"
+	},
+	"schema_version": 2
+}

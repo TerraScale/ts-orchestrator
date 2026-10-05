@@ -1,0 +1,40 @@
+{
+  "data": {
+    "compartment-id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mariogk@terrascale.tech",
+        "CreatedOn": "2026-09-17T14:04:51.558Z"
+      }
+    },
+    "display-name": "ts-ops-public-rt",
+    "freeform-tags": {
+      "ManagedBy": "HomeLab",
+      "Migration": "oci",
+      "Service": "Forgejo"
+    },
+    "id": "ocid1.routetable.oc1.sa-saopaulo-1.aaaaaaaaikzkrgryjmv2lok7zplayqp4xaqwsj6h5liaaqaes7wdtgmik3ba",
+    "lifecycle-state": "AVAILABLE",
+    "route-rules": [
+      {
+        "cidr-block": null,
+        "description": null,
+        "destination": "0.0.0.0/0",
+        "destination-type": "CIDR_BLOCK",
+        "network-entity-id": "ocid1.internetgateway.oc1.sa-saopaulo-1.aaaaaaaaubi6okhp3hff5uojvcszg36r4jkay6zctgyejzfmr44tkyeauona",
+        "route-type": "STATIC"
+      },
+      {
+        "cidr-block": null,
+        "description": null,
+        "destination": "10.251.0.0/25",
+        "destination-type": "CIDR_BLOCK",
+        "network-entity-id": "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.aaaaaaaaull5hl6p45bcresgenubvy3taefyid4kdvshbzpz4ox7uulnnu4a",
+        "route-type": "STATIC"
+      }
+    ],
+    "time-created": "2026-09-17T14:04:51.585000+00:00",
+    "vcn-id": "ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqacrdeeo2nt2raxsm5vs4wuevdt6nygxt33j25pxobnr2a"
+  },
+  "etag": "7fefdd8d"
+}

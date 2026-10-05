@@ -1,0 +1,37 @@
+2026-10-04T22:09:55Z create compartment gru-1-control start
+2026-10-04T22:10:08Z create compartment gru-1-control verified ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq
+2026-10-04T22:10:08Z create compartment gru-1-network start
+2026-10-04T22:10:21Z create compartment gru-1-network verified ocid1.compartment.oc1..aaaaaaaalwvfqxlo5qul4f4xehx3rct5yk5dv673rlz5tqern4zd6kzjvu4a
+2026-10-04T22:10:21Z create compartment gru-1-workload start
+2026-10-04T22:10:34Z create compartment gru-1-workload verified ocid1.compartment.oc1..aaaaaaaazbzmxwi73zezjytvpp6dq3r4ys2t6akch6shdmsvwpgqnyoglzaa
+2026-10-04T22:12:24Z create VCN gru-1-vcn start
+2026-10-04T22:12:33Z create VCN gru-1-vcn verified ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqaqb5yhudvuikbvcowjufiue2wi5jx72xujzulqkq6jvhq
+2026-10-04T22:14:24Z create service gateway gru-1-service-gateway start
+2026-10-04T22:14:28Z create service gateway gru-1-service-gateway verified ocid1.servicegateway.oc1.sa-saopaulo-1.aaaaaaaa6eqxxbtbzjg4xjhdtgatk77l5xtuufapm6hoxwdfjmiuimthuuxq
+2026-10-04T22:15:58Z create LPG gru-1-netbird-lpg start
+2026-10-04T22:16:02Z create LPG gru-1-netbird-lpg verified ocid1.localpeeringgateway.oc1.sa-saopaulo-1.aaaaaaaayqdnpy77rzq2xvcfdlk356qchcj7hcsfysuyogxfozvffmeauhyq
+2026-10-04T22:16:02Z create LPG ts-ops-gru-1-lpg start
+2026-10-04T22:16:06Z create LPG ts-ops-gru-1-lpg verified ocid1.localpeeringgateway.oc1.sa-saopaulo-1.aaaaaaaaull5hl6p45bcresgenubvy3taefyid4kdvshbzpz4ox7uulnnu4a
+2026-10-04T22:16:06Z connect approved LPG pair start
+2026-10-04T22:16:12Z approved LPG pair verified PEERED
+2026-10-04T22:18:27Z configure new default route table gru-1-private-routes start
+2026-10-04T22:18:32Z private route table verified ocid1.routetable.oc1.sa-saopaulo-1.aaaaaaaau4evg57oq3pjgion2qewtiy427gpvhj4ayvpmft55sbfwkdo4aoa
+2026-10-04T22:18:32Z configure new default security list gru-1-private-security start
+2026-10-04T22:18:35Z private security list verified ocid1.securitylist.oc1.sa-saopaulo-1.aaaaaaaa2m2udyy7rrdxgchgplt36tb6z4oao5kkt2eyfcg7xtiufdr6yqha
+2026-10-04T22:18:35Z create private subnet gru-1-private start
+2026-10-04T22:18:43Z private subnet verified ocid1.subnet.oc1.sa-saopaulo-1.aaaaaaaaozmgldnfcv6ed4hvk2p6e5dxx4lj7aql42suvjhd4sssuosvgrcq
+2026-10-04T22:20:05Z create NSG gru-1-controllers-nsg start
+2026-10-04T22:20:12Z NSG gru-1-controllers-nsg verified ocid1.networksecuritygroup.oc1.sa-saopaulo-1.aaaaaaaalt5nfmgj43snm7uwhatkudk5n7463vd4mgw7idu52dyfqoawfxba
+2026-10-04T22:20:12Z create NSG gru-1-databases-nsg start
+2026-10-04T22:20:19Z NSG gru-1-databases-nsg verified ocid1.networksecuritygroup.oc1.sa-saopaulo-1.aaaaaaaacr2go56he4w3gz4a2v3kuavn4of46hr73n54s67vsblh226hphuq
+2026-10-04T22:28:43Z add approved ts-ops route start
+2026-10-04T22:28:48Z approved ts-ops route verified ocid1.routetable.oc1.sa-saopaulo-1.aaaaaaaaikzkrgryjmv2lok7zplayqp4xaqwsj6h5liaaqaes7wdtgmik3ba
+2026-10-04T22:28:48Z add approved ts-ops NSG rules start
+2026-10-04T22:28:53Z approved ts-ops NSG rules verified ocid1.networksecuritygroup.oc1.sa-saopaulo-1.aaaaaaaabtl6qvnet4njhx322ouuk7s6dyclt4iyhecwpwpxti6hwtaeqmrq
+2026-10-04T22:29:31Z create DEFAULT vault gru-1-vault start
+2026-10-04T22:31:31Z vault verified ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq
+2026-10-04T22:31:31Z create AES-256 HSM key gru-1-key start
+2026-10-04T22:32:18Z key verified ocid1.key.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr57gu27ray2ukib2irijktpd6eqa6ou5zeqstsmasvqcr7hmfu2ia
+2026-10-04T22:33:55Z HALTED: local jq syntax error selecting tenancy home region; no Object Storage policy API call was made; no further live mutations
+2026-10-04T22:35:16Z post-stop DNS, IAM, secrets and shared VNIC readbacks completed
+2026-10-04T22:38:20Z shared Email Delivery ACTIVE; all 502 old secret schedules and both key schedules verified; old compartment ACTIVE; Forgejo API reachable

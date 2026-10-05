@@ -1,0 +1,91 @@
+{
+  "currency": "USD",
+  "month_hours": 720,
+  "phase1_status": "HALTED before Object Storage key policy",
+  "additional_cell_compute_monthly": 68.4,
+  "additional_cell_disks_monthly": 14.875,
+  "additional_cell_compute_and_disks_monthly": 83.275,
+  "image": {
+    "name": "gru-1-arm64",
+    "max_billable_size_gb": 10,
+    "max_monthly": 0.255
+  },
+  "with_image_native_estimate_monthly": 91.4144,
+  "with_image_estimate_without_free_allowances_monthly": 128.6694,
+  "ceiling_monthly": 200,
+  "resources": [
+    {
+      "type": "custom ARM64 image",
+      "name": "gru-1-arm64",
+      "max_billable_size_gb": 10,
+      "estimated_monthly": 0.255
+    },
+    {
+      "type": "instance",
+      "name": "gru-1-ctl-1",
+      "shape": "VM.Standard.A1.Flex",
+      "ocpus": 1,
+      "memory_gb": 6,
+      "boot_gb": 50,
+      "data_gb": 0,
+      "private_ip": "10.251.0.11",
+      "fault_domain": "FAULT-DOMAIN-1",
+      "estimated_monthly": 15.805000000000001
+    },
+    {
+      "type": "instance",
+      "name": "gru-1-ctl-2",
+      "shape": "VM.Standard.A1.Flex",
+      "ocpus": 1,
+      "memory_gb": 6,
+      "boot_gb": 50,
+      "data_gb": 0,
+      "private_ip": "10.251.0.12",
+      "fault_domain": "FAULT-DOMAIN-2",
+      "estimated_monthly": 15.805000000000001
+    },
+    {
+      "type": "instance",
+      "name": "gru-1-ctl-3",
+      "shape": "VM.Standard.A1.Flex",
+      "ocpus": 1,
+      "memory_gb": 6,
+      "boot_gb": 50,
+      "data_gb": 0,
+      "private_ip": "10.251.0.13",
+      "fault_domain": "FAULT-DOMAIN-3",
+      "estimated_monthly": 15.805000000000001
+    },
+    {
+      "type": "instance",
+      "name": "gru-1-db-1",
+      "shape": "VM.Standard.A1.Flex",
+      "ocpus": 1,
+      "memory_gb": 6,
+      "boot_gb": 50,
+      "data_gb": 50,
+      "private_ip": "10.251.0.21",
+      "fault_domain": "FAULT-DOMAIN-1",
+      "estimated_monthly": 17.93
+    },
+    {
+      "type": "instance",
+      "name": "gru-1-db-2",
+      "shape": "VM.Standard.A1.Flex",
+      "ocpus": 1,
+      "memory_gb": 6,
+      "boot_gb": 50,
+      "data_gb": 50,
+      "private_ip": "10.251.0.22",
+      "fault_domain": "FAULT-DOMAIN-2",
+      "estimated_monthly": 17.93
+    }
+  ],
+  "holds": [
+    "Complete phase 1 after COS resume instruction and renewed admission",
+    "Qualified ARM64 image and exact source/QCOW2/kernel/receipt pins",
+    "Reviewed bootstrap material publication manifest and exact secret/object creates",
+    "Verified C# ARM64 release and controller CA/config support",
+    "Reviewed C# host registration without Rust placement bindings"
+  ]
+}

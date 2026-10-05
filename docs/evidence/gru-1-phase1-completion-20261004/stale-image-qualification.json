@@ -1,0 +1,131 @@
+{
+  "schema": "terrascale.image.qualification.v2",
+  "source_revision": "d30f42663eb4c5ba9e5f0917fd8bb5df98dbe309",
+  "source_tree": "176107770eccf72b8d3b9558a30a9f42b9d608f1",
+  "builder": {
+    "kind": "ci",
+    "workflow": "image.yml",
+    "job": "build/qualified-gru-arm64-image",
+    "run_id": 13042,
+    "run_number": 931,
+    "job_id": 28757,
+    "run_attempt": 1,
+    "required_final_status": "success"
+  },
+  "inputs": {
+    "path": "deploy/image/image-inputs.json",
+    "sha256": "ef2d5197987ead0139a936e4c79a5bce6b97eaf82e1c2fe1ce9465868f353d57",
+    "manifest": {
+      "schema": "terrascale.image.inputs.v2",
+      "region": "GRU",
+      "base": {
+        "release_tag": "image-base-noble-arm64-20260926",
+        "source_url": "https://cloud-images.ubuntu.com/noble/20260926/noble-server-cloudimg-arm64.img",
+        "checksum_name": "noble-server-cloudimg-arm64.img",
+        "signer_fingerprint": "D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81",
+        "oci_image_ocid": "ocid1.image.oc1.sa-saopaulo-1.aaaaaaaa26dtecgzoolcbgkec3n2lc3o7fiaydhxx6azdgzvxmfq57pi3ifq",
+        "kernel_release": "6.8.0-142-generic",
+        "assets": {
+          "base-image.qcow2": {
+            "bytes": 620224512,
+            "sha256": "1d6bffe64b848468ac97f821d369a4846d983de1800ccf6b5ec8853e85cefc55"
+          },
+          "ubuntu-SHA256SUMS": {
+            "bytes": 7381,
+            "sha256": "b61a6497608cdea66f54968d52d3457365b0645ccb2b1371c8f092ecce806183"
+          },
+          "ubuntu-SHA256SUMS.gpg": {
+            "bytes": 833,
+            "sha256": "1703eef53a392af8f6834716afacc15f74eac14f07aa8d916c1fe5dc219419d1"
+          },
+          "ubuntu-cloud-image-keyring.gpg": {
+            "bytes": 2444,
+            "sha256": "c2d40d925557dbe9a0745c12ca0dc98bed593ce9a6652f1b2faa1ff0858dbf2f"
+          }
+        }
+      },
+      "trust_roots": [
+        {
+          "path": "deploy/image/inputs/bootstrap-root-001.pem",
+          "sha256": "bbdab8425dac0382d641cdf9de7c5a6685f0355a63f6b1131c64241873d418bc"
+        }
+      ],
+      "timesyncd_config": {
+        "path": "deploy/image/inputs/timesyncd-gru.conf",
+        "sha256": "8677f100a7fa09e374f1b476a50fd1f3355168007e109838f13971ffc345c05e"
+      },
+      "priority": {
+        "profile_id": "gru-a1-1ocpu-6gib-v1",
+        "system_reserve_bytes": 1073741824,
+        "host_memory_min_bytes": 268435456,
+        "host_memory_low_bytes": 536870912,
+        "controller_memory_min_bytes": 268435456,
+        "controller_memory_low_bytes": 536870912,
+        "system_slice_memory_min_bytes": 536870912,
+        "system_slice_memory_low_bytes": 1073741824
+      },
+      "terrabase": {
+        "source_revision": "d2017ca9668a650ec490dff3f79bd51b75bb6466",
+        "source_tree": "5b7842441b140d7501032d4128462aef85c37830",
+        "run_id": 11696,
+        "run_number": 1012,
+        "qualification_sha256": "69ef5119a78ec1692d49f12447f66cdeb72ca09d8e42f135c05e779ef0e992e9",
+        "binary_sha256": "33f316ab64ab9d83127a5921ea6b5a92304e78dfd179d3b5c0935977c7e9f33c"
+      },
+      "netbird": {
+        "version": "0.79.0",
+        "archives": {
+          "arm64": {
+            "url": "https://github.com/netbirdio/netbird/releases/download/v0.79.0/netbird_0.79.0_linux_arm64.tar.gz",
+            "bytes": 14585432,
+            "sha256": "275a98268c84422a66e18c7d771015284b8856400174536beb8b0ce737cdadd3",
+            "binary_sha256": "7a562fb95a43eba5fe17ff08e0047ea39a9ccce1411f25f7a59d4e470f851817"
+          },
+          "amd64": {
+            "url": "https://github.com/netbirdio/netbird/releases/download/v0.79.0/netbird_0.79.0_linux_amd64.tar.gz",
+            "bytes": 15933764,
+            "sha256": "d6f8d26fa21527772f87094557e1196f2a669b1ab4033f650424dce33ba71efd",
+            "binary_sha256": "18db53727a3c76a845b52247c7355effe6a3210d41b4b37b0e48fe477e3bbcf9"
+          }
+        },
+        "enrollment_config": {
+          "path": "deploy/image/inputs/netbird-gru.json",
+          "sha256": "3534acc1a3c678f83879051692cd7644a51029ccc7189f98b066776e31ffa61b"
+        }
+      }
+    }
+  },
+  "go_candidate": {
+    "release_tag": "ci-d30f42663eb4c5ba9e5f0917fd8bb5df98dbe309-run-13041",
+    "run_id": 13041,
+    "run_number": 930,
+    "qualification_sha256": "a65353ec181826392a4a8eb241c8ce8920b2a6875958b345c675f1d35c13adf3",
+    "binary_sha256": "3d830633227e5be046bf3bb09f1215c959cd1b4de10c84ad4d629b71b1f7023a",
+    "binary_bytes": 36700320
+  },
+  "terrabase_release_tag": "ci-d2017ca9668a650ec490dff3f79bd51b75bb6466-run-11696",
+  "toolchain": {
+    "go_version": "go1.27.1",
+    "ts_release_sha256": "0d6fcb8a5cf080f14d48c48cb899eb17ddfcb04e69f92726d0d534390c0792d9",
+    "qemu_img_version": "qemu-img version 11.1.0",
+    "guestfish_version": "guestfish 1.56.2",
+    "gpgv_version": "gpgv (GnuPG) 2.4.9",
+    "tools": "nixpkgs=e554fab72f81915600f3f449b786fd9af40439a5 lock_sha256=55ef64a90679d1ca1cf7e96fe4b4ce265400a1c936f1f6f29b9288e3fdd82067"
+  },
+  "kernel": {
+    "name": "guest-kernel",
+    "guest_path": "/boot/vmlinuz-6.8.0-142-generic",
+    "release": "6.8.0-142-generic",
+    "architecture": "arm64",
+    "bytes": 18585914,
+    "sha256": "71fe6776ef591ea452661a5933e11d2044c5df6aaf76cf39b8d9655fa4e47904"
+  },
+  "image": {
+    "name": "terrascale-gru-arm64.qcow2",
+    "format": "qcow2",
+    "architecture": "arm64",
+    "bytes": 784728064,
+    "sha256": "1f563b6bd90036d54b7124cb6bb50d58a4298618badb39cf9565d852a60ae0d8"
+  },
+  "image_receipt_status": "requires OCI import and signing (ts-orch image promote)"
+}

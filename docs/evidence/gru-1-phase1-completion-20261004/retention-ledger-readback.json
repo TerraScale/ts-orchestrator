@@ -1,0 +1,15 @@
+{
+  "data": {
+    "display-name": "ledger-retention",
+    "duration": {
+      "time-amount": 35,
+      "time-unit": "DAYS"
+    },
+    "etag": "636c903b-3365-4a95-8dcb-465d60530137",
+    "id": "ea20e32a-8a92-471a-a8e6-e0d7821b4c86",
+    "time-created": "2026-10-04T22:57:56.516000+00:00",
+    "time-modified": "2026-10-04T22:57:56.516000+00:00",
+    "time-rule-locked": null
+  },
+  "etag": "636c903b-3365-4a95-8dcb-465d60530137"
+}
