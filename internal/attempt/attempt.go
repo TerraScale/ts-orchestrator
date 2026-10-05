@@ -666,6 +666,25 @@ func (a *Attempt) PhaseSign() {
 		nsgs := []string{str(ids, "network_security_group")}
 		profiles = append(profiles, Object{"slot": slot, "compartmentOcid": ids["control_compartment"], "availabilityDomain": plan["availability_domain"], "faultDomain": hosts[slot]["fault_domain"], "subnetOcid": ids["subnet"], "networkSecurityGroupOcids": nsgs, "shape": hosts[slot]["shape"]})
 	}
+	// ts-auth can join a controller config only before it is first signed,
+	// so a cell that runs ts-auth renders it into every slot's config, and a
+	// resumed attempt refuses configs rendered the other way.
+	authProfile, authService := str(a.Config, "ts_auth_profile"), str(a.Config, "ts_auth_service")
+	if (authProfile == "") != (authService == "") {
+		a.fail(errors.New("attempt config needs ts_auth_profile and ts_auth_service together"))
+		return
+	}
+	for _, slot := range Slots {
+		config := a.Path("signed", slot+".config.json")
+		if !exists(config) {
+			continue
+		}
+		_, rendered := object(object(a.read(config)["controller"])["workloads"])["ts-auth"]
+		if rendered != (authProfile != "") {
+			a.fail(fmt.Errorf("%s does not match the attempt's ts_auth_profile; a signed controller config cannot gain or lose ts-auth", config))
+			return
+		}
+	}
 	for _, slot := range Slots {
 		manifest := a.Manifest(slot)
 		if exists(manifest) {
@@ -684,6 +703,9 @@ func (a *Attempt) PhaseSign() {
 			args := join([]string{"render-controller-config"}, a.pair(candidate, "--candidate"), a.pair(a.Path("controller-material.json"), "--material-record"), a.pair(str(a.Config, "operator_grant"), "--operator-grant"), sidecars)
 			if profile := str(a.Config, "terrabase_profile"); profile != "" {
 				args = append(args, a.pair(profile, "--terrabase-profile")...)
+			}
+			if authProfile != "" {
+				args = append(args, join(a.pair(authProfile, "--ts-auth-profile"), a.pair(authService, "--ts-auth-service"))...)
 			}
 			a.RunBootstrap(append(args, "--out", config)...)
 		}

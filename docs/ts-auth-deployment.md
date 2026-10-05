@@ -12,10 +12,10 @@ side is [`internal/host/tsauth.go`](../internal/host/tsauth.go).
 
 | Command | Where | Effect |
 | --- | --- | --- |
-| `ts-orch ts-auth secrets --plan FILE` | operator host, `~/.oci/config` | Generates `TS_AUTH_MASTER_KEY`, `TS_AUTH_AUDIT_SIGNING_KEY` and `TS_AUTH_OPERATOR_KEY` once into the cell's Vault. |
+| `ts-orch ts-auth secrets --plan FILE` | operator host, `~/.oci/config` | Generates `TS_AUTH_MASTER_KEY`, `TS_AUTH_AUDIT_SIGNING_KEY`, `TS_AUTH_OPERATOR_KEY` and `TS_AUTH_DASHBOARD_CLIENT_SECRET` once into the cell's Vault. |
 | `ts-orch ouroboros bootstrap --plan FILE --client-url URL --admin-url URL --member NODE --member-ca FILE --dashboard-credential-file FILE [--management-listener client\|admin] [--owner-email EMAIL --ts-auth-instance SLUG --ts-auth-key-file FILE [--ts-auth-url URL]]` | operator host, SSH forward to `gru-1-db-1` | Finds or creates TerraScale's TerraBase organization and the ts-auth and ts-dashboard projects and databases; stores each project ID and, once, a new API key in the Vault. With `--owner-email` (needs `--management-listener admin`), makes that ts-auth user the organization's owner. |
 | `ts-orch ouroboros fly-secrets --plan FILE` | operator host, `~/.oci/config` | Hands the dashboard's TerraBase settings to Fly app `ts-dashboard`: stages them with `FLY_API_TOKEN`, otherwise prints the non-secret ones. |
-| `ts-orch ts-auth env-file --host-config FILE --vault-id OCID` | each controller, as root | Reads the five secrets with the instance principal and writes `<ts_auth_root>/ts-auth.env`, mode 0600, owned by the workload user. |
+| `ts-orch ts-auth env-file --host-config FILE --vault-id OCID` | each controller, as root | Reads the six secrets with the instance principal and writes `<ts_auth_root>/ts-auth.env`, mode 0600, owned by the workload user. |
 | `ts-orch ts-auth metadata-rules` | operator host, no OCI access | Renders the nftables metadata block installed on each controller in step 3. |
 | `ts-orch bootstrap render-controller-config ... --ts-auth-profile F --ts-auth-profile-sha256 H --ts-auth-service F --ts-auth-service-sha256 H --out F` | operator host, before initial controller signing | Includes the reviewed ts-auth profile and service in canonical signed controller configuration. |
 | `ts-orch operator ts-auth-release --config FILE --binary F --sha256 F --source-checkout DIR --commit SHA --environment ENV --profile F [--wait 10m]` | operator host | Verifies, admits and rolls out one release; gates on readiness and rolls back a release that fails. |
@@ -71,11 +71,14 @@ breaks these rules:
 
 | Key | Rule |
 | --- | --- |
-| `TS_AUTH_PUBLIC_ORIGIN` | Exactly `https://gru.auth.terrascale.tech`. |
+| `TS_AUTH_PUBLIC_ORIGIN` | Exactly `https://gru.auth.terrascale.tech`, the regional host (user decision 2026-10-05; `auth.terrascale.tech` stays the ts-atlas proxy). |
 | `TS_AUTH_TERRASCALE_API_URL` | Exactly `https://gru.api.terrascale.tech`. |
-| `TS_AUTH_DATABASE` | Exactly `auth`, the database `ouroboros bootstrap` creates. |
+| `TS_AUTH_DATABASE` | Exactly `auth`, the database `ouroboros bootstrap` creates. The host passes ts-auth `<project-uuid>/auth`, the project from the env file. |
+| `TS_AUTH_ACCESS_TOKEN_AUDIENCES` | Exactly `https://gru.api.terrascale.tech`, TerraBase's `auth-audience`: every access token names it, so a dashboard user's token reaches TerraBase's Management API (TS-519). |
+| `TS_AUTH_DASHBOARD_REDIRECT_URIS` | Exactly `https://dash.terrascale.tech/login/callback`, the dashboard's callback. |
+| `TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS` | Exactly `https://dash.terrascale.tech/login`, the `post_logout_redirect_uri` the dashboard sends; ts-auth compares it exactly. |
 | Env file keys, `TS_AUTH_LISTEN`, `DOTNET_BUNDLE_EXTRACT_BASE_DIR` | Must not be set. |
-| `TS_AUTH_SMTP_PASSWORD`, `TS_AUTH_STRIPE_SECRET_KEY`, `TS_AUTH_STRIPE_WEBHOOK_SECRET`, `TS_AUTH_SENTRY_DSN`, `TS_AUTH_AUDIT_VERIFY_KEYS`, `OTEL_EXPORTER_OTLP_HEADERS` | Must not be set: they are secrets, and the env file does not carry them yet. Non-secret optional settings (SMTP host, OTEL endpoint) may be added. |
+| `TS_AUTH_SMTP_PASSWORD`, `TS_AUTH_STRIPE_SECRET_KEY`, `TS_AUTH_STRIPE_WEBHOOK_SECRET`, `TS_AUTH_SENTRY_DSN`, `TS_AUTH_AUDIT_VERIFY_KEYS`, `TS_AUTH_SERVICE_CLIENTS`, `OTEL_EXPORTER_OTLP_HEADERS` | Must not be set: they are secrets, and the env file does not carry them yet. Non-secret optional settings (SMTP host, OTEL endpoint) may be added. |
 | `args` | Must be empty: an argument overrides any setting. |
 
 ### Secrets and the env file
@@ -85,11 +88,23 @@ breaks these rules:
 | `TS_AUTH_MASTER_KEY` | `ts-auth secrets`: 32 random bytes, base64 | `gru-1-ts-auth-master-key` |
 | `TS_AUTH_AUDIT_SIGNING_KEY` | `ts-auth secrets` | `gru-1-ts-auth-audit-signing-key` |
 | `TS_AUTH_OPERATOR_KEY` | `ts-auth secrets` | `gru-1-ts-auth-operator-key` |
+| `TS_AUTH_DASHBOARD_CLIENT_SECRET` | `ts-auth secrets` | `gru-1-ts-auth-dashboard-client-secret` |
 | `TS_AUTH_TERRASCALE_API_KEY` | `ouroboros bootstrap`: TerraBase `POST /admin/api-keys` | `gru-1-ts-auth-terrascale-api-key` |
 | `TS_AUTH_TERRASCALE_PROJECT_ID` | `ouroboros bootstrap`: the project the key is narrowed to | `gru-1-ts-auth-terrascale-project-id` |
 
 The project ID is not secret; it travels with the API key because the key
-reaches only that project's database.
+reaches only that project's database. The host joins it to the profile's
+database as `TS_AUTH_DATABASE=<project-uuid>/auth`, the selector ts-auth
+reads, and does not pass `TS_AUTH_TERRASCALE_PROJECT_ID` itself.
+
+### OpenID Connect
+
+ts-auth (ts-auth#36) serves one issuer, `https://gru.auth.terrascale.tech/terrascale`,
+with discovery at `https://gru.auth.terrascale.tech/terrascale/.well-known/openid-configuration`.
+At startup it registers the confidential client `ts-dashboard` from
+`TS_AUTH_DASHBOARD_CLIENT_SECRET` and the two profile URIs above.
+`ouroboros fly-secrets` hands the dashboard the matching `TS_AUTH_ISSUER`,
+`TS_AUTH_CLIENT_ID`, `TS_AUTH_REDIRECT_URL` and `TS_AUTH_CLIENT_SECRET`.
 
 - Every secret lives in the gru-1 Vault (phase 1) in the control
   compartment, read from the plan's `resource_ids` (`control_compartment`,
@@ -122,7 +137,7 @@ the managed runtime tree `/srv/ts-managed`, which the host service can write.
 | Path | Owner, mode | Content |
 | --- | --- | --- |
 | `<root>` | supervisor, workload group, 0750 | |
-| `<root>/ts-auth.env` | workload user, 0600 | The five secrets |
+| `<root>/ts-auth.env` | workload user, 0600 | The six secrets |
 | `<root>/bundle` | workload user, 0700 | Extracted native libraries |
 
 The replica's environment is the host base environment, the profile, the env
@@ -308,10 +323,10 @@ and create projects and databases.
 
 **Prepared, not executed. Requires human confirmation before every step that
 changes the cell, the Vault or TerraBase.** Blast radius: one controller NSG
-rule, the gru-1 Vault (three generated keys, then four from bootstrap), the
+rule, the gru-1 Vault (four generated keys, then four from bootstrap), the
 production TerraBase on `gru-1-db-1` (one organization, two projects, two
 databases and two API keys, and with phase B its ownership), the Fly app
-`ts-dashboard` (four staged secrets) and the three controllers (`host.json`,
+`ts-dashboard` (eight staged secrets) and the three controllers (`host.json`,
 one env file each, one ts-auth replica on two of them).
 
 ### Prerequisites
@@ -367,7 +382,17 @@ is signed and accepted**. The installer is write-once, and restart admission
 binds the config digest to that accepted manifest. Adding ts-auth to an already
 accepted controller config is unsupported; do not edit its installed JSON or
 delete its acceptance marker. TS-470 must include these inputs in the initial
-gru-1 rebuild/bootstrap.
+gru-1 rebuild/bootstrap. `ts-orch oci-region attempt` does so when its
+`attempt.json` names both files:
+
+```json
+"ts_auth_profile": "/ABSOLUTE/PATH/deploy/oci-region/ts-auth-gru-1-profile.json",
+"ts_auth_service": "/ABSOLUTE/PATH/deploy/oci-region/ts-auth-gru-1-service.json"
+```
+
+It passes them, with their SHA-256 pins, to `render-controller-config` for
+every controller slot, and refuses one without the other. Run by hand, the
+renderer takes them as follows.
 
 For each controller slot, use the reviewed candidate, material record,
 operator grant and three sidecars from
@@ -424,7 +449,7 @@ WORK=$(mktemp -d)
      "tcpOptions":{"destinationPortRange":{"min":8080,"max":8080}}}]'
    ```
 
-1. Generate the three keys into the Vault. Expect three lines with
+1. Generate the four keys into the Vault. Expect four lines with
    `"created":true` (a rerun prints `"created":false`):
 
    ```sh
@@ -534,10 +559,11 @@ WORK=$(mktemp -d)
    ```sh
    sudo terrascale-orchestrator operator hosts --config /var/lib/terrascale-operator/operator.json "${F[@]}"
    curl -fsS https://gru.auth.terrascale.tech/readyz
+   curl -fsS https://gru.auth.terrascale.tech/terrascale/.well-known/openid-configuration | jq -e '.issuer == "https://gru.auth.terrascale.tech/terrascale"'
    ```
 
    Expect two `ts-auth` reports `running` with the new digest on two
-   different controllers, and `{"status":"ready",...}`.
+   different controllers, `{"status":"ready",...}` and `true`.
 
 A later release repeats step 5. A changed secret needs step 3's `env-file`
 on every controller and a new release (or replica restart) to load it.
@@ -573,15 +599,21 @@ rerun.
 
 Dashboard handoff, Fly app `ts-dashboard`. It sets `TERRABASE_URL`
 (`https://gru.api.terrascale.tech`), `TERRABASE_PROJECT_ID` (from the Vault),
-`TERRABASE_DATABASE` (`dashboard`) and `TERRABASE_API_KEY` (from the Vault).
+`TERRABASE_DATABASE` (`dashboard`) and `TERRABASE_API_KEY` (from the Vault),
+and the dashboard's ts-auth client: `TS_AUTH_ISSUER`
+(`https://gru.auth.terrascale.tech/terrascale`), `TS_AUTH_CLIENT_ID`
+(`ts-dashboard`), `TS_AUTH_REDIRECT_URL`
+(`https://dash.terrascale.tech/login/callback`) and `TS_AUTH_CLIENT_SECRET`
+(from the Vault, the secret ts-auth registers).
 
 ```sh
-# Without a token: reads only the project ID, prints the three non-secret
-# settings and the Vault secret that holds the key.
+# Without a token: reads only the project ID, prints the six non-secret
+# settings and the Vault secrets that hold the key and the client secret.
 terrascale-orchestrator ouroboros fly-secrets --plan "$PLAN"
-# Expect {"app":"ts-dashboard","settings":{...},"api_key_secret":"gru-1-ts-dashboard-terrabase-api-key","staged":false}
+# Expect {"app":"ts-dashboard","settings":{...},"api_key_secret":"gru-1-ts-dashboard-terrabase-api-key","client_secret_secret":"gru-1-ts-auth-dashboard-client-secret","staged":false}
 
-# With a token: reads both secrets and runs
+# With a token (after step 1 created the client secret): reads all three
+# secrets and runs
 # flyctl secrets import --app ts-dashboard --stage, values on stdin.
 FLY_API_TOKEN=<token> terrascale-orchestrator ouroboros fly-secrets --plan "$PLAN"
 # Expect the same line with "staged":true

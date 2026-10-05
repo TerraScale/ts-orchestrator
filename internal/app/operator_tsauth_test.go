@@ -283,9 +283,13 @@ func fakeTSAuthReplica(secrets map[string]string) func(host.Workload) (func(), c
 			return func() {}, exited, nil
 		}
 		for key, value := range secrets {
-			if w.Env[key] != value {
+			if key != tsauth.EnvProjectID && w.Env[key] != value {
 				return nil, nil, fmt.Errorf("replica lacks %s", key)
 			}
+		}
+		// ts-auth selects its database as <project-uuid>/auth.
+		if _, set := w.Env[tsauth.EnvProjectID]; set || w.Env[tsauth.EnvDatabase] != secrets[tsauth.EnvProjectID]+"/auth" {
+			return nil, nil, fmt.Errorf("replica database %q", w.Env[tsauth.EnvDatabase])
 		}
 		if info, err := os.Stat(w.Env[tsauth.EnvBundleExtract]); err != nil || !info.IsDir() {
 			return nil, nil, fmt.Errorf("replica bundle directory: %v", err)

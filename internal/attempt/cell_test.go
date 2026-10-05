@@ -448,7 +448,40 @@ func TestSignRendersTheTerraBaseProfile(t *testing.T) {
 	digest := a.sha(profile)
 	a.PhaseSign()
 	if !errors.Is(a.Err(), stop) || flagValue(render, "--terrabase-profile") != profile ||
-		flagValue(render, "--terrabase-profile-sha256") != digest || render[len(render)-2] != "--out" {
+		flagValue(render, "--terrabase-profile-sha256") != digest || render[len(render)-2] != "--out" ||
+		slices.Contains(render, "--ts-auth-profile") {
+		t.Fatal(a.Err(), render)
+	}
+
+	// A cell that runs ts-auth renders its pinned profile and service into
+	// the controller config, which cannot gain them after it is signed.
+	a.err = nil
+	authProfile, authService := a.Path("ts-auth-profile.json"), a.Path("ts-auth-service.json")
+	a.writeJSON(authProfile, Object{"env": Object{}})
+	a.writeJSON(authService, Object{"role": "ts-auth"})
+	a.Config["ts_auth_profile"], a.Config["ts_auth_service"] = authProfile, authService
+	render = nil
+	profileDigest, serviceDigest := a.sha(authProfile), a.sha(authService)
+	a.PhaseSign()
+	if !errors.Is(a.Err(), stop) || flagValue(render, "--ts-auth-profile") != authProfile ||
+		flagValue(render, "--ts-auth-profile-sha256") != profileDigest || flagValue(render, "--ts-auth-service") != authService ||
+		flagValue(render, "--ts-auth-service-sha256") != serviceDigest || render[len(render)-2] != "--out" {
+		t.Fatal(a.Err(), render)
+	}
+	// One without the other is refused before anything is rendered.
+	delete(a.Config, "ts_auth_service")
+	a.err, render = nil, nil
+	a.PhaseSign()
+	if a.Err() == nil || !strings.Contains(a.Err().Error(), "ts_auth_profile and ts_auth_service together") || render != nil {
+		t.Fatal(a.Err(), render)
+	}
+	// A resumed attempt whose controller-a config was rendered without
+	// ts-auth refuses to render the others with it.
+	a.Config["ts_auth_service"] = authService
+	a.err, render = nil, nil
+	a.writeJSON(a.Path("signed", "controller-a.config.json"), Object{"controller": Object{"workloads": Object{"terrabase": Object{}}}})
+	a.PhaseSign()
+	if a.Err() == nil || !strings.Contains(a.Err().Error(), "cannot gain or lose ts-auth") || render != nil {
 		t.Fatal(a.Err(), render)
 	}
 }

@@ -24,7 +24,8 @@ const (
 )
 
 func validProfile() map[string]string {
-	return map[string]string{EnvPublicOrigin: PublicOrigin, EnvAPIURL: APIURL, EnvDatabase: Database}
+	return map[string]string{EnvPublicOrigin: PublicOrigin, EnvAPIURL: APIURL, EnvDatabase: Database, EnvAudiences: APIURL,
+		EnvDashboardRedirectURIs: DashboardRedirectURI, EnvDashboardLogoutURIs: DashboardLogoutURI}
 }
 
 // testSecrets are distinct valid secrets: three 32-byte keys, an API key and
@@ -71,10 +72,21 @@ func TestValidateProfile(t *testing.T) {
 		"listen":           with(EnvListen, "http://0.0.0.0:8080"),
 		"bundle dir":       with(EnvBundleExtract, "/tmp"),
 		"smtp password":    with("TS_AUTH_SMTP_PASSWORD", sentinel),
+		"service clients":  with("TS_AUTH_SERVICE_CLIENTS", "ci:"+sentinel+sentinel),
 		"wrong api url":    with(EnvAPIURL, "https://api.terrascale.tech"),
 		"wrong database":   with(EnvDatabase, "ts-auth"),
 		"missing origin":   without(EnvPublicOrigin),
 		"missing database": without(EnvDatabase),
+		// The selector's project comes from the env file, never the profile.
+		"database selector": with(EnvDatabase, testProjectID+"/auth"),
+		"other callback":    with(EnvDashboardRedirectURIs, "https://evil.example/login/callback"),
+		"extra callback":    with(EnvDashboardRedirectURIs, DashboardRedirectURI+";http://localhost:5173/login/callback"),
+		"missing callback":  without(EnvDashboardRedirectURIs),
+		"missing logout":    without(EnvDashboardLogoutURIs),
+		"dashboard root":    with(EnvDashboardLogoutURIs, DashboardOrigin+"/"),
+		"other audience":    with(EnvAudiences, "https://api.terrascale.tech"),
+		"missing audience":  without(EnvAudiences),
+		"old origin":        with(EnvPublicOrigin, "https://auth.terrascale.tech"),
 	}
 	for _, key := range Secrets {
 		cases["secret "+key] = with(key, sentinel)
@@ -160,6 +172,10 @@ func TestLayoutEnv(t *testing.T) {
 	env := Layout("/srv/ts-managed/ts-auth").Env(profile, secrets, 8080)
 	want := validProfile()
 	maps.Copy(want, secrets)
+	// ts-auth reads TS_AUTH_DATABASE as <project-uuid>/<database> and gets no
+	// separate project ID.
+	want[EnvDatabase] = testProjectID + "/auth"
+	delete(want, EnvProjectID)
 	want[EnvListen] = "http://0.0.0.0:8080"
 	want[EnvBundleExtract] = "/srv/ts-managed/ts-auth/bundle"
 	if !maps.Equal(env, want) {

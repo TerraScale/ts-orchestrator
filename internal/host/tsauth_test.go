@@ -29,7 +29,9 @@ func tsAuthTestSecrets() map[string]string {
 
 func tsAuthTestDesired() Desired {
 	return Desired{Cell: tsauth.Cell, Role: tsauth.Role, Digest: "d", Env: map[string]string{
-		tsauth.EnvPublicOrigin: tsauth.PublicOrigin, tsauth.EnvAPIURL: tsauth.APIURL, tsauth.EnvDatabase: tsauth.Database}}
+		tsauth.EnvPublicOrigin: tsauth.PublicOrigin, tsauth.EnvAPIURL: tsauth.APIURL, tsauth.EnvDatabase: tsauth.Database,
+		tsauth.EnvAudiences: tsauth.APIURL, tsauth.EnvDashboardRedirectURIs: tsauth.DashboardRedirectURI,
+		tsauth.EnvDashboardLogoutURIs: tsauth.DashboardLogoutURI}}
 }
 
 // tsAuthTestAgent is an agent whose ts-auth root and env file belong to the
@@ -70,13 +72,16 @@ func TestTSAuthReplicaGetsEnvFileSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for key, want := range tsAuthTestSecrets() {
-		if env[key] != want {
+	secrets := tsAuthTestSecrets()
+	for key, want := range secrets {
+		if key != tsauth.EnvProjectID && env[key] != want {
 			t.Errorf("%s did not reach the replica", key)
 		}
 	}
+	// ts-auth selects its database as <project-uuid>/auth.
 	bundle := tsauth.Layout(agent.cfg.TSAuthRoot).Bundle()
-	if env[tsauth.EnvListen] != "http://0.0.0.0:8080" || env[tsauth.EnvBundleExtract] != bundle || env[tsauth.EnvDatabase] != tsauth.Database {
+	if env[tsauth.EnvListen] != "http://0.0.0.0:8080" || env[tsauth.EnvBundleExtract] != bundle ||
+		env[tsauth.EnvDatabase] != secrets[tsauth.EnvProjectID]+"/auth" || env[tsauth.EnvDashboardRedirectURIs] != tsauth.DashboardRedirectURI {
 		t.Fatalf("replica environment lacks the profile or host-owned settings: listen %q, bundle %q", env[tsauth.EnvListen], env[tsauth.EnvBundleExtract])
 	}
 	if info, err := os.Stat(bundle); err != nil || info.Mode().Perm() != 0o700 {

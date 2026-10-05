@@ -53,8 +53,22 @@ const (
 
 	PublicOrigin = "https://" + Hostname
 	APIURL       = "https://" + Cell + ".api.terrascale.tech"
-	// Database is ts-auth's own TerraBase database, TS_AUTH_DATABASE.
+	// Database is ts-auth's own TerraBase database. ts-auth selects it as
+	// TS_AUTH_DATABASE=<project-uuid>/auth; the host joins the project ID of
+	// the env file to it.
 	Database = "auth"
+	// Issuer is ts-auth's one hosted OpenID Connect issuer; its discovery
+	// document is Issuer + "/.well-known/openid-configuration".
+	Issuer = PublicOrigin + "/terrascale"
+
+	// DashboardClientID is ts-auth's confidential OIDC client for ts-dashboard,
+	// which the dashboard (Fly app ts-dashboard) serves at DashboardOrigin.
+	DashboardClientID    = "ts-dashboard"
+	DashboardOrigin      = "https://dash.terrascale.tech"
+	DashboardRedirectURI = DashboardOrigin + "/login/callback"
+	// DashboardLogoutURI is the dashboard's sign-in page, the exact
+	// post_logout_redirect_uri it sends at sign-out.
+	DashboardLogoutURI = DashboardOrigin + "/login"
 )
 
 // Settings the workload profile supplies. They are signed controller
@@ -63,6 +77,12 @@ const (
 	EnvPublicOrigin = "TS_AUTH_PUBLIC_ORIGIN"
 	EnvAPIURL       = "TS_AUTH_TERRASCALE_API_URL"
 	EnvDatabase     = "TS_AUTH_DATABASE"
+	// EnvAudiences are the aud values of every access token: TerraBase's
+	// auth-audience, so a dashboard user's token reaches its Management API.
+	EnvAudiences = "TS_AUTH_ACCESS_TOKEN_AUDIENCES"
+	// The dashboard client's exact callback and post-logout URIs.
+	EnvDashboardRedirectURIs = "TS_AUTH_DASHBOARD_REDIRECT_URIS"
+	EnvDashboardLogoutURIs   = "TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS"
 )
 
 // Secrets live in the cell's Vault and reach a host only in its env file.
@@ -72,8 +92,11 @@ const (
 	EnvMasterKey       = "TS_AUTH_MASTER_KEY"
 	EnvAuditSigningKey = "TS_AUTH_AUDIT_SIGNING_KEY"
 	EnvOperatorKey     = "TS_AUTH_OPERATOR_KEY"
-	EnvAPIKey          = "TS_AUTH_TERRASCALE_API_KEY"
-	EnvProjectID       = "TS_AUTH_TERRASCALE_PROJECT_ID"
+	// EnvDashboardClientSecret is the ts-dashboard client's secret, which
+	// ouroboros fly-secrets also hands the dashboard as TS_AUTH_CLIENT_SECRET.
+	EnvDashboardClientSecret = "TS_AUTH_DASHBOARD_CLIENT_SECRET"
+	EnvAPIKey                = "TS_AUTH_TERRASCALE_API_KEY"
+	EnvProjectID             = "TS_AUTH_TERRASCALE_PROJECT_ID"
 )
 
 // Settings the host agent owns.
@@ -83,15 +106,15 @@ const (
 )
 
 // Generated are the secrets ts-orch generates once: 32 random bytes, base64.
-var Generated = []string{EnvMasterKey, EnvAuditSigningKey, EnvOperatorKey}
+var Generated = []string{EnvMasterKey, EnvAuditSigningKey, EnvOperatorKey, EnvDashboardClientSecret}
 
 // Secrets are every key of the env file.
-var Secrets = []string{EnvMasterKey, EnvAuditSigningKey, EnvOperatorKey, EnvAPIKey, EnvProjectID}
+var Secrets = []string{EnvMasterKey, EnvAuditSigningKey, EnvOperatorKey, EnvDashboardClientSecret, EnvAPIKey, EnvProjectID}
 
 // optionalSecrets are ts-auth secrets that no profile may carry; the env file
 // does not provision them yet.
 var optionalSecrets = []string{"TS_AUTH_SMTP_PASSWORD", "TS_AUTH_STRIPE_SECRET_KEY", "TS_AUTH_STRIPE_WEBHOOK_SECRET",
-	"TS_AUTH_SENTRY_DSN", "TS_AUTH_AUDIT_VERIFY_KEYS", "OTEL_EXPORTER_OTLP_HEADERS"}
+	"TS_AUTH_SENTRY_DSN", "TS_AUTH_AUDIT_VERIFY_KEYS", "TS_AUTH_SERVICE_CLIENTS", "OTEL_EXPORTER_OTLP_HEADERS"}
 
 var (
 	assetRE  = regexp.MustCompile(`^ts-auth-linux-(?:amd64|arm64)$`)
@@ -120,7 +143,8 @@ func ValidateProfile(cell string, args []string, env map[string]string) error {
 			return fmt.Errorf("ts-auth profile must not set %s", key)
 		}
 	}
-	for key, want := range map[string]string{EnvPublicOrigin: PublicOrigin, EnvAPIURL: APIURL, EnvDatabase: Database} {
+	for key, want := range map[string]string{EnvPublicOrigin: PublicOrigin, EnvAPIURL: APIURL, EnvDatabase: Database, EnvAudiences: APIURL,
+		EnvDashboardRedirectURIs: DashboardRedirectURI, EnvDashboardLogoutURIs: DashboardLogoutURI} {
 		if env[key] != want {
 			return fmt.Errorf("ts-auth profile must set %s=%s", key, want)
 		}
@@ -138,13 +162,18 @@ func (l Layout) EnvFile() string { return filepath.Join(string(l), "ts-auth.env"
 func (l Layout) Bundle() string { return filepath.Join(string(l), "bundle") }
 
 // Env is the replica's environment: the profile, the secrets and the
-// host-owned settings. A replica listens on port of every interface.
+// host-owned settings. TS_AUTH_DATABASE becomes <project-uuid>/<database>
+// from the env file's project ID and the profile's database, the selector
+// ts-auth reads; the project ID itself is not passed on. A replica listens on
+// port of every interface.
 func (l Layout) Env(profile, secrets map[string]string, port int) map[string]string {
 	env := maps.Clone(profile)
 	if env == nil {
 		env = map[string]string{}
 	}
 	maps.Copy(env, secrets)
+	env[EnvDatabase] = secrets[EnvProjectID] + "/" + profile[EnvDatabase]
+	delete(env, EnvProjectID)
 	env[EnvListen] = "http://0.0.0.0:" + strconv.Itoa(port)
 	env[EnvBundleExtract] = l.Bundle()
 	return env

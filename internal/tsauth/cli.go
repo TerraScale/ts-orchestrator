@@ -28,8 +28,9 @@ import (
 const cliUsage = `Usage: ts-orch ts-auth <command> [flags]
 
   secrets              --plan FILE
-      Generate TS_AUTH_MASTER_KEY, TS_AUTH_AUDIT_SIGNING_KEY and TS_AUTH_OPERATOR_KEY
-      once into the cell's Vault (operator ~/.oci/config). Existing secrets are kept.
+      Generate TS_AUTH_MASTER_KEY, TS_AUTH_AUDIT_SIGNING_KEY, TS_AUTH_OPERATOR_KEY and
+      TS_AUTH_DASHBOARD_CLIENT_SECRET once into the cell's Vault (operator
+      ~/.oci/config). Existing secrets are kept.
   env-file             --host-config FILE --vault-id OCID
       On a ts-auth host, as root: read the secrets with the instance principal and
       write <ts_auth_root>/ts-auth.env, mode 0600, owned by the workload user.

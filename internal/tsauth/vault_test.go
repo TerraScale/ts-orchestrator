@@ -305,7 +305,7 @@ func TestSecretNames(t *testing.T) {
 		names = append(names, SecretName("gru-1", key))
 	}
 	if got := fmt.Sprint(names); got != "[gru-1-ts-auth-master-key gru-1-ts-auth-audit-signing-key gru-1-ts-auth-operator-key "+
-		"gru-1-ts-auth-terrascale-api-key gru-1-ts-auth-terrascale-project-id]" {
+		"gru-1-ts-auth-dashboard-client-secret gru-1-ts-auth-terrascale-api-key gru-1-ts-auth-terrascale-project-id]" {
 		t.Fatal(got)
 	}
 }
