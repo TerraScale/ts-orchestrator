@@ -69,7 +69,7 @@ func RunOuroboros(ctx context.Context, args []string, output io.Writer, loadPlan
 	adminURL := flags.String("admin-url", "", "TerraBase member admin listener, for example http://127.0.0.1:19464")
 	member := flags.String("member", "", "TerraBase member node the client listener belongs to, for example gru-1-db-1")
 	memberCA := flags.String("member-ca", "", "the cell's TerraBase member-ca.pem")
-	credential := flags.String("dashboard-credential-file", "", "owner-only file holding the member's dashboard credential")
+	credential := flags.String("dashboard-credential-file", "", "owner-only file holding the member's Management service credential (TERRABASE_MANAGEMENT_CREDENTIAL_FILE)")
 	listener := flags.String("management-listener", "client", "listener serving the credential's Management API: client, or admin from TerraBase TS-519 on")
 	ownerEmail := flags.String("owner-email", "", "verified address of the ts-auth user who becomes the owner")
 	instance := flags.String("ts-auth-instance", "", "slug of the ts-auth instance the owner signed in to")

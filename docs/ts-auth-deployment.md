@@ -228,7 +228,8 @@ The names are stable: `<cell>-<key lowercased, _ replaced by ->`.
 service credential). The Management API needs that credential
 (`TERRABASE_MANAGEMENT_CREDENTIAL_FILE` from TerraBase TS-519 on, before it
 `TERRABASE_DASHBOARD_CREDENTIAL_FILE`); without one it answers 401 and the
-command stops. The creator of an organization becomes its first owner, so a
+command stops. Phase B refuses to add a member once another user owns the
+organization, so a rerun with a different address changes nothing. The creator of an organization becomes its first owner, so a
 new organization is owned by `ts-orchestrator`. The command reaches both
 listeners through an SSH forward to `gru-1-db-1`, trusts the cell's member CA
 and checks the member certificate names `--member`.
@@ -317,11 +318,14 @@ one env file each, one ts-auth replica on two of them).
 
 1. **Phase 1.** `deploy/oci-region/plan.json` `resource_ids` names the live
    `control_compartment`, `vault` and `key` (TS-470).
-2. **TerraBase.** `gru-1-db-1` serves the C# TerraBase release
-   ([TerraBase deployment](terrabase-deployment.md)) with
-   `TERRABASE_CLIENT_PORT=9465` and a dashboard credential:
-   `TERRABASE_DASHBOARD_CREDENTIAL_FILE` names a file of at least 32
-   characters that the workload user can read. **Open:** the committed
+2. **TerraBase.** `gru-1-db-1` serves a C# TerraBase release with TS-535 or
+   later ([TerraBase deployment](terrabase-deployment.md)) with
+   `TERRABASE_CLIENT_PORT=9465`, `TERRABASE_REGION` (required outside
+   Development) and a Management service credential:
+   `TERRABASE_MANAGEMENT_CREDENTIAL_FILE` names a file of at least 32
+   characters that the workload user can read. TS-519 removed
+   `TERRABASE_DASHBOARD_CREDENTIAL_FILE`, and TerraBase ignores it, so a
+   member with only that variable answers every bootstrap call with 401. **Open:** the committed
    [`terrabase-gru-1-profile.json`](../deploy/oci-region/terrabase-gru-1-profile.json)
    does not set it yet; TS-470 adds it with the TerraBase deployment.
 3. **Controller hosts (manual TS-470 prerequisite).** Prepare host-agent
@@ -405,7 +409,7 @@ REPO=$PWD
 PLAN=$REPO/deploy/oci-region/plan.json
 VAULT=$(jq -er .resource_ids.vault "$PLAN")
 NSG=$(jq -er .resource_ids.network_security_group "$PLAN")
-CRED=<path that TERRABASE_DASHBOARD_CREDENTIAL_FILE names on gru-1-db-1>
+CRED=<path that TERRABASE_MANAGEMENT_CREDENTIAL_FILE names on gru-1-db-1>
 WORK=$(mktemp -d)
 ```
 

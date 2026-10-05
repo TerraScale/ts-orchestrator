@@ -219,59 +219,81 @@ func TestManagementOnAdminListener(t *testing.T) {
 
 // TestEnsureOwnerAddsTransfersAndKeepsTheBootstrapAdmin runs phase B against
 // a fake admin listener that keeps TerraBase's role rules: confirming a
-// transfer leaves its starter a member. Each call must act as the right user;
-// a rerun calls nothing but the member list.
+// transfer leaves its starter a member. From every state an interrupted run
+// can leave, it takes only the remaining steps, each as the right user; once
+// the organization is handed over it adds nobody else.
 func TestEnsureOwnerAddsTransfersAndKeepsTheBootstrapAdmin(t *testing.T) {
-	const org, owner, email = "org-1", "usr_mario", "mariogk@terrascale.tech"
-	roles := map[string]string{BootstrapUser: "owner"}
-	nominee := ""
-	var calls []string
-	admin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		actor := r.Header.Get("X-TerraBase-User-Id")
-		if r.Header.Get("Authorization") != "Bearer credential" || roles[actor] == "" {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		calls = append(calls, actor+" "+r.Method+" "+strings.TrimPrefix(r.URL.Path, "/v1/management/organizations/"+org))
-		var body map[string]string
-		_ = json.UnmarshalRead(r.Body, &body)
-		switch path := strings.TrimPrefix(r.URL.Path, "/v1/management/organizations/"+org); {
-		case r.Method == http.MethodGet && path == "/members":
-			var items []map[string]string
-			for user, role := range roles {
-				items = append(items, map[string]string{"userId": user, "role": role})
+	const org, mario, email = "org-1", "usr_mario", "mariogk@terrascale.tech"
+	const add, start, confirm, relist, readmin = "ts-orchestrator PUT /members/usr_mario", "ts-orchestrator POST /ownership-transfer",
+		"usr_mario POST /ownership-transfer/confirm", "usr_mario GET /members", "usr_mario PUT /members/ts-orchestrator/role"
+	const list = "ts-orchestrator GET /members"
+	for _, test := range []struct {
+		name    string
+		roles   map[string]string
+		nominee string
+		owner   string
+		steps   string
+		calls   []string
+		err     string
+	}{
+		{"fresh", map[string]string{BootstrapUser: "owner"}, "", mario,
+			"[added transferred kept ts-orchestrator as admin]", []string{list, add, start, confirm, relist, readmin}, ""},
+		{"after the add", map[string]string{BootstrapUser: "owner", mario: "member"}, "", mario,
+			"[transferred kept ts-orchestrator as admin]", []string{list, start, confirm, relist, readmin}, ""},
+		{"after the offer", map[string]string{BootstrapUser: "owner", mario: "member"}, mario, mario,
+			"[transferred kept ts-orchestrator as admin]", []string{list, start, confirm, relist, readmin}, ""},
+		{"after the confirm", map[string]string{BootstrapUser: "member", mario: "owner"}, "", mario,
+			"[kept ts-orchestrator as admin]", []string{list, readmin}, ""},
+		{"done", map[string]string{BootstrapUser: "admin", mario: "owner"}, "", mario, "[]", []string{list}, ""},
+		{"another address", map[string]string{BootstrapUser: "admin", mario: "owner"}, "", "usr_other", "[]", []string{list}, "owned by another user"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			roles, nominee := test.roles, test.nominee
+			var calls []string
+			admin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				actor := r.Header.Get("X-TerraBase-User-Id")
+				if r.Header.Get("Authorization") != "Bearer credential" || roles[actor] == "" {
+					http.Error(w, "not found", http.StatusNotFound)
+					return
+				}
+				path := strings.TrimPrefix(r.URL.Path, "/v1/management/organizations/"+org)
+				calls = append(calls, actor+" "+r.Method+" "+path)
+				var body map[string]string
+				_ = json.UnmarshalRead(r.Body, &body)
+				switch {
+				case r.Method == http.MethodGet && path == "/members":
+					var items []map[string]string
+					for user, role := range roles {
+						items = append(items, map[string]string{"userId": user, "role": role})
+					}
+					_ = json.MarshalWrite(w, map[string]any{"items": items})
+				case r.Method == http.MethodPut && path == "/members/"+test.owner && (roles[actor] == "admin" || roles[actor] == "owner") && body["email"] != "":
+					roles[test.owner] = "member"
+					_ = json.MarshalWrite(w, map[string]string{"userId": test.owner, "role": "member"})
+				case r.Method == http.MethodPost && path == "/ownership-transfer" && roles[actor] == "owner" && roles[body["userId"]] == "member":
+					nominee = body["userId"]
+					w.WriteHeader(http.StatusCreated)
+					_ = json.MarshalWrite(w, map[string]string{"toUserId": nominee})
+				case r.Method == http.MethodPost && path == "/ownership-transfer/confirm" && actor == nominee:
+					roles[actor], roles[BootstrapUser], nominee = "owner", "member", ""
+					_ = json.MarshalWrite(w, map[string]string{"userId": actor, "role": "owner"})
+				case r.Method == http.MethodPut && path == "/members/"+BootstrapUser+"/role" && roles[actor] == "owner" && body["role"] == "admin":
+					roles[BootstrapUser] = "admin"
+					_ = json.MarshalWrite(w, map[string]string{"userId": BootstrapUser, "role": "admin"})
+				default:
+					http.Error(w, "refused", http.StatusForbidden)
+				}
+			}))
+			t.Cleanup(admin.Close)
+			terraBase := TerraBase{HTTP: admin.Client(), ClientURL: "https://127.0.0.1:1", AdminURL: admin.URL, Credential: "credential", ManagementOnAdmin: true}
+			steps, err := terraBase.EnsureOwner(t.Context(), org, test.owner, email)
+			if (err == nil) != (test.err == "") || err != nil && !strings.Contains(err.Error(), test.err) || fmt.Sprint(steps) != test.steps ||
+				strings.Join(calls, "; ") != strings.Join(test.calls, "; ") {
+				t.Fatalf("steps %v, err %v, calls:\n%s", steps, err, strings.Join(calls, "\n"))
 			}
-			_ = json.MarshalWrite(w, map[string]any{"items": items})
-		case r.Method == http.MethodPut && path == "/members/"+owner && roles[actor] != "member" && body["email"] == email:
-			roles[owner] = "member"
-			_ = json.MarshalWrite(w, map[string]string{"userId": owner, "role": "member"})
-		case r.Method == http.MethodPost && path == "/ownership-transfer" && roles[actor] == "owner" && body["userId"] == owner:
-			nominee = owner
-			w.WriteHeader(http.StatusCreated)
-			_ = json.MarshalWrite(w, map[string]string{"toUserId": owner})
-		case r.Method == http.MethodPost && path == "/ownership-transfer/confirm" && actor == nominee:
-			roles[owner], roles[BootstrapUser], nominee = "owner", "member", ""
-			_ = json.MarshalWrite(w, map[string]string{"userId": owner, "role": "owner"})
-		case r.Method == http.MethodPut && path == "/members/"+BootstrapUser+"/role" && roles[actor] == "owner" && body["role"] == "admin":
-			roles[BootstrapUser] = "admin"
-			_ = json.MarshalWrite(w, map[string]string{"userId": BootstrapUser, "role": "admin"})
-		default:
-			http.Error(w, "refused", http.StatusForbidden)
-		}
-	}))
-	t.Cleanup(admin.Close)
-	terraBase := TerraBase{HTTP: admin.Client(), ClientURL: "https://127.0.0.1:1", AdminURL: admin.URL, Credential: "credential", ManagementOnAdmin: true}
-	steps, err := terraBase.EnsureOwner(t.Context(), org, owner, email)
-	if err != nil || fmt.Sprint(steps) != "[added transferred kept ts-orchestrator as admin]" || roles[owner] != "owner" || roles[BootstrapUser] != "admin" {
-		t.Fatalf("steps %v, roles %v: %v", steps, roles, err)
-	}
-	if got := strings.Join(calls, "; "); got != "ts-orchestrator GET /members; ts-orchestrator PUT /members/usr_mario; "+
-		"ts-orchestrator POST /ownership-transfer; usr_mario POST /ownership-transfer/confirm; usr_mario GET /members; "+
-		"usr_mario PUT /members/ts-orchestrator/role" {
-		t.Fatal(got)
-	}
-	calls = nil
-	if steps, err := terraBase.EnsureOwner(t.Context(), org, owner, email); err != nil || len(steps) != 0 || fmt.Sprint(calls) != "[ts-orchestrator GET /members]" {
-		t.Fatalf("rerun steps %v, calls %v: %v", steps, calls, err)
+			if test.err == "" && (roles[mario] != "owner" || roles[BootstrapUser] != "admin") || test.err != "" && roles["usr_other"] != "" {
+				t.Fatalf("roles %v", roles)
+			}
+		})
 	}
 }

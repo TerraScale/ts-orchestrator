@@ -46,9 +46,8 @@ var dashboard = Project{Name: "ts-dashboard", Database: "dashboard",
 	ProjectIDKey: "TS_DASHBOARD_TERRABASE_PROJECT_ID", APIKeyKey: "TS_DASHBOARD_TERRABASE_API_KEY"}
 
 // TerraBase reaches one member's two listeners: the client listener (HTTPS,
-// the Management API, authorized by the dashboard credential) and the
-// loopback admin listener (HTTP, which issues API keys and trusts its
-// caller). The operator reaches them through an SSH forward to the member.
+// the data plane and, before TS-519, the Management API) and the loopback
+// admin listener (HTTP, which issues API keys and trusts its caller). The operator reaches them through an SSH forward to the member.
 // From TS-519 TerraBase accepts the Management service credential only on
 // the loopback admin listener; ManagementOnAdmin sends Management requests
 // there.
@@ -56,7 +55,7 @@ type TerraBase struct {
 	HTTP              *http.Client // trusts the cell's member CA for ClientURL
 	ClientURL         string
 	AdminURL          string
-	Credential        string // the member's dashboard credential
+	Credential        string // the member's Management service credential
 	User              string // acting user; empty means BootstrapUser
 	ManagementOnAdmin bool
 }
@@ -222,6 +221,12 @@ func (t TerraBase) EnsureOwner(ctx context.Context, organization, owner, email s
 	roles, err := t.roles(ctx, organization)
 	if err != nil {
 		return nil, fmt.Errorf("list members: %w", err)
+	}
+	// Only the acting user hands the organization over: once another user owns
+	// it, a rerun with a different address must not add that user, since any
+	// member manages every project and database.
+	if roles[owner] != "owner" && roles[t.user()] != "owner" {
+		return nil, fmt.Errorf("organization %s is owned by another user; refusing to add %s", organization, owner)
 	}
 	var steps []string
 	if roles[owner] == "" {

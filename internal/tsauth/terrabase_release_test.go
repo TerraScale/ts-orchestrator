@@ -23,17 +23,18 @@ import (
 
 // TestBootstrapAgainstTerraBaseRelease runs ouroboros bootstrap against one
 // member of the real TerraBase release, configured like a gru-1 member: its
-// client listener serves the member certificate of the cell CA and the
-// Management API with a dashboard credential, and its loopback admin
-// listener issues API keys. The first run creates organization
+// client listener serves the member certificate of the cell CA, and its
+// loopback admin listener issues API keys and serves the Management API with
+// the management service credential (TerraBase TS-519, TS-535). The first run creates organization
 // OrganizationName and, for every project of Projects, its project,
 // database and a key that reaches the database, and stores the project IDs
 // and keys in a fake Vault; a rerun finds all of them and issues no key.
 // Neither project's key reads the other's database. Phase B then hands the
 // organization to a ts-auth user of a fake ts-auth users API: it stops while
-// no user has the address, replaces an invitation an interrupted run left,
-// transfers the ownership and keeps the bootstrap identity as an admin, and
-// a rerun of either phase changes nothing. A wrong credential or member name
+// no user has the address, adds the user as a member, transfers the
+// ownership and keeps the bootstrap identity as an admin, a rerun of either
+// phase changes nothing, and another address is not added once the
+// organization is handed over. A wrong credential or member name
 // is refused without printing the credential.
 //
 // TS_TERRABASE_BINARY names a terrabase-linux-<arch> release asset with its
@@ -224,6 +225,15 @@ func TestBootstrapAgainstTerraBaseRelease(t *testing.T) {
 	if result := owned(); fmt.Sprint(result["steps"]) != "[]" {
 		t.Fatalf("ownership rerun: %v", result)
 	}
+	// Another verified address is not added once the organization is handed
+	// over: any member manages every database.
+	if steps, err := terraBase.EnsureOwner(t.Context(), organization, "usr_other", "someone@terrascale.tech"); err == nil ||
+		!strings.Contains(err.Error(), "owned by another user") || len(steps) != 0 {
+		t.Fatalf("second owner: %v, %v", steps, err)
+	}
+	if roles, err := terraBase.roles(t.Context(), organization); err != nil || len(roles) != 2 || roles["usr_other"] != "" {
+		t.Fatalf("roles after a refused owner %v: %v", roles, err)
+	}
 	// As an admin the bootstrap identity still finds everything.
 	rerun()
 
@@ -257,8 +267,8 @@ func TestBootstrapAgainstTerraBaseRelease(t *testing.T) {
 		strings.Contains(err.Error(), wrong.Credential) {
 		t.Fatalf("wrong credential: %v", err)
 	}
-	// The client listener refuses the credential, and it serves Management
-	// only to ts-auth tokens.
+	// Smoke check: without auth-issuer the client listener answers every
+	// Management call with 401, the credential included.
 	public := terraBase
 	public.ManagementOnAdmin = false
 	if _, err := public.EnsureTenant(t.Context(), Projects[0]); err == nil || !strings.Contains(err.Error(), "HTTP 401") {
