@@ -19,6 +19,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ci/sourcedigest"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/image"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/liveverify"
 	netbirdclient "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
 	netbirdmanager "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/manager"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
@@ -48,6 +49,7 @@ Runtime:
   selfupdate             Stage, activate and watch binary-only A/B updates
 
 Operator tooling:
+  verify                 Observe production health, persistence gaps and OIDC (read-only)
   operator               Manage workloads through the regional controller
   bootstrap              Prepare, sign, verify, and publish bootstrap material
   release                Prepare, sign, verify, and publish release receipts
@@ -77,6 +79,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return err
 	}
 	switch args[0] {
+	case "verify":
+		return liveverify.Run(ctx, args[1:], output)
 	case "bootstrap":
 		return bootstrapcli.Run(ctx, args[1:], output)
 	case "release":

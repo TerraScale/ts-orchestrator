@@ -1,5 +1,10 @@
 # Cross-project E2E (TS-512)
 
+For read-only production observations, use
+[`ts-orch verify --live` (TS-520)](live-verification.md). It reports missing
+deployment/persistence evidence as UNKNOWN and does not run the mutating
+production scenarios below.
+
 The independent `e2e/` Go module runs one scenario registry against local or
 production endpoints. It never imports the orchestrator module, changes cloud
 resources, or uses fake TerraBase responses. Management and document operations

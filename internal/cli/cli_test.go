@@ -12,12 +12,15 @@ import (
 )
 
 func TestLocalCommandDispatchWithoutRuntimeConfig(t *testing.T) {
+	t.Setenv("TS_VERIFY_LIVE", "")
 	for _, test := range []struct {
 		args      []string
 		want      string
 		wantError bool
 	}{
 		{args: []string{"--help"}, want: "Usage: ts-orch"},
+		{args: []string{"verify", "--help"}, want: "opt in"},
+		{args: []string{"verify"}, want: "requires --live", wantError: true},
 		{args: []string{"bootstrap", "--help"}, want: "sign-anchor"},
 		{args: []string{"release", "--help"}, want: "sign-binary"},
 		{args: []string{"image", "--help"}, want: "build-offline"},

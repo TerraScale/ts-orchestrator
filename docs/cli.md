@@ -112,6 +112,9 @@ need them; controller and host startup do not load them.
 
 ## Operational dependencies
 
+`ts-orch verify --live` runs opt-in, read-only production observations; see
+[live verification](live-verification.md) for evidence requirements and gaps.
+
 Regional inventory, cost admission, bootstrap attempts, image import, image
 coordination, runtime-pressure tools, and Firecracker qualification drivers
 are native Go features in the same executable. CI and image shell entry points
