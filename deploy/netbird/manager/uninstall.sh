@@ -71,7 +71,7 @@ rm -f /etc/apt/sources.list.d/netbird.list /usr/share/keyrings/netbird-archive-k
 rm -f /etc/sysctl.d/99-netbird-routing.conf
 systemctl daemon-reload
 podman network rm netbird 2>/dev/null || true
-# Server configuration (config.yaml, rendered by OpenBao) only; the client
+# Server configuration (config.yaml, rendered from OCI Vault) only; the client
 # state was removed above.
 rm -rf /etc/netbird
 if [[ "$purge" -eq 1 ]]; then

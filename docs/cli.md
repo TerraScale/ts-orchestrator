@@ -81,6 +81,16 @@ Without `--apply` these commands only read.
 | `ts-orch netbird setup-key --out FILE [--apply]` | Plan, or with `--apply` create, the GRU server setup key; its value goes only to the new owner-only FILE |
 | `ts-orch netbird inventory` | Print the manager's groups, policies, networks, DNS and peers |
 
+## Secrets
+
+`ts-orch vault` keeps secrets in OCI Vault; see [secrets](secrets.md) for the
+naming scheme and who may read what.
+
+| Command | Purpose |
+| --- | --- |
+| `ts-orch vault put --vault-id OCID --key-id OCID --compartment-id OCID --name NAME --file FILE` | Store FILE once as secret NAME with the operator's `~/.oci/config`, then prove the stored copy equals FILE |
+| `ts-orch vault render --vault-id OCID --scope SCOPE --template FILE --out FILE` | On a host, as root: fill each `{{KEY}}` with secret `<scope>-<key>` read with the instance principal; write FILE atomically, mode `0600` |
+
 ## Feature boundaries
 
 Prefer `ts-orch` for new operational features. Implement them as Go commands

@@ -25,6 +25,10 @@ then forms the same-cell B/C peers and manages ARM workload hosts and TerraBase
 deployment. The current `ts-infra` source and guarded workflow do not seed or
 manage regional resources.
 
+Every TerraScale secret lives in OCI Vault; OpenBao is retired. See
+[secrets](docs/secrets.md) for names, who may read what, and
+`ts-orch vault put` and `render`.
+
 This is a greenfield Go implementation. It does not promise compatibility with
 the retired C# commands, configuration, NATS subjects, or state. The current
 implementation and its gaps are described in [the architecture notes](docs/architecture.md).

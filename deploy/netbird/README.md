@@ -302,19 +302,22 @@ Tailscale keeps name resolution; they reach cell hosts by private IP.
 
 ## Secrets and tokens
 
-OpenBao renders `/etc/netbird/config.yaml` (root `0600`) from
+Every NetBird secret is in the gru-1 OCI Vault; see [secrets](../../docs/secrets.md)
+for names, compartments and how to read or rotate one. `install.sh` renders
+`/etc/netbird/config.yaml` (root `0600`) from
 [`manager/templates/config.yaml.tmpl`](manager/templates/config.yaml.tmpl)
-through `oci-materialize-map.json` target `forgejo-oci-netbird`. The source
-object `/external/ts-forgejo-oci/static/netbird` holds three keys of 32 random
-bytes in base64 (`openssl rand -base64 32`): `NETBIRD_DATASTORE_ENCRYPTION_KEY`,
-`NETBIRD_RELAY_AUTH_SECRET`, `NETBIRD_SESSION_COOKIE_ENCRYPTION_KEY`.
+with `ts-orch vault render` and ts-ops's instance principal. The template's
+three keys are 32 random bytes in base64 (`openssl rand -base64 32`):
+`gru-1-netbird-datastore-encryption-key`, `gru-1-netbird-relay-auth-secret`
+and `gru-1-netbird-session-cookie-encryption-key`, in compartment `ts-ops`,
+readable by the `ts-ops` dynamic group only.
 
 | Secret | Where | Use |
 | --- | --- | --- |
-| Owner login `mariogk@terrascale.tech` | OpenBao `/infra/netbird/owner` (`NETBIRD_OWNER_EMAIL`, `NETBIRD_OWNER_PASSWORD`) | Dashboard only; automation never uses a human login |
-| Operator automation PAT | OpenBao `/infra/netbird/automation` (`NETBIRD_AUTOMATION_USER_ID`, `_PAT`, `_PAT_ID`, `_PAT_EXPIRES`) | Operator API calls and `ts-orch netbird` by hand |
-| Controller admin PAT | Service user `ts-orchestrator` (role `admin`: `network_admin` cannot rename or delete peers or change account settings). OCI Vault secret referenced by `admin_pat_secret_id` | Leader controller reconciliation |
-| Server setup key | OpenBao `/infra/netbird/servers-gru`, mirrored to the OCI Vault secret named by `setup_key_secret_id` in `deploy/image/inputs/netbird-gru.json`. The reset invalidated the pinned `…zsrdta`; [Fresh cell enrollment](#fresh-cell-enrollment) replaces it | Server enrollment through instance principals |
+| Owner login `mariogk@terrascale.tech` | `gru-1-netbird-owner-email`, `gru-1-netbird-owner-password` (compartment `TerraScale`) | Dashboard only; automation never uses a human login |
+| Operator automation PAT | `gru-1-netbird-automation-user-id`, `-pat`, `-pat-id`, `-pat-expires` (compartment `TerraScale`) | Operator API calls and `ts-orch netbird` by hand |
+| Controller admin PAT | Service user `ts-orchestrator` (role `admin`: `network_admin` cannot rename or delete peers or change account settings). `gru-1-netbird-admin-pat`, referenced by `admin_pat_secret_id` | Leader controller reconciliation |
+| Server setup key | `gru-1-netbird-setup-key`, referenced by `setup_key_secret_id` in `deploy/image/inputs/netbird-gru.json`. The reset invalidated the pinned `…zsrdta`; [Fresh cell enrollment](#fresh-cell-enrollment) replaces it | Server enrollment through instance principals |
 
 ### PATs
 
@@ -326,9 +329,9 @@ last 365 days, the NetBird maximum. The operator automation PAT was created
    `POST /api/users/$NETBIRD_AUTOMATION_USER_ID/tokens` with
    `{"name": "<PAT name>", "expires_in": 365}`. Keep the response in memory
    or a protected `0600` file.
-2. Write the token, its ID and expiry to its secret (OpenBao, or a new OCI
-   Vault version for the controller PAT) and confirm `ts-orch netbird
-   inventory` works with it.
+2. Add the token, its ID and expiry as new versions of their OCI Vault
+   secrets ([rotate](../../docs/secrets.md#store-a-secret)) and confirm
+   `ts-orch netbird inventory` works with it.
 3. Revoke the old token:
    `DELETE /api/users/$NETBIRD_AUTOMATION_USER_ID/tokens/<old PAT ID>`.
    Shred any file from step 1.
@@ -355,11 +358,11 @@ Create or rotate it:
 1. `ts-orch netbird setup-key --pat-file PAT --out /root/netbird-gru-servers.key`,
    review the plan, then rerun with `--apply`. The value goes only to the new
    `0600` file; the command fails before creating a key if the file exists.
-2. Write it to `/infra/netbird/servers-gru` and to OCI Vault
+2. Store it as `gru-1-netbird-setup-key`
    ([Fresh cell enrollment](#fresh-cell-enrollment) step 3; for a rotation
-   use `oci vault secret update-base64 --secret-id <ID>` with the same
-   `--from-json` file), verify `CURRENT` decrypts to the new key, and shred
-   both files.
+   add a version ([rotate](../../docs/secrets.md#store-a-secret)) and rerun
+   `ts-orch vault put` to prove `CURRENT` is the new key), then shred the
+   file.
 3. Enroll one test server with the Vault key, then revoke the old key
    (`PUT /api/setup-keys/<old ID>` with `"revoked": true`). Until then `sync`
    warns that two valid keys carry the name.
@@ -387,16 +390,17 @@ the installers refuse any other directory or host.
 ### Install
 
 Prerequisites: `netbird.terrascale.tech` A record → `163.176.73.79`
-(DNS-only), UDP 3478 open in the Forgejo NSG, and `/etc/netbird/config.yaml`
-rendered.
+(DNS-only), UDP 3478 open in the Forgejo NSG, the released `ts-orch` at
+`/usr/local/bin/ts-orch`, and ts-ops's read grant on its three Vault secrets
+([host access](../../docs/secrets.md#host-access)).
 
 ```sh
 sudo bash /opt/ts-ops/netbird/install.sh --dry-run
 sudo bash /opt/ts-ops/netbird/install.sh
 ```
 
-The installer refuses to run without the rendered config or when a port is
-held by something else. It starts the server and dashboard on loopback,
+The installer renders the config from Vault, and refuses to run without
+`ts-orch` or when a port is held by something else. It starts the server and dashboard on loopback,
 installs the backup timer, and adds ntfy OnFailure hooks when the alerting
 bundle is present.
 
@@ -408,7 +412,9 @@ generated password, and `"create_pat": true, "pat_expire_in": 30`:
 sudo /opt/ts-ops/netbird/setup-owner.sh < owner-request.json > owner-response.json
 ```
 
-Store the login at `/infra/netbird/owner` and shred both files. Add the Caddy
+Store the login as `gru-1-netbird-owner-email` and
+`gru-1-netbird-owner-password` with `ts-orch vault put` (compartment
+`TerraScale`, [secrets](../../docs/secrets.md)) and shred both files. Add the Caddy
 block to `/etc/caddy/Caddyfile`, then:
 
 ```sh
@@ -575,7 +581,7 @@ The procedure for a rebuilt cell, first the wiped GRU cell rebuilt as
 GRU's group, policies, network, zone, setup key and server peers do not. If
 `ts-orch netbird inventory` still lists server peers of the wiped cell, remove
 them first ([decommission](#decommission)). Every step that
-changes the manager, OpenBao, OCI or an image is a live action that needs the
+changes the manager, OCI or an image is a live action that needs the
 owner's approval. Keep the automation PAT in a root-owned `0600` file `$PAT`.
 
 1. Reconcile the manager objects:
@@ -595,26 +601,21 @@ owner's approval. Keep the automation PAT in a root-owned `0600` file `$PAT`.
    ts-orch netbird setup-key --pat-file "$PAT" --out netbird-gru-servers.key --apply
    ```
 
-3. For the TS-470 GRU rebuild, COS's 2026-10-04 instruction overrides the
-   OpenBao write below: leave `secret/homelab/infra/netbird/servers-gru`
-   unchanged. Keep the new key in its owner-only local file until it is
-   mirrored into a freshly approved OCI secret, then remove the local copies.
-   Use the [rebuild proposal](../../docs/evidence/gru-rebuild-plan-20261004.md)
-   and its unbound NetBird template; the checked-in image's old secret OCID
-   must not be reused. For other runs, store it in OpenBao `/infra/netbird/servers-gru` and in a new OCI Vault
-   secret in `sa-saopaulo-1` (the old one went with the reset), never on a
-   command line, then shred both files:
+3. Store the key as the cell's setup-key secret in its control compartment,
+   never on a command line, then shred the file. `put` prints the secret
+   OCID for step 5:
 
    ```sh
-   # First write netbird-gru-servers.key to OpenBao /infra/netbird/servers-gru.
-   jq -n --rawfile key netbird-gru-servers.key \
-     '{secretContentContent: ($key | rtrimstr("\n") | @base64)}' > netbird-gru-servers.json
-   oci vault secret create-base64 --compartment-id "$SECRET_COMPARTMENT" \
-     --vault-id "$VAULT" --key-id "$VAULT_KEY" --secret-name netbird-gru-servers \
-     --from-json file://netbird-gru-servers.json --wait-for-state ACTIVE \
-     --query data.id --raw-output
-   shred -u netbird-gru-servers.json netbird-gru-servers.key
+   ts-orch vault put --vault-id "$VAULT" --key-id "$VAULT_KEY" \
+     --compartment-id "$CONTROL_COMPARTMENT" --name gru-1-netbird-setup-key \
+     --file netbird-gru-servers.key
+   shred -u netbird-gru-servers.key
    ```
+
+   For the TS-470 rebuild this is done: `gru-1-netbird-setup-key` exists.
+   The old OpenBao entry `secret/homelab/infra/netbird/servers-gru` stays
+   unread and unchanged; the checked-in image's old secret OCID must not be
+   reused ([rebuild proposal](../../docs/evidence/gru-rebuild-plan-20261004.md)).
 
 4. After the [operator gateway peering](../../docs/region-bootstrap.md#operator-gateway-peering),
    grant the cell's controller and host dynamic groups read access to exactly

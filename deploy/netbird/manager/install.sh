@@ -10,15 +10,18 @@ STACK=/opt/ts-ops/netbird
 CONFIG=/etc/netbird/config.yaml
 DATA=/var/srv/appdata/netbird
 LIBEXEC=/usr/local/libexec/homelab/netbird
+# gru-1's OCI Vault; ts-ops reads its NetBird secrets with its instance
+# principal (docs/secrets.md).
+VAULT=ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq
 HOOKED_UNITS=(netbird-firewall.service netbird-server.service netbird-dashboard.service netbird-backup.service)
 
 usage() {
   cat <<'USAGE'
 Usage: install.sh [--dry-run] [--help]
 
-Run as root from /opt/ts-ops/netbird on ts-ops after the
-OpenBao materializer has rendered /etc/netbird/config.yaml. Installs the
-NetBird server and dashboard Quadlets (loopback publishes plus UDP 3478), the
+Run as root from /opt/ts-ops/netbird on ts-ops with ts-orch on PATH. Renders
+/etc/netbird/config.yaml from OCI Vault with the instance principal, installs
+the NetBird server and dashboard Quadlets (loopback publishes plus UDP 3478), the
 store backup timer, and OnFailure ntfy hooks, then starts the server and
 dashboard. Never restarts Forgejo, Postgres, or Caddy. Create the owner with
 setup-owner.sh before Caddy publishes netbird.terrascale.tech.
@@ -49,9 +52,7 @@ fail() {
 [[ $EUID -eq 0 ]] || fail "run as root"
 [[ "$(hostname -s)" == ts-ops ]] || fail "refusing to run outside ts-ops"
 [[ "$root" == "$STACK" ]] || fail "run from the staged stack at $STACK"
-[[ -f "$CONFIG" && "$(stat -c '%U:%G %a' "$CONFIG")" == 'root:root 600' ]] \
-  || fail "$CONFIG must be materialized by OpenBao (target forgejo-oci-netbird) as root:root 0600"
-grep -q '{{' "$CONFIG" && fail "$CONFIG still contains template placeholders"
+command -v ts-orch >/dev/null || fail "ts-orch must be on PATH to render $CONFIG from OCI Vault"
 
 # The ports must be free or already held by this stack. Any non-runtime
 # listener on the port fails, whatever address it binds. Rootful Podman
@@ -70,9 +71,13 @@ for spec in tcp:18080 tcp:18081 udp:3478; do
 done
 
 if [[ "$dry_run" -eq 1 ]]; then
-  echo "[dry-run] preflight passed; would install Quadlets, the STUN firewall rule, backup timer, ${#HOOKED_UNITS[@]} OnFailure hooks, then start netbird-server and netbird-dashboard"
+  echo "[dry-run] preflight passed; would render $CONFIG from OCI Vault, install Quadlets, the STUN firewall rule, backup timer, ${#HOOKED_UNITS[@]} OnFailure hooks, then start netbird-server and netbird-dashboard"
   exit 0
 fi
+
+mkdir -p "$(dirname "$CONFIG")"
+ts-orch vault render --vault-id "$VAULT" --scope gru-1 --template "$root/templates/config.yaml.tmpl" --out "$CONFIG"
+[[ "$(stat -c '%U:%G %a' "$CONFIG")" == 'root:root 600' ]] || fail "$CONFIG must be root:root 0600"
 
 install -d -m 0700 "$DATA/data" "$DATA/backups"
 install -m 0644 "$root/quadlets/netbird.network" "$root/quadlets/netbird-server.container" \

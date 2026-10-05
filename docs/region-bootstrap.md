@@ -731,9 +731,10 @@ Cloudflare's [zone-level setup](https://developers.cloudflare.com/ssl/origin-con
 Use a dedicated self-signed signing CA and a directly signed client leaf
 with `CA:FALSE` and Client Authentication usage. Upload only the leaf and
 its private key to the `terrascale.tech` zone. Store the CA private key and
-the client leaf's private key in OpenBao at mount `secret/homelab`, path
-`infra/cloudflare/terrascale-aop-ca` (fields `ca_key` and `client_key`), and
-nowhere else. The complete zone certificate list
+the client leaf's private key with `ts-orch vault put` as
+`gru-1-cloudflare-aop-ca-key` and `gru-1-cloudflare-aop-client-key` in the
+operator-only `TerraScale` compartment ([secrets](secrets.md)), and nowhere
+else. The complete zone certificate list
 must contain exactly one active certificate. Add its public inputs to the
 reviewed plan (never add either private key). With the logged-in `cf` CLI
 (see [AGENTS.md](../AGENTS.md#cloudflare-use-the-cf-cli)), upload and list
@@ -793,7 +794,9 @@ Run the steps in order. Each is idempotent; `cert`, `origin-ips` and `dns`
 print their plan and change nothing without `--apply`:
 
 ```sh
-export CF_API_TOKEN="$(bao kv get -mount=secret/homelab -field=CF_API_TOKEN infra/cloudflare/terrascale-dns-edit)"
+export CF_API_TOKEN="$(oci secrets secret-bundle get-secret-bundle-by-name --vault-id "$VAULT" \
+  --secret-name gru-1-cloudflare-dns-edit-token \
+  --query 'data."secret-bundle-content".content' --raw-output | base64 -d)"
 ts-orch oci-region public-api preview --plan deploy/oci-region/plan.json
 ts-orch oci-region public-api cert --plan deploy/oci-region/plan.json
 ts-orch oci-region public-api cert --plan deploy/oci-region/plan.json --apply

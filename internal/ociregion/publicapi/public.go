@@ -482,7 +482,7 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 func token() (string, error) {
 	t := strings.TrimSpace(os.Getenv(TokenEnv))
 	if t == "" {
-		return "", fmt.Errorf("Cloudflare API token is required in %s: bao kv get -mount=secret/homelab -field=%s infra/cloudflare/terrascale-dns-edit", TokenEnv, TokenEnv)
+		return "", fmt.Errorf("Cloudflare API token is required in %s: read OCI Vault secret gru-1-cloudflare-dns-edit-token (docs/secrets.md)", TokenEnv)
 	}
 	return t, nil
 }

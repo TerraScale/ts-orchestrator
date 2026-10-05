@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"net/http"
 	"strconv"
 	"strings"
 	"testing"
@@ -289,22 +288,6 @@ func TestReadBackDoesNotRetryPermanentVaultErrors(t *testing.T) {
 		t.Fatalf("permanent read error retried %d times", client.calls)
 	}
 }
-
-func TestRetrySecretReadClassifiesOCIStatus(t *testing.T) {
-	for status, want := range map[int]bool{http.StatusNotFound: true, http.StatusConflict: true, http.StatusUnauthorized: false, http.StatusBadRequest: false} {
-		if got := retrySecretRead(fmt.Errorf("wrapped: %w", testSecretServiceError{status: status})); got != want {
-			t.Errorf("status %d: retry=%v, want %v", status, got, want)
-		}
-	}
-}
-
-type testSecretServiceError struct{ status int }
-
-func (e testSecretServiceError) Error() string           { return "OCI service error" }
-func (e testSecretServiceError) GetHTTPStatusCode() int  { return e.status }
-func (e testSecretServiceError) GetMessage() string      { return "" }
-func (e testSecretServiceError) GetCode() string         { return "" }
-func (e testSecretServiceError) GetOpcRequestID() string { return "" }
 
 type readErrorBundle struct {
 	err   error

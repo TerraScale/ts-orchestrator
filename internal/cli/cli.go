@@ -33,6 +33,7 @@ import (
 	selfupdatecli "git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate/cli"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 const usage = `Usage: ts-orch <command> [flags]
@@ -61,6 +62,7 @@ Operator tooling:
   source-digest          Compute the versioned TerraBase source-tree digest
   terrabase              C# TerraBase member CA and member data volumes
   ts-auth                Provision ts-auth's Vault secrets and host env file
+  vault                  Store secrets in OCI Vault once; render host files from them
   ouroboros              Bootstrap TerraScale's own TerraBase organization, project keys and owner
   runtime-priority       Qualify runtime resources and run bounded pressure
   cluster                Break-glass controller quorum-loss recovery
@@ -112,6 +114,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return terrabase.Run(ctx, args[1:], commandio.NewWriter(output))
 	case "ts-auth":
 		return tsauth.Run(ctx, args[1:], commandio.NewWriter(output), ociregion.LoadPlan)
+	case "vault":
+		return vaultsecret.Run(ctx, args[1:], commandio.NewWriter(output))
 	case "ouroboros":
 		return tsauth.RunOuroboros(ctx, args[1:], commandio.NewWriter(output), ociregion.LoadPlan)
 	case "source-digest":

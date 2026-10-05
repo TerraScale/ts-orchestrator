@@ -1,6 +1,7 @@
 # NetBird combined server (management + signal + relay + STUN).
-# The OpenBao materializer renders this template to /etc/netbird/config.yaml
-# (target forgejo-oci-netbird), inserting each secret as a JSON-quoted string.
+# install.sh renders this template to /etc/netbird/config.yaml with
+# `ts-orch vault render`, inserting each placeholder KEY as the JSON-quoted
+# OCI Vault secret gru-1-<key> (docs/secrets.md).
 server:
   listenAddress: ":80"
   exposedAddress: "https://netbird.terrascale.tech:443"

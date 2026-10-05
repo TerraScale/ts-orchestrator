@@ -114,25 +114,6 @@ func Run(ctx context.Context, args []string, output io.Writer, loadPlan func(str
 	}
 }
 
-// readBack reads a secret that may have been created a moment ago: a new
-// secret can take some seconds to become readable.
-func readBack(ctx context.Context, bundles BundleClient, vaultID, cell, key string, created bool) (string, error) {
-	for attempt := 1; ; attempt++ {
-		value, err := readSecret(ctx, bundles, vaultID, cell, key)
-		if err == nil || !created || attempt == 30 {
-			return value, err
-		}
-		if !retrySecretRead(err) {
-			return "", err
-		}
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-time.After(2 * time.Second):
-		}
-	}
-}
-
 // operatorVault reads the cell and its Vault from the reviewed plan and opens
 // the Vault with the operator's ~/.oci/config DEFAULT profile.
 func operatorVault(planPath string, loadPlan func(string) (map[string]any, error)) (string, Target, VaultClient, BundleClient, error) {

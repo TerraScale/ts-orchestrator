@@ -21,8 +21,8 @@ const (
 	Zone = "terrascale.tech"
 	// authCell alone owns the shared auth.terrascale.tech DNS record.
 	authCell = "gru-1"
-	// TokenEnv names the Cloudflare API token, the CF_API_TOKEN key of
-	// OpenBao secret/homelab infra/cloudflare/terrascale-dns-edit.
+	// TokenEnv names the Cloudflare API token, OCI Vault secret
+	// gru-1-cloudflare-dns-edit-token (docs/secrets.md).
 	TokenEnv      = "CF_API_TOKEN"
 	cloudflareAPI = "https://api.cloudflare.com/client/v4"
 	// originValidityDays is the longest Origin CA validity, 15 years.
