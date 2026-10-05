@@ -30,6 +30,8 @@ var ErrName = errors.New("name does not follow <region>-<index>[-<role>-<n>[-dat
 
 var scheme = regexp.MustCompile(`^([a-z]+)-[1-9][0-9]{0,2}(?:-(?:ctl|gw)-[1-9][0-9]{0,2}|-db-[1-9][0-9]{0,2}(?:-data)?)?$`)
 
+var apiPart = regexp.MustCompile(`^[a-z]+$`)
+
 // Cell is one region's cell.
 type Cell struct {
 	Region string // catalog cell code, e.g. GRU
@@ -77,6 +79,22 @@ func (c Cell) slot(slot, prefix, role string) (string, error) {
 		return "", fmt.Errorf("%w: %sslot %q", ErrName, prefix, slot)
 	}
 	return c.Server(role, int(letter[0]-'a')+1)
+}
+
+// API returns the name of the cell's public API load balancer, e.g.
+// gru-1-api, or with a part, of one of its resources, e.g. gru-1-api-subnet.
+func (c Cell) API(part string) (string, error) {
+	name, err := c.Name()
+	if err != nil {
+		return "", err
+	}
+	if part == "" {
+		return name + "-api", nil
+	}
+	if !apiPart.MatchString(part) {
+		return "", fmt.Errorf("%w: API part %q", ErrName, part)
+	}
+	return name + "-api-" + part, nil
 }
 
 // Data returns the name of a member's retained data volume, e.g. gru-1-db-1-data.

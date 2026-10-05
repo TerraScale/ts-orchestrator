@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
 )
 
 func requireLiveID(v any, id any, label string) Object {
@@ -242,6 +244,10 @@ func (e *Engine) livePublic(plan, ids Object) {
 	if security["compartment-id"] != network || security["vcn-id"] != vcn {
 		fail("live public API security list is attached to an unexpected compartment or VCN")
 	}
+	if l7Public(plan) {
+		e.livePublicBalancer(plan, ids, public, security)
+		return
+	}
 	compareSecurity(security["ingress-security-rules"], []any{tcpRule(public["listener_port"], Object{"direction": "INGRESS", "source": "0.0.0.0/0", "source_type": "CIDR_BLOCK"})}, "public API security-list ingress", "INGRESS")
 	compareSecurity(security["egress-security-rules"], []any{tcpRule(public["client_port"], Object{"direction": "EGRESS", "destination": plan["subnet_cidr"], "destination_type": "CIDR_BLOCK"})}, "public API security-list egress", "EGRESS")
 	balancer := requireLiveID(e.oci(region, "nlb", "network-load-balancer", "get", "--network-load-balancer-id", str(ids["network_load_balancer"])), ids["network_load_balancer"], "public API network load balancer")
@@ -272,6 +278,48 @@ func (e *Engine) livePublic(plan, ids Object) {
 	}
 	if !valid || len(seen) == 0 {
 		fail("live public API network load balancer differs from the exact plan")
+	}
+}
+
+// livePublicBalancer reads back the flexible load balancer behind
+// Cloudflare against the configuration public-api apply creates, and its NSG
+// against Cloudflare's currently published ranges.
+func (e *Engine) livePublicBalancer(plan, ids, public, security Object) {
+	region, network := text(plan["region"]), ids["network_compartment"]
+	d, err := publicapi.ParsePlan([]byte(canonical(plan)))
+	if err != nil {
+		fail("plan public API: " + err.Error())
+	}
+	private := Object{"direction": "EGRESS", "destination": plan["subnet_cidr"], "destination_type": "CIDR_BLOCK"}
+	compareSecurity(security["ingress-security-rules"], []any{}, "public API security-list ingress", "INGRESS")
+	compareSecurity(security["egress-security-rules"], []any{tcpRule(public["client_port"], private), tcpRule(publicapi.AuthPort, private)}, "public API security-list egress", "EGRESS")
+	var balancer Object
+	for _, v := range rows(e.oci(region, "lb", "load-balancer", "list", "--compartment-id", str(network), "--all")) {
+		if obj(v)["id"] == ids["network_load_balancer"] {
+			balancer = obj(v)
+		}
+	}
+	nsgs := arr(balancer["network-security-group-ids"])
+	if balancer == nil || balancer["compartment-id"] != network || !eq(balancer["subnet-ids"], []any{ids["public_subnet"]}) || len(nsgs) != 1 {
+		fail("live public API load balancer differs from the exact plan")
+	}
+	if err := d.CheckBalancer(balancer); err != nil {
+		fail("live public API " + err.Error())
+	}
+	group := requireLiveID(e.oci(region, "network", "nsg", "get", "--nsg-id", str(nsgs[0])), nsgs[0], "public API network security group")
+	if group["compartment-id"] != network || group["vcn-id"] != ids["vcn"] {
+		fail("live public API network security group is attached to an unexpected compartment or VCN")
+	}
+	var ranges []string
+	for _, v := range arr(e.call("cloudflare_origin_ips", nil, Object{})) {
+		ranges = append(ranges, text(v))
+	}
+	var rules []map[string]any
+	for _, v := range rows(e.oci(region, "network", "nsg", "rules", "list", "--nsg-id", str(nsgs[0]))) {
+		rules = append(rules, obj(v))
+	}
+	if err := publicapi.CheckOriginRules(rules, ranges); err != nil {
+		fail("live public API " + err.Error())
 	}
 }
 func (e *Engine) liveOperator(plan, ids Object) {

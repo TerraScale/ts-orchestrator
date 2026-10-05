@@ -26,6 +26,12 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
+// SecretUnsafeEnv are the OCI SDK variables that print request and response
+// bodies or redirect endpoints and TLS trust. Callers that move secrets
+// through the SDK refuse to run while any is set.
+var SecretUnsafeEnv = []string{"OCI_GO_SDK_DEBUG", "OCI_METADATA_BASE_URL", "OCI_SDK_AUTH_CLIENT_REGION_URL",
+	"OCI_DEFAULT_CERTS_PATH", "OCI_DEFAULT_CLIENT_CERTS_PATH", "OCI_DEFAULT_CLIENT_CERTS_PRIVATE_KEY_PATH"}
+
 // Service names one OCI API family. Each has its own token bucket because OCI
 // throttles per service.
 type Service string

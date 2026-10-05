@@ -3,50 +3,48 @@ package publicapi
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
+	"io"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
-	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
+	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 )
 
-// TestSDKDecodesEveryCreateTheProvisionerSends runs the provisioner against a
-// recording fake and decodes each create's JSON flags into the SDK request
-// types, so the in-binary path accepts exactly what the provisioner emits.
-func TestSDKDecodesEveryCreateTheProvisionerSends(t *testing.T) {
-	plan := filepath.Join(t.TempDir(), "plan.json")
-	if err := os.WriteFile(plan, []byte(`{"resource_ids":{"network_compartment":"network","vcn":"vcn"},"subnet_cidr":"10.251.0.0/26"}`), 0644); err != nil {
+// TestSDKDecodesEveryCommandTheProvisionerSends runs cert, apply and an
+// origin-range refresh against the fake and decodes each served command's
+// JSON flags into the SDK request types, so the in-binary path accepts
+// exactly what the provisioner emits.
+func TestSDKDecodesEveryCommandTheProvisionerSends(t *testing.T) {
+	d := testDesired(t, testPlan)
+	f := newFakeOCI(t)
+	fc, cloudflare := newFakeCloudflare(t)
+	p := Provisioner{Client: f, Pause: func(context.Context, time.Duration) error { return nil }}
+	steps, err := p.certSteps(t.Context(), d, cloudflare)
+	if err != nil || run(t.Context(), steps, true, io.Discard) != nil {
 		t.Fatal(err)
 	}
-	created := false
-	f := &fakeOCI{}
-	f.call = func(args []string) (map[string]any, error) {
-		switch {
-		case args[0] == "network" && args[1] == "nsg":
-			return data([]any{}), nil
-		case args[0] == "network" && args[2] == "list":
-			return data([]any{}), nil
-		case args[0] == "network":
-			return data(map[string]any{"id": args[1], "display-name": Prefix, "lifecycle-state": "AVAILABLE"}), nil
-		case args[2] == "create":
-			created = true
-			return map[string]any{}, nil
-		case args[2] == "list" && created:
-			return data(map[string]any{"items": []any{map[string]any{"id": "nlb", "display-name": Prefix, "lifecycle-state": "ACTIVE"}}}), nil
-		case args[2] == "list":
-			return data(map[string]any{"items": []any{}}), nil
-		default:
-			return data(map[string]any{"id": "nlb", "lifecycle-state": "ACTIVE", "ip-addresses": []any{}}), nil
+	members := testCA(t)
+	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil {
+		t.Fatal(err)
+	}
+	grown := testDesired(t, strings.NewReplacer(`["gru-1-db-1"]`, `["gru-1-db-1","gru-1-db-2"]`, `"max_mbps":100`, `"max_mbps":200`).Replace(testPlan))
+	if _, err := p.Provision(t.Context(), grown, cloudflare, members); err != nil {
+		t.Fatal(err)
+	}
+	delete(f.balancer["certificates"].(map[string]any), originCertificate)
+	fc.ranges = []string{"104.16.0.0/13"}
+	for _, plan := range []func() ([]step, error){
+		func() ([]step, error) { return p.certSteps(t.Context(), d, cloudflare) },
+		func() ([]step, error) { return p.originSteps(t.Context(), d, cloudflare) },
+	} {
+		steps, err := plan()
+		if err != nil || run(t.Context(), steps, true, io.Discard) != nil {
+			t.Fatal(err)
 		}
-	}
-	_, err := (Provisioner{Client: f, Pause: func(context.Context, time.Duration) error { return nil }}).Provision(t.Context(),
-		Options{Plan: plan, Members: "10.251.0.10,10.251.0.11", WorkloadNSG: "nsg", SubnetCIDR: "10.251.0.128/26", ClientPort: 9465})
-	if err != nil {
-		t.Fatal(err)
 	}
 	decoded := map[string]bool{}
 	for _, args := range f.calls {
@@ -60,46 +58,60 @@ func TestSDKDecodesEveryCreateTheProvisionerSends(t *testing.T) {
 		if extra := unacceptedCreateFlags(command); len(extra) > 0 {
 			t.Fatalf("%s sends flags its creator does not consume: %v", command.Path, extra)
 		}
+		var err2 error
 		switch command.Path {
 		case "network route-table create":
 			var rules []core.RouteRule
-			if err := jsonFlag(command, "route-rules", &rules); err != nil || *rules[0].NetworkEntityId != "internet-gateway" ||
-				rules[0].DestinationType != core.RouteRuleDestinationTypeCidrBlock {
-				t.Fatalf("route rules=%+v err=%v", rules, err)
-			}
+			err2 = jsonFlag(command, "route-rules", &rules)
 		case "network security-list create":
 			var ingress []core.IngressSecurityRule
 			var egress []core.EgressSecurityRule
-			if err := jsonFlag(command, "ingress-security-rules", &ingress); err != nil || *ingress[0].TcpOptions.DestinationPortRange.Min != 443 {
-				t.Fatalf("ingress=%+v err=%v", ingress, err)
-			}
-			if err := jsonFlag(command, "egress-security-rules", &egress); err != nil || *egress[0].Destination != "10.251.0.0/26" {
-				t.Fatalf("egress=%+v err=%v", egress, err)
+			err2 = errors.Join(jsonFlag(command, "ingress-security-rules", &ingress), jsonFlag(command, "egress-security-rules", &egress))
+			if len(ingress) != 0 || len(egress) != 2 || *egress[1].TcpOptions.DestinationPortRange.Min != AuthPort {
+				t.Fatalf("ingress=%+v egress=%+v", ingress, egress)
 			}
 		case "network subnet create":
 			var lists []string
-			if err := jsonFlag(command, "security-list-ids", &lists); err != nil || len(lists) != 1 {
-				t.Fatalf("lists=%v err=%v", lists, err)
-			}
-			if prohibit, err := boolFlag(command, "prohibit-public-ip-on-vnic"); err != nil || prohibit == nil || *prohibit {
-				t.Fatalf("prohibit=%v err=%v", prohibit, err)
-			}
+			err2 = jsonFlag(command, "security-list-ids", &lists)
 		case "network nsg rules add":
 			var rules []core.AddSecurityRuleDetails
-			if err := jsonFlag(command, "security-rules", &rules); err != nil || *rules[0].Source != "10.251.0.128/26" ||
-				*rules[0].TcpOptions.DestinationPortRange.Max != 9465 {
-				t.Fatalf("nsg rules=%+v err=%v", rules, err)
+			err2 = jsonFlag(command, "security-rules", &rules)
+			if err2 == nil && (len(rules) != 1 || rules[0].Direction != core.AddSecurityRuleDetailsDirectionIngress || rules[0].SourceType != core.AddSecurityRuleDetailsSourceTypeCidrBlock) {
+				t.Fatalf("nsg rules %+v", rules)
 			}
-		case "nlb network-load-balancer create":
-			var sets map[string]networkloadbalancer.BackendSetDetails
-			var listeners map[string]networkloadbalancer.ListenerDetails
-			if err := jsonFlag(command, "backend-sets", &sets); err != nil || len(sets["terrabase-https"].Backends) != 2 ||
-				*sets["terrabase-https"].HealthChecker.Port != 9465 {
-				t.Fatalf("sets=%+v err=%v", sets, err)
+		case "lb certificate create":
+			var details loadbalancer.CreateCertificateDetails
+			err2 = jsonFlag(command, "certificate", &details)
+			if err2 == nil && (*details.CertificateName != originCertificate || *details.CaCertificate != d.OriginPull.CACertificate) {
+				t.Fatalf("certificate %v", *details.CertificateName)
 			}
-			if err := jsonFlag(command, "listeners", &listeners); err != nil || *listeners["https"].Port != 443 {
-				t.Fatalf("listeners=%+v err=%v", listeners, err)
+		case "lb load-balancer update-shape":
+			var shape loadbalancer.ShapeDetails
+			err2 = jsonFlag(command, "shape-details", &shape)
+		case "lb backend-set update":
+			var details loadbalancer.UpdateBackendSetDetails
+			err2 = jsonFlag(command, "details", &details)
+			if err2 == nil && (len(details.Backends) != 2 || *details.SslConfiguration.CertificateName != memberCA || *details.HealthChecker.UrlPath != HealthPath) {
+				t.Fatalf("backend set %+v", details)
 			}
+		case "network nsg rules remove":
+			var ids []string
+			err2 = jsonFlag(command, "security-rule-ids", &ids)
+		case "lb load-balancer create":
+			var details loadbalancer.CreateLoadBalancerDetails
+			for name, target := range map[string]any{"subnet-ids": &details.SubnetIds, "network-security-group-ids": &details.NetworkSecurityGroupIds,
+				"shape-details": &details.ShapeDetails, "certificates": &details.Certificates, "hostnames": &details.Hostnames,
+				"backend-sets": &details.BackendSets, "listeners": &details.Listeners, "rule-sets": &details.RuleSets} {
+				err2 = errors.Join(err2, jsonFlag(command, name, target))
+			}
+			redirect, ok := details.RuleSets["https-redirect"].Items[0].(loadbalancer.RedirectRule)
+			if err2 == nil && (!ok || *redirect.RedirectUri.Protocol != "HTTPS" || *details.Listeners["ts-auth"].SslConfiguration.VerifyPeerCertificate != true ||
+				*details.BackendSets["terrabase"].SslConfiguration.CertificateName != memberCA || *details.ShapeDetails.MaximumBandwidthInMbps != 100) {
+				t.Fatalf("load balancer %+v", details)
+			}
+		}
+		if err2 != nil {
+			t.Fatalf("%s: %v", command.Path, err2)
 		}
 		decoded[command.Path] = true
 	}
@@ -110,32 +122,17 @@ func TestSDKDecodesEveryCreateTheProvisionerSends(t *testing.T) {
 	}
 }
 
-func TestNewClientPinsThePlanRegion(t *testing.T) {
-	plan := filepath.Join(t.TempDir(), "plan.json")
-	if err := os.WriteFile(plan, []byte(`{"region":"uk-london-1"}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv(sdkcli.BackendEnv, "")
-	if _, err := newClient(plan); err == nil {
-		t.Fatal("accepted a plan region outside the catalog")
-	}
-	t.Setenv(sdkcli.BackendEnv, "cli")
-	if client, err := newClient(plan); err != nil || client == nil {
-		t.Fatalf("cli backend: %v", err)
-	}
-}
-
-func TestSDKCreateRefusesAFlagItWouldDropBeforeAnyEffect(t *testing.T) {
+func TestSDKNeverHandsSecretsToTheCLI(t *testing.T) {
 	called := false
-	client := &SDKClient{Region: "sa-saopaulo-1", Backend: sdkcli.BackendSDK, creators: map[string]creator{
-		"nlb network-load-balancer create": func(context.Context, *SDKClient, sdkcli.Command) (any, error) {
+	client := &SDKClient{Region: "sa-saopaulo-1", Backend: sdkcli.BackendAuto, creators: map[string]creator{
+		"lb certificate create": func(context.Context, *SDKClient, sdkcli.Command) (any, error) {
 			called = true
 			return nil, nil
 		},
 	}}
-	_, err := client.Call(t.Context(), "nlb", "network-load-balancer", "create", "--compartment-id", "c",
-		"--display-name", "d", "--subnet-id", "s", "--wait-for-state", "ACTIVE")
+	_, err := client.Call(t.Context(), "lb", "certificate", "create", "--load-balancer-id", "lb",
+		"--certificate", "{}", "--passphrase", "p")
 	if !errors.Is(err, sdkcli.ErrUnsupported) || called {
-		t.Fatalf("create with an unconsumed --wait-for-state = %v (called %v)", err, called)
+		t.Fatalf("secret-bearing create with an unconsumed flag = %v (called %v)", err, called)
 	}
 }

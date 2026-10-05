@@ -21,6 +21,8 @@ func TestCellAndServerNames(t *testing.T) {
 		{gru.Image, "gru-1-arm64"},
 		{func() (string, error) { return Data("sfo-1-db-1") }, "sfo-1-db-1-data"},
 		{func() (string, error) { return gru.Server(Gateway, 1) }, "gru-1-gw-1"},
+		{func() (string, error) { return gru.API("") }, "gru-1-api"},
+		{func() (string, error) { return gru.API("subnet") }, "gru-1-api-subnet"},
 	} {
 		if got, err := tc.got(); err != nil || got != tc.want {
 			t.Fatalf("got %q, %v; want %q", got, err, tc.want)
@@ -39,6 +41,8 @@ func TestGenerationRejectsOutOfSchemeInput(t *testing.T) {
 		func() (string, error) { return RegionCell("GRU").ControllerSlot("controller-ab") },
 		func() (string, error) { return RegionCell("GRU").MemberSlot("controller-a") },
 		func() (string, error) { return Data("gru-1") },
+		func() (string, error) { return RegionCell("LHR").API("") },
+		func() (string, error) { return RegionCell("GRU").API("Subnet-1") },
 		func() (string, error) { return Data("gru-1-db-1-data") },
 	} {
 		if got, err := call(); !errors.Is(err, ErrName) || got != "" {

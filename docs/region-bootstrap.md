@@ -177,8 +177,8 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
    commands below use `--oci-profile DEFAULT`; configure that SDK profile with
    the same identity and target region. The helper passes the plan's region to
    regional OCI commands and records ready subscriptions and live inventory.
-   The preview, inventory, inspect-foundation, `import-image`, and
-   `public-api` commands now reach OCI through the Go SDK inside `ts-orch`,
+   The preview, inventory, inspect-foundation, `import-image`, `public-api`
+   and `dns` commands now reach OCI through the Go SDK inside `ts-orch`,
    reading the same `~/.oci/config` `DEFAULT` profile; the Python `oci` CLI is
    no longer required for them. `TS_OCI_BACKEND=auto` (default) serves every
    supported command in-binary and falls back to the CLI only for an
@@ -681,29 +681,168 @@ rules are not restored; nothing listens on those ports.
 
 ## Public TerraBase API
 
-For the TS-470 GRU rebuild, the user's **2026-10-04 edge decision** approves
-an OCI flexible **L7 Load Balancer `gru-1-api`**, terminating origin TLS
-with a **Cloudflare Origin CA certificate**. Cloudflare records for
-`gru.api.terrascale.tech` (TerraBase) and `auth.terrascale.tech` (ts-auth)
-must both be **PROXIED**. Creating the LB, Origin CA certificate and these
-two proxied records is approved. The plan contains no `gru-1-gw-1` host,
-Caddy, Let's Encrypt or NLB.
+The cell's public API is an OCI flexible load balancer behind proxied
+Cloudflare DNS. `gru.api.terrascale.tech` reaches TerraBase and
+`auth.terrascale.tech` reaches ts-auth (TS-487). Names come from
+`internal/naming`: load balancer `gru-1-api`, `gru-1-api-igw`,
+`gru-1-api-routes`, `gru-1-api-security`, `gru-1-api-subnet`,
+`gru-1-api-nsg`, and the Vault secret `gru-1-api-origin`.
 
-Use **TS-486's native commands once merged** for the LB, certificate and DNS
-operations. Capture the exact flexible bandwidth range, network/NSG rules,
-host routing and backend configuration from its reviewed plan; do not invent
-replacement commands or substitute the current `public-api` NLB path. The
-existing `public_api`/`network_load_balancer` schema is pending TS-486's
-migration, and its unbound fields do not authorize a legacy NLB creation.
+The plan declares `public_api` as `subnet_cidr`, `listener_port`,
+`client_port`, `min_mbps`, `max_mbps` (10 and 100 for gru-1) and
+`terrabase_members`, and prices
+the load balancer from `budget.rates.lb_hour` and `lb_mbps_hour` at its
+bandwidth ceiling. A plan without the bandwidth keys describes the older TLS
+passthrough network load balancer. `resource_ids.network_load_balancer`
+records either balancer.
 
-After the image, three controllers and two database hosts/data volumes have
-clean readbacks, refresh inventory and native cost admission including the
-L7 LB's actual charges; the combined forecast must stay below **USD 200/month**.
-Use TS-487's ts-auth deployment path as it merges. Verify each edge resource
-and certificate binding by readback, both DNS records' `proxied=true`, backend
-health, and both public HTTPS URLs. Keep certificate private key material out
-of logs and evidence. Stop on the first error; deletes and terminations still
-require user approval.
+- Network: an internet gateway, a route table with `0.0.0.0/0` to it, the
+  public subnet `10.251.0.128/26`, and a security list with no ingress whose
+  egress is TCP 9465 and 8080 to the private subnet. The workload NSG admits
+  TCP 9465 and the controller NSG admits TCP 8080 from the public subnet;
+  both are plan rules (the 8080 rule with TS-487), and `apply` adds them if
+  missing.
+- Origin lock: `gru-1-api-nsg`, attached only to the load balancer, admits
+  TCP 80 and 443 from each of Cloudflare's published IPv4 ranges and nothing
+  else. Every HTTPS listener requires the customer-issued
+  [zone origin-pull client certificate](https://developers.cloudflare.com/ssl/origin-configuration/authenticated-origin-pull/set-up/zone-level/)
+  (Authenticated Origin Pulls), verified against the dedicated CA in
+  `public_api.origin_pull`. Cloudflare's shared client CA is refused: it
+  authenticates other Cloudflare accounts too.
+- Listeners: two HTTPS listeners on 443 route by hostname and serve the
+  Cloudflare Origin CA certificate. Port 80 answers with a 301 to HTTPS.
+  Responses gain HSTS and `X-Content-Type-Options: nosniff`.
+- Backend sets: `terrabase` sends HTTPS to `gru-1-db-1:9465` only, verified
+  against the member CA, with `GET /readyz` health checks (TerraBase TS-483
+  adds `/readyz`; until then the set reports unhealthy). The plan's
+  `terrabase_members` lists `gru-1-db-1` only until TerraBase replication
+  merges (terrabase#11 and TS-469); then add `gru-1-db-2` and rerun `apply`,
+  which updates the backend set and bandwidth of an existing load balancer.
+  `ts-auth` sends HTTP to
+  every controller on 8080 with `GET /readyz`, so controllers without a
+  replica drop out.
+- Timeouts: Cloudflare ends a proxied request after 100 seconds. The
+  listeners' idle timeout is 120 seconds, so Cloudflare rather than the load
+  balancer cuts a slow request. Keep long-polls, including shape long-polls,
+  under 100 seconds.
+
+Before provisioning, prepare one customer-owned zone AOP certificate using
+Cloudflare's [zone-level setup](https://developers.cloudflare.com/ssl/origin-configuration/authenticated-origin-pull/set-up/zone-level/).
+Use a dedicated self-signed signing CA and a directly signed client leaf
+with `CA:FALSE` and Client Authentication usage. Upload only the leaf and
+its private key to the `terrascale.tech` zone. Store the CA private key and
+the client leaf's private key in OpenBao at mount `secret/homelab`, path
+`infra/cloudflare/terrascale-aop-ca` (fields `ca_key` and `client_key`), and
+nowhere else. The complete zone certificate list
+must contain exactly one active certificate. Add its public inputs to the
+reviewed plan (never add either private key):
+
+```json
+"origin_pull": {
+  "ca_certificate": "-----BEGIN CERTIFICATE-----\n...dedicated CA PEM...\n-----END CERTIFICATE-----\n",
+  "certificate_id": "<Cloudflare zone AOP certificate ID>"
+}
+```
+
+Remove hostname-specific overrides for the two targets using Cloudflare's
+[documented voided-association operation](https://developers.cloudflare.com/api/resources/origin_tls_client_auth/subresources/hostnames/methods/update/):
+
+```http
+PUT /zones/<zone-id>/origin_tls_client_auth/hostnames
+Content-Type: application/json
+
+{"config":[{"hostname":"gru.api.terrascale.tech","enabled":null},{"hostname":"auth.terrascale.tech","enabled":null}]}
+```
+
+Each target's `GET .../hostnames/<hostname>` must then succeed with the
+matching hostname and an explicit `enabled: null`. An enabled or disabled
+hostname association overrides zone AOP, so both are refused. The API has
+no documented distinction between an absent association and an unsupported
+GET endpoint; a 404 stops DNS publication. Operator qualification must
+confirm this voided-association readback before the live deployment; it has
+only fake-provider coverage here.
+
+Unbound plans can be previewed without these inputs; `cert`, `apply`, and
+DNS security validation require them. Every cell uses the same reviewed
+zone certificate. The shared `auth.terrascale.tech` record belongs to
+`gru-1`; another cell cannot publish it. Zone AOP also affects other origins
+in this zone that request client certificates: coordinate their trust before
+enabling it. The DNS command does not upload, replace, or delete AOP keys.
+
+Run the steps in order. Each is idempotent; `cert`, `origin-ips` and `dns`
+print their plan and change nothing without `--apply`:
+
+```sh
+export CF_API_TOKEN="$(bao kv get -mount=secret/homelab -field=CF_API_TOKEN infra/cloudflare/terrascale-dns-edit)"
+ts-orch oci-region public-api preview --plan deploy/oci-region/plan.json
+ts-orch oci-region public-api cert --plan deploy/oci-region/plan.json
+ts-orch oci-region public-api cert --plan deploy/oci-region/plan.json --apply
+ts-orch oci-region public-api apply --plan deploy/oci-region/plan.json --member-ca member-ca.pem
+ts-orch oci-region dns --plan deploy/oci-region/plan.json
+ts-orch oci-region dns --plan deploy/oci-region/plan.json --apply
+```
+
+1. `preview` lists every resource, certificate, rule and record without any
+   call.
+2. `cert` generates an RSA key, has Cloudflare's Origin CA sign it for both
+   names for 15 years, and stores the certificate and key in the Vault secret
+   `gru-1-api-origin` (plan `vault`, `key` and `control_compartment`). When
+   the load balancer already exists without the certificate, `cert` installs
+   it. Reused Vault bundles must name both planned hostnames. The key never
+   leaves Vault, the load balancer and `ts-orch`'s memory.
+3. `apply` reads that secret, fetches Cloudflare's ranges, creates the
+   network and NSG rules, and creates the load balancer with its
+   certificates, listeners, backend sets and rule sets. On an existing load
+   balancer it updates the bandwidth and backend sets to the plan, and fails
+   when the installed member CA differs from `--member-ca` or when any other
+   setting has drifted, including the origin-pull CA, subnet and NSG
+   attachments, and subnet security-list rules. It prints the IDs to
+   record in `resource_ids`: `internet_gateway`, `public_route_table`,
+   `public_security_list`, `public_subnet` and `network_load_balancer`.
+4. `dns` first validates the load balancer's exact listeners, catch-all
+   redirect, serving backends, customer CA, network attachments, subnet
+   security, and Cloudflare-only NSG rules, including on a dry run. It
+   verifies the unique active Cloudflare zone client certificate against
+   the reviewed CA and refuses conflicting hostname AOP overrides. It sets
+   SSL Full (strict) for both names with a configuration rule
+   (`ts-orch-gru-1-api-ssl-strict`), enables custom zone AOP through
+   `origin_tls_client_auth/settings`, and verifies it before publishing
+   proxied A records. Missing, ambiguous, pending, expired, or unrelated
+   client certificates stop publication. Names holding other record types
+   are refused.
+5. `ts-orch oci-region public-api origin-ips --plan PLAN [--apply]` re-reads
+   Cloudflare's ranges and adds and removes NSG rules, including duplicates,
+   to match. Run it when Cloudflare announces a range change.
+
+The Cloudflare token needs Zone DNS Edit, Zone Settings Edit, Config Rules
+Edit and SSL and Certificates Edit on `terrascale.tech`. `cert` and `apply`
+refuse `TS_OCI_BACKEND=cli` and OCI SDK debug or endpoint overrides such as
+`OCI_GO_SDK_DEBUG`, so key material never appears in `oci` arguments or
+SDK logs.
+
+`inspect-foundation` reads the load balancer back with the same check
+`apply` uses: active, flexible at the planned bandwidth, public, in the
+public subnet; both hostnames bound to their own HTTPS listener and backend
+set, each serving `origin` and verifying the client certificate; port 80
+only redirecting; `terrabase` verifying member TLS; and backend sets holding
+exactly the plan's `terrabase_members` and every controller. It fetches
+Cloudflare's published ranges and requires the one NSG to admit exactly TCP
+80 and 443 from each of them; after a Cloudflare change it fails until
+`origin-ips --apply` runs. Inventory admission accepts only that recorded
+load balancer, and only while its live bandwidth ceiling is within the
+priced `max_mbps`.
+
+For the TS-470 GRU rebuild, the user's 2026-10-04 edge decision approves
+the load balancer `gru-1-api`, its Origin CA certificate and both proxied
+records; the plan has no `gru-1-gw-1` host, Caddy, Let's Encrypt or network
+load balancer. After the image, three controllers and two database hosts
+with data volumes have clean readbacks, refresh inventory and native cost
+admission, which now prices the load balancer; the combined forecast must
+stay below USD 200/month. Use TS-487's ts-auth deployment path as it merges.
+Verify each edge resource and certificate binding by readback, both DNS
+records' `proxied=true`, backend health, and both public HTTPS URLs. Keep
+certificate private key material out of logs and evidence. Stop on the
+first error; deletes and terminations still require user approval.
 
 ## Inter-region private networking (future authorization only)
 

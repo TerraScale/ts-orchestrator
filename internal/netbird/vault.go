@@ -14,6 +14,7 @@ import (
 	"uuid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/secrets"
@@ -74,7 +75,7 @@ func ReadAdminPAT(ctx context.Context, cfg Config) ([]byte, error) {
 }
 
 func readOCISecret(ctx context.Context, region, secretID, label string, maxBytes int, valid func([]byte) bool) ([]byte, error) {
-	for _, name := range []string{"OCI_GO_SDK_DEBUG", "OCI_METADATA_BASE_URL", "OCI_SDK_AUTH_CLIENT_REGION_URL", "OCI_DEFAULT_CERTS_PATH", "OCI_DEFAULT_CLIENT_CERTS_PATH", "OCI_DEFAULT_CLIENT_CERTS_PRIVATE_KEY_PATH"} {
+	for _, name := range ociclient.SecretUnsafeEnv {
 		if _, overridden := os.LookupEnv(name); overridden {
 			return nil, errors.New("NetBird OCI Vault access does not permit OCI debug logging, endpoint or TLS overrides")
 		}

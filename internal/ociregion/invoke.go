@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
 )
 
 // Path is a file argument. It remains distinguishable from a textual argument for injected dependencies.
@@ -158,6 +160,12 @@ func (e *Engine) invoke(name string, args []any, kw Object) any {
 		e.liveCompartments(obj(arg(0)), obj(arg(1)))
 	case "check_live_network":
 		e.liveNetwork(obj(arg(0)), obj(arg(1)))
+	case "cloudflare_origin_ips":
+		ranges, err := publicapi.PublishedOriginIPs(e.ctx())
+		if err != nil {
+			fail("Cloudflare's published IPv4 ranges: " + err.Error())
+		}
+		return arr(ranges)
 	case "check_live_public_api":
 		e.livePublic(obj(arg(0)), obj(arg(1)))
 	case "check_live_operator_gateway":

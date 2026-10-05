@@ -1,0 +1,17 @@
+internet-gateway gru-1-api-igw: enabled in the cell VCN
+route-table gru-1-api-routes: 0.0.0.0/0 to gru-1-api-igw
+security-list gru-1-api-security: no ingress; egress tcp/9465 and tcp/8080 to 10.251.0.0/25
+subnet gru-1-api-subnet: 10.251.0.128/26, gru-1-api-routes, gru-1-api-security
+network-security-group gru-1-api-nsg: tcp/80 and tcp/443 from each Cloudflare IPv4 range only (public-api origin-ips)
+nsg-rule workload NSG: tcp/9465 from 10.251.0.128/26 (load balancer to TerraBase)
+nsg-rule controller NSG: tcp/8080 from 10.251.0.128/26 (load balancer to ts-auth)
+vault-secret gru-1-api-origin: Cloudflare Origin CA certificate and RSA key for gru.api.terrascale.tech and auth.terrascale.tech, 5475 days (public-api cert)
+load-balancer gru-1-api: public, flexible 10-100 Mbps, NSG gru-1-api-nsg, idle timeout 120s
+listener https gru.api.terrascale.tech: :443, Origin CA certificate, requires the customer origin-pull client certificate, to backend set terrabase
+listener https auth.terrascale.tech: :443, Origin CA certificate, requires the customer origin-pull client certificate, to backend set ts-auth
+listener http: :80, 301 to https
+backend-set terrabase: gru-1-db-1 10.251.0.21:9465, TLS verified against the member CA, GET /readyz
+backend-set ts-auth: gru-1-ctl-1 10.251.0.11:8080, gru-1-ctl-2 10.251.0.12:8080, gru-1-ctl-3 10.251.0.13:8080, GET /readyz
+cloudflare: SSL Full (strict) for gru.api.terrascale.tech and auth.terrascale.tech, custom zone Authenticated Origin Pulls on; requires public_api.origin_pull CA and certificate ID (oci-region dns)
+dns-record gru.api.terrascale.tech: A to the gru-1-api public IP, proxied (oci-region dns)
+dns-record auth.terrascale.tech: A to the gru-1-api public IP, proxied (oci-region dns)

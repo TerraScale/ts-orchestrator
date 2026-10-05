@@ -356,7 +356,11 @@ func TestUnknownMemberInventoryRetainsTimestampFloor(t *testing.T) {
 			s := newSim(t, testPolicy(), cell, time.Minute)
 			s.observe()
 			s.now = s.now.Add(time.Second)
-			s.controller.config.ReadyTimeout = 20 * time.Millisecond
+			if offset <= 0 {
+				// Only refused evidence must time out; the accepted case keeps
+				// the default deadline so a loaded runner cannot fail it.
+				s.controller.config.ReadyTimeout = 20 * time.Millisecond
+			}
 			unknown := safeReplicaSnapshot(s.now)
 			unknown.Members = append(unknown.Members, fakeNodeIdentity("gru-1-db-5"))
 			unknown.Placements[0].LiveReplicas = append(unknown.Placements[0].LiveReplicas, "gru-1-db-5")

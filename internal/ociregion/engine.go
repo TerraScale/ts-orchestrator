@@ -391,7 +391,7 @@ func pathValue(v any) string {
 	return text(v)
 }
 func (e *Engine) call(name string, args []any, kwargs Object) any {
-	if e.Dependency != nil && (name == "oci" || name == "checked_tool" || name == "subprocess.run" || e.Overrides[name]) {
+	if e.Dependency != nil && (name == "oci" || name == "checked_tool" || name == "subprocess.run" || name == "cloudflare_origin_ips" || e.Overrides[name]) {
 		v, err := e.Dependency(name, args, kwargs)
 		if err != nil {
 			panic(err)

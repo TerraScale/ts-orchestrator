@@ -35,7 +35,12 @@
     "public_api": {
         "subnet_cidr": "10.251.0.128/26",
         "listener_port": 443,
-        "client_port": 9465
+        "client_port": 9465,
+        "min_mbps": 10,
+        "max_mbps": 100,
+        "terrabase_members": [
+            "gru-1-db-1"
+        ]
     },
     "preview_compartment_names": {
         "control": "gru-1-control",
@@ -427,7 +432,9 @@
             "block_vpu_gb_month": 0.0017,
             "object_gb_month": 0.0255,
             "object_10000_requests": 0.0034,
-            "egress_gb": 0.025
+            "egress_gb": 0.025,
+            "lb_hour": 0.0113,
+            "lb_mbps_hour": 0.0001
         }
     },
     "resource_ids": {

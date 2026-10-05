@@ -7,7 +7,9 @@ import (
 	"slices"
 	"strings"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
 )
 
 var publicIDs = map[string]string{"internet_gateway": "internetgateway", "public_subnet": "subnet", "public_route_table": "routetable", "public_security_list": "securitylist", "network_load_balancer": "networkloadbalancer"}
@@ -131,6 +133,14 @@ func validateGateway(plan Object, network netip.Prefix) Object {
 	}
 	return g
 }
+
+// l7Public reports a public API on an OCI flexible load balancer behind
+// Cloudflare (publicapi); without bandwidth fields it is the older TLS passthrough
+// network load balancer. resource_ids.network_load_balancer records either.
+func l7Public(plan Object) bool {
+	_, flexible := obj(plan["public_api"])["max_mbps"]
+	return flexible
+}
 func validatePublic(plan Object, network, subnet netip.Prefix) Object {
 	v, ok := plan["public_api"]
 	if !ok {
@@ -139,14 +149,50 @@ func validatePublic(plan Object, network, subnet netip.Prefix) Object {
 	if v == nil {
 		return nil
 	}
-	if !exact(v, "subnet_cidr", "listener_port", "client_port") {
+	if !exact(v, "subnet_cidr", "listener_port", "client_port") && !exact(v, "subnet_cidr", "listener_port", "client_port", "min_mbps", "max_mbps", "terrabase_members") &&
+		!exact(v, "subnet_cidr", "listener_port", "client_port", "min_mbps", "max_mbps", "terrabase_members", "origin_pull") {
 		fail("manual public API must declare exactly its subnet CIDR, listener port, and client port")
 	}
 	p := obj(v)
+	if origin, present := p["origin_pull"]; present {
+		if !exact(origin, "ca_certificate", "certificate_id") {
+			fail("manual public API origin_pull must declare exactly its customer CA certificate and Cloudflare certificate ID")
+		}
+		o := obj(origin)
+		ca, caOK := o["ca_certificate"].(string)
+		id, idOK := o["certificate_id"].(string)
+		if !caOK || !idOK {
+			fail("manual public API origin_pull certificate and ID must be strings")
+		}
+		if err := (publicapi.OriginPull{CACertificate: ca, CertificateID: id}).Validate(); err != nil {
+			fail(err.Error())
+		}
+	}
 	for _, k := range []string{"listener_port", "client_port"} {
 		if !integer(p[k]) || number(p[k]) < 1 || number(p[k]) > 65535 {
 			fail("manual public API must declare exactly its subnet CIDR, listener port, and client port")
 		}
+	}
+	if l7Public(plan) && !eq(p["listener_port"], 443) {
+		fail("manual public API flexible load balancer listener_port must be 443")
+	}
+	if l7Public(plan) && (!integer(p["min_mbps"]) || !integer(p["max_mbps"]) || number(p["min_mbps"]) < 10 || number(p["max_mbps"]) < number(p["min_mbps"]) || number(p["max_mbps"]) > 8000) {
+		fail("manual public API load balancer bandwidth must satisfy 10 <= min_mbps <= max_mbps <= 8000")
+	}
+	seen := map[string]bool{}
+	for _, v := range arr(p["terrabase_members"]) {
+		ok := false
+		for n := 1; n <= int(number(plan["database_members"])); n++ {
+			name, err := naming.RegionCell(text(plan["cell"])).Server(naming.Member, n)
+			ok = ok || err == nil && v == name
+		}
+		if !ok || seen[text(v)] {
+			fail("manual public API terrabase_members must name distinct planned database members")
+		}
+		seen[text(v)] = true
+	}
+	if l7Public(plan) && len(seen) == 0 {
+		fail("manual public API terrabase_members must name distinct planned database members")
 	}
 	cidr, _ := prefix(p["subnet_cidr"])
 	if !within(p["subnet_cidr"], network) || cidr.Overlaps(subnet) {
@@ -180,6 +226,9 @@ func validateBoundary(sec Object, network netip.Prefix, gateway, public Object) 
 			} else if !within(r["source"], network) {
 				fail("manual plan " + key + " admits a source outside the private cell")
 			} else if public != nil {
+				if _, flexible := public["max_mbps"]; !flexible && tsAuthBackendRule(key, r, public) {
+					fail("manual legacy public API must not admit the ts-auth controller port")
+				}
 				p, _ := prefix(public["subnet_cidr"])
 				s, _ := prefix(r["source"])
 				if p.Overlaps(s) && !tsAuthBackendRule(key, r, public) && (key != "workload_nsg_rules" || r["source"] != public["subnet_cidr"] || r["protocol"] != "6" || !eq(r["tcp_min"], public["client_port"]) || !eq(r["tcp_max"], public["client_port"])) {
@@ -319,6 +368,9 @@ func (e *Engine) loadPlan(path string) Object {
 		kind, ok := resourceKinds[key]
 		if !ok || ids[key] == nil {
 			continue
+		}
+		if key == "network_load_balancer" && l7Public(p) {
+			kind = "loadbalancer"
 		}
 		region := text(p["region"])
 		if kind == "compartment" || kind == "policy" || kind == "dynamicgroup" {

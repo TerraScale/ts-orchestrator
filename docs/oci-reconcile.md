@@ -94,10 +94,10 @@ freeform tags, or the same values in the defined-tag namespace when
 `tag_mode` is `defined`. A resource without them is reported as foreign and is
 never mutated or deleted. The reconciler does not adopt resources by itself.
 
-`public-api` creates the public NLB without these tags. Before enabling
-`public_nlb`, an operator must tag the NLB with the owner (the region
-controller owner) and the resource key `<CELL>/nlb-backends/<name>` (with `terrascale-managed-by=ts-orchestrator`). Until then the
-NLB is reported as foreign and its backends are left alone.
+`public_nlb` syncs a network load balancer's backend set to the RUNNING
+member hosts. The cell's public API is now the flexible load balancer
+`gru-1-api` (see [region bootstrap](region-bootstrap.md#public-terrabase-api)),
+whose backends follow the plan, so leave `public_nlb` unset for it.
 
 ## Safety
 

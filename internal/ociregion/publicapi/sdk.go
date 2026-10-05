@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
-	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
+	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/oracle/oci-go-sdk/v65/secrets"
+	"github.com/oracle/oci-go-sdk/v65/vault"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/command"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 )
@@ -42,12 +45,20 @@ func NewSDKClient(region string, backend sdkcli.Backend) (*SDKClient, error) {
 }
 
 var creators = map[string]creator{
-	"network internet-gateway create":  createInternetGateway,
-	"network route-table create":       createRouteTable,
-	"network security-list create":     createSecurityList,
-	"network subnet create":            createSubnet,
-	"network nsg rules add":            addNSGRules,
-	"nlb network-load-balancer create": createNLB,
+	"network internet-gateway create": createInternetGateway,
+	"network route-table create":      createRouteTable,
+	"network security-list create":    createSecurityList,
+	"network subnet create":           createSubnet,
+	"network nsg create":              createNSG,
+	"network nsg rules add":           addNSGRules,
+	"network nsg rules remove":        removeNSGRules,
+	"lb load-balancer create":         createLoadBalancer,
+	"lb certificate create":           createLBCertificate,
+	"lb load-balancer update-shape":   updateLBShape,
+	"lb backend-set update":           updateBackendSet,
+	"vault secret create-base64":      createSecret,
+	"vault secret list":               listSecrets,
+	"secrets secret-bundle get":       getSecretBundle,
 }
 
 // createFlags lists every flag each in-binary creator consumes.
@@ -58,10 +69,22 @@ var createFlags = map[string][]string{
 		"egress-security-rules", "wait-for-state"},
 	"network subnet create": {"compartment-id", "vcn-id", "display-name", "cidr-block", "dns-label", "route-table-id",
 		"security-list-ids", "prohibit-public-ip-on-vnic", "wait-for-state"},
-	"network nsg rules add": {"nsg-id", "security-rules"},
-	"nlb network-load-balancer create": {"compartment-id", "display-name", "subnet-id", "is-private",
-		"is-preserve-source-destination", "backend-sets", "listeners"},
+	"network nsg create":       {"compartment-id", "vcn-id", "display-name", "wait-for-state"},
+	"network nsg rules add":    {"nsg-id", "security-rules"},
+	"network nsg rules remove": {"nsg-id", "security-rule-ids"},
+	"lb load-balancer create": {"compartment-id", "display-name", "shape-name", "subnet-ids", "is-private",
+		"network-security-group-ids", "shape-details", "certificates", "hostnames", "backend-sets", "listeners", "rule-sets"},
+	"lb certificate create":         {"load-balancer-id", "certificate"},
+	"lb load-balancer update-shape": {"load-balancer-id", "shape-name", "shape-details"},
+	"lb backend-set update":         {"load-balancer-id", "backend-set-name", "details"},
+	"vault secret create-base64":    {"compartment-id", "vault-id", "key-id", "secret-name", "description", "secret-content-content"},
+	"vault secret list":             {"compartment-id", "vault-id", "name"},
+	"secrets secret-bundle get":     {"secret-id"},
 }
+
+// secretBearing commands carry private keys; they never reach the oci CLI,
+// whose arguments other local users can read.
+var secretBearing = []string{"lb load-balancer create", "lb certificate create", "vault secret create-base64", "secrets secret-bundle get"}
 
 // unacceptedCreateFlags returns, sorted, the flags of a create command that
 // its creator does not consume.
@@ -87,7 +110,7 @@ func (c *SDKClient) Call(ctx context.Context, args ...string) (map[string]any, e
 		// before any effect: under auto the oci CLI serves the command,
 		// under sdk it fails instead of silently diverging.
 		if extra := unacceptedCreateFlags(parsed); len(extra) > 0 {
-			if c.Backend == sdkcli.BackendAuto {
+			if c.Backend == sdkcli.BackendAuto && !slices.Contains(secretBearing, parsed.Path) {
 				return command.CLI{Region: c.Region}.Call(ctx, args...)
 			}
 			return nil, fmt.Errorf("%w: %s with --%s", sdkcli.ErrUnsupported, parsed.Path, strings.Join(extra, ", --"))
@@ -307,6 +330,26 @@ func createSubnet(ctx context.Context, c *SDKClient, command sdkcli.Command) (an
 	})
 }
 
+func createNSG(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {
+	values, err := flags(command, "compartment-id", "vcn-id", "display-name")
+	if err != nil {
+		return nil, err
+	}
+	client, err := c.network()
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateNetworkSecurityGroup(ctx, core.CreateNetworkSecurityGroupRequest{
+		CreateNetworkSecurityGroupDetails: core.CreateNetworkSecurityGroupDetails{CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2]}})
+	if err != nil {
+		return nil, err
+	}
+	return c.waitAvailable(ctx, command, func(ctx context.Context) (any, string, error) {
+		got, err := client.GetNetworkSecurityGroup(ctx, core.GetNetworkSecurityGroupRequest{NetworkSecurityGroupId: response.Id})
+		return got.NetworkSecurityGroup, string(got.LifecycleState), err
+	})
+}
+
 func addNSGRules(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {
 	values, err := flags(command, "nsg-id")
 	if err != nil {
@@ -329,37 +372,194 @@ func addNSGRules(ctx context.Context, c *SDKClient, command sdkcli.Command) (any
 	return response.AddedNetworkSecurityGroupSecurityRules, nil
 }
 
-func createNLB(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {
-	values, err := flags(command, "compartment-id", "display-name", "subnet-id")
+func removeNSGRules(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {
+	values, err := flags(command, "nsg-id")
 	if err != nil {
 		return nil, err
+	}
+	var ids []string
+	if err := jsonFlag(command, "security-rule-ids", &ids); err != nil {
+		return nil, err
+	}
+	client, err := c.network()
+	if err != nil {
+		return nil, err
+	}
+	_, err = client.RemoveNetworkSecurityGroupSecurityRules(ctx, core.RemoveNetworkSecurityGroupSecurityRulesRequest{
+		NetworkSecurityGroupId:                         &values[0],
+		RemoveNetworkSecurityGroupSecurityRulesDetails: core.RemoveNetworkSecurityGroupSecurityRulesDetails{SecurityRuleIds: ids}})
+	return map[string]any{}, err
+}
+
+func (c *SDKClient) loadBalancer() (loadbalancer.LoadBalancerClient, error) {
+	factory := c.reader.Factory()
+	client, err := loadbalancer.NewLoadBalancerClientWithConfigurationProvider(factory.Provider())
+	if err != nil {
+		return client, err
+	}
+	client.SetRegion(factory.Region())
+	factory.Configure(&client.BaseClient, ociclient.ServiceNLB)
+	return client, nil
+}
+
+// decodeLoadBalancer reads lb load-balancer create's flags into the SDK's
+// create details, rejecting unknown members.
+func decodeLoadBalancer(command sdkcli.Command) (loadbalancer.CreateLoadBalancerDetails, error) {
+	values, err := flags(command, "compartment-id", "display-name", "shape-name")
+	if err != nil {
+		return loadbalancer.CreateLoadBalancerDetails{}, err
 	}
 	isPrivate, err := boolFlag(command, "is-private")
 	if err != nil {
-		return nil, err
+		return loadbalancer.CreateLoadBalancerDetails{}, err
 	}
-	preserve, err := boolFlag(command, "is-preserve-source-destination")
+	details := loadbalancer.CreateLoadBalancerDetails{CompartmentId: &values[0], DisplayName: &values[1], ShapeName: &values[2], IsPrivate: isPrivate}
+	for name, target := range map[string]any{"subnet-ids": &details.SubnetIds, "network-security-group-ids": &details.NetworkSecurityGroupIds,
+		"shape-details": &details.ShapeDetails, "certificates": &details.Certificates, "hostnames": &details.Hostnames,
+		"backend-sets": &details.BackendSets, "listeners": &details.Listeners, "rule-sets": &details.RuleSets} {
+		if err := jsonFlag(command, name, target); err != nil {
+			return loadbalancer.CreateLoadBalancerDetails{}, err
+		}
+	}
+	return details, nil
+}
+
+// createLoadBalancer submits the load balancer; it is created
+// asynchronously, so the provisioner waits for it to list ACTIVE.
+func createLoadBalancer(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {
+	details, err := decodeLoadBalancer(command)
 	if err != nil {
 		return nil, err
 	}
-	var backendSets map[string]networkloadbalancer.BackendSetDetails
-	var listeners map[string]networkloadbalancer.ListenerDetails
-	if err := jsonFlag(command, "backend-sets", &backendSets); err != nil {
-		return nil, err
-	}
-	if err := jsonFlag(command, "listeners", &listeners); err != nil {
-		return nil, err
-	}
-	client, err := c.reader.Factory().NetworkLoadBalancer()
+	client, err := c.loadBalancer()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateNetworkLoadBalancer(ctx, networkloadbalancer.CreateNetworkLoadBalancerRequest{
-		CreateNetworkLoadBalancerDetails: networkloadbalancer.CreateNetworkLoadBalancerDetails{
-			CompartmentId: &values[0], DisplayName: &values[1], SubnetId: &values[2], IsPrivate: isPrivate,
-			IsPreserveSourceDestination: preserve, BackendSets: backendSets, Listeners: listeners}})
+	response, err := client.CreateLoadBalancer(ctx, loadbalancer.CreateLoadBalancerRequest{CreateLoadBalancerDetails: details})
+	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
+}
+
+// createLBCertificate takes the bundle as one JSON flag: PEM begins with
+// dashes, which the CLI-style argument parser reads as a flag.
+func createLBCertificate(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {
+	values, err := flags(command, "load-balancer-id")
 	if err != nil {
 		return nil, err
 	}
-	return response.NetworkLoadBalancer, nil
+	var details loadbalancer.CreateCertificateDetails
+	if err := jsonFlag(command, "certificate", &details); err != nil {
+		return nil, err
+	}
+	client, err := c.loadBalancer()
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateCertificate(ctx, loadbalancer.CreateCertificateRequest{LoadBalancerId: &values[0], CreateCertificateDetails: details})
+	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
+}
+
+func updateLBShape(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {
+	values, err := flags(command, "load-balancer-id", "shape-name")
+	if err != nil {
+		return nil, err
+	}
+	var shape loadbalancer.ShapeDetails
+	if err := jsonFlag(command, "shape-details", &shape); err != nil {
+		return nil, err
+	}
+	client, err := c.loadBalancer()
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.UpdateLoadBalancerShape(ctx, loadbalancer.UpdateLoadBalancerShapeRequest{LoadBalancerId: &values[0],
+		UpdateLoadBalancerShapeDetails: loadbalancer.UpdateLoadBalancerShapeDetails{ShapeName: &values[1], ShapeDetails: &shape}})
+	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
+}
+
+func updateBackendSet(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {
+	values, err := flags(command, "load-balancer-id", "backend-set-name")
+	if err != nil {
+		return nil, err
+	}
+	var details loadbalancer.UpdateBackendSetDetails
+	if err := jsonFlag(command, "details", &details); err != nil {
+		return nil, err
+	}
+	client, err := c.loadBalancer()
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.UpdateBackendSet(ctx, loadbalancer.UpdateBackendSetRequest{LoadBalancerId: &values[0], BackendSetName: &values[1],
+		UpdateBackendSetDetails: details})
+	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
+}
+
+func (c *SDKClient) vaults() (vault.VaultsClient, error) {
+	factory := c.reader.Factory()
+	client, err := vault.NewVaultsClientWithConfigurationProvider(factory.Provider())
+	if err != nil {
+		return client, err
+	}
+	client.SetRegion(factory.Region())
+	factory.Configure(&client.BaseClient, ociclient.ServiceKMS)
+	return client, nil
+}
+
+func createSecret(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {
+	values, err := flags(command, "compartment-id", "vault-id", "key-id", "secret-name", "description", "secret-content-content")
+	if err != nil {
+		return nil, err
+	}
+	client, err := c.vaults()
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateSecret(ctx, vault.CreateSecretRequest{CreateSecretDetails: vault.CreateSecretDetails{
+		CompartmentId: &values[0], VaultId: &values[1], KeyId: &values[2], SecretName: &values[3], Description: &values[4],
+		SecretContent: vault.Base64SecretContentDetails{Content: &values[5]}}})
+	if err != nil {
+		return nil, err
+	}
+	return response.Secret, nil
+}
+
+func listSecrets(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {
+	values, err := flags(command, "compartment-id", "vault-id", "name")
+	if err != nil {
+		return nil, err
+	}
+	client, err := c.vaults()
+	if err != nil {
+		return nil, err
+	}
+	var secrets []vault.SecretSummary
+	for page := (*string)(nil); ; {
+		response, err := client.ListSecrets(ctx, vault.ListSecretsRequest{CompartmentId: &values[0], VaultId: &values[1], Name: &values[2], Page: page})
+		if err != nil {
+			return nil, err
+		}
+		secrets = append(secrets, response.Items...)
+		if page = response.OpcNextPage; page == nil {
+			return secrets, nil
+		}
+	}
+}
+
+func getSecretBundle(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {
+	values, err := flags(command, "secret-id")
+	if err != nil {
+		return nil, err
+	}
+	factory := c.reader.Factory()
+	client, err := secrets.NewSecretsClientWithConfigurationProvider(factory.Provider())
+	if err != nil {
+		return nil, err
+	}
+	client.SetRegion(factory.Region())
+	factory.Configure(&client.BaseClient, ociclient.ServiceKMS)
+	response, err := client.GetSecretBundle(ctx, secrets.GetSecretBundleRequest{SecretId: &values[0]})
+	if err != nil {
+		return nil, err
+	}
+	return response.SecretBundle, nil
 }

@@ -1,6 +1,7 @@
 package ociregion
 
 import (
+	"math/big"
 	"slices"
 	"strings"
 	"time"
@@ -88,7 +89,7 @@ func (e *Engine) scopedImages(regions, compartments any) []any {
 }
 func slim(m Object, kind, region string) Object {
 	r := Object{"kind": kind, "region": region}
-	for _, k := range []string{"id", "display-name", "name", "compartment-id", "lifecycle-state", "availability-domain", "fault-domain", "shape", "shape-config", "size-in-gbs", "vpus-per-gb", "freeform-tags", "cidr-block", "is-public", "prohibit-public-ip-on-vnic", "prohibit-internet-ingress", "ip-address", "unique-size-in-gbs", "scope", "time-created", "vcn-id", "subnet-id"} {
+	for _, k := range []string{"id", "display-name", "name", "compartment-id", "lifecycle-state", "availability-domain", "fault-domain", "shape", "shape-config", "size-in-gbs", "vpus-per-gb", "freeform-tags", "cidr-block", "is-public", "prohibit-public-ip-on-vnic", "prohibit-internet-ingress", "ip-address", "unique-size-in-gbs", "scope", "time-created", "vcn-id", "subnet-id", "shape-name", "shape-details"} {
 		if v, ok := m[k]; ok {
 			r[k] = v
 		}
@@ -417,7 +418,8 @@ func (e *Engine) verifyInventory(plan, inventory Object, path string, now time.T
 	if greater(backupSize, obj(plan["budget"])["snapshot_gb_max"]) {
 		fail("retained volume backups exceed the 350 GB reserve")
 	}
-	if len(active(resources, "nat-gateway")) > 0 || len(active(resources, "load-balancer")) > 0 {
+	balancers := active(resources, "load-balancer")
+	if len(active(resources, "nat-gateway")) > 0 || (len(balancers) > 0 && !pricedBalancer(plan, balancers, ids["network"])) {
 		fail("unpriced gateway or load balancer is present")
 	}
 	verifyGateways(plan, resources, ids)
@@ -429,7 +431,7 @@ func verifyGateways(plan Object, resources any, preview Object) {
 		if ids["internet_gateway"] != nil {
 			expected["internet-gateway"] = append(expected["internet-gateway"], []any{ids["internet_gateway"], preview["network"], ids["vcn"]})
 		}
-		if ids["network_load_balancer"] != nil {
+		if ids["network_load_balancer"] != nil && !l7Public(plan) {
 			expected["network-load-balancer"] = append(expected["network-load-balancer"], []any{ids["network_load_balancer"], preview["network"], ids["public_subnet"]})
 		}
 	}
@@ -460,6 +462,27 @@ func verifyGateways(plan Object, resources any, preview Object) {
 		}
 	}
 }
+
+// pricedBalancer reports whether the only load balancer is the plan's
+// recorded public API one, flexible and within the bandwidth balancerUSD
+// prices.
+func pricedBalancer(plan Object, balancers []any, network any) bool {
+	if len(balancers) != 1 || !l7Public(plan) {
+		return false
+	}
+	lb := obj(balancers[0])
+	bandwidth := obj(lb["shape-details"])["maximum-bandwidth-in-mbps"]
+	return lb["id"] == obj(plan["resource_ids"])["network_load_balancer"] && lb["compartment-id"] == network &&
+		lb["shape-name"] == "flexible" && bandwidth != nil && number(bandwidth) <= number(obj(plan["public_api"])["max_mbps"])
+}
+
+// balancerUSD prices the public API load balancer for a month at its
+// bandwidth ceiling; the flexible shape bills no more than that.
+func balancerUSD(plan Object) *big.Rat {
+	budget := obj(plan["budget"])
+	rates := obj(budget["rates"])
+	return mul(budget["month_hours"], add(rates["lb_hour"], mul(obj(plan["public_api"])["max_mbps"], rates["lb_mbps_hour"])))
+}
 func (e *Engine) estimate(plan, inventory Object, path string, now time.Time, maxAge float64) Object {
 	e.verifyInventory(plan, inventory, path, now, maxAge)
 	budget := obj(plan["budget"])
@@ -485,6 +508,9 @@ func (e *Engine) estimate(plan, inventory Object, path string, now time.Time, ma
 	objectGB := add(maximum(div(liveBytes, 1024*1024*1024), budget["baseline_object_storage_gb"]), budget["object_storage_gb_max"], budget["staging_object_storage_gb_max"])
 	overlap := budget["replacement_overlap_hours_max"]
 	items := Object{"compute": compute, "block_storage": block, "replacement_compute": mul(overlap, add(rates["a1_ocpu_hour"], mul(6, rates["a1_memory_gb_hour"]))), "replacement_storage": mul(div(mul(100, overlap), hours), add(rates["block_gb_month"], mul(10, rates["block_vpu_gb_month"]))), "object_storage": mul(nonnegative(sub(objectGB, 10)), rates["object_gb_month"]), "custom_image_storage": mul(imageGiB, rates["object_gb_month"]), "object_requests": add(mul(div(budget["object_requests_max"], 10000), rates["object_10000_requests"]), budget["baseline_object_requests_usd"]), "egress": mul(budget["egress_gb_max"], rates["egress_gb"]), "snapshot_reserve": mul(budget["snapshot_gb_max"], rates["block_gb_month"]), "misc_reserve": rat(budget["misc_reserve_usd"])}
+	if l7Public(plan) {
+		items["load_balancer"] = balancerUSD(plan)
+	}
 	total := add(0)
 	formatted := Object{}
 	for k, v := range items {

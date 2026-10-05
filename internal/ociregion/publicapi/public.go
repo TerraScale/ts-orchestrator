@@ -1,8 +1,13 @@
-// Package publicapi exposes cell members through a TLS passthrough OCI network load balancer.
+// Package publicapi puts a cell's TerraBase and ts-auth APIs on the
+// internet. Proxied Cloudflare DNS reaches an OCI flexible load balancer
+// that admits only Cloudflare's ranges, verifies Cloudflare's origin-pull
+// client certificate, serves a Cloudflare Origin CA certificate and routes
+// by hostname to the members and controllers over the private subnet.
 package publicapi
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json/v2"
 	"errors"
 	"flag"
@@ -15,34 +20,407 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/command"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 )
 
-const Prefix = "terrascale-gru-public"
-
-type Options struct {
-	Plan, Members, WorkloadNSG, SubnetCIDR string
-	ClientPort                             int
+// PublishedOriginIPs are Cloudflare's current published IPv4 ranges.
+func PublishedOriginIPs(ctx context.Context) ([]string, error) {
+	return Cloudflare{BaseURL: cloudflareAPI}.OriginIPs(ctx)
 }
 
-type Provisioner struct {
-	Client       command.Client
-	Pause        func(context.Context, time.Duration) error
-	PollAttempts int
+// ParsePlan reads a regional plan's public API from its JSON.
+func ParsePlan(wire []byte) (Desired, error) {
+	var p planFile
+	if err := json.Unmarshal(wire, &p); err != nil {
+		return Desired{}, fmt.Errorf("plan: %w", err)
+	}
+	return p.desired()
+}
+
+const (
+	tcp = "6"
+	// AuthHost serves ts-auth, on every controller's AuthPort (TS-487).
+	AuthHost = "auth.terrascale.tech"
+	AuthPort = 8080
+	// HealthPath answers 200 on a ready TerraBase member (TS-483) and ts-auth.
+	HealthPath = "/readyz"
+	// IdleTimeout outlasts Cloudflare's 100 s proxy timeout, so Cloudflare,
+	// not the load balancer, ends a slow request; long-polls must return
+	// within 100 s.
+	IdleTimeout = 120
+)
+
+// originPullCA is Cloudflare's shared CA, retained only to reject it as
+// customer-specific origin trust. It must never be installed on the edge.
+//
+//go:embed origin-pull-ca.pem
+var originPullCA string
+
+// The load balancer's certificate bundles.
+const (
+	originCertificate = "origin"
+	memberCA          = "member-ca"
+)
+
+const usage = `Usage: ts-orch oci-region public-api <command> --plan PLAN [flags]
+
+  preview     List every resource, certificate and record the edge uses; no calls
+  cert        Create the Origin CA certificate into Vault and the load balancer (dry run unless --apply)
+  apply       Create the missing network and load balancer: --member-ca FILE
+  origin-ips  Sync the load balancer NSG to Cloudflare's published ranges (dry run unless --apply)
+`
+
+// Names are the static names of the cell's public API resources.
+type Names struct {
+	IGW, Routes, Security, Subnet, NSG, LB, Secret string
+}
+
+// Backend is one load balancer backend.
+type Backend struct {
+	Name string
+	Addr netip.AddrPort
+}
+
+// Desired is a cell's public API as its plan describes it.
+type Desired struct {
+	Cell, Region                                      string
+	Network, Control, VCN, ControllerNSG, WorkloadNSG string
+	Vault, Key                                        string
+	PrivateCIDR, PublicCIDR, APIHost                  string
+	ClientPort, MinMbps, MaxMbps                      int
+	Names                                             Names
+	TerraBase, Auth                                   []Backend
+	OriginPull                                        OriginPull
+}
+
+type planFile struct {
+	Cell       string `json:"cell"`
+	Region     string `json:"region"`
+	SubnetCIDR string `json:"subnet_cidr"`
+	Hosts      []struct {
+		Slot      string `json:"slot"`
+		PrivateIP string `json:"private_ip"`
+	} `json:"hosts"`
+	PublicAPI *struct {
+		SubnetCIDR   string `json:"subnet_cidr"`
+		ListenerPort int    `json:"listener_port"`
+		ClientPort   int    `json:"client_port"`
+		MinMbps      int    `json:"min_mbps"`
+		MaxMbps      int    `json:"max_mbps"`
+		// TerraBaseMembers names the members behind the terrabase backend set.
+		//
+		// ponytail: the plan lists gru-1-db-1 only. Members do not replicate
+		// until terrabase#11 and TS-469 merge, so a second backend would serve
+		// diverging data. Add every member then and rerun public-api apply.
+		TerraBaseMembers []string    `json:"terrabase_members"`
+		OriginPull       *OriginPull `json:"origin_pull"`
+	} `json:"public_api"`
+	ResourceIDs map[string]any `json:"resource_ids"`
+}
+
+// LoadPlan reads a regional plan's public API.
+func LoadPlan(path string) (Desired, error) {
+	if path == "" {
+		return Desired{}, errors.New("--plan is required")
+	}
+	wire, err := os.ReadFile(path)
+	if err != nil {
+		return Desired{}, err
+	}
+	return ParsePlan(wire)
+}
+
+func (p planFile) desired() (Desired, error) {
+	if !catalog.IsOCIRegion(p.Region) || catalog.OCIRegion(p.Cell) != p.Region {
+		return Desired{}, fmt.Errorf("plan cell %q and region %q are not a catalog cell", p.Cell, p.Region)
+	}
+	public := p.PublicAPI
+	if public == nil || public.MinMbps < 10 || public.MaxMbps < public.MinMbps || public.MaxMbps > 8000 {
+		return Desired{}, errors.New("plan public_api must declare load balancer bandwidth: 10 <= min_mbps <= max_mbps <= 8000")
+	}
+	if public.ListenerPort != 443 {
+		return Desired{}, errors.New("plan public_api.listener_port must be 443")
+	}
+	private, err := netip.ParsePrefix(p.SubnetCIDR)
+	if err != nil {
+		return Desired{}, fmt.Errorf("private subnet CIDR: %w", err)
+	}
+	subnet, err := netip.ParsePrefix(public.SubnetCIDR)
+	if err != nil || subnet.Overlaps(private) {
+		return Desired{}, fmt.Errorf("public API subnet %q must be a CIDR outside the private subnet", public.SubnetCIDR)
+	}
+	if public.ClientPort < 1 || public.ClientPort > 65535 {
+		return Desired{}, errors.New("public API client port must be between 1 and 65535")
+	}
+	cell := naming.RegionCell(p.Cell)
+	var names Names
+	for _, n := range []struct {
+		target *string
+		part   string
+	}{{&names.IGW, "igw"}, {&names.Routes, "routes"}, {&names.Security, "security"}, {&names.Subnet, "subnet"},
+		{&names.NSG, "nsg"}, {&names.Secret, "origin"}, {&names.LB, ""}} {
+		if *n.target, err = cell.API(n.part); err != nil {
+			return Desired{}, err
+		}
+	}
+	cellName, err := cell.Name()
+	if err != nil {
+		return Desired{}, err
+	}
+	id := func(key string) string { s, _ := p.ResourceIDs[key].(string); return s }
+	d := Desired{Cell: cellName, Region: p.Region, Network: id("network_compartment"),
+		Control: id("control_compartment"), VCN: id("vcn"), ControllerNSG: id("network_security_group"), WorkloadNSG: id("workload_network_security_group"),
+		Vault: id("vault"), Key: id("key"), PrivateCIDR: private.String(), PublicCIDR: subnet.String(),
+		APIHost: strings.ToLower(p.Cell) + ".api.terrascale.tech", ClientPort: public.ClientPort,
+		MinMbps: public.MinMbps, MaxMbps: public.MaxMbps, Names: names}
+	// Unbound templates remain previewable; operational paths require this
+	// reviewed customer CA and uploaded Cloudflare client certificate.
+	if public.OriginPull != nil {
+		if err := public.OriginPull.Validate(); err != nil {
+			return Desired{}, err
+		}
+		d.OriginPull = *public.OriginPull
+	}
+	members := map[string]netip.Addr{}
+	slots := map[string]bool{}
+	addresses := map[netip.Addr]bool{}
+	for _, h := range p.Hosts {
+		if slots[h.Slot] {
+			return Desired{}, fmt.Errorf("host slot %q is repeated", h.Slot)
+		}
+		slots[h.Slot] = true
+		ip, err := netip.ParseAddr(h.PrivateIP)
+		if err != nil || !private.Contains(ip) {
+			return Desired{}, fmt.Errorf("host %s address %q is outside the private subnet", h.Slot, h.PrivateIP)
+		}
+		if addresses[ip] {
+			return Desired{}, fmt.Errorf("host address %q is repeated", h.PrivateIP)
+		}
+		addresses[ip] = true
+		switch {
+		case strings.HasPrefix(h.Slot, "controller-"):
+			name, err := cell.ControllerSlot(h.Slot)
+			if err != nil {
+				return Desired{}, err
+			}
+			d.Auth = append(d.Auth, Backend{name, netip.AddrPortFrom(ip, AuthPort)})
+		case strings.HasPrefix(h.Slot, "member-"):
+			letter := strings.TrimPrefix(h.Slot, "member-")
+			if len(letter) != 1 || letter[0] < 'a' || letter[0] > 'z' {
+				return Desired{}, fmt.Errorf("unsupported member slot %q", h.Slot)
+			}
+			name, err := cell.Server(naming.Member, int(letter[0]-'a')+1)
+			if err != nil {
+				return Desired{}, err
+			}
+			members[name] = ip
+		default:
+			return Desired{}, fmt.Errorf("unsupported host slot %q", h.Slot)
+		}
+	}
+	slices.SortFunc(d.Auth, func(a, b Backend) int { return strings.Compare(a.Name, b.Name) })
+	for _, name := range public.TerraBaseMembers {
+		ip, ok := members[name]
+		if !ok || slices.ContainsFunc(d.TerraBase, func(b Backend) bool { return b.Name == name }) {
+			return Desired{}, fmt.Errorf("public_api.terrabase_members %q is not a distinct planned member", name)
+		}
+		d.TerraBase = append(d.TerraBase, Backend{name, netip.AddrPortFrom(ip, uint16(d.ClientPort))})
+	}
+	if len(d.TerraBase) == 0 || len(d.Auth) == 0 {
+		return Desired{}, errors.New("plan needs public_api.terrabase_members and controllers for ts-auth")
+	}
+	return d, nil
+}
+
+// Rule is one stateful TCP rule: the source of an ingress rule or the
+// destination of an egress rule, and its destination port.
+type Rule struct {
+	CIDR string
+	Port int
+}
+
+func (r Rule) json(side string) map[string]any {
+	return map[string]any{"protocol": tcp, side: r.CIDR, side + "Type": "CIDR_BLOCK", "isStateless": false,
+		"tcpOptions": map[string]any{"destinationPortRange": map[string]any{"min": r.Port, "max": r.Port}}}
+}
+
+// listed parses an NSG rule from its CLI-shaped listing; ok is false for any
+// rule other than a stateful single-port TCP ingress from a CIDR and any
+// source port.
+func listed(row map[string]any) (r Rule, ok bool) {
+	options, _ := row["tcp-options"].(map[string]any)
+	ports, _ := options["destination-port-range"].(map[string]any)
+	low, high := fmt.Sprint(ports["min"]), fmt.Sprint(ports["max"])
+	port, err := strconv.Atoi(low)
+	ok = err == nil && low == high && options["source-port-range"] == nil && row["direction"] == "INGRESS" && row["protocol"] == tcp &&
+		row["source-type"] == "CIDR_BLOCK" && row["is-stateless"] != true
+	return Rule{fmt.Sprint(row["source"]), port}, ok
+}
+
+// Egress is the public subnet's security list egress: the load balancer
+// reaches the members' client port and ts-auth. It admits nothing inbound;
+// the load balancer's NSG admits Cloudflare.
+func (d Desired) Egress() []Rule {
+	return []Rule{{d.PrivateCIDR, d.ClientPort}, {d.PrivateCIDR, AuthPort}}
+}
+
+// OriginRules are the load balancer NSG's ingress rules for Cloudflare's ranges.
+func OriginRules(ranges []string) []Rule {
+	var rules []Rule
+	for _, cidr := range ranges {
+		rules = append(rules, Rule{cidr, 80}, Rule{cidr, 443})
+	}
+	return rules
+}
+
+func backends(list []Backend) []any {
+	out := make([]any, len(list))
+	for i, b := range list {
+		out[i] = map[string]any{"ipAddress": b.Addr.Addr().String(), "port": b.Addr.Port()}
+	}
+	return out
+}
+
+func health(port int) map[string]any {
+	return map[string]any{"protocol": "HTTP", "port": port, "urlPath": HealthPath, "returnCode": 200,
+		"intervalInMillis": 10000, "timeoutInMillis": 3000, "retries": 3}
+}
+
+// backendSets sends TerraBase over TLS verified against the member CA and
+// ts-auth over HTTP, each health-checked on GET /readyz.
+func (d Desired) backendSets() map[string]map[string]any {
+	return map[string]map[string]any{
+		"terrabase": {"policy": "ROUND_ROBIN", "backends": backends(d.TerraBase), "healthChecker": health(d.ClientPort),
+			"sslConfiguration": map[string]any{"certificateName": memberCA, "verifyPeerCertificate": true, "verifyDepth": 1}},
+		"ts-auth": {"policy": "ROUND_ROBIN", "backends": backends(d.Auth), "healthChecker": health(AuthPort)},
+	}
+}
+
+// loadBalancer is the load balancer's configuration: HTTPS on 443 routed by
+// hostname, each listener requiring Cloudflare's client certificate, and 80
+// redirecting to HTTPS. TerraBase backends speak TLS verified against the
+// member CA.
+func (d Desired) loadBalancer(origin, key, members string) map[string]string {
+	https := func(set string) map[string]any {
+		return map[string]any{"defaultBackendSetName": set, "port": 443, "protocol": "HTTP", "hostnameNames": []string{set},
+			"sslConfiguration":        map[string]any{"certificateName": originCertificate, "verifyPeerCertificate": true, "verifyDepth": 1},
+			"connectionConfiguration": map[string]any{"idleTimeout": IdleTimeout}, "ruleSetNames": []string{"security-headers"}}
+	}
+	header := func(name, value string) map[string]any {
+		return map[string]any{"action": "ADD_HTTP_RESPONSE_HEADER", "header": name, "value": value}
+	}
+	return map[string]string{
+		"shape-details": command.JSON(map[string]any{"minimumBandwidthInMbps": d.MinMbps, "maximumBandwidthInMbps": d.MaxMbps}),
+		"certificates": command.JSON(map[string]any{
+			originCertificate: map[string]any{"certificateName": originCertificate, "publicCertificate": origin, "privateKey": key, "caCertificate": d.OriginPull.CACertificate},
+			memberCA:          map[string]any{"certificateName": memberCA, "caCertificate": members}}),
+		"hostnames": command.JSON(map[string]any{
+			"terrabase": map[string]any{"name": "terrabase", "hostname": d.APIHost},
+			"ts-auth":   map[string]any{"name": "ts-auth", "hostname": AuthHost}}),
+		"backend-sets": command.JSON(d.backendSets()),
+		"listeners": command.JSON(map[string]any{
+			"http":      map[string]any{"defaultBackendSetName": "terrabase", "port": 80, "protocol": "HTTP", "ruleSetNames": []string{"https-redirect"}},
+			"terrabase": https("terrabase"), "ts-auth": https("ts-auth")}),
+		"rule-sets": command.JSON(map[string]any{
+			"https-redirect": map[string]any{"items": []any{map[string]any{"action": "REDIRECT", "responseCode": 301,
+				"conditions":  []any{map[string]any{"attributeName": "PATH", "attributeValue": "/", "operator": "PREFIX_MATCH"}},
+				"redirectUri": map[string]any{"protocol": "HTTPS", "host": "{host}", "port": 443, "path": "{path}", "query": "{query}"}}}},
+			"security-headers": map[string]any{"items": []any{
+				header("Strict-Transport-Security", "max-age=31536000; includeSubDomains"), header("X-Content-Type-Options", "nosniff")}}}),
+	}
+}
+
+func names(list []Backend) string {
+	parts := make([]string, len(list))
+	for i, b := range list {
+		parts[i] = fmt.Sprintf("%s %s", b.Name, b.Addr)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// Preview lists every resource, certificate and record the edge uses.
+func (d Desired) Preview() []string {
+	return []string{
+		fmt.Sprintf("internet-gateway %s: enabled in the cell VCN", d.Names.IGW),
+		fmt.Sprintf("route-table %s: 0.0.0.0/0 to %s", d.Names.Routes, d.Names.IGW),
+		fmt.Sprintf("security-list %s: no ingress; egress tcp/%d and tcp/%d to %s", d.Names.Security, d.ClientPort, AuthPort, d.PrivateCIDR),
+		fmt.Sprintf("subnet %s: %s, %s, %s", d.Names.Subnet, d.PublicCIDR, d.Names.Routes, d.Names.Security),
+		fmt.Sprintf("network-security-group %s: tcp/80 and tcp/443 from each Cloudflare IPv4 range only (public-api origin-ips)", d.Names.NSG),
+		fmt.Sprintf("nsg-rule %s: tcp/%d from %s (load balancer to TerraBase)", or(d.WorkloadNSG, "workload NSG"), d.ClientPort, d.PublicCIDR),
+		fmt.Sprintf("nsg-rule %s: tcp/%d from %s (load balancer to ts-auth)", or(d.ControllerNSG, "controller NSG"), AuthPort, d.PublicCIDR),
+		fmt.Sprintf("vault-secret %s: Cloudflare Origin CA certificate and RSA key for %s and %s, %d days (public-api cert)", d.Names.Secret, d.APIHost, AuthHost, originValidityDays),
+		fmt.Sprintf("load-balancer %s: public, flexible %d-%d Mbps, NSG %s, idle timeout %ds", d.Names.LB, d.MinMbps, d.MaxMbps, d.Names.NSG, IdleTimeout),
+		fmt.Sprintf("listener https %s: :443, Origin CA certificate, requires the customer origin-pull client certificate, to backend set terrabase", d.APIHost),
+		fmt.Sprintf("listener https %s: :443, Origin CA certificate, requires the customer origin-pull client certificate, to backend set ts-auth", AuthHost),
+		"listener http: :80, 301 to https",
+		fmt.Sprintf("backend-set terrabase: %s, TLS verified against the member CA, GET %s", names(d.TerraBase), HealthPath),
+		fmt.Sprintf("backend-set ts-auth: %s, GET %s", names(d.Auth), HealthPath),
+		fmt.Sprintf("cloudflare: SSL Full (strict) for %s and %s, custom zone Authenticated Origin Pulls on; requires public_api.origin_pull CA and certificate ID (oci-region dns)", d.APIHost, AuthHost),
+		fmt.Sprintf("dns-record %s: A to the %s public IP, proxied (oci-region dns)", d.APIHost, d.Names.LB),
+		fmt.Sprintf("dns-record %s: A to the %s public IP, proxied (oci-region dns)", AuthHost, d.Names.LB),
+	}
+}
+
+func or(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+// step is one planned change and the call that applies it.
+type step struct {
+	what string
+	do   func(context.Context) error
+}
+
+// run prints each step and, with apply, applies them in order.
+func run(ctx context.Context, steps []step, apply bool, out io.Writer) error {
+	for _, s := range steps {
+		if !apply {
+			fmt.Fprintln(out, "plan: "+s.what)
+			continue
+		}
+		if err := s.do(ctx); err != nil {
+			return fmt.Errorf("%s: %w", s.what, err)
+		}
+		fmt.Fprintln(out, "applied: "+s.what)
+	}
+	var err error
+	switch {
+	case len(steps) == 0:
+		_, err = fmt.Fprintln(out, "no changes")
+	case !apply:
+		_, err = fmt.Fprintf(out, "%d changes planned; rerun with --apply to apply them\n", len(steps))
+	}
+	return err
 }
 
 func Run(ctx context.Context, args []string, out io.Writer) error {
-	fs := flag.NewFlagSet("oci-region public-api", flag.ContinueOnError)
+	if len(args) == 0 || slices.Contains([]string{"help", "-h", "--help"}, args[0]) {
+		_, err := io.WriteString(out, usage)
+		return err
+	}
+	sub := args[0]
+	if !slices.Contains([]string{"preview", "cert", "apply", "origin-ips"}, sub) {
+		return fmt.Errorf("unknown public-api command %q", sub)
+	}
+	fs := flag.NewFlagSet("oci-region public-api "+sub, flag.ContinueOnError)
 	fs.SetOutput(out)
-	var o Options
-	fs.StringVar(&o.Plan, "plan", "", "regional plan JSON")
-	fs.StringVar(&o.Members, "members", "", "comma-separated member private IPs")
-	fs.IntVar(&o.ClientPort, "client-port", 9465, "member client port")
-	fs.StringVar(&o.WorkloadNSG, "workload-nsg", "", "workload NSG")
-	fs.StringVar(&o.SubnetCIDR, "subnet-cidr", "10.251.0.128/26", "public subnet CIDR")
-	if err := fs.Parse(args); err != nil {
+	planPath := fs.String("plan", "", "regional plan JSON")
+	var apply bool
+	var memberCAPath string
+	switch sub {
+	case "cert", "origin-ips":
+		fs.BoolVar(&apply, "apply", false, "make the planned changes; without it, only print them")
+	case "apply":
+		fs.StringVar(&memberCAPath, "member-ca", "", "member CA certificate (PEM) the load balancer trusts for TerraBase")
+	}
+	if err := fs.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
@@ -51,11 +429,45 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	if fs.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments: %v", fs.Args())
 	}
-	client, err := newClient(o.Plan)
+	d, err := LoadPlan(*planPath)
 	if err != nil {
 		return err
 	}
-	r, err := (Provisioner{Client: client}).Provision(ctx, o)
+	if sub == "preview" {
+		_, err = fmt.Fprintf(out, "public-api for %s in %s:\n  %s\n", d.Names.LB, d.Region, strings.Join(d.Preview(), "\n  "))
+		return err
+	}
+	client, err := newClient(d.Region, sub != "origin-ips")
+	if err != nil {
+		return err
+	}
+	p := Provisioner{Client: client}
+	cloudflare := Cloudflare{BaseURL: cloudflareAPI}
+	switch sub {
+	case "origin-ips":
+		steps, err := p.originSteps(ctx, d, cloudflare)
+		if err != nil {
+			return err
+		}
+		return run(ctx, steps, apply, out)
+	case "cert":
+		if cloudflare.Token, err = token(); err != nil {
+			return err
+		}
+		steps, err := p.certSteps(ctx, d, cloudflare)
+		if err != nil {
+			return err
+		}
+		return run(ctx, steps, apply, out)
+	}
+	if memberCAPath == "" {
+		return errors.New("--member-ca is required")
+	}
+	members, err := os.ReadFile(memberCAPath)
+	if err != nil {
+		return err
+	}
+	r, err := p.Provision(ctx, d, cloudflare, string(members))
 	if err != nil {
 		return err
 	}
@@ -67,40 +479,48 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	return err
 }
 
-// newClient selects the in-binary SDK client unless TS_OCI_BACKEND=cli. The
-// SDK client is pinned to the plan's catalog region; the CLI used the
-// profile's default region.
-func newClient(planPath string) (command.Client, error) {
+func token() (string, error) {
+	t := strings.TrimSpace(os.Getenv(TokenEnv))
+	if t == "" {
+		return "", fmt.Errorf("Cloudflare API token is required in %s: bao kv get -mount=secret/homelab -field=%s infra/cloudflare/terrascale-dns-edit", TokenEnv, TokenEnv)
+	}
+	return t, nil
+}
+
+// newClient selects the in-binary SDK client pinned to the plan's region.
+// Commands that carry key material refuse the oci CLI, whose arguments
+// other local users can read, and SDK debug logging, which prints bodies.
+func newClient(region string, secret bool) (command.Client, error) {
 	backend, err := sdkcli.SelectedBackend()
 	if err != nil {
 		return nil, err
 	}
+	if secret {
+		if backend == sdkcli.BackendCLI {
+			return nil, fmt.Errorf("%s=cli is refused: this command handles private keys", sdkcli.BackendEnv)
+		}
+		for _, name := range ociclient.SecretUnsafeEnv {
+			if _, set := os.LookupEnv(name); set {
+				return nil, fmt.Errorf("%s is refused: this command handles private keys", name)
+			}
+		}
+	}
 	if backend == sdkcli.BackendCLI {
-		return command.CLI{}, nil
+		return command.CLI{Region: region}, nil
 	}
-	if planPath == "" {
-		return nil, errors.New("--plan is required")
-	}
-	b, err := os.ReadFile(planPath)
-	if err != nil {
-		return nil, err
-	}
-	var plan struct {
-		Region string `json:"region"`
-	}
-	if err := json.Unmarshal(b, &plan); err != nil {
-		return nil, err
-	}
-	if !catalog.IsOCIRegion(plan.Region) {
-		return nil, fmt.Errorf("plan region %q is not a catalog OCI region", plan.Region)
-	}
-	return NewSDKClient(plan.Region, backend)
+	return NewSDKClient(region, backend)
+}
+
+type Provisioner struct {
+	Client       command.Client
+	Pause        func(context.Context, time.Duration) error
+	PollAttempts int
 }
 
 func Named(rows []map[string]any, name string) (map[string]any, error) {
 	var found map[string]any
 	for _, r := range rows {
-		if r["display-name"] == name && !slices.Contains([]string{"TERMINATED", "TERMINATING", "DELETED", "DELETING"}, fmt.Sprint(r["lifecycle-state"])) {
+		if r["display-name"] == name && !slices.Contains([]string{"TERMINATED", "TERMINATING", "DELETED", "DELETING", "PENDING_DELETION"}, fmt.Sprint(r["lifecycle-state"])) {
 			if found != nil {
 				return nil, fmt.Errorf("more than one live resource is named %s", name)
 			}
@@ -137,17 +557,18 @@ func (p Provisioner) attempts() int {
 	return 90
 }
 
-func (p Provisioner) WaitState(ctx context.Context, args []string, state string) (map[string]any, error) {
+// await re-reads a named resource until ready accepts it.
+func (p Provisioner) await(ctx context.Context, what string, read func() (map[string]any, error), ready func(map[string]any) bool) (map[string]any, error) {
 	for n := range p.attempts() {
-		r, err := p.data(ctx, args...)
+		r, err := read()
 		if err != nil {
 			return nil, err
 		}
-		if r["lifecycle-state"] == state {
+		if r != nil && ready(r) {
 			return r, nil
 		}
-		if slices.Contains([]string{"FAILED", "TERMINATED", "TERMINATING", "DELETED", "DELETING"}, fmt.Sprint(r["lifecycle-state"])) {
-			return nil, fmt.Errorf("%v entered %v before reaching %s", args, r["lifecycle-state"], state)
+		if r != nil && slices.Contains([]string{"FAILED", "DELETED", "DELETING"}, fmt.Sprint(r["lifecycle-state"])) {
+			return nil, fmt.Errorf("%s entered %v", what, r["lifecycle-state"])
 		}
 		if n+1 < p.attempts() {
 			if err := p.pause(ctx, 10*time.Second); err != nil {
@@ -155,182 +576,458 @@ func (p Provisioner) WaitState(ctx context.Context, args []string, state string)
 			}
 		}
 	}
-	return nil, fmt.Errorf("%v did not reach %s", args, state)
+	return nil, fmt.Errorf("%s did not become ready", what)
 }
 
-func (p Provisioner) ensureNetwork(ctx context.Context, kind, compartment, vcn string, extra ...string) (map[string]any, error) {
-	rows, err := p.rows(ctx, "network", kind, "list", "--compartment-id", compartment, "--vcn-id", vcn, "--all")
+// ensureNetwork returns the live VCN resource of kind with this name,
+// creating it when permitted. Security and attachments must match the
+// reviewed configuration; apply does not repair network drift.
+func (p Provisioner) ensureNetwork(ctx context.Context, kind, name string, d Desired, create bool, extra ...string) (string, error) {
+	rows, err := p.rows(ctx, "network", kind, "list", "--compartment-id", d.Network, "--vcn-id", d.VCN, "--all")
+	if err != nil {
+		return "", err
+	}
+	r, err := Named(rows, name)
+	if err != nil {
+		return "", err
+	}
+	if r == nil {
+		if !create {
+			return "", fmt.Errorf("%s %s does not exist; run public-api apply first", kind, name)
+		}
+		args := []string{"network", kind, "create", "--compartment-id", d.Network, "--vcn-id", d.VCN, "--display-name", name, "--wait-for-state", "AVAILABLE"}
+		if r, err = p.data(ctx, append(args, extra...)...); err != nil {
+			return "", err
+		}
+	}
+	config, err := sdkcli.Parse(extra)
+	if err != nil {
+		return "", err
+	}
+	ok := r["lifecycle-state"] == "AVAILABLE" && r["compartment-id"] == d.Network && r["vcn-id"] == d.VCN
+	switch kind {
+	case "internet-gateway":
+		ok = ok && r["is-enabled"] == true && r["route-table-id"] == nil
+	case "route-table":
+		var want []map[string]any
+		if err := jsonFlag(config, "route-rules", &want); err != nil {
+			return "", err
+		}
+		live, err := command.Rows(r["route-rules"])
+		ok = ok && err == nil && len(live) == len(want)
+		if ok {
+			for i, rule := range live {
+				ok = ok && rule["destination"] == want[i]["destination"] && rule["destination-type"] == want[i]["destinationType"] &&
+					rule["network-entity-id"] == want[i]["networkEntityId"]
+			}
+		}
+	case "security-list":
+		ingress, err := command.Rows(r["ingress-security-rules"])
+		_, hasIngress := r["ingress-security-rules"]
+		ok = ok && hasIngress && err == nil && len(ingress) == 0
+		egress, err := command.Rows(r["egress-security-rules"])
+		want := d.Egress()
+		ok = ok && err == nil && len(egress) == len(want)
+		for _, row := range egress {
+			rule, valid := listed(map[string]any{"direction": "INGRESS", "protocol": row["protocol"], "source": row["destination"],
+				"source-type": row["destination-type"], "is-stateless": row["is-stateless"], "tcp-options": row["tcp-options"]})
+			i := slices.Index(want, rule)
+			ok = ok && valid && i >= 0 && row["is-stateless"] == false && row["udp-options"] == nil && row["icmp-options"] == nil
+			if i >= 0 {
+				want = slices.Delete(want, i, i+1)
+			}
+		}
+		ok = ok && len(want) == 0
+	case "subnet":
+		var lists []string
+		if err := jsonFlag(config, "security-list-ids", &lists); err != nil {
+			return "", err
+		}
+		ok = ok && r["cidr-block"] == d.PublicCIDR && r["dns-label"] == config.Flags["dns-label"] &&
+			r["prohibit-public-ip-on-vnic"] == false && r["prohibit-internet-ingress"] == false &&
+			r["route-table-id"] == config.Flags["route-table-id"] && command.JSON(r["security-list-ids"]) == command.JSON(lists)
+	}
+	if !ok {
+		return "", fmt.Errorf("%s %s differs from the reviewed network configuration; inspect drift before retrying", kind, name)
+	}
+	return command.ID(r)
+}
+
+type edgeNetwork struct {
+	gateway, routes, security, subnet, nsg string
+}
+
+// network resolves the same reviewed network for provisioning and DNS.
+// With create false it only reads, including when a resource is missing.
+func (p Provisioner) network(ctx context.Context, d Desired, create bool) (edgeNetwork, error) {
+	var edge edgeNetwork
+	var err error
+	edge.gateway, err = p.ensureNetwork(ctx, "internet-gateway", d.Names.IGW, d, create, "--is-enabled", "true")
+	if err != nil {
+		return edgeNetwork{}, err
+	}
+	edge.routes, err = p.ensureNetwork(ctx, "route-table", d.Names.Routes, d, create, "--route-rules",
+		command.JSON([]any{map[string]any{"destination": "0.0.0.0/0", "destinationType": "CIDR_BLOCK", "networkEntityId": edge.gateway}}))
+	if err != nil {
+		return edgeNetwork{}, err
+	}
+	var egress []any
+	for _, r := range d.Egress() {
+		egress = append(egress, r.json("destination"))
+	}
+	edge.security, err = p.ensureNetwork(ctx, "security-list", d.Names.Security, d, create,
+		"--ingress-security-rules", "[]", "--egress-security-rules", command.JSON(egress))
+	if err != nil {
+		return edgeNetwork{}, err
+	}
+	edge.subnet, err = p.ensureNetwork(ctx, "subnet", d.Names.Subnet, d, create, "--cidr-block", d.PublicCIDR, "--dns-label", "public",
+		"--prohibit-public-ip-on-vnic", "false", "--route-table-id", edge.routes, "--security-list-ids", command.JSON([]string{edge.security}))
+	if err != nil {
+		return edgeNetwork{}, err
+	}
+	edge.nsg, err = p.ensureNetwork(ctx, "nsg", d.Names.NSG, d, create)
+	return edge, err
+}
+
+func (d Desired) checkAttachments(balancer map[string]any, subnet, nsg string) error {
+	if balancer["compartment-id"] != d.Network || command.JSON(balancer["subnet-ids"]) != command.JSON([]string{subnet}) ||
+		command.JSON(balancer["network-security-group-ids"]) != command.JSON([]string{nsg}) {
+		return fmt.Errorf("load balancer %s subnet or NSG attachments differ from the reviewed network configuration; inspect drift before retrying", d.Names.LB)
+	}
+	return nil
+}
+
+// validateOrigin shares read-only security checks between provisioning and DNS.
+func (p Provisioner) validateOrigin(ctx context.Context, d Desired, balancer map[string]any, ranges []string) error {
+	if err := d.CheckBalancer(balancer); err != nil {
+		return err
+	}
+	edge, err := p.network(ctx, d, false)
+	if err != nil {
+		return err
+	}
+	if err := d.checkAttachments(balancer, edge.subnet, edge.nsg); err != nil {
+		return err
+	}
+	rules, err := p.rows(ctx, "network", "nsg", "rules", "list", "--nsg-id", edge.nsg, "--all")
+	if err != nil {
+		return err
+	}
+	return CheckOriginRules(rules, ranges)
+}
+
+// syncRules plans the rule changes that leave an NSG with want as ingress;
+// with remove, every other rule goes.
+func (p Provisioner) syncRules(ctx context.Context, nsg, description string, want []Rule, remove bool) ([]step, error) {
+	rows, err := p.rows(ctx, "network", "nsg", "rules", "list", "--nsg-id", nsg, "--all")
 	if err != nil {
 		return nil, err
 	}
-	r, err := Named(rows, Prefix)
-	if err != nil || r != nil {
-		return r, err
+	have := map[Rule]bool{}
+	var steps, removals []step
+	for _, row := range rows {
+		r, ok := listed(row)
+		if ok && slices.Contains(want, r) && (!remove || !have[r]) {
+			have[r] = true
+			continue
+		}
+		if remove {
+			id := fmt.Sprint(row["id"])
+			removals = append(removals, step{fmt.Sprintf("remove %s rule %s from %v", nsg, id, row["source"]), func(ctx context.Context) error {
+				_, err := p.Client.Call(ctx, "network", "nsg", "rules", "remove", "--nsg-id", nsg, "--security-rule-ids", command.JSON([]string{id}))
+				return err
+			}})
+		}
 	}
-	args := []string{"network", kind, "create", "--compartment-id", compartment, "--vcn-id", vcn, "--display-name", Prefix, "--wait-for-state", "AVAILABLE"}
-	return p.data(ctx, append(args, extra...)...)
+	for _, r := range want {
+		if have[r] {
+			continue
+		}
+		rule := r.json("source")
+		rule["direction"], rule["description"] = "INGRESS", description
+		steps = append(steps, step{fmt.Sprintf("add %s ingress tcp/%d from %s", nsg, r.Port, r.CIDR), func(ctx context.Context) error {
+			_, err := p.Client.Call(ctx, "network", "nsg", "rules", "add", "--nsg-id", nsg, "--security-rules", command.JSON([]any{rule}))
+			return err
+		}})
+	}
+	// Additions first: a failure part way never leaves Cloudflare locked out.
+	steps = append(steps, removals...)
+	return steps, nil
 }
 
-func (p Provisioner) balancer(ctx context.Context, compartment string) (map[string]any, error) {
-	r, err := p.data(ctx, "nlb", "network-load-balancer", "list", "--compartment-id", compartment, "--all")
+func (p Provisioner) balancer(ctx context.Context, d Desired) (map[string]any, error) {
+	rows, err := p.rows(ctx, "lb", "load-balancer", "list", "--compartment-id", d.Network, "--all")
 	if err != nil {
 		return nil, err
 	}
-	rows, err := command.Rows(r["items"])
+	return Named(rows, d.Names.LB)
+}
+
+func (p Provisioner) nsg(ctx context.Context, d Desired) (string, error) {
+	rows, err := p.rows(ctx, "network", "nsg", "list", "--compartment-id", d.Network, "--vcn-id", d.VCN, "--all")
+	if err != nil {
+		return "", err
+	}
+	r, err := Named(rows, d.Names.NSG)
+	if err != nil || r == nil {
+		return "", errors.Join(err, fmt.Errorf("network security group %s does not exist; run public-api apply", d.Names.NSG))
+	}
+	return command.ID(r)
+}
+
+// originSteps plans the load balancer NSG's sync to Cloudflare's ranges.
+func (p Provisioner) originSteps(ctx context.Context, d Desired, cloudflare Cloudflare) ([]step, error) {
+	if d.Network == "" || d.VCN == "" {
+		return nil, errors.New("plan resource_ids.network_compartment and vcn are required")
+	}
+	ranges, err := cloudflare.OriginIPs(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return Named(rows, Prefix)
+	nsg, err := p.nsg(ctx, d)
+	if err != nil {
+		return nil, err
+	}
+	return p.syncRules(ctx, nsg, "Cloudflare to the public API", OriginRules(ranges), true)
 }
 
-func (p Provisioner) Provision(ctx context.Context, o Options) (map[string]any, error) {
+// Provision creates the edge's missing network and load balancer in
+// dependency order. Every resource is found by its static name first, so a
+// rerun resumes. The origin certificate must already be in Vault.
+func (p Provisioner) Provision(ctx context.Context, d Desired, cloudflare Cloudflare, members string) (map[string]any, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	for key, value := range map[string]string{"plan": o.Plan, "members": o.Members, "workload-nsg": o.WorkloadNSG, "subnet-cidr": o.SubnetCIDR} {
+	if err := d.OriginPull.Validate(); err != nil {
+		return nil, err
+	}
+	for key, value := range map[string]string{"network_compartment": d.Network, "control_compartment": d.Control, "vcn": d.VCN,
+		"network_security_group": d.ControllerNSG, "workload_network_security_group": d.WorkloadNSG, "vault": d.Vault} {
 		if value == "" {
-			return nil, fmt.Errorf("--%s is required", key)
+			return nil, fmt.Errorf("plan resource_ids.%s is required", key)
 		}
 	}
-	if o.ClientPort < 1 || o.ClientPort > 65535 {
-		return nil, fmt.Errorf("client port must be between 1 and 65535")
+	if err := validCA(members); err != nil {
+		return nil, err
 	}
-	if _, err := netip.ParsePrefix(o.SubnetCIDR); err != nil {
-		return nil, fmt.Errorf("public subnet CIDR: %w", err)
-	}
-	members := []string{}
-	for _, s := range strings.Split(o.Members, ",") {
-		ip, err := netip.ParseAddr(s)
-		if err != nil {
-			return nil, fmt.Errorf("member IP: %w", err)
-		}
-		members = append(members, ip.String())
-	}
-	b, err := os.ReadFile(o.Plan)
+	ranges, err := cloudflare.OriginIPs(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var plan struct {
-		ResourceIDs struct {
-			NetworkCompartment string `json:"network_compartment"`
-			VCN                string `json:"vcn"`
-		} `json:"resource_ids"`
-		SubnetCIDR string `json:"subnet_cidr"`
-	}
-	if err := json.Unmarshal(b, &plan); err != nil {
-		return nil, err
-	}
-	network, vcn := plan.ResourceIDs.NetworkCompartment, plan.ResourceIDs.VCN
-	if network == "" || vcn == "" {
-		return nil, fmt.Errorf("plan requires network_compartment and vcn resource IDs")
-	}
-	if _, err := netip.ParsePrefix(plan.SubnetCIDR); err != nil {
-		return nil, fmt.Errorf("private subnet CIDR: %w", err)
-	}
-	gateway, err := p.ensureNetwork(ctx, "internet-gateway", network, vcn, "--is-enabled", "true")
+	balancer, err := p.balancer(ctx, d)
 	if err != nil {
 		return nil, err
 	}
-	gatewayID, err := command.ID(gateway)
-	if err != nil {
-		return nil, err
-	}
-	routes, err := p.ensureNetwork(ctx, "route-table", network, vcn, "--route-rules", command.JSON([]any{map[string]any{"destination": "0.0.0.0/0", "destinationType": "CIDR_BLOCK", "networkEntityId": gatewayID}}))
-	if err != nil {
-		return nil, err
-	}
-	routesID, err := command.ID(routes)
-	if err != nil {
-		return nil, err
-	}
-	port := map[string]any{"destinationPortRange": map[string]any{"min": o.ClientPort, "max": o.ClientPort}}
-	security, err := p.ensureNetwork(ctx, "security-list", network, vcn,
-		"--ingress-security-rules", command.JSON([]any{map[string]any{"protocol": "6", "source": "0.0.0.0/0", "sourceType": "CIDR_BLOCK", "isStateless": false, "tcpOptions": map[string]any{"destinationPortRange": map[string]any{"min": 443, "max": 443}}}}),
-		"--egress-security-rules", command.JSON([]any{map[string]any{"protocol": "6", "destination": plan.SubnetCIDR, "destinationType": "CIDR_BLOCK", "isStateless": false, "tcpOptions": port}}))
-	if err != nil {
-		return nil, err
-	}
-	securityID, err := command.ID(security)
-	if err != nil {
-		return nil, err
-	}
-	subnet, err := p.ensureNetwork(ctx, "subnet", network, vcn, "--cidr-block", o.SubnetCIDR, "--dns-label", "public", "--prohibit-public-ip-on-vnic", "false", "--route-table-id", routesID, "--security-list-ids", command.JSON([]string{securityID}))
-	if err != nil {
-		return nil, err
-	}
-	subnetID, err := command.ID(subnet)
-	if err != nil {
-		return nil, err
-	}
-	ruleRows, err := p.rows(ctx, "network", "nsg", "rules", "list", "--nsg-id", o.WorkloadNSG, "--all")
-	if err != nil {
-		return nil, err
-	}
-	hasRule := false
-	for _, r := range ruleRows {
-		tcp, _ := r["tcp-options"].(map[string]any)
-		ports, _ := tcp["destination-port-range"].(map[string]any)
-		if r["source"] == o.SubnetCIDR && r["direction"] == "INGRESS" && r["protocol"] == "6" && fmt.Sprint(ports["min"]) == strconv.Itoa(o.ClientPort) && fmt.Sprint(ports["max"]) == strconv.Itoa(o.ClientPort) {
-			hasRule = true
-		}
-	}
-	if !hasRule {
-		_, err = p.Client.Call(ctx, "network", "nsg", "rules", "add", "--nsg-id", o.WorkloadNSG, "--security-rules", command.JSON([]any{map[string]any{"direction": "INGRESS", "protocol": "6", "source": o.SubnetCIDR, "sourceType": "CIDR_BLOCK", "isStateless": false, "description": "TerraBase HTTPS from the public load balancer", "tcpOptions": port}}))
+	var origin, key string
+	if balancer == nil {
+		secret, err := p.secret(ctx, d)
 		if err != nil {
 			return nil, err
 		}
+		if secret == nil {
+			return nil, fmt.Errorf("vault secret %s does not exist; run public-api cert --apply first", d.Names.Secret)
+		}
+		if origin, key, err = p.originBundle(ctx, secret, []string{d.APIHost, AuthHost}); err != nil {
+			return nil, err
+		}
 	}
-	balancer, err := p.balancer(ctx, network)
+	edge, err := p.network(ctx, d, true)
 	if err != nil {
 		return nil, err
+	}
+	if balancer != nil {
+		if err := d.checkAttachments(balancer, edge.subnet, edge.nsg); err != nil {
+			return nil, err
+		}
+	}
+	for _, sync := range []struct {
+		id, description string
+		rules           []Rule
+		remove          bool
+	}{
+		{edge.nsg, "Cloudflare to the public API", OriginRules(ranges), true},
+		{d.WorkloadNSG, "TerraBase HTTPS from the public API load balancer", []Rule{{d.PublicCIDR, d.ClientPort}}, false},
+		{d.ControllerNSG, "ts-auth from the public API load balancer", []Rule{{d.PublicCIDR, AuthPort}}, false},
+	} {
+		steps, err := p.syncRules(ctx, sync.id, sync.description, sync.rules, sync.remove)
+		if err != nil {
+			return nil, err
+		}
+		if err := run(ctx, steps, true, io.Discard); err != nil {
+			return nil, err
+		}
 	}
 	if balancer == nil {
-		backends := make([]map[string]any, 0, len(members))
-		for _, ip := range members {
-			backends = append(backends, map[string]any{"ipAddress": ip, "port": o.ClientPort, "weight": 1})
+		args := []string{"lb", "load-balancer", "create", "--compartment-id", d.Network, "--display-name", d.Names.LB,
+			"--shape-name", "flexible", "--subnet-ids", command.JSON([]string{edge.subnet}), "--is-private", "false",
+			"--network-security-group-ids", command.JSON([]string{edge.nsg})}
+		config := d.loadBalancer(origin, key, members)
+		for _, flag := range []string{"shape-details", "certificates", "hostnames", "backend-sets", "listeners", "rule-sets"} {
+			args = append(args, "--"+flag, config[flag])
 		}
-		backendSet := map[string]any{"terrabase-https": map[string]any{"policy": "FIVE_TUPLE", "isPreserveSource": false, "healthChecker": map[string]any{"protocol": "TCP", "port": o.ClientPort, "intervalInMillis": 10000, "timeoutInMillis": 3000, "retries": 3}, "backends": backends}}
-		listeners := map[string]any{"https": map[string]any{"name": "https", "defaultBackendSetName": "terrabase-https", "port": 443, "protocol": "TCP"}}
-		_, err = p.Client.Call(ctx, "nlb", "network-load-balancer", "create", "--compartment-id", network, "--display-name", Prefix, "--subnet-id", subnetID, "--is-private", "false", "--is-preserve-source-destination", "false", "--backend-sets", command.JSON(backendSet), "--listeners", command.JSON(listeners))
-		if err != nil {
+		if _, err := p.Client.Call(ctx, args...); err != nil {
 			return nil, err
 		}
-		for n := range p.attempts() {
-			balancer, err = p.balancer(ctx, network)
-			if err != nil {
-				return nil, err
-			}
-			if balancer != nil {
-				break
-			}
-			if n+1 < p.attempts() {
-				if err := p.pause(ctx, 5*time.Second); err != nil {
-					return nil, err
-				}
-			}
-		}
-		if balancer == nil {
-			return nil, fmt.Errorf("network load balancer did not appear")
-		}
 	}
+	balancer, err = p.await(ctx, d.Names.LB, func() (map[string]any, error) { return p.balancer(ctx, d) },
+		func(r map[string]any) bool { return r["lifecycle-state"] == "ACTIVE" })
+	if err != nil {
+		return nil, err
+	}
+	if err := d.checkAttachments(balancer, edge.subnet, edge.nsg); err != nil {
+		return nil, err
+	}
+	if balancer, err = p.converge(ctx, d, balancer); err != nil {
+		return nil, err
+	}
+	if err := d.checkAttachments(balancer, edge.subnet, edge.nsg); err != nil {
+		return nil, err
+	}
+	// Certificates and listeners are fixed at creation; report drift apply
+	// cannot repair rather than claim success.
+	if !sameCA(balancer, memberCA, members) {
+		return nil, fmt.Errorf("load balancer %s trusts a different member CA than --member-ca; add the new CA as another certificate bundle and point backend set terrabase at it", d.Names.LB)
+	}
+	if err := p.validateOrigin(ctx, d, balancer, ranges); err != nil {
+		return nil, err
+	}
+	public, err := publicIP(balancer)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"internet_gateway": edge.gateway, "public_route_table": edge.routes, "public_security_list": edge.security,
+		"public_subnet": edge.subnet, "network_load_balancer": balancer["id"], "load_balancer_nsg": edge.nsg, "public_ip": public.String()}, nil
+}
+
+// liveBackends are a live backend set's backends as sorted ip:port.
+func liveBackends(balancer map[string]any, set string) []string {
+	sets, _ := balancer["backend-sets"].(map[string]any)
+	live, _ := sets[set].(map[string]any)
+	rows, _ := command.Rows(live["backends"])
+	var out []string
+	for _, b := range rows {
+		out = append(out, fmt.Sprintf("%v:%v", b["ip-address"], b["port"]))
+	}
+	slices.Sort(out)
+	return out
+}
+
+// converge brings an existing load balancer's bandwidth and backend sets to
+// the plan, so adding a member to the plan and rerunning apply serves it.
+func (p Provisioner) converge(ctx context.Context, d Desired, balancer map[string]any) (map[string]any, error) {
 	id, err := command.ID(balancer)
 	if err != nil {
 		return nil, err
 	}
-	balancer, err = p.WaitState(ctx, []string{"nlb", "network-load-balancer", "get", "--network-load-balancer-id", id}, "ACTIVE")
-	if err != nil {
-		return nil, err
+	bandwidth := func(r map[string]any) bool {
+		return same(field(r, "shape-details", "minimum-bandwidth-in-mbps"), d.MinMbps) && same(field(r, "shape-details", "maximum-bandwidth-in-mbps"), d.MaxMbps)
 	}
-	addresses, err := command.Rows(balancer["ip-addresses"])
-	if err != nil {
-		return nil, err
-	}
-	var public any
-	for _, address := range addresses {
-		if address["is-public"] == true {
-			public = address["ip-address"]
-			break
+	if !bandwidth(balancer) {
+		if _, err := p.Client.Call(ctx, "lb", "load-balancer", "update-shape", "--load-balancer-id", id, "--shape-name", "flexible",
+			"--shape-details", command.JSON(map[string]any{"minimumBandwidthInMbps": d.MinMbps, "maximumBandwidthInMbps": d.MaxMbps})); err != nil {
+			return nil, err
+		}
+		if balancer, err = p.await(ctx, d.Names.LB, func() (map[string]any, error) { return p.balancer(ctx, d) }, func(r map[string]any) bool {
+			return r["lifecycle-state"] == "ACTIVE" && bandwidth(r)
+		}); err != nil {
+			return nil, err
 		}
 	}
-	return map[string]any{"network_load_balancer": id, "public_ip": public, "subnet": subnetID, "members": members, "port": 443}, nil
+	for name, set := range d.backendSets() {
+		var want []string
+		for _, b := range set["backends"].([]any) {
+			want = append(want, fmt.Sprintf("%v:%v", b.(map[string]any)["ipAddress"], b.(map[string]any)["port"]))
+		}
+		slices.Sort(want)
+		if slices.Equal(liveBackends(balancer, name), want) {
+			continue
+		}
+		if _, err := p.Client.Call(ctx, "lb", "backend-set", "update", "--load-balancer-id", id, "--backend-set-name", name, "--details", command.JSON(set)); err != nil {
+			return nil, err
+		}
+		if balancer, err = p.await(ctx, d.Names.LB, func() (map[string]any, error) { return p.balancer(ctx, d) }, func(r map[string]any) bool {
+			return r["lifecycle-state"] == "ACTIVE" && slices.Equal(liveBackends(r, name), want)
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return balancer, nil
+}
+
+// publicIP is a load balancer's one public address.
+func publicIP(balancer map[string]any) (netip.Addr, error) {
+	addresses, err := command.Rows(balancer["ip-addresses"])
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	var public []netip.Addr
+	for _, a := range addresses {
+		if ip, err := netip.ParseAddr(fmt.Sprint(a["ip-address"])); a["is-public"] == true && err == nil {
+			public = append(public, ip)
+		}
+	}
+	if len(public) != 1 {
+		return netip.Addr{}, fmt.Errorf("load balancer %v has %d public addresses, want 1", balancer["display-name"], len(public))
+	}
+	return public[0], nil
+}
+
+// RunDNS validates the origin without OCI writes before planning Cloudflare
+// changes, including on a dry run.
+func (p Provisioner) RunDNS(ctx context.Context, d Desired, cloudflare Cloudflare, apply bool, out io.Writer) error {
+	if d.Network == "" || d.VCN == "" {
+		return errors.New("plan resource_ids.network_compartment and vcn are required")
+	}
+	balancer, err := p.balancer(ctx, d)
+	if err != nil {
+		return err
+	}
+	if balancer == nil || balancer["lifecycle-state"] != "ACTIVE" {
+		return fmt.Errorf("load balancer %s is not ACTIVE; run public-api apply first", d.Names.LB)
+	}
+	ranges, err := cloudflare.OriginIPs(ctx)
+	if err != nil {
+		return err
+	}
+	if err := p.validateOrigin(ctx, d, balancer, ranges); err != nil {
+		return err
+	}
+	address, err := publicIP(balancer)
+	if err != nil {
+		return err
+	}
+	steps, err := cloudflare.edgeSteps(ctx, []string{d.APIHost, AuthHost}, address, d.Cell, d.OriginPull)
+	if err != nil {
+		return err
+	}
+	return run(ctx, steps, apply, out)
+}
+
+func RunDNS(ctx context.Context, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("oci-region dns", flag.ContinueOnError)
+	fs.SetOutput(out)
+	planPath := fs.String("plan", "", "regional plan JSON")
+	apply := fs.Bool("apply", false, "make the planned changes; without it, only print them")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("unexpected arguments: %v", fs.Args())
+	}
+	d, err := LoadPlan(*planPath)
+	if err != nil {
+		return err
+	}
+	t, err := token()
+	if err != nil {
+		return err
+	}
+	client, err := newClient(d.Region, false)
+	if err != nil {
+		return err
+	}
+	return Provisioner{Client: client}.RunDNS(ctx, d, Cloudflare{BaseURL: cloudflareAPI, Token: t}, *apply, out)
 }

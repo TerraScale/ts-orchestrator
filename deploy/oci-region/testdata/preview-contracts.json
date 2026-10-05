@@ -6792,7 +6792,30 @@
         "availability_domain": "YDvv:SA-SAOPAULO-1-AD-1",
         "bucket_retention_days": 35,
         "budget": {
-          "$fixture": "fixture-0052"
+          "baseline_object_requests_usd": 0.27,
+          "baseline_object_storage_gb": 57.93,
+          "currency": "USD",
+          "egress_gb_max": 100,
+          "misc_reserve_usd": 5,
+          "month_hours": 720,
+          "monthly_limit": 200,
+          "object_requests_max": 1000000,
+          "object_storage_gb_max": 10,
+          "rates": {
+            "a1_memory_gb_hour": 0.0015,
+            "a1_ocpu_hour": 0.01,
+            "block_gb_month": 0.0255,
+            "block_vpu_gb_month": 0.0017,
+            "egress_gb": 0.025,
+            "object_10000_requests": 0.0034,
+            "object_gb_month": 0.0255,
+            "lb_hour": 0.0113,
+            "lb_mbps_hour": 0.0001
+          },
+          "replacement_hosts_max": 1,
+          "replacement_overlap_hours_max": 72,
+          "snapshot_gb_max": 350,
+          "staging_object_storage_gb_max": 10
         },
         "cell": "GRU",
         "controller_replicas": 3,
@@ -7181,8 +7204,13 @@
         },
         "public_api": {
           "client_port": 9465,
+          "max_mbps": 100,
           "listener_port": 443,
-          "subnet_cidr": "10.251.0.128/26"
+          "min_mbps": 10,
+          "subnet_cidr": "10.251.0.128/26",
+          "terrabase_members": [
+            "gru-1-db-1"
+          ]
         },
         "purpose": "TS-470 gru-1 rebuild proposal; live creates require separate COS-relayed confirmation and authenticated readback",
         "region": "sa-saopaulo-1",
