@@ -128,10 +128,16 @@ func matches(digest hash.Hash, want string) error {
 func (c *sdkClient) multipartUpload(ctx context.Context, request UploadRequest, parts *partReader, digest hash.Hash,
 	first []byte, release func(),
 ) (err error) {
+	// Unlike PutObject's OpcMeta header, the multipart body takes the
+	// opc-meta- prefix in each key; OCI refuses a bare key.
+	metadata := make(map[string]string, len(request.Metadata))
+	for name, value := range request.Metadata {
+		metadata["opc-meta-"+name] = value
+	}
 	created, err := c.objects.CreateMultipartUpload(ctx, objectstorage.CreateMultipartUploadRequest{
 		NamespaceName: new(request.Namespace), BucketName: new(request.Bucket), IfNoneMatch: new("*"),
 		CreateMultipartUploadDetails: objectstorage.CreateMultipartUploadDetails{Object: new(request.Object),
-			Metadata: request.Metadata}})
+			Metadata: metadata}})
 	if err != nil {
 		release()
 		return fmt.Errorf("create OCI multipart upload: %w", err)

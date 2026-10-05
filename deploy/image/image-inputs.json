@@ -29,8 +29,8 @@
   },
   "trust_roots": [
     {
-      "path": "deploy/image/inputs/bootstrap-root-001.pem",
-      "sha256": "bbdab8425dac0382d641cdf9de7c5a6685f0355a63f6b1131c64241873d418bc"
+      "path": "deploy/image/inputs/bootstrap-root-002.pem",
+      "sha256": "548426817b9ab219720d4a934703b7dfbd5b63633533a9340ec4e19c2fb65e5e"
     }
   ],
   "timesyncd_config": {

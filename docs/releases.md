@@ -60,14 +60,24 @@ matches the exact qualified source commit and tree. Independently record the
 source and tree, CI run ID and number, workflow, successful job name and exact
 attempt, binary size and digest, qualification-manifest digest, delegation
 digest and scope, and trust-key digests. The expected root public-key PEM SHA-256 is
-`bbdab8425dac0382d641cdf9de7c5a6685f0355a63f6b1131c64241873d418bc`; the
+`548426817b9ab219720d4a934703b7dfbd5b63633533a9340ec4e19c2fb65e5e`; the
 expected delegated canary leaf public-key PEM SHA-256 is
-`ddd81158ef6f5ad7e42e3a87ec16665ed42d480a48ab69441cc12df0d4b629f3`. An
+`afb5b4e956b1d42f50679afea44dcd5774ed43348d9077a51baabe32f82d4486`. An
 authorized root-key owner locally issues a new current delegation for that
 exact source and the arm64 canary binary capability. Do not reuse a delegation
 bound to an older source revision. Keep both root and delegated private keys
 in owner-only local files; do not put private-key bytes or file paths in
 release assets or shared review/operator records.
+
+The root and canary leaf were replaced on 2026-10-05 for the gru-1 rebuild
+(TS-470): the previous root's private key was not available, and no cell
+trusts it after the GRU wipe. The image pins the new root as
+`deploy/image/inputs/bootstrap-root-002.pem`. The private keys are kept
+owner-only by the operator, who signs from those files. The gru-1 OCI Vault
+(compartment `TerraScale`, operator-only) holds durable copies of all four
+PEMs as secrets `gru-1-trust-root-private-key`,
+`gru-1-trust-root-public-key`, `gru-1-trust-release-leaf-private-key` and
+`gru-1-trust-release-leaf-public-key` (TS-534). They are not in OpenBao.
 
 Build the local signing helper from the same clean source checkout with Go
 1.27.1, low priority, and embedded VCS metadata. Check `go version -m` for the
@@ -128,9 +138,9 @@ grep -Fq 'vcs.modified=false' <<< "$build_info"
 # The authorized root-key owner supplies the pinned public PEMs locally.
 cp -- /LOCAL/PINNED/canary-release-root.pub "$WORK/canary-release-root.pub"
 test "$(sha256sum "$WORK/canary-release-root.pub" | awk '{print $1}')" = \
-  bbdab8425dac0382d641cdf9de7c5a6685f0355a63f6b1131c64241873d418bc
+  548426817b9ab219720d4a934703b7dfbd5b63633533a9340ec4e19c2fb65e5e
 test "$(sha256sum /LOCAL/PINNED/canary-release-leaf.pub | awk '{print $1}')" = \
-  ddd81158ef6f5ad7e42e3a87ec16665ed42d480a48ab69441cc12df0d4b629f3
+  afb5b4e956b1d42f50679afea44dcd5774ed43348d9077a51baabe32f82d4486
 "$WORK/ts-orch" release sign-delegation \
   --subject-public-key /LOCAL/PINNED/canary-release-leaf.pub \
   --root-key "$WORK/canary-release-root.pub" \

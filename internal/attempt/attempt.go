@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -21,6 +22,8 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/core"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
@@ -242,6 +245,18 @@ func (a *Attempt) cloud(operation string) Cloud {
 	fmt.Fprintf(a.Out, "%s OCI %s ...\n", a.Now().UTC().Format("15:04:05"), operation)
 	return a.Cloud
 }
+
+// typed re-decodes value into the struct a signing command decodes, so the
+// written candidate keeps that struct's canonical field order.
+func typed[T any](a *Attempt, value any, into *T) *T {
+	b, e := json.Marshal(value)
+	if e == nil {
+		e = json.Unmarshal(b, into, json.RejectUnknownMembers(true))
+	}
+	a.fail(e)
+	return into
+}
+
 func (a *Attempt) read(path string) Object {
 	if a.err != nil {
 		return Object{}
@@ -466,7 +481,9 @@ func (a *Attempt) PhaseMaterial() {
 		object(object(base["resource_ids"])["instances"])[slot] = nil
 	}
 	a.writeJSON(a.Plan(), base)
-	a.writeJSON(a.Path("identity.json"), Object{"schemaVersion": 1, "deploymentId": a.Deployment, "environment": "canary", "cell": "GRU"})
+	// verify-anchor requires the identity's canonical field order, which a
+	// map's sorted keys do not keep.
+	a.writeJSON(a.Path("identity.json"), bootstrapstart.BakedIdentity{SchemaVersion: 1, DeploymentID: a.Deployment, Environment: "canary", Cell: "GRU"})
 	material, record := a.Path("material"), a.Path("controller-material.json")
 	if !exists(record) {
 		hosts := hostMap(base)
@@ -584,6 +601,11 @@ func (a *Attempt) PhaseImage() {
 		for _, p := range [][2]string{{"--runtime-priority-system-reserve-bytes", "system_reserve_bytes"}, {"--host-memory-min-bytes", "host_memory_min_bytes"}, {"--host-memory-low-bytes", "host_memory_low_bytes"}, {"--controller-memory-min-bytes", "controller_memory_min_bytes"}, {"--controller-memory-low-bytes", "controller_memory_low_bytes"}, {"--system-slice-memory-min-bytes", "system_slice_memory_min_bytes"}, {"--system-slice-memory-low-bytes", "system_slice_memory_low_bytes"}} {
 			args = append(args, p[0], text(priority[p[1]]))
 		}
+		// NetBird is optional: a cell whose servers enroll as NetBird peers
+		// bakes the pinned client and enrollment config into its image.
+		if binary := str(image, "netbird_binary"); binary != "" {
+			args = append(args, "--netbird-binary", binary, "--netbird-sha256", str(image, "netbird_sha256"), "--netbird-config", str(image, "netbird_config"))
+		}
 		args = append(args, "--out", qcow2, "--kernel-out", a.Kernel())
 		a.execute(Command{Args: args, Dir: a.Path("source")})
 	}
@@ -631,7 +653,12 @@ func (a *Attempt) PhaseSign() {
 	a.writeJSON(region, Object{"region": "GRU", "generation": 1, "endpoint": "https://iaas." + Region + ".oraclecloud.com", "compartment_id": ids["workload_compartment"], "image_compartment_id": ids["control_compartment"], "availability_domain": plan["availability_domain"], "fault_domains": []any{members[0]["fault_domain"], members[1]["fault_domain"]}, "subnet_id": ids["subnet"], "network_security_group_ids": []any{ids["workload_network_security_group"]}, "image_id": a.ImageID(), "shape": "VM.Standard.A1.Flex", "boot_volume_gb": 50, "boot_volume_vpus_per_gb": plan["volume_vpus_per_gb"], "data_volume_vpus_per_gb": plan["volume_vpus_per_gb"], "max_data_volume_gb": max(num(members[0]["data_gb"]), num(members[1]["data_gb"])), "owner": a.Deployment})
 	sidecars := join(a.pair(str(a.Config, "region_intent"), "--oci-region-intent"), a.pair(region, "--oci-region-config"), a.pair(str(a.Config, "placement_config"), "--placement-config"))
 	receipt, delegation := a.ImageReceipt(), a.Path("image", "image-delegation.signed.json")
-	peer := a.read(a.Path("peer-receipt-delegation.signed.json"))
+	// Embed the signed envelope's bytes: its payload is raw JSON, and
+	// re-encoding a decoded map sorts the payload's keys and voids the
+	// signature.
+	peerWire, e := os.ReadFile(a.Path("peer-receipt-delegation.signed.json"))
+	a.fail(e)
+	peer := jsontext.Value(bytes.TrimSpace(peerWire))
 	domain := a.read(str(a.Config, "managed_material_domain"))
 	domain["nativeVerifierSha256"] = object(a.Config["image"])["native_verifier_sha256"]
 	var profiles []any
@@ -702,7 +729,8 @@ func (a *Attempt) PhaseSign() {
 			deadline, err = time.Parse(time.RFC3339, str(retained, "launchDeadline"))
 			a.fail(err)
 		}
-		a.writeJSON(candidate, Object{"schemaVersion": 1, "deploymentId": a.Deployment, "cell": "GRU", "environment": "canary", "seedSlot": "controller-a", "anchorSha256": a.sha(anchor), "controllerSlots": Slots, "seedManifestSha256": a.sha(a.Manifest("controller-a")), "seedPrivateIp": hosts["controller-a"]["private_ip"], "peers": peers, "budget": budget, "launchDeadline": deadline.Format(time.RFC3339)})
+		// sign-founder-plan requires FounderPlan's canonical field order.
+		a.writeJSON(candidate, typed(a, Object{"schemaVersion": 1, "deploymentId": a.Deployment, "cell": "GRU", "environment": "canary", "seedSlot": "controller-a", "anchorSha256": a.sha(anchor), "controllerSlots": Slots, "seedManifestSha256": a.sha(a.Manifest("controller-a")), "seedPrivateIp": hosts["controller-a"]["private_ip"], "peers": peers, "budget": budget, "launchDeadline": deadline.Format(time.RFC3339)}, &bootstrap.FounderPlan{}))
 		a.RunBootstrap(join([]string{"sign-founder-plan", "--candidate", candidate, "--identity", identity, "--anchor", anchor}, manifests, []string{"--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--out", founder, "--valid-for", "24h"})...)
 	}
 	if !exists(selection) {
@@ -711,7 +739,8 @@ func (a *Attempt) PhaseSign() {
 		for _, slot := range Slots {
 			ms = append(ms, Object{"slot": slot, "sha256": a.sha(a.Manifest(slot))})
 		}
-		a.writeJSON(candidate, Object{"schemaVersion": 1, "deploymentId": a.Deployment, "cell": "GRU", "environment": "canary", "generation": 1, "planSha256": a.sha(founder), "anchorSha256": a.sha(anchor), "manifests": ms})
+		// The selector signers require FounderSelection's canonical field order.
+		a.writeJSON(candidate, typed(a, Object{"schemaVersion": 1, "deploymentId": a.Deployment, "cell": "GRU", "environment": "canary", "generation": 1, "planSha256": a.sha(founder), "anchorSha256": a.sha(anchor), "manifests": ms}, &bootstrapstart.FounderSelection{}))
 		a.RunBootstrap(join([]string{"sign-initial-founder-selection", "--candidate", candidate, "--identity", identity, "--anchor", anchor, "--plan", founder}, manifests, []string{"--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--out", selection, "--valid-for", "24h"})...)
 	}
 	a.RunBootstrap(join([]string{"publish-initial-founder-selection", "--selection", selection, "--identity", identity, "--anchor", anchor, "--plan", founder}, manifests, []string{"--root-key", a.trust("root_public"), "--oci-config", ociConfig(), "--oci-profile", "DEFAULT"})...)
@@ -731,6 +760,41 @@ func (a *Attempt) listObjects(bucket, prefix string) []string {
 	names, e := cloud.ListObjects(a.ctx, str(a.Config, "namespace"), bucket, prefix)
 	a.fail(e)
 	return names
+}
+
+// bindSeed records the launched controller A in the attempt plan: admission
+// accepts a live seed instance only when the plan binds its exact OCID.
+func (a *Attempt) bindSeed() {
+	b, e := os.ReadFile(a.Path("launch", "controller-a.ocid"))
+	if a.err != nil || errors.Is(e, os.ErrNotExist) {
+		return
+	}
+	a.fail(e)
+	plan := a.read(a.Plan())
+	instances := object(object(plan["resource_ids"])["instances"])
+	if a.err != nil || instances == nil {
+		a.fail(fmt.Errorf("attempt plan has no instance bindings"))
+		return
+	}
+	id := strings.TrimSpace(string(b))
+	if bound, ok := instances["controller-a"].(string); ok && bound != id {
+		a.fail(fmt.Errorf("attempt plan binds controller A %s, not the launched %s", bound, id))
+		return
+	}
+	if instances["controller-a"] == id {
+		return
+	}
+	instances["controller-a"] = id
+	// The plan is otherwise write-once; this one recorded fact replaces it.
+	wire, e := json.Marshal(plan, json.Deterministic(true))
+	a.fail(e)
+	temporary := a.Plan() + ".bind"
+	if a.err == nil {
+		a.fail(os.WriteFile(temporary, wire, 0600))
+	}
+	if a.err == nil {
+		a.fail(os.Rename(temporary, a.Plan()))
+	}
 }
 func (a *Attempt) PhaseLaunch() {
 	launch := a.Path("launch")
@@ -948,7 +1012,8 @@ func (a *Attempt) PhaseContinuity() {
 		for _, slot := range Slots {
 			refs = append(refs, Object{"slot": slot, "sha256": a.sha(filepath.Join(work, slot+".signed.json"))})
 		}
-		a.writeJSON(candidate, Object{"schemaVersion": 2, "deploymentId": a.Deployment, "cell": "GRU", "environment": "canary", "generation": generation, "continuities": refs})
+		// The selector signers require FounderSelection's canonical field order.
+		a.writeJSON(candidate, typed(a, Object{"schemaVersion": 2, "deploymentId": a.Deployment, "cell": "GRU", "environment": "canary", "generation": generation, "continuities": refs}, &bootstrapstart.FounderSelection{}))
 		a.RunBootstrap(join([]string{"sign-founder-selection", "--candidate", candidate, "--identity", a.Path("identity.json"), "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--out", selection, "--valid-for", a.validFor()}, proofs)...)
 	}
 	a.RunBootstrap(join([]string{"publish-founder-selection", "--selection", selection, "--identity", a.Path("identity.json"), "--anchor", anchor, "--root-key", a.trust("root_public"), "--oci-config", ociConfig(), "--oci-profile", "DEFAULT"}, proofs)...)
@@ -998,6 +1063,7 @@ func (a *Attempt) PhaseOperator() {
 func (a *Attempt) PhaseMembers() {
 	launch := a.Path("launch")
 	a.mkdir(launch)
+	a.bindSeed()
 	for _, v := range rows(a.read(a.Plan())["hosts"]) {
 		slot := str(object(v), "slot")
 		if !strings.HasPrefix(slot, "member-") {

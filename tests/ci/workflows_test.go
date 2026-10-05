@@ -175,7 +175,7 @@ func TestWorkflowContracts(t *testing.T) {
 		if err := json.Unmarshal(script.Read(t, filepath.Join(root, "deploy/image/image-inputs.json")), &manifest); err != nil {
 			t.Fatal(err)
 		}
-		if len(manifest.TrustRoots) == 0 || manifest.TrustRoots[0].SHA256 != "bbdab8425dac0382d641cdf9de7c5a6685f0355a63f6b1131c64241873d418bc" {
+		if len(manifest.TrustRoots) == 0 || manifest.TrustRoots[0].SHA256 != "548426817b9ab219720d4a934703b7dfbd5b63633533a9340ec4e19c2fb65e5e" {
 			t.Fatal("trust root digest changed")
 		}
 	})

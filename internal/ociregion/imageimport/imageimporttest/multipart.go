@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 )
 
 // upload is one open multipart upload.
@@ -62,6 +63,17 @@ func (s *Server) createUpload(w http.ResponseWriter, r *http.Request) {
 		refuse(w, http.StatusBadRequest, "InvalidParameter", "bad multipart upload details")
 		return
 	}
+	// Like OCI, the body's metadata keys carry the opc-meta- prefix that a
+	// PutObject header gets from the SDK; the stored object keeps the bare key.
+	metadata := map[string]string{}
+	for name, value := range details.Metadata {
+		bare, ok := strings.CutPrefix(strings.ToLower(name), "opc-meta-")
+		if !ok {
+			refuse(w, http.StatusBadRequest, "InvalidMetadata", fmt.Sprintf("The metadata key %q is invalid", name))
+			return
+		}
+		metadata[bare] = value
+	}
 	key := r.PathValue("namespace") + "/" + r.PathValue("bucket") + "/" + details.Object
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -71,7 +83,7 @@ func (s *Server) createUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	s.uploadSeq++
 	id := fmt.Sprintf("upload-%d", s.uploadSeq)
-	s.uploads[id] = &upload{key: key, metadata: details.Metadata, parts: map[int][]byte{}}
+	s.uploads[id] = &upload{key: key, metadata: metadata, parts: map[int][]byte{}}
 	reply(w, http.StatusOK, map[string]string{"namespace": r.PathValue("namespace"), "bucket": r.PathValue("bucket"),
 		"object": details.Object, "uploadId": id, "timeCreated": s.created.Format("2006-01-02T15:04:05Z")})
 }

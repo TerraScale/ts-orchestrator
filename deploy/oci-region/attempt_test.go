@@ -340,3 +340,76 @@ func (f *fakeCloud) ListInstances(context.Context, string) ([]attempt.Instance, 
 	f.record("ListInstances")
 	return nil, errors.New("unexpected instance list")
 }
+func TestAttemptImageBuilderBakesConfiguredNetBird(t *testing.T) {
+	a, _ := attemptFixture(t, false)
+	image := a.Config["image"].(map[string]any)
+	image["netbird_binary"], image["netbird_sha256"], image["netbird_config"] = "/netbird", strings.Repeat("c", 64), "/netbird.json"
+	var command attempt.Command
+	sentinel := errors.New("builder captured")
+	a.Runner = func(ctx context.Context, c attempt.Command) (string, error) { command = c; return "", sentinel }
+	a.PhaseImage()
+	if !errors.Is(a.Err(), sentinel) || commandValue(command.Args, "--netbird-binary") != "/netbird" ||
+		commandValue(command.Args, "--netbird-sha256") != strings.Repeat("c", 64) || commandValue(command.Args, "--netbird-config") != "/netbird.json" {
+		t.Fatal(command, a.Err())
+	}
+}
+func TestAttemptMaterialWritesCanonicalIdentity(t *testing.T) {
+	a, work := attemptFixture(t, false)
+	script.Write(t, filepath.Join(work, "tools", "ts-orch"), []byte("tool\n"), 0700)
+	plan := filepath.Join(work, "base-plan.json")
+	script.Write(t, plan, []byte(`{"resource_ids":{"instances":{}}}`), 0600)
+	a.Config["base_plan"] = plan
+	sentinel := errors.New("stop after the identity")
+	a.Runner = func(context.Context, attempt.Command) (string, error) { return "", sentinel }
+	a.PhaseMaterial()
+	got := string(script.Read(t, filepath.Join(work, "identity.json")))
+	if want := `{"schemaVersion":1,"deploymentId":"deployment-a","environment":"canary","cell":"GRU"}`; got != want {
+		t.Fatalf("identity %s, want %s", got, want)
+	}
+}
+func TestAttemptSignEmbedsThePeerDelegationVerbatim(t *testing.T) {
+	a, work := attemptFixture(t, false)
+	// Payload keys are deliberately unsorted: they are signed bytes.
+	peer := `{"schemaVersion":1,"keyId":"sha256:k","payload":{"subjectKeyId":"sha256:s","schemaVersion":1},"signature":"sig"}`
+	files := map[string]string{
+		"plan.json":                           `{"resource_ids":{},"hosts":[]}`,
+		"anchor.signed.json":                  `{"payload":{}}`,
+		"controller-vault-references.json":    `{"references":[]}`,
+		"image/import.json":                   `{"image_id":"ocid1.image.fixture"}`,
+		"peer-receipt-delegation.signed.json": peer + "\n",
+		"managed-material-domain.json":        `{}`,
+		"image/image-receipt.signed.json":     `{}`,
+		"region-intent.json":                  `{}`,
+		"placement.json":                      `{}`,
+	}
+	for name, body := range files {
+		script.Write(t, filepath.Join(work, name), []byte(body), 0600)
+	}
+	for key, name := range map[string]string{"managed_material_domain": "managed-material-domain.json", "region_intent": "region-intent.json", "placement_config": "placement.json"} {
+		a.Config[key] = filepath.Join(work, name)
+	}
+	a.Runner = func(context.Context, attempt.Command) (string, error) { return "", errors.New("no commands") }
+	a.PhaseSign() // stops at rendering, after the candidate is written
+	candidate := string(script.Read(t, filepath.Join(work, "signed", "controller-a.candidate.json")))
+	if !strings.Contains(candidate, `"peerReceiptDelegation":`+peer) {
+		t.Fatalf("candidate does not embed the signed delegation verbatim: %s", candidate)
+	}
+}
+func TestAttemptMembersBindsLaunchedSeedBeforeAdmission(t *testing.T) {
+	a, work := attemptFixture(t, false)
+	script.Write(t, filepath.Join(work, "plan.json"), []byte(`{"resource_ids":{"instances":{"controller-a":null}},"hosts":[{"slot":"member-a"}]}`), 0600)
+	script.Write(t, filepath.Join(work, "launch", "controller-a.ocid"), []byte("ocid1.instance.oc1..seed\n"), 0600)
+	a.Runner = func(context.Context, attempt.Command) (string, error) { return "", errors.New("no commands") }
+	a.PhaseMembers()
+	var plan struct {
+		ResourceIDs struct {
+			Instances map[string]any `json:"instances"`
+		} `json:"resource_ids"`
+	}
+	if err := json.Unmarshal(script.Read(t, filepath.Join(work, "plan.json")), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if plan.ResourceIDs.Instances["controller-a"] != "ocid1.instance.oc1..seed" {
+		t.Fatalf("controller A is not bound before admission: %v", plan.ResourceIDs.Instances)
+	}
+}
