@@ -12,8 +12,9 @@ import (
 
 const (
 	// DefaultListenAddress keeps the observability listener on loopback
-	// unless an operator selects a private address explicitly.
-	DefaultListenAddress = "127.0.0.1:9464"
+	// unless an operator selects a private address explicitly. It is not
+	// 9464, the TerraBase member's loopback admin port on the same host.
+	DefaultListenAddress = "127.0.0.1:9463"
 	// DisabledListenAddress turns the listener off.
 	DisabledListenAddress = "off"
 
