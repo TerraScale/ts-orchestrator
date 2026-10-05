@@ -61,6 +61,9 @@ func TestGRURebuildPlanKeepsFreshBindingsAndCSharpPeers(t *testing.T) {
 	if err := json.Unmarshal(wire, &profile); err != nil {
 		t.Fatal(err)
 	}
+	if profile.Env["TERRABASE_REGION"] != "gru-1" {
+		t.Fatal("C# profile must announce region gru-1 outside Development")
+	}
 	parsed, err := terrabase.ParseProfile(profile.Env)
 	if err != nil {
 		t.Fatal(err)

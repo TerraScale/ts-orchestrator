@@ -61,18 +61,25 @@ controller through an OCI Bastion forward.
 The profile is `controller.workloads.terrabase` in the signed controller
 config, and the same JSON is passed to `--profile`. The controller compares
 the configuration digest of `args` and `env` and rejects a rollout whose
-profile differs. For cell `gru-1` with three members:
+profile differs. For cell `gru-1` with two members:
 
 ```json
 {
   "resources": {"cpu": 1, "memory_bytes": 4294967296, "disk_bytes": 21474836480},
   "env": {
+    "TERRABASE_REGION": "gru-1",
     "TERRABASE_PEER_PORT": "9443",
     "TERRABASE_CLIENT_PORT": "9465",
-    "TERRABASE_PEERS": "gru-1-db-1=10.251.0.21:9443,gru-1-db-2=10.251.0.22:9443,gru-1-db-3=10.251.0.23:9443"
+    "TERRABASE_PEERS": "gru-1-db-1=10.251.0.21:9443,gru-1-db-2=10.251.0.22:9443"
   }
 }
 ```
+
+`TERRABASE_REGION` is required outside Development starting with
+[TerraBase #18](https://git.terrascale.tech/TerraScale/terrabase/pulls/18).
+Without it the binary exits before opening storage. Use `gru-1` in both the
+signed controller profile and the operator's `--profile` file; the host
+preserves this environment setting when adding the member's local paths.
 
 The `resources` values are an example; size them to the registered host
 capacity. The controller config also names the member CA:
@@ -185,7 +192,7 @@ no terrabase-rust data to migrate.
    ([production role configuration](production-role-config.md)). **Open:**
    `ts-orch bootstrap render-controller-config` does not render these fields
    today.
-5. Make sure `gru-1-db-1`, `gru-1-db-2` and `gru-1-db-3` are registered as in
+5. Make sure `gru-1-db-1` and `gru-1-db-2` are registered as in
    [Prerequisites](#prerequisites) item 5 and the NSG as in item 6. Check
    with `sudo terrascale-orchestrator operator hosts --config /var/lib/terrascale-operator/operator.json`.
    **Open:** there is no documented procedure yet for provisioning and
@@ -197,7 +204,7 @@ no terrabase-rust data to migrate.
    NSG keeps a member from another member's peer port.
 7. Write the profile file with the same `resources` and `env` as the signed
    config and run `operator terrabase-release` as in [Run](#run).
-8. Confirm three `ready` members, and that `operator hosts` shows a
+8. Confirm two `ready` members, and that `operator hosts` shows a
    `terrabase` report `running` with the new digest on each host.
 
 ## Qualification

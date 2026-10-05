@@ -1,0 +1,116 @@
+{
+  "observed_at_utc": "2026-10-05 00:42:51 UTC",
+  "main_revision": "3d9205edf0233ca1425eb538ee1211cf1f0e8cb8",
+  "runs": [
+    {
+      "commit_sha": "3d9205edf0233ca1425eb538ee1211cf1f0e8cb8",
+      "created": "2026-10-05T00:37:38Z",
+      "html_url": "https://git.terrascale.tech/TerraScale/ts-orchestrator/actions/runs/982",
+      "id": 13343,
+      "ref": "main",
+      "run_number": 982,
+      "started": "2026-10-05T00:37:41Z",
+      "status": "failure",
+      "stopped": "2026-10-05T00:38:53Z",
+      "title": "Qualified GRU ARM64 image",
+      "workflow": "image.yml"
+    },
+    {
+      "commit_sha": "3d9205edf0233ca1425eb538ee1211cf1f0e8cb8",
+      "created": "2026-10-05T00:34:17Z",
+      "event": "push",
+      "html_url": "https://git.terrascale.tech/TerraScale/ts-orchestrator/actions/runs/981",
+      "id": 13337,
+      "ref": "main",
+      "run_number": 981,
+      "started": "2026-10-05T00:34:19Z",
+      "status": "success",
+      "stopped": "2026-10-05T00:37:43Z",
+      "title": "TS-470: Complete gru-1 phase-1 foundation and plan the approved L7 edge (#154)",
+      "workflow": "ci.yml"
+    }
+  ],
+  "latest_orchestrator_release": {
+    "id": 1302,
+    "tag_name": "ci-3d9205edf0233ca1425eb538ee1211cf1f0e8cb8-run-13337",
+    "html_url": "https://git.terrascale.tech/TerraScale/ts-orchestrator/releases/tag/ci-3d9205edf0233ca1425eb538ee1211cf1f0e8cb8-run-13337",
+    "draft": false,
+    "published_at": "2026-10-05T00:37:07Z",
+    "assets": [
+      {
+        "name": "qualification.json",
+        "size": 878
+      },
+      {
+        "name": "terrascale-d15-probe.json",
+        "size": 460
+      },
+      {
+        "name": "terrascale-d15-qualify",
+        "size": 38011040
+      },
+      {
+        "name": "terrascale-orchestrator-linux-amd64",
+        "size": 42344608
+      },
+      {
+        "name": "terrascale-orchestrator-linux-arm64",
+        "size": 38011040
+      }
+    ]
+  },
+  "latest_qualified_image_release": {
+    "id": 1284,
+    "tag_name": "image-d30f42663eb4c5ba9e5f0917fd8bb5df98dbe309-run-13042-attempt-1",
+    "html_url": "https://git.terrascale.tech/TerraScale/ts-orchestrator/releases/tag/image-d30f42663eb4c5ba9e5f0917fd8bb5df98dbe309-run-13042-attempt-1",
+    "draft": false,
+    "published_at": "2026-10-04T01:42:02Z",
+    "assets": [
+      {
+        "name": "SHA256SUMS",
+        "size": 263
+      },
+      {
+        "name": "guest-kernel",
+        "size": 18585914
+      },
+      {
+        "name": "image-qualification.json",
+        "size": 5501
+      },
+      {
+        "name": "terrascale-gru-arm64.qcow2",
+        "size": 784728064
+      }
+    ]
+  },
+  "latest_terrabase_release": {
+    "id": 1301,
+    "tag_name": "ci-bc9c447c52c506f40a1ea8278d613bef4aa4a07a-run-13339",
+    "html_url": "https://git.terrascale.tech/TerraScale/terrabase/releases/tag/ci-bc9c447c52c506f40a1ea8278d613bef4aa4a07a-run-13339",
+    "draft": false,
+    "published_at": "2026-10-05T00:39:01Z",
+    "assets": [
+      {
+        "name": "terrabase-linux-amd64",
+        "size": 113346767
+      },
+      {
+        "name": "terrabase-linux-amd64.sha256",
+        "size": 88
+      }
+    ]
+  },
+  "image_failure": {
+    "job_id": 29407,
+    "run_id": 13343,
+    "step": "Build the image from the qualified candidate",
+    "last_success_at": "2026-10-05T00:38:48.0039465Z",
+    "error_at": "2026-10-05T00:38:48.5862549Z",
+    "error": "Error: not found: The target couldn't be found.",
+    "source_location": "src/release.rs:644:5",
+    "next_download_repository": "TerraScale/TerraBase",
+    "next_download_tag": "ci-d2017ca9668a650ec490dff3f79bd51b75bb6466-run-11696",
+    "next_download_asset": "qualification.json"
+  }
+}
