@@ -167,6 +167,10 @@ func TestVerifyRejects(t *testing.T) {
 	repeated.Services[1] = repeated.Services[0]
 	wrongSpec := testSet(f.id, 1)
 	wrongSpec.Services[1].Spec.Role = "api"
+	unsortedReleasers := testSet(f.id, 1)
+	unsortedReleasers.Services[0].Releasers = []string{"ops", "ci"}
+	invalidReleaser := testSet(f.id, 1)
+	invalidReleaser.Services[0].Releasers = []string{"Ops"}
 	otherDeployment, otherCell, otherEnvironment := f.id, f.id, f.id
 	otherDeployment.DeploymentID = "terrascale-other"
 	otherCell.Cell = "sfo"
@@ -192,6 +196,8 @@ func TestVerifyRejects(t *testing.T) {
 		{"unsorted roles", withSet(unsorted), nil, ErrInvalid},
 		{"repeated roles", withSet(repeated), nil, ErrInvalid},
 		{"spec for another role", withSet(wrongSpec), nil, ErrInvalid},
+		{"unsorted releasers", withSet(unsortedReleasers), nil, ErrInvalid},
+		{"invalid releaser", withSet(invalidReleaser), nil, ErrInvalid},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

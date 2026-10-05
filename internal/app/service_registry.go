@@ -44,9 +44,11 @@ type serviceRegistry struct {
 	// service_trust): it then refuses every amendment.
 	roots trust.Keyring
 	// reserved roles are owned by placement and keep their signed config
-	// profiles in fixed; a set never holds them.
+	// profiles in fixed; a set never holds them. TerraBase's profile is in
+	// fixed too, and a set may only add environment settings to it.
 	reserved      []string
 	fixed         map[string]WorkloadProfile
+	signers       map[string]TrustedSignerConfig
 	hostTelemetry bool
 	kv            jetstream.KeyValue
 	// changed receives every newly adopted set's profiles and reconciled
@@ -69,7 +71,11 @@ type serviceSetReply struct {
 }
 
 func newServiceRegistry(cfg Config, memberRole string) (*serviceRegistry, error) {
-	r := &serviceRegistry{cell: cfg.NATS.Cell, reserved: []string{terrabase.Role}, fixed: map[string]WorkloadProfile{}}
+	r := &serviceRegistry{cell: cfg.NATS.Cell, fixed: map[string]WorkloadProfile{},
+		signers: map[string]TrustedSignerConfig{}}
+	for _, grant := range cfg.Controller.TrustedSigners {
+		r.signers[grant.Actor] = grant
+	}
 	if memberRole != "" {
 		r.reserved = append(r.reserved, memberRole)
 	}
@@ -84,7 +90,7 @@ func newServiceRegistry(cfg Config, memberRole string) (*serviceRegistry, error)
 	r.current = serviceset.Set{Schema: serviceset.Schema, Identity: r.identity}
 	for _, role := range slices.Sorted(maps.Keys(cfg.Controller.Workloads)) {
 		profile := cfg.Controller.Workloads[role]
-		if slices.Contains(r.reserved, role) {
+		if slices.Contains(r.reserved, role) || role == terrabase.Role {
 			r.fixed[role] = profile
 			continue
 		}
@@ -254,6 +260,14 @@ func (r *serviceRegistry) validate(set serviceset.Set) error {
 		if slices.Contains(r.reserved, service.Role) {
 			return fmt.Errorf("role %q is owned by placement and stays in the signed controller config", service.Role)
 		}
+		if signed, ok := r.fixed[service.Role]; service.Role == terrabase.Role && (!ok || !extendsProfile(service, signed)) {
+			return fmt.Errorf("service %q may only add environment settings to its signed controller config profile", service.Role)
+		}
+		for _, actor := range service.Releasers {
+			if _, trusted := r.signers[actor]; !trusted {
+				return fmt.Errorf("service %q releaser %q is not a trusted signer", service.Role, actor)
+			}
+		}
 		profiles[service.Role] = service.Profile
 		if service.Spec != nil {
 			specs = append(specs, *service.Spec)
@@ -263,6 +277,32 @@ func (r *serviceRegistry) validate(set serviceset.Set) error {
 		return err
 	}
 	return validateAutoscaleConfig(&AutoscaleConfig{HostTelemetry: r.hostTelemetry, Services: specs}, profiles)
+}
+
+// extendsProfile reports whether service keeps the signed profile's
+// resources, arguments and every environment setting, adding settings only.
+func extendsProfile(service serviceset.Service, signed WorkloadProfile) bool {
+	if service.Spec != nil || service.Profile.Resources != signed.Resources || !slices.Equal(service.Profile.Args, signed.Args) {
+		return false
+	}
+	for key, value := range signed.Env {
+		if current, ok := service.Profile.Env[key]; !ok || current != value {
+			return false
+		}
+	}
+	return true
+}
+
+// releaser reports whether the adopted set lets actor release role and
+// register its hosts in environment.
+func (r *serviceRegistry) releaser(actor, role, environment string) bool {
+	if r == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	service, ok := r.current.Find(role)
+	return ok && environment == r.identity.Environment && slices.Contains(service.Releasers, actor)
 }
 
 func (r *serviceRegistry) effectiveLocked() (map[string]WorkloadProfile, []workload.ServiceSpec) {

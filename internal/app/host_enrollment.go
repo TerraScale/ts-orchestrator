@@ -52,7 +52,14 @@ func operatorHostRegister(ctx context.Context, cfg Config, runtime *natscell.Run
 		return errors.New("operator is not authorized to register hosts in this environment")
 	}
 	for _, role := range registration.Roles {
-		if !slices.Contains(grant.Roles, role) {
+		if slices.Contains(grant.Roles, role) {
+			continue
+		}
+		// The cell's service set may let this operator release the role.
+		reply, err := requestServiceSet(ctx, cfg, runtime, serviceSetListKind, []byte("{}"))
+		service, found := reply.Set.Find(role)
+		if err != nil || !found || reply.Set.Environment != registration.Environment ||
+			!slices.Contains(service.Releasers, cfg.Operator.Actor) {
 			return fmt.Errorf("operator is not authorized to register role %q", role)
 		}
 	}
@@ -181,7 +188,7 @@ func verifyAndRegister(ctx context.Context, wire []byte, cell string, policy sig
 		return host.Receipt{}, errors.New("host registration actor is unauthorized")
 	}
 	for _, role := range registration.Roles {
-		if !slices.Contains(grant.Roles, role) {
+		if !slices.Contains(grant.Roles, role) && !policy.services.releaser(envelope.Actor, role, registration.Environment) {
 			return host.Receipt{}, errors.New("host registration role is unauthorized")
 		}
 	}

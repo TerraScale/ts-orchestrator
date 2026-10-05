@@ -102,6 +102,7 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	expectedSequence := flags.String("expected-sequence", "", "expected durable broker claim sequence")
 	specPath := flags.String("spec", "", "service add, update: the role's reconciled service spec JSON")
 	outPath := flags.String("out", "", "service add, update, remove: new unsigned candidate file")
+	releasers := flags.String("releasers", "", "service add, update: comma-separated trusted signers that may release the role; update keeps the current ones when unset")
 	var forwards operatorForwardFlags
 	flags.Var(&forwards, "nats-forward", "transient PRIVATE_IP:4222=LOOPBACK_IP:PORT Bastion forward (repeatable)")
 	if err := flags.Parse(args[1:]); err != nil {
@@ -240,7 +241,7 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 		return operatorServiceList(ctx, cfg, runtime, output)
 	case "service-add", "service-update", "service-remove":
 		return operatorServiceChange(ctx, cfg, runtime, strings.TrimPrefix(operation, "service-"), *role,
-			*profilePath, *specPath, *outPath, output)
+			*profilePath, *specPath, *releasers, *outPath, output)
 	case "service-apply":
 		if *artifactPath == "" {
 			return errors.New("service apply requires --file SIGNED")

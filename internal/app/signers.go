@@ -20,6 +20,8 @@ type signerPolicy struct {
 	codec  delivery.Ed25519Codec
 	grants map[string]TrustedSignerConfig
 	cell   string
+	// services adds the release grants of the cell's adopted service set.
+	services *serviceRegistry
 }
 
 // ValidateTrustedSignerGrant applies the same actor, scope, and key checks used
@@ -126,17 +128,26 @@ func (p signerPolicy) withOperator(cfg OperatorConfig) (delivery.Ed25519Codec, e
 }
 
 func (p signerPolicy) authorizeIntent(_ context.Context, actor string, intent delivery.Intent) error {
-	grant, exists := p.grants[actor]
-	if !exists || intent.Cell != p.cell || !slices.Contains(grant.Roles, intent.Role) || !slices.Contains(grant.Environments, intent.Environment) || len(grant.Repositories) > 0 && !slices.Contains(grant.Repositories, intent.Source.Repository) {
+	if intent.Cell != p.cell || !p.mayRelease(actor, intent.Role, intent.Environment, intent.Source.Repository) {
 		return delivery.ErrUnauthorized
 	}
 	return nil
 }
 
 func (p signerPolicy) authorizeArtifact(_ context.Context, actor string, record delivery.ArtifactRecord) error {
-	grant, exists := p.grants[actor]
-	if !exists || record.Cell != p.cell || !slices.Contains(grant.Roles, record.Role) || !slices.Contains(grant.Environments, record.Environment) || len(grant.Repositories) > 0 && !slices.Contains(grant.Repositories, record.Source.Repository) {
+	if record.Cell != p.cell || !p.mayRelease(actor, record.Role, record.Environment, record.Source.Repository) {
 		return delivery.ErrUnauthorized
 	}
 	return nil
+}
+
+// mayRelease applies the signer's grant, or a releaser entry of the service
+// set, within the signer's repository grant.
+func (p signerPolicy) mayRelease(actor, role, environment, repository string) bool {
+	grant, exists := p.grants[actor]
+	if !exists || len(grant.Repositories) > 0 && !slices.Contains(grant.Repositories, repository) {
+		return false
+	}
+	return slices.Contains(grant.Roles, role) && slices.Contains(grant.Environments, environment) ||
+		p.services.releaser(actor, role, environment)
 }

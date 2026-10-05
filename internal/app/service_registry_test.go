@@ -10,15 +10,18 @@ import (
 	"encoding/json/v2"
 	"encoding/pem"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/serviceset"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
@@ -271,15 +274,18 @@ func TestServiceSetAmendsARunningController(t *testing.T) {
 	other := newTestServiceTrust(t, root, serviceset.Identity{DeploymentID: "lab-sfo", Cell: "sfo", Environment: "test"})
 	otherSet := next
 	otherSet.Identity = other.identity
+	// A set may only add settings to TerraBase's signed profile.
+	grown := resources
+	grown.CPU = 2
 	reserved := next
-	reserved.Services = append([]serviceset.Service{{Role: "terrabase", Profile: WorkloadProfile{Resources: resources}}},
+	reserved.Services = append([]serviceset.Service{{Role: "terrabase", Profile: WorkloadProfile{Resources: grown}}},
 		next.Services...)
 	for name, path := range map[string]string{
-		"untrusted root":   foreign.sign(t, root, next),
-		"another cell":     other.sign(t, root, otherSet),
-		"placement role":   keys.sign(t, root, reserved),
-		"invalid profile":  keys.sign(t, root, withProfile(next, WorkloadProfile{})),
-		"unsigned garbage": testJSONFile(t, root, "garbage.json", map[string]string{"set": "{}"}),
+		"untrusted root":      foreign.sign(t, root, next),
+		"another cell":        other.sign(t, root, otherSet),
+		"terrabase resources": keys.sign(t, root, reserved),
+		"invalid profile":     keys.sign(t, root, withProfile(next, WorkloadProfile{})),
+		"unsigned garbage":    testJSONFile(t, root, "garbage.json", map[string]string{"set": "{}"}),
 	} {
 		if _, err := service("apply", "--file", path); err == nil {
 			t.Errorf("%s: applied", name)
@@ -355,4 +361,99 @@ func mustRead(t *testing.T, path string) []byte {
 func withProfile(set serviceset.Set, profile WorkloadProfile) serviceset.Set {
 	set.Services = []serviceset.Service{{Role: set.Services[0].Role, Profile: profile, Spec: set.Services[0].Spec}}
 	return set
+}
+
+// A set may add environment settings to the signed TerraBase profile, and
+// may let trusted signers release a service and register its hosts in the
+// set's environment; nothing else widens.
+func TestServiceSetTerraBaseSettingsAndReleasers(t *testing.T) {
+	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
+	signed := WorkloadProfile{Resources: resources, Env: map[string]string{"TERRABASE_REGION": "gru-1",
+		terrabase.EnvPeerPort: "9443", terrabase.EnvPeers: "gru-1-db-1=10.251.0.21:9443"}}
+	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}, Controller: ControllerConfig{
+		Workloads: map[string]WorkloadProfile{terrabase.Role: signed},
+		TrustedSigners: []TrustedSignerConfig{{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(make([]byte, ed25519.PublicKeySize)),
+			Roles: []string{terrabase.Role}, Environments: []string{"canary"}}}}}
+	registry, err := newServiceRegistry(cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry.identity = serviceset.Identity{DeploymentID: "lab-gru", Cell: "gru", Environment: "canary"}
+	if len(registry.current.Services) != 0 {
+		t.Fatalf("TerraBase joined the generation 0 set: %+v", registry.current.Services)
+	}
+	added := signed
+	added.Env = maps.Clone(signed.Env)
+	added.Env["TERRABASE_AUTH_ISSUER"] = "https://gru.auth.terrascale.tech/terrascale"
+	web := serviceset.Service{Role: "web", Profile: WorkloadProfile{Resources: resources}, Releasers: []string{"ops"}}
+	set := func(services ...serviceset.Service) serviceset.Set {
+		return serviceset.Set{Schema: serviceset.Schema, Identity: registry.identity, Generation: 1, Services: services}
+	}
+	override := serviceset.Service{Role: terrabase.Role, Profile: added}
+	if err := registry.validate(set(override, web)); err != nil {
+		t.Fatalf("adding a TerraBase setting: %v", err)
+	}
+	changed, removed, grown := added, signed, signed
+	changed.Env = maps.Clone(added.Env)
+	changed.Env[terrabase.EnvPeers] = "gru-1-db-1=10.251.0.21:9443,gru-1-db-9=10.251.0.29:9443"
+	removed.Env = map[string]string{"TERRABASE_REGION": "gru-1", terrabase.EnvPeerPort: "9443"}
+	grown.Resources.CPU = 2
+	stranger := web
+	stranger.Releasers = []string{"intruder"}
+	for name, candidate := range map[string]serviceset.Set{
+		"changed peers":      set(serviceset.Service{Role: terrabase.Role, Profile: changed}),
+		"removed peers":      set(serviceset.Service{Role: terrabase.Role, Profile: removed}),
+		"changed resources":  set(serviceset.Service{Role: terrabase.Role, Profile: grown}),
+		"untrusted releaser": set(stranger),
+		"host-owned setting": set(serviceset.Service{Role: terrabase.Role, Profile: withEnv(added, terrabase.EnvDataDirectory, "/tmp")}),
+	} {
+		if err := registry.validate(candidate); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	withoutTerraBase := cfg
+	withoutTerraBase.Controller.Workloads = map[string]WorkloadProfile{"web": {Resources: resources}}
+	other, err := newServiceRegistry(withoutTerraBase, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := other.validate(set(override)); err == nil {
+		t.Error("a cell without a signed TerraBase profile accepted one from a set")
+	}
+
+	registry.adopt(set(override, web), 1)
+	if profiles := registry.profiles(); profiles[terrabase.Role].Env["TERRABASE_AUTH_ISSUER"] == "" {
+		t.Fatalf("effective TerraBase profile %+v", profiles[terrabase.Role])
+	}
+	policy, err := buildSignerPolicy(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact := func(role, environment string) error {
+		return policy.authorizeArtifact(t.Context(), "ops", delivery.ArtifactRecord{Cell: "gru", Role: role, Environment: environment})
+	}
+	if artifact("web", "canary") == nil {
+		t.Fatal("a releaser was authorized before the policy saw the service set")
+	}
+	policy.services = registry
+	if err := artifact("web", "canary"); err != nil {
+		t.Fatalf("releaser: %v", err)
+	}
+	if err := artifact(terrabase.Role, "canary"); err != nil {
+		t.Fatalf("signed grant: %v", err)
+	}
+	for _, refused := range [][2]string{{"web", "production"}, {"api", "canary"}} {
+		if artifact(refused[0], refused[1]) == nil {
+			t.Errorf("authorized %v", refused)
+		}
+	}
+	if registry.releaser("someone", "web", "canary") {
+		t.Error("an actor the set does not name may release")
+	}
+}
+
+func withEnv(profile WorkloadProfile, key, value string) WorkloadProfile {
+	profile.Env = maps.Clone(profile.Env)
+	profile.Env[key] = value
+	return profile
 }

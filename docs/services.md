@@ -31,8 +31,14 @@ environment. Generation 0 is the signed controller config: its
 is enabled. Every later generation is a signed set that replaces the whole
 list.
 
-The set may not hold `terrabase` or the managed placement member role. They
-belong to placement and keep their signed controller config profiles.
+The set may not hold the managed placement member role. It belongs to
+placement and keeps its signed controller config profile. `terrabase` keeps
+its signed profile too, but a set may hold a `terrabase` entry that adds
+environment settings to it, for example `TERRABASE_MANAGEMENT_CREDENTIAL_FILE`
+or `TERRABASE_AUTH_ISSUER` and `TERRABASE_AUTH_AUDIENCE`. That entry must keep
+the signed resources, arguments and every signed setting (peers, ports,
+region), so membership and member certificates stay as signed; it takes effect
+with the next `operator terrabase-release --profile` of the extended profile.
 Controllers check every set with the rules the signed config uses, including
 the ts-auth contract.
 
@@ -46,9 +52,14 @@ Changes take effect as follows:
   or release it with zero replicas. The controller refuses to remove a role
   while any host still runs it.
 
-Who may release a role does not change here. The operator's trusted signer
-grant in the signed controller config must list the role, its environment
-and its repository.
+A service's `releasers` (`service add|update --releasers ops,ci`) are actors
+that may release the role and register its hosts in the set's environment, in
+addition to the signed grants. Each must already be a trusted signer of the
+signed controller config: a set can name who releases a role, never add a key.
+The actor's repository grant and `can_register_hosts` still apply. `service
+update` keeps the current releasers unless `--releasers` is given. Without
+`releasers`, the operator's trusted signer grant in the signed controller
+config must list the role, its environment and its repository.
 
 ## Trust
 
@@ -95,8 +106,8 @@ answers.
 | Command | Where | Effect |
 | --- | --- | --- |
 | `ts-orch service list --config OPERATOR_JSON` | operator host | Prints the current set, generation and identity. |
-| `ts-orch service add --config F --role R --profile F [--spec F] [--out F]` | operator host | Plans the next generation with R added and prints `added`. With `--out`, writes the unsigned candidate. An identical existing service plans nothing (`"status":"unchanged"`). A different existing service is refused: use `update`. |
-| `ts-orch service update --config F --role R --profile F [--spec F] [--out F]` | operator host | Same as `add` for an existing role. |
+| `ts-orch service add --config F --role R --profile F [--spec F] [--releasers A,B] [--out F]` | operator host | Plans the next generation with R added and prints `added`. With `--out`, writes the unsigned candidate. An identical existing service plans nothing (`"status":"unchanged"`). A different existing service is refused: use `update`. |
+| `ts-orch service update --config F --role R --profile F [--spec F] [--releasers A,B] [--out F]` | operator host | Same as `add` for an existing role; keeps its releasers unless `--releasers` is given. |
 | `ts-orch service remove --config F --role R [--out F]` | operator host | Plans the next generation without R. |
 | `ts-orch release sign-service-delegation --subject-public-key LEAF_PUB --root-key ROOT_PUB --signing-key ROOT_KEY --deployment-id ID --cell CELL --environment ENV --issued-at T --expires-at T --out F` | offline, root key | Signs the root's delegation to the leaf. Prints `{"delegation","sha256","expires_at"}`. |
 | `ts-orch release sign-service-set --candidate F --delegation F --root-key ROOT_PUB --signing-key LEAF_KEY [--valid-for 1h] --out F` | offline, leaf key | Signs a candidate and verifies the result as a controller would. Prints `{"generation","sha256","deployment_id","cell","environment"}`. |
@@ -127,8 +138,9 @@ Prerequisites:
 1. The operator config (`/var/lib/terrascale-operator/operator.json`) reaches
    the cell over NetBird, or over a Bastion `--nats-forward`.
 2. The operator's trusted signer grant lists the role, its environment and
-   its repository. Hosts for the role are registered (`ts-orch operator
-   host-register`) with that role and environment.
+   its repository, or step 2 names the operator with `--releasers`. Hosts for
+   the role are registered (`ts-orch operator host-register`) with that role
+   and environment after the set is applied.
 3. Local copies of the root public and private keys and the release leaf
    public and private keys exist as owner-only PEM files. They come from
    `gru-1-trust-root-*` and `gru-1-trust-release-leaf-*` in the Vault.
@@ -162,6 +174,7 @@ ts-orch service list --config "$OPERATOR"
    ts-orch service add --config "$OPERATOR" --role ts-auth \
      --profile deploy/oci-region/ts-auth-gru-1-profile.json \
      --spec deploy/oci-region/ts-auth-gru-1-service.json \
+     --releasers mariogk \
      --out "$WORK/ts-auth.candidate.json"
    ```
 

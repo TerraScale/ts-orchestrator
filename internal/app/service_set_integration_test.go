@@ -61,9 +61,10 @@ func TestServiceSetAddsTSAuthToARunningCell(t *testing.T) {
 		routes[index] = fmt.Sprintf("nats-route://127.0.0.1:%d", ports[3+index])
 		urls[index] = fmt.Sprintf("nats://127.0.0.1:%d", ports[index])
 	}
+	// As on gru-1, the signed grant names TerraBase only; the service set
+	// lets the operator release ts-auth and register its hosts.
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
-		Roles: []string{"terrabase", tsauth.Role}, Environments: []string{environment}, CanRegisterHosts: true,
-		Repositories: []string{tsauth.Repository}}
+		Roles: []string{"terrabase"}, Environments: []string{environment}, CanRegisterHosts: true}
 	children := make([]*controllerChild, 3)
 	for index := range children {
 		instance := fmt.Sprintf("peer%d", index)
@@ -128,7 +129,7 @@ func TestServiceSetAddsTSAuthToARunningCell(t *testing.T) {
 	profile := "../../deploy/oci-region/ts-auth-gru-1-profile.json"
 	candidate := filepath.Join(root, "add-ts-auth.json")
 	if err := run("service", "add", "--config", operatorConfig, "--role", tsauth.Role, "--profile", profile,
-		"--spec", "../../deploy/oci-region/ts-auth-gru-1-service.json", "--out", candidate); err != nil ||
+		"--spec", "../../deploy/oci-region/ts-auth-gru-1-service.json", "--releasers", "ops", "--out", candidate); err != nil ||
 		!strings.Contains(output.String(), `"added":["ts-auth"]`) || !strings.Contains(output.String(), `"from_generation":0`) {
 		t.Fatalf("plan ts-auth: %v", err)
 	}

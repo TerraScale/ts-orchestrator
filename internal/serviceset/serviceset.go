@@ -56,10 +56,14 @@ type Profile struct {
 
 // Service is one generic workload. Spec is set when the controller's
 // workload reconciler owns the role; without it releases place the role.
+// Releasers are actors, already trusted signers of the signed controller
+// config, that may release the role and register its hosts in the set's
+// environment.
 type Service struct {
-	Role    string                `json:"role"`
-	Profile Profile               `json:"profile"`
-	Spec    *workload.ServiceSpec `json:"spec,omitempty"`
+	Role      string                `json:"role"`
+	Profile   Profile               `json:"profile"`
+	Spec      *workload.ServiceSpec `json:"spec,omitempty"`
+	Releasers []string              `json:"releasers,omitempty"`
 }
 
 // Identity is the deployment, cell and environment a controller accepts
@@ -115,6 +119,11 @@ func (s Set) Validate() error {
 		}
 		if index > 0 && s.Services[index-1].Role >= service.Role {
 			return fmt.Errorf("%w: services must be sorted by role without repeats", ErrInvalid)
+		}
+		for i, actor := range service.Releasers {
+			if !tokenRE.MatchString(actor) || i > 0 && service.Releasers[i-1] >= actor {
+				return fmt.Errorf("%w: service %q releasers must be sorted actor names without repeats", ErrInvalid, service.Role)
+			}
 		}
 		if service.Spec != nil {
 			if service.Spec.Role != service.Role {

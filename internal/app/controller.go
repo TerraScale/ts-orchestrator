@@ -122,6 +122,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return err
 	}
+	policy.services = services
 	responseKey, err := readPrivateKey(cfg.Controller.ResponseKeyFile)
 	if err != nil {
 		return fmt.Errorf("controller response key: %w", err)

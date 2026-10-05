@@ -23,8 +23,8 @@ import (
 const serviceUsage = `Usage: ts-orch service <command> --config OPERATOR_JSON [flags]
 
   list                                          Print the cell's current service set
-  add    --role R --profile F [--spec F] [--out F]  Plan adding a service; --out writes the unsigned candidate
-  update --role R --profile F [--spec F] [--out F]  Plan changing a service
+  add    --role R --profile F [--spec F] [--releasers A,B] [--out F]  Plan adding a service; --out writes the unsigned candidate
+  update --role R --profile F [--spec F] [--releasers A,B] [--out F]  Plan changing a service
   remove --role R [--out F]                     Plan removing a service (scale it to zero first)
   apply  --file SIGNED                          Apply a set signed with ts-orch release sign-service-set
 
@@ -110,9 +110,9 @@ func operatorServiceList(ctx context.Context, cfg Config, runtime *natscell.Runt
 // prints the plan and, with out, writes the unsigned candidate for signing.
 // A change that leaves the set as it is plans nothing.
 func operatorServiceChange(ctx context.Context, cfg Config, runtime *natscell.Runtime, action, role,
-	profilePath, specPath, out string, output io.Writer,
+	profilePath, specPath, releasers, out string, output io.Writer,
 ) error {
-	if role == "" || action != "remove" && profilePath == "" || action == "remove" && (profilePath != "" || specPath != "") {
+	if role == "" || action != "remove" && profilePath == "" || action == "remove" && (profilePath != "" || specPath != "" || releasers != "") {
 		return fmt.Errorf("service %s requires --role%s", action, map[bool]string{true: "", false: " and --profile [--spec]"}[action == "remove"])
 	}
 	var service serviceset.Service
@@ -133,6 +133,10 @@ func operatorServiceChange(ctx context.Context, cfg Config, runtime *natscell.Ru
 			}
 			service.Spec = &spec
 		}
+		if releasers != "" {
+			service.Releasers = strings.Split(releasers, ",")
+			slices.Sort(service.Releasers)
+		}
 	}
 	reply, err := requestServiceSet(ctx, cfg, runtime, serviceSetListKind, []byte("{}"))
 	if err != nil {
@@ -140,6 +144,9 @@ func operatorServiceChange(ctx context.Context, cfg Config, runtime *natscell.Ru
 	}
 	current := reply.Set
 	existing, found := current.Find(role)
+	if action == "update" && releasers == "" {
+		service.Releasers = existing.Releasers
+	}
 	next := current
 	next.Generation++
 	next.Services = slices.DeleteFunc(slices.Clone(current.Services), func(s serviceset.Service) bool { return s.Role == role })
