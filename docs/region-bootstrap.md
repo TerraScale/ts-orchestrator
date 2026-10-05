@@ -506,6 +506,7 @@ server's SSH server. ts-orchestrator owns these policies (see
 | Policy | Protocol and ports |
 | --- | --- |
 | `operators-to-gru-servers-ssh` | `netbird-ssh` (port 22 is redirected to the SSH server's 22022) |
+| `ops-automation-to-gru-servers-ssh` | `netbird-ssh`, for the [operator automation peer](../deploy/netbird/README.md#operator-automation-peer) |
 | `operators-to-gru-cell-ops-ports` | TCP 22, 4222 (controllers), 9465 (members), routed through ts-ops |
 
 Do not allow 6222 or 8443 to operators. Servers enroll under their
@@ -518,7 +519,10 @@ netbird ssh root@gru-1-ctl-1.nb.ts.internal
 netbird ssh -L 8080:127.0.0.1:8080 root@gru-1-ctl-1.nb.ts.internal   # loopback-only tool
 ```
 
-Plain `ssh` to a NetBird name also uses NetBird SSH, through the NetBird
+Agents and scripts use `ts-orch netbird ssh` on the
+[operator automation peer](../deploy/netbird/README.md#operator-automation-peer)
+instead: it completes the login without a browser and takes the same
+arguments. Plain `ssh` to a NetBird name also uses NetBird SSH, through the NetBird
 client's OpenSSH drop-in. For OpenSSH, dial the private address over the
 routing peer:
 

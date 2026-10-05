@@ -437,6 +437,9 @@ WORK=$(mktemp -d)
    release with TS-519, add `--management-listener admin` (here and in the
    owner step below): only its loopback admin listener accepts the
    credential.
+   Agents without a browser run each `netbird ssh ARGS` below as
+   `ts-orch netbird ssh --vault-id "$VAULT" --netbird "$NB" -- ARGS` on the
+   [operator automation peer](../deploy/netbird/README.md#operator-automation-peer).
 
    ```sh
    netbird ssh -L 19464:127.0.0.1:9464 -L 19465:127.0.0.1:9465 root@gru-1-db-1.nb.ts.internal   # terminal 2

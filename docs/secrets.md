@@ -43,6 +43,7 @@ read that compartment.
 | `gru-1-netbird-datastore-encryption-key`, `gru-1-netbird-relay-auth-secret`, `gru-1-netbird-session-cookie-encryption-key` | `ts-ops` | `/etc/netbird/config.yaml` on ts-ops, rendered by `install.sh` |
 | `gru-1-netbird-owner-email`, `gru-1-netbird-owner-password` | `TerraScale` | NetBird dashboard owner login |
 | `gru-1-netbird-automation-user-id`, `-pat`, `-pat-id`, `-pat-expires` | `TerraScale` | `ts-orch netbird --pat-file` and operator API calls |
+| `gru-1-netbird-ssh-automation-email`, `-password` | `TerraScale` | `ts-orch netbird ssh`: browserless NetBird SSH login |
 | `gru-1-cloudflare-dns-edit-token` | `TerraScale` | `CF_API_TOKEN` of `ts-orch oci-region public-api` and `dns` |
 | `gru-1-cloudflare-aop-ca-key`, `gru-1-cloudflare-aop-client-key` | `TerraScale` | Zone AOP certificate keys, once created ([public API](region-bootstrap.md)) |
 | `gru-1-trust-root-private-key`, `-public-key`; `gru-1-trust-release-leaf-private-key`, `-public-key` | `TerraScale` | Durable copy of the gru-1 trust root and release leaf; TS-470 signs from its local `0600` files |

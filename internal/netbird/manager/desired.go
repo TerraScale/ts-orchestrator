@@ -98,6 +98,7 @@ func GRU() Desired {
 			{Name: "operators"},
 			{Name: "ts-ops-gateway", RenamedFrom: []string{"gateway"}},
 			{Name: "gru-servers", RenamedFrom: []string{"ts-orch-servers"}},
+			{Name: "ops-automation"},
 		},
 		ServersGroup: "gru-servers",
 		Network: NetworkSpec{
@@ -115,6 +116,9 @@ func GRU() Desired {
 			{Name: "operators-to-gru-servers-ssh", RenamedFrom: []string{"operators-ssh-to-ts-orch-servers"},
 				Description: "Operators → GRU servers: NetBird SSH with identity-provider login",
 				Protocol:    "netbird-ssh", Sources: []string{"operators"}, Destinations: []string{"gru-servers"}},
+			{Name: "ops-automation-to-gru-servers-ssh",
+				Description: "Operator automation peers → GRU servers: NetBird SSH with identity-provider login",
+				Protocol:    "netbird-ssh", Sources: []string{"ops-automation"}, Destinations: []string{"gru-servers"}},
 			{Name: "operators-to-ts-ops-forgejo", RenamedFrom: []string{"operators-to-forgejo"},
 				Description: "Operators → ts-ops: Git SSH 22, HTTPS 443, admin SSH 2022",
 				Protocol:    "tcp", Ports: []string{"22", "443", "2022"},

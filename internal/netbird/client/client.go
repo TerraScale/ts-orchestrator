@@ -638,11 +638,11 @@ func Run(ctx context.Context, root string, args []string, stdout, stderr io.Writ
 		}
 	}()
 	if len(args) == 1 && (args[0] == "help" || args[0] == "--help" || args[0] == "-h") {
-		fmt.Fprintln(stdout, "usage: ts-orch netbird client fetch|verify-binary|check-config; ts-orch netbird install [flags]; ts-orch netbird sync|prune-peers|inventory [flags]")
+		fmt.Fprintln(stdout, "usage: ts-orch netbird client fetch|verify-binary|check-config; ts-orch netbird install [flags]; ts-orch netbird sync|prune-peers|inventory [flags]; ts-orch netbird ssh [flags] -- ARGS")
 		return 0
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: ts-orch netbird client|install|sync|prune-peers|inventory")
+		fmt.Fprintln(stderr, "usage: ts-orch netbird client|install|sync|prune-peers|inventory|ssh")
 		return 2
 	}
 	name := args[0]

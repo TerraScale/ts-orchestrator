@@ -22,6 +22,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/liveverify"
 	netbirdclient "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
 	netbirdmanager "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/manager"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
@@ -57,7 +58,7 @@ Operator tooling:
   release                Prepare, sign, verify, and publish release receipts
   oci-region             Plan and deploy regional OCI resources
   image                  Validate inputs, build, inspect, and promote images
-  netbird                Install the NetBird client; manage the NetBird manager (sync, peers, setup key)
+  netbird                Install the NetBird client; manage the NetBird manager (sync, peers, setup key); browserless NetBird SSH
   qualification          Run source-backed operational qualification
   source-digest          Compute the versioned TerraBase source-tree digest
   terrabase              C# TerraBase member CA and member data volumes
@@ -97,6 +98,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "image", "netbird":
 		if args[0] == "netbird" && len(args) > 1 && slices.Contains(netbirdmanager.Commands, args[1]) {
 			return netbirdmanager.Run(ctx, args[1:], commandio.NewWriter(output))
+		}
+		if args[0] == "netbird" && len(args) > 1 && args[1] == "ssh" {
+			return sshlogin.Run(ctx, args[2:], commandio.NewWriter(output))
 		}
 		root, err := os.Getwd()
 		if err != nil {

@@ -116,14 +116,14 @@ func TestSyncRenamesLegacyObjectsInPlaceAndConverges(t *testing.T) {
 			t.Fatalf("group %s lost its ID or members: %+v", name, group)
 		}
 	}
-	if len(f.groups) != 3 {
+	if len(f.groups) != len(d.Groups) {
 		t.Fatalf("sync created groups: %+v", f.groups)
 	}
 	resource := f.networks[0].resources[0]
 	if resource.ID != ids.resource || resource.Name != "gru-cell-private-subnet" || resource.Address != "10.251.0.0/25" {
 		t.Fatalf("resource: %+v", resource)
 	}
-	if len(f.policies) != 4 {
+	if len(f.policies) != len(d.Policies) {
 		t.Fatalf("policies: %d", len(f.policies))
 	}
 	for _, policy := range f.policies {
@@ -208,7 +208,8 @@ func TestSyncBootstrapsFreshAccountBeforeTheRouterJoinsTheGateway(t *testing.T) 
 	}
 	planned := text(plan)
 	for _, want := range []string{"create group operators", "create group ts-ops-gateway", "create group gru-servers",
-		"create policy operators-to-gru-servers-ssh", "create policy operators-to-ts-ops-ping"} {
+		"create group ops-automation", "create policy operators-to-gru-servers-ssh", "create policy operators-to-ts-ops-ping",
+		"create policy ops-automation-to-gru-servers-ssh"} {
 		if !strings.Contains(planned, want) {
 			t.Errorf("plan lacks %q:\n%s", want, planned)
 		}
@@ -225,7 +226,7 @@ func TestSyncBootstrapsFreshAccountBeforeTheRouterJoinsTheGateway(t *testing.T) 
 	if _, err := Sync(t.Context(), api, d, true); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.groups) != 3 || len(f.networks) != 0 || len(f.policies) != len(d.Policies)-1 {
+	if len(f.groups) != len(d.Groups) || len(f.networks) != 0 || len(f.policies) != len(d.Policies)-1 {
 		t.Fatalf("first sync: groups %d networks %d policies %d", len(f.groups), len(f.networks), len(f.policies))
 	}
 

@@ -129,6 +129,7 @@ reconciliation never sets group membership.
 | `operators` | Operator devices | User auto-group, or a one-off setup key |
 | `ts-ops-gateway` | ts-ops only | One-off gateway setup key |
 | `gru-servers` | GRU controllers and managed hosts | Reusable server setup key |
+| `ops-automation` | [Operator automation peers](#operator-automation-peer) | One-off setup key |
 
 Network `gru-cell` ("TerraScale GRU private cell") holds resource
 `gru-cell-private-subnet` (`10.251.0.0/25`) and one router: peer `ts-ops`,
@@ -138,6 +139,7 @@ masquerade on, metric 100. The router must be in `ts-ops-gateway`.
 | --- | --- | --- | --- |
 | `operators-to-gru-cell-ops-ports` | `operators` → resource `gru-cell-private-subnet` | TCP 22, 4222, 9465 | one-way |
 | `operators-to-gru-servers-ssh` | `operators` → `gru-servers` | `netbird-ssh` | one-way |
+| `ops-automation-to-gru-servers-ssh` | `ops-automation` → `gru-servers` | `netbird-ssh` | one-way |
 | `operators-to-ts-ops-forgejo` | `operators` → `ts-ops-gateway` | TCP 22, 443, 2022 | one-way |
 | `operators-to-ts-ops-ping` | `operators` → `ts-ops-gateway` | ICMP | one-way |
 
@@ -300,6 +302,85 @@ sudo rm /var/lib/homelab/netbird/setup-key
 They keep `DisableDNS=true`, server routes and inbound connections off, so
 Tailscale keeps name resolution; they reach cell hosts by private IP.
 
+## Operator automation peer
+
+Agents and COS reach the GRU servers over NetBird SSH without a browser.
+NetBird SSH sessions need the user's identity-provider JWT, which the client
+gets through an OAuth device flow; `ts-orch netbird ssh` answers that flow's
+web forms itself. It runs `netbird ssh --no-browser`, and when the client
+prints the verification URL it signs in to the manager's embedded IdP as the
+regular user `ssh-automation@terrascale.tech` (role `user`, no auto-groups),
+whose login it reads from Vault with the operator's `~/.oci/config`. It only
+talks to `https://netbird.terrascale.tech`, refuses MFA and stops the client
+when the IdP rejects the login. NetBird SSH authentication stays on for every
+server; no `--disable-ssh-auth`.
+
+The peer is a NetBird 0.79.0 client in podman container `ts-netbird-ops`
+(host network, state `/var/lib/ts-netbird-ops`, interface `wt-tsops`,
+WireGuard port 51821), enrolled into `ops-automation` with a one-off setup key.
+That group may only open NetBird SSH to `gru-servers`, and the peer blocks
+inbound connections. Legacy routing (`NB_DISABLE_CUSTOM_ROUTING`) adds no ip
+rules, and NetBird DNS rewrites only the container's own `resolv.conf`, so the
+host keeps its resolver and other VPNs; the host only gains the `10.200.0.0/16`
+route and the `netbird` nftables tables. mariogk-dev runs peer
+`mariogk-dev-ops`.
+
+Use it:
+
+```sh
+VAULT=ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq
+NB="sudo env -u SUDO_USER -u SUDO_UID nsenter -t $(sudo podman inspect -f '{{.State.Pid}}' ts-netbird-ops) -m /usr/local/bin/netbird"
+ts-orch netbird ssh --vault-id "$VAULT" --netbird "$NB" -- root@gru-1-db-1.nb.ts.internal hostname
+ts-orch netbird ssh --vault-id "$VAULT" --netbird "$NB" -- -L 19464:127.0.0.1:9464 -L 19465:127.0.0.1:9465 root@gru-1-db-1.nb.ts.internal sleep 3600 &
+```
+
+`NB` runs the container's NetBird CLI in the container's mount namespace
+(its daemon socket and `resolv.conf`) as a direct child of `sudo`, so stopping
+`ts-orch` (SIGINT or SIGTERM) also stops the session and its forwards; through
+`podman exec`, which relays no signals, they would outlive it. Dropping
+`SUDO_USER` keeps the CLI from looking up the invoking user in the container.
+Forwards listen on the host's loopback. The daemon caches the JWT for 5
+minutes (`--ssh-jwt-cache-ttl 300`; servers accept tokens up to 10 minutes
+old), so later sessions skip the login. Do not pass `--no-cache`: the 0.79
+client then waits on an empty device code. The command drops the
+`Authentication successful!` line NetBird prints on standard output after a
+fresh login, so redirected output stays intact.
+
+After a reboot, restart the peer with `sudo deploy/netbird/operator-peer.sh`
+(needs `podman` and `jq`); it keeps its identity. The script pins the image by
+digest, keeps the state directory root-owned `0700`, and replaces a container
+created from other arguments. The identity survives in the state directory. To enroll another host:
+
+1. With the [operator automation PAT](#pats), create a one-off setup key that
+   auto-assigns `ops-automation` and expires in an hour, and save only its
+   value to a `0600` file:
+
+   ```sh
+   (umask 077; printf 'Authorization: Token %s\n' "$(cat "$PAT")" > "$WORK/auth.hdr")
+   curl -fsS -H @"$WORK/auth.hdr" -H 'Content-Type: application/json' \
+     -d '{"name":"<host>-ops","type":"one-off","expires_in":3600,"auto_groups":["<ops-automation group ID>"],"usage_limit":1}' \
+     https://netbird.terrascale.tech/api/setup-keys | (umask 077; jq -j .key > "$WORK/setup.key")
+   ```
+
+2. Load `docker.io/netbirdio/netbird:0.79.0` (the digest the script pins) into root's podman storage (on
+   mariogk-dev root's registry mirror refuses it: `podman pull` as the user,
+   then `podman save ... | sudo podman load`), then enroll and shred the key:
+
+   ```sh
+   sudo deploy/netbird/operator-peer.sh --setup-key-file "$WORK/setup.key"
+   shred -u "$WORK/setup.key" "$WORK/auth.hdr"
+   ```
+
+The automation user was created through an invite, because `POST /api/users`
+fails for service-user callers on this manager (it looks up the account's
+original creator, who no longer exists). To recreate it, store a new password
+(at least 8 characters with an uppercase letter, a digit and a symbol) with
+`ts-orch vault put` first, then `POST /api/users/invites` with
+`{"email":"ssh-automation@terrascale.tech","name":"ssh-automation","role":"user","auto_groups":[],"expires_in":3600}`
+and `POST /api/users/invites/<invite_token>/accept` with `{"password": ...}`
+from a `0600` file. Remove access by deleting the peer, or blocking the user
+(`PUT /api/users/<id>` with `"is_blocked": true`).
+
 ## Secrets and tokens
 
 Every NetBird secret is in the gru-1 OCI Vault; see [secrets](../../docs/secrets.md)
@@ -316,6 +397,7 @@ readable by the `ts-ops` dynamic group only.
 | --- | --- | --- |
 | Owner login `mariogk@terrascale.tech` | `gru-1-netbird-owner-email`, `gru-1-netbird-owner-password` (compartment `TerraScale`) | Dashboard only; automation never uses a human login |
 | Operator automation PAT | `gru-1-netbird-automation-user-id`, `-pat`, `-pat-id`, `-pat-expires` (compartment `TerraScale`) | Operator API calls and `ts-orch netbird` by hand |
+| SSH automation login `ssh-automation@terrascale.tech` | `gru-1-netbird-ssh-automation-email`, `-password` (compartment `TerraScale`) | `ts-orch netbird ssh` ([operator automation peer](#operator-automation-peer)) |
 | Controller admin PAT | Service user `ts-orchestrator` (role `admin`: `network_admin` cannot rename or delete peers or change account settings). `gru-1-netbird-admin-pat`, referenced by `admin_pat_secret_id` | Leader controller reconciliation |
 | Server setup key | `gru-1-netbird-setup-key`, referenced by `setup_key_secret_id` in `deploy/image/inputs/netbird-gru.json`. The reset invalidated the pinned `…zsrdta`; [Fresh cell enrollment](#fresh-cell-enrollment) replaces it | Server enrollment through instance principals |
 
@@ -463,6 +545,12 @@ sudo install -m 0644 /opt/ts-ops/netbird/quadlets/netbird-server.container /opt/
 sudo systemctl daemon-reload
 sudo systemctl start netbird-server.service netbird-dashboard.service
 ```
+
+`ts-orch netbird ssh` answers the embedded IdP's device, password and
+approval forms (the contract its tests pin). After an upgrade, run one
+[operator automation](#operator-automation-peer) `hostname`; a changed form
+makes it stop with `unexpected identity provider form` or `rejected the …`,
+never post the password elsewhere.
 
 Upgrade the routing-peer client afterwards (`apt-mark unhold netbird`,
 `apt-get install netbird=<version>`, `apt-mark hold netbird`) and update

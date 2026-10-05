@@ -92,7 +92,7 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		}
 		client.SetRegion(factory.Region())
 		factory.Configure(&client.BaseClient, ociclient.ServiceVault)
-		bundles, err := secretsClient(factory)
+		bundles, err := SecretsClient(factory)
 		if err != nil {
 			return err
 		}
@@ -119,7 +119,7 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		if err != nil {
 			return err
 		}
-		bundles, err := secretsClient(factory)
+		bundles, err := SecretsClient(factory)
 		if err != nil {
 			return err
 		}
@@ -195,7 +195,8 @@ func Render(ctx context.Context, bundles BundleClient, vaultID, scope string, te
 	return rendered, names, nil
 }
 
-func secretsClient(factory *ociclient.Factory) (ocisecrets.SecretsClient, error) {
+// SecretsClient reads secret bundles in the factory's region.
+func SecretsClient(factory *ociclient.Factory) (ocisecrets.SecretsClient, error) {
 	client, err := ocisecrets.NewSecretsClientWithConfigurationProvider(factory.Provider())
 	if err != nil {
 		return client, err
