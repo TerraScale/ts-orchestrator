@@ -17,6 +17,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/identity"
+	"github.com/oracle/oci-go-sdk/v65/limits"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	"github.com/oracle/oci-go-sdk/v65/workrequests"
@@ -39,6 +40,7 @@ const (
 	ServiceIdentity      Service = "identity"
 	ServiceKMS           Service = "kms"
 	ServiceSearch        Service = "resourcesearch"
+	ServiceLimits        Service = "limits"
 )
 
 // Limit is one token bucket: a sustained rate and a burst.
@@ -59,6 +61,7 @@ var DefaultLimits = map[Service]Limit{
 	ServiceIdentity:      {PerSecond: 4, Burst: 8},
 	ServiceKMS:           {PerSecond: 4, Burst: 8},
 	ServiceSearch:        {PerSecond: 4, Burst: 8},
+	ServiceLimits:        {PerSecond: 4, Burst: 8},
 }
 
 var defaultLimit = Limit{PerSecond: 4, Burst: 8}
@@ -275,6 +278,17 @@ func (f *Factory) Identity() (identity.IdentityClient, error) {
 	}
 	client.SetRegion(f.region)
 	f.Configure(&client.BaseClient, ServiceIdentity)
+	return client, nil
+}
+
+// Limits returns a rate-limited service limits and quota client.
+func (f *Factory) Limits() (limits.LimitsClient, error) {
+	client, err := limits.NewLimitsClientWithConfigurationProvider(f.provider)
+	if err != nil {
+		return client, fmt.Errorf("create OCI limits client: %w", err)
+	}
+	client.SetRegion(f.region)
+	f.Configure(&client.BaseClient, ServiceLimits)
 	return client, nil
 }
 

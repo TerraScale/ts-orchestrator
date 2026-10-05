@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"net/http"
 	"os"
 	"strconv"
 	"sync"
@@ -157,6 +158,37 @@ func (c *sdkClient) multipartUpload(ctx context.Context, request UploadRequest, 
 
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.SetLimit(request.Parallelism)
+	// Keep cancellation out of common.Retry's unsynchronized result path
+	// (oci-go-sdk v65.126.0/1), but restore it before rate limiting and HTTP
+	// dispatch so stalled writes and response headers still get canceled.
+	objects := c.objects
+	intercept := objects.Interceptor
+	objects.Interceptor = func(request *http.Request) error {
+		*request = *request.WithContext(groupCtx)
+		if err := groupCtx.Err(); err != nil {
+			return err
+		}
+		if intercept != nil {
+			return intercept(request)
+		}
+		return nil
+	}
+	retry := c.uploadRetry
+	retry.ShouldRetryOperation = func(response common.OCIOperationResponse) bool {
+		if groupCtx.Err() != nil || !c.uploadRetry.ShouldRetryOperation(response) {
+			return false
+		}
+		// Wait here instead of common.Retry's unconditional backoff timer.
+		timer := time.NewTimer(c.uploadRetry.NextDuration(response))
+		defer timer.Stop()
+		select {
+		case <-groupCtx.Done():
+			return false
+		case <-timer.C:
+			return groupCtx.Err() == nil
+		}
+	}
+	retry.NextDuration = func(common.OCIOperationResponse) time.Duration { return 0 }
 	var mu sync.Mutex
 	etags := map[int]string{}
 	var md5s [][]byte
@@ -174,14 +206,17 @@ func (c *sdkClient) multipartUpload(ctx context.Context, request UploadRequest, 
 		number, body, done := part, buffer, release
 		group.Go(func() error {
 			defer done()
-			response, err := c.objects.UploadPart(groupCtx, objectstorage.UploadPartRequest{
+			response, err := objects.UploadPart(context.WithoutCancel(groupCtx), objectstorage.UploadPartRequest{
 				NamespaceName: new(request.Namespace), BucketName: new(request.Bucket), ObjectName: new(request.Object),
 				UploadId: new(uploadID), UploadPartNum: new(number), ContentLength: new(int64(len(body))),
 				UploadPartBody: io.NopCloser(bytes.NewReader(body)),
 				ContentMD5:     new(base64.StdEncoding.EncodeToString(sum[:])),
 				// Replaying a part of the same bytes and number is idempotent.
-				RequestMetadata: common.RequestMetadata{RetryPolicy: &c.uploadRetry}})
+				RequestMetadata: common.RequestMetadata{RetryPolicy: &retry}})
 			if err != nil {
+				if cancelErr := groupCtx.Err(); cancelErr != nil {
+					err = cancelErr
+				}
 				return fmt.Errorf("upload OCI part %d: %w", number, err)
 			}
 			if response.ETag == nil || *response.ETag == "" {

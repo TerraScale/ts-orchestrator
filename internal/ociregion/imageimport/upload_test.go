@@ -6,11 +6,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport/imageimporttest"
@@ -110,6 +116,178 @@ func TestStreamingUploadReportsThePartFailure(t *testing.T) {
 	}
 	if open, aborted := region.Multipart(); open != 0 || aborted != 1 {
 		t.Fatalf("open=%d aborted=%d", open, aborted)
+	}
+}
+
+func TestStreamingUploadCancelsWhileWaitingForPartHeaders(t *testing.T) {
+	for _, cause := range []string{"caller", "deadline", "sibling failure"} {
+		t.Run(cause, func(t *testing.T) {
+			region := imageimporttest.Start(t, "ocid1.image.oc1..x")
+			target, err := url.Parse(region.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			proxy := httputil.NewSingleHostReverseProxy(target)
+			consumed, disconnected, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPut && r.URL.Query().Get("uploadPartNum") == "1" {
+					n, err := io.Copy(io.Discard, r.Body)
+					if err != nil || n != 1024 {
+						t.Errorf("part body: bytes=%d err=%v", n, err)
+						return
+					}
+					close(consumed)
+					// Withhold all response headers after consuming the entire body.
+					select {
+					case <-r.Context().Done():
+						close(disconnected)
+					case <-release:
+					}
+					return
+				}
+				if cause == "sibling failure" && r.Method == http.MethodPut && r.URL.Query().Get("uploadPartNum") == "2" {
+					select {
+					case <-consumed:
+					case <-release:
+					}
+					http.Error(w, "primary part failure", http.StatusForbidden)
+					return
+				}
+				proxy.ServeHTTP(w, r)
+			}))
+			defer server.Close()
+			defer close(release)
+			client, err := imageimporttest.Client(server.URL, "sa-saopaulo-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			path, _, digest := uploadFixture(t, 2048)
+			ctx, cancel := context.WithCancel(t.Context())
+			if cause == "deadline" {
+				cancel()
+				ctx, cancel = context.WithTimeout(t.Context(), time.Second)
+			}
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- client.UploadObject(ctx, uploadRequest(path, digest, 1024)) }()
+			select {
+			case <-consumed:
+			case <-time.After(5 * time.Second):
+				t.Fatal("server never consumed the full part body")
+			}
+			if cause == "caller" {
+				cancel()
+			}
+			select {
+			case err := <-done:
+				if cause == "sibling failure" {
+					if err == nil || !strings.Contains(err.Error(), "upload OCI part 2:") || errors.Is(err, context.Canceled) {
+						t.Fatalf("primary part failure lost: %v", err)
+					}
+					var failure interface{ GetHTTPStatusCode() int }
+					if !errors.As(err, &failure) || failure.GetHTTPStatusCode() != http.StatusForbidden {
+						t.Fatalf("primary HTTP 403 lost: %v", err)
+					}
+				} else if !errors.Is(err, ctx.Err()) {
+					t.Fatalf("err=%v; want %v", err, ctx.Err())
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("upload hung waiting for response headers after cancellation")
+			}
+			select {
+			case <-disconnected:
+			case <-time.After(2 * time.Second):
+				t.Fatal("HTTP request was not canceled")
+			}
+			if open, aborted := region.Multipart(); open != 0 || aborted != 1 {
+				t.Fatalf("open=%d aborted=%d", open, aborted)
+			}
+			if region.Count("POST /n/ns/b/images/u/") != 0 {
+				t.Fatal("canceled upload was committed")
+			}
+		})
+	}
+}
+
+func TestStreamingUploadRetriesSeekableParts(t *testing.T) {
+	for _, cancelRetry := range []bool{false, true} {
+		name := "successful retry"
+		if cancelRetry {
+			name = "canceled retry"
+		}
+		t.Run(name, func(t *testing.T) {
+			region := imageimporttest.Start(t, "ocid1.image.oc1..x")
+			target, err := url.Parse(region.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			proxy := httputil.NewSingleHostReverseProxy(target)
+			path, data, digest := uploadFixture(t, 1024)
+			var attempts atomic.Int32
+			failed := make(chan struct{})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPut {
+					body, err := io.ReadAll(r.Body)
+					if err != nil || !bytes.Equal(body, data) {
+						t.Errorf("retried part differs: bytes=%d err=%v", len(body), err)
+					}
+					if attempts.Add(1) == 1 {
+						if cancelRetry {
+							w.Header().Set("Retry-After", "30")
+						}
+						http.Error(w, "retry this part", http.StatusServiceUnavailable)
+						close(failed)
+						return
+					}
+					r.Body = io.NopCloser(bytes.NewReader(body))
+				}
+				proxy.ServeHTTP(w, r)
+			}))
+			defer server.Close()
+			client, err := imageimporttest.Client(server.URL, "sa-saopaulo-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- client.UploadObject(ctx, uploadRequest(path, digest, 1024)) }()
+			if cancelRetry {
+				select {
+				case <-failed:
+				case <-time.After(5 * time.Second):
+					t.Fatal("server never refused the first attempt")
+				}
+				// Let the SDK enter the 30-second Retry-After wait before canceling.
+				time.AfterFunc(100*time.Millisecond, cancel)
+			}
+			select {
+			case err := <-done:
+				if cancelRetry {
+					if !errors.Is(err, context.Canceled) {
+						t.Fatalf("err=%v; want cancellation", err)
+					}
+					if attempts.Load() != 1 {
+						t.Fatalf("canceled part retried: attempts=%d", attempts.Load())
+					}
+					if open, aborted := region.Multipart(); open != 0 || aborted != 1 {
+						t.Fatalf("open=%d aborted=%d", open, aborted)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("upload did not finish or cancel during retry backoff")
+			}
+			if attempts.Load() != 2 {
+				t.Fatalf("part attempts=%d; want 2", attempts.Load())
+			}
+			if stored, _, ok := region.Object("ns", "images", "images/"+digest+".qcow2"); !ok || !bytes.Equal(stored, data) {
+				t.Fatal("retried bytes were not committed intact")
+			}
+		})
 	}
 }
 
