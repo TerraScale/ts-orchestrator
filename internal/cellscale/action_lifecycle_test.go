@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
@@ -116,47 +117,50 @@ func TestActionLifecycleConvergenceRejectsSameIDDowntimeDuringEvidence(t *testin
 		for _, node := range []string{"gru-1-db-1", "gru-1-db-4"} {
 			for _, lifecycle := range []string{"STOPPING", "STOPPED"} {
 				t.Run(evidence+"/"+node+"/"+lifecycle, func(t *testing.T) {
-					cell := newFakeCell(4, small, 2, 150)
-					s := newSim(t, testPolicy(), cell, time.Minute)
-					original := s.observe()
-					s.now = s.now.Add(time.Second)
-					s.controller.config.ReadyTimeout = 20 * time.Millisecond
-					cloud := &actionLifecycleCloud{actionIdentityCloud: &actionIdentityCloud{fakeCell: cell}, states: map[string]string{}}
-					s.controller.config.Cloud = cloud
-					fence := restartFence{shape: small, process: original.Nodes[3].Pressure.ProcessID, after: s.now.Add(-time.Second)}
-					var err error
-					if evidence == "replicas" {
-						cell.replicas = func() (ReplicaSnapshot, error) {
-							cloud.states[node] = lifecycle
-							return safeReplicaSnapshot(s.now, cell), nil
+					// Keep the 20ms convergence deadline independent of runner load.
+					synctest.Test(t, func(t *testing.T) {
+						cell := newFakeCell(4, small, 2, 150)
+						s := newSim(t, testPolicy(), cell, time.Minute)
+						original := s.observe()
+						s.now = s.now.Add(time.Second)
+						s.controller.config.ReadyTimeout = 20 * time.Millisecond
+						cloud := &actionLifecycleCloud{actionIdentityCloud: &actionIdentityCloud{fakeCell: cell}, states: map[string]string{}}
+						s.controller.config.Cloud = cloud
+						fence := restartFence{shape: small, process: original.Nodes[3].Pressure.ProcessID, after: s.now.Add(-time.Second)}
+						var err error
+						if evidence == "replicas" {
+							cell.replicas = func() (ReplicaSnapshot, error) {
+								cloud.states[node] = lifecycle
+								return safeReplicaSnapshot(s.now, cell), nil
+							}
+							err = s.controller.waitReplicas(t.Context(), names(original.Nodes), original)
+						} else {
+							state := StateReady
+							if evidence == "drained" {
+								state = StateDrained
+							}
+							cell.state["gru-1-db-4"] = state
+							if evidence == "restart" {
+								cell.process["gru-1-db-4"]++
+								s.controller.pendingRestarts[original.Nodes[3].Identity()] = fence
+							}
+							s.controller.config.Source = changedLoad{cell, func(*NodePressure) { cloud.states[node] = lifecycle }}
+							err = s.controller.waitNode(t.Context(), identities(original.Nodes), "gru-1-db-4", func(p NodePressure) bool { return p.State == state })
 						}
-						err = s.controller.waitReplicas(t.Context(), names(original.Nodes), original)
-					} else {
-						state := StateReady
-						if evidence == "drained" {
-							state = StateDrained
+						if node == "gru-1-db-4" && evidence != "replicas" {
+							if !errors.Is(err, context.DeadlineExceeded) {
+								t.Fatalf("down controlled target completed readiness instead of waiting: %v", err)
+							}
+						} else {
+							requireLifecycleFailure(t, err, node, lifecycle)
 						}
-						cell.state["gru-1-db-4"] = state
 						if evidence == "restart" {
-							cell.process["gru-1-db-4"]++
-							s.controller.pendingRestarts[original.Nodes[3].Identity()] = fence
+							assertRestartRefusal(t, s.controller, original.Nodes[3].Identity(), fence)
 						}
-						s.controller.config.Source = changedLoad{cell, func(*NodePressure) { cloud.states[node] = lifecycle }}
-						err = s.controller.waitNode(t.Context(), identities(original.Nodes), "gru-1-db-4", func(p NodePressure) bool { return p.State == state })
-					}
-					if node == "gru-1-db-4" && evidence != "replicas" {
-						if !errors.Is(err, context.DeadlineExceeded) {
-							t.Fatalf("down controlled target completed readiness instead of waiting: %v", err)
+						if len(cell.callLog()) != 0 {
+							t.Fatalf("convergence mutated the cell: %v", cell.callLog())
 						}
-					} else {
-						requireLifecycleFailure(t, err, node, lifecycle)
-					}
-					if evidence == "restart" {
-						assertRestartRefusal(t, s.controller, original.Nodes[3].Identity(), fence)
-					}
-					if len(cell.callLog()) != 0 {
-						t.Fatalf("convergence mutated the cell: %v", cell.callLog())
-					}
+					})
 				})
 			}
 		}

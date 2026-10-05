@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -278,68 +279,71 @@ func TestReplicaInventoryFallsBackForObservationsAndConvergence(t *testing.T) {
 	for _, failure := range []string{"transport", "stale", "invalid", "unknown member", "all fail"} {
 		for _, kind := range []Kind{KindScaleIn, KindResize} {
 			t.Run(failure+"/"+string(kind), func(t *testing.T) {
-				policy := testPolicy()
-				cell := newFakeCell(4, small, 2, 150)
-				s := newSim(t, policy, cell, time.Minute)
-				s.controller.config.ReadyTimeout = 20 * time.Millisecond
-				live := liveReplicaInventory{cell, s.controller}
-				secondReads := 0
-				s.controller.config.Members = replicaFallback{live, func(ctx context.Context, node string) (ReplicaSnapshot, error) {
-					if node == "gru-1-db-1" || failure == "all fail" {
-						switch failure {
-						case "stale":
-							return safeReplicaSnapshot(s.now.Add(-MaxPressureAge - time.Second)), nil
-						case "invalid":
-							snapshot := safeReplicaSnapshot(s.now)
-							snapshot.Complete = false
-							return snapshot, nil
-						case "unknown member":
-							snapshot := safeReplicaSnapshot(s.now)
-							snapshot.Placements[0].LiveReplicas = append(snapshot.Placements[0].LiveReplicas, "gru-1-db-5")
-							s.now = s.now.Add(time.Second)
-							return snapshot, nil
-						default:
-							return ReplicaSnapshot{}, errors.New("inventory endpoint unavailable")
+				// Exercise fallback and timeout under virtual time, not runner load.
+				synctest.Test(t, func(t *testing.T) {
+					policy := testPolicy()
+					cell := newFakeCell(4, small, 2, 150)
+					s := newSim(t, policy, cell, time.Minute)
+					s.controller.config.ReadyTimeout = 20 * time.Millisecond
+					live := liveReplicaInventory{cell, s.controller}
+					secondReads := 0
+					s.controller.config.Members = replicaFallback{live, func(ctx context.Context, node string) (ReplicaSnapshot, error) {
+						if node == "gru-1-db-1" || failure == "all fail" {
+							switch failure {
+							case "stale":
+								return safeReplicaSnapshot(s.now.Add(-MaxPressureAge - time.Second)), nil
+							case "invalid":
+								snapshot := safeReplicaSnapshot(s.now)
+								snapshot.Complete = false
+								return snapshot, nil
+							case "unknown member":
+								snapshot := safeReplicaSnapshot(s.now)
+								snapshot.Placements[0].LiveReplicas = append(snapshot.Placements[0].LiveReplicas, "gru-1-db-5")
+								s.now = s.now.Add(time.Second)
+								return snapshot, nil
+							default:
+								return ReplicaSnapshot{}, errors.New("inventory endpoint unavailable")
+							}
 						}
+						if node == "gru-1-db-2" {
+							secondReads++
+						}
+						return live.Replicas(ctx, node)
+					}}
+					state, err := s.controller.observe(t.Context())
+					if err != nil {
+						t.Fatal(err)
 					}
-					if node == "gru-1-db-2" {
-						secondReads++
+					action := Action{Kind: KindScaleIn, Node: "gru-1-db-4"}
+					if kind == KindResize {
+						action = Action{Kind: KindResize, From: small, To: Shape{OCPUs: 4, MemoryGB: 24}}
 					}
-					return live.Replicas(ctx, node)
-				}}
-				state, err := s.controller.observe(t.Context())
-				if err != nil {
-					t.Fatal(err)
-				}
-				action := Action{Kind: KindScaleIn, Node: "gru-1-db-4"}
-				if kind == KindResize {
-					action = Action{Kind: KindResize, From: small, To: Shape{OCPUs: 4, MemoryGB: 24}}
-				}
-				if failure == "all fail" {
-					if state.Replicas != nil {
-						t.Fatal("unavailable endpoints produced an inventory")
+					if failure == "all fail" {
+						if state.Replicas != nil {
+							t.Fatal("unavailable endpoints produced an inventory")
+						}
+						if got, _ := rails(policy, state, History{}, action, 0); got.Kind != KindHold || got.Reason != ReasonQuorum {
+							t.Fatalf("unknown inventory did not hold: %+v", got)
+						}
+						if err := s.controller.apply(t.Context(), state, action); err == nil || len(cell.callLog()) != 0 {
+							t.Fatalf("unknown inventory authorized mutation: err=%v calls=%v", err, cell.callLog())
+						}
+						if err := s.controller.waitReplicas(t.Context(), names(state.Nodes), state); !errors.Is(err, context.DeadlineExceeded) {
+							t.Fatalf("unavailable convergence wait ignored timeout: %v", err)
+						}
+						return
 					}
-					if got, _ := rails(policy, state, History{}, action, 0); got.Kind != KindHold || got.Reason != ReasonQuorum {
-						t.Fatalf("unknown inventory did not hold: %+v", got)
+					if state.Replicas == nil || secondReads != 1 {
+						t.Fatalf("second fresh endpoint was not observed: inventory=%+v reads=%d", state.Replicas, secondReads)
 					}
-					if err := s.controller.apply(t.Context(), state, action); err == nil || len(cell.callLog()) != 0 {
-						t.Fatalf("unknown inventory authorized mutation: err=%v calls=%v", err, cell.callLog())
+					want := 2
+					if kind == KindResize {
+						want = 4
 					}
-					if err := s.controller.waitReplicas(t.Context(), names(state.Nodes), state); !errors.Is(err, context.DeadlineExceeded) {
-						t.Fatalf("unavailable convergence wait ignored timeout: %v", err)
+					if err := s.controller.apply(t.Context(), state, action); err != nil || len(cell.callLog()) != want || secondReads <= 1 {
+						t.Fatalf("fallback did not finish convergence: err=%v calls=%v reads=%d", err, cell.callLog(), secondReads)
 					}
-					return
-				}
-				if state.Replicas == nil || secondReads != 1 {
-					t.Fatalf("second fresh endpoint was not observed: inventory=%+v reads=%d", state.Replicas, secondReads)
-				}
-				want := 2
-				if kind == KindResize {
-					want = 4
-				}
-				if err := s.controller.apply(t.Context(), state, action); err != nil || len(cell.callLog()) != want || secondReads <= 1 {
-					t.Fatalf("fallback did not finish convergence: err=%v calls=%v reads=%d", err, cell.callLog(), secondReads)
-				}
+				})
 			})
 		}
 	}
