@@ -3,12 +3,14 @@
 package hostvolume
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"unsafe"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
@@ -19,8 +21,7 @@ import (
 const MountFlags = unix.MS_NOSUID | unix.MS_NODEV | unix.MS_NOEXEC | unix.MS_NOATIME
 
 // ext4IocResizeFS is EXT4_IOC_RESIZE_FS, _IOW('f', 16, __u64). It needs
-// CAP_SYS_RESOURCE, which the volume initializer unit does not grant by
-// default; see GrowConfig.
+// CAP_SYS_RESOURCE; see GrowConfig.
 const ext4IocResizeFS = 0x40086610
 
 // HardenRemount applies MountFlags to an existing mount at target without
@@ -125,4 +126,84 @@ func growFilesystem(ctx context.Context, mountPath string, deviceBytes, blockSiz
 	default:
 		return fmt.Errorf("managed filesystem type %q cannot grow", fsType)
 	}
+}
+
+// BlockDeviceMounted reports whether block device rdev has any mount in a
+// /proc/self/mountinfo formatted file.
+func BlockDeviceMounted(path string, rdev uint64) (bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+	want := fmt.Sprintf("%d:%d", unix.Major(rdev), unix.Minor(rdev))
+	scan := bufio.NewScanner(file)
+	for scan.Scan() {
+		fields := strings.Fields(scan.Text())
+		if len(fields) > 4 && fields[2] == want {
+			return true, nil
+		}
+	}
+	return false, scan.Err()
+}
+
+// RejectBootOrPartitionDevice fails for a partition, a disk with partitions
+// or kernel holders, and the disk the host root filesystem is on.
+func RejectBootOrPartitionDevice(rdev uint64) error {
+	target, err := filepath.EvalSymlinks(fmt.Sprintf("/sys/dev/block/%d:%d", unix.Major(rdev), unix.Minor(rdev)))
+	if err != nil {
+		return errors.New("managed device has no kernel block identity")
+	}
+	name := filepath.Base(target)
+	if _, err := os.Stat(filepath.Join(target, "partition")); err == nil {
+		return errors.New("managed device is a partition")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	children, err := os.ReadDir(target)
+	if err != nil {
+		return err
+	}
+	for _, child := range children {
+		if strings.HasPrefix(child.Name(), name) && child.Name() != name {
+			if _, err := os.Stat(filepath.Join(target, child.Name(), "partition")); err == nil {
+				return errors.New("managed device contains partitions")
+			}
+		}
+	}
+	holders, err := os.ReadDir(filepath.Join(target, "holders"))
+	if err != nil || len(holders) != 0 {
+		return errors.New("managed device has kernel holders")
+	}
+	rootDevice, err := rootMountBlockDevice("/proc/self/mountinfo")
+	if err != nil {
+		return err
+	}
+	rootTarget, err := filepath.EvalSymlinks(fmt.Sprintf("/sys/dev/block/%s", rootDevice))
+	if err != nil {
+		return errors.New("host root block device cannot be identified")
+	}
+	if _, err := os.Stat(filepath.Join(rootTarget, "partition")); err == nil {
+		rootTarget = filepath.Dir(rootTarget)
+	}
+	if rootTarget == target {
+		return errors.New("managed device is the host boot disk")
+	}
+	return nil
+}
+
+func rootMountBlockDevice(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	scan := bufio.NewScanner(file)
+	for scan.Scan() {
+		fields := strings.Fields(scan.Text())
+		if len(fields) > 4 && fields[4] == "/" {
+			return fields[2], nil
+		}
+	}
+	return "", errors.New("host root mount is unavailable")
 }

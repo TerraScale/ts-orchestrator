@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -205,14 +206,22 @@ func TestConsoleHistoryPollingHonorsCallerDeadline(t *testing.T) {
 	_, _, journal, api, provider, request := newConsoleHistoryTest(t)
 	provider.pollInterval = time.Millisecond
 	api.historyStates = []string{string(core.ConsoleHistoryLifecycleStateRequested)}
-	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Millisecond)
-	defer cancel()
-
-	_, err := provider.CaptureEvidence(ctx, request)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("capture polling ignored caller deadline: %v", err)
+	// Complete journal I/O before testing the polling deadline. Real NATS
+	// latency and CPU scheduling must not consume the 15 ms polling budget.
+	history, err := provider.Capture(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if api.captureCalls != 1 || api.getHistoryCalls < 2 || len(api.deletedIDs) != 0 {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 15*time.Millisecond)
+		defer cancel()
+		started := time.Now()
+		_, err := provider.readCapturedEvidence(ctx, request.InstanceID, history.ID)
+		if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) != 15*time.Millisecond {
+			t.Fatalf("capture polling ignored caller deadline: elapsed=%s err=%v", time.Since(started), err)
+		}
+	})
+	if api.captureCalls != 1 || api.getHistoryCalls < 2 || api.contentCalls != 0 || len(api.deletedIDs) != 0 {
 		t.Fatalf("bounded poll had unexpected effects: captures=%d gets=%d deletes=%v", api.captureCalls, api.getHistoryCalls, api.deletedIDs)
 	}
 	intent := OperationIntent{

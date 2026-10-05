@@ -1249,6 +1249,12 @@ func (f *fleet) findVolumeByCreateKey(ctx context.Context, createKey string) (Cl
 }
 
 func (f *fleet) reobserveVolume(ctx context.Context, volumeID string) (CloudVolume, ResourceIdentity, error) {
+	return f.reobserveVolumeResource(ctx, volumeID, resourceMemberData)
+}
+
+// reobserveVolumeResource checks the same regional volume pins for explicitly
+// selected resource kinds. Normal fleet reads accept only member data.
+func (f *fleet) reobserveVolumeResource(ctx context.Context, volumeID string, resources ...string) (CloudVolume, ResourceIdentity, error) {
 	volume, err := f.provider.GetVolume(ctx, volumeID)
 	if err != nil {
 		return CloudVolume{}, ResourceIdentity{}, err
@@ -1266,7 +1272,7 @@ func (f *fleet) reobserveVolume(ctx context.Context, volumeID string) (CloudVolu
 		volume.VPUsPerGB != int64(f.config.DataVolumeVPUsPerGB) ||
 		tags[tagManagedBy] != managedByValue || tags[tagOwner] != f.config.Owner ||
 		tags[tagRegion] != string(f.config.Region) || tags[tagGeneration] != fmt.Sprint(f.config.Generation) ||
-		tags[tagResource] != resourceMemberData || tags[tagVolumeSize] != fmt.Sprint(volume.SizeGB) ||
+		!slices.Contains(resources, tags[tagResource]) || tags[tagVolumeSize] != fmt.Sprint(volume.SizeGB) ||
 		!validCreateKey(createKey) || !validVolumeLifecycleState(volume.LifecycleState) {
 		return CloudVolume{}, ResourceIdentity{}, fmt.Errorf("%w: retained volume %s has missing or mismatched scope tags, size, domain, or state", ErrForeignResource, volumeID)
 	}

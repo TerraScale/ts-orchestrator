@@ -134,6 +134,8 @@ type VolumeCreateRequest struct {
 	CreateKey          string
 	SizeGB             int64
 	AvailabilityDomain string
+	// SourceBackupID, when set, restores the volume from this backup.
+	SourceBackupID string
 }
 
 // RetainedVolume is a positively reobserved and durably owned data volume.
@@ -381,6 +383,7 @@ type Provider interface {
 // narrow provider boundary.
 type CloudInstance struct {
 	ID                            string
+	DisplayName                   string
 	PrivateIP                     string
 	CompartmentID                 string
 	AvailabilityDomain            string

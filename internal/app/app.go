@@ -27,6 +27,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/hostvolume"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
 func Run(ctx context.Context, args []string, output io.Writer) error {
@@ -190,6 +191,8 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 		ManagedRuntimeRoot:      cfg.Host.ManagedRuntimeRoot,
 		TerraBaseRoot:           cfg.Host.TerraBaseRoot,
 		TSAuthRoot:              cfg.Host.TSAuthRoot,
+		TerraBaseDataVolume:     cfg.Host.TerraBaseDataVolume,
+		TerraBaseDataVolumeID:   cfg.Host.TerraBaseDataVolumeID,
 		ManagedS3Credentials:    managedS3Credentials,
 		ManagedBackupDataKeys:   managedBackupDataKeys,
 		BakedSystemReserveBytes: bakedSystemReserveBytes,
@@ -245,12 +248,21 @@ func runHostVolumeInit(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	var terraBaseData string
+	if cfg.Host.TerraBaseDataVolume {
+		if cfg.Host.TerraBaseRoot == "" {
+			return errors.New("host.terrabase_data_volume needs host.terrabase_root")
+		}
+		terraBaseData = terrabase.Layout(cfg.Host.TerraBaseRoot).Data()
+	}
 	return host.RunVolumeInitializer(ctx, host.VolumeInitConfig{
 		Cell: cfg.NATS.Cell, Node: cfg.Host.Node, Environment: cfg.Host.Environment,
 		ControllerPublicKey: key, ManagedRuntimeRoot: cfg.Host.ManagedRuntimeRoot,
-		StateRoot:        "/var/lib/terrascale-orchestrator-volume-init",
-		WorkloadIdentity: host.WorkloadIdentity{UID: cfg.Host.WorkloadUID, GID: cfg.Host.WorkloadGID},
-		Grow:             hostvolume.GrowConfig{Enabled: cfg.Host.ManagedVolumeOnlineGrow},
+		StateRoot:             "/var/lib/terrascale-orchestrator-volume-init",
+		WorkloadIdentity:      host.WorkloadIdentity{UID: cfg.Host.WorkloadUID, GID: cfg.Host.WorkloadGID},
+		Grow:                  hostvolume.GrowConfig{Enabled: cfg.Host.ManagedVolumeOnlineGrow},
+		TerraBaseDataDir:      terraBaseData,
+		TerraBaseDataVolumeID: cfg.Host.TerraBaseDataVolumeID,
 		ReadMetadata: func(ctx context.Context) (host.VolumeInitMetadata, error) {
 			metadata, err := hostenroll.ReadInstanceMetadata(ctx, hostenroll.NewIMDSClient())
 			if err != nil {

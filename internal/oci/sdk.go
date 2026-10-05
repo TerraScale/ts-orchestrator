@@ -36,6 +36,13 @@ func newSDKProvider(config RegionConfig, hostMetadata map[string]string) (*sdkPr
 	if err != nil {
 		return nil, err
 	}
+	return sdkProviderFrom(factory, config, hostMetadata)
+}
+
+// sdkProviderFrom builds the provider on the clients of one credential
+// factory: instance principal for the fleet, the operator's profile for
+// member data volumes.
+func sdkProviderFrom(factory *ociclient.Factory, config RegionConfig, hostMetadata map[string]string) (*sdkProvider, error) {
 	compute, err := factory.Compute()
 	if err != nil {
 		return nil, err
@@ -447,16 +454,20 @@ func (provider *sdkProvider) ListVolumes(ctx context.Context, compartmentID, ava
 }
 
 func (provider *sdkProvider) CreateVolume(ctx context.Context, request VolumeCreateRequest, tags map[string]string, retry string) (CloudVolume, error) {
+	details := core.CreateVolumeDetails{
+		CompartmentId:      new(provider.config.CompartmentID),
+		AvailabilityDomain: new(request.AvailabilityDomain),
+		SizeInGBs:          new(request.SizeGB),
+		VpusPerGB:          new(int64(provider.config.DataVolumeVPUsPerGB)),
+		DisplayName:        new(request.Name),
+		FreeformTags:       cloneStringMap(tags),
+	}
+	if request.SourceBackupID != "" {
+		details.SourceDetails = core.VolumeSourceFromVolumeBackupDetails{Id: new(request.SourceBackupID)}
+	}
 	response, err := provider.storage.CreateVolume(ctx, core.CreateVolumeRequest{
-		CreateVolumeDetails: core.CreateVolumeDetails{
-			CompartmentId:      new(provider.config.CompartmentID),
-			AvailabilityDomain: new(request.AvailabilityDomain),
-			SizeInGBs:          new(request.SizeGB),
-			VpusPerGB:          new(int64(provider.config.DataVolumeVPUsPerGB)),
-			DisplayName:        new(request.Name),
-			FreeformTags:       cloneStringMap(tags),
-		},
-		OpcRetryToken: new(retry),
+		CreateVolumeDetails: details,
+		OpcRetryToken:       new(retry),
 	})
 	if err != nil {
 		return CloudVolume{}, fmt.Errorf("create retained OCI volume: %w", err)
@@ -583,6 +594,7 @@ func cloudInstance(instance core.Instance, etag string) CloudInstance {
 	}
 	return CloudInstance{
 		ID:                            stringValue(instance.Id),
+		DisplayName:                   stringValue(instance.DisplayName),
 		CompartmentID:                 stringValue(instance.CompartmentId),
 		AvailabilityDomain:            stringValue(instance.AvailabilityDomain),
 		FaultDomain:                   stringValue(instance.FaultDomain),

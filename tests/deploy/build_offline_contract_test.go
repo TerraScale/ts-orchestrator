@@ -106,7 +106,7 @@ func TestOfflineVolumeInitRootOnlyInHostNamespace(t *testing.T) {
 	equal(t, service["ExecStart"], "/usr/local/bin/terrascale-orchestrator host-volume-init --config /etc/terrascale-orchestrator/host.json")
 	caps := strings.Fields(service["CapabilityBoundingSet"])
 	slices.Sort(caps)
-	equal(t, caps, []string{"CAP_CHOWN", "CAP_SYS_ADMIN"})
+	equal(t, caps, []string{"CAP_CHOWN", "CAP_DAC_READ_SEARCH", "CAP_SYS_ADMIN", "CAP_SYS_RESOURCE"})
 	for _, key := range []string{"NoNewPrivileges", "RestrictNamespaces"} {
 		equal(t, service[key], "yes")
 	}

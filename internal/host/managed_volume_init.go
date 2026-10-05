@@ -183,6 +183,21 @@ func (a *Agent) ensureManagedVolume(ctx context.Context, desired Desired, target
 	if err != nil || len(wire) == 0 || len(wire) > 64<<10 {
 		return errors.New("volume initialization permit exceeds wire bound")
 	}
+	if err := exchangeVolumeInit(connection, wire); err != nil {
+		return errors.New("fixed volume initializer did not establish the signed mount")
+	}
+	mount, err := verifyManagedMount(paths, *launch.Runtime, a.cfg.WorkloadIdentity)
+	if err != nil {
+		return fmt.Errorf("volume initializer mount readback: %w", err)
+	}
+	mount.close()
+	return nil
+}
+
+// exchangeVolumeInit sends one length-prefixed request to the fixed volume
+// initializer and reads its result; zero means it succeeded. A first-format
+// request additionally returns the durable initializer attempt's 32-byte ID.
+func exchangeVolumeInit(connection net.Conn, wire []byte) error {
 	var size [4]byte
 	binary.BigEndian.PutUint32(size[:], uint32(len(wire)))
 	if _, err := connection.Write(size[:]); err != nil {
@@ -192,13 +207,21 @@ func (a *Agent) ensureManagedVolume(ctx context.Context, desired Desired, target
 		return err
 	}
 	var result [1]byte
-	if _, err := io.ReadFull(connection, result[:]); err != nil || result[0] != 0 {
-		return errors.New("fixed volume initializer did not establish the signed mount")
+	if _, err := io.ReadFull(connection, result[:]); err != nil {
+		return err
 	}
-	mount, err := verifyManagedMount(paths, *launch.Runtime, a.cfg.WorkloadIdentity)
-	if err != nil {
-		return fmt.Errorf("volume initializer mount readback: %w", err)
+	switch result[0] {
+	case 0:
+		return nil
+	case volumeInitNeedsGrant:
+		var attempt [32]byte
+		if _, err := io.ReadFull(connection, attempt[:]); err != nil {
+			return err
+		}
+		if !lowerHex(string(attempt[:]), 32) {
+			return errors.New("volume initializer returned an invalid first-format attempt")
+		}
+		return terraBaseFormatNeeded{AttemptID: string(attempt[:])}
 	}
-	mount.close()
-	return nil
+	return errors.New("volume initializer refused the request")
 }

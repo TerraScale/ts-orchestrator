@@ -9,7 +9,9 @@ Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=30s
 KillSignal=SIGTERM
-CapabilityBoundingSet=CAP_SYS_ADMIN CAP_CHOWN
+# CAP_SYS_RESOURCE lets EXT4_IOC_RESIZE_FS grow a resized TerraBase data
+# volume; CAP_DAC_READ_SEARCH opens its root, which the workload owns (0700).
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_CHOWN CAP_SYS_RESOURCE CAP_DAC_READ_SEARCH
 NoNewPrivileges=yes
 UMask=0077
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

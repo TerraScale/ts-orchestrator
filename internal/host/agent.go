@@ -59,6 +59,14 @@ type Agent struct {
 	watchdogTicks    <-chan time.Time
 	loadMu           sync.Mutex
 	terraBaseLoads   map[string]terraBaseLoad
+
+	// terraBaseVolumeChecked is when the volume initializer last
+	// established or maintained the TerraBase data volume mount.
+	terraBaseVolumeChecked time.Time
+	// terraBaseVolumeConfirmed is the UUID of the mounted data volume
+	// filesystem the controller confirmed as the member's; empty until then
+	// and once the mount fails verification.
+	terraBaseVolumeConfirmed string
 }
 
 // An open cycle has no outcome until work has succeeded or failed. A transient
@@ -123,6 +131,12 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 			cfg.TerraBaseRoot); err != nil {
 			return nil, err
 		}
+	}
+	if cfg.TerraBaseDataVolume && cfg.TerraBaseRoot == "" {
+		return nil, errors.New("a terrabase data volume needs a terrabase root")
+	}
+	if cfg.TerraBaseDataVolume && !strings.HasPrefix(cfg.TerraBaseDataVolumeID, "ocid1.volume.") {
+		return nil, errors.New("a terrabase data volume needs its recorded volume OCID")
 	}
 	if cfg.PollInterval == 0 {
 		cfg.PollInterval = 5 * time.Second
@@ -685,6 +699,9 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	if _, _, err := a.executionLease(); err != nil {
 		return err
 	}
+	if _, err := a.fenceTerraBaseMember(ctx, role); err != nil {
+		return err
+	}
 	pending, hasPending := a.pending[role]
 	if hasPending && pending.outcomeReady {
 		if err := a.flushCycle(ctx, role); err != nil {
@@ -897,6 +914,14 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	}
 	if _, _, err := a.executionLease(); err != nil {
 		return err
+	}
+	// The controller requests above took time: launch only on the
+	// confirmed filesystem's mount as it is now.
+	if a.terraBaseMember(d) && a.cfg.TerraBaseDataVolume {
+		if err := a.terraBaseDataVolumeIntact(); err != nil {
+			a.terraBaseVolumeConfirmed = ""
+			return fmt.Errorf("terrabase data volume changed before launch: %w", err)
+		}
 	}
 	if err := a.runner.Apply(ctx, workload); err != nil {
 		return err

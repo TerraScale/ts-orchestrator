@@ -689,6 +689,8 @@ type hostLocalOptions struct {
 	SelfUpdateRoot          string `json:"self_update_root,omitempty"`
 	TerraBaseRoot           string `json:"terrabase_root,omitempty"`
 	TSAuthRoot              string `json:"ts_auth_root,omitempty"`
+	TerraBaseDataVolume     bool   `json:"terrabase_data_volume,omitzero"`
+	TerraBaseDataVolumeID   string `json:"terrabase_data_volume_id,omitempty"`
 }
 
 func (o hostLocalOptions) applyTo(host *HostConfig) {
@@ -697,6 +699,8 @@ func (o hostLocalOptions) applyTo(host *HostConfig) {
 	host.SelfUpdateRoot = o.SelfUpdateRoot
 	host.TerraBaseRoot = o.TerraBaseRoot
 	host.TSAuthRoot = o.TSAuthRoot
+	host.TerraBaseDataVolume = o.TerraBaseDataVolume
+	host.TerraBaseDataVolumeID = o.TerraBaseDataVolumeID
 }
 
 // readHostLocalOptions reads the host-local options of an existing host.json.

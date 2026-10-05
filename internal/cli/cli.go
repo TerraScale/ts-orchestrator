@@ -59,7 +59,7 @@ Operator tooling:
   netbird                Install the NetBird client; manage the NetBird manager (sync, peers, setup key)
   qualification          Run source-backed operational qualification
   source-digest          Compute the versioned TerraBase source-tree digest
-  terrabase              Create a cell's C# TerraBase member CA
+  terrabase              C# TerraBase member CA and member data volumes
   ts-auth                Provision ts-auth's Vault secrets and host env file
   ouroboros              Bootstrap TerraScale's own TerraBase organization, project keys and owner
   runtime-priority       Qualify runtime resources and run bounded pressure

@@ -64,6 +64,9 @@ type Registration struct {
 	ManagedOCI         *ManagedOCIBinding       `json:"managed_oci,omitempty"`
 	ManagedMember      *ManagedMemberBinding    `json:"managed_member,omitempty"`
 	SystemReserveBytes int64                    `json:"system_reserve_bytes,omitzero"`
+	// TerraBaseDataVolumeID is the operator-assigned C# member volume. A
+	// replacement host keeps it; a new member with a reused name gets a new ID.
+	TerraBaseDataVolumeID string `json:"terrabase_data_volume_id,omitempty"`
 }
 
 // ManagedPlacementBinding fixes a managed host registration to one business
@@ -240,6 +243,11 @@ type AgentConfig struct {
 	SessionTrace            bool
 	ClockCheck              func() error
 	VolumeInitSocket        string
+
+	// TerraBaseDataVolume requires the member data directory to be the
+	// mounted OCI data volume; without that mount the member never starts.
+	TerraBaseDataVolume   bool
+	TerraBaseDataVolumeID string
 	// Initialized, when set, is called once Run has recovered the native
 	// runner and passed its clock check, before it waits for a controller
 	// session. A self-update activation proof belongs here: earlier, a host
@@ -363,6 +371,10 @@ func validateRegistration(r Registration, cell string) error {
 	}
 	if r.ManagedOCI == nil && (r.ManagedPlacement != nil || r.ManagedMember != nil || r.SystemReserveBytes != 0) {
 		return errors.New("generic host cannot carry managed placement, member or memory reserve")
+	}
+	if r.TerraBaseDataVolumeID != "" && (r.ManagedOCI != nil || !slices.Contains(r.Roles, "terrabase") ||
+		!strings.HasPrefix(r.TerraBaseDataVolumeID, "ocid1.volume.") || strings.ContainsAny(r.TerraBaseDataVolumeID, " \t\r\n/\\")) {
+		return errors.New("C# terrabase data volume binding needs a volume OCID and terrabase role")
 	}
 	if r.Generation == 0 || len(r.Roles) == 0 || len(r.Roles) > 32 {
 		return errors.New("invalid registration generation or roles")

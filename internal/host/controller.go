@@ -581,7 +581,7 @@ func sameReportMeaning(a, b Report) bool {
 
 // hostOperations are the host request subjects a leader serves.
 var hostOperations = []string{"session", "desired", "artifact", "material", "cycle", "report",
-	"drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer"}
+	"drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format"}
 
 // hostLeaderPoll is how often Run follows authority leadership.
 const hostLeaderPoll = 500 * time.Millisecond
@@ -683,7 +683,7 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	switch req.Operation {
 	case "session":
 		payload, err = c.handleSession(ctx, req)
-	case "desired", "artifact", "cycle", "report", "material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer":
+	case "desired", "artifact", "cycle", "report", "material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format":
 		payload, err = c.handleAuthorized(ctx, req)
 	default:
 		err = errors.New("unknown host operation")
@@ -1028,6 +1028,8 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (any, er
 		return c.storeLoad(ctx, req, r)
 	case "terrabase-peer":
 		return c.serveTerraBasePeer(ctx, req, r)
+	case "terrabase-format":
+		return c.serveTerraBaseFormat(ctx, req, r)
 	}
 	return nil, errors.New("unknown host operation")
 }

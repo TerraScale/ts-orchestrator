@@ -96,7 +96,7 @@ func FilesystemData(fsType string) string {
 // FormatCommand returns the fixed absolute mkfs tool and arguments that create
 // fsType with the signed UUID. The pinned device is appended by the caller.
 func FormatCommand(fsType, uuid string) (string, []string, error) {
-	if !validUUID(uuid) {
+	if !ValidUUID(uuid) {
 		return "", nil, errors.New("managed filesystem UUID is invalid")
 	}
 	switch fsType {
@@ -109,9 +109,10 @@ func FormatCommand(fsType, uuid string) (string, []string, error) {
 	}
 }
 
-// GrowConfig enables online filesystem growth. It defaults to off: ext4
-// growth needs CAP_SYS_RESOURCE in the volume initializer unit, which is a
-// privilege change operators opt into explicitly.
+// GrowConfig enables online filesystem growth. The retired managed member
+// path keeps it off unless the operator opts in; the C# TerraBase data volume
+// always grows. ext4 growth needs CAP_SYS_RESOURCE, which the volume
+// initializer unit grants.
 type GrowConfig struct {
 	Enabled bool
 }
@@ -158,7 +159,8 @@ func GrowNeeded(deviceBytes, fsBlocks, blockSize, minSlack uint64) bool {
 	return deviceBytes-fsBlocks*blockSize >= minSlack
 }
 
-func validUUID(value string) bool {
+// ValidUUID accepts only a canonical lowercase filesystem UUID.
+func ValidUUID(value string) bool {
 	if len(value) != 36 {
 		return false
 	}

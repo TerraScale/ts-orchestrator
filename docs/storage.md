@@ -8,7 +8,7 @@ from tags alone.
 | Package | Purpose |
 |---|---|
 | `storage/lifecycle` | Pure volume state machine with deadlines and `stuck`/`held` phases. Placement uses it to hold an attachment stuck ATTACHING (default 10 minutes) with a remediation instead of waiting forever. |
-| `storage/hostvolume` | Host-side primitives for the root volume initializer: hardened mount flags, ext4/xfs format commands, online grow. |
+| `storage/hostvolume` | Host-side primitives for the root volume initializer and `terrabase restore-check`: hardened mount flags, ext4/xfs format commands, online grow, boot-disk and mounted-device checks. |
 | `storage/capacity` | statfs collector, the TTL'd `TS_STORAGE_USAGE` KV bucket, and pressure signals for placement and autoscaling. |
 | `storage/backup` | OCI volume backup policy, planner and leader-only runner with fenced retention. |
 | `storage/failover` | Reattaches a volume after its host is lost. It requires proof that the old instance is TERMINATED. Placement drives it for replacement host attempts through the OCI boundary in `failover/oci.go`. |
@@ -34,11 +34,22 @@ Every feature below is off by default.
 | Setting | Effect | Prerequisite |
 |---|---|---|
 | placement `auto_grow_volumes` | Grows a retained volume created under a smaller resource profile through the journaled `Fleet.ResizeRetainedVolume` (grow-only). | None. |
-| host `managed_volume_online_grow` | The volume initializer rescans the device and grows the mounted filesystem: `EXT4_IOC_RESIZE_FS` for ext4, `xfs_growfs` for xfs. The device size is read from sysfs (`/sys/dev/block/<maj>:<min>/size`), because the pinned device descriptor is `O_PATH`. A grow is attempted when the device exceeds the filesystem's statfs size by at least 512 MiB, half of OCI's 1 GiB resize step, so every real resize triggers it. | ext4 growth needs `CAP_SYS_RESOURCE` in the `terrascale-orchestrator-host-volume-init.service` bounding set (operator drop-in). The default unit does not grant it. |
+| host `managed_volume_online_grow` | The volume initializer rescans the device and grows the mounted filesystem: `EXT4_IOC_RESIZE_FS` for ext4, `xfs_growfs` for xfs. The device size is read from sysfs (`/sys/dev/block/<maj>:<min>/size`), because the pinned device descriptor is `O_PATH`. A grow is attempted when the device exceeds the filesystem's statfs size by at least 512 MiB, half of OCI's 1 GiB resize step, so every real resize triggers it. | ext4 growth needs `CAP_SYS_RESOURCE`, which the `terrascale-orchestrator-host-volume-init.service` bounding set grants. The setting gates growth only for the retired managed member path; the C# TerraBase data volume always grows (see [TerraBase runtime contract](terrabase-runtime-contract.md#data-volume)). |
 | controller `storage_capacity.enabled` | Each controller publishes its boot root and JetStream StoreDir usage. The unused JetStream max-store reservation counts as used, and it is also subtracted from the node's boot headroom when the StoreDir is on the boot filesystem. Pressure is logged, and critical pressure is logged as an error. | None. |
 | controller `volume_backup.enabled` | The leader keeps crash-consistent OCI volume backups of placed members' retained volumes: every `interval_hours`, with a FULL backup every `full_every` and INCREMENTAL backups otherwise. With `prune` set, `retain` must be at least `full_every`, so pruning never deletes the last FULL. | The controller dynamic group needs `manage volume-backups` in the compartment. |
 | controller `volume_backup.prune` | Deletes owned AVAILABLE backups beyond `retain`. Before each delete it re-reads the backup's tags, source volume and state, and deletes with If-Match on the ETag. Owned backups of a volume that has left placement and no longer exists in OCI (404 or TERMINATED) are deleted once they are older than `orphan_retention_days` (default 30). Orphan retention runs only when every placement partition was readable on that pass. | `volume_backup.enabled`. |
 | placement `reattach_on_host_loss` | A replacement host attempt takes over its lost predecessor's retained volume (see Reattach on host loss). | The lost-member replacement itself needs a `LostMemberEvidence` source. Roll every controller to this version first (new durable field). |
+
+C# TerraBase member data volumes do not use the `volume_backup` runner:
+`oci.MemberVolumes.Ensure` assigns each one the cell's OCI volume backup
+policy (daily INCREMENTAL kept 7 days, weekly FULL kept 28 days), which OCI
+runs itself. See [TerraBase runtime contract](terrabase-runtime-contract.md#backups).
+
+After a C# member drains for scale-in, `oci.MemberVolumes.Retire` detaches
+its exact recorded volume, tags it with the retired node name and time, and
+keeps it. Reusing the name creates a fresh volume with a separate first-format
+grant. Host replacement keeps the recorded volume. Retired volumes have no
+automatic deletion; deleting one is a separate explicit, user-confirmed action.
 
 ## Resize and ownership
 

@@ -2084,6 +2084,12 @@ type fakeProvider struct {
 	attachErrorAfterCreate       error
 	attachReplayError            error
 	terminations                 int
+	backupPolicies               []CloudBackupPolicy
+	backupPolicyRetryTokens      map[string]string
+	backupPolicyAssignments      map[string]string
+	backupPolicyCreates          int
+	volumeCreateRequests         []VolumeCreateRequest
+	volumeBackups                []CloudVolumeBackup
 }
 
 func newFakeProvider(config RegionConfig) *fakeProvider {
@@ -2343,6 +2349,7 @@ func (p *fakeProvider) CreateVolume(_ context.Context, request VolumeCreateReque
 		return p.volumes[id], p.volumeRetryReplayError
 	}
 	p.volumeCreates++
+	p.volumeCreateRequests = append(p.volumeCreateRequests, request)
 	id := fmt.Sprintf("ocid1.volume.created-%d", p.volumeCreates)
 	volume := CloudVolume{
 		ID: id, CompartmentID: p.config.CompartmentID, AvailabilityDomain: request.AvailabilityDomain,

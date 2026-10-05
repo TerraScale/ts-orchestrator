@@ -148,9 +148,14 @@ type HostConfig struct {
 	WorkloadGID         uint32   `json:"workload_gid"`
 	PollMillis          int      `json:"poll_millis,omitzero"`
 	SessionTrace        bool     `json:"session_trace,omitzero"`
+	// TerraBaseDataVolume keeps the C# member's data directory on its OCI
+	// block volume (<node>-data at /dev/oracleoci/oraclevdb), mounted by the
+	// root volume initializer; the member never starts without it.
+	TerraBaseDataVolume   bool   `json:"terrabase_data_volume,omitzero"`
+	TerraBaseDataVolumeID string `json:"terrabase_data_volume_id,omitempty"`
 	// ManagedVolumeOnlineGrow lets the root volume initializer grow a managed
-	// filesystem to its resized OCI volume. Off by default: ext4 growth needs
-	// CAP_SYS_RESOURCE added to the volume-init unit by the operator.
+	// member filesystem to its resized OCI volume. Off by default; the C#
+	// TerraBase data volume always grows.
 	ManagedVolumeOnlineGrow bool `json:"managed_volume_online_grow,omitzero"`
 	// SelfUpdateProofFile, when set, makes a started host agent sign a
 	// version proof for a pending self-update activation with its identity key.

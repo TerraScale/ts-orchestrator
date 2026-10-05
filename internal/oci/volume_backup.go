@@ -183,3 +183,118 @@ func cloudVolumeBackup(backup core.VolumeBackup, etag string) CloudVolumeBackup 
 		SizeGB: int64Value(backup.SizeInGBs), CreatedAt: created, FreeformTags: cloneStringMap(backup.FreeformTags),
 	}
 }
+
+// BackupSchedule is one schedule of an OCI volume backup policy. DayOfWeek
+// applies to ONE_WEEK schedules only.
+type BackupSchedule struct {
+	Type             string // FULL or INCREMENTAL
+	Period           string // ONE_DAY or ONE_WEEK
+	RetentionSeconds int
+	OffsetType       string // STRUCTURED: HourOfDay and DayOfWeek place it
+	HourOfDay        int
+	DayOfWeek        string
+	TimeZone         string // UTC
+}
+
+// CloudBackupPolicy is a normalized OCI volume backup policy.
+type CloudBackupPolicy struct {
+	ID           string
+	DisplayName  string
+	Schedules    []BackupSchedule
+	FreeformTags map[string]string
+}
+
+// BackupPolicyProvider is the optional Provider seam for OCI volume backup
+// policies: OCI itself then takes and expires the backups on schedule.
+type BackupPolicyProvider interface {
+	ListVolumeBackupPolicies(ctx context.Context) ([]CloudBackupPolicy, error)
+	CreateVolumeBackupPolicy(ctx context.Context, name string, schedules []BackupSchedule, tags map[string]string, retryToken string) (CloudBackupPolicy, error)
+	// VolumeBackupPolicyAssignment returns the policy assigned to the
+	// volume, or "" when it has none.
+	VolumeBackupPolicyAssignment(ctx context.Context, volumeID string) (string, error)
+	AssignVolumeBackupPolicy(ctx context.Context, volumeID, policyID string) error
+}
+
+func (provider *sdkProvider) ListVolumeBackupPolicies(ctx context.Context) ([]CloudBackupPolicy, error) {
+	var policies []CloudBackupPolicy
+	var page *string
+	for {
+		response, err := provider.storage.ListVolumeBackupPolicies(ctx, core.ListVolumeBackupPoliciesRequest{
+			CompartmentId: new(provider.config.CompartmentID), Page: page, Limit: new(100),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list OCI volume backup policies: %w", err)
+		}
+		for _, policy := range response.Items {
+			policies = append(policies, cloudBackupPolicy(policy))
+			if len(policies) > maxProviderItems {
+				return nil, errors.New("OCI volume backup policy list exceeds its safety bound")
+			}
+		}
+		if response.OpcNextPage == nil || *response.OpcNextPage == "" {
+			return policies, nil
+		}
+		page = response.OpcNextPage
+	}
+}
+
+func (provider *sdkProvider) CreateVolumeBackupPolicy(ctx context.Context, name string, schedules []BackupSchedule, tags map[string]string, retryToken string) (CloudBackupPolicy, error) {
+	details := core.CreateVolumeBackupPolicyDetails{
+		CompartmentId: new(provider.config.CompartmentID), DisplayName: new(name), FreeformTags: cloneStringMap(tags),
+	}
+	for _, schedule := range schedules {
+		details.Schedules = append(details.Schedules, core.VolumeBackupSchedule{
+			BackupType: core.VolumeBackupScheduleBackupTypeEnum(schedule.Type), Period: core.VolumeBackupSchedulePeriodEnum(schedule.Period),
+			RetentionSeconds: new(schedule.RetentionSeconds), OffsetType: core.VolumeBackupScheduleOffsetTypeEnum(schedule.OffsetType),
+			HourOfDay: new(schedule.HourOfDay), DayOfWeek: core.VolumeBackupScheduleDayOfWeekEnum(schedule.DayOfWeek),
+			TimeZone: core.VolumeBackupScheduleTimeZoneEnum(schedule.TimeZone),
+		})
+	}
+	response, err := provider.storage.CreateVolumeBackupPolicy(ctx, core.CreateVolumeBackupPolicyRequest{
+		CreateVolumeBackupPolicyDetails: details, OpcRetryToken: new(retryToken),
+	})
+	if err != nil {
+		return CloudBackupPolicy{}, fmt.Errorf("create OCI volume backup policy: %w", err)
+	}
+	return cloudBackupPolicy(response.VolumeBackupPolicy), nil
+}
+
+func (provider *sdkProvider) VolumeBackupPolicyAssignment(ctx context.Context, volumeID string) (string, error) {
+	response, err := provider.storage.GetVolumeBackupPolicyAssetAssignment(ctx, core.GetVolumeBackupPolicyAssetAssignmentRequest{AssetId: new(volumeID)})
+	if err != nil {
+		return "", fmt.Errorf("get OCI volume backup policy assignment: %w", err)
+	}
+	switch len(response.Items) {
+	case 0:
+		return "", nil
+	case 1:
+		return stringValue(response.Items[0].PolicyId), nil
+	}
+	return "", errors.New("OCI volume has more than one backup policy assignment")
+}
+
+func (provider *sdkProvider) AssignVolumeBackupPolicy(ctx context.Context, volumeID, policyID string) error {
+	if _, err := provider.storage.CreateVolumeBackupPolicyAssignment(ctx, core.CreateVolumeBackupPolicyAssignmentRequest{
+		CreateVolumeBackupPolicyAssignmentDetails: core.CreateVolumeBackupPolicyAssignmentDetails{AssetId: new(volumeID), PolicyId: new(policyID)},
+	}); err != nil {
+		return fmt.Errorf("assign OCI volume backup policy: %w", err)
+	}
+	return nil
+}
+
+func cloudBackupPolicy(policy core.VolumeBackupPolicy) CloudBackupPolicy {
+	cloud := CloudBackupPolicy{ID: stringValue(policy.Id), DisplayName: stringValue(policy.DisplayName), FreeformTags: cloneStringMap(policy.FreeformTags)}
+	for _, schedule := range policy.Schedules {
+		cloud.Schedules = append(cloud.Schedules, BackupSchedule{Type: string(schedule.BackupType), Period: string(schedule.Period),
+			RetentionSeconds: intValue(schedule.RetentionSeconds), OffsetType: string(schedule.OffsetType), HourOfDay: intValue(schedule.HourOfDay),
+			DayOfWeek: string(schedule.DayOfWeek), TimeZone: string(schedule.TimeZone)})
+	}
+	return cloud
+}
+
+func intValue(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
+}

@@ -66,7 +66,9 @@ ignored. A configuration error exits with code 2 and never prints a value.
 | `client-port`, `client-certificate`, `client-private-key` | unset | HTTPS client API on all interfaces, HTTP/1.1 and HTTP/2. All three or none. |
 | `peer-port`, `peer-certificate`, `peer-private-key`, `peer-client-ca` | unset | Inter-node gRPC service `terrabase.v1.Replication/Sync` over HTTP/2 with mutual TLS on all interfaces. A connecting peer's client certificate must chain to `peer-client-ca` and carry the clientAuth EKU. All four or none. |
 
-There is no `/readyz`: `/healthz` is liveness only. The `Sync` service exists
+TerraBase `origin/main` `807ad714` serves `GET /readyz` on the client
+listener (`Features/Health/ReadyzEndpoint.cs`, `ListenerMetadata.Probe`).
+`/healthz` remains liveness on the admin listener. The `Sync` service exists
 but rejects the handshake with `Unimplemented` until TerraBase TS-464. The
 binary has no peer-list setting yet; N-node membership is TerraBase TS-469.
 
@@ -184,7 +186,7 @@ non-managed `terrabase` desired is launched as a C# member.
 | --- | --- | --- |
 | `<root>` | supervisor, workload group, 0750 | |
 | `<root>/tls` | supervisor, workload group, 0750 | `member.key`, `member.pem`, `ca.pem`, each supervisor-owned, workload group, 0440 |
-| `<root>/data` | workload user, 0700 | SQLite databases |
+| `<root>/data` | workload user, 0700 | SQLite databases. With `terrabase_data_volume` set, the mount of the member's data volume; see [Data volume](#data-volume). |
 | `<root>/bundle` | workload user, 0700 | Extracted native libraries |
 
 The member's environment is the host base environment
@@ -204,9 +206,236 @@ the image) in its own cgroup under the host agent. There is no per-member
 systemd unit: the host agent
 ([`terrascale-orchestrator-host.service`](../deploy/systemd/terrascale-orchestrator-host.service))
 is the supervisor, and the member's stdout and stderr go to that unit's
-journal. The C# path attaches no block volume: member data lives on the
-host's filesystem under `terrabase_root` and does not survive replacement
-of the host.
+journal.
+
+### Data volume
+
+Host config `host.terrabase_data_volume: true` keeps `<root>/data` on the
+member's OCI block volume. It requires `terrabase_root` and
+`host.terrabase_data_volume_id`, the recorded volume OCID. The operator
+sets the same `terrabase_data_volume_id` in the trusted host registration.
+These host-local options survive credential renewal. Without the option, `<root>/data` is
+a directory on the boot disk and does not survive replacement of the host.
+
+**OCI side.** `oci.MemberVolumes`
+([`member_volume.go`](../internal/oci/member_volume.go)) manages one volume
+per member, named `<member>-data` (for example `gru-1-db-1-data`).
+`Ensure(ctx, oci.MemberVolumeRequest{Member, InstanceID, SizeGB, VolumeID})`:
+
+- creates the volume once, in the member compartment and availability
+  domain with the plan's VPUs per GB, tagged like the fleet's retained
+  volumes (create key = volume name, owner = cell name, generation 1), and
+  waits until it is AVAILABLE. It creates a volume only while no volume of
+  that name exists outside the retired set and `VolumeID` is empty. A new
+  member using a retired name gets a fresh volume; its retry token includes
+  the sorted retired volume IDs, so a retry cannot resurrect the old volume;
+- assigns the cell's backup policy (see [Backups](#backups)) before the
+  attach;
+- attaches it paravirtualized, read-write, not shareable, with in-transit
+  encryption, at the fixed device `/dev/oracleoci/oraclevdb`, to the
+  RUNNING instance whose display name is the member. The instance must have
+  consistent volume naming.
+
+`VolumeID` is the member's recorded volume, plan.json
+`resource_ids.data_volumes.<slot>`. Once it is recorded, `Ensure` never
+creates a volume: a missing recorded volume fails with an instruction to
+restore it from a backup, and a volume of that name with another ID fails
+with `ErrForeignResource`. Callers record the returned `VolumeID` after the
+first `Ensure`.
+
+`Ensure` is idempotent. It refuses a volume attached (any state but
+DETACHED) to another instance with `ErrRetainedVolumeInUse` and never
+detaches it. OCI detaches the volume when that instance terminates; `Ensure`
+then attaches the same volume to the replacement instead of creating a new
+one. A TERMINATED or FAULTY volume of the member fails closed; no empty
+volume replaces it. `Resize(ctx, member, recordedID, sizeGB)` checks the
+recorded OCID before growing online under the volume's ETag.
+`NewOperatorMemberVolumes` uses the operator's
+`~/.oci/config` DEFAULT profile. There is no controller journal or
+authority fence: this is the operator and autoscaler path. The operator
+commands are `ts-orch terrabase data-volume`, `restore-volume` and
+`restore-check`; see
+[TerraBase deployment](terrabase-deployment.md#gru-1-live-deployment-runbook)
+and its [restore drill](terrabase-deployment.md#restore-drill).
+
+**Host side**
+([`terrabase_volume.go`](../internal/host/terrabase_volume.go)). With the
+option set, the agent does not create `<root>/data`. It asks the root
+volume initializer (`terrascale-orchestrator-host-volume-init`, socket
+activated) to mount the volume, and launches the member only after it has
+verified that `<root>/data` is the only mount of `/dev/oracleoci/oraclevdb`,
+ext4, hardened (`nosuid,nodev,noexec,noatime`), owned by the workload user
+and group with mode 0700. If the volume is missing or cannot be mounted,
+the member stays stopped and the host reports the error; it never falls
+back to the boot disk. Before the first launch on a filesystem the agent
+also records it with the controller (below): a filesystem other than the
+one recorded for the member is refused, also when it replaces a confirmed
+one. Every reconcile first checks, locally and before any controller
+request or remount, that the data directory is still the verified mount of
+the confirmed filesystem; otherwise it stops the member, also when the
+runner cannot observe it, and goes no further while a stop fails. The
+generation-update path fences again immediately before volume preparation,
+after fetching the artifact. A failed stop prevents repair. The running
+report checks again before and after preparation, whose
+maintenance request is bounded to 2 minutes, and a launch checks once more
+right before the process starts. A stopped member stays reported `failed`
+until the mount verifies again. The empty boot-disk directory under the
+mount is root-owned with mode 0700, so after any unmount the workload
+cannot create a file there. The initializer:
+
+- rejects the boot disk and its partitions;
+- mounts an existing ext4 filesystem;
+- formats only a device with no filesystem signature whose sampled blocks
+  are all zero, and only with the member's first-format grant (below),
+  through the managed initializer's ordered effects: it consumes the grant
+  durably first, then runs `mkfs.ext4` and mounts only a filesystem that
+  reads back the granted UUID. It refuses anything else;
+- refuses to mount over a non-empty `<root>/data`, whose boot disk files
+  would be hidden, and makes the empty mount point root-owned 0700;
+- gives the mounted root to the workload user and group with mode 0700;
+- records `UUID=<uuid> <root>/data ext4 nosuid,nodev,noexec,noatime,errors=remount-ro,nofail,x-systemd.device-timeout=30s,x-systemd.before=terrascale-orchestrator-host.service 0 2`
+  in `/etc/fstab`, replacing any previous entry for that mount point, so
+  systemd mounts it at boot before the host agent starts. `nofail` lets a
+  boot without the volume continue; the agent then keeps the member
+  stopped;
+- grows the filesystem online after an OCI resize.
+
+The unit's bounding set is `CAP_SYS_ADMIN CAP_CHOWN CAP_SYS_RESOURCE
+CAP_DAC_READ_SEARCH`: `CAP_DAC_READ_SEARCH` opens the workload-owned 0700
+volume root for the ownership check and online growth, and
+`CAP_SYS_RESOURCE` allows `EXT4_IOC_RESIZE_FS`. The initializer has no
+`CAP_FOWNER`, so it takes the root back, sets the mode and hands it to the
+workload last. The host agent prepares its workload-owned directories
+(`<root>/bundle`, and `<root>/data` without the option) the same way: it
+has `CAP_CHOWN` but not `CAP_FOWNER`.
+
+While the mount is verified, the agent asks the initializer again at most
+every 10 minutes for this maintenance, so a filesystem grows within about
+10 minutes of a resize. ext4's `lost+found` appears inside the data
+directory.
+
+**First-format grant.** A blank device is formatted only once per registered volume,
+with the controller's grant:
+
+1. The initializer finds the device blank and unconsumed. Before any
+   controller request, it creates and syncs a random attempt ID in
+   `/var/lib/terrascale-orchestrator-volume-init/terrabase-data-format-<SHA-256(volume OCID)>-attempt`.
+   It reuses that ID across restarts and answers the agent with result
+   byte 2 followed by the 32-byte hexadecimal ID. It formats nothing.
+2. Only then the agent sends host operation `terrabase-format` to the leader
+   controller, naming the registered volume OCID and initializer attempt. The controller rejects
+   requests naming a different OCID and records
+   `terrabase-format.<cell>.<node>.<SHA-256(volume OCID)>` =
+   `{"uuid":...,"attempt_id":...,"host_key":...,"generation":...}` in
+   the host state KV (`TS_HOST_STATE`) before it answers `Granted=true`.
+   Retries from that exact attempt, host key and registration generation
+   receive the same UUID in a fresh signed envelope. A lost response or an
+   expired envelope therefore does not allocate or consume another grant.
+3. The agent passes the controller-signed reply to the initializer. The
+   initializer verifies the signature, operation, node, configured volume OCID,
+   exact locally recorded attempt ID and its
+   freshness (10 seconds), writes and syncs
+   `/var/lib/terrascale-orchestrator-volume-init/terrabase-data-format-<SHA-256(volume OCID)>`,
+   and only then runs `mkfs.ext4` with that UUID. A host with that marker
+   never formats that volume again, so a replayed grant holds.
+
+A host that mounts an existing filesystem sends `terrabase-format` with its
+mounted UUID. Initial adoption records a closed grant immediately; confirmation
+of an issued grant's exact recorded UUID clears its pending attempt under CAS. Later requests receive
+the recorded UUID with `Granted=false`. UUID-only legacy records also stay
+closed: their consumption history is uncertain.
+
+A crash before the consumption marker is written can retry the original
+attempt, including after a lost controller response or agent/helper restart.
+A crash after the marker is written holds a blank device, even if `mkfs` never
+finished. The initializer refuses it before requesting another grant. A
+replacement host or missing/replaced initializer journal has a different attempt
+and cannot recover the original grant, even with copied host credentials. A
+previously issued envelope also fails its local attempt check on that host.
+Preserve the complete initializer journal, including consumption markers;
+never copy an attempt file alone or delete either the journal or controller
+record to regain format authority.
+
+Ambiguous or consumed blank volumes require operator investigation; restore
+existing data from a backup when necessary. Restored backups keep the recorded
+UUID. Grant records are retained. A new member after scale-in has a new
+registered volume OCID, so it gets a separate one-time grant; changing the host
+key alone never resets a volume's grant.
+
+### Backups
+
+Every member data volume carries the cell's OCI volume backup policy
+`<cell>-db-data` (for example `gru-1-db-data`), assigned before the volume
+is attached. Its schedules are `oci.MemberBackupSchedules`, in UTC:
+
+| Type | Period | Time | Kept |
+| --- | --- | --- | --- |
+| INCREMENTAL | daily | 03:00 | 7 days |
+| FULL | weekly | Sunday 04:00 | 28 days |
+
+OCI runs the policy; no orchestrator process takes these backups. `Ensure`
+creates the policy once, tagged as owned by the cell. It refuses, with
+`ErrForeignResource`, a volume that carries another policy and a policy of
+that name with other schedules or tags, instead of changing them. These are
+crash-consistent volume backups; SQLite's WAL makes them restorable, and the
+[restore drill](terrabase-deployment.md#restore-drill) proves one.
+
+The controller's backup runner (`internal/storage/backup`, `volume_backup`
+in [storage](storage.md)) is not used: it needs the controller leader,
+placement and a single count-based cadence. The OCI provider seam in
+[`volume_backup.go`](../internal/oci/volume_backup.go) is reused.
+Incremental backups bill changed blocks; the plan's budget allows
+`snapshot_gb_max` 350.
+
+**Restore.** `MemberVolumes.Restore`
+([`member_volume_restore.go`](../internal/oci/member_volume_restore.go))
+restores the newest AVAILABLE backup of the member's volume, or a named
+one, into a new volume `restore-<member>-data`. The backup must be of the
+member's current volume or of its recorded volume (`SourceVolumeID`,
+plan.json `resource_ids.data_volumes`); when the volume is gone, the
+recorded ID is required. That volume has its own create key, resource tag
+`member-data-restore` and no backup policy. It is attached at
+`oci.RestoreVolumeDevice` (`/dev/oracleoci/oraclevdz`), a device no member
+volume uses, only to a RUNNING scratch instance in the cell's compartment
+and availability domain, with consistent volume naming, that is not named
+as a member and holds no other volume; the attachments are read back
+before and after the attach. A rerun for the same member and backup reuses
+the restored volume. Record its output `volume_id` and pass that exact OCID
+as `--restored-volume` to `ts-orch terrabase restore-check`
+([`restore_check.go`](../internal/terrabase/restore_check.go)) then mounts
+it on the scratch host, never formatting it, starts the release binary on
+it as a single member and reads one document. It mounts only
+`/dev/oracleoci/oraclevdz`, only on the instance whose OCID instance
+metadata reports as `--scratch-instance`, refuses a host with
+`/etc/terrascale-orchestrator/host.json`, a partition, the boot disk and
+any mounted device, and mounts the device descriptor it checked. Before
+mounting, `VerifyRestoredAttachment` re-reads OCI and requires exactly that
+OCID at the restore device, its restore resource and scope tags, and
+AVAILABLE state. A swapped volume fails before any database read.
+The binary and HTTP verification run in a network namespace containing
+only loopback, so the client listener cannot expose restored data to the
+scratch host's network. Readiness defaults to client HTTPS `/readyz`; the
+document read remains the restore proof.
+
+**Autoscaler integration.** After the cell autoscaler (PR #150,
+`internal/cellscale`) launches node `<cell>-db-N`, it calls
+`oci.NewOperatorMemberVolumes(...)` once and
+`volumes.Ensure(ctx, oci.MemberVolumeRequest{Member: name, InstanceID: instance.ID, SizeGB: sizeGB})`.
+It must record the returned `VolumeID`, bind it in the host registration
+and `host.json`, and pass it as `VolumeID` on later calls. Its launch must set `LaunchOptions.IsConsistentVolumeNamingEnabled`
+to true: OCI defaults it to false, and `Ensure` rejects such instances.
+On scale-in, after the node has drained and before terminating its host,
+call `volumes.Retire(ctx, oci.MemberVolumeRequest{Member: name,
+InstanceID: instance.ID, VolumeID: recordedID})`. It detaches only that
+instance's exact recorded volume, marks it retired with node name and time,
+and retains it. A failure holds scale-in. Retain its OCID in the retirement
+record and clear the active member's volume ID only after retirement
+succeeds. A new member with the same name calls `Ensure` without an active
+recorded ID and receives a fresh volume and first-format grant. Host
+replacement passes the existing ID and reattaches the existing volume.
+Retired volumes are never automatically deleted; deletion requires a
+separate explicit user-confirmed action. `internal/cellscale` is not edited
+here; these hooks are its integration contract.
 
 ## Readiness
 
@@ -255,6 +484,53 @@ output errors. `TestNativeDrainSendsTermBeforeKill`
 the timeout; like the other native runner tests it needs root and a
 delegated cgroup and skips otherwise.
 
+The data volume has fake-OCI and pure-function T0 tests; none ran on OCI.
+In `internal/oci`, `TestMemberVolumeCreatesAndAttachesOnceIdempotently`,
+`TestMemberVolumeLostCreateResponseReplaysOneVolume`,
+`TestMemberVolumeReattachesSameVolumeAfterHostReplacement`,
+`TestMemberVolumeRefusesToStealLiveAttachment`,
+`TestMemberVolumeFailsClosedOnTerminatedVolume`,
+`TestMemberVolumeRejectsInstancesAndNamesOutsideTheMember`,
+`TestMemberVolumeHoldsWhenDeviceIsBusy`,
+`TestMemberVolumeResizeGrowsOnlyUnderETag`,
+`TestMemberVolumeDuplicateCreateKeyHolds`,
+`TestMemberVolumeRecordedVolumeIsNeverRecreated`,
+`TestMemberVolumeCarriesTheCellBackupPolicy` and
+`TestMemberVolumeRestoreDrill`. In `internal/terrabase`,
+`TestDataVolumeDryRunSizesFromThePlan`,
+`TestDataVolumeRejectsUnplannedMembersAndAmbiguousFlags`,
+`TestRestoreVolumeDryRunMakesNoOCICall`,
+`TestRestoreCheckPlanWithoutApply`, `TestRestoreCheckRejectsBadFlags`,
+`TestRestoreCheckEnvHasOnlyHostPathsAndNoPeers`,
+`TestVerifyRestoreReadsTheDocumentWithAReadOnlyKey` and
+`TestRestoreCheckRefusesLiveDevices`,
+`TestRestoreCheckRunsOnlyOnTheVerifiedScratchInstance`; in `internal/storage/hostvolume`,
+`TestBlockDeviceMountedMatchesExactDevice`. In
+`internal/host` (Linux), `TestTerraBaseDataVolumeNeverFormatsExistingData`,
+`TestTerraBaseDataVolumeFstab`, `TestTerraBaseDataVolumeWriteFstab`,
+`TestTerraBaseDataVolumeEmptyMountTarget`,
+`TestTerraBaseDataVolumeFilesystemUUID`,
+`TestTerraBaseDataVolumeExchangeFraming`,
+`TestTerraBaseDataVolumeAgentFailsClosed`,
+`TestTerraBaseDataVolumeNeedsTerraBaseRoot`,
+`TestTerraBaseDataVolumeFirstFormatIsGrantedOnce`,
+`TestTerraBaseDataVolumeFormatGrantVerification`,
+`TestTerraBaseDataVolumeAsksForGrantOnlyWhenBlank`,
+`TestTerraBaseDataVolumeEffectsFormatOnlyWithAnUnspentGrant`,
+`TestTerraBaseDataVolumeAdoptedFilesystemIsRecorded`,
+`TestTerraBaseDataVolumeLossStopsTheRunningMember`,
+`TestTerraBaseDataVolumeFilesystemSwapIsRefused`,
+`TestTerraBaseDataVolumeFenceStopsBeforeRepair`,
+`TestTerraBaseDataVolumeReadsTheSuperblockUUID`,
+`TestTerraBaseDataVolumeFenceFailsClosed`,
+`TestTerraBaseDataVolumeLostDuringMaintenanceStopsTheMember`,
+`TestEnsureOwnedDirWithoutFowner` and
+`TestTerraBaseDataVolumeRootWithInitializerCapabilities`. The last two run
+with exactly the host agent's and the initializer unit's capabilities, the
+second also taking back a workload-owned mount point; they need root and
+skip otherwise, and passed as root locally, as did the root-only part of
+`TestTerraBaseDataVolumeEmptyMountTarget`.
+
 Two T2 tests run the real binary. They skip unless `TS_TERRABASE_BINARY`
 names a `terrabase-linux-<arch>` asset with its `.sha256` file beside it:
 
@@ -290,8 +566,9 @@ GRU had no TerraBase hosts during its rebuild), and its host path read the
 VNIC and private IP of the running `ts-ops` A1 instance.
 
 Not tested: any live OCI host running a member, ARM64, the cgroup process runner as root with
-the real binary (its drain is covered by a root-only runner test), and real
-replication, which the binary does not implement yet.
+the real binary (its drain is covered by a root-only runner test), a real
+OCI data volume attach, format, mount and resize, a real backup restore
+drill, and real replication, which the binary does not implement yet.
 
 ## Retired terrabase-rust managed path
 

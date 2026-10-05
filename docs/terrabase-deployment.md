@@ -18,6 +18,9 @@ command sequence is the [bring-up runbook](#gru-1-bring-up-runbook).
 | `ts-orch oci-region preview member-launch --plan F --inventory F --admission F --slot member-a --image-ocid OCID --host-enrollment F --owner-ssh-public-key F --out F` | Writes the launch input of one database host (`gru-1-db-1`); creates nothing. |
 | `ts-orch bootstrap render-controller-config ... --terrabase-profile F --terrabase-profile-sha256 H --out F` | Renders a controller config with the member CA paths and `controller.workloads.terrabase`. |
 | `ts-orch operator terrabase-release --config FILE [--nats-forward ...] --binary F --sha256 F --source-checkout DIR --commit SHA --environment ENV --profile F [--wait 10m]` | Verifies, admits and rolls out one release to all members; see [Run](#run). |
+| `ts-orch terrabase data-volume --plan FILE --member NAME (--instance OCID \| --grow-gb N) [--compartment OCID] [--apply]` | Prints the resolved data volume request as one JSON line. With `--apply`, creates and attaches the member's volume `NAME-data` (`{"step":"attached", ...}`) or grows it (`{"step":"grown", ...}`) through the operator's `~/.oci/config` DEFAULT profile; see [gru-1 runbook](#gru-1-live-deployment-runbook) step 7. |
+| `ts-orch terrabase restore-volume --plan FILE --member NAME --scratch-instance OCID [--backup OCID] [--compartment OCID] [--apply]` | Prints the resolved restore request. With `--apply`, restores the newest AVAILABLE backup of `NAME-data` (or `--backup`) into a new volume `restore-NAME-data` and attaches it to the scratch instance (`{"step":"restored", ...}`); see [Restore drill](#restore-drill). |
+| `ts-orch terrabase restore-check --plan FILE --restored-volume OCID --binary F --organization ORG --document PATH --scratch-instance OCID [--compartment OCID] [--ready-path P] [--wait D] [--apply]` | On the scratch host, as root: prints the plan. With `--apply`, verifies the exact restored OCID and restore tag, mounts it, and reads `PATH` through TerraBase in a loopback-only network namespace (`{"step":"verified", ...}`); see [Restore drill](#restore-drill). |
 | `ts-orch operator hosts --config FILE [--nats-forward ...]` | Prints each host's registration, session and latest reports, including each member's digest and state. |
 | `ts-orch terrabase member-ca --cell CELL --out DIR` | Creates a standalone member CA for a lab controller config. A bootstrapped cell gets its CA from its controller material instead. |
 
@@ -58,10 +61,7 @@ controller through an OCI Bastion forward.
 5. **TerraBase hosts.** The hosts named in `TERRABASE_PEERS` are registered
    in the target environment with role `terrabase`, without `managed_oci`,
    `managed_placement` or `managed_member` bindings, with a current host
-   session and capacity for the profile's `resources`. The controller places
-   exactly one member on each of these hosts and never moves a member: while
-   a listed host is unavailable, a release cannot be placed; its delivery is
-   retried and eventually held without writing any member.
+   session and capacity for the profile's `resources`.
 
    On OCI such a host is a static database host. `preview member-launch`
    (attempt phase `members`) launches `<cell>-db-<n>` in the workload
@@ -76,23 +76,27 @@ controller through an OCI Bastion forward.
    size, subnet and NSGs) that carries that exact descriptor and node tag
    and no managed launch identity. The registration has role `terrabase`,
    the profile's `resources` as capacity, and no managed binding;
-   `host-setup` writes `terrabase_root` `/srv/ts-managed/terrabase` into its
-   `host.json`. A replacement instance at the same address registers the
-   next generation with its own keys. It cannot take over a live member:
-   enrollment refuses new keys while the node holds a host session, and the
-   controller grants the new generation a session only after the previous
-   generation's session has expired. Launch rights in
-   the workload compartment are therefore part of the cell's trust
+   `host-setup` writes `terrabase_root` `/srv/ts-managed/terrabase`,
+   `terrabase_data_volume: true` and the recorded
+   `terrabase_data_volume_id` into `host.json`. The trusted registration
+   carries the same volume OCID. The member's data is stored on its
+   retained OCI block volume, mounted before TerraBase starts; a missing or
+   mismatched volume fails closed. A replacement instance at the same
+   address registers the next generation with its own keys. It cannot take
+   over a live member: enrollment refuses new keys while the node holds a
+   host session, and the controller grants the new generation a session
+   only after the previous generation's session has expired. Launch rights
+   in the workload compartment are therefore part of the cell's trust
    boundary. `operator host-enrollment-revoke --instance-id` disables a
    static host's grant: it can neither renew nor enroll again, and its
    issued credentials expire within 48 hours.
 
    The regional fleet pin covers static hosts too: they must boot the
    fleet's image with its boot size and VPUs. Changing `image_id` in the
-   signed `oci-region.json` means replacing the database hosts, and until
-   block volumes (TS-485) a replacement starts with an empty member. Hosts
-   that self-enroll through a managed placement seat register a
-   `managed_oci` binding and cannot run C# members.
+   signed `oci-region.json` replaces the database hosts; their retained
+   data volumes are reattached to replacement instances. Hosts that
+   self-enroll through a managed placement seat register a `managed_oci`
+   binding and cannot run C# members.
 6. **Network.** The workload NSG allows the peer port (9443) between member
    IPs and the client port (9465) from clients and the Bastion endpoint.
    The admin port (9464) is loopback-only and needs no rule. Hosts reach
@@ -208,7 +212,8 @@ All members switch together: the delivery path writes every host's desired
 at once, so every member restarts on the new binary. Per-member canary or
 rolling updates are future work once replication exists. Old binaries stay
 installed on the hosts, so a rollback reuses the cached file. A member's data
-lives on its host, so the controller replaces a failed member in place
+lives on its host (on the data volume attached to it when
+`terrabase_data_volume` is set), so the controller replaces a failed member in place
 instead of moving it to another host, which is what lets the rollback land on
 the hosts the failed release took over. When members
 report different digests, for example after a failed rollback, the command
@@ -291,31 +296,108 @@ Inputs, outside Git except where named:
    the file and waits for `RUNNING`. A rerun after an interruption adopts
    the one live instance of a host's name only when it is exactly the
    launch of the retained launch input; any other instance of that name
-   stops the phase for reconciliation. No data volume is created (block
-   volumes are TS-485); member data lives on the boot volume. Each host
-   enrolls itself within about a minute of boot. Confirm with
-   `sudo terrascale-orchestrator operator hosts --config /var/lib/terrascale-operator/operator.json`:
-   both nodes registered with role `terrabase`, no `managed_*` binding and
-   a current session.
-7. **Read-only host check.** Take the peer list from the log line of
+   stops the phase for reconciliation. Each host enrolls itself within
+   about a minute of boot and sets `terrabase_data_volume: true`. Confirm
+   with `sudo terrascale-orchestrator operator hosts --config
+   /var/lib/terrascale-operator/operator.json`: both nodes registered with
+   role `terrabase`, no `managed_*` binding and a current session.
+7. **Member data volumes — LIVE (create and attach).** Dry run each member
+   first; it prints the resolved request and makes no OCI call:
+   `ts-orch terrabase data-volume --plan deploy/oci-region/plan.json --member gru-1-db-1 --instance <instance OCID> --compartment <gru-1 workload compartment>`.
+   Check the size (`data_gb` for the member slot; `member-a` is
+   `gru-1-db-1`, `member-b` is `gru-1-db-2`; the plan has no third member
+   slot, so `gru-1-db-3` is refused until it does), availability domain,
+   VPUs and compartment, then rerun with `--apply` and expect
+   `{"step":"attached", ...}`. The volume carries the cell's backup policy
+   `gru-1-db-data` before it is attached. Record the printed `volume_id` in
+   `plan.json` `resource_ids.data_volumes.<slot>` and in both the trusted host
+   registration and `host.json` as `terrabase_data_volume_id`: from then on the command
+   never creates that member's volume again, and a missing one fails with a
+   restore instruction. `--compartment` is needed while the plan's
+   `resource_ids.workload_compartment` is null. The host mounts the volume
+   on its next poll, formatting a new one only with the member's one-time
+   first-format grant; the member does not start before that. To grow a
+   volume later, run the same command with `--grow-gb <N>` instead of
+   `--instance`, dry run then `--apply`; the host grows the filesystem after
+   the block volume grows. Retired volumes remain retained and are never
+   reused for a new node-name incarnation. Deletion or detachment requires
+   a separate explicit action.
+8. **Read-only host check.** Take the peer list from the log line of
    `TS_OCI_LIVE_COMPARTMENT_ID=<gru-1-workload OCID> go test -count=1 -v -run '^TestLiveOCITerraBaseHostsReadOnly$' ./internal/terrabase`
    and confirm it equals the profile's `TERRABASE_PEERS`. It fails when a
    host is not A1, two hosts share a fault domain, an NSG keeps a member
    from another member's peer port, or no A1 core is left in the region.
-8. **TerraBase release — LIVE (rollout).** `$A terrabase` downloads
+9. **TerraBase release — LIVE (rollout).** `$A terrabase` downloads
    `terrabase-linux-arm64` and `.sha256` for the configured tag into
-   `terrabase/<tag>/` of the attempt directory, verifies
-   them in-process (name, ELF64 aarch64, size, digest), checks the commit in
-   a TerraBase clone (fetched when it already exists), requires it to be the
-   commit the tag names (from a `ci-<commit>-run-<id>` tag, or `git
-   rev-parse` of a version tag), and runs
-   `sudo <qualified operator CLI> operator terrabase-release --config /var/lib/terrascale-operator/operator.json --binary … --sha256 … --source-checkout … --commit <commit> --environment canary --profile <terrabase_profile> --wait 10m`
-   as described in [Run](#run).
-9. **Verify.** The release prints `{"step":"ready", ...}` with two members,
-   and `operator hosts` shows a `terrabase` report `running` with the new
-   digest on `gru-1-db-1` and `gru-1-db-2`. Capture the evidence in
-   `docs/evidence`. `running` proves process liveness only; replication
-   acceptance waits for TerraBase TS-464/TS-469.
+   `terrabase/<tag>/` of the attempt directory, verifies them in-process
+   (name, ELF64 aarch64, size, digest), checks the commit in a TerraBase
+   clone (fetched when it already exists), requires it to be the commit the
+   tag names (from a `ci-<commit>-run-<id>` tag, or `git rev-parse` of a
+   version tag), and runs `sudo <qualified operator CLI> operator
+   terrabase-release --config /var/lib/terrascale-operator/operator.json
+   --binary … --sha256 … --source-checkout … --commit <commit> --environment
+   canary --profile <terrabase_profile> --wait 10m` as described in [Run](#run).
+10. **Verify.** The release prints `{"step":"ready", ...}` with two
+    members, and `operator hosts` shows a `terrabase` report `running` with
+    the new digest on `gru-1-db-1` and `gru-1-db-2`. Capture the evidence in
+    `docs/evidence`. `running` proves process liveness only; replication
+    acceptance waits for TerraBase TS-464/TS-469.
+
+
+## Restore drill
+
+**Prepared, not executed. Every `--apply` step changes OCI or a host and
+requires human confirmation.** The drill proves that a member's OCI volume
+backups restore: SQLite's WAL makes a crash-consistent volume backup
+restorable, and the drill shows it with a real document read. It never
+touches the member, its volume or its host.
+
+1. Launch a scratch instance in the gru-1 workload compartment and
+   availability domain, from a plain Ubuntu ARM64 image, with consistent
+   volume naming and no orchestrator enrollment metadata. It must not be
+   named like a member (`gru-1-db-N`) and must not have
+   `/etc/terrascale-orchestrator/host.json`.
+2. Dry run the restore on the operator host; it makes no OCI call:
+   `ts-orch terrabase restore-volume --plan deploy/oci-region/plan.json --member gru-1-db-1 --scratch-instance <scratch OCID> --compartment <gru-1 workload compartment>`.
+   Without `--backup` the newest AVAILABLE backup of the member's volume is
+   restored. A named backup must be of the member's current volume, or of
+   its recorded volume in plan.json when the volume is gone.
+3. Rerun with `--apply` and expect
+   `{"step":"restored","backup_id":...,"volume_id":...,"attachment_id":...,"device":"/dev/oracleoci/oraclevdz"}`.
+   Save the output `volume_id` as the restored copy's OCID for step 5.
+   The restored volume `restore-gru-1-db-1-data` gets no backup policy and
+   attaches only to an instance that is not a member and holds no other
+   volume, at `/dev/oracleoci/oraclevdz`, a device no member volume uses.
+   The command reads the scratch instance's attachments back before and
+   after attaching.
+4. Copy the release assets `terrabase-linux-arm64` and
+   `terrabase-linux-arm64.sha256` (see [Release files](#release-files)) and
+   the `ts-orch` binary and plan to the scratch host. Configure the operator's
+   OCI DEFAULT profile there for the read-only provenance check. Pick a document that existed
+   before the backup was taken and its organization ID.
+5. On the scratch host, dry run:
+   `sudo ts-orch terrabase restore-check --plan ./plan.json --compartment <gru-1 workload compartment> --restored-volume <saved restored copy OCID> --binary ./terrabase-linux-arm64 --organization <org> --document /v1/projects/<p>/databases/<d>/collections/<c>/documents/<id> --scratch-instance <scratch OCID>`.
+6. Rerun with `--apply` and expect
+   `{"step":"verified","ready_path":"/readyz","document":...,"etag":...}`.
+   The command re-reads OCI immediately before mounting and requires the
+   exact saved OCID and restore tag at the restore device. A swapped volume
+   fails before it is read. It mounts the restored volume (never formatting it), starts
+   TerraBase on it as a single member with a throwaway certificate, waits
+   until client HTTPS `--ready-path` answers 200, creates a `documents:read` API key on
+   the loopback admin listener, reads the document over HTTPS, then stops
+   TerraBase and unmounts. The API key is written to the restored copy
+   only. It mounts only `/dev/oracleoci/oraclevdz`, only on the instance
+   whose OCID instance metadata reports as `--scratch-instance`, and refuses
+   an orchestrator host, the boot disk, partitions and a mounted device.
+   The binary and verification run in a network namespace containing only
+   loopback; restored data is unreachable from the host network.
+7. Clean up with the OCI CLI or console: detach and delete
+   `restore-gru-1-db-1-data`, and terminate the scratch instance. The
+   orchestrator has no cleanup command for drill resources yet.
+
+TerraBase `origin/main` `807ad714` serves `/readyz` on the client listener
+(`ReadyzEndpoint.cs`, TS-483). It is the default readiness path for the
+drill. The document read remains the restore proof.
 
 ## Qualification
 

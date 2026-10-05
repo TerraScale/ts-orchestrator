@@ -160,7 +160,16 @@ func (a *Agent) terraBaseExited(observed Observation, d Desired, fingerprint str
 // certificate the member actually serves expires, the host restarts it, with
 // a drain, so it loads the renewed one.
 func (a *Agent) terraBaseRunningReport(ctx context.Context, d Desired) Report {
+	// reconcile fenced a member whose data volume is gone before it got
+	// here; these checks stop it when the volume goes between the two or
+	// while preparation renews the certificate and maintains the mount.
+	if stopped, err := a.fenceTerraBaseMember(ctx, d.Role); stopped || err != nil {
+		return a.reportFor(d, "failed", errors.Join(errors.New("terrabase data volume is not intact"), err))
+	}
 	_, _, renewErr := a.prepareTerraBase(ctx, d)
+	if stopped, err := a.fenceTerraBaseMember(ctx, d.Role); stopped || err != nil {
+		return a.reportFor(d, "failed", errors.Join(errors.New("terrabase data volume is not intact"), renewErr, err))
+	}
 	// ponytail: a per-node offset of one to seven days keeps the members of
 	// a cell that cannot reload from restarting together.
 	restartBefore := time.Duration(24+crc32.ChecksumIEEE([]byte(a.cfg.Node))%144) * time.Hour
@@ -235,15 +244,30 @@ func (a *Agent) prepareTerraBase(ctx context.Context, d Desired) (map[string]str
 	supervisor, uid, gid := os.Geteuid(), int(a.cfg.WorkloadIdentity.UID), int(a.cfg.WorkloadIdentity.GID)
 	// The binary writes its databases and extracted libraries; it only
 	// reads its TLS material, which stays supervisor-owned.
-	for _, dir := range []struct {
+	type ownedDir struct {
 		path     string
 		uid, gid int
 		mode     os.FileMode
-	}{
-		{string(layout), supervisor, gid, 0o750}, {layout.TLS(), supervisor, gid, 0o750},
-		{layout.Data(), uid, gid, 0o700}, {layout.Bundle(), uid, gid, 0o700},
-	} {
+	}
+	dirs := []ownedDir{{string(layout), supervisor, gid, 0o750}, {layout.TLS(), supervisor, gid, 0o750},
+		{layout.Bundle(), uid, gid, 0o700}}
+	if !a.cfg.TerraBaseDataVolume {
+		dirs = append(dirs, ownedDir{layout.Data(), uid, gid, 0o700})
+	}
+	for _, dir := range dirs {
 		if err := ensureOwnedDir(dir.path, dir.uid, dir.gid, dir.mode); err != nil {
+			return nil, time.Time{}, err
+		}
+	}
+	// The volume initializer owns a data volume mount; never fall back to
+	// the boot disk without one.
+	if a.cfg.TerraBaseDataVolume {
+		// Artifact and controller requests may have outlasted the caller's
+		// fence. Stop any remaining writer before repairing a lost mount.
+		if _, err := a.fenceTerraBaseMember(ctx, d.Role); err != nil {
+			return nil, time.Time{}, err
+		}
+		if err := a.ensureTerraBaseDataVolume(ctx); err != nil {
 			return nil, time.Time{}, err
 		}
 	}
@@ -295,7 +319,10 @@ func (a *Agent) terraBaseState(ctx context.Context, d Desired) (string, error) {
 }
 
 // ensureOwnedDir creates path and sets its owner and mode through a
-// descriptor opened without following a symlink at path.
+// descriptor opened without following a symlink at path. The agent holds
+// CAP_CHOWN but not CAP_FOWNER, so it cannot chmod a directory it gave to the
+// workload: it takes such a directory back, sets the mode and hands it over
+// last, and leaves a directory that is already right untouched.
 func ensureOwnedDir(path string, uid, gid int, mode os.FileMode) error {
 	if err := os.Mkdir(path, mode); err != nil && !errors.Is(err, os.ErrExist) {
 		return err
@@ -305,10 +332,20 @@ func ensureOwnedDir(path string, uid, gid int, mode os.FileMode) error {
 		return fmt.Errorf("%s must be a directory, not a symlink: %w", path, err)
 	}
 	defer unix.Close(fd)
-	if err := unix.Fchown(fd, uid, gid); err != nil {
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil {
 		return err
 	}
-	return unix.Fchmod(fd, uint32(mode.Perm()))
+	if int(stat.Uid) == uid && int(stat.Gid) == gid && stat.Mode&0o7777 == uint32(mode.Perm()) {
+		return nil
+	}
+	if err := unix.Fchown(fd, os.Geteuid(), gid); err != nil {
+		return err
+	}
+	if err := unix.Fchmod(fd, uint32(mode.Perm())); err != nil {
+		return err
+	}
+	return unix.Fchown(fd, uid, gid)
 }
 
 // writeOwnedFile atomically replaces a supervisor-owned file the workload group may read.

@@ -39,9 +39,13 @@ type VolumeInitConfig struct {
 	StateRoot               string
 	WorkloadIdentity        WorkloadIdentity
 	ReadMetadata            func(context.Context) (VolumeInitMetadata, error)
-	// Grow enables online filesystem growth after an OCI volume resize. It is
-	// off by default; ext4 growth needs CAP_SYS_RESOURCE in the unit.
+	// Grow enables online filesystem growth of managed member volumes after
+	// an OCI volume resize. It is off by default.
 	Grow hostvolume.GrowConfig
+	// TerraBaseDataDir, when set, is the C# TerraBase member data directory
+	// the member's data volume is mounted on; see terrabase_volume.go.
+	TerraBaseDataDir      string
+	TerraBaseDataVolumeID string
 }
 
 type VolumeInitMetadata struct {
@@ -129,7 +133,7 @@ func volumeInitActionFor(probe volumeFilesystemProbe, pins ManagedRuntimePins, a
 // request originating outside the host manager service.
 func RunVolumeInitializer(ctx context.Context, cfg VolumeInitConfig) error {
 	if os.Geteuid() != 0 || len(cfg.ControllerPublicKey) != ed25519.PublicKeySize ||
-		cfg.Cell == "" || cfg.Node == "" || cfg.ManagedRuntimeRoot == "" || cfg.StateRoot == "" {
+		cfg.Cell == "" || cfg.Node == "" || cfg.ManagedRuntimeRoot == "" && cfg.TerraBaseDataDir == "" || cfg.StateRoot == "" {
 		return errors.New("volume initializer requires fixed root host identity and paths")
 	}
 	if os.Getenv("LISTEN_FDS") != "1" || os.Getenv("LISTEN_PID") != strconv.Itoa(os.Getpid()) {
@@ -182,6 +186,30 @@ func serveVolumeInitConnection(ctx context.Context, cfg VolumeInitConfig, connec
 	}
 	wire := make([]byte, length)
 	if _, err := io.ReadFull(connection, wire); err != nil {
+		return err
+	}
+	if rest, ok := bytes.CutPrefix(wire, terraBaseDataRequest); ok {
+		if cfg.TerraBaseDataDir == "" {
+			return errors.New("this host has no terrabase data volume")
+		}
+		var grant *protocol.Envelope
+		if encoded, ok := bytes.CutPrefix(rest, []byte("\n")); ok {
+			grant = new(protocol.Envelope)
+			if err := protocol.DecodeStrict(encoded, grant, 64<<10); err != nil {
+				return err
+			}
+		} else if len(rest) != 0 {
+			return errors.New("terrabase data volume request is malformed")
+		}
+		err := prepareTerraBaseDataVolume(requestCtx, cfg, grant)
+		if needed, ok := errors.AsType[terraBaseFormatNeeded](err); ok {
+			_, writeErr := connection.Write(append([]byte{volumeInitNeedsGrant}, []byte(needed.AttemptID)...))
+			return errors.Join(err, writeErr)
+		}
+		if err != nil {
+			return err
+		}
+		_, err = connection.Write([]byte{0})
 		return err
 	}
 	var signed protocol.Envelope
@@ -305,7 +333,7 @@ func prepareManagedVolumeDevice(ctx context.Context, cfg VolumeInitConfig, permi
 		return err
 	}
 	defer device.close()
-	if err := rejectBootOrPartitionDevice(device.stat.Rdev); err != nil {
+	if err := hostvolume.RejectBootOrPartitionDevice(device.stat.Rdev); err != nil {
 		return err
 	}
 	lock, consumed, err := lockVolumeFormatState(cfg.StateRoot, permit)
@@ -321,7 +349,7 @@ func prepareManagedVolumeDevice(ctx context.Context, cfg VolumeInitConfig, permi
 		mounted.close()
 		return requireManagedVolumeProvenance(paths, *launch, consumed)
 	}
-	if alreadyMounted, err := blockDeviceMounted("/proc/self/mountinfo", device.stat.Rdev); err != nil {
+	if alreadyMounted, err := hostvolume.BlockDeviceMounted("/proc/self/mountinfo", device.stat.Rdev); err != nil {
 		return err
 	} else if alreadyMounted {
 		if _, err := findExclusiveMount("/proc/self/mountinfo", paths.mount, device.stat.Rdev, launch.Runtime.FileSystemType); err != nil {
@@ -478,7 +506,12 @@ func consumeVolumeFormatState(root string, permit volumeInitPermit) error {
 	if err != nil {
 		return err
 	}
-	content := volumeFormatStateBytes(permit)
+	return createDurableMarker(path, volumeFormatStateBytes(permit))
+}
+
+// createDurableMarker creates path with content exactly once and syncs it and
+// its directory, so it survives a crash that follows.
+func createDurableMarker(path string, content []byte) error {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return err
@@ -511,7 +544,7 @@ func volumeFormatStateBytes(permit volumeInitPermit) []byte {
 
 func probeManagedVolume(ctx context.Context, device *managedDevice) (volumeFilesystemProbe, error) {
 	var probe volumeFilesystemProbe
-	mounted, err := blockDeviceMounted("/proc/self/mountinfo", device.stat.Rdev)
+	mounted, err := hostvolume.BlockDeviceMounted("/proc/self/mountinfo", device.stat.Rdev)
 	if err != nil {
 		return probe, err
 	}
@@ -519,21 +552,11 @@ func probeManagedVolume(ctx context.Context, device *managedDevice) (volumeFiles
 	if mounted {
 		return probe, nil
 	}
-	output, code, err := runPinnedBlockTool(ctx, device, "/usr/sbin/blkid", "-p", "-o", "export")
-	if err != nil || code != 0 && code != 2 {
-		return probe, errors.New("managed block identity probe failed")
+	probe.FSUUID, probe.FSType, err = blockFilesystemIdentity(ctx, device)
+	if err != nil {
+		return probe, err
 	}
-	if code == 0 {
-		for _, line := range strings.Split(output, "\n") {
-			if value, ok := strings.CutPrefix(line, "UUID="); ok {
-				probe.FSUUID = value
-			}
-			if value, ok := strings.CutPrefix(line, "TYPE="); ok {
-				probe.FSType = value
-			}
-		}
-	}
-	output, code, err = runPinnedBlockTool(ctx, device, "/usr/sbin/wipefs", "--no-act", "--noheadings", "--output", "OFFSET,TYPE")
+	output, code, err := runPinnedBlockTool(ctx, device, "/usr/sbin/wipefs", "--no-act", "--noheadings", "--output", "OFFSET,TYPE")
 	if err != nil || code != 0 {
 		return probe, errors.New("managed block signature probe failed")
 	}
@@ -558,6 +581,26 @@ func probeManagedVolume(ctx context.Context, device *managedDevice) (volumeFiles
 	return probe, nil
 }
 
+// blockFilesystemIdentity reads the filesystem UUID and type of the pinned
+// device from its superblock; both are empty when blkid finds no filesystem.
+func blockFilesystemIdentity(ctx context.Context, device *managedDevice) (uuid, fsType string, err error) {
+	output, code, err := runPinnedBlockTool(ctx, device, "/usr/sbin/blkid", "-p", "-o", "export")
+	if err != nil || code != 0 && code != 2 {
+		return "", "", errors.New("managed block identity probe failed")
+	}
+	if code == 0 {
+		for _, line := range strings.Split(output, "\n") {
+			if value, ok := strings.CutPrefix(line, "UUID="); ok {
+				uuid = value
+			}
+			if value, ok := strings.CutPrefix(line, "TYPE="); ok {
+				fsType = value
+			}
+		}
+	}
+	return uuid, fsType, nil
+}
+
 func runPinnedBlockTool(ctx context.Context, device *managedDevice, tool string, args ...string) (string, int, error) {
 	duplicate, err := unix.Dup(device.fd)
 	if err != nil {
@@ -579,23 +622,6 @@ func runPinnedBlockTool(ctx context.Context, device *managedDevice, tool string,
 		return string(output), status.ExitCode(), nil
 	}
 	return "", 0, err
-}
-
-func blockDeviceMounted(path string, rdev uint64) (bool, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return false, err
-	}
-	defer file.Close()
-	want := fmt.Sprintf("%d:%d", unix.Major(rdev), unix.Minor(rdev))
-	scan := bufio.NewScanner(file)
-	for scan.Scan() {
-		fields := strings.Fields(scan.Text())
-		if len(fields) > 4 && fields[2] == want {
-			return true, nil
-		}
-	}
-	return false, scan.Err()
 }
 
 func mountTargetOccupied(path, target string) (bool, error) {
@@ -638,65 +664,6 @@ func sampledManagedBlockZero(device *managedDevice) (bool, error) {
 		}
 	}
 	return true, nil
-}
-
-func rejectBootOrPartitionDevice(rdev uint64) error {
-	target, err := filepath.EvalSymlinks(fmt.Sprintf("/sys/dev/block/%d:%d", unix.Major(rdev), unix.Minor(rdev)))
-	if err != nil {
-		return errors.New("managed device has no kernel block identity")
-	}
-	name := filepath.Base(target)
-	if _, err := os.Stat(filepath.Join(target, "partition")); err == nil {
-		return errors.New("managed device is a partition")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	children, err := os.ReadDir(target)
-	if err != nil {
-		return err
-	}
-	for _, child := range children {
-		if strings.HasPrefix(child.Name(), name) && child.Name() != name {
-			if _, err := os.Stat(filepath.Join(target, child.Name(), "partition")); err == nil {
-				return errors.New("managed device contains partitions")
-			}
-		}
-	}
-	holders, err := os.ReadDir(filepath.Join(target, "holders"))
-	if err != nil || len(holders) != 0 {
-		return errors.New("managed device has kernel holders")
-	}
-	rootDevice, err := rootMountBlockDevice("/proc/self/mountinfo")
-	if err != nil {
-		return err
-	}
-	rootTarget, err := filepath.EvalSymlinks(fmt.Sprintf("/sys/dev/block/%s", rootDevice))
-	if err != nil {
-		return errors.New("host root block device cannot be identified")
-	}
-	if _, err := os.Stat(filepath.Join(rootTarget, "partition")); err == nil {
-		rootTarget = filepath.Dir(rootTarget)
-	}
-	if rootTarget == target {
-		return errors.New("managed device is the host boot disk")
-	}
-	return nil
-}
-
-func rootMountBlockDevice(path string) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	scan := bufio.NewScanner(file)
-	for scan.Scan() {
-		fields := strings.Fields(scan.Text())
-		if len(fields) > 4 && fields[4] == "/" {
-			return fields[2], nil
-		}
-	}
-	return "", errors.New("host root mount is unavailable")
 }
 
 func formatManagedFilesystem(ctx context.Context, device *managedDevice, fsType, uuid string) error {
