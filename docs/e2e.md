@@ -53,7 +53,7 @@ Local TerraBase runs with TLS, a dashboard credential file and
 | Auth signup, code + PKCE, tokens, userinfo | TS-489, TS-490, TS-491 |
 | Dashboard sign-in, Management API provisioning and restart persistence | TS-472, TS-492 |
 | Atlas discovery, session pin and wrong-pin 421 | TS-496 |
-| Ouroboros: both services' durable state in `terrascale-internal` | TS-472, TS-489, TS-492 |
+| Ouroboros: both services' durable state in `terrascale` | TS-472, TS-489, TS-492 |
 
 The pinned dashboard refuses live configuration because it only wires a seeded
 demo store. The suite builds and launches its real executable with live

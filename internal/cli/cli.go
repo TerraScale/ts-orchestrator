@@ -60,7 +60,8 @@ Operator tooling:
   qualification          Run source-backed operational qualification
   source-digest          Compute the versioned TerraBase source-tree digest
   terrabase              Create a cell's C# TerraBase member CA
-  ts-auth                Provision ts-auth's Vault secrets, TerraBase tenant and host env file
+  ts-auth                Provision ts-auth's Vault secrets and host env file
+  ouroboros              Bootstrap TerraScale's own TerraBase organization, project keys and owner
   runtime-priority       Qualify runtime resources and run bounded pressure
   cluster                Break-glass controller quorum-loss recovery
   cell-autoscaler        Scale TerraBase cell nodes and shapes within policy
@@ -111,6 +112,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return terrabase.Run(ctx, args[1:], commandio.NewWriter(output))
 	case "ts-auth":
 		return tsauth.Run(ctx, args[1:], commandio.NewWriter(output), ociregion.LoadPlan)
+	case "ouroboros":
+		return tsauth.RunOuroboros(ctx, args[1:], commandio.NewWriter(output), ociregion.LoadPlan)
 	case "source-digest":
 		var diagnostics bytes.Buffer
 		return commandStatus(ctx, sourcedigest.Run(ctx, args[1:], commandio.NewWriter(output), &diagnostics), &diagnostics)

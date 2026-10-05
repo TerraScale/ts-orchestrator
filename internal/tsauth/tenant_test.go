@@ -22,7 +22,7 @@ func TestEnsureRecoversCreateConflictByRereading(t *testing.T) {
 				fmt.Fprint(w, `{"items":[]}`)
 				return
 			}
-			fmt.Fprint(w, `{"items":[{"id":"org-1","name":"terrascale-internal"}]}`)
+			fmt.Fprint(w, `{"items":[{"id":"org-1","name":"terrascale"}]}`)
 		case http.MethodPost:
 			posts++
 			http.Error(w, "already exists", http.StatusConflict)
@@ -52,7 +52,7 @@ func TestEnsureKeepsDuplicateRejectionAfterCreateConflict(t *testing.T) {
 				fmt.Fprint(w, `{"items":[]}`)
 				return
 			}
-			fmt.Fprint(w, `{"items":[{"id":"org-1","name":"terrascale-internal"},{"id":"org-2","name":"terrascale-internal"}]}`)
+			fmt.Fprint(w, `{"items":[{"id":"org-1","name":"terrascale"},{"id":"org-2","name":"terrascale"}]}`)
 		case http.MethodPost:
 			http.Error(w, "already exists", http.StatusConflict)
 		default:

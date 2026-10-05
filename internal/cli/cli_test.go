@@ -32,6 +32,8 @@ func TestLocalCommandDispatchWithoutRuntimeConfig(t *testing.T) {
 		{args: []string{"qualification", "firecracker", "--help"}, want: "prepare-base"},
 		{args: []string{"runtime-priority", "--help"}, want: "probe-admission"},
 		{args: []string{"cell-autoscaler", "--help"}, want: "dry run unless --live"},
+		{args: []string{"ouroboros", "--help"}, want: "fly-secrets"},
+		{args: []string{"ouroboros", "fly-secrets"}, want: "fly-secrets requires", wantError: true},
 		{args: []string{"cell-autoscaler", "run"}, want: "--config is required", wantError: true},
 		{args: []string{"bootstrap", "verify-anchor"}, want: "verify-anchor requires", wantError: true},
 		{args: []string{"release", "publish"}, want: "publish requires", wantError: true},

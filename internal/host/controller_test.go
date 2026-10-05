@@ -2144,3 +2144,26 @@ func testAgentStateRoot(t *testing.T) string {
 	})
 	return filepath.Join(parent, "state")
 }
+
+// TestControlLogReadsAreSafeConcurrently: the workload reconciler and the
+// delivery planner list hosts and desired state at once, and jetstream's
+// Stream.Info writes its cache into the shared control log handle on every
+// call. Run with -race.
+func TestControlLogReadsAreSafeConcurrently(t *testing.T) {
+	c, _, _, _, _ := testController(t)
+	registerTestHost(t, c)
+	var readers sync.WaitGroup
+	for range 4 {
+		readers.Go(func() {
+			for range 5 {
+				if _, err := c.ListHosts(t.Context()); err != nil {
+					t.Error(err)
+				}
+				if _, err := c.ListDesired(t.Context(), ""); err != nil {
+					t.Error(err)
+				}
+			}
+		})
+	}
+	readers.Wait()
+}

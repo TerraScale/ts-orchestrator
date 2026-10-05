@@ -42,6 +42,7 @@ type Controller struct {
 	artifacts              ArtifactStore
 	responseKey            ed25519.PrivateKey
 	registrationMu         sync.Mutex
+	controlLogInfoMu       sync.Mutex
 	ready                  chan struct{}
 	readyOnce              sync.Once
 	cacheMu                sync.Mutex
@@ -320,7 +321,7 @@ func (c *Controller) requireExclusiveManagedMember(ctx context.Context, candidat
 		return errors.New("managed member exclusivity requires ordered control log")
 	}
 	prefix := protocol.Control(c.cell, "host", "registration", c.cell) + "."
-	info, err := c.controlLog.Info(ctx, jetstream.WithSubjectFilter(prefix+"*"))
+	info, err := c.controlLogSubjects(ctx, prefix+"*")
 	if err != nil {
 		return err
 	}
@@ -476,12 +477,22 @@ func casConflict(err error) bool {
 	return errors.Is(err, jetstream.ErrKeyExists) || errors.Is(err, jetstream.ErrKeyRevisionMismatch)
 }
 
+// controlLogSubjects reads the control log's state for the subjects matching
+// filter. jetstream's Stream.Info caches its reply in the shared handle
+// without a lock, so concurrent readers such as the workload reconciler and
+// the delivery planner take turns.
+func (c *Controller) controlLogSubjects(ctx context.Context, filter string) (*jetstream.StreamInfo, error) {
+	c.controlLogInfoMu.Lock()
+	defer c.controlLogInfoMu.Unlock()
+	return c.controlLog.Info(ctx, jetstream.WithSubjectFilter(filter))
+}
+
 func (c *Controller) ListHosts(ctx context.Context) ([]HostStatus, error) {
 	if c.controlLog == nil {
 		return nil, errors.New("ordered control log is required for host discovery")
 	}
 	prefix := protocol.Control(c.cell, "host", "registration", c.cell) + "."
-	info, err := c.controlLog.Info(ctx, jetstream.WithSubjectFilter(prefix+"*"))
+	info, err := c.controlLogSubjects(ctx, prefix+"*")
 	if err != nil {
 		return nil, err
 	}

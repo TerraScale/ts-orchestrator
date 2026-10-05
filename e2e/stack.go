@@ -140,7 +140,7 @@ func startLocal(ctx context.Context) (_ *environment, teardown func() error, err
 		return nil, teardown, err
 	}
 	user := management.As(e.UserID)
-	org, err := user.CreateOrganization(startup, "terrascale-internal")
+	org, err := user.CreateOrganization(startup, "terrascale")
 	if err != nil {
 		return nil, teardown, fmt.Errorf("internal organization bootstrap: %w", err)
 	}

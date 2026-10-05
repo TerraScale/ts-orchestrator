@@ -4,7 +4,8 @@
 // the env file that carries them to a host, its health and readiness
 // endpoints, and the TerraBase tenant that holds its data. The host agent
 // launches it as a stateless native workload of role "ts-auth" on the
-// controllers; see docs/ts-auth-deployment.md.
+// controllers; see docs/ts-auth-deployment.md. ts-orch ouroboros prepares
+// that tenant together with the dashboard's in TerraScale's own organization.
 package tsauth
 
 import (
@@ -64,7 +65,7 @@ const (
 )
 
 // Secrets live in the cell's Vault and reach a host only in its env file.
-// The project ID is not secret, but terrabase-bootstrap creates it with the
+// The project ID is not secret, but ouroboros bootstrap creates it with the
 // API key that is narrowed to it, so the two travel together.
 const (
 	EnvMasterKey       = "TS_AUTH_MASTER_KEY"
@@ -205,13 +206,14 @@ func validSecret(key, value string) error {
 		}
 		return nil
 	}
-	if key == EnvProjectID {
+	if slices.ContainsFunc(Projects, func(project Project) bool { return project.ProjectIDKey == key }) {
 		if !uuidRE.MatchString(value) {
 			return fmt.Errorf("%s must be a lowercase hyphenated UUID", key)
 		}
 		return nil
 	}
-	if key != EnvAPIKey || len(value) > 4096 || !apiKeyRE.MatchString(value) {
+	if !slices.ContainsFunc(Projects, func(project Project) bool { return project.APIKeyKey == key }) ||
+		len(value) > 4096 || !apiKeyRE.MatchString(value) {
 		return fmt.Errorf("%s must be 1 to 4096 printable characters without spaces", key)
 	}
 	return nil

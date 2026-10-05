@@ -30,18 +30,14 @@ const cliUsage = `Usage: ts-orch ts-auth <command> [flags]
   secrets              --plan FILE
       Generate TS_AUTH_MASTER_KEY, TS_AUTH_AUDIT_SIGNING_KEY and TS_AUTH_OPERATOR_KEY
       once into the cell's Vault (operator ~/.oci/config). Existing secrets are kept.
-  terrabase-bootstrap  --plan FILE --client-url URL --admin-url URL --member NODE
-                       --member-ca FILE --dashboard-credential-file FILE
-      Find or create ts-auth's organization terrascale-internal, project auth and
-      database auth in the production TerraBase through one member's Management
-      and admin APIs; store TS_AUTH_TERRASCALE_PROJECT_ID and, unless the Vault
-      holds one, a newly issued TS_AUTH_TERRASCALE_API_KEY in the cell's Vault;
-      read both back and check the key reaches the database. Prints the tenant IDs.
   env-file             --host-config FILE --vault-id OCID
       On a ts-auth host, as root: read the secrets with the instance principal and
       write <ts_auth_root>/ts-auth.env, mode 0600, owned by the workload user.
   metadata-rules
       Render host nftables rules reserving instance metadata for root and the controller.
+
+ts-orch ouroboros bootstrap stores TS_AUTH_TERRASCALE_PROJECT_ID and
+TS_AUTH_TERRASCALE_API_KEY.
 `
 
 // Run dispatches the ts-auth operator commands. Output never carries a secret.
@@ -54,11 +50,6 @@ func Run(ctx context.Context, args []string, output io.Writer, loadPlan func(str
 	flags := flag.NewFlagSet("ts-auth "+args[0], flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	plan := flags.String("plan", "", "reviewed cell plan (deploy/oci-region/plan.json)")
-	clientURL := flags.String("client-url", "", "TerraBase member client listener, for example https://127.0.0.1:19465")
-	adminURL := flags.String("admin-url", "", "TerraBase member admin listener, for example http://127.0.0.1:19464")
-	member := flags.String("member", "", "TerraBase member node the client listener belongs to, for example gru-1-db-1")
-	memberCA := flags.String("member-ca", "", "the cell's TerraBase member-ca.pem")
-	credential := flags.String("dashboard-credential-file", "", "owner-only file holding the member's dashboard credential")
 	hostConfig := flags.String("host-config", "", "the host agent's host.json")
 	vaultID := flags.String("vault-id", "", "the cell's Vault OCID")
 	if err := flags.Parse(args[1:]); err != nil {
@@ -90,19 +81,6 @@ func Run(ctx context.Context, args []string, output io.Writer, loadPlan func(str
 			fmt.Fprintln(output)
 		}
 		return nil
-	case "terrabase-bootstrap":
-		if *plan == "" || *clientURL == "" || *adminURL == "" || *member == "" || *memberCA == "" || *credential == "" {
-			return errors.New("terrabase-bootstrap requires --plan, --client-url, --admin-url, --member, --member-ca and --dashboard-credential-file")
-		}
-		terraBase, err := memberClient(*clientURL, *adminURL, *member, *memberCA, *credential)
-		if err != nil {
-			return err
-		}
-		cell, target, client, bundles, err := operatorVault(*plan, loadPlan)
-		if err != nil {
-			return err
-		}
-		return bootstrap(ctx, terraBase, client, bundles, target, cell, output)
 	case "env-file":
 		if *hostConfig == "" || *vaultID == "" {
 			return errors.New("env-file requires --host-config and --vault-id")
@@ -134,51 +112,6 @@ func Run(ctx context.Context, args []string, output io.Writer, loadPlan func(str
 		_, _ = io.WriteString(output, cliUsage)
 		return fmt.Errorf("unknown ts-auth command %q", args[0])
 	}
-}
-
-// bootstrap prepares ts-auth's TerraBase tenant, stores its project ID and
-// API key in the Vault, and prints {"tenant":...,"secrets":[...]}. A key is
-// issued only when the Vault holds none. It then reads both back: a project
-// ID or key of an earlier run must still name this tenant and reach its
-// database, or the command fails instead of reporting a stale tenant.
-func bootstrap(ctx context.Context, terraBase TerraBase, client VaultClient, bundles BundleClient, target Target, cell string, output io.Writer) error {
-	tenant, err := terraBase.EnsureTenant(ctx)
-	if err != nil {
-		return err
-	}
-	project, err := Ensure(ctx, client, target, cell, EnvProjectID, func(context.Context) (string, error) {
-		return tenant.ProjectID, nil
-	})
-	if err != nil {
-		return err
-	}
-	// A stale project ID must stop the command before a key is issued:
-	// TerraBase cannot revoke one.
-	projectID, err := readBack(ctx, bundles, target.VaultID, cell, EnvProjectID, project.Created || project.Provisioning)
-	if err != nil {
-		return err
-	}
-	if projectID != tenant.ProjectID {
-		return fmt.Errorf("Vault secret %s names project %s, TerraBase has %s; inspect both before rerunning", project.Secret, projectID, tenant.ProjectID)
-	}
-	key, err := Ensure(ctx, client, target, cell, EnvAPIKey, func(ctx context.Context) (string, error) {
-		return terraBase.IssueKey(ctx, tenant)
-	})
-	if err != nil {
-		return err
-	}
-	apiKey, err := readBack(ctx, bundles, target.VaultID, cell, EnvAPIKey, key.Created || key.Provisioning)
-	if err != nil {
-		return err
-	}
-	if err := terraBase.CheckKey(ctx, tenant, apiKey); err != nil {
-		return fmt.Errorf("Vault secret %s does not reach database %s: %w", key.Secret, tenant.Database, err)
-	}
-	if err := json.MarshalWrite(output, map[string]any{"tenant": tenant, "secrets": []Stored{project, key}}); err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(output)
-	return err
 }
 
 // readBack reads a secret that may have been created a moment ago: a new

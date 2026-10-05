@@ -13,7 +13,8 @@ side is [`internal/host/tsauth.go`](../internal/host/tsauth.go).
 | Command | Where | Effect |
 | --- | --- | --- |
 | `ts-orch ts-auth secrets --plan FILE` | operator host, `~/.oci/config` | Generates `TS_AUTH_MASTER_KEY`, `TS_AUTH_AUDIT_SIGNING_KEY` and `TS_AUTH_OPERATOR_KEY` once into the cell's Vault. |
-| `ts-orch ts-auth terrabase-bootstrap --plan FILE --client-url URL --admin-url URL --member NODE --member-ca FILE --dashboard-credential-file FILE` | operator host, SSH forward to `gru-1-db-1` | Finds or creates ts-auth's TerraBase organization, project and database; stores the project ID and, once, a new API key in the Vault. |
+| `ts-orch ouroboros bootstrap --plan FILE --client-url URL --admin-url URL --member NODE --member-ca FILE --dashboard-credential-file FILE [--management-listener client\|admin] [--owner-email EMAIL --ts-auth-instance SLUG --ts-auth-key-file FILE [--ts-auth-url URL]]` | operator host, SSH forward to `gru-1-db-1` | Finds or creates TerraScale's TerraBase organization and the ts-auth and ts-dashboard projects and databases; stores each project ID and, once, a new API key in the Vault. With `--owner-email`, makes that ts-auth user the organization's owner. |
+| `ts-orch ouroboros fly-secrets --plan FILE` | operator host, `~/.oci/config` | Hands the dashboard's TerraBase settings to Fly app `ts-dashboard`: stages them with `FLY_API_TOKEN`, otherwise prints the non-secret ones. |
 | `ts-orch ts-auth env-file --host-config FILE --vault-id OCID` | each controller, as root | Reads the five secrets with the instance principal and writes `<ts_auth_root>/ts-auth.env`, mode 0600, owned by the workload user. |
 | `ts-orch ts-auth metadata-rules` | operator host, no OCI access | Renders the nftables metadata block installed on each controller in step 3. |
 | `ts-orch bootstrap render-controller-config ... --ts-auth-profile F --ts-auth-profile-sha256 H --ts-auth-service F --ts-auth-service-sha256 H --out F` | operator host, before initial controller signing | Includes the reviewed ts-auth profile and service in canonical signed controller configuration. |
@@ -72,7 +73,7 @@ breaks these rules:
 | --- | --- |
 | `TS_AUTH_PUBLIC_ORIGIN` | Exactly `https://auth.terrascale.tech`. |
 | `TS_AUTH_TERRASCALE_API_URL` | Exactly `https://gru.api.terrascale.tech`. |
-| `TS_AUTH_DATABASE` | Exactly `auth`, the database `terrabase-bootstrap` creates. |
+| `TS_AUTH_DATABASE` | Exactly `auth`, the database `ouroboros bootstrap` creates. |
 | Env file keys, `TS_AUTH_LISTEN`, `DOTNET_BUNDLE_EXTRACT_BASE_DIR` | Must not be set. |
 | `TS_AUTH_SMTP_PASSWORD`, `TS_AUTH_STRIPE_SECRET_KEY`, `TS_AUTH_STRIPE_WEBHOOK_SECRET`, `TS_AUTH_SENTRY_DSN`, `TS_AUTH_AUDIT_VERIFY_KEYS`, `OTEL_EXPORTER_OTLP_HEADERS` | Must not be set: they are secrets, and the env file does not carry them yet. Non-secret optional settings (SMTP host, OTEL endpoint) may be added. |
 | `args` | Must be empty: an argument overrides any setting. |
@@ -84,8 +85,8 @@ breaks these rules:
 | `TS_AUTH_MASTER_KEY` | `ts-auth secrets`: 32 random bytes, base64 | `gru-1-ts-auth-master-key` |
 | `TS_AUTH_AUDIT_SIGNING_KEY` | `ts-auth secrets` | `gru-1-ts-auth-audit-signing-key` |
 | `TS_AUTH_OPERATOR_KEY` | `ts-auth secrets` | `gru-1-ts-auth-operator-key` |
-| `TS_AUTH_TERRASCALE_API_KEY` | `terrabase-bootstrap`: TerraBase `POST /admin/api-keys` | `gru-1-ts-auth-terrascale-api-key` |
-| `TS_AUTH_TERRASCALE_PROJECT_ID` | `terrabase-bootstrap`: the project the key is narrowed to | `gru-1-ts-auth-terrascale-project-id` |
+| `TS_AUTH_TERRASCALE_API_KEY` | `ouroboros bootstrap`: TerraBase `POST /admin/api-keys` | `gru-1-ts-auth-terrascale-api-key` |
+| `TS_AUTH_TERRASCALE_PROJECT_ID` | `ouroboros bootstrap`: the project the key is narrowed to | `gru-1-ts-auth-terrascale-project-id` |
 
 The project ID is not secret; it travels with the API key because the key
 reaches only that project's database.
@@ -197,48 +198,112 @@ reconciler owns the role, so the hosts get release-scoped generations
 (`intent << 24`); the command computes the next release from them and gates
 on `generation >> 24`.
 
-## TerraBase tenant
+## TerraBase tenant (ouroboros)
 
-ts-auth keeps its data in the production TerraBase, the same release end
-users reach at `https://gru.api.terrascale.tech`, as an ordinary tenant: there
-is no private TerraBase instance.
+TerraScale runs on its own product (TS-529, "ouroboros"). ts-auth and the
+dashboard keep their data in the production TerraBase, the same release end
+users reach at `https://gru.api.terrascale.tech`, as ordinary tenants: there
+is no private TerraBase instance. `tsauth.Projects` is the table.
 
 | Object | Name | How |
 | --- | --- | --- |
-| Organization | `terrascale-internal`, owner `ts-orchestrator` | Management API on the member's client listener (9465) |
-| Project | `auth` | Management API |
-| Database | `auth` (`TS_AUTH_DATABASE`) | Management API |
-| API key | `ts-auth`, scopes `documents:read`, `documents:write`, narrowed to the database | `POST /admin/api-keys` on the member's loopback admin listener (9464) |
+| Organization | `terrascale`, owner `ts-orchestrator` until phase B, then the person | Management API on the member's client listener (9465), or from TerraBase TS-519 its loopback admin listener (9464) |
+| Project, database | `ts-auth`, `auth` (`TS_AUTH_DATABASE`) | Management API |
+| Project, database | `ts-dashboard`, `dashboard` | Management API |
+| API keys | one per project, scopes `documents:read`, `documents:write`, narrowed to that project's organization, project and database | `POST /admin/api-keys` on the member's loopback admin listener (9464) |
 
-The Management API needs the member's dashboard credential
+| Vault secret | Content |
+| --- | --- |
+| `gru-1-ts-auth-terrascale-project-id` | ts-auth's project ID |
+| `gru-1-ts-auth-terrascale-api-key` | ts-auth's key (what `ts-auth env-file` reads) |
+| `gru-1-ts-dashboard-terrabase-project-id` | the dashboard's project ID |
+| `gru-1-ts-dashboard-terrabase-api-key` | the dashboard's key |
+
+The names are stable: `<cell>-<key lowercased, _ replaced by ->`.
+
+### Phase A: tenants and keys (always)
+
+`ouroboros bootstrap` acts as the fixed service identity `ts-orchestrator`
+(header `X-TerraBase-User-Id: ts-orchestrator`, with the member's dashboard
+credential). The Management API needs that credential
 (`TERRABASE_DASHBOARD_CREDENTIAL_FILE`); without one it answers 401 and the
-command stops. The command reaches both listeners through an SSH forward to
-`gru-1-db-1`, trusts the cell's member CA and checks the member certificate
-names `--member`. Each object is created only when the acting user has none
-of that name; two of one name stop the command. A key is issued only when the
-Vault holds no `gru-1-ts-auth-terrascale-api-key`. TerraBase has no key
-revocation yet: a key issued while the Vault write then fails stays unused,
-and the rerun issues one more. Every run reads both secrets back: the stored
-project ID must be the tenant's project, checked before any key is issued,
-and the stored key must list the database's collections, so a stale Vault
-entry (for example after a TerraBase reset) stops the command instead of
-passing. Each TerraBase request times out after 30 s.
+command stops. The creator of an organization becomes its first owner, so a
+new organization is owned by `ts-orchestrator`. The command reaches both
+listeners through an SSH forward to `gru-1-db-1`, trusts the cell's member CA
+and checks the member certificate names `--member`.
+
+Each object is created only when the acting user has none of that name; two
+of one name stop the command. Per project, the command stores the project ID
+in the Vault, reads it back and compares it with the tenant's project before
+any key is issued. A key is issued only when the Vault holds none for that
+project; the stored key must then list its own database's collections, so a
+stale Vault entry (for example after a TerraBase reset) stops the command
+instead of passing. TerraBase has no key revocation yet: a key issued while
+the Vault write then fails stays unused, and the rerun issues one more. Each
+TerraBase request times out after 30 s.
+
+Both phases reach the member's loopback listeners through the SSH or NetBird
+forward to `gru-1-db-1` (or run on that host), never the public
+`gru.api.terrascale.tech`. From TerraBase TS-519 (terrabase PR #24) the
+public Management API accepts only ts-auth access tokens, and the Management
+service credential works only on the loopback admin listener. Against such a
+release pass `--management-listener admin`: every Management request of both
+phases then goes to `--admin-url` (the same `/v1/management/...` routes, with
+the credential and `X-TerraBase-User-Id`). The default, `client`, serves the
+releases before TS-519, which answer Management only on the client listener.
+Data-plane requests (the key check) always use the client listener.
+
+It prints one line per project, `{"tenant":{"organization_id","project",
+"project_id","database_id","database"},"secrets":[{"key","secret","id",
+"created"},...]}`, never a secret value.
 
 The admin listener is loopback-only, so both APIs are reached on one member,
 `gru-1-db-1`, through the forward. **Open (TerraBase TS-464):** until
-replication exists each member is an independent database, so the tenant and
-key exist only on `gru-1-db-1`, while `gru.api.terrascale.tech` balances over
-every member. ts-auth works only once replication carries the tenant to every
-member, or while the API's backend set holds `gru-1-db-1` alone.
+replication exists each member is an independent database, so the tenants and
+keys exist only on `gru-1-db-1`, while `gru.api.terrascale.tech` balances over
+every member. ts-auth and the dashboard work only once replication carries
+the tenants to every member, or while the API's backend set holds
+`gru-1-db-1` alone.
+
+### Phase B: ownership (with `--owner-email`)
+
+Run it once ts-auth is live and the person has signed in once (for example
+on the dashboard). The command resolves the address through ts-auth's
+Management API, `GET {ts-auth-url}/v1/{instance}/users?limit=100&starting_after=ID`
+(`--ts-auth-url` defaults to `https://auth.terrascale.tech`), with the
+instance's `sk_` management key from an owner-only file. This needs the
+management users API (the `/v1/{slug}/users` contract, TS-490 and later) to be
+served.
+
+- No user has that email: it stops with `ts-auth instance S has no user E
+  yet: sign in once with that address (for example on the dashboard), then
+  rerun`.
+- The user must have a verified email and be neither banned nor anonymous;
+  two users of that email are refused.
+
+Then, only for the steps still undone:
+
+1. Invite the email as a member and accept it acting as the user. An earlier
+   pending invitation for that email, whose token was lost, is revoked first.
+2. Start the ownership transfer to the user (as `ts-orchestrator`) and
+   confirm it acting as the user. Confirming demotes `ts-orchestrator` to
+   member.
+3. Make `ts-orchestrator` admin again, acting as the new owner.
+
+`ts-orchestrator` is never removed. The command prints
+`{"organization_id","owner","admin":"ts-orchestrator","steps":[...]}`; a rerun
+prints `"steps":[]`. Phase A reruns still work afterwards: an admin may list
+and create projects and databases.
 
 ## gru-1 live runbook
 
 **Prepared, not executed. Requires human confirmation before every step that
 changes the cell, the Vault or TerraBase.** Blast radius: one controller NSG
-rule, the gru-1 Vault (five new secrets), the production TerraBase on
-`gru-1-db-1` (one organization, project, database and API key) and the three
-controllers (`host.json`, one env file each, one ts-auth replica on two of
-them).
+rule, the gru-1 Vault (three generated keys, then four from bootstrap), the
+production TerraBase on `gru-1-db-1` (one organization, two projects, two
+databases and two API keys, and with phase B its ownership), the Fly app
+`ts-dashboard` (four staged secrets) and the three controllers (`host.json`,
+one env file each, one ts-auth replica on two of them).
 
 ### Prerequisites
 
@@ -354,24 +419,28 @@ WORK=$(mktemp -d)
    terrascale-orchestrator ts-auth secrets --plan "$PLAN"
    ```
 
-2. Bootstrap the TerraBase tenant on `gru-1-db-1`. Keep the forward open in a
+2. Bootstrap the TerraBase tenants on `gru-1-db-1`. Keep the forward open in a
    second terminal, copy the dashboard credential into an owner-only file,
-   run the bootstrap, then delete the copy:
+   run the bootstrap, then delete the copy. If `gru-1-db-1` runs a TerraBase
+   release with TS-519, add `--management-listener admin` (here and in the
+   owner step below): only its loopback admin listener accepts the
+   credential.
 
    ```sh
    netbird ssh -L 19464:127.0.0.1:9464 -L 19465:127.0.0.1:9465 root@gru-1-db-1.nb.ts.internal   # terminal 2
    (umask 077; netbird ssh root@gru-1-db-1.nb.ts.internal cat "${CRED:?}" > "$WORK/dashboard-credential")
    sudo cat /var/lib/terrascale-operator/terrabase-ca-gru-1/member-ca.pem > "$WORK/member-ca.pem"   # public certificate
-   terrascale-orchestrator ts-auth terrabase-bootstrap --plan "$PLAN" \
+   terrascale-orchestrator ouroboros bootstrap --plan "$PLAN" \
      --client-url https://127.0.0.1:19465 --admin-url http://127.0.0.1:19464 --member gru-1-db-1 \
      --member-ca "$WORK/member-ca.pem" \
      --dashboard-credential-file "$WORK/dashboard-credential"
    shred -u "$WORK/dashboard-credential"
    ```
 
-   Expect one line `{"tenant":{...},"secrets":[...]}` with the organization
-   `terrascale-internal`'s IDs, database `auth` and both secrets
-   `"created":true`. A rerun prints `"created":false` and issues no key.
+   Expect two lines `{"tenant":{...},"secrets":[...]}`, one for `ts-auth`
+   (database `auth`) and one for `ts-dashboard` (database `dashboard`), both
+   with organization `terrascale`'s IDs and both secrets `"created":true`. A
+   rerun prints `"created":false` and issues no key.
 
 3. On each controller, set the ts-auth root in `host.json` (edited on the
    operator host: the host image has no `jq`), make sure `/srv/ts-managed`
@@ -458,6 +527,55 @@ WORK=$(mktemp -d)
 A later release repeats step 5. A changed secret needs step 3's `env-file`
 on every controller and a new release (or replica restart) to load it.
 
+### Ouroboros owner and dashboard handoff
+
+Both follow the numbered steps and are separate confirmations. Reuse the
+forward and member CA of step 2.
+
+Owner (phase B), after ts-auth is live (step 6 passed) and `mariogk@terrascale.tech`
+has signed in once. `<slug>` is the ts-auth instance the person signed in
+to; copy its `sk_` management key into an owner-only file and shred it
+afterwards:
+
+```sh
+(umask 077; cat > "$WORK/ts-auth-sk")   # paste the sk_ key, then Ctrl-D
+(umask 077; netbird ssh root@gru-1-db-1.nb.ts.internal cat "${CRED:?}" > "$WORK/dashboard-credential")
+terrascale-orchestrator ouroboros bootstrap --plan "$PLAN" \
+  --client-url https://127.0.0.1:19465 --admin-url http://127.0.0.1:19464 --member gru-1-db-1 \
+  --member-ca "$WORK/member-ca.pem" \
+  --dashboard-credential-file "$WORK/dashboard-credential" \
+  --owner-email mariogk@terrascale.tech --ts-auth-instance <slug> \
+  --ts-auth-key-file "$WORK/ts-auth-sk"
+shred -u "$WORK/dashboard-credential" "$WORK/ts-auth-sk"
+```
+
+Expect the two phase A lines with `"created":false`, then
+`{"organization_id":"...","owner":"<user id>","admin":"ts-orchestrator","steps":[...]}`.
+A rerun prints `"steps":[]`. If the person has not signed in, it stops with
+`ts-auth instance <slug> has no user mariogk@terrascale.tech yet: sign in once
+with that address (for example on the dashboard), then rerun`; sign in and
+rerun.
+
+Dashboard handoff, Fly app `ts-dashboard`. It sets `TERRABASE_URL`
+(`https://gru.api.terrascale.tech`), `TERRABASE_PROJECT_ID` (from the Vault),
+`TERRABASE_DATABASE` (`dashboard`) and `TERRABASE_API_KEY` (from the Vault).
+
+```sh
+# Without a token: reads only the project ID, prints the three non-secret
+# settings and the Vault secret that holds the key.
+terrascale-orchestrator ouroboros fly-secrets --plan "$PLAN"
+# Expect {"app":"ts-dashboard","settings":{...},"api_key_secret":"gru-1-ts-dashboard-terrabase-api-key","staged":false}
+
+# With a token: reads both secrets and runs
+# flyctl secrets import --app ts-dashboard --stage, values on stdin.
+FLY_API_TOKEN=<token> terrascale-orchestrator ouroboros fly-secrets --plan "$PLAN"
+# Expect the same line with "staged":true
+```
+
+No secret is in argv, output or logs. Staged secrets take effect at the
+dashboard's next deploy (`fly deploy` or `fly secrets deploy`), which is the
+TS-472 cutover.
+
 ## Qualification
 
 TerraBase is never faked: the tenant bootstrap runs against the real
@@ -468,14 +586,21 @@ TerraBase release binary.
   `make terrabase-release-process TERRABASE_BINARY=<terrabase-linux-amd64>`):
   `TestBootstrapAgainstTerraBaseRelease` starts a member of the release
   named by `TS_TERRABASE_BINARY` with a cell-CA member certificate on its
-  client listener and a dashboard credential, runs `bootstrap` twice
-  (organization `terrascale-internal`, project `auth`, database `auth`, one
-  key that lists the database; the rerun issues none) and checks that another
-  tenant's key, a wrong credential and a certificate for another member are
-  refused. Passed locally against
-  `ci-0248ad3ac6fb82ac900e38005840a619e5d0beac-run-13267`
-  (`terrabase-linux-amd64`).
-- `internal/tsauth` (T0): profile rules, env file parse and render (no value
+  client listener and a dashboard credential, runs `ouroboros bootstrap`
+  twice (organization `terrascale`, projects `ts-auth` and `ts-dashboard`, four
+  secrets; the rerun issues no key) and checks that each project's key
+  cannot read the other project's database, and that another tenant's key, a
+  wrong credential and a certificate for another member are refused. It then
+  runs phase B against a fake ts-auth users API: the missing-user message, an
+  interrupted earlier invitation, the ownership transfer with `ts-orchestrator`
+  kept as admin, a no-op rerun, and a phase A rerun after the transfer.
+  Passed locally against `terrabase-linux-amd64` SHA-256
+  `8abcedaa6b8487f08ecafe4485862f1f9309154e58ac1a74eda2278b78500968`.
+- `internal/tsauth` (T0): `TestOuroborosTSAuthUserLookup` (paging;
+  unverified, banned, duplicate and missing users; HTTP errors without the
+  key) and `TestOuroborosFlySecrets` (no-token mode reads no API key; token
+  mode stages through a stub `flyctl` with the values on stdin and redacts the
+  key from a failure). Also profile rules, env file parse and render (no value
   in any error), probe, release verification, the backend set from the real
   `plan.json`, Vault create-once with a fake OCI Vault (existing, pending
   deletion, duplicate and paged secrets, retry token), `ReadSecrets`, and

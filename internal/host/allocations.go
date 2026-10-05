@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"github.com/nats-io/nats.go/jetstream"
 )
 
 // ListDesired reads all committed host allocations from the ordered control
@@ -26,7 +25,7 @@ func (c *Controller) ListDesired(ctx context.Context, role string) ([]Desired, e
 	if role != "" {
 		filter = prefix + "*." + role
 	}
-	info, err := c.controlLog.Info(ctx, jetstream.WithSubjectFilter(filter))
+	info, err := c.controlLogSubjects(ctx, filter)
 	if err != nil {
 		return nil, err
 	}

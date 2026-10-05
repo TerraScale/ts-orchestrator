@@ -49,7 +49,7 @@ func scenarios() []scenario {
 			return pending{"TS-496", "Atlas stack discovery and session pin/421 contract await release"}
 		}},
 		{"ouroboros.internal-state", []string{"ts-auth", "ts-dashboard", "terrabase"}, []string{"TS-472", "TS-489", "TS-492"}, func(context.Context, *environment) error {
-			return pending{"TS-472,TS-489,TS-492", "requires both services to write and read their state in terrascale-internal on this TerraBase"}
+			return pending{"TS-472,TS-489,TS-492", "requires both services to write and read their state in terrascale on this TerraBase"}
 		}},
 		{"status.reachable", []string{"ts-status"}, []string{"TS-512"}, func(ctx context.Context, e *environment) error {
 			if e.Target == "local" {

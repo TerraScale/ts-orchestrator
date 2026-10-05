@@ -85,7 +85,7 @@ func Ensure(ctx context.Context, client VaultClient, target Target, cell, key st
 	response, err := client.CreateSecret(ctx, ocivault.CreateSecretRequest{
 		CreateSecretDetails: ocivault.CreateSecretDetails{
 			CompartmentId: new(target.CompartmentID), VaultId: new(target.VaultID), KeyId: new(target.KeyID),
-			SecretName: new(name), Description: new("ts-auth " + key + " of cell " + cell + "; created once by ts-orch ts-auth."),
+			SecretName: new(name), Description: new(key + " of cell " + cell + "; created once by ts-orch."),
 			SecretContent: ocivault.Base64SecretContentDetails{Content: new(content), Stage: ocivault.SecretContentDetailsStageCurrent},
 		},
 		// The SDK retries a lost response with the same token, which OCI
