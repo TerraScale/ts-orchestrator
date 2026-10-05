@@ -735,7 +735,18 @@ the client leaf's private key in OpenBao at mount `secret/homelab`, path
 `infra/cloudflare/terrascale-aop-ca` (fields `ca_key` and `client_key`), and
 nowhere else. The complete zone certificate list
 must contain exactly one active certificate. Add its public inputs to the
-reviewed plan (never add either private key):
+reviewed plan (never add either private key). With the logged-in `cf` CLI
+(see [AGENTS.md](../AGENTS.md#cloudflare-use-the-cf-cli)), upload and list
+the zone certificate with (`@file` keeps the key out of `ps`; delete the
+temporary key file afterwards):
+
+```sh
+cf origin-tls-client-auth zone-certificates create -z terrascale.tech \
+  --certificate @client-leaf.pem --private-key @client-leaf.key
+cf origin-tls-client-auth zone-certificates list -z terrascale.tech
+```
+
+The plan entry:
 
 ```json
 "origin_pull": {
@@ -752,6 +763,15 @@ PUT /zones/<zone-id>/origin_tls_client_auth/hostnames
 Content-Type: application/json
 
 {"config":[{"hostname":"gru.api.terrascale.tech","enabled":null},{"hostname":"auth.terrascale.tech","enabled":null}]}
+```
+
+The `cf` equivalent, and the readback:
+
+```sh
+cf origin-tls-client-auth hostnames update -z terrascale.tech \
+  --config '[{"hostname":"gru.api.terrascale.tech","enabled":null},{"hostname":"auth.terrascale.tech","enabled":null}]'
+cf origin-tls-client-auth hostnames get gru.api.terrascale.tech -z terrascale.tech
+cf origin-tls-client-auth hostnames get auth.terrascale.tech -z terrascale.tech
 ```
 
 Each target's `GET .../hostnames/<hostname>` must then succeed with the
