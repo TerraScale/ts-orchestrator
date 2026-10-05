@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -72,6 +74,11 @@ type Result struct {
 type Reconciler struct {
 	config Config
 	specs  []ServiceSpec
+	// version counts SetServices calls; see servicesReplaced.
+	version uint64
+	// writes lets SetServices wait for an in-flight desired write, so no
+	// write planned with replaced services starts or runs after it returns.
+	writes sync.RWMutex
 
 	mu      sync.Mutex
 	epoch   uint64
@@ -88,29 +95,11 @@ func New(config Config) (*Reconciler, error) {
 	if config.Hosts == nil || config.Writer == nil || config.Fencer == nil || !nameRE.MatchString(config.Cell) {
 		return nil, errors.New("workload reconciler requires cell, host view, writer and fencer")
 	}
-	if err := ValidateSpecs(config.Specs); err != nil {
+	specs, profiles, err := prepareServices(config.Specs, config.Profiles)
+	if err != nil {
 		return nil, err
 	}
-	specs := slices.Clone(config.Specs)
-	slices.SortFunc(specs, func(a, b ServiceSpec) int {
-		if a.Role < b.Role {
-			return -1
-		}
-		if a.Role > b.Role {
-			return 1
-		}
-		return 0
-	})
-	for _, spec := range specs {
-		// Only stateless services are reconciled here; stateful specs
-		// (TerraBase) are sized by placement and need no generic profile.
-		if spec.Kind != KindStateless {
-			continue
-		}
-		if _, err := resourcesFor(spec, config.Profiles); err != nil {
-			return nil, err
-		}
-	}
+	config.Profiles = profiles
 	if config.Interval <= 0 {
 		config.Interval = DefaultInterval
 	}
@@ -122,6 +111,90 @@ func New(config Config) (*Reconciler, error) {
 	}
 	return &Reconciler{config: config, specs: specs, history: make(map[string]autoscale.History),
 		goal: make(map[string]int), last: make(map[string]Result)}, nil
+}
+
+// prepareServices validates specs against profiles and returns role-sorted and
+// cloned copies of both.
+func prepareServices(specs []ServiceSpec, profiles map[string]placement.Resources) ([]ServiceSpec, map[string]placement.Resources, error) {
+	if err := ValidateSpecs(specs); err != nil {
+		return nil, nil, err
+	}
+	specs = slices.Clone(specs)
+	slices.SortFunc(specs, func(a, b ServiceSpec) int { return strings.Compare(a.Role, b.Role) })
+	for _, spec := range specs {
+		// Only stateless services are reconciled here; stateful specs
+		// (TerraBase) are sized by placement and need no generic profile.
+		if spec.Kind != KindStateless {
+			continue
+		}
+		if _, err := resourcesFor(spec, profiles); err != nil {
+			return nil, nil, err
+		}
+	}
+	return specs, maps.Clone(profiles), nil
+}
+
+// SetServices swaps the reconciled services, for example after a signed
+// service-set amendment. Invalid input leaves the current services in force.
+// Roles that were dropped lose their goal and results; new and changed roles
+// start with a fresh goal and autoscaling window.
+func (r *Reconciler) SetServices(specs []ServiceSpec, profiles map[string]placement.Resources) error {
+	specs, profiles, err := prepareServices(specs, profiles)
+	if err != nil {
+		return err
+	}
+	now := r.config.Now()
+	r.writes.Lock()
+	defer r.writes.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	present := make(map[string]bool, len(specs))
+	for _, spec := range specs {
+		present[spec.Role] = true
+		index := slices.IndexFunc(r.specs, func(old ServiceSpec) bool { return old.Role == spec.Role })
+		if index < 0 || !reflect.DeepEqual(r.specs[index], spec) || r.config.Profiles[spec.Role] != profiles[spec.Role] {
+			delete(r.goal, spec.Role)
+			r.history[spec.Role] = autoscale.Reset(now)
+		}
+	}
+	for _, old := range r.specs {
+		if !present[old.Role] {
+			delete(r.goal, old.Role)
+			delete(r.last, old.Role)
+			delete(r.history, old.Role)
+		}
+	}
+	r.specs, r.config.Profiles = specs, profiles
+	r.version++
+	return nil
+}
+
+// services returns a consistent snapshot of the specs and profiles and their
+// version. Both are replaced, never mutated, so the snapshot is safe to use
+// without the lock.
+func (r *Reconciler) services() ([]ServiceSpec, map[string]placement.Resources, uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.specs, r.config.Profiles, r.version
+}
+
+// errServicesReplaced stops a tick whose services SetServices replaced: it
+// must not write, or record results, for a set that is no longer current.
+var errServicesReplaced = errors.New("services were replaced during reconciliation")
+
+func (r *Reconciler) servicesReplaced(version uint64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.version != version {
+		return errServicesReplaced
+	}
+	return nil
+}
+
+// ownedLocked reports whether role is still reconciled; a tick that raced a
+// removal must not resurrect the role's state.
+func (r *Reconciler) ownedLocked(role string) bool {
+	return slices.ContainsFunc(r.specs, func(spec ServiceSpec) bool { return spec.Role == role })
 }
 
 // Signals returns the configured signal source, nil when none.
@@ -152,7 +225,8 @@ func (r *Reconciler) Owns(role string) (ServiceSpec, bool) {
 	if r == nil {
 		return ServiceSpec{}, false
 	}
-	for _, spec := range r.specs {
+	specs, _, _ := r.services()
+	for _, spec := range specs {
 		if spec.Role == role && spec.Kind == KindStateless {
 			return spec, true
 		}
@@ -194,6 +268,7 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 		r.mu.Unlock()
 		return nil
 	}
+	specs, profiles, version := r.services()
 	now := r.config.Now()
 	r.mu.Lock()
 	if r.epoch != snapshot.Epoch {
@@ -215,6 +290,9 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 		}
 	}
 	r.mu.Unlock()
+	if len(specs) == 0 {
+		return nil
+	}
 	hosts, err := r.config.Hosts.ListHosts(ctx)
 	if err != nil {
 		return err
@@ -224,17 +302,23 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 		return err
 	}
 	var errs []error
-	for _, spec := range r.specs {
+	for _, spec := range specs {
 		if spec.Kind != KindStateless {
 			continue
 		}
 		// Every service plans against the allocations earlier services
 		// committed in this tick, so two services can never both claim
 		// the same free capacity on one host.
-		result, committed, err := r.reconcile(ctx, spec, snapshot.Epoch, hosts, desired, now)
+		result, committed, err := r.reconcile(ctx, spec, profiles, version, snapshot.Epoch, hosts, desired, now)
+		if errors.Is(err, errServicesReplaced) {
+			// The next tick plans with the current services.
+			return errors.Join(errs...)
+		}
 		desired = withCommitted(desired, committed)
 		r.mu.Lock()
-		r.last[spec.Role] = result
+		if r.ownedLocked(spec.Role) {
+			r.last[spec.Role] = result
+		}
 		r.mu.Unlock()
 		if err != nil {
 			errs = append(errs, fmt.Errorf("service %q: %w", spec.Role, err))
@@ -267,16 +351,16 @@ func withCommitted(desired, committed []host.Desired) []host.Desired {
 // committed, even when a later write failed. The remembered goal and the
 // autoscaling history advance only after the whole step committed, so a
 // failed step is decided and applied again instead of being taken as done.
-func (r *Reconciler) reconcile(ctx context.Context, spec ServiceSpec, epoch uint64, hosts []host.HostStatus,
+func (r *Reconciler) reconcile(ctx context.Context, spec ServiceSpec, profiles map[string]placement.Resources, version, epoch uint64, hosts []host.HostStatus,
 	desired []host.Desired, now time.Time,
 ) (Result, []host.Desired, error) {
 	result := Result{Role: spec.Role}
-	resources, err := resourcesFor(spec, r.config.Profiles)
+	resources, err := resourcesFor(spec, profiles)
 	if err != nil {
 		return result, nil, err
 	}
 	observation, err := Observe(Snapshot{Cell: r.config.Cell, Environment: spec.Environment, Role: spec.Role,
-		Hosts: hosts, Desired: desired, Profiles: r.config.Profiles, Now: now})
+		Hosts: hosts, Desired: desired, Profiles: profiles, Now: now})
 	if err != nil {
 		return result, nil, err
 	}
@@ -335,20 +419,19 @@ func (r *Reconciler) reconcile(ctx context.Context, spec ServiceSpec, epoch uint
 	result.Step = step
 	var committed []host.Desired
 	for _, write := range step.Writes {
-		if err := r.config.Fencer.Guard(ctx, epoch); err != nil {
+		if err := r.applyCurrent(ctx, version, epoch, write); err != nil {
+			// A concurrent release, authority change or service set wins;
+			// the next tick observes it and plans again.
 			return result, committed, err
-		}
-		if _, err := r.config.Writer.ApplyDesired(ctx, write); err != nil {
-			// A concurrent release or authority change wins; the next tick
-			// observes it and plans again.
-			return result, committed, fmt.Errorf("apply desired %s/%s: %w", write.Node, write.Role, err)
 		}
 		committed = append(committed, write)
 	}
 	r.mu.Lock()
-	r.goal[spec.Role] = target
-	if result.Decision != nil {
-		r.history[spec.Role] = history
+	if r.ownedLocked(spec.Role) {
+		r.goal[spec.Role] = target
+		if result.Decision != nil {
+			r.history[spec.Role] = history
+		}
 	}
 	r.mu.Unlock()
 	if len(step.Writes) > 0 {
@@ -359,6 +442,23 @@ func (r *Reconciler) reconcile(ctx context.Context, spec ServiceSpec, epoch uint
 		}
 	}
 	return result, committed, nil
+}
+
+// applyCurrent applies one write planned with services version, only while
+// those services are current.
+func (r *Reconciler) applyCurrent(ctx context.Context, version, epoch uint64, write host.Desired) error {
+	r.writes.RLock()
+	defer r.writes.RUnlock()
+	if err := r.servicesReplaced(version); err != nil {
+		return err
+	}
+	if err := r.config.Fencer.Guard(ctx, epoch); err != nil {
+		return err
+	}
+	if _, err := r.config.Writer.ApplyDesired(ctx, write); err != nil {
+		return fmt.Errorf("apply desired %s/%s: %w", write.Node, write.Role, err)
+	}
+	return nil
 }
 
 func resourcesFor(spec ServiceSpec, profiles map[string]placement.Resources) (placement.Resources, error) {

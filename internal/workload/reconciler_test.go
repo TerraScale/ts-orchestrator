@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -727,5 +728,154 @@ func TestNewAcceptsStatefulSpecWithoutGenericProfile(t *testing.T) {
 	if _, err := New(Config{Cell: "gru", Specs: []ServiceSpec{statelessSpec(1, 2), validStateful()},
 		Profiles: testProfiles, Hosts: newFakeCell(), Writer: newFakeCell(), Fencer: &fakeFencer{}}); err != nil {
 		t.Fatalf("New with a stateful spec = %v", err)
+	}
+}
+
+// countingHosts counts how often the reconciler lists host state.
+type countingHosts struct {
+	*fakeCell
+	listed atomic.Int32
+}
+
+func (c *countingHosts) ListHosts(ctx context.Context) ([]host.HostStatus, error) {
+	c.listed.Add(1)
+	return c.fakeCell.ListHosts(ctx)
+}
+
+func TestReconcilerSetServicesAddsAndRemovesRoles(t *testing.T) {
+	cell := threeHostCell()
+	cell.seed("node-a", "api", testDigest, 4)
+	cell.runAll()
+	hosts := &countingHosts{fakeCell: cell}
+	reconciler, err := New(Config{Cell: "gru", Hosts: hosts, Writer: cell, Fencer: &fakeFencer{leader: true, epoch: 1},
+		Now: func() time.Time { return testNow }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.Tick(context.Background()); err != nil || hosts.listed.Load() != 0 || len(cell.writes) != 0 {
+		t.Fatalf("empty reconciler listed hosts %d times, wrote %v (%v)", hosts.listed.Load(), cell.writes, err)
+	}
+	if _, owns := reconciler.Owns("api"); owns {
+		t.Fatal("empty reconciler owns api")
+	}
+
+	if err := reconciler.SetServices([]ServiceSpec{statelessSpec(3, 5)}, testProfiles); err != nil {
+		t.Fatal(err)
+	}
+	if _, owns := reconciler.Owns("api"); !owns {
+		t.Fatal("added role not owned")
+	}
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := cell.active("api"); len(got) < 2 {
+		t.Fatalf("active = %v, want scale up toward the new minimum", got)
+	}
+	if _, reported := reconciler.Last()["api"]; !reported {
+		t.Fatal("added role has no result")
+	}
+
+	if err := reconciler.SetServices(nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, owns := reconciler.Owns("api"); owns {
+		t.Fatal("removed role still owned")
+	}
+	if len(reconciler.Last()) != 0 {
+		t.Fatalf("removed role still reported: %v", reconciler.Last())
+	}
+}
+
+func TestReconcilerSetServicesRejectsInvalidInput(t *testing.T) {
+	cell := threeHostCell()
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, statelessSpec(1, 5))
+	bad := statelessSpec(1, 5)
+	bad.Replicas = ReplicaBounds{Min: 5, Max: 1}
+	for name, err := range map[string]error{
+		"invalid spec":    reconciler.SetServices([]ServiceSpec{bad}, testProfiles),
+		"missing profile": reconciler.SetServices([]ServiceSpec{statelessSpec(1, 5)}, nil),
+	} {
+		if err == nil {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+	spec, owns := reconciler.Owns("api")
+	if !owns || spec.Replicas.Max != 5 {
+		t.Fatalf("previous services not kept: %#v %v", spec, owns)
+	}
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatalf("tick after rejected amendment: %v", err)
+	}
+}
+
+func TestReconcilerSetServicesWhileTicking(t *testing.T) {
+	cell := threeHostCell()
+	cell.seed("node-a", "api", testDigest, 4)
+	cell.runAll()
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, statelessSpec(1, 5))
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := range 50 {
+			specs := []ServiceSpec{statelessSpec(1, 5)}
+			if i%2 == 0 {
+				specs = nil
+			}
+			if err := reconciler.SetServices(specs, testProfiles); err != nil {
+				t.Error(err)
+			}
+		}
+	}()
+	for range 50 {
+		_ = reconciler.Tick(context.Background())
+		reconciler.Owns("api")
+		reconciler.Last()
+	}
+	wg.Wait()
+}
+
+// replacingWriter starts replacing the reconciler's services during its
+// first write, as a service set adopted mid-tick does.
+type replacingWriter struct {
+	*fakeCell
+	replace func()
+}
+
+func (w *replacingWriter) ApplyDesired(ctx context.Context, d host.Desired) (host.Receipt, error) {
+	receipt, err := w.fakeCell.ApplyDesired(ctx, d)
+	if replace := w.replace; replace != nil {
+		w.replace = nil
+		go replace()
+		// Let the replacement block on the in-flight write.
+		time.Sleep(50 * time.Millisecond)
+	}
+	return receipt, err
+}
+
+// A tick stops writing once its services are replaced, so a removed role is
+// never given replicas by a tick that started before its removal.
+func TestReconcilerStopsWritingWhenServicesAreReplaced(t *testing.T) {
+	cell := threeHostCell()
+	cell.seed("node-a", "api", testDigest, 4)
+	cell.runAll()
+	spec := statelessSpec(3, 5)
+	spec.Rollout.MaxSurge = 3
+	writer := &replacingWriter{fakeCell: cell}
+	reconciler, err := New(Config{Cell: "gru", Specs: []ServiceSpec{spec}, Profiles: testProfiles, Hosts: cell,
+		Writer: writer, Fencer: &fakeFencer{leader: true, epoch: 1}, Now: func() time.Time { return testNow }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaced := make(chan error, 1)
+	writer.replace = func() { replaced <- reconciler.SetServices(nil, nil) }
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-replaced; err != nil {
+		t.Fatal(err)
+	}
+	if len(cell.writes) != 1 || len(reconciler.Last()) != 0 {
+		t.Fatalf("writes %v, results %v after the services were replaced", cell.writes, reconciler.Last())
 	}
 }

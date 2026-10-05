@@ -73,9 +73,12 @@ func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]Worklo
 			// stateless reconciler or release shaping.
 			return fmt.Errorf("autoscale service %q is a managed TerraBase role", spec.Role)
 		}
-		if spec.Role == tsauth.Role && (spec.Replicas.Min != tsauth.Replicas ||
-			spec.Replicas.Max != tsauth.Replicas || spec.Placement.MaxPerFailureDomain != 1) {
-			return fmt.Errorf("autoscale service %q must keep exactly %d replicas with one per failure domain", spec.Role, tsauth.Replicas)
+		// ts-auth runs exactly its replica count, or none while a service set
+		// drains it before removing it.
+		if spec.Role == tsauth.Role && (spec.Replicas != workload.ReplicaBounds{Min: tsauth.Replicas, Max: tsauth.Replicas} &&
+			spec.Replicas != workload.ReplicaBounds{} || spec.Placement.MaxPerFailureDomain != 1) {
+			return fmt.Errorf("autoscale service %q must keep exactly %d replicas (or 0 to drain it) with one per failure domain",
+				spec.Role, tsauth.Replicas)
 		}
 		profile, exists := profiles[spec.Role]
 		if !exists {
@@ -91,45 +94,41 @@ func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]Worklo
 	return nil
 }
 
-// startWorkloadAutoscale builds the reconciler and host pool scaler when the
-// signed config enables them. Both act only on the regional authority leader.
+// startWorkloadAutoscale builds the reconciler, which owns the service set's
+// reconciled roles, and, when the signed config enables autoscaling, its
+// host telemetry and host pool scaler. All act only on the regional
+// authority leader. The returned aggregator is nil without host telemetry.
 func startWorkloadAutoscale(cell string, config *AutoscaleConfig, profiles map[string]WorkloadProfile,
-	hosts *host.Controller, fencer authority.Fencer,
-) (*workload.Reconciler, *hostpool.Scaler, error) {
-	if config == nil || !config.Enabled {
-		return nil, nil, nil
+	specs []workload.ServiceSpec, hosts *host.Controller, fencer authority.Fencer,
+) (*workload.Reconciler, *hostpool.Scaler, *hostload.Aggregator, error) {
+	var settings AutoscaleConfig
+	if config != nil && config.Enabled {
+		settings = *config
 	}
-	interval := time.Duration(config.IntervalSeconds) * time.Second
-	resources := make(map[string]placement.Resources, len(profiles))
-	for role, profile := range profiles {
-		resources[role] = profile.Resources
-	}
+	interval := time.Duration(settings.IntervalSeconds) * time.Second
+	resources := profileResources(profiles)
 	var scaler *hostpool.Scaler
 	var requester workload.CapacityRequester
-	if len(config.NodePools) > 0 {
+	if len(settings.NodePools) > 0 {
 		var err error
-		scaler, err = hostpool.NewScaler(hostpool.Config{Cell: cell, Pools: config.NodePools, Hosts: hosts,
+		scaler, err = hostpool.NewScaler(hostpool.Config{Cell: cell, Pools: settings.NodePools, Hosts: hosts,
 			Fencer: fencer, Logf: log.Printf})
 		if err != nil {
-			return nil, nil, fmt.Errorf("start host pool scaler: %w", err)
+			return nil, nil, nil, fmt.Errorf("start host pool scaler: %w", err)
 		}
 		requester = scaler
 	}
 	var signals autoscale.Source
 	var load *hostload.Aggregator
-	if config.HostTelemetry {
-		requests := make(map[string]hostload.Request, len(resources))
-		for role, request := range resources {
-			requests[role] = hostload.Request{CPUCores: float64(request.CPU), MemoryBytes: request.MemoryBytes}
-		}
-		load = hostload.NewAggregator(hostload.AggregatorConfig{Requests: requests})
+	if settings.HostTelemetry {
+		load = hostload.NewAggregator(hostload.AggregatorConfig{Requests: loadRequests(resources)})
 		signals = load
 	}
-	reconciler, err := workload.New(workload.Config{Cell: cell, Specs: config.Services, Profiles: resources,
+	reconciler, err := workload.New(workload.Config{Cell: cell, Specs: specs, Profiles: resources,
 		Hosts: hosts, Writer: hosts, Fencer: fencer, Signals: signals, Capacity: requester, Interval: interval,
 		Logf: log.Printf})
 	if err != nil {
-		return nil, nil, fmt.Errorf("start workload reconciler: %w", err)
+		return nil, nil, nil, fmt.Errorf("start workload reconciler: %w", err)
 	}
 	if load != nil {
 		// Only the authority leader serves host requests, so only its
@@ -137,7 +136,15 @@ func startWorkloadAutoscale(cell string, config *AutoscaleConfig, profiles map[s
 		// holds with no-signal-data until a full window arrives.
 		hosts.SetLoadSink(load.Record)
 	}
-	return reconciler, scaler, nil
+	return reconciler, scaler, load, nil
+}
+
+func loadRequests(resources map[string]placement.Resources) map[string]hostload.Request {
+	requests := make(map[string]hostload.Request, len(resources))
+	for role, request := range resources {
+		requests[role] = hostload.Request{CPUCores: float64(request.CPU), MemoryBytes: request.MemoryBytes}
+	}
+	return requests
 }
 
 // PlanShaped plans a release. Roles owned by the workload reconciler get a

@@ -190,6 +190,39 @@ func TestAggregatorNormalizesByRequestAndThrottles(t *testing.T) {
 	}
 }
 
+func TestAggregatorSetRequestsAppliesToLaterReports(t *testing.T) {
+	now := time.Unix(10_000, 0)
+	aggregator := NewAggregator(AggregatorConfig{
+		Requests: map[string]Request{"api": {CPUCores: 2}},
+		Now:      func() time.Time { return now },
+	})
+	report := Report{SchemaVersion: 1, Roles: []RoleUsage{
+		{Role: "api", CPUCores: ptr(1.0)}, {Role: "worker", CPUCores: ptr(1.0)},
+	}}
+	if err := aggregator.Record(Origin{Cell: "gru", Environment: "prod", Node: "pool-1"}, report); err != nil {
+		t.Fatal(err)
+	}
+	// A new service-set amendment resizes api and adds worker.
+	aggregator.SetRequests(map[string]Request{"api": {CPUCores: 4}, "worker": {CPUCores: 1}})
+	if err := aggregator.Record(Origin{Cell: "gru", Environment: "prod", Node: "pool-2"}, report); err != nil {
+		t.Fatal(err)
+	}
+	read := func(role string) autoscale.Reading {
+		reading, err := aggregator.Read(t.Context(), autoscale.Target{Cell: "gru", Environment: "prod", Role: role},
+			autoscale.Signal{Name: autoscale.SignalCPUUtilization, Target: 1, WindowSeconds: 10}, now.Add(5*time.Second))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return reading
+	}
+	if got := read("api"); got.Samples != 2 || got.Value != 0.375 {
+		t.Fatalf("api cpu_util = %+v, want mean of 0.5 and 0.25", got)
+	}
+	if got := read("worker"); got.Samples != 1 || got.Value != 1 {
+		t.Fatalf("worker cpu_util = %+v, want the one report after it got a request", got)
+	}
+}
+
 func TestAggregatorTerraBaseSignals(t *testing.T) {
 	now := time.Unix(10_000, 0)
 	aggregator := NewAggregator(AggregatorConfig{Now: func() time.Time { return now }})

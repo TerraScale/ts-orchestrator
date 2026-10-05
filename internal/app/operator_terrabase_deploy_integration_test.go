@@ -332,7 +332,7 @@ func startDeployTestCell(t *testing.T, consistentNaming, inTransit bool) *deploy
 	if err != nil {
 		t.Fatal(err)
 	}
-	subscribe(serveHostEnrollment(ctx, broker.Conn(), deployTestCell, policy, control, cell.hosts, nil))
+	subscribe(serveHostEnrollment(ctx, broker.Conn(), deployTestCell, policy, control, cell.hosts, nil, nil))
 	hostsDone := make(chan error, 1)
 	go func() { hostsDone <- cell.hosts.Run(ctx) }()
 	select {

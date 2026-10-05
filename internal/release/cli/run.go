@@ -22,6 +22,8 @@ Commands:
   publish
   sign-update-delegation
   sign-binary-update
+  sign-service-delegation
+  sign-service-set
 `
 
 type command struct {

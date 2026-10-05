@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -34,7 +35,7 @@ const Region = "sa-saopaulo-1"
 const OperatorCLI = "terrascale-orchestrator-linux-amd64"
 
 var Slots = []string{"controller-a", "controller-b", "controller-c"}
-var Phases = []string{"material", "release", "image", "sign", "launch", "complete", "continuity", "operator", "members", "terrabase"}
+var Phases = []string{"material", "release", "image", "sign", "launch", "complete", "continuity", "operator", "services", "members", "terrabase"}
 
 type Object = map[string]any
 type Command struct {
@@ -1080,6 +1081,60 @@ func (a *Attempt) PhaseOperator() {
 	}
 }
 
+var serviceRole = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+
+// PhaseServices adds the configured services ({role, profile, spec}) to the
+// running cell through the signed service sets of any later change: the
+// operator CLI plans each, the release leaf signs it under the root's
+// service set delegation, and the cell applies it. A service already in the
+// set plans nothing, so a rerun changes nothing.
+func (a *Attempt) PhaseServices() {
+	services := rows(a.Config["services"])
+	if len(services) == 0 {
+		return
+	}
+	// A role names files the phase deletes as root.
+	for _, v := range services {
+		service := object(v)
+		if !serviceRole.MatchString(str(service, "role")) || str(service, "profile") == "" {
+			a.fail(fmt.Errorf("attempt config services need a valid role and a profile"))
+			return
+		}
+	}
+	dir := a.Path("services")
+	a.mkdir(dir)
+	// Every run issues a fresh delegation, so a resumed attempt never signs
+	// with an expired one.
+	delegation := filepath.Join(dir, "service-delegation.signed.json")
+	if err := os.Remove(delegation); !errors.Is(err, os.ErrNotExist) {
+		a.fail(err)
+	}
+	issued := a.Now().UTC().Truncate(time.Second).Add(-time.Minute)
+	a.release("sign-service-delegation", "--subject-public-key", a.trust("release_leaf_public"), "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--deployment-id", a.Deployment, "--cell", "gru", "--environment", "canary", "--issued-at", issued.Format(time.RFC3339), "--expires-at", issued.Add(7*24*time.Hour).Format(time.RFC3339), "--out", delegation)
+	cli, config := a.Path("release", OperatorCLI), "/var/lib/terrascale-operator/operator.json"
+	for _, v := range services {
+		service := object(v)
+		role, profile, spec := str(service, "role"), str(service, "profile"), str(service, "spec")
+		// Every run plans from the cell's current set, so a set another
+		// change made stale is never reapplied.
+		candidate, signed := filepath.Join(dir, role+".candidate.json"), filepath.Join(dir, role+".signed.json")
+		a.sudo(false, "rm", "-f", "--", candidate, signed)
+		args := []string{cli, "service", "add", "--config", config, "--role", role, "--profile", profile, "--out", candidate}
+		if spec != "" {
+			args = append(args, "--spec", spec)
+		}
+		a.sudo(false, args...)
+		if a.err != nil {
+			return
+		}
+		if !exists(candidate) {
+			continue
+		}
+		a.release("sign-service-set", "--candidate", candidate, "--delegation", delegation, "--root-key", a.trust("root_public"), "--signing-key", a.trust("release_leaf_private"), "--out", signed)
+		a.sudo(false, cli, "service", "apply", "--config", config, "--file", signed)
+	}
+}
+
 // PhaseMembers launches the plan's database hosts. They enroll with the
 // controllers themselves through host-setup.
 func (a *Attempt) PhaseMembers() {
@@ -1310,6 +1365,8 @@ func (a *Attempt) Phase(phase string) error {
 		a.PhaseContinuity()
 	case "operator":
 		a.PhaseOperator()
+	case "services":
+		a.PhaseServices()
 	case "members":
 		a.PhaseMembers()
 	case "plan":

@@ -9,7 +9,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/serviceset"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/backup"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/capacity"
 )
@@ -100,12 +100,20 @@ type ControllerConfig struct {
 	// RegionPlanner runs the region planner in the global home; nil or
 	// disabled keeps it off.
 	RegionPlanner *RegionPlannerConfig `json:"region_planner,omitempty"`
+	ServiceTrust  *ServiceTrustConfig  `json:"service_trust,omitempty"`
 }
 
-type WorkloadProfile struct {
-	Resources placement.Resources `json:"resources"`
-	Args      []string            `json:"args,omitempty"`
-	Env       map[string]string   `json:"env,omitempty"`
+// WorkloadProfile is the service set's profile type, so a signed controller
+// config and a signed service set describe a role the same way.
+type WorkloadProfile = serviceset.Profile
+
+// ServiceTrustConfig lets a lab controller, which has no image trust roots,
+// verify service sets. Signed production configs refuse it: production
+// controllers use the image's baked roots and deployment identity.
+type ServiceTrustConfig struct {
+	RootPublicKeyFile string `json:"root_public_key_file"`
+	DeploymentID      string `json:"deployment_id"`
+	Environment       string `json:"environment"`
 }
 
 type TrustedSignerConfig struct {

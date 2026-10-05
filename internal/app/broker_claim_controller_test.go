@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -137,6 +138,11 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 	previousAdmission := controllerBootstrapProduction
 	previousFounder := controllerFounderProduction
 	previousProbe := controllerBrokerClockProbe
+	previousServiceTrust := serviceSetBakedInputs
+	serviceSetBakedInputs = func() (bootstrapstart.BakedInputs, error) {
+		return bootstrapstart.BakedInputs{Identity: bootstrapstart.BakedIdentity{SchemaVersion: 1,
+			DeploymentID: "broker-claim", Environment: "test", Cell: "GRU"}, Roots: testServiceSetRoots(t)}, nil
+	}
 	clock := &testBrokerClock{}
 	clock.healthy.Store(true)
 	controllerBakedInputsPresent = func() (bool, error) { return true, nil }
@@ -148,6 +154,7 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 		controllerBootstrapProduction = previousAdmission
 		controllerFounderProduction = previousFounder
 		controllerBrokerClockProbe = previousProbe
+		serviceSetBakedInputs = previousServiceTrust
 	})
 	if err := os.WriteFile(ticketFile, []byte(base64.StdEncoding.EncodeToString(wrongPublic)), 0o600); err != nil {
 		t.Fatal(err)

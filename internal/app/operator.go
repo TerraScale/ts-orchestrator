@@ -100,6 +100,8 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	historyCursor := flags.String("history-cursor", "", "signed backup history continuation cursor")
 	fingerprint := flags.String("fingerprint", "", "expected intent SHA-256 fingerprint")
 	expectedSequence := flags.String("expected-sequence", "", "expected durable broker claim sequence")
+	specPath := flags.String("spec", "", "service add, update: the role's reconciled service spec JSON")
+	outPath := flags.String("out", "", "service add, update, remove: new unsigned candidate file")
 	var forwards operatorForwardFlags
 	flags.Var(&forwards, "nats-forward", "transient PRIVATE_IP:4222=LOOPBACK_IP:PORT Bastion forward (repeatable)")
 	if err := flags.Parse(args[1:]); err != nil {
@@ -234,6 +236,16 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 			return errors.New("deploy and rollback require --intent FILE")
 		}
 		return operatorSubmit(ctx, cfg, runtime, *intentPath, output)
+	case "service-list":
+		return operatorServiceList(ctx, cfg, runtime, output)
+	case "service-add", "service-update", "service-remove":
+		return operatorServiceChange(ctx, cfg, runtime, strings.TrimPrefix(operation, "service-"), *role,
+			*profilePath, *specPath, *outPath, output)
+	case "service-apply":
+		if *artifactPath == "" {
+			return errors.New("service apply requires --file SIGNED")
+		}
+		return operatorServiceApply(ctx, cfg, runtime, *artifactPath, output)
 	case "status":
 		if *operationID == "" || !fingerprintPattern.MatchString(*fingerprint) {
 			return errors.New("status requires --operation-id and lowercase SHA-256 --fingerprint")

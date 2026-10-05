@@ -23,16 +23,24 @@ import (
 func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
 	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
 	profiles := map[string]WorkloadProfile{"api": {Resources: resources}, "terrabase": {Resources: resources}}
-	reconciler, scaler, err := startWorkloadAutoscale("gru", nil, profiles, nil, nil)
-	if err != nil || reconciler != nil || scaler != nil {
-		t.Fatalf("absent autoscale config started workers: %v %v %v", reconciler, scaler, err)
+	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, Leader: true, Epoch: 1, Revision: 1,
+		ExpiresAt: time.Now().Add(time.Hour)}}
+	// The reconciler always runs, for the roles a service set adds later;
+	// without a service it owns nothing.
+	reconciler, scaler, load, err := startWorkloadAutoscale("gru", nil, profiles, nil, &host.Controller{}, fencer)
+	if err != nil || scaler != nil || load != nil {
+		t.Fatalf("absent autoscale config started workers: %v %v %v", scaler, load, err)
+	}
+	if _, owned := reconciler.Owns("api"); owned {
+		t.Fatal("a reconciler without services owns a role")
 	}
 	disabled := &AutoscaleConfig{Services: []workload.ServiceSpec{{Role: "api", Environment: "prod",
 		Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Min: 1, Max: 3}}}}
 	if err := validateAutoscaleConfig(disabled, profiles); err != nil {
 		t.Fatal(err)
 	}
-	if reconciler, scaler, err := startWorkloadAutoscale("gru", disabled, profiles, nil, nil); err != nil || reconciler != nil || scaler != nil {
+	disabled.HostTelemetry = true
+	if _, scaler, load, err := startWorkloadAutoscale("gru", disabled, profiles, nil, &host.Controller{}, fencer); err != nil || scaler != nil || load != nil {
 		t.Fatal("disabled autoscale config started workers")
 	}
 	var planner regionalDeliveryPlanner
@@ -123,8 +131,8 @@ func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
 		Scaling: &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.6}}}}}}
 	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, Leader: true, Epoch: 1, Revision: 1,
 		ExpiresAt: time.Now().Add(time.Hour)}}
-	reconciler, _, err := startWorkloadAutoscale("gru", config, map[string]WorkloadProfile{"api": {Resources: resources}},
-		&host.Controller{}, fencer)
+	reconciler, _, _, err := startWorkloadAutoscale("gru", config, map[string]WorkloadProfile{"api": {Resources: resources}},
+		config.Services, &host.Controller{}, fencer)
 	if err != nil {
 		t.Fatal(err)
 	}

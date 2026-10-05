@@ -30,8 +30,10 @@ rest - 130/60
 ./internal/app TestBrokerGateR3TicketRevocationAndOfflineFence 40/1 idle
 ./internal/app TestLabTLSHostSessionRecoversAfterControllerLoss 30/1 idle
 ./internal/app TestAuthenticatedOperatorToHostDeliveryWithControllerLoss 25/1 idle
+./internal/app TestServiceSetAddsTSAuthToARunningCell 20/1 idle
 ./internal/app TestRunControllerOperatorBrokerClaimApply 15
 ./internal/app TestTerraBaseReleaseGateWithFakeMember 20
+./internal/app TestServiceSetAmendsARunningController 8
 ./internal/app * 1
 
 # Founder runtime and replacement tests re-verify signed plans on every

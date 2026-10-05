@@ -134,7 +134,7 @@ type controllerObservation struct {
 	managed    bool
 	// holds is the placement reconciler's hold log, read by the insights.
 	holds *placementHoldLog
-	// autoscalers is the workload reconciler, when autoscaling is enabled.
+	// autoscalers is the workload reconciler of the service set.
 	autoscalers *workload.Reconciler
 	// linkedPeers are the interregion peers whose observability services
 	// the cell account imports, so the local connection reaches them.

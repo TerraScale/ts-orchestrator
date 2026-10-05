@@ -27,6 +27,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -110,6 +111,14 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	policy, err := buildSignerPolicy(cfg)
+	if err != nil {
+		return err
+	}
+	memberRole := ""
+	if managed != nil {
+		memberRole = managed.placement.MemberRole
+	}
+	services, err := newServiceRegistry(cfg, memberRole)
 	if err != nil {
 		return err
 	}
@@ -248,7 +257,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return fmt.Errorf("start broker admission gate: %w", err)
 	}
-	planner := &regionalDeliveryPlanner{profiles: cfg.Controller.Workloads}
+	planner := &regionalDeliveryPlanner{profiles: services.profiles}
 	service, _, err := retryControllerOpen(ctx, "open regional delivery stores", fullClusterReady, false,
 		func(attempt context.Context) (*delivery.Service, error) {
 			return delivery.Open(attempt, delivery.Config{
@@ -428,12 +437,28 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	planner.hosts = hostController
-	workloadReconciler, capacityScaler, err := startWorkloadAutoscale(cfg.NATS.Cell, cfg.Controller.Autoscale,
-		cfg.Controller.Workloads, hostController, control)
+	if _, _, err := retryControllerOpen(ctx, "open regional service set", fullClusterReady, false,
+		func(attempt context.Context) (struct{}, error) {
+			return struct{}{}, services.open(attempt, runtime.JetStream(), cfg.NATS.Replicas)
+		}, nil); err != nil {
+		return err
+	}
+	profiles, specs := services.effective()
+	workloadReconciler, capacityScaler, hostLoad, err := startWorkloadAutoscale(cfg.NATS.Cell, cfg.Controller.Autoscale,
+		profiles, specs, hostController, control)
 	if err != nil {
 		return err
 	}
 	planner.workloads = workloadReconciler
+	services.changed = func(profiles map[string]WorkloadProfile, specs []workload.ServiceSpec) {
+		resources := profileResources(profiles)
+		if err := workloadReconciler.SetServices(specs, resources); err != nil {
+			slog.Error("reconciler refused the adopted service set", observability.ComponentKey, "services", "error", err)
+		}
+		if hostLoad != nil {
+			hostLoad.SetRequests(loadRequests(resources))
+		}
+	}
 	if materialService != nil && managed != nil {
 		backupRuntime = &backupOperationRuntime{cell: cfg.NATS.Cell,
 			memberRole: managed.placement.MemberRole, control: control,
@@ -507,7 +532,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return fmt.Errorf("serve artifact admission: %w", err)
 	}
 	defer artifactSub.Unsubscribe()
-	enrollmentSub, err := serveHostEnrollment(runCtx, runtime.Conn(), cfg.NATS.Cell, policy, control, hostController, managedEnrollment)
+	enrollmentSub, err := serveHostEnrollment(runCtx, runtime.Conn(), cfg.NATS.Cell, policy, control, hostController,
+		managedEnrollment, services)
 	if err != nil {
 		return fmt.Errorf("serve host enrollment: %w", err)
 	}
@@ -641,9 +667,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if membershipSupervisor != nil {
 		workers.Go(func() { workerErrors <- membershipSupervisor.Run(runCtx) })
 	}
-	if workloadReconciler != nil {
-		workers.Go(func() { workerErrors <- workloadReconciler.Run(runCtx) })
-	}
+	workers.Go(func() { workerErrors <- workloadReconciler.Run(runCtx) })
+	workers.Go(func() { workerErrors <- services.Run(runCtx) })
 	if capacityScaler != nil {
 		workers.Go(func() { workerErrors <- capacityScaler.Run(runCtx) })
 	}

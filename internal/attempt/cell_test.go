@@ -485,3 +485,75 @@ func TestSignRendersTheTerraBaseProfile(t *testing.T) {
 		t.Fatal(a.Err(), render)
 	}
 }
+
+// The services phase adds each configured service through a signed service
+// set: plan, sign under the root's delegation to the leaf, apply. A service
+// already in the set plans nothing, and a rerun reapplies the signed set.
+func TestServicesPhaseAddsServicesThroughSignedSets(t *testing.T) {
+	a := smallAttempt(t)
+	a.Config["trust"] = Object{"root_public": "/keys/root.pub", "root_private": "/keys/root.key",
+		"release_leaf_public": "/keys/leaf.pub", "release_leaf_private": "/keys/leaf.key"}
+	a.Config["services"] = []any{
+		Object{"role": "ts-auth", "profile": "/deploy/ts-auth-profile.json", "spec": "/deploy/ts-auth-service.json"},
+		Object{"role": "web", "profile": "/deploy/web-profile.json"},
+	}
+	var commands [][]string
+	a.Runner = func(_ context.Context, c Command) (string, error) {
+		commands = append(commands, c.Args)
+		write := slices.Contains(c.Args, "sign-service-delegation") || slices.Contains(c.Args, "sign-service-set") ||
+			slices.Contains(c.Args, "add") && flagValue(c.Args, "--role") == "ts-auth"
+		if write {
+			return "", os.WriteFile(flagValue(c.Args, "--out"), []byte("{}"), 0o600)
+		}
+		return "", nil
+	}
+	a.PhaseServices()
+	cli, dir := a.Path("release", OperatorCLI), a.Path("services")
+	sudo := []string{"sudo", "--preserve-env=PATH,LIBGUESTFS_PATH"}
+	operator := []string{"--config", "/var/lib/terrascale-operator/operator.json"}
+	candidate, signed := filepath.Join(dir, "ts-auth.candidate.json"), filepath.Join(dir, "ts-auth.signed.json")
+	want := [][]string{
+		nil, // the root's service set delegation, checked below
+		append(sudo, "rm", "-f", "--", candidate, signed),
+		join(sudo, []string{cli, "service", "add"}, operator, []string{"--role", "ts-auth", "--profile", "/deploy/ts-auth-profile.json",
+			"--out", candidate, "--spec", "/deploy/ts-auth-service.json"}),
+		nil, // the leaf signature, checked below
+		join(sudo, []string{cli, "service", "apply"}, operator, []string{"--file", signed}),
+		append(sudo, "rm", "-f", "--", filepath.Join(dir, "web.candidate.json"), filepath.Join(dir, "web.signed.json")),
+		join(sudo, []string{cli, "service", "add"}, operator, []string{"--role", "web", "--profile", "/deploy/web-profile.json",
+			"--out", filepath.Join(dir, "web.candidate.json")}),
+	}
+	if a.Err() != nil || len(commands) != len(want) {
+		t.Fatal(a.Err(), commands)
+	}
+	for index, command := range want {
+		if command != nil && !slices.Equal(commands[index], command) {
+			t.Fatalf("command %d = %v, want %v", index, commands[index], command)
+		}
+	}
+	delegation := commands[0]
+	if !slices.Contains(delegation, "sign-service-delegation") || flagValue(delegation, "--signing-key") != "/keys/root.key" ||
+		flagValue(delegation, "--subject-public-key") != "/keys/leaf.pub" || flagValue(delegation, "--deployment-id") != "deployment" ||
+		flagValue(delegation, "--cell") != "gru" || flagValue(delegation, "--environment") != "canary" {
+		t.Fatal(delegation)
+	}
+	sign := commands[3]
+	if !slices.Contains(sign, "sign-service-set") || flagValue(sign, "--candidate") != candidate ||
+		flagValue(sign, "--signing-key") != "/keys/leaf.key" || flagValue(sign, "--out") != signed ||
+		flagValue(sign, "--delegation") != filepath.Join(dir, "service-delegation.signed.json") {
+		t.Fatal(sign)
+	}
+	// A rerun issues a fresh delegation and plans again from the cell's set.
+	commands = nil
+	a.PhaseServices()
+	if a.Err() != nil || len(commands) != len(want) || !slices.Contains(commands[0], "sign-service-delegation") ||
+		!slices.Equal(commands[4], want[4]) {
+		t.Fatal(a.Err(), commands)
+	}
+	// A role names files the phase deletes as root, so it must be a role.
+	a.Config["services"] = []any{Object{"role": "../../etc/x", "profile": "/deploy/web-profile.json"}}
+	commands = nil
+	if a.PhaseServices(); a.Err() == nil || len(commands) != 0 {
+		t.Fatal(a.Err(), commands)
+	}
+}

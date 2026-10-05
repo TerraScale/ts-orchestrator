@@ -24,6 +24,7 @@ These pages describe the current greenfield Go implementation.
 | [TerraBase runtime contract](terrabase-runtime-contract.md) | C# TerraBase binary: release assets, settings, member certificates, host launch, health gate and drain |
 | [TerraBase deployment](terrabase-deployment.md) | Member CA, workload profile and `operator terrabase-release` rollout with automatic rollback |
 | [Secrets in OCI Vault](secrets.md) | Naming scheme, compartments and host grants, `ts-orch vault put` and `render`; OpenBao retired |
+| [Services](services.md) | Add, update and remove a running cell's services with signed service sets; runbook "Add a service to a running region" |
 | [ts-auth deployment](ts-auth-deployment.md) | ts-auth on the gru-1 controllers: placement, Vault secrets and env file, TerraBase tenant, load balancer values and the live runbook |
 | [TerraBase serving lifecycle](terrabase-serving-lifecycle-plan.md) | Current health gate, drain and rollback; open replication, membership, serving proof and scale-in work |
 | [Deployment convergence benchmark](benchmarks/deployment-convergence-20260925.md) | In-memory deploy-to-apply latency measurement |

@@ -1205,6 +1205,14 @@ The detailed founder-object formats and seed transaction are documented in
 with the frozen CLI help and reviewed plan for the source revision being
 operated; do not copy a command from an older OpenTofu-based seed procedure.
 
+## Services after bootstrap
+
+The controller config is accepted once and never edited. A running cell's
+generic services (ts-auth and later ones) change with signed service sets:
+see [Add a service to a running region](services.md#add-a-service-to-a-running-region).
+`oci-region attempt`'s `services` phase adds the attempt config's services the
+same way.
+
 ## Stop conditions and limits
 
 Stop before a write if the current live readback, signed plan, image, cell,

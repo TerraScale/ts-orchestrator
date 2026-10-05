@@ -288,7 +288,7 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 		owner: region.Owner, generation: region.Generation, environment: "production", diskBytes: 32 << 30,
 		fleet: fleet, intents: control, members: store, controller: hostController,
 		verifier: verifier, grants: grants, fencer: control}
-	hostSubscription, err := serveHostEnrollment(ctx, broker.Conn(), cell, policy, control, hostController, managedEnrollment)
+	hostSubscription, err := serveHostEnrollment(ctx, broker.Conn(), cell, policy, control, hostController, managedEnrollment, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

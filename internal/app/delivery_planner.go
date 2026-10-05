@@ -18,8 +18,9 @@ import (
 )
 
 type regionalDeliveryPlanner struct {
-	hosts     *host.Controller
-	profiles  map[string]WorkloadProfile
+	hosts *host.Controller
+	// profiles returns the current service set's delivery profiles.
+	profiles  func() map[string]WorkloadProfile
 	workloads *workload.Reconciler
 }
 
@@ -27,9 +28,9 @@ func (p *regionalDeliveryPlanner) ApplyDesired(ctx context.Context, desired host
 	return p.hosts.ApplyDesired(ctx, desired)
 }
 
-func (p *regionalDeliveryPlanner) resourceProfiles() map[string]placement.Resources {
-	resources := make(map[string]placement.Resources, len(p.profiles))
-	for role, profile := range p.profiles {
+func profileResources(profiles map[string]WorkloadProfile) map[string]placement.Resources {
+	resources := make(map[string]placement.Resources, len(profiles))
+	for role, profile := range profiles {
 		resources[role] = profile.Resources
 	}
 	return resources
@@ -124,7 +125,8 @@ func (p *regionalDeliveryPlanner) Plan(ctx context.Context, intent delivery.Inte
 func (p *regionalDeliveryPlanner) plan(ctx context.Context, intent delivery.Intent,
 	shapeOf func(workload.Observation) (delivery.PlanShape, error), shape *delivery.PlanShape,
 ) ([]host.Desired, error) {
-	profile, ok := p.profiles[intent.Role]
+	profiles := p.profiles()
+	profile, ok := profiles[intent.Role]
 	if !ok {
 		return nil, fmt.Errorf("no workload profile for role %q", intent.Role)
 	}
@@ -141,7 +143,7 @@ func (p *regionalDeliveryPlanner) plan(ctx context.Context, intent delivery.Inte
 	}
 	observation, err := workload.Observe(workload.Snapshot{
 		Cell: intent.Cell, Environment: intent.Environment, Role: intent.Role,
-		Hosts: statuses, Desired: allocations, Profiles: p.resourceProfiles(), Now: time.Now(),
+		Hosts: statuses, Desired: allocations, Profiles: profileResources(profiles), Now: time.Now(),
 	})
 	if err != nil {
 		return nil, err

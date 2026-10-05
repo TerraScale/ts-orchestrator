@@ -54,6 +54,7 @@ Runtime:
 Operator tooling:
   verify                 Observe production health, persistence gaps and OIDC (read-only)
   operator               Manage workloads through the regional controller
+  service                Add, update and remove a running cell's services (signed service sets)
   bootstrap              Prepare, sign, verify, and publish bootstrap material
   release                Prepare, sign, verify, and publish release receipts
   oci-region             Plan and deploy regional OCI resources
@@ -137,7 +138,7 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 			return err
 		}
 		return runtimepriority.Run(ctx, args[1:], commandio.NewWriter(output))
-	case "run", "host", "check", "operator", "identity-new", "netbird-enroll",
+	case "run", "host", "check", "operator", "service", "identity-new", "netbird-enroll",
 		"bootstrap-controller", "bootstrap-credential-check", "bootstrap-admit-initial",
 		"bootstrap-admit-restart", "install-controller-config", "host-setup", "host-volume-init":
 		return app.Run(ctx, args, output)

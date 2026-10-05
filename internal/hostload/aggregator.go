@@ -150,6 +150,15 @@ func NewAggregator(config AggregatorConfig) *Aggregator {
 	return &Aggregator{config: config, nodes: make(map[string]*nodeState), runs: make(map[seriesKey]run)}
 }
 
+// SetRequests replaces the per-role resource requests, for example after a
+// service-set amendment. Samples already recorded keep the request they were
+// computed with.
+func (a *Aggregator) SetRequests(requests map[string]Request) {
+	a.mu.Lock()
+	a.config.Requests = maps.Clone(requests)
+	a.mu.Unlock()
+}
+
 // nodePoints bounds one node's series: one accepted sample per MinInterval
 // over the retention, plus slack.
 func (a *Aggregator) nodePoints() int {

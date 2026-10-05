@@ -17,6 +17,7 @@ side is [`internal/host/tsauth.go`](../internal/host/tsauth.go).
 | `ts-orch ouroboros fly-secrets --plan FILE` | operator host, `~/.oci/config` | Hands the dashboard's TerraBase settings to Fly app `ts-dashboard`: stages them with `FLY_API_TOKEN`, otherwise prints the non-secret ones. |
 | `ts-orch ts-auth env-file --host-config FILE --vault-id OCID` | each controller, as root | Reads the six secrets with the instance principal and writes `<ts_auth_root>/ts-auth.env`, mode 0600, owned by the workload user. |
 | `ts-orch ts-auth metadata-rules` | operator host, no OCI access | Renders the nftables metadata block installed on each controller in step 3. |
+| `ts-orch service add --role ts-auth --profile F --spec F --out F`, `release sign-service-set`, `service apply` | operator host | Adds ts-auth to a running cell with a signed service set; see [services](services.md). |
 | `ts-orch bootstrap render-controller-config ... --ts-auth-profile F --ts-auth-profile-sha256 H --ts-auth-service F --ts-auth-service-sha256 H --out F` | operator host, before initial controller signing | Includes the reviewed ts-auth profile and service in canonical signed controller configuration. |
 | `ts-orch operator ts-auth-release --config FILE --binary F --sha256 F --source-checkout DIR --commit SHA --environment ENV --profile F [--wait 10m]` | operator host | Verifies, admits and rolls out one release; gates on readiness and rolls back a release that fails. |
 
@@ -377,13 +378,14 @@ one env file each, one ts-auth replica on two of them).
 
 ### Before initial controller bootstrap
 
-Prepare each controller's ts-auth configuration **before its initial manifest
-is signed and accepted**. The installer is write-once, and restart admission
-binds the config digest to that accepted manifest. Adding ts-auth to an already
-accepted controller config is unsupported; do not edit its installed JSON or
-delete its acceptance marker. TS-470 must include these inputs in the initial
-gru-1 rebuild/bootstrap. `ts-orch oci-region attempt` does so when its
-`attempt.json` names both files:
+A running cell gets ts-auth with a signed service set: follow
+[Add a service to a running region](services.md#add-a-service-to-a-running-region)
+with the two committed files below. Never edit an accepted controller's
+installed JSON or delete its acceptance marker: the installer is write-once,
+and restart admission binds the config digest to the accepted manifest.
+
+A new region can instead start with ts-auth in its initial controller config.
+`ts-orch oci-region attempt` does so when its `attempt.json` names both files:
 
 ```json
 "ts_auth_profile": "/ABSOLUTE/PATH/deploy/oci-region/ts-auth-gru-1-profile.json",
@@ -391,7 +393,8 @@ gru-1 rebuild/bootstrap. `ts-orch oci-region attempt` does so when its
 ```
 
 It passes them, with their SHA-256 pins, to `render-controller-config` for
-every controller slot, and refuses one without the other. Run by hand, the
+every controller slot, and refuses one without the other. Its `services`
+phase adds services through signed service sets instead. Run by hand, the
 renderer takes them as follows.
 
 For each controller slot, use the reviewed candidate, material record,

@@ -48,7 +48,7 @@ func ValidateSignedControllerConfig(manifest bootstrap.Manifest, observedPrivate
 		cfg.Controller.OciRegionConfig != controllerSidecarPath("oci-region.json") ||
 		cfg.Controller.OciRegionIntentFile != controllerSidecarPath("oci-region-intent.json") ||
 		cfg.Controller.PlacementConfig != controllerSidecarPath("placement.json") ||
-		cfg.NATS.NKeySeedFile != "" || cfg.Controller.TrustKeyFile != "" {
+		cfg.NATS.NKeySeedFile != "" || cfg.Controller.TrustKeyFile != "" || cfg.Controller.ServiceTrust != nil {
 		return Config{}, errors.New("signed controller config does not match role, slot, or fixed paths")
 	}
 	if observedPrivateIP != "" && (cfg.NATS.Embedded.Host != observedPrivateIP ||

@@ -363,7 +363,7 @@ func waitControllerChildReady(t *testing.T, ctx context.Context, child *controll
 	for {
 		assertControllerChildRunning(t, child)
 		data, _ := os.ReadFile(child.logPath)
-		if strings.Contains(string(data), " ready in cell lab ") {
+		if strings.Contains(string(data), " ready in cell ") {
 			return
 		}
 		select {

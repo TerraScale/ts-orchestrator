@@ -1,0 +1,358 @@
+package app
+
+import (
+	"bytes"
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json/v2"
+	"encoding/pem"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/serviceset"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
+)
+
+// testServiceTrust is a root, a release leaf and the root's service set
+// delegation to the leaf for one identity.
+type testServiceTrust struct {
+	identity   serviceset.Identity
+	roots      trust.Keyring
+	leaf       ed25519.PrivateKey
+	delegation []byte
+	rootFile   string
+}
+
+func newTestServiceTrust(t *testing.T, dir string, identity serviceset.Identity) testServiceTrust {
+	t.Helper()
+	rootPublic, rootPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leafPublic, leafPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	envelope, err := serviceset.SignDelegation(leafPublic, identity, now.Add(-time.Minute), now.Add(24*time.Hour), rootPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delegation, err := trust.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(rootPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.CreateTemp(dir, "service-root-*.pem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	rootFile := file.Name()
+	roots, err := trust.ParseKeyring(rootPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return testServiceTrust{identity: identity, roots: roots, leaf: leafPrivate, delegation: delegation, rootFile: rootFile}
+}
+
+// sign signs set and writes it to a new file in dir.
+func (k testServiceTrust) sign(t *testing.T, dir string, set serviceset.Set) string {
+	t.Helper()
+	wire, err := serviceset.Sign(set, k.delegation, k.roots, time.Now(), time.Hour, k.leaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.CreateTemp(dir, "signed-*.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write(wire); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return file.Name()
+}
+
+func (k testServiceTrust) config() *ServiceTrustConfig {
+	return &ServiceTrustConfig{RootPublicKeyFile: k.rootFile, DeploymentID: k.identity.DeploymentID,
+		Environment: k.identity.Environment}
+}
+
+func testServiceSetRoots(t *testing.T) trust.Keyring {
+	t.Helper()
+	public, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots, err := trust.ParseKeyring(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return roots
+}
+
+// The generation 0 set is the signed config's generic workloads; TerraBase
+// stays with placement, and only an enabled autoscale config reconciles.
+func TestServiceRegistryBaselineFromSignedConfig(t *testing.T) {
+	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
+	spec := workload.ServiceSpec{Role: "web", Environment: "test", Kind: workload.KindStateless,
+		Replicas: workload.ReplicaBounds{Min: 1, Max: 2}}
+	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}, Controller: ControllerConfig{
+		Workloads: map[string]WorkloadProfile{"terrabase": {Resources: resources}, "web": {Resources: resources}},
+		Autoscale: &AutoscaleConfig{Enabled: true, Services: []workload.ServiceSpec{spec}}}}
+	registry, err := newServiceRegistry(cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profiles, specs := registry.effective()
+	if len(registry.current.Services) != 1 || registry.current.Services[0].Role != "web" || registry.current.Generation != 0 ||
+		len(specs) != 1 || specs[0].Role != "web" || len(profiles) != 2 {
+		t.Fatalf("baseline %+v, profiles %v, specs %v", registry.current, profiles, specs)
+	}
+	cfg.Controller.Autoscale.Enabled = false
+	if registry, err = newServiceRegistry(cfg, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, specs := registry.effective(); len(specs) != 0 {
+		t.Fatalf("a disabled autoscale config reconciles %v", specs)
+	}
+	cfg.NATS.Lab = false
+	cfg.Controller.ServiceTrust = &ServiceTrustConfig{}
+	if _, err := newServiceRegistry(cfg, ""); err == nil || !strings.Contains(err.Error(), "lab setting") {
+		t.Fatalf("a production controller accepted lab service trust: %v", err)
+	}
+}
+
+// TestServiceSetAmendsARunningController adds, updates and removes a service
+// on a running controller with signed service sets, and checks that it
+// refuses replays, rollbacks, stale and foreign sets and placement-owned
+// roles, and keeps the set across a restart.
+func TestServiceSetAmendsARunningController(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
+	defer cancel()
+	root := t.TempDir()
+	port := freeTCPPort(t)
+	controllerNKey, controllerSeed := testNKey(t)
+	operatorNKey, operatorSeed := testNKey(t)
+	testEd25519(t, root, "controller.key")
+	operatorPublic, _ := testEd25519(t, root, "operator.key")
+	keys := newTestServiceTrust(t, root, serviceset.Identity{DeploymentID: "lab-gru", Cell: "gru", Environment: "test"})
+	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
+		Roles: []string{"terrabase", "web"}, Environments: []string{"test"}}
+	resources := placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}
+	controllerConfig := testJSONFile(t, root, "controller.json", Config{
+		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
+			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"),
+				StoreMaxBytes: 2 << 30, Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller"},
+					{PublicKey: operatorNKey, Role: "operator"}}}},
+		Controller: ControllerConfig{CandidateID: "one", ResponseKeyFile: filepath.Join(root, "controller.key"),
+			ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
+			Workloads:    map[string]WorkloadProfile{"terrabase": {Resources: resources}},
+			ServiceTrust: keys.config()},
+	})
+	operatorConfig := testJSONFile(t, root, "operator.json", Config{
+		NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1, Lab: true,
+			URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: operatorSeed},
+		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
+		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}})
+	start := func() (context.CancelFunc, chan error) {
+		runCtx, stop := context.WithCancel(ctx)
+		output := &readyWriter{ready: make(chan struct{})}
+		done := make(chan error, 1)
+		go func() { done <- Run(runCtx, []string{"run", "--config", controllerConfig}, output) }()
+		select {
+		case <-output.ready:
+		case err := <-done:
+			t.Fatalf("controller exited before ready: %v", err)
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+		return stop, done
+	}
+	stop, done := start()
+	defer func() {
+		stop()
+		<-done
+	}()
+	service := func(args ...string) (string, error) {
+		var output bytes.Buffer
+		err := Run(ctx, append([]string{"service", args[0], "--config", operatorConfig}, args[1:]...), &output)
+		return output.String(), err
+	}
+	list := func() serviceset.Set {
+		t.Helper()
+		out, err := service("list")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var set serviceset.Set
+		if err := json.Unmarshal([]byte(out), &set); err != nil {
+			t.Fatal(err)
+		}
+		return set
+	}
+	current := list()
+	if current.Generation != 0 || len(current.Services) != 0 || current.Identity != keys.identity {
+		t.Fatalf("baseline %+v", current)
+	}
+
+	profile := testJSONFile(t, root, "web-profile.json", WorkloadProfile{Resources: resources, Env: map[string]string{"MODE": "a"}})
+	spec := workload.ServiceSpec{Role: "web", Environment: "test", Kind: workload.KindStateless,
+		Replicas: workload.ReplicaBounds{Min: 1, Max: 2}}
+	specFile := testJSONFile(t, root, "web-spec.json", spec)
+	candidate := filepath.Join(root, "add.json")
+	out, err := service("add", "--role", "web", "--profile", profile, "--spec", specFile, "--out", candidate)
+	if err != nil || !strings.Contains(out, `"added":["web"]`) || !strings.Contains(out, `"to_generation":1`) {
+		t.Fatalf("plan add: %v\n%s", err, out)
+	}
+	data, err := os.ReadFile(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := serviceset.Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstSigned := keys.sign(t, root, first)
+	if out, err := service("apply", "--file", firstSigned); err != nil || !strings.Contains(out, `"status":"applied"`) {
+		t.Fatalf("apply generation 1: %v\n%s", err, out)
+	}
+	if out, err := service("apply", "--file", firstSigned); err != nil || !strings.Contains(out, `"status":"unchanged"`) {
+		t.Fatalf("re-apply generation 1: %v\n%s", err, out)
+	}
+	if out, err := service("add", "--role", "web", "--profile", profile, "--spec", specFile); err != nil ||
+		!strings.Contains(out, `"status":"unchanged"`) {
+		t.Fatalf("an identical add planned a change: %v\n%s", err, out)
+	}
+	if got := list(); got.Generation != 1 || len(got.Services) != 1 || got.Services[0].Spec == nil {
+		t.Fatalf("after add: %+v", got)
+	}
+
+	// Two operators plan generation 2 from the same view: the second is stale.
+	spec.Replicas.Max = 3
+	updated := first
+	updated.Generation = 2
+	updated.Services = []serviceset.Service{{Role: "web", Profile: first.Services[0].Profile, Spec: &spec}}
+	racing := updated
+	racing.Services = nil
+	updatedSigned, racingSigned := keys.sign(t, root, updated), keys.sign(t, root, racing)
+	if out, err := service("apply", "--file", updatedSigned); err != nil || !strings.Contains(out, `"generation":2`) {
+		t.Fatalf("apply generation 2: %v\n%s", err, out)
+	}
+	for name, path := range map[string]string{"stale generation 2": racingSigned, "replayed generation 1": firstSigned} {
+		if _, err := service("apply", "--file", path); err == nil || !strings.Contains(err.Error(), "does not follow") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	next := updated
+	next.Generation = 3
+	foreign := newTestServiceTrust(t, root, keys.identity)
+	other := newTestServiceTrust(t, root, serviceset.Identity{DeploymentID: "lab-sfo", Cell: "sfo", Environment: "test"})
+	otherSet := next
+	otherSet.Identity = other.identity
+	reserved := next
+	reserved.Services = append([]serviceset.Service{{Role: "terrabase", Profile: WorkloadProfile{Resources: resources}}},
+		next.Services...)
+	for name, path := range map[string]string{
+		"untrusted root":   foreign.sign(t, root, next),
+		"another cell":     other.sign(t, root, otherSet),
+		"placement role":   keys.sign(t, root, reserved),
+		"invalid profile":  keys.sign(t, root, withProfile(next, WorkloadProfile{})),
+		"unsigned garbage": testJSONFile(t, root, "garbage.json", map[string]string{"set": "{}"}),
+	} {
+		if _, err := service("apply", "--file", path); err == nil {
+			t.Errorf("%s: applied", name)
+		}
+	}
+	if got := list(); got.Generation != 2 || got.Services[0].Spec.Replicas.Max != 3 {
+		t.Fatalf("after refused sets: %+v", got)
+	}
+
+	// A holder of controller credentials writes an older signed set, then a
+	// corrupt record, straight into the store: neither is adopted, and the
+	// next generation still applies on top of the adopted set.
+	probe, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "probe", Replicas: 1, Lab: true,
+		URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: controllerSeed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer probe.Close()
+	store, err := probe.JetStream().KeyValue(ctx, serviceSetBucket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range [][]byte{mustRead(t, firstSigned), mustRead(t, racingSigned), []byte("{}")} {
+		if _, err := store.Put(ctx, serviceSetKey, value); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(300 * time.Millisecond)
+		if got := list(); got.Generation != 2 || len(got.Services) != 1 {
+			t.Fatalf("a written record moved the set to %+v", got)
+		}
+		// The written set is not reported as the cell's.
+		if _, err := service("apply", "--file", racingSigned); err == nil || !strings.Contains(err.Error(), "does not follow") {
+			t.Fatalf("written record: applying the rival generation 2: %v", err)
+		}
+	}
+
+	removal := filepath.Join(root, "remove.json")
+	if out, err := service("remove", "--role", "web", "--out", removal); err != nil || !strings.Contains(out, `"removed":["web"]`) {
+		t.Fatalf("plan remove: %v\n%s", err, out)
+	}
+	data, err = os.ReadFile(removal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed, err := serviceset.Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := service("apply", "--file", keys.sign(t, root, removed)); err != nil || !strings.Contains(out, `"generation":3`) {
+		t.Fatalf("apply removal: %v\n%s", err, out)
+	}
+
+	// The accepted set survives a controller restart.
+	stop()
+	if err := <-done; err != nil {
+		t.Fatalf("controller stop: %v", err)
+	}
+	stop, done = start()
+	if got := list(); got.Generation != 3 || len(got.Services) != 0 {
+		t.Fatalf("after restart: %+v", got)
+	}
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func withProfile(set serviceset.Set, profile WorkloadProfile) serviceset.Set {
+	set.Services = []serviceset.Service{{Role: set.Services[0].Role, Profile: profile, Spec: set.Services[0].Spec}}
+	return set
+}
