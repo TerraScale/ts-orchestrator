@@ -1,7 +1,7 @@
 // Package tsauth is the orchestrator's contract with ts-auth (repository
 // TerraScale/ts-auth), TerraScale's C# authentication service: its release
-// assets, its TS_AUTH_* settings, the secrets kept in the cell's OCI Vault and
-// the env file that carries them to a host, its health and readiness
+// assets, its TS_AUTH_* settings, the secrets kept in the cell's OCI Vault,
+// which hosts read through the profile's secret refs, its health and readiness
 // endpoints, and the TerraBase tenant that holds its data. The host agent
 // launches it as a stateless native workload of role "ts-auth" on the
 // controllers; see docs/ts-auth-deployment.md. ts-orch ouroboros prepares
@@ -9,7 +9,6 @@
 package tsauth
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json/v2"
@@ -26,6 +25,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 const (
@@ -54,8 +54,8 @@ const (
 	PublicOrigin = "https://" + Hostname
 	APIURL       = "https://" + Cell + ".api.terrascale.tech"
 	// Database is ts-auth's own TerraBase database. ts-auth selects it as
-	// TS_AUTH_DATABASE=<project-uuid>/auth; the host joins the project ID of
-	// the env file to it.
+	// TS_AUTH_DATABASE=<project-uuid>/auth; the host joins the project ID it
+	// read from the Vault to it.
 	Database = "auth"
 	// Issuer is ts-auth's one hosted OpenID Connect issuer; its discovery
 	// document is Issuer + "/.well-known/openid-configuration".
@@ -85,9 +85,10 @@ const (
 	EnvDashboardLogoutURIs   = "TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS"
 )
 
-// Secrets live in the cell's Vault and reach a host only in its env file.
-// The project ID is not secret, but ouroboros bootstrap creates it with the
-// API key that is narrowed to it, so the two travel together.
+// Secrets live in the cell's Vault; the profile names them and the host reads
+// them at each start. The project ID is not secret, but ouroboros bootstrap
+// creates it with the API key that is narrowed to it, so the two travel
+// together.
 const (
 	EnvMasterKey       = "TS_AUTH_MASTER_KEY"
 	EnvAuditSigningKey = "TS_AUTH_AUDIT_SIGNING_KEY"
@@ -108,18 +109,16 @@ const (
 // Generated are the secrets ts-orch generates once: 32 random bytes, base64.
 var Generated = []string{EnvMasterKey, EnvAuditSigningKey, EnvOperatorKey, EnvDashboardClientSecret}
 
-// Secrets are every key of the env file.
+// Secrets are the keys of the profile's secret refs.
 var Secrets = []string{EnvMasterKey, EnvAuditSigningKey, EnvOperatorKey, EnvDashboardClientSecret, EnvAPIKey, EnvProjectID}
 
-// optionalSecrets are ts-auth secrets that no profile may carry; the env file
-// does not provision them yet.
+// optionalSecrets are ts-auth secrets that no profile may carry yet.
 var optionalSecrets = []string{"TS_AUTH_SMTP_PASSWORD", "TS_AUTH_STRIPE_SECRET_KEY", "TS_AUTH_STRIPE_WEBHOOK_SECRET",
 	"TS_AUTH_SENTRY_DSN", "TS_AUTH_AUDIT_VERIFY_KEYS", "TS_AUTH_SERVICE_CLIENTS", "OTEL_EXPORTER_OTLP_HEADERS"}
 
 var (
 	assetRE  = regexp.MustCompile(`^ts-auth-linux-(?:amd64|arm64)$`)
 	uuidRE   = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-	envKeyRE = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 	apiKeyRE = regexp.MustCompile(`^[\x21-\x7e]+$`)
 )
 
@@ -130,13 +129,17 @@ func VerifyRelease(binaryPath, checksumPath string) (string, error) {
 }
 
 // ValidateProfile checks the "ts-auth" workload profile. ts-auth lets an
-// argument override any setting, so a profile sets env only.
-func ValidateProfile(cell string, args []string, env map[string]string) error {
+// argument override any setting, so a profile sets env only, and it names
+// exactly the Secrets as Vault secret refs.
+func ValidateProfile(cell string, args []string, env map[string]string, secrets map[string]vaultsecret.Ref) error {
 	if cell != Cell {
 		return fmt.Errorf("ts-auth is only reviewed for cell %s", Cell)
 	}
 	if len(args) != 0 {
 		return errors.New("ts-auth profile sets its settings only through env")
+	}
+	if len(secrets) != len(Secrets) || slices.ContainsFunc(Secrets, func(key string) bool { _, ok := secrets[key]; return !ok }) {
+		return fmt.Errorf("ts-auth profile secrets must name exactly %s", strings.Join(Secrets, ", "))
 	}
 	for _, key := range slices.Concat(Secrets, optionalSecrets, []string{EnvListen, EnvBundleExtract}) {
 		if _, set := env[key]; set {
@@ -155,15 +158,12 @@ func ValidateProfile(cell string, args []string, env map[string]string) error {
 // Layout is ts-auth's directory below the host's ts-auth root.
 type Layout string
 
-// EnvFile holds the secrets: owned by the workload user, mode 0600.
-func (l Layout) EnvFile() string { return filepath.Join(string(l), "ts-auth.env") }
-
 // Bundle is where the single-file binary extracts its native libraries.
 func (l Layout) Bundle() string { return filepath.Join(string(l), "bundle") }
 
 // Env is the replica's environment: the profile, the secrets and the
 // host-owned settings. TS_AUTH_DATABASE becomes <project-uuid>/<database>
-// from the env file's project ID and the profile's database, the selector
+// from the secrets' project ID and the profile's database, the selector
 // ts-auth reads; the project ID itself is not passed on. A replica listens on
 // port of every interface.
 func (l Layout) Env(profile, secrets map[string]string, port int) map[string]string {
@@ -179,42 +179,9 @@ func (l Layout) Env(profile, secrets map[string]string, port int) map[string]str
 	return env
 }
 
-// RenderEnvFile writes every secret as one KEY=VALUE line.
-func RenderEnvFile(secrets map[string]string) ([]byte, error) {
-	if err := validateSecrets(secrets); err != nil {
-		return nil, err
-	}
-	var out bytes.Buffer
-	for _, key := range Secrets {
-		out.WriteString(key + "=" + secrets[key] + "\n")
-	}
-	return out.Bytes(), nil
-}
-
-// ParseEnvFile reads an env file of exactly the Secrets. Errors name keys and
-// line numbers, never values.
-func ParseEnvFile(data []byte) (map[string]string, error) {
-	secrets := make(map[string]string, len(Secrets))
-	for index, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
-		key, value, found := strings.Cut(line, "=")
-		if !found || !envKeyRE.MatchString(key) {
-			return nil, fmt.Errorf("ts-auth env file line %d is not KEY=VALUE", index+1)
-		}
-		if !slices.Contains(Secrets, key) {
-			return nil, fmt.Errorf("ts-auth env file sets unknown key %s", key)
-		}
-		if _, repeated := secrets[key]; repeated {
-			return nil, fmt.Errorf("ts-auth env file repeats %s", key)
-		}
-		secrets[key] = value
-	}
-	if err := validateSecrets(secrets); err != nil {
-		return nil, err
-	}
-	return secrets, nil
-}
-
-func validateSecrets(secrets map[string]string) error {
+// ValidateSecrets checks that secrets holds exactly the Secrets in their
+// forms. Errors name keys, never values.
+func ValidateSecrets(secrets map[string]string) error {
 	if len(secrets) != len(Secrets) {
 		return fmt.Errorf("ts-auth needs exactly %s", strings.Join(Secrets, ", "))
 	}

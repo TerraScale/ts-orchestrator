@@ -353,7 +353,7 @@ func TestCellSpecAmendsARunningController(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload = bytes.Replace(payload, []byte(`"requires_binary":1,`), []byte(`"requires_binary":2,"edge":{},`), 1)
+	payload = bytes.Replace(payload, []byte(`"requires_binary":1,`), []byte(fmt.Sprintf(`"requires_binary":%d,"edge":{},`, cellspec.BinaryLevel+1)), 1)
 	now := time.Now().UTC().Truncate(time.Second)
 	envelope, err := trust.Sign(payload, keys.identity.Scope(), now, now.Add(time.Hour), keys.leaf)
 	if err != nil {
@@ -375,7 +375,7 @@ func TestCellSpecAmendsARunningController(t *testing.T) {
 		t.Fatalf("a newer-binary record moved the spec to %+v", got)
 	}
 	if _, err := service("apply", "--file", keys.sign(t, root, next)); err == nil ||
-		!strings.Contains(err.Error(), "requires binary level 2") || !strings.Contains(err.Error(), "update this controller's binary first") {
+		!strings.Contains(err.Error(), fmt.Sprintf("requires binary level %d", cellspec.BinaryLevel+1)) || !strings.Contains(err.Error(), "update this controller's binary first") {
 		t.Fatalf("amended over a newer-binary record: %v", err)
 	}
 	replacement := reserved

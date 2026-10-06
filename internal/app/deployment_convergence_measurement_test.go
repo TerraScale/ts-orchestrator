@@ -186,7 +186,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 		intent := delivery.Intent{
 			Source: source, ArtifactDigest: artifact.Digest, ManifestDigest: artifact.ManifestDigest,
 			Cell: "gru", Role: "terrabase", Environment: "test", Generation: uint64(index + 1),
-			DesiredReplicas: 1, ConfigDigest: delivery.ConfigDigestOf(nil, nil),
+			DesiredReplicas: 1, ConfigDigest: delivery.ConfigDigestOf(nil, nil, nil),
 			OperationID: fmt.Sprintf("convergence-%03d", index+1),
 		}
 		intentPaths[index] = testJSONFile(t, root, fmt.Sprintf("intent-%03d.json", index+1), intent)

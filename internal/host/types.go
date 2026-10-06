@@ -19,6 +19,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
@@ -118,6 +119,9 @@ type Desired struct {
 	Env            map[string]string    `json:"env,omitempty"`
 	Withdrawn      bool                 `json:"withdrawn"`
 	ManagedMember  *ManagedMemberLaunch `json:"managed_member,omitempty"`
+
+	// Secrets name the Vault secrets the host adds to Env at each start.
+	Secrets map[string]vaultsecret.Ref `json:"secrets,omitempty"`
 }
 
 // ManagedMemberLaunch is inert until the agent can verify the assignment,
@@ -233,7 +237,7 @@ type AgentConfig struct {
 	StateRoot               string
 	ManagedRuntimeRoot      string
 	TerraBaseRoot           string // Set: launch a non-managed "terrabase" desired as a C# TerraBase member.
-	TSAuthRoot              string // Set: launch a "ts-auth" desired with the secrets of its env file.
+	TSAuthRoot              string // Set: launch a "ts-auth" desired with its readiness probe and bundle directory.
 	TSAuthPort              int    // The port a ts-auth replica serves and the host probes; zero means tsauth.Port.
 	ManagedS3Credentials    ManagedS3CredentialResolver
 	ManagedBackupDataKeys   ManagedBackupDataKeyResolver
@@ -256,6 +260,9 @@ type AgentConfig struct {
 	// LoadInterval, when nonzero, publishes host load telemetry that often
 	// (5s..1h). Zero, the default, never samples or sends load.
 	LoadInterval time.Duration
+	// SecretResolver reads a desired's Vault secrets at each start; nil
+	// refuses a desired with secrets.
+	SecretResolver func(context.Context, map[string]vaultsecret.Ref) (map[string]string, error)
 }
 
 type ControllerConfig struct {
@@ -507,7 +514,7 @@ func validateDesired(d Desired, cell string, r Registration) error {
 		return errors.New("desired generation must be positive")
 	}
 	if d.Withdrawn {
-		if d.Digest != "" || len(d.Args) != 0 || len(d.Env) != 0 {
+		if d.Digest != "" || len(d.Args) != 0 || len(d.Env) != 0 || len(d.Secrets) != 0 {
 			return errors.New("withdrawn desired contains execution data")
 		}
 	} else if err := validateDigest(d.Digest); err != nil {
@@ -526,11 +533,15 @@ func validateDesired(d Desired, cell string, r Registration) error {
 			return errors.New("invalid workload environment")
 		}
 	}
-	return nil
+	// A C# TerraBase member's environment is host-owned.
+	if len(d.Secrets) != 0 && d.Role == terrabase.Role {
+		return errors.New("terrabase takes no Vault secrets")
+	}
+	return vaultsecret.ValidateRefs(d.Cell, d.Role, d.Secrets, d.Env)
 }
 
 func validateManagedMemberLaunch(launch ManagedMemberLaunch, d Desired, r Registration) error {
-	if len(d.Args) != 0 || len(d.Env) != 0 {
+	if len(d.Args) != 0 || len(d.Env) != 0 || len(d.Secrets) != 0 {
 		return errors.New("managed desired cannot carry arbitrary arguments or environment")
 	}
 	if validateDigest(launch.SourceDigest) != nil ||

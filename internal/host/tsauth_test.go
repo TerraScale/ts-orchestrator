@@ -10,11 +10,10 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"testing"
-	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 const tsAuthTestAPIKey = "tb_never-print-this-api-key"
@@ -27,56 +26,56 @@ func tsAuthTestSecrets() map[string]string {
 	return secrets
 }
 
+// tsAuthTestVault is a gru-1 Vault OCID; the agent's resolver is a fake.
+const tsAuthTestVault = "ocid1.vault.oc1.sa-saopaulo-1.vault"
+
 func tsAuthTestDesired() Desired {
+	secrets := map[string]vaultsecret.Ref{}
+	for _, key := range tsauth.Secrets {
+		secrets[key] = vaultsecret.Ref{Vault: tsAuthTestVault, Name: vaultsecret.Name("gru-1", key)}
+	}
 	return Desired{Cell: tsauth.Cell, Role: tsauth.Role, Digest: "d", Env: map[string]string{
 		tsauth.EnvPublicOrigin: tsauth.PublicOrigin, tsauth.EnvAPIURL: tsauth.APIURL, tsauth.EnvDatabase: tsauth.Database,
 		tsauth.EnvAudiences: tsauth.APIURL, tsauth.EnvDashboardRedirectURIs: tsauth.DashboardRedirectURI,
-		tsauth.EnvDashboardLogoutURIs: tsauth.DashboardLogoutURI}}
+		tsauth.EnvDashboardLogoutURIs: tsauth.DashboardLogoutURI}, Secrets: secrets}
 }
 
-// tsAuthTestAgent is an agent whose ts-auth root and env file belong to the
-// test's own user, standing in for the workload user.
-func tsAuthTestAgent(t *testing.T, mode os.FileMode) (*Agent, string) {
+// tsAuthTestAgent is an agent whose ts-auth root belongs to the test's own
+// user, standing in for the workload user.
+func tsAuthTestAgent(t *testing.T) *Agent {
 	t.Helper()
 	root := filepath.Join(traversableTempDir(t), "ts-auth")
 	identity := WorkloadIdentity{UID: uint32(os.Getuid()), GID: uint32(os.Getgid())}
-	agent := &Agent{terraBase: map[string]terraBaseMember{}, cfg: AgentConfig{TSAuthRoot: root, WorkloadIdentity: identity,
+	return &Agent{terraBase: map[string]terraBaseMember{}, cfg: AgentConfig{TSAuthRoot: root, WorkloadIdentity: identity,
 		InstallRoot: "/var/lib/host/install", StateRoot: "/var/lib/host/state"}}
-	if err := os.Mkdir(root, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	data, err := tsauth.RenderEnvFile(tsAuthTestSecrets())
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := tsauth.Layout(root).EnvFile()
-	if err := os.WriteFile(path, data, mode); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(path, mode); err != nil {
-		t.Fatal(err)
-	}
-	return agent, path
 }
 
-// TestTSAuthReplicaGetsEnvFileSecrets launches a replica with the signed
-// profile, the env file's secrets and the host-owned listen address and
-// bundle directory, which the agent creates for the workload user.
-func TestTSAuthReplicaGetsEnvFileSecrets(t *testing.T) {
-	agent, _ := tsAuthTestAgent(t, 0o600)
+// TestTSAuthReplicaGetsVaultSecrets launches a replica with the signed
+// profile, the secrets read from the Vault and the host-owned listen address
+// and bundle directory, which the agent creates for the workload user.
+func TestTSAuthReplicaGetsVaultSecrets(t *testing.T) {
+	agent := tsAuthTestAgent(t)
 	d := tsAuthTestDesired()
 	if !agent.tsAuthReplica(d) {
 		t.Fatal("a ts-auth desired on a host with a ts-auth root is not a replica")
 	}
-	env, err := agent.prepareTSAuth(d)
+	valid := d
+	valid.Generation, valid.Digest = 1, strings.Repeat("a", 64)
+	if err := validateDesired(valid, tsauth.Cell, Registration{Roles: []string{tsauth.Role}}); err != nil {
+		t.Fatalf("ts-auth desired with its secret refs: %v", err)
+	}
+	secrets := tsAuthTestSecrets()
+	env, err := agent.prepareTSAuth(d, secrets)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secrets := tsAuthTestSecrets()
 	for key, want := range secrets {
 		if key != tsauth.EnvProjectID && env[key] != want {
 			t.Errorf("%s did not reach the replica", key)
 		}
+	}
+	if _, set := env[tsauth.EnvProjectID]; set {
+		t.Error("the project ID reached the replica on its own")
 	}
 	// ts-auth selects its database as <project-uuid>/auth.
 	bundle := tsauth.Layout(agent.cfg.TSAuthRoot).Bundle()
@@ -97,45 +96,42 @@ func TestTSAuthReplicaGetsEnvFileSecrets(t *testing.T) {
 	}
 }
 
-// TestTSAuthEnvFileMustBeWorkloadOwnedAndPrivate refuses an env file others
-// can read, one owned by another user, a symlink, and a profile that carries
-// a secret or arguments. No error carries a secret.
-func TestTSAuthEnvFileMustBeWorkloadOwnedAndPrivate(t *testing.T) {
-	agent, path := tsAuthTestAgent(t, 0o640)
-	if _, err := agent.prepareTSAuth(tsAuthTestDesired()); err == nil || !strings.Contains(err.Error(), "mode 0600") {
-		t.Fatalf("group-readable env file: %v", err)
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	other := agent.cfg.WorkloadIdentity
-	other.UID++
-	if _, err := readTSAuthEnvFile(path, other); err == nil {
-		t.Fatal("accepted an env file the workload user does not own")
-	}
-	link := path + ".link"
-	if err := os.Symlink(path, link); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := readTSAuthEnvFile(link, agent.cfg.WorkloadIdentity); err == nil {
-		t.Fatal("followed a symlinked env file")
-	}
-	if err := os.WriteFile(path, []byte(tsauth.EnvAPIKey+"="+tsAuthTestAPIKey+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, err := readTSAuthEnvFile(path, agent.cfg.WorkloadIdentity)
-	if err == nil || strings.Contains(err.Error(), tsAuthTestAPIKey) {
-		t.Fatalf("incomplete env file: %v", err)
-	}
+// TestTSAuthRefusesBadProfileOrSecrets refuses a profile that carries a
+// secret, arguments or misses a secret ref, and Vault values in the wrong
+// form. No error carries a secret.
+func TestTSAuthRefusesBadProfileOrSecrets(t *testing.T) {
+	agent := tsAuthTestAgent(t)
 	d := tsAuthTestDesired()
 	d.Env[tsauth.EnvAPIKey] = tsAuthTestAPIKey
-	if _, err := agent.prepareTSAuth(d); err == nil || strings.Contains(err.Error(), tsAuthTestAPIKey) {
+	if _, err := agent.prepareTSAuth(d, tsAuthTestSecrets()); err == nil || strings.Contains(err.Error(), tsAuthTestAPIKey) {
 		t.Fatalf("profile carrying a secret: %v", err)
 	}
 	d = tsAuthTestDesired()
 	d.Args = []string{"--listen=http://0.0.0.0:1"}
-	if _, err := agent.prepareTSAuth(d); err == nil {
+	if _, err := agent.prepareTSAuth(d, tsAuthTestSecrets()); err == nil {
 		t.Fatal("launched a replica whose arguments override host-owned settings")
+	}
+	d = tsAuthTestDesired()
+	delete(d.Secrets, tsauth.EnvMasterKey)
+	if _, err := agent.prepareTSAuth(d, tsAuthTestSecrets()); err == nil {
+		t.Fatal("launched a replica whose profile names no master key")
+	}
+	for name, change := range map[string]func(map[string]string){
+		"missing value": func(s map[string]string) { delete(s, tsauth.EnvOperatorKey) },
+		"bad api key":   func(s map[string]string) { s[tsauth.EnvAPIKey] = "tb_ " + tsAuthTestAPIKey },
+		"short key": func(s map[string]string) {
+			s[tsauth.EnvMasterKey] = base64.StdEncoding.EncodeToString([]byte(tsAuthTestAPIKey))
+		},
+	} {
+		secrets := tsAuthTestSecrets()
+		change(secrets)
+		_, err := agent.prepareTSAuth(tsAuthTestDesired(), secrets)
+		if err == nil || strings.Contains(err.Error(), tsAuthTestAPIKey) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(agent.cfg.TSAuthRoot); err == nil {
+		t.Fatal("prepared the replica's directory before its profile and secrets passed")
 	}
 }
 
@@ -143,15 +139,15 @@ func TestTSAuthEnvFileMustBeWorkloadOwnedAndPrivate(t *testing.T) {
 // enrolled host's managed runtime root is /srv/ts-managed, the only tree the
 // host unit may write, and the ts-auth root /srv/ts-managed/ts-auth is in it.
 func TestTSAuthRootBelowManagedRuntimeRoot(t *testing.T) {
-	agent, _ := tsAuthTestAgent(t, 0o600)
+	agent := tsAuthTestAgent(t)
 	agent.cfg.ManagedRuntimeRoot = filepath.Dir(agent.cfg.TSAuthRoot)
-	if _, err := agent.prepareTSAuth(tsAuthTestDesired()); err != nil {
+	if _, err := agent.prepareTSAuth(tsAuthTestDesired(), tsAuthTestSecrets()); err != nil {
 		t.Fatal(err)
 	}
 }
 
 // TestTSAuthRefusedWithoutRoot keeps a host without a ts-auth root from
-// launching ts-auth generically, without secrets and without a probe.
+// launching ts-auth generically, without its bundle directory or a probe.
 func TestTSAuthRefusedWithoutRoot(t *testing.T) {
 	d := tsAuthTestDesired()
 	if !(&Agent{}).tsAuthMisplaced(d) {
@@ -171,28 +167,6 @@ func TestTSAuthPortValidation(t *testing.T) {
 				t.Fatalf("port %d accepted: %v", port, err)
 			}
 		})
-	}
-}
-
-// TestTSAuthEnvFileFIFORefusedAtOnce keeps a FIFO in place of the env file
-// from blocking the agent, which reconciles every role in one loop.
-func TestTSAuthEnvFileFIFORefusedAtOnce(t *testing.T) {
-	agent, path := tsAuthTestAgent(t, 0o600)
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	if err := syscall.Mkfifo(path, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() { _, err := readTSAuthEnvFile(path, agent.cfg.WorkloadIdentity); done <- err }()
-	select {
-	case err := <-done:
-		if err == nil {
-			t.Fatal("read a FIFO as the env file")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("reading a FIFO env file blocked")
 	}
 }
 

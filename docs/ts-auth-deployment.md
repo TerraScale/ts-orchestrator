@@ -15,7 +15,6 @@ side is [`internal/host/tsauth.go`](../internal/host/tsauth.go).
 | `ts-orch ts-auth secrets --plan FILE` | operator host, `~/.oci/config` | Generates `TS_AUTH_MASTER_KEY`, `TS_AUTH_AUDIT_SIGNING_KEY`, `TS_AUTH_OPERATOR_KEY` and `TS_AUTH_DASHBOARD_CLIENT_SECRET` once into the cell's Vault. |
 | `ts-orch ouroboros bootstrap --plan FILE --client-url URL --admin-url URL --member NODE --member-ca FILE --dashboard-credential-file FILE [--management-listener client\|admin] [--owner-email EMAIL --ts-auth-instance SLUG --ts-auth-key-file FILE [--ts-auth-url URL]]` | operator host, SSH forward to `gru-1-db-1` | Finds or creates TerraScale's TerraBase organization and the ts-auth and ts-dashboard projects and databases; stores each project ID and, once, a new API key in the Vault. With `--owner-email` (needs `--management-listener admin`), makes that ts-auth user the organization's owner. |
 | `ts-orch ouroboros fly-secrets --plan FILE` | operator host, `~/.oci/config` | Hands the dashboard's TerraBase settings to Fly app `ts-dashboard`: stages them with `FLY_API_TOKEN`, otherwise prints the non-secret ones. |
-| `ts-orch ts-auth env-file --host-config FILE --vault-id OCID` | each controller, as root | Reads the six secrets with the instance principal and writes `<ts_auth_root>/ts-auth.env`, mode 0600, owned by the workload user. |
 | `ts-orch ts-auth metadata-rules` | operator host, no OCI access | Renders the nftables metadata block installed on each controller in step 3. |
 | `ts-orch service add --role ts-auth --profile F --spec F --out F`, `release sign-spec`, `apply -f` | operator host | Adds ts-auth to a running cell with a signed cell spec; see [cell spec](cell-spec.md). |
 | `ts-orch bootstrap render-controller-config ... --ts-auth-profile F --ts-auth-profile-sha256 H --ts-auth-service F --ts-auth-service-sha256 H --out F` | operator host, before initial controller signing | Includes the reviewed ts-auth profile and service in canonical signed controller configuration. |
@@ -74,17 +73,21 @@ breaks these rules:
 | --- | --- |
 | `TS_AUTH_PUBLIC_ORIGIN` | Exactly `https://gru.auth.terrascale.tech`, the regional host (user decision 2026-10-05; `auth.terrascale.tech` stays the ts-atlas proxy). |
 | `TS_AUTH_TERRASCALE_API_URL` | Exactly `https://gru.api.terrascale.tech`. |
-| `TS_AUTH_DATABASE` | Exactly `auth`, the database `ouroboros bootstrap` creates. The host passes ts-auth `<project-uuid>/auth`, the project from the env file. |
+| `TS_AUTH_DATABASE` | Exactly `auth`, the database `ouroboros bootstrap` creates. The host passes ts-auth `<project-uuid>/auth`, the project from the Vault. |
 | `TS_AUTH_ACCESS_TOKEN_AUDIENCES` | Exactly `https://gru.api.terrascale.tech`, TerraBase's `auth-audience`: every access token names it, so a dashboard user's token reaches TerraBase's Management API (TS-519). |
 | `TS_AUTH_DASHBOARD_REDIRECT_URIS` | Exactly `https://dash.terrascale.tech/login/callback`, the dashboard's callback. |
 | `TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS` | Exactly `https://dash.terrascale.tech/login`, the `post_logout_redirect_uri` the dashboard sends; ts-auth compares it exactly. |
-| Env file keys, `TS_AUTH_LISTEN`, `DOTNET_BUNDLE_EXTRACT_BASE_DIR` | Must not be set. |
-| `TS_AUTH_SMTP_PASSWORD`, `TS_AUTH_STRIPE_SECRET_KEY`, `TS_AUTH_STRIPE_WEBHOOK_SECRET`, `TS_AUTH_SENTRY_DSN`, `TS_AUTH_AUDIT_VERIFY_KEYS`, `TS_AUTH_SERVICE_CLIENTS`, `OTEL_EXPORTER_OTLP_HEADERS` | Must not be set: they are secrets, and the env file does not carry them yet. Non-secret optional settings (SMTP host, OTEL endpoint) may be added. |
+| The six secret keys below, `TS_AUTH_LISTEN`, `DOTNET_BUNDLE_EXTRACT_BASE_DIR` | Must not be set in `env`. |
+| `secrets` | Names exactly the six secret keys below, each `{"vault": OCID, "name": NAME}`. |
+| `TS_AUTH_SMTP_PASSWORD`, `TS_AUTH_STRIPE_SECRET_KEY`, `TS_AUTH_STRIPE_WEBHOOK_SECRET`, `TS_AUTH_SENTRY_DSN`, `TS_AUTH_AUDIT_VERIFY_KEYS`, `TS_AUTH_SERVICE_CLIENTS`, `OTEL_EXPORTER_OTLP_HEADERS` | Must not be set: they are secrets, and the profile does not name them yet. Non-secret optional settings (SMTP host, OTEL endpoint) may be added. |
 | `args` | Must be empty: an argument overrides any setting. |
 
-### Secrets and the env file
+### Secrets
 
-| Env file key | Source | Vault secret |
+The profile's `secrets` name six Vault secrets; the host agent reads them
+(see [services](cell-spec.md#vault-secrets)):
+
+| Key | Source | Vault secret |
 | --- | --- | --- |
 | `TS_AUTH_MASTER_KEY` | `ts-auth secrets`: 32 random bytes, base64 | `gru-1-ts-auth-master-key` |
 | `TS_AUTH_AUDIT_SIGNING_KEY` | `ts-auth secrets` | `gru-1-ts-auth-audit-signing-key` |
@@ -118,14 +121,11 @@ At startup it registers the confidential client `ts-dashboard` from
 - The controllers read them with their instance principal through the
   existing controller policy grant `read secret-bundles` in the control
   compartment, which covers `GetSecretBundleByName`.
-- `env-file` rejects a ts-auth root equal to, inside, or containing the
-  install, state or TerraBase root before reading Vault secrets or changing
-  directory permissions. It writes `KEY=VALUE` lines atomically (temporary file, fsync,
-  rename). The host agent reads the file at every launch: a regular file, not
-  a symlink, mode 0600, owned by the workload user; otherwise it refuses to
-  launch. Errors name keys and line numbers, never values. Secrets never enter
-  signed config, desired state, reports or logs. A running replica keeps its
-  environment until it restarts.
+- The host agent reads the six secrets with its instance principal at every
+  launch of a replica and checks their forms before it starts it. Errors name
+  keys and secrets, never values. Values never enter signed config, desired
+  state, reports, logs or disk. A running replica keeps its environment until
+  it restarts; a rotated secret reaches it at the next restart.
 
 ### Host layout and launch
 
@@ -138,11 +138,10 @@ the managed runtime tree `/srv/ts-managed`, which the host service can write.
 | Path | Owner, mode | Content |
 | --- | --- | --- |
 | `<root>` | supervisor, workload group, 0750 | |
-| `<root>/ts-auth.env` | workload user, 0600 | The six secrets |
 | `<root>/bundle` | workload user, 0700 | Extracted native libraries |
 
-The replica's environment is the host base environment, the profile, the env
-file, then `TS_AUTH_LISTEN=http://0.0.0.0:8080` and
+The replica's environment is the host base environment, the profile, the
+secrets, then `TS_AUTH_LISTEN=http://0.0.0.0:8080` and
 `DOTNET_BUNDLE_EXTRACT_BASE_DIR=<root>/bundle`. It runs as the workload user
 in its own cgroup under the host agent.
 
@@ -231,7 +230,7 @@ is no private TerraBase instance. `tsauth.Projects` is the table.
 | Vault secret | Content |
 | --- | --- |
 | `gru-1-ts-auth-terrascale-project-id` | ts-auth's project ID |
-| `gru-1-ts-auth-terrascale-api-key` | ts-auth's key (what `ts-auth env-file` reads) |
+| `gru-1-ts-auth-terrascale-api-key` | ts-auth's key (a secret the ts-auth profile names) |
 | `gru-1-ts-dashboard-terrabase-project-id` | the dashboard's project ID |
 | `gru-1-ts-dashboard-terrabase-api-key` | the dashboard's key |
 
@@ -328,7 +327,7 @@ rule, the gru-1 Vault (four generated keys, then four from bootstrap), the
 production TerraBase on `gru-1-db-1` (one organization, two projects, two
 databases and two API keys, and with phase B its ownership), the Fly app
 `ts-dashboard` (eight staged secrets) and the three controllers (`host.json`,
-one env file each, one ts-auth replica on two of them).
+one ts-auth replica on two of them).
 
 ### Prerequisites
 
@@ -497,8 +496,8 @@ WORK=$(mktemp -d)
 3. On each controller, set the ts-auth root in `host.json` (edited on the
    operator host: the host image has no `jq`), make sure `/srv/ts-managed`
    exists before the host agent restarts (its unit can write there only if it
-   exists at start), install the metadata firewall, write the env file and
-   restart the agent:
+   exists at start), install the metadata firewall and restart the agent. The
+   agent reads ts-auth's secrets from the Vault itself at each launch:
 
    ```sh
    (
@@ -517,22 +516,21 @@ WORK=$(mktemp -d)
          < "$REPO/deploy/systemd/terrascale-ts-auth-metadata.service" &&
        ssh "$h" 'systemctl daemon-reload && systemctl enable terrascale-ts-auth-metadata.service &&
          test -L /etc/systemd/system/terrascale-orchestrator-host.service.requires/terrascale-ts-auth-metadata.service' &&
-       ssh "$h" terrascale-orchestrator ts-auth env-file --host-config /etc/terrascale-orchestrator/host.json --vault-id "$VAULT" &&
-       ssh "$h" 'systemctl restart terrascale-orchestrator-host.service && /usr/sbin/nft list table inet terrascale_metadata' &&
-       ssh "$h" stat -c "'%U %a %n'" /srv/ts-managed/ts-auth/ts-auth.env || { echo "gru-1-ctl-$n failed" >&2; exit 1; }
+       ssh "$h" rm -f /srv/ts-managed/ts-auth/ts-auth.env &&
+       ssh "$h" 'systemctl restart terrascale-orchestrator-host.service && /usr/sbin/nft list table inet terrascale_metadata' ||
+       { echo "gru-1-ctl-$n failed" >&2; exit 1; }
    done
    shred -u "$WORK"/host-*.json "$WORK"/host-*.new
    )
    ```
 
-   `ssh` to a NetBird name uses NetBird SSH. Expect
-   `{"env_file":"/srv/ts-managed/ts-auth/ts-auth.env","keys":[...]}` and
-   `terrascale-workload 600 /srv/ts-managed/ts-auth/ts-auth.env` on each.
+   `ssh` to a NetBird name uses NetBird SSH. `rm -f` removes the env file an
+   earlier version of this step wrote; the host no longer reads it.
    The nft output must show the output hook, the timesync-only UDP/123
    exception and `ip daddr 169.254.169.254 meta skuid != { 0, "terrascale-orchestrator" } counter drop`
    (nft may print the controller's numeric UID).
-   Enabling the firewall dependency does not start it. The env file is ready
-   before restarting the host, which runs the rule transaction as a prerequisite.
+   Enabling the firewall dependency does not start it. Restarting the host runs
+   the rule transaction as a prerequisite.
    The subshell exits unsuccessfully at the first controller failure; it does
    not prepare any later controller or hide the error with cleanup.
    This check reads the rules; live enforcement and reboot verification
@@ -577,8 +575,8 @@ WORK=$(mktemp -d)
    Expect two `ts-auth` reports `running` with the new digest on two
    different controllers, `{"status":"ready",...}` and `true`.
 
-A later release repeats step 5. A changed secret needs step 3's `env-file`
-on every controller and a new release (or replica restart) to load it.
+A later release repeats step 5. A rotated secret reaches each replica when it
+next starts, for example with the next release; no signature changes.
 
 ### Ouroboros owner and dashboard handoff
 
@@ -664,20 +662,15 @@ TerraBase release binary.
   unverified, banned, duplicate and missing users; HTTP errors without the
   key) and `TestOuroborosFlySecrets` (no-token mode reads no API key; token
   mode stages through a stub `flyctl` with the values on stdin and redacts the
-  key from a failure). Also profile rules, env file parse and render (no value
-  in any error), probe, release verification, the backend set from the real
-  `plan.json`, Vault create-once with a fake OCI Vault (existing, pending
-  deletion, duplicate and paged secrets, retry token), `ReadSecrets`, and
-  `WriteEnvFile` mode, owner and atomic replace.
-  `TestEnvFileRefusesOverlappingHostRootsBeforeMutation` covers equality,
-  ancestor and descendant overlaps for the install, state and TerraBase
-  roots, both through the command and a direct call; permissions and contents
-  stay unchanged and no OCI request is made.
+  key from a failure). Also profile rules and secret refs, `TestValidateSecrets`
+  (value forms, no value in any error), probe, release verification, the
+  backend set from the real `plan.json`, and Vault create-once with a fake OCI
+  Vault (existing, pending deletion, duplicate and paged secrets, retry token).
   `TestRenderedMetadataRulesReserveMetadataForRootAndController` checks the rendered
   output rule, its root/controller allowlist, its timesync-only UDP exception,
   and the unit's required boot ordering.
-- `internal/host` (T0): `TestTSAuthReplicaGetsEnvFileSecrets`,
-  `TestTSAuthEnvFileMustBeWorkloadOwnedAndPrivate`,
+- `internal/host` (T0): `TestTSAuthReplicaGetsVaultSecrets`,
+  `TestTSAuthRefusesBadProfileOrSecrets`,
   `TestTSAuthRootBelowManagedRuntimeRoot` (the image layout),
   `TestTSAuthRefusedWithoutRoot`, `TestTSAuthRunningOnlyWhenReady`,
   `TestTSAuthRootMustBeSeparate`, `TestTSAuthExitReportedOnceBeforeRelaunch`.
@@ -686,8 +679,9 @@ TerraBase release binary.
   profile and spec against signed-config validation;
   `TestTSAuthReleaseGateWithFakeReplicas` runs `operator ts-auth-release`
   against an in-process controller whose reconciler owns ts-auth and two host
-  agents in two failure domains, with a stand-in for the unpublished ts-auth
-  binary: deploy, upgrade, and a crashing release rolled back.
+  agents in two failure domains that read the profile's secrets from a fake
+  Vault, with a stand-in for the unpublished ts-auth binary: deploy, upgrade,
+  and a crashing release rolled back.
 
 Not tested: OCI Vault, instance principal reads, the real ts-auth binary
 (TS-488 has not published it), and the load balancer.

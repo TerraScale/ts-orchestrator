@@ -16,6 +16,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 const (
@@ -26,6 +28,15 @@ const (
 func validProfile() map[string]string {
 	return map[string]string{EnvPublicOrigin: PublicOrigin, EnvAPIURL: APIURL, EnvDatabase: Database, EnvAudiences: APIURL,
 		EnvDashboardRedirectURIs: DashboardRedirectURI, EnvDashboardLogoutURIs: DashboardLogoutURI}
+}
+
+// validRefs names every secret in the gru-1 Vault.
+func validRefs() map[string]vaultsecret.Ref {
+	refs := map[string]vaultsecret.Ref{}
+	for _, key := range Secrets {
+		refs[key] = vaultsecret.Ref{Vault: testTarget.VaultID, Name: SecretName("gru-1", key)}
+	}
+	return refs
 }
 
 // testSecrets are distinct valid secrets: three 32-byte keys, an API key and
@@ -49,14 +60,22 @@ func leaks(err error, values ...string) string {
 }
 
 func TestValidateProfile(t *testing.T) {
-	if err := ValidateProfile(Cell, nil, validProfile()); err != nil {
+	if err := ValidateProfile(Cell, nil, validProfile(), validRefs()); err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateProfile("sfo", nil, validProfile()); err == nil {
+	if err := ValidateProfile("sfo", nil, validProfile(), validRefs()); err == nil {
 		t.Fatal("accepted a ts-auth profile outside the reviewed cell")
 	}
 	if _, set := validProfile()[EnvProjectID]; set || !slices.Contains(Secrets, EnvProjectID) {
-		t.Fatal("project ID belongs to the env file")
+		t.Fatal("project ID belongs to the secrets")
+	}
+	missing, extra := validRefs(), validRefs()
+	delete(missing, EnvMasterKey)
+	extra["TS_AUTH_SMTP_PASSWORD"] = vaultsecret.Ref{Vault: testTarget.VaultID, Name: "gru-1-ts-auth-smtp-password"}
+	for name, refs := range map[string]map[string]vaultsecret.Ref{"no refs": nil, "missing ref": missing, "extra ref": extra} {
+		if err := ValidateProfile(Cell, nil, validProfile(), refs); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 	with := func(key, value string) map[string]string {
 		env := validProfile()
@@ -77,7 +96,7 @@ func TestValidateProfile(t *testing.T) {
 		"wrong database":   with(EnvDatabase, "ts-auth"),
 		"missing origin":   without(EnvPublicOrigin),
 		"missing database": without(EnvDatabase),
-		// The selector's project comes from the env file, never the profile.
+		// The selector's project comes from the secrets, never the profile.
 		"database selector": with(EnvDatabase, testProjectID+"/auth"),
 		"other callback":    with(EnvDashboardRedirectURIs, "https://evil.example/login/callback"),
 		"extra callback":    with(EnvDashboardRedirectURIs, DashboardRedirectURI+";http://localhost:5173/login/callback"),
@@ -92,77 +111,52 @@ func TestValidateProfile(t *testing.T) {
 		cases["secret "+key] = with(key, sentinel)
 	}
 	for name, env := range cases {
-		err := ValidateProfile(Cell, nil, env)
+		err := ValidateProfile(Cell, nil, env, validRefs())
 		if err == nil {
 			t.Errorf("%s: accepted", name)
 		} else if leak := leaks(err, sentinel); leak != "" {
 			t.Errorf("%s: error prints a secret: %v", name, err)
 		}
 	}
-	if err := ValidateProfile(Cell, []string{"--listen", "x"}, validProfile()); err == nil {
+	if err := ValidateProfile(Cell, []string{"--listen", "x"}, validProfile(), validRefs()); err == nil {
 		t.Error("accepted arguments")
 	}
 }
 
-func TestEnvFileRoundTrip(t *testing.T) {
-	secrets := testSecrets()
-	data, err := RenderEnvFile(secrets)
-	if err != nil {
+// TestValidateSecrets checks the values a host read from the Vault before a
+// replica gets them; errors name keys, never values.
+func TestValidateSecrets(t *testing.T) {
+	if err := ValidateSecrets(testSecrets()); err != nil {
 		t.Fatal(err)
 	}
-	if lines := strings.Count(string(data), "\n"); lines != len(Secrets) {
-		t.Fatalf("rendered %d lines", lines)
-	}
-	parsed, err := ParseEnvFile(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !maps.Equal(parsed, secrets) {
-		t.Fatal("round trip changed the secrets")
-	}
-}
-
-func TestEnvFileRejections(t *testing.T) {
-	secrets := testSecrets()
-	data, err := RenderEnvFile(secrets)
-	if err != nil {
-		t.Fatal(err)
-	}
-	valid := string(data)
-	lines := strings.SplitAfter(valid, "\n")
 	short := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 31))
-	values := append(slices.Collect(maps.Values(secrets)), sentinel, short)
-	replace := func(key, value string) string {
-		return strings.Replace(valid, key+"="+secrets[key], key+"="+value, 1)
+	values := append(slices.Collect(maps.Values(testSecrets())), sentinel, short)
+	with := func(key, value string) map[string]string {
+		secrets := testSecrets()
+		secrets[key] = value
+		return secrets
 	}
-	for name, file := range map[string]string{
-		"missing key":         strings.Join(lines[:len(Secrets)-1], ""),
-		"unknown key":         valid + "TS_AUTH_OTHER=" + sentinel + "\n",
-		"repeated key":        valid + lines[0],
-		"line without =":      valid + sentinel + "\n",
-		"31-byte key":         replace(EnvMasterKey, short),
-		"api key with space":  replace(EnvAPIKey, "tb_ "+sentinel),
-		"empty api key":       replace(EnvAPIKey, ""),
-		"4097-char api key":   replace(EnvAPIKey, strings.Repeat("k", 4097)),
-		"non-uuid project":    replace(EnvProjectID, "ts-auth"),
-		"uppercase project":   replace(EnvProjectID, strings.ToUpper(testProjectID)),
-		"crlf":                strings.ReplaceAll(valid, "\n", "\r\n"),
-		"crlf on a generated": strings.Replace(valid, "\n", "\r\n", 1),
-		"empty":               "",
+	missing := testSecrets()
+	delete(missing, EnvOperatorKey)
+	master := testSecrets()[EnvMasterKey]
+	for name, secrets := range map[string]map[string]string{
+		"missing key":        missing,
+		"unknown key":        with("TS_AUTH_OTHER", sentinel),
+		"31-byte key":        with(EnvMasterKey, short),
+		"key with a newline": with(EnvMasterKey, master[:20]+"\n"+master[20:]),
+		"api key with space": with(EnvAPIKey, "tb_ "+sentinel),
+		"empty api key":      with(EnvAPIKey, ""),
+		"4097-char api key":  with(EnvAPIKey, strings.Repeat("k", 4097)),
+		"non-uuid project":   with(EnvProjectID, "ts-auth"),
+		"uppercase project":  with(EnvProjectID, strings.ToUpper(testProjectID)),
+		"none":               nil,
 	} {
-		_, err := ParseEnvFile([]byte(file))
+		err := ValidateSecrets(secrets)
 		if err == nil {
 			t.Errorf("%s: accepted", name)
 		} else if leak := leaks(err, values...); leak != "" {
 			t.Errorf("%s: error prints a secret: %v", name, err)
 		}
-	}
-	// A key that only decodes because base64 skips CR and LF would split
-	// the rendered file.
-	broken := testSecrets()
-	broken[EnvMasterKey] = broken[EnvMasterKey][:20] + "\n" + broken[EnvMasterKey][20:]
-	if _, err := RenderEnvFile(broken); err == nil {
-		t.Error("rendered a key carrying a newline")
 	}
 }
 

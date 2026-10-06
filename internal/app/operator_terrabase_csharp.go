@@ -74,7 +74,7 @@ func operatorTSAuthRelease(ctx context.Context, cfg Config, runtime *natscell.Ru
 		if err != nil {
 			return err
 		}
-		if err := tsauth.ValidateProfile(cfg.NATS.Cell, profile.Args, profile.Env); err != nil {
+		if err := tsauth.ValidateProfile(cfg.NATS.Cell, profile.Args, profile.Env, profile.Secrets); err != nil {
 			return err
 		}
 		return releaseNative(ctx, cfg, runtime, nativeRelease{Role: tsauth.Role, Repository: tsauth.Repository,
@@ -155,7 +155,7 @@ func releaseNative(ctx context.Context, cfg Config, runtime *natscell.Runtime, r
 	}
 	intent := delivery.Intent{Source: record.Source, ArtifactDigest: record.Digest, ManifestDigest: record.ManifestDigest,
 		Role: role, Environment: options.Environment, Generation: generation, DesiredReplicas: release.Replicas,
-		ConfigDigest: delivery.ConfigDigestOf(profile.Args, profile.Env)}
+		ConfigDigest: delivery.ConfigDigestOf(profile.Args, profile.Env, profile.Secrets)}
 	changed, gateErr := rollOutTerraBase(ctx, cfg, runtime, service, reader, intent, options.Wait, output)
 	switch {
 	case gateErr == nil:

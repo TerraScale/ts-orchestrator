@@ -23,7 +23,8 @@ replaces the previous one as a whole.
 
 A **service** is one role:
 
-- `profile` is the role's delivery profile: `resources`, `args` and `env`.
+- `profile` is the role's delivery profile: `resources`, `args`, `env` and
+  `secrets` ([Vault secrets](#vault-secrets)).
   It has the same shape as `controller.workloads.<role>` and the `--profile`
   of a release, for example
   [`deploy/oci-region/ts-auth-gru-1-profile.json`](../deploy/oci-region/ts-auth-gru-1-profile.json).
@@ -93,6 +94,40 @@ ts-orch service grant-host --config "$OPERATOR" --node gru-1-ctl-1 \
   --private-ip 10.251.0.11 --roles ts-auth --environment canary --out "$WORK/grant-ctl-1.json"
 ```
 
+## Vault secrets
+
+A profile's `secrets` maps environment keys to OCI Vault secrets:
+
+```json
+"secrets": {
+  "TS_AUTH_MASTER_KEY": {"vault": "ocid1.vault.oc1.sa-saopaulo-1....", "name": "gru-1-ts-auth-master-key"}
+}
+```
+
+- The host agent reads the current version of each secret with its instance
+  principal every time it starts a replica, and adds it to the replica's
+  environment. The value goes only to the process: never to KV, desired
+  state, reports, logs or disk. A Vault read that fails fails the launch,
+  which the host retries on its next poll.
+- The release's config digest covers the names, not the values. Rotating a
+  secret is a restart (for example the next release), not a new signature;
+  changing a name or Vault is a profile change.
+- A secret must be named `<cell>-<n>-<role>-<key>` (`gru-1-ts-auth-master-key`
+  for role `ts-auth`), so a profile reaches only its own role's secrets even
+  where the host may read more. A role named like the cell's own secret
+  families (`api`, `cloudflare`, `netbird`, `trust`, `ts-dashboard`, or one
+  that extends or prefixes them, such as `ts`) takes none, and neither does
+  `terrabase`. A key may not also be set in `env`. At most 64 secrets, 96 KiB
+  together.
+- A spec whose profiles name secrets requires binary level 2
+  ([binary levels](#binary-levels)); `service add|update` sets it.
+- Every native workload on a host runs as the one workload user, so a replica
+  can read the environment of another role's replica on the same host. Give a
+  role with secrets hosts of its own, or co-locate only roles trusted alike.
+- The host's instance principal needs `read secret-bundles` on each secret
+  ([host access](secrets.md#host-access)). The controllers have it for their
+  compartment.
+
 ## Trust
 
 Cell specs use the release trust chain: the offline root key and the
@@ -158,8 +193,9 @@ answers.
 ## Binary levels
 
 Each ts-orch binary understands cell specs up to its `cellspec.BinaryLevel`
-(1 today). A change that adds a section raises the level, and every
-amendment that uses the section sets `requires_binary` to it. A controller
+(2 today; level 2 adds profile `secrets`). A change that adds a section
+raises the level, and every amendment that uses the section sets
+`requires_binary` to it. A controller
 whose binary understands less refuses such an amendment by name and keeps its
 current spec: it is the expected state while the new binary rolls out. As
 leader, it also refuses to amend over a stored record it cannot read, so an

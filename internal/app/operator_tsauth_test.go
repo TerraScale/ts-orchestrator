@@ -7,6 +7,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -16,10 +17,12 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 )
@@ -48,6 +51,38 @@ func TestTSAuthGRUConfigIsValid(t *testing.T) {
 			t.Errorf("a signed ts-auth profile carrying %s was accepted", key)
 		}
 		delete(profile.Env, key)
+	}
+	// The committed profile names the six secrets, and the release binds
+	// their names: a renamed secret is a new config digest.
+	if len(profile.Secrets) != len(tsauth.Secrets) {
+		t.Fatalf("committed profile names %d secrets", len(profile.Secrets))
+	}
+	renamed := maps.Clone(profile.Secrets)
+	renamed[tsauth.EnvMasterKey] = vaultsecret.Ref{Vault: renamed[tsauth.EnvMasterKey].Vault, Name: "gru-1-ts-auth-master-key-2"}
+	if delivery.ConfigDigestOf(profile.Args, profile.Env, profile.Secrets) == delivery.ConfigDigestOf(profile.Args, profile.Env, renamed) ||
+		delivery.ConfigDigestOf(profile.Args, profile.Env, profile.Secrets) == delivery.ConfigDigestOf(profile.Args, profile.Env, nil) {
+		t.Fatal("the config digest ignores the secret names")
+	}
+}
+
+// TestWorkloadProfileSecretsStayWithTheirRole refuses a signed profile whose
+// secrets reach another role's Vault secrets, and a TerraBase profile with any.
+func TestWorkloadProfileSecretsStayWithTheirRole(t *testing.T) {
+	ref := func(name string) map[string]vaultsecret.Ref {
+		return map[string]vaultsecret.Ref{"TOKEN": {Vault: "ocid1.vault.oc1.sa-saopaulo-1.vault", Name: name}}
+	}
+	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
+	if err := validateWorkloadProfiles("gru", map[string]WorkloadProfile{"billing": {Resources: resources, Secrets: ref("gru-1-billing-token")}}); err != nil {
+		t.Fatal(err)
+	}
+	for name, profiles := range map[string]map[string]WorkloadProfile{
+		"other role": {"billing": {Resources: resources, Secrets: ref("gru-1-netbird-admin-pat")}},
+		"terrabase":  {"terrabase": {Resources: resources, Secrets: ref("gru-1-terrabase-token")}},
+		"also env":   {"billing": {Resources: resources, Env: map[string]string{"TOKEN": "x"}, Secrets: ref("gru-1-billing-token")}},
+	} {
+		if err := validateWorkloadProfiles("gru", profiles); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 }
 
@@ -95,7 +130,7 @@ func tsAuthGRUConfig(t *testing.T) (WorkloadProfile, workload.ServiceSpec) {
 // against an in-process controller whose workload reconciler owns ts-auth
 // with the committed gru-1 spec (two replicas, one per failure domain) and
 // two host agents. The fake replica answers /healthz and /readyz only when
-// its host gave it the env file's secrets and a bundle directory. A first
+// its host gave it the Vault's secrets and a bundle directory. A first
 // release passes the gate, a second upgrades both replicas, and a release
 // that crashes is rolled back.
 func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
@@ -185,12 +220,7 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer hostRuntime.Close()
-		// The ts-auth root and env file, written as ts-orch ts-auth env-file does.
 		tsAuthRoot := filepath.Join(filepath.Dir(traversableTerraBaseRoot(t)), "ts-auth")
-		if _, err := tsauth.WriteEnvFile(ctx, vault, "vault", tsauth.HostConfig{Cell: "gru-1", Root: tsAuthRoot,
-			UID: identity.UID, GID: identity.GID}); err != nil {
-			t.Fatal(err)
-		}
 		clock := &testBrokerClock{}
 		clock.healthy.Store(true)
 		ports[node] = freeTCPPort(t)
@@ -199,7 +229,7 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 			Environment: "test", Roles: []string{tsauth.Role}, Conn: hostRuntime.Conn(), Identity: hostPrivate,
 			NATSUserPublicKey: hostKeys[node][0], ControllerPublicKey: controllerPublic, Runner: replicas[node],
 			InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t), ManagedRuntimeRoot: filepath.Dir(tsAuthRoot),
-			TSAuthRoot: tsAuthRoot, TSAuthPort: ports[node],
+			TSAuthRoot: tsAuthRoot, TSAuthPort: ports[node], SecretResolver: vault.resolve,
 			PollInterval: 200 * time.Millisecond, ClockCheck: controllerClockCheck(clock)})
 		if err != nil {
 			t.Fatal(err)
@@ -339,6 +369,11 @@ func writeTSAuthRelease(t *testing.T, dir string, data []byte) string {
 
 // bundles is an OCI Vault holding secrets by name.
 type bundles map[string]string
+
+// resolve reads refs from b as a host agent reads them from the Vault.
+func (b bundles) resolve(ctx context.Context, refs map[string]vaultsecret.Ref) (map[string]string, error) {
+	return vaultsecret.Resolve(ctx, refs, func(string) (vaultsecret.BundleClient, error) { return b, nil })
+}
 
 func (b bundles) GetSecretBundleByName(_ context.Context, request ocisecrets.GetSecretBundleByNameRequest) (ocisecrets.GetSecretBundleByNameResponse, error) {
 	value, ok := b[*request.SecretName]

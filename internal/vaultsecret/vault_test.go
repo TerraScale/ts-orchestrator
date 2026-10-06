@@ -214,3 +214,106 @@ func (e testSecretServiceError) GetHTTPStatusCode() int  { return e.status }
 func (e testSecretServiceError) GetMessage() string      { return "" }
 func (e testSecretServiceError) GetCode() string         { return "" }
 func (e testSecretServiceError) GetOpcRequestID() string { return "" }
+
+// TestValidateRefs accepts a role's own secrets in a regional Vault and
+// refuses anything that would let a profile reach another role's or another
+// cell's secrets, an unknown Vault, or an environment key it also sets.
+func TestValidateRefs(t *testing.T) {
+	ref := func(name string) Ref { return Ref{Vault: testTarget.VaultID, Name: name} }
+	valid := map[string]Ref{"TS_AUTH_MASTER_KEY": ref("gru-1-ts-auth-master-key"), "b_2": ref("gru-12-ts-auth-x")}
+	if err := ValidateRefs("gru", "ts-auth", valid, map[string]string{"TS_AUTH_PUBLIC_ORIGIN": "https://x"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateRefs("gru", "ts-auth", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	tooMany := map[string]Ref{}
+	for i := range MaxRefs + 1 {
+		tooMany["K"+strconv.Itoa(i)] = ref("gru-1-ts-auth-k" + strconv.Itoa(i))
+	}
+	for _, role := range []string{"netbird", "api", "api-gateway", "trust", "cloudflare", "ts", "ts-dashboard", "ts-dashboard-x"} {
+		if err := ValidateRefs("gru", role, map[string]Ref{"K": ref("gru-1-" + role + "-k")}, nil); err == nil {
+			t.Errorf("role %s reached the cell's infrastructure secrets", role)
+		}
+		if err := ValidateRefs("gru", role, nil, nil); err != nil {
+			t.Errorf("role %s without secrets: %v", role, err)
+		}
+	}
+	for name, test := range map[string]struct {
+		refs map[string]Ref
+		env  map[string]string
+	}{
+		"other role":       {refs: map[string]Ref{"K": ref("gru-1-netbird-admin-pat")}},
+		"other cell":       {refs: map[string]Ref{"K": ref("sfo-1-ts-auth-master-key")}},
+		"no index":         {refs: map[string]Ref{"K": ref("gru-ts-auth-master-key")}},
+		"zero index":       {refs: map[string]Ref{"K": ref("gru-01-ts-auth-master-key")}},
+		"no key":           {refs: map[string]Ref{"K": ref("gru-1-ts-auth")}},
+		"role only prefix": {refs: map[string]Ref{"K": ref("gru-1-ts-authx-key")}},
+		"upper case":       {refs: map[string]Ref{"K": ref("gru-1-ts-auth-Key")}},
+		"slash":            {refs: map[string]Ref{"K": ref("gru-1-ts-auth-a/b")}},
+		"bad key":          {refs: map[string]Ref{"1K": ref("gru-1-ts-auth-k")}},
+		"key with =":       {refs: map[string]Ref{"K=V": ref("gru-1-ts-auth-k")}},
+		"also in env":      {refs: map[string]Ref{"K": ref("gru-1-ts-auth-k")}, env: map[string]string{"K": "v"}},
+		"no vault":         {refs: map[string]Ref{"K": {Name: "gru-1-ts-auth-k"}}},
+		"key not vault":    {refs: map[string]Ref{"K": {Vault: testTarget.KeyID, Name: "gru-1-ts-auth-k"}}},
+		"unknown region":   {refs: map[string]Ref{"K": {Vault: "ocid1.vault.oc1.mars-1.vault", Name: "gru-1-ts-auth-k"}}},
+		"too many":         {refs: tooMany},
+	} {
+		if err := ValidateRefs("gru", "ts-auth", test.refs, test.env); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// TestResolveReadsCurrentValuesWithoutLeaking reads each ref from its Vault's
+// region and names the secret, never a value, when a read or value fails.
+func TestResolveReadsCurrentValuesWithoutLeaking(t *testing.T) {
+	vault := newVault()
+	vault.store("gru-1-ts-auth-master-key", sentinel)
+	vault.store("gru-1-ts-auth-operator-key", "op")
+	refs := map[string]Ref{"MASTER": {Vault: testTarget.VaultID, Name: "gru-1-ts-auth-master-key"},
+		"OPERATOR": {Vault: testTarget.VaultID, Name: "gru-1-ts-auth-operator-key"}}
+	var regions []string
+	client := func(region string) (BundleClient, error) {
+		regions = append(regions, region)
+		return vault, nil
+	}
+	values, err := Resolve(t.Context(), refs, client)
+	if err != nil || values["MASTER"] != sentinel || values["OPERATOR"] != "op" || len(values) != 2 {
+		t.Fatalf("resolved %d values: %v", len(values), err)
+	}
+	if fmt.Sprint(regions) != "[sa-saopaulo-1 sa-saopaulo-1]" {
+		t.Fatalf("regions %v", regions)
+	}
+	for _, request := range vault.reads {
+		if *request.VaultId != testTarget.VaultID || request.Stage != ocisecrets.GetSecretBundleByNameStageCurrent {
+			t.Fatalf("request %+v", request)
+		}
+	}
+	vault.store("gru-1-ts-auth-nul", "a\x00"+sentinel)
+	vault.store("gru-1-ts-auth-large", strings.Repeat("k", maxValue+1))
+	many := map[string]Ref{}
+	for i := range 7 {
+		name := "gru-1-ts-auth-big-" + strconv.Itoa(i)
+		vault.store(name, strings.Repeat("k", maxValue))
+		many["BIG_"+strconv.Itoa(i)] = Ref{Vault: testTarget.VaultID, Name: name}
+	}
+	for name, refs := range map[string]map[string]Ref{
+		"missing": {"K": {Vault: testTarget.VaultID, Name: "gru-1-ts-auth-missing"}},
+		"nul":     {"K": {Vault: testTarget.VaultID, Name: "gru-1-ts-auth-nul"}},
+		"large":   {"K": {Vault: testTarget.VaultID, Name: "gru-1-ts-auth-large"}},
+		"vault":   {"K": {Vault: "vault", Name: "gru-1-ts-auth-master-key"}},
+		"too big": many,
+	} {
+		if _, err := Resolve(t.Context(), refs, client); err == nil || strings.Contains(err.Error(), "sentinel") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if _, err := Resolve(t.Context(), refs, func(string) (BundleClient, error) { return nil, errors.New("no instance principal") }); err == nil {
+		t.Error("resolved without a client")
+	}
+	t.Setenv("OCI_GO_SDK_DEBUG", "1")
+	if _, err := Resolve(t.Context(), refs, client); err == nil {
+		t.Error("resolved while the OCI SDK logs bodies")
+	}
+}

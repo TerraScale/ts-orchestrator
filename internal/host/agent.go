@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -878,6 +879,20 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		return err
 	}
 	workload := Workload{Role: role, Digest: d.Digest, Fingerprint: fingerprint, Executable: executable, Args: d.Args, Env: d.Env}
+	if a.tsAuthMisplaced(d) {
+		return errors.New("ts-auth needs ts_auth_root on this host for its bundle directory and readiness probe")
+	}
+	secrets, err := a.resolveSecrets(ctx, d)
+	if err != nil {
+		return err
+	}
+	if len(secrets) != 0 {
+		workload.Env = maps.Clone(d.Env)
+		if workload.Env == nil {
+			workload.Env = map[string]string{}
+		}
+		maps.Copy(workload.Env, secrets)
+	}
 	started, certificateExpiry := "running", time.Time{}
 	if a.terraBaseMember(d) {
 		if workload.Env, certificateExpiry, err = a.prepareTerraBase(ctx, d); err != nil {
@@ -886,12 +901,10 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		workload.DrainTimeout, started = terraBaseDrain, "starting"
 	}
 	if a.tsAuthReplica(d) {
-		if workload.Env, err = a.prepareTSAuth(d); err != nil {
+		if workload.Env, err = a.prepareTSAuth(d, secrets); err != nil {
 			return err
 		}
 		workload.DrainTimeout, started = tsAuthDrain, "starting"
-	} else if a.tsAuthMisplaced(d) {
-		return errors.New("ts-auth needs ts_auth_root on this host for its secrets and readiness probe")
 	}
 	var latest desiredReply
 	if err := a.request(ctx, "desired", struct {
@@ -971,6 +984,30 @@ func (a *Agent) validateDesiredReply(reply desiredReply) error {
 		return errors.New("desired reply registration differs from host session")
 	}
 	return validateRegistration(*reply.Registration, a.cfg.Cell)
+}
+
+// resolveSecrets reads the current value of each of d's Vault secrets. The
+// values go only to the launch environment, never to desired state, reports,
+// logs or disk, so a rotated secret reaches a replica when it next starts.
+func (a *Agent) resolveSecrets(ctx context.Context, d Desired) (map[string]string, error) {
+	if len(d.Secrets) == 0 {
+		return nil, nil
+	}
+	if a.cfg.SecretResolver == nil {
+		return nil, errors.New(d.Role + " needs Vault secrets, which this host cannot read")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	values, err := a.cfg.SecretResolver(ctx, d.Secrets)
+	if err != nil {
+		return nil, err
+	}
+	for key := range d.Secrets {
+		if _, ok := values[key]; !ok {
+			return nil, fmt.Errorf("Vault secret %s was not read", key)
+		}
+	}
+	return values, nil
 }
 
 func desiredFingerprint(d Desired) (string, error) {

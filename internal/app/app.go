@@ -28,6 +28,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/hostvolume"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 func Run(ctx context.Context, args []string, output io.Writer) error {
@@ -197,6 +198,7 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 		ManagedRuntimeRoot:      cfg.Host.ManagedRuntimeRoot,
 		TerraBaseRoot:           cfg.Host.TerraBaseRoot,
 		TSAuthRoot:              cfg.Host.TSAuthRoot,
+		SecretResolver:          vaultsecret.ReadRefs,
 		TerraBaseDataVolume:     cfg.Host.TerraBaseDataVolume,
 		TerraBaseDataVolumeID:   cfg.Host.TerraBaseDataVolumeID,
 		ManagedS3Credentials:    managedS3Credentials,

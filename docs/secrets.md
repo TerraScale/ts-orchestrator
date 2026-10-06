@@ -38,7 +38,7 @@ read that compartment.
 
 | Secret | Compartment | Consumer |
 | --- | --- | --- |
-| `gru-1-ts-auth-*` | `gru-1-control` | ts-auth env file; see [ts-auth deployment](ts-auth-deployment.md) |
+| `gru-1-ts-auth-*` | `gru-1-control` | ts-auth replicas, through the secret refs of its profile; see [ts-auth deployment](ts-auth-deployment.md) |
 | `gru-1-netbird-setup-key`, `gru-1-netbird-admin-pat` | `gru-1-control` | Server enrollment and controller reconciliation; see [NetBird](../deploy/netbird/README.md#secrets-and-tokens) |
 | `gru-1-netbird-datastore-encryption-key`, `gru-1-netbird-relay-auth-secret`, `gru-1-netbird-session-cookie-encryption-key` | `ts-ops` | `/etc/netbird/config.yaml` on ts-ops, rendered by `install.sh` |
 | `gru-1-netbird-owner-email`, `gru-1-netbird-owner-password` | `TerraScale` | NetBird dashboard owner login |
@@ -118,6 +118,13 @@ It prints the file and the secret names it read, and refuses to run as any
 other user. Every Vault read or write in `ts-orch`, ts-auth's included,
 refuses to run while an OCI SDK debug, endpoint or TLS override variable is
 set.
+
+## Give a workload a secret
+
+A workload profile names its secrets in `secrets`; its host agent reads them
+with the instance principal each time it starts a replica. Signed config and
+desired state hold only the names, so rotating a secret (above) needs a
+restart, not a new signature. See [services](cell-spec.md#vault-secrets).
 
 ## Retired OpenBao entries
 

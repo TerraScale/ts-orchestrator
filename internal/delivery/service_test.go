@@ -236,7 +236,7 @@ func testIntent(t *testing.T, s *Service, ctx context.Context) Intent {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Intent{SchemaVersion: SchemaVersion, OperationID: "deploy-one", Source: source, ArtifactDigest: artifact.Digest, ManifestDigest: artifact.ManifestDigest, Cell: "lab", Role: "worker", Environment: "production", Generation: 1, DesiredReplicas: 1, ConfigDigest: ConfigDigestOf(nil, nil), AuthorityEpoch: 1}
+	return Intent{SchemaVersion: SchemaVersion, OperationID: "deploy-one", Source: source, ArtifactDigest: artifact.Digest, ManifestDigest: artifact.ManifestDigest, Cell: "lab", Role: "worker", Environment: "production", Generation: 1, DesiredReplicas: 1, ConfigDigest: ConfigDigestOf(nil, nil, nil), AuthorityEpoch: 1}
 }
 
 func TestSubmitOperationReadRetriesTransientLeaderFailure(t *testing.T) {
@@ -925,7 +925,7 @@ func TestStrictIntentRejectsDuplicateAndUnknownFields(t *testing.T) {
 
 func TestSignedUnadmittedIntentHasQueryVisibleRejection(t *testing.T) {
 	s, ctx := testService(t, &testWriter{})
-	i := Intent{SchemaVersion: SchemaVersion, OperationID: "unadmitted-one", Source: ArtifactSource{Repository: "https://git.terrascale.tech/TerraScale/ts-orchestrator", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TreeDigest: hex.EncodeToString(sha256.New().Sum(nil))}, ArtifactDigest: hex.EncodeToString(sha256.New().Sum(nil)), ManifestDigest: hex.EncodeToString(sha256.New().Sum(nil)), Cell: "lab", Role: "worker", Environment: "production", Generation: 1, DesiredReplicas: 1, ConfigDigest: ConfigDigestOf(nil, nil), AuthorityEpoch: 1}
+	i := Intent{SchemaVersion: SchemaVersion, OperationID: "unadmitted-one", Source: ArtifactSource{Repository: "https://git.terrascale.tech/TerraScale/ts-orchestrator", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TreeDigest: hex.EncodeToString(sha256.New().Sum(nil))}, ArtifactDigest: hex.EncodeToString(sha256.New().Sum(nil)), ManifestDigest: hex.EncodeToString(sha256.New().Sum(nil)), Cell: "lab", Role: "worker", Environment: "production", Generation: 1, DesiredReplicas: 1, ConfigDigest: ConfigDigestOf(nil, nil, nil), AuthorityEpoch: 1}
 	if err := s.Submit(ctx, i); err != nil {
 		t.Fatal(err)
 	}

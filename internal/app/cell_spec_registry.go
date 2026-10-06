@@ -111,6 +111,7 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 		}
 		r.current.Services = append(r.current.Services, service)
 	}
+	r.current.RequiresBinary = r.current.Level()
 	return r, nil
 }
 

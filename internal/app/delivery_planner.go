@@ -14,6 +14,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
 
@@ -56,6 +57,12 @@ func validateWorkloadProfiles(cell string, profiles map[string]WorkloadProfile) 
 				return fmt.Errorf("workload environment for %q is invalid", role)
 			}
 		}
+		if role == terrabase.Role && len(profile.Secrets) != 0 {
+			return fmt.Errorf("workload profile for %q takes no Vault secrets", role)
+		}
+		if err := vaultsecret.ValidateRefs(cell, role, profile.Secrets, profile.Env); err != nil {
+			return fmt.Errorf("workload profile for %q: %w", role, err)
+		}
 		// A terrabase profile with settings configures the C# TerraBase
 		// binary. Arguments would override the host-owned settings.
 		if role == terrabase.Role && len(profile.Env) != 0 {
@@ -67,9 +74,9 @@ func validateWorkloadProfiles(cell string, profiles map[string]WorkloadProfile) 
 			}
 		}
 		// The ts-auth profile is signed and readable: it must hold every
-		// setting but no secret, which hosts add from their env file.
+		// setting and name its secrets, which hosts read from the Vault.
 		if role == tsauth.Role {
-			if err := tsauth.ValidateProfile(cell, profile.Args, profile.Env); err != nil {
+			if err := tsauth.ValidateProfile(cell, profile.Args, profile.Env, profile.Secrets); err != nil {
 				return fmt.Errorf("workload profile for %q: %w", role, err)
 			}
 		}
@@ -130,7 +137,7 @@ func (p *regionalDeliveryPlanner) plan(ctx context.Context, intent delivery.Inte
 	if !ok {
 		return nil, fmt.Errorf("no workload profile for role %q", intent.Role)
 	}
-	if delivery.ConfigDigestOf(profile.Args, profile.Env) != intent.ConfigDigest {
+	if delivery.ConfigDigestOf(profile.Args, profile.Env, profile.Secrets) != intent.ConfigDigest {
 		return nil, errors.New("intent configuration digest differs from controller workload profile")
 	}
 	statuses, err := p.hosts.ListHosts(ctx)
@@ -180,6 +187,7 @@ func (p *regionalDeliveryPlanner) plan(ctx context.Context, intent delivery.Inte
 			desired.Digest = intent.ArtifactDigest
 			desired.Args = slices.Clone(profile.Args)
 			desired.Env = maps.Clone(profile.Env)
+			desired.Secrets = maps.Clone(profile.Secrets)
 		}
 		result = append(result, desired)
 	}

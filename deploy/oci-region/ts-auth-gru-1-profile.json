@@ -7,5 +7,13 @@
     "TS_AUTH_ACCESS_TOKEN_AUDIENCES": "https://gru.api.terrascale.tech",
     "TS_AUTH_DASHBOARD_REDIRECT_URIS": "https://dash.terrascale.tech/login/callback",
     "TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS": "https://dash.terrascale.tech/login"
+  },
+  "secrets": {
+    "TS_AUTH_MASTER_KEY": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-master-key"},
+    "TS_AUTH_AUDIT_SIGNING_KEY": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-audit-signing-key"},
+    "TS_AUTH_OPERATOR_KEY": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-operator-key"},
+    "TS_AUTH_DASHBOARD_CLIENT_SECRET": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-dashboard-client-secret"},
+    "TS_AUTH_TERRASCALE_API_KEY": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-terrascale-api-key"},
+    "TS_AUTH_TERRASCALE_PROJECT_ID": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-terrascale-project-id"}
   }
 }

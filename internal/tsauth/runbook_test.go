@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestTSAuthRunbookPreparesEnvBeforeRestartAndStopsOnFailure(t *testing.T) {
+func TestTSAuthRunbookInstallsFirewallBeforeRestartAndStopsOnFailure(t *testing.T) {
 	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "ts-auth-deployment.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -63,9 +63,10 @@ func TestTSAuthRunbookPreparesEnvBeforeRestartAndStopsOnFailure(t *testing.T) {
 					t.Fatal("restarted the required metadata unit independently")
 				}
 			}
-			env, restart := strings.Index(log, "ts-auth env-file"), strings.Index(log, "systemctl restart terrascale-orchestrator-host.service")
-			if env < 0 || restart <= env || !strings.Contains(log, "gru-1-ctl-3") {
-				t.Fatalf("env file was not ready before restart, or skipped a controller:\n%s", log)
+			// Hosts read the secrets themselves: no env file is written.
+			firewall, restart := strings.Index(log, "systemctl enable terrascale-ts-auth-metadata.service"), strings.Index(log, "systemctl restart terrascale-orchestrator-host.service")
+			if firewall < 0 || restart <= firewall || strings.Contains(log, "env-file") || !strings.Contains(log, "gru-1-ctl-3") {
+				t.Fatalf("firewall was not ready before restart, an env file was written, or a controller was skipped:\n%s", log)
 			}
 		})
 	}

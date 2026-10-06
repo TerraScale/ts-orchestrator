@@ -210,7 +210,7 @@ func PlanStep(in StepInput) (Step, error) {
 		step.Writes = append(step.Writes, host.Desired{
 			Cell: in.Cell, Node: node, Environment: in.Spec.Environment, Role: in.Spec.Role,
 			Digest: template.Digest, Generation: generation, AuthorityEpoch: in.Epoch,
-			Args: slices.Clone(template.Args), Env: maps.Clone(template.Env),
+			Args: slices.Clone(template.Args), Env: maps.Clone(template.Env), Secrets: maps.Clone(template.Secrets),
 		})
 	}
 	for _, node := range withdrawals {

@@ -193,10 +193,6 @@ func TestCellSpecAddsTSAuthToARunningCell(t *testing.T) {
 		}
 		defer hostRuntime.Close()
 		tsAuthRoot := filepath.Join(filepath.Dir(traversableTerraBaseRoot(t)), "ts-auth")
-		if _, err := tsauth.WriteEnvFile(ctx, vault, "vault", tsauth.HostConfig{Cell: "gru-1", Root: tsAuthRoot,
-			UID: identity.UID, GID: identity.GID}); err != nil {
-			t.Fatal(err)
-		}
 		clock := &testBrokerClock{}
 		clock.healthy.Store(true)
 		replicaPorts[node] = freeTCPPort(t)
@@ -205,7 +201,7 @@ func TestCellSpecAddsTSAuthToARunningCell(t *testing.T) {
 			Environment: environment, Roles: []string{tsauth.Role}, Conn: hostRuntime.Conn(), Identity: hostPrivate,
 			NATSUserPublicKey: hostKeys[node][0], ControllerPublicKey: controllerPublic, Runner: replicas[node],
 			InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t), ManagedRuntimeRoot: filepath.Dir(tsAuthRoot),
-			TSAuthRoot: tsAuthRoot, TSAuthPort: replicaPorts[node],
+			TSAuthRoot: tsAuthRoot, TSAuthPort: replicaPorts[node], SecretResolver: vault.resolve,
 			PollInterval: 200 * time.Millisecond, ClockCheck: controllerClockCheck(clock)})
 		if err != nil {
 			t.Fatal(err)

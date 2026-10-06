@@ -54,20 +54,6 @@ func Generate(context.Context) (string, error) {
 	return base64.StdEncoding.EncodeToString(key), nil
 }
 
-// ReadSecrets reads the current version of every secret of cell's ts-auth
-// from the Vault.
-func ReadSecrets(ctx context.Context, client BundleClient, vaultID, cell string) (map[string]string, error) {
-	secrets := make(map[string]string, len(Secrets))
-	for _, key := range Secrets {
-		value, err := readSecret(ctx, client, vaultID, cell, key)
-		if err != nil {
-			return nil, err
-		}
-		secrets[key] = value
-	}
-	return secrets, nil
-}
-
 // readSecret reads and checks the current version of one secret.
 func readSecret(ctx context.Context, client BundleClient, vaultID, cell, key string) (string, error) {
 	return readBack(ctx, client, vaultID, cell, key, false)

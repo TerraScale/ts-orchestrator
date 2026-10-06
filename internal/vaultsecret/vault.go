@@ -10,11 +10,13 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	"uuid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
@@ -181,6 +183,120 @@ func ReadBack(ctx context.Context, client BundleClient, vaultID, name string, cr
 		case <-time.After(2 * time.Second):
 		}
 	}
+}
+
+// Ref names a Vault secret a host reads each time it starts a workload. A
+// profile's secrets map environment keys to refs, so desired state, config
+// digests and reports carry names, never values, and a rotated secret takes
+// effect at the next restart without a new signature.
+type Ref struct {
+	Vault string `json:"vault"`
+	Name  string `json:"name"`
+}
+
+// MaxRefs bounds a workload's secrets, as profiles bound their environment.
+const MaxRefs = 64
+
+// maxResolved bounds a workload's resolved secrets together, below the
+// native exec request limit, so an oversized set fails before the launch.
+const maxResolved = 96 << 10
+
+var (
+	vaultOCIDRE = regexp.MustCompile(`^ocid1\.vault\.oc1\.([a-z0-9-]+)\.[a-z0-9]+(?:\.[a-z0-9]+)*$`)
+	envKeyRE    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	// infrastructure are the cell's own secret families (docs/secrets.md).
+	// A role that is, extends or prefixes one names no secrets, so no
+	// workload reaches the NetBird, origin, trust or Cloudflare secrets its
+	// host may read.
+	infrastructure = []string{"api", "cloudflare", "netbird", "trust", "ts-dashboard"}
+)
+
+// region is the OCI region of the ref's Vault, or "" when the OCID names none.
+func (r Ref) region() string {
+	match := vaultOCIDRE.FindStringSubmatch(r.Vault)
+	if match == nil || len(r.Vault) > 255 || !catalog.IsOCIRegion(match[1]) {
+		return ""
+	}
+	return match[1]
+}
+
+// ValidateRefs checks the secrets of role in cell. Each key is an environment
+// name that env does not also set. Each ref names a regional Vault and a
+// secret <cell>-<n>-<role>-<key>, so a profile reaches only its own role's
+// secrets even where its host may read more: controllers read their whole
+// compartment.
+// ponytail: prefix match, so a role "foo" could name role "foo-bar"'s
+// secrets; infrastructure keeps the cell's own families out.
+func ValidateRefs(cell, role string, refs map[string]Ref, env map[string]string) error {
+	if len(refs) > MaxRefs {
+		return fmt.Errorf("%s has more than %d Vault secrets", role, MaxRefs)
+	}
+	if len(refs) != 0 && slices.ContainsFunc(infrastructure, func(family string) bool {
+		return role == family || strings.HasPrefix(role, family+"-") || strings.HasPrefix(family, role+"-")
+	}) {
+		return fmt.Errorf("role %s shares a name with the cell's infrastructure secrets and names no Vault secrets", role)
+	}
+	for key, ref := range refs {
+		if !envKeyRE.MatchString(key) {
+			return fmt.Errorf("Vault secret key %q of %s is not an environment name", key, role)
+		}
+		if _, set := env[key]; set {
+			return fmt.Errorf("%s sets %s both in env and as a Vault secret", role, key)
+		}
+		rest, inCell := strings.CutPrefix(ref.Name, cell+"-")
+		index, rest, _ := strings.Cut(rest, "-")
+		secretKey, ofRole := strings.CutPrefix(rest, role+"-")
+		if ref.region() == "" || len(ref.Name) > 255 || !nameRE.MatchString(ref.Name) || !inCell || !ofRole ||
+			secretKey == "" || index == "" || index[0] == '0' || strings.Trim(index, "0123456789") != "" {
+			return fmt.Errorf("Vault secret %s of %s must name a regional Vault and a secret %s-<n>-%s-<key>", key, role, cell, role)
+		}
+	}
+	return nil
+}
+
+// Resolve reads the current value of every ref; client opens the secrets API
+// of a Vault's region. Errors name keys and secrets, never values.
+func Resolve(ctx context.Context, refs map[string]Ref, client func(region string) (BundleClient, error)) (map[string]string, error) {
+	// Before client fetches an instance principal.
+	if err := safeEnv(); err != nil {
+		return nil, err
+	}
+	values := make(map[string]string, len(refs))
+	total := 0
+	for key, ref := range refs {
+		region := ref.region()
+		if region == "" {
+			return nil, fmt.Errorf("Vault secret %s names no regional Vault", key)
+		}
+		bundles, err := client(region)
+		if err != nil {
+			return nil, fmt.Errorf("Vault secret %s: %w", key, err)
+		}
+		value, err := Read(ctx, bundles, ref.Vault, ref.Name)
+		if err != nil {
+			return nil, err
+		}
+		// exec refuses a NUL in the environment.
+		if len(value) > maxValue || strings.ContainsRune(value, 0) {
+			return nil, fmt.Errorf("Vault secret %s does not fit an environment variable", ref.Name)
+		}
+		if total += len(key) + len(value); total > maxResolved {
+			return nil, fmt.Errorf("Vault secrets exceed %d bytes together", maxResolved)
+		}
+		values[key] = value
+	}
+	return values, nil
+}
+
+// ReadRefs resolves refs with the instance principal, as a host does.
+func ReadRefs(ctx context.Context, refs map[string]Ref) (map[string]string, error) {
+	return Resolve(ctx, refs, func(region string) (BundleClient, error) {
+		factory, err := ociclient.InstancePrincipal(region)
+		if err != nil {
+			return nil, err
+		}
+		return SecretsClient(factory)
+	})
 }
 
 // safeEnv refuses OCI SDK settings that log request and response bodies or

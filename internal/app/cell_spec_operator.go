@@ -246,6 +246,7 @@ func operatorServiceHostGrant(ctx context.Context, cfg Config, runtime *natscell
 func planSpec(ctx context.Context, cfg Config, runtime *natscell.Runtime, current, next cellspec.Spec, out string,
 	output io.Writer,
 ) error {
+	next.RequiresBinary = next.Level()
 	encoded, err := cellspec.Encode(next)
 	if err != nil {
 		return err

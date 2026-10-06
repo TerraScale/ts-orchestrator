@@ -7,6 +7,7 @@ import (
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
 
@@ -421,11 +423,11 @@ func TestRootSignedSpec(t *testing.T) {
 func TestNewerBinaryAndUnknownSections(t *testing.T) {
 	f := newFixture(t)
 	payload := rawPayload(t, testSpec(f.id, 1))
-	newer := bytes.Replace(payload, []byte(`"requires_binary":1`), []byte(`"requires_binary":2`), 1)
+	newer := bytes.Replace(payload, []byte(`"requires_binary":1`), []byte(fmt.Sprintf(`"requires_binary":%d`, BinaryLevel+1)), 1)
 	newer = bytes.Replace(newer, []byte(`"services":`), []byte(`"edge":{"records":[]},"services":`), 1)
 	unknown := bytes.Replace(payload, []byte(`"services":`), []byte(`"edge":{"records":[]},"services":`), 1)
 	var refused *NewerBinaryError
-	if _, err := Decode(newer); !errors.As(err, &refused) || refused.Generation != 1 || refused.RequiresBinary != 2 {
+	if _, err := Decode(newer); !errors.As(err, &refused) || refused.Generation != 1 || refused.RequiresBinary != BinaryLevel+1 {
 		t.Fatalf("Decode(newer) = %v", err)
 	}
 	if _, err := VerifyHistorical(craft(t, newer, f.id.Scope(), time.Hour, f.leafPrivate, f.delegation), f.roots, f.id); !errors.As(err, &refused) {
@@ -571,5 +573,31 @@ func TestHostGrantsValidateDiffAndWiden(t *testing.T) {
 	revoked.HostGrants = valid.HostGrants[1:]
 	if changes := AuthorityChanges(valid, revoked, nil); len(changes) != 0 {
 		t.Fatalf("revoking a grant widens %q", changes)
+	}
+}
+
+// A spec whose profiles name Vault secrets needs binary level 2, so an older
+// binary refuses it by name instead of failing to read the new field.
+func TestProfileSecretsRequireLevelTwo(t *testing.T) {
+	f := newFixture(t)
+	spec := testSpec(f.id, 1)
+	if spec.Level() != 1 {
+		t.Fatalf("level without secrets = %d", spec.Level())
+	}
+	spec.Services[1].Profile.Secrets = map[string]vaultsecret.Ref{"TOKEN": {Vault: "ocid1.vault.oc1.sa-saopaulo-1.vault", Name: "gru-1-web-token"}}
+	if spec.Level() != 2 {
+		t.Fatalf("level with secrets = %d", spec.Level())
+	}
+	if _, err := Encode(spec); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Encode(secrets at level 1) = %v", err)
+	}
+	spec.RequiresBinary = 2
+	payload, err := Encode(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := Decode(payload)
+	if err != nil || decoded.Services[1].Profile.Secrets["TOKEN"].Name != "gru-1-web-token" {
+		t.Fatalf("Decode = %+v, %v", decoded.Services, err)
 	}
 }

@@ -32,6 +32,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
 
@@ -41,7 +42,8 @@ const (
 	// BinaryLevel is the highest requires_binary this binary understands.
 	// A change that adds a section raises it, and amendments that use the
 	// section require the new level.
-	BinaryLevel = 1
+	// Level 2 adds profile secrets.
+	BinaryLevel = 2
 	// MaxDelegationLifetime bounds the root's grant to the release leaf; the
 	// root re-issues it offline.
 	MaxDelegationLifetime = 31 * 24 * time.Hour
@@ -76,10 +78,13 @@ func (e *NewerBinaryError) Error() string {
 
 // Profile is a role's signed delivery profile: the resources placement
 // reserves and the arguments and environment every replica starts with.
+// Secrets are environment settings the host reads from OCI Vault at each
+// start; the profile holds only their names.
 type Profile struct {
-	Resources placement.Resources `json:"resources"`
-	Args      []string            `json:"args,omitempty"`
-	Env       map[string]string   `json:"env,omitempty"`
+	Resources placement.Resources        `json:"resources"`
+	Args      []string                   `json:"args,omitempty"`
+	Env       map[string]string          `json:"env,omitempty"`
+	Secrets   map[string]vaultsecret.Ref `json:"secrets,omitempty"`
 }
 
 // Service is one generic workload. Spec is set when the controller's
@@ -166,8 +171,8 @@ func (s Spec) Validate() error {
 	if err := s.Identity.Validate(); err != nil {
 		return err
 	}
-	if s.RequiresBinary < 1 || s.RequiresBinary > BinaryLevel {
-		return fmt.Errorf("%w: requires_binary must be between 1 and %d", ErrInvalid, BinaryLevel)
+	if s.RequiresBinary < s.Level() || s.RequiresBinary > BinaryLevel {
+		return fmt.Errorf("%w: requires_binary must be between %d and %d", ErrInvalid, s.Level(), BinaryLevel)
 	}
 	for index, service := range s.Services {
 		if !tokenRE.MatchString(service.Role) {
@@ -215,6 +220,17 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 		return HostGrant{}, false
 	}
 	return s.HostGrants[index], true
+}
+
+// Level is the lowest requires_binary the spec's sections need: 2 once a
+// profile names Vault secrets, which an older binary could not read.
+func (s Spec) Level() uint64 {
+	for _, service := range s.Services {
+		if len(service.Profile.Secrets) != 0 {
+			return 2
+		}
+	}
+	return 1
 }
 
 // Find returns the service of role.

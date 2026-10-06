@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"maps"
 	"strconv"
 	"strings"
 	"testing"
@@ -233,47 +232,6 @@ func TestGenerate(t *testing.T) {
 	}
 	if decoded, err := base64.StdEncoding.DecodeString(first); err != nil || len(decoded) != 32 || first == second {
 		t.Fatalf("generated %d bytes, distinct %v: %v", len(decoded), first != second, err)
-	}
-}
-
-func TestReadSecrets(t *testing.T) {
-	secrets := testSecrets()
-	vault := newVault(t).withSecrets("gru-1", secrets)
-	// The SDK may hand back either form of the content.
-	name := SecretName("gru-1", EnvOperatorKey)
-	value := vault.bundles[name].(ocisecrets.Base64SecretBundleContentDetails)
-	vault.bundles[name] = &value
-	read, err := ReadSecrets(t.Context(), vault, testTarget.VaultID, "gru-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !maps.Equal(read, secrets) || len(vault.reads) != len(Secrets) {
-		t.Fatalf("read %d secrets in %d requests", len(read), len(vault.reads))
-	}
-	for _, request := range vault.reads {
-		if *request.VaultId != testTarget.VaultID || request.Stage != ocisecrets.GetSecretBundleByNameStageCurrent {
-			t.Fatalf("request %+v", request)
-		}
-	}
-
-	missing := newVault(t).withSecrets("gru-1", secrets)
-	delete(missing.bundles, SecretName("gru-1", EnvProjectID))
-	if _, err := ReadSecrets(t.Context(), missing, testTarget.VaultID, "gru-1"); err == nil ||
-		!strings.Contains(err.Error(), "gru-1-ts-auth-terrascale-project-id") {
-		t.Fatalf("missing secret: %v", err)
-	}
-	for name, content := range map[string]ocisecrets.SecretBundleContentDetails{
-		"not base64":    ocisecrets.Base64SecretBundleContentDetails{Content: new("%%" + sentinel)},
-		"invalid value": ocisecrets.Base64SecretBundleContentDetails{Content: new(base64.StdEncoding.EncodeToString([]byte("tb_ " + sentinel)))},
-		"no content":    ocisecrets.Base64SecretBundleContentDetails{},
-		"nil pointer":   (*ocisecrets.Base64SecretBundleContentDetails)(nil),
-	} {
-		vault := newVault(t).withSecrets("gru-1", secrets)
-		vault.bundles[SecretName("gru-1", EnvAPIKey)] = content
-		_, err := ReadSecrets(t.Context(), vault, testTarget.VaultID, "gru-1")
-		if err == nil || strings.Contains(err.Error(), sentinel) {
-			t.Errorf("%s: %v", name, err)
-		}
 	}
 }
 

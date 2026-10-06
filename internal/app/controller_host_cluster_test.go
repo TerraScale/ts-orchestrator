@@ -896,7 +896,7 @@ func deployR3Workload(t *testing.T, ctx context.Context, root, config string, ru
 		OperationID: fmt.Sprintf("r3-workload-%d", generation), Source: source,
 		ArtifactDigest: record.Digest, ManifestDigest: record.ManifestDigest,
 		Cell: "lab", Role: "terrabase", Environment: "test", Generation: generation,
-		DesiredReplicas: 1, ConfigDigest: delivery.ConfigDigestOf(nil, nil)}
+		DesiredReplicas: 1, ConfigDigest: delivery.ConfigDigestOf(nil, nil, nil)}
 	intentPath := testJSONFile(t, root, fmt.Sprintf("intent-%d.json", generation), intent)
 	data, err = callR3Operator(ctx, config, "deploy", "--intent", intentPath)
 	if err != nil {

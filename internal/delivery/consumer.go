@@ -18,18 +18,20 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// ConfigDigestOf binds executable arguments and environment to an intent.
-// Callers should resolve secrets on the host; durable desired state is readable
-// by the regional control-plane identity.
 // PlannerRefusedHold starts the error of a receipt held because placement
 // never planned the intent: no host desired was written.
 const PlannerRefusedHold = "placement planner refused the intent"
 
-func ConfigDigestOf(args []string, env map[string]string) string {
+// ConfigDigestOf binds executable arguments, environment and Vault secret
+// names to an intent. Hosts resolve the secrets, so the digest covers names,
+// not values: rotating a secret needs a restart, not a new intent. Without
+// secrets the digest is the one of arguments and environment alone.
+func ConfigDigestOf(args []string, env map[string]string, secrets map[string]vaultsecret.Ref) string {
 	if args == nil {
 		args = []string{}
 	}
@@ -37,9 +39,10 @@ func ConfigDigestOf(args []string, env map[string]string) string {
 		env = map[string]string{}
 	}
 	b, _ := json.Marshal(struct {
-		Args []string          `json:"args"`
-		Env  map[string]string `json:"env"`
-	}{args, env})
+		Args    []string                   `json:"args"`
+		Env     map[string]string          `json:"env"`
+		Secrets map[string]vaultsecret.Ref `json:"secrets,omitempty"`
+	}{args, env, secrets})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
@@ -604,12 +607,12 @@ func validatePlan(intent Intent, shape PlanShape, plan []host.Desired) error {
 		}
 		seen[d.Node] = struct{}{}
 		if d.Withdrawn {
-			if d.Digest != "" || len(d.Args) != 0 || len(d.Env) != 0 {
+			if d.Digest != "" || len(d.Args) != 0 || len(d.Env) != 0 || len(d.Secrets) != 0 {
 				return ErrInvalid
 			}
 			continue
 		}
-		if d.Digest != intent.ArtifactDigest || ConfigDigestOf(d.Args, d.Env) != intent.ConfigDigest {
+		if d.Digest != intent.ArtifactDigest || ConfigDigestOf(d.Args, d.Env, d.Secrets) != intent.ConfigDigest {
 			return ErrInvalid
 		}
 		active++

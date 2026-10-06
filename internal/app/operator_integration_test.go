@@ -213,7 +213,7 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 		t.Fatalf("artifact reply: %v: %s", err, output.String())
 	}
 	intent := delivery.Intent{Source: source, ArtifactDigest: record.Digest, ManifestDigest: record.ManifestDigest,
-		Role: "terrabase", Environment: "test", Generation: 1, DesiredReplicas: 1, ConfigDigest: delivery.ConfigDigestOf(nil, nil)}
+		Role: "terrabase", Environment: "test", Generation: 1, DesiredReplicas: 1, ConfigDigest: delivery.ConfigDigestOf(nil, nil, nil)}
 	intentPath := testJSONFile(t, root, "intent.json", intent)
 	output.Reset()
 	if err := Run(ctx, []string{"operator", "deploy", "--config", operatorConfigPath, "--intent", intentPath}, &output); err != nil {
