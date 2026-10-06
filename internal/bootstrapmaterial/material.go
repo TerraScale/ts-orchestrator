@@ -43,7 +43,7 @@ import (
 )
 
 const (
-	MaxValidity  = 30 * 24 * time.Hour
+	MaxValidity  = 365 * 24 * time.Hour
 	minValidity  = 24 * time.Hour
 	metadataName = "material.json"
 	readyName    = "READY"

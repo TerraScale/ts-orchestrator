@@ -130,9 +130,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	policy.services = services
+	// The release channel bridge needs the OCI region (sa-saopaulo-1), not
+	// the fleet's region code (GRU).
 	region := ""
 	if managed != nil {
-		region = string(managed.region.Region)
+		if region, err = managed.region.Region.OCIRegion(); err != nil {
+			return err
+		}
 	}
 	if policy.rollouts, err = newRolloutControl(cfg, services, region); err != nil {
 		return err

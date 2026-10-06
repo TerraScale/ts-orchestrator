@@ -36,6 +36,18 @@ func testConfig() Config {
 		ValidityHours: 48}
 }
 
+func TestMaterialValidityAllowsOneYear(t *testing.T) {
+	cfg := testConfig()
+	cfg.ValidityHours = 365 * 24
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("one-year material rejected: %v", err)
+	}
+	cfg.ValidityHours++
+	if cfg.Validate() == nil {
+		t.Fatal("material longer than one year accepted")
+	}
+}
+
 func TestMaterialConfigUsesMappedCellRegion(t *testing.T) {
 	for _, test := range []struct{ cell, region string }{
 		{"gru", "sa-saopaulo-1"}, {"sfo", "us-sanjose-1"}, {"fra", "eu-frankfurt-1"},
