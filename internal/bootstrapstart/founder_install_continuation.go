@@ -40,7 +40,7 @@ func NewOCIFounderInstallContinuation(baked BakedInputs, accepted AcceptedInstal
 			if err != nil {
 				return CredentialBound{}, err
 			}
-			return credentials.CurrentCredentialBound(marker.MaterialSHA256, manifest)
+			return credentials.CurrentCredentialBound(marker.MaterialSHA256, manifest, baked.Roots, marker.PrimaryPrivateIP)
 		}, now: time.Now}, nil
 }
 
@@ -105,6 +105,7 @@ func (checker *FounderInstallContinuation) VerifyCurrentContinuation(ctx context
 		AcceptedAt: marker.AcceptedAt, BinarySHA256: marker.BinarySHA256,
 		MaterialSHA256: marker.MaterialSHA256, CredentialSHA256: bound.SHA256,
 		CredentialValidUntil: bound.ValidUntil, SelectorGeneration: selected.selection.Generation,
+		MaterialGenerationSHA256: bound.Generation,
 	}
 	envelope, err := trust.DecodeEnvelope(selected.proofWire)
 	if err != nil {

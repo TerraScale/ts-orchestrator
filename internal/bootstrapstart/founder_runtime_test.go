@@ -588,11 +588,11 @@ type founderAdmissionLedger struct {
 
 type founderAdmissionCredentials struct{ calls int }
 
-func (checker *founderAdmissionCredentials) VerifyLiveCredentials(_ context.Context, expected map[string]string,
+func (checker *founderAdmissionCredentials) VerifyLiveCredentials(_ context.Context, expected MaterialPins,
 	_ bootstrap.Manifest,
 ) error {
 	checker.calls++
-	if len(expected) == 0 {
+	if len(expected.Digests) == 0 {
 		return ErrLiveCredentials
 	}
 	return nil

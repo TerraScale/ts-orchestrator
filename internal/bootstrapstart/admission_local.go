@@ -102,10 +102,14 @@ func (gate Gate) AdmitRestartLocal(ctx context.Context, installedManifest []byte
 		payload.ManagedMaterial != nil && *payload.ManagedMaterial != *marker.ManagedMaterial {
 		return AcceptedInstall{}, fmt.Errorf("%w: accepted managed material domain differs", ErrAdmission)
 	}
-	if err := gate.Material.VerifyRestart(ctx, manifest, materials); err != nil {
+	pins, err := gate.Material.RestartPins(manifest, gate.Roots, marker.PrimaryPrivateIP)
+	if err != nil {
+		return AcceptedInstall{}, fmt.Errorf("read installed controller material generation: %w", err)
+	}
+	if err := gate.Material.VerifyRestart(ctx, manifest, pins); err != nil {
 		return AcceptedInstall{}, fmt.Errorf("verify installed controller materials: %w", err)
 	}
-	if err := gate.Credentials.VerifyLiveCredentials(ctx, materials, payload); err != nil {
+	if err := gate.Credentials.VerifyLiveCredentials(ctx, pins, payload); err != nil {
 		return AcceptedInstall{}, fmt.Errorf("verify live controller credentials: %w", err)
 	}
 	if err := ctx.Err(); err != nil {

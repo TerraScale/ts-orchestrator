@@ -56,6 +56,12 @@ type InstallContinuity struct {
 	CredentialSHA256     string            `json:"credentialSha256"`
 	CredentialValidUntil time.Time         `json:"credentialValidUntil"`
 	SelectorGeneration   uint64            `json:"selectorGeneration"`
+	// MaterialGenerationSHA256 is the fingerprint of the install's newest
+	// adopted material generation (TS-568), if any. With it,
+	// CredentialSHA256 is InstallContinuityGenerationDigest of it and
+	// CredentialValidUntil is that generation's expiry; without it, they
+	// derive from the manifest-pinned credential files.
+	MaterialGenerationSHA256 string `json:"materialGenerationSha256,omitempty"`
 }
 
 // InstallContinuityCredentialDigest fingerprints the exact installed
@@ -75,6 +81,19 @@ func InstallContinuityCredentialDigest(materialSHA256 map[string]string) (string
 		return "", fmt.Errorf("%w: encode credential inventory: %v", ErrInstallContinuityInvalid, err)
 	}
 	digest := sha256.Sum256(wire)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+// InstallContinuityGenerationDigest is CredentialSHA256 for an install that
+// adopted a material generation (TS-568). It binds the newest generation's
+// fingerprint instead of file digests, so the slot renewing its issued leaf
+// and credentials under that generation needs no new proof; the proof's
+// CredentialValidUntil is then the generation's expiry.
+func InstallContinuityGenerationDigest(fingerprint string) (string, error) {
+	if !sha256RE.MatchString(fingerprint) {
+		return "", fmt.Errorf("%w: invalid material generation fingerprint", ErrInstallContinuityInvalid)
+	}
+	digest := sha256.Sum256([]byte("terrascale.install-continuity.material-generation\x00" + fingerprint))
 	return hex.EncodeToString(digest[:]), nil
 }
 
@@ -264,7 +283,13 @@ func validateInstallContinuityEnvelopeSize(envelope trust.Envelope) error {
 
 func validateInstallContinuity(proof InstallContinuity) error {
 	region, err := proof.Cell.OCIRegion()
+	// MaterialSHA256 is the accepted marker's inventory, part of every
+	// proof's install identity; a generation replaces only the credential
+	// binding derived from it.
 	credentialDigest, credentialErr := InstallContinuityCredentialDigest(proof.MaterialSHA256)
+	if proof.MaterialGenerationSHA256 != "" && credentialErr == nil {
+		credentialDigest, credentialErr = InstallContinuityGenerationDigest(proof.MaterialGenerationSHA256)
+	}
 	if err != nil || proof.SchemaVersion != InstallContinuitySchemaVersion ||
 		!deploymentRE.MatchString(proof.DeploymentID) || !clusterRE.MatchString(proof.ClusterID) ||
 		(proof.Environment != "production" && proof.Environment != "canary") || region == "" || proof.OCIRegion != region ||

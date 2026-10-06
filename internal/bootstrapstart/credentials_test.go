@@ -45,10 +45,10 @@ func credentialPathFixture(t *testing.T) (LiveCredentials, map[string]string) {
 
 func TestCredentialCheckerBindsPathsAndExactInventory(t *testing.T) {
 	check, expected := credentialPathFixture(t)
-	if err := check.verifyPaths(expected, peerCredentialManifest); err != nil {
+	if err := check.verifyPaths(ManifestPins(expected), peerCredentialManifest); err != nil {
 		t.Fatal(err)
 	}
-	if err := check.verifyInventory(expected); err != nil {
+	if err := check.verifyInventory(ManifestPins(expected)); err != nil {
 		t.Fatal(err)
 	}
 	wrongPath := check
@@ -57,16 +57,16 @@ func TestCredentialCheckerBindsPathsAndExactInventory(t *testing.T) {
 	wrongConfig.Embedded = &wrongEmbedded
 	wrongEmbedded.SystemJWTFile = filepath.Join(t.TempDir(), "system.jwt")
 	wrongPath.Config = wrongConfig
-	if err := wrongPath.verifyPaths(expected, peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
+	if err := wrongPath.verifyPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("unbound path = %v, want refusal", err)
 	}
 	delete(expected, "system.jwt")
-	if err := check.verifyPaths(expected, peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
+	if err := check.verifyPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("missing signed credential = %v, want refusal", err)
 	}
 	expected["system.jwt"] = digest([]byte("signed fixture system.jwt"))
 	expected["unreferenced.key"] = digest([]byte("unreferenced"))
-	if err := check.verifyPaths(expected, peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
+	if err := check.verifyPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("unassigned signed material = %v, want refusal", err)
 	}
 }
@@ -77,16 +77,16 @@ func TestCredentialCheckerBindsTerraBaseMemberCA(t *testing.T) {
 	check, expected := credentialPathFixture(t)
 	expected["terrabase-member-ca.pem"] = digest([]byte("ca"))
 	expected["terrabase-member-ca.key"] = digest([]byte("key"))
-	if err := check.verifyPaths(expected, peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
+	if err := check.verifyPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("signed member CA without a role = %v, want refusal", err)
 	}
 	check.TerraBaseCACertFile = filepath.Join(check.directory, "terrabase-member-ca.pem")
 	check.TerraBaseCAKeyFile = filepath.Join(check.directory, "terrabase-member-ca.key")
-	if err := check.verifyPaths(expected, peerCredentialManifest); err != nil {
+	if err := check.verifyPaths(ManifestPins(expected), peerCredentialManifest); err != nil {
 		t.Fatal(err)
 	}
 	check.TerraBaseCAKeyFile = filepath.Join(t.TempDir(), "terrabase-member-ca.key")
-	if err := check.verifyPaths(expected, peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
+	if err := check.verifyPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("member CA key outside material = %v, want refusal", err)
 	}
 }
@@ -97,7 +97,7 @@ func TestCredentialCheckerRejectsExtraAndChangedInstalledFiles(t *testing.T) {
 	if err := os.WriteFile(path, []byte("changed credential"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := check.verifyInventory(expected); !errors.Is(err, ErrLiveCredentials) {
+	if err := check.verifyInventory(ManifestPins(expected)); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("changed digest = %v, want refusal", err)
 	}
 	if err := os.WriteFile(path, []byte("signed fixture controller.creds"), 0o600); err != nil {
@@ -106,7 +106,7 @@ func TestCredentialCheckerRejectsExtraAndChangedInstalledFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(check.directory, "extra.key"), []byte("unpinned"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := check.verifyInventory(expected); !errors.Is(err, ErrLiveCredentials) {
+	if err := check.verifyInventory(ManifestPins(expected)); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("extra credential file = %v, want refusal", err)
 	}
 }
@@ -127,10 +127,10 @@ func TestSeedSignerCredentialPathsFollowSelectedSignedManifest(t *testing.T) {
 		}
 		expected[name] = fixture.accepted.MaterialSHA256[name]
 	}
-	if err := check.verifyPaths(expected, manifest); err != nil {
+	if err := check.verifyPaths(ManifestPins(expected), manifest); err != nil {
 		t.Fatalf("selected seed signer paths: %v", err)
 	}
-	if err := check.verifyInventory(expected); err != nil {
+	if err := check.verifyInventory(ManifestPins(expected)); err != nil {
 		t.Fatalf("selected seed signer inventory: %v", err)
 	}
 	store := fixture.store
@@ -143,7 +143,7 @@ func TestSeedSignerCredentialPathsFollowSelectedSignedManifest(t *testing.T) {
 
 	assertRejected := func(label string, changed bootstrap.Manifest) {
 		t.Helper()
-		if err := check.verifyPaths(expected, changed); !errors.Is(err, ErrLiveCredentials) {
+		if err := check.verifyPaths(ManifestPins(expected), changed); !errors.Is(err, ErrLiveCredentials) {
 			t.Fatalf("%s: got %v, want signer path refusal", label, err)
 		}
 	}
@@ -164,14 +164,14 @@ func TestSeedSignerCredentialPathsFollowSelectedSignedManifest(t *testing.T) {
 	assertRejected("missing signer purpose", wrongPurpose)
 
 	expected["unassigned.key"] = digest([]byte("signed but unassigned"))
-	if err := check.verifyPaths(expected, manifest); !errors.Is(err, ErrLiveCredentials) {
+	if err := check.verifyPaths(ManifestPins(expected), manifest); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("unassigned material: got %v, want refusal", err)
 	}
 	delete(expected, "unassigned.key")
 	if err := os.WriteFile(filepath.Join(check.directory, "unassigned.key"), []byte("extra"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := check.verifyInventory(expected); !errors.Is(err, ErrLiveCredentials) {
+	if err := check.verifyInventory(ManifestPins(expected)); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("extra installed material: got %v, want refusal", err)
 	}
 }

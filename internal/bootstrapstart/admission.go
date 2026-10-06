@@ -78,7 +78,10 @@ type BinaryChecker interface {
 
 type MaterialChecker interface {
 	PrepareInitial(context.Context, bootstrap.VerifiedManifest, bootstrap.VerifiedReceipt, map[string]string, CurrentProofVerifier) error
-	VerifyRestart(context.Context, bootstrap.HistoricalManifest, map[string]string) error
+	// RestartPins reads the install's adopted material generation, if any,
+	// and returns what its credential directory must hold (TS-568).
+	RestartPins(bootstrap.HistoricalManifest, trust.Keyring, string) (MaterialPins, error)
+	VerifyRestart(context.Context, bootstrap.HistoricalManifest, MaterialPins) error
 }
 
 // CurrentProofVerifier rechecks the root anchor, its ledger grant, manifest,
@@ -86,7 +89,7 @@ type MaterialChecker interface {
 type CurrentProofVerifier func(time.Time) error
 
 type LiveCredentialChecker interface {
-	VerifyLiveCredentials(context.Context, map[string]string, bootstrap.Manifest) error
+	VerifyLiveCredentials(context.Context, MaterialPins, bootstrap.Manifest) error
 }
 
 // CurrentContinuationChecker verifies an independently current renewal chain
@@ -507,7 +510,7 @@ func (gate Gate) AdmitInitial(ctx context.Context) (AcceptedInstall, error) {
 	if err := gate.Material.PrepareInitial(ctx, manifest, receipt, materials, verifyCurrent); err != nil {
 		return AcceptedInstall{}, fmt.Errorf("prepare current controller materials: %w", err)
 	}
-	if err := gate.Credentials.VerifyLiveCredentials(ctx, materials, manifest.Manifest()); err != nil {
+	if err := gate.Credentials.VerifyLiveCredentials(ctx, ManifestPins(materials), manifest.Manifest()); err != nil {
 		return AcceptedInstall{}, fmt.Errorf("verify live controller credentials: %w", err)
 	}
 	receiptRecord := state.SeedReceiptRecord
@@ -723,10 +726,14 @@ func (gate Gate) AdmitRestart(ctx context.Context) (AcceptedInstall, error) {
 		payload.ManagedMaterial != nil && *payload.ManagedMaterial != *marker.ManagedMaterial {
 		return AcceptedInstall{}, fmt.Errorf("%w: accepted managed material domain differs", ErrAdmission)
 	}
-	if err := gate.Material.VerifyRestart(ctx, manifest, materials); err != nil {
+	pins, err := gate.Material.RestartPins(manifest, gate.Roots, marker.PrimaryPrivateIP)
+	if err != nil {
+		return AcceptedInstall{}, fmt.Errorf("read installed controller material generation: %w", err)
+	}
+	if err := gate.Material.VerifyRestart(ctx, manifest, pins); err != nil {
 		return AcceptedInstall{}, fmt.Errorf("verify installed controller materials: %w", err)
 	}
-	if err := gate.Credentials.VerifyLiveCredentials(ctx, materials, payload); err != nil {
+	if err := gate.Credentials.VerifyLiveCredentials(ctx, pins, payload); err != nil {
 		return AcceptedInstall{}, fmt.Errorf("verify live controller credentials: %w", err)
 	}
 	peerContinuation := !seed && state.Intent.Mode == bootstrap.IntentModeManaged

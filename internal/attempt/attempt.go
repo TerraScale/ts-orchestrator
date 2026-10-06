@@ -1036,8 +1036,14 @@ func (a *Attempt) PhaseContinuity() {
 		candidate, proof := filepath.Join(work, slot+".candidate.json"), filepath.Join(work, slot+".signed.json")
 		if !exists(proof) {
 			a.remove(candidate)
-			a.RunBootstrap("render-founder-continuity", "--marker", filepath.Join(continuity, slot+".marker.json"), "--anchor", anchor, "--material-directory", a.Path("material"), "--selector-generation", strconv.Itoa(generation), "--out", candidate)
-			a.RunBootstrap("sign-founder-continuity", "--candidate", candidate, "--marker", filepath.Join(continuity, slot+".marker.json"), "--anchor", anchor, "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--out", proof, "--valid-for", a.validFor())
+			// An install that adopted material generations is bound to the
+			// chain the attempt holds, not to its bootstrap material.
+			material, signing := []string{"--material-directory", a.Path("material")}, []string(nil)
+			if chain := a.Path("material-generations.json"); exists(chain) {
+				material, signing = []string{"--material-generations", chain}, []string{"--material-generations", chain}
+			}
+			a.RunBootstrap(append(append([]string{"render-founder-continuity", "--marker", filepath.Join(continuity, slot+".marker.json"), "--anchor", anchor}, material...), "--selector-generation", strconv.Itoa(generation), "--out", candidate)...)
+			a.RunBootstrap(append([]string{"sign-founder-continuity", "--candidate", candidate, "--marker", filepath.Join(continuity, slot+".marker.json"), "--anchor", anchor, "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--out", proof, "--valid-for", a.validFor()}, signing...)...)
 		}
 		proofs = append(proofs, "--proof", proof)
 	}

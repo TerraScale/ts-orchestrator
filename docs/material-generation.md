@@ -97,3 +97,74 @@ hold, and never more than 400 days after signing. The command writes the
 whole chain with the new generation appended to a new file. It never
 overwrites an existing file. It prints the generation number and
 fingerprint.
+
+## Restart admission with a generation
+
+A controller holds its adopted chain as `material-generations.json` in its
+credential directory (`/var/lib/terrascale-orchestrator-secrets`), beside the
+files the chain pins. On every restart, admission reads that file before
+anything else in the directory.
+
+**Without the file**, admission pins the manifest's digests, exactly as
+before any generation.
+
+**With the file**, admission does the following:
+
+1. **Verify the chain.** It checks the hash links and the newest root
+   signature against the baked roots and the adopted root chain. It does not
+   check the current time, because the chain was current when it was
+   adopted.
+2. **Pin the newest generation.** Its digests replace the manifest's for the
+   renewable files, and it adds the controller issuers and the chain file
+   itself.
+3. **Check issued files by rule.** The slot's TLS leaf, its key and its NATS
+   credentials are checked against the generation's issuance rules instead
+   of a digest:
+   - **Leaf:** it is followed by the generation's controller issuer and
+     chains to the bundle. It has the slot's subject, slot name and private
+     IP, and a lifetime within `issuedLifetimeHours`.
+   - **Credentials:** the account signer issued them for the cell account,
+     within the same lifetime.
+   - **Before the first renewal:** an issued file that is still
+     byte-identical to its manifest pin is accepted.
+4. **Check the directory.** It must hold exactly these files, owned by the
+   service user with mode 0600.
+
+## Install continuity with a generation
+
+After the manifest's current proofs lapse, a restart needs an owner-signed
+install continuity proof. For an install that adopted a generation, the
+proof binds the generation instead of the credential files:
+
+- `materialGenerationSha256` is the newest generation's fingerprint.
+- `credentialSha256` is `InstallContinuityGenerationDigest` of that
+  fingerprint.
+- `credentialValidUntil` is that generation's expiry.
+
+So one proof lasts across every leaf and credential renewal under the
+generation. Render and sign it from the install's chain:
+
+```sh
+ts-orch bootstrap render-founder-continuity --marker accepted-install.json \
+  --anchor anchor.json --material-generations gru-generations.json \
+  --selector-generation 3 --out continuity.json
+ts-orch bootstrap sign-founder-continuity --candidate continuity.json \
+  --marker accepted-install.json --anchor anchor.json \
+  --material-generations gru-generations.json \
+  --root-key root.pub --signing-key root.key --out continuity.signed.json
+```
+
+Signing checks three things before it signs:
+- the chain is the anchor's deployment;
+- the chain is current under the root key;
+- the candidate binds the chain's newest generation and does not outlive it.
+
+The controller makes the same binding from its adopted chain, after checking
+its credential directory against the generation.
+
+The `oci-region attempt` continuity phase does this by itself when the
+attempt directory holds `material-generations.json`. Otherwise it renders
+from the attempt's bootstrap material, as before.
+
+Restart admission refuses an adopted generation past its signed expiry, even
+when its certificates and JWTs are still valid.

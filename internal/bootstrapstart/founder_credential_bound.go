@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 	"golang.org/x/sys/unix"
@@ -16,18 +17,28 @@ import (
 
 // CredentialBound is derived from the exact installed, manifest-pinned file
 // inventory. The cutoff is the first JWT or TLS leaf expiry in that inventory.
+// An install that adopted a material generation is bound to the newest
+// generation instead, until it expires (TS-568).
 type CredentialBound struct {
 	SHA256     string
 	ValidUntil time.Time
+	// Generation is the fingerprint of the newest adopted generation.
+	Generation string
 }
 
 func (check LiveCredentials) CurrentCredentialBound(expected map[string]string,
-	manifest bootstrap.Manifest,
+	manifest bootstrap.Manifest, roots trust.Keyring, privateIP string,
 ) (CredentialBound, error) {
-	if len(expected) == 0 || check.Config.Embedded == nil || check.verifyPaths(expected, manifest) != nil {
+	if len(expected) == 0 || check.Config.Embedded == nil {
 		return CredentialBound{}, ErrLiveCredentials
 	}
-	if err := check.verifyInventory(expected); err != nil {
+	if bound, adopted, err := check.generationBound(manifest, roots, privateIP); adopted || err != nil {
+		return bound, err
+	}
+	if check.verifyPaths(ManifestPins(expected), manifest) != nil {
+		return CredentialBound{}, ErrLiveCredentials
+	}
+	if err := check.verifyInventory(ManifestPins(expected)); err != nil {
 		return CredentialBound{}, err
 	}
 	inventorySHA256, err := bootstrap.InstallContinuityCredentialDigest(expected)
@@ -56,6 +67,43 @@ func (check LiveCredentials) CurrentCredentialBound(expected map[string]string,
 		return CredentialBound{}, err
 	}
 	return CredentialBound{SHA256: inventorySHA256, ValidUntil: cutoff}, nil
+}
+
+// generationBound checks the install against its adopted material generation
+// and binds the newest one; adopted is false without an adopted chain.
+func (check LiveCredentials) generationBound(manifest bootstrap.Manifest, roots trust.Keyring, privateIP string,
+) (CredentialBound, bool, error) {
+	dir, err := openMaterialDirectory(check.directory, check.ServiceUID, check.ServiceGID, 0o700, check.allowUnsafeAncestors)
+	if err != nil {
+		return CredentialBound{}, false, err
+	}
+	defer unix.Close(dir)
+	pins, err := restartPins(dir, check.ServiceUID, check.ServiceGID, manifest, roots, privateIP)
+	if err != nil {
+		return CredentialBound{}, true, fmt.Errorf("%w: %w", ErrLiveCredentials, err)
+	}
+	if pins.Generation == nil {
+		return CredentialBound{}, false, nil
+	}
+	if err := check.verifyPaths(pins, manifest); err != nil {
+		return CredentialBound{}, true, err
+	}
+	if err := check.verifyInventory(pins); err != nil {
+		return CredentialBound{}, true, err
+	}
+	now := time.Now()
+	if err := pins.verifyGeneration(dir, check.ServiceUID, check.ServiceGID, now); err != nil {
+		return CredentialBound{}, true, fmt.Errorf("%w: %w", ErrLiveCredentials, err)
+	}
+	if !now.Before(pins.Generation.ExpiresAt()) {
+		return CredentialBound{}, true, fmt.Errorf("%w: the adopted material generation has expired", ErrLiveCredentials)
+	}
+	digest, err := bootstrap.InstallContinuityGenerationDigest(pins.Generation.Fingerprint())
+	if err != nil {
+		return CredentialBound{}, true, err
+	}
+	return CredentialBound{SHA256: digest, ValidUntil: pins.Generation.ExpiresAt(),
+		Generation: pins.Generation.Fingerprint()}, true, nil
 }
 
 // CredentialFiles names one controller's JWT, NATS credential and TLS leaf

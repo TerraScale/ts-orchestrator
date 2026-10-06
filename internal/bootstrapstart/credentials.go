@@ -60,12 +60,12 @@ func NewLiveCredentialChecker(cfg natscell.Config, serviceUID, serviceGID uint32
 		ValidateControllerKeys: validateControllerKeys, directory: MaterialDirectory}, nil
 }
 
-func (check LiveCredentials) VerifyLiveCredentials(ctx context.Context, expected map[string]string,
+func (check LiveCredentials) VerifyLiveCredentials(ctx context.Context, expected MaterialPins,
 	manifest bootstrap.Manifest,
 ) error {
 	if check.ServiceUID == 0 || check.ServiceGID == 0 || check.Config.Lab || check.Config.Embedded == nil ||
 		check.ValidateControllerKeys == nil ||
-		len(expected) == 0 {
+		len(expected.Digests) == 0 {
 		return ErrLiveCredentials
 	}
 	if err := check.verifyPaths(expected, manifest); err != nil {
@@ -102,7 +102,7 @@ func (check LiveCredentials) VerifyLiveCredentials(ctx context.Context, expected
 	return check.verifyInventory(expected)
 }
 
-func (check LiveCredentials) verifyPaths(expected map[string]string, manifest bootstrap.Manifest) error {
+func (check LiveCredentials) verifyPaths(expected MaterialPins, manifest bootstrap.Manifest) error {
 	if manifest.Slot == "" || manifest.SeedSlot == "" {
 		return ErrLiveCredentials
 	}
@@ -143,7 +143,7 @@ func (check LiveCredentials) verifyPaths(expected map[string]string, manifest bo
 	seen := make(map[string]bool, len(paths))
 	for _, path := range paths {
 		name := filepath.Base(path)
-		if path == "" || path != filepath.Join(check.directory, name) || expected[name] == "" {
+		if path == "" || path != filepath.Join(check.directory, name) || !expected.known(name) {
 			return fmt.Errorf("%w: configured credential path is not pinned by signed material", ErrLiveCredentials)
 		}
 		seen[name] = true
@@ -157,8 +157,8 @@ func (check LiveCredentials) verifyPaths(expected map[string]string, manifest bo
 			}
 			name := reference.TargetFile
 			if reference.Slot != manifest.SeedSlot || name == "" ||
-				filepath.Base(name) != name || expected[name] == "" ||
-				expected[name] != reference.SHA256 || seen[name] || purposes[reference.Purpose] {
+				filepath.Base(name) != name || expected.Digests[name] == "" ||
+				expected.Digests[name] != reference.SHA256 || seen[name] || purposes[reference.Purpose] {
 				return fmt.Errorf("%w: seed signer is not pinned to its signed role and slot", ErrLiveCredentials)
 			}
 			seen[name] = true
@@ -168,15 +168,27 @@ func (check LiveCredentials) verifyPaths(expected map[string]string, manifest bo
 			return fmt.Errorf("%w: signed seed signer roles are incomplete", ErrLiveCredentials)
 		}
 	}
-	for name := range expected {
-		if !seen[name] {
+	// A generation's own files have their role in the generation: the chain,
+	// and the controller issuers the renewal loop reads by fixed name.
+	for name := range expected.Digests {
+		if !seen[name] && (expected.Generation == nil || !generationOwnFile(name)) {
 			return fmt.Errorf("%w: signed credential material has no configured role", ErrLiveCredentials)
+		}
+	}
+	for name := range expected.Issued {
+		if !seen[name] {
+			return fmt.Errorf("%w: issued credential material has no configured role", ErrLiveCredentials)
 		}
 	}
 	return nil
 }
 
-func (check LiveCredentials) verifyInventory(expected map[string]string) error {
+func generationOwnFile(name string) bool {
+	return name == MaterialGenerationsFile ||
+		bootstrap.MaterialGenerationFiles()[name] == bootstrap.SecretControllerIssuer
+}
+
+func (check LiveCredentials) verifyInventory(expected MaterialPins) error {
 	dir, err := openMaterialDirectory(check.directory, check.ServiceUID, check.ServiceGID, 0o700, check.allowUnsafeAncestors)
 	if err != nil {
 		return fmt.Errorf("%w: open fixed credential directory: %v", ErrLiveCredentials, err)
@@ -189,15 +201,21 @@ func (check LiveCredentials) verifyInventory(expected map[string]string) error {
 	file := os.NewFile(uintptr(copyFD), check.directory)
 	entries, err := file.ReadDir(-1)
 	_ = file.Close()
-	if err != nil || len(entries) != len(expected) {
+	if err != nil || len(entries) != expected.size() {
 		return fmt.Errorf("%w: installed credential inventory differs", ErrLiveCredentials)
 	}
 	for _, entry := range entries {
-		want := expected[entry.Name()]
-		if want == "" {
+		if !expected.known(entry.Name()) {
 			return fmt.Errorf("%w: unpinned credential file", ErrLiveCredentials)
 		}
-		content, err := readMaterial(dir, entry.Name(), check.ServiceUID, check.ServiceGID, want, bootstrap.MaxSecretBytes)
+		var content []byte
+		var err error
+		if want := expected.Digests[entry.Name()]; want != "" {
+			content, err = readMaterial(dir, entry.Name(), check.ServiceUID, check.ServiceGID, want, bootstrap.MaxSecretBytes)
+		} else {
+			// Issued files were checked by rule in VerifyRestart.
+			content, err = readUnpinned(dir, entry.Name(), check.ServiceUID, check.ServiceGID, bootstrap.MaxSecretBytes)
+		}
 		if err != nil {
 			return fmt.Errorf("%w: installed credential %s: %v", ErrLiveCredentials, entry.Name(), err)
 		}

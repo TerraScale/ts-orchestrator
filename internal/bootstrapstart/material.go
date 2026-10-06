@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"golang.org/x/sys/unix"
 )
 
@@ -114,10 +115,22 @@ func (store MaterialStore) PrepareInitial(ctx context.Context, manifest bootstra
 	return store.verifyInstalled(ctx, installed, expected)
 }
 
+// RestartPins reads the install's adopted material generation, if any, from
+// the credential directory and returns what the directory must hold.
+func (store MaterialStore) RestartPins(manifest bootstrap.HistoricalManifest, roots trust.Keyring, privateIP string,
+) (MaterialPins, error) {
+	installed, err := openMaterialDirectory(store.installedDirectory, store.serviceUID, store.serviceGID, 0o700, store.allowUnsafeAncestors)
+	if err != nil {
+		return MaterialPins{}, fmt.Errorf("open service-owned credential directory: %w", err)
+	}
+	defer unix.Close(installed)
+	return restartPins(installed, store.serviceUID, store.serviceGID, manifest.Manifest(), roots, privateIP)
+}
+
 func (store MaterialStore) VerifyRestart(ctx context.Context, manifest bootstrap.HistoricalManifest,
-	expected map[string]string,
+	pins MaterialPins,
 ) error {
-	if !sameMaterials(expectedMaterials(manifest.Manifest(), manifest.Manifest().Slot), expected) {
+	if pins.Generation == nil && !sameMaterials(expectedMaterials(manifest.Manifest(), manifest.Manifest().Slot), pins.Digests) {
 		return ErrMaterial
 	}
 	installed, err := openMaterialDirectory(store.installedDirectory, store.serviceUID, store.serviceGID, 0o700, store.allowUnsafeAncestors)
@@ -125,7 +138,10 @@ func (store MaterialStore) VerifyRestart(ctx context.Context, manifest bootstrap
 		return fmt.Errorf("open service-owned credential directory: %w", err)
 	}
 	defer unix.Close(installed)
-	return store.verifyInstalled(ctx, installed, expected)
+	if err := store.verifyInstalled(ctx, installed, pins.Digests); err != nil {
+		return err
+	}
+	return pins.verifyGeneration(installed, store.serviceUID, store.serviceGID, time.Now())
 }
 
 func (store MaterialStore) verifyInstalled(ctx context.Context, dir int, expected map[string]string) error {

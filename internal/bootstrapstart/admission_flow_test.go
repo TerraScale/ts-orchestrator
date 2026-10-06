@@ -151,8 +151,13 @@ func (checker *countingMaterialChecker) PrepareInitial(_ context.Context, _ boot
 	return nil
 }
 
+func (checker *countingMaterialChecker) RestartPins(manifest bootstrap.HistoricalManifest, _ trust.Keyring, _ string,
+) (MaterialPins, error) {
+	return ManifestPins(expectedMaterials(manifest.Manifest(), manifest.Manifest().Slot)), nil
+}
+
 func (checker *countingMaterialChecker) VerifyRestart(context.Context, bootstrap.HistoricalManifest,
-	map[string]string,
+	MaterialPins,
 ) error {
 	checker.restartCalls++
 	return nil
@@ -179,14 +184,14 @@ func (materializer *stagedSecretMaterializer) MaterializeCurrent(_ context.Conte
 	return os.WriteFile(filepath.Join(directory, reference.TargetFile), content, 0o600)
 }
 
-func (checker *countingCredentialChecker) VerifyLiveCredentials(_ context.Context, expected map[string]string,
+func (checker *countingCredentialChecker) VerifyLiveCredentials(_ context.Context, expected MaterialPins,
 	_ bootstrap.Manifest,
 ) error {
 	checker.calls++
 	if checker.onVerify != nil {
 		checker.onVerify()
 	}
-	if expected["controller.creds"] == "" {
+	if expected.Digests["controller.creds"] == "" {
 		return ErrLiveCredentials
 	}
 	return checker.err

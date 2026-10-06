@@ -270,3 +270,39 @@ func TestSlotRecordPrefixesScopeToTheDeployment(t *testing.T) {
 		}
 	}
 }
+
+// An attempt whose installs adopted material generations renders their
+// continuity from the chain it holds, not from its bootstrap material.
+func TestContinuityRendersFromAdoptedGenerations(t *testing.T) {
+	for _, adopted := range []bool{false, true} {
+		a := smallAttempt(t)
+		a.Out, a.ErrOut = io.Discard, io.Discard
+		cloud := &policyCloud{objects: map[string][]byte{}}
+		for _, slot := range Slots {
+			cloud.objects[a.markerObject(slot)] = []byte(`{"slot":"` + slot + `"}`)
+		}
+		a.Cloud = cloud
+		a.Sleep = func(context.Context, time.Duration) error { return nil }
+		a.writeJSON(a.Plan(), Object{"foundation_buckets": Object{"head": "head"}})
+		chain := a.Path("material-generations.json")
+		if adopted {
+			a.WriteNew(chain, []byte("[]"))
+		}
+		var render []string
+		a.Runner = func(_ context.Context, c Command) (string, error) {
+			if render == nil {
+				render = c.Args
+			}
+			return "", errors.New("stop after the first render")
+		}
+		a.PhaseContinuity()
+		joined := strings.Join(render, " ")
+		if !strings.Contains(joined, "render-founder-continuity") {
+			t.Fatalf("first command = %q", joined)
+		}
+		if got := strings.Contains(joined, "--material-generations "+chain); got != adopted ||
+			strings.Contains(joined, "--material-directory") == adopted {
+			t.Fatalf("adopted=%v rendered with %q", adopted, joined)
+		}
+	}
+}

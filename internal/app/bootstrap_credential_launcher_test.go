@@ -86,7 +86,7 @@ func TestDefaultLiveCredentialLauncherAndDeadline(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := bootstrap.Manifest{Slot: "controller-a", SeedSlot: "seed-a"}
-	if err := check.VerifyLiveCredentials(t.Context(), expected, manifest); err != nil {
+	if err := check.VerifyLiveCredentials(t.Context(), bootstrapstart.ManifestPins(expected), manifest); err != nil {
 		t.Fatalf("default /proc/self/exe service child rejected valid credentials: %v", err)
 	}
 
@@ -101,7 +101,7 @@ func TestDefaultLiveCredentialLauncherAndDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Second)
 	defer cancel()
 	start := time.Now()
-	err = check.VerifyLiveCredentials(ctx, expected, manifest)
+	err = check.VerifyLiveCredentials(ctx, bootstrapstart.ManifestPins(expected), manifest)
 	elapsed := time.Since(start)
 	if !errors.Is(err, bootstrapstart.ErrLiveCredentials) || elapsed < 14*time.Second || elapsed > 22*time.Second {
 		t.Fatalf("default service child deadline = %v after %s, want 15-second refusal", err, elapsed)

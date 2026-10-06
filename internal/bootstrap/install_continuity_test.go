@@ -246,3 +246,38 @@ func mustContinuityWire(t *testing.T, envelope trust.Envelope) []byte {
 	}
 	return wire
 }
+
+// A proof for an install that adopted a material generation binds the
+// generation's fingerprint, and only through the domain-separated digest.
+func TestInstallContinuityBindsAMaterialGeneration(t *testing.T) {
+	proof, rootPrivateKey, roots, now := installContinuityFixture(t)
+	fingerprint := strings.Repeat("ab", 32)
+	digest, err := InstallContinuityGenerationDigest(fingerprint)
+	if err != nil || digest == fingerprint {
+		t.Fatalf("generation digest %q: %v", digest, err)
+	}
+	if _, err := InstallContinuityGenerationDigest("not a fingerprint"); err == nil {
+		t.Fatal("a malformed fingerprint was accepted")
+	}
+	proof.MaterialGenerationSHA256, proof.CredentialSHA256 = fingerprint, digest
+	envelope, err := SignInstallContinuity(proof, now, now.Add(time.Hour), rootPrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifyInstallContinuityFixture(t, envelope, proof, roots, now)
+	for name, change := range map[string]func(*InstallContinuity){
+		"the manifest credential digest with a generation": func(proof *InstallContinuity) {
+			proof.CredentialSHA256, _ = InstallContinuityCredentialDigest(proof.MaterialSHA256)
+		},
+		"the generation digest without a generation": func(proof *InstallContinuity) { proof.MaterialGenerationSHA256 = "" },
+		"another generation": func(proof *InstallContinuity) {
+			proof.MaterialGenerationSHA256 = strings.Repeat("cd", 32)
+		},
+	} {
+		changed := proof
+		change(&changed)
+		if _, err := SignInstallContinuity(changed, now, now.Add(time.Hour), rootPrivateKey); err == nil {
+			t.Errorf("signed %s", name)
+		}
+	}
+}

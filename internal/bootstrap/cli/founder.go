@@ -25,21 +25,24 @@ import (
 // renderFounderContinuityAt derives the canonical continuity candidate for one
 // installed controller from its accepted marker, the genesis anchor and the
 // generated material the marker pins. The credential cutoff uses the same
-// computation the controller performs on its installed files.
+// computation the controller performs on its installed files. For an install
+// that adopted a material generation, --material-generations replaces the
+// material: the candidate binds the newest generation until it expires.
 func (c command) renderFounderContinuityAt(args []string) error {
 	flags := flag.NewFlagSet("render-founder-continuity", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	markerPath := flags.String("marker", "", "canonical accepted-install marker JSON")
 	anchorPath := flags.String("anchor", "", "historical root-signed genesis anchor")
 	materialDirectory := flags.String("material-directory", "", "generated controller material the marker pins")
+	generationsPath := flags.String("material-generations", "", "the install's adopted material generation chain")
 	generation := flags.Uint64("selector-generation", 0, "read-only selector generation the proof joins")
 	outputPath := flags.String("out", "", "new canonical continuity candidate JSON")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *markerPath == "" || *anchorPath == "" || *materialDirectory == "" || *generation < 2 ||
-		*outputPath == "" || flags.NArg() != 0 {
-		return errors.New("render-founder-continuity requires --marker, --anchor, --material-directory, --selector-generation >= 2, and --out")
+	if *markerPath == "" || *anchorPath == "" || (*materialDirectory == "") == (*generationsPath == "") ||
+		*generation < 2 || *outputPath == "" || flags.NArg() != 0 {
+		return errors.New("render-founder-continuity requires --marker, --anchor, one of --material-directory or --material-generations, --selector-generation >= 2, and --out")
 	}
 	markerWire, err := c.readBoundedRegular(*markerPath, 16<<10)
 	if err != nil {
@@ -81,13 +84,24 @@ func (c command) renderFounderContinuityAt(args []string) error {
 		}
 		return data, nil
 	}
-	validUntil, err := bootstrapstart.CredentialValidUntil(read, bootstrapstart.SlotCredentialFiles(marker.Slot))
-	if err != nil {
-		return err
-	}
-	credentialDigest, err := bootstrap.InstallContinuityCredentialDigest(marker.MaterialSHA256)
-	if err != nil {
-		return err
+	var validUntil time.Time
+	var credentialDigest, generationFingerprint string
+	if *generationsPath != "" {
+		newest, err := c.newestMaterialGeneration(*generationsPath)
+		if err != nil {
+			return err
+		}
+		if credentialDigest, err = bootstrap.InstallContinuityGenerationDigest(newest.fingerprint); err != nil {
+			return err
+		}
+		validUntil, generationFingerprint = newest.expiresAt, newest.fingerprint
+	} else {
+		if validUntil, err = bootstrapstart.CredentialValidUntil(read, bootstrapstart.SlotCredentialFiles(marker.Slot)); err != nil {
+			return err
+		}
+		if credentialDigest, err = bootstrap.InstallContinuityCredentialDigest(marker.MaterialSHA256); err != nil {
+			return err
+		}
 	}
 	markerDigest := sha256.Sum256(markerWire)
 	candidate := bootstrap.InstallContinuity{SchemaVersion: 1, DeploymentID: marker.DeploymentID,
@@ -100,7 +114,8 @@ func (c command) renderFounderContinuityAt(args []string) error {
 		PrimaryPrivateIP: marker.PrimaryPrivateIP, LedgerAttempt: marker.HeadAttempt,
 		LedgerGeneration: marker.HeadGeneration, AcceptedAt: marker.AcceptedAt, BinarySHA256: marker.BinarySHA256,
 		MaterialSHA256: marker.MaterialSHA256, CredentialSHA256: credentialDigest,
-		CredentialValidUntil: validUntil, SelectorGeneration: *generation}
+		CredentialValidUntil: validUntil, SelectorGeneration: *generation,
+		MaterialGenerationSHA256: generationFingerprint}
 	encoded, err := protocol.EncodeJSON(candidate)
 	if err != nil {
 		return err
@@ -122,6 +137,7 @@ func (c command) signFounderContinuityAt(args []string, now time.Time) error {
 	publicPath := flags.String("root-key", "", "offline root public key PEM")
 	privatePath := flags.String("signing-key", "", "owner-only offline root private key PEM")
 	outputPath := flags.String("out", "", "new signed continuity envelope")
+	generationsPath := flags.String("material-generations", "", "the install's adopted material generation chain, when it has one")
 	validFor := flags.Duration("valid-for", 24*time.Hour, "continuity validity bounded by credentials")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -164,6 +180,18 @@ func (c command) signFounderContinuityAt(args []string, now time.Time) error {
 	if err != nil {
 		return err
 	}
+	var generationExpiry time.Time
+	var generationFingerprint string
+	if *generationsPath != "" {
+		newest, err := c.newestMaterialGeneration(*generationsPath)
+		if err != nil {
+			return err
+		}
+		if credentialDigest, err = bootstrap.InstallContinuityGenerationDigest(newest.fingerprint); err != nil {
+			return err
+		}
+		generationExpiry, generationFingerprint = newest.expiresAt, newest.fingerprint
+	}
 	if candidate.AcceptedMarkerSHA256 != hex.EncodeToString(markerDigest[:]) ||
 		candidate.DeploymentID != marker.DeploymentID || string(candidate.Cell) != marker.Cell ||
 		candidate.Slot != marker.Slot || candidate.GenesisAnchorSHA256 != marker.AnchorSHA256 ||
@@ -173,7 +201,8 @@ func (c command) signFounderContinuityAt(args []string, now time.Time) error {
 		candidate.PrimaryVNICOCID != marker.PrimaryVNICOCID || candidate.PrimaryPrivateIP != marker.PrimaryPrivateIP ||
 		candidate.LedgerAttempt != marker.HeadAttempt || candidate.LedgerGeneration != marker.HeadGeneration ||
 		!candidate.AcceptedAt.Equal(marker.AcceptedAt) || candidate.BinarySHA256 != marker.BinarySHA256 ||
-		!maps.Equal(candidate.MaterialSHA256, marker.MaterialSHA256) || candidate.CredentialSHA256 != credentialDigest {
+		!maps.Equal(candidate.MaterialSHA256, marker.MaterialSHA256) || candidate.CredentialSHA256 != credentialDigest ||
+		candidate.MaterialGenerationSHA256 != generationFingerprint {
 		return errors.New("continuity candidate differs from accepted marker or credential inventory")
 	}
 	public, err := readRootPublicKey(*publicPath)
@@ -207,6 +236,27 @@ func (c command) signFounderContinuityAt(args []string, now time.Time) error {
 	if err != nil || anchor.Digest() != marker.AnchorSHA256 ||
 		anchor.Anchor().ClusterID != candidate.ClusterID || anchor.Anchor().OCIRegion != candidate.OCIRegion {
 		return errors.New("continuity candidate differs from historical genesis anchor")
+	}
+	if *generationsPath != "" {
+		// The chain must be this deployment's and current under the root
+		// that signs the proof; the proof lasts no longer than it.
+		wire, err := c.readBoundedRegular(*generationsPath, maxGenerationChainBytes)
+		if err != nil {
+			return err
+		}
+		chain, err := bootstrap.DecodeMaterialGenerationChain(wire)
+		if err != nil {
+			return err
+		}
+		anchored := anchor.Anchor()
+		if _, err := bootstrap.VerifyMaterialGenerationChain(chain, roots, bootstrap.MaterialGenerationExpectation{
+			DeploymentID: anchored.DeploymentID, Environment: anchored.Environment, ClusterID: anchored.ClusterID,
+			Cell: anchored.Cell, ControllerSlots: anchored.ControllerSlots}, now); err != nil {
+			return fmt.Errorf("verify the install's material generations: %w", err)
+		}
+		if !candidate.CredentialValidUntil.Equal(generationExpiry) {
+			return errors.New("continuity candidate outlives the install's newest material generation")
+		}
 	}
 	expiresAt := minTime(now.Add(*validFor), candidate.CredentialValidUntil)
 	signed, err := bootstrap.SignInstallContinuity(candidate, now, expiresAt, private)
@@ -455,4 +505,32 @@ func verifyFounderProofFiles(paths []string, selection bootstrapstart.FounderSel
 		}
 	}
 	return nil
+}
+
+// maxGenerationChainBytes bounds a material generation chain file.
+const maxGenerationChainBytes = bootstrap.MaxMaterialGenerations * (bootstrap.MaxMaterialGenerationBytes + 16<<10)
+
+type newestGeneration struct {
+	fingerprint string
+	expiresAt   time.Time
+}
+
+// newestMaterialGeneration reads a chain file and returns its newest
+// generation's fingerprint and expiry; verification happens where the root
+// key is at hand.
+func (c command) newestMaterialGeneration(path string) (newestGeneration, error) {
+	wire, err := c.readBoundedRegular(path, maxGenerationChainBytes)
+	if err != nil {
+		return newestGeneration{}, err
+	}
+	chain, err := bootstrap.DecodeMaterialGenerationChain(wire)
+	if err != nil {
+		return newestGeneration{}, err
+	}
+	newest := chain[len(chain)-1]
+	fingerprint, err := trust.Fingerprint(newest)
+	if err != nil {
+		return newestGeneration{}, err
+	}
+	return newestGeneration{fingerprint: fingerprint, expiresAt: newest.ExpiresAt}, nil
 }
