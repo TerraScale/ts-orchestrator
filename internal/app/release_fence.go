@@ -21,6 +21,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/seatrollout"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
 
@@ -106,6 +107,9 @@ type releaseFence struct {
 	spec func() (*cellspec.ReleaseFence, map[string]string)
 	// open returns the load balancer client; it is opened on first use.
 	open func(context.Context) (lb.API, error)
+	// seats reports TerraBase seats (controller.terrabase_seats), which
+	// sequence TerraBase themselves.
+	seats bool
 	// sleep waits for a grace or a poll; tests shorten it.
 	sleep func(context.Context, time.Duration) error
 
@@ -157,7 +161,9 @@ func (f *releaseFence) prepare(ctx context.Context, intent delivery.Intent) erro
 	if f == nil {
 		return nil
 	}
-	if spec, _ := f.spec(); spec == nil {
+	if spec, _ := f.spec(); spec == nil || f.seats && intent.Role == terrabase.Role {
+		// With TerraBase seats the seat controller orders TerraBase
+		// restarts and drains; one sequencer gates a role.
 		return nil
 	}
 	if _, err := f.leading(ctx); err != nil {
@@ -296,11 +302,11 @@ func (f *releaseFence) nodeState(ctx context.Context, role string, release uint6
 	return "", nil
 }
 
-// fence takes node's in-rotation backends out of every fenced set, each
-// only while another backend of its set serves healthy. It records them
-// first, as fencing, and marks the record fenced once every one is
-// offline; a fence a deposed leader left part-way is finished from its
-// record.
+// fence takes node's in-rotation backends out of every fenced set. It
+// records them first, as fencing, and marks the record fenced once every
+// one is offline; a fence a deposed leader left part-way is finished from
+// its record. Right before each backend is drained, and again before it is
+// set offline, a backend of another node must serve healthy in its set.
 func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec cellspec.ReleaseFence, node,
 	address string, grace time.Duration,
 ) error {
@@ -311,16 +317,7 @@ func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec
 	if found && record.Phase == "fenced" {
 		return nil
 	}
-	if found {
-		// A part-way fence resumes only while each backend it would still
-		// take out has a healthy alternative on another node.
-		for _, backend := range record.Backends {
-			if _, err := f.guarded(ctx, api, epoch, record.LoadBalancerID,
-				cellspec.FencedSet{Name: backend.Set, Port: backend.Port}, node, backend.IP); err != nil {
-				return err
-			}
-		}
-	} else {
+	if !found {
 		if address == "" {
 			// No host grant names the node: its backends are unknown, so it
 			// is never restarted unfenced.
@@ -328,12 +325,14 @@ func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec
 		}
 		record = fenceRecord{LoadBalancerID: spec.LoadBalancerID, Phase: "fencing"}
 		for _, set := range spec.BackendSets {
-			backend, err := f.guarded(ctx, api, epoch, spec.LoadBalancerID, set, node, address)
+			observed, err := api.ListBackends(ctx, spec.LoadBalancerID, set.Name)
 			if err != nil {
 				return err
 			}
-			if backend != nil {
-				record.Backends = append(record.Backends, *backend)
+			for _, backend := range observed {
+				if backend.IP == address && backend.Port == set.Port && backend.Serving() {
+					record.Backends = append(record.Backends, fencedBackend{Set: set.Name, IP: address, Port: set.Port})
+				}
 			}
 		}
 		if len(record.Backends) == 0 {
@@ -345,6 +344,9 @@ func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec
 	}
 	for _, offline := range []bool{false, true} {
 		for _, backend := range record.Backends {
+			if err := f.alternative(ctx, api, epoch, record.LoadBalancerID, backend, node); err != nil {
+				return err
+			}
 			if err := f.update(ctx, api, epoch, record.LoadBalancerID, backend, true, offline); err != nil {
 				return err
 			}
@@ -365,41 +367,27 @@ func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec
 	return nil
 }
 
-// guarded returns node's backend in set when it is in rotation, once a
-// backend of another node serves healthy in the set; nil when it is not in
-// rotation.
-func (f *releaseFence) guarded(ctx context.Context, api lb.API, epoch uint64, id string, set cellspec.FencedSet,
-	node, address string,
-) (*fencedBackend, error) {
+// alternative waits until a backend of another node serves healthy in
+// backend's set: taking backend out must leave the set serving.
+func (f *releaseFence) alternative(ctx context.Context, api lb.API, epoch uint64, id string, backend fencedBackend,
+	node string,
+) error {
 	for {
-		observed, err := api.ListBackends(ctx, id, set.Name)
+		observed, err := api.ListBackends(ctx, id, backend.Set)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		unhealthy, err := api.UnhealthyBackends(ctx, id, set.Name)
+		unhealthy, err := api.UnhealthyBackends(ctx, id, backend.Set)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		mine, others := false, 0
-		for _, backend := range observed {
-			switch {
-			case backend.IP == address && backend.Port == set.Port:
-				mine = backend.Serving()
-			case backend.IP != address && backend.Serving() && !unhealthy[backend.Name()]:
-				// Only another node's backend keeps the set serving.
-				others++
+		for _, other := range observed {
+			if other.IP != backend.IP && other.Serving() && !unhealthy[other.Name()] {
+				return nil
 			}
 		}
-		if !mine {
-			return nil, nil
-		}
-		if others > 0 {
-			return &fencedBackend{Set: set.Name, IP: address, Port: set.Port}, nil
-		}
-		// The node's backend is the set's last healthy one: wait for
-		// another rather than drop the set.
 		if err := f.wait(ctx, epoch, fencePoll); err != nil {
-			return nil, fmt.Errorf("%s backend of %s is the last healthy one: %w", set.Name, node, err)
+			return fmt.Errorf("%s backend of %s is the last healthy one: %w", backend.Set, node, err)
 		}
 	}
 }

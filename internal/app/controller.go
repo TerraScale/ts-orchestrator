@@ -806,6 +806,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		releases := &serviceReleases{cell: cfg.NATS.Cell, channel: policy.rollouts.channel, deliveries: service,
 			hosts: hostController, profiles: services.profiles, fencer: control,
 			fences: &releaseFence{kv: releaseChannel, hosts: hostController, fencer: control, spec: services.releaseFence,
+				seats: seatStore != nil,
 				open: func(context.Context) (lb.API, error) {
 					factory, err := ociclient.InstancePrincipal(region)
 					if err != nil {

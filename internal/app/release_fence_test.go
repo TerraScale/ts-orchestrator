@@ -82,6 +82,16 @@ func (f *fenceLB) UpdateBackend(_ context.Context, id, set string, backend lb.Ba
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.ids = append(f.ids, id)
+	if !backend.Serving() {
+		// Taking a backend out must leave another node's healthy one.
+		alternative := false
+		for _, other := range f.sets[set] {
+			alternative = alternative || other.IP != backend.IP && other.Serving() && !f.down[other.Name()]
+		}
+		if !alternative {
+			f.t.Errorf("took %s out of %s without a healthy backend on another node", backend.Name(), set)
+		}
+	}
 	serving, state := 0, "active"
 	for i, current := range f.sets[set] {
 		if current.Name() == backend.Name() {
@@ -498,5 +508,82 @@ func TestReleaseFenceNeedsAnotherHealthyNode(t *testing.T) {
 		if len(balancer.log) != 0 || len(cell.restarts) != 0 {
 			t.Errorf("%s: load balancer %q, restarts %q", name, balancer.log, cell.restarts)
 		}
+	}
+}
+
+// The alternative is checked right before each change: here the terrabase
+// alternative fails while the fence waits for the ts-auth one, so ctl-1's
+// terrabase backend, drained while ctl-2 still served, is not set offline.
+func TestReleaseFenceChecksTheAlternativeAtEachChange(t *testing.T) {
+	fence, cell, balancer, _, intent := newFenceTest(t)
+	cell.nodes = []string{"ctl-1", "ctl-2"}
+	balancer.sets = map[string][]lb.Backend{
+		"terrabase": {{IP: "10.0.0.11", Port: 9465}, {IP: "10.0.0.12", Port: 9465}},
+		"ts-auth":   {{IP: "10.0.0.11", Port: 8080}, {IP: "10.0.0.12", Port: 8080}},
+	}
+	balancer.down["10.0.0.12:8080"] = true
+	flipped := false
+	fence.sleep = func(ctx context.Context, _ time.Duration) error {
+		balancer.mu.Lock()
+		if !flipped {
+			flipped = true
+			balancer.down["10.0.0.12:8080"], balancer.down["10.0.0.12:9465"] = false, true
+		}
+		balancer.mu.Unlock()
+		time.Sleep(time.Millisecond)
+		return ctx.Err()
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	if err := fence.prepare(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.sequence(ctx, intent); err == nil || !strings.Contains(err.Error(), "last healthy") {
+		t.Fatalf("sequence: %v", err)
+	}
+	if slices.Contains(balancer.log, "terrabase 10.0.0.11:9465 offline") || len(cell.restarts) != 0 {
+		t.Fatalf("load balancer %q, restarts %q", balancer.log, cell.restarts)
+	}
+}
+
+// A resumed fence whose backend a deposed leader already drained still
+// waits for a healthy alternative before it sets it offline.
+func TestReleaseFenceResumesADrainedBackendOnlyBesideAnAlternative(t *testing.T) {
+	fence, cell, balancer, kv, intent := newFenceTest(t)
+	balancer.sets["terrabase"][0] = balancer.sets["terrabase"][0].Fenced(true, false)
+	balancer.down["10.0.0.12:9465"], balancer.down["10.0.0.13:9465"] = true, true
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	if _, err := kv.Put(ctx, fencedKey("ctl-1"), []byte(`{"load_balancer_id":"ocid1.loadbalancer.oc1..x","phase":"fencing",`+
+		`"backends":[{"set":"terrabase","ip":"10.0.0.11","port":9465}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.prepare(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.sequence(ctx, intent); err == nil {
+		t.Fatal("the resumed fence went on")
+	}
+	if len(balancer.log) != 0 || len(cell.restarts) != 0 {
+		t.Fatalf("load balancer %q, restarts %q", balancer.log, cell.restarts)
+	}
+}
+
+// With TerraBase seats the seat controller orders TerraBase restarts, so
+// the fence leaves TerraBase releases unmarked and marks the others.
+func TestReleaseFenceLeavesTerraBaseToSeats(t *testing.T) {
+	fence, _, _, kv, _ := newFenceTest(t)
+	fence.seats = true
+	ctx := t.Context()
+	for _, intent := range []delivery.Intent{{Role: "terrabase", Generation: 4}, {Role: "ts-auth", Generation: 5}} {
+		if err := fence.prepare(ctx, intent); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := kv.Get(ctx, sequencedKey("terrabase", 4)); !errors.Is(err, jetstream.ErrKeyNotFound) {
+		t.Fatalf("a TerraBase release is marked under seats: %v", err)
+	}
+	if _, err := kv.Get(ctx, sequencedKey("ts-auth", 5)); err != nil {
+		t.Fatalf("a ts-auth release is not marked: %v", err)
 	}
 }

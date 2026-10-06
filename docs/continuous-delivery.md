@@ -828,9 +828,9 @@ releases/v1/services/<role>/status.json         the region leader's report
    the node's backends that are in rotation (by the node's host grant
    address; a node without one stays held) out of
    every fenced set (drain, the grace, then offline, since a drain alone
-   keeps the load balancer's pooled connections), but only while a
-   backend of another node serves healthy in the set, which a resumed
-   fence checks again; records them under `fenced.<node>`,
+   keeps the load balancer's pooled connections), each change only while a
+   backend of another node serves healthy in that set, checked right
+   before the change; records them under `fenced.<node>`,
    with the load balancer they belong to and a `fencing` phase, before it
    changes the load balancer, and marks the record `fenced` once all are
    offline (a new leader finishes a `fencing` record before it permits the
@@ -844,6 +844,9 @@ releases/v1/services/<role>/status.json         the region leader's report
    balancer change and permit is guarded by the authority epoch the leader
    started under, so a deposed leader stops. Once every node
    serves the release, its marks are removed, so later scaling is not held.
+   With TerraBase seats (`controller.terrabase_seats`) the seat controller
+   keeps ordering TerraBase restarts and the fence sequences the other
+   roles only, so one sequencer gates each role.
    The controllers' instance principal needs `use load-balancers` in the
    network compartment (`ociregion.RequiredControllerStatements`).
 5. The leader records each step under `service.<role>.<CELL>` in
