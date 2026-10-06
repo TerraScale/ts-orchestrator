@@ -19,7 +19,7 @@ replaces the previous one as a whole.
 | `generation` | Exactly one more than the generation it amends. |
 | `requires_binary` | The lowest spec level a controller binary must understand to adopt this amendment (see [binary levels](#binary-levels)). |
 | `services` | The cell's generic services, sorted by role. |
-| `host_grants` | Static hosts outside TerraBase membership that may enroll, sorted by node (see [host grants](#host-grants)). |
+| `host_grants` | Static hosts that may enroll, such as controller VMs, sorted by node (see [host grants](#host-grants)). |
 | `budget` | Optional `{monthly_cap_cents, currency}` cap on node pool launches (see [autoscaling](autoscaling.md#budget)). Every node pool needs `host_monthly_cents` first. Only lowering the cap is ordinary; any other budget change needs a root. |
 | `host_images` | Qualified images managed hosts may run besides the fleet's pinned image, sorted by image ID (see [host images](#host-images)). |
 | `kv_snapshot` | Optional `{interval_seconds, paused}` schedule of the [configuration bucket snapshots](storage.md). `interval_seconds` (5 to 3600, 0 keeps the signed config's) applies within 5 seconds. Only a root may pause the uploads; resuming and the interval are ordinary. The signed controller config keeps the location, which a rebuilt cell restores from before any KV bucket exists, and must set one. Needs binary level 5. |
@@ -79,7 +79,7 @@ Changes take effect as follows:
 
 ### Host grants
 
-A spec's `host_grants` let static hosts outside TerraBase membership enroll.
+A spec's `host_grants` let static hosts enroll, such as controller VMs.
 Each grant is `{node, private_ip, roles, environment}`. The host agent on such
 a host enrolls through the regular enrollment endpoint with a static
 descriptor naming `node`. The controller accepts it only from `private_ip`,
@@ -88,12 +88,20 @@ address. The registration has the grant's roles and environment, and one
 replica's `resources` per role as capacity. The signed enrollment response
 lists the roles, and `host-setup` writes them to `host.json`.
 
-A grant may name only roles the cell delivers (a signed or spec profile). It
-may not name `terrabase` or placement's member role, and it may not name a
-node listed in the effective `TERRABASE_PEERS`: TerraBase members enroll
-through the TerraBase profile. A role that a grant names cannot be removed until that grant is
-revoked. A new or changed grant gives a host credentials, so a root must
-sign it; revoking one is ordinary.
+A grant may name only roles the cell delivers (a signed or spec profile),
+never placement's member role. It lists `terrabase` exactly when the
+effective `TERRABASE_PEERS` lists its node, at the grant's `private_ip`:
+the host then runs that TerraBase member beside its other roles, with both
+roles' capacity, and `host-setup` gives it the TerraBase root (TS-578). This
+is how a controller VM colocates a member. Such a host enrolls through the
+grant's checks (granted address, running instance of that name), not a
+database host's descriptor checks, since a controller VM has no descriptor.
+A member without a grant still enrolls through the TerraBase profile.
+Changing a granted member's roles registers the host's next generation: its
+host agent's session ends and its workloads restart once the old session
+expires, so drain its load balancer backends first. A role that a grant
+names cannot be removed until that grant is revoked. A new or changed grant
+gives a host credentials, so a root must sign it; revoking one is ordinary.
 
 Controllers run ts-auth this way. A controller VM carries no host
 descriptor, so its `host-setup` names itself after its launch slot

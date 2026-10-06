@@ -200,14 +200,14 @@ func (admission staticAdmission) roles() []string {
 	return admission.Grant.Roles
 }
 
-// observeStatic authenticates a static host: a TerraBase member the
-// effective profile lists at the direct peer's address, or a host the cell
-// spec grants that address.
+// observeStatic authenticates a static host: a host the cell spec grants the
+// direct peer's address, a TerraBase member it colocates included, or else a
+// TerraBase member the effective profile lists at that address.
 func (enrollment *managedHostEnrollment) observeStatic(ctx context.Context, peerIP string,
 	request hostenroll.Request, descriptor hostboot.Descriptor,
 ) (oci.CloudInstance, staticAdmission, error) {
 	peer, capacity, listed := enrollment.staticMember(descriptor.Node)
-	if !listed {
+	if _, _, granted := enrollment.services.hostGrant(descriptor.Node); granted || !listed {
 		return enrollment.observeGranted(ctx, peerIP, request, descriptor)
 	}
 	if peer.Address.Addr().String() != peerIP {

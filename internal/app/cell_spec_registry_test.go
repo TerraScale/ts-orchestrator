@@ -508,10 +508,11 @@ func TestSpecRegistryValidatesHostGrants(t *testing.T) {
 		t.Fatalf("grant for a delivered role: %v", err)
 	}
 	for name, set := range map[string]cellspec.Spec{
-		"role without a profile": grant("gru-1-ctl-1", "10.251.0.11", "api"),
-		"terrabase":              grant("gru-1-ctl-1", "10.251.0.11", terrabase.Role),
-		"placement member role":  grant("gru-1-ctl-1", "10.251.0.11", "member"),
-		"TerraBase member":       grant("gru-1-db-1", "10.251.0.21", "web"),
+		"role without a profile":              grant("gru-1-ctl-1", "10.251.0.11", "api"),
+		"terrabase on an unlisted host":       grant("gru-1-ctl-1", "10.251.0.11", terrabase.Role),
+		"placement member role":               grant("gru-1-ctl-1", "10.251.0.11", "member"),
+		"TerraBase member without its role":   grant("gru-1-db-1", "10.251.0.21", "web"),
+		"TerraBase member at another address": grant("gru-1-db-1", "10.251.0.29", terrabase.Role, "web"),
 	} {
 		if err := registry.validate(set); err == nil {
 			t.Errorf("%s: accepted", name)
@@ -524,6 +525,18 @@ func TestSpecRegistryValidatesHostGrants(t *testing.T) {
 	}
 	if _, _, ok := registry.hostGrant("gru-1-ctl-2"); ok {
 		t.Fatal("an ungranted node has a grant")
+	}
+	// A listed member granted at its peer address runs the member beside
+	// the grant's other roles, with the capacity of both (TS-578).
+	colocated := grant("gru-1-db-1", "10.251.0.21", terrabase.Role, "web")
+	colocated.Generation = 2
+	if err := registry.validate(colocated); err != nil {
+		t.Fatalf("grant colocating a member: %v", err)
+	}
+	registry.adopt(colocated, 2)
+	if _, capacity, ok := registry.hostGrant("gru-1-db-1"); !ok ||
+		capacity != (host.Capacity{CPU: 2, MemoryBytes: 2 << 30, DiskBytes: 2 << 30}) {
+		t.Fatalf("colocated grant capacity = %+v, %v", capacity, ok)
 	}
 }
 

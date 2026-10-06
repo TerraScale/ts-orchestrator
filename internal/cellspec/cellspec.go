@@ -114,10 +114,10 @@ type Service struct {
 	Releasers []string              `json:"releasers,omitempty"`
 }
 
-// HostGrant lets one static host outside TerraBase membership enroll: the
-// host named Node, at PrivateIP, registers Roles in Environment, with one
-// replica's resources per role. Controller VMs run their own ts-auth host
-// agents this way.
+// HostGrant lets one static host enroll: the host named Node, at PrivateIP,
+// registers Roles in Environment, with one replica's resources per role.
+// Controller VMs run their own ts-auth host agents this way, and role
+// terrabase colocates the member TERRABASE_PEERS lists at PrivateIP.
 type HostGrant struct {
 	Node        string   `json:"node"`
 	PrivateIP   string   `json:"private_ip"`

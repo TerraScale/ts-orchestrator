@@ -423,12 +423,17 @@ func TestStaticTerraBaseMembershipFollowsTheCellSpec(t *testing.T) {
 	}
 	lab.fleet.observed = nil
 
-	// A host grant may not name a member of the spec's own peer list.
+	// A host grant names a member of the spec's own peer list only with
+	// role terrabase, at the member's peer address.
 	overlapping := spec
-	overlapping.HostGrants = []cellspec.HostGrant{{Node: "gru-1-db-3", PrivateIP: "10.251.0.23", Roles: []string{terrabase.Role},
-		Environment: "production"}}
-	if err := lab.enrollment.services.validate(overlapping); err == nil || !strings.Contains(err.Error(), "TerraBase member") {
-		t.Fatalf("grant naming a spec member = %v", err)
+	for _, grant := range []cellspec.HostGrant{
+		{Node: "gru-1-db-3", PrivateIP: "10.251.0.23", Roles: []string{"worker"}, Environment: "production"},
+		{Node: "gru-1-db-3", PrivateIP: "10.251.0.24", Roles: []string{terrabase.Role}, Environment: "production"},
+	} {
+		overlapping.HostGrants = []cellspec.HostGrant{grant}
+		if err := lab.enrollment.services.validate(overlapping); err == nil || !strings.Contains(err.Error(), terrabase.EnvPeers) {
+			t.Fatalf("grant %+v naming a spec member = %v", grant, err)
+		}
 	}
 }
 
@@ -600,6 +605,59 @@ func TestGrantedControllerHostEnrollsWithItsGrantRoles(t *testing.T) {
 	memberRoot := t.TempDir()
 	if err := lab.setup(ctx, memberRoot, member, "10.251.0.21"); err != nil {
 		t.Fatalf("member setup beside grants: %v", err)
+	}
+	if roles := lab.registration(t, ctx, "gru-1-db-1").Roles; !slices.Equal(roles, []string{terrabase.Role}) {
+		t.Fatalf("member roles = %v", roles)
+	}
+}
+
+// A controller whose grant lists role terrabase colocates the member that
+// TERRABASE_PEERS lists at its address (TS-578). It enrolls through its
+// grant, since a controller VM carries no host descriptor for the member
+// checks, with both roles' capacity, and host-setup gives it both roots.
+func TestGrantedControllerHostColocatesATerraBaseMember(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
+	defer cancel()
+	workloads := controllerHostWorkloads()
+	profile := workloads[terrabase.Role]
+	profile.Env = maps.Clone(profile.Env)
+	profile.Env[terrabase.EnvPeers] = "gru-1-ctl-1=10.251.0.11:9443,gru-1-db-1=10.251.0.21:9443"
+	workloads[terrabase.Role] = profile
+	lab := startStaticEnrollmentLab(t, ctx, workloads)
+	spec := lab.enrollment.services.current
+	spec.Generation++
+	spec.HostGrants = []cellspec.HostGrant{{Node: "gru-1-ctl-1", PrivateIP: "10.251.0.11",
+		Roles: []string{terrabase.Role, tsauth.Role}, Environment: "canary"}}
+	if err := lab.enrollment.services.validateHostGrants(spec.HostGrants, workloads); err != nil {
+		t.Fatalf("grant colocating a member: %v", err)
+	}
+	lab.enrollment.services.adopt(spec, spec.Generation)
+	metadata := lab.launchController(t, "ocid1.instance.oc1.sa-saopaulo-1.ctl1", "gru-1-ctl-1", "10.251.0.11")
+	root := t.TempDir()
+	if err := lab.setup(ctx, root, metadata, "10.251.0.11"); err != nil {
+		t.Fatalf("colocated controller host setup: %v", err)
+	}
+	var installed Config
+	wire, err := os.ReadFile(filepath.Join(root, "host.json"))
+	if err != nil || json.Unmarshal(wire, &installed) != nil {
+		t.Fatalf("installed host config: %v", err)
+	}
+	if !slices.Equal(installed.Host.Roles, []string{terrabase.Role, tsauth.Role}) ||
+		installed.Host.TerraBaseRoot != filepath.Join(lab.bundle.ManagedRuntimeRoot, "terrabase") ||
+		installed.Host.TSAuthRoot != filepath.Join(lab.bundle.ManagedRuntimeRoot, "ts-auth") ||
+		installed.Observability.ListenAddress != controllerHostObservability {
+		t.Fatalf("colocated host config = %+v, observability %+v", installed.Host, installed.Observability)
+	}
+	registration := lab.registration(t, ctx, "gru-1-ctl-1")
+	if !slices.Equal(registration.Roles, []string{terrabase.Role, tsauth.Role}) || registration.Environment != "canary" ||
+		registration.Capacity != (host.Capacity{CPU: 2, MemoryBytes: 5 << 30, DiskBytes: 22 << 30}) || registration.ManagedOCI != nil {
+		t.Fatalf("colocated host registration = %+v", registration)
+	}
+	// A listed member without a grant still enrolls through the member
+	// checks.
+	member := lab.launch(t, "ocid1.instance.oc1.sa-saopaulo-1.db1", "gru-1-db-1", "10.251.0.21")
+	if err := lab.setup(ctx, t.TempDir(), member, "10.251.0.21"); err != nil {
+		t.Fatalf("member setup beside a colocated member: %v", err)
 	}
 	if roles := lab.registration(t, ctx, "gru-1-db-1").Roles; !slices.Equal(roles, []string{terrabase.Role}) {
 		t.Fatalf("member roles = %v", roles)

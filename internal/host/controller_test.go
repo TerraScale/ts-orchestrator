@@ -1861,6 +1861,90 @@ func TestRestartGateHoldsTheRunningWorkload(t *testing.T) {
 	})
 }
 
+// TestTerraBaseRestartHoldKeepsTheRunningMember checks that the host-local
+// hold file keeps a running member on its generation, reported waiting at
+// the new one without asking the controller for a cycle, and that removing
+// it restarts the member into the new generation (TS-578).
+func TestTerraBaseRestartHoldKeepsTheRunningMember(t *testing.T) {
+	c, conn, store, _, controllerKey := testControllerWithVerifier(t, nil)
+	hostKey := registerTestHost(t, c)
+	data := []byte("#!/bin/sh\nsleep 30\n")
+	hash := sha256.Sum256(data)
+	digest := hex.EncodeToString(hash[:])
+	if _, err := store.PutBytes(t.Context(), "sha256-"+digest, data); err != nil {
+		t.Fatal(err)
+	}
+	desired := Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase", Digest: digest, Generation: 1, AuthorityEpoch: 1}
+	if _, err := c.ApplyDesired(t.Context(), desired); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go func() { _ = c.Run(ctx) }()
+	<-c.Ready()
+	runner := &memoryRunner{observed: make(map[string]Observation)}
+	stateRoot := testAgentStateRoot(t)
+	agent, err := NewAgent(AgentConfig{NATSUserPublicKey: testNATSUserKey("node-a"), ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(),
+		Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey,
+		ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: testAgentInstallRoot(t),
+		StateRoot: stateRoot, PollInterval: 100 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = agent.Run(ctx) }()
+	await := func(what string, done func(report Report, applied int, running bool) bool) {
+		t.Helper()
+		deadline := time.Now().Add(15 * time.Second)
+		var last Report
+		for time.Now().Before(deadline) {
+			runner.mu.Lock()
+			applied, running := runner.applied, runner.observed["terrabase"].Running
+			runner.mu.Unlock()
+			hosts, err := c.ListHosts(t.Context())
+			if err == nil && len(hosts) == 1 && len(hosts[0].Reports) == 1 {
+				last = hosts[0].Reports[0]
+				if done(last, applied, running) {
+					return
+				}
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+		t.Fatalf("%s: last report %+v", what, last)
+	}
+	await("first launch", func(r Report, applied int, _ bool) bool {
+		return r.Generation == 1 && r.State == "running" && applied == 1
+	})
+	hold := filepath.Join(stateRoot, TerraBaseRestartHold)
+	if err := os.MkdirAll(stateRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hold, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed := desired
+	changed.Generation = 2
+	changed.Env = map[string]string{"TS_MODE": "test"}
+	if _, err := c.ApplyDesired(t.Context(), changed); err != nil {
+		t.Fatal(err)
+	}
+	await("held restart", func(r Report, applied int, running bool) bool {
+		return r.Generation == 2 && r.State == "waiting" && applied == 1 && running
+	})
+	time.Sleep(500 * time.Millisecond)
+	runner.mu.Lock()
+	if runner.applied != 1 {
+		runner.mu.Unlock()
+		t.Fatal("a held member restarted")
+	}
+	runner.mu.Unlock()
+	if err := os.Remove(hold); err != nil {
+		t.Fatal(err)
+	}
+	await("released restart", func(r Report, applied int, running bool) bool {
+		return r.Generation == 2 && r.State == "running" && applied == 2 && running
+	})
+}
+
 // cycleConflictState fails the next cycle-record writes with a CAS
 // conflict, as a concurrent writer would.
 type cycleConflictState struct {

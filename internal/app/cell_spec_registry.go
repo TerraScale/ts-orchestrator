@@ -488,19 +488,22 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 }
 
 // validateHostGrants admits a grant only for roles the cell delivers and
-// placement does not own, and never for a TerraBase member, which enrolls
-// through the spec's effective TerraBase profile.
+// placement does not own. It lists role terrabase exactly when the spec's
+// effective TerraBase profile lists its node, at the grant's address: a
+// controller VM then runs a member beside its other roles (TS-578).
 func (r *specRegistry) validateHostGrants(grants []cellspec.HostGrant, profiles map[string]WorkloadProfile) error {
 	var members terrabase.Profile
 	if effective, ok := profiles[terrabase.Role]; ok && len(effective.Env) != 0 {
 		members, _ = terrabase.ParseProfile(effective.Env)
 	}
 	for _, grant := range grants {
-		if _, member := members.Peer(grant.Node); member {
-			return fmt.Errorf("host grant %q names a TerraBase member", grant.Node)
+		peer, member := members.Peer(grant.Node)
+		if member != slices.Contains(grant.Roles, terrabase.Role) || member && peer.Address.Addr().String() != grant.PrivateIP {
+			return fmt.Errorf("host grant %q lists role %q exactly when %s lists the node at the grant's address",
+				grant.Node, terrabase.Role, terrabase.EnvPeers)
 		}
 		for _, role := range grant.Roles {
-			if _, ok := profiles[role]; !ok || role == terrabase.Role || slices.Contains(r.reserved, role) {
+			if _, ok := profiles[role]; !ok || slices.Contains(r.reserved, role) {
 				return fmt.Errorf("host grant %q role %q has no service profile or belongs to placement", grant.Node, role)
 			}
 		}
