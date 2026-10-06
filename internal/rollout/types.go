@@ -158,32 +158,19 @@ type Policy struct {
 	MaxRollbackRetries      int   `json:"max_rollback_retries"`
 }
 
-// DefaultPolicy returns the reviewed defaults from the deploy-stability
-// report: one canary, one unit per batch, a 15 minute canary soak, 5 minute
-// batch soaks, the existing 15 minute serving-proof deadline and a single
-// attempt per digest.
+// DefaultPolicy is as fast as a binary-only update allows (user decision
+// 2026-10-06): one canary soaks five minutes, then every later wave takes as
+// many units as PlanWaves lets it (never two of one group, the seed last and
+// alone, so three controllers still move one at a time) and soaks two
+// minutes. A unit that restarts on another release, or does not prove the
+// target within ten minutes, rolls the rollout back.
 func DefaultPolicy() Policy {
 	return Policy{
-		CanaryUnits: 1, BatchSize: 1,
-		CanarySoakSeconds: int64((15 * time.Minute).Seconds()), BatchSoakSeconds: int64((5 * time.Minute).Seconds()),
-		MinHealthyReports: 3, ProofDeadlineSeconds: int64((15 * time.Minute).Seconds()),
-		RollbackDeadlineSeconds: int64((15 * time.Minute).Seconds()), PreflightSeconds: int64((5 * time.Minute).Seconds()),
+		CanaryUnits: 1, BatchSize: MaxUnits,
+		CanarySoakSeconds: int64((5 * time.Minute).Seconds()), BatchSoakSeconds: int64((2 * time.Minute).Seconds()),
+		MinHealthyReports: 3, ProofDeadlineSeconds: int64((10 * time.Minute).Seconds()),
+		RollbackDeadlineSeconds: int64((10 * time.Minute).Seconds()), PreflightSeconds: int64((10 * time.Minute).Seconds()),
 		MaxAttempts: 1, MaxRollbackRetries: 3,
-	}
-}
-
-// AllAtOncePolicy is the default policy of an orchestrator release: changes
-// go live as fast as the quorum allows (user decision 2026-10-06). Every
-// wave takes all the units PlanWaves lets it, never two of one group and the
-// seed last and alone, so three controllers still move one at a time. A wave
-// is promoted after two healthy reports from one incarnation, with no soak;
-// a unit that restarts on another release, or does not prove the target
-// within five minutes, rolls the rollout back.
-func AllAtOncePolicy() Policy {
-	return Policy{
-		CanaryUnits: MaxUnits, BatchSize: MaxUnits, MinHealthyReports: 2,
-		ProofDeadlineSeconds: int64((5 * time.Minute).Seconds()), RollbackDeadlineSeconds: int64((15 * time.Minute).Seconds()),
-		PreflightSeconds: int64((5 * time.Minute).Seconds()), MaxAttempts: 1, MaxRollbackRetries: 3,
 	}
 }
 

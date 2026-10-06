@@ -722,3 +722,31 @@ func TestExecutorCompletesWithUnitClocksBehindTheLeader(t *testing.T) {
 		t.Fatalf("phase = %s (%s); steps %v", phase, record.Reason, h.fleet.stepLog())
 	}
 }
+
+// A wake (a proof arrived, the rollout bucket changed) runs a tick at once
+// instead of at the next interval.
+func TestExecutorTicksWhenWoken(t *testing.T) {
+	h := newHarness(t)
+	wake := make(chan struct{}, 1)
+	h.executor.Wake, h.executor.Interval = wake, time.Hour
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go func() { _ = h.executor.Run(ctx) }()
+	published := func() int {
+		h.status.mu.Lock()
+		defer h.status.mu.Unlock()
+		return len(h.status.statuses)
+	}
+	for published() == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	before := published()
+	wake <- struct{}{}
+	deadline := time.Now().Add(5 * time.Second)
+	for published() == before {
+		if time.Now().After(deadline) {
+			t.Fatal("a wake did not run a tick")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

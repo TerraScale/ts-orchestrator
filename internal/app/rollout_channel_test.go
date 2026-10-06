@@ -121,7 +121,9 @@ func (s releaseSigner) channel(t *testing.T, cell string, run int64, binary []by
 	}
 	channel := releasechannel.Channel{Schema: releasechannel.ChannelSchema, Cell: cell, Environment: "production",
 		SourceRevision: revision, RunNumber: run, Delegation: delegationWire}
-	for architecture, machine := range map[string]string{"amd64": "Advanced Micro Devices X86-64", "arm64": "AArch64"} {
+	machines := map[string]string{"amd64": "Advanced Micro Devices X86-64", "arm64": "AArch64"}
+	for _, architecture := range []string{"amd64", "arm64"} {
+		machine := machines[architecture]
 		receipt, err := release.SignBinaryUpdateReceipt(release.BinaryReceipt{Schema: release.BinarySchema,
 			SourceRevision: revision, GoVersion: release.DefaultGoVersion, GOOS: "linux", GOARCH: architecture,
 			ELFMachine: machine, Static: true, Bytes: int64(len(binaries[architecture])),
@@ -372,14 +374,22 @@ func TestReleaseChannelRefusesATamperedChannel(t *testing.T) {
 			other := signer.channel(t, "GRU", 620, []byte("other binary"))
 			channel.Receipts = other.Receipts
 			channel.SourceRevision = other.SourceRevision
-			envelope, err := trust.DecodeEnvelope(channel.Receipts[0])
-			if err != nil {
-				t.Fatal(err)
-			}
-			envelope.Payload = bytes.Replace(envelope.Payload, []byte(digestOf([]byte("other binary"))),
-				[]byte(digestOf([]byte("run 620"))), 1)
-			if channel.Receipts[0], err = trust.EncodeEnvelope(envelope); err != nil {
-				t.Fatal(err)
+			// Every receipt's signed digest is swapped for this channel's.
+			for index, wire := range channel.Receipts {
+				envelope, err := trust.DecodeEnvelope(wire)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, architecture := range []string{"amd64", "arm64"} {
+					theirs, ours := []byte("other binary"), []byte("run 620")
+					if architecture != goruntime.GOARCH {
+						theirs, ours = append(theirs, "-"+architecture...), append(ours, "-"+architecture...)
+					}
+					envelope.Payload = bytes.ReplaceAll(envelope.Payload, []byte(digestOf(theirs)), []byte(digestOf(ours)))
+				}
+				if channel.Receipts[index], err = trust.EncodeEnvelope(envelope); err != nil {
+					t.Fatal(err)
+				}
 			}
 			return channel
 		},

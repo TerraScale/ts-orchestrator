@@ -55,7 +55,10 @@ type Executor struct {
 	Status StatusSink
 	// Program lists the rollouts to start, in order, when the cell slot is
 	// free; nil starts nothing.
-	Program        func(ctx context.Context) (Program, error)
+	Program func(ctx context.Context) (Program, error)
+	// Wake, when set, runs a tick at once instead of at the next interval:
+	// a proof arrived or the rollout bucket changed.
+	Wake           <-chan struct{}
 	Interval       time.Duration
 	ProofFreshness time.Duration
 	Now            func() time.Time
@@ -111,6 +114,7 @@ func (e *Executor) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+		case <-e.Wake:
 		}
 	}
 }

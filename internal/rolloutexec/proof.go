@@ -29,7 +29,7 @@ const (
 	// HealthLifetime bounds one proof, so only a recent one counts.
 	HealthLifetime = 2 * time.Minute
 	// DefaultProofInterval is how often a healthy unit publishes a proof.
-	DefaultProofInterval = 15 * time.Second
+	DefaultProofInterval = 5 * time.Second
 	healthClockSkew      = time.Minute
 	// incarnationQuiet is how long a unit's newest incarnation must have
 	// been silent before a new incarnation whose clock reads earlier
@@ -166,6 +166,9 @@ type Collector struct {
 	cell string
 	keys KeyResolver
 	now  func() time.Time
+	// Arrived, when set before Subscribe, is signalled after every newly
+	// accepted proof, so the executor acts without waiting for its tick.
+	Arrived chan<- struct{}
 
 	mu     sync.Mutex
 	latest map[string]HealthProof
@@ -254,6 +257,12 @@ func (c *Collector) Observe(subject string, wire []byte) error {
 			startNonce: previous.StartNonce, until: now.Add(retiredFor)})
 	}
 	c.latest[unit] = proof
+	if c.Arrived != nil {
+		select {
+		case c.Arrived <- struct{}{}:
+		default:
+		}
+	}
 	return nil
 }
 

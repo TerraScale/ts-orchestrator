@@ -546,12 +546,16 @@ rollout keeps its units and predecessor; a controller that falls behind after
 its generation completed waits for the next one. A
 rollout whose proof deadline passes rolls every touched controller back
 through `selfupdate.Restore` on the node and marks the digest known bad.
-Releases go all at once by default (`rollout.AllAtOncePolicy`, user
-decision 2026-10-06): every wave takes as many units as quorum allows, which
-for three controllers is still one, there is no soak, and a wave is promoted
-after two healthy reports from one incarnation. A unit that restarts on
-another release, or does not prove the target within five minutes, rolls
-the rollout back. `controller.rollouts.policy` overrides it. Hosts join
+`rollout.DefaultPolicy` is as fast as a binary-only update allows (user
+decision 2026-10-06): one canary soaks five minutes, then every later wave
+takes as many units as quorum allows (three controllers still move one at a
+time, the seed last) and soaks two minutes; a wave is promoted after three
+healthy reports from one incarnation. A unit that restarts on another
+release, or does not prove the target within ten minutes, rolls the rollout
+back. Units prove themselves every 5 s, and the leader's executor acts as a
+proof arrives or the rollout bucket changes (a new generation, a step reply,
+an operator's request), not only on its 5 s tick. `controller.rollouts.policy`
+overrides the policy. Hosts join
 once their steps and proofs travel over the host session. Each controller
 relays its own steps to its node's root step agent (see
 [step delivery](#step-delivery)).
@@ -617,7 +621,7 @@ status.json         the region leader's report: run, state (rolling |
    its ETag (a channel never moves to a lower run, and a repeated deployment
    of the same run renews its receipts), and CI polls `status.json`
    until the region reports the run `complete`. A `failed` report, a newer
-   run or no completion within 90 minutes stops the fleet rollout and fails
+   run or no completion within 30 minutes stops the fleet rollout and fails
    the job; later regions never see the release.
 4. `ts-orch release fleet-status --namespace NS` prints every region's
    channel and status as JSON lines.

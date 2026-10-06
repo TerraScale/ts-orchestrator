@@ -199,11 +199,14 @@ func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscel
 		}
 		return keys, nil
 	}, nil)
+	// A proof arriving or the rollout bucket changing wakes the executor.
+	wake := make(chan struct{}, 1)
+	collector.Arrived = wake
 	subscription, err := collector.Subscribe(runtime.Conn())
 	if err != nil {
 		return nil, fmt.Errorf("subscribe to rollout health proofs: %w", err)
 	}
-	policy := rollout.AllAtOncePolicy()
+	policy := rollout.DefaultPolicy()
 	if cfg.Controller.Rollouts.Policy != nil {
 		policy = *cfg.Controller.Rollouts.Policy
 	}
@@ -219,6 +222,7 @@ func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscel
 			return natscell.ServerName(cfg.NATS.Cell, unit), known[unit]
 		}},
 		Program:  c.program.Program,
+		Wake:     wake,
 		Interval: c.interval}
 	relay := &rolloutexec.Relay{KV: board, Cell: cfg.NATS.Cell, Unit: cfg.NATS.Instance, Leaders: keys, Dir: c.spool,
 		Layout: c.layout, Sources: c.binarySources(runtime.JetStream()), Interval: c.interval}
@@ -231,6 +235,7 @@ func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscel
 				slog.Error("rollout step relay stopped", observability.ComponentKey, "rollout", "error", err)
 			}
 		})
+		workers.Go(func() { wakeOnRolloutChanges(ctx, board, wake) })
 		if c.follow {
 			workers.Go(func() { c.followChannel(ctx, store, fencer, runtime.JetStream(), cfg.NATS.Replicas) })
 		}
@@ -239,6 +244,34 @@ func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscel
 		}
 		return executor.Run(ctx)
 	}, nil
+}
+
+// wakeOnRolloutChanges signals wake whenever the rollout bucket gains a
+// generation, a step reply, a rollout record or cell state, until ctx ends.
+// The leader's own step posts are left out, so they never wake it.
+func wakeOnRolloutChanges(ctx context.Context, board jetstream.KeyValue, wake chan<- struct{}) {
+	for ctx.Err() == nil {
+		watcher, err := board.WatchFiltered(ctx, []string{"release.desired", "rollout.>", "step-reply.>", "cell"},
+			jetstream.UpdatesOnly())
+		if err == nil {
+			for entry := range watcher.Updates() {
+				if entry == nil {
+					continue
+				}
+				select {
+				case wake <- struct{}{}:
+				default:
+				}
+			}
+			_ = watcher.Stop()
+		} else {
+			slog.Warn("watch the rollout bucket", observability.ComponentKey, "rollout", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(5 * time.Second):
+		}
+	}
 }
 
 // binarySources are where the step relay fetches a release the node has

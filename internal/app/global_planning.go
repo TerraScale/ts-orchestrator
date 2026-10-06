@@ -46,7 +46,7 @@ type RolloutsConfig struct {
 	// generation and reports progress in the channel's status.json. It needs
 	// Executor and the controller's OCI region.
 	Channel bool `json:"channel,omitzero"`
-	// Policy overrides rollout.AllAtOncePolicy for the executor's rollouts.
+	// Policy overrides rollout.DefaultPolicy for the executor's rollouts.
 	Policy *rollout.Policy `json:"policy,omitempty"`
 	// AllowScopedAutoSign lets the leader admit update receipts signed under
 	// a scoped binary update delegation. Set it exactly when the controllers'

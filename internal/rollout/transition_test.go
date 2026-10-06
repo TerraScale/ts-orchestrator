@@ -133,13 +133,15 @@ func TestPlanWavesKeepsQuorumAndSeedLast(t *testing.T) {
 	}
 }
 
-// All at once still keeps quorum: no wave takes two units of a group, so a
-// TerraBase pair keeps a serving seat and three controllers a majority, and
-// the seed goes last and alone.
-func TestAllAtOncePolicyMovesAsManyUnitsAsQuorumAllows(t *testing.T) {
-	policy := AllAtOncePolicy()
-	if err := policy.Validate(); err != nil || policy.CanarySoakSeconds != 0 || policy.BatchSoakSeconds != 0 {
-		t.Fatalf("all-at-once policy = %+v %v", policy, err)
+// After one canary, the default moves as many units at once as quorum
+// allows: no wave takes two units of a group, so a TerraBase pair keeps a
+// serving seat and three controllers a majority, and the seed goes last and
+// alone.
+func TestDefaultPolicyMovesAsManyUnitsAsQuorumAllows(t *testing.T) {
+	policy := DefaultPolicy()
+	if err := policy.Validate(); err != nil || policy.CanarySoakSeconds != 300 || policy.BatchSoakSeconds != 120 ||
+		policy.ProofDeadlineSeconds != 600 {
+		t.Fatalf("default policy = %+v %v", policy, err)
 	}
 	waves, err := PlanWaves(controllers(), policy)
 	if want := [][]string{{"ctrl-b"}, {"ctrl-c"}, {"ctrl-a"}}; err != nil || !slices.EqualFunc(waves, want, slices.Equal) {
@@ -147,7 +149,7 @@ func TestAllAtOncePolicyMovesAsManyUnitsAsQuorumAllows(t *testing.T) {
 	}
 	hosts := []Unit{{ID: "h1", Group: "h1"}, {ID: "h2", Group: "h2"}, {ID: "h3", Group: "h3"}}
 	waves, err = PlanWaves(append(seats(), hosts...), policy)
-	if want := [][]string{{"h1", "h2", "h3", "p1-a", "p2-a"}, {"p1-b", "p2-b"}}; err != nil || !slices.EqualFunc(waves, want, slices.Equal) {
+	if want := [][]string{{"h1"}, {"h2", "h3", "p1-a", "p2-a"}, {"p1-b", "p2-b"}}; err != nil || !slices.EqualFunc(waves, want, slices.Equal) {
 		t.Fatalf("host waves = %v %v, want %v", waves, err, want)
 	}
 }
@@ -218,7 +220,7 @@ func TestRolloutCompletesThroughCanarySoakAndBatches(t *testing.T) {
 	// A single serving proof never promotes: the soak needs time and reports.
 	at = at.Add(time.Second)
 	record = apply(t, record, Event{Kind: EventHealthy, Unit: "ctrl-b", Health: health(at, 10), At: at})
-	at = at.Add(20 * time.Minute)
+	at = at.Add(record.soakDuration() + time.Minute)
 	record = apply(t, record, Event{Kind: EventTick, At: at})
 	if record.Phase != PhaseCanarySoak {
 		t.Fatalf("one report promoted the canary: %s", record.Phase)
