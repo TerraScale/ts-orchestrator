@@ -68,9 +68,10 @@ and what is still missing.
    before its material expires. TS-550 raises `MaxValidity` to 365 days as a
    bridge. Renewal ships in these steps:
    1. **NATS TLS hot reload (done).** `natscell.ReloadingTLS` serves the
-      broker bridge, the NATS routes and the host-enrollment listener. Each
-      handshake reads the certificate, key and CA files and compares their
-      digests. A changed set is used only if the key matches and the leaf is
+      broker bridge, the NATS routes and the host-enrollment listener. At
+      most every 5 seconds, one handshake reads the certificate, key and CA
+      files and compares their digests; the others serve the current set
+      without I/O. A changed set is used only if the key matches and the leaf is
       current, has its role's usages, chains to both the new and the
       current bundle, and keeps its subject and names. Otherwise the last
       good set stays, which covers a renewal caught between its renames.

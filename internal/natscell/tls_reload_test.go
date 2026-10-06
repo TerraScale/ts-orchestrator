@@ -168,7 +168,7 @@ func TestReloadingTLSServesRenewedLeafOnly(t *testing.T) {
 	files := testTLSFiles(t)
 	certPEM, keyPEM, first := ca.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(time.Hour))
 	installTLS(t, files, certPEM, keyPEM, ca)
-	reloading, err := NewReloadingTLS(files, "listener")
+	reloading, err := newCheckingTLS(files, "listener")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestReloadingTLSRollsOverTheCA(t *testing.T) {
 	files := testTLSFiles(t)
 	certPEM, keyPEM, _ := old.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(time.Hour))
 	installTLS(t, files, certPEM, keyPEM, old)
-	reloading, err := NewReloadingTLS(files, "route")
+	reloading, err := newCheckingTLS(files, "route")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestReloadingTLSPeerConfig(t *testing.T) {
 	installTLS(t, serverFiles, serverCert, serverKey, old, next)
 	dialerCert, dialerKey, first := old.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(time.Hour))
 	installTLS(t, dialerFiles, dialerCert, dialerKey, old)
-	server, err := NewReloadingTLS(serverFiles, "route")
+	server, err := newCheckingTLS(serverFiles, "route")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +303,7 @@ func TestReloadingTLSPeerConfig(t *testing.T) {
 		conn.Close()
 		return <-presented, nil
 	}
-	dialer, err := NewReloadingTLS(dialerFiles, "route")
+	dialer, err := newCheckingTLS(dialerFiles, "route")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +325,7 @@ func TestReloadingTLSPeerConfig(t *testing.T) {
 	if _, err := route(dialer, "127.0.0.1"); err == nil {
 		t.Fatal("a running dialer trusted a CA it did not start with")
 	}
-	restarted, err := NewReloadingTLS(dialerFiles, "route")
+	restarted, err := newCheckingTLS(dialerFiles, "route")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +340,7 @@ func TestReloadingTLSKeepsTheRoleUsages(t *testing.T) {
 	files := testTLSFiles(t)
 	certPEM, keyPEM, first := ca.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(time.Hour))
 	installTLS(t, files, certPEM, keyPEM, ca)
-	route, err := NewReloadingTLS(files, "route")
+	route, err := newCheckingTLS(files, "route")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,11 +364,11 @@ func TestReloadingTLSPeerDropsACAAtOnce(t *testing.T) {
 	installTLS(t, serverFiles, serverCert, serverKey, old, next)
 	dialerCert, dialerKey, _ := next.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(time.Hour))
 	installTLS(t, dialerFiles, dialerCert, dialerKey, old, next)
-	server, err := NewReloadingTLS(serverFiles, "route")
+	server, err := newCheckingTLS(serverFiles, "route")
 	if err != nil {
 		t.Fatal(err)
 	}
-	dialer, err := NewReloadingTLS(dialerFiles, "route")
+	dialer, err := newCheckingTLS(dialerFiles, "route")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +397,7 @@ func TestReloadingTLSKeepsTheWholeSubject(t *testing.T) {
 	files := testTLSFiles(t)
 	certPEM, keyPEM, first := ca.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(time.Hour))
 	installTLS(t, files, certPEM, keyPEM, ca)
-	reloading, err := NewReloadingTLS(files, "listener")
+	reloading, err := newCheckingTLS(files, "listener")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +434,7 @@ func TestReloadingTLSDoesNotWaitForAReloadInFlight(t *testing.T) {
 	files := testTLSFiles(t)
 	certPEM, keyPEM, first := ca.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(time.Hour))
 	installTLS(t, files, certPEM, keyPEM, ca)
-	reloading, err := NewReloadingTLS(files, "listener")
+	reloading, err := newCheckingTLS(files, "listener")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +461,7 @@ func TestReloadingTLSConcurrentRenewals(t *testing.T) {
 	files := testTLSFiles(t)
 	certPEM, keyPEM, _ := ca.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(time.Hour))
 	installTLS(t, files, certPEM, keyPEM, ca)
-	reloading, err := NewReloadingTLS(files, "listener")
+	reloading, err := newCheckingTLS(files, "listener")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -530,7 +530,7 @@ func TestReloadingTLSSeesAnInPlaceRewrite(t *testing.T) {
 	files := testTLSFiles(t)
 	certPEM, keyPEM, first := ca.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(time.Hour))
 	installTLS(t, files, certPEM, keyPEM, ca)
-	reloading, err := NewReloadingTLS(files, "listener")
+	reloading, err := newCheckingTLS(files, "listener")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -564,5 +564,42 @@ func TestReloadingTLSSeesAnInPlaceRewrite(t *testing.T) {
 	}
 	if serial := reloading.material().certificate.Leaf.SerialNumber; serial.Cmp(renewed) != 0 || serial.Cmp(first) == 0 {
 		t.Fatalf("an in-place rewrite was not seen: serial %v", serial)
+	}
+}
+
+// newCheckingTLS checks the files on every handshake, so a test sees each
+// change at once.
+func newCheckingTLS(files TLSFiles, role string) (*ReloadingTLS, error) {
+	reloading, err := NewReloadingTLS(files, role)
+	if reloading != nil {
+		reloading.checkEvery = 0
+	}
+	return reloading, err
+}
+
+// Between checks no handshake reads the files; the next check sees the
+// renewal.
+func TestReloadingTLSChecksAtMostEveryInterval(t *testing.T) {
+	ca := newTestCA(t, "cell CA")
+	files := testTLSFiles(t)
+	certPEM, keyPEM, first := ca.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(time.Hour))
+	installTLS(t, files, certPEM, keyPEM, ca)
+	reloading, err := NewReloadingTLS(files, "listener")
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewedCert, renewedKey, renewed := ca.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(2*time.Hour))
+	installTLS(t, files, renewedCert, renewedKey, ca)
+	// The renewal is valid: any handshake that read the files would load it.
+	for range 100 {
+		if serial := reloading.material().certificate.Leaf.SerialNumber; serial.Cmp(first) != 0 {
+			t.Fatalf("a handshake between checks served serial %v", serial)
+		}
+	}
+	reloading.mu.Lock()
+	reloading.checkedAt = time.Now().Add(-tlsCheckEvery)
+	reloading.mu.Unlock()
+	if serial := reloading.material().certificate.Leaf.SerialNumber; serial.Cmp(renewed) != 0 {
+		t.Fatalf("the next check served serial %v, want the renewal %v", serial, renewed)
 	}
 }
