@@ -852,6 +852,11 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		if err := a.request(ctx, "cycle", query, &cycle); err != nil {
 			return err
 		}
+		if cycle.State == "held" {
+			// The running workload keeps serving until the controller
+			// grants the restart (a TerraBase seat waits for its drain).
+			return a.publishReport(ctx, a.reportFor(d, "waiting", nil))
+		}
 		if cycle.State != "active" {
 			return nil
 		}

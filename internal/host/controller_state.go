@@ -30,8 +30,11 @@ func (c *Controller) serveCycle(ctx context.Context, req request, r Registration
 	if !slices.Contains(r.Roles, query.Role) || validateDigest(query.Digest) != nil || query.Generation == 0 || query.AuthorityEpoch == 0 || len(query.Attempt) != 32 {
 		return nil, errors.New("invalid cycle query")
 	}
+	var desired Desired
 	if query.CycleID == "" {
-		desired, _, exists, err := c.readDesired(ctx, req.Node, query.Role)
+		var exists bool
+		var err error
+		desired, _, exists, err = c.readDesired(ctx, req.Node, query.Role)
 		if err != nil {
 			return nil, err
 		}
@@ -40,6 +43,9 @@ func (c *Controller) serveCycle(ctx context.Context, req request, r Registration
 		}
 	}
 	key := cycleKey(c.cell, req.Node, query.Role)
+	// granted remembers the restart gate's grant across CAS retries, so one
+	// request asks the gate at most once.
+	granted := false
 	for range 8 {
 		var old cycleRecord
 		revision, exists, err := c.get(ctx, key, &old)
@@ -80,6 +86,20 @@ func (c *Controller) serveCycle(ctx context.Context, req request, r Registration
 			}
 			if exists && old.Digest == query.Digest && old.Generation == query.Generation && old.AuthorityEpoch == query.AuthorityEpoch && time.Now().Before(old.NotBefore) {
 				return cycleReply{CycleID: old.CycleID, Fence: old.Fence, State: "backoff", NotBefore: old.NotBefore}, nil
+			}
+			// Only opening a new cycle is gated: the agent's revalidation
+			// resolves the cycle it already holds above. Managed members stop
+			// their workload before they ask, so they are never held; their
+			// drain receipts order their restarts.
+			if c.restartGate != nil && desired.ManagedMember == nil && !granted {
+				ok, err := c.restartGate(ctx, req.Node, desired)
+				if err != nil {
+					return nil, err
+				}
+				if !ok {
+					return cycleReply{State: "held"}, nil
+				}
+				granted = true
 			}
 			id, err := randomID()
 			if err != nil {

@@ -103,8 +103,18 @@ a process, and waits quietly until the cycle is `active`; it asks again
 just before launch. The controller grants a `terrabase` cycle that replaces a
 running member only when the seat holds a restart permit. Delivery, receipts,
 generations, authority epochs and the CLI rollback stay as they are. Every
-restart path that goes through `cycle` is covered, including the host's
-certificate-renewal restart.
+restart path that goes through `cycle` is covered; the host's
+certificate-renewal restart stops the member directly and must move onto
+`cycle` before slice 4 is enabled.
+
+Implemented (slice 4a): `host.ControllerConfig.RestartGate` is asked once
+per new cycle, when the controller would open it, and a grant holds across
+the request's compare-and-set retries; the host's revalidation before launch
+resolves the cycle it holds and is not asked again. A cycle it
+does not grant is answered `held`, and the host keeps the running member and
+reports it `waiting` at the new generation. Managed members stop their
+workload before they ask, so the gate never sees them; their drain receipts
+order their restarts. Nothing sets the gate yet.
 
 A leader-only seat controller hands out permits:
 

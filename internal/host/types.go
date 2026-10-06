@@ -288,6 +288,14 @@ type ControllerConfig struct {
 	ControlLog                  jetstream.Stream
 	// TerraBaseCA signs C# TerraBase member certificates; nil refuses them.
 	TerraBaseCA *terrabase.CA
+	// RestartGate, when set, is asked before a host opens a new cycle to
+	// apply desired. A cycle it does not grant is held: the host keeps its
+	// running workload and reports it waiting at the new generation, and
+	// asks again on its next poll. Nil grants every cycle. Withdrawals and
+	// managed members, which stop their workload before they ask, are never
+	// held, and a host revalidating a cycle it already holds is not asked
+	// again.
+	RestartGate func(ctx context.Context, node string, desired Desired) (bool, error)
 }
 
 // ManagedVolumeInspector independently reobserves the exact owned OCI host,

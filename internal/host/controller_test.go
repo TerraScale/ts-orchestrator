@@ -11,6 +11,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -254,7 +255,7 @@ func testController(t *testing.T) (*Controller, *nats.Conn, jetstream.ObjectStor
 	return testControllerWithVerifier(t, nil)
 }
 
-func testControllerWithVerifier(t *testing.T, verifier ManagedRegistrationVerifier) (*Controller, *nats.Conn, jetstream.ObjectStore, *memoryMutations, ed25519.PrivateKey) {
+func testControllerWithVerifier(t *testing.T, verifier ManagedRegistrationVerifier, options ...func(*ControllerConfig)) (*Controller, *nats.Conn, jetstream.ObjectStore, *memoryMutations, ed25519.PrivateKey) {
 	t.Helper()
 	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
 	if err != nil {
@@ -287,7 +288,7 @@ func testControllerWithVerifier(t *testing.T, verifier ManagedRegistrationVerifi
 		t.Fatal(err)
 	}
 	mutations := &memoryMutations{entries: make(map[string]authority.LogEntry), js: js}
-	c, err := NewController(t.Context(), ControllerConfig{
+	config := ControllerConfig{
 		Cell: "gru", Conn: conn, JS: js, ControlLog: log, Artifacts: store, ResponseKey: controllerKey,
 		StateReplicas: 1, HostMutations: verifiedMemoryMutations{memoryMutations: mutations},
 		ManagedRegistrationVerifier: verifier, ManagedDesiredVerifier: fixtureManagedDesiredVerifier,
@@ -298,7 +299,11 @@ func testControllerWithVerifier(t *testing.T, verifier ManagedRegistrationVerifi
 			return func() {}, nil
 		},
 		AuthorityEpoch: func() uint64 { return 1 }, AuthorityGuard: func(context.Context, uint64) error { return nil },
-	})
+	}
+	for _, option := range options {
+		option(&config)
+	}
+	c, err := NewController(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1752,6 +1757,217 @@ func TestAgentConvergesAndWithdrawalInvalidatesReadyReport(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("controller did not stop")
 	}
+}
+
+// TestRestartGateHoldsTheRunningWorkload checks that a cycle the restart
+// gate does not grant leaves the running workload alone while the host
+// reports it waiting at the new generation, and that the granted cycle then
+// replaces it. A failing gate grants nothing, and a grant is asked for once
+// per cycle: the host's revalidation before launch does not ask again.
+func TestRestartGateHoldsTheRunningWorkload(t *testing.T) {
+	var permitted atomic.Uint64
+	var gateErr, oneGrant atomic.Bool
+	var asked atomic.Int64
+	permitted.Store(1)
+	c, conn, store, _, controllerKey := testControllerWithVerifier(t, nil, func(config *ControllerConfig) {
+		config.RestartGate = func(_ context.Context, node string, desired Desired) (bool, error) {
+			asked.Add(1)
+			if node != "node-a" || desired.Role != "terrabase" {
+				return false, errors.New("gate asked about another seat: " + node + "/" + desired.Role)
+			}
+			if gateErr.Load() {
+				return false, errors.New("seat state unavailable")
+			}
+			return desired.Generation <= permitted.Load() || oneGrant.CompareAndSwap(true, false), nil
+		}
+	})
+	hostKey := registerTestHost(t, c)
+	data := []byte("#!/bin/sh\nsleep 30\n")
+	hash := sha256.Sum256(data)
+	digest := hex.EncodeToString(hash[:])
+	if _, err := store.PutBytes(t.Context(), "sha256-"+digest, data); err != nil {
+		t.Fatal(err)
+	}
+	desired := Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase", Digest: digest, Generation: 1, AuthorityEpoch: 1}
+	if _, err := c.ApplyDesired(t.Context(), desired); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	controllerDone := make(chan error, 1)
+	go func() { controllerDone <- c.Run(ctx) }()
+	select {
+	case <-c.Ready():
+	case err := <-controllerDone:
+		t.Fatalf("host controller failed before ready: %v", err)
+	}
+	runner := &memoryRunner{observed: make(map[string]Observation)}
+	agent, err := NewAgent(AgentConfig{NATSUserPublicKey: testNATSUserKey("node-a"), ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(),
+		Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey,
+		ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: testAgentInstallRoot(t),
+		StateRoot: testAgentStateRoot(t), PollInterval: 100 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = agent.Run(ctx) }()
+	await := func(what string, done func(report Report, applied int, running bool) bool) {
+		t.Helper()
+		deadline := time.Now().Add(15 * time.Second)
+		var last Report
+		for time.Now().Before(deadline) {
+			runner.mu.Lock()
+			applied, running := runner.applied, runner.observed["terrabase"].Running
+			runner.mu.Unlock()
+			hosts, err := c.ListHosts(t.Context())
+			if err == nil && len(hosts) == 1 && len(hosts[0].Reports) == 1 {
+				last = hosts[0].Reports[0]
+				if done(last, applied, running) {
+					return
+				}
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+		t.Fatalf("%s: last report %+v", what, last)
+	}
+	await("first launch", func(r Report, applied int, _ bool) bool {
+		return r.Generation == 1 && r.State == "running" && applied == 1
+	})
+
+	changed := desired
+	changed.Generation = 2
+	changed.Env = map[string]string{"TS_MODE": "test"}
+	if _, err := c.ApplyDesired(t.Context(), changed); err != nil {
+		t.Fatal(err)
+	}
+	await("held restart", func(r Report, applied int, running bool) bool {
+		return r.Generation == 2 && r.State == "waiting" && applied == 1 && running
+	})
+	gateErr.Store(true)
+	before := asked.Load()
+	await("failing gate", func(_ Report, applied int, running bool) bool {
+		return asked.Load() > before+2 && applied == 1 && running
+	})
+	gateErr.Store(false)
+	runner.mu.Lock()
+	if runner.applied != 1 {
+		runner.mu.Unlock()
+		t.Fatal("a held or failing gate restarted the workload")
+	}
+	runner.mu.Unlock()
+
+	oneGrant.Store(true)
+	await("granted restart", func(r Report, applied int, running bool) bool {
+		return r.Generation == 2 && r.State == "running" && applied == 2 && running
+	})
+}
+
+// cycleConflictState fails the next cycle-record writes with a CAS
+// conflict, as a concurrent writer would.
+type cycleConflictState struct {
+	jetstream.KeyValue
+	conflicts atomic.Int32
+}
+
+func (s *cycleConflictState) conflict(key string) bool {
+	return strings.HasPrefix(key, "cycle.") && s.conflicts.Add(-1) >= 0
+}
+
+func (s *cycleConflictState) Create(ctx context.Context, key string, value []byte, opts ...jetstream.KVCreateOpt) (uint64, error) {
+	if s.conflict(key) {
+		return 0, jetstream.ErrKeyExists
+	}
+	return s.KeyValue.Create(ctx, key, value, opts...)
+}
+
+func (s *cycleConflictState) Update(ctx context.Context, key string, value []byte, revision uint64) (uint64, error) {
+	if s.conflict(key) {
+		return 0, jetstream.ErrKeyRevisionMismatch
+	}
+	return s.KeyValue.Update(ctx, key, value, revision)
+}
+
+// TestRestartGateNeverHoldsAManagedMember checks that a managed member's
+// cycle is never put to the restart gate: the managed path stops the
+// workload before it asks, so a hold there would be an outage. The same
+// gate holds a static member's cycle.
+func TestRestartGateNeverHoldsAManagedMember(t *testing.T) {
+	var asked atomic.Int64
+	var oneGrant atomic.Bool
+	c, conn, store, mutations, controllerKey := testControllerWithVerifier(t, nil, func(config *ControllerConfig) {
+		config.RestartGate = func(context.Context, string, Desired) (bool, error) {
+			asked.Add(1)
+			return oneGrant.CompareAndSwap(true, false), nil
+		}
+	})
+	hostKey := registerTestHost(t, c)
+	data := []byte("#!/bin/sh\nexit 0\n")
+	hash := sha256.Sum256(data)
+	digest := hex.EncodeToString(hash[:])
+	if _, err := store.PutBytes(t.Context(), "sha256-"+digest, data); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+	select {
+	case <-c.Ready():
+	case err := <-done:
+		t.Fatalf("controller stopped before ready: %v", err)
+	}
+	agent, err := NewAgent(AgentConfig{NATSUserPublicKey: testNATSUserKey("node-a"), ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(),
+		Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey,
+		ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: &memoryRunner{observed: make(map[string]Observation)},
+		InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.acquire(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	key := desiredSubjectKey("gru", "node-a", "terrabase")
+	cycle := func(generation uint64, managed bool) cycleReply {
+		t.Helper()
+		d := Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase", Digest: digest, Generation: generation, AuthorityEpoch: 1}
+		if managed {
+			// The cycle only reads the binding's presence; the launch is
+			// checked where the host runs it.
+			d.ManagedMember = &ManagedMemberLaunch{}
+		}
+		payload, err := json.Marshal(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		current, _ := mutations.ReadHostMutation(t.Context(), authority.MutationDesired, key)
+		if _, err := mutations.CommitHostMutation(t.Context(), 1, authority.MutationDesired, key, "op-"+strconv.FormatUint(generation, 10), current.Sequence, payload); err != nil {
+			t.Fatal(err)
+		}
+		attempt, err := randomID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var reply cycleReply
+		if err := agent.request(t.Context(), "cycle", cycleQuery{Role: "terrabase", Digest: digest, Generation: generation, AuthorityEpoch: 1, Attempt: attempt}, &reply); err != nil {
+			t.Fatal(err)
+		}
+		return reply
+	}
+	if reply := cycle(1, true); reply.State != "active" || asked.Load() != 0 {
+		t.Fatalf("managed member: %+v, gate asked %d times", reply, asked.Load())
+	}
+	if reply := cycle(2, false); reply.State != "held" || asked.Load() != 1 {
+		t.Fatalf("static member: %+v, gate asked %d times", reply, asked.Load())
+	}
+	// A grant survives a CAS retry: the request asks the gate once.
+	conflicting := &cycleConflictState{KeyValue: c.state}
+	conflicting.conflicts.Store(1)
+	c.state = conflicting
+	oneGrant.Store(true)
+	if reply := cycle(3, false); reply.State != "active" || asked.Load() != 2 {
+		t.Fatalf("granted cycle after a CAS conflict: %+v, gate asked %d times", reply, asked.Load())
+	}
+	cancel()
+	<-done
 }
 
 func TestArtifactFetchRejectsWithdrawalAfterInitialRead(t *testing.T) {
