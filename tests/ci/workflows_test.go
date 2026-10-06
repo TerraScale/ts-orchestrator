@@ -352,6 +352,8 @@ func TestImageDispatchOnlyForChangedInputs(t *testing.T) {
 		{"unchanged", "image.yml", "push", releases, "0", false, true},
 		{"changed", "image.yml", "push", releases, "1", true, true},
 		{"comparison failed", "image.yml", "push", releases, "128", true, true},
+		// The gate script exits 1 on its own failure; only 3 means unchanged.
+		{"gate failed", "image.yml", "push", releases, "crash", true, false},
 		{"no image release", "image.yml", "push", `[{"tag_name":"ci-x"}]`, "0", true, false},
 		{"unreadable releases", "image.yml", "push", "fail", "0", true, false},
 		{"weekly", "image.yml", "schedule", releases, "0", true, false},
@@ -365,6 +367,9 @@ if [[ $* == *dispatches* ]]; then printf '%s' "${!#}" > "$MOCK_ROOT/url"; printf
 [[ $MOCK_RELEASES != fail ]] || exit 22
 printf '%s' "$MOCK_RELEASES"
 `), 0o755)
+			if tc.diff == "crash" {
+				script.Write(t, filepath.Join(bin, "base64"), []byte("#!/usr/bin/env bash\nexit 1\n"), 0o755)
+			}
 			script.Write(t, filepath.Join(bin, "git"), []byte(`#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$MOCK_ROOT/git"
 case $1 in

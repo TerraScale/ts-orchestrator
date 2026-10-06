@@ -20,7 +20,7 @@ workflow=${1:-image.yml}
 if [[ $workflow == image.yml && ${GITHUB_EVENT_NAME:-} != schedule ]]; then
 	status=0
 	bash "$(dirname -- "$0")/image-inputs-changed.sh" || status=$?
-	if ((status == 1)); then
+	if ((status == 3)); then
 		echo "image.yml not dispatched for $GITHUB_SHA"
 		exit 0
 	fi

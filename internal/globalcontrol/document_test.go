@@ -21,19 +21,28 @@ func TestDocumentsRelayExactBytesAsNextGenerations(t *testing.T) {
 	}
 	epoch := global.Current().Epoch
 	for name, put := range map[string]func() error{
-		"roster kind": func() error { _, err := writer.PutDocument(ctx, epoch, KindRoster, "sfo", []byte("x")); return err },
+		"roster kind": func() error {
+			_, err := writer.PutDocument(ctx, epoch, KindRoster, "sfo", []byte("x"), nil)
+			return err
+		},
 		"global cell": func() error {
-			_, err := writer.PutDocument(ctx, epoch, KindCellSpec, "global", []byte("x"))
+			_, err := writer.PutDocument(ctx, epoch, KindCellSpec, "global", []byte("x"), nil)
 			return err
 		},
-		"bad cell": func() error { _, err := writer.PutDocument(ctx, epoch, KindCellSpec, "S.FO", []byte("x")); return err },
-		"empty":    func() error { _, err := writer.PutDocument(ctx, epoch, KindCellSpec, "sfo", nil); return err },
+		"bad cell": func() error {
+			_, err := writer.PutDocument(ctx, epoch, KindCellSpec, "S.FO", []byte("x"), nil)
+			return err
+		},
+		"empty": func() error { _, err := writer.PutDocument(ctx, epoch, KindCellSpec, "sfo", nil, nil); return err },
 		"oversized": func() error {
-			_, err := writer.PutDocument(ctx, epoch, KindCellSpec, "sfo", make([]byte, maxRecordBytes+1))
+			_, err := writer.PutDocument(ctx, epoch, KindCellSpec, "sfo", make([]byte, maxRecordBytes+1), nil)
 			return err
 		},
-		"foreign epoch": func() error { _, err := writer.PutDocument(ctx, epoch+1, KindCellSpec, "sfo", []byte("x")); return err },
-		"zero epoch":    func() error { _, err := writer.PutDocument(ctx, 0, KindCellSpec, "sfo", []byte("x")); return err },
+		"foreign epoch": func() error {
+			_, err := writer.PutDocument(ctx, epoch+1, KindCellSpec, "sfo", []byte("x"), nil)
+			return err
+		},
+		"zero epoch": func() error { _, err := writer.PutDocument(ctx, 0, KindCellSpec, "sfo", []byte("x"), nil); return err },
 	} {
 		if err := put(); err == nil {
 			t.Errorf("%s document was written", name)
@@ -44,11 +53,11 @@ func TestDocumentsRelayExactBytesAsNextGenerations(t *testing.T) {
 	}
 
 	first := []byte(`{"spec":"g1"}`)
-	sequence, err := writer.PutDocument(ctx, epoch, KindCellSpec, "sfo", first)
+	sequence, err := writer.PutDocument(ctx, epoch, KindCellSpec, "sfo", first, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again, err := writer.PutDocument(ctx, epoch, KindCellSpec, "sfo", first); err != nil || again != sequence {
+	if again, err := writer.PutDocument(ctx, epoch, KindCellSpec, "sfo", first, nil); err != nil || again != sequence {
 		t.Fatalf("idempotent retry = %d, %v; want %d", again, err, sequence)
 	}
 	document, err := writer.Document(ctx, KindCellSpec, "sfo")
@@ -58,12 +67,12 @@ func TestDocumentsRelayExactBytesAsNextGenerations(t *testing.T) {
 	}
 	// The largest payload fits the stream's message bound once base64'd.
 	largest := bytes.Repeat([]byte("s"), maxRecordBytes)
-	if _, err := writer.PutDocument(ctx, epoch, KindCellSpec, "sfo", largest); err != nil {
+	if _, err := writer.PutDocument(ctx, epoch, KindCellSpec, "sfo", largest, nil); err != nil {
 		t.Fatalf("largest document: %v", err)
 	}
 	// Republishing an older payload is a new generation: ordering a
 	// document is the verifier's job, never the relay's.
-	if _, err := writer.PutDocument(ctx, epoch, KindCellSpec, "sfo", first); err != nil {
+	if _, err := writer.PutDocument(ctx, epoch, KindCellSpec, "sfo", first, nil); err != nil {
 		t.Fatal(err)
 	}
 	document, err = writer.Document(ctx, KindCellSpec, "sfo")
@@ -72,6 +81,25 @@ func TestDocumentsRelayExactBytesAsNextGenerations(t *testing.T) {
 	}
 	if _, err := writer.Document(ctx, KindCellSpec, "fra"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("another cell's document = %v", err)
+	}
+	// admit sees the exact stored payload, or nil, and may refuse the write.
+	refused := errors.New("refused")
+	var seen [][]byte
+	admit := func(prior []byte) error {
+		seen = append(seen, prior)
+		return refused
+	}
+	if _, err := writer.PutDocument(ctx, epoch, KindCellSpec, "sfo", []byte("refused"), admit); !errors.Is(err, refused) {
+		t.Fatalf("refused document = %v", err)
+	}
+	if _, err := writer.PutDocument(ctx, epoch, KindCellSpec, "iad", []byte("refused"), admit); !errors.Is(err, refused) {
+		t.Fatalf("refused first document = %v", err)
+	}
+	if len(seen) != 2 || !bytes.Equal(seen[0], first) || seen[1] != nil {
+		t.Fatalf("admit saw %q", seen)
+	}
+	if document, err := writer.Document(ctx, KindCellSpec, "sfo"); err != nil || !bytes.Equal(document.Payload, first) {
+		t.Fatalf("a refused document was written: %+v, %v", document, err)
 	}
 	// A record appended outside the writer has no epoch header.
 	if _, err := js.Publish(ctx, protocol.GlobalState(string(KindCellSpec), "fra"),
@@ -96,9 +124,12 @@ func TestFollowOffersTheDocumentOnEveryChangeAndRecheck(t *testing.T) {
 	if err := writer.Follow(ctx, KindRoster, "sfo", time.Hour, nil); err == nil {
 		t.Fatal("followed a non-document kind")
 	}
+	if err := writer.Follow(ctx, KindCellSpec, "sfo", 0, nil); err == nil {
+		t.Fatal("followed without a recheck interval")
+	}
 	put := func(cell, payload string) {
 		t.Helper()
-		if _, err := writer.PutDocument(ctx, epoch, KindCellSpec, cell, []byte(payload)); err != nil {
+		if _, err := writer.PutDocument(ctx, epoch, KindCellSpec, cell, []byte(payload), nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -181,7 +212,7 @@ func TestOpenHomeRaisesAnOldMessageBound(t *testing.T) {
 		t.Fatalf("message bound = %+v, %v", info, err)
 	}
 	if _, err := writer.PutDocument(ctx, global.Current().Epoch, KindCellSpec, "sfo",
-		bytes.Repeat([]byte("s"), maxRecordBytes)); err != nil {
+		bytes.Repeat([]byte("s"), maxRecordBytes), nil); err != nil {
 		t.Fatalf("largest document after the raise: %v", err)
 	}
 }

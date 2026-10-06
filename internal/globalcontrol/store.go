@@ -271,7 +271,7 @@ func (w *Writer) PutRoster(ctx context.Context, epoch uint64, roster Roster) (ui
 	if err != nil {
 		return 0, err
 	}
-	return w.put(ctx, epoch, KindRoster, RosterKey, roster.Generation, payload)
+	return w.put(ctx, epoch, KindRoster, RosterKey, roster.Generation, payload, nil)
 }
 
 // PutDirectory writes the next generation of a partition's directory entry.
@@ -291,7 +291,7 @@ func (w *Writer) PutDirectory(ctx context.Context, epoch uint64, entry Directory
 	if err != nil {
 		return 0, err
 	}
-	return w.put(ctx, epoch, KindDirectory, entry.Key(), entry.Generation, payload)
+	return w.put(ctx, epoch, KindDirectory, entry.Key(), entry.Generation, payload, nil)
 }
 
 // Fence appends the term barrier for epoch unless the stream already holds
@@ -414,8 +414,11 @@ func wrongLastSequence(err error) bool {
 
 // put appends payload as the record's next generation. Generation 0 means
 // the stored generation plus one: an identical payload is then a retry, and
-// any other payload is the next generation.
-func (w *Writer) put(ctx context.Context, epoch uint64, kind Kind, key string, generation uint64, payload []byte) (uint64, error) {
+// any other payload is the next generation. admit, when set, may refuse
+// the write after seeing the stored payload the append is conditional on.
+func (w *Writer) put(ctx context.Context, epoch uint64, kind Kind, key string, generation uint64, payload []byte,
+	admit func(prior []byte) error,
+) (uint64, error) {
 	if epoch == 0 {
 		return 0, authority.ErrFenced
 	}
@@ -447,6 +450,11 @@ func (w *Writer) put(ctx context.Context, epoch uint64, kind Kind, key string, g
 		}
 		if epoch < prior.Epoch {
 			return 0, authority.ErrFenced
+		}
+		if admit != nil {
+			if err := admit(prior.Payload); err != nil {
+				return 0, err
+			}
 		}
 		data, err := protocol.EncodeJSON(record{
 			Version: recordVersion, Kind: kind, Key: key, Generation: next, Epoch: epoch, Payload: payload,

@@ -130,7 +130,8 @@ To add a kind:
 3. The home region writes it only from its global leader
    (`global.authority.Current().CanMutate()`, `PutDocument` with that
    epoch). When the payload carries a generation, the home's handler
-   refuses one older than the document already waiting, as
+   refuses one older than the document already waiting, through
+   `PutDocument`'s `admit` check, which the append is conditional on, as
    `relayCellSpec` does.
 4. The target follows it with `Reader.Follow`, using an **idempotent**
    apply that acts only on its authority leader and logs a refusal once.

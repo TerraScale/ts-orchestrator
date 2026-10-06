@@ -159,26 +159,30 @@ func relayCellSpec(ctx context.Context, wire []byte, policy signerPolicy, global
 	if target != cell {
 		return specReply{}, fmt.Errorf("the spec is for cell %q, not %q", target, cell)
 	}
+	// A spec this binary cannot decode never travels, unless it only needs
+	// a newer binary than the home runs: the target may understand it.
+	spec, err := cellspec.Candidate(relay.Payload)
+	if newer := (*cellspec.NewerBinaryError)(nil); err != nil && !errors.As(err, &newer) {
+		return specReply{}, fmt.Errorf("decode the relayed cell spec: %w", err)
+	}
+	spec.Generation = generation
 	// An older spec never displaces the one waiting; an equal generation
-	// may (a renewed signature).
-	stored, err := global.writer.Document(ctx, globalcontrol.KindCellSpec, target)
-	switch {
-	case errors.Is(err, globalcontrol.ErrNotFound):
-	case err != nil:
-		return specReply{}, err
-	default:
+	// may (a renewed signature). The append is conditional on the record
+	// this check saw.
+	olderThanWaiting := func(prior []byte) error {
 		var waiting protocol.Envelope
-		if protocol.DecodeStrict(stored.Payload, &waiting, maxRegistrationWireBytes) == nil {
-			if _, pending, err := relayTarget(waiting.Payload); err == nil && generation < pending {
-				return specReply{}, fmt.Errorf("cell %s already has generation %d waiting; generation %d is older",
-					target, pending, generation)
-			}
+		if prior == nil || protocol.DecodeStrict(prior, &waiting, maxRegistrationWireBytes) != nil {
+			return nil
 		}
+		if _, pending, err := relayTarget(waiting.Payload); err == nil && generation < pending {
+			return fmt.Errorf("cell %s already has generation %d waiting; generation %d is older", target, pending, generation)
+		}
+		return nil
 	}
-	if _, err := global.writer.PutDocument(ctx, request.Epoch, globalcontrol.KindCellSpec, target, request.Payload); err != nil {
+	if _, err := global.writer.PutDocument(ctx, request.Epoch, globalcontrol.KindCellSpec, target, request.Payload,
+		olderThanWaiting); err != nil {
 		return specReply{}, err
 	}
-	spec, _ := cellspec.Candidate(relay.Payload)
 	slog.Info("cell spec relayed", observability.ComponentKey, "cellspec", "actor", actor, "cell", target,
 		"generation", generation)
 	return specReply{Spec: spec, Status: "relayed"}, nil

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Decide whether GITHUB_SHA needs a new host image. Exit 0 to build: an
-# image input differs from the source of the newest image release, there is
-# no image release, or the comparison failed. Exit 1 when every input is
-# unchanged. Orchestrator code alone never needs an image: running nodes
+# Decide whether GITHUB_SHA needs a new host image. Exit 3 when every image
+# input is unchanged since the source of the newest image release. Any other
+# status builds: a changed input, no image release, a failed comparison or a
+# failure of this script itself. Orchestrator code alone never needs an image: running nodes
 # take new binaries through self-update, and a new node updates after its
 # first boot.
 #
@@ -10,6 +10,7 @@
 # push cancels a running ci.yml check, and a change the cancelled run carried
 # must still produce an image.
 set -euo pipefail
+unchanged=3
 
 # Everything an image bakes in besides the binary: the pinned base and
 # inputs, the units and udev rules it installs, and the code that builds it.
@@ -27,29 +28,30 @@ printf 'Authorization: token %s\n' "$FORGEJO_TOKEN" > "$header"
 
 # Releases list newest first; ci-<sha> releases outnumber image releases.
 base=
+page_size=50
 for page in {1..10}; do
 	if ! releases=$(curl --silent --show-error --fail --max-time 30 -H "@$header" \
-		"$FORGEJO_SERVER_URL/api/v1/repos/$repository/releases?limit=50&page=$page"); then
+		"$FORGEJO_SERVER_URL/api/v1/repos/$repository/releases?limit=$page_size&page=$page"); then
 		echo 'image releases are unreadable; building the image' >&2
 		exit 0
 	fi
 	base=$(jq -r 'first(.[].tag_name | capture("^image-(?<sha>[0-9a-f]{40})-run-").sha) // empty' <<< "$releases" 2>/dev/null) || base=
 	[[ -n $base ]] && break
-	[[ $(jq -r 'length' <<< "$releases" 2>/dev/null) == 50 ]] || break
+	[[ $(jq -r 'length' <<< "$releases" 2>/dev/null) == "$page_size" ]] || break
 done
 [[ -n $base ]] || { echo 'no image release found; building the image'; exit 0; }
 
 # Both trees are fetched one level deep; diffing two trees needs no history.
 auth=$(printf 'x-access-token:%s' "$FORGEJO_TOKEN" | base64 -w 0)
 if ! GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-	git fetch --quiet --no-tags --depth=1 origin "$base"; then
+	timeout 120 git fetch --quiet --no-tags --depth=1 origin "$base"; then
 	echo "image release source $base is unreadable; building the image" >&2
 	exit 0
 fi
 status=0
 git diff --quiet "$base" "$GITHUB_SHA" -- "${inputs[@]}" || status=$?
 case $status in
-	0) echo "image inputs are unchanged since the image of $base"; exit 1 ;;
+	0) echo "image inputs are unchanged since the image of $base"; exit "$unchanged" ;;
 	1) echo "image inputs changed since the image of $base:"
 	   git diff --name-only "$base" "$GITHUB_SHA" -- "${inputs[@]}" || true ;;
 	*) echo "comparing with the image of $base failed; building the image" >&2 ;;

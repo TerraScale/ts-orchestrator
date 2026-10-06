@@ -125,7 +125,7 @@ func TestRelayedCellSpecReachesTheSpokeThroughPartitions(t *testing.T) {
 	}()
 	publish := func(wire []byte) time.Time {
 		t.Helper()
-		if _, err := writer.PutDocument(ctx, epoch, globalcontrol.KindCellSpec, "sfo", wire); err != nil {
+		if _, err := writer.PutDocument(ctx, epoch, globalcontrol.KindCellSpec, "sfo", wire, nil); err != nil {
 			t.Fatal(err)
 		}
 		return time.Now()

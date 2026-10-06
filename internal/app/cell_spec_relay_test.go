@@ -16,6 +16,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -162,6 +163,20 @@ func TestRelayedCellSpecNeedsTheTargetsOwnTrust(t *testing.T) {
 	other := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "lab-fra", Cell: "fra", Environment: "test"})
 	fraSpec := mustRead(t, other.sign(t, dir, cellspec.Spec{Schema: cellspec.Schema, Identity: other.identity,
 		Generation: 1, RequiresBinary: 1}))
+	// A signed envelope for SFO's spec scope whose payload is no spec.
+	now := time.Now().UTC().Truncate(time.Second)
+	garbageEnvelope, err := trust.Sign([]byte(`{"generation":5}`), keys.identity.Scope(), now, now.Add(time.Hour), keys.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	garbageSpec, err := trust.EncodeEnvelope(garbageEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	garbage, err := protocol.EncodeJSON(cellspec.Signed{Spec: garbageSpec})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for name, tc := range map[string]struct {
 		region string
 		signed []byte
@@ -170,6 +185,7 @@ func TestRelayedCellSpecNeedsTheTargetsOwnTrust(t *testing.T) {
 		"not a peer":          {"fra", fraSpec, "not an interregion peer"},
 		"another cell's spec": {"sfo", fraSpec, `is for cell "fra"`},
 		"not a spec":          {"sfo", []byte(`{"spec":"x"}`), "cell spec envelope"},
+		"undecodable spec":    {"sfo", garbage, "decode the relayed cell spec"},
 	} {
 		if _, err := publish("ops", opsPrivate, tc.region, tc.signed); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: relay = %v, want %q", name, err, tc.want)
