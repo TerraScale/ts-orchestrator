@@ -20,7 +20,9 @@ StandardError=journal+console
 TimeoutStartSec=120s
 UMask=0077
 NoNewPrivileges=yes
-CapabilityBoundingSet=CAP_CHOWN
+# CAP_DAC_READ_SEARCH reads the adopted root chain in the controller's 0700 state
+# directory (bootstrapstart.RootChainFile); root here has no other DAC bypass.
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_READ_SEARCH
 AmbientCapabilities=
 ProtectSystem=strict
 ReadWritePaths=/etc/terrascale-orchestrator

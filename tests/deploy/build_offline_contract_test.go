@@ -195,3 +195,14 @@ func TestOfflineHostSandboxWritableManagedPathOnly(t *testing.T) {
 	}
 	absent(t, filepath.Join(denied, "created"))
 }
+
+// The config installer runs as root without DAC override, yet it reads the
+// adopted root chain in the controller's 0700 state directory on every boot
+// (bootstrapstart.RootChainFile); without read-search it fails with EACCES
+// and no controller is ever admitted.
+func TestOfflineConfigInstallerCanReadTheAdoptedRootChain(t *testing.T) {
+	install := string(read(t, filepath.Join(deployRoot(t), "deploy/systemd/terrascale-orchestrator-controller-install.service")))
+	contains(t, install, "CapabilityBoundingSet=CAP_CHOWN CAP_DAC_READ_SEARCH\n")
+	controller := string(read(t, filepath.Join(deployRoot(t), "deploy/systemd/terrascale-orchestrator-controller.service")))
+	contains(t, controller, "StateDirectory=terrascale-orchestrator-controller\nStateDirectoryMode=0700\n")
+}
