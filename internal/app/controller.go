@@ -83,10 +83,6 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if cfg.NATS.Embedded == nil {
 		return errors.New("controller run requires an embedded regional NATS server")
 	}
-	// A defaulted executor that cannot start never stops the controller;
-	// one the signed config asks for does.
-	defaultRollouts := cfg.Controller.Rollouts == nil
-	cfg.Controller.Rollouts = rolloutSettings(cfg)
 	artifactStoreMaxBytes := cfg.Controller.ArtifactStoreMaxBytes
 	if artifactStoreMaxBytes < 0 {
 		return errors.New("controller artifact_store_max_bytes must be positive when set")
@@ -105,6 +101,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return err
 	}
+	// Default the rollouts only after the managed config check, which
+	// re-encodes cfg against the signed manifest digest. A defaulted executor
+	// that cannot start never stops the controller; one the signed config
+	// asks for does.
+	defaultRollouts := cfg.Controller.Rollouts == nil
+	cfg.Controller.Rollouts = rolloutSettings(cfg)
 	// A managed TerraBase controller needs no generic delivery profile.
 	if managed == nil && len(cfg.Controller.Workloads) == 0 {
 		return errors.New("controller requires a managed placement config or explicit workload profiles")
