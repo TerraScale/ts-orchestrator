@@ -14,7 +14,10 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 )
 
-var generationNow = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+// generationNow is the real clock: the fixture's NATS JWTs are always issued
+// now (jwt.Encode stamps iat itself), and a check at a fixed earlier instant
+// would see them issued in the future.
+var generationNow = time.Now().UTC().Truncate(time.Second)
 
 func generationExpectation() bootstrap.MaterialGenerationExpectation {
 	return bootstrap.MaterialGenerationExpectation{DeploymentID: "gru-1-deployment", Environment: "production",

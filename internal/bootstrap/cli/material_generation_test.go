@@ -22,7 +22,9 @@ import (
 // chain it wrote; material that differs from its pins, a missing or wrong
 // chain and a mismatched root key are refused, and no output is written.
 func TestSignMaterialGeneration(t *testing.T) {
-	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	// The fixture's NATS JWTs are always issued now (jwt.Encode stamps iat
+	// itself), so the check runs on the real clock.
+	now := time.Now().UTC().Truncate(time.Second)
 	directory := t.TempDir()
 	rootPublic, rootPrivate, _ := ed25519.GenerateKey(rand.Reader)
 	publicDER, _ := x509.MarshalPKIXPublicKey(rootPublic)
