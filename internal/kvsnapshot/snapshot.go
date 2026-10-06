@@ -28,6 +28,10 @@ type Snapshotter struct {
 	Buckets  []string
 	Leader   func() bool
 	Interval time.Duration
+	// Schedule, when set, returns the current interval and pause; Run reads
+	// it at least every five seconds, so a change applies without a
+	// restart.
+	Schedule func() (time.Duration, bool)
 	Now      func() time.Time
 
 	uploaded map[string]upload
@@ -48,10 +52,21 @@ func (snapshotter *Snapshotter) Run(ctx context.Context) error {
 	if snapshotter.JS == nil || snapshotter.Objects == nil || snapshotter.Leader == nil || snapshotter.Interval <= 0 {
 		return errors.New("kv snapshotter requires JetStream, Object Storage, a leader check and an interval")
 	}
-	ticker := time.NewTicker(snapshotter.Interval)
+	ticker := time.NewTicker(min(snapshotter.Interval, 5*time.Second))
 	defer ticker.Stop()
+	var last time.Time
+	paused := false
 	for {
-		if snapshotter.Leader() {
+		interval, pause := snapshotter.Interval, false
+		if snapshotter.Schedule != nil {
+			interval, pause = snapshotter.Schedule()
+		}
+		if pause != paused {
+			slog.Warn("kv snapshot schedule changed", "paused", pause)
+			paused = pause
+		}
+		if !paused && snapshotter.Leader() && time.Since(last) >= interval {
+			last = time.Now()
 			written, err := snapshotter.SnapshotOnce(ctx)
 			if err != nil && ctx.Err() == nil {
 				slog.Warn("kv snapshot failed", "error", err)

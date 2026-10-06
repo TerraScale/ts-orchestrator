@@ -61,6 +61,9 @@ type specRegistry struct {
 	changed func(map[string]WorkloadProfile, []workload.ServiceSpec)
 	// pools are the signed config's node pools; a budget needs each priced.
 	pools []hostpool.NodePool
+	// snapshots is whether the signed config sets a kv_snapshot location,
+	// which a kv_snapshot schedule needs.
+	snapshots bool
 
 	mu       sync.Mutex
 	current  cellspec.Spec
@@ -80,7 +83,7 @@ type specReply struct {
 
 func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 	r := &specRegistry{cell: cfg.NATS.Cell, fixed: map[string]WorkloadProfile{},
-		signers: map[string]TrustedSignerConfig{}}
+		signers: map[string]TrustedSignerConfig{}, snapshots: cfg.Controller.KVSnapshot.Enabled}
 	for _, grant := range cfg.Controller.TrustedSigners {
 		r.signers[grant.Actor] = grant
 	}
@@ -378,6 +381,9 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 	if err := r.validateHostGrants(spec.HostGrants, profiles); err != nil {
 		return err
 	}
+	if spec.KVSnapshot != nil && !r.snapshots {
+		return errors.New("a kv_snapshot schedule needs the signed controller config's kv_snapshot location")
+	}
 	for _, pool := range r.pools {
 		if pool.HostMonthlyCents == 0 && spec.Budget != nil {
 			return fmt.Errorf("node pool %q has no host_monthly_cents, so a budget would hold all its launches", pool.Name)
@@ -486,6 +492,21 @@ func (r *specRegistry) budget() *hostpool.Budget {
 	}
 	budget := *r.current.Budget
 	return &budget
+}
+
+// kvSnapshot is the current spec's snapshot interval, or signed when the
+// spec sets none, and whether a root paused the uploads.
+func (r *specRegistry) kvSnapshot(signed time.Duration) (time.Duration, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	schedule := r.current.KVSnapshot
+	if schedule == nil {
+		return signed, false
+	}
+	if schedule.IntervalSeconds != 0 {
+		signed = time.Duration(schedule.IntervalSeconds) * time.Second
+	}
+	return signed, schedule.Paused
 }
 
 func (r *specRegistry) profiles() map[string]WorkloadProfile {

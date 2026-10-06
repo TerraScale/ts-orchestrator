@@ -45,8 +45,9 @@ const (
 	// BinaryLevel is the highest requires_binary this binary understands.
 	// A change that adds a section raises it, and amendments that use the
 	// section require the new level.
-	// Level 2 adds profile secrets, level 3 the budget, level 4 host images.
-	BinaryLevel = 4
+	// Level 2 adds profile secrets, level 3 the budget, level 4 host images,
+	// level 5 the kv_snapshot schedule.
+	BinaryLevel = 5
 	// MaxHostImages bounds the image allow-list: the images a rollout moves
 	// between, plus room to stage the next one.
 	MaxHostImages = 4
@@ -151,6 +152,17 @@ type Spec struct {
 	// launch hosts within.
 	Budget     *hostpool.Budget `json:"budget,omitempty"`
 	HostImages []HostImage      `json:"host_images,omitempty"`
+	// KVSnapshot schedules the configuration bucket snapshots.
+	KVSnapshot *KVSnapshot `json:"kv_snapshot,omitempty"`
+}
+
+// KVSnapshot is how often the authority leader uploads changed
+// configuration buckets, and a pause. Zero IntervalSeconds keeps the signed
+// controller config's interval. The location stays in the signed config: a
+// rebuilt cell restores from it before any KV bucket exists.
+type KVSnapshot struct {
+	IntervalSeconds int  `json:"interval_seconds,omitzero"`
+	Paused          bool `json:"paused,omitzero"`
 }
 
 // Signed is what an operator applies and what controllers store, as exact
@@ -220,6 +232,10 @@ func (s Spec) Validate() error {
 		if err := s.Budget.Validate(); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalid, err)
 		}
+	}
+	if snapshot := s.KVSnapshot; snapshot != nil && snapshot.IntervalSeconds != 0 &&
+		(snapshot.IntervalSeconds < 5 || snapshot.IntervalSeconds > 3600) {
+		return fmt.Errorf("%w: kv_snapshot interval_seconds must be 0 or 5 to 3600", ErrInvalid)
 	}
 	addresses := map[string]bool{}
 	for index, grant := range s.HostGrants {
@@ -296,8 +312,9 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 }
 
 // Level is the lowest requires_binary the spec's sections need: 2 once a
-// profile names Vault secrets, 3 with a budget and 4 once it allows host
-// images, which an older binary could not read.
+// profile names Vault secrets, 3 with a budget, 4 once it allows host
+// images and 5 with a kv_snapshot schedule, which an older binary could not
+// read.
 func (s Spec) Level() uint64 {
 	level := uint64(1)
 	for _, service := range s.Services {
@@ -310,6 +327,9 @@ func (s Spec) Level() uint64 {
 	}
 	if len(s.HostImages) != 0 {
 		level = 4
+	}
+	if s.KVSnapshot != nil {
+		level = max(level, 5)
 	}
 	return level
 }
@@ -544,7 +564,9 @@ func verifyDelegated(delegationWire []byte, specEnvelope trust.Envelope, roots t
 //     which binds membership, listeners, member certificates and the
 //     credentials and token issuers TerraBase trusts;
 //   - any budget change but a lower cap in the same currency, since the
-//     budget bounds what the cell may spend on hosts.
+//     budget bounds what the cell may spend on hosts;
+//   - pausing kv_snapshot, since a rebuilt cell restores only what was
+//     uploaded.
 //
 // Everything else is an ordinary change.
 func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
@@ -575,6 +597,9 @@ func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
 	}
 	if change := budgetChange(current.Budget, next.Budget); change != "" && change != "lowered" {
 		changes = append(changes, "budget")
+	}
+	if next.KVSnapshot != nil && next.KVSnapshot.Paused && (current.KVSnapshot == nil || !current.KVSnapshot.Paused) {
+		changes = append(changes, "kv_snapshot pause")
 	}
 	effective := func(spec Spec) Profile {
 		if service, ok := spec.Find(terrabase.Role); ok {
@@ -622,6 +647,9 @@ type Plan struct {
 	Budget string `json:"budget,omitempty"`
 	// HostImages names each image the allow-list adds, changes or removes.
 	HostImages []string `json:"host_images,omitempty"`
+	// KVSnapshot is "added", "updated" or "removed" when the kv_snapshot
+	// schedule changes.
+	KVSnapshot string `json:"kv_snapshot,omitempty"`
 	// RootRequired lists the authority-widening changes; the amendment
 	// applies only when a root signed it.
 	RootRequired []string `json:"root_required,omitempty"`
@@ -684,6 +712,14 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 			plan.HostImages = append(plan.HostImages, id)
 		}
 	}
+	switch before, after := current.KVSnapshot, next.KVSnapshot; {
+	case before == nil && after != nil:
+		plan.KVSnapshot = "added"
+	case before != nil && after == nil:
+		plan.KVSnapshot = "removed"
+	case before != nil && *before != *after:
+		plan.KVSnapshot = "updated"
+	}
 	return plan, nil
 }
 
@@ -711,5 +747,6 @@ func budgetChange(before, after *hostpool.Budget) string {
 
 // Empty reports whether the plan changes nothing.
 func (p Plan) Empty() bool {
-	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 && p.Budget == ""
+	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 && p.Budget == "" &&
+		p.KVSnapshot == ""
 }

@@ -12,6 +12,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -588,6 +589,47 @@ func TestSnapshotRunsOnlyOnTheLeader(t *testing.T) {
 	}
 	if fake.puts != 0 {
 		t.Fatalf("follower wrote %d snapshots", fake.puts)
+	}
+}
+
+// The schedule is read while Run runs: a pause stops uploads and resuming
+// starts them again, without a restart.
+func TestSnapshotRunFollowsTheSchedule(t *testing.T) {
+	js := startJetStream(t)
+	put(t, openBucket(t, js, testBucket), "a", []byte("1"))
+	fake := newFakeObjects()
+	snapshotter := snapshotterFor(js, fake, testBucket)
+	snapshotter.Interval = 10 * time.Millisecond
+	var paused atomic.Bool
+	paused.Store(true)
+	snapshotter.Schedule = func() (time.Duration, bool) { return 10 * time.Millisecond, paused.Load() }
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- snapshotter.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+	fake.mu.Lock()
+	pausedPuts := fake.puts
+	fake.mu.Unlock()
+	if pausedPuts != 0 {
+		t.Fatalf("paused schedule wrote %d snapshots", pausedPuts)
+	}
+	paused.Store(false)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		fake.mu.Lock()
+		puts := fake.puts
+		fake.mu.Unlock()
+		if puts > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("resumed schedule wrote no snapshot")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("run = %v", err)
 	}
 }
 

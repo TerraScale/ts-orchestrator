@@ -300,7 +300,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return fmt.Errorf("start storage capacity collector: %w", err)
 	}
 	defer stopCapacity()
-	stopKVSnapshots, err := startKVSnapshots(ctx, cfg, runtime.JetStream(), control)
+	stopKVSnapshots, err := startKVSnapshots(ctx, cfg, runtime.JetStream(), control, services)
 	if err != nil {
 		return err
 	}

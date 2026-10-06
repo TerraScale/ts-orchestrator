@@ -22,6 +22,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/kvsnapshot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -678,4 +679,38 @@ func withEnv(profile WorkloadProfile, key, value string) WorkloadProfile {
 	profile.Env = maps.Clone(profile.Env)
 	profile.Env[key] = value
 	return profile
+}
+
+// A kv_snapshot schedule needs the signed snapshot location, and the
+// uploader reads the adopted spec's interval and pause.
+func TestSpecRegistryKVSnapshotSchedule(t *testing.T) {
+	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}}
+	registry, err := newSpecRegistry(cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := cellspec.Spec{Schema: cellspec.Schema, Generation: 1, RequiresBinary: 5,
+		KVSnapshot: &cellspec.KVSnapshot{IntervalSeconds: 300}}
+	if err := registry.validate(set); err == nil || !strings.Contains(err.Error(), "kv_snapshot location") {
+		t.Fatalf("schedule without a signed location: %v", err)
+	}
+	cfg.Controller.KVSnapshot = kvsnapshot.Config{Enabled: true, Region: "sa-saopaulo-1", Namespace: "ns", Bucket: "kv"}
+	if registry, err = newSpecRegistry(cfg, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.validate(set); err != nil {
+		t.Fatalf("schedule with a signed location: %v", err)
+	}
+	if interval, paused := registry.kvSnapshot(30 * time.Second); interval != 30*time.Second || paused {
+		t.Fatalf("generation 0 schedule = %s, %v", interval, paused)
+	}
+	registry.adopt(set, 1)
+	if interval, paused := registry.kvSnapshot(30 * time.Second); interval != 5*time.Minute || paused {
+		t.Fatalf("adopted schedule = %s, %v", interval, paused)
+	}
+	set.Generation, set.KVSnapshot = 2, &cellspec.KVSnapshot{Paused: true}
+	registry.adopt(set, 2)
+	if interval, paused := registry.kvSnapshot(30 * time.Second); interval != 30*time.Second || !paused {
+		t.Fatalf("paused schedule = %s, %v", interval, paused)
+	}
 }

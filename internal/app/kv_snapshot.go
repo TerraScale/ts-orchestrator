@@ -61,8 +61,11 @@ func restoreControllerKV(ctx context.Context, cfg Config, js jetstream.JetStream
 const kvRestoreAttemptTimeout = 2 * time.Minute
 
 // startKVSnapshots uploads each changed configuration bucket from the
-// authority leader. The returned stop cancels the uploader and waits for it.
-func startKVSnapshots(ctx context.Context, cfg Config, js jetstream.JetStream, control authority.Fencer) (func(), error) {
+// authority leader, on the cell spec's schedule. The returned stop cancels
+// the uploader and waits for it.
+func startKVSnapshots(ctx context.Context, cfg Config, js jetstream.JetStream, control authority.Fencer,
+	services *specRegistry,
+) (func(), error) {
 	settings := cfg.Controller.KVSnapshot
 	if !settings.Enabled {
 		return func() {}, nil
@@ -72,6 +75,7 @@ func startKVSnapshots(ctx context.Context, cfg Config, js jetstream.JetStream, c
 		return nil, fmt.Errorf("open KV snapshot storage: %w", err)
 	}
 	snapshotter := &kvsnapshot.Snapshotter{JS: js, Objects: objects, Buckets: kvsnapshot.Buckets,
-		Leader: func() bool { return control.Current().CanMutate() }, Interval: settings.Interval()}
+		Leader: func() bool { return control.Current().CanMutate() }, Interval: settings.Interval(),
+		Schedule: func() (time.Duration, bool) { return services.kvSnapshot(settings.Interval()) }}
 	return ownedLoop(ctx, "KV snapshot uploader", snapshotter.Run), nil
 }

@@ -818,3 +818,58 @@ func TestHostImagesValidateVerifyAndDiff(t *testing.T) {
 		t.Fatalf("Diff(unchanged) = %+v, %v", plan, err)
 	}
 }
+
+// A kv_snapshot schedule needs binary level 5. Pausing it needs a root,
+// since a rebuilt cell restores only what was uploaded; the interval and
+// resuming are ordinary.
+func TestKVSnapshotLevelValidateDiffAndWiden(t *testing.T) {
+	f := newFixture(t)
+	spec := testSpec(f.id, 1)
+	spec.KVSnapshot = &KVSnapshot{IntervalSeconds: 60}
+	if spec.Level() != 5 {
+		t.Fatalf("level with a kv_snapshot schedule = %d", spec.Level())
+	}
+	if _, err := Encode(spec); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Encode(kv_snapshot at level 1) = %v", err)
+	}
+	spec.RequiresBinary = 5
+	payload, err := Encode(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded, err := Decode(payload); err != nil || *decoded.KVSnapshot != *spec.KVSnapshot {
+		t.Fatalf("Decode = %+v, %v", decoded.KVSnapshot, err)
+	}
+	for _, seconds := range []int{4, 3601, -1} {
+		invalid := spec
+		invalid.KVSnapshot = &KVSnapshot{IntervalSeconds: seconds}
+		if err := invalid.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("interval %d accepted: %v", seconds, err)
+		}
+	}
+
+	unscheduled := testSpec(f.id, 1)
+	paused := &KVSnapshot{Paused: true}
+	for name, test := range map[string]struct {
+		before, after *KVSnapshot
+		change        string
+		widens        bool
+	}{
+		"add interval":  {after: spec.KVSnapshot, change: "added"},
+		"add paused":    {after: paused, change: "added", widens: true},
+		"pause":         {before: spec.KVSnapshot, after: &KVSnapshot{IntervalSeconds: 60, Paused: true}, change: "updated", widens: true},
+		"resume":        {before: paused, after: &KVSnapshot{}, change: "updated"},
+		"keep paused":   {before: paused, after: &KVSnapshot{IntervalSeconds: 3600, Paused: true}, change: "updated"},
+		"remove paused": {before: paused, change: "removed"},
+		"keep":          {before: spec.KVSnapshot, after: &KVSnapshot{IntervalSeconds: 60}},
+	} {
+		current, next := unscheduled, unscheduled
+		current.KVSnapshot, next.KVSnapshot = test.before, test.after
+		next.Generation = 2
+		plan, err := Diff(current, next, nil)
+		if err != nil || plan.KVSnapshot != test.change || plan.Empty() != (test.change == "") ||
+			slices.Equal(plan.RootRequired, []string{"kv_snapshot pause"}) != test.widens || len(plan.RootRequired) > 1 {
+			t.Errorf("%s: Diff = %+v, %v", name, plan, err)
+		}
+	}
+}

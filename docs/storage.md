@@ -157,7 +157,9 @@ The object records the stream's creation time and last sequence. A writer
 never replaces a snapshot of a newer stream or a higher sequence of the same
 stream, so a deposed leader or an old cell cannot roll it back. Only a
 changed bucket is uploaded. A change reaches Object Storage within about one
-interval; a change made in that window is lost with every controller.
+interval; a change made in that window is lost with every controller. The
+[cell spec](cell-spec.md)'s `kv_snapshot` section changes the interval, or
+pauses the uploads (root only), on running controllers.
 
 **Restore.** After the cluster forms and before authority or any store
 opens, the controller reads the plan in `TS_KV_RESTORE`. A complete plan

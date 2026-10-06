@@ -22,6 +22,7 @@ replaces the previous one as a whole.
 | `host_grants` | Static hosts outside TerraBase membership that may enroll, sorted by node (see [host grants](#host-grants)). |
 | `budget` | Optional `{monthly_cap_cents, currency}` cap on node pool launches (see [autoscaling](autoscaling.md#budget)). Every node pool needs `host_monthly_cents` first. Only lowering the cap is ordinary; any other budget change needs a root. |
 | `host_images` | Qualified images managed hosts may run besides the fleet's pinned image, sorted by image ID (see [host images](#host-images)). |
+| `kv_snapshot` | Optional `{interval_seconds, paused}` schedule of the [configuration bucket snapshots](storage.md). `interval_seconds` (5 to 3600, 0 keeps the signed config's) applies within 5 seconds. Only a root may pause the uploads; resuming and the interval are ordinary. The signed controller config keeps the location, which a rebuilt cell restores from before any KV bucket exists, and must set one. Needs binary level 5. |
 
 A **service** is one role:
 
@@ -195,7 +196,9 @@ An amendment widens authority when, relative to the spec it amends, it:
   any setting, including adding or dropping the `terrabase` entry. The
   profile binds membership, listeners and member certificates, and settings
   such as `TERRABASE_AUTH_ISSUER` or `TERRABASE_MANAGEMENT_CREDENTIAL_FILE`
-  decide which tokens and credentials TerraBase trusts.
+  decide which tokens and credentials TerraBase trusts;
+- pauses the `kv_snapshot` uploads, since a rebuilt cell restores only what
+  was uploaded.
 
 Everything else is ordinary: adding, changing and removing other services,
 removing releasers, host grants and host images. A leaf amendment keeps what a root
@@ -273,7 +276,7 @@ nothing back yet; check it with `ts-orch get` against that region.
 ## Binary levels
 
 Each ts-orch binary understands cell specs up to its `cellspec.BinaryLevel`
-(4 today; level 2 adds profile `secrets`, level 3 the `budget`, level 4 `host_images`). A change that adds a section
+(5 today; level 2 adds profile `secrets`, level 3 the `budget`, level 4 `host_images`, level 5 the `kv_snapshot` schedule). A change that adds a section
 raises the level, and every amendment that uses the section sets
 `requires_binary` to it. A controller
 whose binary understands less refuses such an amendment by name and keeps its
@@ -296,7 +299,7 @@ the record. Re-apply its services as a new cell spec.
 | Command | Where | Effect |
 | --- | --- | --- |
 | `ts-orch get --config OPERATOR_JSON` | operator host | Prints the current spec. `service list` is the same. |
-| `ts-orch diff --config F -f FILE` | operator host | Plans an unsigned candidate or a signed spec on the leader, without changing anything. Prints `{"deployment_id","cell","environment","from_generation","to_generation","requires_binary","added","updated","removed","host_grants","budget","host_images","root_required","status"}`. `status` is `planned`, `unchanged`, or `stale` when the generation does not follow the current one. A spec that breaks the cell's rules is refused with the rule. |
+| `ts-orch diff --config F -f FILE` | operator host | Plans an unsigned candidate or a signed spec on the leader, without changing anything. Prints `{"deployment_id","cell","environment","from_generation","to_generation","requires_binary","added","updated","removed","host_grants","budget","host_images","kv_snapshot","root_required","status"}`. `status` is `planned`, `unchanged`, or `stale` when the generation does not follow the current one. A spec that breaks the cell's rules is refused with the rule. |
 | `ts-orch apply --config F -f SIGNED` | operator host | Submits the signed spec. Prints `{"status":"applied"\|"unchanged","generation","requires_binary","roles"}`. A spec for another region is [relayed](#apply-to-another-region) through the global home and prints `{"status":"relayed","cell","generation"}`. `service apply --file` is the same. |
 | `ts-orch service add --config F --role R --profile F [--spec F] [--releasers A,B] [--out F]` | operator host | Plans the next generation with R added and prints the leader's plan. With `--out`, writes the unsigned candidate. An identical existing service plans nothing (`"status":"unchanged"`). A different existing service is refused: use `update`. |
 | `ts-orch service update --config F --role R --profile F [--spec F] [--releasers A,B] [--out F]` | operator host | Same as `add` for an existing role; keeps its releasers unless `--releasers` is given. |
