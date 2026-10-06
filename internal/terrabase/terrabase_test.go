@@ -70,7 +70,7 @@ func TestParsePeersRejectsScopedAddresses(t *testing.T) {
 
 func TestLayoutEnvAddsHostOwnedPaths(t *testing.T) {
 	profile := Profile{PeerPort: 9443, ClientPort: 9465}
-	env := Layout("/srv/ts-managed/terrabase").Env(map[string]string{EnvPeerPort: "9443"}, profile)
+	env := Layout("/srv/ts-managed/terrabase").Env(map[string]string{EnvPeerPort: "9443"}, profile, "ts-gru-1")
 	for key, want := range map[string]string{
 		EnvPeerPort:          "9443",
 		EnvDataDirectory:     "/srv/ts-managed/terrabase/data",
@@ -80,12 +80,13 @@ func TestLayoutEnvAddsHostOwnedPaths(t *testing.T) {
 		EnvPeerClientCA:      "/srv/ts-managed/terrabase/tls/ca.pem",
 		EnvClientCertificate: "/srv/ts-managed/terrabase/tls/member.pem",
 		EnvClientPrivateKey:  "/srv/ts-managed/terrabase/tls/member.key",
+		EnvNodeName:          "ts-gru-1",
 	} {
 		if env[key] != want {
 			t.Errorf("%s = %q, want %q", key, env[key], want)
 		}
 	}
-	if env := Layout("/r").Env(map[string]string{}, Profile{}); env[EnvClientCertificate] != "" {
+	if env := Layout("/r").Env(map[string]string{}, Profile{}, "ts-gru-1"); env[EnvClientCertificate] != "" {
 		t.Fatal("client certificate set without a client port")
 	}
 }

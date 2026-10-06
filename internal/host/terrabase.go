@@ -321,7 +321,7 @@ func (a *Agent) prepareTerraBase(ctx context.Context, d Desired) (map[string]str
 		}
 		certificate = reply.Certificate
 	}
-	return layout.Env(d.Env, profile), terrabase.CertificateExpiry(certificate), nil
+	return layout.Env(d.Env, profile, a.cfg.Node), terrabase.CertificateExpiry(certificate), nil
 }
 
 // terraBaseState is "running" once the member answers its health endpoint

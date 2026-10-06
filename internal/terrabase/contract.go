@@ -52,10 +52,14 @@ const (
 	// EnvBundleExtract is where the single-file bundle extracts its native
 	// libraries; without it the binary needs a writable HOME.
 	EnvBundleExtract = "DOTNET_BUNDLE_EXTRACT_BASE_DIR"
+	// EnvNodeName is the member's name in EnvPeers: its host's node. Without
+	// it the binary takes the OS hostname, so renaming a host's OS (TS-609)
+	// would leave a restarted member outside its peer list.
+	EnvNodeName = "TERRABASE_NODE_NAME"
 )
 
 var hostOwned = []string{EnvDataDirectory, EnvPeerCertificate, EnvPeerPrivateKey, EnvPeerClientCA,
-	EnvClientCertificate, EnvClientPrivateKey, EnvBundleExtract}
+	EnvClientCertificate, EnvClientPrivateKey, EnvBundleExtract, EnvNodeName}
 
 var nameRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 
@@ -120,9 +124,11 @@ func (l Layout) Key() string         { return filepath.Join(l.TLS(), "member.key
 func (l Layout) Certificate() string { return filepath.Join(l.TLS(), "member.pem") }
 func (l Layout) CA() string          { return filepath.Join(l.TLS(), "ca.pem") }
 
-// Env is the member's environment: the profile settings and the host-owned paths.
-func (l Layout) Env(env map[string]string, profile Profile) map[string]string {
+// Env is the member's environment: the profile settings, the host-owned paths
+// and node, the member's name.
+func (l Layout) Env(env map[string]string, profile Profile, node string) map[string]string {
 	result := maps.Clone(env)
+	result[EnvNodeName] = node
 	result[EnvDataDirectory] = l.Data()
 	result[EnvBundleExtract] = l.Bundle()
 	result[EnvPeerCertificate] = l.Certificate()

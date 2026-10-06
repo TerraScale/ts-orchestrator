@@ -79,7 +79,7 @@ func TestTerraBaseBinaryPeerMesh(t *testing.T) {
 	for _, m := range members {
 		env := m.layout.Env(map[string]string{EnvAdminPort: strconv.Itoa(m.admin),
 			EnvPeerPort: strconv.Itoa(int(m.peer.Address.Port())), EnvPeers: strings.Join(list, ",")},
-			Profile{PeerPort: int(m.peer.Address.Port())})
+			Profile{PeerPort: int(m.peer.Address.Port())}, m.peer.Name)
 		m.command, m.exited, m.log = startMember(t, binary, env)
 	}
 	for _, m := range members {

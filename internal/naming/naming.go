@@ -1,9 +1,16 @@
 // Package naming is the one naming scheme for a regional cell's servers and
 // the OCI, NetBird, NATS and DNS names given to them. A cell is
-// <region>-<index> (gru-1) and a server is <cell>-<role>-<n> (gru-1-ctl-1,
-// gru-1-db-2, gru-1-gw-1), where region is a catalog cell code in lower case
-// and index and n count from 1. A member's retained data volume adds -data.
-// A node pool's host is <cell>-pool-<pool>-<n> (gru-1-pool-app-3).
+// <region>-<index> (gru-1), where region is a catalog cell code in lower case
+// and index and n count from 1.
+//
+// A node is ts-<region>-<n> (ts-gru-1, ts-sfo-2), with no role in the name:
+// every node runs the colocated controller, TerraBase member and ts-auth
+// (TS-609). Its retained data volume adds -data (ts-gru-1-data).
+//
+// Servers named before TS-609 keep their names until renamed and stay valid:
+// <cell>-<role>-<n> (gru-1-ctl-1, gru-1-db-2, gru-1-gw-1), a member's data
+// volume <cell>-db-<n>-data, and a node pool's host <cell>-pool-<pool>-<n>
+// (gru-1-pool-app-3).
 //
 // Names never carry a release, deployment ID, date, generation or digest, so
 // they stay the same across rollouts and replacements. That identity belongs
@@ -27,10 +34,12 @@ const (
 )
 
 // ErrName reports a name outside the scheme.
-var ErrName = errors.New("name does not follow <region>-<index>[-<role>-<n>[-data]] or <region>-<index>-pool-<pool>-<n>")
+var ErrName = errors.New("name does not follow ts-<region>-<n>[-data], <region>-<index>[-<role>-<n>[-data]] or <region>-<index>-pool-<pool>-<n>")
 
 var scheme = regexp.MustCompile(`^([a-z]+)-[1-9][0-9]{0,2}(?:-(?:ctl|gw)-[1-9][0-9]{0,2}|-db-[1-9][0-9]{0,2}(?:-data)?|` +
 	`-pool-[a-z][a-z0-9]{1,11}-[1-9][0-9]{0,2})?$`)
+
+var nodeScheme = regexp.MustCompile(`^ts-([a-z]+)-[1-9][0-9]{0,2}(?:-data)?$`)
 
 var apiPart = regexp.MustCompile(`^[a-z]+$`)
 
@@ -58,6 +67,11 @@ func (c Cell) Image() (string, error) {
 		return "", err
 	}
 	return name + "-arm64", nil
+}
+
+// Node returns the name of the region's n-th node, e.g. ts-gru-1.
+func (c Cell) Node(n int) (string, error) {
+	return valid(fmt.Sprintf("ts-%s-%d", strings.ToLower(c.Region), n))
 }
 
 // Server returns the name of the cell's n-th server of role, e.g. gru-1-ctl-1.
@@ -106,13 +120,16 @@ func (c Cell) API(part string) (string, error) {
 	return name + "-api-" + part, nil
 }
 
-// Data returns the name of a member's retained data volume, e.g. gru-1-db-1-data.
+// Data returns the name of a member's retained data volume, e.g. ts-gru-1-data.
 func Data(member string) (string, error) { return valid(member + "-data") }
 
-// Validate accepts only a cell, server or data volume name of the scheme in a
-// catalog region.
+// Validate accepts only a cell, node, server or data volume name of the
+// scheme in a catalog region.
 func Validate(name string) error {
-	match := scheme.FindStringSubmatch(name)
+	match := nodeScheme.FindStringSubmatch(name)
+	if match == nil {
+		match = scheme.FindStringSubmatch(name)
+	}
 	if match == nil || !catalog.IsCell(strings.ToUpper(match[1])) {
 		return fmt.Errorf("%w: %q", ErrName, name)
 	}
