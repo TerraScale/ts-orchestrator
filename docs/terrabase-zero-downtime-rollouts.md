@@ -124,31 +124,44 @@ not decode, names another seat or breaks its invariants fails every reader
 closed. `public_lb` publishes drained seats drained, and `Store.Granted` is
 the restart gate for static TerraBase members. Nothing writes records yet.
 
-A leader-only seat controller hands out permits:
+A leader-only seat controller (`seatrollout.Controller`, slice 4c) hands
+out permits. Every tick it reads the seat records, each seat's desired and
+report, and the load balancer's backends, and takes at most one step per
+seat:
 
-1. Pending seats are those whose desired generation is above the one their
-   host reports. `rollout.PlanWaves` puts the seats of one replication group
-   in separate waves, so a quorum pair never restarts together. Non-serving
-   seats go first; restarting them costs no capacity.
-2. Drain: the seat enters the drain set (KV) and the controller applies it at
-   once. It waits until the load balancer shows the backend drained and the
-   member reports no request in flight, at most 100 s (Cloudflare's proxy
-   timeout). The reconciler's health guard refuses to drain the last healthy
-   seat.
-3. Restart: it grants the permit. The host fetches the artifact first, then
-   stops the member with SIGTERM, which drains what is left, and starts the
-   new release.
-4. Serve: it waits for the host to report the seat `running` (slice 3: caught
-   up) at the target generation, then for load balancer health checks taken
-   after the new process started to pass while the seat is still drained.
-   Older `OK` results can predate the restart.
-5. Undrain: the seat leaves the drain set before the next wave.
+1. Pending seats are those whose host does not report their desired
+   generation `running`. At most one seat of a replication group is in
+   flight, the rule `rollout.PlanWaves` applies to quorum groups; all C#
+   members form one group today, so seats go one at a time. Seats the load
+   balancer does not serve go first; restarting them costs no capacity, so
+   they get their permit without a drain.
+2. Drain: a serving seat is marked drained, but only while another seat
+   serves healthy and undrained on the load balancer, and the reconciler's
+   health guard refuses the last healthy one again.
+3. Restart: once the load balancer shows the backend drained and a grace
+   (`DefaultDrainGrace`, 15 s) for in-flight requests has passed since it
+   first did (the load balancer may apply a drain late), it grants the
+   permit. The host stops the member with SIGTERM, which drains what is
+   left, and starts the new release.
+4. Serve: it waits for the host to report the seat `running` at the target
+   generation, which includes its `/readyz` (slice 3), and to keep doing so
+   for `DefaultSettle` (10 s). It does not rely on the load balancer's health
+   for a drained backend, which may be stale or not checked.
+5. Undrain: the seat returns to rotation. The next seat drains only once the
+   load balancer shows this one undrained and healthy.
 
-Everything is level-triggered from KV and observations, so a new leader
-resumes where the old one stopped. A seat a deposed leader left drained
-stays drained until its step finishes. A newer desired generation supersedes
-a pending permit, so the CLI's rollback intent rolls back one seat at a time
-too. `terrabase-release` scales its gate wait with the seat count.
+A seat that never serves after its permit holds its group: the other seats
+keep the old release until a newer desired generation, such as the CLI's
+rollback intent, supersedes the permit; the rollback then restarts that
+seat first, since it serves nothing. Everything is level-triggered from the
+records and observations, so a new leader resumes where the old one stopped;
+a seat a deposed leader left drained stays drained until its step finishes.
+Only the authority leader writes, and every write is fenced by its epoch.
+
+Implemented (slice 4c): the controller and its tests. **PROPOSED:** wiring
+it into the controller process behind a configuration switch that also sets
+the host restart gate, and `terrabase-release` scaling its gate wait with
+the seat count.
 
 The drain set is generic. Host reboots for OS updates (TS-570) and
 self-healing (TS-568) can drain a seat through it before they restart its
