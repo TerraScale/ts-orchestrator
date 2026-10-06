@@ -67,6 +67,8 @@ type Executor struct {
 	holds     map[string]string
 	paged     map[string]bool
 	halted    string
+	// waiting says why no program rollout is running, for the status.
+	waiting string
 }
 
 // forget resets the leader-local memory and binds it to rolloutID.
@@ -132,6 +134,7 @@ func (e *Executor) Tick(ctx context.Context) error {
 	if !ok {
 		e.forget("")
 		if err := e.startNext(ctx, snapshot.Epoch); err != nil {
+			e.waiting = err.Error()
 			e.publish(snapshot.Epoch, nil)
 			return err
 		}
@@ -544,9 +547,10 @@ func (e *Executor) expired(action rollout.Action) bool {
 // to be no older than that limit plus the verified clock skew, so neither
 // a unit clock behind the leader's nor a late delivery of an old proof
 // decides it.
-func (e *Executor) fresh(proof HealthProof) bool {
-	now := e.now()
-	return now.Sub(proof.seen()) <= e.freshness() && now.Sub(proof.ObservedAt) <= e.freshness()+healthClockSkew
+func (e *Executor) fresh(proof HealthProof) bool { return isFresh(proof, e.now(), e.freshness()) }
+
+func isFresh(proof HealthProof, now time.Time, freshness time.Duration) bool {
+	return now.Sub(proof.seen()) <= freshness && now.Sub(proof.ObservedAt) <= freshness+healthClockSkew
 }
 
 func (e *Executor) page(record rollout.Record) {
@@ -600,6 +604,7 @@ func (e *Executor) checkGate(ctx context.Context, record rollout.Record, unit st
 // startNext begins the first program rollout that has not completed. A
 // program stops at a rollout that ended any other way.
 func (e *Executor) startNext(ctx context.Context, epoch uint64) error {
+	e.waiting = ""
 	if e.Program == nil {
 		return nil
 	}
@@ -633,6 +638,7 @@ func (e *Executor) startNext(ctx context.Context, epoch uint64) error {
 }
 
 func (e *Executor) halt(rolloutID, reason string) error {
+	e.waiting = "rollout " + rolloutID + " stopped the program: " + reason
 	if e.halted != rolloutID {
 		e.halted = rolloutID
 		slog.Warn("rollout program stopped", "component", "rollout", "rollout", rolloutID, "reason", reason)
@@ -644,7 +650,11 @@ func (e *Executor) publish(epoch uint64, record *rollout.Record) {
 	if e.Status == nil {
 		return
 	}
-	e.Status.PublishStatus(statusOf(e.Cell, epoch, record, e.Proofs, e.holds, e.now()))
+	status := statusOf(e.Cell, epoch, record, e.Proofs, e.holds, e.now())
+	if record == nil {
+		status.Waiting = e.waiting
+	}
+	e.Status.PublishStatus(status)
 }
 
 func sortedUnits(record rollout.Record) []string {

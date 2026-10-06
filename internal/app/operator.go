@@ -108,6 +108,9 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	node := flags.String("node", "", "service grant-host, revoke-host: the static host's server name")
 	privateIP := flags.String("private-ip", "", "service grant-host: the host's private IPv4 address")
 	roles := flags.String("roles", "", "service grant-host: comma-separated roles the host runs")
+	receiptPath := flags.String("receipt", "", "rollout publish: signed binary receipt or update receipt")
+	delegationPath := flags.String("delegation", "", "rollout publish: the receipt's root-signed delegation")
+	toGeneration := flags.Uint64("to", 0, "rollout rollback: the earlier generation to publish again")
 	var forwards operatorForwardFlags
 	flags.Var(&forwards, "nats-forward", "transient PRIVATE_IP:4222=LOOPBACK_IP:PORT Bastion forward (repeatable)")
 	if err := flags.Parse(args[1:]); err != nil {
@@ -115,6 +118,13 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	}
 	if flags.NArg() != 0 {
 		return errors.New("unexpected operator arguments")
+	}
+	var rolloutRequest any
+	if command, isRollout := strings.CutPrefix(operation, "rollout-"); isRollout {
+		var err error
+		if rolloutRequest, err = rolloutPayload(command, *receiptPath, *delegationPath, *toGeneration); err != nil {
+			return err
+		}
 	}
 	cfg, err := LoadConfig(*configPath)
 	if err != nil {
@@ -260,6 +270,8 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 			return errors.New("apply requires -f SIGNED")
 		}
 		return operatorSpecApply(ctx, cfg, runtime, *artifactPath, output)
+	case "rollout-status", "rollout-publish", "rollout-pause", "rollout-resume", "rollout-rollback":
+		return operatorRollout(ctx, cfg, runtime, strings.TrimPrefix(operation, "rollout-"), rolloutRequest, output)
 	case "status":
 		if *operationID == "" || !fingerprintPattern.MatchString(*fingerprint) {
 			return errors.New("status requires --operation-id and lowercase SHA-256 --fingerprint")

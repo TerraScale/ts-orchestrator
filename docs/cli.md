@@ -117,6 +117,21 @@ CI runs `ts-orch release deploy` for every `main` merge; see
 | `ts-orch release deploy --dir D --source-revision SHA --update-delegation F --root-key F --signing-key-secret NAME --vault-id OCID --environment E --source-checkout DIR --namespace NS --cell C... --arch A...` | Sign the release for every cell, then publish it to each region in order, the first being the canary, and wait for each to complete |
 | `ts-orch release fleet-status --namespace NS [--cell C...]` | Print every region's release channel and rollout status as JSON lines |
 
+## Orchestrator rollouts
+
+`ts-orch rollout` sets the cell's desired orchestrator release, which the
+authority leader rolls out to the controllers; see
+[continuous delivery](continuous-delivery.md#leader-run-controller-self-update).
+Every command prints the leader's JSON reply.
+
+| Command | Purpose |
+| --- | --- |
+| `ts-orch rollout status --config OPERATOR_JSON` | Desired release, the last ten generations and the leader's rollout status |
+| `ts-orch rollout publish --config F --receipt F [--delegation F]` | Make a signed release the next generation (upload the binary with `operator artifact-push` first) |
+| `ts-orch rollout pause --config F` | Start no further rollout; one in flight finishes |
+| `ts-orch rollout resume --config F` | Undo pause and retry the rollback of a frozen rollout |
+| `ts-orch rollout rollback --config F --to GEN` | Publish generation GEN again as a new generation and stop the rollout in flight |
+
 ## Feature boundaries
 
 Prefer `ts-orch` for new operational features. Implement them as Go commands

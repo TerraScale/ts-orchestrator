@@ -34,6 +34,20 @@ import (
 // insight deadline rule see the active rollout. Off by default.
 type RolloutsConfig struct {
 	Enabled bool `json:"enabled"`
+	// Executor runs the cell's orchestrator self-update from its desired
+	// release (ts-orch rollout): the authority leader moves the controllers
+	// one per wave, the seed last. It needs Enabled, and a root step agent
+	// next to every controller to apply the steps; without one a published
+	// release moves no unit, and its rollout freezes with the release marked
+	// known bad. Off by default.
+	Executor bool `json:"executor,omitzero"`
+	// Policy overrides rollout.DefaultPolicy for the executor's rollouts.
+	Policy *rollout.Policy `json:"policy,omitempty"`
+	// AllowScopedAutoSign lets the leader admit update receipts signed under
+	// a scoped binary update delegation. Set it exactly when the controllers'
+	// step agents accept them (selfupdate --allow-scoped-auto-sign), so the
+	// leader never admits a release no node stages.
+	AllowScopedAutoSign bool `json:"allow_scoped_auto_sign,omitzero"`
 }
 
 // RegionPlannerConfig runs the region planner on the global home's leader.

@@ -137,7 +137,10 @@ type TrustedSignerConfig struct {
 	CanManageClientKeys              bool     `json:"can_manage_client_keys,omitzero"`
 	ClientKeyScopes                  []string `json:"client_key_scopes,omitempty"`
 	CanRotateBrokerAccount           bool     `json:"can_rotate_broker_account,omitzero"`
-	Repositories                     []string `json:"repositories,omitempty"`
+	// CanRollOutOrchestrator lets the signer publish, pause, resume and roll
+	// back the cell's orchestrator release (ts-orch rollout).
+	CanRollOutOrchestrator bool     `json:"can_roll_out_orchestrator,omitzero"`
+	Repositories           []string `json:"repositories,omitempty"`
 }
 
 type OperatorConfig struct {

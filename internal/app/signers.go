@@ -22,6 +22,8 @@ type signerPolicy struct {
 	cell   string
 	// services adds the release grants of the cell's adopted spec.
 	services *specRegistry
+	// rollouts answers the operator's rollout requests.
+	rollouts *rolloutControl
 }
 
 // ValidateTrustedSignerGrant applies the same actor, scope, and key checks used

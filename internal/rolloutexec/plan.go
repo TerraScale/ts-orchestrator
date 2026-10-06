@@ -1,11 +1,16 @@
 package rolloutexec
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
+	"time"
+
+	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 )
@@ -91,4 +96,95 @@ func SelfUpdateProgram(id, cell, from, to string, controllers []rollout.Unit, ho
 			FromDigest: from, ToDigest: to, Units: hosts, Policy: policy})
 	}
 	return program
+}
+
+// ReleaseRolloutID is the rollout ID prefix of a desired release generation.
+func ReleaseRolloutID(generation uint64) string { return fmt.Sprintf("release-g%d", generation) }
+
+// ReleaseProgram derives the executor's program from the cell's desired
+// release (rollout.Store.Desired): the controllers that do not run it yet
+// move to it from the release they all prove now, one per wave and the seed
+// last. A started rollout keeps the units and predecessor it began with.
+// Nothing starts while the cell is paused, has no desired release, already
+// runs it everywhere, or knows it as bad.
+//
+// ponytail: controllers only; hosts join once their steps and proofs travel
+// over the host session (the second program rollout of SelfUpdateProgram).
+// A controller that falls behind after its generation completed waits for
+// the next generation.
+type ReleaseProgram struct {
+	Store       *rollout.Store
+	Proofs      ProofSource
+	Controllers []rollout.Unit
+	Policy      rollout.Policy
+	Freshness   time.Duration
+	Now         func() time.Time
+}
+
+// Program implements Executor.Program.
+func (p ReleaseProgram) Program(ctx context.Context) (Program, error) {
+	desired, _, err := p.Store.Desired(ctx)
+	if err != nil {
+		return nil, err
+	}
+	release := desired.Release
+	if release.Generation == 0 || desired.Paused || len(p.Controllers) == 0 {
+		return nil, nil
+	}
+	id := ReleaseRolloutID(release.Generation)
+	existing, _, err := p.Store.Load(ctx, id+"-controllers")
+	if err == nil {
+		// The stored plan is this generation's step, whatever it ended as.
+		return Program{existingSpec(existing)}, nil
+	}
+	if !errors.Is(err, jetstream.ErrKeyNotFound) {
+		return nil, err
+	}
+	units, from, err := p.behind(p.Controllers, release.Digest)
+	if err != nil || len(units) == 0 {
+		return nil, err
+	}
+	if bad, err := p.Store.IsKnownBad(ctx, release.Digest); err != nil || bad {
+		return nil, err
+	}
+	return SelfUpdateProgram(id, desired.Cell, from, release.Digest, units, nil, p.Policy), nil
+}
+
+func existingSpec(record rollout.Record) rollout.Spec {
+	units := make([]rollout.Unit, 0, len(record.Units))
+	for id, progress := range record.Units {
+		units = append(units, rollout.Unit{ID: id, Group: progress.Group, Seed: progress.Seed})
+	}
+	return rollout.Spec{RolloutID: record.RolloutID, Kind: record.Kind, Cell: record.Cell, FromDigest: record.FromDigest,
+		ToDigest: record.ToDigest, Units: units, Policy: record.Policy}
+}
+
+// behind returns the units that do not run target and the one release they
+// all run. Every unit must have a fresh proof, so a step never starts while
+// a peer is silent, and the units behind must agree on their release.
+func (p ReleaseProgram) behind(units []rollout.Unit, target string) ([]rollout.Unit, string, error) {
+	now, freshness := time.Now().UTC(), p.Freshness
+	if p.Now != nil {
+		now = p.Now().UTC()
+	}
+	if freshness <= 0 {
+		freshness = DefaultProofFreshness
+	}
+	var behind []rollout.Unit
+	digest := ""
+	for _, unit := range units {
+		proof, ok := p.Proofs.Latest(unit.ID)
+		if !ok || !isFresh(proof, now, freshness) {
+			return nil, "", fmt.Errorf("unit %s has no fresh health proof", unit.ID)
+		}
+		if proof.BinarySHA256 == target {
+			continue
+		}
+		if digest != "" && proof.BinarySHA256 != digest {
+			return nil, "", fmt.Errorf("units run different releases (%s, %s)", short(digest), short(proof.BinarySHA256))
+		}
+		digest = proof.BinarySHA256
+		behind = append(behind, unit)
+	}
+	return behind, digest, nil
 }

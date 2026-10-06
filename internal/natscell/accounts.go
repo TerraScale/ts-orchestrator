@@ -224,6 +224,11 @@ func ControllerSubscriptions(cell string) []string {
 		// existed lacks it; the request then has no responder and the
 		// leader holds the slot, as before.
 		protocol.MembershipReplaceSubject(cell),
+		// Every controller collects its peers' signed rollout health proofs
+		// (controller.rollouts.executor). Material issued before this grant
+		// lacks it; such a controller sees no proofs, so its executor holds
+		// every rollout in preflight and nothing moves.
+		protocol.RolloutProofSubject(cell, ""),
 	}
 }
 

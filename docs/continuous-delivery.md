@@ -342,10 +342,11 @@ names (`placement.Config.KnownBad`). An unreadable list, or a store that has
 not opened yet, refuses the update: admission fails closed. With the store
 disabled nothing changes; the operator's `known-bad/` directory still applies.
 
-### Rollout executor (library, not yet started by the controller)
+### Rollout executor
 
 `internal/rolloutexec` drives the state machine on the authority leader.
-Nothing in this change starts it; the pieces are:
+`controller.rollouts.executor` (with `enabled`) starts it on every controller
+(see [below](#leader-run-controller-self-update)); the pieces are:
 
 - **Executor.** Each tick, the leader loads the cell's active rollout, adopts
   it under its own epoch after a leader change (`Store.Adopt`), performs the
@@ -461,9 +462,60 @@ Nothing in this change starts it; the pieces are:
 
 Remaining before it can run in a cell: a root step agent with NATS
 credentials limited to its step subject (the controller runs unprivileged
-and cannot write the release root), host steps and proofs over the host
-session with the chunked artifact path, and a signed operator request that
-supplies the program.
+and cannot write the release root), and host steps and proofs over the host
+session with the chunked artifact path.
+
+### Leader-run controller self-update
+
+The cell's desired orchestrator release is state in the replicated
+`TS_ROLLOUTS` bucket, never baked: `release.desired` holds the newest
+**generation** (binary digest, source revision and CI run its receipt names,
+the receipt and delegation, actor, time) and the cell's pause; `release.gen.<N>` keeps a copy of each of the
+last 64 generations. Generations only grow, every write is fenced by the
+authority epoch, and a known-bad digest is never published. The KV schema
+belongs to the cell spec (TS-556) and the store (TS-559); this is the
+minimum the executor needs until they own it.
+
+With `controller.rollouts.executor`, every controller signs a health proof
+with the regional response key every 15 s and collects its peers' proofs
+(the controller credential's `rollout.proof.*` subscription grant; material
+issued before it lacks the grant, so preflight never passes and nothing
+moves). The leader's executor derives its program from the desired
+generation: once every controller freshly proves its release and those not
+yet on the generation's release agree on theirs, it begins
+`release-g<N>-controllers` for them, one controller per wave, the seed (from
+the accepted founder install) last and alone, behind `ClusterGate`. A started
+rollout keeps its units and predecessor; a controller that falls behind after
+its generation completed waits for the next one. A
+rollout whose proof deadline passes rolls every touched controller back
+through `selfupdate.Restore` on the node and marks the digest known bad.
+`controller.rollouts.policy` overrides `rollout.DefaultPolicy`. Hosts join
+once their steps and proofs travel over the host session. Until the root step
+agent ships, controllers refuse `executor` outside a lab cell: a step nobody
+answers would freeze the rollout with the release marked known bad.
+
+Operators drive it with `ts-orch rollout`, signed requests on the host
+registration subject that only the leader answers. Any trusted signer of the
+signed controller config may read `status`; every other request needs the
+signer's `can_roll_out_orchestrator` grant, since pausing, rolling back or
+aborting a release changes what the controllers run.
+
+- `publish --receipt F [--delegation F]`: the leader verifies the receipt
+  with the image's release roots for this cell, environment and architecture
+  and makes its binary the next generation. Scoped update receipts are
+  admitted only with `controller.rollouts.allow_scoped_auto_sign`, set
+  exactly when the nodes accept them. Republishing the newest binary changes
+  nothing.
+- `pause` / `resume`: a paused cell starts no further rollout; one in flight
+  runs to completion or rollback, so a pause never strands a half-updated
+  quorum. `resume` also retries the rollback of a frozen rollout.
+- `rollback --to GEN`: re-verifies GEN's receipt, publishes its release
+  again as a new generation and aborts a rollout in flight towards another
+  release (its touched units return to their predecessor and its target
+  becomes known bad); a retried request aborts it too. The cell then rolls
+  forward to GEN's release; history is never rewritten.
+- `status`: the desired release, the last ten generations and the leader's
+  rollout status, including why nothing runs (`waiting`).
 
 ### Automatic fleet deployment (TS-557, part 1)
 
@@ -534,9 +586,12 @@ Limits of this part:
 
 - No controller reads the channel yet. The leader-side consumer (verify the
   channel, refuse a run older than the cell's newest, import the binary into
-  the delivery artifact store, start `SelfUpdateProgram` and write
-  `status.json`) lands with the executor wiring of TS-555. Until then a
-  configured deployment waits 90 minutes on the canary and fails.
+  the delivery artifact store, publish it as the cell's next release
+  generation with `rollout.Store.PublishRelease` and write `status.json`
+  from the executor's status) is TS-555's next slice, after the
+  [leader-run controller self-update](#leader-run-controller-self-update).
+  Until then a configured deployment waits 90 minutes on the canary and
+  fails.
 - Forgejo repository secrets reach any workflow pushed to the repository,
   so every account with write access can obtain `TS_DEPLOY_OCI_KEY`, read
   the leaf and sign any binary for the delegation's cells, architectures and

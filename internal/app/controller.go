@@ -25,6 +25,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
@@ -123,6 +124,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	policy.services = services
+	if policy.rollouts, err = newRolloutControl(cfg, services); err != nil {
+		return err
+	}
 	responseKey, err := readPrivateKey(cfg.Controller.ResponseKeyFile)
 	if err != nil {
 		return fmt.Errorf("controller response key: %w", err)
@@ -645,6 +649,15 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return fmt.Errorf("start rollout store: %w", err)
 	}
+	var rolloutExecutor func(context.Context) error
+	if store, ok := rollouts.(*rollout.Store); ok {
+		policy.rollouts.store.Store(store)
+		if cfg.Controller.Rollouts.Executor {
+			if rolloutExecutor, err = policy.rollouts.start(runCtx, cfg, runtime, control, responseKey); err != nil {
+				return fmt.Errorf("start rollout executor: %w", err)
+			}
+		}
+	}
 	budgets, err := startRegionPlanner(runCtx, cfg, runtime.JetStream(), global, placementHolds,
 		runtime.Conn(), fullClusterReady)
 	if err != nil {
@@ -680,6 +693,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	workers.Go(func() { workerErrors <- workloadReconciler.Run(runCtx) })
 	workers.Go(func() { workerErrors <- services.Run(runCtx) })
+	if rolloutExecutor != nil {
+		workers.Go(func() { workerErrors <- rolloutExecutor(runCtx) })
+		workers.Go(func() { policy.rollouts.publishProofs(runCtx, cfg, runtime, responseKey) })
+	}
 	if capacityScaler != nil {
 		workers.Go(func() { workerErrors <- capacityScaler.Run(runCtx) })
 	}
@@ -712,6 +729,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return ctx.Err()
 	}
 	telemetry.markStarted()
+	policy.rollouts.ready.Store(true)
 	slog.Info("controller ready", observability.ComponentKey, "controller", observability.EventKey, true)
 	fmt.Fprintf(output, "controller %s ready in cell %s via %s\n", cfg.NATS.Instance, cfg.NATS.Cell, runtime.URL())
 	if err := notifier.Ready("controller " + cfg.NATS.Instance + " ready in cell " + cfg.NATS.Cell); err != nil {

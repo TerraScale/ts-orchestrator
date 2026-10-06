@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
@@ -137,6 +138,19 @@ func serveHostEnrollment(ctx context.Context, conn *nats.Conn, cell string, poli
 			}
 			if err != nil {
 				reply = specReply{Error: err.Error()}
+			}
+			if wire, marshalErr := json.Marshal(reply); marshalErr == nil {
+				_ = message.Respond(wire)
+			}
+			return
+		}
+		if decodeErr == nil && policy.rollouts != nil && strings.HasPrefix(envelope.Kind, "rollout.") {
+			reply, err := policy.rollouts.serve(requestCtx, message.Data, policy, fencer)
+			if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrNotLeader) || !fencer.Current().CanMutate() {
+				return
+			}
+			if err != nil {
+				reply = rolloutReply{Error: err.Error()}
 			}
 			if wire, marshalErr := json.Marshal(reply); marshalErr == nil {
 				_ = message.Respond(wire)

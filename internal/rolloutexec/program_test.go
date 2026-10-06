@@ -1,0 +1,206 @@
+package rolloutexec
+
+import (
+	"slices"
+	"strings"
+	"testing"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
+)
+
+// releaseHarness drives the executor from the store's desired release.
+func releaseHarness(t *testing.T) (*harness, ReleaseProgram) {
+	t.Helper()
+	h := newHarness(t)
+	controllers, err := ControllerUnits([]string{"ctl-a", "ctl-b", "ctl-c"}, "ctl-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := ReleaseProgram{Store: h.store, Proofs: h.fleet, Controllers: controllers, Policy: testPolicy(),
+		Now: h.clock.Now}
+	h.executor.Program = program.Program
+	return h, program
+}
+
+func (h *harness) publish(digest string) rollout.Release {
+	h.t.Helper()
+	release, err := h.store.PublishRelease(h.t.Context(), 7, rollout.Release{Digest: digest, Actor: "ci", CreatedAt: h.clock.Now()})
+	if err != nil {
+		h.t.Fatalf("publish %s: %v", digest[:4], err)
+	}
+	return release
+}
+
+func (h *harness) digests(units ...string) []string {
+	var digests []string
+	for _, unit := range units {
+		digests = append(digests, h.fleet.units[unit].digest)
+	}
+	return digests
+}
+
+func TestReleaseProgramMovesEveryControllerToTheDesiredReleaseSeedLast(t *testing.T) {
+	h, program := releaseHarness(t)
+	if got, err := program.Program(t.Context()); got != nil || err != nil {
+		t.Fatalf("program without a desired release = %v %v", got, err)
+	}
+	// Generation 1 names what the controllers already run: nothing starts.
+	h.publish(fromDigest)
+	if got, err := program.Program(t.Context()); got != nil || err != nil {
+		t.Fatalf("program for the running release = %v %v", got, err)
+	}
+	h.publish(toDigest)
+	h.run(100, func() bool { return h.phase("release-g2-controllers") == rollout.PhaseComplete })
+	if steps := h.fleet.stepLog(); !slices.Equal(steps, []string{"prepare:ctl-b", "prepare:ctl-c", "prepare:ctl-a"}) {
+		t.Fatalf("steps = %v, want one controller per wave and the seed last", steps)
+	}
+	if got := h.digests("h1", "h2", "h3", "h4"); slices.ContainsFunc(got, func(d string) bool { return d != fromDigest }) {
+		t.Fatalf("hosts moved: %v", got)
+	}
+	// The completed program starts nothing more.
+	for range 3 {
+		if err := h.executor.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if steps := h.fleet.stepLog(); len(steps) != 3 {
+		t.Fatalf("a completed release moved units again: %v", steps)
+	}
+}
+
+func TestReleaseProgramHonorsPauseAndRollsBackToAnEarlierGeneration(t *testing.T) {
+	h, _ := releaseHarness(t)
+	h.publish(fromDigest)
+	if _, err := h.store.PauseReleases(t.Context(), 7, true); err != nil {
+		t.Fatal(err)
+	}
+	h.publish(toDigest)
+	for range 3 {
+		if err := h.executor.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if steps := h.fleet.stepLog(); len(steps) != 0 {
+		t.Fatalf("a paused cell started a rollout: %v", steps)
+	}
+	if _, err := h.store.PauseReleases(t.Context(), 7, false); err != nil {
+		t.Fatal(err)
+	}
+	h.run(100, func() bool { return h.phase("release-g2-controllers") == rollout.PhaseComplete })
+
+	back, err := h.store.RollbackRelease(t.Context(), 7, 1, "ops", h.clock.Now())
+	if err != nil || back.Generation != 3 || back.Digest != fromDigest {
+		t.Fatalf("rollback = %+v %v", back, err)
+	}
+	h.run(100, func() bool { return h.phase("release-g3-controllers") == rollout.PhaseComplete })
+	if got := h.digests("ctl-a", "ctl-b", "ctl-c"); slices.ContainsFunc(got, func(d string) bool { return d != fromDigest }) {
+		t.Fatalf("controllers after the rollback generation: %v", got)
+	}
+	// A rollback generation is a forward rollout to the earlier release: the
+	// release it left is not known bad.
+	if bad, err := h.store.IsKnownBad(t.Context(), toDigest); err != nil || bad {
+		t.Fatalf("rolled-back-to generation marked its predecessor known bad: %v %v", bad, err)
+	}
+}
+
+func TestAbortRollsBackARolloutTheOperatorSuperseded(t *testing.T) {
+	h, program := releaseHarness(t)
+	h.publish(fromDigest)
+	h.publish(toDigest)
+	h.run(20, func() bool { return h.fleet.units["ctl-b"].digest == toDigest })
+	back, err := h.store.RollbackRelease(t.Context(), 7, 1, "ops", h.clock.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, err := Abort(t.Context(), h.store, 7, back.Digest, "rolled back to generation 1", h.clock.Now()); err != nil || id != "release-g2-controllers" {
+		t.Fatalf("abort = %q %v", id, err)
+	}
+	h.run(20, func() bool { return h.phase("release-g2-controllers") == rollout.PhaseRolledBack })
+	if got := h.digests("ctl-a", "ctl-b", "ctl-c"); slices.ContainsFunc(got, func(d string) bool { return d != fromDigest }) {
+		t.Fatalf("controllers after the abort: %v", got)
+	}
+	if bad, err := h.store.IsKnownBad(t.Context(), toDigest); err != nil || !bad {
+		t.Fatalf("the aborted target is not known bad: %v %v", bad, err)
+	}
+	// Generation 3 names what every controller runs again: nothing starts,
+	// and a later publish of the rejected binary is refused.
+	if got, err := program.Program(t.Context()); got != nil || err != nil {
+		t.Fatalf("program after the rollback = %v %v", got, err)
+	}
+	if _, err := h.store.PublishRelease(t.Context(), 7, rollout.Release{Digest: toDigest, Actor: "ci", CreatedAt: h.clock.Now()}); err == nil {
+		t.Fatal("the rejected binary was published again")
+	}
+	// Aborting with nothing active, or a rollout that already targets the
+	// digest, does nothing.
+	if id, err := Abort(t.Context(), h.store, 7, fromDigest, "again", h.clock.Now()); err != nil || id != "" {
+		t.Fatalf("abort without an active rollout = %q %v", id, err)
+	}
+}
+
+func TestResumeRetriesTheRollbackOfAFrozenRollout(t *testing.T) {
+	h, _ := releaseHarness(t)
+	h.fleet.wrongBinary["ctl-b"] = true
+	h.fleet.refuseRollback = true
+	h.publish(fromDigest)
+	h.publish(toDigest)
+	h.run(10, func() bool { return h.phase("release-g2-controllers") == rollout.PhaseFrozen })
+	if id, err := Resume(t.Context(), h.store, 7, h.clock.Now()); err != nil || id != "release-g2-controllers" {
+		t.Fatalf("resume = %q %v", id, err)
+	}
+	h.fleet.refuseRollback = false
+	h.run(10, func() bool { return h.phase("release-g2-controllers") == rollout.PhaseRolledBack })
+	if id, err := Resume(t.Context(), h.store, 7, h.clock.Now()); err != nil || id != "" {
+		t.Fatalf("resume without a frozen rollout = %q %v", id, err)
+	}
+}
+
+func TestReleaseProgramMovesOnlyTheControllersBehind(t *testing.T) {
+	h, _ := releaseHarness(t)
+	h.publish(fromDigest)
+	// The seed and ctl-c already run the target (a replaced slot, say):
+	// only ctl-b moves.
+	h.fleet.units["ctl-a"].digest = toDigest
+	h.fleet.units["ctl-c"].digest = toDigest
+	h.publish(toDigest)
+	h.run(50, func() bool { return h.phase("release-g2-controllers") == rollout.PhaseComplete })
+	if steps := h.fleet.stepLog(); !slices.Equal(steps, []string{"prepare:ctl-b"}) {
+		t.Fatalf("steps = %v, want the one controller behind", steps)
+	}
+	record, _ := h.load("release-g2-controllers")
+	if len(record.Units) != 1 {
+		t.Fatalf("rollout units = %v", record.Units)
+	}
+	// Later ticks keep the stored plan instead of re-planning it.
+	for range 3 {
+		if err := h.executor.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if steps := h.fleet.stepLog(); len(steps) != 1 {
+		t.Fatalf("a completed generation moved units again: %v", steps)
+	}
+}
+
+func TestReleaseProgramWaitsForEveryControllerToProveOneRelease(t *testing.T) {
+	h, program := releaseHarness(t)
+	h.publish(fromDigest)
+	h.publish(toDigest)
+	h.fleet.units["ctl-c"].down = true
+	if _, err := program.Program(t.Context()); err == nil || !strings.Contains(err.Error(), "ctl-c has no fresh health proof") {
+		t.Fatalf("program with a silent controller: %v", err)
+	}
+	if err := h.executor.Tick(t.Context()); err == nil {
+		t.Fatal("tick started a program without every controller's proof")
+	}
+	if last := h.status.statuses[len(h.status.statuses)-1]; !strings.Contains(last.Waiting, "ctl-c") {
+		t.Fatalf("status does not say why nothing runs: %+v", last)
+	}
+	h.fleet.units["ctl-c"].down = false
+	h.fleet.units["ctl-c"].digest = otherBad
+	if _, err := program.Program(t.Context()); err == nil || !strings.Contains(err.Error(), "different releases") {
+		t.Fatalf("program with controllers on different releases: %v", err)
+	}
+	if steps := h.fleet.stepLog(); len(steps) != 0 {
+		t.Fatalf("units moved: %v", steps)
+	}
+}

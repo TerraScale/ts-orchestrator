@@ -67,54 +67,67 @@ func runSpec(ctx context.Context, command string, args []string, output io.Write
 // leader. Every request is idempotent, so a lost reply is safe to retry.
 func requestCellSpec(ctx context.Context, cfg Config, runtime *natscell.Runtime, kind string, payload []byte,
 ) (specReply, error) {
-	policy, err := buildSignerPolicy(cfg)
+	data, err := requestLeader(ctx, cfg, runtime, kind, "cell-spec", payload)
 	if err != nil {
 		return specReply{}, err
 	}
+	var reply specReply
+	if err := protocol.DecodeStrict(data, &reply, 3*cellspec.MaxSpecBytes); err != nil {
+		return specReply{}, fmt.Errorf("decode %s reply: %w", kind, err)
+	}
+	if reply.Error != "" {
+		return specReply{}, errors.New(reply.Error)
+	}
+	return reply, nil
+}
+
+// requestLeader sends one operator request, signed by the operator's command
+// key for the current authority epoch, on the host registration subject,
+// where only the authority leader answers. It returns the raw reply. Every
+// such request is idempotent, so a lost reply is retried.
+func requestLeader(ctx context.Context, cfg Config, runtime *natscell.Runtime, kind, operation string, payload []byte,
+) ([]byte, error) {
+	policy, err := buildSignerPolicy(cfg)
+	if err != nil {
+		return nil, err
+	}
 	codec, err := policy.withOperator(cfg.Operator)
 	if err != nil {
-		return specReply{}, err
+		return nil, err
 	}
 	epoch, err := observeOperatorAuthority(ctx, func(attempt context.Context) (authority.Snapshot, error) {
 		return authority.Observe(attempt, runtime.JetStream(), cfg.NATS.Cell)
 	})
 	if err != nil {
-		return specReply{}, err
+		return nil, err
 	}
 	now := time.Now().UTC()
 	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: cfg.NATS.Cell, Kind: kind,
-		Actor: cfg.Operator.Actor, OperationID: "cell-spec." + uuid.New().String(), Generation: 1, Epoch: epoch,
+		Actor: cfg.Operator.Actor, OperationID: operation + "." + uuid.New().String(), Generation: 1, Epoch: epoch,
 	}, now, now.Add(time.Minute), codec.PrivateKey)
 	if err != nil {
-		return specReply{}, err
+		return nil, err
 	}
 	wire, err := protocol.EncodeJSON(envelope)
 	if err != nil {
-		return specReply{}, err
+		return nil, err
 	}
 	if len(wire) > maxRegistrationWireBytes {
-		return specReply{}, errors.New("cell spec request exceeds the controller request bound")
+		return nil, fmt.Errorf("%s request exceeds the controller request bound", kind)
 	}
 	for attempt := range 3 {
 		requestCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		message, requestErr := runtime.Conn().RequestWithContext(requestCtx, hostRegistrationSubject(cfg.NATS.Cell), wire)
 		cancel()
 		if requestErr == nil {
-			var reply specReply
-			if err := protocol.DecodeStrict(message.Data, &reply, 3*cellspec.MaxSpecBytes); err != nil {
-				return specReply{}, fmt.Errorf("decode cell spec reply: %w", err)
-			}
-			if reply.Error != "" {
-				return specReply{}, errors.New(reply.Error)
-			}
-			return reply, nil
+			return message.Data, nil
 		}
 		if !errors.Is(requestErr, nats.ErrTimeout) && !errors.Is(requestErr, context.DeadlineExceeded) &&
 			!errors.Is(requestErr, nats.ErrNoResponders) || attempt == 2 {
-			return specReply{}, fmt.Errorf("request cell spec: %w", requestErr)
+			return nil, fmt.Errorf("request %s: %w", kind, requestErr)
 		}
 	}
-	return specReply{}, errors.New("cell spec request exhausted")
+	return nil, fmt.Errorf("%s request exhausted", kind)
 }
 
 func operatorSpecGet(ctx context.Context, cfg Config, runtime *natscell.Runtime, output io.Writer) error {

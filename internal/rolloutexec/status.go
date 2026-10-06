@@ -44,9 +44,13 @@ type Status struct {
 	Reason        string        `json:"reason,omitempty"`
 	PhaseDeadline time.Time     `json:"phase_deadline,omitzero"`
 	// Holds names the steps a gate is holding, by unit ("" is preflight).
-	Holds     map[string]string `json:"holds,omitempty"`
-	Units     []UnitStatus      `json:"units,omitempty"`
-	UpdatedAt time.Time         `json:"updated_at"`
+	Holds map[string]string `json:"holds,omitempty"`
+	// Waiting says why no rollout runs while the slot is free: the program
+	// cannot start (no fresh proofs, units on different releases) or a
+	// program rollout ended without completing.
+	Waiting   string       `json:"waiting,omitempty"`
+	Units     []UnitStatus `json:"units,omitempty"`
+	UpdatedAt time.Time    `json:"updated_at"`
 }
 
 // StatusSink receives every status the executor derives.
