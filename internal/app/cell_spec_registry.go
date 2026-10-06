@@ -22,6 +22,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
@@ -66,8 +67,16 @@ type specRegistry struct {
 	// which a kv_snapshot schedule needs.
 	snapshots bool
 	// rolloutExecutor is whether this controller runs orchestrator
-	// rollouts, which a rollout policy needs.
+	// rollouts, which a rollout policy needs; signedPolicy is then the
+	// signed config's policy, or the default.
 	rolloutExecutor bool
+	signedPolicy    *rollout.Policy
+	// signedDesired is the signed config's desired OCI resources when OCI
+	// reconcile is on; ociRegion, set once the signed region config is
+	// loaded, admits an oci_desired section's entries.
+	ociReconcile  bool
+	signedDesired *cellspec.OCIDesired
+	ociRegion     *oci.RegionConfig
 
 	mu       sync.Mutex
 	current  cellspec.Spec
@@ -89,6 +98,16 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 	r := &specRegistry{cell: cfg.NATS.Cell, fixed: map[string]WorkloadProfile{},
 		signers: map[string]TrustedSignerConfig{}, snapshots: cfg.Controller.KVSnapshot.Enabled,
 		rolloutExecutor: cfg.Controller.Rollouts != nil && cfg.Controller.Rollouts.Executor}
+	if r.rolloutExecutor {
+		policy := rollout.DefaultPolicy()
+		if cfg.Controller.Rollouts.Policy != nil {
+			policy = *cfg.Controller.Rollouts.Policy
+		}
+		r.signedPolicy = &policy
+	}
+	if reconcile := cfg.Controller.OciReconcile; reconcile != nil && reconcile.Enabled {
+		r.ociReconcile, r.signedDesired = true, reconcile.Desired
+	}
 	for _, grant := range cfg.Controller.TrustedSigners {
 		r.signers[grant.Actor] = grant
 	}
@@ -389,6 +408,14 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 	if spec.KVSnapshot != nil && !r.snapshots {
 		return errors.New("a kv_snapshot schedule needs the signed controller config's kv_snapshot location")
 	}
+	if desired := spec.OCIDesired; desired != nil {
+		if !r.ociReconcile || r.ociRegion == nil {
+			return errors.New("desired OCI resources need OCI reconcile and the signed region config (controller.oci_reconcile)")
+		}
+		if _, _, err := desiredSets(*desired, string(r.ociRegion.Region), *r.ociRegion); err != nil {
+			return err
+		}
+	}
 	if spec.RolloutPolicy != nil && !r.rolloutExecutor {
 		return errors.New("a rollout policy needs the controllers' rollout executor (controller.rollouts.executor)")
 	}
@@ -519,6 +546,33 @@ func (r *specRegistry) kvSnapshot(signed time.Duration) (time.Duration, bool) {
 
 // rolloutPolicy is the current spec's rollout policy, or signed when the
 // spec sets none.
+// ociDesired is the current spec's desired OCI resources, or the signed
+// config's when the spec lists none; nil lists none.
+func (r *specRegistry) ociDesired() *cellspec.OCIDesired {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.current.OCIDesired != nil {
+		return r.current.OCIDesired
+	}
+	return r.signedDesired
+}
+
+// withSigned fills the sections generation 0 holds in the signed config, so
+// plans and the root rule compare what is in force: restating the signed
+// setting changes nothing, and dropping a section returns to it.
+func (r *specRegistry) withSigned(spec cellspec.Spec) cellspec.Spec {
+	if spec.OCIDesired == nil {
+		spec.OCIDesired = r.signedDesired
+	}
+	if spec.RolloutPolicy == nil {
+		spec.RolloutPolicy = r.signedPolicy
+	}
+	if spec.KVSnapshot == nil && r.snapshots {
+		spec.KVSnapshot = &cellspec.KVSnapshot{}
+	}
+	return spec
+}
+
 func (r *specRegistry) rolloutPolicy(signed rollout.Policy) rollout.Policy {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -585,7 +639,7 @@ func (r *specRegistry) diff(ctx context.Context, payload []byte) (specReply, err
 	if err := cellspec.VerifyHostImages(current, candidate, r.roots.current(), &now); err != nil {
 		return specReply{}, err
 	}
-	plan, err := cellspec.Diff(current, candidate, r.fixed)
+	plan, err := cellspec.Diff(r.withSigned(current), r.withSigned(candidate), r.fixed)
 	if err != nil {
 		return specReply{}, err
 	}
@@ -633,7 +687,7 @@ func (r *specRegistry) apply(ctx context.Context, wire []byte, epoch uint64, fen
 	if err := cellspec.VerifyHostImages(current, spec, r.roots.current(), &now); err != nil {
 		return specReply{}, err
 	}
-	if changes := cellspec.AuthorityChanges(current, spec, r.fixed); len(changes) > 0 && !verified.RootSigned {
+	if changes := cellspec.AuthorityChanges(r.withSigned(current), r.withSigned(spec), r.fixed); len(changes) > 0 && !verified.RootSigned {
 		return specReply{}, fmt.Errorf("cell spec generation %d widens authority (%s); a root must sign it",
 			spec.Generation, strings.Join(changes, ", "))
 	}

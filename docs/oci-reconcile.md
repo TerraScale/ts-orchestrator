@@ -23,7 +23,9 @@ regional leader publishes them into `TS_OCI_DESIRED` at the start of every
 pass, writing a new generation only when a spec or policy changes. On a
 baked controller this configuration is bound to the signed controller
 manifest, so the desired state is as trusted as the rest of the
-controller configuration.
+controller configuration. A [cell spec](cell-spec.md) `oci_desired` section,
+with the same shape, replaces it on running controllers from the next pass;
+a root signs any change that alters OCI resources.
 
 ```json
 "oci_reconcile": {

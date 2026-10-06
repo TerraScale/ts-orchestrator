@@ -9,12 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/bucket"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
@@ -916,6 +918,73 @@ func TestRolloutPolicyLevelValidateAndDiff(t *testing.T) {
 		next.Generation = 2
 		plan, err := Diff(current, next, nil)
 		if err != nil || plan.RolloutPolicy != test.change || plan.Empty() != (test.change == "") || len(plan.RootRequired) != 0 {
+			t.Errorf("%s: Diff = %+v, %v", name, plan, err)
+		}
+	}
+}
+
+// Desired OCI resources need binary level 7. Only a change that alters the
+// cell's OCI resources needs a root: a new or changed enforce entry, prune
+// turned on or its delay shortened, and an entry dropped under prune.
+func TestOCIDesiredLevelValidateAndWiden(t *testing.T) {
+	f := newFixture(t)
+	backups := bucket.Spec{Namespace: "tenancy", Bucket: "backups", Versioning: "Enabled"}
+	logs := bucket.Spec{Namespace: "tenancy", Bucket: "logs"}
+	desired := func(prune bool, delay int, entries map[string]OCIDesiredEntry[bucket.Spec]) *OCIDesired {
+		return &OCIDesired{Buckets: entries, Prune: prune, PruneDelaySeconds: delay}
+	}
+	report := map[string]OCIDesiredEntry[bucket.Spec]{"backups": {Spec: backups}}
+	enforced := map[string]OCIDesiredEntry[bucket.Spec]{"backups": {Policy: "enforce", Spec: backups}}
+	both := map[string]OCIDesiredEntry[bucket.Spec]{"backups": {Policy: "enforce", Spec: backups}, "logs": {Spec: logs}}
+
+	spec := testSpec(f.id, 1)
+	spec.OCIDesired, spec.RequiresBinary = desired(false, 0, enforced), 7
+	if spec.Level() != 7 {
+		t.Fatalf("level with desired OCI resources = %d", spec.Level())
+	}
+	payload, err := Encode(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded, err := Decode(payload); err != nil || !reflect.DeepEqual(decoded.OCIDesired, spec.OCIDesired) {
+		t.Fatalf("Decode = %+v, %v", decoded.OCIDesired, err)
+	}
+	for name, invalid := range map[string]*OCIDesired{
+		"policy":      desired(false, 0, map[string]OCIDesiredEntry[bucket.Spec]{"b": {Policy: "adopt", Spec: backups}}),
+		"spec":        desired(false, 0, map[string]OCIDesiredEntry[bucket.Spec]{"b": {Spec: bucket.Spec{Bucket: "b"}}}),
+		"prune delay": desired(true, -1, nil),
+	} {
+		bad := spec
+		bad.OCIDesired = invalid
+		if err := bad.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: invalid desired resources accepted: %v", name, err)
+		}
+	}
+
+	base := testSpec(f.id, 1)
+	for name, test := range map[string]struct {
+		before, after *OCIDesired
+		change        string
+		root          []string
+	}{
+		"add report":           {after: desired(false, 0, report), change: "added"},
+		"add enforce":          {after: desired(false, 0, enforced), change: "added", root: []string{"oci_desired buckets backups"}},
+		"report to enforce":    {before: desired(false, 0, report), after: desired(false, 0, enforced), change: "updated", root: []string{"oci_desired buckets backups"}},
+		"enforce to report":    {before: desired(false, 0, enforced), after: desired(false, 0, report), change: "updated"},
+		"drop without prune":   {before: desired(false, 0, both), after: desired(false, 0, enforced), change: "updated"},
+		"drop under prune":     {before: desired(true, 0, both), after: desired(true, 0, enforced), change: "updated", root: []string{"oci_desired buckets logs pruned"}},
+		"remove under prune":   {before: desired(true, 0, report), change: "removed"},
+		"turn on prune":        {before: desired(false, 0, report), after: desired(true, 0, report), change: "updated", root: []string{"oci_desired prune"}},
+		"shorten prune delay":  {before: desired(true, 0, report), after: desired(true, 60, report), change: "updated", root: []string{"oci_desired prune delay"}},
+		"lengthen prune delay": {before: desired(true, 60, report), after: desired(true, 0, report), change: "updated"},
+		"keep":                 {before: desired(true, 0, both), after: desired(true, 0, both)},
+	} {
+		current, next := base, base
+		current.OCIDesired, next.OCIDesired = test.before, test.after
+		next.Generation = 2
+		plan, err := Diff(current, next, nil)
+		if err != nil || plan.OCIDesired != test.change || plan.Empty() != (test.change == "") ||
+			!slices.Equal(plan.RootRequired, test.root) {
 			t.Errorf("%s: Diff = %+v, %v", name, plan, err)
 		}
 	}

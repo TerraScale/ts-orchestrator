@@ -130,6 +130,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return err
 	}
+	if managed != nil {
+		services.ociRegion = &managed.region
+	}
 	policy.services = services
 	// The release channel bridge needs the OCI region (sa-saopaulo-1), not
 	// the fleet's region code (GRU).
@@ -409,7 +412,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			ociReconcile, _, err = retryControllerOpen(ctx, "open OCI resource reconcile state", fullClusterReady, false,
 				func(attempt context.Context) (*ociReconcileRuntime, error) {
 					return newOCIReconcileRunner(attempt, *reconcile, managed.region, runtime.JetStream(),
-						cfg.NATS.Replicas, control, fleet, services.profiles)
+						cfg.NATS.Replicas, control, fleet, services.profiles, services.ociDesired)
 				}, nil)
 			if err != nil {
 				return err

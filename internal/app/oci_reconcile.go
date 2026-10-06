@@ -13,6 +13,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
@@ -127,26 +128,12 @@ func (c OciReconcileLBConfig) spec(profiles map[string]WorkloadProfile, drained 
 	return spec, nil
 }
 
-// OciDesiredEntry is one desired resource. Policy is "report" (the default:
-// drift is only recorded) or "enforce".
-type OciDesiredEntry[S any] struct {
-	Policy string `json:"policy,omitempty"`
-	Spec   S      `json:"spec"`
-}
-
-// OciDesiredConfig lists desired specs by logical name per kind.
-type OciDesiredConfig struct {
-	NSGRules      map[string]OciDesiredEntry[nsg.Spec]        `json:"nsg_rules,omitempty"`
-	SecurityLists map[string]OciDesiredEntry[seclist.Spec]    `json:"security_lists,omitempty"`
-	RouteTables   map[string]OciDesiredEntry[routetable.Spec] `json:"route_tables,omitempty"`
-	Buckets       map[string]OciDesiredEntry[bucket.Spec]     `json:"buckets,omitempty"`
-	// Prune tombstones records of these kinds that this configuration no
-	// longer lists, released PruneDelaySeconds later (default one hour).
-	// Off by default: unlisted records, including ones written by tools,
-	// are left alone.
-	Prune             bool `json:"prune,omitzero"`
-	PruneDelaySeconds int  `json:"prune_delay_seconds,omitzero"`
-}
+// OciDesiredEntry and OciDesiredConfig are the cell spec's types, so the
+// signed config and a cell spec oci_desired section list resources alike.
+type (
+	OciDesiredEntry[S any] = cellspec.OCIDesiredEntry[S]
+	OciDesiredConfig       = cellspec.OCIDesired
+)
 
 const (
 	minOciReconcileInterval = 30 * time.Second
@@ -200,10 +187,10 @@ func desiredEntries[S ociresource.Validator](entries map[string]OciDesiredEntry[
 	return out, nil
 }
 
-// sets validates every configured entry against the signed region
+// desiredSets validates every configured entry against the signed region
 // configuration. NSG specs may only name the NSGs that configuration admits
 // for member hosts.
-func (c OciDesiredConfig) sets(cell string, region oci.RegionConfig) ([]ociDesiredSet, time.Duration, error) {
+func desiredSets(c OciDesiredConfig, cell string, region oci.RegionConfig) ([]ociDesiredSet, time.Duration, error) {
 	delay := defaultOciPruneDelay
 	if c.PruneDelaySeconds != 0 {
 		delay = time.Duration(c.PruneDelaySeconds) * time.Second
@@ -248,6 +235,24 @@ func (c OciDesiredConfig) sets(cell string, region oci.RegionConfig) ([]ociDesir
 		return nil, 0, err
 	}
 	return sets, delay, nil
+}
+
+// currentDesiredPass publishes the desired resources in force at each leader
+// pass: the cell spec's oci_desired section, else the signed config's.
+func currentDesiredPass(cell string, region oci.RegionConfig, store ociresource.Store, fencer authority.Fencer,
+	desired func() *OciDesiredConfig,
+) ociresource.Pass {
+	return ociresource.Pass{Name: "publish-desired", Run: func(ctx context.Context, epoch uint64) error {
+		config := desired()
+		if config == nil {
+			return nil
+		}
+		sets, delay, err := desiredSets(*config, cell, region)
+		if err != nil {
+			return err
+		}
+		return desiredPass(cell, store, fencer, sets, config.Prune, delay).Run(ctx, epoch)
+	}}
 }
 
 // desiredPass publishes the configured specs at the start of every leader
@@ -375,6 +380,7 @@ func (s ociResourceStatuses) OCIResources(ctx context.Context) ([]insights.OCIRe
 // balancer's TerraBase backends published from the cell's current profiles.
 func newOCIReconcileRunner(ctx context.Context, config OciReconcileConfig, region oci.RegionConfig,
 	js jetstream.JetStream, replicas int, fencer authority.Fencer, fleet oci.Fleet, profiles func() map[string]WorkloadProfile,
+	desired func() *OciDesiredConfig,
 ) (*ociReconcileRuntime, error) {
 	if fencer == nil || fleet == nil {
 		return nil, errors.New("OCI reconcile requires authority and the regional fleet")
@@ -388,10 +394,8 @@ func newOCIReconcileRunner(ctx context.Context, config OciReconcileConfig, regio
 		return nil, err
 	}
 	cell := string(region.Region)
-	var desiredSets []ociDesiredSet
-	var pruneDelay time.Duration
 	if config.Desired != nil {
-		if desiredSets, pruneDelay, err = config.Desired.sets(cell, region); err != nil {
+		if _, _, err := desiredSets(*config.Desired, cell, region); err != nil {
 			return nil, err
 		}
 	}
@@ -425,10 +429,7 @@ func newOCIReconcileRunner(ctx context.Context, config OciReconcileConfig, regio
 	}
 	var passes []ociresource.Pass
 	var seatBackends func(context.Context) (map[string]seatrollout.Backend, error)
-	if len(desiredSets) > 0 {
-		passes = append(passes, desiredPass(cell, store, fencer, desiredSets, config.Desired.Prune, pruneDelay))
-	}
-	passes = append(passes,
+	passes = append(passes, currentDesiredPass(cell, region, store, fencer, desired),
 		ociresource.ControllerPass(&ociresource.Controller[nsg.Spec, nsg.Observed]{
 			Region: cell, Resource: nsg.Reconciler{API: nsgAPI}, Store: store, Ownership: ownership, Authority: fencer}),
 		ociresource.ControllerPass(&ociresource.Controller[seclist.Spec, seclist.List]{

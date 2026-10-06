@@ -40,8 +40,9 @@ func TestConfigVersionCoversEveryMember(t *testing.T) {
 	}
 }
 
-// configMembers lists every JSON member reachable from typ with its Go type
-// and JSON options.
+// configMembers lists every JSON member reachable from typ with its JSON
+// shape and options. The shape names this module's types by kind, so moving
+// or renaming a Go type that keeps the JSON is no new member.
 func configMembers(typ reflect.Type) []string {
 	var members []string
 	var walk func(path string, typ reflect.Type, stack []reflect.Type)
@@ -59,13 +60,28 @@ func configMembers(typ reflect.Type) []string {
 				continue
 			}
 			member := path + "." + field.Name
-			members = append(members, member+" "+field.Type.String()+" "+string(field.Tag))
+			members = append(members, member+" "+jsonShape(field.Type)+" "+string(field.Tag))
 			walk(member, field.Type, append(stack, typ))
 		}
 	}
 	walk("", typ, nil)
 	slices.Sort(members)
 	return members
+}
+
+func jsonShape(typ reflect.Type) string {
+	switch typ.Kind() {
+	case reflect.Pointer:
+		return "*" + jsonShape(typ.Elem())
+	case reflect.Slice:
+		return "[]" + jsonShape(typ.Elem())
+	case reflect.Map:
+		return "map[" + jsonShape(typ.Key()) + "]" + jsonShape(typ.Elem())
+	}
+	if strings.HasPrefix(typ.PkgPath(), "git.terrascale.tech/") {
+		return typ.Kind().String()
+	}
+	return typ.String()
 }
 
 func TestLoadConfigSkipsOnlyANewerBinarysMembers(t *testing.T) {

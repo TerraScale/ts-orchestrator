@@ -26,6 +26,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
@@ -712,5 +713,41 @@ func TestSpecRegistryKVSnapshotSchedule(t *testing.T) {
 	registry.adopt(set, 2)
 	if interval, paused := registry.kvSnapshot(30 * time.Second); interval != 30*time.Second || !paused {
 		t.Fatalf("paused schedule = %s, %v", interval, paused)
+	}
+}
+
+// Plans compare what is in force: the signed rollout policy (or the default)
+// and an empty kv_snapshot schedule are generation 0, so restating them
+// changes nothing and dropping a section returns to them.
+func TestSpecRegistryPlansAgainstTheSignedSettings(t *testing.T) {
+	signed := rollout.DefaultPolicy()
+	signed.BatchSize = 1
+	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}, Controller: ControllerConfig{
+		Rollouts:   &RolloutsConfig{Enabled: true, Executor: true, Policy: &signed},
+		KVSnapshot: kvsnapshot.Config{Enabled: true, Region: "sa-saopaulo-1", Namespace: "ns", Bucket: "kv"}}}
+	registry, err := newSpecRegistry(cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := rollout.DefaultPolicy()
+	spec := func(policy *rollout.Policy, snapshot *cellspec.KVSnapshot) cellspec.Spec {
+		return cellspec.Spec{Schema: cellspec.Schema, Generation: 1, RequiresBinary: 6, RolloutPolicy: policy, KVSnapshot: snapshot}
+	}
+	for name, test := range map[string]struct {
+		current, next      cellspec.Spec
+		policy, kvSnapshot string
+	}{
+		"restate the signed policy": {current: spec(nil, nil), next: spec(&signed, nil)},
+		"another policy":            {current: spec(nil, nil), next: spec(&other, nil), policy: "updated"},
+		"drop back to the signed":   {current: spec(&other, nil), next: spec(nil, nil), policy: "updated"},
+		"drop a restated policy":    {current: spec(&signed, nil), next: spec(nil, nil)},
+		"empty schedule":            {current: spec(nil, nil), next: spec(nil, &cellspec.KVSnapshot{})},
+		"pause":                     {current: spec(nil, nil), next: spec(nil, &cellspec.KVSnapshot{Paused: true}), kvSnapshot: "updated"},
+	} {
+		test.next.Generation = 2
+		plan, err := cellspec.Diff(registry.withSigned(test.current), registry.withSigned(test.next), nil)
+		if err != nil || plan.RolloutPolicy != test.policy || plan.KVSnapshot != test.kvSnapshot {
+			t.Errorf("%s: plan = %+v, %v", name, plan, err)
+		}
 	}
 }

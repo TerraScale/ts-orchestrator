@@ -30,6 +30,10 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/bucket"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/nsg"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/routetable"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/seclist"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
@@ -47,8 +51,9 @@ const (
 	// A change that adds a section raises it, and amendments that use the
 	// section require the new level.
 	// Level 2 adds profile secrets, level 3 the budget, level 4 host images,
-	// level 5 the kv_snapshot schedule, level 6 the rollout policy.
-	BinaryLevel = 6
+	// level 5 the kv_snapshot schedule, level 6 the rollout policy, level 7
+	// the desired OCI resources.
+	BinaryLevel = 7
 	// MaxHostImages bounds the image allow-list: the images a rollout moves
 	// between, plus room to stage the next one.
 	MaxHostImages = 4
@@ -158,6 +163,30 @@ type Spec struct {
 	// RolloutPolicy replaces the signed config's policy for the cell's next
 	// orchestrator rollouts; a rollout keeps the policy it started with.
 	RolloutPolicy *rollout.Policy `json:"rollout_policy,omitempty"`
+	// OCIDesired replaces the signed config's desired OCI resources.
+	OCIDesired *OCIDesired `json:"oci_desired,omitempty"`
+}
+
+// OCIDesiredEntry is one desired OCI resource. Policy is "report" (the
+// default: drift is only recorded) or "enforce".
+type OCIDesiredEntry[S any] struct {
+	Policy string `json:"policy,omitempty"`
+	Spec   S      `json:"spec"`
+}
+
+// OCIDesired lists the cell's desired OCI specs by logical name per kind;
+// the leader publishes them into TS_OCI_DESIRED before every reconcile pass.
+type OCIDesired struct {
+	NSGRules      map[string]OCIDesiredEntry[nsg.Spec]        `json:"nsg_rules,omitempty"`
+	SecurityLists map[string]OCIDesiredEntry[seclist.Spec]    `json:"security_lists,omitempty"`
+	RouteTables   map[string]OCIDesiredEntry[routetable.Spec] `json:"route_tables,omitempty"`
+	Buckets       map[string]OCIDesiredEntry[bucket.Spec]     `json:"buckets,omitempty"`
+	// Prune tombstones records of these kinds that this configuration no
+	// longer lists, released PruneDelaySeconds later (default one hour).
+	// Off by default: unlisted records, including ones written by tools,
+	// are left alone.
+	Prune             bool `json:"prune,omitzero"`
+	PruneDelaySeconds int  `json:"prune_delay_seconds,omitzero"`
 }
 
 // KVSnapshot is how often the authority leader uploads changed
@@ -246,6 +275,11 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("%w: rollout_policy: %w", ErrInvalid, err)
 		}
 	}
+	if s.OCIDesired != nil {
+		if err := s.OCIDesired.Validate(); err != nil {
+			return fmt.Errorf("%w: oci_desired: %w", ErrInvalid, err)
+		}
+	}
 	addresses := map[string]bool{}
 	for index, grant := range s.HostGrants {
 		address, err := netip.ParseAddr(grant.PrivateIP)
@@ -322,8 +356,8 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 
 // Level is the lowest requires_binary the spec's sections need: 2 once a
 // profile names Vault secrets, 3 with a budget, 4 once it allows host
-// images, 5 with a kv_snapshot schedule and 6 with a rollout policy, which
-// an older binary could not read.
+// images, 5 with a kv_snapshot schedule, 6 with a rollout policy and 7 with
+// desired OCI resources, which an older binary could not read.
 func (s Spec) Level() uint64 {
 	level := uint64(1)
 	for _, service := range s.Services {
@@ -342,6 +376,9 @@ func (s Spec) Level() uint64 {
 	}
 	if s.RolloutPolicy != nil {
 		level = max(level, 6)
+	}
+	if s.OCIDesired != nil {
+		level = max(level, 7)
 	}
 	return level
 }
@@ -578,7 +615,10 @@ func verifyDelegated(delegationWire []byte, specEnvelope trust.Envelope, roots t
 //   - any budget change but a lower cap in the same currency, since the
 //     budget bounds what the cell may spend on hosts;
 //   - pausing kv_snapshot, since a rebuilt cell restores only what was
-//     uploaded.
+//     uploaded;
+//   - in oci_desired, a new or changed enforce entry, turning on prune,
+//     shortening the prune delay, and dropping an entry while prune is on,
+//     since each changes the cell's OCI resources.
 //
 // Everything else is an ordinary change.
 func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
@@ -613,6 +653,7 @@ func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
 	if next.KVSnapshot != nil && next.KVSnapshot.Paused && (current.KVSnapshot == nil || !current.KVSnapshot.Paused) {
 		changes = append(changes, "kv_snapshot pause")
 	}
+	changes = append(changes, ociDesiredChanges(current.OCIDesired, next.OCIDesired)...)
 	effective := func(spec Spec) Profile {
 		if service, ok := spec.Find(terrabase.Role); ok {
 			return service.Profile
@@ -665,6 +706,9 @@ type Plan struct {
 	// RolloutPolicy is "added", "updated" or "removed" when the rollout
 	// policy changes.
 	RolloutPolicy string `json:"rollout_policy,omitempty"`
+	// OCIDesired is "added", "updated" or "removed" when the desired OCI
+	// resources change.
+	OCIDesired string `json:"oci_desired,omitempty"`
 	// RootRequired lists the authority-widening changes; the amendment
 	// applies only when a root signed it.
 	RootRequired []string `json:"root_required,omitempty"`
@@ -743,6 +787,14 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 	case before != nil && *before != *after:
 		plan.RolloutPolicy = "updated"
 	}
+	switch before, after := current.OCIDesired, next.OCIDesired; {
+	case before == nil && after != nil:
+		plan.OCIDesired = "added"
+	case before != nil && after == nil:
+		plan.OCIDesired = "removed"
+	case before != nil && !reflect.DeepEqual(*before, *after):
+		plan.OCIDesired = "updated"
+	}
 	return plan, nil
 }
 
@@ -771,5 +823,74 @@ func budgetChange(before, after *hostpool.Budget) string {
 // Empty reports whether the plan changes nothing.
 func (p Plan) Empty() bool {
 	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 && p.Budget == "" &&
-		p.KVSnapshot == "" && p.RolloutPolicy == ""
+		p.KVSnapshot == "" && p.RolloutPolicy == "" && p.OCIDesired == ""
+}
+
+// Validate checks each entry's policy and spec and the prune delay. The
+// controller also checks the entries against the signed region config.
+func (d OCIDesired) Validate() error {
+	if d.PruneDelaySeconds < 0 || d.PruneDelaySeconds > 7*24*60*60 {
+		return errors.New("prune delay must be between zero and seven days")
+	}
+	return errors.Join(validDesired(d.NSGRules), validDesired(d.SecurityLists),
+		validDesired(d.RouteTables), validDesired(d.Buckets))
+}
+
+func validDesired[S interface{ Validate() error }](entries map[string]OCIDesiredEntry[S]) error {
+	for name, entry := range entries {
+		if entry.Policy != "" && entry.Policy != "report" && entry.Policy != "enforce" {
+			return fmt.Errorf("%q has unsupported policy %q", name, entry.Policy)
+		}
+		if err := entry.Spec.Validate(); err != nil {
+			return fmt.Errorf("%q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// ociDesiredChanges lists what after widens relative to before: a new or
+// changed enforce entry, turning on prune, a shorter prune delay while
+// prune is on, and an entry dropped while prune is on, since prune then
+// releases its resource. Nil means no desired resources.
+func ociDesiredChanges(before, after *OCIDesired) []string {
+	if before == nil {
+		before = &OCIDesired{}
+	}
+	if after == nil {
+		after = &OCIDesired{}
+	}
+	var changes []string
+	if after.Prune && !before.Prune {
+		changes = append(changes, "oci_desired prune")
+	}
+	if after.Prune && before.Prune && pruneDelay(after) < pruneDelay(before) {
+		changes = append(changes, "oci_desired prune delay")
+	}
+	changes = append(changes, desiredChanges("nsg_rules", before.NSGRules, after.NSGRules, after.Prune)...)
+	changes = append(changes, desiredChanges("security_lists", before.SecurityLists, after.SecurityLists, after.Prune)...)
+	changes = append(changes, desiredChanges("route_tables", before.RouteTables, after.RouteTables, after.Prune)...)
+	return append(changes, desiredChanges("buckets", before.Buckets, after.Buckets, after.Prune)...)
+}
+
+func pruneDelay(d *OCIDesired) int {
+	if d.PruneDelaySeconds == 0 {
+		return 60 * 60
+	}
+	return d.PruneDelaySeconds
+}
+
+func desiredChanges[S any](kind string, before, after map[string]OCIDesiredEntry[S], prune bool) []string {
+	var changes []string
+	for _, name := range slices.Sorted(maps.Keys(after)) {
+		entry := after[name]
+		if previous, ok := before[name]; entry.Policy == "enforce" && (!ok || !reflect.DeepEqual(previous, entry)) {
+			changes = append(changes, "oci_desired "+kind+" "+name)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(before)) {
+		if _, kept := after[name]; !kept && prune {
+			changes = append(changes, "oci_desired "+kind+" "+name+" pruned")
+		}
+	}
+	return changes
 }
