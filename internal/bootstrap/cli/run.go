@@ -17,6 +17,7 @@ Commands:
   sign-ledger-delegation
   sign-anchor
   sign-manifest
+  sign-material-generation
   render-controller-config
   render-operator-config
   render-host-enrollment-public

@@ -55,45 +55,69 @@ func LoadIssuer(cell, cellAccount, natsSeedPath, keyPath, certPath string, rootP
 		return nil, errors.New("host TLS issuer key is unavailable")
 	}
 	defer clear(keyPEM)
-	keyBlock, rest := pem.Decode(keyPEM)
-	if keyBlock == nil || keyBlock.Type != "EC PRIVATE KEY" || len(strings.TrimSpace(string(rest))) != 0 {
-		pair.Wipe()
-		return nil, errors.New("host TLS issuer key format is invalid")
-	}
-	key, err := x509.ParseECPrivateKey(keyBlock.Bytes)
-	if err != nil {
-		pair.Wipe()
-		return nil, err
-	}
 	certPEM, err := os.ReadFile(certPath)
 	if err != nil || len(certPEM) == 0 || len(certPEM) > 8192 {
 		pair.Wipe()
 		return nil, errors.New("host TLS issuer certificate is unavailable")
 	}
-	certBlock, rest := pem.Decode(certPEM)
-	if certBlock == nil || certBlock.Type != "CERTIFICATE" || len(strings.TrimSpace(string(rest))) != 0 {
-		pair.Wipe()
-		return nil, errors.New("host TLS issuer certificate format is invalid")
+	var roots []*x509.Certificate
+	for rest := rootPEM; ; {
+		var block *pem.Block
+		if block, rest = pem.Decode(rest); block == nil {
+			break
+		}
+		root, err := x509.ParseCertificate(block.Bytes)
+		if block.Type != "CERTIFICATE" || err != nil {
+			pair.Wipe()
+			return nil, errors.New("host TLS regional root is invalid")
+		}
+		roots = append(roots, root)
 	}
-	cert, err := x509.ParseCertificate(certBlock.Bytes)
+	key, cert, root, err := ParseTLSIssuer(keyPEM, certPEM, roots)
 	if err != nil {
 		pair.Wipe()
 		return nil, err
 	}
-	rootBlock, _ := pem.Decode(rootPEM)
-	if rootBlock == nil || rootBlock.Type != "CERTIFICATE" {
-		pair.Wipe()
-		return nil, errors.New("host TLS regional root is invalid")
+	return &Issuer{CellAccount: cellAccount, Cell: cell, NATSKey: pair, TLSKey: key, TLSCert: cert, TLSCertPEM: certPEM, Root: root}, nil
+}
+
+// ParseTLSIssuer checks the host TLS issuer: one EC key and one certificate,
+// each a single PEM block, that match; the certificate is a client-only,
+// path-length-zero intermediate signed by one of roots and is not itself a
+// root. It returns the root that signed it.
+func ParseTLSIssuer(keyPEM, certPEM []byte, roots []*x509.Certificate) (*ecdsa.PrivateKey, *x509.Certificate, *x509.Certificate, error) {
+	keyBlock, rest := pem.Decode(keyPEM)
+	if keyBlock == nil || keyBlock.Type != "EC PRIVATE KEY" || len(strings.TrimSpace(string(rest))) != 0 {
+		return nil, nil, nil, errors.New("host TLS issuer key format is invalid")
 	}
-	root, err := x509.ParseCertificate(rootBlock.Bytes)
+	key, err := x509.ParseECPrivateKey(keyBlock.Bytes)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	certBlock, rest := pem.Decode(certPEM)
+	if certBlock == nil || certBlock.Type != "CERTIFICATE" || len(strings.TrimSpace(string(rest))) != 0 {
+		return nil, nil, nil, errors.New("host TLS issuer certificate format is invalid")
+	}
+	cert, err := x509.ParseCertificate(certBlock.Bytes)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	var signer *x509.Certificate
+	for _, root := range roots {
+		if root.Equal(cert) {
+			return nil, nil, nil, errors.New("host TLS issuer is a regional root")
+		}
+		if signer == nil && cert.CheckSignatureFrom(root) == nil {
+			signer = root
+		}
+	}
 	public, keyIsECDSA := cert.PublicKey.(*ecdsa.PublicKey)
-	if err != nil || cert.CheckSignatureFrom(root) != nil || !cert.IsCA || !cert.MaxPathLenZero ||
+	if signer == nil || cert.CheckSignatureFrom(cert) == nil || !cert.IsCA || !cert.MaxPathLenZero ||
 		cert.KeyUsage&x509.KeyUsageCertSign == 0 || len(cert.ExtKeyUsage) != 1 || cert.ExtKeyUsage[0] != x509.ExtKeyUsageClientAuth ||
 		!keyIsECDSA || !public.Equal(&key.PublicKey) {
-		pair.Wipe()
-		return nil, errors.New("host TLS issuer is not a root-signed client-only intermediate")
+		return nil, nil, nil, errors.New("host TLS issuer is not a root-signed client-only intermediate")
 	}
-	return &Issuer{CellAccount: cellAccount, Cell: cell, NATSKey: pair, TLSKey: key, TLSCert: cert, TLSCertPEM: certPEM, Root: root}, nil
+	return key, cert, signer, nil
 }
 
 // ValidateAccountScope checks the broker-installed account claim, not a

@@ -1,0 +1,99 @@
+# Material generations (TS-568)
+
+A material generation renews a running cell's bootstrap material in place,
+so the cell does not have to be re-founded before its material expires. See
+[self-healing](self-healing.md), step 3, for the whole renewal plan. This
+page covers what a generation is and how the owner signs one. Controllers
+do not adopt generations yet. That is the next step.
+
+## What a generation pins
+
+The owner's root signs one generation per cell. It has the same envelope as
+the bootstrap manifest and is scoped to the deployment, the cell and the
+environment. Each generation pins, by OCI Vault reference (secret OCID,
+version, SHA-256 and size bound), exactly these renewable files:
+
+| File | Vault purpose |
+| --- | --- |
+| `ca.pem`, `operator.jwt`, `system.jwt`, `cell.jwt`, `system.creds` | `regional-shared` |
+| `host-tls-issuer-cert.pem`, `host-tls-issuer-key.pem` | `host-issuer` |
+| `controller-tls-issuer-cert.pem`, `controller-tls-issuer-key.pem`, `controller-account-signer.seed` | `controller-issuer` |
+
+- **Pins replace the manifest's.** A generation's pin replaces the
+  manifest's pin for the same file.
+- **The cell issues its own leaves and user JWTs.** Controller TLS leaves and
+  NATS user JWTs come from the controller TLS issuer and the account signer.
+  They last at most `issuedLifetimeHours`, which can be up to 90 days.
+- **Some secrets never renew.** Founder, response, ticket and route secrets
+  do not expire and keep their manifest pins.
+- **Fixed keys:** these never change, because brokers and hosts pin them:
+  - the NATS operator (`operator`);
+  - the system and cell accounts (`systemAccount`, `cellAccount`);
+  - the host NATS issuer (`hostSigner`), whose scope `cell.jwt` carries.
+- **Account signer:** `accountSigner` is an unscoped signing key of the cell
+  account, because controller user JWTs carry their own grants and a scoped
+  key cannot sign those.
+  - **Risk:** every controller can mint any cell user, and a compromised
+    controller could keep such a user until the signer is rotated.
+  - **Lifetime cap:** `issuedLifetimeHours` is enforced by the controllers'
+    own issuing and by restart admission, not by NATS.
+  - **Cleanup after a compromise:** rotate the signer with a new generation.
+- **Interregion material** is not part of a generation and is renewed
+  separately.
+
+Generations form a hash chain. Generation 1 has no `previous`. Every later
+generation names its predecessor's envelope fingerprint and keeps the fixed
+keys.
+- **Verification:** a chain is checked by its links and by the newest
+  generation's root signature alone, which covers the rest.
+- **Root rotation:** the owner can extend a chain after the roots that
+  signed older generations were rotated, but a retired root cannot extend it.
+- **Adoption:** a controller adopts only a generation that extends the one
+  it holds.
+
+## Sign a generation
+
+Put the files in one directory under their target names, publish them to
+Vault, and write the unsigned candidate (`bootstrap.MaterialGeneration` JSON)
+with their references. Then run:
+
+```sh
+ts-orch bootstrap sign-material-generation \
+  --candidate generation-2.json --material ./generation-2-files \
+  --chain gru-generations.json \
+  --root-key root.pub --signing-key root.key \
+  --out gru-generations-2.json
+```
+
+Leave out `--chain` for generation 1. Only the new generation's signature
+is checked against `--root-key`. The command checks every file with the
+rules the running cell applies (`bootstrapmaterial.CheckGenerationFiles`):
+
+- **Digest and size:** each file matches its pin.
+- **CA bundle:** `ca.pem` holds one to four self-signed root CAs.
+- **Both issuers:**
+  - each is a path-length-zero intermediate signed by a bundle CA, and is
+    not itself a CA in the bundle;
+  - each has a single-block EC key that matches it.
+- **Controller TLS issuer:** it issues server and client leaves.
+- **Host TLS issuer:** it is client-only and name-constrained to
+  `hosts.<cell>.terrascale.internal`, as `hostenroll` loads it.
+- **Account signer:** the seed is `accountSigner`.
+- **JWTs:**
+  - `operator.jwt` is the operator's own, names the system account and has
+    no signing keys.
+  - `system.jwt` and `cell.jwt` are signed by the operator.
+  - `cell.jwt` grants JetStream and has exactly two signing keys: the host
+    scope of `hostSigner` and the unscoped account signer.
+  - `system.creds` is a system account user with only its claim-update and
+    reply grants.
+- **Validity:** everything is valid now.
+
+A broker also checks a new `cell.jwt` against the running claim (a later
+issue time, the interregion exports) when it applies it.
+
+The signature expires at the earliest certificate or JWT expiry the files
+hold, and never more than 400 days after signing. The command writes the
+whole chain with the new generation appended to a new file. It never
+overwrites an existing file. It prints the generation number and
+fingerprint.

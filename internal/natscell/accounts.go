@@ -148,6 +148,10 @@ func credentialUser(path string) (*jwt.UserClaims, string, error) {
 		return nil, "", err
 	}
 	defer clear(data)
+	return credentialUserBytes(data)
+}
+
+func credentialUserBytes(data []byte) (*jwt.UserClaims, string, error) {
 	raw, err := nkeys.ParseDecoratedJWT(data)
 	if err != nil {
 		return nil, "", err
@@ -315,7 +319,19 @@ func ValidateBrokerOperatorCredentials(path, cell string) error {
 }
 
 func validateSystemCredentials(path, cell, cellAccount, systemAccount string) error {
-	claim, public, err := credentialUser(path)
+	data, err := readPrivateFile(path, 64<<10)
+	if err != nil {
+		return fmt.Errorf("system account credentials: %w", err)
+	}
+	defer clear(data)
+	return ValidateSystemCredentials(data, cell, cellAccount, systemAccount)
+}
+
+// ValidateSystemCredentials checks a system account credentials file's bytes:
+// a seed that matches its JWT, issued by systemAccount, with only the cell
+// claim-update and private reply grants.
+func ValidateSystemCredentials(data []byte, cell, cellAccount, systemAccount string) error {
+	claim, public, err := credentialUserBytes(data)
 	if err != nil {
 		return fmt.Errorf("system account credentials: %w", err)
 	}

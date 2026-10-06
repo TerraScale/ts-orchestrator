@@ -554,6 +554,10 @@ func credentials(claim *jwt.UserClaims, account, user nkeys.KeyPair) ([]byte, er
 
 func inbox(cell, public string) string { return protocol.InboxGrant(cell, public) }
 
+// HostScope is the cell account's scope for the host NATS issuer: hosts may
+// publish only their own observations and read their own inbox.
+func HostScope(cell, issuer string) *jwt.UserScope { return expectedHostScope(cell, issuer) }
+
 func expectedHostScope(cell, issuer string) *jwt.UserScope {
 	scope := jwt.NewUserScope()
 	scope.Key = issuer
