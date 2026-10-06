@@ -73,7 +73,7 @@ func TestValidateMembers(t *testing.T) {
 	ca := testCertificate(t, true)
 	with := func(endpoints, roots string) map[string]string {
 		env := validProfile()
-		env[EnvAPIEndpoints], env[EnvAPICA] = endpoints, roots
+		env[EnvAPIEndpoints], env[EnvAPICA], env[EnvAPIFailover] = endpoints, roots, "true"
 		return env
 	}
 	if err := ValidateMembers(validProfile(), nil); err != nil {
@@ -105,6 +105,21 @@ func TestValidateMembers(t *testing.T) {
 	} {
 		if err := ValidateMembers(env, members); err == nil {
 			t.Errorf("%s: accepted", name)
+		}
+	}
+	pinned := with("https://10.251.0.21:9465", ca)
+	delete(pinned, EnvAPIFailover)
+	if err := ValidateMembers(pinned, members); err != nil {
+		t.Fatalf("one pinned member: %v", err)
+	}
+	for _, failover := range []string{"", "false", "yes"} {
+		env := with("https://10.251.0.21:9465;https://10.251.0.22:9465", ca)
+		env[EnvAPIFailover] = failover
+		if failover == "" {
+			delete(env, EnvAPIFailover)
+		}
+		if err := ValidateMembers(env, members); err == nil {
+			t.Errorf("accepted several members with %s=%q", EnvAPIFailover, failover)
 		}
 	}
 	delete(members, "TERRABASE_CLIENT_PORT")

@@ -73,7 +73,7 @@ breaks these rules:
 | --- | --- |
 | `TS_AUTH_PUBLIC_ORIGIN` | Exactly `https://gru.auth.terrascale.tech`, the regional host (user decision 2026-10-05; `auth.terrascale.tech` stays the ts-atlas proxy). |
 | `TS_AUTH_TERRASCALE_API_URL` | Exactly `https://gru.api.terrascale.tech`. |
-| `TS_AUTH_TERRASCALE_API_ENDPOINTS`, `TS_AUTH_TERRASCALE_API_CA` | Optional, together: the [private TerraBase path](#private-terrabase-path). Each endpoint is `https://<IP>:<TERRABASE_CLIENT_PORT>` of a member the cell's `terrabase` profile lists in `TERRABASE_PEERS`, at most once, `;`-separated; the CA is 1 to 4 PEM CA certificates. Checked by the controller against the cell's current `terrabase` profile, so a spec that drops a member ts-auth still names is refused. |
+| `TS_AUTH_TERRASCALE_API_ENDPOINTS`, `TS_AUTH_TERRASCALE_API_CA`, `TS_AUTH_TERRASCALE_API_FAILOVER` | Optional, endpoints and CA together: the [private TerraBase path](#private-terrabase-path). Each endpoint is `https://<IP>:<TERRABASE_CLIENT_PORT>` of a member the cell's `terrabase` profile lists in `TERRABASE_PEERS`, at most once, `;`-separated; the CA is 1 to 4 PEM CA certificates. Several endpoints need `TS_AUTH_TERRASCALE_API_FAILOVER=true`. Checked by the controller against the cell's current `terrabase` profile, so a spec that drops a member ts-auth still names is refused. |
 | `TS_AUTH_DATABASE` | Exactly `auth`, the database `ouroboros bootstrap` creates. The host passes ts-auth `<project-uuid>/auth`, the project from the Vault. |
 | `TS_AUTH_ACCESS_TOKEN_AUDIENCES` | Exactly `https://gru.api.terrascale.tech`, TerraBase's `auth-audience`: every access token names it, so a dashboard user's token reaches TerraBase's Management API (TS-519). |
 | `TS_AUTH_DASHBOARD_REDIRECT_URIS` | Exactly `https://dash.terrascale.tech/login/callback`, the dashboard's callback. |
@@ -162,10 +162,22 @@ cell's member CA:
 
 ```json
 "TS_AUTH_TERRASCALE_API_ENDPOINTS": "https://10.251.0.21:9465;https://10.251.0.22:9465",
+"TS_AUTH_TERRASCALE_API_FAILOVER": "true",
 "TS_AUTH_TERRASCALE_API_CA": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n"
 ```
 
-- **Failover.** Every replica sends to the first ready member, in the
+- **Failover is a documented security exception.** ts-auth's contract is
+  one storage authority without failover; with one endpoint it is pinned and
+  fails closed while that member is down. `TS_AUTH_TERRASCALE_API_FAILOVER=true`
+  (required for several endpoints) lets it move to the next member, which
+  may not have replicated the latest writes yet: within the members'
+  replication lag a read can miss them, and a conditional write there can
+  succeed against older state (a consumed challenge, a uniqueness claim, a
+  refresh-token rotation). gru-1 sets it: before TS-577 ts-auth reached both
+  members round-robin through the load balancer (TS-574), so every request
+  had that exposure; now only a db-1 outage does. Drop db-2 and the flag to
+  fail closed instead.
+- **Order.** Every replica sends to the first ready member, in the
   profile's order, so all replicas use one member and read their own writes
   (TS-575). ts-auth probes each member's `/readyz` every 2 s; a member that
   answers 503 (draining, or a catalog follower that has not caught up) or

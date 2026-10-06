@@ -92,6 +92,11 @@ const (
 	// TerraBase member CA (PEM).
 	EnvAPIEndpoints = "TS_AUTH_TERRASCALE_API_ENDPOINTS"
 	EnvAPICA        = "TS_AUTH_TERRASCALE_API_CA"
+	// EnvAPIFailover=true lets ts-auth move to the next of several endpoints
+	// while the preferred member is down: ts-auth's documented exception to a
+	// single storage authority, since the next member may not have replicated
+	// the latest writes yet. One endpoint pins storage and fails closed.
+	EnvAPIFailover = "TS_AUTH_TERRASCALE_API_FAILOVER"
 )
 
 // Secrets live in the cell's Vault; the profile names them and the host reads
@@ -179,7 +184,8 @@ func ValidateProfile(cell string, args []string, env map[string]string, secrets 
 // against the cell's TerraBase profile terraBase: each one is
 // https://<member IP>:<client port> of a member TERRABASE_PEERS lists, at
 // most once, and EnvAPICA holds 1 to 4 PEM CA certificates and nothing else.
-// A profile without either stores through EnvAPIURL. Without a terrabase
+// Several endpoints need EnvAPIFailover=true. A profile without endpoints and
+// CA stores through EnvAPIURL. Without a terrabase
 // profile, as in an identity-only controller config whose first cell spec
 // brings it, only the pairing and the CA are checked.
 func ValidateMembers(env, terraBase map[string]string) error {
@@ -192,6 +198,10 @@ func ValidateMembers(env, terraBase map[string]string) error {
 	}
 	if !caCertificates(roots) {
 		return fmt.Errorf("%s must hold 1 to 4 PEM CA certificates and nothing else", EnvAPICA)
+	}
+	if failover, set := env[EnvAPIFailover]; set && failover != "true" && failover != "false" ||
+		strings.Contains(endpoints, ";") && failover != "true" {
+		return fmt.Errorf("%s lists several members only with %s=true", EnvAPIEndpoints, EnvAPIFailover)
 	}
 	if len(terraBase) == 0 {
 		return nil
