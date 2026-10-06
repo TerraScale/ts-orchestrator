@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -18,6 +19,8 @@ const Bucket = "TS_TENANTS"
 const (
 	keyPrefix     = "tenant."
 	maxValueBytes = 8 << 10
+	// clockSkew is how far past the store's clock a write may be stamped.
+	clockSkew = time.Minute
 )
 
 var (
@@ -37,10 +40,13 @@ type Versioned struct {
 // revision the writer read, so of two controllers that read one revision,
 // for instance on either side of a partition, only the first write lands.
 // Reads come from the stream leader: a KV Get may be served by a follower
-// a moment behind, and a reconciler would act on its old state.
+// a moment behind, and a reconciler would act on its old state. A write
+// stamped more than a minute past the store's clock is refused, so no caller
+// purges a tenant before its retention ends by passing a later time.
 type Store struct {
 	kv     jetstream.KeyValue
 	leader nats.JetStreamContext
+	now    func() time.Time
 }
 
 // OpenStore opens or creates the bucket with replicas copies and refuses a
@@ -67,24 +73,45 @@ func OpenStore(ctx context.Context, js jetstream.JetStream, replicas int) (*Stor
 	if got := status.Config().Replicas; got != replicas {
 		return nil, fmt.Errorf("tenant store has %d replicas, requires %d", got, replicas)
 	}
-	leader, err := js.Conn().JetStream()
+	leader, err := js.Conn().JetStream(legacyOptions(js.Options())...)
 	if err != nil {
 		return nil, err
 	}
-	return &Store{kv: kv, leader: leader}, nil
+	return &Store{kv: kv, leader: leader, now: time.Now}, nil
+}
+
+// legacyOptions carry js's API namespace and timeout to the leader-read
+// context, so both address the same JetStream.
+func legacyOptions(options jetstream.JetStreamOptions) []nats.JSOpt {
+	var legacy []nats.JSOpt
+	switch {
+	case options.Domain != "":
+		legacy = append(legacy, nats.Domain(options.Domain))
+	case options.APIPrefix != "":
+		legacy = append(legacy, nats.APIPrefix(options.APIPrefix))
+	}
+	if options.DefaultTimeout > 0 {
+		legacy = append(legacy, nats.MaxWait(options.DefaultTimeout))
+	}
+	return legacy
+}
+
+func (s *Store) checkStamp(t Tenant) error {
+	if limit := s.now().Add(clockSkew); t.UpdatedAt.After(limit) {
+		return fmt.Errorf("%w: tenant %s is stamped %s, after %s", ErrInvalid, t.ID,
+			t.UpdatedAt.Format(time.RFC3339), limit.Format(time.RFC3339))
+	}
+	return nil
 }
 
 // Create stores generation 1 of a new tenant. It writes only a key that
 // was never written, so no ID is taken twice, even after a purge.
 func (s *Store) Create(ctx context.Context, t Tenant) (Versioned, error) {
-	if !ValidID(t.ID) {
-		return Versioned{}, fmt.Errorf("%w: id %q is taken or malformed", ErrInvalid, t.ID)
-	}
-	if err := t.Validate(); err != nil {
+	if err := CheckNew(t); err != nil {
 		return Versioned{}, err
 	}
-	if t.Generation != 1 || t.State != StateActive {
-		return Versioned{}, fmt.Errorf("%w: a new tenant is active generation 1", ErrInvalid)
+	if err := s.checkStamp(t); err != nil {
+		return Versioned{}, err
 	}
 	data, err := encode(t)
 	if err != nil {
@@ -111,6 +138,9 @@ func (s *Store) Update(ctx context.Context, revision uint64, next Tenant) (Versi
 		return Versioned{}, fmt.Errorf("%w: %s", ErrConflict, next.ID)
 	}
 	if err := CheckSuccessor(current.Tenant, next); err != nil {
+		return Versioned{}, err
+	}
+	if err := s.checkStamp(next); err != nil {
 		return Versioned{}, err
 	}
 	data, err := encode(next)
@@ -147,7 +177,10 @@ func (s *Store) Get(ctx context.Context, id string) (Versioned, error) {
 	return decode(key, msg.Data, msg.Sequence)
 }
 
-// List reads every tenant, sorted by ID. A corrupt record or a delete marker
+// List reads, sorted by ID, every tenant created before the call, each at
+// its latest state; a tenant created during the call may be missing. Since
+// tenants are never removed, a missing tenant is never a gone one: the
+// tenant's state says when it is gone. A corrupt record or a delete marker
 // fails the list, and so does a listing cut short, so a reconciler never
 // takes a tampered or truncated bucket for tenants that are gone.
 func (s *Store) List(ctx context.Context) ([]Versioned, error) {
@@ -166,7 +199,10 @@ func (s *Store) List(ctx context.Context) ([]Versioned, error) {
 		ids = append(ids, strings.TrimPrefix(entry.Key(), keyPrefix))
 	}
 	if !complete {
-		return nil, errors.Join(errors.New("tenant listing ended early"), ctx.Err())
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("tenant listing: %w", context.Cause(ctx))
+		}
+		return nil, errors.New("tenant listing ended before every tenant was read")
 	}
 	slices.Sort(ids)
 	tenants := make([]Versioned, 0, len(ids))

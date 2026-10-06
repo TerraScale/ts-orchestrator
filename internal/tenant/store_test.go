@@ -49,6 +49,8 @@ func openStore(t *testing.T, js jetstream.JetStream) *Store {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Every test stamp is within a year of t0; the wall clock plays no part.
+	store.now = func() time.Time { return t0.Add(365 * 24 * time.Hour) }
 	return store
 }
 
@@ -291,5 +293,55 @@ func TestStoreListFailsWhenCutShort(t *testing.T) {
 	cancel()
 	if tenants, err := store.List(ctx); err == nil {
 		t.Fatalf("List on a cancelled context = %+v, want an error", tenants)
+	}
+}
+
+// TestStoreRefusesFutureStamps: a caller cannot purge a tenant before its
+// retention ends, or create one, by passing a time past the store's clock.
+func TestStoreRefusesFutureStamps(t *testing.T) {
+	store := openStore(t, startCell(t)())
+	store.now = func() time.Time { return t0 }
+	ctx := t.Context()
+	early, err := New("acme", "org_01", "prj_01", "gru",
+		Spec{Plan: "standard", Members: 3, TerraBase: digestA}, t0.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create(ctx, early); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Create stamped an hour ahead = %v, want ErrInvalid", err)
+	}
+	created, err := store.Create(ctx, newTenant(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := created.Tenant.Delete(MinRetention, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := store.Update(ctx, created.Revision, deleted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	purged, err := stored.Tenant.Purge(deleted.RetainUntil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Update(ctx, stored.Revision, purged); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Purge stamped at retain_until a day early = %v, want ErrInvalid", err)
+	}
+	store.now = func() time.Time { return deleted.RetainUntil }
+	if _, err := store.Update(ctx, stored.Revision, purged); err != nil {
+		t.Fatalf("Purge once retention ended = %v", err)
+	}
+}
+
+// TestStoreCreateRefusesOffPlanResources: the store holds a hand-built
+// tenant to its plan, not only tenants made by New.
+func TestStoreCreateRefusesOffPlanResources(t *testing.T) {
+	store := openStore(t, startCell(t)())
+	forged := newTenant(t)
+	forged.Spec.Member.MemoryBytes *= 4
+	if _, err := store.Create(t.Context(), forged); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Create with off-plan resources = %v, want ErrInvalid", err)
 	}
 }

@@ -49,7 +49,7 @@ func TestNewValidatesIdentityAndSpec(t *testing.T) {
 	}
 	tenant, err := New("acme", "org_01", "prj_01", "gru", good, t0)
 	if err != nil || tenant.Generation != 1 || tenant.State != StateActive || !tenant.CreatedAt.Equal(t0) ||
-		tenant.Spec.Member != Plans[0].Member {
+		tenant.Spec.Member != Plans()[0].Member {
 		t.Fatalf("New = %+v, %v; want active generation 1 with the starter plan's resources", tenant, err)
 	}
 }
@@ -165,13 +165,14 @@ func TestClockSkewNeverFreezesATenant(t *testing.T) {
 }
 
 // TestPlanEditsNeverResizeATenant: a tenant keeps the resources it chose;
-// Plans only matter when a tenant picks a plan.
+// the catalog only matters when a tenant picks a plan. A new binary's
+// catalog stands in for an edit: standard grows a core and pro is withdrawn.
 func TestPlanEditsNeverResizeATenant(t *testing.T) {
 	tenant := newTenant(t)
-	saved := Plans
-	t.Cleanup(func() { Plans = saved })
-	Plans = []Plan{{Name: "standard", Member: Plans[1].Member}}
-	Plans[0].Member.CPU = 3
+	saved := plans
+	t.Cleanup(func() { plans = saved })
+	plans[1].Member.CPU = 3
+	plans[2].Name = "pro-2027"
 	if err := tenant.Validate(); err != nil {
 		t.Fatalf("stored tenant after a plan edit: %v", err)
 	}
@@ -184,6 +185,32 @@ func TestPlanEditsNeverResizeATenant(t *testing.T) {
 	spec.Plan = "pro"
 	if _, err := tenant.Change(spec, t0); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("move to a withdrawn plan = %v, want ErrInvalid", err)
+	}
+}
+
+func TestPlansCannotBeChangedByImporters(t *testing.T) {
+	catalog := Plans()
+	catalog[0].Member.CPU = 64
+	if plan, _ := LookupPlan("starter"); plan.Member.CPU != 1 {
+		t.Fatalf("starter after editing the returned catalog = %+v", plan)
+	}
+}
+
+// TestCheckNewRefusesHandBuiltTenants: a tenant built without New must still
+// be on a plan on sale at exactly its resources.
+func TestCheckNewRefusesHandBuiltTenants(t *testing.T) {
+	for name, edit := range map[string]func(*Tenant){
+		"bigger member":    func(n *Tenant) { n.Spec.Member.CPU = 64 },
+		"plan not on sale": func(n *Tenant) { n.Spec.Plan = "huge" },
+		"reserved id":      func(n *Tenant) { n.ID = "api" },
+		"generation 2":     func(n *Tenant) { n.Generation = 2 },
+		"backdated":        func(n *Tenant) { n.CreatedAt = t0.Add(-time.Hour) },
+	} {
+		forged := newTenant(t)
+		edit(&forged)
+		if err := CheckNew(forged); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: CheckNew = %v, want ErrInvalid", name, err)
+		}
 	}
 }
 

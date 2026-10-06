@@ -47,7 +47,7 @@ const (
 )
 
 // Plan is a size a tenant buys: what one TerraBase member reserves. A tenant
-// keeps the resources of the plan it chose, so editing Plans never resizes a
+// keeps the resources of the plan it chose, so a new catalog never resizes a
 // running tenant. OCI block volumes grow but never shrink, so a tenant moves
 // only to a plan with at least its disk.
 type Plan struct {
@@ -57,13 +57,17 @@ type Plan struct {
 
 const gib = int64(1) << 30
 
-// Plans are the sizes on sale; Member matches whole Ampere cores.
-var Plans = []Plan{
+// plans are the sizes on sale; Member matches whole Ampere cores. The
+// catalog is private so no importer can change what a plan name means.
+var plans = [...]Plan{
 	{Name: "starter", Member: placement.Resources{CPU: 1, MemoryBytes: 4 * gib, DiskBytes: 20 * gib}},
 	{Name: "standard", Member: placement.Resources{CPU: 2, MemoryBytes: 8 * gib, DiskBytes: 100 * gib}},
 	{Name: "pro", Member: placement.Resources{CPU: 4, MemoryBytes: 16 * gib, DiskBytes: 250 * gib}},
 	{Name: "scale", Member: placement.Resources{CPU: 8, MemoryBytes: 32 * gib, DiskBytes: 500 * gib}},
 }
+
+// Plans returns a copy of the plans on sale.
+func Plans() []Plan { return slices.Clone(plans[:]) }
 
 // AuthResources is one dedicated ts-auth replica's reservation, the platform
 // ts-auth profile's.
@@ -71,11 +75,11 @@ var AuthResources = placement.Resources{CPU: 1, MemoryBytes: 1 * gib, DiskBytes:
 
 // LookupPlan returns the plan named name.
 func LookupPlan(name string) (Plan, bool) {
-	index := slices.IndexFunc(Plans, func(plan Plan) bool { return plan.Name == name })
+	index := slices.IndexFunc(plans[:], func(plan Plan) bool { return plan.Name == name })
 	if index < 0 {
 		return Plan{}, false
 	}
-	return Plans[index], true
+	return plans[index], true
 }
 
 // State is where a tenant is in its lifecycle. Suspended keeps the data and
@@ -90,7 +94,8 @@ const (
 	StatePurged    State = "purged"
 )
 
-// Spec is what the tenant runs. Member is filled from Plan by New and Change.
+// Spec is what the tenant runs. Member is filled from Plan by New and Change;
+// CheckNew and CheckSuccessor hold it to the plan the tenant chooses.
 // TerraBase and Auth are admitted artifact digests (lower-case SHA-256 hex);
 // an empty Auth means no dedicated ts-auth.
 type Spec struct {
@@ -121,7 +126,7 @@ type Tenant struct {
 }
 
 // Validate checks the spec's structure. Plan sizes are checked only when a
-// tenant chooses a plan, so a stored tenant stays readable when Plans change.
+// tenant chooses a plan, so a stored tenant stays readable when plans change.
 func (s Spec) Validate() error {
 	if !planRE.MatchString(s.Plan) || s.Member.CPU <= 0 || s.Member.MemoryBytes <= 0 || s.Member.DiskBytes <= 0 {
 		return fmt.Errorf("%w: plan %q or its member resources", ErrInvalid, s.Plan)
@@ -171,14 +176,29 @@ func (t Tenant) Validate() error {
 	return nil
 }
 
+// CheckNew reports whether t may be created: a valid active generation 1
+// under a free ID, on a plan on sale at exactly its resources.
+func CheckNew(t Tenant) error {
+	if !ValidID(t.ID) {
+		return fmt.Errorf("%w: id %q is taken or malformed", ErrInvalid, t.ID)
+	}
+	if err := t.Validate(); err != nil {
+		return err
+	}
+	if t.Generation != 1 || t.State != StateActive || !t.UpdatedAt.Equal(t.CreatedAt) {
+		return fmt.Errorf("%w: a new tenant is active generation 1", ErrInvalid)
+	}
+	if plan, ok := LookupPlan(t.Spec.Plan); !ok || plan.Member != t.Spec.Member {
+		return fmt.Errorf("%w: plan %q is not on sale at those resources", ErrInvalid, t.Spec.Plan)
+	}
+	return nil
+}
+
 // ValidID reports whether a new tenant may take id.
 func ValidID(id string) bool { return idRE.MatchString(id) && !slices.Contains(reserve, id) }
 
 // New is generation 1 of an active tenant; it fills spec.Member from the plan.
 func New(id, organization, project, cell string, spec Spec, now time.Time) (Tenant, error) {
-	if !ValidID(id) {
-		return Tenant{}, fmt.Errorf("%w: id %q is taken or malformed", ErrInvalid, id)
-	}
 	plan, ok := LookupPlan(spec.Plan)
 	if !ok {
 		return Tenant{}, fmt.Errorf("%w: unknown plan %q", ErrInvalid, spec.Plan)
@@ -187,7 +207,7 @@ func New(id, organization, project, cell string, spec Spec, now time.Time) (Tena
 	now = now.UTC().Round(0)
 	t := Tenant{Schema: Schema, ID: id, Organization: organization, Project: project, Cell: cell, Spec: spec,
 		State: StateActive, Generation: 1, CreatedAt: now, UpdatedAt: now}
-	return t, t.Validate()
+	return t, CheckNew(t)
 }
 
 // Change replaces an active tenant's spec: a resize, a scale, adding or

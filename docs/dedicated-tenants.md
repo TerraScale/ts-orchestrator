@@ -17,7 +17,7 @@ A **tenant** is one record in the cell's `TS_TENANTS` KV bucket, key
 | `id` | 3 to 30 lower-case letters and digits, starting with a letter; immutable and never reused. No hyphen, so it is one DNS label, NATS token and KV token, and no tenant's role or Vault name is a prefix of another's. New tenants may not take a reserved name (`api`, `auth`, `www`, ...). |
 | `organization`, `project` | The owning ts-auth IDs; immutable. |
 | `cell` | The catalog cell that runs it, e.g. `gru`; immutable. |
-| `spec.plan`, `spec.member` | The plan and what one TerraBase member reserves under it. `member` is copied from `tenant.Plans` when the tenant picks the plan, so a later edit of the table never resizes a running tenant. |
+| `spec.plan`, `spec.member` | The plan and what one TerraBase member reserves under it. `member` is copied from the private plan catalog (`tenant.Plans()` returns a copy) when the tenant picks the plan, and creation and every plan change must match it exactly, so a later catalog never resizes a running tenant. |
 | `spec.members` | TerraBase members: 1, or 3 for a replicated cluster (TS-561). |
 | `spec.terrabase`, `spec.auth` | Admitted artifact digests. An empty `auth` means no dedicated ts-auth. |
 | `state` | `active`, `suspended`, `deleted` or `purged`. |
@@ -58,14 +58,18 @@ record cannot:
   exactly the previous release.
 
 A leader whose clock is behind the previous writer's stamps the previous
-time instead, so clock skew never freezes a tenant.
+time instead, so clock skew never freezes a tenant. The store refuses a write
+stamped more than a minute past its own clock, so no caller purges a tenant
+before `retain_until` by passing a later time.
 
 Every write is a KV compare-and-swap on the revision the writer read. Of two
 controllers that read one revision, for instance on either side of a
 partition, only the first write lands; the other rereads. Reads come from the
 stream leader, because a KV get may be served by a follower a moment behind.
 Records are never removed: a create writes only a key that was never written,
-and a delete marker reads as tampering. A read refuses a record that is not
+and a delete marker reads as tampering. A list holds every tenant created
+before it began, each at its latest state; a tenant missing from it was
+created during the list, never removed. A read refuses a record that is not
 valid, has unknown fields or another schema, or sits under another tenant's
 key, and one such record, or a listing cut short, fails the whole list, so a
 reconciler never takes a tampered or truncated bucket for tenants that are
