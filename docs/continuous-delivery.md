@@ -823,7 +823,9 @@ releases/v1/services/<role>/status.json         the region leader's report
    the leader marks it `fence.<role>.<release>` in `TS_RELEASE_CHANNEL`, and
    every controller's host restart gate holds a host's restart into a
    marked release until the leader writes that node's permit. For each node
-   in turn the leader takes the node's backends that are in rotation out of
+   in turn, nodes with a recorded fence first (so a rollback returns the
+   node that failed before it takes a serving one out), the leader takes
+   the node's backends that are in rotation out of
    every fenced set (drain, the grace, then offline, since a drain alone
    keeps the load balancer's pooled connections), but only while another
    backend of the set serves healthy; records them under `fenced.<node>`,

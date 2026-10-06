@@ -183,7 +183,7 @@ type Spec struct {
 	Atlas *atlas.Config `json:"atlas,omitempty"`
 	// ReleaseFence makes the leader's service releases (TS-610) restart one
 	// node at a time, each fenced on the load balancer first; nil restarts
-	// every replica at once.
+	// every replica at once. Adding or changing it needs a root.
 	ReleaseFence *ReleaseFence `json:"release_fence,omitempty"`
 }
 
@@ -789,6 +789,11 @@ func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
 	// The publish key writes what every SDK trusts for region discovery.
 	if next.Atlas != nil && !reflect.DeepEqual(current.Atlas, next.Atlas) {
 		changes = append(changes, "atlas")
+	}
+	// A fence takes load balancer backends out of rotation with the
+	// controllers' instance principal.
+	if next.ReleaseFence != nil && !reflect.DeepEqual(current.ReleaseFence, next.ReleaseFence) {
+		changes = append(changes, "release fence")
 	}
 	if change := budgetChange(current.Budget, next.Budget); change != "" && change != "lowered" {
 		changes = append(changes, "budget")

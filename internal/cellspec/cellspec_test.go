@@ -1200,8 +1200,8 @@ func TestAtlasLevelValidateDiffAndWiden(t *testing.T) {
 	}
 }
 
-// A release fence needs binary level 12 and a valid section; any signer of
-// ordinary amendments may add, change or remove it.
+// A release fence needs binary level 12 and a valid section, and every
+// added or changed one needs a root: it moves load balancer backends.
 func TestReleaseFenceLevelValidateAndDiff(t *testing.T) {
 	f := newFixture(t)
 	fence := ReleaseFence{LoadBalancerID: "ocid1.loadbalancer.oc1.sa-saopaulo-1.example",
@@ -1241,7 +1241,9 @@ func TestReleaseFenceLevelValidateAndDiff(t *testing.T) {
 		current, next := testSpec(f.id, 1), testSpec(f.id, 2)
 		current.ReleaseFence, next.ReleaseFence = test.before, test.after
 		plan, err := Diff(current, next, nil)
-		if err != nil || plan.ReleaseFence != test.change || plan.Empty() != (test.change == "") || len(plan.RootRequired) != 0 {
+		widens := slices.Equal(plan.RootRequired, []string{"release fence"})
+		if err != nil || plan.ReleaseFence != test.change || plan.Empty() != (test.change == "") ||
+			widens != (test.change == "added" || test.change == "updated") {
 			t.Errorf("%s: Diff = %+v, %v", name, plan, err)
 		}
 	}

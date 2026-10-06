@@ -17,6 +17,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
 )
@@ -401,5 +402,63 @@ func TestReleaseFenceStopsOnALostLease(t *testing.T) {
 	}
 	if len(balancer.log) != 0 || len(cell.restarts) != 0 {
 		t.Fatalf("a deposed leader went on: load balancer %q, restarts %q", balancer.log, cell.restarts)
+	}
+}
+
+// After a release failed on one node, its rollback returns that node first:
+// fencing a serving node before would wait on a set whose other backend
+// serves again only later in the same turn.
+func TestReleaseFenceRollsBackTheFencedNodeFirst(t *testing.T) {
+	fence, cell, balancer, _, intent := newFenceTest(t)
+	ctx := t.Context()
+	cell.nodes = []string{"ctl-1", "ctl-2"}
+	balancer.sets = map[string][]lb.Backend{"terrabase": {{IP: "10.0.0.11", Port: 9465}, {IP: "10.0.0.12", Port: 9465}}}
+	cell.broken["ctl-2"] = true
+	if err := fence.prepare(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.sequence(ctx, intent); err == nil {
+		t.Fatal("a failed node passed")
+	}
+	// The rollback, a newer release that ctl-2 serves.
+	cell.broken["ctl-2"], cell.release, cell.restarts = false, 8, nil
+	rollback := delivery.Intent{Role: "ts-auth", Generation: 8}
+	if err := fence.prepare(ctx, rollback); err != nil {
+		t.Fatal(err)
+	}
+	limited, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if err := fence.sequence(limited, rollback); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	if !slices.Equal(cell.restarts, []string{"ctl-2", "ctl-1"}) {
+		t.Fatalf("rollback restarts %q", cell.restarts)
+	}
+	for _, backend := range balancer.sets["terrabase"] {
+		if !backend.Serving() {
+			t.Errorf("%s stays out of rotation", backend.Name())
+		}
+	}
+}
+
+// A release fence may not name the backend set the public_lb reconciler
+// owns, which would return a fenced backend to rotation.
+func TestReleaseFenceRefusesThePublicLBSet(t *testing.T) {
+	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true},
+		Controller: ControllerConfig{OciReconcile: &OciReconcileConfig{Enabled: true,
+			PublicLB: &OciReconcileLBConfig{LoadBalancerID: "ocid1.loadbalancer.oc1..x", BackendSet: "terrabase"}}}}
+	registry, err := newSpecRegistry(cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := cellspec.Spec{Schema: cellspec.Schema, Generation: 1, RequiresBinary: 12,
+		ReleaseFence: &cellspec.ReleaseFence{LoadBalancerID: "ocid1.loadbalancer.oc1..x",
+			BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465}, {Name: "ts-auth", Port: 8080}}}}
+	if err := registry.validate(spec); err == nil || !strings.Contains(err.Error(), "oci_reconcile.public_lb owns") {
+		t.Fatalf("a fence over the reconciled set: %v", err)
+	}
+	spec.ReleaseFence.BackendSets = spec.ReleaseFence.BackendSets[1:]
+	if err := registry.validate(spec); err != nil {
+		t.Fatalf("a fence beside the reconciled set: %v", err)
 	}
 }

@@ -205,7 +205,26 @@ func (f *releaseFence) sequence(ctx context.Context, intent delivery.Intent) err
 			nodes = append(nodes, d.Node)
 		}
 	}
-	slices.Sort(nodes)
+	// Nodes already fenced go first: after a failed release the rollback
+	// returns them before it takes a serving node out, so a set never waits
+	// on a node that only later in the turn would serve again.
+	fenced := map[string]bool{}
+	for _, node := range nodes {
+		if _, found, err := f.record(ctx, node); err != nil {
+			return err
+		} else if found {
+			fenced[node] = true
+		}
+	}
+	slices.SortFunc(nodes, func(a, b string) int {
+		if fenced[a] != fenced[b] {
+			if fenced[a] {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a, b)
+	})
 	for _, node := range nodes {
 		state, err := f.nodeState(ctx, role, release, node)
 		if err != nil {

@@ -90,7 +90,10 @@ type specRegistry struct {
 	// loaded, admits an oci_desired section's entries.
 	ociReconcile  bool
 	signedDesired *cellspec.OCIDesired
-	ociRegion     *oci.RegionConfig
+	// publicLB is the backend set oci_reconcile.public_lb owns; a release
+	// fence may not name it.
+	publicLB  *OciReconcileLBConfig
+	ociRegion *oci.RegionConfig
 	// signedArtifactStore is the signed config's artifact store quota, or
 	// the default; artifactStoreLimit is the most this controller's
 	// embedded NATS store holds beside control state.
@@ -139,7 +142,7 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 		r.signedPolicy = &policy
 	}
 	if reconcile := cfg.Controller.OciReconcile; reconcile != nil && reconcile.Enabled {
-		r.ociReconcile, r.signedDesired = true, reconcile.Desired
+		r.ociReconcile, r.signedDesired, r.publicLB = true, reconcile.Desired, reconcile.PublicLB
 	}
 	if memberRole != "" {
 		r.reserved = append(r.reserved, memberRole)
@@ -471,6 +474,14 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 		}
 		if _, _, err := desiredSets(*desired, string(r.ociRegion.Region), *r.ociRegion); err != nil {
 			return err
+		}
+	}
+	if fence, public := spec.ReleaseFence, r.publicLB; fence != nil && public != nil && fence.LoadBalancerID == public.LoadBalancerID {
+		for _, set := range fence.BackendSets {
+			if set.Name == public.BackendSet {
+				// The reconciler would return a fenced backend to rotation.
+				return fmt.Errorf("release_fence names backend set %q, which oci_reconcile.public_lb owns", set.Name)
+			}
 		}
 	}
 	if store := spec.ArtifactStore; store != nil && store.MaxBytes > r.artifactStoreLimit {
