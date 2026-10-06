@@ -235,9 +235,15 @@ func TestOfflineCommand(t *testing.T) {
 		switch command {
 		case "enable":
 			for _, name := range names {
-				source := filepath.Join(root, "etc/systemd/system", name)
+				// Like systemctl, an instance a@b.timer is enabled from its
+				// template a@.timer.
+				file := name
+				if prefix, instance, ok := strings.Cut(name, "@"); ok {
+					file = prefix + "@" + filepath.Ext(instance)
+				}
+				source := filepath.Join(root, "etc/systemd/system", file)
 				if !exists(source) {
-					source = filepath.Join(root, "usr/lib/systemd/system", name)
+					source = filepath.Join(root, "usr/lib/systemd/system", file)
 				}
 				if os.Getenv("VIRT_FAIL_TIME_UNITS") == "1" && name == "systemd-timesyncd.service" {
 					fail("mock base image is missing a required systemd time unit")
@@ -917,6 +923,49 @@ func TestOfflineManagedRootAndVolumeInitUnits(t *testing.T) {
 	for _, unit := range []string{volumeSocketUnit, volumeServiceUnit} {
 		equal(t, read(t, f.path("/etc/systemd/system/"+unit)), read(t, filepath.Join(deployRoot(t), "deploy/systemd", unit)))
 		equal(t, mode(t, f.path("/etc/systemd/system/"+unit)), os.FileMode(0644))
+	}
+}
+
+// Self-update needs no node-local file: the image bakes both drop-ins and
+// the watchdog template and enables one watchdog timer per role (TS-553).
+func TestOfflineInstallsSelfUpdateEnabled(t *testing.T) {
+	t.Parallel()
+	f := newOffline(t)
+	successful(t, f.run(nil, nil, nil))
+	owner := []any{float64(0), float64(0)}
+	for _, name := range []string{"terrascale-orchestrator-controller.service.d/60-selfupdate.conf", "terrascale-orchestrator-host.service.d/60-selfupdate.conf", "terrascale-orchestrator-selfupdate-watchdog@.service", "terrascale-orchestrator-selfupdate-watchdog@.timer"} {
+		f.installed("/etc/systemd/system/"+name, read(t, filepath.Join(deployRoot(t), "deploy/systemd/selfupdate", name)), 0644, owner)
+	}
+	for _, role := range []string{"controller", "host"} {
+		link := f.path("/etc/systemd/system/timers.target.wants/terrascale-orchestrator-selfupdate-watchdog@" + role + ".timer")
+		target, err := os.Readlink(link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		equal(t, filepath.Clean(filepath.Join(filepath.Dir(link), target)), f.path("/etc/systemd/system/terrascale-orchestrator-selfupdate-watchdog@.timer"))
+	}
+}
+func TestOfflineRejectsMaskedOrConflictingSelfUpdate(t *testing.T) {
+	t.Parallel()
+	for i, tc := range []struct{ name, guest, message string }{
+		{"masked-instance", "/etc/systemd/system/terrascale-orchestrator-selfupdate-watchdog@host.timer", "required systemd unit is masked: terrascale-orchestrator-selfupdate-watchdog@host.timer"},
+		{"masked-template", "/etc/systemd/system/terrascale-orchestrator-selfupdate-watchdog@.timer", "base image has a conflicting image artifact"},
+		{"runtime-override", "/run/systemd/system/terrascale-orchestrator-selfupdate-watchdog@.timer", "base image has a conflicting systemd unit override"},
+		{"conflicting-dropin", "/etc/systemd/system/terrascale-orchestrator-controller.service.d/60-selfupdate.conf", "base image has a conflicting image artifact"},
+		{"planted-watchdog-instance", "/usr/lib/systemd/system/terrascale-orchestrator-selfupdate-watchdog@controller.service", "base image has a conflicting systemd unit instance"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			representative(t, i == 0)
+			t.Parallel()
+			f := newOffline(t)
+			if err := os.MkdirAll(filepath.Dir(f.path(tc.guest)), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("/dev/null", f.path(tc.guest)); err != nil {
+				t.Fatal(err)
+			}
+			f.reject(f.run(nil, nil, nil), tc.message)
+		})
 	}
 }
 func TestOfflineRequiresPinnedVolumeTools(t *testing.T) {

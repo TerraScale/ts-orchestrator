@@ -34,3 +34,22 @@ func TestSelfUpdateProofUsesTheConfiguredReleaseRoot(t *testing.T) {
 		t.Fatal("a relative release root was accepted")
 	}
 }
+
+// An unset proof file defaults to the file the image's watchdog reads for the
+// unit, beside the configured release root (TS-553).
+func TestSelfUpdateProofFileDefaultsToTheWatchdogFile(t *testing.T) {
+	for unit, want := range map[string]string{
+		controllerUnit: "/var/lib/terrascale-orchestrator-controller/selfupdate-proof.json",
+		hostUnit:       "/var/lib/terrascale-orchestrator-host/selfupdate-proof.json",
+	} {
+		if got := selfUpdateProofFile("", "", unit); got != want {
+			t.Fatalf("%s default proof = %q, want %q", unit, got, want)
+		}
+	}
+	if got := selfUpdateProofFile("", "/srv/lab/releases", hostUnit); got != "/srv/lab/terrascale-orchestrator-host/selfupdate-proof.json" {
+		t.Fatalf("default proof beside a configured root = %q", got)
+	}
+	if got := selfUpdateProofFile("/run/proof.json", "", hostUnit); got != "/run/proof.json" {
+		t.Fatalf("configured proof = %q", got)
+	}
+}

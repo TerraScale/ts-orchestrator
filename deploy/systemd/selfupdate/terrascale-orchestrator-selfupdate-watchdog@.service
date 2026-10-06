@@ -1,15 +1,20 @@
 [Unit]
-Description=TerraScale self-update watchdog for %i
-# Opt-in; see docs/continuous-delivery.md. The instance is the unit name
-# without ".service", for example terrascale-orchestrator-controller.
+Description=TerraScale self-update watchdog for terrascale-orchestrator-%i.service
+# The image enables the controller and host instances; see
+# docs/continuous-delivery.md. Where the role's config is absent no process
+# can prove an activation of its unit, and deadlines still roll back.
 
 [Service]
 Type=oneshot
-EnvironmentFile=/etc/terrascale-orchestrator/selfupdate-%i.env
 # Confirms a pending activation from the unit's fresh signed version proof,
 # or rolls the current link back after the deadline and restarts the unit.
-# This also covers a new release that hangs instead of crashing.
-ExecStart=/usr/local/bin/terrascale-orchestrator selfupdate watchdog --root /var/lib/terrascale-orchestrator --unit %i.service --proof-file ${TS_SELFUPDATE_PROOF_FILE} --proof-key-file ${TS_SELFUPDATE_PROOF_KEY_FILE} --restart
+# This also covers a new release that hangs instead of crashing. The role
+# config names the unit's key and, optionally, its proof file. The baked
+# binary hands the check to the node's known-good release, so these
+# arguments must stay valid for every release.
+ExecStart=/usr/local/bin/terrascale-orchestrator selfupdate watchdog --root /var/lib/terrascale-orchestrator --unit terrascale-orchestrator-%i.service --config /etc/terrascale-orchestrator/%i.json --restart
+# A hung check would stop the timer, which only fires after a run ends.
+TimeoutStartSec=60s
 UMask=0077
 NoNewPrivileges=yes
 ProtectHome=yes

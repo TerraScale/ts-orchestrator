@@ -26,11 +26,16 @@ const (
 	DefaultBakedBinary = "/usr/local/bin/terrascale-orchestrator"
 	// BinaryName is the executable file name inside every release directory.
 	BinaryName = "terrascale-orchestrator"
+	// ControllerUnit and HostUnit are the image's units that execute the
+	// current release.
+	ControllerUnit = "terrascale-orchestrator-controller.service"
+	HostUnit       = "terrascale-orchestrator-host.service"
 	// MaxBinaryBytes matches the release receipt and delivery artifact bound.
 	MaxBinaryBytes int64 = 512 << 20
 
 	releasesDir     = "releases"
 	currentLink     = "current"
+	knownGoodLink   = "known-good"
 	activationFile  = "activation.json"
 	knownBadFile    = "known-bad.json"
 	receiptFile     = "receipt.json"
@@ -126,11 +131,19 @@ func (layout Layout) checkOwned(path string, directory bool) error {
 
 // Current returns the digest the current link points at, or "" when the
 // link is absent.
-func (layout Layout) Current() (string, error) {
+func (layout Layout) Current() (string, error) { return layout.readLink(currentLink) }
+
+// KnownGood returns the digest the known-good link points at, or "" when
+// the link is absent: the last release a unit confirmed with a version
+// proof. Nothing else moves it, so a restore, an unreadable record or the
+// seed never make a release that has not proved itself the delegate.
+func (layout Layout) KnownGood() (string, error) { return layout.readLink(knownGoodLink) }
+
+func (layout Layout) readLink(name string) (string, error) {
 	if err := layout.validate(); err != nil {
 		return "", err
 	}
-	target, err := os.Readlink(layout.currentPath())
+	target, err := os.Readlink(filepath.Join(layout.Root, name))
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
 	}
@@ -139,9 +152,28 @@ func (layout Layout) Current() (string, error) {
 	}
 	digest, ok := strings.CutPrefix(target, releasesDir+"/")
 	if !ok || !digestRE.MatchString(digest) {
-		return "", fmt.Errorf("%w: current link target %q", ErrUnsafe, target)
+		return "", fmt.Errorf("%w: %s link target %q", ErrUnsafe, name, target)
 	}
 	return digest, nil
+}
+
+// Delegate returns the release that runs the root self-update steps in
+// place of the image-baked binary: the known-good release, unless it is the
+// baked one or was rejected since. "" means the baked binary runs them
+// itself.
+func (layout Layout) Delegate() (string, error) {
+	digest, err := layout.KnownGood()
+	if err != nil || digest == "" {
+		return "", err
+	}
+	if _, err := os.Lstat(filepath.Join(layout.ReleaseDir(digest), bakedMarkerFile)); err == nil {
+		return "", nil
+	}
+	knownBad, err := layout.KnownBad()
+	if err != nil || knownBad[digest] {
+		return "", err
+	}
+	return digest, layout.VerifyRelease(digest)
 }
 
 // VerifyRelease checks that a staged release is exclusively owned,
@@ -170,13 +202,15 @@ func (layout Layout) VerifyRelease(digest string) error {
 }
 
 // flipCurrent atomically repoints the current link at digest.
-func (layout Layout) flipCurrent(digest string) error {
-	temporary := filepath.Join(layout.Root, ".current-"+digest[:16])
+func (layout Layout) flipCurrent(digest string) error { return layout.flipLink(currentLink, digest) }
+
+func (layout Layout) flipLink(name, digest string) error {
+	temporary := filepath.Join(layout.Root, "."+name+"-"+digest[:16])
 	_ = os.Remove(temporary)
 	if err := os.Symlink(releasesDir+"/"+digest, temporary); err != nil {
 		return err
 	}
-	if err := os.Rename(temporary, layout.currentPath()); err != nil {
+	if err := os.Rename(temporary, filepath.Join(layout.Root, name)); err != nil {
 		_ = os.Remove(temporary)
 		return err
 	}

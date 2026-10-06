@@ -76,8 +76,10 @@ type ControllerConfig struct {
 	// OciReconcile enables the declarative OCI resource reconcilers; nil or
 	// disabled keeps them off.
 	OciReconcile *OciReconcileConfig `json:"oci_reconcile,omitempty"`
-	// SelfUpdateProofFile, when set, makes a ready controller sign a version
-	// proof for a pending self-update activation with its response key.
+	// SelfUpdateProofFile is where a ready controller writes the version
+	// proof for a pending self-update activation, signed with its response
+	// key; empty means selfupdate.DefaultProofFile, which the image's
+	// watchdog reads.
 	SelfUpdateProofFile string `json:"self_update_proof_file,omitempty"`
 	// SelfUpdateRoot is the release root the selfupdate prepare and watchdog
 	// steps use (their --root); empty means selfupdate.DefaultRoot.
@@ -165,8 +167,10 @@ type HostConfig struct {
 	// member filesystem to its resized OCI volume. Off by default; the C#
 	// TerraBase data volume always grows.
 	ManagedVolumeOnlineGrow bool `json:"managed_volume_online_grow,omitzero"`
-	// SelfUpdateProofFile, when set, makes a started host agent sign a
-	// version proof for a pending self-update activation with its identity key.
+	// SelfUpdateProofFile is where a started host agent writes the version
+	// proof for a pending self-update activation, signed with its identity
+	// key; empty means selfupdate.DefaultProofFile, which the image's
+	// watchdog reads.
 	SelfUpdateProofFile string `json:"self_update_proof_file,omitempty"`
 	// SelfUpdateRoot is the release root the selfupdate prepare and watchdog
 	// steps use (their --root); empty means selfupdate.DefaultRoot.

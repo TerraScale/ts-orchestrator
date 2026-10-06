@@ -1,5 +1,5 @@
 // Package cli provides the self-update commands of the unified executable.
-// prepare and watchdog run as root from the opt-in systemd drop-ins; stage
+// prepare and watchdog run as root from the image's systemd drop-ins; stage
 // and activate are the root-run steps a rollout executor performs on a node.
 package cli
 
@@ -9,6 +9,7 @@ import (
 	"crypto/ed25519"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
 	"flag"
@@ -35,6 +36,18 @@ Commands:
   activate   Flip the current link to a staged release
   status     Print the current release and any pending activation
 `
+
+// maxRoleConfigBytes matches the controller and host config bound.
+const maxRoleConfigBytes = 1 << 20
+
+// delegatedEnv marks a root step that the image-baked binary handed to the
+// known-good release, which then runs it itself.
+const delegatedEnv = "TS_SELFUPDATE_DELEGATED"
+
+// delegateTimeout bounds a delegated step, leaving the image-baked binary
+// time to run it within the watchdog unit's TimeoutStartSec=60s when the
+// known-good release hangs.
+var delegateTimeout = 30 * time.Second
 
 // Restarter restarts a systemd unit after a rollback or activation.
 type Restarter func(ctx context.Context, unit string) error
@@ -106,18 +119,37 @@ func (l layoutFlags) layout() selfupdate.Layout {
 }
 
 type proofFlags struct {
-	file *string
-	key  *string
+	file   *string
+	key    *string
+	config *string
 }
 
 func addProof(flags *flag.FlagSet) proofFlags {
 	return proofFlags{
-		file: flags.String("proof-file", "", "version proof written by the unit's healthy process"),
-		key:  flags.String("proof-key-file", "", "the unit's base64 Ed25519 identity key; only its public half is used"),
+		file:   flags.String("proof-file", "", "version proof written by the unit's healthy process"),
+		key:    flags.String("proof-key-file", "", "the unit's base64 Ed25519 identity key; only its public half is used"),
+		config: flags.String("config", "", "the unit's role config, which names its proof file and key instead of --proof-file and --proof-key-file"),
 	}
 }
 
-func (p proofFlags) check() (selfupdate.ProofCheck, error) {
+func (p proofFlags) check(root, unit string) (selfupdate.ProofCheck, error) {
+	if *p.config != "" {
+		if *p.file != "" || *p.key != "" {
+			return selfupdate.ProofCheck{}, errors.New("--config replaces --proof-file and --proof-key-file")
+		}
+		file, key, err := roleProof(*p.config, root, unit)
+		if errors.Is(err, os.ErrNotExist) {
+			// The role is not configured on this node, so no process of
+			// this unit can prove anything; deadlines still roll back.
+			return selfupdate.ProofCheck{}, nil
+		}
+		if err != nil {
+			slog.Warn("self-update role config is unusable; activations cannot be confirmed and roll back at their deadline",
+				"config", *p.config, "error", err)
+			return selfupdate.ProofCheck{}, nil
+		}
+		*p.file, *p.key = file, key
+	}
 	if *p.file == "" && *p.key == "" {
 		return selfupdate.ProofCheck{}, nil
 	}
@@ -155,7 +187,10 @@ func (c command) prepare(args []string) error {
 	if err := parse(flags, args); err != nil {
 		return err
 	}
-	check, err := proof.check()
+	if c.delegate(layout.layout(), append([]string{"prepare"}, args...)) {
+		return c.backstopPrepare(layout.layout(), *unit)
+	}
+	check, err := proof.check(*layout.root, *unit)
 	if err != nil {
 		return err
 	}
@@ -185,15 +220,25 @@ func (c command) watchdog(args []string) error {
 	if err := parse(flags, args); err != nil {
 		return err
 	}
-	check, err := proof.check()
-	if err != nil {
-		return err
+	delegated := c.delegate(layout.layout(), append([]string{"watchdog"}, args...))
+	var check selfupdate.ProofCheck
+	if !delegated {
+		var err error
+		if check, err = proof.check(*layout.root, *unit); err != nil {
+			return err
+		}
 	}
 	unlock, err := layout.layout().Lock()
 	if err != nil {
 		return err
 	}
-	outcome, activation, err := selfupdate.Watch(layout.layout(), *unit, check, c.now())
+	var outcome selfupdate.Outcome
+	var activation selfupdate.Activation
+	if delegated {
+		outcome, activation, err = selfupdate.Backstop(layout.layout(), c.now())
+	} else {
+		outcome, activation, err = selfupdate.Watch(layout.layout(), *unit, check, c.now())
+	}
 	if err != nil {
 		unlock()
 		return err
@@ -206,8 +251,11 @@ func (c command) watchdog(args []string) error {
 	if err != nil {
 		return err
 	}
-	_, printErr := fmt.Fprintf(c.output, "selfupdate watchdog unit=%s outcome=%s activation=%s target=%s\n",
-		*unit, outcome, activation.ActivationID, activation.Target)
+	var printErr error
+	if !delegated || outcome == selfupdate.OutcomeRolledBack {
+		_, printErr = fmt.Fprintf(c.output, "selfupdate watchdog unit=%s outcome=%s activation=%s target=%s\n",
+			*unit, outcome, activation.ActivationID, activation.Target)
+	}
 	if owed && *restart {
 		if err := c.restart(c.ctx, *unit); err != nil {
 			return errors.Join(err, printErr)
@@ -357,6 +405,120 @@ func readRootKeyring(path string) (trust.Keyring, error) {
 		return nil, errors.New("root key must be Ed25519")
 	}
 	return trust.ParseKeyring(public)
+}
+
+// delegate runs a root step (prepare or watchdog) with the node's known-good
+// release instead of the image-baked binary, so the self-update logic moves
+// with every confirmed release and the image's copy is only the entry point
+// and fallback. It reports whether that release ran the step. When it could
+// not (missing, unverified, known bad, or the step failed or hung), the caller runs
+// the step itself: a release with broken root steps degrades to the image's
+// logic instead of disabling rollback or blocking the unit's start.
+func (c command) delegate(layout selfupdate.Layout, args []string) bool {
+	if os.Getenv(delegatedEnv) != "" {
+		return false
+	}
+	digest, err := layout.Delegate()
+	if err != nil {
+		slog.Warn("self-update known-good release is unusable; the image-baked binary runs the step", "error", err)
+	}
+	if err != nil || digest == "" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(c.ctx, delegateTimeout)
+	defer cancel()
+	step := exec.CommandContext(ctx, layout.BinaryPath(digest), append([]string{"selfupdate"}, args...)...)
+	step.Env = append(os.Environ(), delegatedEnv+"=1")
+	step.Stdout, step.Stderr = c.output, os.Stderr
+	step.WaitDelay = time.Second
+	if err := step.Run(); err != nil {
+		slog.Warn("self-update known-good release failed the step; the image-baked binary runs it", "release", digest, "error", err)
+		return false
+	}
+	return true
+}
+
+// backstopPrepare keeps the image's start invariants after the known-good
+// release ran prepare: an activation long past its deadline is rolled back
+// and a current release whose bytes do not verify never starts.
+func (c command) backstopPrepare(layout selfupdate.Layout, unit string) error {
+	unlock, err := layout.Lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	outcome, activation, err := selfupdate.Backstop(layout, c.now())
+	if err != nil {
+		return err
+	}
+	// This start serves the restart the rollback owes the unit.
+	if outcome == selfupdate.OutcomeRolledBack && activation.Unit == unit {
+		if err := layout.ClearRestartPending(unit); err != nil {
+			return err
+		}
+	}
+	current, err := layout.Current()
+	if err != nil {
+		return err
+	}
+	if err := layout.VerifyRelease(current); err != nil {
+		return fmt.Errorf("current release does not verify: %w", err)
+	}
+	return nil
+}
+
+// roleProof returns the proof file and identity key that a controller or
+// host config names for unit. The watchdog runs the image-baked binary, so
+// the config is decoded leniently: a self-updated release may have added
+// fields this binary does not know.
+func roleProof(path, root, unit string) (string, string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", "", err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxRoleConfigBytes+1))
+	if err != nil {
+		return "", "", err
+	}
+	if len(data) > maxRoleConfigBytes {
+		return "", "", errors.New("role config is too large")
+	}
+	var config struct {
+		Controller struct {
+			ResponseKeyFile     string `json:"response_key_file"`
+			SelfUpdateProofFile string `json:"self_update_proof_file"`
+			SelfUpdateRoot      string `json:"self_update_root"`
+		} `json:"controller"`
+		Host struct {
+			IdentityKeyFile     string `json:"identity_key_file"`
+			SelfUpdateProofFile string `json:"self_update_proof_file"`
+			SelfUpdateRoot      string `json:"self_update_root"`
+		} `json:"host"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return "", "", err
+	}
+	var proof, key, configured string
+	switch unit {
+	case selfupdate.ControllerUnit:
+		proof, key, configured = config.Controller.SelfUpdateProofFile, config.Controller.ResponseKeyFile, config.Controller.SelfUpdateRoot
+	case selfupdate.HostUnit:
+		proof, key, configured = config.Host.SelfUpdateProofFile, config.Host.IdentityKeyFile, config.Host.SelfUpdateRoot
+	default:
+		return "", "", fmt.Errorf("unit %s has no role config", unit)
+	}
+	if key == "" {
+		return "", "", errors.New("role config names no identity key")
+	}
+	// The process proves activations under its own root only.
+	if configured != "" && configured != root {
+		return "", "", fmt.Errorf("role config self_update_root %s differs from --root %s", configured, root)
+	}
+	if proof == "" {
+		proof = selfupdate.DefaultProofFile(root, unit)
+	}
+	return proof, key, nil
 }
 
 // readIdentityPublicKey derives the public key from the unit's base64

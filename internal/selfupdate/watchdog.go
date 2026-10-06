@@ -97,6 +97,11 @@ func Watch(layout Layout, unit string, proof ProofCheck, now time.Time) (Outcome
 					return OutcomePending, activation, err
 				}
 				recordResolution(activation, OutcomeConfirmed)
+				// The confirmed release runs the image's root steps from
+				// now on (Delegate).
+				if err := layout.flipLink(knownGoodLink, activation.Target); err != nil {
+					return OutcomeConfirmed, activation, err
+				}
 				return OutcomeConfirmed, activation, syncDir(layout.Root)
 			} else {
 				slog.Warn("self-update version proof rejected", "activation", activation.ActivationID, "error", err)
@@ -108,6 +113,32 @@ func Watch(layout Layout, unit string, proof ProofCheck, now time.Time) (Outcome
 	if targetErr == nil && now.Before(activation.Deadline) {
 		return OutcomePending, activation, nil
 	}
+	if err := layout.rollback(activation); err != nil {
+		return OutcomeRolledBack, activation, err
+	}
+	recordResolution(activation, OutcomeRolledBack)
+	return OutcomeRolledBack, activation, nil
+}
+
+// Backstop rolls back a readable activation that is still pending
+// OrphanedActivationGrace past its deadline. The image-baked binary runs it
+// after the known-good release ran prepare or the watchdog, so a release
+// whose steps succeed without enforcing deadlines cannot keep an unproven
+// target current. A record it cannot read belongs to the newer release that
+// wrote it and is left alone. The caller holds Lock.
+func Backstop(layout Layout, now time.Time) (Outcome, Activation, error) {
+	activation, pending, err := layout.Pending()
+	if errors.Is(err, errUnreadableActivation) {
+		return OutcomeIdle, Activation{}, nil
+	}
+	if err != nil || !pending {
+		return OutcomeIdle, Activation{}, err
+	}
+	if now.Before(activation.Deadline.Add(OrphanedActivationGrace)) {
+		return OutcomePending, activation, nil
+	}
+	slog.Warn("self-update activation outlived its deadline under the known-good release; rolling back",
+		"activation", activation.ActivationID, "unit", activation.Unit)
 	if err := layout.rollback(activation); err != nil {
 		return OutcomeRolledBack, activation, err
 	}
@@ -203,7 +234,7 @@ func Prepare(layout Layout, unit, bakedBinary string, proof ProofCheck, now time
 	// new process proves itself again for the watchdog; prepare only
 	// resolves expired, unwatched or unreadable activations; its proof
 	// argument is accepted for the drop-in's flags and not used to confirm.
-	outcome, _, err := Watch(layout, unit, ProofCheck{}, now)
+	outcome, activation, err := Watch(layout, unit, ProofCheck{}, now)
 	if err != nil {
 		return outcome, err
 	}
@@ -217,6 +248,13 @@ func Prepare(layout Layout, unit, bakedBinary string, proof ProofCheck, now time
 	current, err := layout.Current()
 	if err != nil {
 		return outcome, err
+	}
+	// The units on a node share the current link. A unit never starts the
+	// unconfirmed target of another unit's activation: it cannot prove it,
+	// and that activation's rollback does not restart it. Its restart policy
+	// retries once the activation is resolved.
+	if outcome == OutcomePending && activation.Unit != unit && current == activation.Target {
+		return outcome, fmt.Errorf("%w: %s waits for the pending activation of %s", ErrInvalid, unit, activation.Unit)
 	}
 	if err := layout.VerifyRelease(current); err != nil {
 		return outcome, fmt.Errorf("current release does not verify: %w", err)
@@ -235,8 +273,9 @@ func Prepare(layout Layout, unit, bakedBinary string, proof ProofCheck, now time
 const StagedReleaseRetention = 24 * time.Hour
 
 // PruneReleases removes settled release directories: everything except the
-// current release, both sides of a pending activation, the image-baked
-// release, and non-known-bad releases staged within StagedReleaseRetention.
+// current and known-good releases, both sides of a pending activation, the
+// image-baked release, and non-known-bad releases staged within
+// StagedReleaseRetention.
 // The caller holds Lock. It returns the removed digests.
 func (layout Layout) PruneReleases(now time.Time) ([]string, error) {
 	current, err := layout.Current()
@@ -247,6 +286,9 @@ func (layout Layout) PruneReleases(now time.Time) ([]string, error) {
 		return nil, nil
 	}
 	keep := map[string]bool{current: true}
+	if known, err := layout.KnownGood(); err == nil && known != "" {
+		keep[known] = true
+	}
 	activation, pending, err := layout.Pending()
 	if err != nil {
 		return nil, err

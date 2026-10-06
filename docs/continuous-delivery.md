@@ -1,12 +1,14 @@
 # Continuous delivery to running cells
 
 Status: the opt-in TerraBase automation entry point is implemented; no live
-timer, signing grant or rollout is enabled by this change. Binary-only
-orchestrator self-update, the scoped auto-sign delegation, the staged rollout
-state machine, resumable image promotion and independent managed-host image
-qualification exist as opt-in foundations (see
-[Binary-only self-update](#binary-only-self-update-opt-in)); each is off by
-default. Image-based orchestrator replacement is still a proposed follow-up.
+timer, signing grant or rollout is enabled by this change. The image puts
+the controller and host on
+[binary-only self-update](#binary-only-self-update); a release still moves
+only when a root-run step stages and activates it. The scoped auto-sign
+delegation, the staged rollout state machine, resumable image promotion and
+independent managed-host image qualification exist as opt-in foundations;
+each is off by default. Image-based orchestrator replacement is still a
+proposed follow-up.
 
 ## Mechanism and trust boundaries
 
@@ -172,7 +174,7 @@ host replacement and OCI fencing/volume handoff. None is implemented yet;
 `deploy/systemd` units and `deploy/oci-region` are unchanged. The ordering,
 soak and rollback logic it needs exists in `internal/rollout` (below).
 
-## Binary-only self-update (opt-in)
+## Binary-only self-update
 
 Most orchestrator changes touch only the binary, so they do not need a new
 image, an OCI import or a re-bootstrap. `internal/selfupdate` replaces the
@@ -183,6 +185,7 @@ executable on a running node with an A/B layout:
   releases/<sha256>/terrascale-orchestrator   read-only (0555), root-owned
   releases/<sha256>/receipt.json, delegation.json (or "baked")
   current -> releases/<sha256>                  what ExecStart runs
+  known-good -> releases/<sha256>               runs the root steps (below)
   activation.json                               pending switch, if any
   known-bad.json                                digests rolled back on this node
 ```
@@ -201,11 +204,14 @@ executable on a running node with an A/B layout:
 3. **Activate.** `ts-orch selfupdate activate --release <sha256> --unit <unit>
    --proof-window 5m --restart` writes `activation.json` (target, previous,
    deadline) and only then flips `current` with an atomic rename.
-4. **Prove.** When `self_update_proof_file` is set, the new process signs a
-   version proof after it is ready (controller: after host-controller
-   readiness, with its response key; host: after start-up checks, with its
-   identity key). The proof names the activation, unit, the digest of
-   `/proc/self/exe` and the process ID, and is valid for 10 minutes.
+4. **Prove.** The new process signs a version proof after it is ready
+   (controller: after host-controller readiness, with its response key; host:
+   after start-up checks, with its identity key) and writes it to
+   `self_update_proof_file`, by default `selfupdate-proof.json` in the unit's
+   state directory (`/var/lib/terrascale-orchestrator-controller` or
+   `/var/lib/terrascale-orchestrator-host`). The proof names the activation,
+   unit, the digest of `/proc/self/exe` and the process ID, and is valid for
+   10 minutes.
    A controller first passes restart admission, which accepts the image
    receipt binary or the `current` release when that release is root-owned
    with unchanged bytes, is not known bad, and carries a binary-update
@@ -219,8 +225,13 @@ executable on a running node with an A/B layout:
    rolled back; the baked release is admitted by the image receipt as
    before.
 5. **Confirm or roll back.** `selfupdate prepare` (root `ExecStartPre=+`) and
-   the `terrascale-orchestrator-selfupdate-watchdog@<unit>.timer` (every 15 s)
-   confirm the activation from a fresh proof signed by the unit's key. A
+   the `terrascale-orchestrator-selfupdate-watchdog@<role>.timer` (every 15 s,
+   role `controller` or `host`) confirm the activation from a fresh proof
+   signed by the unit's key. The watchdog reads that key, and any configured
+   proof file, from the role's `/etc/terrascale-orchestrator/<role>.json`; it
+   decodes only those fields, so a config written for a newer release still
+   works with the image-baked binary. An absent or unusable config, or key,
+   disables confirmation, never rollback. A
    missed deadline, or a target whose bytes no longer verify, records the
    digest in `known-bad.json` first, restores `previous`, and restarts the
    unit. A known-bad digest can never be staged or activated again on that
@@ -240,16 +251,38 @@ executable on a running node with an A/B layout:
    current, not part of a pending activation, not the baked release, and
    either known bad or staged more than 24 hours ago are removed.
 
-The image is unchanged: `deploy/systemd/selfupdate/` holds the drop-ins and
-the watchdog timer, which an operator installs per node together with
-`/etc/terrascale-orchestrator/selfupdate-<unit>.env` (see
-`selfupdate.env.example`) and `self_update_proof_file`. A non-default
-`--root` in the drop-ins must also be set as `self_update_root`, so the
-process signs its proof under the same root. On first start
+The image installs `deploy/systemd/selfupdate/`: both runtime units' drop-ins
+and the watchdog template, with the `controller` and `host` timer instances
+enabled, so a node needs no config field or other node-local file. A
+non-default `--root` in the drop-ins must also be set as `self_update_root`,
+so the process signs its proof under the same root. On first start
 `prepare` seeds the image-baked `/usr/local/bin/terrascale-orchestrator` as the
-first release, so the baked binary always remains a valid rollback target.
-A node running both a controller and a host shares one `current` link; enable
-self-update for one unit per node until per-unit links exist.
+first release, so the baked binary always remains a valid rollback target;
+until a release is activated the units run the same bytes as before.
+The image's units are fixed when it is built, but its self-update logic is
+not. The image-baked binary is only the entry point of `prepare` and the
+watchdog: it hands each step, with the same arguments, to the release the
+`known-good` link names. Only a confirmation moves that link, so it names
+the last release a unit proved with a version proof; a restore, a rollback
+or an unreadable record never makes an unproven release the delegate. The
+baked binary runs a step itself when there is no known-good release, it is
+the baked one, it no longer verifies, it was rejected since, or it fails or
+hangs the step (30 s), so a release with broken root steps degrades to the
+image's logic. After a delegated step the baked binary still rolls back any
+readable activation pending five minutes past its deadline and refuses to
+start a current release that does not verify, so no release can switch
+rollback off. Every release must keep accepting the units' arguments
+(`TestImageUnitArgumentsStillRun`) and must move `known-good` when it
+confirms (`TestKnownGoodMovesOnlyOnConfirmation`); deleting the link makes
+the baked binary run the steps again.
+Nodes that installed the earlier opt-in drop-ins by hand keep their
+`selfupdate-<unit>.env` files and `@<unit>` timers until they are rebuilt
+from this image.
+A node running both a controller and a host shares one `current` link. While
+one unit's activation is pending, `prepare` refuses to start the other unit
+on its unconfirmed target; that unit's restart policy retries after the
+activation resolves. A confirmation proves only the activated unit until
+per-unit links exist.
 
 ### Scoped auto-sign delegation
 
@@ -564,7 +597,7 @@ current and previous qualified images is a follow-up.
 6. The scoped auto-sign policy is approved in principle. Before use, choose
    the online leaf key owner and host, the reviewed `lineage_base`, the cells,
    architectures and expiry of the first binary update delegation, and which
-   nodes install the self-update drop-ins with `--allow-scoped-auto-sign`.
+   nodes stage releases with `--allow-scoped-auto-sign`.
    Binary-only self-update requires the new release to read the persistent
    NATS and authority state of its predecessor; halt for a reviewed migration
    otherwise.

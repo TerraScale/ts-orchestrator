@@ -56,6 +56,7 @@ rest - 130/60
 ./tests/deploy TestOfflineVerifiedInputsInstalled 25
 ./tests/deploy TestOfflineDeploymentMaterialNeverBaked 25
 ./tests/deploy TestOfflineManagedRootAndVolumeInitUnits 25
+./tests/deploy TestOfflineInstallsSelfUpdateEnabled 25
 ./tests/deploy TestOfflineClockProbeUnitsKeepReadOnlyAdjtimex 25
 ./tests/deploy TestOfflineCreatesMissingUploadParents 25
 ./tests/deploy TestOfflineBuildAcceptsRelativeOutputPaths 25/1
@@ -64,6 +65,7 @@ rest - 130/60
 ./tests/deploy TestOfflineTimesyncConfigRequiredExplicitAndExcludesLabRange 28/5
 ./tests/deploy TestOfflineRejectsUnsafeNativeVerifierParents 18/6
 ./tests/deploy TestOfflineEveryImageRequiresEnabledOpenSSHServer 12/6
+./tests/deploy TestOfflineRejectsMaskedOrConflictingSelfUpdate 20/6
 ./tests/deploy TestOfflineRejectsReservedWorkloadIdentityBeforeInstall 6
 ./tests/deploy TestOfflineRejectsSymlinkedUploadParents 6
 ./tests/deploy TestOfflineRequiresAuditedSystemdAndInstallDirectives 6

@@ -143,6 +143,9 @@ func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Wr
 	for _, name := range append(append([]string{"terrascale-orchestrator-bootstrap.service", "terrascale-orchestrator-controller-install.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service"}, NetBirdUnits...), HostUnitFiles...) {
 		uploads = append(uploads, upload{filepath.Join(repo, "deploy/systemd", name), "/etc/systemd/system/" + name, 0644})
 	}
+	for _, name := range append(append([]string{}, SelfUpdateDropins...), SelfUpdateUnitFiles...) {
+		uploads = append(uploads, upload{filepath.Join(repo, "deploy/systemd/selfupdate", name), "/etc/systemd/system/" + name, 0644})
+	}
 	for _, p := range Dropins {
 		uploads = append(uploads, upload{filepath.Join(o.PriorityRoot, strings.TrimPrefix(p, "/")), p, 0644})
 	}

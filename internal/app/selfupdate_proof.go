@@ -11,17 +11,14 @@ import (
 )
 
 const (
-	controllerUnit = "terrascale-orchestrator-controller.service"
-	hostUnit       = "terrascale-orchestrator-host.service"
+	controllerUnit = selfupdate.ControllerUnit
+	hostUnit       = selfupdate.HostUnit
 )
 
 // emitSelfUpdateProof confirms a pending self-update activation once the
 // process is ready. It never fails the runtime: a missing proof only lets
 // the root watchdog roll the activation back at its deadline.
 func emitSelfUpdateProof(proofFile, root, keyFile, unit string, output io.Writer) {
-	if proofFile == "" {
-		return
-	}
 	key, err := readPrivateKey(keyFile)
 	if err != nil {
 		slog.Warn("self-update version proof key unavailable", "error", err)
@@ -39,10 +36,18 @@ func selfUpdateRoot(root string) string {
 	return root
 }
 
-func emitSelfUpdateProofWithKey(proofFile, root string, key ed25519.PrivateKey, unit string, output io.Writer) {
+// selfUpdateProofFile returns the configured proof file or, when it is
+// unset, the default file the image's watchdog reads, so self-update needs
+// no config field.
+func selfUpdateProofFile(proofFile, root, unit string) string {
 	if proofFile == "" {
-		return
+		return selfupdate.DefaultProofFile(selfUpdateRoot(root), unit)
 	}
+	return proofFile
+}
+
+func emitSelfUpdateProofWithKey(proofFile, root string, key ed25519.PrivateKey, unit string, output io.Writer) {
+	proofFile = selfUpdateProofFile(proofFile, root, unit)
 	emitted, err := selfupdate.EmitProof(selfupdate.NewLayout(selfUpdateRoot(root)), unit, proofFile, key, time.Now())
 	if err != nil {
 		slog.Warn("self-update version proof failed", "error", err)

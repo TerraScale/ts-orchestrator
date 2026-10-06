@@ -1,6 +1,10 @@
 package selfupdate
 
 import (
+	"bytes"
+	"errors"
+	"os"
+	"slices"
 	"testing"
 	"time"
 )
@@ -129,5 +133,175 @@ func TestRollbackLeavesARestartObligationUntilTheUnitStarts(t *testing.T) {
 	}
 	if owed, err := f.layout.RestartPending(testUnit); err != nil || owed {
 		t.Fatalf("unit start did not clear the obligation = %t %v", owed, err)
+	}
+}
+
+// Units on one node share the current link: while one unit's activation is
+// pending, the other unit never starts its unconfirmed target, and it starts
+// again once the activation is confirmed or rolled back.
+func TestPrepareRefusesAnotherUnitsUnconfirmedTarget(t *testing.T) {
+	for _, confirm := range []bool{true, false} {
+		f := newFixture(t)
+		baked, err := Seed(f.layout, f.baked)
+		if err != nil {
+			t.Fatal(err)
+		}
+		target := f.stage([]byte("controller build"))
+		activation, err := Activate(f.layout, target, ControllerUnit, f.now, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Prepare(f.layout, HostUnit, f.baked, ProofCheck{}, f.now.Add(time.Second)); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("host started on the controller's unconfirmed target: %v", err)
+		}
+		if outcome, err := Prepare(f.layout, ControllerUnit, f.baked, ProofCheck{}, f.now.Add(time.Second)); err != nil || outcome != OutcomePending {
+			t.Fatalf("controller prepare = %s %v", outcome, err)
+		}
+		want, at := target, activation.Deadline
+		if confirm {
+			if outcome, _, err := Watch(f.layout, ControllerUnit, f.proof(activation, f.now.Add(2*time.Second)), f.now.Add(3*time.Second)); err != nil || outcome != OutcomeConfirmed {
+				t.Fatalf("confirm = %s %v", outcome, err)
+			}
+			at = f.now.Add(4 * time.Second)
+		} else {
+			if outcome, _, err := Watch(f.layout, ControllerUnit, ProofCheck{}, activation.Deadline); err != nil || outcome != OutcomeRolledBack {
+				t.Fatalf("rollback = %s %v", outcome, err)
+			}
+			want = baked
+		}
+		if _, err := Prepare(f.layout, HostUnit, f.baked, ProofCheck{}, at); err != nil {
+			t.Fatalf("host prepare after the activation resolved (confirmed %v): %v", confirm, err)
+		}
+		if current, _ := f.layout.Current(); current != want {
+			t.Fatalf("current = %s, want %s", current, want)
+		}
+	}
+}
+
+// Only a confirmation moves the known-good link, so the root steps never
+// run the code of a release that has not proved itself: not after a
+// rollback, a restore or an unreadable record. The image-baked release and
+// a release rejected since are never delegates.
+func TestKnownGoodMovesOnlyOnConfirmation(t *testing.T) {
+	f := newFixture(t)
+	baked, err := Seed(f.layout, f.baked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	known := func(want string) {
+		t.Helper()
+		if got, err := f.layout.KnownGood(); err != nil || got != want {
+			t.Fatalf("known good = %q %v, want %q", got, err, want)
+		}
+	}
+	known("")
+	if delegate, err := f.layout.Delegate(); err != nil || delegate != "" {
+		t.Fatalf("delegate without a confirmation = %q %v", delegate, err)
+	}
+	// A rolled-back target stays out.
+	bad := f.stage([]byte("unproven build"))
+	activation, err := Activate(f.layout, bad, ControllerUnit, f.now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome, _, err := Watch(f.layout, ControllerUnit, ProofCheck{}, activation.Deadline); err != nil || outcome != OutcomeRolledBack {
+		t.Fatalf("rollback = %s %v", outcome, err)
+	}
+	known("")
+	// A confirmed release becomes the delegate and is never pruned.
+	good := f.stage([]byte("confirmed build"))
+	activation, err = Activate(f.layout, good, ControllerUnit, f.now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome, _, err := Watch(f.layout, ControllerUnit, f.proof(activation, f.now.Add(time.Second)), f.now.Add(2*time.Second)); err != nil || outcome != OutcomeConfirmed {
+		t.Fatalf("confirm = %s %v", outcome, err)
+	}
+	known(good)
+	if delegate, err := f.layout.Delegate(); err != nil || delegate != good {
+		t.Fatalf("delegate = %q %v, want %s", delegate, err, good)
+	}
+	if removed, err := f.layout.PruneReleases(f.now.Add(48 * time.Hour)); err != nil || slices.Contains(removed, good) {
+		t.Fatalf("pruned the known-good release: %v %v", removed, err)
+	}
+	// A restore to a release that never proved itself leaves the link, and
+	// the rejected known-good release is no longer a delegate.
+	never := f.stage([]byte("never run build"))
+	if _, err := Restore(f.layout, never, good, ControllerUnit); err != nil {
+		t.Fatal(err)
+	}
+	known(good)
+	if delegate, err := f.layout.Delegate(); err != nil || delegate != "" {
+		t.Fatalf("delegate after its rejection = %q %v", delegate, err)
+	}
+	// A record that cannot be resolved is moved aside without moving it.
+	next := f.stage([]byte("unreadable record build"))
+	if _, err := Activate(f.layout, next, ControllerUnit, f.now, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAtomic(f.layout.activationPath(), []byte(`{"target":"`+next+`"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Prepare(f.layout, ControllerUnit, f.baked, ProofCheck{}, f.now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	known(good)
+	if current, _ := f.layout.Current(); current == baked {
+		t.Fatal("fixture: expected the unresolvable target to stay current")
+	}
+	// A known-good release whose bytes changed is refused.
+	if err := f.layout.flipLink(knownGoodLink, never); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(f.layout.BinaryPath(never), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.layout.BinaryPath(never), []byte("other bytes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.layout.Delegate(); err == nil {
+		t.Fatal("a tampered known-good release was delegated to")
+	}
+}
+
+// After the known-good release ran a step, the image-baked binary still
+// rolls back an activation it left pending well past its deadline, and
+// leaves records it cannot read to the release that wrote them.
+func TestBackstopEnforcesDeadlinesTheDelegateIgnored(t *testing.T) {
+	f := newFixture(t)
+	baked, err := Seed(f.layout, f.baked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := f.stage([]byte("ignored build"))
+	activation, err := Activate(f.layout, target, HostUnit, f.now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome, _, err := Backstop(f.layout, activation.Deadline.Add(OrphanedActivationGrace-time.Second)); err != nil || outcome != OutcomePending {
+		t.Fatalf("backstop within the grace = %s %v", outcome, err)
+	}
+	data, err := os.ReadFile(f.layout.activationPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer := bytes.Replace(data, []byte(`"schema"`), []byte(`"future_field":true,"schema"`), 1)
+	if err := writeFileAtomic(f.layout.activationPath(), newer, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if outcome, _, err := Backstop(f.layout, activation.Deadline.Add(time.Hour)); err != nil || outcome != OutcomeIdle {
+		t.Fatalf("backstop over a newer record = %s %v", outcome, err)
+	}
+	if err := writeFileAtomic(f.layout.activationPath(), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if outcome, _, err := Backstop(f.layout, activation.Deadline.Add(OrphanedActivationGrace)); err != nil || outcome != OutcomeRolledBack {
+		t.Fatalf("backstop after the grace = %s %v", outcome, err)
+	}
+	if current, _ := f.layout.Current(); current != baked {
+		t.Fatalf("current = %s, want %s", current, baked)
+	}
+	if owed, err := f.layout.RestartPending(HostUnit); err != nil || !owed {
+		t.Fatalf("rollback owes no restart: %v %v", owed, err)
 	}
 }

@@ -421,14 +421,25 @@ func accounts(g *Guest, work, config string, out io.Writer) (int, int, []upload,
 	_, e = fmt.Fprintf(out, "offline accounts: workload=2000:2000 orchestrator=%d:%d\n", uid, gid)
 	return uid, gid, files, e
 }
+
+// unitFile names the file that defines a unit: the template a@.timer
+// defines the instance a@b.timer.
+func unitFile(name string) string {
+	prefix, instance, ok := strings.Cut(name, "@")
+	if !ok {
+		return name
+	}
+	return prefix + "@" + path.Ext(instance)
+}
 func expectedInstallLinks(stage string, names []string) (map[string]string, error) {
 	expected := map[string]string{}
 	for _, name := range names {
-		unit := filepath.Join(stage, "etc/systemd/system", name)
-		source := "/etc/systemd/system/" + name
+		file := unitFile(name)
+		unit := filepath.Join(stage, "etc/systemd/system", file)
+		source := "/etc/systemd/system/" + file
 		if _, e := os.Stat(unit); os.IsNotExist(e) {
-			unit = filepath.Join(stage, "usr/lib/systemd/system", name)
-			source = "/usr/lib/systemd/system/" + name
+			unit = filepath.Join(stage, "usr/lib/systemd/system", file)
+			source = "/usr/lib/systemd/system/" + file
 		}
 		s, e := os.Lstat(unit)
 		if e != nil || !s.Mode().IsRegular() {
@@ -542,20 +553,39 @@ func installLinks(g *Guest, work, repo string, out io.Writer) error {
 			return e
 		}
 	}
-	names := append(append([]string{}, Units...), HostUnits...)
+	for _, name := range SelfUpdateUnitFiles {
+		if e := copyFile(filepath.Join(repo, "deploy/systemd/selfupdate", name), filepath.Join(etc, name), 0644); e != nil {
+			return e
+		}
+	}
+	names := append(append(append([]string{}, Units...), HostUnits...), SelfUpdateTimers...)
 	files := append(append([]string{}, names...), "terrascale-orchestrator-host-volume-init.service")
+	for _, timer := range SelfUpdateTimers {
+		files = append(files, strings.TrimSuffix(timer, ".timer")+".service")
+	}
 	for _, name := range files {
-		for _, dir := range []string{"/run/systemd/system", "/usr/local/lib/systemd/system"} {
-			if e := g.AssertAbsent(dir+"/"+name, "systemd unit override"); e != nil {
-				return e
+		// An instance is overridden or masked through its own name or its
+		// template's.
+		for _, n := range slices.Compact([]string{name, unitFile(name)}) {
+			for _, dir := range []string{"/run/systemd/system", "/usr/local/lib/systemd/system"} {
+				if e := g.AssertAbsent(dir+"/"+n, "systemd unit override"); e != nil {
+					return e
+				}
+			}
+			if target, e := os.Readlink(filepath.Join(etc, n)); e == nil && target == "/dev/null" {
+				return fmt.Errorf("required systemd unit is masked: %s", n)
 			}
 		}
-		unit := filepath.Join(etc, name)
-		if target, e := os.Readlink(unit); e == nil && target == "/dev/null" {
-			return fmt.Errorf("required systemd unit is masked: %s", name)
+		// An instance is defined only by the image's template.
+		if name != unitFile(name) {
+			for _, dir := range []string{"/etc/systemd/system", "/usr/lib/systemd/system"} {
+				if e := g.AssertAbsent(dir+"/"+name, "systemd unit instance"); e != nil {
+					return e
+				}
+			}
 		}
-		if _, e := os.Stat(unit); e != nil {
-			if _, e = os.Stat(filepath.Join(stage, "usr/lib/systemd/system", name)); e != nil {
+		if _, e := os.Stat(filepath.Join(etc, unitFile(name))); e != nil {
+			if _, e = os.Stat(filepath.Join(stage, "usr/lib/systemd/system", unitFile(name))); e != nil {
 				return fmt.Errorf("missing a required systemd unit: %s", name)
 			}
 		}

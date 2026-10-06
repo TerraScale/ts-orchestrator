@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -92,6 +93,15 @@ func VerifyVersionProof(wire []byte, publicKey ed25519.PublicKey, activation Act
 		return VersionProof{}, fmt.Errorf("%w: version proof was produced after the activation deadline", ErrInvalid)
 	}
 	return proof, nil
+}
+
+// DefaultProofFile is the proof file of a unit whose config names none: its
+// systemd StateDirectory beside the release root, which the unit can write
+// and the root-run watchdog can read. For DefaultRoot that is
+// /var/lib/<unit name>/selfupdate-proof.json. The release root itself stays
+// writable only by root.
+func DefaultProofFile(root, unit string) string {
+	return filepath.Join(filepath.Dir(root), strings.TrimSuffix(unit, ".service"), "selfupdate-proof.json")
 }
 
 // EmitProof is called by a healthy process. When an activation for unit is

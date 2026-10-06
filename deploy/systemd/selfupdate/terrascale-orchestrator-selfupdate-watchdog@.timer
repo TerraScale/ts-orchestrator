@@ -1,5 +1,5 @@
 [Unit]
-Description=Check pending TerraScale self-update activations for %i
+Description=Check pending TerraScale self-update activations for terrascale-orchestrator-%i.service
 
 [Timer]
 OnBootSec=30s
