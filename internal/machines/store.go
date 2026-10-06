@@ -198,7 +198,8 @@ func (s *Store) PutMachine(ctx context.Context, epoch uint64, machine Machine) (
 
 // DeleteMachine deletes a destroyed machine's records at its Revision. A
 // placed machine needs a destroyed status first, so its record outlives its
-// process.
+// process. The machine goes first; a status left behind, for example by a
+// host report racing the delete, is removed by SweepStatuses.
 func (s *Store) DeleteMachine(ctx context.Context, epoch uint64, machine Machine) error {
 	current, err := s.Machine(ctx, machine.App, machine.ID)
 	if err != nil {
@@ -220,12 +221,45 @@ func (s *Store) DeleteMachine(ctx context.Context, epoch uint64, machine Machine
 	if err := remove(ctx, s, s.apps, epoch, current.key(), current.Revision); err != nil {
 		return err
 	}
-	if status.Revision == 0 {
-		return nil
+	if status.Revision != 0 {
+		// Best effort: SweepStatuses retries.
+		_ = remove(ctx, s, s.statuses, epoch, status.key(), status.Revision)
 	}
-	// ponytail: a failure here leaves a status without its machine, which
-	// nothing reads; sweep orphan statuses if they ever add up.
-	return remove(ctx, s, s.statuses, epoch, status.key(), status.Revision)
+	return nil
+}
+
+// SweepStatuses deletes the statuses whose machine is gone and returns how
+// many it deleted. Statuses are listed before machines: a machine always
+// exists before its status, so a status listed first whose machine is
+// missing afterwards is an orphan, never a status of a new machine. A status
+// that changes during the sweep is left for the next one.
+func (s *Store) SweepStatuses(ctx context.Context, epoch uint64) (int, error) {
+	statuses, err := s.Statuses(ctx, "")
+	if err != nil {
+		return 0, err
+	}
+	machines, err := s.Machines(ctx, "")
+	if err != nil {
+		return 0, err
+	}
+	live := make(map[string]bool, len(machines))
+	for _, machine := range machines {
+		live[statusKey(machine.App, machine.ID)] = true
+	}
+	swept := 0
+	for _, status := range statuses {
+		if live[status.key()] {
+			continue
+		}
+		err := remove(ctx, s, s.statuses, epoch, status.key(), status.Revision)
+		switch {
+		case err == nil:
+			swept++
+		case !errors.Is(err, ErrConflict):
+			return swept, err
+		}
+	}
+	return swept, nil
 }
 
 // Status returns a machine's observed status.
@@ -247,17 +281,18 @@ func (s *Store) Statuses(ctx context.Context, app string) ([]Status, error) {
 
 // PutStatus creates a machine's status (Revision zero) or replaces the one
 // at Revision, stamps UpdatedAt and returns what it stored. Only an
-// existing machine gets a status, and destroyed is final.
+// existing machine gets a status, and destroyed is final. A write that races
+// the machine's deletion can still leave a status behind; SweepStatuses
+// removes it, and readers join statuses to machines.
 func (s *Store) PutStatus(ctx context.Context, epoch uint64, status Status) (Status, error) {
 	status.UpdatedAt = time.Now().UTC()
 	if err := status.Validate(); err != nil {
 		return Status{}, err
 	}
-	if status.Revision == 0 {
-		if _, err := s.Machine(ctx, status.App, status.ID); err != nil {
-			return Status{}, err
-		}
-	} else {
+	if _, err := s.Machine(ctx, status.App, status.ID); err != nil {
+		return Status{}, err
+	}
+	if status.Revision != 0 {
 		current, err := s.Status(ctx, status.App, status.ID)
 		if err != nil {
 			return Status{}, err

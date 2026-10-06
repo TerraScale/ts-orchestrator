@@ -492,3 +492,48 @@ func TestStoreFailsWhileTheCellIsUnreachable(t *testing.T) {
 		t.Fatal("list succeeded without the cell")
 	}
 }
+
+// A status can outlive its machine when a host report races the machine's
+// deletion. Writes refuse such a status, and the sweep removes it while
+// keeping every live machine's status.
+func TestStoreSweepsStatusesWithoutTheirMachine(t *testing.T) {
+	store, fence, _ := testStore(t)
+	ctx := t.Context()
+	app := createApp(t, store, "ts-auth")
+	gone, kept := createMachine(t, store, app), createMachine(t, store, app)
+	goneStatus, err := store.PutStatus(ctx, epoch, Status{ID: gone.ID, App: app.Name, State: StateStopping})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PutStatus(ctx, epoch, Status{ID: kept.ID, App: app.Name, State: StateStarted}); err != nil {
+		t.Fatal(err)
+	}
+	// The machine is deleted between a host report's read and its write.
+	if err := store.apps.Delete(ctx, gone.key()); err != nil {
+		t.Fatal(err)
+	}
+	goneStatus.State = StateStopped
+	if _, err := store.PutStatus(ctx, epoch, goneStatus); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("status update without its machine: %v", err)
+	}
+	stray := Status{ID: NewMachineID(), App: "terrabase", State: StateFailed, UpdatedAt: time.Now()}
+	if err := put(ctx, store, store.statuses, epoch, &stray); err != nil {
+		t.Fatal(err)
+	}
+
+	fence.epoch.Store(epoch + 1)
+	if _, err := store.SweepStatuses(ctx, epoch); !errors.Is(err, authority.ErrFenced) {
+		t.Fatalf("sweep under a stale epoch: %v", err)
+	}
+	swept, err := store.SweepStatuses(ctx, epoch+1)
+	if err != nil || swept != 2 {
+		t.Fatalf("sweep = %d, %v", swept, err)
+	}
+	statuses, err := store.Statuses(ctx, "")
+	if err != nil || len(statuses) != 1 || statuses[0].ID != kept.ID {
+		t.Fatalf("statuses after the sweep = %+v, %v", statuses, err)
+	}
+	if swept, err := store.SweepStatuses(ctx, epoch+1); err != nil || swept != 0 {
+		t.Fatalf("second sweep = %d, %v", swept, err)
+	}
+}

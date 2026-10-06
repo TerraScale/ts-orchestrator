@@ -92,6 +92,9 @@ these invariants:
   bring a destroyed machine back. A machine record is deleted only once it
   is desired destroyed and, if it was placed, observed destroyed.
 - An app is deleted only while no machine record names it.
+- A status is written only while its machine exists. One that races its
+  machine's deletion can outlive it: readers join statuses to machines, and
+  the scheduler's `SweepStatuses` deletes statuses without a machine.
 
 ## Extending the model
 
