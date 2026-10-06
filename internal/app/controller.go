@@ -451,6 +451,16 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	planner.hosts = hostController
+	// Cell specs verify with the cell's roots, so the root chain opens first.
+	if services.roots != nil {
+		services.roots.fencer = control
+		if _, _, err := retryControllerOpen(ctx, "open regional root chain", fullClusterReady, false,
+			func(attempt context.Context) (struct{}, error) {
+				return struct{}{}, services.roots.open(attempt, runtime.JetStream(), cfg.NATS.Replicas)
+			}, nil); err != nil {
+			return err
+		}
+	}
 	if _, _, err := retryControllerOpen(ctx, "open regional cell spec", fullClusterReady, false,
 		func(attempt context.Context) (struct{}, error) {
 			return struct{}{}, services.open(attempt, runtime.JetStream(), cfg.NATS.Replicas)
@@ -672,7 +682,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		[]observability.FilesystemRole{{Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
 		return fmt.Errorf("attach controller observability: %w", err)
 	}
-	workerErrors := make(chan error, 10)
+	// One slot per worker, so no sender blocks shutdown.
+	workerErrors := make(chan error, 16)
 	var workers sync.WaitGroup
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })
@@ -696,6 +707,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if rolloutExecutor != nil {
 		workers.Go(func() { workerErrors <- rolloutExecutor(runCtx) })
 		workers.Go(func() { policy.rollouts.publishProofs(runCtx, cfg, runtime, responseKey) })
+	}
+	if services.roots != nil {
+		workers.Go(func() { workerErrors <- services.roots.Run(runCtx) })
 	}
 	if capacityScaler != nil {
 		workers.Go(func() { workerErrors <- capacityScaler.Run(runCtx) })

@@ -23,6 +23,9 @@ import (
 
 const (
 	BakedDirectory = "/etc/terrascale-orchestrator/bootstrap"
+	// RootChainFile is the root chain this controller adopted from the
+	// cell's replicated record. The baked roots are only its genesis.
+	RootChainFile = "/var/lib/terrascale-orchestrator-controller/trust/root-chain.json"
 	// MaxRootFiles, MaxRootBytes, and MaxRootsTotal bound the baked trust-root
 	// inventory shared with the offline anchor verifier.
 	MaxRootFiles  = 16
@@ -46,17 +49,28 @@ type BakedIdentity struct {
 	Cell          oci.Region `json:"cell"`
 }
 
+// ChainIdentity binds the cell's root chain to this deployment.
+func (identity BakedIdentity) ChainIdentity() trust.ChainIdentity {
+	return trust.ChainIdentity{DeploymentID: identity.DeploymentID,
+		Cell: strings.ToLower(string(identity.Cell)), Environment: identity.Environment}
+}
+
 func (identity BakedIdentity) AnchorExpectation() bootstrap.BootstrapAnchorExpectation {
 	return bootstrap.BootstrapAnchorExpectation{
 		DeploymentID: identity.DeploymentID, Environment: identity.Environment, Cell: identity.Cell,
 	}
 }
 
-// BakedInputs contains exact canonical public proof bytes and the current root
-// set. Removing a root removes its authority for both current and historical
-// verification; no stale key is recovered from a marker or manifest.
+// BakedInputs contains exact canonical public proof bytes and the root sets.
+// Genesis is the image's baked set. Chain is the root chain the controller
+// adopted, verified from Genesis, and Roots is every set on it (genesis and
+// each rotated set), so records signed before and after a rotation verify
+// without a rebuild. Removing a genesis root from the image still removes
+// its authority; no stale key is recovered from a marker or manifest.
 type BakedInputs struct {
 	Identity   BakedIdentity
+	Genesis    trust.Keyring
+	Chain      trust.RootChain
 	Roots      trust.Keyring
 	AnchorWire []byte
 }
@@ -64,7 +78,7 @@ type BakedInputs struct {
 // LoadBakedInputs reads only the fixed production paths. Tests use the private
 // bakedStore seam to exercise modes and symlink handling in temporary trees.
 func LoadBakedInputs() (BakedInputs, error) {
-	return bakedStore{directory: BakedDirectory, ownerUID: 0, ownerGID: 0}.load()
+	return bakedStore{directory: BakedDirectory, chainFile: RootChainFile, ownerUID: 0, ownerGID: 0}.load()
 }
 
 // BakedInputsPresent is a routing check, not validation. Any object at the
@@ -84,6 +98,7 @@ func BakedInputsPresent() (bool, error) {
 
 type bakedStore struct {
 	directory            string
+	chainFile            string
 	ownerUID             uint32
 	ownerGID             uint32
 	allowUnsafeAncestors bool
@@ -110,11 +125,51 @@ func (store bakedStore) load() (BakedInputs, error) {
 	if _, err := trust.DecodeEnvelope(anchorWire); err != nil {
 		return BakedInputs{}, fmt.Errorf("decode baked anchor: %w", err)
 	}
-	roots, err := store.loadRoots()
+	genesis, err := store.loadRoots()
 	if err != nil {
 		return BakedInputs{}, err
 	}
-	return BakedInputs{Identity: identity, Roots: roots, AnchorWire: anchorWire}, nil
+	chain, err := readRootChain(store.chainFile)
+	if err != nil {
+		return BakedInputs{}, err
+	}
+	verified, err := trust.VerifyRootChain(genesis, identity.ChainIdentity(), chain)
+	if err != nil {
+		return BakedInputs{}, fmt.Errorf("verify adopted root chain: %w", err)
+	}
+	return BakedInputs{Identity: identity, Genesis: genesis, Chain: chain, Roots: verified.Historical,
+		AnchorWire: anchorWire}, nil
+}
+
+// readRootChain reads the adopted chain; a controller that never adopted
+// one has no file. The chain verifies from the baked genesis, so the file
+// needs no ownership pin, but a damaged file fails closed rather than
+// falling back to the genesis roots.
+func readRootChain(path string) (trust.RootChain, error) {
+	if path == "" {
+		return trust.RootChain{}, nil
+	}
+	// O_NONBLOCK keeps a FIFO from hanging the open; it is refused below.
+	file, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		return trust.RootChain{}, nil
+	}
+	if err != nil {
+		return trust.RootChain{}, fmt.Errorf("open adopted root chain: %w", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return trust.RootChain{}, fmt.Errorf("stat adopted root chain %s: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return trust.RootChain{}, fmt.Errorf("adopted root chain %s is not a regular file", path)
+	}
+	wire, err := io.ReadAll(io.LimitReader(file, trust.MaxRootChainBytes+1))
+	if err != nil {
+		return trust.RootChain{}, fmt.Errorf("read adopted root chain: %w", err)
+	}
+	return trust.DecodeRootChain(wire)
 }
 
 // parseBakedIdentity accepts only the canonical encoding, so the installed

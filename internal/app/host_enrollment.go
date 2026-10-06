@@ -157,6 +157,20 @@ func serveHostEnrollment(ctx context.Context, conn *nats.Conn, cell string, poli
 			}
 			return
 		}
+		if decodeErr == nil && services != nil && services.roots != nil &&
+			(envelope.Kind == rootListKind || envelope.Kind == rootRotateKind) {
+			reply, err := services.roots.serve(requestCtx, message.Data, policy, fencer)
+			if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrNotLeader) || !fencer.Current().CanMutate() {
+				return
+			}
+			if err != nil {
+				reply = rootChainReply{Error: err.Error()}
+			}
+			if wire, marshalErr := json.Marshal(reply); marshalErr == nil {
+				_ = message.Respond(wire)
+			}
+			return
+		}
 		if decodeErr == nil && envelope.Kind == "host.enrollment.revoke" {
 			receipt, err := verifyAndRevokeHostEnrollment(requestCtx, message.Data, cell, policy, managed)
 			if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrNotLeader) || !fencer.Current().CanMutate() {

@@ -41,10 +41,16 @@ type testSpecTrust struct {
 
 func newTestSpecTrust(t *testing.T, dir string, identity cellspec.Identity) testSpecTrust {
 	t.Helper()
-	rootPublic, rootPrivate, err := ed25519.GenerateKey(rand.Reader)
+	_, rootPrivate, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return newTestSpecTrustWithRoot(t, dir, identity, rootPrivate)
+}
+
+func newTestSpecTrustWithRoot(t *testing.T, dir string, identity cellspec.Identity, rootPrivate ed25519.PrivateKey) testSpecTrust {
+	t.Helper()
+	rootPublic := rootPrivate.Public().(ed25519.PublicKey)
 	leafPublic, leafPrivate, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -158,6 +164,13 @@ func TestSpecRegistryBaselineFromSignedConfig(t *testing.T) {
 	}
 	if _, specs := registry.effective(); len(specs) != 0 {
 		t.Fatalf("a disabled autoscale config reconciles %v", specs)
+	}
+	// A lab without spec_trust has no root chain and refuses every spec.
+	if registry.roots != nil || registry.roots.current() != nil {
+		t.Fatal("a lab without spec_trust has roots")
+	}
+	if _, err := registry.verify([]byte("{}"), nil); err == nil || !strings.Contains(err.Error(), "no cell spec trust roots") {
+		t.Fatalf("a lab without spec_trust verified a spec: %v", err)
 	}
 	cfg.NATS.Lab = false
 	cfg.Controller.SpecTrust = &SpecTrustConfig{}

@@ -35,6 +35,7 @@ rest - 130/60
 ./internal/app TestRunControllerOperatorBrokerClaimApply 15
 ./internal/app TestTerraBaseReleaseGateWithFakeMember 20
 ./internal/app TestCellSpecAmendsARunningController 8
+./internal/app TestRootRotationOnARunningController 5
 ./internal/app * 1
 
 # Founder runtime and replacement tests re-verify signed plans on every

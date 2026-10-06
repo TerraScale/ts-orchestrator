@@ -59,7 +59,7 @@ func (forwards *operatorForwardFlags) Set(value string) error {
 
 func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: operator <terrabase-release|ts-auth-release|terrabase-deploy|terrabase-update|terrabase-sync|terrabase-status|terrabase-walkthrough|hosts|host-register|host-enrollment-revoke|material-credentials|material-credentials-status|placement-apply|managed-update-prepare|placement-list|terminal-plan|terminal-apply|terminal-status|backup-start|backup-abort|backup-status|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
+		return errors.New("usage: operator <terrabase-release|ts-auth-release|terrabase-deploy|terrabase-update|terrabase-sync|terrabase-status|terrabase-walkthrough|hosts|host-register|host-enrollment-revoke|material-credentials|material-credentials-status|placement-apply|managed-update-prepare|placement-list|terminal-plan|terminal-apply|terminal-status|backup-start|backup-abort|backup-status|broker-claim-apply|artifact-push|deploy|rollback|trust-roots|trust-rotate|status> --config FILE")
 	}
 	operation := args[0]
 	if operation == "terrabase-walkthrough" {
@@ -272,6 +272,13 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 		return operatorSpecApply(ctx, cfg, runtime, *artifactPath, output)
 	case "rollout-status", "rollout-publish", "rollout-pause", "rollout-resume", "rollout-rollback":
 		return operatorRollout(ctx, cfg, runtime, strings.TrimPrefix(operation, "rollout-"), rolloutRequest, output)
+	case "trust-roots":
+		return operatorTrustRoots(ctx, cfg, runtime, *outPath, output)
+	case "trust-rotate":
+		if *artifactPath == "" {
+			return errors.New("trust-rotate requires --file SIGNED")
+		}
+		return operatorTrustRotate(ctx, cfg, runtime, *artifactPath, output)
 	case "status":
 		if *operationID == "" || !fingerprintPattern.MatchString(*fingerprint) {
 			return errors.New("status requires --operation-id and lowercase SHA-256 --fingerprint")

@@ -84,13 +84,14 @@ func newRolloutControl(cfg Config, services *specRegistry) (*rolloutControl, err
 			return nil, fmt.Errorf("controller.rollouts.policy: %w", err)
 		}
 	}
-	if services != nil && len(services.roots) != 0 {
+	if services != nil && services.roots != nil {
 		// The leader refuses a receipt that no node would stage; every node
 		// still verifies it against its own roots before it keeps a byte.
-		policy := selfupdate.ReceiptPolicy{Roots: services.roots, Environment: services.identity.Environment,
-			Cell: strings.ToUpper(cfg.NATS.Cell), Architecture: goruntime.GOARCH,
-			AllowScopedAutoSign: settings != nil && settings.AllowScopedAutoSign}
+		// The current roots are read per receipt, so a root rotation applies.
 		c.verify = func(receipt, delegation []byte, now time.Time) (rollout.Release, error) {
+			policy := selfupdate.ReceiptPolicy{Roots: services.roots.current(), Environment: services.identity.Environment,
+				Cell: strings.ToUpper(cfg.NATS.Cell), Architecture: goruntime.GOARCH,
+				AllowScopedAutoSign: settings != nil && settings.AllowScopedAutoSign}
 			verified, err := policy.Verify(receipt, delegation, now)
 			if err != nil {
 				return rollout.Release{}, err

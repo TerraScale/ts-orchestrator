@@ -141,7 +141,7 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 	previousServiceTrust := specBakedInputs
 	specBakedInputs = func() (bootstrapstart.BakedInputs, error) {
 		return bootstrapstart.BakedInputs{Identity: bootstrapstart.BakedIdentity{SchemaVersion: 1,
-			DeploymentID: "broker-claim", Environment: "test", Cell: "GRU"}, Roots: testSpecRoots(t)}, nil
+			DeploymentID: "broker-claim", Environment: "test", Cell: "GRU"}, Genesis: testSpecRoots(t)}, nil
 	}
 	clock := &testBrokerClock{}
 	clock.healthy.Store(true)

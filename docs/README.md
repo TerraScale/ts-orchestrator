@@ -25,6 +25,7 @@ These pages describe the current greenfield Go implementation.
 | [TerraBase deployment](terrabase-deployment.md) | Member CA, workload profile and `operator terrabase-release` rollout with automatic rollback |
 | [Secrets in OCI Vault](secrets.md) | Naming scheme, compartments and host grants, `ts-orch vault put` and `render`; OpenBao retired |
 | [Cell spec](cell-spec.md) | A running cell's signed desired state: `ts-orch get`, `diff` and `apply`, root-gated changes, binary levels; runbook "Add a service to a running region" |
+| [Root key rotation](root-rotation.md) | Baked roots as genesis of a KV root chain, the leaked-root threat model and the rotation runbook |
 | [ts-auth deployment](ts-auth-deployment.md) | ts-auth on the gru-1 controllers: placement, Vault secret refs, TerraBase tenant, load balancer values and the live runbook |
 | [TerraBase serving lifecycle](terrabase-serving-lifecycle-plan.md) | Current health gate, drain and rollback; open replication, membership, serving proof and scale-in work |
 | [Deployment convergence benchmark](benchmarks/deployment-convergence-20260925.md) | In-memory deploy-to-apply latency measurement |

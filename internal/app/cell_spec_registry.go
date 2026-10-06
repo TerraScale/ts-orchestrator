@@ -43,9 +43,9 @@ const (
 type specRegistry struct {
 	cell     string
 	identity cellspec.Identity
-	// roots is nil when the controller cannot verify specs (a lab without
-	// spec_trust): it then refuses every amendment.
-	roots trust.Keyring
+	// roots is the cell's root chain; nil when the controller cannot verify
+	// specs (a lab without spec_trust): it then refuses every amendment.
+	roots *rootRegistry
 	// reserved roles are owned by placement and keep their signed config
 	// profiles in fixed; a spec never holds them. TerraBase's signed profile
 	// is in fixed too: a spec entry for it replaces it, and only a root may
@@ -135,12 +135,16 @@ func (r *specRegistry) loadTrust(cfg Config) error {
 		if err != nil || !ok {
 			return errors.New("cell spec root key must be an Ed25519 PKIX PEM")
 		}
-		if r.roots, err = trust.ParseKeyring(public); err != nil {
+		genesis, err := trust.ParseKeyring(public)
+		if err != nil {
 			return err
 		}
 		r.identity = cellspec.Identity{DeploymentID: settings.DeploymentID, Cell: cfg.NATS.Cell,
 			Environment: settings.Environment}
-		return r.identity.Validate()
+		if err := r.identity.Validate(); err != nil {
+			return err
+		}
+		return r.openRoots(genesis, trust.RootChain{}, "")
 	}
 	if cfg.NATS.Lab {
 		return nil
@@ -154,8 +158,51 @@ func (r *specRegistry) loadTrust(cfg Config) error {
 	if identity.Cell != cfg.NATS.Cell {
 		return errors.New("image trust cell differs from the controller cell")
 	}
-	r.roots, r.identity = baked.Roots, identity
-	return identity.Validate()
+	if err := identity.Validate(); err != nil {
+		return err
+	}
+	r.identity = identity
+	return r.openRoots(baked.Genesis, baked.Chain, bootstrapstart.RootChainFile)
+}
+
+// openRoots builds the cell's root chain from genesis and the adopted chain.
+func (r *specRegistry) openRoots(genesis trust.Keyring, chain trust.RootChain, path string) error {
+	roots, err := newRootRegistry(genesis, trust.ChainIdentity{DeploymentID: r.identity.DeploymentID,
+		Cell: r.identity.Cell, Environment: r.identity.Environment}, chain, path)
+	if err != nil {
+		return err
+	}
+	roots.keeps = r.keepsStoredSpec
+	r.roots = roots
+	return nil
+}
+
+// keepsStoredSpec refuses a root rotation that would leave the stored spec
+// signed under a removed root. Rotate make-before-break instead: add the new
+// root, apply the next generation signed under it, then remove the old root.
+func (r *specRegistry) keepsStoredSpec(ctx context.Context, roots trust.Keyring) error {
+	if r.kv == nil {
+		return nil
+	}
+	entry, err := r.kv.Get(ctx, cellSpecKey)
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read cell spec: %w", err)
+	}
+	// A spec that needs a newer binary still passed its signature check.
+	signed := func(roots trust.Keyring) bool {
+		_, err := cellspec.VerifyHistorical(entry.Value(), roots, r.identity)
+		return err == nil || errors.As(err, new(*cellspec.NewerBinaryError))
+	}
+	// A record the current roots already refuse is replaced by the next
+	// applied generation; the rotation does not change that.
+	if signed(r.roots.current()) && !signed(roots) {
+		return errors.New("the stored cell spec is signed under a root this rotation removes: keep that root, " +
+			"apply the next spec generation signed under a new root, then rotate again")
+	}
+	return nil
 }
 
 // open creates the replicated record and adopts the stored spec, so the
@@ -254,10 +301,12 @@ func (r *specRegistry) verify(wire []byte, now *time.Time) (cellspec.Verified, e
 	}
 	var verified cellspec.Verified
 	var err error
+	// Stored records verify with the current roots too, so a replaced root
+	// cannot write a spec; keepsStoredSpec keeps the stored spec valid.
 	if now != nil {
-		verified, err = cellspec.VerifyCurrent(wire, r.roots, r.identity, *now)
+		verified, err = cellspec.VerifyCurrent(wire, r.roots.current(), r.identity, *now)
 	} else {
-		verified, err = cellspec.VerifyHistorical(wire, r.roots, r.identity)
+		verified, err = cellspec.VerifyHistorical(wire, r.roots.current(), r.identity)
 	}
 	if err != nil {
 		return cellspec.Verified{}, err
@@ -517,21 +566,9 @@ func (r *specRegistry) apply(ctx context.Context, wire []byte, epoch uint64, fen
 func (r *specRegistry) serve(ctx context.Context, wire []byte, policy signerPolicy, fencer authority.Fencer,
 	hosts *host.Controller,
 ) (specReply, error) {
-	var envelope protocol.Envelope
-	if err := protocol.DecodeStrict(wire, &envelope, maxRegistrationWireBytes); err != nil {
+	envelope, actor, err := verifyCellRequest(wire, policy, fencer)
+	if err != nil {
 		return specReply{}, err
-	}
-	trusted, ok := policy.codec.Trusted[envelope.KeyID]
-	if !ok || trusted.Actor != envelope.Actor {
-		return specReply{}, errors.New("cell spec request signer is untrusted")
-	}
-	if err := protocol.VerifyEnvelope(envelope, protocol.EnvelopeScope{Region: r.cell, Kind: envelope.Kind,
-		Actor: trusted.Actor, OperationID: envelope.OperationID, Generation: envelope.Generation, Epoch: envelope.Epoch,
-	}, trusted.PublicKey, time.Now().UTC(), protocol.VerifyPolicy{MaxLifetime: time.Minute, ClockSkew: 30 * time.Second}); err != nil {
-		return specReply{}, err
-	}
-	if envelope.Epoch == 0 || fencer.Current().Epoch != envelope.Epoch {
-		return specReply{}, authority.ErrFenced
 	}
 	switch envelope.Kind {
 	case cellSpecGetKind:
@@ -543,10 +580,32 @@ func (r *specRegistry) serve(ctx context.Context, wire []byte, policy signerPoli
 	}
 	reply, err := r.apply(ctx, envelope.Payload, envelope.Epoch, fencer, hosts)
 	if err == nil {
-		slog.Info("cell spec request", observability.ComponentKey, "cellspec", "actor", trusted.Actor,
+		slog.Info("cell spec request", observability.ComponentKey, "cellspec", "actor", actor,
 			"generation", reply.Spec.Generation, "status", reply.Status)
 	}
 	return reply, err
+}
+
+// verifyCellRequest verifies a trusted operator's signed request to the
+// current authority term and returns it with the signer's actor.
+func verifyCellRequest(wire []byte, policy signerPolicy, fencer authority.Fencer) (protocol.Envelope, string, error) {
+	var envelope protocol.Envelope
+	if err := protocol.DecodeStrict(wire, &envelope, maxRegistrationWireBytes); err != nil {
+		return protocol.Envelope{}, "", err
+	}
+	trusted, ok := policy.codec.Trusted[envelope.KeyID]
+	if !ok || trusted.Actor != envelope.Actor {
+		return protocol.Envelope{}, "", errors.New("operator request signer is untrusted")
+	}
+	if err := protocol.VerifyEnvelope(envelope, protocol.EnvelopeScope{Region: policy.cell, Kind: envelope.Kind,
+		Actor: trusted.Actor, OperationID: envelope.OperationID, Generation: envelope.Generation, Epoch: envelope.Epoch,
+	}, trusted.PublicKey, time.Now().UTC(), protocol.VerifyPolicy{MaxLifetime: time.Minute, ClockSkew: 30 * time.Second}); err != nil {
+		return protocol.Envelope{}, "", err
+	}
+	if envelope.Epoch == 0 || fencer.Current().Epoch != envelope.Epoch {
+		return protocol.Envelope{}, "", authority.ErrFenced
+	}
+	return envelope, trusted.Actor, nil
 }
 
 func sameSpec(a, b cellspec.Spec) bool {

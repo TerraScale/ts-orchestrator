@@ -143,7 +143,8 @@ release leaf, kept in OCI Vault (`gru-1-trust-*`, see [secrets](secrets.md)).
    hours: an unapplied spec expires.
 3. The root signs an amendment that **widens authority** itself, without a
    delegation (`release sign-spec --root`), also for at most 24 hours.
-4. Production controllers verify specs with the image's baked trust roots and
+4. Production controllers verify specs with the cell's current roots (the
+   image's baked roots until a [root rotation](root-rotation.md)) and
    deployment identity. A lab controller (`nats.lab: true`) uses
    `controller.spec_trust` instead. Signed production configs refuse that
    setting.
@@ -185,8 +186,9 @@ stores the accepted bytes in the replicated JetStream KV record
 controller re-verifies that record before it uses it: signatures without
 expiry, the binary level, the cell's rules, and a generation that only moves
 forward. Who signed which change is the leader's admission check; only
-controllers can write the record. Removing a root from the image revokes its
-specs. A record that fails these checks is logged and ignored. The controller
+controllers can write the record. The signatures verify with the current
+roots, so removing a genesis root from the image or rotating it away revokes
+its specs. A record that fails these checks is logged and ignored. The controller
 keeps the spec it has, and the next applied generation replaces the bad
 record. A controller that restarts while the record is bad has only
 generation 0, the signed config. `ts-orch get` then shows generation 0: plan

@@ -24,6 +24,7 @@ Commands:
   sign-binary-update
   sign-spec-delegation
   sign-spec
+  sign-root-rotation
   deploy
   fleet-status
 `

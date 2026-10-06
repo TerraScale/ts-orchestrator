@@ -121,8 +121,8 @@ decision journal (`volume_reattached`, rule
 ## Configuration snapshots
 
 `internal/kvsnapshot` keeps the configuration KV buckets
-(`kvsnapshot.Buckets`: `TS_SERVICE_SET`, `TS_HOST_ENROLLMENT`, `TS_ROLLOUTS`,
-`TS_OCI_DESIRED`) in OCI Object Storage, so that a controller set rebuilt
+(`kvsnapshot.Buckets`: `TS_SERVICE_SET`, `TS_TRUST_ROOTS`, `TS_HOST_ENROLLMENT`,
+`TS_ROLLOUTS`, `TS_OCI_DESIRED`) in OCI Object Storage, so that a controller set rebuilt
 with empty JetStream stores gets them back without any re-signing.
 
 ```json

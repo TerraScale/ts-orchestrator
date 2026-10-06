@@ -132,6 +132,17 @@ Every command prints the leader's JSON reply.
 | `ts-orch rollout resume --config F` | Undo pause and retry the rollback of a frozen rollout |
 | `ts-orch rollout rollback --config F --to GEN` | Publish generation GEN again as a new generation and stop the rollout in flight |
 
+## Root key rotation
+
+`ts-orch operator trust-roots` and `trust-rotate` rotate the cell's root keys
+without a rebuild; see [root rotation](root-rotation.md).
+
+| Command | Purpose |
+| --- | --- |
+| `ts-orch operator trust-roots --config F [--out CHAIN]` | Print the current roots; `--out` writes the chain to extend |
+| `ts-orch release sign-root-rotation --genesis-root F --chain F ... --new-root F --signing-key F [--signed F] --out F` | Offline: an old or new root adds its signature |
+| `ts-orch operator trust-rotate --config F --file SIGNED` | Apply a complete rotation on the authority leader |
+
 ## Feature boundaries
 
 Prefer `ts-orch` for new operational features. Implement them as Go commands

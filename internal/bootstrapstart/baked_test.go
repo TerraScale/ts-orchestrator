@@ -131,3 +131,76 @@ func TestBakedInputsRejectSymlinkAndUnknownRootEntry(t *testing.T) {
 		t.Fatal("accepted unknown trust-root directory entry")
 	}
 }
+
+// The baked roots are only the genesis of the root chain the controller
+// adopted: records signed by a rotated root verify without a rebuild, and a
+// damaged or foreign chain fails closed instead of falling back to genesis.
+func TestBakedInputsExtendGenesisWithTheAdoptedRootChain(t *testing.T) {
+	store, roots, _ := bakedFixture(t)
+	genesisPublic, genesisPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(genesisPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(roots, "001.pem")); err != nil {
+		t.Fatal(err)
+	}
+	writeBakedFixture(t, filepath.Join(roots, "001.pem"), pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+	store.chainFile = filepath.Join(t.TempDir(), "root-chain.json")
+	loaded, err := store.load()
+	if err != nil || len(loaded.Roots) != 1 || len(loaded.Genesis) != 1 || len(loaded.Chain.Rotations) != 0 {
+		t.Fatalf("without an adopted chain: %+v, %v", loaded.Roots, err)
+	}
+
+	nextPublic, nextPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signChain := func(id trust.ChainIdentity) []byte {
+		start, err := trust.VerifyRootChain(loaded.Genesis, id, trust.RootChain{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rotation, err := trust.NextRotation(start, nextPublic)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var signed trust.SignedRotation
+		now := time.Now().UTC().Truncate(time.Second)
+		for _, key := range []ed25519.PrivateKey{genesisPrivate, nextPrivate} {
+			envelope, err := trust.SignRotation(rotation, id, now, now.Add(time.Hour), key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			signed.Signatures = append(signed.Signatures, envelope)
+		}
+		wire, err := trust.EncodeRootChain(trust.RootChain{Rotations: []trust.SignedRotation{signed}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return wire
+	}
+	if err := os.WriteFile(store.chainFile, signChain(loaded.Identity.ChainIdentity()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	extended, err := store.load()
+	nextID, _ := trust.KeyID(nextPublic)
+	if err != nil || len(extended.Roots) != 2 || extended.Roots[nextID] == nil || len(extended.Genesis) != 1 ||
+		len(extended.Chain.Rotations) != 1 {
+		t.Fatalf("with an adopted chain: %+v, %v", extended.Roots, err)
+	}
+
+	foreign := loaded.Identity.ChainIdentity()
+	foreign.Cell = "sfo"
+	for name, wire := range map[string][]byte{"another cell's chain": signChain(foreign), "damaged chain": []byte("{")} {
+		if err := os.WriteFile(store.chainFile, wire, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.load(); err == nil {
+			t.Errorf("%s: loaded", name)
+		}
+	}
+}
