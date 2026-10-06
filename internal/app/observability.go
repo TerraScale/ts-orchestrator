@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
 	"sync/atomic"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
@@ -12,6 +13,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/maintenance"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
@@ -145,6 +147,8 @@ type controllerObservation struct {
 	budgets  insights.BudgetProvider
 	// ociResources is the OCI reconcile's last observations, when enabled.
 	ociResources insights.OCIResourceProvider
+	// credentials are the controller's expiring credential files.
+	credentials []maintenance.CredentialFile
 }
 
 // attachController registers controller metrics, readiness checks and the
@@ -191,6 +195,26 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 		store := observed.placements
 		config.Placement = func(ctx context.Context) (observability.PlacementView, error) {
 			return placement.Summarize(ctx, store)
+		}
+	}
+	if files := observed.credentials; len(files) > 0 {
+		var mu sync.Mutex
+		var last string
+		config.Credentials = func() ([]observability.CredentialView, error) {
+			credentials, err := maintenance.Scan(files)
+			// The snapshot carries only an error class; log which file
+			// failed, once per change. Roles and paths are not secret.
+			text := ""
+			if err != nil {
+				text = err.Error()
+			}
+			mu.Lock()
+			if text != "" && text != last {
+				slog.Warn("credential expiry scan incomplete", observability.ComponentKey, "maintenance", "error", err)
+			}
+			last = text
+			mu.Unlock()
+			return credentials, err
 		}
 	}
 	collector, err := observability.NewCollector(config)

@@ -247,15 +247,26 @@ func (engine *Engine) gather(ctx context.Context, now time.Time) (*Inputs, []str
 		check("oci_resources", err)
 	}
 	if inputs.Cluster != nil {
+		// A member that did not answer was not observed: its insights stay
+		// open rather than resolve.
+		for _, member := range inputs.Cluster.Missing {
+			fail("member " + member)
+		}
 		sections := map[string]bool{}
+		var memberSections []string
 		for _, member := range inputs.Cluster.Members {
 			for section := range member.Errors {
 				sections[section] = true
+				// Per-member rules name the member's own section, so one
+				// member's failure does not hold every member's insights.
+				memberSections = append(memberSections, "member "+member.Member+" section "+section)
 			}
 		}
 		for _, section := range slices.Sorted(maps.Keys(sections)) {
 			fail("section " + section)
 		}
+		slices.Sort(memberSections)
+		unavailable = append(unavailable, memberSections...)
 	}
 	return inputs, unavailable
 }
@@ -277,7 +288,7 @@ var ruleInputs = map[string][]string{
 	"disk_time_to_full":    {"cluster", "snapshot", "section system"},
 	"memory_pressure":      {"cluster", "snapshot", "section system"},
 	"oci_errors":           {"cluster", "snapshot", "section oci"},
-	"certificate_expiring": {"certificates"},
+	"certificate_expiring": {"certificates", "cluster", "snapshot", "section credentials"},
 	"netbird_peer":         {"netbird"},
 	"autoscaler_at_max":    {"autoscalers"},
 	"budget_ceiling":       {"budgets"},

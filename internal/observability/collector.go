@@ -33,6 +33,9 @@ type CollectorConfig struct {
 	Placement func(context.Context) (PlacementView, error)
 	Delivery  func() DeliveryView
 	OCI       func() OCIView
+	// Credentials lists the member's expiring credentials. It may return a
+	// partial list with an error, which marks the section failed.
+	Credentials func() ([]CredentialView, error)
 	// Filesystems are the mount roles reported by the system section.
 	Filesystems []FilesystemRole
 	// System replaces ReadSystem, for tests and non-Linux builds.
@@ -49,6 +52,8 @@ type Collector struct {
 	nats      Cache[NATSView]
 	placement Cache[PlacementView]
 	system    Cache[SystemView]
+	// credentials reads files, so it is cached like the other sections.
+	credentials Cache[[]CredentialView]
 }
 
 // NewCollector validates the identity and registers the collector's
@@ -66,6 +71,7 @@ func NewCollector(config CollectorConfig) (*Collector, error) {
 	}
 	collector := &Collector{config: config, startedAt: time.Now().UTC(), version: buildVersion()}
 	collector.nats.TTL, collector.placement.TTL, collector.system.TTL = sectionCacheTTL, sectionCacheTTL, sectionCacheTTL
+	collector.credentials.TTL = sectionCacheTTL
 	config.Registry.RegisterWriter(collector.writeMetrics)
 	return collector, nil
 }
@@ -112,6 +118,17 @@ func (collector *Collector) Snapshot(ctx context.Context, includeMetrics bool) (
 		fail("system", err)
 	} else {
 		snapshot.System = &view
+	}
+	if config.Credentials != nil {
+		// A partial list is still reported: one unreadable file must not
+		// hide the expiry of the others.
+		credentials, err := collector.credentials.Get(ctx, func(context.Context) ([]CredentialView, error) {
+			return config.Credentials()
+		})
+		snapshot.Credentials = credentials
+		if err != nil {
+			fail("credentials", err)
+		}
 	}
 	if includeMetrics && config.Registry != nil {
 		snapshot.Metrics, snapshot.MetricsTruncated = config.Registry.Text(config.MaxMetricsBytes)
@@ -172,6 +189,16 @@ func (collector *Collector) writeMetrics(w io.Writer) {
 	WriteGauge(w, Series(MetricPrefix+"collect_ok", "section", "system"), Bool(err == nil))
 	if err == nil {
 		WriteSystemMetrics(w, view)
+	}
+	if config.Credentials != nil {
+		credentials, err := collector.credentials.Get(ctx, func(context.Context) ([]CredentialView, error) {
+			return config.Credentials()
+		})
+		WriteGauge(w, Series(MetricPrefix+"collect_ok", "section", "credentials"), Bool(err == nil))
+		for _, credential := range credentials {
+			WriteGauge(w, Series(MetricPrefix+"credential_expiry_timestamp_seconds", "name", credential.Name,
+				"kind", credential.Kind), float64(credential.NotAfter.Unix()))
+		}
 	}
 }
 

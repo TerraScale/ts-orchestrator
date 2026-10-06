@@ -68,6 +68,7 @@ as on the host enrollment listener.
 | `ts_orch_delivery_intents_total{result}`, `ts_orch_delivery_transport_retries_total` | delivery consumer |
 | `ts_orch_host_*` | `/proc/stat`, `/proc/meminfo`, `/proc/pressure/*`, `statfs` on role mounts |
 | `ts_orch_log_records_total{level}` | slog handler |
+| `ts_orch_credential_expiry_timestamp_seconds{name,kind}` | controllers: `maintenance.Scan` over every configured certificate and NATS JWT file (see [self-healing](self-healing.md)) |
 
 Scrape-time sections are cached for three seconds so scrapes, dashboard ticks
 and snapshot requests do not repeatedly walk JetStream or `/proc`.

@@ -166,3 +166,32 @@ func TestSeriesEscapesLabelValues(t *testing.T) {
 		t.Fatalf("authority metrics = %q", output.String())
 	}
 }
+
+// A credential list that is only partly readable is still reported, with
+// the section marked failed, and every expiry becomes a gauge.
+func TestCollectorReportsPartialCredentials(t *testing.T) {
+	t.Parallel()
+	expires := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
+	collector, err := NewCollector(CollectorConfig{Cell: "gru", Member: "one", Role: "controller",
+		Registry: NewRegistry(false), System: func() (SystemView, error) { return SystemView{}, nil },
+		Credentials: func() ([]CredentialView, error) {
+			return []CredentialView{{Name: "nats server tls", Kind: "tls", NotAfter: expires}}, errors.New("route ca unreadable")
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := collector.Snapshot(t.Context(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Credentials) != 1 || snapshot.Credentials[0].Name != "nats server tls" ||
+		snapshot.Errors["credentials"] != "unavailable" {
+		t.Fatalf("snapshot = %+v", snapshot)
+	}
+	for _, want := range []string{`ts_orch_credential_expiry_timestamp_seconds{name="nats server tls",kind="tls"} 1791763200`,
+		`ts_orch_collect_ok{section="credentials"} 0`} {
+		if !strings.Contains(snapshot.Metrics, want) {
+			t.Errorf("metrics lack %q:\n%s", want, snapshot.Metrics)
+		}
+	}
+}

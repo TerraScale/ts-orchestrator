@@ -26,6 +26,9 @@ type MemberSnapshot struct {
 	Delivery     *DeliveryView  `json:"delivery,omitempty"`
 	OCI          *OCIView       `json:"oci,omitempty"`
 	System       *SystemView    `json:"system,omitempty"`
+	// Credentials lists the expiring certificates and NATS JWTs this
+	// member runs with, so a cell-wide view sees every expiry ahead.
+	Credentials []CredentialView `json:"credentials,omitempty"`
 	// Errors names sections that failed to collect, by section name. The
 	// values are short classes, never raw upstream error text.
 	Errors map[string]string `json:"errors,omitempty"`
@@ -292,6 +295,20 @@ func DistinctFilesystems(filesystems []FilesystemView) []FilesystemView {
 		out = append(out, filesystem)
 	}
 	return out
+}
+
+// CredentialView is one expiring credential a member runs with: a TLS
+// certificate (kind tls) or a NATS JWT (kind nats-jwt). Credentials that
+// never expire are not listed.
+type CredentialView struct {
+	// Name is the configured role of the file, and for a bundle of several
+	// certificates also the certificate's subject.
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+	// NotBefore is when the credential was issued, so renewal can act on
+	// the fraction of its lifetime left.
+	NotBefore time.Time `json:"not_before,omitzero"`
+	NotAfter  time.Time `json:"not_after"`
 }
 
 // ClusterSnapshot is the scatter-gathered view of every controller in a cell.

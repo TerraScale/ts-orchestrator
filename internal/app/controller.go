@@ -697,7 +697,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
 		brokerIDs: cfg.NATS.Embedded.BrokerIDs, authority: control, placements: placementStore, managed: managed != nil,
 		holds: placementHolds, autoscalers: workloadReconciler, linkedPeers: globalMirrorPeers(cfg.NATS),
-		rollouts: rollouts, budgets: budgets, ociResources: ociReconcile.resources()},
+		rollouts: rollouts, budgets: budgets, ociResources: ociReconcile.resources(),
+		credentials: controllerCredentialFiles(cfg)},
 		[]observability.FilesystemRole{{Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
 		return fmt.Errorf("attach controller observability: %w", err)
 	}

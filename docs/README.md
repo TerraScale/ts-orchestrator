@@ -15,6 +15,7 @@ These pages describe the current greenfield Go implementation.
 | [Continuous delivery](continuous-delivery.md) | Opt-in TerraBase release automation, signed image replacement design and human trust decisions |
 | [Broker account rotation](broker-claim-rotation.md) | Operator `broker-claim-apply` procedure and receipts |
 | [Observability](observability.md) | Private metrics/health listener, structured logs, event bus and cell-wide snapshots |
+| [Self-healing and automatic maintenance](self-healing.md) | TS-568 design and slices: credential expiry watch, `ts-orch doctor`, renewal, host repair, OS patching, drift and SLOs |
 | [Decision journal](decision-journal.md) | Recording decisions (call pattern for every slice), metric history, insights, summaries and the region view |
 | [TerraBase cell autoscaler](cell-autoscaler.md) | Node pressure contract, scaling rules, safety rails and `ts-orch cell-autoscaler` |
 | [Workspace GOAL](../../GOAL.md) | Current cross-repository delivery authority and status |

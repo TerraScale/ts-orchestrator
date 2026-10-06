@@ -794,27 +794,50 @@ func regionUnreachable(inputs *Inputs) []Insight {
 func certificateExpiring(inputs *Inputs) []Insight {
 	var out []Insight
 	for _, certificate := range inputs.Certificates {
-		left := certificate.NotAfter.Sub(inputs.Now)
-		if left >= inputs.Thresholds.CertificateWarning {
-			continue
+		if insight, ok := expiring(inputs, certificate, Entity{Kind: "certificate", ID: certificate.Name}); ok {
+			insight.inputs = []string{"certificates"}
+			out = append(out, insight)
 		}
-		severity, limit := SeverityWarning, inputs.Thresholds.CertificateWarning
-		if left < inputs.Thresholds.CertificateCritical {
-			severity, limit = SeverityCritical, inputs.Thresholds.CertificateCritical
+	}
+	// Every member reports the credentials it runs with, so one controller
+	// sees the whole cell's expiries.
+	if inputs.Cluster != nil {
+		for _, member := range inputs.Cluster.Members {
+			for _, credential := range member.Credentials {
+				certificate := Certificate{Name: member.Member + " " + credential.Name, Kind: credential.Kind,
+					NotAfter: credential.NotAfter}
+				entity := Entity{Kind: "certificate", ID: member.Member + "/" + credential.Name, Href: memberHref(member.Member)}
+				if insight, ok := expiring(inputs, certificate, entity); ok {
+					insight.inputs = []string{"cluster", "snapshot", "member " + member.Member,
+						"member " + member.Member + " section credentials"}
+					out = append(out, insight)
+				}
+			}
 		}
-		why := fmt.Sprintf("The %s %s expires in %s (%s).", certificate.Kind, certificate.Name, roundDuration(left),
-			certificate.NotAfter.Format(time.RFC3339))
-		if left <= 0 {
-			why = fmt.Sprintf("The %s %s expired on %s.", certificate.Kind, certificate.Name,
-				certificate.NotAfter.Format(time.RFC3339))
-		}
-		out = append(out, Insight{Severity: severity, Score: -left.Hours(), Title: "Expiring " + certificate.Kind + ": " + certificate.Name,
-			Why: why, Entity: Entity{Kind: "certificate", ID: certificate.Name},
-			Evidence: []Evidence{{Label: "Days left", Value: left.Hours() / 24, Unit: "days", Comparison: ">=",
-				Threshold: threshold(limit.Hours() / 24)}},
-			Actions: []Action{{Label: "Rotate it", Command: "ts-orch bootstrap --help"}}})
 	}
 	return out
+}
+
+func expiring(inputs *Inputs, certificate Certificate, entity Entity) (Insight, bool) {
+	left := certificate.NotAfter.Sub(inputs.Now)
+	if left >= inputs.Thresholds.CertificateWarning {
+		return Insight{}, false
+	}
+	severity, limit := SeverityWarning, inputs.Thresholds.CertificateWarning
+	if left < inputs.Thresholds.CertificateCritical {
+		severity, limit = SeverityCritical, inputs.Thresholds.CertificateCritical
+	}
+	why := fmt.Sprintf("The %s %s expires in %s (%s).", certificate.Kind, certificate.Name, roundDuration(left),
+		certificate.NotAfter.Format(time.RFC3339))
+	if left <= 0 {
+		why = fmt.Sprintf("The %s %s expired on %s.", certificate.Kind, certificate.Name,
+			certificate.NotAfter.Format(time.RFC3339))
+	}
+	return Insight{Severity: severity, Score: -left.Hours(), Title: "Expiring " + certificate.Kind + ": " + certificate.Name,
+		Why: why, Entity: entity,
+		Evidence: []Evidence{{Label: "Days left", Value: left.Hours() / 24, Unit: "days", Comparison: ">=",
+			Threshold: threshold(limit.Hours() / 24)}},
+		Actions: []Action{{Label: "Rotate it", Command: "ts-orch bootstrap --help"}}}, true
 }
 
 func netbirdPeers(inputs *Inputs) []Insight {
