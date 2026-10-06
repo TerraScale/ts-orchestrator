@@ -16,7 +16,6 @@ var (
 	statefulStore = MachineSpec{
 		Artifact:  ArtifactTarball,
 		Command:   []string{"bin/store", "--data", "/var/lib/store"},
-		Mounts:    []Mount{{Volume: "data", Path: "/var/lib/store"}},
 		Lifecycle: Lifecycle{PreStop: []string{"bin/store", "drain"}, DrainSeconds: 45},
 	}
 	container = MachineSpec{
@@ -37,9 +36,13 @@ func TestSampleWorkloadsAreValid(t *testing.T) {
 	if err := (AppSpec{Placement: Placement{MaxPerFailureDomain: 1}}).Validate("dashboard"); err != nil {
 		t.Fatal(err)
 	}
-	stateful := AppSpec{Stateful: &Stateful{Quorum: 2}, DependsOn: []string{"ts-auth"}}
-	if err := stateful.Validate("store"); err != nil {
-		t.Fatal(err)
+	for _, stateful := range []AppSpec{
+		{Stateful: &Stateful{Quorum: 2}, DependsOn: []string{"ts-auth"}},
+		{Stateful: &Stateful{}, Update: Update{Strategy: Rolling, MaxUnavailable: 1}},
+	} {
+		if err := stateful.Validate("store"); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -99,9 +102,17 @@ func TestMachineSpecRefusals(t *testing.T) {
 		"image too long":         func(m *MachineSpec) { image(m, "ghcr.io/"+strings.Repeat("a", 250)) },
 		// Neither podman's local store nor an address such as the instance
 		// metadata service is a registry.
-		"image localhost":        func(m *MachineSpec) { image(m, "localhost/acme/web") },
-		"image ip literal":       func(m *MachineSpec) { image(m, "169.254.169.254/opc/v2") },
-		"image ip and port":      func(m *MachineSpec) { image(m, "10.0.0.1:5000/acme/web") },
+		"image localhost":   func(m *MachineSpec) { image(m, "localhost/acme/web") },
+		"image ip literal":  func(m *MachineSpec) { image(m, "169.254.169.254/opc/v2") },
+		"image ip and port": func(m *MachineSpec) { image(m, "10.0.0.1:5000/acme/web") },
+		// A resolver reads these abbreviated and hex spellings as
+		// 127.0.0.1 and 169.254.169.254.
+		"image short ip":         func(m *MachineSpec) { image(m, "127.1/acme/web") },
+		"image hex ip":           func(m *MachineSpec) { image(m, "0xa9.0xfe.0xaf.0xfe/opc/v2") },
+		"image numeric tld":      func(m *MachineSpec) { image(m, "registry.10/acme/web") },
+		"image port zero":        func(m *MachineSpec) { image(m, "ghcr.io:0/acme/web") },
+		"image port high":        func(m *MachineSpec) { image(m, "ghcr.io:65536/acme/web") },
+		"image port long":        func(m *MachineSpec) { image(m, "ghcr.io:99999/acme/web") },
 		"image empty command":    func(m *MachineSpec) { image(m, "ghcr.io/acme/web", "") },
 		"image relative command": func(m *MachineSpec) { image(m, "ghcr.io/acme/web", "../sh") },
 		"image path command":     func(m *MachineSpec) { image(m, "ghcr.io/acme/web", "bin/sh") },
@@ -128,28 +139,14 @@ func TestMachineSpecRefusals(t *testing.T) {
 		"too many files":    func(m *MachineSpec) { m.Files = make([]File, maxListed+1) },
 		// A newline would add a directive to a systemd unit, a comma or
 		// colon an option to a podman mount.
+		"file path comma":   func(m *MachineSpec) { m.Files = []File{{Path: "/etc/a,rw=true"}} },
+		"file path colon":   func(m *MachineSpec) { m.Files = []File{{Path: "/etc/a:/etc"}} },
+		"file over proc":    func(m *MachineSpec) { m.Files = []File{{Path: "/proc"}} },
+		"file in run":       func(m *MachineSpec) { m.Files = []File{{Path: "/run/secrets/key"}} },
 		"file path newline": func(m *MachineSpec) { m.Files = []File{{Path: "/etc/a\nExecStartPre=+/bin/sh -c id"}} },
 		"file path space":   func(m *MachineSpec) { m.Files = []File{{Path: "/etc/a b"}} },
-		"mount path comma":  func(m *MachineSpec) { m.Mounts = []Mount{{Volume: "data", Path: "/data,rw=true"}} },
-		"mount path colon":  func(m *MachineSpec) { m.Mounts = []Mount{{Volume: "data", Path: "/data:/etc"}} },
-		"mount over proc":   func(m *MachineSpec) { m.Mounts = []Mount{{Volume: "data", Path: "/proc"}} },
-		"mount in sys":      func(m *MachineSpec) { m.Mounts = []Mount{{Volume: "data", Path: "/sys/fs"}} },
-		"mount over dev":    func(m *MachineSpec) { m.Mounts = []Mount{{Volume: "data", Path: "/dev"}} },
 		"file in cgroupfs":  func(m *MachineSpec) { m.Files = []File{{Path: "/sys/fs/cgroup/cgroup.procs"}} },
 		"file in dev":       func(m *MachineSpec) { m.Files = []File{{Path: "/dev/sda"}} },
-		"unnamed volume":    func(m *MachineSpec) { m.Mounts = []Mount{{Path: "/data"}} },
-		"bad volume name":   func(m *MachineSpec) { m.Mounts = []Mount{{Volume: "Data", Path: "/data"}} },
-		"relative mount":    func(m *MachineSpec) { m.Mounts = []Mount{{Volume: "data", Path: "data"}} },
-		"duplicate volume": func(m *MachineSpec) {
-			m.Mounts = []Mount{{Volume: "data", Path: "/a"}, {Volume: "data", Path: "/b"}}
-		},
-		"nested mounts": func(m *MachineSpec) {
-			m.Mounts = []Mount{{Volume: "a", Path: "/data"}, {Volume: "b", Path: "/data/b"}}
-		},
-		"file on a mount": func(m *MachineSpec) {
-			m.Files = []File{{Path: "/data/app.conf"}}
-			m.Mounts = []Mount{{Volume: "data", Path: "/data"}}
-		},
 		// A machine record carries its config and must fit a NATS message.
 		"file too large": func(m *MachineSpec) {
 			m.Files = []File{{Path: "/etc/a", Content: strings.Repeat("x", maxEncodedBytes)}}
@@ -177,7 +174,7 @@ func TestAppSpecRefusals(t *testing.T) {
 		"unavailable all at once": {Update: Update{MaxUnavailable: 1}},
 		"negative unavailable":    {Update: Update{Strategy: Rolling, MaxUnavailable: -1}},
 		"stateful all at once":    {Stateful: &Stateful{Quorum: 2}, Update: Update{Strategy: AllAtOnce}},
-		"stateful without quorum": {Stateful: &Stateful{}},
+		"negative quorum":         {Stateful: &Stateful{Quorum: -1}},
 		"quorum too high":         {Stateful: &Stateful{Quorum: maxMachines + 1}},
 		"self dependency":         {DependsOn: []string{"web"}},
 		"repeated dependency":     {DependsOn: []string{"ts-auth", "ts-auth"}},
@@ -186,6 +183,38 @@ func TestAppSpecRefusals(t *testing.T) {
 	} {
 		if err := spec.Validate("web"); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: got %v, want ErrInvalid", name, err)
+		}
+	}
+}
+
+func TestImageRegistries(t *testing.T) {
+	for _, repository := range []string{"ghcr.io/acme/web", "registry.example.com:5000/acme/web",
+		"docker.io/library/nginx", "eu.gcr.io/acme-1/web_app", "r1.k8s.io:65535/a/b/c"} {
+		spec := MachineSpec{Artifact: ArtifactImage, Image: repository}
+		if err := spec.Validate(); err != nil {
+			t.Errorf("%s: %v", repository, err)
+		}
+	}
+}
+
+func TestInArtifact(t *testing.T) {
+	tarball := MachineSpec{Artifact: ArtifactTarball, Command: []string{"bin/app"}}
+	image := MachineSpec{Artifact: ArtifactImage, Image: "ghcr.io/acme/web"}
+	for _, tc := range []struct {
+		spec MachineSpec
+		argv []string
+		want bool
+	}{
+		{tarball, []string{"bin/app", "drain"}, true},
+		{tarball, []string{"/bin/sh"}, false},
+		{tarball, []string{"../bin/sh"}, false},
+		{tarball, nil, false},
+		{image, []string{"sh"}, false},
+		{image, []string{"/bin/sh"}, false},
+		{MachineSpec{}, []string{"bin/app"}, false},
+	} {
+		if got := tc.spec.InArtifact(tc.argv); got != tc.want {
+			t.Errorf("%q in %q: %v, want %v", tc.argv, tc.spec.Artifact, got, tc.want)
 		}
 	}
 }

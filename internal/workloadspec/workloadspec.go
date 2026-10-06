@@ -10,30 +10,34 @@ import (
 	json "encoding/json/v2"
 	"errors"
 	"fmt"
-	"net/netip"
 	"path"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
 var ErrInvalid = errors.New("invalid workload spec")
 
 var (
-	// tokenRE matches internal/machines' names, so a volume or app named
-	// here is a valid name there.
+	// tokenRE matches internal/machines' names, so an app named here is a
+	// valid name there.
 	tokenRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 	// imageRE is a fully qualified OCI repository: a registry's DNS name, so
 	// the runtime never resolves a short name through a search list or
-	// reads its local store, and lower-case path components.
-	imageRE = regexp.MustCompile(`^([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+)(?::[0-9]{1,5})?` +
+	// reads its local store, an optional port, and lower-case path
+	// components. The last DNS label starts with a letter: a resolver reads
+	// 169.254.169.254, 127.1 or 0xa9.0xfe.0xaf.0xfe as an address, such as
+	// the instance metadata service's, and every such spelling ends in a
+	// number.
+	imageRE = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z](?:[a-z0-9-]*[a-z0-9])?(?::([0-9]{1,5}))?` +
 		`(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)+$`)
 	// pathRE keeps paths free of characters that a systemd directive or a
 	// podman mount option would read as syntax.
 	pathRE = regexp.MustCompile(`^/?[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$`)
-	// kernelPaths are the kernel's filesystems, which no file or volume may
-	// cover.
-	kernelPaths = []string{"/dev", "/proc", "/sys"}
+	// systemPaths are the kernel's and the runtime's filesystems, which no
+	// file may cover; managed volume mounts refuse the same paths.
+	systemPaths = []string{"/dev", "/proc", "/run", "/sys"}
 )
 
 const (
@@ -41,8 +45,8 @@ const (
 	maxArgBytes   = 4096
 	maxImageBytes = 255
 	// maxEncodedBytes keeps a machine record, which carries its config,
-	// well inside a NATS message.
-	maxEncodedBytes = 128 << 10
+	// well inside the 64 KiB record limit of internal/machines.
+	maxEncodedBytes = 32 << 10
 	// maxMachines matches machines.MaxMachines.
 	maxMachines = 256
 	// maxDrainSeconds leaves the host agent unit's 90 s stop timeout room
@@ -95,7 +99,6 @@ type MachineSpec struct {
 	// path inside it, an image may have one.
 	Command   []string  `json:"command,omitempty"`
 	Files     []File    `json:"files,omitempty"`
-	Mounts    []Mount   `json:"mounts,omitempty"`
 	Lifecycle Lifecycle `json:"lifecycle,omitzero"`
 }
 
@@ -104,13 +107,6 @@ type MachineSpec struct {
 type File struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
-}
-
-// Mount places a volume in the machine. The volume itself, its size,
-// placement and snapshots, belongs to managed volumes (TS-567).
-type Mount struct {
-	Volume string `json:"volume"`
-	Path   string `json:"path"`
 }
 
 // Lifecycle hooks run inside the machine. A hook's first entry is an
@@ -153,26 +149,16 @@ func (m MachineSpec) Validate() error {
 	if m.Lifecycle.DrainSeconds < 0 || m.Lifecycle.DrainSeconds > maxDrainSeconds {
 		return fmt.Errorf("%w: drain must be within 0..%d seconds", ErrInvalid, maxDrainSeconds)
 	}
-	if len(m.Files) > maxListed || len(m.Mounts) > maxListed {
-		return fmt.Errorf("%w: too many files or mounts", ErrInvalid)
+	if len(m.Files) > maxListed {
+		return fmt.Errorf("%w: too many files", ErrInvalid)
 	}
-	// Files and mounts share one namespace: no path may hold another.
-	paths := slices.Clone(kernelPaths)
-	var volumes []string
+	// No path may hold another or a system path.
+	paths := slices.Clone(systemPaths)
 	for _, file := range m.Files {
 		if !placedPath(file.Path) || slices.ContainsFunc(paths, nests(file.Path)) {
 			return fmt.Errorf("%w: file path %q", ErrInvalid, file.Path)
 		}
 		paths = append(paths, file.Path)
-	}
-	for _, mount := range m.Mounts {
-		if !tokenRE.MatchString(mount.Volume) || slices.Contains(volumes, mount.Volume) {
-			return fmt.Errorf("%w: volume %q", ErrInvalid, mount.Volume)
-		}
-		if !placedPath(mount.Path) || slices.ContainsFunc(paths, nests(mount.Path)) {
-			return fmt.Errorf("%w: mount path %q", ErrInvalid, mount.Path)
-		}
-		paths, volumes = append(paths, mount.Path), append(volumes, mount.Volume)
 	}
 	// Marshal also refuses text that is not UTF-8.
 	encoded, err := json.Marshal(m)
@@ -190,10 +176,15 @@ func validImage(image string) bool {
 	if len(image) > maxImageBytes || match == nil {
 		return false
 	}
-	// An address would reach a host by IP, such as the instance metadata
-	// service, rather than a registry by name.
-	_, err := netip.ParseAddr(match[1])
-	return err != nil
+	port, err := strconv.Atoi(match[1])
+	return match[1] == "" || err == nil && port >= 1 && port <= 65535
+}
+
+// InArtifact reports whether argv starts a program inside the admitted
+// artifact itself, a path inside a tarball, rather than any other program
+// of the host or the image.
+func (m MachineSpec) InArtifact(argv []string) bool {
+	return m.Artifact == ArtifactTarball && len(argv) != 0 && relativePath(argv[0])
 }
 
 // entrypoint reports whether name may start a process in the machine.
@@ -268,8 +259,12 @@ type Update struct {
 	MaxUnavailable int `json:"max_unavailable,omitzero"`
 }
 
+// Unavailable is how many machines a rolling update stops at once.
+func (u Update) Unavailable() int { return max(u.MaxUnavailable, 1) }
+
 // Stateful marks an app whose machines own data. Quorum is how many of its
-// machines in a region must stay started through updates and scale-in.
+// machines in a region must stay started through updates and scale-in; zero
+// suits a single member, whose update is an outage of its own choosing.
 type Stateful struct {
 	Quorum int `json:"quorum"`
 }
@@ -301,8 +296,8 @@ func (a AppSpec) Validate(app string) error {
 		return fmt.Errorf("%w: max unavailable needs a rolling update within 0..%d", ErrInvalid, maxMachines)
 	}
 	if a.Stateful != nil {
-		if a.Stateful.Quorum < 1 || a.Stateful.Quorum > maxMachines {
-			return fmt.Errorf("%w: quorum must be within 1..%d", ErrInvalid, maxMachines)
+		if a.Stateful.Quorum < 0 || a.Stateful.Quorum > maxMachines {
+			return fmt.Errorf("%w: quorum must be within 0..%d", ErrInvalid, maxMachines)
 		}
 		// Updating every member together would drop the quorum.
 		if a.Strategy() != Rolling {

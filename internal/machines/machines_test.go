@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workloadspec"
 )
 
 var testDigest = strings.Repeat("a", 64)
@@ -26,7 +27,10 @@ func testConfig() MachineConfig {
 }
 
 func testApp(name string) App {
-	return App{Name: name, ID: NewMachineID(), Class: ClassPlatform, Version: 1, Config: testConfig(),
+	config := testConfig()
+	// The platform app named after its role runs no host program.
+	config.Checks = config.Checks[:2]
+	return App{Name: name, ID: NewMachineID(), Class: ClassPlatform, Version: 1, Config: config,
 		Regions: map[string]int{"gru": 3}}
 }
 
@@ -152,5 +156,63 @@ func TestNewMachineIDIsValidAndUnique(t *testing.T) {
 			t.Fatalf("machine ID %q is malformed or repeated", id)
 		}
 		seen[id] = true
+	}
+}
+
+func TestAppWorkloadSpec(t *testing.T) {
+	stateful := testApp("store")
+	stateful.Config.Role = "store"
+	stateful.Config.Artifact, stateful.Config.Command = workloadspec.ArtifactTarball, []string{"bin/store"}
+	stateful.Config.Lifecycle = workloadspec.Lifecycle{PreStop: []string{"bin/store", "drain"}, DrainSeconds: 45}
+	stateful.Stateful = &workloadspec.Stateful{Quorum: 2}
+	stateful.Regions = map[string]int{"gru": 3, "fra": 0}
+	tenant := testApp("acme-web")
+	tenant.Class, tenant.Tenant = ClassTenant, "acme"
+	tenant.Config.Artifact, tenant.Config.Image = workloadspec.ArtifactImage, "ghcr.io/acme/web"
+	tenant.Config.Command = []string{"web"}
+	tenant.Config.Lifecycle.PostStart = []string{"/bin/true"}
+	single := testApp("cache")
+	single.Stateful, single.Regions = &workloadspec.Stateful{}, map[string]int{"gru": 1}
+	for name, app := range map[string]App{"stateful": stateful, "tenant image": tenant, "single member": single} {
+		if err := app.Validate(); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+
+	// The platform app named after its role holds the role's secrets.
+	secretHolder := testApp("ts-auth")
+	for name, mutate := range map[string]func(*App){
+		"spec":         func(a *App) { a.DependsOn = []string{a.Name} },
+		"machine spec": func(a *App) { a.Config.Files = []workloadspec.File{{Path: "/proc/self"}} },
+		"quorum":       func(a *App) { a.Stateful = &workloadspec.Stateful{Quorum: 3} },
+		"wide update":  func(a *App) { a.Stateful, a.Update.MaxUnavailable = &workloadspec.Stateful{Quorum: 2}, 2 },
+		"post-start":   func(a *App) { a.Config.Lifecycle.PostStart = []string{"/bin/true"} },
+		"pre-stop":     func(a *App) { a.Config.Lifecycle.PreStop = []string{"/bin/true"} },
+		"exec check":   func(a *App) { a.Config.Checks = testConfig().Checks },
+		"image command": func(a *App) {
+			a.Config.Artifact, a.Config.Image, a.Config.Command = workloadspec.ArtifactImage, "ghcr.io/acme/auth", []string{"sh"}
+		},
+	} {
+		app := secretHolder
+		app.Config.Lifecycle = workloadspec.Lifecycle{}
+		mutate(&app)
+		if err := app.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("%s: got %v", name, err)
+		}
+	}
+	// Programs inside the admitted tarball may run beside the secrets.
+	inside := secretHolder
+	inside.Config.Artifact, inside.Config.Command = workloadspec.ArtifactTarball, []string{"bin/ts-auth", "serve"}
+	inside.Config.Lifecycle.PreStop = []string{"bin/ts-auth", "drain"}
+	inside.Config.Checks = append(inside.Config.Checks, Check{Name: "self", Type: CheckExec, Command: []string{"bin/ts-auth", "check"}})
+	if err := inside.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	// Another platform app of the role gets no secrets and may run hooks.
+	sidecar := testApp("ts-auth-canary")
+	sidecar.Config.Lifecycle.PreStop = []string{"/bin/true"}
+	sidecar.Config.Checks = testConfig().Checks
+	if err := sidecar.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -45,7 +45,7 @@ their ticket belong to that ticket's types; the rest are `workloadspec`'s.
     "services": [{"name": "api", "port": 9000}],
     "checks": [{"name": "ready", "type": "http", "port": 9000, "path": "/readyz"}],
     "restart": {"policy": "always"},
-    "mounts": [{"volume": "data", "path": "/var/lib/store"}],
+    "mounts": [{"volume": "vol_0123456789abcdef", "path": "/var/lib/store"}],
     "lifecycle": {"pre_stop": ["bin/store", "drain"], "drain_seconds": 45}
   },
   "placement": {"max_per_failure_domain": 1},
@@ -66,7 +66,7 @@ their ticket belong to that ticket's types; the rest are `workloadspec`'s.
 | Config files | `files` | TS-572 |
 | Ports | `services` | TS-563; TS-572 adds `protocol` and `public` |
 | Health | `checks` | TS-563 |
-| Volumes | `mounts`; the volume record | TS-572; TS-567 |
+| Volumes | `mounts` and the volume record | TS-567 |
 | Lifecycle | `lifecycle` | TS-572 |
 | Placement | `placement` | TS-572; the scheduler is TS-563, dedicated hosts TS-566 |
 | Scaling | policy and bounds | TS-565 |
@@ -86,9 +86,11 @@ The artifact kind decides the driver; there is no separate driver field.
 
 An image names a repository on a registry's DNS name (`ghcr.io/acme/web`),
 never a tag or a digest: the runtime pulls `<image>@sha256:<digest>`, so a
-moved tag or a registry search list cannot change what runs. `localhost` (the
-runtime's local store) and IP addresses (such as the instance metadata
-service) are refused. Every kind goes through the same admission: a trusted
+moved tag or a registry search list cannot change what runs. The host's last
+label starts with a letter, which refuses `localhost` (the runtime's local
+store) and every spelling of an IP address (`169.254.169.254`, `127.1`,
+`0xa9.0xfe.0xaf.0xfe`, such as the instance metadata service's); a port is
+within 1..65535. Every kind goes through the same admission: a trusted
 signature and a role grant for the digest.
 
 A command or hook starts with an absolute path in the machine, a path inside
@@ -101,23 +103,28 @@ only a root can widen them. The spec has no secrets field: every machine of
 the role gets the profile's refs, read from OCI Vault at each start into the
 process environment only.
 
-A command override or a hook could run any program of an image, such as
-`/bin/sh -c`, inside a process that holds those secrets. So while a role's
-profile names secrets, only a root may set or change an image's `command`
-or the `lifecycle` hooks, like the refs themselves. A tarball's command
-starts inside the admitted artifact, as a binary does, and stays a leaf
-change.
+Only the platform app named after its role gets the role's profile and
+its secrets ([apps and machines](apps-machines.md#trust)). Apps are not
+signed, and a command override, hook or exec check could run any program of
+the host or the image, such as `/bin/sh -c`, beside those secrets. So that
+app starts only programs inside its admitted tarball: every `command`,
+`lifecycle` hook and exec check begins with a path inside the archive. A
+binary or image app of that name runs its artifact's own entrypoint and
+nothing else.
 
 ### Files and mounts
 
 `files` are UTF-8 configuration files placed read-only at absolute paths
-before the machine starts. `mounts` place volumes, by name, at absolute
-paths; a volume's size, placement and snapshots are its TS-567 record.
-Files and mounts share one namespace: no path may equal or contain another,
-or cover `/dev`, `/proc` or `/sys`. Paths use letters, digits, `.`, `_` and
+before the machine starts. No file may equal or contain another, or cover
+`/dev`, `/proc`, `/run` or `/sys`. Paths use letters, digits, `.`, `_` and
 `-` only, so no path can inject a systemd directive or a podman mount
-option. The encoded `MachineSpec` is at most 128 KiB, because every machine
-record carries its config.
+option. The encoded `MachineSpec` is at most 32 KiB, because every machine
+record carries its config and a record is at most 64 KiB.
+
+`mounts` are [managed volumes](managed-volumes.md)' (TS-567): a volume ID
+and a path, refusing the same system paths. When `mounts` joins the machine
+config, its `Validate` also refuses a mount path that equals or contains a
+file's.
 
 ### Lifecycle
 
@@ -147,8 +154,11 @@ the previous version when the new one fails its health checks.
   time. It is the default, and the only strategy, of a stateful app.
 
 `stateful.quorum` is how many machines of the app in one region must stay
-started through updates and scale-in. The leader refuses an app whose
-region count minus `max_unavailable` is below its quorum, and a rolling
+started through updates and scale-in. Zero suits a single member: it still
+updates rolling, never together with anything else, and its update is an
+outage. The leader refuses an app whose
+region count minus `max_unavailable` is below its quorum (`App.Validate`),
+and a rolling
 update waits while the region's started machines minus `max_unavailable`
 are below it, so a failed machine and an update together never drop the
 quorum.
@@ -210,12 +220,15 @@ reproduce today's behaviour. So does the cell spec's
 ## Slices
 
 1. The spec types and this note.
-2. The oci driver behind `host.Runner`, with a dispatching runner.
-3. The spec on TS-563's `App` and `MachineConfig`, `services` gaining
-   `protocol` and `public`, and the leader's cross checks: quorum against
-   counts, root-gated commands and hooks for roles with secrets, and
-   dependencies.
-4. The host agent runs any spec: files, mounts, hooks, drain and checks.
-5. The ts-auth template, and removal of ts-auth's bespoke paths and of
+2. The spec on TS-563's `App` and `MachineConfig`, with the checks that
+   need both: quorum against region counts, and the secret holder's
+   programs inside its tarball.
+3. The scheduler honours `placement`, `update`, `stateful` and
+   `depends_on`, refusing unknown dependencies and cycles.
+4. The oci driver behind `host.Runner`, with a dispatching runner.
+5. The host agent runs any spec: files, hooks, drain and checks.
+6. `services` gain `protocol` and `public`, with TS-563's service
+   discovery and the edge reconciler.
+7. The ts-auth template, and removal of ts-auth's bespoke paths and of
    `workload.ServiceSpec`.
-6. The TerraBase template, and removal of TerraBase's bespoke paths.
+8. The TerraBase template, and removal of TerraBase's bespoke paths.

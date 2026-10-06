@@ -10,6 +10,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workloadspec"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -119,22 +120,33 @@ func TestStoreAppVersionsFollowConfigChanges(t *testing.T) {
 		t.Fatalf("scale = %+v, %v", app, err)
 	}
 
+	// Neither is rollout policy; what the host runs is.
+	app.Update = workloadspec.Update{Strategy: workloadspec.Rolling, MaxUnavailable: 2}
+	if app, err = store.PutApp(ctx, epoch, app); err != nil || app.Version != 1 || app.Update.MaxUnavailable != 2 {
+		t.Fatalf("update policy = %+v, %v", app, err)
+	}
+	app.Config.Files = []workloadspec.File{{Path: "/etc/ts-auth/extra.json", Content: "{}"}}
+	if app, err = store.PutApp(ctx, epoch, app); err != nil || app.Version != 2 {
+		t.Fatalf("config file = %+v, %v", app, err)
+	}
+
 	// Nil and empty collections are the same config, and an unchanged app
 	// writes nothing.
 	same := app
 	same.Config.Env = map[string]string{"LOG_LEVEL": "info"}
 	same.Config.Services = append([]Service{}, app.Config.Services...)
 	again, err := store.PutApp(ctx, epoch, same)
-	if err != nil || again.Revision != app.Revision || again.Version != 1 {
+	if err != nil || again.Revision != app.Revision || again.Version != 2 {
 		t.Fatalf("unchanged put = %+v, %v", again, err)
 	}
 
 	app.Config.Digest = strings.Repeat("b", 64)
-	if app, err = store.PutApp(ctx, epoch, app); err != nil || app.Version != 2 {
+	if app, err = store.PutApp(ctx, epoch, app); err != nil || app.Version != 3 {
 		t.Fatalf("config change = %+v, %v", app, err)
 	}
 	stored, err := store.App(ctx, "ts-auth")
-	if err != nil || stored.Revision != app.Revision || stored.Version != 2 || stored.ID != app.ID {
+	if err != nil || stored.Revision != app.Revision || stored.Version != 3 || stored.ID != app.ID ||
+		stored.Update.MaxUnavailable != 2 {
 		t.Fatalf("read back = %+v, %v", stored, err)
 	}
 

@@ -15,6 +15,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workloadspec"
 )
 
 var ErrInvalid = errors.New("invalid app or machine")
@@ -60,6 +61,9 @@ type App struct {
 	Regions map[string]int `json:"regions,omitempty"`
 	// NodePool names a signed hostpool.NodePool.
 	NodePool string `json:"node_pool,omitempty"`
+	// AppSpec is the generic workload policy: placement, update strategy,
+	// stateful quorum and dependencies. Changing it is not a new version.
+	workloadspec.AppSpec
 	// Revision is the record's KV revision: zero for a new app.
 	Revision uint64 `json:"-"`
 }
@@ -89,6 +93,34 @@ func (a App) Validate() error {
 	if err := a.Config.Validate(); err != nil {
 		return fmt.Errorf("app %s: %w", a.Name, err)
 	}
+	if err := a.AppSpec.Validate(a.Name); err != nil {
+		return fmt.Errorf("%w: app %s: %w", ErrInvalid, a.Name, err)
+	}
+	if a.Stateful != nil {
+		for region, count := range a.Regions {
+			if count != 0 && count-a.Update.Unavailable() < a.Stateful.Quorum {
+				return fmt.Errorf("%w: app %s region %s: %d machines less %d updating at once are below quorum %d",
+					ErrInvalid, a.Name, region, count, a.Update.Unavailable(), a.Stateful.Quorum)
+			}
+		}
+	}
+	// The platform app named after its role gets the role's signed profile,
+	// Vault secrets included. The app is not signed, so every program it
+	// starts, by command, hook or exec check, must be inside its admitted
+	// tarball: no host or image program, such as /bin/sh, runs beside those
+	// secrets.
+	if a.Class == ClassPlatform && a.Name == a.Config.Role {
+		argvs := [][]string{a.Config.Command, a.Config.Lifecycle.PostStart, a.Config.Lifecycle.PreStop}
+		for _, check := range a.Config.Checks {
+			argvs = append(argvs, check.Command)
+		}
+		for _, argv := range argvs {
+			if len(argv) != 0 && !a.Config.InArtifact(argv) {
+				return fmt.Errorf("%w: app %s gets its role's secrets, so it starts only programs inside its tarball, not %q",
+					ErrInvalid, a.Name, argv[0])
+			}
+		}
+	}
 	return nil
 }
 
@@ -103,6 +135,9 @@ type MachineConfig struct {
 	Services  []Service           `json:"services,omitempty"`
 	Checks    []Check             `json:"checks,omitempty"`
 	Restart   RestartPolicy       `json:"restart,omitzero"`
+	// MachineSpec is what a host runs besides the artifact: its kind,
+	// image, command, files and lifecycle hooks.
+	workloadspec.MachineSpec
 }
 
 // Service is a named port a machine listens on, published for discovery.
@@ -199,6 +234,9 @@ func (c MachineConfig) Validate() error {
 		}
 	default:
 		return fmt.Errorf("%w: restart policy %q", ErrInvalid, c.Restart.Policy)
+	}
+	if err := c.MachineSpec.Validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	return nil
 }
