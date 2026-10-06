@@ -462,3 +462,41 @@ func TestReleaseFenceRefusesThePublicLBSet(t *testing.T) {
 		t.Fatalf("a fence beside the reconciled set: %v", err)
 	}
 }
+
+// A backend of the same node on another port is no alternative, a part-way
+// fence resumes only beside a healthy alternative, and a node without an
+// address is never restarted unfenced.
+func TestReleaseFenceNeedsAnotherHealthyNode(t *testing.T) {
+	for name, setup := range map[string]func(*releaseFence, *fenceLB, jetstream.KeyValue){
+		"same node, other port": func(_ *releaseFence, balancer *fenceLB, _ jetstream.KeyValue) {
+			balancer.sets = map[string][]lb.Backend{"terrabase": {{IP: "10.0.0.11", Port: 9465}, {IP: "10.0.0.11", Port: 9466},
+				{IP: "10.0.0.12", Port: 9465}}}
+			balancer.down["10.0.0.12:9465"] = true
+		},
+		"part-way fence": func(_ *releaseFence, balancer *fenceLB, kv jetstream.KeyValue) {
+			balancer.down["10.0.0.12:9465"], balancer.down["10.0.0.13:9465"] = true, true
+			if _, err := kv.Put(t.Context(), fencedKey("ctl-1"), []byte(`{"load_balancer_id":"ocid1.loadbalancer.oc1..x",`+
+				`"phase":"fencing","backends":[{"set":"terrabase","ip":"10.0.0.11","port":9465}]}`)); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"no address": func(fence *releaseFence, _ *fenceLB, _ jetstream.KeyValue) {
+			spec, _ := fence.spec()
+			fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return spec, map[string]string{} }
+		},
+	} {
+		fence, cell, balancer, kv, intent := newFenceTest(t)
+		setup(fence, balancer, kv)
+		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+		if err := fence.prepare(ctx, intent); err != nil {
+			t.Fatal(err)
+		}
+		if err := fence.sequence(ctx, intent); err == nil {
+			t.Errorf("%s: the release went on", name)
+		}
+		cancel()
+		if len(balancer.log) != 0 || len(cell.restarts) != 0 {
+			t.Errorf("%s: load balancer %q, restarts %q", name, balancer.log, cell.restarts)
+		}
+	}
+}

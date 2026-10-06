@@ -311,11 +311,20 @@ func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec
 	if found && record.Phase == "fenced" {
 		return nil
 	}
-	if !found {
+	if found {
+		// A part-way fence resumes only while each backend it would still
+		// take out has a healthy alternative on another node.
+		for _, backend := range record.Backends {
+			if _, err := f.guarded(ctx, api, epoch, record.LoadBalancerID,
+				cellspec.FencedSet{Name: backend.Set, Port: backend.Port}, node, backend.IP); err != nil {
+				return err
+			}
+		}
+	} else {
 		if address == "" {
-			slog.Warn("release fence has no address for a node; it restarts unfenced", observability.ComponentKey,
-				"rollout", "node", node)
-			return nil
+			// No host grant names the node: its backends are unknown, so it
+			// is never restarted unfenced.
+			return fmt.Errorf("no host grant gives the address of %s; its restart stays held", node)
 		}
 		record = fenceRecord{LoadBalancerID: spec.LoadBalancerID, Phase: "fencing"}
 		for _, set := range spec.BackendSets {
@@ -356,8 +365,9 @@ func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec
 	return nil
 }
 
-// guarded returns node's backend in set when it is in rotation, once
-// another backend of the set serves healthy; nil when it is not in rotation.
+// guarded returns node's backend in set when it is in rotation, once a
+// backend of another node serves healthy in the set; nil when it is not in
+// rotation.
 func (f *releaseFence) guarded(ctx context.Context, api lb.API, epoch uint64, id string, set cellspec.FencedSet,
 	node, address string,
 ) (*fencedBackend, error) {
@@ -375,7 +385,8 @@ func (f *releaseFence) guarded(ctx context.Context, api lb.API, epoch uint64, id
 			switch {
 			case backend.IP == address && backend.Port == set.Port:
 				mine = backend.Serving()
-			case backend.Serving() && !unhealthy[backend.Name()]:
+			case backend.IP != address && backend.Serving() && !unhealthy[backend.Name()]:
+				// Only another node's backend keeps the set serving.
 				others++
 			}
 		}

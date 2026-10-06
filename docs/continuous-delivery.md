@@ -825,10 +825,12 @@ releases/v1/services/<role>/status.json         the region leader's report
    marked release until the leader writes that node's permit. For each node
    in turn, nodes with a recorded fence first (so a rollback returns the
    node that failed before it takes a serving one out), the leader takes
-   the node's backends that are in rotation out of
+   the node's backends that are in rotation (by the node's host grant
+   address; a node without one stays held) out of
    every fenced set (drain, the grace, then offline, since a drain alone
-   keeps the load balancer's pooled connections), but only while another
-   backend of the set serves healthy; records them under `fenced.<node>`,
+   keeps the load balancer's pooled connections), but only while a
+   backend of another node serves healthy in the set, which a resumed
+   fence checks again; records them under `fenced.<node>`,
    with the load balancer they belong to and a `fencing` phase, before it
    changes the load balancer, and marks the record `fenced` once all are
    offline (a new leader finishes a `fencing` record before it permits the
