@@ -225,6 +225,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			return fmt.Errorf("production broker NTP clock health: %w", err)
 		}
 	}
+	// Restored configuration must be in place before any store opens.
+	if err := restoreControllerKV(ctx, cfg, runtime.JetStream(), fullClusterReady); err != nil {
+		return err
+	}
 	candidateID := cfg.Controller.CandidateID
 	if candidateID == "" {
 		candidateID = cfg.NATS.Instance
@@ -277,6 +281,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return fmt.Errorf("start storage capacity collector: %w", err)
 	}
 	defer stopCapacity()
+	stopKVSnapshots, err := startKVSnapshots(ctx, cfg, runtime.JetStream(), control)
+	if err != nil {
+		return err
+	}
+	defer stopKVSnapshots()
 	var managedController *placement.Controller
 	var registrationVerifier host.ManagedRegistrationVerifier
 	var materialProvider host.ManagedMaterialProvider

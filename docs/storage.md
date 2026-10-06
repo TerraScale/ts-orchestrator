@@ -38,6 +38,7 @@ Every feature below is off by default.
 | controller `storage_capacity.enabled` | Each controller publishes its boot root and JetStream StoreDir usage. The unused JetStream max-store reservation counts as used, and it is also subtracted from the node's boot headroom when the StoreDir is on the boot filesystem. Pressure is logged, and critical pressure is logged as an error. | None. |
 | controller `volume_backup.enabled` | The leader keeps crash-consistent OCI volume backups of placed members' retained volumes: every `interval_hours`, with a FULL backup every `full_every` and INCREMENTAL backups otherwise. With `prune` set, `retain` must be at least `full_every`, so pruning never deletes the last FULL. | The controller dynamic group needs `manage volume-backups` in the compartment. |
 | controller `volume_backup.prune` | Deletes owned AVAILABLE backups beyond `retain`. Before each delete it re-reads the backup's tags, source volume and state, and deletes with If-Match on the ETag. Owned backups of a volume that has left placement and no longer exists in OCI (404 or TERMINATED) are deleted once they are older than `orphan_retention_days` (default 30). Orphan retention runs only when every placement partition was readable on that pass. | `volume_backup.enabled`. |
+| controller `kv_snapshot.enabled` | Keeps the configuration KV buckets in OCI Object Storage and restores them into a rebuilt cell (see Configuration snapshots). | The controller dynamic group needs object read, create and overwrite on the snapshot prefix. |
 | placement `reattach_on_host_loss` | A replacement host attempt takes over its lost predecessor's retained volume (see Reattach on host loss). | The lost-member replacement itself needs a `LostMemberEvidence` source. Roll every controller to this version first (new durable field). |
 
 C# TerraBase member data volumes do not use the `volume_backup` runner:
@@ -116,6 +117,78 @@ never formatted therefore fails closed at initialization.
 Each fenced detach, replacement attach and mount permit is recorded in the
 decision journal (`volume_reattached`, rule
 `storage.reattach_on_host_loss`).
+
+## Configuration snapshots
+
+`internal/kvsnapshot` keeps the configuration KV buckets
+(`kvsnapshot.Buckets`: `TS_SERVICE_SET`, `TS_HOST_ENROLLMENT`, `TS_ROLLOUTS`,
+`TS_OCI_DESIRED`) in OCI Object Storage, so that a controller set rebuilt
+with empty JetStream stores gets them back without any re-signing.
+
+```json
+"kv_snapshot": {
+  "enabled": true,
+  "region": "sa-saopaulo-1",
+  "namespace": "<tenancy namespace>",
+  "bucket": "gru-1-head",
+  "kms_key_id": "<head bucket KMS key OCID, optional>",
+  "prefix": "kv-snapshot/v1",
+  "interval_seconds": 30
+}
+```
+
+The location is boot configuration because the restore runs before any KV
+bucket exists. Use a bucket with versioning enabled (`gru-1-head` has it);
+the versions are the snapshot history. Before enabling, grant the controllers
+the prefix (the reviewed region policy covers only `bootstrap/v1/*` and
+`bootstrap/v2/*` today):
+
+```
+Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-head', target.object.name='kv-snapshot/v1/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}
+```
+
+**Snapshots.** Every `interval_seconds` the authority leader reads each
+bucket's stream and, if its last sequence moved, writes the latest value of
+every key to `<prefix>/<cell>/<bucket>.json` with an ETag compare-and-swap.
+The object records the stream's creation time and last sequence. A writer
+never replaces a snapshot of a newer stream or a higher sequence of the same
+stream, so a deposed leader or an old cell cannot roll it back. Only a
+changed bucket is uploaded. A change reaches Object Storage within about one
+interval; a change made in that window is lost with every controller.
+
+**Restore.** After the cluster forms and before authority or any store
+opens, the controller reads the plan in `TS_KV_RESTORE`. A complete plan
+means the cell has already restored, so an ordinary restart needs no OCI.
+Without a plan, a cell whose `TS_CONTROL_LOG` already holds records kept its
+JetStream state: it records an empty plan without reading OCI, so enabling
+snapshots on a live cell never blocks its boot. In a new or rebuilt cell,
+the first controller restores each bucket that has a snapshot and whose
+stream is missing or was never written. Every controller
+that boots while the plan runs finishes it first. A value is written only if
+its key never had a revision in this cell (`Update(key, value, 0)`), so a
+live update or delete always wins and a completed plan never runs again.
+Values are restored byte for byte. Signed values (the cell spec) are verified
+by their owners as before. A restored bucket gets its recorded description,
+history, value limit and compression with the cell's replica count, never a
+TTL or byte limit, until its owner opens it with its own configuration.
+Each restore attempt is bounded at two minutes and retried in place, with
+the broker still serving the other controllers' quorum.
+
+**Trust.** Only `ObjectNotFound` means "no snapshot"; a missing bucket or a
+refused grant fails the boot. A snapshot must name this cell and bucket and
+hold sorted, valid keys within the recorded value limit. The snapshot itself
+is not signed. Write access to the prefix steers what a rebuilt cell starts
+with (for example its desired OCI resources, or a rollout snapshot without a
+known-bad record), so it is as trusted as a controller. Grant it only to the
+controller dynamic group, and keep that group matching only the controller
+instances; for `gru-1` it matches every instance in `gru-1-control`, the
+same boundary as the bootstrap ledger prefixes.
+
+**Not covered.** `TS_CONTROL_LOG` (authority leases, the operation journal,
+placement intents) and the KV state bound to its epochs (`TS_OCI_OPERATIONS`,
+`TS_PLACEMENT_STATE`, `TS_HOST_STATE`, `TS_DELIVERY_*`,
+`TS_REGION_LIFECYCLE`) are not snapshotted: a rebuilt cell starts its
+authority epochs afresh, so restoring them needs epoch continuity first.
 
 ## Follow-ups
 

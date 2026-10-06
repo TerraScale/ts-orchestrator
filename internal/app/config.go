@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/kvsnapshot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
@@ -103,6 +104,9 @@ type ControllerConfig struct {
 	// disabled keeps it off.
 	RegionPlanner *RegionPlannerConfig `json:"region_planner,omitempty"`
 	SpecTrust     *SpecTrustConfig     `json:"spec_trust,omitempty"`
+	// KVSnapshot keeps the configuration KV buckets in OCI Object Storage
+	// and restores them into a rebuilt cell. Off by default.
+	KVSnapshot kvsnapshot.Config `json:"kv_snapshot,omitzero"`
 }
 
 // WorkloadProfile is the cell spec's profile type, so a signed controller
@@ -203,6 +207,9 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if err := cfg.Observability.Validate(); err != nil {
 		return Config{}, fmt.Errorf("observability config: %w", err)
+	}
+	if err := cfg.Controller.KVSnapshot.Validate(); err != nil {
+		return Config{}, err
 	}
 	return cfg, nil
 }
