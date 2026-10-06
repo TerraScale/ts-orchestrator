@@ -486,7 +486,7 @@ func (c *OCICloud) launch(ctx context.Context, name string, launch *OCILaunchSta
 		shouldRetry := policy.ShouldRetryOperation
 		policy.ShouldRetryOperation = func(attempt common.OCIOperationResponse) bool {
 			response, ok := attempt.Response.(core.LaunchInstanceResponse)
-			if !ok || response.Id != nil || !ociMutationRejected(attempt.Error, response.RawResponse) {
+			if !ok || response.Id != nil || !ociclient.MutationRejected(attempt.Error, response.RawResponse) {
 				ambiguous.Store(true)
 			}
 			observed.Store(true)
@@ -506,7 +506,7 @@ func (c *OCICloud) launch(ctx context.Context, name string, launch *OCILaunchSta
 		// Only a fresh generation whose every SDK attempt was rejected may
 		// release its fence, and the deletion must be durable before reuse.
 		if fresh && !ambiguous.Load() && (!observeRetries || observed.Load()) &&
-			response.Id == nil && ociMutationRejected(err, response.RawResponse) {
+			response.Id == nil && ociclient.MutationRejected(err, response.RawResponse) {
 			delete(c.launches, name)
 			if saveErr := c.persistLaunchState(); saveErr != nil {
 				c.launches[name] = launch
@@ -551,40 +551,12 @@ func (c *OCICloud) Resize(ctx context.Context, id string, shape Shape) error {
 		// The shared factory retries PUT only on 429, never after an ambiguous
 		// attempt. Only documented rejection codes without success evidence
 		// confirm this call did not mutate; unknown errors remain fenced.
-		if response.Id == nil && ociMutationRejected(err, response.RawResponse) {
+		if response.Id == nil && ociclient.MutationRejected(err, response.RawResponse) {
 			err = errors.Join(ErrResizeRejected, err)
 		}
 		return fmt.Errorf("resize %s: %w", id, err)
 	}
 	return nil
-}
-
-// ociMutationRejected recognizes documented no-effect errors without a
-// conflicting HTTP response. Callers must also exclude accepted instance IDs
-// and any earlier ambiguous attempts before treating a generation as rejected.
-func ociMutationRejected(err error, raw *http.Response) bool {
-	failure, ok := common.IsServiceError(err)
-	if !ok || raw != nil && raw.StatusCode != failure.GetHTTPStatusCode() {
-		return false
-	}
-	switch failure.GetHTTPStatusCode() {
-	case http.StatusBadRequest:
-		switch failure.GetCode() {
-		case "CannotParseRequest", "InvalidParameter", "MissingParameter", "LimitExceeded", "QuotaExceeded":
-			return true
-		}
-	case http.StatusUnauthorized:
-		return failure.GetCode() == "NotAuthenticated"
-	case http.StatusForbidden:
-		return failure.GetCode() == "NotAuthorized"
-	case http.StatusNotFound:
-		return failure.GetCode() == "NotAuthorizedOrNotFound" || failure.GetCode() == "InvalidParameter"
-	case http.StatusConflict:
-		return failure.GetCode() == "IncorrectState"
-	case http.StatusTooManyRequests:
-		return failure.GetCode() == "TooManyRequests"
-	}
-	return false
 }
 
 // Terminate deletes the instance and its boot volume.

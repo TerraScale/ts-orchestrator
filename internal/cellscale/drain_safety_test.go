@@ -284,7 +284,7 @@ func TestReplicaInventoryFallsBackForObservationsAndConvergence(t *testing.T) {
 					policy := testPolicy()
 					cell := newFakeCell(4, small, 2, 150)
 					s := newSim(t, policy, cell, time.Minute)
-					s.controller.config.ReadyTimeout = 20 * time.Millisecond
+					s.controller.config.ReadyTimeout = waitTimeout
 					live := liveReplicaInventory{cell, s.controller}
 					secondReads := 0
 					s.controller.config.Members = replicaFallback{live, func(ctx context.Context, node string) (ReplicaSnapshot, error) {
@@ -359,7 +359,7 @@ func TestUnknownMemberInventoryRetainsTimestampFloor(t *testing.T) {
 			if offset <= 0 {
 				// Only refused evidence must time out; the accepted case keeps
 				// the default deadline so a loaded runner cannot fail it.
-				s.controller.config.ReadyTimeout = 20 * time.Millisecond
+				s.controller.config.ReadyTimeout = waitTimeout
 			}
 			unknown := safeReplicaSnapshot(s.now)
 			unknown.Members = append(unknown.Members, fakeNodeIdentity("gru-1-db-5"))

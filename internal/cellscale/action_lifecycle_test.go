@@ -75,7 +75,7 @@ func TestActionLifecycleRecheckRejectsSameIDDowntimeDuringEvidence(t *testing.T)
 						want := identities(original.Nodes)
 						cloud := &actionLifecycleCloud{actionIdentityCloud: &actionIdentityCloud{fakeCell: cell}, states: map[string]string{}}
 						s.controller.config.Cloud = cloud
-						s.controller.config.ReadyTimeout = 20 * time.Millisecond
+						s.controller.config.ReadyTimeout = waitTimeout
 						s.now = s.now.Add(time.Second)
 						if read == "pressure" {
 							s.controller.config.Source = changedLoad{cell, func(p *NodePressure) {
@@ -123,7 +123,7 @@ func TestActionLifecycleConvergenceRejectsSameIDDowntimeDuringEvidence(t *testin
 						s := newSim(t, testPolicy(), cell, time.Minute)
 						original := s.observe()
 						s.now = s.now.Add(time.Second)
-						s.controller.config.ReadyTimeout = 20 * time.Millisecond
+						s.controller.config.ReadyTimeout = waitTimeout
 						cloud := &actionLifecycleCloud{actionIdentityCloud: &actionIdentityCloud{fakeCell: cell}, states: map[string]string{}}
 						s.controller.config.Cloud = cloud
 						fence := restartFence{shape: small, process: original.Nodes[3].Pressure.ProcessID, after: s.now.Add(-time.Second)}
@@ -250,7 +250,7 @@ func TestScaleInLifecycleDowntimeAfterDrainBlocksTermination(t *testing.T) {
 				s := newSim(t, testPolicy(), cell, time.Minute)
 				original := s.observe()
 				s.now = s.now.Add(time.Second)
-				s.controller.config.ReadyTimeout = 20 * time.Millisecond
+				s.controller.config.ReadyTimeout = waitTimeout
 				cloud := &actionLifecycleCloud{actionIdentityCloud: &actionIdentityCloud{fakeCell: cell}, states: map[string]string{}}
 				s.controller.config.Cloud = cloud
 				if read == "pressure" {

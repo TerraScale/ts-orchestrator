@@ -47,7 +47,7 @@ func TestScalerJournalsLaunchesReclaimsAndRecommendations(t *testing.T) {
 	clock := now
 	prov := (&provisioner{clock: &clock}).hold(generalPool(), "gru-1-pool-general-1")
 	scaler, err := NewScaler(Config{Cell: "gru", Pools: []NodePool{generalPool()}, Hosts: view, Fencer: fencer{leader: true},
-		Provisioner: prov, Budget: openBudget, Spend: &fakeSpend{}, Now: func() time.Time { return clock }})
+		Provisioner: prov, Retirer: prov, Budget: openBudget, Spend: &fakeSpend{}, Now: func() time.Time { return clock }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestScalerJournalsExpiredLaunchAndRecurringRecommendation(t *testing.T) {
 	pool := generalPool()
 	pool.Min = 1
 	scaler, err := NewScaler(Config{Cell: "gru", Pools: []NodePool{pool}, Hosts: &fakeView{},
-		Fencer: fencer{leader: true}, Provisioner: &provisioner{clock: &clock}, Budget: openBudget, Spend: &fakeSpend{},
+		Fencer: fencer{leader: true}, Provisioner: &provisioner{clock: &clock}, Retirer: &provisioner{}, Budget: openBudget, Spend: &fakeSpend{},
 		Now: func() time.Time { return clock }})
 	if err != nil {
 		t.Fatal(err)

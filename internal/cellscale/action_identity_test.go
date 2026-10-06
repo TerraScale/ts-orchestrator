@@ -460,7 +460,7 @@ func TestActionConvergenceRejectsEvidenceAgedByIdentityRead(t *testing.T) {
 			cell := newFakeCell(4, small, 2, 150)
 			s := newSim(t, testPolicy(), cell, time.Minute)
 			original := s.observe()
-			s.controller.config.ReadyTimeout = 20 * time.Millisecond
+			s.controller.config.ReadyTimeout = waitTimeout
 			stamp := s.now
 			lists := 0
 			finalRead := 4 // Two OCI reads bracket each pressure probe.

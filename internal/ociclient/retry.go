@@ -190,3 +190,31 @@ func retryAfter(response common.OCIOperationResponse) time.Duration {
 	}
 	return 0
 }
+
+// MutationRejected recognizes documented no-effect errors without a
+// conflicting HTTP response. Callers must also exclude accepted instance IDs
+// and any earlier ambiguous attempts before treating a generation as rejected.
+func MutationRejected(err error, raw *http.Response) bool {
+	failure, ok := common.IsServiceError(err)
+	if !ok || raw != nil && raw.StatusCode != failure.GetHTTPStatusCode() {
+		return false
+	}
+	switch failure.GetHTTPStatusCode() {
+	case http.StatusBadRequest:
+		switch failure.GetCode() {
+		case "CannotParseRequest", "InvalidParameter", "MissingParameter", "LimitExceeded", "QuotaExceeded":
+			return true
+		}
+	case http.StatusUnauthorized:
+		return failure.GetCode() == "NotAuthenticated"
+	case http.StatusForbidden:
+		return failure.GetCode() == "NotAuthorized"
+	case http.StatusNotFound:
+		return failure.GetCode() == "NotAuthorizedOrNotFound" || failure.GetCode() == "InvalidParameter"
+	case http.StatusConflict:
+		return failure.GetCode() == "IncorrectState"
+	case http.StatusTooManyRequests:
+		return failure.GetCode() == "TooManyRequests"
+	}
+	return false
+}

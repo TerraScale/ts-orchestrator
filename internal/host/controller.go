@@ -45,22 +45,26 @@ type Controller struct {
 	responseKey            ed25519.PrivateKey
 	registrationMu         sync.Mutex
 	controlLogInfoMu       sync.Mutex
-	ready                  chan struct{}
-	readyOnce              sync.Once
-	cacheMu                sync.Mutex
-	cacheFile              *os.File
-	cacheDigest            string
-	cacheSize              int64
-	cacheDownloading       bool
-	cacheClosed            bool
-	cacheCancel            context.CancelFunc
-	cacheContext           context.Context
-	cacheRetryAfter        time.Time
-	sessionDiagMu          sync.Mutex
-	sessionDiagAt          map[string]time.Time
-	authorityEpoch         func() uint64
-	authorityGuard         func(context.Context, uint64) error
-	authorityLeader        func() bool
+	// retireMu orders RetireIdle against this process's desired commits,
+	// which hold it for reading; the retirement marks themselves live in
+	// host state, so a later leader enforces them too.
+	retireMu         sync.RWMutex
+	ready            chan struct{}
+	readyOnce        sync.Once
+	cacheMu          sync.Mutex
+	cacheFile        *os.File
+	cacheDigest      string
+	cacheSize        int64
+	cacheDownloading bool
+	cacheClosed      bool
+	cacheCancel      context.CancelFunc
+	cacheContext     context.Context
+	cacheRetryAfter  time.Time
+	sessionDiagMu    sync.Mutex
+	sessionDiagAt    map[string]time.Time
+	authorityEpoch   func() uint64
+	authorityGuard   func(context.Context, uint64) error
+	authorityLeader  func() bool
 	// loadSink, when set, accepts "load" host telemetry; see SetLoadSink.
 	loadSink atomic.Pointer[LoadSink]
 	// rolloutSink, when set, serves host self-updates; see SetRolloutSink.
@@ -368,6 +372,17 @@ func (c *Controller) ApplyDesired(ctx context.Context, d Desired) (Receipt, erro
 	if err := c.guard(ctx, d.AuthorityEpoch); err != nil {
 		return Receipt{}, err
 	}
+	c.retireMu.RLock()
+	defer c.retireMu.RUnlock()
+	if !d.Withdrawn {
+		retired, err := c.retired(ctx, d.Node)
+		if err != nil {
+			return Receipt{}, err
+		}
+		if retired {
+			return Receipt{}, fmt.Errorf("%w: %s", ErrHostRetiring, d.Node)
+		}
+	}
 	r, _, exists, err := c.readRegistration(ctx, d.Node)
 	if err != nil {
 		return Receipt{}, err
@@ -477,6 +492,68 @@ func (c *Controller) ApplyDesired(ctx context.Context, d Desired) (Receipt, erro
 		}
 	}
 	return Receipt{}, errors.New("desired contention")
+}
+
+// ErrHostRetiring refuses a new allocation on a host that is being
+// terminated.
+var ErrHostRetiring = errors.New("host is being retired")
+
+// retirement is a node's retirement mark in host state. Clearing it writes
+// a mark that is not retired: host state reads refuse tombstones.
+type retirement struct {
+	Retired bool      `json:"retired"`
+	At      time.Time `json:"at"`
+}
+
+func retiredKey(cell, node string) string { return "retired." + cell + "." + node }
+
+func (c *Controller) retired(ctx context.Context, node string) (bool, error) {
+	var mark retirement
+	_, found, err := c.get(ctx, retiredKey(c.cell, node), &mark)
+	return found && mark.Retired, err
+}
+
+func (c *Controller) markRetired(ctx context.Context, node string, retired bool) error {
+	data, err := json.Marshal(retirement{Retired: retired, At: time.Now().UTC()})
+	if err == nil {
+		_, err = c.state.Put(ctx, retiredKey(c.cell, node), data)
+	}
+	if err != nil {
+		return fmt.Errorf("mark %s retired=%t: %w", node, retired, err)
+	}
+	return nil
+}
+
+// RetireIdle retires node if it holds no active allocation and reports
+// whether it did. A retired node takes no new allocation until Unretire,
+// also from a later leader: the mark is in host state and every desired
+// commit reads it. Withdrawals still apply. The mark is written before the
+// allocations are read, and in this process no desired commit runs in
+// between.
+func (c *Controller) RetireIdle(ctx context.Context, node string) (bool, error) {
+	c.retireMu.Lock()
+	defer c.retireMu.Unlock()
+	if err := c.markRetired(ctx, node, true); err != nil {
+		return false, err
+	}
+	desired, err := c.ListDesired(ctx, "")
+	if err != nil {
+		return false, err
+	}
+	for _, d := range desired {
+		if d.Node == node && !d.Withdrawn {
+			return false, c.markRetired(ctx, node, false)
+		}
+	}
+	return true, nil
+}
+
+// Unretire lets node take allocations again: a new host under a retired
+// host's name.
+func (c *Controller) Unretire(ctx context.Context, node string) error {
+	c.retireMu.Lock()
+	defer c.retireMu.Unlock()
+	return c.markRetired(ctx, node, false)
 }
 
 func sameDesiredTarget(a, b Desired) bool {

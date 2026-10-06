@@ -85,7 +85,7 @@ func TestReplayedReadinessCannotOverlapRestarts(t *testing.T) {
 	policy.SustainUpSeconds, policy.CooldownSeconds, policy.ScaleDownCooldownSeconds = 0, 0, 0
 	cell := newFakeCell(3, small, 2, 150)
 	s := newSim(t, policy, cell, time.Minute)
-	s.controller.config.ReadyTimeout = 20 * time.Millisecond
+	s.controller.config.ReadyTimeout = waitTimeout
 	observed := observeState(t, policy, cell)
 	// Complete a real first restart, then make the next recheck fail.
 	s.controller.config.Source = changedLoad{fakeCell: cell, change: func(p *NodePressure) {

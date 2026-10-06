@@ -186,12 +186,16 @@ func TestStaticDescriptorNamesOnlyACellDatabaseOrControllerServer(t *testing.T) 
 	if controller := Static("gru", "GRU", "gru-1-ctl-1"); controller.Validate() != nil || !controller.IsController() {
 		t.Fatalf("controller descriptor %+v is refused or not a controller", controller)
 	}
+	if pool := Static("gru", "GRU", "gru-1-pool-app-3"); pool.Validate() != nil || pool.IsController() {
+		t.Fatalf("pool host descriptor %+v is refused or a controller", pool)
+	}
 	withOwner := static
 	withOwner.Owner = "terrascale"
 	for _, candidate := range []Descriptor{
 		Static("gru", "GRU", "gru-1-ctl-1-data"), Static("gru", "GRU", "gru-1-gw-1"), Static("gru", "GRU", "gru-1-db-1-data"),
 		Static("gru", "GRU", "sfo-1-db-1"), Static("gru", "GRU", "gru-2-db-1"),
 		Static("sfo", "GRU", "gru-1-db-1"), Static("gru", "GRU", "host-0123456789abcdef01234567"), withOwner,
+		Static("gru", "GRU", "gru-1-pool-app"), Static("gru", "GRU", "sfo-1-pool-app-1"), Static("gru", "GRU", "gru-1-pool-app-0"),
 	} {
 		if err := candidate.Validate(); err == nil {
 			t.Fatalf("accepted static descriptor %+v", candidate)

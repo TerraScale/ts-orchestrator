@@ -51,6 +51,11 @@ type fakeCell struct {
 	after    map[string]func(node string)
 }
 
+// waitTimeout bounds the controller's waits in tests: long enough for a
+// wait that converges under a loaded race run, short enough for the many
+// subtests that wait one out.
+const waitTimeout = 200 * time.Millisecond
+
 func newFakeCell(nodes int, shape Shape, tenantsPerNode int, rate float64) *fakeCell {
 	f := &fakeCell{cell: "gru-1", state: map[string]NodeState{}, release: map[string]string{}, process: map[string]int{},
 		tenants: map[string][]TenantLoad{}, now: time.Now, scale: 1, coresPerRequest: 1.0 / 2000, unread: map[string]bool{},

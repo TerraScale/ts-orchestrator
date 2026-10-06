@@ -36,7 +36,7 @@ func TestRollingResizeNeedsPostRestartReadiness(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			cell := newFakeCell(3, small, 2, 150)
 			s := newSim(t, testPolicy(), cell, time.Minute)
-			s.controller.config.ReadyTimeout = 20 * time.Millisecond
+			s.controller.config.ReadyTimeout = waitTimeout
 			observed := observeState(t, testPolicy(), cell)
 			source := &restartCache{fakeCell: cell, before: map[string]NodePressure{},
 				freezeAll: mode == "pre-restart ready cache", replayAfterReady: mode == "old report after new ready",
@@ -160,7 +160,7 @@ func TestFailedResizeKeepsRestartFencedUntilRecovery(t *testing.T) {
 			cell := newFakeCell(3, small, 2, 150)
 			cell.coresPerRequest = 1.0 / 150
 			s := newSim(t, policy, cell, 10*time.Second)
-			s.controller.config.ReadyTimeout = 20 * time.Millisecond
+			s.controller.config.ReadyTimeout = waitTimeout
 			observed := s.observe()
 			cache := &restartCache{fakeCell: cell, freezeAll: true, before: map[string]NodePressure{}}
 			for _, node := range observed.Nodes {
@@ -227,7 +227,7 @@ func (s skewedRestartCache) Pressure(_ context.Context, node string) (NodePressu
 func TestRollingResizeRejectsPreEffectSampleWithinClockSkew(t *testing.T) {
 	cell := newFakeCell(3, small, 2, 150)
 	s := newSim(t, testPolicy(), cell, time.Minute)
-	s.controller.config.ReadyTimeout = 20 * time.Millisecond
+	s.controller.config.ReadyTimeout = waitTimeout
 	s.now = s.now.Add(time.Minute) // Both cached processes were observed after controller startup.
 	observed := observeState(t, testPolicy(), cell)
 	source := skewedRestartCache{fakeCell: cell, earlier: map[string]NodePressure{}, later: map[string]NodePressure{}, starts: map[string]int{}}

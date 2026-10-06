@@ -66,7 +66,7 @@ func TestCachedReadyAndDrainedReportsCannotFinishWaits(t *testing.T) {
 		t.Run(string(state), func(t *testing.T) {
 			cell := newFakeCell(4, small, 2, 150)
 			s := newSim(t, testPolicy(), cell, time.Minute)
-			s.controller.config.ReadyTimeout = 20 * time.Millisecond
+			s.controller.config.ReadyTimeout = waitTimeout
 			expected := identities(s.observe().Nodes)
 			cached := s.now.Add(-MaxPressureAge - time.Second)
 			s.controller.config.Source = changedLoad{cell, func(p *NodePressure) {

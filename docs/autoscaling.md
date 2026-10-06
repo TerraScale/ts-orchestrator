@@ -26,9 +26,8 @@ left to port.
    afford.
 2. **Pool hosts**, in three PRs; only the last wires launches into the
    controller, so a launched host can always enroll:
-   1. Pool host names and membership (this PR): see [pool hosts](#pool-hosts).
-   2. The OCI provisioner: launch and terminate A1 Flex pool hosts with
-      journaled retry tokens, as `cellscale` does for db nodes.
+   1. Pool host names and membership (#212): see [pool hosts](#pool-hosts).
+   2. The OCI provisioner (this PR): see [launching](#launching-pool-hosts).
    3. Enrollment: a pool host enrolls only when OCI shows the tagged
       instance at its address; the controller wires the provisioner.
 3. **Drain-first scale-down.** Cordon an underused pool host, let the
@@ -61,6 +60,45 @@ which pool hosts exist, because a host registration outlives its host:
 Without a provisioner (recommend-only), registrations with a live session
 are members and silent ones keep their names. A provisioner launches only
 under a cell budget (`hostpool.budget-missing` otherwise).
+
+## Launching pool hosts
+
+`hostpool.OCIProvisioner` launches a pool host from the cell's managed OCI
+region config (compartment, availability domain, subnet, NSGs) and boots
+the image new managed hosts boot: the cell spec's `launch_image`, or the
+fleet pin ([image updates](image-updates.md)). The image is qualified when
+chosen and again right before the launch, under the cell spec version that
+chose it, which stays fenced until OCI answers. The pool's shape sizes the A1 Flex host: CPU cores are
+OCPUs, memory is whole GiB, and the disk is the boot volume (at least 50
+GB). The pool's failure domains are OCI fault domains in lower case
+(`fault-domain-1`).
+
+- **Identity.** The display name and hostname are the pool host name. The
+  host boots the image with the cell's launch material (the public
+  enrollment bundle) and a static boot descriptor naming it, and enrolls
+  like any static host.
+- **Ownership.** Every host carries `ts-cell`, `ts-pool` and
+  `ts-launch-token` tags. The provisioner reports, adopts and terminates
+  only this cell's tagged pool hosts: an untagged instance holding a pool
+  host's name is refused, never adopted or terminated, so a TerraBase or
+  controller server is out of its reach.
+- **Idempotent launches.** A launch first asks OCI for a host of that name.
+  Its retry token and exact request are journaled in `TS_HOSTPOOL_LAUNCHES`
+  before the request, with an attempt count. While OCI keeps the token (23
+  hours) every retry replays that exact request and token, also by a new
+  leader and whatever the pool or launch image is by then; its image is
+  admitted again under the current cell spec. Only a fresh launch whose
+  single attempt OCI refused without effect (quota, limits, bad request)
+  forgets its token; a refused replay proves nothing about the first
+  request. Each tick makes one attempt; the SDK does not retry a launch.
+- **Reclaim** first retires the host: a mark in host state that every
+  desired commit reads, so a later leader enforces it too. In the leader's
+  process the mark and the allocation check are one step against desired
+  writes; a host that holds an allocation is not retired, and a retired host
+  takes no new one (withdrawals still apply). Only then is the host
+  terminated with its boot volume. A retired host stays retired whatever
+  the termination's outcome; only a new host launched under its name
+  returns it.
 
 ## Budget
 

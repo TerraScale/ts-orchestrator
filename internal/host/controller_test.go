@@ -2535,3 +2535,53 @@ func TestControlLogReadsAreSafeConcurrently(t *testing.T) {
 	}
 	readers.Wait()
 }
+
+// A host pool retires a host before terminating it: only an idle host
+// retires, a retired host takes no new allocation while withdrawals still
+// apply, and Unretire returns it.
+func TestRetireIdleRefusesNewAllocations(t *testing.T) {
+	c, _, store, _, _ := testController(t)
+	registerTestHost(t, c)
+	data := []byte("retire artifact")
+	hash := sha256.Sum256(data)
+	digest := hex.EncodeToString(hash[:])
+	if _, err := store.PutBytes(t.Context(), "sha256-"+digest, data); err != nil {
+		t.Fatal(err)
+	}
+	desired := Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase", Digest: digest,
+		Generation: 1, AuthorityEpoch: 1}
+	if _, err := c.ApplyDesired(t.Context(), desired); err != nil {
+		t.Fatal(err)
+	}
+	if retired, err := c.RetireIdle(t.Context(), "node-a"); err != nil || retired {
+		t.Fatalf("a host with an allocation retired: %v, %v", retired, err)
+	}
+	withdrawn := Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase", Generation: 2,
+		AuthorityEpoch: 1, Withdrawn: true}
+	if _, err := c.ApplyDesired(t.Context(), withdrawn); err != nil {
+		t.Fatal(err)
+	}
+	if retired, err := c.RetireIdle(t.Context(), "node-a"); err != nil || !retired {
+		t.Fatalf("an idle host did not retire: %v, %v", retired, err)
+	}
+	next := desired
+	next.Generation = 3
+	if _, err := c.ApplyDesired(t.Context(), next); !errors.Is(err, ErrHostRetiring) {
+		t.Fatalf("a retired host took an allocation: %v", err)
+	}
+	if _, err := c.ApplyDesired(t.Context(), withdrawn); err != nil {
+		t.Fatalf("a retired host refused a withdrawal: %v", err)
+	}
+	// The mark is in host state: a successor controller enforces it.
+	successor := &Controller{cell: c.cell, conn: c.conn, state: c.state, controlLog: c.controlLog,
+		mutations: c.mutations, artifacts: c.artifacts, authorityEpoch: c.authorityEpoch, authorityGuard: c.authorityGuard}
+	if _, err := successor.ApplyDesired(t.Context(), next); !errors.Is(err, ErrHostRetiring) {
+		t.Fatalf("a successor placed on a retired host: %v", err)
+	}
+	if err := successor.Unretire(t.Context(), "node-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ApplyDesired(t.Context(), next); err != nil {
+		t.Fatalf("an unretired host refused an allocation: %v", err)
+	}
+}

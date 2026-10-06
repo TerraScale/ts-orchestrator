@@ -206,6 +206,12 @@ type provisioner struct {
 	reclaims []string
 	hosts    map[string]Instance
 	clock    *time.Time
+	// The fake is also the host retirer: busy nodes got an allocation.
+	busy      map[string]bool
+	retired   []string
+	unretired []string
+	// reclaimErr fails every reclaim, as an uncertain OCI termination.
+	reclaimErr error
 }
 
 func (p *provisioner) Instances(context.Context) ([]Instance, error) {
@@ -236,8 +242,29 @@ func (p *provisioner) Launch(_ context.Context, epoch uint64, pool NodePool, lau
 func (p *provisioner) Reclaim(_ context.Context, _ uint64, _ NodePool, node string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.reclaimErr != nil {
+		return p.reclaimErr
+	}
 	p.reclaims = append(p.reclaims, node)
 	delete(p.hosts, node)
+	return nil
+}
+
+// RetireIdle retires node unless busy names it; retired records it.
+func (p *provisioner) RetireIdle(_ context.Context, node string) (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.busy[node] {
+		return false, nil
+	}
+	p.retired = append(p.retired, node)
+	return true, nil
+}
+
+func (p *provisioner) Unretire(_ context.Context, node string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.unretired = append(p.unretired, node)
 	return nil
 }
 
@@ -277,7 +304,7 @@ func TestScalerLaunchesOnceForDemandAndReclaimsIdleHosts(t *testing.T) {
 	clock := now
 	prov := (&provisioner{clock: &clock}).hold(generalPool(), "gru-1-pool-general-1")
 	scaler, err := NewScaler(Config{Cell: "gru", Pools: []NodePool{generalPool()}, Hosts: view, Fencer: fencer{leader: true},
-		Provisioner: prov, Budget: openBudget, Spend: &fakeSpend{}, Now: func() time.Time { return clock }})
+		Provisioner: prov, Retirer: prov, Budget: openBudget, Spend: &fakeSpend{}, Now: func() time.Time { return clock }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +340,7 @@ func TestScalerRecommendOnlyFollowerAndDedicatedHosts(t *testing.T) {
 		r.ManagedMember = &host.ManagedMemberBinding{HostAttempt: 1}
 	})}}
 	follower, _ := NewScaler(Config{Cell: "gru", Pools: []NodePool{generalPool()}, Hosts: view, Fencer: fencer{},
-		Provisioner: &provisioner{}, Now: func() time.Time { return now }})
+		Provisioner: &provisioner{}, Retirer: &provisioner{}, Now: func() time.Time { return now }})
 	if err := follower.Tick(context.Background()); err != nil || len(follower.Last()) != 0 {
 		t.Fatalf("follower planned: %v (%v)", follower.Last(), err)
 	}
@@ -332,7 +359,7 @@ func TestScalerRecommendOnlyFollowerAndDedicatedHosts(t *testing.T) {
 func newTestScaler(t *testing.T, view *fakeView, pool NodePool, clock *time.Time, prov *provisioner) *Scaler {
 	t.Helper()
 	scaler, err := NewScaler(Config{Cell: "gru", Pools: []NodePool{pool}, Hosts: view, Fencer: fencer{leader: true},
-		Provisioner: prov, Budget: openBudget, Spend: &fakeSpend{}, Now: func() time.Time { return *clock }})
+		Provisioner: prov, Retirer: prov, Budget: openBudget, Spend: &fakeSpend{}, Now: func() time.Time { return *clock }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -556,7 +583,7 @@ func TestScalerReclaimsHostsThatNeverCameUp(t *testing.T) {
 func TestScalerNeedsABudgetAndServerNames(t *testing.T) {
 	prov := &provisioner{}
 	scaler, err := NewScaler(Config{Cell: "gru", Pools: []NodePool{generalPool()}, Hosts: &fakeView{},
-		Fencer: fencer{leader: true}, Provisioner: prov, Now: func() time.Time { return now }})
+		Fencer: fencer{leader: true}, Provisioner: prov, Retirer: prov, Now: func() time.Time { return now }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -595,5 +622,55 @@ func TestScalerDatesHostsWithoutAUsableCreationTimeFromFirstSight(t *testing.T) 
 	gate := scaler.budgetGate(context.Background(), clock, []Instance{{Node: "gru-1-pool-general-3", Pool: "general"}})
 	if gate.hold != "" || gate.headroom != int64(MaxMonthlyCents-generalPool().HostMonthlyCents) {
 		t.Fatalf("a host without a creation time was not charged: %+v", gate)
+	}
+}
+
+// A reclaim retires the host first; a host that got an allocation since the
+// tick began is kept, and a launch frees a retired host's name.
+func TestScalerKeepsAHostThatGotAnAllocation(t *testing.T) {
+	view := &fakeView{hosts: []host.HostStatus{registered("gru-1-pool-general-1", "fd-1"),
+		registered("gru-1-pool-general-2", "fd-2")}}
+	clock := now
+	prov := (&provisioner{clock: &clock, busy: map[string]bool{"gru-1-pool-general-2": true}}).hold(generalPool(),
+		"gru-1-pool-general-1", "gru-1-pool-general-2")
+	scaler := newTestScaler(t, view, generalPool(), &clock, prov)
+	for _, step := range []time.Duration{0, 11 * time.Minute} {
+		clock = clock.Add(step)
+		if err := scaler.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(prov.reclaims) != 0 || !slices.Equal(prov.retired, nil) {
+		t.Fatalf("reclaimed %v, retired %v", prov.reclaims, prov.retired)
+	}
+	pool := generalPool()
+	pool.Min = 2
+	view.hosts = nil
+	prov.hosts = nil
+	refill := newTestScaler(t, view, pool, &clock, prov)
+	if err := refill.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(prov.launched, []string{"gru-1-pool-general-1", "gru-1-pool-general-2"}) ||
+		!slices.Equal(prov.unretired, prov.launched) {
+		t.Fatalf("launched %v, unretired %v", prov.launched, prov.unretired)
+	}
+}
+
+// A termination whose outcome is unknown leaves the host retired: OCI may
+// be deleting it, so no allocation may land on it.
+func TestScalerKeepsAHostRetiredWhenItsTerminationFails(t *testing.T) {
+	view := &fakeView{hosts: []host.HostStatus{registered("gru-1-pool-general-1", "fd-1"),
+		registered("gru-1-pool-general-2", "fd-2")}}
+	clock := now
+	prov := (&provisioner{clock: &clock, reclaimErr: errors.New("connection reset")}).hold(generalPool(),
+		"gru-1-pool-general-1", "gru-1-pool-general-2")
+	scaler := newTestScaler(t, view, generalPool(), &clock, prov)
+	for _, step := range []time.Duration{0, 11 * time.Minute} {
+		clock = clock.Add(step)
+		_ = scaler.Tick(context.Background())
+	}
+	if !slices.Equal(prov.retired, []string{"gru-1-pool-general-2"}) || len(prov.unretired) != 0 {
+		t.Fatalf("retired %v, unretired %v", prov.retired, prov.unretired)
 	}
 }

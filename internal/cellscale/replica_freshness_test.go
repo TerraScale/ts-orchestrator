@@ -235,7 +235,7 @@ func TestRollingResizeWaitsForPostConvergencePlacement(t *testing.T) {
 			s := newSim(t, testPolicy(), cell, time.Minute)
 			s.observe()
 			s.now = s.now.Add(time.Second)
-			s.controller.config.ReadyTimeout = 20 * time.Millisecond
+			s.controller.config.ReadyTimeout = waitTimeout
 			cached := safeReplicaSnapshot(s.now, cell)
 			cell.replicas = func() (ReplicaSnapshot, error) {
 				snapshot := cached
@@ -280,7 +280,7 @@ func TestDrainNeedsFreshPlacementBeforeTerminationAndRecovery(t *testing.T) {
 			s := newSim(t, policy, cell, time.Minute)
 			s.observe()
 			s.now = s.now.Add(time.Second)
-			s.controller.config.ReadyTimeout = 20 * time.Millisecond
+			s.controller.config.ReadyTimeout = waitTimeout
 			cached := safeReplicaSnapshot(s.now, cell)
 			cell.replicas = func() (ReplicaSnapshot, error) {
 				if evidence == "fresh quorum only" && cell.state["gru-1-db-4"] == StateDrained {

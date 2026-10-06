@@ -66,8 +66,9 @@ type Descriptor struct {
 const StaticSchemaVersion = 2
 
 // Static is the descriptor of an operator-launched C# TerraBase host node
-// (a <cell>-db-<n> server name), or of the host agent on a controller VM
-// (<cell>-ctl-<n>), in a cell. It grants nothing by itself: the controller
+// (a <cell>-db-<n> server name), of the host agent on a controller VM
+// (<cell>-ctl-<n>), or of a node pool's host (<cell>-pool-<pool>-<n>) in a
+// cell. It grants nothing by itself: the controller
 // enrolls a TerraBase host only when its signed profile lists node at the
 // host's private address, and a controller host only from a controller's
 // private address; OCI must show that instance either way.
@@ -154,10 +155,14 @@ func (descriptor Descriptor) validateFields() error {
 		if !ok {
 			number, ok = strings.CutPrefix(descriptor.Node, cell+"-"+naming.Controller+"-")
 		}
+		if pool, isPool := strings.CutPrefix(descriptor.Node, cell+"-pool-"); !ok && isPool {
+			// The scheme allows no hyphen in a pool name.
+			_, number, ok = strings.Cut(pool, "-")
+		}
 		if err != nil || !validCellRegion(descriptor.Cell, descriptor.Region) || !ok ||
 			naming.Validate(descriptor.Node) != nil || strings.Contains(number, "-") ||
 			descriptor != Static(descriptor.Cell, descriptor.Region, descriptor.Node) {
-			return fmt.Errorf("%w: static host must name one database or controller server of its cell and nothing else", ErrInvalidDescriptor)
+			return fmt.Errorf("%w: static host must name one database, controller or pool server of its cell and nothing else", ErrInvalidDescriptor)
 		}
 		return nil
 	}

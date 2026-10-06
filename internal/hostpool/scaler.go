@@ -38,6 +38,16 @@ type Provisioner interface {
 	Reclaim(ctx context.Context, epoch uint64, pool NodePool, node string) error
 }
 
+// Retirer stops allocations to a host before it is terminated, durably:
+// a later leader enforces the retirement too. *host.Controller implements
+// it.
+type Retirer interface {
+	// RetireIdle retires node unless it holds an active allocation, as one
+	// step against concurrent desired writes, and reports whether it did.
+	RetireIdle(ctx context.Context, node string) (bool, error)
+	Unretire(ctx context.Context, node string) error
+}
+
 // Instance is one pool host OCI holds.
 type Instance struct {
 	Node    string
@@ -55,8 +65,9 @@ type Config struct {
 	Fencer authority.Fencer
 	// Provisioner nil keeps the scaler in recommend-only mode: plans are
 	// computed and logged but no host is launched or reclaimed. With a
-	// provisioner, launches need a cell budget.
+	// provisioner, launches need a cell budget, and Retirer is required.
 	Provisioner Provisioner
+	Retirer     Retirer
 	Interval    time.Duration
 	LaunchGrace time.Duration
 	DemandTTL   time.Duration
@@ -112,6 +123,9 @@ type Scaler struct {
 func NewScaler(config Config) (*Scaler, error) {
 	if config.Hosts == nil || config.Fencer == nil || config.Cell == "" {
 		return nil, errors.New("host pool scaler requires cell, host view and fencer")
+	}
+	if config.Provisioner != nil && config.Retirer == nil {
+		return nil, errors.New("a host pool provisioner requires a host retirer")
 	}
 	if err := ValidatePools(config.Pools); err != nil {
 		return nil, err
@@ -497,6 +511,10 @@ func (s *Scaler) apply(ctx context.Context, epoch uint64, pool NodePool, plan Pl
 		if err := s.config.Fencer.Guard(ctx, epoch); err != nil {
 			return err
 		}
+		// A new host may take a retired host's name.
+		if err := s.config.Retirer.Unretire(ctx, launch.Node); err != nil {
+			return err
+		}
 		if err := s.config.Provisioner.Launch(ctx, epoch, pool, launch); err != nil {
 			return fmt.Errorf("launch %s: %w", launch.Node, err)
 		}
@@ -517,8 +535,23 @@ func (s *Scaler) apply(ctx context.Context, epoch uint64, pool NodePool, plan Pl
 	return nil
 }
 
-// reclaim terminates one pool host under the current authority epoch.
+// reclaim terminates one pool host under the current authority epoch. It
+// retires the host first, so no allocation can land on it between the last
+// check and the termination; a host that got one meanwhile is kept. A
+// retired host stays retired whatever happens next, since its termination
+// may be under way: only a new host launched under its name returns it.
 func (s *Scaler) reclaim(ctx context.Context, epoch uint64, pool NodePool, node, reason string) error {
+	if err := s.config.Fencer.Guard(ctx, epoch); err != nil {
+		return err
+	}
+	retired, err := s.config.Retirer.RetireIdle(ctx, node)
+	if err != nil {
+		return fmt.Errorf("retire %s: %w", node, err)
+	}
+	if !retired {
+		s.config.Logf("hostpool: pool %s keeps %s: it got an allocation", pool.Name, node)
+		return nil
+	}
 	if err := s.config.Fencer.Guard(ctx, epoch); err != nil {
 		return err
 	}

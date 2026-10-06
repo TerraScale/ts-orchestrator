@@ -209,7 +209,7 @@ func TestScalerLaunchesWithinBudgetAndRereadsInANewMonth(t *testing.T) {
 	prov := &provisioner{}
 	budget := &Budget{MonthlyCapCents: 10000, Currency: "USD"}
 	scaler, err := NewScaler(Config{Cell: "gru", Pools: []NodePool{pool}, Hosts: &fakeView{}, Fencer: fencer{leader: true},
-		Provisioner: prov, Budget: func() *Budget { return budget }, Spend: spend, Now: func() time.Time { return clock }})
+		Provisioner: prov, Retirer: prov, Budget: func() *Budget { return budget }, Spend: spend, Now: func() time.Time { return clock }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestScalerChargesLaunchesUntilTheUsageDataShowsThem(t *testing.T) {
 	prov := &provisioner{clock: &clock}
 	// 31000 projected under 34000 leaves 3000: two hosts.
 	scaler, err := NewScaler(Config{Cell: "gru", Pools: []NodePool{pool}, Hosts: view, Fencer: fencer{leader: true},
-		Provisioner: prov, Budget: func() *Budget { return &Budget{MonthlyCapCents: 34000, Currency: "USD"} },
+		Provisioner: prov, Retirer: prov, Budget: func() *Budget { return &Budget{MonthlyCapCents: 34000, Currency: "USD"} },
 		Spend: spend, Now: func() time.Time { return clock }})
 	if err != nil {
 		t.Fatal(err)
@@ -304,7 +304,7 @@ func TestScalerTrustsAnEmptyAnswerOnlyInANewCell(t *testing.T) {
 	newScaler := func(cellSince time.Time, clock *time.Time, spend *fakeSpend, prov *provisioner) *Scaler {
 		t.Helper()
 		scaler, err := NewScaler(Config{Cell: "gru", Pools: []NodePool{pricedPool("general", 1500)}, Hosts: &fakeView{},
-			Fencer: fencer{leader: true}, Provisioner: prov, CellSince: cellSince,
+			Fencer: fencer{leader: true}, Provisioner: prov, Retirer: prov, CellSince: cellSince,
 			Budget: func() *Budget { return &Budget{MonthlyCapCents: 10000, Currency: "BRL"} },
 			Spend:  spend, Now: func() time.Time { return *clock }})
 		if err != nil {

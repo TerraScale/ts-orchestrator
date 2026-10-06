@@ -63,7 +63,9 @@ func TestNodeIdentityReplacementAtEveryControllerPhase(t *testing.T) {
 					cell := newFakeCell(4, small, 2, 150)
 					cell.state["gru-1-db-4"] = phase.state
 					s := newSim(t, testPolicy(), cell, time.Minute)
-					s.controller.config.ReadyTimeout = 40 * time.Millisecond
+					// Waits that converge must finish under a loaded race run;
+					// few subtests wait out the whole timeout.
+					s.controller.config.ReadyTimeout = time.Second
 					original := s.observe()
 					old := original.Nodes[replacement].Identity()
 					oldPressure := *original.Nodes[replacement].Pressure
