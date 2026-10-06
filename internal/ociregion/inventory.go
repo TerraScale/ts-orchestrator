@@ -393,10 +393,12 @@ func (e *Engine) verifyInventory(plan, inventory Object, path string, now time.T
 		fail("live volumes exceed the five-host plan")
 	}
 	public := map[string]bool{}
+	// OCI names the public API load balancer's floating VIP after it.
+	balancer := text(obj(plan["resource_ids"])["network_load_balancer"])
 	backupSize := add(0)
 	for _, v := range arr(resources) {
 		m := obj(v)
-		if m["kind"] == "public-ip" {
+		if m["kind"] == "public-ip" && !(l7Public(plan) && balancer != "" && strings.HasSuffix(text(m["display-name"]), " on LB "+balancer)) {
 			public[text(m["id"])] = true
 		}
 		if contains([]string{"volume-backup", "boot-volume-backup"}, m["kind"]) && contains(activeStates, m["lifecycle-state"]) {

@@ -165,7 +165,9 @@ func TestPublicAPISchemaEstimateSafeguards(t *testing.T) {
 				Object{"kind": "internet-gateway", "id": existing["internet_gateway_id"], "compartment-id": shared, "vcn-id": existing["vcn_id"], "lifecycle-state": "AVAILABLE"},
 			}
 			if tc.liveMbps != 0 {
-				resources = append(resources, Object{"kind": "load-balancer", "id": testBalancerID, "compartment-id": "network", "lifecycle-state": "ACTIVE", "shape-name": "flexible", "shape-details": Object{"maximum-bandwidth-in-mbps": tc.liveMbps}})
+				resources = append(resources, Object{"kind": "load-balancer", "id": testBalancerID, "compartment-id": "network", "lifecycle-state": "ACTIVE", "shape-name": "flexible", "shape-details": Object{"maximum-bandwidth-in-mbps": tc.liveMbps}},
+					Object{"kind": "public-ip", "id": "ocid1.publicip.balancer", "lifecycle-state": "ASSIGNED",
+						"display-name": "Floating IP for VIP public-vip on LB " + testBalancerID})
 			}
 			inventory := Object{"schema_version": 2, "tenancy_id": plan["tenancy_id"], "plan_sha256": fileSHA(path), "captured_at": time.Now().UTC().Format(time.RFC3339Nano),
 				"regions": []any{plan["region"]}, "preview_compartment_ids": Object{"control": nil, "network": "network", "workload": nil}, "images": []any{}, "resources": resources, "buckets": []any{}}
@@ -182,6 +184,12 @@ func TestPublicAPISchemaEstimateSafeguards(t *testing.T) {
 			got, present := obj(cost["items"])["load_balancer"]
 			if present != (tc.wantCost != "") || present && got != tc.wantCost {
 				t.Fatalf("load balancer cost=%v, present=%v, want %q", got, present, tc.wantCost)
+			}
+			// Only the balancer's own VIP joins the Forgejo address.
+			inventory["resources"] = append(resources, Object{"kind": "public-ip", "id": "ocid1.publicip.other",
+				"lifecycle-state": "ASSIGNED", "display-name": "Floating IP for VIP public-vip on LB ocid1.loadbalancer.other"})
+			if _, err := Estimate(plan, inventory, path); err == nil || !strings.Contains(err.Error(), "public IP inventory") {
+				t.Fatalf("an unrelated public IP was admitted: %v", err)
 			}
 		})
 	}
