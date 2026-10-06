@@ -9,8 +9,6 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
-
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 )
 
 // The compartment-scoped lists inventory uses to price a region.
@@ -131,12 +129,10 @@ func (c *Client) blockstorage() (core.BlockstorageClient, error) {
 }
 
 func (c *Client) loadBalancer() (loadbalancer.LoadBalancerClient, error) {
-	client, err := loadbalancer.NewLoadBalancerClientWithConfigurationProvider(c.factory.Provider())
+	client, err := c.factory.LoadBalancer()
 	if err != nil {
-		return client, fmt.Errorf("create OCI load balancer client: %w", err)
+		return client, err
 	}
-	client.SetRegion(c.factory.Region())
-	c.factory.Configure(&client.BaseClient, ociclient.ServiceNLB)
 	c.pin(&client.BaseClient)
 	return client, nil
 }

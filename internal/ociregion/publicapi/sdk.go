@@ -398,14 +398,7 @@ func removeNSGRules(ctx context.Context, c *SDKClient, command sdkcli.Command) (
 }
 
 func (c *SDKClient) loadBalancer() (loadbalancer.LoadBalancerClient, error) {
-	factory := c.reader.Factory()
-	client, err := loadbalancer.NewLoadBalancerClientWithConfigurationProvider(factory.Provider())
-	if err != nil {
-		return client, err
-	}
-	client.SetRegion(factory.Region())
-	factory.Configure(&client.BaseClient, ociclient.ServiceNLB)
-	return client, nil
+	return c.reader.Factory().LoadBalancer()
 }
 
 // decodeLoadBalancer reads lb load-balancer create's flags into the SDK's

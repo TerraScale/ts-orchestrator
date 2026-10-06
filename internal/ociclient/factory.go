@@ -18,6 +18,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 	"github.com/oracle/oci-go-sdk/v65/limits"
+	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	"github.com/oracle/oci-go-sdk/v65/workrequests"
@@ -272,6 +273,18 @@ func (f *Factory) NetworkLoadBalancer() (networkloadbalancer.NetworkLoadBalancer
 	client, err := networkloadbalancer.NewNetworkLoadBalancerClientWithConfigurationProvider(f.provider)
 	if err != nil {
 		return client, fmt.Errorf("create OCI network load balancer client: %w", err)
+	}
+	client.SetRegion(f.region)
+	f.Configure(&client.BaseClient, ServiceNLB)
+	return client, nil
+}
+
+// LoadBalancer returns a rate-limited flexible (L7) load balancer client. It
+// shares the NLB token bucket: both are OCI load balancing.
+func (f *Factory) LoadBalancer() (loadbalancer.LoadBalancerClient, error) {
+	client, err := loadbalancer.NewLoadBalancerClientWithConfigurationProvider(f.provider)
+	if err != nil {
+		return client, fmt.Errorf("create OCI load balancer client: %w", err)
 	}
 	client.SetRegion(f.region)
 	f.Configure(&client.BaseClient, ServiceNLB)

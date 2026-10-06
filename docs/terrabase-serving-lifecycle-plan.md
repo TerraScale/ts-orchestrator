@@ -51,6 +51,8 @@ Each item names its owner where one is assigned.
 4. **Per-member rollout.** **PROPOSED:** with replication and a serving
    signal, `terrabase-release` updates one member at a time and waits for
    it to serve before the next, instead of restarting every member at once.
+   [Zero-downtime TerraBase rollouts](terrabase-zero-downtime-rollouts.md)
+   (TS-571) is the design.
 5. **Durable drain receipt.** SIGTERM and process exit say nothing about
    writes that other members have not received. **PROPOSED:** a drain
    command that stops write admission and returns a receipt naming the
