@@ -125,6 +125,40 @@ func TestTerminalExactInventoryAndFinalReadback(t *testing.T) {
 	}
 }
 
+// Teardown trusts the journaled launch and boot binding, not the current
+// allow-list: hosts of an image the cell no longer allows are still torn
+// down, while a boot volume whose image differs from its binding holds.
+func TestTerminalTearsDownHostsOfRevokedImages(t *testing.T) {
+	fleet, provider, _, fencer, intent := terminalFixture(t)
+	fleet.config.ImageID = "ocid1.image.oc1.sa-saopaulo-1.newer"
+	if observed, err := fleet.Observe(t.Context()); err != nil || len(observed) != 0 {
+		t.Fatalf("hosts of a revoked image are still members: %+v, %v", observed, err)
+	}
+	boot := provider.bootVolumes[intent.Targets[0].BootVolumeID]
+	swapped := boot
+	swapped.ImageID = fleet.config.ImageID
+	provider.bootVolumes[boot.ID] = swapped
+	if err := fleet.VerifyTerminalInventorySettled(t.Context(), intent); !errors.Is(err, ErrForeignResource) {
+		t.Fatalf("boot volume of another image than its binding: %v", err)
+	}
+	provider.bootVolumes[boot.ID] = boot
+	if err := fleet.VerifyTerminalInventorySettled(t.Context(), intent); err != nil {
+		t.Fatal(err)
+	}
+	acceptTerminalFixture(t, fencer, intent)
+	if status, err := fleet.ReconcileTerminal(t.Context(), intent, 42); err != nil || provider.terminations != 2 {
+		t.Fatalf("hosts of a revoked image were not stopped: %+v, %v", status, err)
+	}
+	for _, target := range intent.Targets {
+		cloud := provider.instances[target.InstanceID]
+		cloud.LifecycleState = "TERMINATED"
+		provider.instances[target.InstanceID] = cloud
+	}
+	if status, err := fleet.ReconcileTerminal(t.Context(), intent, 42); err != nil || status.Phase != TerminalPhaseComplete {
+		t.Fatalf("teardown of a revoked image's hosts did not complete: %+v, %v", status, err)
+	}
+}
+
 func TestTerminalUnknownCreateAndForeignPinsHold(t *testing.T) {
 	fleet, provider, journal, _, intent := terminalFixture(t)
 	wrong := intent

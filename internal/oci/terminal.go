@@ -174,16 +174,20 @@ func (f *fleet) VerifyTerminalInventorySettled(ctx context.Context, intent autho
 					return ErrForeignResource
 				}
 				if cloud.LifecycleState != "TERMINATED" {
-					if _, _, err := f.reobserveInstance(ctx, target.InstanceID); err != nil {
+					if _, _, err := f.reobserveLaunch(ctx, target.InstanceID, false); err != nil {
 						return fmt.Errorf("%w: terminal instance has no positive ownership: %v", ErrForeignResource, err)
 					}
 				}
+			}
+			image, err := f.terminalBootImage(ctx, target)
+			if err != nil {
+				return err
 			}
 			boot, err := f.provider.GetBootVolume(ctx, target.BootVolumeID)
 			if err != nil && !isNotFound(err) {
 				return err
 			}
-			if err == nil && !f.terminalBootMatches(boot, target.BootVolumeID) {
+			if err == nil && !f.terminalBootMatches(boot, target.BootVolumeID, image) {
 				return fmt.Errorf("%w: terminal boot volume differs from fleet pins", ErrForeignResource)
 			}
 		}
@@ -310,17 +314,32 @@ func checkTerminalListed[T CloudInstance | CloudVolume](items []T, key, expected
 	return nil
 }
 
+// terminalBootBindingMatches binds a boot binding to the host's launch,
+// image included. Teardown trusts these journaled records, not the current
+// allow-list, so a revoked image never strands its hosts' cleanup.
 func (f *fleet) terminalBootBindingMatches(binding BootBinding, instanceID string, launch OperationIntent) bool {
 	return binding.InstanceID == instanceID && binding.Region == f.config.Region && binding.Generation == f.config.Generation &&
 		binding.Owner == f.config.Owner && binding.CreateKey == launch.CreateKey &&
 		binding.CompartmentID == f.config.CompartmentID && binding.AvailabilityDomain == f.config.AvailabilityDomain &&
-		binding.ImageID == f.config.ImageID && binding.SizeGB == int64(f.config.BootVolumeGB) &&
+		binding.ImageID == launch.ImageID && binding.SizeGB == int64(f.config.BootVolumeGB) &&
 		binding.VPUsPerGB == int64(f.config.BootVolumeVPUsPerGB)
 }
 
-func (f *fleet) terminalBootMatches(boot CloudBootVolume, id string) bool {
+// terminalBootImage is the image of target's journaled boot binding.
+func (f *fleet) terminalBootImage(ctx context.Context, target authority.TerminalTarget) (string, error) {
+	binding, found, err := f.journal.GetBootBinding(ctx, target.InstanceID)
+	if err != nil {
+		return "", err
+	}
+	if !found || binding.BootVolumeID != target.BootVolumeID || binding.ImageID == "" {
+		return "", fmt.Errorf("%w: boot volume %s lacks its journaled boot binding", ErrForeignResource, target.BootVolumeID)
+	}
+	return binding.ImageID, nil
+}
+
+func (f *fleet) terminalBootMatches(boot CloudBootVolume, id, imageID string) bool {
 	return boot.ID == id && boot.CompartmentID == f.config.CompartmentID &&
-		boot.AvailabilityDomain == f.config.AvailabilityDomain && boot.ImageID == f.config.ImageID &&
+		boot.AvailabilityDomain == f.config.AvailabilityDomain && boot.ImageID == imageID &&
 		boot.SizeGB == int64(f.config.BootVolumeGB) && boot.VPUsPerGB == int64(f.config.BootVolumeVPUsPerGB) &&
 		boot.ETag != ""
 }
@@ -446,7 +465,7 @@ func (f *fleet) InspectTerminalStatus(ctx context.Context, intent authority.Term
 				status.Phase = TerminalPhaseHeld
 				return status, err
 			}
-			settled, err = f.terminalBootSettled(ctx, target.BootVolumeID)
+			settled, err = f.terminalBootSettled(ctx, target)
 			if err != nil {
 				status.Phase = TerminalPhaseHeld
 				return status, err
@@ -488,7 +507,7 @@ func (f *fleet) reconcileTerminalInstance(ctx context.Context, intent authority.
 		}
 		return true, f.settleTerminalRecorded(ctx, intent, seq, actionTerminalTerminate, target.InstanceID)
 	}
-	cloud, _, err := f.ownedInstance(ctx, target.InstanceID)
+	cloud, _, err := f.ownedLaunch(ctx, target.InstanceID, false)
 	if err != nil {
 		return false, err
 	}
@@ -504,7 +523,7 @@ func (f *fleet) reconcileTerminalInstance(ctx context.Context, intent authority.
 func (f *fleet) reconcileTerminalBoot(ctx context.Context, intent authority.TerminalIntent, seq uint64,
 	target authority.TerminalTarget,
 ) (bool, error) {
-	settled, err := f.terminalBootSettled(ctx, target.BootVolumeID)
+	settled, err := f.terminalBootSettled(ctx, target)
 	if err != nil || settled {
 		if err != nil {
 			return false, err
@@ -518,11 +537,15 @@ func (f *fleet) reconcileTerminalBoot(ctx context.Context, intent authority.Term
 	if activeBootAttachments(attachments, target.BootVolumeID) {
 		return false, nil
 	}
+	image, err := f.terminalBootImage(ctx, target)
+	if err != nil {
+		return false, err
+	}
 	boot, err := f.provider.GetBootVolume(ctx, target.BootVolumeID)
 	if err != nil {
 		return false, err
 	}
-	if !f.terminalBootMatches(boot, target.BootVolumeID) {
+	if !f.terminalBootMatches(boot, target.BootVolumeID, image) {
 		return false, ErrForeignResource
 	}
 	if boot.LifecycleState == "TERMINATING" {
@@ -531,7 +554,7 @@ func (f *fleet) reconcileTerminalBoot(ctx context.Context, intent authority.Term
 	return f.terminalMutation(ctx, intent, seq, actionTerminalBootDelete, target.BootVolumeID,
 		target.HostCreateKey, boot.ETag,
 		func() error { return f.provider.DeleteBootVolume(ctx, target.BootVolumeID, boot.ETag) },
-		func() (bool, error) { return f.terminalBootSettled(ctx, target.BootVolumeID) })
+		func() (bool, error) { return f.terminalBootSettled(ctx, target) })
 }
 
 func (f *fleet) reconcileTerminalData(ctx context.Context, intent authority.TerminalIntent, seq uint64,
@@ -592,13 +615,18 @@ func (f *fleet) terminalInstanceSettled(ctx context.Context, id string) (bool, e
 	return true, nil
 }
 
-func (f *fleet) terminalBootSettled(ctx context.Context, id string) (bool, error) {
+func (f *fleet) terminalBootSettled(ctx context.Context, target authority.TerminalTarget) (bool, error) {
+	id := target.BootVolumeID
+	image, err := f.terminalBootImage(ctx, target)
+	if err != nil {
+		return false, err
+	}
 	boot, err := f.provider.GetBootVolume(ctx, id)
 	if err != nil && !isNotFound(err) {
 		return false, err
 	}
 	if err == nil {
-		if !f.terminalBootMatches(boot, id) {
+		if !f.terminalBootMatches(boot, id, image) {
 			return false, ErrForeignResource
 		}
 		if boot.LifecycleState != "TERMINATED" {

@@ -14,7 +14,7 @@ func TestObserveStaticHostAcceptsOnlyAnUnmanagedRunningFleetInstance(t *testing.
 	}
 	static := CloudInstance{ID: "ocid1.instance.oc1.sa-saopaulo-1.static", PrivateIP: "10.251.0.21",
 		CompartmentID: config.CompartmentID, AvailabilityDomain: config.AvailabilityDomain,
-		FaultDomain: "FAULT-DOMAIN-1", LifecycleState: "RUNNING",
+		FaultDomain: "FAULT-DOMAIN-1", LifecycleState: "RUNNING", ImageID: config.ImageID,
 		FreeformTags: map[string]string{tagOwner: "ts-470-gru-rebuild-2", tagResource: "terrabase-host", tagHostNode: "gru-1-db-1"}}
 	observer := fleet.(StaticHostObserver)
 	provider.instances[static.ID] = static
@@ -31,6 +31,7 @@ func TestObserveStaticHostAcceptsOnlyAnUnmanagedRunningFleetInstance(t *testing.
 		"no private address":   func(i *CloudInstance) { i.PrivateIP = "" },
 		"other availability":   func(i *CloudInstance) { i.AvailabilityDomain = "sa-saopaulo-1-AD-2" },
 		"untagged static host": func(i *CloudInstance) { delete(i.FreeformTags, tagHostNode) },
+		"foreign image":        func(i *CloudInstance) { i.ImageID = "ocid1.image.oc1.sa-saopaulo-1.foreign" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := cloneCloudInstance(static)
@@ -40,5 +41,18 @@ func TestObserveStaticHostAcceptsOnlyAnUnmanagedRunningFleetInstance(t *testing.
 				t.Fatalf("accepted %s: %v", name, err)
 			}
 		})
+	}
+	// A static host booted from an image the cell's allow-list names is one
+	// of the fleet's.
+	earlier := cloneCloudInstance(static)
+	earlier.ImageID = "ocid1.image.oc1.sa-saopaulo-1.earlier"
+	provider.instances[static.ID] = earlier
+	allowing, err := NewFleetWithImageVerifier(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()},
+		nil, nil, &allowListImageVerifier{allowed: []string{earlier.ImageID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := allowing.(StaticHostObserver).ObserveStaticHost(t.Context(), static.ID, "gru-1-db-1"); err != nil {
+		t.Fatalf("static host of an allowed image: %v", err)
 	}
 }

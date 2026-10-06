@@ -26,11 +26,13 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -43,8 +45,11 @@ const (
 	// BinaryLevel is the highest requires_binary this binary understands.
 	// A change that adds a section raises it, and amendments that use the
 	// section require the new level.
-	// Level 2 adds profile secrets, level 3 the budget.
-	BinaryLevel = 3
+	// Level 2 adds profile secrets, level 3 the budget, level 4 host images.
+	BinaryLevel = 4
+	// MaxHostImages bounds the image allow-list: the images a rollout moves
+	// between, plus room to stage the next one.
+	MaxHostImages = 4
 	// MaxDelegationLifetime bounds the root's grant to the release leaf; the
 	// root re-issues it offline.
 	MaxDelegationLifetime = 31 * 24 * time.Hour
@@ -111,6 +116,17 @@ type HostGrant struct {
 	Environment string   `json:"environment"`
 }
 
+// HostImage is one qualified OS image that managed hosts may run besides the
+// signed fleet image: its release image receipt and the root's delegation
+// that signs it, as exact canonical envelopes. A host launched from an
+// allowed image stays a fleet member; removing the image makes its hosts
+// foreign again.
+type HostImage struct {
+	ImageID    string         `json:"image_id"`
+	Receipt    jsontext.Value `json:"receipt"`
+	Delegation jsontext.Value `json:"delegation"`
+}
+
 // Identity is the deployment, cell and environment a controller accepts
 // specs for. Production controllers take it from their image.
 type Identity struct {
@@ -133,7 +149,8 @@ type Spec struct {
 	HostGrants     []HostGrant `json:"host_grants,omitempty"`
 	// Budget is the monthly cap on the cell's OCI spend that node pools
 	// launch hosts within.
-	Budget *hostpool.Budget `json:"budget,omitempty"`
+	Budget     *hostpool.Budget `json:"budget,omitempty"`
+	HostImages []HostImage      `json:"host_images,omitempty"`
 }
 
 // Signed is what an operator applies and what controllers store, as exact
@@ -219,6 +236,53 @@ func (s Spec) Validate() error {
 			}
 		}
 	}
+	if len(s.HostImages) > MaxHostImages {
+		return fmt.Errorf("%w: at most %d host images", ErrInvalid, MaxHostImages)
+	}
+	for index, image := range s.HostImages {
+		if !release.ValidOCIImageIDForRegion(image.ImageID, s.logicalRegion()) ||
+			index > 0 && s.HostImages[index-1].ImageID >= image.ImageID ||
+			len(image.Receipt) == 0 || len(image.Delegation) == 0 {
+			return fmt.Errorf("%w: host images must be sorted by a cell image ID without repeats, each with a receipt and delegation", ErrInvalid)
+		}
+	}
+	return nil
+}
+
+// logicalRegion is the release region of the cell's images: cell gru boots
+// GRU images.
+func (id Identity) logicalRegion() string { return strings.ToUpper(id.Cell) }
+
+// HostImage returns the allowed host image imageID.
+func (s Spec) HostImage(imageID string) (HostImage, bool) {
+	index := slices.IndexFunc(s.HostImages, func(image HostImage) bool { return image.ImageID == imageID })
+	if index < 0 {
+		return HostImage{}, false
+	}
+	return s.HostImages[index], true
+}
+
+// VerifyHostImages checks that a root qualified host images for the spec's
+// environment and cell: each receipt names exactly its image and is signed
+// under a root's image delegation. Without now, it checks every image as of
+// its signatures' issue. With now, it checks only the images that previous
+// lacks or holds with other bytes, with current signatures, so an amendment
+// can add or change only an image that is qualified today, while an accepted
+// image stays allowed after its receipt expires.
+func VerifyHostImages(previous, next Spec, roots trust.Keyring, now *time.Time) error {
+	for _, image := range next.HostImages {
+		expected := release.ImageExpectation{Environment: next.Environment,
+			LogicalRegion: next.logicalRegion(), OCIImageOCID: image.ImageID}
+		var err error
+		if now == nil {
+			_, err = release.VerifyImageHistorical(image.Receipt, image.Delegation, roots, expected)
+		} else if before, kept := previous.HostImage(image.ImageID); !kept || !reflect.DeepEqual(before, image) {
+			_, err = release.VerifyImageCurrent(image.Receipt, image.Delegation, roots, expected, *now)
+		}
+		if err != nil {
+			return fmt.Errorf("host image %s is not qualified: %w", image.ImageID, err)
+		}
+	}
 	return nil
 }
 
@@ -232,8 +296,8 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 }
 
 // Level is the lowest requires_binary the spec's sections need: 2 once a
-// profile names Vault secrets and 3 with a budget, which an older binary
-// could not read.
+// profile names Vault secrets, 3 with a budget and 4 once it allows host
+// images, which an older binary could not read.
 func (s Spec) Level() uint64 {
 	level := uint64(1)
 	for _, service := range s.Services {
@@ -243,6 +307,9 @@ func (s Spec) Level() uint64 {
 	}
 	if s.Budget != nil {
 		level = max(level, 3)
+	}
+	if len(s.HostImages) != 0 {
+		level = 4
 	}
 	return level
 }
@@ -471,6 +538,8 @@ func verifyDelegated(delegationWire []byte, specEnvelope trust.Envelope, roots t
 //   - a new or changed Vault secret ref, since the host reads that secret
 //     for the role with an identity that may read more;
 //   - a new or changed host grant, since the host receives credentials;
+//   - a new or changed host image, since a release image receipt says the
+//     image was built and qualified, not that this cell should run it;
 //   - any change to TerraBase's profile (resources, arguments or a setting),
 //     which binds membership, listeners, member certificates and the
 //     credentials and token issuers TerraBase trusts;
@@ -497,6 +566,11 @@ func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
 	for _, grant := range next.HostGrants {
 		if before, ok := current.Grant(grant.Node); !ok || !reflect.DeepEqual(before, grant) {
 			changes = append(changes, "host grant "+grant.Node)
+		}
+	}
+	for _, image := range next.HostImages {
+		if before, ok := current.HostImage(image.ImageID); !ok || !reflect.DeepEqual(before, image) {
+			changes = append(changes, "host image "+image.ImageID)
 		}
 	}
 	if change := budgetChange(current.Budget, next.Budget); change != "" && change != "lowered" {
@@ -546,6 +620,8 @@ type Plan struct {
 	HostGrants []string `json:"host_grants,omitempty"`
 	// Budget is "added", "updated" or "removed" when the budget changes.
 	Budget string `json:"budget,omitempty"`
+	// HostImages names each image the allow-list adds, changes or removes.
+	HostImages []string `json:"host_images,omitempty"`
 	// RootRequired lists the authority-widening changes; the amendment
 	// applies only when a root signed it.
 	RootRequired []string `json:"root_required,omitempty"`
@@ -595,6 +671,19 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 	if plan.Budget = budgetChange(current.Budget, next.Budget); plan.Budget == "lowered" {
 		plan.Budget = "updated"
 	}
+	images := map[string]bool{}
+	for _, list := range [][]HostImage{current.HostImages, next.HostImages} {
+		for _, image := range list {
+			images[image.ImageID] = true
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(images)) {
+		before, _ := current.HostImage(id)
+		after, _ := next.HostImage(id)
+		if !reflect.DeepEqual(before, after) {
+			plan.HostImages = append(plan.HostImages, id)
+		}
+	}
 	return plan, nil
 }
 
@@ -622,5 +711,5 @@ func budgetChange(before, after *hostpool.Budget) string {
 
 // Empty reports whether the plan changes nothing.
 func (p Plan) Empty() bool {
-	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants) == 0 && p.Budget == ""
+	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 && p.Budget == ""
 }

@@ -175,11 +175,11 @@ func verifyInstanceStorageAndNetwork(ctx context.Context, config RegionConfig, i
 	}
 	if stringValue(boot.Id) != stringValue(boots.Items[0].BootVolumeId) ||
 		stringValue(boot.CompartmentId) != config.CompartmentID ||
-		stringValue(boot.ImageId) != config.ImageID ||
+		instance.ImageID == "" || stringValue(boot.ImageId) != instance.ImageID ||
 		int64Value(boot.SizeInGBs) != int64(config.BootVolumeGB) ||
 		int64Value(boot.VpusPerGB) != int64(config.BootVolumeVPUsPerGB) {
 		return "", errors.Join(ErrForeignResource,
-			fmt.Errorf("%w: instance boot image, size, or tier differs from the fleet pin", ErrImageNotQualified))
+			fmt.Errorf("%w: instance boot image, size, or tier differs from the instance image and fleet pins", ErrImageNotQualified))
 	}
 	attachments, err := compute.ListVnicAttachments(ctx, core.ListVnicAttachmentsRequest{
 		CompartmentId: new(instance.CompartmentID), InstanceId: new(instance.ID),
@@ -493,6 +493,8 @@ func (provider *sdkProvider) GetVolume(ctx context.Context, id string) (CloudVol
 	}, nil
 }
 
+// GetAttachedBootVolume reads the instance's single attached boot volume. The
+// fleet checks its image against the instance and the allowed images.
 func (provider *sdkProvider) GetAttachedBootVolume(ctx context.Context, instanceID string) (CloudBootVolume, error) {
 	response, err := provider.compute.ListBootVolumeAttachments(ctx, core.ListBootVolumeAttachmentsRequest{
 		CompartmentId: new(provider.config.CompartmentID), AvailabilityDomain: new(provider.config.AvailabilityDomain),
@@ -511,7 +513,7 @@ func (provider *sdkProvider) GetAttachedBootVolume(ctx context.Context, instance
 		return CloudBootVolume{}, err
 	}
 	if boot.CompartmentID != provider.config.CompartmentID || boot.AvailabilityDomain != provider.config.AvailabilityDomain ||
-		boot.ImageID != provider.config.ImageID || boot.SizeGB != int64(provider.config.BootVolumeGB) ||
+		boot.ImageID == "" || boot.SizeGB != int64(provider.config.BootVolumeGB) ||
 		boot.VPUsPerGB != int64(provider.config.BootVolumeVPUsPerGB) || boot.ETag == "" {
 		return CloudBootVolume{}, fmt.Errorf("%w: attached boot volume differs from fleet pins", ErrForeignResource)
 	}

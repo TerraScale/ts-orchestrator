@@ -10,12 +10,14 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -668,5 +670,151 @@ func TestBudgetLevelValidateDiffAndWiden(t *testing.T) {
 			slices.Equal(plan.RootRequired, []string{"budget"}) != test.widens || len(plan.RootRequired) > 1 {
 			t.Errorf("%s: Diff = %+v, %v", name, plan, err)
 		}
+	}
+}
+
+const (
+	testImageA = "ocid1.image.oc1.sa-saopaulo-1.imagea"
+	testImageB = "ocid1.image.oc1.sa-saopaulo-1.imageb"
+)
+
+// hostImage signs a release image receipt for imageID in environment with
+// the fixture's leaf, under a root delegation for those images, valid from
+// testNow for lifetime.
+func (f fixture) hostImage(t *testing.T, imageID, environment string, root ed25519.PrivateKey, lifetime time.Duration) HostImage {
+	t.Helper()
+	keyID, err := trust.KeyID(f.leafPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, err := trust.EncodeDelegatedPublicKey(f.leafPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision := "0123456789abcdef0123456789abcdef01234567"
+	delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID,
+		SubjectPublicKey: public, Capabilities: []trust.Capability{{Domain: release.ImageDomain, DeploymentID: revision,
+			Cell: "GRU", Environment: environment, Role: "oci-image", Slots: []string{imageID}, Actions: []string{"sign"}}},
+	}, testNow.Add(-time.Minute), testNow.Add(lifetime), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := strings.Repeat("ab", 32)
+	payload := release.ImageReceipt{
+		Schema: release.ImageSchema, SourceRevision: revision, GoVersion: release.DefaultGoVersion,
+		Architecture: "arm64", BinaryBytes: 100, BinarySHA256: digest, QualificationSHA256: digest,
+		BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.base", BaseImageRegion: "GRU", BaseImageSHA256: digest,
+		KernelRelease: "6.1.0-test+1", KernelSHA256: digest, ImageFormat: "qcow2", ImageBytes: 1024,
+		ImageSHA256: digest, OCIImageOCID: imageID, OCIRegion: "GRU",
+	}
+	receipt, err := release.SignImageReceipt(payload, environment, delegation, f.roots, f.leafPrivate, testNow, lifetime)
+	if err != nil && root.Equal(f.rootPrivate) {
+		t.Fatal(err)
+	}
+	if err != nil {
+		// SignImageReceipt refuses a delegation from another key; sign the
+		// same receipt directly so verification is the only gate.
+		encoded, encodeErr := trust.EncodePayload(payload)
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+		if receipt, err = trust.Sign(encoded, release.ImageScope(payload, environment), testNow, testNow.Add(lifetime), f.leafPrivate); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return HostImage{ImageID: imageID, Receipt: encodeEnvelope(t, receipt), Delegation: encodeEnvelope(t, delegation)}
+}
+
+func TestHostImagesValidateVerifyAndDiff(t *testing.T) {
+	f := newFixture(t)
+	imageA := f.hostImage(t, testImageA, "production", f.rootPrivate, time.Hour)
+	imageB := f.hostImage(t, testImageB, "production", f.rootPrivate, time.Hour)
+	spec := testSpec(f.id, 1)
+	spec.HostImages = []HostImage{imageA, imageB}
+	if err := spec.Validate(); !errors.Is(err, ErrInvalid) || spec.Level() != 4 {
+		t.Fatalf("host images at binary level 1: level %d, %v", spec.Level(), err)
+	}
+	spec.RequiresBinary = 4
+	wire, err := Sign(spec, f.delegation, f.roots, testNow, time.Hour, f.leafPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, err := VerifyHistorical(wire, f.roots, f.id)
+	if err != nil || len(verified.HostImages) != 2 || verified.HostImages[1].ImageID != testImageB {
+		t.Fatalf("VerifyHistorical = %+v, %v", verified.HostImages, err)
+	}
+
+	tampered := imageA
+	tampered.Receipt = bytes.Clone(imageA.Receipt)
+	tampered.Receipt[len(tampered.Receipt)-3] ^= 1
+	_, otherRootPrivate := generateKey(t)
+	for name, images := range map[string][]HostImage{
+		"unsorted":         {imageB, imageA},
+		"repeated":         {imageA, imageA},
+		"foreign region":   {{ImageID: "ocid1.image.oc1.us-sanjose-1.imagea", Receipt: imageA.Receipt, Delegation: imageA.Delegation}},
+		"no receipt":       {{ImageID: testImageA, Delegation: imageA.Delegation}},
+		"no delegation":    {{ImageID: testImageA, Receipt: imageA.Receipt}},
+		"over the maximum": {imageA, imageB, f.hostImage(t, testImageA+"c", "production", f.rootPrivate, time.Hour), f.hostImage(t, testImageA+"d", "production", f.rootPrivate, time.Hour), f.hostImage(t, testImageA+"e", "production", f.rootPrivate, time.Hour)},
+	} {
+		invalid := testSpec(f.id, 1)
+		invalid.RequiresBinary = 4
+		invalid.HostImages = images
+		if name == "over the maximum" {
+			slices.SortFunc(invalid.HostImages, func(a, b HostImage) int { return strings.Compare(a.ImageID, b.ImageID) })
+		}
+		if err := invalid.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	for name, image := range map[string]HostImage{
+		"tampered receipt":      tampered,
+		"receipt of another ID": {ImageID: testImageB, Receipt: imageA.Receipt, Delegation: imageA.Delegation},
+		"other environment":     f.hostImage(t, testImageA, "canary", f.rootPrivate, time.Hour),
+		"delegation not a root": f.hostImage(t, testImageA, "production", otherRootPrivate, time.Hour),
+	} {
+		unqualified := spec
+		unqualified.HostImages = []HostImage{image}
+		if err := VerifyHostImages(Spec{}, unqualified, f.roots, nil); err == nil {
+			t.Errorf("%s: unqualified host image verified", name)
+		}
+		if err := VerifyHostImages(Spec{}, unqualified, f.roots, &testNow); err == nil {
+			t.Errorf("%s: unqualified host image admitted", name)
+		}
+	}
+
+	// An accepted image stays allowed after its receipt expires; an added or
+	// changed one must be qualified now.
+	later := testNow.Add(2 * time.Hour)
+	if err := VerifyHostImages(spec, spec, f.roots, &later); err != nil {
+		t.Fatalf("kept expired image refused: %v", err)
+	}
+	if err := VerifyHostImages(Spec{}, spec, f.roots, &later); err == nil {
+		t.Fatal("added expired image admitted")
+	}
+	renewed := spec
+	renewed.HostImages = []HostImage{f.hostImage(t, testImageA, "production", f.rootPrivate, 90*time.Minute), imageB}
+	if err := VerifyHostImages(spec, renewed, f.roots, &later); err == nil {
+		t.Fatal("changed expired image admitted")
+	}
+
+	// A root decides that the cell runs an image; revoking one is ordinary.
+	next := spec
+	next.Generation = 2
+	next.HostImages = []HostImage{imageB}
+	plan, err := Diff(spec, next, nil)
+	if err != nil || plan.Empty() || !slices.Equal(plan.HostImages, []string{testImageA}) || len(plan.RootRequired) != 0 {
+		t.Fatalf("Diff(revoke) = %+v, %v", plan, err)
+	}
+	plan, err = Diff(next, renewed, nil)
+	if err != nil || !slices.Equal(plan.HostImages, []string{testImageA}) ||
+		!slices.Equal(plan.RootRequired, []string{"host image " + testImageA}) {
+		t.Fatalf("Diff(add) = %+v, %v", plan, err)
+	}
+	plan, err = Diff(spec, renewed, nil)
+	if err != nil || !slices.Equal(plan.RootRequired, []string{"host image " + testImageA}) {
+		t.Fatalf("Diff(change) = %+v, %v", plan, err)
+	}
+	if plan, err := Diff(spec, spec, nil); err != nil || !plan.Empty() {
+		t.Fatalf("Diff(unchanged) = %+v, %v", plan, err)
 	}
 }

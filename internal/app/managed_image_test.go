@@ -234,11 +234,29 @@ func TestIndependentManagedImageProofRequiresOwnCurrentReceipt(t *testing.T) {
 }
 
 func TestManagedImageVerifierForDefaultsToAcceptedBootImage(t *testing.T) {
-	if reflect.ValueOf(managedImageVerifierFor(ControllerConfig{})).Pointer() != reflect.ValueOf(newManagedImageVerifier).Pointer() {
+	if reflect.ValueOf(managedImageVerifierFromFiles(ControllerConfig{})).Pointer() != reflect.ValueOf(newManagedImageVerifier).Pointer() {
 		t.Fatal("unconfigured controller does not pin hosts to its accepted boot image")
 	}
-	half := managedImageVerifierFor(ControllerConfig{ManagedHostImageReceiptFile: "/etc/receipt.json"})
+	half := managedImageVerifierFor(ControllerConfig{ManagedHostImageReceiptFile: "/etc/receipt.json"}, nil)
 	if _, err := half(t.Context(), oci.RegionConfig{}); err == nil {
 		t.Fatal("half-configured independent host image accepted")
+	}
+}
+
+// The fleet reads the cell spec's host images through the verifier at each
+// check, so an adopted amendment applies without reopening the fleet.
+func TestManagedImageVerifierNamesTheCellSpecHostImages(t *testing.T) {
+	verifier, _, _ := managedImageVerifierFixture(t)
+	if images := verifier.AllowedHostImages(); len(images) != 0 {
+		t.Fatalf("verifier without a cell spec allows %v", images)
+	}
+	images := []string{"ocid1.image.oc1.sa-saopaulo-1.earlier"}
+	verifier.allowed = func() []string { return images }
+	if got := verifier.AllowedHostImages(); !reflect.DeepEqual(got, images) {
+		t.Fatalf("AllowedHostImages = %v", got)
+	}
+	images = nil
+	if got := verifier.AllowedHostImages(); len(got) != 0 {
+		t.Fatalf("AllowedHostImages after the spec dropped its images = %v", got)
 	}
 }

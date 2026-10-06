@@ -948,6 +948,76 @@ func TestControllerAllowsLiveETagChurnButRejectsImmutableInstanceDrift(t *testin
 	}
 }
 
+// A member host launched from an earlier image keeps its seat after the
+// cell pins a newer one, only while the cell's allow-list names its image.
+func TestControllerKeepsMemberHostsOfAllowedEarlierImages(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	earlier := "ocid1.image.oc1..placement-earlier"
+	for _, test := range []struct {
+		name    string
+		allowed func() []string
+		image   string
+		member  bool
+	}{
+		{"earlier image allowed", func() []string { return []string{earlier} }, earlier, true},
+		{"no allow-list", nil, earlier, false},
+		{"other image allowed", func() []string { return []string{"ocid1.image.oc1..placement-other"} }, earlier, false},
+		// The descriptor binds the image the host was launched from.
+		{"descriptor of another image", func() []string { return []string{earlier} }, "", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := newPlacementMemoryStore(t, intent)
+			member := store.members[permanentMember(oci.RegionGRU)]
+			member.State.Stage = StageAwaitingHost
+			member.State.HostGeneration = 0
+			store.members[permanentMember(oci.RegionGRU)] = member
+			fleet := &placementTestFleet{instances: attachedInstances(t, intent)}
+			for index := range fleet.instances {
+				instance := &fleet.instances[index]
+				state := store.members[seatOfNode(t, store, instance.Node)].State
+				instance.ImageID = earlier
+				if test.image != "" {
+					instance.BootDescriptorSHA256 = placementTestBootDigest(t, state, test.image)
+				}
+			}
+			controller := startTestPlacementController(t, store, fleet, &placementTestHosts{statuses: admittedStatuses(t, intent)}, nil)
+			controller.config.AllowedImages = test.allowed
+			err := controller.Tick(t.Context())
+			admitted := store.members[permanentMember(oci.RegionGRU)].State.Stage == StagePreparedAttach
+			if test.member != (err == nil && admitted) {
+				t.Fatalf("Tick = %v, admitted %t; want member %t", err, admitted, test.member)
+			}
+		})
+	}
+}
+
+func seatOfNode(t *testing.T, store *placementMemoryStore, node string) string {
+	t.Helper()
+	for seat, member := range store.members {
+		if member.State.HostNode == node {
+			return seat
+		}
+	}
+	t.Fatalf("no seat for node %s", node)
+	return ""
+}
+
+func placementTestBootDigest(t *testing.T, state MemberState, imageID string) string {
+	t.Helper()
+	digest, err := hostboot.Descriptor{
+		SchemaVersion: hostboot.SchemaVersion, Cell: "gru", Region: "GRU", Node: state.HostNode,
+		Owner: "owner-a", CreateKey: state.CreateKey, ImageID: imageID,
+		FleetGeneration: 1, DatabaseID: state.DatabaseID, PartitionID: state.PartitionID,
+		SeatID: state.MemberID, HostAttempt: state.HostAttempt, IntentGeneration: state.IntentGeneration,
+		IntentPayloadDigest: state.IntentPayloadDigest, CanonicalRosterDigest: state.CanonicalRosterDigest,
+		ManagedHostProfileDigest: state.ManagedHostProfileDigest, RuntimeManifestDigest: state.RuntimeManifestDigest,
+	}.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
+}
+
 func startTestPlacementController(t *testing.T, store Store, fleet oci.Fleet, hosts HostView, onHold func(string)) *Controller {
 	t.Helper()
 	writer, ok := hosts.(DesiredWriter)

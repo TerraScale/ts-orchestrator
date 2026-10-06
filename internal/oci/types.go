@@ -230,6 +230,14 @@ type ImageQualificationVerifier interface {
 	VerifyImageQualified(context.Context, Region, string) error
 }
 
+// HostImageAllowList is an optional extension of ImageQualificationVerifier:
+// the images, besides the pinned one, that the cell's signed allow-list
+// qualifies. A host launched from one stays a fleet member; new hosts still
+// boot only the pinned image.
+type HostImageAllowList interface {
+	AllowedHostImages() []string
+}
+
 // ResourceIdentity is the complete durable scope needed to positively identify
 // a resource. Tags alone are never sufficient to adopt a seed or OpenTofu item.
 type ResourceIdentity struct {

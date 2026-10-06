@@ -355,7 +355,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			return fmt.Errorf("load host launch material: %w", err)
 		}
 		fleet, err = openManagedControllerFleet(ctx, managed.region, managed.intent, journal, control,
-			launchMaterial.HostMetadata(), managedImageVerifierFor(cfg.Controller),
+			launchMaterial.HostMetadata(), managedImageVerifierFor(cfg.Controller, services.hostImages),
 			oci.InstancePrincipalFleetFactory(time.Duration(cfg.Controller.OciObserveVerifyCacheSeconds)*time.Second))
 		if err != nil {
 			return fmt.Errorf("start region-bound OCI fleet: %w", err)
@@ -527,7 +527,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	holdDecisions := newHoldJournal(cfg.NATS.Cell)
 	rolloutKnownBadReleases := newRolloutKnownBad(cfg)
 	if managed != nil {
-		managedController, err = placement.StartController(ctx, withKnownBad(managed.placementConfig(cfg.NATS.Cell,
+		placementConfig := withKnownBad(managed.placementConfig(cfg.NATS.Cell,
 			func(err error) {
 				changed := placementHolds.recordChange("reconciliation error: " + err.Error())
 				slog.Warn("TerraBase placement reconciliation failed", observability.ComponentKey, "placement",
@@ -538,7 +538,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				slog.Info("TerraBase placement held", observability.ComponentKey, "placement",
 					"reason", reason, observability.EventKey, changed)
 				holdDecisions.record(ctx, reason, time.Now())
-			}), rolloutKnownBadReleases),
+			}), rolloutKnownBadReleases)
+		placementConfig.AllowedImages = services.hostImages
+		managedController, err = placement.StartController(ctx, placementConfig,
 			placement.JournaledStore(placementStore, cfg.NATS.Cell), control, fleet, hostController, hostController,
 			func(ctx context.Context, digest, role, environment string) (placement.AdmittedArtifact, error) {
 				record, err := service.ResolveAdmittedArtifact(ctx, digest, role, environment)

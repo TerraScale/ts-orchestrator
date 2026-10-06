@@ -153,7 +153,7 @@ func TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC(t *testing.T) {
 	bootID := "ocid1.bootvolume.managed-readback"
 	vnicID := "ocid1.vnic.managed-readback"
 	instance := CloudInstance{ID: instanceID, CompartmentID: config.CompartmentID,
-		AvailabilityDomain: config.AvailabilityDomain, LifecycleState: "RUNNING"}
+		AvailabilityDomain: config.AvailabilityDomain, ImageID: config.ImageID, LifecycleState: "RUNNING"}
 	reader := &fakeInstanceReadback{
 		boots: core.ListBootVolumeAttachmentsResponse{Items: []core.BootVolumeAttachment{{
 			BootVolumeId: new(bootID), InstanceId: new(instanceID),
@@ -176,6 +176,16 @@ func TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC(t *testing.T) {
 	if ip, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); err != nil || ip != "10.251.0.21" {
 		t.Fatalf("exact boot and private VNIC refused: %v", err)
 	}
+	// The boot volume binds the instance's own image; the fleet decides
+	// whether that image is allowed, so a host launched from an earlier
+	// image reads back here too.
+	earlier := instance
+	earlier.ImageID = "ocid1.image.oc1.sa-saopaulo-1.earlier"
+	reader.boot.ImageId = new(earlier.ImageID)
+	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, earlier, reader, reader, reader); err != nil {
+		t.Fatalf("boot volume of the instance's own image refused: %v", err)
+	}
+	reader.boot.ImageId = new(config.ImageID)
 	for _, state := range []core.BootVolumeAttachmentLifecycleStateEnum{
 		core.BootVolumeAttachmentLifecycleStateAttaching, core.BootVolumeAttachmentLifecycleStateDetaching,
 	} {
@@ -225,6 +235,8 @@ func TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC(t *testing.T) {
 	}{
 		{"image", func() { reader.boot.ImageId = new("ocid1.image.other") },
 			func() { reader.boot.ImageId = new(config.ImageID) }},
+		{"instance without image", func() { instance.ImageID, reader.boot.ImageId = "", new("") },
+			func() { instance.ImageID, reader.boot.ImageId = config.ImageID, new(config.ImageID) }},
 		{"size", func() { reader.boot.SizeInGBs = new(int64(100)) },
 			func() { reader.boot.SizeInGBs = new(int64(50)) }},
 		{"tier", func() { reader.boot.VpusPerGB = new(int64(20)) },

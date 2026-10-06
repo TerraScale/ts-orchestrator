@@ -92,7 +92,8 @@ controller through an OCI Bastion forward.
    issued credentials expire within 48 hours.
 
    The regional fleet pin covers static hosts too: they must boot the
-   fleet's image with its boot size and VPUs. Changing `image_id` in the
+   fleet's image, or one the cell spec's `host_images` allows, with its
+   boot size and VPUs. Changing `image_id` in the
    signed `oci-region.json` replaces the database hosts; their retained
    data volumes are reattached to replacement instances. Hosts that
    self-enroll through a managed placement seat register a `managed_oci`

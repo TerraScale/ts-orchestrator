@@ -737,9 +737,9 @@ accepted boot image. With `controller.managed_host_image_receipt_file` and
 `controller.managed_host_image_delegation_file`, the fleet instead qualifies
 its configured image from that image's own root-delegated receipt (baked
 roots, cell environment, exact OCID, region and shape architecture), plus the
-existing OCI readback on every use. Changing `image_id` still makes hosts
-launched from the previous image foreign to the fleet; an allow-list of
-current and previous qualified images is a follow-up.
+existing OCI readback on every use. Changing `image_id` keeps hosts
+launched from the previous image in the fleet while the cell spec's
+`host_images` allow-list names it (see [image updates](image-updates.md)).
 
 ## Human decisions needed
 

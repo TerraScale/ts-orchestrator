@@ -99,6 +99,18 @@ func (r *rootRegistry) current() trust.Keyring {
 	return r.verified.Current
 }
 
+// historical holds genesis and every root the chain ever named, for
+// documents a root signed before it was rotated away: an accepted host
+// image stays allowed through a rotation of the root that delegated it.
+func (r *rootRegistry) historical() trust.Keyring {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.verified.Historical
+}
+
 func (r *rootRegistry) open(ctx context.Context, js jetstream.JetStream, replicas int) error {
 	kv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: rootChainBucket, History: 4,
 		MaxValueSize: trust.MaxRootChainBytes, Storage: jetstream.FileStorage, Replicas: replicas})

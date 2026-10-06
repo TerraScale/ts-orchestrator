@@ -21,6 +21,7 @@ replaces the previous one as a whole.
 | `services` | The cell's generic services, sorted by role. |
 | `host_grants` | Static hosts outside TerraBase membership that may enroll, sorted by node (see [host grants](#host-grants)). |
 | `budget` | Optional `{monthly_cap_cents, currency}` cap on node pool launches (see [autoscaling](autoscaling.md#budget)). Every node pool needs `host_monthly_cents` first. Only lowering the cap is ordinary; any other budget change needs a root. |
+| `host_images` | Qualified images managed hosts may run besides the fleet's pinned image, sorted by image ID (see [host images](#host-images)). |
 
 A **service** is one role:
 
@@ -95,6 +96,35 @@ ts-orch service grant-host --config "$OPERATOR" --node gru-1-ctl-1 \
   --private-ip 10.251.0.11 --roles ts-auth --environment canary --out "$WORK/grant-ctl-1.json"
 ```
 
+### Host images
+
+A spec's `host_images` is the managed fleet's image allow-list. Each entry
+is `{image_id, receipt, delegation}`: the image's signed release image
+receipt and the root's image delegation that signs it, as exact canonical
+envelopes. At most four. A host launched from an allowed image stays a
+fleet member after the fleet's pinned image changes: the fleet observes it,
+placement keeps its seat and it can attach its retained volume. New hosts
+still boot only the pinned image. See [image updates](image-updates.md).
+
+- A receipt qualifies only the image it names, for the cell's environment
+  and logical region (`gru` boots `GRU` images), under a root delegation.
+- A root must sign an amendment that adds or changes an image (see
+  [Trust](#trust)); revoking one is ordinary.
+- The leader admits an added or changed image only while its receipt and
+  delegation are currently valid. An accepted image stays allowed after they
+  expire, and through a rotation of the root that delegated it.
+- Revoking an image makes its hosts foreign again: they are withheld and
+  their seats hold, but their teardown still works. Revoke it only after its
+  hosts moved off it.
+- A spec with host images requires binary level 4.
+
+```sh
+ts-orch service allow-image --config "$OPERATOR" --image-id ocid1.image.oc1.sa-saopaulo-1.... \
+  --receipt image-receipt.json --delegation image-delegation.json --out "$WORK/allow-image.json"
+ts-orch release sign-spec --candidate "$WORK/allow-image.json" --root \
+  --root-key root.pub.pem --signing-key root.key.pem --out "$WORK/allow-image.signed.json"
+```
+
 ## Vault secrets
 
 A profile's `secrets` maps environment keys to OCI Vault secrets:
@@ -158,6 +188,8 @@ An amendment widens authority when, relative to the spec it amends, it:
   the host reads that secret for the role with an identity that may read
   more;
 - adds or changes a host grant, since the host receives credentials;
+- adds or changes a [host image](#host-images), since an image receipt says
+  the image was qualified, not that this cell should run it;
 - changes TerraBase's effective profile in any way: resources, arguments or
   any setting, including adding or dropping the `terrabase` entry. The
   profile binds membership, listeners and member certificates, and settings
@@ -165,7 +197,7 @@ An amendment widens authority when, relative to the spec it amends, it:
   decide which tokens and credentials TerraBase trusts.
 
 Everything else is ordinary: adding, changing and removing other services,
-and removing releasers and host grants. A leaf amendment keeps what a root
+removing releasers, host grants and host images. A leaf amendment keeps what a root
 signed earlier; changing it back is a widening change too. `ts-orch diff`
 lists the widening changes under `root_required`.
 
@@ -240,7 +272,7 @@ nothing back yet; check it with `ts-orch get` against that region.
 ## Binary levels
 
 Each ts-orch binary understands cell specs up to its `cellspec.BinaryLevel`
-(3 today; level 2 adds profile `secrets`, level 3 the `budget`). A change that adds a section
+(4 today; level 2 adds profile `secrets`, level 3 the `budget`, level 4 `host_images`). A change that adds a section
 raises the level, and every amendment that uses the section sets
 `requires_binary` to it. A controller
 whose binary understands less refuses such an amendment by name and keeps its
@@ -263,13 +295,15 @@ the record. Re-apply its services as a new cell spec.
 | Command | Where | Effect |
 | --- | --- | --- |
 | `ts-orch get --config OPERATOR_JSON` | operator host | Prints the current spec. `service list` is the same. |
-| `ts-orch diff --config F -f FILE` | operator host | Plans an unsigned candidate or a signed spec on the leader, without changing anything. Prints `{"deployment_id","cell","environment","from_generation","to_generation","requires_binary","added","updated","removed","host_grants","budget","root_required","status"}`. `status` is `planned`, `unchanged`, or `stale` when the generation does not follow the current one. A spec that breaks the cell's rules is refused with the rule. |
+| `ts-orch diff --config F -f FILE` | operator host | Plans an unsigned candidate or a signed spec on the leader, without changing anything. Prints `{"deployment_id","cell","environment","from_generation","to_generation","requires_binary","added","updated","removed","host_grants","budget","host_images","root_required","status"}`. `status` is `planned`, `unchanged`, or `stale` when the generation does not follow the current one. A spec that breaks the cell's rules is refused with the rule. |
 | `ts-orch apply --config F -f SIGNED` | operator host | Submits the signed spec. Prints `{"status":"applied"\|"unchanged","generation","requires_binary","roles"}`. A spec for another region is [relayed](#apply-to-another-region) through the global home and prints `{"status":"relayed","cell","generation"}`. `service apply --file` is the same. |
 | `ts-orch service add --config F --role R --profile F [--spec F] [--releasers A,B] [--out F]` | operator host | Plans the next generation with R added and prints the leader's plan. With `--out`, writes the unsigned candidate. An identical existing service plans nothing (`"status":"unchanged"`). A different existing service is refused: use `update`. |
 | `ts-orch service update --config F --role R --profile F [--spec F] [--releasers A,B] [--out F]` | operator host | Same as `add` for an existing role; keeps its releasers unless `--releasers` is given. |
 | `ts-orch service remove --config F --role R [--out F]` | operator host | Plans the next generation without R. |
 | `ts-orch service grant-host --config F --node N --private-ip IP --roles A,B --environment E [--out F]` | operator host | Plans the next generation with N's host grant set; the plan lists N under `host_grants` and `root_required`. |
 | `ts-orch service revoke-host --config F --node N [--out F]` | operator host | Plans the next generation without N's host grant. The host's next enrollment or renewal is refused; credentials already issued stay valid until they expire, at most 48 hours. |
+| `ts-orch service allow-image --config F --image-id ID --receipt F --delegation F [--out F]` | operator host | Plans the next generation with the image allowed; the plan lists it under `host_images` and `root_required`. The leader checks that the receipt qualifies the image now. |
+| `ts-orch service revoke-image --config F --image-id ID [--out F]` | operator host | Plans the next generation without the image. Hosts still running it become foreign to the fleet. |
 | `ts-orch release sign-spec-delegation --subject-public-key LEAF_PUB --root-key ROOT_PUB --signing-key ROOT_KEY --deployment-id ID --cell CELL --environment ENV --issued-at T --expires-at T --out F` | offline, root key | Signs the root's delegation to the leaf. Prints `{"delegation","sha256","expires_at"}`. |
 | `ts-orch release sign-spec --candidate F --delegation F --root-key ROOT_PUB --signing-key LEAF_KEY [--valid-for 1h] --out F` | offline, leaf key | Signs an ordinary amendment and verifies the result as a controller would. Prints `{"generation","requires_binary","signer","sha256","deployment_id","cell","environment"}`. |
 | `ts-orch release sign-spec --candidate F --root --root-key ROOT_PUB --signing-key ROOT_KEY [--valid-for 1h] --out F` | offline, root key | Signs any amendment as the root, for one that widens authority. |

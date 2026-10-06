@@ -16,6 +16,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 	"github.com/nats-io/nats.go"
 )
@@ -29,6 +30,9 @@ const serviceUsage = `Usage: ts-orch service <command> --config OPERATOR_JSON [f
   grant-host  --node N --private-ip IP --roles A,B --environment E [--out F]
                                                 Plan letting a static host enroll with these roles
   revoke-host --node N [--out F]                Plan removing a host grant
+  allow-image --image-id ID --receipt F --delegation F [--out F]
+                                                Plan letting managed hosts run a qualified image
+  revoke-image --image-id ID [--out F]          Plan removing an allowed host image
   apply  --file SIGNED                          Apply a signed cell spec (as ts-orch apply -f)
 
 Sign a candidate offline with ts-orch release sign-spec before apply.
@@ -48,7 +52,7 @@ func runService(ctx context.Context, args []string, output io.Writer) error {
 		_, err := io.WriteString(output, serviceUsage)
 		return err
 	}
-	if !slices.Contains([]string{"list", "add", "update", "remove", "grant-host", "revoke-host", "apply"}, args[0]) {
+	if !slices.Contains([]string{"list", "add", "update", "remove", "grant-host", "revoke-host", "allow-image", "revoke-image", "apply"}, args[0]) {
 		return fmt.Errorf("unknown service command %q", args[0])
 	}
 	return runOperator(ctx, append([]string{"service-" + args[0]}, args[1:]...), output)
@@ -259,6 +263,54 @@ func operatorServiceHostGrant(ctx context.Context, cfg Config, runtime *natscell
 		slices.SortFunc(next.HostGrants, func(a, b cellspec.HostGrant) int { return strings.Compare(a.Node, b.Node) })
 	}
 	return planSpec(ctx, cfg, runtime, current, next, out, output)
+}
+
+// operatorServiceHostImage plans the next generation with the host image of
+// imageID allowed from the receipt and delegation files (allow) or removed.
+// The leader checks that the receipt qualifies exactly imageID for the cell
+// now.
+func operatorServiceHostImage(ctx context.Context, cfg Config, runtime *natscell.Runtime, allow bool, imageID,
+	receiptPath, delegationPath, out string, output io.Writer,
+) error {
+	if imageID == "" || allow != (receiptPath != "") || allow != (delegationPath != "") {
+		return errors.New("service allow-image requires --image-id, --receipt and --delegation; revoke-image only --image-id")
+	}
+	image := cellspec.HostImage{ImageID: imageID}
+	if allow {
+		var err error
+		if image.Receipt, err = readCanonicalEnvelope(receiptPath); err != nil {
+			return fmt.Errorf("read image receipt: %w", err)
+		}
+		if image.Delegation, err = readCanonicalEnvelope(delegationPath); err != nil {
+			return fmt.Errorf("read image delegation: %w", err)
+		}
+	}
+	reply, err := requestCellSpec(ctx, cfg, runtime, cellSpecGetKind, []byte("{}"))
+	if err != nil {
+		return err
+	}
+	current := reply.Spec
+	next := current
+	next.Generation++
+	next.HostImages = slices.DeleteFunc(slices.Clone(current.HostImages), func(i cellspec.HostImage) bool { return i.ImageID == imageID })
+	if allow {
+		next.HostImages = append(next.HostImages, image)
+		slices.SortFunc(next.HostImages, func(a, b cellspec.HostImage) int { return strings.Compare(a.ImageID, b.ImageID) })
+	}
+	return planSpec(ctx, cfg, runtime, current, next, out, output)
+}
+
+// readCanonicalEnvelope reads a signed envelope file, which a spec holds
+// byte for byte and so must be canonical, as the release tools write it.
+func readCanonicalEnvelope(path string) ([]byte, error) {
+	data, err := readBoundedConfigFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := trust.DecodeEnvelope(data); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // planSpec prints the leader's plan from current to next and, with out,

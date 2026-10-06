@@ -143,6 +143,55 @@ func TestEnsureHostHoldsChangedBootPinsAndImageAcrossRetry(t *testing.T) {
 	}
 }
 
+type allowListImageVerifier struct {
+	fakeImageVerifier
+	allowed []string
+}
+
+func (v *allowListImageVerifier) AllowedHostImages() []string { return v.allowed }
+
+// After the cell pins a newer image, a host launched from the earlier image
+// stays a member, and can take its retained volume, only while the cell's
+// signed allow-list names that image.
+func TestFleetKeepsHostsOfAllowedEarlierImages(t *testing.T) {
+	ctx := t.Context()
+	config, provider, journal, _, host, volume := newAttachTestState(t)
+	_, regionIntent := testRegionConfig()
+	newer := config
+	newer.ImageID = "ocid1.image.oc1.sa-saopaulo-1.newer"
+	unrelated := "ocid1.image.oc1.sa-saopaulo-1.unrelated"
+	for _, test := range []struct {
+		name     string
+		verifier ImageQualificationVerifier
+		member   bool
+	}{
+		{"no allow-list", &fakeImageVerifier{}, false},
+		{"other images allowed", &allowListImageVerifier{allowed: []string{unrelated}}, false},
+		{"earlier image allowed", &allowListImageVerifier{allowed: []string{unrelated, config.ImageID}}, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fleet, err := NewFleetWithImageVerifier(newer, regionIntent, provider, journal,
+				&fakeFencer{snapshot: writableSnapshot()}, nil, nil, test.verifier)
+			if err != nil {
+				t.Fatal(err)
+			}
+			observed, err := fleet.Observe(ctx)
+			if err != nil || test.member != (len(observed) == 1) ||
+				test.member && (observed[0].ID != host.ID || observed[0].ImageID != config.ImageID) {
+				t.Fatalf("Observe = %+v, %v; want member %t", observed, err, test.member)
+			}
+			_, err = fleet.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main",
+				VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-earlier-image"})
+			if test.member != (err == nil) || !test.member && !errors.Is(err, ErrForeignResource) {
+				t.Fatalf("AttachRetainedVolume = %v; want member %t", err, test.member)
+			}
+		})
+	}
+	if provider.attachCalls != 1 {
+		t.Fatalf("attach calls = %d; only the allowed host attaches", provider.attachCalls)
+	}
+}
+
 func TestObserveWithholdsLegacyLaunchWithoutBootDescriptor(t *testing.T) {
 	config, regionIntent := testRegionConfig()
 	provider := newFakeProvider(config)

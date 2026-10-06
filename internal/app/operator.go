@@ -108,8 +108,9 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	node := flags.String("node", "", "service grant-host, revoke-host: the static host's server name")
 	privateIP := flags.String("private-ip", "", "service grant-host: the host's private IPv4 address")
 	roles := flags.String("roles", "", "service grant-host: comma-separated roles the host runs")
-	receiptPath := flags.String("receipt", "", "rollout publish: signed binary receipt or update receipt")
-	delegationPath := flags.String("delegation", "", "rollout publish: the receipt's root-signed delegation")
+	receiptPath := flags.String("receipt", "", "rollout publish: signed binary receipt or update receipt; service allow-image: signed image receipt")
+	delegationPath := flags.String("delegation", "", "rollout publish, service allow-image: the receipt's root-signed delegation")
+	imageID := flags.String("image-id", "", "service allow-image, revoke-image: the OCI image OCID")
 	toGeneration := flags.Uint64("to", 0, "rollout rollback: the earlier generation to publish again")
 	var forwards operatorForwardFlags
 	flags.Var(&forwards, "nats-forward", "transient PRIVATE_IP:4222=LOOPBACK_IP:PORT Bastion forward (repeatable)")
@@ -262,6 +263,9 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	case "service-grant-host", "service-revoke-host":
 		return operatorServiceHostGrant(ctx, cfg, runtime, operation == "service-grant-host", cellspec.HostGrant{
 			Node: *node, PrivateIP: *privateIP, Roles: splitList(*roles), Environment: *environment}, *outPath, output)
+	case "service-allow-image", "service-revoke-image":
+		return operatorServiceHostImage(ctx, cfg, runtime, operation == "service-allow-image", *imageID,
+			*receiptPath, *delegationPath, *outPath, output)
 	case "service-add", "service-update", "service-remove":
 		return operatorServiceChange(ctx, cfg, runtime, strings.TrimPrefix(operation, "service-"), *role,
 			*profilePath, *specPath, *releasers, *outPath, output)

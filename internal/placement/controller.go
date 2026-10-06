@@ -88,6 +88,10 @@ type Config struct {
 	// names, and an error reading it refuses the update. Nil keeps the
 	// previous behaviour, where only the operator's list applies.
 	KnownBad KnownBadReleases
+	// AllowedImages returns the images, besides ImageID, that the cell's
+	// signed allow-list qualifies: a member host launched from one stays
+	// bound to its seat. Nil allows only ImageID.
+	AllowedImages func() []string
 }
 
 // KnownBadReleases answers whether a release digest was rolled back by a
@@ -912,17 +916,26 @@ func (controller *Controller) validateObservedInstance(instance oci.Instance, st
 func (controller *Controller) instanceMatchesPinnedProfile(instance oci.Instance, state MemberState) bool {
 	compute := state.ManagedHostProfile.Compute
 	return instance.Owner == controller.config.ManagedOwner && instance.Generation == controller.config.FleetGeneration &&
-		instance.ImageID == controller.config.ImageID && controller.instanceMatchesPinnedBootDescriptor(instance, state) &&
+		controller.imageAllowed(instance.ImageID) && controller.instanceMatchesPinnedBootDescriptor(instance, state) &&
 		instance.Shape == compute.Shape && instance.WholeOCPUs == compute.WholeOCPUs &&
 		instance.MemoryInGBs == compute.MemoryInGBs && instance.PlacementProfileDigest == state.ManagedHostProfileDigest &&
 		instance.PlacementGeneration == state.IntentGeneration
 }
 
+// imageAllowed reports whether a member host may run imageID: the pinned
+// image or one the cell's allow-list qualifies.
+func (controller *Controller) imageAllowed(imageID string) bool {
+	allowed := controller.config.AllowedImages
+	return imageID == controller.config.ImageID || allowed != nil && slices.Contains(allowed(), imageID)
+}
+
+// instanceMatchesPinnedBootDescriptor rebuilds the descriptor the host was
+// launched with, from its seat binding and its own (allowed) image.
 func (controller *Controller) instanceMatchesPinnedBootDescriptor(instance oci.Instance, state MemberState) bool {
 	descriptor := hostboot.Descriptor{
 		SchemaVersion: hostboot.SchemaVersion, Cell: controller.config.Cell, Region: string(controller.config.Region),
 		Node: instance.Node, Owner: controller.config.ManagedOwner, CreateKey: state.CreateKey,
-		ImageID: controller.config.ImageID, FleetGeneration: controller.config.FleetGeneration,
+		ImageID: instance.ImageID, FleetGeneration: controller.config.FleetGeneration,
 		DatabaseID: state.DatabaseID, PartitionID: state.PartitionID, SeatID: state.MemberID,
 		HostAttempt: state.HostAttempt, IntentGeneration: state.IntentGeneration,
 		IntentPayloadDigest: state.IntentPayloadDigest, CanonicalRosterDigest: state.CanonicalRosterDigest,

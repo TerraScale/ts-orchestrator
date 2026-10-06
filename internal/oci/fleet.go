@@ -163,9 +163,19 @@ func (f *fleet) VerifyPinnedImage(ctx context.Context) error {
 	return f.verifyPinnedImage(ctx)
 }
 
+// imageAllowed reports whether a host running imageID is a fleet member: the
+// pinned image, or one the cell's signed allow-list qualifies.
+func (f *fleet) imageAllowed(imageID string) bool {
+	if imageID == f.config.ImageID {
+		return true
+	}
+	allowList, ok := f.imageVerifier.(HostImageAllowList)
+	return ok && slices.Contains(allowList.AllowedHostImages(), imageID)
+}
+
 func (f *fleet) verifyRetainedVolumeHostImage(cloud CloudInstance) error {
-	if cloud.ImageID != f.config.ImageID || cloud.ConsistentVolumeNamingEnabled == nil || !*cloud.ConsistentVolumeNamingEnabled {
-		return fmt.Errorf("%w: instance %s does not report the pinned image and consistent volume naming", ErrImageNotQualified, cloud.ID)
+	if !f.imageAllowed(cloud.ImageID) || cloud.ConsistentVolumeNamingEnabled == nil || !*cloud.ConsistentVolumeNamingEnabled {
+		return fmt.Errorf("%w: instance %s does not report an allowed image and consistent volume naming", ErrImageNotQualified, cloud.ID)
 	}
 	return nil
 }
@@ -452,7 +462,7 @@ func (f *fleet) captureBootBinding(ctx context.Context, epoch uint64, cloud Clou
 	if err != nil {
 		return fmt.Errorf("capture active OCI boot attachment: %w", err)
 	}
-	if !f.terminalBootMatches(boot, boot.ID) {
+	if !f.imageAllowed(cloud.ImageID) || !f.terminalBootMatches(boot, boot.ID, cloud.ImageID) {
 		return ErrHostBootBindingMismatch
 	}
 	if err := f.guard(ctx, epoch); err != nil {
@@ -984,6 +994,13 @@ func (f *fleet) findByCreateKey(ctx context.Context, createKey string) (CloudIns
 }
 
 func (f *fleet) reobserveInstance(ctx context.Context, instanceID string) (CloudInstance, ResourceIdentity, error) {
+	return f.reobserveLaunch(ctx, instanceID, true)
+}
+
+// reobserveLaunch binds an instance to its immutable launch intent. With
+// allowedImage, its launch image must also be the pin or allowed; teardown
+// passes false, so revoking an image never strands its hosts' cleanup.
+func (f *fleet) reobserveLaunch(ctx context.Context, instanceID string, allowedImage bool) (CloudInstance, ResourceIdentity, error) {
 	cloud, err := f.provider.GetInstance(ctx, instanceID)
 	if err != nil {
 		return CloudInstance{}, ResourceIdentity{}, err
@@ -1009,7 +1026,7 @@ func (f *fleet) reobserveInstance(ctx context.Context, instanceID string) (Cloud
 	if err != nil {
 		return CloudInstance{}, ResourceIdentity{}, fmt.Errorf("read OCI host launch binding: %w", err)
 	}
-	if !found || operation.ImageID != f.config.ImageID {
+	if !found || allowedImage && !f.imageAllowed(operation.ImageID) {
 		return CloudInstance{}, ResourceIdentity{}, fmt.Errorf("%w: %w: instance %s has no matching durable image and boot descriptor", ErrForeignResource, ErrHostBootBindingMismatch, instanceID)
 	}
 	if cloud.ImageID != operation.ImageID {
@@ -1025,7 +1042,11 @@ func (f *fleet) reobserveInstance(ctx context.Context, instanceID string) (Cloud
 }
 
 func (f *fleet) ownedInstance(ctx context.Context, instanceID string) (CloudInstance, ResourceIdentity, error) {
-	cloud, identity, err := f.reobserveInstance(ctx, instanceID)
+	return f.ownedLaunch(ctx, instanceID, true)
+}
+
+func (f *fleet) ownedLaunch(ctx context.Context, instanceID string, allowedImage bool) (CloudInstance, ResourceIdentity, error) {
+	cloud, identity, err := f.reobserveLaunch(ctx, instanceID, allowedImage)
 	if err != nil {
 		return CloudInstance{}, ResourceIdentity{}, err
 	}

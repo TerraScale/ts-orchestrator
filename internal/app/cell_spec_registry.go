@@ -341,6 +341,12 @@ func (r *specRegistry) verify(wire []byte, now *time.Time) (cellspec.Verified, e
 	if err != nil {
 		return cellspec.Verified{}, err
 	}
+	// Host image receipts verify with every root the chain named, so a
+	// rotation does not strand the images a replaced root qualified; the
+	// leader admits new ones only under the current roots.
+	if err := cellspec.VerifyHostImages(cellspec.Spec{}, verified.Spec, r.roots.historical(), nil); err != nil {
+		return cellspec.Verified{}, err
+	}
 	return verified, r.validate(verified.Spec)
 }
 
@@ -422,6 +428,21 @@ func (r *specRegistry) hostGrant(node string) (cellspec.HostGrant, host.Capacity
 		capacity.DiskBytes += resources.DiskBytes
 	}
 	return grant, capacity, true
+}
+
+// hostImages returns the image IDs the adopted spec allows managed hosts to
+// run besides the signed fleet image.
+func (r *specRegistry) hostImages() []string {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	images := make([]string, 0, len(r.current.HostImages))
+	for _, image := range r.current.HostImages {
+		images = append(images, image.ImageID)
+	}
+	return images
 }
 
 // releaser reports whether the adopted spec lets actor release role and
@@ -520,6 +541,10 @@ func (r *specRegistry) diff(ctx context.Context, payload []byte) (specReply, err
 	if err != nil {
 		return specReply{}, err
 	}
+	now := time.Now()
+	if err := cellspec.VerifyHostImages(current, candidate, r.roots.current(), &now); err != nil {
+		return specReply{}, err
+	}
 	plan, err := cellspec.Diff(current, candidate, r.fixed)
 	if err != nil {
 		return specReply{}, err
@@ -562,6 +587,11 @@ func (r *specRegistry) apply(ctx context.Context, wire []byte, epoch uint64, fen
 	if !replacing && spec.Generation != current.Generation+1 {
 		return specReply{}, fmt.Errorf("cell spec generation %d does not follow the current generation %d",
 			spec.Generation, current.Generation)
+	}
+	// An accepted image stays allowed after its receipt expires; one the
+	// amendment adds or changes must be qualified now, by a current root.
+	if err := cellspec.VerifyHostImages(current, spec, r.roots.current(), &now); err != nil {
+		return specReply{}, err
 	}
 	if changes := cellspec.AuthorityChanges(current, spec, r.fixed); len(changes) > 0 && !verified.RootSigned {
 		return specReply{}, fmt.Errorf("cell spec generation %d widens authority (%s); a root must sign it",

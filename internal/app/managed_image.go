@@ -34,9 +34,15 @@ type managedImageVerifier struct {
 	delegationWire []byte
 	images         managedImageReadback
 	now            func() time.Time
+	// allowed returns the cell spec's host images: hosts launched from them
+	// stay fleet members besides those of the pinned image.
+	allowed func() []string
 }
 
-var _ oci.ImageQualificationVerifier = (*managedImageVerifier)(nil)
+var (
+	_ oci.ImageQualificationVerifier = (*managedImageVerifier)(nil)
+	_ oci.HostImageAllowList         = (*managedImageVerifier)(nil)
+)
 
 type managedFleetFactory func(oci.RegionConfig, oci.RegionIntent, oci.Journal, authority.Fencer,
 	oci.DrainRequester, oci.WriterStopVerifier, oci.ImageQualificationVerifier, map[string]string) (oci.Fleet, error)
@@ -66,12 +72,26 @@ func openManagedControllerFleet(ctx context.Context, region oci.RegionConfig, in
 // image. When both host image files are configured, the host image is
 // qualified independently from its own root-delegated image receipt, so
 // hosts can move to a newer qualified image without a controller re-install.
-func managedImageVerifierFor(controller ControllerConfig) func(context.Context, oci.RegionConfig) (oci.ImageQualificationVerifier, error) {
+// Either way, allowed names the cell spec's host images.
+func managedImageVerifierFor(controller ControllerConfig, allowed func() []string,
+) func(context.Context, oci.RegionConfig) (oci.ImageQualificationVerifier, error) {
+	newVerifier := managedImageVerifierFromFiles(controller)
+	return func(ctx context.Context, region oci.RegionConfig) (oci.ImageQualificationVerifier, error) {
+		verifier, err := newVerifier(ctx, region)
+		if err != nil {
+			return nil, err
+		}
+		verifier.allowed = allowed
+		return verifier, nil
+	}
+}
+
+func managedImageVerifierFromFiles(controller ControllerConfig) func(context.Context, oci.RegionConfig) (*managedImageVerifier, error) {
 	receiptFile, delegationFile := controller.ManagedHostImageReceiptFile, controller.ManagedHostImageDelegationFile
 	if receiptFile == "" && delegationFile == "" {
 		return newManagedImageVerifier
 	}
-	return func(ctx context.Context, region oci.RegionConfig) (oci.ImageQualificationVerifier, error) {
+	return func(ctx context.Context, region oci.RegionConfig) (*managedImageVerifier, error) {
 		if receiptFile == "" || delegationFile == "" {
 			return nil, errors.New("managed host image receipt and delegation files are required together")
 		}
@@ -137,7 +157,7 @@ func independentManagedImageProof(region oci.RegionConfig, cell oci.Region, envi
 
 // The accepted slot ledger is the source of the release image proof. The
 // marker alone carries only digests and never grants a new cloud operation.
-func newManagedImageVerifier(ctx context.Context, region oci.RegionConfig) (oci.ImageQualificationVerifier, error) {
+func newManagedImageVerifier(ctx context.Context, region oci.RegionConfig) (*managedImageVerifier, error) {
 	baked, err := bootstrapstart.LoadBakedInputs()
 	if err != nil {
 		return nil, fmt.Errorf("load baked image trust roots: %w", err)
@@ -254,6 +274,14 @@ func acceptedManagedImageProof(ctx context.Context, region oci.RegionConfig, bak
 		roots: baked.Roots, receiptWire: payload.ReleaseImageReceiptWire,
 		delegationWire: payload.ReleaseDelegationWire, now: time.Now,
 	}, nil
+}
+
+// AllowedHostImages returns the cell spec's host images.
+func (verifier *managedImageVerifier) AllowedHostImages() []string {
+	if verifier == nil || verifier.allowed == nil {
+		return nil
+	}
+	return verifier.allowed()
 }
 
 func (verifier *managedImageVerifier) VerifyImageQualified(ctx context.Context, region oci.Region, imageID string) error {
