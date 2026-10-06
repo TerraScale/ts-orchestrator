@@ -63,6 +63,12 @@ func validateWorkloadProfiles(cell string, profiles map[string]WorkloadProfile) 
 		if err := vaultsecret.ValidateRefs(cell, role, profile.Secrets, profile.Env); err != nil {
 			return fmt.Errorf("workload profile for %q: %w", role, err)
 		}
+		// Secret names start with the role, so a longer role would share them.
+		for other := range profiles {
+			if len(profile.Secrets) != 0 && strings.HasPrefix(other, role+"-") {
+				return fmt.Errorf("workload profile for %q names Vault secrets, so no role may extend its name (%q)", role, other)
+			}
+		}
 		// A terrabase profile with settings configures the C# TerraBase
 		// binary. Arguments would override the host-owned settings.
 		if role == terrabase.Role && len(profile.Env) != 0 {

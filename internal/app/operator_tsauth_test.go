@@ -79,6 +79,8 @@ func TestWorkloadProfileSecretsStayWithTheirRole(t *testing.T) {
 		"other role": {"billing": {Resources: resources, Secrets: ref("gru-1-netbird-admin-pat")}},
 		"terrabase":  {"terrabase": {Resources: resources, Secrets: ref("gru-1-terrabase-token")}},
 		"also env":   {"billing": {Resources: resources, Env: map[string]string{"TOKEN": "x"}, Secrets: ref("gru-1-billing-token")}},
+		// gru-1-billing-eu-token would be ambiguous between the two roles.
+		"longer role": {"billing": {Resources: resources, Secrets: ref("gru-1-billing-eu-token")}, "billing-eu": {Resources: resources}},
 	} {
 		if err := validateWorkloadProfiles("gru", profiles); err == nil {
 			t.Errorf("%s: accepted", name)

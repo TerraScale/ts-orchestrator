@@ -501,9 +501,11 @@ func TestServicesPhaseAddsServicesThroughSignedSets(t *testing.T) {
 	a.Runner = func(_ context.Context, c Command) (string, error) {
 		commands = append(commands, c.Args)
 		write := slices.Contains(c.Args, "sign-spec-delegation") || slices.Contains(c.Args, "sign-spec") ||
-			slices.Contains(c.Args, "add") && flagValue(c.Args, "--role") == "ts-auth"
+			slices.Contains(c.Args, "add")
 		if write {
-			return "", os.WriteFile(flagValue(c.Args, "--out"), []byte("{}"), 0o600)
+			// ts-auth names Vault secrets, which only a root may add.
+			plan := map[string]string{"ts-auth": `{"root_required":["service ts-auth Vault secrets"]}`, "web": `{"status":"planned"}`}[flagValue(c.Args, "--role")]
+			return plan, os.WriteFile(flagValue(c.Args, "--out"), []byte("{}"), 0o600)
 		}
 		return "", nil
 	}
@@ -517,11 +519,13 @@ func TestServicesPhaseAddsServicesThroughSignedSets(t *testing.T) {
 		append(sudo, "rm", "-f", "--", candidate, signed),
 		join(sudo, []string{cli, "service", "add"}, operator, []string{"--role", "ts-auth", "--profile", "/deploy/ts-auth-profile.json",
 			"--out", candidate, "--spec", "/deploy/ts-auth-service.json"}),
-		nil, // the leaf signature, checked below
+		nil, // the root signature, checked below
 		join(sudo, []string{cli, "service", "apply"}, operator, []string{"--file", signed}),
 		append(sudo, "rm", "-f", "--", filepath.Join(dir, "web.candidate.json"), filepath.Join(dir, "web.signed.json")),
 		join(sudo, []string{cli, "service", "add"}, operator, []string{"--role", "web", "--profile", "/deploy/web-profile.json",
 			"--out", filepath.Join(dir, "web.candidate.json")}),
+		nil, // the leaf signature, checked below
+		join(sudo, []string{cli, "service", "apply"}, operator, []string{"--file", filepath.Join(dir, "web.signed.json")}),
 	}
 	if a.Err() != nil || len(commands) != len(want) {
 		t.Fatal(a.Err(), commands)
@@ -538,8 +542,12 @@ func TestServicesPhaseAddsServicesThroughSignedSets(t *testing.T) {
 		t.Fatal(delegation)
 	}
 	sign := commands[3]
-	if !slices.Contains(sign, "sign-spec") || flagValue(sign, "--candidate") != candidate ||
-		flagValue(sign, "--signing-key") != "/keys/leaf.key" || flagValue(sign, "--out") != signed ||
+	if !slices.Contains(sign, "sign-spec") || !slices.Contains(sign, "--root") || flagValue(sign, "--candidate") != candidate ||
+		flagValue(sign, "--signing-key") != "/keys/root.key" || flagValue(sign, "--out") != signed || slices.Contains(sign, "--delegation") {
+		t.Fatal(sign)
+	}
+	sign = commands[7]
+	if !slices.Contains(sign, "sign-spec") || slices.Contains(sign, "--root") || flagValue(sign, "--signing-key") != "/keys/leaf.key" ||
 		flagValue(sign, "--delegation") != filepath.Join(dir, "spec-delegation.signed.json") {
 		t.Fatal(sign)
 	}

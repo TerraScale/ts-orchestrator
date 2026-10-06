@@ -1002,10 +1002,14 @@ func (a *Agent) resolveSecrets(ctx context.Context, d Desired) (map[string]strin
 	if err != nil {
 		return nil, err
 	}
+	// Exactly the named secrets, so a resolver never adds another.
 	for key := range d.Secrets {
 		if _, ok := values[key]; !ok {
 			return nil, fmt.Errorf("Vault secret %s was not read", key)
 		}
+	}
+	if len(values) != len(d.Secrets) {
+		return nil, errors.New("Vault secret resolver returned secrets the desired does not name")
 	}
 	return values, nil
 }

@@ -112,13 +112,17 @@ A profile's `secrets` maps environment keys to OCI Vault secrets:
 - The release's config digest covers the names, not the values. Rotating a
   secret is a restart (for example the next release), not a new signature;
   changing a name or Vault is a profile change.
+- Only a root may add or change a ref: it [widens authority](#trust), so the
+  root picks every secret and Vault a role reads. Dropping refs is ordinary.
+- The Vault must be in the cell's own OCI region (`sa-saopaulo-1` for `gru`).
 - A secret must be named `<cell>-<n>-<role>-<key>` (`gru-1-ts-auth-master-key`
   for role `ts-auth`), so a profile reaches only its own role's secrets even
-  where the host may read more. A role named like the cell's own secret
-  families (`api`, `cloudflare`, `netbird`, `trust`, `ts-dashboard`, or one
-  that extends or prefixes them, such as `ts`) takes none, and neither does
-  `terrabase`. A key may not also be set in `env`. At most 64 secrets, 96 KiB
-  together.
+  where the host may read more. While a role names secrets, no other role may
+  extend its name (`foo` and `foo-bar`), since their secret names would
+  overlap. A role named like the cell's own secret families (`api`,
+  `cloudflare`, `netbird`, `trust`, `ts-dashboard`, or one that extends or
+  prefixes them, such as `ts`) takes none, and neither does `terrabase`. A key
+  may not also be set in `env`. At most 64 secrets, 96 KiB together.
 - A spec whose profiles name secrets requires binary level 2
   ([binary levels](#binary-levels)); `service add|update` sets it.
 - Every native workload on a host runs as the one workload user, so a replica
@@ -148,6 +152,9 @@ An amendment widens authority when, relative to the spec it amends, it:
 
 - adds a releaser to a service, since releasers may release the role and
   register its hosts;
+- adds or changes a [Vault secret ref](#vault-secrets) of a service, since
+  the host reads that secret for the role with an identity that may read
+  more;
 - adds or changes a host grant, since the host receives credentials;
 - changes TerraBase's effective profile in any way: resources, arguments or
   any setting, including adding or dropping the `terrabase` entry. The
@@ -235,7 +242,8 @@ with `ts-orch operator`.
 `operator`) reads `services: [{"role", "profile", "spec"}]` from the attempt
 config. It signs a 7-day cell spec delegation with the attempt's trust keys.
 Then, for each service, it runs `service add`, `release sign-spec` and
-`service apply`. Each run plans from the cell's current spec, so a rerun
+`service apply`; it signs as the root when the plan's `root_required` is not
+empty (ts-auth's Vault secrets), otherwise as the leaf. Each run plans from the cell's current spec, so a rerun
 changes nothing. A new region therefore starts with any set of services,
 ts-auth included, and later changes use the same commands.
 
@@ -281,7 +289,8 @@ ts-orch get --config "$OPERATOR"
 
 2. Plan the change and review the printed plan. It must show only the
    intended role under `added`, and `to_generation` one above the current
-   generation. `root_required` lists `service ts-auth releaser mariogk`:
+   generation. `root_required` lists `service ts-auth releaser mariogk` and
+   `service ts-auth Vault secrets`:
 
    ```sh
    ts-orch service add --config "$OPERATOR" --role ts-auth \

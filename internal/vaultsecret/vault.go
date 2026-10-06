@@ -221,12 +221,13 @@ func (r Ref) region() string {
 }
 
 // ValidateRefs checks the secrets of role in cell. Each key is an environment
-// name that env does not also set. Each ref names a regional Vault and a
-// secret <cell>-<n>-<role>-<key>, so a profile reaches only its own role's
-// secrets even where its host may read more: controllers read their whole
-// compartment.
-// ponytail: prefix match, so a role "foo" could name role "foo-bar"'s
-// secrets; infrastructure keeps the cell's own families out.
+// name that env does not also set. Each ref names a Vault in the cell's own
+// OCI region and a secret <cell>-<n>-<role>-<key>, so a profile reaches only
+// its own role's secrets even where its host may read more: controllers read
+// their whole compartment. Names are prefixes, so the controller also refuses
+// a role with secrets beside a role that extends its name (role "foo" would
+// otherwise reach "foo-bar"'s), and only a root may add or change a ref
+// (cellspec.AuthorityChanges), which pins the Vault.
 func ValidateRefs(cell, role string, refs map[string]Ref, env map[string]string) error {
 	if len(refs) > MaxRefs {
 		return fmt.Errorf("%s has more than %d Vault secrets", role, MaxRefs)
@@ -236,7 +237,11 @@ func ValidateRefs(cell, role string, refs map[string]Ref, env map[string]string)
 	}) {
 		return fmt.Errorf("role %s shares a name with the cell's infrastructure secrets and names no Vault secrets", role)
 	}
+	entry, known := catalog.LookupName(cell)
 	for key, ref := range refs {
+		if !known || ref.region() != entry.OCIRegion {
+			return fmt.Errorf("Vault secret %s of %s must name a Vault in cell %s's region", key, role, cell)
+		}
 		if !envKeyRE.MatchString(key) {
 			return fmt.Errorf("Vault secret key %q of %s is not an environment name", key, role)
 		}

@@ -134,7 +134,7 @@ func TestCellSpecAddsTSAuthToARunningCell(t *testing.T) {
 	if err := run("service", "add", "--config", operatorConfig, "--role", tsauth.Role, "--profile", profile,
 		"--spec", "../../deploy/oci-region/ts-auth-gru-1-service.json", "--releasers", "ops", "--out", candidate); err != nil ||
 		!strings.Contains(output.String(), `"added":["ts-auth"]`) || !strings.Contains(output.String(), `"from_generation":0`) ||
-		!strings.Contains(output.String(), `"root_required":["service ts-auth releaser ops"]`) {
+		!strings.Contains(output.String(), `"root_required":["service ts-auth releaser ops","service ts-auth Vault secrets"]`) {
 		t.Fatalf("plan ts-auth: %v", err)
 	}
 	leafSigned, signed := filepath.Join(root, "add-ts-auth.leaf.json"), filepath.Join(root, "add-ts-auth.signed.json")

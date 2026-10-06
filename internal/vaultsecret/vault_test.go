@@ -257,11 +257,15 @@ func TestValidateRefs(t *testing.T) {
 		"no vault":         {refs: map[string]Ref{"K": {Name: "gru-1-ts-auth-k"}}},
 		"key not vault":    {refs: map[string]Ref{"K": {Vault: testTarget.KeyID, Name: "gru-1-ts-auth-k"}}},
 		"unknown region":   {refs: map[string]Ref{"K": {Vault: "ocid1.vault.oc1.mars-1.vault", Name: "gru-1-ts-auth-k"}}},
+		"other cell Vault": {refs: map[string]Ref{"K": {Vault: "ocid1.vault.oc1.us-sanjose-1.vault", Name: "gru-1-ts-auth-k"}}},
 		"too many":         {refs: tooMany},
 	} {
 		if err := ValidateRefs("gru", "ts-auth", test.refs, test.env); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+	if err := ValidateRefs("lab", "ts-auth", map[string]Ref{"K": ref("lab-1-ts-auth-k")}, nil); err == nil {
+		t.Error("a cell outside the catalog named a Vault")
 	}
 }
 

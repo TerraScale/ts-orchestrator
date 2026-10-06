@@ -454,6 +454,8 @@ func verifyDelegated(delegationWire []byte, specEnvelope trust.Envelope, roots t
 //
 //   - a releaser a service did not have, since releasers may release the
 //     role and register its hosts;
+//   - a new or changed Vault secret ref, since the host reads that secret
+//     for the role with an identity that may read more;
 //   - a new or changed host grant, since the host receives credentials;
 //   - any change to TerraBase's profile (resources, arguments or a setting),
 //     which binds membership, listeners, member certificates and the
@@ -467,6 +469,12 @@ func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
 		for _, actor := range service.Releasers {
 			if !slices.Contains(before.Releasers, actor) {
 				changes = append(changes, fmt.Sprintf("service %s releaser %s", service.Role, actor))
+			}
+		}
+		for key, ref := range service.Profile.Secrets {
+			if before.Profile.Secrets[key] != ref {
+				changes = append(changes, fmt.Sprintf("service %s Vault secrets", service.Role))
+				break
 			}
 		}
 	}

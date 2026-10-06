@@ -486,6 +486,11 @@ func TestAuthorityChanges(t *testing.T) {
 	released := web
 	released.Releasers = []string{"ci", "ops"}
 	issuer := tb(func(p *Profile) { p.Env["TERRABASE_AUTH_ISSUER"] = "https://gru.auth.terrascale.tech/terrascale" })
+	vault := "ocid1.vault.oc1.sa-saopaulo-1.vault"
+	withSecrets := func(refs map[string]vaultsecret.Ref) Service {
+		return Service{Role: "web", Profile: Profile{Resources: resources, Secrets: refs}}
+	}
+	token := withSecrets(map[string]vaultsecret.Ref{"TOKEN": {Vault: vault, Name: "gru-1-web-token"}})
 	cases := []struct {
 		name          string
 		current, next Spec
@@ -501,6 +506,13 @@ func TestAuthorityChanges(t *testing.T) {
 		{"dropped TerraBase entry", with(1, issuer), with(2), []string{"terrabase setting TERRABASE_AUTH_ISSUER"}},
 		{"preload", with(0), with(1, tb(func(p *Profile) { p.Env["LD_PRELOAD"] = "/tmp/x.so" })), []string{"terrabase setting LD_PRELOAD"}},
 		{"dropped releaser", with(1, released), with(2, web), nil},
+		// A ref picks the secret and its Vault: only a root adds or changes one.
+		{"new secret", with(1, web), with(2, token), []string{"service web Vault secrets"}},
+		{"secrets of a new service", with(1), with(2, token), []string{"service web Vault secrets"}},
+		{"other Vault", with(1, token), with(2, withSecrets(map[string]vaultsecret.Ref{"TOKEN": {Vault: vault + "x", Name: "gru-1-web-token"}})), []string{"service web Vault secrets"}},
+		{"renamed secret", with(1, token), with(2, withSecrets(map[string]vaultsecret.Ref{"TOKEN": {Vault: vault, Name: "gru-1-web-other"}})), []string{"service web Vault secrets"}},
+		{"kept secrets", with(1, token), with(2, token), nil},
+		{"dropped secrets", with(1, token), with(2, web), nil},
 		{"new releasers", with(1, web), with(2, released), []string{"service web releaser ci", "service web releaser ops"}},
 		{"releasers of a new service", with(1), with(2, released), []string{"service web releaser ci", "service web releaser ops"}},
 		{"TerraBase resources", with(0), with(1, tb(func(p *Profile) { p.Resources.CPU = 2 })), []string{"terrabase resources"}},

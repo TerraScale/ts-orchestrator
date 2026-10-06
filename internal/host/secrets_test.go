@@ -66,6 +66,9 @@ func TestResolveSecretsAtLaunch(t *testing.T) {
 		"missing value": func(context.Context, map[string]vaultsecret.Ref) (map[string]string, error) {
 			return map[string]string{}, nil
 		},
+		"extra value": func(context.Context, map[string]vaultsecret.Ref) (map[string]string, error) {
+			return map[string]string{"API_TOKEN": "value", "OTHER": "value"}, nil
+		},
 	} {
 		if _, err := (&Agent{cfg: AgentConfig{SecretResolver: resolver}}).resolveSecrets(t.Context(), d); err == nil {
 			t.Errorf("%s: launched", name)

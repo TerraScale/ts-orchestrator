@@ -1136,14 +1136,26 @@ func (a *Attempt) PhaseServices() {
 		if spec != "" {
 			args = append(args, "--spec", spec)
 		}
-		a.sudo(false, args...)
+		plan := a.sudo(true, args...)
 		if a.err != nil {
 			return
 		}
 		if !exists(candidate) {
 			continue
 		}
-		a.release("sign-spec", "--candidate", candidate, "--delegation", delegation, "--root-key", a.trust("root_public"), "--signing-key", a.trust("release_leaf_private"), "--out", signed)
+		// The leader's plan names what only a root may sign, such as a
+		// role's Vault secrets; the attempt holds the root key.
+		var planned struct {
+			RootRequired []string `json:"root_required"`
+		}
+		if a.fail(json.Unmarshal([]byte(plan), &planned)); a.err != nil {
+			return
+		}
+		if len(planned.RootRequired) != 0 {
+			a.release("sign-spec", "--candidate", candidate, "--root", "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--out", signed)
+		} else {
+			a.release("sign-spec", "--candidate", candidate, "--delegation", delegation, "--root-key", a.trust("root_public"), "--signing-key", a.trust("release_leaf_private"), "--out", signed)
+		}
 		a.sudo(false, cli, "service", "apply", "--config", config, "--file", signed)
 	}
 }
