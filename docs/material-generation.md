@@ -130,6 +130,31 @@ before any generation.
 4. **Check the directory.** It must hold exactly these files, owned by the
    service user with mode 0600.
 
+## Installing a generation
+
+A controller installs a verified generation crash-safely, in its credential
+directory:
+
+1. **Stage the files.** It writes the generation's files into a
+   `.generation-staging` subdirectory and syncs them.
+2. **Commit.** It writes the chain into the same subdirectory. The staged
+   chain is the commit record.
+3. **Install.** It renames every file over its installed name, the chain
+   last, and then removes the subdirectory.
+
+Running processes pick up each file as soon as it is renamed into place;
+TLS, for example, rechecks its files every 5 seconds.
+
+**Recovery after a crash.** At startup, before restart admission reads the
+directory, the controller cleans up a leftover stage:
+- A committed stage is installed.
+- A stage without its chain, or whose staged files no longer match their
+  pins, is dropped.
+
+This happens once per start, so it never races an install the running
+controller is writing. Admission therefore always sees either the previous
+set or the complete new one.
+
 ## Install continuity with a generation
 
 After the manifest's current proofs lapse, a restart needs an owner-signed

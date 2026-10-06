@@ -265,6 +265,19 @@ func verifyMaterialGenerationChain(chain []trust.Envelope, expected MaterialGene
 	return verified, nil
 }
 
+// MaterialGenerationPayload decodes and validates a generation's payload
+// without verifying its signature, for code whose caller verified the chain.
+func MaterialGenerationPayload(envelope trust.Envelope) (MaterialGeneration, error) {
+	var generation MaterialGeneration
+	if err := protocol.DecodeStrict(envelope.Payload, &generation, MaxMaterialGenerationBytes); err != nil {
+		return MaterialGeneration{}, fmt.Errorf("%w: %v", ErrMaterialGenerationInvalid, err)
+	}
+	if err := generation.Validate(); err != nil {
+		return MaterialGeneration{}, err
+	}
+	return generation, nil
+}
+
 // EncodeMaterialGenerationChain emits a chain, oldest first, as one canonical
 // JSON array of envelopes.
 func EncodeMaterialGenerationChain(chain []trust.Envelope) ([]byte, error) {
