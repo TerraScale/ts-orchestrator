@@ -256,3 +256,19 @@ func TestTransportFailuresRetryReadsOnly(t *testing.T) {
 		t.Fatalf("PUT was replayed after a dropped connection: calls=%d err=%v", calls.Load(), err)
 	}
 }
+
+func TestTenancyHomeRegionComesFromTheCatalog(t *testing.T) {
+	t.Parallel()
+	for key, want := range map[string]string{"GRU": "sa-saopaulo-1", "sjc": "us-sanjose-1", "FRA": "eu-frankfurt-1"} {
+		if got, err := TenancyHomeRegion(&key); err != nil || got != want {
+			t.Errorf("%s = %q, %v", key, got, err)
+		}
+	}
+	unknown := "IAD"
+	if _, err := TenancyHomeRegion(&unknown); err == nil {
+		t.Error("a home region outside the catalog was accepted")
+	}
+	if _, err := TenancyHomeRegion(nil); err == nil {
+		t.Error("a tenancy without a home region key was accepted")
+	}
+}

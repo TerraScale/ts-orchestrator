@@ -30,6 +30,8 @@ const maxPoolHosts = 256
 // "<name>-<ordinal>" so membership and launch identity are deterministic.
 // Shape is the host's total capacity; SystemReserveBytes is withheld from
 // memory for the host agent and operating system, matching registration.
+// HostMonthlyCents is what one host costs per month, in the cell budget's
+// currency; a pool without it launches nothing while the cell has a budget.
 type NodePool struct {
 	Name                string              `json:"name"`
 	Environment         string              `json:"environment"`
@@ -40,6 +42,7 @@ type NodePool struct {
 	Min                 int                 `json:"min"`
 	Max                 int                 `json:"max"`
 	IdleCooldownSeconds int                 `json:"idle_cooldown_seconds"`
+	HostMonthlyCents    uint64              `json:"host_monthly_cents,omitzero"`
 }
 
 // Validate checks the pool in isolation.
@@ -69,6 +72,9 @@ func (p NodePool) Validate() error {
 	}
 	if p.IdleCooldownSeconds < 60 || p.IdleCooldownSeconds > 7*24*60*60 {
 		return fmt.Errorf("%w: idle cooldown must be within 60s..7d", ErrInvalidPool)
+	}
+	if p.HostMonthlyCents > MaxMonthlyCents {
+		return fmt.Errorf("%w: host_monthly_cents above %d", ErrInvalidPool, MaxMonthlyCents)
 	}
 	return nil
 }
@@ -127,10 +133,13 @@ type Launch struct {
 }
 
 // Plan is one pool decision. At most one host is reclaimed per plan.
+// Withheld counts launches the cell budget held back, for the Hold reason.
 type Plan struct {
-	Launch  []Launch
-	Reclaim []string
-	Reason  string
+	Launch   []Launch
+	Reclaim  []string
+	Reason   string
+	Withheld int
+	Hold     string
 }
 
 // PlanInput is the observed state of one pool.

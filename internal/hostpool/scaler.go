@@ -18,6 +18,10 @@ const (
 	DefaultInterval    = 30 * time.Second
 	DefaultLaunchGrace = 15 * time.Minute
 	DefaultDemandTTL   = 2 * time.Minute
+	// spendRetry spaces spend reads after a failure or a new month;
+	// spendTimeout bounds one read so it cannot stall the tick.
+	spendRetry   = 5 * time.Minute
+	spendTimeout = 30 * time.Second
 )
 
 // Provisioner creates and removes pool hosts. Launch must be idempotent for
@@ -39,8 +43,17 @@ type Config struct {
 	Interval    time.Duration
 	LaunchGrace time.Duration
 	DemandTTL   time.Duration
-	Now         func() time.Time
-	Logf        func(string, ...any)
+	// Budget returns the cell spec's budget each tick; nil means none.
+	// Spend reads the cell's OCI spend for it; without a Spend every
+	// launch holds while a budget is set. CellSince is when the cell's
+	// replicated authority log was created, which restarts and failovers
+	// keep; zero means unknown.
+	Budget        func() *Budget
+	CellSince     time.Time
+	Spend         SpendSource
+	SpendInterval time.Duration
+	Now           func() time.Time
+	Logf          func(string, ...any)
 }
 
 type demand struct {
@@ -71,6 +84,15 @@ type Scaler struct {
 	last      map[string]Plan
 	// recommended is the last recommend-only plan journaled per pool.
 	recommended map[string]Plan
+	// held is the last budget hold journaled per pool.
+	held map[string]Plan
+	// spend is the last good spend reading and spendRead when a read was
+	// last attempted. firstSeen is when this scaler first saw each pool
+	// host, launching or registered; the host launched no later. Only Tick
+	// touches them.
+	spend     *Spend
+	spendRead time.Time
+	firstSeen map[string]time.Time
 }
 
 func NewScaler(config Config) (*Scaler, error) {
@@ -89,6 +111,9 @@ func NewScaler(config Config) (*Scaler, error) {
 	if config.DemandTTL <= 0 {
 		config.DemandTTL = DefaultDemandTTL
 	}
+	if config.SpendInterval <= 0 {
+		config.SpendInterval = DefaultSpendInterval
+	}
 	if config.Now == nil {
 		config.Now = time.Now
 	}
@@ -97,7 +122,62 @@ func NewScaler(config Config) (*Scaler, error) {
 	}
 	config.Pools = slices.Clone(config.Pools)
 	return &Scaler{config: config, demands: make(map[string]demand), launching: make(map[string]launchState),
-		idleSince: make(map[string]time.Time), last: make(map[string]Plan), recommended: make(map[string]Plan)}, nil
+		idleSince: make(map[string]time.Time), last: make(map[string]Plan), recommended: make(map[string]Plan),
+		held: make(map[string]Plan), firstSeen: make(map[string]time.Time)}, nil
+}
+
+// budgetGate builds this tick's gate, reading the spend when it is due:
+// hourly, at once when a good reading turned into last month's, and within
+// spendRetry after a failed read. A failed read keeps the last good
+// reading, which the gate refuses once it is MaxSpendAge old.
+//
+// A pool host is billed in the reading once a whole complete day followed
+// its launch. Until then the gate charges it, so launches add up across
+// ticks while the usage data lags. A host this scaler did not launch is
+// charged from its first sighting, which after a failover counts it twice
+// for about three days.
+func (s *Scaler) budgetGate(ctx context.Context, now time.Time, inputs []PlanInput) budgetGate {
+	var budget *Budget
+	if s.config.Budget != nil {
+		budget = s.config.Budget()
+	}
+	if budget == nil {
+		return budgetGate{}
+	}
+	start, _ := monthBounds(now)
+	fresh := s.spend != nil && now.Sub(s.spend.ObservedAt) < s.config.SpendInterval && !s.spend.ObservedAt.Before(start)
+	succeeded := s.spend != nil && s.spend.ObservedAt.Equal(s.spendRead)
+	if s.config.Spend != nil && !fresh && (succeeded || now.Sub(s.spendRead) >= spendRetry) {
+		s.spendRead = now
+		read, cancel := context.WithTimeout(ctx, spendTimeout)
+		spend, err := s.config.Spend.Spend(read, now)
+		cancel()
+		if err != nil {
+			s.config.Logf("hostpool: read cell spend: %v", err)
+		} else {
+			spend.ObservedAt = now
+			s.spend = &spend
+		}
+	}
+	spend := s.spend
+	// A new cell has no usage yet, but its controllers run in its region:
+	// once the data covers a complete day after the cell was created, an
+	// answer without rows is a broken query, not a region without cost.
+	// An unknown cell age never trusts one.
+	if spend != nil && spend.Empty && (s.config.CellSince.IsZero() || !spend.Through.Before(s.config.CellSince.Add(day))) {
+		spend = nil
+	}
+	var unbilled []NodePool
+	if spend != nil {
+		for _, in := range inputs {
+			for _, member := range in.Members {
+				if spend.Through.Before(s.firstSeen[member.Node].Add(day)) {
+					unbilled = append(unbilled, in.Pool)
+				}
+			}
+		}
+	}
+	return newBudgetGate(budget, spend, unbilled, now)
 }
 
 // RequestCapacity records unplaceable demand for the spec's pool, or for the
@@ -179,6 +259,7 @@ func (s *Scaler) Tick(ctx context.Context) error {
 	// member this tick; idle timestamps of any other node are dropped, so a
 	// reused ordinal that re-registers later starts a fresh cooldown.
 	observed := make(map[string]struct{})
+	inputs := make([]PlanInput, 0, len(s.config.Pools))
 	for _, pool := range s.config.Pools {
 		in := PlanInput{Cell: s.config.Cell, Pool: pool, Now: now, IdleSince: make(map[string]time.Time)}
 		registered := make(map[string]bool)
@@ -220,6 +301,9 @@ func (s *Scaler) Tick(ctx context.Context) error {
 		}
 		for _, member := range in.Members {
 			observed[member.Node] = struct{}{}
+			if _, seen := s.firstSeen[member.Node]; !seen {
+				s.firstSeen[member.Node] = now
+			}
 			if member.Launching || member.Allocations > 0 {
 				delete(s.idleSince, member.Node)
 				continue
@@ -251,17 +335,7 @@ func (s *Scaler) Tick(ctx context.Context) error {
 			}
 			return 0
 		})
-		plan, err := PlanPool(in)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("pool %q: %w", pool.Name, err))
-			continue
-		}
-		s.mu.Lock()
-		s.last[pool.Name] = plan
-		s.mu.Unlock()
-		if err := s.apply(ctx, snapshot.Epoch, pool, plan, allocations, now); err != nil {
-			errs = append(errs, fmt.Errorf("pool %q: %w", pool.Name, err))
-		}
+		inputs = append(inputs, in)
 	}
 	s.mu.Lock()
 	for node := range s.idleSince {
@@ -269,8 +343,52 @@ func (s *Scaler) Tick(ctx context.Context) error {
 			delete(s.idleSince, node)
 		}
 	}
+	for node := range s.firstSeen {
+		if _, present := observed[node]; !present {
+			delete(s.firstSeen, node)
+		}
+	}
 	s.mu.Unlock()
+	// Every pool's hosts are charged before any pool takes the headroom.
+	gate := s.budgetGate(ctx, now, inputs)
+	for _, in := range inputs {
+		pool := in.Pool
+		plan, err := PlanPool(in)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("pool %q: %w", pool.Name, err))
+			continue
+		}
+		plan = gate.admit(pool, plan)
+		s.mu.Lock()
+		s.last[pool.Name] = plan
+		s.mu.Unlock()
+		if err := s.apply(ctx, snapshot.Epoch, pool, plan, allocations, now); err != nil {
+			errs = append(errs, fmt.Errorf("pool %q: %w", pool.Name, err))
+		}
+		s.journalHold(ctx, snapshot.Epoch, pool, plan)
+	}
 	return errors.Join(errs...)
+}
+
+// journalHold journals a budget hold once per episode, again when its
+// reason or size changes, and its end.
+func (s *Scaler) journalHold(ctx context.Context, epoch uint64, pool NodePool, plan Plan) {
+	s.mu.Lock()
+	previous, seen := s.held[pool.Name]
+	if plan.Withheld == 0 {
+		delete(s.held, pool.Name)
+	} else {
+		s.held[pool.Name] = plan
+	}
+	s.mu.Unlock()
+	switch {
+	case plan.Withheld == 0 && seen:
+		recordHoldCleared(ctx, s.config.Cell, epoch, pool, previous)
+	case plan.Withheld == 0 || seen && previous.Hold == plan.Hold && previous.Withheld == plan.Withheld:
+	default:
+		s.config.Logf("hostpool: pool %s withheld %d launches (%s)", pool.Name, plan.Withheld, plan.Hold)
+		recordHold(ctx, s.config.Cell, epoch, pool, plan)
+	}
 }
 
 func (s *Scaler) apply(ctx context.Context, epoch uint64, pool NodePool, plan Plan, allocations map[string]int, now time.Time) error {
@@ -306,6 +424,7 @@ func (s *Scaler) apply(ctx context.Context, epoch uint64, pool NodePool, plan Pl
 		id := recordLaunch(ctx, s.config.Cell, epoch, pool, plan, launch)
 		s.mu.Lock()
 		s.launching[launch.Node] = launchState{since: now, domain: launch.FailureDomain, decision: id}
+		s.firstSeen[launch.Node] = now
 		s.mu.Unlock()
 	}
 	for _, node := range plan.Reclaim {

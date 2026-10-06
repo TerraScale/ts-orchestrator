@@ -136,3 +136,41 @@ func recordRecommendation(ctx context.Context, cell string, epoch uint64, pool N
 func samePlan(left, right Plan) bool {
 	return left.Reason == right.Reason && slices.Equal(left.Launch, right.Launch) && slices.Equal(left.Reclaim, right.Reclaim)
 }
+
+// recordHold journals launches the cell budget withheld from a pool.
+func recordHold(ctx context.Context, cell string, epoch uint64, pool NodePool, plan Plan) {
+	reason := fmt.Sprintf("The cell's projected monthly spend leaves no room for %d more %s hosts (%s).",
+		plan.Withheld, pool.Name, plan.Hold)
+	if plan.Hold == reasonBudgetUnknown {
+		reason = fmt.Sprintf("The cell has a budget but no current OCI usage reading (check the usage-reports policy), "+
+			"or the pool has no host price, so %d launches wait (%s).", plan.Withheld, plan.Hold)
+	}
+	decisionlog.Record(ctx, decisionlog.Decision{
+		Region:  cell,
+		Actor:   decisionlog.Actor{Slice: actor},
+		Kind:    decisionlog.KindHeld,
+		Subject: poolSubject(pool),
+		Summary: fmt.Sprintf("Withheld %d host launches in pool %s", plan.Withheld, pool.Name),
+		Reason:  reason,
+		Rule:    "hostpool." + plan.Hold,
+		Signals: []decisionlog.Signal{{Name: "withheld", Value: float64(plan.Withheld)}},
+		Status:  decisionlog.StatusPending,
+		Epoch:   epoch,
+		Attrs:   map[string]string{"pool": pool.Name, "plan_reason": plan.Reason},
+	})
+}
+
+// recordHoldCleared journals the end of a pool's budget hold.
+func recordHoldCleared(ctx context.Context, cell string, epoch uint64, pool NodePool, previous Plan) {
+	decisionlog.Record(ctx, decisionlog.Decision{
+		Region:  cell,
+		Actor:   decisionlog.Actor{Slice: actor},
+		Kind:    decisionlog.KindHoldCleared,
+		Subject: poolSubject(pool),
+		Summary: fmt.Sprintf("Pool %s launches are no longer withheld", pool.Name),
+		Reason:  fmt.Sprintf("The %s hold ended: the plan fits the budget or needs no launch.", previous.Hold),
+		Rule:    "hostpool." + previous.Hold,
+		Epoch:   epoch,
+		Attrs:   map[string]string{"pool": pool.Name},
+	})
+}

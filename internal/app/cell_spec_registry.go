@@ -20,6 +20,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
@@ -58,6 +59,8 @@ type specRegistry struct {
 	// changed receives every newly adopted spec's profiles and reconciled
 	// specs, under the registry lock so updates arrive in order.
 	changed func(map[string]WorkloadProfile, []workload.ServiceSpec)
+	// pools are the signed config's node pools; a budget needs each priced.
+	pools []hostpool.NodePool
 
 	mu       sync.Mutex
 	current  cellspec.Spec
@@ -87,6 +90,9 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 	autoscaleConfig := cfg.Controller.Autoscale
 	if autoscaleConfig != nil {
 		r.hostTelemetry = autoscaleConfig.HostTelemetry
+		if autoscaleConfig.Enabled {
+			r.pools = autoscaleConfig.NodePools
+		}
 	}
 	if err := r.loadTrust(cfg); err != nil {
 		return nil, err
@@ -366,6 +372,11 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 	if err := r.validateHostGrants(spec.HostGrants, profiles); err != nil {
 		return err
 	}
+	for _, pool := range r.pools {
+		if pool.HostMonthlyCents == 0 && spec.Budget != nil {
+			return fmt.Errorf("node pool %q has no host_monthly_cents, so a budget would hold all its launches", pool.Name)
+		}
+	}
 	return validateAutoscaleConfig(&AutoscaleConfig{HostTelemetry: r.hostTelemetry, Services: specs}, profiles)
 }
 
@@ -442,6 +453,18 @@ func (r *specRegistry) effective() (map[string]WorkloadProfile, []workload.Servi
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.effectiveLocked()
+}
+
+// budget is a copy of the current spec's budget; the pool scaler reads it
+// every tick.
+func (r *specRegistry) budget() *hostpool.Budget {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.current.Budget == nil {
+		return nil
+	}
+	budget := *r.current.Budget
+	return &budget
 }
 
 func (r *specRegistry) profiles() map[string]WorkloadProfile {

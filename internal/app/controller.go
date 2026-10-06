@@ -479,7 +479,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	profiles, specs := services.effective()
 	workloadReconciler, capacityScaler, hostLoad, err := startWorkloadAutoscale(cfg.NATS.Cell, cfg.Controller.Autoscale,
-		profiles, specs, hostController, control)
+		profiles, specs, services.budget, authorityLogCreated(ctx, runtime.JetStream()), hostController, control)
 	if err != nil {
 		return err
 	}

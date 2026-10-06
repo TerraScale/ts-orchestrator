@@ -28,6 +28,7 @@ import (
 	"slices"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
@@ -42,8 +43,8 @@ const (
 	// BinaryLevel is the highest requires_binary this binary understands.
 	// A change that adds a section raises it, and amendments that use the
 	// section require the new level.
-	// Level 2 adds profile secrets.
-	BinaryLevel = 2
+	// Level 2 adds profile secrets, level 3 the budget.
+	BinaryLevel = 3
 	// MaxDelegationLifetime bounds the root's grant to the release leaf; the
 	// root re-issues it offline.
 	MaxDelegationLifetime = 31 * 24 * time.Hour
@@ -130,6 +131,9 @@ type Spec struct {
 	RequiresBinary uint64      `json:"requires_binary"`
 	Services       []Service   `json:"services"`
 	HostGrants     []HostGrant `json:"host_grants,omitempty"`
+	// Budget is the monthly cap on the cell's OCI spend that node pools
+	// launch hosts within.
+	Budget *hostpool.Budget `json:"budget,omitempty"`
 }
 
 // Signed is what an operator applies and what controllers store, as exact
@@ -195,6 +199,11 @@ func (s Spec) Validate() error {
 			}
 		}
 	}
+	if s.Budget != nil {
+		if err := s.Budget.Validate(); err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalid, err)
+		}
+	}
 	addresses := map[string]bool{}
 	for index, grant := range s.HostGrants {
 		address, err := netip.ParseAddr(grant.PrivateIP)
@@ -223,14 +232,19 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 }
 
 // Level is the lowest requires_binary the spec's sections need: 2 once a
-// profile names Vault secrets, which an older binary could not read.
+// profile names Vault secrets and 3 with a budget, which an older binary
+// could not read.
 func (s Spec) Level() uint64 {
+	level := uint64(1)
 	for _, service := range s.Services {
 		if len(service.Profile.Secrets) != 0 {
-			return 2
+			level = 2
 		}
 	}
-	return 1
+	if s.Budget != nil {
+		level = max(level, 3)
+	}
+	return level
 }
 
 // Find returns the service of role.
@@ -459,7 +473,9 @@ func verifyDelegated(delegationWire []byte, specEnvelope trust.Envelope, roots t
 //   - a new or changed host grant, since the host receives credentials;
 //   - any change to TerraBase's profile (resources, arguments or a setting),
 //     which binds membership, listeners, member certificates and the
-//     credentials and token issuers TerraBase trusts.
+//     credentials and token issuers TerraBase trusts;
+//   - any budget change but a lower cap in the same currency, since the
+//     budget bounds what the cell may spend on hosts.
 //
 // Everything else is an ordinary change.
 func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
@@ -482,6 +498,9 @@ func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
 		if before, ok := current.Grant(grant.Node); !ok || !reflect.DeepEqual(before, grant) {
 			changes = append(changes, "host grant "+grant.Node)
 		}
+	}
+	if change := budgetChange(current.Budget, next.Budget); change != "" && change != "lowered" {
+		changes = append(changes, "budget")
 	}
 	effective := func(spec Spec) Profile {
 		if service, ok := spec.Find(terrabase.Role); ok {
@@ -525,6 +544,8 @@ type Plan struct {
 	// HostGrants names each node whose host grant is added, changed or
 	// removed.
 	HostGrants []string `json:"host_grants,omitempty"`
+	// Budget is "added", "updated" or "removed" when the budget changes.
+	Budget string `json:"budget,omitempty"`
 	// RootRequired lists the authority-widening changes; the amendment
 	// applies only when a root signed it.
 	RootRequired []string `json:"root_required,omitempty"`
@@ -571,10 +592,35 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 			plan.HostGrants = append(plan.HostGrants, node)
 		}
 	}
+	if plan.Budget = budgetChange(current.Budget, next.Budget); plan.Budget == "lowered" {
+		plan.Budget = "updated"
+	}
 	return plan, nil
+}
+
+// budgetChange is "added", "removed", "lowered" when only the cap went
+// down, "updated" for any other change, or empty. Both the plan and the
+// root rule read it, so a field Budget gains is root-gated by default.
+func budgetChange(before, after *hostpool.Budget) string {
+	switch {
+	case before == nil && after == nil:
+		return ""
+	case before == nil:
+		return "added"
+	case after == nil:
+		return "removed"
+	case *before == *after:
+		return ""
+	}
+	lowered := *before
+	lowered.MonthlyCapCents = after.MonthlyCapCents
+	if lowered == *after && after.MonthlyCapCents < before.MonthlyCapCents {
+		return "lowered"
+	}
+	return "updated"
 }
 
 // Empty reports whether the plan changes nothing.
 func (p Plan) Empty() bool {
-	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants) == 0
+	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants) == 0 && p.Budget == ""
 }

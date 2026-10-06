@@ -20,6 +20,7 @@ replaces the previous one as a whole.
 | `requires_binary` | The lowest spec level a controller binary must understand to adopt this amendment (see [binary levels](#binary-levels)). |
 | `services` | The cell's generic services, sorted by role. |
 | `host_grants` | Static hosts outside TerraBase membership that may enroll, sorted by node (see [host grants](#host-grants)). |
+| `budget` | Optional `{monthly_cap_cents, currency}` cap on node pool launches (see [autoscaling](autoscaling.md#budget)). Every node pool needs `host_monthly_cents` first. Only lowering the cap is ordinary; any other budget change needs a root. |
 
 A **service** is one role:
 
@@ -239,7 +240,7 @@ nothing back yet; check it with `ts-orch get` against that region.
 ## Binary levels
 
 Each ts-orch binary understands cell specs up to its `cellspec.BinaryLevel`
-(2 today; level 2 adds profile `secrets`). A change that adds a section
+(3 today; level 2 adds profile `secrets`, level 3 the `budget`). A change that adds a section
 raises the level, and every amendment that uses the section sets
 `requires_binary` to it. A controller
 whose binary understands less refuses such an amendment by name and keeps its
@@ -262,7 +263,7 @@ the record. Re-apply its services as a new cell spec.
 | Command | Where | Effect |
 | --- | --- | --- |
 | `ts-orch get --config OPERATOR_JSON` | operator host | Prints the current spec. `service list` is the same. |
-| `ts-orch diff --config F -f FILE` | operator host | Plans an unsigned candidate or a signed spec on the leader, without changing anything. Prints `{"deployment_id","cell","environment","from_generation","to_generation","requires_binary","added","updated","removed","host_grants","root_required","status"}`. `status` is `planned`, `unchanged`, or `stale` when the generation does not follow the current one. A spec that breaks the cell's rules is refused with the rule. |
+| `ts-orch diff --config F -f FILE` | operator host | Plans an unsigned candidate or a signed spec on the leader, without changing anything. Prints `{"deployment_id","cell","environment","from_generation","to_generation","requires_binary","added","updated","removed","host_grants","budget","root_required","status"}`. `status` is `planned`, `unchanged`, or `stale` when the generation does not follow the current one. A spec that breaks the cell's rules is refused with the rule. |
 | `ts-orch apply --config F -f SIGNED` | operator host | Submits the signed spec. Prints `{"status":"applied"\|"unchanged","generation","requires_binary","roles"}`. A spec for another region is [relayed](#apply-to-another-region) through the global home and prints `{"status":"relayed","cell","generation"}`. `service apply --file` is the same. |
 | `ts-orch service add --config F --role R --profile F [--spec F] [--releasers A,B] [--out F]` | operator host | Plans the next generation with R added and prints the leader's plan. With `--out`, writes the unsigned candidate. An identical existing service plans nothing (`"status":"unchanged"`). A different existing service is refused: use `update`. |
 | `ts-orch service update --config F --role R --profile F [--spec F] [--releasers A,B] [--out F]` | operator host | Same as `add` for an existing role; keeps its releasers unless `--releasers` is given. |

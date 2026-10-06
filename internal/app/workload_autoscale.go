@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
@@ -13,9 +14,11 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 // AutoscaleConfig enables continuous reconciliation of generic services. It
@@ -96,10 +99,12 @@ func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]Worklo
 
 // startWorkloadAutoscale builds the reconciler, which owns the cell spec's
 // reconciled roles, and, when the signed config enables autoscaling, its
-// host telemetry and host pool scaler. All act only on the regional
-// authority leader. The returned aggregator is nil without host telemetry.
+// host telemetry and host pool scaler, which reads the cell spec's budget
+// every tick. All act only on the regional authority leader. The returned
+// aggregator is nil without host telemetry.
 func startWorkloadAutoscale(cell string, config *AutoscaleConfig, profiles map[string]WorkloadProfile,
-	specs []workload.ServiceSpec, hosts *host.Controller, fencer authority.Fencer,
+	specs []workload.ServiceSpec, budget func() *hostpool.Budget, cellSince time.Time, hosts *host.Controller,
+	fencer authority.Fencer,
 ) (*workload.Reconciler, *hostpool.Scaler, *hostload.Aggregator, error) {
 	var settings AutoscaleConfig
 	if config != nil && config.Enabled {
@@ -110,9 +115,18 @@ func startWorkloadAutoscale(cell string, config *AutoscaleConfig, profiles map[s
 	var scaler *hostpool.Scaler
 	var requester workload.CapacityRequester
 	if len(settings.NodePools) > 0 {
+		// The spend source connects on its first read, once a cell spec
+		// sets a budget. A cell outside the OCI catalog has none, which
+		// holds every launch while it has a budget.
+		var spend hostpool.SpendSource
+		if region, err := oci.Region(strings.ToUpper(cell)).OCIRegion(); err != nil {
+			log.Printf("hostpool: cell %s has no OCI region, so a budget would hold every launch: %v", cell, err)
+		} else {
+			spend = &hostpool.OCIUsage{Region: region}
+		}
 		var err error
 		scaler, err = hostpool.NewScaler(hostpool.Config{Cell: cell, Pools: settings.NodePools, Hosts: hosts,
-			Fencer: fencer, Logf: log.Printf})
+			Fencer: fencer, Budget: budget, CellSince: cellSince, Spend: spend, Logf: log.Printf})
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("start host pool scaler: %w", err)
 		}
@@ -137,6 +151,20 @@ func startWorkloadAutoscale(cell string, config *AutoscaleConfig, profiles map[s
 		hosts.SetLoadSink(load.Record)
 	}
 	return reconciler, scaler, load, nil
+}
+
+// authorityLogCreated is when the cell's replicated authority log was
+// created, which dates the cell across restarts and failovers, or zero
+// when it cannot be read.
+func authorityLogCreated(ctx context.Context, js jetstream.JetStream) time.Time {
+	lookup, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	stream, err := js.Stream(lookup, authority.ControlStreamName)
+	if err != nil {
+		log.Printf("hostpool: read the authority log's creation time: %v", err)
+		return time.Time{}
+	}
+	return stream.CachedInfo().Created
 }
 
 func loadRequests(resources map[string]placement.Resources) map[string]hostload.Request {

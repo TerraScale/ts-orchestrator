@@ -21,6 +21,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
+	"github.com/oracle/oci-go-sdk/v65/usageapi"
 	"github.com/oracle/oci-go-sdk/v65/workrequests"
 	"golang.org/x/time/rate"
 
@@ -49,6 +50,7 @@ const (
 	ServiceSearch        Service = "resourcesearch"
 	ServiceLimits        Service = "limits"
 	ServiceVault         Service = "vault"
+	ServiceUsage         Service = "usageapi"
 )
 
 // Limit is one token bucket: a sustained rate and a burst.
@@ -71,6 +73,7 @@ var DefaultLimits = map[Service]Limit{
 	ServiceSearch:        {PerSecond: 4, Burst: 8},
 	ServiceLimits:        {PerSecond: 4, Burst: 8},
 	ServiceVault:         {PerSecond: 4, Burst: 8},
+	ServiceUsage:         {PerSecond: 1, Burst: 2},
 }
 
 var defaultLimit = Limit{PerSecond: 4, Burst: 8}
@@ -322,4 +325,44 @@ func (f *Factory) WorkRequests() (workrequests.WorkRequestClient, error) {
 	client.SetRegion(f.region)
 	f.Configure(&client.BaseClient, ServiceWorkRequests)
 	return client, nil
+}
+
+// Usage returns a rate-limited usage API client for cost queries.
+func (f *Factory) Usage() (usageapi.UsageapiClient, error) {
+	client, err := usageapi.NewUsageapiClientWithConfigurationProvider(f.provider)
+	if err != nil {
+		return client, fmt.Errorf("create OCI usage API client: %w", err)
+	}
+	client.SetRegion(f.region)
+	f.Configure(&client.BaseClient, ServiceUsage)
+	return client, nil
+}
+
+// HomeRegion asks the identity service for the tenancy's home region, where
+// region subscriptions and the usage API are served. A home region outside
+// the product catalog is refused rather than guessed at.
+func (f *Factory) HomeRegion(ctx context.Context, tenancy string) (string, error) {
+	client, err := f.Identity()
+	if err != nil {
+		return "", err
+	}
+	response, err := client.GetTenancy(ctx, identity.GetTenancyRequest{TenancyId: &tenancy})
+	if err != nil {
+		return "", fmt.Errorf("read the tenancy home region: %w", err)
+	}
+	return TenancyHomeRegion(response.HomeRegionKey)
+}
+
+// TenancyHomeRegion maps a tenancy's home region key to its catalog OCI
+// region.
+func TenancyHomeRegion(key *string) (string, error) {
+	if key == nil {
+		return "", errors.New("tenancy has no home region key")
+	}
+	for _, entry := range catalog.Entries() {
+		if strings.EqualFold(entry.OCIRegionKey, *key) {
+			return entry.OCIRegion, nil
+		}
+	}
+	return "", fmt.Errorf("tenancy home region %q is not a catalog region", *key)
 }
