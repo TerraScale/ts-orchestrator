@@ -112,6 +112,36 @@ printf '%%s\n%%s\n%%s\n' "$PATH" "$LANG" "${OCI_CONFIG_FILE-unset}" > %s
 	}
 }
 
+// The admission child digests the signed config file's exact bytes, so a
+// binary with new or defaulted members still matches the signed digest.
+func TestControllerAdmissionChildReceivesTheLoadedBytes(t *testing.T) {
+	directory := t.TempDir()
+	wirePath := filepath.Join(directory, "child-config.json")
+	cat, err := exec.LookPath("cat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable := writeAdmissionShell(t, fmt.Sprintf("#!/bin/sh\n%s > %s\n", shellQuote(cat), shellQuote(wirePath)))
+	signed := []byte(`{ "version": 1000, "nats": {"cell": "gru", "instance": "ctl-1"}, "added_by_newer_binary": true }`)
+	configPath := filepath.Join(directory, "controller.json")
+	if err := os.WriteFile(configPath, signed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := superviseControllerAdmission(t.Context(), cfg, "bootstrap-admit-restart", executable); err != nil {
+		t.Fatal(err)
+	}
+	if wire, err := os.ReadFile(wirePath); err != nil || !bytes.Equal(wire, signed) {
+		t.Fatalf("child config = %q, %v; want the signed bytes", wire, err)
+	}
+	if child, err := decodeConfig(signed); err != nil || child.NATS.Instance != "ctl-1" || controllerSHA256(child.wire) != controllerSHA256(signed) {
+		t.Fatalf("child decoded %+v, %v", child, err)
+	}
+}
+
 func TestControllerAdmissionChildRejectsInvalidOrOversizedStdin(t *testing.T) {
 	for _, input := range []string{
 		`{"nats":{},"unexpected":true}`,

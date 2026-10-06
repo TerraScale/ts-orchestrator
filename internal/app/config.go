@@ -4,6 +4,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
@@ -11,15 +12,26 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/backup"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/capacity"
 )
 
 const maxConfigBytes = 1 << 20
 
+// ConfigVersion is the config schema this binary writes. Raise it with every
+// new member (TestConfigVersionCoversEveryMember names the digest to record):
+// an older binary then skips the members it lacks instead of refusing them as
+// typos. Never rename or remove a member; an older config still names it.
+const ConfigVersion = 1
+
 // Config is the one binary's role-specific configuration. A controller and a
 // host can share the same schema while holding separate credentials and files.
 type Config struct {
+	// Version is the ConfigVersion of the binary that wrote the config. A
+	// binary decodes a config of its own version or older strictly and skips
+	// the unknown members of a newer one, so a rolled-back binary starts.
+	Version    int              `json:"version,omitzero"`
 	NATS       natscell.Config  `json:"nats"`
 	Controller ControllerConfig `json:"controller"`
 	Host       HostConfig       `json:"host"`
@@ -27,6 +39,10 @@ type Config struct {
 	// Observability is omitted when zero, so configs signed before it
 	// existed keep their exact canonical bytes.
 	Observability observability.Config `json:"observability,omitzero"`
+	// wire is the exact bytes the config was read from. A signed controller
+	// config's digest covers them, not a re-encoding, so a binary with a new
+	// or defaulted member still matches the signature.
+	wire []byte
 }
 
 type ControllerConfig struct {
@@ -204,8 +220,8 @@ func LoadConfig(path string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("read config: %w", err)
 	}
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg, json.RejectUnknownMembers(true)); err != nil {
+	cfg, err := decodeConfig(data)
+	if err != nil {
 		return Config{}, fmt.Errorf("parse config: %w", err)
 	}
 	if err := cfg.Observability.Validate(); err != nil {
@@ -215,4 +231,34 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// decodeConfig decodes config bytes, strictly unless a newer binary wrote
+// them, and keeps them as the config's wire.
+func decodeConfig(data []byte) (Config, error) {
+	var header struct {
+		Version int `json:"version"`
+	}
+	_ = json.Unmarshal(data, &header)
+	decode := protocol.DecodeStrict
+	if header.Version > ConfigVersion {
+		slog.Warn("config is newer than this binary; skipping the members it does not know",
+			"config_version", header.Version, "binary_config_version", ConfigVersion)
+		decode = protocol.DecodeTolerant
+	}
+	var cfg Config
+	if err := decode(data, &cfg, maxConfigBytes); err != nil {
+		return Config{}, err
+	}
+	cfg.wire = data
+	return cfg, nil
+}
+
+// signedWire returns the exact bytes the config was read from, or its
+// canonical encoding when code built it.
+func (c Config) signedWire() ([]byte, error) {
+	if c.wire != nil {
+		return c.wire, nil
+	}
+	return protocol.EncodeJSON(c)
 }

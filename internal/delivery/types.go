@@ -146,6 +146,9 @@ func (i Intent) Fingerprint() (string, error) {
 	return i.fingerprint()
 }
 
+// DecodeIntent stays strict: an intent is signed, so a controller must not
+// act on one whose members it cannot read. A newer member is omitted while
+// unset, and setting it is a new schemaVersion.
 func DecodeIntent(b []byte) (Intent, error) {
 	if len(b) == 0 || len(b) > MaxIntentBytes {
 		return Intent{}, fmt.Errorf("%w: intent size", ErrInvalid)

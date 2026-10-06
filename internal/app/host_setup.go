@@ -667,7 +667,7 @@ func installHostEnrollment(root string, bundle hostenroll.PublicBundle, descript
 			return err
 		}
 	}
-	config := Config{NATS: natscell.Config{Cell: bundle.Cell, Instance: node, Replicas: 3,
+	config := Config{Version: ConfigVersion, NATS: natscell.Config{Cell: bundle.Cell, Instance: node, Replicas: 3,
 		URL: strings.Join(bundle.NATSURLs, ","), CredentialsFile: filepath.Join(credentialRoot, "host-nats.creds"),
 		TLS: natscell.TLSFiles{CAFile: filepath.Join(credentialRoot, "ca.pem"),
 			CertFile: filepath.Join(credentialRoot, "host-tls-cert.pem"), KeyFile: filepath.Join(credentialRoot, "host-tls-key.pem")}},

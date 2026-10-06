@@ -90,6 +90,30 @@ func TestDecodeStrictRejectsAmbiguousAndUnknownJSON(t *testing.T) {
 	}
 }
 
+func TestDecodeTolerantSkipsOnlyUnknownMembers(t *testing.T) {
+	t.Parallel()
+
+	var payload strictPayload
+	if err := DecodeTolerant([]byte(`{"name":"worker","count":1,"added":{"by":"newer binary"}}`), &payload, DefaultMaxJSONBytes); err != nil ||
+		payload != (strictPayload{Name: "worker", Count: 1}) {
+		t.Fatalf("DecodeTolerant(newer record) = %+v, %v", payload, err)
+	}
+	for _, data := range [][]byte{
+		[]byte(`{"name":"first","name":"second","count":1}`),
+		[]byte(`{"name":"first","count":1,"added":{"x":1,"x":2}}`),
+		[]byte(`{"name":"worker","count":1} {}`),
+		[]byte(`{"name":"worker","count":"1"}`),
+		{'{', '"', 'n', 'a', 'm', 'e', '"', ':', '"', 0xff, '"', '}'},
+	} {
+		if err := DecodeTolerant(data, &strictPayload{}, DefaultMaxJSONBytes); err == nil {
+			t.Fatalf("DecodeTolerant accepted %q", data)
+		}
+	}
+	if err := DecodeTolerant([]byte(`{"name":"worker"}`), &strictPayload{}, 4); !errors.Is(err, ErrJSONTooLarge) {
+		t.Fatalf("DecodeTolerant size limit error = %v", err)
+	}
+}
+
 func TestDecodeStrictEnforcesSizeLimit(t *testing.T) {
 	t.Parallel()
 

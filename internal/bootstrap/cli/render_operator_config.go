@@ -130,7 +130,7 @@ func operatorConfigFromRecord(record bootstrapmaterial.Record, grant app.Trusted
 		urls = append(urls, "tls://"+slot.PrivateIP+":4222")
 	}
 	path := func(name string) string { return filepath.Join(operatorInstallDirectory, name) }
-	return app.Config{
+	return app.Config{Version: app.ConfigVersion,
 		NATS: natscell.Config{Cell: record.Config.Cell, Instance: "operator-" + grant.Actor,
 			Replicas: len(record.Config.Slots), ClientRole: "operator", URL: strings.Join(urls, ","),
 			CredentialsFile: path("operator.creds"), TLS: natscell.TLSFiles{CAFile: path("ca.pem"),

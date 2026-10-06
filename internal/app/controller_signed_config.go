@@ -24,18 +24,33 @@ const controllerConfigDirectory = "/etc/terrascale-orchestrator"
 const controllerConfigFilename = "controller.json"
 const controllerManifestFilename = "controller-manifest.json"
 
-// ValidateSignedControllerConfig checks the role-specific meaning of the exact
-// signed bytes. observedPrivateIP is empty during offline signing and is the
-// independently observed primary VNIC address during guest installation.
+// ValidateSignedControllerConfig checks, before signing, that the config is
+// this binary's canonical app.Config JSON with a valid role-specific meaning.
 func ValidateSignedControllerConfig(manifest bootstrap.Manifest, observedPrivateIP string) (Config, error) {
-	var cfg Config
-	if err := protocol.DecodeStrict(manifest.ControllerConfig, &cfg, bootstrap.MaxControllerConfigBytes); err != nil {
-		return Config{}, fmt.Errorf("decode signed controller config: %w", err)
+	cfg, err := ValidateInstalledControllerConfig(manifest, observedPrivateIP)
+	if err != nil {
+		return Config{}, err
 	}
 	canonical, err := protocol.EncodeJSON(cfg)
-	if err != nil || !bytes.Equal(canonical, manifest.ControllerConfig) ||
-		controllerSHA256(canonical) != manifest.ControllerConfigSHA256 {
+	if err != nil || !bytes.Equal(canonical, manifest.ControllerConfig) {
 		return Config{}, errors.New("signed controller config must be canonical app.Config JSON")
+	}
+	return cfg, nil
+}
+
+// ValidateInstalledControllerConfig checks the role-specific meaning of the
+// exact signed bytes. Guest installation and every restart re-check configs
+// that an older or newer binary signed, so the digest covers the bytes, not a
+// re-encoding. observedPrivateIP is empty during offline signing and is the
+// independently observed primary VNIC address on the guest.
+func ValidateInstalledControllerConfig(manifest bootstrap.Manifest, observedPrivateIP string) (Config, error) {
+	if len(manifest.ControllerConfig) > bootstrap.MaxControllerConfigBytes ||
+		controllerSHA256(manifest.ControllerConfig) != manifest.ControllerConfigSHA256 {
+		return Config{}, errors.New("signed controller config differs from its signed digest")
+	}
+	cfg, err := decodeConfig(manifest.ControllerConfig)
+	if err != nil {
+		return Config{}, fmt.Errorf("decode signed controller config: %w", err)
 	}
 	hostConfig := cfg.Host
 	if len(hostConfig.Roles) == 0 {

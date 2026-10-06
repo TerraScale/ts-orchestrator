@@ -253,7 +253,7 @@ func controllerConfigFromRecord(manifest bootstrap.Manifest, record bootstrapmat
 			routes = append(routes, "nats-route://"+slot.PrivateIP+":6222")
 		}
 	}
-	cfg := app.Config{
+	cfg := app.Config{Version: app.ConfigVersion,
 		NATS: natscell.Config{Cell: record.Config.Cell, Instance: manifest.Slot, Replicas: len(record.Config.Slots),
 			ClientRole: "controller", URL: "tls://" + host + ":4222", CredentialsFile: path(manifest.Slot + ".creds"),
 			TLS: tls, Embedded: &natscell.Embedded{Host: host, Port: 4222, RouteHost: host, RoutePort: 6222,

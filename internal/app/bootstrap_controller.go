@@ -16,7 +16,6 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -102,7 +101,8 @@ func superviseControllerAdmission(ctx context.Context, cfg Config, commandName, 
 	if commandName != "bootstrap-admit-initial" && commandName != "bootstrap-admit-restart" || executable == "" {
 		return errors.New("invalid controller admission child command")
 	}
-	wire, err := protocol.EncodeJSON(cfg)
+	// The child digests the exact signed bytes, not a re-encoding.
+	wire, err := cfg.signedWire()
 	if err != nil || len(wire) == 0 || len(wire) > maxConfigBytes {
 		return errors.New("encode bounded controller admission configuration")
 	}
@@ -140,8 +140,8 @@ func runControllerAdmissionChild(ctx context.Context, commandName string, input 
 	if err != nil || len(wire) == 0 || len(wire) > maxConfigBytes {
 		return errors.New("controller admission child configuration is invalid")
 	}
-	var cfg Config
-	if err := protocol.DecodeStrict(wire, &cfg, maxConfigBytes); err != nil {
+	cfg, err := decodeConfig(wire)
+	if err != nil {
 		return fmt.Errorf("decode controller admission child configuration: %w", err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, controllerAdmissionTimeout)
@@ -183,9 +183,9 @@ func admitProductionControllerRestart(ctx context.Context, cfg Config) error {
 }
 
 func admitProductionController(ctx context.Context, cfg Config, markers bootstrapstart.MarkerStore, initial bool) error {
-	loadedWire, err := protocol.EncodeJSON(cfg)
+	loadedWire, err := cfg.signedWire()
 	if err != nil || len(loadedWire) == 0 || len(loadedWire) > bootstrap.MaxControllerConfigBytes {
-		return errors.New("loaded controller config is not bounded canonical JSON")
+		return errors.New("loaded controller config is not bounded JSON")
 	}
 	clockCheck := controllerClockCheck(controllerBrokerClockProbe())
 	if err := clockCheck(); err != nil {

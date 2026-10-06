@@ -2,6 +2,8 @@ package rollout
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -358,5 +361,104 @@ func TestBoundAttemptsEvictsKnownBadFirstAndKeepsTheTarget(t *testing.T) {
 	}
 	if attempts[target] != 1 {
 		t.Fatal("the current target's count was evicted")
+	}
+}
+
+// An older controller reads the records a newer one wrote during a
+// self-update: it skips their new members. A breaking change is a new
+// schema_version, which it still refuses.
+func TestStoreReadsTheRecordsOfANewerBinary(t *testing.T) {
+	store, _ := testStore(t)
+	ctx := t.Context()
+	record, _, err := store.Begin(ctx, testSpec("r1"), testStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer := func(key string, member string) []byte {
+		entry, err := store.kv.Get(ctx, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return []byte(strings.Replace(string(entry.Value()), "{", "{"+member+",", 1))
+	}
+	put := func(key string, value []byte) {
+		if _, err := store.kv.Put(ctx, key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	original := newer(rolloutKey("r1"), `"added_first":true`)
+	cellWire := newer(cellKey, `"added_by_newer_binary":{"wave_budget":2}`)
+	put(cellKey, cellWire)
+	if cell, _, err := store.Cell(ctx); err != nil || cell.ActiveRolloutID != "r1" {
+		t.Fatalf("cell slot of a newer binary = %+v, %v", cell, err)
+	}
+	put(rolloutKey("r1"), newer(rolloutKey("r1"), `"added_by_newer_binary":true`))
+	if loaded, _, err := store.Load(ctx, "r1"); err != nil || loaded.RolloutID != record.RolloutID || loaded.Phase != record.Phase {
+		t.Fatalf("record of a newer binary = %+v, %v", loaded, err)
+	}
+	for name, value := range map[string]string{
+		"breaking schema version": strings.Replace(string(cellWire), `"schema_version":1`, `"schema_version":2`, 1),
+		"duplicate member":        strings.Replace(string(cellWire), `"cell":"gru"`, `"cell":"gru","cell":"other"`, 1),
+	} {
+		put(cellKey, []byte(value))
+		if _, _, err := store.Cell(ctx); err == nil {
+			t.Errorf("%s: cell slot accepted", name)
+		}
+	}
+	// A rollout policy is bound by its digest: an older controller never runs
+	// a rollout under a policy it cannot fully read.
+	policy, err := protocol.EncodeJSON(record.Policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newerPolicy := strings.Replace(string(policy), "{", `{"max_unavailable":2,`, 1)
+	newerDigest := sha256.Sum256([]byte(newerPolicy))
+	put(rolloutKey("r1"), []byte(strings.NewReplacer(string(policy), newerPolicy,
+		record.PolicyDigest, hex.EncodeToString(newerDigest[:])).Replace(string(newer(rolloutKey("r1"), `"added_later":true`)))))
+	if _, _, err := store.Load(ctx, "r1"); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "policy digest") {
+		t.Fatalf("record whose policy has a newer member = %v, want the policy digest refused", err)
+	}
+	put(rolloutKey("gone"), []byte(`{"abandoned_rollout":"gone"}`))
+	if _, _, err := store.Load(ctx, "gone"); !errors.Is(err, errAbandonedRollout) {
+		t.Fatalf("abandoned marker = %v", err)
+	}
+	// Only the exact marker is one: a newer record that happens to carry the
+	// marker's member is still a record.
+	put(rolloutKey("r1"), []byte(strings.Replace(string(original), "{", `{"abandoned_rollout":"r1",`, 1)))
+	if loaded, _, err := store.Load(ctx, "r1"); err != nil || loaded.RolloutID != "r1" {
+		t.Fatalf("record carrying the marker member = %+v, %v", loaded, err)
+	}
+}
+
+// Retained release generations have no schema version of their own: an
+// older controller reads a newer one's generation for a rollback, and the
+// desired record's schema version still guards every read.
+func TestReleaseGenerationsOfANewerBinary(t *testing.T) {
+	store, _ := testStore(t)
+	ctx := t.Context()
+	for _, digest := range []string{fromDigest, toDigest} {
+		if _, err := store.PublishRelease(ctx, 7, Release{Digest: digest, Receipt: []byte("r"), Actor: "ci", CreatedAt: testStart}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entry, err := store.kv.Get(ctx, generationKey(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.kv.Put(ctx, generationKey(1), []byte(strings.Replace(string(entry.Value()), "{", `{"signed_by":"ci-leaf",`, 1))); err != nil {
+		t.Fatal(err)
+	}
+	if back, err := store.RollbackRelease(ctx, 7, 1, "ops", testStart); err != nil || back.Digest != fromDigest || back.RollbackOf != 1 {
+		t.Fatalf("rollback to a newer binary's generation = %+v, %v", back, err)
+	}
+	desired, err := store.kv.Get(ctx, desiredKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.kv.Put(ctx, desiredKey, []byte(strings.Replace(string(desired.Value()), `"schema_version":1`, `"schema_version":2`, 1))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ReleaseGeneration(ctx, 1); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("generation read under a breaking desired schema = %v", err)
 	}
 }

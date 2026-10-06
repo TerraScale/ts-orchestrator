@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -413,6 +414,66 @@ func TestSignedControllerConfigRejectsMisplacedCAAndOverlappingPlacementRole(t *
 				t.Fatalf("signed config error = %v, want %q", err, test.want)
 			}
 		})
+	}
+}
+
+// A controller restarts on a config another binary signed: it checks the
+// signed digest of the bytes, not a re-encoding, and a newer binary's members
+// do not stop it. Signing still needs this binary's canonical config.
+func TestInstalledControllerConfigFromAnotherBinaryStillStarts(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	args, manifest := renderInputs(t, now, keepEverySecret)
+	output := filepath.Join(t.TempDir(), "controller.json")
+	if err := renderControllerConfigAt(append(args, "--out", output), now); err != nil {
+		t.Fatal(err)
+	}
+	wire, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(wire), fmt.Sprintf(`{"version":%d,`, app.ConfigVersion)) {
+		t.Fatalf("rendered config does not name its version: %.40s", wire)
+	}
+	for index, flag := range []string{"--oci-region-intent", "--oci-region-config", "--placement-config"} {
+		body, err := os.ReadFile(args[slices.Index(args, flag)+1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest.ControllerFiles = append(manifest.ControllerFiles, bootstrap.ControllerConfigFile{
+			Name: bootstrap.ControllerConfigFileNames[index], SHA256: digest(body), Bytes: body})
+	}
+	signed := func(config string) bootstrap.Manifest {
+		modified := manifest
+		modified.ControllerConfig, modified.ControllerConfigSHA256 = []byte(config), digest([]byte(config))
+		return modified
+	}
+	rendered := string(wire)
+	newer := strings.Replace(strings.Replace(rendered, fmt.Sprintf(`{"version":%d,`, app.ConfigVersion),
+		fmt.Sprintf(`{"version":%d, "added_by_newer_binary":{"setting":true},`, app.ConfigVersion+1), 1),
+		`"controller":{`, `"controller":{"added_setting":"on",`, 1)
+	if _, err := app.ValidateInstalledControllerConfig(signed(newer), ""); err != nil {
+		t.Fatalf("config signed by a newer binary: %v", err)
+	}
+	if _, err := app.ValidateSignedControllerConfig(signed(newer), ""); err == nil {
+		t.Fatal("signing accepted members this binary does not know")
+	}
+	older := strings.Replace(rendered, fmt.Sprintf(`{"version":%d,`, app.ConfigVersion), "{ ", 1)
+	if _, err := app.ValidateInstalledControllerConfig(signed(older), ""); err != nil {
+		t.Fatalf("non-canonical config signed by an older binary: %v", err)
+	}
+	for name, manifest := range map[string]bootstrap.Manifest{
+		"bytes differ from the signed digest": func() bootstrap.Manifest {
+			tampered := signed(newer)
+			tampered.ControllerConfig = []byte(strings.Replace(newer, `"setting":true`, `"setting":false`, 1))
+			return tampered
+		}(),
+		"typo at this version": signed(strings.Replace(rendered, `"controller":{`, `"controller":{"candidate_idd":"x",`, 1)),
+		"newer config breaks the role": signed(strings.Replace(newer, `"candidate_id":"`+manifest.Slot+`"`,
+			`"candidate_id":"other-slot"`, 1)),
+	} {
+		if _, err := app.ValidateInstalledControllerConfig(manifest, ""); err == nil {
+			t.Errorf("%s: installed config accepted", name)
+		}
 	}
 }
 

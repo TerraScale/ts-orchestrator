@@ -69,7 +69,7 @@ func runInstallControllerConfig(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := ValidateSignedControllerConfig(manifest, observed.PrimaryPrivateIP); err != nil {
+	if _, err := ValidateInstalledControllerConfig(manifest, observed.PrimaryPrivateIP); err != nil {
 		return err
 	}
 	_, gid, err := controllerServiceIdentity()

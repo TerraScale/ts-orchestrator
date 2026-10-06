@@ -51,6 +51,8 @@ func (state CellState) validate(cell string) error {
 
 // Store persists rollout records with CAS on the KV revision. Every write is
 // preceded by an authority Guard for the record's epoch (invariant b).
+// Records decode tolerantly, so an older controller reads a newer one's
+// records during a self-update; schema_version names breaking changes.
 type Store struct {
 	kv     jetstream.KeyValue
 	fencer authority.Fencer
@@ -127,7 +129,7 @@ func (s *Store) Cell(ctx context.Context) (CellState, uint64, error) {
 		return CellState{}, 0, err
 	}
 	var state CellState
-	if err := protocol.DecodeStrict(entry.Value(), &state, maxRecordBytes); err != nil {
+	if err := protocol.DecodeTolerant(entry.Value(), &state, maxRecordBytes); err != nil {
 		return CellState{}, 0, err
 	}
 	if err := state.validate(s.cell); err != nil {
@@ -145,12 +147,14 @@ func (s *Store) Load(ctx context.Context, rolloutID string) (Record, uint64, err
 	if err != nil {
 		return Record{}, 0, err
 	}
+	// Records decode tolerantly, so a marker would decode as an empty record:
+	// read it first, strictly, so a record never passes for one.
+	var marker abandonedMarker
+	if protocol.DecodeStrict(entry.Value(), &marker, maxRecordBytes) == nil && marker.AbandonedRollout == rolloutID {
+		return Record{}, 0, errAbandonedRollout
+	}
 	var record Record
-	if err := protocol.DecodeStrict(entry.Value(), &record, maxRecordBytes); err != nil {
-		var marker abandonedMarker
-		if protocol.DecodeStrict(entry.Value(), &marker, maxRecordBytes) == nil && marker.AbandonedRollout == rolloutID {
-			return Record{}, 0, errAbandonedRollout
-		}
+	if err := protocol.DecodeTolerant(entry.Value(), &record, maxRecordBytes); err != nil {
 		return Record{}, 0, err
 	}
 	if err := record.Validate(); err != nil {

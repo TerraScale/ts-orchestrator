@@ -31,6 +31,19 @@ func EncodeJSON(value any) ([]byte, error) {
 // object names and invalid UTF-8 by default; RejectUnknownMembers closes the
 // remaining permissive struct-decoding path.
 func DecodeStrict(data []byte, destination any, maxBytes int) error {
+	return decode(data, destination, maxBytes, true)
+}
+
+// DecodeTolerant is DecodeStrict for records a newer binary may have written:
+// it skips members this binary does not know, so binary N-1 reads N's records.
+// Duplicate names, invalid UTF-8 and the size limit still fail. A record's
+// schema version names its breaking changes, and its reader checks it; a new
+// member needs a safe zero value, since an older writer drops it.
+func DecodeTolerant(data []byte, destination any, maxBytes int) error {
+	return decode(data, destination, maxBytes, false)
+}
+
+func decode(data []byte, destination any, maxBytes int, rejectUnknown bool) error {
 	if maxBytes == 0 {
 		maxBytes = DefaultMaxJSONBytes
 	}
@@ -44,10 +57,10 @@ func DecodeStrict(data []byte, destination any, maxBytes int) error {
 		return fmt.Errorf("%w: invalid UTF-8", ErrInvalidJSON)
 	}
 	if err := json.Unmarshal(data, destination,
-		json.RejectUnknownMembers(true),
+		json.RejectUnknownMembers(rejectUnknown),
 		jsontext.AllowDuplicateNames(false),
 	); err != nil {
-		return fmt.Errorf("decode strict protocol JSON: %w", err)
+		return fmt.Errorf("decode protocol JSON: %w", err)
 	}
 	return nil
 }

@@ -98,7 +98,7 @@ func (s *Store) Desired(ctx context.Context) (Desired, uint64, error) {
 		return Desired{}, 0, err
 	}
 	var desired Desired
-	if err := protocol.DecodeStrict(entry.Value(), &desired, maxRecordBytes); err != nil {
+	if err := protocol.DecodeTolerant(entry.Value(), &desired, maxRecordBytes); err != nil {
 		return Desired{}, 0, err
 	}
 	if err := desired.validate(s.cell); err != nil {
@@ -116,6 +116,12 @@ func (s *Store) ReleaseGeneration(ctx context.Context, generation uint64) (Relea
 	return s.generation(ctx, desired, generation)
 }
 
+// generation reads a retained copy. The copy has no schema version of its
+// own: the desired record's, which every caller has validated, covers it. A
+// breaking Release change raises SchemaVersion, so an older controller
+// refuses the desired record and never reads a newer generation it would
+// misread; a newer binary's added members are skipped, as in the desired
+// record itself.
 func (s *Store) generation(ctx context.Context, desired Desired, generation uint64) (Release, error) {
 	if generation != 0 && generation == desired.Generation() {
 		return desired.Release, nil
@@ -131,7 +137,7 @@ func (s *Store) generation(ctx context.Context, desired Desired, generation uint
 		return Release{}, err
 	}
 	var release Release
-	if err := protocol.DecodeStrict(entry.Value(), &release, maxRecordBytes); err != nil {
+	if err := protocol.DecodeTolerant(entry.Value(), &release, maxRecordBytes); err != nil {
 		return Release{}, err
 	}
 	if err := release.validate(); err != nil || release.Generation != generation {

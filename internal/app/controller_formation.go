@@ -16,7 +16,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 )
 
@@ -138,9 +137,9 @@ func startControllerAdmission(ctx context.Context, cfg Config, clockCheck func()
 // admitProductionControllerRestartLocal runs in the service-account
 // controller itself: it makes no OCI SDK call, so it needs no child process.
 func admitProductionControllerRestartLocal(ctx context.Context, cfg Config) error {
-	loadedWire, err := protocol.EncodeJSON(cfg)
+	loadedWire, err := cfg.signedWire()
 	if err != nil || len(loadedWire) == 0 || len(loadedWire) > maxConfigBytes {
-		return errors.New("loaded controller config is not bounded canonical JSON")
+		return errors.New("loaded controller config is not bounded JSON")
 	}
 	baked, err := bootstrapstart.LoadBakedInputs()
 	if err != nil {

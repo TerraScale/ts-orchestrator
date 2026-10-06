@@ -14,7 +14,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -133,11 +132,11 @@ func loadSignedManagedControllerConfig(cfg Config) (oci.RegionIntent, oci.Region
 	if err != nil || manifest.Slot != marker.Slot {
 		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, errors.New("installed controller manifest slot is invalid")
 	}
-	configWire, err := protocol.EncodeJSON(cfg)
+	configWire, err := cfg.signedWire()
 	if err != nil || controllerSHA256(configWire) != manifest.ControllerConfigSHA256 {
 		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, errors.New("loaded controller config differs from installed signed manifest")
 	}
-	if _, err := ValidateSignedControllerConfig(manifest, marker.PrimaryPrivateIP); err != nil {
+	if _, err := ValidateInstalledControllerConfig(manifest, marker.PrimaryPrivateIP); err != nil {
 		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, err
 	}
 	_, gid, err := controllerServiceIdentity()
