@@ -64,7 +64,10 @@ type Controller struct {
 	Seats func() ([]Member, error)
 	// Backends returns the public load balancer's backends by ip:port; nil
 	// means there is no load balancer and nothing is drained.
-	Backends   func(ctx context.Context) (map[string]Backend, error)
+	Backends func(ctx context.Context) (map[string]Backend, error)
+	// Wake, when set, is called after every record write, so the load
+	// balancer publisher applies a drain or return at once.
+	Wake       func()
 	DrainGrace time.Duration
 	Settle     time.Duration
 	Interval   time.Duration
@@ -249,6 +252,9 @@ func (c *Controller) put(ctx context.Context, epoch uint64, v view, record Seat,
 	record.Node, record.Epoch = v.seat.Node, epoch
 	if _, err := c.Store.Put(ctx, record, v.rev); err != nil {
 		return fmt.Errorf("seat %s: %w", v.seat.Node, err)
+	}
+	if c.Wake != nil {
+		c.Wake()
 	}
 	slog.Info("terrabase seat "+what, "component", "seatrollout", "seat", v.seat.Node, "generation", v.desired.Generation, "epoch", epoch)
 	return nil

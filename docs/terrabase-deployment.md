@@ -188,7 +188,8 @@ The member count is the number of `TERRABASE_PEERS` entries. The command:
 5. Submits the signed delivery intent for one member per peer; prints
    `{"step":"deploy", ...}` with the digest and generation once accepted.
 6. Waits for the readiness gate: every replica in `--environment` reports
-   the new digest `running` within `--wait`. A `failed` member, including one whose
+   the new digest `running` within `--wait` (default ten minutes, or five
+   minutes per member when that is longer). A `failed` member, including one whose
    process exited, fails the gate at once; read errors are retried until
    `--wait`. Prints `{"step":"ready", ...}` with the member count.
 7. On a gate failure, rolls back: a new intent with generation + 1 and the
@@ -208,9 +209,21 @@ The member count is the number of `TERRABASE_PEERS` entries. The command:
    rolled back. A failure to write progress to stdout never counts as a
    gate failure; the command reports it when it exits.
 
-All members switch together: the delivery path writes every host's desired
-at once, so every member restarts on the new binary. Per-member canary or
-rolling updates are future work once replication exists. Old binaries stay
+By default all members switch together: the delivery path writes every
+host's desired at once, so every member restarts on the new binary. With
+`controller.terrabase_seats` enabled they restart one at a time instead
+(TS-571, [zero-downtime rollouts](terrabase-zero-downtime-rollouts.md)): a
+host holds its member's restart, reporting it `waiting`, until the leader's
+seat controller permits it, and with `oci_reconcile.public_lb` the seat is
+drained on the public load balancer first and returns once it serves again:
+
+```json
+"terrabase_seats": {"enabled": true, "drain_grace_seconds": 15, "settle_seconds": 10}
+```
+
+Both durations are optional (0 to 300 seconds). Enable it on every
+controller of the cell together: the host restart gate is served by the
+authority leader. Old binaries stay
 installed on the hosts, so a rollback reuses the cached file. A member's data
 lives on its host (on the data volume attached to it when
 `terrabase_data_volume` is set), so the controller replaces a failed member in place

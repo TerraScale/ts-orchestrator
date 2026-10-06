@@ -318,6 +318,18 @@ type ociReconcileRuntime struct {
 	runner *ociresource.Runner
 	store  ociresource.StatusLister
 	cell   string
+	// wake starts the next pass at once; seatBackends reads the public
+	// load balancer's TerraBase backends, nil without public_lb.
+	wake         chan struct{}
+	seatBackends func(context.Context) (map[string]seatrollout.Backend, error)
+}
+
+// wakeRunner asks for the next pass now without blocking.
+func (r *ociReconcileRuntime) wakeRunner() {
+	select {
+	case r.wake <- struct{}{}:
+	default:
+	}
 }
 
 // resources returns the insights provider, or a nil interface when the
@@ -412,6 +424,7 @@ func newOCIReconcileRunner(ctx context.Context, config OciReconcileConfig, regio
 		return nil, err
 	}
 	var passes []ociresource.Pass
+	var seatBackends func(context.Context) (map[string]seatrollout.Backend, error)
 	if len(desiredSets) > 0 {
 		passes = append(passes, desiredPass(cell, store, fencer, desiredSets, config.Desired.Prune, pruneDelay))
 	}
@@ -471,10 +484,12 @@ func newOCIReconcileRunner(ctx context.Context, config OciReconcileConfig, regio
 		if err != nil {
 			return nil, err
 		}
+		seatBackends = lbSeatBackends(lbAPI, *public)
 		passes = append(passes, publicLBPass(store, fencer, key, *public, profiles, seats.Drained),
 			ociresource.ControllerPass(&ociresource.Controller[lb.Spec, lb.Observed]{
 				Region: cell, Resource: lb.Reconciler{API: lbAPI}, Store: store, Ownership: ownership, Authority: fencer}))
 	}
+	wake := make(chan struct{}, 1)
 	return &ociReconcileRuntime{runner: &ociresource.Runner{Authority: fencer, Passes: passes, Interval: interval,
-		Jitter: rand.Float64}, store: store, cell: cell}, nil
+		Jitter: rand.Float64, Wake: wake}, store: store, cell: cell, wake: wake, seatBackends: seatBackends}, nil
 }

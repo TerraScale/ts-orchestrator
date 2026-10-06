@@ -27,7 +27,7 @@ type terraBaseReleaseOptions struct {
 	Commit           string
 	Environment      string
 	Profile          string        // the controller's signed workloads.terrabase profile
-	Wait             time.Duration // readiness gate per rollout; zero means 10 minutes
+	Wait             time.Duration // readiness gate per rollout; zero means defaultReleaseWait
 }
 
 // operatorTerraBaseRelease admits a C# TerraBase release and rolls every
@@ -106,7 +106,7 @@ type nativeRelease struct {
 
 func releaseNative(ctx context.Context, cfg Config, runtime *natscell.Runtime, release nativeRelease, options terraBaseReleaseOptions, output io.Writer) error {
 	if options.Wait == 0 {
-		options.Wait = 10 * time.Minute
+		options.Wait = defaultReleaseWait(release.Role, release.Replicas)
 	}
 	role, digest, profile := release.Role, release.Digest, release.Profile
 	tree, err := sourceTreeDigest(ctx, options.SourceCheckout, options.Commit)
@@ -175,6 +175,16 @@ func releaseNative(ctx context.Context, cfg Config, runtime *natscell.Runtime, r
 		return fmt.Errorf("%s release %s failed its readiness gate (%w) and rollback to %s failed: %w", role, digest, gateErr, previous, err)
 	}
 	return fmt.Errorf("%s release %s failed its readiness gate and was rolled back to %s: %w", role, digest, previous, gateErr)
+}
+
+// defaultReleaseWait is the readiness gate's default: ten minutes, and for
+// TerraBase five minutes per seat, since seat rollouts (TS-571) restart one
+// seat at a time.
+func defaultReleaseWait(role string, replicas int) time.Duration {
+	if role == terrabase.Role {
+		return max(10*time.Minute, time.Duration(replicas)*5*time.Minute)
+	}
+	return 10 * time.Minute
 }
 
 // submitTerraBaseIntent is submitIntent; tests replace it to lose a publish

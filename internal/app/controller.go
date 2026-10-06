@@ -27,6 +27,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/seatrollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 	"github.com/nats-io/nats.go"
@@ -446,6 +447,22 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			return managedController.VerifyManagedDesired(verifyCtx, desired, registration, current, currentExists)
 		}
 	}
+	// TerraBase seat rollouts hold a static member's restart until its seat
+	// is permitted, so the host controller needs the seat records first.
+	var seatStore *seatrollout.Store
+	var restartGate func(context.Context, string, host.Desired) (bool, error)
+	if seats := cfg.Controller.TerraBaseSeats; seats != nil && seats.Enabled {
+		if _, _, err := seats.durations(); err != nil {
+			return err
+		}
+		if seatStore, _, err = retryControllerOpen(ctx, "open TerraBase seat records", fullClusterReady, false,
+			func(attempt context.Context) (*seatrollout.Store, error) {
+				return seatrollout.Open(attempt, runtime.JetStream(), cfg.NATS.Replicas, control)
+			}, nil); err != nil {
+			return err
+		}
+		restartGate = seatStore.Granted
+	}
 	hostController, _, err := retryControllerOpen(ctx, "open regional host control", fullClusterReady, false,
 		func(attempt context.Context) (*host.Controller, error) {
 			return host.NewController(attempt, host.ControllerConfig{
@@ -459,6 +476,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				ManagedCredentialFloor:      credentialFloor,
 				ManagedVolumeInspector:      volumeInspector,
 				TerraBaseCA:                 terraBaseCA,
+				RestartGate:                 restartGate,
 			})
 		}, nil)
 	if err != nil {
@@ -724,6 +742,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	if ociReconcile != nil {
 		workers.Go(func() { workerErrors <- ociReconcile.runner.Run(runCtx) })
+	}
+	if seatStore != nil {
+		seats := newSeatController(cfg, seatStore, control, hostController, services.profiles, ociReconcile)
+		workers.Go(func() { workerErrors <- seats.Run(runCtx) })
 	}
 	if membershipSupervisor != nil {
 		workers.Go(func() { workerErrors <- membershipSupervisor.Run(runCtx) })

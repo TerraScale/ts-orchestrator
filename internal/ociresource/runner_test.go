@@ -85,3 +85,23 @@ func TestRunnerStopsWithContextAndControllerPassIsFenced(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A wake runs the next tick at once instead of after the interval.
+func TestRunnerWakeStartsTheNextTick(t *testing.T) {
+	auth := &snapshotAuthority{snapshot: authority.Snapshot{Leader: true, Ready: true, Epoch: 1}}
+	ticks := make(chan struct{}, 4)
+	wake := make(chan struct{}, 1)
+	runner := Runner{Authority: auth, Interval: time.Hour, Wake: wake,
+		Passes: []Pass{{Name: "count", Run: func(context.Context, uint64) error { ticks <- struct{}{}; return nil }}}}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go func() { _ = runner.Run(ctx) }()
+	for i := range 2 {
+		select {
+		case <-ticks:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("tick %d did not run", i)
+		}
+		wake <- struct{}{}
+	}
+}

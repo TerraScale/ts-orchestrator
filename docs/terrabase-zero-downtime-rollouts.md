@@ -1,8 +1,9 @@
 # Zero-downtime TerraBase rollouts (TS-571)
 
-Status: design note. Slices 1 (the L7 backend-set reconciler), 2 (seats as
-backends) and 3 (`running` needs `/readyz`) are implemented; the rest is
-**PROPOSED**.
+Status: design note. Slices 1 to 4 are implemented: the L7 backend-set
+reconciler, seats as backends, `running` needs `/readyz`, and one seat at a
+time behind its drain (`controller.terrabase_seats`). Slice 5, the
+acceptance under load, is **PROPOSED**; see the risks at the end.
 
 ## Problem
 
@@ -96,7 +97,7 @@ TS-561 must keep `/readyz` about the member's own catch-up, not its peers'
 liveness: with two seats (gru-1) the surviving seat has to keep serving reads
 and writes while its pair restarts, or no drain order can avoid 5xx.
 
-### 4. One seat at a time: a restart permit (slice 4, PROPOSED)
+### 4. One seat at a time: a restart permit (slice 4)
 
 The host agent already asks the controller for a `cycle` before it replaces
 a process, and waits quietly until the cycle is `active`; it asks again
@@ -158,10 +159,13 @@ records and observations, so a new leader resumes where the old one stopped;
 a seat a deposed leader left drained stays drained until its step finishes.
 Only the authority leader writes, and every write is fenced by its epoch.
 
-Implemented (slice 4c): the controller and its tests. **PROPOSED:** wiring
-it into the controller process behind a configuration switch that also sets
-the host restart gate, and `terrabase-release` scaling its gate wait with
-the seat count.
+Implemented (slice 4c): the controller and its tests. Implemented (slice
+4d): `controller.terrabase_seats` turns it on: the controller opens the seat
+records, sets them as the host restart gate and runs the seat controller on
+the leader; with `public_lb` it reads the load balancer's backends and wakes
+the OCI reconcile runner after every step (`ociresource.Runner.Wake`), so a
+drain applies at once instead of on the next pass. `terrabase-release` waits
+five minutes per seat when that exceeds its ten-minute default.
 
 The drain set is generic. Host reboots for OS updates (TS-570) and
 self-healing (TS-568) can drain a seat through it before they restart its
@@ -174,6 +178,13 @@ A load test drives requests through a load balancer that honours drain and
 release on gru-1, with both members in the backend set once TS-561 ships.
 
 ## Risks to verify
+
+- The host's certificate-renewal restart (`terraBaseRunningReport`) stops the
+  member without asking the restart gate, so it is neither drained nor
+  serialized with a release. It happens about once per member every 90 days,
+  staggered one to seven days by node, and ends once TerraBase reloads
+  renewed certificates (TS-464). Routing it through the seat controller needs
+  a new host signal and is follow-up work.
 
 - Whether OCI keeps health-checking a drained backend (step 4 needs it);
   check on gru-1 before slice 4 relies on it.

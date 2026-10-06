@@ -20,6 +20,7 @@ type cell struct {
 	state    map[string]string
 	backends map[string]Backend
 	members  []Member
+	wakes    int
 }
 
 func newCell(t *testing.T) *cell {
@@ -52,7 +53,7 @@ func (c *cell) controller(store *Store, fence authority.Fencer) *Controller {
 	return &Controller{Store: store, Fencer: fence, Hosts: c,
 		Seats:    func() ([]Member, error) { return c.members, nil },
 		Backends: func(context.Context) (map[string]Backend, error) { return c.backends, nil },
-		Now:      func() time.Time { return c.now }}
+		Now:      func() time.Time { return c.now }, Wake: func() { c.wakes++ }}
 }
 
 // release moves every seat to generation; their hosts wait for a permit.
@@ -112,11 +113,17 @@ func TestSeatsRestartOneAtATimeBehindTheirDrain(t *testing.T) {
 	c.release(2)
 	c.tick(controller)
 	c.expect(store, []string{"gru-1-db-1"}, nil)
+	if c.wakes != 1 {
+		t.Fatalf("the drain woke the load balancer publisher %d times", c.wakes)
+	}
 
 	// The load balancer has not applied the drain yet.
 	c.now = c.now.Add(time.Minute)
 	c.tick(controller)
 	c.expect(store, []string{"gru-1-db-1"}, nil)
+	if c.wakes != 1 {
+		t.Fatalf("a tick that wrote nothing woke the publisher: %d", c.wakes)
+	}
 	// It applies it a minute late: in-flight requests get their grace from
 	// then, not from the drain request.
 	c.backends["10.251.0.21:9465"] = Backend{Drained: true, Healthy: true}

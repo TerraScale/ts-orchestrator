@@ -38,6 +38,9 @@ type Runner struct {
 	Interval  time.Duration
 	// Jitter returns a value in [0, 1) that spreads ticks across controllers.
 	Jitter func() float64
+	// Wake, when set, starts the next tick at once, for a caller that just
+	// changed desired state it needs applied soon. Nil waits the interval.
+	Wake <-chan struct{}
 }
 
 const defaultInterval = time.Minute
@@ -64,6 +67,8 @@ func (r Runner) Run(ctx context.Context) error {
 			timer.Stop()
 			return nil
 		case <-timer.C:
+		case <-r.Wake:
+			timer.Stop()
 		}
 	}
 }

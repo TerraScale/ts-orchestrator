@@ -1,4 +1,4 @@
-version 1
+version 2
 .Controller app.ControllerConfig json:"controller"
 .Controller.ArtifactStoreMaxBytes int64 json:"artifact_store_max_bytes,omitzero"
 .Controller.Autoscale *app.AutoscaleConfig json:"autoscale,omitempty"
@@ -207,6 +207,10 @@ version 1
 .Controller.StorageCapacity.TTLSeconds int json:"ttl_seconds,omitzero"
 .Controller.TerraBaseCACertFile string json:"terrabase_ca_cert_file,omitempty"
 .Controller.TerraBaseCAKeyFile string json:"terrabase_ca_key_file,omitempty"
+.Controller.TerraBaseSeats *app.TerraBaseSeatsConfig json:"terrabase_seats,omitempty"
+.Controller.TerraBaseSeats.DrainGraceSeconds int json:"drain_grace_seconds,omitzero"
+.Controller.TerraBaseSeats.Enabled bool json:"enabled"
+.Controller.TerraBaseSeats.SettleSeconds int json:"settle_seconds,omitzero"
 .Controller.TrustKeyFile string json:"trust_key_file,omitempty"
 .Controller.TrustedSigners []app.TrustedSignerConfig json:"trusted_signers,omitempty"
 .Controller.TrustedSigners.Actor string json:"actor"
