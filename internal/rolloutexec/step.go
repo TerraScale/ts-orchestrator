@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
@@ -189,10 +189,14 @@ func (outcome StepOutcome) Accepted() bool {
 // StepReply is the agent's unsigned reply. It only tells the executor
 // whether to wait or retry: completion is proven by a signed health proof.
 type StepReply struct {
-	OperationID string      `json:"operation_id"`
-	Unit        string      `json:"unit"`
-	Outcome     StepOutcome `json:"outcome"`
-	Reason      string      `json:"reason,omitempty"`
+	OperationID string `json:"operation_id"`
+	Unit        string `json:"unit"`
+	// Epoch is the answered step's authority epoch: an operation ID spans
+	// leaders, so a reply to a deposed leader's late step never answers its
+	// successor.
+	Epoch   uint64      `json:"epoch,omitzero"`
+	Outcome StepOutcome `json:"outcome"`
+	Reason  string      `json:"reason,omitempty"`
 }
 
 // Driver performs one unit step. It must be idempotent per OperationID: the
@@ -208,9 +212,22 @@ type ReleaseSource interface {
 	Receipt(ctx context.Context, digest string) (receipt, delegation []byte, err error)
 }
 
-// NATSDriver sends signed steps to unit agents over NATS request/reply.
-type NATSDriver struct {
-	Conn     *nats.Conn
+// Steps travel through the replicated rollout bucket, not a direct
+// request: the leader writes each signed step under its unit's step key and
+// reads the agent's answer from the unit's reply key. The unit's own
+// controller relays both to and from the node's root step agent (Relay),
+// because the controller runs unprivileged and the agent, the root-run
+// self-update watchdog, has no NATS connection. Every controller credential
+// already writes and reads KV, so no grant changes.
+
+// StepKey and ReplyKey are one unit's keys in rollout.Bucket. Unit
+// identities are hashed so caller-controlled names never become key tokens.
+func StepKey(unit string) string  { return "step." + protocol.HashToken(unit)[:32] }
+func ReplyKey(unit string) string { return "step-reply." + protocol.HashToken(unit)[:32] }
+
+// KVDriver posts signed steps to unit agents through the rollout bucket.
+type KVDriver struct {
+	KV       jetstream.KeyValue
 	Cell     string
 	Key      ed25519.PrivateKey
 	Releases ReleaseSource
@@ -218,9 +235,11 @@ type NATSDriver struct {
 	Now      func() time.Time
 }
 
-// Step signs and sends one step and decodes the agent's reply.
-func (d NATSDriver) Step(ctx context.Context, step Step) (StepReply, error) {
-	if d.Conn == nil || len(d.Key) != ed25519.PrivateKeySize {
+// Step signs and posts one step and returns the agent's reply to it. Until
+// the agent answered this operation it asks the executor to retry; the
+// executor posts the step again, freshly signed, on its next tick.
+func (d KVDriver) Step(ctx context.Context, step Step) (StepReply, error) {
+	if d.KV == nil || len(d.Key) != ed25519.PrivateKeySize {
 		return StepReply{}, fmt.Errorf("%w: step driver configuration", ErrInvalid)
 	}
 	now := time.Now
@@ -231,7 +250,7 @@ func (d NATSDriver) Step(ctx context.Context, step Step) (StepReply, error) {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	// The receipt lookup, signing and the request share one deadline.
+	// The receipt lookup, signing and the writes share one deadline.
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	command := StepCommand{Schema: StepSchema, Cell: d.Cell, RolloutID: step.RolloutID, Kind: step.Kind, Unit: step.Unit,
@@ -255,11 +274,23 @@ func (d NATSDriver) Step(ctx context.Context, step Step) (StepReply, error) {
 			return StepReply{}, err
 		}
 	}
-	msg, err := d.Conn.RequestWithContext(requestCtx, protocol.RolloutStepSubject(d.Cell, step.Unit), wire)
-	if err != nil {
-		return StepReply{}, err
+	if _, err := d.KV.Put(requestCtx, StepKey(step.Unit), wire); err != nil {
+		return StepReply{}, fmt.Errorf("post rollout step: %w", err)
 	}
-	return decodeReply(msg.Data, step)
+	waiting := StepReply{OperationID: step.OperationID, Unit: step.Unit, Outcome: OutcomeRetry,
+		Reason: "waiting for the unit's step agent"}
+	entry, err := d.KV.Get(requestCtx, ReplyKey(step.Unit))
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return waiting, nil
+	}
+	if err != nil {
+		return StepReply{}, fmt.Errorf("read rollout step reply: %w", err)
+	}
+	// A reply to an earlier step of the unit is not an answer to this one.
+	if reply, err := decodeReply(entry.Value(), step); err == nil {
+		return reply, nil
+	}
+	return waiting, nil
 }
 
 func decodeReply(data []byte, step Step) (StepReply, error) {
@@ -275,7 +306,8 @@ func decodeReply(data []byte, step Step) (StepReply, error) {
 	default:
 		return StepReply{}, fmt.Errorf("%w: step reply outcome", ErrInvalid)
 	}
-	if reply.OperationID != step.OperationID || reply.Unit != step.Unit || len(reply.Reason) > maxReplyReason {
+	if reply.OperationID != step.OperationID || reply.Unit != step.Unit || reply.Epoch != step.Epoch ||
+		len(reply.Reason) > maxReplyReason {
 		return StepReply{}, errors.New("step reply does not answer this step")
 	}
 	return reply, nil

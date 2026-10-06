@@ -172,6 +172,21 @@ func DefaultPolicy() Policy {
 	}
 }
 
+// AllAtOncePolicy is the default policy of an orchestrator release: changes
+// go live as fast as the quorum allows (user decision 2026-10-06). Every
+// wave takes all the units PlanWaves lets it, never two of one group and the
+// seed last and alone, so three controllers still move one at a time. A wave
+// is promoted after two healthy reports from one incarnation, with no soak;
+// a unit that restarts on another release, or does not prove the target
+// within five minutes, rolls the rollout back.
+func AllAtOncePolicy() Policy {
+	return Policy{
+		CanaryUnits: MaxUnits, BatchSize: MaxUnits, MinHealthyReports: 2,
+		ProofDeadlineSeconds: int64((5 * time.Minute).Seconds()), RollbackDeadlineSeconds: int64((15 * time.Minute).Seconds()),
+		PreflightSeconds: int64((5 * time.Minute).Seconds()), MaxAttempts: 1, MaxRollbackRetries: 3,
+	}
+}
+
 // Validate rejects policies that could skip the canary, soak or deadlines.
 func (policy Policy) Validate() error {
 	if policy.CanaryUnits < 1 || policy.CanaryUnits > MaxUnits || policy.BatchSize < 1 || policy.BatchSize > MaxUnits ||

@@ -43,7 +43,18 @@ type rolloutRequester struct {
 	reader ed25519.PrivateKey
 }
 
-func newRolloutRequester(t *testing.T) *rolloutRequester {
+// testRolloutStore opens a rollout store for cell gru on a fresh broker.
+func testRolloutStore(t *testing.T, fence authority.Fencer) *rollout.Store {
+	t.Helper()
+	store, err := rollout.OpenStore(t.Context(), testRolloutJetStream(t), "gru", 1, fence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+// testRolloutJetStream starts a fresh single broker.
+func testRolloutJetStream(t *testing.T) jetstream.JetStream {
 	t.Helper()
 	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
 	if err != nil {
@@ -63,11 +74,13 @@ func newRolloutRequester(t *testing.T) *rolloutRequester {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return js
+}
+
+func newRolloutRequester(t *testing.T) *rolloutRequester {
+	t.Helper()
 	fence := rolloutTestFence{epoch: 7}
-	store, err := rollout.OpenStore(t.Context(), js, "gru", 1, fence)
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := testRolloutStore(t, fence)
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +98,7 @@ func newRolloutRequester(t *testing.T) *rolloutRequester {
 	if err != nil {
 		t.Fatal(err)
 	}
-	control, err := newRolloutControl(cfg, nil)
+	control, err := newRolloutControl(cfg, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,17 +250,29 @@ func TestRolloutRequestsRefuseUntrustedStaleAndTamperedRequests(t *testing.T) {
 }
 
 func TestRolloutConfigAndCommandFlagsAreChecked(t *testing.T) {
-	if _, err := newRolloutControl(Config{Controller: ControllerConfig{Rollouts: &RolloutsConfig{Executor: true}}}, nil); err == nil {
+	if _, err := newRolloutControl(Config{Controller: ControllerConfig{Rollouts: &RolloutsConfig{Executor: true}}}, nil, ""); err == nil {
 		t.Fatal("an executor without the rollout store was accepted")
 	}
-	production := Config{Controller: ControllerConfig{Rollouts: &RolloutsConfig{Enabled: true, Executor: true}}}
-	if _, err := newRolloutControl(production, nil); err == nil || !strings.Contains(err.Error(), "step agent") {
-		t.Fatalf("a production executor without step agents: %v", err)
+	if _, err := newRolloutControl(Config{Controller: ControllerConfig{Rollouts: &RolloutsConfig{Enabled: true, Channel: true}}}, nil, ""); err == nil {
+		t.Fatal("a release channel without the executor was accepted")
 	}
 	policy := rollout.DefaultPolicy()
 	policy.CanaryUnits = 0
-	if _, err := newRolloutControl(Config{Controller: ControllerConfig{Rollouts: &RolloutsConfig{Enabled: true, Policy: &policy}}}, nil); err == nil {
+	if _, err := newRolloutControl(Config{Controller: ControllerConfig{Rollouts: &RolloutsConfig{Enabled: true, Policy: &policy}}}, nil, ""); err == nil {
 		t.Fatal("a policy without a canary was accepted")
+	}
+	// A production controller without a rollouts block follows its
+	// region's release channel; a lab or an explicit block keeps its own.
+	if settings := rolloutSettings(Config{}); settings == nil || !settings.Enabled || !settings.Executor ||
+		!settings.AllowScopedAutoSign || !settings.Channel {
+		t.Fatalf("production default = %+v", settings)
+	}
+	if settings := rolloutSettings(Config{NATS: natscell.Config{Lab: true}}); settings != nil {
+		t.Fatalf("lab default = %+v", settings)
+	}
+	explicit := &RolloutsConfig{Enabled: true}
+	if settings := rolloutSettings(Config{Controller: ControllerConfig{Rollouts: explicit}}); settings != explicit {
+		t.Fatalf("explicit settings were replaced: %+v", settings)
 	}
 	for _, test := range []struct {
 		command, receipt string

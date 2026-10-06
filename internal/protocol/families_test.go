@@ -39,9 +39,9 @@ func TestSubjectFamiliesKeepWireFormat(t *testing.T) {
 		Regional("gru", ">"):                          "ts.orch.v1.gru.>",
 		ObservabilityGrant("gru"):                     "ts.orch.v1.gru.obs.>",
 		RolloutStatusSubject("gru"):                   "ts.orch.v1.gru.rollout.status",
+		ReleaseStatusSubject("gru"):                   "ts.orch.v1.gru.release.status",
 		RolloutProofSubject("gru", ""):                "ts.orch.v1.gru.rollout.proof.*",
 		RolloutProofSubject("gru", "controller-a"):    "ts.orch.v1.gru.rollout.proof." + HashToken("controller-a")[:32],
-		RolloutStepSubject("gru", "host-1"):           "ts.orch.v1.gru.rollout.step." + HashToken("host-1")[:32],
 		Control("gru", ">"):                           "ts.control.gru.>",
 		Control("global", "lease"):                    "ts.control.global.lease",
 		Control("gru", "broker", "claim", key):        "ts.control.gru.broker.claim." + key,
@@ -89,7 +89,6 @@ func TestSubjectFamiliesFailClosed(t *testing.T) {
 		"reset of no consumer": JSConsumerResetSubject(JSLocalAPIPrefix, GlobalControlStream, GlobalMirrorConsumer("x.y")),
 		"reset without prefix": JSConsumerResetSubject(InterRegionJSAPIPrefix("global"), GlobalControlStream, "c"),
 		"fc of no consumer":    JSFlowControlSubject(GlobalControlStream, ""),
-		"step of no unit":      RolloutStepSubject("gru", ""),
 		"rollout global scope": RolloutStatusSubject("global"),
 	} {
 		if subject != "" {

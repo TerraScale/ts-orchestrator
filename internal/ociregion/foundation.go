@@ -419,6 +419,10 @@ func storageStatements(plan, ids Object, prefix string) []string {
 	// The leader keeps the configuration KV buckets in the versioned head
 	// bucket (controller.kv_snapshot, docs/storage.md).
 	r = append(r, fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name='kv-snapshot/v1/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}", dg, control, str(buckets["head"])))
+	// The leader follows the region's orchestrator release channel, which CI
+	// writes, and reports its progress there (docs/continuous-delivery.md).
+	r = append(r, fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name='releases/v1/*', request.permission='OBJECT_READ'}", dg, control, str(buckets["head"])),
+		fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name='releases/v1/orchestrator/status.json', any {request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}", dg, control, str(buckets["head"])))
 	return append(r, fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name='material/v2/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE'}}", dg, control, str(buckets["material"])), fmt.Sprintf("Allow dynamic-group %s to use keys in compartment %s where all {target.key.id='%s', any {request.permission='KEY_ENCRYPT', request.permission='KEY_DECRYPT'}}", dg, control, str(ids["key"])), fmt.Sprintf("Allow dynamic-group %s to use key-delegate in compartment %s where target.key.id='%s'", dg, control, str(ids["key"])))
 }
 func controllerStatements(plan, ids Object, prefix string) []string {

@@ -59,6 +59,16 @@ func TestGRURebuildPlanKeepsFreshBindingsAndCSharpPeers(t *testing.T) {
 	if snapshots != 1 {
 		t.Fatalf("controller policy grants the KV snapshot prefix %d times", snapshots)
 	}
+	channel := 0
+	for _, statement := range statements {
+		if strings.Contains(statement, "target.bucket.name='gru-1-head', target.object.name='releases/v1/*', request.permission='OBJECT_READ'}") ||
+			strings.Contains(statement, "target.bucket.name='gru-1-head', target.object.name='releases/v1/orchestrator/status.json', any {request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}") {
+			channel++
+		}
+	}
+	if channel != 2 {
+		t.Fatalf("controller policy grants the release channel %d times, want its read and its status write", channel)
+	}
 	var profile struct {
 		Env map[string]string `json:"env"`
 	}

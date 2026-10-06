@@ -133,6 +133,25 @@ func TestPlanWavesKeepsQuorumAndSeedLast(t *testing.T) {
 	}
 }
 
+// All at once still keeps quorum: no wave takes two units of a group, so a
+// TerraBase pair keeps a serving seat and three controllers a majority, and
+// the seed goes last and alone.
+func TestAllAtOncePolicyMovesAsManyUnitsAsQuorumAllows(t *testing.T) {
+	policy := AllAtOncePolicy()
+	if err := policy.Validate(); err != nil || policy.CanarySoakSeconds != 0 || policy.BatchSoakSeconds != 0 {
+		t.Fatalf("all-at-once policy = %+v %v", policy, err)
+	}
+	waves, err := PlanWaves(controllers(), policy)
+	if want := [][]string{{"ctrl-b"}, {"ctrl-c"}, {"ctrl-a"}}; err != nil || !slices.EqualFunc(waves, want, slices.Equal) {
+		t.Fatalf("controller waves = %v %v, want %v", waves, err, want)
+	}
+	hosts := []Unit{{ID: "h1", Group: "h1"}, {ID: "h2", Group: "h2"}, {ID: "h3", Group: "h3"}}
+	waves, err = PlanWaves(append(seats(), hosts...), policy)
+	if want := [][]string{{"h1", "h2", "h3", "p1-a", "p2-a"}, {"p1-b", "p2-b"}}; err != nil || !slices.EqualFunc(waves, want, slices.Equal) {
+		t.Fatalf("host waves = %v %v, want %v", waves, err, want)
+	}
+}
+
 func TestPlanWavesRejectsInvalidUnits(t *testing.T) {
 	for name, units := range map[string][]Unit{
 		"empty":     nil,

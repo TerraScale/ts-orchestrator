@@ -50,6 +50,23 @@ const (
 	maxReason       = 512
 )
 
+// Inside a cell the channel travels over NATS, not Object Storage: Bucket
+// holds each cell's channel document under ChannelKey, and its leader's
+// newest report under StatusKey, which the leader also publishes on
+// protocol.ReleaseStatusSubject. TS-562 replicates the bucket between
+// orchestrators; until it does, the region leader copies CI's channel.json
+// in and its report back out to status.json.
+const (
+	Bucket = "TS_RELEASE_CHANNEL"
+	// MaxValueBytes bounds a channel or report in the bucket.
+	MaxValueBytes = 1 << 20
+)
+
+// ChannelKey and StatusKey are a cell's keys in Bucket; cell is the logical
+// cell, e.g. GRU.
+func ChannelKey(cell string) string { return "orchestrator.channel." + cell }
+func StatusKey(cell string) string  { return "orchestrator.status." + cell }
+
 var (
 	ErrInvalid = errors.New("invalid release channel")
 	// ErrConflict reports a conditional write that lost to another writer.
@@ -209,6 +226,44 @@ func ReadStatus(ctx context.Context, location Location) (Status, bool, error) {
 	return status, found, err
 }
 
+// WriteStatus replaces the region's status. Only the region's authority
+// leader writes it, and a report is telemetry, so it is not conditional.
+func WriteStatus(ctx context.Context, location Location, status Status) error {
+	status.Schema, status.Reason = StatusSchema, Clip(status.Reason)
+	wire, err := json.Marshal(status, json.Deterministic(true))
+	if err != nil {
+		return err
+	}
+	name := StatusObject
+	_, err = location.Client.PutObject(ctx, objectstorage.PutObjectRequest{
+		NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name,
+		ContentLength: new(int64(len(wire))), PutObjectBody: io.NopCloser(bytes.NewReader(wire)),
+		ContentType: new("application/json"),
+	})
+	if err != nil {
+		return fmt.Errorf("write %s/%s: %w", location.Bucket, name, err)
+	}
+	return nil
+}
+
+// ReadBinary copies the region's binary with digest to dst. The caller
+// checks the bytes against the digest; a node stages them only after its
+// receipt verifies.
+func ReadBinary(ctx context.Context, location Location, digest string, dst io.Writer) error {
+	name := BinaryObject(digest)
+	response, err := location.Client.GetObject(ctx, objectstorage.GetObjectRequest{
+		NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name,
+	})
+	if err != nil {
+		return fmt.Errorf("read %s/%s: %w", location.Bucket, name, err)
+	}
+	defer response.Content.Close()
+	if _, err := io.Copy(dst, response.Content); err != nil {
+		return fmt.Errorf("read %s/%s: %w", location.Bucket, name, err)
+	}
+	return nil
+}
+
 // Await polls the region's status every poll until it reports channel's
 // release complete. It fails when the region reports the release failed or
 // moved past it, or when deadline passes. Each status change is written to
@@ -228,14 +283,14 @@ func Await(ctx context.Context, location Location, channel Channel, poll time.Du
 			return fmt.Errorf("%w: %s moved on to run %d", ErrFailed, channel.Cell, status.RunNumber)
 		case status.Cell != channel.Cell || status.SourceRevision != channel.SourceRevision:
 			return fmt.Errorf("%w: %s reports run %d for %s %s", ErrFailed, channel.Cell, status.RunNumber,
-				clip(status.Cell), clip(status.SourceRevision))
+				Clip(status.Cell), Clip(status.SourceRevision))
 		case status.State == StateComplete:
 			fmt.Fprintf(progress, "%s complete: run %d %s\n", channel.Cell, channel.RunNumber, channel.SourceRevision)
 			return nil
 		case status.State == StateFailed:
-			return fmt.Errorf("%w: %s rolled back run %d: %s", ErrFailed, channel.Cell, channel.RunNumber, clip(status.Reason))
+			return fmt.Errorf("%w: %s rolled back run %d: %s", ErrFailed, channel.Cell, channel.RunNumber, Clip(status.Reason))
 		default:
-			line = clip(string(status.State) + " " + status.Reason)
+			line = Clip(string(status.State) + " " + status.Reason)
 		}
 		if line != last {
 			fmt.Fprintf(progress, "%s %s\n", channel.Cell, line)
@@ -252,9 +307,9 @@ func Await(ctx context.Context, location Location, channel Channel, poll time.Du
 	}
 }
 
-// clip makes region-written text safe for a CI log: one line, no control
+// Clip makes region-written text safe for a CI log: one line, no control
 // or bidirectional formatting characters, at most maxReason characters.
-func clip(text string) string {
+func Clip(text string) string {
 	runes := []rune(text)
 	if len(runes) > maxReason {
 		runes = append(runes[:maxReason], []rune("...")...)

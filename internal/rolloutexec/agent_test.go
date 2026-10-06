@@ -326,28 +326,6 @@ func TestAgentRetriesARestartThatFailed(t *testing.T) {
 	}
 }
 
-func TestNATSDriverReachesTheAgent(t *testing.T) {
-	f := newAgentFixture(t)
-	conn, _ := testNATS(t)
-	sub, err := f.agent.Serve(t.Context(), conn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sub.Unsubscribe()
-	driver := NATSDriver{Conn: conn, Cell: "gru", Key: f.key, Timeout: 5 * time.Second, Now: func() time.Time { return f.now }}
-	step := Step{RolloutID: "rel1-controllers", Kind: rollout.KindController, Unit: "ctl-b",
-		OperationID: rollout.OperationID("rel1-controllers", "ctl-b", rollout.PhaseCanary, 0), Action: StepPrepare,
-		Digest: f.to, Replaces: f.from, Epoch: 7, ProofWindow: 10 * time.Minute}
-	reply, err := driver.Step(t.Context(), step)
-	if err != nil || reply.Outcome != OutcomeActivated {
-		t.Fatalf("step over NATS = %+v %v", reply, err)
-	}
-	if _, err := driver.Step(t.Context(), Step{RolloutID: "r", Kind: rollout.KindController, Unit: "ctl-z",
-		OperationID: "ro-2", Action: StepPrepare, Digest: f.to, Replaces: f.from, Epoch: 7, ProofWindow: time.Minute}); err == nil {
-		t.Fatal("a step to a unit without an agent succeeded")
-	}
-}
-
 // A step that expires while it waits for its release to be staged changes
 // nothing; the executor sends a freshly signed one.
 func TestAgentDoesNotApplyAStepThatExpiredWhileStaging(t *testing.T) {
@@ -379,29 +357,6 @@ func TestAgentRollbackOfAnUnmovedUnitRefusesTheRejectedRelease(t *testing.T) {
 	}
 	if f.restarts.count() != 0 {
 		t.Fatalf("restarts = %d", f.restarts.count())
-	}
-}
-
-// The driver re-checks the lease after its own preparation: a step whose
-// lease was lost meanwhile never reaches the agent.
-func TestNATSDriverSendsNothingAfterTheLeaseWasLost(t *testing.T) {
-	f := newAgentFixture(t)
-	conn, _ := testNATS(t)
-	sub, err := f.agent.Serve(t.Context(), conn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sub.Unsubscribe()
-	driver := NATSDriver{Conn: conn, Cell: "gru", Key: f.key, Timeout: 5 * time.Second, Now: func() time.Time { return f.now }}
-	_, err = driver.Step(t.Context(), Step{RolloutID: "rel1-controllers", Kind: rollout.KindController, Unit: "ctl-b",
-		OperationID: rollout.OperationID("rel1-controllers", "ctl-b", rollout.PhaseCanary, 0), Action: StepPrepare,
-		Digest: f.to, Replaces: f.from, Epoch: 7, ProofWindow: 10 * time.Minute,
-		Fence: func(context.Context) error { return ErrLeaseLost }})
-	if !errors.Is(err, ErrLeaseLost) {
-		t.Fatalf("step after a lost lease = %v", err)
-	}
-	if _, pending, err := f.agent.Layout.Pending(); err != nil || pending || f.restarts.count() != 0 {
-		t.Fatalf("a fenced step reached the agent: pending %v %v, restarts %d", pending, err, f.restarts.count())
 	}
 }
 

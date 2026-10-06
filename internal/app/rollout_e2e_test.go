@@ -43,7 +43,7 @@ func TestRolloutExecutorUpdatesARunningCell(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer cancel()
 	root := t.TempDir()
-	responsePublic, responseKey := testEd25519(t, root, "controller.key")
+	_, responseKey := testEd25519(t, root, "controller.key")
 	operatorPublic, _ := testEd25519(t, root, "operator.key")
 	binaries := map[string]string{}
 	digests := map[string]string{}
@@ -56,101 +56,13 @@ func TestRolloutExecutorUpdatesARunningCell(t *testing.T) {
 		digests[name] = hex.EncodeToString(sum[:])
 	}
 	ids := []string{"ctl-a", "ctl-b", "ctl-c"}
-	previousSeed := rolloutSeedSlot
-	rolloutSeedSlot = func(Config) (string, error) { return "ctl-a", nil }
-	t.Cleanup(func() { rolloutSeedSlot = previousSeed })
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{"terrabase"}, Environments: []string{"canary"}, CanRollOutOrchestrator: true}
-	policy := rollout.Policy{CanaryUnits: 1, BatchSize: 1, CanarySoakSeconds: 1, BatchSoakSeconds: 1,
-		MinHealthyReports: 2, ProofDeadlineSeconds: 8, RollbackDeadlineSeconds: 20, PreflightSeconds: 20,
-		MaxAttempts: 1, MaxRollbackRetries: 1}
-	ports := reserveControllerPorts(t, 6)
-	routes := make([]string, 3)
-	for index := range routes {
-		routes[index] = fmt.Sprintf("nats-route://127.0.0.1:%d", ports[3+index])
-	}
-	configs := make([]Config, 3)
-	runtimes := make([]*natscell.Runtime, 3)
-	for index, id := range ids {
-		configs[index] = Config{
-			NATS: natscell.Config{Cell: "lab", Instance: id, Replicas: 3, Lab: true,
-				Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: ports[index], RouteHost: "127.0.0.1",
-					RoutePort: ports[3+index], Routes: natscell.PeerRoutes(routes, routes[index]),
-					StoreDir: filepath.Join(root, id), BrokerIDs: ids}},
-			Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant},
-				Rollouts: &RolloutsConfig{Enabled: true, Executor: true, Policy: &policy}},
-		}
-		runtime, err := natscell.Start(ctx, configs[index].NATS)
-		if err != nil {
-			t.Fatal(err)
-		}
-		runtimes[index] = runtime
-		t.Cleanup(func() { _ = runtime.Close() })
-	}
-	for _, runtime := range runtimes {
-		for !runtime.FullClusterReady(3) {
-			if ctx.Err() != nil {
-				t.Fatal("cluster did not form")
-			}
-			time.Sleep(50 * time.Millisecond)
-		}
-	}
-
-	// Every controller runs its rollout control as runController wires it.
-	stores := make([]*rollout.Store, 3)
-	for index, id := range ids {
-		cfg, runtime := configs[index], runtimes[index]
-		// The authority runtime keeps the context it started with.
-		control := retryOpen(t, ctx, func(context.Context) (*authority.Runtime, error) {
-			return authority.Start(ctx, runtime.JetStream(), authority.Config{Scope: "lab", CandidateID: id,
-				Replicas: 3, LeaseDuration: 5 * time.Second, RenewInterval: 500 * time.Millisecond})
-		})
-		t.Cleanup(func() { _ = control.Close() })
-		stores[index] = retryOpen(t, ctx, func(attempt context.Context) (*rollout.Store, error) {
-			return rollout.OpenStore(attempt, runtime.JetStream(), "lab", 3, control)
-		})
-		rollouts, err := newRolloutControl(cfg, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		rollouts.verify = testReceiptDigest
-		rollouts.interval = 200 * time.Millisecond
-		rollouts.store.Store(stores[index])
-		rollouts.ready.Store(true)
-		run, err := rollouts.start(ctx, cfg, runtime, control, responseKey)
-		if err != nil {
-			t.Fatal(err)
-		}
-		go func() { _ = run(ctx) }()
-		signers, err := buildSignerPolicy(cfg)
-		if err != nil {
-			t.Fatal(err)
-		}
-		signers.rollouts = rollouts
-		subscription, err := serveHostEnrollment(ctx, runtime.Conn(), "lab", signers, control, nil, nil, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = subscription.Unsubscribe() })
-	}
-
-	units := map[string]*rolloutTestUnit{}
 	starts := &rolloutStartLog{}
-	keys, err := trust.ParseKeyring(responsePublic)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for index, id := range ids {
-		unit := newRolloutTestUnit(t, ctx, root, id, runtimes[index].Conn(), responseKey, binaries, starts)
-		units[id] = unit
-		agent := &rolloutexec.Agent{Cell: "lab", Unit: id, SystemdUnit: rolloutTestSystemdUnit, Layout: unit.layout,
-			Leaders: keys, Restart: unit.restart}
-		subscription, err := agent.Serve(ctx, runtimes[index].Conn())
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = subscription.Unsubscribe() })
-	}
+	cell := startRolloutTestCell(t, ctx, rolloutTestCellConfig{root: root, cell: "lab", ids: ids, grant: grant,
+		responseKey: responseKey, binaries: binaries, staged: []string{"good", "bad", "good2"}, starts: starts,
+		configure: func(c *rolloutControl) { c.verify = testReceiptDigest }})
+	runtimes, stores, units := cell.runtimes, cell.stores, cell.units
 
 	operator := Config{NATS: natscell.Config{Cell: "lab", Replicas: 3, Lab: true},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
@@ -286,6 +198,128 @@ func TestRolloutExecutorUpdatesARunningCell(t *testing.T) {
 	}
 }
 
+// rolloutTestPolicy is short enough for a test and still soaks every wave.
+var rolloutTestPolicy = rollout.Policy{CanaryUnits: 1, BatchSize: 1, CanarySoakSeconds: 1, BatchSoakSeconds: 1,
+	MinHealthyReports: 2, ProofDeadlineSeconds: 8, RollbackDeadlineSeconds: 20, PreflightSeconds: 20,
+	MaxAttempts: 1, MaxRollbackRetries: 1}
+
+type rolloutTestCellConfig struct {
+	root, cell  string
+	ids         []string
+	grant       TrustedSignerConfig
+	responseKey ed25519.PrivateKey
+	// services verifies release receipts; nil leaves configure to stub it.
+	services *specRegistry
+	binaries map[string]string
+	staged   []string
+	starts   *rolloutStartLog
+	// verifier stages releases the nodes fetch; nil fetches none.
+	verifier  selfupdate.Verifier
+	configure func(*rolloutControl)
+}
+
+// rolloutTestCell is one region on three real brokers: every controller's
+// rollout control as runController wires it (the first ID is the seed),
+// operator rollout requests, and one simulated unit per controller whose
+// watchdog is the node's root step agent.
+type rolloutTestCell struct {
+	runtimes []*natscell.Runtime
+	stores   []*rollout.Store
+	controls []*rolloutControl
+	units    map[string]*rolloutTestUnit
+}
+
+func startRolloutTestCell(t *testing.T, ctx context.Context, config rolloutTestCellConfig) *rolloutTestCell {
+	t.Helper()
+	ids, root := config.ids, config.root
+	previousSeed := rolloutSeedSlot
+	rolloutSeedSlot = func(cfg Config) (string, error) { return cfg.NATS.Embedded.BrokerIDs[0], nil }
+	t.Cleanup(func() { rolloutSeedSlot = previousSeed })
+	policy := rolloutTestPolicy
+	ports := reserveControllerPorts(t, 6)
+	routes := make([]string, 3)
+	for index := range routes {
+		routes[index] = fmt.Sprintf("nats-route://127.0.0.1:%d", ports[3+index])
+	}
+	configs := make([]Config, 3)
+	cell := &rolloutTestCell{runtimes: make([]*natscell.Runtime, 3), stores: make([]*rollout.Store, 3),
+		units: map[string]*rolloutTestUnit{}}
+	for index, id := range ids {
+		configs[index] = Config{
+			NATS: natscell.Config{Cell: config.cell, Instance: id, Replicas: 3, Lab: true,
+				Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: ports[index], RouteHost: "127.0.0.1",
+					RoutePort: ports[3+index], Routes: natscell.PeerRoutes(routes, routes[index]),
+					StoreDir: filepath.Join(root, id), BrokerIDs: ids}},
+			Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{config.grant},
+				Rollouts: &RolloutsConfig{Enabled: true, Executor: true, AllowScopedAutoSign: true, Policy: &policy}},
+		}
+		runtime, err := natscell.Start(ctx, configs[index].NATS)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cell.runtimes[index] = runtime
+		t.Cleanup(func() { _ = runtime.Close() })
+	}
+	for _, runtime := range cell.runtimes {
+		for !runtime.FullClusterReady(3) {
+			if ctx.Err() != nil {
+				t.Fatal("cluster did not form")
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	responsePublic := config.responseKey.Public().(ed25519.PublicKey)
+	keys, err := trust.ParseKeyring(responsePublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, id := range ids {
+		cfg, runtime := configs[index], cell.runtimes[index]
+		// The authority runtime keeps the context it started with.
+		control := retryOpen(t, ctx, func(context.Context) (*authority.Runtime, error) {
+			return authority.Start(ctx, runtime.JetStream(), authority.Config{Scope: config.cell, CandidateID: id,
+				Replicas: 3, LeaseDuration: 5 * time.Second, RenewInterval: 500 * time.Millisecond})
+		})
+		t.Cleanup(func() { _ = control.Close() })
+		cell.stores[index] = retryOpen(t, ctx, func(attempt context.Context) (*rollout.Store, error) {
+			return rollout.OpenStore(attempt, runtime.JetStream(), config.cell, 3, control)
+		})
+		rollouts, err := newRolloutControl(cfg, config.services, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		rollouts.interval = 200 * time.Millisecond
+		rollouts.spool = filepath.Join(root, "spool-"+id)
+		rollouts.layout = selfupdate.Layout{Root: filepath.Join(root, "release-"+id), Owner: os.Getuid()}
+		if config.configure != nil {
+			config.configure(rollouts)
+		}
+		rollouts.store.Store(cell.stores[index])
+		rollouts.ready.Store(true)
+		run, err := rollouts.start(ctx, cfg, runtime, control, config.responseKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		go func() { _ = run(ctx) }()
+		cell.controls = append(cell.controls, rollouts)
+		signers, err := buildSignerPolicy(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		signers.rollouts = rollouts
+		subscription, err := serveHostEnrollment(ctx, runtime.Conn(), config.cell, signers, control, nil, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = subscription.Unsubscribe() })
+		unit := newRolloutTestUnit(t, ctx, config.cell, root, id, runtime.Conn(), config.responseKey, config.binaries,
+			config.staged, config.starts)
+		unit.attachAgent(keys, rollouts.spool, config.verifier)
+		cell.units[id] = unit
+	}
+	return cell
+}
+
 // testReceiptDigest stands in for receipt verification: "receipt:<digest>".
 func testReceiptDigest(receipt, delegation []byte, _ time.Time) (rollout.Release, error) {
 	digest, ok := strings.CutPrefix(string(receipt), "receipt:")
@@ -350,6 +384,7 @@ func (l *rolloutStartLog) all() [][2]string {
 type rolloutTestUnit struct {
 	t         *testing.T
 	ctx       context.Context
+	cell      string
 	id        string
 	layout    selfupdate.Layout
 	conn      *nats.Conn
@@ -359,23 +394,34 @@ type rolloutTestUnit struct {
 	proofFile string
 	starts    *rolloutStartLog
 
+	// agent applies the steps its controller spools, from the watchdog,
+	// staging fetched releases through verifier.
+	agent    *rolloutexec.Agent
+	spool    string
+	verifier selfupdate.Verifier
+
 	mu   sync.Mutex
 	stop context.CancelFunc
 	runs string
 }
 
-func newRolloutTestUnit(t *testing.T, ctx context.Context, root, id string, conn *nats.Conn, key ed25519.PrivateKey,
-	binaries map[string]string, starts *rolloutStartLog,
+// newRolloutTestUnit starts unit id of cell on the "from" binary, with the
+// releases named in staged already staged; "bad" never becomes healthy.
+func newRolloutTestUnit(t *testing.T, ctx context.Context, cell, root, id string, conn *nats.Conn,
+	key ed25519.PrivateKey, binaries map[string]string, staged []string, starts *rolloutStartLog,
 ) *rolloutTestUnit {
 	t.Helper()
-	unit := &rolloutTestUnit{t: t, ctx: ctx, id: id, conn: conn, key: key, baked: binaries["from"], starts: starts,
+	bad, err := os.ReadFile(binaries["bad"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(bad)
+	unit := &rolloutTestUnit{t: t, ctx: ctx, cell: cell, id: id, conn: conn, key: key, baked: binaries["from"],
+		bad: hex.EncodeToString(sum[:]), starts: starts,
 		layout:    selfupdate.Layout{Root: filepath.Join(root, "release-"+id), Owner: os.Getuid()},
 		proofFile: filepath.Join(root, id+"-proof.json")}
-	for _, name := range []string{"good", "bad", "good2"} {
-		digest := stageRolloutTestRelease(t, unit.layout, binaries[name])
-		if name == "bad" {
-			unit.bad = digest
-		}
+	for _, name := range staged {
+		stageRolloutTestRelease(t, unit.layout, binaries[name])
 	}
 	if _, err := selfupdate.Seed(unit.layout, unit.baked); err != nil {
 		t.Fatal(err)
@@ -442,13 +488,26 @@ func (u *rolloutTestUnit) restart(_ context.Context, systemdUnit string) error {
 			return err
 		}
 	}
-	publisher := rolloutexec.Publisher{Conn: u.conn, Cell: "lab", Unit: u.id, Key: u.key, Interval: 200 * time.Millisecond,
+	publisher := rolloutexec.Publisher{Conn: u.conn, Cell: u.cell, Unit: u.id, Key: u.key, Interval: 200 * time.Millisecond,
 		Executable: u.layout.BinaryPath(current), Healthy: func() bool { return true }}
 	go func() { _ = publisher.Run(ctx) }()
 	return nil
 }
 
-// watchdog is the selfupdate watchdog timer of the unit.
+// attachAgent makes the unit's watchdog the node's root step agent, as in
+// the image: it applies the steps the unit's controller spools into spool
+// and leaves the restart it owes to the watchdog.
+func (u *rolloutTestUnit) attachAgent(leaders trust.Keyring, spool string, verifier selfupdate.Verifier) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.agent = &rolloutexec.Agent{Cell: u.cell, Unit: u.id, SystemdUnit: rolloutTestSystemdUnit, Layout: u.layout,
+		Leaders: leaders, Restart: func(context.Context, string) error { return nil }}
+	u.spool, u.verifier = spool, verifier
+}
+
+// watchdog is the selfupdate watchdog timer of the unit: it applies the
+// spooled rollout step, then confirms or rolls back the activation and
+// restarts the unit it owes a restart.
 func (u *rolloutTestUnit) watchdog() {
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
@@ -457,6 +516,14 @@ func (u *rolloutTestUnit) watchdog() {
 		case <-u.ctx.Done():
 			return
 		case <-ticker.C:
+		}
+		u.mu.Lock()
+		agent, spool, verifier := u.agent, u.spool, u.verifier
+		u.mu.Unlock()
+		if agent != nil {
+			if err := rolloutexec.ApplySpooled(u.ctx, agent, spool, verifier); err != nil {
+				u.t.Logf("unit %s step agent: %v", u.id, err)
+			}
 		}
 		unlock, err := u.layout.Lock()
 		if err != nil {

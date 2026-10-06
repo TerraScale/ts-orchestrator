@@ -140,7 +140,7 @@ func (p ReleaseProgram) Program(ctx context.Context) (Program, error) {
 	if !errors.Is(err, jetstream.ErrKeyNotFound) {
 		return nil, err
 	}
-	units, from, err := p.behind(p.Controllers, release.Digest)
+	units, from, err := p.Behind(p.Controllers, release.Digest)
 	if err != nil || len(units) == 0 {
 		return nil, err
 	}
@@ -159,10 +159,10 @@ func existingSpec(record rollout.Record) rollout.Spec {
 		ToDigest: record.ToDigest, Units: units, Policy: record.Policy}
 }
 
-// behind returns the units that do not run target and the one release they
+// Behind returns the units that do not run target and the one release they
 // all run. Every unit must have a fresh proof, so a step never starts while
 // a peer is silent, and the units behind must agree on their release.
-func (p ReleaseProgram) behind(units []rollout.Unit, target string) ([]rollout.Unit, string, error) {
+func (p ReleaseProgram) Behind(units []rollout.Unit, target string) ([]rollout.Unit, string, error) {
 	now, freshness := time.Now().UTC(), p.Freshness
 	if p.Now != nil {
 		now = p.Now().UTC()

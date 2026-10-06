@@ -2,18 +2,14 @@ package rolloutexec
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"io/fs"
 	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -83,7 +79,12 @@ func (a *Agent) Handle(ctx context.Context, wire []byte) StepReply {
 	if err != nil {
 		return StepReply{Unit: a.Unit, Outcome: OutcomeRefused, Reason: "step command did not verify"}
 	}
-	reply := StepReply{OperationID: command.OperationID, Unit: a.Unit}
+	return a.handle(ctx, command, expires)
+}
+
+// handle applies one verified command that expires at expires.
+func (a *Agent) handle(ctx context.Context, command StepCommand, expires time.Time) StepReply {
+	reply := StepReply{OperationID: command.OperationID, Unit: a.Unit, Epoch: command.Epoch}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	window := max(selfupdate.MinProofWindow, min(selfupdate.MaxProofWindow,
@@ -278,20 +279,4 @@ func (a *Agent) restart(ctx context.Context) error {
 		return errors.New("no restarter")
 	}
 	return a.Restart(ctx, a.SystemdUnit)
-}
-
-// Serve answers steps for this unit until the subscription is closed.
-func (a *Agent) Serve(ctx context.Context, conn *nats.Conn) (*nats.Subscription, error) {
-	if conn == nil || !unitRE.MatchString(a.Cell) || !unitRE.MatchString(a.Unit) || len(a.Leaders) == 0 {
-		return nil, fmt.Errorf("%w: rollout agent configuration", ErrInvalid)
-	}
-	return conn.Subscribe(protocol.RolloutStepSubject(a.Cell, a.Unit), func(msg *nats.Msg) {
-		if msg.Reply == "" || len(msg.Data) > trust.MaxEnvelopeBytes {
-			return
-		}
-		reply := a.Handle(ctx, msg.Data)
-		if data, err := json.Marshal(reply); err == nil {
-			_ = msg.Respond(data)
-		}
-	})
 }

@@ -14,10 +14,12 @@
 //   - HealthProof is the signed version/health proof a unit publishes on
 //     protocol.RolloutProofSubject. Collector verifies proofs and is the only
 //     source of the healthy, unhealthy and rollback-serving events.
-//   - StepCommand is the leader-signed stage/activate request sent on
-//     protocol.RolloutStepSubject. Agent runs next to a unit's release root:
-//     it restages a pruned release through a Fetcher, activates it with
-//     internal/selfupdate and restarts the unit.
+//   - StepCommand is the leader-signed stage/activate request. KVDriver
+//     posts it under the unit's key in the rollout bucket; the unit's
+//     controller relays it (Relay) to the node's root step agent, the
+//     self-update watchdog (ApplySpooled), and relays the reply back. Agent
+//     runs next to a unit's release root: it stages a release the relay
+//     fetched, activates it with internal/selfupdate and restarts the unit.
 //   - Status is the read-only rollout status published on
 //     protocol.RolloutStatusSubject. It is telemetry, never admission
 //     evidence.

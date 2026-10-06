@@ -5,20 +5,26 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	goruntime "runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/artifact"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
@@ -48,9 +54,11 @@ var rolloutSeedSlot = func(cfg Config) (string, error) {
 
 // rolloutControl answers the operator's rollout requests and, with
 // controller.rollouts.executor, runs the cell's orchestrator self-update:
-// every controller publishes signed health proofs and collects its peers',
-// and the authority leader's executor moves the controllers to the desired
-// release, one per wave and the seed last.
+// every controller publishes signed health proofs, collects its peers' and
+// relays its own steps to the node's root step agent, and the authority
+// leader's executor moves the controllers to the desired release, one per
+// wave and the seed last. With controller.rollouts.channel the leader also
+// follows the region's release channel (TS-557).
 type rolloutControl struct {
 	cell  string
 	store atomic.Pointer[rollout.Store]
@@ -64,20 +72,45 @@ type rolloutControl struct {
 	// ready reports a controller that finished starting; it publishes
 	// health proofs only then.
 	ready atomic.Bool
-	// interval overrides the executor's tick interval in tests.
+	// interval overrides the executor's and the step relay's tick in tests.
 	interval time.Duration
+
+	// roots and environment verify a release channel for this cell.
+	roots       *rootRegistry
+	environment string
+	// follow runs the release channel consumer (controller.rollouts.channel).
+	follow bool
+	// ticks wakes the consumer after every executor tick.
+	ticks chan struct{}
+	// channel is the region's head bucket, the CI edge; nil bridges none.
+	channel *channelSource
+	// channelInterval overrides how often the CI edge reads it, in tests.
+	channelInterval time.Duration
+	// reported is the status this leader last wrote to the channel.
+	reported atomic.Pointer[releasechannel.Status]
+	// program derives the executor's rollouts; the channel reads its proofs.
+	program rolloutexec.ReleaseProgram
+	// spool and layout are the step relay's directory and the node's
+	// release root; tests point them elsewhere.
+	spool  string
+	layout selfupdate.Layout
 }
 
-func newRolloutControl(cfg Config, services *specRegistry) (*rolloutControl, error) {
-	c := &rolloutControl{cell: cfg.NATS.Cell}
+// newRolloutControl takes the effective settings (rolloutSettings) and the
+// controller's OCI region, which locates the release channel.
+func newRolloutControl(cfg Config, services *specRegistry, region string) (*rolloutControl, error) {
+	c := &rolloutControl{cell: cfg.NATS.Cell, spool: rolloutexec.DefaultSpoolDir,
+		layout: selfupdate.NewLayout(selfupdate.DefaultRoot), ticks: make(chan struct{}, 1)}
 	settings := cfg.Controller.Rollouts
 	if settings != nil && settings.Executor && !settings.Enabled {
 		return nil, errors.New("controller.rollouts.executor needs controller.rollouts.enabled")
 	}
-	// ponytail: lab only until the root step agent ships; without one every
-	// step goes unanswered and the first rollout freezes the cell's slot.
-	if settings != nil && settings.Executor && !cfg.NATS.Lab {
-		return nil, errors.New("controller.rollouts.executor needs the root step agent, which production controllers do not run yet")
+	if settings != nil && settings.Channel && !settings.Executor {
+		return nil, errors.New("controller.rollouts.channel needs controller.rollouts.executor")
+	}
+	c.follow = settings != nil && settings.Channel
+	if c.follow && region != "" {
+		c.channel = instancePrincipalChannel(region, strings.ToUpper(cfg.NATS.Cell))
 	}
 	if settings != nil && settings.Policy != nil {
 		if err := settings.Policy.Validate(); err != nil {
@@ -85,6 +118,7 @@ func newRolloutControl(cfg Config, services *specRegistry) (*rolloutControl, err
 		}
 	}
 	if services != nil && services.roots != nil {
+		c.roots, c.environment = services.roots, services.identity.Environment
 		// The leader refuses a receipt that no node would stage; every node
 		// still verifies it against its own roots before it keeps a byte.
 		// The current roots are read per receipt, so a root rotation applies.
@@ -112,10 +146,15 @@ func newRolloutControl(cfg Config, services *specRegistry) (*rolloutControl, err
 	return c, nil
 }
 
-// PublishStatus keeps the executor's status for requests and publishes it.
+// PublishStatus keeps the executor's status for requests, publishes it and
+// wakes the release channel consumer.
 func (c *rolloutControl) PublishStatus(status rolloutexec.Status) {
 	c.status.Store(&status)
 	rolloutexec.NATSStatus{Conn: c.conn, Cell: c.cell}.PublishStatus(status)
+	select {
+	case c.ticks <- struct{}{}:
+	default:
+	}
 }
 
 // rolloutControllers returns the cell's controller units: the configured
@@ -164,23 +203,70 @@ func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscel
 	if err != nil {
 		return nil, fmt.Errorf("subscribe to rollout health proofs: %w", err)
 	}
-	policy := rollout.DefaultPolicy()
+	policy := rollout.AllAtOncePolicy()
 	if cfg.Controller.Rollouts.Policy != nil {
 		policy = *cfg.Controller.Rollouts.Policy
 	}
+	board, err := runtime.JetStream().KeyValue(ctx, rollout.Bucket)
+	if err != nil {
+		return nil, fmt.Errorf("open the rollout step board: %w", err)
+	}
 	c.conn = runtime.Conn()
+	c.program = rolloutexec.ReleaseProgram{Store: store, Proofs: collector, Controllers: controllers, Policy: policy}
 	executor := &rolloutexec.Executor{Cell: cfg.NATS.Cell, Store: store, Fencer: fencer, Proofs: collector, Status: c,
-		Driver: rolloutexec.NATSDriver{Conn: runtime.Conn(), Cell: cfg.NATS.Cell, Key: responseKey, Releases: store},
+		Driver: rolloutexec.KVDriver{KV: board, Cell: cfg.NATS.Cell, Key: responseKey, Releases: store},
 		Gate: rolloutexec.ClusterGate{Cluster: runtime, ServerOf: func(unit string) (string, bool) {
 			return natscell.ServerName(cfg.NATS.Cell, unit), known[unit]
 		}},
-		Program: rolloutexec.ReleaseProgram{Store: store, Proofs: collector, Controllers: controllers,
-			Policy: policy}.Program,
+		Program:  c.program.Program,
 		Interval: c.interval}
+	relay := &rolloutexec.Relay{KV: board, Cell: cfg.NATS.Cell, Unit: cfg.NATS.Instance, Leaders: keys, Dir: c.spool,
+		Layout: c.layout, Sources: c.binarySources(runtime.JetStream()), Interval: c.interval}
 	return func(ctx context.Context) error {
 		defer subscription.Unsubscribe()
+		var workers sync.WaitGroup
+		defer workers.Wait()
+		workers.Go(func() {
+			if err := relay.Run(ctx); ctx.Err() == nil {
+				slog.Error("rollout step relay stopped", observability.ComponentKey, "rollout", "error", err)
+			}
+		})
+		if c.follow {
+			workers.Go(func() { c.followChannel(ctx, store, fencer, runtime.JetStream(), cfg.NATS.Replicas) })
+		}
+		if c.follow && c.channel != nil {
+			workers.Go(func() { c.bridgeChannel(ctx, fencer, runtime.JetStream(), cfg.NATS.Replicas) })
+		}
 		return executor.Run(ctx)
 	}, nil
+}
+
+// binarySources are where the step relay fetches a release the node has
+// not staged: the delivery artifact store (ts-orch operator artifact-push,
+// for ts-orch rollout publish), then the region's release channel.
+func (c *rolloutControl) binarySources(js jetstream.JetStream) []rolloutexec.BinarySource {
+	sources := []rolloutexec.BinarySource{func(ctx context.Context, digest string, dst io.Writer) error {
+		store, err := js.ObjectStore(ctx, delivery.ArtifactBucket)
+		if err != nil {
+			return err
+		}
+		info, err := store.GetInfo(ctx, "sha256-"+digest)
+		if err != nil {
+			return err
+		}
+		return artifact.ReadVerified(ctx, js, store, delivery.ArtifactBucket, "sha256-"+digest, digest,
+			int64(info.Size), selfupdate.MaxBinaryBytes, dst)
+	}}
+	if c.channel != nil {
+		sources = append(sources, func(ctx context.Context, digest string, dst io.Writer) error {
+			location, err := c.channel.get(ctx)
+			if err != nil {
+				return err
+			}
+			return releasechannel.ReadBinary(ctx, location, digest, dst)
+		})
+	}
+	return sources
 }
 
 // publishProofs signs this controller's rollout health proof with the
@@ -215,9 +301,11 @@ type rolloutReply struct {
 	DesiredKnownBad bool                `json:"desired_known_bad,omitzero"`
 	History         []rollout.Release   `json:"history,omitempty"`
 	Rollout         *rolloutexec.Status `json:"rollout,omitempty"`
-	Stopped         string              `json:"stopped,omitempty"`
-	Resumed         string              `json:"resumed,omitempty"`
-	Error           string              `json:"error,omitempty"`
+	// Channel is the leader's newest report to the region's release channel.
+	Channel *releasechannel.Status `json:"channel,omitempty"`
+	Stopped string                 `json:"stopped,omitempty"`
+	Resumed string                 `json:"resumed,omitempty"`
+	Error   string                 `json:"error,omitempty"`
 }
 
 // serve answers one signed operator rollout request. Any trusted signer of
@@ -346,6 +434,6 @@ func (c *rolloutControl) view(ctx context.Context, store *rollout.Store, reply r
 			return rolloutReply{}, err
 		}
 	}
-	reply.Rollout = c.status.Load()
+	reply.Rollout, reply.Channel = c.status.Load(), c.reported.Load()
 	return reply, nil
 }

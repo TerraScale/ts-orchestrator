@@ -83,6 +83,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if cfg.NATS.Embedded == nil {
 		return errors.New("controller run requires an embedded regional NATS server")
 	}
+	// A defaulted executor that cannot start never stops the controller;
+	// one the signed config asks for does.
+	defaultRollouts := cfg.Controller.Rollouts == nil
+	cfg.Controller.Rollouts = rolloutSettings(cfg)
 	artifactStoreMaxBytes := cfg.Controller.ArtifactStoreMaxBytes
 	if artifactStoreMaxBytes < 0 {
 		return errors.New("controller artifact_store_max_bytes must be positive when set")
@@ -124,7 +128,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	policy.services = services
-	if policy.rollouts, err = newRolloutControl(cfg, services); err != nil {
+	region := ""
+	if managed != nil {
+		region = string(managed.region.Region)
+	}
+	if policy.rollouts, err = newRolloutControl(cfg, services, region); err != nil {
 		return err
 	}
 	responseKey, err := readPrivateKey(cfg.Controller.ResponseKeyFile)
@@ -663,7 +671,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if store, ok := rollouts.(*rollout.Store); ok {
 		policy.rollouts.store.Store(store)
 		if cfg.Controller.Rollouts.Executor {
-			if rolloutExecutor, err = policy.rollouts.start(runCtx, cfg, runtime, control, responseKey); err != nil {
+			rolloutExecutor, err = policy.rollouts.start(runCtx, cfg, runtime, control, responseKey)
+			if err != nil && defaultRollouts {
+				slog.Error("rollout executor did not start; this controller takes no part in self-updates",
+					observability.ComponentKey, "rollout", "error", err)
+			} else if err != nil {
 				return fmt.Errorf("start rollout executor: %w", err)
 			}
 		}

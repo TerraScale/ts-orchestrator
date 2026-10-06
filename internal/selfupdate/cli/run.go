@@ -22,7 +22,9 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -242,6 +244,15 @@ func (c command) watchdog(args []string) error {
 	if err != nil {
 		unlock()
 		return err
+	}
+	// The rollout step runs after the check, so a slow or stuck step never
+	// delays a rollback, and before the restart below serves what it owes.
+	if !delegated && *restart && *unit == selfupdate.ControllerUnit && *proof.config != "" {
+		unlock()
+		c.rolloutStep(layout.layout(), *proof.config)
+		if unlock, err = layout.layout().Lock(); err != nil {
+			return err
+		}
 	}
 	// A rollback leaves a restart obligation until the unit restarts, so a
 	// failed systemctl call, an output error or a crash after the link moved
@@ -465,6 +476,97 @@ func (c command) backstopPrepare(layout selfupdate.Layout, unit string) error {
 		return fmt.Errorf("current release does not verify: %w", err)
 	}
 	return nil
+}
+
+// The controller's step spool and the image's trust roots; tests replace them.
+var (
+	rolloutSpoolDir = rolloutexec.DefaultSpoolDir
+	bakedInputs     = bootstrapstart.LoadBakedInputs
+)
+
+// rolloutStep is the node's root step agent: it applies the rollout step
+// the controller spooled (rolloutexec.ApplySpooled), verifying the leader's
+// signature and staging a release only from a receipt this node's baked
+// roots verify. It runs where the controller's executor is on, with the
+// same production default as the controller (app.rolloutSettings): a
+// production config without a rollouts block. A problem is logged, never
+// returned, so the watchdog's own check always runs.
+func (c command) rolloutStep(layout selfupdate.Layout, configPath string) {
+	role, err := readRolloutRole(configPath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("rollout step agent: controller config is unusable", "config", configPath, "error", err)
+		}
+		return
+	}
+	defaults := role.Controller.Rollouts == nil && !role.NATS.Lab
+	if !defaults && (role.Controller.Rollouts == nil || !role.Controller.Rollouts.Executor) {
+		return
+	}
+	baked, err := bakedInputs()
+	if err != nil {
+		slog.Warn("rollout step agent: image trust roots are unusable", "error", err)
+		return
+	}
+	public, err := readIdentityPublicKey(role.Controller.ResponseKeyFile)
+	if err != nil {
+		slog.Warn("rollout step agent: controller response key is unusable", "error", err)
+		return
+	}
+	leaders, err := trust.ParseKeyring(public)
+	if err != nil {
+		slog.Warn("rollout step agent: controller response key is unusable", "error", err)
+		return
+	}
+	// Only the chain's current roots admit a release, as on the leader.
+	roots, err := trust.VerifyRootChain(baked.Genesis, baked.Identity.ChainIdentity(), baked.Chain)
+	if err != nil {
+		slog.Warn("rollout step agent: the adopted root chain does not verify", "error", err)
+		return
+	}
+	verifier := selfupdate.ReceiptPolicy{Roots: roots.Current, Environment: baked.Identity.Environment,
+		Cell: strings.ToUpper(role.NATS.Cell), Architecture: runtime.GOARCH,
+		AllowScopedAutoSign: defaults || role.Controller.Rollouts.AllowScopedAutoSign}
+	agent := &rolloutexec.Agent{Cell: role.NATS.Cell, Unit: role.NATS.Instance, SystemdUnit: selfupdate.ControllerUnit,
+		Layout: layout, Leaders: leaders, Now: c.now,
+		Restart: func(context.Context, string) error { return nil }}
+	if err := rolloutexec.ApplySpooled(c.ctx, agent, rolloutSpoolDir, verifier); err != nil {
+		slog.Warn("rollout step agent", "error", err)
+	}
+}
+
+// rolloutRole is the part of a controller config the step agent reads,
+// decoded leniently like roleProof.
+type rolloutRole struct {
+	NATS struct {
+		Cell     string `json:"cell"`
+		Instance string `json:"instance"`
+		Lab      bool   `json:"lab"`
+	} `json:"nats"`
+	Controller struct {
+		ResponseKeyFile string `json:"response_key_file"`
+		Rollouts        *struct {
+			Executor            bool `json:"executor"`
+			AllowScopedAutoSign bool `json:"allow_scoped_auto_sign"`
+		} `json:"rollouts"`
+	} `json:"controller"`
+}
+
+func readRolloutRole(path string) (rolloutRole, error) {
+	var role rolloutRole
+	file, err := os.Open(path)
+	if err != nil {
+		return role, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxRoleConfigBytes+1))
+	if err != nil {
+		return role, err
+	}
+	if len(data) > maxRoleConfigBytes {
+		return role, errors.New("role config is too large")
+	}
+	return role, json.Unmarshal(data, &role)
 }
 
 // roleProof returns the proof file and identity key that a controller or

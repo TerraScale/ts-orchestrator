@@ -126,7 +126,7 @@ Every command prints the leader's JSON reply.
 
 | Command | Purpose |
 | --- | --- |
-| `ts-orch rollout status --config OPERATOR_JSON` | Desired release, the last ten generations and the leader's rollout status |
+| `ts-orch rollout status --config OPERATOR_JSON` | Desired release, the last ten generations, the leader's rollout status and its newest release channel report |
 | `ts-orch rollout publish --config F --receipt F [--delegation F]` | Make a signed release the next generation (upload the binary with `operator artifact-push` first) |
 | `ts-orch rollout pause --config F` | Start no further rollout; one in flight finishes |
 | `ts-orch rollout resume --config F` | Undo pause and retry the rollback of a frozen rollout |

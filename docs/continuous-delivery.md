@@ -1,10 +1,12 @@
 # Continuous delivery to running cells
 
 Status: the opt-in TerraBase automation entry point is implemented; no live
-timer, signing grant or rollout is enabled by this change. The image puts
+timer or signing grant is enabled by this change. The image puts
 the controller and host on
-[binary-only self-update](#binary-only-self-update); a release still moves
-only when a root-run step stages and activates it. The scoped auto-sign
+[binary-only self-update](#binary-only-self-update). Production controllers
+follow their region's [release channel](#automatic-fleet-deployment-ts-557-part-1)
+by default and roll each CI release out to the controllers; hosts still move
+only when a root-run step stages and activates a release. The scoped auto-sign
 delegation, the staged rollout state machine, resumable image promotion and
 independent managed-host image qualification exist as opt-in foundations;
 each is off by default. Image-based orchestrator replacement is still a
@@ -409,7 +411,8 @@ disabled nothing changes; the operator's `known-bad/` directory still applies.
   predecessor after a rollback step feeds `rollback-serving`. Controllers
   share the regional response key, so one controller can sign for another;
   that is within the controller trust domain.
-- **Signed steps** (`ts.orch.v1.<cell>.rollout.step.<hash(unit)>`). The leader
+- **Signed steps** (the unit's `step.<hash(unit)>` key in `TS_ROLLOUTS`,
+  see [step delivery](#step-delivery)). The leader
   signs `{rollout, unit, operation, action, digest, replaces, epoch, proof
   window}`
   plus the release receipt (trust domain
@@ -460,10 +463,60 @@ disabled nothing changes; the operator's `known-bad/` directory still applies.
   gate holds, hold releases and every accepted step, chained under the
   release admission.
 
-Remaining before it can run in a cell: a root step agent with NATS
-credentials limited to its step subject (the controller runs unprivileged
-and cannot write the release root), and host steps and proofs over the host
-session with the chunked artifact path.
+Remaining: host steps and proofs over the host session with the chunked
+artifact path.
+
+### Step delivery
+
+The controller runs unprivileged and cannot write the release root, and the
+node's root-run self-update watchdog has no NATS connection, so a step
+travels through the replicated `TS_ROLLOUTS` bucket and the controller's
+state directory. Every controller credential already reads and writes KV,
+so material issued before this change carries steps too.
+
+1. The leader's `KVDriver` signs the step and writes it under the unit's
+   `step.<hash(unit)>` key. Until the unit's `step-reply.<hash(unit)>` key
+   answers this operation, it asks the executor to retry; the next tick
+   signs and writes the step again.
+2. The unit's own controller (`Relay`, every 2 s) verifies the step against
+   the controller keys, fetches the release binary it names when the node
+   has not staged it (from the delivery artifact store, then the region's
+   release channel; bytes that do not hash to the step's digest are
+   dropped) and writes both to
+   `/var/lib/terrascale-orchestrator-controller/rollout/`.
+3. The watchdog timer (every 15 s, as root, delegated to the node's
+   known-good release) runs the step agent (`ApplySpooled`) after its own
+   check, so a stuck step never delays a rollback. It opens regular files
+   beneath the spool only (`os.Root`, non-blocking, so no link or FIFO
+   leads it elsewhere or stalls it); ignores a step that does not verify, so a stale copy
+   never answers a later attempt of the same operation; stages a fetched
+   binary only through `selfupdate.Stage`, which verifies the receipt
+   against the node's baked roots and the exact bytes; and writes its reply
+   to `/var/lib/terrascale-orchestrator/rollout-reply.json`. The watchdog
+   then serves the restart the step owes the unit.
+4. The relay posts that reply to the unit's reply key. A reply carries the
+   step's authority epoch, so a deposed leader's late copy of an operation
+   never answers its successor.
+
+The agent runs where the controller's executor runs, with the same default:
+a production controller config without `controller.rollouts`, or one with
+`executor`. It accepts scoped update receipts exactly when the leader does
+(`allow_scoped_auto_sign`, on by default in production). Because the
+watchdog is delegated to the known-good release, a node gains the agent with
+its first confirmed release that has it; no image rebuild is needed.
+
+Trust: the agent accepts steps signed with the regional controller response
+key, which every controller holds. A compromised controller can therefore
+sign steps for any node of its cell: it can activate a release already
+staged there (each one verified against the node's roots when it was
+staged), or record an authority epoch so high that the node refuses every
+later step until root removes `authority-epoch` from the release root. It
+can never stage bytes no receipt names. With the production default, the
+online update leaf plus its root-signed scoped delegation is enough to run a
+binary as root on every controller of the delegation's cells, architectures
+and environment until the delegation expires: keep it short and narrow. A
+signed config with an explicit `controller.rollouts` block without
+`allow_scoped_auto_sign` opts a cell out.
 
 ### Leader-run controller self-update
 
@@ -476,7 +529,11 @@ authority epoch, and a known-bad digest is never published. The KV schema
 belongs to the cell spec (TS-556) and the store (TS-559); this is the
 minimum the executor needs until they own it.
 
-With `controller.rollouts.executor`, every controller signs a health proof
+A production controller whose signed config has no `controller.rollouts`
+block runs with `enabled`, `executor`, `allow_scoped_auto_sign` and `channel`
+(`rolloutSettings`); a lab controller keeps all of them off, and an explicit
+block is taken as written. With `controller.rollouts.executor`, every
+controller signs a health proof
 with the regional response key every 15 s and collects its peers' proofs
 (the controller credential's `rollout.proof.*` subscription grant; material
 issued before it lacks the grant, so preflight never passes and nothing
@@ -489,10 +546,15 @@ rollout keeps its units and predecessor; a controller that falls behind after
 its generation completed waits for the next one. A
 rollout whose proof deadline passes rolls every touched controller back
 through `selfupdate.Restore` on the node and marks the digest known bad.
-`controller.rollouts.policy` overrides `rollout.DefaultPolicy`. Hosts join
-once their steps and proofs travel over the host session. Until the root step
-agent ships, controllers refuse `executor` outside a lab cell: a step nobody
-answers would freeze the rollout with the release marked known bad.
+Releases go all at once by default (`rollout.AllAtOncePolicy`, user
+decision 2026-10-06): every wave takes as many units as quorum allows, which
+for three controllers is still one, there is no soak, and a wave is promoted
+after two healthy reports from one incarnation. A unit that restarts on
+another release, or does not prove the target within five minutes, rolls
+the rollout back. `controller.rollouts.policy` overrides it. Hosts join
+once their steps and proofs travel over the host session. Each controller
+relays its own steps to its node's root step agent (see
+[step delivery](#step-delivery)).
 
 Operators drive it with `ts-orch rollout`, signed requests on the host
 registration subject that only the leader answers. Any trusted signer of the
@@ -515,7 +577,8 @@ aborting a release changes what the controllers run.
   becomes known bad); a retried request aborts it too. The cell then rolls
   forward to GEN's release; history is never rewritten.
 - `status`: the desired release, the last ten generations and the leader's
-  rollout status, including why nothing runs (`waiting`).
+  rollout status, including why nothing runs (`waiting`), and the leader's
+  newest report to the release channel (`channel`).
 
 ### Automatic fleet deployment (TS-557, part 1)
 
@@ -582,16 +645,64 @@ Allow group ts-orch-deploy to manage objects in compartment <cell>-control where
 and each region's controllers `OBJECT_READ` on `releases/v1/*` plus
 `OBJECT_CREATE`/`OBJECT_OVERWRITE` on `releases/v1/orchestrator/status.json`.
 
+The region's authority leader follows its channel
+(`controller.rollouts.channel`, on by default in production; TS-560) over
+NATS. The cell's `TS_RELEASE_CHANNEL` KV bucket holds the channel document
+under `orchestrator.channel.<CELL>` and the leader's newest report under
+`orchestrator.status.<CELL>`. Every controller watches its cell's channel
+key; the leader acts when the document changes and after every executor
+tick, which also moves the report on as the rollout progresses. Nothing
+polls:
+
+1. It verifies the whole channel for its cell and environment with the
+   cell's current roots (`Channel.Verify`), and admits the receipt for its
+   architecture exactly as `ts-orch rollout publish` would.
+2. A run newer than every run the cell published becomes the cell's next
+   generation (actor `release-channel`). A run the cell already published
+   maps to that generation; the newest one wins, so after an operator's
+   `rollout rollback` the channel never publishes the rejected run again.
+   An older run, or a release known bad in the cell, is refused.
+3. It reports the generation's progress: `rolling` while its controller
+   rollout runs (or waits to start, with the executor's reason), `complete`
+   when it completed or every controller already proves the release, and
+   `failed` when it was rolled back, aborted, frozen, refused or replaced by
+   another generation first, or the channel does not verify or decode. A
+   report that differs from the stored one is stored and published on
+   `ts.orch.v1.<cell>.release.status` (`protocol.ReleaseStatusSubject`) for
+   fan-in across regions; comparing with the stored report, not the
+   leader's memory, replaces one a deposed leader left.
+
+TS-562 replicates the bucket between orchestrators and announces releases
+into it. Until it does, CI cannot reach the cell's NATS, so the leader
+bridges the CI edge every 30 s: it copies `channel.json` from the region's
+head bucket (the controller's OCI region and instance principal, the
+namespace from Object Storage) into the channel key, and the stored report
+back out to `status.json` when they differ (the head bucket keeps versions,
+so an unchanged report is not rewritten; a stale or forged one is). Only
+this edge reads Object Storage.
+
+The rollout itself rolls a release that never becomes healthy back, marks it
+known bad and reports `failed`, which stops CI before the next region. The
+controllers fetch the binary from `binaries/<sha256>` in the same bucket, so
+the delivery artifact store and its quota are not involved.
+
+The reviewed controller policy statements
+(`ociregion.RequiredControllerStatements`, which the attempt's material phase
+applies) grant the controllers the channel:
+
+```text
+Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-head', target.object.name='releases/v1/*', request.permission='OBJECT_READ'}
+Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-head', target.object.name='releases/v1/orchestrator/status.json', any {request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}
+```
+
 Limits of this part:
 
-- No controller reads the channel yet. The leader-side consumer (verify the
-  channel, refuse a run older than the cell's newest, import the binary into
-  the delivery artifact store, publish it as the cell's next release
-  generation with `rollout.Store.PublishRelease` and write `status.json`
-  from the executor's status) is TS-555's next slice, after the
-  [leader-run controller self-update](#leader-run-controller-self-update).
-  Until then a configured deployment waits 90 minutes on the canary and
-  fails.
+- A node gains the step agent with its first confirmed release that has it.
+  A cell founded on an older image needs that release once by hand
+  (`ts-orch selfupdate stage` and `activate --restart` on each controller,
+  as root); from then on CI moves it.
+- Host agents are not moved yet: their steps and proofs need the host
+  session.
 - Forgejo repository secrets reach any workflow pushed to the repository,
   so every account with write access can obtain `TS_DEPLOY_OCI_KEY`, read
   the leaf and sign any binary for the delegation's cells, architectures and

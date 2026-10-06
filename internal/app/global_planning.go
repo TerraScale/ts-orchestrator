@@ -31,17 +31,22 @@ import (
 )
 
 // RolloutsConfig opens the regional rollout store so the dashboard and the
-// insight deadline rule see the active rollout. Off by default.
+// insight deadline rule see the active rollout. Off in a lab; a production
+// controller without it follows its region's release channel
+// (rolloutSettings).
 type RolloutsConfig struct {
 	Enabled bool `json:"enabled"`
 	// Executor runs the cell's orchestrator self-update from its desired
 	// release (ts-orch rollout): the authority leader moves the controllers
-	// one per wave, the seed last. It needs Enabled, and a root step agent
-	// next to every controller to apply the steps; without one a published
-	// release moves no unit, and its rollout freezes with the release marked
-	// known bad. Off by default.
+	// one per wave, the seed last. Each controller relays its steps to the
+	// node's root step agent, the self-update watchdog. It needs Enabled.
 	Executor bool `json:"executor,omitzero"`
-	// Policy overrides rollout.DefaultPolicy for the executor's rollouts.
+	// Channel makes the authority leader follow the region's release
+	// channel (TS-557): it publishes each newer CI release as the next
+	// generation and reports progress in the channel's status.json. It needs
+	// Executor and the controller's OCI region.
+	Channel bool `json:"channel,omitzero"`
+	// Policy overrides rollout.AllAtOncePolicy for the executor's rollouts.
 	Policy *rollout.Policy `json:"policy,omitempty"`
 	// AllowScopedAutoSign lets the leader admit update receipts signed under
 	// a scoped binary update delegation. Set it exactly when the controllers'

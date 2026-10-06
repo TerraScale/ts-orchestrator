@@ -456,11 +456,11 @@ func TestBucketNameIsTheRegionHeadBucket(t *testing.T) {
 }
 
 func TestClipKeepsOneBoundedLine(t *testing.T) {
-	long := clip(strings.Repeat("é", maxReason+10))
+	long := Clip(strings.Repeat("é", maxReason+10))
 	if !utf8.ValidString(long) || utf8.RuneCountInString(long) != maxReason+3 || !strings.HasSuffix(long, "...") {
-		t.Fatalf("clip(long) = %d runes", utf8.RuneCountInString(long))
+		t.Fatalf("Clip(long) = %d runes", utf8.RuneCountInString(long))
 	}
-	if got := clip("a\nb\u0085c⁦d"); got != "a b c d" {
+	if got := Clip("a\nb\u0085c⁦d"); got != "a b c d" {
 		t.Fatalf("clip = %q", got)
 	}
 }

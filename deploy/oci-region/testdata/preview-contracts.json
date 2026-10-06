@@ -2112,6 +2112,12 @@
         "$fixture": "fixture-0563"
       },
       {
+        "$fixture": "fixture-0564"
+      },
+      {
+        "$fixture": "fixture-0565"
+      },
+      {
         "$fixture": "fixture-0134"
       },
       {
@@ -6418,7 +6424,9 @@
       "service_gateway_service_id": "ocid1.service.oc1.sa-saopaulo-1.aaaaaaaacd57uig6rzxm2qfipukbqpje2bhztqszh3aj7zk2jtvf6gvntena",
       "service_gateway_cidr_block": "all-gru-services-in-oracle-services-network"
     },
-    "fixture-0563": "Allow dynamic-group terrascale-orchestrator to manage objects in compartment terrascale-control where all {target.bucket.name='ts-preview-gru-20260926-head', target.object.name='kv-snapshot/v1/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}"
+    "fixture-0563": "Allow dynamic-group terrascale-orchestrator to manage objects in compartment terrascale-control where all {target.bucket.name='ts-preview-gru-20260926-head', target.object.name='kv-snapshot/v1/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}",
+    "fixture-0564": "Allow dynamic-group terrascale-orchestrator to manage objects in compartment terrascale-control where all {target.bucket.name='ts-preview-gru-20260926-head', target.object.name='releases/v1/*', request.permission='OBJECT_READ'}",
+    "fixture-0565": "Allow dynamic-group terrascale-orchestrator to manage objects in compartment terrascale-control where all {target.bucket.name='ts-preview-gru-20260926-head', target.object.name='releases/v1/orchestrator/status.json', any {request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}"
   },
   "cases": [
     {
@@ -8590,6 +8598,12 @@
           "$fixture": "fixture-0563"
         },
         {
+          "$fixture": "fixture-0564"
+        },
+        {
+          "$fixture": "fixture-0565"
+        },
+        {
           "$fixture": "fixture-0134"
         },
         {
@@ -8659,6 +8673,12 @@
         "Allow dynamic-group terrascale-orchestrator to manage objects in compartment terrascale-control where all {target.bucket.name='ts-preview-gru-20260926-head', target.object.name='bootstrap/v2/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}",
         {
           "$fixture": "fixture-0563"
+        },
+        {
+          "$fixture": "fixture-0564"
+        },
+        {
+          "$fixture": "fixture-0565"
         },
         {
           "$fixture": "fixture-0134"
