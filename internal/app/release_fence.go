@@ -8,11 +8,13 @@ import (
 	"log/slog"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
@@ -76,17 +78,29 @@ func releaseGate(kv jetstream.KeyValue) func(context.Context, string, host.Desir
 	}
 }
 
-// fencedBackend is one backend a fence took out of rotation.
+// fencedBackend is one backend a fence takes out of rotation.
 type fencedBackend struct {
 	Set  string `json:"set"`
 	IP   string `json:"ip"`
 	Port int    `json:"port"`
 }
 
-// releaseFence is the leader's side of a release fence.
+// fenceRecord is a node's fence, recorded before the load balancer changes:
+// the load balancer it was taken from, and whether every backend is out of
+// rotation yet (fenced) or the fence may be part-way (fencing).
+type fenceRecord struct {
+	LoadBalancerID string          `json:"load_balancer_id"`
+	Phase          string          `json:"phase"`
+	Backends       []fencedBackend `json:"backends"`
+}
+
+// releaseFence is the leader's side of a release fence. Every change it
+// makes is guarded by the authority epoch it started under, so a deposed
+// leader stops.
 type releaseFence struct {
-	kv    jetstream.KeyValue
-	hosts seatrollout.Hosts
+	kv     jetstream.KeyValue
+	hosts  seatrollout.Hosts
+	fencer authority.Fencer
 	// spec returns the cell spec's release fence, nil without one, and the
 	// private address of each granted node.
 	spec func() (*cellspec.ReleaseFence, map[string]string)
@@ -112,16 +126,29 @@ func (f *releaseFence) client(ctx context.Context) (lb.API, error) {
 	return f.api, nil
 }
 
-func (f *releaseFence) wait(ctx context.Context, d time.Duration) error {
+// wait waits for d, and fails once the lease of epoch is lost.
+func (f *releaseFence) wait(ctx context.Context, epoch uint64, d time.Duration) error {
 	if f.sleep != nil {
-		return f.sleep(ctx, d)
+		if err := f.sleep(ctx, d); err != nil {
+			return err
+		}
+	} else {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(d):
+		}
 	}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(d):
-		return nil
+	return f.fencer.Guard(ctx, epoch)
+}
+
+// leading returns the epoch this leader acts under.
+func (f *releaseFence) leading(ctx context.Context) (uint64, error) {
+	snapshot := f.fencer.Current()
+	if !snapshot.CanMutate() {
+		return 0, errors.New("this controller does not hold the authority lease")
 	}
+	return snapshot.Epoch, f.fencer.Guard(ctx, snapshot.Epoch)
 }
 
 // prepare marks intent's release sequenced, before it is submitted, when
@@ -132,6 +159,9 @@ func (f *releaseFence) prepare(ctx context.Context, intent delivery.Intent) erro
 	}
 	if spec, _ := f.spec(); spec == nil {
 		return nil
+	}
+	if _, err := f.leading(ctx); err != nil {
+		return err
 	}
 	_, err := f.kv.Put(ctx, sequencedKey(intent.Role, intent.Generation), []byte("{}"))
 	return err
@@ -147,14 +177,22 @@ func (f *releaseFence) sequence(ctx context.Context, intent delivery.Intent) err
 	} else if err != nil {
 		return err
 	}
-	spec, addresses := f.spec()
-	if spec == nil {
-		// The cell dropped its fence: every node may restart at once.
-		return f.kv.Delete(ctx, sequencedKey(role, release))
+	epoch, err := f.leading(ctx)
+	if err != nil {
+		return err
 	}
 	api, err := f.client(ctx)
 	if err != nil {
 		return err
+	}
+	spec, addresses := f.spec()
+	if spec == nil {
+		// The cell dropped its fence: return every recorded backend, then
+		// let every node restart at once.
+		if err := f.restoreAll(ctx, api, epoch); err != nil {
+			return err
+		}
+		return f.kv.Delete(ctx, sequencedKey(role, release))
 	}
 	grace, settle := durationOr(spec.DrainGraceSeconds, defaultFenceGrace), durationOr(spec.SettleSeconds, defaultFenceSettle)
 	desired, err := f.hosts.ListDesired(ctx, role)
@@ -174,7 +212,10 @@ func (f *releaseFence) sequence(ctx context.Context, intent delivery.Intent) err
 			return err
 		}
 		if state != "running" {
-			if err := f.fence(ctx, api, *spec, node, addresses[node], grace); err != nil {
+			if err := f.fence(ctx, api, epoch, *spec, node, addresses[node], grace); err != nil {
+				return err
+			}
+			if err := f.fencer.Guard(ctx, epoch); err != nil {
 				return err
 			}
 			if _, err := f.kv.Put(ctx, permitKey(role, release, node), []byte("{}")); err != nil {
@@ -186,7 +227,7 @@ func (f *releaseFence) sequence(ctx context.Context, intent delivery.Intent) err
 				if state == "failed" {
 					return fmt.Errorf("%s replica %s failed release %d; its backends stay fenced", role, node, release)
 				}
-				if err := f.wait(ctx, fencePoll); err != nil {
+				if err := f.wait(ctx, epoch, fencePoll); err != nil {
 					return fmt.Errorf("%s replica %s did not serve release %d: %w", role, node, release, err)
 				}
 				if state, err = f.nodeState(ctx, role, release, node); err != nil {
@@ -194,15 +235,18 @@ func (f *releaseFence) sequence(ctx context.Context, intent delivery.Intent) err
 				}
 			}
 		}
-		returned, err := f.restore(ctx, api, *spec, node)
+		returned, err := f.restore(ctx, api, epoch, node)
 		if err != nil {
 			return err
 		}
 		if returned {
-			if err := f.wait(ctx, settle); err != nil {
+			if err := f.wait(ctx, epoch, settle); err != nil {
 				return err
 			}
 		}
+	}
+	if err := f.fencer.Guard(ctx, epoch); err != nil {
+		return err
 	}
 	for _, node := range nodes {
 		if err := f.kv.Delete(ctx, permitKey(role, release, node)); err != nil {
@@ -234,130 +278,193 @@ func (f *releaseFence) nodeState(ctx context.Context, role string, release uint6
 }
 
 // fence takes node's in-rotation backends out of every fenced set, each
-// only while another backend of its set serves healthy, and records them
-// first. A node already fenced keeps its record.
-func (f *releaseFence) fence(ctx context.Context, api lb.API, spec cellspec.ReleaseFence, node, address string,
-	grace time.Duration,
+// only while another backend of its set serves healthy. It records them
+// first, as fencing, and marks the record fenced once every one is
+// offline; a fence a deposed leader left part-way is finished from its
+// record.
+func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec cellspec.ReleaseFence, node,
+	address string, grace time.Duration,
 ) error {
-	if _, err := f.kv.Get(ctx, fencedKey(node)); err == nil {
-		return nil
-	} else if !errors.Is(err, jetstream.ErrKeyNotFound) {
-		return err
-	}
-	if address == "" {
-		slog.Warn("release fence has no address for a node; it restarts unfenced", observability.ComponentKey, "rollout",
-			"node", node)
-		return nil
-	}
-	var fenced []fencedBackend
-	var backends []lb.Backend
-	for _, set := range spec.BackendSets {
-		for {
-			observed, err := api.ListBackends(ctx, spec.LoadBalancerID, set.Name)
-			if err != nil {
-				return err
-			}
-			unhealthy, err := api.UnhealthyBackends(ctx, spec.LoadBalancerID, set.Name)
-			if err != nil {
-				return err
-			}
-			mine, others := -1, 0
-			for i, backend := range observed {
-				switch {
-				case backend.IP == address && backend.Port == set.Port:
-					mine = i
-				case backend.Serving() && !unhealthy[backend.Name()]:
-					others++
-				}
-			}
-			if mine < 0 || !observed[mine].Serving() {
-				break
-			}
-			if others > 0 {
-				fenced = append(fenced, fencedBackend{Set: set.Name, IP: address, Port: set.Port})
-				backends = append(backends, observed[mine])
-				break
-			}
-			// The node's backend is the set's last healthy one: wait for
-			// another rather than drop the set.
-			if err := f.wait(ctx, fencePoll); err != nil {
-				return fmt.Errorf("%s backend of %s is the last healthy one: %w", set.Name, node, err)
-			}
-		}
-	}
-	if len(fenced) == 0 {
-		return nil
-	}
-	record, err := json.Marshal(fenced)
+	record, found, err := f.record(ctx, node)
 	if err != nil {
 		return err
 	}
-	if _, err := f.kv.Put(ctx, fencedKey(node), record); err != nil {
-		return err
+	if found && record.Phase == "fenced" {
+		return nil
 	}
-	for _, offline := range []bool{false, true} {
-		for i, backend := range backends {
-			request, err := api.UpdateBackend(ctx, spec.LoadBalancerID, fenced[i].Set, backend.Fenced(true, offline))
+	if !found {
+		if address == "" {
+			slog.Warn("release fence has no address for a node; it restarts unfenced", observability.ComponentKey,
+				"rollout", "node", node)
+			return nil
+		}
+		record = fenceRecord{LoadBalancerID: spec.LoadBalancerID, Phase: "fencing"}
+		for _, set := range spec.BackendSets {
+			backend, err := f.guarded(ctx, api, epoch, spec.LoadBalancerID, set, node, address)
 			if err != nil {
 				return err
 			}
-			if err := api.WaitWorkRequest(ctx, request); err != nil {
+			if backend != nil {
+				record.Backends = append(record.Backends, *backend)
+			}
+		}
+		if len(record.Backends) == 0 {
+			return nil
+		}
+		if err := f.save(ctx, epoch, node, record); err != nil {
+			return err
+		}
+	}
+	for _, offline := range []bool{false, true} {
+		for _, backend := range record.Backends {
+			if err := f.update(ctx, api, epoch, record.LoadBalancerID, backend, true, offline); err != nil {
 				return err
 			}
 		}
 		if !offline {
 			// In-flight requests finish on the drained backends.
-			if err := f.wait(ctx, grace); err != nil {
+			if err := f.wait(ctx, epoch, grace); err != nil {
 				return err
 			}
 		}
 	}
+	record.Phase = "fenced"
+	if err := f.save(ctx, epoch, node, record); err != nil {
+		return err
+	}
 	slog.Info("release fence took a node out of rotation", observability.ComponentKey, "rollout", "node", node,
-		"backends", len(fenced))
+		"backends", len(record.Backends))
 	return nil
 }
 
-// restore returns the backends recorded for node to rotation and waits
-// until their health checks pass; it reports whether any were returned.
-func (f *releaseFence) restore(ctx context.Context, api lb.API, spec cellspec.ReleaseFence, node string) (bool, error) {
+// guarded returns node's backend in set when it is in rotation, once
+// another backend of the set serves healthy; nil when it is not in rotation.
+func (f *releaseFence) guarded(ctx context.Context, api lb.API, epoch uint64, id string, set cellspec.FencedSet,
+	node, address string,
+) (*fencedBackend, error) {
+	for {
+		observed, err := api.ListBackends(ctx, id, set.Name)
+		if err != nil {
+			return nil, err
+		}
+		unhealthy, err := api.UnhealthyBackends(ctx, id, set.Name)
+		if err != nil {
+			return nil, err
+		}
+		mine, others := false, 0
+		for _, backend := range observed {
+			switch {
+			case backend.IP == address && backend.Port == set.Port:
+				mine = backend.Serving()
+			case backend.Serving() && !unhealthy[backend.Name()]:
+				others++
+			}
+		}
+		if !mine {
+			return nil, nil
+		}
+		if others > 0 {
+			return &fencedBackend{Set: set.Name, IP: address, Port: set.Port}, nil
+		}
+		// The node's backend is the set's last healthy one: wait for
+		// another rather than drop the set.
+		if err := f.wait(ctx, epoch, fencePoll); err != nil {
+			return nil, fmt.Errorf("%s backend of %s is the last healthy one: %w", set.Name, node, err)
+		}
+	}
+}
+
+// update sets one backend's drain and offline flags under the epoch.
+func (f *releaseFence) update(ctx context.Context, api lb.API, epoch uint64, id string, backend fencedBackend,
+	drain, offline bool,
+) error {
+	if err := f.fencer.Guard(ctx, epoch); err != nil {
+		return err
+	}
+	request, err := api.UpdateBackend(ctx, id, backend.Set, lb.Backend{IP: backend.IP, Port: backend.Port}.Fenced(drain, offline))
+	if err != nil {
+		return err
+	}
+	return api.WaitWorkRequest(ctx, request)
+}
+
+func (f *releaseFence) record(ctx context.Context, node string) (fenceRecord, bool, error) {
 	entry, err := f.kv.Get(ctx, fencedKey(node))
 	if errors.Is(err, jetstream.ErrKeyNotFound) {
-		return false, nil
+		return fenceRecord{}, false, nil
 	}
 	if err != nil {
+		return fenceRecord{}, false, err
+	}
+	var record fenceRecord
+	if err := json.Unmarshal(entry.Value(), &record); err != nil {
+		return fenceRecord{}, false, fmt.Errorf("decode the fence of %s: %w", node, err)
+	}
+	return record, true, nil
+}
+
+func (f *releaseFence) save(ctx context.Context, epoch uint64, node string, record fenceRecord) error {
+	wire, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	if err := f.fencer.Guard(ctx, epoch); err != nil {
+		return err
+	}
+	_, err = f.kv.Put(ctx, fencedKey(node), wire)
+	return err
+}
+
+// restore returns the backends recorded for node to rotation on the load
+// balancer they were taken from, and waits until their health checks
+// pass; it reports whether any were returned.
+func (f *releaseFence) restore(ctx context.Context, api lb.API, epoch uint64, node string) (bool, error) {
+	record, found, err := f.record(ctx, node)
+	if err != nil || !found {
 		return false, err
 	}
-	var fenced []fencedBackend
-	if err := json.Unmarshal(entry.Value(), &fenced); err != nil {
-		return false, fmt.Errorf("decode the fence of %s: %w", node, err)
-	}
-	for _, backend := range fenced {
-		request, err := api.UpdateBackend(ctx, spec.LoadBalancerID, backend.Set,
-			lb.Backend{IP: backend.IP, Port: backend.Port}.Fenced(false, false))
-		if err != nil {
-			return false, err
-		}
-		if err := api.WaitWorkRequest(ctx, request); err != nil {
+	for _, backend := range record.Backends {
+		if err := f.update(ctx, api, epoch, record.LoadBalancerID, backend, false, false); err != nil {
 			return false, err
 		}
 	}
-	for _, backend := range fenced {
+	for _, backend := range record.Backends {
 		name := lb.Backend{IP: backend.IP, Port: backend.Port}.Name()
 		for {
-			unhealthy, err := api.UnhealthyBackends(ctx, spec.LoadBalancerID, backend.Set)
+			unhealthy, err := api.UnhealthyBackends(ctx, record.LoadBalancerID, backend.Set)
 			if err != nil {
 				return false, err
 			}
 			if !unhealthy[name] {
 				break
 			}
-			if err := f.wait(ctx, fencePoll); err != nil {
+			if err := f.wait(ctx, epoch, fencePoll); err != nil {
 				return false, fmt.Errorf("%s backend %s did not pass its health check: %w", backend.Set, name, err)
 			}
 		}
 	}
+	if err := f.fencer.Guard(ctx, epoch); err != nil {
+		return false, err
+	}
 	slog.Info("release fence returned a node to rotation", observability.ComponentKey, "rollout", "node", node)
 	return true, f.kv.Delete(ctx, fencedKey(node))
+}
+
+// restoreAll returns every recorded fence.
+func (f *releaseFence) restoreAll(ctx context.Context, api lb.API, epoch uint64) error {
+	keys, err := f.kv.ListKeysFiltered(ctx, fencedKey("*"))
+	if errors.Is(err, jetstream.ErrNoKeysFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for key := range keys.Keys() {
+		if _, err := f.restore(ctx, api, epoch, strings.TrimPrefix(key, fencedKey(""))); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func durationOr(seconds int, fallback time.Duration) time.Duration {

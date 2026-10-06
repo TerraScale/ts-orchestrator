@@ -13,6 +13,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
@@ -55,6 +56,7 @@ type fenceLB struct {
 	sets map[string][]lb.Backend
 	down map[string]bool
 	log  []string
+	ids  []string // the load balancer of each update
 }
 
 func (f *fenceLB) ListBackends(_ context.Context, _, set string) ([]lb.Backend, error) {
@@ -75,9 +77,10 @@ func (f *fenceLB) UnhealthyBackends(_ context.Context, _, set string) (map[strin
 	return unhealthy, nil
 }
 
-func (f *fenceLB) UpdateBackend(_ context.Context, _, set string, backend lb.Backend) (string, error) {
+func (f *fenceLB) UpdateBackend(_ context.Context, id, set string, backend lb.Backend) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.ids = append(f.ids, id)
 	serving, state := 0, "active"
 	for i, current := range f.sets[set] {
 		if current.Name() == backend.Name() {
@@ -120,12 +123,15 @@ func (f *fenceLB) UpdateTags(context.Context, string, string, ociresource.Tags) 
 // restarts into it as soon as the restart gate grants it; until then it
 // serves the previous release. Nodes in broken fail the release.
 type fenceCell struct {
-	t        *testing.T
-	gate     func(context.Context, string, host.Desired) (bool, error)
-	lb       *fenceLB
-	nodes    []string
-	release  uint64
-	broken   map[string]bool
+	t       *testing.T
+	gate    func(context.Context, string, host.Desired) (bool, error)
+	lb      *fenceLB
+	nodes   []string
+	release uint64
+	broken  map[string]bool
+	// unfenced lets nodes restart while their backends serve: the cell's
+	// fence moved or was dropped.
+	unfenced bool
 	mu       sync.Mutex
 	restarts []string
 }
@@ -157,7 +163,7 @@ func (c *fenceCell) ListHosts(ctx context.Context) ([]host.HostStatus, error) {
 				c.lb.mu.Lock()
 				for set, backends := range c.lb.sets {
 					for _, backend := range backends {
-						if backend.IP == fenceAddresses[node] && backend.Serving() {
+						if !c.unfenced && backend.IP == fenceAddresses[node] && backend.Serving() {
 							c.t.Errorf("%s restarted while its %s backend serves", node, set)
 						}
 					}
@@ -172,6 +178,33 @@ func (c *fenceCell) ListHosts(ctx context.Context) ([]host.HostStatus, error) {
 		statuses = append(statuses, host.HostStatus{Reports: []host.Report{report}})
 	}
 	return statuses, nil
+}
+
+// fenceLease is the leader's lease; Guard fails once lost.
+type fenceLease struct {
+	mu   sync.Mutex
+	lost bool
+	// lose, when set, loses the lease after that many guards.
+	lose, guards int
+}
+
+func (l *fenceLease) Current() authority.Snapshot {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return authority.Snapshot{Ready: true, Leader: !l.lost, Epoch: 3, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}
+}
+
+func (l *fenceLease) Guard(_ context.Context, epoch uint64) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.guards++
+	if l.lose > 0 && l.guards >= l.lose {
+		l.lost = true
+	}
+	if l.lost || epoch != 3 {
+		return authority.ErrFenced
+	}
+	return nil
 }
 
 var fenceAddresses = map[string]string{"ctl-1": "10.0.0.11", "ctl-2": "10.0.0.12", "ctl-3": "10.0.0.13"}
@@ -190,7 +223,7 @@ func newFenceTest(t *testing.T) (*releaseFence, *fenceCell, *fenceLB, jetstream.
 		BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465}, {Name: "ts-auth", Port: 8080}}}
 	cell := &fenceCell{t: t, gate: releaseGate(kv), lb: balancer, nodes: []string{"ctl-1", "ctl-2", "ctl-3"}, release: 7,
 		broken: map[string]bool{}}
-	fence := &releaseFence{kv: kv, hosts: cell,
+	fence := &releaseFence{kv: kv, hosts: cell, fencer: &fenceLease{},
 		spec: func() (*cellspec.ReleaseFence, map[string]string) { return spec, fenceAddresses },
 		open: func(context.Context) (lb.API, error) { return balancer, nil },
 		sleep: func(ctx context.Context, _ time.Duration) error {
@@ -296,5 +329,77 @@ func TestReleaseFenceWithoutASpecRestartsEveryNode(t *testing.T) {
 	}
 	if err := fence.sequence(ctx, intent); err != nil || len(balancer.log) != 0 {
 		t.Fatalf("sequence %v, load balancer %q", err, balancer.log)
+	}
+}
+
+// A fence a deposed leader left part-way is finished before the node may
+// restart.
+func TestReleaseFenceFinishesAPartWayFence(t *testing.T) {
+	fence, cell, balancer, kv, intent := newFenceTest(t)
+	ctx := t.Context()
+	if err := fence.prepare(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	// Recorded, but the load balancer never changed.
+	if _, err := kv.Put(ctx, fencedKey("ctl-1"), []byte(`{"load_balancer_id":"ocid1.loadbalancer.oc1..x","phase":"fencing",`+
+		`"backends":[{"set":"terrabase","ip":"10.0.0.11","port":9465}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.sequence(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(cell.restarts, []string{"ctl-1", "ctl-2", "ctl-3"}) || balancer.log[0] != "terrabase 10.0.0.11:9465 drain" ||
+		balancer.log[1] != "terrabase 10.0.0.11:9465 offline" {
+		t.Fatalf("restarts %q, load balancer %q", cell.restarts, balancer.log)
+	}
+}
+
+// A failed node's backends return to the load balancer they were taken
+// from, even after the spec moved to another one or dropped its fence.
+func TestReleaseFenceRestoresTheRecordedLoadBalancer(t *testing.T) {
+	for _, drop := range []bool{false, true} {
+		fence, cell, balancer, _, intent := newFenceTest(t)
+		ctx := t.Context()
+		cell.broken["ctl-1"] = true
+		if err := fence.prepare(ctx, intent); err != nil {
+			t.Fatal(err)
+		}
+		if err := fence.sequence(ctx, intent); err == nil {
+			t.Fatal("a failed node passed")
+		}
+		cell.broken["ctl-1"], cell.unfenced = false, true
+		moved := &cellspec.ReleaseFence{LoadBalancerID: "ocid1.loadbalancer.oc1..moved",
+			BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465}}}
+		if drop {
+			moved = nil
+		}
+		fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return moved, fenceAddresses }
+		balancer.ids = nil
+		if err := fence.sequence(ctx, intent); err != nil {
+			t.Fatal(err)
+		}
+		if !balancer.sets["terrabase"][0].Serving() || len(balancer.ids) == 0 || balancer.ids[0] != "ocid1.loadbalancer.oc1..x" {
+			t.Fatalf("drop %v: ctl-1 %+v, updates on %q", drop, balancer.sets["terrabase"][0], balancer.ids)
+		}
+	}
+}
+
+// A leader that loses its lease stops changing the load balancer and
+// permits no node.
+func TestReleaseFenceStopsOnALostLease(t *testing.T) {
+	fence, cell, balancer, _, intent := newFenceTest(t)
+	ctx := t.Context()
+	if err := fence.prepare(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	// The third guard of the sequence is the one before its first load
+	// balancer change: the lease, sequence and fence record pass first.
+	lease := fence.fencer.(*fenceLease)
+	lease.lose = lease.guards + 3
+	if err := fence.sequence(ctx, intent); !errors.Is(err, authority.ErrFenced) {
+		t.Fatalf("sequence after the lease was lost: %v", err)
+	}
+	if len(balancer.log) != 0 || len(cell.restarts) != 0 {
+		t.Fatalf("a deposed leader went on: load balancer %q, restarts %q", balancer.log, cell.restarts)
 	}
 }

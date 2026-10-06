@@ -826,12 +826,19 @@ releases/v1/services/<role>/status.json         the region leader's report
    in turn the leader takes the node's backends that are in rotation out of
    every fenced set (drain, the grace, then offline, since a drain alone
    keeps the load balancer's pooled connections), but only while another
-   backend of the set serves healthy; records them under `fenced.<node>`
-   before it changes the load balancer; permits the node; waits until it
+   backend of the set serves healthy; records them under `fenced.<node>`,
+   with the load balancer they belong to and a `fencing` phase, before it
+   changes the load balancer, and marks the record `fenced` once all are
+   offline (a new leader finishes a `fencing` record before it permits the
+   node); permits the node; waits until it
    reports the release `running`; returns its backends and waits for their
    health checks; and settles. A node that fails the release keeps its
    backends out of rotation and the release rolls back the same way, one
-   node at a time; a new leader returns recorded backends. Once every node
+   node at a time; a new leader returns recorded backends, always to the
+   load balancer recorded with them, and a cell spec that drops its fence
+   returns every recorded backend before the release opens. Every load
+   balancer change and permit is guarded by the authority epoch the leader
+   started under, so a deposed leader stops. Once every node
    serves the release, its marks are removed, so later scaling is not held.
    The controllers' instance principal needs `use load-balancers` in the
    network compartment (`ociregion.RequiredControllerStatements`).
