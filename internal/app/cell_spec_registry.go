@@ -72,6 +72,11 @@ type specRegistry struct {
 	// snapshots is whether the signed config sets a kv_snapshot location,
 	// which a kv_snapshot schedule needs.
 	snapshots bool
+	// terraBaseCA is whether the signed config holds the TerraBase member
+	// CA, without which no member gets a certificate: a terrabase entry
+	// needs it. A signed TerraBase profile implies it, since signing
+	// refuses one without the CA.
+	terraBaseCA bool
 	// rolloutExecutor is whether this controller runs orchestrator
 	// rollouts, which a rollout policy needs; signedPolicy is then the
 	// signed config's policy, or the default.
@@ -104,8 +109,11 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 	r := &specRegistry{cell: cfg.NATS.Cell, fixed: map[string]WorkloadProfile{},
 		signers: slices.SortedFunc(slices.Values(cfg.Controller.TrustedSigners), func(a, b TrustedSignerConfig) int {
 			return strings.Compare(a.Actor, b.Actor)
-		}), snapshots: cfg.Controller.KVSnapshot.Enabled,
+		}), snapshots: cfg.Controller.KVSnapshot.Enabled, terraBaseCA: cfg.Controller.TerraBaseCACertFile != "",
 		rolloutExecutor: cfg.Controller.Rollouts != nil && cfg.Controller.Rollouts.Executor}
+	if _, signed := cfg.Controller.Workloads[terrabase.Role]; signed {
+		r.terraBaseCA = true
+	}
 	if r.rolloutExecutor {
 		policy := rollout.DefaultPolicy()
 		if cfg.Controller.Rollouts.Policy != nil {
@@ -415,8 +423,8 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 		if slices.Contains(r.reserved, service.Role) {
 			return fmt.Errorf("role %q is owned by placement and stays in the signed controller config", service.Role)
 		}
-		if _, signed := r.fixed[service.Role]; service.Role == terrabase.Role && (!signed || service.Spec != nil) {
-			return fmt.Errorf("service %q needs a signed controller config profile and is never reconciled", service.Role)
+		if service.Role == terrabase.Role && (!r.terraBaseCA || service.Spec != nil) {
+			return fmt.Errorf("service %q needs the signed TerraBase member CA and is never reconciled", service.Role)
 		}
 		for _, actor := range service.Releasers {
 			if !slices.ContainsFunc(r.effectiveSigners(spec), func(signer TrustedSignerConfig) bool { return signer.Actor == actor }) {

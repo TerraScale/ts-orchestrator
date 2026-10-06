@@ -751,3 +751,34 @@ func TestSpecRegistryPlansAgainstTheSignedSettings(t *testing.T) {
 		}
 	}
 }
+
+// A cell spec terrabase entry needs the signed member CA, without which no
+// member gets a certificate, but no signed TerraBase profile: an identity-only
+// controller config gets TerraBase's profile as its first cell spec.
+func TestSpecRegistryTerraBaseEntryNeedsOnlyTheSignedMemberCA(t *testing.T) {
+	profile := staticTerraBaseWorkloads()[terrabase.Role]
+	spec := cellspec.Spec{Schema: cellspec.Schema, Generation: 1, RequiresBinary: 1,
+		Services: []cellspec.Service{{Role: terrabase.Role, Profile: profile}}}
+	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}}
+	without, err := newSpecRegistry(cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := without.validate(spec); err == nil || !strings.Contains(err.Error(), "member CA") {
+		t.Fatalf("terrabase entry without the member CA: %v", err)
+	}
+	cfg.Controller.TerraBaseCACertFile, cfg.Controller.TerraBaseCAKeyFile = "/material/ca.pem", "/material/ca.key"
+	with, err := newSpecRegistry(cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := with.validate(spec); err != nil {
+		t.Fatalf("terrabase entry on an identity-only config: %v", err)
+	}
+	reconciled := spec
+	reconciled.Services = []cellspec.Service{{Role: terrabase.Role, Profile: profile,
+		Spec: &workload.ServiceSpec{Role: terrabase.Role}}}
+	if err := with.validate(reconciled); err == nil {
+		t.Fatal("a reconciled terrabase entry was accepted")
+	}
+}

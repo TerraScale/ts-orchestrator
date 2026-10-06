@@ -446,18 +446,20 @@ with the two committed files below. Never edit an accepted controller's
 installed JSON or delete its acceptance marker: the installer is write-once,
 and restart admission binds the config digest to the accepted manifest.
 
-A new region can instead start with ts-auth in its initial controller config.
-`ts-orch oci-region attempt` does so when its `attempt.json` names both files:
+A new region gets ts-auth the same way from its first cell spec.
+`ts-orch oci-region attempt` applies it in its `services` phase when its
+`attempt.json` names both files:
 
 ```json
 "ts_auth_profile": "/ABSOLUTE/PATH/deploy/oci-region/ts-auth-gru-1-profile.json",
 "ts_auth_service": "/ABSOLUTE/PATH/deploy/oci-region/ts-auth-gru-1-service.json"
 ```
 
-It passes them, with their SHA-256 pins, to `render-controller-config` for
-every controller slot, and refuses one without the other. Its `services`
-phase adds services through signed cell specs instead. Run by hand, the
-renderer takes them as follows.
+It refuses one without the other, and plans, signs (the root, for ts-auth's
+Vault secrets) and applies ts-auth after TerraBase's profile. The signed
+controller configs hold the cell's identity only. Rendering the files into
+a controller config by hand still works but is deprecated: the profile then
+stays generation 0 until a cell spec replaces it.
 
 For each controller slot, use the reviewed candidate, material record,
 operator grant and three sidecars from

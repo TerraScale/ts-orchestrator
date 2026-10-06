@@ -53,8 +53,9 @@ Generation 0 holds the signed config's `controller.workloads`, plus
 `controller.autoscale.services` when autoscaling is enabled. The spec may not
 hold the managed placement member role: it belongs to placement and keeps its
 signed controller config profile. A `terrabase` entry replaces TerraBase's
-signed profile. It needs a signed TerraBase profile in the controller config,
-is never reconciled, and passes the same rules (`TERRABASE_PEERS`, ports,
+signed profile. It needs the signed TerraBase member CA (a signed TerraBase
+profile implies it), so an identity-only controller config gets TerraBase's
+profile as its first cell spec. It is never reconciled, and passes the same rules (`TERRABASE_PEERS`, ports,
 host-owned settings) as the signed one. Only a root may write it (see
 [Trust](#trust)), and while it exists it, not the signed config, is
 TerraBase's profile: change or revoke a peer with a root-signed amendment.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -418,7 +419,10 @@ func TestImageImportsTheStaticCellImageName(t *testing.T) {
 	}
 }
 
-func TestSignRendersTheTerraBaseProfile(t *testing.T) {
+// Signed controller configs hold the cell's identity only: TerraBase's and
+// ts-auth's profiles go to the services phase, never into the render. The
+// KV snapshot location stays, since a rebuilt cell restores from it first.
+func TestSignRendersIdentityOnlyConfigs(t *testing.T) {
 	a := smallAttempt(t)
 	profile := a.Path("terrabase-profile.json")
 	for _, key := range []string{"region_intent", "placement_config", "managed_material_domain", "operator_grant"} {
@@ -445,27 +449,25 @@ func TestSignRendersTheTerraBaseProfile(t *testing.T) {
 		}
 		return "", stop
 	}
-	digest := a.sha(profile)
+	snapshot := a.Path("kv-snapshot.json")
+	a.writeJSON(snapshot, Object{"enabled": true})
+	a.Config["kv_snapshot"] = snapshot
+	digest := a.sha(snapshot)
 	a.PhaseSign()
-	if !errors.Is(a.Err(), stop) || flagValue(render, "--terrabase-profile") != profile ||
-		flagValue(render, "--terrabase-profile-sha256") != digest || render[len(render)-2] != "--out" ||
-		slices.Contains(render, "--ts-auth-profile") {
+	if !errors.Is(a.Err(), stop) || slices.Contains(render, "--terrabase-profile") || render[len(render)-2] != "--out" ||
+		flagValue(render, "--kv-snapshot") != snapshot || flagValue(render, "--kv-snapshot-sha256") != digest {
 		t.Fatal(a.Err(), render)
 	}
 
-	// A cell that runs ts-auth renders its pinned profile and service into
-	// the controller config, which cannot gain them after it is signed.
+	// A cell that runs ts-auth renders no ts-auth either.
 	a.err = nil
 	authProfile, authService := a.Path("ts-auth-profile.json"), a.Path("ts-auth-service.json")
 	a.writeJSON(authProfile, Object{"env": Object{}})
 	a.writeJSON(authService, Object{"role": "ts-auth"})
 	a.Config["ts_auth_profile"], a.Config["ts_auth_service"] = authProfile, authService
 	render = nil
-	profileDigest, serviceDigest := a.sha(authProfile), a.sha(authService)
 	a.PhaseSign()
-	if !errors.Is(a.Err(), stop) || flagValue(render, "--ts-auth-profile") != authProfile ||
-		flagValue(render, "--ts-auth-profile-sha256") != profileDigest || flagValue(render, "--ts-auth-service") != authService ||
-		flagValue(render, "--ts-auth-service-sha256") != serviceDigest || render[len(render)-2] != "--out" {
+	if !errors.Is(a.Err(), stop) || slices.Contains(render, "--ts-auth-profile") || slices.Contains(render, "--ts-auth-service") {
 		t.Fatal(a.Err(), render)
 	}
 	// One without the other is refused before anything is rendered.
@@ -475,14 +477,61 @@ func TestSignRendersTheTerraBaseProfile(t *testing.T) {
 	if a.Err() == nil || !strings.Contains(a.Err().Error(), "ts_auth_profile and ts_auth_service together") || render != nil {
 		t.Fatal(a.Err(), render)
 	}
-	// A resumed attempt whose controller-a config was rendered without
-	// ts-auth refuses to render the others with it.
+	// A resumed attempt keeps the configs an earlier attempt rendered with
+	// the profiles and renders the rest identity only.
 	a.Config["ts_auth_service"] = authService
 	a.err, render = nil, nil
-	a.writeJSON(a.Path("signed", "controller-a.config.json"), Object{"controller": Object{"workloads": Object{"terrabase": Object{}}}})
+	resumed := a.Path("signed", "controller-a.config.json")
+	a.writeJSON(resumed, Object{"controller": Object{"workloads": Object{"ts-auth": Object{}}}})
+	var signed []string
+	a.Runner = func(_ context.Context, c Command) (string, error) {
+		signed = c.Args
+		return "", stop
+	}
 	a.PhaseSign()
-	if a.Err() == nil || !strings.Contains(a.Err().Error(), "cannot gain or lose ts-auth") || render != nil {
-		t.Fatal(a.Err(), render)
+	if !errors.Is(a.Err(), stop) || !slices.Contains(signed, "sign-manifest") || flagValue(signed, "--controller-config") != resumed {
+		t.Fatal(a.Err(), signed)
+	}
+	// It refuses to drop the role a retained config carries: that workload
+	// stays generation 0 until a cell spec replaces it.
+	delete(a.Config, "ts_auth_profile")
+	delete(a.Config, "ts_auth_service")
+	a.err, signed = nil, nil
+	a.PhaseSign()
+	if a.Err() == nil || !strings.Contains(a.Err().Error(), "keep ts_auth_profile") || signed != nil {
+		t.Fatal(a.Err(), signed)
+	}
+}
+
+// The services phase applies TerraBase's profile first, then ts-auth, then
+// the configured services; a role set both ways is refused.
+func TestServicesPhaseAppliesTheCellsProfilesFirst(t *testing.T) {
+	a := smallAttempt(t)
+	a.Config["terrabase_profile"] = "/deploy/terrabase-profile.json"
+	a.Config["ts_auth_profile"], a.Config["ts_auth_service"] = "/deploy/ts-auth-profile.json", "/deploy/ts-auth-service.json"
+	a.Config["services"] = []any{Object{"role": "web", "profile": "/deploy/web-profile.json"}}
+	want := []any{
+		Object{"role": "terrabase", "profile": "/deploy/terrabase-profile.json"},
+		Object{"role": "ts-auth", "profile": "/deploy/ts-auth-profile.json", "spec": "/deploy/ts-auth-service.json"},
+		Object{"role": "web", "profile": "/deploy/web-profile.json"},
+	}
+	if got, err := a.cellServices(); err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("services = %v, %v", got, err)
+	}
+	// A ts-auth entry without its service spec would otherwise replace the
+	// pinned pair silently.
+	a.Config["services"] = []any{Object{"role": "ts-auth", "profile": "/deploy/other-profile.json"}}
+	if _, err := a.cellServices(); err == nil || !strings.Contains(err.Error(), "names ts-auth in services and in its own settings") {
+		t.Fatalf("ts-auth set both ways: %v", err)
+	}
+	a.Config["services"] = []any{Object{"role": "terrabase", "profile": "/deploy/other-profile.json"}}
+	if _, err := a.cellServices(); err == nil {
+		t.Fatal("terrabase set both ways was accepted")
+	}
+	a.Config["services"] = nil
+	delete(a.Config, "ts_auth_service")
+	if _, err := a.cellServices(); err == nil || !strings.Contains(err.Error(), "together") {
+		t.Fatalf("ts-auth profile without its service: %v", err)
 	}
 }
 

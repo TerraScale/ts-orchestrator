@@ -29,6 +29,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
 )
 
 const Region = "sa-saopaulo-1"
@@ -667,23 +668,26 @@ func (a *Attempt) PhaseSign() {
 		nsgs := []string{str(ids, "network_security_group")}
 		profiles = append(profiles, Object{"slot": slot, "compartmentOcid": ids["control_compartment"], "availabilityDomain": plan["availability_domain"], "faultDomain": hosts[slot]["fault_domain"], "subnetOcid": ids["subnet"], "networkSecurityGroupOcids": nsgs, "shape": hosts[slot]["shape"]})
 	}
-	// ts-auth can join a controller config only before it is first signed,
-	// so a cell that runs ts-auth renders it into every slot's config, and a
-	// resumed attempt refuses configs rendered the other way.
-	authProfile, authService := str(a.Config, "ts_auth_profile"), str(a.Config, "ts_auth_service")
-	if (authProfile == "") != (authService == "") {
+	// The signed controller configs hold the cell's identity only; the
+	// services phase applies TerraBase's and ts-auth's profiles as the first
+	// cell spec. Configs an earlier attempt rendered with them keep them.
+	if (str(a.Config, "ts_auth_profile") == "") != (str(a.Config, "ts_auth_service") == "") {
 		a.fail(errors.New("attempt config needs ts_auth_profile and ts_auth_service together"))
 		return
 	}
+	// A retained config's workload stays generation 0 until a cell spec
+	// replaces it, so the attempt must still apply the role it carries.
 	for _, slot := range Slots {
 		config := a.Path("signed", slot+".config.json")
 		if !exists(config) {
 			continue
 		}
-		_, rendered := object(object(a.read(config)["controller"])["workloads"])["ts-auth"]
-		if rendered != (authProfile != "") {
-			a.fail(fmt.Errorf("%s does not match the attempt's ts_auth_profile; a signed controller config cannot gain or lose ts-auth", config))
-			return
+		workloads := object(object(a.read(config)["controller"])["workloads"])
+		for role, setting := range map[string]string{terrabase.Role: "terrabase_profile", tsauth.Role: "ts_auth_profile"} {
+			if _, rendered := workloads[role]; rendered && str(a.Config, setting) == "" {
+				a.fail(fmt.Errorf("%s was rendered with %s; keep %s so the cell spec carries it", config, role, setting))
+				return
+			}
 		}
 	}
 	for _, slot := range Slots {
@@ -702,12 +706,8 @@ func (a *Attempt) PhaseSign() {
 		a.writeJSON(candidate, Object{"schemaVersion": 2, "deploymentId": a.Deployment, "environment": "canary", "clusterId": a.Deployment, "cell": "GRU", "ociRegion": Region, "intentGeneration": anchorPayload["initialRegionIntentGeneration"], "intentSha256": anchorPayload["initialRegionIntentSha256"], "controllerRole": "controller", "slot": slot, "seedSlot": "controller-a", "controllerSlots": Slots, "profiles": profiles, "imageOcid": a.ImageID(), "imageArchitecture": "linux-arm64", "releaseReceiptSha256": a.sha(receipt), "peerReceiptDelegation": peer, "storageDomain": anchorPayload["storageDomain"], "managedMaterial": domain, "secrets": secrets})
 		if !exists(config) {
 			args := join([]string{"render-controller-config"}, a.pair(candidate, "--candidate"), a.pair(a.Path("controller-material.json"), "--material-record"), a.pair(str(a.Config, "operator_grant"), "--operator-grant"), sidecars)
-			if profile := str(a.Config, "terrabase_profile"); profile != "" {
-				args = append(args, a.pair(profile, "--terrabase-profile")...)
-			}
-			if authProfile != "" {
-				args = append(args, join(a.pair(authProfile, "--ts-auth-profile"), a.pair(authService, "--ts-auth-service"))...)
-			}
+			// The snapshot location is boot configuration: a rebuilt cell
+			// restores from it before any cell spec exists.
 			if snapshot := str(a.Config, "kv_snapshot"); snapshot != "" {
 				args = append(args, a.pair(snapshot, "--kv-snapshot")...)
 			}
@@ -1102,14 +1102,17 @@ func (a *Attempt) PhaseOperator() {
 
 var serviceRole = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 
-// PhaseServices adds the configured services ({role, profile, spec}) to the
-// running cell through the signed cell spec amendments of any later change:
-// the operator CLI plans each, the release leaf signs it under the root's
-// cell spec delegation, and the cell applies it. A service already in the
-// spec plans nothing, so a rerun changes nothing.
+// PhaseServices adds the cell's services to the running cell through the
+// signed cell spec amendments of any later change: TerraBase's profile
+// (terrabase_profile) first, which member enrollment reads, then ts-auth
+// (ts_auth_profile and ts_auth_service) and the configured services
+// ({role, profile, spec}). The operator CLI plans each, the release leaf
+// signs it under the root's cell spec delegation (the root when the plan
+// widens authority, as TerraBase's profile does), and the cell applies it.
+// A service already in the spec plans nothing, so a rerun changes nothing.
 func (a *Attempt) PhaseServices() {
-	services := rows(a.Config["services"])
-	if len(services) == 0 {
+	services, err := a.cellServices()
+	if a.fail(err); a.err != nil || len(services) == 0 {
 		return
 	}
 	// A role names files the phase deletes as root.
@@ -1164,6 +1167,37 @@ func (a *Attempt) PhaseServices() {
 		}
 		a.sudo(false, cli, "service", "apply", "--config", config, "--file", signed)
 	}
+}
+
+// cellServices lists the services the services phase applies: TerraBase and
+// ts-auth from their attempt settings, then the configured services. A role
+// set both ways is refused rather than one source silently winning.
+func (a *Attempt) cellServices() ([]any, error) {
+	if (str(a.Config, "ts_auth_profile") == "") != (str(a.Config, "ts_auth_service") == "") {
+		return nil, errors.New("attempt config needs ts_auth_profile and ts_auth_service together")
+	}
+	configured := rows(a.Config["services"])
+	named := func(role string) bool {
+		return slices.ContainsFunc(configured, func(v any) bool { return str(object(v), "role") == role })
+	}
+	var services []any
+	for _, derived := range []struct{ role, profile, spec string }{
+		{terrabase.Role, str(a.Config, "terrabase_profile"), ""},
+		{tsauth.Role, str(a.Config, "ts_auth_profile"), str(a.Config, "ts_auth_service")},
+	} {
+		if derived.profile == "" {
+			continue
+		}
+		if named(derived.role) {
+			return nil, fmt.Errorf("attempt config names %s in services and in its own settings; keep one", derived.role)
+		}
+		service := Object{"role": derived.role, "profile": derived.profile}
+		if derived.spec != "" {
+			service["spec"] = derived.spec
+		}
+		services = append(services, service)
+	}
+	return append(services, configured...), nil
 }
 
 // PhaseMembers launches the plan's database hosts. They enroll with the

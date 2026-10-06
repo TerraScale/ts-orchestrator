@@ -16,7 +16,7 @@ command sequence is the [bring-up runbook](#gru-1-bring-up-runbook).
 | `ts-orch oci-region attempt --config F PHASE` | Runs one resumable bring-up phase; see the [runbook](#gru-1-bring-up-runbook). |
 | `ts-orch oci-region preview cell-plan --plan F --inventory F [--profile F]` | Read-only: prints the cell's static names, placement and cost estimate against the plan ceiling. |
 | `ts-orch oci-region preview member-launch --plan F --inventory F --admission F --slot member-a --image-ocid OCID --host-enrollment F --owner-ssh-public-key F --out F` | Writes the launch input of one database host (`gru-1-db-1`); creates nothing. |
-| `ts-orch bootstrap render-controller-config ... --terrabase-profile F --terrabase-profile-sha256 H --out F` | Renders a controller config with the member CA paths and `controller.workloads.terrabase`. |
+| `ts-orch bootstrap render-controller-config ... --terrabase-profile F --terrabase-profile-sha256 H --out F` | Deprecated: renders `controller.workloads.terrabase` into the signed config. A cell gets the profile as a root-signed [cell spec](cell-spec.md) `terrabase` entry instead; the renderer always sets the member CA paths when the material holds the CA. |
 | `ts-orch operator terrabase-release --config FILE [--nats-forward ...] --binary F --sha256 F --source-checkout DIR --commit SHA --environment ENV --profile F [--wait 10m]` | Verifies, admits and rolls out one release to all members; see [Run](#run). |
 | `ts-orch terrabase data-volume --plan FILE --member NAME (--instance OCID \| --grow-gb N) [--compartment OCID] [--apply]` | Prints the resolved data volume request as one JSON line. With `--apply`, creates and attaches the member's volume `NAME-data` (`{"step":"attached", ...}`) or grows it (`{"step":"grown", ...}`) through the operator's `~/.oci/config` DEFAULT profile; see [gru-1 runbook](#gru-1-live-deployment-runbook) step 7. |
 | `ts-orch terrabase restore-volume --plan FILE --member NAME --scratch-instance OCID [--backup OCID] [--compartment OCID] [--apply]` | Prints the resolved restore request. With `--apply`, restores the newest AVAILABLE backup of `NAME-data` (or `--backup`) into a new volume `restore-NAME-data` and attaches it to the scratch instance (`{"step":"restored", ...}`); see [Restore drill](#restore-drill). |
@@ -52,10 +52,11 @@ controller through an OCI Bastion forward.
    rest of its material, and `render-controller-config` points the two keys
    at them. Without them member certificate requests are refused and
    members never start.
-4. **Workload profile.** The signed controller config carries
-   `controller.workloads.terrabase`, rendered from the reviewed profile file
-   by `render-controller-config --terrabase-profile`; see
-   [Workload profile](#workload-profile). The signed placement sidecar
+4. **Workload profile.** The cell spec carries the `terrabase` entry, from
+   the reviewed profile file, which a root signs; `oci-region attempt`
+   applies it in its `services` phase. A cell whose signed controller config
+   was rendered with `--terrabase-profile` keeps that profile as generation
+   0; see [Workload profile](#workload-profile). The signed placement sidecar
    (`placement.json`) must not use `terrabase` as its `member_role`: that
    role belongs to the C# delivery path, and signing refuses the overlap.
 5. **TerraBase hosts.** The hosts named in `TERRABASE_PEERS` are registered
@@ -298,14 +299,15 @@ Inputs, outside Git except where named:
    `gru-1-arm64`, tagged `terrascale-qcow2-sha256`. An import resumes a live
    image of that name only when the tag matches its QCOW2; retire an older
    `gru-1-arm64` first.
-4. **Sign (local).** `$A sign` renders each controller config with
-   `render-controller-config --terrabase-profile`, so every config carries
-   `controller.workloads.terrabase` and the member CA paths, and signs the
+4. **Sign (local).** `$A sign` renders each controller config with the
+   cell's identity, material and member CA paths only, and signs the
    manifests and founder plan.
 5. **Controllers — LIVE (gru-1-ctl-1; it then forms ctl-2/3).** `$A launch`,
    `$A complete`, `$A continuity`, then `$A operator`, which installs the
    operator material and prints the qualified operator CLI path. Check three
-   healthy controllers before continuing.
+   healthy controllers, then run `$A services`: it applies TerraBase's
+   profile (`terrabase_profile`, root-signed) and ts-auth as the first cell
+   spec, which member enrollment reads.
 6. **Database hosts — LIVE (gru-1-db-1, gru-1-db-2).** `$A members` takes a
    fresh cost admission per host, writes `launch/gru-1-db-N-launch.json`
    with `preview member-launch`, launches it with a retry token bound to

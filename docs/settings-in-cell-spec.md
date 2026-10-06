@@ -101,7 +101,9 @@ NLB, `volume_backup`, `storage_capacity`, `global`, `region_planner`) get
 sections the same way after this ticket.
 
 The last slice renders new controller configs with only these: the
-`oci-region attempt` services phase applies the rest as generation 1. A
-`terrabase` entry then no longer needs a signed TerraBase profile, only the
-signed member CA. Existing cells keep their signed settings as generation 0
-until a spec replaces them, so no cell needs a re-found.
+`oci-region attempt` services phase applies TerraBase's profile (root-signed)
+and ts-auth as generation 1, so a cell spec `terrabase` entry needs only the
+signed member CA. The renderer's `--terrabase-profile` and
+`--ts-auth-profile`/`--ts-auth-service` still work but are deprecated.
+Existing cells keep their signed settings as generation 0 until a spec
+replaces them, so no cell needs a re-found.
