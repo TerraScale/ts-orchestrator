@@ -79,6 +79,23 @@ type ArtifactRecord struct {
 	ManifestDigest string         `json:"manifestDigest"`
 }
 
+// NewArtifactRecord is the record of size bytes with SHA-256 digest that
+// request claims, as PrepareArtifact builds it. CI signs it with
+// Ed25519Codec.SignArtifact for a controller to admit (AdmitClaim).
+func NewArtifactRecord(request ArtifactClaimRequest, digest string, size int64) (ArtifactRecord, error) {
+	if err := request.validate(); err != nil {
+		return ArtifactRecord{}, err
+	}
+	r := ArtifactRecord{SchemaVersion: SchemaVersion, Digest: digest, Source: request.Source, Cell: request.Cell,
+		Role: request.Role, Environment: request.Environment, Size: size}
+	manifest, err := r.calculatedManifestDigest()
+	if err != nil {
+		return ArtifactRecord{}, err
+	}
+	r.ManifestDigest = manifest
+	return r, r.validate()
+}
+
 func (r ArtifactRecord) calculatedManifestDigest() (string, error) {
 	r.ManifestDigest = ""
 	b, err := json.Marshal(r)

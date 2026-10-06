@@ -163,6 +163,11 @@ use `git -C "$WORK/terrabase" rev-parse "v<Version>^{commit}"`.
 
 ## Run
 
+A green TerraBase `main` CI releases TerraBase to every region with no human
+step ([automatic service releases](continuous-delivery.md#automatic-service-releases-ts-610));
+the region's leader runs the gate and rollback below. Run it by hand only to
+release outside CI:
+
 ```sh
 F=(--nats-forward 10.251.0.11:4222=127.0.0.1:14222)   # Bastion only
 sudo terrascale-orchestrator operator terrabase-release \

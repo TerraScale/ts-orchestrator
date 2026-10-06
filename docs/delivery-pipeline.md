@@ -137,6 +137,7 @@ promoted with `--image-dir`.
 | Local image build | `make image SOURCE=<sha>` | revision |
 | Verification, OCI import, image signing, receipt | `ts-orch image promote` | leaf signing key, root-signed delegation, OCI target |
 | Binary update signing and region-by-region rollout | end of `ci.yml` on `main`, once `TS_AUTO_DEPLOY_CELLS` is set | monthly root-signed update delegation |
+| TerraBase and ts-auth rollout to every region | their `main` CI `deploy` job ([automatic service releases](continuous-delivery.md#automatic-service-releases-ts-610)) | none |
 
 ## Measured (Forgejo runs, 2026-09-29)
 

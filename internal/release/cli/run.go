@@ -26,6 +26,7 @@ Commands:
   sign-spec
   sign-root-rotation
   deploy
+  service-deploy
   fleet-status
 `
 

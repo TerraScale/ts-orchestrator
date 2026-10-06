@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -12,6 +13,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -25,10 +27,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nats-io/nats.go/jetstream"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	sourcerelease "git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
@@ -250,7 +258,282 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	submitTerraBaseIntent = submitIntent
 	lostDigest, _ := terrabase.VerifyRelease(lost, lost+".sha256")
 	assertTerraBaseMember(t, ctx, adminPort, member, runner, lostDigest)
+
+	// TS-610: CI releases the role through the service release channel. The
+	// leader admits the claim the release key signed and rolls the member
+	// out through the same gate, and rolls a broken release back.
+	leader, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "leader", Replicas: 1, Lab: true,
+		URL: operatorConfig.NATS.URL, NKeySeedFile: controllerSeed, ClientRole: "controller"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer leader.Close()
+	policy, err := buildSignerPolicy(Config{NATS: natscell.Config{Cell: "gru"},
+		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deliveries, err := delivery.ConnectClient(ctx, delivery.Config{Conn: leader.Conn(), JS: leader.JetStream(), Cell: "gru",
+		Verifier: policy.codec, ArtifactVerifier: policy.codec, Authorize: policy.authorizeIntent,
+		AuthorizeArtifact: policy.authorizeArtifact})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := operatorHostReader(ctx, Config{NATS: natscell.Config{Cell: "gru", Replicas: 1}}, leader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kv, err := leader.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: releasechannel.Bucket,
+		Storage: jetstream.MemoryStorage, Replicas: 1, History: 4, MaxBytes: 8 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	location := releasechannel.Location{Client: newChannelBucket(), Namespace: "ns", Bucket: "gru-1-head"}
+	var publishSigned func(string, time.Time, ed25519.PrivateKey) string
+	releases := &serviceReleases{cell: "gru", channel: &channelSource{location: &location}, deliveries: deliveries,
+		hosts: reader, fencer: observedLeader{js: leader.JetStream()}, wait: 15 * time.Second,
+		profiles: func() map[string]WorkloadProfile { return map[string]WorkloadProfile{terrabase.Role: profile} }}
+	signingKey, err := readPrivateKey(filepath.Join(root, "operator.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := sourcerelease.SourceTreeDigest(ctx, checkout, commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publish := func(binary string, issued time.Time) string {
+		t.Helper()
+		return publishSigned(binary, issued, signingKey)
+	}
+	publishSigned = func(binary string, issued time.Time, signingKey ed25519.PrivateKey) string {
+		t.Helper()
+		data, err := os.ReadFile(binary)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(data)
+		digest := hex.EncodeToString(sum[:])
+		record, err := delivery.NewArtifactRecord(delivery.ArtifactClaimRequest{Source: delivery.ArtifactSource{
+			Repository: terrabase.Repository, Commit: commit, TreeDigest: tree}, Cell: "gru", Role: terrabase.Role,
+			Environment: "test"}, digest, int64(len(data)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		codec := delivery.Ed25519Codec{Cell: "gru", Actor: "ops", PrivateKey: signingKey, Lifetime: time.Minute,
+			MaxLifetime: 5 * time.Minute, Now: func() time.Time { return issued }}
+		claim, err := codec.SignArtifact(ctx, record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, value := range map[string][]byte{releasechannel.ServiceBinaryObject(terrabase.Role, digest): data,
+			releasechannel.ServiceReleaseObject(terrabase.Role): claim} {
+			if _, err := location.Client.PutObject(ctx, objectstorage.PutObjectRequest{ObjectName: &name,
+				PutObjectBody: io.NopCloser(bytes.NewReader(value))}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return digest
+	}
+	pass := func(want releasechannel.State, reason string) {
+		t.Helper()
+		if err := releases.pass(ctx, kv, terrabase.Role); err != nil {
+			t.Fatal(err)
+		}
+		status, found, err := releasechannel.ReadServiceStatus(ctx, location, terrabase.Role)
+		if err != nil || !found || status.State != want || !strings.Contains(status.Reason, reason) || status.Cell != "GRU" {
+			t.Fatalf("status %+v %v %v, want %s %q", status, found, err, want, reason)
+		}
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	viaChannel := writeTerraBaseRelease(t, filepath.Join(root, "channel"), []byte(fakeTerraBaseMagic+" channel"))
+	publish(viaChannel, now.Add(-2*time.Hour))
+	pass(releasechannel.StateFailed, "run the release again")
+	assertTerraBaseMember(t, ctx, adminPort, member, runner, lostDigest)
+	channelDigest := publish(viaChannel, now)
+	pass(releasechannel.StateComplete, "")
+	assertTerraBaseMember(t, ctx, adminPort, member, runner, channelDigest)
+	// A second pass reports the finished release again and changes nothing.
+	pass(releasechannel.StateComplete, "")
+	publish(third, now.Add(time.Second))
+	pass(releasechannel.StateFailed, "was rolled back to "+channelDigest)
+	assertTerraBaseMember(t, ctx, adminPort, member, runner, channelDigest)
+	// A replayed older claim never reaches the members.
+	publish(viaChannel, now)
+	if err := releases.pass(ctx, kv, terrabase.Role); err == nil || !strings.Contains(err.Error(), "not after") {
+		t.Fatalf("a replayed claim: %v", err)
+	}
+	// A claim no trusted signer issued, dated ahead of the next real one,
+	// is reported failed and does not move the cell's issuance watermark.
+	_, forger, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publishSigned(viaChannel, now.Add(90*time.Second), forger)
+	pass(releasechannel.StateFailed, "does not verify")
+	// A new leader resumes a release an earlier leader submitted under its
+	// epoch but the delivery worker never accepted: it issues the intent
+	// again under its own epoch.
+	resumed := writeTerraBaseRelease(t, filepath.Join(root, "resumed"), []byte(fakeTerraBaseMagic+" resumed"))
+	resumedDigest := publish(resumed, now.Add(2*time.Second))
+	claim, _, err := releasechannel.ReadServiceClaim(ctx, location, terrabase.Role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(resumed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, actor, err := deliveries.AdmitClaim(ctx, file, claim)
+	file.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := nativeIntent(record, nativeRelease{Role: terrabase.Role, Replicas: 1, Profile: profile}, 1)
+	stale.SchemaVersion, stale.OperationID = delivery.SchemaVersion, "earlier-leader"
+	stale.AuthorityEpoch = releases.fencer.Current().Epoch + 7
+	key := releasechannel.ServiceStatusKey("GRU", terrabase.Role)
+	_, revision, err := loadServiceRelease(ctx, kv, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(claim)
+	if _, err := saveServiceRelease(ctx, kv, key, serviceReleaseState{Claim: hex.EncodeToString(sum[:]),
+		IssuedAt: now.Add(2 * time.Second), Digest: resumedDigest, Actor: actor, Previous: channelDigest, Intent: &stale,
+		State: releasechannel.StateRolling}, revision); err != nil {
+		t.Fatal(err)
+	}
+	pass(releasechannel.StateComplete, "")
+	assertTerraBaseMember(t, ctx, adminPort, member, runner, resumedDigest)
+
+	// seed admits binary's claim, issued at issued, and records it as an
+	// earlier leader left it: forward submitted under another epoch, and the
+	// rollback to previous when rollback is set.
+	seed := func(binary string, issued time.Time, previous string, rollback bool) (string, []byte) {
+		t.Helper()
+		digest := publish(binary, issued)
+		claim, _, err := releasechannel.ReadServiceClaim(ctx, location, terrabase.Role)
+		if err != nil {
+			t.Fatal(err)
+		}
+		file, err := os.Open(binary)
+		if err != nil {
+			t.Fatal(err)
+		}
+		record, actor, err := deliveries.AdmitClaim(ctx, file, claim)
+		file.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		forward := nativeIntent(record, nativeRelease{Role: terrabase.Role, Replicas: 1, Profile: profile}, 1)
+		forward.SchemaVersion, forward.OperationID = delivery.SchemaVersion, "earlier-forward-"+digest[:8]
+		forward.AuthorityEpoch = releases.fencer.Current().Epoch + 7
+		state := serviceReleaseState{IssuedAt: issued, Digest: digest, Actor: actor, Previous: previous,
+			Intent: &forward, State: releasechannel.StateRolling}
+		if rollback {
+			back, err := deliveries.ResolveAdmittedArtifact(ctx, previous, terrabase.Role, "test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			intent := forward
+			intent.Source, intent.ArtifactDigest, intent.ManifestDigest = back.Source, back.Digest, back.ManifestDigest
+			intent.OperationID = "earlier-rollback-" + digest[:8]
+			state.Rollback = &intent
+		}
+		sum := sha256.Sum256(claim)
+		state.Claim = hex.EncodeToString(sum[:])
+		_, revision, err := loadServiceRelease(ctx, kv, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := saveServiceRelease(ctx, kv, key, state, revision); err != nil {
+			t.Fatal(err)
+		}
+		return digest, claim
+	}
+	// A new leader finishes a rollback an earlier leader started; it never
+	// issues the failed release again.
+	abandoned := writeTerraBaseRelease(t, filepath.Join(root, "abandoned"), []byte(fakeTerraBaseMagic+" abandoned"))
+	seed(abandoned, now.Add(3*time.Second), resumedDigest, true)
+	pass(releasechannel.StateFailed, "was rolled back to "+resumedDigest)
+	assertTerraBaseMember(t, ctx, adminPort, member, runner, resumedDigest)
+	// A submitted release finishes before a newer claim replaces it.
+	inFlight := writeTerraBaseRelease(t, filepath.Join(root, "in-flight"), []byte(fakeTerraBaseMagic+" in flight"))
+	inFlightDigest, _ := seed(inFlight, now.Add(4*time.Second), resumedDigest, false)
+	newer := writeTerraBaseRelease(t, filepath.Join(root, "newer"), []byte(fakeTerraBaseMagic+" newer"))
+	newerDigest := publish(newer, now.Add(5*time.Second))
+	if err := releases.pass(ctx, kv, terrabase.Role); err != nil {
+		t.Fatal(err)
+	}
+	if status, _, err := releasechannel.ReadServiceStatus(ctx, location, terrabase.Role); err != nil ||
+		status.Digest != inFlightDigest || status.State != releasechannel.StateComplete {
+		t.Fatalf("the in-flight release: %+v %v", status, err)
+	}
+	pass(releasechannel.StateComplete, "")
+	assertTerraBaseMember(t, ctx, adminPort, member, runner, newerDigest)
+	// A submitted release resumes from its recorded intent while the channel
+	// cannot be read at all.
+	unreadable := writeTerraBaseRelease(t, filepath.Join(root, "unreadable"), []byte(fakeTerraBaseMagic+" unreadable"))
+	unreadableDigest, _ := seed(unreadable, now.Add(6*time.Second), newerDigest, false)
+	// ... and while the cell spec no longer has the role's profile.
+	channel, profiles := releases.channel, releases.profiles
+	releases.channel = &channelSource{open: func(context.Context) (releasechannel.Location, error) {
+		return releasechannel.Location{}, errors.New("Object Storage is unreachable")
+	}}
+	releases.profiles = func() map[string]WorkloadProfile { return nil }
+	if err := releases.pass(ctx, kv, terrabase.Role); err != nil {
+		t.Fatalf("a release resumed without its channel: %v", err)
+	}
+	releases.channel, releases.profiles = channel, profiles
+	if state, _, err := loadServiceRelease(ctx, kv, key); err != nil || state.State != releasechannel.StateComplete ||
+		state.Digest != unreadableDigest {
+		t.Fatalf("the release resumed without its channel: %+v %v", state, err)
+	}
+	assertTerraBaseMember(t, ctx, adminPort, member, runner, unreadableDigest)
+	// A rollback that does not pass its gate is not a final outcome: the
+	// release stays rolling and the rollback is retried until it serves.
+	brokenData, err := os.ReadFile(third)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brokenSum := sha256.Sum256(brokenData)
+	stuck := writeTerraBaseRelease(t, filepath.Join(root, "stuck"), []byte(fakeTerraBaseMagic+" stuck"))
+	seed(stuck, now.Add(7*time.Second), hex.EncodeToString(brokenSum[:]), true)
+	if err := releases.pass(ctx, kv, terrabase.Role); err == nil {
+		t.Fatal("a rollback that never served finished the release")
+	}
+	state, revision, err := loadServiceRelease(ctx, kv, key)
+	if err != nil || state.State != releasechannel.StateRolling || !strings.Contains(state.Reason, "has not finished") {
+		t.Fatalf("after a rollback that never served: %+v %v", state, err)
+	}
+	good, err := deliveries.ResolveAdmittedArtifact(ctx, unreadableDigest, terrabase.Role, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry := *state.Rollback
+	retry.Source, retry.ArtifactDigest, retry.ManifestDigest = good.Source, good.Digest, good.ManifestDigest
+	retry.OperationID, retry.Generation = "retried-rollback", retry.Generation+1
+	state.Rollback, state.Previous = &retry, unreadableDigest
+	if _, err := saveServiceRelease(ctx, kv, key, state, revision); err != nil {
+		t.Fatal(err)
+	}
+	pass(releasechannel.StateFailed, "was rolled back to "+unreadableDigest)
+	assertTerraBaseMember(t, ctx, adminPort, member, runner, unreadableDigest)
 }
+
+// observedLeader lends a test client the cell's current authority epoch,
+// as the leader holding it.
+type observedLeader struct{ js jetstream.JetStream }
+
+func (l observedLeader) Current() authority.Snapshot {
+	snapshot, err := authority.Observe(context.Background(), l.js, "gru")
+	if err != nil {
+		return authority.Snapshot{}
+	}
+	snapshot.Leader, snapshot.Ready, snapshot.ExpiresAt = true, true, time.Now().Add(time.Minute)
+	return snapshot
+}
+
+func (l observedLeader) Guard(context.Context, uint64) error { return nil }
 
 // interruptAfter cancels the command once it prints the named step.
 type interruptAfter struct {

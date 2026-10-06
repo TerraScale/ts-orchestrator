@@ -1,0 +1,468 @@
+package app
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json/v2"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"strings"
+	"time"
+	"uuid"
+
+	"github.com/nats-io/nats.go/jetstream"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/seatrollout"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
+)
+
+// serviceReleaseMaxAge bounds the age of a CI release claim the leader has
+// not started yet: CI signs it right before it publishes, so an older one
+// is a replay or a release the cell missed, which CI runs again.
+const serviceReleaseMaxAge = time.Hour
+
+// serviceReleaseRoles are the native roles CI releases through the service
+// release channel, in the order the leader checks them.
+var serviceReleaseRoles = []string{terrabase.Role, tsauth.Role}
+
+// serviceReleaseReplicas is the replica count role's readiness gate waits
+// for, as the operator's release command for the role counts it.
+func serviceReleaseReplicas(cell, role string, profile WorkloadProfile) (int, error) {
+	switch role {
+	case terrabase.Role:
+		members, err := terrabase.ParseProfile(profile.Env)
+		return len(members.Peers), err
+	case tsauth.Role:
+		return tsauth.Replicas, tsauth.ValidateProfile(cell, profile.Args, profile.Env, profile.Secrets)
+	}
+	return 0, fmt.Errorf("role %s has no release rule", role)
+}
+
+// serviceReleases follows the service release channels in the region's
+// head bucket (TS-610). CI publishes one artifact claim per role, signed by
+// a trusted signer the cell lets release that role; the authority leader
+// admits the claimed binary and rolls the role out through the same
+// readiness gate and rollback as the operator's release commands, one role
+// at a time, and reports in the role's status.json.
+type serviceReleases struct {
+	cell       string // the NATS cell, e.g. gru
+	channel    *channelSource
+	deliveries *delivery.Service
+	hosts      seatrollout.Hosts
+	profiles   func() map[string]WorkloadProfile
+	fencer     authority.Fencer
+	// interval is how often the channels are read; zero means
+	// defaultChannelInterval.
+	interval time.Duration
+	// wait overrides the readiness gate's wait in tests.
+	wait time.Duration
+}
+
+// serviceReleaseState is the leader's record of a role's newest release,
+// under releasechannel.ServiceStatusKey in the release channel bucket, so a
+// new leader resumes the release instead of starting it again.
+type serviceReleaseState struct {
+	Claim    string           `json:"claim"` // SHA-256 of release.json
+	IssuedAt time.Time        `json:"issued_at"`
+	Digest   string           `json:"digest,omitempty"`
+	Actor    string           `json:"actor,omitempty"`
+	Previous string           `json:"previous,omitempty"`
+	Intent   *delivery.Intent `json:"intent,omitempty"` // set once submitted
+	// Rollback is set once the release failed its gate and the rollback
+	// to Previous is submitted; a new leader finishes it.
+	Rollback *delivery.Intent `json:"rollback,omitempty"`
+
+	// claim and location are the channel's claim while it is admitted;
+	// they are never stored.
+	claim    []byte
+	location releasechannel.Location
+	State    releasechannel.State `json:"state"`
+	Reason   string               `json:"reason,omitempty"`
+}
+
+func (r *serviceReleases) run(ctx context.Context, js jetstream.JetStream, replicas int) {
+	kv, err := openChannelBucket(ctx, js, replicas)
+	if err != nil {
+		return
+	}
+	interval := r.interval
+	if interval <= 0 {
+		interval = defaultChannelInterval
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		for _, role := range serviceReleaseRoles {
+			if !r.fencer.Current().CanMutate() {
+				break
+			}
+			if err := r.pass(ctx, kv, role); err != nil && ctx.Err() == nil {
+				slog.Warn("service release channel", observability.ComponentKey, "rollout", "role", role, "error", err)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// pass reads role's channel and starts, resumes or reports its release. An
+// error leaves the state as it was; the next pass retries.
+func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role string) error {
+	key := releasechannel.ServiceStatusKey(strings.ToUpper(r.cell), role)
+	state, revision, err := loadServiceRelease(ctx, kv, key)
+	if err != nil {
+		return err
+	}
+	// A submitted release finishes, or rolls back, from its recorded intent
+	// before the channel is read: its delivery may be partly committed, and
+	// neither a newer claim nor an unreadable channel may hold it.
+	if state.State != releasechannel.StateRolling || state.Intent == nil {
+		location, err := r.channel.get(ctx)
+		if err != nil {
+			return err
+		}
+		claim, found, err := releasechannel.ReadServiceClaim(ctx, location, role)
+		if err != nil || !found {
+			return err
+		}
+		sum := sha256.Sum256(claim)
+		if state.Claim == hex.EncodeToString(sum[:]) && state.State != releasechannel.StateRolling {
+			return r.report(ctx, role, state)
+		}
+		if state.Claim != hex.EncodeToString(sum[:]) {
+			// Only an authentic claim moves the cell's issuance watermark;
+			// any other is reported failed and leaves the state as it was.
+			next := serviceReleaseState{Claim: hex.EncodeToString(sum[:]), State: releasechannel.StateRolling,
+				Reason: "admitting the release"}
+			record, actor, issued, err := r.verify(ctx, role, claim)
+			next.IssuedAt, next.Digest, next.Actor = issued, record.Digest, actor
+			switch {
+			case err != nil && !errors.Is(err, delivery.ErrInvalid) && !errors.Is(err, delivery.ErrUnauthorized):
+				return err
+			case err != nil:
+				next.State, next.Reason = releasechannel.StateFailed, "the claim does not verify in this cell: "+err.Error()
+				return r.report(ctx, role, next)
+			case issued.After(time.Now().Add(releasechannel.ClaimClockSkew)):
+				next.State, next.Reason = releasechannel.StateFailed, fmt.Sprintf("the claim is issued in the future, at %s", issued)
+				return r.report(ctx, role, next)
+			case !issued.After(state.IssuedAt):
+				return fmt.Errorf("release.json holds a claim issued at %s, not after the cell's last %s release", issued, role)
+			}
+			if age := time.Since(issued); age > serviceReleaseMaxAge {
+				next.State, next.Reason = releasechannel.StateFailed,
+					fmt.Sprintf("the claim was issued %s ago, more than %s; run the release again", age.Round(time.Second), serviceReleaseMaxAge)
+			}
+			state = next
+			if revision, err = saveServiceRelease(ctx, kv, key, state, revision); err != nil {
+				return err
+			}
+			r.reportQuietly(ctx, role, state)
+			if state.State == releasechannel.StateFailed {
+				return nil
+			}
+		}
+		state.claim, state.location = claim, location
+	}
+	finished, err := r.release(ctx, role, state, func(next serviceReleaseState) error {
+		state = next
+		if revision, err = saveServiceRelease(ctx, kv, key, state, revision); err != nil {
+			return err
+		}
+		r.reportQuietly(ctx, role, state)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	// A leader deposed during the gate leaves the outcome to the next one.
+	if !r.fencer.Current().CanMutate() {
+		return errors.New("lost the authority lease during the release")
+	}
+	if _, err := saveServiceRelease(ctx, kv, key, finished, revision); err != nil {
+		return err
+	}
+	r.reportQuietly(ctx, role, finished)
+	return nil
+}
+
+// verify authenticates role's claim for this cell and returns its record,
+// signer and issuance instant.
+func (r *serviceReleases) verify(ctx context.Context, role string, claim []byte) (delivery.ArtifactRecord, string, time.Time, error) {
+	issued, err := releasechannel.ClaimIssuedAt(claim)
+	if err != nil {
+		return delivery.ArtifactRecord{}, "", time.Time{}, fmt.Errorf("%w: %w", delivery.ErrInvalid, err)
+	}
+	record, actor, err := r.deliveries.VerifyClaim(ctx, claim)
+	if err == nil && record.Role != role {
+		err = fmt.Errorf("%w: the claim is for role %s", delivery.ErrInvalid, record.Role)
+	}
+	return record, actor, issued, err
+}
+
+// release admits the channel's claim unless state already holds its intent,
+// rolls the role out and returns the final state: complete once every
+// replica serves the release, failed once it was refused before anything
+// changed or rolled back. save records progress; an error from release or
+// save means the release may be retried, and a release whose rollback has
+// not finished stays rolling.
+func (r *serviceReleases) release(ctx context.Context, role string, state serviceReleaseState,
+	save func(serviceReleaseState) error,
+) (serviceReleaseState, error) {
+	failed := func(err error) (serviceReleaseState, error) {
+		state.State, state.Reason = releasechannel.StateFailed, err.Error()
+		return state, nil
+	}
+	var rollback delivery.ArtifactRecord
+	if state.Intent == nil {
+		// The profile decides a new release only; a recorded one resumes
+		// with its own replica count whatever the cell spec says now.
+		profile, ok := r.profiles()[role]
+		if !ok {
+			return failed(fmt.Errorf("this cell has no %s profile", role))
+		}
+		replicas, err := serviceReleaseReplicas(r.cell, role, profile)
+		if err != nil {
+			return failed(err)
+		}
+		record, actor, err := r.admit(ctx, state.location, role, state.claim)
+		if errors.Is(err, delivery.ErrInvalid) || errors.Is(err, delivery.ErrUnauthorized) {
+			return failed(err)
+		}
+		if err != nil {
+			return state, err
+		}
+		deployer := r.deployer(actor, nil)
+		previous, generation, err := deployer.current(ctx, role, record.Environment)
+		if errors.Is(err, errReplicasDisagree) {
+			return failed(err)
+		}
+		if err != nil {
+			return state, err
+		}
+		// Resolve the rollback target before anything changes.
+		if rollback, err = deployer.rollbackTarget(ctx, previous, record.Digest, role, record.Environment); permanentLookup(err) {
+			return failed(err)
+		} else if err != nil {
+			return state, err
+		}
+		intent := nativeIntent(record, nativeRelease{Role: role, Replicas: replicas, Profile: profile}, generation)
+		intent.SchemaVersion, intent.OperationID = delivery.SchemaVersion, uuid.New().String()
+		intent.AuthorityEpoch = r.fencer.Current().Epoch
+		state.Digest, state.Actor, state.Previous, state.Intent = record.Digest, actor, previous, &intent
+		state.Reason = fmt.Sprintf("rolling %d replicas from %s", replicas, previous)
+		if err := save(state); err != nil {
+			return state, err
+		}
+	} else if state.Rollback == nil {
+		var err error
+		rollback, err = r.deployer(state.Actor, nil).rollbackTarget(ctx, state.Previous, state.Digest, role, state.Intent.Environment)
+		if permanentLookup(err) {
+			// The release is submitted: gate it even without a target.
+			slog.Warn("service release has no rollback target", observability.ComponentKey, "rollout", "role", role,
+				"previous", state.Previous, "error", err)
+			rollback = delivery.ArtifactRecord{}
+		} else if err != nil {
+			return state, err
+		}
+	}
+	wait := r.wait
+	if wait == 0 {
+		wait = defaultReleaseWait(role, state.Intent.DesiredReplicas)
+	}
+	progress := &stickyWriter{writer: serviceReleaseLog{role: role}}
+	unfinished := func(err error) (serviceReleaseState, error) {
+		state.Reason = fmt.Sprintf("the rollback to %s has not finished; retrying: %v", state.Previous, err)
+		return state, errors.Join(err, save(state))
+	}
+	if state.Rollback != nil {
+		// An earlier pass or leader started the rollback: finish it.
+		intent, changed, err := r.fresh(ctx, role, *state.Rollback)
+		if err != nil {
+			return state, err
+		}
+		if changed {
+			state.Rollback = &intent
+			if err := save(state); err != nil {
+				return state, err
+			}
+		}
+		if _, err := r.deployer(state.Actor, nil).rollOut(ctx, intent, wait, progress); err != nil {
+			return unfinished(err)
+		}
+		return failed(fmt.Errorf("%s release %s failed its readiness gate and was rolled back to %s", role, state.Digest, state.Previous))
+	}
+	intent, changed, err := r.fresh(ctx, role, *state.Intent)
+	if err != nil {
+		return state, err
+	}
+	if changed {
+		state.Intent = &intent
+		if err := save(state); err != nil {
+			return state, err
+		}
+	}
+	deployer := r.deployer(state.Actor, func(ctx context.Context, rollback delivery.Intent) (delivery.Intent, error) {
+		rollback.SchemaVersion, rollback.OperationID = delivery.SchemaVersion, uuid.New().String()
+		rollback.AuthorityEpoch = r.fencer.Current().Epoch
+		state.Rollback, state.Reason = &rollback, "rolling back to "+state.Previous
+		return rollback, save(state)
+	})
+	switch err := deployer.roll(ctx, intent, rollback, wait, progress); {
+	case errors.Is(err, errRecoveryNotStarted):
+		return state, err
+	case errors.Is(err, errRollbackUnfinished):
+		return unfinished(err)
+	case err != nil:
+		return failed(err)
+	}
+	state.State, state.Reason = releasechannel.StateComplete, ""
+	return state, nil
+}
+
+// permanentLookup reports an artifact lookup that a retry cannot change.
+func permanentLookup(err error) bool {
+	return errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, delivery.ErrInvalid) ||
+		errors.Is(err, delivery.ErrUnauthorized)
+}
+
+// admit copies the claimed binary out of the head bucket and admits it.
+func (r *serviceReleases) admit(ctx context.Context, location releasechannel.Location, role string, claim []byte,
+) (delivery.ArtifactRecord, string, error) {
+	claimed, _, _, err := r.verify(ctx, role, claim)
+	if err != nil {
+		return delivery.ArtifactRecord{}, "", err
+	}
+	file, err := os.CreateTemp("", "ts-orchestrator-service-release-")
+	if err != nil {
+		return delivery.ArtifactRecord{}, "", err
+	}
+	defer os.Remove(file.Name())
+	defer file.Close()
+	if err := releasechannel.ReadServiceBinary(ctx, location, role, claimed.Digest, file); err != nil {
+		return delivery.ArtifactRecord{}, "", err
+	}
+	return r.deliveries.AdmitClaim(ctx, file, claim)
+}
+
+// fresh returns intent, or, when an earlier leader submitted it under its
+// epoch and the delivery worker has not accepted it, which fences it, the
+// same intent issued again under this leader's epoch, above every
+// generation committed since; changed reports the latter.
+func (r *serviceReleases) fresh(ctx context.Context, role string, intent delivery.Intent) (delivery.Intent, bool, error) {
+	epoch := r.fencer.Current().Epoch
+	if intent.AuthorityEpoch == epoch {
+		return intent, false, nil
+	}
+	receipt, err := r.deliveries.StatusFor(ctx, intent)
+	if err != nil && !errors.Is(err, delivery.ErrPending) {
+		return intent, false, err
+	}
+	if err == nil && receipt.Status == "accepted" {
+		return intent, false, nil
+	}
+	desired, err := r.hosts.ListDesired(ctx, role)
+	if err != nil {
+		return intent, false, err
+	}
+	intent.OperationID, intent.AuthorityEpoch = uuid.New().String(), epoch
+	intent.Generation = max(intent.Generation, nextReleaseGeneration(desired))
+	return intent, true, nil
+}
+
+// deployer submits intents for actor, the signer of the release's claim,
+// under the leader's current authority epoch; recovering records a
+// rollback before it is submitted.
+func (r *serviceReleases) deployer(actor string, recovering func(context.Context, delivery.Intent) (delivery.Intent, error)) nativeDeployer {
+	return nativeDeployer{service: r.deliveries, hosts: r.hosts, recovering: recovering,
+		submit: func(ctx context.Context, intent delivery.Intent) (delivery.Intent, string, error) {
+			if !r.fencer.Current().CanMutate() {
+				return intent, "", errors.New("this controller no longer holds the authority lease")
+			}
+			if intent.OperationID == "" {
+				intent.OperationID = uuid.New().String()
+			}
+			if intent.AuthorityEpoch == 0 {
+				intent.AuthorityEpoch = r.fencer.Current().Epoch
+			}
+			fingerprint, err := intent.Fingerprint()
+			if err != nil {
+				return intent, "", err
+			}
+			return intent, fingerprint, r.deliveries.SubmitVerified(ctx, intent, actor)
+		}}
+}
+
+// reportQuietly reports state and only logs a failure: status.json is
+// telemetry, and the next pass writes it again.
+func (r *serviceReleases) reportQuietly(ctx context.Context, role string, state serviceReleaseState) {
+	if err := r.report(ctx, role, state); err != nil && ctx.Err() == nil {
+		slog.Warn("service release status", observability.ComponentKey, "rollout", "role", role, "error", err)
+	}
+}
+
+// report writes the role's status.json when it differs from state.
+func (r *serviceReleases) report(ctx context.Context, role string, state serviceReleaseState) error {
+	location, err := r.channel.get(ctx)
+	if err != nil {
+		return err
+	}
+	status := releasechannel.ServiceStatus{Schema: releasechannel.ServiceStatusSchema, Cell: strings.ToUpper(r.cell),
+		Role: role, Digest: state.Digest, IssuedAt: state.IssuedAt, State: state.State, Reason: releasechannel.Clip(state.Reason)}
+	stored, found, err := releasechannel.ReadServiceStatus(ctx, location, role)
+	if err == nil && found && stored.Cell == status.Cell && stored.Digest == status.Digest &&
+		stored.IssuedAt.Equal(status.IssuedAt) && stored.State == status.State && stored.Reason == status.Reason {
+		return nil
+	}
+	status.UpdatedAt = time.Now().UTC()
+	slog.Info("service release status", observability.ComponentKey, "rollout", "role", role, "digest", status.Digest,
+		"state", status.State, "reason", status.Reason)
+	return releasechannel.WriteServiceStatus(ctx, location, status)
+}
+
+func loadServiceRelease(ctx context.Context, kv jetstream.KeyValue, key string) (serviceReleaseState, uint64, error) {
+	entry, err := kv.Get(ctx, key)
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return serviceReleaseState{}, 0, nil
+	}
+	if err != nil {
+		return serviceReleaseState{}, 0, err
+	}
+	var state serviceReleaseState
+	if err := json.Unmarshal(entry.Value(), &state); err != nil {
+		return serviceReleaseState{}, 0, fmt.Errorf("decode %s: %w", key, err)
+	}
+	return state, entry.Revision(), nil
+}
+
+// saveServiceRelease writes state at revision (zero creates it) and returns
+// the new revision; a concurrent writer fails it.
+func saveServiceRelease(ctx context.Context, kv jetstream.KeyValue, key string, state serviceReleaseState, revision uint64) (uint64, error) {
+	wire, err := json.Marshal(state, json.Deterministic(true))
+	if err != nil {
+		return 0, err
+	}
+	if revision == 0 {
+		return kv.Create(ctx, key, wire)
+	}
+	return kv.Update(ctx, key, wire, revision)
+}
+
+// serviceReleaseLog logs the release gate's progress lines.
+type serviceReleaseLog struct{ role string }
+
+func (l serviceReleaseLog) Write(data []byte) (int, error) {
+	slog.Info("service release", observability.ComponentKey, "rollout", "role", l.role,
+		"step", strings.TrimSpace(string(data)))
+	return len(data), nil
+}

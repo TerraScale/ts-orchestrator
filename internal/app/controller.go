@@ -781,6 +781,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			workerErrors <- services.followRelayedSpecs(runCtx, global.reader, policy, control, hostController)
 		})
 	}
+	if policy.rollouts.follow && policy.rollouts.channel != nil {
+		releases := &serviceReleases{cell: cfg.NATS.Cell, channel: policy.rollouts.channel, deliveries: service,
+			hosts: hostController, profiles: services.profiles, fencer: control}
+		workers.Go(func() { releases.run(runCtx, runtime.JetStream(), cfg.NATS.Replicas) })
+	}
 	if rolloutExecutor != nil {
 		workers.Go(func() { workerErrors <- rolloutExecutor(runCtx) })
 		workers.Go(func() { policy.rollouts.publishProofs(runCtx, cfg, runtime, responseKey) })

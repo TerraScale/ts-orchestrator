@@ -294,6 +294,49 @@ func (s *Service) Submit(ctx context.Context, intent Intent) error {
 	return nil
 }
 
+// SubmitVerified submits intent for actor, whose authority the controller
+// already verified in process: a CI-signed release claim (TS-610). It
+// records the intent's exact bytes as verified, as the consumer does after a
+// signature check, then publishes them; the consumer authorizes actor again.
+// Unsigned bytes without that record are rejected like any bad signature.
+func (s *Service) SubmitVerified(ctx context.Context, intent Intent, actor string) error {
+	if s == nil || s.operations == nil || s.config.Authorize == nil || actor == "" {
+		return errors.New("verified delivery submission is not configured")
+	}
+	if err := intent.Validate(); err != nil {
+		return err
+	}
+	if intent.Cell != s.config.Cell {
+		return fmt.Errorf("%w: wrong cell", ErrInvalid)
+	}
+	if err := s.config.Authorize(ctx, actor, intent); err != nil {
+		return err
+	}
+	wire, err := json.Marshal(intent)
+	if err != nil {
+		return err
+	}
+	fingerprint, err := intent.fingerprint()
+	if err != nil {
+		return err
+	}
+	verified, err := json.Marshal(struct {
+		Intent Intent `json:"intent"`
+		Actor  string `json:"actor"`
+	}{intent, actor})
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(wire)
+	if _, err := s.operations.Create(ctx, "w_"+hex.EncodeToString(sum[:]), verified); err != nil && !errors.Is(err, jetstream.ErrKeyExists) {
+		return fmt.Errorf("record verified delivery intent: %w", err)
+	}
+	if err := s.publishIntent(ctx, IntentSubject(intent.Cell), wire, intent.OperationID+"."+fingerprint); err != nil {
+		return fmt.Errorf("publish delivery intent: %w", err)
+	}
+	return nil
+}
+
 // A transient leader-read failure must not turn a valid submit into a failed
 // operation during cluster recovery. Only the read is retried; signing and
 // publishing remain a single idempotent Submit pass after it succeeds.

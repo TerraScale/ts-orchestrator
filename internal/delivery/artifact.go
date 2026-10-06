@@ -82,26 +82,7 @@ func (s *Service) PrepareArtifact(ctx context.Context, reader io.ReadSeeker, req
 	if err != nil {
 		return ArtifactRecord{}, nil, err
 	}
-	exists, err := s.artifactExistsForUpload(ctx, r.Digest)
-	if err != nil {
-		return ArtifactRecord{}, nil, err
-	}
-	if !exists {
-		if _, err := snapshot.Seek(0, io.SeekStart); err != nil {
-			return ArtifactRecord{}, nil, err
-		}
-		// Without a deadline every chunk ack gets only the JetStream default
-		// timeout, which a slow operator link such as a bastion forward misses.
-		uploadCtx, cancel := context.WithTimeout(ctx, artifactUploadTimeout)
-		defer cancel()
-		if _, err := s.artifacts.Put(uploadCtx, jetstream.ObjectMeta{Name: artifactKey(r.Digest)}, contextReader{uploadCtx, snapshot}); err != nil {
-			if isArtifactStoreFullError(err) {
-				return ArtifactRecord{}, nil, fmt.Errorf("store artifact: %w: %w", ErrArtifactStoreFull, err)
-			}
-			return ArtifactRecord{}, nil, fmt.Errorf("store artifact: %w", err)
-		}
-	}
-	if err := s.verifyArtifact(ctx, r); err != nil {
+	if err := s.storeArtifact(ctx, snapshot, r); err != nil {
 		return ArtifactRecord{}, nil, err
 	}
 	// Sign only after the bytes are stored: the claim's short validity must
@@ -111,6 +92,79 @@ func (s *Service) PrepareArtifact(ctx context.Context, reader io.ReadSeeker, req
 		return ArtifactRecord{}, nil, fmt.Errorf("sign artifact claim: %w", err)
 	}
 	return r, envelope, nil
+}
+
+// storeArtifact stores the staged bytes of r unless the store already holds
+// them, and checks the stored object against r.
+func (s *Service) storeArtifact(ctx context.Context, snapshot *os.File, r ArtifactRecord) error {
+	exists, err := s.artifactExistsForUpload(ctx, r.Digest)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		if _, err := snapshot.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+		// Without a deadline every chunk ack gets only the JetStream default
+		// timeout, which a slow operator link such as a bastion forward misses.
+		uploadCtx, cancel := context.WithTimeout(ctx, artifactUploadTimeout)
+		defer cancel()
+		if _, err := s.artifacts.Put(uploadCtx, jetstream.ObjectMeta{Name: artifactKey(r.Digest)}, contextReader{uploadCtx, snapshot}); err != nil {
+			if isArtifactStoreFullError(err) {
+				return fmt.Errorf("store artifact: %w: %w", ErrArtifactStoreFull, err)
+			}
+			return fmt.Errorf("store artifact: %w", err)
+		}
+	}
+	return s.verifyArtifact(ctx, r)
+}
+
+// AdmitClaim is the controller's in-process admission of an artifact that
+// CI uploaded somewhere only the controller reads (the region's head
+// bucket, TS-610) with its signed claim. The claim is verified at its
+// issuance instant, as an archived admission is, so the caller bounds its
+// age; the bytes must be exactly the claimed ones. It returns the record and
+// the authorized actor.
+func (s *Service) AdmitClaim(ctx context.Context, reader io.ReadSeeker, claim []byte) (_ ArtifactRecord, _ string, resultErr error) {
+	r, actor, err := s.VerifyClaim(ctx, claim)
+	if err != nil {
+		return ArtifactRecord{}, "", err
+	}
+	snapshot, size, digest, err := stageArtifact(ctx, reader)
+	if err != nil {
+		return ArtifactRecord{}, "", err
+	}
+	defer func() { resultErr = errors.Join(resultErr, discardStagedArtifact(snapshot)) }()
+	if size != r.Size || digest != r.Digest {
+		return ArtifactRecord{}, "", fmt.Errorf("%w: the artifact bytes are not the claimed ones", ErrInvalid)
+	}
+	if err := s.storeArtifact(ctx, snapshot, r); err != nil {
+		return ArtifactRecord{}, "", err
+	}
+	if err := s.touchArtifact(ctx, r.Digest); err != nil {
+		return ArtifactRecord{}, "", err
+	}
+	if err := s.persistArtifactAdmission(ctx, r, claim, actor); err != nil {
+		return ArtifactRecord{}, "", err
+	}
+	return r, actor, nil
+}
+
+// VerifyClaim checks a signed artifact claim at its issuance instant and
+// authorizes its signer for the claimed role, environment and repository,
+// without admitting anything. It returns the record and the actor.
+func (s *Service) VerifyClaim(ctx context.Context, claim []byte) (ArtifactRecord, string, error) {
+	if s == nil || s.config.ArtifactVerifier == nil || s.config.AuthorizeArtifact == nil || len(claim) == 0 || len(claim) > MaxArtifactClaimBytes {
+		return ArtifactRecord{}, "", fmt.Errorf("%w: artifact admission configuration or signed claim", ErrInvalid)
+	}
+	r, actor, err := s.config.ArtifactVerifier.VerifyArchivedArtifact(ctx, claim)
+	if err != nil || actor == "" || r.validate() != nil || r.Cell != s.config.Cell {
+		return ArtifactRecord{}, "", fmt.Errorf("%w: artifact signature or cell", ErrInvalid)
+	}
+	if err := s.config.AuthorizeArtifact(ctx, actor, r); err != nil {
+		return ArtifactRecord{}, "", err
+	}
+	return r, actor, nil
 }
 
 func (s *Service) artifactExistsForUpload(ctx context.Context, digest string) (bool, error) {

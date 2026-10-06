@@ -773,6 +773,97 @@ Limits of this part:
 - Binaries are never deleted from `releases/v1/orchestrator/binaries/`; an
   Object Storage lifecycle rule should expire old ones.
 
+### Automatic service releases (TS-610)
+
+TerraBase and ts-auth deploy themselves the same way: when their `main` CI
+is green, its `deploy` job hands the tested binary to every region's
+orchestrator and the region rolls it out with no human step. One path
+serves any native role; the leader's release rule for a role (its replica
+count) is `serviceReleaseReplicas`.
+
+```text
+releases/v1/services/<role>/binaries/<sha256>   the binary, written once
+releases/v1/services/<role>/release.json        the signed artifact claim
+releases/v1/services/<role>/status.json         the region leader's report
+```
+
+1. The service's CI runs `ts-orch release service-deploy` (the
+   `ts-orchestrator` CI binary its repository variables `TS_ORCH_RELEASE`
+   and `TS_ORCH_SHA256` pin; bump both together): it reads the role's release key from OCI
+   Vault, and for each cell in order, the canary first, uploads the binary
+   to the cell's head bucket, signs a delivery artifact claim (digest, size,
+   repository, commit, `git archive` tree digest, computed without local Git settings, cell, role, environment)
+   and replaces `release.json` by compare-and-swap; a claim issued earlier
+   than the one there never replaces it, unless that one is dated more
+   than 5 minutes ahead, which every leader refuses. It then polls `status.json` until
+   the cell reports the release `complete`. A `failed` report or no report
+   within `--region-timeout` stops the rollout and fails the job; later
+   cells never see the release.
+2. Every 30 s the region's authority leader reads each role's
+   `release.json` (`serviceReleases` in `internal/app`). A claim it has not
+   seen must first verify at its issuance instant against a trusted signer
+   of the cell whose grant or cell spec releaser entry covers the role,
+   environment and repository (`delivery.Service.VerifyClaim`); one that
+   does not, or is issued more than 5 minutes ahead, is reported `failed`
+   and never moves the role's issuance watermark. An authentic claim must be
+   issued after the role's last one and less than an hour ago. The leader
+   then copies the binary out of the bucket and admits it
+   (`delivery.Service.AdmitClaim`): the bytes must be the claimed ones.
+3. It then rolls the role out exactly as `operator terrabase-release` and
+   `operator ts-auth-release` do (`nativeDeployer`): the intent moves every
+   replica to the digest, the readiness gate waits for every replica to
+   report it `running` (which needs `/healthz` and `/readyz`), and a release
+   that fails the gate is rolled back to the digest the replicas ran before
+   and reported `failed`. The leader submits the intent for the claim's
+   signer (`delivery.Service.SubmitVerified`); the delivery worker
+   authorizes that signer again.
+4. The leader records each step under `service.<role>.<CELL>` in
+   `TS_RELEASE_CHANNEL` before it acts, so a new leader resumes the gate of
+   a submitted release instead of starting it again, and mirrors the record
+   to `status.json`. An intent an earlier leader submitted that the delivery
+   worker has not accepted is fenced by its old epoch, so the new leader
+   issues it again under its own epoch, above every generation committed
+   since. A rollback is recorded before it is submitted, so a new leader
+   finishes it and never issues the failed release again; a rollback that
+   does not pass its gate keeps the release `rolling` and is retried, so
+   only a rollback that serves reports `failed`. A recorded release resumes
+   with its own replica count even if the cell spec changed since. A submitted
+   release finishes, or rolls back, from its record before the channel is
+   read, so neither a newer claim nor an unreadable bucket holds it, and a
+   failed `status.json` write only logs; a
+   failure to read hosts or state is retried on the next pass rather than
+   failing the release.
+
+Credentials: the service repositories hold one scoped OCI API key
+(`TS_RELEASE_OCI_KEY`) for the IAM user `ts-service-release`, whose group may
+only read the release key's secret and write `releases/v1/services/*` in the
+head buckets:
+
+```text
+Allow group ts-service-release to read secret-bundles in compartment <vault compartment> where target.secret.name = 'ts-service-release-key'
+Allow group ts-service-release to manage objects in compartment <cell>-control where all {target.bucket.name='<cell>-head', target.object.name='releases/v1/services/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}
+```
+
+The release key is an Ed25519 PKCS#8 PEM in that Vault secret. Its public
+key is a trusted signer of each cell (`ci-release` in the cell spec's
+`signers`) with `roles` `terrabase` and `ts-auth`, the cell's environment
+and `repositories` limited to the two source repositories; it cannot sign
+orchestrator updates, register hosts or change the cell spec. The
+controllers already read `releases/v1/*` in their head bucket and need
+`OBJECT_CREATE`/`OBJECT_OVERWRITE` on
+`releases/v1/services/*/status.json` too.
+
+Limits of this part:
+
+- The release writes every replica's desired at once. A cell without
+  TerraBase seats (gru-1) therefore restarts every replica together; one
+  node at a time with load balancer fencing for colocated roles is the next
+  slice of TS-610, and gru-1's service channels stay unpublished until it
+  ships.
+- Roles other than `terrabase` and `ts-auth` need a release rule first.
+- Binaries are never deleted from `releases/v1/services/*/binaries/`; an
+  Object Storage lifecycle rule should expire old ones.
+
 ### Resumable image promotion
 
 `ts-orch image promote --resume` continues in an existing `--out` directory

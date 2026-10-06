@@ -89,6 +89,8 @@ func (c command) run(args []string) error {
 		return c.signRootRotation(args[1:])
 	case "deploy":
 		return c.deploy(args[1:])
+	case "service-deploy":
+		return c.serviceDeploy(args[1:])
 	case "fleet-status":
 		return c.fleetStatus(args[1:])
 	default:

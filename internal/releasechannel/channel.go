@@ -234,8 +234,12 @@ func WriteStatus(ctx context.Context, location Location, status Status) error {
 	if err != nil {
 		return err
 	}
-	name := StatusObject
-	_, err = location.Client.PutObject(ctx, objectstorage.PutObjectRequest{
+	return location.write(ctx, StatusObject, wire)
+}
+
+// write replaces name unconditionally.
+func (location Location) write(ctx context.Context, name string, wire []byte) error {
+	_, err := location.Client.PutObject(ctx, objectstorage.PutObjectRequest{
 		NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name,
 		ContentLength: new(int64(len(wire))), PutObjectBody: io.NopCloser(bytes.NewReader(wire)),
 		ContentType: new("application/json"),
