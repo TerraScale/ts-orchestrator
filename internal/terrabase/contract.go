@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http"
 	"net/netip"
 	"path/filepath"
@@ -177,6 +178,37 @@ func parsePort(raw string) (int, error) {
 		return 0, errors.New("must be a port between 1 and 65535")
 	}
 	return port, nil
+}
+
+// Ready asks the member's client listener on loopback whether it serves
+// requests: GET /readyz over TLS verified against the member CA, the path the
+// public load balancer checks. TerraBase answers 200 only once the member has
+// caught up with its peers (TS-561).
+func Ready(ctx context.Context, clientPort int, peer Peer, certificateFile, keyFile string, caPEM []byte) error {
+	config, err := memberTLS(peer, certificateFile, keyFile, caPEM)
+	if err != nil {
+		return fmt.Errorf("terrabase readiness: %w", err)
+	}
+	// A plain transport speaks HTTP/1.1 only; offering h2 would let the
+	// member pick a protocol it cannot read.
+	config.NextProtos = []string{"http/1.1"}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+net.JoinHostPort("127.0.0.1", strconv.Itoa(clientPort))+"/readyz", nil)
+	if err != nil {
+		return err
+	}
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: config, DisableKeepAlives: true}}
+	response, err := client.Do(request)
+	if err != nil {
+		return fmt.Errorf("terrabase readiness: %w", err)
+	}
+	defer response.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("terrabase readiness: HTTP %d %q", response.StatusCode, strings.TrimSpace(string(data)))
+	}
+	return nil
 }
 
 // Healthy asks the member's loopback administrative listener whether it

@@ -78,11 +78,11 @@ balancer; until then an operator tags it before enabling `public_lb`.
 The controllers' instance principal needs `use load-balancers` in the
 network compartment.
 
-### 3. Serving means caught up (slice 3, PROPOSED)
+### 3. Serving means caught up (slice 3, implemented)
 
-The host reports a member `running` only after `/healthz` answers. It will
-also require the member's client `/readyz` to answer 200 over the member's
-TLS listener, the path the load balancer checks. TS-561 makes `/readyz`
+The host reports a member `running` only after `/healthz` answers and its
+client `/readyz` answers 200 over the member's TLS listener, verified
+against the member CA, the path the load balancer checks. TS-561 makes `/readyz`
 answer 200 only once the member has caught up with its peers. The release
 gate (`terraBaseReady`) counts `running`, so it tightens with it.
 

@@ -11,9 +11,10 @@ workflow is in [TerraBase deployment](terrabase-deployment.md).
 
 - **Health gate.** The host reports a member `starting` after launch and
   `running` only while `GET http://127.0.0.1:<admin-port>/healthz` answers
-  200 `{"status":"ok"}`. `operator terrabase-release` counts only `running`
-  as ready. This is liveness: it says the
-  process serves HTTP, not that it holds current data or has peers.
+  200 `{"status":"ok"}` and, with a client listener, its TLS `/readyz`
+  answers 200 (TS-571). `operator terrabase-release` counts only `running`
+  as ready. Until TerraBase TS-561 gates `/readyz` on catch-up, this says
+  the member serves, not that it holds current data.
 - **Drain.** Stopping or replacing a member sends SIGTERM and waits up to
   45 s for the process to exit before its cgroup is killed. The binary stops
   accepting, drains in-flight requests and exits 0. Session loss and agent
@@ -42,12 +43,11 @@ Each item names its owner where one is assigned.
    setting. **PROPOSED:** TS-469 adopts a `peers` setting with the
    `name=ip:port` format of `TERRABASE_PEERS`, or the orchestrator renames
    its key to match.
-3. **Serving proof and readiness beyond `/healthz`.** There is no `/readyz`
-   and no signal that a member has caught up with its peers or can accept
-   writes under the chosen durability policy. **PROPOSED:** once
-   replication exists, the binary exposes a readiness or serving signal
-   bound to its member identity and replication progress, and the host
-   gates `running` (or a new state) on it instead of `/healthz`.
+3. **Serving proof and readiness beyond `/healthz`.** The host gates
+   `running` on the client `/readyz` too (TS-571), but `/readyz` does not
+   yet say a member has caught up with its peers or can accept writes
+   under the chosen durability policy. TerraBase TS-561 makes it wait for
+   replication catch-up.
 4. **Per-member rollout.** **PROPOSED:** with replication and a serving
    signal, `terrabase-release` updates one member at a time and waits for
    it to serve before the next, instead of restarting every member at once.

@@ -195,24 +195,34 @@ func readOwnerOnly(path string) ([]byte, error) {
 // returns when the certificate the member serves expires. A member that
 // reloads renewed files (TerraBase TS-464) serves the renewed certificate.
 func ServedCertificateExpiry(ctx context.Context, port int, peer Peer, certificateFile, keyFile string, caPEM []byte) (time.Time, error) {
-	pair, err := tls.LoadX509KeyPair(certificateFile, keyFile)
+	config, err := memberTLS(peer, certificateFile, keyFile, caPEM)
 	if err != nil {
 		return time.Time{}, err
 	}
-	roots := x509.NewCertPool()
-	if !roots.AppendCertsFromPEM(caPEM) {
-		return time.Time{}, errors.New("member CA does not parse")
-	}
-	// The served certificate names the member's peer address, not loopback.
-	dialer := tls.Dialer{NetDialer: &net.Dialer{Timeout: 2 * time.Second}, Config: &tls.Config{
-		Certificates: []tls.Certificate{pair}, RootCAs: roots, ServerName: peer.Address.Addr().String(),
-		NextProtos: []string{"h2", "http/1.1"}, MinVersion: tls.VersionTLS12}}
+	dialer := tls.Dialer{NetDialer: &net.Dialer{Timeout: 2 * time.Second}, Config: config}
 	connection, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	if err != nil {
 		return time.Time{}, err
 	}
 	defer connection.Close()
 	return connection.(*tls.Conn).ConnectionState().PeerCertificates[0].NotAfter, nil
+}
+
+// memberTLS is the client configuration for a member's own listener on
+// loopback: it presents the member's certificate as a peer would and verifies
+// the served one against the member CA under the member's peer address,
+// which the certificate names instead of loopback.
+func memberTLS(peer Peer, certificateFile, keyFile string, caPEM []byte) (*tls.Config, error) {
+	pair, err := tls.LoadX509KeyPair(certificateFile, keyFile)
+	if err != nil {
+		return nil, err
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(caPEM) {
+		return nil, errors.New("member CA does not parse")
+	}
+	return &tls.Config{Certificates: []tls.Certificate{pair}, RootCAs: roots, ServerName: peer.Address.Addr().String(),
+		NextProtos: []string{"h2", "http/1.1"}, MinVersion: tls.VersionTLS12}, nil
 }
 
 // CertificateExpiry is a PEM certificate's NotAfter, or zero when it does not parse.

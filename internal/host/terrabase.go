@@ -305,8 +305,11 @@ func (a *Agent) prepareTerraBase(ctx context.Context, d Desired) (map[string]str
 	return layout.Env(d.Env, profile), terrabase.CertificateExpiry(certificate), nil
 }
 
-// terraBaseState is "running" once the member answers its health endpoint,
-// and "starting" until then.
+// terraBaseState is "running" once the member answers its health endpoint
+// and, when it has a client listener, that listener's /readyz, and
+// "starting" until then. /readyz is what the public load balancer checks and
+// answers only once the member has caught up with its peers, so the release
+// gate and the seat rollout never count a member that cannot serve.
 func (a *Agent) terraBaseState(ctx context.Context, d Desired) (string, error) {
 	profile, err := terrabase.ParseProfile(d.Env)
 	if err != nil {
@@ -314,6 +317,17 @@ func (a *Agent) terraBaseState(ctx context.Context, d Desired) (string, error) {
 	}
 	if err := terrabase.Healthy(ctx, profile.AdminPort); err != nil {
 		return "starting", err
+	}
+	if profile.ClientPort != 0 {
+		peer, _ := profile.Peer(a.cfg.Node)
+		layout := terrabase.Layout(a.cfg.TerraBaseRoot)
+		ca, err := os.ReadFile(layout.CA())
+		if err == nil {
+			err = terrabase.Ready(ctx, profile.ClientPort, peer, layout.Certificate(), layout.Key(), ca)
+		}
+		if err != nil {
+			return "starting", err
+		}
 	}
 	return "running", nil
 }

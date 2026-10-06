@@ -440,13 +440,18 @@ here; these hooks are its integration contract.
 ## Readiness
 
 After launch the host reports the member `starting`. On every poll (5 s by
-default) it calls `GET http://127.0.0.1:<admin-port>/healthz` and reports
-`running` only when the answer is 200 with `{"status":"ok"}`. A member that
-stops answering goes back to `starting` with the probe error. A member
+default) it calls `GET http://127.0.0.1:<admin-port>/healthz` and, when the
+profile sets a client port, `GET https://127.0.0.1:<client-port>/readyz`
+over TLS verified against the member CA under the member's peer address
+(TS-571). It reports `running` only when `/healthz` answers 200 with
+`{"status":"ok"}` and `/readyz` answers 200: the path the public load
+balancer checks. A member that stops answering either goes back to
+`starting` with the probe error. A member
 whose process exits is reported `failed` once and relaunched on the next
 poll, so a release that crashes after start fails its gate at once.
 `operator terrabase-release` counts only `running` as ready.
-This is liveness, not a serving or replication claim.
+`/readyz` claims serving; once TerraBase TS-561 makes it wait for
+replication catch-up, `running` also means caught up.
 
 ## Stop and drain
 
