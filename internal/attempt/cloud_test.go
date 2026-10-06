@@ -250,3 +250,23 @@ func TestLaunchDetailsDecodesTheMemberLaunchWriterOutput(t *testing.T) {
 		t.Fatalf("details=%+v", details)
 	}
 }
+
+// A new deployment checks only its own ledger paths, so it can re-found a
+// cell whose earlier deployment left records under the same prefix.
+func TestSlotRecordPrefixesScopeToTheDeployment(t *testing.T) {
+	prefixes := slotRecordPrefixes("gru-1", "ts-550-gru-refound-3")
+	for name, want := range map[string]bool{
+		"gru-1/bootstrap/v1/ts-550-gru-refound-3/abc/head.json":               true,
+		"gru-1/bootstrap/v2/ts-550-gru-refound-3/abc/attempt-1/progress.json": true,
+		"gru-1/bootstrap/v1/ts-470-gru-rebuild-2/abc/head.json":               false,
+		"gru-1/bootstrap/v1/ts-550-gru-refound-30/abc/head.json":              false,
+	} {
+		matched := false
+		for _, prefix := range prefixes {
+			matched = matched || strings.HasPrefix(name, prefix)
+		}
+		if matched != want {
+			t.Errorf("%s matched=%v, want %v", name, matched, want)
+		}
+	}
+}

@@ -4,6 +4,9 @@
     "TERRABASE_REGION": "gru-1",
     "TERRABASE_PEER_PORT": "9443",
     "TERRABASE_CLIENT_PORT": "9465",
-    "TERRABASE_PEERS": "gru-1-db-1=10.251.0.21:9443,gru-1-db-2=10.251.0.22:9443"
+    "TERRABASE_PEERS": "gru-1-db-1=10.251.0.21:9443,gru-1-db-2=10.251.0.22:9443",
+    "TERRABASE_MANAGEMENT_CREDENTIAL_FILE": "/etc/terrascale-orchestrator/terrabase-management-credential",
+    "TERRABASE_AUTH_ISSUER": "https://gru.auth.terrascale.tech/terrascale",
+    "TERRABASE_AUTH_AUDIENCE": "https://gru.api.terrascale.tech"
   }
 }

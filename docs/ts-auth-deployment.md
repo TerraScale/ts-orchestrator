@@ -341,9 +341,15 @@ one env file each, one ts-auth replica on two of them).
    `TERRABASE_MANAGEMENT_CREDENTIAL_FILE` names a file of at least 32
    characters that the workload user can read. TS-519 removed
    `TERRABASE_DASHBOARD_CREDENTIAL_FILE`, and TerraBase ignores it, so a
-   member with only that variable answers every bootstrap call with 401. **Open:** the committed
+   member with only that variable answers every bootstrap call with 401. The committed
    [`terrabase-gru-1-profile.json`](../deploy/oci-region/terrabase-gru-1-profile.json)
-   does not set it yet; TS-470 adds it with the TerraBase deployment.
+   sets it to `/etc/terrascale-orchestrator/terrabase-management-credential`
+   (owner `root:terrascale-workload`, mode 0640, written on each member from
+   the Vault secret `gru-1-terrabase-management-credential` before the
+   TerraBase release). It also sets `TERRABASE_AUTH_ISSUER`
+   (`https://gru.auth.terrascale.tech/terrascale`, the issuer ts-auth emits)
+   and `TERRABASE_AUTH_AUDIENCE` (`https://gru.api.terrascale.tech`), so
+   TerraBase accepts ts-auth access tokens.
 3. **Controller hosts.** Each controller VM's own host agent enrolls through
    a service set [host grant](services.md#host-grants):
    `{node: gru-1-ctl-N, private_ip: 10.251.0.1N, roles: [ts-auth], environment: canary}`.

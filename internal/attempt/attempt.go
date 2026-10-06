@@ -775,6 +775,14 @@ func (a *Attempt) SeedArgs() []string {
 	}
 	return args
 }
+
+// slotRecordPrefixes are the bootstrap ledger paths of one deployment. A
+// cell's earlier deployment keeps its records under the same object prefix,
+// so a new deployment re-founds the cell beside them.
+func slotRecordPrefixes(prefix, deployment string) []string {
+	return []string{prefix + "/bootstrap/v1/" + deployment + "/", prefix + "/bootstrap/v2/" + deployment + "/"}
+}
+
 func (a *Attempt) listObjects(bucket, prefix string) []string {
 	cloud := a.cloud("ListObjects " + bucket)
 	if cloud == nil {
@@ -863,10 +871,12 @@ func (a *Attempt) PhaseLaunch() {
 	}
 	plan := a.read(a.Plan())
 	for _, bucket := range []string{"head", "ledger"} {
-		for _, name := range a.listObjects(str(object(plan["foundation_buckets"]), bucket), a.Prefix+"/") {
-			if !strings.Contains(name, "/founder-selection/") {
-				a.fail(fmt.Errorf("attempt prefix already holds slot records: %s", name))
-				return
+		for _, prefix := range slotRecordPrefixes(a.Prefix, a.Deployment) {
+			for _, name := range a.listObjects(str(object(plan["foundation_buckets"]), bucket), prefix) {
+				if !strings.Contains(name, "/founder-selection/") {
+					a.fail(fmt.Errorf("attempt deployment already holds slot records: %s", name))
+					return
+				}
 			}
 		}
 	}
@@ -1321,8 +1331,10 @@ func ciReleaseCommit(tag string) (string, bool) {
 func (a *Attempt) PhaseStatus() {
 	plan := a.read(a.Plan())
 	for _, bucket := range []string{"head", "ledger"} {
-		for _, name := range a.listObjects(str(object(plan["foundation_buckets"]), bucket), a.Prefix+"/") {
-			fmt.Fprintf(a.Out, "%s: %s\n", bucket, strings.TrimPrefix(name, a.Prefix+"/bootstrap/v1/"+a.Deployment+"/"))
+		for _, prefix := range slotRecordPrefixes(a.Prefix, a.Deployment) {
+			for _, name := range a.listObjects(str(object(plan["foundation_buckets"]), bucket), prefix) {
+				fmt.Fprintf(a.Out, "%s: %s\n", bucket, strings.TrimPrefix(name, a.Prefix+"/bootstrap/"))
+			}
 		}
 	}
 	var instances []Instance
