@@ -134,6 +134,9 @@ func TestValidateSecrets(t *testing.T) {
 	if err := ValidateSecrets(testSecrets()); err != nil {
 		t.Fatal(err)
 	}
+	if err := ValidateSecrets(with2(testSecrets(), "TS_AUTH_SERVICE_CLIENTS", "smoke:"+sentinel)); err != nil {
+		t.Fatalf("service clients: %v", err)
+	}
 	short := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 31))
 	values := append(slices.Collect(maps.Values(testSecrets())), sentinel, short)
 	with := func(key, value string) map[string]string {
@@ -147,6 +150,7 @@ func TestValidateSecrets(t *testing.T) {
 	for name, secrets := range map[string]map[string]string{
 		"missing key":        missing,
 		"unknown key":        with("TS_AUTH_OTHER", sentinel),
+		"empty optional":     with("TS_AUTH_SMTP_PASSWORD", ""),
 		"31-byte key":        with(EnvMasterKey, short),
 		"key with a newline": with(EnvMasterKey, master[:20]+"\n"+master[20:]),
 		"api key with space": with(EnvAPIKey, "tb_ "+sentinel),
@@ -261,4 +265,9 @@ func TestVerifyRelease(t *testing.T) {
 	if _, err := VerifyRelease(writeRelease(t, "ts-auth-linux-amd64", x86, x86)); err != nil {
 		t.Fatalf("amd64 asset: %v", err)
 	}
+}
+
+func with2(secrets map[string]string, key, value string) map[string]string {
+	secrets[key] = value
+	return secrets
 }

@@ -190,11 +190,15 @@ func (l Layout) Env(profile, secrets map[string]string, port int) map[string]str
 	return env
 }
 
-// ValidateSecrets checks that secrets holds exactly the Secrets in their
-// forms. Errors name keys, never values.
+// ValidateSecrets checks that secrets holds the Secrets in their forms and
+// otherwise only non-empty OptionalSecrets, which ts-auth validates itself.
+// Errors name keys, never values.
 func ValidateSecrets(secrets map[string]string) error {
-	if len(secrets) != len(Secrets) {
-		return fmt.Errorf("ts-auth needs exactly %s", strings.Join(Secrets, ", "))
+	for key, value := range secrets {
+		if !slices.Contains(Secrets, key) && (!slices.Contains(OptionalSecrets, key) || value == "") {
+			return fmt.Errorf("ts-auth needs %s and may add only non-empty %s, not %s",
+				strings.Join(Secrets, ", "), strings.Join(OptionalSecrets, ", "), key)
+		}
 	}
 	for _, key := range Secrets {
 		if err := validSecret(key, secrets[key]); err != nil {
