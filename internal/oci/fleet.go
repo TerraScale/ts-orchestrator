@@ -147,20 +147,89 @@ type fleet struct {
 	attachmentSettle time.Duration
 }
 
-func (f *fleet) verifyPinnedImage(ctx context.Context) error {
+// verifyLaunchImage proves that the image new hosts boot qualifies now.
+func (f *fleet) verifyLaunchImage(ctx context.Context) error {
+	_, err := f.qualifiedLaunchImage(ctx)
+	return err
+}
+
+// launchChoice is the image a host boots. A new launch carries the cell
+// spec version that chose it; a replay of a journaled image carries none.
+type launchChoice struct {
+	image, version string
+	fresh          bool
+}
+
+// admitLaunch qualifies a launch's image right before the provider launch
+// and holds the cell spec fence until release. A new launch the cell spec
+// chose must still see the spec version that chose it; a replay of a
+// journaled image, which may run hours later, qualifies under the current
+// version. Either way no spec change lands until the launch returns.
+func (f *fleet) admitLaunch(ctx context.Context, choice launchChoice) (func(), error) {
+	allowList, ok := f.imageVerifier.(HostImageAllowList)
+	if !ok {
+		return func() {}, f.verifyImage(ctx, choice.image)
+	}
+	version := ""
+	if choice.fresh {
+		version = choice.version
+	}
+	release, err := allowList.AdmitLaunch(ctx, f.config.Region, choice.image, version)
+	if err != nil {
+		return func() {}, fmt.Errorf("%w: %w", ErrImageNotQualified, err)
+	}
+	return release, nil
+}
+
+func (f *fleet) verifyImage(ctx context.Context, imageID string) error {
 	if f.imageVerifier == nil {
 		return ErrImageQualificationUnavailable
 	}
-	if err := f.imageVerifier.VerifyImageQualified(ctx, f.config.Region, f.config.ImageID); err != nil {
+	if err := f.imageVerifier.VerifyImageQualified(ctx, f.config.Region, imageID); err != nil {
 		return fmt.Errorf("%w: %w", ErrImageNotQualified, err)
 	}
 	return nil
 }
 
-// VerifyPinnedImage rechecks the configured image through the injected
+// qualifiedLaunchImage is the image new hosts boot, qualified now: the cell
+// spec's launch image when its version allows it, else the pin.
+func (f *fleet) qualifiedLaunchImage(ctx context.Context) (launchChoice, error) {
+	allowList, ok := f.imageVerifier.(HostImageAllowList)
+	if !ok {
+		return launchChoice{image: f.config.ImageID, fresh: true}, f.verifyImage(ctx, f.config.ImageID)
+	}
+	image, version, err := allowList.QualifiedLaunchImage(ctx, f.config.Region, f.config.ImageID)
+	if err != nil {
+		return launchChoice{}, fmt.Errorf("%w: %w", ErrImageNotQualified, err)
+	}
+	return launchChoice{image: image, version: version, fresh: true}, nil
+}
+
+// launchImage is the image the host of createKey boots. A launch already
+// journaled keeps its image while that stays allowed, so a retry never
+// conflicts with it after the launch image moves. A new launch boots the
+// current launch image, the pin included, only after it proves its current
+// qualification, before it is journaled. EnsureHost qualifies the image
+// again right before any provider launch, never to recover an existing host.
+func (f *fleet) launchImage(ctx context.Context, createKey string) (launchChoice, error) {
+	prior, found, err := f.journal.GetOperation(ctx, OperationScope{Action: actionLaunch, Key: createKey,
+		Region: f.config.Region, Generation: f.config.Generation, Owner: f.config.Owner})
+	if err != nil {
+		return launchChoice{}, fmt.Errorf("read OCI host launch intent: %w", err)
+	}
+	if found && !f.imageAllowed(prior.ImageID) {
+		return launchChoice{}, createRecoveryHold(resourceMemberHost, createKey, "the journaled launch image is no longer allowed")
+	}
+	if found {
+		return launchChoice{image: prior.ImageID}, nil
+	}
+	return f.qualifiedLaunchImage(ctx)
+}
+
+// VerifyHostImage rechecks a member host's own image through the injected
 // qualification source. It authorizes no mutation by itself.
-func (f *fleet) VerifyPinnedImage(ctx context.Context) error {
-	return f.verifyPinnedImage(ctx)
+func (f *fleet) VerifyHostImage(ctx context.Context, imageID string) error {
+	return f.verifyImage(ctx, imageID)
 }
 
 // imageAllowed reports whether a host running imageID is a fleet member: the
@@ -170,7 +239,11 @@ func (f *fleet) imageAllowed(imageID string) bool {
 		return true
 	}
 	allowList, ok := f.imageVerifier.(HostImageAllowList)
-	return ok && slices.Contains(allowList.AllowedHostImages(), imageID)
+	if !ok {
+		return false
+	}
+	allowed, _ := allowList.HostImages()
+	return slices.Contains(allowed, imageID)
 }
 
 func (f *fleet) verifyRetainedVolumeHostImage(cloud CloudInstance) error {
@@ -289,7 +362,12 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 		request.MemoryInGBs, request.PlacementProfileDigest, request.PlacementGeneration) {
 		return Instance{}, ErrPlacementProfileMismatch
 	}
-	descriptor, err := f.hostBootDescriptor(request)
+	choice, err := f.launchImage(ctx, request.CreateKey)
+	if err != nil {
+		return Instance{}, err
+	}
+	image := choice.image
+	descriptor, err := f.hostBootDescriptor(request, image)
 	if err != nil {
 		return Instance{}, fmt.Errorf("%w: %v", ErrHostBootBindingMismatch, err)
 	}
@@ -320,7 +398,7 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 	intent.MemoryInGBs = request.MemoryInGBs
 	intent.PlacementProfileDigest = request.PlacementProfileDigest
 	intent.PlacementGeneration = request.PlacementGeneration
-	intent.ImageID = f.config.ImageID
+	intent.ImageID = image
 	intent.BootDescriptor = string(descriptorWire)
 	intent.BootDescriptorSHA256 = descriptorDigest
 	if err := f.recordIntent(ctx, epoch, intent); err != nil {
@@ -401,6 +479,22 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 			hostTags(f.config, request.CreateKey), operationIntent.PlacementProfileDigest, operationIntent.PlacementGeneration,
 		),
 	}
+	// The image must still be allowed and qualify right before the provider
+	// launch: a replay may run hours after it was journaled, and the cell
+	// spec may change between a new launch's choice and this launch.
+	if choice.image != operationIntent.ImageID {
+		choice = launchChoice{image: operationIntent.ImageID}
+	}
+	releaseFence, err := f.admitLaunch(ctx, choice)
+	if err != nil {
+		return Instance{}, err
+	}
+	fenced := true
+	defer func() {
+		if fenced {
+			releaseFence()
+		}
+	}()
 	if err := f.guard(ctx, epoch); err != nil {
 		return Instance{}, err
 	}
@@ -417,6 +511,8 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 		}
 		created, launchErr = f.provider.LaunchInstance(ctx, launch)
 	}
+	fenced = false
+	releaseFence()
 	if launchErr != nil || created.ID == "" {
 		unknownErr := errors.Join(ErrOutcomeUnknown, launchErr, errors.New("OCI launch response did not confirm an instance ID"))
 		return Instance{}, errors.Join(unknownErr, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
@@ -492,7 +588,7 @@ func (f *fleet) CreateRetainedVolume(ctx context.Context, request VolumeCreateRe
 	if request.SizeGB < minRetainedVolumeSizeGB || request.SizeGB > f.config.MaxDataVolumeGB {
 		return RetainedVolume{}, fmt.Errorf("retained OCI volume size must be between %d GiB and the configured fleet bound %d GiB", minRetainedVolumeSizeGB, f.config.MaxDataVolumeGB)
 	}
-	if err := f.verifyPinnedImage(ctx); err != nil {
+	if err := f.verifyLaunchImage(ctx); err != nil {
 		return RetainedVolume{}, err
 	}
 	if request.AvailabilityDomain == "" {
@@ -694,8 +790,8 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 	if request.VolumeID == "" || request.InstanceID == "" || !validCreateKey(request.IdempotencyKey) {
 		return Attachment{}, errors.New("retained volume attach request is incomplete")
 	}
-	if err := f.verifyPinnedImage(ctx); err != nil {
-		return Attachment{}, err
+	if f.imageVerifier == nil {
+		return Attachment{}, ErrImageQualificationUnavailable
 	}
 	epoch, err := f.currentEpoch()
 	if err != nil {
@@ -711,6 +807,11 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 		return Attachment{}, err
 	}
 	if err := f.verifyRetainedVolumeHostImage(instance); err != nil {
+		return Attachment{}, err
+	}
+	// The image the host boots, not the launch image, must qualify now: a
+	// retained volume attaches only to a host of a currently approved image.
+	if err := f.verifyImage(ctx, instance.ImageID); err != nil {
 		return Attachment{}, err
 	}
 	volume, err := f.ownedVolume(ctx, request.VolumeID)
@@ -1026,7 +1127,7 @@ func (f *fleet) reobserveLaunch(ctx context.Context, instanceID string, allowedI
 	if err != nil {
 		return CloudInstance{}, ResourceIdentity{}, fmt.Errorf("read OCI host launch binding: %w", err)
 	}
-	if !found || allowedImage && !f.imageAllowed(operation.ImageID) {
+	if !found || (allowedImage && !f.imageAllowed(operation.ImageID)) {
 		return CloudInstance{}, ResourceIdentity{}, fmt.Errorf("%w: %w: instance %s has no matching durable image and boot descriptor", ErrForeignResource, ErrHostBootBindingMismatch, instanceID)
 	}
 	if cloud.ImageID != operation.ImageID {

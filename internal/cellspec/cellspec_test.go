@@ -1047,3 +1047,61 @@ func TestSignersLevelValidateAndWiden(t *testing.T) {
 		}
 	}
 }
+
+// The launch image must be an allowed host image and needs binary level 9.
+// A root picks it; returning new hosts to the signed pin is ordinary.
+func TestLaunchImageValidateDiffAndWiden(t *testing.T) {
+	f := newFixture(t)
+	imageA := f.hostImage(t, testImageA, "production", f.rootPrivate, time.Hour)
+	imageB := f.hostImage(t, testImageB, "production", f.rootPrivate, time.Hour)
+	allowed := testSpec(f.id, 1)
+	allowed.RequiresBinary = 4
+	allowed.HostImages = []HostImage{imageA, imageB}
+	launching := allowed
+	launching.LaunchImage = testImageB
+	if launching.Level() != 9 {
+		t.Fatalf("level with a launch image = %d", launching.Level())
+	}
+	if err := launching.Validate(); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("launch image at binary level 4: %v", err)
+	}
+	launching.RequiresBinary = 9
+	if err := launching.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	// Launching an accepted image whose receipt has expired is refused; one
+	// already launching stays.
+	later := testNow.Add(2 * time.Hour)
+	if err := VerifyHostImages(allowed, launching, f.roots, &later); err == nil {
+		t.Fatal("an expired image became the launch image")
+	}
+	if err := VerifyHostImages(launching, launching, f.roots, &later); err != nil {
+		t.Fatalf("the launch image expired in place: %v", err)
+	}
+	unlisted := launching
+	unlisted.LaunchImage = "ocid1.image.oc1.sa-saopaulo-1.unlisted"
+	if err := unlisted.Validate(); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("launch image outside the host images: %v", err)
+	}
+	switched := launching
+	switched.LaunchImage = testImageA
+	cleared := launching
+	cleared.LaunchImage, cleared.RequiresBinary = "", 4
+	for name, test := range map[string]struct {
+		current, next Spec
+		plan          string
+		widens        bool
+	}{
+		"set":    {allowed, launching, testImageB, true},
+		"switch": {launching, switched, testImageA, true},
+		"clear":  {launching, cleared, "pinned", false},
+		"keep":   {launching, launching, "", false},
+		"no pin": {allowed, allowed, "", false},
+	} {
+		plan, err := Diff(test.current, test.next, nil)
+		widens := slices.Contains(plan.RootRequired, "launch image "+test.next.LaunchImage)
+		if err != nil || plan.LaunchImage != test.plan || widens != test.widens || plan.Empty() != (test.plan == "") {
+			t.Errorf("%s: Diff = %+v, %v", name, plan, err)
+		}
+	}
+}

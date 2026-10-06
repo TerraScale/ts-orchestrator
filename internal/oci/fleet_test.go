@@ -146,13 +146,107 @@ func TestEnsureHostHoldsChangedBootPinsAndImageAcrossRetry(t *testing.T) {
 type allowListImageVerifier struct {
 	fakeImageVerifier
 	allowed []string
+	launch  string
+	// version is the cell spec version; chosen runs after a launch image is
+	// chosen, to change the spec before the provider launch.
+	version string
+	chosen  func()
+	// held counts launches inside the cell spec fence.
+	held int
 }
 
-func (v *allowListImageVerifier) AllowedHostImages() []string { return v.allowed }
+func (v *allowListImageVerifier) HostImages() ([]string, string) { return v.allowed, v.launch }
+
+func (v *allowListImageVerifier) QualifiedLaunchImage(ctx context.Context, region Region, pin string) (string, string, error) {
+	image := pin
+	if v.launch != "" && slices.Contains(v.allowed, v.launch) {
+		image = v.launch
+	}
+	version := v.version
+	err := v.VerifyImageQualified(ctx, region, image)
+	if v.chosen != nil {
+		v.chosen()
+	}
+	return image, version, err
+}
+
+func (v *allowListImageVerifier) AdmitLaunch(ctx context.Context, region Region, imageID, version string) (func(), error) {
+	if version != "" && version != v.version {
+		return nil, errors.New("cell spec changed")
+	}
+	if err := v.VerifyImageQualified(ctx, region, imageID); err != nil {
+		return nil, err
+	}
+	v.held++
+	return func() { v.held-- }, nil
+}
+
+// revokingVerifier qualifies the launch image when the fleet chooses it and
+// refuses it afterwards, as when the cell spec revokes it before the launch.
+type revokingVerifier struct{ allowListImageVerifier }
+
+func (v *revokingVerifier) QualifiedLaunchImage(context.Context, Region, string) (string, string, error) {
+	return v.launch, v.version, nil
+}
+
+func (v *revokingVerifier) AdmitLaunch(_ context.Context, _ Region, imageID, _ string) (func(), error) {
+	if imageID == v.launch {
+		return nil, errors.New("image revoked")
+	}
+	return func() {}, nil
+}
+
+// An image revoked between its choice and the provider launch never boots.
+func TestEnsureHostRequalifiesTheImageBeforeTheProviderLaunch(t *testing.T) {
+	config, regionIntent := testRegionConfig()
+	provider := newFakeProvider(config)
+	newer := "ocid1.image.oc1.sa-saopaulo-1.newer"
+	verifier := &revokingVerifier{allowListImageVerifier{allowed: []string{newer}, launch: newer}}
+	fleet, err := NewFleetWithImageVerifier(config, regionIntent, provider, newFakeJournal(),
+		&fakeFencer{snapshot: writableSnapshot()}, nil, nil, verifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fleet.EnsureHost(t.Context(), testEnsureRequest("node-revoked-launch")); !errors.Is(err, ErrImageNotQualified) ||
+		provider.launchCalls != 0 {
+		t.Fatalf("a revoked launch image reached OCI: calls=%d err=%v", provider.launchCalls, err)
+	}
+}
+
+// A new launch runs only under the cell spec version that chose its image:
+// a spec change in between stops it before OCI, and the retry replays the
+// journaled image under one fresh read.
+func TestEnsureHostNeverMixesCellSpecVersions(t *testing.T) {
+	config, regionIntent := testRegionConfig()
+	provider := newFakeProvider(config)
+	newer := "ocid1.image.oc1.sa-saopaulo-1.newer"
+	verifier := &allowListImageVerifier{allowed: []string{newer}, launch: newer, version: "7"}
+	verifier.chosen = func() { verifier.version = "8" }
+	fleet, err := NewFleetWithImageVerifier(config, regionIntent, provider, newFakeJournal(),
+		&fakeFencer{snapshot: writableSnapshot()}, nil, nil, verifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fleet.EnsureHost(t.Context(), testEnsureRequest("node-version-change")); !errors.Is(err, ErrImageNotQualified) ||
+		provider.launchCalls != 0 {
+		t.Fatalf("a launch chosen under another spec version reached OCI: calls=%d err=%v", provider.launchCalls, err)
+	}
+	verifier.chosen = nil
+	// The provider launch runs inside the cell spec fence, which the fleet
+	// releases once the launch returns.
+	heldDuringLaunch := 0
+	provider.launchObservationMutation = func(*CloudInstance) { heldDuringLaunch = verifier.held }
+	replayed, err := fleet.EnsureHost(t.Context(), testEnsureRequest("node-version-change"))
+	if err != nil || replayed.ImageID != newer || provider.launchCalls != 1 || heldDuringLaunch != 1 || verifier.held != 0 {
+		t.Fatalf("replay under one version = %+v, %v (calls %d, held %d then %d)", replayed, err, provider.launchCalls,
+			heldDuringLaunch, verifier.held)
+	}
+}
 
 // After the cell pins a newer image, a host launched from the earlier image
-// stays a member, and can take its retained volume, only while the cell's
-// signed allow-list names that image.
+// stays a member only while the cell's signed allow-list names that image,
+// and takes its retained volume only while that image, not the launch
+// image, qualifies now.
 func TestFleetKeepsHostsOfAllowedEarlierImages(t *testing.T) {
 	ctx := t.Context()
 	config, provider, journal, _, host, volume := newAttachTestState(t)
@@ -160,14 +254,19 @@ func TestFleetKeepsHostsOfAllowedEarlierImages(t *testing.T) {
 	newer := config
 	newer.ImageID = "ocid1.image.oc1.sa-saopaulo-1.newer"
 	unrelated := "ocid1.image.oc1.sa-saopaulo-1.unrelated"
+	refusing := func(image, launch string) *allowListImageVerifier {
+		return &allowListImageVerifier{fakeImageVerifier: fakeImageVerifier{refuse: image},
+			allowed: []string{unrelated, config.ImageID}, launch: launch}
+	}
 	for _, test := range []struct {
-		name     string
-		verifier ImageQualificationVerifier
-		member   bool
+		name             string
+		verifier         ImageQualificationVerifier
+		member, attaches bool
 	}{
-		{"no allow-list", &fakeImageVerifier{}, false},
-		{"other images allowed", &allowListImageVerifier{allowed: []string{unrelated}}, false},
-		{"earlier image allowed", &allowListImageVerifier{allowed: []string{unrelated, config.ImageID}}, true},
+		{"no allow-list", &fakeImageVerifier{}, false, false},
+		{"other images allowed", &allowListImageVerifier{allowed: []string{unrelated}}, false, false},
+		{"earlier image no longer qualifies", refusing(config.ImageID, ""), true, false},
+		{"launch image does not qualify", refusing(unrelated, unrelated), true, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fleet, err := NewFleetWithImageVerifier(newer, regionIntent, provider, journal,
@@ -182,13 +281,107 @@ func TestFleetKeepsHostsOfAllowedEarlierImages(t *testing.T) {
 			}
 			_, err = fleet.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main",
 				VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-earlier-image"})
-			if test.member != (err == nil) || !test.member && !errors.Is(err, ErrForeignResource) {
-				t.Fatalf("AttachRetainedVolume = %v; want member %t", err, test.member)
+			want := ErrForeignResource
+			if test.member {
+				want = ErrImageNotQualified
+			}
+			if test.attaches != (err == nil) || !test.attaches && !errors.Is(err, want) {
+				t.Fatalf("AttachRetainedVolume = %v; want attaches %t", err, test.attaches)
 			}
 		})
 	}
 	if provider.attachCalls != 1 {
-		t.Fatalf("attach calls = %d; only the allowed host attaches", provider.attachCalls)
+		t.Fatalf("attach calls = %d; only the qualified host attaches", provider.attachCalls)
+	}
+}
+
+// New hosts boot the cell spec's launch image once it qualifies, without a
+// new signed fleet config; a journaled launch keeps its own image on retry.
+func TestEnsureHostBootsTheCellSpecLaunchImage(t *testing.T) {
+	ctx := t.Context()
+	config, regionIntent := testRegionConfig()
+	provider := newFakeProvider(config)
+	journal := newFakeJournal()
+	newer := "ocid1.image.oc1.sa-saopaulo-1.newer"
+	verifier := &allowListImageVerifier{}
+	fleet, err := NewFleetWithImageVerifier(config, regionIntent, provider, journal,
+		&fakeFencer{snapshot: writableSnapshot()}, nil, nil, verifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	launching := fleet.(interface{ verifyLaunchImage(context.Context) error })
+	// Every new launch qualifies its image when it chooses it and again right
+	// before the provider launch, the signed pin included.
+	earlier, err := fleet.EnsureHost(ctx, testEnsureRequest("node-before-launch-image"))
+	if err != nil || earlier.ImageID != config.ImageID || !slices.Equal(verifier.images, []string{config.ImageID, config.ImageID}) {
+		t.Fatalf("pinned launch = %+v, %v; verified %v", earlier, err, verifier.images)
+	}
+	verifier.images = nil
+
+	// A launch image outside the allow-list is ignored.
+	verifier.launch = newer
+	if err := launching.verifyLaunchImage(ctx); err != nil || !slices.Equal(verifier.images, []string{config.ImageID}) {
+		t.Fatalf("unlisted launch image was verified: %v %v", verifier.images, err)
+	}
+	verifier.images = nil
+	verifier.allowed = []string{config.ImageID, newer}
+	verifier.err = errors.New("receipt expired")
+	if _, err := fleet.EnsureHost(ctx, testEnsureRequest("node-unqualified-launch")); !errors.Is(err, ErrImageNotQualified) ||
+		provider.launchCalls != 1 {
+		t.Fatalf("unqualified launch image reached OCI: calls=%d err=%v", provider.launchCalls, err)
+	}
+	verifier.err = nil
+	launched, err := fleet.EnsureHost(ctx, testEnsureRequest("node-launch-image"))
+	if err != nil || launched.ImageID != newer || provider.launchRequests[len(provider.launchRequests)-1].ImageID != newer ||
+		!slices.Contains(verifier.images, newer) {
+		t.Fatalf("launch image host = %+v, %v; verified %v", launched, err, verifier.images)
+	}
+	if err := launching.verifyLaunchImage(ctx); err != nil || verifier.images[len(verifier.images)-1] != newer {
+		t.Fatalf("volume creation gate did not verify the launch image: %v %v", verifier.images, err)
+	}
+
+	// Retrying the earlier launch keeps its pinned image; nothing relaunches.
+	again, err := fleet.EnsureHost(ctx, testEnsureRequest("node-before-launch-image"))
+	if err != nil || again.ID != earlier.ID || again.ImageID != config.ImageID || provider.launches != 2 {
+		t.Fatalf("retry after the launch image moved = %+v, %v (launches %d)", again, err, provider.launches)
+	}
+	if observed, err := fleet.Observe(ctx); err != nil || len(observed) != 2 {
+		t.Fatalf("hosts of both images = %+v, %v", observed, err)
+	}
+
+	// A spec-image launch journaled before OCI saw it qualifies again before
+	// its replay, and keeps its image after the launch image moves.
+	provider.launchErrorBeforeCreate = errors.New("OCI unavailable")
+	if _, err := fleet.EnsureHost(ctx, testEnsureRequest("node-replayed-launch")); err == nil {
+		t.Fatal("launch with OCI unavailable succeeded")
+	}
+	provider.launchErrorBeforeCreate = nil
+	calls := provider.launchCalls
+	newest := "ocid1.image.oc1.sa-saopaulo-1.newest"
+	verifier.allowed, verifier.launch = []string{config.ImageID, newer, newest}, newest
+	verifier.err = errors.New("OCI image deleted")
+	if _, err := fleet.EnsureHost(ctx, testEnsureRequest("node-replayed-launch")); !errors.Is(err, ErrImageNotQualified) ||
+		provider.launchCalls != calls {
+		t.Fatalf("replay of an unqualified journaled image reached OCI: calls=%d err=%v", provider.launchCalls-calls, err)
+	}
+	verifier.err, verifier.images = nil, nil
+	replayed, err := fleet.EnsureHost(ctx, testEnsureRequest("node-replayed-launch"))
+	if err != nil || replayed.ImageID != newer || !slices.Equal(verifier.images, []string{newer}) {
+		t.Fatalf("replayed spec-image launch = %+v, %v; verified %v", replayed, err, verifier.images)
+	}
+
+	// Once its image is revoked, a retry cannot reuse it and holds.
+	verifier.allowed = []string{newer}
+	moved := config
+	moved.ImageID = "ocid1.image.oc1.sa-saopaulo-1.moved"
+	restarted, err := NewFleetWithImageVerifier(moved, regionIntent, provider, journal,
+		&fakeFencer{snapshot: writableSnapshot()}, nil, nil, verifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hold *CreateRecoveryHoldError
+	if _, err := restarted.EnsureHost(ctx, testEnsureRequest("node-before-launch-image")); !errors.As(err, &hold) || provider.launches != 3 {
+		t.Fatalf("retry of a revoked image's launch: launches=%d err=%v", provider.launches, err)
 	}
 }
 
@@ -1212,7 +1405,32 @@ func TestRetainedVolumeOperationsHoldWithoutImageVerifier(t *testing.T) {
 	}
 }
 
-func TestFleetVerifyPinnedImageIsPublicReadinessGate(t *testing.T) {
+// A new launch of the signed pin needs current qualification too: without a
+// qualification source, or with the pin refused, nothing reaches OCI.
+func TestEnsureHostHoldsAnUnqualifiedPin(t *testing.T) {
+	config, regionIntent := testRegionConfig()
+	provider := newFakeProvider(config)
+	unverified, err := NewFleet(config, regionIntent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := unverified.EnsureHost(t.Context(), testEnsureRequest("node-unverified-pin")); !errors.Is(err, ErrImageQualificationUnavailable) {
+		t.Fatalf("launch without image evidence: %v", err)
+	}
+	refusing, err := NewFleetWithImageVerifier(config, regionIntent, provider, newFakeJournal(),
+		&fakeFencer{snapshot: writableSnapshot()}, nil, nil, &fakeImageVerifier{refuse: config.ImageID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := refusing.EnsureHost(t.Context(), testEnsureRequest("node-refused-pin")); !errors.Is(err, ErrImageNotQualified) {
+		t.Fatalf("launch of a refused pin: %v", err)
+	}
+	if provider.launchCalls != 0 {
+		t.Fatalf("an unqualified pin reached OCI: calls=%d", provider.launchCalls)
+	}
+}
+
+func TestFleetVerifyHostImageIsPublicReadinessGate(t *testing.T) {
 	config, intent := testRegionConfig()
 	provider := newFakeProvider(config)
 	journal := newFakeJournal()
@@ -1222,21 +1440,21 @@ func TestFleetVerifyPinnedImageIsPublicReadinessGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fleet.VerifyPinnedImage(t.Context()); err != nil {
+	if err := fleet.VerifyHostImage(t.Context(), config.ImageID); err != nil {
 		t.Fatalf("qualified pinned image was held: %v", err)
 	}
 	if !slices.Equal(verifier.images, []string{config.ImageID}) {
 		t.Fatalf("readiness checked wrong image: %v", verifier.images)
 	}
 	verifier.err = errors.New("image readback changed")
-	if err := fleet.VerifyPinnedImage(t.Context()); !errors.Is(err, ErrImageNotQualified) {
+	if err := fleet.VerifyHostImage(t.Context(), config.ImageID); !errors.Is(err, ErrImageNotQualified) {
 		t.Fatalf("changed image was accepted: %v", err)
 	}
 	withoutVerifier, err := NewFleet(config, intent, provider, journal, fencer, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := withoutVerifier.VerifyPinnedImage(t.Context()); !errors.Is(err, ErrImageQualificationUnavailable) {
+	if err := withoutVerifier.VerifyHostImage(t.Context(), config.ImageID); !errors.Is(err, ErrImageQualificationUnavailable) {
 		t.Fatalf("absent image verifier was accepted: %v", err)
 	}
 	if provider.launches != 0 || provider.volumeCreateCalls != 0 {
@@ -1879,10 +2097,15 @@ func (v *fakeWriterStop) VerifyInstanceWritersStopped(context.Context, Region, s
 type fakeImageVerifier struct {
 	err    error
 	images []string
+	// refuse fails only this image.
+	refuse string
 }
 
 func (v *fakeImageVerifier) VerifyImageQualified(_ context.Context, _ Region, imageID string) error {
 	v.images = append(v.images, imageID)
+	if imageID == v.refuse {
+		return errors.New("image refused")
+	}
 	return v.err
 }
 
@@ -2184,7 +2407,7 @@ func (p *fakeProvider) LaunchInstance(_ context.Context, request LaunchRequest) 
 	instance := CloudInstance{
 		ID: id, PrivateIP: request.PrivateIP, CompartmentID: p.config.CompartmentID, AvailabilityDomain: p.config.AvailabilityDomain,
 		FaultDomain: request.FaultDomain, Shape: request.Shape, Ocpus: new(float32(request.WholeOCPUs)),
-		MemoryInGBs: new(float32(request.MemoryInGBs)), LifecycleState: "PROVISIONING", ETag: "e1", ImageID: p.config.ImageID,
+		MemoryInGBs: new(float32(request.MemoryInGBs)), LifecycleState: "PROVISIONING", ETag: "e1", ImageID: request.ImageID,
 		ConsistentVolumeNamingEnabled: new(true),
 		Metadata:                      map[string]string{hostboot.MetadataKey: request.BootDescriptor, "terrascale_host_node": request.Node},
 		FreeformTags:                  cloneStringMap(request.FreeformTags),
@@ -2233,7 +2456,8 @@ func (p *fakeProvider) TerminateTerminalInstance(ctx context.Context, id, etag s
 }
 
 func (p *fakeProvider) GetAttachedBootVolume(_ context.Context, instanceID string) (CloudBootVolume, error) {
-	if _, ok := p.instances[instanceID]; !ok {
+	instance, ok := p.instances[instanceID]
+	if !ok {
 		return CloudBootVolume{}, fakeNotFound{}
 	}
 	id := "ocid1.bootvolume." + strings.TrimPrefix(instanceID, "ocid1.instance.")
@@ -2241,7 +2465,7 @@ func (p *fakeProvider) GetAttachedBootVolume(_ context.Context, instanceID strin
 		return boot, nil
 	}
 	boot := CloudBootVolume{ID: id, CompartmentID: p.config.CompartmentID,
-		AvailabilityDomain: p.config.AvailabilityDomain, ImageID: p.config.ImageID,
+		AvailabilityDomain: p.config.AvailabilityDomain, ImageID: instance.ImageID,
 		SizeGB: int64(p.config.BootVolumeGB), VPUsPerGB: int64(p.config.BootVolumeVPUsPerGB),
 		LifecycleState: "AVAILABLE", ETag: "boot-etag"}
 	p.bootVolumes[id] = boot

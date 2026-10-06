@@ -30,9 +30,11 @@ const serviceUsage = `Usage: ts-orch service <command> --config OPERATOR_JSON [f
   grant-host  --node N --private-ip IP --roles A,B --environment E [--out F]
                                                 Plan letting a static host enroll with these roles
   revoke-host --node N [--out F]                Plan removing a host grant
-  allow-image --image-id ID --receipt F --delegation F [--out F]
-                                                Plan letting managed hosts run a qualified image
-  revoke-image --image-id ID [--out F]          Plan removing an allowed host image
+  allow-image --image-id ID --receipt F --delegation F [--launch] [--out F]
+                                                Plan letting managed hosts run a qualified image; --launch makes new hosts boot it
+  revoke-image --image-id ID [--launch] [--out F]
+                                                Plan removing an allowed host image (new hosts return to the pin if it was the launch image);
+                                                --launch only stops new hosts booting it and keeps it allowed
   apply  --file SIGNED                          Apply a signed cell spec (as ts-orch apply -f)
 
 Sign a candidate offline with ts-orch release sign-spec before apply.
@@ -266,10 +268,11 @@ func operatorServiceHostGrant(ctx context.Context, cfg Config, runtime *natscell
 }
 
 // operatorServiceHostImage plans the next generation with the host image of
-// imageID allowed from the receipt and delegation files (allow) or removed.
-// The leader checks that the receipt qualifies exactly imageID for the cell
-// now.
-func operatorServiceHostImage(ctx context.Context, cfg Config, runtime *natscell.Runtime, allow bool, imageID,
+// imageID allowed from the receipt and delegation files (allow), with launch
+// also as the launch image. Revoking removes it, or with launch only stops
+// new hosts booting it, the rollback for a bad launch image. The leader
+// checks that the receipt qualifies exactly imageID for the cell now.
+func operatorServiceHostImage(ctx context.Context, cfg Config, runtime *natscell.Runtime, allow, launch bool, imageID,
 	receiptPath, delegationPath, out string, output io.Writer,
 ) error {
 	if imageID == "" || allow != (receiptPath != "") || allow != (delegationPath != "") {
@@ -292,10 +295,23 @@ func operatorServiceHostImage(ctx context.Context, cfg Config, runtime *natscell
 	current := reply.Spec
 	next := current
 	next.Generation++
+	if !allow && launch {
+		if current.LaunchImage != imageID {
+			return fmt.Errorf("image %s is not the launch image", imageID)
+		}
+		next.LaunchImage = ""
+		return planSpec(ctx, cfg, runtime, current, next, out, output)
+	}
 	next.HostImages = slices.DeleteFunc(slices.Clone(current.HostImages), func(i cellspec.HostImage) bool { return i.ImageID == imageID })
 	if allow {
 		next.HostImages = append(next.HostImages, image)
 		slices.SortFunc(next.HostImages, func(a, b cellspec.HostImage) int { return strings.Compare(a.ImageID, b.ImageID) })
+	}
+	switch {
+	case launch:
+		next.LaunchImage = imageID
+	case !allow && next.LaunchImage == imageID:
+		next.LaunchImage = ""
 	}
 	return planSpec(ctx, cfg, runtime, current, next, out, output)
 }

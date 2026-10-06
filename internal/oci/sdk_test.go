@@ -62,7 +62,7 @@ func TestLaunchInstanceMapsSignedProfileIntoOCIRequest(t *testing.T) {
 	bootRequest := testEnsureRequest(request.CreateKey)
 	bootRequest.PlacementProfileDigest = request.PlacementProfileDigest
 	bootRequest.PlacementGeneration = request.PlacementGeneration
-	descriptor, err := (&fleet{config: config}).hostBootDescriptor(bootRequest)
+	descriptor, err := (&fleet{config: config}).hostBootDescriptor(bootRequest, config.ImageID)
 	if err != nil {
 		t.Fatal(err)
 	}

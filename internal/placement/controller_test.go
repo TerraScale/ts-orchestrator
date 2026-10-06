@@ -172,6 +172,49 @@ func TestControllerWithholdsPreparedDesiredWhenFreshInputsChange(t *testing.T) {
 	}
 }
 
+// Before desired state, the member's freshly observed host must still be the
+// bound one; only then does its own image qualify the write.
+func TestControllerPreparedDesiredValidatesTheObservedHost(t *testing.T) {
+	for name, change := range map[string]func(*oci.Instance){
+		"unchanged":        nil,
+		"owner":            func(instance *oci.Instance) { instance.Owner = "other" },
+		"fleet generation": func(instance *oci.Instance) { instance.Generation++ },
+		"boot descriptor":  func(instance *oci.Instance) { instance.BootDescriptorSHA256 = strings.Repeat("0", 64) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+			store := newPlacementMemoryStore(t, intent)
+			instances := attachedInstances(t, intent)
+			for index := range instances {
+				instances[index].Attachments[0].Device = "/dev/sdb"
+				instances[index].Attachments[0].IsPvEncryptionInTransitEnabled = true
+			}
+			fleet := &placementTestFleet{instances: instances}
+			hosts := &placementTestHosts{statuses: admittedStatuses(t, intent)}
+			controller := startTestPlacementController(t, store, fleet, hosts, nil)
+			if err := controller.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if store.members[permanentMember(oci.RegionGRU)].State.Stage != StagePreparedDesired {
+				t.Fatal("member did not reach prepared desired")
+			}
+			fleet.verifiedImages = nil
+			if change == nil {
+				if err := controller.Tick(t.Context()); err != nil || hosts.desiredWrites == 0 ||
+					!slices.Contains(fleet.verifiedImages, fleet.instances[0].ImageID) {
+					t.Fatalf("bound host: err=%v writes=%d verified=%v", err, hosts.desiredWrites, fleet.verifiedImages)
+				}
+				return
+			}
+			change(&fleet.instances[0])
+			if err := controller.Tick(t.Context()); err != nil || hosts.desiredWrites != 0 ||
+				store.members[permanentMember(oci.RegionGRU)].State.Stage != StagePreparedDesired {
+				t.Fatalf("changed host: err=%v writes=%d", err, hosts.desiredWrites)
+			}
+		})
+	}
+}
+
 func TestControllerHoldsUnadmittedRuntimeAndReplaysPreparedCASConflict(t *testing.T) {
 	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
 	store := newPlacementMemoryStore(t, intent)
@@ -278,6 +321,10 @@ func TestControllerRecoveredAttachmentRequiresCurrentArtifactAndImageQualificati
 		store.members[seatID].State.Stage != StagePreparedAttach {
 		t.Fatalf("observed attachment bypassed image qualification: err=%v CAS=%d attach=%d desired=%d stage=%s",
 			err, store.casCalls, fleet.attachCalls, hosts.desiredWrites, store.members[seatID].State.Stage)
+	}
+	// The gate qualifies the image the member's own host boots.
+	if len(fleet.verifiedImages) == 0 || fleet.verifiedImages[0] != fleet.instances[0].ImageID {
+		t.Fatalf("verified images = %v; want the member host's image %s", fleet.verifiedImages, fleet.instances[0].ImageID)
 	}
 	fleet.imageVerifyErr = nil
 	controller.resolveArtifact = func(_ context.Context, digest, _, _ string) (AdmittedArtifact, error) {
@@ -788,6 +835,10 @@ func TestControllerPreparesRetainedVolumeOnlyWithCurrentExactHost(t *testing.T) 
 		}},
 		{name: "registration generation changed", change: func(_ *placementMemoryStore, _ *placementTestFleet, hosts *placementTestHosts) {
 			hosts.statuses[0].Registration.Generation++
+		}},
+		// The member host's own image must qualify before its volume exists.
+		{name: "host image not qualified", wantError: true, change: func(_ *placementMemoryStore, fleet *placementTestFleet, _ *placementTestHosts) {
+			fleet.imageVerifyErr = oci.ErrImageNotQualified
 		}},
 		{name: "existing volume retained on host loss", change: func(store *placementMemoryStore, fleet *placementTestFleet, _ *placementTestHosts) {
 			fleet.instances = nil
@@ -1332,11 +1383,13 @@ type placementTestFleet struct {
 	cordonCalls      int
 	terminateCalls   int
 	resizeRequests   []oci.VolumeResizeRequest
+	verifiedImages   []string
 }
 
 func (fleet *placementTestFleet) Region() oci.Region { return oci.RegionGRU }
-func (fleet *placementTestFleet) VerifyPinnedImage(context.Context) error {
+func (fleet *placementTestFleet) VerifyHostImage(_ context.Context, imageID string) error {
 	fleet.imageVerifyCalls++
+	fleet.verifiedImages = append(fleet.verifiedImages, imageID)
 	return fleet.imageVerifyErr
 }
 func (fleet *placementTestFleet) Observe(context.Context) ([]oci.Instance, error) {

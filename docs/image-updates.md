@@ -29,8 +29,31 @@ re-founding the cell and relaunching the database hosts.
    launched from an allowed earlier image stays a fleet member: it is
    observed, keeps its placement seat, can attach its retained volume and can
    be torn down.
-3. **Launch** stays on the pinned image, which still needs a currently valid
-   receipt and the OCI image readback.
+3. **Launch.** The spec's optional `launch_image` names the allowed image
+   new managed TerraBase hosts boot; without it they boot the pin. A root
+   chooses it, and the leader refuses one whose receipt is not current.
+   Before every provider launch, first or replayed, the fleet verifies the
+   image's receipt (a spec image's under the cell's current roots) and
+   reads the image back from OCI (compartment, AVAILABLE, shape
+   compatibility, architecture); the signed pin needs this too. A new
+   launch runs only under the cell spec version (generation and roots) that
+   chose its image: if the spec changes in between, the attempt stops
+   before OCI and the retry replays the journaled image under one fresh
+   read. The final check holds the spec registry's launch fence until the
+   provider launch returns; adopting a spec or a root rotation waits for it,
+   so a revocation takes effect between launches, never during one. A launch already journaled keeps
+   its own image on retry while that stays allowed, so moving the launch
+   image never conflicts with a launch in flight; recovering a host that
+   exists needs no fresh check. New hosts thus move to a newer image without
+   a new signed controller config or a re-found. Node pool hosts
+   (`cellscale`) keep their own template image.
+   Attaching a retained volume, and placement's gates before a member's
+   volume creation, attachment, runtime contract and desired state, require
+   the image that member's host boots to qualify now. The fleet's volume
+   creation also checks the launch image, so an expired or deleted launch
+   image holds new members;
+   `ts-orch service revoke-image --launch` returns new hosts to the pin and
+   keeps the image allowed.
 4. **Routine OS updates** apply signed package sets on the running host and
    reboot it, coordinated with self-healing (TS-568). The boot volume and
    image OCID do not change.
@@ -45,8 +68,8 @@ re-founding the cell and relaunching the database hosts.
 
 | Slice | Delivers | Status |
 | --- | --- | --- |
-| 1 | `host_images` allow-list in the cell spec; fleet, provider, terminal and placement checks per instance; `ts-orch service allow-image` and `revoke-image` | this change |
-| 2 | Launch image chosen from the allow-list, so new hosts boot the newer image without a new signed controller config | planned |
+| 1 | `host_images` allow-list in the cell spec; fleet, provider, terminal and placement checks per instance; `ts-orch service allow-image` and `revoke-image` | done |
+| 2 | `launch_image` chosen from the allow-list, so new hosts boot the newer image without a new signed controller config; `allow-image --launch` | this change |
 | 3 | Signed package sets and reboot for routine OS updates (with TS-568) | planned |
 | 4 | Root-signed successor plan and OCI boot volume replacement, one slot at a time with quorum (after TS-567) | planned |
 
@@ -78,15 +101,16 @@ re-founding the cell and relaunching the database hosts.
   stored spec does not verify, has no allow-list: hosts of earlier images
   are withheld until it adopts the spec again.
 
-## Limits of slice 1
+## Limits
 
-- New hosts still boot only the pinned image; slice 2 moves the launch pin.
 - The allow-list checks the image OCID, environment and region. The shape
   architecture is checked at launch only, which an existing host passed.
 - A host on a revoked image is withheld, not reported as drifted.
-- If the pin moves while a launch is between `EnsureHost` and placement's
-  next stage, the retry conflicts with the journaled launch and holds;
-  slice 2 reuses an allowed launch intent's image.
+- Existing hosts keep the image they booted; moving them is slices 3 and 4.
+- A controller adopts any stored spec signed for the cell; only the leader
+  checks who signed which change. A holder of controller KV credentials and
+  the release leaf could therefore store a spec that allows or launches an
+  image without a root, as for every other root-gated section.
 - Boot volume replacement changes the instance's boot image; the per-instance
   checks bind the launch intent's image, so slice 4 adds a durable record of
   the replacement.

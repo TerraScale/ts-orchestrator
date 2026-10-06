@@ -468,8 +468,8 @@ type managedUpdateAppFleet struct {
 	instances []oci.Instance
 }
 
-func (*managedUpdateAppFleet) Region() oci.Region                      { return oci.RegionGRU }
-func (*managedUpdateAppFleet) VerifyPinnedImage(context.Context) error { return nil }
+func (*managedUpdateAppFleet) Region() oci.Region                            { return oci.RegionGRU }
+func (*managedUpdateAppFleet) VerifyHostImage(context.Context, string) error { return nil }
 func (fleet *managedUpdateAppFleet) Observe(context.Context) ([]oci.Instance, error) {
 	return slices.Clone(fleet.instances), nil
 }

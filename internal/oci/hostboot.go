@@ -7,9 +7,10 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 )
 
-// hostBootDescriptor combines the durable placement attempt with only this
-// Fleet's pinned OCI identity. The descriptor is a public hint, not authority.
-func (f *fleet) hostBootDescriptor(request EnsureRequest) (hostboot.Descriptor, error) {
+// hostBootDescriptor combines the durable placement attempt with this
+// Fleet's OCI identity and the host's launch image. The descriptor is a
+// public hint, not authority.
+func (f *fleet) hostBootDescriptor(request EnsureRequest, imageID string) (hostboot.Descriptor, error) {
 	return hostboot.Descriptor{
 		SchemaVersion:            1,
 		Cell:                     strings.ToLower(string(f.config.Region)),
@@ -18,7 +19,7 @@ func (f *fleet) hostBootDescriptor(request EnsureRequest) (hostboot.Descriptor, 
 		Owner:                    f.config.Owner,
 		FleetGeneration:          f.config.Generation,
 		CreateKey:                request.CreateKey,
-		ImageID:                  f.config.ImageID,
+		ImageID:                  imageID,
 		DatabaseID:               request.BootPins.DatabaseID,
 		PartitionID:              request.BootPins.PartitionID,
 		SeatID:                   request.BootPins.SeatID,

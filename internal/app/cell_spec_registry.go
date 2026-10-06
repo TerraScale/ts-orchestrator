@@ -89,6 +89,11 @@ type specRegistry struct {
 	signedDesired *cellspec.OCIDesired
 	ociRegion     *oci.RegionConfig
 
+	// launches fences host image changes against launches: a launch holds
+	// it for reading from its final image check through the provider launch,
+	// and adopting a spec or root set holds it for writing, so a change takes
+	// effect only between launches. It is taken before mu.
+	launches sync.RWMutex
 	mu       sync.Mutex
 	current  cellspec.Spec
 	revision uint64
@@ -219,6 +224,7 @@ func (r *specRegistry) openRoots(genesis trust.Keyring, chain trust.RootChain, p
 		return err
 	}
 	roots.keeps = r.keepsStoredSpec
+	roots.fence = &r.launches
 	r.roots = roots
 	return nil
 }
@@ -342,6 +348,8 @@ func (r *specRegistry) load(entry jetstream.KeyValueEntry) {
 }
 
 func (r *specRegistry) adopt(spec cellspec.Spec, revision uint64) {
+	r.launches.Lock()
+	defer r.launches.Unlock()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if revision <= r.revision {
@@ -508,19 +516,48 @@ func (r *specRegistry) hostGrant(node string) (cellspec.HostGrant, host.Capacity
 	return grant, capacity, true
 }
 
+// hostImageSnapshot is the adopted cell spec's host images and launch
+// image, with the roots that may qualify a launch from them now. version
+// names the spec generation and root set it was read from.
+type hostImageSnapshot struct {
+	images  []cellspec.HostImage
+	launch  string
+	roots   trust.Keyring
+	version string
+}
+
+func (s hostImageSnapshot) ids() []string {
+	ids := make([]string, 0, len(s.images))
+	for _, image := range s.images {
+		ids = append(ids, image.ImageID)
+	}
+	return ids
+}
+
 // hostImages returns the image IDs the adopted spec allows managed hosts to
 // run besides the signed fleet image.
 func (r *specRegistry) hostImages() []string {
+	return r.hostImageSnapshot().ids()
+}
+
+// holdLaunch holds the launch fence for reading until the returned release.
+func (r *specRegistry) holdLaunch() func() {
+	r.launches.RLock()
+	return r.launches.RUnlock
+}
+
+func (r *specRegistry) hostImageSnapshot() hostImageSnapshot {
 	if r == nil {
-		return nil
+		return hostImageSnapshot{}
 	}
+	// The roots are read under the spec lock, so the snapshot pairs the
+	// adopted spec with the roots of the same instant. The root registry
+	// never takes the spec lock, so the order cannot deadlock.
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	images := make([]string, 0, len(r.current.HostImages))
-	for _, image := range r.current.HostImages {
-		images = append(images, image.ImageID)
-	}
-	return images
+	roots := r.roots.current()
+	return hostImageSnapshot{images: slices.Clone(r.current.HostImages), launch: r.current.LaunchImage, roots: roots,
+		version: fmt.Sprintf("%d/%s", r.current.Generation, strings.Join(slices.Sorted(maps.Keys(roots)), ","))}
 }
 
 // releaser reports whether the adopted spec lets actor release role and

@@ -65,6 +65,9 @@ type rootRegistry struct {
 	// adopting serializes adoption, file write included, so readers under mu
 	// never wait on I/O.
 	adopting sync.Mutex
+	// fence is the spec registry's launch fence: a root switch waits for
+	// in-flight launches, which qualify their image under the current roots.
+	fence    *sync.RWMutex
 	mu       sync.Mutex
 	chain    trust.RootChain
 	verified trust.VerifiedRoots
@@ -268,6 +271,10 @@ func (r *rootRegistry) adopt(chain trust.RootChain) error {
 		if err := writeOwnerOnlyFile(filepath.Dir(r.path), filepath.Base(r.path), wire); err != nil {
 			return fmt.Errorf("persist adopted root chain: %w", err)
 		}
+	}
+	if r.fence != nil {
+		r.fence.Lock()
+		defer r.fence.Unlock()
 	}
 	r.mu.Lock()
 	r.chain, r.verified = chain, verified

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
@@ -237,26 +239,107 @@ func TestManagedImageVerifierForDefaultsToAcceptedBootImage(t *testing.T) {
 	if reflect.ValueOf(managedImageVerifierFromFiles(ControllerConfig{})).Pointer() != reflect.ValueOf(newManagedImageVerifier).Pointer() {
 		t.Fatal("unconfigured controller does not pin hosts to its accepted boot image")
 	}
-	half := managedImageVerifierFor(ControllerConfig{ManagedHostImageReceiptFile: "/etc/receipt.json"}, nil)
+	half := managedImageVerifierFor(ControllerConfig{ManagedHostImageReceiptFile: "/etc/receipt.json"}, nil, nil)
 	if _, err := half(t.Context(), oci.RegionConfig{}); err == nil {
 		t.Fatal("half-configured independent host image accepted")
 	}
 }
 
 // The fleet reads the cell spec's host images through the verifier at each
-// check, so an adopted amendment applies without reopening the fleet.
-func TestManagedImageVerifierNamesTheCellSpecHostImages(t *testing.T) {
-	verifier, _, _ := managedImageVerifierFixture(t)
-	if images := verifier.AllowedHostImages(); len(images) != 0 {
-		t.Fatalf("verifier without a cell spec allows %v", images)
+// check, so an adopted amendment applies without reopening the fleet, and a
+// spec image qualifies from its own current receipt and the OCI readback.
+func TestManagedImageVerifierQualifiesCellSpecHostImages(t *testing.T) {
+	verifier, reader, _ := managedImageVerifierFixture(t)
+	if images, launch := verifier.HostImages(); len(images) != 0 || launch != "" {
+		t.Fatalf("verifier without a cell spec allows %v, launches %q", images, launch)
 	}
-	images := []string{"ocid1.image.oc1.sa-saopaulo-1.earlier"}
-	verifier.allowed = func() []string { return images }
-	if got := verifier.AllowedHostImages(); !reflect.DeepEqual(got, images) {
-		t.Fatalf("AllowedHostImages = %v", got)
+	image := cellspec.HostImage{ImageID: managedImageTestOCID, Receipt: verifier.receiptWire, Delegation: verifier.delegationWire}
+	// Pin another image whose proof the spec image must not borrow.
+	verifier.region.ImageID = "ocid1.image.oc1.sa-saopaulo-1.PINNED"
+	verifier.receiptWire, verifier.delegationWire = nil, nil
+	if err := verifier.VerifyImageQualified(t.Context(), oci.RegionGRU, managedImageTestOCID); err == nil {
+		t.Fatal("an image outside the cell spec qualified")
+	}
+	images, roots := []cellspec.HostImage{image}, verifier.roots
+	verifier.hostImages = func() hostImageSnapshot {
+		return hostImageSnapshot{images: images, launch: image.ImageID, roots: roots}
+	}
+	if got, launch := verifier.HostImages(); !reflect.DeepEqual(got, []string{image.ImageID}) ||
+		launch != image.ImageID {
+		t.Fatalf("HostImages = %v, %q", got, launch)
+	}
+	if err := verifier.VerifyImageQualified(t.Context(), oci.RegionGRU, managedImageTestOCID); err != nil ||
+		reader.imageCalls != 1 || reader.shapeCalls != 1 {
+		t.Fatalf("cell spec image = %v (readbacks %d, %d)", err, reader.imageCalls, reader.shapeCalls)
+	}
+	// A spec image qualifies under the cell's current roots, not the baked
+	// roots the fleet opened with: a rotated-away root no longer qualifies a
+	// launch.
+	verifier.roots, roots = roots, testSpecRoots(t)
+	if err := verifier.VerifyImageQualified(t.Context(), oci.RegionGRU, managedImageTestOCID); err == nil {
+		t.Fatal("a cell spec image qualified under a rotated-away root")
+	}
+	verifier.roots, roots = nil, verifier.roots
+	if err := verifier.VerifyImageQualified(t.Context(), oci.RegionGRU, managedImageTestOCID); err != nil {
+		t.Fatalf("a cell spec image under a root adopted after the fleet opened: %v", err)
+	}
+	tampered := image
+	tampered.Receipt = bytes.Clone(image.Receipt)
+	tampered.Receipt[len(tampered.Receipt)-3] ^= 1
+	images = []cellspec.HostImage{tampered}
+	if err := verifier.VerifyImageQualified(t.Context(), oci.RegionGRU, managedImageTestOCID); err == nil {
+		t.Fatal("a tampered cell spec image receipt qualified")
 	}
 	images = nil
-	if got := verifier.AllowedHostImages(); len(got) != 0 {
-		t.Fatalf("AllowedHostImages after the spec dropped its images = %v", got)
+	if got, _ := verifier.HostImages(); len(got) != 0 {
+		t.Fatalf("HostImages after the spec dropped its images = %v", got)
+	}
+}
+
+// A launch chooses and qualifies its image from one cell spec snapshot: a
+// generation adopted meanwhile never supplies the trust material of an
+// image another generation chose.
+func TestManagedImageVerifierQualifiesTheLaunchImageFromOneSnapshot(t *testing.T) {
+	verifier, _, _ := managedImageVerifierFixture(t)
+	image := cellspec.HostImage{ImageID: managedImageTestOCID, Receipt: verifier.receiptWire, Delegation: verifier.delegationWire}
+	pin := "ocid1.image.oc1.sa-saopaulo-1.PINNED"
+	verifier.region.ImageID = pin
+	roots := verifier.roots
+	reads := 0
+	verifier.hostImages = func() hostImageSnapshot {
+		reads++
+		if reads > 1 {
+			// A later generation that dropped the image.
+			return hostImageSnapshot{roots: roots, version: "2"}
+		}
+		return hostImageSnapshot{images: []cellspec.HostImage{image}, launch: image.ImageID, roots: roots, version: "1"}
+	}
+	got, version, err := verifier.QualifiedLaunchImage(t.Context(), oci.RegionGRU, pin)
+	if err != nil || got != image.ImageID || reads != 1 {
+		t.Fatalf("QualifiedLaunchImage = %q, %v after %d snapshot reads", got, err, reads)
+	}
+	// The final check before the launch refuses a spec that changed since,
+	// and releases the fence it took.
+	holds := 0
+	verifier.holdLaunch = func() func() { holds++; return func() { holds-- } }
+	if _, err := verifier.AdmitLaunch(t.Context(), oci.RegionGRU, got, version); err == nil || holds != 0 {
+		t.Fatalf("a launch image qualified under a later cell spec version (holds %d)", holds)
+	}
+	reads = 0
+	release, err := verifier.AdmitLaunch(t.Context(), oci.RegionGRU, got, version)
+	if err != nil || holds != 1 {
+		t.Fatalf("AdmitLaunch under the choosing version: %v (holds %d)", err, holds)
+	}
+	release()
+	if holds != 0 {
+		t.Fatal("the launch fence was not released")
+	}
+	if _, _, err := verifier.QualifiedLaunchImage(t.Context(), oci.RegionGRU, "ocid1.image.oc1.sa-saopaulo-1.OTHER"); err == nil {
+		t.Fatal("a launch for another pin qualified")
+	}
+	// A launch image the same snapshot does not allow falls back to the pin.
+	verifier.hostImages = func() hostImageSnapshot { return hostImageSnapshot{launch: image.ImageID, roots: roots} }
+	if got, _, err := verifier.QualifiedLaunchImage(t.Context(), oci.RegionGRU, pin); got != pin || err == nil {
+		t.Fatalf("unlisted launch image = %q, %v; want the pin, refused for lacking its receipt", got, err)
 	}
 }

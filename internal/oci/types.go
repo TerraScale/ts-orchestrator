@@ -159,7 +159,9 @@ type WriterStopEvidence []byte
 // Implementations must fail closed for unknown desired state or ownership.
 type Fleet interface {
 	Region() Region
-	VerifyPinnedImage(context.Context) error
+	// VerifyHostImage proves that a member host's own image, the pin or a
+	// cell spec host image, is currently qualified.
+	VerifyHostImage(ctx context.Context, imageID string) error
 	Observe(context.Context) ([]Instance, error)
 	EnsureHost(context.Context, EnsureRequest) (Instance, error)
 	CreateRetainedVolume(context.Context, VolumeCreateRequest) (RetainedVolume, error)
@@ -223,19 +225,31 @@ type WriterStopVerifier interface {
 	VerifyInstanceWritersStopped(context.Context, Region, string, WriterStopEvidence) error
 }
 
-// ImageQualificationVerifier proves that the pinned image is approved for
-// retained-volume attachment. A raw image ID or digest is not qualification
-// evidence; deployments without an evidence source must hold these operations.
+// ImageQualificationVerifier proves that an image (the pin, or a cell spec
+// host image) is currently approved for launches and retained-volume
+// attachment. A raw image ID or digest is not qualification evidence;
+// deployments without an evidence source must hold these operations.
 type ImageQualificationVerifier interface {
 	VerifyImageQualified(context.Context, Region, string) error
 }
 
-// HostImageAllowList is an optional extension of ImageQualificationVerifier:
-// the images, besides the pinned one, that the cell's signed allow-list
-// qualifies. A host launched from one stays a fleet member; new hosts still
-// boot only the pinned image.
+// HostImageAllowList is an optional extension of ImageQualificationVerifier.
+// HostImages returns, from one cell spec generation, the images besides the
+// pinned one that the cell's signed allow-list qualifies, and the one of
+// them new hosts boot instead of the pin ("" keeps the pin). A host
+// launched from an allowed image stays a fleet member.
 type HostImageAllowList interface {
-	AllowedHostImages() []string
+	HostImages() (allowed []string, launch string)
+	// QualifiedLaunchImage chooses the image a new host boots, the launch
+	// image when the same cell spec version allows it or else pin, qualifies
+	// it against that version, and returns the version.
+	QualifiedLaunchImage(ctx context.Context, region Region, pin string) (image, version string, err error)
+	// AdmitLaunch qualifies imageID for a provider launch and fences the
+	// cell spec until release: no spec or root change is adopted between
+	// this check and the end of the launch. A non-empty version, from
+	// QualifiedLaunchImage, must still be the spec's version, so a launch
+	// chosen under one version never runs under another.
+	AdmitLaunch(ctx context.Context, region Region, imageID, version string) (release func(), err error)
 }
 
 // ResourceIdentity is the complete durable scope needed to positively identify

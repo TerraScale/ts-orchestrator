@@ -86,7 +86,7 @@ func TestSignedPlacementSizingReachesProviderThroughController(t *testing.T) {
 	}
 	provider := &placementSizingProvider{config: regionConfig}
 	fencer := placementSizingFencer{control: control}
-	fleet, err := oci.NewFleet(regionConfig, regionIntent, provider, journal, fencer, nil, nil)
+	fleet, err := oci.NewFleetWithImageVerifier(regionConfig, regionIntent, provider, journal, fencer, nil, nil, acceptingImageVerifier{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestSignedPlacementSizingReachesProviderThroughController(t *testing.T) {
 		observed[0].ImageID != regionConfig.ImageID || observed[0].BootDescriptorSHA256 != descriptorDigest {
 		t.Fatalf("real OCI fleet did not reobserve its journal-bound profile: observed=%+v err=%v", observed, err)
 	}
-	restarted, err := oci.NewFleet(regionConfig, regionIntent, provider, journal, fencer, nil, nil)
+	restarted, err := oci.NewFleetWithImageVerifier(regionConfig, regionIntent, provider, journal, fencer, nil, nil, acceptingImageVerifier{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,7 +439,7 @@ func launchPermanentSeat(t *testing.T, owner string, generation uint64) oci.Laun
 	}
 	provider := &placementSizingProvider{config: regionConfig}
 	fencer := placementSizingFencer{control: control}
-	fleet, err := oci.NewFleet(regionConfig, regionIntent, provider, journal, fencer, nil, nil)
+	fleet, err := oci.NewFleetWithImageVerifier(regionConfig, regionIntent, provider, journal, fencer, nil, nil, acceptingImageVerifier{})
 	if err != nil {
 		t.Fatal(err)
 	}

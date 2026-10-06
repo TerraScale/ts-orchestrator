@@ -507,10 +507,12 @@ func (controller *Controller) advanceMember(
 			controller.hold(fmt.Sprintf("member %s has no current exact host registration; retained volume creation is withheld", seat.MemberID))
 			return false, nil
 		}
+		// The member's own host image must qualify before its volume is
+		// created or attached.
+		if err := controller.verifyHostImage(ctx, instance); err != nil {
+			return false, err
+		}
 		if state.VolumeID != "" {
-			if err := controller.verifyPinnedImage(ctx); err != nil {
-				return false, err
-			}
 			state.Stage = StagePreparedAttach
 			state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "attach")
 			_, err := controller.persist(ctx, epoch, versioned.Revision, state)
@@ -579,7 +581,7 @@ func (controller *Controller) advanceMember(
 		if !controller.runtimeArtifactReady(ctx, state, seat) {
 			return false, nil
 		}
-		if err := controller.verifyPinnedImage(ctx); err != nil {
+		if err := controller.verifyHostImage(ctx, instance); err != nil {
 			return false, err
 		}
 		if controller.config.ReattachOnHostLoss && state.PreviousInstanceID != "" {
@@ -655,7 +657,7 @@ func (controller *Controller) advanceMember(
 				if !controller.runtimeArtifactReady(ctx, state, seat) {
 					return false, nil
 				}
-				if err := controller.verifyPinnedImage(ctx); err != nil {
+				if err := controller.verifyHostImage(ctx, instance); err != nil {
 					return false, err
 				}
 				state.AttachRequestedAt = time.Time{}
@@ -681,14 +683,16 @@ func (controller *Controller) advanceMember(
 			controller.hold(fmt.Sprintf("member %s prepared desired pins changed; launch is held", seat.MemberID))
 			return false, nil
 		}
-		fresh, err := controller.freshPreparedInputs(ctx, epoch, intent, seat, state)
+		// The fresh observation validated the member's bound host; its image
+		// must qualify before the desired effect.
+		instance, fresh, err := controller.freshPreparedInputs(ctx, epoch, intent, seat, state)
 		if err != nil {
 			return false, err
 		}
 		if !fresh {
 			return false, nil
 		}
-		if err := controller.verifyPinnedImage(ctx); err != nil {
+		if err := controller.verifyHostImage(ctx, instance); err != nil {
 			return false, err
 		}
 		desired, err := controller.memberDesired(epoch, intent, state, seat)
@@ -731,7 +735,7 @@ func (controller *Controller) advanceMember(
 		if !controller.runtimeArtifactReady(ctx, state, seat) {
 			return false, nil
 		}
-		if err := controller.verifyPinnedImage(ctx); err != nil {
+		if err := controller.verifyHostImage(ctx, instance); err != nil {
 			return false, err
 		}
 		if _, err := host.ManagedMountPath(state.RuntimeManifest.ManagedRuntimeRoot, controller.memberBinding(intent, state)); err != nil {
@@ -842,9 +846,10 @@ func (controller *Controller) advanceMember(
 	}
 }
 
-func (controller *Controller) verifyPinnedImage(ctx context.Context) error {
-	if err := controller.fleet.VerifyPinnedImage(ctx); err != nil {
-		return fmt.Errorf("current managed OCI image qualification: %w", err)
+// verifyHostImage proves that the image a member's host boots qualifies now.
+func (controller *Controller) verifyHostImage(ctx context.Context, instance oci.Instance) error {
+	if err := controller.fleet.VerifyHostImage(ctx, instance.ImageID); err != nil {
+		return fmt.Errorf("current managed OCI host image qualification: %w", err)
 	}
 	return nil
 }
@@ -1364,45 +1369,47 @@ func (controller *Controller) preparedPinsMatch(intent Intent, state MemberState
 	return err == nil && digest == state.RuntimeManifestDigest
 }
 
-func (controller *Controller) freshPreparedInputs(ctx context.Context, epoch uint64, intent Intent, seat Seat, state MemberState) (bool, error) {
+// freshPreparedInputs re-reads every input of a prepared desired effect and
+// returns the member's freshly observed and validated host.
+func (controller *Controller) freshPreparedInputs(ctx context.Context, epoch uint64, intent Intent, seat Seat, state MemberState) (oci.Instance, bool, error) {
 	if state.ManagedRuntimeTarget.OperationID != "" {
 		current, err := controller.managedUpdatePrepareIsCurrent(ctx, state)
 		if err != nil {
-			return false, err
+			return oci.Instance{}, false, err
 		}
 		if !current {
 			controller.hold(fmt.Sprintf("member %s managed update authorization is no longer prepared", seat.MemberID))
-			return false, nil
+			return oci.Instance{}, false, nil
 		}
 	}
 	if _, err := controller.admittedRuntimeArtifact(ctx, state); err != nil {
 		controller.hold(fmt.Sprintf("member %s runtime artifact admission changed: %v", seat.MemberID, err))
-		return false, nil
+		return oci.Instance{}, false, nil
 	}
 	if err := controller.guard(ctx, epoch); err != nil {
-		return false, err
+		return oci.Instance{}, false, err
 	}
 	currentIntents, err := controller.store.ListIntents(ctx)
 	if err != nil {
-		return false, err
+		return oci.Instance{}, false, err
 	}
 	foundIntent := false
 	for _, current := range currentIntents {
 		if current.DatabaseID == state.DatabaseID && current.PartitionID == state.PartitionID {
 			if foundIntent || current.PayloadDigest() != intent.PayloadDigest() || current.Generation != intent.Generation {
 				controller.hold(fmt.Sprintf("member %s placement intent changed before desired effect", seat.MemberID))
-				return false, nil
+				return oci.Instance{}, false, nil
 			}
 			foundIntent = true
 		}
 	}
 	if !foundIntent {
 		controller.hold(fmt.Sprintf("member %s placement intent disappeared before desired effect", seat.MemberID))
-		return false, nil
+		return oci.Instance{}, false, nil
 	}
 	instances, err := controller.fleet.Observe(ctx)
 	if err != nil {
-		return false, err
+		return oci.Instance{}, false, err
 	}
 	var currentInstance oci.Instance
 	instanceCount := 0
@@ -1414,17 +1421,17 @@ func (controller *Controller) freshPreparedInputs(ctx context.Context, epoch uin
 	}
 	if instanceCount != 1 || controller.validateObservedInstance(currentInstance, state, seat) != nil {
 		controller.hold(fmt.Sprintf("member %s owned OCI host changed before desired effect", seat.MemberID))
-		return false, nil
+		return oci.Instance{}, false, nil
 	}
 	attachment, attached := observedAttachment(currentInstance, state)
 	if !attached || !validObservedAttachment(attachment) ||
 		attachment.Device != state.AttachmentDevice || attachment.ETag != state.AttachmentETag {
 		controller.hold(fmt.Sprintf("member %s OCI attachment device or ETag changed before desired effect", seat.MemberID))
-		return false, nil
+		return oci.Instance{}, false, nil
 	}
 	statuses, err := controller.hosts.ListHosts(ctx)
 	if err != nil {
-		return false, err
+		return oci.Instance{}, false, err
 	}
 	var currentStatus host.HostStatus
 	statusCount := 0
@@ -1436,20 +1443,20 @@ func (controller *Controller) freshPreparedInputs(ctx context.Context, epoch uin
 	}
 	if statusCount != 1 {
 		controller.hold(fmt.Sprintf("member %s exact host registration disappeared before desired effect", seat.MemberID))
-		return false, nil
+		return oci.Instance{}, false, nil
 	}
 	status, admitted := controller.admittedHost(intent, state, currentInstance, map[string]host.HostStatus{state.HostNode: currentStatus})
 	if !admitted || status.Registration.Generation != state.HostGeneration {
 		controller.hold(fmt.Sprintf("member %s host session or registration changed before desired effect", seat.MemberID))
-		return false, nil
+		return oci.Instance{}, false, nil
 	}
 	currentDesired, err := controller.hosts.ListDesired(ctx, controller.config.MemberRole)
 	if err != nil {
-		return false, err
+		return oci.Instance{}, false, err
 	}
 	want, err := controller.memberDesired(epoch, intent, state, seat)
 	if err != nil {
-		return false, err
+		return oci.Instance{}, false, err
 	}
 	seenDesired := false
 	previousDesired := false
@@ -1459,7 +1466,7 @@ func (controller *Controller) freshPreparedInputs(ctx context.Context, epoch uin
 		}
 		if seenDesired {
 			controller.hold(fmt.Sprintf("member %s host view returned duplicate desired targets", seat.MemberID))
-			return false, nil
+			return oci.Instance{}, false, nil
 		}
 		seenDesired = true
 		want.AuthorityEpoch, existing.AuthorityEpoch = 0, 0
@@ -1470,7 +1477,7 @@ func (controller *Controller) freshPreparedInputs(ctx context.Context, epoch uin
 		if target.OperationID != "" {
 			previous, err := controller.memberDesired(epoch, intent, state.PredecessorState(), seat)
 			if err != nil {
-				return false, err
+				return oci.Instance{}, false, err
 			}
 			previous.AuthorityEpoch = 0
 			if reflect.DeepEqual(existing, previous) {
@@ -1480,12 +1487,12 @@ func (controller *Controller) freshPreparedInputs(ctx context.Context, epoch uin
 		}
 		if !previousDesired {
 			controller.hold(fmt.Sprintf("member %s host desired target differs from prepared pins", seat.MemberID))
-			return false, nil
+			return oci.Instance{}, false, nil
 		}
 	}
 	if state.ManagedRuntimeTarget.OperationID != "" && !seenDesired {
 		controller.hold(fmt.Sprintf("member %s managed canary lost its recorded predecessor desired", seat.MemberID))
-		return false, nil
+		return oci.Instance{}, false, nil
 	}
-	return true, nil
+	return currentInstance, true, nil
 }

@@ -13,6 +13,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
@@ -34,9 +35,13 @@ type managedImageVerifier struct {
 	delegationWire []byte
 	images         managedImageReadback
 	now            func() time.Time
-	// allowed returns the cell spec's host images: hosts launched from them
-	// stay fleet members besides those of the pinned image.
-	allowed func() []string
+	// hostImages returns the cell spec's host images, whose hosts stay fleet
+	// members besides those of the pinned image, its launch image, and the
+	// current roots that qualify a launch from them.
+	hostImages func() hostImageSnapshot
+	// holdLaunch holds the cell spec's launch fence until its release; nil
+	// fences nothing.
+	holdLaunch func() func()
 }
 
 var (
@@ -72,8 +77,9 @@ func openManagedControllerFleet(ctx context.Context, region oci.RegionConfig, in
 // image. When both host image files are configured, the host image is
 // qualified independently from its own root-delegated image receipt, so
 // hosts can move to a newer qualified image without a controller re-install.
-// Either way, allowed names the cell spec's host images.
-func managedImageVerifierFor(controller ControllerConfig, allowed func() []string,
+// Either way, hostImages names the cell spec's host images and launch image,
+// and holdLaunch fences them during a provider launch.
+func managedImageVerifierFor(controller ControllerConfig, hostImages func() hostImageSnapshot, holdLaunch func() func(),
 ) func(context.Context, oci.RegionConfig) (oci.ImageQualificationVerifier, error) {
 	newVerifier := managedImageVerifierFromFiles(controller)
 	return func(ctx context.Context, region oci.RegionConfig) (oci.ImageQualificationVerifier, error) {
@@ -81,7 +87,7 @@ func managedImageVerifierFor(controller ControllerConfig, allowed func() []strin
 		if err != nil {
 			return nil, err
 		}
-		verifier.allowed = allowed
+		verifier.hostImages, verifier.holdLaunch = hostImages, holdLaunch
 		return verifier, nil
 	}
 }
@@ -276,21 +282,80 @@ func acceptedManagedImageProof(ctx context.Context, region oci.RegionConfig, bak
 	}, nil
 }
 
-// AllowedHostImages returns the cell spec's host images.
-func (verifier *managedImageVerifier) AllowedHostImages() []string {
-	if verifier == nil || verifier.allowed == nil {
-		return nil
+func (verifier *managedImageVerifier) hostImageSnapshot() hostImageSnapshot {
+	if verifier == nil || verifier.hostImages == nil {
+		return hostImageSnapshot{}
 	}
-	return verifier.allowed()
+	return verifier.hostImages()
 }
 
+// HostImages returns one cell spec generation's host image IDs and launch
+// image, "" for the pin.
+func (verifier *managedImageVerifier) HostImages() ([]string, string) {
+	snapshot := verifier.hostImageSnapshot()
+	return snapshot.ids(), snapshot.launch
+}
+
+// VerifyImageQualified proves the fleet pin, or a host image of the cell
+// spec, from its own current receipt and the exact OCI readback. The pin's
+// receipt verifies with the baked roots its install was accepted under; a
+// spec image's with the cell's current roots, as the leader admitted it.
 func (verifier *managedImageVerifier) VerifyImageQualified(ctx context.Context, region oci.Region, imageID string) error {
-	if verifier == nil || verifier.images == nil || verifier.now == nil ||
-		region != verifier.region.Region || imageID != verifier.region.ImageID {
-		return errors.New("image verification request differs from managed fleet pin")
+	return verifier.verifyQualified(ctx, region, imageID, verifier.hostImageSnapshot())
+}
+
+// QualifiedLaunchImage chooses and qualifies the image new hosts boot from
+// one cell spec snapshot, its launch image or the pin, and returns the
+// snapshot's version.
+func (verifier *managedImageVerifier) QualifiedLaunchImage(ctx context.Context, region oci.Region, pin string) (string, string, error) {
+	if verifier == nil || pin != verifier.region.ImageID {
+		return "", "", errors.New("launch image request differs from managed fleet pin")
 	}
-	image, err := release.VerifyImageCurrent(verifier.receiptWire, verifier.delegationWire,
-		verifier.roots, release.ImageExpectation{Environment: verifier.environment,
+	spec := verifier.hostImageSnapshot()
+	image := pin
+	if spec.launch != "" && slices.Contains(spec.ids(), spec.launch) {
+		image = spec.launch
+	}
+	return image, spec.version, verifier.verifyQualified(ctx, region, image, spec)
+}
+
+// AdmitLaunch holds the cell spec's launch fence, then qualifies imageID
+// from the fenced spec, which must still be at version when one is given.
+// The fence stays held until release, so no spec or root change lands
+// before the provider launch returns.
+func (verifier *managedImageVerifier) AdmitLaunch(ctx context.Context, region oci.Region, imageID, version string) (func(), error) {
+	release := func() {}
+	if verifier != nil && verifier.holdLaunch != nil {
+		release = verifier.holdLaunch()
+	}
+	spec := verifier.hostImageSnapshot()
+	if version != "" && spec.version != version {
+		release()
+		return nil, errors.New("the cell spec changed after the launch image was chosen")
+	}
+	if err := verifier.verifyQualified(ctx, region, imageID, spec); err != nil {
+		release()
+		return nil, err
+	}
+	return release, nil
+}
+
+func (verifier *managedImageVerifier) verifyQualified(ctx context.Context, region oci.Region, imageID string,
+	spec hostImageSnapshot,
+) error {
+	if verifier == nil || verifier.images == nil || verifier.now == nil || region != verifier.region.Region {
+		return errors.New("image verification request differs from managed fleet region")
+	}
+	receiptWire, delegationWire, roots := verifier.receiptWire, verifier.delegationWire, verifier.roots
+	if imageID != verifier.region.ImageID {
+		index := slices.IndexFunc(spec.images, func(image cellspec.HostImage) bool { return image.ImageID == imageID })
+		if index < 0 {
+			return errors.New("image verification request names neither the managed fleet pin nor a host image")
+		}
+		receiptWire, delegationWire, roots = spec.images[index].Receipt, spec.images[index].Delegation, spec.roots
+	}
+	image, err := release.VerifyImageCurrent(receiptWire, delegationWire,
+		roots, release.ImageExpectation{Environment: verifier.environment,
 			LogicalRegion: string(region), OCIImageOCID: imageID, Architecture: verifier.architecture},
 		verifier.now().Round(0).UTC())
 	if err != nil {

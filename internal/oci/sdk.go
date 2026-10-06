@@ -231,6 +231,8 @@ type launchInstanceClient interface {
 
 // launchInstance adds the fleet's launch material to the reserved host keys.
 // The material may not replace a key the fleet itself binds and observes.
+// The fleet chooses and qualifies the image: its pin or the cell spec's
+// launch image.
 func launchInstance(ctx context.Context, compute launchInstanceClient, config RegionConfig, request LaunchRequest,
 	hostMetadata map[string]string,
 ) (CloudInstance, error) {
@@ -242,7 +244,7 @@ func launchInstance(ctx context.Context, compute launchInstanceClient, config Re
 		return CloudInstance{}, ErrPlacementProfileMismatch
 	}
 	descriptor, err := hostboot.Parse([]byte(request.BootDescriptor))
-	if err != nil || request.ImageID != config.ImageID || descriptor.Cell != strings.ToLower(string(config.Region)) ||
+	if err != nil || !isOCID(request.ImageID, "image") || descriptor.Cell != strings.ToLower(string(config.Region)) ||
 		descriptor.Region != string(config.Region) || descriptor.Node != request.Node ||
 		descriptor.Owner != config.Owner || descriptor.FleetGeneration != config.Generation ||
 		descriptor.CreateKey != request.CreateKey || descriptor.ImageID != request.ImageID ||

@@ -257,7 +257,7 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 		BootVolumeGB:            50, BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 50,
 		Shape: "VM.Standard.E4.Flex", Owner: "regional-owner"}
 	provider := &managedEnrollmentProvider{placementSizingProvider: &placementSizingProvider{config: region}}
-	fleet, err := oci.NewFleet(region, regionIntent, provider, journal, control, nil, nil)
+	fleet, err := oci.NewFleetWithImageVerifier(region, regionIntent, provider, journal, control, nil, nil, acceptingImageVerifier{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -32,6 +32,12 @@ type clockFenceJournal struct {
 	intents atomic.Int32
 }
 
+// GetOperation finds no earlier launch: the fleet reads the journal before
+// it records an intent, which is not an effect.
+func (j *clockFenceJournal) GetOperation(context.Context, oci.OperationScope) (oci.OperationIntent, bool, error) {
+	return oci.OperationIntent{}, false, nil
+}
+
 func (j *clockFenceJournal) RecordIntent(context.Context, oci.OperationIntent) error {
 	j.intents.Add(1)
 	return errors.New("clock-fenced OCI mutation reached the journal")
@@ -82,7 +88,8 @@ func TestUnhealthyAuthorityClockStopsOCILaunchBeforeIntent(t *testing.T) {
 		ImageID: "ocid1.image.oc1..owned", Shape: "VM.Standard.A1.Flex", Owner: "regional-owner"}
 	journal := new(clockFenceJournal)
 	provider := new(clockFenceProvider)
-	fleet, err := oci.NewFleet(region, intent, provider, journal, clockFlipFencer{Runtime: control, healthy: &healthy}, nil, nil)
+	fleet, err := oci.NewFleetWithImageVerifier(region, intent, provider, journal, clockFlipFencer{Runtime: control, healthy: &healthy}, nil, nil,
+		acceptingImageVerifier{})
 	if err != nil {
 		t.Fatal(err)
 	}

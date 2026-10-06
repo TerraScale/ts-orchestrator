@@ -341,7 +341,7 @@ func TestJournalConcurrentConflictingResultsHaveOneImmutableWinner(t *testing.T)
 func testLaunchIntent(createKey string) OperationIntent {
 	config, _ := testRegionConfig()
 	request := testEnsureRequest(createKey)
-	descriptor, err := (&fleet{config: config}).hostBootDescriptor(request)
+	descriptor, err := (&fleet{config: config}).hostBootDescriptor(request, config.ImageID)
 	if err != nil {
 		panic(err)
 	}

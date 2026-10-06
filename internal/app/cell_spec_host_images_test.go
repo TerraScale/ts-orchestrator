@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -108,16 +109,17 @@ func TestSpecRegistryAdmitsOnlyCurrentlyQualifiedHostImages(t *testing.T) {
 	earlier := testHostImage(t, keys, "ocid1.image.oc1.sa-saopaulo-1.earlier", now, time.Hour)
 	expired := testHostImage(t, keys, "ocid1.image.oc1.sa-saopaulo-1.expired", now.Add(-2*time.Hour), time.Hour)
 
-	first := cellspec.Spec{Schema: cellspec.Schema, Identity: keys.identity, Generation: 1, RequiresBinary: 4,
-		HostImages: []cellspec.HostImage{earlier}}
+	first := cellspec.Spec{Schema: cellspec.Schema, Identity: keys.identity, Generation: 1, RequiresBinary: 9,
+		HostImages: []cellspec.HostImage{earlier}, LaunchImage: earlier.ImageID}
 	if _, err := apply(keys.sign(t, dir, first)); err == nil || !strings.Contains(err.Error(), "a root must sign it") {
 		t.Fatalf("leaf-signed host image: %v", err)
 	}
 	if reply, err := apply(keys.signRoot(t, dir, first)); err != nil || reply.Status != "applied" {
 		t.Fatalf("apply qualified host image: %+v, %v", reply, err)
 	}
-	if images := registry.hostImages(); !slices.Equal(images, []string{earlier.ImageID}) {
-		t.Fatalf("hostImages = %v", images)
+	if snapshot := registry.hostImageSnapshot(); len(snapshot.images) != 1 || snapshot.launch != earlier.ImageID ||
+		!slices.Equal(registry.hostImages(), []string{earlier.ImageID}) || !slices.Equal(slices.Sorted(maps.Keys(snapshot.roots)), slices.Sorted(maps.Keys(keys.roots))) {
+		t.Fatalf("hostImageSnapshot = %+v", snapshot)
 	}
 
 	second := first
@@ -151,8 +153,14 @@ func TestSpecRegistryAdmitsOnlyCurrentlyQualifiedHostImages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	before := registry.hostImageSnapshot().version
 	if err := registry.roots.adopt(chain); err != nil {
 		t.Fatal(err)
+	}
+	// A launch chosen before the rotation cannot run after it.
+	rotatedVersion := registry.hostImageSnapshot().version
+	if rotatedVersion == before {
+		t.Fatalf("snapshot version %q survived a root rotation", rotatedVersion)
 	}
 	rotated := keys
 	rotated.root = next
@@ -165,6 +173,9 @@ func TestSpecRegistryAdmitsOnlyCurrentlyQualifiedHostImages(t *testing.T) {
 	if reply, err := registry.apply(t.Context(), keptWire, "", fence.epoch, fence, nil); err != nil || reply.Status != "applied" {
 		t.Fatalf("keep a host image through a root rotation: %+v, %v", reply, err)
 	}
+	if registry.hostImageSnapshot().version == rotatedVersion {
+		t.Fatal("snapshot version survived a new spec generation")
+	}
 	if _, err := registry.verify(keptWire, nil); err != nil {
 		t.Fatalf("reload a host image through a root rotation: %v", err)
 	}
@@ -172,7 +183,7 @@ func TestSpecRegistryAdmitsOnlyCurrentlyQualifiedHostImages(t *testing.T) {
 	// Revoking an image is ordinary: the release leaf may sign it.
 	revoked := kept
 	revoked.Generation = 3
-	revoked.HostImages = nil
+	revoked.HostImages, revoked.LaunchImage = nil, ""
 	revoked.RequiresBinary = 1
 	leaf := newTestSpecTrustWithRoot(t, dir, keys.identity, next)
 	if reply, err := apply(leaf.sign(t, dir, revoked)); err != nil || reply.Status != "applied" || len(registry.hostImages()) != 0 {
@@ -201,12 +212,48 @@ func TestServiceHostImageArguments(t *testing.T) {
 		"revoke with a receipt":    {"revoke", image.ImageID, receipt, receipt},
 		"reformatted receipt":      {"allow", image.ImageID, reformatted, receipt},
 	} {
-		err := operatorServiceHostImage(t.Context(), Config{}, nil, args[0] == "allow", args[1], args[2], args[3], "", io.Discard)
+		err := operatorServiceHostImage(t.Context(), Config{}, nil, args[0] == "allow", false,
+			args[1], args[2], args[3], "", io.Discard)
 		if err == nil || !strings.Contains(err.Error(), "requires --image-id") && !strings.Contains(err.Error(), "not canonical") {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
 	if data, err := readCanonicalEnvelope(receipt); err != nil || !bytes.Equal(data, image.Receipt) {
 		t.Fatalf("readCanonicalEnvelope = %q, %v", data, err)
+	}
+}
+
+// A launch holds the spec registry's fence from its final image check
+// through the provider launch: adopting a spec or a root rotation waits.
+func TestSpecRegistryAdoptionWaitsForLaunches(t *testing.T) {
+	dir := t.TempDir()
+	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "lab-gru", Cell: "gru", Environment: "canary"})
+	registry, err := newSpecRegistry(Config{NATS: natscell.Config{Cell: "gru", Lab: true},
+		Controller: ControllerConfig{SpecTrust: keys.config()}}, "member")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if registry.roots.fence != &registry.launches {
+		t.Fatal("root rotations do not take the launch fence")
+	}
+	release := registry.holdLaunch()
+	adopted := make(chan struct{})
+	go func() {
+		registry.adopt(cellspec.Spec{Schema: cellspec.Schema, Identity: keys.identity, Generation: 1, RequiresBinary: 1}, 1)
+		close(adopted)
+	}()
+	select {
+	case <-adopted:
+		t.Fatal("a spec was adopted during a launch")
+	case <-time.After(50 * time.Millisecond):
+	}
+	release()
+	select {
+	case <-adopted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the spec was not adopted after the launch")
+	}
+	if registry.hostImageSnapshot().version == "0/" || !strings.HasPrefix(registry.hostImageSnapshot().version, "1/") {
+		t.Fatalf("snapshot version after adoption = %q", registry.hostImageSnapshot().version)
 	}
 }

@@ -111,6 +111,7 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	receiptPath := flags.String("receipt", "", "rollout publish: signed binary receipt or update receipt; service allow-image: signed image receipt")
 	delegationPath := flags.String("delegation", "", "rollout publish, service allow-image: the receipt's root-signed delegation")
 	imageID := flags.String("image-id", "", "service allow-image, revoke-image: the OCI image OCID")
+	launchImage := flags.Bool("launch", false, "service allow-image: new managed hosts boot the image; revoke-image: only stop new hosts booting it")
 	toGeneration := flags.Uint64("to", 0, "rollout rollback: the earlier generation to publish again")
 	var forwards operatorForwardFlags
 	flags.Var(&forwards, "nats-forward", "transient PRIVATE_IP:4222=LOOPBACK_IP:PORT Bastion forward (repeatable)")
@@ -264,7 +265,7 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 		return operatorServiceHostGrant(ctx, cfg, runtime, operation == "service-grant-host", cellspec.HostGrant{
 			Node: *node, PrivateIP: *privateIP, Roles: splitList(*roles), Environment: *environment}, *outPath, output)
 	case "service-allow-image", "service-revoke-image":
-		return operatorServiceHostImage(ctx, cfg, runtime, operation == "service-allow-image", *imageID,
+		return operatorServiceHostImage(ctx, cfg, runtime, operation == "service-allow-image", *launchImage, *imageID,
 			*receiptPath, *delegationPath, *outPath, output)
 	case "service-add", "service-update", "service-remove":
 		return operatorServiceChange(ctx, cfg, runtime, strings.TrimPrefix(operation, "service-"), *role,

@@ -14,6 +14,7 @@ package cellspec
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
@@ -52,8 +53,9 @@ const (
 	// section require the new level.
 	// Level 2 adds profile secrets, level 3 the budget, level 4 host images,
 	// level 5 the kv_snapshot schedule, level 6 the rollout policy, level 7
-	// the desired OCI resources, level 8 the trusted signers.
-	BinaryLevel = 8
+	// the desired OCI resources, level 8 the trusted signers, level 9 the
+	// launch image.
+	BinaryLevel = 9
 	// MaxHostImages bounds the image allow-list: the images a rollout moves
 	// between, plus room to stage the next one.
 	MaxHostImages = 4
@@ -168,6 +170,9 @@ type Spec struct {
 	// Signers replace the signed config's trusted signers, sorted by actor;
 	// none keeps the signed ones. Only a root may change them.
 	Signers []TrustedSigner `json:"signers,omitempty"`
+	// LaunchImage names the host image new managed hosts boot instead of
+	// the fleet's pinned image; empty keeps the pin.
+	LaunchImage string `json:"launch_image,omitempty"`
 }
 
 // TrustedSigner grants an actor's Ed25519 key operator requests and
@@ -336,6 +341,9 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("%w: host images must be sorted by a cell image ID without repeats, each with a receipt and delegation", ErrInvalid)
 		}
 	}
+	if _, allowed := s.HostImage(s.LaunchImage); s.LaunchImage != "" && !allowed {
+		return fmt.Errorf("%w: the launch image must be one of the host images", ErrInvalid)
+	}
 	return nil
 }
 
@@ -356,9 +364,10 @@ func (s Spec) HostImage(imageID string) (HostImage, bool) {
 // environment and cell: each receipt names exactly its image and is signed
 // under a root's image delegation. Without now, it checks every image as of
 // its signatures' issue. With now, it checks only the images that previous
-// lacks or holds with other bytes, with current signatures, so an amendment
-// can add or change only an image that is qualified today, while an accepted
-// image stays allowed after its receipt expires.
+// lacks or holds with other bytes, and a newly chosen launch image, with
+// current signatures, so an amendment can add, change or launch only an
+// image that is qualified today, while an accepted image stays allowed after
+// its receipt expires.
 func VerifyHostImages(previous, next Spec, roots trust.Keyring, now *time.Time) error {
 	for _, image := range next.HostImages {
 		expected := release.ImageExpectation{Environment: next.Environment,
@@ -366,7 +375,8 @@ func VerifyHostImages(previous, next Spec, roots trust.Keyring, now *time.Time) 
 		var err error
 		if now == nil {
 			_, err = release.VerifyImageHistorical(image.Receipt, image.Delegation, roots, expected)
-		} else if before, kept := previous.HostImage(image.ImageID); !kept || !reflect.DeepEqual(before, image) {
+		} else if before, kept := previous.HostImage(image.ImageID); !kept || !reflect.DeepEqual(before, image) ||
+			image.ImageID == next.LaunchImage && next.LaunchImage != previous.LaunchImage {
 			_, err = release.VerifyImageCurrent(image.Receipt, image.Delegation, roots, expected, *now)
 		}
 		if err != nil {
@@ -388,8 +398,8 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 // Level is the lowest requires_binary the spec's sections need: 2 once a
 // profile names Vault secrets, 3 with a budget, 4 once it allows host
 // images, 5 with a kv_snapshot schedule, 6 with a rollout policy, 7 with
-// desired OCI resources and 8 with signers, which an older binary could not
-// read.
+// desired OCI resources, 8 with signers and 9 once it names a launch image,
+// which an older binary could not read.
 func (s Spec) Level() uint64 {
 	level := uint64(1)
 	for _, service := range s.Services {
@@ -414,6 +424,9 @@ func (s Spec) Level() uint64 {
 	}
 	if len(s.Signers) != 0 {
 		level = max(level, 8)
+	}
+	if s.LaunchImage != "" {
+		level = 9
 	}
 	return level
 }
@@ -643,7 +656,9 @@ func verifyDelegated(delegationWire []byte, specEnvelope trust.Envelope, roots t
 //     for the role with an identity that may read more;
 //   - a new or changed host grant, since the host receives credentials;
 //   - a new or changed host image, since a release image receipt says the
-//     image was built and qualified, not that this cell should run it;
+//     image was built and qualified, not that this cell should run it, and
+//     a new launch image, which every new host boots (returning to the
+//     fleet's signed pin is ordinary);
 //   - any change to TerraBase's profile (resources, arguments or a setting),
 //     which binds membership, listeners, member certificates and the
 //     credentials and token issuers TerraBase trusts;
@@ -683,6 +698,9 @@ func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
 		if before, ok := current.HostImage(image.ImageID); !ok || !reflect.DeepEqual(before, image) {
 			changes = append(changes, "host image "+image.ImageID)
 		}
+	}
+	if next.LaunchImage != "" && next.LaunchImage != current.LaunchImage {
+		changes = append(changes, "launch image "+next.LaunchImage)
 	}
 	if change := budgetChange(current.Budget, next.Budget); change != "" && change != "lowered" {
 		changes = append(changes, "budget")
@@ -752,6 +770,9 @@ type Plan struct {
 	// Signers names each actor whose trusted signer grant is added, changed
 	// or removed.
 	Signers []string `json:"signers,omitempty"`
+	// LaunchImage is the new launch image when it changes, or "pinned" when
+	// new hosts return to the fleet's pinned image.
+	LaunchImage string `json:"launch_image,omitempty"`
 	// RootRequired lists the authority-widening changes; the amendment
 	// applies only when a root signed it.
 	RootRequired []string `json:"root_required,omitempty"`
@@ -839,6 +860,9 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 		plan.OCIDesired = "updated"
 	}
 	plan.Signers = signerChanges(current.Signers, next.Signers)
+	if next.LaunchImage != current.LaunchImage {
+		plan.LaunchImage = cmp.Or(next.LaunchImage, "pinned")
+	}
 	return plan, nil
 }
 
@@ -867,7 +891,8 @@ func budgetChange(before, after *hostpool.Budget) string {
 // Empty reports whether the plan changes nothing.
 func (p Plan) Empty() bool {
 	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 && p.Budget == "" &&
-		p.KVSnapshot == "" && p.RolloutPolicy == "" && p.OCIDesired == "" && len(p.Signers) == 0
+		p.KVSnapshot == "" && p.RolloutPolicy == "" && p.OCIDesired == "" && len(p.Signers) == 0 &&
+		p.LaunchImage == ""
 }
 
 // Validate checks each entry's policy and spec and the prune delay. The

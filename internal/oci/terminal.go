@@ -329,7 +329,7 @@ func (f *fleet) terminalBootBindingMatches(binding BootBinding, instanceID strin
 func (f *fleet) terminalBootImage(ctx context.Context, target authority.TerminalTarget) (string, error) {
 	binding, found, err := f.journal.GetBootBinding(ctx, target.InstanceID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("read OCI host boot binding: %w", err)
 	}
 	if !found || binding.BootVolumeID != target.BootVolumeID || binding.ImageID == "" {
 		return "", fmt.Errorf("%w: boot volume %s lacks its journaled boot binding", ErrForeignResource, target.BootVolumeID)
