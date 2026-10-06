@@ -85,6 +85,9 @@ func validateWorkloadProfiles(cell string, profiles map[string]WorkloadProfile) 
 			if err := tsauth.ValidateProfile(cell, profile.Args, profile.Env, profile.Secrets); err != nil {
 				return fmt.Errorf("workload profile for %q: %w", role, err)
 			}
+			if err := tsauth.ValidateMembers(profile.Env, profiles[terrabase.Role].Env); err != nil {
+				return fmt.Errorf("workload profile for %q: %w", role, err)
+			}
 		}
 	}
 	return nil

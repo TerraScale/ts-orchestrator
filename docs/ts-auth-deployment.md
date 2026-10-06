@@ -73,6 +73,7 @@ breaks these rules:
 | --- | --- |
 | `TS_AUTH_PUBLIC_ORIGIN` | Exactly `https://gru.auth.terrascale.tech`, the regional host (user decision 2026-10-05; `auth.terrascale.tech` stays the ts-atlas proxy). |
 | `TS_AUTH_TERRASCALE_API_URL` | Exactly `https://gru.api.terrascale.tech`. |
+| `TS_AUTH_TERRASCALE_API_ENDPOINTS`, `TS_AUTH_TERRASCALE_API_CA` | Optional, together: the [private TerraBase path](#private-terrabase-path). Each endpoint is `https://<IP>:<TERRABASE_CLIENT_PORT>` of a member the cell's `terrabase` profile lists in `TERRABASE_PEERS`, at most once, `;`-separated; the CA is 1 to 4 PEM CA certificates. Checked by the controller against the cell's current `terrabase` profile, so a spec that drops a member ts-auth still names is refused. |
 | `TS_AUTH_DATABASE` | Exactly `auth`, the database `ouroboros bootstrap` creates. The host passes ts-auth `<project-uuid>/auth`, the project from the Vault. |
 | `TS_AUTH_ACCESS_TOKEN_AUDIENCES` | Exactly `https://gru.api.terrascale.tech`, TerraBase's `auth-audience`: every access token names it, so a dashboard user's token reaches TerraBase's Management API (TS-519). |
 | `TS_AUTH_DASHBOARD_REDIRECT_URIS` | Exactly `https://dash.terrascale.tech/login/callback`, the dashboard's callback. |
@@ -151,6 +152,45 @@ gate replaces one replica at a time. Plan from the live profile (`ts-orch
 get`), adding only the SMTP keys, when it carries refs the committed file
 lacks, such as `TS_AUTH_SERVICE_CLIENTS`: `service update` replaces the
 whole profile.
+
+### Private TerraBase path
+
+ts-auth stores through the cell's TerraBase members over the VCN, not
+through `https://gru.api.terrascale.tech` (Cloudflare, then the OCI load
+balancer) (TS-577). The profile names the members' client listeners and the
+cell's member CA:
+
+```json
+"TS_AUTH_TERRASCALE_API_ENDPOINTS": "https://10.251.0.21:9465;https://10.251.0.22:9465",
+"TS_AUTH_TERRASCALE_API_CA": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n"
+```
+
+- **Failover.** Every replica sends to the first ready member, in the
+  profile's order, so all replicas use one member and read their own writes
+  (TS-575). ts-auth probes each member's `/readyz` every 2 s; a member that
+  answers 503 (draining, or a catalog follower that has not caught up) or
+  does not answer is skipped. A request that cannot connect within 2 s marks
+  its member down at once. Requests are never resent. Order the list to choose
+  the preferred member.
+- **TLS.** ts-auth trusts only `TS_AUTH_TERRASCALE_API_CA` for these
+  endpoints, the CA in `controller.terrabase_ca_cert_file`. Member
+  certificates carry the member's IP as a SAN, so an IP endpoint verifies by
+  name. TerraBase's client listener does not request client certificates;
+  ts-auth authenticates with its project API key, as before. A rebuilt cell
+  has a new member CA: put it in the profile before releasing ts-auth there.
+- **Network.** The `gru-1-databases-nsg` admits TCP 9465 from each controller
+  (`10.251.0.11/32`, `.12/32`, `.13/32`; `workload_nsg_rules` in
+  [`plan.json`](../deploy/oci-region/plan.json)). The controllers' egress to
+  `10.251.0.0/24` is already open.
+- **`TS_AUTH_TERRASCALE_API_URL`** stays required and keeps its rules; with
+  endpoints set, storage no longer uses it. A ts-auth release before TS-577
+  ignores both settings and keeps storing through it.
+
+Change it in place: `ts-orch service update --role ts-auth` with the live
+profile (`ts-orch get`) plus the two settings, `release sign-spec --root`
+(the profile names Vault secrets), `diff`, `apply`, then `operator
+ts-auth-release` with that profile; the gate replaces one replica at a time.
+Roll back the same way without the two settings.
 
 ### OpenID Connect
 

@@ -10,13 +10,16 @@ package tsauth
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json/v2"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
 	"net/http"
+	"net/netip"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -83,6 +86,12 @@ const (
 	// The dashboard client's exact callback and post-logout URIs.
 	EnvDashboardRedirectURIs = "TS_AUTH_DASHBOARD_REDIRECT_URIS"
 	EnvDashboardLogoutURIs   = "TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS"
+	// EnvAPIEndpoints lists the cell's TerraBase members ts-auth stores
+	// through instead of EnvAPIURL, most preferred first, over the private
+	// network; EnvAPICA holds the only roots it trusts for them, the cell's
+	// TerraBase member CA (PEM).
+	EnvAPIEndpoints = "TS_AUTH_TERRASCALE_API_ENDPOINTS"
+	EnvAPICA        = "TS_AUTH_TERRASCALE_API_CA"
 )
 
 // Secrets live in the cell's Vault; the profile names them and the host reads
@@ -164,6 +173,61 @@ func ValidateProfile(cell string, args []string, env map[string]string, secrets 
 		}
 	}
 	return nil
+}
+
+// ValidateMembers checks a ts-auth profile's private TerraBase endpoints
+// against the cell's TerraBase profile terraBase: each one is
+// https://<member IP>:<client port> of a member TERRABASE_PEERS lists, at
+// most once, and EnvAPICA holds 1 to 4 PEM CA certificates and nothing else.
+// A profile without either stores through EnvAPIURL. Without a terrabase
+// profile, as in an identity-only controller config whose first cell spec
+// brings it, only the pairing and the CA are checked.
+func ValidateMembers(env, terraBase map[string]string) error {
+	endpoints, roots := env[EnvAPIEndpoints], env[EnvAPICA]
+	if endpoints == "" && roots == "" {
+		return nil
+	}
+	if endpoints == "" || roots == "" {
+		return fmt.Errorf("ts-auth profile sets %s and %s together", EnvAPIEndpoints, EnvAPICA)
+	}
+	if !caCertificates(roots) {
+		return fmt.Errorf("%s must hold 1 to 4 PEM CA certificates and nothing else", EnvAPICA)
+	}
+	if len(terraBase) == 0 {
+		return nil
+	}
+	members, err := terrabase.ParseProfile(terraBase)
+	if err != nil || members.ClientPort == 0 {
+		return fmt.Errorf("%s needs a terrabase profile with %s", EnvAPIEndpoints, terrabase.EnvClientPort)
+	}
+	seen := map[string]bool{}
+	for _, endpoint := range strings.Split(endpoints, ";") {
+		member := slices.ContainsFunc(members.Peers, func(peer terrabase.Peer) bool {
+			return endpoint == "https://"+netip.AddrPortFrom(peer.Address.Addr(), uint16(members.ClientPort)).String()
+		})
+		if !member || seen[endpoint] {
+			return fmt.Errorf("%s must list distinct https://IP:%d client endpoints of the %s, not %q",
+				EnvAPIEndpoints, members.ClientPort, terrabase.EnvPeers, endpoint)
+		}
+		seen[endpoint] = true
+	}
+	return nil
+}
+
+func caCertificates(roots string) bool {
+	rest, count := []byte(roots), 0
+	for {
+		block, next := pem.Decode(rest)
+		if block == nil {
+			return count > 0 && strings.TrimSpace(string(rest)) == ""
+		}
+		count++
+		certificate, err := x509.ParseCertificate(block.Bytes)
+		if block.Type != "CERTIFICATE" || err != nil || !certificate.IsCA || count > 4 {
+			return false
+		}
+		rest = next
+	}
 }
 
 // Layout is ts-auth's directory below the host's ts-auth root.

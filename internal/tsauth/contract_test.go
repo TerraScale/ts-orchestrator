@@ -2,12 +2,19 @@ package tsauth
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"debug/elf"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/pem"
 	"maps"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +23,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
@@ -57,6 +65,68 @@ func leaks(err error, values ...string) string {
 		}
 	}
 	return ""
+}
+
+func TestValidateMembers(t *testing.T) {
+	members := map[string]string{"TERRABASE_PEER_PORT": "9443", "TERRABASE_CLIENT_PORT": "9465",
+		"TERRABASE_PEERS": "gru-1-db-1=10.251.0.21:9443,gru-1-db-2=10.251.0.22:9443"}
+	ca := testCertificate(t, true)
+	with := func(endpoints, roots string) map[string]string {
+		env := validProfile()
+		env[EnvAPIEndpoints], env[EnvAPICA] = endpoints, roots
+		return env
+	}
+	if err := ValidateMembers(validProfile(), nil); err != nil {
+		t.Fatalf("a profile storing through %s: %v", EnvAPIURL, err)
+	}
+	if err := ValidateMembers(with("https://10.251.0.23:9465", ca), nil); err != nil {
+		t.Fatalf("a controller config without a terrabase profile yet: %v", err)
+	}
+	if err := ValidateMembers(with("https://10.251.0.23:9465", ""), nil); err == nil {
+		t.Fatal("accepted endpoints without roots before the terrabase profile")
+	}
+	for _, endpoints := range []string{"https://10.251.0.21:9465;https://10.251.0.22:9465", "https://10.251.0.22:9465"} {
+		if err := ValidateMembers(with(endpoints, ca+ca), members); err != nil {
+			t.Fatalf("%s: %v", endpoints, err)
+		}
+	}
+	for name, env := range map[string]map[string]string{
+		"endpoints alone":   with("https://10.251.0.21:9465", ""),
+		"roots alone":       with("", ca),
+		"not a member":      with("https://10.251.0.23:9465", ca),
+		"peer port":         with("https://10.251.0.21:9443", ca),
+		"plain HTTP":        with("http://10.251.0.21:9465", ca),
+		"repeated member":   with("https://10.251.0.21:9465;https://10.251.0.21:9465", ca),
+		"trailing slash":    with("https://10.251.0.21:9465/", ca),
+		"leaf certificate":  with("https://10.251.0.21:9465", testCertificate(t, false)),
+		"key in the roots":  with("https://10.251.0.21:9465", ca+"-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n"),
+		"text in the roots": with("https://10.251.0.21:9465", ca+"trailing"),
+		"five roots":        with("https://10.251.0.21:9465", strings.Repeat(ca, 5)),
+	} {
+		if err := ValidateMembers(env, members); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	delete(members, "TERRABASE_CLIENT_PORT")
+	if err := ValidateMembers(with("https://10.251.0.21:9465", ca), members); err == nil {
+		t.Fatal("accepted endpoints of members without a client listener")
+	}
+}
+
+// testCertificate is a self-signed PEM certificate, a CA or a leaf.
+func testCertificate(t *testing.T, ca bool) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "TerraBase member CA gru-1"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: ca, BasicConstraintsValid: true}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 }
 
 func TestValidateProfile(t *testing.T) {

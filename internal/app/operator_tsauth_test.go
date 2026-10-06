@@ -21,6 +21,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
@@ -52,6 +53,21 @@ func TestTSAuthGRUConfigIsValid(t *testing.T) {
 		}
 		delete(profile.Env, key)
 	}
+	// Its private TerraBase endpoints are the committed members' client
+	// listeners, checked against the cell's terrabase profile.
+	members, err := readReleaseProfile("../../deploy/oci-region/terrabase-gru-1-profile.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profiles[terrabase.Role] = members
+	if err := validateWorkloadProfiles(tsauth.Cell, profiles); err != nil {
+		t.Fatal(err)
+	}
+	members.Env[terrabase.EnvPeers] = "gru-1-db-1=10.251.0.21:9443"
+	if err := validateWorkloadProfiles(tsauth.Cell, profiles); err == nil {
+		t.Fatal("accepted ts-auth endpoints of a member the terrabase profile dropped")
+	}
+	delete(profiles, terrabase.Role)
 	// The committed profile names the six secrets and the SMTP relay
 	// credentials, and the release binds their names: a renamed secret is a
 	// new config digest.
