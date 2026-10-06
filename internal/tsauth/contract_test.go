@@ -72,10 +72,11 @@ func TestValidateProfile(t *testing.T) {
 	missing, extra, optional := validRefs(), validRefs(), validRefs()
 	delete(missing, EnvMasterKey)
 	extra["TS_AUTH_STRIPE_SECRET_KEY"] = vaultsecret.Ref{Vault: testTarget.VaultID, Name: "gru-1-ts-auth-stripe-secret-key"}
+	optional["TS_AUTH_SMTP_USERNAME"] = vaultsecret.Ref{Vault: testTarget.VaultID, Name: "gru-1-ts-auth-smtp-username"}
 	optional["TS_AUTH_SMTP_PASSWORD"] = vaultsecret.Ref{Vault: testTarget.VaultID, Name: "gru-1-ts-auth-smtp-password"}
 	optional["TS_AUTH_SERVICE_CLIENTS"] = vaultsecret.Ref{Vault: testTarget.VaultID, Name: "gru-1-ts-auth-service-clients"}
 	if err := ValidateProfile(Cell, nil, validProfile(), optional); err != nil {
-		t.Fatalf("optional SMTP password and service client refs: %v", err)
+		t.Fatalf("optional SMTP credential and service client refs: %v", err)
 	}
 	for name, refs := range map[string]map[string]vaultsecret.Ref{"no refs": nil, "missing ref": missing, "extra ref": extra} {
 		if err := ValidateProfile(Cell, nil, validProfile(), refs); err == nil {
@@ -95,6 +96,7 @@ func TestValidateProfile(t *testing.T) {
 	cases := map[string]map[string]string{
 		"listen":           with(EnvListen, "http://0.0.0.0:8080"),
 		"bundle dir":       with(EnvBundleExtract, "/tmp"),
+		"smtp username":    with("TS_AUTH_SMTP_USERNAME", sentinel),
 		"smtp password":    with("TS_AUTH_SMTP_PASSWORD", sentinel),
 		"service clients":  with("TS_AUTH_SERVICE_CLIENTS", "ci:"+sentinel+sentinel),
 		"wrong api url":    with(EnvAPIURL, "https://api.terrascale.tech"),

@@ -113,9 +113,9 @@ var Generated = []string{EnvMasterKey, EnvAuditSigningKey, EnvOperatorKey, EnvDa
 var Secrets = []string{EnvMasterKey, EnvAuditSigningKey, EnvOperatorKey, EnvDashboardClientSecret, EnvAPIKey, EnvProjectID}
 
 // OptionalSecrets are ts-auth secrets a profile may name as Vault secret
-// refs: the SMTP relay password, and the service clients (id:secret pairs)
+// refs: the SMTP relay credentials, and the service clients (id:secret pairs)
 // that may use the client credentials grant.
-var OptionalSecrets = []string{"TS_AUTH_SMTP_PASSWORD", "TS_AUTH_SERVICE_CLIENTS"}
+var OptionalSecrets = []string{"TS_AUTH_SMTP_USERNAME", "TS_AUTH_SMTP_PASSWORD", "TS_AUTH_SERVICE_CLIENTS"}
 
 // optionalSecrets are ts-auth secrets that no profile may carry, as env or
 // refs, yet.

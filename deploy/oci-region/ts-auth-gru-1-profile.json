@@ -6,7 +6,10 @@
     "TS_AUTH_DATABASE": "auth",
     "TS_AUTH_ACCESS_TOKEN_AUDIENCES": "https://gru.api.terrascale.tech",
     "TS_AUTH_DASHBOARD_REDIRECT_URIS": "https://dash.terrascale.tech/login/callback",
-    "TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS": "https://dash.terrascale.tech/login"
+    "TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS": "https://dash.terrascale.tech/login",
+    "TS_AUTH_SMTP_HOST": "smtp.email.sa-saopaulo-1.oci.oraclecloud.com",
+    "TS_AUTH_SMTP_PORT": "587",
+    "TS_AUTH_SMTP_FROM_ADDRESS": "noreply@terrascale.tech"
   },
   "secrets": {
     "TS_AUTH_MASTER_KEY": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-master-key"},
@@ -14,6 +17,8 @@
     "TS_AUTH_OPERATOR_KEY": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-operator-key"},
     "TS_AUTH_DASHBOARD_CLIENT_SECRET": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-dashboard-client-secret"},
     "TS_AUTH_TERRASCALE_API_KEY": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-terrascale-api-key"},
-    "TS_AUTH_TERRASCALE_PROJECT_ID": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-terrascale-project-id"}
+    "TS_AUTH_TERRASCALE_PROJECT_ID": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-terrascale-project-id"},
+    "TS_AUTH_SMTP_USERNAME": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-smtp-username"},
+    "TS_AUTH_SMTP_PASSWORD": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-smtp-password"}
   }
 }

@@ -77,9 +77,10 @@ breaks these rules:
 | `TS_AUTH_ACCESS_TOKEN_AUDIENCES` | Exactly `https://gru.api.terrascale.tech`, TerraBase's `auth-audience`: every access token names it, so a dashboard user's token reaches TerraBase's Management API (TS-519). |
 | `TS_AUTH_DASHBOARD_REDIRECT_URIS` | Exactly `https://dash.terrascale.tech/login/callback`, the dashboard's callback. |
 | `TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS` | Exactly `https://dash.terrascale.tech/login`, the `post_logout_redirect_uri` the dashboard sends; ts-auth compares it exactly. |
-| The six secret keys below, `TS_AUTH_LISTEN`, `DOTNET_BUNDLE_EXTRACT_BASE_DIR` | Must not be set in `env`. |
-| `secrets` | Names exactly the six secret keys below, each `{"vault": OCID, "name": NAME}`. |
-| `TS_AUTH_SMTP_PASSWORD`, `TS_AUTH_STRIPE_SECRET_KEY`, `TS_AUTH_STRIPE_WEBHOOK_SECRET`, `TS_AUTH_SENTRY_DSN`, `TS_AUTH_AUDIT_VERIFY_KEYS`, `TS_AUTH_SERVICE_CLIENTS`, `OTEL_EXPORTER_OTLP_HEADERS` | Must not be set: they are secrets, and the profile does not name them yet. Non-secret optional settings (SMTP host, OTEL endpoint) may be added. |
+| `TS_AUTH_SMTP_HOST`, `TS_AUTH_SMTP_PORT`, `TS_AUTH_SMTP_FROM_ADDRESS` | The [SMTP relay](#smtp-relay): `smtp.email.sa-saopaulo-1.oci.oraclecloud.com`, `587` (STARTTLS) and `noreply@terrascale.tech`. Other non-secret optional settings (OTEL endpoint) may be added. |
+| The secret keys below, `TS_AUTH_LISTEN`, `DOTNET_BUNDLE_EXTRACT_BASE_DIR` | Must not be set in `env`. |
+| `secrets` | Names the six secret keys below, each `{"vault": OCID, "name": NAME}`, and may add `TS_AUTH_SMTP_USERNAME`, `TS_AUTH_SMTP_PASSWORD` and `TS_AUTH_SERVICE_CLIENTS`. The committed profile names both SMTP credentials. |
+| `TS_AUTH_STRIPE_SECRET_KEY`, `TS_AUTH_STRIPE_WEBHOOK_SECRET`, `TS_AUTH_SENTRY_DSN`, `TS_AUTH_AUDIT_VERIFY_KEYS`, `OTEL_EXPORTER_OTLP_HEADERS` | Must not be set: they are secrets, and the profile does not name them yet. |
 | `args` | Must be empty: an argument overrides any setting. |
 
 ### Secrets
@@ -101,6 +102,48 @@ reaches only that project's database. The host joins it to the profile's
 database as `TS_AUTH_DATABASE=<project-uuid>/auth`, the selector ts-auth
 reads, and does not pass `TS_AUTH_TERRASCALE_PROJECT_ID` itself.
 
+### SMTP relay
+
+ts-auth mails sign-in passcodes through OCI Email Delivery in
+`sa-saopaulo-1`: authenticated SMTP with mandatory STARTTLS on port 587,
+from the approved sender `noreply@terrascale.tech` (domain `terrascale.tech`
+with DKIM `terrascale-tech-dkim`). ts-auth needs host, user name, password
+and from address together; without them it logs mail instead of sending it.
+
+| Key | Vault secret | Source |
+| --- | --- | --- |
+| `TS_AUTH_SMTP_USERNAME` | `gru-1-ts-auth-smtp-username` | SMTP credential of IAM user `gru-1-ts-auth-smtp` |
+| `TS_AUTH_SMTP_PASSWORD` | `gru-1-ts-auth-smtp-password` | The same credential's password, shown once at creation |
+
+The IAM user `gru-1-ts-auth-smtp` (Default domain) can use SMTP credentials
+only: no console password, API keys, auth tokens or customer secret keys. Its
+group `gru-1-ts-auth-smtp` has one policy, `gru-1-ts-auth-smtp`:
+
+```text
+Allow group gru-1-ts-auth-smtp to use approved-senders in tenancy where target.approved-sender.emailaddress = 'noreply@terrascale.tech'
+```
+
+Both secrets live in `gru-1-control`, which the controllers read. Store them
+with the password piped from `oci iam smtp-credential create` straight into
+`ts-orch vault put --file /dev/stdin`, never onto a terminal. To rotate,
+create a second credential (a user holds at most two), add a Vault version,
+restart the replicas with a release, then delete the old credential.
+
+A controller or host agent built before TS-573 refuses a
+`TS_AUTH_SMTP_USERNAME` ref: the leader rejects the spec at `diff` and
+`apply`, so nothing changes. Move the controllers and their host agents to a
+build with it first, in place (`selfupdate`), as for any controller release.
+Adding the refs widens authority, so a root signs the amendment. It rolls in
+place, without a re-found: `service update --role ts-auth --profile
+deploy/oci-region/ts-auth-gru-1-profile.json --spec
+deploy/oci-region/ts-auth-gru-1-service.json`, `release sign-spec --root`,
+`apply` ([cell spec](cell-spec.md#commands)), then `operator ts-auth-release`
+with the same release and the new `--profile` (step 5 below). The release
+gate replaces one replica at a time. Plan from the live profile (`ts-orch
+get`), adding only the SMTP keys, when it carries refs the committed file
+lacks, such as `TS_AUTH_SERVICE_CLIENTS`: `service update` replaces the
+whole profile.
+
 ### OpenID Connect
 
 ts-auth (ts-auth#36) serves one issuer, `https://gru.auth.terrascale.tech/terrascale`,
@@ -121,7 +164,7 @@ At startup it registers the confidential client `ts-dashboard` from
 - The controllers read them with their instance principal through the
   existing controller policy grant `read secret-bundles` in the control
   compartment, which covers `GetSecretBundleByName`.
-- The host agent reads the six secrets with its instance principal at every
+- The host agent reads the profile's secrets with its instance principal at every
   launch of a replica and checks their forms before it starts it. Errors name
   keys and secrets, never values. Values never enter signed config, desired
   state, reports, logs or disk. A running replica keeps its environment until

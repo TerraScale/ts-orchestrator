@@ -157,7 +157,8 @@ func TestCellSpecAddsTSAuthToARunningCell(t *testing.T) {
 	}
 
 	identity := testHostWorkloadIdentity()
-	secrets := map[string]string{tsauth.EnvAPIKey: "tb_fake-key", tsauth.EnvProjectID: "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d"}
+	secrets := map[string]string{tsauth.EnvAPIKey: "tb_fake-key", tsauth.EnvProjectID: "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d",
+		"TS_AUTH_SMTP_USERNAME": "fake-smtp-user", "TS_AUTH_SMTP_PASSWORD": "fake-smtp-password"}
 	for _, key := range tsauth.Generated {
 		secrets[key], _ = tsauth.Generate(ctx)
 	}
