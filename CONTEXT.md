@@ -178,12 +178,15 @@ fake-provider test alone does not establish production readiness.
 
 ## Storage limits
 
-The default artifact object-store quota is 2 GiB. The embedded NATS file store
+The default artifact object-store quota is 2 GiB; a cell spec
+`artifact_store` section replaces the signed one. The embedded NATS file store
 defaults to 8 GiB per server and startup requires at least 1.5 GiB beyond the
-artifact quota for control state. Interrupted or concurrent artifact uploads
-can leave quota-consuming chunks; the current store has no repository-managed
-cleanup path, automatic garbage collection, or admitted-object eviction. Once
-the quota is full, new uploads fail with `ErrArtifactStoreFull`.
+artifact quota for control state. The authority leader collects the store
+every minute: it keeps artifacts desired or in an undecided delivery, each
+role's rollback target, and anything touched in the last hour, deletes the
+rest by compare-and-set on their metadata, and purges chunks of interrupted
+uploads (see [storage](docs/storage.md#artifact-store-collection)).
+Once the quota is full, new uploads fail with `ErrArtifactStoreFull`.
 
 ## Managed OCI placement
 

@@ -189,9 +189,17 @@ func Open(ctx context.Context, cfg Config) (*Service, error) {
 	if artifactStoreMaxBytes == 0 {
 		artifactStoreMaxBytes = DefaultArtifactStoreMaxBytes
 	}
+	// A larger quota already in force came from the cell spec
+	// (artifact_store), which the leader re-applies; a restart must not
+	// shrink the store under an upload before then.
+	if existing, err := cfg.JS.Stream(ctx, "OBJ_"+ArtifactBucket); err == nil {
+		artifactStoreMaxBytes = max(artifactStoreMaxBytes, existing.CachedInfo().Config.MaxBytes)
+	} else if !errors.Is(err, jetstream.ErrStreamNotFound) {
+		return nil, fmt.Errorf("inspect artifact store limits: %w", err)
+	}
 	s := &Service{js: cfg.JS, config: cfg}
 	var err error
-	s.artifacts, err = cfg.JS.CreateOrUpdateObjectStore(ctx, jetstream.ObjectStoreConfig{Bucket: ArtifactBucket, Storage: jetstream.FileStorage, Replicas: cfg.Replicas, MaxBytes: artifactStoreMaxBytes})
+	s.artifacts, err = cfg.JS.CreateOrUpdateObjectStore(ctx, artifactStoreConfig(cfg.Replicas, artifactStoreMaxBytes))
 	if err != nil {
 		return nil, fmt.Errorf("artifact store: %w", err)
 	}

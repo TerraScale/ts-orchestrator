@@ -89,12 +89,13 @@ every controller when it adopts the spec, without a restart.
 | `controller.oci_reconcile.desired` | `oci_desired` (level 7) | Root to add or change an `enforce` entry, to turn on prune or shorten its delay, and to drop an entry while prune is on; leaf otherwise. The signed list is generation 0. | Done in slice 5: the leader publishes the list in force into `TS_OCI_DESIRED` at every reconcile pass. |
 | `controller.kv_snapshot` interval and pause | `kv_snapshot` (level 5) | Leaf for the interval (5 to 3600 s); root to pause. | Done in slice 3: the uploader reads the schedule at least every 5 s. The location stays in the signed config: a rebuilt cell restores from it before any KV bucket exists. |
 | Managed host image receipt and delegation | `host_images` (done in TS-570, see [image updates](image-updates.md)) | Root to add or change an image: a receipt qualifies an image without choosing it for a cell. Leaf to revoke. | The fleet and placement read the adopted spec at each check. |
+| `controller.artifact_store_max_bytes` | `artifact_store` (level 10) | Leaf. Each controller refuses a quota above its `store_max_bytes` less 1.5 GiB. | Done in TS-576: the leader applies it within a minute, raising it only while its disk has room; a restart never shrinks a larger quota in force. |
 | TerraBase peers (`TERRABASE_PEERS`) | the existing `terrabase` service entry | Root, as today. | Done in slice 2: static member enrollment and host grant checks read the effective profile, not the signed config's. |
 
 These stay in the signed config, because they are read before KV exists or
 bind the running process: identity, broker addresses and routes, material
 paths, the sidecars (with placement's member role), `offline_restart_admission`,
-`membership`, `lease_seconds` and `renew_seconds`, `artifact_store_max_bytes`,
+`membership`, `lease_seconds` and `renew_seconds`,
 the observability listener and the `kv_snapshot` location. Other mutable
 settings (`autoscale` intervals and node pools, `oci_reconcile` intervals and
 NLB, `volume_backup`, `storage_capacity`, `global`, `region_planner`) get

@@ -284,6 +284,11 @@ func (s *Service) AcceptArtifactClaim(ctx context.Context, envelope []byte) (Art
 	if err := s.config.AuthorizeArtifact(ctx, actor, r); err != nil {
 		return ArtifactRecord{}, err
 	}
+	// A collector that chose the object before this admission can no
+	// longer delete it.
+	if err := s.touchArtifact(ctx, r.Digest); err != nil {
+		return ArtifactRecord{}, err
+	}
 	if err := s.verifyArtifact(ctx, r); err != nil {
 		return ArtifactRecord{}, err
 	}
@@ -291,6 +296,23 @@ func (s *Service) AcceptArtifactClaim(ctx context.Context, envelope []byte) (Art
 		return ArtifactRecord{}, err
 	}
 	return r, nil
+}
+
+// touchArtifact pins a stored object for a new reference; see
+// artifact.Touch.
+func (s *Service) touchArtifact(ctx context.Context, digest string) error {
+	if s.config.Conn == nil {
+		return errors.New("artifact admission requires the controller's NATS connection")
+	}
+	js, err := s.config.Conn.JetStream()
+	if err != nil {
+		return err
+	}
+	err = artifact.Touch(ctx, js, ArtifactBucket, artifactKey(digest))
+	if errors.Is(err, jetstream.ErrObjectNotFound) {
+		return fmt.Errorf("%w: artifact object is not stored", ErrInvalid)
+	}
+	return err
 }
 
 func (s *Service) persistArtifactAdmission(ctx context.Context, record ArtifactRecord, envelope []byte, actor string) error {

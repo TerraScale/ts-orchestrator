@@ -91,9 +91,6 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if artifactStoreMaxBytes == 0 {
 		artifactStoreMaxBytes = delivery.DefaultArtifactStoreMaxBytes
 	}
-	// Keep room for the configured intent stream, host state, placement KV,
-	// and authority log when reserving space for the artifact object store.
-	const controlStoreHeadroomBytes int64 = 1536 << 20
 	storeLimitBytes := cfg.NATS.Embedded.StoreLimitBytes()
 	if storeLimitBytes < artifactStoreMaxBytes || storeLimitBytes-artifactStoreMaxBytes < controlStoreHeadroomBytes {
 		return fmt.Errorf("embedded NATS store_max_bytes must leave at least %d bytes for control state beyond artifact_store_max_bytes", controlStoreHeadroomBytes)
@@ -765,6 +762,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	workers.Go(func() { workerErrors <- workloadReconciler.Run(runCtx) })
 	workers.Go(func() { workerErrors <- services.Run(runCtx) })
+	workers.Go(func() {
+		workerErrors <- artifactStoreKeeper{control: control, service: service, hosts: hostController,
+			quota: services.artifactStoreMaxBytes, storeDir: cfg.NATS.Embedded.StoreDir}.Run(runCtx)
+	})
 	if global != nil && global.writer == nil {
 		workers.Go(func() {
 			workerErrors <- services.followRelayedSpecs(runCtx, global.reader, policy, control, hostController)

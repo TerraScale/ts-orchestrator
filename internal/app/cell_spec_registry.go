@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"crypto/ed25519"
 	"crypto/x509"
@@ -20,6 +21,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
@@ -88,6 +90,11 @@ type specRegistry struct {
 	ociReconcile  bool
 	signedDesired *cellspec.OCIDesired
 	ociRegion     *oci.RegionConfig
+	// signedArtifactStore is the signed config's artifact store quota, or
+	// the default; artifactStoreLimit is the most this controller's
+	// embedded NATS store holds beside control state.
+	signedArtifactStore int64
+	artifactStoreLimit  int64
 
 	// launches fences host image changes against launches: a launch holds
 	// it for reading from its final image check through the provider launch,
@@ -115,7 +122,11 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 		signers: slices.SortedFunc(slices.Values(cfg.Controller.TrustedSigners), func(a, b TrustedSignerConfig) int {
 			return strings.Compare(a.Actor, b.Actor)
 		}), snapshots: cfg.Controller.KVSnapshot.Enabled, terraBaseCA: cfg.Controller.TerraBaseCACertFile != "",
-		rolloutExecutor: cfg.Controller.Rollouts != nil && cfg.Controller.Rollouts.Executor}
+		rolloutExecutor:     cfg.Controller.Rollouts != nil && cfg.Controller.Rollouts.Executor,
+		signedArtifactStore: cmp.Or(cfg.Controller.ArtifactStoreMaxBytes, delivery.DefaultArtifactStoreMaxBytes)}
+	if cfg.NATS.Embedded != nil {
+		r.artifactStoreLimit = cfg.NATS.Embedded.StoreLimitBytes() - controlStoreHeadroomBytes
+	}
 	if _, signed := cfg.Controller.Workloads[terrabase.Role]; signed {
 		r.terraBaseCA = true
 	}
@@ -461,6 +472,10 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 			return err
 		}
 	}
+	if store := spec.ArtifactStore; store != nil && store.MaxBytes > r.artifactStoreLimit {
+		return fmt.Errorf("artifact_store max_bytes %d exceeds this controller's %d: its embedded NATS store_max_bytes less %d bytes for control state",
+			store.MaxBytes, max(r.artifactStoreLimit, 0), controlStoreHeadroomBytes)
+	}
 	if spec.RolloutPolicy != nil && !r.rolloutExecutor {
 		return errors.New("a rollout policy needs the controllers' rollout executor (controller.rollouts.executor)")
 	}
@@ -645,7 +660,21 @@ func (r *specRegistry) withSigned(spec cellspec.Spec) cellspec.Spec {
 	if spec.KVSnapshot == nil && r.snapshots {
 		spec.KVSnapshot = &cellspec.KVSnapshot{}
 	}
+	if spec.ArtifactStore == nil {
+		spec.ArtifactStore = &cellspec.ArtifactStore{MaxBytes: r.signedArtifactStore}
+	}
 	return spec
+}
+
+// artifactStoreMaxBytes is the current spec's artifact store quota, or the
+// signed config's when the spec sets none.
+func (r *specRegistry) artifactStoreMaxBytes() int64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.current.ArtifactStore != nil {
+		return r.current.ArtifactStore.MaxBytes
+	}
+	return r.signedArtifactStore
 }
 
 func (r *specRegistry) rolloutPolicy(signed rollout.Policy) rollout.Policy {

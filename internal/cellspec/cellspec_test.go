@@ -1105,3 +1105,51 @@ func TestLaunchImageValidateDiffAndWiden(t *testing.T) {
 		}
 	}
 }
+
+// An artifact store quota needs binary level 10 and a positive size. It
+// widens no authority: a leaf may change it.
+func TestArtifactStoreLevelValidateAndDiff(t *testing.T) {
+	f := newFixture(t)
+	spec := testSpec(f.id, 1)
+	spec.ArtifactStore = &ArtifactStore{MaxBytes: 2 << 30}
+	if spec.Level() != 10 {
+		t.Fatalf("level with an artifact store quota = %d", spec.Level())
+	}
+	if _, err := Encode(spec); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Encode(artifact_store at level 1) = %v", err)
+	}
+	spec.RequiresBinary = 10
+	payload, err := Encode(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded, err := Decode(payload); err != nil || *decoded.ArtifactStore != *spec.ArtifactStore {
+		t.Fatalf("Decode = %+v, %v", decoded.ArtifactStore, err)
+	}
+	for _, size := range []int64{0, -1} {
+		invalid := spec
+		invalid.ArtifactStore = &ArtifactStore{MaxBytes: size}
+		if err := invalid.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("max_bytes %d accepted: %v", size, err)
+		}
+	}
+	base := testSpec(f.id, 1)
+	smaller := &ArtifactStore{MaxBytes: 1 << 30}
+	for name, test := range map[string]struct {
+		before, after *ArtifactStore
+		change        string
+	}{
+		"add":    {after: spec.ArtifactStore, change: "added"},
+		"change": {before: spec.ArtifactStore, after: smaller, change: "updated"},
+		"remove": {before: spec.ArtifactStore, change: "removed"},
+		"keep":   {before: spec.ArtifactStore, after: &ArtifactStore{MaxBytes: 2 << 30}},
+	} {
+		current, next := base, base
+		current.ArtifactStore, next.ArtifactStore = test.before, test.after
+		next.Generation = 2
+		plan, err := Diff(current, next, nil)
+		if err != nil || plan.ArtifactStore != test.change || plan.Empty() != (test.change == "") || len(plan.RootRequired) != 0 {
+			t.Errorf("%s: Diff = %+v, %v", name, plan, err)
+		}
+	}
+}

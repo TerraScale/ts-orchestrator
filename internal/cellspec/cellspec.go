@@ -54,8 +54,8 @@ const (
 	// Level 2 adds profile secrets, level 3 the budget, level 4 host images,
 	// level 5 the kv_snapshot schedule, level 6 the rollout policy, level 7
 	// the desired OCI resources, level 8 the trusted signers, level 9 the
-	// launch image.
-	BinaryLevel = 9
+	// launch image, level 10 the artifact store quota.
+	BinaryLevel = 10
 	// MaxHostImages bounds the image allow-list: the images a rollout moves
 	// between, plus room to stage the next one.
 	MaxHostImages = 4
@@ -173,6 +173,16 @@ type Spec struct {
 	// LaunchImage names the host image new managed hosts boot instead of
 	// the fleet's pinned image; empty keeps the pin.
 	LaunchImage string `json:"launch_image,omitempty"`
+	// ArtifactStore replaces the signed config's delivery artifact store
+	// quota.
+	ArtifactStore *ArtifactStore `json:"artifact_store,omitempty"`
+}
+
+// ArtifactStore is the delivery artifact store's byte quota. Each controller
+// refuses one its embedded NATS store cannot hold beside its control state,
+// and the leader raises it only while its disk has room.
+type ArtifactStore struct {
+	MaxBytes int64 `json:"max_bytes"`
 }
 
 // TrustedSigner grants an actor's Ed25519 key operator requests and
@@ -344,6 +354,9 @@ func (s Spec) Validate() error {
 	if _, allowed := s.HostImage(s.LaunchImage); s.LaunchImage != "" && !allowed {
 		return fmt.Errorf("%w: the launch image must be one of the host images", ErrInvalid)
 	}
+	if s.ArtifactStore != nil && s.ArtifactStore.MaxBytes <= 0 {
+		return fmt.Errorf("%w: artifact_store max_bytes must be positive", ErrInvalid)
+	}
 	return nil
 }
 
@@ -398,8 +411,8 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 // Level is the lowest requires_binary the spec's sections need: 2 once a
 // profile names Vault secrets, 3 with a budget, 4 once it allows host
 // images, 5 with a kv_snapshot schedule, 6 with a rollout policy, 7 with
-// desired OCI resources, 8 with signers and 9 once it names a launch image,
-// which an older binary could not read.
+// desired OCI resources, 8 with signers, 9 once it names a launch image and
+// 10 with an artifact store quota, which an older binary could not read.
 func (s Spec) Level() uint64 {
 	level := uint64(1)
 	for _, service := range s.Services {
@@ -427,6 +440,9 @@ func (s Spec) Level() uint64 {
 	}
 	if s.LaunchImage != "" {
 		level = 9
+	}
+	if s.ArtifactStore != nil {
+		level = 10
 	}
 	return level
 }
@@ -773,6 +789,9 @@ type Plan struct {
 	// LaunchImage is the new launch image when it changes, or "pinned" when
 	// new hosts return to the fleet's pinned image.
 	LaunchImage string `json:"launch_image,omitempty"`
+	// ArtifactStore is "added", "updated" or "removed" when the artifact
+	// store quota changes.
+	ArtifactStore string `json:"artifact_store,omitempty"`
 	// RootRequired lists the authority-widening changes; the amendment
 	// applies only when a root signed it.
 	RootRequired []string `json:"root_required,omitempty"`
@@ -863,6 +882,14 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 	if next.LaunchImage != current.LaunchImage {
 		plan.LaunchImage = cmp.Or(next.LaunchImage, "pinned")
 	}
+	switch before, after := current.ArtifactStore, next.ArtifactStore; {
+	case before == nil && after != nil:
+		plan.ArtifactStore = "added"
+	case before != nil && after == nil:
+		plan.ArtifactStore = "removed"
+	case before != nil && *before != *after:
+		plan.ArtifactStore = "updated"
+	}
 	return plan, nil
 }
 
@@ -892,7 +919,7 @@ func budgetChange(before, after *hostpool.Budget) string {
 func (p Plan) Empty() bool {
 	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 && p.Budget == "" &&
 		p.KVSnapshot == "" && p.RolloutPolicy == "" && p.OCIDesired == "" && len(p.Signers) == 0 &&
-		p.LaunchImage == ""
+		p.LaunchImage == "" && p.ArtifactStore == ""
 }
 
 // Validate checks each entry's policy and spec and the prune delay. The

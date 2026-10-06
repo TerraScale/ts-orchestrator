@@ -52,6 +52,45 @@ keeps it. Reusing the name creates a fresh volume with a separate first-format
 grant. Host replacement keeps the recorded volume. Retired volumes have no
 automatic deletion; deleting one is a separate explicit, user-confirmed action.
 
+## Artifact store collection
+
+The delivery artifact store (`TS_ARTIFACTS`) holds every uploaded release
+binary under a byte quota. Once full, uploads fail with
+`delivery artifact store quota is full`. Each minute the authority leader
+collects it (`internal/delivery/artifact_gc.go`) and keeps:
+
+- every digest a committed host desired names, withdrawn targets included;
+- every digest an undecided delivery names;
+- per role and environment, the rollback target: the newest delivered digest
+  (accepted or held delivery operation) not in use. A role nothing runs
+  keeps its two newest delivered digests; a role no delivery released (for
+  example orchestrator binaries for `ts-orch rollout`) its two newest
+  admissions;
+- anything whose metadata was written in the last hour: uploaded, admitted
+  or named by a desired commit, which each touch it.
+
+It deletes every other object and purges chunks no object references once
+they are idle for 20 minutes: an upload ends within 15, so those belong to an
+interrupted upload whose own cleanup the operator was not allowed to purge.
+The collector reads the objects' metadata before any reference, and a
+reference read error skips the pass. Each deletion is a compare-and-set on
+the metadata it read (`artifact.DeleteIfUnchanged`), and every desired
+commit and admission first republishes the metadata the same way
+(`artifact.Touch`). A reference made after the collector chose an object
+therefore refuses its deletion on the server, even from a former leader
+that resumes late; a commit after the deletion finds the object gone. The
+leader logs `artifact store collected` with the deleted digests and purged
+subjects. Admission records stay; re-push a deleted binary with
+`operator artifact-push` (or the release command) before deploying it again.
+
+The quota is `controller.artifact_store_max_bytes` (default 2 GiB; rendered
+controller configs set 512 MiB) until a cell spec sets
+[`artifact_store`](cell-spec.md#model). The leader applies the spec's quota
+within a minute. Every controller refuses a quota above its embedded NATS
+`store_max_bytes` less 1.5 GiB for control state, and the leader raises it
+only while the NATS store's disk has room for the store to fill. A
+controller restart never shrinks a larger quota already in force.
+
 ## Resize and ownership
 
 A `volume-resize` operation is keyed by volume, target size and attempt.

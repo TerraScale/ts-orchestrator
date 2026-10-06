@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/artifact"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
@@ -387,6 +388,7 @@ func (c *Controller) ApplyDesired(ctx context.Context, d Desired) (Receipt, erro
 		}
 		defer release()
 	}
+	bucket := ""
 	if !d.Withdrawn {
 		info, err := c.artifacts.GetInfo(ctx, "sha256-"+d.Digest)
 		if err != nil {
@@ -395,6 +397,7 @@ func (c *Controller) ApplyDesired(ctx context.Context, d Desired) (Receipt, erro
 		if info.Deleted || info.Opts != nil && info.Opts.Link != nil || info.Size == 0 || info.Size > maxArtifactBytes {
 			return Receipt{}, errors.New("artifact is absent, linked or outside size limit")
 		}
+		bucket = info.Bucket
 	}
 	payload, operationID, err := mutationPayload(d)
 	if err != nil {
@@ -432,6 +435,18 @@ func (c *Controller) ApplyDesired(ctx context.Context, d Desired) (Receipt, erro
 				if d.AuthorityEpoch == current.AuthorityEpoch {
 					return Receipt{d.Generation, revision}, nil
 				}
+			}
+		}
+		// The artifact collector deletes only metadata nobody touched since
+		// it chose the artifact, so it cannot delete the bytes this desired
+		// is about to name.
+		if bucket != "" && c.conn != nil {
+			js, err := c.conn.JetStream()
+			if err != nil {
+				return Receipt{}, err
+			}
+			if err := artifact.Touch(ctx, js, bucket, "sha256-"+d.Digest); err != nil {
+				return Receipt{}, fmt.Errorf("pin desired artifact: %w", err)
 			}
 		}
 		if err := c.guard(ctx, d.AuthorityEpoch); err != nil {
