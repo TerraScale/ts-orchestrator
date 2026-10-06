@@ -60,21 +60,33 @@ members spread over fault domains of their hosts, which the scheduler picks.
 
 ## Reconciler
 
-The authority leader reconciles `TS_VOLUMES` against OCI with the volume and
-attachment calls of [`internal/oci`](../internal/oci), which already
-creates, attaches, grows, backs up, restores and reattaches retained
-volumes. Every effect is fenced to the leader's epoch, and the status it
-writes carries that epoch.
+`volume.Reconciler` runs on the authority leader. Each pass reads every
+record and moves its OCI volume one step towards it through the narrow
+Block Volume API in [`cloud.go`](../internal/volume/cloud.go). Every OCI
+effect and status write is guarded at the epoch the pass started under, and
+the status carries that epoch. A follower does nothing. The cell's settings
+are its compartment, its availability domain and its KMS key:
+
+```json
+{"compartment_id": "ocid1.compartment...", "zone": "Uocm:SA-SAOPAULO-1-AD-1", "kms_key_id": "ocid1.key..."}
+```
+
+A volume the reconciler cannot prove is held: its record becomes `failed`
+with the reason, OCI is left alone, and the record recovers by itself once an
+operator resolves the cause.
 
 **Ownership.** The record is written before any OCI effect, so it is the
 durable intent of the create. The create's retry token is derived from the
 cell and the volume ID, and the volume carries the cell's ownership tags and
 the volume ID. The reconciler binds an OCI volume to a record only when:
 
-- the record has no OCID yet and exactly one volume in the compartment
-  carries this cell's tags and this volume ID, created after the record's
-  `created_at`. IDs are random, so no volume can be planted for a record in
-  advance. No match means create; several matches mean `failed`;
+- the record has no OCID yet and exactly one volume in the cell's
+  compartment and zone carries this cell's tags (`terrascale-managed-by`,
+  `terrascale-owner`, `terrascale-resource=managed-volume`) and this volume
+  ID as `terrascale-create-key`, encrypted with the cell's KMS key. No match
+  means create; several matches mean `failed`. Only controllers and
+  operators can create OCI volumes, and IDs are random, so no one else can
+  plant one;
 - or an operator adopts an existing volume by its exact OCID, for example a
   member's `<member>-data` volume from `ts-orch terrabase data-volume`. The
   adoption tags it with the volume ID first.
@@ -85,16 +97,23 @@ it at another volume. After a rebuild, the restored records are bound again
 by the same rules.
 
 - **Create.** In the record's zone, with the cell's KMS key (the regional
-  Vault key; no volume is created without one), the record's VPUs and the
-  backup policy for its retention. Policies are created when a retention is
-  first used.
+  Vault key; no volume is created without one) and the record's VPUs. The
+  retry token is derived from the cell and volume ID, so a create whose
+  response was lost returns the same volume, and the next pass binds it by
+  its tags either way. A record that already had a volume never gets a new
+  empty one: it is held instead.
+- **Backups.** Each retention has one cell policy, `<cell>-volumes-<n>d`
+  (one daily incremental backup kept `n` days), created when a retention is
+  first used. A retention change replaces only the assignment of another of
+  the cell's own policies; a volume with any other policy is held.
 - **Attach.** Paravirtualized, read-write, not shareable, with in-transit
   encryption, at a free consistent device path, to the claimed machine's
   host.
 - **Detach.** Only after the host proves the machine stopped and unmounted the
   volume, or OCI reports the old instance `TERMINATED`
   ([reattach on host loss](storage.md#reattach-on-host-loss)).
-- **Grow.** One If-Match `UpdateVolume`; the host grows the filesystem online.
+- **Grow and retier.** One If-Match `UpdateVolume` per pass, size first,
+  then VPUs; the host grows the filesystem online.
 - **Destroy.** Refused while a machine holds the volume, and held while a
   clone of it is still being created. The reconciler detaches it, takes a
   final snapshot, deletes the OCI volume and purges the record once OCI
@@ -152,10 +171,10 @@ scratch volumes.
 ## Slices
 
 1. Model, store, placement check and this note. **Done.**
-2. OCI: managed volume create with KMS key, VPUs, backup policy, tagging,
-   adoption and delete.
-3. Leader reconciler: bind, create, attach, detach, grow, destroy, purge,
-   with status write-back and decision journal records.
+2. Leader reconciler and its OCI API: bind, create with the KMS key, grow,
+   retier and backup policies, with status write-back. **Done.**
+3. Cell spec `volumes` settings, the controller loop and decision journal
+   records; attach and detach.
 4. Host mount from signed desired state, and the machine bind mount.
 5. Snapshot records, restore, fork for new replicas, and move across zones.
 6. `ts-orch volumes` CLI and cost report.
