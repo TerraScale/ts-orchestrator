@@ -42,22 +42,22 @@ func TestScalerJournalsLaunchesReclaimsAndRecommendations(t *testing.T) {
 	recorder := &captureRecorder{}
 	t.Cleanup(decisionlog.SetDefault(recorder))
 
-	view := &fakeView{hosts: []host.HostStatus{registered("general-0", "fd-1")},
-		desired: []host.Desired{{Cell: "gru", Node: "general-0", Role: "api"}}}
+	view := &fakeView{hosts: []host.HostStatus{registered("gru-1-pool-general-1", "fd-1")},
+		desired: []host.Desired{{Cell: "gru", Node: "gru-1-pool-general-1", Role: "api"}}}
 	clock := now
-	prov := &provisioner{}
+	prov := (&provisioner{clock: &clock}).hold(generalPool(), "gru-1-pool-general-1")
 	scaler, err := NewScaler(Config{Cell: "gru", Pools: []NodePool{generalPool()}, Hosts: view, Fencer: fencer{leader: true},
-		Provisioner: prov, Now: func() time.Time { return clock }})
+		Provisioner: prov, Budget: openBudget, Spend: &fakeSpend{}, Now: func() time.Time { return clock }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	full := generalPool().virtualHost("gru", "general-0", "fd-1")
+	full := generalPool().virtualHost("gru", "gru-1-pool-general-1", "fd-1")
 	full.Allocated = full.Capacity
 	scaler.RequestCapacity(workload.ServiceSpec{Role: "api", Environment: "prod"}, apiDemand(1, full))
 	if err := scaler.Tick(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	view.hosts = append(view.hosts, registered("general-1", "fd-2"))
+	view.hosts = append(view.hosts, registered("gru-1-pool-general-2", "fd-2"))
 	// The demand ages out, general-1 turns idle, and its cooldown passes.
 	for _, step := range []time.Duration{DefaultDemandTTL + time.Second, 11 * time.Minute} {
 		clock = clock.Add(step)
@@ -110,7 +110,8 @@ func TestScalerJournalsExpiredLaunchAndRecurringRecommendation(t *testing.T) {
 	pool := generalPool()
 	pool.Min = 1
 	scaler, err := NewScaler(Config{Cell: "gru", Pools: []NodePool{pool}, Hosts: &fakeView{},
-		Fencer: fencer{leader: true}, Provisioner: &provisioner{}, Now: func() time.Time { return clock }})
+		Fencer: fencer{leader: true}, Provisioner: &provisioner{clock: &clock}, Budget: openBudget, Spend: &fakeSpend{},
+		Now: func() time.Time { return clock }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +141,7 @@ func TestScalerJournalsExpiredLaunchAndRecurringRecommendation(t *testing.T) {
 	}
 	ticks := []func(){
 		func() {},
-		func() { view.hosts = []host.HostStatus{registered("general-0", "fd-1")} },
+		func() { view.hosts = []host.HostStatus{registered("gru-1-pool-general-1", "fd-1")} },
 		func() { view.hosts = nil },
 	}
 	for _, change := range ticks {

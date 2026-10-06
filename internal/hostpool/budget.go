@@ -74,14 +74,15 @@ func monthBounds(at time.Time) (time.Time, time.Time) {
 const (
 	reasonBudgetCapped  = "budget-capped"
 	reasonBudgetUnknown = "budget-unknown"
+	reasonBudgetMissing = "budget-missing"
 )
 
 // budgetGate is one tick's budget headroom, shared by every pool in order.
 // A zero gate admits everything: the cell has no budget.
 type budgetGate struct {
 	limited bool
-	// unknown holds every launch: the spend cannot be trusted.
-	unknown bool
+	// hold, when set, holds every launch for this reason.
+	hold string
 	// headroom is what launches may still add, in cents a month.
 	headroom int64
 }
@@ -100,7 +101,7 @@ func newBudgetGate(budget *Budget, spend *Spend, unbilled []NodePool, now time.T
 		spend.ObservedAt.Before(start) || spend.Through.After(now) ||
 		spend.MonthCents > maxSpendCents || spend.PeakDayCents > maxSpendCents ||
 		spend.Currency != budget.Currency && (spend.Currency != "" || spend.MonthCents+spend.PeakDayCents != 0) {
-		return budgetGate{limited: true, unknown: true}
+		return budgetGate{limited: true, hold: reasonBudgetUnknown}
 	}
 	// Early in a month no complete day of it exists yet.
 	from, month := spend.Through, int64(spend.MonthCents)
@@ -112,7 +113,7 @@ func newBudgetGate(budget *Budget, spend *Spend, unbilled []NodePool, now time.T
 	gate := budgetGate{limited: true, headroom: int64(budget.MonthlyCapCents) - max(month+peak*remaining, peak*whole)}
 	for _, pool := range unbilled {
 		if pool.HostMonthlyCents == 0 {
-			return budgetGate{limited: true, unknown: true}
+			return budgetGate{limited: true, hold: reasonBudgetUnknown}
 		}
 		gate.headroom -= int64(pool.HostMonthlyCents)
 	}
@@ -127,7 +128,9 @@ func (g *budgetGate) admit(pool NodePool, plan Plan) Plan {
 	}
 	cost := int64(pool.HostMonthlyCents) * int64(len(plan.Launch))
 	switch {
-	case g.unknown || pool.HostMonthlyCents == 0:
+	case g.hold != "":
+		plan.Hold = g.hold
+	case pool.HostMonthlyCents == 0:
 		plan.Hold = reasonBudgetUnknown
 	case cost > g.headroom:
 		plan.Hold = reasonBudgetCapped

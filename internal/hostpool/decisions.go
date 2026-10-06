@@ -14,6 +14,9 @@ import (
 // actor is the decision journal slice name of the host pool scaler.
 const actor = "hostpool"
 
+// reasonLaunchExpired reclaims a host that never came up.
+const reasonLaunchExpired = "launch-expired"
+
 func poolSubject(pool NodePool) decisionlog.Subject {
 	return decisionlog.Subject{Kind: "host_pool", ID: pool.Name, Name: pool.Environment + "/" + pool.Name}
 }
@@ -86,19 +89,26 @@ func recordLaunchOutcome(ctx context.Context, cell string, epoch uint64, pool No
 }
 
 // recordReclaim journals one idle pool host reclaimed after its cooldown.
-func recordReclaim(ctx context.Context, cell string, epoch uint64, pool NodePool, plan Plan, node string) {
+func recordReclaim(ctx context.Context, cell string, epoch uint64, pool NodePool, reason, node string) {
+	summary := fmt.Sprintf("Reclaimed idle pool host %s from %s", node, pool.Name)
+	explanation := fmt.Sprintf("The host held no allocations for the pool's %ds idle cooldown (%s).",
+		pool.IdleCooldownSeconds, reason)
+	if reason == reasonLaunchExpired {
+		summary = fmt.Sprintf("Terminated pool host %s of %s that never came up", node, pool.Name)
+		explanation = "The host had no live session within the launch grace, so it costs nothing more and its name is free (" +
+			reason + ")."
+	}
 	decisionlog.Record(ctx, decisionlog.Decision{
 		Region:  cell,
 		Actor:   decisionlog.Actor{Slice: actor},
 		Kind:    decisionlog.KindHostReclaimed,
 		Subject: decisionlog.Subject{Kind: "host", ID: node, Name: pool.Name + "/" + node},
-		Summary: fmt.Sprintf("Reclaimed idle pool host %s from %s", node, pool.Name),
-		Reason: fmt.Sprintf("The host held no allocations for the pool's %ds idle cooldown (%s).",
-			pool.IdleCooldownSeconds, plan.Reason),
-		Rule:   "hostpool." + plan.Reason,
-		Status: decisionlog.StatusSucceeded,
-		Epoch:  epoch,
-		Attrs:  map[string]string{"pool": pool.Name},
+		Summary: summary,
+		Reason:  explanation,
+		Rule:    "hostpool." + reason,
+		Status:  decisionlog.StatusSucceeded,
+		Epoch:   epoch,
+		Attrs:   map[string]string{"pool": pool.Name},
 	})
 }
 
@@ -141,9 +151,13 @@ func samePlan(left, right Plan) bool {
 func recordHold(ctx context.Context, cell string, epoch uint64, pool NodePool, plan Plan) {
 	reason := fmt.Sprintf("The cell's projected monthly spend leaves no room for %d more %s hosts (%s).",
 		plan.Withheld, pool.Name, plan.Hold)
-	if plan.Hold == reasonBudgetUnknown {
+	switch plan.Hold {
+	case reasonBudgetUnknown:
 		reason = fmt.Sprintf("The cell has a budget but no current OCI usage reading (check the usage-reports policy), "+
 			"or the pool has no host price, so %d launches wait (%s).", plan.Withheld, plan.Hold)
+	case reasonBudgetMissing:
+		reason = fmt.Sprintf("Pool hosts launch only under a cell budget and the cell spec has none, so %d launches wait (%s).",
+			plan.Withheld, plan.Hold)
 	}
 	decisionlog.Record(ctx, decisionlog.Decision{
 		Region:  cell,

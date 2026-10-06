@@ -31,7 +31,7 @@ func pricedPool(name string, cents uint64) NodePool {
 func launchPlan(pool NodePool, count int) Plan {
 	plan := Plan{Reason: "insufficient-capacity", Reclaim: []string{"x"}}
 	for ordinal := range count {
-		plan.Launch = append(plan.Launch, Launch{Node: pool.NodeName(ordinal), FailureDomain: "fd-1"})
+		plan.Launch = append(plan.Launch, Launch{Node: pool.NodeName("gru", ordinal), FailureDomain: "fd-1"})
 	}
 	return plan
 }
@@ -95,7 +95,7 @@ func TestBudgetGateProjection(t *testing.T) {
 		"no cost": {now: midMonth, headroom: 100000, spend: Spend{Through: october(15), ObservedAt: midMonth}},
 	} {
 		gate := newBudgetGate(&Budget{MonthlyCapCents: 100000, Currency: "USD"}, &test.spend, nil, test.now)
-		if gate.unknown || !gate.limited || gate.headroom != test.headroom {
+		if gate.hold != "" || !gate.limited || gate.headroom != test.headroom {
 			t.Errorf("%s: gate = %+v, want headroom %d", name, gate, test.headroom)
 		}
 	}
@@ -131,7 +131,7 @@ func TestBudgetGateFailsClosed(t *testing.T) {
 	}
 	// A pool without a price launches nothing under a budget.
 	gate := newBudgetGate(budget, midSpend(), nil, midMonth)
-	if plan := gate.admit(generalPool(), launchPlan(generalPool(), 1)); plan.Withheld != 1 || plan.Hold != reasonBudgetUnknown {
+	if plan := gate.admit(pricedPool("general", 0), launchPlan(generalPool(), 1)); plan.Withheld != 1 || plan.Hold != reasonBudgetUnknown {
 		t.Fatalf("unpriced pool admitted %+v", plan)
 	}
 }
@@ -158,20 +158,19 @@ func TestScalerHoldsLaunchesOverBudget(t *testing.T) {
 	recorder := &captureRecorder{}
 	t.Cleanup(decisionlog.SetDefault(recorder))
 	pool := pricedPool("general", 1500)
-	view := &fakeView{hosts: []host.HostStatus{registered("general-0", "fd-1")},
-		desired: []host.Desired{{Cell: "gru", Node: "general-0", Role: "api"}}}
+	view := &fakeView{hosts: []host.HostStatus{registered("gru-1-pool-general-1", "fd-1")},
+		desired: []host.Desired{{Cell: "gru", Node: "gru-1-pool-general-1", Role: "api"}}}
 	clock := midMonth
 	spend := &fakeSpend{spend: *midSpend()}
-	// 31000 projected under 35000 leaves 4000, less 1500 for general-0,
-	// which the reading may not show yet: three hosts at 1500 do not fit,
-	// and the scaler only recommends.
+	// 31000 projected under 35000 leaves 4000: three hosts at 1500 do not
+	// fit, and the scaler only recommends.
 	budget := &Budget{MonthlyCapCents: 35000, Currency: "USD"}
 	scaler, err := NewScaler(Config{Cell: "gru", Pools: []NodePool{pool}, Hosts: view, Fencer: fencer{leader: true},
 		Budget: func() *Budget { return budget }, Spend: spend, Now: func() time.Time { return clock }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	full := pool.virtualHost("gru", "general-0", "fd-1")
+	full := pool.virtualHost("gru", "gru-1-pool-general-1", "fd-1")
 	full.Allocated = full.Capacity
 	tick := func(step time.Duration, wantReads int, wantHold string) {
 		t.Helper()
@@ -217,7 +216,7 @@ func TestScalerLaunchesWithinBudgetAndRereadsInANewMonth(t *testing.T) {
 	if err := scaler.Tick(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(prov.launched, []string{"general-0"}) || spend.calls != 1 {
+	if !slices.Equal(prov.launched, []string{"gru-1-pool-general-1"}) || spend.calls != 1 {
 		t.Fatalf("launched %v after %d reads", prov.launched, spend.calls)
 	}
 	// October's reading cannot stand for November: it is read again at
@@ -237,7 +236,7 @@ func TestScalerChargesLaunchesUntilTheUsageDataShowsThem(t *testing.T) {
 	view := &fakeView{}
 	clock := midMonth
 	spend := &fakeSpend{spend: *midSpend()}
-	prov := &provisioner{}
+	prov := &provisioner{clock: &clock}
 	// 31000 projected under 34000 leaves 3000: two hosts.
 	scaler, err := NewScaler(Config{Cell: "gru", Pools: []NodePool{pool}, Hosts: view, Fencer: fencer{leader: true},
 		Provisioner: prov, Budget: func() *Budget { return &Budget{MonthlyCapCents: 34000, Currency: "USD"} },
@@ -248,7 +247,7 @@ func TestScalerChargesLaunchesUntilTheUsageDataShowsThem(t *testing.T) {
 	// Placement found general-0 and general-1 full and needs one host more.
 	var full []placement.WorkloadHost
 	for index, domain := range []string{"fd-1", "fd-2"} {
-		candidate := pool.virtualHost("gru", pool.NodeName(index), domain)
+		candidate := pool.virtualHost("gru", pool.NodeName("gru", index), domain)
 		candidate.Allocated = candidate.Capacity
 		full = append(full, candidate)
 	}
@@ -262,7 +261,7 @@ func TestScalerChargesLaunchesUntilTheUsageDataShowsThem(t *testing.T) {
 		}
 		return scaler.Last()[pool.Name]
 	}
-	if plan := tick(false); !slices.Equal(prov.launched, []string{"general-0", "general-1"}) {
+	if plan := tick(false); !slices.Equal(prov.launched, []string{"gru-1-pool-general-1", "gru-1-pool-general-2"}) {
 		t.Fatalf("launched %v, plan %+v", prov.launched, plan)
 	}
 	// The next tick charges both launches: a third host does not fit.
@@ -271,7 +270,7 @@ func TestScalerChargesLaunchesUntilTheUsageDataShowsThem(t *testing.T) {
 		t.Fatalf("launched %v, plan %+v", prov.launched, plan)
 	}
 	// Registered, they stay charged while the usage data predates them.
-	view.hosts = []host.HostStatus{registered("general-0", "fd-1"), registered("general-1", "fd-2")}
+	view.hosts = []host.HostStatus{registered("gru-1-pool-general-1", "fd-1"), registered("gru-1-pool-general-2", "fd-2")}
 	clock = clock.Add(time.Hour)
 	if plan := tick(true); len(prov.launched) != 2 || plan.Hold != reasonBudgetCapped {
 		t.Fatalf("registered: launched %v, plan %+v", prov.launched, plan)
@@ -280,7 +279,7 @@ func TestScalerChargesLaunchesUntilTheUsageDataShowsThem(t *testing.T) {
 	// carries their cost and the third host fits again.
 	clock = time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
 	spend.spend = Spend{Currency: "USD", MonthCents: 17000, PeakDayCents: 1000, Through: october(18)}
-	if plan := tick(true); !slices.Equal(prov.launched, []string{"general-0", "general-1", "general-2"}) || plan.Withheld != 0 {
+	if plan := tick(true); !slices.Equal(prov.launched, []string{"gru-1-pool-general-1", "gru-1-pool-general-2", "gru-1-pool-general-3"}) || plan.Withheld != 0 {
 		t.Fatalf("caught up: launched %v, plan %+v", prov.launched, plan)
 	}
 }
@@ -288,10 +287,10 @@ func TestScalerChargesLaunchesUntilTheUsageDataShowsThem(t *testing.T) {
 func TestBudgetGateChargesUnbilledHosts(t *testing.T) {
 	budget := &Budget{MonthlyCapCents: 35000, Currency: "USD"}
 	pool := pricedPool("general", 1500)
-	if gate := newBudgetGate(budget, midSpend(), []NodePool{pool, pool}, midMonth); gate.unknown || gate.headroom != 1000 {
+	if gate := newBudgetGate(budget, midSpend(), []NodePool{pool, pool}, midMonth); gate.hold != "" || gate.headroom != 1000 {
 		t.Fatalf("gate = %+v", gate)
 	}
-	if gate := newBudgetGate(budget, midSpend(), []NodePool{generalPool()}, midMonth); !gate.unknown {
+	if gate := newBudgetGate(budget, midSpend(), []NodePool{pricedPool("general", 0)}, midMonth); gate.hold != reasonBudgetUnknown {
 		t.Fatalf("an unpriced unbilled host was not refused: %+v", gate)
 	}
 }
@@ -317,7 +316,7 @@ func TestScalerTrustsAnEmptyAnswerOnlyInANewCell(t *testing.T) {
 	spend := &fakeSpend{spend: Spend{Empty: true, Through: october(14)}}
 	prov := &provisioner{}
 	scaler := newScaler(midMonth.Add(-time.Hour), &clock, spend, prov)
-	if err := scaler.Tick(context.Background()); err != nil || !slices.Equal(prov.launched, []string{"general-0"}) {
+	if err := scaler.Tick(context.Background()); err != nil || !slices.Equal(prov.launched, []string{"gru-1-pool-general-1"}) {
 		t.Fatalf("new cell: launched %v, %v", prov.launched, err)
 	}
 	// Through Oct 18 covers Oct 16 11:00 to Oct 17 11:00, a whole day

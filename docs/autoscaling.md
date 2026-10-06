@@ -21,15 +21,16 @@ left to port.
 
 ## Slices
 
-1. **Budget cap** (this slice). A `budget` section in the cell spec, spend
-   from the OCI usage API, and a gate that holds pool launches the cell
-   cannot afford.
-2. **Pool hosts.** Launch and terminate pool hosts (A1 Flex) with journaled
-   retry tokens, as `cellscale` does for db nodes, and enroll a pool host
-   only when OCI shows the tagged instance the provisioner launched. One
-   slice, so a launched host can always enroll. Live launches need a
-   budget, and pool instances OCI created after the usage data ends count
-   against it, so a failover cannot forget them.
+1. **Budget cap** (#202). A `budget` section in the cell spec, spend from
+   the OCI usage API, and a gate that holds pool launches the cell cannot
+   afford.
+2. **Pool hosts**, in three PRs; only the last wires launches into the
+   controller, so a launched host can always enroll:
+   1. Pool host names and membership (this PR): see [pool hosts](#pool-hosts).
+   2. The OCI provisioner: launch and terminate A1 Flex pool hosts with
+      journaled retry tokens, as `cellscale` does for db nodes.
+   3. Enrollment: a pool host enrolls only when OCI shows the tagged
+      instance at its address; the controller wires the provisioner.
 3. **Drain-first scale-down.** Cordon an underused pool host, let the
    reconciler move its replicas within rollout and quorum limits, then
    reclaim it. Node pools move into the cell spec so `ts-orch apply` edits
@@ -41,6 +42,25 @@ left to port.
 Region bring-up from one `ts-orch apply` (VCN, LB, DNS, hosts) goes through
 the existing OCI reconcilers and region lifecycle; it is tracked after these
 slices.
+
+## Pool hosts
+
+A node pool's hosts are cell servers named `<cell>-pool-<pool>-<n>`
+(`gru-1-pool-app-3`, `internal/naming`), so a pool name is 2 to 12
+lower-case letters and digits. With a provisioner, OCI is the truth about
+which pool hosts exist, because a host registration outlives its host:
+
+| OCI holds the host | Host registration | The scaler sees |
+| --- | --- | --- |
+| yes | live session | a member: capacity, reclaimed when idle |
+| yes | none | a launch in progress, also one a former leader made; terminated (`launch-expired`) without a live session within the 15-minute launch grace |
+| yes | silent session | neither capacity nor free: it keeps its name for host repair (TS-568) |
+| terminating | any | not capacity; its name is free once OCI deleted it |
+| no | any | a stale registration; the name is free and a new host registers its next generation |
+
+Without a provisioner (recommend-only), registrations with a live session
+are members and silent ones keep their names. A provisioner launches only
+under a cell budget (`hostpool.budget-missing` otherwise).
 
 ## Budget
 
@@ -77,10 +97,9 @@ projected spend + (unbilled + new hosts) x host_monthly_cents <= cap
 - **Hosts.** Each new host costs its full monthly price, whatever the day:
   a host launched on the 30th still costs its full price next month.
 - **Unbilled hosts.** A pool host is in the reading once a whole complete
-  day followed its launch. Until then it is charged on top, so launches add
-  up across ticks while the data lags. The scaler dates a host by when it
-  first saw it, which after a failover charges existing hosts twice for
-  about three days; slice 2 uses OCI creation times instead.
+  day followed its creation in OCI. Until then it is charged on top, so
+  launches add up across ticks while the data lags, also across failovers:
+  the creation time comes from OCI, not the leader's memory.
 - **Whole plans.** A pool's planned launches pass or hold together: part of
   a plan may place nothing. Pools take the headroom in config order.
 - **Reads.** At most hourly; after a failed read or once a new month began,
@@ -93,7 +112,7 @@ projected spend + (unbilled + new hosts) x host_monthly_cents <= cap
   as a lasting `budget-unknown` hold, also for launches up to a pool's `min`.
 - **Never removes capacity.** Over the cap, launches stop. Idle reclaim
   keeps its normal rules; nothing is terminated to save money.
-- **Without a budget** pools plan as before.
+- **Without a budget** pools recommend as before, and a provisioner launches nothing.
 - **Not TerraBase.** `cellscale` sizes TerraBase db cells under its own
   `monthly_budget`; this cap gates pool launches only, but the spend it
   reads includes TerraBase hosts.

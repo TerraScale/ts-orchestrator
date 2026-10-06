@@ -103,8 +103,9 @@ v2 subtree. Recovery examines that subtree before accepting new desired state.
 **Static names**
 
 A cell server's one name, from `internal/naming`: `<region>-<index>-<role>-<n>`
-with role `ctl`, `db` or `gw` (`gru-1-ctl-1`, `gru-1-db-2`), used for OCI
-display names, NATS server names and NetBird peers; cell DNS records use the
+with role `ctl`, `db` or `gw` (`gru-1-ctl-1`, `gru-1-db-2`), or
+`<region>-<index>-pool-<pool>-<n>` for a node pool's host (`gru-1-pool-app-3`),
+used for OCI display names, NATS server names and NetBird peers; cell DNS records use the
 role and number (`ctl-1.gru.ts.internal`). It never carries
 a release, deployment ID, date or digest; those live in tags and launch
 metadata.

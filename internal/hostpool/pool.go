@@ -15,19 +15,23 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 )
 
 var (
 	ErrInvalidPool = errors.New("invalid host pool")
 	nameRE         = regexp.MustCompile(`^[a-z][a-z0-9-]{0,40}$`)
+	poolNameRE     = regexp.MustCompile(`^[a-z][a-z0-9]{1,11}$`)
 	domainRE       = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 )
 
 const maxPoolHosts = 256
 
-// NodePool is an operator-signed generic host pool. Pool hosts are named
-// "<name>-<ordinal>" so membership and launch identity are deterministic.
+// NodePool is an operator-signed generic host pool. Its hosts are cell
+// servers named <cell>-pool-<name>-<n> (naming.Cell.PoolServer), n being the
+// pool ordinal plus one, so membership and launch identity are
+// deterministic. A name is 2 to 12 lower-case letters and digits.
 // Shape is the host's total capacity; SystemReserveBytes is withheld from
 // memory for the host agent and operating system, matching registration.
 // HostMonthlyCents is what one host costs per month, in the cell budget's
@@ -47,7 +51,7 @@ type NodePool struct {
 
 // Validate checks the pool in isolation.
 func (p NodePool) Validate() error {
-	if !nameRE.MatchString(p.Name) || !nameRE.MatchString(p.Environment) || len(p.Roles) == 0 || len(p.Roles) > 32 {
+	if !poolNameRE.MatchString(p.Name) || !nameRE.MatchString(p.Environment) || len(p.Roles) == 0 || len(p.Roles) > 32 {
 		return fmt.Errorf("%w: name, environment or roles", ErrInvalidPool)
 	}
 	for _, role := range p.Roles {
@@ -94,17 +98,22 @@ func ValidatePools(pools []NodePool) error {
 	return nil
 }
 
-// NodeName is the deterministic node name and launch identity of an ordinal.
-func (p NodePool) NodeName(ordinal int) string { return p.Name + "-" + strconv.Itoa(ordinal) }
+// NodeName is the deterministic node name and launch identity of an
+// ordinal in cell, e.g. gru-1-pool-app-1 for ordinal 0 in gru.
+func (p NodePool) NodeName(cell string, ordinal int) string {
+	name, _ := naming.RegionCell(strings.ToUpper(cell)).PoolServer(p.Name, ordinal+1)
+	return name
+}
 
-// Ordinal returns the pool ordinal of a member node name.
-func (p NodePool) Ordinal(node string) (int, bool) {
-	suffix, ok := strings.CutPrefix(node, p.Name+"-")
-	if !ok || suffix == "" || len(suffix) > 3 || suffix[0] == '0' && suffix != "0" {
+// Ordinal returns the pool ordinal of a member node name in cell.
+func (p NodePool) Ordinal(cell, node string) (int, bool) {
+	server, err := naming.RegionCell(strings.ToUpper(cell)).Name()
+	suffix, ok := strings.CutPrefix(node, server+"-pool-"+p.Name+"-")
+	if err != nil || !ok || suffix == "" || len(suffix) > 3 || suffix[0] == '0' {
 		return 0, false
 	}
-	ordinal, err := strconv.Atoi(suffix)
-	return ordinal, err == nil && ordinal >= 0 && ordinal < maxPoolHosts
+	n, err := strconv.Atoi(suffix)
+	return n - 1, err == nil && n >= 1 && n <= maxPoolHosts
 }
 
 func (p NodePool) servesRole(role string) bool { return slices.Contains(p.Roles, role) }
@@ -166,11 +175,14 @@ func PlanPool(in PlanInput) (Plan, error) {
 	if err := in.Pool.Validate(); err != nil {
 		return Plan{}, err
 	}
+	if _, err := naming.RegionCell(strings.ToUpper(in.Cell)).Name(); err != nil {
+		return Plan{}, fmt.Errorf("%w: cell %q has no server names", ErrInvalidPool, in.Cell)
+	}
 	members := slices.Clone(in.Members)
 	slices.SortFunc(members, func(a, b Member) int { return cmp.Compare(a.Node, b.Node) })
 	used := make(map[int]bool, len(members))
 	for _, member := range members {
-		ordinal, ok := in.Pool.Ordinal(member.Node)
+		ordinal, ok := in.Pool.Ordinal(in.Cell, member.Node)
 		if !ok {
 			return Plan{}, fmt.Errorf("%w: %q is not a member name", ErrInvalidPool, member.Node)
 		}
@@ -190,7 +202,7 @@ func PlanPool(in PlanInput) (Plan, error) {
 	if len(demands) > 0 {
 		fitted := false
 		for extra := floor; extra <= max(headroom, 0); extra++ {
-			if fits(in, demands, launches(in.Pool, members, used, extra)) {
+			if fits(in, demands, launches(in.Cell, in.Pool, members, used, extra)) {
 				need, fitted, reason = extra, true, "insufficient-capacity"
 				break
 			}
@@ -200,7 +212,7 @@ func PlanPool(in PlanInput) (Plan, error) {
 		}
 	}
 	if need > 0 {
-		return Plan{Launch: launches(in.Pool, members, used, need), Reason: reason}, nil
+		return Plan{Launch: launches(in.Cell, in.Pool, members, used, need), Reason: reason}, nil
 	}
 	if len(demands) > 0 {
 		return Plan{Reason: reason}, nil
@@ -221,15 +233,15 @@ func PlanPool(in PlanInput) (Plan, error) {
 	}
 	// Reclaim the highest ordinal so launches reuse low ordinals.
 	victim := slices.MaxFunc(candidates, func(a, b Member) int {
-		left, _ := in.Pool.Ordinal(a.Node)
-		right, _ := in.Pool.Ordinal(b.Node)
+		left, _ := in.Pool.Ordinal(in.Cell, a.Node)
+		right, _ := in.Pool.Ordinal(in.Cell, b.Node)
 		return cmp.Compare(left, right)
 	})
 	return Plan{Reclaim: []string{victim.Node}, Reason: "idle-cooldown-elapsed"}, nil
 }
 
 // launches chooses count new ordinals and failure domains deterministically.
-func launches(pool NodePool, members []Member, used map[int]bool, count int) []Launch {
+func launches(cell string, pool NodePool, members []Member, used map[int]bool, count int) []Launch {
 	domains := make(map[string]int, len(pool.FailureDomains))
 	for _, member := range members {
 		domains[member.FailureDomain]++
@@ -246,7 +258,7 @@ func launches(pool NodePool, members []Member, used map[int]bool, count int) []L
 			return cmp.Compare(slices.Index(pool.FailureDomains, a), slices.Index(pool.FailureDomains, b))
 		})
 		domains[domain]++
-		result = append(result, Launch{Node: pool.NodeName(ordinal), FailureDomain: domain})
+		result = append(result, Launch{Node: pool.NodeName(cell, ordinal), FailureDomain: domain})
 	}
 	return result
 }

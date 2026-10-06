@@ -21,6 +21,7 @@ func TestCellAndServerNames(t *testing.T) {
 		{gru.Image, "gru-1-arm64"},
 		{func() (string, error) { return Data("sfo-1-db-1") }, "sfo-1-db-1-data"},
 		{func() (string, error) { return gru.Server(Gateway, 1) }, "gru-1-gw-1"},
+		{func() (string, error) { return gru.PoolServer("app", 3) }, "gru-1-pool-app-3"},
 		{func() (string, error) { return gru.API("") }, "gru-1-api"},
 		{func() (string, error) { return gru.API("subnet") }, "gru-1-api-subnet"},
 	} {
@@ -44,6 +45,10 @@ func TestGenerationRejectsOutOfSchemeInput(t *testing.T) {
 		func() (string, error) { return RegionCell("LHR").API("") },
 		func() (string, error) { return RegionCell("GRU").API("Subnet-1") },
 		func() (string, error) { return Data("gru-1-db-1-data") },
+		func() (string, error) { return RegionCell("GRU").PoolServer("a", 1) },
+		func() (string, error) { return RegionCell("GRU").PoolServer("app-web", 1) },
+		func() (string, error) { return RegionCell("GRU").PoolServer("app", 0) },
+		func() (string, error) { return Data("gru-1-pool-app-1") },
 	} {
 		if got, err := call(); !errors.Is(err, ErrName) || got != "" {
 			t.Fatalf("got %q, %v; want ErrName", got, err)
@@ -52,7 +57,8 @@ func TestGenerationRejectsOutOfSchemeInput(t *testing.T) {
 }
 
 func TestValidateRejectsReleaseDerivedAndLegacyNames(t *testing.T) {
-	for _, name := range []string{"gru-1", "sfo-12", "fra-1-ctl-3", "gru-1-db-10", "gru-1-db-1-data", "gru-1-gw-1"} {
+	for _, name := range []string{"gru-1", "sfo-12", "fra-1-ctl-3", "gru-1-db-10", "gru-1-db-1-data", "gru-1-gw-1",
+		"gru-1-pool-app-3", "gru-1-pool-general2-256"} {
 		if err := Validate(name); err != nil {
 			t.Fatalf("rejected %q: %v", name, err)
 		}
@@ -60,6 +66,7 @@ func TestValidateRejectsReleaseDerivedAndLegacyNames(t *testing.T) {
 	for _, name := range []string{
 		"", "gru", "GRU-1", "gru-0", "gru-01", "lhr-1", "gru-1-ctl", "gru-1-ctl-0", "gru-1-host-1",
 		"gru-1-ctl-1-data", "gru-1-gw-1-data", "gru-1-db-1-boot", " gru-1", "gru-1-ctl-1.", "gru-1-mem-1",
+		"gru-1-pool-app", "gru-1-pool-app-0", "gru-1-pool-1app-1", "gru-1-pool-thirteenchars-1", "gru-1-pool-app-1-data",
 		// Names the cell carried before this scheme: slot, deployment and digest derived.
 		"gru-controller-a", "controller-b", "gru-member-1",
 		"ts-preview-gru-20260929-r4-controller-a", "ts-preview-gru-20260926-host-0123456789abcdef01234567",

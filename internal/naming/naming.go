@@ -3,6 +3,7 @@
 // <region>-<index> (gru-1) and a server is <cell>-<role>-<n> (gru-1-ctl-1,
 // gru-1-db-2, gru-1-gw-1), where region is a catalog cell code in lower case
 // and index and n count from 1. A member's retained data volume adds -data.
+// A node pool's host is <cell>-pool-<pool>-<n> (gru-1-pool-app-3).
 //
 // Names never carry a release, deployment ID, date, generation or digest, so
 // they stay the same across rollouts and replacements. That identity belongs
@@ -26,9 +27,10 @@ const (
 )
 
 // ErrName reports a name outside the scheme.
-var ErrName = errors.New("name does not follow <region>-<index>[-<role>-<n>[-data]]")
+var ErrName = errors.New("name does not follow <region>-<index>[-<role>-<n>[-data]] or <region>-<index>-pool-<pool>-<n>")
 
-var scheme = regexp.MustCompile(`^([a-z]+)-[1-9][0-9]{0,2}(?:-(?:ctl|gw)-[1-9][0-9]{0,2}|-db-[1-9][0-9]{0,2}(?:-data)?)?$`)
+var scheme = regexp.MustCompile(`^([a-z]+)-[1-9][0-9]{0,2}(?:-(?:ctl|gw)-[1-9][0-9]{0,2}|-db-[1-9][0-9]{0,2}(?:-data)?|` +
+	`-pool-[a-z][a-z0-9]{1,11}-[1-9][0-9]{0,2})?$`)
 
 var apiPart = regexp.MustCompile(`^[a-z]+$`)
 
@@ -61,6 +63,13 @@ func (c Cell) Image() (string, error) {
 // Server returns the name of the cell's n-th server of role, e.g. gru-1-ctl-1.
 func (c Cell) Server(role string, n int) (string, error) {
 	return valid(fmt.Sprintf("%s-%d-%s-%d", strings.ToLower(c.Region), c.Index, role, n))
+}
+
+// PoolServer returns the name of the n-th host of a node pool, e.g.
+// gru-1-pool-app-3. A pool name is 2 to 12 lower-case letters and digits,
+// starting with a letter.
+func (c Cell) PoolServer(pool string, n int) (string, error) {
+	return valid(fmt.Sprintf("%s-%d-pool-%s-%d", strings.ToLower(c.Region), c.Index, pool, n))
 }
 
 // ControllerSlot returns the server name of a signed controller slot:
