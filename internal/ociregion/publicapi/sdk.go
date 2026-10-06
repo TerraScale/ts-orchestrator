@@ -55,6 +55,7 @@ var creators = map[string]creator{
 	"lb load-balancer create":         createLoadBalancer,
 	"lb certificate create":           createLBCertificate,
 	"lb load-balancer update-shape":   updateLBShape,
+	"lb load-balancer update":         updateLBTags,
 	"lb backend-set update":           updateBackendSet,
 	"lb hostname update":              updateHostname,
 	"lb listener update":              updateListener,
@@ -79,6 +80,7 @@ var createFlags = map[string][]string{
 		"network-security-group-ids", "shape-details", "certificates", "hostnames", "backend-sets", "listeners", "rule-sets"},
 	"lb certificate create":         {"load-balancer-id", "certificate"},
 	"lb load-balancer update-shape": {"load-balancer-id", "shape-name", "shape-details"},
+	"lb load-balancer update":       {"load-balancer-id", "freeform-tags"},
 	"lb backend-set update":         {"load-balancer-id", "backend-set-name", "details"},
 	"lb hostname update":            {"load-balancer-id", "name", "hostname"},
 	"lb listener update":            {"load-balancer-id", "listener-name", "details"},
@@ -473,6 +475,29 @@ func updateLBShape(ctx context.Context, c *SDKClient, command sdkcli.Command) (a
 	response, err := client.UpdateLoadBalancerShape(ctx, loadbalancer.UpdateLoadBalancerShapeRequest{LoadBalancerId: &values[0],
 		UpdateLoadBalancerShapeDetails: loadbalancer.UpdateLoadBalancerShapeDetails{ShapeName: &values[1], ShapeDetails: &shape}})
 	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
+}
+
+// updateLBTags replaces the load balancer's freeform tags; its defined tags
+// are left as they are.
+func updateLBTags(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {
+	values, err := flags(command, "load-balancer-id")
+	if err != nil {
+		return nil, err
+	}
+	var tags map[string]string
+	if err := jsonFlag(command, "freeform-tags", &tags); err != nil {
+		return nil, err
+	}
+	client, err := c.loadBalancer()
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.UpdateLoadBalancer(ctx, loadbalancer.UpdateLoadBalancerRequest{LoadBalancerId: &values[0],
+		UpdateLoadBalancerDetails: loadbalancer.UpdateLoadBalancerDetails{FreeformTags: tags}})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"work-request-id": response.OpcWorkRequestId}, nil
 }
 
 func updateBackendSet(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {

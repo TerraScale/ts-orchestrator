@@ -40,7 +40,7 @@ func publishedBackends(t *testing.T, store ociresource.Store) (uint64, []string)
 
 func TestPublicLBConfigDecodesAndValidates(t *testing.T) {
 	var cfg ControllerConfig
-	wire := `{"oci_reconcile":{"enabled":true,"public_lb":{"name":"public-terrabase","load_balancer_id":"` + publicLBID +
+	wire := `{"oci_reconcile":{"enabled":true,"public_lb":{"load_balancer_id":"` + publicLBID +
 		`","backend_set":"terrabase","seats":["gru-1-db-1"]}}}`
 	if err := json.Unmarshal([]byte(wire), &cfg, json.RejectUnknownMembers(true)); err != nil {
 		t.Fatal(err)
@@ -49,12 +49,19 @@ func TestPublicLBConfigDecodesAndValidates(t *testing.T) {
 	if key, err := public.key("GRU"); err != nil || key.String() != "GRU/lb-backends/public-terrabase" {
 		t.Fatalf("key=%v err=%v", key, err)
 	}
+	if _, err := cfg.OciReconcile.publicLBKey("GRU"); err != nil {
+		t.Fatal(err)
+	}
+	defined := *cfg.OciReconcile
+	defined.TagMode = string(ociresource.TagModeDefined)
+	if _, err := defined.publicLBKey("GRU"); err == nil {
+		t.Fatal("accepted public_lb with defined tags, which public-api apply never stamps")
+	}
 	for _, bad := range []OciReconcileLBConfig{
-		{Name: "Public", LoadBalancerID: publicLBID, BackendSet: "terrabase"},
-		{Name: "public-terrabase", LoadBalancerID: "ocid1.networkloadbalancer.oc1..n", BackendSet: "terrabase"},
-		{Name: "public-terrabase", LoadBalancerID: publicLBID},
-		{Name: "public-terrabase", LoadBalancerID: publicLBID, BackendSet: "terrabase", Seats: []string{"gru-1-db-1", "gru-1-db-1"}},
-		{Name: "public-terrabase", LoadBalancerID: publicLBID, BackendSet: "terrabase", Seats: []string{""}},
+		{LoadBalancerID: "ocid1.networkloadbalancer.oc1..n", BackendSet: "terrabase"},
+		{LoadBalancerID: publicLBID},
+		{LoadBalancerID: publicLBID, BackendSet: "terrabase", Seats: []string{"gru-1-db-1", "gru-1-db-1"}},
+		{LoadBalancerID: publicLBID, BackendSet: "terrabase", Seats: []string{""}},
 	} {
 		if _, err := bad.key("GRU"); err == nil {
 			t.Fatalf("accepted %+v", bad)
@@ -63,7 +70,7 @@ func TestPublicLBConfigDecodesAndValidates(t *testing.T) {
 }
 
 func TestPublicLBSpecIsTheSignedSeats(t *testing.T) {
-	public := OciReconcileLBConfig{Name: "public-terrabase", LoadBalancerID: publicLBID, BackendSet: "terrabase"}
+	public := OciReconcileLBConfig{LoadBalancerID: publicLBID, BackendSet: "terrabase"}
 	profiles := terraBaseSeats("gru-1-db-1=10.251.0.21:9443,gru-1-db-2=10.251.0.22:9443")
 	spec, err := public.spec(profiles)
 	if err != nil {
@@ -97,7 +104,7 @@ func TestPublicLBSpecIsTheSignedSeats(t *testing.T) {
 // generation, and keeps the last published set when the profile yields an
 // unusable one.
 func TestPublicLBPassFollowsTheProfile(t *testing.T) {
-	public := OciReconcileLBConfig{Name: "public-terrabase", LoadBalancerID: publicLBID, BackendSet: "terrabase"}
+	public := OciReconcileLBConfig{LoadBalancerID: publicLBID, BackendSet: "terrabase"}
 	key, err := public.key("GRU")
 	if err != nil {
 		t.Fatal(err)

@@ -27,7 +27,8 @@ func same(v any, want any) bool { return fmt.Sprint(v) == fmt.Sprint(want) }
 // differs from the configuration apply creates: bandwidth, hostname
 // bindings, listeners and their client-certificate checks, and backend sets
 // holding the planned backends: exactly every controller for ts-auth, and
-// for terrabase planned members only, at least one of them serving.
+// for terrabase exactly the seed, or, once the plan hands the set to the
+// controller, planned members only with at least one of them serving.
 func (d Desired) CheckBalancer(lb map[string]any) error {
 	if err := d.OriginPull.Validate(); err != nil {
 		return err
@@ -93,7 +94,11 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 	if !slices.Equal(slices.Sorted(maps.Keys(sets)), []string{"terrabase", "ts-auth"}) {
 		return differs("backend sets", slices.Sorted(maps.Keys(sets)))
 	}
-	for name, want := range map[string][]Backend{"terrabase": d.Members, "ts-auth": d.Auth} {
+	terrabaseWant := d.TerraBase
+	if d.controllerOwned() {
+		terrabaseWant = d.Members
+	}
+	for name, want := range map[string][]Backend{"terrabase": terrabaseWant, "ts-auth": d.Auth} {
 		var expected []string
 		for _, b := range want {
 			expected = append(expected, b.Addr.String())
@@ -106,7 +111,8 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 		ok := err == nil && field(set, "health-checker", "protocol") == "HTTP" &&
 			field(set, "health-checker", "url-path") == HealthPath && same(field(set, "health-checker", "port"), port) &&
 			same(field(set, "health-checker", "return-code"), 200)
-		if name == "terrabase" {
+		owned := name == "terrabase" && d.controllerOwned()
+		if owned {
 			// The controller owns these backends: any planned members,
 			// drained during a release, with at least one serving.
 			serving := false
@@ -121,7 +127,7 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 			// Creation leaves these optional flags at their false defaults;
 			// only the controller drains a TerraBase seat.
 			for _, flag := range []string{"offline", "drain", "backup"} {
-				ok = ok && (b[flag] == nil || b[flag] == false || flag == "drain" && name == "terrabase")
+				ok = ok && (b[flag] == nil || b[flag] == false || flag == "drain" && owned)
 			}
 		}
 		if name == "terrabase" {

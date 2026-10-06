@@ -105,14 +105,20 @@ cell's signed `terrabase` profile names: every `TERRABASE_PEERS` member at
 `TERRABASE_CLIENT_PORT` (TS-571, see
 [zero-downtime TerraBase rollouts](terrabase-zero-downtime-rollouts.md)).
 `seats` limits it to the listed members; a listed seat the profile does not
-name stops publication, and the previous set stays in force. Tag the load
-balancer with this controller's ownership for `<CELL>/lb-backends/<name>`
-first. `public-api apply` seeds the set when it creates the load balancer and
-never converges its backends afterwards.
+name stops publication, and the previous set stays in force. The load
+balancer must carry this controller's freeform ownership for
+`<CELL>/lb-backends/public-terrabase`: `public-api apply` stamps it when the
+plan names `orchestrator_owner`, the same key the controller uses. Apply
+stamps freeform tags only, so the controller refuses `public_lb` with a
+defined `tag_mode`. Apply refuses a load balancer another owner or
+resource key claims. It seeds the set when it creates the load balancer and,
+with an owner, never converges its backends afterwards; a plan without
+`orchestrator_owner` keeps apply converging them to the seed, and is refused
+before any change on a load balancer that already carries ts-orchestrator
+ownership.
 
 ```json
 "public_lb": {
-  "name": "public-terrabase",
   "load_balancer_id": "ocid1.loadbalancer.oc1...",
   "backend_set": "terrabase",
   "seats": ["gru-1-db-1"]

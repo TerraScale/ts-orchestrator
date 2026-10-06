@@ -1,7 +1,7 @@
 # Zero-downtime TerraBase rollouts (TS-571)
 
-Status: design note. Slices 1 (the L7 backend-set reconciler) and 2 (seats
-as backends, except stamping ownership tags) are implemented; the rest is
+Status: design note. Slices 1 (the L7 backend-set reconciler), 2 (seats as
+backends) and 3 (`running` needs `/readyz`) are implemented; the rest is
 **PROPOSED**.
 
 ## Problem
@@ -68,17 +68,23 @@ Implemented: `oci_reconcile.public_lb` publishes the seats every pass (see
 [OCI reconcile](oci-reconcile.md)). Its optional `seats` list keeps gru-1 at
 `gru-1-db-1` until TS-561 replicates the catalog. The drain set is slice 4.
 
-`public_api.terrabase_members` only seeds the set when `public-api apply`
-creates the load balancer. Apply's converge step no longer rewrites the set's
-backends (it compared `ip:port` only and would clear drain flags), and its
-readback accepts planned members only, drained or not, with one serving.
-**PROPOSED:** apply stamps the controller's ownership tags on the load
-balancer; until then an operator tags it before enabling `public_lb`.
+`public_api.terrabase_members` seeds the set when `public-api apply`
+creates the load balancer. When the plan names `orchestrator_owner`, apply
+stamps the controller's freeform ownership of
+`<CELL>/lb-backends/public-terrabase` on the load balancer, keeping its other
+tags and refusing one another owner claims; its converge step then no longer
+rewrites the set's backends (it compared `ip:port` only and would clear drain
+flags), and its readback accepts planned members only, drained or not, with
+one serving. A plan without an owner hands nothing to the controller, so
+apply keeps converging and checking the set against the seed; on a load
+balancer that already carries ts-orchestrator ownership it is refused
+before any change. Ownership is validated and stamped before apply changes
+anything else.
 
 The controllers' instance principal needs `use load-balancers` in the
 network compartment.
 
-### 3. Serving means caught up (slice 3, implemented)
+### 3. Serving means caught up (slice 3)
 
 The host reports a member `running` only after `/healthz` answers and its
 client `/readyz` answers 200 over the member's TLS listener, verified

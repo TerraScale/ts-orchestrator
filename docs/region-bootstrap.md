@@ -721,12 +721,16 @@ records either balancer.
 - Backend sets: `terrabase` sends HTTPS to the members at 9465, verified
   against the member CA, with `GET /readyz` health checks (TerraBase TS-483
   adds `/readyz`; until then the set reports unhealthy). The plan's
-  `terrabase_members` only seeds the set when `apply` creates the load
+  `terrabase_members` seeds the set when `apply` creates the load
   balancer; it lists `gru-1-db-1` until TS-561 replicates the catalog.
-  Afterwards the controller's `oci_reconcile.public_lb` owns the set's
-  backends (TS-571, [OCI reconcile](oci-reconcile.md)): `apply` still
-  converges an existing load balancer's bandwidth, hostnames and ts-auth
-  backends, but never rewrites the TerraBase ones.
+  When the plan names `orchestrator_owner`, the controller's
+  `oci_reconcile.public_lb` owns the set's backends afterwards (TS-571,
+  [OCI reconcile](oci-reconcile.md)): `apply` stamps the controller's
+  ownership of `GRU/lb-backends/public-terrabase`, still converges an
+  existing load balancer's bandwidth, hostnames and ts-auth backends, but
+  never rewrites the TerraBase ones. Without an owner, apply keeps the
+  TerraBase backends equal to `terrabase_members`, and refuses, before any
+  change, a load balancer that already carries ts-orchestrator ownership.
   `ts-auth` sends HTTP to
   every controller on 8080 with `GET /readyz`, so controllers without a
   replica drop out.

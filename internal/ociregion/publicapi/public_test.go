@@ -28,6 +28,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/command"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -183,6 +184,13 @@ func (f *fakeOCI) Call(_ context.Context, args ...string) (map[string]any, error
 		rendered := f.render(listener)
 		rendered["name"] = c.Flags["listener-name"]
 		f.balancer["listeners"].(map[string]any)[c.Flags["listener-name"]] = rendered
+		return data(map[string]any{}), nil
+	case c.Path == "lb load-balancer update":
+		var tags map[string]any
+		if err := jsonFlag(c, "freeform-tags", &tags); err != nil {
+			f.t.Fatal(err)
+		}
+		f.balancer["freeform-tags"] = tags
 		return data(map[string]any{}), nil
 	case c.Path == "lb hostname update":
 		f.balancer["hostnames"].(map[string]any)[c.Flags["name"]] = map[string]any{"name": c.Flags["name"], "hostname": c.Flags["hostname"]}
@@ -393,7 +401,7 @@ func TestApplyConvergesAnExistingLoadBalancerToThePlan(t *testing.T) {
 	_, cloudflare := newFakeCloudflare(t)
 	f := newFakeOCI(t)
 	p := Provisioner{Client: f, Pause: func(context.Context, time.Duration) error { return nil }}
-	d := testDesired(t, testPlan)
+	d := testDesired(t, ownedPlan)
 	members := testCA(t)
 	steps, err := p.certSteps(t.Context(), d, cloudflare)
 	if err != nil || run(t.Context(), steps, true, io.Discard) != nil {
@@ -402,13 +410,16 @@ func TestApplyConvergesAnExistingLoadBalancerToThePlan(t *testing.T) {
 	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil {
 		t.Fatal(err)
 	}
-	// The controller owns the terrabase backends: it added gru-1-db-2 and
-	// drained gru-1-db-1 for a release. Rerunning apply with the db-1 seed
-	// and more bandwidth changes only the bandwidth.
+	// The plan names the owner, so the controller owns the terrabase
+	// backends: it added gru-1-db-2 and drained gru-1-db-1 for a release.
+	// Rerunning apply with the db-1 seed and more bandwidth changes only the
+	// bandwidth.
 	set := field(f.balancer, "backend-sets", "terrabase").(map[string]any)
-	set["backends"] = []any{map[string]any{"ip-address": "10.251.0.21", "port": 9465, "drain": true},
+	managed := []any{map[string]any{"ip-address": "10.251.0.21", "port": 9465, "drain": true},
 		map[string]any{"ip-address": "10.251.0.22", "port": 9465}}
-	d = testDesired(t, strings.NewReplacer(`"max_mbps":100`, `"max_mbps":200`).Replace(testPlan))
+	set["backends"] = managed
+	ownerless := testDesired(t, strings.NewReplacer(`"max_mbps":100`, `"max_mbps":200`).Replace(testPlan))
+	d = testDesired(t, strings.NewReplacer(`"max_mbps":100`, `"max_mbps":200`).Replace(ownedPlan))
 	f.calls = nil
 	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil {
 		t.Fatal(err)
@@ -419,6 +430,27 @@ func TestApplyConvergesAnExistingLoadBalancerToThePlan(t *testing.T) {
 	if got := field(f.balancer, "backend-sets", "terrabase", "backends").([]any); len(got) != 2 || got[0].(map[string]any)["drain"] != true {
 		t.Fatalf("apply rewrote the controller's backends: %v", got)
 	}
+	// A plan without an owner cannot take back a load balancer the
+	// controller owns: nothing changes, not even the bandwidth.
+	f.calls = nil
+	if _, err := p.Provision(t.Context(), ownerless, cloudflare, members); err == nil ||
+		!strings.Contains(err.Error(), "name orchestrator_owner") || len(f.mutations()) != 0 {
+		t.Fatalf("ownerless apply on an owned load balancer: mutations=%v err=%v", f.mutations(), err)
+	}
+	// On an unclaimed load balancer nothing hands the set to the
+	// controller, so apply converges it to the seed as before.
+	tags := f.balancer["freeform-tags"]
+	f.balancer["freeform-tags"] = map[string]any{}
+	if _, err := p.Provision(t.Context(), ownerless, cloudflare, members); err != nil {
+		t.Fatal(err)
+	}
+	f.balancer["freeform-tags"] = tags
+	if got := liveBackends(f.balancer, "terrabase"); !slices.Equal(f.mutations(), []string{"lb backend-set update"}) ||
+		!slices.Equal(got, []string{"10.251.0.21:9465"}) {
+		t.Fatalf("ownerless apply: mutations=%v backends=%v", f.mutations(), got)
+	}
+	set = field(f.balancer, "backend-sets", "terrabase").(map[string]any)
+	set["backends"] = managed
 	f.calls = nil
 	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil || len(f.mutations()) != 0 {
 		t.Fatalf("converged load balancer mutated %v: %v", f.mutations(), err)
@@ -434,6 +466,74 @@ func TestApplyConvergesAnExistingLoadBalancerToThePlan(t *testing.T) {
 	f.balancer["listeners"].(map[string]any)["terrabase"].(map[string]any)["default-backend-set-name"] = "ts-auth"
 	if _, err := p.Provision(t.Context(), d, cloudflare, members); err == nil || !strings.Contains(err.Error(), "listener terrabase") {
 		t.Fatalf("accepted TerraBase traffic routed to ts-auth: %v", err)
+	}
+}
+
+// ownedPlan is testPlan with the controller owner the fleet tags hosts with.
+var ownedPlan = strings.Replace(testPlan, `"cell":"GRU",`, `"cell":"GRU","orchestrator_owner":"ts-470-gru-rebuild-2",`, 1)
+
+func TestApplyStampsTheControllerOwnershipOfTheTerraBaseSet(t *testing.T) {
+	d := testDesired(t, ownedPlan)
+	if d.Owned.String() != "GRU/lb-backends/public-terrabase" {
+		t.Fatal(d.Owned)
+	}
+	f := newFakeOCI(t)
+	_, cloudflare := newFakeCloudflare(t)
+	p := Provisioner{Client: f, Pause: func(context.Context, time.Duration) error { return nil }}
+	steps, err := p.certSteps(t.Context(), d, cloudflare)
+	if err != nil || run(t.Context(), steps, true, io.Discard) != nil {
+		t.Fatal(err)
+	}
+	members := testCA(t)
+	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil {
+		t.Fatal(err)
+	}
+	owned := func() bool {
+		tags := map[string]string{}
+		for name, value := range f.balancer["freeform-tags"].(map[string]any) {
+			tags[name] = fmt.Sprint(value)
+		}
+		return ociresource.Ownership{Mode: ociresource.TagModeFreeform, Owner: "ts-470-gru-rebuild-2"}.
+			Owns(d.Owned, ociresource.Tags{Freeform: tags})
+	}
+	if !owned() || !slices.Contains(f.mutations(), "lb load-balancer update") {
+		t.Fatalf("not stamped: tags=%v mutations=%v", f.balancer["freeform-tags"], f.mutations())
+	}
+	f.calls = nil
+	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil || len(f.mutations()) != 0 {
+		t.Fatalf("restamped an owned load balancer: %v %v", f.mutations(), err)
+	}
+
+	// An adopted load balancer keeps its other tags.
+	f.balancer["freeform-tags"] = map[string]any{"CostCenter": "infra"}
+	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil || !owned() ||
+		f.balancer["freeform-tags"].(map[string]any)["CostCenter"] != "infra" {
+		t.Fatalf("adopt: tags=%v err=%v", f.balancer["freeform-tags"], err)
+	}
+
+	// Another owner's or resource's claim is never overwritten, and nothing
+	// else changes first, not even a pending bandwidth change.
+	wider := testDesired(t, strings.Replace(ownedPlan, `"max_mbps":100`, `"max_mbps":200`, 1))
+	for _, claim := range []map[string]any{
+		{"terrascale-managed-by": "ts-orchestrator", "terrascale-owner": "someone-else", "terrascale-resource-key": d.Owned.String()},
+		{"terrascale-managed-by": "ts-orchestrator", "terrascale-owner": "ts-470-gru-rebuild-2", "terrascale-resource-key": "GRU/nlb-backends/public-api"},
+		{"terrascale-owner": "someone-else"},
+		{"terrascale-resource-key": "GRU/nlb-backends/public-api"},
+	} {
+		f.balancer["freeform-tags"], f.calls = claim, nil
+		if _, err := p.Provision(t.Context(), wider, cloudflare, members); err == nil || !strings.Contains(err.Error(), "another ts-orchestrator ownership") ||
+			len(f.mutations()) != 0 {
+			t.Fatalf("claim %v: err=%v mutations=%v", claim, err, f.mutations())
+		}
+	}
+
+	// Without an owner in the plan apply leaves the tags alone.
+	f.balancer["freeform-tags"], f.calls = map[string]any{}, nil
+	if _, err := p.Provision(t.Context(), testDesired(t, testPlan), cloudflare, members); err != nil || len(f.mutations()) != 0 {
+		t.Fatalf("stamped without an owner: %v %v", f.mutations(), err)
+	}
+	if _, err := ParsePlan([]byte(strings.Replace(ownedPlan, "ts-470-gru-rebuild-2", "Not A Token", 1))); err == nil {
+		t.Fatal("accepted an owner that is not a token")
 	}
 }
 
@@ -456,14 +556,19 @@ func TestCheckBalancerRequiresTheExactPlan(t *testing.T) {
 	if err := d.CheckBalancer(f.balancer); err != nil {
 		t.Fatalf("rejected the same origin-pull CA with CRLF: %v", err)
 	}
-	// The controller may add any planned member and drain one during a
-	// release while another serves.
+	// Once the plan names the owner, the controller may add any planned
+	// member and drain one during a release while another serves. Without
+	// one the set must be exactly the seed.
+	owned := testDesired(t, ownedPlan)
 	set := field(f.balancer, "backend-sets", "terrabase").(map[string]any)
 	seed := set["backends"]
 	set["backends"] = []any{map[string]any{"ip-address": "10.251.0.21", "port": 9465, "drain": true},
 		map[string]any{"ip-address": "10.251.0.22", "port": 9465, "drain": false}}
-	if err := d.CheckBalancer(f.balancer); err != nil {
+	if err := owned.CheckBalancer(f.balancer); err != nil {
 		t.Fatalf("rejected a controller-managed TerraBase set: %v", err)
+	}
+	if err := d.CheckBalancer(f.balancer); err == nil {
+		t.Fatal("an ownerless plan accepted backends beyond its seed")
 	}
 	set["backends"] = seed
 	for name, edit := range map[string]func(lb map[string]any){
@@ -533,7 +638,7 @@ func TestCheckBalancerRequiresTheExactPlan(t *testing.T) {
 				t.Fatal(err)
 			}
 			edit(lb)
-			if err := d.CheckBalancer(lb); err == nil {
+			if err := owned.CheckBalancer(lb); err == nil {
 				t.Fatal("accepted")
 			}
 		})

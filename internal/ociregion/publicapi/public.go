@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"net/netip"
 	"os"
 	"slices"
@@ -25,6 +26,8 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/command"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
 )
 
 // PublishedOriginIPs are Cloudflare's current published IPv4 ranges.
@@ -97,6 +100,11 @@ type Desired struct {
 	// put in it afterwards (TS-571).
 	TerraBase, Members, Auth []Backend
 	OriginPull               OriginPull
+	// Owner is the plan's orchestrator_owner. When it is set, apply stamps
+	// the controller's ownership of Owned on the load balancer.
+	Owner string
+	// Owned is the controller's resource key for the terrabase backend set.
+	Owned ociresource.Key
 }
 
 type planFile struct {
@@ -107,7 +115,8 @@ type planFile struct {
 		Slot      string `json:"slot"`
 		PrivateIP string `json:"private_ip"`
 	} `json:"hosts"`
-	PublicAPI *struct {
+	OrchestratorOwner string `json:"orchestrator_owner"`
+	PublicAPI         *struct {
 		SubnetCIDR   string `json:"subnet_cidr"`
 		ListenerPort int    `json:"listener_port"`
 		ClientPort   int    `json:"client_port"`
@@ -180,7 +189,13 @@ func (p planFile) desired() (Desired, error) {
 		Vault: id("vault"), Key: id("key"), PrivateCIDR: private.String(), PublicCIDR: subnet.String(),
 		// <region>.<service>.terrascale.tech; Atlas fronts the global names.
 		APIHost: strings.ToLower(p.Cell) + ".api.terrascale.tech", AuthHost: strings.ToLower(p.Cell) + ".auth.terrascale.tech", ClientPort: public.ClientPort,
-		MinMbps: public.MinMbps, MaxMbps: public.MaxMbps, Names: names}
+		MinMbps: public.MinMbps, MaxMbps: public.MaxMbps, Names: names,
+		Owner: p.OrchestratorOwner, Owned: ociresource.Key{Region: p.Cell, Kind: lb.Kind, Name: lb.PublicTerraBase}}
+	if d.Owner != "" {
+		if err := errors.Join(d.ownership().Validate(), d.Owned.Validate()); err != nil {
+			return Desired{}, fmt.Errorf("plan orchestrator_owner: %w", err)
+		}
+	}
 	// Unbound templates remain previewable; operational paths require this
 	// reviewed customer CA and uploaded Cloudflare client certificate.
 	if public.OriginPull != nil {
@@ -368,12 +383,21 @@ func (d Desired) Preview() []string {
 		fmt.Sprintf("listener https %s: :443, Origin CA certificate, requires the customer origin-pull client certificate, to backend set terrabase", d.APIHost),
 		fmt.Sprintf("listener https %s: :443, Origin CA certificate, requires the customer origin-pull client certificate, to backend set ts-auth", d.AuthHost),
 		"listener http: :80, 301 to https",
-		fmt.Sprintf("backend-set terrabase: %s, TLS verified against the member CA, GET %s", names(d.TerraBase), HealthPath),
+		fmt.Sprintf("backend-set terrabase: seeded with %s, then owned by the controller (%s), TLS verified against the member CA, GET %s",
+			names(d.TerraBase), or(ownedBy(d), "tag it before oci_reconcile.public_lb"), HealthPath),
 		fmt.Sprintf("backend-set ts-auth: %s, GET %s", names(d.Auth), HealthPath),
 		fmt.Sprintf("cloudflare: SSL Full (strict) for %s and %s, custom zone Authenticated Origin Pulls on; requires public_api.origin_pull CA and certificate ID (oci-region dns)", d.APIHost, d.AuthHost),
 		fmt.Sprintf("dns-record %s: A to the %s public IP, proxied (oci-region dns)", d.APIHost, d.Names.LB),
 		fmt.Sprintf("dns-record %s: A to the %s public IP, proxied (oci-region dns)", d.AuthHost, d.Names.LB),
 	}
+}
+
+// ownedBy names the ownership apply stamps, or nothing without an owner.
+func ownedBy(d Desired) string {
+	if d.Owner == "" {
+		return ""
+	}
+	return fmt.Sprintf("freeform ownership %s for %s", d.Owned, d.Owner)
 }
 
 func or(value, fallback string) string {
@@ -928,14 +952,75 @@ func liveBackends(balancer map[string]any, set string) []string {
 	return out
 }
 
+// controllerOwned reports whether the controller's oci_reconcile.public_lb
+// owns the terrabase backends: only a plan that names orchestrator_owner
+// stamps the ownership the controller needs. Without it apply keeps
+// converging the set to the seed, as before TS-571.
+func (d Desired) controllerOwned() bool { return d.Owner != "" }
+
+// ownership is the controller's freeform ownership for Owned.
+func (d Desired) ownership() ociresource.Ownership {
+	return ociresource.Ownership{Mode: ociresource.TagModeFreeform, Owner: d.Owner}
+}
+
+// freeformTags reads a CLI-shaped load balancer's freeform tags.
+func freeformTags(balancer map[string]any) map[string]string {
+	tags := map[string]string{}
+	live, _ := balancer["freeform-tags"].(map[string]any)
+	for name, value := range live {
+		tags[name] = fmt.Sprint(value)
+	}
+	return tags
+}
+
+// ownershipTags returns the load balancer's freeform tags with the
+// controller's ownership of the terrabase backend set added, or nil when
+// they already carry it. A load balancer carrying any other or partial
+// ownership claim is refused.
+func (d Desired) ownershipTags(balancer map[string]any) (map[string]string, error) {
+	tags := freeformTags(balancer)
+	if d.ownership().Owns(d.Owned, ociresource.Tags{Freeform: tags}) {
+		return nil, nil
+	}
+	if d.ownership().Claimed(ociresource.Tags{Freeform: tags}) {
+		return nil, fmt.Errorf("load balancer %s carries another ts-orchestrator ownership than %s; resolve it by hand", d.Names.LB, d.Owned)
+	}
+	maps.Copy(tags, d.ownership().Stamp(d.Owned, 0, "").Freeform)
+	return tags, nil
+}
+
 // converge brings an existing load balancer's bandwidth, hostnames and
-// ts-auth backends to the plan. The terrabase backends belong to the
+// ts-auth backends to the plan, and stamps the controller's ownership of the
+// terrabase backend set when the plan names its owner. The terrabase backends belong to the
 // controller (oci_reconcile.public_lb), which drains seats during releases;
 // rewriting them here would undo that.
 func (p Provisioner) converge(ctx context.Context, d Desired, balancer map[string]any) (map[string]any, error) {
 	id, err := command.ID(balancer)
 	if err != nil {
 		return nil, err
+	}
+	// Ownership comes first: a load balancer another owner claims is refused
+	// before anything changes, and one the controller owns is never handed
+	// back to an ownerless plan, which would converge its drained seats.
+	if d.Owner == "" && d.ownership().Claimed(ociresource.Tags{Freeform: freeformTags(balancer)}) {
+		return nil, fmt.Errorf("load balancer %s carries ts-orchestrator ownership; name orchestrator_owner in the plan", d.Names.LB)
+	}
+	if d.Owner != "" {
+		tags, err := d.ownershipTags(balancer)
+		if err != nil {
+			return nil, err
+		}
+		if tags != nil {
+			if _, err := p.Client.Call(ctx, "lb", "load-balancer", "update", "--load-balancer-id", id, "--freeform-tags", command.JSON(tags)); err != nil {
+				return nil, err
+			}
+			if balancer, err = p.await(ctx, d.Names.LB, func() (map[string]any, error) { return p.balancer(ctx, d) }, func(r map[string]any) bool {
+				owned, err := d.ownershipTags(r)
+				return r["lifecycle-state"] == "ACTIVE" && owned == nil && err == nil
+			}); err != nil {
+				return nil, err
+			}
+		}
 	}
 	bandwidth := func(r map[string]any) bool {
 		return same(field(r, "shape-details", "minimum-bandwidth-in-mbps"), d.MinMbps) && same(field(r, "shape-details", "maximum-bandwidth-in-mbps"), d.MaxMbps)
@@ -965,7 +1050,7 @@ func (p Provisioner) converge(ctx context.Context, d Desired, balancer map[strin
 		}
 	}
 	for name, set := range d.backendSets() {
-		if name == "terrabase" {
+		if name == "terrabase" && d.controllerOwned() {
 			continue
 		}
 		var want []string

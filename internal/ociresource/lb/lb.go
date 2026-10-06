@@ -31,6 +31,11 @@ import (
 // Kind is the desired-state kind for L7 load balancer backend sets.
 const Kind = "lb-backends"
 
+// PublicTerraBase names the public API load balancer's TerraBase backend set
+// under Kind: the controller reconciles it and public-api apply stamps its
+// ownership.
+const PublicTerraBase = "public-terrabase"
+
 // ErrNoHealthyBackend holds a plan that would drain or remove a serving
 // backend while no backend that keeps serving reports health OK.
 var ErrNoHealthyBackend = errors.New("no backend that keeps serving reports health OK")

@@ -56,9 +56,9 @@ type OciReconcileNLBConfig struct {
 
 // OciReconcileLBConfig names the L7 load balancer backend set synced to the
 // TerraBase seats: every member TERRABASE_PEERS names, at the profile's
-// client port.
+// client port. Its desired-state key is always lb.PublicTerraBase, the one
+// public-api apply stamps ownership for.
 type OciReconcileLBConfig struct {
-	Name           string `json:"name"`
 	LoadBalancerID string `json:"load_balancer_id"`
 	BackendSet     string `json:"backend_set"`
 	// Seats limits the backends to these seats; empty means every seat.
@@ -70,7 +70,7 @@ type OciReconcileLBConfig struct {
 
 // key validates the configuration and returns its desired-state key.
 func (c OciReconcileLBConfig) key(cell string) (ociresource.Key, error) {
-	key := ociresource.Key{Region: cell, Kind: lb.Kind, Name: c.Name}
+	key := ociresource.Key{Region: cell, Kind: lb.Kind, Name: lb.PublicTerraBase}
 	if err := key.Validate(); err != nil {
 		return key, err
 	}
@@ -83,6 +83,16 @@ func (c OciReconcileLBConfig) key(cell string) (ociresource.Key, error) {
 		}
 	}
 	return key, nil
+}
+
+// publicLBKey validates public_lb against the rest of the configuration.
+// public-api apply stamps freeform ownership only, so a defined tag_mode
+// could never own the load balancer.
+func (c OciReconcileConfig) publicLBKey(cell string) (ociresource.Key, error) {
+	if c.TagMode != "" && c.TagMode != string(ociresource.TagModeFreeform) {
+		return ociresource.Key{}, errors.New("OCI reconcile public_lb requires freeform tag_mode: public-api apply stamps freeform ownership")
+	}
+	return c.PublicLB.key(cell)
 }
 
 // spec derives the backend set from the current terrabase profile. A seat
@@ -441,7 +451,7 @@ func newOCIReconcileRunner(ctx context.Context, config OciReconcileConfig, regio
 			Region: cell, Resource: nlb.Reconciler{API: nlbAPI}, Store: store, Ownership: ownership, Authority: fencer}))
 	}
 	if public := config.PublicLB; public != nil {
-		key, err := public.key(cell)
+		key, err := config.publicLBKey(cell)
 		if err != nil {
 			return nil, err
 		}

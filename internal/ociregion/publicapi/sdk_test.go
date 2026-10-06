@@ -20,7 +20,7 @@ import (
 // JSON flags into the SDK request types, so the in-binary path accepts
 // exactly what the provisioner emits.
 func TestSDKDecodesEveryCommandTheProvisionerSends(t *testing.T) {
-	d := testDesired(t, testPlan)
+	d := testDesired(t, ownedPlan)
 	f := newFakeOCI(t)
 	fc, cloudflare := newFakeCloudflare(t)
 	p := Provisioner{Client: f, Pause: func(context.Context, time.Duration) error { return nil }}
@@ -35,7 +35,7 @@ func TestSDKDecodesEveryCommandTheProvisionerSends(t *testing.T) {
 	// A controller dropped out of the ts-auth set and the bandwidth grew.
 	auth := field(f.balancer, "backend-sets", "ts-auth").(map[string]any)
 	auth["backends"] = auth["backends"].([]any)[:1]
-	grown := testDesired(t, strings.NewReplacer(`"max_mbps":100`, `"max_mbps":200`).Replace(testPlan))
+	grown := testDesired(t, strings.NewReplacer(`"max_mbps":100`, `"max_mbps":200`).Replace(ownedPlan))
 	if _, err := p.Provision(t.Context(), grown, cloudflare, members); err != nil {
 		t.Fatal(err)
 	}
@@ -114,6 +114,12 @@ func TestSDKDecodesEveryCommandTheProvisionerSends(t *testing.T) {
 			if err2 == nil && (*details.Port != 443 || !strings.HasPrefix(*details.SslConfiguration.CertificateName, originCertificate+"-") ||
 				*details.SslConfiguration.VerifyPeerCertificate != true) {
 				t.Fatalf("listener %+v", details)
+			}
+		case "lb load-balancer update":
+			var tags map[string]string
+			err2 = jsonFlag(command, "freeform-tags", &tags)
+			if err2 == nil && tags["terrascale-resource-key"] != d.Owned.String() {
+				t.Fatalf("tags %v", tags)
 			}
 		case "lb hostname update":
 			if command.Flags["name"] != "ts-auth" || command.Flags["hostname"] != renamed.AuthHost {

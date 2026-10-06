@@ -105,6 +105,23 @@ func (o Ownership) Owns(key Key, tags Tags) bool {
 		tags.Freeform[freeformResource] == key.String()
 }
 
+// Claimed reports whether tags carry any part of an ownership claim, this
+// controller's or another's, in this ownership's tag mode. A tool that
+// stamps ownership onto an existing resource refuses a claimed one it does
+// not already own.
+func (o Ownership) Claimed(tags Tags) bool {
+	if o.Mode == TagModeDefined {
+		namespace := tags.Defined[o.namespace()]
+		for _, name := range []string{definedManagedBy, definedOwner, definedResource} {
+			if value, ok := namespace[name]; ok && fmt.Sprint(value) != "" {
+				return true
+			}
+		}
+		return false
+	}
+	return tags.Freeform[freeformManagedBy] != "" || tags.Freeform[freeformOwner] != "" || tags.Freeform[freeformResource] != ""
+}
+
 // Stale reports whether owned tags lag the desired generation or digest.
 func (o Ownership) Stale(tags Tags, generation uint64, specDigest string) bool {
 	want := strconv.FormatUint(generation, 10)
