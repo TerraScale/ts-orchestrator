@@ -276,7 +276,54 @@ func (r *serviceRegistry) validate(set serviceset.Set) error {
 	if err := validateWorkloadProfiles(r.cell, profiles); err != nil {
 		return err
 	}
+	if err := r.validateHostGrants(set.HostGrants, profiles); err != nil {
+		return err
+	}
 	return validateAutoscaleConfig(&AutoscaleConfig{HostTelemetry: r.hostTelemetry, Services: specs}, profiles)
+}
+
+// validateHostGrants admits a grant only for roles the cell delivers and
+// placement does not own, and never for a TerraBase member, which enrolls
+// through the signed TerraBase profile.
+func (r *serviceRegistry) validateHostGrants(grants []serviceset.HostGrant, profiles map[string]WorkloadProfile) error {
+	var members terrabase.Profile
+	if signed, ok := r.fixed[terrabase.Role]; ok && len(signed.Env) != 0 {
+		members, _ = terrabase.ParseProfile(signed.Env)
+	}
+	for _, grant := range grants {
+		if _, member := members.Peer(grant.Node); member {
+			return fmt.Errorf("host grant %q names a TerraBase member", grant.Node)
+		}
+		for _, role := range grant.Roles {
+			if _, ok := profiles[role]; !ok || role == terrabase.Role || slices.Contains(r.reserved, role) {
+				return fmt.Errorf("host grant %q role %q has no service profile or belongs to placement", grant.Node, role)
+			}
+		}
+	}
+	return nil
+}
+
+// hostGrant returns the adopted set's grant for node and the capacity of
+// one replica of each of its roles.
+func (r *serviceRegistry) hostGrant(node string) (serviceset.HostGrant, host.Capacity, bool) {
+	if r == nil {
+		return serviceset.HostGrant{}, host.Capacity{}, false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	grant, ok := r.current.Grant(node)
+	if !ok {
+		return serviceset.HostGrant{}, host.Capacity{}, false
+	}
+	profiles, _ := r.effectiveLocked()
+	var capacity host.Capacity
+	for _, role := range grant.Roles {
+		resources := profiles[role].Resources
+		capacity.CPU += resources.CPU
+		capacity.MemoryBytes += resources.MemoryBytes
+		capacity.DiskBytes += resources.DiskBytes
+	}
+	return grant, capacity, true
 }
 
 // extendsProfile reports whether service keeps the signed profile's

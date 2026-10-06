@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/serviceset"
@@ -346,6 +347,87 @@ func TestServiceSetAmendsARunningController(t *testing.T) {
 	stop, done = start()
 	if got := list(); got.Generation != 3 || len(got.Services) != 0 {
 		t.Fatalf("after restart: %+v", got)
+	}
+
+	// A host grant is planned, signed and applied like a service, keeps its
+	// role from being removed, and is revoked the same way.
+	applyPlanned := func(want string, args ...string) {
+		t.Helper()
+		candidate := filepath.Join(t.TempDir(), "candidate.json")
+		out, err := service(append(args, "--out", candidate)...)
+		if err != nil || !strings.Contains(out, want) {
+			t.Fatalf("plan %v: %v\n%s", args, err, out)
+		}
+		data, err := os.ReadFile(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		set, err := serviceset.Decode(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out, err := service("apply", "--file", keys.sign(t, root, set)); err != nil || !strings.Contains(out, `"status":"applied"`) {
+			t.Fatalf("apply %v: %v\n%s", args, err, out)
+		}
+	}
+	applyPlanned(`"added":["web"]`, "add", "--role", "web", "--profile", profile)
+	applyPlanned(`"host_grants":["gru-1-ctl-1"]`, "grant-host", "--node", "gru-1-ctl-1", "--private-ip", "10.251.0.11",
+		"--roles", "web", "--environment", "test")
+	if got := list(); len(got.HostGrants) != 1 || got.HostGrants[0].PrivateIP != "10.251.0.11" {
+		t.Fatalf("after grant: %+v", got)
+	}
+	removal = filepath.Join(root, "remove-granted.json")
+	if _, err := service("remove", "--role", "web", "--out", removal); err != nil {
+		t.Fatal(err)
+	}
+	if removed, err = serviceset.Decode(mustRead(t, removal)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service("apply", "--file", keys.sign(t, root, removed)); err == nil || !strings.Contains(err.Error(), "host grant") {
+		t.Fatalf("removed a role a host grant names: %v", err)
+	}
+	applyPlanned(`"host_grants":["gru-1-ctl-1"]`, "revoke-host", "--node", "gru-1-ctl-1")
+	if got := list(); len(got.HostGrants) != 0 || got.Generation != 6 {
+		t.Fatalf("after revoke: %+v", got)
+	}
+}
+
+// Grants name roles the cell delivers, never TerraBase, placement's member
+// role or a listed TerraBase member.
+func TestServiceRegistryValidatesHostGrants(t *testing.T) {
+	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
+	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}, Controller: ControllerConfig{
+		Workloads: map[string]WorkloadProfile{terrabase.Role: {Resources: resources, Env: map[string]string{
+			terrabase.EnvPeerPort: "9443", terrabase.EnvPeers: "gru-1-db-1=10.251.0.21:9443"}}}}}
+	registry, err := newServiceRegistry(cfg, "member")
+	if err != nil {
+		t.Fatal(err)
+	}
+	web := serviceset.Service{Role: "web", Profile: WorkloadProfile{Resources: resources}}
+	grant := func(node, ip string, roles ...string) serviceset.Set {
+		return serviceset.Set{Schema: serviceset.Schema, Generation: 1, Services: []serviceset.Service{web},
+			HostGrants: []serviceset.HostGrant{{Node: node, PrivateIP: ip, Roles: roles, Environment: "canary"}}}
+	}
+	if err := registry.validate(grant("gru-1-ctl-1", "10.251.0.11", "web")); err != nil {
+		t.Fatalf("grant for a delivered role: %v", err)
+	}
+	for name, set := range map[string]serviceset.Set{
+		"role without a profile": grant("gru-1-ctl-1", "10.251.0.11", "api"),
+		"terrabase":              grant("gru-1-ctl-1", "10.251.0.11", terrabase.Role),
+		"placement member role":  grant("gru-1-ctl-1", "10.251.0.11", "member"),
+		"TerraBase member":       grant("gru-1-db-1", "10.251.0.21", "web"),
+	} {
+		if err := registry.validate(set); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	registry.adopt(grant("gru-1-ctl-1", "10.251.0.11", "web"), 1)
+	if got, capacity, ok := registry.hostGrant("gru-1-ctl-1"); !ok || got.PrivateIP != "10.251.0.11" ||
+		capacity != (host.Capacity{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}) {
+		t.Fatalf("hostGrant = %+v, %+v, %v", got, capacity, ok)
+	}
+	if _, _, ok := registry.hostGrant("gru-1-ctl-2"); ok {
+		t.Fatal("an ungranted node has a grant")
 	}
 }
 

@@ -20,6 +20,8 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/serviceset"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
 	"github.com/nats-io/nats.go/jetstream"
@@ -40,9 +42,9 @@ func (fleet *staticHostFleet) ObserveStaticHost(_ context.Context, instanceID, n
 	return instance, nil
 }
 
-// ObserveControllerHost returns the running instance named node, as the OCI
-// observer does for a controller VM.
-func (fleet *staticHostFleet) ObserveControllerHost(_ context.Context, instanceID, node string) (oci.CloudInstance, error) {
+// ObserveNamedHost returns the running instance named node, as the OCI
+// observer does for a granted host.
+func (fleet *staticHostFleet) ObserveNamedHost(_ context.Context, instanceID, node string) (oci.CloudInstance, error) {
 	instance, ok := fleet.instances[instanceID]
 	if !ok || instance.DisplayName != node {
 		return oci.CloudInstance{}, oci.ErrForeignResource
@@ -107,11 +109,15 @@ func startStaticEnrollmentLab(t *testing.T, ctx context.Context, workloads map[s
 		t.Fatal(err)
 	}
 	fleet := &staticHostFleet{instances: map[string]oci.CloudInstance{}}
+	services, err := newServiceRegistry(Config{NATS: natscell.Config{Cell: "gru", Lab: true},
+		Controller: ControllerConfig{Workloads: workloads}}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	return staticEnrollmentLab{enrollment: &managedHostEnrollment{cell: "gru", region: oci.RegionGRU,
 		owner: "regional-owner", generation: 1, environment: "production", fleet: fleet,
 		controller: hostController, grants: grants, issuer: issuer, responseKey: controllerPrivate,
-		fencer: control, terraBase: members, controllerIPs: []string{"10.251.0.11", "10.251.0.12", "10.251.0.13"},
-		profiles: func() map[string]WorkloadProfile { return workloads }},
+		fencer: control, terraBase: members, services: services},
 		controller: hostController, fleet: fleet, bundle: bundle, epoch: control.Current().Epoch}
 }
 
@@ -128,6 +134,14 @@ func (lab staticEnrollmentLab) launch(t *testing.T, id, node, ip string) hostenr
 		LifecycleState: "RUNNING", Metadata: map[string]string{hostboot.MetadataKey: string(wire)},
 		FreeformTags: map[string]string{"terrascale-host-node": node}}
 	return hostenroll.InstanceMetadata{InstanceID: id, Descriptor: descriptor, Wire: wire}
+}
+
+// grant adopts a service set holding grants, as service apply would.
+func (lab staticEnrollmentLab) grant(grants ...serviceset.HostGrant) {
+	set := lab.enrollment.services.current
+	set.Generation++
+	set.HostGrants = grants
+	lab.enrollment.services.adopt(set, set.Generation)
 }
 
 // launchController records a controller VM named node at ip; its host-setup
@@ -239,8 +253,25 @@ func TestStaticTerraBaseHostEnrollsAsAListedMemberWithoutManagedBindings(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := hostenroll.VerifyResponse(renewed, responseKey, renewRequest, renewal, metadata.Descriptor); err != nil {
+	verified, err := hostenroll.VerifyResponse(renewed, responseKey, renewRequest, renewal, metadata.Descriptor)
+	if err != nil {
 		t.Fatalf("static renewal response: %v", err)
+	}
+	// A member's response keeps its pre-grant wire form, which older hosts
+	// decode strictly; signed roles must be valid.
+	if bytes.Contains(renewed, []byte(`"roles"`)) {
+		t.Fatalf("member response carries roles: %s", renewed)
+	}
+	verified.Roles = []string{"web", "api"}
+	if err := verified.Sign(lab.enrollment.responseKey); err != nil {
+		t.Fatal(err)
+	}
+	unsorted, err := protocol.EncodeJSON(verified)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hostenroll.VerifyResponse(unsorted, responseKey, renewRequest, renewal, metadata.Descriptor); err == nil {
+		t.Fatal("accepted a response with unsorted roles")
 	}
 	if lab.registration(t, ctx, "gru-1-db-1").Generation != 1 {
 		t.Fatal("renewal changed the static registration generation")
@@ -430,16 +461,21 @@ func controllerHostWorkloads() map[string]WorkloadProfile {
 	return workloads
 }
 
-// The host agent of a controller VM enrolls from the controller's own
-// address under the controller's name, to run one ts-auth replica.
-func TestControllerHostEnrollsForTSAuthFromItsControllerAddress(t *testing.T) {
+func controllerGrant(node, ip string) serviceset.HostGrant {
+	return serviceset.HostGrant{Node: node, PrivateIP: ip, Roles: []string{tsauth.Role}, Environment: "canary"}
+}
+
+// A controller VM's host agent enrolls through its service set grant, from
+// the granted address under the controller's name, with the grant's roles.
+func TestGrantedControllerHostEnrollsWithItsGrantRoles(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	lab := startStaticEnrollmentLab(t, ctx, controllerHostWorkloads())
+	lab.grant(controllerGrant("gru-1-ctl-1", "10.251.0.11"), controllerGrant("gru-1-ctl-2", "10.251.0.12"))
 	metadata := lab.launchController(t, "ocid1.instance.oc1.sa-saopaulo-1.ctl2", "gru-1-ctl-2", "10.251.0.12")
 	root := t.TempDir()
 	if err := lab.setup(ctx, root, metadata, "10.251.0.12"); err != nil {
-		t.Fatalf("controller host setup: %v", err)
+		t.Fatalf("granted host setup: %v", err)
 	}
 	var installed Config
 	wire, err := os.ReadFile(filepath.Join(root, "host.json"))
@@ -449,27 +485,40 @@ func TestControllerHostEnrollsForTSAuthFromItsControllerAddress(t *testing.T) {
 	if installed.Host.Node != "gru-1-ctl-2" || !slices.Equal(installed.Host.Roles, []string{tsauth.Role}) ||
 		installed.Host.TSAuthRoot != filepath.Join(lab.bundle.ManagedRuntimeRoot, "ts-auth") || installed.Host.TerraBaseRoot != "" ||
 		installed.Observability.ListenAddress != controllerHostObservability {
-		t.Fatalf("controller host config = %+v, observability %+v", installed.Host, installed.Observability)
+		t.Fatalf("granted host config = %+v, observability %+v", installed.Host, installed.Observability)
 	}
 	registration := lab.registration(t, ctx, "gru-1-ctl-2")
 	if !slices.Equal(registration.Roles, []string{tsauth.Role}) || registration.FailureDomain != "fault-domain-2" ||
+		registration.Environment != "canary" ||
 		registration.Capacity != (host.Capacity{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 2 << 30}) ||
 		registration.ManagedOCI != nil || registration.ManagedPlacement != nil || registration.ManagedMember != nil {
-		t.Fatalf("controller host registration = %+v", registration)
+		t.Fatalf("granted host registration = %+v", registration)
+	}
+	// A listed TerraBase member still enrolls as a member, without roles in
+	// its response.
+	member := lab.launch(t, "ocid1.instance.oc1.sa-saopaulo-1.db1", "gru-1-db-1", "10.251.0.21")
+	memberRoot := t.TempDir()
+	if err := lab.setup(ctx, memberRoot, member, "10.251.0.21"); err != nil {
+		t.Fatalf("member setup beside grants: %v", err)
+	}
+	if roles := lab.registration(t, ctx, "gru-1-db-1").Roles; !slices.Equal(roles, []string{terrabase.Role}) {
+		t.Fatalf("member roles = %v", roles)
 	}
 }
 
-func TestControllerHostEnrollmentRefusesOtherAddressesNamesAndCellsWithoutTSAuth(t *testing.T) {
+func TestHostGrantEnrollmentRefusesOtherAddressesNamesAndUngrantedHosts(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	lab := startStaticEnrollmentLab(t, ctx, controllerHostWorkloads())
+	lab.grant(controllerGrant("gru-1-ctl-1", "10.251.0.11"))
 	for _, test := range []struct {
 		name, id, node, ip, peer string
 		mutate                   func(*oci.CloudInstance)
 	}{
-		{name: "not a controller address", id: "ocid1.instance.oc1.sa-saopaulo-1.ctl9", node: "gru-1-ctl-1", ip: "10.251.0.21", peer: "10.251.0.21"},
-		{name: "peer is another controller", id: "ocid1.instance.oc1.sa-saopaulo-1.ctl1a", node: "gru-1-ctl-1", ip: "10.251.0.11", peer: "10.251.0.12"},
-		{name: "instance has another name", id: "ocid1.instance.oc1.sa-saopaulo-1.ctl1b", node: "gru-1-ctl-1", ip: "10.251.0.11", peer: "10.251.0.11",
+		{name: "no grant for the node", id: "ocid1.instance.oc1.sa-saopaulo-1.ctl3", node: "gru-1-ctl-3", ip: "10.251.0.13", peer: "10.251.0.13"},
+		{name: "peer is not the granted address", id: "ocid1.instance.oc1.sa-saopaulo-1.ctl1a", node: "gru-1-ctl-1", ip: "10.251.0.11", peer: "10.251.0.12"},
+		{name: "instance holds another address", id: "ocid1.instance.oc1.sa-saopaulo-1.ctl1b", node: "gru-1-ctl-1", ip: "10.251.0.99", peer: "10.251.0.11"},
+		{name: "instance has another name", id: "ocid1.instance.oc1.sa-saopaulo-1.ctl1c", node: "gru-1-ctl-1", ip: "10.251.0.11", peer: "10.251.0.11",
 			mutate: func(instance *oci.CloudInstance) { instance.DisplayName = "gru-1-ctl-3" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -484,19 +533,11 @@ func TestControllerHostEnrollmentRefusesOtherAddressesNamesAndCellsWithoutTSAuth
 				t.Fatalf("enrollment was not held: %v", err)
 			}
 			if _, _, err := lab.enrollment.grants.Read(ctx, test.id); err == nil {
-				t.Fatal("a refused controller host left an enrollment grant")
+				t.Fatal("a refused host left an enrollment grant")
 			}
 		})
 	}
-	withoutTSAuth := startStaticEnrollmentLab(t, ctx, staticTerraBaseWorkloads())
-	metadata := withoutTSAuth.launchController(t, "ocid1.instance.oc1.sa-saopaulo-1.ctl1", "gru-1-ctl-1", "10.251.0.11")
-	err := withoutTSAuth.setup(ctx, t.TempDir(), metadata, "10.251.0.11")
-	if status, ok := errors.AsType[*hostEnrollmentHTTPStatusError](err); !ok || status.Code != http.StatusConflict {
-		t.Fatalf("controller host enrolled in a cell without ts-auth: %v", err)
-	}
-	for _, lab := range []staticEnrollmentLab{lab, withoutTSAuth} {
-		if statuses, err := lab.controller.ListHosts(ctx); err != nil || len(statuses) != 0 {
-			t.Fatalf("refused controller hosts registered: %+v, %v", statuses, err)
-		}
+	if statuses, err := lab.controller.ListHosts(ctx); err != nil || len(statuses) != 0 {
+		t.Fatalf("refused hosts registered: %+v, %v", statuses, err)
 	}
 }

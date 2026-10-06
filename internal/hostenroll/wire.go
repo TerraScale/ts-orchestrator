@@ -13,6 +13,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
@@ -144,11 +145,16 @@ type Response struct {
 	RequestSHA256       string       `json:"request_sha256"`
 	Nonce               string       `json:"nonce"`
 	RegistrationReceipt host.Receipt `json:"registration_receipt"`
-	NATSUserJWT         string       `json:"nats_user_jwt"`
-	TLSCertificatePEM   string       `json:"tls_certificate_pem"`
-	ExpiresAt           time.Time    `json:"expires_at"`
-	Signature           string       `json:"signature"`
+	// Roles are the granted roles of a host enrolled by a service set host
+	// grant; TerraBase and managed hosts omit them.
+	Roles             []string  `json:"roles,omitempty"`
+	NATSUserJWT       string    `json:"nats_user_jwt"`
+	TLSCertificatePEM string    `json:"tls_certificate_pem"`
+	ExpiresAt         time.Time `json:"expires_at"`
+	Signature         string    `json:"signature"`
 }
+
+var roleRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 
 func (response Response) unsignedWire() ([]byte, error) {
 	response.Signature = ""
@@ -189,6 +195,11 @@ func VerifyResponse(wire []byte, public ed25519.PublicKey, request Request, requ
 		response.RegistrationReceipt.Generation == 0 || response.RegistrationReceipt.Revision == 0 ||
 		response.NATSUserJWT == "" || response.TLSCertificatePEM == "" || !time.Now().Before(response.ExpiresAt) {
 		return Response{}, errors.New("host enrollment response does not bind the request or has expired")
+	}
+	for i, role := range response.Roles {
+		if !roleRE.MatchString(role) || i > 0 && response.Roles[i-1] >= role || i >= 32 {
+			return Response{}, errors.New("host enrollment response roles are invalid")
+		}
 	}
 	signature, err := base64.StdEncoding.DecodeString(response.Signature)
 	if err != nil || len(signature) != ed25519.SignatureSize {

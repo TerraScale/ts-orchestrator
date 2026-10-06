@@ -35,57 +35,57 @@ func (f *fleet) ObserveStaticHost(ctx context.Context, instanceID, node string) 
 	return cloud, nil
 }
 
-// ControllerHostObserver reads a controller VM of the cell whose own host
-// agent enrolls. See fleet.ObserveControllerHost.
-type ControllerHostObserver interface {
-	ObserveControllerHost(ctx context.Context, instanceID, node string) (CloudInstance, error)
+// NamedHostObserver reads a static host that a service set grants, such as
+// a controller VM's own host agent. See fleet.ObserveNamedHost.
+type NamedHostObserver interface {
+	ObserveNamedHost(ctx context.Context, instanceID, node string) (CloudInstance, error)
 }
 
-// ObserveControllerHost returns a RUNNING instance named node whose single
-// primary VNIC holds its private IP. Controllers live outside the fleet's
-// compartment, image and NSG pins, so the caller must authenticate that
-// address as one of its cell's controllers.
-func (f *fleet) ObserveControllerHost(ctx context.Context, instanceID, node string) (CloudInstance, error) {
-	observer, ok := f.provider.(ControllerHostObserver)
+// ObserveNamedHost returns a RUNNING instance named node whose single
+// primary VNIC holds its private IP. A granted host may live outside the
+// fleet's compartment, image and NSG pins (controllers do), so the caller
+// must bind that address to the node through its signed grant.
+func (f *fleet) ObserveNamedHost(ctx context.Context, instanceID, node string) (CloudInstance, error) {
+	observer, ok := f.provider.(NamedHostObserver)
 	if !ok {
-		return CloudInstance{}, errors.New("OCI provider cannot observe controller hosts")
+		return CloudInstance{}, errors.New("OCI provider cannot observe granted hosts")
 	}
-	return observer.ObserveControllerHost(ctx, instanceID, node)
+	return observer.ObserveNamedHost(ctx, instanceID, node)
 }
 
-func (provider *sdkProvider) ObserveControllerHost(ctx context.Context, instanceID, node string) (CloudInstance, error) {
+func (provider *sdkProvider) ObserveNamedHost(ctx context.Context, instanceID, node string) (CloudInstance, error) {
 	response, err := provider.compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: new(instanceID)})
 	if err != nil {
 		return CloudInstance{}, fmt.Errorf("get OCI instance: %w", err)
 	}
-	return observeControllerHost(ctx, cloudInstance(response.Instance, stringValue(response.Etag)), instanceID, node,
+	return observeNamedHost(ctx, cloudInstance(response.Instance, stringValue(response.Etag)), instanceID, node,
 		provider.compute, provider.network)
 }
 
-func observeControllerHost(ctx context.Context, instance CloudInstance, instanceID, node string,
+func observeNamedHost(ctx context.Context, instance CloudInstance, instanceID, node string,
 	compute instanceAttachmentReader, network vnicReader,
 ) (CloudInstance, error) {
 	if instance.ID != instanceID || instance.LifecycleState != "RUNNING" || node == "" || instance.DisplayName != node {
-		return CloudInstance{}, fmt.Errorf("%w: instance %s is not the running controller %s", ErrForeignResource, instanceID, node)
+		return CloudInstance{}, fmt.Errorf("%w: instance %s is not the running host %s", ErrForeignResource, instanceID, node)
 	}
 	attachments, err := compute.ListVnicAttachments(ctx, core.ListVnicAttachmentsRequest{
 		CompartmentId: new(instance.CompartmentID), InstanceId: new(instance.ID),
 	})
 	if err != nil {
-		return CloudInstance{}, fmt.Errorf("list controller VNIC: %w", err)
+		return CloudInstance{}, fmt.Errorf("list host VNIC: %w", err)
 	}
 	if len(attachments.Items) != 1 || stringValue(attachments.OpcNextPage) != "" ||
 		attachments.Items[0].LifecycleState != core.VnicAttachmentLifecycleStateAttached ||
 		stringValue(attachments.Items[0].InstanceId) != instance.ID || stringValue(attachments.Items[0].VnicId) == "" {
-		return CloudInstance{}, fmt.Errorf("%w: controller has no single attached primary VNIC", ErrForeignResource)
+		return CloudInstance{}, fmt.Errorf("%w: host has no single attached primary VNIC", ErrForeignResource)
 	}
 	vnic, err := network.GetVnic(ctx, core.GetVnicRequest{VnicId: attachments.Items[0].VnicId})
 	if err != nil {
-		return CloudInstance{}, fmt.Errorf("get controller VNIC: %w", err)
+		return CloudInstance{}, fmt.Errorf("get host VNIC: %w", err)
 	}
 	if stringValue(vnic.Id) != stringValue(attachments.Items[0].VnicId) || !validManagedPrivateIP(stringValue(vnic.PrivateIp)) ||
 		stringValue(vnic.PublicIp) != "" || vnic.LifecycleState != core.VnicLifecycleStateAvailable {
-		return CloudInstance{}, fmt.Errorf("%w: controller VNIC is not one available private address", ErrForeignResource)
+		return CloudInstance{}, fmt.Errorf("%w: host VNIC is not one available private address", ErrForeignResource)
 	}
 	instance.PrivateIP = stringValue(vnic.PrivateIp)
 	return instance, nil

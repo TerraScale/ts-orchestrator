@@ -506,7 +506,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if managed != nil && !cfg.NATS.Lab {
 		server, listener, serveErrors, err := startManagedHostEnrollment(runCtx, cfg, runtime,
 			managed, fleet, control, placementStore, hostController, registrationVerifier, responseKey, control,
-			services.profiles)
+			services)
 		if err != nil {
 			return fmt.Errorf("start private managed host enrollment: %w", err)
 		}

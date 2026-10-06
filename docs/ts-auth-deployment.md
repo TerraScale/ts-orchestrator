@@ -344,17 +344,17 @@ one env file each, one ts-auth replica on two of them).
    member with only that variable answers every bootstrap call with 401. **Open:** the committed
    [`terrabase-gru-1-profile.json`](../deploy/oci-region/terrabase-gru-1-profile.json)
    does not set it yet; TS-470 adds it with the TerraBase deployment.
-3. **Controller hosts.** Each controller VM's own host agent enrolls itself
-   once the cell has a `ts-auth` profile (signed config or service set). At
-   boot, and on its 12-hour timer, `host-setup` finds no host descriptor but
-   finds the controller's launch slot (`terrascale-bootstrap`). It enrolls as
-   that controller's server name (`gru-1-ctl-N`, static descriptor) with the
-   public bundle every controller already carries. The controller accepts it
-   only from one of the signed controller addresses (its broker host and NATS
-   routes) when OCI shows the running instance of that name holding the
-   address. The registration has role `ts-auth`, environment from the placement
-   config, the instance's fault domain, and the `ts-auth` profile's `resources`
-   as capacity (one replica). `host.json` gets `ts_auth_root`
+3. **Controller hosts.** Each controller VM's own host agent enrolls through
+   a service set [host grant](services.md#host-grants):
+   `{node: gru-1-ctl-N, private_ip: 10.251.0.1N, roles: [ts-auth], environment: canary}`.
+   `host-setup` runs at boot and on its 12-hour timer. On a controller it
+   finds no host descriptor, names itself after its launch slot
+   (`terrascale-bootstrap`), and enrolls with the public bundle every
+   controller carries. The controller accepts it only from the granted
+   address, and only when OCI shows the running instance of that name holding
+   the address. The registration has role `ts-auth`, the grant's environment,
+   the instance's fault domain, and the `ts-auth` profile's `resources` as
+   capacity (one replica). `host.json` gets `ts_auth_root`
    `/srv/ts-managed/ts-auth` and the agent's observability listener on
    `127.0.0.1:9466`, next to the controller's. The host agent starts right
    after enrollment, so install the metadata firewall in step 3 before the

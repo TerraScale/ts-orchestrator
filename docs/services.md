@@ -61,6 +61,32 @@ update` keeps the current releasers unless `--releasers` is given. Without
 `releasers`, the operator's trusted signer grant in the signed controller
 config must list the role, its environment and its repository.
 
+### Host grants
+
+A set's `host_grants` let static hosts outside TerraBase membership enroll.
+Each grant is `{node, private_ip, roles, environment}`. The host agent on such
+a host enrolls through the regular enrollment endpoint with a static
+descriptor naming `node`. The controller accepts it only from `private_ip`,
+and only when OCI shows the running instance named `node` holding that
+address. The registration has the grant's roles and environment, and one
+replica's `resources` per role as capacity. The signed enrollment response
+lists the roles, and `host-setup` writes them to `host.json`.
+
+A grant may name only roles the cell delivers (a signed or set profile). It
+may not name `terrabase` or placement's member role, and it may not name a
+node listed in `TERRABASE_PEERS`: TerraBase members enroll through the signed
+profile. A role that a grant names cannot be removed until that grant is
+revoked.
+
+Controllers run ts-auth this way. A controller VM carries no host
+descriptor, so its `host-setup` names itself after its launch slot
+(`controller-b` is `gru-1-ctl-2`). Grant each controller its own address:
+
+```sh
+ts-orch service grant-host --config "$OPERATOR" --node gru-1-ctl-1 \
+  --private-ip 10.251.0.11 --roles ts-auth --environment canary --out "$WORK/grant-ctl-1.json"
+```
+
 ## Trust
 
 Service sets use the release trust chain: the offline root key and the
@@ -109,6 +135,8 @@ answers.
 | `ts-orch service add --config F --role R --profile F [--spec F] [--releasers A,B] [--out F]` | operator host | Plans the next generation with R added and prints `added`. With `--out`, writes the unsigned candidate. An identical existing service plans nothing (`"status":"unchanged"`). A different existing service is refused: use `update`. |
 | `ts-orch service update --config F --role R --profile F [--spec F] [--releasers A,B] [--out F]` | operator host | Same as `add` for an existing role; keeps its releasers unless `--releasers` is given. |
 | `ts-orch service remove --config F --role R [--out F]` | operator host | Plans the next generation without R. |
+| `ts-orch service grant-host --config F --node N --private-ip IP --roles A,B --environment E [--out F]` | operator host | Plans the next generation with N's host grant set; the plan lists N under `host_grants`. |
+| `ts-orch service revoke-host --config F --node N [--out F]` | operator host | Plans the next generation without N's host grant. The host's next enrollment or renewal is refused; credentials already issued stay valid until they expire, at most 48 hours. |
 | `ts-orch release sign-service-delegation --subject-public-key LEAF_PUB --root-key ROOT_PUB --signing-key ROOT_KEY --deployment-id ID --cell CELL --environment ENV --issued-at T --expires-at T --out F` | offline, root key | Signs the root's delegation to the leaf. Prints `{"delegation","sha256","expires_at"}`. |
 | `ts-orch release sign-service-set --candidate F --delegation F --root-key ROOT_PUB --signing-key LEAF_KEY [--valid-for 1h] --out F` | offline, leaf key | Signs a candidate and verifies the result as a controller would. Prints `{"generation","sha256","deployment_id","cell","environment"}`. |
 | `ts-orch service apply --config F --file SIGNED` | operator host | Submits the signed set. Prints `{"status":"applied"\|"unchanged","generation","roles"}`. |

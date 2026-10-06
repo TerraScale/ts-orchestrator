@@ -364,3 +364,43 @@ func delegationSignedBy(t *testing.T, f fixture, signer ed25519.PrivateKey, life
 	}
 	return encodeEnvelope(t, envelope)
 }
+
+// Host grants are sorted by node, each with one distinct private IPv4
+// address, sorted roles and an environment; a plan names every node whose
+// grant changes.
+func TestHostGrantsValidateAndDiff(t *testing.T) {
+	id := Identity{DeploymentID: "terrascale-gru", Cell: "gru", Environment: "canary"}
+	grant := func(node, ip string, roles ...string) HostGrant {
+		return HostGrant{Node: node, PrivateIP: ip, Roles: roles, Environment: "canary"}
+	}
+	valid := testSet(id, 1)
+	valid.HostGrants = []HostGrant{grant("gru-1-ctl-1", "10.251.0.11", "api"), grant("gru-1-ctl-2", "10.251.0.12", "api", "web")}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("valid grants: %v", err)
+	}
+	for name, grants := range map[string][]HostGrant{
+		"unsorted":       {valid.HostGrants[1], valid.HostGrants[0]},
+		"repeated node":  {valid.HostGrants[0], valid.HostGrants[0]},
+		"shared address": {grant("gru-1-ctl-1", "10.251.0.11", "api"), grant("gru-1-ctl-2", "10.251.0.11", "api")},
+		"public address": {grant("gru-1-ctl-1", "203.0.113.5", "api")},
+		"IPv6 address":   {grant("gru-1-ctl-1", "fd00::1", "api")},
+		"no roles":       {grant("gru-1-ctl-1", "10.251.0.11")},
+		"unsorted roles": {grant("gru-1-ctl-1", "10.251.0.11", "web", "api")},
+		"no environment": {{Node: "gru-1-ctl-1", PrivateIP: "10.251.0.11", Roles: []string{"api"}}},
+		"invalid node":   {grant("Gru-1-ctl-1", "10.251.0.11", "api")},
+	} {
+		invalid := testSet(id, 1)
+		invalid.HostGrants = grants
+		if err := invalid.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	next := valid
+	next.Generation = 2
+	next.HostGrants = []HostGrant{grant("gru-1-ctl-2", "10.251.0.12", "web"), grant("gru-1-ctl-3", "10.251.0.13", "api")}
+	plan, err := Diff(valid, next)
+	if err != nil || plan.Empty() || !slices.Equal(plan.HostGrants, []string{"gru-1-ctl-1", "gru-1-ctl-2", "gru-1-ctl-3"}) ||
+		len(plan.Added)+len(plan.Updated)+len(plan.Removed) != 0 {
+		t.Fatalf("Diff = %+v, %v", plan, err)
+	}
+}

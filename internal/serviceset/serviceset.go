@@ -15,7 +15,11 @@ import (
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
+	"maps"
+	"net/netip"
+	"reflect"
 	"regexp"
+	"slices"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -43,6 +47,7 @@ const (
 var (
 	ErrInvalid  = errors.New("service set is invalid")
 	tokenRE     = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+	hostRE      = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}[a-z0-9]$`)
 	deploymentR = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 )
 
@@ -66,6 +71,17 @@ type Service struct {
 	Releasers []string              `json:"releasers,omitempty"`
 }
 
+// HostGrant lets one static host outside TerraBase membership enroll: the
+// host named Node, at PrivateIP, registers Roles in Environment, with one
+// replica's resources per role. Controller VMs run their own ts-auth host
+// agents this way.
+type HostGrant struct {
+	Node        string   `json:"node"`
+	PrivateIP   string   `json:"private_ip"`
+	Roles       []string `json:"roles"`
+	Environment string   `json:"environment"`
+}
+
 // Identity is the deployment, cell and environment a controller accepts
 // service sets for. Production controllers take it from their image.
 type Identity struct {
@@ -79,8 +95,9 @@ type Identity struct {
 type Set struct {
 	Schema string `json:"schema"`
 	Identity
-	Generation uint64    `json:"generation"`
-	Services   []Service `json:"services"`
+	Generation uint64      `json:"generation"`
+	Services   []Service   `json:"services"`
+	HostGrants []HostGrant `json:"host_grants,omitempty"`
 }
 
 // Signed is what an operator applies and what controllers store: the
@@ -134,7 +151,31 @@ func (s Set) Validate() error {
 			}
 		}
 	}
+	addresses := map[string]bool{}
+	for index, grant := range s.HostGrants {
+		address, err := netip.ParseAddr(grant.PrivateIP)
+		if !hostRE.MatchString(grant.Node) || index > 0 && s.HostGrants[index-1].Node >= grant.Node ||
+			err != nil || !address.Is4() || !address.IsPrivate() || address.String() != grant.PrivateIP ||
+			addresses[grant.PrivateIP] || len(grant.Roles) == 0 || !tokenRE.MatchString(grant.Environment) {
+			return fmt.Errorf("%w: host grants must be sorted by node with one private IPv4 address, roles and an environment each", ErrInvalid)
+		}
+		addresses[grant.PrivateIP] = true
+		for i, role := range grant.Roles {
+			if !tokenRE.MatchString(role) || i > 0 && grant.Roles[i-1] >= role {
+				return fmt.Errorf("%w: host grant %q roles must be sorted without repeats", ErrInvalid, grant.Node)
+			}
+		}
+	}
 	return nil
+}
+
+// Grant returns the host grant of node.
+func (s Set) Grant(node string) (HostGrant, bool) {
+	index := slices.IndexFunc(s.HostGrants, func(grant HostGrant) bool { return grant.Node == node })
+	if index < 0 {
+		return HostGrant{}, false
+	}
+	return s.HostGrants[index], true
 }
 
 // Find returns the service of role.
@@ -323,6 +364,9 @@ type Plan struct {
 	Added   []string `json:"added,omitempty"`
 	Updated []string `json:"updated,omitempty"`
 	Removed []string `json:"removed,omitempty"`
+	// HostGrants names each node whose host grant is added, changed or
+	// removed.
+	HostGrants []string `json:"host_grants,omitempty"`
 }
 
 // Diff lists the roles next adds, changes and removes relative to current.
@@ -351,8 +395,23 @@ func Diff(current, next Set) (Plan, error) {
 			plan.Removed = append(plan.Removed, service.Role)
 		}
 	}
+	nodes := map[string]bool{}
+	for _, grants := range [][]HostGrant{current.HostGrants, next.HostGrants} {
+		for _, grant := range grants {
+			nodes[grant.Node] = true
+		}
+	}
+	for _, node := range slices.Sorted(maps.Keys(nodes)) {
+		before, _ := current.Grant(node)
+		after, _ := next.Grant(node)
+		if !reflect.DeepEqual(before, after) {
+			plan.HostGrants = append(plan.HostGrants, node)
+		}
+	}
 	return plan, nil
 }
 
 // Empty reports whether the plan changes nothing.
-func (p Plan) Empty() bool { return len(p.Added)+len(p.Updated)+len(p.Removed) == 0 }
+func (p Plan) Empty() bool {
+	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants) == 0
+}

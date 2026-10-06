@@ -26,6 +26,9 @@ const serviceUsage = `Usage: ts-orch service <command> --config OPERATOR_JSON [f
   add    --role R --profile F [--spec F] [--releasers A,B] [--out F]  Plan adding a service; --out writes the unsigned candidate
   update --role R --profile F [--spec F] [--releasers A,B] [--out F]  Plan changing a service
   remove --role R [--out F]                     Plan removing a service (scale it to zero first)
+  grant-host  --node N --private-ip IP --roles A,B --environment E [--out F]
+                                                Plan letting a static host enroll with these roles
+  revoke-host --node N [--out F]                Plan removing a host grant
   apply  --file SIGNED                          Apply a set signed with ts-orch release sign-service-set
 
 Sign a candidate offline with ts-orch release sign-service-set before apply.
@@ -38,7 +41,7 @@ func runService(ctx context.Context, args []string, output io.Writer) error {
 		_, err := io.WriteString(output, serviceUsage)
 		return err
 	}
-	if !slices.Contains([]string{"list", "add", "update", "remove", "apply"}, args[0]) {
+	if !slices.Contains([]string{"list", "add", "update", "remove", "grant-host", "revoke-host", "apply"}, args[0]) {
 		return fmt.Errorf("unknown service command %q", args[0])
 	}
 	return runOperator(ctx, append([]string{"service-" + args[0]}, args[1:]...), output)
@@ -134,8 +137,7 @@ func operatorServiceChange(ctx context.Context, cfg Config, runtime *natscell.Ru
 			service.Spec = &spec
 		}
 		if releasers != "" {
-			service.Releasers = strings.Split(releasers, ",")
-			slices.Sort(service.Releasers)
+			service.Releasers = splitList(releasers)
 		}
 	}
 	reply, err := requestServiceSet(ctx, cfg, runtime, serviceSetListKind, []byte("{}"))
@@ -164,6 +166,35 @@ func operatorServiceChange(ctx context.Context, cfg Config, runtime *natscell.Ru
 		next.Services = append(next.Services, service)
 		slices.SortFunc(next.Services, func(a, b serviceset.Service) int { return strings.Compare(a.Role, b.Role) })
 	}
+	return planServiceSet(current, next, out, output)
+}
+
+// operatorServiceHostGrant plans the next generation with the host grant of
+// grant.Node set (grant) or removed.
+func operatorServiceHostGrant(ctx context.Context, cfg Config, runtime *natscell.Runtime, set bool,
+	grant serviceset.HostGrant, out string, output io.Writer,
+) error {
+	if grant.Node == "" || set != (grant.PrivateIP != "" && len(grant.Roles) != 0 && grant.Environment != "") {
+		return errors.New("service grant-host requires --node, --private-ip, --roles and --environment; revoke-host only --node")
+	}
+	reply, err := requestServiceSet(ctx, cfg, runtime, serviceSetListKind, []byte("{}"))
+	if err != nil {
+		return err
+	}
+	current := reply.Set
+	next := current
+	next.Generation++
+	next.HostGrants = slices.DeleteFunc(slices.Clone(current.HostGrants), func(g serviceset.HostGrant) bool { return g.Node == grant.Node })
+	if set {
+		next.HostGrants = append(next.HostGrants, grant)
+		slices.SortFunc(next.HostGrants, func(a, b serviceset.HostGrant) int { return strings.Compare(a.Node, b.Node) })
+	}
+	return planServiceSet(current, next, out, output)
+}
+
+// planServiceSet prints the plan from current to next and, with out, writes
+// next as the unsigned candidate. A next that changes nothing plans nothing.
+func planServiceSet(current, next serviceset.Set, out string, output io.Writer) error {
 	plan, err := serviceset.Diff(current, next)
 	if err != nil {
 		return err
@@ -194,6 +225,16 @@ type servicePlanOutput struct {
 	serviceset.Plan
 	Status    string `json:"status"`
 	Candidate string `json:"candidate,omitempty"`
+}
+
+// splitList returns the sorted entries of a comma-separated flag.
+func splitList(value string) []string {
+	if value == "" {
+		return nil
+	}
+	entries := strings.Split(value, ",")
+	slices.Sort(entries)
+	return entries
 }
 
 func sameService(a, b serviceset.Service) bool {

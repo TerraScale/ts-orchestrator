@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -683,19 +684,21 @@ func installHostEnrollment(root string, bundle hostenroll.PublicBundle, descript
 		return err
 	}
 	local.applyTo(&config.Host)
-	// A static host exists to run C# TerraBase members, and a controller host
-	// ts-auth replicas; each gets the image's root for its role unless the
-	// operator chose another one.
-	switch {
-	case descriptor.IsController():
-		config.Host.Roles = []string{tsauth.Role}
-		if config.Host.TSAuthRoot == "" {
-			config.Host.TSAuthRoot = filepath.Join(bundle.ManagedRuntimeRoot, "ts-auth")
-		}
-		// The controller holds the default observability port.
-		config.Observability.ListenAddress = controllerHostObservability
-	case descriptor.IsStatic() && config.Host.TerraBaseRoot == "":
+	// A granted host runs the roles its service set grant names; any other
+	// static host runs C# TerraBase members. Each role gets the image's root
+	// unless the operator chose another one.
+	if len(response.Roles) != 0 {
+		config.Host.Roles = slices.Clone(response.Roles)
+	}
+	if slices.Contains(config.Host.Roles, tsauth.Role) && config.Host.TSAuthRoot == "" {
+		config.Host.TSAuthRoot = filepath.Join(bundle.ManagedRuntimeRoot, "ts-auth")
+	}
+	if descriptor.IsStatic() && slices.Contains(config.Host.Roles, terrabase.Role) && config.Host.TerraBaseRoot == "" {
 		config.Host.TerraBaseRoot = filepath.Join(bundle.ManagedRuntimeRoot, "terrabase")
+	}
+	// On a controller VM the controller holds the default observability port.
+	if descriptor.IsController() {
+		config.Observability.ListenAddress = controllerHostObservability
 	}
 	wire, err := protocol.EncodeJSON(config)
 	if err != nil {

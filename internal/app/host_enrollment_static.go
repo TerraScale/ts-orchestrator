@@ -6,7 +6,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -15,8 +14,8 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/serviceset"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
 )
 
 // staticTerraBaseMembers is the part of the signed workloads.terrabase
@@ -124,7 +123,8 @@ func (enrollment *managedHostEnrollment) enrollStatic(ctx context.Context, epoch
 	response := hostenroll.Response{SchemaVersion: 1, Operation: request.Operation,
 		InstanceID: request.InstanceID, Node: descriptor.Node, DescriptorSHA256: digest,
 		RequestSHA256: hostenroll.RequestSHA256(wire), Nonce: request.Nonce,
-		RegistrationReceipt: receipt, NATSUserJWT: jwt, TLSCertificatePEM: string(chain), ExpiresAt: expires}
+		RegistrationReceipt: receipt, Roles: grantRoles(enrollment.grantFor(descriptor)),
+		NATSUserJWT: jwt, TLSCertificatePEM: string(chain), ExpiresAt: expires}
 	if err := response.Sign(enrollment.responseKey); err != nil {
 		return nil, err
 	}
@@ -158,19 +158,20 @@ func (enrollment *managedHostEnrollment) enrollStatic(ctx context.Context, epoch
 }
 
 // observeStatic authenticates a static host: a TerraBase member the signed
-// profile lists at the direct peer's address, or the host agent of the
-// controller VM at that address.
+// profile lists at the direct peer's address, or a host the service set
+// grants that address.
 func (enrollment *managedHostEnrollment) observeStatic(ctx context.Context, peerIP string,
 	request hostenroll.Request, descriptor hostboot.Descriptor,
 ) (oci.CloudInstance, error) {
-	if descriptor.IsController() {
-		return enrollment.observeController(ctx, peerIP, request, descriptor)
+	var peer terrabase.Peer
+	listed := false
+	if enrollment.terraBase != nil {
+		peer, listed = enrollment.terraBase.profile.Peer(descriptor.Node)
 	}
-	if enrollment.terraBase == nil {
-		return oci.CloudInstance{}, errors.New("static host enrollment requires a signed TerraBase workload profile")
+	if !listed {
+		return enrollment.observeGranted(ctx, peerIP, request, descriptor)
 	}
-	peer, listed := enrollment.terraBase.profile.Peer(descriptor.Node)
-	if !listed || peer.Address.Addr().String() != peerIP {
+	if peer.Address.Addr().String() != peerIP {
 		return oci.CloudInstance{}, errors.New("static host is not a listed TerraBase member at its private address")
 	}
 	observer, ok := enrollment.fleet.(oci.StaticHostObserver)
@@ -187,58 +188,41 @@ func (enrollment *managedHostEnrollment) observeStatic(ctx context.Context, peer
 	return instance, nil
 }
 
-// observeController authenticates the host agent of a controller VM: the
-// direct peer is one of the signed controller addresses, and OCI shows the
-// running controller of the descriptor's name holding it. The cell must
-// have a ts-auth profile, the one role a controller host runs.
-func (enrollment *managedHostEnrollment) observeController(ctx context.Context, peerIP string,
+// observeGranted authenticates a host the adopted service set grants: the
+// direct peer holds the grant's address, and OCI shows the running instance
+// of the descriptor's name holding it.
+func (enrollment *managedHostEnrollment) observeGranted(ctx context.Context, peerIP string,
 	request hostenroll.Request, descriptor hostboot.Descriptor,
 ) (oci.CloudInstance, error) {
-	if _, ok := enrollment.tsAuthProfile(); !ok {
-		return oci.CloudInstance{}, errors.New("controller host enrollment requires a ts-auth workload profile")
+	grant, _, ok := enrollment.services.hostGrant(descriptor.Node)
+	if !ok || grant.PrivateIP != peerIP {
+		return oci.CloudInstance{}, errors.New("static host is neither a listed TerraBase member nor granted its private address")
 	}
-	if !slices.Contains(enrollment.controllerIPs, peerIP) {
-		return oci.CloudInstance{}, errors.New("controller host is not at one of this cell's controller addresses")
-	}
-	observer, ok := enrollment.fleet.(oci.ControllerHostObserver)
+	observer, ok := enrollment.fleet.(oci.NamedHostObserver)
 	if !ok {
-		return oci.CloudInstance{}, errors.New("regional fleet cannot observe controller hosts")
+		return oci.CloudInstance{}, errors.New("regional fleet cannot observe granted hosts")
 	}
-	instance, err := observer.ObserveControllerHost(ctx, request.InstanceID, descriptor.Node)
+	instance, err := observer.ObserveNamedHost(ctx, request.InstanceID, descriptor.Node)
 	if err != nil {
 		return oci.CloudInstance{}, err
 	}
 	if instance.PrivateIP != peerIP {
-		return oci.CloudInstance{}, errors.New("direct peer does not match the controller instance")
+		return oci.CloudInstance{}, errors.New("direct peer does not match the granted instance")
 	}
 	return instance, nil
 }
 
-// tsAuthProfile is the cell's current ts-auth delivery profile, from the
-// signed config or its service set.
-func (enrollment *managedHostEnrollment) tsAuthProfile() (WorkloadProfile, bool) {
-	if enrollment.profiles == nil {
-		return WorkloadProfile{}, false
-	}
-	profile, ok := enrollment.profiles()[tsauth.Role]
-	return profile, ok
-}
-
 // staticRegistration is the registration a static host enrolls with: a
-// TerraBase member with one member's capacity, or a controller host running
-// one ts-auth replica.
+// TerraBase member with one member's capacity, or a granted host with its
+// grant's roles and environment.
 func (enrollment *managedHostEnrollment) staticRegistration(ctx context.Context, request hostenroll.Request,
 	descriptor hostboot.Descriptor, instance oci.CloudInstance,
 ) (host.Registration, error) {
 	registration := host.Registration{Cell: enrollment.cell, Node: descriptor.Node,
 		FailureDomain: strings.ToLower(instance.FaultDomain), Environment: enrollment.environment,
 		PublicKey: request.IdentityPublicKey, NATSUserPublicKey: request.NATSUserPublicKey, Generation: 1}
-	if descriptor.IsController() {
-		profile, ok := enrollment.tsAuthProfile()
-		if !ok {
-			return host.Registration{}, errors.New("controller host enrollment requires a ts-auth workload profile")
-		}
-		registration.Roles, registration.Capacity = []string{tsauth.Role}, host.Capacity(profile.Resources)
+	if grant, capacity, ok := enrollment.grantFor(descriptor); ok {
+		registration.Roles, registration.Environment, registration.Capacity = grant.Roles, grant.Environment, capacity
 	} else {
 		registration.Roles, registration.Capacity = []string{terrabase.Role}, enrollment.terraBase.capacity
 	}
@@ -272,6 +256,24 @@ func nextStaticRegistration(registration host.Registration, statuses []host.Host
 		registration.Generation++
 	}
 	return registration, nil
+}
+
+// grantFor returns the service set host grant a static host enrolls by,
+// unless the signed TerraBase profile lists it as a member.
+func (enrollment *managedHostEnrollment) grantFor(descriptor hostboot.Descriptor) (serviceset.HostGrant, host.Capacity, bool) {
+	if enrollment.terraBase != nil {
+		if _, listed := enrollment.terraBase.profile.Peer(descriptor.Node); listed {
+			return serviceset.HostGrant{}, host.Capacity{}, false
+		}
+	}
+	return enrollment.services.hostGrant(descriptor.Node)
+}
+
+func grantRoles(grant serviceset.HostGrant, _ host.Capacity, ok bool) []string {
+	if !ok {
+		return nil
+	}
+	return grant.Roles
 }
 
 func sameJSONValue(left, right host.Registration) bool {

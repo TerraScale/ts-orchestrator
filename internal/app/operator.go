@@ -18,6 +18,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	staged "git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/serviceset"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -103,6 +104,9 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	specPath := flags.String("spec", "", "service add, update: the role's reconciled service spec JSON")
 	outPath := flags.String("out", "", "service add, update, remove: new unsigned candidate file")
 	releasers := flags.String("releasers", "", "service add, update: comma-separated trusted signers that may release the role; update keeps the current ones when unset")
+	node := flags.String("node", "", "service grant-host, revoke-host: the static host's server name")
+	privateIP := flags.String("private-ip", "", "service grant-host: the host's private IPv4 address")
+	roles := flags.String("roles", "", "service grant-host: comma-separated roles the host runs")
 	var forwards operatorForwardFlags
 	flags.Var(&forwards, "nats-forward", "transient PRIVATE_IP:4222=LOOPBACK_IP:PORT Bastion forward (repeatable)")
 	if err := flags.Parse(args[1:]); err != nil {
@@ -239,6 +243,9 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 		return operatorSubmit(ctx, cfg, runtime, *intentPath, output)
 	case "service-list":
 		return operatorServiceList(ctx, cfg, runtime, output)
+	case "service-grant-host", "service-revoke-host":
+		return operatorServiceHostGrant(ctx, cfg, runtime, operation == "service-grant-host", serviceset.HostGrant{
+			Node: *node, PrivateIP: *privateIP, Roles: splitList(*roles), Environment: *environment}, *outPath, output)
 	case "service-add", "service-update", "service-remove":
 		return operatorServiceChange(ctx, cfg, runtime, strings.TrimPrefix(operation, "service-"), *role,
 			*profilePath, *specPath, *releasers, *outPath, output)
