@@ -154,8 +154,11 @@ for root and `terrascale-orchestrator`, the controller service account, so its
 OCI autoscaling client retains its instance principal. All other users,
 including ts-auth and its descendants, are blocked. Native workloads cannot
 assume those host UIDs or modify the firewall. `systemd-timesync` also retains
-UDP/123 to the same address, OCI's NTP server; that exception grants no HTTP
-metadata access and gives ts-auth no exception.
+UDP/123 to the same address, OCI's NTP server, and `systemd-resolve` retains
+port 53, OCI's DNS resolver, which every process (ts-auth too) reaches only
+through resolved's stub. Without that exception the host loses DNS and the
+controller its instance principal. Neither exception grants HTTP metadata
+access or gives ts-auth one.
 
 The rule applies to existing connections as well as new ones. Reloading
 atomically replaces only `terrascale_metadata`, leaving NetBird and other
@@ -381,7 +384,7 @@ one ts-auth replica on two of them).
 8. **Instance metadata blocked.** Step 3 installs the nftables rule and its
    boot dependency on every controller before the host is restarted. Each
    host must provide `/usr/sbin/nft` (Ubuntu package `nftables`) and the
-   `systemd-timesync` and `terrascale-orchestrator` accounts. nft resolves the
+   `systemd-timesync`, `systemd-resolve` and `terrascale-orchestrator` accounts. nft resolves the
    account names to the actual host UIDs when loading the rule.
 
 ### Before initial controller bootstrap

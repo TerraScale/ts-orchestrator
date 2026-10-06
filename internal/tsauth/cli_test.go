@@ -70,6 +70,7 @@ func TestRenderedMetadataRulesReserveMetadataForRootAndController(t *testing.T) 
 	if want := "destroy table inet terrascale_metadata\ntable inet terrascale_metadata {\n" +
 		"    chain output {\n        type filter hook output priority 0; policy accept;\n" +
 		"        ip daddr 169.254.169.254 meta skuid \"systemd-timesync\" udp dport 123 accept\n" +
+		"        ip daddr 169.254.169.254 meta skuid \"systemd-resolve\" meta l4proto { tcp, udp } th dport 53 accept\n" +
 		"        ip daddr 169.254.169.254 meta skuid != { 0, \"terrascale-orchestrator\" } counter drop\n    }\n}\n"; rules.String() != want {
 		t.Fatalf("metadata rules:\n%s", rules.String())
 	}
