@@ -102,7 +102,8 @@ so leave `public_nlb` unset for it.
 
 `public_lb` syncs that load balancer's TerraBase backend set to the seats the
 cell's signed `terrabase` profile names: every `TERRABASE_PEERS` member at
-`TERRABASE_CLIENT_PORT` (TS-571, see
+`TERRABASE_CLIENT_PORT`, drained while its `TS_TERRABASE_SEATS` record says so
+(TS-571, see
 [zero-downtime TerraBase rollouts](terrabase-zero-downtime-rollouts.md)).
 `seats` limits it to the listed members; a listed seat the profile does not
 name stops publication, and the previous set stays in force. The load

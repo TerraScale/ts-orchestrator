@@ -116,6 +116,14 @@ reports it `waiting` at the new generation. Managed members stop their
 workload before they ask, so the gate never sees them; their drain receipts
 order their restarts. Nothing sets the gate yet.
 
+Implemented (slice 4b): `internal/seatrollout` keeps one record per seat in
+the replicated `TS_TERRABASE_SEATS` bucket: a drain flag with its time, the
+highest desired generation the seat may restart into, and the authority
+epoch of the write. Writes are fenced and compare-and-set; a record that does
+not decode, names another seat or breaks its invariants fails every reader
+closed. `public_lb` publishes drained seats drained, and `Store.Granted` is
+the restart gate for static TerraBase members. Nothing writes records yet.
+
 A leader-only seat controller hands out permits:
 
 1. Pending seats are those whose desired generation is above the one their

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json/v2"
 	"errors"
 	"slices"
@@ -18,7 +19,7 @@ func terraBaseSeats(peers string) map[string]WorkloadProfile {
 		"TERRABASE_REGION": "gru-1", "TERRABASE_PEER_PORT": "9443", "TERRABASE_CLIENT_PORT": "9465", "TERRABASE_PEERS": peers}}}
 }
 
-func publishedBackends(t *testing.T, store ociresource.Store) (uint64, []string) {
+func publishedSpec(t *testing.T, store ociresource.Store) lb.Spec {
 	t.Helper()
 	records, err := store.List(t.Context(), "GRU", lb.Kind)
 	if err != nil || len(records) != 1 {
@@ -28,10 +29,22 @@ func publishedBackends(t *testing.T, store ociresource.Store) (uint64, []string)
 	if err := json.Unmarshal(records[0].Spec, &spec); err != nil {
 		t.Fatal(err)
 	}
+	if spec.LoadBalancerID != publicLBID || spec.BackendSet != "terrabase" {
+		t.Fatalf("spec=%+v", spec)
+	}
+	return spec
+}
+
+func publishedBackends(t *testing.T, store ociresource.Store) (uint64, []string) {
+	t.Helper()
+	records, err := store.List(t.Context(), "GRU", lb.Kind)
+	if err != nil || len(records) != 1 {
+		t.Fatalf("records=%+v err=%v", records, err)
+	}
 	var backends []string
-	for _, backend := range spec.Backends {
-		if spec.LoadBalancerID != publicLBID || spec.BackendSet != "terrabase" || backend.Drain {
-			t.Fatalf("spec=%+v", spec)
+	for _, backend := range publishedSpec(t, store).Backends {
+		if backend.Drain {
+			t.Fatalf("drained backend %+v", backend)
 		}
 		backends = append(backends, backend.IP)
 	}
@@ -72,7 +85,7 @@ func TestPublicLBConfigDecodesAndValidates(t *testing.T) {
 func TestPublicLBSpecIsTheSignedSeats(t *testing.T) {
 	public := OciReconcileLBConfig{LoadBalancerID: publicLBID, BackendSet: "terrabase"}
 	profiles := terraBaseSeats("gru-1-db-1=10.251.0.21:9443,gru-1-db-2=10.251.0.22:9443")
-	spec, err := public.spec(profiles)
+	spec, err := public.spec(profiles, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +94,7 @@ func TestPublicLBSpecIsTheSignedSeats(t *testing.T) {
 		t.Fatalf("spec=%+v", spec)
 	}
 	public.Seats = []string{"gru-1-db-1"}
-	if spec, err = public.spec(profiles); err != nil || !slices.Equal(spec.Backends, want[:1]) {
+	if spec, err = public.spec(profiles, nil); err != nil || !slices.Equal(spec.Backends, want[:1]) {
 		t.Fatalf("seats: spec=%+v err=%v", spec, err)
 	}
 
@@ -94,7 +107,7 @@ func TestPublicLBSpecIsTheSignedSeats(t *testing.T) {
 		"client listener off":   noClient,
 		"peer off its own port": terraBaseSeats("gru-1-db-1=10.251.0.21:9999"),
 	} {
-		if spec, err := public.spec(profiles); err == nil {
+		if spec, err := public.spec(profiles, nil); err == nil {
 			t.Fatalf("%s: spec=%+v", name, spec)
 		}
 	}
@@ -112,14 +125,16 @@ func TestPublicLBPassFollowsTheProfile(t *testing.T) {
 	store := ociresource.NewMemoryStore()
 	profiles := terraBaseSeats("gru-1-db-1=10.251.0.21:9443")
 	current := func() map[string]WorkloadProfile { return profiles }
+	seats, seatsErr := map[string]bool{}, error(nil)
+	drained := func(context.Context) (map[string]bool, error) { return seats, seatsErr }
 
-	if err := publicLBPass(store, reconcileTestFencer{fenced: true}, key, public, current).Run(t.Context(), 1); !errors.Is(err, ociresource.ErrFenced) {
+	if err := publicLBPass(store, reconcileTestFencer{fenced: true}, key, public, current, drained).Run(t.Context(), 1); !errors.Is(err, ociresource.ErrFenced) {
 		t.Fatalf("fenced pass err=%v", err)
 	}
 	if records, _ := store.List(t.Context(), "GRU", lb.Kind); len(records) != 0 {
 		t.Fatal("a fenced pass published")
 	}
-	pass := publicLBPass(store, reconcileTestFencer{}, key, public, current)
+	pass := publicLBPass(store, reconcileTestFencer{}, key, public, current, drained)
 	for range 2 {
 		if err := pass.Run(t.Context(), 1); err != nil {
 			t.Fatal(err)
@@ -137,11 +152,33 @@ func TestPublicLBPassFollowsTheProfile(t *testing.T) {
 		t.Fatalf("generation=%d backends=%v", generation, backends)
 	}
 
+	// The seat rollout drains gru-1-db-1 while gru-1-db-2 serves.
+	seats = map[string]bool{"gru-1-db-1": true}
+	if err := pass.Run(t.Context(), 1); err != nil {
+		t.Fatal(err)
+	}
+	if spec := publishedSpec(t, store); spec.Backends[0].Drain != true || spec.Backends[1].Drain {
+		t.Fatalf("drained spec=%+v", spec)
+	}
+	// Draining every seat, or unreadable seat records, publishes nothing.
+	seats = map[string]bool{"gru-1-db-1": true, "gru-1-db-2": true}
+	if err := pass.Run(t.Context(), 1); err == nil {
+		t.Fatal("published a set with every seat drained")
+	}
+	seats, seatsErr = nil, errors.New("seat record is invalid")
+	if err := pass.Run(t.Context(), 1); err == nil {
+		t.Fatal("published without reading the seat records")
+	}
+	if spec := publishedSpec(t, store); !spec.Backends[0].Drain || spec.Backends[1].Drain {
+		t.Fatalf("the drained set did not stay: %+v", spec)
+	}
+	seatsErr = nil
+
 	profiles = map[string]WorkloadProfile{}
 	if err := pass.Run(t.Context(), 1); err == nil {
 		t.Fatal("published without a terrabase profile")
 	}
-	if generation, backends := publishedBackends(t, store); generation != 2 || len(backends) != 2 {
-		t.Fatalf("the previous set did not stay: generation=%d backends=%v", generation, backends)
+	if spec := publishedSpec(t, store); len(spec.Backends) != 2 || !spec.Backends[0].Drain {
+		t.Fatalf("the previous set did not stay: %+v", spec)
 	}
 }

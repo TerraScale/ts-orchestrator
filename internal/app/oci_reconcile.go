@@ -24,6 +24,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/nsg"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/routetable"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/seclist"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/seatrollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
@@ -95,10 +96,11 @@ func (c OciReconcileConfig) publicLBKey(cell string) (ociresource.Key, error) {
 	return c.PublicLB.key(cell)
 }
 
-// spec derives the backend set from the current terrabase profile. A seat
-// the configuration lists but the profile does not is an error, so a typo
-// or a removed member never silently shrinks the set.
-func (c OciReconcileLBConfig) spec(profiles map[string]WorkloadProfile) (lb.Spec, error) {
+// spec derives the backend set from the current terrabase profile, with the
+// seats the seat rollout holds drained. A seat the configuration lists but
+// the profile does not is an error, so a typo or a removed member never
+// silently shrinks the set.
+func (c OciReconcileLBConfig) spec(profiles map[string]WorkloadProfile, drained map[string]bool) (lb.Spec, error) {
 	profile, ok := profiles[terrabase.Role]
 	if !ok {
 		return lb.Spec{}, errors.New("public load balancer: the cell has no terrabase workload profile")
@@ -118,7 +120,8 @@ func (c OciReconcileLBConfig) spec(profiles map[string]WorkloadProfile) (lb.Spec
 	}
 	for _, peer := range members.Peers {
 		if len(c.Seats) == 0 || slices.Contains(c.Seats, peer.Name) {
-			spec.Backends = append(spec.Backends, lb.Backend{IP: peer.Address.Addr().String(), Port: members.ClientPort})
+			spec.Backends = append(spec.Backends, lb.Backend{IP: peer.Address.Addr().String(), Port: members.ClientPort,
+				Drain: drained[peer.Name]})
 		}
 	}
 	return spec, nil
@@ -286,16 +289,21 @@ func desiredPass(cell string, store ociresource.Store, fencer authority.Fencer, 
 }
 
 // publicLBPass publishes the TerraBase seats as the public load balancer's
-// backend set. A profile that yields no seat is an error, and the previous
-// set stays in force.
+// backend set, draining the seats the seat rollout holds drained. A profile
+// that yields no serving seat, or seat records it cannot read, is an error,
+// and the previous set stays in force.
 func publicLBPass(store ociresource.Store, fencer authority.Fencer, key ociresource.Key, public OciReconcileLBConfig,
-	profiles func() map[string]WorkloadProfile,
+	profiles func() map[string]WorkloadProfile, drained func(context.Context) (map[string]bool, error),
 ) ociresource.Pass {
 	return ociresource.Pass{Name: "publish-" + lb.Kind, Run: func(ctx context.Context, epoch uint64) error {
 		if err := fencer.Guard(ctx, epoch); err != nil {
 			return fmt.Errorf("%w: %w", ociresource.ErrFenced, err)
 		}
-		spec, err := public.spec(profiles())
+		seats, err := drained(ctx)
+		if err != nil {
+			return fmt.Errorf("public load balancer: %w", err)
+		}
+		spec, err := public.spec(profiles(), seats)
 		if err != nil {
 			return err
 		}
@@ -459,7 +467,11 @@ func newOCIReconcileRunner(ctx context.Context, config OciReconcileConfig, regio
 		if err != nil {
 			return nil, err
 		}
-		passes = append(passes, publicLBPass(store, fencer, key, *public, profiles),
+		seats, err := seatrollout.Open(ctx, js, replicas, fencer)
+		if err != nil {
+			return nil, err
+		}
+		passes = append(passes, publicLBPass(store, fencer, key, *public, profiles, seats.Drained),
 			ociresource.ControllerPass(&ociresource.Controller[lb.Spec, lb.Observed]{
 				Region: cell, Resource: lb.Reconciler{API: lbAPI}, Store: store, Ownership: ownership, Authority: fencer}))
 	}
