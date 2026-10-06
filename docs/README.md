@@ -29,4 +29,5 @@ These pages describe the current greenfield Go implementation.
 | [Root key rotation](root-rotation.md) | Baked roots as genesis of a KV root chain, the leaked-root threat model and the rotation runbook |
 | [ts-auth deployment](ts-auth-deployment.md) | ts-auth on the gru-1 controllers: placement, Vault secret refs, TerraBase tenant, load balancer values and the live runbook |
 | [TerraBase serving lifecycle](terrabase-serving-lifecycle-plan.md) | Current health gate, drain and rollback; open replication, membership, serving proof and scale-in work |
+| [Generic workloads](generic-workloads.md) | The generic workload spec on apps and machines, artifact kinds, native and OCI runtime drivers, and TerraBase and ts-auth as templates |
 | [Deployment convergence benchmark](benchmarks/deployment-convergence-20260925.md) | In-memory deploy-to-apply latency measurement |
