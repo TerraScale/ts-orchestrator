@@ -443,7 +443,7 @@ func expectedInstallLinks(stage string, names []string) (map[string]string, erro
 		}
 		s, e := os.Lstat(unit)
 		if e != nil || !s.Mode().IsRegular() {
-			return nil, fmt.Errorf("required systemd unit is not a direct regular file: %s", name)
+			return nil, fmt.Errorf("required systemd unit is not a direct regular file: %s", file)
 		}
 		b, e := os.ReadFile(unit)
 		if e != nil {
@@ -465,19 +465,19 @@ func expectedInstallLinks(stage string, names []string) (map[string]string, erro
 			}
 			key, value, ok := strings.Cut(line, "=")
 			if !ok || !slices.Contains([]string{"WantedBy", "RequiredBy", "Alias", "Also"}, key) {
-				return nil, fmt.Errorf("unsupported systemd [Install] entry in %s: %s", name, line)
+				return nil, fmt.Errorf("unsupported systemd [Install] entry in %s: %s", file, line)
 			}
 			if key == "Also" {
 				for _, other := range strings.Fields(value) {
 					if !slices.Contains(names, other) {
-						return nil, fmt.Errorf("unsupported systemd Also unit in %s", name)
+						return nil, fmt.Errorf("unsupported systemd Also unit in %s", file)
 					}
 				}
 				continue
 			}
 			for _, item := range strings.Fields(value) {
 				if !regexp.MustCompile(`^[A-Za-z0-9_.@:-]+$`).MatchString(item) {
-					return nil, fmt.Errorf("invalid systemd [Install] name in %s: %s", name, item)
+					return nil, fmt.Errorf("invalid systemd [Install] name in %s: %s", file, item)
 				}
 				link := item
 				if key != "Alias" {
@@ -495,7 +495,7 @@ func expectedInstallLinks(stage string, names []string) (map[string]string, erro
 			}
 		}
 		if !found {
-			return nil, fmt.Errorf("required systemd unit has no enablement links: %s", name)
+			return nil, fmt.Errorf("required systemd unit has no enablement links: %s", file)
 		}
 	}
 	return expected, nil
@@ -586,7 +586,7 @@ func installLinks(g *Guest, work, repo string, out io.Writer) error {
 		}
 		if _, e := os.Stat(filepath.Join(etc, unitFile(name))); e != nil {
 			if _, e = os.Stat(filepath.Join(stage, "usr/lib/systemd/system", unitFile(name))); e != nil {
-				return fmt.Errorf("missing a required systemd unit: %s", name)
+				return fmt.Errorf("missing a required systemd unit: %s", unitFile(name))
 			}
 		}
 	}
