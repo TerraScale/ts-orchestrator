@@ -9,7 +9,8 @@
     "TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS": "https://dash.terrascale.tech/login",
     "TS_AUTH_SMTP_HOST": "smtp.email.sa-saopaulo-1.oci.oraclecloud.com",
     "TS_AUTH_SMTP_PORT": "587",
-    "TS_AUTH_SMTP_FROM_ADDRESS": "noreply@terrascale.tech"
+    "TS_AUTH_SMTP_FROM_ADDRESS": "noreply@terrascale.tech",
+    "TS_AUTH_SMTP_CHECK_REVOCATION": "false"
   },
   "secrets": {
     "TS_AUTH_MASTER_KEY": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-master-key"},

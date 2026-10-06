@@ -77,7 +77,7 @@ breaks these rules:
 | `TS_AUTH_ACCESS_TOKEN_AUDIENCES` | Exactly `https://gru.api.terrascale.tech`, TerraBase's `auth-audience`: every access token names it, so a dashboard user's token reaches TerraBase's Management API (TS-519). |
 | `TS_AUTH_DASHBOARD_REDIRECT_URIS` | Exactly `https://dash.terrascale.tech/login/callback`, the dashboard's callback. |
 | `TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS` | Exactly `https://dash.terrascale.tech/login`, the `post_logout_redirect_uri` the dashboard sends; ts-auth compares it exactly. |
-| `TS_AUTH_SMTP_HOST`, `TS_AUTH_SMTP_PORT`, `TS_AUTH_SMTP_FROM_ADDRESS` | The [SMTP relay](#smtp-relay): `smtp.email.sa-saopaulo-1.oci.oraclecloud.com`, `587` (STARTTLS) and `noreply@terrascale.tech`. Other non-secret optional settings (OTEL endpoint) may be added. |
+| `TS_AUTH_SMTP_HOST`, `TS_AUTH_SMTP_PORT`, `TS_AUTH_SMTP_FROM_ADDRESS`, `TS_AUTH_SMTP_CHECK_REVOCATION` | The [SMTP relay](#smtp-relay): `smtp.email.sa-saopaulo-1.oci.oraclecloud.com`, `587` (STARTTLS), `noreply@terrascale.tech` and `false`. Other non-secret optional settings (OTEL endpoint) may be added. |
 | The secret keys below, `TS_AUTH_LISTEN`, `DOTNET_BUNDLE_EXTRACT_BASE_DIR` | Must not be set in `env`. |
 | `secrets` | Names the six secret keys below, each `{"vault": OCID, "name": NAME}`, and may add `TS_AUTH_SMTP_USERNAME`, `TS_AUTH_SMTP_PASSWORD` and `TS_AUTH_SERVICE_CLIENTS`. The committed profile names both SMTP credentials. |
 | `TS_AUTH_STRIPE_SECRET_KEY`, `TS_AUTH_STRIPE_WEBHOOK_SECRET`, `TS_AUTH_SENTRY_DSN`, `TS_AUTH_AUDIT_VERIFY_KEYS`, `OTEL_EXPORTER_OTLP_HEADERS` | Must not be set: they are secrets, and the profile does not name them yet. |
@@ -109,6 +109,14 @@ ts-auth mails sign-in passcodes through OCI Email Delivery in
 from the approved sender `noreply@terrascale.tech` (domain `terrascale.tech`
 with DKIM `terrascale-tech-dkim`). ts-auth needs host, user name, password
 and from address together; without them it logs mail instead of sending it.
+
+`TS_AUTH_SMTP_CHECK_REVOCATION=false` is a documented security exception
+(ts-auth#38). The cell reaches the relay through the service gateway and has
+no route to its CA's OCSP and CRL servers (DigiCert, on Akamai), so ts-auth's
+default online revocation check refuses the relay with an
+`SslHandshakeException` and sends nothing. STARTTLS, the chain and the host
+name are still checked; a revoked relay certificate is accepted. A ts-auth
+release before ts-auth#38 ignores the setting.
 
 | Key | Vault secret | Source |
 | --- | --- | --- |
