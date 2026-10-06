@@ -1,7 +1,8 @@
 # Zero-downtime TerraBase rollouts (TS-571)
 
-Status: design note. Slice 1 (the L7 backend-set reconciler) is
-implemented; the later slices are **PROPOSED**.
+Status: design note. Slice 1 (the L7 backend-set reconciler) and the
+controller half of slice 2 (`oci_reconcile.public_lb`) are implemented; the
+rest is **PROPOSED**.
 
 ## Problem
 
@@ -54,7 +55,7 @@ is `ip:port` plus a `drain` flag.
 TS-563 owns service discovery and LB sync; it can fold this kind and the NLB
 kind together. The spec stays a plain backend list so that is mechanical.
 
-### 2. Backends are the signed seats (slice 2, PROPOSED)
+### 2. Backends are the signed seats (slice 2)
 
 A seat is one member the signed workload profile's `TERRABASE_PEERS` names.
 On every OCI reconcile pass the authority leader publishes the `terrabase`
@@ -63,7 +64,11 @@ the cell's drain set (slice 4). Seats are not removed when a host report is
 late: the load balancer's own `/readyz` check keeps a seat that does not
 serve out of rotation, and a NATS hiccup cannot make the backend set flap.
 
-`public_api.terrabase_members` is removed. `public-api apply` creates the
+Implemented: `oci_reconcile.public_lb` publishes the seats every pass (see
+[OCI reconcile](oci-reconcile.md)). Its optional `seats` list keeps gru-1 at
+`gru-1-db-1` until TS-561 replicates the catalog. The drain set is slice 4.
+
+**PROPOSED:** `public_api.terrabase_members` is removed. `public-api apply` creates the
 `terrabase` backend set and stamps the ownership tags, and its converge step
 stops rewriting that set's backends (it compares `ip:port` only and would
 clear drain flags).

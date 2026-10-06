@@ -11,6 +11,7 @@ only on the regional authority leader.
 |---|---|---|
 | `nsg-rules` | `oci_reconcile.desired.nsg_rules`, or records written to `TS_OCI_DESIRED` | Adds and removes the NSG's managed security rules. The NSG itself is never created or deleted. |
 | `nlb-backends` | Published from placement when `oci_reconcile.public_nlb` is set | Keeps one NLB backend set equal to the RUNNING member hosts. The NLB and backend set are never created or deleted. |
+| `lb-backends` | Published from the cell's signed `terrabase` profile when `oci_reconcile.public_lb` is set | Keeps one L7 load balancer backend set equal to the TerraBase seats, with drain flags; holds a drain or removal while no backend that keeps serving reports health OK. The load balancer and backend set are never created or deleted. |
 | `security-list-rules` | `oci_reconcile.desired.security_lists` | Replaces all ingress and egress rules of an owned security list in one If-Match update. |
 | `route-table-rules` | `oci_reconcile.desired.route_tables` | Replaces all static route rules of an owned route table in one If-Match update. OCI-generated `LOCAL` rules are neither compared nor sent. |
 | `bucket-protection` | `oci_reconcile.desired.buckets` | Sets versioning (Enabled or Suspended) and the bucket's marked retention rules. |
@@ -97,7 +98,25 @@ never mutated or deleted. The reconciler does not adopt resources by itself.
 `public_nlb` syncs a network load balancer's backend set to the RUNNING
 member hosts. The cell's public API is now the flexible load balancer
 `gru-1-api` (see [region bootstrap](region-bootstrap.md#public-terrabase-api)),
-whose backends follow the plan, so leave `public_nlb` unset for it.
+so leave `public_nlb` unset for it.
+
+`public_lb` syncs that load balancer's TerraBase backend set to the seats the
+cell's signed `terrabase` profile names: every `TERRABASE_PEERS` member at
+`TERRABASE_CLIENT_PORT` (TS-571, see
+[zero-downtime TerraBase rollouts](terrabase-zero-downtime-rollouts.md)).
+`seats` limits it to the listed members; a listed seat the profile does not
+name stops publication, and the previous set stays in force. Tag the load
+balancer with this controller's ownership for `<CELL>/lb-backends/<name>`
+first, and keep `public-api apply` from converging the same set's backends.
+
+```json
+"public_lb": {
+  "name": "public-terrabase",
+  "load_balancer_id": "ocid1.loadbalancer.oc1...",
+  "backend_set": "terrabase",
+  "seats": ["gru-1-db-1"]
+}
+```
 
 ## Safety
 

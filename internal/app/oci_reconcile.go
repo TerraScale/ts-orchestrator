@@ -19,10 +19,12 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/bucket"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/nlb"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/nsg"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/routetable"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/seclist"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
 // OciReconcileConfig enables the declarative OCI reconcile framework on the
@@ -35,6 +37,9 @@ type OciReconcileConfig struct {
 	// PublicNLB keeps the public API NLB's backend set in step with the
 	// RUNNING member hosts placement observes.
 	PublicNLB *OciReconcileNLBConfig `json:"public_nlb,omitempty"`
+	// PublicLB keeps the public API load balancer's TerraBase backend set
+	// equal to the seats the signed terrabase profile names (TS-571).
+	PublicLB *OciReconcileLBConfig `json:"public_lb,omitempty"`
 	// Desired publishes desired specs listed in this controller
 	// configuration (bound to the signed controller manifest on baked
 	// controllers) into TS_OCI_DESIRED before every pass. Off when nil.
@@ -47,6 +52,66 @@ type OciReconcileNLBConfig struct {
 	NLBID      string `json:"nlb_id"`
 	BackendSet string `json:"backend_set"`
 	Port       int    `json:"port"`
+}
+
+// OciReconcileLBConfig names the L7 load balancer backend set synced to the
+// TerraBase seats: every member TERRABASE_PEERS names, at the profile's
+// client port.
+type OciReconcileLBConfig struct {
+	Name           string `json:"name"`
+	LoadBalancerID string `json:"load_balancer_id"`
+	BackendSet     string `json:"backend_set"`
+	// Seats limits the backends to these seats; empty means every seat.
+	//
+	// ponytail: gru-1 lists gru-1-db-1 only. Members serve diverging
+	// catalogs until TS-561 replicates them; drop the list then.
+	Seats []string `json:"seats,omitempty"`
+}
+
+// key validates the configuration and returns its desired-state key.
+func (c OciReconcileLBConfig) key(cell string) (ociresource.Key, error) {
+	key := ociresource.Key{Region: cell, Kind: lb.Kind, Name: c.Name}
+	if err := key.Validate(); err != nil {
+		return key, err
+	}
+	if err := (lb.Spec{LoadBalancerID: c.LoadBalancerID, BackendSet: c.BackendSet, AllowEmpty: true}).Validate(); err != nil {
+		return key, err
+	}
+	for i, seat := range c.Seats {
+		if seat == "" || slices.Contains(c.Seats[:i], seat) {
+			return key, fmt.Errorf("OCI reconcile public load balancer seat %q is empty or repeated", seat)
+		}
+	}
+	return key, nil
+}
+
+// spec derives the backend set from the current terrabase profile. A seat
+// the configuration lists but the profile does not is an error, so a typo
+// or a removed member never silently shrinks the set.
+func (c OciReconcileLBConfig) spec(profiles map[string]WorkloadProfile) (lb.Spec, error) {
+	profile, ok := profiles[terrabase.Role]
+	if !ok {
+		return lb.Spec{}, errors.New("public load balancer: the cell has no terrabase workload profile")
+	}
+	members, err := terrabase.ParseProfile(profile.Env)
+	if err != nil {
+		return lb.Spec{}, fmt.Errorf("public load balancer: %w", err)
+	}
+	if members.ClientPort == 0 {
+		return lb.Spec{}, errors.New("public load balancer: the terrabase profile has no client listener")
+	}
+	spec := lb.Spec{LoadBalancerID: c.LoadBalancerID, BackendSet: c.BackendSet}
+	for _, seat := range c.Seats {
+		if _, ok := members.Peer(seat); !ok {
+			return lb.Spec{}, fmt.Errorf("public load balancer seat %q is not in %s", seat, terrabase.EnvPeers)
+		}
+	}
+	for _, peer := range members.Peers {
+		if len(c.Seats) == 0 || slices.Contains(c.Seats, peer.Name) {
+			spec.Backends = append(spec.Backends, lb.Backend{IP: peer.Address.Addr().String(), Port: members.ClientPort})
+		}
+	}
+	return spec, nil
 }
 
 // OciDesiredEntry is one desired resource. Policy is "report" (the default:
@@ -210,6 +275,25 @@ func desiredPass(cell string, store ociresource.Store, fencer authority.Fencer, 
 	}}
 }
 
+// publicLBPass publishes the TerraBase seats as the public load balancer's
+// backend set. A profile that yields no seat is an error, and the previous
+// set stays in force.
+func publicLBPass(store ociresource.Store, fencer authority.Fencer, key ociresource.Key, public OciReconcileLBConfig,
+	profiles func() map[string]WorkloadProfile,
+) ociresource.Pass {
+	return ociresource.Pass{Name: "publish-" + lb.Kind, Run: func(ctx context.Context, epoch uint64) error {
+		if err := fencer.Guard(ctx, epoch); err != nil {
+			return fmt.Errorf("%w: %w", ociresource.ErrFenced, err)
+		}
+		spec, err := public.spec(profiles())
+		if err != nil {
+			return err
+		}
+		_, err = lb.Publish(ctx, store, key, ociresource.PolicyEnforce, spec)
+		return err
+	}}
+}
+
 // ociReconcileRuntime is the leader-only runner and the read side the
 // insights engine uses on every controller.
 type ociReconcileRuntime struct {
@@ -257,9 +341,10 @@ func (s ociResourceStatuses) OCIResources(ctx context.Context) ([]insights.OCIRe
 // newOCIReconcileRunner builds the leader-only reconcile runner for one
 // region: configured desired specs, NSG rule sets, security lists, route
 // tables, bucket protection and, when configured, the public NLB backends
-// published from placement's fleet observation.
+// published from placement's fleet observation and the public load
+// balancer's TerraBase backends published from the cell's current profiles.
 func newOCIReconcileRunner(ctx context.Context, config OciReconcileConfig, region oci.RegionConfig,
-	js jetstream.JetStream, replicas int, fencer authority.Fencer, fleet oci.Fleet,
+	js jetstream.JetStream, replicas int, fencer authority.Fencer, fleet oci.Fleet, profiles func() map[string]WorkloadProfile,
 ) (*ociReconcileRuntime, error) {
 	if fencer == nil || fleet == nil {
 		return nil, errors.New("OCI reconcile requires authority and the regional fleet")
@@ -354,6 +439,19 @@ func newOCIReconcileRunner(ctx context.Context, config OciReconcileConfig, regio
 			return err
 		}}, ociresource.ControllerPass(&ociresource.Controller[nlb.Spec, nlb.Observed]{
 			Region: cell, Resource: nlb.Reconciler{API: nlbAPI}, Store: store, Ownership: ownership, Authority: fencer}))
+	}
+	if public := config.PublicLB; public != nil {
+		key, err := public.key(cell)
+		if err != nil {
+			return nil, err
+		}
+		lbAPI, err := lb.NewSDKAPI(factory)
+		if err != nil {
+			return nil, err
+		}
+		passes = append(passes, publicLBPass(store, fencer, key, *public, profiles),
+			ociresource.ControllerPass(&ociresource.Controller[lb.Spec, lb.Observed]{
+				Region: cell, Resource: lb.Reconciler{API: lbAPI}, Store: store, Ownership: ownership, Authority: fencer}))
 	}
 	return &ociReconcileRuntime{runner: &ociresource.Runner{Authority: fencer, Passes: passes, Interval: interval,
 		Jitter: rand.Float64}, store: store, cell: cell}, nil

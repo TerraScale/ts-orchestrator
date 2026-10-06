@@ -404,7 +404,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			ociReconcile, _, err = retryControllerOpen(ctx, "open OCI resource reconcile state", fullClusterReady, false,
 				func(attempt context.Context) (*ociReconcileRuntime, error) {
 					return newOCIReconcileRunner(attempt, *reconcile, managed.region, runtime.JetStream(),
-						cfg.NATS.Replicas, control, fleet)
+						cfg.NATS.Replicas, control, fleet, services.profiles)
 				}, nil)
 			if err != nil {
 				return err
