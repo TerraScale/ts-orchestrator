@@ -46,7 +46,8 @@ unset TS_DEPLOY_OCI_KEY
 printf '[DEFAULT]\nuser=%s\nfingerprint=%s\ntenancy=%s\nregion=sa-saopaulo-1\nkey_file=%s\n' \
 	"$TS_DEPLOY_OCI_USER" "$TS_DEPLOY_OCI_FINGERPRINT" "$TS_DEPLOY_OCI_TENANCY" "$work/oci/key.pem" > "$work/oci/config"
 export OCI_CONFIG_FILE=$work/oci/config
-printf '%s\n' "$TS_RELEASE_UPDATE_DELEGATION" > "$work/update-delegation.json"
+# The delegation is a canonical trust envelope: write its exact bytes.
+printf '%s' "$TS_RELEASE_UPDATE_DELEGATION" > "$work/update-delegation.json"
 
 tag="ci-${SOURCE_SHA}-run-${SOURCE_CI_RUN_ID}"
 args=()
