@@ -112,9 +112,15 @@ var Generated = []string{EnvMasterKey, EnvAuditSigningKey, EnvOperatorKey, EnvDa
 // Secrets are the keys of the profile's secret refs.
 var Secrets = []string{EnvMasterKey, EnvAuditSigningKey, EnvOperatorKey, EnvDashboardClientSecret, EnvAPIKey, EnvProjectID}
 
-// optionalSecrets are ts-auth secrets that no profile may carry yet.
-var optionalSecrets = []string{"TS_AUTH_SMTP_PASSWORD", "TS_AUTH_STRIPE_SECRET_KEY", "TS_AUTH_STRIPE_WEBHOOK_SECRET",
-	"TS_AUTH_SENTRY_DSN", "TS_AUTH_AUDIT_VERIFY_KEYS", "TS_AUTH_SERVICE_CLIENTS", "OTEL_EXPORTER_OTLP_HEADERS"}
+// OptionalSecrets are ts-auth secrets a profile may name as Vault secret
+// refs: the SMTP relay password, and the service clients (id:secret pairs)
+// that may use the client credentials grant.
+var OptionalSecrets = []string{"TS_AUTH_SMTP_PASSWORD", "TS_AUTH_SERVICE_CLIENTS"}
+
+// optionalSecrets are ts-auth secrets that no profile may carry, as env or
+// refs, yet.
+var optionalSecrets = []string{"TS_AUTH_STRIPE_SECRET_KEY", "TS_AUTH_STRIPE_WEBHOOK_SECRET",
+	"TS_AUTH_SENTRY_DSN", "TS_AUTH_AUDIT_VERIFY_KEYS", "OTEL_EXPORTER_OTLP_HEADERS"}
 
 var (
 	assetRE  = regexp.MustCompile(`^ts-auth-linux-(?:amd64|arm64)$`)
@@ -130,7 +136,7 @@ func VerifyRelease(binaryPath, checksumPath string) (string, error) {
 
 // ValidateProfile checks the "ts-auth" workload profile. ts-auth lets an
 // argument override any setting, so a profile sets env only, and it names
-// exactly the Secrets as Vault secret refs.
+// the Secrets, and optionally the OptionalSecrets, as Vault secret refs.
 func ValidateProfile(cell string, args []string, env map[string]string, secrets map[string]vaultsecret.Ref) error {
 	if cell != Cell {
 		return fmt.Errorf("ts-auth is only reviewed for cell %s", Cell)
@@ -138,10 +144,15 @@ func ValidateProfile(cell string, args []string, env map[string]string, secrets 
 	if len(args) != 0 {
 		return errors.New("ts-auth profile sets its settings only through env")
 	}
-	if len(secrets) != len(Secrets) || slices.ContainsFunc(Secrets, func(key string) bool { _, ok := secrets[key]; return !ok }) {
-		return fmt.Errorf("ts-auth profile secrets must name exactly %s", strings.Join(Secrets, ", "))
+	if slices.ContainsFunc(Secrets, func(key string) bool { _, ok := secrets[key]; return !ok }) {
+		return fmt.Errorf("ts-auth profile secrets must name %s", strings.Join(Secrets, ", "))
 	}
-	for _, key := range slices.Concat(Secrets, optionalSecrets, []string{EnvListen, EnvBundleExtract}) {
+	for key := range secrets {
+		if !slices.Contains(Secrets, key) && !slices.Contains(OptionalSecrets, key) {
+			return fmt.Errorf("ts-auth profile secrets may add only %s, not %s", strings.Join(OptionalSecrets, ", "), key)
+		}
+	}
+	for _, key := range slices.Concat(Secrets, OptionalSecrets, optionalSecrets, []string{EnvListen, EnvBundleExtract}) {
 		if _, set := env[key]; set {
 			return fmt.Errorf("ts-auth profile must not set %s", key)
 		}

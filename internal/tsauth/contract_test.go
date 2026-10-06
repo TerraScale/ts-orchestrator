@@ -69,9 +69,14 @@ func TestValidateProfile(t *testing.T) {
 	if _, set := validProfile()[EnvProjectID]; set || !slices.Contains(Secrets, EnvProjectID) {
 		t.Fatal("project ID belongs to the secrets")
 	}
-	missing, extra := validRefs(), validRefs()
+	missing, extra, optional := validRefs(), validRefs(), validRefs()
 	delete(missing, EnvMasterKey)
-	extra["TS_AUTH_SMTP_PASSWORD"] = vaultsecret.Ref{Vault: testTarget.VaultID, Name: "gru-1-ts-auth-smtp-password"}
+	extra["TS_AUTH_STRIPE_SECRET_KEY"] = vaultsecret.Ref{Vault: testTarget.VaultID, Name: "gru-1-ts-auth-stripe-secret-key"}
+	optional["TS_AUTH_SMTP_PASSWORD"] = vaultsecret.Ref{Vault: testTarget.VaultID, Name: "gru-1-ts-auth-smtp-password"}
+	optional["TS_AUTH_SERVICE_CLIENTS"] = vaultsecret.Ref{Vault: testTarget.VaultID, Name: "gru-1-ts-auth-service-clients"}
+	if err := ValidateProfile(Cell, nil, validProfile(), optional); err != nil {
+		t.Fatalf("optional SMTP password and service client refs: %v", err)
+	}
 	for name, refs := range map[string]map[string]vaultsecret.Ref{"no refs": nil, "missing ref": missing, "extra ref": extra} {
 		if err := ValidateProfile(Cell, nil, validProfile(), refs); err == nil {
 			t.Errorf("%s: accepted", name)
