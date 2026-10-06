@@ -59,6 +59,9 @@ type serviceReleases struct {
 	hosts      seatrollout.Hosts
 	profiles   func() map[string]WorkloadProfile
 	fencer     authority.Fencer
+	// fences restarts each release one node at a time when the cell spec
+	// has a release fence; nil restarts every replica at once.
+	fences *releaseFence
 	// interval is how often the channels are read; zero means
 	// defaultChannelInterval.
 	interval time.Duration
@@ -384,7 +387,7 @@ func (r *serviceReleases) fresh(ctx context.Context, role string, intent deliver
 // under the leader's current authority epoch; recovering records a
 // rollback before it is submitted.
 func (r *serviceReleases) deployer(actor string, recovering func(context.Context, delivery.Intent) (delivery.Intent, error)) nativeDeployer {
-	return nativeDeployer{service: r.deliveries, hosts: r.hosts, recovering: recovering,
+	deployer := nativeDeployer{service: r.deliveries, hosts: r.hosts, recovering: recovering,
 		submit: func(ctx context.Context, intent delivery.Intent) (delivery.Intent, string, error) {
 			if !r.fencer.Current().CanMutate() {
 				return intent, "", errors.New("this controller no longer holds the authority lease")
@@ -399,8 +402,16 @@ func (r *serviceReleases) deployer(actor string, recovering func(context.Context
 			if err != nil {
 				return intent, "", err
 			}
+			// Sequence the release before any host can see it.
+			if err := r.fences.prepare(ctx, intent); err != nil {
+				return intent, "", err
+			}
 			return intent, fingerprint, r.deliveries.SubmitVerified(ctx, intent, actor)
 		}}
+	if r.fences != nil {
+		deployer.sequence = r.fences.sequence
+	}
+	return deployer
 }
 
 // reportQuietly reports state and only logs a failure: status.json is

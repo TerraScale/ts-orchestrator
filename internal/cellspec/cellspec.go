@@ -56,8 +56,8 @@ const (
 	// level 5 the kv_snapshot schedule, level 6 the rollout policy, level 7
 	// the desired OCI resources, level 8 the trusted signers, level 9 the
 	// launch image, level 10 the artifact store quota, level 11 the Atlas
-	// publisher.
-	BinaryLevel = 11
+	// publisher, level 12 the release fence.
+	BinaryLevel = 12
 	// MaxHostImages bounds the image allow-list: the images a rollout moves
 	// between, plus room to stage the next one.
 	MaxHostImages = 4
@@ -181,6 +181,52 @@ type Spec struct {
 	// Atlas makes the authority leader publish the cell's topology to
 	// ts-atlas (internal/atlas); nil publishes nothing.
 	Atlas *atlas.Config `json:"atlas,omitempty"`
+	// ReleaseFence makes the leader's service releases (TS-610) restart one
+	// node at a time, each fenced on the load balancer first; nil restarts
+	// every replica at once.
+	ReleaseFence *ReleaseFence `json:"release_fence,omitempty"`
+}
+
+// ReleaseFence names the load balancer backend sets that serve a node's
+// workloads. Before a service release restarts a node, the leader takes
+// each of the node's backends that is in rotation out (drain, then offline
+// after DrainGraceSeconds), while another backend of the set serves healthy;
+// it returns them once the node serves the release and keeps them in
+// rotation for SettleSeconds before the next node.
+type ReleaseFence struct {
+	LoadBalancerID    string      `json:"load_balancer_id"`
+	BackendSets       []FencedSet `json:"backend_sets"`
+	DrainGraceSeconds int         `json:"drain_grace_seconds,omitzero"`
+	SettleSeconds     int         `json:"settle_seconds,omitzero"`
+}
+
+// FencedSet is one backend set; a node's backend in it is the node's
+// private address at Port.
+type FencedSet struct {
+	Name string `json:"name"`
+	Port int    `json:"port"`
+}
+
+// MaxFencedSets bounds a release fence's backend sets.
+const MaxFencedSets = 8
+
+func (f ReleaseFence) validate() error {
+	if !strings.HasPrefix(f.LoadBalancerID, "ocid1.loadbalancer.") || len(f.LoadBalancerID) > 255 ||
+		strings.ContainsAny(f.LoadBalancerID, " \t\r\n/") {
+		return fmt.Errorf("%w: release_fence load_balancer_id must be a load balancer OCID", ErrInvalid)
+	}
+	if len(f.BackendSets) == 0 || len(f.BackendSets) > MaxFencedSets {
+		return fmt.Errorf("%w: release_fence needs 1 to %d backend sets", ErrInvalid, MaxFencedSets)
+	}
+	for i, set := range f.BackendSets {
+		if !tokenRE.MatchString(set.Name) || i > 0 && f.BackendSets[i-1].Name >= set.Name || set.Port < 1 || set.Port > 65535 {
+			return fmt.Errorf("%w: release_fence backend sets must be sorted names without repeats, each with a port", ErrInvalid)
+		}
+	}
+	if f.DrainGraceSeconds < 0 || f.DrainGraceSeconds > 300 || f.SettleSeconds < 0 || f.SettleSeconds > 300 {
+		return fmt.Errorf("%w: release_fence drain_grace_seconds and settle_seconds must be between 0 and 300", ErrInvalid)
+	}
+	return nil
 }
 
 // ArtifactStore is the delivery artifact store's byte quota. Each controller
@@ -367,6 +413,11 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("%w: %w", ErrInvalid, err)
 		}
 	}
+	if s.ReleaseFence != nil {
+		if err := s.ReleaseFence.validate(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -422,8 +473,8 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 // profile names Vault secrets, 3 with a budget, 4 once it allows host
 // images, 5 with a kv_snapshot schedule, 6 with a rollout policy, 7 with
 // desired OCI resources, 8 with signers, 9 once it names a launch image and
-// 10 with an artifact store quota and 11 with an Atlas publisher, which an
-// older binary could not read.
+// 10 with an artifact store quota, 11 with an Atlas publisher and 12 with
+// a release fence, which an older binary could not read.
 func (s Spec) Level() uint64 {
 	level := uint64(1)
 	for _, service := range s.Services {
@@ -457,6 +508,9 @@ func (s Spec) Level() uint64 {
 	}
 	if s.Atlas != nil {
 		level = 11
+	}
+	if s.ReleaseFence != nil {
+		level = 12
 	}
 	return level
 }
@@ -813,6 +867,9 @@ type Plan struct {
 	// Atlas is "added", "updated" or "removed" when the Atlas publisher
 	// changes.
 	Atlas string `json:"atlas,omitempty"`
+	// ReleaseFence is "added", "updated" or "removed" when the release
+	// fence changes.
+	ReleaseFence string `json:"release_fence,omitempty"`
 	// RootRequired lists the authority-widening changes; the amendment
 	// applies only when a root signed it.
 	RootRequired []string `json:"root_required,omitempty"`
@@ -919,6 +976,14 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 	case before != nil && !reflect.DeepEqual(*before, *after):
 		plan.Atlas = "updated"
 	}
+	switch before, after := current.ReleaseFence, next.ReleaseFence; {
+	case before == nil && after != nil:
+		plan.ReleaseFence = "added"
+	case before != nil && after == nil:
+		plan.ReleaseFence = "removed"
+	case before != nil && !reflect.DeepEqual(*before, *after):
+		plan.ReleaseFence = "updated"
+	}
 	return plan, nil
 }
 
@@ -948,7 +1013,7 @@ func budgetChange(before, after *hostpool.Budget) string {
 func (p Plan) Empty() bool {
 	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 && p.Budget == "" &&
 		p.KVSnapshot == "" && p.RolloutPolicy == "" && p.OCIDesired == "" && len(p.Signers) == 0 &&
-		p.LaunchImage == "" && p.ArtifactStore == "" && p.Atlas == ""
+		p.LaunchImage == "" && p.ArtifactStore == "" && p.Atlas == "" && p.ReleaseFence == ""
 }
 
 // Validate checks each entry's policy and spec and the prune delay. The

@@ -1,0 +1,300 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
+)
+
+func fenceKV(t *testing.T) jetstream.KeyValue {
+	t.Helper()
+	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Start()
+	t.Cleanup(srv.Shutdown)
+	if !srv.ReadyForConnections(5 * time.Second) {
+		t.Fatal("NATS did not start")
+	}
+	conn, err := nats.Connect(srv.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(conn.Close)
+	js, err := jetstream.New(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kv, err := js.CreateKeyValue(t.Context(), jetstream.KeyValueConfig{Bucket: "TS_RELEASE_CHANNEL"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return kv
+}
+
+// fenceLB is a load balancer whose backends report healthy unless listed in
+// down. It fails the test when a set has no backend in rotation.
+type fenceLB struct {
+	t    *testing.T
+	mu   sync.Mutex
+	sets map[string][]lb.Backend
+	down map[string]bool
+	log  []string
+}
+
+func (f *fenceLB) ListBackends(_ context.Context, _, set string) ([]lb.Backend, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.sets[set]), nil
+}
+
+func (f *fenceLB) UnhealthyBackends(_ context.Context, _, set string) (map[string]bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	unhealthy := map[string]bool{}
+	for _, backend := range f.sets[set] {
+		if f.down[backend.Name()] {
+			unhealthy[backend.Name()] = true
+		}
+	}
+	return unhealthy, nil
+}
+
+func (f *fenceLB) UpdateBackend(_ context.Context, _, set string, backend lb.Backend) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	serving, state := 0, "active"
+	for i, current := range f.sets[set] {
+		if current.Name() == backend.Name() {
+			// The fence drains, then sets the drained backend offline.
+			switch {
+			case backend.Serving():
+			case current.Drain:
+				state = "offline"
+			default:
+				state = "drain"
+			}
+			f.sets[set][i] = backend
+		}
+		if f.sets[set][i].Serving() {
+			serving++
+		}
+	}
+	f.log = append(f.log, set+" "+backend.Name()+" "+state)
+	if serving == 0 {
+		f.t.Errorf("set %s has no backend in rotation after %s", set, f.log[len(f.log)-1])
+	}
+	return "wr", nil
+}
+
+func (f *fenceLB) WaitWorkRequest(context.Context, string) error { return nil }
+func (f *fenceLB) GetLoadBalancer(context.Context, string) (lb.LoadBalancer, error) {
+	return lb.LoadBalancer{}, nil
+}
+func (f *fenceLB) CreateBackend(context.Context, string, string, lb.Backend) (string, error) {
+	return "", errors.New("unused")
+}
+func (f *fenceLB) DeleteBackend(context.Context, string, string, string) (string, error) {
+	return "", errors.New("unused")
+}
+func (f *fenceLB) UpdateTags(context.Context, string, string, ociresource.Tags) (string, error) {
+	return "", errors.New("unused")
+}
+
+// fenceCell has one desired replica of role per node at release. A node
+// restarts into it as soon as the restart gate grants it; until then it
+// serves the previous release. Nodes in broken fail the release.
+type fenceCell struct {
+	t        *testing.T
+	gate     func(context.Context, string, host.Desired) (bool, error)
+	lb       *fenceLB
+	nodes    []string
+	release  uint64
+	broken   map[string]bool
+	mu       sync.Mutex
+	restarts []string
+}
+
+func (c *fenceCell) ListDesired(context.Context, string) ([]host.Desired, error) {
+	var desired []host.Desired
+	for _, node := range c.nodes {
+		desired = append(desired, host.Desired{Node: node, Role: "ts-auth", Generation: c.release << 24})
+	}
+	return desired, nil
+}
+
+func (c *fenceCell) ListHosts(ctx context.Context) ([]host.HostStatus, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var statuses []host.HostStatus
+	for _, node := range c.nodes {
+		desired := host.Desired{Node: node, Role: "ts-auth", Generation: c.release << 24}
+		granted, err := c.gate(ctx, node, desired)
+		if err != nil {
+			return nil, err
+		}
+		report := host.Report{Node: node, Role: "ts-auth", Generation: (c.release - 1) << 24, State: "running",
+			ObservedAt: time.Now()}
+		if granted {
+			if !slices.Contains(c.restarts, node) {
+				c.restarts = append(c.restarts, node)
+				// A node restarts only while none of its backends serves.
+				c.lb.mu.Lock()
+				for set, backends := range c.lb.sets {
+					for _, backend := range backends {
+						if backend.IP == fenceAddresses[node] && backend.Serving() {
+							c.t.Errorf("%s restarted while its %s backend serves", node, set)
+						}
+					}
+				}
+				c.lb.mu.Unlock()
+			}
+			report.Generation, report.State = desired.Generation, "running"
+			if c.broken[node] {
+				report.State = "failed"
+			}
+		}
+		statuses = append(statuses, host.HostStatus{Reports: []host.Report{report}})
+	}
+	return statuses, nil
+}
+
+var fenceAddresses = map[string]string{"ctl-1": "10.0.0.11", "ctl-2": "10.0.0.12", "ctl-3": "10.0.0.13"}
+
+func newFenceTest(t *testing.T) (*releaseFence, *fenceCell, *fenceLB, jetstream.KeyValue, delivery.Intent) {
+	t.Helper()
+	kv := fenceKV(t)
+	balancer := &fenceLB{t: t, down: map[string]bool{}, sets: map[string][]lb.Backend{}}
+	for _, node := range []string{"ctl-1", "ctl-2", "ctl-3"} {
+		balancer.sets["terrabase"] = append(balancer.sets["terrabase"], lb.Backend{IP: fenceAddresses[node], Port: 9465})
+		// ctl-1's ts-auth backend is out of rotation already.
+		balancer.sets["ts-auth"] = append(balancer.sets["ts-auth"],
+			lb.Backend{IP: fenceAddresses[node], Port: 8080}.Fenced(node == "ctl-1", node == "ctl-1"))
+	}
+	spec := &cellspec.ReleaseFence{LoadBalancerID: "ocid1.loadbalancer.oc1..x",
+		BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465}, {Name: "ts-auth", Port: 8080}}}
+	cell := &fenceCell{t: t, gate: releaseGate(kv), lb: balancer, nodes: []string{"ctl-1", "ctl-2", "ctl-3"}, release: 7,
+		broken: map[string]bool{}}
+	fence := &releaseFence{kv: kv, hosts: cell,
+		spec: func() (*cellspec.ReleaseFence, map[string]string) { return spec, fenceAddresses },
+		open: func(context.Context) (lb.API, error) { return balancer, nil },
+		sleep: func(ctx context.Context, _ time.Duration) error {
+			time.Sleep(time.Millisecond)
+			return ctx.Err()
+		}}
+	return fence, cell, balancer, kv, delivery.Intent{Role: "ts-auth", Generation: 7}
+}
+
+func TestReleaseFenceRestartsOneFencedNodeAtATime(t *testing.T) {
+	fence, cell, balancer, kv, intent := newFenceTest(t)
+	ctx := t.Context()
+	if err := fence.prepare(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	// Sequenced: no node restarts before the leader permits it.
+	if granted, err := cell.gate(ctx, "ctl-1", host.Desired{Role: "ts-auth", Generation: 7 << 24}); err != nil || granted {
+		t.Fatalf("an unpermitted node may restart: %v %v", granted, err)
+	}
+	if err := fence.sequence(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(cell.restarts, []string{"ctl-1", "ctl-2", "ctl-3"}) {
+		t.Fatalf("restarts %q", cell.restarts)
+	}
+	want := []string{
+		"terrabase 10.0.0.11:9465 drain", "terrabase 10.0.0.11:9465 offline", "terrabase 10.0.0.11:9465 active",
+		"terrabase 10.0.0.12:9465 drain", "ts-auth 10.0.0.12:8080 drain", "terrabase 10.0.0.12:9465 offline",
+		"ts-auth 10.0.0.12:8080 offline", "terrabase 10.0.0.12:9465 active", "ts-auth 10.0.0.12:8080 active",
+		"terrabase 10.0.0.13:9465 drain", "ts-auth 10.0.0.13:8080 drain", "terrabase 10.0.0.13:9465 offline",
+		"ts-auth 10.0.0.13:8080 offline", "terrabase 10.0.0.13:9465 active", "ts-auth 10.0.0.13:8080 active",
+	}
+	if !slices.Equal(balancer.log, want) {
+		t.Fatalf("load balancer\n%s\nwant\n%s", strings.Join(balancer.log, "\n"), strings.Join(want, "\n"))
+	}
+	// The out-of-rotation backend stays out; the release is open again.
+	if balancer.sets["ts-auth"][0].Serving() {
+		t.Fatal("the fence returned a backend it never took out")
+	}
+	keys, err := kv.ListKeys(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key := range keys.Keys() {
+		t.Errorf("left %s", key)
+	}
+}
+
+func TestReleaseFenceKeepsTheLastHealthyBackend(t *testing.T) {
+	fence, _, balancer, _, intent := newFenceTest(t)
+	balancer.down["10.0.0.12:9465"], balancer.down["10.0.0.13:9465"] = true, true
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	if err := fence.prepare(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.sequence(ctx, intent); err == nil || !strings.Contains(err.Error(), "last healthy") {
+		t.Fatalf("fenced the last healthy backend: %v", err)
+	}
+	if len(balancer.log) != 0 {
+		t.Fatalf("changed the load balancer: %q", balancer.log)
+	}
+}
+
+func TestReleaseFenceLeavesAFailedNodeFencedAndANewLeaderReturnsIt(t *testing.T) {
+	fence, cell, balancer, kv, intent := newFenceTest(t)
+	ctx := t.Context()
+	cell.broken["ctl-1"] = true
+	if err := fence.prepare(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.sequence(ctx, intent); err == nil || !strings.Contains(err.Error(), "stay fenced") {
+		t.Fatalf("a failed node: %v", err)
+	}
+	if balancer.sets["terrabase"][0].Serving() || !slices.Equal(cell.restarts, []string{"ctl-1"}) {
+		t.Fatalf("after the failure: %+v, restarts %q", balancer.sets["terrabase"][0], cell.restarts)
+	}
+	if _, err := kv.Get(ctx, fencedKey("ctl-1")); err != nil {
+		t.Fatalf("the fence of ctl-1 is not recorded: %v", err)
+	}
+	// The node serves after all (a rollback, say): the next sequence of the
+	// release, here by a new leader, returns its backends and goes on.
+	cell.broken["ctl-1"] = false
+	if err := fence.sequence(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	for _, backend := range balancer.sets["terrabase"] {
+		if !backend.Serving() {
+			t.Errorf("%s stays out of rotation", backend.Name())
+		}
+	}
+}
+
+func TestReleaseFenceWithoutASpecRestartsEveryNode(t *testing.T) {
+	fence, cell, balancer, _, intent := newFenceTest(t)
+	fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return nil, nil }
+	ctx := t.Context()
+	if err := fence.prepare(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if granted, err := cell.gate(ctx, "ctl-2", host.Desired{Role: "ts-auth", Generation: 7 << 24}); err != nil || !granted {
+		t.Fatalf("an unsequenced release is held: %v %v", granted, err)
+	}
+	if err := fence.sequence(ctx, intent); err != nil || len(balancer.log) != 0 {
+		t.Fatalf("sequence %v, load balancer %q", err, balancer.log)
+	}
+}

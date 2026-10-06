@@ -817,7 +817,25 @@ releases/v1/services/<role>/status.json         the region leader's report
    and reported `failed`. The leader submits the intent for the claim's
    signer (`delivery.Service.SubmitVerified`); the delivery worker
    authorizes that signer again.
-4. The leader records each step under `service.<role>.<CELL>` in
+4. With the cell spec's [`release_fence`](cell-spec.md), the release
+   restarts one node at a time, which colocated roles (gru-1: TerraBase and
+   ts-auth on the same three controllers) need. Before it submits a release
+   the leader marks it `fence.<role>.<release>` in `TS_RELEASE_CHANNEL`, and
+   every controller's host restart gate holds a host's restart into a
+   marked release until the leader writes that node's permit. For each node
+   in turn the leader takes the node's backends that are in rotation out of
+   every fenced set (drain, the grace, then offline, since a drain alone
+   keeps the load balancer's pooled connections), but only while another
+   backend of the set serves healthy; records them under `fenced.<node>`
+   before it changes the load balancer; permits the node; waits until it
+   reports the release `running`; returns its backends and waits for their
+   health checks; and settles. A node that fails the release keeps its
+   backends out of rotation and the release rolls back the same way, one
+   node at a time; a new leader returns recorded backends. Once every node
+   serves the release, its marks are removed, so later scaling is not held.
+   The controllers' instance principal needs `use load-balancers` in the
+   network compartment (`ociregion.RequiredControllerStatements`).
+5. The leader records each step under `service.<role>.<CELL>` in
    `TS_RELEASE_CHANNEL` before it acts, so a new leader resumes the gate of
    a submitted release instead of starting it again, and mirrors the record
    to `status.json`. An intent an earlier leader submitted that the delivery
@@ -851,15 +869,13 @@ and `repositories` limited to the two source repositories; it cannot sign
 orchestrator updates, register hosts or change the cell spec. The
 controllers already read `releases/v1/*` in their head bucket and need
 `OBJECT_CREATE`/`OBJECT_OVERWRITE` on
-`releases/v1/services/*/status.json` too.
+`releases/v1/services/*/status.json` too; both are in
+`ociregion.RequiredControllerStatements`.
 
 Limits of this part:
 
-- The release writes every replica's desired at once. A cell without
-  TerraBase seats (gru-1) therefore restarts every replica together; one
-  node at a time with load balancer fencing for colocated roles is the next
-  slice of TS-610, and gru-1's service channels stay unpublished until it
-  ships.
+- Without a release fence a release writes every replica's desired at
+  once, so every replica restarts together.
 - Roles other than `terrabase` and `ts-auth` need a release rule first.
 - Binaries are never deleted from `releases/v1/services/*/binaries/`; an
   Object Storage lifecycle rule should expire old ones.

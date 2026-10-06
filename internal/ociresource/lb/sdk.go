@@ -119,7 +119,7 @@ func (a sdkAPI) UpdateBackend(ctx context.Context, id, backendSet string, backen
 	response, err := a.client.UpdateBackend(ctx, loadbalancer.UpdateBackendRequest{LoadBalancerId: new(id),
 		BackendSetName: new(backendSet), BackendName: new(backend.Name()), OpcRetryToken: new(common.RetryToken()),
 		UpdateBackendDetails: loadbalancer.UpdateBackendDetails{Weight: new(defaultWeight), Backup: new(false),
-			Drain: new(backend.Drain), Offline: new(false)}})
+			Drain: new(backend.Drain), Offline: new(backend.offline)}})
 	if err != nil {
 		return "", fmt.Errorf("update OCI load balancer backend: %w", err)
 	}

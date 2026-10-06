@@ -1199,3 +1199,50 @@ func TestAtlasLevelValidateDiffAndWiden(t *testing.T) {
 		}
 	}
 }
+
+// A release fence needs binary level 12 and a valid section; any signer of
+// ordinary amendments may add, change or remove it.
+func TestReleaseFenceLevelValidateAndDiff(t *testing.T) {
+	f := newFixture(t)
+	fence := ReleaseFence{LoadBalancerID: "ocid1.loadbalancer.oc1.sa-saopaulo-1.example",
+		BackendSets: []FencedSet{{Name: "terrabase", Port: 9465}, {Name: "ts-auth", Port: 8080}}, DrainGraceSeconds: 15}
+	spec := testSpec(f.id, 1)
+	spec.ReleaseFence, spec.RequiresBinary = &fence, 12
+	if spec.Level() != 12 || spec.Validate() != nil {
+		t.Fatalf("level %d, %v", spec.Level(), spec.Validate())
+	}
+	for name, broken := range map[string]func(*ReleaseFence){
+		"not a load balancer": func(f *ReleaseFence) { f.LoadBalancerID = "ocid1.instance.oc1..x" },
+		"no sets":             func(f *ReleaseFence) { f.BackendSets = nil },
+		"unsorted sets":       func(f *ReleaseFence) { f.BackendSets = []FencedSet{f.BackendSets[1], f.BackendSets[0]} },
+		"no port":             func(f *ReleaseFence) { f.BackendSets = []FencedSet{{Name: "terrabase"}} },
+		"long grace":          func(f *ReleaseFence) { f.DrainGraceSeconds = 301 },
+	} {
+		invalid := fence
+		invalid.BackendSets = slices.Clone(fence.BackendSets)
+		broken(&invalid)
+		next := spec
+		next.ReleaseFence = &invalid
+		if err := next.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	moved := fence
+	moved.SettleSeconds = 30
+	for name, test := range map[string]struct {
+		before, after *ReleaseFence
+		change        string
+	}{
+		"add":    {after: &fence, change: "added"},
+		"change": {before: &fence, after: &moved, change: "updated"},
+		"keep":   {before: &fence, after: &fence},
+		"remove": {before: &fence, change: "removed"},
+	} {
+		current, next := testSpec(f.id, 1), testSpec(f.id, 2)
+		current.ReleaseFence, next.ReleaseFence = test.before, test.after
+		plan, err := Diff(current, next, nil)
+		if err != nil || plan.ReleaseFence != test.change || plan.Empty() != (test.change == "") || len(plan.RootRequired) != 0 {
+			t.Errorf("%s: Diff = %+v, %v", name, plan, err)
+		}
+	}
+}

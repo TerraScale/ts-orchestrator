@@ -650,6 +650,18 @@ func (r *specRegistry) ociDesired() *cellspec.OCIDesired {
 	return r.signedDesired
 }
 
+// releaseFence is the current spec's release fence, or nil, and the private
+// address of each granted node.
+func (r *specRegistry) releaseFence() (*cellspec.ReleaseFence, map[string]string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	addresses := make(map[string]string, len(r.current.HostGrants))
+	for _, grant := range r.current.HostGrants {
+		addresses[grant.Node] = grant.PrivateIP
+	}
+	return r.current.ReleaseFence, addresses
+}
+
 // atlasConfig is the current spec's Atlas publisher, or nil.
 func (r *specRegistry) atlasConfig() *atlas.Config {
 	r.mu.Lock()
