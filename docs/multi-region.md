@@ -180,6 +180,16 @@ literals elsewhere.
 - Every other region opens a verified read-only mirror of that stream through
   the interregion contract. During a partition each region keeps serving
   from its mirror; only global changes stop.
+- The stream also relays signed documents (`globalcontrol.Document`): the
+  exact bytes an operator submitted for one cell, as `ts.global.v1.<kind>.<cell>`.
+  The writer only orders and fences them; each record counts its own
+  generation, and the target region verifies the bytes with its own trust
+  before it acts. Regions follow their documents with an ordered consumer on
+  their local stream or mirror (`Reader.Follow`), so a change arrives within
+  seconds, and recheck them every few seconds. The first kind is `cellspec`:
+  [`ts-orch apply` for another region](cell-spec.md#apply-to-another-region).
+  [NATS fabric](nats-fabric.md) has the naming rules and when to use which
+  pattern.
 
 ### Credentials
 

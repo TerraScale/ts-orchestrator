@@ -38,7 +38,7 @@ func HomeStreamConfig(replicas int) jetstream.StreamConfig {
 		MaxMsgs:           -1,
 		MaxBytes:          -1,
 		MaxMsgsPerSubject: -1,
-		MaxMsgSize:        maxRecordBytes,
+		MaxMsgSize:        maxMessageBytes,
 		Storage:           jetstream.FileStorage,
 		Replicas:          replicas,
 		DenyDelete:        true,
@@ -228,6 +228,18 @@ func openStream(ctx context.Context, js jetstream.JetStream, config jetstream.St
 	}
 	if err := verify(info.Config); err != nil {
 		return nil, err
+	}
+	// A home stream created before relayed documents bounded messages at
+	// 64 KiB; the bound is raised in place.
+	if limit := info.Config.MaxMsgSize; limit > 0 && limit < config.MaxMsgSize {
+		raised := info.Config
+		raised.MaxMsgSize = config.MaxMsgSize
+		updateCtx, cancel := context.WithTimeout(ctx, apiTimeout)
+		stream, err = js.UpdateStream(updateCtx, raised)
+		cancel()
+		if err != nil {
+			return nil, fmt.Errorf("raise the global control message bound: %w", err)
+		}
 	}
 	return stream, nil
 }

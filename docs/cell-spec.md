@@ -199,6 +199,43 @@ existing host registration subject. Every issued operator credential can
 publish to it, so no credential is re-issued. Only the authority leader
 answers.
 
+## Apply to another region
+
+With global control on (`controller.global`, see
+[multi-region](multi-region.md#global-state)), an operator in the global home
+region applies a spec for any interregion peer with the same command:
+`ts-orch apply -f SIGNED` reads the cell the spec's signature names and, when
+it is not the operator config's cell, relays it instead of applying it
+locally (TS-562):
+
+1. The operator signs a `cell.spec.relay` request for the target cell around
+   the signed spec (valid as long as a spec, 24 hours) and sends it, inside a
+   `cell.spec.publish` request bound to the global authority epoch, to the
+   home region. The controller holding the global lease answers; the regional
+   leader leaves the kind to it. Outside the home region there is no global
+   lease and the command fails at once.
+2. The global leader checks what it can without the target's trust: the
+   operator is a trusted signer here and signed the relay request too, the
+   target is an interregion peer, the spec names that cell, and its generation
+   is not older than the one already waiting. It stores the relay request as
+   the target's `cellspec` record in `TS_GLOBAL_CONTROL`
+   (`ts.global.v1.cellspec.<cell>`) and replies `{"status":"relayed","cell",
+   "generation"}`.
+3. The target's mirror receives the record within seconds. Its authority
+   leader watches the record and rechecks it every 10 s, so a new leader picks
+   it up too. It applies the spec only if the relay request's signer is a
+   trusted signer of the target's own signed config, and the spec then passes
+   exactly the checks above. Followers adopt it from `TS_SERVICE_SET` as usual.
+
+The relay never widens authority: the target needs both its own trusted
+operator and its own roots, as for a local apply, and the home region holds
+neither. A refused record is logged once on the target's leader and stays
+until the next relay replaces it. A record is refused for good once its spec
+or relay request expires (24 hours), for example after a longer partition:
+sign it again. A spec refused because a removed role still has replicas
+applies by itself once the role is scaled to zero. The target reports
+nothing back yet; check it with `ts-orch get` against that region.
+
 ## Binary levels
 
 Each ts-orch binary understands cell specs up to its `cellspec.BinaryLevel`
@@ -226,7 +263,7 @@ the record. Re-apply its services as a new cell spec.
 | --- | --- | --- |
 | `ts-orch get --config OPERATOR_JSON` | operator host | Prints the current spec. `service list` is the same. |
 | `ts-orch diff --config F -f FILE` | operator host | Plans an unsigned candidate or a signed spec on the leader, without changing anything. Prints `{"deployment_id","cell","environment","from_generation","to_generation","requires_binary","added","updated","removed","host_grants","root_required","status"}`. `status` is `planned`, `unchanged`, or `stale` when the generation does not follow the current one. A spec that breaks the cell's rules is refused with the rule. |
-| `ts-orch apply --config F -f SIGNED` | operator host | Submits the signed spec. Prints `{"status":"applied"\|"unchanged","generation","requires_binary","roles"}`. `service apply --file` is the same. |
+| `ts-orch apply --config F -f SIGNED` | operator host | Submits the signed spec. Prints `{"status":"applied"\|"unchanged","generation","requires_binary","roles"}`. A spec for another region is [relayed](#apply-to-another-region) through the global home and prints `{"status":"relayed","cell","generation"}`. `service apply --file` is the same. |
 | `ts-orch service add --config F --role R --profile F [--spec F] [--releasers A,B] [--out F]` | operator host | Plans the next generation with R added and prints the leader's plan. With `--out`, writes the unsigned candidate. An identical existing service plans nothing (`"status":"unchanged"`). A different existing service is refused: use `update`. |
 | `ts-orch service update --config F --role R --profile F [--spec F] [--releasers A,B] [--out F]` | operator host | Same as `add` for an existing role; keeps its releasers unless `--releasers` is given. |
 | `ts-orch service remove --config F --role R [--out F]` | operator host | Plans the next generation without R. |

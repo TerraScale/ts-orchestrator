@@ -24,6 +24,9 @@ const (
 	KindDirectory Kind = "directory"
 	// KindTerm is the global writer's term barrier (see Writer).
 	KindTerm Kind = "term"
+	// KindCellSpec relays a region's signed cell spec (internal/cellspec),
+	// keyed by the region's cell (see Document).
+	KindCellSpec Kind = "cellspec"
 )
 
 // RosterKey is the single key of the region roster record.
@@ -32,8 +35,10 @@ const RosterKey = "current"
 const (
 	recordVersion  = 1
 	maxRecordBytes = 64 << 10
-	maxRegions     = 32
-	maxActive      = 5
+	// maxMessageBytes bounds a stored record: its payload is base64 in JSON.
+	maxMessageBytes = 96 << 10
+	maxRegions      = 32
+	maxActive       = 5
 )
 
 var (

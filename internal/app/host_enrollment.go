@@ -130,6 +130,10 @@ func serveHostEnrollment(ctx context.Context, conn *nats.Conn, cell string, poli
 		defer cancel()
 		var envelope protocol.Envelope
 		decodeErr := protocol.DecodeStrict(message.Data, &envelope, maxRegistrationWireBytes)
+		if decodeErr == nil && envelope.Kind == cellSpecPublishKind {
+			// The global leader answers it (serveCellSpecRelay).
+			return
+		}
 		if decodeErr == nil && services != nil &&
 			(envelope.Kind == cellSpecGetKind || envelope.Kind == cellSpecDiffKind || envelope.Kind == cellSpecApplyKind) {
 			reply, err := services.serve(requestCtx, message.Data, policy, fencer, controller)

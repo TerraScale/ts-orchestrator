@@ -200,12 +200,12 @@ func TestCellSpecAmendsARunningController(t *testing.T) {
 	controllerConfig := testJSONFile(t, root, "controller.json", Config{
 		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"),
-				StoreMaxBytes: 2 << 30, Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller"},
+				StoreMaxBytes: 2 << 30, Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller", Global: true},
 					{PublicKey: operatorNKey, Role: "operator"}}}},
 		Controller: ControllerConfig{CandidateID: "one", ResponseKeyFile: filepath.Join(root, "controller.key"),
 			ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads: map[string]WorkloadProfile{"terrabase": {Resources: resources}},
-			SpecTrust: keys.config()},
+			SpecTrust: keys.config(), Global: &GlobalControlConfig{Enabled: true, Home: "gru"}},
 	})
 	operatorConfig := testJSONFile(t, root, "operator.json", Config{
 		NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1, Lab: true,
@@ -313,9 +313,14 @@ func TestCellSpecAmendsARunningController(t *testing.T) {
 	reserved := next
 	reserved.Services = append([]cellspec.Service{{Role: "terrabase", Profile: WorkloadProfile{Resources: grown}}},
 		next.Services...)
+	// A spec for another cell goes to the global leader, which relays only
+	// to interregion peers; a standalone home has none.
+	if _, err := service("apply", "--file", other.sign(t, root, otherSet)); err == nil ||
+		!strings.Contains(err.Error(), `cell "SFO" is not an interregion peer`) {
+		t.Errorf("another cell: %v", err)
+	}
 	for name, path := range map[string]string{
 		"untrusted root":      foreign.sign(t, root, next),
-		"another cell":        other.sign(t, root, otherSet),
 		"terrabase resources": keys.sign(t, root, reserved),
 		"invalid profile":     keys.sign(t, root, withProfile(next, WorkloadProfile{})),
 		"unsigned garbage":    testJSONFile(t, root, "garbage.json", map[string]string{"set": "{}"}),

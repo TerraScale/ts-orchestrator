@@ -87,6 +87,14 @@ func requestCellSpec(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 // such request is idempotent, so a lost reply is retried.
 func requestLeader(ctx context.Context, cfg Config, runtime *natscell.Runtime, kind, operation string, payload []byte,
 ) ([]byte, error) {
+	return requestAuthority(ctx, cfg, runtime, cfg.NATS.Cell, kind, operation, payload)
+}
+
+// requestAuthority is requestLeader for the leader of scope: the cell's
+// authority, or the global authority in the global home region.
+func requestAuthority(ctx context.Context, cfg Config, runtime *natscell.Runtime, scope, kind, operation string,
+	payload []byte,
+) ([]byte, error) {
 	policy, err := buildSignerPolicy(cfg)
 	if err != nil {
 		return nil, err
@@ -96,7 +104,7 @@ func requestLeader(ctx context.Context, cfg Config, runtime *natscell.Runtime, k
 		return nil, err
 	}
 	epoch, err := observeOperatorAuthority(ctx, func(attempt context.Context) (authority.Snapshot, error) {
-		return authority.Observe(attempt, runtime.JetStream(), cfg.NATS.Cell)
+		return authority.Observe(attempt, runtime.JetStream(), scope)
 	})
 	if err != nil {
 		return nil, err
@@ -313,6 +321,10 @@ func operatorSpecApply(ctx context.Context, cfg Config, runtime *natscell.Runtim
 	}
 	if len(data) > cellspec.MaxSignedBytes {
 		return errors.New("signed cell spec exceeds its size bound")
+	}
+	// A spec for another region goes through the global home region.
+	if target, _, err := relayTarget(data); err == nil && target != cfg.NATS.Cell {
+		return operatorSpecRelay(ctx, cfg, runtime, target, data, output)
 	}
 	reply, err := requestCellSpec(ctx, cfg, runtime, cellSpecApplyKind, data)
 	if err != nil {

@@ -109,7 +109,7 @@ func (r *Reader) read(ctx context.Context, kind Kind, key string) (record, uint6
 		return record{}, 0, err
 	}
 	var stored record
-	if err := protocol.DecodeStrict(message.Data, &stored, maxRecordBytes+4096); err != nil ||
+	if err := protocol.DecodeStrict(message.Data, &stored, maxMessageBytes); err != nil ||
 		stored.Version != recordVersion || stored.Kind != kind || stored.Key != key ||
 		stored.Generation == 0 || stored.Epoch == 0 {
 		return record{}, 0, ErrRecordCorrupt
@@ -267,7 +267,11 @@ func (w *Writer) PutRoster(ctx context.Context, epoch uint64, roster Roster) (ui
 	if roster.HomeRegion != w.home {
 		return 0, ErrNotHomeRegion
 	}
-	return w.put(ctx, epoch, KindRoster, RosterKey, roster.Generation, roster)
+	payload, err := protocol.EncodeJSON(roster)
+	if err != nil {
+		return 0, err
+	}
+	return w.put(ctx, epoch, KindRoster, RosterKey, roster.Generation, payload)
 }
 
 // PutDirectory writes the next generation of a partition's directory entry.
@@ -283,7 +287,11 @@ func (w *Writer) PutDirectory(ctx context.Context, epoch uint64, entry Directory
 	if err := entry.ValidateAgainst(roster); err != nil {
 		return 0, err
 	}
-	return w.put(ctx, epoch, KindDirectory, entry.Key(), entry.Generation, entry)
+	payload, err := protocol.EncodeJSON(entry)
+	if err != nil {
+		return 0, err
+	}
+	return w.put(ctx, epoch, KindDirectory, entry.Key(), entry.Generation, payload)
 }
 
 // Fence appends the term barrier for epoch unless the stream already holds
@@ -330,7 +338,7 @@ func readTerm(ctx context.Context, stream jetstream.Stream) (uint64, uint64, err
 	}
 	var stored record
 	var barrier term
-	if err := protocol.DecodeStrict(message.Data, &stored, maxRecordBytes+4096); err != nil ||
+	if err := protocol.DecodeStrict(message.Data, &stored, maxMessageBytes); err != nil ||
 		stored.Version != recordVersion || stored.Kind != KindTerm || stored.Key != termKey ||
 		stored.Epoch == 0 || stored.Generation != stored.Epoch || !epochHeaderMatches(message.Header, stored.Epoch) ||
 		protocol.DecodeStrict(stored.Payload, &barrier, 1024) != nil || barrier.Epoch != stored.Epoch {
@@ -404,19 +412,12 @@ func wrongLastSequence(err error) bool {
 		apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequenceConstant)
 }
 
-func (w *Writer) put(ctx context.Context, epoch uint64, kind Kind, key string, generation uint64, value any) (uint64, error) {
+// put appends payload as the record's next generation. Generation 0 means
+// the stored generation plus one: an identical payload is then a retry, and
+// any other payload is the next generation.
+func (w *Writer) put(ctx context.Context, epoch uint64, kind Kind, key string, generation uint64, payload []byte) (uint64, error) {
 	if epoch == 0 {
 		return 0, authority.ErrFenced
-	}
-	payload, err := protocol.EncodeJSON(value)
-	if err != nil {
-		return 0, err
-	}
-	data, err := protocol.EncodeJSON(record{
-		Version: recordVersion, Kind: kind, Key: key, Generation: generation, Epoch: epoch, Payload: payload,
-	})
-	if err != nil {
-		return 0, err
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -428,6 +429,7 @@ func (w *Writer) put(ctx context.Context, epoch uint64, kind Kind, key string, g
 		if err != nil {
 			return 0, err
 		}
+		next := max(generation, 1)
 		prior, priorSequence, err := w.read(ctx, kind, key)
 		switch {
 		case errors.Is(err, ErrNotFound):
@@ -435,13 +437,22 @@ func (w *Writer) put(ctx context.Context, epoch uint64, kind Kind, key string, g
 			return 0, err
 		case priorSequence > lastSequence:
 			continue
-		case prior.Generation == generation && bytes.Equal(prior.Payload, payload):
+		case (generation == 0 || prior.Generation == generation) && bytes.Equal(prior.Payload, payload):
 			// An identical retry after an unknown publish outcome is idempotent.
 			return priorSequence, nil
+		case generation == 0:
+			next = prior.Generation + 1
 		case generation <= prior.Generation:
 			return 0, ErrStaleRecord
-		case epoch < prior.Epoch:
+		}
+		if epoch < prior.Epoch {
 			return 0, authority.ErrFenced
+		}
+		data, err := protocol.EncodeJSON(record{
+			Version: recordVersion, Kind: kind, Key: key, Generation: next, Epoch: epoch, Payload: payload,
+		})
+		if err != nil {
+			return 0, err
 		}
 		if w.beforePublish != nil {
 			w.beforePublish()
@@ -454,7 +465,7 @@ func (w *Writer) put(ctx context.Context, epoch uint64, kind Kind, key string, g
 			jetstream.WithExpectStream(StreamName),
 			jetstream.WithExpectLastSequence(lastSequence),
 			jetstream.WithExpectLastSequenceForSubject(priorSequence, subject(kind, key)),
-			jetstream.WithMsgID(string(kind)+"."+key+"."+strconv.FormatUint(generation, 10)),
+			jetstream.WithMsgID(string(kind)+"."+key+"."+strconv.FormatUint(next, 10)),
 		)
 		cancel()
 		if wrongLastSequence(err) {
@@ -468,7 +479,7 @@ func (w *Writer) put(ctx context.Context, epoch uint64, kind Kind, key string, g
 		if ack.Duplicate {
 			// The message ID was seen; only an identical stored record is success.
 			stored, sequence, readErr := w.read(ctx, kind, key)
-			if readErr != nil || stored.Generation != generation || !bytes.Equal(stored.Payload, payload) {
+			if readErr != nil || stored.Generation != next || !bytes.Equal(stored.Payload, payload) {
 				return 0, ErrConflict
 			}
 			return sequence, nil

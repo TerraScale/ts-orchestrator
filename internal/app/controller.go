@@ -571,6 +571,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return fmt.Errorf("serve host enrollment: %w", err)
 	}
 	defer enrollmentSub.Unsubscribe()
+	if global != nil && global.writer != nil {
+		relaySub, err := serveCellSpecRelay(runCtx, runtime.Conn(), cfg, policy, global)
+		if err != nil {
+			return fmt.Errorf("serve cell spec relay: %w", err)
+		}
+		defer relaySub.Unsubscribe()
+	}
 	placementVerifiers := []placementMaterialAdmission{}
 	if materialService != nil {
 		placementVerifiers = append(placementVerifiers, materialAdmission)
@@ -716,6 +723,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	workers.Go(func() { workerErrors <- workloadReconciler.Run(runCtx) })
 	workers.Go(func() { workerErrors <- services.Run(runCtx) })
+	if global != nil && global.writer == nil {
+		workers.Go(func() {
+			workerErrors <- services.followRelayedSpecs(runCtx, global.reader, policy, control, hostController)
+		})
+	}
 	if rolloutExecutor != nil {
 		workers.Go(func() { workerErrors <- rolloutExecutor(runCtx) })
 		workers.Go(func() { policy.rollouts.publishProofs(runCtx, cfg, runtime, responseKey) })
