@@ -22,8 +22,8 @@ Commands:
   publish
   sign-update-delegation
   sign-binary-update
-  sign-service-delegation
-  sign-service-set
+  sign-spec-delegation
+  sign-spec
   deploy
   fleet-status
 `

@@ -202,7 +202,7 @@ func TestAggregatorSetRequestsAppliesToLaterReports(t *testing.T) {
 	if err := aggregator.Record(Origin{Cell: "gru", Environment: "prod", Node: "pool-1"}, report); err != nil {
 		t.Fatal(err)
 	}
-	// A new service-set amendment resizes api and adds worker.
+	// A new cell spec amendment resizes api and adds worker.
 	aggregator.SetRequests(map[string]Request{"api": {CPUCores: 4}, "worker": {CPUCores: 1}})
 	if err := aggregator.Record(Origin{Cell: "gru", Environment: "prod", Node: "pool-2"}, report); err != nil {
 		t.Fatal(err)

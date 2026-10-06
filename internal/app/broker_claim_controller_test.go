@@ -138,10 +138,10 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 	previousAdmission := controllerBootstrapProduction
 	previousFounder := controllerFounderProduction
 	previousProbe := controllerBrokerClockProbe
-	previousServiceTrust := serviceSetBakedInputs
-	serviceSetBakedInputs = func() (bootstrapstart.BakedInputs, error) {
+	previousServiceTrust := specBakedInputs
+	specBakedInputs = func() (bootstrapstart.BakedInputs, error) {
 		return bootstrapstart.BakedInputs{Identity: bootstrapstart.BakedIdentity{SchemaVersion: 1,
-			DeploymentID: "broker-claim", Environment: "test", Cell: "GRU"}, Roots: testServiceSetRoots(t)}, nil
+			DeploymentID: "broker-claim", Environment: "test", Cell: "GRU"}, Roots: testSpecRoots(t)}, nil
 	}
 	clock := &testBrokerClock{}
 	clock.healthy.Store(true)
@@ -154,7 +154,7 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 		controllerBootstrapProduction = previousAdmission
 		controllerFounderProduction = previousFounder
 		controllerBrokerClockProbe = previousProbe
-		serviceSetBakedInputs = previousServiceTrust
+		specBakedInputs = previousServiceTrust
 	})
 	if err := os.WriteFile(ticketFile, []byte(base64.StdEncoding.EncodeToString(wrongPublic)), 0o600); err != nil {
 		t.Fatal(err)

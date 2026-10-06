@@ -35,7 +35,7 @@ func (f *fleet) ObserveStaticHost(ctx context.Context, instanceID, node string) 
 	return cloud, nil
 }
 
-// NamedHostObserver reads a static host that a service set grants, such as
+// NamedHostObserver reads a static host that a cell spec host grant admits, such as
 // a controller VM's own host agent. See fleet.ObserveNamedHost.
 type NamedHostObserver interface {
 	ObserveNamedHost(ctx context.Context, instanceID, node string) (CloudInstance, error)

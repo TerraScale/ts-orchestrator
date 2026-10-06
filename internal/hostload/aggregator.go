@@ -151,7 +151,7 @@ func NewAggregator(config AggregatorConfig) *Aggregator {
 }
 
 // SetRequests replaces the per-role resource requests, for example after a
-// service-set amendment. Samples already recorded keep the request they were
+// cell spec amendment. Samples already recorded keep the request they were
 // computed with.
 func (a *Aggregator) SetRequests(requests map[string]Request) {
 	a.mu.Lock()

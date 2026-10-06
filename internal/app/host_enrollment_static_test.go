@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
@@ -21,7 +22,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/serviceset"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
 	"github.com/nats-io/nats.go/jetstream"
@@ -109,7 +109,7 @@ func startStaticEnrollmentLab(t *testing.T, ctx context.Context, workloads map[s
 		t.Fatal(err)
 	}
 	fleet := &staticHostFleet{instances: map[string]oci.CloudInstance{}}
-	services, err := newServiceRegistry(Config{NATS: natscell.Config{Cell: "gru", Lab: true},
+	services, err := newSpecRegistry(Config{NATS: natscell.Config{Cell: "gru", Lab: true},
 		Controller: ControllerConfig{Workloads: workloads}}, "")
 	if err != nil {
 		t.Fatal(err)
@@ -136,8 +136,8 @@ func (lab staticEnrollmentLab) launch(t *testing.T, id, node, ip string) hostenr
 	return hostenroll.InstanceMetadata{InstanceID: id, Descriptor: descriptor, Wire: wire}
 }
 
-// grant adopts a service set holding grants, as service apply would.
-func (lab staticEnrollmentLab) grant(grants ...serviceset.HostGrant) {
+// grant adopts a cell spec holding grants, as apply would.
+func (lab staticEnrollmentLab) grant(grants ...cellspec.HostGrant) {
 	set := lab.enrollment.services.current
 	set.Generation++
 	set.HostGrants = grants
@@ -461,11 +461,11 @@ func controllerHostWorkloads() map[string]WorkloadProfile {
 	return workloads
 }
 
-func controllerGrant(node, ip string) serviceset.HostGrant {
-	return serviceset.HostGrant{Node: node, PrivateIP: ip, Roles: []string{tsauth.Role}, Environment: "canary"}
+func controllerGrant(node, ip string) cellspec.HostGrant {
+	return cellspec.HostGrant{Node: node, PrivateIP: ip, Roles: []string{tsauth.Role}, Environment: "canary"}
 }
 
-// A controller VM's host agent enrolls through its service set grant, from
+// A controller VM's host agent enrolls through its cell spec host grant, from
 // the granted address under the controller's name, with the grant's roles.
 func TestGrantedControllerHostEnrollsWithItsGrantRoles(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)

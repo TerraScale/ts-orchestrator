@@ -55,10 +55,10 @@ func operatorHostRegister(ctx context.Context, cfg Config, runtime *natscell.Run
 		if slices.Contains(grant.Roles, role) {
 			continue
 		}
-		// The cell's service set may let this operator release the role.
-		reply, err := requestServiceSet(ctx, cfg, runtime, serviceSetListKind, []byte("{}"))
-		service, found := reply.Set.Find(role)
-		if err != nil || !found || reply.Set.Environment != registration.Environment ||
+		// The cell spec may let this operator release the role.
+		reply, err := requestCellSpec(ctx, cfg, runtime, cellSpecGetKind, []byte("{}"))
+		service, found := reply.Spec.Find(role)
+		if err != nil || !found || reply.Spec.Environment != registration.Environment ||
 			!slices.Contains(service.Releasers, cfg.Operator.Actor) {
 			return fmt.Errorf("operator is not authorized to register role %q", role)
 		}
@@ -119,7 +119,7 @@ type hostRegistrationResponse struct {
 // All controllers observe the request. Only the current leader replies; a
 // follower cannot cause a fast false failure in a replicated regional cell.
 func serveHostEnrollment(ctx context.Context, conn *nats.Conn, cell string, policy signerPolicy,
-	fencer authority.Fencer, controller *host.Controller, managed *managedHostEnrollment, services *serviceRegistry,
+	fencer authority.Fencer, controller *host.Controller, managed *managedHostEnrollment, services *specRegistry,
 ) (*nats.Subscription, error) {
 	return conn.Subscribe(hostRegistrationSubject(cell), func(message *nats.Msg) {
 		if message.Reply == "" || len(message.Data) == 0 || len(message.Data) > maxRegistrationWireBytes || !fencer.Current().CanMutate() {
@@ -130,13 +130,13 @@ func serveHostEnrollment(ctx context.Context, conn *nats.Conn, cell string, poli
 		var envelope protocol.Envelope
 		decodeErr := protocol.DecodeStrict(message.Data, &envelope, maxRegistrationWireBytes)
 		if decodeErr == nil && services != nil &&
-			(envelope.Kind == serviceSetListKind || envelope.Kind == serviceSetApplyKind) {
+			(envelope.Kind == cellSpecGetKind || envelope.Kind == cellSpecDiffKind || envelope.Kind == cellSpecApplyKind) {
 			reply, err := services.serve(requestCtx, message.Data, policy, fencer, controller)
 			if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrNotLeader) || !fencer.Current().CanMutate() {
 				return
 			}
 			if err != nil {
-				reply = serviceSetReply{Error: err.Error()}
+				reply = specReply{Error: err.Error()}
 			}
 			if wire, marshalErr := json.Marshal(reply); marshalErr == nil {
 				_ = message.Respond(wire)

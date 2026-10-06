@@ -74,9 +74,9 @@ type managedHostEnrollment struct {
 	// terraBase is the signed C# TerraBase workload profile; a static host
 	// (hostboot.Static) enrolls only as one of its listed members.
 	terraBase *staticTerraBaseMembers
-	// services holds the adopted service set, whose host grants admit
+	// services holds the adopted cell spec, whose host grants admit
 	// static hosts outside TerraBase membership.
-	services *serviceRegistry
+	services *specRegistry
 }
 
 var errStaleUnclaimedRenewal = errors.New("stale unclaimed host renewal")
@@ -85,7 +85,7 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 	managed *managedControllerConfig, fleet oci.Fleet, intents placementIntentLookup,
 	members placement.MemberPinReader, controller *host.Controller, verifier host.ManagedRegistrationVerifier,
 	responseKey ed25519.PrivateKey,
-	fencer authority.Fencer, services *serviceRegistry,
+	fencer authority.Fencer, services *specRegistry,
 ) (*http.Server, net.Listener, <-chan error, error) {
 	if managed == nil || fleet == nil || intents == nil || members == nil || controller == nil || verifier == nil ||
 		cfg.NATS.Embedded == nil || cfg.Controller.HostEnrollmentListenAddress == "" {

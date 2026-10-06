@@ -91,20 +91,21 @@ naming scheme and who may read what.
 | `ts-orch vault put --vault-id OCID --key-id OCID --compartment-id OCID --name NAME --file FILE` | Store FILE once as secret NAME with the operator's `~/.oci/config`, then prove the stored copy equals FILE |
 | `ts-orch vault render --vault-id OCID --scope SCOPE --template FILE --out FILE` | On a host, as root: fill each `{{KEY}}` with secret `<scope>-<key>` read with the instance principal; write FILE atomically, mode `0600` |
 
-## Services
+## Cell spec
 
-`ts-orch service` adds, updates and removes a running cell's services with
-signed service sets; see [services](services.md) for the model, trust chain
-and runbook.
+`ts-orch get`, `diff` and `apply` read and amend a running cell's signed
+desired state; `ts-orch service` plans service changes to it. See
+[cell spec](cell-spec.md) for the model, trust chain and runbook.
 
 | Command | Purpose |
 | --- | --- |
-| `ts-orch service list --config OPERATOR_JSON` | Print the cell's current service set |
+| `ts-orch get --config OPERATOR_JSON` | Print the cell's current spec |
+| `ts-orch diff --config F -f FILE` | Plan a candidate or signed spec on the leader: changes, `root_required`, `requires_binary` |
 | `ts-orch service add\|update --config F --role R --profile F [--spec F] [--out F]` | Plan the next generation; `--out` writes the unsigned candidate |
 | `ts-orch service remove --config F --role R [--out F]` | Plan removing a drained role |
-| `ts-orch release sign-service-delegation ... --out F` | Offline: the root lets the release leaf sign the cell's service sets |
-| `ts-orch release sign-service-set --candidate F --delegation F --root-key F --signing-key F --out F` | Offline: the leaf signs a candidate |
-| `ts-orch service apply --config F --file SIGNED` | Apply a signed set on the authority leader |
+| `ts-orch release sign-spec-delegation ... --out F` | Offline: the root lets the release leaf sign ordinary amendments |
+| `ts-orch release sign-spec --candidate F (--delegation F \| --root) --root-key F --signing-key F --out F` | Offline: the leaf, or for a widening change the root, signs a candidate |
+| `ts-orch apply --config F -f SIGNED` | Apply a signed spec on the authority leader |
 
 ## Fleet deployment
 

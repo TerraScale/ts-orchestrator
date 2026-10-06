@@ -20,8 +20,8 @@ type signerPolicy struct {
 	codec  delivery.Ed25519Codec
 	grants map[string]TrustedSignerConfig
 	cell   string
-	// services adds the release grants of the cell's adopted service set.
-	services *serviceRegistry
+	// services adds the release grants of the cell's adopted spec.
+	services *specRegistry
 }
 
 // ValidateTrustedSignerGrant applies the same actor, scope, and key checks used
@@ -141,8 +141,8 @@ func (p signerPolicy) authorizeArtifact(_ context.Context, actor string, record 
 	return nil
 }
 
-// mayRelease applies the signer's grant, or a releaser entry of the service
-// set, within the signer's repository grant.
+// mayRelease applies the signer's grant, or a releaser entry of the cell
+// spec, within the signer's repository grant.
 func (p signerPolicy) mayRelease(actor, role, environment, repository string) bool {
 	grant, exists := p.grants[actor]
 	if !exists || len(grant.Repositories) > 0 && !slices.Contains(grant.Repositories, repository) {

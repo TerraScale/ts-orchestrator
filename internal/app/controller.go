@@ -118,7 +118,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if managed != nil {
 		memberRole = managed.placement.MemberRole
 	}
-	services, err := newServiceRegistry(cfg, memberRole)
+	services, err := newSpecRegistry(cfg, memberRole)
 	if err != nil {
 		return err
 	}
@@ -438,7 +438,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	planner.hosts = hostController
-	if _, _, err := retryControllerOpen(ctx, "open regional service set", fullClusterReady, false,
+	if _, _, err := retryControllerOpen(ctx, "open regional cell spec", fullClusterReady, false,
 		func(attempt context.Context) (struct{}, error) {
 			return struct{}{}, services.open(attempt, runtime.JetStream(), cfg.NATS.Replicas)
 		}, nil); err != nil {
@@ -454,7 +454,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	services.changed = func(profiles map[string]WorkloadProfile, specs []workload.ServiceSpec) {
 		resources := profileResources(profiles)
 		if err := workloadReconciler.SetServices(specs, resources); err != nil {
-			slog.Error("reconciler refused the adopted service set", observability.ComponentKey, "services", "error", err)
+			slog.Error("reconciler refused the adopted cell spec", observability.ComponentKey, "cellspec", "error", err)
 		}
 		if hostLoad != nil {
 			hostLoad.SetRequests(loadRequests(resources))

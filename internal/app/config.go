@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"os"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/serviceset"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/backup"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/capacity"
 )
@@ -102,17 +102,17 @@ type ControllerConfig struct {
 	// RegionPlanner runs the region planner in the global home; nil or
 	// disabled keeps it off.
 	RegionPlanner *RegionPlannerConfig `json:"region_planner,omitempty"`
-	ServiceTrust  *ServiceTrustConfig  `json:"service_trust,omitempty"`
+	SpecTrust     *SpecTrustConfig     `json:"spec_trust,omitempty"`
 }
 
-// WorkloadProfile is the service set's profile type, so a signed controller
-// config and a signed service set describe a role the same way.
-type WorkloadProfile = serviceset.Profile
+// WorkloadProfile is the cell spec's profile type, so a signed controller
+// config and a signed cell spec describe a role the same way.
+type WorkloadProfile = cellspec.Profile
 
-// ServiceTrustConfig lets a lab controller, which has no image trust roots,
-// verify service sets. Signed production configs refuse it: production
+// SpecTrustConfig lets a lab controller, which has no image trust roots,
+// verify cell specs. Signed production configs refuse it: production
 // controllers use the image's baked roots and deployment identity.
-type ServiceTrustConfig struct {
+type SpecTrustConfig struct {
 	RootPublicKeyFile string `json:"root_public_key_file"`
 	DeploymentID      string `json:"deployment_id"`
 	Environment       string `json:"environment"`

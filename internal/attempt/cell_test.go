@@ -500,7 +500,7 @@ func TestServicesPhaseAddsServicesThroughSignedSets(t *testing.T) {
 	var commands [][]string
 	a.Runner = func(_ context.Context, c Command) (string, error) {
 		commands = append(commands, c.Args)
-		write := slices.Contains(c.Args, "sign-service-delegation") || slices.Contains(c.Args, "sign-service-set") ||
+		write := slices.Contains(c.Args, "sign-spec-delegation") || slices.Contains(c.Args, "sign-spec") ||
 			slices.Contains(c.Args, "add") && flagValue(c.Args, "--role") == "ts-auth"
 		if write {
 			return "", os.WriteFile(flagValue(c.Args, "--out"), []byte("{}"), 0o600)
@@ -513,7 +513,7 @@ func TestServicesPhaseAddsServicesThroughSignedSets(t *testing.T) {
 	operator := []string{"--config", "/var/lib/terrascale-operator/operator.json"}
 	candidate, signed := filepath.Join(dir, "ts-auth.candidate.json"), filepath.Join(dir, "ts-auth.signed.json")
 	want := [][]string{
-		nil, // the root's service set delegation, checked below
+		nil, // the root's cell spec delegation, checked below
 		append(sudo, "rm", "-f", "--", candidate, signed),
 		join(sudo, []string{cli, "service", "add"}, operator, []string{"--role", "ts-auth", "--profile", "/deploy/ts-auth-profile.json",
 			"--out", candidate, "--spec", "/deploy/ts-auth-service.json"}),
@@ -532,21 +532,21 @@ func TestServicesPhaseAddsServicesThroughSignedSets(t *testing.T) {
 		}
 	}
 	delegation := commands[0]
-	if !slices.Contains(delegation, "sign-service-delegation") || flagValue(delegation, "--signing-key") != "/keys/root.key" ||
+	if !slices.Contains(delegation, "sign-spec-delegation") || flagValue(delegation, "--signing-key") != "/keys/root.key" ||
 		flagValue(delegation, "--subject-public-key") != "/keys/leaf.pub" || flagValue(delegation, "--deployment-id") != "deployment" ||
 		flagValue(delegation, "--cell") != "gru" || flagValue(delegation, "--environment") != "canary" {
 		t.Fatal(delegation)
 	}
 	sign := commands[3]
-	if !slices.Contains(sign, "sign-service-set") || flagValue(sign, "--candidate") != candidate ||
+	if !slices.Contains(sign, "sign-spec") || flagValue(sign, "--candidate") != candidate ||
 		flagValue(sign, "--signing-key") != "/keys/leaf.key" || flagValue(sign, "--out") != signed ||
-		flagValue(sign, "--delegation") != filepath.Join(dir, "service-delegation.signed.json") {
+		flagValue(sign, "--delegation") != filepath.Join(dir, "spec-delegation.signed.json") {
 		t.Fatal(sign)
 	}
 	// A rerun issues a fresh delegation and plans again from the cell's set.
 	commands = nil
 	a.PhaseServices()
-	if a.Err() != nil || len(commands) != len(want) || !slices.Contains(commands[0], "sign-service-delegation") ||
+	if a.Err() != nil || len(commands) != len(want) || !slices.Contains(commands[0], "sign-spec-delegation") ||
 		!slices.Equal(commands[4], want[4]) {
 		t.Fatal(a.Err(), commands)
 	}

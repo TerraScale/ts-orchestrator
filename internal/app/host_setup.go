@@ -684,7 +684,7 @@ func installHostEnrollment(root string, bundle hostenroll.PublicBundle, descript
 		return err
 	}
 	local.applyTo(&config.Host)
-	// A granted host runs the roles its service set grant names; any other
+	// A granted host runs the roles its cell spec host grant names; any other
 	// static host runs C# TerraBase members. Each role gets the image's root
 	// unless the operator chose another one.
 	if len(response.Roles) != 0 {

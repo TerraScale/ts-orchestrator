@@ -135,7 +135,7 @@ func prepareServices(specs []ServiceSpec, profiles map[string]placement.Resource
 }
 
 // SetServices swaps the reconciled services, for example after a signed
-// service-set amendment. Invalid input leaves the current services in force.
+// cell spec amendment. Invalid input leaves the current services in force.
 // Roles that were dropped lose their goal and results; new and changed roles
 // start with a fresh goal and autoscaling window.
 func (r *Reconciler) SetServices(specs []ServiceSpec, profiles map[string]placement.Resources) error {
@@ -420,7 +420,7 @@ func (r *Reconciler) reconcile(ctx context.Context, spec ServiceSpec, profiles m
 	var committed []host.Desired
 	for _, write := range step.Writes {
 		if err := r.applyCurrent(ctx, version, epoch, write); err != nil {
-			// A concurrent release, authority change or service set wins;
+			// A concurrent release, authority change or cell spec wins;
 			// the next tick observes it and plans again.
 			return result, committed, err
 		}

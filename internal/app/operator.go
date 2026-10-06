@@ -14,11 +14,11 @@ import (
 	"uuid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	staged "git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/serviceset"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -74,6 +74,7 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	flags.SetOutput(io.Discard)
 	configPath := flags.String("config", "", "JSON role configuration")
 	artifactPath := flags.String("file", "", "artifact file to upload")
+	flags.StringVar(artifactPath, "f", "", "diff, apply: cell spec file")
 	repository := flags.String("repository", "", "HTTPS source repository")
 	commit := flags.String("commit", "", "source commit SHA")
 	treeDigest := flags.String("tree-digest", "", "source tree SHA-256")
@@ -241,19 +242,24 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 			return errors.New("deploy and rollback require --intent FILE")
 		}
 		return operatorSubmit(ctx, cfg, runtime, *intentPath, output)
-	case "service-list":
-		return operatorServiceList(ctx, cfg, runtime, output)
+	case "service-list", "spec-get":
+		return operatorSpecGet(ctx, cfg, runtime, output)
+	case "spec-diff":
+		if *artifactPath == "" {
+			return errors.New("diff requires -f FILE")
+		}
+		return operatorSpecDiff(ctx, cfg, runtime, *artifactPath, output)
 	case "service-grant-host", "service-revoke-host":
-		return operatorServiceHostGrant(ctx, cfg, runtime, operation == "service-grant-host", serviceset.HostGrant{
+		return operatorServiceHostGrant(ctx, cfg, runtime, operation == "service-grant-host", cellspec.HostGrant{
 			Node: *node, PrivateIP: *privateIP, Roles: splitList(*roles), Environment: *environment}, *outPath, output)
 	case "service-add", "service-update", "service-remove":
 		return operatorServiceChange(ctx, cfg, runtime, strings.TrimPrefix(operation, "service-"), *role,
 			*profilePath, *specPath, *releasers, *outPath, output)
-	case "service-apply":
+	case "service-apply", "spec-apply":
 		if *artifactPath == "" {
-			return errors.New("service apply requires --file SIGNED")
+			return errors.New("apply requires -f SIGNED")
 		}
-		return operatorServiceApply(ctx, cfg, runtime, *artifactPath, output)
+		return operatorSpecApply(ctx, cfg, runtime, *artifactPath, output)
 	case "status":
 		if *operationID == "" || !fingerprintPattern.MatchString(*fingerprint) {
 			return errors.New("status requires --operation-id and lowercase SHA-256 --fingerprint")

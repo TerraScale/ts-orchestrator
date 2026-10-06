@@ -73,7 +73,7 @@ func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]Worklo
 			// stateless reconciler or release shaping.
 			return fmt.Errorf("autoscale service %q is a managed TerraBase role", spec.Role)
 		}
-		// ts-auth runs exactly its replica count, or none while a service set
+		// ts-auth runs exactly its replica count, or none while a cell spec
 		// drains it before removing it.
 		if spec.Role == tsauth.Role && (spec.Replicas != workload.ReplicaBounds{Min: tsauth.Replicas, Max: tsauth.Replicas} &&
 			spec.Replicas != workload.ReplicaBounds{} || spec.Placement.MaxPerFailureDomain != 1) {
@@ -94,7 +94,7 @@ func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]Worklo
 	return nil
 }
 
-// startWorkloadAutoscale builds the reconciler, which owns the service set's
+// startWorkloadAutoscale builds the reconciler, which owns the cell spec's
 // reconciled roles, and, when the signed config enables autoscaling, its
 // host telemetry and host pool scaler. All act only on the regional
 // authority leader. The returned aggregator is nil without host telemetry.

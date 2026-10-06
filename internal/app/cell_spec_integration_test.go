@@ -23,13 +23,14 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
 )
 
-// TestServiceSetAddsTSAuthToARunningCell bootstraps a three-controller cell
+// TestCellSpecAddsTSAuthToARunningCell bootstraps a three-controller cell
 // with the TerraBase profile only, as gru-1 was, then adds ts-auth with the
 // committed gru-1 profile and spec through the supported commands: plan,
-// root delegation and leaf signature with the release CLI, apply. The cell
-// then rolls out a ts-auth release on two hosts, and refuses to remove the
-// service while its replicas run.
-func TestServiceSetAddsTSAuthToARunningCell(t *testing.T) {
+// diff, signature with the release CLI, apply. Naming a releaser widens
+// authority, so the cell refuses the leaf's signature and takes the root's.
+// The cell then rolls out a ts-auth release on two hosts, and refuses to
+// remove the service while its replicas run.
+func TestCellSpecAddsTSAuthToARunningCell(t *testing.T) {
 	tier.Integration(t)
 	controllerCtx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -61,7 +62,7 @@ func TestServiceSetAddsTSAuthToARunningCell(t *testing.T) {
 		routes[index] = fmt.Sprintf("nats-route://127.0.0.1:%d", ports[3+index])
 		urls[index] = fmt.Sprintf("nats://127.0.0.1:%d", ports[index])
 	}
-	// As on gru-1, the signed grant names TerraBase only; the service set
+	// As on gru-1, the signed grant names TerraBase only; the cell spec
 	// lets the operator release ts-auth and register its hosts.
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{"terrabase"}, Environments: []string{environment}, CanRegisterHosts: true}
@@ -77,7 +78,7 @@ func TestServiceSetAddsTSAuthToARunningCell(t *testing.T) {
 				ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 				Workloads: map[string]WorkloadProfile{"terrabase": {Resources: placement.Resources{
 					CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}}},
-				ServiceTrust: &ServiceTrustConfig{RootPublicKeyFile: rootKey, DeploymentID: deployment,
+				SpecTrust: &SpecTrustConfig{RootPublicKeyFile: rootKey, DeploymentID: deployment,
 					Environment: environment}},
 		})
 		children[index] = startControllerChild(t, controllerCtx, root, config, 1, index)
@@ -107,37 +108,52 @@ func TestServiceSetAddsTSAuthToARunningCell(t *testing.T) {
 		t.Logf("%s %s: %v\n%s", args[0], args[1], err, output.String())
 		return err
 	}
-	sign := func(candidate, signed string) {
+	sign := func(candidate, signed string, signer ...string) {
 		t.Helper()
 		output.Reset()
-		if err := releasecli.Run(ctx, []string{"sign-service-set", "--candidate", candidate,
-			"--delegation", filepath.Join(root, "service.delegation"), "--root-key", rootKey,
-			"--signing-key", leafPrivateKey, "--out", signed}, &output); err != nil {
+		if signer == nil {
+			signer = []string{"--delegation", filepath.Join(root, "spec.delegation"), "--signing-key", leafPrivateKey}
+		}
+		if err := releasecli.Run(ctx, append([]string{"sign-spec", "--candidate", candidate, "--root-key", rootKey,
+			"--out", signed}, signer...), &output); err != nil {
 			t.Fatalf("sign %s: %v", candidate, err)
 		}
 	}
 
-	// The root delegates service sets for this deployment to the leaf.
+	// The root delegates ordinary amendments for this deployment to the leaf.
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := releasecli.Run(ctx, []string{"sign-service-delegation", "--subject-public-key", leafKey,
+	if err := releasecli.Run(ctx, []string{"sign-spec-delegation", "--subject-public-key", leafKey,
 		"--root-key", rootKey, "--signing-key", rootPrivateKey, "--deployment-id", deployment, "--cell", "gru",
 		"--environment", environment, "--issued-at", now.Add(-time.Minute).Format(time.RFC3339),
 		"--expires-at", now.Add(7 * 24 * time.Hour).Format(time.RFC3339),
-		"--out", filepath.Join(root, "service.delegation")}, &output); err != nil {
-		t.Fatalf("sign service delegation: %v", err)
+		"--out", filepath.Join(root, "spec.delegation")}, &output); err != nil {
+		t.Fatalf("sign spec delegation: %v", err)
 	}
 	profile := "../../deploy/oci-region/ts-auth-gru-1-profile.json"
 	candidate := filepath.Join(root, "add-ts-auth.json")
 	if err := run("service", "add", "--config", operatorConfig, "--role", tsauth.Role, "--profile", profile,
 		"--spec", "../../deploy/oci-region/ts-auth-gru-1-service.json", "--releasers", "ops", "--out", candidate); err != nil ||
-		!strings.Contains(output.String(), `"added":["ts-auth"]`) || !strings.Contains(output.String(), `"from_generation":0`) {
+		!strings.Contains(output.String(), `"added":["ts-auth"]`) || !strings.Contains(output.String(), `"from_generation":0`) ||
+		!strings.Contains(output.String(), `"root_required":["service ts-auth releaser ops"]`) {
 		t.Fatalf("plan ts-auth: %v", err)
 	}
-	signed := filepath.Join(root, "add-ts-auth.signed.json")
-	sign(candidate, signed)
-	if err := run("service", "apply", "--config", operatorConfig, "--file", signed); err != nil ||
+	leafSigned, signed := filepath.Join(root, "add-ts-auth.leaf.json"), filepath.Join(root, "add-ts-auth.signed.json")
+	sign(candidate, leafSigned)
+	if err := run("diff", "--config", operatorConfig, "-f", leafSigned); err != nil ||
+		!strings.Contains(output.String(), `"status":"planned"`) || !strings.Contains(output.String(), `"to_generation":1`) {
+		t.Fatalf("diff the signed ts-auth spec: %v", err)
+	}
+	if err := run("apply", "--config", operatorConfig, "-f", leafSigned); err == nil || !strings.Contains(err.Error(), "a root must sign it") {
+		t.Fatalf("the leaf named a releaser: %v", err)
+	}
+	sign(candidate, signed, "--root", "--signing-key", rootPrivateKey)
+	if err := run("apply", "--config", operatorConfig, "-f", signed); err != nil ||
 		!strings.Contains(output.String(), `"status":"applied"`) {
 		t.Fatalf("apply ts-auth: %v", err)
+	}
+	if err := run("get", "--config", operatorConfig); err != nil || !strings.Contains(output.String(), `"generation":1`) ||
+		!strings.Contains(output.String(), `"releasers":["ops"]`) {
+		t.Fatalf("get after ts-auth: %v", err)
 	}
 
 	identity := testHostWorkloadIdentity()

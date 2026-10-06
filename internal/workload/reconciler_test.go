@@ -836,7 +836,7 @@ func TestReconcilerSetServicesWhileTicking(t *testing.T) {
 }
 
 // replacingWriter starts replacing the reconciler's services during its
-// first write, as a service set adopted mid-tick does.
+// first write, as a cell spec adopted mid-tick does.
 type replacingWriter struct {
 	*fakeCell
 	replace func()

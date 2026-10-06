@@ -1094,10 +1094,10 @@ func (a *Attempt) PhaseOperator() {
 var serviceRole = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 
 // PhaseServices adds the configured services ({role, profile, spec}) to the
-// running cell through the signed service sets of any later change: the
-// operator CLI plans each, the release leaf signs it under the root's
-// service set delegation, and the cell applies it. A service already in the
-// set plans nothing, so a rerun changes nothing.
+// running cell through the signed cell spec amendments of any later change:
+// the operator CLI plans each, the release leaf signs it under the root's
+// cell spec delegation, and the cell applies it. A service already in the
+// spec plans nothing, so a rerun changes nothing.
 func (a *Attempt) PhaseServices() {
 	services := rows(a.Config["services"])
 	if len(services) == 0 {
@@ -1115,17 +1115,17 @@ func (a *Attempt) PhaseServices() {
 	a.mkdir(dir)
 	// Every run issues a fresh delegation, so a resumed attempt never signs
 	// with an expired one.
-	delegation := filepath.Join(dir, "service-delegation.signed.json")
+	delegation := filepath.Join(dir, "spec-delegation.signed.json")
 	if err := os.Remove(delegation); !errors.Is(err, os.ErrNotExist) {
 		a.fail(err)
 	}
 	issued := a.Now().UTC().Truncate(time.Second).Add(-time.Minute)
-	a.release("sign-service-delegation", "--subject-public-key", a.trust("release_leaf_public"), "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--deployment-id", a.Deployment, "--cell", "gru", "--environment", "canary", "--issued-at", issued.Format(time.RFC3339), "--expires-at", issued.Add(7*24*time.Hour).Format(time.RFC3339), "--out", delegation)
+	a.release("sign-spec-delegation", "--subject-public-key", a.trust("release_leaf_public"), "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--deployment-id", a.Deployment, "--cell", "gru", "--environment", "canary", "--issued-at", issued.Format(time.RFC3339), "--expires-at", issued.Add(7*24*time.Hour).Format(time.RFC3339), "--out", delegation)
 	cli, config := a.Path("release", OperatorCLI), "/var/lib/terrascale-operator/operator.json"
 	for _, v := range services {
 		service := object(v)
 		role, profile, spec := str(service, "role"), str(service, "profile"), str(service, "spec")
-		// Every run plans from the cell's current set, so a set another
+		// Every run plans from the cell's current spec, so a spec another
 		// change made stale is never reapplied.
 		candidate, signed := filepath.Join(dir, role+".candidate.json"), filepath.Join(dir, role+".signed.json")
 		a.sudo(false, "rm", "-f", "--", candidate, signed)
@@ -1140,7 +1140,7 @@ func (a *Attempt) PhaseServices() {
 		if !exists(candidate) {
 			continue
 		}
-		a.release("sign-service-set", "--candidate", candidate, "--delegation", delegation, "--root-key", a.trust("root_public"), "--signing-key", a.trust("release_leaf_private"), "--out", signed)
+		a.release("sign-spec", "--candidate", candidate, "--delegation", delegation, "--root-key", a.trust("root_public"), "--signing-key", a.trust("release_leaf_private"), "--out", signed)
 		a.sudo(false, cli, "service", "apply", "--config", config, "--file", signed)
 	}
 }

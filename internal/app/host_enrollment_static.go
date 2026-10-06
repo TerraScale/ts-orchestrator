@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/serviceset"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
@@ -158,7 +158,7 @@ func (enrollment *managedHostEnrollment) enrollStatic(ctx context.Context, epoch
 }
 
 // observeStatic authenticates a static host: a TerraBase member the signed
-// profile lists at the direct peer's address, or a host the service set
+// profile lists at the direct peer's address, or a host the cell spec
 // grants that address.
 func (enrollment *managedHostEnrollment) observeStatic(ctx context.Context, peerIP string,
 	request hostenroll.Request, descriptor hostboot.Descriptor,
@@ -188,7 +188,7 @@ func (enrollment *managedHostEnrollment) observeStatic(ctx context.Context, peer
 	return instance, nil
 }
 
-// observeGranted authenticates a host the adopted service set grants: the
+// observeGranted authenticates a host the adopted cell spec grants: the
 // direct peer holds the grant's address, and OCI shows the running instance
 // of the descriptor's name holding it.
 func (enrollment *managedHostEnrollment) observeGranted(ctx context.Context, peerIP string,
@@ -258,18 +258,18 @@ func nextStaticRegistration(registration host.Registration, statuses []host.Host
 	return registration, nil
 }
 
-// grantFor returns the service set host grant a static host enrolls by,
+// grantFor returns the cell spec host grant a static host enrolls by,
 // unless the signed TerraBase profile lists it as a member.
-func (enrollment *managedHostEnrollment) grantFor(descriptor hostboot.Descriptor) (serviceset.HostGrant, host.Capacity, bool) {
+func (enrollment *managedHostEnrollment) grantFor(descriptor hostboot.Descriptor) (cellspec.HostGrant, host.Capacity, bool) {
 	if enrollment.terraBase != nil {
 		if _, listed := enrollment.terraBase.profile.Peer(descriptor.Node); listed {
-			return serviceset.HostGrant{}, host.Capacity{}, false
+			return cellspec.HostGrant{}, host.Capacity{}, false
 		}
 	}
 	return enrollment.services.hostGrant(descriptor.Node)
 }
 
-func grantRoles(grant serviceset.HostGrant, _ host.Capacity, ok bool) []string {
+func grantRoles(grant cellspec.HostGrant, _ host.Capacity, ok bool) []string {
 	if !ok {
 		return nil
 	}

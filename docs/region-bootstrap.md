@@ -1208,8 +1208,8 @@ operated; do not copy a command from an older OpenTofu-based seed procedure.
 ## Services after bootstrap
 
 The controller config is accepted once and never edited. A running cell's
-generic services (ts-auth and later ones) change with signed service sets:
-see [Add a service to a running region](services.md#add-a-service-to-a-running-region).
+generic services (ts-auth and later ones) change with signed cell specs:
+see [Add a service to a running region](cell-spec.md#add-a-service-to-a-running-region).
 `oci-region attempt`'s `services` phase adds the attempt config's services the
 same way.
 

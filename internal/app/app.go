@@ -75,6 +75,9 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	if command == "service" {
 		return runService(ctx, args[1:], output)
 	}
+	if command == "get" || command == "diff" || command == "apply" {
+		return runSpec(ctx, command, args[1:], output)
+	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	configPath := flags.String("config", "", "JSON role configuration")

@@ -25,7 +25,7 @@ func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
 	profiles := map[string]WorkloadProfile{"api": {Resources: resources}, "terrabase": {Resources: resources}}
 	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, Leader: true, Epoch: 1, Revision: 1,
 		ExpiresAt: time.Now().Add(time.Hour)}}
-	// The reconciler always runs, for the roles a service set adds later;
+	// The reconciler always runs, for the roles a cell spec adds later;
 	// without a service it owns nothing.
 	reconciler, scaler, load, err := startWorkloadAutoscale("gru", nil, profiles, nil, &host.Controller{}, fencer)
 	if err != nil || scaler != nil || load != nil {

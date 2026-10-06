@@ -19,7 +19,7 @@ import (
 
 type regionalDeliveryPlanner struct {
 	hosts *host.Controller
-	// profiles returns the current service set's delivery profiles.
+	// profiles returns the current cell spec's delivery profiles.
 	profiles  func() map[string]WorkloadProfile
 	workloads *workload.Reconciler
 }

@@ -13,31 +13,33 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/serviceset"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
 
-// testServiceTrust is a root, a release leaf and the root's service set
+// testSpecTrust is a root, a release leaf and the root's cell spec
 // delegation to the leaf for one identity.
-type testServiceTrust struct {
-	identity   serviceset.Identity
+type testSpecTrust struct {
+	identity   cellspec.Identity
 	roots      trust.Keyring
-	leaf       ed25519.PrivateKey
+	root, leaf ed25519.PrivateKey
 	delegation []byte
 	rootFile   string
 }
 
-func newTestServiceTrust(t *testing.T, dir string, identity serviceset.Identity) testServiceTrust {
+func newTestSpecTrust(t *testing.T, dir string, identity cellspec.Identity) testSpecTrust {
 	t.Helper()
 	rootPublic, rootPrivate, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -48,7 +50,7 @@ func newTestServiceTrust(t *testing.T, dir string, identity serviceset.Identity)
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
-	envelope, err := serviceset.SignDelegation(leafPublic, identity, now.Add(-time.Minute), now.Add(24*time.Hour), rootPrivate)
+	envelope, err := cellspec.SignDelegation(leafPublic, identity, now.Add(-time.Minute), now.Add(24*time.Hour), rootPrivate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +62,7 @@ func newTestServiceTrust(t *testing.T, dir string, identity serviceset.Identity)
 	if err != nil {
 		t.Fatal(err)
 	}
-	file, err := os.CreateTemp(dir, "service-root-*.pem")
+	file, err := os.CreateTemp(dir, "spec-root-*.pem")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,16 +77,32 @@ func newTestServiceTrust(t *testing.T, dir string, identity serviceset.Identity)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return testServiceTrust{identity: identity, roots: roots, leaf: leafPrivate, delegation: delegation, rootFile: rootFile}
+	return testSpecTrust{identity: identity, roots: roots, root: rootPrivate, leaf: leafPrivate, delegation: delegation,
+		rootFile: rootFile}
 }
 
-// sign signs set and writes it to a new file in dir.
-func (k testServiceTrust) sign(t *testing.T, dir string, set serviceset.Set) string {
+// sign signs spec with the leaf and writes it to a new file in dir.
+func (k testSpecTrust) sign(t *testing.T, dir string, spec cellspec.Spec) string {
 	t.Helper()
-	wire, err := serviceset.Sign(set, k.delegation, k.roots, time.Now(), time.Hour, k.leaf)
+	wire, err := cellspec.Sign(spec, k.delegation, k.roots, time.Now(), time.Hour, k.leaf)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return writeSigned(t, dir, wire)
+}
+
+// signRoot signs spec with the root itself.
+func (k testSpecTrust) signRoot(t *testing.T, dir string, spec cellspec.Spec) string {
+	t.Helper()
+	wire, err := cellspec.Sign(spec, nil, k.roots, time.Now(), time.Hour, k.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return writeSigned(t, dir, wire)
+}
+
+func writeSigned(t *testing.T, dir string, wire []byte) string {
+	t.Helper()
 	file, err := os.CreateTemp(dir, "signed-*.json")
 	if err != nil {
 		t.Fatal(err)
@@ -98,12 +116,12 @@ func (k testServiceTrust) sign(t *testing.T, dir string, set serviceset.Set) str
 	return file.Name()
 }
 
-func (k testServiceTrust) config() *ServiceTrustConfig {
-	return &ServiceTrustConfig{RootPublicKeyFile: k.rootFile, DeploymentID: k.identity.DeploymentID,
+func (k testSpecTrust) config() *SpecTrustConfig {
+	return &SpecTrustConfig{RootPublicKeyFile: k.rootFile, DeploymentID: k.identity.DeploymentID,
 		Environment: k.identity.Environment}
 }
 
-func testServiceSetRoots(t *testing.T) trust.Keyring {
+func testSpecRoots(t *testing.T) trust.Keyring {
 	t.Helper()
 	public, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -118,14 +136,14 @@ func testServiceSetRoots(t *testing.T) trust.Keyring {
 
 // The generation 0 set is the signed config's generic workloads; TerraBase
 // stays with placement, and only an enabled autoscale config reconciles.
-func TestServiceRegistryBaselineFromSignedConfig(t *testing.T) {
+func TestSpecRegistryBaselineFromSignedConfig(t *testing.T) {
 	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
 	spec := workload.ServiceSpec{Role: "web", Environment: "test", Kind: workload.KindStateless,
 		Replicas: workload.ReplicaBounds{Min: 1, Max: 2}}
 	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}, Controller: ControllerConfig{
 		Workloads: map[string]WorkloadProfile{"terrabase": {Resources: resources}, "web": {Resources: resources}},
 		Autoscale: &AutoscaleConfig{Enabled: true, Services: []workload.ServiceSpec{spec}}}}
-	registry, err := newServiceRegistry(cfg, "")
+	registry, err := newSpecRegistry(cfg, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,24 +153,25 @@ func TestServiceRegistryBaselineFromSignedConfig(t *testing.T) {
 		t.Fatalf("baseline %+v, profiles %v, specs %v", registry.current, profiles, specs)
 	}
 	cfg.Controller.Autoscale.Enabled = false
-	if registry, err = newServiceRegistry(cfg, ""); err != nil {
+	if registry, err = newSpecRegistry(cfg, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, specs := registry.effective(); len(specs) != 0 {
 		t.Fatalf("a disabled autoscale config reconciles %v", specs)
 	}
 	cfg.NATS.Lab = false
-	cfg.Controller.ServiceTrust = &ServiceTrustConfig{}
-	if _, err := newServiceRegistry(cfg, ""); err == nil || !strings.Contains(err.Error(), "lab setting") {
-		t.Fatalf("a production controller accepted lab service trust: %v", err)
+	cfg.Controller.SpecTrust = &SpecTrustConfig{}
+	if _, err := newSpecRegistry(cfg, ""); err == nil || !strings.Contains(err.Error(), "lab setting") {
+		t.Fatalf("a production controller accepted lab spec trust: %v", err)
 	}
 }
 
-// TestServiceSetAmendsARunningController adds, updates and removes a service
-// on a running controller with signed service sets, and checks that it
-// refuses replays, rollbacks, stale and foreign sets and placement-owned
-// roles, and keeps the set across a restart.
-func TestServiceSetAmendsARunningController(t *testing.T) {
+// TestCellSpecAmendsARunningController adds, updates and removes a service
+// on a running controller with signed cell specs, and checks that it
+// refuses replays, rollbacks, stale and foreign specs, placement-owned roles
+// and leaf-signed authority widening, keeps its spec when the stored record
+// needs a newer binary, and keeps the spec across a restart.
+func TestCellSpecAmendsARunningController(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
 	root := t.TempDir()
@@ -161,7 +180,7 @@ func TestServiceSetAmendsARunningController(t *testing.T) {
 	operatorNKey, operatorSeed := testNKey(t)
 	testEd25519(t, root, "controller.key")
 	operatorPublic, _ := testEd25519(t, root, "operator.key")
-	keys := newTestServiceTrust(t, root, serviceset.Identity{DeploymentID: "lab-gru", Cell: "gru", Environment: "test"})
+	keys := newTestSpecTrust(t, root, cellspec.Identity{DeploymentID: "lab-gru", Cell: "gru", Environment: "test"})
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{"terrabase", "web"}, Environments: []string{"test"}}
 	resources := placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}
@@ -172,8 +191,8 @@ func TestServiceSetAmendsARunningController(t *testing.T) {
 					{PublicKey: operatorNKey, Role: "operator"}}}},
 		Controller: ControllerConfig{CandidateID: "one", ResponseKeyFile: filepath.Join(root, "controller.key"),
 			ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
-			Workloads:    map[string]WorkloadProfile{"terrabase": {Resources: resources}},
-			ServiceTrust: keys.config()},
+			Workloads: map[string]WorkloadProfile{"terrabase": {Resources: resources}},
+			SpecTrust: keys.config()},
 	})
 	operatorConfig := testJSONFile(t, root, "operator.json", Config{
 		NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1, Lab: true,
@@ -204,20 +223,20 @@ func TestServiceSetAmendsARunningController(t *testing.T) {
 		err := Run(ctx, append([]string{"service", args[0], "--config", operatorConfig}, args[1:]...), &output)
 		return output.String(), err
 	}
-	list := func() serviceset.Set {
+	list := func() cellspec.Spec {
 		t.Helper()
 		out, err := service("list")
 		if err != nil {
 			t.Fatal(err)
 		}
-		var set serviceset.Set
+		var set cellspec.Spec
 		if err := json.Unmarshal([]byte(out), &set); err != nil {
 			t.Fatal(err)
 		}
 		return set
 	}
 	current := list()
-	if current.Generation != 0 || len(current.Services) != 0 || current.Identity != keys.identity {
+	if current.Generation != 0 || current.RequiresBinary != 1 || len(current.Services) != 0 || current.Identity != keys.identity {
 		t.Fatalf("baseline %+v", current)
 	}
 
@@ -234,7 +253,7 @@ func TestServiceSetAmendsARunningController(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := serviceset.Decode(data)
+	first, err := cellspec.Decode(data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +276,7 @@ func TestServiceSetAmendsARunningController(t *testing.T) {
 	spec.Replicas.Max = 3
 	updated := first
 	updated.Generation = 2
-	updated.Services = []serviceset.Service{{Role: "web", Profile: first.Services[0].Profile, Spec: &spec}}
+	updated.Services = []cellspec.Service{{Role: "web", Profile: first.Services[0].Profile, Spec: &spec}}
 	racing := updated
 	racing.Services = nil
 	updatedSigned, racingSigned := keys.sign(t, root, updated), keys.sign(t, root, racing)
@@ -271,15 +290,15 @@ func TestServiceSetAmendsARunningController(t *testing.T) {
 	}
 	next := updated
 	next.Generation = 3
-	foreign := newTestServiceTrust(t, root, keys.identity)
-	other := newTestServiceTrust(t, root, serviceset.Identity{DeploymentID: "lab-sfo", Cell: "sfo", Environment: "test"})
+	foreign := newTestSpecTrust(t, root, keys.identity)
+	other := newTestSpecTrust(t, root, cellspec.Identity{DeploymentID: "lab-sfo", Cell: "sfo", Environment: "test"})
 	otherSet := next
 	otherSet.Identity = other.identity
-	// A set may only add settings to TerraBase's signed profile.
+	// Only a root may change TerraBase's resources.
 	grown := resources
 	grown.CPU = 2
 	reserved := next
-	reserved.Services = append([]serviceset.Service{{Role: "terrabase", Profile: WorkloadProfile{Resources: grown}}},
+	reserved.Services = append([]cellspec.Service{{Role: "terrabase", Profile: WorkloadProfile{Resources: grown}}},
 		next.Services...)
 	for name, path := range map[string]string{
 		"untrusted root":      foreign.sign(t, root, next),
@@ -293,34 +312,81 @@ func TestServiceSetAmendsARunningController(t *testing.T) {
 		}
 	}
 	if got := list(); got.Generation != 2 || got.Services[0].Spec.Replicas.Max != 3 {
-		t.Fatalf("after refused sets: %+v", got)
+		t.Fatalf("after refused specs: %+v", got)
+	}
+	if _, err := service("apply", "--file", keys.sign(t, root, reserved)); err == nil || !strings.Contains(err.Error(), "a root must sign it") {
+		t.Fatalf("the leaf grew TerraBase: %v", err)
 	}
 
-	// A holder of controller credentials writes an older signed set, then a
+	// A holder of controller credentials writes an older signed spec, then a
 	// corrupt record, straight into the store: neither is adopted, and the
-	// next generation still applies on top of the adopted set.
+	// next generation still applies on top of the adopted spec.
 	probe, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "probe", Replicas: 1, Lab: true,
 		URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: controllerSeed})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer probe.Close()
-	store, err := probe.JetStream().KeyValue(ctx, serviceSetBucket)
+	store, err := probe.JetStream().KeyValue(ctx, cellSpecBucket)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, value := range [][]byte{mustRead(t, firstSigned), mustRead(t, racingSigned), []byte("{}")} {
-		if _, err := store.Put(ctx, serviceSetKey, value); err != nil {
+		if _, err := store.Put(ctx, cellSpecKey, value); err != nil {
 			t.Fatal(err)
 		}
 		time.Sleep(300 * time.Millisecond)
 		if got := list(); got.Generation != 2 || len(got.Services) != 1 {
-			t.Fatalf("a written record moved the set to %+v", got)
+			t.Fatalf("a written record moved the spec to %+v", got)
 		}
-		// The written set is not reported as the cell's.
+		// The written spec is not reported as the cell's.
 		if _, err := service("apply", "--file", racingSigned); err == nil || !strings.Contains(err.Error(), "does not follow") {
 			t.Fatalf("written record: applying the rival generation 2: %v", err)
 		}
+	}
+
+	// A record for a newer binary, with a section this binary does not know,
+	// is not adopted, and the controller refuses to amend over it until its
+	// binary is updated. Only the root may replace it, with the generation
+	// that follows it, as after a binary rollback.
+	payload, err := cellspec.Encode(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload = bytes.Replace(payload, []byte(`"requires_binary":1,`), []byte(`"requires_binary":2,"edge":{},`), 1)
+	now := time.Now().UTC().Truncate(time.Second)
+	envelope, err := trust.Sign(payload, keys.identity.Scope(), now, now.Add(time.Hour), keys.leaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelopeWire, err := trust.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer, err := protocol.EncodeJSON(cellspec.Signed{Delegation: keys.delegation, Spec: envelopeWire})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Put(ctx, cellSpecKey, newer); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if got := list(); got.Generation != 2 {
+		t.Fatalf("a newer-binary record moved the spec to %+v", got)
+	}
+	if _, err := service("apply", "--file", keys.sign(t, root, next)); err == nil ||
+		!strings.Contains(err.Error(), "requires binary level 2") || !strings.Contains(err.Error(), "update this controller's binary first") {
+		t.Fatalf("amended over a newer-binary record: %v", err)
+	}
+	replacement := reserved
+	replacement.Generation = 4
+	if _, err := service("apply", "--file", keys.sign(t, root, replacement)); err == nil ||
+		!strings.Contains(err.Error(), "update this controller's binary first") {
+		t.Fatalf("the leaf replaced a newer-binary record: %v", err)
+	}
+	// The root may grow TerraBase, and the leaf's later amendments keep it.
+	if out, err := service("apply", "--file", keys.signRoot(t, root, replacement)); err != nil || !strings.Contains(out, `"generation":4`) {
+		t.Fatalf("root-signed replacement with TerraBase growth: %v\n%s", err, out)
 	}
 
 	removal := filepath.Join(root, "remove.json")
@@ -331,26 +397,28 @@ func TestServiceSetAmendsARunningController(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	removed, err := serviceset.Decode(data)
+	removed, err := cellspec.Decode(data)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out, err := service("apply", "--file", keys.sign(t, root, removed)); err != nil || !strings.Contains(out, `"generation":3`) {
+	if out, err := service("apply", "--file", keys.sign(t, root, removed)); err != nil || !strings.Contains(out, `"generation":5`) {
 		t.Fatalf("apply removal: %v\n%s", err, out)
 	}
 
-	// The accepted set survives a controller restart.
+	// The accepted spec survives a controller restart.
 	stop()
 	if err := <-done; err != nil {
 		t.Fatalf("controller stop: %v", err)
 	}
 	stop, done = start()
-	if got := list(); got.Generation != 3 || len(got.Services) != 0 {
+	if got := list(); got.Generation != 5 || len(got.Services) != 1 || got.Services[0].Profile.Resources.CPU != 2 {
 		t.Fatalf("after restart: %+v", got)
 	}
 
-	// A host grant is planned, signed and applied like a service, keeps its
-	// role from being removed, and is revoked the same way.
+	// A host grant is planned and applied like a service, but only a root
+	// may sign a new one; it keeps its role from being removed, and the leaf
+	// may revoke it.
+	before := list().Generation
 	applyPlanned := func(want string, args ...string) {
 		t.Helper()
 		candidate := filepath.Join(t.TempDir(), "candidate.json")
@@ -362,56 +430,63 @@ func TestServiceSetAmendsARunningController(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		set, err := serviceset.Decode(data)
+		set, err := cellspec.Decode(data)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if out, err := service("apply", "--file", keys.sign(t, root, set)); err != nil || !strings.Contains(out, `"status":"applied"`) {
+		signed := keys.sign(t, root, set)
+		if strings.Contains(out, `"root_required"`) {
+			if _, err := service("apply", "--file", signed); err == nil || !strings.Contains(err.Error(), "a root must sign it") {
+				t.Fatalf("the leaf applied %v: %v", args, err)
+			}
+			signed = keys.signRoot(t, root, set)
+		}
+		if out, err := service("apply", "--file", signed); err != nil || !strings.Contains(out, `"status":"applied"`) {
 			t.Fatalf("apply %v: %v\n%s", args, err, out)
 		}
 	}
 	applyPlanned(`"added":["web"]`, "add", "--role", "web", "--profile", profile)
-	applyPlanned(`"host_grants":["gru-1-ctl-1"]`, "grant-host", "--node", "gru-1-ctl-1", "--private-ip", "10.251.0.11",
+	applyPlanned(`"root_required":["host grant gru-1-ctl-1"]`, "grant-host", "--node", "gru-1-ctl-1", "--private-ip", "10.251.0.11",
 		"--roles", "web", "--environment", "test")
 	if got := list(); len(got.HostGrants) != 1 || got.HostGrants[0].PrivateIP != "10.251.0.11" {
 		t.Fatalf("after grant: %+v", got)
 	}
-	removal = filepath.Join(root, "remove-granted.json")
-	if _, err := service("remove", "--role", "web", "--out", removal); err != nil {
-		t.Fatal(err)
+	// The leader's plan already applies the cell's rules.
+	if _, err := service("remove", "--role", "web"); err == nil || !strings.Contains(err.Error(), "host grant") {
+		t.Fatalf("planned removing a role a host grant names: %v", err)
 	}
-	if removed, err = serviceset.Decode(mustRead(t, removal)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service("apply", "--file", keys.sign(t, root, removed)); err == nil || !strings.Contains(err.Error(), "host grant") {
+	granted := list()
+	granted.Generation++
+	granted.Services = slices.DeleteFunc(granted.Services, func(s cellspec.Service) bool { return s.Role == "web" })
+	if _, err := service("apply", "--file", keys.signRoot(t, root, granted)); err == nil || !strings.Contains(err.Error(), "host grant") {
 		t.Fatalf("removed a role a host grant names: %v", err)
 	}
 	applyPlanned(`"host_grants":["gru-1-ctl-1"]`, "revoke-host", "--node", "gru-1-ctl-1")
-	if got := list(); len(got.HostGrants) != 0 || got.Generation != 6 {
+	if got := list(); len(got.HostGrants) != 0 || got.Generation != before+3 {
 		t.Fatalf("after revoke: %+v", got)
 	}
 }
 
 // Grants name roles the cell delivers, never TerraBase, placement's member
 // role or a listed TerraBase member.
-func TestServiceRegistryValidatesHostGrants(t *testing.T) {
+func TestSpecRegistryValidatesHostGrants(t *testing.T) {
 	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
 	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}, Controller: ControllerConfig{
 		Workloads: map[string]WorkloadProfile{terrabase.Role: {Resources: resources, Env: map[string]string{
 			terrabase.EnvPeerPort: "9443", terrabase.EnvPeers: "gru-1-db-1=10.251.0.21:9443"}}}}}
-	registry, err := newServiceRegistry(cfg, "member")
+	registry, err := newSpecRegistry(cfg, "member")
 	if err != nil {
 		t.Fatal(err)
 	}
-	web := serviceset.Service{Role: "web", Profile: WorkloadProfile{Resources: resources}}
-	grant := func(node, ip string, roles ...string) serviceset.Set {
-		return serviceset.Set{Schema: serviceset.Schema, Generation: 1, Services: []serviceset.Service{web},
-			HostGrants: []serviceset.HostGrant{{Node: node, PrivateIP: ip, Roles: roles, Environment: "canary"}}}
+	web := cellspec.Service{Role: "web", Profile: WorkloadProfile{Resources: resources}}
+	grant := func(node, ip string, roles ...string) cellspec.Spec {
+		return cellspec.Spec{Schema: cellspec.Schema, Generation: 1, RequiresBinary: 1, Services: []cellspec.Service{web},
+			HostGrants: []cellspec.HostGrant{{Node: node, PrivateIP: ip, Roles: roles, Environment: "canary"}}}
 	}
 	if err := registry.validate(grant("gru-1-ctl-1", "10.251.0.11", "web")); err != nil {
 		t.Fatalf("grant for a delivered role: %v", err)
 	}
-	for name, set := range map[string]serviceset.Set{
+	for name, set := range map[string]cellspec.Spec{
 		"role without a profile": grant("gru-1-ctl-1", "10.251.0.11", "api"),
 		"terrabase":              grant("gru-1-ctl-1", "10.251.0.11", terrabase.Role),
 		"placement member role":  grant("gru-1-ctl-1", "10.251.0.11", "member"),
@@ -440,15 +515,16 @@ func mustRead(t *testing.T, path string) []byte {
 	return data
 }
 
-func withProfile(set serviceset.Set, profile WorkloadProfile) serviceset.Set {
-	set.Services = []serviceset.Service{{Role: set.Services[0].Role, Profile: profile, Spec: set.Services[0].Spec}}
+func withProfile(set cellspec.Spec, profile WorkloadProfile) cellspec.Spec {
+	set.Services = []cellspec.Service{{Role: set.Services[0].Role, Profile: profile, Spec: set.Services[0].Spec}}
 	return set
 }
 
-// A set may add environment settings to the signed TerraBase profile, and
-// may let trusted signers release a service and register its hosts in the
-// set's environment; nothing else widens.
-func TestServiceSetTerraBaseSettingsAndReleasers(t *testing.T) {
+// A spec may replace the signed TerraBase profile and let trusted signers
+// release a service and register its hosts in the spec's environment. The
+// cell's rules bound both; which of them a root must sign is the leader's
+// admission check (cellspec.AuthorityChanges).
+func TestCellSpecTerraBaseSettingsAndReleasers(t *testing.T) {
 	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
 	signed := WorkloadProfile{Resources: resources, Env: map[string]string{"TERRABASE_REGION": "gru-1",
 		terrabase.EnvPeerPort: "9443", terrabase.EnvPeers: "gru-1-db-1=10.251.0.21:9443"}}
@@ -456,38 +532,46 @@ func TestServiceSetTerraBaseSettingsAndReleasers(t *testing.T) {
 		Workloads: map[string]WorkloadProfile{terrabase.Role: signed},
 		TrustedSigners: []TrustedSignerConfig{{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(make([]byte, ed25519.PublicKeySize)),
 			Roles: []string{terrabase.Role}, Environments: []string{"canary"}}}}}
-	registry, err := newServiceRegistry(cfg, "")
+	registry, err := newSpecRegistry(cfg, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry.identity = serviceset.Identity{DeploymentID: "lab-gru", Cell: "gru", Environment: "canary"}
+	registry.identity = cellspec.Identity{DeploymentID: "lab-gru", Cell: "gru", Environment: "canary"}
 	if len(registry.current.Services) != 0 {
-		t.Fatalf("TerraBase joined the generation 0 set: %+v", registry.current.Services)
+		t.Fatalf("TerraBase joined the generation 0 spec: %+v", registry.current.Services)
 	}
 	added := signed
 	added.Env = maps.Clone(signed.Env)
 	added.Env["TERRABASE_AUTH_ISSUER"] = "https://gru.auth.terrascale.tech/terrascale"
-	web := serviceset.Service{Role: "web", Profile: WorkloadProfile{Resources: resources}, Releasers: []string{"ops"}}
-	set := func(services ...serviceset.Service) serviceset.Set {
-		return serviceset.Set{Schema: serviceset.Schema, Identity: registry.identity, Generation: 1, Services: services}
+	web := cellspec.Service{Role: "web", Profile: WorkloadProfile{Resources: resources}, Releasers: []string{"ops"}}
+	set := func(services ...cellspec.Service) cellspec.Spec {
+		return cellspec.Spec{Schema: cellspec.Schema, Identity: registry.identity, Generation: 1, RequiresBinary: 1,
+			Services: services}
 	}
-	override := serviceset.Service{Role: terrabase.Role, Profile: added}
-	if err := registry.validate(set(override, web)); err != nil {
-		t.Fatalf("adding a TerraBase setting: %v", err)
-	}
-	changed, removed, grown := added, signed, signed
+	override := cellspec.Service{Role: terrabase.Role, Profile: added}
+	changed, grown := added, signed
 	changed.Env = maps.Clone(added.Env)
 	changed.Env[terrabase.EnvPeers] = "gru-1-db-1=10.251.0.21:9443,gru-1-db-9=10.251.0.29:9443"
-	removed.Env = map[string]string{"TERRABASE_REGION": "gru-1", terrabase.EnvPeerPort: "9443"}
 	grown.Resources.CPU = 2
+	for name, candidate := range map[string]cellspec.Spec{
+		"added TerraBase setting":  set(override, web),
+		"changed TerraBase peers":  set(cellspec.Service{Role: terrabase.Role, Profile: changed}),
+		"grown TerraBase resource": set(cellspec.Service{Role: terrabase.Role, Profile: grown}),
+	} {
+		if err := registry.validate(candidate); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
 	stranger := web
 	stranger.Releasers = []string{"intruder"}
-	for name, candidate := range map[string]serviceset.Set{
-		"changed peers":      set(serviceset.Service{Role: terrabase.Role, Profile: changed}),
-		"removed peers":      set(serviceset.Service{Role: terrabase.Role, Profile: removed}),
-		"changed resources":  set(serviceset.Service{Role: terrabase.Role, Profile: grown}),
-		"untrusted releaser": set(stranger),
-		"host-owned setting": set(serviceset.Service{Role: terrabase.Role, Profile: withEnv(added, terrabase.EnvDataDirectory, "/tmp")}),
+	reconciled := cellspec.Service{Role: terrabase.Role, Profile: added, Spec: &workload.ServiceSpec{Role: terrabase.Role,
+		Environment: "canary", Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Min: 1, Max: 1}}}
+	for name, candidate := range map[string]cellspec.Spec{
+		"untrusted releaser":   set(stranger),
+		"reconciled TerraBase": set(reconciled),
+		"invalid TerraBase":    set(cellspec.Service{Role: terrabase.Role, Profile: withEnv(added, terrabase.EnvPeerPort, "0")}),
+		"host-owned setting":   set(cellspec.Service{Role: terrabase.Role, Profile: withEnv(added, terrabase.EnvDataDirectory, "/tmp")}),
+		"TerraBase port clash": set(cellspec.Service{Role: terrabase.Role, Profile: withEnv(added, terrabase.EnvClientPort, "9443")}),
 	} {
 		if err := registry.validate(candidate); err == nil {
 			t.Errorf("%s: accepted", name)
@@ -495,12 +579,12 @@ func TestServiceSetTerraBaseSettingsAndReleasers(t *testing.T) {
 	}
 	withoutTerraBase := cfg
 	withoutTerraBase.Controller.Workloads = map[string]WorkloadProfile{"web": {Resources: resources}}
-	other, err := newServiceRegistry(withoutTerraBase, "")
+	other, err := newSpecRegistry(withoutTerraBase, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := other.validate(set(override)); err == nil {
-		t.Error("a cell without a signed TerraBase profile accepted one from a set")
+		t.Error("a cell without a signed TerraBase profile accepted one from a spec")
 	}
 
 	registry.adopt(set(override, web), 1)
@@ -515,7 +599,7 @@ func TestServiceSetTerraBaseSettingsAndReleasers(t *testing.T) {
 		return policy.authorizeArtifact(t.Context(), "ops", delivery.ArtifactRecord{Cell: "gru", Role: role, Environment: environment})
 	}
 	if artifact("web", "canary") == nil {
-		t.Fatal("a releaser was authorized before the policy saw the service set")
+		t.Fatal("a releaser was authorized before the policy saw the cell spec")
 	}
 	policy.services = registry
 	if err := artifact("web", "canary"); err != nil {
@@ -530,7 +614,7 @@ func TestServiceSetTerraBaseSettingsAndReleasers(t *testing.T) {
 		}
 	}
 	if registry.releaser("someone", "web", "canary") {
-		t.Error("an actor the set does not name may release")
+		t.Error("an actor the spec does not name may release")
 	}
 }
 

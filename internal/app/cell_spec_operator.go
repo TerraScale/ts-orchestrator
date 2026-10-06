@@ -1,0 +1,317 @@
+package app
+
+import (
+	"context"
+	"encoding/json/v2"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"slices"
+	"strings"
+	"time"
+	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
+	"github.com/nats-io/nats.go"
+)
+
+const serviceUsage = `Usage: ts-orch service <command> --config OPERATOR_JSON [flags]
+
+  list                                          Print the cell spec (as ts-orch get)
+  add    --role R --profile F [--spec F] [--releasers A,B] [--out F]  Plan adding a service; --out writes the unsigned candidate
+  update --role R --profile F [--spec F] [--releasers A,B] [--out F]  Plan changing a service
+  remove --role R [--out F]                     Plan removing a service (scale it to zero first)
+  grant-host  --node N --private-ip IP --roles A,B --environment E [--out F]
+                                                Plan letting a static host enroll with these roles
+  revoke-host --node N [--out F]                Plan removing a host grant
+  apply  --file SIGNED                          Apply a signed cell spec (as ts-orch apply -f)
+
+Sign a candidate offline with ts-orch release sign-spec before apply.
+`
+
+const specUsage = `Usage: ts-orch <get|diff|apply> --config OPERATOR_JSON [-f FILE]
+
+  get                 Print the cell's current spec
+  diff -f FILE        Plan an unsigned candidate or a signed spec against the current spec
+  apply -f SIGNED     Apply a spec signed with ts-orch release sign-spec
+`
+
+// runService maps ts-orch service <command> to the operator command, which
+// owns the controller connection.
+func runService(ctx context.Context, args []string, output io.Writer) error {
+	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
+		_, err := io.WriteString(output, serviceUsage)
+		return err
+	}
+	if !slices.Contains([]string{"list", "add", "update", "remove", "grant-host", "revoke-host", "apply"}, args[0]) {
+		return fmt.Errorf("unknown service command %q", args[0])
+	}
+	return runOperator(ctx, append([]string{"service-" + args[0]}, args[1:]...), output)
+}
+
+// runSpec maps ts-orch get|diff|apply to the operator command.
+func runSpec(ctx context.Context, command string, args []string, output io.Writer) error {
+	if len(args) > 0 && (args[0] == "help" || args[0] == "--help" || args[0] == "-h") {
+		_, err := io.WriteString(output, specUsage)
+		return err
+	}
+	return runOperator(ctx, append([]string{"spec-" + command}, args...), output)
+}
+
+// requestCellSpec sends one signed cell spec request to the authority
+// leader. Every request is idempotent, so a lost reply is safe to retry.
+func requestCellSpec(ctx context.Context, cfg Config, runtime *natscell.Runtime, kind string, payload []byte,
+) (specReply, error) {
+	policy, err := buildSignerPolicy(cfg)
+	if err != nil {
+		return specReply{}, err
+	}
+	codec, err := policy.withOperator(cfg.Operator)
+	if err != nil {
+		return specReply{}, err
+	}
+	epoch, err := observeOperatorAuthority(ctx, func(attempt context.Context) (authority.Snapshot, error) {
+		return authority.Observe(attempt, runtime.JetStream(), cfg.NATS.Cell)
+	})
+	if err != nil {
+		return specReply{}, err
+	}
+	now := time.Now().UTC()
+	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: cfg.NATS.Cell, Kind: kind,
+		Actor: cfg.Operator.Actor, OperationID: "cell-spec." + uuid.New().String(), Generation: 1, Epoch: epoch,
+	}, now, now.Add(time.Minute), codec.PrivateKey)
+	if err != nil {
+		return specReply{}, err
+	}
+	wire, err := protocol.EncodeJSON(envelope)
+	if err != nil {
+		return specReply{}, err
+	}
+	if len(wire) > maxRegistrationWireBytes {
+		return specReply{}, errors.New("cell spec request exceeds the controller request bound")
+	}
+	for attempt := range 3 {
+		requestCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		message, requestErr := runtime.Conn().RequestWithContext(requestCtx, hostRegistrationSubject(cfg.NATS.Cell), wire)
+		cancel()
+		if requestErr == nil {
+			var reply specReply
+			if err := protocol.DecodeStrict(message.Data, &reply, 3*cellspec.MaxSpecBytes); err != nil {
+				return specReply{}, fmt.Errorf("decode cell spec reply: %w", err)
+			}
+			if reply.Error != "" {
+				return specReply{}, errors.New(reply.Error)
+			}
+			return reply, nil
+		}
+		if !errors.Is(requestErr, nats.ErrTimeout) && !errors.Is(requestErr, context.DeadlineExceeded) &&
+			!errors.Is(requestErr, nats.ErrNoResponders) || attempt == 2 {
+			return specReply{}, fmt.Errorf("request cell spec: %w", requestErr)
+		}
+	}
+	return specReply{}, errors.New("cell spec request exhausted")
+}
+
+func operatorSpecGet(ctx context.Context, cfg Config, runtime *natscell.Runtime, output io.Writer) error {
+	reply, err := requestCellSpec(ctx, cfg, runtime, cellSpecGetKind, []byte("{}"))
+	if err != nil {
+		return err
+	}
+	return printJSON(output, reply.Spec)
+}
+
+type specPlanOutput struct {
+	cellspec.Plan
+	Status    string `json:"status"`
+	Candidate string `json:"candidate,omitempty"`
+}
+
+// operatorSpecDiff plans a file against the cell's current spec on the
+// leader, which applies the cell's rules and names what needs a root. The
+// file's signatures are not checked: apply does that.
+func operatorSpecDiff(ctx context.Context, cfg Config, runtime *natscell.Runtime, path string, output io.Writer) error {
+	data, err := readBoundedConfigFile(path)
+	if err != nil {
+		return err
+	}
+	candidate, err := cellspec.Candidate(data)
+	if err != nil {
+		return err
+	}
+	payload, err := cellspec.Encode(candidate)
+	if err != nil {
+		return err
+	}
+	reply, err := requestCellSpec(ctx, cfg, runtime, cellSpecDiffKind, payload)
+	if err != nil {
+		return err
+	}
+	if reply.Plan == nil {
+		return errors.New("cell spec diff reply has no plan")
+	}
+	return printJSON(output, specPlanOutput{Plan: *reply.Plan, Status: reply.Status})
+}
+
+// operatorServiceChange plans the next generation from the current spec. It
+// prints the leader's plan and, with out, writes the unsigned candidate for
+// signing. A change that leaves the spec as it is plans nothing.
+func operatorServiceChange(ctx context.Context, cfg Config, runtime *natscell.Runtime, action, role,
+	profilePath, specPath, releasers, out string, output io.Writer,
+) error {
+	if role == "" || action != "remove" && profilePath == "" || action == "remove" && (profilePath != "" || specPath != "" || releasers != "") {
+		return fmt.Errorf("service %s requires --role%s", action, map[bool]string{true: "", false: " and --profile [--spec]"}[action == "remove"])
+	}
+	var service cellspec.Service
+	if action != "remove" {
+		profile, err := readReleaseProfile(profilePath)
+		if err != nil {
+			return err
+		}
+		service = cellspec.Service{Role: role, Profile: profile}
+		if specPath != "" {
+			data, err := readBoundedConfigFile(specPath)
+			if err != nil {
+				return err
+			}
+			var spec workload.ServiceSpec
+			if err := json.Unmarshal(data, &spec, json.RejectUnknownMembers(true)); err != nil {
+				return fmt.Errorf("parse service spec: %w", err)
+			}
+			service.Spec = &spec
+		}
+		if releasers != "" {
+			service.Releasers = splitList(releasers)
+		}
+	}
+	reply, err := requestCellSpec(ctx, cfg, runtime, cellSpecGetKind, []byte("{}"))
+	if err != nil {
+		return err
+	}
+	current := reply.Spec
+	existing, found := current.Find(role)
+	if action == "update" && releasers == "" {
+		service.Releasers = existing.Releasers
+	}
+	next := current
+	next.Generation++
+	next.Services = slices.DeleteFunc(slices.Clone(current.Services), func(s cellspec.Service) bool { return s.Role == role })
+	switch action {
+	case "add":
+		if found && !sameService(existing, service) {
+			return fmt.Errorf("service %q exists; use service update", role)
+		}
+	case "update":
+		if !found {
+			return fmt.Errorf("service %q does not exist; use service add", role)
+		}
+	}
+	if action != "remove" {
+		next.Services = append(next.Services, service)
+		slices.SortFunc(next.Services, func(a, b cellspec.Service) int { return strings.Compare(a.Role, b.Role) })
+	}
+	return planSpec(ctx, cfg, runtime, current, next, out, output)
+}
+
+// operatorServiceHostGrant plans the next generation with the host grant of
+// grant.Node set (grant) or removed.
+func operatorServiceHostGrant(ctx context.Context, cfg Config, runtime *natscell.Runtime, set bool,
+	grant cellspec.HostGrant, out string, output io.Writer,
+) error {
+	if grant.Node == "" || set != (grant.PrivateIP != "" && len(grant.Roles) != 0 && grant.Environment != "") {
+		return errors.New("service grant-host requires --node, --private-ip, --roles and --environment; revoke-host only --node")
+	}
+	reply, err := requestCellSpec(ctx, cfg, runtime, cellSpecGetKind, []byte("{}"))
+	if err != nil {
+		return err
+	}
+	current := reply.Spec
+	next := current
+	next.Generation++
+	next.HostGrants = slices.DeleteFunc(slices.Clone(current.HostGrants), func(g cellspec.HostGrant) bool { return g.Node == grant.Node })
+	if set {
+		next.HostGrants = append(next.HostGrants, grant)
+		slices.SortFunc(next.HostGrants, func(a, b cellspec.HostGrant) int { return strings.Compare(a.Node, b.Node) })
+	}
+	return planSpec(ctx, cfg, runtime, current, next, out, output)
+}
+
+// planSpec prints the leader's plan from current to next and, with out,
+// writes next as the unsigned candidate. A next that changes nothing plans
+// nothing.
+func planSpec(ctx context.Context, cfg Config, runtime *natscell.Runtime, current, next cellspec.Spec, out string,
+	output io.Writer,
+) error {
+	encoded, err := cellspec.Encode(next)
+	if err != nil {
+		return err
+	}
+	planned, err := requestCellSpec(ctx, cfg, runtime, cellSpecDiffKind, encoded)
+	if err != nil {
+		return err
+	}
+	if planned.Plan == nil {
+		return errors.New("cell spec diff reply has no plan")
+	}
+	plan := *planned.Plan
+	if plan.Empty() {
+		plan.To = current.Generation
+		return printJSON(output, specPlanOutput{Plan: plan, Status: "unchanged"})
+	}
+	if out != "" {
+		file, err := os.OpenFile(out, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err != nil {
+			return fmt.Errorf("write cell spec candidate: %w", err)
+		}
+		_, writeErr := file.Write(encoded)
+		if err := errors.Join(writeErr, file.Close()); err != nil {
+			_ = os.Remove(out)
+			return fmt.Errorf("write cell spec candidate: %w", err)
+		}
+	}
+	return printJSON(output, specPlanOutput{Plan: plan, Status: planned.Status, Candidate: out})
+}
+
+// splitList returns the sorted entries of a comma-separated flag.
+func splitList(value string) []string {
+	if value == "" {
+		return nil
+	}
+	entries := strings.Split(value, ",")
+	slices.Sort(entries)
+	return entries
+}
+
+func sameService(a, b cellspec.Service) bool {
+	left, leftErr := protocol.EncodeJSON(a)
+	right, rightErr := protocol.EncodeJSON(b)
+	return leftErr == nil && rightErr == nil && string(left) == string(right)
+}
+
+func operatorSpecApply(ctx context.Context, cfg Config, runtime *natscell.Runtime, path string, output io.Writer) error {
+	data, err := readBoundedConfigFile(path)
+	if err != nil {
+		return err
+	}
+	if len(data) > cellspec.MaxSignedBytes {
+		return errors.New("signed cell spec exceeds its size bound")
+	}
+	reply, err := requestCellSpec(ctx, cfg, runtime, cellSpecApplyKind, data)
+	if err != nil {
+		return err
+	}
+	roles := make([]string, 0, len(reply.Spec.Services))
+	for _, service := range reply.Spec.Services {
+		roles = append(roles, service.Role)
+	}
+	return printJSON(output, struct {
+		Status         string   `json:"status"`
+		Generation     uint64   `json:"generation"`
+		RequiresBinary uint64   `json:"requires_binary"`
+		Roles          []string `json:"roles"`
+	}{reply.Status, reply.Spec.Generation, reply.Spec.RequiresBinary, roles})
+}
