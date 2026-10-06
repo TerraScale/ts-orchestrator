@@ -32,7 +32,10 @@ func TestSDKDecodesEveryCommandTheProvisionerSends(t *testing.T) {
 	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil {
 		t.Fatal(err)
 	}
-	grown := testDesired(t, strings.NewReplacer(`["gru-1-db-1"]`, `["gru-1-db-1","gru-1-db-2"]`, `"max_mbps":100`, `"max_mbps":200`).Replace(testPlan))
+	// A controller dropped out of the ts-auth set and the bandwidth grew.
+	auth := field(f.balancer, "backend-sets", "ts-auth").(map[string]any)
+	auth["backends"] = auth["backends"].([]any)[:1]
+	grown := testDesired(t, strings.NewReplacer(`"max_mbps":100`, `"max_mbps":200`).Replace(testPlan))
 	if _, err := p.Provision(t.Context(), grown, cloudflare, members); err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +104,8 @@ func TestSDKDecodesEveryCommandTheProvisionerSends(t *testing.T) {
 		case "lb backend-set update":
 			var details loadbalancer.UpdateBackendSetDetails
 			err2 = jsonFlag(command, "details", &details)
-			if err2 == nil && (len(details.Backends) != 2 || *details.SslConfiguration.CertificateName != memberCA || *details.HealthChecker.UrlPath != HealthPath) {
+			if err2 == nil && (command.Flags["backend-set-name"] != "ts-auth" || len(details.Backends) != len(d.Auth) ||
+				details.SslConfiguration != nil || *details.HealthChecker.UrlPath != HealthPath) {
 				t.Fatalf("backend set %+v", details)
 			}
 		case "lb listener update":

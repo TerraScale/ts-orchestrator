@@ -107,7 +107,8 @@ cell's signed `terrabase` profile names: every `TERRABASE_PEERS` member at
 `seats` limits it to the listed members; a listed seat the profile does not
 name stops publication, and the previous set stays in force. Tag the load
 balancer with this controller's ownership for `<CELL>/lb-backends/<name>`
-first, and keep `public-api apply` from converging the same set's backends.
+first. `public-api apply` seeds the set when it creates the load balancer and
+never converges its backends afterwards.
 
 ```json
 "public_lb": {

@@ -161,9 +161,13 @@ func TestLiveBalancerReadback(t *testing.T) {
 		"TerraBase routed to ts-auth": {func(lb Object, _ *[]any) {
 			obj(obj(lb["listeners"])["terrabase"])["default-backend-set-name"] = "ts-auth"
 		}, "listener terrabase"},
-		"unselected member": {func(lb Object, _ *[]any) {
+		"controller-managed seats": {func(lb Object, _ *[]any) {
 			set := obj(obj(lb["backend-sets"])["terrabase"])
-			set["backends"] = append(arr(set["backends"]), Object{"ip-address": "10.251.0.22", "port": 9465})
+			set["backends"] = []any{Object{"ip-address": "10.251.0.21", "port": 9465, "drain": true}, Object{"ip-address": "10.251.0.22", "port": 9465}}
+		}, ""},
+		"unplanned TerraBase backend": {func(lb Object, _ *[]any) {
+			set := obj(obj(lb["backend-sets"])["terrabase"])
+			set["backends"] = append(arr(set["backends"]), Object{"ip-address": "10.251.0.99", "port": 9465})
 		}, "backend set terrabase"},
 		"other subnet":  {func(lb Object, _ *[]any) { lb["subnet-ids"] = []any{"ocid1.subnet.oc1.sa-saopaulo-1.private"} }, "load balancer differs"},
 		"unrelated /24": {func(_ Object, rules *[]any) { *rules = append(*rules, rule("198.51.100.0/24", 443)) }, "admits more than Cloudflare"},

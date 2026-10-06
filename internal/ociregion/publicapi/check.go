@@ -26,7 +26,8 @@ func same(v any, want any) bool { return fmt.Sprint(v) == fmt.Sprint(want) }
 // CheckBalancer reports the first way a live, CLI-shaped load balancer
 // differs from the configuration apply creates: bandwidth, hostname
 // bindings, listeners and their client-certificate checks, and backend sets
-// holding exactly the planned backends.
+// holding the planned backends: exactly every controller for ts-auth, and
+// for terrabase planned members only, at least one of them serving.
 func (d Desired) CheckBalancer(lb map[string]any) error {
 	if err := d.OriginPull.Validate(); err != nil {
 		return err
@@ -92,7 +93,7 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 	if !slices.Equal(slices.Sorted(maps.Keys(sets)), []string{"terrabase", "ts-auth"}) {
 		return differs("backend sets", slices.Sorted(maps.Keys(sets)))
 	}
-	for name, want := range map[string][]Backend{"terrabase": d.TerraBase, "ts-auth": d.Auth} {
+	for name, want := range map[string][]Backend{"terrabase": d.Members, "ts-auth": d.Auth} {
 		var expected []string
 		for _, b := range want {
 			expected = append(expected, b.Addr.String())
@@ -101,13 +102,26 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 		set := sets[name]
 		port := want[0].Addr.Port()
 		rows, err := command.Rows(field(set, "backends"))
-		ok := err == nil && slices.Equal(liveBackends(lb, name), expected) && field(set, "health-checker", "protocol") == "HTTP" &&
+		live := liveBackends(lb, name)
+		ok := err == nil && field(set, "health-checker", "protocol") == "HTTP" &&
 			field(set, "health-checker", "url-path") == HealthPath && same(field(set, "health-checker", "port"), port) &&
 			same(field(set, "health-checker", "return-code"), 200)
+		if name == "terrabase" {
+			// The controller owns these backends: any planned members,
+			// drained during a release, with at least one serving.
+			serving := false
+			for _, b := range rows {
+				serving = serving || b["drain"] == nil || b["drain"] == false
+			}
+			ok = ok && serving && !slices.ContainsFunc(live, func(addr string) bool { return !slices.Contains(expected, addr) })
+		} else {
+			ok = ok && slices.Equal(live, expected)
+		}
 		for _, b := range rows {
-			// Creation leaves these optional flags at their false defaults.
+			// Creation leaves these optional flags at their false defaults;
+			// only the controller drains a TerraBase seat.
 			for _, flag := range []string{"offline", "drain", "backup"} {
-				ok = ok && (b[flag] == nil || b[flag] == false)
+				ok = ok && (b[flag] == nil || b[flag] == false || flag == "drain" && name == "terrabase")
 			}
 		}
 		if name == "terrabase" {

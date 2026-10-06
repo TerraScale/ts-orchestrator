@@ -402,17 +402,22 @@ func TestApplyConvergesAnExistingLoadBalancerToThePlan(t *testing.T) {
 	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil {
 		t.Fatal(err)
 	}
-	// Replication merged: the plan lists both members and more bandwidth.
-	d = testDesired(t, strings.NewReplacer(`["gru-1-db-1"]`, `["gru-1-db-1","gru-1-db-2"]`, `"max_mbps":100`, `"max_mbps":200`).Replace(testPlan))
+	// The controller owns the terrabase backends: it added gru-1-db-2 and
+	// drained gru-1-db-1 for a release. Rerunning apply with the db-1 seed
+	// and more bandwidth changes only the bandwidth.
+	set := field(f.balancer, "backend-sets", "terrabase").(map[string]any)
+	set["backends"] = []any{map[string]any{"ip-address": "10.251.0.21", "port": 9465, "drain": true},
+		map[string]any{"ip-address": "10.251.0.22", "port": 9465}}
+	d = testDesired(t, strings.NewReplacer(`"max_mbps":100`, `"max_mbps":200`).Replace(testPlan))
 	f.calls = nil
 	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil {
 		t.Fatal(err)
 	}
-	if got := f.mutations(); !slices.Equal(got, []string{"lb load-balancer update-shape", "lb backend-set update"}) {
+	if got := f.mutations(); !slices.Equal(got, []string{"lb load-balancer update-shape"}) {
 		t.Fatalf("mutations=%v", got)
 	}
-	if got := liveBackends(f.balancer, "terrabase"); !slices.Equal(got, []string{"10.251.0.21:9465", "10.251.0.22:9465"}) {
-		t.Fatal(got)
+	if got := field(f.balancer, "backend-sets", "terrabase", "backends").([]any); len(got) != 2 || got[0].(map[string]any)["drain"] != true {
+		t.Fatalf("apply rewrote the controller's backends: %v", got)
 	}
 	f.calls = nil
 	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil || len(f.mutations()) != 0 {
@@ -451,6 +456,16 @@ func TestCheckBalancerRequiresTheExactPlan(t *testing.T) {
 	if err := d.CheckBalancer(f.balancer); err != nil {
 		t.Fatalf("rejected the same origin-pull CA with CRLF: %v", err)
 	}
+	// The controller may add any planned member and drain one during a
+	// release while another serves.
+	set := field(f.balancer, "backend-sets", "terrabase").(map[string]any)
+	seed := set["backends"]
+	set["backends"] = []any{map[string]any{"ip-address": "10.251.0.21", "port": 9465, "drain": true},
+		map[string]any{"ip-address": "10.251.0.22", "port": 9465, "drain": false}}
+	if err := d.CheckBalancer(f.balancer); err != nil {
+		t.Fatalf("rejected a controller-managed TerraBase set: %v", err)
+	}
+	set["backends"] = seed
 	for name, edit := range map[string]func(lb map[string]any){
 		"missing origin-pull CA": func(lb map[string]any) {
 			delete(field(lb, "certificates", originCertificate).(map[string]any), "ca-certificate")
@@ -477,9 +492,27 @@ func TestCheckBalancerRequiresTheExactPlan(t *testing.T) {
 		"no client certificate": func(lb map[string]any) {
 			field(lb, "listeners", "ts-auth", "ssl-configuration").(map[string]any)["verify-peer-certificate"] = false
 		},
-		"unselected member": func(lb map[string]any) {
+		"unplanned TerraBase backend": func(lb map[string]any) {
 			set := field(lb, "backend-sets", "terrabase").(map[string]any)
-			set["backends"] = append(set["backends"].([]any), map[string]any{"ip-address": "10.251.0.22", "port": 9465})
+			set["backends"] = append(set["backends"].([]any), map[string]any{"ip-address": "10.251.0.99", "port": 9465})
+		},
+		"member off the client port": func(lb map[string]any) {
+			set := field(lb, "backend-sets", "terrabase").(map[string]any)
+			set["backends"] = append(set["backends"].([]any), map[string]any{"ip-address": "10.251.0.22", "port": 9443})
+		},
+		"every TerraBase seat drained": func(lb map[string]any) {
+			set := field(lb, "backend-sets", "terrabase").(map[string]any)
+			set["backends"] = []any{map[string]any{"ip-address": "10.251.0.21", "port": 9465, "drain": true}}
+		},
+		"no TerraBase backend": func(lb map[string]any) {
+			field(lb, "backend-sets", "terrabase").(map[string]any)["backends"] = []any{}
+		},
+		"offline TerraBase seat": func(lb map[string]any) {
+			set := field(lb, "backend-sets", "terrabase").(map[string]any)
+			set["backends"] = append(set["backends"].([]any), map[string]any{"ip-address": "10.251.0.22", "port": 9465, "offline": true})
+		},
+		"drained controller": func(lb map[string]any) {
+			field(lb, "backend-sets", "ts-auth", "backends").([]any)[0].(map[string]any)["drain"] = true
 		},
 		"missing controller": func(lb map[string]any) {
 			set := field(lb, "backend-sets", "ts-auth").(map[string]any)

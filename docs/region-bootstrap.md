@@ -718,12 +718,15 @@ records either balancer.
 - Listeners: two HTTPS listeners on 443 route by hostname and serve the
   Cloudflare Origin CA certificate. Port 80 answers with a 301 to HTTPS.
   Responses gain HSTS and `X-Content-Type-Options: nosniff`.
-- Backend sets: `terrabase` sends HTTPS to `gru-1-db-1:9465` only, verified
+- Backend sets: `terrabase` sends HTTPS to the members at 9465, verified
   against the member CA, with `GET /readyz` health checks (TerraBase TS-483
   adds `/readyz`; until then the set reports unhealthy). The plan's
-  `terrabase_members` lists `gru-1-db-1` only until TerraBase replication
-  merges (terrabase#11 and TS-469); then add `gru-1-db-2` and rerun `apply`,
-  which updates the backend set and bandwidth of an existing load balancer.
+  `terrabase_members` only seeds the set when `apply` creates the load
+  balancer; it lists `gru-1-db-1` until TS-561 replicates the catalog.
+  Afterwards the controller's `oci_reconcile.public_lb` owns the set's
+  backends (TS-571, [OCI reconcile](oci-reconcile.md)): `apply` still
+  converges an existing load balancer's bandwidth, hostnames and ts-auth
+  backends, but never rewrites the TerraBase ones.
   `ts-auth` sends HTTP to
   every controller on 8080 with `GET /readyz`, so controllers without a
   replica drop out.
@@ -851,8 +854,9 @@ SDK logs.
 `apply` uses: active, flexible at the planned bandwidth, public, in the
 public subnet; both hostnames bound to their own HTTPS listener and backend
 set, each serving `origin` and verifying the client certificate; port 80
-only redirecting; `terrabase` verifying member TLS; and backend sets holding
-exactly the plan's `terrabase_members` and every controller. It fetches
+only redirecting; `terrabase` verifying member TLS; `ts-auth` holding
+exactly every controller; and `terrabase` holding only planned members at the
+client port, any of them drained by the controller but one serving. It fetches
 Cloudflare's published ranges and requires the one NSG to admit exactly TCP
 80 and 443 from each of them; after a Cloudflare change it fails until
 `origin-ips --apply` runs. Inventory admission accepts only that recorded

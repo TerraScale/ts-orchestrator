@@ -92,8 +92,11 @@ type Desired struct {
 	PrivateCIDR, PublicCIDR, APIHost, AuthHost        string
 	ClientPort, MinMbps, MaxMbps                      int
 	Names                                             Names
-	TerraBase, Auth                                   []Backend
-	OriginPull                                        OriginPull
+	// TerraBase seeds the terrabase backend set when apply creates the load
+	// balancer; Members are every planned member, which the controller may
+	// put in it afterwards (TS-571).
+	TerraBase, Members, Auth []Backend
+	OriginPull               OriginPull
 }
 
 type planFile struct {
@@ -110,11 +113,12 @@ type planFile struct {
 		ClientPort   int    `json:"client_port"`
 		MinMbps      int    `json:"min_mbps"`
 		MaxMbps      int    `json:"max_mbps"`
-		// TerraBaseMembers names the members behind the terrabase backend set.
+		// TerraBaseMembers seeds the terrabase backend set when apply creates
+		// the load balancer. The controller's oci_reconcile.public_lb owns
+		// its backends afterwards; apply no longer converges them.
 		//
-		// ponytail: the plan lists gru-1-db-1 only. Members do not replicate
-		// until terrabase#11 and TS-469 merge, so a second backend would serve
-		// diverging data. Add every member then and rerun public-api apply.
+		// ponytail: the plan lists gru-1-db-1 only. Members serve diverging
+		// catalogs until TS-561 replicates them, so a new cell starts with one.
 		TerraBaseMembers []string    `json:"terrabase_members"`
 		OriginPull       *OriginPull `json:"origin_pull"`
 	} `json:"public_api"`
@@ -223,6 +227,10 @@ func (p planFile) desired() (Desired, error) {
 		}
 	}
 	slices.SortFunc(d.Auth, func(a, b Backend) int { return strings.Compare(a.Name, b.Name) })
+	for name, ip := range members {
+		d.Members = append(d.Members, Backend{name, netip.AddrPortFrom(ip, uint16(d.ClientPort))})
+	}
+	slices.SortFunc(d.Members, func(a, b Backend) int { return strings.Compare(a.Name, b.Name) })
 	for _, name := range public.TerraBaseMembers {
 		ip, ok := members[name]
 		if !ok || slices.ContainsFunc(d.TerraBase, func(b Backend) bool { return b.Name == name }) {
@@ -920,8 +928,10 @@ func liveBackends(balancer map[string]any, set string) []string {
 	return out
 }
 
-// converge brings an existing load balancer's bandwidth and backend sets to
-// the plan, so adding a member to the plan and rerunning apply serves it.
+// converge brings an existing load balancer's bandwidth, hostnames and
+// ts-auth backends to the plan. The terrabase backends belong to the
+// controller (oci_reconcile.public_lb), which drains seats during releases;
+// rewriting them here would undo that.
 func (p Provisioner) converge(ctx context.Context, d Desired, balancer map[string]any) (map[string]any, error) {
 	id, err := command.ID(balancer)
 	if err != nil {
@@ -955,6 +965,9 @@ func (p Provisioner) converge(ctx context.Context, d Desired, balancer map[strin
 		}
 	}
 	for name, set := range d.backendSets() {
+		if name == "terrabase" {
+			continue
+		}
 		var want []string
 		for _, b := range set["backends"].([]any) {
 			want = append(want, fmt.Sprintf("%v:%v", b.(map[string]any)["ipAddress"], b.(map[string]any)["port"]))
