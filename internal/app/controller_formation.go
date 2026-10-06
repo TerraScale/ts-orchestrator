@@ -17,6 +17,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 )
 
 // Backoff bounds for the supervised seed founder and for repeated full
@@ -185,6 +186,7 @@ func admitProductionControllerRestartLocal(ctx context.Context, cfg Config) erro
 		LoadedControllerConfigSHA256: controllerSHA256(loadedWire),
 		Descriptor:                   bootstrapstart.NewIMDSClient(),
 		Credentials:                  checker, Material: material, Markers: bootstrapstart.NewMarkerStore(),
+		SelfUpdate: selfupdate.NewLayout(selfUpdateRoot(cfg.Controller.SelfUpdateRoot)),
 	}
 	_, err = gate.AdmitRestartLocal(ctx, manifest)
 	return err

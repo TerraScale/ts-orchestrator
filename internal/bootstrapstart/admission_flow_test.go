@@ -15,6 +15,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -130,6 +131,11 @@ func (fixedBinaryChecker) VerifyHistorical(release.HistoricalImage) (RunningBina
 	return RunningBinary{SHA256: strings.Repeat("c", 64)}, nil
 }
 
+func (fixedBinaryChecker) VerifySelfUpdated(selfupdate.Layout, trust.Keyring, release.UpdateExpectation,
+) (RunningBinary, error) {
+	return RunningBinary{}, ErrRunningBinaryMismatch
+}
+
 type countingMaterialChecker struct {
 	initialCalls, restartCalls int
 	onPrepare                  func(CurrentProofVerifier) error
@@ -201,6 +207,9 @@ type admissionFlowFixture struct {
 	material    *countingMaterialChecker
 	credentials *countingCredentialChecker
 	now         *time.Time
+	rootPrivate ed25519.PrivateKey
+	// bakedBinary is the executable the signed image receipt names.
+	bakedBinary string
 }
 
 func newAdmissionFlowFixture(t *testing.T) admissionFlowFixture {
@@ -257,6 +266,11 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 		t.Fatal(err)
 	}
 	const revision = "0123456789abcdef0123456789abcdef01234567"
+	bakedBytes := elfFixture("baked orchestrator")
+	bakedBinary := filepath.Join(t.TempDir(), "terrascale-orchestrator")
+	if err := os.WriteFile(bakedBinary, bakedBytes, 0o555); err != nil {
+		t.Fatal(err)
+	}
 	releaseGrant, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion,
 		SubjectKeyID: releaseID, SubjectPublicKey: releasePublicWire, Capabilities: []trust.Capability{{
 			Domain: release.ImageDomain, DeploymentID: revision, Cell: "GRU", Environment: "production",
@@ -266,9 +280,9 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 		t.Fatal(err)
 	}
 	imageReceipt := release.ImageReceipt{Schema: release.ImageSchema, SourceRevision: revision,
-		GoVersion: release.DefaultGoVersion, Architecture: "amd64", BinaryBytes: 13, BinarySHA256: strings.Repeat("a", 64),
-		QualificationSHA256: strings.Repeat("e", 64),
-		BaseImageOCID:       "ocid1.image.oc1.sa-saopaulo-1.base", BaseImageRegion: "GRU",
+		GoVersion: release.DefaultGoVersion, Architecture: "amd64", BinaryBytes: int64(len(bakedBytes)),
+		BinarySHA256: digest(bakedBytes), QualificationSHA256: strings.Repeat("e", 64),
+		BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.base", BaseImageRegion: "GRU",
 		BaseImageSHA256: strings.Repeat("b", 64), KernelRelease: "6.1.0-test+1",
 		KernelSHA256: strings.Repeat("c", 64), ImageFormat: "qcow2", ImageBytes: 1024,
 		ImageSHA256: strings.Repeat("d", 64), OCIImageOCID: imageID, OCIRegion: "GRU"}
@@ -398,7 +412,8 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 			return nil
 		},
 	}
-	return admissionFlowFixture{gate: gate, ledger: ledger, material: material, credentials: credentials, now: &now}
+	return admissionFlowFixture{gate: gate, ledger: ledger, material: material, credentials: credentials, now: &now,
+		rootPrivate: rootPrivate, bakedBinary: bakedBinary}
 }
 
 func addTestControllerConfig(manifest *bootstrap.Manifest) {

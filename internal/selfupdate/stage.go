@@ -98,6 +98,26 @@ func Stage(layout Layout, source io.Reader, receiptWire, delegationWire []byte, 
 	return receipt.SHA256, nil
 }
 
+// ReleaseReceipt returns the signed receipt and delegation a staged release
+// was verified with, once the release's ownership and bytes verify. The
+// baked release has neither, so it fails.
+func (layout Layout) ReleaseReceipt(digest string) (receiptWire, delegationWire []byte, err error) {
+	if err := layout.VerifyRelease(digest); err != nil {
+		return nil, nil, err
+	}
+	wires := make([][]byte, 2)
+	for index, name := range []string{receiptFile, delegationFile} {
+		path := filepath.Join(layout.ReleaseDir(digest), name)
+		if err := layout.checkOwned(path, false); err != nil {
+			return nil, nil, err
+		}
+		if wires[index], err = readBounded(path, trust.MaxEnvelopeBytes); err != nil {
+			return nil, nil, err
+		}
+	}
+	return wires[0], wires[1], nil
+}
+
 // Seed installs the image-baked binary as a release and points current at
 // it when no current link exists. The baked binary is trusted as part of
 // the signed image; it carries a marker instead of a receipt.

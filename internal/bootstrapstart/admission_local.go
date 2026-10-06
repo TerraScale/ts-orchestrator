@@ -86,9 +86,8 @@ func (gate Gate) AdmitRestartLocal(ctx context.Context, installedManifest []byte
 	if err != nil || !coveredAt(image.IssuedAt(), image.ExpiresAt(), marker.AcceptedAt) {
 		return AcceptedInstall{}, fmt.Errorf("%w: accepted historical release image is invalid: %v", ErrAdmission, err)
 	}
-	binary, err := gate.binaryChecker().VerifyHistorical(image)
-	if err != nil || binary.SHA256 != marker.BinarySHA256 {
-		return AcceptedInstall{}, fmt.Errorf("%w: installed executable differs: %v", ErrAdmission, err)
+	if err := gate.verifyRestartBinary(image, payload, marker); err != nil {
+		return AcceptedInstall{}, err
 	}
 	materials := expectedMaterials(payload, scope.Slot)
 	if len(materials) == 0 || len(materials) != len(marker.MaterialSHA256) {

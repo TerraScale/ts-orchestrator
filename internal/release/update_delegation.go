@@ -178,10 +178,19 @@ type verifiedUpdateDelegation struct {
 	publicKey  ed25519.PublicKey
 }
 
-func verifyUpdateDelegationCurrent(envelope trust.Envelope, roots trust.Keyring, environment string,
-	now time.Time,
+// envelopeCheck is trust.VerifyHistorical or, through currentAt, trust.VerifyCurrent.
+type envelopeCheck func(trust.Envelope, trust.Scope, trust.Keyring, trust.Policy) ([]byte, error)
+
+func currentAt(now time.Time) envelopeCheck {
+	return func(envelope trust.Envelope, scope trust.Scope, keys trust.Keyring, policy trust.Policy) ([]byte, error) {
+		return trust.VerifyCurrent(envelope, scope, keys, now, policy)
+	}
+}
+
+func verifyUpdateDelegation(envelope trust.Envelope, roots trust.Keyring, environment string,
+	check envelopeCheck,
 ) (verifiedUpdateDelegation, error) {
-	payload, err := trust.VerifyCurrent(envelope, UpdateDelegationScope(environment), roots, now,
+	payload, err := check(envelope, UpdateDelegationScope(environment), roots,
 		trust.Policy{MaxLifetime: MaxUpdateDelegationLifetime, ClockSkew: clockSkew})
 	if err != nil {
 		return verifiedUpdateDelegation{}, fmt.Errorf("verify binary update delegation: %w", err)
@@ -234,7 +243,7 @@ func SignBinaryUpdateReceipt(binary BinaryReceipt, qualification Qualification, 
 	if err := qualification.MatchBinary(binary, qualificationSHA256); err != nil {
 		return trust.Envelope{}, err
 	}
-	verified, err := verifyUpdateDelegationCurrent(delegationEnvelope, roots, environment, now)
+	verified, err := verifyUpdateDelegation(delegationEnvelope, roots, environment, currentAt(now))
 	if err != nil {
 		return trust.Envelope{}, err
 	}
@@ -303,44 +312,69 @@ const MinUpdateReceiptValidity = time.Hour
 func VerifyBinaryUpdateCurrent(envelopeWire, delegationWire []byte, roots trust.Keyring,
 	expected UpdateExpectation, now time.Time,
 ) (VerifiedBinary, error) {
-	if err := validateEnvironment(expected.Environment); err != nil {
+	receipt, proof, err := verifyBinaryUpdate(envelopeWire, delegationWire, roots, expected, currentAt(now))
+	if err != nil {
 		return VerifiedBinary{}, err
 	}
+	return VerifiedBinary{receipt: receipt, proof: proof}, nil
+}
+
+// VerifyBinaryUpdateHistorical verifies that an update receipt was signed
+// within its root delegation for the consumer's environment, cell and
+// architecture, without requiring either to be valid now. It proves the
+// identity of a binary staged earlier under a current receipt; it never
+// authorizes staging.
+func VerifyBinaryUpdateHistorical(envelopeWire, delegationWire []byte, roots trust.Keyring,
+	expected UpdateExpectation,
+) (HistoricalBinary, error) {
+	receipt, proof, err := verifyBinaryUpdate(envelopeWire, delegationWire, roots, expected, trust.VerifyHistorical)
+	if err != nil {
+		return HistoricalBinary{}, err
+	}
+	return HistoricalBinary{receipt: receipt, proof: proof}, nil
+}
+
+func verifyBinaryUpdate(envelopeWire, delegationWire []byte, roots trust.Keyring, expected UpdateExpectation,
+	check envelopeCheck,
+) (BinaryReceipt, receiptProof, error) {
+	if err := validateEnvironment(expected.Environment); err != nil {
+		return BinaryReceipt{}, receiptProof{}, err
+	}
 	if !ValidRegion(expected.Cell) || expected.Architecture != "amd64" && expected.Architecture != "arm64" {
-		return VerifiedBinary{}, fmt.Errorf("%w: update expectation", ErrExpectationMismatch)
+		return BinaryReceipt{}, receiptProof{}, fmt.Errorf("%w: update expectation", ErrExpectationMismatch)
 	}
 	envelope, delegationEnvelope, err := decodeEnvelopePair(envelopeWire, delegationWire)
 	if err != nil {
-		return VerifiedBinary{}, err
+		return BinaryReceipt{}, receiptProof{}, err
 	}
-	verified, err := verifyUpdateDelegationCurrent(delegationEnvelope, roots, expected.Environment, now)
+	verified, err := verifyUpdateDelegation(delegationEnvelope, roots, expected.Environment, check)
 	if err != nil {
-		return VerifiedBinary{}, err
+		return BinaryReceipt{}, receiptProof{}, err
 	}
 	receipt, err := decodeCanonicalPayload[BinaryUpdateReceipt](envelope.Payload)
 	if err != nil {
-		return VerifiedBinary{}, err
+		return BinaryReceipt{}, receiptProof{}, err
 	}
 	if err := receipt.Validate(); err != nil {
-		return VerifiedBinary{}, err
+		return BinaryReceipt{}, receiptProof{}, err
 	}
 	if receipt.Cell != expected.Cell || receipt.Binary.GOARCH != expected.Architecture {
-		return VerifiedBinary{}, ErrExpectationMismatch
+		return BinaryReceipt{}, receiptProof{}, ErrExpectationMismatch
 	}
 	if err := verified.authorize(receipt); err != nil {
-		return VerifiedBinary{}, err
+		return BinaryReceipt{}, receiptProof{}, err
 	}
 	if envelope.IssuedAt.Before(delegationEnvelope.IssuedAt) || envelope.ExpiresAt.After(delegationEnvelope.ExpiresAt) {
-		return VerifiedBinary{}, trust.ErrDelegationTime
+		return BinaryReceipt{}, receiptProof{}, trust.ErrDelegationTime
 	}
-	if _, err := trust.VerifyCurrent(envelope, UpdateReceiptScope(receipt, expected.Environment),
-		trust.Keyring{verified.delegation.SubjectKeyID: verified.publicKey}, now,
+	if _, err := check(envelope, UpdateReceiptScope(receipt, expected.Environment),
+		trust.Keyring{verified.delegation.SubjectKeyID: verified.publicKey},
 		trust.Policy{MaxLifetime: MaxUpdateReceiptLifetime, ClockSkew: clockSkew}); err != nil {
-		return VerifiedBinary{}, fmt.Errorf("verify binary update receipt: %w", err)
+		return BinaryReceipt{}, receiptProof{}, fmt.Errorf("verify binary update receipt: %w", err)
 	}
 	proof, err := proofFor(envelope)
 	if err != nil {
-		return VerifiedBinary{}, err
+		return BinaryReceipt{}, receiptProof{}, err
 	}
-	return VerifiedBinary{receipt: receipt.Binary, proof: proof}, nil
+	return receipt.Binary, proof, nil
 }

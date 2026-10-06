@@ -14,6 +14,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -72,6 +73,7 @@ type LedgerOpener interface {
 type BinaryChecker interface {
 	VerifyCurrent(release.VerifiedImage) (RunningBinary, error)
 	VerifyHistorical(release.HistoricalImage) (RunningBinary, error)
+	VerifySelfUpdated(selfupdate.Layout, trust.Keyring, release.UpdateExpectation) (RunningBinary, error)
 }
 
 type MaterialChecker interface {
@@ -114,6 +116,10 @@ type Gate struct {
 	Now                          func() time.Time
 	InitialFounderFloor          func(context.Context, AcceptedInstall, time.Time) error
 	InitialPeerFloor             func(context.Context, AcceptedInstall, bootstrap.SlotState, time.Time) error
+	// SelfUpdate is the root-owned self-update release root. Restart
+	// admission also accepts its current release under a binary-update
+	// receipt; the zero value accepts only the image receipt binary.
+	SelfUpdate selfupdate.Layout
 }
 
 type executableBinaryChecker struct{}
@@ -124,6 +130,12 @@ func (executableBinaryChecker) VerifyCurrent(image release.VerifiedImage) (Runni
 
 func (executableBinaryChecker) VerifyHistorical(image release.HistoricalImage) (RunningBinary, error) {
 	return VerifyHistoricalRunningBinary(image)
+}
+
+func (executableBinaryChecker) VerifySelfUpdated(layout selfupdate.Layout, roots trust.Keyring,
+	expected release.UpdateExpectation,
+) (RunningBinary, error) {
+	return verifySelfUpdatedBinary("/proc/self/exe", layout, roots, expected)
 }
 
 func (gate Gate) prerequisites() error {
@@ -158,6 +170,27 @@ func (gate Gate) binaryChecker() BinaryChecker {
 		return gate.Binary
 	}
 	return executableBinaryChecker{}
+}
+
+// verifyRestartBinary pins the running executable to the image receipt
+// binary the marker accepted. Only an executable that differs from it may
+// instead be the self-update current release.
+func (gate Gate) verifyRestartBinary(image release.HistoricalImage, payload bootstrap.Manifest,
+	marker AcceptedInstall,
+) error {
+	binary, err := gate.binaryChecker().VerifyHistorical(image)
+	if err == nil && binary.SHA256 == marker.BinarySHA256 {
+		return nil
+	}
+	if errors.Is(err, ErrRunningBinaryMismatch) && gate.SelfUpdate.Root != "" {
+		_, err = gate.binaryChecker().VerifySelfUpdated(gate.SelfUpdate, gate.Roots, release.UpdateExpectation{
+			Environment: payload.Environment, Cell: string(payload.Cell), Architecture: image.Receipt().Architecture,
+		})
+		if err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: installed executable differs: %v", ErrAdmission, err)
 }
 
 func (gate Gate) locate(ctx context.Context) (bootstrap.BootstrapScope, string, error) {
@@ -674,9 +707,8 @@ func (gate Gate) AdmitRestart(ctx context.Context) (AcceptedInstall, error) {
 	if err != nil {
 		return AcceptedInstall{}, fmt.Errorf("verify historical exact-instance receipt: %w", err)
 	}
-	binary, err := gate.binaryChecker().VerifyHistorical(image)
-	if err != nil || binary.SHA256 != marker.BinarySHA256 {
-		return AcceptedInstall{}, fmt.Errorf("%w: installed executable differs: %v", ErrAdmission, err)
+	if err := gate.verifyRestartBinary(image, payload, marker); err != nil {
+		return AcceptedInstall{}, err
 	}
 	materials := expectedMaterials(payload, scope.Slot)
 	if len(materials) == 0 || len(materials) != len(marker.MaterialSHA256) {

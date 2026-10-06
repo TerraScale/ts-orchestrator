@@ -17,6 +17,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -230,6 +231,7 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 		Descriptor:                   bootstrapstart.NewIMDSClient(),
 		Credentials:                  checker, Markers: markers,
 		ClockCheck: clockCheck,
+		SelfUpdate: selfupdate.NewLayout(selfUpdateRoot(cfg.Controller.SelfUpdateRoot)),
 	}
 	if initial {
 		gate.InitialPeerFloor = func(ctx context.Context, marker bootstrapstart.AcceptedInstall,

@@ -152,6 +152,45 @@ func TestBinaryUpdateReceiptRejectsOutOfScopeConsumers(t *testing.T) {
 	}
 }
 
+func TestBinaryUpdateReceiptHistoricalOutlivesExpiryNotScope(t *testing.T) {
+	fixture := newUpdateFixture(t)
+	receipt, err := fixture.sign("GRU", &fakeLineage{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	historical := func(roots trust.Keyring, expected UpdateExpectation) (HistoricalBinary, error) {
+		return VerifyBinaryUpdateHistorical(encodeEnvelope(t, receipt), encodeEnvelope(t, fixture.envelope), roots, expected)
+	}
+	gru := UpdateExpectation{Environment: "canary", Cell: "GRU", Architecture: "amd64"}
+	if _, err := fixture.verify(t, receipt, gru, fixture.now.Add(8*24*time.Hour)); !errors.Is(err, trust.ErrExpired) {
+		t.Fatalf("expired delegation accepted as current: %v", err)
+	}
+	verified, err := historical(fixture.roots, gru)
+	if err != nil || !verified.IsVerified() || verified.Receipt() != fixture.binary {
+		t.Fatalf("historical = %+v, %v", verified, err)
+	}
+	for name, expected := range map[string]UpdateExpectation{
+		"other cell":        {Environment: "canary", Cell: "FRA", Architecture: "amd64"},
+		"other arch":        {Environment: "canary", Cell: "GRU", Architecture: "arm64"},
+		"other environment": {Environment: "production", Cell: "GRU", Architecture: "amd64"},
+	} {
+		if _, err := historical(fixture.roots, expected); err == nil {
+			t.Errorf("%s accepted the receipt historically", name)
+		}
+	}
+	otherPublic, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherRoots, err := trust.ParseKeyring(otherPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := historical(otherRoots, gru); !errors.Is(err, trust.ErrUntrustedKey) {
+		t.Fatalf("receipt under another root = %v, want untrusted key", err)
+	}
+}
+
 func TestBinaryUpdateSigningEnforcesScopeLineageAndKey(t *testing.T) {
 	fixture := newUpdateFixture(t)
 	if _, err := fixture.sign("SFO", &fakeLineage{}); !errors.Is(err, trust.ErrCapabilityDenied) {

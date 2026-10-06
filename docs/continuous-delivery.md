@@ -206,6 +206,18 @@ executable on a running node with an A/B layout:
    readiness, with its response key; host: after start-up checks, with its
    identity key). The proof names the activation, unit, the digest of
    `/proc/self/exe` and the process ID, and is valid for 10 minutes.
+   A controller first passes restart admission, which accepts the image
+   receipt binary or the `current` release when that release is root-owned
+   with unchanged bytes, is not known bad, and carries a binary-update
+   receipt for the controller's environment, cell and architecture. `stage`
+   checked that receipt as current before keeping a byte, so admission
+   checks it only historically, as it does the image receipt: a staged
+   release keeps restarting after its delegation expires, and the
+   known-bad list is how a release is withdrawn. A tampered release, or one
+   staged under a per-source receipt (stage controller releases with
+   `--allow-scoped-auto-sign`), fails admission, signs no proof and is
+   rolled back; the baked release is admitted by the image receipt as
+   before.
 5. **Confirm or roll back.** `selfupdate prepare` (root `ExecStartPre=+`) and
    the `terrascale-orchestrator-selfupdate-watchdog@<unit>.timer` (every 15 s)
    confirm the activation from a fresh proof signed by the unit's key. A
