@@ -128,3 +128,13 @@ jobs:
           FORGEJO_SERVER_URL: ${{ github.server_url }}
         run: bash scripts/ci/dispatch-image.sh
 
+      # The fleet deployment (deploy.yml) starts the same way and stays off
+      # until the repository variable TS_AUTO_DEPLOY_CELLS names the cells.
+      - name: Start the fleet deployment for this revision
+        if: ${{ forgejo.event_name != 'pull_request' && forgejo.ref == 'refs/heads/main' && vars.TS_AUTO_DEPLOY_CELLS != '' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ github.token }}
+          FORGEJO_SERVER_URL: ${{ github.server_url }}
+        run: bash scripts/ci/dispatch-image.sh deploy.yml

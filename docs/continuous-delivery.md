@@ -432,6 +432,89 @@ and cannot write the release root), host steps and proofs over the host
 session with the chunked artifact path, and a signed operator request that
 supplies the program.
 
+### Automatic fleet deployment (TS-557, part 1)
+
+Every merge to `main` is signed and published to every region by CI,
+region by region; nothing is copied by hand. CI cannot reach a cell's
+private NATS, so each region's release channel lives in its head bucket
+(`<cell>-head`, for example `gru-1-head`), under `releases/v1/orchestrator/`
+(`internal/releasechannel`):
+
+```text
+binaries/<sha256>   the static binary, written once (If-None-Match, read back)
+channel.json        the region's current release: cell, environment, source
+                    revision, ci.yml run number, the root-signed update
+                    delegation and one leaf-signed update receipt per arch
+status.json         the region leader's report: run, state (rolling |
+                    complete | failed) and reason
+```
+
+1. `ci.yml` on `main` dispatches `deploy.yml` after the image dispatch, only
+   while the repository variable `TS_AUTO_DEPLOY_CELLS` is set. It refuses
+   a revision that is not on `main` before any secret is used, and builds
+   the signer with private Go caches. A running deployment is never
+   cancelled; a newer dispatch replaces one still pending, and one that a
+   newer qualified revision overtook skips itself
+   (`scripts/ci/image-superseded.sh` with `GATE_WORKFLOW=deploy.yml`).
+2. `ts-orch release deploy` (`scripts/ci/deploy-fleet.sh`) checks the
+   retained binaries against `qualification.json` and the successful
+   Forgejo run, reads the update leaf key from OCI Vault, proves lineage
+   and signs one update receipt per cell and architecture before any region
+   sees the release. Each channel is checked with the consumer's own
+   verification (`Channel.Verify`), and again right before it is published,
+   as of the end of that region's rollout window: receipts that would expire
+   mid-rollout stop the deployment (renew the update delegation).
+3. Cells are deployed in the order given, the first being the canary: the
+   binaries are uploaded, `channel.json` is replaced by compare-and-swap on
+   its ETag (a channel never moves to a lower run, and a repeated deployment
+   of the same run renews its receipts), and CI polls `status.json`
+   until the region reports the run `complete`. A `failed` report, a newer
+   run or no completion within 90 minutes stops the fleet rollout and fails
+   the job; later regions never see the release.
+4. `ts-orch release fleet-status --namespace NS` prints every region's
+   channel and status as JSON lines.
+
+The channel document is unsigned: a node acts only on the update receipts it
+carries, which bind the cell, environment, architecture, digest, revision
+and run under the root-signed delegation. `status.json` is telemetry; a
+forged report can stop CI or move it to the next region, but no region
+accepts a release without verifying it.
+
+Inputs (repository variables unless noted): `TS_AUTO_DEPLOY_CELLS` (for
+example `GRU SFO FRA`, canary first), `TS_AUTO_DEPLOY_ARCHES` (default
+`arm64`), `TS_AUTO_DEPLOY_ENVIRONMENT` (default `production`),
+`TS_OBJECT_NAMESPACE`, `TS_RELEASE_VAULT_ID`, `TS_RELEASE_LEAF_SECRET`,
+`TS_RELEASE_UPDATE_DELEGATION` (the envelope from `ts-orch release
+sign-update-delegation`, re-issued at most every 31 days),
+`TS_DEPLOY_OCI_USER`, `TS_DEPLOY_OCI_TENANCY`, `TS_DEPLOY_OCI_FINGERPRINT`
+and the secret `TS_DEPLOY_OCI_KEY`. The OCI user's group needs only:
+
+```text
+Allow group ts-orch-deploy to read secret-bundles in compartment <vault compartment> where target.secret.name = '<leaf secret>'
+Allow group ts-orch-deploy to manage objects in compartment <cell>-control where all {target.bucket.name='<cell>-head', target.object.name='releases/v1/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}
+```
+
+and each region's controllers `OBJECT_READ` on `releases/v1/*` plus
+`OBJECT_CREATE`/`OBJECT_OVERWRITE` on `releases/v1/orchestrator/status.json`.
+
+Limits of this part:
+
+- No controller reads the channel yet. The leader-side consumer (verify the
+  channel, refuse a run older than the cell's newest, import the binary into
+  the delivery artifact store, start `SelfUpdateProgram` and write
+  `status.json`) lands with the executor wiring of TS-555. Until then a
+  configured deployment waits 90 minutes on the canary and fails.
+- Forgejo repository secrets reach any workflow pushed to the repository,
+  so every account with write access can obtain `TS_DEPLOY_OCI_KEY`, read
+  the leaf and sign any binary for the delegation's cells, architectures and
+  environment until it expires. Keep the delegation short and narrow; OCI
+  KMS has no Ed25519 signing, so the leaf cannot stay in an HSM.
+- A `channel.json` that does not decode, or names a higher run, stops every
+  later deployment to that region until an operator inspects it (fail
+  closed). The deployment covers at most three cells, the job timeout.
+- Binaries are never deleted from `releases/v1/orchestrator/binaries/`; an
+  Object Storage lifecycle rule should expire old ones.
+
 ### Resumable image promotion
 
 `ts-orch image promote --resume` continues in an existing `--out` directory

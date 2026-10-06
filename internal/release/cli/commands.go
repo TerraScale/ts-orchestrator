@@ -85,13 +85,17 @@ func (c command) run(args []string) error {
 		return c.signServiceDelegation(args[1:])
 	case "sign-service-set":
 		return c.signServiceSet(args[1:])
+	case "deploy":
+		return c.deploy(args[1:])
+	case "fleet-status":
+		return c.fleetStatus(args[1:])
 	default:
 		return usageError()
 	}
 }
 
 func usageError() error {
-	return errors.New("usage: ts-orch release <sign-delegation|binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish|sign-update-delegation|sign-binary-update|sign-service-delegation|sign-service-set> [flags]")
+	return errors.New("usage: ts-orch release <sign-delegation|binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish|sign-update-delegation|sign-binary-update|sign-service-delegation|sign-service-set|deploy|fleet-status> [flags]")
 }
 
 func (c command) publish(args []string) error {
@@ -921,6 +925,11 @@ func readDelegatedPrivateKey(path string) (ed25519.PrivateKey, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer clear(data)
+	return parseDelegatedPrivateKey(data)
+}
+
+func parseDelegatedPrivateKey(data []byte) (ed25519.PrivateKey, error) {
 	block, rest := pemDecode(data)
 	if block == nil || block.Type != "PRIVATE KEY" || len(bytes.TrimSpace(rest)) != 0 {
 		return nil, errors.New("delegated signing key must be PEM PKCS#8 Ed25519")

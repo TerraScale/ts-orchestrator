@@ -2,6 +2,7 @@
 # Isolated Actions transport fixture; never contacts a server.
 set -euo pipefail
 if [[ $* == *'dispatches'* ]]; then
+	printf '%s' "${!#}" > "$MOCK_ROOT/url"
 	while (($#)); do
 		if [[ $1 == --data ]]; then printf '%s' "$2" > "$MOCK_ROOT/payload"; break; fi
 		shift

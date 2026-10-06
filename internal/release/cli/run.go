@@ -24,6 +24,8 @@ Commands:
   sign-binary-update
   sign-service-delegation
   sign-service-set
+  deploy
+  fleet-status
 `
 
 type command struct {

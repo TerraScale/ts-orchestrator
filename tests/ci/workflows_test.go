@@ -76,13 +76,18 @@ func TestWorkflowContracts(t *testing.T) {
 		// The image job starts once the release is retained, so it never
 		// holds a builder slot while the checks run.
 		steps := matches(ci, `(?m)^      - name: (.+)$`)
-		if len(steps) < 2 || steps[len(steps)-1] != "Start the image build for this revision" || steps[len(steps)-2] != "Retain verified binaries and qualification manifest" {
-			t.Fatalf("image dispatch must follow the retained release: %v", steps)
+		if len(steps) < 3 || steps[len(steps)-1] != "Start the fleet deployment for this revision" ||
+			steps[len(steps)-2] != "Start the image build for this revision" || steps[len(steps)-3] != "Retain verified binaries and qualification manifest" {
+			t.Fatalf("image and deploy dispatches must follow the retained release: %v", steps)
 		}
 		_, dispatchStep, _ := strings.Cut(ci, "- name: Start the image build for this revision")
 		dispatchStep, _, _ = strings.Cut(dispatchStep, "- name:")
-		requireText(t, dispatchStep, "run: bash scripts/ci/dispatch-image.sh")
+		requireText(t, dispatchStep, "run: bash scripts/ci/dispatch-image.sh\n")
 		requireText(t, dispatchStep, "continue-on-error: true")
+		_, deployStep, _ := strings.Cut(ci, "- name: Start the fleet deployment for this revision")
+		requireText(t, deployStep, "run: bash scripts/ci/dispatch-image.sh deploy.yml\n")
+		requireText(t, deployStep, "continue-on-error: true")
+		requireText(t, deployStep, "forgejo.ref == 'refs/heads/main' && vars.TS_AUTO_DEPLOY_CELLS != ''")
 		requireText(t, workflowText(t, "scripts/ci/dispatch-image.sh"), `source_ci_run_id:$run_id, source_ci_run_number:$run_number, trigger:"ci"`)
 		requireText(t, image, "inputs.trigger == 'ci'")
 		requireText(t, image, "  cancel-in-progress: false\n")
@@ -130,6 +135,54 @@ func TestWorkflowContracts(t *testing.T) {
 		if got := matches(dispatch, `(?m)^      ([a-z_]+):$`); !reflect.DeepEqual(got, []string{"source_revision", "source_ci_run_id", "source_ci_run_number", "trigger"}) {
 			t.Fatalf("inputs: %v", got)
 		}
+	})
+	t.Run("deploy_waits_for_ci_and_stays_off_until_configured", func(t *testing.T) {
+		deploy := workflowText(t, ".forgejo/workflows/deploy.yml")
+		forbidText(t, deploy, "  push:")
+		if got := matches(deploy, `(?m)^    name: (.+)$`); !reflect.DeepEqual(got, []string{"deploy/every-region"}) {
+			t.Fatalf("jobs: %v", got)
+		}
+		requireText(t, deploy, "    if: ${{ forgejo.ref == 'refs/heads/main' && vars.TS_AUTO_DEPLOY_CELLS != '' }}\n")
+		// Queued, never cancelled: CI never abandons a region mid-rollout.
+		requireText(t, deploy, "  group: ts-orchestrator-deploy\n  cancel-in-progress: false\n")
+		_, dispatch, _ := strings.Cut(deploy, "workflow_dispatch:")
+		dispatch, _, _ = strings.Cut(dispatch, "concurrency:")
+		if got := matches(dispatch, `(?m)^      ([a-z_]+):$`); !reflect.DeepEqual(got, []string{"source_revision", "source_ci_run_id", "source_ci_run_number", "trigger"}) {
+			t.Fatalf("inputs: %v", got)
+		}
+		steps := matches(deploy, `(?m)^      - name: (.+)$`)
+		gate := slices.Index(steps, "Wait for ci.yml and skip a failed or overtaken revision")
+		roll := slices.Index(steps, "Sign and roll the release out region by region")
+		if gate < 0 || roll != gate+1 || roll != len(steps)-1 {
+			t.Fatalf("the rollout must follow the CI gate: %v", steps)
+		}
+		// Scripts of the revision run with secrets only once it is on main,
+		// and the signer is never built from the shared Go caches.
+		if verify := slices.Index(steps, "Verify the source revision and Go toolchain"); verify != 1 {
+			t.Fatalf("the source must be verified right after checkout: %v", steps)
+		}
+		_, verifyStep, _ := strings.Cut(deploy, "- name: Verify the source revision and Go toolchain")
+		verifyStep, _, _ = strings.Cut(verifyStep, "- name:")
+		requireText(t, verifyStep, `git merge-base --is-ancestor "${SOURCE_SHA}" refs/remotes/origin/main`)
+		requireText(t, verifyStep, `"${RUNNER_TEMP}/go/build" "${RUNNER_TEMP}/go/mod" >> "${GITHUB_ENV}"`)
+		forbidText(t, deploy, "/cache/go")
+		_, gateStep, _ := strings.Cut(deploy, "- name: Wait for ci.yml and skip a failed or overtaken revision")
+		gateStep, _, _ = strings.Cut(gateStep, "- name:")
+		requireText(t, gateStep, "if: ${{ inputs.trigger == 'ci' }}")
+		requireText(t, gateStep, "GATE_WORKFLOW: deploy.yml\n")
+		requireText(t, gateStep, `bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" "${SOURCE_CI_RUN_ID}" "${SOURCE_CI_RUN_NUMBER}" 6000`)
+		_, rollStep, _ := strings.Cut(deploy, "- name: Sign and roll the release out region by region")
+		requireText(t, rollStep, "if: ${{ steps.gate.outputs.skip != 'true' }}")
+		requireText(t, rollStep, `run: bash scripts/ci/deploy-fleet.sh "${RUNNER_TEMP}/forgejo"`)
+		// The OCI key reaches only the rollout step, and the leaf key never
+		// reaches the job: ts-orch reads it from OCI Vault.
+		if strings.Count(deploy, "secrets.TS_DEPLOY_OCI_KEY") != 1 || !strings.Contains(rollStep, "secrets.TS_DEPLOY_OCI_KEY") {
+			t.Error("the OCI key must be passed to the rollout step only")
+		}
+		wrapper := workflowText(t, "scripts/ci/deploy-fleet.sh")
+		requireText(t, wrapper, "dist/ts-orch release deploy ")
+		requireText(t, wrapper, `--signing-key-secret "$TS_RELEASE_LEAF_SECRET" --vault-id "$TS_RELEASE_VAULT_ID"`)
+		forbidText(t, wrapper, "--signing-key \"")
 	})
 	t.Run("test_tiers", func(t *testing.T) {
 		requireText(t, ci, "      TS_TEST_TIER: ${{ forgejo.event_name == 'pull_request' && 'pr' || 'full' }}\n")
@@ -230,11 +283,17 @@ func TestImageGateWaitsForDispatchingRun(t *testing.T) {
 				"MOCK_SOURCE": strings.Repeat("a", 40), "FORGEJO_READ_TOKEN_FILE": token,
 				"FORGEJO_SERVER_URL": "https://forgejo.invalid", "GITHUB_OUTPUT": output,
 			}
+			// The fleet deployment shares the gate; its repair names deploy.yml.
+			workflow := "image.yml"
+			if test.status == "blocked" {
+				workflow = "deploy.yml"
+				env["GATE_WORKFLOW"] = workflow
+			}
 			result := runCI(t, env, "bash", "scripts/ci/image-superseded.sh", env["MOCK_SOURCE"], "42", "7", budget)
 			if result.Code != test.code || string(script.Read(t, output)) != test.output {
 				t.Fatalf("exit=%d output=%q stdout=%s stderr=%s", result.Code, script.Read(t, output), result.Stdout, result.Stderr)
 			}
-			if test.code == 1 && !strings.Contains(result.Stderr, "dispatch image.yml manually") {
+			if test.code == 1 && !strings.Contains(result.Stderr, "dispatch "+workflow+" manually") {
 				t.Fatal("missing visible repair: " + result.Stderr)
 			}
 			if !strings.Contains(string(script.Read(t, filepath.Join(root, "requests"))), "run_number=7") {
@@ -254,8 +313,15 @@ func TestImageDispatchPinsRun(t *testing.T) {
 		"GITHUB_SHA": strings.Repeat("a", 40), "GITHUB_RUN_ID": "42", "GITHUB_RUN_NUMBER": "7", "GITHUB_REF": "refs/heads/main",
 	}
 	result := runCI(t, env, "bash", "scripts/ci/dispatch-image.sh")
-	if result.Code != 0 {
+	if result.Code != 0 || !strings.HasSuffix(string(script.Read(t, filepath.Join(root, "url"))), "/actions/workflows/image.yml/dispatches") {
 		t.Fatalf("dispatch: %s %s", result.Stdout, result.Stderr)
+	}
+	if result := runCI(t, env, "bash", "scripts/ci/dispatch-image.sh", "deploy.yml"); result.Code != 0 ||
+		!strings.HasSuffix(string(script.Read(t, filepath.Join(root, "url"))), "/actions/workflows/deploy.yml/dispatches") {
+		t.Fatalf("deploy dispatch: %s %s", result.Stdout, result.Stderr)
+	}
+	if result := runCI(t, env, "bash", "scripts/ci/dispatch-image.sh", "ci.yml"); result.Code != 2 {
+		t.Fatalf("dispatched an unknown workflow: %+v", result)
 	}
 	var payload struct {
 		Ref    string            `json:"ref"`

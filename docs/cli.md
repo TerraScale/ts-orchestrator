@@ -106,6 +106,16 @@ and runbook.
 | `ts-orch release sign-service-set --candidate F --delegation F --root-key F --signing-key F --out F` | Offline: the leaf signs a candidate |
 | `ts-orch service apply --config F --file SIGNED` | Apply a signed set on the authority leader |
 
+## Fleet deployment
+
+CI runs `ts-orch release deploy` for every `main` merge; see
+[automatic fleet deployment](continuous-delivery.md#automatic-fleet-deployment-ts-557-part-1).
+
+| Command | Purpose |
+| --- | --- |
+| `ts-orch release deploy --dir D --source-revision SHA --update-delegation F --root-key F --signing-key-secret NAME --vault-id OCID --environment E --source-checkout DIR --namespace NS --cell C... --arch A...` | Sign the release for every cell, then publish it to each region in order, the first being the canary, and wait for each to complete |
+| `ts-orch release fleet-status --namespace NS [--cell C...]` | Print every region's release channel and rollout status as JSON lines |
+
 ## Feature boundaries
 
 Prefer `ts-orch` for new operational features. Implement them as Go commands

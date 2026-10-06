@@ -82,6 +82,16 @@ travels in the root-signed manifest and each instance verifies it before its
 controller starts. TerraBase binary updates do not need a new image: they
 roll out through the managed update path and signed desired state.
 
+### 6. Fleet deployment (`.forgejo/workflows/deploy.yml`)
+
+Off until the repository variable `TS_AUTO_DEPLOY_CELLS` names the cells.
+`ci.yml` on `main` dispatches it after the image build; it waits for the
+same `ci.yml` run, signs the binary update receipts with the update leaf
+from OCI Vault and publishes the release to each region's head bucket, the
+canary first, waiting for each region to report the rollout complete. A
+region that rolls back fails the run and stops the fleet. See
+[automatic fleet deployment](continuous-delivery.md#automatic-fleet-deployment-ts-557-part-1).
+
 ## Operator commands
 
 ```sh
@@ -121,6 +131,7 @@ promoted with `--image-dir`.
 | TerraBase pin bump into the image inputs | end of TerraBase `publish` | `TS_PIN_BUMP_TOKEN` secret (decision 2) |
 | Local image build | `make image SOURCE=<sha>` | revision |
 | Verification, OCI import, image signing, receipt | `ts-orch image promote` | leaf signing key, root-signed delegation, OCI target |
+| Binary update signing and region-by-region rollout | end of `ci.yml` on `main`, once `TS_AUTO_DEPLOY_CELLS` is set | monthly root-signed update delegation |
 
 ## Measured (Forgejo runs, 2026-09-29)
 

@@ -1,0 +1,120 @@
+name: Deploy ts-orch to every region
+
+# ci.yml dispatches this workflow as its last step on main (trigger "ci"),
+# once the revision's release is retained. It stays off until the repository
+# variable TS_AUTO_DEPLOY_CELLS names the cells, the canary first;
+# docs/continuous-delivery.md lists every input. The job signs the release
+# with the update leaf and rolls it out one region at a time: a region that
+# rolls it back fails this run, and no later region sees it. Deployments
+# queue rather than cancel each other, so CI never abandons a region
+# mid-rollout: a running deployment always finishes, a newer dispatch
+# replaces one still pending, and a queued deployment that a newer qualified
+# revision has overtaken skips itself. An operator can dispatch a
+# CI-qualified main revision, with its ci.yml run, that is newer than every
+# region's channel.
+on:
+  workflow_dispatch:
+    inputs:
+      source_revision:
+        description: Full SHA of a main revision with a successful ci.yml run
+        required: true
+        type: string
+      source_ci_run_id:
+        description: The revision's successful ci.yml run ID
+        required: true
+        type: string
+      source_ci_run_number:
+        description: The revision's successful ci.yml run number
+        required: true
+        type: string
+      trigger:
+        description: "ci for the automatic deployment, manual otherwise"
+        required: false
+        default: manual
+        type: string
+
+concurrency:
+  group: ts-orchestrator-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ forgejo.ref == 'refs/heads/main' && vars.TS_AUTO_DEPLOY_CELLS != '' }}
+    name: deploy/every-region
+    runs-on: terrascale-builder
+    # 100 minutes for the gate's wait (6000s), 90 per region for three
+    # regions (--region-timeout in scripts/ci/deploy-fleet.sh) and 30 more.
+    timeout-minutes: 400
+    env:
+      SOURCE_SHA: ${{ inputs.source_revision }}
+      SOURCE_CI_RUN_ID: ${{ inputs.source_ci_run_id }}
+      SOURCE_CI_RUN_NUMBER: ${{ inputs.source_ci_run_number }}
+    steps:
+      # The lineage proof needs main's history.
+      - name: Check out the named source revision
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          github-server-url: "https://git.terrascale.tech"
+          ref: ${{ inputs.source_revision }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Every later step runs scripts from this revision with secrets, so it
+      # must already be on main. The signer is built with private Go caches:
+      # pull-request jobs write the shared /cache.
+      - name: Verify the source revision and Go toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ ${SOURCE_SHA} =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          git merge-base --is-ancestor "${SOURCE_SHA}" refs/remotes/origin/main
+          test "$(go env GOVERSION)" = go1.27.1
+          printf 'GOCACHE=%s\nGOMODCACHE=%s\n' "${RUNNER_TEMP}/go/build" "${RUNNER_TEMP}/go/mod" >> "${GITHUB_ENV}"
+
+      # The cached fj runs only if it matches its pinned digest.
+      - name: Prepare pinned Forgejo admission client
+        shell: bash
+        run: |
+          set -euo pipefail
+          export TS_FJ_ADMISSION_CACHE_DIR=/cache/ts-orchestrator/fj-admission
+          bash scripts/ci/prepare-fj-admission.sh "${RUNNER_TEMP}/fj-admission-bin"
+          printf '%s\n' "${RUNNER_TEMP}/fj-admission-bin" >> "${GITHUB_PATH}"
+
+      - name: Configure Forgejo read and write access
+        shell: bash
+        env:
+          FORGEJO_READ_TOKEN: ${{ secrets.TS_DEPLOY_READ_TOKEN }}
+          FORGEJO_WRITE_TOKEN: ${{ github.token }}
+          FORGEJO_SERVER_URL: ${{ github.server_url }}
+        run: bash scripts/ci/configure-fj-profiles.sh "${RUNNER_TEMP}/forgejo"
+
+      - name: Wait for ci.yml and skip a failed or overtaken revision
+        id: gate
+        if: ${{ inputs.trigger == 'ci' }}
+        shell: bash
+        env:
+          FORGEJO_SERVER_URL: ${{ github.server_url }}
+          GATE_WORKFLOW: deploy.yml
+        run: |
+          FORGEJO_READ_TOKEN_FILE="${RUNNER_TEMP}/forgejo/read-token" \
+            bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" "${SOURCE_CI_RUN_ID}" "${SOURCE_CI_RUN_NUMBER}" 6000
+
+      - name: Sign and roll the release out region by region
+        if: ${{ steps.gate.outputs.skip != 'true' }}
+        shell: bash
+        env:
+          FORGEJO_SERVER_URL: ${{ github.server_url }}
+          TS_AUTO_DEPLOY_CELLS: ${{ vars.TS_AUTO_DEPLOY_CELLS }}
+          TS_AUTO_DEPLOY_ARCHES: ${{ vars.TS_AUTO_DEPLOY_ARCHES }}
+          TS_AUTO_DEPLOY_ENVIRONMENT: ${{ vars.TS_AUTO_DEPLOY_ENVIRONMENT }}
+          TS_OBJECT_NAMESPACE: ${{ vars.TS_OBJECT_NAMESPACE }}
+          TS_RELEASE_VAULT_ID: ${{ vars.TS_RELEASE_VAULT_ID }}
+          TS_RELEASE_LEAF_SECRET: ${{ vars.TS_RELEASE_LEAF_SECRET }}
+          TS_RELEASE_UPDATE_DELEGATION: ${{ vars.TS_RELEASE_UPDATE_DELEGATION }}
+          TS_DEPLOY_OCI_USER: ${{ vars.TS_DEPLOY_OCI_USER }}
+          TS_DEPLOY_OCI_TENANCY: ${{ vars.TS_DEPLOY_OCI_TENANCY }}
+          TS_DEPLOY_OCI_FINGERPRINT: ${{ vars.TS_DEPLOY_OCI_FINGERPRINT }}
+          TS_DEPLOY_OCI_KEY: ${{ secrets.TS_DEPLOY_OCI_KEY }}
+        run: bash scripts/ci/deploy-fleet.sh "${RUNNER_TEMP}/forgejo"

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Wait for the dispatching ci.yml run on main to end, then report whether its
-# automatic image build should skip. Writes skip=true|false to GITHUB_OUTPUT.
+# automatic image build (or, with GATE_WORKFLOW=deploy.yml, its fleet
+# deployment) should skip. Writes skip=true|false to GITHUB_OUTPUT.
 #
 # usage: image-superseded.sh SOURCE_SHA CI_RUN_ID CI_RUN_NUMBER [WAIT_SECONDS]
 #
@@ -26,6 +27,7 @@ wait_seconds=${4:-6000}
 [[ -r ${FORGEJO_READ_TOKEN_FILE:-} ]] || { echo 'FORGEJO_READ_TOKEN_FILE must name a readable token file' >&2; exit 2; }
 : "${FORGEJO_SERVER_URL:?Forgejo server URL is required}"
 : "${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}"
+workflow=${GATE_WORKFLOW:-image.yml}
 
 umask 077
 header=$(mktemp)
@@ -42,7 +44,7 @@ api_get() {
 wait_again() {
 	local remaining=$((deadline - SECONDS))
 	((remaining > 0)) || {
-		echo "CI image gate timed out for $source_sha (run $ci_run_id, status $status); dispatch image.yml manually after ci.yml succeeds" >&2
+		echo "CI gate timed out for $source_sha (run $ci_run_id, status $status); dispatch $workflow manually after ci.yml succeeds" >&2
 		exit 1
 	}
 	((remaining <= 10)) || remaining=10
@@ -62,10 +64,10 @@ while :; do
 		success) break ;;
 		failure|cancelled)
 			echo "skip=true" >> "$GITHUB_OUTPUT"
-			echo "image for $source_sha skipped: dispatching ci.yml run $ci_run_id ended $status"
+			echo "$workflow for $source_sha skipped: dispatching ci.yml run $ci_run_id ended $status"
 			exit 0 ;;
 		blocked|skipped)
-			echo "dispatching ci.yml run $ci_run_id is $status; dispatch image.yml manually after ci.yml succeeds" >&2
+			echo "dispatching ci.yml run $ci_run_id is $status; dispatch $workflow manually after ci.yml succeeds" >&2
 			exit 1 ;;
 	esac
 	wait_again
@@ -87,8 +89,8 @@ done
 latest_id=$(jq -r '.id // 0' <<< "$latest")
 if ((latest_id > ci_run_id)) && [[ $(jq -r .commit_sha <<< "$latest") != "$source_sha" ]]; then
 	echo "skip=true" >> "$GITHUB_OUTPUT"
-	echo "image for $source_sha skipped: $(jq -r .commit_sha <<< "$latest") passed ci.yml later (run $latest_id) and is imaged next"
+	echo "$workflow for $source_sha skipped: $(jq -r .commit_sha <<< "$latest") passed ci.yml later (run $latest_id) and runs next"
 else
 	echo "skip=false" >> "$GITHUB_OUTPUT"
-	echo "image for $source_sha qualified by dispatching ci.yml run $ci_run_id"
+	echo "$workflow for $source_sha qualified by dispatching ci.yml run $ci_run_id"
 fi
