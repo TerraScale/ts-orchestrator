@@ -134,6 +134,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		services.ociRegion = &managed.region
 	}
 	policy.services = services
+	// Every handler holds a copy of policy, which shares its signer set: an
+	// adopted spec's signers apply to all of them.
+	services.replaceSigners = policy.replaceSigners
 	// The release channel bridge needs the OCI region (sa-saopaulo-1), not
 	// the fleet's region code (GRU).
 	region := ""

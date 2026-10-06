@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -53,14 +54,19 @@ type specRegistry struct {
 	// profiles in fixed; a spec never holds them. TerraBase's signed profile
 	// is in fixed too: a spec entry for it replaces it, and only a root may
 	// change what binds its membership (cellspec.AuthorityChanges).
-	reserved      []string
-	fixed         map[string]WorkloadProfile
-	signers       map[string]TrustedSignerConfig
+	reserved []string
+	fixed    map[string]WorkloadProfile
+	// signers are the signed config's trusted signers, sorted by actor; a
+	// spec's signers section replaces them.
+	signers       []TrustedSignerConfig
 	hostTelemetry bool
 	kv            jetstream.KeyValue
 	// changed receives every newly adopted spec's profiles and reconciled
 	// specs, under the registry lock so updates arrive in order.
 	changed func(map[string]WorkloadProfile, []workload.ServiceSpec)
+	// replaceSigners receives every newly adopted spec's trusted signers,
+	// under the registry lock; the controller's signer policy swaps them in.
+	replaceSigners func([]TrustedSignerConfig) error
 	// pools are the signed config's node pools; a budget needs each priced.
 	pools []hostpool.NodePool
 	// snapshots is whether the signed config sets a kv_snapshot location,
@@ -96,7 +102,9 @@ type specReply struct {
 
 func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 	r := &specRegistry{cell: cfg.NATS.Cell, fixed: map[string]WorkloadProfile{},
-		signers: map[string]TrustedSignerConfig{}, snapshots: cfg.Controller.KVSnapshot.Enabled,
+		signers: slices.SortedFunc(slices.Values(cfg.Controller.TrustedSigners), func(a, b TrustedSignerConfig) int {
+			return strings.Compare(a.Actor, b.Actor)
+		}), snapshots: cfg.Controller.KVSnapshot.Enabled,
 		rolloutExecutor: cfg.Controller.Rollouts != nil && cfg.Controller.Rollouts.Executor}
 	if r.rolloutExecutor {
 		policy := rollout.DefaultPolicy()
@@ -107,9 +115,6 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 	}
 	if reconcile := cfg.Controller.OciReconcile; reconcile != nil && reconcile.Enabled {
 		r.ociReconcile, r.signedDesired = true, reconcile.Desired
-	}
-	for _, grant := range cfg.Controller.TrustedSigners {
-		r.signers[grant.Actor] = grant
 	}
 	if memberRole != "" {
 		r.reserved = append(r.reserved, memberRole)
@@ -341,6 +346,16 @@ func (r *specRegistry) adopt(spec cellspec.Spec, revision uint64) {
 			"generation", spec.Generation, "current", r.current.Generation, "revision", revision)
 		return
 	}
+	// The signers change first, and a spec whose signers are refused is not
+	// adopted at all, so no consumer sees one generation's spec with
+	// another's signers.
+	if r.replaceSigners != nil {
+		if err := r.replaceSigners(r.effectiveSigners(spec)); err != nil {
+			slog.Error("stored cell spec signers refused; keeping the current spec", observability.ComponentKey, "cellspec",
+				"generation", spec.Generation, "revision", revision, "error", err)
+			return
+		}
+	}
 	r.current, r.revision = spec, revision
 	slog.Info("cell spec adopted", observability.ComponentKey, "cellspec", "generation", spec.Generation,
 		"revision", revision, "roles", len(spec.Services))
@@ -348,6 +363,15 @@ func (r *specRegistry) adopt(spec cellspec.Spec, revision uint64) {
 		profiles, specs := r.effectiveLocked()
 		r.changed(profiles, specs)
 	}
+}
+
+// effectiveSigners are spec's trusted signers, or the signed config's when
+// it has none.
+func (r *specRegistry) effectiveSigners(spec cellspec.Spec) []TrustedSignerConfig {
+	if len(spec.Signers) != 0 {
+		return spec.Signers
+	}
+	return r.signers
 }
 
 // verify checks the signatures (current when now is set, else historical)
@@ -380,6 +404,11 @@ func (r *specRegistry) verify(wire []byte, now *time.Time) (cellspec.Verified, e
 // validate applies the signed controller config's rules to the spec. Who may
 // sign which change is the leader's admission check, not a rule of the spec.
 func (r *specRegistry) validate(spec cellspec.Spec) error {
+	if len(spec.Signers) != 0 {
+		if _, err := newSignerSet(spec.Signers); err != nil {
+			return fmt.Errorf("cell spec signers: %w", err)
+		}
+	}
 	profiles := maps.Clone(r.fixed)
 	var specs []workload.ServiceSpec
 	for _, service := range spec.Services {
@@ -390,7 +419,7 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 			return fmt.Errorf("service %q needs a signed controller config profile and is never reconciled", service.Role)
 		}
 		for _, actor := range service.Releasers {
-			if _, trusted := r.signers[actor]; !trusted {
+			if !slices.ContainsFunc(r.effectiveSigners(spec), func(signer TrustedSignerConfig) bool { return signer.Actor == actor }) {
 				return fmt.Errorf("service %q releaser %q is not a trusted signer", service.Role, actor)
 			}
 		}
@@ -567,6 +596,7 @@ func (r *specRegistry) withSigned(spec cellspec.Spec) cellspec.Spec {
 	if spec.RolloutPolicy == nil {
 		spec.RolloutPolicy = r.signedPolicy
 	}
+	spec.Signers = r.effectiveSigners(spec)
 	if spec.KVSnapshot == nil && r.snapshots {
 		spec.KVSnapshot = &cellspec.KVSnapshot{}
 	}
@@ -657,7 +687,7 @@ func (r *specRegistry) diff(ctx context.Context, payload []byte) (specReply, err
 // stored one is a no-op; otherwise its generation must follow the stored
 // one, which refuses replays, rollbacks and specs built on a stale view, and
 // an amendment that widens authority must be signed by a root.
-func (r *specRegistry) apply(ctx context.Context, wire []byte, epoch uint64, fencer authority.Fencer,
+func (r *specRegistry) apply(ctx context.Context, wire []byte, keyID string, epoch uint64, fencer authority.Fencer,
 	hosts *host.Controller,
 ) (specReply, error) {
 	now := time.Now()
@@ -690,6 +720,18 @@ func (r *specRegistry) apply(ctx context.Context, wire []byte, epoch uint64, fen
 	if changes := cellspec.AuthorityChanges(r.withSigned(current), r.withSigned(spec), r.fixed); len(changes) > 0 && !verified.RootSigned {
 		return specReply{}, fmt.Errorf("cell spec generation %d widens authority (%s); a root must sign it",
 			spec.Generation, strings.Join(changes, ", "))
+	}
+	// A spec that stops trusting the key that applies it could leave no
+	// operator able to apply the next one: add the new signer first.
+	if !reflect.DeepEqual(r.withSigned(current).Signers, r.withSigned(spec).Signers) {
+		set, err := newSignerSet(r.effectiveSigners(spec))
+		if err != nil {
+			return specReply{}, fmt.Errorf("cell spec signers: %w", err)
+		}
+		if _, kept := set.trusted[keyID]; !kept {
+			return specReply{}, errors.New("cell spec would no longer trust the key that applies it; " +
+				"apply a spec that adds the new signer first, then remove this one")
+		}
 	}
 	// Removing a role stops managing it, so its replicas must be gone first.
 	// A role of the signed config keeps its signed profile instead.
@@ -749,7 +791,7 @@ func (r *specRegistry) serve(ctx context.Context, wire []byte, policy signerPoli
 	case cellSpecDiffKind:
 		return r.diff(ctx, envelope.Payload)
 	}
-	reply, err := r.apply(ctx, envelope.Payload, envelope.Epoch, fencer, hosts)
+	reply, err := r.apply(ctx, envelope.Payload, envelope.KeyID, envelope.Epoch, fencer, hosts)
 	if err == nil {
 		slog.Info("cell spec request", observability.ComponentKey, "cellspec", "actor", actor,
 			"generation", reply.Spec.Generation, "status", reply.Status)

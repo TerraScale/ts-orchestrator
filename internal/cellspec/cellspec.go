@@ -52,8 +52,8 @@ const (
 	// section require the new level.
 	// Level 2 adds profile secrets, level 3 the budget, level 4 host images,
 	// level 5 the kv_snapshot schedule, level 6 the rollout policy, level 7
-	// the desired OCI resources.
-	BinaryLevel = 7
+	// the desired OCI resources, level 8 the trusted signers.
+	BinaryLevel = 8
 	// MaxHostImages bounds the image allow-list: the images a rollout moves
 	// between, plus room to stage the next one.
 	MaxHostImages = 4
@@ -165,6 +165,32 @@ type Spec struct {
 	RolloutPolicy *rollout.Policy `json:"rollout_policy,omitempty"`
 	// OCIDesired replaces the signed config's desired OCI resources.
 	OCIDesired *OCIDesired `json:"oci_desired,omitempty"`
+	// Signers replace the signed config's trusted signers, sorted by actor;
+	// none keeps the signed ones. Only a root may change them.
+	Signers []TrustedSigner `json:"signers,omitempty"`
+}
+
+// TrustedSigner grants an actor's Ed25519 key operator requests and
+// releases for its roles and environments, and the capabilities it sets.
+type TrustedSigner struct {
+	Actor                            string   `json:"actor"`
+	PublicKey                        string   `json:"public_key"`
+	Roles                            []string `json:"roles"`
+	Environments                     []string `json:"environments"`
+	CanRegisterHosts                 bool     `json:"can_register_hosts,omitzero"`
+	CanPlaceTerraBase                bool     `json:"can_place_terrabase,omitzero"`
+	CanUpdateTerraBaseRuntime        bool     `json:"can_update_terrabase_runtime,omitzero"`
+	CanCertifyTerraBaseCompatibility bool     `json:"can_certify_terrabase_compatibility,omitzero"`
+	CanTeardownTerraBase             bool     `json:"can_teardown_terrabase,omitzero"`
+	CanPrepareManagedMaterial        bool     `json:"can_prepare_managed_material,omitzero"`
+	CanOperateBackup                 bool     `json:"can_operate_backup,omitzero"`
+	CanManageClientKeys              bool     `json:"can_manage_client_keys,omitzero"`
+	ClientKeyScopes                  []string `json:"client_key_scopes,omitempty"`
+	CanRotateBrokerAccount           bool     `json:"can_rotate_broker_account,omitzero"`
+	// CanRollOutOrchestrator lets the signer publish, pause, resume and roll
+	// back the cell's orchestrator release (ts-orch rollout).
+	CanRollOutOrchestrator bool     `json:"can_roll_out_orchestrator,omitzero"`
+	Repositories           []string `json:"repositories,omitempty"`
 }
 
 // OCIDesiredEntry is one desired OCI resource. Policy is "report" (the
@@ -280,6 +306,11 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("%w: oci_desired: %w", ErrInvalid, err)
 		}
 	}
+	for index, signer := range s.Signers {
+		if !tokenRE.MatchString(signer.Actor) || index > 0 && s.Signers[index-1].Actor >= signer.Actor {
+			return fmt.Errorf("%w: signers must be sorted by actor without repeats", ErrInvalid)
+		}
+	}
 	addresses := map[string]bool{}
 	for index, grant := range s.HostGrants {
 		address, err := netip.ParseAddr(grant.PrivateIP)
@@ -356,8 +387,9 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 
 // Level is the lowest requires_binary the spec's sections need: 2 once a
 // profile names Vault secrets, 3 with a budget, 4 once it allows host
-// images, 5 with a kv_snapshot schedule, 6 with a rollout policy and 7 with
-// desired OCI resources, which an older binary could not read.
+// images, 5 with a kv_snapshot schedule, 6 with a rollout policy, 7 with
+// desired OCI resources and 8 with signers, which an older binary could not
+// read.
 func (s Spec) Level() uint64 {
 	level := uint64(1)
 	for _, service := range s.Services {
@@ -379,6 +411,9 @@ func (s Spec) Level() uint64 {
 	}
 	if s.OCIDesired != nil {
 		level = max(level, 7)
+	}
+	if len(s.Signers) != 0 {
+		level = max(level, 8)
 	}
 	return level
 }
@@ -618,7 +653,9 @@ func verifyDelegated(delegationWire []byte, specEnvelope trust.Envelope, roots t
 //     uploaded;
 //   - in oci_desired, a new or changed enforce entry, turning on prune,
 //     shortening the prune delay, and dropping an entry while prune is on,
-//     since each changes the cell's OCI resources.
+//     since each changes the cell's OCI resources;
+//   - any change to the trusted signers, which decide who may send
+//     operator requests and releases at all.
 //
 // Everything else is an ordinary change.
 func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
@@ -654,6 +691,9 @@ func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
 		changes = append(changes, "kv_snapshot pause")
 	}
 	changes = append(changes, ociDesiredChanges(current.OCIDesired, next.OCIDesired)...)
+	for _, actor := range signerChanges(current.Signers, next.Signers) {
+		changes = append(changes, "signer "+actor)
+	}
 	effective := func(spec Spec) Profile {
 		if service, ok := spec.Find(terrabase.Role); ok {
 			return service.Profile
@@ -709,6 +749,9 @@ type Plan struct {
 	// OCIDesired is "added", "updated" or "removed" when the desired OCI
 	// resources change.
 	OCIDesired string `json:"oci_desired,omitempty"`
+	// Signers names each actor whose trusted signer grant is added, changed
+	// or removed.
+	Signers []string `json:"signers,omitempty"`
 	// RootRequired lists the authority-widening changes; the amendment
 	// applies only when a root signed it.
 	RootRequired []string `json:"root_required,omitempty"`
@@ -795,6 +838,7 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 	case before != nil && !reflect.DeepEqual(*before, *after):
 		plan.OCIDesired = "updated"
 	}
+	plan.Signers = signerChanges(current.Signers, next.Signers)
 	return plan, nil
 }
 
@@ -823,7 +867,7 @@ func budgetChange(before, after *hostpool.Budget) string {
 // Empty reports whether the plan changes nothing.
 func (p Plan) Empty() bool {
 	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 && p.Budget == "" &&
-		p.KVSnapshot == "" && p.RolloutPolicy == "" && p.OCIDesired == ""
+		p.KVSnapshot == "" && p.RolloutPolicy == "" && p.OCIDesired == "" && len(p.Signers) == 0
 }
 
 // Validate checks each entry's policy and spec and the prune delay. The
@@ -893,4 +937,39 @@ func desiredChanges[S any](kind string, before, after map[string]OCIDesiredEntry
 		}
 	}
 	return changes
+}
+
+// signerChanges lists, sorted, each actor whose grant after adds, changes or
+// removes relative to before.
+func signerChanges(before, after []TrustedSigner) []string {
+	grants := func(signers []TrustedSigner) map[string]TrustedSigner {
+		byActor := make(map[string]TrustedSigner, len(signers))
+		for _, signer := range signers {
+			byActor[signer.Actor] = signer
+		}
+		return byActor
+	}
+	old, next := grants(before), grants(after)
+	var changed []string
+	for actor := range old {
+		if _, kept := next[actor]; !kept {
+			changed = append(changed, actor)
+		}
+	}
+	for actor, grant := range next {
+		if previous, ok := old[actor]; !ok || !reflect.DeepEqual(canonicalSigner(previous), canonicalSigner(grant)) {
+			changed = append(changed, actor)
+		}
+	}
+	slices.Sort(changed)
+	return changed
+}
+
+// canonicalSigner sorts the grant's lists, which are sets: their order
+// grants nothing.
+func canonicalSigner(signer TrustedSigner) TrustedSigner {
+	for _, list := range []*[]string{&signer.Roles, &signer.Environments, &signer.ClientKeyScopes, &signer.Repositories} {
+		*list = slices.Sorted(slices.Values(*list))
+	}
+	return signer
 }

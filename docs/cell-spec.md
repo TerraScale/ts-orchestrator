@@ -25,6 +25,7 @@ replaces the previous one as a whole.
 | `kv_snapshot` | Optional `{interval_seconds, paused}` schedule of the [configuration bucket snapshots](storage.md). `interval_seconds` (5 to 3600, 0 keeps the signed config's) applies within 5 seconds. Only a root may pause the uploads; resuming and the interval are ordinary. The signed controller config keeps the location, which a rebuilt cell restores from before any KV bucket exists, and must set one. Needs binary level 5. |
 | `rollout_policy` | Optional [rollout policy](continuous-delivery.md#leader-run-controller-self-update) (`canary_units`, `batch_size`, soaks, deadlines, attempts) that replaces the signed `controller.rollouts.policy` for the cell's next orchestrator rollouts; a rollout keeps the policy it started with. The signed policy, or the default, is generation 0: `diff` compares against it. Ordinary: the leaf may sign it. It needs the controllers' rollout executor and binary level 6. |
 | `oci_desired` | Optional desired OCI resources with the shape of `controller.oci_reconcile.desired` (see [OCI reconcile](oci-reconcile.md)). It replaces the signed list from the leader's next reconcile pass, and must pass the signed region config (NSGs it admits). The signed list is generation 0: `diff` and the root rule compare against it. A root signs a new or changed `enforce` entry, turning on `prune`, a shorter prune delay, and an entry dropped while `prune` is on; `report` entries and other changes are ordinary. It needs `controller.oci_reconcile` and binary level 7. |
+| `signers` | Optional trusted signers, sorted by actor, with the shape of `controller.trusted_signers`. They replace the signed config's on every controller as it adopts the spec: every operator request, release and capability check reads them, and a redelivered release is authorized again. Any change needs a root, and the signed list is generation 0. The leader refuses a spec that would stop trusting the key that applies it: add the new signer first, then remove the old one with the new key. Needs binary level 8. |
 
 A **service** is one role:
 
@@ -44,9 +45,9 @@ A **service** is one role:
   host telemetry there.
 - `releasers` are actors that may release the role and register its hosts in
   the spec's environment, in addition to the signed grants. Each must already
-  be a trusted signer of the signed controller config: a spec can name who
-  releases a role, never add a key. The actor's repository grant and
-  `can_register_hosts` still apply.
+  be one of the cell's trusted signers (the spec's `signers`, else the signed
+  config's): a releaser names who releases a role, never adds a key. The
+  actor's repository grant and `can_register_hosts` still apply.
 
 Generation 0 holds the signed config's `controller.workloads`, plus
 `controller.autoscale.services` when autoscaling is enabled. The spec may not
@@ -203,7 +204,9 @@ An amendment widens authority when, relative to the spec it amends, it:
   was uploaded;
 - in `oci_desired`, adds or changes an `enforce` entry, turns on `prune`,
   shortens the prune delay, or drops an entry while `prune` is on, since
-  each changes the cell's OCI resources.
+  each changes the cell's OCI resources;
+- changes the trusted `signers` in any way, since they decide who may send
+  operator requests and releases at all.
 
 Everything else is ordinary: adding, changing and removing other services,
 removing releasers, host grants and host images. A leaf amendment keeps what a root
@@ -281,7 +284,7 @@ nothing back yet; check it with `ts-orch get` against that region.
 ## Binary levels
 
 Each ts-orch binary understands cell specs up to its `cellspec.BinaryLevel`
-(7 today; level 2 adds profile `secrets`, level 3 the `budget`, level 4 `host_images`, level 5 the `kv_snapshot` schedule, level 6 the `rollout_policy`, level 7 `oci_desired`). A change that adds a section
+(8 today; level 2 adds profile `secrets`, level 3 the `budget`, level 4 `host_images`, level 5 the `kv_snapshot` schedule, level 6 the `rollout_policy`, level 7 `oci_desired`, level 8 `signers`). A change that adds a section
 raises the level, and every amendment that uses the section sets
 `requires_binary` to it. A controller
 whose binary understands less refuses such an amendment by name and keeps its
@@ -304,7 +307,7 @@ the record. Re-apply its services as a new cell spec.
 | Command | Where | Effect |
 | --- | --- | --- |
 | `ts-orch get --config OPERATOR_JSON` | operator host | Prints the current spec. `service list` is the same. |
-| `ts-orch diff --config F -f FILE` | operator host | Plans an unsigned candidate or a signed spec on the leader, without changing anything. Prints `{"deployment_id","cell","environment","from_generation","to_generation","requires_binary","added","updated","removed","host_grants","budget","host_images","kv_snapshot","rollout_policy","oci_desired","root_required","status"}`. `status` is `planned`, `unchanged`, or `stale` when the generation does not follow the current one. A spec that breaks the cell's rules is refused with the rule. |
+| `ts-orch diff --config F -f FILE` | operator host | Plans an unsigned candidate or a signed spec on the leader, without changing anything. Prints `{"deployment_id","cell","environment","from_generation","to_generation","requires_binary","added","updated","removed","host_grants","budget","host_images","kv_snapshot","rollout_policy","oci_desired","signers","root_required","status"}`. `status` is `planned`, `unchanged`, or `stale` when the generation does not follow the current one. A spec that breaks the cell's rules is refused with the rule. |
 | `ts-orch apply --config F -f SIGNED` | operator host | Submits the signed spec. Prints `{"status":"applied"\|"unchanged","generation","requires_binary","roles"}`. A spec for another region is [relayed](#apply-to-another-region) through the global home and prints `{"status":"relayed","cell","generation"}`. `service apply --file` is the same. |
 | `ts-orch service add --config F --role R --profile F [--spec F] [--releasers A,B] [--out F]` | operator host | Plans the next generation with R added and prints the leader's plan. With `--out`, writes the unsigned candidate. An identical existing service plans nothing (`"status":"unchanged"`). A different existing service is refused: use `update`. |
 | `ts-orch service update --config F --role R --profile F [--spec F] [--releasers A,B] [--out F]` | operator host | Same as `add` for an existing role; keeps its releasers unless `--releasers` is given. |

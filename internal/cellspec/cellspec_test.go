@@ -989,3 +989,61 @@ func TestOCIDesiredLevelValidateAndWiden(t *testing.T) {
 		}
 	}
 }
+
+// Signers need binary level 8, sorted by actor, and every change to them,
+// a narrowing one included, needs a root.
+func TestSignersLevelValidateAndWiden(t *testing.T) {
+	f := newFixture(t)
+	ops := TrustedSigner{Actor: "ops", PublicKey: "a", Roles: []string{"web"}, Environments: []string{"canary"}}
+	ci := TrustedSigner{Actor: "ci", PublicKey: "b", Roles: []string{"web"}, Environments: []string{"canary"}}
+	spec := testSpec(f.id, 1)
+	spec.Signers, spec.RequiresBinary = []TrustedSigner{ci, ops}, 8
+	if spec.Level() != 8 {
+		t.Fatalf("level with signers = %d", spec.Level())
+	}
+	payload, err := Encode(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded, err := Decode(payload); err != nil || !reflect.DeepEqual(decoded.Signers, spec.Signers) {
+		t.Fatalf("Decode = %+v, %v", decoded.Signers, err)
+	}
+	for name, signers := range map[string][]TrustedSigner{
+		"unsorted": {ops, ci}, "repeated": {ops, ops}, "bad actor": {{Actor: "Ops"}},
+	} {
+		bad := spec
+		bad.Signers = signers
+		if err := bad.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: signers accepted: %v", name, err)
+		}
+	}
+	narrowed := ops
+	narrowed.Roles = nil
+	reordered := ops
+	reordered.Roles, ops.Roles = []string{"worker", "web"}, []string{"web", "worker"}
+	base := testSpec(f.id, 1)
+	for name, test := range map[string]struct {
+		before, after []TrustedSigner
+		changed       []string
+	}{
+		"add":    {before: []TrustedSigner{ops}, after: []TrustedSigner{ci, ops}, changed: []string{"ci"}},
+		"remove": {before: []TrustedSigner{ci, ops}, after: []TrustedSigner{ops}, changed: []string{"ci"}},
+		"narrow": {before: []TrustedSigner{ops}, after: []TrustedSigner{narrowed}, changed: []string{"ops"}},
+		"keep":   {before: []TrustedSigner{ci, ops}, after: []TrustedSigner{ci, ops}},
+		// A grant's lists are sets: reordering one changes nothing.
+		"reorder": {before: []TrustedSigner{ops}, after: []TrustedSigner{reordered}},
+	} {
+		current, next := base, base
+		current.Signers, next.Signers = test.before, test.after
+		next.Generation = 2
+		plan, err := Diff(current, next, nil)
+		var root []string
+		for _, actor := range test.changed {
+			root = append(root, "signer "+actor)
+		}
+		if err != nil || !slices.Equal(plan.Signers, test.changed) || !slices.Equal(plan.RootRequired, root) ||
+			plan.Empty() != (len(test.changed) == 0) {
+			t.Errorf("%s: Diff = %+v, %v", name, plan, err)
+		}
+	}
+}

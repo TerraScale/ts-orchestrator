@@ -231,5 +231,5 @@ func (r *specRegistry) applyRelayed(ctx context.Context, wire []byte, policy sig
 	}, trusted.PublicKey, time.Now().UTC(), protocol.VerifyPolicy{MaxLifetime: cellspec.MaxSpecLifetime, ClockSkew: 30 * time.Second}); err != nil {
 		return specReply{}, fmt.Errorf("verify the relayed request: %w", err)
 	}
-	return r.apply(ctx, relay.Payload, epoch, fencer, hosts)
+	return r.apply(ctx, relay.Payload, relay.KeyID, epoch, fencer, hosts)
 }

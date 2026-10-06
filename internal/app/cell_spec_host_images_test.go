@@ -102,7 +102,7 @@ func TestSpecRegistryAdmitsOnlyCurrentlyQualifiedHostImages(t *testing.T) {
 	}
 	fence := rolloutTestFence{epoch: 3}
 	apply := func(path string) (specReply, error) {
-		return registry.apply(t.Context(), mustRead(t, path), fence.epoch, fence, nil)
+		return registry.apply(t.Context(), mustRead(t, path), "", fence.epoch, fence, nil)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
 	earlier := testHostImage(t, keys, "ocid1.image.oc1.sa-saopaulo-1.earlier", now, time.Hour)
@@ -162,7 +162,7 @@ func TestSpecRegistryAdmitsOnlyCurrentlyQualifiedHostImages(t *testing.T) {
 	kept := first
 	kept.Generation = 2
 	keptWire := mustRead(t, rotated.signRoot(t, dir, kept))
-	if reply, err := registry.apply(t.Context(), keptWire, fence.epoch, fence, nil); err != nil || reply.Status != "applied" {
+	if reply, err := registry.apply(t.Context(), keptWire, "", fence.epoch, fence, nil); err != nil || reply.Status != "applied" {
 		t.Fatalf("keep a host image through a root rotation: %+v, %v", reply, err)
 	}
 	if _, err := registry.verify(keptWire, nil); err != nil {
