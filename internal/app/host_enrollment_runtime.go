@@ -71,11 +71,9 @@ type managedHostEnrollment struct {
 	issuer      *hostenroll.Issuer
 	responseKey ed25519.PrivateKey
 	fencer      authority.Fencer
-	// terraBase is the signed C# TerraBase workload profile; a static host
-	// (hostboot.Static) enrolls only as one of its listed members.
-	terraBase *staticTerraBaseMembers
-	// services holds the adopted cell spec, whose host grants admit
-	// static hosts outside TerraBase membership.
+	// services holds the adopted cell spec. A static host (hostboot.Static)
+	// enrolls as a member its effective terrabase profile lists, or by one
+	// of its host grants.
 	services *specRegistry
 }
 
@@ -121,10 +119,6 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 		}
 		tlsConfig.Certificates = []tls.Certificate{certificate}
 	}
-	terraBase, err := newStaticTerraBaseMembers(cfg.Controller.Workloads)
-	if err != nil {
-		return nil, nil, nil, err
-	}
 	listenIP, listenPort, err := net.SplitHostPort(cfg.Controller.HostEnrollmentListenAddress)
 	if err != nil || listenPort != "8443" || net.ParseIP(listenIP) == nil || listenIP != cfg.NATS.Embedded.Host {
 		return nil, nil, nil, errors.New("host enrollment listener must bind the exact private broker IP on port 8443")
@@ -139,7 +133,7 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 		generation: managed.region.Generation, environment: placementConfig.Environment,
 		diskBytes: placementConfig.Resources.DiskBytes,
 		fleet:     fleet, intents: intents, members: members, controller: controller, verifier: verifier,
-		grants: grantStore, issuer: issuer, responseKey: responseKey, fencer: fencer, terraBase: terraBase,
+		grants: grantStore, issuer: issuer, responseKey: responseKey, fencer: fencer,
 		services: services,
 	}
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second,

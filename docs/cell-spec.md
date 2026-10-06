@@ -54,9 +54,10 @@ is never reconciled, and passes the same rules (`TERRABASE_PEERS`, ports,
 host-owned settings) as the signed one. Only a root may write it (see
 [Trust](#trust)), and while it exists it, not the signed config, is
 TerraBase's profile: change or revoke a peer with a root-signed amendment.
-It takes effect with the next `operator terrabase-release --profile` of
-that profile. Static member enrollment still reads the signed config's
-peers.
+Static member enrollment and host grant checks use its `TERRABASE_PEERS` as
+soon as a controller adopts the spec: an added member enrolls, and a dropped
+one can no longer enroll or renew. Members run the new profile with the next
+`operator terrabase-release --profile` of that profile.
 
 Changes take effect as follows:
 
@@ -82,8 +83,8 @@ lists the roles, and `host-setup` writes them to `host.json`.
 
 A grant may name only roles the cell delivers (a signed or spec profile). It
 may not name `terrabase` or placement's member role, and it may not name a
-node listed in `TERRABASE_PEERS`: TerraBase members enroll through the signed
-profile. A role that a grant names cannot be removed until that grant is
+node listed in the effective `TERRABASE_PEERS`: TerraBase members enroll
+through the TerraBase profile. A role that a grant names cannot be removed until that grant is
 revoked. A new or changed grant gives a host credentials, so a root must
 sign it; revoking one is ordinary.
 

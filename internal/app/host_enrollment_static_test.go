@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,9 +34,14 @@ import (
 type staticHostFleet struct {
 	oci.Fleet
 	instances map[string]oci.CloudInstance
+	// observed, when set, runs before each static host observation.
+	observed func()
 }
 
 func (fleet *staticHostFleet) ObserveStaticHost(_ context.Context, instanceID, node string) (oci.CloudInstance, error) {
+	if fleet.observed != nil {
+		fleet.observed()
+	}
 	instance, ok := fleet.instances[instanceID]
 	if !ok || instance.FreeformTags["terrascale-host-node"] != node {
 		return oci.CloudInstance{}, oci.ErrForeignResource
@@ -45,6 +52,9 @@ func (fleet *staticHostFleet) ObserveStaticHost(_ context.Context, instanceID, n
 // ObserveNamedHost returns the running instance named node, as the OCI
 // observer does for a granted host.
 func (fleet *staticHostFleet) ObserveNamedHost(_ context.Context, instanceID, node string) (oci.CloudInstance, error) {
+	if fleet.observed != nil {
+		fleet.observed()
+	}
 	instance, ok := fleet.instances[instanceID]
 	if !ok || instance.DisplayName != node {
 		return oci.CloudInstance{}, oci.ErrForeignResource
@@ -104,10 +114,6 @@ func startStaticEnrollmentLab(t *testing.T, ctx context.Context, workloads map[s
 		t.Fatal(err)
 	}
 	bundle, issuer, _ := testHostEnrollmentTLSMaterial(t, controllerPublic)
-	members, err := newStaticTerraBaseMembers(workloads)
-	if err != nil {
-		t.Fatal(err)
-	}
 	fleet := &staticHostFleet{instances: map[string]oci.CloudInstance{}}
 	services, err := newSpecRegistry(Config{NATS: natscell.Config{Cell: "gru", Lab: true},
 		Controller: ControllerConfig{Workloads: workloads}}, "")
@@ -117,7 +123,7 @@ func startStaticEnrollmentLab(t *testing.T, ctx context.Context, workloads map[s
 	return staticEnrollmentLab{enrollment: &managedHostEnrollment{cell: "gru", region: oci.RegionGRU,
 		owner: "regional-owner", generation: 1, environment: "production", fleet: fleet,
 		controller: hostController, grants: grants, issuer: issuer, responseKey: controllerPrivate,
-		fencer: control, terraBase: members, services: services},
+		fencer: control, services: services},
 		controller: hostController, fleet: fleet, bundle: bundle, epoch: control.Current().Epoch}
 }
 
@@ -329,6 +335,100 @@ func TestStaticTerraBaseHostEnrollmentRefusesUnlistedOrMismatchedHosts(t *testin
 	statuses, err := lab.controller.ListHosts(ctx)
 	if err != nil || len(statuses) != 0 {
 		t.Fatalf("refused static hosts registered: %+v, %v", statuses, err)
+	}
+}
+
+// The cell spec's terrabase entry, which only a root signs, is the member
+// list once adopted: a member it adds enrolls and one it drops is refused,
+// on the running controller, without a restart or a re-found.
+func TestStaticTerraBaseMembershipFollowsTheCellSpec(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
+	defer cancel()
+	lab := startStaticEnrollmentLab(t, ctx, staticTerraBaseWorkloads())
+	added := lab.launch(t, "ocid1.instance.oc1.sa-saopaulo-1.db3", "gru-1-db-3", "10.251.0.23")
+	if err := lab.setup(ctx, t.TempDir(), added, "10.251.0.23"); err == nil {
+		t.Fatal("a host the signed peers do not list enrolled")
+	}
+	profile := staticTerraBaseWorkloads()[terrabase.Role]
+	profile.Env = maps.Clone(profile.Env)
+	profile.Env[terrabase.EnvPeers] = "gru-1-db-2=10.251.0.22:9443,gru-1-db-3=10.251.0.23:9443"
+	spec := lab.enrollment.services.current
+	spec.Generation++
+	spec.Services = []cellspec.Service{{Role: terrabase.Role, Profile: profile}}
+	if err := lab.enrollment.services.validate(spec); err != nil {
+		t.Fatal(err)
+	}
+	lab.enrollment.services.adopt(spec, spec.Generation)
+	if err := lab.setup(ctx, t.TempDir(), added, "10.251.0.23"); err != nil {
+		t.Fatalf("member the cell spec adds: %v", err)
+	}
+	if registration := lab.registration(t, ctx, "gru-1-db-3"); !slices.Equal(registration.Roles, []string{terrabase.Role}) ||
+		registration.Capacity != host.Capacity(profile.Resources) {
+		t.Fatalf("spec member registration = %+v", registration)
+	}
+	dropped := lab.launch(t, "ocid1.instance.oc1.sa-saopaulo-1.db1", "gru-1-db-1", "10.251.0.21")
+	if err := lab.setup(ctx, t.TempDir(), dropped, "10.251.0.21"); err == nil {
+		t.Fatal("a member the cell spec drops enrolled")
+	}
+	// A spec that turns the member into a granted host while it enrolls
+	// settles the request on the grant: the credential is released for a
+	// registration with the grant's roles, which the last observation
+	// authenticated with the granted-host checks.
+	moved := lab.launch(t, "ocid1.instance.oc1.sa-saopaulo-1.db2", "gru-1-db-2", "10.251.0.22")
+	instance := lab.fleet.instances["ocid1.instance.oc1.sa-saopaulo-1.db2"]
+	instance.DisplayName = "gru-1-db-2"
+	lab.fleet.instances["ocid1.instance.oc1.sa-saopaulo-1.db2"] = instance
+	member, granted := spec, spec
+	member.Services = []cellspec.Service{{Role: terrabase.Role, Profile: profile}}
+	member.Services[0].Profile.Env = maps.Clone(profile.Env)
+	member.Services[0].Profile.Env[terrabase.EnvPeers] = "gru-1-db-2=10.251.0.22:9443,gru-1-db-3=10.251.0.23:9443"
+	granted.Services = []cellspec.Service{{Role: terrabase.Role, Profile: profile}}
+	granted.Services[0].Profile.Env = maps.Clone(profile.Env)
+	granted.Services[0].Profile.Env[terrabase.EnvPeers] = "gru-1-db-3=10.251.0.23:9443"
+	granted.HostGrants = []cellspec.HostGrant{{Node: "gru-1-db-2", PrivateIP: "10.251.0.22", Roles: []string{"worker"},
+		Environment: "production"}}
+	generation := spec.Generation
+	adopt := func(next cellspec.Spec) {
+		generation++
+		next.Generation = generation
+		lab.enrollment.services.adopt(next, generation)
+	}
+	lab.fleet.observed = func() {
+		lab.fleet.observed = nil
+		adopt(granted)
+	}
+	if err := lab.setup(ctx, t.TempDir(), moved, "10.251.0.22"); err != nil {
+		t.Fatalf("host whose admission changed mid-request: %v", err)
+	}
+	if roles := lab.registration(t, ctx, "gru-1-db-2").Roles; !slices.Equal(roles, []string{"worker"}) {
+		t.Fatalf("settled host roles = %v", roles)
+	}
+	// A spec that changes the admission at every observation is refused.
+	flapping := lab.launch(t, "ocid1.instance.oc1.sa-saopaulo-1.db2b", "gru-1-db-2", "10.251.0.22")
+	instance = lab.fleet.instances["ocid1.instance.oc1.sa-saopaulo-1.db2b"]
+	instance.DisplayName = "gru-1-db-2"
+	lab.fleet.instances["ocid1.instance.oc1.sa-saopaulo-1.db2b"] = instance
+	delete(lab.fleet.instances, "ocid1.instance.oc1.sa-saopaulo-1.db2")
+	asMember := true
+	lab.fleet.observed = func() {
+		if asMember {
+			adopt(member)
+		} else {
+			adopt(granted)
+		}
+		asMember = !asMember
+	}
+	if err := lab.setup(ctx, t.TempDir(), flapping, "10.251.0.22"); err == nil {
+		t.Fatal("a host enrolled while the cell spec kept changing its admission")
+	}
+	lab.fleet.observed = nil
+
+	// A host grant may not name a member of the spec's own peer list.
+	overlapping := spec
+	overlapping.HostGrants = []cellspec.HostGrant{{Node: "gru-1-db-3", PrivateIP: "10.251.0.23", Roles: []string{terrabase.Role},
+		Environment: "production"}}
+	if err := lab.enrollment.services.validate(overlapping); err == nil || !strings.Contains(err.Error(), "TerraBase member") {
+		t.Fatalf("grant naming a spec member = %v", err)
 	}
 }
 

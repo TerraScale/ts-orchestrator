@@ -503,7 +503,9 @@ var errAbandonedRollout = errors.New("rollout ID was abandoned before its record
 
 // abandonedMarker occupies the record key of an abandoned rollout ID. It
 // does not decode as a Record, so a late createRecord of that ID fails
-// instead of creating a live record after its slot was released.
+// instead of creating a live record after its slot was released. It must
+// never gain a schema_version member: Load tells markers from records by
+// that member's absence.
 type abandonedMarker struct {
 	AbandonedRollout string `json:"abandoned_rollout"`
 }

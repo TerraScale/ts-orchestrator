@@ -89,7 +89,7 @@ every controller when it adopts the spec, without a restart.
 | `controller.oci_reconcile.desired` | `oci_desired` | Root to add or change an `enforce` entry, to turn on prune, and for any removal while prune is on; leaf otherwise. | Published into `TS_OCI_DESIRED` before the next pass. |
 | `controller.kv_snapshot` interval and pause | `kv_snapshot` | Leaf for the interval (5 to 3600 s); root to pause. | The next snapshot pass. The location stays in the signed config: a rebuilt cell restores from it before any KV bucket exists. |
 | Managed host image receipt and delegation | `host_images` (done in TS-570, see [image updates](image-updates.md)) | Root to add or change an image: a receipt qualifies an image without choosing it for a cell. Leaf to revoke. | The fleet and placement read the adopted spec at each check. |
-| TerraBase peers (`TERRABASE_PEERS`) | the existing `terrabase` service entry | Root, as today. | Static member enrollment reads the effective profile, not the signed config's. |
+| TerraBase peers (`TERRABASE_PEERS`) | the existing `terrabase` service entry | Root, as today. | Done in slice 2: static member enrollment and host grant checks read the effective profile, not the signed config's. |
 
 These stay in the signed config, because they are read before KV exists or
 bind the running process: identity, broker addresses and routes, material

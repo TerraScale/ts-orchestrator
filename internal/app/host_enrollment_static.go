@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -18,9 +19,9 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
-// staticTerraBaseMembers is the part of the signed workloads.terrabase
-// profile that admits static C# TerraBase hosts: the listed members and the
-// capacity of one member.
+// staticTerraBaseMembers is the part of the effective terrabase profile that
+// admits static C# TerraBase hosts: the listed members and the capacity of
+// one member.
 type staticTerraBaseMembers struct {
 	profile  terrabase.Profile
 	capacity host.Capacity
@@ -59,7 +60,7 @@ func (enrollment *managedHostEnrollment) enrollStatic(ctx context.Context, epoch
 	if err != nil {
 		return nil, err
 	}
-	instance, err := enrollment.observeStatic(ctx, peerIP, request, descriptor)
+	instance, admission, err := enrollment.observeStatic(ctx, peerIP, request, descriptor)
 	if err != nil {
 		return nil, err
 	}
@@ -108,34 +109,46 @@ func (enrollment *managedHostEnrollment) enrollStatic(ctx context.Context, epoch
 	if len(cached) != 0 {
 		return cached, enrollment.fencer.Guard(ctx, epoch)
 	}
-	registration, err := enrollment.staticRegistration(ctx, request, descriptor, instance)
-	if err != nil {
-		return nil, err
-	}
-	receipt, err := enrollment.controller.Register(ctx, registration)
-	if err != nil {
-		return nil, err
-	}
 	jwt, chain, expires, err := enrollment.issuer.Issue(request, csr, descriptor.Node, time.Now().UTC())
 	if err != nil {
 		return nil, err
 	}
-	response := hostenroll.Response{SchemaVersion: 1, Operation: request.Operation,
-		InstanceID: request.InstanceID, Node: descriptor.Node, DescriptorSHA256: digest,
-		RequestSHA256: hostenroll.RequestSHA256(wire), Nonce: request.Nonce,
-		RegistrationReceipt: receipt, Roles: grantRoles(enrollment.grantFor(descriptor)),
-		NATSUserJWT: jwt, TLSCertificatePEM: string(chain), ExpiresAt: expires}
-	if err := response.Sign(enrollment.responseKey); err != nil {
-		return nil, err
-	}
-	responseWire, err := protocol.EncodeJSON(response)
-	if err != nil {
-		return nil, err
-	}
-	// The instance must still hold the peer address when the credential is
-	// committed and released.
-	if _, err := enrollment.observeStatic(ctx, peerIP, request, descriptor); err != nil {
-		return nil, err
+	// The instance must still hold the peer address, under the admission it
+	// registered with, when the credential is committed and released. A cell
+	// spec adopted mid-request can change the admission: the registration
+	// and response then settle on the one the last observation found.
+	var responseWire []byte
+	for attempt := 1; ; attempt++ {
+		registration, err := enrollment.staticRegistration(ctx, request, descriptor, instance, admission)
+		if err != nil {
+			return nil, err
+		}
+		receipt, err := enrollment.controller.Register(ctx, registration)
+		if err != nil {
+			return nil, err
+		}
+		response := hostenroll.Response{SchemaVersion: 1, Operation: request.Operation,
+			InstanceID: request.InstanceID, Node: descriptor.Node, DescriptorSHA256: digest,
+			RequestSHA256: hostenroll.RequestSHA256(wire), Nonce: request.Nonce,
+			RegistrationReceipt: receipt, Roles: admission.roles(),
+			NATSUserJWT: jwt, TLSCertificatePEM: string(chain), ExpiresAt: expires}
+		if err := response.Sign(enrollment.responseKey); err != nil {
+			return nil, err
+		}
+		if responseWire, err = protocol.EncodeJSON(response); err != nil {
+			return nil, err
+		}
+		var again staticAdmission
+		if instance, again, err = enrollment.observeStatic(ctx, peerIP, request, descriptor); err != nil {
+			return nil, err
+		}
+		if reflect.DeepEqual(again, admission) {
+			break
+		}
+		if attempt == 3 {
+			return nil, errors.New("the cell spec keeps changing how this static host enrolls; retry")
+		}
+		admission = again
 	}
 	if err := enrollment.fencer.Guard(ctx, epoch); err != nil {
 		return nil, err
@@ -157,35 +170,61 @@ func (enrollment *managedHostEnrollment) enrollStatic(ctx context.Context, epoch
 	return responseWire, nil
 }
 
-// observeStatic authenticates a static host: a TerraBase member the signed
-// profile lists at the direct peer's address, or a host the cell spec
-// grants that address.
+// staticMember returns node's TerraBase peer and one member's capacity when
+// the effective terrabase profile lists it: the cell spec's entry, which only
+// a root may sign, or else the signed controller config's. The registry
+// adopts only profiles that parse, so a parse error lists nothing.
+func (enrollment *managedHostEnrollment) staticMember(node string) (terrabase.Peer, host.Capacity, bool) {
+	members, err := newStaticTerraBaseMembers(enrollment.services.profiles())
+	if err != nil || members == nil {
+		return terrabase.Peer{}, host.Capacity{}, false
+	}
+	peer, listed := members.profile.Peer(node)
+	return peer, members.capacity, listed
+}
+
+// staticAdmission is how a static host enrolls, decided once per request
+// and checked again before the credential is released: as a member the
+// effective TerraBase profile lists, or by a cell spec host grant.
+type staticAdmission struct {
+	Grant    *cellspec.HostGrant
+	Capacity host.Capacity
+}
+
+// roles are the roles an enrollment response lists: a granted host's roles;
+// a TerraBase member's role is implied.
+func (admission staticAdmission) roles() []string {
+	if admission.Grant == nil {
+		return nil
+	}
+	return admission.Grant.Roles
+}
+
+// observeStatic authenticates a static host: a TerraBase member the
+// effective profile lists at the direct peer's address, or a host the cell
+// spec grants that address.
 func (enrollment *managedHostEnrollment) observeStatic(ctx context.Context, peerIP string,
 	request hostenroll.Request, descriptor hostboot.Descriptor,
-) (oci.CloudInstance, error) {
-	var peer terrabase.Peer
-	listed := false
-	if enrollment.terraBase != nil {
-		peer, listed = enrollment.terraBase.profile.Peer(descriptor.Node)
-	}
+) (oci.CloudInstance, staticAdmission, error) {
+	peer, capacity, listed := enrollment.staticMember(descriptor.Node)
 	if !listed {
 		return enrollment.observeGranted(ctx, peerIP, request, descriptor)
 	}
 	if peer.Address.Addr().String() != peerIP {
-		return oci.CloudInstance{}, errors.New("static host is not a listed TerraBase member at its private address")
+		return oci.CloudInstance{}, staticAdmission{}, errors.New("static host is not a listed TerraBase member at its private address")
 	}
 	observer, ok := enrollment.fleet.(oci.StaticHostObserver)
 	if !ok {
-		return oci.CloudInstance{}, errors.New("regional fleet cannot observe static hosts")
+		return oci.CloudInstance{}, staticAdmission{}, errors.New("regional fleet cannot observe static hosts")
 	}
 	instance, err := observer.ObserveStaticHost(ctx, request.InstanceID, descriptor.Node)
 	if err != nil {
-		return oci.CloudInstance{}, err
+		return oci.CloudInstance{}, staticAdmission{}, err
 	}
 	if instance.PrivateIP != peerIP || instance.Metadata[hostboot.MetadataKey] != request.Descriptor {
-		return oci.CloudInstance{}, errors.New("direct peer does not match the static OCI host")
+		return oci.CloudInstance{}, staticAdmission{}, errors.New("direct peer does not match the static OCI host")
 	}
-	return instance, nil
+	return instance, staticAdmission{Capacity: capacity}, nil
 }
 
 // observeGranted authenticates a host the adopted cell spec grants: the
@@ -193,38 +232,37 @@ func (enrollment *managedHostEnrollment) observeStatic(ctx context.Context, peer
 // of the descriptor's name holding it.
 func (enrollment *managedHostEnrollment) observeGranted(ctx context.Context, peerIP string,
 	request hostenroll.Request, descriptor hostboot.Descriptor,
-) (oci.CloudInstance, error) {
-	grant, _, ok := enrollment.services.hostGrant(descriptor.Node)
+) (oci.CloudInstance, staticAdmission, error) {
+	grant, capacity, ok := enrollment.services.hostGrant(descriptor.Node)
 	if !ok || grant.PrivateIP != peerIP {
-		return oci.CloudInstance{}, errors.New("static host is neither a listed TerraBase member nor granted its private address")
+		return oci.CloudInstance{}, staticAdmission{}, errors.New("static host is neither a listed TerraBase member nor granted its private address")
 	}
 	observer, ok := enrollment.fleet.(oci.NamedHostObserver)
 	if !ok {
-		return oci.CloudInstance{}, errors.New("regional fleet cannot observe granted hosts")
+		return oci.CloudInstance{}, staticAdmission{}, errors.New("regional fleet cannot observe granted hosts")
 	}
 	instance, err := observer.ObserveNamedHost(ctx, request.InstanceID, descriptor.Node)
 	if err != nil {
-		return oci.CloudInstance{}, err
+		return oci.CloudInstance{}, staticAdmission{}, err
 	}
 	if instance.PrivateIP != peerIP {
-		return oci.CloudInstance{}, errors.New("direct peer does not match the granted instance")
+		return oci.CloudInstance{}, staticAdmission{}, errors.New("direct peer does not match the granted instance")
 	}
-	return instance, nil
+	return instance, staticAdmission{Grant: &grant, Capacity: capacity}, nil
 }
 
 // staticRegistration is the registration a static host enrolls with: a
 // TerraBase member with one member's capacity, or a granted host with its
 // grant's roles and environment.
 func (enrollment *managedHostEnrollment) staticRegistration(ctx context.Context, request hostenroll.Request,
-	descriptor hostboot.Descriptor, instance oci.CloudInstance,
+	descriptor hostboot.Descriptor, instance oci.CloudInstance, admission staticAdmission,
 ) (host.Registration, error) {
 	registration := host.Registration{Cell: enrollment.cell, Node: descriptor.Node,
 		FailureDomain: strings.ToLower(instance.FaultDomain), Environment: enrollment.environment,
 		PublicKey: request.IdentityPublicKey, NATSUserPublicKey: request.NATSUserPublicKey, Generation: 1}
-	if grant, capacity, ok := enrollment.grantFor(descriptor); ok {
-		registration.Roles, registration.Environment, registration.Capacity = grant.Roles, grant.Environment, capacity
-	} else {
-		registration.Roles, registration.Capacity = []string{terrabase.Role}, enrollment.terraBase.capacity
+	registration.Roles, registration.Capacity = []string{terrabase.Role}, admission.Capacity
+	if grant := admission.Grant; grant != nil {
+		registration.Roles, registration.Environment = grant.Roles, grant.Environment
 	}
 	statuses, err := enrollment.controller.ListHosts(ctx)
 	if err != nil {
@@ -256,24 +294,6 @@ func nextStaticRegistration(registration host.Registration, statuses []host.Host
 		registration.Generation++
 	}
 	return registration, nil
-}
-
-// grantFor returns the cell spec host grant a static host enrolls by,
-// unless the signed TerraBase profile lists it as a member.
-func (enrollment *managedHostEnrollment) grantFor(descriptor hostboot.Descriptor) (cellspec.HostGrant, host.Capacity, bool) {
-	if enrollment.terraBase != nil {
-		if _, listed := enrollment.terraBase.profile.Peer(descriptor.Node); listed {
-			return cellspec.HostGrant{}, host.Capacity{}, false
-		}
-	}
-	return enrollment.services.hostGrant(descriptor.Node)
-}
-
-func grantRoles(grant cellspec.HostGrant, _ host.Capacity, ok bool) []string {
-	if !ok {
-		return nil
-	}
-	return grant.Roles
 }
 
 func sameJSONValue(left, right host.Registration) bool {

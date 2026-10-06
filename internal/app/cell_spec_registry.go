@@ -388,11 +388,11 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 
 // validateHostGrants admits a grant only for roles the cell delivers and
 // placement does not own, and never for a TerraBase member, which enrolls
-// through the signed TerraBase profile.
+// through the spec's effective TerraBase profile.
 func (r *specRegistry) validateHostGrants(grants []cellspec.HostGrant, profiles map[string]WorkloadProfile) error {
 	var members terrabase.Profile
-	if signed, ok := r.fixed[terrabase.Role]; ok && len(signed.Env) != 0 {
-		members, _ = terrabase.ParseProfile(signed.Env)
+	if effective, ok := profiles[terrabase.Role]; ok && len(effective.Env) != 0 {
+		members, _ = terrabase.ParseProfile(effective.Env)
 	}
 	for _, grant := range grants {
 		if _, member := members.Peer(grant.Node); member {
