@@ -64,6 +64,10 @@ func LoadIssuer(cell, cellAccount, natsSeedPath, keyPath, certPath string, rootP
 	for rest := rootPEM; ; {
 		var block *pem.Block
 		if block, rest = pem.Decode(rest); block == nil {
+			if len(strings.TrimSpace(string(rest))) != 0 {
+				pair.Wipe()
+				return nil, errors.New("host TLS regional root has trailing data")
+			}
 			break
 		}
 		root, err := x509.ParseCertificate(block.Bytes)

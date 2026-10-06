@@ -124,9 +124,26 @@ func TestCheckGenerationFilesRefusesUnsafeMaterial(t *testing.T) {
 			claims.Limits.JetStreamLimits = jwt.JetStreamLimits{}
 		})},
 		"an expired cell account": {"cell.jwt": expiredJWT},
+		"trailing data in the CA bundle": {"ca.pem": append(append([]byte(nil), material.Files["ca.pem"]...),
+			[]byte("not a certificate\n")...)},
 	} {
 		if _, err := check(material.With(files)); err == nil {
 			t.Errorf("accepted %s", name)
 		}
+	}
+}
+
+// A JWT issued after the check's time, beyond the clock skew, would not yet
+// be active when the generation is applied.
+func TestCheckGenerationFilesRefusesFutureJWTs(t *testing.T) {
+	issued := time.Now()
+	material := generationtest.New(t, issued)
+	generation := material.Generation(generationExpectation(), 1, "")
+	if _, err := bootstrapmaterial.CheckGenerationFiles(generation, material.Read, issued.Add(10*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bootstrapmaterial.CheckGenerationFiles(generation, material.Read, issued.Add(-10*time.Minute)); err == nil ||
+		!strings.Contains(err.Error(), "issued in the future") {
+		t.Fatalf("JWTs issued after the check: %v", err)
 	}
 }

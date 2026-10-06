@@ -2,8 +2,12 @@ package hostenroll_test
 
 import (
 	"crypto/x509"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/nats-io/nkeys"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap/generationtest"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
@@ -32,5 +36,33 @@ func TestParseTLSIssuerAcrossARolloverBundle(t *testing.T) {
 	}
 	if _, _, _, err := hostenroll.ParseTLSIssuer(selfKey, selfCert, roots); err == nil {
 		t.Fatal("a self-signed issuer was accepted")
+	}
+}
+
+// The regional root file may hold only certificates.
+func TestLoadIssuerRefusesTrailingRootData(t *testing.T) {
+	now := time.Now()
+	year := now.AddDate(1, 0, 0)
+	root, rootPEM, _ := generationtest.Certificate(t, generationtest.CA("cell CA", now, year), nil)
+	_, cert, key := generationtest.Certificate(t, generationtest.HostIssuer(now, year), &root)
+	issuer, _ := nkeys.CreateAccount()
+	seed, _ := issuer.Seed()
+	cell, _ := nkeys.CreateAccount()
+	cellID, _ := cell.PublicKey()
+	dir := t.TempDir()
+	write := func(name string, content []byte) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	seedPath, keyPath, certPath := write("seed", seed), write("key.pem", key), write("cert.pem", cert)
+	if _, err := hostenroll.LoadIssuer("gru", cellID, seedPath, keyPath, certPath, rootPEM); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hostenroll.LoadIssuer("gru", cellID, seedPath, keyPath, certPath,
+		append(append([]byte(nil), rootPEM...), "tampered"...)); err == nil {
+		t.Fatal("a root file with trailing data was accepted")
 	}
 }

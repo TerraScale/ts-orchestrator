@@ -65,6 +65,9 @@ func CheckGenerationFiles(generation bootstrap.MaterialGeneration, read func(nam
 	for rest := files["ca.pem"]; ; {
 		var block *pem.Block
 		if block, rest = pem.Decode(rest); block == nil {
+			if len(strings.TrimSpace(string(rest))) != 0 {
+				check.fail("ca.pem has trailing data that is not a certificate")
+			}
 			break
 		}
 		ca, err := x509.ParseCertificate(block.Bytes)
@@ -105,20 +108,25 @@ func CheckGenerationFiles(generation bootstrap.MaterialGeneration, read func(nam
 		}
 	}
 	operator, err := jwt.DecodeOperatorClaims(strings.TrimSpace(string(files["operator.jwt"])))
+	// Decoding verifies each signature against the claim's issuer; the
+	// issuer checks and DidSign tie those signers to the operator.
 	if err != nil || operator.Subject != generation.Operator || operator.Issuer != generation.Operator ||
-		operator.SystemAccount != generation.SystemAccount || len(operator.SigningKeys) != 0 {
+		!operator.DidSign(operator) || operator.SystemAccount != generation.SystemAccount || len(operator.SigningKeys) != 0 {
 		check.fail("operator.jwt is not the operator's own JWT naming the system account, without signing keys")
+		operator = nil
 	} else {
-		check.jwt("operator.jwt", operator.Expires)
+		check.jwt("operator.jwt", operator.IssuedAt, operator.Expires)
 	}
 	system, err := jwt.DecodeAccountClaims(strings.TrimSpace(string(files["system.jwt"])))
-	if err != nil || system.Subject != generation.SystemAccount || system.Issuer != generation.Operator {
+	if err != nil || system.Subject != generation.SystemAccount || system.Issuer != generation.Operator ||
+		operator == nil || !operator.DidSign(system) {
 		check.fail("system.jwt is not the system account signed by the operator")
 	} else {
-		check.jwt("system.jwt", system.Expires)
+		check.jwt("system.jwt", system.IssuedAt, system.Expires)
 	}
 	cellClaim, err := jwt.DecodeAccountClaims(strings.TrimSpace(string(files["cell.jwt"])))
-	if err != nil || cellClaim.Subject != generation.CellAccount || cellClaim.Issuer != generation.Operator {
+	if err != nil || cellClaim.Subject != generation.CellAccount || cellClaim.Issuer != generation.Operator ||
+		operator == nil || !operator.DidSign(cellClaim) {
 		check.fail("cell.jwt is not the cell account signed by the operator")
 	} else {
 		hostScope, hostScoped := cellClaim.SigningKeys.GetScope(generation.HostSigner)
@@ -130,14 +138,14 @@ func CheckGenerationFiles(generation bootstrap.MaterialGeneration, read func(nam
 		if cellClaim.Limits.JetStreamLimits == (jwt.JetStreamLimits{}) {
 			check.fail("cell.jwt grants no JetStream")
 		}
-		check.jwt("cell.jwt", cellClaim.Expires)
+		check.jwt("cell.jwt", cellClaim.IssuedAt, cellClaim.Expires)
 	}
 	if err := natscell.ValidateSystemCredentials(files["system.creds"], cell, generation.CellAccount,
 		generation.SystemAccount); err != nil {
 		check.fail(err.Error())
 	} else if raw, err := jwt.ParseDecoratedJWT(files["system.creds"]); err == nil {
 		if user, err := jwt.DecodeUserClaims(raw); err == nil {
-			check.jwt("system.creds", user.Expires)
+			check.jwt("system.creds", user.IssuedAt, user.Expires)
 		}
 	}
 	if len(check.problems) != 0 {
@@ -209,8 +217,12 @@ func (check *generationCheck) certificate(name string, certificate *x509.Certifi
 	check.expires(name, certificate.NotAfter)
 }
 
-// jwt records a JWT expiry; zero means it never expires.
-func (check *generationCheck) jwt(name string, expires int64) {
+// jwt checks a JWT was issued by now, within the trust envelope's clock
+// skew, and records its expiry; zero means it never expires.
+func (check *generationCheck) jwt(name string, issuedAt, expires int64) {
+	if time.Unix(issuedAt, 0).After(check.now.Add(bootstrap.ManifestClockSkew)) {
+		check.fail(name + " is issued in the future")
+	}
 	if expires != 0 {
 		check.expires(name, time.Unix(expires, 0).UTC())
 	}
