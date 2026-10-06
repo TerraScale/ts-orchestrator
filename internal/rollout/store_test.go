@@ -418,12 +418,12 @@ func TestStoreReadsTheRecordsOfANewerBinary(t *testing.T) {
 	if _, _, err := store.Load(ctx, "r1"); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "policy digest") {
 		t.Fatalf("record whose policy has a newer member = %v, want the policy digest refused", err)
 	}
-	put(rolloutKey("gone"), []byte(`{"abandoned_rollout":"gone"}`))
+	put(rolloutKey("gone"), []byte(`{"abandoned_rollout":"gone","added_by_newer_binary":true}`))
 	if _, _, err := store.Load(ctx, "gone"); !errors.Is(err, errAbandonedRollout) {
-		t.Fatalf("abandoned marker = %v", err)
+		t.Fatalf("abandoned marker of a newer binary = %v", err)
 	}
-	// Only the exact marker is one: a newer record that happens to carry the
-	// marker's member is still a record.
+	// A newer record that happens to carry the marker's member is still a
+	// record: it has a schema version.
 	put(rolloutKey("r1"), []byte(strings.Replace(string(original), "{", `{"abandoned_rollout":"r1",`, 1)))
 	if loaded, _, err := store.Load(ctx, "r1"); err != nil || loaded.RolloutID != "r1" {
 		t.Fatalf("record carrying the marker member = %+v, %v", loaded, err)

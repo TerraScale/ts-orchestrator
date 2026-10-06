@@ -148,9 +148,14 @@ func (s *Store) Load(ctx context.Context, rolloutID string) (Record, uint64, err
 		return Record{}, 0, err
 	}
 	// Records decode tolerantly, so a marker would decode as an empty record:
-	// read it first, strictly, so a record never passes for one.
-	var marker abandonedMarker
-	if protocol.DecodeStrict(entry.Value(), &marker, maxRecordBytes) == nil && marker.AbandonedRollout == rolloutID {
+	// read it first. A record always has a schema version and a marker never
+	// does, so a newer binary's members change neither.
+	var marker struct {
+		AbandonedRollout string `json:"abandoned_rollout"`
+		SchemaVersion    int    `json:"schema_version"`
+	}
+	if protocol.DecodeTolerant(entry.Value(), &marker, maxRecordBytes) == nil &&
+		marker.SchemaVersion == 0 && marker.AbandonedRollout == rolloutID {
 		return Record{}, 0, errAbandonedRollout
 	}
 	var record Record

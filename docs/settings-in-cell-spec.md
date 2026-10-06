@@ -36,7 +36,10 @@ and the role's rules. Only signing (`bootstrap render-controller-config` and
 `sign-manifest`) still requires this binary's canonical encoding.
 
 **Versioned configs.** `app.ConfigVersion` is the config schema a binary
-writes; the renderers and `host-setup` stamp it as `version`. A binary
+writes; the renderers and `host-setup` stamp it as `version`. A binary from
+before versioning (before #226) refuses the stamp, so it cannot start on a
+config a versioned binary rendered: re-render the config to roll back that
+far. A binary
 decodes a config of its own version or older strictly, so a typo is still an
 error, and skips the unknown members of a newer config, with a warning.
 `TestConfigVersionCoversEveryMember` fails when `app.Config`'s members differ
