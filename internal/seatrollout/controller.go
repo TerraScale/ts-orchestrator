@@ -67,7 +67,11 @@ type Controller struct {
 	Backends func(ctx context.Context) (map[string]Backend, error)
 	// Wake, when set, is called after every record write, so the load
 	// balancer publisher applies a drain or return at once.
-	Wake       func()
+	Wake func()
+	// Hold, when set and it names a reason, starts no seat's restart: no
+	// seat that is not drained already is drained or permitted, so another
+	// restart in the cell (an orchestrator host rollout) finishes first.
+	Hold       func(ctx context.Context) (string, error)
 	DrainGrace time.Duration
 	Settle     time.Duration
 	Interval   time.Duration
@@ -202,6 +206,16 @@ func (c *Controller) Tick(ctx context.Context) error {
 			// its group until a newer desired generation (a rollback)
 			// supersedes the permit.
 			busy[v.seat.Group] = true
+		}
+	}
+	if c.Hold != nil {
+		reason, err := c.Hold(ctx)
+		if err != nil {
+			return err
+		}
+		if reason != "" {
+			slog.Debug("terrabase seats wait: "+reason, "component", "seatrollout")
+			return nil
 		}
 	}
 	var pending []view

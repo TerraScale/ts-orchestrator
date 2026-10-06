@@ -315,6 +315,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	if a.cfg.LoadInterval > 0 {
 		go a.publishLoad(work)
 	}
+	if a.cfg.FollowRollouts != nil {
+		go a.cfg.FollowRollouts(work, a)
+	}
 	ticker := time.NewTicker(a.cfg.PollInterval)
 	defer ticker.Stop()
 	type roleFailure struct {

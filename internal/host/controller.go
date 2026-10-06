@@ -63,6 +63,8 @@ type Controller struct {
 	authorityLeader        func() bool
 	// loadSink, when set, accepts "load" host telemetry; see SetLoadSink.
 	loadSink atomic.Pointer[LoadSink]
+	// rolloutSink, when set, serves host self-updates; see SetRolloutSink.
+	rolloutSink atomic.Pointer[RolloutSink]
 }
 
 func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, error) {
@@ -597,7 +599,8 @@ func sameReportMeaning(a, b Report) bool {
 
 // hostOperations are the host request subjects a leader serves.
 var hostOperations = []string{"session", "desired", "artifact", "material", "cycle", "report",
-	"drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format"}
+	"drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format",
+	"rollout", "rollout-binary"}
 
 // hostLeaderPoll is how often Run follows authority leadership.
 const hostLeaderPoll = 500 * time.Millisecond
@@ -699,7 +702,8 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	switch req.Operation {
 	case "session":
 		payload, err = c.handleSession(ctx, req)
-	case "desired", "artifact", "cycle", "report", "material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format":
+	case "desired", "artifact", "cycle", "report", "material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format",
+		"rollout", "rollout-binary":
 		payload, err = c.handleAuthorized(ctx, req)
 	default:
 		err = errors.New("unknown host operation")
@@ -1042,6 +1046,8 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (any, er
 		return c.storeReport(ctx, req, r, s)
 	case "load":
 		return c.storeLoad(ctx, req, r)
+	case "rollout", "rollout-binary":
+		return c.serveRollout(ctx, req, r)
 	case "terrabase-peer":
 		return c.serveTerraBasePeer(ctx, req, r)
 	case "terrabase-format":

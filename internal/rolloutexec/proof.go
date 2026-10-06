@@ -211,6 +211,20 @@ func (c *Collector) Observe(subject string, wire []byte) error {
 	if err != nil {
 		return err
 	}
+	return c.accept(unit, wire, keys)
+}
+
+// ObserveFrom records a proof that reached the leader over another
+// authenticated path than the proof subject, a host's session, verified
+// with keys, the unit's own.
+func (c *Collector) ObserveFrom(unit string, wire []byte, keys trust.Keyring) error {
+	if !unitRE.MatchString(unit) || len(keys) == 0 {
+		return fmt.Errorf("%w: health proof unit", ErrInvalid)
+	}
+	return c.accept(unit, wire, keys)
+}
+
+func (c *Collector) accept(unit string, wire []byte, keys trust.Keyring) error {
 	proof, err := VerifyHealthProof(wire, c.cell, unit, keys, c.now())
 	if err != nil {
 		return err
@@ -314,19 +328,10 @@ func (p Publisher) Run(ctx context.Context) error {
 	if interval <= 0 {
 		interval = DefaultProofInterval
 	}
-	if executable == "" {
-		executable = "/proc/self/exe"
-	}
-	digest, err := hashExecutable(executable)
+	identity, err := ProcessIdentity(p.Cell, p.Unit, executable)
 	if err != nil {
-		return fmt.Errorf("hash running executable: %w", err)
-	}
-	nonce := make([]byte, 16)
-	if _, err := rand.Read(nonce); err != nil {
 		return err
 	}
-	identity := HealthProof{Schema: HealthSchema, Cell: p.Cell, Unit: p.Unit, BinarySHA256: digest,
-		ProcessID: int64(os.Getpid()), StartNonce: hex.EncodeToString(nonce)}
 	subject := protocol.RolloutProofSubject(p.Cell, p.Unit)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -347,6 +352,25 @@ func (p Publisher) Run(ctx context.Context) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+// ProcessIdentity is this process's proof for unit, without its time: the
+// digest of the running executable (default /proc/self/exe), hashed once so
+// a replaced file never changes it, the process ID and a start nonce.
+func ProcessIdentity(cell, unit, executable string) (HealthProof, error) {
+	if executable == "" {
+		executable = "/proc/self/exe"
+	}
+	digest, err := hashExecutable(executable)
+	if err != nil {
+		return HealthProof{}, fmt.Errorf("hash running executable: %w", err)
+	}
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		return HealthProof{}, err
+	}
+	return HealthProof{Schema: HealthSchema, Cell: cell, Unit: unit, BinarySHA256: digest,
+		ProcessID: int64(os.Getpid()), StartNonce: hex.EncodeToString(nonce)}, nil
 }
 
 func hashExecutable(path string) (string, error) {

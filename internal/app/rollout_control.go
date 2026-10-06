@@ -27,6 +27,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rolloutexec"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/seatrollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -93,6 +94,11 @@ type rolloutControl struct {
 	// policy is the policy of the next rollout: the cell spec's, else the
 	// signed config's.
 	policy func() rollout.Policy
+	// hosts serves host self-updates once the executor runs.
+	hosts atomic.Pointer[rolloutHosts]
+	// drainedSeats, when the TerraBase seat controller runs, holds host
+	// steps while a seat is out of rotation (rolloutGate).
+	drainedSeats func(context.Context) (map[string]bool, error)
 	// spool and layout are the step relay's directory and the node's
 	// release root; tests point them elsewhere.
 	spool  string
@@ -183,10 +189,12 @@ func rolloutControllers(cfg Config) ([]rollout.Unit, error) {
 }
 
 // start returns the runner of the proof collector and the executor, which
-// acts only while this controller holds the authority lease. Proofs are
-// verified with the regional controller response key.
+// acts only while this controller holds the authority lease. Controller
+// proofs are verified with the regional controller response key, host
+// proofs with each host's registered key. hosts reads the cell's hosts;
+// nil moves no host.
 func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscell.Runtime, fencer authority.Fencer,
-	responseKey ed25519.PrivateKey,
+	responseKey ed25519.PrivateKey, hosts seatrollout.Hosts,
 ) (func(context.Context) error, error) {
 	store := c.store.Load()
 	if store == nil {
@@ -223,15 +231,25 @@ func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscel
 	}
 	c.conn = runtime.Conn()
 	c.program = rolloutexec.ReleaseProgram{Store: store, Proofs: collector, Controllers: controllers, Policy: c.policy()}
+	colocated := colocatedNodes(cfg.NATS.Cell, controllers)
+	sink := &rolloutHosts{collector: collector, board: board, colocated: colocated, last: map[string]time.Time{},
+		held: map[string]time.Time{}}
+	gate := rolloutGate{cluster: rolloutexec.ClusterGate{Cluster: runtime, ServerOf: func(unit string) (string, bool) {
+		return natscell.ServerName(cfg.NATS.Cell, unit), known[unit]
+	}}, drainedSeats: c.drainedSeats, held: sink.heldBy}
+	if hosts != nil {
+		c.program.Hosts = hostUnits(hosts.ListHosts, board, colocated)
+		gate.serving = terraBaseServing(hosts)
+	}
+	c.hosts.Store(sink)
 	executor := &rolloutexec.Executor{Cell: cfg.NATS.Cell, Store: store, Fencer: fencer, Proofs: collector, Status: c,
-		Driver: rolloutexec.KVDriver{KV: board, Cell: cfg.NATS.Cell, Key: responseKey, Releases: store},
-		Gate: rolloutexec.ClusterGate{Cluster: runtime, ServerOf: func(unit string) (string, bool) {
-			return natscell.ServerName(cfg.NATS.Cell, unit), known[unit]
-		}},
+		Driver:   rolloutexec.KVDriver{KV: board, Cell: cfg.NATS.Cell, Key: responseKey, Releases: store},
+		Gate:     gate,
 		Program:  c.nextProgram,
 		Wake:     wake,
 		Interval: c.interval}
-	relay := &rolloutexec.Relay{KV: board, Cell: cfg.NATS.Cell, Unit: cfg.NATS.Instance, Leaders: keys, Dir: c.spool,
+	relay := &rolloutexec.Relay{KV: board, Cell: cfg.NATS.Cell, Unit: cfg.NATS.Instance,
+		SystemdUnit: selfupdate.ControllerUnit, Leaders: keys, Dir: c.spool,
 		Layout: c.layout, Sources: c.binarySources(runtime.JetStream()), Interval: c.interval}
 	return func(ctx context.Context) error {
 		defer subscription.Unsubscribe()

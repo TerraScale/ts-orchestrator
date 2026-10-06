@@ -42,8 +42,8 @@ jobs:
     if: ${{ forgejo.ref == 'refs/heads/main' && vars.TS_AUTO_DEPLOY_CELLS != '' }}
     name: deploy/every-region
     runs-on: terrascale-builder
-    # 100 minutes for the gate's wait (6000s), 90 per region for three
-    # regions (--region-timeout in scripts/ci/deploy-fleet.sh) and 30 more.
+    # 100 minutes for the gate's wait (6000s), 30 per region for three
+    # regions (--region-timeout in scripts/ci/deploy-fleet.sh) and slack.
     timeout-minutes: 400
     env:
       SOURCE_SHA: ${{ inputs.source_revision }}

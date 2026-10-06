@@ -2,6 +2,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -25,7 +26,9 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/hostvolume"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -212,6 +215,7 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 		PollInterval:            time.Duration(cfg.Host.PollMillis) * time.Millisecond, SessionTrace: cfg.Host.SessionTrace,
 		ClockCheck:       clockCheck,
 		LoadInterval:     time.Duration(cfg.Host.LoadTelemetrySeconds) * time.Second,
+		FollowRollouts:   hostRollouts(cfg, key, controllerKey),
 		VolumeInitSocket: "/run/terrascale-orchestrator-volume-init.sock",
 		// The activation proof follows native recovery, so a release whose
 		// agent cannot recover its workloads is never confirmed.
@@ -395,6 +399,19 @@ func readPrivateKey(path string) (ed25519.PrivateKey, error) {
 		return nil, errors.New("private key must contain 64 Ed25519 bytes")
 	}
 	return ed25519.PrivateKey(decoded), nil
+}
+
+// hostRollouts makes a production host agent take part in the cell's
+// orchestrator rollouts; the node's self-update watchdog applies the steps
+// it spools, with the same rule (selfupdate/cli).
+func hostRollouts(cfg Config, identity ed25519.PrivateKey, controller ed25519.PublicKey,
+) func(context.Context, host.RolloutSession) {
+	if cfg.NATS.Lab {
+		return nil
+	}
+	return followHostRollouts(hostRollout{cell: cfg.NATS.Cell, node: cfg.Host.Node, identity: identity,
+		controller: controller, spool: rolloutexec.HostSpoolDir, stateRoot: cfg.Host.StateRoot,
+		layout: selfupdate.NewLayout(cmp.Or(cfg.Host.SelfUpdateRoot, selfupdate.DefaultRoot))})
 }
 
 func decodePublicKey(encoded string) (ed25519.PublicKey, error) {

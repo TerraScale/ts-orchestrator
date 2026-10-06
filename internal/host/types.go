@@ -261,6 +261,9 @@ type AgentConfig struct {
 	// LoadInterval, when nonzero, publishes host load telemetry that often
 	// (5s..1h). Zero, the default, never samples or sends load.
 	LoadInterval time.Duration
+	// FollowRollouts, when set, takes part in the cell's orchestrator
+	// rollouts over this agent's session (rollout.go) until ctx ends.
+	FollowRollouts func(ctx context.Context, session RolloutSession)
 	// SecretResolver reads a desired's Vault secrets at each start; nil
 	// refuses a desired with secrets.
 	SecretResolver func(context.Context, map[string]vaultsecret.Ref) (map[string]string, error)

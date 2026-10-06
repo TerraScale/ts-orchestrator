@@ -104,21 +104,23 @@ func ReleaseRolloutID(generation uint64) string { return fmt.Sprintf("release-g%
 // ReleaseProgram derives the executor's program from the cell's desired
 // release (rollout.Store.Desired): the controllers that do not run it yet
 // move to it from the release they all prove now, one per wave and the seed
-// last. A started rollout keeps the units and predecessor it began with.
-// Nothing starts while the cell is paused, has no desired release, already
-// runs it everywhere, or knows it as bad.
+// last, and once they completed, the hosts do the same, one seat of a
+// TerraBase partition at a time. A started rollout keeps the units and
+// predecessor it began with. Nothing starts while the cell is paused, has no
+// desired release, already runs it everywhere, or knows it as bad.
 //
-// ponytail: controllers only; hosts join once their steps and proofs travel
-// over the host session (the second program rollout of SelfUpdateProgram).
-// A controller that falls behind after its generation completed waits for
-// the next generation.
+// ponytail: a unit that falls behind after its generation's rollout
+// completed waits for the next generation.
 type ReleaseProgram struct {
 	Store       *rollout.Store
 	Proofs      ProofSource
 	Controllers []rollout.Unit
-	Policy      rollout.Policy
-	Freshness   time.Duration
-	Now         func() time.Time
+	// Hosts returns the cell's host units (HostUnits) once the controllers
+	// completed; nil moves no host.
+	Hosts     func(ctx context.Context) ([]rollout.Unit, error)
+	Policy    rollout.Policy
+	Freshness time.Duration
+	Now       func() time.Time
 }
 
 // Program implements Executor.Program.
@@ -132,22 +134,55 @@ func (p ReleaseProgram) Program(ctx context.Context) (Program, error) {
 		return nil, nil
 	}
 	id := ReleaseRolloutID(release.Generation)
-	existing, _, err := p.Store.Load(ctx, id+"-controllers")
+	var program Program
+	controllers, done, err := p.rollout(ctx, id+"-controllers", rollout.KindController, p.Controllers, desired)
+	if err != nil {
+		return nil, err
+	}
+	if controllers != nil {
+		program = append(program, *controllers)
+	}
+	if controllers != nil && !done || p.Hosts == nil {
+		return program, nil
+	}
+	units, err := p.Hosts(ctx)
+	if err != nil || len(units) == 0 {
+		return program, err
+	}
+	hosts, _, err := p.rollout(ctx, id+"-hosts", rollout.KindHost, units, desired)
+	if err != nil {
+		return nil, err
+	}
+	if hosts != nil {
+		program = append(program, *hosts)
+	}
+	return program, nil
+}
+
+// rollout returns the generation's rollout of units: the stored one once it
+// began (done when it completed), else one for the units that do not run
+// the release yet, nil when there are none.
+func (p ReleaseProgram) rollout(ctx context.Context, id string, kind rollout.Kind, units []rollout.Unit,
+	desired rollout.Desired,
+) (*rollout.Spec, bool, error) {
+	existing, _, err := p.Store.Load(ctx, id)
 	if err == nil {
 		// The stored plan is this generation's step, whatever it ended as.
-		return Program{existingSpec(existing)}, nil
+		spec := existingSpec(existing)
+		return &spec, existing.Phase == rollout.PhaseComplete, nil
 	}
 	if !errors.Is(err, jetstream.ErrKeyNotFound) {
-		return nil, err
+		return nil, false, err
 	}
-	units, from, err := p.Behind(p.Controllers, release.Digest)
-	if err != nil || len(units) == 0 {
-		return nil, err
+	behind, from, err := p.Behind(units, desired.Release.Digest)
+	if err != nil || len(behind) == 0 {
+		return nil, false, err
 	}
-	if bad, err := p.Store.IsKnownBad(ctx, release.Digest); err != nil || bad {
-		return nil, err
+	if bad, err := p.Store.IsKnownBad(ctx, desired.Release.Digest); err != nil || bad {
+		return nil, false, err
 	}
-	return SelfUpdateProgram(id, desired.Cell, from, release.Digest, units, nil, p.Policy), nil
+	return &rollout.Spec{RolloutID: id, Kind: kind, Cell: desired.Cell, FromDigest: from,
+		ToDigest: desired.Release.Digest, Units: behind, Policy: p.Policy}, false, nil
 }
 
 func existingSpec(record rollout.Record) rollout.Spec {

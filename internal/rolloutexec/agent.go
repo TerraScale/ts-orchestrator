@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
-
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -19,25 +17,6 @@ import (
 // and returns the staged digest.
 type Fetcher interface {
 	Fetch(ctx context.Context, layout selfupdate.Layout, receipt, delegation []byte) (string, error)
-}
-
-// ArtifactStoreFetcher stages from the signed delivery artifact store over
-// NATS, checking every chunk and the object digest. Controllers use it; a
-// host stages through its controller session's chunked artifact path.
-type ArtifactStoreFetcher struct {
-	JS       jetstream.JetStream
-	Store    selfupdate.ArtifactStore
-	Verifier selfupdate.Verifier
-	Now      func() time.Time
-}
-
-// Fetch implements Fetcher.
-func (f ArtifactStoreFetcher) Fetch(ctx context.Context, layout selfupdate.Layout, receipt, delegation []byte) (string, error) {
-	now := time.Now
-	if f.Now != nil {
-		now = f.Now
-	}
-	return selfupdate.StageFromArtifactStore(ctx, layout, f.JS, f.Store, receipt, delegation, f.Verifier, now())
 }
 
 // Agent applies leader-signed steps to one unit's release root. It runs as

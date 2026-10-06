@@ -59,7 +59,7 @@ func newBoardFixture(t *testing.T) *boardFixture {
 		verifier: selfupdate.ReceiptPolicy{Roots: roots, Environment: "canary", Architecture: runtime.GOARCH}}
 	clock := func() time.Time { return now }
 	f.driver = KVDriver{KV: kv, Cell: "gru", Key: key, Releases: fixedReceipt{receipt, delegation}, Now: clock}
-	f.relay = &Relay{KV: kv, Cell: "gru", Unit: "ctl-b", Leaders: keys, Dir: f.spool, Layout: layout, Now: clock,
+	f.relay = &Relay{KV: kv, Cell: "gru", Unit: "ctl-b", SystemdUnit: agentUnit, Leaders: keys, Dir: f.spool, Layout: layout, Now: clock,
 		Sources: []BinarySource{func(_ context.Context, _ string, dst io.Writer) error {
 			_, err := dst.Write(f.target)
 			return err
@@ -88,7 +88,7 @@ func (f *boardFixture) apply(t *testing.T) {
 
 func (f *boardFixture) reply(t *testing.T) (StepReply, bool) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(f.agent.Layout.Root, ReplyFile))
+	data, err := os.ReadFile(filepath.Join(f.agent.Layout.Root, ReplyFile(agentUnit)))
 	if errors.Is(err, os.ErrNotExist) {
 		return StepReply{}, false
 	}

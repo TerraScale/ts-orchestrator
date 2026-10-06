@@ -28,12 +28,18 @@ const (
 	// state directory: the newest verified step of the unit and the release
 	// binary it names when the node has not staged it.
 	DefaultSpoolDir = "/var/lib/terrascale-orchestrator-controller/rollout"
-	// ReplyFile is the root step agent's newest reply, in the release root.
-	ReplyFile            = "rollout-reply.json"
+	// HostSpoolDir is the host agent's relay directory.
+	HostSpoolDir         = "/var/lib/terrascale-orchestrator-host/rollout"
 	spoolStep            = "step.json"
 	spoolReleasePrefix   = "release-"
 	defaultRelayInterval = 2 * time.Second
 )
+
+// ReplyFile is the root step agent's newest reply for systemdUnit, in the
+// release root a controller and a host on one node share.
+func ReplyFile(systemdUnit string) string {
+	return "rollout-reply-" + strings.TrimSuffix(systemdUnit, ".service") + ".json"
+}
 
 // BinarySource writes the release binary with digest to dst.
 type BinarySource func(ctx context.Context, digest string, dst io.Writer) error
@@ -44,11 +50,14 @@ type BinarySource func(ctx context.Context, digest string, dst io.Writer) error
 // leader. The agent verifies every byte it is handed; the relay only moves
 // them.
 type Relay struct {
-	KV      jetstream.KeyValue
-	Cell    string
-	Unit    string
-	Leaders trust.Keyring
-	Dir     string
+	// KV is the step board Run and Pass use; a host's relay, which gets its
+	// steps over its session, calls Spool and Reply instead.
+	KV          jetstream.KeyValue
+	Cell        string
+	Unit        string
+	SystemdUnit string
+	Leaders     trust.Keyring
+	Dir         string
 	// Layout is the node's release root, read only here.
 	Layout selfupdate.Layout
 	// Sources are tried in order for a release the node has not staged.
@@ -93,16 +102,16 @@ func (r *Relay) Pass(ctx context.Context) error {
 	case err != nil:
 		return err
 	default:
-		err = r.spool(ctx, entry.Value())
+		err = r.Spool(ctx, entry.Value())
 	}
 	return errors.Join(err, r.relayReply(ctx))
 }
 
-// spool hands a current step to the agent, after the binary it names, so
+// Spool hands a current step to the agent, after the binary it names, so
 // the agent rarely sees a step whose release is still downloading. A failed
 // download still spools the step: the agent's retry reply tells the leader
 // why nothing moves.
-func (r *Relay) spool(ctx context.Context, wire []byte) error {
+func (r *Relay) Spool(ctx context.Context, wire []byte) error {
 	command, _, err := VerifyStepCommand(wire, r.Cell, r.Unit, r.Leaders, r.now())
 	if err != nil {
 		// Expired, or not this unit's: the leader posts a fresh one.
@@ -146,18 +155,28 @@ func (r *Relay) fetch(ctx context.Context, digest string) error {
 	return fmt.Errorf("fetch release %s: %w", short(digest), errors.Join(failures...))
 }
 
-// relayReply posts the agent's newest reply to the unit's reply key.
-func (r *Relay) relayReply(ctx context.Context) error {
-	data, err := os.ReadFile(filepath.Join(r.Layout.Root, ReplyFile))
+// Reply returns the agent's newest reply for the unit, nil when it has
+// none.
+func (r *Relay) Reply() ([]byte, error) {
+	data, err := os.ReadFile(filepath.Join(r.Layout.Root, ReplyFile(r.SystemdUnit)))
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+		return nil, nil
 	}
-	if err != nil || bytes.Equal(data, r.relayed) {
-		return err
+	if err != nil {
+		return nil, err
 	}
 	var reply StepReply
 	if len(data) > maxReplyBytes || json.Unmarshal(data, &reply) != nil || reply.Unit != r.Unit {
-		return fmt.Errorf("%w: rollout step reply", ErrInvalid)
+		return nil, fmt.Errorf("%w: rollout step reply", ErrInvalid)
+	}
+	return data, nil
+}
+
+// relayReply posts the agent's newest reply to the unit's reply key.
+func (r *Relay) relayReply(ctx context.Context) error {
+	data, err := r.Reply()
+	if err != nil || data == nil || bytes.Equal(data, r.relayed) {
+		return err
 	}
 	if _, err := r.KV.Put(ctx, ReplyKey(r.Unit), data); err != nil {
 		return err
@@ -243,7 +262,7 @@ func ApplySpooled(ctx context.Context, agent *Agent, dir string, verifier selfup
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(filepath.Join(agent.Layout.Root, ReplyFile), data, 0o644)
+	return writeFileAtomic(filepath.Join(agent.Layout.Root, ReplyFile(agent.SystemdUnit)), data, 0o644)
 }
 
 // spoolFetcher stages a release from the binary the relay spooled. Stage

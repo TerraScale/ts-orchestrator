@@ -467,6 +467,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			return err
 		}
 		restartGate = seatStore.Granted
+		policy.rollouts.drainedSeats = seatStore.Drained
 	}
 	hostController, _, err := retryControllerOpen(ctx, "open regional host control", fullClusterReady, false,
 		func(attempt context.Context) (*host.Controller, error) {
@@ -713,7 +714,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if store, ok := rollouts.(*rollout.Store); ok {
 		policy.rollouts.store.Store(store)
 		if cfg.Controller.Rollouts.Executor {
-			rolloutExecutor, err = policy.rollouts.start(runCtx, cfg, runtime, control, responseKey)
+			rolloutExecutor, err = policy.rollouts.start(runCtx, cfg, runtime, control, responseKey, hostController)
+			if err == nil {
+				hostController.SetRolloutSink(policy.rollouts)
+			}
 			if err != nil && defaultRollouts {
 				slog.Error("rollout executor did not start; this controller takes no part in self-updates",
 					observability.ComponentKey, "rollout", "error", err)
@@ -757,6 +761,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	if seatStore != nil {
 		seats := newSeatController(cfg, seatStore, control, hostController, services.profiles, ociReconcile)
+		seats.Hold = policy.rollouts.hostRolloutActive
 		workers.Go(func() { workerErrors <- seats.Run(runCtx) })
 	}
 	if membershipSupervisor != nil {

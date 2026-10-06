@@ -31,7 +31,7 @@ done
 [[ $(git rev-parse HEAD) == "$SOURCE_SHA" ]] || { echo 'checked-out source differs from the deployed revision' >&2; exit 1; }
 read -ra cells <<< "$TS_AUTO_DEPLOY_CELLS"
 read -ra architectures <<< "${TS_AUTO_DEPLOY_ARCHES:-arm64}"
-# deploy.yml's timeout-minutes allows three 90-minute region waits.
+# deploy.yml's timeout-minutes allows the 30-minute region waits of three cells.
 ((${#cells[@]} >= 1 && ${#cells[@]} <= 3)) || { echo 'TS_AUTO_DEPLOY_CELLS must name one to three cells' >&2; exit 2; }
 
 umask 077

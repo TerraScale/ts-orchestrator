@@ -194,8 +194,10 @@ executable on a running node with an A/B layout:
 
 1. **Distribute.** The qualified binary (about 46 MB, under the 512 MiB
    artifact bound) is uploaded through the existing signed delivery artifact
-   store. A controller fetches it by digest over NATS with per-chunk and
-   object digest checks (`selfupdate.StageFromArtifactStore`).
+   store or the region's release channel. A controller fetches it by
+   digest and a host gets it in chunks from the authority leader over its
+   session; the step agent stages it only through the receipt and digest
+   checks below (see [step delivery](#step-delivery)).
 2. **Stage.** `ts-orch selfupdate stage` verifies the release receipt
    (`internal/release`) for the node's environment, cell and architecture
    *before* keeping any byte, copies the binary while hashing it, requires the
@@ -463,9 +465,6 @@ disabled nothing changes; the operator's `known-bad/` directory still applies.
   gate holds, hold releases and every accepted step, chained under the
   release admission.
 
-Remaining: host steps and proofs over the host session with the chunked
-artifact path.
-
 ### Step delivery
 
 The controller runs unprivileged and cannot write the release root, and the
@@ -492,11 +491,24 @@ so material issued before this change carries steps too.
    never answers a later attempt of the same operation; stages a fetched
    binary only through `selfupdate.Stage`, which verifies the receipt
    against the node's baked roots and the exact bytes; and writes its reply
-   to `/var/lib/terrascale-orchestrator/rollout-reply.json`. The watchdog
-   then serves the restart the step owes the unit.
+   to `/var/lib/terrascale-orchestrator/rollout-reply-<unit>.json`. The
+   watchdog then serves the restart the step owes the unit.
 4. The relay posts that reply to the unit's reply key. A reply carries the
    step's authority epoch, so a deposed leader's late copy of an operation
    never answers its successor.
+
+A host cannot read the rollout bucket or publish proofs, so its steps and
+proofs travel its signed host session instead. Every 5 s the agent sends the
+`rollout` operation to the authority leader: its health proof, signed with
+its registered identity key, and its step agent's newest reply; the leader
+verifies the proof against the host's registration, posts the reply to the
+host's reply key and answers with the host's pending step. The agent spools
+it in `/var/lib/terrascale-orchestrator-host/rollout/` and fetches the
+release it names in 256 KiB chunks (`rollout-binary`) from the leader's own
+release root, which holds both the release a host moves to and the one it
+may return to because the controllers moved first. The watchdog of the host
+unit applies the step, verifying the leader's signature with the controller
+key `host.json` pins.
 
 The agent runs where the controller's executor runs, with the same default:
 a production controller config without `controller.rollouts`, or one with
@@ -556,10 +568,52 @@ back. Units prove themselves every 5 s, and the leader's executor acts as a
 proof arrives or the rollout bucket changes (a new generation, a step reply,
 an operator's request), not only on its 5 s tick. `controller.rollouts.policy`
 overrides the policy, and a [cell spec](cell-spec.md) `rollout_policy` overrides
-that on running controllers for the next rollout. Hosts join
-once their steps and proofs travel over the host session. Each controller
-relays its own steps to its node's root step agent (see
-[step delivery](#step-delivery)).
+that on running controllers for the next rollout. Each controller relays its
+own steps to its node's root step agent (see [step delivery](#step-delivery)).
+
+Once the controllers completed, `release-g<N>-hosts` moves the hosts the
+same way. A host joins the release program with its first `rollout`
+exchange, which the leader records in the rollout bucket with the host's
+registered key: a joined host that stops proving holds the host rollout
+instead of being left out, a host whose binary predates host self-update
+never holds a release, and a host replaced under its name is a stranger
+until it proves with its new key. A host on a controller's VM shares the
+controller's release root, so it is left out of the host rollout (a step
+there would move the controller's link; the leader refuses its exchanges and
+its watchdog applies no host step) and runs the controller's release from its
+next restart. The leader accepts one exchange per host per proof interval
+and replies of at most 4 KiB.
+
+TerraBase hosts are grouped by their placement partition, or all together
+when it is unknown, so a wave restarts one seat of a partition at a time
+(restarting a host agent stops its members until the new agent recovers
+them). Before each host step the leader also waits:
+
+- while the host says an operator holds its restarts (TS-578: any
+  `<role>-restart-hold` file in its state root); its agent spools no step
+  meanwhile;
+- with `controller.terrabase_seats`, while the seat controller has a seat
+  out of rotation; and the seat controller starts no seat restart while a
+  host rollout is active, so a TerraBase release waits for it;
+- for a host with a TerraBase member, until every TerraBase member of the
+  cell reports `running` (its `/readyz` included) at its desired generation
+  within the report age: the previous host's member serves again before the
+  next host restarts, a member down for any other reason holds every host
+  step, and no TerraBase release is restarting a seat meanwhile.
+
+The restarting seat is not drained first: the load balancer stops sending
+it requests once its health check fails, and requests in flight to it fail;
+routing host restarts through a seat drain needs the seat records to hold
+one (TS-571). The steady-state check covers static TerraBase members
+(`terrabase` desired), not managed placement members. A host accepts scoped
+update receipts by default and has no separate opt-out; the leader, which
+signs every step, honours the controller's `allow_scoped_auto_sign`.
+
+The channel reports a generation complete once the controllers' rollout and
+the hosts' completed. Hosts that cannot start their rollout (a joined host
+does not prove itself, or the hosts run different releases) do not hold the
+region: the report is complete, and its reason says why the hosts wait; a
+host rollout that rolls back reports the generation failed.
 
 Operators drive it with `ts-orch rollout`, signed requests on the host
 registration subject that only the leader answers. Any trusted signer of the
@@ -706,8 +760,8 @@ Limits of this part:
   A cell founded on an older image needs that release once by hand
   (`ts-orch selfupdate stage` and `activate --restart` on each controller,
   as root); from then on CI moves it.
-- Host agents are not moved yet: their steps and proofs need the host
-  session.
+- Hosts join the same way: the first release with host self-update reaches
+  a host by hand, or with a rebuilt image.
 - Forgejo repository secrets reach any workflow pushed to the repository,
   so every account with write access can obtain `TS_DEPLOY_OCI_KEY`, read
   the leaf and sign any binary for the delegation's cells, architectures and

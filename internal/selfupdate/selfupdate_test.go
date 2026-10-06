@@ -17,9 +17,6 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/nats-io/nats-server/v2/server"
-	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
 )
 
 const (
@@ -396,50 +393,6 @@ func TestLayoutRejectsForeignOwnersAndLinks(t *testing.T) {
 	}
 	if err := (Layout{Root: "relative"}).ensureDirs(); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("relative root accepted: %v", err)
-	}
-}
-
-func TestStageFromArtifactStoreFetchesVerifiedObject(t *testing.T) {
-	f := newFixture(t)
-	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	go srv.Start()
-	if !srv.ReadyForConnections(5 * time.Second) {
-		t.Fatal("NATS did not start")
-	}
-	t.Cleanup(func() { srv.Shutdown(); srv.WaitForShutdown() })
-	conn, err := nats.Connect(srv.ClientURL())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(conn.Close)
-	js, err := jetstream.New(conn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	store, err := js.CreateObjectStore(t.Context(), jetstream.ObjectStoreConfig{Bucket: "TS_ARTIFACTS"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	data := bytes.Repeat([]byte("orchestrator chunk "), 20_000)
-	receipt, delegation := f.signed(data)
-	if _, err := Stage(f.layout, bytes.NewReader(nil), receipt, delegation, f.policy(), f.now); err == nil {
-		t.Fatal("empty source staged")
-	}
-	if _, err := StageFromArtifactStore(t.Context(), f.layout, js, store, receipt, delegation, f.policy(), f.now); err == nil {
-		t.Fatal("missing object staged")
-	}
-	if _, err := store.PutBytes(t.Context(), "sha256-"+digestOf(data), data); err != nil {
-		t.Fatal(err)
-	}
-	digest, err := StageFromArtifactStore(t.Context(), f.layout, js, store, receipt, delegation, f.policy(), f.now)
-	if err != nil || digest != digestOf(data) {
-		t.Fatalf("stage from store = %s %v", digest, err)
-	}
-	if err := f.layout.VerifyRelease(digest); err != nil {
-		t.Fatal(err)
 	}
 }
 

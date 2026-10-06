@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -247,9 +248,9 @@ func (c command) watchdog(args []string) error {
 	}
 	// The rollout step runs after the check, so a slow or stuck step never
 	// delays a rollback, and before the restart below serves what it owes.
-	if !delegated && *restart && *unit == selfupdate.ControllerUnit && *proof.config != "" {
+	if !delegated && *restart && (*unit == selfupdate.ControllerUnit || *unit == selfupdate.HostUnit) && *proof.config != "" {
 		unlock()
-		c.rolloutStep(layout.layout(), *proof.config)
+		c.rolloutStep(layout.layout(), *unit, *proof.config)
 		if unlock, err = layout.layout().Lock(); err != nil {
 			return err
 		}
@@ -478,44 +479,69 @@ func (c command) backstopPrepare(layout selfupdate.Layout, unit string) error {
 	return nil
 }
 
-// The controller's step spool and the image's trust roots; tests replace them.
+// The step spools of the controller and the host, and the image's trust
+// roots; tests replace them.
 var (
 	rolloutSpoolDir = rolloutexec.DefaultSpoolDir
+	hostSpoolDir    = rolloutexec.HostSpoolDir
 	bakedInputs     = bootstrapstart.LoadBakedInputs
 )
 
-// rolloutStep is the node's root step agent: it applies the rollout step
-// the controller spooled (rolloutexec.ApplySpooled), verifying the leader's
-// signature and staging a release only from a receipt this node's baked
-// roots verify. It runs where the controller's executor is on, with the
-// same production default as the controller (app.rolloutSettings): a
-// production config without a rollouts block. A problem is logged, never
-// returned, so the watchdog's own check always runs.
-func (c command) rolloutStep(layout selfupdate.Layout, configPath string) {
+// rolloutStep is the node's root step agent for unit: it applies the
+// rollout step the unit's process spooled (rolloutexec.ApplySpooled),
+// verifying the leader's signature and staging a release only from a
+// receipt this node's baked roots verify. It runs where the unit takes part
+// in rollouts, with the same production defaults as the unit's process
+// (app.rolloutSettings, app.hostRolloutSpool): a controller config without
+// a rollouts block or with the executor on, and a host that is not a lab.
+// A problem is logged, never returned, so the watchdog's own check always
+// runs.
+func (c command) rolloutStep(layout selfupdate.Layout, unit, configPath string) {
 	role, err := readRolloutRole(configPath)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			slog.Warn("rollout step agent: controller config is unusable", "config", configPath, "error", err)
+			slog.Warn("rollout step agent: role config is unusable", "config", configPath, "error", err)
 		}
 		return
 	}
-	defaults := role.Controller.Rollouts == nil && !role.NATS.Lab
-	if !defaults && (role.Controller.Rollouts == nil || !role.Controller.Rollouts.Executor) {
+	node, spool, allowScoped := role.Host.Node, hostSpoolDir, true
+	var public ed25519.PublicKey
+	if unit == selfupdate.ControllerUnit {
+		defaults := role.Controller.Rollouts == nil && !role.NATS.Lab
+		if !defaults && (role.Controller.Rollouts == nil || !role.Controller.Rollouts.Executor) {
+			return
+		}
+		node, spool = role.NATS.Instance, rolloutSpoolDir
+		allowScoped = defaults || role.Controller.Rollouts.AllowScopedAutoSign
+		public, err = readIdentityPublicKey(role.Controller.ResponseKeyFile)
+	} else {
+		// A host on a controller's VM shares its release root and moves with
+		// the controller; a step for it would move the controller's link.
+		if _, err := os.Stat(filepath.Join(filepath.Dir(configPath), "controller.json")); err == nil {
+			return
+		}
+		if role.NATS.Lab || role.Host.Node == "" {
+			return
+		}
+		var decoded []byte
+		decoded, err = base64.StdEncoding.DecodeString(strings.TrimSpace(role.Host.ControllerPublicKey))
+		if err == nil && len(decoded) != ed25519.PublicKeySize {
+			err = errors.New("not an Ed25519 public key")
+		}
+		public = decoded
+	}
+	if err != nil {
+		slog.Warn("rollout step agent: the leaders' key is unusable", "error", err)
+		return
+	}
+	leaders, err := trust.ParseKeyring(public)
+	if err != nil {
+		slog.Warn("rollout step agent: the leaders' key is unusable", "error", err)
 		return
 	}
 	baked, err := bakedInputs()
 	if err != nil {
 		slog.Warn("rollout step agent: image trust roots are unusable", "error", err)
-		return
-	}
-	public, err := readIdentityPublicKey(role.Controller.ResponseKeyFile)
-	if err != nil {
-		slog.Warn("rollout step agent: controller response key is unusable", "error", err)
-		return
-	}
-	leaders, err := trust.ParseKeyring(public)
-	if err != nil {
-		slog.Warn("rollout step agent: controller response key is unusable", "error", err)
 		return
 	}
 	// Only the chain's current roots admit a release, as on the leader.
@@ -525,18 +551,16 @@ func (c command) rolloutStep(layout selfupdate.Layout, configPath string) {
 		return
 	}
 	verifier := selfupdate.ReceiptPolicy{Roots: roots.Current, Environment: baked.Identity.Environment,
-		Cell: strings.ToUpper(role.NATS.Cell), Architecture: runtime.GOARCH,
-		AllowScopedAutoSign: defaults || role.Controller.Rollouts.AllowScopedAutoSign}
-	agent := &rolloutexec.Agent{Cell: role.NATS.Cell, Unit: role.NATS.Instance, SystemdUnit: selfupdate.ControllerUnit,
-		Layout: layout, Leaders: leaders, Now: c.now,
-		Restart: func(context.Context, string) error { return nil }}
-	if err := rolloutexec.ApplySpooled(c.ctx, agent, rolloutSpoolDir, verifier); err != nil {
+		Cell: strings.ToUpper(role.NATS.Cell), Architecture: runtime.GOARCH, AllowScopedAutoSign: allowScoped}
+	agent := &rolloutexec.Agent{Cell: role.NATS.Cell, Unit: node, SystemdUnit: unit, Layout: layout, Leaders: leaders,
+		Now: c.now, Restart: func(context.Context, string) error { return nil }}
+	if err := rolloutexec.ApplySpooled(c.ctx, agent, spool, verifier); err != nil {
 		slog.Warn("rollout step agent", "error", err)
 	}
 }
 
-// rolloutRole is the part of a controller config the step agent reads,
-// decoded leniently like roleProof.
+// rolloutRole is the part of a controller or host config the step agent
+// reads, decoded leniently like roleProof.
 type rolloutRole struct {
 	NATS struct {
 		Cell     string `json:"cell"`
@@ -550,6 +574,10 @@ type rolloutRole struct {
 			AllowScopedAutoSign bool `json:"allow_scoped_auto_sign"`
 		} `json:"rollouts"`
 	} `json:"controller"`
+	Host struct {
+		Node                string `json:"node"`
+		ControllerPublicKey string `json:"controller_public_key"`
+	} `json:"host"`
 }
 
 func readRolloutRole(path string) (rolloutRole, error) {

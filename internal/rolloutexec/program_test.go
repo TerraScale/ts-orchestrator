@@ -1,6 +1,7 @@
 package rolloutexec
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -202,5 +203,35 @@ func TestReleaseProgramWaitsForEveryControllerToProveOneRelease(t *testing.T) {
 	}
 	if steps := h.fleet.stepLog(); len(steps) != 0 {
 		t.Fatalf("units moved: %v", steps)
+	}
+}
+
+// Hosts move after the controllers completed, one seat of a TerraBase
+// partition at a time; a silent host holds only the host rollout.
+func TestReleaseProgramMovesTheHostsAfterTheControllers(t *testing.T) {
+	h, program := releaseHarness(t)
+	hosts := HostUnits(map[string][]string{"h1": {"p1"}, "h2": {"p1"}, "h3": nil})
+	program.Hosts = func(context.Context) ([]rollout.Unit, error) { return hosts, nil }
+	h.executor.Program = program.Program
+	h.fleet.units["h3"].down = true
+	h.publish(fromDigest)
+	h.publish(toDigest)
+	h.run(50, func() bool { return h.phase("release-g2-controllers") == rollout.PhaseComplete })
+	if steps := h.fleet.stepLog(); slices.ContainsFunc(steps, func(step string) bool { return strings.Contains(step, ":h") }) {
+		t.Fatalf("a host moved before the controllers completed: %v", steps)
+	}
+	if _, err := program.Program(t.Context()); err == nil || !strings.Contains(err.Error(), "h3 has no fresh health proof") {
+		t.Fatalf("host program with a silent host: %v", err)
+	}
+	h.fleet.units["h3"].down = false
+	h.run(80, func() bool { return h.phase("release-g2-hosts") == rollout.PhaseComplete })
+	if got := h.digests("h1", "h2", "h3"); !slices.Equal(got, []string{toDigest, toDigest, toDigest}) {
+		t.Fatalf("host digests = %v", got)
+	}
+	record, _ := h.load("release-g2-hosts")
+	for _, wave := range record.Waves {
+		if slices.Contains(wave, "h1") && slices.Contains(wave, "h2") {
+			t.Fatalf("a wave took both seats of p1: %v", record.Waves)
+		}
 	}
 }

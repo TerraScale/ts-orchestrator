@@ -296,7 +296,7 @@ func startRolloutTestCell(t *testing.T, ctx context.Context, config rolloutTestC
 		}
 		rollouts.store.Store(cell.stores[index])
 		rollouts.ready.Store(true)
-		run, err := rollouts.start(ctx, cfg, runtime, control, config.responseKey)
+		run, err := rollouts.start(ctx, cfg, runtime, control, config.responseKey, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

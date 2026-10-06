@@ -382,43 +382,70 @@ func channelGeneration(ctx context.Context, store *rollout.Store, epoch uint64, 
 	return published, "", nil
 }
 
-// generationState is the progress of one generation's controller rollout.
+// generationState is the progress of one generation's rollouts: the
+// controllers', then the hosts'. A part with no rollout is complete once
+// every one of its units already runs the release. Hosts that cannot start
+// their rollout (one does not prove itself, or they run different releases)
+// do not hold the region: CI moves on, and the reason says why they wait.
 func (c *rolloutControl) generationState(ctx context.Context, store *rollout.Store, generation rollout.Release,
 ) (releasechannel.State, string, error) {
-	record, _, err := store.Load(ctx, rolloutexec.ReleaseRolloutID(generation.Generation)+"-controllers")
-	if err == nil {
-		switch record.Phase {
-		case rollout.PhaseComplete:
-			return releasechannel.StateComplete, "", nil
-		case rollout.PhaseRolledBack, rollout.PhaseAborted, rollout.PhaseFrozen:
-			return releasechannel.StateFailed, fmt.Sprintf("%s %s: %s", record.RolloutID, record.Phase, record.Reason), nil
+	parts := []struct {
+		suffix string
+		units  func(context.Context) ([]rollout.Unit, error)
+	}{
+		{"-controllers", func(context.Context) ([]rollout.Unit, error) { return c.program.Controllers, nil }},
+		{"-hosts", c.program.Hosts},
+	}
+	note := ""
+	for _, part := range parts {
+		if part.units == nil {
+			continue
 		}
-		return releasechannel.StateRolling, fmt.Sprintf("%s %s", record.RolloutID, record.Phase), nil
+		record, _, err := store.Load(ctx, rolloutexec.ReleaseRolloutID(generation.Generation)+part.suffix)
+		if err == nil {
+			switch record.Phase {
+			case rollout.PhaseComplete:
+				continue
+			case rollout.PhaseRolledBack, rollout.PhaseAborted, rollout.PhaseFrozen:
+				return releasechannel.StateFailed, fmt.Sprintf("%s %s: %s", record.RolloutID, record.Phase, record.Reason), nil
+			}
+			return releasechannel.StateRolling, fmt.Sprintf("%s %s", record.RolloutID, record.Phase), nil
+		}
+		if !errors.Is(err, jetstream.ErrKeyNotFound) {
+			return "", "", err
+		}
+		// No rollout of this part started (yet) for this generation.
+		desired, _, err := store.Desired(ctx)
+		if err != nil {
+			return "", "", err
+		}
+		if desired.Generation() != generation.Generation {
+			return releasechannel.StateFailed, fmt.Sprintf("generation %d was replaced by generation %d before it rolled out",
+				generation.Generation, desired.Generation()), nil
+		}
+		if bad, err := store.IsKnownBad(ctx, generation.Digest); err != nil || bad {
+			return releasechannel.StateFailed, "the release is known bad in this cell", err
+		}
+		if desired.Paused {
+			return releasechannel.StateRolling, "the cell's rollouts are paused", nil
+		}
+		units, err := part.units(ctx)
+		if err != nil {
+			return releasechannel.StateRolling, "the cell's hosts are unreadable: " + err.Error(), nil
+		}
+		behind, _, err := c.program.Behind(units, generation.Digest)
+		if err == nil && len(behind) == 0 {
+			continue
+		}
+		if err != nil && part.suffix == "-hosts" {
+			note = "the hosts wait: " + err.Error()
+			continue
+		}
+		reason := "waiting for the rollout to start"
+		if status := c.status.Load(); status != nil && status.Waiting != "" {
+			reason = status.Waiting
+		}
+		return releasechannel.StateRolling, reason, nil
 	}
-	if !errors.Is(err, jetstream.ErrKeyNotFound) {
-		return "", "", err
-	}
-	// No rollout started (yet) for this generation.
-	desired, _, err := store.Desired(ctx)
-	if err != nil {
-		return "", "", err
-	}
-	if desired.Generation() != generation.Generation {
-		return releasechannel.StateFailed, fmt.Sprintf("generation %d was replaced by generation %d before it rolled out",
-			generation.Generation, desired.Generation()), nil
-	}
-	if bad, err := store.IsKnownBad(ctx, generation.Digest); err != nil || bad {
-		return releasechannel.StateFailed, "the release is known bad in this cell", err
-	}
-	if desired.Paused {
-		return releasechannel.StateRolling, "the cell's rollouts are paused", nil
-	}
-	if behind, _, err := c.program.Behind(c.program.Controllers, generation.Digest); err == nil && len(behind) == 0 {
-		return releasechannel.StateComplete, "every controller already runs it", nil
-	}
-	reason := "waiting for the rollout to start"
-	if status := c.status.Load(); status != nil && status.Waiting != "" {
-		reason = status.Waiting
-	}
-	return releasechannel.StateRolling, reason, nil
+	return releasechannel.StateComplete, note, nil
 }

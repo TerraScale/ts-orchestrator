@@ -483,3 +483,33 @@ func TestReleaseChannelBridgeCarriesCIsChannelInAndTheReportOut(t *testing.T) {
 		t.Fatalf("a forged status.json stayed: %+v", stored)
 	}
 }
+
+// proofsBy gives each unit its own release; a unit without one is silent.
+type proofsBy map[string]string
+
+func (p proofsBy) Latest(unit string) (rolloutexec.HealthProof, bool) {
+	digest, ok := p[unit]
+	now := time.Now().UTC()
+	return rolloutexec.HealthProof{Unit: unit, BinarySHA256: digest, ObservedAt: now, ReceivedAt: now}, ok
+}
+
+// Once the controllers run a generation, hosts that cannot start their
+// rollout do not hold the region (CI moves on, and the report says why),
+// while hosts that only wait for it keep it rolling.
+func TestReleaseChannelDoesNotWaitForHostsThatCannotStart(t *testing.T) {
+	f := newChannelFixture(t)
+	f.setChannel(t, f.signer.channel(t, "GRU", 620, []byte("run 620")))
+	target := digestOf([]byte("run 620"))
+	proofs := proofsBy{"ctl-a": target, "ctl-b": target}
+	f.control.program.Proofs = proofs
+	f.control.program.Hosts = func(context.Context) ([]rollout.Unit, error) {
+		return rolloutexec.HostUnits(map[string][]string{"gru-1-db-1": {"terrabase"}}), nil
+	}
+	if status := f.consume(t); status.State != releasechannel.StateComplete || !strings.Contains(status.Reason, "hosts wait") {
+		t.Fatalf("status with a silent host = %+v", status)
+	}
+	proofs["gru-1-db-1"] = strings.Repeat("a", 64)
+	if status := f.consume(t); status.State != releasechannel.StateRolling {
+		t.Fatalf("status with a host behind = %+v", status)
+	}
+}

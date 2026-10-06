@@ -22,26 +22,50 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
-// The controller's watchdog is the node's root step agent: with the
-// production default (no rollouts block) it applies the step the controller
-// spooled and restarts the unit the step owes a restart; a lab controller,
-// or one whose config turns the executor off, never applies one.
-func TestWatchdogAppliesTheControllersSpooledRolloutStep(t *testing.T) {
+// The watchdog is the node's root step agent: with the production default
+// (no rollouts block, a host that is not a lab) it applies the step the
+// unit's process spooled and restarts the unit the step owes a restart; a
+// lab, or a controller whose config turns the executor off, never applies
+// one.
+func TestWatchdogAppliesTheUnitsSpooledRolloutStep(t *testing.T) {
+	controller, host := selfupdate.ControllerUnit, selfupdate.HostUnit
 	for _, tc := range []struct {
-		name, nats, rollouts string
-		applied              bool
+		name, unit, node string
+		// config returns the role config for the response key file and the
+		// base64 public key.
+		config  func(keyFile, public string) string
+		applied bool
 	}{
-		{"production default", `"cell":"gru","instance":"ctl-a"`, "", true},
-		{"explicit executor", `"cell":"gru","instance":"ctl-a"`, `,"rollouts":{"enabled":true,"executor":true}`, true},
-		{"executor off", `"cell":"gru","instance":"ctl-a"`, `,"rollouts":{"enabled":true}`, false},
-		{"lab", `"cell":"gru","instance":"ctl-a","lab":true`, "", false},
+		{"production default", controller, "ctl-a", func(key, _ string) string {
+			return `{"nats":{"cell":"gru","instance":"ctl-a"},"controller":{"response_key_file":"` + key + `"}}`
+		}, true},
+		{"explicit executor", controller, "ctl-a", func(key, _ string) string {
+			return `{"nats":{"cell":"gru","instance":"ctl-a"},"controller":{"response_key_file":"` + key +
+				`","rollouts":{"enabled":true,"executor":true}}}`
+		}, true},
+		{"executor off", controller, "ctl-a", func(key, _ string) string {
+			return `{"nats":{"cell":"gru","instance":"ctl-a"},"controller":{"response_key_file":"` + key +
+				`","rollouts":{"enabled":true}}}`
+		}, false},
+		{"lab", controller, "ctl-a", func(key, _ string) string {
+			return `{"nats":{"cell":"gru","instance":"ctl-a","lab":true},"controller":{"response_key_file":"` + key + `"}}`
+		}, false},
+		{"production host", host, "gru-1-db-1", func(_, public string) string {
+			return `{"nats":{"cell":"gru"},"host":{"node":"gru-1-db-1","controller_public_key":"` + public + `"}}`
+		}, true},
+		{"host on a controller's VM", host, "gru-1-ctl-1", func(_, public string) string {
+			return `{"nats":{"cell":"gru"},"host":{"node":"gru-1-ctl-1","controller_public_key":"` + public + `"}}`
+		}, false},
+		{"lab host", host, "gru-1-db-1", func(_, public string) string {
+			return `{"nats":{"cell":"gru","lab":true},"host":{"node":"gru-1-db-1","controller_public_key":"` + public + `"}}`
+		}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			root := filepath.Join(dir, "root")
 			owner := fmt.Sprint(os.Getuid())
 			layout := selfupdate.Layout{Root: root, Owner: os.Getuid()}
-			unit := selfupdate.ControllerUnit
+			unit := tc.unit
 			baked := filepath.Join(dir, "baked")
 			if err := os.WriteFile(baked, []byte("baked build"), 0o755); err != nil {
 				t.Fatal(err)
@@ -81,8 +105,17 @@ func TestWatchdogAppliesTheControllersSpooledRolloutStep(t *testing.T) {
 				t.Fatal(err)
 			}
 			config := filepath.Join(dir, "controller.json")
-			if err := os.WriteFile(config, []byte(`{"nats":{`+tc.nats+`},"controller":{"response_key_file":"`+keyFile+`"`+
-				tc.rollouts+`}}`), 0o600); err != nil {
+			if unit == host {
+				config = filepath.Join(dir, "host.json")
+				// gru-1-ctl-1's host shares its VM with a controller.
+				if tc.node == "gru-1-ctl-1" {
+					if err := os.WriteFile(filepath.Join(dir, "controller.json"), []byte(`{}`), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			public := base64.StdEncoding.EncodeToString(key.Public().(ed25519.PublicKey))
+			if err := os.WriteFile(config, []byte(tc.config(keyFile, public)), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			spool := filepath.Join(dir, "spool")
@@ -90,8 +123,8 @@ func TestWatchdogAppliesTheControllersSpooledRolloutStep(t *testing.T) {
 				t.Fatal(err)
 			}
 			step, err := rolloutexec.SignStepCommand(rolloutexec.StepCommand{Schema: rolloutexec.StepSchema, Cell: "gru",
-				RolloutID: "release-g1-controllers", Kind: rollout.KindController, Unit: "ctl-a",
-				OperationID: rollout.OperationID("release-g1-controllers", "ctl-a", rollout.PhaseCanary, 0),
+				RolloutID: "release-g1-controllers", Kind: rollout.KindController, Unit: tc.node,
+				OperationID: rollout.OperationID("release-g1-controllers", tc.node, rollout.PhaseCanary, 0),
 				Action:      rolloutexec.StepPrepare, Digest: digest, Replaces: previous, Epoch: 3, ProofWindowSeconds: 60},
 				key, now, time.Time{})
 			if err != nil {
@@ -100,8 +133,8 @@ func TestWatchdogAppliesTheControllersSpooledRolloutStep(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(spool, "step.json"), step, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			previousSpool, previousBaked := rolloutSpoolDir, bakedInputs
-			rolloutSpoolDir = spool
+			previousSpool, previousHostSpool, previousBaked := rolloutSpoolDir, hostSpoolDir, bakedInputs
+			rolloutSpoolDir, hostSpoolDir = spool, spool
 			rootPublic, _, err := ed25519.GenerateKey(rand.Reader)
 			if err != nil {
 				t.Fatal(err)
@@ -114,7 +147,7 @@ func TestWatchdogAppliesTheControllersSpooledRolloutStep(t *testing.T) {
 				return bootstrapstart.BakedInputs{Genesis: genesis, Identity: bootstrapstart.BakedIdentity{
 					DeploymentID: "ts-560-test", Environment: "canary", Cell: "GRU"}}, nil
 			}
-			t.Cleanup(func() { rolloutSpoolDir, bakedInputs = previousSpool, previousBaked })
+			t.Cleanup(func() { rolloutSpoolDir, hostSpoolDir, bakedInputs = previousSpool, previousHostSpool, previousBaked })
 
 			if _, err := invoke("watchdog", "--root", root, "--owner", owner, "--unit", unit, "--config", config, "--restart"); err != nil {
 				t.Fatal(err)
@@ -123,7 +156,7 @@ func TestWatchdogAppliesTheControllersSpooledRolloutStep(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			data, replyErr := os.ReadFile(filepath.Join(root, rolloutexec.ReplyFile))
+			data, replyErr := os.ReadFile(filepath.Join(root, rolloutexec.ReplyFile(unit)))
 			if !tc.applied {
 				if pending || len(restarted) != 0 || replyErr == nil {
 					t.Fatalf("a step was applied: pending %v, restarts %v, reply %s", pending, restarted, data)

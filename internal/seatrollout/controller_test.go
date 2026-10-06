@@ -305,3 +305,19 @@ func TestAWithdrawnSeatStaysDrained(t *testing.T) {
 	}
 	c.expect(store, []string{"gru-1-db-1"}, nil)
 }
+
+// A hold (an orchestrator host rollout restarting hosts) starts no seat's
+// restart; the release proceeds once it lifts.
+func TestAHoldStartsNoSeatRestart(t *testing.T) {
+	store, _, fence := testStore(t)
+	c := newCell(t)
+	controller := c.controller(store, fence)
+	reason := "orchestrator host rollout release-g2-hosts"
+	controller.Hold = func(context.Context) (string, error) { return reason, nil }
+	c.release(2)
+	c.tick(controller)
+	c.expect(store, nil, nil)
+	reason = ""
+	c.tick(controller)
+	c.expect(store, []string{"gru-1-db-1"}, nil)
+}
