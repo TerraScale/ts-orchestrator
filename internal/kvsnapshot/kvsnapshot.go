@@ -26,9 +26,9 @@ import (
 // Buckets are the KV buckets whose latest values survive the loss of every
 // controller. They hold configuration (the cell spec, the root chain,
 // enrollment grants, rollouts and known-bad releases, desired OCI resources,
-// apps and machines) rather than state
+// apps and machines, managed volumes) rather than state
 // bound to the authority control log, which a rebuilt cell starts afresh.
-var Buckets = []string{"TS_SERVICE_SET", "TS_TRUST_ROOTS", "TS_HOST_ENROLLMENT", "TS_ROLLOUTS", "TS_OCI_DESIRED", "TS_APPS"}
+var Buckets = []string{"TS_SERVICE_SET", "TS_TRUST_ROOTS", "TS_HOST_ENROLLMENT", "TS_ROLLOUTS", "TS_OCI_DESIRED", "TS_APPS", "TS_VOLUMES"}
 
 const (
 	documentVersion  = 1

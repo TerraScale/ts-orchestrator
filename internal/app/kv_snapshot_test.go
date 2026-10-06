@@ -8,11 +8,12 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/kvsnapshot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machines"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/volume"
 )
 
 // Renaming a configuration bucket must not silently drop it from snapshots.
 func TestKVSnapshotsCoverConfigurationBuckets(t *testing.T) {
-	for _, bucket := range []string{cellSpecBucket, rootChainBucket, hostenroll.GrantBucket, rollout.Bucket, machines.Bucket} {
+	for _, bucket := range []string{cellSpecBucket, rootChainBucket, hostenroll.GrantBucket, rollout.Bucket, machines.Bucket, volume.Bucket} {
 		if !slices.Contains(kvsnapshot.Buckets, bucket) {
 			t.Fatalf("kvsnapshot.Buckets lacks %s", bucket)
 		}

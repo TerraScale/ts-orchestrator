@@ -25,6 +25,7 @@ These pages describe the current greenfield Go implementation.
 | [Production readiness plan](production-readiness-plan.md) | Dated readiness audit, historical canary, and open gate order |
 | [TerraBase runtime contract](terrabase-runtime-contract.md) | C# TerraBase binary: release assets, settings, member certificates, host launch, health gate and drain |
 | [TerraBase deployment](terrabase-deployment.md) | Member CA, workload profile and `operator terrabase-release` rollout with automatic rollback |
+| [Managed volumes](managed-volumes.md) | Fly-style OCI block volumes for machines: model, placement, reconciler, migration and cost (TS-567) |
 | [Secrets in OCI Vault](secrets.md) | Naming scheme, compartments and host grants, `ts-orch vault put` and `render`; OpenBao retired |
 | [Cell spec](cell-spec.md) | A running cell's signed desired state: `ts-orch get`, `diff` and `apply`, root-gated changes, binary levels; runbook "Add a service to a running region" |
 | [Apps and machines](apps-machines.md) | The shared orchestration model (apps, machines, regions, node pools) in `TS_APPS`, its invariants and the TS-563 slices |
