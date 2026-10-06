@@ -139,9 +139,12 @@ with empty JetStream stores gets them back without any re-signing.
 
 The location is boot configuration because the restore runs before any KV
 bucket exists. Use a bucket with versioning enabled (`gru-1-head` has it);
-the versions are the snapshot history. Before enabling, grant the controllers
-the prefix (the reviewed region policy covers only `bootstrap/v1/*` and
-`bootstrap/v2/*` today):
+the versions are the snapshot history. A cell gets the setting when its
+controller configs are signed: `render-controller-config --kv-snapshot FILE
+--kv-snapshot-sha256 H` (the JSON above, validated before it is rendered),
+which `oci-region attempt` passes from its `kv_snapshot` setting. The reviewed
+controller policy statements (`ociregion.RequiredControllerStatements`, which
+the attempt's material phase applies) include the prefix grant:
 
 ```
 Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-head', target.object.name='kv-snapshot/v1/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}

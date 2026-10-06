@@ -46,10 +46,18 @@ func TestGRURebuildPlanKeepsFreshBindingsAndCSharpPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	snapshots := 0
 	for _, statement := range statements {
 		if !strings.Contains(statement, "dynamic-group gru-1-controllers ") || strings.Contains(statement, "compartment terrascale-") {
 			t.Fatalf("IAM grant escaped the fresh cell: %s", statement)
 		}
+		if strings.Contains(statement, "target.bucket.name='gru-1-head', target.object.name='kv-snapshot/v1/*'") &&
+			strings.Contains(statement, "OBJECT_OVERWRITE") {
+			snapshots++
+		}
+	}
+	if snapshots != 1 {
+		t.Fatalf("controller policy grants the KV snapshot prefix %d times", snapshots)
 	}
 	var profile struct {
 		Env map[string]string `json:"env"`

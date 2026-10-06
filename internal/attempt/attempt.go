@@ -708,6 +708,9 @@ func (a *Attempt) PhaseSign() {
 			if authProfile != "" {
 				args = append(args, join(a.pair(authProfile, "--ts-auth-profile"), a.pair(authService, "--ts-auth-service"))...)
 			}
+			if snapshot := str(a.Config, "kv_snapshot"); snapshot != "" {
+				args = append(args, a.pair(snapshot, "--kv-snapshot")...)
+			}
 			a.RunBootstrap(append(args, "--out", config)...)
 		}
 		a.RunBootstrap(join([]string{"sign-manifest", "--candidate", candidate}, a.pair(config, "--controller-config"), sidecars, []string{"--anchor", anchor, "--image-receipt", receipt, "--release-delegation", delegation, "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--out", manifest, "--valid-for", a.validFor()})...)

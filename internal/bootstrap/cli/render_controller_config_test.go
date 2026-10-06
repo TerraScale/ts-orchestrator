@@ -469,3 +469,48 @@ func TestRenderControllerConfigKeepsLegacyMaterialWithoutTerraBase(t *testing.T)
 		t.Fatalf("TerraBase profile rendered without a member CA: %v", err)
 	}
 }
+
+// The reviewed KV snapshot location becomes controller.kv_snapshot; a
+// disabled or invalid location is refused.
+func TestRenderControllerConfigWritesKVSnapshotLocation(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	args, _ := renderInputs(t, now, keepEverySecret)
+	dir := t.TempDir()
+	location := func(name, body string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	valid := location("kv-snapshot.json", `{"enabled":true,"region":"sa-saopaulo-1","namespace":"grxnmoqvrcdv","bucket":"gru-1-head","prefix":"kv-snapshot/v1","interval_seconds":30}`)
+	output := filepath.Join(dir, "controller.json")
+	if err := renderControllerConfigAt(append(args, "--kv-snapshot", valid, "--kv-snapshot-sha256", fixtureFileDigest(valid),
+		"--out", output), now); err != nil {
+		t.Fatal(err)
+	}
+	wire, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg app.Config
+	if err := protocol.DecodeStrict(wire, &cfg, bootstrap.MaxControllerConfigBytes); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Controller.KVSnapshot; !got.Enabled || got.Bucket != "gru-1-head" || got.Prefix != "kv-snapshot/v1" ||
+		got.Region != "sa-saopaulo-1" || got.IntervalSeconds != 30 {
+		t.Fatalf("rendered kv_snapshot = %+v", got)
+	}
+	for name, body := range map[string]string{
+		"disabled": `{"enabled":false}`,
+		"unknown":  `{"enabled":true,"region":"sa-saopaulo-1","namespace":"n","bucket":"b","extra":1}`,
+		"invalid":  `{"enabled":true,"region":"sa-saopaulo-1","namespace":"n","bucket":"b","interval_seconds":1}`,
+	} {
+		path := location(name+".json", body)
+		err := renderControllerConfigAt(append(args, "--kv-snapshot", path, "--kv-snapshot-sha256", fixtureFileDigest(path),
+			"--out", filepath.Join(dir, name+"-controller.json")), now)
+		if err == nil {
+			t.Errorf("%s KV snapshot location rendered", name)
+		}
+	}
+}
