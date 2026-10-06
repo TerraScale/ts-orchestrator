@@ -157,6 +157,7 @@ type Runtime struct {
 	operator        *jwt.OperatorClaims
 	systemConn      *nats.Conn
 	bridge          *Bridge
+	brokerTLS       *ReloadingTLS
 	claimMu         sync.Mutex
 	appliedSequence uint64
 	serverName      string
@@ -169,6 +170,10 @@ func (r *Runtime) Conn() *nats.Conn { return r.conn }
 func (r *Runtime) JetStream() jetstream.JetStream { return r.js }
 
 func (r *Runtime) Bridge() *Bridge { return r.bridge }
+
+// BrokerTLS is the production broker's reloading server certificate, nil
+// without one. Other listeners on the broker's address serve it too.
+func (r *Runtime) BrokerTLS() *ReloadingTLS { return r.brokerTLS }
 
 // SignedByPinnedOperator checks the operator claim installed at broker startup.
 func (r *Runtime) SignedByPinnedOperator(claim *jwt.AccountClaims) bool {
@@ -450,11 +455,12 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 		if err != nil {
 			return nil, fmt.Errorf("connect internal system account: %w", err)
 		}
-		bridgeTLS, tlsErr := loadTLS(cfg.Embedded.TLS, true)
-		if tlsErr != nil {
-			return nil, tlsErr
+		r.brokerTLS, err = NewReloadingTLS(cfg.Embedded.TLS, "listener")
+		if err != nil {
+			return nil, err
 		}
-		r.bridge, err = startBridge(r.server, net.JoinHostPort(cfg.Embedded.Host, fmt.Sprint(cfg.Embedded.Port)), bridgeTLS, r.resolver.cell)
+		r.bridge, err = startBridge(r.server, net.JoinHostPort(cfg.Embedded.Host, fmt.Sprint(cfg.Embedded.Port)),
+			r.brokerTLS.ServerConfig(), r.resolver.cell)
 		if err != nil {
 			return nil, err
 		}
@@ -698,11 +704,12 @@ func serverOptions(cfg Config) (*server.Options, error) {
 		options.TLSVerify = true
 	}
 	if cfg.Replicas > 1 && e.RouteTLS.complete() {
-		config, err := loadTLS(e.RouteTLS, true)
+		// Routes reload a renewed leaf or CA bundle on their next handshake.
+		routeTLS, err := NewReloadingTLS(e.RouteTLS, "route")
 		if err != nil {
 			return nil, err
 		}
-		options.Cluster.TLSConfig = config
+		options.Cluster.TLSConfig = routeTLS.PeerConfig()
 	}
 	seenKeys := make(map[string]struct{}, len(e.Users))
 	for _, user := range e.Users {

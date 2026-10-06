@@ -108,9 +108,18 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 	if err := issuer.ValidateAccountScope(runtime.InitialCellJWT()); err != nil {
 		return nil, nil, nil, err
 	}
-	certificate, err := tls.LoadX509KeyPair(cfg.NATS.Embedded.TLS.CertFile, cfg.NATS.Embedded.TLS.KeyFile)
-	if err != nil {
-		return nil, nil, nil, err
+	// The listener shares the broker's address and certificate, so it serves
+	// a renewed certificate as soon as the broker does. Session tickets are
+	// off so no client resumes a session made under the old certificate.
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13, SessionTicketsDisabled: true}
+	if reloading := runtime.BrokerTLS(); reloading != nil {
+		tlsConfig.GetCertificate = reloading.Certificate
+	} else {
+		certificate, err := tls.LoadX509KeyPair(cfg.NATS.Embedded.TLS.CertFile, cfg.NATS.Embedded.TLS.KeyFile)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		tlsConfig.Certificates = []tls.Certificate{certificate}
 	}
 	terraBase, err := newStaticTerraBaseMembers(cfg.Controller.Workloads)
 	if err != nil {
@@ -134,8 +143,7 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 		services: services,
 	}
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second,
-		MaxHeaderBytes: 4096, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13,
-			Certificates: []tls.Certificate{certificate}}}
+		MaxHeaderBytes: 4096, TLSConfig: tlsConfig}
 	errors := make(chan error, 1)
 	go func() { errors <- server.Serve(tls.NewListener(listener, server.TLSConfig)) }()
 	return server, listener, errors, nil

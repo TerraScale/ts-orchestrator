@@ -60,21 +60,64 @@ and what is still missing.
    with the ranked insights, the unavailable inputs and the health checks of
    each member. The command prints a table and exits non-zero on a critical
    insight. CI and humans can use the same command.
-3. **Controller credential renewal.** Today all bootstrap material, including
-   the CA, the operator and account JWTs and the controller leaves, expires
-   together after at most 30 days (`bootstrapmaterial.MaxValidity`). The
-   signing keys (`issuer-ca.key`, the operator and account seeds) stay with
-   the owner. A renewed leaf or user JWT cannot outlive its CA or account
-   JWT, so renewing leaves alone does not remove the cliff. Proposed design:
-   a long-lived CA and operator with a shorter-lived issuing CA and account
-   signing key that controllers can read from OCI Vault. Controllers reissue
-   their own TLS leaves and NATS user JWTs once a third of the lifetime
-   remains, write the files atomically and hot-reload them (TS-562). The
-   issuing material is rotated the same way, one level up. Hosts already
-   renew their own credentials (`internal/app/host_credential_reload.go`).
-   Expiry thresholds then become relative to each credential's lifetime.
-   Which keys may live in Vault is the owner's decision, and this slice
-   needs that decision before it starts.
+3. **In-place material renewal (top priority).** Today one `expires` covers
+   the NATS CA, the host issuer, every leaf and the operator and account JWTs
+   (`bootstrapmaterial/material.go`). Restart admission pins each file's
+   digest, install continuity ends at the first credential expiry, and hosts
+   pin the CA from launch metadata. The cell therefore has to be re-founded
+   before its material expires. TS-550 raises `MaxValidity` to 365 days as a
+   bridge. Renewal ships in these steps:
+   1. **NATS TLS hot reload (done).** `natscell.ReloadingTLS` serves the
+      broker bridge, the NATS routes and the host-enrollment listener. Each
+      handshake reads the certificate, key and CA files and compares their
+      digests. A changed set is used only if the key matches and the leaf is
+      current, has its role's usages, chains to both the new and the
+      current bundle, and keeps its subject and names. Otherwise the last
+      good set stays, which covers a renewal caught between its renames.
+      Startup makes the same checks, so a controller whose leaf expired
+      while it was down renews it before NATS starts (step 4). Live
+      connections keep their material and session tickets are off. The accepting side of every listener
+      reloads the CA bundle too. The dialing side of a route keeps Go's
+      built-in check, address included, against the bundle it started with,
+      because a custom check cannot see the dialed address. A renewed leaf
+      therefore needs no restart, but a CA rollover restarts each controller
+      in place once. Interregion leafnode TLS still loads once.
+   2. **Material generation.** The owner's root signs a generation document
+      for one cell and deployment: a generation number and its
+      predecessor's digest, the CA bundle, the issuing intermediate
+      certificate and the Vault reference of its key, the controller account
+      signing key's public key and Vault reference, the operator and account
+      JWTs, and the maximum leaf lifetime. It is published in KV and kept on
+      every controller next to the root chain (#185).
+   3. **Admission pins the generation.** Restart admission and install
+      continuity accept renewable files (leaves and their keys, user creds,
+      the CA bundle, account JWTs, the host issuer) when they are valid under
+      the newest root-verified generation the controller holds, instead of
+      matching the manifest digests. Founder, response, ticket and route
+      secrets keep their digest pins. Generation 0 is the manifest.
+   4. **Leader-coordinated renewal.** The leader publishes the current
+      generation and rollover phase under its authority epoch. Each
+      controller issues its own TLS leaf and NATS user JWT with the
+      generation's issuing key once a third of the lifetime remains, and
+      before NATS starts if the leaf already expired. It writes the files
+      atomically and step 1 picks them up. Issuance runs on
+      the member itself: a controller whose leaf expired while it was down
+      cannot reach the leader, and every controller already holds the issuer
+      keys it needs to lead. Hosts keep renewing through the enrollment
+      listener.
+   5. **Hosts follow the bundle.** The leader pushes the CA bundle over the
+      host session, signed with the controller response key that hosts pin.
+      Hosts write `ca.pem` atomically, and their dialer reads it on the next
+      dial. The launch-metadata bundle is used only for first contact.
+   6. **CA rollover and acceptance.** A rollover runs in four steps:
+      1. The bundle gains the new CA.
+      2. Every controller restarts in place once. The leader waits until
+         each one reports the new CA in its dialing trust.
+      3. Leaves move to the new CA.
+      4. The old CA is dropped.
+
+      Acceptance: a lab cell survives two leaf expiries and one CA rollover
+      with no re-found. Leaf lifetimes are then shortened.
 4. **Host repair.** If a host stops reporting for longer than a grace period
    and its OCI instance is stopped or terminated, the leader replaces it in
    its node pool through `hostpool`, and the new host enrolls again. A host

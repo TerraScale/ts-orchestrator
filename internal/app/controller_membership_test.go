@@ -364,10 +364,14 @@ func TestMembershipReplacesTerminatedControllerUnderSameServerName(t *testing.T)
 	cluster.mu.Lock()
 	_ = cluster.runtimes[1].Close()
 	cluster.mu.Unlock()
+	// If the dead member led the stream, publishes get no stream response
+	// until a survivor is elected; retry each under a deduplicating ID.
 	for index := range 10 {
-		if _, err := seed.JetStream().Publish(ctx, "ts.membership.replacement", fmt.Appendf(nil, "during-%d", index)); err != nil {
-			t.Fatal(err)
-		}
+		waitMembership(t, ctx, "publish during the loss", func() bool {
+			_, err := seed.JetStream().Publish(ctx, "ts.membership.replacement", fmt.Appendf(nil, "during-%d", index),
+				jetstream.WithMsgID(fmt.Sprintf("during-%d", index)))
+			return err == nil
+		})
 	}
 	waitMembership(t, ctx, "offline slot is suspect", func() bool {
 		return reconciler.Tick(ctx) == nil && status("broker-b").Phase == membership.PhaseSuspect

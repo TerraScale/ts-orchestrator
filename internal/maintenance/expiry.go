@@ -75,6 +75,9 @@ func scanFile(file CredentialFile) ([]observability.CredentialView, error) {
 	if err != nil {
 		return nil, errors.New("not a certificate or NATS JWT")
 	}
+	// Decode verifies the signature against the claim's own issuer, so an
+	// edited payload is rejected. Whether that issuer is trusted is the NATS
+	// server's decision; an expiry observation grants no authority.
 	claims, err := jwt.Decode(strings.TrimSpace(token))
 	if err != nil {
 		return nil, errors.New("not a certificate or NATS JWT")

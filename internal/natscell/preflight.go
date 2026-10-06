@@ -99,8 +99,14 @@ func validateCurrentTLSFiles(files TLSFiles, role string) error {
 	if err != nil {
 		return fmt.Errorf("parse TLS leaf certificate: %w", err)
 	}
+	return verifyTLSLeaf(leaf, config.Certificates[0].Certificate[1:], config.RootCAs, role)
+}
+
+// verifyTLSLeaf checks that a leaf is current and chains to roots for each
+// usage its role needs: client, listener or route (both ends).
+func verifyTLSLeaf(leaf *x509.Certificate, chain [][]byte, roots *x509.CertPool, role string) error {
 	intermediates := x509.NewCertPool()
-	for _, der := range config.Certificates[0].Certificate[1:] {
+	for _, der := range chain {
 		certificate, err := x509.ParseCertificate(der)
 		if err != nil {
 			return fmt.Errorf("parse TLS intermediate certificate: %w", err)
@@ -120,7 +126,7 @@ func validateCurrentTLSFiles(files TLSFiles, role string) error {
 	}
 	for _, usage := range usages {
 		if _, err := leaf.Verify(x509.VerifyOptions{
-			Roots: config.RootCAs, Intermediates: intermediates, CurrentTime: time.Now(),
+			Roots: roots, Intermediates: intermediates, CurrentTime: time.Now(),
 			KeyUsages: []x509.ExtKeyUsage{usage},
 		}); err != nil {
 			return fmt.Errorf("verify current TLS certificate chain: %w", err)
