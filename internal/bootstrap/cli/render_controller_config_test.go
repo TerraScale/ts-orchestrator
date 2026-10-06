@@ -14,6 +14,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machinesapi"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
@@ -407,6 +408,8 @@ func TestSignedControllerConfigRejectsMisplacedCAAndOverlappingPlacementRole(t *
 			change: func(*app.Config) {}},
 		{name: "invalid profile", role: "terrabase-managed", want: "workloads",
 			change: func(cfg *app.Config) { cfg.Controller.Workloads["terrabase"] = app.WorkloadProfile{} }},
+		{name: "machines API before its signed listener", role: "terrabase-managed", want: "machines_api",
+			change: func(cfg *app.Config) { cfg.Controller.MachinesAPI = &machinesapi.Config{} }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := app.ValidateSignedControllerConfig(signed(test.change, test.role), "")

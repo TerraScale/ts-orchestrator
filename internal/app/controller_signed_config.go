@@ -99,6 +99,12 @@ func ValidateInstalledControllerConfig(manifest bootstrap.Manifest, observedPriv
 	if err := validateSignedObservability(cfg); err != nil {
 		return Config{}, err
 	}
+	// The Machines API has no signed listener, TLS material or load balancer
+	// yet (docs/machines-api.md, slice 7); until it does, a production
+	// controller must not try to bind it.
+	if cfg.Controller.MachinesAPI != nil {
+		return Config{}, errors.New("signed controller config may not enable machines_api yet")
+	}
 	if _, err := buildSignerPolicy(cfg); err != nil {
 		return Config{}, fmt.Errorf("signed controller operator grant: %w", err)
 	}

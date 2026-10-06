@@ -1,0 +1,174 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "TerraScale Orchestrator Machines API",
+    "version": "1-alpha",
+    "description": "Apps and machines of one region, served by its controllers. The schemas are the shared model of internal/machines (TS-563) and stay unstable until that model settles. Authenticate with a ts-auth access token (RFC 9068 at+jwt) issued to an allowed client; reads need scope orch:read. Members of the terrascale organization see every app; a tenant organization sees only its tenants' apps. See docs/machines-api.md."
+  },
+  "servers": [{"url": "https://gru.orch.terrascale.tech"}],
+  "security": [{"tsAuth": ["orch:read"]}],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "summary": "Liveness of this controller's API listener",
+        "security": [],
+        "responses": {"200": {"description": "Serving", "content": {"application/json": {"schema": {"type": "object", "properties": {"status": {"const": "ok"}}}}}}}
+      }
+    },
+    "/v1/openapi.json": {
+      "get": {
+        "summary": "This document",
+        "security": [],
+        "responses": {"200": {"description": "The OpenAPI document"}}
+      }
+    },
+    "/v1/apps": {
+      "get": {
+        "summary": "List the apps the caller may see",
+        "operationId": "listApps",
+        "responses": {
+          "200": {"description": "Apps", "content": {"application/json": {"schema": {"type": "object", "required": ["apps"], "properties": {"apps": {"type": "array", "items": {"$ref": "#/components/schemas/App"}}}}}}},
+          "401": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"},
+          "503": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/v1/apps/{app}": {
+      "get": {
+        "summary": "Get one app",
+        "operationId": "getApp",
+        "parameters": [{"$ref": "#/components/parameters/App"}],
+        "responses": {
+          "200": {"description": "The app", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/App"}}}},
+          "400": {"$ref": "#/components/responses/Error"},
+          "401": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "503": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/v1/apps/{app}/machines": {
+      "get": {
+        "summary": "List an app's machines with their observed status",
+        "operationId": "listMachines",
+        "parameters": [{"$ref": "#/components/parameters/App"}],
+        "responses": {
+          "200": {"description": "Machines", "content": {"application/json": {"schema": {"type": "object", "required": ["machines"], "properties": {"machines": {"type": "array", "items": {"$ref": "#/components/schemas/Machine"}}}}}}},
+          "400": {"$ref": "#/components/responses/Error"},
+          "401": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "503": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/v1/apps/{app}/machines/{id}": {
+      "get": {
+        "summary": "Get one machine with its observed status",
+        "operationId": "getMachine",
+        "parameters": [
+          {"$ref": "#/components/parameters/App"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[0-9a-f]{16}$"}}
+        ],
+        "responses": {
+          "200": {"description": "The machine", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Machine"}}}},
+          "400": {"$ref": "#/components/responses/Error"},
+          "401": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "503": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "tsAuth": {
+        "type": "oauth2",
+        "description": "ts-auth access tokens of the issuer https://gru.auth.terrascale.tech/terrascale.",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://gru.auth.terrascale.tech/terrascale/oauth/authorize",
+            "tokenUrl": "https://gru.auth.terrascale.tech/terrascale/oauth/token",
+            "scopes": {"orch:read": "Read apps and machines"}
+          }
+        }
+      }
+    },
+    "parameters": {
+      "App": {"name": "app", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"}}
+    },
+    "responses": {
+      "Error": {"description": "An error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "NotFound": {"description": "No such record, or one the caller may not see", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": ["error", "message"],
+        "properties": {
+          "error": {"type": "string", "description": "A stable code: unauthenticated, insufficient_scope, no_organization, invalid_name, not_found, unavailable"},
+          "message": {"type": "string"}
+        }
+      },
+      "App": {
+        "type": "object",
+        "description": "machines.App",
+        "required": ["name", "id", "class", "version", "config"],
+        "properties": {
+          "name": {"type": "string"},
+          "id": {"type": "string", "description": "This incarnation of the app"},
+          "class": {"enum": ["platform", "tenant"]},
+          "tenant": {"type": "string", "description": "The owning tenant of a tenant app"},
+          "version": {"type": "integer", "description": "One more on every config change"},
+          "config": {"$ref": "#/components/schemas/MachineConfig"},
+          "regions": {"type": "object", "additionalProperties": {"type": "integer"}, "description": "Machines per region"},
+          "node_pool": {"type": "string"}
+        }
+      },
+      "MachineConfig": {
+        "type": "object",
+        "description": "machines.MachineConfig: what a host runs",
+        "required": ["role", "digest", "resources"],
+        "properties": {
+          "role": {"type": "string"},
+          "digest": {"type": "string"},
+          "args": {"type": "array", "items": {"type": "string"}},
+          "env": {"type": "object", "additionalProperties": {"type": "string"}},
+          "resources": {"type": "object", "properties": {"cpu": {"type": "integer"}, "memory_bytes": {"type": "integer"}, "disk_bytes": {"type": "integer"}}},
+          "services": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "port": {"type": "integer"}}}},
+          "checks": {"type": "array", "items": {"type": "object"}},
+          "restart": {"type": "object", "properties": {"policy": {"enum": ["always", "on-failure", "no"]}, "max_retries": {"type": "integer"}}}
+        }
+      },
+      "Machine": {
+        "type": "object",
+        "description": "machines.Machine with its machines.Status",
+        "required": ["id", "app", "app_id", "region", "version", "config", "desired"],
+        "properties": {
+          "id": {"type": "string"},
+          "app": {"type": "string"},
+          "app_id": {"type": "string"},
+          "region": {"type": "string"},
+          "host": {"type": "string"},
+          "failure_domain": {"type": "string"},
+          "version": {"type": "integer"},
+          "config": {"$ref": "#/components/schemas/MachineConfig"},
+          "desired": {"enum": ["started", "stopped", "destroyed"]},
+          "status": {
+            "type": "object",
+            "description": "The last observation of the machine, read apart from its record: it may lag a newer version or desired state; updated_at says when it was observed. Absent until the orchestrator first observes the machine.",
+            "properties": {
+              "id": {"type": "string"},
+              "app": {"type": "string"},
+              "state": {"enum": ["pending", "starting", "started", "stopping", "stopped", "failed", "lost", "destroyed"]},
+              "updated_at": {"type": "string", "format": "date-time"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

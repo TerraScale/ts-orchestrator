@@ -576,6 +576,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		defer listener.Close()
 		enrollmentErrors = serveErrors
 	}
+	apiErrors, err := startMachinesAPI(runCtx, cfg, runtime, control, fullClusterReady)
+	if err != nil {
+		return err
+	}
 	var terminalRuntime *managedTerminalRuntime
 	if managed != nil {
 		terminalRuntime = &managedTerminalRuntime{
@@ -769,6 +773,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	if enrollmentErrors != nil {
 		workers.Go(func() { workerErrors <- <-enrollmentErrors })
+	}
+	if apiErrors != nil {
+		workers.Go(func() { workerErrors <- <-apiErrors })
 	}
 	if !cfg.NATS.Lab {
 		workers.Go(func() {

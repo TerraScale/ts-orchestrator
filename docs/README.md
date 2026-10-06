@@ -32,6 +32,7 @@ These pages describe the current greenfield Go implementation.
 | [Apps and machines](apps-machines.md) | The shared orchestration model (apps, machines, regions, node pools) in `TS_APPS`, its invariants and the TS-563 slices |
 | [Material generations](material-generation.md) | TS-568 in-place renewal: root-signed generations that pin a cell's renewable material, and `ts-orch bootstrap sign-material-generation` |
 | [Settings in the cell spec](settings-in-cell-spec.md) | TS-569 design: raw config digest, versioned config and tolerant record decoding, and moving each mutable setting into a cell spec section |
+| [Machines API](machines-api.md) | The controllers' Fly-style REST API: ts-auth token verification, scopes and organization tenancy, endpoints, errors and the planned slices |
 | [Root key rotation](root-rotation.md) | Baked roots as genesis of a KV root chain, the leaked-root threat model and the rotation runbook |
 | [Dedicated tenants](dedicated-tenants.md) | A tenant's own TerraBase cluster and ts-auth: model, lifecycle, isolation, endpoints, secrets, backups and metering |
 | [ts-auth deployment](ts-auth-deployment.md) | ts-auth on the gru-1 controllers: placement, Vault secret refs, TerraBase tenant, load balancer values and the live runbook |

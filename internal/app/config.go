@@ -9,6 +9,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/kvsnapshot"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machinesapi"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
@@ -127,6 +128,9 @@ type ControllerConfig struct {
 	// KVSnapshot keeps the configuration KV buckets in OCI Object Storage
 	// and restores them into a rebuilt cell. Off by default.
 	KVSnapshot kvsnapshot.Config `json:"kv_snapshot,omitzero"`
+	// MachinesAPI serves the Machines REST API (docs/machines-api.md); nil
+	// keeps it off.
+	MachinesAPI *machinesapi.Config `json:"machines_api,omitempty"`
 }
 
 // WorkloadProfile is the cell spec's profile type, so a signed controller
@@ -233,6 +237,11 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if err := cfg.Controller.KVSnapshot.Validate(); err != nil {
 		return Config{}, err
+	}
+	if api := cfg.Controller.MachinesAPI; api != nil {
+		if err := api.Validate(); err != nil {
+			return Config{}, err
+		}
 	}
 	return cfg, nil
 }
