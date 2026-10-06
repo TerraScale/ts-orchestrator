@@ -7,11 +7,13 @@ import (
 	"io"
 	"log/slog"
 	"math/rand/v2"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
 	"uuid"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
@@ -761,6 +763,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		workers.Go(func() { workerErrors <- membershipSupervisor.Run(runCtx) })
 	}
 	workers.Go(func() { workerErrors <- workloadReconciler.Run(runCtx) })
+	atlasPublisher := &atlas.Loop{Publisher: atlas.Publisher{HTTP: &http.Client{Timeout: atlas.Interval}},
+		Config: services.atlasConfig, Authority: control, LoadKey: atlas.VaultKey}
+	workers.Go(func() { workerErrors <- atlasPublisher.Run(runCtx) })
 	workers.Go(func() { workerErrors <- services.Run(runCtx) })
 	workers.Go(func() {
 		workerErrors <- artifactStoreKeeper{control: control, service: service, hosts: hostController,

@@ -109,7 +109,7 @@ func RunOuroboros(ctx context.Context, args []string, output io.Writer, loadPlan
 			return err
 		}
 		terraBase.ManagementOnAdmin = *listener == "admin"
-		cell, target, client, bundles, err := operatorVault(*plan, loadPlan)
+		cell, target, client, bundles, err := OperatorVault(*plan, loadPlan)
 		if err != nil {
 			return err
 		}
@@ -122,7 +122,7 @@ func RunOuroboros(ctx context.Context, args []string, output io.Writer, loadPlan
 		if *plan == "" {
 			return errors.New("fly-secrets requires --plan")
 		}
-		cell, target, _, bundles, err := operatorVault(*plan, loadPlan)
+		cell, target, _, bundles, err := OperatorVault(*plan, loadPlan)
 		if err != nil {
 			return err
 		}

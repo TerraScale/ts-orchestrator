@@ -9,12 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/bucket"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -1149,6 +1151,50 @@ func TestArtifactStoreLevelValidateAndDiff(t *testing.T) {
 		next.Generation = 2
 		plan, err := Diff(current, next, nil)
 		if err != nil || plan.ArtifactStore != test.change || plan.Empty() != (test.change == "") || len(plan.RootRequired) != 0 {
+			t.Errorf("%s: Diff = %+v, %v", name, plan, err)
+		}
+	}
+}
+
+// An Atlas publisher needs binary level 11 and a valid section, and every
+// added or changed one needs a root: its key writes region discovery.
+func TestAtlasLevelValidateDiffAndWiden(t *testing.T) {
+	f := newFixture(t)
+	data, err := os.ReadFile("../../deploy/oci-region/atlas-gru-1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var section atlas.Config
+	if err := protocol.DecodeStrict(data, &section, 64<<10); err != nil {
+		t.Fatal(err)
+	}
+	spec := testSpec(f.id, 1)
+	spec.Atlas, spec.RequiresBinary = &section, 11
+	if spec.Level() != 11 || spec.Validate() != nil {
+		t.Fatalf("level %d, %v", spec.Level(), spec.Validate())
+	}
+	invalid := spec
+	invalid.Atlas = &atlas.Config{URL: section.URL, PublishKey: section.PublishKey}
+	if err := invalid.Validate(); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("an atlas section without regions: %v", err)
+	}
+	moved := section
+	moved.URL = "https://atlas.example.terrascale.tech"
+	for name, test := range map[string]struct {
+		before, after *atlas.Config
+		change        string
+	}{
+		"add":    {after: &section, change: "added"},
+		"change": {before: &section, after: &moved, change: "updated"},
+		"keep":   {before: &section, after: &section},
+		"remove": {before: &section, change: "removed"},
+	} {
+		current, next := testSpec(f.id, 1), testSpec(f.id, 2)
+		current.Atlas, next.Atlas = test.before, test.after
+		plan, err := Diff(current, next, nil)
+		widens := slices.Equal(plan.RootRequired, []string{"atlas"})
+		if err != nil || plan.Atlas != test.change || plan.Empty() != (test.change == "") ||
+			widens != (test.change == "added" || test.change == "updated") {
 			t.Errorf("%s: Diff = %+v, %v", name, plan, err)
 		}
 	}

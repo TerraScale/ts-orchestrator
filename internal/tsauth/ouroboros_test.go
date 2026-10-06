@@ -196,7 +196,8 @@ func TestOuroborosSecretNames(t *testing.T) {
 		t.Fatalf("organization %s", OrganizationName)
 	}
 	if got := fmt.Sprint(names); got != "[ts-auth/auth gru-1-ts-auth-terrascale-project-id gru-1-ts-auth-terrascale-api-key "+
-		"ts-dashboard/dashboard gru-1-ts-dashboard-terrabase-project-id gru-1-ts-dashboard-terrabase-api-key]" {
+		"ts-dashboard/dashboard gru-1-ts-dashboard-terrabase-project-id gru-1-ts-dashboard-terrabase-api-key "+
+		"atlas/atlas gru-1-atlas-terrabase-project-id gru-1-atlas-store-key]" {
 		t.Fatal(got)
 	}
 	if validSecret("TS_DASHBOARD_OTHER", "tb_key") == nil {

@@ -1,0 +1,26 @@
+{
+  "url": "https://atlas.terrascale.tech",
+  "publish_key": {
+    "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq",
+    "name": "gru-1-atlas-publish-key"
+  },
+  "regions": [
+    {
+      "id": "gru-1",
+      "name": "São Paulo",
+      "country": "BR",
+      "lat": -23.43,
+      "lon": -46.47,
+      "api": "https://gru.api.terrascale.tech",
+      "auth": "https://gru.auth.terrascale.tech"
+    }
+  ],
+  "services": [
+    {"id": "terrabase", "name": "TerraBase", "url": "https://api.terrascale.tech", "health": "https://api.terrascale.tech/readyz"},
+    {"id": "auth", "name": "ts-auth", "url": "https://auth.terrascale.tech", "health": "https://auth.terrascale.tech/readyz"},
+    {"id": "dashboard", "name": "Dashboard", "url": "https://dash.terrascale.tech"},
+    {"id": "status", "name": "Status", "url": "https://status.terrascale.tech"},
+    {"id": "docs", "name": "Docs", "url": "https://docs.terrascale.tech"},
+    {"id": "atlas", "name": "Atlas", "url": "https://atlas.terrascale.tech", "health": "https://atlas.terrascale.tech/v1/discovery"}
+  ]
+}

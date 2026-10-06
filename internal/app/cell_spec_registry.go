@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
@@ -647,6 +648,13 @@ func (r *specRegistry) ociDesired() *cellspec.OCIDesired {
 		return r.current.OCIDesired
 	}
 	return r.signedDesired
+}
+
+// atlasConfig is the current spec's Atlas publisher, or nil.
+func (r *specRegistry) atlasConfig() *atlas.Config {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.current.Atlas
 }
 
 // withSigned fills the sections generation 0 holds in the signed config, so

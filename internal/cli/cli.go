@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/app"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/attempt"
 	bootstrapcli "git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap/cli"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellscale"
@@ -70,6 +71,7 @@ Operator tooling:
   ts-auth                Provision ts-auth's Vault secrets and host firewall
   vault                  Store secrets in OCI Vault once; render host files from them
   ouroboros              Bootstrap TerraScale's own TerraBase organization, project keys and owner
+  atlas                  Create the Atlas publish key; publish the cell's topology to Atlas once
   runtime-priority       Qualify runtime resources and run bounded pressure
   cluster                Break-glass controller quorum-loss recovery
   cell-autoscaler        Scale TerraBase cell nodes and shapes within policy
@@ -125,6 +127,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return tsauth.Run(ctx, args[1:], commandio.NewWriter(output), ociregion.LoadPlan)
 	case "vault":
 		return vaultsecret.Run(ctx, args[1:], commandio.NewWriter(output))
+	case "atlas":
+		return atlas.Run(ctx, args[1:], commandio.NewWriter(output), ociregion.LoadPlan)
 	case "ouroboros":
 		return tsauth.RunOuroboros(ctx, args[1:], commandio.NewWriter(output), ociregion.LoadPlan)
 	case "source-digest":

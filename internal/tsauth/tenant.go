@@ -39,6 +39,10 @@ type Project struct {
 var Projects = []Project{
 	{Name: ProjectName, Database: Database, ProjectIDKey: EnvProjectID, APIKeyKey: EnvAPIKey},
 	dashboard,
+	// atlas is ts-atlas' store (ts-atlas docs/discovery-v1.md §Storage): the
+	// Worker's ATLAS_STORE_URL names its database and ATLAS_STORE_KEY is
+	// this key.
+	{Name: "atlas", Database: "atlas", ProjectIDKey: "ATLAS_TERRABASE_PROJECT_ID", APIKeyKey: "ATLAS_STORE_KEY"},
 }
 
 // dashboard is ts-dashboard's project; fly-secrets hands it to the dashboard.

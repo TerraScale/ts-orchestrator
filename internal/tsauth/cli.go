@@ -58,7 +58,7 @@ func Run(ctx context.Context, args []string, output io.Writer, loadPlan func(str
 		if *plan == "" {
 			return errors.New("secrets requires --plan")
 		}
-		cell, target, client, _, err := operatorVault(*plan, loadPlan)
+		cell, target, client, _, err := OperatorVault(*plan, loadPlan)
 		if err != nil {
 			return err
 		}
@@ -79,9 +79,9 @@ func Run(ctx context.Context, args []string, output io.Writer, loadPlan func(str
 	}
 }
 
-// operatorVault reads the cell and its Vault from the reviewed plan and opens
+// OperatorVault reads the cell and its Vault from the reviewed plan and opens
 // the Vault with the operator's ~/.oci/config DEFAULT profile.
-func operatorVault(planPath string, loadPlan func(string) (map[string]any, error)) (string, Target, VaultClient, BundleClient, error) {
+func OperatorVault(planPath string, loadPlan func(string) (map[string]any, error)) (string, Target, VaultClient, BundleClient, error) {
 	if loadPlan == nil {
 		return "", Target{}, nil, nil, errors.New("validated plan loader is required")
 	}
