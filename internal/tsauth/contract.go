@@ -49,8 +49,9 @@ const (
 	// load balancer's hostname rule. Atlas serves auth.terrascale.tech.
 	Hostname = Cell + ".auth.terrascale.tech"
 	// Replicas is the replica count: ts-auth keeps all of its state in
-	// TerraBase, so two replicas on distinct controllers serve together.
-	Replicas = 2
+	// TerraBase, so one replica on each of the cell's three nodes, every one
+	// in its own failure domain, serve together (TS-578).
+	Replicas = 3
 	// Cell is the only production cell with the reviewed ts-auth endpoints.
 	Cell = "gru"
 

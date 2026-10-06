@@ -117,7 +117,7 @@ func TestTSAuthAutoscaleBoundsAreFixed(t *testing.T) {
 	profiles := map[string]WorkloadProfile{tsauth.Role: profile}
 	for name, mutate := range map[string]func(*workload.ServiceSpec){
 		"lower replicas":      func(s *workload.ServiceSpec) { s.Replicas.Min = 1 },
-		"higher replicas":     func(s *workload.ServiceSpec) { s.Replicas.Max = 3 },
+		"higher replicas":     func(s *workload.ServiceSpec) { s.Replicas.Max = 4 },
 		"multiple per domain": func(s *workload.ServiceSpec) { s.Placement.MaxPerFailureDomain = 2 },
 	} {
 		bad := spec
@@ -147,10 +147,10 @@ func tsAuthGRUConfig(t *testing.T) (WorkloadProfile, workload.ServiceSpec) {
 
 // TestTSAuthReleaseGateWithFakeReplicas drives `operator ts-auth-release`
 // against an in-process controller whose workload reconciler owns ts-auth
-// with the committed gru-1 spec (two replicas, one per failure domain) and
-// two host agents. The fake replica answers /healthz and /readyz only when
+// with the committed gru-1 spec (three replicas, one per failure domain) and
+// three host agents. The fake replica answers /healthz and /readyz only when
 // its host gave it the Vault's secrets and a bundle directory. A first
-// release passes the gate, a second upgrades both replicas, and a release
+// release passes the gate, a second upgrades every replica, and a release
 // that crashes is rolled back.
 func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
@@ -163,7 +163,7 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 	operatorPublic, _ := testEd25519(t, root, "operator.key")
 	profile, spec := tsAuthGRUConfig(t)
 	spec.Environment = "test"
-	nodes := []string{"ctl-1", "ctl-2"}
+	nodes := []string{"ctl-1", "ctl-2", "ctl-3"}
 	users := []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller"}, {PublicKey: operatorNKey, Role: "operator"}}
 	hostKeys := map[string][2]string{}
 	for _, node := range nodes {

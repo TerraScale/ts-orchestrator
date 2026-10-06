@@ -40,7 +40,7 @@ func TestCellSpecAddsTSAuthToARunningCell(t *testing.T) {
 	rootKey, rootPrivateKey := writeTestPEMKeyPair(t, root, "root")
 	leafKey, leafPrivateKey := writeTestPEMKeyPair(t, root, "leaf")
 	const deployment, environment = "lab-gru-1", "canary"
-	nodes := []string{"ctl-1", "ctl-2"}
+	nodes := []string{"ctl-1", "ctl-2", "ctl-3"}
 	var grants []natscell.NKeyGrant
 	controllerSeeds := make([]string, 3)
 	for index := range controllerSeeds {
