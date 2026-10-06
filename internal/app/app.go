@@ -201,6 +201,7 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 		ManagedRuntimeRoot:      cfg.Host.ManagedRuntimeRoot,
 		TerraBaseRoot:           cfg.Host.TerraBaseRoot,
 		TSAuthRoot:              cfg.Host.TSAuthRoot,
+		RoleMemoryMaxBytes:      cfg.Host.RoleMemoryMaxBytes,
 		SecretResolver:          vaultsecret.ReadRefs,
 		TerraBaseDataVolume:     cfg.Host.TerraBaseDataVolume,
 		TerraBaseDataVolumeID:   cfg.Host.TerraBaseDataVolumeID,

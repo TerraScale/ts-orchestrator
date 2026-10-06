@@ -133,6 +133,11 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 			return nil, err
 		}
 	}
+	for role, limit := range cfg.RoleMemoryMaxBytes {
+		if !slices.Contains(cfg.Roles, role) || limit == 0 || validateCgroupMemoryMax(limit) != nil {
+			return nil, fmt.Errorf("role %q memory cap must name a host role and be a nonzero page-aligned byte count", role)
+		}
+	}
 	if cfg.TerraBaseDataVolume && cfg.TerraBaseRoot == "" {
 		return nil, errors.New("a terrabase data volume needs a terrabase root")
 	}
@@ -886,7 +891,8 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	if err != nil {
 		return err
 	}
-	workload := Workload{Role: role, Digest: d.Digest, Fingerprint: fingerprint, Executable: executable, Args: d.Args, Env: d.Env}
+	workload := Workload{Role: role, Digest: d.Digest, Fingerprint: fingerprint, Executable: executable, Args: d.Args, Env: d.Env,
+		CgroupMemoryMaxBytes: a.cfg.RoleMemoryMaxBytes[role]}
 	if a.tsAuthMisplaced(d) {
 		return errors.New("ts-auth needs ts_auth_root on this host for its bundle directory and readiness probe")
 	}

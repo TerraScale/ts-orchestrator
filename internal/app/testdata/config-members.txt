@@ -1,4 +1,4 @@
-version 2
+version 3
 .Controller struct json:"controller"
 .Controller.ArtifactStoreMaxBytes int64 json:"artifact_store_max_bytes,omitzero"
 .Controller.Autoscale *struct json:"autoscale,omitempty"
@@ -266,6 +266,7 @@ version 2
 .Host.ManagedVolumeOnlineGrow bool json:"managed_volume_online_grow,omitzero"
 .Host.Node string json:"node"
 .Host.PollMillis int json:"poll_millis,omitzero"
+.Host.RoleMemoryMaxBytes map[string]uint64 json:"role_memory_max_bytes,omitempty"
 .Host.Roles []string json:"roles"
 .Host.SelfUpdateProofFile string json:"self_update_proof_file,omitempty"
 .Host.SelfUpdateRoot string json:"self_update_root,omitempty"

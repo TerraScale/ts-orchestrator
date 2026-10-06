@@ -236,9 +236,10 @@ type AgentConfig struct {
 	InstallRoot             string
 	StateRoot               string
 	ManagedRuntimeRoot      string
-	TerraBaseRoot           string // Set: launch a non-managed "terrabase" desired as a C# TerraBase member.
-	TSAuthRoot              string // Set: launch a "ts-auth" desired with its readiness probe and bundle directory.
-	TSAuthPort              int    // The port a ts-auth replica serves and the host probes; zero means tsauth.Port.
+	TerraBaseRoot           string            // Set: launch a non-managed "terrabase" desired as a C# TerraBase member.
+	TSAuthRoot              string            // Set: launch a "ts-auth" desired with its readiness probe and bundle directory.
+	TSAuthPort              int               // The port a ts-auth replica serves and the host probes; zero means tsauth.Port.
+	RoleMemoryMaxBytes      map[string]uint64 // A non-managed role's cgroup memory.max from its next start; absent means unlimited.
 	ManagedS3Credentials    ManagedS3CredentialResolver
 	ManagedBackupDataKeys   ManagedBackupDataKeyResolver
 	BakedSystemReserveBytes uint64

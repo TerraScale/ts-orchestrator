@@ -177,9 +177,10 @@ func (m *memoryMutations) CommitHostMutation(ctx context.Context, epoch uint64, 
 }
 
 type memoryRunner struct {
-	mu       sync.Mutex
-	observed map[string]Observation
-	applied  int
+	mu        sync.Mutex
+	observed  map[string]Observation
+	applied   int
+	memoryMax uint64 // the last applied workload's cgroup memory cap
 }
 
 type stoppedRunner struct {
@@ -230,6 +231,7 @@ func (m *memoryRunner) Apply(_ context.Context, w Workload) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.applied++
+	m.memoryMax = w.CgroupMemoryMaxBytes
 	m.observed[w.Role] = Observation{Role: w.Role, Digest: w.Digest, Fingerprint: w.Fingerprint, Running: true}
 	return nil
 }
@@ -1955,6 +1957,60 @@ func TestRestartHoldKeepsTheRunningWorkload(t *testing.T) {
 	await("released restart", func(r Report, applied int, running bool) bool {
 		return r.Generation == 3 && r.State == "running" && applied == 3 && running
 	})
+}
+
+// TestRoleMemoryCapReachesTheRunner checks that a host's role memory cap
+// (host.json role_memory_max_bytes) is the cgroup memory.max the runner
+// starts the role with, and that a cap for a role the host does not run is
+// refused (TS-578).
+func TestRoleMemoryCapReachesTheRunner(t *testing.T) {
+	c, conn, store, _, controllerKey := testControllerWithVerifier(t, nil)
+	hostKey := registerTestHost(t, c)
+	data := []byte("#!/bin/sh\nsleep 30\n")
+	hash := sha256.Sum256(data)
+	digest := hex.EncodeToString(hash[:])
+	if _, err := store.PutBytes(t.Context(), "sha256-"+digest, data); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ApplyDesired(t.Context(), Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase",
+		Digest: digest, Generation: 1, AuthorityEpoch: 1}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go func() { _ = c.Run(ctx) }()
+	<-c.Ready()
+	runner := &memoryRunner{observed: make(map[string]Observation)}
+	config := AgentConfig{NATSUserPublicKey: testNATSUserKey("node-a"), ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(),
+		Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey,
+		ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: testAgentInstallRoot(t),
+		StateRoot: testAgentStateRoot(t), PollInterval: 100 * time.Millisecond,
+		RoleMemoryMaxBytes: map[string]uint64{"ts-auth": 1 << 30}}
+	if _, err := NewAgent(config); err == nil {
+		t.Fatal("agent accepted a memory cap for a role it does not run")
+	}
+	config.RoleMemoryMaxBytes = map[string]uint64{"terrabase": 3 << 30}
+	agent, err := NewAgent(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = agent.Run(ctx) }()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		runner.mu.Lock()
+		applied, memoryMax := runner.applied, runner.memoryMax
+		runner.mu.Unlock()
+		if applied == 1 {
+			if memoryMax != 3<<30 {
+				t.Fatalf("workload memory cap = %d", memoryMax)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("workload never started")
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 }
 
 // cycleConflictState fails the next cycle-record writes with a CAS

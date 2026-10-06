@@ -248,6 +248,22 @@ secrets, then `TS_AUTH_LISTEN=http://0.0.0.0:8080` and
 `DOTNET_BUNDLE_EXTRACT_BASE_DIR=<root>/bundle`. It runs as the workload user
 in its own cgroup under the host agent.
 
+Each role's cgroup shares the native workloads' CPU cap (below one CPU) at a
+lower CPU and I/O weight than the controller and host agent, which also run
+at nice -20, so NATS keeps its share. Memory is unlimited unless the host
+sets `role_memory_max_bytes` in `host.json` (`host` section, kept across
+credential renewal), for example on a 6 GB controller that also runs a
+TerraBase member (TS-578):
+
+```json
+"role_memory_max_bytes": {"terrabase": 3221225472, "ts-auth": 1073741824}
+```
+
+A role's cap becomes its cgroup `memory.max` from its next start; .NET sizes
+its heap to it. The agent refuses a cap for a role the host does not run.
+Set `"version": 3` in the same file when adding it by hand, so an older
+binary skips the member instead of refusing the config.
+
 ### Instance metadata firewall
 
 COS chose to block ts-auth's metadata access on 2026-10-05. The

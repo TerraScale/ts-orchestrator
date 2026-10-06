@@ -67,6 +67,7 @@ func TestHostEnrollmentRenewalKeepsHostLocalOptions(t *testing.T) {
 	first.Host.TSAuthRoot = "/srv/ts-managed/ts-auth"
 	first.Host.TerraBaseDataVolume = true
 	first.Host.TerraBaseDataVolumeID = "ocid1.volume.oc1..first"
+	first.Host.RoleMemoryMaxBytes = map[string]uint64{"terrabase": 3 << 30}
 	wire, err := protocol.EncodeJSON(first)
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +79,8 @@ func TestHostEnrollmentRenewalKeepsHostLocalOptions(t *testing.T) {
 	if !renewed.Host.ManagedVolumeOnlineGrow || renewed.Host.SelfUpdateProofFile != first.Host.SelfUpdateProofFile ||
 		renewed.Host.SelfUpdateRoot != first.Host.SelfUpdateRoot || renewed.Host.TerraBaseRoot != first.Host.TerraBaseRoot ||
 		renewed.Host.TSAuthRoot != first.Host.TSAuthRoot ||
-		!renewed.Host.TerraBaseDataVolume || renewed.Host.TerraBaseDataVolumeID != first.Host.TerraBaseDataVolumeID {
+		!renewed.Host.TerraBaseDataVolume || renewed.Host.TerraBaseDataVolumeID != first.Host.TerraBaseDataVolumeID ||
+		renewed.Host.RoleMemoryMaxBytes["terrabase"] != 3<<30 {
 		t.Fatalf("renewal dropped host-local options: %+v", renewed.Host)
 	}
 	if renewed.NATS.TLS.CertFile == first.NATS.TLS.CertFile {

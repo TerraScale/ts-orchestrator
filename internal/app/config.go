@@ -24,7 +24,7 @@ const maxConfigBytes = 1 << 20
 // new member (TestConfigVersionCoversEveryMember names the digest to record):
 // an older binary then skips the members it lacks instead of refusing them as
 // typos. Never rename or remove a member; an older config still names it.
-const ConfigVersion = 2
+const ConfigVersion = 3
 
 // Config is the one binary's role-specific configuration. A controller and a
 // host can share the same schema while holding separate credentials and files.
@@ -194,6 +194,11 @@ type HostConfig struct {
 	// Off by default; the controller also needs
 	// controller.autoscale.host_telemetry to accept it.
 	LoadTelemetrySeconds int `json:"load_telemetry_seconds,omitzero"`
+	// RoleMemoryMaxBytes caps a native role's cgroup memory.max on this host
+	// from its next start (TS-578), for example terrabase and ts-auth beside
+	// a controller, so neither can push the controller's NATS into the OOM
+	// killer. A role without an entry keeps the unlimited default.
+	RoleMemoryMaxBytes map[string]uint64 `json:"role_memory_max_bytes,omitempty"`
 }
 
 func LoadConfig(path string) (Config, error) {

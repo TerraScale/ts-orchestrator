@@ -715,13 +715,14 @@ const controllerHostObservability = "127.0.0.1:9466"
 // itself. Enrollment and credential renewal do not know them, so they are
 // preserved across a host.json rewrite.
 type hostLocalOptions struct {
-	ManagedVolumeOnlineGrow bool   `json:"managed_volume_online_grow,omitzero"`
-	SelfUpdateProofFile     string `json:"self_update_proof_file,omitempty"`
-	SelfUpdateRoot          string `json:"self_update_root,omitempty"`
-	TerraBaseRoot           string `json:"terrabase_root,omitempty"`
-	TSAuthRoot              string `json:"ts_auth_root,omitempty"`
-	TerraBaseDataVolume     bool   `json:"terrabase_data_volume,omitzero"`
-	TerraBaseDataVolumeID   string `json:"terrabase_data_volume_id,omitempty"`
+	ManagedVolumeOnlineGrow bool              `json:"managed_volume_online_grow,omitzero"`
+	SelfUpdateProofFile     string            `json:"self_update_proof_file,omitempty"`
+	SelfUpdateRoot          string            `json:"self_update_root,omitempty"`
+	TerraBaseRoot           string            `json:"terrabase_root,omitempty"`
+	TSAuthRoot              string            `json:"ts_auth_root,omitempty"`
+	TerraBaseDataVolume     bool              `json:"terrabase_data_volume,omitzero"`
+	TerraBaseDataVolumeID   string            `json:"terrabase_data_volume_id,omitempty"`
+	RoleMemoryMaxBytes      map[string]uint64 `json:"role_memory_max_bytes,omitempty"`
 }
 
 func (o hostLocalOptions) applyTo(host *HostConfig) {
@@ -732,6 +733,7 @@ func (o hostLocalOptions) applyTo(host *HostConfig) {
 	host.TSAuthRoot = o.TSAuthRoot
 	host.TerraBaseDataVolume = o.TerraBaseDataVolume
 	host.TerraBaseDataVolumeID = o.TerraBaseDataVolumeID
+	host.RoleMemoryMaxBytes = o.RoleMemoryMaxBytes
 }
 
 // readHostLocalOptions reads the host-local options of an existing host.json.
