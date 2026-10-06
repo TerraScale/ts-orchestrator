@@ -177,6 +177,21 @@ func (r *specRegistry) openRoots(genesis trust.Keyring, chain trust.RootChain, p
 	return nil
 }
 
+// reverify reads the stored spec again after the roots change: a follower
+// may have refused a spec signed under a root it had not yet adopted.
+func (r *specRegistry) reverify(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	entry, err := r.kv.Get(ctx, cellSpecKey)
+	if err != nil {
+		if !errors.Is(err, jetstream.ErrKeyNotFound) {
+			slog.Error("reread cell spec after a root rotation", observability.ComponentKey, "cellspec", "error", err)
+		}
+		return
+	}
+	r.load(entry)
+}
+
 // keepsStoredSpec refuses a root rotation that would leave the stored spec
 // signed under a removed root. Rotate make-before-break instead: add the new
 // root, apply the next generation signed under it, then remove the old root.
@@ -232,6 +247,13 @@ func (r *specRegistry) Run(ctx context.Context) error {
 		return fmt.Errorf("watch cell spec: %w", err)
 	}
 	defer watcher.Stop()
+	var rootsChanged <-chan struct{}
+	if r.roots != nil {
+		rootsChanged = r.roots.changed
+	}
+	// Rereads run beside the watch; adopt keeps revision order.
+	var rereads sync.WaitGroup
+	defer rereads.Wait()
 	for {
 		select {
 		case <-ctx.Done():
@@ -243,6 +265,8 @@ func (r *specRegistry) Run(ctx context.Context) error {
 			if entry != nil {
 				r.load(entry)
 			}
+		case <-rootsChanged:
+			rereads.Go(func() { r.reverify(ctx) })
 		}
 	}
 }

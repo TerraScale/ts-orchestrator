@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
@@ -20,6 +21,8 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/nats-io/nats.go/jetstream"
 )
+
+const rootRepairInterval = 30 * time.Second
 
 const (
 	rootChainBucket = "TS_TRUST_ROOTS"
@@ -49,6 +52,16 @@ type rootRegistry struct {
 	// roots only, so a replaced root cannot write them.
 	keeps func(context.Context, trust.Keyring) error
 
+	// changed signals every switch of roots, coalesced, so stored desired
+	// state refused under the previous roots is verified again by its owner.
+	changed chan struct{}
+	// repairPending stays set from a rejected record until a repair succeeds
+	// or a valid record arrives; repairing runs one repair at a time off the
+	// watch loop, and Run retries a pending repair every rootRepairInterval
+	// (a controller that becomes leader gets no watch event).
+	repairPending atomic.Bool
+	repairing     atomic.Bool
+	repairs       sync.WaitGroup
 	// adopting serializes adoption, file write included, so readers under mu
 	// never wait on I/O.
 	adopting sync.Mutex
@@ -71,7 +84,8 @@ func newRootRegistry(genesis trust.Keyring, identity trust.ChainIdentity, chain 
 	if err != nil {
 		return nil, fmt.Errorf("verify adopted root chain: %w", err)
 	}
-	return &rootRegistry{genesis: genesis, identity: identity, path: path, chain: chain, verified: verified}, nil
+	return &rootRegistry{genesis: genesis, identity: identity, path: path, chain: chain, verified: verified,
+		changed: make(chan struct{}, 1)}, nil
 }
 
 // current is the only root set with current authority; a controller
@@ -109,7 +123,10 @@ func (r *rootRegistry) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("watch root chain: %w", err)
 	}
+	defer r.repairs.Wait()
 	defer watcher.Stop()
+	ticker := time.NewTicker(rootRepairInterval)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -120,6 +137,10 @@ func (r *rootRegistry) Run(ctx context.Context) error {
 			}
 			if entry != nil {
 				r.load(ctx, entry)
+			}
+		case <-ticker.C:
+			if r.repairPending.Load() {
+				r.startRepair(ctx)
 			}
 		}
 	}
@@ -137,29 +158,72 @@ func (r *rootRegistry) load(ctx context.Context, entry jetstream.KeyValueEntry) 
 		}
 	}
 	if err == nil {
+		r.repairPending.Store(false)
 		return
 	}
 	slog.Error("stored root chain rejected; keeping the adopted roots", observability.ComponentKey, "trust",
 		"revision", entry.Revision(), "error", err)
-	if r.fencer == nil || !r.fencer.Current().CanMutate() {
+	r.repairPending.Store(true)
+	r.startRepair(ctx)
+}
+
+// startRepair rewrites a rejected record on the authority leader, off the
+// watch loop and one repair at a time. A failed repair stays pending for the
+// next tick.
+func (r *rootRegistry) startRepair(ctx context.Context) {
+	if r.fencer == nil || !r.fencer.Current().CanMutate() || !r.repairing.CompareAndSwap(false, true) {
 		return
 	}
+	r.repairs.Go(func() {
+		defer r.repairing.Store(false)
+		for ctx.Err() == nil && r.fencer.Current().CanMutate() && r.repairPending.Swap(false) {
+			repairCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			err := r.repair(repairCtx)
+			cancel()
+			if err != nil {
+				r.repairPending.Store(true)
+				slog.Error("rewrite rejected root chain", observability.ComponentKey, "trust", "error", err)
+				return
+			}
+		}
+	})
+}
+
+// repair rewrites the record with the adopted chain. It re-reads the record
+// first: a valid chain that extends the adopted one is adopted instead, and
+// a failure to adopt it (a disk error, say) is returned, never answered by
+// writing the older chain over it.
+func (r *rootRegistry) repair(ctx context.Context) error {
 	r.mu.Lock()
 	adopted := r.chain
 	r.mu.Unlock()
-	// A bounded repair keeps the watch loop consuming updates.
-	repairCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
+	revision := uint64(0)
+	entry, err := r.kv.Get(ctx, rootChainKey)
+	switch {
+	case err == nil:
+		revision = entry.Revision()
+		chain, err := trust.DecodeRootChain(entry.Value())
+		if err == nil && chain.Extends(adopted) {
+			if _, err := trust.VerifyRootChain(r.genesis, r.identity, chain); err == nil {
+				return r.adopt(chain)
+			}
+		}
+	case !errors.Is(err, jetstream.ErrKeyNotFound):
+		return err
+	}
 	encoded, err := trust.EncodeRootChain(adopted)
-	if err == nil {
-		err = r.fencer.Guard(repairCtx, r.fencer.Current().Epoch)
-	}
-	if err == nil {
-		_, err = r.kv.Update(repairCtx, rootChainKey, encoded, entry.Revision())
-	}
 	if err != nil {
-		slog.Error("rewrite rejected root chain", observability.ComponentKey, "trust", "error", err)
+		return err
 	}
+	if err := r.fencer.Guard(ctx, r.fencer.Current().Epoch); err != nil {
+		return err
+	}
+	if revision == 0 {
+		_, err = r.kv.Create(ctx, rootChainKey, encoded)
+	} else {
+		_, err = r.kv.Update(ctx, rootChainKey, encoded, revision)
+	}
+	return err
 }
 
 // adopt switches to chain when it extends the adopted chain and verifies
@@ -175,12 +239,14 @@ func (r *rootRegistry) adopt(chain trust.RootChain) error {
 	if !chain.Extends(held) {
 		return errors.New("root chain forks or rolls back the adopted chain")
 	}
-	if len(chain.Rotations) == len(held.Rotations) {
-		return nil
-	}
+	// Extends compares statements, not signatures: an equal chain must
+	// verify too, or a record with stripped signatures would pass as valid.
 	verified, err := trust.VerifyRootChain(r.genesis, r.identity, chain)
 	if err != nil {
 		return err
+	}
+	if len(chain.Rotations) == len(held.Rotations) {
+		return nil
 	}
 	if r.path != "" {
 		wire, err := trust.EncodeRootChain(chain)
@@ -196,6 +262,10 @@ func (r *rootRegistry) adopt(chain trust.RootChain) error {
 	r.mu.Unlock()
 	slog.Info("root chain adopted", observability.ComponentKey, "trust", "sequence", verified.Sequence,
 		"head", verified.Head, "roots", len(verified.Current))
+	select {
+	case r.changed <- struct{}{}:
+	default:
+	}
 	return nil
 }
 

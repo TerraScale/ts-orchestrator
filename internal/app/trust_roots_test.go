@@ -19,6 +19,9 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 func rootKeys(keys ...ed25519.PrivateKey) []ed25519.PrivateKey { return keys }
@@ -96,8 +99,9 @@ func TestRootRegistryAdoptsOnlyExtendingChains(t *testing.T) {
 	rival := trust.RootChain{Rotations: []trust.SignedRotation{signTestRotation(t, id, start, rootKeys(attacker), r0, attacker)}}
 	extended := trust.RootChain{Rotations: append(rotated.Rotations,
 		signTestRotation(t, id, registry.verified, rootKeys(attacker), r0, attacker))}
+	stripped := trust.RootChain{Rotations: []trust.SignedRotation{{Signatures: rotated.Rotations[0].Signatures[1:]}}}
 	for name, chain := range map[string]trust.RootChain{"rollback": {}, "fork by the replaced root": rival,
-		"extension by the replaced root": extended} {
+		"extension by the replaced root": extended, "the adopted statement without the old root's signature": stripped} {
 		if err := registry.adopt(chain); err == nil {
 			t.Errorf("%s adopted", name)
 		}
@@ -107,6 +111,73 @@ func TestRootRegistryAdoptsOnlyExtendingChains(t *testing.T) {
 	}
 	if again, _ := os.ReadFile(path); !bytes.Equal(again, wire) {
 		t.Fatal("a refused chain was persisted")
+	}
+}
+
+// The leader repairs only an invalid record: a valid newer chain it fails to
+// adopt (here its persistence fails) is never overwritten with the older
+// adopted chain.
+func TestRootRepairNeverRollsBackAValidRecord(t *testing.T) {
+	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go srv.Start()
+	if !srv.ReadyForConnections(5 * time.Second) {
+		t.Fatal("NATS did not start")
+	}
+	t.Cleanup(func() { srv.Shutdown(); srv.WaitForShutdown() })
+	conn, err := nats.Connect(srv.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(conn.Close)
+	js, err := jetstream.New(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r0, r1 := newRootKey(t), newRootKey(t)
+	genesis, err := trust.ParseKeyring(r0.Public().(ed25519.PublicKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := trust.ChainIdentity{DeploymentID: "lab-gru", Cell: "gru", Environment: "test"}
+	// The persisted chain's directory is a file, so every persist fails.
+	blocked := filepath.Join(t.TempDir(), "blocked")
+	if err := os.WriteFile(blocked, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	registry, err := newRootRegistry(genesis, id, trust.RootChain{}, filepath.Join(blocked, "root-chain.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry.fencer = rolloutTestFence{epoch: 7}
+	if err := registry.open(t.Context(), js, 1); err != nil {
+		t.Fatal(err)
+	}
+	newer, err := trust.EncodeRootChain(trust.RootChain{Rotations: []trust.SignedRotation{
+		signTestRotation(t, id, registry.verified, rootKeys(r1), r0, r1)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.kv.Put(t.Context(), rootChainKey, newer); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.repair(t.Context()); err == nil || !strings.Contains(err.Error(), "persist") {
+		t.Fatalf("repair over a valid newer record: %v", err)
+	}
+	if entry, err := registry.kv.Get(t.Context(), rootChainKey); err != nil || !bytes.Equal(entry.Value(), newer) {
+		t.Fatalf("the valid newer record was replaced: %v", err)
+	}
+	// An invalid record is rewritten with the adopted chain.
+	if _, err := registry.kv.Put(t.Context(), rootChainKey, []byte("{")); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.repair(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if entry, err := registry.kv.Get(t.Context(), rootChainKey); err != nil || string(entry.Value()) != `{"rotations":[]}` {
+		t.Fatalf("the invalid record was not repaired: %v", err)
 	}
 }
 
@@ -219,9 +290,46 @@ func TestRootRotationOnARunningController(t *testing.T) {
 			t.Errorf("%s: rotation applied", name)
 		}
 	}
+	serviceGeneration := func() uint64 {
+		t.Helper()
+		var output bytes.Buffer
+		if err := Run(ctx, []string{"service", "list", "--config", operatorConfig}, &output); err != nil {
+			t.Fatal(err)
+		}
+		var listed cellspec.Spec
+		if err := json.Unmarshal(output.Bytes(), &listed); err != nil {
+			t.Fatal(err)
+		}
+		return listed.Generation
+	}
+	// A spec signed under r1 reaches the store before r1 is a root, as on a
+	// follower whose spec watch runs ahead of its root watch: it is refused
+	// now and adopted when the rotation adds r1.
+	probe, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "probe", Replicas: 1, Lab: true,
+		URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: controllerSeed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer probe.Close()
+	sets, err := probe.JetStream().KeyValue(ctx, cellSpecBucket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sets.Put(ctx, cellSpecKey, mustRead(t, rotatedTrust.sign(t, root, set))); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if got := serviceGeneration(); got != 0 {
+		t.Fatalf("a spec signed under a root not yet adopted moved the spec to generation %d", got)
+	}
 	rotation := writeRotation("rotation-1.json", signTestRotation(t, id, base, rootKeys(r1), genesisTrust.root, r1))
 	if out, err := operator("trust-rotate", "--file", rotation); err != nil || !strings.Contains(out, `"status":"applied"`) {
 		t.Fatalf("rotate: %v\n%s", err, out)
+	}
+	for deadline := time.Now().Add(10 * time.Second); serviceGeneration() != 1; time.Sleep(50 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the stored spec signed under the new root was not adopted after the rotation")
+		}
 	}
 	if out, err := operator("trust-rotate", "--file", rotation); err != nil || !strings.Contains(out, `"status":"unchanged"`) {
 		t.Fatalf("re-apply: %v\n%s", err, out)
@@ -265,12 +373,6 @@ func TestRootRotationOnARunningController(t *testing.T) {
 			t.Errorf("leaked root %s applied", name)
 		}
 	}
-	probe, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "probe", Replicas: 1, Lab: true,
-		URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: controllerSeed})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer probe.Close()
 	store, err := probe.JetStream().KeyValue(ctx, rootChainBucket)
 	if err != nil {
 		t.Fatal(err)
@@ -308,26 +410,10 @@ func TestRootRotationOnARunningController(t *testing.T) {
 		t.Fatalf("re-apply: %v\n%s", err, out)
 	}
 
-	// A set delegated by the new root applies. A set the leaked root signs
-	// and writes straight into the store is not adopted.
-	serviceGeneration := func() uint64 {
-		t.Helper()
-		var output bytes.Buffer
-		if err := Run(ctx, []string{"service", "list", "--config", operatorConfig}, &output); err != nil {
-			t.Fatal(err)
-		}
-		var listed cellspec.Spec
-		if err := json.Unmarshal(output.Bytes(), &listed); err != nil {
-			t.Fatal(err)
-		}
-		return listed.Generation
-	}
-	if out, err := service(rotatedTrust.sign(t, root, set)); err != nil || !strings.Contains(out, `"status":"applied"`) {
+	// The set delegated by the new root is in force. A set the leaked root
+	// signs and writes straight into the store is not adopted.
+	if out, err := service(rotatedTrust.sign(t, root, set)); err != nil || !strings.Contains(out, `"status":"unchanged"`) {
 		t.Fatalf("set under the new root: %v\n%s", err, out)
-	}
-	sets, err := probe.JetStream().KeyValue(ctx, cellSpecBucket)
-	if err != nil {
-		t.Fatal(err)
 	}
 	forged := set
 	forged.Generation = 2
