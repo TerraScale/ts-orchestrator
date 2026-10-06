@@ -1861,11 +1861,12 @@ func TestRestartGateHoldsTheRunningWorkload(t *testing.T) {
 	})
 }
 
-// TestTerraBaseRestartHoldKeepsTheRunningMember checks that the host-local
-// hold file keeps a running member on its generation, reported waiting at
-// the new one without asking the controller for a cycle, and that removing
-// it restarts the member into the new generation (TS-578).
-func TestTerraBaseRestartHoldKeepsTheRunningMember(t *testing.T) {
+// TestRestartHoldKeepsTheRunningWorkload checks that a role's host-local
+// hold file keeps its running workload on its generation, reported waiting
+// at the new one without asking the controller for a cycle, that another
+// role's hold does not, and that removing it restarts the workload into the
+// new generation (TS-578).
+func TestRestartHoldKeepsTheRunningWorkload(t *testing.T) {
 	c, conn, store, _, controllerKey := testControllerWithVerifier(t, nil)
 	hostKey := registerTestHost(t, c)
 	data := []byte("#!/bin/sh\nsleep 30\n")
@@ -1914,34 +1915,45 @@ func TestTerraBaseRestartHoldKeepsTheRunningMember(t *testing.T) {
 	await("first launch", func(r Report, applied int, _ bool) bool {
 		return r.Generation == 1 && r.State == "running" && applied == 1
 	})
-	hold := filepath.Join(stateRoot, TerraBaseRestartHold)
+	hold := filepath.Join(stateRoot, "terrabase"+RestartHoldSuffix)
 	if err := os.MkdirAll(stateRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(hold, nil, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(stateRoot, "ts-auth"+RestartHoldSuffix), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	changed := desired
 	changed.Generation = 2
+	changed.Env = map[string]string{"TS_MODE": "other"}
+	if _, err := c.ApplyDesired(t.Context(), changed); err != nil {
+		t.Fatal(err)
+	}
+	await("restart beside another role's hold", func(r Report, applied int, running bool) bool {
+		return r.Generation == 2 && r.State == "running" && applied == 2 && running
+	})
+	if err := os.WriteFile(hold, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed.Generation = 3
 	changed.Env = map[string]string{"TS_MODE": "test"}
 	if _, err := c.ApplyDesired(t.Context(), changed); err != nil {
 		t.Fatal(err)
 	}
 	await("held restart", func(r Report, applied int, running bool) bool {
-		return r.Generation == 2 && r.State == "waiting" && applied == 1 && running
+		return r.Generation == 3 && r.State == "waiting" && applied == 2 && running
 	})
 	time.Sleep(500 * time.Millisecond)
 	runner.mu.Lock()
-	if runner.applied != 1 {
+	if runner.applied != 2 {
 		runner.mu.Unlock()
-		t.Fatal("a held member restarted")
+		t.Fatal("a held workload restarted")
 	}
 	runner.mu.Unlock()
 	if err := os.Remove(hold); err != nil {
 		t.Fatal(err)
 	}
 	await("released restart", func(r Report, applied int, running bool) bool {
-		return r.Generation == 2 && r.State == "running" && applied == 2 && running
+		return r.Generation == 3 && r.State == "running" && applied == 3 && running
 	})
 }
 

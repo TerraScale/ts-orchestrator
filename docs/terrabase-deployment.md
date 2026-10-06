@@ -242,24 +242,33 @@ database: a write to one member is not on the others.
 ### Restart hold
 
 A cell without seats (gru-1: its signed controller configs predate them)
-can still restart members one at a time, by hand, behind load balancer
-drains (TS-578). While the file `terrabase-restart-hold` exists in a host's
-state root (`/var/lib/terrascale-orchestrator-host/state`), the host keeps
-its running member on its current generation and reports the new one
+can still restart replicas one at a time, by hand, behind load balancer
+drains (TS-578). A release writes every replica's desired at once, for
+TerraBase members and for reconciled roles such as ts-auth alike. While the
+file `<role>-restart-hold` exists in a host's state root
+(`/var/lib/terrascale-orchestrator-host/state`), for example
+`terrabase-restart-hold` or `ts-auth-restart-hold`, the host keeps that
+role's running workload on its current generation and reports the new one
 `waiting`, which the release gate waits for. It never holds a stopped
-member or a withdrawal, and a restarted host agent starts its member on the
-current desired.
+workload or a withdrawal, and a restarted host agent starts its workloads on
+the current desired.
 
 1. `sudo touch /var/lib/terrascale-orchestrator-host/state/terrabase-restart-hold`
    on every host whose member serves.
 2. Run the release with a `--wait` long enough for every step below, and
    keep it running: a gate that times out rolls back every member at once.
 3. For one held host at a time: drain its backend on the load balancer,
-   wait for in-flight requests (15 s), remove its hold file, wait for its
-   `/readyz` and for `operator hosts` to show it `running` at the new
-   generation, then return the backend to rotation.
+   wait for in-flight requests (15 s), set it offline (a drain alone keeps
+   the load balancer's pooled connections), remove its hold file, wait for
+   its `/readyz` and for `operator hosts` to show it `running` at the new
+   generation, then return the backend to rotation and wait until every
+   load balancer node's latest health check is OK before draining the next.
 
-A hold is for minutes: a held member renews no certificate.
+A hold is for minutes: a held TerraBase member renews no certificate. With
+write-wait (TerraBase TS-575), a member that restarts with new peers sends
+them its whole journal first and its writes wait for their acknowledgements
+until they catch up: keep it out of rotation, and out of ts-auth's
+endpoints, until `terrabase_replication_sender_durable_lag` is 0.
 
 ## gru-1 bring-up runbook
 

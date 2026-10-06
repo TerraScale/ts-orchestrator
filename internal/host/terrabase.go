@@ -142,21 +142,22 @@ func (a *Agent) terraBaseMember(d Desired) bool {
 	return a.cfg.TerraBaseRoot != "" && d.Role == terrabase.Role && d.ManagedMember == nil && !d.Withdrawn
 }
 
-// TerraBaseRestartHold is the file in the host's state root that holds a
-// running member on its current generation (TS-578). An operator restarts
-// members one at a time with it behind a load balancer drain, where the cell
-// has no seat rollouts: hold every serving member, release, then drain and
-// remove one host's hold at a time. A held host reports the new generation
-// waiting, which the release gate waits for. It never holds a stopped
-// member, a withdrawal or a restarted host agent, whose member starts on
-// the current desired.
-const TerraBaseRestartHold = "terrabase-restart-hold"
+// RestartHoldSuffix names the file in the host's state root that holds a
+// role's running workload on its current generation: <role>-restart-hold,
+// for example terrabase-restart-hold (TS-578). An operator restarts replicas
+// one at a time with it behind a load balancer drain, where the cell has no
+// seat rollouts and a release writes every replica at once: hold every
+// serving host, release, then drain and remove one host's hold at a time. A
+// held host reports the new generation waiting, which the release gate
+// waits for. It never holds a stopped workload, a withdrawal or a restarted
+// host agent, whose workload starts on the current desired.
+const RestartHoldSuffix = "-restart-hold"
 
-func (a *Agent) terraBaseRestartHeld(d Desired) bool {
-	if d.Role != terrabase.Role || a.cfg.StateRoot == "" {
+func (a *Agent) restartHeld(d Desired) bool {
+	if a.cfg.StateRoot == "" {
 		return false
 	}
-	_, err := os.Lstat(filepath.Join(a.cfg.StateRoot, TerraBaseRestartHold))
+	_, err := os.Lstat(filepath.Join(a.cfg.StateRoot, d.Role+RestartHoldSuffix))
 	return err == nil
 }
 

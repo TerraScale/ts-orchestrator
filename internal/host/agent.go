@@ -844,7 +844,7 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		query = pending.query
 		cycle = cycleReply{CycleID: query.CycleID, Fence: query.Fence, State: "active"}
 	} else {
-		if current.Running && a.terraBaseRestartHeld(d) {
+		if current.Running && a.restartHeld(d) {
 			return a.publishReport(ctx, a.reportFor(d, "waiting", nil))
 		}
 		attempt, err := randomID()
