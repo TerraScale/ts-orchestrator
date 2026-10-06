@@ -53,7 +53,7 @@ func operatorHostEnrollmentRevoke(ctx context.Context, cfg Config, runtime *nats
 	if err != nil {
 		return err
 	}
-	grant, ok := policy.grants[cfg.Operator.Actor]
+	grant, ok := policy.grant(cfg.Operator.Actor)
 	if !ok || !grant.CanRegisterHosts || !grant.CanPlaceTerraBase ||
 		!slices.Contains(grant.Roles, "terrabase") ||
 		!slices.Contains(grant.Environments, "production") && !slices.Contains(grant.Environments, "canary") {
@@ -144,12 +144,12 @@ func verifyAndRevokeHostEnrollment(ctx context.Context, wire []byte, cell string
 	if request.SchemaVersion != 1 || !validEnrollmentInstanceID(request.InstanceID) {
 		return hostEnrollmentRevokeReceipt{}, errors.New("host enrollment revoke request is invalid")
 	}
-	grant, ok := policy.grants[envelope.Actor]
+	grant, ok := policy.grant(envelope.Actor)
 	if !ok || !grant.CanRegisterHosts || !grant.CanPlaceTerraBase ||
 		!slices.Contains(grant.Roles, "terrabase") || !slices.Contains(grant.Environments, enrollment.environment) {
 		return hostEnrollmentRevokeReceipt{}, errors.New("host enrollment revoke actor is unauthorized")
 	}
-	trusted, ok := policy.codec.Trusted[envelope.KeyID]
+	trusted, ok := policy.trusted(envelope.KeyID)
 	if !ok || trusted.Actor != envelope.Actor {
 		return hostEnrollmentRevokeReceipt{}, errors.New("host enrollment revoke signer is untrusted")
 	}

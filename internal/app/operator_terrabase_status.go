@@ -244,7 +244,7 @@ func requestPlacementStatus(ctx context.Context, cfg Config, runtime *natscell.R
 	if err != nil {
 		return placementStatusReport{}, statusRejected{err}
 	}
-	grant, exists := policy.grants[cfg.Operator.Actor]
+	grant, exists := policy.grant(cfg.Operator.Actor)
 	if !exists || !grant.CanPlaceTerraBase {
 		return placementStatusReport{}, statusRejected{errors.New("operator is not authorized to read TerraBase placement status")}
 	}
@@ -352,8 +352,8 @@ func (source placementStatusSource) answer(ctx context.Context, wire []byte) ([]
 		return nil, err
 	}
 	canonical, err := protocol.EncodeJSON(request)
-	grant, granted := source.policy.grants[envelope.Actor]
-	trusted, known := source.policy.codec.Trusted[envelope.KeyID]
+	grant, granted := source.policy.grant(envelope.Actor)
+	trusted, known := source.policy.trusted(envelope.KeyID)
 	if err != nil || !bytes.Equal(canonical, envelope.Payload) || !granted || !grant.CanPlaceTerraBase ||
 		!known || trusted.Actor != envelope.Actor || len(request.Nonce) != 32 || !lowerHexString(request.Nonce) {
 		return nil, errors.New("placement status request is not authorized")

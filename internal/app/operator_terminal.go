@@ -65,7 +65,7 @@ func terminalOperatorCodec(cfg Config) (signerPolicy, error) {
 	if err != nil {
 		return signerPolicy{}, err
 	}
-	grant, ok := policy.grants[cfg.Operator.Actor]
+	grant, ok := policy.grant(cfg.Operator.Actor)
 	if !ok || !grant.CanTeardownTerraBase {
 		return signerPolicy{}, errors.New("operator is not authorized for TerraBase terminal cleanup")
 	}
@@ -261,8 +261,8 @@ func handleTerminalRequest(ctx context.Context, wire []byte, action, cell string
 		}
 		operationID = request.OperationID
 	}
-	grant, ok := policy.grants[envelope.Actor]
-	trusted, trustedOK := policy.codec.Trusted[envelope.KeyID]
+	grant, ok := policy.grant(envelope.Actor)
+	trusted, trustedOK := policy.trusted(envelope.KeyID)
 	if !ok || !grant.CanTeardownTerraBase || !trustedOK || trusted.Actor != envelope.Actor {
 		return terminalReply{}, errors.New("terminal signing actor is unauthorized")
 	}

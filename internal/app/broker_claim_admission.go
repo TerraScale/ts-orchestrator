@@ -137,7 +137,7 @@ func operatorBrokerClaimApply(ctx context.Context, cfg Config, runtime *natscell
 	if err != nil {
 		return err
 	}
-	grant, exists := policy.grants[cfg.Operator.Actor]
+	grant, exists := policy.grant(cfg.Operator.Actor)
 	if !exists || !grant.CanRotateBrokerAccount {
 		return errors.New("operator is not authorized to rotate the broker account")
 	}
@@ -316,11 +316,11 @@ func verifyAndApplyBrokerClaim(ctx context.Context, wire []byte, cell string, po
 	if err != nil || !gate.runtime.SignedByPinnedOperator(claim) {
 		return brokerClaimApplyResponse{}, errors.New("broker account JWT is not signed by the pinned operator")
 	}
-	grant, exists := policy.grants[envelope.Actor]
+	grant, exists := policy.grant(envelope.Actor)
 	if !exists || !grant.CanRotateBrokerAccount {
 		return brokerClaimApplyResponse{}, errors.New("broker claim actor is unauthorized")
 	}
-	trusted, exists := policy.codec.Trusted[envelope.KeyID]
+	trusted, exists := policy.trusted(envelope.KeyID)
 	if !exists || trusted.Actor != envelope.Actor {
 		return brokerClaimApplyResponse{}, errors.New("broker claim signing key is untrusted")
 	}

@@ -26,10 +26,13 @@ type TrustedSigner struct {
 // Ed25519Codec signs CLI submissions and verifies both deployment intents and
 // artifact admission claims against configured operator/CI trust roots.
 type Ed25519Codec struct {
-	Cell        string
-	Actor       string
-	PrivateKey  ed25519.PrivateKey
-	Trusted     map[string]TrustedSigner
+	Cell       string
+	Actor      string
+	PrivateKey ed25519.PrivateKey
+	Trusted    map[string]TrustedSigner
+	// Lookup, when set, finds trusted signers instead of Trusted, so they
+	// can change while the codec is in use.
+	Lookup      func(keyID string) (TrustedSigner, bool)
 	Lifetime    time.Duration
 	MaxLifetime time.Duration
 	ClockSkew   time.Duration
@@ -164,6 +167,9 @@ func (c Ed25519Codec) verifyScopeAt(e protocol.Envelope, expected protocol.Envel
 		return TrustedSigner{}, err
 	}
 	trusted, ok := c.Trusted[e.KeyID]
+	if c.Lookup != nil {
+		trusted, ok = c.Lookup(e.KeyID)
+	}
 	if !ok || trusted.Actor == "" || len(trusted.PublicKey) != ed25519.PublicKeySize {
 		return TrustedSigner{}, errors.New("untrusted delivery signing key")
 	}

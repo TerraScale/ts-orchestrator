@@ -73,7 +73,7 @@ func operatorBackupOperation(ctx context.Context, cfg Config, runtime *natscell.
 	if err != nil {
 		return err
 	}
-	grant, exists := policy.grants[cfg.Operator.Actor]
+	grant, exists := policy.grant(cfg.Operator.Actor)
 	if !exists || !grant.CanOperateBackup {
 		return errors.New("operator is not authorized for backup operations")
 	}
@@ -224,11 +224,11 @@ func (runtime backupOperationRuntime) admit(ctx context.Context,
 			len(request.HistoryCursor) > maxBackupAdmissionBytes) {
 		return backupOperationReply{}, errors.New("backup admission request is invalid")
 	}
-	grant, exists := runtime.policy.grants[envelope.Actor]
+	grant, exists := runtime.policy.grant(envelope.Actor)
 	if !exists || !grant.CanOperateBackup {
 		return backupOperationReply{}, errors.New("backup operation actor is unauthorized")
 	}
-	trusted, exists := runtime.policy.codec.Trusted[envelope.KeyID]
+	trusted, exists := runtime.policy.trusted(envelope.KeyID)
 	if !exists || trusted.Actor != envelope.Actor {
 		return backupOperationReply{}, errors.New("backup operation signer is untrusted")
 	}

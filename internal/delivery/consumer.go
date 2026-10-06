@@ -631,9 +631,10 @@ func validatePlan(intent Intent, shape PlanShape, plan []host.Desired) error {
 	return nil
 }
 
-// verifiedIntent persists the one-time signature and authorization decision
-// before any desired effect. A redelivery after the envelope's time window can
-// resume the exact same bytes from this durable verified-wire record.
+// verifiedIntent persists the one-time signature check before any desired
+// effect. A redelivery after the envelope's time window can resume the exact
+// same bytes from this durable verified-wire record; it is authorized again,
+// so a signer or grant revoked since then stops it.
 func (s *Service) verifiedIntent(ctx context.Context, wire []byte) (Intent, string, error) {
 	sum := sha256.Sum256(wire)
 	key := "w_" + hex.EncodeToString(sum[:])
@@ -648,6 +649,9 @@ func (s *Service) verifiedIntent(ctx context.Context, wire []byte) (Intent, stri
 		}
 		if err := cached.Intent.Validate(); err != nil || cached.Intent.Cell != s.config.Cell || cached.Actor == "" {
 			return Intent{}, "", ErrInvalid
+		}
+		if err := s.config.Authorize(ctx, cached.Actor, cached.Intent); err != nil {
+			return Intent{}, "", err
 		}
 		return cached.Intent, cached.Actor, nil
 	}

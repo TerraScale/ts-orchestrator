@@ -232,7 +232,12 @@ func TestSignedOperatorPreparationCommitsExactMaterialAndReturnsCiphertext(t *te
 	if err != nil || objects.puts != 1 || retry.Receipt.Signature != reply.Receipt.Signature {
 		t.Fatalf("signed retry changed immutable material: %v", err)
 	}
-	policy.grants["ops"] = TrustedSignerConfig{Actor: "ops"}
+	// A grant the cell drops while the controller runs stops the next request.
+	grant, _ := policy.grant("ops")
+	grant.CanPrepareManagedMaterial = false
+	if err := policy.replaceSigners([]TrustedSignerConfig{grant}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := verifyAndPrepareMaterial(t.Context(), wire, "gru", policy, service); err == nil {
 		t.Fatal("preparation without a dedicated operator grant was accepted")
 	}

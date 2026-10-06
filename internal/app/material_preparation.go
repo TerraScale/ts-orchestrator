@@ -51,7 +51,7 @@ func requestMaterialPreparation(ctx context.Context, cfg Config, runtime *natsce
 	if err != nil {
 		return materialPrepareReply{}, err
 	}
-	grant, exists := policy.grants[cfg.Operator.Actor]
+	grant, exists := policy.grant(cfg.Operator.Actor)
 	if !exists || !grant.CanPrepareManagedMaterial {
 		return materialPrepareReply{}, errors.New("operator is not authorized to prepare managed material")
 	}
@@ -152,11 +152,11 @@ func verifyAndPrepareMaterial(ctx context.Context, wire []byte, cell string, pol
 	if err != nil || !bytes.Equal(canonical, envelope.Payload) {
 		return materialPrepareReply{}, errors.New("signed material preparation is not canonical")
 	}
-	grant, exists := policy.grants[envelope.Actor]
+	grant, exists := policy.grant(envelope.Actor)
 	if !exists || !grant.CanPrepareManagedMaterial {
 		return materialPrepareReply{}, errors.New("material preparation actor is unauthorized")
 	}
-	trusted, exists := policy.codec.Trusted[envelope.KeyID]
+	trusted, exists := policy.trusted(envelope.KeyID)
 	if !exists || trusted.Actor != envelope.Actor {
 		return materialPrepareReply{}, errors.New("material preparation signing key is untrusted")
 	}

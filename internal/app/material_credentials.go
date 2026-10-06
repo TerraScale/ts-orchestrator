@@ -137,7 +137,7 @@ func verifyAndApplyMaterialCredentials(ctx context.Context, wire []byte, cell st
 		!policy.canManageClientKeys(envelope.Actor, request.DatabaseID, request.PartitionID) {
 		return materialCredentialsReply{}, errors.New("client credential request is not canonical or authorized")
 	}
-	trusted, exists := policy.codec.Trusted[envelope.KeyID]
+	trusted, exists := policy.trusted(envelope.KeyID)
 	if !exists || trusted.Actor != envelope.Actor || request.ExpectedGeneration == ^uint64(0) {
 		return materialCredentialsReply{}, errors.New("client credential request signer is invalid")
 	}

@@ -65,7 +65,7 @@ func TestTrustedOperatorManagedUpdatePrepareCommitsThroughAppToR3(t *testing.T) 
 	}
 
 	artifactCodec := delivery.Ed25519Codec{Cell: cell, Actor: operatorGrant.Actor,
-		PrivateKey: operatorPrivate, Trusted: policy.codec.Trusted, Lifetime: time.Minute, MaxLifetime: 5 * time.Minute}
+		PrivateKey: operatorPrivate, Lookup: policy.codec.Lookup, Lifetime: time.Minute, MaxLifetime: 5 * time.Minute}
 	artifacts, err := delivery.Open(ctx, delivery.Config{Conn: broker.Conn(), JS: broker.JetStream(), Cell: cell,
 		Replicas: 1, ArtifactSigner: artifactCodec, ArtifactVerifier: artifactCodec,
 		AuthorizeArtifact: func(context.Context, string, delivery.ArtifactRecord) error { return nil }})

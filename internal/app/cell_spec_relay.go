@@ -222,7 +222,7 @@ func (r *specRegistry) applyRelayed(ctx context.Context, wire []byte, policy sig
 	if err := protocol.DecodeStrict(wire, &relay, maxRegistrationWireBytes); err != nil {
 		return specReply{}, fmt.Errorf("decode the relayed request: %w", err)
 	}
-	trusted, ok := policy.codec.Trusted[relay.KeyID]
+	trusted, ok := policy.trusted(relay.KeyID)
 	if !ok || trusted.Actor != relay.Actor {
 		return specReply{}, errors.New("the relayed request's signer is not trusted in this cell")
 	}

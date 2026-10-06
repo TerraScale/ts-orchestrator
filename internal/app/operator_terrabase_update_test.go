@@ -311,8 +311,8 @@ func (fake *fakeRolloutController) prepare(wire []byte) (managedUpdatePrepareRes
 	if err := intent.Validate(); err != nil {
 		return managedUpdatePrepareResponse{}, err
 	}
-	grant, exists := fake.cell.policy.grants[envelope.Actor]
-	trusted, known := fake.cell.policy.codec.Trusted[envelope.KeyID]
+	grant, exists := fake.cell.policy.grant(envelope.Actor)
+	trusted, known := fake.cell.policy.trusted(envelope.KeyID)
 	if !exists || !grant.CanUpdateTerraBaseRuntime || !known || trusted.Actor != envelope.Actor ||
 		protocol.VerifyEnvelope(envelope, protocol.EnvelopeScope{Region: deployTestCell,
 			Kind: placement.ManagedUpdateEnvelopeKind, Actor: trusted.Actor, OperationID: intent.OperationID,

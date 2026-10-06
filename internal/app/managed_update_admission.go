@@ -76,7 +76,7 @@ func requestManagedUpdatePrepare(ctx context.Context, cfg Config, runtime *natsc
 	if err != nil {
 		return managedUpdatePrepareResponse{}, err
 	}
-	grant, exists := policy.grants[cfg.Operator.Actor]
+	grant, exists := policy.grant(cfg.Operator.Actor)
 	if !exists || !grant.CanPlaceTerraBase || !grant.CanUpdateTerraBaseRuntime ||
 		!slices.Contains(grant.Roles, intent.Role) || !slices.Contains(grant.Environments, intent.Environment) {
 		return managedUpdatePrepareResponse{}, errors.New("operator lacks current TerraBase managed runtime update scope")
@@ -181,12 +181,12 @@ func verifyAndPrepareManagedUpdate(ctx context.Context, wire []byte, cell string
 	if intent.Role != "terrabase" {
 		return managedUpdatePrepareResponse{}, errors.New("managed update scope differs from the regional controller")
 	}
-	grant, exists := policy.grants[envelope.Actor]
+	grant, exists := policy.grant(envelope.Actor)
 	if !exists || !grant.CanPlaceTerraBase || !grant.CanUpdateTerraBaseRuntime ||
 		!slices.Contains(grant.Roles, intent.Role) || !slices.Contains(grant.Environments, intent.Environment) {
 		return managedUpdatePrepareResponse{}, errors.New("managed update actor is unauthorized for this role or environment")
 	}
-	trusted, exists := policy.codec.Trusted[envelope.KeyID]
+	trusted, exists := policy.trusted(envelope.KeyID)
 	if !exists || trusted.Actor != envelope.Actor {
 		return managedUpdatePrepareResponse{}, errors.New("managed update signing key is untrusted")
 	}
@@ -254,12 +254,12 @@ func verifyManagedCompatibility(intent placement.ManagedUpdateIntent, update pro
 	policy signerPolicy,
 ) error {
 	envelope := intent.CompatibilityEvidence
-	grant, exists := policy.grants[envelope.Actor]
+	grant, exists := policy.grant(envelope.Actor)
 	if !exists || !grant.CanCertifyTerraBaseCompatibility || envelope.Actor == update.Actor ||
 		!slices.Contains(grant.Roles, intent.Role) || !slices.Contains(grant.Environments, intent.Environment) {
 		return errors.New("managed compatibility evidence lacks an independent authorized signer")
 	}
-	trusted, exists := policy.codec.Trusted[envelope.KeyID]
+	trusted, exists := policy.trusted(envelope.KeyID)
 	if !exists || trusted.Actor != envelope.Actor || envelope.KeyID == update.KeyID {
 		return errors.New("managed compatibility evidence key is not independent and trusted")
 	}

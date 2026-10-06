@@ -366,7 +366,7 @@ func (c *rolloutControl) serve(ctx context.Context, wire []byte, policy signerPo
 	if err := protocol.DecodeStrict(wire, &envelope, maxRegistrationWireBytes); err != nil {
 		return rolloutReply{}, err
 	}
-	trusted, ok := policy.codec.Trusted[envelope.KeyID]
+	trusted, ok := policy.trusted(envelope.KeyID)
 	if !ok || trusted.Actor != envelope.Actor {
 		return rolloutReply{}, errors.New("rollout request signer is untrusted")
 	}
@@ -380,7 +380,7 @@ func (c *rolloutControl) serve(ctx context.Context, wire []byte, policy signerPo
 	if epoch == 0 || fencer.Current().Epoch != epoch {
 		return rolloutReply{}, authority.ErrFenced
 	}
-	if envelope.Kind != rolloutStatusKind && !policy.grants[trusted.Actor].CanRollOutOrchestrator {
+	if grant, _ := policy.grant(trusted.Actor); envelope.Kind != rolloutStatusKind && !grant.CanRollOutOrchestrator {
 		return rolloutReply{}, fmt.Errorf("trusted signer %s may not roll out the orchestrator (can_roll_out_orchestrator)", trusted.Actor)
 	}
 	store := c.store.Load()

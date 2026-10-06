@@ -185,7 +185,7 @@ func readMaterialCredentialStatus(ctx context.Context, wire []byte, cell string,
 		return materialCredentialStatusReply{}, request, 0, err
 	}
 	canonical, err := protocol.EncodeJSON(request)
-	trusted, exists := policy.codec.Trusted[envelope.KeyID]
+	trusted, exists := policy.trusted(envelope.KeyID)
 	if err != nil || !bytes.Equal(canonical, envelope.Payload) || !exists ||
 		trusted.Actor != envelope.Actor || request.Generation < 2 || request.OperationID == "" ||
 		!policy.canManageClientKeys(envelope.Actor, request.DatabaseID, request.PartitionID) {

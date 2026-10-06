@@ -64,7 +64,7 @@ func applyPlacement(ctx context.Context, cfg Config, runtime *natscell.Runtime, 
 	if err != nil {
 		return placementApplyResponse{}, err
 	}
-	grant, exists := policy.grants[cfg.Operator.Actor]
+	grant, exists := policy.grant(cfg.Operator.Actor)
 	if !exists || !grant.CanPlaceTerraBase {
 		return placementApplyResponse{}, errors.New("operator is not authorized to apply TerraBase placement")
 	}
@@ -170,11 +170,11 @@ func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, poli
 	if !intentSelectsCell(intent, cell) {
 		return placementApplyResponse{}, errors.New("placement intent does not select this regional cell")
 	}
-	grant, exists := policy.grants[envelope.Actor]
+	grant, exists := policy.grant(envelope.Actor)
 	if !exists || !grant.CanPlaceTerraBase {
 		return placementApplyResponse{}, errors.New("placement actor is unauthorized")
 	}
-	trusted, exists := policy.codec.Trusted[envelope.KeyID]
+	trusted, exists := policy.trusted(envelope.KeyID)
 	if !exists || trusted.Actor != envelope.Actor {
 		return placementApplyResponse{}, errors.New("placement signing key is untrusted")
 	}

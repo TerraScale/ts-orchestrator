@@ -48,7 +48,7 @@ func operatorHostRegister(ctx context.Context, cfg Config, runtime *natscell.Run
 	if err != nil {
 		return err
 	}
-	grant, exists := policy.grants[cfg.Operator.Actor]
+	grant, exists := policy.grant(cfg.Operator.Actor)
 	if !exists || !grant.CanRegisterHosts || !slices.Contains(grant.Environments, registration.Environment) {
 		return errors.New("operator is not authorized to register hosts in this environment")
 	}
@@ -215,7 +215,7 @@ func verifyAndRegister(ctx context.Context, wire []byte, cell string, policy sig
 	if err := protocol.DecodeStrict(envelope.Payload, &registration, maxRegistrationBytes); err != nil {
 		return host.Receipt{}, err
 	}
-	grant, exists := policy.grants[envelope.Actor]
+	grant, exists := policy.grant(envelope.Actor)
 	if !exists || !grant.CanRegisterHosts || registration.Cell != cell || !slices.Contains(grant.Environments, registration.Environment) {
 		return host.Receipt{}, errors.New("host registration actor is unauthorized")
 	}
@@ -224,7 +224,7 @@ func verifyAndRegister(ctx context.Context, wire []byte, cell string, policy sig
 			return host.Receipt{}, errors.New("host registration role is unauthorized")
 		}
 	}
-	trusted, exists := policy.codec.Trusted[envelope.KeyID]
+	trusted, exists := policy.trusted(envelope.KeyID)
 	if !exists || trusted.Actor != envelope.Actor {
 		return host.Receipt{}, errors.New("host registration signing key is untrusted")
 	}

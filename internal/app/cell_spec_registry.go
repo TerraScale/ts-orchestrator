@@ -764,7 +764,7 @@ func verifyCellRequest(wire []byte, policy signerPolicy, fencer authority.Fencer
 	if err := protocol.DecodeStrict(wire, &envelope, maxRegistrationWireBytes); err != nil {
 		return protocol.Envelope{}, "", err
 	}
-	trusted, ok := policy.codec.Trusted[envelope.KeyID]
+	trusted, ok := policy.trusted(envelope.KeyID)
 	if !ok || trusted.Actor != envelope.Actor {
 		return protocol.Envelope{}, "", errors.New("operator request signer is untrusted")
 	}

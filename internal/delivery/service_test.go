@@ -1147,6 +1147,56 @@ func TestSignedIntentRedeliveryAfterExpiryUsesDurableAdmission(t *testing.T) {
 	}
 }
 
+// A redelivered intent resumes from its durable verified record but is
+// authorized again: a signer or grant revoked since the first delivery stops
+// it, and a codec's Lookup finds signers as they are now.
+func TestSignedIntentRedeliveryIsAuthorizedAgain(t *testing.T) {
+	w := &testWriter{failFirst: true}
+	s, ctx := testService(t, w)
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyID, err := protocol.KeyID(pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var trusted atomic.Bool
+	trusted.Store(true)
+	codec := Ed25519Codec{Cell: "lab", Actor: "operator", PrivateKey: priv, Lifetime: time.Minute, MaxLifetime: time.Minute,
+		Lookup: func(id string) (TrustedSigner, bool) {
+			return TrustedSigner{Actor: "operator", PublicKey: pub}, id == keyID && trusted.Load()
+		}}
+	s.config.Signer, s.config.Verifier, s.config.ArtifactSigner, s.config.ArtifactVerifier = codec, codec, codec, codec
+	var revoked atomic.Bool
+	authorize := s.config.Authorize
+	s.config.Authorize = func(ctx context.Context, actor string, intent Intent) error {
+		if revoked.Load() {
+			return ErrUnauthorized
+		}
+		return authorize(ctx, actor, intent)
+	}
+	i := testIntent(t, s, ctx)
+	wire, err := codec.Sign(ctx, mustJSON(i))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if terminal, err := s.process(ctx, wire); terminal || err == nil {
+		t.Fatalf("first attempt terminal=%t err=%v", terminal, err)
+	}
+	revoked.Store(true)
+	if terminal, err := s.process(ctx, wire); !terminal || err != nil || w.count() != 1 {
+		t.Fatalf("redelivery after the grant was revoked: terminal=%t err=%v, %d writes", terminal, err, w.count())
+	}
+	if r, err := s.Status(ctx, i.OperationID); err == nil && r.Status == "accepted" {
+		t.Fatalf("a revoked actor's redelivered intent was accepted: %+v", r)
+	}
+	trusted.Store(false)
+	if _, err := codec.Verify(ctx, wire); err == nil {
+		t.Fatal("a codec verified with a signer its Lookup no longer finds")
+	}
+}
+
 func TestPreConsumerConflictingPublishCannotImpersonateReceipt(t *testing.T) {
 	s, ctx := testService(t, &testWriter{})
 	first := testIntent(t, s, ctx)

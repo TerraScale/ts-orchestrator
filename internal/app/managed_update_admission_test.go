@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -102,8 +101,11 @@ func TestManagedUpdatePrepareProducerRegionMatchesLowercaseCell(t *testing.T) {
 		t.Fatalf("regional admission rejected lowercase configured cell: %v", err)
 	}
 
-	policy := signerPolicy{grants: map[string]TrustedSignerConfig{grant.Actor: grant},
-		codec: delivery.Ed25519Codec{Trusted: make(map[string]delivery.TrustedSigner)}}
+	policy, err := buildSignerPolicy(Config{Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy.signers.Store(&signerSet{grants: map[string]TrustedSignerConfig{grant.Actor: grant}})
 	if _, err := verifyAndPrepareManagedUpdate(ctx, wire, cell, policy, control, nil, nil); err == nil ||
 		err.Error() != "managed update signing key is untrusted" {
 		t.Fatalf("signed Prepare did not pass regional scope validation before signer lookup: %v", err)
