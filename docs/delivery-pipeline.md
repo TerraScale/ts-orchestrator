@@ -32,7 +32,12 @@ tests (`scripts/ci/racetest/race-test.sh`) and the static release build at once.
 job then retains both binaries and `qualification.json` (the completion
 marker) on `ci-<sha>-run-<id>`. On `main` its last step dispatches
 `image.yml` for the same revision, so the image job never holds a builder
-slot while the checks run. Pull requests run the fast test tier (`-short`)
+slot while the checks run. It dispatches only when an image input changed
+since the newest image release's source (`scripts/ci/image-inputs-changed.sh`:
+`deploy/image`, `deploy/systemd`, `deploy/udev`, `internal/image`,
+`internal/netbird/client`, `image.yml`), and from a weekly scheduled run,
+which deploys nothing. Running nodes take new binaries through self-update,
+so a code-only merge needs no image. Pull requests run the fast test tier (`-short`)
 and skip the admission client; pushes run every tier (CONTRIBUTING.md).
 
 ### 2. TerraBase CI (`terrabase/.forgejo/workflows/fast.yml`)

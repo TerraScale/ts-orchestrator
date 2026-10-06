@@ -88,6 +88,9 @@ func TestWorkflowContracts(t *testing.T) {
 		requireText(t, deployStep, "run: bash scripts/ci/dispatch-image.sh deploy.yml\n")
 		requireText(t, deployStep, "continue-on-error: true")
 		requireText(t, deployStep, "forgejo.ref == 'refs/heads/main' && vars.TS_AUTO_DEPLOY_CELLS != ''")
+		// The weekly run rebuilds the image but never redeploys.
+		requireText(t, ci, "  schedule:\n    - cron: ")
+		requireText(t, deployStep, "forgejo.event_name != 'schedule'")
 		requireText(t, workflowText(t, "scripts/ci/dispatch-image.sh"), `source_ci_run_id:$run_id, source_ci_run_number:$run_number, trigger:"ci"`)
 		requireText(t, image, "inputs.trigger == 'ci'")
 		requireText(t, image, "  cancel-in-progress: false\n")
@@ -332,6 +335,65 @@ func TestImageDispatchPinsRun(t *testing.T) {
 	}
 	if payload.Ref != "main" || payload.Inputs["source_revision"] != env["GITHUB_SHA"] || payload.Inputs["source_ci_run_id"] != "42" || payload.Inputs["source_ci_run_number"] != "7" || payload.Inputs["trigger"] != "ci" {
 		t.Fatalf("dispatch payload: %+v", payload)
+	}
+}
+
+// TestImageDispatchOnlyForChangedInputs builds an image only when an image
+// input differs from the newest image release's source, and weekly; any
+// doubt (no release, an unreadable API) builds.
+func TestImageDispatchOnlyForChangedInputs(t *testing.T) {
+	base := strings.Repeat("b", 40)
+	releases := fmt.Sprintf(`[{"tag_name":"ci-%s-run-9"},{"tag_name":"image-%s-run-8-attempt-1"},{"tag_name":"image-%s-run-1-attempt-1"}]`,
+		strings.Repeat("c", 40), base, strings.Repeat("d", 40))
+	for _, tc := range []struct {
+		name, workflow, event, releases, diff string
+		dispatched, consulted                 bool
+	}{
+		{"unchanged", "image.yml", "push", releases, "0", false, true},
+		{"changed", "image.yml", "push", releases, "1", true, true},
+		{"comparison failed", "image.yml", "push", releases, "128", true, true},
+		{"no image release", "image.yml", "push", `[{"tag_name":"ci-x"}]`, "0", true, false},
+		{"unreadable releases", "image.yml", "push", "fail", "0", true, false},
+		{"weekly", "image.yml", "schedule", releases, "0", true, false},
+		{"deploy", "deploy.yml", "push", releases, "0", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			bin := filepath.Join(root, "bin")
+			script.Write(t, filepath.Join(bin, "curl"), []byte(`#!/usr/bin/env bash
+if [[ $* == *dispatches* ]]; then printf '%s' "${!#}" > "$MOCK_ROOT/url"; printf 204; exit 0; fi
+[[ $MOCK_RELEASES != fail ]] || exit 22
+printf '%s' "$MOCK_RELEASES"
+`), 0o755)
+			script.Write(t, filepath.Join(bin, "git"), []byte(`#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$MOCK_ROOT/git"
+case $1 in
+	fetch) exit 0 ;;
+	diff) [[ $* == *--quiet* ]] && exit "$MOCK_DIFF"; echo deploy/image/image-inputs.json ;;
+esac
+`), 0o755)
+			env := map[string]string{
+				"PATH": bin + string(os.PathListSeparator) + os.Getenv("PATH"), "MOCK_ROOT": root,
+				"MOCK_RELEASES": tc.releases, "MOCK_DIFF": tc.diff, "GITHUB_EVENT_NAME": tc.event,
+				"FORGEJO_TOKEN": "fixture-token", "FORGEJO_SERVER_URL": "https://forgejo.invalid",
+				"GITHUB_SHA": strings.Repeat("a", 40), "GITHUB_RUN_ID": "42", "GITHUB_RUN_NUMBER": "7", "GITHUB_REF": "refs/heads/main",
+			}
+			result := runCI(t, env, "bash", "scripts/ci/dispatch-image.sh", tc.workflow)
+			if result.Code != 0 {
+				t.Fatalf("dispatch: %s %s", result.Stdout, result.Stderr)
+			}
+			url, _ := os.ReadFile(filepath.Join(root, "url"))
+			if dispatched := strings.HasSuffix(string(url), "/"+tc.workflow+"/dispatches"); dispatched != tc.dispatched {
+				t.Fatalf("dispatched = %v, want %v: %s %s", dispatched, tc.dispatched, result.Stdout, result.Stderr)
+			}
+			calls, _ := os.ReadFile(filepath.Join(root, "git"))
+			if consulted := strings.Contains(string(calls), "fetch --quiet --no-tags --depth=1 origin "+base); consulted != tc.consulted {
+				t.Fatalf("compared with the newest image's source = %v, want %v: %s", consulted, tc.consulted, calls)
+			}
+			if tc.consulted && !strings.Contains(string(calls), "-- deploy/image deploy/systemd deploy/udev internal/image") {
+				t.Fatalf("image inputs not compared: %s", calls)
+			}
+		})
 	}
 }
 

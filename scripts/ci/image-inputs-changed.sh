@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Decide whether GITHUB_SHA needs a new host image. Exit 0 to build: an
+# image input differs from the source of the newest image release, there is
+# no image release, or the comparison failed. Exit 1 when every input is
+# unchanged. Orchestrator code alone never needs an image: running nodes
+# take new binaries through self-update, and a new node updates after its
+# first boot.
+#
+# The base is the newest image release, not this push's parent: a newer
+# push cancels a running ci.yml check, and a change the cancelled run carried
+# must still produce an image.
+set -euo pipefail
+
+# Everything an image bakes in besides the binary: the pinned base and
+# inputs, the units and udev rules it installs, and the code that builds it.
+inputs=(deploy/image deploy/systemd deploy/udev internal/image internal/netbird/client .forgejo/workflows/image.yml)
+
+: "${FORGEJO_TOKEN:?Forgejo Actions token is required}"
+: "${FORGEJO_SERVER_URL:?Forgejo server URL is required}"
+[[ ${GITHUB_SHA:-} =~ ^[0-9a-f]{40}$ ]] || { echo 'Forgejo source SHA is required' >&2; exit 0; }
+repository=TerraScale/ts-orchestrator
+
+umask 077
+header=$(mktemp)
+trap 'rm -f -- "$header"' EXIT
+printf 'Authorization: token %s\n' "$FORGEJO_TOKEN" > "$header"
+
+# Releases list newest first; ci-<sha> releases outnumber image releases.
+base=
+for page in {1..10}; do
+	if ! releases=$(curl --silent --show-error --fail --max-time 30 -H "@$header" \
+		"$FORGEJO_SERVER_URL/api/v1/repos/$repository/releases?limit=50&page=$page"); then
+		echo 'image releases are unreadable; building the image' >&2
+		exit 0
+	fi
+	base=$(jq -r 'first(.[].tag_name | capture("^image-(?<sha>[0-9a-f]{40})-run-").sha) // empty' <<< "$releases" 2>/dev/null) || base=
+	[[ -n $base ]] && break
+	[[ $(jq -r 'length' <<< "$releases" 2>/dev/null) == 50 ]] || break
+done
+[[ -n $base ]] || { echo 'no image release found; building the image'; exit 0; }
+
+# Both trees are fetched one level deep; diffing two trees needs no history.
+auth=$(printf 'x-access-token:%s' "$FORGEJO_TOKEN" | base64 -w 0)
+if ! GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+	git fetch --quiet --no-tags --depth=1 origin "$base"; then
+	echo "image release source $base is unreadable; building the image" >&2
+	exit 0
+fi
+status=0
+git diff --quiet "$base" "$GITHUB_SHA" -- "${inputs[@]}" || status=$?
+case $status in
+	0) echo "image inputs are unchanged since the image of $base"; exit 1 ;;
+	1) echo "image inputs changed since the image of $base:"
+	   git diff --name-only "$base" "$GITHUB_SHA" -- "${inputs[@]}" || true ;;
+	*) echo "comparing with the image of $base failed; building the image" >&2 ;;
+esac

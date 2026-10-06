@@ -201,10 +201,12 @@ and must not be represented as authenticated approval.
 
 ### Image CI provenance
 
-Every `ci.yml` run on `main` ends by dispatching `image.yml` for its exact
+A `ci.yml` run on `main` ends by dispatching `image.yml` for its exact
 revision once the release is retained (`scripts/ci/dispatch-image.sh`;
 documentation-only commits run neither), so the image job never holds a
-builder slot while the checks run. The image job confirms that run succeeded
+builder slot while the checks run. It does so only when an image input
+changed since the source of the newest `image-*` release, or the comparison
+cannot be made, and on the weekly scheduled run (TS-562). The image job confirms that run succeeded
 and builds only if it did; where the runner supplies real-infrastructure
 fixtures it first runs the qualification tier (`scripts/ci/qualify-image.sh`,
 see CONTRIBUTING.md). These automatic builds queue; one that a newer

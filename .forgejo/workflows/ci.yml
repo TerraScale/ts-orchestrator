@@ -14,6 +14,10 @@ on:
       - 'docs/**'
       - '**/*.md'
   workflow_dispatch:
+  # Weekly full check of main that also rebuilds the image, so base and
+  # package updates land even when no image input changed.
+  schedule:
+    - cron: '17 3 * * 1'
 
 # A newer push supersedes a running check of the same branch. On main the
 # newer revision contains the older one and becomes the candidate.
@@ -118,7 +122,9 @@ jobs:
       # builder slot while it waits for these checks; it still confirms this
       # run succeeded and skips itself if it did not. The run's own result
       # never depends on it: a failed dispatch is visible here and is
-      # repaired by dispatching image.yml for this revision by hand.
+      # repaired by dispatching image.yml for this revision by hand. Only a
+      # change to an image input (scripts/ci/image-inputs-changed.sh) or the
+      # weekly schedule starts a build.
       - name: Start the image build for this revision
         if: ${{ forgejo.event_name != 'pull_request' && forgejo.ref == 'refs/heads/main' }}
         continue-on-error: true
@@ -130,8 +136,9 @@ jobs:
 
       # The fleet deployment (deploy.yml) starts the same way and stays off
       # until the repository variable TS_AUTO_DEPLOY_CELLS names the cells.
+      # The weekly run deploys nothing: its revision is already deployed.
       - name: Start the fleet deployment for this revision
-        if: ${{ forgejo.event_name != 'pull_request' && forgejo.ref == 'refs/heads/main' && vars.TS_AUTO_DEPLOY_CELLS != '' }}
+        if: ${{ forgejo.event_name != 'pull_request' && forgejo.event_name != 'schedule' && forgejo.ref == 'refs/heads/main' && vars.TS_AUTO_DEPLOY_CELLS != '' }}
         continue-on-error: true
         shell: bash
         env:

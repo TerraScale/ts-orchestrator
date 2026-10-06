@@ -15,6 +15,17 @@ workflow=${1:-image.yml}
 [[ ${GITHUB_RUN_ID:-} =~ ^[1-9][0-9]{0,17}$ && ${GITHUB_RUN_NUMBER:-} =~ ^[1-9][0-9]{0,17}$ ]] || { echo 'Forgejo CI run identity is required' >&2; exit 1; }
 [[ ${GITHUB_REF:-} == refs/heads/main ]] || { echo "only main revisions start $workflow automatically" >&2; exit 1; }
 
+# An image is rebuilt only when its inputs change, and weekly (the schedule)
+# so base and package updates still land.
+if [[ $workflow == image.yml && ${GITHUB_EVENT_NAME:-} != schedule ]]; then
+	status=0
+	bash "$(dirname -- "$0")/image-inputs-changed.sh" || status=$?
+	if ((status == 1)); then
+		echo "image.yml not dispatched for $GITHUB_SHA"
+		exit 0
+	fi
+fi
+
 umask 077
 header=$(mktemp)
 trap 'rm -f -- "$header"' EXIT
