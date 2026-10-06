@@ -555,7 +555,8 @@ release, or does not prove the target within ten minutes, rolls the rollout
 back. Units prove themselves every 5 s, and the leader's executor acts as a
 proof arrives or the rollout bucket changes (a new generation, a step reply,
 an operator's request), not only on its 5 s tick. `controller.rollouts.policy`
-overrides the policy. Hosts join
+overrides the policy, and a [cell spec](cell-spec.md) `rollout_policy` overrides
+that on running controllers for the next rollout. Hosts join
 once their steps and proofs travel over the host session. Each controller
 relays its own steps to its node's root step agent (see
 [step delivery](#step-delivery)).

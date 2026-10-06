@@ -33,6 +33,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -46,8 +47,8 @@ const (
 	// A change that adds a section raises it, and amendments that use the
 	// section require the new level.
 	// Level 2 adds profile secrets, level 3 the budget, level 4 host images,
-	// level 5 the kv_snapshot schedule.
-	BinaryLevel = 5
+	// level 5 the kv_snapshot schedule, level 6 the rollout policy.
+	BinaryLevel = 6
 	// MaxHostImages bounds the image allow-list: the images a rollout moves
 	// between, plus room to stage the next one.
 	MaxHostImages = 4
@@ -154,6 +155,9 @@ type Spec struct {
 	HostImages []HostImage      `json:"host_images,omitempty"`
 	// KVSnapshot schedules the configuration bucket snapshots.
 	KVSnapshot *KVSnapshot `json:"kv_snapshot,omitempty"`
+	// RolloutPolicy replaces the signed config's policy for the cell's next
+	// orchestrator rollouts; a rollout keeps the policy it started with.
+	RolloutPolicy *rollout.Policy `json:"rollout_policy,omitempty"`
 }
 
 // KVSnapshot is how often the authority leader uploads changed
@@ -237,6 +241,11 @@ func (s Spec) Validate() error {
 		(snapshot.IntervalSeconds < 5 || snapshot.IntervalSeconds > 3600) {
 		return fmt.Errorf("%w: kv_snapshot interval_seconds must be 0 or 5 to 3600", ErrInvalid)
 	}
+	if s.RolloutPolicy != nil {
+		if err := s.RolloutPolicy.Validate(); err != nil {
+			return fmt.Errorf("%w: rollout_policy: %w", ErrInvalid, err)
+		}
+	}
 	addresses := map[string]bool{}
 	for index, grant := range s.HostGrants {
 		address, err := netip.ParseAddr(grant.PrivateIP)
@@ -313,8 +322,8 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 
 // Level is the lowest requires_binary the spec's sections need: 2 once a
 // profile names Vault secrets, 3 with a budget, 4 once it allows host
-// images and 5 with a kv_snapshot schedule, which an older binary could not
-// read.
+// images, 5 with a kv_snapshot schedule and 6 with a rollout policy, which
+// an older binary could not read.
 func (s Spec) Level() uint64 {
 	level := uint64(1)
 	for _, service := range s.Services {
@@ -330,6 +339,9 @@ func (s Spec) Level() uint64 {
 	}
 	if s.KVSnapshot != nil {
 		level = max(level, 5)
+	}
+	if s.RolloutPolicy != nil {
+		level = max(level, 6)
 	}
 	return level
 }
@@ -650,6 +662,9 @@ type Plan struct {
 	// KVSnapshot is "added", "updated" or "removed" when the kv_snapshot
 	// schedule changes.
 	KVSnapshot string `json:"kv_snapshot,omitempty"`
+	// RolloutPolicy is "added", "updated" or "removed" when the rollout
+	// policy changes.
+	RolloutPolicy string `json:"rollout_policy,omitempty"`
 	// RootRequired lists the authority-widening changes; the amendment
 	// applies only when a root signed it.
 	RootRequired []string `json:"root_required,omitempty"`
@@ -720,6 +735,14 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 	case before != nil && *before != *after:
 		plan.KVSnapshot = "updated"
 	}
+	switch before, after := current.RolloutPolicy, next.RolloutPolicy; {
+	case before == nil && after != nil:
+		plan.RolloutPolicy = "added"
+	case before != nil && after == nil:
+		plan.RolloutPolicy = "removed"
+	case before != nil && *before != *after:
+		plan.RolloutPolicy = "updated"
+	}
 	return plan, nil
 }
 
@@ -748,5 +771,5 @@ func budgetChange(before, after *hostpool.Budget) string {
 // Empty reports whether the plan changes nothing.
 func (p Plan) Empty() bool {
 	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 && p.Budget == "" &&
-		p.KVSnapshot == ""
+		p.KVSnapshot == "" && p.RolloutPolicy == ""
 }

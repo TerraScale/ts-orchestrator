@@ -15,9 +15,11 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rolloutexec"
 )
 
 type rolloutTestFence struct{ epoch uint64 }
@@ -284,5 +286,67 @@ func TestRolloutConfigAndCommandFlagsAreChecked(t *testing.T) {
 	}
 	if payload, err := rolloutPayload("rollback", "", "", 2); err != nil || payload.(rolloutRollbackRequest).To != 2 {
 		t.Fatalf("rollback payload = %v %v", payload, err)
+	}
+}
+
+type fixedProofs map[string]rolloutexec.HealthProof
+
+func (proofs fixedProofs) Latest(unit string) (rolloutexec.HealthProof, bool) {
+	proof, ok := proofs[unit]
+	return proof, ok
+}
+
+// The cell spec's rollout policy governs the next rollout the executor
+// plans, on a running controller; without one the signed policy does.
+func TestNextRolloutUsesTheCellSpecPolicy(t *testing.T) {
+	ctx := t.Context()
+	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true},
+		Controller: ControllerConfig{Rollouts: &RolloutsConfig{Enabled: true, Executor: true}}}
+	registry, err := newSpecRegistry(cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	control, err := newRolloutControl(cfg, registry, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := testRolloutStore(t, rolloutTestFence{epoch: 7})
+	from, to := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	if _, err := store.PublishRelease(ctx, 7, rollout.Release{Digest: to, Actor: "ci", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	control.program = rolloutexec.ReleaseProgram{Store: store, Controllers: []rollout.Unit{{ID: "ctl-1"}},
+		Proofs: fixedProofs{"ctl-1": {Unit: "ctl-1", BinarySHA256: from, ObservedAt: time.Now()}}}
+	planned := func() rollout.Policy {
+		t.Helper()
+		program, err := control.nextProgram(ctx)
+		if err != nil || len(program) != 1 {
+			t.Fatalf("program = %+v, %v", program, err)
+		}
+		return program[0].Policy
+	}
+	if got := planned(); got != rollout.DefaultPolicy() {
+		t.Fatalf("generation 0 policy = %+v", got)
+	}
+	policy := rollout.DefaultPolicy()
+	policy.BatchSize, policy.CanarySoakSeconds = 1, 0
+	if err := policy.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	spec := cellspec.Spec{Schema: cellspec.Schema, Generation: 1, RequiresBinary: 6, RolloutPolicy: &policy}
+	if err := registry.validate(spec); err != nil {
+		t.Fatal(err)
+	}
+	registry.adopt(spec, 1)
+	if got := planned(); got != policy {
+		t.Fatalf("cell spec policy = %+v", got)
+	}
+	// A controller that runs no rollouts refuses the section.
+	off, err := newSpecRegistry(Config{NATS: natscell.Config{Cell: "gru", Lab: true}}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := off.validate(spec); err == nil || !strings.Contains(err.Error(), "rollout executor") {
+		t.Fatalf("policy without an executor: %v", err)
 	}
 }

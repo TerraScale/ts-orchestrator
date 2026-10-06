@@ -90,6 +90,9 @@ type rolloutControl struct {
 	reported atomic.Pointer[releasechannel.Status]
 	// program derives the executor's rollouts; the channel reads its proofs.
 	program rolloutexec.ReleaseProgram
+	// policy is the policy of the next rollout: the cell spec's, else the
+	// signed config's.
+	policy func() rollout.Policy
 	// spool and layout are the step relay's directory and the node's
 	// release root; tests point them elsewhere.
 	spool  string
@@ -102,6 +105,14 @@ func newRolloutControl(cfg Config, services *specRegistry, region string) (*roll
 	c := &rolloutControl{cell: cfg.NATS.Cell, spool: rolloutexec.DefaultSpoolDir,
 		layout: selfupdate.NewLayout(selfupdate.DefaultRoot), ticks: make(chan struct{}, 1)}
 	settings := cfg.Controller.Rollouts
+	signed := rollout.DefaultPolicy()
+	if settings != nil && settings.Policy != nil {
+		signed = *settings.Policy
+	}
+	c.policy = func() rollout.Policy { return signed }
+	if services != nil {
+		c.policy = func() rollout.Policy { return services.rolloutPolicy(signed) }
+	}
 	if settings != nil && settings.Executor && !settings.Enabled {
 		return nil, errors.New("controller.rollouts.executor needs controller.rollouts.enabled")
 	}
@@ -206,22 +217,18 @@ func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscel
 	if err != nil {
 		return nil, fmt.Errorf("subscribe to rollout health proofs: %w", err)
 	}
-	policy := rollout.DefaultPolicy()
-	if cfg.Controller.Rollouts.Policy != nil {
-		policy = *cfg.Controller.Rollouts.Policy
-	}
 	board, err := runtime.JetStream().KeyValue(ctx, rollout.Bucket)
 	if err != nil {
 		return nil, fmt.Errorf("open the rollout step board: %w", err)
 	}
 	c.conn = runtime.Conn()
-	c.program = rolloutexec.ReleaseProgram{Store: store, Proofs: collector, Controllers: controllers, Policy: policy}
+	c.program = rolloutexec.ReleaseProgram{Store: store, Proofs: collector, Controllers: controllers, Policy: c.policy()}
 	executor := &rolloutexec.Executor{Cell: cfg.NATS.Cell, Store: store, Fencer: fencer, Proofs: collector, Status: c,
 		Driver: rolloutexec.KVDriver{KV: board, Cell: cfg.NATS.Cell, Key: responseKey, Releases: store},
 		Gate: rolloutexec.ClusterGate{Cluster: runtime, ServerOf: func(unit string) (string, bool) {
 			return natscell.ServerName(cfg.NATS.Cell, unit), known[unit]
 		}},
-		Program:  c.program.Program,
+		Program:  c.nextProgram,
 		Wake:     wake,
 		Interval: c.interval}
 	relay := &rolloutexec.Relay{KV: board, Cell: cfg.NATS.Cell, Unit: cfg.NATS.Instance, Leaders: keys, Dir: c.spool,
@@ -244,6 +251,14 @@ func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscel
 		}
 		return executor.Run(ctx)
 	}, nil
+}
+
+// nextProgram derives the executor's rollouts under the current policy, so a
+// cell spec policy applied since start governs the next rollout.
+func (c *rolloutControl) nextProgram(ctx context.Context) (rolloutexec.Program, error) {
+	program := c.program
+	program.Policy = c.policy()
+	return program.Program(ctx)
 }
 
 // wakeOnRolloutChanges signals wake whenever the rollout bucket gains a

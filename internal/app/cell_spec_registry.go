@@ -23,6 +23,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
@@ -64,6 +65,9 @@ type specRegistry struct {
 	// snapshots is whether the signed config sets a kv_snapshot location,
 	// which a kv_snapshot schedule needs.
 	snapshots bool
+	// rolloutExecutor is whether this controller runs orchestrator
+	// rollouts, which a rollout policy needs.
+	rolloutExecutor bool
 
 	mu       sync.Mutex
 	current  cellspec.Spec
@@ -83,7 +87,8 @@ type specReply struct {
 
 func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 	r := &specRegistry{cell: cfg.NATS.Cell, fixed: map[string]WorkloadProfile{},
-		signers: map[string]TrustedSignerConfig{}, snapshots: cfg.Controller.KVSnapshot.Enabled}
+		signers: map[string]TrustedSignerConfig{}, snapshots: cfg.Controller.KVSnapshot.Enabled,
+		rolloutExecutor: cfg.Controller.Rollouts != nil && cfg.Controller.Rollouts.Executor}
 	for _, grant := range cfg.Controller.TrustedSigners {
 		r.signers[grant.Actor] = grant
 	}
@@ -384,6 +389,9 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 	if spec.KVSnapshot != nil && !r.snapshots {
 		return errors.New("a kv_snapshot schedule needs the signed controller config's kv_snapshot location")
 	}
+	if spec.RolloutPolicy != nil && !r.rolloutExecutor {
+		return errors.New("a rollout policy needs the controllers' rollout executor (controller.rollouts.executor)")
+	}
 	for _, pool := range r.pools {
 		if pool.HostMonthlyCents == 0 && spec.Budget != nil {
 			return fmt.Errorf("node pool %q has no host_monthly_cents, so a budget would hold all its launches", pool.Name)
@@ -507,6 +515,17 @@ func (r *specRegistry) kvSnapshot(signed time.Duration) (time.Duration, bool) {
 		signed = time.Duration(schedule.IntervalSeconds) * time.Second
 	}
 	return signed, schedule.Paused
+}
+
+// rolloutPolicy is the current spec's rollout policy, or signed when the
+// spec sets none.
+func (r *specRegistry) rolloutPolicy(signed rollout.Policy) rollout.Policy {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.current.RolloutPolicy != nil {
+		return *r.current.RolloutPolicy
+	}
+	return signed
 }
 
 func (r *specRegistry) profiles() map[string]WorkloadProfile {

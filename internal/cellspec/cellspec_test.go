@@ -18,6 +18,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -869,6 +870,52 @@ func TestKVSnapshotLevelValidateDiffAndWiden(t *testing.T) {
 		plan, err := Diff(current, next, nil)
 		if err != nil || plan.KVSnapshot != test.change || plan.Empty() != (test.change == "") ||
 			slices.Equal(plan.RootRequired, []string{"kv_snapshot pause"}) != test.widens || len(plan.RootRequired) > 1 {
+			t.Errorf("%s: Diff = %+v, %v", name, plan, err)
+		}
+	}
+}
+
+// A rollout policy needs binary level 6 and passes the rollout bounds. It
+// widens no authority: a leaf may change it.
+func TestRolloutPolicyLevelValidateAndDiff(t *testing.T) {
+	f := newFixture(t)
+	spec := testSpec(f.id, 1)
+	policy := rollout.DefaultPolicy()
+	policy.BatchSize = 1
+	spec.RolloutPolicy, spec.RequiresBinary = &policy, 6
+	if spec.Level() != 6 {
+		t.Fatalf("level with a rollout policy = %d", spec.Level())
+	}
+	payload, err := Encode(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded, err := Decode(payload); err != nil || *decoded.RolloutPolicy != policy {
+		t.Fatalf("Decode = %+v, %v", decoded.RolloutPolicy, err)
+	}
+	unsafe := policy
+	unsafe.CanaryUnits = 0
+	invalid := spec
+	invalid.RolloutPolicy = &unsafe
+	if err := invalid.Validate(); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("policy without a canary accepted: %v", err)
+	}
+	base := testSpec(f.id, 1)
+	allAtOnce := rollout.DefaultPolicy()
+	for name, test := range map[string]struct {
+		before, after *rollout.Policy
+		change        string
+	}{
+		"add":    {after: &policy, change: "added"},
+		"change": {before: &policy, after: &allAtOnce, change: "updated"},
+		"remove": {before: &policy, change: "removed"},
+		"keep":   {before: &policy, after: &policy},
+	} {
+		current, next := base, base
+		current.RolloutPolicy, next.RolloutPolicy = test.before, test.after
+		next.Generation = 2
+		plan, err := Diff(current, next, nil)
+		if err != nil || plan.RolloutPolicy != test.change || plan.Empty() != (test.change == "") || len(plan.RootRequired) != 0 {
 			t.Errorf("%s: Diff = %+v, %v", name, plan, err)
 		}
 	}
