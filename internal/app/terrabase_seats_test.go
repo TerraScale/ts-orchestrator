@@ -48,11 +48,23 @@ func TestSeatMembersAreTheSignedSeatsWithTheirBackends(t *testing.T) {
 	if members, err = terraBaseSeatMembers(profiles, public); err != nil || !slices.Equal(members, want) {
 		t.Fatalf("with seats: %+v %v", members, err)
 	}
-	if members, err := terraBaseSeatMembers(map[string]WorkloadProfile{}, public); err != nil || members != nil {
+	if members, err := terraBaseSeatMembers(map[string]WorkloadProfile{}, nil); err != nil || members != nil {
 		t.Fatalf("no profile: %+v %v", members, err)
 	}
-	if _, err := terraBaseSeatMembers(terraBaseSeats("gru-1-db-1=10.251.0.21"), public); err == nil {
-		t.Fatal("accepted a malformed peer list")
+	// A profile the public_lb publisher refuses holds every restart: the
+	// publisher keeps its previous backend set, which may still route to
+	// members the new profile would leave without a backend.
+	noClient := terraBaseSeats("gru-1-db-1=10.251.0.21:9443")
+	delete(noClient[terrabase.Role].Env, terrabase.EnvClientPort)
+	for name, profiles := range map[string]map[string]WorkloadProfile{
+		"no profile":          {},
+		"malformed peers":     terraBaseSeats("gru-1-db-1=10.251.0.21"),
+		"no client listener":  noClient,
+		"listed seat is gone": terraBaseSeats("gru-1-db-2=10.251.0.22:9443"),
+	} {
+		if members, err := terraBaseSeatMembers(profiles, public); err == nil {
+			t.Fatalf("%s: %+v", name, members)
+		}
 	}
 }
 

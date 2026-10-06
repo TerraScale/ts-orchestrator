@@ -40,7 +40,17 @@ func (c TerraBaseSeatsConfig) durations() (grace, settle time.Duration, err erro
 // for it, at the client port; with no public_lb, or outside its seats, it
 // has none. Every C# member replicates with every other, so all are one
 // group. No terrabase profile means no seats.
+//
+// A profile the public_lb publisher refuses is refused here too: the
+// publisher keeps the backend set it published before, so seats derived
+// from the new profile could restart undrained under the old set. The
+// error holds every restart until they agree.
 func terraBaseSeatMembers(profiles map[string]WorkloadProfile, public *OciReconcileLBConfig) ([]seatrollout.Member, error) {
+	if public != nil {
+		if _, err := public.spec(profiles, nil); err != nil {
+			return nil, err
+		}
+	}
 	profile, ok := profiles[terrabase.Role]
 	if !ok {
 		return nil, nil
@@ -52,7 +62,7 @@ func terraBaseSeatMembers(profiles map[string]WorkloadProfile, public *OciReconc
 	members := make([]seatrollout.Member, 0, len(parsed.Peers))
 	for _, peer := range parsed.Peers {
 		member := seatrollout.Member{Node: peer.Name, Group: terrabase.Role}
-		if public != nil && parsed.ClientPort != 0 && (len(public.Seats) == 0 || slices.Contains(public.Seats, peer.Name)) {
+		if public != nil && (len(public.Seats) == 0 || slices.Contains(public.Seats, peer.Name)) {
 			member.Backend = peer.Address.Addr().String() + ":" + strconv.Itoa(parsed.ClientPort)
 		}
 		members = append(members, member)

@@ -21,6 +21,8 @@ type cell struct {
 	backends map[string]Backend
 	members  []Member
 	wakes    int
+	// withdrawn seats have a withdrawn desired.
+	withdrawn map[string]bool
 }
 
 func newCell(t *testing.T) *cell {
@@ -35,7 +37,7 @@ func newCell(t *testing.T) *cell {
 func (c *cell) ListDesired(_ context.Context, role string) ([]host.Desired, error) {
 	var out []host.Desired
 	for node, generation := range c.desired {
-		out = append(out, host.Desired{Node: node, Role: role, Digest: "d", Generation: generation})
+		out = append(out, host.Desired{Node: node, Role: role, Digest: "d", Generation: generation, Withdrawn: c.withdrawn[node]})
 	}
 	return out, nil
 }
@@ -217,6 +219,15 @@ func TestAFailedSeatHoldsTheGroupUntilTheRollback(t *testing.T) {
 	c.tick(controller)
 	c.now = c.now.Add(DefaultSettle)
 	c.tick(controller)
+	// Its host reports it serving, but the load balancer has not found it
+	// healthy yet: it stays drained.
+	c.expect(store, []string{"gru-1-db-1"}, []string{"gru-1-db-1"})
+	// Once it does, the seat settles and returns.
+	c.backends["10.251.0.21:9465"] = Backend{Drained: true, Healthy: true}
+	c.tick(controller)
+	c.expect(store, []string{"gru-1-db-1"}, []string{"gru-1-db-1"})
+	c.now = c.now.Add(DefaultSettle)
+	c.tick(controller)
 	c.expect(store, nil, []string{"gru-1-db-1"})
 }
 
@@ -276,4 +287,21 @@ func TestASeatThatLeavesStartsItsWaitsOver(t *testing.T) {
 	c.now = c.now.Add(DefaultSettle)
 	c.tick(controller)
 	c.expect(store, nil, []string{"gru-1-db-1"})
+}
+
+// A drained seat whose desired is withdrawn stays drained while its host
+// stops it, and its group waits: it serves nothing and is a member short.
+func TestAWithdrawnSeatStaysDrained(t *testing.T) {
+	store, _, fence := testStore(t)
+	c := newCell(t)
+	controller := c.controller(store, fence)
+	c.release(2)
+	c.tick(controller)
+	c.expect(store, []string{"gru-1-db-1"}, nil)
+	c.withdrawn = map[string]bool{"gru-1-db-1": true}
+	for range 3 {
+		c.now = c.now.Add(time.Minute)
+		c.tick(controller)
+	}
+	c.expect(store, []string{"gru-1-db-1"}, nil)
 }

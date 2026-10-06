@@ -2,8 +2,9 @@
 
 Status: design note. Slices 1 to 4 are implemented: the L7 backend-set
 reconciler, seats as backends, `running` needs `/readyz`, and one seat at a
-time behind its drain (`controller.terrabase_seats`). Slice 5, the
-acceptance under load, is **PROPOSED**; see the risks at the end.
+time behind its drain (`controller.terrabase_seats`). Slice 5's in-process
+acceptance under load passes; the gru-1 run waits for TS-561 and is
+**PROPOSED**. See the risks at the end.
 
 ## Problem
 
@@ -145,16 +146,18 @@ seat:
    permit. The host stops the member with SIGTERM, which drains what is
    left, and starts the new release.
 4. Serve: it waits for the host to report the seat `running` at the target
-   generation, which includes its `/readyz` (slice 3), and to keep doing so
-   for `DefaultSettle` (10 s). It does not rely on the load balancer's health
-   for a drained backend, which may be stale or not checked.
+   generation, which includes its `/readyz` (slice 3), and for the load
+   balancer to find the backend healthy, and for both to hold for
+   `DefaultSettle` (10 s). If OCI stopped checking a drained backend the seat
+   stays drained and its group waits: slower, never a dropped request.
 5. Undrain: the seat returns to rotation. The next seat drains only once the
    load balancer shows this one undrained and healthy.
 
 A seat that never serves after its permit holds its group: the other seats
 keep the old release until a newer desired generation, such as the CLI's
 rollback intent, supersedes the permit; the rollback then restarts that
-seat first, since it serves nothing. Everything is level-triggered from the
+seat first, since it serves nothing. A drained seat whose desired is
+withdrawn stays drained, and holds its group, while its host stops it. Everything is level-triggered from the
 records and observations, so a new leader resumes where the old one stopped;
 a seat a deposed leader left drained stays drained until its step finishes.
 Only the authority leader writes, and every write is fenced by its epoch.
@@ -171,11 +174,29 @@ The drain set is generic. Host reboots for OS updates (TS-570) and
 self-healing (TS-568) can drain a seat through it before they restart its
 host.
 
-### 5. Acceptance (slice 5, PROPOSED)
+### 5. Acceptance (slice 5)
 
-A load test drives requests through a load balancer that honours drain and
-`/readyz` while `terrabase-release` runs, and fails on any 5xx; then the same
-release on gru-1, with both members in the backend set once TS-561 ships.
+In process (`TestTerraBaseReleaseUnderLoadServesNoErrors`, every pull
+request): eight clients send requests through a load balancer while a
+release restarts both seats. The load balancer is driven by the real
+`public_lb` publisher and `lb` reconciler and routes like OCI's: never to a
+drained backend, only to backends whose `/readyz` passed, and unhealthy after
+three failed checks. Members finish in-flight requests when stopped and serve
+again only after a catch-up delay; hosts restart a member only when its seat
+record permits it; the real seat controller drives the records. Not one
+request fails. The same release with every host restarting at once fails
+most requests, and seat rollouts without the load balancer (one at a time
+but undrained) fail some, so the test sees both kinds of downtime. One host
+cannot run two real members, which share the profile's loopback admin port,
+so the members and hosts are models; `host.Agent`'s gate is covered by the
+host tests (slice 4a).
+
+**PROPOSED:** the same release on gru-1 under load through
+`gru.api.terrascale.tech`. Enable `controller.terrabase_seats` there only
+once TS-561 ships and `public_lb.seats` lists both members: while the load
+balancer serves `gru-1-db-1` alone, it is the last healthy seat, the
+controller never drains it, and a release would wait out its gate and roll
+back.
 
 ## Risks to verify
 
@@ -186,8 +207,9 @@ release on gru-1, with both members in the backend set once TS-561 ships.
   renewed certificates (TS-464). Routing it through the seat controller needs
   a new host signal and is follow-up work.
 
-- Whether OCI keeps health-checking a drained backend (step 4 needs it);
-  check on gru-1 before slice 4 relies on it.
+- Whether OCI keeps health-checking a drained backend. Step 4 waits for the
+  load balancer to find a restarted seat healthy before it returns it, so if
+  OCI does not, a rollout stalls with that seat drained; check on gru-1.
 - Keep-alive reuse: a drained backend keeps its open connections, and a member
   that closes idle connections on SIGTERM races the load balancer reusing
   them. Step 2 waits for in-flight requests to end; e2e must show no 502.

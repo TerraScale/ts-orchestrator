@@ -149,24 +149,22 @@ func (c *Controller) Tick(ctx context.Context) error {
 	for _, v := range views {
 		record, target := v.record, v.desired.Generation
 		switch {
-		case record.Drain && (!v.wanted || v.done && record.Permit >= target):
-			// Restarted and serving, or no longer desired: back to rotation
-			// once the seat has kept serving for the settle time. The host's
-			// report includes /readyz; the load balancer's health of a
-			// drained backend may be stale or unchecked, and a drained
-			// backend never serves, so it cannot gate this. The load
-			// balancer sends nothing to a backend it finds unhealthy, and the
-			// next seat drains only once this one serves healthy there.
-			if v.wanted {
-				first, seen := c.ready[v.seat.Node]
-				if !seen {
-					c.ready[v.seat.Node] = now
-					first = now
-				}
-				if now.Sub(first) < cmp.Or(c.Settle, DefaultSettle) {
-					busy[v.seat.Group] = true
-					continue
-				}
+		case record.Drain && v.wanted && v.done && record.Permit >= target && (!v.inLB || v.backend.Healthy):
+			// Restarted and serving: back to rotation once the seat has kept
+			// serving for the settle time, its /readyz included, and the load
+			// balancer also finds it healthy. If OCI stopped checking a
+			// drained backend the seat stays drained and its group waits,
+			// which costs time, never requests. A seat whose desired was
+			// withdrawn stays drained, holding its group, while its host stops
+			// it: it serves nothing and its group is a member short.
+			first, seen := c.ready[v.seat.Node]
+			if !seen {
+				c.ready[v.seat.Node] = now
+				first = now
+			}
+			if now.Sub(first) < cmp.Or(c.Settle, DefaultSettle) {
+				busy[v.seat.Group] = true
+				continue
 			}
 			delete(c.ready, v.seat.Node)
 			record.Drain, record.DrainedAt = false, time.Time{}

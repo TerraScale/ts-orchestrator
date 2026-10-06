@@ -730,8 +730,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		[]observability.FilesystemRole{{Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
 		return fmt.Errorf("attach controller observability: %w", err)
 	}
-	// One slot per worker, so no sender blocks shutdown.
-	workerErrors := make(chan error, 16)
+	// A slot for every worker with room to spare, so no sender blocks
+	// shutdown.
+	workerErrors := make(chan error, 32)
 	var workers sync.WaitGroup
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })

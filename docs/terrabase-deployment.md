@@ -223,7 +223,9 @@ drained on the public load balancer first and returns once it serves again:
 
 Both durations are optional (0 to 300 seconds). Enable it on every
 controller of the cell together: the host restart gate is served by the
-authority leader. Old binaries stay
+authority leader. The controller never drains the last healthy seat, so a
+cell whose load balancer serves one member (gru-1 until TS-561) must keep it
+off, or every release waits out its gate and rolls back. Old binaries stay
 installed on the hosts, so a rollback reuses the cached file. A member's data
 lives on its host (on the data volume attached to it when
 `terrabase_data_volume` is set), so the controller replaces a failed member in place
