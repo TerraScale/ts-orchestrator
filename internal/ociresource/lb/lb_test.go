@@ -430,3 +430,15 @@ func TestSpecValidation(t *testing.T) {
 		t.Fatal("published under another kind")
 	}
 }
+
+// Fenced returns the backend as UpdateBackend writes it: weight 1, never a
+// backup, with the fence's drain and offline flags.
+func TestFencedIsTheWrittenShape(t *testing.T) {
+	observed := Backend{IP: "10.0.0.1", Port: 80, weight: 3, backup: true, offline: true, name: "10.0.0.1:80"}
+	if returned := observed.Fenced(false, false); !returned.Serving() || returned.weight != defaultWeight {
+		t.Fatalf("returned to rotation: %+v", returned)
+	}
+	if fenced := observed.Fenced(true, true); fenced.Serving() || !fenced.Drain || !fenced.offline || fenced.backup {
+		t.Fatalf("fenced: %+v", fenced)
+	}
+}

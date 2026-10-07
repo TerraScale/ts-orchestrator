@@ -113,8 +113,9 @@ func (a sdkAPI) CreateBackend(ctx context.Context, id, backendSet string, backen
 	return deref(response.OpcWorkRequestId), nil
 }
 
-// UpdateBackend sets every flag, so it also clears a backup, offline or
-// reweighted backend.
+// UpdateBackend sets every flag: weight and backup always return to the
+// managed shape, while drain and offline come from the backend, so a spec
+// backend clears both and a release fence sets them with Fenced.
 func (a sdkAPI) UpdateBackend(ctx context.Context, id, backendSet string, backend Backend) (string, error) {
 	response, err := a.client.UpdateBackend(ctx, loadbalancer.UpdateBackendRequest{LoadBalancerId: new(id),
 		BackendSetName: new(backendSet), BackendName: new(backend.Name()), OpcRetryToken: new(common.RetryToken()),

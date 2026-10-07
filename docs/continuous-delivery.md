@@ -844,6 +844,13 @@ releases/v1/services/<role>/status.json         the region leader's report
    balancer change and permit is guarded by the authority epoch the leader
    started under, so a deposed leader stops. Once every node
    serves the release, its marks are removed, so later scaling is not held.
+   The readiness gate of a fenced release gets, per node, the grace, the
+   settle and 5 more minutes. Once every node serves a release, the marks
+   and permits that failed or superseded sequences of the role's older
+   releases left are removed. The operator's `terrabase-release` and
+   `ts-auth-release` commands do not go through the fence: they restart
+   every replica at once, so they are for breaking glass, with the
+   backends drained by hand first.
    With TerraBase seats (`controller.terrabase_seats`) the seat controller
    keeps ordering TerraBase restarts and the fence sequences the other
    roles only, so one sequencer gates each role.

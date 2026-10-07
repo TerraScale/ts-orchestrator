@@ -201,6 +201,7 @@ func (b Backend) Serving() bool { return b.serving() }
 // and not a backup, for UpdateBackend: a release fence takes a node's
 // backend out of rotation and returns it.
 func (b Backend) Fenced(drain, offline bool) Backend {
+	b.weight, b.backup = defaultWeight, false
 	b.Drain, b.offline = drain, offline
 	return b
 }

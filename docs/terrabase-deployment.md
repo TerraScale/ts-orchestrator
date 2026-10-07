@@ -165,8 +165,9 @@ use `git -C "$WORK/terrabase" rev-parse "v<Version>^{commit}"`.
 
 A green TerraBase `main` CI releases TerraBase to every region with no human
 step ([automatic service releases](continuous-delivery.md#automatic-service-releases-ts-610));
-the region's leader runs the gate and rollback below. Run it by hand only to
-release outside CI:
+the region's leader runs the gate and rollback below, one node at a time
+behind the cell spec's `release_fence`. Run it by hand only to release
+outside CI; it bypasses the fence and restarts every member at once:
 
 ```sh
 F=(--nats-forward 10.251.0.11:4222=127.0.0.1:14222)   # Bastion only

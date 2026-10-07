@@ -281,7 +281,8 @@ func (r *serviceReleases) release(ctx context.Context, role string, state servic
 	}
 	wait := r.wait
 	if wait == 0 {
-		wait = defaultReleaseWait(role, state.Intent.DesiredReplicas)
+		// A fenced release restarts its nodes one at a time.
+		wait = defaultReleaseWait(role, state.Intent.DesiredReplicas) + r.fences.allowance(state.Intent.DesiredReplicas)
 	}
 	progress := &stickyWriter{writer: serviceReleaseLog{role: role}}
 	unfinished := func(err error) (serviceReleaseState, error) {

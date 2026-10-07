@@ -278,7 +278,50 @@ func (f *releaseFence) sequence(ctx context.Context, intent delivery.Intent) err
 			return err
 		}
 	}
-	return f.kv.Delete(ctx, sequencedKey(role, release))
+	if err := f.kv.Delete(ctx, sequencedKey(role, release)); err != nil {
+		return err
+	}
+	return f.sweep(ctx, role, release)
+}
+
+// sweep deletes the marks and permits of role's releases before release,
+// which a failed or superseded sequence left. Only now that every node
+// serves release may they go: while desired still named an older release,
+// its mark held the restarts into it.
+func (f *releaseFence) sweep(ctx context.Context, role string, release uint64) error {
+	keys, err := f.kv.ListKeysFiltered(ctx, "fence."+role+".>")
+	if errors.Is(err, jetstream.ErrNoKeysFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer keys.Stop()
+	for key := range keys.Keys() {
+		number, _, _ := strings.Cut(strings.TrimPrefix(key, "fence."+role+"."), ".")
+		if older, err := strconv.ParseUint(number, 10, 64); err == nil && older < release {
+			if err := f.kv.Delete(ctx, key); err != nil {
+				return err
+			}
+		}
+	}
+	// The lister closes early, without an error, when ctx ends.
+	return ctx.Err()
+}
+
+// allowance is the time a fenced release adds to the readiness gate for
+// replicas nodes: each is drained, restarted, returned and settled in turn.
+func (f *releaseFence) allowance(replicas int) time.Duration {
+	if f == nil {
+		return 0
+	}
+	spec, _ := f.spec()
+	if spec == nil {
+		return 0
+	}
+	perNode := durationOr(spec.DrainGraceSeconds, defaultFenceGrace) + durationOr(spec.SettleSeconds, defaultFenceSettle) +
+		5*time.Minute
+	return time.Duration(replicas) * perNode
 }
 
 // nodeState is node's report of role at release: running, failed, or
@@ -477,12 +520,14 @@ func (f *releaseFence) restoreAll(ctx context.Context, api lb.API, epoch uint64)
 	if err != nil {
 		return err
 	}
+	defer keys.Stop()
 	for key := range keys.Keys() {
 		if _, err := f.restore(ctx, api, epoch, strings.TrimPrefix(key, fencedKey(""))); err != nil {
 			return err
 		}
 	}
-	return nil
+	// The lister closes early, without an error, when ctx ends.
+	return ctx.Err()
 }
 
 func durationOr(seconds int, fallback time.Duration) time.Duration {

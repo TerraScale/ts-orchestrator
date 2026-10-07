@@ -587,3 +587,37 @@ func TestReleaseFenceLeavesTerraBaseToSeats(t *testing.T) {
 		t.Fatalf("a ts-auth release is not marked: %v", err)
 	}
 }
+
+// A completed sequence removes the marks and permits that failed or
+// superseded sequences of older releases left, never a newer release's.
+func TestReleaseFenceSweepsOlderReleases(t *testing.T) {
+	fence, _, _, kv, intent := newFenceTest(t)
+	ctx := t.Context()
+	for _, key := range []string{"fence.ts-auth.5", "fence.ts-auth.5.ctl-1", "fence.ts-auth.9", "fence.terrabase.3"} {
+		if _, err := kv.Put(ctx, key, []byte("{}")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := fence.prepare(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.sequence(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := kv.ListKeys(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var left []string
+	for key := range keys.Keys() {
+		left = append(left, key)
+	}
+	slices.Sort(left)
+	if !slices.Equal(left, []string{"fence.terrabase.3", "fence.ts-auth.9"}) {
+		t.Fatalf("left %q", left)
+	}
+	// Each node of a fenced release gets its grace, settle and 5 minutes.
+	if got := fence.allowance(3); got != 3*(defaultFenceGrace+defaultFenceSettle+5*time.Minute) {
+		t.Fatalf("allowance %s", got)
+	}
+}
