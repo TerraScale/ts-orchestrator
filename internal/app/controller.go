@@ -537,6 +537,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				}
 				return gate.Check(ctx, rollout.Record{Kind: rollout.KindController}, node)
 			})
+		policy.nodes.controllers = brokers
 	}
 	// Cell specs verify with the cell's roots, so the root chain opens first.
 	if services.roots != nil {

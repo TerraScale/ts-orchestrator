@@ -11,6 +11,8 @@ ts-orch node drain   --config operator.json --node ts-gru-2 --wait 15m
 ts-orch node undrain --config operator.json --node ts-gru-2 --wait 15m
 ts-orch node reboot  --config operator.json --node ts-gru-2 --wait 30m
 ts-orch node resize  --config operator.json --node ts-gru-2 --ocpus 1 --memory-gb 4 --wait 30m
+ts-orch node add     --config operator.json --node ts-gru-4 --wait 30m
+ts-orch node retire  --config operator.json --node ts-gru-4 --wait 30m
 ```
 
 Every command is a signed request to the cell's authority leader on the
@@ -47,7 +49,22 @@ each step starts, so a new leader resumes it:
    releases the failed operation's hold too) or the operation again.
 
 `drain` stops after step 1 and keeps the node out until `undrain`, which
-runs steps 3 and 4. The leader finds a node's instance by its display name,
+runs steps 3 and 4.
+
+`add` brings in a node that has a host grant, an instance and an enrolled
+host agent: its act creates the node's missing backends, out of rotation,
+in every set whose `role` it has a replica of, then checks and returns them.
+(The edge reconciler would add them too; `add` does it now and reports.)
+
+`retire` takes a node out for good. It refuses a node that runs a
+controller (a controller leaves the cell through its membership, not this
+command) or still has a replica (move it first; the quorum guard applies as
+usual). It fences the node, removes its backends from every set, takes a
+FULL backup of its boot volume (`<node>-retired-<yyyymmdd>`, tags
+`terrascale-host-node`, `ts-node-operation` and `delete-after`, seven days
+later), terminates the instance with its boot volume and waits until it is
+gone. Remove the node's host grant from the cell spec afterwards; until
+then the edge reconciler reports its missing instance. The leader finds a node's instance by its display name,
 the node's name, in its own compartment. Its instance principal needs `manage
 instance-family` there (the reviewed controller policy grants it).
 

@@ -24,12 +24,16 @@ type nodeHosts struct {
 	down     map[string]bool
 	// states overrides a node/role report's state.
 	states map[string]string
+	// withdrawn nodes have no replica.
+	withdrawn map[string]bool
 }
 
 func (h *nodeHosts) ListDesired(_ context.Context, role string) ([]host.Desired, error) {
 	var desired []host.Desired
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	for _, node := range []string{"ctl-1", "ctl-2", "ctl-3"} {
-		desired = append(desired, host.Desired{Node: node, Role: role, Generation: 7})
+		desired = append(desired, host.Desired{Node: node, Role: role, Generation: 7, Withdrawn: h.withdrawn[node]})
 	}
 	return desired, nil
 }
@@ -66,6 +70,32 @@ type nodeInstances struct {
 	calls []string
 	// names renames a node's instance; an empty name removes it.
 	names map[string]string
+}
+
+func (c *nodeInstances) Backup(_ context.Context, id, name string, tags map[string]string, token string) (string, error) {
+	node := strings.TrimPrefix(id, "ocid1.instance.")
+	if tags["terrascale-host-node"] != node || !strings.HasPrefix(name, node+"-retired-") || token == "" {
+		c.t.Errorf("backup %s %q %v %q", id, name, tags, token)
+	}
+	c.calls = append(c.calls, "backup "+node)
+	return "ocid1.bootvolumebackup." + node, nil
+}
+
+func (c *nodeInstances) Terminate(_ context.Context, id string) error {
+	node := strings.TrimPrefix(id, "ocid1.instance.")
+	c.lb.mu.Lock()
+	for set, backends := range c.lb.sets {
+		if slices.ContainsFunc(backends, func(b lb.Backend) bool { return b.IP == fenceAddresses[node] }) {
+			c.t.Errorf("terminated %s while it has a %s backend", node, set)
+		}
+	}
+	c.lb.mu.Unlock()
+	c.calls = append(c.calls, "terminate "+node)
+	if c.names == nil {
+		c.names = map[string]string{}
+	}
+	c.names[node] = ""
+	return nil
 }
 
 func (c *nodeInstances) Instances(context.Context) ([]nodeInstance, error) {
@@ -128,7 +158,7 @@ func newNodeOpsTest(t *testing.T) (*nodeOps, *fenceLB, *nodeInstances) {
 		BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465}, {Name: "ts-auth", Port: 8080}}}
 	fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return spec, fenceAddresses }
 	hosts := &nodeHosts{sessions: map[string]string{"ctl-1": "s1", "ctl-2": "s2", "ctl-3": "s3"}, down: map[string]bool{},
-		states: map[string]string{}}
+		states: map[string]string{}, withdrawn: map[string]bool{}}
 	fence.hosts = hosts
 	instances := &nodeInstances{hosts: hosts, lb: balancer, t: t, shape: map[string][2]float32{}}
 	ops := newNodeOps(fence, func(context.Context) (nodeCompute, error) { return instances, nil }, nil)
@@ -375,5 +405,65 @@ func TestRolloutFenceDrainsBeforeTheStepAndReturnsAfter(t *testing.T) {
 	}
 	if err := gate("controller-2"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// retire takes only a node without replicas or a controller, and leaves it
+// with no backend, a backup and no instance.
+func TestNodeRetireRemovesBacksUpAndTerminates(t *testing.T) {
+	ops, balancer, instances := newNodeOpsTest(t)
+	ctx := t.Context()
+	ops.controllers = map[string]bool{"ctl-1": true}
+	if _, err := ops.submit(ctx, 3, "mariogk", "op-1", nodeOpRequest{Node: "ctl-1", Op: nodeOpRetire}); err == nil ||
+		!strings.Contains(err.Error(), "controller") {
+		t.Fatalf("retired a controller: %v", err)
+	}
+	if _, err := ops.submit(ctx, 3, "mariogk", "op-2", nodeOpRequest{Node: "ctl-3", Op: nodeOpRetire}); err == nil ||
+		!strings.Contains(err.Error(), "replica") {
+		t.Fatalf("retired a node with replicas: %v", err)
+	}
+	ops.fence.hosts.(*nodeHosts).withdrawn["ctl-3"] = true
+	if _, err := ops.submit(ctx, 3, "mariogk", "op-3", nodeOpRequest{Node: "ctl-3", Op: nodeOpRetire}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ops.pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if op := ops.operation(t, "ctl-3"); op.State != nodeOpDone || op.Backup != "ocid1.bootvolumebackup.ctl-3" {
+		t.Fatalf("operation %+v", op)
+	}
+	if !slices.Equal(instances.calls, []string{"backup ctl-3", "terminate ctl-3"}) {
+		t.Fatalf("instances %q", instances.calls)
+	}
+	for set := range balancer.sets {
+		if _, ok := backendOf(balancer, set, "10.0.0.13:9465"); ok {
+			t.Fatalf("%s kept a backend", set)
+		}
+	}
+	if _, found, _ := ops.fence.record(ctx, "ctl-3"); found {
+		t.Fatal("the fence record was left")
+	}
+}
+
+// add creates a replica's missing backend out of rotation and returns it
+// once the node serves.
+func TestNodeAddJoinsAMissingBackend(t *testing.T) {
+	_, ops, balancer, _ := newEdgeTest(t)
+	ctx := t.Context()
+	balancer.sets["ts-auth"] = balancer.sets["ts-auth"][:2]
+	if _, err := ops.submit(ctx, 3, "mariogk", "op-1", nodeOpRequest{Node: "ctl-3", Op: nodeOpAdd}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ops.pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if op := ops.operation(t, "ctl-3"); op.State != nodeOpDone {
+		t.Fatalf("operation %+v", op)
+	}
+	if backend, ok := backendOf(balancer, "ts-auth", "10.0.0.13:8080"); !ok || !backend.Serving() {
+		t.Fatalf("ctl-3's ts-auth backend %+v %v: %q", backend, ok, balancer.log)
+	}
+	if !slices.Contains(balancer.log, "ts-auth 10.0.0.13:8080 created") {
+		t.Fatalf("load balancer %q", balancer.log)
 	}
 }

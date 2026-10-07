@@ -19,6 +19,9 @@ const nodeUsage = `Usage: ts-orch node <command> --config OPERATOR_JSON [flags]
   undrain  --node N                             Return a drained node once it serves
   reboot   --node N                             Drain, reboot the instance, check it serves, return it
   resize   --node N --ocpus C --memory-gb M     Drain, resize the instance (OCI restarts it), check, return it
+  add      --node N                             Create a granted node's missing backends out of rotation, check, return them
+  retire   --node N                             Drain a node without replicas or a controller, remove its backends,
+                                                back its boot volume up (kept 7 days) and terminate its instance
 
 The authority leader runs one operation at a time. It refuses one that would
 leave a load balancer set with fewer healthy backends than its min_serving.
@@ -34,7 +37,7 @@ func runNode(ctx context.Context, args []string, output io.Writer) error {
 		_, err := io.WriteString(output, nodeUsage)
 		return err
 	}
-	if !slices.Contains([]string{"status", nodeOpDrain, nodeOpUndrain, nodeOpReboot, nodeOpResize}, args[0]) {
+	if !slices.Contains([]string{"status", nodeOpDrain, nodeOpUndrain, nodeOpReboot, nodeOpResize, nodeOpAdd, nodeOpRetire}, args[0]) {
 		return fmt.Errorf("unknown node command %q", args[0])
 	}
 	return runOperator(ctx, append([]string{"node-" + args[0]}, args[1:]...), output)

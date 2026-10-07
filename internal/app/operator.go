@@ -279,7 +279,7 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 		return operatorSpecApply(ctx, cfg, runtime, *artifactPath, output)
 	case "rollout-status", "rollout-publish", "rollout-pause", "rollout-resume", "rollout-rollback":
 		return operatorRollout(ctx, cfg, runtime, strings.TrimPrefix(operation, "rollout-"), rolloutRequest, output)
-	case "node-status", "node-drain", "node-undrain", "node-reboot", "node-resize":
+	case "node-status", "node-drain", "node-undrain", "node-reboot", "node-resize", "node-add", "node-retire":
 		return operatorNode(ctx, cfg, runtime, strings.TrimPrefix(operation, "node-"),
 			nodeOpRequest{Node: *node, OCPUs: float32(*ocpus), MemoryGB: float32(*memoryGB)}, *wait, output)
 	case "trust-roots":

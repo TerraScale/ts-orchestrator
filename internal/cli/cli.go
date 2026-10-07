@@ -60,7 +60,7 @@ Operator tooling:
   apply                  Apply a signed cell spec to the running cell
   service                Plan adding, updating and removing a running cell's services
   rollout                Status, publish, pause, resume and roll back the cell's orchestrator release
-  node                   Drain, undrain, reboot and resize a cell's nodes, one at a time behind the load balancer
+  node                   Drain, reboot, resize, add and retire a cell's nodes, one at a time behind the load balancer
   bootstrap              Prepare, sign, verify, and publish bootstrap material
   release                Prepare, sign, verify, and publish release receipts
   oci-region             Plan and deploy regional OCI resources

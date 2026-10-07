@@ -14,6 +14,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
@@ -22,8 +23,8 @@ import (
 )
 
 // Node operations (TS-632) are the one way a cell's servers change: ts-orch
-// node drain|undrain|reboot|resize. The authority leader runs them one at a
-// time, each the same way: take the node's backends out of every fenced
+// node drain|undrain|reboot|resize|add|retire. The authority leader runs
+// them one at a time, each the same way: take the node's backends out of every fenced
 // load balancer set (drain, the grace for in-flight requests, offline, each
 // only while the set's quorum guard holds without it), act, check that the
 // node serves again, and return its backends once their health checks
@@ -31,6 +32,12 @@ import (
 // JetStream cluster and every role desired on the node reports running at
 // its desired generation, which needs the member's /readyz (TerraBase
 // answers it only once caught up with its peers) since the action.
+//
+// add brings a granted, enrolled node in: its missing backends in the sets
+// that name a role it runs are created out of rotation, then checked and
+// returned. retire takes a node without replicas or a controller out for
+// good: its backends are removed, its boot volume backed up (FULL, tagged
+// delete-after a week) and its instance terminated.
 //
 // An operation is a record in the release channel bucket, written before
 // anything changes, so a new leader resumes it. drain keeps the node out
@@ -41,6 +48,12 @@ const (
 	nodeOpUndrain = "undrain"
 	nodeOpReboot  = "reboot"
 	nodeOpResize  = "resize"
+	nodeOpAdd     = "add"
+	nodeOpRetire  = "retire"
+
+	// retiredBackupDays is how long a retired node's boot volume backup is
+	// kept (its delete-after tag).
+	retiredBackupDays = 7
 
 	nodeOpQueued  = "queued"
 	nodeOpRunning = "running"
@@ -80,6 +93,8 @@ type nodeOp struct {
 	// from another session proves the node restarted; empty when nothing
 	// restarts it.
 	Session string `json:"session,omitempty"`
+	// Backup is a retired node's boot volume backup.
+	Backup string `json:"backup,omitempty"`
 }
 
 func (op nodeOp) active() bool { return op.State == nodeOpQueued || op.State == nodeOpRunning }
@@ -122,6 +137,10 @@ type nodeCompute interface {
 	Instances(ctx context.Context) ([]nodeInstance, error)
 	Reboot(ctx context.Context, id string) error
 	Resize(ctx context.Context, id string, ocpus, memoryGB float32) error
+	// Backup takes a FULL, available backup of the instance's boot volume;
+	// token makes a repeated request return the same one.
+	Backup(ctx context.Context, id, name string, tags map[string]string, token string) (string, error)
+	Terminate(ctx context.Context, id string) error
 }
 
 // nodeOps runs node operations on the authority leader.
@@ -132,6 +151,9 @@ type nodeOps struct {
 	// cluster returns nil once node's controller, if it runs one, is back
 	// in a whole JetStream cluster; nil checks nothing.
 	cluster func(ctx context.Context, node string) error
+	// controllers names the nodes that run a controller, which retire
+	// refuses: a controller leaves the cell through its membership.
+	controllers map[string]bool
 	// poll overrides nodeOpPoll in tests.
 	poll time.Duration
 	wake chan struct{}
@@ -216,7 +238,7 @@ func (o *nodeOps) serve(ctx context.Context, wire []byte, cell string, policy si
 // failure nobody is fixing; one that waits for another operation queues.
 func (o *nodeOps) submit(ctx context.Context, epoch uint64, actor, id string, request nodeOpRequest) (nodeOp, error) {
 	switch request.Op {
-	case nodeOpDrain, nodeOpUndrain, nodeOpReboot:
+	case nodeOpDrain, nodeOpUndrain, nodeOpReboot, nodeOpAdd, nodeOpRetire:
 		if request.OCPUs != 0 || request.MemoryGB != 0 {
 			return nodeOp{}, fmt.Errorf("node %s takes no shape", request.Op)
 		}
@@ -245,7 +267,18 @@ func (o *nodeOps) submit(ctx context.Context, epoch uint64, actor, id string, re
 	if err != nil {
 		return nodeOp{}, err
 	}
+	if request.Op == nodeOpRetire {
+		if o.controllers[request.Node] {
+			return nodeOp{}, fmt.Errorf("node %s runs a controller; ts-orch node retire takes only hosts without one", request.Node)
+		}
+		if role, err := nodeReplica(ctx, o.fence.hosts, request.Node); err != nil {
+			return nodeOp{}, err
+		} else if role != "" {
+			return nodeOp{}, fmt.Errorf("node %s still has a %s replica; move it first", request.Node, role)
+		}
+	}
 	switch {
+	case request.Op == nodeOpAdd:
 	case request.Op == nodeOpUndrain && (!held || !slices.ContainsFunc(record.holders(), func(h string) bool {
 		return h == holdMaintenance || h == holdOperation
 	})):
@@ -446,6 +479,26 @@ func (o *nodeOps) execute(ctx context.Context, epoch uint64, op *nodeOp) error {
 	}
 	grace := durationOr(spec.DrainGraceSeconds, defaultFenceGrace)
 	switch op.Op {
+	case nodeOpAdd:
+		if err := step("act"); err != nil {
+			return err
+		}
+		if err := o.addBackends(ctx, api, epoch, *spec, op.Node, addresses[op.Node]); err != nil {
+			return err
+		}
+		if err := step("check"); err != nil {
+			return err
+		}
+		if err := o.serving(ctx, epoch, *op); err != nil {
+			return err
+		}
+		if err := step("return"); err != nil {
+			return err
+		}
+		_, err := o.fence.restore(ctx, api, epoch, op.Node, holdOperation, true)
+		return err
+	case nodeOpRetire:
+		return o.retire(ctx, epoch, api, *spec, addresses[op.Node], op, step)
 	case nodeOpDrain:
 		if err := step("fence"); err != nil {
 			return err
@@ -529,6 +582,198 @@ func (o *nodeOps) act(ctx context.Context, op *nodeOp) error {
 		return api.Resize(ctx, instance.ID, op.OCPUs, op.MemoryGB)
 	}
 	return api.Reboot(ctx, instance.ID)
+}
+
+// addBackends creates node's missing backends, out of rotation and held by
+// the operation, in every set that names a role the node has a replica of.
+func (o *nodeOps) addBackends(ctx context.Context, api lb.API, epoch uint64, spec cellspec.ReleaseFence, node,
+	address string,
+) error {
+	defer o.fence.lockNode(node)()
+	record, found, err := o.fence.record(ctx, node)
+	if err != nil {
+		return err
+	}
+	if !found {
+		record.Holders = []string{holdOperation}
+	} else if !slices.Contains(record.holders(), holdOperation) {
+		record.Holders = append(slices.Clone(record.holders()), holdOperation)
+		slices.Sort(record.Holders)
+	}
+	var missing []fencedBackend
+	for _, set := range spec.BackendSets {
+		if set.Role == "" {
+			continue
+		}
+		desired, err := o.fence.hosts.ListDesired(ctx, set.Role)
+		if err != nil {
+			return err
+		}
+		if !slices.ContainsFunc(desired, func(d host.Desired) bool { return d.Node == node && !d.Withdrawn }) {
+			continue
+		}
+		observed, err := api.ListBackends(ctx, spec.LoadBalancerID, set.Name)
+		if err != nil {
+			return err
+		}
+		if slices.ContainsFunc(observed, func(b lb.Backend) bool { return b.IP == address && b.Port == set.Port }) {
+			continue
+		}
+		created := fencedBackend{LoadBalancerID: spec.LoadBalancerID, Set: set.Name, IP: address, Port: set.Port, Weight: 1,
+			Offline: true}
+		record.Backends = append(record.Backends, created)
+		missing = append(missing, created)
+	}
+	// Recorded first, so a backend never exists unexplained.
+	if err := o.fence.save(ctx, epoch, node, record); err != nil {
+		return err
+	}
+	for _, backend := range missing {
+		if err := o.fence.fencer.Guard(ctx, epoch); err != nil {
+			return err
+		}
+		request, err := api.CreateBackend(ctx, backend.LoadBalancerID, backend.Set,
+			lb.Backend{IP: backend.IP, Port: backend.Port}.Fenced(true, true))
+		if err != nil {
+			return err
+		}
+		if err := api.WaitWorkRequest(ctx, request); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// retire fences the node, removes its backends, backs its boot volume up
+// and terminates its instance; it ends once the instance is gone.
+func (o *nodeOps) retire(ctx context.Context, epoch uint64, api lb.API, spec cellspec.ReleaseFence, address string,
+	op *nodeOp, step func(string) error,
+) error {
+	if op.ActedAt.IsZero() {
+		if op.Step == "" || op.Step == "fence" {
+			if err := step("fence"); err != nil {
+				return err
+			}
+			if err := o.fence.fence(ctx, api, epoch, spec, op.Node, address, durationOr(spec.DrainGraceSeconds,
+				defaultFenceGrace), holdOperation); err != nil {
+				return err
+			}
+		}
+		if err := step("act"); err != nil {
+			return err
+		}
+		if err := o.removeBackends(ctx, api, epoch, spec, op.Node, address); err != nil {
+			return err
+		}
+		instances, err := o.instances(ctx)
+		if err != nil {
+			return err
+		}
+		instance, err := instances.Find(ctx, op.Node)
+		if err != nil {
+			return err
+		}
+		now := o.now().UTC()
+		if op.Backup == "" {
+			if op.Backup, err = instances.Backup(ctx, instance.ID, op.Node+"-retired-"+now.Format("20060102"),
+				map[string]string{"terrascale-host-node": op.Node, "ts-node-operation": op.ID,
+					"delete-after": now.AddDate(0, 0, retiredBackupDays).Format(time.DateOnly)}, op.ID); err != nil {
+				return err
+			}
+			if err := o.save(ctx, epoch, *op); err != nil {
+				return err
+			}
+		}
+		slog.Info("node operation terminates an instance", observability.ComponentKey, "nodes", "node", op.Node,
+			"instance", instance.ID, "backup", op.Backup)
+		if err := instances.Terminate(ctx, instance.ID); err != nil {
+			return err
+		}
+		op.ActedAt = o.now().UTC()
+	}
+	if err := step("check"); err != nil {
+		return err
+	}
+	for {
+		instances, err := o.instances(ctx)
+		if err != nil {
+			return err
+		}
+		listed, err := instances.Instances(ctx)
+		if err != nil {
+			return err
+		}
+		if !slices.ContainsFunc(listed, func(instance nodeInstance) bool { return instance.Name == op.Node }) {
+			break
+		}
+		if err := o.wait(ctx, epoch); err != nil {
+			return fmt.Errorf("the instance of %s is not terminated: %w", op.Node, err)
+		}
+	}
+	// The record holds no backend now; letting go of it deletes it.
+	_, err := o.fence.restore(ctx, api, epoch, op.Node, holdOperation, false)
+	return err
+}
+
+// removeBackends deletes node's backends from every fenced set and from
+// its record. The fence took them out first.
+func (o *nodeOps) removeBackends(ctx context.Context, api lb.API, epoch uint64, spec cellspec.ReleaseFence, node,
+	address string,
+) error {
+	defer o.fence.lockNode(node)()
+	for _, set := range spec.BackendSets {
+		observed, err := api.ListBackends(ctx, spec.LoadBalancerID, set.Name)
+		if err != nil {
+			return err
+		}
+		for _, backend := range observed {
+			if backend.IP != address || backend.Port != set.Port {
+				continue
+			}
+			if backend.Serving() {
+				return fmt.Errorf("%s backend %s still serves; it is not removed", set.Name, backend.Name())
+			}
+			if err := o.fence.fencer.Guard(ctx, epoch); err != nil {
+				return err
+			}
+			request, err := api.DeleteBackend(ctx, spec.LoadBalancerID, set.Name, backend.Name())
+			if err != nil {
+				return err
+			}
+			if err := api.WaitWorkRequest(ctx, request); err != nil {
+				return err
+			}
+		}
+	}
+	record, found, err := o.fence.record(ctx, node)
+	if err != nil || !found {
+		return err
+	}
+	record.Backends = nil
+	return o.fence.save(ctx, epoch, node, record)
+}
+
+// nodeReplica names a role node still has an active replica of, or "".
+func nodeReplica(ctx context.Context, hosts seatrollout.Hosts, node string) (string, error) {
+	statuses, err := hosts.ListHosts(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, status := range statuses {
+		if status.Registration.Node != node {
+			continue
+		}
+		for _, role := range status.Registration.Roles {
+			desired, err := hosts.ListDesired(ctx, role)
+			if err != nil {
+				return "", err
+			}
+			if slices.ContainsFunc(desired, func(d host.Desired) bool { return d.Node == node && !d.Withdrawn }) {
+				return role, nil
+			}
+		}
+	}
+	return "", nil
 }
 
 // nodeSession is the session of node's host agent in its newest report.

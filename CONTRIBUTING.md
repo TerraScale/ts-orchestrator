@@ -27,6 +27,15 @@ for offline contracts. Do not add Python test suites or separate test runners.
 Store inert fixture data under feature-local
 `testdata` directories.
 
+## Change servers and load balancers only through ts-orch
+
+ts-orchestrator owns a cell's servers and load balancer backends (TS-632).
+Humans and agents change them with `ts-orch node`
+(`drain|undrain|reboot|resize|add|retire`) and the cell spec, never with
+the `oci` CLI, the console or scripts: the leader drains nodes for
+releases and rollouts itself, and its edge reconciler undoes hand edits.
+See [node operations](docs/node-operations.md).
+
 ## Keep features together
 
 Keep each feature's command parsing, services, and tests together. The

@@ -67,6 +67,8 @@ dist/ts-orch operator hosts --config operator.json
 ```
 
 See [the unified CLI](docs/cli.md) for command migration and feature boundaries.
+Change a cell's servers and load balancer backends only with `ts-orch node`
+([node operations](docs/node-operations.md)), never with the `oci` CLI.
 `make release-linux` creates static Linux amd64 and arm64 executables and
 requires no Go runtime on the target machine. Forgejo CI repeats the checks
 against the event's exact commit, verifies both ELF architectures and the
