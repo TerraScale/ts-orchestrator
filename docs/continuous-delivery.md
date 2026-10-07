@@ -830,11 +830,11 @@ releases/v1/services/<role>/status.json         the region leader's report
    every fenced set (drain, the grace, then offline, since a drain alone
    keeps the load balancer's pooled connections), each change only while a
    backend of another node serves healthy in that set, checked right
-   before the change; records them under `fenced.<node>`,
-   with the load balancer they belong to and a `fencing` phase, before it
-   changes the load balancer, and marks the record `fenced` once all are
-   offline (a new leader finishes a `fencing` record before it permits the
-   node); permits the node; waits until it
+   before the change; records each under `fenced.<node>`, with the load
+   balancer it belongs to, before it changes the load balancer, and marks
+   it offline once it is out (a new leader finishes a part-way record, and
+   a record an earlier release left gains every backend the current fence
+   takes out, before it permits the node); permits the node; waits until it
    reports the release `running`; returns its backends and waits for their
    health checks; and settles. A node that fails the release keeps its
    backends out of rotation and the release rolls back the same way, one

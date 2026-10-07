@@ -81,21 +81,23 @@ func releaseGate(kv jetstream.KeyValue) func(context.Context, string, host.Desir
 
 // fencedBackend is one backend a fence takes out of rotation.
 type fencedBackend struct {
-	Set  string `json:"set"`
-	IP   string `json:"ip"`
-	Port int    `json:"port"`
+	// LoadBalancerID is the load balancer the backend was taken from; it
+	// returns there whatever the cell spec names since.
+	LoadBalancerID string `json:"load_balancer_id"`
+	Set            string `json:"set"`
+	IP             string `json:"ip"`
+	Port           int    `json:"port"`
 	// Weight and Backup are the backend's own, restored with it.
 	Weight int  `json:"weight,omitzero"`
 	Backup bool `json:"backup,omitzero"`
+	// Offline is set once the backend is out of rotation.
+	Offline bool `json:"offline,omitzero"`
 }
 
-// fenceRecord is a node's fence, recorded before the load balancer changes:
-// the load balancer it was taken from, and whether every backend is out of
-// rotation yet (fenced) or the fence may be part-way (fencing).
+// fenceRecord is a node's fence, recorded before the load balancer
+// changes: every backend taken, or being taken, out of rotation.
 type fenceRecord struct {
-	LoadBalancerID string          `json:"load_balancer_id"`
-	Phase          string          `json:"phase"`
-	Backends       []fencedBackend `json:"backends"`
+	Backends []fencedBackend `json:"backends"`
 }
 
 // releaseFence is the leader's side of a release fence. Every change it
@@ -353,11 +355,14 @@ func (f *releaseFence) nodeState(ctx context.Context, role string, release uint6
 	return "", nil
 }
 
-// fence takes node's in-rotation backends out of every fenced set. It
-// records them first, as fencing, and marks the record fenced once every
-// one is offline; a fence a deposed leader left part-way is finished from
-// its record. Right before each backend is drained, and again before it is
-// set offline, a backend of another node must serve healthy in its set.
+// fence takes node's in-rotation backends out of every fenced set. Each
+// backend is recorded before the load balancer changes and marked offline
+// once it is out, so a fence a deposed leader left part-way is finished
+// from its record. A record that an earlier release left, under another
+// fence configuration, gains every backend the current one takes out, so
+// the node never restarts while one of them serves. Right before each
+// backend is drained, and again before it is set offline, a backend of
+// another node must serve healthy in its set.
 func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec cellspec.ReleaseFence, node,
 	address string, grace time.Duration,
 ) error {
@@ -365,42 +370,49 @@ func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec
 	if err != nil {
 		return err
 	}
-	if found && record.Phase == "fenced" {
+	if address == "" {
+		// No host grant names the node: its backends are unknown, so it is
+		// never restarted unfenced.
+		return fmt.Errorf("no host grant gives the address of %s; its restart stays held", node)
+	}
+	added := false
+	for _, set := range spec.BackendSets {
+		observed, err := api.ListBackends(ctx, spec.LoadBalancerID, set.Name)
+		if err != nil {
+			return err
+		}
+		for _, backend := range observed {
+			if backend.IP != address || backend.Port != set.Port || !backend.Serving() ||
+				slices.ContainsFunc(record.Backends, func(recorded fencedBackend) bool {
+					return recorded.LoadBalancerID == spec.LoadBalancerID && recorded.Set == set.Name &&
+						recorded.IP == address && recorded.Port == set.Port
+				}) {
+				continue
+			}
+			weight, backup := backend.Shape()
+			record.Backends = append(record.Backends, fencedBackend{LoadBalancerID: spec.LoadBalancerID, Set: set.Name,
+				IP: address, Port: set.Port, Weight: weight, Backup: backup})
+			added = true
+		}
+	}
+	pending := slices.ContainsFunc(record.Backends, func(backend fencedBackend) bool { return !backend.Offline })
+	if !pending {
 		return nil
 	}
-	if !found {
-		if address == "" {
-			// No host grant names the node: its backends are unknown, so it
-			// is never restarted unfenced.
-			return fmt.Errorf("no host grant gives the address of %s; its restart stays held", node)
-		}
-		record = fenceRecord{LoadBalancerID: spec.LoadBalancerID, Phase: "fencing"}
-		for _, set := range spec.BackendSets {
-			observed, err := api.ListBackends(ctx, spec.LoadBalancerID, set.Name)
-			if err != nil {
-				return err
-			}
-			for _, backend := range observed {
-				if backend.IP == address && backend.Port == set.Port && backend.Serving() {
-					weight, backup := backend.Shape()
-					record.Backends = append(record.Backends, fencedBackend{Set: set.Name, IP: address, Port: set.Port,
-						Weight: weight, Backup: backup})
-				}
-			}
-		}
-		if len(record.Backends) == 0 {
-			return nil
-		}
+	if added || !found {
 		if err := f.save(ctx, epoch, node, record); err != nil {
 			return err
 		}
 	}
 	for _, offline := range []bool{false, true} {
 		for _, backend := range record.Backends {
-			if err := f.alternative(ctx, api, epoch, record.LoadBalancerID, backend, node); err != nil {
+			if backend.Offline {
+				continue
+			}
+			if err := f.alternative(ctx, api, epoch, backend, node); err != nil {
 				return err
 			}
-			if err := f.update(ctx, api, epoch, record.LoadBalancerID, backend, true, offline); err != nil {
+			if err := f.update(ctx, api, epoch, backend, true, offline); err != nil {
 				return err
 			}
 		}
@@ -411,7 +423,9 @@ func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec
 			}
 		}
 	}
-	record.Phase = "fenced"
+	for i := range record.Backends {
+		record.Backends[i].Offline = true
+	}
 	if err := f.save(ctx, epoch, node, record); err != nil {
 		return err
 	}
@@ -422,9 +436,8 @@ func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec
 
 // alternative waits until a backend of another node serves healthy in
 // backend's set: taking backend out must leave the set serving.
-func (f *releaseFence) alternative(ctx context.Context, api lb.API, epoch uint64, id string, backend fencedBackend,
-	node string,
-) error {
+func (f *releaseFence) alternative(ctx context.Context, api lb.API, epoch uint64, backend fencedBackend, node string) error {
+	id := backend.LoadBalancerID
 	for {
 		observed, err := api.ListBackends(ctx, id, backend.Set)
 		if err != nil {
@@ -446,9 +459,8 @@ func (f *releaseFence) alternative(ctx context.Context, api lb.API, epoch uint64
 }
 
 // update sets one backend's drain and offline flags under the epoch.
-func (f *releaseFence) update(ctx context.Context, api lb.API, epoch uint64, id string, backend fencedBackend,
-	drain, offline bool,
-) error {
+func (f *releaseFence) update(ctx context.Context, api lb.API, epoch uint64, backend fencedBackend, drain, offline bool) error {
+	id := backend.LoadBalancerID
 	if err := f.fencer.Guard(ctx, epoch); err != nil {
 		return err
 	}
@@ -496,14 +508,14 @@ func (f *releaseFence) restore(ctx context.Context, api lb.API, epoch uint64, no
 		return false, err
 	}
 	for _, backend := range record.Backends {
-		if err := f.update(ctx, api, epoch, record.LoadBalancerID, backend, false, false); err != nil {
+		if err := f.update(ctx, api, epoch, backend, false, false); err != nil {
 			return false, err
 		}
 	}
 	for _, backend := range record.Backends {
 		name := lb.Backend{IP: backend.IP, Port: backend.Port}.Name()
 		for healthy {
-			unhealthy, err := api.UnhealthyBackends(ctx, record.LoadBalancerID, backend.Set)
+			unhealthy, err := api.UnhealthyBackends(ctx, backend.LoadBalancerID, backend.Set)
 			if err != nil {
 				return false, err
 			}

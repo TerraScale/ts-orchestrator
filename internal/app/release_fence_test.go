@@ -352,8 +352,8 @@ func TestReleaseFenceFinishesAPartWayFence(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Recorded, but the load balancer never changed.
-	if _, err := kv.Put(ctx, fencedKey("ctl-1"), []byte(`{"load_balancer_id":"ocid1.loadbalancer.oc1..x","phase":"fencing",`+
-		`"backends":[{"set":"terrabase","ip":"10.0.0.11","port":9465}]}`)); err != nil {
+	if _, err := kv.Put(ctx, fencedKey("ctl-1"), []byte(`{"backends":[{"load_balancer_id":"ocid1.loadbalancer.oc1..x",`+
+		`"set":"terrabase","ip":"10.0.0.11","port":9465}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := fence.sequence(ctx, intent); err != nil {
@@ -485,8 +485,7 @@ func TestReleaseFenceNeedsAnotherHealthyNode(t *testing.T) {
 		},
 		"part-way fence": func(_ *releaseFence, balancer *fenceLB, kv jetstream.KeyValue) {
 			balancer.down["10.0.0.12:9465"], balancer.down["10.0.0.13:9465"] = true, true
-			if _, err := kv.Put(t.Context(), fencedKey("ctl-1"), []byte(`{"load_balancer_id":"ocid1.loadbalancer.oc1..x",`+
-				`"phase":"fencing","backends":[{"set":"terrabase","ip":"10.0.0.11","port":9465}]}`)); err != nil {
+			if _, err := kv.Put(t.Context(), fencedKey("ctl-1"), []byte(`{"backends":[{"load_balancer_id":"ocid1.loadbalancer.oc1..x","set":"terrabase","ip":"10.0.0.11","port":9465}]}`)); err != nil {
 				t.Fatal(err)
 			}
 		},
@@ -554,8 +553,8 @@ func TestReleaseFenceResumesADrainedBackendOnlyBesideAnAlternative(t *testing.T)
 	balancer.down["10.0.0.12:9465"], balancer.down["10.0.0.13:9465"] = true, true
 	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
 	defer cancel()
-	if _, err := kv.Put(ctx, fencedKey("ctl-1"), []byte(`{"load_balancer_id":"ocid1.loadbalancer.oc1..x","phase":"fencing",`+
-		`"backends":[{"set":"terrabase","ip":"10.0.0.11","port":9465}]}`)); err != nil {
+	if _, err := kv.Put(ctx, fencedKey("ctl-1"), []byte(`{"backends":[{"load_balancer_id":"ocid1.loadbalancer.oc1..x",`+
+		`"set":"terrabase","ip":"10.0.0.11","port":9465}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := fence.prepare(ctx, intent); err != nil {
@@ -705,5 +704,45 @@ func TestReleaseFenceDroppedReturnsWithoutWaitingAndClearsMarks(t *testing.T) {
 	}
 	if granted, err := cell.gate(ctx, "ctl-2", host.Desired{Role: "ts-auth", Generation: 7 << 24}); err != nil || !granted {
 		t.Fatalf("a restart stays held: %v %v", granted, err)
+	}
+}
+
+// A record an earlier release left under another fence configuration does
+// not stand for the current one: here the spec gained the ts-auth set
+// after ctl-2 failed, and the next release takes ctl-2's ts-auth backend
+// out too before ctl-2 restarts.
+func TestReleaseFenceCompletesALeftRecordForTheCurrentSpec(t *testing.T) {
+	fence, cell, balancer, kv, intent := newFenceTest(t)
+	ctx := t.Context()
+	terrabaseOnly := &cellspec.ReleaseFence{LoadBalancerID: "ocid1.loadbalancer.oc1..x",
+		BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465}}}
+	both, _ := fence.spec()
+	fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return terrabaseOnly, fenceAddresses }
+	// Under the first fence ctl-2's ts-auth backend may serve while it
+	// restarts.
+	cell.broken["ctl-2"], cell.unfenced = true, true
+	if err := fence.prepare(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.sequence(ctx, intent); err == nil {
+		t.Fatal("a failed node passed")
+	}
+	if !balancer.sets["ts-auth"][1].Serving() {
+		t.Fatal("ctl-2's ts-auth backend was fenced without a ts-auth set")
+	}
+	fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return both, fenceAddresses }
+	cell.broken["ctl-2"], cell.unfenced, cell.release, cell.restarts = false, false, 8, nil
+	next := delivery.Intent{Role: "ts-auth", Generation: 8}
+	if err := fence.prepare(ctx, next); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.sequence(ctx, next); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(balancer.log, "ts-auth 10.0.0.12:8080 offline") || cell.restarts[0] != "ctl-2" {
+		t.Fatalf("load balancer %q, restarts %q", balancer.log, cell.restarts)
+	}
+	if _, err := kv.Get(ctx, fencedKey("ctl-2")); !errors.Is(err, jetstream.ErrKeyNotFound) {
+		t.Fatalf("ctl-2's fence is still recorded: %v", err)
 	}
 }
