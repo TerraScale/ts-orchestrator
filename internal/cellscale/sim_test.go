@@ -66,7 +66,7 @@ func newFakeCell(nodes int, shape Shape, tenantsPerNode int, rate float64) *fake
 		f.state[name], f.release[name] = StateReady, "r1"
 		f.process[name] = 1
 		for t := range tenantsPerNode {
-			f.tenants[name] = append(f.tenants[name], TenantLoad{Org: fmt.Sprintf("org-%d-%d", n, t), Plan: PlanPro, RequestRate: rate})
+			f.tenants[name] = append(f.tenants[name], TenantLoad{Project: project(fmt.Sprintf("org-%d-%d", n, t)), RequestRate: rate})
 		}
 	}
 	return f
@@ -201,7 +201,7 @@ func (f *fakeCell) MoveTenant(_ context.Context, org string, source, destination
 	}
 	from, to := source.Name, destination.Name
 	f.record("move %s %s %s", org, from, to)
-	index := slices.IndexFunc(f.tenants[from], func(t TenantLoad) bool { return t.Org == org })
+	index := slices.IndexFunc(f.tenants[from], func(t TenantLoad) bool { return t.Project == org })
 	if index < 0 {
 		return fmt.Errorf("tenant %s is not on %s", org, from)
 	}
@@ -283,7 +283,7 @@ func (f *fakeCell) Replicas(context.Context, string) (ReplicaSnapshot, error) {
 	}
 	for _, tenants := range f.tenants {
 		for _, tenant := range tenants {
-			snapshot.Placements = append(snapshot.Placements, ReplicaPlacement{Org: tenant.Org, Database: "db", Shard: 1,
+			snapshot.Placements = append(snapshot.Placements, ReplicaPlacement{Org: tenant.Project, Database: "db", Shard: 1,
 				LiveReplicas: slices.Clone(replicas)})
 		}
 	}
@@ -531,10 +531,10 @@ func TestCurveNoisyTenantMovesInsteadOfScaling(t *testing.T) {
 	cell := newFakeCell(3, small, 4, 200)
 	// A hobby tenant on db-2 sends 1300 requests/s: db-2 runs at 2100, 1.05
 	// request pressure, while db-1 and db-3 idle at 800.
-	cell.tenants["gru-1-db-2"] = append(cell.tenants["gru-1-db-2"], TenantLoad{Org: "noisy", Plan: PlanHobby, RequestRate: 1300})
+	cell.tenants["gru-1-db-2"] = append(cell.tenants["gru-1-db-2"], TenantLoad{Project: project("noisy"), RequestRate: 1300})
 	cell.tenants["gru-1-db-1"] = cell.tenants["gru-1-db-1"][:2]
 	acted := newSim(t, testPolicy(), cell, time.Minute).run(60, func(time.Duration) float64 { return 1 })
-	if len(acted) != 1 || acted[0].action.Kind != KindRebalance || acted[0].action.Tenant != "noisy" ||
+	if len(acted) != 1 || acted[0].action.Kind != KindRebalance || acted[0].action.Tenant != project("noisy") ||
 		acted[0].action.Node != "gru-1-db-2" || acted[0].action.Target != "gru-1-db-1" {
 		t.Fatalf("noisy tenant actions = %v (%+v)", kinds(acted), acted)
 	}

@@ -59,12 +59,12 @@ func TestRebalanceRechecksTenantAndDestinationFit(t *testing.T) {
 		t.Run(change, func(t *testing.T) {
 			policy := testPolicy()
 			cell := newFakeCell(3, small, 4, 200)
-			cell.tenants["gru-1-db-2"] = append(cell.tenants["gru-1-db-2"], TenantLoad{Org: "noisy", Plan: PlanHobby, RequestRate: 1300})
+			cell.tenants["gru-1-db-2"] = append(cell.tenants["gru-1-db-2"], TenantLoad{Project: project("noisy"), RequestRate: 1300})
 			cell.tenants["gru-1-db-1"] = cell.tenants["gru-1-db-1"][:2]
 			s := newSim(t, policy, cell, time.Minute)
 			state := observeState(t, policy, cell)
 			action := act(policy, state, History{})
-			if action.Kind != KindRebalance || action.Tenant != "noisy" || action.Target != "gru-1-db-1" {
+			if action.Kind != KindRebalance || action.Tenant != project("noisy") || action.Target != "gru-1-db-1" {
 				t.Fatalf("initial move = %+v", action)
 			}
 			switch change {
@@ -77,7 +77,7 @@ func TestRebalanceRechecksTenantAndDestinationFit(t *testing.T) {
 						p.CPUUtil, p.RequestRate = 0.1, 200
 					} else {
 						for i := range p.TopTenants {
-							if p.TopTenants[i].Org == action.Tenant {
+							if p.TopTenants[i].Project == action.Tenant {
 								p.TopTenants[i].CPUShare, p.TopTenants[i].RequestRate = 0, 0
 								if change == "wrong resource" {
 									p.TopTenants[i].CPUShare = 0.3 // Only requests are hot.
@@ -106,8 +106,8 @@ func TestRebalanceRechecksTenantAndDestinationFit(t *testing.T) {
 				s.controller.config.Source = changedLoad{fakeCell: cell, change: func(p *NodePressure) {
 					if p.Node == action.Node {
 						p.TopTenants = []TenantLoad{
-							{Org: action.Tenant, Plan: PlanHobby, RequestRate: 10, CPUShare: 0.01},
-							{Org: action.Tenant, Plan: PlanHobby, RequestRate: 1800, CPUShare: 0.9},
+							{Project: action.Tenant, RequestRate: 10, CPUShare: 0.01},
+							{Project: action.Tenant, RequestRate: 1800, CPUShare: 0.9},
 						}
 					}
 				}}
@@ -204,7 +204,7 @@ func TestShapeRefusalRequiresFreshPressureBeforeRetry(t *testing.T) {
 					}
 				}}
 			}
-			action := Action{Kind: KindRebalance, Node: source, Target: target, Tenant: "org-1-0", Plan: PlanPro}
+			action := Action{Kind: KindRebalance, Node: source, Target: target, Tenant: project("org-1-0")}
 			if !moveFits(policy.Targets, original.Nodes[0], original.Nodes[1], original.Nodes[0].Pressure.TopTenants[0]) {
 				t.Fatal("baseline move does not fit")
 			}

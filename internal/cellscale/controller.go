@@ -409,7 +409,7 @@ func (c *Controller) apply(ctx context.Context, state State, action Action) erro
 			return errors.New("tenant move source or destination is no longer observable")
 		}
 		tenants := current.Nodes[from].Pressure.TopTenants
-		tenant := slices.IndexFunc(tenants, func(t TenantLoad) bool { return t.Org == action.Tenant })
+		tenant := slices.IndexFunc(tenants, func(t TenantLoad) bool { return t.Project == action.Tenant })
 		if tenant < 0 || !moveFits(c.config.Policy.Targets, current.Nodes[from], current.Nodes[to], tenants[tenant]) {
 			return fmt.Errorf("tenant %s is no longer observable or does not fit on %s", action.Tenant, action.Target)
 		}
@@ -788,7 +788,7 @@ func (c *Controller) journal(ctx context.Context, action Action, status decision
 	if action.Recovery {
 		attrs["recovery"] = "true"
 	}
-	for key, value := range map[string]string{"node": action.Node, "tenant": action.Tenant, "plan": string(action.Plan), "target": action.Target} {
+	for key, value := range map[string]string{"node": action.Node, "tenant": action.Tenant, "target": action.Target} {
 		if value != "" {
 			attrs[key] = value
 		}
@@ -872,7 +872,7 @@ func describe(cell string, action Action) string {
 	case KindResize:
 		return fmt.Sprintf("resize cell %s from %s to %s, one node at a time", cell, action.From, action.To)
 	default:
-		return fmt.Sprintf("move %s tenant %s from %s to %s", action.Plan, action.Tenant, action.Node, action.Target)
+		return fmt.Sprintf("move tenant %s from %s to %s", action.Tenant, action.Node, action.Target)
 	}
 }
 

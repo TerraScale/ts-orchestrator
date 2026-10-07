@@ -6,12 +6,10 @@
 package atlas
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json/v2"
@@ -23,8 +21,6 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +28,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
+	sdkatlas "terrascale.tech/sdk/atlas"
 )
 
 const (
@@ -75,18 +72,13 @@ type Region struct {
 }
 
 // Service is one entry of the service catalog.
-type Service struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	URL    string `json:"url"`
-	Health string `json:"health,omitempty"`
-}
+type Service = sdkatlas.Service
 
 // Validate checks what the controller relies on; Atlas validates the rest
 // at publish and refuses the whole document on any error.
 func (c Config) Validate(cell string) error {
-	if !httpsURL(c.URL) {
-		return errors.New("atlas url must be an https URL")
+	if parsed, err := url.Parse(c.URL); err != nil || !httpsURL(c.URL) || strings.Trim(parsed.Path, "/") != "" {
+		return errors.New("atlas url must be an https origin without a path")
 	}
 	if err := vaultsecret.ValidateRefs(cell, Role, map[string]vaultsecret.Ref{KeyName: c.PublishKey}, nil); err != nil {
 		return err
@@ -121,19 +113,8 @@ func httpsURL(raw string) bool {
 	return err == nil && parsed.Scheme == "https" && parsed.Host != ""
 }
 
-type region struct {
-	Region `json:",inline"`
-	OK     bool `json:"ok"`
-}
-
-type topology struct {
-	V        int       `json:"v"`
-	Updated  int64     `json:"updated"`
-	Regions  []region  `json:"regions"`
-	Services []Service `json:"services"`
-}
-
-// Publisher signs and posts topologies with Key, keeping updated monotonic.
+// Publisher signs and posts topologies with Key through the ts-go Atlas
+// client, keeping updated monotonic.
 type Publisher struct {
 	HTTP *http.Client
 	Key  *ecdsa.PrivateKey
@@ -149,49 +130,29 @@ var ErrUnauthorized = errors.New("atlas refused the publish signature")
 // before the POST, so a controller that lost authority meanwhile publishes
 // nothing.
 func (p *Publisher) Publish(ctx context.Context, config Config, now time.Time, guard func(context.Context) error) error {
-	doc := topology{V: 1, Updated: max(now.Unix(), p.last+1), Services: config.Services}
-	doc.Regions = make([]region, len(config.Regions))
+	doc := sdkatlas.Topology{V: 1, Updated: max(now.Unix(), p.last+1), Services: config.Services}
+	doc.Regions = make([]sdkatlas.Region, len(config.Regions))
 	var probes sync.WaitGroup
 	for i, entry := range config.Regions {
-		doc.Regions[i].Region = entry
+		doc.Regions[i] = sdkatlas.Region{ID: entry.ID, Name: entry.Name, Country: entry.Country, Lat: entry.Lat, Lon: entry.Lon, API: entry.API, Auth: entry.Auth}
 		probes.Go(func() { doc.Regions[i].OK = ready(ctx, p.HTTP, entry.API) })
 	}
 	probes.Wait()
-	body, err := json.Marshal(map[string]any{"topology": doc})
-	if err != nil {
-		return err
-	}
-	timestamp := strconv.FormatInt(now.Unix(), 10)
-	signature, err := Sign(p.Key, timestamp, body)
-	if err != nil {
-		return err
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(config.URL, "/")+"/v1/publish", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	request.Header.Set("content-type", "application/json")
-	request.Header.Set("x-atlas-timestamp", timestamp)
-	request.Header.Set("x-atlas-signature", signature)
 	if guard != nil {
 		if err := guard(ctx); err != nil {
 			return err
 		}
 	}
-	response, err := p.HTTP.Do(request)
+	client := sdkatlas.Publisher{BaseURL: config.URL, Key: p.Key, HTTPClient: p.HTTP}
+	report, err := client.Publish(ctx, sdkatlas.Document{Topology: &doc})
+	if refused, ok := errors.AsType[*sdkatlas.Error](err); ok && refused.Status == http.StatusUnauthorized {
+		return ErrUnauthorized
+	}
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
-	answer, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-	if response.StatusCode == http.StatusUnauthorized {
-		return ErrUnauthorized
-	}
-	var report struct {
-		Topology string `json:"topology"`
-	}
-	if response.StatusCode != http.StatusOK || json.Unmarshal(answer, &report) != nil || report.Topology != "updated" {
-		return fmt.Errorf("atlas answered %d: %.200s", response.StatusCode, answer)
+	if report.Topology != "updated" {
+		return fmt.Errorf("atlas answered topology %q", report.Topology)
 	}
 	p.last = doc.Updated
 	return nil
@@ -212,20 +173,6 @@ func ready(ctx context.Context, client *http.Client, api string) bool {
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 	_ = response.Body.Close()
 	return response.StatusCode == http.StatusOK
-}
-
-// Sign is Atlas' X-Atlas-Signature: base64url of the raw r||s ES256
-// signature over "atlas-publish-v1\n<timestamp>\n<body>".
-func Sign(key *ecdsa.PrivateKey, timestamp string, body []byte) (string, error) {
-	digest := sha256.Sum256(slices.Concat([]byte("atlas-publish-v1\n"+timestamp+"\n"), body))
-	r, s, err := ecdsa.Sign(rand.Reader, key, digest[:])
-	if err != nil {
-		return "", err
-	}
-	raw := make([]byte, 64)
-	r.FillBytes(raw[:32])
-	s.FillBytes(raw[32:])
-	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
 // NewKey returns a new P-256 publish key in PKCS #8 PEM, the Vault form.

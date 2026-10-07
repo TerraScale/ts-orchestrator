@@ -28,7 +28,7 @@ func TestActionIdentityRecheckRejectsReplacementWithFreshInventory(t *testing.T)
 		{"launch", Action{Kind: KindScaleOut, Node: "gru-1-db-5", To: small}, StateReady},
 		{"drain", Action{Kind: KindScaleIn, Node: "gru-1-db-4"}, StateReady},
 		{"resize", Action{Kind: KindResize, To: Shape{OCPUs: 4, MemoryGB: 24}}, StateReady},
-		{"move", Action{Kind: KindRebalance, Node: "gru-1-db-1", Target: "gru-1-db-2", Tenant: "org-1-0"}, StateReady},
+		{"move", Action{Kind: KindRebalance, Node: "gru-1-db-1", Target: "gru-1-db-2", Tenant: project("org-1-0")}, StateReady},
 		{"join recovery", Action{Kind: KindScaleOut, Node: "gru-1-db-4", Recovery: true}, StateJoining},
 		{"drain recovery", Action{Kind: KindScaleIn, Node: "gru-1-db-4", Recovery: true}, StateDraining},
 		{"termination recovery", Action{Kind: KindScaleIn, Node: "gru-1-db-4", Recovery: true}, StateDrained},
@@ -119,7 +119,7 @@ func TestActionIdentityRecheckRejectsReplacementDuringInventoryRead(t *testing.T
 		{Kind: KindScaleOut, Node: "gru-1-db-5", To: small},
 		{Kind: KindScaleIn, Node: "gru-1-db-4"},
 		{Kind: KindResize, To: Shape{OCPUs: 4, MemoryGB: 24}},
-		{Kind: KindRebalance, Node: "gru-1-db-1", Target: "gru-1-db-2", Tenant: "org-1-0"},
+		{Kind: KindRebalance, Node: "gru-1-db-1", Target: "gru-1-db-2", Tenant: project("org-1-0")},
 	} {
 		t.Run(string(action.Kind), func(t *testing.T) {
 			cell := newFakeCell(4, small, 2, 150)
@@ -337,7 +337,7 @@ func TestStableActionIdentitiesCompleteWithReorderedMembership(t *testing.T) {
 		{"launch", Action{Kind: KindScaleOut, Node: "gru-1-db-5", To: small}, StateReady, 2},
 		{"drain", Action{Kind: KindScaleIn, Node: "gru-1-db-4"}, StateReady, 2},
 		{"resize", Action{Kind: KindResize, To: Shape{OCPUs: 4, MemoryGB: 24}}, StateReady, 4},
-		{"move", Action{Kind: KindRebalance, Node: "gru-1-db-1", Target: "gru-1-db-2", Tenant: "org-1-0"}, StateReady, 1},
+		{"move", Action{Kind: KindRebalance, Node: "gru-1-db-1", Target: "gru-1-db-2", Tenant: project("org-1-0")}, StateReady, 1},
 		{"join recovery", Action{Kind: KindScaleOut, Node: "gru-1-db-4", Recovery: true}, StateJoining, 1},
 		{"termination recovery", Action{Kind: KindScaleIn, Node: "gru-1-db-4", Recovery: true}, StateDrained, 1},
 	} {
@@ -381,7 +381,7 @@ func TestActionRecheckRejectsShapeChangedByFinalOCIRead(t *testing.T) {
 		{Kind: KindScaleOut, Node: "gru-1-db-5", To: small},
 		{Kind: KindScaleIn, Node: "gru-1-db-4"},
 		{Kind: KindResize, To: Shape{OCPUs: 4, MemoryGB: 24}},
-		{Kind: KindRebalance, Node: "gru-1-db-1", Target: "gru-1-db-2", Tenant: "org-1-0"},
+		{Kind: KindRebalance, Node: "gru-1-db-1", Target: "gru-1-db-2", Tenant: project("org-1-0")},
 	} {
 		for _, resource := range []string{"CPU", "memory", "both nodes"} {
 			t.Run(string(action.Kind)+"/"+resource, func(t *testing.T) {
@@ -433,7 +433,7 @@ func TestActionRecheckRejectsPressureAgedByIdentityRead(t *testing.T) {
 		{Kind: KindScaleOut, Node: "gru-1-db-5", To: small},
 		{Kind: KindScaleIn, Node: "gru-1-db-4"},
 		{Kind: KindResize, To: Shape{OCPUs: 4, MemoryGB: 24}},
-		{Kind: KindRebalance, Node: "gru-1-db-1", Target: "gru-1-db-2", Tenant: "org-1-0"},
+		{Kind: KindRebalance, Node: "gru-1-db-1", Target: "gru-1-db-2", Tenant: project("org-1-0")},
 	} {
 		t.Run(string(action.Kind), func(t *testing.T) {
 			cell := newFakeCell(4, small, 2, 150)

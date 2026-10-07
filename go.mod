@@ -15,6 +15,7 @@ require (
 	golang.org/x/sync v0.19.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/time v0.16.0
+	terrascale.tech/sdk v0.0.0-20261007002450-e534e7feb91f
 )
 
 require (
@@ -47,3 +48,5 @@ require (
 replace github.com/nats-io/nats-server/v2 => ./third_party/nats-server
 
 tool github.com/a-h/templ/cmd/templ
+
+replace terrascale.tech/sdk => git.terrascale.tech/TerraScale/ts-go v0.0.0-20261007002450-e534e7feb91f

@@ -63,13 +63,13 @@ func TestMemoryOnlyResizeUsesCapacityCooldown(t *testing.T) {
 
 func TestHotspotMovesRequireAttributedDemand(t *testing.T) {
 	for _, signal := range []string{"CPU", "requests"} {
-		for _, mode := range []string{"zero demand", "empty zero demand", "wrong resource", "useful pro", "useful hobby", "new node"} {
+		for _, mode := range []string{"zero demand", "empty zero demand", "wrong resource", "useful", "useful tie", "new node"} {
 			t.Run(signal+"/"+mode, func(t *testing.T) {
 				policy := testPolicy()
 				state := observeState(t, policy, newFakeCell(4, small, 2, 100))
 				hot := state.Nodes[0].Pressure
-				idle := TenantLoad{Org: "idle", Plan: PlanHobby}
-				useful := TenantLoad{Org: "useful", Plan: PlanPro}
+				idle := TenantLoad{Project: project("idle")}
+				useful := TenantLoad{Project: project("useful")}
 				if signal == "CPU" {
 					hot.CPUUtil, useful.CPUShare = 0.9, 0.6
 					if mode == "wrong resource" {
@@ -83,14 +83,15 @@ func TestHotspotMovesRequireAttributedDemand(t *testing.T) {
 				}
 				hot.TopTenants = []TenantLoad{idle}
 				want, tenant := KindResize, ""
-				if mode == "useful pro" || mode == "useful hobby" || mode == "new node" {
+				if mode == "useful" || mode == "useful tie" || mode == "new node" {
 					hot.TopTenants = append(hot.TopTenants, useful)
-					want, tenant = KindRebalance, useful.Org
+					want, tenant = KindRebalance, useful.Project
 				}
-				if mode == "useful hobby" {
+				// An equally busy tenant reported first moves first.
+				if mode == "useful tie" {
 					hot.TopTenants[0].CPUShare = useful.CPUShare
 					hot.TopTenants[0].RequestRate = useful.RequestRate
-					tenant = idle.Org
+					tenant = idle.Project
 				}
 				if mode == "new node" {
 					for _, node := range state.Nodes[1:] {
@@ -127,7 +128,7 @@ func TestUnattributedHotspotFallsBackToCapacity(t *testing.T) {
 			policy := testPolicy()
 			state := observeState(t, policy, newFakeCell(4, small, 2, 100))
 			hot := state.Nodes[0].Pressure
-			hot.TopTenants = []TenantLoad{{Org: "active", Plan: PlanHobby, CPUShare: 0.5, RequestRate: 100}}
+			hot.TopTenants = []TenantLoad{{Project: project("active"), CPUShare: 0.5, RequestRate: 100}}
 			want := KindResize
 			if signal == "memory" {
 				hot.MemoryUtil = 0.9
@@ -539,7 +540,7 @@ func TestActionCapacityPlanRejectsFreshShapeChanges(t *testing.T) {
 		{Kind: KindScaleOut, Node: "gru-1-db-5", To: small},
 		{Kind: KindScaleIn, Node: "gru-1-db-4", Reason: ReasonLowPressure},
 		{Kind: KindResize, To: Shape{4, 24}},
-		{Kind: KindRebalance, Node: "gru-1-db-1", Target: "gru-1-db-2", Tenant: "org-1-0"},
+		{Kind: KindRebalance, Node: "gru-1-db-1", Target: "gru-1-db-2", Tenant: project("org-1-0")},
 	} {
 		t.Run(string(action.Kind), func(t *testing.T) {
 			cell := newFakeCell(4, small, 4, 100)
@@ -589,7 +590,7 @@ func TestMixedShapeHotspotFitsNewNode(t *testing.T) {
 			}
 			hot := state.Nodes[0].Pressure
 			hot.CPUUtil = 0.9
-			hot.TopTenants = []TenantLoad{{Org: "noisy", Plan: PlanHobby, RequestRate: 100, CPUShare: 0.8}}
+			hot.TopTenants = []TenantLoad{{Project: project("noisy"), RequestRate: 100, CPUShare: 0.8}}
 			want, reason := KindScaleOut, ReasonHotspot
 			switch mode {
 			case "budget cap":
@@ -654,7 +655,7 @@ func TestClippedResizeNeverRecordsSuccessWithoutCapacity(t *testing.T) {
 			cell.coresPerRequest = 0.002
 			if mode == "hotspot at max" {
 				cell.tenants["gru-1-db-2"], cell.tenants["gru-1-db-3"] = nil, nil
-				cell.tenants["gru-1-db-1"] = []TenantLoad{{Org: "huge", Plan: PlanPro, RequestRate: 1000}}
+				cell.tenants["gru-1-db-1"] = []TenantLoad{{Project: project("huge"), RequestRate: 1000}}
 			}
 			s := newSim(t, policy, cell, time.Minute)
 			action, err := s.controller.Tick(t.Context())

@@ -1,3 +1,5 @@
+git.terrascale.tech/TerraScale/ts-go v0.0.0-20261007002450-e534e7feb91f h1:0bhoGgNBoRuAwcSOtLoVIdjX91D6aXxSHPzNJvmKQc4=
+git.terrascale.tech/TerraScale/ts-go v0.0.0-20261007002450-e534e7feb91f/go.mod h1:PVgBKgH0kiXDHL3RijN3OJmTn2A1vjbDP6gvtwG9ucc=
 github.com/CAFxX/httpcompression v0.0.9 h1:0ue2X8dOLEpxTm8tt+OdHcgA+gbDge0OqFQWGKSqgrg=
 github.com/CAFxX/httpcompression v0.0.9/go.mod h1:XX8oPZA+4IDcfZ0A71Hz0mZsv/YJOgYygkFhizVPilM=
 github.com/VictoriaMetrics/metrics v1.44.1 h1:OMyGrMkhI3hnq+IpJ1gZK9VhXcsOjUX1CoOFv//bJ0I=

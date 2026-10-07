@@ -358,24 +358,18 @@ func TestRollingResizeStopsWhenAnotherNodeFails(t *testing.T) {
 	}
 }
 
-func TestLowerTiersMoveFirst(t *testing.T) {
+func TestBusiestTenantMovesFirst(t *testing.T) {
 	policy := testPolicy()
 	cell := newFakeCell(3, small, 2, 200)
-	// Both tenants of the hot db-2 would fit on db-1; the hobby one moves.
-	cell.tenants["gru-1-db-2"] = []TenantLoad{{Org: "bigcorp", Plan: PlanEnterprise, RequestRate: 1400},
-		{Org: "tiny", Plan: PlanHobby, RequestRate: 700}}
+	// Both tenants of the hot db-2 would fit on db-1; the busier one moves.
+	cell.tenants["gru-1-db-2"] = []TenantLoad{{Project: project("tiny"), RequestRate: 700},
+		{Project: project("bigcorp"), RequestRate: 1400}}
 	action := act(policy, observeState(t, policy, cell), History{})
-	if action.Kind != KindRebalance || action.Tenant != "tiny" || action.Node != "gru-1-db-2" {
-		t.Fatalf("hot node with an enterprise and a hobby tenant = %+v", action)
-	}
-	// Enterprise tenants have no limits, but they still move when nothing else can.
-	cell.tenants["gru-1-db-2"][1].Plan = PlanEnterprise
-	action = act(policy, observeState(t, policy, cell), History{})
-	if action.Kind != KindRebalance || action.Tenant != "bigcorp" {
-		t.Fatalf("enterprise-only hot node = %+v", action)
+	if action.Kind != KindRebalance || action.Tenant != project("bigcorp") || action.Node != "gru-1-db-2" {
+		t.Fatalf("hot node with a busy and a quiet tenant = %+v", action)
 	}
 	// A tenant too big for any node, new or existing, grows the shape.
-	cell.tenants["gru-1-db-2"] = []TenantLoad{{Org: "bigcorp", Plan: PlanEnterprise, RequestRate: 2100}}
+	cell.tenants["gru-1-db-2"] = []TenantLoad{{Project: project("bigcorp"), RequestRate: 2100}}
 	action = act(policy, observeState(t, policy, cell), History{})
 	if action.Kind != KindResize || action.Reason != ReasonHotspot || action.To.OCPUs != 4 {
 		t.Fatalf("oversized tenant = %+v", action)
@@ -391,7 +385,7 @@ func TestRebalanceSearchesEligibleDestinations(t *testing.T) {
 		{"CPU headroom", KindRebalance, "gru-1-db-3"},
 		{"request headroom", KindRebalance, "gru-1-db-3"},
 		{"coolest eligible", KindRebalance, "gru-1-db-2"},
-		{"lower tier first", KindRebalance, "gru-1-db-3"},
+		{"non-relieving tenant", KindRebalance, "gru-1-db-3"},
 		{"none fit", KindResize, ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -400,7 +394,7 @@ func TestRebalanceSearchesEligibleDestinations(t *testing.T) {
 			state := observeState(t, policy, newFakeCell(3, small, 2, 100))
 			hot, cool, peer := state.Nodes[0].Pressure, state.Nodes[1].Pressure, state.Nodes[2].Pressure
 			hot.CPUUtil = 1.1 * policy.Targets.CPUUtil
-			hot.TopTenants = []TenantLoad{{Org: "noisy", Plan: PlanHobby, RequestRate: 100, CPUShare: 0.3 / 1.1}}
+			hot.TopTenants = []TenantLoad{{Project: project("noisy"), RequestRate: 100, CPUShare: 0.3 / 1.1}}
 			cool.CPUUtil, peer.CPUUtil = 0.8*policy.Targets.CPUUtil, 0.2*policy.Targets.CPUUtil
 			peer.DiskTotalBytes, peer.DiskUsedBytes = 1000, 675 // 0.9 disk pressure; CPU/request load still fits.
 			switch test.name {
@@ -411,14 +405,14 @@ func TestRebalanceSearchesEligibleDestinations(t *testing.T) {
 			case "coolest eligible":
 				cool.CPUUtil = peer.CPUUtil
 				cool.DiskTotalBytes, cool.DiskUsedBytes = 1000, 600 // 0.8 peak; both peers now fit.
-			case "lower tier first":
-				hot.TopTenants = append(hot.TopTenants, TenantLoad{Org: "bigcorp", Plan: PlanEnterprise, RequestRate: 100, CPUShare: 0.01})
+			case "non-relieving tenant":
+				hot.TopTenants = append(hot.TopTenants, TenantLoad{Project: project("bigcorp"), RequestRate: 100, CPUShare: 0.01})
 			case "none fit":
 				peer.CPUUtil = cool.CPUUtil
 			}
 			action := act(policy, state, History{})
 			if action.Kind != test.kind || action.Target != test.target || action.Reason != ReasonHotspot ||
-				action.Kind == KindRebalance && (action.Node != "gru-1-db-1" || action.Tenant != "noisy" || action.Plan != PlanHobby) {
+				action.Kind == KindRebalance && (action.Node != "gru-1-db-1" || action.Tenant != project("noisy")) {
 				t.Fatalf("feasible destination search = %+v", action)
 			}
 			if !slices.Equal(names(state.Nodes), []string{"gru-1-db-1", "gru-1-db-2", "gru-1-db-3"}) {
@@ -481,8 +475,8 @@ func TestUndo(t *testing.T) {
 	}{
 		{Action{Kind: KindScaleOut, Node: "gru-1-db-4"}, Action{Kind: KindScaleIn, Node: "gru-1-db-4", Reason: "undo"}, true},
 		{Action{Kind: KindResize, From: small, To: big}, Action{Kind: KindResize, From: big, To: small, Reason: "undo"}, true},
-		{Action{Kind: KindRebalance, Node: "a", Target: "b", Tenant: "t", Plan: PlanPro},
-			Action{Kind: KindRebalance, Node: "b", Target: "a", Tenant: "t", Plan: PlanPro, Reason: "undo"}, true},
+		{Action{Kind: KindRebalance, Node: "a", Target: "b", Tenant: "t"},
+			Action{Kind: KindRebalance, Node: "b", Target: "a", Tenant: "t", Reason: "undo"}, true},
 		{Action{Kind: KindScaleIn, Node: "gru-1-db-4"}, Action{}, false},
 	} {
 		got, ok := test.action.Undo()

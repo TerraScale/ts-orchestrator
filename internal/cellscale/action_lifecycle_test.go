@@ -59,7 +59,7 @@ func TestActionLifecycleRecheckRejectsSameIDDowntimeDuringEvidence(t *testing.T)
 		{"launch", Action{Kind: KindScaleOut, Node: "gru-1-db-5", To: small}, StateReady, []string{"gru-1-db-1", "gru-1-db-4"}},
 		{"drain", Action{Kind: KindScaleIn, Node: "gru-1-db-4"}, StateReady, []string{"gru-1-db-1", "gru-1-db-4"}},
 		{"resize", Action{Kind: KindResize, To: Shape{OCPUs: 4, MemoryGB: 24}}, StateReady, []string{"gru-1-db-2", "gru-1-db-1"}},
-		{"move", Action{Kind: KindRebalance, Node: "gru-1-db-1", Target: "gru-1-db-2", Tenant: "org-1-0"}, StateReady, []string{"gru-1-db-3", "gru-1-db-1", "gru-1-db-2"}},
+		{"move", Action{Kind: KindRebalance, Node: "gru-1-db-1", Target: "gru-1-db-2", Tenant: project("org-1-0")}, StateReady, []string{"gru-1-db-3", "gru-1-db-1", "gru-1-db-2"}},
 		{"join recovery", Action{Kind: KindScaleOut, Node: "gru-1-db-4", Recovery: true}, StateJoining, []string{"gru-1-db-1", "gru-1-db-4"}},
 		{"drain recovery", Action{Kind: KindScaleIn, Node: "gru-1-db-4", Recovery: true}, StateDraining, []string{"gru-1-db-1", "gru-1-db-4"}},
 		{"termination recovery", Action{Kind: KindScaleIn, Node: "gru-1-db-4", Recovery: true}, StateDrained, []string{"gru-1-db-1", "gru-1-db-4"}},

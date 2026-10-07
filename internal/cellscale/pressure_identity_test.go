@@ -23,7 +23,7 @@ func assertIdentityInvalidated(t *testing.T, c *Controller, old NodeIdentity) {
 func TestReplacementPressureCannotAuthorizeActions(t *testing.T) {
 	for _, action := range []Action{
 		{Kind: KindScaleOut, Node: "gru-1-db-5", To: small},
-		{Kind: KindRebalance, Node: "gru-1-db-1", Target: "gru-1-db-2", Tenant: "org-1-0"},
+		{Kind: KindRebalance, Node: "gru-1-db-1", Target: "gru-1-db-2", Tenant: project("org-1-0")},
 		{Kind: KindScaleIn, Node: "gru-1-db-4"},
 		{Kind: KindResize, To: Shape{OCPUs: 4, MemoryGB: 24}},
 	} {

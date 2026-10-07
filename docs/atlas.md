@@ -4,7 +4,7 @@ ts-atlas (`https://atlas.terrascale.tech`) serves region discovery to every
 SDK: `/v1/discovery`, `/v1/resolve` and `/v1/keys`. It knows only what the
 orchestrator publishes through its signed `POST /v1/publish` (ts-atlas
 `docs/discovery-v1.md`). Package [`internal/atlas`](../internal/atlas)
-publishes it.
+publishes it with the ts-go Atlas client (`terrascale.tech/sdk/atlas`).
 
 - The cell spec's `atlas` section
   ([`deploy/oci-region/atlas-gru-1.json`](../deploy/oci-region/atlas-gru-1.json))

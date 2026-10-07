@@ -20,11 +20,12 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
+	sdkatlas "terrascale.tech/sdk/atlas"
 )
 
 // fakeAtlas checks a publish the way the ts-atlas Worker does (pin.ts
 // publishSigned) against the PUBLISH_KEYS JWKS, and records the topology.
-func fakeAtlas(t *testing.T, publishKeys string, status *atomic.Int32, got *topology) *httptest.Server {
+func fakeAtlas(t *testing.T, publishKeys string, status *atomic.Int32, got *sdkatlas.Topology) *httptest.Server {
 	var jwks struct {
 		Keys []struct {
 			X string `json:"x"`
@@ -59,7 +60,7 @@ func fakeAtlas(t *testing.T, publishKeys string, status *atomic.Int32, got *topo
 			return
 		}
 		var request struct {
-			Topology topology `json:"topology"`
+			Topology sdkatlas.Topology `json:"topology"`
 		}
 		if err := json.Unmarshal(body, &request); err != nil {
 			t.Error(err)
@@ -96,7 +97,7 @@ func TestPublishSignsAMonotonicTopologyWithProbedHealth(t *testing.T) {
 	}
 	status := new(atomic.Int32)
 	status.Store(http.StatusOK)
-	var got topology
+	var got sdkatlas.Topology
 	server := fakeAtlas(t, publishKeys, status, &got)
 	defer server.Close()
 	config := testConfig(t)
@@ -132,7 +133,7 @@ func TestLoopAlertsOnceAtlasIsStaleAndRecovers(t *testing.T) {
 	publishKeys, _ := JWKS(key)
 	status := new(atomic.Int32)
 	status.Store(http.StatusOK)
-	var got topology
+	var got sdkatlas.Topology
 	server := fakeAtlas(t, publishKeys, status, &got)
 	defer server.Close()
 	config := testConfig(t)
@@ -230,6 +231,7 @@ func TestConfigValidate(t *testing.T) {
 	}
 	for name, edit := range map[string]func(*Config){
 		"plain http":      func(c *Config) { c.URL = "http://atlas.terrascale.tech" },
+		"url with a path": func(c *Config) { c.URL = "https://atlas.terrascale.tech/v1" },
 		"foreign secret":  func(c *Config) { c.PublishKey.Name = "gru-1-ts-auth-master-key" },
 		"no regions":      func(c *Config) { c.Regions = nil },
 		"repeated region": func(c *Config) { c.Regions = append(c.Regions, c.Regions[0]) },

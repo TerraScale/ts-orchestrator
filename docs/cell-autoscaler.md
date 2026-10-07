@@ -29,18 +29,18 @@ foreign, for example a placement seat (placement names its signed seat pair
 never counts, resizes or removes it. Launch refuses a name that a foreign
 instance holds. If all 64 names are taken, scale out holds at capacity.
 
-Tenants are organizations on a plan tier: `hobby`, `pro` or `enterprise`.
-Moves take lower tiers first. Enterprise tenants have no limits, so they
-move only when no hobby or pro tenant fits elsewhere.
+Tenants are ts-auth projects. Moves take the busiest tenant first. Plans
+belong to ts-dashboard (TS-597), so they do not order moves.
 
 ## Node pressure contract
 
-Every db node serves `GET /v1/node/pressure` and answers with one JSON object
+Every db node serves `GET /admin/node/pressure` on its loopback admin
+listener (terrabase `docs/api.md`, TS-589) and answers with one JSON object
 of at most 64 KiB:
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "node": "gru-1-db-2",
   "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.example2",
   "state": "ready",
@@ -57,14 +57,14 @@ of at most 64 KiB:
   "p95_latency_ms": 14,
   "load": {"connections": 310, "storage_bytes": 98784247808, "replication_lag_seq": 12, "write_qps": 240},
   "top_tenants": [
-    {"org": "acme", "plan": "pro", "request_rate": 620, "cpu_share": 0.4}
+    {"project": "0b5e7c1a-4f2d-4c8e-9a61-3d2f8e7b1c90", "request_rate": 620, "cpu_share": 0.4}
   ]
 }
 ```
 
 | Field | Meaning | Bounds |
 | --- | --- | --- |
-| `schema` | contract version | exactly 1 |
+| `schema` | contract version | exactly 2 |
 | `node` | the node's static name; must equal the node asked | `<cell>-db-<n>` |
 | `instance_id` | OCI instance OCID; must equal the instance observed in OCI | required, 1–128 of `[A-Za-z0-9._:+-]` |
 | `state` | `joining`, `ready`, `draining` or `drained`; only `ready` serves and has caught up | one of the four |
@@ -77,10 +77,10 @@ of at most 64 KiB:
 | `io_queue_depth` | mean in-flight I/O | [0, 1e9] |
 | `p95_latency_ms` | client request latency | [0, 1e9] |
 | `load` | the member status load block from [autoscale telemetry](autoscale-telemetry.md), unchanged: `connections`, `storage_bytes`, `replication_lag_seq`, `write_qps` | required, non-null; `memberstatus.DecodeLoad` and `Load.Validate` |
-| `top_tenants` | at most 10 distinct organizations, by request rate; `cpu_share` is the tenant's fraction of the node's CPU time | org `[a-z0-9-]{1,64}`, plan tier, share in [0, 1]; duplicate orgs are rejected |
+| `top_tenants` | at most 10 distinct ts-auth projects, by request rate; `cpu_share` is the tenant's fraction of the node's CPU time | `project` a lowercase UUID, share in [0, 1]; duplicate projects are rejected |
 
 Every field except `top_tenants` is required and non-null, including every
-counter in `load`. When a tenant entry is present, all four of its fields
+counter in `load`. When a tenant entry is present, all three of its fields
 are required. Explicit zero utilizations, rates and counters are valid;
 omission never means zero.
 
@@ -307,8 +307,8 @@ The checks run in this order; the first match decides:
 
 4. **One node ≥ 1 but the cell below 1.** This happens with a noisy tenant,
    or with a new node that joined empty.
-   - Move a tenant of the hot node to the coolest ready peer that fits it: hobby
-     first, then pro, then enterprise, the largest first within a tier. A
+   - Move a tenant of the hot node to the coolest ready peer that fits it,
+     the busiest first. A
      tenant fits if that node's CPU and request pressure stay below 1. It must
      also have positive attributed demand in a hot CPU or request signal;
      the fresh pre-move check repeats this eligibility check.

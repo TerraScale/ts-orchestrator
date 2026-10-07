@@ -3,8 +3,10 @@ package cellscale
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,12 +21,19 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 )
 
+// project is a test tenant's ts-auth project id: a lowercase UUID named by a
+// readable label.
+func project(label string) string {
+	sum := sha256.Sum256([]byte(label))
+	return fmt.Sprintf("%x-%x-%x-%x-%x", sum[:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16])
+}
+
 func validPressure() NodePressure {
 	return NodePressure{Schema: PressureSchema, Node: "gru-1-db-2", InstanceID: "ocid-gru-1-db-2", State: StateReady, Release: "sha256:abc",
 		ProcessID: "p1", SampledAt: time.Now().UTC(),
 		CPUUtil: 0.4, MemoryUtil: 0.5, DiskUsedBytes: 10, DiskTotalBytes: 100, DiskIOPS: 900, RequestRate: 1200,
 		IOQueueDepth: 1.5, P95LatencyMS: 12, Load: memberstatus.Load{Connections: 4, StorageBytes: 5, ReplicationLagSeq: 6, WriteQPS: 7.5},
-		TopTenants: []TenantLoad{{Org: "acme", Plan: PlanPro, RequestRate: 700, CPUShare: 0.6}}}
+		TopTenants: []TenantLoad{{Project: project("acme"), RequestRate: 700, CPUShare: 0.6}}}
 }
 
 func TestNodePressureValidate(t *testing.T) {
@@ -32,7 +41,7 @@ func TestNodePressureValidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(*NodePressure){
-		"schema":             func(p *NodePressure) { p.Schema = 2 },
+		"schema 1":           func(p *NodePressure) { p.Schema = 1 },
 		"zero sampled_at":    func(p *NodePressure) { p.SampledAt = time.Time{} },
 		"empty process_id":   func(p *NodePressure) { p.ProcessID = "" },
 		"invalid process_id": func(p *NodePressure) { p.ProcessID = "p/1" },
@@ -44,7 +53,7 @@ func TestNodePressureValidate(t *testing.T) {
 		"disk overfull":      func(p *NodePressure) { p.DiskUsedBytes = 101 },
 		"negative rate":      func(p *NodePressure) { p.RequestRate = -1 },
 		"absurd latency":     func(p *NodePressure) { p.P95LatencyMS = 1e12 },
-		"unknown plan":       func(p *NodePressure) { p.TopTenants[0].Plan = "free" },
+		"organization slug":  func(p *NodePressure) { p.TopTenants[0].Project = "acme" },
 		"tenant share":       func(p *NodePressure) { p.TopTenants[0].CPUShare = 2 },
 		"duplicate tenant":   func(p *NodePressure) { p.TopTenants = append(p.TopTenants, p.TopTenants[0]) },
 		"too many tenant":    func(p *NodePressure) { p.TopTenants = make([]TenantLoad, MaxTopTenants+1) },
@@ -118,7 +127,7 @@ func TestHTTPSourceRequiresPressureFields(t *testing.T) {
 		"schema", "node", "instance_id", "state", "process_id", "sampled_at", "release", "cpu_util", "mem_util", "disk_used_bytes", "disk_total_bytes",
 		"disk_iops", "request_rate", "io_queue_depth", "p95_latency_ms", "load",
 		"load.connections", "load.storage_bytes", "load.replication_lag_seq", "load.write_qps",
-		"top_tenants.org", "top_tenants.plan", "top_tenants.request_rate", "top_tenants.cpu_share",
+		"top_tenants.project", "top_tenants.request_rate", "top_tenants.cpu_share",
 	} {
 		for _, missing := range []bool{true, false} {
 			name := field + "/null"
@@ -384,7 +393,7 @@ func TestRedirectedTenantMoveRecordsFailure(t *testing.T) {
 	policy := testPolicy()
 	policy.SustainUpSeconds, policy.SustainDownSeconds = 0, 0
 	cell := newFakeCell(3, small, 4, 200)
-	cell.tenants["gru-1-db-2"] = append(cell.tenants["gru-1-db-2"], TenantLoad{Org: "noisy", Plan: PlanHobby, RequestRate: 1300})
+	cell.tenants["gru-1-db-2"] = append(cell.tenants["gru-1-db-2"], TenantLoad{Project: project("noisy"), RequestRate: 1300})
 	cell.tenants["gru-1-db-1"] = cell.tenants["gru-1-db-1"][:2]
 	s := newSim(t, policy, cell, time.Minute)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

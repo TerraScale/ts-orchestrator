@@ -109,9 +109,9 @@ type Action struct {
 	Node string `json:"node,omitempty"`
 	From Shape  `json:"from,omitzero"`
 	To   Shape  `json:"to,omitzero"`
-	// Tenant, Plan and Target describe a rebalance to node Target.
+	// Tenant and Target describe a rebalance of a ts-auth project to node
+	// Target.
 	Tenant string `json:"tenant,omitempty"`
-	Plan   Plan   `json:"plan,omitempty"`
 	Target string `json:"target,omitempty"`
 	// Pressure is the cell's mean pressure per signal.
 	Pressure map[string]float64 `json:"pressure,omitempty"`
@@ -143,7 +143,7 @@ func (a Action) Undo() (Action, bool) {
 	case KindResize:
 		return Action{Kind: KindResize, From: a.To, To: a.From, Reason: "undo"}, true
 	case KindRebalance:
-		return Action{Kind: KindRebalance, Node: a.Target, Target: a.Node, Tenant: a.Tenant, Plan: a.Plan, Reason: "undo"}, true
+		return Action{Kind: KindRebalance, Node: a.Target, Target: a.Node, Tenant: a.Tenant, Reason: "undo"}, true
 	default:
 		return Action{}, false
 	}
@@ -342,9 +342,8 @@ func wanted(policy Policy, state State, mean [signalCount]float64, hottest float
 
 // relieve answers a hot node in a cell that is not hot on average, such as
 // one noisy tenant or a node that has just joined empty. It moves a tenant of
-// the hot node to the coolest other node that fits it, lower plan tiers first:
-// enterprise tenants have no limits and move only when no hobby or pro
-// tenant fits. When none fits it adds an empty node for one that would fit
+// the hot node to the coolest other node that fits it, busiest first. When
+// none fits it adds an empty node for one that would fit
 // there, and when no node, new or existing, could take one it grows the
 // shape, unless the node is hot on storage, which a shape cannot relieve.
 func relieve(policy Policy, state State, shape Shape, canResize bool) (Action, string) {
@@ -354,9 +353,7 @@ func relieve(policy Policy, state State, shape Shape, canResize bool) (Action, s
 	destinations := slices.Clone(nodes)
 	slices.SortStableFunc(destinations, byPeak)
 	tenants := slices.Clone(hot.Pressure.TopTenants)
-	slices.SortStableFunc(tenants, func(a, b TenantLoad) int {
-		return cmp.Or(cmp.Compare(planRank(a.Plan), planRank(b.Plan)), cmp.Compare(b.RequestRate, a.RequestRate))
-	})
+	slices.SortStableFunc(tenants, func(a, b TenantLoad) int { return cmp.Compare(b.RequestRate, a.RequestRate) })
 	fitsEmpty := false
 	for _, tenant := range tenants {
 		if !tenantRelievesHotspot(targets, *hot.Pressure, tenant) {
@@ -365,7 +362,7 @@ func relieve(policy Policy, state State, shape Shape, canResize bool) (Action, s
 		cpu := tenant.CPUShare * hot.Pressure.CPUUtil * hot.Shape.OCPUs / shape.OCPUs
 		for _, cool := range destinations {
 			if moveFits(targets, hot, cool, tenant) {
-				return Action{Kind: KindRebalance, Node: hot.Name, Target: cool.Name, Tenant: tenant.Org, Plan: tenant.Plan}, ReasonHotspot
+				return Action{Kind: KindRebalance, Node: hot.Name, Target: cool.Name, Tenant: tenant.Project}, ReasonHotspot
 			}
 		}
 		fitsEmpty = fitsEmpty || fits(targets, cpu, tenant.RequestRate)
@@ -382,9 +379,6 @@ func relieve(policy Policy, state State, shape Shape, canResize bool) (Action, s
 		return Action{Kind: KindHold}, ReasonAtCapacity
 	}
 }
-
-// planRank orders plans for moves: hobby, pro, enterprise.
-func planRank(plan Plan) int { return slices.Index([]Plan{PlanHobby, PlanPro, PlanEnterprise}, plan) }
 
 // resizeHelps reports whether a bigger shape relieves a signal. Disk space,
 // IOPS and I/O queue depth belong to the node's volume, not its shape.

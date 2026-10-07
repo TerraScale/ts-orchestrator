@@ -21,10 +21,11 @@ import (
 )
 
 // PressureSchema is the only node pressure version this build accepts.
-const PressureSchema = 1
+const PressureSchema = 2
 
-// PressurePath is where a TerraBase db node serves its pressure.
-const PressurePath = "/v1/node/pressure"
+// PressurePath is where a TerraBase db node serves its pressure, on its
+// loopback admin listener (terrabase docs/api.md).
+const PressurePath = "/admin/node/pressure"
 
 const (
 	// MaxTopTenants bounds the tenant list of one pressure report.
@@ -40,19 +41,9 @@ const (
 var (
 	ErrInvalidPressure = errors.New("invalid node pressure")
 	orgRE              = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`)
+	projectRE          = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	releaseRE          = regexp.MustCompile(`^[A-Za-z0-9._:+-]{1,128}$`)
 )
-
-// Plan is a tenant organization's plan tier, ordered hobby < pro < enterprise.
-type Plan string
-
-const (
-	PlanHobby      Plan = "hobby"
-	PlanPro        Plan = "pro"
-	PlanEnterprise Plan = "enterprise"
-)
-
-func (p Plan) valid() bool { return p == PlanHobby || p == PlanPro || p == PlanEnterprise }
 
 // NodeState is where a db node stands in its cell. Only a ready node serves
 // tenants and replicas and has caught up. Fresh actions require every node
@@ -70,10 +61,10 @@ func (s NodeState) valid() bool {
 	return s == StateJoining || s == StateReady || s == StateDraining || s == StateDrained
 }
 
-// TenantLoad is one organization's share of a node's load.
+// TenantLoad is one ts-auth project's share of a node's load.
 type TenantLoad struct {
-	Org         string  `json:"org"`
-	Plan        Plan    `json:"plan"`
+	// Project is the ts-auth project id, a lowercase UUID.
+	Project     string  `json:"project"`
 	RequestRate float64 `json:"request_rate"`
 	// CPUShare is the tenant's fraction of the node's CPU time, in [0,1].
 	CPUShare float64 `json:"cpu_share"`
@@ -107,7 +98,7 @@ type NodePressure struct {
 	// Load is the required TerraBase load block of the member status
 	// (connections, storage bytes, replication lag, write rate).
 	Load memberstatus.Load `json:"load"`
-	// TopTenants lists at most MaxTopTenants distinct organizations by descending
+	// TopTenants lists at most MaxTopTenants distinct projects by descending
 	// request rate.
 	TopTenants []TenantLoad `json:"top_tenants,omitempty"`
 }
@@ -178,14 +169,14 @@ func (p NodePressure) Validate() error {
 	}
 	seen := make(map[string]bool, len(p.TopTenants))
 	for _, tenant := range p.TopTenants {
-		if !orgRE.MatchString(tenant.Org) || !tenant.Plan.valid() || !(tenant.RequestRate >= 0 && tenant.RequestRate <= maxRate) ||
+		if !projectRE.MatchString(tenant.Project) || !(tenant.RequestRate >= 0 && tenant.RequestRate <= maxRate) ||
 			!(tenant.CPUShare >= 0 && tenant.CPUShare <= 1) {
-			return fmt.Errorf("%w: tenant %q", ErrInvalidPressure, tenant.Org)
+			return fmt.Errorf("%w: tenant %q", ErrInvalidPressure, tenant.Project)
 		}
-		if seen[tenant.Org] {
-			return fmt.Errorf("%w: duplicate tenant %q", ErrInvalidPressure, tenant.Org)
+		if seen[tenant.Project] {
+			return fmt.Errorf("%w: duplicate tenant %q", ErrInvalidPressure, tenant.Project)
 		}
-		seen[tenant.Org] = true
+		seen[tenant.Project] = true
 	}
 	return nil
 }
@@ -256,7 +247,7 @@ func (s HTTPSource) Pressure(ctx context.Context, node string) (NodePressure, er
 			return NodePressure{}, fmt.Errorf("%w: top_tenants: %v", ErrInvalidPressure, err)
 		}
 		for i, tenant := range tenants {
-			if err := requirePressureFields(tenant, "org", "plan", "request_rate", "cpu_share"); err != nil {
+			if err := requirePressureFields(tenant, "project", "request_rate", "cpu_share"); err != nil {
 				return NodePressure{}, fmt.Errorf("top_tenants[%d]: %w", i, err)
 			}
 		}

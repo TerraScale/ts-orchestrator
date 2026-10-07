@@ -60,8 +60,8 @@ type Members interface {
 	// Drain starts moving every tenant and replica off node; the node then
 	// reports StateDrained.
 	Drain(ctx context.Context, node NodeIdentity) error
-	// MoveTenant is the rebalancing hook: it moves org between nodes.
-	MoveTenant(ctx context.Context, org string, from, to NodeIdentity) error
+	// MoveTenant is the rebalancing hook: it moves a project between nodes.
+	MoveTenant(ctx context.Context, project string, from, to NodeIdentity) error
 }
 
 // HTTPMembers calls the TerraBase node endpoints of the cell contract:
@@ -81,11 +81,11 @@ func (m HTTPMembers) Drain(ctx context.Context, node NodeIdentity) error {
 	return m.postIdentity(ctx, node, "/v1/node/drain", map[string]NodeIdentity{"expected": node})
 }
 
-func (m HTTPMembers) MoveTenant(ctx context.Context, org string, from, to NodeIdentity) error {
+func (m HTTPMembers) MoveTenant(ctx context.Context, project string, from, to NodeIdentity) error {
 	if !to.valid() {
 		return errors.New("tenant move requires destination identity")
 	}
-	return m.postIdentity(ctx, from, "/v1/tenants/"+url.PathEscape(org)+"/move", map[string]any{
+	return m.postIdentity(ctx, from, "/v1/tenants/"+url.PathEscape(project)+"/move", map[string]any{
 		"expected": from, "to": to.Name, "expected_target": to,
 	})
 }

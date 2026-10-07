@@ -43,7 +43,7 @@ func TestNodeIdentityReplacementAtEveryControllerPhase(t *testing.T) {
 		{"before launch", Action{Kind: KindScaleOut, Node: "gru-1-db-5", To: small}, StateReady, "before", 0, false},
 		{"before drain", Action{Kind: KindScaleIn, Node: "gru-1-db-4"}, StateReady, "before", 0, false},
 		{"before resize", Action{Kind: KindResize, To: big}, StateReady, "before", 0, false},
-		{"before move", Action{Kind: KindRebalance, Node: "gru-1-db-1", Target: "gru-1-db-2", Tenant: "org-1-0"}, StateReady, "before", 0, false},
+		{"before move", Action{Kind: KindRebalance, Node: "gru-1-db-1", Target: "gru-1-db-2", Tenant: project("org-1-0")}, StateReady, "before", 0, false},
 		{"before join recovery", Action{Kind: KindScaleOut, Node: "gru-1-db-4", Recovery: true}, StateJoining, "before", 0, false},
 		{"before drain recovery", Action{Kind: KindScaleIn, Node: "gru-1-db-4", Recovery: true}, StateDraining, "before", 0, false},
 		{"before termination recovery", Action{Kind: KindScaleIn, Node: "gru-1-db-4", Recovery: true}, StateDrained, "before", 0, false},
