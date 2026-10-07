@@ -971,6 +971,15 @@ To rotate the API key, upload a new public key to the user, replace the
 Vault secret and `TS_RELEASE_OCI_KEY` on both repositories, set the new
 `TS_RELEASE_OCI_FINGERPRINT`, then delete the old key from the user.
 
+The first releases, from the CI job before `deploy` finishing to the
+leader reporting `complete`: ts-auth 31c6bea 15 min 5 s (about 9 of them
+spent on the full artifact store and the missing collections; ctl-2 and
+ctl-3 took about 2 minutes each), TerraBase c4138add 8 min 35 s (published
+15 s, admitted 10 s more, then about 2 min 40 s per node). Most of a
+node's time is the load balancer: each backend change is a work request
+of 10 to 20 s, six to take a node out of three sets and three to return it,
+one after another, plus the health checks.
+
 ts-orchestrator's own `TS_AUTO_DEPLOY_CELLS` stays unset until a
 controller self-update drains its node from the load balancer first
 (TS-632): a self-update restarts the node's TerraBase member and ts-auth.
