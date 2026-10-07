@@ -60,7 +60,7 @@ func (bucket *regionBucket) GetObject(_ context.Context, request objectstorage.G
 	defer bucket.mu.Unlock()
 	name := *request.ObjectName
 	data, ok := bucket.objects[name]
-	if name == releasechannel.StatusObject {
+	if name == releasechannel.StatusObject && !ok {
 		data, ok = bucket.status()
 	}
 	if !ok {
@@ -309,5 +309,43 @@ func TestDeployReadsTheLeafFromVault(t *testing.T) {
 	}
 	if len(asked) != 1 || asked[0] != vault+" global-release-update-leaf" || !fixture.touched("GRU") {
 		t.Fatalf("Vault reads %q, writes %q", asked, fixture.log)
+	}
+}
+
+func TestFleetStatusRequiresLeaderPinsBeforePruning(t *testing.T) {
+	f := newDeployFixture(t)
+	var output bytes.Buffer
+	c := command{ctx: t.Context(), output: &output}
+	rollback, bad := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	for _, role := range []string{"", "terrabase"} {
+		t.Run("role="+role, func(t *testing.T) {
+			args := []string{"--namespace", "ns", "--cell", "GRU", "--require-pins"}
+			name, schema := releasechannel.StatusObject, releasechannel.StatusSchema
+			if role != "" {
+				args = append(args, "--role", role)
+				name, schema = releasechannel.ServiceStatusObject(role), releasechannel.ServiceStatusSchema
+			}
+			statuses := []string{
+				"",
+				fmt.Sprintf(`{"schema":%q,"cell":"GRU","role":%q,"state":"complete"}`, schema, role),
+				fmt.Sprintf(`{"schema":%q,"cell":"SFO","role":%q,"pins":{}}`, schema, role),
+				fmt.Sprintf(`{"schema":%q,"cell":"GRU","role":%q,"pins":{"rollback":[%q],"known_bad":[%q]}}`, schema, role, rollback, bad),
+				fmt.Sprintf(`{"schema":%q,"cell":"GRU","role":%q,"pins":{"rollback":[],"known_bad":[]}}`, schema, role),
+			}
+			for i, status := range statuses {
+				delete(f.buckets["GRU"].objects, name)
+				if status != "" {
+					f.buckets["GRU"].objects[name] = []byte(status)
+				}
+				output.Reset()
+				err := c.fleetStatusWith(args, f.env.storage)
+				if (err != nil) != (i < 3) {
+					t.Fatalf("status %d: err=%v output=%s", i, err, output.String())
+				}
+				if i == 3 && (!strings.Contains(output.String(), rollback) || !strings.Contains(output.String(), bad)) {
+					t.Fatalf("pins lost: %s", output.String())
+				}
+			}
+		})
 	}
 }

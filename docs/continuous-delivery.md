@@ -1098,16 +1098,21 @@ only log. TerraBase runs the same job (`--role terrabase`).
 A release is pinned when its tag names a pinned revision or tag, or its small
 manifests (`qualification.json`, `*.sha256`) name a pinned binary digest. The
 pins are `ts-orch release fleet-status` of every head bucket (the channel's
-revision, or with `--role` the serving service digest) plus the repository
-variable `TS_RELEASE_PINS`. With no pin at all the job deletes nothing.
+revision, or with `--role` the service digest), including the leader's
+`pins.rollback` and `pins.known_bad` arrays in each `status.json` (TS-653).
+The orchestrator reports every retained release generation and the active
+rollout's predecessor; service roles report their persisted previous digest.
+Both include all durable known-bad keys, even entries older than the bounded
+orchestrator cell list. Pin changes refresh status even when release progress
+has not changed. No `TS_RELEASE_PINS` repo variable is needed for these pins.
 
-Rollback targets and known-bad digests live only in the cell's NATS, which
-CI cannot reach; so do controllers updated by hand while
-`TS_AUTO_DEPLOY_CELLS` is unset. Whoever deploys by hand, rolls back or
-records a known-bad release adds its tag, revision or digest to
-`TS_RELEASE_PINS` (whitespace separated). ts-orchestrator's variable also
-names the release that TerraBase's and ts-auth's `TS_ORCH_RELEASE` run, and
-the image release the regions are founded from.
+The pruning workflow uses `fleet-status --require-pins`: it refuses a missing
+status or a leader that has not published pins yet. Deploy the updated leader
+in every region before pruning resumes. An empty `pins` object means the
+leader read cell state and found no rollback or known-bad pins. Unreadable
+cell state never publishes an incomplete pin list. With no pin at all the
+pruning script deletes nothing. TerraBase's pruning workflow should use the
+updated `ts-orch` tool with `--role terrabase --require-pins` as well.
 
 ### Resumable image promotion
 

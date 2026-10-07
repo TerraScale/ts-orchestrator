@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 	"time"
 	"uuid"
@@ -81,11 +82,14 @@ type serviceReleases struct {
 // under releasechannel.ServiceStatusKey in the release channel bucket, so a
 // new leader resumes the release instead of starting it again.
 type serviceReleaseState struct {
-	Claim    string           `json:"claim"` // SHA-256 of release.json
-	IssuedAt time.Time        `json:"issued_at"`
-	Digest   string           `json:"digest,omitempty"`
-	Actor    string           `json:"actor,omitempty"`
-	Previous string           `json:"previous,omitempty"`
+	Claim    string    `json:"claim"` // SHA-256 of release.json
+	IssuedAt time.Time `json:"issued_at"`
+	Digest   string    `json:"digest,omitempty"`
+	Actor    string    `json:"actor,omitempty"`
+	Previous string    `json:"previous,omitempty"`
+	// Retained protects the last release while a newer claim is refused
+	// before the leader resolves its actual serving rollback target.
+	Retained []string         `json:"retained,omitempty"`
 	Intent   *delivery.Intent `json:"intent,omitempty"` // set once submitted
 	// Rollback is set once the release failed its gate and the rollback
 	// to Previous is submitted; a new leader finishes it.
@@ -154,13 +158,19 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 		}
 		sum := sha256.Sum256(claim)
 		if state.Claim == hex.EncodeToString(sum[:]) && state.State != releasechannel.StateRolling {
-			return r.report(ctx, role, state)
+			return r.report(ctx, kv, role, state)
 		}
 		if state.Claim != hex.EncodeToString(sum[:]) {
 			// Only an authentic claim moves the cell's issuance watermark;
 			// any other is reported failed and leaves the state as it was.
-			next := serviceReleaseState{Claim: hex.EncodeToString(sum[:]), State: releasechannel.StateRolling,
+			next := serviceReleaseState{Claim: hex.EncodeToString(sum[:]), Previous: state.Previous, State: releasechannel.StateRolling,
 				Reason: "admitting the release"}
+			next.Retained = slices.Clone(state.Retained)
+			if state.Digest != "" {
+				next.Retained = append(next.Retained, state.Digest)
+			}
+			slices.Sort(next.Retained)
+			next.Retained = slices.Compact(next.Retained)
 			record, actor, issued, err := r.verify(ctx, role, claim)
 			next.IssuedAt, next.Digest, next.Actor = issued, record.Digest, actor
 			switch {
@@ -168,10 +178,10 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 				return err
 			case err != nil:
 				next.State, next.Reason = releasechannel.StateFailed, "the claim does not verify in this cell: "+err.Error()
-				return r.report(ctx, role, next)
+				return r.report(ctx, kv, role, next)
 			case issued.After(time.Now().Add(releasechannel.ClaimClockSkew)):
 				next.State, next.Reason = releasechannel.StateFailed, fmt.Sprintf("the claim is issued in the future, at %s", issued)
-				return r.report(ctx, role, next)
+				return r.report(ctx, kv, role, next)
 			case !issued.After(state.IssuedAt):
 				return fmt.Errorf("release.json holds a claim issued at %s, not after the cell's last %s release", issued, role)
 			}
@@ -190,7 +200,7 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 			if revision, err = saveServiceRelease(ctx, kv, key, state, revision); err != nil {
 				return err
 			}
-			r.reportQuietly(ctx, role, state)
+			r.reportQuietly(ctx, kv, role, state)
 			if state.State == releasechannel.StateFailed {
 				return nil
 			}
@@ -202,7 +212,7 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 		if revision, err = saveServiceRelease(ctx, kv, key, state, revision); err != nil {
 			return err
 		}
-		r.reportQuietly(ctx, role, state)
+		r.reportQuietly(ctx, kv, role, state)
 		return nil
 	})
 	if err != nil {
@@ -215,7 +225,7 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 	if _, err := saveServiceRelease(ctx, kv, key, finished, revision); err != nil {
 		return err
 	}
-	r.reportQuietly(ctx, role, finished)
+	r.reportQuietly(ctx, kv, role, finished)
 	return nil
 }
 
@@ -283,6 +293,7 @@ func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, ro
 		intent.SchemaVersion, intent.OperationID = delivery.SchemaVersion, uuid.New().String()
 		intent.AuthorityEpoch = r.fencer.Current().Epoch
 		state.Digest, state.Actor, state.Previous, state.Intent = record.Digest, actor, previous, &intent
+		state.Retained = nil
 		state.Reason = fmt.Sprintf("rolling %d replicas from %s", replicas, previous)
 		if err := save(state); err != nil {
 			return state, err
@@ -448,28 +459,66 @@ func (r *serviceReleases) deployer(actor string, recovering func(context.Context
 
 // reportQuietly reports state and only logs a failure: status.json is
 // telemetry, and the next pass writes it again.
-func (r *serviceReleases) reportQuietly(ctx context.Context, role string, state serviceReleaseState) {
-	if err := r.report(ctx, role, state); err != nil && ctx.Err() == nil {
+func (r *serviceReleases) reportQuietly(ctx context.Context, kv jetstream.KeyValue, role string, state serviceReleaseState) {
+	if err := r.report(ctx, kv, role, state); err != nil && ctx.Err() == nil {
 		slog.Warn("service release status", observability.ComponentKey, "rollout", "role", role, "error", err)
 	}
 }
 
 // report writes the role's status.json when it differs from state.
-func (r *serviceReleases) report(ctx context.Context, role string, state serviceReleaseState) error {
+func (r *serviceReleases) report(ctx context.Context, kv jetstream.KeyValue, role string, state serviceReleaseState) error {
+	if !r.fencer.Current().CanMutate() {
+		return errors.New("this controller no longer holds the authority lease")
+	}
+	pins := &releasechannel.ReleasePins{Rollback: []string{}, KnownBad: []string{}}
+	rollback := slices.Clone(state.Retained)
+	if state.Previous != "" {
+		rollback = append(rollback, state.Previous)
+	}
+	for _, digest := range rollback {
+		if len(digest) != sha256.Size*2 || !lowerHexString(digest) {
+			return fmt.Errorf("invalid %s rollback digest %q", role, digest)
+		}
+		pins.Rollback = append(pins.Rollback, digest)
+	}
+	slices.Sort(pins.Rollback)
+	pins.Rollback = slices.Compact(pins.Rollback)
+	keys, err := kv.Keys(ctx)
+	if err != nil && !errors.Is(err, jetstream.ErrNoKeysFound) {
+		return fmt.Errorf("list %s release pins: %w", role, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	prefix := knownBadKey(role, "")
+	for _, key := range keys {
+		if digest, found := strings.CutPrefix(key, prefix); found {
+			if len(digest) != sha256.Size*2 || !lowerHexString(digest) {
+				return fmt.Errorf("invalid known-bad digest key %q", key)
+			}
+			pins.KnownBad = append(pins.KnownBad, digest)
+		}
+	}
+	slices.Sort(pins.KnownBad)
+	pins.KnownBad = slices.Compact(pins.KnownBad)
 	location, err := r.channel.get(ctx)
 	if err != nil {
 		return err
 	}
 	status := releasechannel.ServiceStatus{Schema: releasechannel.ServiceStatusSchema, Cell: strings.ToUpper(r.cell),
-		Role: role, Digest: state.Digest, IssuedAt: state.IssuedAt, State: state.State, Reason: releasechannel.Clip(state.Reason)}
+		Role: role, Digest: state.Digest, IssuedAt: state.IssuedAt, State: state.State, Reason: releasechannel.Clip(state.Reason), Pins: pins}
 	stored, found, err := releasechannel.ReadServiceStatus(ctx, location, role)
 	if err == nil && found && stored.Cell == status.Cell && stored.Digest == status.Digest &&
-		stored.IssuedAt.Equal(status.IssuedAt) && stored.State == status.State && stored.Reason == status.Reason {
+		stored.IssuedAt.Equal(status.IssuedAt) && stored.State == status.State && stored.Reason == status.Reason &&
+		stored.Pins.Equal(status.Pins) {
 		return nil
 	}
 	status.UpdatedAt = time.Now().UTC()
 	slog.Info("service release status", observability.ComponentKey, "rollout", "role", role, "digest", status.Digest,
 		"state", status.State, "reason", status.Reason)
+	if !r.fencer.Current().CanMutate() {
+		return errors.New("this controller no longer holds the authority lease")
+	}
 	return releasechannel.WriteServiceStatus(ctx, location, status)
 }
 

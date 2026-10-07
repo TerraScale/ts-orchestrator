@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -314,4 +316,51 @@ func (s *Store) Releases(ctx context.Context, limit int) ([]Release, error) {
 		releases = append(releases, release)
 	}
 	return releases, nil
+}
+
+// ReleasePins returns every retained rollback generation and every durable
+// known-bad digest, including entries aged out of the bounded cell list.
+func (s *Store) ReleasePins(ctx context.Context) (rollback, knownBad []string, err error) {
+	history, err := s.Releases(ctx, ReleaseHistory)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, release := range history {
+		rollback = append(rollback, release.Digest)
+	}
+	state, _, err := s.Cell(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	knownBad = slices.Clone(state.KnownBad)
+	lister, err := s.kv.ListKeysFiltered(ctx, "knownbad.*")
+	if err != nil && !errors.Is(err, jetstream.ErrNoKeysFound) {
+		return nil, nil, err
+	}
+	if err == nil {
+		defer lister.Stop()
+		for key := range lister.Keys() {
+			digest := strings.TrimPrefix(key, "knownbad.")
+			if !digestRE.MatchString(digest) {
+				return nil, nil, fmt.Errorf("%w: known-bad key %q", ErrInvalid, key)
+			}
+			knownBad = append(knownBad, digest)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	// A rollout's predecessor may predate the retained generation window,
+	// or be the image's baked binary, which has no generation of its own.
+	if state.ActiveRolloutID != "" {
+		record, _, err := s.Load(ctx, state.ActiveRolloutID)
+		if err != nil {
+			return nil, nil, err
+		}
+		rollback = append(rollback, record.FromDigest)
+		knownBad = append(knownBad, record.KnownBad...)
+	}
+	slices.Sort(rollback)
+	slices.Sort(knownBad)
+	return slices.Compact(rollback), slices.Compact(knownBad), nil
 }

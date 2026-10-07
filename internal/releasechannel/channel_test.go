@@ -464,3 +464,35 @@ func TestClipKeepsOneBoundedLine(t *testing.T) {
 		t.Fatalf("clip = %q", got)
 	}
 }
+
+func TestReleasePinValidationAndStatusBounds(t *testing.T) {
+	for _, pins := range []*ReleasePins{nil, {Rollback: []string{"short"}}, {KnownBad: []string{strings.Repeat("B", 64)}}, {KnownBad: []string{strings.Repeat("z", 64)}}} {
+		if err := pins.Validate(); err == nil {
+			t.Fatalf("accepted invalid pins: %+v", pins)
+		}
+	}
+	bucket := newFakeBucket()
+	location := Location{Client: bucket, Namespace: "ns", Bucket: "gru-1-head"}
+	pins := &ReleasePins{KnownBad: make([]string, 1200)}
+	for i := range pins.KnownBad {
+		pins.KnownBad[i] = fmt.Sprintf("%064x", i)
+	}
+	if err := WriteStatus(t.Context(), location, Status{Cell: "GRU", Pins: pins}); err != nil {
+		t.Fatal(err)
+	}
+	status, found, err := ReadStatus(t.Context(), location)
+	if err != nil || !found || !status.Pins.Equal(pins) {
+		t.Fatalf("large pin inventory lost: %+v %v", status.Pins, err)
+	}
+	if err := WriteServiceStatus(t.Context(), location, ServiceStatus{Cell: "GRU", Role: "terrabase", Pins: pins}); err != nil {
+		t.Fatal(err)
+	}
+	service, found, err := ReadServiceStatus(t.Context(), location, "terrabase")
+	if err != nil || !found || !service.Pins.Equal(pins) {
+		t.Fatalf("large service pin inventory lost: %+v %v", service.Pins, err)
+	}
+	before := bucket.puts
+	if err := location.write(t.Context(), StatusObject, make([]byte, maxStatusBytes+1)); !errors.Is(err, ErrInvalid) || bucket.puts != before {
+		t.Fatalf("oversized status write: %v, puts %d -> %d", err, before, bucket.puts)
+	}
+}

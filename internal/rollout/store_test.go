@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -460,5 +461,39 @@ func TestReleaseGenerationsOfANewerBinary(t *testing.T) {
 	}
 	if _, err := store.ReleaseGeneration(ctx, 1); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("generation read under a breaking desired schema = %v", err)
+	}
+}
+
+func TestReleasePinsIncludesHistoryActivePredecessorAndDurableKnownBad(t *testing.T) {
+	store, _ := testStore(t)
+	ctx := t.Context()
+	for _, digest := range []string{strings.Repeat("c", 64), strings.Repeat("d", 64)} {
+		if _, err := store.PublishRelease(ctx, 7, Release{Digest: digest, Actor: "ops", CreatedAt: testStart}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := store.Begin(ctx, testSpec("r1"), testStart); err != nil {
+		t.Fatal(err)
+	}
+	bad := strings.Repeat("e", 64)
+	if err := store.recordKnownBad(ctx, 7, bad); err != nil {
+		t.Fatal(err)
+	}
+	rollback, knownBad, err := store.ReleasePins(ctx)
+	if err != nil || !slices.Equal(rollback, []string{fromDigest, strings.Repeat("c", 64), strings.Repeat("d", 64)}) ||
+		!slices.Equal(knownBad, []string{bad}) {
+		t.Fatalf("pins: rollback=%v known_bad=%v err=%v", rollback, knownBad, err)
+	}
+	if err := store.kv.Delete(ctx, knownBadKey(bad)); err != nil {
+		t.Fatal(err)
+	}
+	_, knownBad, err = store.ReleasePins(ctx)
+	if err != nil || len(knownBad) != 0 {
+		t.Fatalf("removed known-bad pin: %v %v", knownBad, err)
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, _, err := store.ReleasePins(cancelled); err == nil {
+		t.Fatal("cancelled state read returned complete pins")
 	}
 }

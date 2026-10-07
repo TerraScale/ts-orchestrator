@@ -183,9 +183,6 @@ func (c *rolloutControl) consumeUpdates(ctx context.Context, store *rollout.Stor
 			c.reported.Store(nil)
 			continue
 		}
-		if latest == nil {
-			continue
-		}
 		if err := c.consumeChannel(ctx, store, kv, snapshot.Epoch, latest, time.Now().UTC()); err != nil && ctx.Err() == nil {
 			slog.Warn("release channel", observability.ComponentKey, "rollout", "error", err)
 		}
@@ -202,7 +199,9 @@ func (c *rolloutControl) consumeChannel(ctx context.Context, store *rollout.Stor
 ) error {
 	status := releasechannel.Status{Schema: releasechannel.StatusSchema, Cell: strings.ToUpper(c.cell), UpdatedAt: now}
 	var channel releasechannel.Channel
-	if err := json.Unmarshal(wire, &channel); err != nil {
+	if len(wire) == 0 {
+		status.State, status.Reason = releasechannel.StateRolling, "the cell has no release channel"
+	} else if err := json.Unmarshal(wire, &channel); err != nil {
 		status.State, status.Reason = releasechannel.StateFailed, "the channel does not decode: "+err.Error()
 	} else {
 		status.RunNumber = channel.RunNumber
@@ -213,6 +212,11 @@ func (c *rolloutControl) consumeChannel(ctx context.Context, store *rollout.Stor
 			return err
 		}
 	}
+	rollback, knownBad, err := store.ReleasePins(ctx)
+	if err != nil {
+		return err
+	}
+	status.Pins = &releasechannel.ReleasePins{Rollback: rollback, KnownBad: knownBad}
 	status.Reason = releasechannel.Clip(status.Reason)
 	return c.report(ctx, kv, status)
 }
@@ -252,7 +256,7 @@ func (c *rolloutControl) report(ctx context.Context, kv jetstream.KeyValue, stat
 
 func sameReport(a, b releasechannel.Status) bool {
 	return a.Cell == b.Cell && a.RunNumber == b.RunNumber && a.SourceRevision == b.SourceRevision &&
-		a.State == b.State && a.Reason == b.Reason
+		a.State == b.State && a.Reason == b.Reason && a.Pins.Equal(b.Pins)
 }
 
 // bridgeChannel is the CI edge until TS-562 announces releases over NATS.
