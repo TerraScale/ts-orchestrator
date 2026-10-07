@@ -110,6 +110,27 @@ last five minutes (same level, component, message and attributes) is kept off
 the bus, so a loop that logs the same warning every tick cannot push every
 other event out of the ring; every such record is still written to the log.
 
+### Log scan
+
+`scripts/log-scan.sh` counts the WARN and ERROR records of the last 20
+minutes per service and node, then lists the most frequent classes (TS-661).
+Run it from any operator device in the NetBird with `~/.oci/config`; it picks
+the host's NetBird client and calls `ts-orch log-scan`:
+
+```sh
+nice -n 19 scripts/log-scan.sh                # last 20 minutes
+nice -n 19 scripts/log-scan.sh --since 24h --top 30
+```
+
+It reads each node's `terrascale-orchestrator*` units over `ts-orch netbird
+ssh`: the controller, the host agent, embedded NATS (`[WRN]`, `[ERR]`) and
+the TerraBase and ts-auth members (`warn:`, `fail:`, `crit:`), attributed by
+process name. Fly app `ts-dashboard` comes from `fly logs --no-tail`, which
+holds only its last 100 lines. The nodes are every peer the host's NetBird
+client lists under a cell node or server name (`ts-gru-1`, `ts-sfo-2`,
+`gru-1-ctl-1`); `TS_LOG_SCAN_NODES` names them instead. A node it cannot
+read prints `unreadable` and fails the command; warnings and errors do not.
+
 ## Cell-wide aggregation
 
 With `cluster_aggregation`, each controller subscribes to

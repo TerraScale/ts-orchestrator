@@ -21,6 +21,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/image"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/liveverify"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/logscan"
 	netbirdclient "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
 	netbirdmanager "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/manager"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
@@ -54,6 +55,7 @@ Runtime:
 
 Operator tooling:
   verify                 Observe production health, persistence gaps and OIDC (read-only)
+  log-scan               Count recent WARN and ERROR records per service and node (read-only)
   operator               Manage workloads through the regional controller
   get                    Print the running cell's spec (its signed desired state)
   diff                   Plan a cell spec file against the running cell's spec
@@ -95,6 +97,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	switch args[0] {
 	case "verify":
 		return liveverify.Run(ctx, args[1:], output)
+	case "log-scan":
+		return logscan.Run(ctx, args[1:], output)
 	case "bootstrap":
 		return bootstrapcli.Run(ctx, args[1:], output)
 	case "release":

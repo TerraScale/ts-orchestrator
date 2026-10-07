@@ -67,12 +67,19 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 		return fmt.Errorf("netbird ssh: %w", err)
 	}
-	parts := strings.Split(*vaultID, ".")
+	return Session(ctx, *vaultID, *netbird, flags.Args(), os.Stdin, stdout, os.Stderr)
+}
+
+// Session runs one "netbird ssh" session with args, signing in as the
+// automation user whose login vaultID holds. netbird is the client command,
+// split on spaces.
+func Session(ctx context.Context, vaultID, netbird string, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	parts := strings.Split(vaultID, ".")
 	if len(parts) < 5 || parts[1] != "vault" || !catalog.IsOCIRegion(parts[3]) {
 		return errors.New("netbird ssh needs --vault-id, a regional Vault OCID")
 	}
-	command := strings.Fields(*netbird)
-	if len(command) == 0 || flags.NArg() == 0 {
+	command := strings.Fields(netbird)
+	if len(command) == 0 || len(args) == 0 {
 		return errors.New("netbird ssh needs a NetBird command and the netbird ssh arguments")
 	}
 	login := func(ctx context.Context) (string, string, error) {
@@ -84,20 +91,33 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		if err != nil {
 			return "", "", err
 		}
-		email, err := vaultsecret.Read(ctx, bundles, *vaultID, emailSecret)
+		email, err := vaultsecret.Read(ctx, bundles, vaultID, emailSecret)
 		if err != nil {
 			return "", "", err
 		}
-		password, err := vaultsecret.Read(ctx, bundles, *vaultID, passwordSecret)
+		password, err := vaultsecret.Read(ctx, bundles, vaultID, passwordSecret)
 		return email, password, err
 	}
-	args = flags.Args()
 	// A failed status leaves the names as they are; netbird ssh reports them.
-	if status, err := exec.CommandContext(ctx, command[0], append(slices.Clone(command[1:]), "status", "--json")...).Output(); err == nil {
-		args = withPeerAddress(args, peerAddresses(status))
+	if peers, err := Peers(ctx, netbird); err == nil {
+		args = withPeerAddress(args, peers)
 	}
 	argv := append(append(command, "ssh", "--no-browser"), args...)
-	return run(ctx, argv, os.Stdin, stdout, os.Stderr, manager.DefaultManagementURL, login)
+	return run(ctx, argv, stdin, stdout, stderr, manager.DefaultManagementURL, login)
+}
+
+// Peers maps every peer the NetBird client lists to its NetBird IP, by DNS
+// name and by peer name. netbird is the client command, split on spaces.
+func Peers(ctx context.Context, netbird string) (map[string]string, error) {
+	command := strings.Fields(netbird)
+	if len(command) == 0 {
+		return nil, errors.New("netbird ssh needs a NetBird command")
+	}
+	status, err := exec.CommandContext(ctx, command[0], append(slices.Clone(command[1:]), "status", "--json")...).Output()
+	if err != nil {
+		return nil, fmt.Errorf("netbird status: %w", err)
+	}
+	return peerAddresses(status), nil
 }
 
 // peerAddresses maps every peer in "netbird status --json" to its NetBird

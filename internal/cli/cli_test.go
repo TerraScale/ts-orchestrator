@@ -21,6 +21,7 @@ func TestLocalCommandDispatchWithoutRuntimeConfig(t *testing.T) {
 		{args: []string{"--help"}, want: "Usage: ts-orch"},
 		{args: []string{"verify", "--help"}, want: "opt in"},
 		{args: []string{"verify"}, want: "requires --live", wantError: true},
+		{args: []string{"log-scan", "--help"}, want: "--fly-app"},
 		{args: []string{"bootstrap", "--help"}, want: "sign-anchor"},
 		{args: []string{"release", "--help"}, want: "sign-binary"},
 		{args: []string{"image", "--help"}, want: "build-offline"},
