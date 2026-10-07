@@ -422,9 +422,13 @@ func storageStatements(plan, ids Object, prefix string) []string {
 	// The leader follows the region's orchestrator release channel, which CI
 	// writes, and reports its progress there (docs/continuous-delivery.md).
 	r = append(r, fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name='releases/v1/*', request.permission='OBJECT_READ'}", dg, control, str(buckets["head"])),
-		fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name='releases/v1/orchestrator/status.json', any {request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}", dg, control, str(buckets["head"])),
-		// ... and each service release channel's report (TS-610).
-		fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name='releases/v1/services/*/status.json', any {request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}", dg, control, str(buckets["head"])))
+		fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name='releases/v1/orchestrator/status.json', any {request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}", dg, control, str(buckets["head"])))
+	// ... and each service release channel's report (TS-610), one statement
+	// per role of internal/app's serviceReleaseRoles: OCI matches a * only
+	// at the end of an object name, so services/*/status.json grants nothing.
+	for _, role := range []string{"terrabase", "ts-auth"} {
+		r = append(r, fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name='releases/v1/services/%s/status.json', any {request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}", dg, control, str(buckets["head"]), role))
+	}
 	return append(r, fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name='material/v2/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE'}}", dg, control, str(buckets["material"])), fmt.Sprintf("Allow dynamic-group %s to use keys in compartment %s where all {target.key.id='%s', any {request.permission='KEY_ENCRYPT', request.permission='KEY_DECRYPT'}}", dg, control, str(ids["key"])), fmt.Sprintf("Allow dynamic-group %s to use key-delegate in compartment %s where target.key.id='%s'", dg, control, str(ids["key"])))
 }
 func controllerStatements(plan, ids Object, prefix string) []string {

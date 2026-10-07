@@ -897,8 +897,10 @@ key is a trusted signer of each cell (`ci-release` in the cell spec's
 and `repositories` limited to the two source repositories; it cannot sign
 orchestrator updates, register hosts or change the cell spec. The
 controllers already read `releases/v1/*` in their head bucket and need
-`OBJECT_CREATE`/`OBJECT_OVERWRITE` on
-`releases/v1/services/*/status.json` too; both are in
+`OBJECT_CREATE`/`OBJECT_OVERWRITE` on each role's
+`releases/v1/services/<role>/status.json` too, one statement per role: OCI
+matches a `*` only at the end of an object name, so
+`releases/v1/services/*/status.json` grants nothing. Both are in
 `ociregion.RequiredControllerStatements`.
 
 Limits of this part:
@@ -908,6 +910,70 @@ Limits of this part:
 - Roles other than `terrabase` and `ts-auth` need a release rule first.
 - Binaries are never deleted from `releases/v1/services/*/binaries/`; an
   Object Storage lifecycle rule should expire old ones.
+- A release that needs new storage state waits for an operator: ts-auth's
+  readiness requires every collection of `AuthStore.RequiredCollections`
+  and never creates one, so create new collections in the `auth`
+  database before merging the release, or its first node fails the gate
+  and the release rolls back.
+
+#### gru-1 wiring
+
+Live since 2026-10-07. Names and OCIDs only; the secrets stay in OCI Vault
+(`gru-1-vault`, compartment `TerraScale`), and the Forgejo secret is the CI
+copy.
+
+| What | Name | OCID |
+| --- | --- | --- |
+| IAM user (API key only) | `ts-service-release` | `ocid1.user.oc1..aaaaaaaaqh53fajfk5gzpsbsshhkk7t3mmg2yxvy4gwky5b5awrdamjz3lqq` |
+| IAM group | `ts-service-release` | `ocid1.group.oc1..aaaaaaaadcq2cqfphwyhzbpy4msv7aii7cvisd5fkox2pk5f3oxialioxsla` |
+| IAM policy (tenancy) | `ts-service-release` | `ocid1.policy.oc1..aaaaaaaa4qfdkliffggx5ivnv4qjuvl6aza2tth6ukvkotfepd6cgqqqftsa` |
+| Release key (Ed25519 PKCS#8) | `ts-service-release-key` | `ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqaudgn3oupxfxy2ad6tu2ig4ww3vvq2j77vothha7hrlpa` |
+| API private key | `ts-service-release-oci-api-key` | `ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqah2dmk2isro7nji6myuprmetrv5ok4idyy6mwgvox5t6a` |
+
+The API key's fingerprint is `ff:2c:2d:07:d5:9b:6d:80:62:5b:f6:16:ef:1a:56:ee`;
+the release key's public key, the `ci-release` signer, is
+`ofnxIk1jijbwg30ZBDlAkwWe4a+ZN2Z/UmCrVa2w4Hk=`. The policy's statements are
+the two above, for `TerraScale` and `TerraScale:gru-1-control`/`gru-1-head`.
+
+`ts-auth` and `terrabase` each hold the Actions secret `TS_RELEASE_OCI_KEY`
+(the API private key) and these variables; `ORG_READ_TOKEN` is the
+organization secret (`ts-auth` also has a repository copy):
+
+| Variable | Value |
+| --- | --- |
+| `TS_AUTO_DEPLOY_CELLS` | `GRU` |
+| `TS_AUTO_DEPLOY_ENVIRONMENT` | `canary` |
+| `TS_ORCH_RELEASE` | `ci-214cf4ddbe0c6b1a93f6ecdde710c7d05b9f44fc-run-14652` |
+| `TS_ORCH_SHA256` | `a357e0d0364a6cbf6607f6d8813bc61c4c5a843e8232b6b17d2cf03a852883a0` |
+| `TS_OBJECT_NAMESPACE` | `grxnmoqvrcdv` |
+| `TS_RELEASE_VAULT_ID` | `ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq` |
+| `TS_RELEASE_KEY_SECRET` | `ts-service-release-key` |
+| `TS_RELEASE_ACTOR` | `ci-release` |
+| `TS_RELEASE_OCI_USER` | the user's OCID above |
+| `TS_RELEASE_OCI_TENANCY` | `ocid1.tenancy.oc1..aaaaaaaae4zbeypc66rholaayphrk6h2eg7j4up6tfncehv6agji6o5v4yga` |
+| `TS_RELEASE_OCI_FINGERPRINT` | the fingerprint above |
+
+`TS_RELEASE_OCI_REGION` is unset: the workflows do not pass it, and the
+key's home region is the default `sa-saopaulo-1`. `TS_ORCH_SHA256` is the
+SHA-256 of that release's `terrascale-orchestrator-linux-amd64`; bump both
+together, on both repositories.
+
+gru-1's cell spec generation 2 (root-signed) added the `ci-release`
+signer and the `release_fence` over the `gru-1-api` load balancer's
+`terrabase`, `terrabase-primary` (9465) and `ts-auth` (8080) sets;
+generation 3 raised `artifact_store.max_bytes` to 2 GiB. The 512 MiB the
+rendered controller config sets holds only the four binaries TerraBase and
+ts-auth run and keep for rollback (about 128 MB each), so a new release
+never fit. `gru-1-controller-policy` holds exactly
+`ociregion.RequiredControllerStatements`.
+
+To rotate the API key, upload a new public key to the user, replace the
+Vault secret and `TS_RELEASE_OCI_KEY` on both repositories, set the new
+`TS_RELEASE_OCI_FINGERPRINT`, then delete the old key from the user.
+
+ts-orchestrator's own `TS_AUTO_DEPLOY_CELLS` stays unset until a
+controller self-update drains its node from the load balancer first
+(TS-632): a self-update restarts the node's TerraBase member and ts-auth.
 
 ### Resumable image promotion
 
