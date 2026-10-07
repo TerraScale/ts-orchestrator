@@ -76,7 +76,8 @@ func RunOuroboros(ctx context.Context, args []string, output io.Writer, loadPlan
 	ownerEmail := flags.String("owner-email", "", "verified address of the ts-auth user who becomes the owner")
 	instance := flags.String("ts-auth-instance", "", "slug of the ts-auth instance the owner signed in to")
 	keyFile := flags.String("ts-auth-key-file", "", "owner-only file holding that instance's sk_ management key")
-	tsAuthURL := flags.String("ts-auth-url", PublicOrigin, "ts-auth's public origin")
+	// The dashboard signs users in at gru's ts-auth.
+	tsAuthURL := flags.String("ts-auth-url", PublicOrigin("gru"), "ts-auth's public origin")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -283,14 +284,16 @@ func (u TSAuthUsers) UserID(ctx context.Context, email string) (string, error) {
 // client secret from the Vault and stages all eight with flyctl, values on
 // stdin so no argument carries a secret; the dashboard loads them at its next
 // deploy. Otherwise it reads only the project ID and prints the settings
-// without the two secrets, naming the Vault secrets that hold them.
+// without the two secrets, naming the Vault secrets that hold them. The
+// endpoints are those of cell, a cell name such as gru-1.
 func flySecrets(ctx context.Context, bundles BundleClient, vaultID, cell string, output io.Writer) error {
 	projectID, err := readSecret(ctx, bundles, vaultID, cell, dashboard.ProjectIDKey)
 	if err != nil {
 		return err
 	}
-	settings := map[string]string{"TERRABASE_URL": APIURL, "TERRABASE_PROJECT_ID": projectID, "TERRABASE_DATABASE": dashboard.Database,
-		"TS_AUTH_ISSUER": Issuer, "TS_AUTH_CLIENT_ID": DashboardClientID, "TS_AUTH_REDIRECT_URL": DashboardRedirectURI}
+	region, _, _ := strings.Cut(cell, "-")
+	settings := map[string]string{"TERRABASE_URL": APIURL(region), "TERRABASE_PROJECT_ID": projectID, "TERRABASE_DATABASE": dashboard.Database,
+		"TS_AUTH_ISSUER": Issuer(region), "TS_AUTH_CLIENT_ID": DashboardClientID, "TS_AUTH_REDIRECT_URL": DashboardRedirectURI}
 	result := map[string]any{"app": FlyApp, "settings": settings, "api_key_secret": SecretName(cell, dashboard.APIKeyKey),
 		"client_secret_secret": SecretName(cell, EnvDashboardClientSecret), "staged": false}
 	if os.Getenv("FLY_API_TOKEN") == "" {

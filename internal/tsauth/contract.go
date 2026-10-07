@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
@@ -37,33 +38,22 @@ const (
 	// Repository is the source of every ts-auth release.
 	Repository = "https://git.terrascale.tech/TerraScale/ts-auth"
 	// Port is the plain-HTTP listener on every interface of a replica's
-	// host. The public API load balancer (TS-486) sends gru.auth.terrascale.tech
-	// to it; the cell plan admits the load balancer's subnet on it.
+	// host. The cell's public API load balancer (TS-486) sends the cell's
+	// Hostname to it; the cell plan admits the load balancer's subnet on it.
 	Port = 8080
 	// HealthPath answers 200 while the process serves requests.
 	HealthPath = "/healthz"
 	// ReadyPath answers 200 once TerraBase answered a probe; the host and
 	// the load balancer send traffic only to a ready replica.
 	ReadyPath = "/readyz"
-	// Hostname is ts-auth's regional name, <region>.auth.terrascale.tech, the
-	// load balancer's hostname rule. Atlas serves auth.terrascale.tech.
-	Hostname = Cell + ".auth.terrascale.tech"
 	// Replicas is the replica count: ts-auth keeps all of its state in
 	// TerraBase, so one replica on each of the cell's three nodes, every one
 	// in its own failure domain, serve together (TS-578).
 	Replicas = 3
-	// Cell is the only production cell with the reviewed ts-auth endpoints.
-	Cell = "gru"
-
-	PublicOrigin = "https://" + Hostname
-	APIURL       = "https://" + Cell + ".api.terrascale.tech"
 	// Database is ts-auth's own TerraBase database. ts-auth selects it as
 	// TS_AUTH_DATABASE=<project-uuid>/auth; the host joins the project ID it
 	// read from the Vault to it.
 	Database = "auth"
-	// Issuer is ts-auth's one hosted OpenID Connect issuer; its discovery
-	// document is Issuer + "/.well-known/openid-configuration".
-	Issuer = PublicOrigin + "/terrascale"
 
 	// DashboardClientID is ts-auth's confidential OIDC client for ts-dashboard,
 	// which the dashboard (Fly app ts-dashboard) serves at DashboardOrigin.
@@ -74,6 +64,22 @@ const (
 	// post_logout_redirect_uri it sends at sign-out.
 	DashboardLogoutURI = DashboardOrigin + "/login"
 )
+
+// Hostname is ts-auth's regional name in cell, the lower-case catalog cell
+// token: <cell>.auth.terrascale.tech, the load balancer's hostname rule.
+// Atlas serves auth.terrascale.tech.
+func Hostname(cell string) string { return cell + ".auth.terrascale.tech" }
+
+// PublicOrigin is ts-auth's public origin in cell.
+func PublicOrigin(cell string) string { return "https://" + Hostname(cell) }
+
+// APIURL is the public TerraBase API of cell, which ts-auth's access tokens
+// name as their audience.
+func APIURL(cell string) string { return "https://" + cell + ".api.terrascale.tech" }
+
+// Issuer is the hosted OpenID Connect issuer of ts-auth in cell; its
+// discovery document is Issuer + "/.well-known/openid-configuration".
+func Issuer(cell string) string { return PublicOrigin(cell) + "/terrascale" }
 
 // Settings the workload profile supplies. They are signed controller
 // configuration, readable wherever desired state is, so they hold no secret.
@@ -151,10 +157,11 @@ func VerifyRelease(binaryPath, checksumPath string) (string, error) {
 
 // ValidateProfile checks the "ts-auth" workload profile. ts-auth lets an
 // argument override any setting, so a profile sets env only, and it names
-// the Secrets, and optionally the OptionalSecrets, as Vault secret refs.
+// the Secrets, and optionally the OptionalSecrets, as Vault secret refs. cell
+// is a catalog cell token, and the profile names that cell's endpoints.
 func ValidateProfile(cell string, args []string, env map[string]string, secrets map[string]vaultsecret.Ref) error {
-	if cell != Cell {
-		return fmt.Errorf("ts-auth is only reviewed for cell %s", Cell)
+	if _, ok := catalog.LookupName(cell); !ok {
+		return fmt.Errorf("ts-auth needs a catalog cell, not %q", cell)
 	}
 	if len(args) != 0 {
 		return errors.New("ts-auth profile sets its settings only through env")
@@ -172,7 +179,7 @@ func ValidateProfile(cell string, args []string, env map[string]string, secrets 
 			return fmt.Errorf("ts-auth profile must not set %s", key)
 		}
 	}
-	for key, want := range map[string]string{EnvPublicOrigin: PublicOrigin, EnvAPIURL: APIURL, EnvDatabase: Database, EnvAudiences: APIURL,
+	for key, want := range map[string]string{EnvPublicOrigin: PublicOrigin(cell), EnvAPIURL: APIURL(cell), EnvDatabase: Database, EnvAudiences: APIURL(cell),
 		EnvDashboardRedirectURIs: DashboardRedirectURI, EnvDashboardLogoutURIs: DashboardLogoutURI} {
 		if env[key] != want {
 			return fmt.Errorf("ts-auth profile must set %s=%s", key, want)
@@ -339,8 +346,8 @@ func probe(ctx context.Context, url, want string) error {
 	return nil
 }
 
-// LoadBalancer is what the public API load balancer gru-1-api (TS-486) needs
-// to serve ts-auth: a Hostname rule to a backend set of every controller,
+// LoadBalancer is what the cell's public API load balancer, gru-1-api in
+// gru-1 (TS-486), needs to serve ts-auth: a Hostname rule to a backend set of every controller,
 // since a replica may run on any of them, on Port, with an HTTP health check
 // of HealthPath that passes only on a ready replica (200,
 // {"status":"ready"}). TLS ends at the load balancer; backends speak plain
@@ -354,8 +361,12 @@ type LoadBalancer struct {
 
 // BackendSet returns ts-auth's load balancer configuration for the cell plan.
 func BackendSet(plan map[string]any) (LoadBalancer, error) {
+	entry, ok := catalog.Lookup(fmt.Sprint(plan["cell"]))
+	if !ok {
+		return LoadBalancer{}, fmt.Errorf("plan cell %v is not a catalog cell", plan["cell"])
+	}
 	hosts, _ := plan["hosts"].([]any)
-	set := LoadBalancer{Hostname: Hostname, Port: Port, HealthPath: ReadyPath}
+	set := LoadBalancer{Hostname: Hostname(entry.Name()), Port: Port, HealthPath: ReadyPath}
 	for _, value := range hosts {
 		host, _ := value.(map[string]any)
 		slot, _ := host["slot"].(string)

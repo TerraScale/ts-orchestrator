@@ -14,24 +14,30 @@ func TestBackendSet(t *testing.T) {
 		t.Fatal("ts-auth port differs from the plan firewall port")
 	}
 	host := func(slot, ip string) ociregion.Object { return ociregion.Object{"slot": slot, "private_ip": ip} }
-	set, err := tsauth.BackendSet(ociregion.Object{"hosts": []any{host("controller-a", "10.251.0.11"),
-		host("controller-b", "10.251.0.12"), host("controller-c", "10.251.0.13"), host("member-a", "10.251.0.21")}})
-	want := tsauth.LoadBalancer{Hostname: "gru.auth.terrascale.tech", Backends: []string{"10.251.0.11", "10.251.0.12", "10.251.0.13"},
-		Port: 8080, HealthPath: "/readyz"}
-	if err != nil || !reflect.DeepEqual(set, want) {
-		t.Fatalf("backend set %+v: %v", set, err)
+	hosts := []any{host("controller-a", "10.251.0.11"), host("controller-b", "10.251.0.12"), host("controller-c", "10.251.0.13"),
+		host("member-a", "10.251.0.21")}
+	for cell, hostname := range map[string]string{"GRU": "gru.auth.terrascale.tech", "SFO": "sfo.auth.terrascale.tech"} {
+		set, err := tsauth.BackendSet(ociregion.Object{"cell": cell, "hosts": hosts})
+		want := tsauth.LoadBalancer{Hostname: hostname, Backends: []string{"10.251.0.11", "10.251.0.12", "10.251.0.13"},
+			Port: 8080, HealthPath: "/readyz"}
+		if err != nil || !reflect.DeepEqual(set, want) {
+			t.Fatalf("%s backend set %+v: %v", cell, set, err)
+		}
 	}
-	if _, err := tsauth.BackendSet(ociregion.Object{"hosts": []any{host("controller-a", "10.251.0.11"), host("member-a", "10.251.0.21")}}); err == nil {
+	if _, err := tsauth.BackendSet(ociregion.Object{"cell": "LHR", "hosts": hosts}); err == nil {
+		t.Fatal("accepted a cell outside the catalog")
+	}
+	if _, err := tsauth.BackendSet(ociregion.Object{"cell": "GRU", "hosts": []any{host("controller-a", "10.251.0.11"), host("member-a", "10.251.0.21")}}); err == nil {
 		t.Fatal("accepted one controller")
 	}
-	if _, err := tsauth.BackendSet(ociregion.Object{"hosts": []any{host("controller-a", "10.251.0.11"), host("controller-b", "")}}); err == nil {
+	if _, err := tsauth.BackendSet(ociregion.Object{"cell": "GRU", "hosts": []any{host("controller-a", "10.251.0.11"), host("controller-b", "")}}); err == nil {
 		t.Fatal("accepted a controller without IP")
 	}
 	plan, err := ociregion.LoadPlan("../../deploy/oci-region/plan.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if set, err = tsauth.BackendSet(plan); err != nil || len(set.Backends) != 3 {
+	if set, err := tsauth.BackendSet(plan); err != nil || set.Hostname != "gru.auth.terrascale.tech" || len(set.Backends) != 3 {
 		t.Fatalf("plan backend set %+v: %v", set, err)
 	}
 	// The plan admits the load balancer's subnet on the backend port.

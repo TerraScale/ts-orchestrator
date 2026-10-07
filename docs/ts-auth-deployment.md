@@ -72,11 +72,11 @@ breaks these rules:
 
 | Key | Rule |
 | --- | --- |
-| `TS_AUTH_PUBLIC_ORIGIN` | Exactly `https://gru.auth.terrascale.tech`, the regional host (user decision 2026-10-05; `auth.terrascale.tech` stays the ts-atlas proxy). |
-| `TS_AUTH_TERRASCALE_API_URL` | Exactly `https://gru.api.terrascale.tech`. |
+| `TS_AUTH_PUBLIC_ORIGIN` | Exactly `https://<cell>.auth.terrascale.tech`, the cell's regional host, `https://gru.auth.terrascale.tech` in gru-1 (user decision 2026-10-05; `auth.terrascale.tech` stays the ts-atlas proxy). `<cell>` is the lower-case catalog cell (`gru`, `sfo`, `fra`); a cell outside the catalog, or another cell's URLs, are refused. ts-auth's issuer is `<origin>/terrascale`. |
+| `TS_AUTH_TERRASCALE_API_URL` | Exactly `https://<cell>.api.terrascale.tech`, `https://gru.api.terrascale.tech` in gru-1. |
 | `TS_AUTH_TERRASCALE_API_ENDPOINTS`, `TS_AUTH_TERRASCALE_API_CA`, `TS_AUTH_TERRASCALE_API_FAILOVER` | Optional, endpoints and CA together: the [private TerraBase path](#private-terrabase-path). Each endpoint is `https://<IP>:<TERRABASE_CLIENT_PORT>` of a member the cell's `terrabase` profile lists in `TERRABASE_PEERS`, at most once, `;`-separated; the CA is 1 to 4 PEM CA certificates. Several endpoints need `TS_AUTH_TERRASCALE_API_FAILOVER=true`. Checked by the controller against the cell's current `terrabase` profile, so a spec that drops a member ts-auth still names is refused. |
 | `TS_AUTH_DATABASE` | Exactly `auth`, the database `ouroboros bootstrap` creates. The host passes ts-auth `<project-uuid>/auth`, the project from the Vault. |
-| `TS_AUTH_ACCESS_TOKEN_AUDIENCES` | Exactly `https://gru.api.terrascale.tech`, TerraBase's `auth-audience`: every access token names it, so a dashboard user's token reaches TerraBase's Management API (TS-519). |
+| `TS_AUTH_ACCESS_TOKEN_AUDIENCES` | Exactly `https://<cell>.api.terrascale.tech`, the cell TerraBase's `auth-audience`: every access token names it, so a dashboard user's token reaches TerraBase's Management API (TS-519). |
 | `TS_AUTH_DASHBOARD_REDIRECT_URIS` | Exactly `https://dash.terrascale.tech/login/callback`, the dashboard's callback. |
 | `TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS` | Exactly `https://dash.terrascale.tech/login`, the `post_logout_redirect_uri` the dashboard sends; ts-auth compares it exactly. |
 | `TS_AUTH_SMTP_HOST`, `TS_AUTH_SMTP_PORT`, `TS_AUTH_SMTP_FROM_ADDRESS`, `TS_AUTH_SMTP_CHECK_REVOCATION` | The [SMTP relay](#smtp-relay): `smtp.email.sa-saopaulo-1.oci.oraclecloud.com`, `587` (STARTTLS), `noreply@terrascale.tech` and `false`. Other non-secret optional settings (OTEL endpoint) may be added. |
@@ -107,9 +107,11 @@ reads, and does not pass `TS_AUTH_TERRASCALE_PROJECT_ID` itself.
 ### SMTP relay
 
 ts-auth mails sign-in passcodes through OCI Email Delivery in
-`sa-saopaulo-1`: authenticated SMTP with mandatory STARTTLS on port 587,
-from the approved sender `noreply@terrascale.tech` (domain `terrascale.tech`
-with DKIM `terrascale-tech-dkim`). ts-auth needs host, user name, password
+`sa-saopaulo-1`, the shared relay of every cell's ts-auth
+(`TS_AUTH_SMTP_HOST` is not checked against the cell): authenticated SMTP
+with mandatory STARTTLS on port 587, from the approved sender
+`noreply@terrascale.tech` (domain `terrascale.tech` with DKIM
+`terrascale-tech-dkim`). ts-auth needs host, user name, password
 and from address together; without them it logs mail instead of sending it.
 
 `TS_AUTH_SMTP_CHECK_REVOCATION=false` is a documented security exception

@@ -36,8 +36,11 @@ var fakeTSAuthMagic = fakeTerraBaseMagic[:64] + " fake ts-auth"
 func TestTSAuthGRUConfigIsValid(t *testing.T) {
 	profile, spec := tsAuthGRUConfig(t)
 	profiles := map[string]WorkloadProfile{tsauth.Role: profile}
-	if err := validateWorkloadProfiles(tsauth.Cell, profiles); err != nil {
+	if err := validateWorkloadProfiles("gru", profiles); err != nil {
 		t.Fatal(err)
+	}
+	if err := validateWorkloadProfiles("sfo", profiles); err == nil {
+		t.Fatal("sfo accepted gru-1's ts-auth endpoints")
 	}
 	if err := validateAutoscaleConfig(&AutoscaleConfig{Enabled: true, Services: []workload.ServiceSpec{spec}}, profiles); err != nil {
 		t.Fatal(err)
@@ -48,7 +51,7 @@ func TestTSAuthGRUConfigIsValid(t *testing.T) {
 	}
 	for _, key := range tsauth.Secrets {
 		profile.Env[key] = "x"
-		if err := validateWorkloadProfiles(tsauth.Cell, profiles); err == nil {
+		if err := validateWorkloadProfiles("gru", profiles); err == nil {
 			t.Errorf("a signed ts-auth profile carrying %s was accepted", key)
 		}
 		delete(profile.Env, key)
@@ -60,11 +63,11 @@ func TestTSAuthGRUConfigIsValid(t *testing.T) {
 		t.Fatal(err)
 	}
 	profiles[terrabase.Role] = members
-	if err := validateWorkloadProfiles(tsauth.Cell, profiles); err != nil {
+	if err := validateWorkloadProfiles("gru", profiles); err != nil {
 		t.Fatal(err)
 	}
 	members.Env[terrabase.EnvPeers] = "gru-1-db-1=10.251.0.21:9443"
-	if err := validateWorkloadProfiles(tsauth.Cell, profiles); err == nil {
+	if err := validateWorkloadProfiles("gru", profiles); err == nil {
 		t.Fatal("accepted ts-auth endpoints of a member the terrabase profile dropped")
 	}
 	delete(profiles, terrabase.Role)
@@ -350,7 +353,7 @@ func fakeTSAuthReplica(secrets map[string]string) func(host.Workload) (func(), c
 		if info, err := os.Stat(w.Env[tsauth.EnvBundleExtract]); err != nil || !info.IsDir() {
 			return nil, nil, fmt.Errorf("replica bundle directory: %v", err)
 		}
-		if len(w.Args) != 0 || w.Env[tsauth.EnvAPIURL] != tsauth.APIURL || w.DrainTimeout == 0 {
+		if len(w.Args) != 0 || w.Env[tsauth.EnvAPIURL] != tsauth.APIURL("gru") || w.DrainTimeout == 0 {
 			return nil, nil, errors.New("replica launched without its profile or drain")
 		}
 		listen, ok := strings.CutPrefix(w.Env[tsauth.EnvListen], "http://0.0.0.0:")

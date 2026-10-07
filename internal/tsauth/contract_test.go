@@ -33,8 +33,11 @@ const (
 	sentinel      = "SENTINEL-do-not-print"
 )
 
-func validProfile() map[string]string {
-	return map[string]string{EnvPublicOrigin: PublicOrigin, EnvAPIURL: APIURL, EnvDatabase: Database, EnvAudiences: APIURL,
+func validProfile() map[string]string { return cellProfile("gru") }
+
+// cellProfile is a valid profile naming cell's endpoints.
+func cellProfile(cell string) map[string]string {
+	return map[string]string{EnvPublicOrigin: PublicOrigin(cell), EnvAPIURL: APIURL(cell), EnvDatabase: Database, EnvAudiences: APIURL(cell),
 		EnvDashboardRedirectURIs: DashboardRedirectURI, EnvDashboardLogoutURIs: DashboardLogoutURI}
 }
 
@@ -145,11 +148,38 @@ func testCertificate(t *testing.T, ca bool) string {
 }
 
 func TestValidateProfile(t *testing.T) {
-	if err := ValidateProfile(Cell, nil, validProfile(), validRefs()); err != nil {
+	if err := ValidateProfile("gru", nil, validProfile(), validRefs()); err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateProfile("sfo", nil, validProfile(), validRefs()); err == nil {
-		t.Fatal("accepted a ts-auth profile outside the reviewed cell")
+	if validProfile()[EnvPublicOrigin] != "https://gru.auth.terrascale.tech" || validProfile()[EnvAPIURL] != "https://gru.api.terrascale.tech" ||
+		Issuer("gru") != "https://gru.auth.terrascale.tech/terrascale" {
+		t.Fatal("gru endpoints changed")
+	}
+	// Every catalog cell serves ts-auth at its own endpoints and only there.
+	for _, cell := range []string{"sfo", "fra"} {
+		if err := ValidateProfile(cell, nil, cellProfile(cell), validRefs()); err != nil {
+			t.Fatalf("%s: %v", cell, err)
+		}
+		if PublicOrigin(cell) != "https://"+cell+".auth.terrascale.tech" || APIURL(cell) != "https://"+cell+".api.terrascale.tech" {
+			t.Fatalf("%s endpoints %s, %s", cell, PublicOrigin(cell), APIURL(cell))
+		}
+		if err := ValidateProfile(cell, nil, validProfile(), validRefs()); err == nil {
+			t.Fatalf("%s accepted gru's endpoints", cell)
+		}
+		for _, key := range []string{EnvPublicOrigin, EnvAPIURL, EnvAudiences} {
+			for _, foreign := range []string{validProfile()[key], "https://evil.example"} {
+				env := cellProfile(cell)
+				env[key] = foreign
+				if err := ValidateProfile(cell, nil, env, validRefs()); err == nil {
+					t.Errorf("%s accepted %s=%s", cell, key, foreign)
+				}
+			}
+		}
+	}
+	for _, cell := range []string{"", "lhr", "GRU", "gru-1"} {
+		if err := ValidateProfile(cell, nil, cellProfile(cell), validRefs()); err == nil {
+			t.Errorf("accepted cell %q outside the catalog", cell)
+		}
 	}
 	if _, set := validProfile()[EnvProjectID]; set || !slices.Contains(Secrets, EnvProjectID) {
 		t.Fatal("project ID belongs to the secrets")
@@ -160,11 +190,11 @@ func TestValidateProfile(t *testing.T) {
 	optional["TS_AUTH_SMTP_USERNAME"] = vaultsecret.Ref{Vault: testTarget.VaultID, Name: "gru-1-ts-auth-smtp-username"}
 	optional["TS_AUTH_SMTP_PASSWORD"] = vaultsecret.Ref{Vault: testTarget.VaultID, Name: "gru-1-ts-auth-smtp-password"}
 	optional["TS_AUTH_SERVICE_CLIENTS"] = vaultsecret.Ref{Vault: testTarget.VaultID, Name: "gru-1-ts-auth-service-clients"}
-	if err := ValidateProfile(Cell, nil, validProfile(), optional); err != nil {
+	if err := ValidateProfile("gru", nil, validProfile(), optional); err != nil {
 		t.Fatalf("optional SMTP credential and service client refs: %v", err)
 	}
 	for name, refs := range map[string]map[string]vaultsecret.Ref{"no refs": nil, "missing ref": missing, "extra ref": extra} {
-		if err := ValidateProfile(Cell, nil, validProfile(), refs); err == nil {
+		if err := ValidateProfile("gru", nil, validProfile(), refs); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
@@ -203,14 +233,14 @@ func TestValidateProfile(t *testing.T) {
 		cases["secret "+key] = with(key, sentinel)
 	}
 	for name, env := range cases {
-		err := ValidateProfile(Cell, nil, env, validRefs())
+		err := ValidateProfile("gru", nil, env, validRefs())
 		if err == nil {
 			t.Errorf("%s: accepted", name)
 		} else if leak := leaks(err, sentinel); leak != "" {
 			t.Errorf("%s: error prints a secret: %v", name, err)
 		}
 	}
-	if err := ValidateProfile(Cell, []string{"--listen", "x"}, validProfile(), validRefs()); err == nil {
+	if err := ValidateProfile("gru", []string{"--listen", "x"}, validProfile(), validRefs()); err == nil {
 		t.Error("accepted arguments")
 	}
 }

@@ -34,9 +34,9 @@ func tsAuthTestDesired() Desired {
 	for _, key := range tsauth.Secrets {
 		secrets[key] = vaultsecret.Ref{Vault: tsAuthTestVault, Name: vaultsecret.Name("gru-1", key)}
 	}
-	return Desired{Cell: tsauth.Cell, Role: tsauth.Role, Digest: "d", Env: map[string]string{
-		tsauth.EnvPublicOrigin: tsauth.PublicOrigin, tsauth.EnvAPIURL: tsauth.APIURL, tsauth.EnvDatabase: tsauth.Database,
-		tsauth.EnvAudiences: tsauth.APIURL, tsauth.EnvDashboardRedirectURIs: tsauth.DashboardRedirectURI,
+	return Desired{Cell: "gru", Role: tsauth.Role, Digest: "d", Env: map[string]string{
+		tsauth.EnvPublicOrigin: tsauth.PublicOrigin("gru"), tsauth.EnvAPIURL: tsauth.APIURL("gru"), tsauth.EnvDatabase: tsauth.Database,
+		tsauth.EnvAudiences: tsauth.APIURL("gru"), tsauth.EnvDashboardRedirectURIs: tsauth.DashboardRedirectURI,
 		tsauth.EnvDashboardLogoutURIs: tsauth.DashboardLogoutURI}, Secrets: secrets}
 }
 
@@ -61,7 +61,7 @@ func TestTSAuthReplicaGetsVaultSecrets(t *testing.T) {
 	}
 	valid := d
 	valid.Generation, valid.Digest = 1, strings.Repeat("a", 64)
-	if err := validateDesired(valid, tsauth.Cell, Registration{Roles: []string{tsauth.Role}}); err != nil {
+	if err := validateDesired(valid, "gru", Registration{Roles: []string{tsauth.Role}}); err != nil {
 		t.Fatalf("ts-auth desired with its secret refs: %v", err)
 	}
 	secrets := tsAuthTestSecrets()
