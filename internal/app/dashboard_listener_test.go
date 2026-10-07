@@ -49,7 +49,7 @@ func TestDashboardLoopFollowsTheSpec(t *testing.T) {
 		}
 		return tokens[ref.Name], nil
 	}
-	address := func() (netip.Addr, bool) { return netip.MustParseAddr("127.0.0.1"), true }
+	address := func() (netbirdAddresses, bool) { return netbirdAddresses{netip.MustParseAddr("127.0.0.1")}, true }
 	runtime := &runtimeObservability{registry: observability.NewRegistry(false), health: new(observability.Health),
 		events: observability.NewEventBus(16)}
 	ctx, cancel := context.WithCancel(t.Context())

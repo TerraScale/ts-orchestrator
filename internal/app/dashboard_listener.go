@@ -14,9 +14,20 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
-// netbirdRange is the NetBird overlay every peer's address is in
-// (internal/netbird/manager).
-var netbirdRange = netip.MustParsePrefix("10.200.0.0/16")
+// netbirdRanges are the NetBird overlay's IPv4 range (internal/netbird/manager)
+// and the IPv6 prefix the account gives every peer, which NetBird DNS names
+// resolve to; netbirdProbes are addresses in them no peer holds, only routed
+// to.
+var (
+	netbirdRanges = [2]netip.Prefix{netip.MustParsePrefix("10.200.0.0/16"),
+		netip.MustParsePrefix("fd9c:200:2182:65f2::/64")}
+	netbirdProbes = [2]netip.AddrPort{netip.MustParseAddrPort("10.200.255.254:9"),
+		netip.MustParseAddrPort("[fd9c:200:2182:65f2::fffe]:9")}
+)
+
+// netbirdAddresses are a node's IPv4 and IPv6 NetBird addresses; either may
+// be the zero address.
+type netbirdAddresses [2]netip.Addr
 
 // dashboardPort is cellspec.DashboardPort; tests move it.
 var dashboardPort uint16 = cellspec.DashboardPort
@@ -31,9 +42,9 @@ var (
 
 // dashboardListener is what one NetBird listener serves.
 type dashboardListener struct {
-	section cellspec.Dashboard
-	address netip.Addr
-	token   string
+	section   cellspec.Dashboard
+	addresses netbirdAddresses
+	token     string
 }
 
 // dashboardLoop serves the operator dashboard on this controller's NetBird
@@ -45,7 +56,7 @@ type dashboardListener struct {
 // listener that cannot start is retried at the next check; the dashboard
 // never stops the controller.
 func (runtime *runtimeObservability) dashboardLoop(ctx context.Context, current func() *cellspec.Dashboard,
-	address func() (netip.Addr, bool), readToken func(context.Context, vaultsecret.Ref) (string, error),
+	addresses func() (netbirdAddresses, bool), readToken func(context.Context, vaultsecret.Ref) (string, error),
 ) {
 	var running, want dashboardListener
 	var serving <-chan error
@@ -74,7 +85,7 @@ func (runtime *runtimeObservability) dashboardLoop(ctx context.Context, current 
 		}
 		if section != nil && err == nil {
 			var found bool
-			if want.address, found = address(); !found {
+			if want.addresses, found = addresses(); !found {
 				err = errNoNetBirdAddress
 			}
 		}
@@ -86,7 +97,7 @@ func (runtime *runtimeObservability) dashboardLoop(ctx context.Context, current 
 				if err == nil {
 					running = want
 					slog.Info("dashboard serving on the NetBird address", observability.ComponentKey, "dashboard",
-						"address", netip.AddrPortFrom(want.address, dashboardPort).String())
+						"addresses", want.addresses.listen())
 				}
 			}
 		}
@@ -112,44 +123,74 @@ func (runtime *runtimeObservability) dashboardLoop(ctx context.Context, current 
 
 var errNoNetBirdAddress = errors.New("this node has no NetBird address yet")
 
-// startDashboard binds one NetBird listener with its own dashboard, fed the
-// runtime's providers.
-func (runtime *runtimeObservability) startDashboard(ctx context.Context, listener dashboardListener) (func(), <-chan error, error) {
-	settings := observability.Config{
-		ListenAddress: netip.AddrPortFrom(listener.address, dashboardPort).String(), Dashboard: true}
-	server, err := observability.NewTokenServer(settings, listener.token, observability.ServerDeps{
-		Registry: runtime.registry, Health: runtime.health, Events: runtime.events})
-	if err != nil {
-		return nil, nil, err
-	}
-	board := dashboard.New(dashboard.Options{Health: runtime.health, Events: runtime.events, SignOut: true})
-	board.Mount(server)
-	serveCtx, cancel := context.WithCancel(ctx)
-	serving, err := server.Start(serveCtx, settings)
-	if err != nil {
-		cancel()
-		return nil, nil, err
-	}
-	runtime.addBoard(board)
-	return func() {
-		cancel()
-		_ = server.Close()
-		runtime.removeBoard(board)
-	}, serving, nil
-}
-
-// localNetBirdAddress is this node's address in the NetBird overlay.
-func localNetBirdAddress() (netip.Addr, bool) {
-	addresses, err := net.InterfaceAddrs()
-	if err != nil {
-		return netip.Addr{}, false
-	}
+// listen are the listen addresses of the node's NetBird addresses.
+func (addresses netbirdAddresses) listen() []string {
+	var out []string
 	for _, address := range addresses {
-		if prefix, err := netip.ParsePrefix(address.String()); err == nil && netbirdRange.Contains(prefix.Addr()) {
-			return prefix.Addr(), true
+		if address.IsValid() {
+			out = append(out, netip.AddrPortFrom(address, dashboardPort).String())
 		}
 	}
-	return netip.Addr{}, false
+	return out
+}
+
+// startDashboard binds a listener on each NetBird address, each with its own
+// dashboard fed the runtime's providers. The returned channel yields when
+// any of them stops serving.
+func (runtime *runtimeObservability) startDashboard(ctx context.Context, listener dashboardListener) (func(), <-chan error, error) {
+	serveCtx, cancel := context.WithCancel(ctx)
+	var servers []*observability.Server
+	var boards []*dashboard.Dashboard
+	stop := func() {
+		cancel()
+		for _, server := range servers {
+			_ = server.Close()
+		}
+		for _, board := range boards {
+			runtime.removeBoard(board)
+		}
+	}
+	stopped := make(chan error, len(listener.addresses))
+	for _, address := range listener.addresses.listen() {
+		settings := observability.Config{ListenAddress: address, Dashboard: true}
+		server, err := observability.NewTokenServer(settings, listener.token, observability.ServerDeps{
+			Registry: runtime.registry, Health: runtime.health, Events: runtime.events})
+		if err != nil {
+			stop()
+			return nil, nil, err
+		}
+		board := dashboard.New(dashboard.Options{Health: runtime.health, Events: runtime.events, SignOut: true})
+		board.Mount(server)
+		serving, err := server.Start(serveCtx, settings)
+		if err != nil {
+			stop()
+			return nil, nil, err
+		}
+		servers, boards = append(servers, server), append(boards, board)
+		runtime.addBoard(board)
+		go func() { stopped <- <-serving }()
+	}
+	return stop, stopped, nil
+}
+
+// localNetBirdAddresses are this node's addresses in the NetBird overlay.
+// The controller unit allows no netlink socket, so interfaces cannot be
+// listed; connecting a UDP socket, which sends nothing, asks the kernel which
+// source address routes into each range.
+func localNetBirdAddresses() (netbirdAddresses, bool) {
+	var addresses netbirdAddresses
+	for index, probe := range netbirdProbes {
+		conn, err := net.DialUDP("udp", nil, net.UDPAddrFromAddrPort(probe))
+		if err != nil {
+			continue
+		}
+		address := conn.LocalAddr().(*net.UDPAddr).AddrPort().Addr().Unmap()
+		_ = conn.Close()
+		if netbirdRanges[index].Contains(address) {
+			addresses[index] = address
+		}
+	}
+	return addresses, addresses[0].IsValid() || addresses[1].IsValid()
 }
 
 // readDashboardToken reads the dashboard token with the instance principal.
