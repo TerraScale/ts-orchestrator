@@ -988,9 +988,16 @@ nodes already restart one at a time.
 Limits: without a `release_fence` there is no canary node (every replica
 restarts at once); with TerraBase seats the seat controller orders
 TerraBase, so only the fence's other roles are gated; a first release, with
-nothing to roll back to, fails without a known-bad record. The controllers'
-egress (the VCN, Oracle services and Cloudflare on 443) does not reach the
-dashboard on Fly, so `dashboard_login_url` needs an egress rule for it.
+nothing to roll back to, fails without a known-bad record.
+
+gru-1 (COS decisions, 2026-10-07): the canary is wired live by a later
+thread, once TS-632 has deployed this binary and proved drain-first
+deploys: the canary credentials in `gru-1-control` and a root-signed cell
+spec amendment adding `release_fence.canary`. Until then gru-1 releases
+without a canary. Its `canary` leaves `dashboard_login_url` unset: the
+controllers' egress (the VCN, Oracle services and Cloudflare on 443) does
+not reach the dashboard on Fly, no egress rule is added for it, and the
+dashboard is not part of the cell. TS-601 checks `/login` from CI instead.
 
 #### gru-1 wiring
 
