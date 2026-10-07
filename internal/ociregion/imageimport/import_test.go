@@ -108,7 +108,7 @@ func (f *fakeOCI) AddShape(_ context.Context, _ string, entry ShapeEntry) error 
 func (f *fakeOCI) RemoveShape(context.Context, string, string) error { return f.record("remove shape") }
 
 func a1() ShapeEntry {
-	return ShapeEntry{Shape: A1Shape, OCPU: &Range{Min: 1, Max: 4}, MemoryGB: &Range{Min: 6, Max: 24}}
+	return ShapeEntry{Shape: A1Shape, OCPU: &Range{Min: 1, Max: 4}, MemoryGB: &Range{Min: 4, Max: 24}}
 }
 
 func noPause(context.Context, time.Duration) error { return nil }
