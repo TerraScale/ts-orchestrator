@@ -561,3 +561,15 @@ func TestReleaseChannelPublishesManualPinsWithoutAChannel(t *testing.T) {
 		t.Fatalf("manual release pins missing: %+v", stored)
 	}
 }
+
+func TestReleaseChannelWaitsForAPublishedGenerationToBecomeVisible(t *testing.T) {
+	f := newChannelFixture(t)
+	f.setChannel(t, f.signer.channel(t, "GRU", 620, []byte("run 620")))
+	f.consume(t)
+	// Model the follower still returning generation 1 immediately after
+	// the leader's generation-2 publish succeeded.
+	state, reason, err := f.control.generationState(t.Context(), f.store, rollout.Release{Generation: 2, Digest: strings.Repeat("b", 64)})
+	if err != nil || state != releasechannel.StateRolling || !strings.Contains(reason, "waiting for generation 2") {
+		t.Fatalf("a lagging desired read failed the release: %s %s %v", state, reason, err)
+	}
+}

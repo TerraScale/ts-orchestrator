@@ -423,6 +423,11 @@ func (c *rolloutControl) generationState(ctx context.Context, store *rollout.Sto
 		if err != nil {
 			return "", "", err
 		}
+		// A follower read can lag the generation just published by CAS.
+		// Only a newer generation proves this release was superseded.
+		if desired.Generation() < generation.Generation {
+			return releasechannel.StateRolling, fmt.Sprintf("waiting for generation %d to become visible", generation.Generation), nil
+		}
 		if desired.Generation() != generation.Generation {
 			return releasechannel.StateFailed, fmt.Sprintf("generation %d was replaced by generation %d before it rolled out",
 				generation.Generation, desired.Generation()), nil
