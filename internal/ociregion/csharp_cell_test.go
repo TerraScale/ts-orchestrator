@@ -398,12 +398,15 @@ func TestCellPlanNamesTheCheckedInPhase2Cell(t *testing.T) {
 func TestCellPlanNamesTheCheckedInSFOCell(t *testing.T) {
 	path := filepath.Join("..", "..", "deploy", "oci-region", "sfo-1-plan.json")
 	plan := mustCapture(t, func() Object { return cellEngine().loadPlan(path) })
+	profile := filepath.Join(t.TempDir(), "terrabase-sfo-1-profile.json")
+	writeJSON(profile, Object{"env": Object{"TERRABASE_REGION": "sfo-1", "TERRABASE_PEER_PORT": "9443", "TERRABASE_CLIENT_PORT": "9465",
+		"TERRABASE_PEERS": "ts-sfo-1=10.252.0.11:9443,ts-sfo-2=10.252.0.12:9443,ts-sfo-3=10.252.0.13:9443"}})
 	existing := obj(plan["existing_forgejo"])
 	gru := Object{"kind": "local-peering-gateway", "id": fakeOCID("localpeeringgateway", "sa-saopaulo-1", "gru"), "compartment-id": plan["shared_compartment_id"], "vcn-id": existing["vcn_id"], "lifecycle-state": "AVAILABLE"}
 	inventory := filepath.Join(t.TempDir(), "inventory.json")
 	writeJSON(inventory, cellInventory(plan, path, gru))
 	var stdout bytes.Buffer
-	if err := cellEngine().Run([]string{"cell-plan", "--plan", path, "--inventory", inventory}, &stdout); err != nil {
+	if err := cellEngine().Run([]string{"cell-plan", "--plan", path, "--inventory", inventory, "--profile", profile}, &stdout); err != nil {
 		t.Fatal(err)
 	}
 	v, err := decodeJSON(stdout.Bytes())

@@ -94,7 +94,7 @@ func (e *Engine) cellPlan(plan, inventory Object, planPath, profilePath string) 
 		fail("plan cell has no static name or image name")
 	}
 	controllers, members := []any{}, []any{}
-	peers := map[string]string{}
+	peers, colocated := map[string]string{}, map[string]string{}
 	for _, v := range arr(plan["hosts"]) {
 		h := obj(v)
 		slot := text(h["slot"])
@@ -105,8 +105,14 @@ func (e *Engine) cellPlan(plan, inventory Object, planPath, profilePath string) 
 			members = append(members, row)
 		} else {
 			row["name"] = controllerName(plan, slot)
+			colocated[text(row["name"])] = text(h["private_ip"])
 			controllers = append(controllers, row)
 		}
+	}
+	// A cell without database hosts runs its TerraBase members on its
+	// controllers.
+	if len(members) == 0 {
+		peers = colocated
 	}
 	result := Object{"cell": cellName, "oci_region": plan["region"], "availability_domain": plan["availability_domain"], "image": image, "controllers": controllers, "members": members, "estimate": cost, "ceiling_usd": obj(plan["budget"])["monthly_limit"]}
 	if profilePath == "" {
