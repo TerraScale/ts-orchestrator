@@ -1,0 +1,74 @@
+name: Prune old CI pre-releases
+
+# TS-608: every main run retains a ~130 MB CI pre-release, so Forgejo storage
+# (the ts-forgejo bucket) grows without bound. Daily, delete the CI
+# pre-releases past the newest 20 that are older than 7 days, except those
+# the regions pin: the release in each head bucket's channel, read with
+# ts-orch release fleet-status, and the repository variable TS_RELEASE_PINS
+# (revisions, digests or tags; docs/continuous-delivery.md). Git tags stay.
+# ponytail: rollback and known-bad digests live only in cell NATS, so they
+# reach CI through TS_RELEASE_PINS by hand; have the leader mirror them into
+# status.json if hand pins get missed.
+on:
+  schedule:
+    - cron: '41 4 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Only log what would be deleted
+        required: false
+        default: 'false'
+        type: string
+
+concurrency:
+  group: ts-orchestrator-prune-releases
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    if: ${{ forgejo.ref == 'refs/heads/main' }}
+    name: prune/ci-prereleases
+    runs-on: terrascale-builder
+    timeout-minutes: 30
+    steps:
+      - name: Check out main
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          github-server-url: "https://git.terrascale.tech"
+          ref: ${{ forgejo.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      # Built with private Go caches: this job holds the OCI key, and
+      # pull-request jobs write the shared /cache.
+      - name: Read the regions' pinned releases
+        shell: bash
+        env:
+          TS_OBJECT_NAMESPACE: ${{ vars.TS_OBJECT_NAMESPACE }}
+          TS_RELEASE_PINS: ${{ vars.TS_RELEASE_PINS }}
+          TS_DEPLOY_OCI_USER: ${{ vars.TS_DEPLOY_OCI_USER }}
+          TS_DEPLOY_OCI_TENANCY: ${{ vars.TS_DEPLOY_OCI_TENANCY }}
+          TS_DEPLOY_OCI_FINGERPRINT: ${{ vars.TS_DEPLOY_OCI_FINGERPRINT }}
+          TS_DEPLOY_OCI_KEY: ${{ secrets.TS_DEPLOY_OCI_KEY }}
+        run: |
+          set -euo pipefail
+          export GOCACHE="${RUNNER_TEMP}/go/build" GOMODCACHE="${RUNNER_TEMP}/go/mod"
+          make build GO=go
+          umask 077
+          printf '%s\n' "${TS_DEPLOY_OCI_KEY}" > "${RUNNER_TEMP}/oci-key.pem"
+          printf '[DEFAULT]\nuser=%s\nfingerprint=%s\ntenancy=%s\nregion=sa-saopaulo-1\nkey_file=%s\n' \
+            "${TS_DEPLOY_OCI_USER}" "${TS_DEPLOY_OCI_FINGERPRINT}" "${TS_DEPLOY_OCI_TENANCY}" \
+            "${RUNNER_TEMP}/oci-key.pem" > "${RUNNER_TEMP}/oci-config"
+          OCI_CONFIG_FILE="${RUNNER_TEMP}/oci-config" dist/ts-orch release fleet-status \
+            --namespace "${TS_OBJECT_NAMESPACE}" > "${RUNNER_TEMP}/pins"
+          rm -f -- "${RUNNER_TEMP}/oci-key.pem" "${RUNNER_TEMP}/oci-config"
+          printf '%s\n' "${TS_RELEASE_PINS}" >> "${RUNNER_TEMP}/pins"
+          cat "${RUNNER_TEMP}/pins"
+
+      - name: Delete unpinned CI pre-releases past the retention window
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ github.token }}
+          FORGEJO_SERVER_URL: ${{ github.server_url }}
+          TS_PRUNE_DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: bash scripts/ci/prune-releases.sh "${GITHUB_REPOSITORY}" "${RUNNER_TEMP}/pins"

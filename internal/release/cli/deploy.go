@@ -228,18 +228,26 @@ func (c command) fleetStatus(args []string) error {
 }
 
 // fleetStatusWith prints one JSON line per cell: the release in its channel
-// and the status its leader reports. It fails if any cell cannot be read.
+// and the status its leader reports, or with --role each named service
+// role's status instead. It fails if any cell cannot be read.
 func (c command) fleetStatusWith(args []string, storage func(string) (releasechannel.ObjectClient, error)) error {
 	flags := flag.NewFlagSet("fleet-status", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	namespace := flags.String("namespace", "", "Object Storage namespace of the regions' head buckets")
 	var cells stringList
 	flags.Var(&cells, "cell", "cell to show; repeatable; default every cell")
+	var roles stringList
+	flags.Var(&roles, "role", "service role whose status to show instead of the orchestrator channel; repeatable")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if !validStorageToken(*namespace) || flags.NArg() != 0 {
 		return errors.New("fleet-status requires --namespace")
+	}
+	for _, role := range roles {
+		if !validStorageToken(role) {
+			return fmt.Errorf("invalid --role %q", role)
+		}
 	}
 	if len(cells) == 0 {
 		cells = catalog.Cells()
@@ -248,7 +256,9 @@ func (c command) fleetStatusWith(args []string, storage func(string) (releasecha
 		Cell    string                 `json:"cell"`
 		Channel *channelSummary        `json:"channel,omitempty"`
 		Status  *releasechannel.Status `json:"status,omitempty"`
-		Error   string                 `json:"error,omitempty"`
+		// Services are the --role statuses, in flag order.
+		Services []releasechannel.ServiceStatus `json:"services,omitempty"`
+		Error    string                         `json:"error,omitempty"`
 	}
 	var failed []string
 	for _, cell := range cells {
@@ -257,6 +267,18 @@ func (c command) fleetStatusWith(args []string, storage func(string) (releasecha
 			location, err := channelLocation(deployEnv{storage: storage}, cell, *namespace)
 			if err != nil {
 				return err
+			}
+			for _, role := range roles {
+				status, found, err := releasechannel.ReadServiceStatus(c.ctx, location, role)
+				if err != nil {
+					return err
+				}
+				if found {
+					out.Services = append(out.Services, status)
+				}
+			}
+			if len(roles) > 0 {
+				return nil
 			}
 			channel, found, err := releasechannel.ReadChannel(c.ctx, location)
 			if err != nil {

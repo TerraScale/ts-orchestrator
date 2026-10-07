@@ -1060,6 +1060,31 @@ ts-orchestrator's own `TS_AUTO_DEPLOY_CELLS` stays unset until a
 controller self-update drains its node from the load balancer first
 (TS-632): a self-update restarts the node's TerraBase member and ts-auth.
 
+### CI pre-release retention (TS-608)
+
+Every main run retains a CI pre-release (`ci-<sha>-run-<id>`, about 130 MB;
+image builds add `image-<sha>-run-<id>-attempt-<n>`). The daily
+`prune-releases.yml` deletes, through the Forgejo API, every CI pre-release
+past the newest 20 that is older than 7 days, unless a region pins it. The
+attachments leave the ts-forgejo bucket; the git tags stay. Each deletion is
+logged, and the job ends with one `TS_RELEASE_PRUNE_V1` line (releases,
+deleted, kept as pinned, bytes freed). Dispatch it with `dry_run=true` to
+only log. TerraBase runs the same job (`--role terrabase`).
+
+A release is pinned when its tag names a pinned revision or tag, or its small
+manifests (`qualification.json`, `*.sha256`) name a pinned binary digest. The
+pins are `ts-orch release fleet-status` of every head bucket (the channel's
+revision, or with `--role` the serving service digest) plus the repository
+variable `TS_RELEASE_PINS`. With no pin at all the job deletes nothing.
+
+Rollback targets and known-bad digests live only in the cell's NATS, which
+CI cannot reach; so do controllers updated by hand while
+`TS_AUTO_DEPLOY_CELLS` is unset. Whoever deploys by hand, rolls back or
+records a known-bad release adds its tag, revision or digest to
+`TS_RELEASE_PINS` (whitespace separated). ts-orchestrator's variable also
+names the release that TerraBase's and ts-auth's `TS_ORCH_RELEASE` run, and
+the image release the regions are founded from.
+
 ### Resumable image promotion
 
 `ts-orch image promote --resume` continues in an existing `--out` directory

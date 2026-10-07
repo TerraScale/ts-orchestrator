@@ -207,6 +207,21 @@ func TestDeployRollsOutCanaryFirstThenEachRegion(t *testing.T) {
 		!strings.Contains(lines[0], `"run_number":620`) || strings.Contains(lines[2], "status") {
 		t.Fatalf("fleet-status:\n%s", output.String())
 	}
+
+	// --role reads only that role's service status, as the release
+	// retention job does with the role's own scoped key.
+	fixture.buckets["SFO"].objects[releasechannel.ServiceStatusObject("terrabase")] =
+		[]byte(`{"cell":"SFO","role":"terrabase","digest":"` + strings.Repeat("ab", 32) + `","state":"complete"}`)
+	output.Reset()
+	if err := c.fleetStatusWith([]string{"--namespace", "ns", "--cell", "GRU", "--cell", "SFO", "--role", "terrabase"},
+		fixture.env.storage); err != nil {
+		t.Fatalf("fleet-status --role: %v", err)
+	}
+	lines = strings.Split(strings.TrimSpace(output.String()), "\n")
+	if len(lines) != 2 || lines[0] != `{"cell":"GRU"}` || !strings.Contains(lines[1], strings.Repeat("ab", 32)) ||
+		strings.Contains(lines[1], "channel") {
+		t.Fatalf("fleet-status --role:\n%s", output.String())
+	}
 }
 
 func TestDeployStopsTheFleetWhenTheCanaryRollsBack(t *testing.T) {
