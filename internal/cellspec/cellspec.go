@@ -23,16 +23,19 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/netip"
 	"net/url"
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machinesapi"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/bucket"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/nsg"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/routetable"
@@ -59,8 +62,8 @@ const (
 	// launch image, level 10 the artifact store quota, level 11 the Atlas
 	// publisher, level 12 the release fence, level 13 a fenced set's
 	// min_serving, level 14 a fenced set's role, level 15 the release
-	// fence's canary.
-	BinaryLevel = 15
+	// fence's canary, level 16 the Machines API.
+	BinaryLevel = 16
 	// MaxHostImages bounds the image allow-list: the images a rollout moves
 	// between, plus room to stage the next one.
 	MaxHostImages = 4
@@ -188,6 +191,33 @@ type Spec struct {
 	// node at a time, each fenced on the load balancer first; nil restarts
 	// every replica at once. Adding or changing it needs a root.
 	ReleaseFence *ReleaseFence `json:"release_fence,omitempty"`
+	// MachinesAPI makes every controller serve the Machines REST API for
+	// the regional load balancer's <region>.orch host; nil serves none.
+	// Adding or changing it needs a root.
+	MachinesAPI *MachinesAPI `json:"machines_api,omitempty"`
+}
+
+// MachinesAPIPort is where a controller serves the Machines REST API on its
+// broker address.
+const MachinesAPIPort = 8444
+
+// MachinesAPI is the Machines REST API's token and tenancy policy
+// (docs/machines-api.md). Every controller serves it on its broker address
+// at MachinesAPIPort with its signed controller TLS certificate, which the
+// load balancer verifies against the cell CA.
+type MachinesAPI struct {
+	Issuer   string              `json:"issuer"`
+	Audience string              `json:"audience"`
+	JWKSURLs []string            `json:"jwks_urls"`
+	Clients  []string            `json:"clients"`
+	Members  map[string][]string `json:"members,omitempty"`
+}
+
+// Config is the API's listener on host with the controller's TLS files.
+func (m MachinesAPI) Config(host, certFile, keyFile string) machinesapi.Config {
+	return machinesapi.Config{ListenAddress: net.JoinHostPort(host, strconv.Itoa(MachinesAPIPort)),
+		TLSCertFile: certFile, TLSKeyFile: keyFile, Issuer: m.Issuer, Audience: m.Audience,
+		JWKSURLs: m.JWKSURLs, Clients: m.Clients, Members: m.Members}
 }
 
 // ReleaseFence names the load balancer backend sets that serve a node's
@@ -504,6 +534,11 @@ func (s Spec) Validate() error {
 			return err
 		}
 	}
+	if s.MachinesAPI != nil {
+		if err := s.MachinesAPI.Config("127.0.0.1", "", "").Validate(); err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalid, err)
+		}
+	}
 	return nil
 }
 
@@ -559,8 +594,9 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 // profile names Vault secrets, 3 with a budget, 4 once it allows host
 // images, 5 with a kv_snapshot schedule, 6 with a rollout policy, 7 with
 // desired OCI resources, 8 with signers, 9 once it names a launch image and
-// 10 with an artifact store quota, 11 with an Atlas publisher and 12 with
-// a release fence, which an older binary could not read.
+// 10 with an artifact store quota, 11 with an Atlas publisher, 12 with
+// a release fence (13, 14 and 15 with its min_serving, role and canary) and
+// 16 with the Machines API, which an older binary could not read.
 func (s Spec) Level() uint64 {
 	level := uint64(1)
 	for _, service := range s.Services {
@@ -606,6 +642,9 @@ func (s Spec) Level() uint64 {
 		if s.ReleaseFence.Canary != nil {
 			level = 15
 		}
+	}
+	if s.MachinesAPI != nil {
+		level = 16
 	}
 	return level
 }
@@ -890,6 +929,10 @@ func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
 	if next.ReleaseFence != nil && !reflect.DeepEqual(current.ReleaseFence, next.ReleaseFence) {
 		changes = append(changes, "release fence")
 	}
+	// The API's issuer, clients and members decide who reads the cell.
+	if next.MachinesAPI != nil && !reflect.DeepEqual(current.MachinesAPI, next.MachinesAPI) {
+		changes = append(changes, "machines api")
+	}
 	if change := budgetChange(current.Budget, next.Budget); change != "" && change != "lowered" {
 		changes = append(changes, "budget")
 	}
@@ -970,6 +1013,9 @@ type Plan struct {
 	// ReleaseFence is "added", "updated" or "removed" when the release
 	// fence changes.
 	ReleaseFence string `json:"release_fence,omitempty"`
+	// MachinesAPI is "added", "updated" or "removed" when the Machines API
+	// changes.
+	MachinesAPI string `json:"machines_api,omitempty"`
 	// RootRequired lists the authority-widening changes; the amendment
 	// applies only when a root signed it.
 	RootRequired []string `json:"root_required,omitempty"`
@@ -1084,6 +1130,14 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 	case before != nil && !reflect.DeepEqual(*before, *after):
 		plan.ReleaseFence = "updated"
 	}
+	switch before, after := current.MachinesAPI, next.MachinesAPI; {
+	case before == nil && after != nil:
+		plan.MachinesAPI = "added"
+	case before != nil && after == nil:
+		plan.MachinesAPI = "removed"
+	case before != nil && !reflect.DeepEqual(*before, *after):
+		plan.MachinesAPI = "updated"
+	}
 	return plan, nil
 }
 
@@ -1113,7 +1167,7 @@ func budgetChange(before, after *hostpool.Budget) string {
 func (p Plan) Empty() bool {
 	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 && p.Budget == "" &&
 		p.KVSnapshot == "" && p.RolloutPolicy == "" && p.OCIDesired == "" && len(p.Signers) == 0 &&
-		p.LaunchImage == "" && p.ArtifactStore == "" && p.Atlas == "" && p.ReleaseFence == ""
+		p.LaunchImage == "" && p.ArtifactStore == "" && p.Atlas == "" && p.ReleaseFence == "" && p.MachinesAPI == ""
 }
 
 // Validate checks each entry's policy and spec and the prune delay. The

@@ -67,7 +67,7 @@ func TestCheckBalancerSecurityHealthAndOriginCertificate(t *testing.T) {
 			if err := d.CheckBalancer(f.balancer); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("accepted unsafe origin %s: %v", name, err)
 			}
-			if _, err := p.Provision(t.Context(), d, cloudflare, members); err == nil || !strings.Contains(err.Error(), test.want) {
+			if _, err := p.Provision(t.Context(), d, cloudflare, members, ""); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("apply accepted unsafe origin %s: %v", name, err)
 			}
 			if mutations := f.mutations(); len(mutations) != 0 {
@@ -133,7 +133,7 @@ func TestCheckBalancerSecurityInactiveBackends(t *testing.T) {
 				if err := d.CheckBalancer(f.balancer); err == nil || !strings.Contains(err.Error(), want) {
 					t.Fatalf("accepted a %s backend at the planned IP and port: %v", flag, err)
 				}
-				if _, err := p.Provision(t.Context(), d, cloudflare, members); err == nil || !strings.Contains(err.Error(), want) {
+				if _, err := p.Provision(t.Context(), d, cloudflare, members, ""); err == nil || !strings.Contains(err.Error(), want) {
 					t.Fatalf("apply hid a %s backend behind unchanged membership: %v", flag, err)
 				}
 				if mutations := f.mutations(); len(mutations) != 0 {

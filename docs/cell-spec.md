@@ -316,7 +316,7 @@ nothing back yet; check it with `ts-orch get` against that region.
 ## Binary levels
 
 Each ts-orch binary understands cell specs up to its `cellspec.BinaryLevel`
-(15 today; level 2 adds profile `secrets`, level 3 the `budget`, level 4 `host_images`, level 5 the `kv_snapshot` schedule, level 6 the `rollout_policy`, level 7 `oci_desired`, level 8 `signers`, level 9 `launch_image`, level 10 `artifact_store`, level 11 `atlas`, level 12 `release_fence`, level 13 a fenced set's `min_serving`, level 14 its `role`, level 15 the fence's `canary`). A change that adds a section
+(16 today; level 2 adds profile `secrets`, level 3 the `budget`, level 4 `host_images`, level 5 the `kv_snapshot` schedule, level 6 the `rollout_policy`, level 7 `oci_desired`, level 8 `signers`, level 9 `launch_image`, level 10 `artifact_store`, level 11 `atlas`, level 12 `release_fence`, level 13 a fenced set's `min_serving`, level 14 its `role`, level 15 the fence's `canary`, level 16 `machines_api`, see [Machines API](machines-api.md#production-the-cell-spec-section)). Adding or changing `machines_api` needs a root. A change that adds a section
 raises the level, and every amendment that uses the section sets
 `requires_binary` to it. A controller
 whose binary understands less refuses such an amendment by name and keeps its

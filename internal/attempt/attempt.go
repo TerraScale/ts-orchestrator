@@ -530,7 +530,7 @@ func (a *Attempt) PhaseMaterial() {
 		readback := a.Path("material-foundation.json")
 		a.remove(readback)
 		a.preview("inspect-foundation", "--plan", a.Plan(), "--inventory", inventory, "--admission", admission, "--out", readback)
-		a.RunBootstrap("provision-controller-material", "--directory", material, "--manual-readback", readback, "--manual-readback-sha256", a.sha(readback), "--inventory", inventory, "--inventory-sha256", a.sha(inventory), "--cost-admission", admission, "--cost-admission-sha256", a.sha(admission), "--cost-plan-sha256", a.sha(a.Plan()), "--oci-config", ociConfig(), "--oci-profile", "DEFAULT", "--out", references)
+		a.RunBootstrap("provision-controller-material", "--directory", material, "--manual-readback", readback, "--manual-readback-sha256", a.sha(readback), "--inventory", inventory, "--inventory-sha256", a.sha(inventory), "--cost-admission", admission, "--cost-admission-sha256", a.sha(admission), "--cost-plan-sha256", a.sha(a.Plan()), "--oci-config", a.ociConfig(), "--oci-profile", "DEFAULT", "--out", references)
 	}
 	issued, expires := a.validity()
 	ledger := a.Path("ledger-delegation.signed.json")
@@ -564,7 +564,17 @@ func (a *Attempt) PhaseMaterial() {
 		a.RunBootstrap("sign-peer-receipt-delegation", "--identity", a.Path("identity.json"), "--anchor", anchor, "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--peer-public-key", record+".peer.pem", "--out", peer, "--valid-for", a.validFor())
 	}
 }
-func ociConfig() string { home, _ := os.UserHomeDir(); return filepath.Join(home, ".oci", "config") }
+
+// ociConfig is the operator's OCI config for the bootstrap commands, whose
+// DEFAULT profile must name the cell's region: attempt config oci_config, or
+// ~/.oci/config.
+func (a *Attempt) ociConfig() string {
+	if path := str(a.Config, "oci_config"); path != "" {
+		return path
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".oci", "config")
+}
 func hostMap(plan Object) map[string]Object {
 	m := map[string]Object{}
 	for _, v := range rows(plan["hosts"]) {
@@ -822,7 +832,7 @@ func (a *Attempt) PhaseSign() {
 		a.writeJSON(candidate, typed(a, Object{"schemaVersion": 1, "deploymentId": a.Deployment, "cell": cell.Cell, "environment": "canary", "generation": 1, "planSha256": a.sha(founder), "anchorSha256": a.sha(anchor), "manifests": ms}, &bootstrapstart.FounderSelection{}))
 		a.RunBootstrap(join([]string{"sign-initial-founder-selection", "--candidate", candidate, "--identity", identity, "--anchor", anchor, "--plan", founder}, manifests, []string{"--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--out", selection, "--valid-for", "24h"})...)
 	}
-	a.RunBootstrap(join([]string{"publish-initial-founder-selection", "--selection", selection, "--identity", identity, "--anchor", anchor, "--plan", founder}, manifests, []string{"--root-key", a.trust("root_public"), "--oci-config", ociConfig(), "--oci-profile", "DEFAULT"})...)
+	a.RunBootstrap(join([]string{"publish-initial-founder-selection", "--selection", selection, "--identity", identity, "--anchor", anchor, "--plan", founder}, manifests, []string{"--root-key", a.trust("root_public"), "--oci-config", a.ociConfig(), "--oci-profile", "DEFAULT"})...)
 }
 func (a *Attempt) SeedArgs() []string {
 	args := []string{"--identity", a.Path("identity.json"), "--anchor", a.Path("anchor.signed.json"), "--founder-plan", a.Path("signed", "founder-plan.signed.json"), "--root-key", a.trust("root_public")}
@@ -943,7 +953,7 @@ func (a *Attempt) PhaseLaunch() {
 	reviewedSHA := a.sha(reviewed)
 	createIdentity := str(a.read(reviewed), "create_identity")
 	a.RunBootstrap(join([]string{"sign-external-seed-reservation"}, a.SeedArgs(), []string{"--reviewed-plan", reviewed, "--reviewed-plan-sha256", reviewedSHA, "--create-identity", createIdentity, "--ledger-signing-key", a.Path("material", "founder-ledger.key"), "--out", reservation})...)
-	a.RunBootstrap(join([]string{"publish-external-seed-reservation"}, a.SeedArgs(), []string{"--reservation", reservation, "--oci-config", ociConfig(), "--oci-profile", "DEFAULT"})...)
+	a.RunBootstrap(join([]string{"publish-external-seed-reservation"}, a.SeedArgs(), []string{"--reservation", reservation, "--oci-config", a.ociConfig(), "--oci-profile", "DEFAULT"})...)
 	a.launchInstance("controller A", details, wire, filepath.Join(launch, "controller-a-launch-submit.json"), ocid)
 }
 func (a *Attempt) requireAdmission(admission string) {
@@ -1015,7 +1025,7 @@ func (a *Attempt) PhaseComplete() {
 	}
 	reviewed := filepath.Join(launch, "reviewed-seed-plan.json")
 	reviewedArgs := []string{"--reviewed-plan", reviewed, "--reviewed-plan-sha256", a.sha(reviewed)}
-	ociArgs := []string{"--oci-config", ociConfig(), "--oci-profile", "DEFAULT"}
+	ociArgs := []string{"--oci-config", a.ociConfig(), "--oci-profile", "DEFAULT"}
 	observation, completion := filepath.Join(launch, "seed-observation.json"), filepath.Join(launch, "seed-completion.json")
 	if !exists(completion) {
 		a.remove(observation)
@@ -1111,7 +1121,7 @@ func (a *Attempt) PhaseContinuity() {
 		a.writeJSON(candidate, typed(a, Object{"schemaVersion": 2, "deploymentId": a.Deployment, "cell": a.Cell().Cell, "environment": "canary", "generation": generation, "continuities": refs}, &bootstrapstart.FounderSelection{}))
 		a.RunBootstrap(join([]string{"sign-founder-selection", "--candidate", candidate, "--identity", a.Path("identity.json"), "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--out", selection, "--valid-for", a.validFor()}, proofs)...)
 	}
-	a.RunBootstrap(join([]string{"publish-founder-selection", "--selection", selection, "--identity", a.Path("identity.json"), "--anchor", anchor, "--root-key", a.trust("root_public"), "--oci-config", ociConfig(), "--oci-profile", "DEFAULT"}, proofs)...)
+	a.RunBootstrap(join([]string{"publish-founder-selection", "--selection", selection, "--identity", a.Path("identity.json"), "--anchor", anchor, "--root-key", a.trust("root_public"), "--oci-config", a.ociConfig(), "--oci-profile", "DEFAULT"}, proofs)...)
 	if a.err == nil {
 		a.fail(os.WriteFile(record, []byte(strconv.Itoa(generation)), 0600))
 	}

@@ -25,7 +25,7 @@ The work ships in slices under TS-564.
 | 4 | Machine lifecycle (create, start, stop, restart, destroy, update), scale | planned |
 | 5 | Releases and rollouts (status, rollback), logs streamed from NATS | planned |
 | 6 | `ts-orch apps\|machines` CLI on the API | planned |
-| 7 | Signed listener and TLS material, `gru.orch.terrascale.tech` load balancer listener and DNS through the edge reconciler | planned |
+| 7 | Production listener from the cell spec's `machines_api` section with the controller's signed TLS material, `<region>.orch.terrascale.tech` load balancer listener and DNS (TS-640) | done |
 
 ## Routes
 
@@ -77,12 +77,39 @@ A controller serves the API when its config has `controller.machines_api`:
   requests carry bearer tokens.
 - Each controller accepts at most 256 connections. The load balancer brings
   the internet to hosts that also run the cell's NATS quorum and authority.
-- **Signed production configs refuse `machines_api` for now.** The
-  listener's port, its TLS material from the signed material directory, and
-  the load balancer listener all come in slice 7, together with
-  `render-controller-config`. Until then the API runs only on lab
-  controllers. A signed config can therefore not bind the API onto the host
-  enrollment port, or name TLS files that nothing delivers.
+- **Signed production configs refuse `machines_api`**, so a signed config
+  can never bind the API onto the host enrollment port or name TLS files
+  that nothing delivers. A production cell turns the API on with the cell
+  spec's `machines_api` section instead (below).
+
+### Production: the cell spec section
+
+A root-signed cell spec amendment (binary level 16) carries the token and
+tenancy policy, with the same fields as above minus the listener:
+
+```json
+"machines_api": {
+  "issuer": "https://gru.auth.terrascale.tech/terrascale",
+  "audience": "https://sfo.orch.terrascale.tech",
+  "jwks_urls": ["https://gru.auth.terrascale.tech/terrascale/.well-known/jwks.json"],
+  "clients": ["ts-orch-cli"],
+  "members": {"terrascale": ["<user UUID>"]}
+}
+```
+
+- Every controller that adopts it serves the API on its broker address at
+  port 8444 (`cellspec.MachinesAPIPort`) with its signed controller TLS
+  certificate and key, which the cell CA signs directly. It checks the
+  adopted spec every 5 seconds: a changed section restarts the listener, a
+  removed one stops it, and a listener that fails is retried. No controller
+  restart is needed, and the API never stops the controller.
+- The regional load balancer serves it as `<region>.orch.terrascale.tech`
+  when the plan sets `public_api.orch` (see the
+  [public API](region-bootstrap.md#public-terrabase-api)): backend set
+  `ts-orch` sends HTTPS to every controller at 8444, verified against the
+  cell CA (`apply --cell-ca`), with `GET /healthz` health checks.
+- A region without its own ts-auth (sfo-1) fetches the issuer's key set over
+  HTTPS through its NAT gateway.
 
 ## Authentication
 

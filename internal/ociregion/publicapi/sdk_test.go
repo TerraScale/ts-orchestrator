@@ -29,14 +29,14 @@ func TestSDKDecodesEveryCommandTheProvisionerSends(t *testing.T) {
 		t.Fatal(err)
 	}
 	members := testCA(t)
-	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil {
+	if _, err := p.Provision(t.Context(), d, cloudflare, members, ""); err != nil {
 		t.Fatal(err)
 	}
 	// A controller dropped out of the ts-auth set and the bandwidth grew.
 	auth := field(f.balancer, "backend-sets", "ts-auth").(map[string]any)
 	auth["backends"] = auth["backends"].([]any)[:1]
 	grown := testDesired(t, strings.NewReplacer(`"max_mbps":100`, `"max_mbps":200`).Replace(ownedPlan))
-	if _, err := p.Provision(t.Context(), grown, cloudflare, members); err != nil {
+	if _, err := p.Provision(t.Context(), grown, cloudflare, members, ""); err != nil {
 		t.Fatal(err)
 	}
 	delete(f.balancer["certificates"].(map[string]any), originCertificate)
@@ -56,7 +56,7 @@ func TestSDKDecodesEveryCommandTheProvisionerSends(t *testing.T) {
 	if steps, err := p.certSteps(t.Context(), renamed, cloudflare); err != nil || run(t.Context(), steps, true, io.Discard) != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Provision(t.Context(), renamed, cloudflare, members); err != nil {
+	if _, err := p.Provision(t.Context(), renamed, cloudflare, members, ""); err != nil {
 		t.Fatal(err)
 	}
 	decoded := map[string]bool{}

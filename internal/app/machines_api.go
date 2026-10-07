@@ -3,8 +3,12 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"reflect"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machines"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machinesapi"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
@@ -46,4 +50,74 @@ func startMachinesAPI(ctx context.Context, cfg Config, runtime *natscell.Runtime
 		return nil, fmt.Errorf("start machines API: %w", err)
 	}
 	return errs, nil
+}
+
+// machinesAPICheck is how often a controller reads the spec's machines_api.
+var machinesAPICheck = 5 * time.Second
+
+// machinesAPILoop serves the Machines REST API while the adopted cell spec
+// carries machines_api (docs/machines-api.md): on the broker address at
+// cellspec.MachinesAPIPort, with the controller's signed TLS certificate,
+// which the regional load balancer verifies against the cell CA. A changed
+// section restarts the listener and a removed one stops it, without a
+// controller restart. A listener that fails to start or stops is retried at
+// the next check; the API never stops the controller.
+func machinesAPILoop(ctx context.Context, cfg Config, runtime *natscell.Runtime, control authority.Fencer,
+	fullClusterReady func() bool, current func() *cellspec.MachinesAPI,
+) error {
+	var apps *machines.Store
+	var tenants *tenant.Store
+	var running *cellspec.MachinesAPI
+	var serving <-chan error
+	stop, failure := context.CancelFunc(func() {}), ""
+	defer func() { stop() }()
+	ticker := time.NewTicker(machinesAPICheck)
+	defer ticker.Stop()
+	for {
+		if want := current(); !reflect.DeepEqual(want, running) {
+			stop()
+			running, serving = nil, nil
+			err := error(nil)
+			if want != nil && apps == nil {
+				apps, err = machines.OpenStore(ctx, runtime.JetStream(), cfg.NATS.Cell, cfg.NATS.Replicas, control)
+				if err == nil {
+					tenants, err = tenant.OpenStore(ctx, runtime.JetStream(), cfg.NATS.Replicas)
+				}
+				if err != nil {
+					apps = nil
+				}
+			}
+			if want != nil && err == nil && fullClusterReady() {
+				var server *machinesapi.Server
+				embedded := cfg.NATS.Embedded
+				server, err = machinesapi.NewServer(want.Config(embedded.Host, embedded.TLS.CertFile, embedded.TLS.KeyFile), apps, tenants)
+				serveCtx, cancel := context.WithCancel(ctx)
+				if err == nil {
+					serving, err = server.Start(serveCtx)
+				}
+				if err != nil {
+					cancel()
+				} else {
+					stop, running = cancel, want
+					slog.Info("Machines API serving", "address", want.Config(embedded.Host, "", "").ListenAddress)
+				}
+			}
+			if err != nil && err.Error() != failure {
+				slog.Warn("Machines API is not serving; retrying", "error", err)
+			}
+			failure = ""
+			if err != nil {
+				failure = err.Error()
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case err := <-serving:
+			slog.Warn("Machines API stopped; restarting", "error", err)
+			stop()
+			running, serving = nil, nil
+		case <-ticker.C:
+		}
+	}
 }

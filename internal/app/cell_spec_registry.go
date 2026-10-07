@@ -673,6 +673,13 @@ func (r *specRegistry) releaseFence() (*cellspec.ReleaseFence, map[string]string
 	return r.current.ReleaseFence, addresses
 }
 
+// machinesAPI is the current spec's Machines API, or nil.
+func (r *specRegistry) machinesAPI() *cellspec.MachinesAPI {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.current.MachinesAPI
+}
+
 // atlasConfig is the current spec's Atlas publisher, or nil.
 func (r *specRegistry) atlasConfig() *atlas.Config {
 	r.mu.Lock()

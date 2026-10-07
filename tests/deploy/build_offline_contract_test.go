@@ -119,9 +119,14 @@ func TestOfflineVolumeInitRootOnlyInHostNamespace(t *testing.T) {
 func TestOfflineControllerWaitsForBoundedClockSync(t *testing.T) {
 	bootstrap := string(read(t, filepath.Join(deployRoot(t), "deploy/systemd/terrascale-orchestrator-bootstrap.service")))
 	controller := string(read(t, filepath.Join(deployRoot(t), "deploy/systemd/terrascale-orchestrator-controller.service")))
-	for _, want := range []string{"Requires=systemd-timesyncd.service systemd-time-wait-sync.service", "After=systemd-timesyncd.service systemd-time-wait-sync.service", "TimeoutStartSec=300s", "Type=oneshot", "Restart=on-failure", "RestartSec=10s", "OnSuccess=terrascale-orchestrator-controller.service", "CapabilityBoundingSet=CAP_CHOWN CAP_SETGID CAP_SETUID CAP_DAC_OVERRIDE CAP_KILL", "ReadWritePaths=" + markerDir + " " + secretsDir + " " + controllerDir + " /run/terrascale-orchestrator-bootstrap"} {
+	for _, want := range []string{"Requires=systemd-timesyncd.service systemd-time-wait-sync.service", "After=systemd-timesyncd.service systemd-time-wait-sync.service", "TimeoutStartSec=300s", "Type=oneshot", "Restart=on-failure", "RestartSec=10s", "ExecStartPost=+/usr/bin/systemctl start --no-block terrascale-orchestrator-controller.service", "CapabilityBoundingSet=CAP_CHOWN CAP_SETGID CAP_SETUID CAP_DAC_OVERRIDE CAP_KILL", "ReadWritePaths=" + markerDir + " " + secretsDir + " " + controllerDir + " /run/terrascale-orchestrator-bootstrap"} {
 		contains(t, bootstrap, want)
 	}
+	if strings.Contains(bootstrap, "\nOnSuccess=") {
+		t.Fatal("OnSuccess never fires on a RemainAfterExit oneshot")
+	}
+	contains(t, string(read(t, filepath.Join(deployRoot(t), "deploy/systemd/terrascale-orchestrator-controller-install.service"))),
+		"ExecStartPost=+/usr/bin/systemctl start --no-block terrascale-orchestrator-bootstrap.service")
 	contains(t, controller, "Requires=terrascale-orchestrator-bootstrap.service")
 	contains(t, controller, "After=terrascale-orchestrator-bootstrap.service")
 }

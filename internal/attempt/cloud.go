@@ -18,6 +18,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 // Instance is the normalized Compute instance state the attempt reads.
@@ -130,7 +131,12 @@ func newSDKCloud(region string) (Cloud, error) {
 	if err != nil {
 		return nil, err
 	}
-	iam, err := factory.Identity()
+	// OCI accepts IAM writes only in the tenancy's home region, GRU's.
+	home, err := ociclient.OperatorConfig(catalog.OCIRegion(catalog.Bootstrap))
+	if err != nil {
+		return nil, err
+	}
+	iam, err := home.Identity()
 	if err != nil {
 		return nil, err
 	}

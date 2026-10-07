@@ -624,3 +624,17 @@ func TestServicesPhaseAddsServicesThroughSignedSets(t *testing.T) {
 		t.Fatal(a.Err(), commands)
 	}
 }
+
+// The bootstrap commands need a DEFAULT profile in the cell's region, so a
+// second region's attempt names its own OCI config.
+func TestAttemptOCIConfigDefaultsToTheOperatorsConfig(t *testing.T) {
+	a := smallAttempt(t)
+	home, _ := os.UserHomeDir()
+	if got := a.ociConfig(); got != filepath.Join(home, ".oci", "config") {
+		t.Fatal(got)
+	}
+	a.Config["oci_config"] = "/operator/oci-config-sfo"
+	if got := a.ociConfig(); got != "/operator/oci-config-sfo" {
+		t.Fatal(got)
+	}
+}

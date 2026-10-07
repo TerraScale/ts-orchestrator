@@ -14,6 +14,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"io"
 	"math/big"
 	"os"
@@ -339,7 +340,7 @@ func TestProvisionBuildsTheEdgeThenResumes(t *testing.T) {
 	f := newFakeOCI(t)
 	p := Provisioner{Client: f, Pause: func(context.Context, time.Duration) error { return nil }}
 	members := testCA(t)
-	if _, err := p.Provision(t.Context(), d, cloudflare, members); err == nil || !strings.Contains(err.Error(), "public-api cert --apply") {
+	if _, err := p.Provision(t.Context(), d, cloudflare, members, ""); err == nil || !strings.Contains(err.Error(), "public-api cert --apply") {
 		t.Fatalf("provisioned without the origin certificate: %v", err)
 	}
 	if len(f.mutations()) != 0 {
@@ -350,7 +351,7 @@ func TestProvisionBuildsTheEdgeThenResumes(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.calls = nil
-	r, err := p.Provision(t.Context(), d, cloudflare, members)
+	r, err := p.Provision(t.Context(), d, cloudflare, members, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,11 +390,39 @@ func TestProvisionBuildsTheEdgeThenResumes(t *testing.T) {
 		}
 	}
 	f.calls = nil
-	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil || len(f.mutations()) != 0 {
+	if _, err := p.Provision(t.Context(), d, cloudflare, members, ""); err != nil || len(f.mutations()) != 0 {
 		t.Fatalf("resume mutated %v: %v", f.mutations(), err)
 	}
-	if _, err := p.Provision(t.Context(), d, cloudflare, "not a CA"); err == nil {
+	if _, err := p.Provision(t.Context(), d, cloudflare, "not a CA", ""); err == nil {
 		t.Fatal("accepted an invalid member CA")
+	}
+}
+
+// With public_api.orch, apply also serves <region>.orch from every
+// controller's Machines API and admits it from the public subnet; a rerun
+// reads the result back as planned and changes nothing.
+func TestProvisionServesTheMachinesAPI(t *testing.T) {
+	d := testDesired(t, strings.Replace(testPlan, `"terrabase_members":["gru-1-db-1"]}`, `"terrabase_members":["gru-1-db-1"],"orch":true}`, 1))
+	_, cloudflare := newFakeCloudflare(t)
+	f := newFakeOCI(t)
+	p := Provisioner{Client: f, Pause: func(context.Context, time.Duration) error { return nil }}
+	steps, err := p.certSteps(t.Context(), d, cloudflare)
+	if err != nil || run(t.Context(), steps, true, io.Discard) != nil {
+		t.Fatal(err)
+	}
+	members, cell := testCA(t), testCA(t)
+	if _, err := p.Provision(t.Context(), d, cloudflare, members, cell); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.rules["ctl-nsg"]; len(got) != 2 || !same(field(got[1], "tcp-options", "destination-port-range", "min"), OrchPort) {
+		t.Fatalf("controller NSG rules %v", got)
+	}
+	f.calls = nil
+	if _, err := p.Provision(t.Context(), d, cloudflare, members, cell); err != nil || len(f.mutations()) != 0 {
+		t.Fatalf("resume mutated %v: %v", f.mutations(), err)
+	}
+	if _, err := p.Provision(t.Context(), d, cloudflare, members, testCA(t)); err == nil || !strings.Contains(err.Error(), "cell CA") {
+		t.Fatalf("accepted another cell CA: %v", err)
 	}
 }
 
@@ -407,7 +436,7 @@ func TestApplyConvergesAnExistingLoadBalancerToThePlan(t *testing.T) {
 	if err != nil || run(t.Context(), steps, true, io.Discard) != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil {
+	if _, err := p.Provision(t.Context(), d, cloudflare, members, ""); err != nil {
 		t.Fatal(err)
 	}
 	// The plan names the owner, so the controller owns the terrabase
@@ -421,7 +450,7 @@ func TestApplyConvergesAnExistingLoadBalancerToThePlan(t *testing.T) {
 	ownerless := testDesired(t, strings.NewReplacer(`"max_mbps":100`, `"max_mbps":200`).Replace(testPlan))
 	d = testDesired(t, strings.NewReplacer(`"max_mbps":100`, `"max_mbps":200`).Replace(ownedPlan))
 	f.calls = nil
-	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil {
+	if _, err := p.Provision(t.Context(), d, cloudflare, members, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.mutations(); !slices.Equal(got, []string{"lb load-balancer update-shape"}) {
@@ -433,7 +462,7 @@ func TestApplyConvergesAnExistingLoadBalancerToThePlan(t *testing.T) {
 	// A plan without an owner cannot take back a load balancer the
 	// controller owns: nothing changes, not even the bandwidth.
 	f.calls = nil
-	if _, err := p.Provision(t.Context(), ownerless, cloudflare, members); err == nil ||
+	if _, err := p.Provision(t.Context(), ownerless, cloudflare, members, ""); err == nil ||
 		!strings.Contains(err.Error(), "name orchestrator_owner") || len(f.mutations()) != 0 {
 		t.Fatalf("ownerless apply on an owned load balancer: mutations=%v err=%v", f.mutations(), err)
 	}
@@ -441,7 +470,7 @@ func TestApplyConvergesAnExistingLoadBalancerToThePlan(t *testing.T) {
 	// controller, so apply converges it to the seed as before.
 	tags := f.balancer["freeform-tags"]
 	f.balancer["freeform-tags"] = map[string]any{}
-	if _, err := p.Provision(t.Context(), ownerless, cloudflare, members); err != nil {
+	if _, err := p.Provision(t.Context(), ownerless, cloudflare, members, ""); err != nil {
 		t.Fatal(err)
 	}
 	f.balancer["freeform-tags"] = tags
@@ -452,19 +481,19 @@ func TestApplyConvergesAnExistingLoadBalancerToThePlan(t *testing.T) {
 	set = field(f.balancer, "backend-sets", "terrabase").(map[string]any)
 	set["backends"] = managed
 	f.calls = nil
-	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil || len(f.mutations()) != 0 {
+	if _, err := p.Provision(t.Context(), d, cloudflare, members, ""); err != nil || len(f.mutations()) != 0 {
 		t.Fatalf("converged load balancer mutated %v: %v", f.mutations(), err)
 	}
 	// A minimum-only change waits for the minimum, not just an ACTIVE state.
 	d.MinMbps = 20
-	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil || !same(field(f.balancer, "shape-details", "minimum-bandwidth-in-mbps"), 20) {
+	if _, err := p.Provision(t.Context(), d, cloudflare, members, ""); err != nil || !same(field(f.balancer, "shape-details", "minimum-bandwidth-in-mbps"), 20) {
 		t.Fatalf("minimum bandwidth %v: %v", f.balancer["shape-details"], err)
 	}
-	if _, err := p.Provision(t.Context(), d, cloudflare, testCA(t)); err == nil || !strings.Contains(err.Error(), "different member CA") {
+	if _, err := p.Provision(t.Context(), d, cloudflare, testCA(t), ""); err == nil || !strings.Contains(err.Error(), "different member CA") {
 		t.Fatalf("ignored a rotated member CA: %v", err)
 	}
 	f.balancer["listeners"].(map[string]any)["terrabase"].(map[string]any)["default-backend-set-name"] = "ts-auth"
-	if _, err := p.Provision(t.Context(), d, cloudflare, members); err == nil || !strings.Contains(err.Error(), "listener terrabase") {
+	if _, err := p.Provision(t.Context(), d, cloudflare, members, ""); err == nil || !strings.Contains(err.Error(), "listener terrabase") {
 		t.Fatalf("accepted TerraBase traffic routed to ts-auth: %v", err)
 	}
 }
@@ -485,7 +514,7 @@ func TestApplyStampsTheControllerOwnershipOfTheTerraBaseSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	members := testCA(t)
-	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil {
+	if _, err := p.Provision(t.Context(), d, cloudflare, members, ""); err != nil {
 		t.Fatal(err)
 	}
 	owned := func() bool {
@@ -500,13 +529,13 @@ func TestApplyStampsTheControllerOwnershipOfTheTerraBaseSet(t *testing.T) {
 		t.Fatalf("not stamped: tags=%v mutations=%v", f.balancer["freeform-tags"], f.mutations())
 	}
 	f.calls = nil
-	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil || len(f.mutations()) != 0 {
+	if _, err := p.Provision(t.Context(), d, cloudflare, members, ""); err != nil || len(f.mutations()) != 0 {
 		t.Fatalf("restamped an owned load balancer: %v %v", f.mutations(), err)
 	}
 
 	// An adopted load balancer keeps its other tags.
 	f.balancer["freeform-tags"] = map[string]any{"CostCenter": "infra"}
-	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil || !owned() ||
+	if _, err := p.Provision(t.Context(), d, cloudflare, members, ""); err != nil || !owned() ||
 		f.balancer["freeform-tags"].(map[string]any)["CostCenter"] != "infra" {
 		t.Fatalf("adopt: tags=%v err=%v", f.balancer["freeform-tags"], err)
 	}
@@ -521,7 +550,7 @@ func TestApplyStampsTheControllerOwnershipOfTheTerraBaseSet(t *testing.T) {
 		{"terrascale-resource-key": "GRU/nlb-backends/public-api"},
 	} {
 		f.balancer["freeform-tags"], f.calls = claim, nil
-		if _, err := p.Provision(t.Context(), wider, cloudflare, members); err == nil || !strings.Contains(err.Error(), "another ts-orchestrator ownership") ||
+		if _, err := p.Provision(t.Context(), wider, cloudflare, members, ""); err == nil || !strings.Contains(err.Error(), "another ts-orchestrator ownership") ||
 			len(f.mutations()) != 0 {
 			t.Fatalf("claim %v: err=%v mutations=%v", claim, err, f.mutations())
 		}
@@ -529,7 +558,7 @@ func TestApplyStampsTheControllerOwnershipOfTheTerraBaseSet(t *testing.T) {
 
 	// Without an owner in the plan apply leaves the tags alone.
 	f.balancer["freeform-tags"], f.calls = map[string]any{}, nil
-	if _, err := p.Provision(t.Context(), testDesired(t, testPlan), cloudflare, members); err != nil || len(f.mutations()) != 0 {
+	if _, err := p.Provision(t.Context(), testDesired(t, testPlan), cloudflare, members, ""); err != nil || len(f.mutations()) != 0 {
 		t.Fatalf("stamped without an owner: %v %v", f.mutations(), err)
 	}
 	if _, err := ParsePlan([]byte(strings.Replace(ownedPlan, "ts-470-gru-rebuild-2", "Not A Token", 1))); err == nil {
@@ -546,7 +575,7 @@ func TestCheckBalancerRequiresTheExactPlan(t *testing.T) {
 	if err != nil || run(t.Context(), steps, true, io.Discard) != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Provision(t.Context(), d, cloudflare, testCA(t)); err != nil {
+	if _, err := p.Provision(t.Context(), d, cloudflare, testCA(t), ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.CheckBalancer(f.balancer); err != nil {
@@ -675,7 +704,7 @@ func TestOriginRulesMustBeExactlyCloudflares(t *testing.T) {
 
 func TestLoadBalancerRoutesByHostnameAndRequiresCloudflare(t *testing.T) {
 	d := testDesired(t, testPlan)
-	config := d.loadBalancer("ORIGIN", "KEY", "MEMBERS")
+	config := d.loadBalancer("ORIGIN", "KEY", "MEMBERS", "")
 	var listeners map[string]struct {
 		DefaultBackendSetName string   `json:"defaultBackendSetName"`
 		Port                  int      `json:"port"`
@@ -737,6 +766,49 @@ func TestLoadBalancerRoutesByHostnameAndRequiresCloudflare(t *testing.T) {
 	}
 	if !strings.Contains(config["rule-sets"], `"action":"REDIRECT"`) || !strings.Contains(config["rule-sets"], `"protocol":"HTTPS"`) {
 		t.Fatal(config["rule-sets"])
+	}
+}
+
+// The checked-in sfo-1 plan serves sfo.orch: the controllers' Machines API
+// over TLS verified against the cell CA, health-checked on /healthz, beside
+// TerraBase on the colocated nodes.
+func TestSFOPlanServesTheMachinesAPI(t *testing.T) {
+	d, err := LoadPlan(filepath.Join("..", "..", "..", "deploy", "oci-region", "sfo-1-plan.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if OrchPort != cellspec.MachinesAPIPort || d.OrchHost != "sfo.orch.terrascale.tech" ||
+		!slices.Equal(d.hostNames(), []string{"sfo.api.terrascale.tech", "sfo.auth.terrascale.tech", "sfo.orch.terrascale.tech"}) ||
+		names(d.Orch) != "ts-sfo-1 10.252.0.11:8444, ts-sfo-2 10.252.0.12:8444, ts-sfo-3 10.252.0.13:8444" ||
+		names(d.TerraBase) != "ts-sfo-1 10.252.0.11:9465, ts-sfo-2 10.252.0.12:9465, ts-sfo-3 10.252.0.13:9465" ||
+		!slices.Contains(d.Egress(), Rule{"10.252.0.0/25", OrchPort}) {
+		t.Fatalf("desired %+v", d)
+	}
+	config := d.loadBalancer("ORIGIN", "KEY", "MEMBERS", "CELL")
+	var sets map[string]struct {
+		Health struct {
+			Port    int    `json:"port"`
+			URLPath string `json:"urlPath"`
+		} `json:"healthChecker"`
+		SSL struct {
+			CertificateName string `json:"certificateName"`
+		} `json:"sslConfiguration"`
+	}
+	var listeners, hostnames, certificates map[string]map[string]any
+	for flag, target := range map[string]any{"backend-sets": &sets, "listeners": &listeners, "hostnames": &hostnames, "certificates": &certificates} {
+		if err := json.Unmarshal([]byte(config[flag]), target); err != nil {
+			t.Fatal(flag, err)
+		}
+	}
+	orch := sets["ts-orch"]
+	if orch.Health.Port != OrchPort || orch.Health.URLPath != OrchHealthPath || orch.SSL.CertificateName != cellCA ||
+		listeners["ts-orch"]["defaultBackendSetName"] != "ts-orch" || hostnames["ts-orch"]["hostname"] != d.OrchHost ||
+		certificates[cellCA]["caCertificate"] != "CELL" {
+		t.Fatalf("ts-orch %+v %v %v %v", orch, listeners["ts-orch"], hostnames["ts-orch"], certificates[cellCA])
+	}
+	if preview := strings.Join(d.Preview(), "\n"); !strings.Contains(preview, "dns-record sfo.orch.terrascale.tech") ||
+		!strings.Contains(preview, "tcp/8444 from 10.252.0.128/26") {
+		t.Fatal(preview)
 	}
 }
 
@@ -899,7 +971,7 @@ func TestVaultBundleMustNameBothPlannedHostsBeforeAnyWrite(t *testing.T) {
 					}
 					return
 				} else {
-					_, err = p.Provision(t.Context(), d, cloudflare, testCA(t))
+					_, err = p.Provision(t.Context(), d, cloudflare, testCA(t), "")
 				}
 				if err == nil || !strings.Contains(err.Error(), "certificate does not name "+missing) {
 					t.Fatalf("accepted a Vault bundle without %s: %v", missing, err)
@@ -965,7 +1037,7 @@ func TestOriginTrustRequiredBeforeCertificateOrProvision(t *testing.T) {
 		if _, err := p.certSteps(t.Context(), d, cloudflare); err == nil {
 			t.Fatal("certificate planning accepted missing or shared origin trust")
 		}
-		if _, err := p.Provision(t.Context(), d, cloudflare, testCA(t)); err == nil {
+		if _, err := p.Provision(t.Context(), d, cloudflare, testCA(t), ""); err == nil {
 			t.Fatal("provisioning accepted missing or shared origin trust")
 		}
 		if err := d.CheckBalancer(nil); err == nil {
@@ -987,13 +1059,13 @@ func TestRenamedAuthHostRotatesTheOriginInPlace(t *testing.T) {
 	if err != nil || run(t.Context(), steps, true, io.Discard) != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil {
+	if _, err := p.Provision(t.Context(), d, cloudflare, members, ""); err != nil {
 		t.Fatal(err)
 	}
 	renamed := d
 	renamed.AuthHost = "gru.login.terrascale.tech"
 	before := len(f.mutations())
-	if _, err := p.Provision(t.Context(), renamed, cloudflare, members); err == nil || len(f.mutations()) != before {
+	if _, err := p.Provision(t.Context(), renamed, cloudflare, members, ""); err == nil || len(f.mutations()) != before {
 		t.Fatalf("apply ran before the bundle names the new host: %v, %v", err, f.mutations()[before:])
 	}
 	steps, err = p.certSteps(t.Context(), renamed, cloudflare)
@@ -1007,7 +1079,7 @@ func TestRenamedAuthHostRotatesTheOriginInPlace(t *testing.T) {
 	if err := run(t.Context(), steps, true, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Provision(t.Context(), renamed, cloudflare, members); err != nil {
+	if _, err := p.Provision(t.Context(), renamed, cloudflare, members, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := field(f.balancer, "hostnames", "ts-auth", "hostname"); got != renamed.AuthHost {
@@ -1026,7 +1098,7 @@ func TestRenamedAuthHostRotatesTheOriginInPlace(t *testing.T) {
 	if steps, err := p.certSteps(t.Context(), renamed, cloudflare); err != nil || len(steps) != 0 {
 		t.Fatalf("rerun planned %d: %v", len(steps), err)
 	}
-	if _, err := p.Provision(t.Context(), renamed, cloudflare, members); err != nil || len(f.mutations()) != before {
+	if _, err := p.Provision(t.Context(), renamed, cloudflare, members, ""); err != nil || len(f.mutations()) != before {
 		t.Fatalf("rerun changed %v: %v", f.mutations()[before:], err)
 	}
 }

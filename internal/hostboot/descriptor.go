@@ -67,8 +67,8 @@ const StaticSchemaVersion = 2
 
 // Static is the descriptor of an operator-launched C# TerraBase host node
 // (a <cell>-db-<n> server name), of the host agent on a controller VM
-// (<cell>-ctl-<n>), or of a node pool's host (<cell>-pool-<pool>-<n>) in a
-// cell. It grants nothing by itself: the controller
+// (<cell>-ctl-<n>, or the region's node ts-<region>-<n>, which runs the
+// controller), or of a node pool's host (<cell>-pool-<pool>-<n>) in a cell. It grants nothing by itself: the controller
 // enrolls a TerraBase host only when its signed profile lists node at the
 // host's private address, and a controller host only from a controller's
 // private address; OCI must show that instance either way.
@@ -82,8 +82,12 @@ func (descriptor Descriptor) IsStatic() bool { return descriptor.SchemaVersion =
 // IsController reports whether a static descriptor names a controller VM.
 func (descriptor Descriptor) IsController() bool {
 	cell, err := naming.RegionCell(descriptor.Region).Name()
-	return descriptor.IsStatic() && err == nil && strings.HasPrefix(descriptor.Node, cell+"-"+naming.Controller+"-")
+	return descriptor.IsStatic() && err == nil && (strings.HasPrefix(descriptor.Node, cell+"-"+naming.Controller+"-") ||
+		strings.HasPrefix(descriptor.Node, regionNode(descriptor.Region)))
 }
+
+// regionNode is the prefix of the region's node names, e.g. ts-sfo-.
+func regionNode(region string) string { return "ts-" + strings.ToLower(region) + "-" }
 
 // Validate checks the closed v1 identity and digest bindings and the bounded
 // canonical wire size. It performs no signature or live-resource checks.
@@ -155,6 +159,9 @@ func (descriptor Descriptor) validateFields() error {
 		if !ok {
 			number, ok = strings.CutPrefix(descriptor.Node, cell+"-"+naming.Controller+"-")
 		}
+		if !ok {
+			number, ok = strings.CutPrefix(descriptor.Node, regionNode(descriptor.Region))
+		}
 		if pool, isPool := strings.CutPrefix(descriptor.Node, cell+"-pool-"); !ok && isPool {
 			// The scheme allows no hyphen in a pool name.
 			_, number, ok = strings.Cut(pool, "-")
@@ -162,7 +169,7 @@ func (descriptor Descriptor) validateFields() error {
 		if err != nil || !validCellRegion(descriptor.Cell, descriptor.Region) || !ok ||
 			naming.Validate(descriptor.Node) != nil || strings.Contains(number, "-") ||
 			descriptor != Static(descriptor.Cell, descriptor.Region, descriptor.Node) {
-			return fmt.Errorf("%w: static host must name one database, controller or pool server of its cell and nothing else", ErrInvalidDescriptor)
+			return fmt.Errorf("%w: static host must name one database, controller, node or pool server of its cell and nothing else", ErrInvalidDescriptor)
 		}
 		return nil
 	}

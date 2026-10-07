@@ -14,9 +14,12 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machinesapi"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -120,4 +123,61 @@ func signTestAccessToken(t *testing.T, key *ecdsa.PrivateKey, kid string, claims
 	r.FillBytes(signature[:32])
 	s.FillBytes(signature[32:])
 	return signed + "." + base64.RawURLEncoding.EncodeToString(signature)
+}
+
+// A production controller serves the Machines API only while the adopted
+// cell spec carries machines_api, on its broker address, and stops when the
+// section goes, without a restart.
+func TestMachinesAPIFollowsTheCellSpec(t *testing.T) {
+	machinesAPICheck = 50 * time.Millisecond
+	t.Cleanup(func() { machinesAPICheck = 5 * time.Second })
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	host := "127.0.0.42"
+	broker, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "machines-spec", Replicas: 1, Lab: true,
+		Embedded: &natscell.Embedded{Host: host, Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = broker.Close() })
+	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: "gru", CandidateID: "machines-spec", Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = control.Close() })
+	cfg := Config{NATS: natscell.Config{Cell: "gru", Replicas: 1, Embedded: &natscell.Embedded{Host: host}}}
+	var current atomic.Pointer[cellspec.MachinesAPI]
+	loopCtx, stop := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() {
+		done <- machinesAPILoop(loopCtx, cfg, broker, control, func() bool { return true }, current.Load)
+	}()
+	health := func() int {
+		request, _ := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://%s:%d/healthz", host, cellspec.MachinesAPIPort), nil)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			return 0
+		}
+		response.Body.Close()
+		return response.StatusCode
+	}
+	await := func(want int) {
+		t.Helper()
+		for deadline := time.Now().Add(10 * time.Second); health() != want; {
+			if time.Now().After(deadline) {
+				t.Fatalf("health %d, want %d", health(), want)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	await(0)
+	current.Store(&cellspec.MachinesAPI{Issuer: "https://gru.auth.terrascale.tech/terrascale", Audience: "https://gru.orch.terrascale.tech",
+		JWKSURLs: []string{"http://127.0.0.1:1/jwks.json"}, Clients: []string{"ts-orch-cli"}})
+	await(http.StatusOK)
+	current.Store(nil)
+	await(0)
+	stop()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
 }

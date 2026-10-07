@@ -8,16 +8,20 @@ Requires=terrascale-orchestrator-controller-install.service
 After=terrascale-orchestrator-controller-install.service
 ConditionPathExists=/etc/terrascale-orchestrator/controller.json
 Before=terrascale-orchestrator-controller.service
-OnSuccess=terrascale-orchestrator-controller.service
 
 [Service]
 Type=oneshot
-# The controller Requires this oneshot and OnSuccess starts the controller:
-# without RemainAfterExit each controller start reruns admission in a loop.
+# The controller Requires this oneshot: without RemainAfterExit each
+# controller start reruns admission in a loop.
 RemainAfterExit=yes
 Restart=on-failure
 RestartSec=10s
 ExecStart=/usr/local/bin/terrascale-orchestrator bootstrap-controller --config /etc/terrascale-orchestrator/controller.json
+# A boot's first admission can fail (the seed completion is not yet readable)
+# and fail the controller's start job with it; the retry that succeeds must
+# start the controller. OnSuccess= cannot: with RemainAfterExit the unit never
+# goes inactive. "+" runs systemctl outside this unit's sandbox.
+ExecStartPost=+/usr/bin/systemctl start --no-block terrascale-orchestrator-controller.service
 # Admission failures also reach the serial console, readable before any SSH path is up.
 StandardError=journal+console
 TimeoutStartSec=300s

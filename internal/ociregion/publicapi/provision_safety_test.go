@@ -88,14 +88,14 @@ func reviewedEdge(t *testing.T) (Desired, *fakeOCI, Provisioner, Cloudflare, str
 	members := testCA(t)
 	args := []string{"lb", "load-balancer", "create", "--compartment-id", d.Network, "--display-name", d.Names.LB,
 		"--shape-name", "flexible", "--subnet-ids", `["subnet"]`, "--is-private", "false", "--network-security-group-ids", `["nsg"]`}
-	for flag, value := range d.loadBalancer("ORIGIN", "KEY", members) {
+	for flag, value := range d.loadBalancer("ORIGIN", "KEY", members, "") {
 		args = append(args, "--"+flag, value)
 	}
 	if _, err := f.Call(t.Context(), args...); err != nil {
 		t.Fatal(err)
 	}
 	p := Provisioner{Client: f, PollAttempts: 2, Pause: func(context.Context, time.Duration) error { return nil }}
-	if _, err := p.Provision(t.Context(), d, cloudflare, members); err != nil {
+	if _, err := p.Provision(t.Context(), d, cloudflare, members, ""); err != nil {
 		t.Fatalf("reviewed fixture was rejected: %v", err)
 	}
 	f.calls = nil
@@ -158,7 +158,7 @@ func TestProvisionRejectsNetworkSecurityDriftBeforeMutation(t *testing.T) {
 			// Valid reconciliation work must also stay unapplied on unsafe networking.
 			d.MaxMbps = 200
 			f.rules["nsg"] = nil
-			if _, err := p.Provision(t.Context(), d, cloudflare, members); err == nil || !strings.Contains(err.Error(), "reviewed network configuration") {
+			if _, err := p.Provision(t.Context(), d, cloudflare, members, ""); err == nil || !strings.Contains(err.Error(), "reviewed network configuration") {
 				t.Fatalf("accepted network drift: %v", err)
 			}
 			if got := f.mutations(); len(got) != 0 {
@@ -172,7 +172,7 @@ func TestProvisionAcceptsReviewedNetworkWithoutChanges(t *testing.T) {
 	d, f, p, cloudflare, members := reviewedEdge(t)
 	// Security-list ordering carries no meaning.
 	slices.Reverse(f.network["security-list"]["egress-security-rules"].([]any))
-	result, err := p.Provision(t.Context(), d, cloudflare, members)
+	result, err := p.Provision(t.Context(), d, cloudflare, members, "")
 	if err != nil || result["public_subnet"] != "subnet" || result["load_balancer_nsg"] != "nsg" || len(f.mutations()) != 0 {
 		t.Fatalf("reviewed edge changed or failed: result=%v mutations=%v err=%v", result, f.mutations(), err)
 	}
@@ -217,7 +217,7 @@ func TestProvisionRechecksAttachmentsAfterActivationAndConvergence(t *testing.T)
 				mutations = []string{"lb load-balancer update-shape"}
 			}
 			p.Client = client
-			if _, err := p.Provision(t.Context(), d, cloudflare, members); err == nil || !strings.Contains(err.Error(), "NSG attachments differ") {
+			if _, err := p.Provision(t.Context(), d, cloudflare, members, ""); err == nil || !strings.Contains(err.Error(), "NSG attachments differ") {
 				t.Fatalf("reported success after %s attachment drift: %v", stage, err)
 			}
 			if !slices.Equal(f.mutations(), mutations) {

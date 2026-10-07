@@ -786,6 +786,14 @@ records either balancer.
   `ts-auth` sends HTTP to
   every controller on 8080 with `GET /readyz`, so controllers without a
   replica drop out.
+- Machines API (optional): with `public_api.orch: true` the load balancer
+  also serves `<region>.orch.terrascale.tech` on a third HTTPS listener.
+  Backend set `ts-orch` sends HTTPS to every controller at 8444, verified
+  against the cell CA bundle `cell-ca` (`apply --cell-ca`, the controller
+  material's `ca.pem`), with `GET /healthz` health checks. The controller NSG
+  admits 8444 from the public subnet, the Origin CA certificate names the
+  third host, and `dns` publishes it. The controllers serve the API once the
+  cell spec carries `machines_api` ([Machines API](machines-api.md)).
 - Timeouts: Cloudflare ends a proxied request after 100 seconds. The
   listeners' idle timeout is 120 seconds, so Cloudflare rather than the load
   balancer cuts a slow request. Keep long-polls, including shape long-polls,

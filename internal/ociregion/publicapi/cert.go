@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/command"
@@ -39,7 +40,7 @@ func (p Provisioner) certSteps(ctx context.Context, d Desired, cloudflare Cloudf
 	if err != nil {
 		return nil, err
 	}
-	hostnames := []string{d.APIHost, d.AuthHost}
+	hostnames := d.hostNames()
 	var origin, key string
 	rotate := false
 	if secret != nil {
@@ -61,7 +62,7 @@ func (p Provisioner) certSteps(ctx context.Context, d Desired, cloudflare Cloudf
 		origin, key = certificate, private
 		return nil
 	}
-	what := fmt.Sprintf("a Cloudflare Origin CA certificate for %s and %s (RSA 2048, %d days)", d.APIHost, d.AuthHost, originValidityDays)
+	what := fmt.Sprintf("a Cloudflare Origin CA certificate for %s (RSA 2048, %d days)", strings.Join(hostnames, " and "), originValidityDays)
 	var steps []step
 	switch {
 	case secret == nil:

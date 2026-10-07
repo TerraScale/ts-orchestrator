@@ -40,7 +40,10 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 		!same(field(lb, "shape-details", "minimum-bandwidth-in-mbps"), d.MinMbps) || !same(field(lb, "shape-details", "maximum-bandwidth-in-mbps"), d.MaxMbps) {
 		return differs("state or shape", []any{lb["lifecycle-state"], lb["is-private"], lb["shape-name"], lb["shape-details"]})
 	}
-	hostnames := map[string]string{"terrabase": d.APIHost, "ts-auth": d.AuthHost}
+	hostnames := map[string]string{}
+	for _, h := range d.hosts() {
+		hostnames[h.set] = h.name
+	}
 	live, _ := lb["hostnames"].(map[string]any)
 	if !slices.Equal(slices.Sorted(maps.Keys(live)), slices.Sorted(maps.Keys(hostnames))) {
 		return differs("hostnames", live)
@@ -56,7 +59,7 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 	if served != originCertificate && !strings.HasPrefix(served, originCertificate+"-") {
 		return differs("origin certificate", served)
 	}
-	if !slices.Equal(slices.Sorted(maps.Keys(listeners)), []string{"http", "terrabase", "ts-auth"}) {
+	if !slices.Equal(slices.Sorted(maps.Keys(listeners)), slices.Sorted(slices.Values(append(slices.Collect(maps.Keys(hostnames)), "http")))) {
 		return differs("listeners", slices.Sorted(maps.Keys(listeners)))
 	}
 	for name, v := range listeners {
@@ -91,14 +94,18 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 		return differs("https-redirect rule set", redirect)
 	}
 	sets, _ := lb["backend-sets"].(map[string]any)
-	if !slices.Equal(slices.Sorted(maps.Keys(sets)), []string{"terrabase", "ts-auth"}) {
+	if !slices.Equal(slices.Sorted(maps.Keys(sets)), slices.Sorted(maps.Keys(hostnames))) {
 		return differs("backend sets", slices.Sorted(maps.Keys(sets)))
 	}
 	terrabaseWant := d.TerraBase
 	if d.controllerOwned() {
 		terrabaseWant = d.Members
 	}
-	for name, want := range map[string][]Backend{"terrabase": terrabaseWant, "ts-auth": d.Auth} {
+	wants := map[string][]Backend{"terrabase": terrabaseWant, "ts-auth": d.Auth}
+	if d.OrchHost != "" {
+		wants["ts-orch"] = d.Orch
+	}
+	for name, want := range wants {
 		var expected []string
 		for _, b := range want {
 			expected = append(expected, b.Addr.String())
@@ -108,8 +115,12 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 		port := want[0].Addr.Port()
 		rows, err := command.Rows(field(set, "backends"))
 		live := liveBackends(lb, name)
+		path := HealthPath
+		if name == "ts-orch" {
+			path = OrchHealthPath
+		}
 		ok := err == nil && field(set, "health-checker", "protocol") == "HTTP" &&
-			field(set, "health-checker", "url-path") == HealthPath && same(field(set, "health-checker", "port"), port) &&
+			field(set, "health-checker", "url-path") == path && same(field(set, "health-checker", "port"), port) &&
 			same(field(set, "health-checker", "return-code"), 200)
 		owned := name == "terrabase" && d.controllerOwned()
 		if owned {
@@ -130,10 +141,10 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 				ok = ok && (b[flag] == nil || b[flag] == false || flag == "drain" && owned)
 			}
 		}
-		if name == "terrabase" {
+		if bundle := map[string]string{"terrabase": memberCA, "ts-orch": cellCA}[name]; bundle != "" {
 			forcePlaintext := field(set, "health-checker", "is-force-plain-text")
 			ok = ok && (forcePlaintext == nil || forcePlaintext == false) &&
-				field(set, "ssl-configuration", "certificate-name") == memberCA && field(set, "ssl-configuration", "verify-peer-certificate") == true
+				field(set, "ssl-configuration", "certificate-name") == bundle && field(set, "ssl-configuration", "verify-peer-certificate") == true
 		} else {
 			ok = ok && field(set, "ssl-configuration") == nil
 		}
@@ -141,7 +152,11 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 			return differs("backend set "+name, set)
 		}
 	}
-	for _, name := range []string{served, memberCA} {
+	bundles := []string{served, memberCA}
+	if d.OrchHost != "" {
+		bundles = append(bundles, cellCA)
+	}
+	for _, name := range bundles {
 		if field(lb, "certificates", name) == nil {
 			return differs("certificate "+name, "missing")
 		}
@@ -150,7 +165,7 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 		return differs("origin-pull CA", "missing or different from the reviewed customer CA")
 	}
 	publicCertificate, _ := field(lb, "certificates", served, "public-certificate").(string)
-	if _, err := checkOriginCertificate(publicCertificate, []string{d.APIHost, d.AuthHost}, time.Now()); err != nil {
+	if _, err := checkOriginCertificate(publicCertificate, d.hostNames(), time.Now()); err != nil {
 		return fmt.Errorf("load balancer %s origin certificate: %w", d.Names.LB, err)
 	}
 	return nil

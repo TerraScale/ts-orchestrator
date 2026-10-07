@@ -874,6 +874,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if enrollmentErrors != nil {
 		workers.Go(func() { workerErrors <- <-enrollmentErrors })
 	}
+	// A signed config's Machines API (lab only) serves alone; otherwise the
+	// cell spec's machines_api section turns it on.
+	if cfg.Controller.MachinesAPI == nil && cfg.NATS.Embedded != nil {
+		workers.Go(func() {
+			workerErrors <- machinesAPILoop(runCtx, cfg, runtime, control, fullClusterReady, services.machinesAPI)
+		})
+	}
 	if apiErrors != nil {
 		workers.Go(func() { workerErrors <- <-apiErrors })
 	}

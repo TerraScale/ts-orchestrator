@@ -283,6 +283,14 @@ func TestReviewedManualSeedPlanBindsSignedLaunchAndCreateIdentity(t *testing.T) 
 	if err := check(plan, "seed-create-1"); err == nil {
 		t.Fatal("oversized seed shape configuration accepted")
 	}
+	// 1 OCPU nodes run 4 GB (sfo-1, gru-1 since TS-627) to 6 GB.
+	for memory, ok := range map[int]bool{3: false, 4: true, 6: true, 7: false} {
+		plan = fixture.reviewedSeedPlan("seed-create-1")
+		plan.MemoryGB = memory
+		if err := check(plan, "seed-create-1"); (err == nil) != ok {
+			t.Errorf("seed with %d GB: %v", memory, err)
+		}
+	}
 }
 
 func TestExternalSeedSigningBindsReviewedCreateAndExactOCIInstance(t *testing.T) {

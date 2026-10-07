@@ -149,11 +149,16 @@ func validatePublic(plan Object, network, subnet netip.Prefix) Object {
 	if v == nil {
 		return nil
 	}
-	if !exact(v, "subnet_cidr", "listener_port", "client_port") && !exact(v, "subnet_cidr", "listener_port", "client_port", "min_mbps", "max_mbps", "terrabase_members") &&
-		!exact(v, "subnet_cidr", "listener_port", "client_port", "min_mbps", "max_mbps", "terrabase_members", "origin_pull") {
+	flexible := []string{"subnet_cidr", "listener_port", "client_port", "min_mbps", "max_mbps", "terrabase_members"}
+	if !exact(v, "subnet_cidr", "listener_port", "client_port") && !exact(v, flexible...) &&
+		!exact(v, append(flexible, "origin_pull")...) && !exact(v, append(flexible, "orch")...) &&
+		!exact(v, append(flexible, "origin_pull", "orch")...) {
 		fail("manual public API must declare exactly its subnet CIDR, listener port, and client port")
 	}
 	p := obj(v)
+	if orch, present := p["orch"]; present && orch != true {
+		fail("manual public API orch must be true or absent")
+	}
 	if origin, present := p["origin_pull"]; present {
 		if !exact(origin, "ca_certificate", "certificate_id") {
 			fail("manual public API origin_pull must declare exactly its customer CA certificate and Cloudflare certificate ID")
@@ -268,10 +273,12 @@ func validateBoundary(sec Object, network netip.Prefix, gateway, public Object) 
 }
 
 // tsAuthBackendRule is the controller NSG rule that lets the public API load
-// balancer's subnet reach ts-auth: TCP TSAuthPort and nothing else.
+// balancer's subnet reach ts-auth, TCP TSAuthPort, or with public_api.orch
+// the Machines API, TCP publicapi.OrchPort, and nothing else.
 func tsAuthBackendRule(key string, r, public Object) bool {
+	port := func(want int) bool { return eq(r["tcp_min"], want) && eq(r["tcp_max"], want) }
 	return key == "nsg_rules" && r["source"] == public["subnet_cidr"] && r["protocol"] == "6" &&
-		eq(r["tcp_min"], TSAuthPort) && eq(r["tcp_max"], TSAuthPort)
+		(port(TSAuthPort) || public["orch"] == true && port(publicapi.OrchPort))
 }
 func validateNetbird(plan Object, gateway Object) {
 	v, ok := plan["netbird"]

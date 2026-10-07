@@ -1292,3 +1292,54 @@ func TestReleaseFenceLevelValidateAndDiff(t *testing.T) {
 		}
 	}
 }
+
+// The Machines API needs binary level 16 and a valid policy, and every added
+// or changed one needs a root: it decides who reads the cell.
+func TestMachinesAPILevelValidateAndDiff(t *testing.T) {
+	f := newFixture(t)
+	api := MachinesAPI{Issuer: "https://gru.auth.terrascale.tech/terrascale", Audience: "https://sfo.orch.terrascale.tech",
+		JWKSURLs: []string{"https://gru.auth.terrascale.tech/terrascale/.well-known/jwks.json"}, Clients: []string{"ts-orch-cli"}}
+	spec := testSpec(f.id, 1)
+	spec.MachinesAPI, spec.RequiresBinary = &api, 16
+	if spec.Level() != 16 || spec.Validate() != nil {
+		t.Fatalf("level %d, %v", spec.Level(), spec.Validate())
+	}
+	if got := api.Config("10.252.0.11", "/c.pem", "/k.pem"); got.ListenAddress != "10.252.0.11:8444" || got.Validate() != nil {
+		t.Fatalf("listener %+v: %v", got, got.Validate())
+	}
+	for name, broken := range map[string]func(*MachinesAPI){
+		"http issuer": func(a *MachinesAPI) { a.Issuer = "http://gru.auth.terrascale.tech/terrascale" },
+		"no audience": func(a *MachinesAPI) { a.Audience = "" },
+		"no clients":  func(a *MachinesAPI) { a.Clients = nil },
+		"no key sets": func(a *MachinesAPI) { a.JWKSURLs = nil },
+		"public http": func(a *MachinesAPI) { a.JWKSURLs = []string{"http://gru.auth.terrascale.tech/jwks.json"} },
+	} {
+		invalid := api
+		broken(&invalid)
+		next := spec
+		next.MachinesAPI = &invalid
+		if err := next.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	moved := api
+	moved.Clients = []string{"ts-orch-cli", "ops-smoke"}
+	for name, test := range map[string]struct {
+		before, after *MachinesAPI
+		change        string
+	}{
+		"add":    {after: &api, change: "added"},
+		"change": {before: &api, after: &moved, change: "updated"},
+		"keep":   {before: &api, after: &api},
+		"remove": {before: &api, change: "removed"},
+	} {
+		current, next := testSpec(f.id, 1), testSpec(f.id, 2)
+		current.MachinesAPI, next.MachinesAPI = test.before, test.after
+		plan, err := Diff(current, next, nil)
+		widens := slices.Equal(plan.RootRequired, []string{"machines api"})
+		if err != nil || plan.MachinesAPI != test.change || plan.Empty() != (test.change == "") ||
+			widens != (test.change == "added" || test.change == "updated") {
+			t.Errorf("%s: Diff = %+v, %v", name, plan, err)
+		}
+	}
+}
