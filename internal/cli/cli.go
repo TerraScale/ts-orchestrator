@@ -27,6 +27,7 @@ import (
 	netbirddns "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/dns"
 	netbirdmanager "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/manager"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/networkcheck"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
@@ -59,6 +60,7 @@ Runtime:
 
 Operator tooling:
   dashboard              Check every GRU and SFO dashboard over NetBird (read-only)
+  network                Check address and DNS coexistence of NetBird and Tailscale (read-only)
   verify                 Observe production health, persistence gaps and OIDC (read-only)
   log-scan               Count recent WARN and ERROR records per service and node (read-only)
   operator               Manage workloads through the regional controller
@@ -103,6 +105,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	switch args[0] {
 	case "dashboard":
 		return accesscheck.Run(ctx, args[1:], output)
+	case "network":
+		return networkcheck.Run(ctx, args[1:], output)
 	case "verify":
 		return liveverify.Run(ctx, args[1:], output)
 	case "log-scan":

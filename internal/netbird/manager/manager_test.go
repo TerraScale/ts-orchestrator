@@ -64,6 +64,32 @@ func TestGRUDesiredStateIsConsistentWithTheImageInput(t *testing.T) {
 	}
 }
 
+func TestAddressPlanRejectedBeforeManagerRequests(t *testing.T) {
+	for _, cidr := range []string{"100.64.0.0/10", "10.251.0.0/16", "10.0.0.0/8"} {
+		t.Run(cidr, func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				w.WriteHeader(http.StatusInternalServerError)
+			}))
+			defer server.Close()
+			api, err := NewAPI(server.URL, testPAT)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer api.Close()
+			d := GRU()
+			d.NetworkRange = cidr
+			if _, err := Sync(t.Context(), api, d, true); err == nil || !strings.Contains(err.Error(), "address plan:") {
+				t.Fatalf("expected address-plan rejection, got %v", err)
+			}
+			if calls.Load() != 0 {
+				t.Fatal("invalid plan reached the manager")
+			}
+		})
+	}
+}
+
 // Every catalog region other than the home region gets its servers group,
 // two NetBird SSH policies without a code change
 // (TS-663). GRU's and SFO's objects keep the names, descriptions and order

@@ -71,6 +71,10 @@ dist/ts-orch operator hosts --config operator.json
 ```
 
 See [the unified CLI](docs/cli.md) for command migration and feature boundaries.
+See [the network address plan](docs/network/address-plan.md) for dedicated
+mesh/region/bridge reservations, the live audit and
+`scripts/check-network-coexistence.sh` (exit 0 requires both meshes and DNS
+on PCs/user clients, and NetBird connectivity on regional servers).
 Change a cell's servers and load balancer backends only with `ts-orch node`
 ([node operations](docs/node-operations.md)), never with the `oci` CLI.
 `make release-linux` creates static Linux amd64 and arm64 executables and

@@ -24,6 +24,8 @@ func TestLocalCommandDispatchWithoutRuntimeConfig(t *testing.T) {
 		{args: []string{"log-scan", "--help"}, want: "--fly-app"},
 		{args: []string{"dashboard", "--help"}, want: "24 requests"},
 		{args: []string{"dashboard", "check"}, want: "requires --gru-token-file", wantError: true},
+		{args: []string{"network", "--help"}, want: "--all"},
+		{args: []string{"network", "check", "unexpected"}, want: "no positional arguments", wantError: true},
 		{args: []string{"bootstrap", "--help"}, want: "sign-anchor"},
 		{args: []string{"release", "--help"}, want: "sign-binary"},
 		{args: []string{"image", "--help"}, want: "build-offline"},

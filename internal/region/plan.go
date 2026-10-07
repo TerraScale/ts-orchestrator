@@ -9,10 +9,10 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/networkplan"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -30,15 +30,12 @@ type Live struct {
 // Lookup reads Live for an OCI region of the tenancy.
 type Lookup func(ctx context.Context, tenancy, ociRegion string) (Live, error)
 
-// Network is a region's /24: 10.<251+i>.0.0/24 for the catalog's i-th cell,
-// the rule gru-1 (10.251) and sfo-1 (10.252) were planned by, so no two
-// regions overlap.
+// Network is the initial /24 inside the cell's stable /16 reservation.
 func Network(cell string) (string, error) {
-	i := slices.IndexFunc(catalog.Entries(), func(e catalog.Entry) bool { return e.Cell == cell })
-	if i < 0 {
+	if !catalog.IsCell(cell) {
 		return "", fmt.Errorf("cell %q is not in the region catalog", cell)
 	}
-	return fmt.Sprintf("10.%d.0.0/24", 251+i), nil
+	return networkplan.RegionNetwork(cell)
 }
 
 // Derive returns label's plan in ociRegion from a reviewed plan of another

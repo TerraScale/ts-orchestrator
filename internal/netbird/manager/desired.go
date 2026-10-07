@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/networkplan"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
@@ -135,7 +136,7 @@ func GRU() Desired {
 				Description: "Operators → ts-ops: ICMP ping",
 				Protocol:    "icmp", Sources: []string{"operators"}, Destinations: []string{"ts-ops-gateway"}},
 		}),
-		NetworkRange:      "10.200.0.0/16",
+		NetworkRange:      networkplan.Mesh,
 		PeerDNSDomain:     "nb.ts.internal",
 		DNSDisabledGroups: []string{},
 		Zone: ZoneSpec{Name: "gru-cell", Domain: "gru.ts.internal",
@@ -265,6 +266,9 @@ func (d Desired) Records() []Record {
 // Validate checks internal consistency: referenced groups exist, slots are
 // unique private addresses inside the cell subnet, names are unique.
 func (d Desired) Validate() error {
+	if err := networkplan.ValidateMesh(d.NetworkRange); err != nil {
+		return err
+	}
 	// Names must be unique across current and former names, but references
 	// resolve only against current names: a former name is renamed away.
 	seenGroup, groups := map[string]bool{}, map[string]bool{}
@@ -291,6 +295,10 @@ func (d Desired) Validate() error {
 	subnet, err := netip.ParsePrefix(d.Network.Resource.Address)
 	if err != nil || subnet != subnet.Masked() {
 		return errors.New("desired NetBird cell subnet is not a canonical prefix")
+	}
+	cell, _, _ := strings.Cut(d.Cell, "-")
+	if err := networkplan.ValidateRegion(strings.ToUpper(cell), d.Network.Resource.Address); err != nil {
+		return err
 	}
 	policies := map[string]bool{}
 	for _, policy := range d.Policies {

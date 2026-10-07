@@ -519,7 +519,7 @@ func ppChangeCIDR(p ppObject, cidr, subnet, ip string) {
 	}
 }
 func TestPrivatePeerInputSecurityMatrix(t *testing.T) {
-	cases := []struct{ name, error string }{{"stale_plan", "stale for the SFO plan"}, {"overlap", "CIDRs must not overlap"}, {"wrong_tenancy", "do not share the exact tenancy and realm"}, {"missing_cell", "cell map differs"}, {"wrong_rpc_region", "invalid remotepeeringconnection OCID"}, {"wrong_route_kind", "invalid drgroutetable OCID"}, {"documentation_range", "must be inside an RFC1918 IPv4 range"}, {"stale_inventory", "budget admission is stale"}, {"public_proof", "unexpected or missing fields"}, {"excess_egress", "exceeds the regional plan's priced egress reserve"}, {"duplicate_ports", "sorted, unique, exact TCP ports"}}
+	cases := []struct{ name, error string }{{"stale_plan", "stale for the SFO plan"}, {"overlap", "CIDRs must not overlap"}, {"wrong_tenancy", "do not share the exact tenancy and realm"}, {"missing_cell", "cell map differs"}, {"wrong_rpc_region", "invalid remotepeeringconnection OCID"}, {"wrong_route_kind", "invalid drgroutetable OCID"}, {"documentation_range", "address plan:"}, {"stale_inventory", "budget admission is stale"}, {"public_proof", "unexpected or missing fields"}, {"excess_egress", "exceeds the regional plan's priced egress reserve"}, {"duplicate_ports", "sorted, unique, exact TCP ports"}}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := ppNew(t)
@@ -529,7 +529,11 @@ func TestPrivatePeerInputSecurityMatrix(t *testing.T) {
 			gru := ppMap(mapping["GRU"])
 			switch tc.name {
 			case "stale_plan", "overlap":
-				ppChangeCIDR(p, "10.251.0.0/24", "10.251.0.0/25", "10.251.0.10")
+				if tc.name == "stale_plan" {
+					ppChangeCIDR(p, "10.252.1.0/24", "10.252.1.0/25", "10.252.1.10")
+				} else {
+					ppChangeCIDR(p, "10.251.0.0/24", "10.251.0.0/25", "10.251.0.10")
+				}
 				script.Write(t, f.paths["SFO"][0], ppJSON(t, p), 0600)
 				if tc.name == "overlap" {
 					sfo["plan_sha256"] = ppHash(t, f.paths["SFO"][0])

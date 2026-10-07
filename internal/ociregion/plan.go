@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/networkplan"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
 )
@@ -364,6 +365,9 @@ func (e *Engine) loadPlan(path string) Object {
 	subnet, sok := prefix(p["subnet_cidr"])
 	if !nok || !sok || !privatePrefix(network) || !privatePrefix(subnet) || !within(p["subnet_cidr"], network) {
 		fail("manual VCN and subnet must be nested private CIDRs")
+	}
+	if err := networkplan.ValidateRegion(text(p["cell"]), text(p["network_cidr"])); err != nil {
+		fail(err.Error())
 	}
 	seen = map[string]bool{}
 	for _, v := range hosts {
