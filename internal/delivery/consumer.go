@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -47,9 +48,11 @@ func ConfigDigestOf(args []string, env map[string]string, secrets map[string]vau
 	return hex.EncodeToString(sum[:])
 }
 
-// deliveryConsumerRecovery paces recovery from a consumer failure that is
-// not a transport blip, such as a deleted durable consumer.
-var deliveryConsumerRecovery = struct{ initial, max time.Duration }{time.Second, 30 * time.Second}
+// consumerRecovery paces recovery from a consumer failure that is not a
+// transport blip, such as a deleted durable consumer.
+type consumerRecovery struct{ initial, max time.Duration }
+
+var deliveryConsumerRecovery = consumerRecovery{time.Second, 30 * time.Second}
 
 // Run processes durable intents until ctx is canceled. A message is acknowledged
 // only after its acceptance or rejection has a durable record. Transient errors
@@ -63,7 +66,8 @@ func (s *Service) Run(ctx context.Context) error {
 		return errors.New("delivery consumer ports are not configured")
 	}
 	var diagnostics deliveryRetryDiagnostics
-	recovery := deliveryConsumerRecovery.initial
+	pace := cmp.Or(s.recovery, deliveryConsumerRecovery)
+	recovery := pace.initial
 	recoverConsumer := func(stage string, err error) error {
 		slog.Error("delivery intent consumer failed; recreating it", "stage", stage, "error", err, "retry_in", recovery)
 		select {
@@ -71,7 +75,7 @@ func (s *Service) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-time.After(recovery):
 		}
-		recovery = min(2*recovery, deliveryConsumerRecovery.max)
+		recovery = min(2*recovery, pace.max)
 		if s.js == nil {
 			return nil
 		}
@@ -181,7 +185,7 @@ func (s *Service) Run(ctx context.Context) error {
 			}
 			continue
 		}
-		recovery = deliveryConsumerRecovery.initial
+		recovery = pace.initial
 	}
 	return ctx.Err()
 }

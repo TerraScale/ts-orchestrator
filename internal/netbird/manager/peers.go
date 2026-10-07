@@ -170,7 +170,7 @@ func Prune(ctx context.Context, api *API, d Desired, options PruneOptions, apply
 	slices.SortStableFunc(p.steps, func(a, b step) int {
 		return boolOrder(a.change.Action != "delete") - boolOrder(b.change.Action != "delete")
 	})
-	return p.run(ctx, apply)
+	return p.run(ctx, apply, nil)
 }
 
 // Remove deletes the disconnected server peers of the named slots, matched
@@ -209,7 +209,7 @@ func Remove(ctx context.Context, api *API, d Desired, slots []string, apply bool
 			return api.do(ctx, "DELETE", "/peers/"+id, nil, nil)
 		})
 	}
-	return p.run(ctx, apply)
+	return p.run(ctx, apply, nil)
 }
 
 // serverPeers lists the peers in the servers group. Peers outside it are

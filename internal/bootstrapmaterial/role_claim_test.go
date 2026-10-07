@@ -12,6 +12,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/roleidentity"
 )
 
 // New material's cell account carries the role signer the controllers
@@ -95,6 +96,26 @@ func TestRoleClaimAddsTheControllersRoleSigner(t *testing.T) {
 	}
 	if err := issuer.ValidateRoleScope(raw); err != nil {
 		t.Fatalf("the controllers refuse the role claim (signer %s): %v", signer, err)
+	}
+
+	// A claim whose role signer has an older scope (gru-1 and sfo-1 before
+	// TS-668's query grants): the controllers refuse it, and role-claim
+	// replaces the scope in place.
+	stale := mustDecode(t, raw)
+	old := roleidentity.Scope(signer)
+	old.Template.Pub.Allow, old.Template.Sub.Allow, old.Template.Resp = old.Template.Pub.Allow[:5], old.Template.Sub.Allow[:1], nil
+	stale.SigningKeys.AddScopedSigner(old)
+	staleJWT, err := stale.Encode(operator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := issuer.ValidateRoleScope(staleJWT); err == nil {
+		t.Fatal("the controllers accept a role signer with an older scope")
+	}
+	time.Sleep(time.Second)
+	if replaced, _, err := bootstrapmaterial.RoleClaim(directory, staleJWT); err != nil || issuer.ValidateRoleScope(replaced) != nil ||
+		len(mustDecode(t, replaced).SigningKeys) != 2 {
+		t.Fatalf("role-claim did not replace the older scope: %v", err)
 	}
 	if _, _, err := bootstrapmaterial.RoleClaim(directory, string(read("system.jwt"))); err == nil {
 		t.Fatal("another account's claim was signed")

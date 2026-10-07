@@ -46,6 +46,11 @@ var handlers = map[string]handler{
 	"network drg-route-distribution get":            networkDrgRouteDistributionGet,
 	"network drg-route-distribution-statement list": networkDrgRouteDistributionStatementList,
 	"network drg-route-rule list":                   networkDrgRouteRuleList,
+	"network drg-route-table get":                   networkDrgRouteTableGet,
+	"network drg-route-table list":                  networkDrgRouteTableList,
+	"network drg-route-distribution list":           networkDrgRouteDistributionList,
+	"network drg list":                              networkDrgList,
+	"network remote-peering-connection list":        networkRemotePeeringConnectionList,
 	"network remote-peering-connection get":         networkRemotePeeringConnectionGet,
 	"compute instance list-vnics":                   computeInstanceListVnics,
 	"compute image list":                            computeImageList,
@@ -268,6 +273,21 @@ var (
 		response, err := client.GetDrgRouteDistribution(ctx, core.GetDrgRouteDistributionRequest{DrgRouteDistributionId: &id})
 		return response.DrgRouteDistribution, err
 	})
+	networkDrgRouteTableGet = networkGet("drg-route-table-id", func(ctx context.Context, client core.VirtualNetworkClient, id string) (core.DrgRouteTable, error) {
+		response, err := client.GetDrgRouteTable(ctx, core.GetDrgRouteTableRequest{DrgRouteTableId: &id})
+		return response.DrgRouteTable, err
+	})
+	networkDrgList = listIn((*Client).network,
+		func(ctx context.Context, client core.VirtualNetworkClient, compartment string, _ Command, page *string) ([]core.Drg, *string, error) {
+			response, err := client.ListDrgs(ctx, core.ListDrgsRequest{CompartmentId: &compartment, Page: page})
+			return response.Items, response.OpcNextPage, err
+		})
+	networkRemotePeeringConnectionList = listIn((*Client).network,
+		func(ctx context.Context, client core.VirtualNetworkClient, compartment string, command Command, page *string) ([]core.RemotePeeringConnection, *string, error) {
+			response, err := client.ListRemotePeeringConnections(ctx, core.ListRemotePeeringConnectionsRequest{CompartmentId: &compartment,
+				DrgId: command.optional("drg-id"), Page: page})
+			return response.Items, response.OpcNextPage, err
+		})
 	networkRemotePeeringConnectionGet = networkGet("remote-peering-connection-id", func(ctx context.Context, client core.VirtualNetworkClient, id string) (core.RemotePeeringConnection, error) {
 		response, err := client.GetRemotePeeringConnection(ctx, core.GetRemotePeeringConnectionRequest{RemotePeeringConnectionId: &id})
 		return response.RemotePeeringConnection, err
@@ -338,6 +358,36 @@ func networkDrgRouteRuleList(ctx context.Context, c *Client, command Command) (a
 	}
 	return pages(command.All, func(page *string) ([]core.DrgRouteRule, *string, error) {
 		response, err := client.ListDrgRouteRules(ctx, core.ListDrgRouteRulesRequest{DrgRouteTableId: &id, Page: page})
+		return response.Items, response.OpcNextPage, err
+	})
+}
+
+func networkDrgRouteTableList(ctx context.Context, c *Client, command Command) (any, error) {
+	id, err := command.flag("drg-id")
+	if err != nil {
+		return nil, err
+	}
+	client, err := c.network()
+	if err != nil {
+		return nil, err
+	}
+	return pages(command.All, func(page *string) ([]core.DrgRouteTable, *string, error) {
+		response, err := client.ListDrgRouteTables(ctx, core.ListDrgRouteTablesRequest{DrgId: &id, Page: page})
+		return response.Items, response.OpcNextPage, err
+	})
+}
+
+func networkDrgRouteDistributionList(ctx context.Context, c *Client, command Command) (any, error) {
+	id, err := command.flag("drg-id")
+	if err != nil {
+		return nil, err
+	}
+	client, err := c.network()
+	if err != nil {
+		return nil, err
+	}
+	return pages(command.All, func(page *string) ([]core.DrgRouteDistribution, *string, error) {
+		response, err := client.ListDrgRouteDistributions(ctx, core.ListDrgRouteDistributionsRequest{DrgId: &id, Page: page})
 		return response.Items, response.OpcNextPage, err
 	})
 }

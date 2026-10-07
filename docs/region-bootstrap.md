@@ -1027,6 +1027,50 @@ combined monthly ceiling. Do not assume an allowance per RPC, pair, or direction
 or a private-peering bandwidth discount. Select peering for private addressing
 and the intended network boundary.
 
+### Create a pair's peering with `ts-orch oci-region peer`
+
+`peer` creates what `inspect-private-peer` reads back (steps 2 and 3): per
+cell a DRG `<cell>-drg` with the VCN attached, an RPC `<cell>-rpc-<peer>`, DRG
+route tables `<cell>-drg-{vcn,rpc}-routes` whose import distributions accept
+only the paired attachment, the peer subnet's route through the DRG, and the
+intent's TCP ports from and to the peer subnet in the controller NSG and the
+security list. The left RPC connects to the right one. Like the inspector, it
+checks only the peer path: the plan's subnet routes must be present, and only
+the peer's own route and rules may reach into the peer VCN; other live rules,
+such as a NAT gateway default route or HTTPS egress, are kept. It only adds:
+route table and security list updates resend every live rule and carry the
+read's ETag, and a conflicting live rule is refused, never removed.
+
+1. Write the pair intent with null resource OCIDs. `plan_sha256` is the
+   SHA-256 of each bound plan file:
+
+   ```json
+   {"schema_version": 1, "tenancy_id": "ocid1.tenancy.oc1..…", "realm": "oc1", "allowed_tcp_ports": [7422],
+    "cells": {"SFO": {"plan_sha256": "…", "monthly_cross_region_egress_gb": 10,
+                      "drg_id": null, "vcn_attachment_id": null, "rpc_id": null, "rpc_attachment_id": null,
+                      "vcn_drg_route_table_id": null, "rpc_drg_route_table_id": null,
+                      "vcn_import_distribution_id": null, "rpc_import_distribution_id": null},
+              "GRU": {"…": "the same fields for gru-1"}}}
+   ```
+
+2. Review the changes; nothing is written:
+
+   ```sh
+   ts-orch oci-region peer --pair-intent pair.json --left-plan sfo-1-bound.json \
+     --right-plan gru-1-bound.json --out pair-bound.json
+   ```
+
+3. Rerun with `--apply`. It refuses before any change if either side would
+   fail inspection, writes `pair-bound.json` with the OCIDs bound and runs the
+   inspector's live network checks on it. A rerun resumes and changes nothing
+   once complete.
+4. Read back the receipt with `inspect-private-peer --pair-intent
+   pair-bound.json` and both cells' plans, inventories and admissions.
+
+`inspect-foundation` still compares each cell's rules exactly with its plan,
+so it reports the peer rules, and sfo-1's hand-added NAT route and egress, as
+drift until the plans carry them.
+
 ## Bootstrap sequence
 
 1. Create the reviewed regional foundation under the selected ownership

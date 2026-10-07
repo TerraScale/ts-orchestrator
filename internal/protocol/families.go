@@ -232,6 +232,14 @@ func InterRegionObservabilityLeaves() []string {
 // observability leaf of cell, for example ts.orch.v1.gru.obs.region.
 func InterRegionObservabilitySubject(cell, leaf string) string { return Regional(cell, "obs", leaf) }
 
+// RoleQueryTemplates are a role user's query grants (TS-668), with cell and
+// verb as user-template expressions such as {{tag(cell)}}: it requests verb
+// in every cell, across the interregion links too, and answers it only in
+// its own.
+func RoleQueryTemplates(cell, verb string) (publish, subscribe string) {
+	return SubjectRoot + ".*.query." + verb + ".>", SubjectRoot + "." + cell + ".query." + verb + ".>"
+}
+
 // InboxPrefix is a user's private reply inbox prefix without the trailing ">".
 func InboxPrefix(cell, userKey string) string { return Regional(cell, "inbox", userKey) }
 

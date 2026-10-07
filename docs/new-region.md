@@ -7,7 +7,8 @@ serves (TS-663). Both are `ts-orch region`, package
 ```sh
 export CF_API_TOKEN=...   # gru-1-cloudflare-dns-edit-token
 export NB_PAT=...         # gru-1-netbird-admin-pat
-ts-orch region create fra eu-frankfurt-1 --state /var/lib/ts-region/fra-1 --attempt-base ~/attempt-base.json
+ts-orch region create fra eu-frankfurt-1 --state /var/lib/ts-region/fra-1 --attempt-base ~/attempt-base.json \
+  --home-plan ~/gru-1-bound-plan.json
 ts-orch region verify fra --plan /var/lib/ts-region/fra-1/bound-plan.json
 ```
 
@@ -31,6 +32,8 @@ region's evidence PR.
      the region's own copy);
    - the home region's operator material in `/var/lib/terrascale-operator`
      (`--home-operator`), since Atlas lives in gru-1's cell spec;
+   - gru-1's bound plan (`--home-plan`, required), the region's private
+     peer;
    - an attempt base: the [attempt](region-bootstrap.md#bootstrap-sequence)
      settings every region shares (`trust`, `tools`, `orchestrator`,
      `image` without `netbird_config`, `terrabase`, `namespace`,
@@ -55,6 +58,7 @@ region's evidence PR.
 | found | The founding attempt: material, release, image, three nodes, operator material, the TerraBase and ts-auth services and their host grants | `oci-region attempt up` |
 | edge-cert | The Origin CA certificate in the Vault | `oci-region public-api cert --apply` |
 | edge | The L7 load balancer, its listeners and backend sets; records its IDs in `bound-plan.json` | `oci-region public-api apply` |
+| peer | The private DRG/RPC peering with gru-1 ([inter-region private networking](region-bootstrap.md#create-a-pairs-peering-with-ts-orch-oci-region-peer)): TCP 7422 (NATS leafnodes) and 9443 (TerraBase) between the private subnets; after `edge`, so it pins the final bound plan; writes `peer-intent.json` once, pinning both plans, and `peer-bound-intent.json` | `oci-region peer --apply` |
 | dns | Full (strict), zone AOP and proxied `<label>.api`, `<label>.auth` and `<label>.orch` | `oci-region dns --apply` |
 | atlas | The region in gru-1's `atlas` section, root-signed | `atlas add-region`, `release sign-spec --root`, `apply` |
 | verify | `region verify`, retried for `--wait` (30 minutes) | in process |

@@ -37,6 +37,8 @@ type fakeOCI struct {
 	writes    []string
 	args      [][]string
 	failOn    string
+	// peer serves the private peering's actions; see peer_test.go.
+	peer func(region string, c sdkcli.Command) (any, bool, error)
 }
 
 type row struct {
@@ -55,6 +57,9 @@ var kinds = map[string]struct {
 	"vcn": {"vcn", false, "AVAILABLE"}, "service-gateway": {"servicegateway", false, "AVAILABLE"}, "route-table": {"routetable", false, "AVAILABLE"},
 	"security-list": {"securitylist", false, "AVAILABLE"}, "subnet": {"subnet", false, "AVAILABLE"}, "nsg": {"networksecuritygroup", false, "AVAILABLE"},
 	"vault": {"vault", false, "CREATING"}, "key": {"key", false, "CREATING"}, "bucket": {"bucket", false, ""},
+	"drg": {"drg", false, "AVAILABLE"}, "remote-peering-connection": {"remotepeeringconnection", false, "AVAILABLE"},
+	"drg-route-distribution": {"drgroutedistribution", false, "AVAILABLE"}, "drg-route-table": {"drgroutetable", false, "AVAILABLE"},
+	"drg-attachment": {"drgattachment", false, "ATTACHED"},
 }
 
 func newFake() *fakeOCI {
@@ -66,9 +71,15 @@ type client struct {
 	region string
 }
 
+// Call prints a route table's or security list's ETag beside its data, as
+// the oci CLI does.
 func (c client) Call(_ context.Context, args ...string) (map[string]any, error) {
 	v, err := c.f.handle(c.region, args)
-	return map[string]any{"data": v}, err
+	r := map[string]any{"data": v}
+	if m, ok := v.(Object); ok && m["etag"] != nil {
+		r["etag"] = m["etag"]
+	}
+	return r, err
 }
 func (c client) Head(context.Context, ...string) error { return errors.New("unexpected head") }
 
@@ -158,6 +169,11 @@ func (f *fakeOCI) handle(region string, args []string) (any, error) {
 			return nil, errors.New("403 NotAllowed: IAM writes are accepted only in the home region")
 		}
 	}
+	if f.peer != nil {
+		if v, ok, err := f.peer(region, c); ok {
+			return v, err
+		}
+	}
 	switch c.Path {
 	case "os ns get":
 		return "fakens", nil
@@ -217,8 +233,28 @@ func (f *fakeOCI) handle(region string, args []string) (any, error) {
 			if _, err := f.bucket(region, flags["name"]); err == nil {
 				return nil, errors.New("409 BucketAlreadyExists")
 			}
+		case "route-table", "security-list":
+			data["etag"] = "1"
+		case "drg-route-distribution", "drg-route-table", "drg-attachment":
+			data["compartment-id"] = f.rows[flags["drg-id"]].data["compartment-id"]
+			if kind == "drg-route-table" {
+				data["import-drg-route-distribution-id"] = data["import-route-distribution-id"]
+				delete(data, "import-route-distribution-id")
+			}
+			if kind == "drg-attachment" {
+				data["is-cross-tenancy"] = false
+			}
+		case "remote-peering-connection":
+			data["peering-status"], data["is-cross-tenancy-peering"] = "NEW", false
 		}
-		return clone(f.rows[f.add(kind, region, data)].data), nil
+		id := f.add(kind, region, data)
+		if kind == "remote-peering-connection" {
+			// OCI attaches a new RPC to its DRG's default RPC route table.
+			f.add("drg-attachment", region, Object{"compartment-id": data["compartment-id"], "drg-id": data["drg-id"],
+				"network-details": Object{"type": "REMOTE_PEERING_CONNECTION", "id": id}, "is-cross-tenancy": false,
+				"drg-route-table-id": "ocid1.drgroutetable.oc1." + region + ".default"})
+		}
+		return clone(f.rows[id].data), nil
 	case "get":
 		for name, id := range flags {
 			if !strings.HasSuffix(name, "-id") && name != "rt-id" {
@@ -243,9 +279,11 @@ func (f *fakeOCI) handle(region string, args []string) (any, error) {
 			endpointVault = f.find("vault", region, func(o Object) bool { return o["management-endpoint"] == endpoint })[0].data["id"]
 		}
 		r := []any{}
+		attachment := flags["attachment-type"]
 		for _, x := range f.find(kind, region, func(o Object) bool {
-			return o["compartment-id"] == flags["compartment-id"] && (flags["vcn-id"] == "" || o["vcn-id"] == flags["vcn-id"]) &&
-				(endpointVault == nil || o["vault-id"] == endpointVault)
+			return (flags["compartment-id"] == "" || o["compartment-id"] == flags["compartment-id"]) && (flags["vcn-id"] == "" || o["vcn-id"] == flags["vcn-id"]) &&
+				(endpointVault == nil || o["vault-id"] == endpointVault) && (flags["drg-id"] == "" || o["drg-id"] == flags["drg-id"]) &&
+				(attachment == "" || attachment == "ALL" || obj(o["network-details"])["type"] == attachment)
 		}) {
 			r = append(r, clone(x.data))
 		}

@@ -21,7 +21,10 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
 )
 
-const sfoPlan = "../../deploy/oci-region/sfo-1-plan.json"
+const (
+	sfoPlan  = "../../deploy/oci-region/sfo-1-plan.json"
+	homePlan = "../../deploy/oci-region/plan.json"
+)
 
 var (
 	sfoLive = Live{AvailabilityDomain: "YDvv:US-SANJOSE-1-AD-1",
@@ -164,7 +167,7 @@ func newCreation(t *testing.T) *creation {
 	clock := time.Date(2026, 10, 7, 16, 0, 0, 0, time.UTC)
 	c := &creation{}
 	c.Creation = &Creation{Label: "fra", OCIRegion: "eu-frankfurt-1", State: filepath.Join(dir, "state"), Template: sfoPlan,
-		AttemptBase: base, HomeOperator: "/var/lib/terrascale-operator/operator.json", Wait: time.Minute, Out: &bytes.Buffer{},
+		AttemptBase: base, HomeOperator: "/var/lib/terrascale-operator/operator.json", HomePlan: homePlan, Wait: time.Minute, Out: &bytes.Buffer{},
 		Now:    func() time.Time { clock = clock.Add(time.Minute); return clock },
 		Lookup: func(_ context.Context, tenancy, region string) (Live, error) { return fraLive, nil },
 		Verify: func(_ context.Context, bound string, wait time.Duration) error {
@@ -228,6 +231,8 @@ func TestCreateRunsEveryStepOnceAndResumes(t *testing.T) {
 		"oci-region attempt --config " + state + "/attempt.json up",
 		"oci-region public-api cert --plan " + state + "/bound-plan.json --apply",
 		"oci-region public-api apply --plan " + state + "/bound-plan.json --member-ca " + state + "/attempt/material/terrabase-member-ca.pem --cell-ca " + state + "/attempt/material/ca.pem",
+		"oci-region peer --pair-intent " + state + "/peer-intent.json --left-plan " + state + "/bound-plan.json --right-plan " + homePlan +
+			" --out " + state + "/peer-bound-intent.json --apply",
 		"oci-region dns --plan " + state + "/bound-plan.json --apply",
 		"oci-region dns --plan " + state + "/bound-plan.json --apply",
 		"sudo atlas add-region --config /var/lib/terrascale-operator/operator.json --cell fra-1 --out " + state + "/atlas.candidate.json",
@@ -263,6 +268,65 @@ func TestCreateRunsEveryStepOnceAndResumes(t *testing.T) {
 	}
 }
 
+// The peer step pins both plans in a draft pair intent once and peers the
+// region with the global home; a plan changed since is refused.
+func TestCreatePeersWithTheHome(t *testing.T) {
+	// After edge, which rewrites bound-plan.json with the load balancer's
+	// IDs: the intent pins the final plan.
+	if i := slices.Index(Steps, "peer"); i < 1 || Steps[i-1] != "edge" {
+		t.Fatalf("steps %v", Steps)
+	}
+	c := newCreation(t)
+	c.failOn = "oci-region dns" // stop right after peer
+	if err := c.Create(t.Context()); err == nil {
+		t.Fatal("a failed dns step passed")
+	}
+	state, bound := c.State, filepath.Join(c.State, "bound-plan.json")
+	call := "oci-region peer --pair-intent " + state + "/peer-intent.json --left-plan " + bound + " --right-plan " + homePlan +
+		" --out " + state + "/peer-bound-intent.json --apply"
+	if !slices.Contains(c.calls, call) {
+		t.Fatalf("calls:\n%s", strings.Join(c.calls, "\n"))
+	}
+	written, err := os.ReadFile(filepath.Join(state, "peer-intent.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var intent map[string]any
+	if err := json.Unmarshal(written, &intent); err != nil {
+		t.Fatal(err)
+	}
+	cells := intent["cells"].(map[string]any)
+	for cell, path := range map[string]string{"FRA": bound, "GRU": homePlan} {
+		sum, _ := ociregion.SHA256(path)
+		row := cells[cell].(map[string]any)
+		if row["plan_sha256"] != sum || row["monthly_cross_region_egress_gb"] != 10.0 || row["drg_id"] != nil || len(row) != 10 {
+			t.Fatalf("%s row %v", cell, row)
+		}
+	}
+	if !reflect.DeepEqual(intent["allowed_tcp_ports"], []any{7422.0, 9443.0}) || intent["realm"] != "oc1" ||
+		intent["tenancy_id"] != load(t, homePlan)["tenancy_id"] || len(cells) != 2 {
+		t.Fatalf("intent %s", written)
+	}
+	// A rerun reuses the intent.
+	c.calls = nil
+	if err := c.peer(t.Context(), "fra-1"); err != nil || !slices.Equal(c.calls, []string{call}) {
+		t.Fatalf("rerun: %v %v", err, c.calls)
+	}
+	if again, _ := os.ReadFile(filepath.Join(state, "peer-intent.json")); !bytes.Equal(again, written) {
+		t.Fatal("rerun rewrote the intent")
+	}
+	// A plan changed since is refused before the runner.
+	plan := load(t, bound)
+	plan["resource_ids"].(map[string]any)["subnet"] = "ocid1.subnet.oc1.eu-frankfurt-1.aaaachanged"
+	if err := writePlan(bound, plan); err != nil {
+		t.Fatal(err)
+	}
+	c.calls = nil
+	if err := c.peer(t.Context(), "fra-1"); err == nil || !strings.Contains(err.Error(), "delete it") || len(c.calls) != 0 {
+		t.Fatalf("stale intent: %v %v", err, c.calls)
+	}
+}
+
 func TestCreateRefusesBeforeSpending(t *testing.T) {
 	c := newCreation(t)
 	t.Setenv("CF_API_TOKEN", "")
@@ -270,6 +334,13 @@ func TestCreateRefusesBeforeSpending(t *testing.T) {
 		t.Fatal("ran without the Cloudflare token")
 	}
 	t.Setenv("CF_API_TOKEN", "token")
+	for _, plan := range []string{"", sfoPlan} {
+		c.HomePlan = plan
+		if err := c.Create(t.Context()); err == nil || !strings.Contains(err.Error(), "home") || len(c.calls) != 0 {
+			t.Fatalf("ran with --home-plan %q: %v", plan, err)
+		}
+	}
+	c.HomePlan = homePlan
 	c.Label, c.OCIRegion = "gru", "sa-saopaulo-1"
 	if err := c.Create(t.Context()); err == nil || len(c.calls) != 0 {
 		t.Fatal("created the home region")

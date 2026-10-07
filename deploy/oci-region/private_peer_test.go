@@ -415,7 +415,7 @@ func TestPrivatePeerConfigurationReceipt(t *testing.T) {
 	}
 }
 func TestPrivatePeerReadbackSecurityMatrix(t *testing.T) {
-	cases := []struct{ name, error string }{{"null_vcn_id", ""}, {"absent_vcn_id", ""}, {"matching_vcn_id", ""}, {"mismatched_vcn_id", "VCN DRG attachment identity"}, {"disconnected", "live RPC is disconnected, asymmetric"}, {"asymmetric", "live RPC is disconnected, asymmetric"}, {"wrong_peer_region", "live RPC is disconnected, asymmetric"}, {"extra_drg_route", "DRG route table rules"}, {"extra_subnet_route", "reciprocal subnet route table"}, {"broad_import", "DRG import distribution is not scoped"}, {"extra_import_statement", "contains extra statements"}, {"extra_attachment", "unexpected, missing, or disconnected attachment"}, {"wrong_owner", "DRG is unavailable or owned by another compartment"}, {"wide_nsg", "peer NSG rules"}, {"wrong_peer_port", "peer NSG rules"}}
+	cases := []struct{ name, error string }{{"null_vcn_id", ""}, {"absent_vcn_id", ""}, {"matching_vcn_id", ""}, {"mismatched_vcn_id", "VCN DRG attachment identity"}, {"disconnected", "live RPC is disconnected, asymmetric"}, {"asymmetric", "live RPC is disconnected, asymmetric"}, {"wrong_peer_region", "live RPC is disconnected, asymmetric"}, {"extra_drg_route", "DRG route table rules"}, {"per_subnet_drg_routes", ""}, {"drg_route_outside_peer_vcn", "DRG route table rules"}, {"drg_route_misses_private_subnet", "do not reach the peer's private subnet"}, {"unrelated_nat_route", ""}, {"route_into_peer_vcn", "reciprocal subnet route table"}, {"missing_plan_route", "reciprocal subnet route table"}, {"unrelated_egress", ""}, {"egress_to_peer_vcn", "peer security-list egress rules"}, {"missing_peer_egress", "peer security-list egress rules"}, {"unrelated_nsg_rule", ""}, {"peer_port_on_security_list", ""}, {"peer_other_port_on_security_list", "peer security-list ingress rules"}, {"unrelated_icmp", ""}, {"broad_import", "DRG import distribution is not scoped"}, {"extra_import_statement", "contains extra statements"}, {"extra_attachment", "unexpected, missing, or disconnected attachment"}, {"wrong_owner", "DRG is unavailable or owned by another compartment"}, {"wide_nsg", "peer NSG rules"}, {"wrong_peer_port", "peer NSG rules"}}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := ppNew(t)
@@ -440,12 +440,48 @@ func TestPrivatePeerReadbackSecurityMatrix(t *testing.T) {
 				ppMap(get("network drg get", ""))["compartment-id"] = "ocid1.compartment.oc1..foreignowner"
 			case "extra_attachment":
 				set("network drg-attachment list", "", append(ppRows(get("network drg-attachment list", "")), ppObject{"id": "ocid1.drgattachment.oc1.sa-saopaulo-1.unexpected", "lifecycle-state": "ATTACHED"}))
-			case "extra_subnet_route":
+			case "unrelated_nat_route", "route_into_peer_vcn":
+				// A default route loses to the peer subnet route; one inside the peer VCN does not.
+				destination := map[string]string{"unrelated_nat_route": "0.0.0.0/0", "route_into_peer_vcn": "10.252.0.0/24"}[tc.name]
 				r := ppMap(get("network route-table get", ""))
-				r["route-rules"] = append(ppRows(r["route-rules"]), ppObject{"destination": "0.0.0.0/0", "destination-type": "CIDR_BLOCK", "network-entity-id": own["drg"]})
+				r["route-rules"] = append(ppRows(r["route-rules"]), ppObject{"destination": destination, "destination-type": "CIDR_BLOCK", "network-entity-id": "ocid1.natgateway.oc1.sa-saopaulo-1.other"})
+			case "missing_plan_route":
+				r := ppMap(get("network route-table get", ""))
+				r["route-rules"] = ppRows(r["route-rules"])[1:]
+			case "unrelated_egress", "egress_to_peer_vcn":
+				rule := ppObject{"protocol": "all", "destination": "10.252.0.0/24", "destination-type": "CIDR_BLOCK", "is-stateless": false}
+				if tc.name == "unrelated_egress" {
+					rule = ppObject{"protocol": "6", "destination": "173.245.48.0/20", "destination-type": "CIDR_BLOCK", "is-stateless": false, "tcp-options": ppObject{"destination-port-range": ppObject{"min": 443, "max": 443}}}
+				}
+				sl := ppMap(get("network security-list get", ""))
+				sl["egress-security-rules"] = append(ppRows(sl["egress-security-rules"]), rule)
+			case "missing_peer_egress":
+				sl := ppMap(get("network security-list get", ""))
+				rules := ppRows(sl["egress-security-rules"])
+				sl["egress-security-rules"] = rules[:len(rules)-1]
+			case "unrelated_nsg_rule":
+				set("network nsg rules", "", append(ppRows(get("network nsg rules", "")), ppObject{"direction": "INGRESS", "protocol": "6", "source": "10.250.10.155/32", "source-type": "CIDR_BLOCK", "is-stateless": false, "tcp-options": ppObject{"destination-port-range": ppObject{"min": 443, "max": 443}}}))
+			case "peer_port_on_security_list", "peer_other_port_on_security_list":
+				port := map[string]int{"peer_port_on_security_list": 7422, "peer_other_port_on_security_list": 22}[tc.name]
+				sl := ppMap(get("network security-list get", ""))
+				sl["ingress-security-rules"] = append(ppRows(sl["ingress-security-rules"]), ppObject{"protocol": "6", "source": "10.252.0.0/25", "source-type": "CIDR_BLOCK", "is-stateless": false, "tcp-options": ppObject{"destination-port-range": ppObject{"min": port, "max": port}}})
+			case "unrelated_icmp":
+				sl := ppMap(get("network security-list get", ""))
+				sl["ingress-security-rules"] = append(ppRows(sl["ingress-security-rules"]), ppObject{"protocol": "1", "source": "10.251.0.0/24", "source-type": "CIDR_BLOCK", "is-stateless": false, "icmp-options": ppObject{"type": 3, "code": 4}})
 			case "extra_drg_route":
 				id := own["vcn_route"].(string)
 				set("network drg-route-rule list", id, append(ppRows(get("network drg-route-rule list", id)), ppObject{"destination": "0.0.0.0/0", "destination-type": "CIDR_BLOCK", "next-hop-drg-attachment-id": own["rpc_attachment"], "route-type": "STATIC", "is-conflict": false, "is-blackhole": false}))
+			case "per_subnet_drg_routes", "drg_route_outside_peer_vcn", "drg_route_misses_private_subnet":
+				// OCI advertises the peer VCN per subnet: its private /25 and
+				// the public /26 of its load balancer.
+				destinations := map[string][]string{"per_subnet_drg_routes": {"10.252.0.0/25", "10.252.0.128/26"},
+					"drg_route_outside_peer_vcn": {"10.252.0.0/25", "10.9.0.0/24"}, "drg_route_misses_private_subnet": {"10.252.0.128/26"}}[tc.name]
+				var routes []any
+				for _, destination := range destinations {
+					routes = append(routes, ppObject{"destination": destination, "destination-type": "CIDR_BLOCK", "next-hop-drg-attachment-id": own["rpc_attachment"],
+						"route-type": "DYNAMIC", "is-conflict": false, "is-blackhole": nil})
+				}
+				set("network drg-route-rule list", own["vcn_route"].(string), routes)
 			case "broad_import":
 				id := own["vcn_import"].(string)
 				ppMap(ppRows(get("network drg-route-distribution-statement list", id))[0])["match-criteria"] = []any{ppObject{"match-type": "MATCH_ALL"}}

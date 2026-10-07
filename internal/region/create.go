@@ -18,6 +18,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 )
 
 // Runner runs one ts-orch command, as root when sudo is set, and returns its
@@ -40,7 +41,9 @@ type Creation struct {
 	// HomeOperator is the global home's operator config; Atlas lives
 	// in the home cell's spec.
 	HomeOperator string
-	Deployment   string
+	// HomePlan is the global home's bound plan, the region's private peer.
+	HomePlan   string
+	Deployment string
 	// Wait bounds the final verification while the cell starts serving.
 	Wait time.Duration
 
@@ -66,7 +69,7 @@ type Entry struct {
 }
 
 // Steps is the order region create runs.
-var Steps = []string{"plan", "foundation", "netbird", "ts-auth-secrets", "found", "edge-cert", "edge", "dns", "atlas", "verify"}
+var Steps = []string{"plan", "foundation", "netbird", "ts-auth-secrets", "found", "edge-cert", "edge", "peer", "dns", "atlas", "verify"}
 
 func (c *Creation) path(name string) string { return filepath.Join(c.State, name) }
 
@@ -85,6 +88,12 @@ func (c *Creation) Create(ctx context.Context) error {
 	if os.Getenv("CF_API_TOKEN") == "" || os.Getenv("NB_PAT") == "" {
 		return errors.New("region create needs CF_API_TOKEN and NB_PAT (gru-1-cloudflare-dns-edit-token and gru-1-netbird-admin-pat, docs/secrets.md)")
 	}
+	if c.HomePlan == "" {
+		return errors.New("region create needs --home-plan, the global home's bound plan, to peer the region with it")
+	}
+	if home, err := ociregion.LoadPlan(c.HomePlan); err != nil || home["cell"] != catalog.Bootstrap {
+		return fmt.Errorf("--home-plan %s is not the global home's plan: %v", c.HomePlan, err)
+	}
 	if err := os.MkdirAll(c.State, 0o700); err != nil {
 		return err
 	}
@@ -97,7 +106,7 @@ func (c *Creation) Create(ctx context.Context) error {
 		return err
 	}
 	steps := map[string]func(context.Context, string) error{
-		"plan": c.plan, "foundation": c.foundation, "netbird": c.netbird, "ts-auth-secrets": c.secrets, "found": c.found,
+		"plan": c.plan, "foundation": c.foundation, "peer": c.peer, "netbird": c.netbird, "ts-auth-secrets": c.secrets, "found": c.found,
 		"edge-cert": c.edgeCert, "edge": c.edge, "dns": c.dns, "atlas": c.atlas,
 		"verify": func(ctx context.Context, _ string) error { return c.Verify(ctx, c.path("bound-plan.json"), c.Wait) },
 	}
@@ -194,6 +203,54 @@ func writePlan(path string, plan map[string]any) error {
 func (c *Creation) foundation(ctx context.Context, _ string) error {
 	_, err := c.Run(ctx, false, "oci-region", "foundation", "--plan", c.path("plan.json"), "--out", c.path("bound-plan.json"), "--apply")
 	return err
+}
+
+// peerPorts are the TCP ports the region and the global home open to each
+// other's private subnet: NATS leafnodes between regions and TerraBase's
+// peer port.
+var peerPorts = []int{7422, 9443}
+
+// peer connects the region (left) and the global home (right) over a private
+// DRG and remote peering connection with `oci-region peer` (TS-668). The
+// draft pair intent is written once and pins both plans; a plan changed
+// since is refused, so the intent is reviewed before it is replaced.
+func (c *Creation) peer(ctx context.Context, _ string) error {
+	intent, bound := c.path("peer-intent.json"), c.path("bound-plan.json")
+	draft, err := foundation.DraftPeerIntent(bound, c.HomePlan, peerPorts)
+	if err != nil {
+		return err
+	}
+	if data, err := os.ReadFile(intent); errors.Is(err, os.ErrNotExist) {
+		if err := writeJSON(intent, draft); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	} else if !samePlans(data, draft) {
+		return fmt.Errorf("%s pins plans that changed since it was written; review the change, delete it and rerun", intent)
+	}
+	_, err = c.Run(ctx, false, "oci-region", "peer", "--pair-intent", intent, "--left-plan", bound, "--right-plan", c.HomePlan,
+		"--out", c.path("peer-bound-intent.json"), "--apply")
+	return err
+}
+
+// samePlans reports whether a written pair intent pins the plans of draft.
+func samePlans(data []byte, draft map[string]any) bool {
+	var pinned struct {
+		Cells map[string]struct {
+			PlanSHA256 string `json:"plan_sha256"`
+		} `json:"cells"`
+	}
+	cells, _ := draft["cells"].(map[string]any)
+	if json.Unmarshal(data, &pinned) != nil || len(pinned.Cells) != len(cells) {
+		return false
+	}
+	for cell, row := range cells {
+		if pinned.Cells[cell].PlanSHA256 != row.(map[string]any)["plan_sha256"] {
+			return false
+		}
+	}
+	return true
 }
 
 // netbird lets the region's nodes enroll in NetBird: its servers group and

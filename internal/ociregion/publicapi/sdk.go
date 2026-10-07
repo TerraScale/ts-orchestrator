@@ -1,6 +1,7 @@
 package publicapi
 
 import (
+	"cmp"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -170,6 +171,10 @@ func (c *SDKClient) Head(ctx context.Context, args ...string) error {
 }
 
 func (c *SDKClient) wrap(value any) (map[string]any, error) {
+	var etag *string
+	if t, ok := value.(tagged); ok {
+		value, etag = t.value, t.etag
+	}
 	data, err := sdkcli.Render(value)
 	if err != nil {
 		return nil, err
@@ -177,6 +182,9 @@ func (c *SDKClient) wrap(value any) (map[string]any, error) {
 	var decoded any
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return nil, err
+	}
+	if etag != nil {
+		return map[string]any{"data": decoded, "etag": *etag}, nil
 	}
 	return map[string]any{"data": decoded}, nil
 }
@@ -221,10 +229,11 @@ func (c *SDKClient) network() (core.VirtualNetworkClient, error) {
 }
 
 // waitAvailable re-reads a created network resource until it is AVAILABLE,
-// the CLI's --wait-for-state AVAILABLE.
+// or a DRG attachment ATTACHED: the CLI's --wait-for-state.
 func (c *SDKClient) waitAvailable(ctx context.Context, created sdkcli.Command, get func(context.Context) (any, string, error)) (any, error) {
-	if state := created.Flags["wait-for-state"]; state != "" && state != "AVAILABLE" {
-		return nil, fmt.Errorf("--wait-for-state %s is unsupported", state)
+	want := cmp.Or(created.Flags["wait-for-state"], "AVAILABLE")
+	if want != "AVAILABLE" && want != "ATTACHED" {
+		return nil, fmt.Errorf("--wait-for-state %s is unsupported", want)
 	}
 	pause := c.Pause
 	if pause == nil {
@@ -237,9 +246,9 @@ func (c *SDKClient) waitAvailable(ctx context.Context, created sdkcli.Command, g
 			return nil, err
 		}
 		switch state {
-		case "AVAILABLE":
+		case want:
 			return value, nil
-		case "PROVISIONING", "CREATING":
+		case "PROVISIONING", "CREATING", "ATTACHING":
 		default:
 			return nil, fmt.Errorf("resource entered %s", state)
 		}
@@ -251,7 +260,7 @@ func (c *SDKClient) waitAvailable(ctx context.Context, created sdkcli.Command, g
 		}
 		delay = min(delay*2, 15*time.Second)
 	}
-	return nil, errors.New("resource did not become AVAILABLE")
+	return nil, fmt.Errorf("resource did not become %s", want)
 }
 
 func createInternetGateway(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {

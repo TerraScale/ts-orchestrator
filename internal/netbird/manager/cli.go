@@ -21,7 +21,7 @@ const maxPATFileBytes = 4 << 10
 var Commands = []string{"sync", "prune-peers", "remove-peers", "setup-key", "inventory", "image-input"}
 
 const usage = `Usage:
-  ts-orch netbird sync [--apply] [--pat-file FILE] [--management-url URL]
+  ts-orch netbird sync [--apply] [--only NAME]... [--pat-file FILE] [--management-url URL]
   ts-orch netbird prune-peers [--apply] [--offline-for 24h] [--pat-file FILE] [--management-url URL]
   ts-orch netbird remove-peers (--slot NAME... | --all) [--apply] [--pat-file FILE] [--management-url URL]
   ts-orch netbird setup-key --out FILE [--servers-group GROUP] [--apply] [--pat-file FILE] [--management-url URL]
@@ -52,10 +52,14 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 	var apply, all *bool
 	var offlineFor *time.Duration
 	var out, serversGroup, plan, secretID *string
-	var slots []string
+	var slots, only []string
 	switch command {
 	case "sync":
 		apply = flags.Bool("apply", false, "apply the changes")
+		flags.Func("only", "plan and apply only the changes to this object (repeatable)", func(value string) error {
+			only = append(only, value)
+			return nil
+		})
 	case "prune-peers":
 		apply = flags.Bool("apply", false, "apply the changes")
 		offlineFor = flags.Duration("offline-for", DefaultOfflineFor, "delete unattributed server peers offline this long")
@@ -121,7 +125,7 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 		return json.MarshalWrite(stdout, inventory, jsontext.WithIndent("  "))
 	case "sync":
-		report, err := Sync(ctx, api, GRU(), *apply)
+		report, err := Sync(ctx, api, GRU(), *apply, only...)
 		writeReport(stdout, report, *apply, err)
 		return err
 	case "prune-peers":

@@ -158,10 +158,14 @@ func TestSDKDecodesEveryCommandTheProvisionerSends(t *testing.T) {
 		}
 		decoded[command.Path] = true
 	}
-	// The foundation's creates are checked by its own tests, through
-	// DecodeCreate.
+	// The foundation's and the peering's writes are checked by their own
+	// tests, through DecodeCreate.
 	foundation := []string{"iam compartment create", "iam dynamic-group create", "iam policy create", "network vcn create",
-		"network service-gateway create", "kms management vault create", "kms management key create", "os bucket create", "os retention-rule create"}
+		"network service-gateway create", "kms management vault create", "kms management key create", "os bucket create", "os retention-rule create",
+		"network drg create", "network remote-peering-connection create", "network remote-peering-connection connect",
+		"network drg-route-distribution create", "network drg-route-distribution-statement add", "network drg-route-table create",
+		"network drg-attachment create", "network drg-attachment update", "network route-table get", "network route-table update",
+		"network security-list get", "network security-list update"}
 	for path := range creators {
 		if !decoded[path] && !slices.Contains(foundation, path) {
 			t.Errorf("provisioner never exercised %s", path)

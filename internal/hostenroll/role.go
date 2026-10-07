@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"net/url"
 	"reflect"
+	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/roleidentity"
@@ -74,6 +75,12 @@ func (issuer *Issuer) IssueRole(role, node, userKey, csrPEM string, now time.Tim
 	claim.Tags.Add("role:" + role)
 	for _, bucket := range grant.Buckets {
 		claim.Tags.Add("kv:" + bucket.Name)
+	}
+	for _, query := range grant.Queries {
+		claim.Tags.Add("query:" + query)
+	}
+	if len(grant.Queries) != 0 {
+		claim.Tags.Add("cell:" + strings.ToLower(issuer.Cell))
 	}
 	signer, err := roleidentity.Signer(issuer.NATSKey)
 	if err != nil {

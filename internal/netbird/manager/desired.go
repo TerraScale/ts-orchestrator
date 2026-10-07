@@ -166,19 +166,33 @@ func regionServersGroups() []string {
 	return names
 }
 
+// fabricPorts are the region-to-region ports between the home region's
+// servers and another region's, the fallback path beside the OCI private
+// peering (TS-668): the NATS interregion leafnode link and TerraBase's
+// member peer port.
+var fabricPorts = []string{"7422", "9443"}
+
 // regionPolicies grants operators and operator automation NetBird SSH to
-// every other region's servers group.
+// every other region's servers group, and lets the home region's servers and
+// that group reach each other on fabricPorts.
 func regionPolicies() []PolicySpec {
 	var policies []PolicySpec
 	for _, group := range regionServersGroups() {
 		cell := strings.ToUpper(strings.TrimSuffix(group, "-servers"))
+		ports := "NATS leafnodes " + fabricPorts[0] + ", TerraBase peers " + fabricPorts[1]
 		policies = append(policies,
 			PolicySpec{Name: "operators-to-" + group + "-ssh",
 				Description: "Operators → " + cell + " servers: NetBird SSH with identity-provider login",
 				Protocol:    "netbird-ssh", Sources: []string{"operators"}, Destinations: []string{group}},
 			PolicySpec{Name: "ops-automation-to-" + group + "-ssh",
 				Description: "Operator automation peers → " + cell + " servers: NetBird SSH with identity-provider login",
-				Protocol:    "netbird-ssh", Sources: []string{"ops-automation"}, Destinations: []string{group}})
+				Protocol:    "netbird-ssh", Sources: []string{"ops-automation"}, Destinations: []string{group}},
+			PolicySpec{Name: "gru-servers-to-" + group + "-fabric",
+				Description: "GRU servers → " + cell + " servers: " + ports,
+				Protocol:    "tcp", Ports: fabricPorts, Sources: []string{"gru-servers"}, Destinations: []string{group}},
+			PolicySpec{Name: group + "-to-gru-servers-fabric",
+				Description: cell + " servers → GRU servers: " + ports,
+				Protocol:    "tcp", Ports: fabricPorts, Sources: []string{group}, Destinations: []string{"gru-servers"}})
 	}
 	return policies
 }

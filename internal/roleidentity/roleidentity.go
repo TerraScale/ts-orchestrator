@@ -12,6 +12,8 @@ import (
 
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 // A role the orchestrator places gets a NATS identity of its own (TS-651):
@@ -38,15 +40,21 @@ type Grant struct {
 	EnvPrefix string
 	// Buckets start with the role's name, "-" written "_".
 	Buckets []Bucket
+	// Queries are query verbs the members answer in their own cell and
+	// request in every cell: ts.orch.v1.<cell>.query.<verb>.>. The
+	// interregion contract carries every cell's query family as a service.
+	Queries []string
 }
 
 // Grants is the per-role list. Add a role or a bucket here; its members get
 // it at their next credential renewal.
 var Grants = map[string]Grant{
 	// TS-633's backup shipper lease; TerraBase's NatsLeaseStore binds it.
+	// TS-643's cross-region pulls: members answer terrabase-wan queries in
+	// their cell and ask other cells' members over the interregion links.
 	"terrabase": {EnvPrefix: "TERRABASE_NATS_", Buckets: []Bucket{
 		{Name: "terrabase_backup_leases", TTL: 15 * time.Second, History: 1, Memory: true},
-	}},
+	}, Queries: []string{"terrabase-wan"}},
 }
 
 // Reserved reports whether key is a launch setting the host sets for role's
@@ -90,10 +98,16 @@ func Scope(key string) *jwt.UserScope {
 	scope.Template.Pub.Allow = jwt.StringList{"$KV." + kv + ".>",
 		"$JS.API.STREAM.INFO.KV_" + kv, "$JS.API.STREAM.MSG.GET.KV_" + kv,
 		"$JS.API.DIRECT.GET.KV_" + kv, "$JS.API.DIRECT.GET.KV_" + kv + ".>"}
+	// Query verbs come from the user's query tags and its own cell from its
+	// cell tag; a user without a query tag gets neither subject.
+	publish, subscribe := protocol.RoleQueryTemplates("{{tag(cell)}}", "{{tag(query)}}")
+	scope.Template.Pub.Allow = append(scope.Template.Pub.Allow, publish)
 	// ponytail: role users share NATS clients' default reply prefix, so one
 	// role can see another role's JetStream replies; ts-orch's own users
 	// reply on private prefixes. Template _INBOX.{{subject()}}.> once roles
 	// set a private inbox prefix (TerraBase's NatsLeaseStore does not).
-	scope.Template.Sub.Allow = jwt.StringList{"_INBOX.>"}
+	scope.Template.Sub.Allow = jwt.StringList{"_INBOX.>", subscribe}
+	// A member answers each query once, on the requester's reply subject.
+	scope.Template.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: time.Minute}
 	return scope
 }

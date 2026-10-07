@@ -130,7 +130,8 @@ func TestRoleUserReachesOnlyItsBuckets(t *testing.T) {
 	}
 	claim, err := jwt.DecodeUserClaims(rawJWT)
 	if err != nil || claim.Issuer != signerID || claim.IssuerAccount != cellID || claim.Subject != memberID ||
-		!claim.HasEmptyPermissions() || !claim.Tags.Contains("kv:terrabase_backup_leases") || claim.Expires != expires.Unix() {
+		!claim.HasEmptyPermissions() || !claim.Tags.Contains("kv:terrabase_backup_leases") || claim.Expires != expires.Unix() ||
+		!claim.Tags.Contains("query:terrabase-wan") || !claim.Tags.Contains("cell:gru") {
 		t.Fatalf("role JWT: %+v %v", claim, err)
 	}
 	leafBlock, rest := pem.Decode(chain)
@@ -181,18 +182,48 @@ func TestRoleUserReachesOnlyItsBuckets(t *testing.T) {
 	if _, err := js.CreateKeyValue(short, jetstream.KeyValueConfig{Bucket: "terrabase_other"}); err == nil {
 		t.Fatal("role user created a bucket")
 	}
-	if err := member.Publish("ts.orch.v1.gru.placement.apply", nil); err != nil {
+	// TS-643's cross-region queries (TS-668): the member answers its own
+	// cell's terrabase-wan queries once each and asks another cell's, and
+	// nothing else of the query family.
+	answer, err := member.Subscribe("ts.orch.v1.gru.query.terrabase-wan.heads", func(m *nats.Msg) { _ = m.Respond([]byte("heads")) })
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer answer.Unsubscribe()
+	peer, err := admin.Subscribe("ts.orch.v1.sfo.query.terrabase-wan.member.ts-sfo-1", func(m *nats.Msg) { _ = m.Respond([]byte("pull")) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer peer.Unsubscribe()
 	_ = member.Flush()
-	for {
-		select {
-		case err := <-errs:
-			if errors.Is(err, nats.ErrPermissionViolation) && strings.Contains(err.Error(), "ts.orch.v1.gru.placement.apply") {
-				return
+	_ = admin.Flush()
+	if reply, err := admin.Request("ts.orch.v1.gru.query.terrabase-wan.heads", nil, 2*time.Second); err != nil || string(reply.Data) != "heads" {
+		t.Fatalf("member did not answer its cell's query: %v", err)
+	}
+	if reply, err := member.Request("ts.orch.v1.sfo.query.terrabase-wan.member.ts-sfo-1", nil, 2*time.Second); err != nil || string(reply.Data) != "pull" {
+		t.Fatalf("member could not query another cell: %v", err)
+	}
+	refused := func(subject string, do func() error) {
+		t.Helper()
+		if err := do(); err != nil {
+			t.Fatal(err)
+		}
+		_ = member.Flush()
+		for {
+			select {
+			case err := <-errs:
+				if errors.Is(err, nats.ErrPermissionViolation) && strings.Contains(err.Error(), subject) {
+					return
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatalf("%s was not refused", subject)
 			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("publishing a controller subject was not refused")
 		}
 	}
+	refused("ts.orch.v1.sfo.query.terrabase-wan.>", func() error {
+		_, err := member.SubscribeSync("ts.orch.v1.sfo.query.terrabase-wan.>")
+		return err
+	})
+	refused("ts.orch.v1.gru.query.machine.list", func() error { return member.Publish("ts.orch.v1.gru.query.machine.list", nil) })
+	refused("ts.orch.v1.gru.placement.apply", func() error { return member.Publish("ts.orch.v1.gru.placement.apply", nil) })
 }

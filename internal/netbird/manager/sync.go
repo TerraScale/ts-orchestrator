@@ -85,10 +85,20 @@ func (p *plan) warn(format string, args ...any) {
 	p.warnings = append(p.warnings, fmt.Sprintf(format, args...))
 }
 
-// run applies the plan's steps in order when apply is set.
-func (p *plan) run(ctx context.Context, apply bool) (Report, error) {
+// run applies the plan's steps in order when apply is set. With only, it
+// keeps just the changes to those objects; every name must be a planned
+// change, so a mistyped one fails instead of doing nothing.
+func (p *plan) run(ctx context.Context, apply bool, only []string) (Report, error) {
 	report := Report{Warnings: p.warnings}
+	for _, name := range only {
+		if !slices.ContainsFunc(p.steps, func(s step) bool { return s.change.Name == name }) {
+			return report, fmt.Errorf("--only %s: no planned change has that name", name)
+		}
+	}
 	for _, s := range p.steps {
+		if len(only) != 0 && !slices.Contains(only, s.change.Name) {
+			continue
+		}
 		if apply {
 			if err := s.apply(ctx, &p.refs); err != nil {
 				return report, fmt.Errorf("%s: %w", s.change, err)
@@ -101,8 +111,9 @@ func (p *plan) run(ctx context.Context, apply bool) (Report, error) {
 
 // Sync plans the desired manager state and applies it when apply is set. Any
 // refusal (an unexpected router, a different subnet, ambiguous names) fails
-// before the first mutation.
-func Sync(ctx context.Context, api *API, d Desired, apply bool) (Report, error) {
+// before the first mutation. Names in only limit it to those objects' changes,
+// for a desired state that is ahead of another live operation.
+func Sync(ctx context.Context, api *API, d Desired, apply bool, only ...string) (Report, error) {
 	if err := d.Validate(); err != nil {
 		return Report{}, err
 	}
@@ -133,7 +144,7 @@ func Sync(ctx context.Context, api *API, d Desired, apply bool) (Report, error) 
 	if err := p.verifySetupKey(ctx, api, d); err != nil {
 		return Report{}, err
 	}
-	return p.run(ctx, apply)
+	return p.run(ctx, apply, only)
 }
 
 // matchName finds the object called name, else exactly one object carrying a

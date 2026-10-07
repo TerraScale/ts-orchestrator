@@ -146,10 +146,16 @@ private subnet, so their nodes are reached with NetBird SSH only.
 | `ops-automation-to-gru-servers-ssh` | `ops-automation` → `gru-servers` | `netbird-ssh` | one-way |
 | `operators-to-<cell>-servers-ssh` | `operators` → `<cell>-servers` | `netbird-ssh` | one-way |
 | `ops-automation-to-<cell>-servers-ssh` | `ops-automation` → `<cell>-servers` | `netbird-ssh` | one-way |
+| `gru-servers-to-<cell>-servers-fabric` | `gru-servers` → `<cell>-servers` | TCP 7422, 9443 | one-way |
+| `<cell>-servers-to-gru-servers-fabric` | `<cell>-servers` → `gru-servers` | TCP 7422, 9443 | one-way |
 | `operators-to-ts-ops-forgejo` | `operators` → `ts-ops-gateway` | TCP 22, 443, 2022 | one-way |
 | `operators-to-ts-ops-ping` | `operators` → `ts-ops-gateway` | ICMP | one-way |
 
-The desired state derives the `<cell>-servers` group, its two policies and
+The two `-fabric` policies are the regions' fallback path beside the OCI
+private peering (TS-668): the NATS interregion leafnodes (7422) and
+TerraBase's peer port (9443), both directions.
+
+The desired state derives the `<cell>-servers` group, its four policies and
 its DNS setting for every cell in `internal/ociregion/catalog` other than
 GRU, in catalog order, so a new region needs no NetBird code change. Give a
 new region NetBird with:

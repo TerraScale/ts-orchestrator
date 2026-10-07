@@ -1,6 +1,8 @@
 package ociregion
 
 import (
+	"cmp"
+	"maps"
 	"net/netip"
 	"regexp"
 	"slices"
@@ -46,7 +48,9 @@ type privatePeerContext struct {
 	network, subnet                                       netip.Prefix
 }
 
-func (e *Engine) privatePeerInputs(intent Object, intentPath string, paths map[string]string, intentSHA string) (Object, map[string]*privatePeerContext, Object) {
+// privatePeerInputs validates a pair intent with its two plans. A draft
+// intent, which `oci-region peer` binds, may leave resource OCIDs null.
+func (e *Engine) privatePeerInputs(intent Object, intentPath string, paths map[string]string, intentSHA string, draft bool) (Object, map[string]*privatePeerContext, Object) {
 	if !exact(intent, "schema_version", "tenancy_id", "realm", "allowed_tcp_ports", "cells") {
 		fail("private peer intent has unexpected or missing fields")
 	}
@@ -111,6 +115,9 @@ func (e *Engine) privatePeerInputs(intent Object, intentPath string, paths map[s
 		}
 		ids := e.requiredIDs(p)
 		for _, pair := range [][2]string{{"drg_id", "drg"}, {"vcn_attachment_id", "drgattachment"}, {"rpc_id", "remotepeeringconnection"}, {"rpc_attachment_id", "drgattachment"}, {"vcn_drg_route_table_id", "drgroutetable"}, {"rpc_drg_route_table_id", "drgroutetable"}, {"vcn_import_distribution_id", "drgroutedistribution"}, {"rpc_import_distribution_id", "drgroutedistribution"}} {
+			if draft && r[pair[0]] == nil {
+				continue
+			}
 			id := requireOCID(r[pair[0]], pair[1], text(p["region"]))
 			if seen[id] {
 				fail("private peer intent reuses a resource OCID")
@@ -118,9 +125,10 @@ func (e *Engine) privatePeerInputs(intent Object, intentPath string, paths map[s
 			seen[id] = true
 		}
 		sec := obj(p["network_security"])
-		if ids["vcn"] == nil || ids["subnet"] == nil || ids["route_table"] == nil || ids["service_gateway"] == nil || len(arr(sec["route_rules"])) != 1 || sec["service_gateway_service_id"] == nil {
+		if ids["vcn"] == nil || ids["subnet"] == nil || ids["route_table"] == nil || ids["service_gateway"] == nil || sec["service_gateway_service_id"] == nil {
 			fail("private peer plans must preserve their exact local service-gateway route")
 		}
+		privatePeerRoutes(p)
 		if rat(r["monthly_cross_region_egress_gb"]).Sign() < 0 || greater(r["monthly_cross_region_egress_gb"], obj(p["budget"])["egress_gb_max"]) {
 			fail("private peer " + cell + " traffic exceeds the regional plan's priced egress reserve")
 		}
@@ -147,6 +155,26 @@ func (e *Engine) privatePeerInputs(intent Object, intentPath string, paths map[s
 	return plans, contexts, Object{"realm": realm, "tenancy_id": tenancy, "ports": ports, "intent_sha256": intentSHA}
 }
 
+// peerDRGRoutes checks a DRG route table's imported routes. A VCN
+// attachment advertises its VCN per subnet, so every route must be dynamic,
+// through accepted, inside network, and one must cover subnet. OCI leaves
+// is-blackhole unset on a live route.
+func peerDRGRoutes(actual []any, network, subnet netip.Prefix, accepted, label string) {
+	covered := false
+	for _, v := range actual {
+		r := obj(v)
+		destination, err := netip.ParsePrefix(text(r["destination"]))
+		if err != nil || r["destination_type"] != "CIDR_BLOCK" || r["next_hop_drg_attachment_id"] != accepted || r["route_type"] != "DYNAMIC" ||
+			r["is_conflict"] == true || r["is_blackhole"] == true || destination.Bits() < network.Bits() || !network.Contains(destination.Addr()) {
+			fail("live " + label + " differ from the exact private peer intent")
+		}
+		covered = covered || destination.Bits() <= subnet.Bits() && destination.Contains(subnet.Addr())
+	}
+	if !covered {
+		fail("live " + label + " do not reach the peer's private subnet")
+	}
+}
+
 func exactPeerRows(actual any, expected []any, label string) []any {
 	r := rows(actual)
 	if !slices.Equal(orderedRows(r), orderedRows(expected)) {
@@ -155,15 +183,131 @@ func exactPeerRows(actual any, expected []any, label string) []any {
 	return r
 }
 
-func privatePeerSecurity(plan Object, peer string, ports []any) ([]any, []any) {
-	sec := obj(plan["network_security"])
-	nsg := slices.Clone(arr(sec["nsg_rules"]))
-	egress := slices.Clone(arr(sec["security_list_egress_rules"]))
+// privatePeerRules are the NSG ingress and security-list egress rules a
+// private peer adds to a cell: TCP on each allowed port from and to the peer
+// subnet.
+func privatePeerRules(peer string, ports []any) (nsg, egress []any) {
 	for _, port := range ports {
 		nsg = append(nsg, Object{"direction": "INGRESS", "protocol": "6", "source": peer, "source_type": "CIDR_BLOCK", "destination": nil, "destination_type": nil, "tcp_min": port, "tcp_max": port, "udp_min": nil, "udp_max": nil, "stateless": false})
 		egress = append(egress, Object{"direction": "EGRESS", "protocol": "6", "source": nil, "source_type": nil, "destination": peer, "destination_type": "CIDR_BLOCK", "tcp_min": port, "tcp_max": port, "udp_min": nil, "udp_max": nil, "stateless": false})
 	}
 	return nsg, egress
+}
+
+// privatePeerRoutes are the plan's subnet routes with their gateway
+// placeholders resolved, as inspect-foundation resolves them.
+func privatePeerRoutes(plan Object) []any {
+	ids := obj(plan["resource_ids"])
+	targets := map[string]string{"{service_gateway_id}": "service_gateway", "{local_peering_gateway_id}": "local_peering_gateway"}
+	r := []any{}
+	for _, v := range arr(obj(plan["network_security"])["route_rules"]) {
+		rule := obj(v)
+		id := ids[targets[text(rule["network_entity_id"])]]
+		if !truth(id) {
+			fail("private peer plan route targets a gateway the plan does not bind")
+		}
+		r = append(r, Object{"destination": rule["destination"], "destination_type": rule["destination_type"], "network_entity_id": id})
+	}
+	return r
+}
+
+func liveRoutes(v any) []any {
+	r := []any{}
+	for _, x := range rows(v) {
+		x := obj(x)
+		r = append(r, Object{"destination": x["destination"], "destination_type": x["destination-type"], "network_entity_id": x["network-entity-id"]})
+	}
+	return r
+}
+
+// liveSecurity reads live security rules in the plan's rule form. A rule of
+// a shape no plan uses (ICMP, source ports) matches no plan or peer rule;
+// only its reach is checked.
+func liveSecurity(v any, direction string) []any {
+	r := []any{}
+	for _, x := range rows(v) {
+		rule := obj(x)
+		n, err := capture(func() Object { return normalizedSecurity(rule, direction) })
+		if err != nil {
+			n = Object{"unsupported": true, "direction": cmp.Or(text(rule["direction"]), direction), "source": rule["source"], "destination": rule["destination"]}
+		}
+		r = append(r, n)
+	}
+	return r
+}
+
+// peerRows checks one live rule set: each rule of base must be present and
+// a rule reaching into the peer VCN must be one of allowed. It returns the
+// rules of add that live lacks.
+func peerRows(label string, live, base, add, allowed []any, reaches func(Object) bool) []any {
+	have, permitted := map[string]bool{}, map[string]bool{}
+	for _, r := range live {
+		have[canonical(r)] = true
+	}
+	for _, r := range allowed {
+		permitted[canonical(r)] = true
+	}
+	for _, r := range base {
+		if !have[canonical(r)] {
+			fail("live " + label + ": a rule of the exact plan is missing")
+		}
+	}
+	for _, r := range live {
+		if reaches(obj(r)) && !permitted[canonical(r)] {
+			fail("live " + label + ": a rule reaches the peer VCN outside the private peer intent")
+		}
+	}
+	missing := []any{}
+	for _, r := range add {
+		if !have[canonical(r)] {
+			missing = append(missing, r)
+		}
+	}
+	return missing
+}
+
+// privatePeerMissing checks one cell's live subnet routes, NSG rules and
+// security-list rules against the private peer path and returns the peer
+// route, NSG ingress and security-list egress rules they lack. Plan routes
+// and plan security-list ingress must be present. Only the peer's own rules
+// may reach into the peer VCN; other rules are not the peer's concern. A
+// route reaches it when its destination lies within the peer VCN: a broader
+// route, such as 0.0.0.0/0 to a NAT gateway, loses to the peer subnet route
+// by longest prefix. A security rule reaches it when its CIDR overlaps the
+// peer VCN at all.
+func privatePeerMissing(plan, peer Object, drg string, ports, routes, nsg, ingress, egress []any) (missingRoutes, missingNSG, missingEgress []any) {
+	vcn, subnet := privatePeerNetwork(peer["network_cidr"], "VCN"), text(peer["subnet_cidr"])
+	nsgAdd, egressAdd := privatePeerRules(subnet, ports)
+	security := func(r Object) bool {
+		side := "source"
+		if r["direction"] == "EGRESS" {
+			side = "destination"
+		}
+		p, err := netip.ParsePrefix(text(r[side]))
+		return err == nil && p.Overlaps(vcn)
+	}
+	route := func(r Object) bool {
+		p, err := netip.ParsePrefix(text(r["destination"]))
+		return err == nil && p.Bits() >= vcn.Bits() && vcn.Contains(p.Addr())
+	}
+	peerRoute := []any{Object{"destination": subnet, "destination_type": "CIDR_BLOCK", "network_entity_id": drg}}
+	missingRoutes = peerRows("reciprocal subnet route table", routes, privatePeerRoutes(plan), peerRoute, peerRoute, route)
+	missingNSG = peerRows("peer NSG rules", nsg, nil, nsgAdd, nsgAdd, security)
+	peerRows("peer security-list ingress rules", ingress, arr(obj(plan["network_security"])["security_list_ingress_rules"]), nil, nsgAdd, security)
+	missingEgress = peerRows("peer security-list egress rules", egress, nil, egressAdd, egressAdd, security)
+	return missingRoutes, missingNSG, missingEgress
+}
+
+// PrivatePeerMissing checks a cell's live OCI rows, its subnet route rules,
+// NSG rules and security-list ingress and egress rules, as
+// inspect-private-peer does, and returns the routes, NSG rules and egress
+// rules the peering through drg still has to add.
+func PrivatePeerMissing(plan, peer Object, drg string, ports []any, routes, nsg, ingress, egress any) (missingRoutes, missingNSG, missingEgress []any, err error) {
+	_, err = capture(func() bool {
+		missingRoutes, missingNSG, missingEgress = privatePeerMissing(plan, peer, drg, ports, liveRoutes(routes), liveSecurity(nsg, ""), liveSecurity(ingress, "INGRESS"), liveSecurity(egress, "EGRESS"))
+		return true
+	})
+	return missingRoutes, missingNSG, missingEgress, err
 }
 
 func normalizedDRGRoute(r Object) Object {
@@ -225,43 +369,26 @@ func (e *Engine) inspectPrivatePeerSide(c, peer *privatePeerContext, ports []any
 	if nsg["compartment-id"] != compartment || nsg["vcn-id"] != ids["vcn"] {
 		fail("live private peer NSG belongs to an unexpected VCN or compartment")
 	}
-	wantNSG, wantEgress := privatePeerSecurity(p, peer.subnet.String(), ports)
-	normalized := func(v any, direction string) []any {
-		r := []any{}
-		for _, v := range rows(v) {
-			r = append(r, normalizedSecurity(obj(v), direction))
-		}
-		return r
-	}
-	nsgRules := normalized(e.oci(region, "network", "nsg", "rules", "list", "--nsg-id", text(ids["network_security_group"])), "")
-	exactPeerRows(nsgRules, wantNSG, "peer NSG rules")
+	nsgRules := liveSecurity(e.oci(region, "network", "nsg", "rules", "list", "--nsg-id", text(ids["network_security_group"])), "")
 	security := get("security-list", "--security-list-id", text(ids["security_list"]), "security list")
 	if security["compartment-id"] != compartment || security["vcn-id"] != ids["vcn"] {
 		fail("live private peer security list belongs to an unexpected VCN or compartment")
 	}
-	ingress, egress := normalized(security["ingress-security-rules"], "INGRESS"), normalized(security["egress-security-rules"], "EGRESS")
-	exactPeerRows(ingress, arr(obj(p["network_security"])["security_list_ingress_rules"]), "peer security-list ingress rules")
-	exactPeerRows(egress, wantEgress, "peer security-list egress rules")
+	ingress, egress := liveSecurity(security["ingress-security-rules"], "INGRESS"), liveSecurity(security["egress-security-rules"], "EGRESS")
 	route := get("route-table", "--rt-id", text(ids["route_table"]), "subnet route table")
 	if route["compartment-id"] != compartment || route["vcn-id"] != ids["vcn"] {
 		fail("live subnet route table belongs to an unexpected VCN or compartment")
 	}
-	routes := []any{}
-	for _, v := range rows(route["route-rules"]) {
-		r := obj(v)
-		routes = append(routes, Object{"destination": r["destination"], "destination_type": r["destination-type"], "network_entity_id": r["network-entity-id"]})
+	routes := liveRoutes(route["route-rules"])
+	missingRoutes, missingNSG, missingEgress := privatePeerMissing(p, peer.plan, drgID, ports, routes, nsgRules, ingress, egress)
+	switch {
+	case len(missingRoutes) > 0:
+		fail("live reciprocal subnet route table: the private peer route is missing")
+	case len(missingNSG) > 0:
+		fail("live peer NSG rules: a private peer rule is missing")
+	case len(missingEgress) > 0:
+		fail("live peer security-list egress rules: a private peer rule is missing")
 	}
-	wantRoutes := []any{}
-	for _, v := range arr(obj(p["network_security"])["route_rules"]) {
-		r := Object{}
-		for k, value := range obj(v) {
-			r[k] = value
-		}
-		r["network_entity_id"] = ids["service_gateway"]
-		wantRoutes = append(wantRoutes, r)
-	}
-	wantRoutes = append(wantRoutes, Object{"destination": peer.subnet.String(), "destination_type": "CIDR_BLOCK", "network_entity_id": drgID})
-	exactPeerRows(routes, wantRoutes, "reciprocal subnet route table")
 	gateway := get("service-gateway", "--service-gateway-id", text(ids["service_gateway"]), "service gateway")
 	services := []any{}
 	for _, v := range arr(gateway["services"]) {
@@ -305,9 +432,9 @@ func (e *Engine) inspectPrivatePeerSide(c, peer *privatePeerContext, ports []any
 	tables := Object{}
 	for _, role := range []string{"vcn", "rpc"} {
 		tableID, distributionID := text(intent[role+"_drg_route_table_id"]), text(intent[role+"_import_distribution_id"])
-		accepted, destination := rpcAttachmentID, peer.network.String()
+		accepted, network, subnet := rpcAttachmentID, peer.network, peer.subnet
 		if role == "rpc" {
-			accepted, destination = vcnAttachmentID, c.network.String()
+			accepted, network, subnet = vcnAttachmentID, c.network, c.subnet
 		}
 		table := get("drg-route-table", "--drg-route-table-id", tableID, role+" DRG route table")
 		if table["lifecycle-state"] != "AVAILABLE" || table["compartment-id"] != compartment || table["drg-id"] != drgID || table["import-drg-route-distribution-id"] != distributionID || table["is-ecmp-enabled"] != false {
@@ -318,7 +445,7 @@ func (e *Engine) inspectPrivatePeerSide(c, peer *privatePeerContext, ports []any
 		for _, v := range rows(e.oci(region, "network", "drg-route-rule", "list", "--drg-route-table-id", tableID, "--all")) {
 			actual = append(actual, normalizedDRGRoute(obj(v)))
 		}
-		exactPeerRows(actual, []any{Object{"destination": destination, "destination_type": "CIDR_BLOCK", "next_hop_drg_attachment_id": accepted, "route_type": "DYNAMIC", "is_conflict": false, "is_blackhole": false}}, role+" DRG route table rules")
+		peerDRGRoutes(actual, network, subnet, accepted, role+" DRG route table rules")
 		tables[role] = Object{"id": tableID, "drg_id": drgID, "import_distribution": distribution, "routes": actual}
 	}
 	return Object{"cell": p["cell"], "region": region, "vcn_id": ids["vcn"], "vcn_cidr": c.network.String(), "subnet_id": ids["subnet"], "subnet_cidr": c.subnet.String(), "subnet_route_table_id": ids["route_table"], "subnet_routes": routes, "drg": Object{"id": drgID, "compartment_id": compartment, "lifecycle_state": drg["lifecycle-state"]}, "vcn_attachment": Object{"id": vcnAttachmentID, "vcn_id": ids["vcn"], "route_table_id": intent["vcn_drg_route_table_id"]}, "rpc": Object{"id": rpcID, "peer_id": rpc["peer-id"], "peer_region": rpc["peer-region-name"], "peering_status": rpc["peering-status"], "lifecycle_state": rpc["lifecycle-state"]}, "rpc_attachment": Object{"id": rpcAttachmentID, "rpc_id": rpcID, "route_table_id": intent["rpc_drg_route_table_id"]}, "drg_route_tables": tables, "nsg_id": ids["network_security_group"], "nsg_rules": nsgRules, "security_list_id": ids["security_list"], "security_list_ingress_rules": ingress, "security_list_egress_rules": egress}
@@ -329,11 +456,8 @@ func (e *Engine) InspectPrivatePeer(paths ...string) (Object, error) {
 	return capture(func() Object { return e.inspectPrivatePeer(paths) })
 }
 
-func (e *Engine) inspectPrivatePeer(paths []string) Object {
-	if len(paths) != 7 {
-		fail("private peer inspection requires intent and both plan, inventory, admission paths")
-	}
-	wire := readBytes(paths[0], 64*1024, "private peer intent")
+func readPeerIntent(path string) (Object, string) {
+	wire := readBytes(path, 64*1024, "private peer intent")
 	value, err := decodeJSON(wire)
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate") {
@@ -346,11 +470,49 @@ func (e *Engine) inspectPrivatePeer(paths []string) Object {
 		fail("private peer intent must be an object")
 	}
 	intentSHA := wireSHA(wire)
-	if fileSHA(paths[0]) != intentSHA {
+	if fileSHA(path) != intentSHA {
 		fail("private peer intent changed while it was being read")
 	}
+	return intent, intentSHA
+}
+
+// PrivatePeerPair validates a pair intent with its two plans as
+// inspect-private-peer does, except that the intent's resource OCIDs may
+// still be null: `oci-region peer` binds them. It returns the intent and the
+// left and right plans.
+func (e *Engine) PrivatePeerPair(intentPath, leftPlan, rightPlan string) (Object, []Object, error) {
+	var plans []Object
+	intent, err := capture(func() Object {
+		intent, sha := readPeerIntent(intentPath)
+		p, _, _ := e.privatePeerInputs(intent, intentPath, map[string]string{"left": leftPlan, "right": rightPlan}, sha, true)
+		plans = []Object{obj(p["left"]), obj(p["right"])}
+		return intent
+	})
+	return intent, plans, err
+}
+
+// CheckPrivatePeer runs inspect-private-peer's live network checks on a
+// bound pair intent, without the regional inventory and admission evidence.
+func (e *Engine) CheckPrivatePeer(intentPath, leftPlan, rightPlan string) error {
+	_, err := capture(func() bool {
+		intent, sha := readPeerIntent(intentPath)
+		_, contexts, pair := e.privatePeerInputs(intent, intentPath, map[string]string{"left": leftPlan, "right": rightPlan}, sha, false)
+		cells := slices.Sorted(maps.Keys(contexts))
+		for i, cell := range cells {
+			e.inspectPrivatePeerSide(contexts[cell], contexts[cells[1-i]], arr(pair["ports"]))
+		}
+		return true
+	})
+	return err
+}
+
+func (e *Engine) inspectPrivatePeer(paths []string) Object {
+	if len(paths) != 7 {
+		fail("private peer inspection requires intent and both plan, inventory, admission paths")
+	}
+	intent, intentSHA := readPeerIntent(paths[0])
 	planPaths := map[string]string{"left": paths[1], "right": paths[4]}
-	plans, contexts, pair := e.privatePeerInputs(intent, paths[0], planPaths, intentSHA)
+	plans, contexts, pair := e.privatePeerInputs(intent, paths[0], planPaths, intentSHA, false)
 	evidence, admissions := Object{}, Object{}
 	for i, side := range []string{"left", "right"} {
 		p := obj(plans[side])

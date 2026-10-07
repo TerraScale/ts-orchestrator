@@ -82,6 +82,11 @@ func TestGRUDesiredStateDerivesEveryOtherRegion(t *testing.T) {
 		{Name: "sfo-servers"},
 		{Name: "fra-servers"},
 	}
+	// TS-668: the region-to-region fallback path beside the OCI peering.
+	fabric := func(name, description, source, destination string) PolicySpec {
+		return PolicySpec{Name: name, Description: description + ": NATS leafnodes 7422, TerraBase peers 9443",
+			Protocol: "tcp", Ports: []string{"7422", "9443"}, Sources: []string{source}, Destinations: []string{destination}}
+	}
 	wantPolicies := []PolicySpec{
 		{Name: "operators-to-gru-cell-ops-ports", RenamedFrom: []string{"operators-to-gru-cell"},
 			Description: "Operators → GRU cell subnet: SSH 22, NATS 4222, TerraBase 9465",
@@ -93,8 +98,12 @@ func TestGRUDesiredStateDerivesEveryOtherRegion(t *testing.T) {
 		ssh("ops-automation-to-gru-servers-ssh", "Operator automation peers → GRU servers: NetBird SSH with identity-provider login", "ops-automation", "gru-servers"),
 		ssh("operators-to-sfo-servers-ssh", "Operators → SFO servers: NetBird SSH with identity-provider login", "operators", "sfo-servers"),
 		ssh("ops-automation-to-sfo-servers-ssh", "Operator automation peers → SFO servers: NetBird SSH with identity-provider login", "ops-automation", "sfo-servers"),
+		fabric("gru-servers-to-sfo-servers-fabric", "GRU servers → SFO servers", "gru-servers", "sfo-servers"),
+		fabric("sfo-servers-to-gru-servers-fabric", "SFO servers → GRU servers", "sfo-servers", "gru-servers"),
 		ssh("operators-to-fra-servers-ssh", "Operators → FRA servers: NetBird SSH with identity-provider login", "operators", "fra-servers"),
 		ssh("ops-automation-to-fra-servers-ssh", "Operator automation peers → FRA servers: NetBird SSH with identity-provider login", "ops-automation", "fra-servers"),
+		fabric("gru-servers-to-fra-servers-fabric", "GRU servers → FRA servers", "gru-servers", "fra-servers"),
+		fabric("fra-servers-to-gru-servers-fabric", "FRA servers → GRU servers", "fra-servers", "gru-servers"),
 		{Name: "operators-to-ts-ops-forgejo", RenamedFrom: []string{"operators-to-forgejo"},
 			Description: "Operators → ts-ops: Git SSH 22, HTTPS 443, admin SSH 2022",
 			Protocol:    "tcp", Ports: []string{"22", "443", "2022"},
@@ -161,6 +170,15 @@ func TestSyncRenamesLegacyObjectsInPlaceAndConverges(t *testing.T) {
 		t.Fatalf("unexpected plan output: %s %v", text, plan.Warnings)
 	}
 
+	// --only keeps just the named objects' changes and refuses a name the
+	// plan does not change.
+	if _, err := Sync(t.Context(), api, d, true, "no-such-policy"); err == nil || len(f.mutations) != 0 {
+		t.Fatalf("an unknown --only name was not refused before any change: %v %v", err, f.mutations)
+	}
+	scoped, err := Sync(t.Context(), api, d, false, "gru-servers", "operators-to-ts-ops-ping")
+	if err != nil || len(scoped.Changes) != 2 || len(f.mutations) != 0 {
+		t.Fatalf("scoped plan %+v: %v", scoped.Changes, err)
+	}
 	if _, err := Sync(t.Context(), api, d, true); err != nil {
 		t.Fatal(err)
 	}

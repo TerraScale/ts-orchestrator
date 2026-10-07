@@ -48,5 +48,5 @@ func CreateServerSetupKey(ctx context.Context, api *API, d Desired, out io.Write
 			}
 			return nil
 		})
-	return p.run(ctx, apply)
+	return p.run(ctx, apply, nil)
 }

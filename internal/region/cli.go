@@ -25,13 +25,14 @@ const usage = `Usage: ts-orch region <command> [flags]
       (default deploy/oci-region/sfo-1-plan.json): names, addresses, the
       availability domain and the service gateway of the new region, every
       resource ID unbound. Reads OCI; changes nothing.
-  create  LABEL OCI_REGION --state DIR --attempt-base FILE [--from PLAN]
-          [--home-operator FILE] [--deployment ID] [--wait 30m]
-      Bring the region up: plan, foundation, ts-auth secrets, the founding
-      attempt, the load balancer with its Origin CA certificate, proxied DNS,
-      Atlas, then verify. Each step is idempotent; a rerun resumes after the
-      last finished step (DIR/journal.json) and prints each step's wall time.
-      Needs CF_API_TOKEN.
+  create  LABEL OCI_REGION --state DIR --attempt-base FILE --home-plan FILE
+          [--from PLAN] [--home-operator FILE] [--deployment ID] [--wait 30m]
+      Bring the region up: plan, foundation, the private peering with the
+      global home (--home-plan is its bound plan), ts-auth secrets, the
+      founding attempt, the load balancer with its Origin CA certificate,
+      proxied DNS, Atlas, then verify. Each step is idempotent; a rerun
+      resumes after the last finished step (DIR/journal.json) and prints each
+      step's wall time. Needs CF_API_TOKEN and NB_PAT.
   verify  LABEL --plan BOUND_PLAN [--wait 0]
       Fail unless <label>.api answers /healthz for its cell, <label>.auth
       serves its OIDC discovery, every load balancer backend is healthy and
@@ -60,6 +61,7 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	state := flags.String("state", "", "the region's working directory")
 	base := flags.String("attempt-base", "", "attempt settings shared by every region (trust, tools, image, release)")
 	home := flags.String("home-operator", "/var/lib/terrascale-operator/operator.json", "the global home's operator config")
+	homePlan := flags.String("home-plan", "", "the global home's bound plan, the region's private peer")
 	deployment := flags.String("deployment", "", "founding deployment ID (default <cell>-found-1)")
 	plan := flags.String("plan", "", "the region's bound plan")
 	wait := flags.Duration("wait", 30*time.Minute, "how long verification retries")
@@ -92,7 +94,7 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer) error {
 			return err
 		}
 		creation := Creation{Label: label, OCIRegion: positional[1], State: *state, Template: *from, AttemptBase: *base,
-			HomeOperator: *home, Deployment: *deployment, Wait: *wait, Run: run, Lookup: LiveSDK, Now: time.Now, Out: out,
+			HomeOperator: *home, HomePlan: *homePlan, Deployment: *deployment, Wait: *wait, Run: run, Lookup: LiveSDK, Now: time.Now, Out: out,
 			Verify: func(ctx context.Context, bound string, wait time.Duration) error {
 				return verify(ctx, label, bound, wait, out)
 			}}

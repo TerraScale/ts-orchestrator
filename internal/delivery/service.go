@@ -105,6 +105,8 @@ type Config struct {
 const DefaultMaxPlannerAttempts = 30
 
 type Service struct {
+	// recovery overrides deliveryConsumerRecovery, for tests.
+	recovery   consumerRecovery
 	js         jetstream.JetStream
 	artifacts  jetstream.ObjectStore
 	admissions jetstream.KeyValue

@@ -213,6 +213,14 @@ func DecodeCreate(args []string) error {
 		targets["security-list-ids"] = &[]string{}
 	case "network nsg rules add":
 		targets["security-rules"] = &[]core.AddSecurityRuleDetails{}
+	case "network drg-route-distribution-statement add":
+		targets["statements"] = &[]core.AddDrgRouteDistributionStatementDetails{}
+	case "network drg-attachment create":
+		targets["network-details"] = &drgNetwork{}
+	case "network route-table update":
+		targets["route-rules"] = &[]core.RouteRule{}
+	case "network security-list update":
+		targets["egress-security-rules"] = &[]core.EgressSecurityRule{}
 	}
 	for name, target := range targets {
 		if err := jsonFlag(command, name, target); err != nil {

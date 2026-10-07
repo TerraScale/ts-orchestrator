@@ -101,6 +101,14 @@ and its settings prefix; today only `terrabase` has one.
   `_INBOX.>`. Each user carries one `kv:<bucket>` tag per granted bucket, so
   adding a bucket to `Grants` needs only a controller release. Tags are
   lower case, so a role can never name a `TS_` bucket.
+- **Queries (TS-668).** A grant's `Queries` are query verbs its members
+  answer in their own cell and ask in every cell: users get one
+  `query:<verb>` tag each and a `cell:<cell>` tag, and the template allows
+  publish on `ts.orch.v1.*.query.{{tag(query)}}.>`, subscribe on
+  `ts.orch.v1.{{tag(cell)}}.query.{{tag(query)}}.>` and one response per
+  request. The interregion contract carries the query family as a service,
+  so a request reaches another region's members over the links. TerraBase
+  has `terrabase-wan` (TS-643's cross-region pulls).
 - **No stream API beyond reads.** A stream create request names any
   subjects, so a role that could create its bucket could capture
   controller traffic. The leader creates each granted bucket before it

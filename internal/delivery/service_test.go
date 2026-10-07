@@ -761,9 +761,6 @@ func TestDeliveryRunRecoversFromTransientFetchFailure(t *testing.T) {
 // delivery worker: Run recreates its consumer instead of returning, which
 // would stop the controller and its embedded broker.
 func TestDeliveryRunRecreatesConsumerAfterPermanentFetchFailure(t *testing.T) {
-	saved := deliveryConsumerRecovery
-	deliveryConsumerRecovery.initial, deliveryConsumerRecovery.max = 10*time.Millisecond, 20*time.Millisecond
-	t.Cleanup(func() { deliveryConsumerRecovery = saved })
 	for _, permanent := range []error{jetstream.ErrInvalidOption, jetstream.ErrJetStreamNotEnabled,
 		jetstream.ErrJetStreamNotEnabledForAccount, jetstream.ErrConsumerDeleted,
 		nats.ErrPermissionViolation} {
@@ -775,6 +772,8 @@ func TestDeliveryRunRecreatesConsumerAfterPermanentFetchFailure(t *testing.T) {
 			}
 			broken := &failingFetchConsumer{Consumer: service.consumer, err: permanent, failAlways: true}
 			service.consumer = broken
+			// Per service: another test's worker may still read the default.
+			service.recovery = consumerRecovery{10 * time.Millisecond, 20 * time.Millisecond}
 			runCtx, cancel := context.WithCancel(ctx)
 			done := make(chan error, 1)
 			go func() { done <- service.Run(runCtx) }()

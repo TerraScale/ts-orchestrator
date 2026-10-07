@@ -35,6 +35,11 @@ keeps everything in it, adds the signer derived from the material's
 `host-nats-issuer.seed`, signs it with `issuer-operator.seed` and prints
 `role-signer` and the file's SHA-256. Running it again on its own output
 changes only the issue time. Apply the file with `broker-claim-apply` as
-above; the actor needs `can_rotate_broker_account`. Applying closes every
+above; the actor needs `can_rotate_broker_account`. A release that changes
+the role scope (`roleidentity.Scope`, such as TS-668's query grants) needs
+the same step again in every cell, right after its controllers run it: the
+controllers issue role credentials only while the cell account holds
+exactly their scope, and members keep their current credentials, valid for
+48 hours, until then. Applying closes every
 external NATS session once: clients reconnect when each broker's gate
 reopens, within about 3 seconds, well inside a host session's 30 seconds.
