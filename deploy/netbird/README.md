@@ -305,7 +305,9 @@ sudo rm /var/lib/homelab/netbird/setup-key
 ```
 
 They keep `DisableDNS=true`, server routes and inbound connections off, so
-Tailscale keeps name resolution; they reach cell hosts by private IP.
+Tailscale keeps name resolution; they reach cell hosts by private IP. On them
+`ts-orch netbird ssh --netbird 'sudo netbird-wt0'` still takes peer names
+(below).
 
 ## Operator automation peer
 
@@ -335,9 +337,15 @@ Use it:
 ```sh
 VAULT=ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq
 NB="sudo env -u SUDO_USER -u SUDO_UID nsenter -t $(sudo podman inspect -f '{{.State.Pid}}' ts-netbird-ops) -m /usr/local/bin/netbird"
-ts-orch netbird ssh --vault-id "$VAULT" --netbird "$NB" -- root@gru-1-db-1.nb.ts.internal hostname
-ts-orch netbird ssh --vault-id "$VAULT" --netbird "$NB" -- -L 19464:127.0.0.1:9464 -L 19465:127.0.0.1:9465 root@gru-1-db-1.nb.ts.internal sleep 3600 &
+ts-orch netbird ssh --vault-id "$VAULT" --netbird "$NB" -- root@gru-1-ctl-1.nb.ts.internal hostname
+ts-orch netbird ssh --vault-id "$VAULT" --netbird "$NB" -- -L 19464:127.0.0.1:9464 -L 19465:127.0.0.1:9465 root@gru-1-ctl-1.nb.ts.internal sleep 3600 &
 ```
+
+The destination may name any peer, as `gru-1-ctl-1.nb.ts.internal` or
+`ts-sfo-1`: the command connects to the NetBird IP that `$NB status --json`
+lists for it, so names work on devices with NetBird DNS off. On 2026-10-07
+delta, beta (both `sudo netbird-wt0`) and mariogk-dev-ops each opened a
+session on gru-1-ctl-1..3 and ts-sfo-1..3 by name.
 
 `NB` runs the container's NetBird CLI in the container's mount namespace
 (its daemon socket and `resolv.conf`) as a direct child of `sudo`, so stopping

@@ -9,15 +9,18 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -39,7 +42,10 @@ const (
 
 const usage = `Usage: ts-orch netbird ssh --vault-id OCID [--netbird COMMAND] -- [netbird ssh arguments]
 
-Runs "COMMAND ssh --no-browser ARGUMENTS" (COMMAND defaults to netbird). When
+Runs "COMMAND ssh --no-browser ARGUMENTS" (COMMAND defaults to netbird). A
+user@host destination naming a NetBird peer (gru-1-ctl-1.nb.ts.internal or
+gru-1-ctl-1) connects to its NetBird IP from "COMMAND status --json", so it
+works on devices with NetBird DNS off. When
 NetBird asks for the SSH login, it signs in to the NetBird manager's identity
 provider as the automation user: Vault secrets ` + emailSecret + `
 and ` + passwordSecret + `, read with the operator's ~/.oci/config.
@@ -85,8 +91,57 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		password, err := vaultsecret.Read(ctx, bundles, *vaultID, passwordSecret)
 		return email, password, err
 	}
-	argv := append(append(command, "ssh", "--no-browser"), flags.Args()...)
+	args = flags.Args()
+	// A failed status leaves the names as they are; netbird ssh reports them.
+	if status, err := exec.CommandContext(ctx, command[0], append(slices.Clone(command[1:]), "status", "--json")...).Output(); err == nil {
+		args = withPeerAddress(args, peerAddresses(status))
+	}
+	argv := append(append(command, "ssh", "--no-browser"), args...)
 	return run(ctx, argv, os.Stdin, stdout, os.Stderr, manager.DefaultManagementURL, login)
+}
+
+// peerAddresses maps every peer in "netbird status --json" to its NetBird
+// IP, by DNS name (gru-1-ctl-1.nb.ts.internal) and by peer name
+// (gru-1-ctl-1). Devices that keep NetBird DNS off cannot resolve them.
+func peerAddresses(status []byte) map[string]string {
+	var parsed struct {
+		Peers struct {
+			Details []struct {
+				FQDN string `json:"fqdn"`
+				IP   string `json:"netbirdIp"`
+			} `json:"details"`
+		} `json:"peers"`
+	}
+	if json.Unmarshal(status, &parsed) != nil {
+		return nil
+	}
+	addresses := map[string]string{}
+	for _, peer := range parsed.Peers.Details {
+		if _, err := netip.ParseAddr(peer.IP); err != nil || peer.FQDN == "" {
+			continue
+		}
+		name, _, _ := strings.Cut(peer.FQDN, ".")
+		addresses[peer.FQDN], addresses[name] = peer.IP, peer.IP
+	}
+	return addresses
+}
+
+// withPeerAddress puts the NetBird IP in place of the destination's host
+// when it names a peer. The destination is the first user@host argument;
+// later arguments are the remote command and stay unchanged.
+func withPeerAddress(args []string, addresses map[string]string) []string {
+	for i, arg := range args {
+		user, host, found := strings.Cut(arg, "@")
+		if !found {
+			continue
+		}
+		if ip, ok := addresses[host]; ok {
+			args = slices.Clone(args)
+			args[i] = user + "@" + ip
+		}
+		break
+	}
+	return args
 }
 
 // run starts the NetBird SSH client and copies its standard error, watching
