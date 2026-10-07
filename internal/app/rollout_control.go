@@ -429,6 +429,8 @@ func (c *rolloutControl) serve(ctx context.Context, wire []byte, policy signerPo
 		return rolloutReply{}, errors.New("rollouts are not enabled in this cell (controller.rollouts.enabled)")
 	}
 	reply := rolloutReply{}
+	// written is the release this request made the cell's desired one.
+	var written *rollout.Release
 	var err error
 	switch envelope.Kind {
 	case rolloutStatusKind:
@@ -445,7 +447,10 @@ func (c *rolloutControl) serve(ctx context.Context, wire []byte, policy signerPo
 			return rolloutReply{}, fmt.Errorf("release receipt: %w", verifyErr)
 		}
 		admitted.Actor, admitted.CreatedAt = trusted.Actor, now
-		_, err = store.PublishRelease(ctx, epoch, admitted)
+		var published rollout.Release
+		if published, err = store.PublishRelease(ctx, epoch, admitted); err == nil {
+			written = &published
+		}
 		reply.Status = "published"
 	case rolloutRollbackKind:
 		var request rolloutRollbackRequest
@@ -467,6 +472,9 @@ func (c *rolloutControl) serve(ctx context.Context, wire []byte, policy signerPo
 		}
 		var release rollout.Release
 		release, err = store.RollbackRelease(ctx, epoch, request.To, trusted.Actor, now)
+		if err == nil {
+			written = &release
+		}
 		if err == nil || errors.Is(err, rollout.ErrReleaseUnchanged) {
 			// The rollout in flight moved towards the release the operator
 			// just rejected: stop it, returning its units first. A retried
@@ -499,7 +507,15 @@ func (c *rolloutControl) serve(ctx context.Context, wire []byte, policy signerPo
 		slog.Info("rollout request", observability.ComponentKey, "rollout", "actor", trusted.Actor,
 			"kind", envelope.Kind, "status", reply.Status)
 	}
-	return c.view(ctx, store, reply)
+	reply, err = c.view(ctx, store, reply)
+	if err == nil && written != nil && (reply.Desired == nil || reply.Desired.Generation < written.Generation) {
+		// A read right after the write may reach a replica that has not
+		// applied it yet; the request answers with what it wrote.
+		desired := *written
+		desired.Receipt, desired.Delegation = nil, nil
+		reply.Desired, reply.DesiredKnownBad = &desired, false
+	}
+	return reply, err
 }
 
 // view fills the reply with the desired release, recent generations and
