@@ -189,6 +189,9 @@ func releaseUnderLoad(t *testing.T, seated bool) (failures, served int64) {
 		return hosts.running(2) && len(drained) == 0 && edge.serving() == 2
 	})
 	time.Sleep(300 * time.Millisecond)
+	// The window is timed; a busy race-detector runner still gets the
+	// requests the test asserts on.
+	await("the load reaches 100 requests", func() bool { return atomic.LoadInt64(&served) >= 100 })
 	close(stop)
 	clients.Wait()
 	return failures, served

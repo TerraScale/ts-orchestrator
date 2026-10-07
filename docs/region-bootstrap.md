@@ -1069,7 +1069,9 @@ and the intended network boundary.
    The config binds the mapped cell and region, deployment and cluster IDs,
    controller slots, addresses, and validity. Keep the local directory
    owner-only and outside the checkout. Its public record and generated PEMs
-   do not contain private key bytes.
+   do not contain private key bytes. Its `cell.jwt` already holds the role
+   signer, so the region's roles get NATS identities without a
+   [role claim](broker-claim-rotation.md#role-claim).
 4. After the live readback and current budget admission pass, publish the
    versioned Vault material and public reference record with:
 

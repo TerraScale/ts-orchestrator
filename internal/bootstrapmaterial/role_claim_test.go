@@ -8,14 +8,17 @@ import (
 	"time"
 
 	"github.com/nats-io/jwt/v2"
+	"github.com/nats-io/nkeys"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 )
 
-// The role claim keeps the cell account as it was, host signer and
-// JetStream included, adds the role signer the controllers derive, and is
-// newer than the claim it replaces.
+// New material's cell account carries the role signer the controllers
+// derive (TS-663), exactly as role-claim adds it: role-claim on it changes
+// only the issue time. On a cell founded before, role-claim keeps the cell
+// account as it was, host signer and JetStream included, adds the role
+// signer, and is newer than the claim it replaces.
 func TestRoleClaimAddsTheControllersRoleSigner(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "material")
 	record, err := bootstrapmaterial.Generate(directory, bootstrapmaterial.Config{Environment: "production",
@@ -32,8 +35,44 @@ func TestRoleClaimAddsTheControllersRoleSigner(t *testing.T) {
 		}
 		return data
 	}
-	current := string(read("cell.jwt"))
+	paths := func(name string) string { return filepath.Join(directory, name) }
+	issuer, err := hostenroll.LoadIssuer("gru", record.Public.CellAccountNKey, paths("host-nats-issuer.seed"),
+		paths("host-tls-issuer-key.pem"), paths("host-tls-issuer-cert.pem"), read("ca.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated := string(read("cell.jwt"))
+	if err := issuer.ValidateRoleScope(generated); err != nil {
+		t.Fatalf("the controllers refuse new material's cell account: %v", err)
+	}
 	time.Sleep(time.Second) // brokers take only a newer claim
+	claimed, _, err := bootstrapmaterial.RoleClaim(directory, generated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(withoutIssue(mustDecode(t, claimed)), withoutIssue(mustDecode(t, generated))) {
+		t.Fatal("role-claim on new material changed more than the issue time")
+	}
+
+	// A cell founded before TS-663: its cell account lacks the role signer.
+	operator, err := nkeys.FromSeed(read("issuer-operator.seed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := mustDecode(t, generated)
+	for key := range legacy.SigningKeys {
+		if key != record.Public.HostNATSIssuerNKey {
+			delete(legacy.SigningKeys, key)
+		}
+	}
+	current, err := legacy.Encode(operator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := issuer.ValidateRoleScope(current); err == nil {
+		t.Fatal("the controllers accept a claim without the role signer")
+	}
+	time.Sleep(time.Second)
 	raw, signer, err := bootstrapmaterial.RoleClaim(directory, current)
 	if err != nil {
 		t.Fatal(err)
@@ -47,25 +86,25 @@ func TestRoleClaimAddsTheControllersRoleSigner(t *testing.T) {
 	if _, host := after.SigningKeys.GetScope(record.Public.HostNATSIssuerNKey); !host {
 		t.Fatal("the host signer was dropped")
 	}
+	if !reflect.DeepEqual(after.SigningKeys, mustDecode(t, generated).SigningKeys) {
+		t.Fatalf("role-claim added signer %s, not new material's", signer)
+	}
 	time.Sleep(time.Second)
 	if again, _, err := bootstrapmaterial.RoleClaim(directory, raw); err != nil || len(mustDecode(t, again).SigningKeys) != 2 {
 		t.Fatalf("a second run added another signer: %v", err)
 	}
-	paths := func(name string) string { return filepath.Join(directory, name) }
-	issuer, err := hostenroll.LoadIssuer("gru", record.Public.CellAccountNKey, paths("host-nats-issuer.seed"),
-		paths("host-tls-issuer-key.pem"), paths("host-tls-issuer-cert.pem"), read("ca.pem"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := issuer.ValidateRoleScope(raw); err != nil {
 		t.Fatalf("the controllers refuse the role claim (signer %s): %v", signer, err)
-	}
-	if err := issuer.ValidateRoleScope(current); err == nil {
-		t.Fatal("the controllers accept a claim without the role signer")
 	}
 	if _, _, err := bootstrapmaterial.RoleClaim(directory, string(read("system.jwt"))); err == nil {
 		t.Fatal("another account's claim was signed")
 	}
+}
+
+// withoutIssue clears the issue time and the claim ID, its hash.
+func withoutIssue(claim *jwt.AccountClaims) *jwt.AccountClaims {
+	claim.IssuedAt, claim.ID = 0, ""
+	return claim
 }
 
 func mustDecode(t *testing.T, raw string) *jwt.AccountClaims {

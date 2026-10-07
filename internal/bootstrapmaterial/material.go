@@ -398,6 +398,13 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 		Streams: jwt.NoLimit, Consumer: jwt.NoLimit}
 	hostScope := expectedHostScope(cfg.Cell, hostIssuerID)
 	cellClaim.SigningKeys.AddScopedSigner(hostScope)
+	// The role signer (TS-651) from the start, so a new cell's roles get
+	// NATS identities without a role-claim and broker-claim-apply.
+	role, err := roleScope(hostIssuer)
+	if err != nil {
+		return nil, Public{}, err
+	}
+	cellClaim.SigningKeys.AddScopedSigner(role)
 	cellJWT, err := cellClaim.Encode(op)
 	if err != nil {
 		return nil, Public{}, err
@@ -841,8 +848,13 @@ func validateSignerFiles(directory string, record Record) error {
 		return ErrMaterial
 	}
 	issuerID, err := issuer.PublicKey()
-	issuer.Wipe()
 	if err != nil || issuerID != record.Public.HostNATSIssuerNKey {
+		issuer.Wipe()
+		return ErrMaterial
+	}
+	role, err := roleScope(issuer)
+	issuer.Wipe()
+	if err != nil {
 		return ErrMaterial
 	}
 	cellWire, err := read("cell.jwt")
@@ -856,8 +868,11 @@ func validateSignerFiles(directory string, record Record) error {
 	}
 	scope, ok := cellClaim.SigningKeys.GetScope(issuerID)
 	hostScope, ok := scope.(*jwt.UserScope)
+	// Material generated before TS-663 has no role signer.
+	bound, hasRole := cellClaim.SigningKeys.GetScope(role.Key)
+	roleBound, _ := bound.(*jwt.UserScope)
 	if !ok || !reflect.DeepEqual(hostScope, expectedHostScope(record.Config.Cell, issuerID)) ||
-		len(cellClaim.SigningKeys) != 1 {
+		hasRole && !reflect.DeepEqual(roleBound, role) || len(cellClaim.SigningKeys) != 1+boolInt(hasRole) {
 		return ErrMaterial
 	}
 	operatorWire, err := read("operator.creds")

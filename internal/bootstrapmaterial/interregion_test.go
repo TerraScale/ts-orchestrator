@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -62,13 +63,22 @@ func TestInterRegionMaterialMatchesTheContract(t *testing.T) {
 		return claim
 	}
 	interregion, cell, system := read("interregion.jwt"), read("cell-interregion.jwt"), read("system-interregion.jwt")
+	// The reissued cell account keeps the host and role signers.
+	baseRaw, err := os.ReadFile(filepath.Join(material, "cell.jwt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseCell, err := jwt.DecodeAccountClaims(string(baseRaw))
+	if err != nil || len(baseCell.SigningKeys) != 2 {
+		t.Fatalf("material cell account %+v: %v", baseCell, err)
+	}
 	contract := natscell.InterRegionContract{Cell: "gru", Peers: []string{"fra", "sfo"}, GlobalHome: "gru",
 		Subtrees: map[string][]string{"sfo": {"fra", "sfo"}}}
 	if err := contract.VerifyClaims(system, cell, interregion, 1); err != nil {
 		t.Fatalf("issued claims fail the startup check: %v", err)
 	}
 	if !interregion.Limits.DisallowBearer || cell.Limits.LeafNodeConn != 0 || system.Limits.LeafNodeConn != 0 ||
-		cell.Subject != base.Public.CellAccountNKey || len(cell.SigningKeys) != 1 ||
+		cell.Subject != base.Public.CellAccountNKey || !reflect.DeepEqual(cell.SigningKeys, baseCell.SigningKeys) ||
 		interregion.Subject != record.InterRegionAccountNKey || interregion.Expires != base.ExpiresAt.Unix() {
 		t.Fatalf("claims: interregion %+v cell %+v", interregion.Limits, cell.Limits)
 	}

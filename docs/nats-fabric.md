@@ -119,9 +119,9 @@ and its settings prefix; today only `terrabase` has one.
   the files described in
   [TerraBase's role files](terrabase-runtime-contract.md#role-files).
 - **Turning it on in a region.** The leader issues nothing until the
-  brokers' cell account holds the signer:
-  [apply the role claim](broker-claim-rotation.md#role-claim) once per
-  region.
+  brokers' cell account holds the signer. A region founded from material
+  generated since TS-663 holds it from the start; a cell founded before
+  needs [the role claim](broker-claim-rotation.md#role-claim) once.
 - **Live.** gru-1 since 2026-10-07: the
   [delivery record](evidence/ts-651-role-identity-gru-1-20261007.md).
 

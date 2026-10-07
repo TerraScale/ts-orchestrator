@@ -564,3 +564,69 @@ func TestLegacyMaterialWithoutMemberCAStillLoads(t *testing.T) {
 		t.Fatal("loaded material with half a member CA pair")
 	}
 }
+
+// New material's cell account carries the role signer (TS-663); material
+// generated before still validates, and a role signer with any other scope
+// does not.
+func TestCellAccountRoleSignerIsExactOrAbsent(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "material")
+	record, err := Generate(directory, testConfig(), time.Now().UTC().Truncate(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(directory, "cell.jwt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed, err := os.ReadFile(filepath.Join(directory, "issuer-operator.seed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	operator, err := nkeys.FromSeed(seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, edit := range map[string]func(*jwt.AccountClaims, string){
+		"before TS-663": func(claim *jwt.AccountClaims, role string) { delete(claim.SigningKeys, role) },
+		"wider scope": func(claim *jwt.AccountClaims, role string) {
+			claim.SigningKeys[role].(*jwt.UserScope).Template.Pub.Allow.Add(">")
+		},
+	} {
+		claim, err := jwt.DecodeAccountClaims(string(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var role string
+		for key := range claim.SigningKeys {
+			if key != record.Public.HostNATSIssuerNKey {
+				role = key
+			}
+		}
+		edit(claim, role)
+		wire, err := claim.Encode(operator)
+		if err != nil {
+			t.Fatal(err)
+		}
+		edited := slices.Clone(record.Files)
+		for i, file := range edited {
+			if file.Name == "cell.jwt" {
+				edited[i].SHA256, edited[i].MaxBytes = digest([]byte(wire)), int64(len(wire))
+			}
+		}
+		changed := record
+		changed.Files = edited
+		metadata, err := json.Marshal(changed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for file, body := range map[string][]byte{"cell.jwt": []byte(wire), metadataName: metadata,
+			readyName: []byte(digest(metadata) + "\n")} {
+			if err := os.WriteFile(filepath.Join(directory, file), body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := ValidateLive(directory, changed); (err == nil) != (name == "before TS-663") {
+			t.Fatalf("%s: live validation = %v", name, err)
+		}
+	}
+}
