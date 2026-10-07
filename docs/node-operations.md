@@ -50,7 +50,9 @@ each step starts, so a new leader resumes it:
    releases the failed operation's hold too) or the operation again.
 
 `drain` stops after step 1 and keeps the node out until `undrain`, which
-runs steps 3 and 4.
+runs steps 3 and 4. `undrain` also releases a fence at the node's address
+under a name no grant holds, which a failed `rename` whose grant went back
+leaves behind.
 
 `add` brings in a node that has a host grant, an instance and an enrolled
 host agent: its act creates the node's missing backends, out of rotation,

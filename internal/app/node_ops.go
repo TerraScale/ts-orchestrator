@@ -319,6 +319,20 @@ func (o *nodeOps) submit(ctx context.Context, epoch uint64, actor, id string, re
 	if err != nil {
 		return nodeOp{}, err
 	}
+	if request.Op == nodeOpUndrain {
+		// A fence a failed rename left at the node's address, under a name
+		// no grant holds any more, is the node's to undrain.
+		strays, err := o.strayFences(ctx, request.Node, addresses)
+		if err != nil {
+			return nodeOp{}, err
+		}
+		for _, stray := range strays {
+			if !held {
+				record.Holders = nil
+			}
+			record.Holders, held = append(record.Holders, stray.holders()...), true
+		}
+	}
 	if request.Op == nodeOpRetire {
 		if o.controllers != nil && o.controllers(request.Node) {
 			return nodeOp{}, fmt.Errorf("node %s runs a controller; ts-orch node retire takes only hosts without one", request.Node)
@@ -561,6 +575,15 @@ func (o *nodeOps) execute(ctx context.Context, epoch uint64, op *nodeOp) error {
 	case nodeOpUndrain:
 		if err := step("check"); err != nil {
 			return err
+		}
+		strays, err := o.strayFences(ctx, op.Node, addresses)
+		if err != nil {
+			return err
+		}
+		for name := range strays {
+			if err := o.adoptFence(ctx, epoch, name, op.Node); err != nil {
+				return err
+			}
 		}
 		if err := o.serving(ctx, epoch, *op); err != nil {
 			return err
@@ -913,6 +936,30 @@ func (o *nodeOps) carryPermit(ctx context.Context, epoch uint64, d host.Desired,
 	}
 	_, err := o.fence.kv.Put(ctx, permitKey(d.Role, release, to), []byte("{}"))
 	return err
+}
+
+// strayFences are the fence records at node's granted address under names
+// no host grant holds, which a failed rename leaves behind (TS-632).
+func (o *nodeOps) strayFences(ctx context.Context, node string, addresses map[string]string) (map[string]fenceRecord, error) {
+	keys, err := o.fence.keys(ctx, fencedKey("*"))
+	if err != nil {
+		return nil, err
+	}
+	strays := map[string]fenceRecord{}
+	for _, key := range keys {
+		name := strings.TrimPrefix(key, fencedKey(""))
+		if name == node || addresses[name] != "" {
+			continue
+		}
+		record, found, err := o.fence.record(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		if found && slices.ContainsFunc(record.Backends, func(b fencedBackend) bool { return b.IP == addresses[node] }) {
+			strays[name] = record
+		}
+	}
+	return strays, nil
 }
 
 // adoptFence moves the old name's fence record, its holders and backends,

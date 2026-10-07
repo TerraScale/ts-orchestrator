@@ -645,3 +645,44 @@ func TestNodeRenameReenrollsTheHostAndMovesItsRoles(t *testing.T) {
 		t.Fatal("the fence record was left")
 	}
 }
+
+// A failed rename whose grant went back left its fence under the new name,
+// which no grant holds: undrain of the node at that address releases it
+// (TS-632, gru-1 2026-10-07), and undrain of the stray name stays refused.
+func TestNodeUndrainReleasesAFenceAFailedRenameLeftAtItsAddress(t *testing.T) {
+	ops, balancer, _ := newNodeOpsTest(t)
+	ctx := t.Context()
+	spec, addresses := ops.fence.spec()
+	api, _ := ops.fence.client(ctx)
+	if err := ops.fence.fence(ctx, api, 3, *spec, "ts-gru-1", addresses["ctl-1"], time.Millisecond, holdOperation); err != nil {
+		t.Fatal(err)
+	}
+	if balancer.sets["terrabase"][0].Serving() {
+		t.Fatal("the stray fence did not take ctl-1's address out")
+	}
+	if _, err := ops.submit(ctx, 3, "mariogk", "op-1", nodeOpRequest{Node: "ts-gru-1", Op: nodeOpUndrain}); err == nil ||
+		!strings.Contains(err.Error(), "no host grant") {
+		t.Fatalf("undrain of the ungranted name: %v", err)
+	}
+	if _, err := ops.submit(ctx, 3, "mariogk", "op-2", nodeOpRequest{Node: "ctl-2", Op: nodeOpUndrain}); err == nil ||
+		!strings.Contains(err.Error(), "not drained") {
+		t.Fatalf("undrain of a node with no fence at its address: %v", err)
+	}
+	if _, err := ops.submit(ctx, 3, "mariogk", "op-3", nodeOpRequest{Node: "ctl-1", Op: nodeOpUndrain}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ops.pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if op := ops.operation(t, "ctl-1"); op.State != nodeOpDone {
+		t.Fatalf("operation %+v", op)
+	}
+	if !balancer.sets["terrabase"][0].Serving() || !balancer.sets["ts-auth"][0].Serving() {
+		t.Fatal("undrain did not return the address the stray fence held")
+	}
+	for _, node := range []string{"ts-gru-1", "ctl-1"} {
+		if _, found, _ := ops.fence.record(ctx, node); found {
+			t.Fatalf("the fence record of %s was left", node)
+		}
+	}
+}
