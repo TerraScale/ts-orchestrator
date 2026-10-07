@@ -23,6 +23,13 @@ throughout.
 | 16:05 | One `atlas publish` of `atlas-gru-1.json` (gru-1 + sfo-1); it went stale within minutes. |
 | 16:14–16:16 | ts-auth prerequisites: `ts-auth secrets`, `ouroboros bootstrap` on ts-sfo-1 (org `01a11722-22a9-7fe2-b02e-f27b1546f99b`, ts-auth project `01a11722-248e-7ed5-9bb7-c4e4bd9596b6`), the metadata firewall on ts-sfo-1..3. |
 | 16:30 | gru-1 cell spec generation 8 (root, `bc597160…`): only `atlas` added, from `atlas-gru-1.json`. gru-1's spec had lost the section in the TS-578 lineage reset, so nothing published. gru-1's leader publishes again; gru.api and gru.auth 200 before and after. |
+| 16:48 | Main release `ci-90ad5472…-run-14919` (with #294), from a dispatched `ci.yml` run after three runner flakes failed the push run. |
+| 16:51–16:54 | Controllers ts-sfo-1..3 self-updated to `90ad5472` (release `095f9717…`). Each node's host agent, and so its TerraBase member, restarted with it. |
+| 16:56 | sfo cell spec generation 6 (root, `70b138ed…`): ts-auth service (3 stateless replicas, one per fault domain), host grants `[terrabase, ts-auth]`. |
+| 16:58–17:03 | Host registrations generation 2 (roles `[terrabase, ts-auth]`, capacity 2 CPU / 5 GiB / 22 GiB), `host.json` roles and `ts_auth_root`, rolling host-agent restart (incident 4). sfo.api 200 throughout. |
+| 17:04–17:09 | `operator ts-auth-release` of ts-auth `31c6bead` (`86390805…`, the build gru-1 runs): replicas aborted (incident 5). |
+| 17:11 | ts-auth's 20 collections created in sfo's `auth` database; all three replicas ready; `ts-auth` backends healthy. |
+| 17:14 | `ts-orch region verify sfo`: api, auth, load balancer and atlas PASS (exit 0). |
 
 ## Incidents
 
@@ -49,6 +56,18 @@ throughout.
 3. **Cloudflare token scope.** `oci-region dns` stops with HTTP 403: Vault's
    `gru-1-cloudflare-dns-edit-token` cannot read the zone's configuration
    rules. The same steps were made with the logged-in `cf` CLI.
+4. **A grant change does not reach an enrolled host.** `host-setup` keeps
+   credentials with more than 24 h left, and a re-run without `host.json`
+   replays the cached first enrollment (roles `[terrabase]`). Roles reached
+   the nodes only through `operator host-register` (generation 2) and a
+   `host.json` edit, then a host-agent restart per node. `node-drain` refused
+   to fence first: no ts-auth backend served yet.
+5. **ts-auth's collections did not exist.** Every replica aborted with
+   `TerraBaseNotFoundException: the collection does not exist`: nothing runs
+   ts-auth's `AuthStore.ProvisionAsync`. The 20 `RequiredCollections` were
+   created with ts-auth's own key (`POST
+   /v1/projects/{project}/databases/auth/collections`); the replicas served
+   on their next relaunch.
 
 ## Objects
 
@@ -88,11 +107,23 @@ edge reconciler keeps those sets equal to the role's replicas. `ts-orch`
 
 ## ts-auth
 
-ts-auth on sfo needs the per-cell ts-auth contract (#294) on the
-controllers, so it runs once they are on a main build with it: self-update to that main build,
-`ts-auth secrets`, `ouroboros bootstrap` against an sfo member, a spec that
-adds the service and grants `ts-auth` to the nodes, then
-`operator ts-auth-release`. sfo's ts-auth stores in sfo's own TerraBase
-(database `auth`) and has no SMTP relay: us-sanjose-1 has no approved sender
-and sfo cannot reach the sa-saopaulo-1 relay; sfo's TerraBase accepts
-gru.auth tokens (`TERRABASE_AUTH_ISSUER`, set by TS-640).
+ts-auth `31c6bead` serves on ts-sfo-1..3 at `https://sfo.auth.terrascale.tech`
+(issuer `https://sfo.auth.terrascale.tech/terrascale`), from the reviewed
+`deploy/oci-region/ts-auth-sfo-1-profile.json`. It stores in sfo's own
+TerraBase (organization `01a11722-22a9-7fe2-b02e-f27b1546f99b`, project
+`01a11722-248e-7ed5-9bb7-c4e4bd9596b6`, database `auth`), so its users and
+keys are its own, not gru.auth's. sfo's TerraBase accepts gru.auth tokens
+(`TERRABASE_AUTH_ISSUER`, set by TS-640). It has no SMTP relay: us-sanjose-1
+has no approved sender and sfo cannot reach the sa-saopaulo-1 relay, so it
+logs mail instead of sending it.
+
+## Verification
+
+`ts-orch region verify sfo --plan <bound plan>`, 17:14Z, exit 0:
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| api | PASS | `https://sfo.api.terrascale.tech/healthz` 200; status "ok", region "sfo-1" |
+| auth | PASS | `https://sfo.auth.terrascale.tech/terrascale/.well-known/openid-configuration` 200; issuer `https://sfo.auth.terrascale.tech/terrascale` |
+| load balancer | PASS | terrabase 3/3, ts-auth 3/3, ts-orch 3/3 healthy; `terrabase-primary` OK |
+| atlas | PASS | `https://atlas.terrascale.tech/v1/discovery` lists sfo-1, health ok |

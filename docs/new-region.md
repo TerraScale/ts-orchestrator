@@ -102,7 +102,7 @@ sfo-1 by hand, 2026-10-07, from the TS-640 and TS-662 Ku timestamps:
 | Foundation by hand with `oci`, and removing GRU hard-codes (#270) | 10:53Z | 11:46Z | 53 min |
 | Founding attempt, 5 bugs found (#279) | 11:46Z | 13:16Z | 1 h 30 min |
 | Host agents, specs by hand; TS-640 closed without an edge | 13:16Z | 14:02Z | 46 min |
-| Edge: load balancer, Origin CA, DNS, Atlas (TS-662) | 14:45Z | open at 15:56Z | over 1 h 10 min |
+| Edge, TerraBase, ts-auth, Atlas (TS-662) | 14:45Z | 17:14Z | 2 h 29 min |
 
-That is over 5 hours to a region that did not serve yet. The next region's
+That is 6 h 32 min from the decision to `region verify sfo` passing. The next region's
 `create` journal gives its numbers; record them here.
