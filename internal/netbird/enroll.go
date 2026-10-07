@@ -28,8 +28,8 @@ const (
 
 var errDaemonUnreachable = errors.New("cannot query NetBird daemon status")
 
-// serverSettings keep servers off NetBird DNS and routing while serving NetBird
-// SSH. Sessions require the operator's IdP identity (JWT) and a manager
+// serverSettings enable NetBird split DNS while keeping server routing off.
+// SSH sessions require the operator's IdP identity (JWT) and a manager
 // policy; local forwarding reaches loopback-only tools, remote forwarding is
 // refused.
 var serverSettings = []struct {
@@ -37,7 +37,7 @@ var serverSettings = []struct {
 	key  string
 	want bool
 }{
-	{"--disable-dns", "disableDns", true},
+	{"--disable-dns", "disableDns", false},
 	{"--disable-client-routes", "disableClientRoutes", true},
 	{"--disable-server-routes", "disableServerRoutes", true},
 	{"--disable-auto-connect", "disableAutoConnect", false},

@@ -4,6 +4,83 @@ The dashboard is served by every controller on its private, authenticated
 observability listener (`observability.dashboard: true`). It only reads
 providers; it never changes control-plane state.
 
+## NetBird access
+
+Connect the laptop to NetBird and open a topology URL below. Enter the
+region's dashboard token on `/login`; the browser keeps a read-only session
+for 12 hours. Delta, beta and mariogk-dev use the same URLs. TCP 9463 is
+private: the NetBird operator policy and host firewall admit it through `wt0`,
+and it has no public listener or OCI ingress rule. The signed cell spec's
+`dashboard.token` enables the listener in place; never re-found a serving cell
+to change access ([listener contract](../observability.md#on-the-netbird-address-cell-spec)).
+
+LINKS: controller topology URLs (NetBird inventory, 2026-10-07):
+
+| Controller | By NetBird IP | By NetBird DNS |
+|---|---|---|
+| GRU 1 | http://10.200.87.215:9463/topology | http://ts-gru-1.nb.ts.internal:9463/topology |
+| GRU 2 | http://10.200.38.135:9463/topology | http://ts-gru-2.nb.ts.internal:9463/topology |
+| GRU 3 | http://10.200.168.164:9463/topology | http://ts-gru-3.nb.ts.internal:9463/topology |
+| SFO 1 | http://10.200.112.213:9463/topology | http://ts-sfo-1.nb.ts.internal:9463/topology |
+| SFO 2 | http://10.200.122.37:9463/topology | http://ts-sfo-2.nb.ts.internal:9463/topology |
+| SFO 3 | http://10.200.63.195:9463/topology | http://ts-sfo-3.nb.ts.internal:9463/topology |
+
+### Fetch the regional tokens
+
+Run with the operator's `~/.oci/config` ([Vault access](../secrets.md#read-a-secret)).
+This writes owner-only files without printing the tokens:
+
+```sh
+mkdir -p "$HOME/.config/ts-orch"
+dashboard_token() {
+  oci --region "$1" secrets secret-bundle get-secret-bundle-by-name \
+    --vault-id "$2" --secret-name "$3" \
+    --query 'data."secret-bundle-content".content' --raw-output | base64 --decode
+}
+(
+  set -euo pipefail
+  umask 077
+  dashboard_token sa-saopaulo-1 \
+    ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq \
+    gru-1-orch-dashboard-token > "$HOME/.config/ts-orch/dashboard-gru-token"
+  dashboard_token us-sanjose-1 \
+    ocid1.vault.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrzcofqki6a5podtjnhvyiol7yqehrd77tp2hoeynxp5wozv54mq6a \
+    sfo-1-orch-dashboard-token > "$HOME/.config/ts-orch/dashboard-sfo-token"
+)
+```
+
+Read the appropriate file locally to enter its token in the login form; never
+put it in a URL, command argument, ticket or PR. Each token is shared by that
+region's three controllers. Token rotation is picked up within five minutes.
+
+### Check every controller from this device
+
+Run this on the laptop, delta, beta and mariogk-dev with NetBird connected
+and both token files available. Build once with `nice -n 19 make build`:
+
+```sh
+scripts/check-dashboard-access.sh \
+  --gru-token-file "$HOME/.config/ts-orch/dashboard-gru-token" \
+  --sfo-token-file "$HOME/.config/ts-orch/dashboard-sfo-token"
+```
+
+The thin wrapper runs `ts-orch dashboard check`. It reads current IPs from
+`netbird status --json`, requires all six controllers, and curls `/healthz`
+and authenticated `/topology` by IP and native DNS: 24 requests total. It
+returns 0 only when every response is HTTP 200 from the expected NetBird IP.
+It bypasses HTTP proxies, refuses redirects, does not override DNS, and passes
+tokens to curl through stdin. IP replacement needs no script edit. Each
+request has a five-second timeout (override with `--timeout 10s`).
+
+Use `NB='sudo -n netbird-wt0'` on a NixOS dev VM or set `NB` to the connected
+client command and `TS_ORCH` to an existing binary. For the host-network
+automation container, use `NB='sudo -n podman exec -i ts-netbird-ops netbird'`.
+A failed DNS curl (exit status 6) needs NetBird DNS enabled for that peer; a
+failed TCP curl (7 or 28) needs the listener, operator policy and `wt0`
+firewall inspected before changing anything. An HTTP 401 needs the current
+token for that region. Do not add public ingress or hide a DNS failure with
+`curl --resolve`.
+
 ## Pages
 
 | Page | What it shows |

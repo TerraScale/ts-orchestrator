@@ -126,7 +126,7 @@ func GRU() Desired {
 			{Name: "ops-automation-to-gru-servers-ssh",
 				Description: "Operator automation peers → GRU servers: NetBird SSH with identity-provider login",
 				Protocol:    "netbird-ssh", Sources: []string{"ops-automation"}, Destinations: []string{"gru-servers"}},
-		}, regionPolicies(), dashboardPolicies(), []PolicySpec{
+		}, regionPolicies(), serverAccessPolicies(), []PolicySpec{
 			{Name: "operators-to-ts-ops-forgejo", RenamedFrom: []string{"operators-to-forgejo"},
 				Description: "Operators → ts-ops: Git SSH 22, HTTPS 443, admin SSH 2022",
 				Protocol:    "tcp", Ports: []string{"22", "443", "2022"},
@@ -137,7 +137,7 @@ func GRU() Desired {
 		}),
 		NetworkRange:      "10.200.0.0/16",
 		PeerDNSDomain:     "nb.ts.internal",
-		DNSDisabledGroups: append([]string{"gru-servers"}, regionServersGroups()...),
+		DNSDisabledGroups: []string{},
 		Zone: ZoneSpec{Name: "gru-cell", Domain: "gru.ts.internal",
 			DistributionGroups: []string{"operators"}, TTL: 300},
 		Slots: []Slot{
@@ -166,16 +166,19 @@ func regionServersGroups() []string {
 	return names
 }
 
-// dashboardPolicies let operators reach the operator dashboard every
-// controller serves on its NetBird address (cell spec dashboard section) in
-// every catalog region.
-func dashboardPolicies() []PolicySpec {
+// serverAccessPolicies grant admin dashboard access and same-region ping.
+// NetBird distributes peer DNS labels only to policy-visible peers, so ping
+// also makes sibling servers' names resolve without granting them TCP access.
+func serverAccessPolicies() []PolicySpec {
 	var policies []PolicySpec
 	for _, group := range append([]string{"gru-servers"}, regionServersGroups()...) {
 		cell := strings.ToUpper(strings.TrimSuffix(group, "-servers"))
 		policies = append(policies, PolicySpec{Name: "operators-to-" + group + "-dashboard",
-			Description: "Operators → " + cell + " servers: operator dashboard 9463 on their NetBird addresses",
-			Protocol:    "tcp", Ports: []string{"9463"}, Sources: []string{"operators"}, Destinations: []string{group}})
+			Description: "Operators and operator automation → " + cell + " servers: operator dashboard 9463 on their NetBird addresses",
+			Protocol:    "tcp", Ports: []string{"9463"}, Sources: []string{"operators", "ops-automation"}, Destinations: []string{group}},
+			PolicySpec{Name: group + "-to-" + group + "-ping",
+				Description: cell + " servers → same-region servers: ICMP diagnostics and peer DNS visibility",
+				Protocol:    "icmp", Sources: []string{group}, Destinations: []string{group}})
 	}
 	return policies
 }

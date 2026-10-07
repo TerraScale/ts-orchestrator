@@ -65,7 +65,7 @@ func TestGRUDesiredStateIsConsistentWithTheImageInput(t *testing.T) {
 }
 
 // Every catalog region other than the home region gets its servers group,
-// two NetBird SSH policies and a DNS-disabled entry without a code change
+// two NetBird SSH policies without a code change
 // (TS-663). GRU's and SFO's objects keep the names, descriptions and order
 // they had when SFO was hand-coded (TS-640), so a sync leaves them alone;
 // FRA's are derived the same way.
@@ -87,11 +87,16 @@ func TestGRUDesiredStateDerivesEveryOtherRegion(t *testing.T) {
 		return PolicySpec{Name: name, Description: description + ": NATS leafnodes 7422, TerraBase peers 9443",
 			Protocol: "tcp", Ports: []string{"7422", "9443"}, Sources: []string{source}, Destinations: []string{destination}}
 	}
-	// TS-670: operators reach every controller's dashboard on its NetBird address.
+	// TS-672: operators and automation reach every controller's NetBird dashboard.
 	dashboard := func(group, cell string) PolicySpec {
 		return PolicySpec{Name: "operators-to-" + group + "-dashboard",
-			Description: "Operators → " + cell + " servers: operator dashboard 9463 on their NetBird addresses",
-			Protocol:    "tcp", Ports: []string{"9463"}, Sources: []string{"operators"}, Destinations: []string{group}}
+			Description: "Operators and operator automation → " + cell + " servers: operator dashboard 9463 on their NetBird addresses",
+			Protocol:    "tcp", Ports: []string{"9463"}, Sources: []string{"operators", "ops-automation"}, Destinations: []string{group}}
+	}
+	ping := func(group, cell string) PolicySpec {
+		return PolicySpec{Name: group + "-to-" + group + "-ping",
+			Description: cell + " servers → same-region servers: ICMP diagnostics and peer DNS visibility",
+			Protocol:    "icmp", Sources: []string{group}, Destinations: []string{group}}
 	}
 	wantPolicies := []PolicySpec{
 		{Name: "operators-to-gru-cell-ops-ports", RenamedFrom: []string{"operators-to-gru-cell"},
@@ -110,7 +115,9 @@ func TestGRUDesiredStateDerivesEveryOtherRegion(t *testing.T) {
 		ssh("ops-automation-to-fra-servers-ssh", "Operator automation peers → FRA servers: NetBird SSH with identity-provider login", "ops-automation", "fra-servers"),
 		fabric("gru-servers-to-fra-servers-fabric", "GRU servers → FRA servers", "gru-servers", "fra-servers"),
 		fabric("fra-servers-to-gru-servers-fabric", "FRA servers → GRU servers", "fra-servers", "gru-servers"),
-		dashboard("gru-servers", "GRU"), dashboard("sfo-servers", "SFO"), dashboard("fra-servers", "FRA"),
+		dashboard("gru-servers", "GRU"), ping("gru-servers", "GRU"),
+		dashboard("sfo-servers", "SFO"), ping("sfo-servers", "SFO"),
+		dashboard("fra-servers", "FRA"), ping("fra-servers", "FRA"),
 		{Name: "operators-to-ts-ops-forgejo", RenamedFrom: []string{"operators-to-forgejo"},
 			Description: "Operators → ts-ops: Git SSH 22, HTTPS 443, admin SSH 2022",
 			Protocol:    "tcp", Ports: []string{"22", "443", "2022"},
@@ -126,7 +133,7 @@ func TestGRUDesiredStateDerivesEveryOtherRegion(t *testing.T) {
 	if !reflect.DeepEqual(d.Policies, wantPolicies) {
 		t.Errorf("policies %+v", d.Policies)
 	}
-	if want := []string{"gru-servers", "sfo-servers", "fra-servers"}; !slices.Equal(d.DNSDisabledGroups, want) {
+	if len(d.DNSDisabledGroups) != 0 {
 		t.Errorf("DNS-disabled groups %v", d.DNSDisabledGroups)
 	}
 }
@@ -146,6 +153,8 @@ func mapsEqual(a, b map[string]string) bool {
 func TestSyncRenamesLegacyObjectsInPlaceAndConverges(t *testing.T) {
 	f := newFakeManager(t)
 	ids := f.seedLegacy(t)
+	// TS-672 clears the old server DNS restriction without changing traffic policies.
+	f.dnsGroups = []string{ids.servers}
 	api := f.api(t)
 	d := GRU()
 
@@ -166,7 +175,7 @@ func TestSyncRenamesLegacyObjectsInPlaceAndConverges(t *testing.T) {
 		"rename network resource gru-cell-private-subnet (from gru-cell, description)",
 		"rename policy operators-to-ts-ops-ping (from operators-ping-to-forgejo, rule name, description, rule description, one-way)",
 		"update account settings acct (dns_domain nb.ts.internal)",
-		"update dns settings disabled_management_groups (gru-servers,sfo-servers,fra-servers)",
+		"update dns settings disabled_management_groups",
 		"create dns zone gru-cell (gru.ts.internal)", "create dns record nats.gru.ts.internal A 10.251.0.13",
 	} {
 		if !strings.Contains(text, want) {
@@ -209,6 +218,21 @@ func TestSyncRenamesLegacyObjectsInPlaceAndConverges(t *testing.T) {
 			policy.Rules[0].Description != policy.Description {
 			t.Fatalf("policy %+v", policy)
 		}
+		if strings.HasSuffix(policy.Name, "-dashboard") {
+			automation := f.groups[slices.IndexFunc(f.groups, func(g apiGroup) bool { return g.Name == "ops-automation" })]
+			rule := policy.Rules[0]
+			if rule.Protocol != "tcp" || !slices.Equal(rule.Ports, []string{"9463"}) ||
+				!sameSet(minimumIDs(rule.Sources), []string{ids.operators, automation.ID}) {
+				t.Fatalf("dashboard policy lacks scoped operator and automation access: %+v", policy)
+			}
+		}
+		if strings.Contains(policy.Description, "peer DNS visibility") {
+			rule := policy.Rules[0]
+			if rule.Protocol != "icmp" || len(rule.Ports) != 0 || len(rule.Sources) != 1 ||
+				!sameSet(minimumIDs(rule.Sources), minimumIDs(rule.Destinations)) {
+				t.Fatalf("same-region peer visibility grants excess access: %+v", policy)
+			}
+		}
 	}
 	ping := f.policies[slices.IndexFunc(f.policies, func(p apiPolicy) bool { return p.ID == ids.ping })]
 	if ping.Name != "operators-to-ts-ops-ping" || ping.Rules[0].Protocol != "icmp" || ping.Rules[0].Destinations[0].ID != ids.gateway {
@@ -218,9 +242,7 @@ func TestSyncRenamesLegacyObjectsInPlaceAndConverges(t *testing.T) {
 		string(f.account["extra"]) != `{"user_approval_required":false}` {
 		t.Fatalf("account settings were not merged: %v", f.account)
 	}
-	sfo := f.groups[slices.IndexFunc(f.groups, func(g apiGroup) bool { return g.Name == "sfo-servers" })]
-	fra := f.groups[slices.IndexFunc(f.groups, func(g apiGroup) bool { return g.Name == "fra-servers" })]
-	if !slices.Equal(f.dnsGroups, []string{ids.servers, sfo.ID, fra.ID}) {
+	if len(f.dnsGroups) != 0 {
 		t.Fatalf("dns settings %v", f.dnsGroups)
 	}
 	if len(f.zones) != 1 || len(f.zones[0].records) != 10 || !slices.Equal(f.zones[0].DistributionGroups, []string{ids.operators}) {

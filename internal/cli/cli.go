@@ -19,10 +19,12 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ci/realcaller"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ci/sourcedigest"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard/accesscheck"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/image"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/liveverify"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/logscan"
 	netbirdclient "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
+	netbirddns "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/dns"
 	netbirdmanager "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/manager"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
@@ -56,6 +58,7 @@ Runtime:
   selfupdate             Stage, activate and watch binary-only A/B updates
 
 Operator tooling:
+  dashboard              Check every GRU and SFO dashboard over NetBird (read-only)
   verify                 Observe production health, persistence gaps and OIDC (read-only)
   log-scan               Count recent WARN and ERROR records per service and node (read-only)
   operator               Manage workloads through the regional controller
@@ -70,7 +73,7 @@ Operator tooling:
   oci-region             Plan and deploy regional OCI resources
   region                 Bring a new region up in one command; verify it serves
   image                  Validate inputs, build, inspect, and promote images
-  netbird                Install the NetBird client; manage the NetBird manager (sync, peers, setup key); browserless NetBird SSH
+  netbird                Install the NetBird client; manage policies and operator DNS; browserless NetBird SSH
   qualification          Run source-backed operational qualification
   source-digest          Compute the versioned TerraBase source-tree digest
   terrabase              C# TerraBase member CA and member data volumes
@@ -98,6 +101,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return err
 	}
 	switch args[0] {
+	case "dashboard":
+		return accesscheck.Run(ctx, args[1:], output)
 	case "verify":
 		return liveverify.Run(ctx, args[1:], output)
 	case "log-scan":
@@ -113,6 +118,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "region":
 		return region.Run(ctx, args[1:], commandio.NewWriter(output), os.Stderr)
 	case "image", "netbird":
+		if args[0] == "netbird" && len(args) > 1 && args[1] == "dns" {
+			return netbirddns.Run(ctx, args[2:], commandio.NewWriter(output))
+		}
 		if args[0] == "netbird" && len(args) > 1 && slices.Contains(netbirdmanager.Commands, args[1]) {
 			return netbirdmanager.Run(ctx, args[1:], commandio.NewWriter(output))
 		}

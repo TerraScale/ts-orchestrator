@@ -80,6 +80,9 @@ Without `--apply` these commands only read.
 | `ts-orch netbird remove-peers (--slot NAME... \| --all) [--apply]` | List, or with `--apply` delete, the disconnected GRU server peers of decommissioned slots |
 | `ts-orch netbird setup-key --out FILE [--servers-group GROUP] [--apply]` | Plan, or with `--apply` create, the GRU (or GROUP, e.g. `sfo-servers`) server setup key; its value goes only to the new owner-only FILE |
 | `ts-orch netbird inventory` | Print the manager's groups, policies, networks, DNS and peers |
+| `ts-orch netbird dns [enable] [--apply] --netbird COMMAND` | Plan, or install, native operator DNS with a brief overlay reconnect; use another SSH transport or a detached invocation |
+| `ts-orch netbird dns --config-dir /etc/netbird-wt0/config.d --netbird netbird-wt0 --apply` | Enable NixOS operator DNS and persist an owned `90-ts-orchestrator-dns.json` override |
+| `ts-orch netbird dns --split-resolver --upstream IP --netbird COMMAND --apply` | Route `nb.ts.internal` through a local host-network container's resolver; preserve existing search/options and route other queries to the explicitly supplied current upstream |
 | `ts-orch netbird image-input --plan PLAN --setup-key-secret-id OCID --out FILE` | Write another region's image `netbird.json` from its reviewed plan, offline |
 
 ## Secrets

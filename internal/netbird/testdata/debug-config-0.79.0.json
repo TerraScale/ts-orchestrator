@@ -15,7 +15,7 @@
   "lazyConnectionEnabled": false,
   "blockInbound": false,
   "networkMonitor": false,
-  "disableDns": true,
+  "disableDns": false,
   "disableClientRoutes": true,
   "disableServerRoutes": true,
   "blockLanAccess": false,

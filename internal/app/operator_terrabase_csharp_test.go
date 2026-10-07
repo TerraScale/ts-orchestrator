@@ -192,16 +192,21 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 
 	// Rollback: an executable that exits at once never passes the gate, and
 	// the fake member does not serve it either.
-	falsePath, err := exec.LookPath("false")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if falsePath, err = filepath.EvalSymlinks(falsePath); err != nil {
-		t.Fatal(err)
-	}
-	broken, err := os.ReadFile(falsePath)
-	if err != nil {
-		t.Fatal(err)
+	// Keep the fake artifact small: false can be a large multicall binary,
+	// whose transfer would test the gate's deadline rather than a bad start.
+	broken := []byte(strings.Replace(fakeTerraBaseMagic, "fake terrabase", "broken terrabase", 1))
+	if !fake {
+		falsePath, err := exec.LookPath("false")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if falsePath, err = filepath.EvalSymlinks(falsePath); err != nil {
+			t.Fatal(err)
+		}
+		broken, err = os.ReadFile(falsePath)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	third := writeTerraBaseRelease(t, filepath.Join(root, "broken"), broken)
 	out, err := releaseCommand(third, 15*time.Second)
@@ -848,8 +853,9 @@ func fakeMember(w host.Workload) (func(), chan struct{}, error) {
 		return nil, nil, err
 	}
 	if !bytes.HasPrefix(executable, []byte(fakeTerraBaseMagic)) {
-		// It starts, then crashes before it serves.
-		time.AfterFunc(300*time.Millisecond, func() { close(exited) })
+		// Exit before Apply returns so the gate always observes a failed
+		// start, rather than racing the host's short-lived crash report.
+		close(exited)
 		return func() {}, exited, nil
 	}
 	ca, err := os.ReadFile(w.Env[terrabase.EnvPeerClientCA])

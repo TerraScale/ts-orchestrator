@@ -81,7 +81,8 @@ func TestManagedPeerInitialAdmissionWaitsForPositiveHEAD(t *testing.T) {
 			fixture.ledger.state = complete
 		}
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	// This checks retry ordering, not crypto throughput on a loaded race host.
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	marker, err := fixture.gate.admitInitialWhenReady(ctx, time.Millisecond)
 	if err != nil || marker.Slot != complete.Intent.Slot || fixture.ledger.currentCalls != 2 {

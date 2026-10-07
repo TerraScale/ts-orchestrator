@@ -148,7 +148,8 @@ private subnet, so their nodes are reached with NetBird SSH only.
 | `ops-automation-to-<cell>-servers-ssh` | `ops-automation` → `<cell>-servers` | `netbird-ssh` | one-way |
 | `gru-servers-to-<cell>-servers-fabric` | `gru-servers` → `<cell>-servers` | TCP 7422, 9443 | one-way |
 | `<cell>-servers-to-gru-servers-fabric` | `<cell>-servers` → `gru-servers` | TCP 7422, 9443 | one-way |
-| `operators-to-<cell>-servers-dashboard` | `operators` → `<cell>-servers` (also `gru-servers`) | TCP 9463, the operator dashboard on each controller's NetBird address | one-way |
+| `operators-to-<cell>-servers-dashboard` | `operators`, `ops-automation` → `<cell>-servers` (also `gru-servers`) | TCP 9463, the operator dashboard on each controller's NetBird address | one-way |
+| `<cell>-servers-to-<cell>-servers-ping` | Each regional servers group → itself (also `gru-servers`) | ICMP diagnostics and sibling peer DNS visibility | one-way |
 | `operators-to-ts-ops-forgejo` | `operators` → `ts-ops-gateway` | TCP 22, 443, 2022 | one-way |
 | `operators-to-ts-ops-ping` | `operators` → `ts-ops-gateway` | ICMP | one-way |
 
@@ -156,8 +157,8 @@ The two `-fabric` policies are the regions' fallback path beside the OCI
 private peering (TS-668): the NATS interregion leafnodes (7422) and
 TerraBase's peer port (9443), both directions.
 
-The desired state derives the `<cell>-servers` group, its four policies and
-its DNS setting for every cell in `internal/ociregion/catalog` other than
+The desired state derives the `<cell>-servers` group and its policies
+for every cell in `internal/ociregion/catalog` other than
 GRU, in catalog order, so a new region needs no NetBird code change. Give a
 new region NetBird with:
 
@@ -192,8 +193,14 @@ The dashboard's Control Center draws every policy; keep it readable:
 | `nb.ts.internal` | Peer names (account DNS domain), e.g. `ts-ops`, `ts-gru-1`, `mariogk-laptop` | Every peer with NetBird DNS on |
 | `gru.ts.internal` | Stable cell names (custom zone, no search domain) | `operators` only |
 
-`gru-servers` and every `<cell>-servers` keep NetBird DNS management disabled, matching their
-`--disable-dns` enrollment. `.local` is avoided: it is reserved for mDNS and
+NetBird DNS management is enabled for every group. Server enrollment uses
+`--disable-dns=false`: with systemd-resolved, NetBird adds its private domains
+on `wt0` while OCI's resolver remains the default on the primary interface.
+The account must have no primary nameserver group; native DNS then preserves
+other domains' existing resolvers. NetBird distributes names only for peers
+visible through access policies. The same-region ICMP policy makes siblings'
+names resolve without granting them dashboard TCP access; existing fabric
+policies already make cross-region peers visible. `.local` is avoided: it is reserved for mDNS and
 systemd-resolved sends it to multicast. Cell names point at fixed slot private
 IPs and never change across GRU revisions or deployments.
 
@@ -325,10 +332,36 @@ netbird-wt0 status
 sudo rm /var/lib/homelab/netbird/setup-key
 ```
 
-They keep `DisableDNS=true`, server routes and inbound connections off, so
-Tailscale keeps name resolution; they reach cell hosts by private IP. On them
-`ts-orch netbird ssh --netbird 'sudo netbird-wt0'` still takes peer names
+Their NixOS default disables DNS. Enable native split DNS with the
+ts-orch-owned override; it survives the config merge on client restart and
+keeps Tailscale and the existing default resolver:
+
+```sh
+sudo ts-orch netbird dns enable --netbird netbird-wt0 \
+  --config-dir /etc/netbird-wt0/config.d --apply
+```
+
+This briefly reconnects NetBird while preserving the peer identity. Server
+routes and inbound connections remain disabled. On these machines
+`ts-orch netbird ssh --netbird 'sudo netbird-wt0'` also takes peer names
 (below).
+
+For mariogk-dev's host-network automation container, its native DNS server
+already runs inside the container. Install the host's split resolver:
+
+```sh
+sudo ts-orch netbird dns enable \
+  --netbird 'podman exec ts-netbird-ops netbird' \
+  --split-resolver --upstream 100.100.100.100 --apply
+```
+
+The owned systemd service/timer routes only `~nb.ts.internal` to the
+container's current NetBird IP. Tailscale remains the default upstream, with
+the original search domains and resolver options preserved. Persistent units
+live in `/etc/systemd/system.control`, a writable systemd search path on
+NixOS. Check `getent ahostsv4 ts-gru-1.nb.ts.internal` and
+`getent ahostsv4 delta.tail057f.ts.net` before running the
+[dashboard access check](../../docs/dashboard/README.md#check-every-controller-from-this-device).
 
 ## Operator automation peer
 
@@ -638,7 +671,7 @@ Enrollment runs as root, retries failures without a systemd start-rate limit,
 and invokes `terrascale-orchestrator netbird-enroll`. Neither service gates
 controller or managed-host startup.
 
-Enrollment keeps servers off NetBird DNS and routes and enables NetBird SSH:
+Enrollment enables NetBird split DNS, keeps server routes off and enables NetBird SSH:
 root login, SFTP and local port forwarding, with identity-provider (JWT)
 authentication required and remote port forwarding off. An already connected
 server whose effective configuration differs is brought down once and up

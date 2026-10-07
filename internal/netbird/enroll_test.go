@@ -18,7 +18,7 @@ import (
 )
 
 const testSetupKey = "884b8bcf-16bc-4d2c-8a3f-ae5f8b6b3ba3"
-const appliedConfigJSON = `{"managementUrl":"https://netbird.terrascale.tech","disableDns":true,"disableClientRoutes":true,"disableServerRoutes":true,"disableAutoConnect":false,` +
+const appliedConfigJSON = `{"managementUrl":"https://netbird.terrascale.tech","disableDns":false,"disableClientRoutes":true,"disableServerRoutes":true,"disableAutoConnect":false,` +
 	`"serverSSHAllowed":true,"enableSSHRoot":true,"enableSSHSFTP":true,"enableSSHLocalPortForwarding":true,"enableSSHRemotePortForwarding":false,"disableSSHAuth":false}`
 
 func testConfig() Config {
@@ -191,7 +191,7 @@ func TestEnrollmentDoesNotConsumeKeyDuringNetworkOutage(t *testing.T) {
 func TestConnectedIdentityAppliesServerSettingsWithoutVault(t *testing.T) {
 	for name, stale := range map[string]string{
 		"ssh disabled": strings.Replace(appliedConfigJSON, `"serverSSHAllowed":true`, `"serverSSHAllowed":false`, 1),
-		"dns enabled":  strings.Replace(appliedConfigJSON, `"disableDns":true`, `"disableDns":false`, 1),
+		"dns disabled": strings.Replace(appliedConfigJSON, `"disableDns":false`, `"disableDns":true`, 1),
 		"ssh auth off": strings.Replace(appliedConfigJSON, `"disableSSHAuth":false`, `"disableSSHAuth":true`, 1),
 		"remote forwarding": strings.Replace(appliedConfigJSON,
 			`"enableSSHRemotePortForwarding":false`, `"enableSSHRemotePortForwarding":true`, 1),
@@ -645,7 +645,7 @@ func TestPeerNameMetadataFailureKeepsConnectedIdentityUp(t *testing.T) {
 	e.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
 		switch args[0] {
 		case "debug":
-			return []byte(strings.Replace(appliedConfigJSON, `"disableDns":true`, `"disableDns":false`, 1)), nil
+			return []byte(strings.Replace(appliedConfigJSON, `"disableDns":false`, `"disableDns":true`, 1)), nil
 		case "status":
 			return statusJSON("Connected", DefaultManagementURL, true), nil
 		}

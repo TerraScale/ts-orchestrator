@@ -56,6 +56,16 @@ func TestRemoteSummaryFromHostilePeerIsBounded(t *testing.T) {
 	hostile.Quorum.Missing = names
 	forged := hostile
 	forged.Region = "gru"
+	// Prepare the flood before the request deadline: the link timeout tests
+	// delivery, not how quickly a loaded race-test host marshals the fixture.
+	hostileWire, err := json.Marshal(hostile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forgedWire, err := json.Marshal(forged)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var seenMu sync.Mutex
 	var seen []string
 	if _, err := conn.Subscribe(">", func(message *nats.Msg) {
@@ -65,13 +75,14 @@ func TestRemoteSummaryFromHostilePeerIsBounded(t *testing.T) {
 		seenMu.Lock()
 		seen = append(seen, message.Subject)
 		seenMu.Unlock()
-		reply := hostile
+		data := hostileWire
 		if strings.HasPrefix(message.Subject, "ts.orch.v1.mia.") {
-			reply = forged
+			data = forgedWire
 		}
-		data, _ := json.Marshal(reply)
 		if message.Reply != "" {
-			_ = message.Respond(data)
+			if err := message.Respond(data); err != nil {
+				t.Errorf("hostile peer response: %v", err)
+			}
 		}
 	}); err != nil {
 		t.Fatal(err)
