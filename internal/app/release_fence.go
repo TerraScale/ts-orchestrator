@@ -211,37 +211,20 @@ func (f *releaseFence) sequence(ctx context.Context, intent delivery.Intent) err
 		return err
 	}
 	grace, settle := durationOr(spec.DrainGraceSeconds, defaultFenceGrace), durationOr(spec.SettleSeconds, defaultFenceSettle)
-	desired, err := f.hosts.ListDesired(ctx, role)
-	if err != nil {
-		return err
-	}
+	// The workload reconciler may move the release's replicas while it
+	// rolls, so the allocations are read again after every node: a node it
+	// adds is fenced and permitted before the release opens.
+	done := map[string]bool{}
 	var nodes []string
-	for _, d := range desired {
-		if !d.Withdrawn && releaseOf(d.Generation) == release && !slices.Contains(nodes, d.Node) {
-			nodes = append(nodes, d.Node)
-		}
-	}
-	// Nodes already fenced go first: after a failed release the rollback
-	// returns them before it takes a serving node out, so a set never waits
-	// on a node that only later in the turn would serve again.
-	fenced := map[string]bool{}
-	for _, node := range nodes {
-		if _, found, err := f.record(ctx, node); err != nil {
+	for {
+		node, found, err := f.nextNode(ctx, role, release, done)
+		if err != nil {
 			return err
-		} else if found {
-			fenced[node] = true
 		}
-	}
-	slices.SortFunc(nodes, func(a, b string) int {
-		if fenced[a] != fenced[b] {
-			if fenced[a] {
-				return -1
-			}
-			return 1
+		if !found {
+			break
 		}
-		return strings.Compare(a, b)
-	})
-	for _, node := range nodes {
+		done[node], nodes = true, append(nodes, node)
 		state, err := f.nodeState(ctx, role, release, node)
 		if err != nil {
 			return err
@@ -293,6 +276,31 @@ func (f *releaseFence) sequence(ctx context.Context, intent delivery.Intent) err
 		}
 	}
 	return f.sweep(ctx, epoch, role, release)
+}
+
+// nextNode is the next node with an active allocation of role at release
+// that done does not hold yet: nodes already fenced first, since after a
+// failed release the rollback returns them before it takes a serving node
+// out, then by name.
+func (f *releaseFence) nextNode(ctx context.Context, role string, release uint64, done map[string]bool) (string, bool, error) {
+	desired, err := f.hosts.ListDesired(ctx, role)
+	if err != nil {
+		return "", false, err
+	}
+	best, bestFenced, found := "", false, false
+	for _, d := range desired {
+		if d.Withdrawn || releaseOf(d.Generation) != release || done[d.Node] {
+			continue
+		}
+		_, fenced, err := f.record(ctx, d.Node)
+		if err != nil {
+			return "", false, err
+		}
+		if !found || fenced && !bestFenced || fenced == bestFenced && d.Node < best {
+			best, bestFenced, found = d.Node, fenced, true
+		}
+	}
+	return best, found, nil
 }
 
 // deleteGuarded deletes key while this leader still holds epoch: the
@@ -515,6 +523,14 @@ func (f *releaseFence) save(ctx context.Context, epoch uint64, node string, reco
 func (f *releaseFence) restore(ctx context.Context, api lb.API, epoch uint64, node string, healthy bool) (bool, error) {
 	record, found, err := f.record(ctx, node)
 	if err != nil || !found {
+		return false, err
+	}
+	// Recorded as back in rotation before the load balancer changes, so a
+	// restore cut short leaves a record the next fence drains again.
+	for i := range record.Backends {
+		record.Backends[i].Offline = false
+	}
+	if err := f.save(ctx, epoch, node, record); err != nil {
 		return false, err
 	}
 	for _, backend := range record.Backends {

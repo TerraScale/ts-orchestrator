@@ -145,8 +145,11 @@ type fenceCell struct {
 	// unfenced lets nodes restart while their backends serve: the cell's
 	// fence moved or was dropped.
 	unfenced bool
-	mu       sync.Mutex
-	restarts []string
+	// restarted, when set, runs as a node first restarts; it may change
+	// nodes (the cell lock is held).
+	restarted func(node string)
+	mu        sync.Mutex
+	restarts  []string
 }
 
 func (c *fenceCell) ListDesired(context.Context, string) ([]host.Desired, error) {
@@ -172,6 +175,9 @@ func (c *fenceCell) ListHosts(ctx context.Context) ([]host.HostStatus, error) {
 		if granted {
 			if !slices.Contains(c.restarts, node) {
 				c.restarts = append(c.restarts, node)
+				if c.restarted != nil {
+					defer c.restarted(node)
+				}
 				// A node restarts only while none of its backends serves.
 				c.lb.mu.Lock()
 				for set, backends := range c.lb.sets {
@@ -779,5 +785,67 @@ func TestReleaseFencePrepareFailureIsRetried(t *testing.T) {
 		delivery.ArtifactRecord{}, time.Second, io.Discard)
 	if !errors.Is(err, errFencePrepare) {
 		t.Fatalf("roll: %v", err)
+	}
+}
+
+// The workload reconciler moves a replica while the release rolls: ctl-1's
+// allocation goes to ctl-3 after ctl-1 restarted. ctl-3 is fenced and
+// permitted like the others before the release opens.
+func TestReleaseFenceFollowsReplicasTheReconcilerMoves(t *testing.T) {
+	fence, cell, balancer, kv, intent := newFenceTest(t)
+	ctx := t.Context()
+	cell.nodes = []string{"ctl-1", "ctl-2"}
+	cell.restarted = func(node string) {
+		if node == "ctl-1" {
+			cell.nodes = []string{"ctl-2", "ctl-3"}
+		}
+	}
+	if err := fence.prepare(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.sequence(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(cell.restarts, []string{"ctl-1", "ctl-2", "ctl-3"}) || !slices.Contains(balancer.log, "terrabase 10.0.0.13:9465 offline") {
+		t.Fatalf("restarts %q, load balancer %q", cell.restarts, balancer.log)
+	}
+	if _, err := kv.Get(ctx, sequencedKey("ts-auth", 7)); !errors.Is(err, jetstream.ErrKeyNotFound) {
+		t.Fatalf("the release is still marked: %v", err)
+	}
+}
+
+// A restore cut short after the backend is back in rotation leaves a
+// record the next fence drains again before it permits the node.
+func TestReleaseFenceDrainsAgainAfterACutShortRestore(t *testing.T) {
+	fence, cell, balancer, _, intent := newFenceTest(t)
+	ctx := t.Context()
+	cell.broken["ctl-1"] = true
+	if err := fence.prepare(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.sequence(ctx, intent); err == nil {
+		t.Fatal("a failed node passed")
+	}
+	// The health check never passes in time: the backend is back in
+	// rotation, its record kept.
+	balancer.down["10.0.0.11:9465"] = true
+	short, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	if _, err := fence.restore(short, balancer, 3, "ctl-1", true); err == nil {
+		t.Fatal("the restore passed an unhealthy backend")
+	}
+	cancel()
+	if !balancer.sets["terrabase"][0].Serving() {
+		t.Fatal("the restore did not return the backend")
+	}
+	balancer.down["10.0.0.11:9465"], cell.broken["ctl-1"], cell.release, cell.restarts, balancer.log = false, false, 8, nil, nil
+	rollback := delivery.Intent{Role: "ts-auth", Generation: 8}
+	if err := fence.prepare(ctx, rollback); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.sequence(ctx, rollback); err != nil {
+		t.Fatal(err)
+	}
+	if len(balancer.log) < 2 || balancer.log[0] != "terrabase 10.0.0.11:9465 drain" || balancer.log[1] != "terrabase 10.0.0.11:9465 offline" {
+		t.Fatalf("load balancer %q", balancer.log)
 	}
 }

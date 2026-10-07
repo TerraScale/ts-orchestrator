@@ -834,7 +834,9 @@ releases/v1/services/<role>/status.json         the region leader's report
    balancer it belongs to, before it changes the load balancer, and marks
    it offline once it is out (a new leader finishes a part-way record, and
    a record an earlier release left gains every backend the current fence
-   takes out, before it permits the node); permits the node; waits until it
+   takes out, before it permits the node; a restore marks its record back
+   in rotation before it changes the load balancer, so one cut short is
+   drained again); permits the node; waits until it
    reports the release `running`; returns its backends and waits for their
    health checks; and settles. A node that fails the release keeps its
    backends out of rotation and the release rolls back the same way, one
@@ -849,7 +851,9 @@ releases/v1/services/<role>/status.json         the region leader's report
    started under, so a deposed leader stops. Once every node
    serves the release, its marks are removed, so later scaling is not held.
    The readiness gate of a fenced release gets, per node, the grace, the
-   settle and 5 more minutes. Once every node serves a release, the marks
+   settle and 5 more minutes. The allocations are read again after every node, so a replica the
+   workload reconciler moves mid-release is fenced too. Once every node
+   serves a release, the marks
    and permits that failed or superseded sequences of the role's older
    releases left are removed. The operator's `terrabase-release` and
    `ts-auth-release` commands do not go through the fence: they restart
