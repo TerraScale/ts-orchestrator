@@ -83,6 +83,10 @@ func TestEmbeddedStoreLimit(t *testing.T) {
 			if options.JetStreamMaxStore != test.want {
 				t.Fatalf("JetStream file limit = %d, want %d", options.JetStreamMaxStore, test.want)
 			}
+			// A rebooting peer must not log an ERR per reconnect attempt.
+			if options.ReconnectErrorReports != 60 {
+				t.Fatalf("route reconnect errors reported every %d attempts, want 60", options.ReconnectErrorReports)
+			}
 		})
 	}
 	embedded.StoreMaxBytes = -1

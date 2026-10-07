@@ -52,6 +52,10 @@ func (unavailable) Is(target error) bool { return target == ErrUnavailable }
 // operator does not specify a per-node limit.
 const DefaultStoreMaxBytes int64 = 8 << 30
 
+// reconnectErrorReports is how many failed reconnect attempts, at about one
+// a second, NATS logs once after the first.
+const reconnectErrorReports = 60
+
 // TLSFiles are the certificate material for both NATS listeners and clients.
 type TLSFiles struct {
 	CAFile   string `json:"ca_file"`
@@ -659,6 +663,10 @@ func serverOptions(cfg Config) (*server.Options, error) {
 		},
 		LameDuckDuration:    lameDuckDuration,
 		LameDuckGracePeriod: lameDuckGracePeriod,
+		// NATS logs every failed reconnect to a lost route, gateway or leaf
+		// at ERR by default: about one a second per pooled route while a peer
+		// reboots. Report the first and then one a minute (TS-661).
+		ReconnectErrorReports: reconnectErrorReports,
 	}
 	if !cfg.Lab {
 		operator, systemJWT, cellJWT, systemID, cellID, err := loadOperatorAccounts(e)
