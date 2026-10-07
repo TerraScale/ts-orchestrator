@@ -532,7 +532,10 @@ A new region gets ts-auth the same way from its first cell spec.
 ```
 
 It refuses one without the other, and plans, signs (the root, for ts-auth's
-Vault secrets) and applies ts-auth after TerraBase's profile. The signed
+Vault secrets) and applies ts-auth after TerraBase's profile. Without either
+key it derives the same profile and service from the plan and the attempt's
+member CA (see [cell spec](cell-spec.md#commands)), then grants each
+controller node the `ts-auth` role. The signed
 controller configs hold the cell's identity only. Rendering the files into
 a controller config by hand still works but is deprecated: the profile then
 stays generation 0 until a cell spec replaces it.

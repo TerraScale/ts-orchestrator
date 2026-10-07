@@ -3,6 +3,7 @@ package attempt
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1170,10 +1172,13 @@ var serviceRole = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 // signed cell spec amendments of any later change: TerraBase's profile
 // (terrabase_profile) first, which member enrollment reads, then ts-auth
 // (ts_auth_profile and ts_auth_service) and the configured services
-// ({role, profile, spec}). The operator CLI plans each, the release leaf
-// signs it under the root's cell spec delegation (the root when the plan
-// widens authority, as TerraBase's profile does), and the cell applies it.
-// A service already in the spec plans nothing, so a rerun changes nothing.
+// ({role, profile, spec}). A TerraBase or ts-auth profile the config names
+// neither way is derived from the attempt's plan. Then every controller
+// node gets its host grant for the colocated roles. The operator CLI plans
+// each, the release leaf signs it under the root's cell spec delegation (the
+// root when the plan widens authority, as TerraBase's profile and a grant
+// do), and the cell applies it. A service or grant already in the spec plans
+// nothing, so a rerun changes nothing.
 func (a *Attempt) PhaseServices() {
 	services, err := a.cellServices()
 	if a.fail(err); a.err != nil || len(services) == 0 {
@@ -1198,6 +1203,14 @@ func (a *Attempt) PhaseServices() {
 	issued := a.Now().UTC().Truncate(time.Second).Add(-time.Minute)
 	a.release("sign-spec-delegation", "--subject-public-key", a.trust("release_leaf_public"), "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--deployment-id", a.Deployment, "--cell", a.Cell().Name(), "--environment", "canary", "--issued-at", issued.Format(time.RFC3339), "--expires-at", issued.Add(7*24*time.Hour).Format(time.RFC3339), "--out", delegation)
 	cli, config := a.Path("release", OperatorCLI), filepath.Join(a.OperatorDirectory(), "operator.json")
+	apply := func(candidate, signed string, root bool) {
+		if root {
+			a.release("sign-spec", "--candidate", candidate, "--root", "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--out", signed)
+		} else {
+			a.release("sign-spec", "--candidate", candidate, "--delegation", delegation, "--root-key", a.trust("root_public"), "--signing-key", a.trust("release_leaf_private"), "--out", signed)
+		}
+		a.sudo(false, cli, "service", "apply", "--config", config, "--file", signed)
+	}
 	for _, v := range services {
 		service := object(v)
 		role, profile, spec := str(service, "role"), str(service, "profile"), str(service, "spec")
@@ -1224,40 +1237,55 @@ func (a *Attempt) PhaseServices() {
 		if a.fail(json.Unmarshal([]byte(plan), &planned)); a.err != nil {
 			return
 		}
-		if len(planned.RootRequired) != 0 {
-			a.release("sign-spec", "--candidate", candidate, "--root", "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--out", signed)
-		} else {
-			a.release("sign-spec", "--candidate", candidate, "--delegation", delegation, "--root-key", a.trust("root_public"), "--signing-key", a.trust("release_leaf_private"), "--out", signed)
-		}
-		a.sudo(false, cli, "service", "apply", "--config", config, "--file", signed)
+		apply(candidate, signed, len(planned.RootRequired) != 0)
 	}
+	a.grantHosts(services, apply)
 }
 
 // cellServices lists the services the services phase applies: TerraBase and
-// ts-auth from their attempt settings, then the configured services. A role
-// set both ways is refused rather than one source silently winning.
+// ts-auth from their attempt settings, or derived from the plan when the
+// config names them neither there nor in services, then the configured
+// services. A role set both ways is refused rather than one source silently
+// winning.
 func (a *Attempt) cellServices() ([]any, error) {
 	if (str(a.Config, "ts_auth_profile") == "") != (str(a.Config, "ts_auth_service") == "") {
 		return nil, errors.New("attempt config needs ts_auth_profile and ts_auth_service together")
 	}
 	configured := rows(a.Config["services"])
-	named := func(role string) bool {
-		return slices.ContainsFunc(configured, func(v any) bool { return str(object(v), "role") == role })
+	named := func(role string) string {
+		for _, v := range configured {
+			if str(object(v), "role") == role {
+				return str(object(v), "profile")
+			}
+		}
+		return ""
+	}
+	roles := []string{terrabase.Role, tsauth.Role}
+	own := map[string][2]string{
+		terrabase.Role: {str(a.Config, "terrabase_profile")},
+		tsauth.Role:    {str(a.Config, "ts_auth_profile"), str(a.Config, "ts_auth_service")},
+	}
+	for _, role := range roles {
+		if own[role][0] != "" && named(role) != "" {
+			return nil, fmt.Errorf("attempt config names %s in services and in its own settings; keep one", role)
+		}
+	}
+	terraBase := cmp.Or(own[terrabase.Role][0], named(terrabase.Role))
+	if tsAuth := own[tsauth.Role][0] == "" && named(tsauth.Role) == ""; terraBase == "" || tsAuth {
+		derived, err := a.deriveServices(terraBase, tsAuth)
+		if err != nil {
+			return nil, err
+		}
+		maps.Copy(own, derived)
 	}
 	var services []any
-	for _, derived := range []struct{ role, profile, spec string }{
-		{terrabase.Role, str(a.Config, "terrabase_profile"), ""},
-		{tsauth.Role, str(a.Config, "ts_auth_profile"), str(a.Config, "ts_auth_service")},
-	} {
-		if derived.profile == "" {
+	for _, role := range roles {
+		if own[role][0] == "" {
 			continue
 		}
-		if named(derived.role) {
-			return nil, fmt.Errorf("attempt config names %s in services and in its own settings; keep one", derived.role)
-		}
-		service := Object{"role": derived.role, "profile": derived.profile}
-		if derived.spec != "" {
-			service["spec"] = derived.spec
+		service := Object{"role": role, "profile": own[role][0]}
+		if own[role][1] != "" {
+			service["spec"] = own[role][1]
 		}
 		services = append(services, service)
 	}
@@ -1387,13 +1415,14 @@ func (a *Attempt) PhasePlan() {
 }
 
 // PhaseTerraBase fetches and verifies the C# TerraBase arm64 release, then
-// rolls it out with the qualified operator CLI of this attempt.
+// rolls it out with the qualified operator CLI of this attempt and the cell's
+// TerraBase profile.
 func (a *Attempt) PhaseTerraBase() {
 	release := object(a.Config["terrabase"])
-	tag, commit, environment, profile := str(release, "tag"), str(release, "commit"), str(release, "environment"), str(a.Config, "terrabase_profile")
+	tag, commit, environment, profile := str(release, "tag"), str(release, "commit"), str(release, "environment"), a.terraBaseProfile()
 	if tag == "" || filepath.Base(tag) != tag || strings.HasPrefix(tag, ".") || len(commit) != 40 ||
 		strings.Trim(commit, "0123456789abcdef") != "" || environment == "" || profile == "" {
-		a.fail(fmt.Errorf("attempt config needs terrabase tag, a 40-hex commit and environment, and terrabase_profile"))
+		a.fail(fmt.Errorf("attempt config needs terrabase tag, a 40-hex commit and environment, and terrabase_profile or a services run that derives it"))
 		return
 	}
 	// The rollout records commit as the binary's source, so it must be the

@@ -366,13 +366,46 @@ file. Signing commands need no controller connection. `--nats-forward` works as
 with `ts-orch operator`.
 
 `ts-orch oci-region attempt` uses the same path. Its `services` phase (after
-`operator`) reads `services: [{"role", "profile", "spec"}]` from the attempt
-config. It signs a 7-day cell spec delegation with the attempt's trust keys.
-Then, for each service, it runs `service add`, `release sign-spec` and
-`service apply`; it signs as the root when the plan's `root_required` is not
-empty (ts-auth's Vault secrets), otherwise as the leaf. Each run plans from the cell's current spec, so a rerun
-changes nothing. A new region therefore starts with any set of services,
-ts-auth included, and later changes use the same commands.
+`operator`) applies TerraBase's profile (`terrabase_profile`), then ts-auth
+(`ts_auth_profile` and `ts_auth_service`), then
+`services: [{"role", "profile", "spec"}]` from the attempt config. It signs a
+7-day cell spec delegation with the attempt's trust keys. Then, for each
+service, it runs `service add`, `release sign-spec` and `service apply`; it
+signs as the root when the plan's `root_required` is not empty (TerraBase's
+profile, ts-auth's Vault secrets), otherwise as the leaf. Last, it runs
+`service grant-host` for every controller node, signed by the root and
+applied: roles `ts-auth` and, where the TerraBase profile lists the node or
+its address, `terrabase`; environment `canary`; `--controller` its slot.
+Each run plans from the cell's current spec, so a rerun changes nothing. A
+new region therefore starts with any set of services, ts-auth included, and
+later changes use the same commands.
+
+When the config names TerraBase or ts-auth neither in its own settings nor
+in `services`, the phase derives the profile from the attempt's bound plan
+and writes it to `services/<role>.profile.json` (ts-auth's spec to
+`services/ts-auth.service.json`), then applies it as a configured one:
+
+- **TerraBase:** `TERRABASE_REGION` the cell (`sfo-1`), peer port 9443,
+  client port 9465, `TERRABASE_PEERS` the plan's database hosts, or in a
+  colocated cell its controller nodes (`ts-sfo-1=10.252.0.11:9443,...`), and
+  the first of them as `TERRABASE_CATALOG_PRIMARY`. A cell other than the
+  home cell (GRU) trusts the home ts-auth, which already serves:
+  `TERRABASE_AUTH_ISSUER` `https://gru.auth.terrascale.tech/terrascale` and
+  `TERRABASE_AUTH_AUDIENCE` its own API and GRU's
+  (`https://sfo.api.terrascale.tech,https://gru.api.terrascale.tech`). The
+  home cell's issuer is its own ts-auth, which cannot be ready before
+  TerraBase is, while TerraBase is not ready before it fetched the issuer's
+  keys; its derived profile carries `TERRABASE_MANAGEMENT_CREDENTIAL_FILE`
+  instead, and a root-signed `service update` adds the issuer and audience
+  once ts-auth serves.
+- **ts-auth:** the cell's `<cell>.auth` origin and `<cell>.api` URL and
+  audience, the TerraBase members' client endpoints (primary first, with
+  failover) and the attempt material's `terrabase-member-ca.pem`, the
+  region's OCI Email Delivery SMTP host, and its secrets as
+  `<cell>-ts-auth-*` refs in the plan's `resource_ids.vault`; 3 replicas,
+  one per failure domain. The ts-auth contract reviews only GRU's endpoints
+  today, so another cell's leader refuses the derived profile until it
+  accepts that cell.
 
 ## Add a service to a running region
 

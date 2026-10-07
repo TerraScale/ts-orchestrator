@@ -54,7 +54,8 @@ controller through an OCI Bastion forward.
    members never start.
 4. **Workload profile.** The cell spec carries the `terrabase` entry, from
    the reviewed profile file, which a root signs; `oci-region attempt`
-   applies it in its `services` phase. A cell whose signed controller config
+   applies it in its `services` phase, deriving it from the plan when
+   `terrabase_profile` is unset. A cell whose signed controller config
    was rendered with `--terrabase-profile` keeps that profile as generation
    0; see [Workload profile](#workload-profile). The signed placement sidecar
    (`placement.json`) must not use `terrabase` as its `member_role`: that
@@ -343,8 +344,9 @@ Inputs, outside Git except where named:
    `$A complete`, `$A continuity`, then `$A operator`, which installs the
    operator material and prints the qualified operator CLI path. Check three
    healthy controllers, then run `$A services`: it applies TerraBase's
-   profile (`terrabase_profile`, root-signed) and ts-auth as the first cell
-   spec, which member enrollment reads.
+   profile (`terrabase_profile`, or derived from the plan; root-signed) and
+   ts-auth as the first cell spec, which member enrollment reads, then the
+   controllers' host grants.
 6. **Database hosts — LIVE (gru-1-db-1, gru-1-db-2).** `$A members` takes a
    fresh cost admission per host, writes `launch/gru-1-db-N-launch.json`
    with `preview member-launch`, launches it with a retry token bound to

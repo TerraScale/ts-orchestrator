@@ -552,15 +552,25 @@ func TestServicesPhaseAddsServicesThroughSignedSets(t *testing.T) {
 	a := smallAttempt(t)
 	a.Config["trust"] = Object{"root_public": "/keys/root.pub", "root_private": "/keys/root.key",
 		"release_leaf_public": "/keys/leaf.pub", "release_leaf_private": "/keys/leaf.key"}
+	// TerraBase, named last here, is already in the spec, and so are the
+	// controllers' host grants.
 	a.Config["services"] = []any{
 		Object{"role": "ts-auth", "profile": "/deploy/ts-auth-profile.json", "spec": "/deploy/ts-auth-service.json"},
 		Object{"role": "web", "profile": "/deploy/web-profile.json"},
+		Object{"role": "terrabase", "profile": "../../deploy/oci-region/terrabase-gru-1-profile.json"},
+	}
+	plan, err := os.ReadFile("../../deploy/oci-region/plan.json")
+	if err == nil {
+		err = os.WriteFile(a.Plan(), plan, 0600)
+	}
+	if err != nil {
+		t.Fatal(err)
 	}
 	var commands [][]string
 	a.Runner = func(_ context.Context, c Command) (string, error) {
 		commands = append(commands, c.Args)
 		write := slices.Contains(c.Args, "sign-spec-delegation") || slices.Contains(c.Args, "sign-spec") ||
-			slices.Contains(c.Args, "add")
+			slices.Contains(c.Args, "add") && flagValue(c.Args, "--role") != "terrabase"
 		if write {
 			// ts-auth names Vault secrets, which only a root may add.
 			plan := map[string]string{"ts-auth": `{"root_required":["service ts-auth Vault secrets"]}`, "web": `{"status":"planned"}`}[flagValue(c.Args, "--role")]
@@ -586,7 +596,8 @@ func TestServicesPhaseAddsServicesThroughSignedSets(t *testing.T) {
 		nil, // the leaf signature, checked below
 		join(sudo, []string{cli, "service", "apply"}, operator, []string{"--file", filepath.Join(dir, "web.signed.json")}),
 	}
-	if a.Err() != nil || len(commands) != len(want) {
+	// Each planned and unchanged: TerraBase, then the three grants.
+	if a.Err() != nil || len(commands) != len(want)+8 || flagValue(commands[len(want)+3], "--roles") != "ts-auth" {
 		t.Fatal(a.Err(), commands)
 	}
 	for index, command := range want {
@@ -613,7 +624,7 @@ func TestServicesPhaseAddsServicesThroughSignedSets(t *testing.T) {
 	// A rerun issues a fresh delegation and plans again from the cell's set.
 	commands = nil
 	a.PhaseServices()
-	if a.Err() != nil || len(commands) != len(want) || !slices.Contains(commands[0], "sign-spec-delegation") ||
+	if a.Err() != nil || len(commands) != len(want)+8 || !slices.Contains(commands[0], "sign-spec-delegation") ||
 		!slices.Equal(commands[4], want[4]) {
 		t.Fatal(a.Err(), commands)
 	}

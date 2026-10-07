@@ -282,7 +282,10 @@ What differs:
   are an upper bound: TS-645 resizes it.
 - **Attempt.** `ts-orch oci-region attempt` takes the cell and OCI region from
   the plan: identity, material, anchor, manifests, founder records, image
-  import region and receipts, spec delegation and fleet config. It installs
+  import region and receipts, spec delegation and fleet config. Its
+  `services` phase derives the cell's TerraBase and ts-auth profiles and
+  host grants from the plan, so `attempt.json` needs no
+  `terrabase_profile`, `ts_auth_profile` or `ts_auth_service`. It installs
   the operator material of a cell other than GRU in
   `/var/lib/terrascale-operator-<cell>` (`-sfo`), never over GRU's.
 - **Trust.** The cell uses the same root, release leaf, operator key and
@@ -1287,7 +1290,9 @@ The controller config is accepted once and never edited. A running cell's
 generic services (ts-auth and later ones) change with signed cell specs:
 see [Add a service to a running region](cell-spec.md#add-a-service-to-a-running-region).
 `oci-region attempt`'s `services` phase adds the attempt config's services the
-same way.
+same way, derives TerraBase's and ts-auth's profiles from the plan when the
+config names none, and grants every controller node its host (see
+[cell spec](cell-spec.md#commands)).
 
 ## Stop conditions and limits
 
