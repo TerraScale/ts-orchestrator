@@ -91,7 +91,7 @@ func TestBootstrapAgainstTerraBaseRelease(t *testing.T) {
 	credentialPath := writeFile(t, credential+"\n", 0o600)
 	env := layout.Env(map[string]string{terrabase.EnvAdminPort: strconv.Itoa(adminPort), terrabase.EnvPeerPort: strconv.Itoa(peerPort),
 		terrabase.EnvClientPort: strconv.Itoa(clientPort), terrabase.EnvPeers: member.Name + "=" + member.Address.String()},
-		terrabase.Profile{PeerPort: peerPort, ClientPort: clientPort})
+		terrabase.Profile{PeerPort: peerPort, ClientPort: clientPort}, member.Name)
 	env["TERRABASE_MANAGEMENT_CREDENTIAL_FILE"] = credentialPath
 	env["TERRABASE_REGION"] = "gru-1"
 	log := startTerraBase(t, binary, env, adminPort)

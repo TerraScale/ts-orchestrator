@@ -260,14 +260,27 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
 ## Static names
 
 Every cell server has one static name from `internal/naming`. A cell is
-`<region>-<index>` (`gru-1`; every region runs cell 1 today), and a server is
-`<cell>-<role>-<n>` with role `ctl` (controller), `db` (TerraBase member) or
-`gw` (gateway). The GRU rebuild has only `gru-1-ctl-1`..`3` and
-`gru-1-db-1`..`2`; its public edge is the OCI L7 Load Balancer `gru-1-api`.
-A member's retained data volume is `<member>-data` (`gru-1-db-1-data`).
-`naming.Validate` rejects any other name, such as `gru-controller-a`,
-`controller-b`, a deployment- or digest-derived name, or an unknown region.
-No cell server takes the `gw` role yet.
+`<region>-<index>` (`gru-1`; every region runs cell 1 today). A node is
+`ts-<region>-<n>` (`ts-gru-1`, `ts-sfo-2`), with no role in the name: every
+node runs the colocated controller, TerraBase member and ts-auth (TS-609).
+Its retained data volume is `<node>-data` (`ts-gru-1-data`).
+
+Servers named before TS-609 keep their names until they are renamed, and
+`naming.Validate` accepts both schemes: `<cell>-<role>-<n>` with role `ctl`
+(controller), `db` (TerraBase member) or `gw` (gateway), and a member's data
+volume `<member>-data` (`gru-1-db-1-data`). The GRU rebuild has
+`gru-1-ctl-1`..`3` (`gru-1-db-1`..`2` were retired by TS-578); its public edge
+is the OCI L7 Load Balancer `gru-1-api`. `naming.Validate` rejects any other
+name, such as `gru-controller-a`, `controller-b`, a deployment- or
+digest-derived name, or an unknown region. No cell server takes the `gw` role
+yet. The founder, node pools and the cell autoscaler still generate the old
+names: moving them to `ts-<region>-<n>` needs one node number sequence per
+region (follow-up).
+
+A host agent gives its TerraBase member the host's node as
+`TERRABASE_NODE_NAME`, the member's name in `TERRABASE_PEERS`. The member no
+longer takes the OS hostname, so renaming a host's OS does not change the
+member's identity.
 
 Signed controller slots map by letter: `controller-a`, `-b` and `-c` are
 `ctl-1`, `-2` and `-3`. Member seats map in placement order: the permanent

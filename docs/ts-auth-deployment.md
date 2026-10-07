@@ -24,22 +24,23 @@ On cell hosts the installed binary is `terrascale-orchestrator`; it exposes
 the same commands. No command prints a secret: they print secret names,
 OCIDs, tenant IDs and digests.
 
-## Placement: two stateless replicas on the controllers
+## Placement: one stateless replica on every node
 
 ts-auth is **stateless**: users, sessions, keys, claims, webhook deliveries
 and audit events live in its TerraBase database, and every replica serves
 any request ("regional ts-auth processes share one database", ts-auth
 README). Its only process state is a two-second readiness cache. So it runs
-as a `stateless` service with **2 replicas**, at most one per failure domain,
-on two of `gru-1-ctl-1`, `-2` and `-3`:
+as a `stateless` service with **3 replicas**, at most one per failure domain:
+one on each of gru-1's three nodes, beside that node's controller and
+TerraBase member (TS-578).
 
-- Two replicas survive the loss of one controller or fault domain; the load
-  balancer sends traffic only to replicas whose `/readyz` answers.
+- Every replica reaches TerraBase through the members' private endpoints
+  (`TS_AUTH_TERRASCALE_API_ENDPOINTS`) and fails over between them.
+- Three replicas survive the loss of one node or fault domain with two still
+  serving; the load balancer sends traffic only to replicas whose `/readyz`
+  answers.
 - The workload reconciler owns the role (`controller.autoscale.services`), so
-  it replaces a replica lost with its controller on the third controller.
-- The `db` hosts stay dedicated to TerraBase members. Three replicas would
-  put one beside every controller process on the 1 OCPU / 6 GB controllers
-  without adding a failure domain.
+  a lost replica comes back when its node does.
 
 If ts-auth ever keeps state in process (for example a local rate limiter
 that must be exact), this decision becomes 1 replica.
@@ -335,7 +336,7 @@ once, so drain the backends first.
 
 `operator ts-auth-release` is `operator terrabase-release` for role
 `ts-auth` (see [TerraBase deployment](terrabase-deployment.md#run) for the
-steps, interrupt handling and rollback). It waits for 2 replicas that report
+steps, interrupt handling and rollback). It waits for 3 replicas that report
 the new digest `running`; a `failed` replica fails the gate at once, and a
 failed release is rolled back to the digest the replicas ran before. The
 reconciler owns the role, so the hosts get release-scoped generations

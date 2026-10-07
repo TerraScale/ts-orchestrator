@@ -95,8 +95,8 @@ validates it at startup and refuses to start when it fails these checks:
 The admin, peer and client ports must differ. A profile must not set the
 host-owned keys `TERRABASE_DATA_DIRECTORY`, `TERRABASE_PEER_CERTIFICATE`,
 `TERRABASE_PEER_PRIVATE_KEY`, `TERRABASE_PEER_CLIENT_CA`,
-`TERRABASE_CLIENT_CERTIFICATE`, `TERRABASE_CLIENT_PRIVATE_KEY` or
-`DOTNET_BUNDLE_EXTRACT_BASE_DIR`.
+`TERRABASE_CLIENT_CERTIFICATE`, `TERRABASE_CLIENT_PRIVATE_KEY`,
+`DOTNET_BUNDLE_EXTRACT_BASE_DIR` or `TERRABASE_NODE_NAME`.
 
 Recommended GRU values: `TERRABASE_PEER_PORT=9443`,
 `TERRABASE_CLIENT_PORT=9465`, admin port 9464 (loopback). Cell and host
@@ -200,6 +200,7 @@ The member's environment is the host base environment
 | `TERRABASE_PEER_PRIVATE_KEY` | `<root>/tls/member.key` |
 | `TERRABASE_PEER_CLIENT_CA` | `<root>/tls/ca.pem` |
 | `TERRABASE_CLIENT_CERTIFICATE`, `TERRABASE_CLIENT_PRIVATE_KEY` | The member certificate and key, only when `TERRABASE_CLIENT_PORT` is set |
+| `TERRABASE_NODE_NAME` | The host's node, the member's name in `TERRABASE_PEERS`; without it the binary would take the OS hostname (TS-609) |
 
 The process runs as the workload user (`terrascale-workload`, uid/gid 2000 on
 the image) in its own cgroup under the host agent. There is no per-member

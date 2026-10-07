@@ -64,9 +64,11 @@ type ShapeEntry struct {
 	MemoryGB *Range
 }
 
+// A node may run with as little as 4 GB: gru-1's nodes run the colocated
+// controller, TerraBase member and ts-auth in 1 OCPU / 4 GB (TS-627).
 var (
 	a1OCPU   = Range{Min: 1, Max: 4}
-	a1Memory = Range{Min: 6, Max: 24}
+	a1Memory = Range{Min: 4, Max: 24}
 )
 
 func a1Constraints(entry ShapeEntry) bool {
