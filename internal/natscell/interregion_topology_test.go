@@ -15,16 +15,16 @@ func TestInterRegionConfigMatchesItsTopology(t *testing.T) {
 	tree := HubAndSpoke("gru", []string{"sfo", "fra"}).WithSpokeParent("fra", "sfo")
 	region := newTestRegion(t, root, "gru", tree)
 	leafTLS := testBridgeTLS(t, filepath.Join(root, "leaf"))
-	region.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "127.0.0.1", Port: 7422, TLS: leafTLS}
+	region.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "0.0.0.0", Port: 7422, TLS: leafTLS}
 	region.cfg.Embedded.InterRegion.Topology = &tree
 	if err := region.cfg.validate(); err != nil {
 		t.Fatalf("hub matching its topology rejected: %v", err)
 	}
 	remote := LeafRemote{Peer: "gru", URLs: []string{"nats-leaf://10.0.0.1:7422"}, CredentialsFile: "x.creds",
-		PeerAccount: region.interregionID, TLS: leafTLS}
+		PeerAccount: region.interregionID, TLS: leafTLS, ServerName: testLeafServerName}
 	// sfo is a spoke with its own child fra: it dials gru and accepts fra.
 	spoke := InterRegion{Enabled: true, Peers: []string{"gru", "fra"}, AccountJWTFile: "x.jwt", GlobalHome: "gru",
-		Listen: &LeafListen{Host: "127.0.0.1", Port: 7422, TLS: leafTLS}, Subtrees: map[string][]string{"fra": {"fra"}},
+		Listen: &LeafListen{Host: "0.0.0.0", Port: 7422, TLS: leafTLS}, Subtrees: map[string][]string{"fra": {"fra"}},
 		Remotes: []LeafRemote{remote}, Topology: &tree}
 	spokeCfg := region.cfg
 	spokeCfg.Cell = "sfo"

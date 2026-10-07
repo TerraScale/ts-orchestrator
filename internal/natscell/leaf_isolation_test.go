@@ -66,10 +66,10 @@ func startHubWithChild(ctx context.Context, t *testing.T) (*testRegion, *Runtime
 	gru := newTestRegion(t, filepath.Join(root, "gru"), "gru", topology)
 	sfo := newTestRegion(t, filepath.Join(root, "sfo"), "sfo", topology)
 	leafPort := freeClientPort(t)
-	gru.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "127.0.0.1", Port: leafPort, TLS: leafTLS}
+	gru.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "0.0.0.0", Port: leafPort, TLS: leafTLS}
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(leafPort))
 	sfo.cfg.Embedded.InterRegion.Remotes = []LeafRemote{{
-		Peer: "gru", URLs: []string{"nats-leaf://" + addr},
+		Peer: "gru", URLs: []string{"nats-leaf://" + addr}, ServerName: testLeafServerName,
 		CredentialsFile: gru.childLeafCredentials(t, "sfo-leaf.creds", "sfo"), PeerAccount: gru.interregionID, TLS: leafTLS,
 	}}
 	gruRuntime, err := Start(ctx, gru.cfg)

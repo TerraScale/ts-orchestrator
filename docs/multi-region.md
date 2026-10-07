@@ -18,6 +18,19 @@ domain and NATS cluster name stay the lower-case cell token (`gru`). When
   form a tree rooted at the global home region (GRU): each spoke dials one
   parent, the hub by default or another spoke for a shorter path
   (`natscell.LeafTopology`). Leafnode loop detection forbids cycles.
+- A remote tries its URLs in the configured order, never shuffled: the
+  parent controllers' private peering addresses first, then their NetBird
+  addresses. The URLs are IPs, so the remote pins `server_name`, a DNS name
+  the parent's leaf certificate must carry, and verifies every URL against
+  it. A leaf listener binds `0.0.0.0`: controllers have no public IP, and
+  the one port serves both the VCN and the NetBird interface.
+- NATS has no leafnode-only ping setting, so an interregion server pings
+  every connection every 10 s and closes it after 3 unanswered pings. A
+  silently dropped path fails over to the next URL in about 30 to 40 s
+  (plus 2 to 3 s per further dead URL), instead of minutes. Routes
+  (otherwise 30 s and 2 pings) and bridged clients get the same faster
+  stale detection. NATS moves on round robin and never fails back: the link
+  stays on a NetBird URL until that connection drops too.
 - Every leaf connection binds the dedicated interregion account on both sides.
   The system and cell accounts must set `LeafNodeConn = 0`; the server then
   refuses a leaf user of either account.

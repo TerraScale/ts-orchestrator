@@ -202,7 +202,19 @@ func testJWTUserCredentialsWithKey(t *testing.T, root, name string, account nkey
 	return path
 }
 
+// testLeafServerName is the DNS name of testBridgeTLS's certificate, the
+// server_name test leaf remotes pin.
+const testLeafServerName = "leaf.interregion.test"
+
+// testBridgeTLS is a CA and a peer certificate for 127.0.0.1 and
+// testLeafServerName.
 func testBridgeTLS(t *testing.T, root string) TLSFiles {
+	t.Helper()
+	return testTLSFor(t, root, net.ParseIP("127.0.0.1"))
+}
+
+// testTLSFor is testBridgeTLS for testLeafServerName and the given IPs only.
+func testTLSFor(t *testing.T, root string, ips ...net.IP) TLSFiles {
 	t.Helper()
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
@@ -221,7 +233,7 @@ func testBridgeTLS(t *testing.T, root string) TLSFiles {
 	if err != nil {
 		t.Fatal(err)
 	}
-	leaf := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "test peer"}, NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour), IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}
+	leaf := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "test peer"}, NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour), DNSNames: []string{testLeafServerName}, IPAddresses: ips, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}
 	leafDER, err := x509.CreateCertificate(rand.Reader, leaf, ca, &leafKey.PublicKey, caKey)
 	if err != nil {
 		t.Fatal(err)

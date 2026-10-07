@@ -14,7 +14,7 @@ func TestInterRegionConfigFailsClosed(t *testing.T) {
 	root := t.TempDir()
 	region := newTestRegion(t, root, "gru", HubAndSpoke("gru", []string{"sfo"}))
 	leafTLS := testBridgeTLS(t, filepath.Join(root, "leaf"))
-	region.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "127.0.0.1", Port: 7422, TLS: leafTLS}
+	region.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "0.0.0.0", Port: 7422, TLS: leafTLS}
 	if err := region.cfg.validate(); err != nil {
 		t.Fatalf("valid interregion config rejected: %v", err)
 	}
@@ -26,7 +26,7 @@ func TestInterRegionConfigFailsClosed(t *testing.T) {
 		t.Fatalf("disabled interregion block must be inert: %v", err)
 	}
 	remote := LeafRemote{Peer: "sfo", URLs: []string{"nats-leaf://10.0.0.1:7422"}, CredentialsFile: "x.creds",
-		PeerAccount: region.interregionID, TLS: leafTLS}
+		PeerAccount: region.interregionID, TLS: leafTLS, ServerName: testLeafServerName}
 	// gru is the global home in this fixture and the home never dials, so the
 	// remote cases move the home to sfo to reach the remote checks themselves.
 	withRemote := func(mutate func(*LeafRemote)) func(*InterRegion, *Config) {
@@ -73,6 +73,13 @@ func TestInterRegionConfigFailsClosed(t *testing.T) {
 		"global home dials": func(ir *InterRegion, _ *Config) { ir.Remotes = []LeafRemote{remote} },
 		// The root reaches every peer through a child subtree.
 		"root peer unreachable": func(ir *InterRegion, _ *Config) { ir.Peers = append(ir.Peers, "iad") },
+		// Binding one interface would drop the private or the NetBird path.
+		"listener on one address": func(ir *InterRegion, _ *Config) { ir.Listen.Host = "10.251.0.11" },
+		// IP URLs carry no TLS name, so the remote pins a DNS name.
+		"remote sans server name":  withRemote(func(r *LeafRemote) { r.ServerName = "" }),
+		"remote server name is IP": withRemote(func(r *LeafRemote) { r.ServerName = "10.251.0.11" }),
+		"remote wildcard name":     withRemote(func(r *LeafRemote) { r.ServerName = "*.gru.test" }),
+		"remote name empty label":  withRemote(func(r *LeafRemote) { r.ServerName = "leaf..gru.test" }),
 	}
 	for name, mutate := range cases {
 		cfg := region.cfg

@@ -22,7 +22,7 @@ func TestClaimsUpdateCannotBypassTheContractCheck(t *testing.T) {
 	defer cancel()
 	root := t.TempDir()
 	region := newTestRegion(t, filepath.Join(root, "gru"), "gru", HubAndSpoke("gru", []string{"sfo"}))
-	region.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "127.0.0.1", Port: freeClientPort(t),
+	region.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "0.0.0.0", Port: freeClientPort(t),
 		TLS: testBridgeTLS(t, filepath.Join(root, "leaf-tls"))}
 	runtime, err := Start(ctx, region.cfg)
 	if err != nil {

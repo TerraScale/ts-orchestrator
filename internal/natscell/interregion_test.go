@@ -11,12 +11,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalcontrol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -295,11 +297,11 @@ func TestInterRegionLeafnodeCarriesOnlyContractSubjects(t *testing.T) {
 	sfo := newTestRegion(t, filepath.Join(root, "sfo"), "sfo", topology)
 
 	leafPort := freeClientPort(t)
-	gru.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "127.0.0.1", Port: leafPort, TLS: leafTLS}
+	gru.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "0.0.0.0", Port: leafPort, TLS: leafTLS}
 	proxy := newTCPProxy(t, net.JoinHostPort("127.0.0.1", strconv.Itoa(leafPort)))
 	defer proxy.Close()
 	sfo.cfg.Embedded.InterRegion.Remotes = []LeafRemote{{
-		Peer: "gru", URLs: []string{"nats-leaf://" + proxy.Addr()},
+		Peer: "gru", URLs: []string{"nats-leaf://" + proxy.Addr()}, ServerName: testLeafServerName,
 		CredentialsFile: gru.childLeafCredentials(t, "sfo-leaf.creds", "sfo"), PeerAccount: gru.interregionID, TLS: leafTLS,
 	}}
 
@@ -434,7 +436,7 @@ func TestInterRegionLeafnodeCarriesOnlyContractSubjects(t *testing.T) {
 	// such signer, so only the interregion account is linkable.
 	rogue := newTestRegion(t, filepath.Join(root, "fra"), "fra", HubAndSpoke("gru", []string{"sfo", "fra"}))
 	rogue.cfg.Embedded.InterRegion.Remotes = []LeafRemote{{
-		Peer: "gru", URLs: []string{"nats-leaf://" + proxy.Addr()},
+		Peer: "gru", URLs: []string{"nats-leaf://" + proxy.Addr()}, ServerName: testLeafServerName,
 		CredentialsFile: gru.leafCredentialsFor(t, "rogue-leaf.creds", gru.childKey(t, "fra"), gru.cellID), PeerAccount: gru.cellID, TLS: leafTLS,
 	}}
 	rogueRuntime, err := Start(ctx, rogue.cfg)
@@ -496,6 +498,94 @@ func TestInterRegionLeafnodeCarriesOnlyContractSubjects(t *testing.T) {
 	awaitHealth(ctx, t, sfoRuntime.Conn(), healed, "after-heal")
 	waitStreamMessages(ctx, t, mirror, 2)
 	assertForwardResetFailsMirrorClosed(ctx, t, gru, gruRuntime.JetStream(), mirror, mirrorReader, proxy.Addr(), leafTLS)
+}
+
+// TestInterRegionLeafFailsOverToTheNextURLInOrder dials the hub over two
+// paths, each an IP URL through its own proxy: the private peering first,
+// NetBird second. The hub's certificate names only the pinned server_name,
+// not the IP. The link comes up over the first URL; when that path goes
+// silent, pings close it within about 40 s and the remote moves to the next.
+func TestInterRegionLeafFailsOverToTheNextURLInOrder(t *testing.T) {
+	tier.Integration(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	defer cancel()
+	root := t.TempDir()
+	topology := HubAndSpoke("gru", []string{"sfo"})
+	leafTLS := testTLSFor(t, filepath.Join(root, "leaf-tls"))
+	gru := newTestRegion(t, filepath.Join(root, "gru"), "gru", topology)
+	sfo := newTestRegion(t, filepath.Join(root, "sfo"), "sfo", topology)
+	leafPort := freeClientPort(t)
+	gru.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "0.0.0.0", Port: leafPort, TLS: leafTLS}
+	hub := net.JoinHostPort("127.0.0.1", strconv.Itoa(leafPort))
+	private, netbird := newTCPProxy(t, hub), newTCPProxy(t, hub)
+	defer private.Close()
+	defer netbird.Close()
+	remote := LeafRemote{
+		Peer: "gru", URLs: []string{"nats-leaf://" + private.Addr(), "nats-leaf://" + netbird.Addr()},
+		CredentialsFile: gru.childLeafCredentials(t, "sfo-leaf.creds", "sfo"), PeerAccount: gru.interregionID, TLS: leafTLS,
+	}
+	for _, name := range []string{"", "127.0.0.1"} {
+		remote.ServerName = name
+		sfo.cfg.Embedded.InterRegion.Remotes = []LeafRemote{remote}
+		if err := sfo.cfg.validate(); err == nil {
+			t.Fatalf("remote with server_name %q accepted", name)
+		}
+	}
+	remote.ServerName = testLeafServerName
+	sfo.cfg.Embedded.InterRegion.Remotes = []LeafRemote{remote}
+
+	gruRuntime, err := Start(ctx, gru.cfg)
+	if err != nil {
+		t.Fatalf("start gru: %v", err)
+	}
+	defer gruRuntime.Close()
+	sfoRuntime, err := Start(ctx, sfo.cfg)
+	if err != nil {
+		t.Fatalf("start sfo: %v", err)
+	}
+	defer sfoRuntime.Close()
+	sfoQuery, err := sfoRuntime.Conn().Subscribe(protocol.Regional("sfo", "query", "status"), func(msg *nats.Msg) {
+		_ = msg.Respond([]byte("sfo-ok"))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sfoQuery.Unsubscribe()
+	if err := sfoRuntime.Conn().Flush(); err != nil {
+		t.Fatal(err)
+	}
+	// linkedThrough waits until SFO's only leaf connection goes through proxy.
+	linkedThrough := func(ctx context.Context, proxy *tcpProxy) {
+		t.Helper()
+		for {
+			leafz, err := sfoRuntime.server.Leafz(nil)
+			if err == nil && len(leafz.Leafs) == 1 &&
+				net.JoinHostPort(leafz.Leafs[0].IP, strconv.Itoa(leafz.Leafs[0].Port)) == proxy.Addr() {
+				return
+			}
+			if ctx.Err() != nil {
+				t.Fatalf("leaf never linked through %s: %+v, %v", proxy.Addr(), leafz, err)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	linkedThrough(ctx, private)
+	if reply := requestUntil(ctx, t, gruRuntime.Conn(), protocol.Regional("sfo", "query", "status")); string(reply.Data) != "sfo-ok" {
+		t.Fatalf("query over the private path = %q", reply.Data)
+	}
+
+	cut := time.Now()
+	private.Blackhole()
+	failover, failoverCancel := context.WithTimeout(ctx, 50*time.Second)
+	defer failoverCancel()
+	linkedThrough(failover, netbird)
+	t.Logf("failed over to the second URL %v after the first went silent", time.Since(cut).Round(time.Second))
+	// The hub saw no close either; its own pings or the new connection
+	// retire the old one.
+	waitLeafCount(failover, t, gruRuntime, 1)
+	if reply := requestUntil(failover, t, gruRuntime.Conn(), protocol.Regional("sfo", "query", "status")); string(reply.Data) != "sfo-ok" {
+		t.Fatalf("query over the NetBird path = %q", reply.Data)
+	}
 }
 
 func awaitHealth(ctx context.Context, t *testing.T, publisher *nats.Conn, received chan *nats.Msg, marker string) {
@@ -759,6 +849,33 @@ type tcpProxy struct {
 	mu       sync.Mutex
 	listener net.Listener
 	conns    []net.Conn
+	silent   atomic.Bool
+}
+
+// Blackhole drops all traffic from now on without closing anything, as a
+// silently failed network path does.
+func (p *tcpProxy) Blackhole() { p.silent.Store(true) }
+
+// forward copies src to dst, then closes dst unless the proxy is
+// black-holed: a dead path delivers neither data nor the close.
+func (p *tcpProxy) forward(dst, src net.Conn) {
+	_, _ = io.Copy(proxyWriter{p, dst}, src)
+	if !p.silent.Load() {
+		_ = dst.Close()
+	}
+}
+
+// proxyWriter forwards to w until its proxy is black-holed.
+type proxyWriter struct {
+	proxy *tcpProxy
+	w     io.Writer
+}
+
+func (p proxyWriter) Write(b []byte) (int, error) {
+	if p.proxy.silent.Load() {
+		return len(b), nil
+	}
+	return p.w.Write(b)
 }
 
 func newTCPProxy(t *testing.T, target string) *tcpProxy {
@@ -793,8 +910,8 @@ func (p *tcpProxy) serve(listener net.Listener) {
 			p.mu.Lock()
 			p.conns = append(p.conns, inbound, outbound)
 			p.mu.Unlock()
-			go func() { _, _ = io.Copy(outbound, inbound); _ = outbound.Close() }()
-			go func() { _, _ = io.Copy(inbound, outbound); _ = inbound.Close() }()
+			go p.forward(outbound, inbound)
+			go p.forward(inbound, outbound)
 		}
 	}()
 }

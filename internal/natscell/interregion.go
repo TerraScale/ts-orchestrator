@@ -3,9 +3,12 @@ package natscell
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
@@ -59,22 +62,31 @@ type InterRegion struct {
 
 // LeafListen accepts leafnodes from child regions in the leaf topology. TLS is
 // mutual and should use the reviewed interregion CA, not the regional one.
+// Host must be 0.0.0.0: controllers have no public IP, and children dial
+// both their private peering address and their NetBird address.
 type LeafListen struct {
 	Host string   `json:"host"`
 	Port int      `json:"port"`
 	TLS  TLSFiles `json:"tls"`
 }
 
-// LeafRemote dials the parent region in the leaf topology. URLs must come from
-// the reviewed private peering receipt; CredentialsFile is a user issued by
-// PeerAccount, the parent's interregion account, under the parent's operator.
+// LeafRemote dials the parent region in the leaf topology. URLs are tried in
+// order, never shuffled: the parent controllers' addresses from the reviewed
+// private peering receipt first, then their NetBird fallbacks. They are IPs,
+// so ServerName is the DNS name every parent leaf certificate is verified
+// against. CredentialsFile is a user issued by PeerAccount, the parent's
+// interregion account, under the parent's operator.
 type LeafRemote struct {
 	Peer            string   `json:"peer"`
 	URLs            []string `json:"urls"`
 	CredentialsFile string   `json:"credentials_file"`
 	PeerAccount     string   `json:"peer_account"`
 	TLS             TLSFiles `json:"tls"`
+	ServerName      string   `json:"server_name"`
 }
+
+// leafServerName is a lower-case DNS name; validate also refuses IPs.
+var leafServerName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`)
 
 // leafReplyGrant is the service-import reply namespace. NATS maps the reply
 // subject of every request that crosses an account service import into it.
@@ -123,8 +135,8 @@ func (ir *InterRegion) validate(cfg Config) error {
 	if ir.GlobalHome != "" && ir.GlobalHome != cfg.Cell && len(ir.Remotes) == 0 {
 		return errors.New("a non-home region must dial a remote to reach the interregion global home")
 	}
-	if ir.Listen != nil && (ir.Listen.Host == "" || ir.Listen.Port <= 0 || !ir.Listen.TLS.complete()) {
-		return errors.New("interregion leaf listener requires host, port, and mutual TLS")
+	if ir.Listen != nil && (ir.Listen.Host != "0.0.0.0" || ir.Listen.Port <= 0 || !ir.Listen.TLS.complete()) {
+		return errors.New("interregion leaf listener requires host 0.0.0.0, port, and mutual TLS")
 	}
 	if (ir.Listen != nil) != (len(ir.Subtrees) != 0) {
 		return errors.New("interregion leaf listener and child subtrees must be configured together")
@@ -161,6 +173,9 @@ func (ir *InterRegion) validate(cfg Config) error {
 		if len(remote.URLs) == 0 || remote.CredentialsFile == "" || !remote.TLS.complete() ||
 			!nkeys.IsValidPublicAccountKey(remote.PeerAccount) {
 			return fmt.Errorf("interregion remote %q requires URLs, credentials, peer account, and mutual TLS", remote.Peer)
+		}
+		if len(remote.ServerName) > 253 || !leafServerName.MatchString(remote.ServerName) || net.ParseIP(remote.ServerName) != nil {
+			return fmt.Errorf("interregion remote %q server_name must be a DNS name", remote.Peer)
 		}
 		for _, raw := range remote.URLs {
 			parsed, err := url.Parse(raw)
@@ -653,6 +668,12 @@ func interRegionServerOptions(cfg Config, options *server.Options, resolver *acc
 	resolver.admitInterRegion(claim.Subject, raw, contract, links)
 	options.JetStreamDomain = cfg.Cell
 	options.LeafNode.NoAdvertise = true
+	// Leafnodes have no ping knob of their own. With these, a silently
+	// dropped path is closed after 3 unanswered pings and the remote fails
+	// over to its next URL within about 40 s, not the default 2 minutes and
+	// 2 pings. Routes (otherwise 30 s and 2 pings) and bridged clients get
+	// the same faster stale detection.
+	options.PingInterval, options.MaxPingsOut = 10*time.Second, 3
 	if ir.Listen != nil {
 		listenTLS, err := loadTLS(ir.Listen.TLS, true)
 		if err != nil {
@@ -671,9 +692,12 @@ func interRegionServerOptions(cfg Config, options *server.Options, resolver *acc
 		if err != nil {
 			return fmt.Errorf("interregion remote %q TLS: %w", remote.Peer, err)
 		}
+		// NATS otherwise names the TLS server after the first non-IP URL,
+		// or each IP itself.
+		remoteTLS.ServerName = remote.ServerName
 		leaf := &server.RemoteLeafOpts{
 			LocalAccount: claim.Subject, Credentials: remote.CredentialsFile,
-			TLS: true, TLSConfig: remoteTLS, TLSTimeout: 5,
+			TLS: true, TLSConfig: remoteTLS, TLSTimeout: 5, NoRandomize: true,
 		}
 		for _, raw := range remote.URLs {
 			parsed, err := url.Parse(raw)

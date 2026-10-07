@@ -436,7 +436,8 @@ type privatePeerReceipt struct {
 // address inside the parent subnet the receipt observed. credentialsFile is
 // the child's copy of the parent's leaf-<child>.creds; its digest must match
 // the parent's record, which itself must be unexpired and still match its
-// own ledger digest. TLS stays the caller's (the reviewed interregion CA).
+// own ledger digest. TLS (the reviewed interregion CA) and its pinned
+// ServerName stay the caller's.
 func LeafRemote(parent InterRegionRecord, child string, receipt []byte, reviewedSHA256, credentialsFile string,
 	tls natscell.TLSFiles, now time.Time,
 ) (natscell.LeafRemote, error) {

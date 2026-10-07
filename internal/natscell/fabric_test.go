@@ -38,11 +38,11 @@ func TestRelayedCellSpecReachesTheSpokeThroughPartitions(t *testing.T) {
 	gru := newTestRegion(t, filepath.Join(root, "gru"), "gru", topology)
 	sfo := newTestRegion(t, filepath.Join(root, "sfo"), "sfo", topology)
 	leafPort := freeClientPort(t)
-	gru.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "127.0.0.1", Port: leafPort, TLS: leafTLS}
+	gru.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "0.0.0.0", Port: leafPort, TLS: leafTLS}
 	proxy := newTCPProxy(t, net.JoinHostPort("127.0.0.1", strconv.Itoa(leafPort)))
 	defer proxy.Close()
 	sfo.cfg.Embedded.InterRegion.Remotes = []LeafRemote{{
-		Peer: "gru", URLs: []string{"nats-leaf://" + proxy.Addr()},
+		Peer: "gru", URLs: []string{"nats-leaf://" + proxy.Addr()}, ServerName: testLeafServerName,
 		CredentialsFile: gru.childLeafCredentials(t, "sfo-leaf.creds", "sfo"), PeerAccount: gru.interregionID, TLS: leafTLS,
 	}}
 	gruRuntime, err := Start(ctx, gru.cfg)
