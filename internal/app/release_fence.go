@@ -178,6 +178,11 @@ func (f *releaseFence) prepare(ctx context.Context, intent delivery.Intent) erro
 // node that fails the release keeps its backends fenced.
 func (f *releaseFence) sequence(ctx context.Context, intent delivery.Intent) error {
 	role, release := intent.Role, intent.Generation
+	// Without a fence every recorded backend returns first, whether or not
+	// this release was marked.
+	if err := f.reconcile(ctx); err != nil {
+		return err
+	}
 	if _, err := f.kv.Get(ctx, sequencedKey(role, release)); errors.Is(err, jetstream.ErrKeyNotFound) {
 		return nil
 	} else if err != nil {
@@ -187,18 +192,18 @@ func (f *releaseFence) sequence(ctx context.Context, intent delivery.Intent) err
 	if err != nil {
 		return err
 	}
-	api, err := f.client(ctx)
-	if err != nil {
-		return err
-	}
 	spec, addresses := f.spec()
 	if spec == nil {
-		// The cell dropped its fence: return every recorded backend, then
-		// let every node restart at once.
-		if err := f.restoreAll(ctx, api, epoch); err != nil {
+		// The cell dropped its fence: every node of the release restarts
+		// at once.
+		if err := f.fencer.Guard(ctx, epoch); err != nil {
 			return err
 		}
 		return f.kv.Delete(ctx, sequencedKey(role, release))
+	}
+	api, err := f.client(ctx)
+	if err != nil {
+		return err
 	}
 	grace, settle := durationOr(spec.DrainGraceSeconds, defaultFenceGrace), durationOr(spec.SettleSeconds, defaultFenceSettle)
 	desired, err := f.hosts.ListDesired(ctx, role)
@@ -509,6 +514,42 @@ func (f *releaseFence) restore(ctx context.Context, api lb.API, epoch uint64, no
 	}
 	slog.Info("release fence returned a node to rotation", observability.ComponentKey, "rollout", "node", node)
 	return true, f.kv.Delete(ctx, fencedKey(node))
+}
+
+// reconcile returns every recorded fence to rotation once the cell has no
+// release fence: a dropped fence leaves no backend out of rotation, even
+// one a failed release left and no later release marks. The leader runs it
+// on every pass.
+func (f *releaseFence) reconcile(ctx context.Context) error {
+	if f == nil {
+		return nil
+	}
+	if spec, _ := f.spec(); spec != nil {
+		return nil
+	}
+	keys, err := f.kv.ListKeysFiltered(ctx, fencedKey("*"))
+	if errors.Is(err, jetstream.ErrNoKeysFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	recorded := false
+	for range keys.Keys() {
+		recorded = true
+	}
+	if !recorded {
+		return ctx.Err()
+	}
+	epoch, err := f.leading(ctx)
+	if err != nil {
+		return err
+	}
+	api, err := f.client(ctx)
+	if err != nil {
+		return err
+	}
+	return f.restoreAll(ctx, api, epoch)
 }
 
 // restoreAll returns every recorded fence.

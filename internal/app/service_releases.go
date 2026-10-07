@@ -103,6 +103,11 @@ func (r *serviceReleases) run(ctx context.Context, js jetstream.JetStream, repli
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
+		if r.fencer.Current().CanMutate() {
+			if err := r.fences.reconcile(ctx); err != nil && ctx.Err() == nil {
+				slog.Warn("release fence", observability.ComponentKey, "rollout", "error", err)
+			}
+		}
 		for _, role := range serviceReleaseRoles {
 			if !r.fencer.Current().CanMutate() {
 				break

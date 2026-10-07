@@ -621,3 +621,38 @@ func TestReleaseFenceSweepsOlderReleases(t *testing.T) {
 		t.Fatalf("allowance %s", got)
 	}
 }
+
+// After the cell drops its fence, backends a failed release left out of
+// rotation return, through the next release, which nothing marks, or
+// through the leader's pass when no release comes.
+func TestReleaseFenceDroppedReturnsLeftBackends(t *testing.T) {
+	for _, through := range []string{"release", "pass"} {
+		fence, cell, balancer, kv, intent := newFenceTest(t)
+		ctx := t.Context()
+		cell.broken["ctl-1"] = true
+		if err := fence.prepare(ctx, intent); err != nil {
+			t.Fatal(err)
+		}
+		if err := fence.sequence(ctx, intent); err == nil {
+			t.Fatal("a failed node passed")
+		}
+		fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return nil, fenceAddresses }
+		next := delivery.Intent{Role: "ts-auth", Generation: 8}
+		if err := fence.prepare(ctx, next); err != nil {
+			t.Fatal(err)
+		}
+		if through == "release" {
+			if err := fence.sequence(ctx, next); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := fence.reconcile(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if !balancer.sets["terrabase"][0].Serving() {
+			t.Errorf("%s: ctl-1 stays out of rotation", through)
+		}
+		if _, err := kv.Get(ctx, fencedKey("ctl-1")); !errors.Is(err, jetstream.ErrKeyNotFound) {
+			t.Errorf("%s: the fence of ctl-1 is still recorded: %v", through, err)
+		}
+	}
+}
