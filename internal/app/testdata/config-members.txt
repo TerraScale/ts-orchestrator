@@ -1,4 +1,4 @@
-version 4
+version 5
 .Controller struct json:"controller"
 .Controller.ArtifactStoreMaxBytes int64 json:"artifact_store_max_bytes,omitzero"
 .Controller.Autoscale *struct json:"autoscale,omitempty"
@@ -224,6 +224,7 @@ version 4
 .Controller.TrustedSigners []struct json:"trusted_signers,omitempty"
 .Controller.TrustedSigners.Actor string json:"actor"
 .Controller.TrustedSigners.CanCertifyTerraBaseCompatibility bool json:"can_certify_terrabase_compatibility,omitzero"
+.Controller.TrustedSigners.CanInstallMaterial bool json:"can_install_material,omitzero"
 .Controller.TrustedSigners.CanManageClientKeys bool json:"can_manage_client_keys,omitzero"
 .Controller.TrustedSigners.CanOperateBackup bool json:"can_operate_backup,omitzero"
 .Controller.TrustedSigners.CanPlaceTerraBase bool json:"can_place_terrabase,omitzero"

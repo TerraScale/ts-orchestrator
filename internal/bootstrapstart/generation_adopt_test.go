@@ -56,7 +56,7 @@ func (install *generationInstall) staged() bool {
 func TestAdoptGenerationInstallsWhatRestartAdmits(t *testing.T) {
 	install := newGenerationInstall(t)
 	wire, files := install.signedGeneration()
-	if err := install.store().AdoptGeneration(wire, files); err != nil {
+	if err := install.store().AdoptGeneration("controller-a", wire, files); err != nil {
 		t.Fatal(err)
 	}
 	if install.staged() {
@@ -77,7 +77,7 @@ func TestAdoptGenerationInstallsWhatRestartAdmits(t *testing.T) {
 	}
 	changed["ca.pem"] = []byte("not the pinned bundle")
 	for name, bad := range map[string]map[string][]byte{"a missing file": missing, "a file unlike its pin": changed} {
-		if err := install.store().AdoptGeneration(wire, bad); err == nil {
+		if err := install.store().AdoptGeneration("controller-a", wire, bad); err == nil {
 			t.Errorf("adopted %s", name)
 		}
 	}

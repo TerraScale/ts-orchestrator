@@ -34,31 +34,6 @@ var (
 
 var controllerLocalAdmissionProduction = admitProductionControllerRestartLocal
 
-// controllerFinishMaterialAdoption completes or drops a material generation
-// install a crash interrupted (TS-568), before restart admission reads the
-// credential directory. It runs once, at startup: a background admission
-// retry must never touch a stage the running controller is writing.
-var controllerFinishMaterialAdoption = func(cfg Config) error {
-	if cfg.NATS.Lab {
-		return nil
-	}
-	present, err := controllerBakedInputsPresent()
-	if err != nil || !present {
-		return err
-	}
-	if present, err = controllerMarkerPresent(); err != nil || !present {
-		return err
-	}
-	uid, gid, err := controllerServiceIdentity()
-	if err != nil {
-		return err
-	}
-	store, err := bootstrapstart.NewMaterialStore(nil, uid, gid)
-	if err != nil {
-		return err
-	}
-	return store.FinishMaterialAdoption()
-}
 var controllerMarkerPresent = func() (bool, error) {
 	return acceptedControllerInstallPresent(bootstrapstart.NewMarkerStore().Read)
 }
@@ -113,11 +88,11 @@ func offlineRestartAdmission(cfg Config) (bool, error) {
 // synchronous gate before NATS starts, exactly as before. With
 // offline_restart_admission it first passes the local, OCI-free subset, then
 // repeats full admission in the background with backoff; the same checks
-// still gate everything except broker route formation.
+// still gate everything except broker route formation. An interrupted
+// material generation install was finished before this process started, by
+// selfupdate prepare (bootstrapstart.InstallGeneration): this process cannot
+// write its credential directory.
 func startControllerAdmission(ctx context.Context, cfg Config, clockCheck func() error) (*controllerAdmission, error) {
-	if err := controllerFinishMaterialAdoption(cfg); err != nil {
-		return nil, fmt.Errorf("finish an interrupted material generation install: %w", err)
-	}
 	offline, err := offlineRestartAdmission(cfg)
 	if err != nil {
 		return nil, err

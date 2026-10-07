@@ -192,6 +192,21 @@ func serveHostEnrollment(ctx context.Context, conn *nats.Conn, cell string, poli
 			}
 			return
 		}
+		if decodeErr == nil && services != nil && services.roots != nil &&
+			strings.HasPrefix(envelope.Kind, materialGenerationKinds) {
+			report, err := serveMaterialGenerations(requestCtx, message.Data, policy, fencer, services.roots)
+			if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrNotLeader) || !fencer.Current().CanMutate() {
+				return
+			}
+			reply := materialGenerationReply{Report: &report}
+			if err != nil {
+				reply = materialGenerationReply{Error: err.Error()}
+			}
+			if wire, marshalErr := json.Marshal(reply); marshalErr == nil {
+				_ = message.Respond(wire)
+			}
+			return
+		}
 		if decodeErr == nil && envelope.Kind == "host.enrollment.revoke" {
 			receipt, err := verifyAndRevokeHostEnrollment(requestCtx, message.Data, cell, policy, managed)
 			if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrNotLeader) || !fencer.Current().CanMutate() {

@@ -381,6 +381,20 @@ func verifyMaterialGenerationChain(chain []trust.Envelope, expected MaterialGene
 	return verified, nil
 }
 
+// ExtendsMaterialGenerationChain reports whether chain holds every
+// generation of base, byte for byte, and at least one more.
+func ExtendsMaterialGenerationChain(chain, base []trust.Envelope) bool {
+	if len(chain) <= len(base) {
+		return false
+	}
+	if len(base) == 0 {
+		return true
+	}
+	prefix, err := EncodeMaterialGenerationChain(chain[:len(base)])
+	held, heldErr := EncodeMaterialGenerationChain(base)
+	return err == nil && heldErr == nil && string(prefix) == string(held)
+}
+
 // MaterialGenerationPayload decodes and validates a generation's payload
 // without verifying its signature, for code whose caller verified the chain.
 func MaterialGenerationPayload(envelope trust.Envelope) (MaterialGeneration, error) {

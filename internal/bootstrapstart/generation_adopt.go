@@ -21,18 +21,20 @@ const generationStaging = ".generation-staging"
 
 // AdoptGeneration installs a material generation the caller verified (chain
 // under the current roots, files with bootstrapmaterial.CheckGenerationFiles)
-// into the credential directory, crash-safely. The files are written to a
+// into slot's credential directory, crash-safely: exactly the files the slot
+// holds, every unbound pin and the slot's own. The files are written to a
 // staging subdirectory and synced, then the chain, which is the commit
 // record; then every file is renamed over its installed name and the chain
 // last. A crash before the chain is staged leaves the installed set as it
 // was; after, FinishMaterialAdoption completes the install. The running
-// processes see each renamed file as soon as it is in place.
-func (store MaterialStore) AdoptGeneration(chainWire []byte, files map[string][]byte) error {
+// processes see each renamed file as soon as it is in place. Root runs it
+// (selfupdate prepare): everything it writes belongs to the service user.
+func (store MaterialStore) AdoptGeneration(slot string, chainWire []byte, files map[string][]byte) error {
 	chain, err := bootstrap.DecodeMaterialGenerationChain(chainWire)
 	if err != nil {
 		return err
 	}
-	if err := stagedFilesMatch(chain, files); err != nil {
+	if err := stagedFilesMatch(chain, slot, files); err != nil {
 		return err
 	}
 	dir, err := openMaterialDirectory(store.installedDirectory, store.serviceUID, store.serviceGID, 0o700, store.allowUnsafeAncestors)
@@ -46,6 +48,10 @@ func (store MaterialStore) AdoptGeneration(chainWire []byte, files map[string][]
 	}
 	if err := unix.Mkdirat(dir, generationStaging, 0o700); err != nil {
 		return fmt.Errorf("create generation staging: %w", err)
+	}
+	if err := unix.Fchownat(dir, generationStaging, int(store.serviceUID), int(store.serviceGID),
+		unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		return fmt.Errorf("own generation staging: %w", err)
 	}
 	staging, err := store.openStaging(dir)
 	if err != nil {
@@ -166,6 +172,10 @@ func (store MaterialStore) writeStaged(staging int, name string, content []byte)
 		return err
 	}
 	file := os.NewFile(uintptr(fd), name)
+	if err := unix.Fchown(fd, int(store.serviceUID), int(store.serviceGID)); err != nil {
+		_ = file.Close()
+		return err
+	}
 	if err := unix.Fchmod(fd, 0o600); err != nil {
 		_ = file.Close()
 		return err
@@ -208,19 +218,28 @@ func (store MaterialStore) stagedDigestsMatch(staging int, chain []trust.Envelop
 	return nil
 }
 
-// stagedFilesMatch requires exactly the newest generation's pinned files.
-func stagedFilesMatch(chain []trust.Envelope, files map[string][]byte) error {
-	pins, err := newestPins(chain)
+// stagedFilesMatch requires exactly the newest generation's files slot
+// holds: every unbound pin and the slot's own, never another slot's.
+func stagedFilesMatch(chain []trust.Envelope, slot string, files map[string][]byte) error {
+	if len(chain) == 0 {
+		return ErrMaterial
+	}
+	generation, err := bootstrap.MaterialGenerationPayload(chain[len(chain)-1])
 	if err != nil {
 		return err
 	}
-	if len(files) != len(pins) {
-		return fmt.Errorf("%w: a generation installs exactly its pinned files", ErrMaterial)
-	}
-	for name, want := range pins {
-		if content, ok := files[name]; !ok || digest(content) != want {
-			return fmt.Errorf("%w: %s differs from its pin", ErrMaterial, name)
+	held := 0
+	for _, secret := range generation.Secrets {
+		if secret.Slot != "" && secret.Slot != slot {
+			continue
 		}
+		held++
+		if content, ok := files[secret.TargetFile]; !ok || digest(content) != secret.SHA256 {
+			return fmt.Errorf("%w: %s differs from its pin", ErrMaterial, secret.TargetFile)
+		}
+	}
+	if len(files) != held {
+		return fmt.Errorf("%w: a generation installs exactly the pinned files its slot holds", ErrMaterial)
 	}
 	return nil
 }

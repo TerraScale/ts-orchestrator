@@ -888,6 +888,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	if services.roots != nil {
 		workers.Go(func() { workerErrors <- services.roots.Run(runCtx) })
+		if !cfg.NATS.Lab {
+			workers.Go(func() { runMaterialGenerationStager(runCtx, services.roots) })
+		}
 	}
 	if capacityScaler != nil {
 		workers.Go(func() { workerErrors <- capacityScaler.Run(runCtx) })

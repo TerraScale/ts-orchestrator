@@ -63,8 +63,9 @@ const (
 	// publisher, level 12 the release fence, level 13 a fenced set's
 	// min_serving, level 14 a fenced set's role, level 15 the release
 	// fence's canary, level 16 the Machines API, level 17 a host grant's
-	// controller, level 18 the dashboard.
-	BinaryLevel = 18
+	// controller, level 18 the dashboard, level 19 a signer's
+	// can_install_material.
+	BinaryLevel = 19
 	// MaxHostImages bounds the image allow-list: the images a rollout moves
 	// between, plus room to stage the next one.
 	MaxHostImages = 4
@@ -400,8 +401,11 @@ type TrustedSigner struct {
 	CanRotateBrokerAccount           bool     `json:"can_rotate_broker_account,omitzero"`
 	// CanRollOutOrchestrator lets the signer publish, pause, resume and roll
 	// back the cell's orchestrator release (ts-orch rollout).
-	CanRollOutOrchestrator bool     `json:"can_roll_out_orchestrator,omitzero"`
-	Repositories           []string `json:"repositories,omitempty"`
+	CanRollOutOrchestrator bool `json:"can_roll_out_orchestrator,omitzero"`
+	// CanInstallMaterial lets the signer publish a root-signed material
+	// generation and arm controller slots to install it (TS-668).
+	CanInstallMaterial bool     `json:"can_install_material,omitzero"`
+	Repositories       []string `json:"repositories,omitempty"`
 }
 
 // OCIDesiredEntry is one desired OCI resource. Policy is "report" (the
@@ -693,6 +697,9 @@ func (s Spec) Level() uint64 {
 	}
 	if s.Dashboard != nil {
 		level = 18
+	}
+	if slices.ContainsFunc(s.Signers, func(signer TrustedSigner) bool { return signer.CanInstallMaterial }) {
+		level = 19
 	}
 	return level
 }

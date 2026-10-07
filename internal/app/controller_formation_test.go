@@ -11,7 +11,7 @@ import (
 )
 
 type admissionStubs struct {
-	local, full, finish atomic.Int32
+	local, full atomic.Int32
 }
 
 func stubControllerAdmission(t *testing.T, marker bool, localErr error, full func(int32) error) *admissionStubs {
@@ -20,8 +20,6 @@ func stubControllerAdmission(t *testing.T, marker bool, localErr error, full fun
 	previousPresence, previousMarker := controllerBakedInputsPresent, controllerMarkerPresent
 	previousLocal, previousFull := controllerLocalAdmissionProduction, controllerBootstrapProduction
 	previousMin, previousMax := controllerAdmissionMinBackoff, controllerAdmissionMaxBackoff
-	previousFinish := controllerFinishMaterialAdoption
-	controllerFinishMaterialAdoption = func(Config) error { stubs.finish.Add(1); return nil }
 	controllerBakedInputsPresent = func() (bool, error) { return true, nil }
 	controllerMarkerPresent = func() (bool, error) { return marker, nil }
 	controllerLocalAdmissionProduction = func(context.Context, Config) error {
@@ -36,7 +34,6 @@ func stubControllerAdmission(t *testing.T, marker bool, localErr error, full fun
 		controllerBakedInputsPresent, controllerMarkerPresent = previousPresence, previousMarker
 		controllerLocalAdmissionProduction, controllerBootstrapProduction = previousLocal, previousFull
 		controllerAdmissionMinBackoff, controllerAdmissionMaxBackoff = previousMin, previousMax
-		controllerFinishMaterialAdoption = previousFinish
 	})
 	return stubs
 }
@@ -96,11 +93,6 @@ func TestOfflineRestartAdmissionHoldsAuthorityUntilFullAdmission(t *testing.T) {
 	defer readyCancel()
 	if err := admission.wait(ready); err != nil {
 		t.Fatalf("authority gate did not open after full admission: %v", err)
-	}
-	// The interrupted-install recovery runs once at startup, never beside
-	// the running controller's own retries.
-	if stubs.finish.Load() != 1 {
-		t.Fatalf("material adoption recovery ran %d times, want once at startup", stubs.finish.Load())
 	}
 	if stubs.full.Load() != 3 {
 		t.Fatalf("full admission attempts = %d", stubs.full.Load())

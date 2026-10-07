@@ -214,6 +214,19 @@ func (c command) prepare(args []string) error {
 	if _, err = fmt.Fprintf(c.output, "selfupdate prepare unit=%s outcome=%s current=%s\n", *unit, outcome, current); err != nil {
 		return err
 	}
+	// The controller process cannot write its credential directory or
+	// controller.json; its armed material generation installs here (TS-668).
+	if *unit == selfupdate.ControllerUnit {
+		material, err := installGeneration(c.now())
+		if err != nil {
+			return err
+		}
+		if material != "" {
+			if _, err := fmt.Fprintf(c.output, "selfupdate prepare material-generation: %s\n", material); err != nil {
+				return err
+			}
+		}
+	}
 	// A host whose image predates the drop-in gets it from the release that
 	// runs this step; a failure must not stop the unit's start.
 	if installed, err := selfupdate.InstallHostSetupDropin(*systemd); err != nil {
@@ -496,6 +509,8 @@ var (
 	rolloutSpoolDir = rolloutexec.DefaultSpoolDir
 	hostSpoolDir    = rolloutexec.HostSpoolDir
 	bakedInputs     = bootstrapstart.LoadBakedInputs
+	// installGeneration is prepare's material step for the controller unit.
+	installGeneration = bootstrapstart.InstallGeneration
 )
 
 // rolloutStep is the node's root step agent for unit: it applies the

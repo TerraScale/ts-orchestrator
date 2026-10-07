@@ -3,8 +3,8 @@
 A material generation renews a running cell's bootstrap material in place,
 so the cell does not have to be re-founded before its material expires. See
 [self-healing](self-healing.md), step 3, for the whole renewal plan. This
-page covers what a generation is and how the owner signs one. Controllers
-do not adopt generations yet. That is the next step.
+page covers what a generation is, how the owner signs one and how an
+operator installs it on each controller.
 
 ## What a generation pins
 
@@ -45,10 +45,9 @@ version, SHA-256 and size bound), exactly these renewable files:
 
 Schema 2 lets a generation link a running cell into the interregion leaf
 fabric without re-founding it. Restart admission accepts an installed
-schema-2 chain ([below](#restart-admission-with-a-generation)); controllers
-install one from TS-668 PR 6 on.
-Until then nothing in production installs a generation, and a binary from
-before schema 2 refuses one. Schema 2 adds the following:
+schema-2 chain ([below](#restart-admission-with-a-generation)), and
+controllers [install](#install-a-generation) one. A binary from before
+schema 2 refuses one. Schema 2 adds the following:
 
 - **`controllerConfigs`**: one `{slot, manifestSha256, sha256, size}` per
   controller slot, in `controllerSlots` order. Each pins the slot's new
@@ -206,30 +205,120 @@ before any generation.
 5. **Check the directory.** It must hold exactly these files, owned by the
    service user with mode 0600.
 
-## Installing a generation
+## Install a generation
 
-A controller installs a verified generation crash-safely, in its credential
-directory:
+A published chain does nothing until an operator arms a controller slot,
+and an armed slot installs only when its controller restarts. Before the
+first publish:
 
-1. **Stage the files.** It writes the generation's files into a
-   `.generation-staging` subdirectory and syncs them.
-2. **Commit.** It writes the chain into the same subdirectory. The staged
-   chain is the commit record.
-3. **Install.** It renames every file over its installed name, the chain
-   last, and then removes the subdirectory.
+- **Grant.** The operator's trusted signer needs `can_install_material`
+  in the cell spec. A spec that grants it requires binary level 19, so
+  apply it after the release. `status` needs any trusted signer.
+- **Vault.** Publish the generation's secrets in the cell's control
+  compartment. The controllers' `read secret-bundles` grant covers it.
+- **Release.** Every controller runs a known-good release with this
+  install. Its `selfupdate prepare` installs.
 
-Running processes pick up each file as soon as it is renamed into place;
-TLS, for example, rechecks its files every 5 seconds.
+Then, for gru-1 or sfo-1:
 
-**Recovery after a crash.** At startup, before restart admission reads the
-directory, the controller cleans up a leftover stage:
-- A committed stage is installed.
-- A stage without its chain, or whose staged files no longer match their
-  pins, is dropped.
+1. **Publish** the chain and every slot's pinned config:
 
-This happens once per start, so it never races an install the running
-controller is writing. Admission therefore always sees either the previous
-set or the complete new one.
+   ```sh
+   ts-orch operator material-generation publish --config operator.json \
+     --chain gru-generations-1.json \
+     --controller-config controller-a=gru-1-files/controller-controller-a.json \
+     --controller-config controller-b=gru-1-files/controller-controller-b.json \
+     --controller-config controller-c=gru-1-files/controller-controller-c.json
+   ```
+
+   The leader refuses a chain that does not verify for the cell under its
+   current roots, or that does not extend the stored one (an older chain,
+   a fork). It also refuses a config unlike its pin. A new chain clears
+   the stored configs and arms.
+2. **Wait until every slot is staged.** `ts-orch operator
+   material-generation status --config operator.json` prints the stored
+   generation and fingerprint, the stored configs, the armed slots, and
+   each slot's `staged`, `armed` and `installed` generation with its
+   stager's error.
+3. **Arm one slot:** `ts-orch operator material-generation arm --config
+   operator.json --slot controller-b`. From now on any restart of that
+   controller installs the generation; `disarm` undoes it before then.
+4. **Bind continuity.** A slot that restarts through
+   [install continuity](#install-continuity-with-a-generation) needs a proof
+   that binds the new generation. That is every managed peer, and the seed
+   once its current proofs lapse. Render and sign that slot's proof from
+   the chain. Then sign and publish a founder selection
+   (`sign-founder-selection`, `publish-founder-selection`) with the new
+   proof and the other slots' proofs unchanged. Do this only once the slot
+   is armed and staged: its next restart then installs what the proof
+   binds. A slot that restarts without installing (it was disarmed, or
+   prepare refused the stage) fails admission. It passes again once a
+   selection binds its installed set again.
+5. **Reboot it:** `ts-orch node reboot --config operator.json --node <node>
+   --wait 30m`.
+6. **Check** that `status` shows the slot `installed`. Then do steps 3 to
+   6 for the next slot.
+
+**Rollback** is a newer generation that restates the old config and files.
+A chain never moves back.
+
+### Staging
+
+Each controller stages the stored chain when it extends the chain the
+controller has installed. It works unprivileged, every 30 seconds:
+
+1. It verifies the chain for its manifest under the current roots.
+2. It reads from Vault, with its instance principal, every file its slot
+   holds: the unbound ones and its own. It never reads another slot's
+   file.
+3. It checks the files and its slot's config with
+   `CheckGenerationFiles`.
+4. It writes them owner-only to
+   `/var/lib/terrascale-orchestrator-controller/material-generation/`, the
+   chain last.
+5. While the record arms its slot, it also writes the `armed` marker there,
+   holding the newest generation's fingerprint.
+6. It reports its status to the leader.
+
+### Install at the next start
+
+The controller cannot write its credential directory or `controller.json`.
+`selfupdate prepare` runs as root before every start of the controller
+unit, and does the install:
+
+1. **Finish an interrupted install.** A committed stage in the credential
+   directory is rolled forward. Any other stage is dropped.
+2. **Converge the config.** If the installed generation pins a different
+   `controller.json` for the slot, it moves the pending copy into place.
+3. **Verify the armed stage again.** It reads the stage beneath the spool,
+   following no link out and no FIFO. The stage must have:
+   - a chain current under the image's roots and the adopted root chain;
+   - an `armed` marker naming the chain's newest generation;
+   - a chain that extends the installed one;
+   - the slot's config, bound to its accepted manifest;
+   - every file the slot holds, by pin and by `CheckGenerationFiles`.
+
+   A refusal is logged as `selfupdate prepare material-generation:
+   refused: ...`. The controller then starts on the installed set.
+4. **Write the pending config** as
+   `/etc/terrascale-orchestrator/.controller.json.generation`, synced.
+5. **Adopt the files.** It writes the generation's files, owned by the
+   service user with mode 0600, into a `.generation-staging`
+   subdirectory, and syncs them. Then it writes the chain there, which is
+   the commit record. Then it renames every file over its installed name,
+   the chain last.
+6. **Install the config.** It renames the pending config over
+   `controller.json` (root, 0644) and syncs the directory.
+
+**Recovery after a crash.** Each crash point converges on the next start:
+
+- **Before the commit:** the installed set is unchanged. An armed slot
+  installs again. A disarmed slot never uses the pending copy.
+- **After the commit:** step 1 completes the install and step 2 moves
+  `controller.json` into place.
+
+Restart admission therefore sees either the previous set or the complete
+new one.
 
 ## Install continuity with a generation
 

@@ -59,9 +59,12 @@ func (forwards *operatorForwardFlags) Set(value string) error {
 
 func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: operator <terrabase-release|ts-auth-release|terrabase-deploy|terrabase-update|terrabase-sync|terrabase-status|terrabase-walkthrough|hosts|host-register|host-enrollment-revoke|material-credentials|material-credentials-status|placement-apply|managed-update-prepare|placement-list|terminal-plan|terminal-apply|terminal-status|backup-start|backup-abort|backup-status|broker-claim-apply|artifact-push|deploy|rollback|trust-roots|trust-rotate|status> --config FILE")
+		return errors.New("usage: operator <terrabase-release|ts-auth-release|terrabase-deploy|terrabase-update|terrabase-sync|terrabase-status|terrabase-walkthrough|hosts|host-register|host-enrollment-revoke|material-credentials|material-credentials-status|placement-apply|managed-update-prepare|placement-list|terminal-plan|terminal-apply|terminal-status|backup-start|backup-abort|backup-status|broker-claim-apply|artifact-push|deploy|rollback|trust-roots|trust-rotate|material-generation <publish|status|arm|disarm>|status> --config FILE")
 	}
 	operation := args[0]
+	if operation == "material-generation" && len(args) > 1 {
+		operation, args = operation+"-"+args[1], args[1:]
+	}
 	if operation == "terrabase-walkthrough" {
 		// The customer walkthrough uses only the deployment state and the
 		// members' HTTPS listeners, never the controller or NATS.
@@ -118,6 +121,10 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	newName := flags.String("new-name", "", "node rename: the node's new name")
 	atlasCell := flags.String("cell", "", "atlas add-region: the region's cell, such as sfo-1")
 	memoryGB := flags.Float64("memory-gb", 0, "node resize: the instance's memory in GB")
+	chainPath := flags.String("chain", "", "material-generation publish: the root-signed generation chain")
+	slot := flags.String("slot", "", "material-generation arm, disarm: the controller slot")
+	var controllerConfigs controllerConfigFlags
+	flags.Var(&controllerConfigs, "controller-config", "material-generation publish: SLOT=FILE, the slot's pinned controller.json (repeatable)")
 	var forwards operatorForwardFlags
 	flags.Var(&forwards, "nats-forward", "transient PRIVATE_IP:4222=LOOPBACK_IP:PORT Bastion forward (repeatable)")
 	if err := flags.Parse(args[1:]); err != nil {
@@ -288,6 +295,10 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	case "node-status", "node-drain", "node-undrain", "node-reboot", "node-resize", "node-add", "node-retire", "node-rename":
 		return operatorNode(ctx, cfg, runtime, strings.TrimPrefix(operation, "node-"),
 			nodeOpRequest{Node: *node, To: *newName, OCPUs: float32(*ocpus), MemoryGB: float32(*memoryGB)}, *wait, output)
+	case "material-generation-publish", "material-generation-status", "material-generation-arm",
+		"material-generation-disarm":
+		return operatorMaterialGeneration(ctx, cfg, runtime, strings.TrimPrefix(operation, "material-generation-"),
+			*chainPath, controllerConfigs, *slot, output)
 	case "trust-roots":
 		return operatorTrustRoots(ctx, cfg, runtime, *outPath, output)
 	case "trust-rotate":

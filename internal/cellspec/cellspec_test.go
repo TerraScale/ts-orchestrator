@@ -1415,3 +1415,16 @@ func TestDashboardSection(t *testing.T) {
 		t.Errorf("plan = %+v, %v", plan, err)
 	}
 }
+
+// can_install_material needs binary level 19 (TS-668).
+func TestInstallMaterialGrantLevel(t *testing.T) {
+	spec := testSpec(newFixture(t).id, 1)
+	spec.Signers = []TrustedSigner{{Actor: "ops", PublicKey: "a", Roles: []string{"web"}, Environments: []string{"canary"},
+		CanInstallMaterial: true}}
+	if spec.Level() != 19 {
+		t.Fatalf("level with can_install_material = %d", spec.Level())
+	}
+	if spec.RequiresBinary = 18; !errors.Is(spec.Validate(), ErrInvalid) {
+		t.Fatal("can_install_material accepted below level 19")
+	}
+}

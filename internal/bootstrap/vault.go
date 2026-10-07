@@ -148,6 +148,20 @@ func (vault *Vault) materialize(ctx context.Context, manifest VerifiedManifest, 
 	return nil
 }
 
+// ReadGenerationSecret reads the exact secret version a material generation
+// pins and returns its bytes once they match the pinned digest and size.
+// The caller verified the generation and holds reference's slot.
+func (vault *Vault) ReadGenerationSecret(ctx context.Context, reference SecretReference) ([]byte, error) {
+	if vault == nil || vault.reader == nil {
+		return nil, errors.New("bootstrap Vault reader is not configured")
+	}
+	bundle, err := vault.reader.GetSecretBundle(ctx, reference.SecretOCID, reference.VersionNumber)
+	if err != nil {
+		return nil, fmt.Errorf("get exact OCI Vault secret bundle: %w", err)
+	}
+	return decodeSecretBundle(bundle, reference)
+}
+
 func (reader ociSecretBundleReader) GetSecretBundle(ctx context.Context, secretOCID string, version int64) (SecretBundle, error) {
 	response, err := reader.client.GetSecretBundle(ctx, secrets.GetSecretBundleRequest{
 		SecretId: new(secretOCID), VersionNumber: new(version),
