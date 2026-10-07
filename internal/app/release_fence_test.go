@@ -142,6 +142,9 @@ type fenceCell struct {
 	nodes   []string
 	release uint64
 	broken  map[string]bool
+	// stalled nodes restart but report nothing, like a replica the
+	// reconciler is about to withdraw.
+	stalled map[string]bool
 	// unfenced lets nodes restart while their backends serve: the cell's
 	// fence moved or was dropped.
 	unfenced bool
@@ -188,6 +191,9 @@ func (c *fenceCell) ListHosts(ctx context.Context) ([]host.HostStatus, error) {
 					}
 				}
 				c.lb.mu.Unlock()
+			}
+			if c.stalled[node] {
+				continue
 			}
 			report.Generation, report.State = desired.Generation, "running"
 			if c.broken[node] {
@@ -847,5 +853,92 @@ func TestReleaseFenceDrainsAgainAfterACutShortRestore(t *testing.T) {
 	}
 	if len(balancer.log) < 2 || balancer.log[0] != "terrabase 10.0.0.11:9465 drain" || balancer.log[1] != "terrabase 10.0.0.11:9465 offline" {
 		t.Fatalf("load balancer %q", balancer.log)
+	}
+}
+
+// A backup backend in rotation serves once the primaries fail: it is
+// fenced like any other and returns still a backup.
+func TestReleaseFenceFencesABackupBackend(t *testing.T) {
+	fence, _, balancer, _, intent := newFenceTest(t)
+	balancer.sets["terrabase"][1] = balancer.sets["terrabase"][1].Shaped(1, true)
+	ctx := t.Context()
+	if err := fence.prepare(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.sequence(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(balancer.log, "terrabase 10.0.0.12:9465 offline") {
+		t.Fatalf("ctl-2's backup backend was not fenced: %q", balancer.log)
+	}
+	if _, backup := balancer.sets["terrabase"][1].Shape(); !backup || !balancer.sets["terrabase"][1].Serving() {
+		t.Fatalf("ctl-2's backup backend returned as %+v", balancer.sets["terrabase"][1])
+	}
+}
+
+// The reconciler withdraws ctl-2's replica after it was permitted and
+// before it served: the release goes on to ctl-3 without waiting out its
+// deadline, and ctl-2's backends, which serve its other workloads, return
+// before the release opens.
+func TestReleaseFenceReturnsAWithdrawnNode(t *testing.T) {
+	fence, cell, balancer, kv, intent := newFenceTest(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	cell.stalled = map[string]bool{"ctl-2": true}
+	cell.restarted = func(node string) {
+		if node == "ctl-2" {
+			cell.nodes = []string{"ctl-1", "ctl-3"}
+		}
+	}
+	if err := fence.prepare(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.sequence(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(cell.restarts, []string{"ctl-1", "ctl-2", "ctl-3"}) {
+		t.Fatalf("restarts %q", cell.restarts)
+	}
+	for _, set := range []string{"terrabase", "ts-auth"} {
+		if !balancer.sets[set][1].Serving() {
+			t.Fatalf("ctl-2's %s backend stays fenced: %q", set, balancer.log)
+		}
+	}
+	if _, err := kv.Get(ctx, fencedKey("ctl-2")); !errors.Is(err, jetstream.ErrKeyNotFound) {
+		t.Fatalf("ctl-2's fence is still recorded: %v", err)
+	}
+}
+
+// A node fenced by a failed release and withdrawn since, its replica moved
+// to ctl-3, returns when the next release starts, before it takes another
+// node out.
+func TestReleaseFenceReturnsANodeAFailedReleaseLeft(t *testing.T) {
+	fence, cell, balancer, kv, intent := newFenceTest(t)
+	ctx := t.Context()
+	cell.nodes, cell.broken["ctl-2"] = []string{"ctl-1", "ctl-2"}, true
+	if err := fence.prepare(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.sequence(ctx, intent); err == nil {
+		t.Fatal("a failed node passed")
+	}
+	if balancer.sets["terrabase"][1].Serving() {
+		t.Fatal("the failed node was not fenced")
+	}
+	cell.nodes, cell.release, cell.restarts = []string{"ctl-1", "ctl-3"}, 8, nil
+	next := delivery.Intent{Role: "ts-auth", Generation: 8}
+	if err := fence.prepare(ctx, next); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.sequence(ctx, next); err != nil {
+		t.Fatal(err)
+	}
+	for _, set := range []string{"terrabase", "ts-auth"} {
+		if !balancer.sets[set][1].Serving() {
+			t.Fatalf("ctl-2's %s backend stays fenced: %q", set, balancer.log)
+		}
+	}
+	if _, err := kv.Get(ctx, fencedKey("ctl-2")); !errors.Is(err, jetstream.ErrKeyNotFound) {
+		t.Fatalf("ctl-2's fence is still recorded: %v", err)
 	}
 }

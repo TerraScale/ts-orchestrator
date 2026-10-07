@@ -210,12 +210,32 @@ func (f *releaseFence) sequence(ctx context.Context, intent delivery.Intent) err
 	if err != nil {
 		return err
 	}
+	// A node fenced by an earlier release and no longer allocated, its
+	// replica withdrawn or moved, keeps no backend out of rotation. Without
+	// a replica to wait for, its backends return without waiting for their
+	// health checks: the load balancer routes nothing to a failing one, and
+	// every fence still needs a healthy alternative.
+	left, err := f.keys(ctx, fencedKey("*"))
+	if err != nil {
+		return err
+	}
+	for _, key := range left {
+		node := strings.TrimPrefix(key, fencedKey(""))
+		if allocated, err := f.allocated(ctx, role, release, node); err != nil {
+			return err
+		} else if !allocated {
+			if _, err := f.restore(ctx, api, epoch, node, false); err != nil {
+				return err
+			}
+		}
+	}
 	grace, settle := durationOr(spec.DrainGraceSeconds, defaultFenceGrace), durationOr(spec.SettleSeconds, defaultFenceSettle)
 	// The workload reconciler may move the release's replicas while it
 	// rolls, so the allocations are read again after every node: a node it
 	// adds is fenced and permitted before the release opens.
 	done := map[string]bool{}
 	var nodes []string
+nodes:
 	for {
 		node, found, err := f.nextNode(ctx, role, release, done)
 		if err != nil {
@@ -247,6 +267,19 @@ func (f *releaseFence) sequence(ctx context.Context, intent delivery.Intent) err
 				}
 				if err := f.wait(ctx, epoch, fencePoll); err != nil {
 					return fmt.Errorf("%s replica %s did not serve release %d: %w", role, node, release, err)
+				}
+				if allocated, err := f.allocated(ctx, role, release, node); err != nil {
+					return err
+				} else if !allocated {
+					// The reconciler withdrew the replica: its node's other
+					// workloads return to rotation, and the next node may be
+					// its replacement.
+					slog.Info("release fence returns a withdrawn node", observability.ComponentKey, "rollout", "role", role,
+						"release", release, "node", node)
+					if _, err := f.restore(ctx, api, epoch, node, false); err != nil {
+						return err
+					}
+					continue nodes
 				}
 				if state, err = f.nodeState(ctx, role, release, node); err != nil {
 					return err
@@ -303,6 +336,36 @@ func (f *releaseFence) nextNode(ctx context.Context, role string, release uint64
 	return best, found, nil
 }
 
+// allocated reports whether node has an active allocation of role at
+// release.
+func (f *releaseFence) allocated(ctx context.Context, role string, release uint64, node string) (bool, error) {
+	desired, err := f.hosts.ListDesired(ctx, role)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(desired, func(d host.Desired) bool {
+		return d.Node == node && !d.Withdrawn && releaseOf(d.Generation) == release
+	}), nil
+}
+
+// keys lists the bucket's keys that match filter.
+func (f *releaseFence) keys(ctx context.Context, filter string) ([]string, error) {
+	lister, err := f.kv.ListKeysFiltered(ctx, filter)
+	if errors.Is(err, jetstream.ErrNoKeysFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer lister.Stop()
+	var keys []string
+	for key := range lister.Keys() {
+		keys = append(keys, key)
+	}
+	// The lister closes early, without an error, when ctx ends.
+	return keys, ctx.Err()
+}
+
 // deleteGuarded deletes key while this leader still holds epoch: the
 // bucket enforces no epoch, and a new leader may be writing the same keys.
 func (f *releaseFence) deleteGuarded(ctx context.Context, epoch uint64, key string) error {
@@ -317,15 +380,11 @@ func (f *releaseFence) deleteGuarded(ctx context.Context, epoch uint64, key stri
 // serves release may they go: while desired still named an older release,
 // its mark held the restarts into it.
 func (f *releaseFence) sweep(ctx context.Context, epoch uint64, role string, release uint64) error {
-	keys, err := f.kv.ListKeysFiltered(ctx, "fence."+role+".>")
-	if errors.Is(err, jetstream.ErrNoKeysFound) {
-		return nil
-	}
+	keys, err := f.keys(ctx, "fence."+role+".>")
 	if err != nil {
 		return err
 	}
-	defer keys.Stop()
-	for key := range keys.Keys() {
+	for _, key := range keys {
 		number, _, _ := strings.Cut(strings.TrimPrefix(key, "fence."+role+"."), ".")
 		if older, err := strconv.ParseUint(number, 10, 64); err == nil && older < release {
 			if err := f.deleteGuarded(ctx, epoch, key); err != nil {
@@ -333,8 +392,7 @@ func (f *releaseFence) sweep(ctx context.Context, epoch uint64, role string, rel
 			}
 		}
 	}
-	// The lister closes early, without an error, when ctx ends.
-	return ctx.Err()
+	return nil
 }
 
 // allowance is the time a fenced release adds to the readiness gate for
@@ -575,25 +633,13 @@ func (f *releaseFence) reconcile(ctx context.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	var fenced, marks []string
-	for _, filter := range []string{fencedKey("*"), "fence.>"} {
-		keys, err := f.kv.ListKeysFiltered(ctx, filter)
-		if errors.Is(err, jetstream.ErrNoKeysFound) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		for key := range keys.Keys() {
-			if filter == "fence.>" {
-				marks = append(marks, key)
-			} else {
-				fenced = append(fenced, strings.TrimPrefix(key, fencedKey("")))
-			}
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
+	fenced, err := f.keys(ctx, fencedKey("*"))
+	if err != nil {
+		return err
+	}
+	marks, err := f.keys(ctx, "fence.>")
+	if err != nil {
+		return err
 	}
 	if len(fenced) == 0 && len(marks) == 0 {
 		return nil
@@ -607,8 +653,8 @@ func (f *releaseFence) reconcile(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		for _, node := range fenced {
-			if _, err := f.restore(ctx, api, epoch, node, false); err != nil {
+		for _, key := range fenced {
+			if _, err := f.restore(ctx, api, epoch, strings.TrimPrefix(key, fencedKey("")), false); err != nil {
 				return err
 			}
 		}
