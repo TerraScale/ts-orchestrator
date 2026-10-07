@@ -99,6 +99,7 @@ func (r *Relay) Pass(ctx context.Context) error {
 	entry, err := r.KV.Get(ctx, StepKey(r.Unit))
 	switch {
 	case errors.Is(err, jetstream.ErrKeyNotFound):
+		err = nil // no step for this unit: the usual state between rollouts
 	case err != nil:
 		return err
 	default:

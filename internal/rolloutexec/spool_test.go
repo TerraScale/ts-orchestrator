@@ -157,6 +157,19 @@ func signTestRelease(t *testing.T, data []byte, now time.Time) ([]byte, []byte, 
 	return receiptWire, delegationWire, roots
 }
 
+// No step for the unit is the usual state between rollouts: a pass then
+// has nothing to relay and nothing to report. It returned the board's
+// "key not found", which every idle controller logged every 2 s (TS-661).
+func TestRelayPassWithoutAStepSucceeds(t *testing.T) {
+	f := newBoardFixture(t)
+	if err := f.relay.Pass(t.Context()); err != nil {
+		t.Fatalf("pass with no step posted: %v", err)
+	}
+	if entries, err := os.ReadDir(f.spool); err != nil || len(entries) != 0 {
+		t.Fatalf("spool after a pass with no step: %v %v", entries, err)
+	}
+}
+
 // A step posted by the leader reaches the root agent through the unit's
 // relay, which fetches the release; the agent stages it from the spool
 // after verifying its receipt and bytes, activates it, and its reply comes
