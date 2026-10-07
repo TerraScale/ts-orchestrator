@@ -5,9 +5,9 @@
   "setup_key_secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqaj7iuycp5pjd36u35pmekfwrubyvhtalvzvjun2xtdv3q",
   "admin_pat_secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqa47dfouwhtievxunck43w4pyccvjgwkfvfglthsopvszq",
   "peer_names": {
-    "10.251.0.11": "gru-1-ctl-1",
-    "10.251.0.12": "gru-1-ctl-2",
-    "10.251.0.13": "gru-1-ctl-3",
+    "10.251.0.11": "ts-gru-1",
+    "10.251.0.12": "ts-gru-2",
+    "10.251.0.13": "ts-gru-3",
     "10.251.0.21": "gru-1-db-1",
     "10.251.0.22": "gru-1-db-2"
   }

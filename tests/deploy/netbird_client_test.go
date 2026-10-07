@@ -382,8 +382,8 @@ func TestGRUNetbirdInputNamesEveryCellSlotStably(t *testing.T) {
 	if err := json.Unmarshal(read(t, filepath.Join(deployRoot(t), "deploy/oci-region/plan.json")), &plan); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"controller-a": "gru-1-ctl-1", "controller-b": "gru-1-ctl-2",
-		"controller-c": "gru-1-ctl-3", "member-a": "gru-1-db-1", "member-b": "gru-1-db-2"}
+	want := map[string]string{"controller-a": "ts-gru-1", "controller-b": "ts-gru-2",
+		"controller-c": "ts-gru-3", "member-a": "gru-1-db-1", "member-b": "gru-1-db-2"}
 	if len(plan.Hosts) != len(want) || len(config.PeerNames) != len(want) {
 		t.Fatalf("plan slots %d and peer names %d differ from %d", len(plan.Hosts), len(config.PeerNames), len(want))
 	}

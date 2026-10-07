@@ -490,7 +490,7 @@ func (f *fakeManager) seedLegacy(t *testing.T) legacyIDs {
 	ids.servers = f.addGroup("ts-orch-servers")
 	now := time.Now()
 	ids.tsOps = f.addPeer("ts-ops", "10.250.10.155", true, now, ids.gateway)
-	ids.server1 = f.addPeer("gru-1-ctl-1", "10.251.0.11", true, now, ids.servers)
+	ids.server1 = f.addPeer("ts-gru-1", "10.251.0.11", true, now, ids.servers)
 	ids.operator1 = f.addPeer("laptop", "203.0.113.7", true, now, ids.operators)
 	ids.network, ids.resource, ids.router = "n-legacy", "res-legacy", "rt-legacy"
 	f.networks = append(f.networks, &fakeNetwork{

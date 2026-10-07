@@ -41,8 +41,8 @@ func TestGRUDesiredStateIsConsistentWithTheImageInput(t *testing.T) {
 	if err := json.Unmarshal(wire, &input); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"10.251.0.11": "gru-1-ctl-1", "10.251.0.12": "gru-1-ctl-2",
-		"10.251.0.13": "gru-1-ctl-3", "10.251.0.21": "gru-1-db-1", "10.251.0.22": "gru-1-db-2"}
+	want := map[string]string{"10.251.0.11": "ts-gru-1", "10.251.0.12": "ts-gru-2",
+		"10.251.0.13": "ts-gru-3", "10.251.0.21": "gru-1-db-1", "10.251.0.22": "gru-1-db-2"}
 	if got := d.PeerNames(); !mapsEqual(got, want) || !mapsEqual(input.PeerNames, want) {
 		t.Fatalf("slot peer names: desired %v, image input %v", got, input.PeerNames)
 	}
@@ -51,11 +51,11 @@ func TestGRUDesiredStateIsConsistentWithTheImageInput(t *testing.T) {
 		records = append(records, r.Name+"="+r.Content)
 	}
 	wantRecords := []string{
-		"ctl-1.gru.ts.internal=10.251.0.11", "ctl-2.gru.ts.internal=10.251.0.12",
-		"ctl-3.gru.ts.internal=10.251.0.13", "db-1.gru.ts.internal=10.251.0.21",
-		"db-2.gru.ts.internal=10.251.0.22", "nats.gru.ts.internal=10.251.0.11",
-		"nats.gru.ts.internal=10.251.0.12", "nats.gru.ts.internal=10.251.0.13",
+		"db-1.gru.ts.internal=10.251.0.21", "db-2.gru.ts.internal=10.251.0.22",
+		"nats.gru.ts.internal=10.251.0.11", "nats.gru.ts.internal=10.251.0.12", "nats.gru.ts.internal=10.251.0.13",
 		"terrabase.gru.ts.internal=10.251.0.21", "terrabase.gru.ts.internal=10.251.0.22",
+		"ts-gru-1.gru.ts.internal=10.251.0.11", "ts-gru-2.gru.ts.internal=10.251.0.12",
+		"ts-gru-3.gru.ts.internal=10.251.0.13",
 	}
 	if !slices.Equal(records, wantRecords) {
 		t.Fatalf("records %v", records)
@@ -289,8 +289,8 @@ func TestPruneDeletesReplacedRevisionsAndRestoresSlotNames(t *testing.T) {
 	servers := ids.servers
 	// ctl-2: the replaced revision is offline under the slot name;
 	// the new revision registered with a suffixed label.
-	staleB := f.addPeer("gru-1-ctl-2", "10.251.0.12", false, old, servers)
-	liveB := f.addPeer("gru-1-ctl-2", "10.251.0.12", true, now, servers)
+	staleB := f.addPeer("ts-gru-2", "10.251.0.12", false, old, servers)
+	liveB := f.addPeer("ts-gru-2", "10.251.0.12", true, now, servers)
 	// db-1: the live revision registered under its OS hostname.
 	staleM := f.addPeer("gru-1-db-1", "10.251.0.21", false, old, servers)
 	liveM := f.addPeer("ip-10-251-0-21", "10.251.0.21", true, now, servers)
@@ -301,7 +301,7 @@ func TestPruneDeletesReplacedRevisionsAndRestoresSlotNames(t *testing.T) {
 	orphan := f.addPeer("scratch", "10.251.0.50", false, ancient, servers)
 	recent := f.addPeer("scratch-2", "10.251.0.51", false, old, servers)
 	// A disconnected peer outside the servers group is never touched.
-	outside := f.addPeer("gru-1-ctl-3", "10.251.0.13", false, ancient, ids.operators)
+	outside := f.addPeer("ts-gru-3", "10.251.0.13", false, ancient, ids.operators)
 	api := f.api(t)
 	d := GRU()
 
@@ -325,7 +325,7 @@ func TestPruneDeletesReplacedRevisionsAndRestoresSlotNames(t *testing.T) {
 			t.Errorf("peer %s was deleted", id)
 		}
 	}
-	if p := f.peer(liveB); p.Name != "gru-1-ctl-2" || p.DNSLabel != "gru-1-ctl-2.netbird.selfhosted" {
+	if p := f.peer(liveB); p.Name != "ts-gru-2" || p.DNSLabel != "ts-gru-2.netbird.selfhosted" {
 		t.Fatalf("ctl-2: %+v", p.apiPeer)
 	}
 	if p := f.peer(liveM); p.Name != "gru-1-db-1" || p.DNSLabel != "gru-1-db-1.netbird.selfhosted" || !p.SSHEnabled {
@@ -338,11 +338,25 @@ func TestPruneDeletesReplacedRevisionsAndRestoresSlotNames(t *testing.T) {
 	}
 }
 
+// TS-609 renamed gru-1's nodes: a connected server peer still named
+// gru-1-ctl-2 takes its slot's node name.
+func TestPruneRenamesAPeerAfterItsRenamedNode(t *testing.T) {
+	f := newFakeManager(t)
+	ids := f.seedLegacy(t)
+	live := f.addPeer("gru-1-ctl-2", "10.251.0.12", true, time.Now(), ids.servers)
+	if _, err := Prune(t.Context(), f.api(t), GRU(), PruneOptions{}, true); err != nil {
+		t.Fatal(err)
+	}
+	if p := f.peer(live); p.Name != "ts-gru-2" || p.DNSLabel != "ts-gru-2.netbird.selfhosted" {
+		t.Fatalf("renamed node's peer: %+v", p.apiPeer)
+	}
+}
+
 func TestPruneLeavesAmbiguousSlotsAlone(t *testing.T) {
 	f := newFakeManager(t)
 	ids := f.seedLegacy(t)
 	f.addPeer("other", "10.251.0.11", true, time.Now(), ids.servers)
-	f.addPeer("gru-1-ctl-1", "10.251.0.11", false, time.Now().Add(-48*time.Hour), ids.servers)
+	f.addPeer("ts-gru-1", "10.251.0.11", false, time.Now().Add(-48*time.Hour), ids.servers)
 	report, err := Prune(t.Context(), f.api(t), GRU(), PruneOptions{}, true)
 	if err != nil || len(report.Changes) != 0 || len(report.Warnings) != 1 {
 		t.Fatalf("ambiguous slot: %v %v %v", report.Changes, report.Warnings, err)
@@ -353,13 +367,13 @@ func TestPruneReportsDNSLabelHeldOutsideTheServersGroup(t *testing.T) {
 	f := newFakeManager(t)
 	ids := f.seedLegacy(t)
 	now := time.Now()
-	f.addPeer("gru-1-ctl-2", "203.0.113.9", true, now, ids.operators)
+	f.addPeer("ts-gru-2", "203.0.113.9", true, now, ids.operators)
 	live := f.addPeer("ip-10-251-0-12", "10.251.0.12", true, now, ids.servers)
 	_, err := Prune(t.Context(), f.api(t), GRU(), PruneOptions{Now: now}, true)
-	if err == nil || !strings.Contains(err.Error(), "another peer holds the DNS label gru-1-ctl-2") {
+	if err == nil || !strings.Contains(err.Error(), "another peer holds the DNS label ts-gru-2") {
 		t.Fatalf("prune error = %v", err)
 	}
-	if f.peer(live).Name != "gru-1-ctl-2" {
+	if f.peer(live).Name != "ts-gru-2" {
 		t.Fatalf("live peer: %+v", f.peer(live).apiPeer)
 	}
 }
@@ -368,9 +382,9 @@ func TestPruneLeavesSlotWhoseNameIsHeldByAnotherConnectedPeerAlone(t *testing.T)
 	f := newFakeManager(t)
 	ids := f.seedLegacy(t)
 	now := time.Now()
-	stale := f.addPeer("gru-1-ctl-2-old", "10.251.0.12", false, now.Add(-72*time.Hour), ids.servers)
+	stale := f.addPeer("ts-gru-2-old", "10.251.0.12", false, now.Add(-72*time.Hour), ids.servers)
 	live := f.addPeer("ip-10-251-0-12", "10.251.0.12", true, now, ids.servers)
-	squatter := f.addPeer("gru-1-ctl-2", "10.251.0.99", true, now, ids.servers)
+	squatter := f.addPeer("ts-gru-2", "10.251.0.99", true, now, ids.servers)
 	api := f.api(t)
 	for run := range 2 {
 		report, err := Prune(t.Context(), api, GRU(), PruneOptions{Now: now}, true)
@@ -383,7 +397,7 @@ func TestPruneLeavesSlotWhoseNameIsHeldByAnotherConnectedPeerAlone(t *testing.T)
 			t.Errorf("peer %s was deleted", id)
 		}
 	}
-	if f.peer(live).Name != "ip-10-251-0-12" || f.peer(squatter).Name != "gru-1-ctl-2" {
+	if f.peer(live).Name != "ip-10-251-0-12" || f.peer(squatter).Name != "ts-gru-2" {
 		t.Fatal("a peer of the contested slot was renamed")
 	}
 }
@@ -630,8 +644,8 @@ func TestLoopPrunesEvenWhenSyncRefuses(t *testing.T) {
 	// A routing-peer reinstall enrolled before the old peer was removed: two
 	// ts-ops peers in the gateway group make sync refuse the existing network.
 	f.addPeer("ts-ops", "10.250.10.155", true, now, ids.gateway)
-	stale := f.addPeer("gru-1-ctl-2", "10.251.0.12", false, now.Add(-2*time.Hour), ids.servers)
-	f.addPeer("gru-1-ctl-2", "10.251.0.12", true, now, ids.servers)
+	stale := f.addPeer("ts-gru-2", "10.251.0.12", false, now.Add(-2*time.Hour), ids.servers)
+	f.addPeer("ts-gru-2", "10.251.0.12", true, now, ids.servers)
 	loop := Loop{
 		Leader:        func() bool { return true },
 		Token:         func(context.Context) ([]byte, error) { return []byte(testPAT), nil },
@@ -680,7 +694,7 @@ func TestRemovePeersDeletesOnlyDisconnectedServerPeersOfTheNamedSlots(t *testing
 	// revision is not. db-1 is down and matches only by name; db-2
 	// registered under its hostname; a slot-named peer outside the servers
 	// group is no server.
-	staleA := f.addPeer("gru-1-ctl-1-old", "10.251.0.11", false, old, ids.servers)
+	staleA := f.addPeer("ts-gru-1-old", "10.251.0.11", false, old, ids.servers)
 	member1 := f.addPeer("gru-1-db-1", "10.251.0.99", false, old, ids.servers)
 	member2 := f.addPeer("ip-10-251-0-22", "10.251.0.22", false, old, ids.servers)
 	scratch := f.addPeer("scratch", "10.251.0.50", false, old, ids.servers)
@@ -690,11 +704,11 @@ func TestRemovePeersDeletesOnlyDisconnectedServerPeersOfTheNamedSlots(t *testing
 	if _, err := Remove(t.Context(), api, d, []string{"controller-z"}, false); err == nil {
 		t.Fatal("accepted an unknown slot")
 	}
-	plan, err := Remove(t.Context(), api, d, []string{"ctl-1", "db-1"}, false)
+	plan, err := Remove(t.Context(), api, d, []string{"ts-gru-1", "db-1"}, false)
 	if err != nil || len(plan.Changes) != 2 || len(plan.Warnings) != 1 || len(f.mutations) != 0 {
 		t.Fatalf("dry run: %v %v %v %v", plan.Changes, plan.Warnings, f.mutations, err)
 	}
-	if _, err := Remove(t.Context(), api, d, []string{"ctl-1", "db-1"}, true); err != nil {
+	if _, err := Remove(t.Context(), api, d, []string{"ts-gru-1", "db-1"}, true); err != nil {
 		t.Fatal(err)
 	}
 	for id, kept := range map[string]bool{staleA: false, member1: false, ids.server1: true, member2: true,

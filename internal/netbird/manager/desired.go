@@ -23,7 +23,9 @@ const DefaultManagementURL = "https://netbird.terrascale.tech"
 // Slot is one fixed cell address. Every revision of the slot's server uses
 // the same private IP, NetBird peer name and cell DNS name.
 type Slot struct {
-	Name string // <role>-<n>, also its DNS label in the cell zone, e.g. ctl-1
+	// Name is the slot's DNS label in the cell zone: its node, ts-gru-1
+	// (TS-609), which is also its peer name, or <role>-<n>, e.g. db-1.
+	Name string
 	IP   string // fixed primary private IPv4 address
 	Role string // controller or member
 }
@@ -142,9 +144,9 @@ func GRU() Desired {
 		Zone: ZoneSpec{Name: "gru-cell", Domain: "gru.ts.internal",
 			DistributionGroups: []string{"operators"}, TTL: 300},
 		Slots: []Slot{
-			{Name: "ctl-1", IP: "10.251.0.11", Role: "controller"},
-			{Name: "ctl-2", IP: "10.251.0.12", Role: "controller"},
-			{Name: "ctl-3", IP: "10.251.0.13", Role: "controller"},
+			{Name: "ts-gru-1", IP: "10.251.0.11", Role: "controller"},
+			{Name: "ts-gru-2", IP: "10.251.0.12", Role: "controller"},
+			{Name: "ts-gru-3", IP: "10.251.0.13", Role: "controller"},
 			{Name: "db-1", IP: "10.251.0.21", Role: "member"},
 			{Name: "db-2", IP: "10.251.0.22", Role: "member"},
 		},
@@ -153,8 +155,14 @@ func GRU() Desired {
 	}
 }
 
-// PeerName is the stable NetBird peer name of a slot, e.g. gru-1-ctl-1.
-func (d Desired) PeerName(slot Slot) string { return d.Cell + "-" + slot.Name }
+// PeerName is the stable NetBird peer name of a slot: its node, e.g.
+// ts-gru-1, or <cell>-<role>-<n>, e.g. gru-1-db-1.
+func (d Desired) PeerName(slot Slot) string {
+	if region, _, _ := strings.Cut(d.Cell, "-"); naming.IsNode(slot.Name, region) {
+		return slot.Name
+	}
+	return d.Cell + "-" + slot.Name
+}
 
 // PeerNames maps every slot's private IP to its stable peer name. It is the
 // source of the image's netbird.json peer_names.

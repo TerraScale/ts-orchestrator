@@ -23,7 +23,7 @@ flowchart LR
     rp["Routing peer ts-ops<br/>(ts-ops-gateway)"]
   end
   subgraph gru["GRU cell 10.251.0.0/25"]
-    srv["gru-1-ctl-1..3 .11-.13<br/>gru-1-db-1..2 .21-.22<br/>(gru-servers)"]
+    srv["ts-gru-1..3 .11-.13<br/>gru-1-db-1..2 .21-.22<br/>(gru-servers)"]
   end
   dev -. control plane .-> mgr
   srv -. control plane, private IP .-> mgr
@@ -63,7 +63,7 @@ and release it like any other change.
 | --- | --- |
 | `ts-orch netbird sync [--apply] [--pat-file FILE]` | Compares the manager with the desired state and prints the plan; `--apply` reconciles it |
 | `ts-orch netbird prune-peers [--apply] [--offline-for DURATION]` | Plans peer hygiene for `gru-servers`: deletes disconnected peers that hold a live slot's IP or name, deletes unmatched peers offline longer than the threshold (default `24h`, minimum `1h`), and renames each slot's live peer to its slot name; `--apply` performs it |
-| `ts-orch netbird remove-peers (--slot NAME... \| --all) [--apply]` | Plans deleting the disconnected `gru-servers` peers of decommissioned slots (matched by slot IP or slot peer name, e.g. `--slot ctl-1`), or every disconnected server peer with `--all`; connected peers are reported and kept |
+| `ts-orch netbird remove-peers (--slot NAME... \| --all) [--apply]` | Plans deleting the disconnected `gru-servers` peers of decommissioned slots (matched by slot IP or slot peer name, e.g. `--slot ts-gru-1`), or every disconnected server peer with `--all`; connected peers are reported and kept |
 | `ts-orch netbird setup-key --out FILE [--servers-group GROUP] [--apply]` | Plans the server setup key `gru-servers` (or GROUP, e.g. `sfo-servers`): reusable, never expiring, auto-assigning only that group; `--apply` creates it and writes its value only to FILE, a new `0600` file |
 | `ts-orch netbird inventory` | Prints groups, policies, networks, DNS and peers as the manager reports them |
 
@@ -161,14 +161,14 @@ The dashboard's Control Center draws every policy; keep it readable:
 - Never use `All` as a source or destination.
 - Three ports or fewer per rule.
 - No bidirectional rules unless the destination must open connections back.
-- Short peer names (`ts-ops`, `gru-1-ctl-1`); they become DNS labels.
+- Short peer names (`ts-ops`, `ts-gru-1`); they become DNS labels.
 - Delete disabled or stale policies, and prune stale peers.
 
 ## DNS
 
 | Domain | Holds | Served to |
 | --- | --- | --- |
-| `nb.ts.internal` | Peer names (account DNS domain), e.g. `ts-ops`, `gru-1-ctl-1`, `mariogk-laptop` | Every peer with NetBird DNS on |
+| `nb.ts.internal` | Peer names (account DNS domain), e.g. `ts-ops`, `ts-gru-1`, `mariogk-laptop` | Every peer with NetBird DNS on |
 | `gru.ts.internal` | Stable cell names (custom zone, no search domain) | `operators` only |
 
 `gru-servers` and `sfo-servers` keep NetBird DNS management disabled, matching their
@@ -178,19 +178,19 @@ IPs and never change across GRU revisions or deployments.
 
 | Name | Address and port | What it is |
 | --- | --- | --- |
-| `ctl-1.gru.ts.internal` | `10.251.0.11:22` | OpenSSH, controller 1 |
-| `ctl-2.gru.ts.internal` | `10.251.0.12:22` | OpenSSH, controller 2 |
-| `ctl-3.gru.ts.internal` | `10.251.0.13:22` | OpenSSH, controller 3 |
+| `ts-gru-1.gru.ts.internal` | `10.251.0.11:22` | OpenSSH, node ts-gru-1 (controller, TerraBase member, ts-auth) |
+| `ts-gru-2.gru.ts.internal` | `10.251.0.12:22` | OpenSSH, node ts-gru-2 (controller, TerraBase member, ts-auth) |
+| `ts-gru-3.gru.ts.internal` | `10.251.0.13:22` | OpenSSH, node ts-gru-3 (controller, TerraBase member, ts-auth) |
 | `db-1.gru.ts.internal` | `10.251.0.21:22` | OpenSSH, TerraBase member 1 |
 | `db-2.gru.ts.internal` | `10.251.0.22:22` | OpenSSH, TerraBase member 2 |
 | `nats.gru.ts.internal` | `10.251.0.11-13:4222` | NATS TLS on the controllers |
 | `terrabase.gru.ts.internal` | `10.251.0.21-22:9465` | TerraBase HTTPS API on the members |
-| `gru-1-ctl-1.nb.ts.internal` etc. | peer NetBird IP | NetBird SSH to a GRU server |
+| `ts-gru-1.nb.ts.internal` etc. | peer NetBird IP | NetBird SSH to a GRU server |
 | `ts-ops.nb.ts.internal` | `10.200.106.253:2022` | ts-ops host admin SSH |
 
 ```sh
-netbird ssh root@gru-1-ctl-1.nb.ts.internal
-ssh -i ~/.ssh/terrascale-owner ubuntu@ctl-1.gru.ts.internal
+netbird ssh root@ts-gru-1.nb.ts.internal
+ssh -i ~/.ssh/terrascale-owner ubuntu@ts-gru-1.gru.ts.internal
 ssh -p 2022 mariogk@ts-ops.nb.ts.internal
 ```
 
@@ -211,16 +211,16 @@ because Caddy routes by Host; over NetBird, pin the name to ts-ops' NetBird IP
 ### Stable peer names
 
 Servers enroll under their [static names](../../docs/region-bootstrap.md#static-names)
-`<region>-<index>-<role>-<n>`: controllers `gru-1-ctl-1`..`3` and TerraBase
-members `gru-1-db-1`..`2`, taken from the `peer_names` map in `netbird.json`
+the nodes `ts-gru-1`..`3` (TS-609; each runs a controller, a TerraBase member
+and ts-auth) and the retired TerraBase members `gru-1-db-1`..`2`, taken from the `peer_names` map in `netbird.json`
 (private IP → name), read from the primary VNIC's private IPv4 in OCI
 instance metadata:
 
 ```json
 "peer_names": {
-  "10.251.0.11": "gru-1-ctl-1",
-  "10.251.0.12": "gru-1-ctl-2",
-  "10.251.0.13": "gru-1-ctl-3",
+  "10.251.0.11": "ts-gru-1",
+  "10.251.0.12": "ts-gru-2",
+  "10.251.0.13": "ts-gru-3",
   "10.251.0.21": "gru-1-db-1",
   "10.251.0.22": "gru-1-db-2"
 }
@@ -724,7 +724,7 @@ owner's approval. Keep the automation PAT in a root-owned `0600` file `$PAT`.
    Keep `peer_names`: the test checks them against the desired state.
 6. Launch the cell from that image. Each controller and host enrolls through
    `terrascale-netbird-enroll.service` under its slot name
-   (`gru-1-ctl-1`..`3`, `gru-1-db-1`..`2`); NetBird SSH works once it
+   (`ts-gru-1`..`3`, `gru-1-db-1`..`2`); NetBird SSH works once it
    is connected.
 7. Verify: `ts-orch netbird inventory` lists the five server peers under slot
    names in `gru-servers`, `sync` and `prune-peers` print `no changes` without
@@ -776,7 +776,7 @@ server.
 
 | Symptom | Check |
 | --- | --- |
-| Peer named `gru-1-ctl-1-x-y` | A replaced revision's peer still holds the name: `ts-orch netbird prune-peers`, then `--apply` |
+| Peer named `ts-gru-1-x-y` | A replaced revision's peer still holds the name: `ts-orch netbird prune-peers`, then `--apply` |
 | Dashboard "Connection IP" is `10.89.77.1` | Forwarded-address trust (`trustedHTTPProxies`/`trustedPeers`) in the rendered config |
 | NetBird dead on a dual-stack device | Peer range back in `100.64.0.0/10`; Tailscale drops it outside `tailscale0` |
 | Stale address or peer map on a Linux client | `sudo systemctl restart netbird`; compare `netbird status -d` with the `wt0` address |
