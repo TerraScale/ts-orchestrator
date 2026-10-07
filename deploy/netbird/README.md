@@ -66,6 +66,7 @@ and release it like any other change.
 | `ts-orch netbird remove-peers (--slot NAME... \| --all) [--apply]` | Plans deleting the disconnected `gru-servers` peers of decommissioned slots (matched by slot IP or slot peer name, e.g. `--slot ts-gru-1`), or every disconnected server peer with `--all`; connected peers are reported and kept |
 | `ts-orch netbird setup-key --out FILE [--servers-group GROUP] [--apply]` | Plans the server setup key `gru-servers` (or GROUP, e.g. `sfo-servers`): reusable, never expiring, auto-assigning only that group; `--apply` creates it and writes its value only to FILE, a new `0600` file |
 | `ts-orch netbird inventory` | Prints groups, policies, networks, DNS and peers as the manager reports them |
+| `ts-orch netbird image-input --plan PLAN --setup-key-secret-id OCID --out FILE` | Writes another region's image `netbird.json` to the new FILE from its reviewed plan: OCI region, setup key secret and each host's node name as its peer name. Offline; no PAT |
 
 Without `--apply` the commands only read. Keep the PAT in a root-owned `0600`
 file, never on the command line: `--pat-file` (a regular `0600` file, symlinks
@@ -129,24 +130,37 @@ reconciliation never sets group membership.
 | `operators` | Operator devices | User auto-group, or a one-off setup key |
 | `ts-ops-gateway` | ts-ops only | One-off gateway setup key |
 | `gru-servers` | GRU controllers and managed hosts | Reusable server setup key |
-| `sfo-servers` | sfo-1 nodes `ts-sfo-1`..`3` | Reusable server setup key `sfo-servers` (`setup-key --servers-group sfo-servers`) |
+| `<cell>-servers`: `sfo-servers`, `fra-servers` | The nodes of every catalog region other than GRU, e.g. `ts-sfo-1`..`3` | Reusable server setup key `<cell>-servers` (`setup-key --servers-group <cell>-servers`) |
 | `ops-automation` | [Operator automation peers](#operator-automation-peer) | One-off setup key |
 
 Network `gru-cell` ("TerraScale GRU private cell") holds resource
 `gru-cell-private-subnet` (`10.251.0.0/25`) and one router: peer `ts-ops`,
-masquerade on, metric 100. The router must be in `ts-ops-gateway`. sfo-1 has
-no network resource: ts-ops cannot route to another region's private subnet,
-so its nodes are reached with NetBird SSH only.
+masquerade on, metric 100. The router must be in `ts-ops-gateway`. Other
+regions have no network resource: ts-ops cannot route to another region's
+private subnet, so their nodes are reached with NetBird SSH only.
 
 | Policy (= rule name) | Source → destination | Protocol, ports | Direction |
 | --- | --- | --- | --- |
 | `operators-to-gru-cell-ops-ports` | `operators` → resource `gru-cell-private-subnet` | TCP 22, 4222, 9465 | one-way |
 | `operators-to-gru-servers-ssh` | `operators` → `gru-servers` | `netbird-ssh` | one-way |
 | `ops-automation-to-gru-servers-ssh` | `ops-automation` → `gru-servers` | `netbird-ssh` | one-way |
-| `operators-to-sfo-servers-ssh` | `operators` → `sfo-servers` | `netbird-ssh` | one-way |
-| `ops-automation-to-sfo-servers-ssh` | `ops-automation` → `sfo-servers` | `netbird-ssh` | one-way |
+| `operators-to-<cell>-servers-ssh` | `operators` → `<cell>-servers` | `netbird-ssh` | one-way |
+| `ops-automation-to-<cell>-servers-ssh` | `ops-automation` → `<cell>-servers` | `netbird-ssh` | one-way |
 | `operators-to-ts-ops-forgejo` | `operators` → `ts-ops-gateway` | TCP 22, 443, 2022 | one-way |
 | `operators-to-ts-ops-ping` | `operators` → `ts-ops-gateway` | ICMP | one-way |
+
+The desired state derives the `<cell>-servers` group, its two policies and
+its DNS setting for every cell in `internal/ociregion/catalog` other than
+GRU, in catalog order, so a new region needs no NetBird code change. Give a
+new region NetBird with:
+
+```sh
+ts-orch netbird sync --apply             # creates <cell>-servers and its policies
+ts-orch netbird setup-key --servers-group <cell>-servers --out KEY --apply
+# store KEY as a Vault secret in the region, then:
+ts-orch netbird image-input --plan deploy/oci-region/<cell>-1-plan.json \
+  --setup-key-secret-id <secret OCID> --out deploy/image/inputs/netbird-<cell>.json
+```
 
 There is no default `All` policy. Do not allow 6222 or 8443 to operators. The
 `netbird-ssh` policy makes the manager enable each server's NetBird SSH
@@ -171,7 +185,7 @@ The dashboard's Control Center draws every policy; keep it readable:
 | `nb.ts.internal` | Peer names (account DNS domain), e.g. `ts-ops`, `ts-gru-1`, `mariogk-laptop` | Every peer with NetBird DNS on |
 | `gru.ts.internal` | Stable cell names (custom zone, no search domain) | `operators` only |
 
-`gru-servers` and `sfo-servers` keep NetBird DNS management disabled, matching their
+`gru-servers` and every `<cell>-servers` keep NetBird DNS management disabled, matching their
 `--disable-dns` enrollment. `.local` is avoided: it is reserved for mDNS and
 systemd-resolved sends it to multicast. Cell names point at fixed slot private
 IPs and never change across GRU revisions or deployments.

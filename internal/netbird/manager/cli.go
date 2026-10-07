@@ -18,7 +18,7 @@ import (
 const maxPATFileBytes = 4 << 10
 
 // Commands lists the subcommands Run handles.
-var Commands = []string{"sync", "prune-peers", "remove-peers", "setup-key", "inventory"}
+var Commands = []string{"sync", "prune-peers", "remove-peers", "setup-key", "inventory", "image-input"}
 
 const usage = `Usage:
   ts-orch netbird sync [--apply] [--pat-file FILE] [--management-url URL]
@@ -26,13 +26,16 @@ const usage = `Usage:
   ts-orch netbird remove-peers (--slot NAME... | --all) [--apply] [--pat-file FILE] [--management-url URL]
   ts-orch netbird setup-key --out FILE [--servers-group GROUP] [--apply] [--pat-file FILE] [--management-url URL]
   ts-orch netbird inventory [--pat-file FILE] [--management-url URL]
+  ts-orch netbird image-input --plan PLAN --setup-key-secret-id OCID --out FILE
 
 Without --apply, sync, prune-peers, remove-peers and setup-key print the
 planned changes only. remove-peers deletes the disconnected server peers of
 decommissioned slots. setup-key creates the servers' setup key and writes its
 value to a new owner-only file; --servers-group names another region's servers
 group (sfo-servers), whose key carries that name. The admin PAT comes from --pat-file (a regular
-owner-only file) or NB_PAT.
+owner-only file) or NB_PAT. image-input writes a region's image netbird.json
+(new file FILE) from its regional plan and the Vault secret holding its
+servers' setup key; it needs no PAT and makes no call.
 `
 
 // Run executes one manager subcommand.
@@ -48,7 +51,7 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 	managementURL := flags.String("management-url", DefaultManagementURL, "NetBird management origin")
 	var apply, all *bool
 	var offlineFor *time.Duration
-	var out, serversGroup *string
+	var out, serversGroup, plan, secretID *string
 	var slots []string
 	switch command {
 	case "sync":
@@ -68,6 +71,10 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		out = flags.String("out", "", "new owner-only file that receives the key value")
 		serversGroup = flags.String("servers-group", "", "servers group the key auto-assigns (default the GRU servers group)")
 	case "inventory":
+	case "image-input":
+		plan = flags.String("plan", "", "reviewed regional plan")
+		secretID = flags.String("setup-key-secret-id", "", "OCI Vault secret holding the servers' setup key")
+		out = flags.String("out", "", "new file that receives the image input")
 	default:
 		return fmt.Errorf("unknown netbird command %q", command)
 	}
@@ -88,7 +95,13 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		return errors.New("netbird remove-peers needs either --slot or --all")
 	}
 	if out != nil && *out == "" {
-		return errors.New("netbird setup-key requires --out")
+		return fmt.Errorf("netbird %s requires --out", command)
+	}
+	if plan != nil {
+		if *plan == "" || *secretID == "" {
+			return errors.New("netbird image-input requires --plan and --setup-key-secret-id")
+		}
+		return writeImageInput(*plan, *secretID, *out)
 	}
 	token, err := readToken(*patFile)
 	if err != nil {

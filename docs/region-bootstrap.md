@@ -509,13 +509,15 @@ For GRU, set `setup_key_secret_id` in the checked-in
 `deploy/image/inputs/netbird-gru.json` to the plan's value and keep its
 `peer_names`, which a test checks against the `ts-orch netbird` desired state
 (see [Fresh cell enrollment](../deploy/netbird/README.md#fresh-cell-enrollment)).
-Another region has no NetBird desired state yet: generate its input from the
-fully populated reviewed plan, and its servers register under their OS
-hostnames:
+Another region's servers enroll in its `<cell>-servers` group, which the
+desired state derives from the catalog. Generate its input from the reviewed
+plan and the Vault secret holding the region's server setup key; its peer
+names are the plan hosts' node names
+(see [new region NetBird](../deploy/netbird/README.md#names)):
 
 ```sh
-jq '{management_url: .netbird.management_url, management_ip: .netbird.management_ip,
-     region, setup_key_secret_id: .netbird.setup_key_secret_id}' "$PLAN" > netbird.json
+ts-orch netbird image-input --plan "$PLAN" --setup-key-secret-id "$SECRET_OCID" \
+  --out deploy/image/inputs/netbird-<cell>.json
 ```
 
 Pin this file's digest in the image inputs and supply it to the image builder.

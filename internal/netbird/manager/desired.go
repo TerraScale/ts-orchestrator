@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 // DefaultManagementURL is the TerraScale NetBird manager.
@@ -94,17 +95,18 @@ type Desired struct {
 
 // GRU returns the canonical desired state of the TerraScale manager.
 func GRU() Desired {
+	var regionGroups []GroupSpec
+	for _, name := range regionServersGroups() {
+		regionGroups = append(regionGroups, GroupSpec{Name: name})
+	}
 	return Desired{
 		Cell: "gru-1", Region: "sa-saopaulo-1",
-		Groups: []GroupSpec{
+		Groups: append([]GroupSpec{
 			{Name: "operators"},
 			{Name: "ts-ops-gateway", RenamedFrom: []string{"gateway"}},
 			{Name: "gru-servers", RenamedFrom: []string{"ts-orch-servers"}},
 			{Name: "ops-automation"},
-			// sfo-1's nodes (TS-640): NetBird SSH only; the routing peer
-			// cannot reach another region's private subnet.
-			{Name: "sfo-servers"},
-		},
+		}, regionGroups...),
 		ServersGroup: "gru-servers",
 		Network: NetworkSpec{
 			Name: "gru-cell", Description: "TerraScale GRU private cell",
@@ -113,7 +115,7 @@ func GRU() Desired {
 				Address:     "10.251.0.0/25"},
 			RouterPeer: "ts-ops", RouterGroup: "ts-ops-gateway", Metric: 100, Masquerade: true,
 		},
-		Policies: []PolicySpec{
+		Policies: slices.Concat([]PolicySpec{
 			{Name: "operators-to-gru-cell-ops-ports", RenamedFrom: []string{"operators-to-gru-cell"},
 				Description: "Operators → GRU cell subnet: SSH 22, NATS 4222, TerraBase 9465",
 				Protocol:    "tcp", Ports: []string{"22", "4222", "9465"},
@@ -124,12 +126,7 @@ func GRU() Desired {
 			{Name: "ops-automation-to-gru-servers-ssh",
 				Description: "Operator automation peers → GRU servers: NetBird SSH with identity-provider login",
 				Protocol:    "netbird-ssh", Sources: []string{"ops-automation"}, Destinations: []string{"gru-servers"}},
-			{Name: "operators-to-sfo-servers-ssh",
-				Description: "Operators → SFO servers: NetBird SSH with identity-provider login",
-				Protocol:    "netbird-ssh", Sources: []string{"operators"}, Destinations: []string{"sfo-servers"}},
-			{Name: "ops-automation-to-sfo-servers-ssh",
-				Description: "Operator automation peers → SFO servers: NetBird SSH with identity-provider login",
-				Protocol:    "netbird-ssh", Sources: []string{"ops-automation"}, Destinations: []string{"sfo-servers"}},
+		}, regionPolicies(), []PolicySpec{
 			{Name: "operators-to-ts-ops-forgejo", RenamedFrom: []string{"operators-to-forgejo"},
 				Description: "Operators → ts-ops: Git SSH 22, HTTPS 443, admin SSH 2022",
 				Protocol:    "tcp", Ports: []string{"22", "443", "2022"},
@@ -137,10 +134,10 @@ func GRU() Desired {
 			{Name: "operators-to-ts-ops-ping", RenamedFrom: []string{"operators-ping-to-forgejo"},
 				Description: "Operators → ts-ops: ICMP ping",
 				Protocol:    "icmp", Sources: []string{"operators"}, Destinations: []string{"ts-ops-gateway"}},
-		},
+		}),
 		NetworkRange:      "10.200.0.0/16",
 		PeerDNSDomain:     "nb.ts.internal",
-		DNSDisabledGroups: []string{"gru-servers", "sfo-servers"},
+		DNSDisabledGroups: append([]string{"gru-servers"}, regionServersGroups()...),
 		Zone: ZoneSpec{Name: "gru-cell", Domain: "gru.ts.internal",
 			DistributionGroups: []string{"operators"}, TTL: 300},
 		Slots: []Slot{
@@ -153,6 +150,37 @@ func GRU() Desired {
 		RoleAliases:  map[string]string{"nats": "controller", "terrabase": "member"},
 		SetupKeyName: "gru-servers",
 	}
+}
+
+// regionServersGroups lists the servers group of every catalog region other
+// than the home region, e.g. sfo-servers (TS-640). Their nodes are reached
+// with NetBird SSH only: the routing peer cannot reach another region's
+// private subnet. A new catalog region needs no change here (TS-663).
+func regionServersGroups() []string {
+	var names []string
+	for _, entry := range catalog.Entries() {
+		if entry.Cell != catalog.Bootstrap {
+			names = append(names, entry.Name()+"-servers")
+		}
+	}
+	return names
+}
+
+// regionPolicies grants operators and operator automation NetBird SSH to
+// every other region's servers group.
+func regionPolicies() []PolicySpec {
+	var policies []PolicySpec
+	for _, group := range regionServersGroups() {
+		cell := strings.ToUpper(strings.TrimSuffix(group, "-servers"))
+		policies = append(policies,
+			PolicySpec{Name: "operators-to-" + group + "-ssh",
+				Description: "Operators → " + cell + " servers: NetBird SSH with identity-provider login",
+				Protocol:    "netbird-ssh", Sources: []string{"operators"}, Destinations: []string{group}},
+			PolicySpec{Name: "ops-automation-to-" + group + "-ssh",
+				Description: "Operator automation peers → " + cell + " servers: NetBird SSH with identity-provider login",
+				Protocol:    "netbird-ssh", Sources: []string{"ops-automation"}, Destinations: []string{group}})
+	}
+	return policies
 }
 
 // PeerName is the stable NetBird peer name of a slot: its node, e.g.

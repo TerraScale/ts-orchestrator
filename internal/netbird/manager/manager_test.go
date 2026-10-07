@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -62,6 +64,57 @@ func TestGRUDesiredStateIsConsistentWithTheImageInput(t *testing.T) {
 	}
 }
 
+// Every catalog region other than the home region gets its servers group,
+// two NetBird SSH policies and a DNS-disabled entry without a code change
+// (TS-663). GRU's and SFO's objects keep the names, descriptions and order
+// they had when SFO was hand-coded (TS-640), so a sync leaves them alone;
+// FRA's are derived the same way.
+func TestGRUDesiredStateDerivesEveryOtherRegion(t *testing.T) {
+	ssh := func(name, description, source, group string) PolicySpec {
+		return PolicySpec{Name: name, Description: description, Protocol: "netbird-ssh",
+			Sources: []string{source}, Destinations: []string{group}}
+	}
+	wantGroups := []GroupSpec{
+		{Name: "operators"},
+		{Name: "ts-ops-gateway", RenamedFrom: []string{"gateway"}},
+		{Name: "gru-servers", RenamedFrom: []string{"ts-orch-servers"}},
+		{Name: "ops-automation"},
+		{Name: "sfo-servers"},
+		{Name: "fra-servers"},
+	}
+	wantPolicies := []PolicySpec{
+		{Name: "operators-to-gru-cell-ops-ports", RenamedFrom: []string{"operators-to-gru-cell"},
+			Description: "Operators → GRU cell subnet: SSH 22, NATS 4222, TerraBase 9465",
+			Protocol:    "tcp", Ports: []string{"22", "4222", "9465"},
+			Sources: []string{"operators"}, DestinationResource: "gru-cell-private-subnet"},
+		{Name: "operators-to-gru-servers-ssh", RenamedFrom: []string{"operators-ssh-to-ts-orch-servers"},
+			Description: "Operators → GRU servers: NetBird SSH with identity-provider login",
+			Protocol:    "netbird-ssh", Sources: []string{"operators"}, Destinations: []string{"gru-servers"}},
+		ssh("ops-automation-to-gru-servers-ssh", "Operator automation peers → GRU servers: NetBird SSH with identity-provider login", "ops-automation", "gru-servers"),
+		ssh("operators-to-sfo-servers-ssh", "Operators → SFO servers: NetBird SSH with identity-provider login", "operators", "sfo-servers"),
+		ssh("ops-automation-to-sfo-servers-ssh", "Operator automation peers → SFO servers: NetBird SSH with identity-provider login", "ops-automation", "sfo-servers"),
+		ssh("operators-to-fra-servers-ssh", "Operators → FRA servers: NetBird SSH with identity-provider login", "operators", "fra-servers"),
+		ssh("ops-automation-to-fra-servers-ssh", "Operator automation peers → FRA servers: NetBird SSH with identity-provider login", "ops-automation", "fra-servers"),
+		{Name: "operators-to-ts-ops-forgejo", RenamedFrom: []string{"operators-to-forgejo"},
+			Description: "Operators → ts-ops: Git SSH 22, HTTPS 443, admin SSH 2022",
+			Protocol:    "tcp", Ports: []string{"22", "443", "2022"},
+			Sources: []string{"operators"}, Destinations: []string{"ts-ops-gateway"}},
+		{Name: "operators-to-ts-ops-ping", RenamedFrom: []string{"operators-ping-to-forgejo"},
+			Description: "Operators → ts-ops: ICMP ping",
+			Protocol:    "icmp", Sources: []string{"operators"}, Destinations: []string{"ts-ops-gateway"}},
+	}
+	d := GRU()
+	if !reflect.DeepEqual(d.Groups, wantGroups) {
+		t.Errorf("groups %+v", d.Groups)
+	}
+	if !reflect.DeepEqual(d.Policies, wantPolicies) {
+		t.Errorf("policies %+v", d.Policies)
+	}
+	if want := []string{"gru-servers", "sfo-servers", "fra-servers"}; !slices.Equal(d.DNSDisabledGroups, want) {
+		t.Errorf("DNS-disabled groups %v", d.DNSDisabledGroups)
+	}
+}
+
 func mapsEqual(a, b map[string]string) bool {
 	if len(a) != len(b) {
 		return false
@@ -97,7 +150,7 @@ func TestSyncRenamesLegacyObjectsInPlaceAndConverges(t *testing.T) {
 		"rename network resource gru-cell-private-subnet (from gru-cell, description)",
 		"rename policy operators-to-ts-ops-ping (from operators-ping-to-forgejo, rule name, description, rule description, one-way)",
 		"update account settings acct (dns_domain nb.ts.internal)",
-		"update dns settings disabled_management_groups (gru-servers,sfo-servers)",
+		"update dns settings disabled_management_groups (gru-servers,sfo-servers,fra-servers)",
 		"create dns zone gru-cell (gru.ts.internal)", "create dns record nats.gru.ts.internal A 10.251.0.13",
 	} {
 		if !strings.Contains(text, want) {
@@ -141,7 +194,8 @@ func TestSyncRenamesLegacyObjectsInPlaceAndConverges(t *testing.T) {
 		t.Fatalf("account settings were not merged: %v", f.account)
 	}
 	sfo := f.groups[slices.IndexFunc(f.groups, func(g apiGroup) bool { return g.Name == "sfo-servers" })]
-	if !slices.Equal(f.dnsGroups, []string{ids.servers, sfo.ID}) {
+	fra := f.groups[slices.IndexFunc(f.groups, func(g apiGroup) bool { return g.Name == "fra-servers" })]
+	if !slices.Equal(f.dnsGroups, []string{ids.servers, sfo.ID, fra.ID}) {
 		t.Fatalf("dns settings %v", f.dnsGroups)
 	}
 	if len(f.zones) != 1 || len(f.zones[0].records) != 10 || !slices.Equal(f.zones[0].DistributionGroups, []string{ids.operators}) {
@@ -775,5 +829,48 @@ func TestSetupKeyCommandWritesTheKeyOnlyToANewOwnerOnlyFile(t *testing.T) {
 		if err := Run(t.Context(), args, &stdout); err == nil {
 			t.Errorf("%v accepted", args)
 		}
+	}
+}
+
+// sfo-1's checked-in image input is exactly what image-input derives from
+// its plan (TS-663); the home region's input follows the desired state.
+func TestImageInputDerivesARegionsNetBirdConfigFromItsPlan(t *testing.T) {
+	deploy := filepath.Join("..", "..", "..", "deploy")
+	want, err := os.ReadFile(filepath.Join(deploy, "image", "inputs", "netbird-sfo.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var input struct {
+		SetupKeySecretID string `json:"setup_key_secret_id"`
+	}
+	if err := json.Unmarshal(want, &input); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "netbird-sfo.json")
+	args := []string{"image-input", "--plan", filepath.Join(deploy, "oci-region", "sfo-1-plan.json"),
+		"--setup-key-secret-id", input.SetupKeySecretID, "--out", out}
+	if err := Run(t.Context(), args, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(out); !bytes.Equal(got, want) {
+		t.Fatalf("image input:\n%s\nwant:\n%s", got, want)
+	}
+	if err := Run(t.Context(), args, io.Discard); err == nil {
+		t.Fatal("overwrote an existing image input")
+	}
+
+	home := filepath.Join(t.TempDir(), "netbird-gru.json")
+	err = Run(t.Context(), []string{"image-input", "--plan", filepath.Join(deploy, "oci-region", "plan.json"),
+		"--setup-key-secret-id", input.SetupKeySecretID, "--out", home}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "netbird-gru.json") {
+		t.Fatalf("home region: %v", err)
+	}
+	bad := filepath.Join(t.TempDir(), "netbird-sfo.json")
+	args[4], args[6] = "ocid1.vaultsecret.oc1.sa-saopaulo-1.wrongregion", bad
+	if err := Run(t.Context(), args, io.Discard); err == nil {
+		t.Fatal("accepted a setup key secret from another region")
+	}
+	if _, err := os.Stat(bad); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("left a rejected image input behind: %v", err)
 	}
 }
