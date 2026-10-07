@@ -39,10 +39,10 @@ var Units = []string{"systemd-timesyncd.service", "systemd-time-wait-sync.servic
 var HostUnits = []string{"terrascale-orchestrator-host-setup.service", "terrascale-orchestrator-host-setup.timer", "terrascale-orchestrator-host-volume-init.socket"}
 var HostUnitFiles = append(append([]string{}, HostUnits...), "terrascale-orchestrator-host-volume-init.service")
 
-// SelfUpdateDropins put both runtime units on binary-only self-update
+// SelfUpdateDropins put both runtime units and host-setup on binary-only self-update
 // (deploy/systemd/selfupdate); the image enables SelfUpdateTimers, the
 // watchdog instances of SelfUpdateUnitFiles for each role.
-var SelfUpdateDropins = []string{"terrascale-orchestrator-controller.service.d/60-selfupdate.conf", "terrascale-orchestrator-host.service.d/60-selfupdate.conf"}
+var SelfUpdateDropins = []string{"terrascale-orchestrator-controller.service.d/60-selfupdate.conf", "terrascale-orchestrator-host.service.d/60-selfupdate.conf", "terrascale-orchestrator-host-setup.service.d/60-selfupdate.conf"}
 var SelfUpdateUnitFiles = []string{"terrascale-orchestrator-selfupdate-watchdog@.service", "terrascale-orchestrator-selfupdate-watchdog@.timer"}
 var SelfUpdateTimers = []string{"terrascale-orchestrator-selfupdate-watchdog@controller.timer", "terrascale-orchestrator-selfupdate-watchdog@host.timer"}
 var VolumeTools = []string{"/usr/sbin/mkfs.ext4", "/usr/sbin/blkid", "/usr/sbin/wipefs", "/usr/bin/mount"}

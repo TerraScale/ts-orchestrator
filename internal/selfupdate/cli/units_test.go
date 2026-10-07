@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -116,5 +117,70 @@ func TestImageUnitArgumentsStillRun(t *testing.T) {
 				t.Fatalf("%s printed %q, want %q", line, output.String(), want)
 			}
 		}
+	}
+}
+
+// host-setup runs the current release with the image unit's own arguments,
+// and the image-baked binary while there is none; prepare installs the same
+// drop-in on hosts whose image predates it, once (TS-632).
+func TestHostSetupDropinRunsTheCurrentRelease(t *testing.T) {
+	deploy := filepath.Join("..", "..", "..", "deploy", "systemd")
+	dropin := filepath.Join(deploy, "selfupdate", selfupdate.HostSetupUnit+".d", "60-selfupdate.conf")
+	if data, err := os.ReadFile(dropin); err != nil || string(data) != selfupdate.HostSetupDropin {
+		t.Fatalf("%s differs from selfupdate.HostSetupDropin: %v", dropin, err)
+	}
+	base := execLines(t, filepath.Join(deploy, selfupdate.HostSetupUnit), "ExecStart")
+	if len(base) != 1 || !strings.HasPrefix(base[0], selfupdate.DefaultBakedBinary+" host-setup ") {
+		t.Fatalf("%s ExecStart = %q", selfupdate.HostSetupUnit, base)
+	}
+	args := strings.TrimPrefix(base[0], selfupdate.DefaultBakedBinary)
+	got := execLines(t, dropin, "ExecStart")
+	if len(got) != 2 || got[0] != "" || !strings.HasPrefix(got[1], "/bin/sh -c '") || !strings.HasSuffix(got[1], args+"'") {
+		t.Fatalf("drop-in ExecStart = %q, want reset then a shell running %q", got, args)
+	}
+	// Run the shell line as systemd would ($$ is a literal $), with the
+	// release and baked paths moved into a scratch root.
+	temp := t.TempDir()
+	current := filepath.Join(temp, "current", selfupdate.BinaryName)
+	baked := filepath.Join(temp, "baked")
+	script := strings.TrimSuffix(strings.TrimPrefix(got[1], "/bin/sh -c '"), "'")
+	script = strings.NewReplacer("$$", "$", selfupdate.NewLayout(selfupdate.DefaultRoot).CurrentExecutable(), current,
+		selfupdate.DefaultBakedBinary, baked).Replace(script)
+	for _, path := range []string{current, baked} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("#!/bin/sh\necho "+filepath.Base(filepath.Dir(path))+" \"$@\"\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, want := range []string{"current", filepath.Base(temp)} {
+		if i == 1 {
+			if err := os.Remove(current); err != nil {
+				t.Fatal(err)
+			}
+		}
+		out, err := exec.Command("/bin/sh", "-c", script).Output()
+		if err != nil || !strings.HasPrefix(string(out), want+" host-setup --public-config ") {
+			t.Fatalf("drop-in ran %q, %v; want %s", out, err, want)
+		}
+	}
+	// prepare's installer: nothing without the host-setup unit, then the
+	// drop-in once.
+	systemd := t.TempDir()
+	if installed, err := selfupdate.InstallHostSetupDropin(systemd); err != nil || installed {
+		t.Fatalf("installed without a host-setup unit: %v, %v", installed, err)
+	}
+	if err := os.WriteFile(filepath.Join(systemd, selfupdate.HostSetupUnit), []byte("[Service]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []bool{true, false} {
+		if installed, err := selfupdate.InstallHostSetupDropin(systemd); err != nil || installed != want {
+			t.Fatalf("InstallHostSetupDropin = %v, %v, want %v", installed, err, want)
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(systemd, selfupdate.HostSetupUnit+".d", "60-selfupdate.conf")); err != nil ||
+		string(data) != selfupdate.HostSetupDropin {
+		t.Fatalf("installed drop-in: %v", err)
 	}
 }

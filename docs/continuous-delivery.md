@@ -279,6 +279,13 @@ rollback off. Every release must keep accepting the units' arguments
 (`TestImageUnitArgumentsStillRun`) and must move `known-good` when it
 confirms (`TestKnownGoodMovesOnlyOnConfirmation`); deleting the link makes
 the baked binary run the steps again.
+host-setup has a drop-in too (TS-632): it runs `current`, the release the host
+agent runs, or the baked binary until `prepare` seeds one, so a change to
+enrollment ships with a rollout. `prepare` installs the same drop-in on a
+host whose image predates it (one with the host-setup unit), from the
+release that runs the step, without reloading systemd: it applies from the
+node's next boot. The first host or controller start after a release with it
+is `known-good` installs it; a `ts-orch node reboot` then makes it count.
 Nodes that installed the earlier opt-in drop-ins by hand keep their
 `selfupdate-<unit>.env` files and `@<unit>` timers until they are rebuilt
 from this image.

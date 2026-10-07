@@ -187,6 +187,7 @@ func (c command) prepare(args []string) error {
 	proof := addProof(flags)
 	unit := flags.String("unit", "", "systemd unit that executes the current release")
 	baked := flags.String("baked-binary", selfupdate.DefaultBakedBinary, "image-installed binary")
+	systemd := flags.String("systemd-dir", "/etc/systemd/system", "unit directory that takes the host-setup drop-in")
 	if err := parse(flags, args); err != nil {
 		return err
 	}
@@ -210,8 +211,18 @@ func (c command) prepare(args []string) error {
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(c.output, "selfupdate prepare unit=%s outcome=%s current=%s\n", *unit, outcome, current)
-	return err
+	if _, err = fmt.Fprintf(c.output, "selfupdate prepare unit=%s outcome=%s current=%s\n", *unit, outcome, current); err != nil {
+		return err
+	}
+	// A host whose image predates the drop-in gets it from the release that
+	// runs this step; a failure must not stop the unit's start.
+	if installed, err := selfupdate.InstallHostSetupDropin(*systemd); err != nil {
+		slog.Warn("self-update could not install the host-setup drop-in", "error", err)
+	} else if installed {
+		_, err = fmt.Fprintln(c.output, "selfupdate prepare installed the host-setup drop-in; it applies from the next boot")
+		return err
+	}
+	return nil
 }
 
 func (c command) watchdog(args []string) error {

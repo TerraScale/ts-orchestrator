@@ -126,7 +126,7 @@ func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Wr
 			return fmt.Errorf("installed application library parent has unexpected metadata: %s", AppLib)
 		}
 	}
-	for _, directory := range []string{App, Bootstrap, Bootstrap + "/trust-roots", "/etc/sysusers.d", "/etc/systemd", "/etc/systemd/system", "/etc/systemd/timesyncd.conf.d", "/etc/systemd/system/system.slice.d", "/etc/systemd/system/terrascale-orchestrator-host.service.d", "/etc/systemd/system/terrascale-orchestrator-controller.service.d", path.Dir(TimeDropin), "/usr/local/bin", path.Dir(Helper), path.Dir(Native), "/etc/udev", path.Dir(OCIDevicePaths), "/var/lib/terrascale-orchestrator-bootstrap"} {
+	for _, directory := range []string{App, Bootstrap, Bootstrap + "/trust-roots", "/etc/sysusers.d", "/etc/systemd", "/etc/systemd/system", "/etc/systemd/timesyncd.conf.d", "/etc/systemd/system/system.slice.d", "/etc/systemd/system/terrascale-orchestrator-host.service.d", "/etc/systemd/system/terrascale-orchestrator-controller.service.d", "/etc/systemd/system/terrascale-orchestrator-host-setup.service.d", path.Dir(TimeDropin), "/usr/local/bin", path.Dir(Helper), path.Dir(Native), "/etc/udev", path.Dir(OCIDevicePaths), "/var/lib/terrascale-orchestrator-bootstrap"} {
 		if e = g.Directory(directory, 0, 0, 0755); e != nil {
 			return e
 		}

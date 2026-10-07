@@ -70,7 +70,11 @@ the node's name, in its own compartment. Its instance principal needs `manage
 instance-family` there (the reviewed controller policy grants it).
 
 `rename` gives a node a new name (TS-609 renames `gru-1-ctl-N` to
-`ts-gru-N`), in place. First switch its host grant with one root-signed
+`ts-gru-N`), in place. Its host-setup must run the current release (the
+host-setup drop-in, [continuous delivery](continuous-delivery.md#binary-only-self-update)):
+on a node whose image predates it, run `ts-orch node reboot` once after the
+release with it is `known-good`, and check `systemctl cat
+terrascale-orchestrator-host-setup.service` shows the drop-in. Then switch its host grant with one root-signed
 generation: `ts-orch service grant-host --node ts-gru-1 --private-ip <its
 address> --roles ... --environment ... --controller controller-a` replaces
 the old name's grant at that address (`--controller` names the controller

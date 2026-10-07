@@ -933,7 +933,7 @@ func TestOfflineInstallsSelfUpdateEnabled(t *testing.T) {
 	f := newOffline(t)
 	successful(t, f.run(nil, nil, nil))
 	owner := []any{float64(0), float64(0)}
-	for _, name := range []string{"terrascale-orchestrator-controller.service.d/60-selfupdate.conf", "terrascale-orchestrator-host.service.d/60-selfupdate.conf", "terrascale-orchestrator-selfupdate-watchdog@.service", "terrascale-orchestrator-selfupdate-watchdog@.timer"} {
+	for _, name := range []string{"terrascale-orchestrator-controller.service.d/60-selfupdate.conf", "terrascale-orchestrator-host.service.d/60-selfupdate.conf", "terrascale-orchestrator-host-setup.service.d/60-selfupdate.conf", "terrascale-orchestrator-selfupdate-watchdog@.service", "terrascale-orchestrator-selfupdate-watchdog@.timer"} {
 		f.installed("/etc/systemd/system/"+name, read(t, filepath.Join(deployRoot(t), "deploy/systemd/selfupdate", name)), 0644, owner)
 	}
 	for _, role := range []string{"controller", "host"} {
