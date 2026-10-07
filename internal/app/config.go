@@ -24,7 +24,7 @@ const maxConfigBytes = 1 << 20
 // new member (TestConfigVersionCoversEveryMember names the digest to record):
 // an older binary then skips the members it lacks instead of refusing them as
 // typos. Never rename or remove a member; an older config still names it.
-const ConfigVersion = 3
+const ConfigVersion = 4
 
 // Config is the one binary's role-specific configuration. A controller and a
 // host can share the same schema while holding separate credentials and files.

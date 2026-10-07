@@ -1,4 +1,4 @@
-version 3
+version 4
 .Controller struct json:"controller"
 .Controller.ArtifactStoreMaxBytes int64 json:"artifact_store_max_bytes,omitzero"
 .Controller.Autoscale *struct json:"autoscale,omitempty"
@@ -302,6 +302,7 @@ version 3
 .NATS.Embedded.InterRegion.Remotes.CredentialsFile string json:"credentials_file"
 .NATS.Embedded.InterRegion.Remotes.Peer string json:"peer"
 .NATS.Embedded.InterRegion.Remotes.PeerAccount string json:"peer_account"
+.NATS.Embedded.InterRegion.Remotes.ServerName string json:"server_name"
 .NATS.Embedded.InterRegion.Remotes.TLS struct json:"tls"
 .NATS.Embedded.InterRegion.Remotes.TLS.CAFile string json:"ca_file"
 .NATS.Embedded.InterRegion.Remotes.TLS.CertFile string json:"cert_file"
