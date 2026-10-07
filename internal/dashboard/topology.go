@@ -57,9 +57,10 @@ type topoRegion struct {
 type topoNode struct {
 	topoBox
 	Name, Sub, Status, Href string
-	// Member is the controller member the node runs, if any.
-	Member string
-	Rows   []topoRow
+	// Member is the controller member the node runs, if any, and Server
+	// its NATS server name.
+	Member, Server string
+	Rows           []topoRow
 }
 
 // topoRow is one line in a box: a service, a fence, an operation or a
@@ -249,10 +250,14 @@ func (current view) topologyRegion(summary regionview.Summary, x, top int, nats 
 			snapshots[all[index].Member] = &all[index]
 		}
 	}
+	peers := map[string]observability.PeerView{}
+	if local {
+		peers = current.metaPeers()
+	}
 	nodeX := x + topoPad + topoReplLane
 	y := top + topoHeader
 	for _, node := range topologyNodes(summary) {
-		box := current.topologyNode(summary, node, members, seats, local)
+		box := current.topologyNode(summary, node, members, seats, local, peers)
 		box.X, box.Y, box.W = nodeX, y, topoNodeW
 		box.H = topoNodeHead + len(box.Rows)*topoRowH + 6
 		for index := range box.Rows {
@@ -266,17 +271,17 @@ func (current view) topologyRegion(summary regionview.Summary, x, top int, nats 
 		*edges = append(*edges, current.replicationEdges(region.Nodes)...)
 	}
 	if nats {
-		y = max(y, current.natsLane(&region, summary, members, snapshots, local, edges))
+		y = max(y, current.natsLane(&region, summary, members, snapshots, peers, local, edges))
 	}
 	region.H = max(y-top, topoHeader+20) + topoPad - topoNodeGap
 	return region
 }
 
 func (current view) topologyNode(summary regionview.Summary, node regionview.Node, members map[string]regionview.Member,
-	seats map[string]regionview.Host, local bool,
+	seats map[string]regionview.Host, local bool, peers map[string]observability.PeerView,
 ) topoNode {
 	href := current.State.hostLink(summary.Region, node.Name)
-	box := topoNode{Name: node.Name, Member: node.Member, Href: href}
+	box := topoNode{Name: node.Name, Member: node.Member, Server: node.Server, Href: href}
 	box.Sub = node.Address
 	if node.Member != "" && node.Member != node.Name {
 		box.Sub = joinDetail(box.Sub, "member "+node.Member)
@@ -302,6 +307,8 @@ func (current view) topologyNode(summary regionview.Summary, node regionview.Nod
 				ready = "not ready"
 			}
 			row("ts-orch controller", joinDetail(short(member.Version, 14), ready, leader), boolStatus(member.Ready), link)
+		} else if status, detail, seen := peerEvidence(summary, node.Member, node.Server, peers); seen {
+			row("ts-orch controller", detail, status, link)
 		} else {
 			row("ts-orch controller", "missing: did not answer", "bad", link)
 		}
@@ -358,6 +365,39 @@ func (current view) topologyNode(summary regionview.Summary, node regionview.Nod
 	}
 	box.Status = worst(statuses...)
 	return box
+}
+
+// metaPeers are the JetStream metadata peers this region's answering
+// members see, by server name.
+func (current view) metaPeers() map[string]observability.PeerView {
+	peers := map[string]observability.PeerView{}
+	for _, member := range current.members() {
+		if member.NATS != nil {
+			for _, peer := range member.NATS.MetaPeers {
+				peers[peer.Name] = peer
+			}
+		}
+	}
+	return peers
+}
+
+// peerEvidence is what this region's JetStream says of a controller that did
+// not answer, because the cell-wide view is off or partial: its metadata
+// peer is current, lagging or offline. A controller the cell-wide view
+// lists as missing, or no peer names, has none.
+func peerEvidence(summary regionview.Summary, member, server string, peers map[string]observability.PeerView) (string, string, bool) {
+	peer, found := peers[server]
+	if !found || server == "" || slices.Contains(summary.Quorum.Missing, member) {
+		return "", "", false
+	}
+	switch {
+	case peer.Offline:
+		return "bad", "JetStream peer offline", true
+	case !peer.Current:
+		return "warn", "JetStream peer lagging " + itoa(peer.Lag), true
+	default:
+		return "ok", "JetStream peer current; not observed", true
+	}
 }
 
 func readyText(ready bool) string {
@@ -466,7 +506,8 @@ func (current view) replicationLag(nodes ...string) (float64, bool) {
 // meta leader's server and JetStream health under them. It returns the
 // lane's bottom.
 func (current view) natsLane(region *topoRegion, summary regionview.Summary, members map[string]regionview.Member,
-	snapshots map[string]*observability.MemberSnapshot, local bool, edges *[]topoEdge,
+	snapshots map[string]*observability.MemberSnapshot, peers map[string]observability.PeerView, local bool,
+	edges *[]topoEdge,
 ) int {
 	laneX := region.X + topoPad + topoReplLane + topoNodeW
 	serverX := laneX + 34
@@ -506,7 +547,12 @@ func (current view) natsLane(region *topoRegion, summary regionview.Summary, mem
 			Href: current.State.link("/nats", "r", summary.Region)}
 		member, answered := members[name]
 		snapshot := snapshots[name]
+		peerStatus, peerDetail, seen := peerEvidence(summary, name, node.Server, peers)
 		switch {
+		case !answered && snapshot == nil && seen:
+			server.Name = cmp.Or(node.Server, name)
+			server.Status, server.Detail = peerStatus, peerDetail
+			server.Hub = server.Name == current.metaLeader()
 		case missing[name] || !answered && snapshot == nil:
 			server.Status, server.Detail = "bad", "missing"
 		case snapshot != nil && snapshot.NATS != nil:

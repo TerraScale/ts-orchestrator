@@ -905,6 +905,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if apiErrors != nil {
 		workers.Go(func() { workerErrors <- <-apiErrors })
 	}
+	// The cell spec's dashboard section serves the dashboard on this node's
+	// NetBird address beside the signed observability listener.
+	workers.Go(func() { telemetry.dashboardLoop(runCtx, services.dashboard, localNetBirdAddress, readDashboardToken) })
 	if !cfg.NATS.Lab {
 		workers.Go(func() {
 			runNetBirdManagement(runCtx, netbird.PublicConfigPath, func() bool { return control.Current().CanMutate() })

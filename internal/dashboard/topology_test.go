@@ -194,3 +194,33 @@ func TestTopologyOlderSummary(t *testing.T) {
 		t.Errorf("missing controller class = %q", got)
 	}
 }
+
+// Without the cell-wide view (controller credentials without the
+// observability grant) only this member answers; the others are drawn from
+// what its JetStream metadata peers say, not as missing.
+func TestTopologyWithoutCellWideView(t *testing.T) {
+	t.Parallel()
+	current := topologyFixture("nats=1")
+	local := current.Cluster.Members[0]
+	local.NATS.MetaPeers = []observability.PeerView{{Name: "gru-1-ctl-2", Current: true},
+		{Name: "gru-1-ctl-3", Offline: true}}
+	current.Local, current.Cluster = &local, nil
+	summary := &current.Regions[0]
+	summary.Members = summary.Members[:1]
+	for index := range summary.Nodes {
+		summary.Nodes[index].Server = "gru-1-" + summary.Nodes[index].Member
+	}
+	body := renderTopology(t, current)
+	if got := nodeClass(body, "ts-gru-2"); got != "node s-ok" || !strings.Contains(body, "JetStream peer current") {
+		t.Errorf("a current peer is drawn %q", got)
+	}
+	if got := nodeClass(body, "ts-gru-3"); got != "node s-bad" || !strings.Contains(body, "JetStream peer offline") {
+		t.Errorf("an offline peer is drawn %q", got)
+	}
+	if strings.Contains(body, "missing: did not answer") {
+		t.Error("a controller the cell-wide view never asked is drawn missing")
+	}
+	if !strings.Contains(body, `data-server="gru-1-ctl-2"`) {
+		t.Error("the peer's NATS server is not drawn")
+	}
+}

@@ -138,8 +138,10 @@ type Node struct {
 	Name string `json:"name"`
 	// Address is the private address the node's host grant names.
 	Address string `json:"address,omitempty"`
-	// Member is the orchestrator controller member on this node, if any.
+	// Member is the orchestrator controller member on this node, if any,
+	// and Server its NATS server name, which JetStream peers are named by.
 	Member   string    `json:"member,omitempty"`
+	Server   string    `json:"server,omitempty"`
 	Services []Service `json:"services,omitempty"`
 	// Fence names who holds the node out of its load balancer backend sets
 	// (release, drain, health, ...); empty when nothing does.

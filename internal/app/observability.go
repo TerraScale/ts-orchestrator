@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -35,10 +36,16 @@ type runtimeObservability struct {
 	health   *observability.Health
 	events   *observability.EventBus
 	server   *observability.Server
-	// dashboard is set when the listener serves the operator dashboard; the
-	// role attaches its snapshot providers once they exist.
-	dashboard *dashboard.Dashboard
-	started   atomic.Bool
+	// boards are the dashboards this runtime serves: the listener's, and the
+	// NetBird listener's while the cell spec enables it. The role attaches
+	// its providers once they exist; they are kept, so a dashboard added
+	// later gets them too.
+	boardsMu     sync.Mutex
+	boards       []*dashboard.Dashboard
+	snapshots    observability.SnapshotSource
+	cluster      observability.ClusterSource
+	boardJournal *dashboard.Journal
+	started      atomic.Bool
 	// journal is the controller's decision journal; providers holds the
 	// journal-derived dashboard providers once the controller attaches them.
 	journal   *decisionlog.Journal
@@ -106,7 +113,10 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 		return runtime, nil
 	}
 	go watchObservabilityListener(serveErrors)
-	runtime.server, runtime.dashboard = server, board
+	runtime.server = server
+	if board != nil {
+		runtime.addBoard(board)
+	}
 	slog.Info("observability listener ready", observability.ComponentKey, "observability",
 		"address", server.Addr().String(), "dashboard", board != nil)
 	return runtime, nil
@@ -248,9 +258,7 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 	if runtime.server != nil {
 		runtime.server.HandleCluster(aggregator)
 	}
-	if runtime.dashboard != nil {
-		runtime.dashboard.SetCluster(aggregator)
-	}
+	runtime.attachBoards(func() { runtime.cluster = aggregator })
 	runtime.attachJournal(ctx, observed, collector, aggregator)
 	return nil
 }
@@ -297,8 +305,40 @@ func (runtime *runtimeObservability) attachSnapshots(collector *observability.Co
 	if runtime.server != nil {
 		runtime.server.HandleSnapshots(collector)
 	}
-	if runtime.dashboard != nil {
-		runtime.dashboard.SetSnapshots(collector)
+	runtime.attachBoards(func() { runtime.snapshots = collector })
+}
+
+// attachBoards records a provider and gives every dashboard the providers.
+func (runtime *runtimeObservability) attachBoards(record func()) {
+	runtime.boardsMu.Lock()
+	defer runtime.boardsMu.Unlock()
+	record()
+	for _, board := range runtime.boards {
+		runtime.provide(board)
+	}
+}
+
+// addBoard serves the attached providers on another dashboard.
+func (runtime *runtimeObservability) addBoard(board *dashboard.Dashboard) {
+	runtime.attachBoards(func() { runtime.boards = append(runtime.boards, board) })
+}
+
+// removeBoard stops feeding a dashboard whose listener closed.
+func (runtime *runtimeObservability) removeBoard(board *dashboard.Dashboard) {
+	runtime.boardsMu.Lock()
+	defer runtime.boardsMu.Unlock()
+	runtime.boards = slices.DeleteFunc(runtime.boards, func(candidate *dashboard.Dashboard) bool { return candidate == board })
+}
+
+func (runtime *runtimeObservability) provide(board *dashboard.Dashboard) {
+	if runtime.snapshots != nil {
+		board.SetSnapshots(runtime.snapshots)
+	}
+	if runtime.cluster != nil {
+		board.SetCluster(runtime.cluster)
+	}
+	if runtime.boardJournal != nil {
+		board.SetJournal(*runtime.boardJournal)
 	}
 }
 

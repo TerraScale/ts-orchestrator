@@ -63,8 +63,8 @@ const (
 	// publisher, level 12 the release fence, level 13 a fenced set's
 	// min_serving, level 14 a fenced set's role, level 15 the release
 	// fence's canary, level 16 the Machines API, level 17 a host grant's
-	// controller.
-	BinaryLevel = 17
+	// controller, level 18 the dashboard.
+	BinaryLevel = 18
 	// MaxHostImages bounds the image allow-list: the images a rollout moves
 	// between, plus room to stage the next one.
 	MaxHostImages = 4
@@ -201,6 +201,29 @@ type Spec struct {
 	// the regional load balancer's <region>.orch host; nil serves none.
 	// Adding or changing it needs a root.
 	MachinesAPI *MachinesAPI `json:"machines_api,omitempty"`
+	// Dashboard makes every controller serve the read-only operator
+	// dashboard on its NetBird address at DashboardPort, behind a bearer
+	// token read from Vault; nil serves it there on none. Adding or
+	// changing it needs a root.
+	Dashboard *Dashboard `json:"dashboard,omitempty"`
+}
+
+// DashboardPort is where a controller serves the operator dashboard on its
+// NetBird address: the observability port, on another interface.
+const DashboardPort = 9463
+
+// DashboardRole and DashboardKey name the dashboard token's Vault secret:
+// <cell>-<n>-orch-dashboard-token.
+const (
+	DashboardRole = "orch-dashboard"
+	DashboardKey  = "TOKEN"
+)
+
+// Dashboard is the operator dashboard's NetBird listener (docs/observability.md).
+// Token is the bearer token operators present, or exchange for a browser
+// session; every controller of the cell reads the same secret.
+type Dashboard struct {
+	Token vaultsecret.Ref `json:"token"`
 }
 
 // MachinesAPIPort is where a controller serves the Machines REST API on its
@@ -551,6 +574,12 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("%w: %w", ErrInvalid, err)
 		}
 	}
+	if s.Dashboard != nil {
+		if err := vaultsecret.ValidateRefs(s.Identity.Cell, DashboardRole,
+			map[string]vaultsecret.Ref{DashboardKey: s.Dashboard.Token}, nil); err != nil {
+			return fmt.Errorf("%w: dashboard: %w", ErrInvalid, err)
+		}
+	}
 	return nil
 }
 
@@ -608,7 +637,8 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 // desired OCI resources, 8 with signers, 9 once it names a launch image and
 // 10 with an artifact store quota, 11 with an Atlas publisher, 12 with
 // a release fence (13, 14 and 15 with its min_serving, role and canary) and
-// 16 with the Machines API, which an older binary could not read.
+// 16 with the Machines API, 17 once a host grant names its controller and
+// 18 with the dashboard, which an older binary could not read.
 func (s Spec) Level() uint64 {
 	level := uint64(1)
 	for _, service := range s.Services {
@@ -660,6 +690,9 @@ func (s Spec) Level() uint64 {
 	}
 	if slices.ContainsFunc(s.HostGrants, func(grant HostGrant) bool { return grant.Controller != "" }) {
 		level = 17
+	}
+	if s.Dashboard != nil {
+		level = 18
 	}
 	return level
 }
@@ -948,6 +981,10 @@ func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
 	if next.MachinesAPI != nil && !reflect.DeepEqual(current.MachinesAPI, next.MachinesAPI) {
 		changes = append(changes, "machines api")
 	}
+	// The token decides who reads the cell's dashboard.
+	if next.Dashboard != nil && !reflect.DeepEqual(current.Dashboard, next.Dashboard) {
+		changes = append(changes, "dashboard")
+	}
 	if change := budgetChange(current.Budget, next.Budget); change != "" && change != "lowered" {
 		changes = append(changes, "budget")
 	}
@@ -1028,6 +1065,9 @@ type Plan struct {
 	// ReleaseFence is "added", "updated" or "removed" when the release
 	// fence changes.
 	ReleaseFence string `json:"release_fence,omitempty"`
+	// Dashboard is "added", "updated" or "removed" when the dashboard
+	// listener changes.
+	Dashboard string `json:"dashboard,omitempty"`
 	// MachinesAPI is "added", "updated" or "removed" when the Machines API
 	// changes.
 	MachinesAPI string `json:"machines_api,omitempty"`
@@ -1153,6 +1193,14 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 	case before != nil && !reflect.DeepEqual(*before, *after):
 		plan.MachinesAPI = "updated"
 	}
+	switch before, after := current.Dashboard, next.Dashboard; {
+	case before == nil && after != nil:
+		plan.Dashboard = "added"
+	case before != nil && after == nil:
+		plan.Dashboard = "removed"
+	case before != nil && *before != *after:
+		plan.Dashboard = "updated"
+	}
 	return plan, nil
 }
 
@@ -1182,7 +1230,8 @@ func budgetChange(before, after *hostpool.Budget) string {
 func (p Plan) Empty() bool {
 	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 && p.Budget == "" &&
 		p.KVSnapshot == "" && p.RolloutPolicy == "" && p.OCIDesired == "" && len(p.Signers) == 0 &&
-		p.LaunchImage == "" && p.ArtifactStore == "" && p.Atlas == "" && p.ReleaseFence == "" && p.MachinesAPI == ""
+		p.LaunchImage == "" && p.ArtifactStore == "" && p.Atlas == "" && p.ReleaseFence == "" && p.MachinesAPI == "" &&
+		p.Dashboard == ""
 }
 
 // Validate checks each entry's policy and spec and the prune delay. The

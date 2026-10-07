@@ -87,6 +87,12 @@ func TestGRUDesiredStateDerivesEveryOtherRegion(t *testing.T) {
 		return PolicySpec{Name: name, Description: description + ": NATS leafnodes 7422, TerraBase peers 9443",
 			Protocol: "tcp", Ports: []string{"7422", "9443"}, Sources: []string{source}, Destinations: []string{destination}}
 	}
+	// TS-670: operators reach every controller's dashboard on its NetBird address.
+	dashboard := func(group, cell string) PolicySpec {
+		return PolicySpec{Name: "operators-to-" + group + "-dashboard",
+			Description: "Operators → " + cell + " servers: operator dashboard 9463 on their NetBird addresses",
+			Protocol:    "tcp", Ports: []string{"9463"}, Sources: []string{"operators"}, Destinations: []string{group}}
+	}
 	wantPolicies := []PolicySpec{
 		{Name: "operators-to-gru-cell-ops-ports", RenamedFrom: []string{"operators-to-gru-cell"},
 			Description: "Operators → GRU cell subnet: SSH 22, NATS 4222, TerraBase 9465",
@@ -104,6 +110,7 @@ func TestGRUDesiredStateDerivesEveryOtherRegion(t *testing.T) {
 		ssh("ops-automation-to-fra-servers-ssh", "Operator automation peers → FRA servers: NetBird SSH with identity-provider login", "ops-automation", "fra-servers"),
 		fabric("gru-servers-to-fra-servers-fabric", "GRU servers → FRA servers", "gru-servers", "fra-servers"),
 		fabric("fra-servers-to-gru-servers-fabric", "FRA servers → GRU servers", "fra-servers", "gru-servers"),
+		dashboard("gru-servers", "GRU"), dashboard("sfo-servers", "SFO"), dashboard("fra-servers", "FRA"),
 		{Name: "operators-to-ts-ops-forgejo", RenamedFrom: []string{"operators-to-forgejo"},
 			Description: "Operators → ts-ops: Git SSH 22, HTTPS 443, admin SSH 2022",
 			Protocol:    "tcp", Ports: []string{"22", "443", "2022"},

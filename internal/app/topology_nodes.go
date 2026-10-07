@@ -7,6 +7,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
 
@@ -32,7 +33,13 @@ func topologySource(cell string, brokerIDs []string, services *specRegistry, hos
 		if fence, _ := services.releaseFence(); fence != nil {
 			sets = fence.BackendSets
 		}
-		return topologyNodes(services.hostGrants(), members, statuses, status, sets)
+		nodes := topologyNodes(services.hostGrants(), members, statuses, status, sets)
+		for index := range nodes {
+			if nodes[index].Member != "" {
+				nodes[index].Server = natscell.ServerName(cell, nodes[index].Member)
+			}
+		}
+		return nodes
 	}
 }
 

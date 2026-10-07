@@ -155,13 +155,13 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 		Regions: regions}
 	runtime.providers.Store(&providers)
 	mountJournalAPI(runtime.server, providers)
-	if runtime.dashboard != nil {
-		// Rollout, version, qualification and inventory providers stay nil
-		// until a controller runs their slices; the pages say so.
-		runtime.dashboard.SetJournal(dashboard.Journal{Decisions: providers.Decisions, Live: providers.Live,
+	// Rollout, version, qualification and inventory providers stay nil
+	// until a controller runs their slices; the pages say so.
+	runtime.attachBoards(func() {
+		runtime.boardJournal = &dashboard.Journal{Decisions: providers.Decisions, Live: providers.Live,
 			History: providers.History, Insights: providers.Insights, Summaries: providers.Summarizer,
-			Regions: providers.Regions, Volumes: volumes, Rollouts: observed.rollouts})
-	}
+			Regions: providers.Regions, Volumes: volumes, Rollouts: observed.rollouts}
+	})
 }
 
 // configuredRegions lists the product regions a product cell can link to.

@@ -55,6 +55,33 @@ func NewServer(config Config, deps ServerDeps) (*Server, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
+	var token []byte
+	if config.BearerTokenFile != "" {
+		var err error
+		if token, err = readBearerToken(config.BearerTokenFile); err != nil {
+			return nil, err
+		}
+	}
+	return newServer(config, token, deps)
+}
+
+// NewTokenServer is NewServer with the bearer token itself instead of
+// bearer_token_file, for a listener whose token is read from Vault. The
+// token is required whatever the address.
+func NewTokenServer(config Config, token string, deps ServerDeps) (*Server, error) {
+	checked, err := checkBearerToken([]byte(token))
+	if err != nil {
+		return nil, err
+	}
+	// The token stands in for the file Validate requires off loopback.
+	config.BearerTokenFile = "token"
+	if err := config.Validate(); err != nil {
+		return nil, err
+	}
+	return newServer(config, checked, deps)
+}
+
+func newServer(config Config, token []byte, deps ServerDeps) (*Server, error) {
 	if deps.Registry == nil || deps.Health == nil {
 		return nil, errors.New("observability server requires a registry and health checks")
 	}
@@ -62,14 +89,7 @@ func NewServer(config Config, deps ServerDeps) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	server := &Server{mux: http.NewServeMux(), deps: deps, sessions: manager}
-	if config.BearerTokenFile != "" {
-		token, err := readBearerToken(config.BearerTokenFile)
-		if err != nil {
-			return nil, err
-		}
-		server.token = token
-	}
+	server := &Server{mux: http.NewServeMux(), deps: deps, sessions: manager, token: token}
 	server.mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, _ *http.Request) {
 		writePlain(writer, http.StatusOK, "ok\n")
 	})

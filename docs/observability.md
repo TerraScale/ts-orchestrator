@@ -206,6 +206,37 @@ Access control follows the listener:
   that is not an IP literal or `localhost`, so a web page cannot reach it
   through DNS rebinding.
 
+### On the NetBird address (cell spec)
+
+A signed controller config may bind only loopback or its broker address, and
+it changes only with a re-found. The cell spec's `dashboard` section
+([cell spec](cell-spec.md)) instead makes every controller of the cell serve
+the dashboard on its own NetBird address (`10.200.0.0/16`, the first one its
+interfaces carry) at port 9463, beside the signed listener:
+
+```json
+"dashboard": {"token": {"vault": "<the region's Vault OCID>", "name": "<cell>-1-orch-dashboard-token"}}
+```
+
+- The token is a Vault secret of role `orch-dashboard` in the cell's own
+  region, read with the controller's instance principal when the section
+  changes and every 5 minutes, so a rotated secret takes effect without a new
+  spec; while Vault is unavailable the listener keeps the token read last.
+- The listener requires the token (bearer header or browser login, as
+  above), accepts DNS names such as `ts-sfo-1.nb.ts.internal:9463`, and serves
+  `/healthz`, `/readyz`, `/metrics`, `/v1/events` and the dashboard. The
+  NetBird policy `operators-to-<cell>-servers-dashboard` opens TCP 9463 to
+  operators only (`deploy/netbird/README.md`).
+- A node without a NetBird address yet, a port it cannot bind or a token it
+  cannot read is logged and retried every 5 seconds; it never stops the
+  controller. Removing the section closes the listener.
+- The dashboard reads the same providers as the signed listener's. Without
+  `cluster_aggregation` (credentials without the observability grant) it
+  shows this controller's own snapshot and its region's other controllers
+  as unobserved, and other regions as unreachable.
+
+Adding or changing the section needs a root; it needs binary level 18.
+
 Session cookies are accepted only when `dashboard` is on; otherwise the
 listener accepts the bearer header alone, exactly as before. Responses carry
 a `Content-Security-Policy` of `'self'` only (plus `'unsafe-eval'` for

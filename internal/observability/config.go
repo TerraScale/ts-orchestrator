@@ -121,6 +121,12 @@ func readBearerToken(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return checkBearerToken(data)
+}
+
+// checkBearerToken accepts one 32-4096 byte line, surrounding whitespace
+// trimmed.
+func checkBearerToken(data []byte) ([]byte, error) {
 	token := []byte(strings.TrimSpace(string(data)))
 	if len(data) > maxBearerTokenBytes || len(token) < minBearerTokenBytes ||
 		strings.ContainsAny(string(token), " \t\r\n") {

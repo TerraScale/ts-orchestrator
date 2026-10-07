@@ -714,6 +714,13 @@ func (r *specRegistry) machinesAPI() *cellspec.MachinesAPI {
 	return r.current.MachinesAPI
 }
 
+// dashboard is the current spec's dashboard listener, or nil.
+func (r *specRegistry) dashboard() *cellspec.Dashboard {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.current.Dashboard
+}
+
 // atlasConfig is the current spec's Atlas publisher, or nil.
 func (r *specRegistry) atlasConfig() *atlas.Config {
 	r.mu.Lock()

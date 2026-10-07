@@ -1374,3 +1374,44 @@ func TestMachinesAPILevelValidateAndDiff(t *testing.T) {
 		}
 	}
 }
+
+// The dashboard needs binary level 18, a token secret of the cell's own
+// orch-dashboard role, and a root to add or change.
+func TestDashboardSection(t *testing.T) {
+	id := Identity{DeploymentID: "terrascale-gru", Cell: "gru", Environment: "canary"}
+	vault := "ocid1.vault.oc1.sa-saopaulo-1.vault"
+	spec := testSpec(id, 1)
+	spec.Dashboard = &Dashboard{Token: vaultsecret.Ref{Vault: vault, Name: "gru-1-orch-dashboard-token"}}
+	if spec.Level() != 18 {
+		t.Fatalf("level with a dashboard = %d", spec.Level())
+	}
+	if err := spec.Validate(); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("dashboard below level 18: %v", err)
+	}
+	spec.RequiresBinary = 18
+	if err := spec.Validate(); err != nil {
+		t.Fatalf("valid dashboard: %v", err)
+	}
+	for name, ref := range map[string]vaultsecret.Ref{
+		"another role":   {Vault: vault, Name: "gru-1-ts-auth-token"},
+		"another cell":   {Vault: vault, Name: "sfo-1-orch-dashboard-token"},
+		"another region": {Vault: "ocid1.vault.oc1.us-sanjose-1.vault", Name: "gru-1-orch-dashboard-token"},
+	} {
+		invalid := spec
+		invalid.Dashboard = &Dashboard{Token: ref}
+		if err := invalid.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	before := testSpec(id, 1)
+	if changes := AuthorityChanges(before, spec, nil); !slices.Contains(changes, "dashboard") {
+		t.Errorf("adding the dashboard is not root-gated: %q", changes)
+	}
+	if changes := AuthorityChanges(spec, before, nil); slices.Contains(changes, "dashboard") {
+		t.Errorf("removing the dashboard needs a root: %q", changes)
+	}
+	plan, err := Diff(before, spec, nil)
+	if err != nil || plan.Dashboard != "added" || plan.Empty() {
+		t.Errorf("plan = %+v, %v", plan, err)
+	}
+}

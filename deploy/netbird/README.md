@@ -148,6 +148,7 @@ private subnet, so their nodes are reached with NetBird SSH only.
 | `ops-automation-to-<cell>-servers-ssh` | `ops-automation` → `<cell>-servers` | `netbird-ssh` | one-way |
 | `gru-servers-to-<cell>-servers-fabric` | `gru-servers` → `<cell>-servers` | TCP 7422, 9443 | one-way |
 | `<cell>-servers-to-gru-servers-fabric` | `<cell>-servers` → `gru-servers` | TCP 7422, 9443 | one-way |
+| `operators-to-<cell>-servers-dashboard` | `operators` → `<cell>-servers` (also `gru-servers`) | TCP 9463, the operator dashboard on each controller's NetBird address | one-way |
 | `operators-to-ts-ops-forgejo` | `operators` → `ts-ops-gateway` | TCP 22, 443, 2022 | one-way |
 | `operators-to-ts-ops-ping` | `operators` → `ts-ops-gateway` | ICMP | one-way |
 

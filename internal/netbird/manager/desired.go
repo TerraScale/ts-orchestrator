@@ -126,7 +126,7 @@ func GRU() Desired {
 			{Name: "ops-automation-to-gru-servers-ssh",
 				Description: "Operator automation peers → GRU servers: NetBird SSH with identity-provider login",
 				Protocol:    "netbird-ssh", Sources: []string{"ops-automation"}, Destinations: []string{"gru-servers"}},
-		}, regionPolicies(), []PolicySpec{
+		}, regionPolicies(), dashboardPolicies(), []PolicySpec{
 			{Name: "operators-to-ts-ops-forgejo", RenamedFrom: []string{"operators-to-forgejo"},
 				Description: "Operators → ts-ops: Git SSH 22, HTTPS 443, admin SSH 2022",
 				Protocol:    "tcp", Ports: []string{"22", "443", "2022"},
@@ -164,6 +164,20 @@ func regionServersGroups() []string {
 		}
 	}
 	return names
+}
+
+// dashboardPolicies let operators reach the operator dashboard every
+// controller serves on its NetBird address (cell spec dashboard section) in
+// every catalog region.
+func dashboardPolicies() []PolicySpec {
+	var policies []PolicySpec
+	for _, group := range append([]string{"gru-servers"}, regionServersGroups()...) {
+		cell := strings.ToUpper(strings.TrimSuffix(group, "-servers"))
+		policies = append(policies, PolicySpec{Name: "operators-to-" + group + "-dashboard",
+			Description: "Operators → " + cell + " servers: operator dashboard 9463 on their NetBird addresses",
+			Protocol:    "tcp", Ports: []string{"9463"}, Sources: []string{"operators"}, Destinations: []string{group}})
+	}
+	return policies
 }
 
 // fabricPorts are the region-to-region ports between the home region's
