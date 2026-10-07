@@ -527,6 +527,13 @@ func (c *rolloutControl) serve(ctx context.Context, wire []byte, policy signerPo
 		desired.Receipt, desired.Delegation = nil, nil
 		reply.Desired, reply.DesiredKnownBad = &desired, false
 	}
+	// The same read may miss a pause or resume this request just wrote.
+	switch envelope.Kind {
+	case rolloutPauseKind:
+		reply.Paused = true
+	case rolloutResumeKind:
+		reply.Paused = false
+	}
 	return reply, err
 }
 
