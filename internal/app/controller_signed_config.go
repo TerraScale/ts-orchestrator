@@ -38,6 +38,15 @@ func ValidateSignedControllerConfig(manifest bootstrap.Manifest, observedPrivate
 	return cfg, nil
 }
 
+// ValidateLoadedControllerConfig is ValidateInstalledControllerConfig for the
+// loaded config, whose digest must be want: the config an adopted material
+// generation pins for the slot (TS-668), or else the manifest's own.
+func ValidateLoadedControllerConfig(manifest bootstrap.Manifest, config []byte, want, observedPrivateIP string,
+) (Config, error) {
+	manifest.ControllerConfig, manifest.ControllerConfigSHA256 = config, want
+	return ValidateInstalledControllerConfig(manifest, observedPrivateIP)
+}
+
 // ValidateInstalledControllerConfig checks the role-specific meaning of the
 // exact signed bytes. Guest installation and every restart re-check configs
 // that an older or newer binary signed, so the digest covers the bytes, not a
@@ -144,6 +153,13 @@ func ValidateInstalledControllerConfig(manifest bootstrap.Manifest, observedPriv
 		}
 		if _, exists := secretFiles[name]; !exists {
 			return Config{}, fmt.Errorf("controller credential %s is absent from signed material", name)
+		}
+	}
+	// Interregion files come from an adopted material generation, whose pins
+	// restart admission checks (TS-668); they too live in the directory.
+	for _, path := range cfg.NATS.Embedded.InterRegion.Files() {
+		if path != filepath.Join(bootstrapstart.MaterialDirectory, filepath.Base(path)) {
+			return Config{}, errors.New("interregion credential path escapes the signed material directory")
 		}
 	}
 	// The C# TerraBase member CA is host-issuer material: configured exactly

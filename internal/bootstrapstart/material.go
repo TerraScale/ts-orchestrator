@@ -136,6 +136,23 @@ func (store MaterialStore) RestartPins(manifest bootstrap.HistoricalManifest, ro
 	return restartPins(installed, store.serviceUID, store.serviceGID, manifest.Manifest(), roots, privateIP)
 }
 
+// ControllerConfigSHA256 reads the install's adopted material generation, if
+// any, and returns the controller config digest restart admission expects
+// for the slot of manifest, whose digest is manifestSHA256 (TS-668).
+func (store MaterialStore) ControllerConfigSHA256(manifest bootstrap.Manifest, manifestSHA256 string, roots trust.Keyring,
+) (string, error) {
+	installed, err := openMaterialDirectory(store.installedDirectory, store.serviceUID, store.serviceGID, 0o700, store.allowUnsafeAncestors)
+	if err != nil {
+		return "", fmt.Errorf("open service-owned credential directory: %w", err)
+	}
+	defer unix.Close(installed)
+	pins, err := restartPins(installed, store.serviceUID, store.serviceGID, manifest, roots, "")
+	if err != nil {
+		return "", err
+	}
+	return pins.controllerConfigSHA256(manifest, manifestSHA256)
+}
+
 func (store MaterialStore) VerifyRestart(ctx context.Context, manifest bootstrap.HistoricalManifest,
 	pins MaterialPins,
 ) error {

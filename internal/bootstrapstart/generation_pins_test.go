@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap/generationtest"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -32,7 +34,13 @@ type generationInstall struct {
 	roots      trust.Keyring
 	rootKey    ed25519.PrivateKey
 	expected   bootstrap.MaterialGenerationExpectation
+	// loaded, when set, is the loaded controller config, which verify
+	// checks as restart admission does against acceptedManifest.
+	loaded []byte
 }
+
+// acceptedManifest is the digest of the install's accepted manifest.
+var acceptedManifest = digest([]byte("accepted manifest"))
 
 func newGenerationInstall(t *testing.T) *generationInstall {
 	t.Helper()
@@ -145,6 +153,12 @@ func (install *generationInstall) verify(privateIP string) error {
 	pins, err := restartPins(dir, uint32(os.Getuid()), uint32(os.Getgid()), install.manifest, install.roots, privateIP)
 	if err != nil {
 		return err
+	}
+	if install.loaded != nil {
+		gate := Gate{LoadedControllerConfigSHA256: digest(install.loaded), LoadedControllerConfig: install.loaded}
+		if err := gate.restartConfig(&pins, install.manifest, acceptedManifest); err != nil {
+			return err
+		}
 	}
 	store := MaterialStore{installedDirectory: install.dir, serviceUID: uint32(os.Getuid()),
 		serviceGID: uint32(os.Getgid()), allowUnsafeAncestors: true}
@@ -310,5 +324,138 @@ func TestCredentialBoundFollowsTheAdoptedGeneration(t *testing.T) {
 	if _, err := expired.credential.CurrentCredentialBound(expectedMaterials(expired.manifest, "controller-a"),
 		expired.manifest, expired.roots, pinnedIP); err == nil {
 		t.Fatal("an expired generation was bound")
+	}
+}
+
+// adoptInterRegion installs gru-1's schema-2 shape for controller-a: no
+// controller issuers, the role signer and the interregion files, every
+// slot's new controller config bound to manifestSHA256. It holds only
+// controller-a's leaf TLS, gives the live credential check that slot's
+// interregion block, and returns the material and controller-a's config.
+func (install *generationInstall) adoptInterRegion(manifestSHA256 string) (generationtest.Material, []byte) {
+	t := install.t
+	t.Helper()
+	material := install.material.SchemaTwo(t).WithoutIssuers(t).InterRegion(t, time.Now(), install.expected.ControllerSlots)
+	generation := material.Generation(install.expected, 1, "")
+	for index := range generation.ControllerConfigs {
+		generation.ControllerConfigs[index].ManifestSHA256 = manifestSHA256
+	}
+	for _, secret := range generation.Secrets {
+		if secret.Slot == "" || secret.Slot == "controller-a" {
+			install.write(secret.TargetFile, material.Files[secret.TargetFile])
+		}
+	}
+	envelope, err := bootstrap.SignMaterialGeneration(generation, time.Now().Add(-time.Minute), time.Now().AddDate(0, 6, 0),
+		install.rootKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := bootstrap.EncodeMaterialGenerationChain([]trust.Envelope{envelope})
+	if err != nil {
+		t.Fatal(err)
+	}
+	install.write(MaterialGenerationsFile, wire)
+	config := material.Files["controller-controller-a.json"]
+	install.credential.Config.Embedded.InterRegion = interRegionBlock(t, config, install.dir)
+	return material, config
+}
+
+// interRegionBlock is config's interregion block with its files in dir.
+func interRegionBlock(t *testing.T, config []byte, dir string) *natscell.InterRegion {
+	t.Helper()
+	var loaded struct {
+		NATS natscell.Config `json:"nats"`
+	}
+	local := strings.ReplaceAll(string(config), MaterialDirectory+"/", dir+"/")
+	if err := protocol.DecodeTolerant([]byte(local), &loaded, bootstrap.MaxControllerConfigBytes); err != nil {
+		t.Fatal(err)
+	}
+	return loaded.NATS.Embedded.InterRegion
+}
+
+// Schema 2 as gru-1 and sfo-1 adopt it (TS-668). Without controller issuers
+// nothing is issued: the slot's manifest-era leaf (placeholder bytes no
+// issuance rule accepts) keeps its manifest pin, and no issuer file is read,
+// since none is installed. The interregion files have their role in the
+// loaded config, which must be the generation's config for the slot, bound
+// to the accepted manifest. A controller holds only its own leaf TLS.
+func TestRestartPinsAdoptSchemaTwoInterRegion(t *testing.T) {
+	old := []byte(`{"nats":{},"controller":{}}`)
+	newInstall := func(manifestSHA256 string) (*generationInstall, generationtest.Material, []byte) {
+		install := newGenerationInstall(t)
+		install.manifest.ControllerConfigSHA256 = digest(old)
+		material, config := install.adoptInterRegion(manifestSHA256)
+		install.loaded = config
+		return install, material, config
+	}
+	install, _, config := newInstall(acceptedManifest)
+	if err := install.verify(pinnedIP); err != nil {
+		t.Fatalf("the generation's config and files: %v", err)
+	}
+	store := MaterialStore{installedDirectory: install.dir, serviceUID: uint32(os.Getuid()),
+		serviceGID: uint32(os.Getgid()), allowUnsafeAncestors: true}
+	if want, err := store.ControllerConfigSHA256(install.manifest, acceptedManifest, install.roots); err != nil ||
+		want != digest(config) {
+		t.Fatalf("expected config digest = %s, %v; want the generation's", want, err)
+	}
+	if _, err := store.ControllerConfigSHA256(install.manifest, digest([]byte("another manifest")), install.roots); err == nil {
+		t.Fatal("a config bound to another manifest was expected")
+	}
+	materials := expectedMaterials(install.manifest, "controller-a")
+	install.credential.ControllerConfig = config
+	if bound, err := install.credential.CurrentCredentialBound(materials, install.manifest, install.roots,
+		pinnedIP); err != nil || bound.Generation == "" {
+		t.Fatalf("continuity bound = %+v, %v; want the generation", bound, err)
+	}
+	install.credential.ControllerConfig = nil
+	if _, err := install.credential.CurrentCredentialBound(materials, install.manifest, install.roots, pinnedIP); err == nil {
+		t.Fatal("continuity bound the generation without the loaded config")
+	}
+
+	certA, keyA := bootstrap.InterRegionTLSFiles("controller-a")
+	certB, keyB := bootstrap.InterRegionTLSFiles("controller-b")
+	for name, change := range map[string]func(*generationInstall, generationtest.Material){
+		"the manifest's old config": func(install *generationInstall, _ generationtest.Material) { install.loaded = old },
+		"another slot's config": func(install *generationInstall, material generationtest.Material) {
+			install.loaded = material.Files["controller-controller-b.json"]
+		},
+		"another slot's leaf TLS": func(install *generationInstall, material generationtest.Material) {
+			install.write(certB, material.Files[certB])
+		},
+		"no leaf TLS key": func(install *generationInstall, _ generationtest.Material) {
+			if err := os.Remove(filepath.Join(install.dir, keyA)); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"another slot's leaf TLS in the slot's place": func(install *generationInstall, material generationtest.Material) {
+			install.write(certA, material.Files[certB])
+			install.write(keyA, material.Files[keyB])
+		},
+		"an altered issued file": func(install *generationInstall, _ generationtest.Material) {
+			install.write("controller-a-tls-cert.pem", []byte("altered"))
+		},
+		"an interregion file the generation does not pin": func(install *generationInstall, _ generationtest.Material) {
+			install.credential.Config.Embedded.InterRegion.Remotes[0].CredentialsFile = filepath.Join(install.dir, "leaf-fra.creds")
+		},
+		"a regional file as an interregion file": func(install *generationInstall, _ generationtest.Material) {
+			install.credential.Config.Embedded.InterRegion.AccountJWTFile = filepath.Join(install.dir, "cell.jwt")
+		},
+		"an interregion file outside the credential directory": func(install *generationInstall, _ generationtest.Material) {
+			install.credential.Config.Embedded.InterRegion.AccountJWTFile = filepath.Join(t.TempDir(), "interregion.jwt")
+		},
+	} {
+		install, material, _ := newInstall(acceptedManifest)
+		change(install, material)
+		if err := install.verify(pinnedIP); err == nil {
+			t.Errorf("accepted %s", name)
+		}
+	}
+	if other, _, _ := newInstall(digest([]byte("another manifest"))); other.verify(pinnedIP) == nil {
+		t.Error("accepted a config bound to another manifest")
+	}
+	plain := newGenerationInstall(t)
+	plain.credential.Config.Embedded.InterRegion = interRegionBlock(t, config, plain.dir)
+	if err := plain.verify(pinnedIP); err == nil {
+		t.Error("accepted interregion files without an adopted generation")
 	}
 }

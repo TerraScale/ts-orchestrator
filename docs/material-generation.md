@@ -44,7 +44,9 @@ version, SHA-256 and size bound), exactly these renewable files:
 ## Schema 2 (TS-668)
 
 Schema 2 lets a generation link a running cell into the interregion leaf
-fabric without re-founding it. Controllers adopt it from TS-668 PR 6 on.
+fabric without re-founding it. Restart admission accepts an installed
+schema-2 chain ([below](#restart-admission-with-a-generation)); controllers
+install one from TS-668 PR 6 on.
 Until then nothing in production installs a generation, and a binary from
 before schema 2 refuses one. Schema 2 adds the following:
 
@@ -177,9 +179,19 @@ before any generation.
    check the current time, because the chain was current when it was
    adopted.
 2. **Pin the newest generation.** Its digests replace the manifest's for the
-   renewable files, and it adds the controller issuers and the chain file
-   itself.
-3. **Check issued files by rule.** The slot's TLS leaf, its key and its NATS
+   renewable files, and it adds the controller issuers, the interregion
+   files (of the leaf TLS, only this slot's) and the chain file itself.
+3. **Pick the controller config.** When the generation pins a config for
+   the slot, the loaded `controller.json` must be exactly that config, and
+   the entry must name the accepted manifest's digest; an entry bound to
+   another manifest is refused. Otherwise the loaded config must be the
+   manifest's, as before. Local restart admission and the managed region
+   config apply the same rule; the managed region config also validates the
+   loaded config with the manifest's role checks. The current-proof check
+   then only checks that the proofs are current. The config's interregion
+   block may name only files the generation pins as interregion files, in
+   the credential directory.
+4. **Check issued files by rule.** The slot's TLS leaf, its key and its NATS
    credentials are checked against the generation's issuance rules instead
    of a digest:
    - **Leaf:** it is followed by the generation's controller issuer and
@@ -189,7 +201,9 @@ before any generation.
      within the same lifetime.
    - **Before the first renewal:** an issued file that is still
      byte-identical to its manifest pin is accepted.
-4. **Check the directory.** It must hold exactly these files, owned by the
+   - **Without controller issuers** (schema 2) nothing is issued: the issued
+     files keep their manifest pins and no issuer is read.
+5. **Check the directory.** It must hold exactly these files, owned by the
    service user with mode 0600.
 
 ## Installing a generation

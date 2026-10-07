@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"strings"
 	"time"
@@ -22,19 +23,24 @@ const MaterialGenerationsFile = "material-generations.json"
 // MaterialPins is what restart admission expects in the credential directory.
 // Before a material generation is adopted it is exactly the manifest's
 // digests. With one, the newest generation's digests replace the manifest's
-// for the renewable files and add its controller issuers and the chain file
-// itself, and the slot's issued files (TLS leaf, key, NATS credentials) are
-// checked by the generation's issuance rules instead of a digest. An issued
-// file still byte-identical to its manifest pin is accepted too, until the
-// slot's first renewal.
+// for the renewable files and add its controller issuers, its interregion
+// files (of the slot-bound ones, only this slot's) and the chain file itself,
+// and the slot's issued files (TLS leaf, key, NATS credentials) are checked by
+// the generation's issuance rules instead of a digest. An issued file still
+// byte-identical to its manifest pin is accepted too, until the slot's first
+// renewal. Without controller issuers (schema 2) nothing is issued: the
+// issued files keep their manifest pins.
 type MaterialPins struct {
 	Digests map[string]string
 	// Issued maps each issued file to its manifest digest; empty before a
-	// generation is adopted.
+	// generation with controller issuers is adopted.
 	Issued     map[string]string
 	Generation *bootstrap.VerifiedMaterialGeneration
 	slot       string
 	identity   bootstrapmaterial.LeafIdentity
+	// config is the loaded controller config, which a schema-2 generation
+	// pins as controller-<slot>.json (TS-668).
+	config []byte
 }
 
 // ManifestPins pins exactly the manifest's material.
@@ -47,6 +53,20 @@ func (pins MaterialPins) known(name string) bool {
 }
 
 func (pins MaterialPins) size() int { return len(pins.Digests) + len(pins.Issued) }
+
+// interRegion reports whether the adopted generation pins name as an
+// interregion file this slot holds.
+func (pins MaterialPins) interRegion(name string) bool {
+	if pins.Generation == nil || pins.Digests[name] == "" {
+		return false
+	}
+	for _, secret := range pins.Generation.Generation().Secrets {
+		if secret.TargetFile == name {
+			return secret.Purpose == bootstrap.SecretInterRegion
+		}
+	}
+	return false
+}
 
 // restartPins reads the adopted chain, if any, from the open credential
 // directory and builds the pins for one slot of the manifest. The chain is
@@ -79,23 +99,49 @@ func restartPins(dir int, uid, gid uint32, manifest bootstrap.Manifest, roots tr
 	for name, want := range digests {
 		pins.Digests[name] = want
 	}
+	generation := newest.Generation()
 	for _, name := range bootstrapmaterial.IssuedFiles(manifest.Slot) {
 		if digests[name] == "" {
 			return MaterialPins{}, fmt.Errorf("%w: issued file %s is not part of this install", ErrMaterial, name)
 		}
-		pins.Issued[name] = digests[name]
-		delete(pins.Digests, name)
+		if generation.AccountSigner != "" {
+			pins.Issued[name] = digests[name]
+			delete(pins.Digests, name)
+		}
 	}
-	for _, secret := range newest.Generation().Secrets {
-		pins.Digests[secret.TargetFile] = secret.SHA256
+	for _, secret := range generation.Secrets {
+		if secret.Slot == "" || secret.Slot == manifest.Slot {
+			pins.Digests[secret.TargetFile] = secret.SHA256
+		}
 	}
 	pins.Digests[MaterialGenerationsFile] = digest(wire)
 	return pins, nil
 }
 
+// controllerConfigSHA256 is the controller config digest a restart of the
+// manifest's slot expects (TS-668): the newest adopted generation's config
+// for the slot when it pins one, which must be bound to manifestSHA256, the
+// accepted manifest; otherwise the manifest's own.
+func (pins MaterialPins) controllerConfigSHA256(manifest bootstrap.Manifest, manifestSHA256 string) (string, error) {
+	if pins.Generation != nil {
+		for _, config := range pins.Generation.Generation().ControllerConfigs {
+			if config.Slot != manifest.Slot {
+				continue
+			}
+			if config.ManifestSHA256 != manifestSHA256 {
+				return "", fmt.Errorf("%w: the adopted generation's controller config for %s is bound to another manifest",
+					ErrMaterial, config.Slot)
+			}
+			return config.SHA256, nil
+		}
+	}
+	return manifest.ControllerConfigSHA256, nil
+}
+
 // verifyGeneration checks the newest generation's pinned files again at now,
 // with the rules they were signed under (CA bundle, issuers, JWTs, system
-// credentials, all current), then the slot's issued files.
+// credentials, interregion files and the loaded controller config, all
+// current), then the slot's issued files.
 func (pins MaterialPins) verifyGeneration(dir int, uid, gid uint32, now time.Time) error {
 	if pins.Generation == nil {
 		return nil
@@ -107,6 +153,13 @@ func (pins MaterialPins) verifyGeneration(dir int, uid, gid uint32, now time.Tim
 			pins.Generation.ExpiresAt().Format(time.RFC3339))
 	}
 	if _, err := bootstrapmaterial.CheckGenerationFiles(pins.Generation.Generation(), func(name string) ([]byte, error) {
+		if name == "controller-"+pins.slot+".json" {
+			return pins.config, nil
+		}
+		if pins.Digests[name] == "" {
+			// Another slot's leaf TLS or config: never held here.
+			return nil, fs.ErrNotExist
+		}
 		return readMaterial(dir, name, uid, gid, pins.Digests[name], bootstrap.MaxSecretBytes)
 	}, now); err != nil {
 		return fmt.Errorf("%w: adopted material generation: %w", ErrMaterial, err)
@@ -115,9 +168,10 @@ func (pins MaterialPins) verifyGeneration(dir int, uid, gid uint32, now time.Tim
 }
 
 // verifyIssued checks the slot's issued files against the newest generation,
-// whose pinned issuer and bundle are read from the same directory.
+// whose pinned issuer and bundle are read from the same directory. Without
+// controller issuers they are pinned by digest instead.
 func (pins MaterialPins) verifyIssued(dir int, uid, gid uint32, now time.Time) error {
-	if pins.Generation == nil {
+	if pins.Generation == nil || len(pins.Issued) == 0 {
 		return nil
 	}
 	files := map[string][]byte{}
