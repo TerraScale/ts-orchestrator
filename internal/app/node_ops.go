@@ -781,6 +781,9 @@ func (o *nodeOps) rename(ctx context.Context, epoch uint64, api lb.API, spec cel
 			if err := step("fence"); err != nil {
 				return err
 			}
+			if err := o.adoptFence(ctx, epoch, op.From, op.Node); err != nil {
+				return err
+			}
 			if err := o.fence.fence(ctx, api, epoch, spec, op.Node, address, durationOr(spec.DrainGraceSeconds,
 				defaultFenceGrace), holdOperation); err != nil {
 				return err
@@ -873,14 +876,18 @@ func (o *nodeOps) moveDesired(ctx context.Context, epoch uint64, from, to string
 		}
 		// The workload reconciler may have placed the replica already.
 		if !slices.ContainsFunc(desired, func(e host.Desired) bool { return e.Node == to && e.Role == d.Role && !e.Withdrawn }) {
+			if err := o.carryPermit(ctx, epoch, d, from, to); err != nil {
+				return false, err
+			}
 			moved := d
 			moved.Node, moved.AuthorityEpoch = to, epoch
 			if _, err := o.desired.ApplyDesired(ctx, moved); err != nil {
 				return false, fmt.Errorf("move %s to %s: %w", d.Role, to, err)
 			}
 		}
-		withdrawn := d
-		withdrawn.Withdrawn, withdrawn.AuthorityEpoch = true, epoch
+		// A withdrawal carries no execution data and moves the generation on.
+		withdrawn := host.Desired{Cell: d.Cell, Node: d.Node, Environment: d.Environment, Role: d.Role,
+			Generation: d.Generation + 1, AuthorityEpoch: epoch, Withdrawn: true}
 		if _, err := o.desired.ApplyDesired(ctx, withdrawn); err != nil {
 			return false, fmt.Errorf("withdraw %s from %s: %w", d.Role, from, err)
 		}
@@ -889,6 +896,53 @@ func (o *nodeOps) moveDesired(ctx context.Context, epoch uint64, from, to string
 	// a host plane API removes registrations.
 	_, err = o.desired.RetireIdle(ctx, from)
 	return err == nil, err
+}
+
+// carryPermit gives to the permit from holds for d's release: a release the
+// fence sequences starts a host only on its node's permit, and the renamed
+// node already ran this one.
+func (o *nodeOps) carryPermit(ctx context.Context, epoch uint64, d host.Desired, from, to string) error {
+	release := releaseOf(d.Generation)
+	if _, err := o.fence.kv.Get(ctx, permitKey(d.Role, release, from)); errors.Is(err, jetstream.ErrKeyNotFound) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if err := o.fence.fencer.Guard(ctx, epoch); err != nil {
+		return err
+	}
+	_, err := o.fence.kv.Put(ctx, permitKey(d.Role, release, to), []byte("{}"))
+	return err
+}
+
+// adoptFence moves the old name's fence record, its holders and backends,
+// to the new name, so they return with the renamed node.
+func (o *nodeOps) adoptFence(ctx context.Context, epoch uint64, from, to string) error {
+	defer o.fence.lockNode(from)()
+	defer o.fence.lockNode(to)()
+	old, found, err := o.fence.record(ctx, from)
+	if err != nil || !found {
+		return err
+	}
+	record, _, err := o.fence.record(ctx, to)
+	if err != nil {
+		return err
+	}
+	for _, backend := range old.Backends {
+		if !slices.Contains(record.Backends, backend) {
+			record.Backends = append(record.Backends, backend)
+		}
+	}
+	for _, holder := range old.holders() {
+		if !slices.Contains(record.Holders, holder) {
+			record.Holders = append(record.Holders, holder)
+		}
+	}
+	slices.Sort(record.Holders)
+	if err := o.fence.save(ctx, epoch, to, record); err != nil {
+		return err
+	}
+	return o.fence.deleteGuarded(ctx, epoch, fencedKey(from))
 }
 
 // removeBackends deletes node's backends from every fenced set and from

@@ -500,7 +500,8 @@ func newRenameHosts() *renameHosts {
 		sessions: map[string]string{"ctl-1": "s1", "ctl-2": "s2", "ctl-3": "s3"}, desired: map[string]host.Desired{}}
 	for _, node := range h.nodes {
 		for _, role := range []string{"terrabase", "ts-auth"} {
-			h.desired[node+"/"+role] = host.Desired{Node: node, Role: role, Generation: 7}
+			h.desired[node+"/"+role] = host.Desired{Node: node, Role: role, Generation: 15,
+				Digest: strings.Repeat("a", 64), Env: map[string]string{"ROLE": role}}
 		}
 	}
 	return h
@@ -541,9 +542,18 @@ func (h *renameHosts) ListDesired(_ context.Context, role string) ([]host.Desire
 	return desired, nil
 }
 
+// ApplyDesired refuses what the host controller refuses: a withdrawal with
+// execution data, and a generation that moves back or changes in place.
 func (h *renameHosts) ApplyDesired(_ context.Context, d host.Desired) (host.Receipt, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if d.Withdrawn && (d.Digest != "" || len(d.Args) != 0 || len(d.Env) != 0 || len(d.Secrets) != 0) {
+		return host.Receipt{}, errors.New("withdrawn desired contains execution data")
+	}
+	if current, ok := h.desired[d.Node+"/"+d.Role]; ok && (d.Generation < current.Generation ||
+		d.Generation == current.Generation && current.Withdrawn != d.Withdrawn) {
+		return host.Receipt{}, errors.New("generation moved backward or changed within a generation")
+	}
 	h.desired[d.Node+"/"+d.Role] = d
 	return host.Receipt{}, nil
 }
@@ -589,11 +599,28 @@ func TestNodeRenameReenrollsTheHostAndMovesItsRoles(t *testing.T) {
 	if _, err := ops.submit(ctx, 3, "mariogk", "op-1", nodeOpRequest{Node: "ctl-1", Op: nodeOpRename}); err == nil {
 		t.Fatal("a rename without --new-name was queued")
 	}
+	// ctl-1 ran TerraBase release 15 on its permit, and a failed operation
+	// left it held out under its old name.
+	for _, key := range []string{sequencedKey("terrabase", 15), permitKey("terrabase", 15, "ctl-1")} {
+		if _, err := ops.fence.kv.Put(ctx, key, []byte("{}")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	api, _ := ops.fence.client(ctx)
+	if err := ops.fence.fence(ctx, api, 3, *spec, "ctl-1", "10.0.0.11", time.Millisecond, holdOperation); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := ops.submit(ctx, 3, "mariogk", "op-1", request); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := ops.fence.kv.Get(ctx, permitKey("terrabase", 15, "ts-gru-1")); err != nil {
+		t.Fatalf("the renamed node has no permit for the release it runs: %v", err)
+	}
+	if _, found, _ := ops.fence.record(ctx, "ctl-1"); found {
+		t.Fatal("the old name's fence record was left")
 	}
 	if op := ops.operation(t, "ts-gru-1"); op.State != nodeOpDone || op.From != "ctl-1" || op.Instance != "ocid1.instance.ctl-1" ||
 		op.Session != "s1" {
@@ -603,8 +630,8 @@ func TestNodeRenameReenrollsTheHostAndMovesItsRoles(t *testing.T) {
 		t.Fatalf("instances %q, want %q", instances.calls, want)
 	}
 	for _, role := range []string{"terrabase", "ts-auth"} {
-		if moved, old := hosts.desired["ts-gru-1/"+role], hosts.desired["ctl-1/"+role]; moved.Withdrawn || moved.Generation != 7 ||
-			moved.AuthorityEpoch != 3 || !old.Withdrawn {
+		if moved, old := hosts.desired["ts-gru-1/"+role], hosts.desired["ctl-1/"+role]; moved.Withdrawn || moved.Generation != 15 ||
+			moved.AuthorityEpoch != 3 || moved.Digest == "" || !old.Withdrawn || old.Generation != 16 || old.Digest != "" {
 			t.Fatalf("%s desired: new %+v, old %+v", role, moved, old)
 		}
 	}
