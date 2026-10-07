@@ -809,7 +809,8 @@ releases/v1/services/<role>/status.json         the region leader's report
 
 1. The service's CI runs `ts-orch release service-deploy` (the
    `ts-orchestrator` CI binary its repository variables `TS_ORCH_RELEASE`
-   and `TS_ORCH_SHA256` pin; bump both together): it reads the role's release key from OCI
+   and `TS_ORCH_SHA256` pin; bump both together and clear that release's
+   prerelease flag so retention keeps the CI tool): it reads the role's release key from OCI
    Vault, and for each cell in order, the canary first, uploads the binary
    to the cell's head bucket, signs a delivery artifact claim (digest, size,
    repository, commit, `git archive` tree digest, computed without local Git settings, cell, role, environment)
@@ -1105,6 +1106,14 @@ rollout's predecessor; service roles report their persisted previous digest.
 Both include all durable known-bad keys, even entries older than the bounded
 orchestrator cell list. Pin changes refresh status even when release progress
 has not changed. No `TS_RELEASE_PINS` repo variable is needed for these pins.
+Retain external CI tools (`TS_ORCH_RELEASE` and `TS_PRUNE_ORCH_RELEASE`) and
+founding images through Forgejo's native non-prerelease flag, because they
+are dependencies outside the cell's rollback inventory. Clear that flag on
+each newly selected tool or founding image before retiring its predecessor.
+The former manual pins were retained this way for TS-653: tool
+`ci-214cf4ddbe0c6b1a93f6ecdde710c7d05b9f44fc-run-14652`, founding image
+`image-d30f42663eb4c5ba9e5f0917fd8bb5df98dbe309-run-13042-attempt-1`, and
+`ci-a33737f4497f1a1efe429bf31ac6d9a836a83658-run-14752`.
 
 The pruning workflow uses `fleet-status --require-pins`: it refuses a missing
 status or a leader that has not published pins yet. Deploy the updated leader
