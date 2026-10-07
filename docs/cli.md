@@ -91,6 +91,9 @@ naming scheme and who may read what.
 | --- | --- |
 | `ts-orch vault put --vault-id OCID --key-id OCID --compartment-id OCID --name NAME --file FILE` | Store FILE once as secret NAME with the operator's `~/.oci/config`, then prove the stored copy equals FILE |
 | `ts-orch vault render --vault-id OCID --scope SCOPE --template FILE --out FILE` | On a host, as root: fill each `{{KEY}}` with secret `<scope>-<key>` read with the instance principal; write FILE atomically, mode `0600` |
+| `ts-orch region plan LABEL OCI_REGION --out FILE [--from PLAN]` | Derive a non-home region's plan from another region's reviewed plan; reads OCI, creates nothing ([new region](new-region.md)) |
+| `ts-orch region create LABEL OCI_REGION --state DIR --attempt-base FILE` | Bring the region up: foundation, NetBird, founding attempt, edge, DNS, Atlas, verify; resumable, prints each step's wall time |
+| `ts-orch region verify LABEL --plan BOUND_PLAN [--wait D]` | Fail unless api and auth answer, every load balancer backend is healthy and Atlas lists the region |
 | `ts-orch atlas key --plan FILE` | Store the Atlas publish key once as `<cell>-atlas-publish-key`; print the Worker's `PUBLISH_KEYS` (see [Atlas](atlas.md)) |
 | `ts-orch atlas add-region --config OPERATOR_JSON --cell CELL [--out FILE]` | Plan listing a catalog region in the global home's `atlas` section; `--out` writes the unsigned candidate for `release sign-spec --root` (see [Atlas](atlas.md#add-a-region)) |
 | `ts-orch atlas publish --plan FILE --section FILE` | Publish a cell spec `atlas` section to Atlas once, as the leader does every 10 s |

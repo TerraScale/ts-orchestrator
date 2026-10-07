@@ -261,7 +261,8 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
 ## Second region
 
 SFO (`sfo-1`, `us-sanjose-1`, TS-640) is founded with the same tools as GRU.
-What differs:
+The next region runs them all with one command, `ts-orch region create`
+([new region](new-region.md)). What differs from GRU:
 
 - **Plan.** `deploy/oci-region/sfo-1-plan.json`: three colocated nodes
   `ts-sfo-1`..`3` (controller, TerraBase member and ts-auth on each, no
