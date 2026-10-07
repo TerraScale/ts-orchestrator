@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
@@ -15,7 +16,7 @@ import (
 // live instance under the GRU cell prefix must carry a static name.
 func TestLiveReadOnlyCellInstancesFollowTheNamingScheme(t *testing.T) {
 	compartments := tier.Qualification(t, "TS_OCI_LIVE_COMPARTMENTS")[0]
-	cloud, err := newSDKCloud(Region)
+	cloud, err := newSDKCloud(catalog.OCIRegion(catalog.GRU))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -76,6 +77,45 @@ func (fixture delegationFixture) args(output string) []string {
 		"--arch", "amd64", "--arch", "arm64",
 		"--issued-at", fixture.now.Add(-time.Minute).Format(time.RFC3339),
 		"--expires-at", fixture.now.Add(time.Hour).Format(time.RFC3339), "--out", output}
+}
+
+// A second region's image is delegated for its own cell: the OCID must be
+// one of that cell's region.
+func TestSignDelegationImageOfAnotherCatalogCell(t *testing.T) {
+	fixture := newDelegationFixture(t)
+	first := filepath.Join(fixture.directory, "binary-delegation.json")
+	if err := signDelegationAt(fixture.args(first), fixture.now); err != nil {
+		t.Fatal(err)
+	}
+	image := filepath.Join(fixture.directory, "image-delegation.json")
+	for _, args := range [][]string{{"--image-cell", "LHR", "--image-ocid", testDelegationImageOCID},
+		{"--image-cell", "SFO", "--image-ocid", testDelegationImageOCID}} {
+		if err := signDelegationAt(append(fixture.args(image), append(args, "--previous-delegation", first)...), fixture.now); err == nil {
+			t.Fatal("signed an image delegation outside its cell's region", args)
+		}
+	}
+	sfo := "ocid1.image.oc1.us-sanjose-1.ABC123"
+	if err := signDelegationAt(append(fixture.args(image), "--image-cell", "SFO", "--image-ocid", sfo, "--previous-delegation", first), fixture.now); err != nil {
+		t.Fatal(err)
+	}
+	wire, err := os.ReadFile(image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := trust.DecodeEnvelope(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots, err := trust.ParseKeyring(fixture.rootPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delegation, err := trust.VerifyDelegationCurrent(envelope, roots, fixture.now,
+		trust.Policy{MaxLifetime: release.MaxDelegationLifetime, ClockSkew: time.Minute})
+	want := capabilityForScope(release.ImageScope(release.ImageReceipt{SourceRevision: testRevision, OCIRegion: "SFO", OCIImageOCID: sfo}, "canary"))
+	if err != nil || !slices.ContainsFunc(delegation.Capabilities(), func(c trust.Capability) bool { return reflect.DeepEqual(c, want) }) {
+		t.Fatal(err, delegation.Capabilities())
+	}
 }
 
 func TestSignDelegationBinaryThenImageRetainsBinaryAuthority(t *testing.T) {

@@ -398,24 +398,34 @@ func TestTerraBaseStopsOnATamperedChecksumOrABadCommit(t *testing.T) {
 	}
 }
 
+// The image is imported into the plan's own region under its cell's static
+// name, and every release record names that cell.
 func TestImageImportsTheStaticCellImageName(t *testing.T) {
-	a := smallAttempt(t)
-	a.Config["orchestrator"] = Object{"source_revision": terrabaseCommit}
-	a.writeJSON(a.Plan(), Object{"resource_ids": Object{"control_compartment": "ocid1.compartment.oc1..c"}})
-	if err := a.WriteNew(a.Path("image", "terrascale-arm64.qcow2"), []byte("qcow2")); err != nil {
-		t.Fatal(err)
-	}
-	var display string
-	a.Runner = func(_ context.Context, c Command) (string, error) {
-		if slices.Contains(c.Args, "import-image") {
-			display = flagValue(c.Args, "--display-name")
-			return "", os.WriteFile(flagValue(c.Args, "--out"), []byte(`{"image_id":"ocid1.image.fixture"}`), 0600)
+	for cell, want := range map[string][2]string{"GRU": {"gru-1-arm64", "sa-saopaulo-1"}, "SFO": {"sfo-1-arm64", "us-sanjose-1"}} {
+		a := smallAttempt(t)
+		a.Config["orchestrator"] = Object{"source_revision": terrabaseCommit}
+		a.writeJSON(a.Plan(), Object{"cell": cell, "resource_ids": Object{"control_compartment": "ocid1.compartment.oc1..c"}})
+		if err := a.WriteNew(a.Path("image", "terrascale-arm64.qcow2"), []byte("qcow2")); err != nil {
+			t.Fatal(err)
 		}
-		return "", nil
-	}
-	a.PhaseImage()
-	if a.Err() != nil || display != "gru-1-arm64" {
-		t.Fatal(a.Err(), display)
+		var display, region string
+		var cells []string
+		a.Runner = func(_ context.Context, c Command) (string, error) {
+			if slices.Contains(c.Args, "import-image") {
+				display, region = flagValue(c.Args, "--display-name"), flagValue(c.Args, "--region")
+				return "", os.WriteFile(flagValue(c.Args, "--out"), []byte(`{"image_id":"ocid1.image.fixture"}`), 0600)
+			}
+			for _, flag := range []string{"--image-cell", "--region"} {
+				if value := flagValue(c.Args, flag); value != "" {
+					cells = append(cells, value)
+				}
+			}
+			return "", nil
+		}
+		a.PhaseImage()
+		if a.Err() != nil || display != want[0] || region != want[1] || len(cells) != 3 || slices.ContainsFunc(cells, func(c string) bool { return c != cell }) {
+			t.Fatal(cell, a.Err(), display, region, cells)
+		}
 	}
 }
 

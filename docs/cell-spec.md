@@ -107,7 +107,8 @@ gives a host credentials, so a root must sign it; revoking one is ordinary.
 
 Controllers run ts-auth this way. A controller VM carries no host
 descriptor, so its `host-setup` names itself after its launch slot
-(`controller-b` is `gru-1-ctl-2`). Grant each controller its own address:
+(`controller-b` is `gru-1-ctl-2`, or `ts-sfo-2` in sfo-1). Grant each
+controller its own address:
 
 ```sh
 ts-orch service grant-host --config "$OPERATOR" --node gru-1-ctl-1 \

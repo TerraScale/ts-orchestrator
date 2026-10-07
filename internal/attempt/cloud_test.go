@@ -107,7 +107,7 @@ func (p *policyCloud) GetObject(_ context.Context, _, _, name string) ([]byte, b
 func TestControllerObjectGrantsReplaceOnlyDifferingStatements(t *testing.T) {
 	a := smallAttempt(t)
 	a.Sleep = func(context.Context, time.Duration) error { return nil }
-	plan := Object{"region": Region, "foundation_buckets": Object{"ledger": "ledger", "head": "head", "backup": "backup", "material": "material"}}
+	plan := Object{"cell": "GRU", "region": "sa-saopaulo-1", "foundation_buckets": Object{"ledger": "ledger", "head": "head", "backup": "backup", "material": "material"}}
 	ids := Object{"controller_policy": "ocid1.policy.oc1..p", "controller_dynamic_group": "ocid1.dynamicgroup.oc1..g",
 		"control_compartment": "ocid1.compartment.oc1..c", "key": "ocid1.key.oc1.sa-saopaulo-1.k", "vault": "ocid1.vault.oc1.sa-saopaulo-1.v"}
 	plan["resource_ids"] = ids
@@ -133,7 +133,7 @@ func TestControllerObjectGrantsRefuseAnUnconditionalPolicyUpdate(t *testing.T) {
 	a.Sleep = func(context.Context, time.Duration) error { return nil }
 	ids := Object{"controller_policy": "ocid1.policy.oc1..p", "controller_dynamic_group": "ocid1.dynamicgroup.oc1..g",
 		"control_compartment": "ocid1.compartment.oc1..c", "key": "ocid1.key.oc1.sa-saopaulo-1.k", "vault": "ocid1.vault.oc1.sa-saopaulo-1.v"}
-	plan := Object{"region": Region, "foundation_buckets": Object{"ledger": "ledger", "head": "head", "backup": "backup", "material": "material"}, "resource_ids": ids}
+	plan := Object{"cell": "GRU", "region": "sa-saopaulo-1", "foundation_buckets": Object{"ledger": "ledger", "head": "head", "backup": "backup", "material": "material"}, "resource_ids": ids}
 	cloud := &policyCloud{statements: []string{"stale"}}
 	a.Cloud = cloud
 	a.controllerObjectGrants(plan)
@@ -159,7 +159,7 @@ func TestContinuityMarkerReadRetriesThenWritesExactBytes(t *testing.T) {
 		}
 		return nil
 	}
-	a.writeJSON(a.Plan(), Object{"foundation_buckets": Object{"head": "head"}})
+	a.writeJSON(a.Plan(), Object{"cell": "GRU", "foundation_buckets": Object{"head": "head"}})
 	a.Runner = func(context.Context, Command) (string, error) { return "", errors.New("stop after markers") }
 	a.PhaseContinuity()
 	for _, slot := range Slots {
@@ -189,7 +189,7 @@ func TestContinuityMarkerPollAnnouncesOncePerSlot(t *testing.T) {
 		}
 		return nil
 	}
-	a.writeJSON(a.Plan(), Object{"foundation_buckets": Object{"head": "head"}})
+	a.writeJSON(a.Plan(), Object{"cell": "GRU", "foundation_buckets": Object{"head": "head"}})
 	a.Runner = func(context.Context, Command) (string, error) { return "", errors.New("stop after markers") }
 	a.PhaseContinuity()
 	if cloud.reads < 3 {
@@ -283,7 +283,7 @@ func TestContinuityRendersFromAdoptedGenerations(t *testing.T) {
 		}
 		a.Cloud = cloud
 		a.Sleep = func(context.Context, time.Duration) error { return nil }
-		a.writeJSON(a.Plan(), Object{"foundation_buckets": Object{"head": "head"}})
+		a.writeJSON(a.Plan(), Object{"cell": "GRU", "foundation_buckets": Object{"head": "head"}})
 		chain := a.Path("material-generations.json")
 		if adopted {
 			a.WriteNew(chain, []byte("[]"))

@@ -64,7 +64,7 @@ and release it like any other change.
 | `ts-orch netbird sync [--apply] [--pat-file FILE]` | Compares the manager with the desired state and prints the plan; `--apply` reconciles it |
 | `ts-orch netbird prune-peers [--apply] [--offline-for DURATION]` | Plans peer hygiene for `gru-servers`: deletes disconnected peers that hold a live slot's IP or name, deletes unmatched peers offline longer than the threshold (default `24h`, minimum `1h`), and renames each slot's live peer to its slot name; `--apply` performs it |
 | `ts-orch netbird remove-peers (--slot NAME... \| --all) [--apply]` | Plans deleting the disconnected `gru-servers` peers of decommissioned slots (matched by slot IP or slot peer name, e.g. `--slot ctl-1`), or every disconnected server peer with `--all`; connected peers are reported and kept |
-| `ts-orch netbird setup-key --out FILE [--apply]` | Plans the server setup key `gru-servers`: reusable, never expiring, auto-assigning only `gru-servers`; `--apply` creates it and writes its value only to FILE, a new `0600` file |
+| `ts-orch netbird setup-key --out FILE [--servers-group GROUP] [--apply]` | Plans the server setup key `gru-servers` (or GROUP, e.g. `sfo-servers`): reusable, never expiring, auto-assigning only that group; `--apply` creates it and writes its value only to FILE, a new `0600` file |
 | `ts-orch netbird inventory` | Prints groups, policies, networks, DNS and peers as the manager reports them |
 
 Without `--apply` the commands only read. Keep the PAT in a root-owned `0600`
@@ -129,17 +129,22 @@ reconciliation never sets group membership.
 | `operators` | Operator devices | User auto-group, or a one-off setup key |
 | `ts-ops-gateway` | ts-ops only | One-off gateway setup key |
 | `gru-servers` | GRU controllers and managed hosts | Reusable server setup key |
+| `sfo-servers` | sfo-1 nodes `ts-sfo-1`..`3` | Reusable server setup key `sfo-servers` (`setup-key --servers-group sfo-servers`) |
 | `ops-automation` | [Operator automation peers](#operator-automation-peer) | One-off setup key |
 
 Network `gru-cell` ("TerraScale GRU private cell") holds resource
 `gru-cell-private-subnet` (`10.251.0.0/25`) and one router: peer `ts-ops`,
-masquerade on, metric 100. The router must be in `ts-ops-gateway`.
+masquerade on, metric 100. The router must be in `ts-ops-gateway`. sfo-1 has
+no network resource: ts-ops cannot route to another region's private subnet,
+so its nodes are reached with NetBird SSH only.
 
 | Policy (= rule name) | Source → destination | Protocol, ports | Direction |
 | --- | --- | --- | --- |
 | `operators-to-gru-cell-ops-ports` | `operators` → resource `gru-cell-private-subnet` | TCP 22, 4222, 9465 | one-way |
 | `operators-to-gru-servers-ssh` | `operators` → `gru-servers` | `netbird-ssh` | one-way |
 | `ops-automation-to-gru-servers-ssh` | `ops-automation` → `gru-servers` | `netbird-ssh` | one-way |
+| `operators-to-sfo-servers-ssh` | `operators` → `sfo-servers` | `netbird-ssh` | one-way |
+| `ops-automation-to-sfo-servers-ssh` | `ops-automation` → `sfo-servers` | `netbird-ssh` | one-way |
 | `operators-to-ts-ops-forgejo` | `operators` → `ts-ops-gateway` | TCP 22, 443, 2022 | one-way |
 | `operators-to-ts-ops-ping` | `operators` → `ts-ops-gateway` | ICMP | one-way |
 
@@ -166,7 +171,7 @@ The dashboard's Control Center draws every policy; keep it readable:
 | `nb.ts.internal` | Peer names (account DNS domain), e.g. `ts-ops`, `gru-1-ctl-1`, `mariogk-laptop` | Every peer with NetBird DNS on |
 | `gru.ts.internal` | Stable cell names (custom zone, no search domain) | `operators` only |
 
-`gru-servers` keep NetBird DNS management disabled, matching their
+`gru-servers` and `sfo-servers` keep NetBird DNS management disabled, matching their
 `--disable-dns` enrollment. `.local` is avoided: it is reserved for mDNS and
 systemd-resolved sends it to multicast. Cell names point at fixed slot private
 IPs and never change across GRU revisions or deployments.

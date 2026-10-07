@@ -357,7 +357,7 @@ func TestAttemptMaterialWritesCanonicalIdentity(t *testing.T) {
 	a, work := attemptFixture(t, false)
 	script.Write(t, filepath.Join(work, "tools", "ts-orch"), []byte("tool\n"), 0700)
 	plan := filepath.Join(work, "base-plan.json")
-	script.Write(t, plan, []byte(`{"resource_ids":{"instances":{}}}`), 0600)
+	script.Write(t, plan, []byte(`{"cell":"GRU","resource_ids":{"instances":{}}}`), 0600)
 	a.Config["base_plan"] = plan
 	sentinel := errors.New("stop after the identity")
 	a.Runner = func(context.Context, attempt.Command) (string, error) { return "", sentinel }
@@ -372,7 +372,7 @@ func TestAttemptSignEmbedsThePeerDelegationVerbatim(t *testing.T) {
 	// Payload keys are deliberately unsorted: they are signed bytes.
 	peer := `{"schemaVersion":1,"keyId":"sha256:k","payload":{"subjectKeyId":"sha256:s","schemaVersion":1},"signature":"sig"}`
 	files := map[string]string{
-		"plan.json":                           `{"resource_ids":{},"hosts":[]}`,
+		"plan.json":                           `{"cell":"GRU","resource_ids":{},"hosts":[]}`,
 		"anchor.signed.json":                  `{"payload":{}}`,
 		"controller-vault-references.json":    `{"references":[]}`,
 		"image/import.json":                   `{"image_id":"ocid1.image.fixture"}`,
@@ -397,7 +397,7 @@ func TestAttemptSignEmbedsThePeerDelegationVerbatim(t *testing.T) {
 }
 func TestAttemptMembersBindsLaunchedSeedBeforeAdmission(t *testing.T) {
 	a, work := attemptFixture(t, false)
-	script.Write(t, filepath.Join(work, "plan.json"), []byte(`{"resource_ids":{"instances":{"controller-a":null}},"hosts":[{"slot":"member-a"}]}`), 0600)
+	script.Write(t, filepath.Join(work, "plan.json"), []byte(`{"cell":"GRU","resource_ids":{"instances":{"controller-a":null}},"hosts":[{"slot":"member-a"}]}`), 0600)
 	script.Write(t, filepath.Join(work, "launch", "controller-a.ocid"), []byte("ocid1.instance.oc1..seed\n"), 0600)
 	a.Runner = func(context.Context, attempt.Command) (string, error) { return "", errors.New("no commands") }
 	a.PhaseMembers()

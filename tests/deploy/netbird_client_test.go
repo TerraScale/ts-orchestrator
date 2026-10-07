@@ -394,6 +394,37 @@ func TestGRUNetbirdInputNamesEveryCellSlotStably(t *testing.T) {
 	}
 }
 
+// sfo-1's servers enroll under their node names through the manager's public
+// address: no management_ip pins a private operator gateway, and no admin PAT
+// makes them reconcile the manager.
+func TestSFONetbirdInputNamesEveryNode(t *testing.T) {
+	path := filepath.Join(deployRoot(t), "deploy/image/inputs/netbird-sfo.json")
+	config, err := client.ValidateConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plan struct {
+		Region string `json:"region"`
+		Hosts  []struct {
+			Slot      string `json:"slot"`
+			PrivateIP string `json:"private_ip"`
+		} `json:"hosts"`
+	}
+	if err := json.Unmarshal(read(t, filepath.Join(deployRoot(t), "deploy/oci-region/sfo-1-plan.json")), &plan); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"controller-a": "ts-sfo-1", "controller-b": "ts-sfo-2", "controller-c": "ts-sfo-3"}
+	if config.Region != plan.Region || config.ManagementIP != "" || config.AdminPATSecretID != "" ||
+		len(plan.Hosts) != len(want) || len(config.PeerNames) != len(want) {
+		t.Fatalf("config %+v, plan %+v", config, plan)
+	}
+	for _, host := range plan.Hosts {
+		if got := config.PeerNames[host.PrivateIP]; got != want[host.Slot] {
+			t.Errorf("slot %s at %s is named %q, want %q", host.Slot, host.PrivateIP, got, want[host.Slot])
+		}
+	}
+}
+
 func TestNetbirdPublicConfigAdminPATSecretMustBeInRegion(t *testing.T) {
 	// An empty or null ID means absent, matching netbird.Config.
 	for _, tc := range []struct {

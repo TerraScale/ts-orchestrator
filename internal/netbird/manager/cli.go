@@ -24,13 +24,14 @@ const usage = `Usage:
   ts-orch netbird sync [--apply] [--pat-file FILE] [--management-url URL]
   ts-orch netbird prune-peers [--apply] [--offline-for 24h] [--pat-file FILE] [--management-url URL]
   ts-orch netbird remove-peers (--slot NAME... | --all) [--apply] [--pat-file FILE] [--management-url URL]
-  ts-orch netbird setup-key --out FILE [--apply] [--pat-file FILE] [--management-url URL]
+  ts-orch netbird setup-key --out FILE [--servers-group GROUP] [--apply] [--pat-file FILE] [--management-url URL]
   ts-orch netbird inventory [--pat-file FILE] [--management-url URL]
 
 Without --apply, sync, prune-peers, remove-peers and setup-key print the
 planned changes only. remove-peers deletes the disconnected server peers of
 decommissioned slots. setup-key creates the servers' setup key and writes its
-value to a new owner-only file. The admin PAT comes from --pat-file (a regular
+value to a new owner-only file; --servers-group names another region's servers
+group (sfo-servers), whose key carries that name. The admin PAT comes from --pat-file (a regular
 owner-only file) or NB_PAT.
 `
 
@@ -47,7 +48,7 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 	managementURL := flags.String("management-url", DefaultManagementURL, "NetBird management origin")
 	var apply, all *bool
 	var offlineFor *time.Duration
-	var out *string
+	var out, serversGroup *string
 	var slots []string
 	switch command {
 	case "sync":
@@ -65,6 +66,7 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 	case "setup-key":
 		apply = flags.Bool("apply", false, "create the key")
 		out = flags.String("out", "", "new owner-only file that receives the key value")
+		serversGroup = flags.String("servers-group", "", "servers group the key auto-assigns (default the GRU servers group)")
 	case "inventory":
 	default:
 		return fmt.Errorf("unknown netbird command %q", command)
@@ -118,7 +120,11 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		writeReport(stdout, report, *apply, err)
 		return err
 	case "setup-key":
-		report, err := createSetupKeyFile(ctx, api, *out, *apply)
+		desired := GRU()
+		if *serversGroup != "" {
+			desired.ServersGroup, desired.SetupKeyName = *serversGroup, *serversGroup
+		}
+		report, err := createSetupKeyFile(ctx, api, desired, *out, *apply)
 		writeReport(stdout, report, *apply, err)
 		return err
 	default:
@@ -128,15 +134,15 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 
 // createSetupKeyFile creates the file before the key, so a refused path
 // never leaves an unsaved key behind, and removes it when the run fails.
-func createSetupKeyFile(ctx context.Context, api *API, path string, apply bool) (Report, error) {
+func createSetupKeyFile(ctx context.Context, api *API, d Desired, path string, apply bool) (Report, error) {
 	if !apply {
-		return CreateServerSetupKey(ctx, api, GRU(), io.Discard, false)
+		return CreateServerSetupKey(ctx, api, d, io.Discard, false)
 	}
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return Report{}, fmt.Errorf("cannot create the setup key file: %w", err)
 	}
-	report, err := CreateServerSetupKey(ctx, api, GRU(), file, true)
+	report, err := CreateServerSetupKey(ctx, api, d, file, true)
 	if closeErr := file.Close(); err == nil && closeErr != nil {
 		err = fmt.Errorf("setup key file was not saved, revoke the new key: %w", closeErr)
 	}

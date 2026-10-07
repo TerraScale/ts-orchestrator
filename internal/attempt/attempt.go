@@ -26,13 +26,14 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
 )
 
-const Region = "sa-saopaulo-1"
 const OperatorCLI = "terrascale-orchestrator-linux-amd64"
 
 var Slots = []string{"controller-a", "controller-b", "controller-c"}
@@ -181,7 +182,31 @@ func (a *Attempt) ReleaseTool() string {
 	}
 	return a.BootstrapTool()
 }
-func (a *Attempt) Plan() string            { return a.Path("plan.json") }
+func (a *Attempt) Plan() string { return a.Path("plan.json") }
+
+// Cell is the catalog cell the attempt founds: its plan's, or before material
+// writes that, its base plan's. An attempt without either is GRU's.
+func (a *Attempt) Cell() catalog.Entry {
+	path := a.Plan()
+	if !exists(path) {
+		path = str(a.Config, "base_plan")
+	}
+	cell := catalog.GRU
+	if path != "" {
+		cell = str(a.read(path), "cell")
+	}
+	entry, ok := catalog.Lookup(cell)
+	if !ok && a.err == nil {
+		a.fail(fmt.Errorf("plan %s names no catalog cell", path))
+	}
+	return entry
+}
+
+// OperatorDirectory is where the operator phase installs this cell's
+// operator material.
+func (a *Attempt) OperatorDirectory() string {
+	return bootstrapstart.OperatorDirectory(a.Cell().Name())
+}
 func (a *Attempt) trust(key string) string { return str(object(a.Config["trust"]), key) }
 func (a *Attempt) execute(c Command) string {
 	if a.err != nil {
@@ -237,7 +262,7 @@ func (a *Attempt) cloud(operation string) Cloud {
 		return nil
 	}
 	if a.Cloud == nil {
-		cloud, err := newSDKCloud(Region)
+		cloud, err := newSDKCloud(a.Cell().OCIRegion)
 		if err != nil {
 			a.fail(err)
 			return nil
@@ -472,11 +497,12 @@ func (a *Attempt) controllerObjectGrants(plan Object) {
 func (a *Attempt) PhaseMaterial() {
 	a.BuildTools()
 	base := a.read(str(a.Config, "base_plan"))
+	cell := a.Cell()
 	if a.err != nil {
 		return
 	}
 	base["bootstrap_object_prefix"] = a.Prefix
-	base["purpose"] = "GRU bootstrap attempt " + a.Deployment
+	base["purpose"] = cell.Cell + " bootstrap attempt " + a.Deployment
 	id := sha256.Sum256([]byte(a.Deployment + "\x00" + a.Prefix))
 	base["seed_a_create_identity"] = "seed-a-" + hex.EncodeToString(id[:])[:16]
 	for slot := range object(object(base["resource_ids"])["instances"]) {
@@ -485,7 +511,7 @@ func (a *Attempt) PhaseMaterial() {
 	a.writeJSON(a.Plan(), base)
 	// verify-anchor requires the identity's canonical field order, which a
 	// map's sorted keys do not keep.
-	a.writeJSON(a.Path("identity.json"), bootstrapstart.BakedIdentity{SchemaVersion: 1, DeploymentID: a.Deployment, Environment: "canary", Cell: "GRU"})
+	a.writeJSON(a.Path("identity.json"), bootstrapstart.BakedIdentity{SchemaVersion: 1, DeploymentID: a.Deployment, Environment: "canary", Cell: oci.Region(cell.Cell)})
 	material, record := a.Path("material"), a.Path("controller-material.json")
 	if !exists(record) {
 		hosts := hostMap(base)
@@ -494,7 +520,7 @@ func (a *Attempt) PhaseMaterial() {
 		for _, slot := range Slots {
 			slots = append(slots, Object{"name": slot, "privateIp": hosts[slot]["private_ip"]})
 		}
-		a.writeJSON(config, Object{"cell": "gru", "clusterId": a.Deployment, "deploymentId": a.Deployment, "environment": "canary", "region": Region, "slots": slots, "subnetCidr": base["subnet_cidr"], "validityHours": num(a.Config["validity_days"]) * 24})
+		a.writeJSON(config, Object{"cell": cell.Name(), "clusterId": a.Deployment, "deploymentId": a.Deployment, "environment": "canary", "region": cell.OCIRegion, "slots": slots, "subnetCidr": base["subnet_cidr"], "validityHours": num(a.Config["validity_days"]) * 24})
 		a.RunBootstrap("generate-controller-material", "--config", config, "--config-sha256", a.sha(config), "--directory", material, "--out", record)
 	}
 	a.controllerObjectGrants(base)
@@ -509,7 +535,7 @@ func (a *Attempt) PhaseMaterial() {
 	issued, expires := a.validity()
 	ledger := a.Path("ledger-delegation.signed.json")
 	if !exists(ledger) {
-		args := []string{"sign-ledger-delegation", "--deployment", a.Deployment, "--cell", "GRU", "--environment", "canary"}
+		args := []string{"sign-ledger-delegation", "--deployment", a.Deployment, "--cell", cell.Cell, "--environment", "canary"}
 		for _, slot := range Slots {
 			args = append(args, "--slot", slot)
 		}
@@ -519,7 +545,7 @@ func (a *Attempt) PhaseMaterial() {
 	if !exists(anchor) {
 		ids, buckets := object(base["resource_ids"]), object(base["foundation_buckets"])
 		candidate := a.Path("anchor.candidate.json")
-		a.writeJSON(candidate, Object{"schemaVersion": 3, "deploymentId": a.Deployment, "environment": "canary", "clusterId": a.Deployment, "cell": "GRU", "ociRegion": Region, "storageDomain": Object{"namespace": a.Config["namespace"], "ledgerBucket": buckets["ledger"], "ledgerKmsKeyOcid": ids["key"], "headBucket": buckets["head"], "headKmsKeyOcid": ids["key"], "prefix": a.Prefix}, "controllerSlots": Slots})
+		a.writeJSON(candidate, Object{"schemaVersion": 3, "deploymentId": a.Deployment, "environment": "canary", "clusterId": a.Deployment, "cell": cell.Cell, "ociRegion": cell.OCIRegion, "storageDomain": Object{"namespace": a.Config["namespace"], "ledgerBucket": buckets["ledger"], "ledgerKmsKeyOcid": ids["key"], "headBucket": buckets["head"], "headKmsKeyOcid": ids["key"], "prefix": a.Prefix}, "controllerSlots": Slots})
 		expiry, e := time.Parse(time.RFC3339, expires)
 		a.fail(e)
 		validFor := int64(expiry.Sub(a.Now()).Seconds()) - 60
@@ -595,6 +621,12 @@ func (a *Attempt) PhaseImage() {
 	orch := object(a.Config["orchestrator"])
 	revision := str(orch, "source_revision")
 	release := a.Path("release")
+	cell := a.Cell()
+	// The base image's own record: GRU's unless the config names another.
+	baseRegion := str(image, "base_image_region")
+	if baseRegion == "" {
+		baseRegion = catalog.GRU
+	}
 	qcow2 := a.Path("image", "terrascale-arm64.qcow2")
 	if !exists(qcow2) {
 		a.mkdir(filepath.Dir(qcow2))
@@ -621,25 +653,25 @@ func (a *Attempt) PhaseImage() {
 		}
 		// The cell image name is static; the revision and digest are in the
 		// signed image receipt.
-		name, e := naming.RegionCell("GRU").Image()
+		name, e := naming.RegionCell(cell.Cell).Image()
 		a.fail(e)
-		a.run(a.Executable, "oci-region", "import-image", "--qcow2", qcow2, "--sha256", digest, "--compartment-id", str(object(plan["resource_ids"]), "control_compartment"), "--namespace", str(a.Config, "namespace"), "--bucket", str(image, "bucket"), "--display-name", name, "--out", imported)
+		a.run(a.Executable, "oci-region", "import-image", "--region", cell.OCIRegion, "--qcow2", qcow2, "--sha256", digest, "--compartment-id", str(object(plan["resource_ids"]), "control_compartment"), "--namespace", str(a.Config, "namespace"), "--bucket", str(image, "bucket"), "--display-name", name, "--out", imported)
 	}
 	imageID := str(a.read(imported), "image_id")
 	issued, expires := a.validity()
 	delegation := a.Path("image", "image-delegation.signed.json")
 	if !exists(delegation) {
-		a.release("sign-delegation", "--subject-public-key", a.trust("release_leaf_public"), "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--source-revision", revision, "--arch", "arm64", "--environment", "canary", "--image-cell", "GRU", "--image-ocid", imageID, "--previous-delegation", filepath.Join(release, "binary-delegation.signed.json"), "--issued-at", issued, "--expires-at", expires, "--out", delegation)
+		a.release("sign-delegation", "--subject-public-key", a.trust("release_leaf_public"), "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--source-revision", revision, "--arch", "arm64", "--environment", "canary", "--image-cell", cell.Cell, "--image-ocid", imageID, "--previous-delegation", filepath.Join(release, "binary-delegation.signed.json"), "--issued-at", issued, "--expires-at", expires, "--out", delegation)
 	}
 	candidate, receipt := a.Path("image", "image-receipt.candidate.json"), a.ImageReceipt()
 	common := []string{"--binary-receipt", filepath.Join(release, "binary-receipt.signed.json"), "--binary", filepath.Join(release, "terrascale-orchestrator-linux-arm64"), "--qualification", filepath.Join(release, "qualification.json"), "--delegation", delegation, "--root-key", a.trust("root_public"), "--environment", "canary", "--image-file", qcow2, "--base-image-file", str(image, "base_qcow2"), "--kernel-file", a.Kernel()}
 	if !exists(candidate) {
-		a.release(join([]string{"image-candidate"}, common, []string{"--base-image-ocid", str(image, "base_image_ocid"), "--base-image-region", "GRU", "--kernel-release", str(image, "kernel_release"), "--image-ocid", imageID, "--region", "GRU", "--out", candidate})...)
+		a.release(join([]string{"image-candidate"}, common, []string{"--base-image-ocid", str(image, "base_image_ocid"), "--base-image-region", baseRegion, "--kernel-release", str(image, "kernel_release"), "--image-ocid", imageID, "--region", cell.Cell, "--out", candidate})...)
 	}
 	if !exists(receipt) {
 		a.release(join([]string{"sign-image", "--candidate", candidate}, common, []string{"--signing-key", a.trust("release_leaf_private"), "--out", receipt})...)
 	}
-	a.release("verify-image", "--receipt", receipt, "--delegation", delegation, "--root-key", a.trust("root_public"), "--image-file", qcow2, "--base-image-file", str(image, "base_qcow2"), "--kernel-file", a.Kernel(), "--region", "GRU", "--environment", "canary")
+	a.release("verify-image", "--receipt", receipt, "--delegation", delegation, "--root-key", a.trust("root_public"), "--image-file", qcow2, "--base-image-file", str(image, "base_qcow2"), "--kernel-file", a.Kernel(), "--region", cell.Cell, "--environment", "canary")
 }
 func (a *Attempt) PhaseSign() {
 	signed := a.Path("signed")
@@ -650,9 +682,30 @@ func (a *Attempt) PhaseSign() {
 	anchor := a.Path("anchor.signed.json")
 	anchorPayload := object(a.read(anchor)["payload"])
 	references := rows(a.read(a.Path("controller-vault-references.json"))["references"])
-	members := []Object{hosts["member-a"], hosts["member-b"]}
+	cell := a.Cell()
+	// The fleet launches managed hosts into the database hosts' fault
+	// domains, or the controllers' in a cell whose nodes are its controllers.
+	var fleet []Object
+	for _, v := range rows(plan["hosts"]) {
+		if strings.HasPrefix(str(object(v), "slot"), "member-") {
+			fleet = append(fleet, object(v))
+		}
+	}
+	if len(fleet) == 0 {
+		for _, slot := range Slots {
+			fleet = append(fleet, hosts[slot])
+		}
+	}
+	var faultDomains []any
+	maxData := 50.0
+	for _, h := range fleet {
+		if !slices.Contains(faultDomains, h["fault_domain"]) {
+			faultDomains = append(faultDomains, h["fault_domain"])
+		}
+		maxData = max(maxData, num(h["data_gb"]))
+	}
 	region := a.Path("signed", "oci-region.json")
-	a.writeJSON(region, Object{"region": "GRU", "generation": 1, "endpoint": "https://iaas." + Region + ".oraclecloud.com", "compartment_id": ids["workload_compartment"], "image_compartment_id": ids["control_compartment"], "availability_domain": plan["availability_domain"], "fault_domains": []any{members[0]["fault_domain"], members[1]["fault_domain"]}, "subnet_id": ids["subnet"], "network_security_group_ids": []any{ids["workload_network_security_group"]}, "image_id": a.ImageID(), "shape": "VM.Standard.A1.Flex", "boot_volume_gb": 50, "boot_volume_vpus_per_gb": plan["volume_vpus_per_gb"], "data_volume_vpus_per_gb": plan["volume_vpus_per_gb"], "max_data_volume_gb": max(num(members[0]["data_gb"]), num(members[1]["data_gb"])), "owner": a.Prefix})
+	a.writeJSON(region, Object{"region": cell.Cell, "generation": 1, "endpoint": "https://iaas." + cell.OCIRegion + ".oraclecloud.com", "compartment_id": ids["workload_compartment"], "image_compartment_id": ids["control_compartment"], "availability_domain": plan["availability_domain"], "fault_domains": faultDomains, "subnet_id": ids["subnet"], "network_security_group_ids": []any{ids["workload_network_security_group"]}, "image_id": a.ImageID(), "shape": "VM.Standard.A1.Flex", "boot_volume_gb": 50, "boot_volume_vpus_per_gb": plan["volume_vpus_per_gb"], "data_volume_vpus_per_gb": plan["volume_vpus_per_gb"], "max_data_volume_gb": maxData, "owner": a.Prefix})
 	sidecars := join(a.pair(str(a.Config, "region_intent"), "--oci-region-intent"), a.pair(region, "--oci-region-config"), a.pair(str(a.Config, "placement_config"), "--placement-config"))
 	receipt, delegation := a.ImageReceipt(), a.Path("image", "image-delegation.signed.json")
 	// Embed the signed envelope's bytes: its payload is raw JSON, and
@@ -703,7 +756,7 @@ func (a *Attempt) PhaseSign() {
 			}
 		}
 		candidate, config := a.Path("signed", slot+".candidate.json"), a.Path("signed", slot+".config.json")
-		a.writeJSON(candidate, Object{"schemaVersion": 2, "deploymentId": a.Deployment, "environment": "canary", "clusterId": a.Deployment, "cell": "GRU", "ociRegion": Region, "intentGeneration": anchorPayload["initialRegionIntentGeneration"], "intentSha256": anchorPayload["initialRegionIntentSha256"], "controllerRole": "controller", "slot": slot, "seedSlot": "controller-a", "controllerSlots": Slots, "profiles": profiles, "imageOcid": a.ImageID(), "imageArchitecture": "linux-arm64", "releaseReceiptSha256": a.sha(receipt), "peerReceiptDelegation": peer, "storageDomain": anchorPayload["storageDomain"], "managedMaterial": domain, "secrets": secrets})
+		a.writeJSON(candidate, Object{"schemaVersion": 2, "deploymentId": a.Deployment, "environment": "canary", "clusterId": a.Deployment, "cell": cell.Cell, "ociRegion": cell.OCIRegion, "intentGeneration": anchorPayload["initialRegionIntentGeneration"], "intentSha256": anchorPayload["initialRegionIntentSha256"], "controllerRole": "controller", "slot": slot, "seedSlot": "controller-a", "controllerSlots": Slots, "profiles": profiles, "imageOcid": a.ImageID(), "imageArchitecture": "linux-arm64", "releaseReceiptSha256": a.sha(receipt), "peerReceiptDelegation": peer, "storageDomain": anchorPayload["storageDomain"], "managedMaterial": domain, "secrets": secrets})
 		if !exists(config) {
 			args := join([]string{"render-controller-config"}, a.pair(candidate, "--candidate"), a.pair(a.Path("controller-material.json"), "--material-record"), a.pair(str(a.Config, "operator_grant"), "--operator-grant"), sidecars)
 			// The snapshot location is boot configuration: a rebuilt cell
@@ -756,7 +809,7 @@ func (a *Attempt) PhaseSign() {
 			a.fail(err)
 		}
 		// sign-founder-plan requires FounderPlan's canonical field order.
-		a.writeJSON(candidate, typed(a, Object{"schemaVersion": 1, "deploymentId": a.Deployment, "cell": "GRU", "environment": "canary", "seedSlot": "controller-a", "anchorSha256": a.sha(anchor), "controllerSlots": Slots, "seedManifestSha256": a.sha(a.Manifest("controller-a")), "seedPrivateIp": hosts["controller-a"]["private_ip"], "peers": peers, "budget": budget, "launchDeadline": deadline.Format(time.RFC3339)}, &bootstrap.FounderPlan{}))
+		a.writeJSON(candidate, typed(a, Object{"schemaVersion": 1, "deploymentId": a.Deployment, "cell": cell.Cell, "environment": "canary", "seedSlot": "controller-a", "anchorSha256": a.sha(anchor), "controllerSlots": Slots, "seedManifestSha256": a.sha(a.Manifest("controller-a")), "seedPrivateIp": hosts["controller-a"]["private_ip"], "peers": peers, "budget": budget, "launchDeadline": deadline.Format(time.RFC3339)}, &bootstrap.FounderPlan{}))
 		a.RunBootstrap(join([]string{"sign-founder-plan", "--candidate", candidate, "--identity", identity, "--anchor", anchor}, manifests, []string{"--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--out", founder, "--valid-for", "24h"})...)
 	}
 	if !exists(selection) {
@@ -766,7 +819,7 @@ func (a *Attempt) PhaseSign() {
 			ms = append(ms, Object{"slot": slot, "sha256": a.sha(a.Manifest(slot))})
 		}
 		// The selector signers require FounderSelection's canonical field order.
-		a.writeJSON(candidate, typed(a, Object{"schemaVersion": 1, "deploymentId": a.Deployment, "cell": "GRU", "environment": "canary", "generation": 1, "planSha256": a.sha(founder), "anchorSha256": a.sha(anchor), "manifests": ms}, &bootstrapstart.FounderSelection{}))
+		a.writeJSON(candidate, typed(a, Object{"schemaVersion": 1, "deploymentId": a.Deployment, "cell": cell.Cell, "environment": "canary", "generation": 1, "planSha256": a.sha(founder), "anchorSha256": a.sha(anchor), "manifests": ms}, &bootstrapstart.FounderSelection{}))
 		a.RunBootstrap(join([]string{"sign-initial-founder-selection", "--candidate", candidate, "--identity", identity, "--anchor", anchor, "--plan", founder}, manifests, []string{"--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--out", selection, "--valid-for", "24h"})...)
 	}
 	a.RunBootstrap(join([]string{"publish-initial-founder-selection", "--selection", selection, "--identity", identity, "--anchor", anchor, "--plan", founder}, manifests, []string{"--root-key", a.trust("root_public"), "--oci-config", ociConfig(), "--oci-profile", "DEFAULT"})...)
@@ -975,7 +1028,7 @@ func (a *Attempt) PhaseComplete() {
 // markerObject names a controller slot's accepted-install marker in the head
 // bucket.
 func (a *Attempt) markerObject(slot string) string {
-	key := sha256.Sum256([]byte("GRU\x00controller\x00" + slot))
+	key := sha256.Sum256([]byte(a.Cell().Cell + "\x00controller\x00" + slot))
 	return a.Prefix + "/bootstrap/v1/" + a.Deployment + "/" + hex.EncodeToString(key[:]) + "/accepted-install.json"
 }
 func (a *Attempt) PhaseContinuity() {
@@ -1055,7 +1108,7 @@ func (a *Attempt) PhaseContinuity() {
 			refs = append(refs, Object{"slot": slot, "sha256": a.sha(filepath.Join(work, slot+".signed.json"))})
 		}
 		// The selector signers require FounderSelection's canonical field order.
-		a.writeJSON(candidate, typed(a, Object{"schemaVersion": 2, "deploymentId": a.Deployment, "cell": "GRU", "environment": "canary", "generation": generation, "continuities": refs}, &bootstrapstart.FounderSelection{}))
+		a.writeJSON(candidate, typed(a, Object{"schemaVersion": 2, "deploymentId": a.Deployment, "cell": a.Cell().Cell, "environment": "canary", "generation": generation, "continuities": refs}, &bootstrapstart.FounderSelection{}))
 		a.RunBootstrap(join([]string{"sign-founder-selection", "--candidate", candidate, "--identity", a.Path("identity.json"), "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--out", selection, "--valid-for", a.validFor()}, proofs)...)
 	}
 	a.RunBootstrap(join([]string{"publish-founder-selection", "--selection", selection, "--identity", a.Path("identity.json"), "--anchor", anchor, "--root-key", a.trust("root_public"), "--oci-config", ociConfig(), "--oci-profile", "DEFAULT"}, proofs)...)
@@ -1067,13 +1120,14 @@ func (a *Attempt) PhaseOperator() {
 	record, grant := a.Path("controller-material.json"), str(a.Config, "operator_grant")
 	key := str(a.Config, "operator_signing_key")
 	rendered := "/run/ts-attempt-operator-" + a.Deployment + ".json"
+	directory := a.OperatorDirectory()
 	a.rootMaterial(func(material string) {
 		a.sudo(false, "rm", "-f", "--", rendered)
 		defer a.cleanup("rm", "-f", "--", rendered)
 		a.bootstrapSudo(join([]string{"render-operator-config"}, a.pair(record, "--material-record"), []string{"--material-directory", material}, a.pair(grant, "--operator-grant"), []string{"--operator-signing-key", key, "--operator-signing-key-sha256", a.rootSHA(key), "--out", rendered})...)
 		args := []string{"rm", "-f", "--"}
 		for _, name := range []string{"operator.creds", "operator-tls-cert.pem", "operator-tls-key.pem", "ca.pem", "ticket.pub", "operator-signing.key", "operator.json"} {
-			args = append(args, filepath.Join("/var/lib/terrascale-operator", name))
+			args = append(args, filepath.Join(directory, name))
 		}
 		a.sudo(false, args...)
 		a.bootstrapSudo(join([]string{"install-operator-material"}, a.pair(record, "--material-record"), []string{"--material-directory", material, "--operator-config", rendered, "--operator-config-sha256", a.rootSHA(rendered), "--operator-signing-key", key, "--operator-signing-key-sha256", a.rootSHA(key)})...)
@@ -1132,8 +1186,8 @@ func (a *Attempt) PhaseServices() {
 		a.fail(err)
 	}
 	issued := a.Now().UTC().Truncate(time.Second).Add(-time.Minute)
-	a.release("sign-spec-delegation", "--subject-public-key", a.trust("release_leaf_public"), "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--deployment-id", a.Deployment, "--cell", "gru", "--environment", "canary", "--issued-at", issued.Format(time.RFC3339), "--expires-at", issued.Add(7*24*time.Hour).Format(time.RFC3339), "--out", delegation)
-	cli, config := a.Path("release", OperatorCLI), "/var/lib/terrascale-operator/operator.json"
+	a.release("sign-spec-delegation", "--subject-public-key", a.trust("release_leaf_public"), "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--deployment-id", a.Deployment, "--cell", a.Cell().Name(), "--environment", "canary", "--issued-at", issued.Format(time.RFC3339), "--expires-at", issued.Add(7*24*time.Hour).Format(time.RFC3339), "--out", delegation)
+	cli, config := a.Path("release", OperatorCLI), filepath.Join(a.OperatorDirectory(), "operator.json")
 	for _, v := range services {
 		service := object(v)
 		role, profile, spec := str(service, "role"), str(service, "profile"), str(service, "spec")
@@ -1211,7 +1265,7 @@ func (a *Attempt) PhaseMembers() {
 		if !strings.HasPrefix(slot, "member-") {
 			continue
 		}
-		name, e := naming.RegionCell("GRU").MemberSlot(slot)
+		name, e := naming.RegionCell(a.Cell().Cell).MemberSlot(slot)
 		a.fail(e)
 		if a.err != nil {
 			return
@@ -1369,7 +1423,7 @@ func (a *Attempt) PhaseTerraBase() {
 			return
 		}
 	}
-	a.sudo(false, a.Path("release", OperatorCLI), "operator", "terrabase-release", "--config", "/var/lib/terrascale-operator/operator.json", "--binary", binary, "--sha256", checksum, "--source-checkout", source, "--commit", commit, "--environment", environment, "--profile", profile, "--wait", "10m")
+	a.sudo(false, a.Path("release", OperatorCLI), "operator", "terrabase-release", "--config", filepath.Join(a.OperatorDirectory(), "operator.json"), "--binary", binary, "--sha256", checksum, "--source-checkout", source, "--commit", commit, "--environment", environment, "--profile", profile, "--wait", "10m")
 }
 
 // ciReleaseCommit returns the commit of a TerraBase CI prerelease tag,
@@ -1403,8 +1457,8 @@ func (a *Attempt) PhaseStatus() {
 		instances = append(instances, listed...)
 	}
 	// Cell server names are static (internal/naming), so this lists every
-	// server of the GRU cell, not only this deployment's.
-	cell, _ := naming.RegionCell("GRU").Name()
+	// server of the cell, not only this deployment's.
+	cell, _ := naming.RegionCell(a.Cell().Cell).Name()
 	for _, instance := range instances {
 		if instance.LifecycleState != "TERMINATED" && strings.HasPrefix(instance.DisplayName, cell+"-") {
 			fmt.Fprintf(a.Out, "instance %v %v %v\n", instance.DisplayName, instance.LifecycleState, instance.ID)

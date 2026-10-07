@@ -87,9 +87,18 @@ func (c Cell) PoolServer(pool string, n int) (string, error) {
 }
 
 // ControllerSlot returns the server name of a signed controller slot:
-// controller-a, -b and -c are ctl-1, -2 and -3.
+// controller-a, -b and -c are the region's nodes 1, 2 and 3 (ts-sfo-1). GRU
+// keeps ctl-1, -2 and -3 (gru-1-ctl-1) until its servers are renamed: a
+// controller refuses a NATS store of another server name.
 func (c Cell) ControllerSlot(slot string) (string, error) {
-	return c.slot(slot, "controller-", Controller)
+	if strings.ToUpper(c.Region) == catalog.GRU {
+		return c.slot(slot, "controller-", Controller)
+	}
+	letter, ok := strings.CutPrefix(slot, "controller-")
+	if !ok || len(letter) != 1 || letter[0] < 'a' || letter[0] > 'z' {
+		return "", fmt.Errorf("%w: controller-slot %q", ErrName, slot)
+	}
+	return c.Node(int(letter[0]-'a') + 1)
 }
 
 // MemberSlot returns the server name of a regional plan's database host

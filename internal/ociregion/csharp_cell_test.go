@@ -87,7 +87,7 @@ func wantFailure(t *testing.T, want string, fn func()) {
 func cellInventory(plan Object, path string, instances ...Object) Object {
 	ids, existing, shared := obj(plan["resource_ids"]), obj(plan["existing_forgejo"]), plan["shared_compartment_id"]
 	resources := []any{
-		Object{"kind": "instance", "id": existing["instance_id"], "compartment-id": shared, "lifecycle-state": "RUNNING", "shape": "VM.Standard.A1.Flex", "shape-config": Object{"ocpus": 2, "memory-in-gbs": 4}},
+		Object{"kind": "instance", "id": existing["instance_id"], "compartment-id": shared, "lifecycle-state": "RUNNING", "shape": "VM.Standard.A1.Flex", "shape-config": Object{"ocpus": existing["expected_ocpus"], "memory-in-gbs": existing["expected_memory_gb"]}},
 		Object{"kind": "boot-volume", "id": existing["boot_volume_id"], "compartment-id": shared, "lifecycle-state": "AVAILABLE", "size-in-gbs": 50, "vpus-per-gb": 10},
 		Object{"kind": "volume", "id": existing["data_volume_id"], "compartment-id": shared, "lifecycle-state": "AVAILABLE", "size-in-gbs": 50, "vpus-per-gb": 10},
 		Object{"kind": "public-ip", "id": existing["public_ip_id"]},
@@ -195,6 +195,14 @@ func TestInventoryAdmitsOperatorLaunchedCSharpHosts(t *testing.T) {
 	second := dbHost(plan, "gru-1-db-1", tags("gru-1-db-1"))
 	second["id"] = fakeOCID("instance", "sa-saopaulo-1", "other")
 	wantFailure(t, "two active instances share the C# database host name gru-1-db-1", func() { e.verifyInventory(plan, cellInventory(plan, path, duplicate, second), path, cellNow, 15) })
+	// Hosts match one of the plan's host profiles exactly.
+	small := dbHost(plan, "gru-1-db-1", tags("gru-1-db-1"))
+	small["shape-config"] = Object{"ocpus": 1, "memory-in-gbs": 4}
+	wantFailure(t, "preview instance dimensions exceed the plan", func() { e.verifyInventory(plan, cellInventory(plan, path, small), path, cellNow, 15) })
+	for _, v := range arr(plan["hosts"]) {
+		obj(v)["memory_gb"] = 4
+	}
+	mustCapture(t, func() bool { e.verifyInventory(plan, cellInventory(plan, path, small), path, cellNow, 15); return true })
 }
 
 func enrollmentBundle(t *testing.T) []byte {
@@ -381,6 +389,35 @@ func TestCellPlanNamesTheCheckedInPhase2Cell(t *testing.T) {
 	if result["cell"] != "gru-1" || result["oci_region"] != "sa-saopaulo-1" || result["image"] != "gru-1-arm64" || !eq(result["ceiling_usd"], 200) || greater(obj(result["estimate"])["total"], 200) ||
 		names("controllers") != "gru-1-ctl-1@10.251.0.11,gru-1-ctl-2@10.251.0.12,gru-1-ctl-3@10.251.0.13" || names("members") != "gru-1-db-1@10.251.0.21,gru-1-db-2@10.251.0.22" ||
 		result["terrabase_peers"] != "gru-1-db-1=10.251.0.21:9443,gru-1-db-2=10.251.0.22:9443" {
+		t.Fatalf("cell plan = %v", result)
+	}
+}
+
+// The checked-in sfo-1 plan founds a colocated cell of ts-sfo-1..3 outside
+// the home region, beside ts-ops's peering gateway of another cell.
+func TestCellPlanNamesTheCheckedInSFOCell(t *testing.T) {
+	path := filepath.Join("..", "..", "deploy", "oci-region", "sfo-1-plan.json")
+	plan := mustCapture(t, func() Object { return cellEngine().loadPlan(path) })
+	existing := obj(plan["existing_forgejo"])
+	gru := Object{"kind": "local-peering-gateway", "id": fakeOCID("localpeeringgateway", "sa-saopaulo-1", "gru"), "compartment-id": plan["shared_compartment_id"], "vcn-id": existing["vcn_id"], "lifecycle-state": "AVAILABLE"}
+	inventory := filepath.Join(t.TempDir(), "inventory.json")
+	writeJSON(inventory, cellInventory(plan, path, gru))
+	var stdout bytes.Buffer
+	if err := cellEngine().Run([]string{"cell-plan", "--plan", path, "--inventory", inventory}, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	v, err := decodeJSON(stdout.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := obj(v)
+	var controllers []string
+	for _, v := range arr(result["controllers"]) {
+		controllers = append(controllers, text(obj(v)["name"])+"@"+text(obj(v)["private_ip"]))
+	}
+	if result["cell"] != "sfo-1" || result["oci_region"] != "us-sanjose-1" || result["image"] != "sfo-1-arm64" || len(arr(result["members"])) != 0 ||
+		strings.Join(controllers, ",") != "ts-sfo-1@10.252.0.11,ts-sfo-2@10.252.0.12,ts-sfo-3@10.252.0.13" ||
+		obj(obj(result["estimate"])["items"])["compute"] != "41.1600" || greater(obj(result["estimate"])["total"], 200) {
 		t.Fatalf("cell plan = %v", result)
 	}
 }

@@ -18,6 +18,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/app"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"golang.org/x/sys/unix"
@@ -116,7 +117,8 @@ func (c command) installOperatorMaterialAt(args []string, now time.Time) error {
 			clear(body)
 		}
 	}()
-	dir, err := c.openOperatorInstallDirectory()
+	directory := bootstrapstart.OperatorDirectory(record.Config.Cell)
+	dir, err := c.openOperatorInstallDirectory(directory)
 	if err != nil {
 		return err
 	}
@@ -127,11 +129,11 @@ func (c command) installOperatorMaterialAt(args []string, now time.Time) error {
 			return err
 		}
 	}
-	fmt.Fprintf(c.output, "operator material installed actor=%s config=%s/operator.json\n", cfg.Operator.Actor, operatorInstallDirectory)
+	fmt.Fprintf(c.output, "operator material installed actor=%s config=%s/operator.json\n", cfg.Operator.Actor, directory)
 	return nil
 }
 
-func (c command) openOperatorInstallDirectory() (int, error) {
+func (c command) openOperatorInstallDirectory(directory string) (int, error) {
 	if err := c.ctx.Err(); err != nil {
 		return -1, err
 	}
@@ -139,7 +141,7 @@ func (c command) openOperatorInstallDirectory() (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	parts := strings.Split(strings.TrimPrefix(operatorInstallDirectory, "/"), "/")
+	parts := strings.Split(strings.TrimPrefix(directory, "/"), "/")
 	for index, part := range parts {
 		if err := c.ctx.Err(); err != nil {
 			unix.Close(dir)

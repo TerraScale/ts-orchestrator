@@ -97,7 +97,7 @@ func TestSyncRenamesLegacyObjectsInPlaceAndConverges(t *testing.T) {
 		"rename network resource gru-cell-private-subnet (from gru-cell, description)",
 		"rename policy operators-to-ts-ops-ping (from operators-ping-to-forgejo, rule name, description, rule description, one-way)",
 		"update account settings acct (dns_domain nb.ts.internal)",
-		"update dns settings disabled_management_groups (gru-servers)",
+		"update dns settings disabled_management_groups (gru-servers,sfo-servers)",
 		"create dns zone gru-cell (gru.ts.internal)", "create dns record nats.gru.ts.internal A 10.251.0.13",
 	} {
 		if !strings.Contains(text, want) {
@@ -140,7 +140,8 @@ func TestSyncRenamesLegacyObjectsInPlaceAndConverges(t *testing.T) {
 		string(f.account["extra"]) != `{"user_approval_required":false}` {
 		t.Fatalf("account settings were not merged: %v", f.account)
 	}
-	if !slices.Equal(f.dnsGroups, []string{ids.servers}) {
+	sfo := f.groups[slices.IndexFunc(f.groups, func(g apiGroup) bool { return g.Name == "sfo-servers" })]
+	if !slices.Equal(f.dnsGroups, []string{ids.servers, sfo.ID}) {
 		t.Fatalf("dns settings %v", f.dnsGroups)
 	}
 	if len(f.zones) != 1 || len(f.zones[0].records) != 10 || !slices.Equal(f.zones[0].DistributionGroups, []string{ids.operators}) {
@@ -745,6 +746,16 @@ func TestSetupKeyCommandWritesTheKeyOnlyToANewOwnerOnlyFile(t *testing.T) {
 	f.mutations = nil
 	if err := run("--out", out, "--apply"); err == nil || len(f.mutations) != 0 {
 		t.Fatalf("existing file: %v %v", f.mutations, err)
+	}
+	// Another region's key auto-assigns only its own servers group.
+	if err := run("--out", filepath.Join(t.TempDir(), "sfo.key"), "--servers-group", "ts-ops-gateway", "--apply"); err != nil {
+		t.Fatalf("other servers group: %q %v", stdout.String(), err)
+	}
+	if key := f.setupKeys[len(f.setupKeys)-1]; key["name"] != "ts-ops-gateway" || !slices.Equal(key["auto_groups"].([]string), []string{ids.gateway}) {
+		t.Fatalf("created key %v", key)
+	}
+	if err := run("--out", filepath.Join(t.TempDir(), "x.key"), "--servers-group", "nobody", "--apply"); err == nil {
+		t.Fatal("created a key for an unknown group")
 	}
 	for _, args := range [][]string{{"setup-key"}, {"remove-peers"}, {"remove-peers", "--all", "--slot", "db-1"}} {
 		if err := Run(t.Context(), args, &stdout); err == nil {

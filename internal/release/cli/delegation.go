@@ -54,8 +54,8 @@ func (c command) signDelegationAt(args []string, now time.Time) error {
 	sourceRevision := flags.String("source-revision", "", "exact 40-character source revision")
 	var architectures releaseArchitectures
 	flags.Var(&architectures, "arch", "exact release architecture: amd64 or arm64; repeatable")
-	imageRegion := flags.String("image-cell", "", "logical OCI image cell; GRU only")
-	imageOCID := flags.String("image-ocid", "", "exact imported GRU OCI image OCID")
+	imageRegion := flags.String("image-cell", "", "catalog cell of the image, e.g. GRU")
+	imageOCID := flags.String("image-ocid", "", "exact OCI image OCID imported into the cell's region")
 	previousPath := flags.String("previous-delegation", "", "current binary-only delegation to extend for an image")
 	environment := flags.String("environment", "canary", "release environment; canary only")
 	issuedAtText := flags.String("issued-at", "", "canonical UTC RFC3339 issuance instant")
@@ -69,8 +69,8 @@ func (c command) signDelegationAt(args []string, now time.Time) error {
 		*environment != "canary" || flags.NArg() != 0 ||
 		((*imageRegion == "") != (*imageOCID == "")) ||
 		((*imageOCID == "") != (*previousPath == "")) ||
-		(*imageRegion != "" && (*imageRegion != "GRU" || !release.ValidOCIImageIDForRegion(*imageOCID, "GRU"))) {
-		return errors.New("sign-delegation requires exact canary source, architecture, keys, UTC interval, output, and optional GRU image pair")
+		(*imageRegion != "" && !release.ValidOCIImageIDForRegion(*imageOCID, *imageRegion)) {
+		return errors.New("sign-delegation requires exact canary source, architecture, keys, UTC interval, output, and optional catalog-cell image pair")
 	}
 	issuedAt, err := parseDelegationUTC(*issuedAtText)
 	if err != nil {
@@ -138,7 +138,7 @@ func (c command) signDelegationAt(args []string, now time.Time) error {
 		}
 		capabilities = previous.Capabilities()
 		scope := release.ImageScope(release.ImageReceipt{SourceRevision: *sourceRevision,
-			OCIRegion: "GRU", OCIImageOCID: *imageOCID}, "canary")
+			OCIRegion: *imageRegion, OCIImageOCID: *imageOCID}, "canary")
 		capabilities = append(capabilities, capabilityForScope(scope))
 	}
 	delegation := trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: leafID,

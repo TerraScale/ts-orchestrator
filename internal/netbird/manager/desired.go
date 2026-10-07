@@ -99,6 +99,9 @@ func GRU() Desired {
 			{Name: "ts-ops-gateway", RenamedFrom: []string{"gateway"}},
 			{Name: "gru-servers", RenamedFrom: []string{"ts-orch-servers"}},
 			{Name: "ops-automation"},
+			// sfo-1's nodes (TS-640): NetBird SSH only; the routing peer
+			// cannot reach another region's private subnet.
+			{Name: "sfo-servers"},
 		},
 		ServersGroup: "gru-servers",
 		Network: NetworkSpec{
@@ -119,6 +122,12 @@ func GRU() Desired {
 			{Name: "ops-automation-to-gru-servers-ssh",
 				Description: "Operator automation peers → GRU servers: NetBird SSH with identity-provider login",
 				Protocol:    "netbird-ssh", Sources: []string{"ops-automation"}, Destinations: []string{"gru-servers"}},
+			{Name: "operators-to-sfo-servers-ssh",
+				Description: "Operators → SFO servers: NetBird SSH with identity-provider login",
+				Protocol:    "netbird-ssh", Sources: []string{"operators"}, Destinations: []string{"sfo-servers"}},
+			{Name: "ops-automation-to-sfo-servers-ssh",
+				Description: "Operator automation peers → SFO servers: NetBird SSH with identity-provider login",
+				Protocol:    "netbird-ssh", Sources: []string{"ops-automation"}, Destinations: []string{"sfo-servers"}},
 			{Name: "operators-to-ts-ops-forgejo", RenamedFrom: []string{"operators-to-forgejo"},
 				Description: "Operators → ts-ops: Git SSH 22, HTTPS 443, admin SSH 2022",
 				Protocol:    "tcp", Ports: []string{"22", "443", "2022"},
@@ -129,7 +138,7 @@ func GRU() Desired {
 		},
 		NetworkRange:      "10.200.0.0/16",
 		PeerDNSDomain:     "nb.ts.internal",
-		DNSDisabledGroups: []string{"gru-servers"},
+		DNSDisabledGroups: []string{"gru-servers", "sfo-servers"},
 		Zone: ZoneSpec{Name: "gru-cell", Domain: "gru.ts.internal",
 			DistributionGroups: []string{"operators"}, TTL: 300},
 		Slots: []Slot{

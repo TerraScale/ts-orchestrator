@@ -15,7 +15,8 @@ bootstrap tools accept these fixed cell-to-region
 mappings: GRU / `sa-saopaulo-1`, SFO / `us-sanjose-1`, and FRA /
 `eu-frankfurt-1`. The checked-in regional plan is a concrete GRU example; a
 different mapped cell needs its own reviewed plan populated with that cell's
-live resource IDs and signed genesis. This is an operating procedure, not
+live resource IDs and signed genesis. `deploy/oci-region/sfo-1-plan.json` is
+SFO's; see [Second region](#second-region). This is an operating procedure, not
 evidence that a region has been deployed or that the system is
 production-ready. See the [workspace GOAL](../../GOAL.md) and the
 [shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md)
@@ -257,6 +258,41 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
    cost above the ceiling is a stop condition. The ceiling is an admission
    condition and remains a constraint on each resource action.
 
+## Second region
+
+SFO (`sfo-1`, `us-sanjose-1`, TS-640) is founded with the same tools as GRU.
+What differs:
+
+- **Plan.** `deploy/oci-region/sfo-1-plan.json`: three colocated nodes
+  `ts-sfo-1`..`3` (controller, TerraBase member and ts-auth on each, no
+  `member-*` hosts, `database_members` 0) in `10.252.0.0/25`, the load
+  balancer's public subnet `10.252.0.128/26`, and `public_api.terrabase_members`
+  naming the nodes. The controller NSG admits the TerraBase client port from
+  the public subnet, as a colocated cell needs. `orchestrator_owner` stays
+  null until the controllers own the load balancer's backends (TS-632).
+- **No operator gateway.** A local peering gateway only peers VCNs of one
+  region, and ts-ops is in `sa-saopaulo-1`. The plan sets `operator_gateway`
+  and `netbird` to null. The nodes enroll in NetBird through the cell's NAT
+  gateway to the manager's public address (group `sfo-servers`, NetBird SSH
+  only); operators reach NATS through an OCI Bastion port-forwarding session
+  to each node's private address.
+- **Cost.** Always Free covers A1 compute and block storage only in the home
+  region. The native estimate bills another region's hosts in full and keeps
+  Forgejo's share within the home allowance. The plan's Forgejo dimensions
+  are an upper bound: TS-645 resizes it.
+- **Attempt.** `ts-orch oci-region attempt` takes the cell and OCI region from
+  the plan: identity, material, anchor, manifests, founder records, image
+  import region and receipts, spec delegation and fleet config. It installs
+  the operator material of a cell other than GRU in
+  `/var/lib/terrascale-operator-<cell>` (`-sfo`), never over GRU's.
+- **Trust.** The cell uses the same root, release leaf, operator key and
+  recipient signer as GRU, so one update delegation scoped to both cells
+  covers CI auto-deploy.
+- **Fabric.** The NATS link to GRU (TS-562) needs `nats.embedded.interregion`
+  in both regions' signed controller configs, and only a re-found changes a
+  signed config today. sfo-1 runs as its own cell until an in-place path
+  exists.
+
 ## Static names
 
 Every cell server has one static name from `internal/naming`. A cell is
@@ -273,17 +309,20 @@ volume `<member>-data` (`gru-1-db-1-data`). The GRU rebuild has
 is the OCI L7 Load Balancer `gru-1-api`. `naming.Validate` rejects any other
 name, such as `gru-controller-a`, `controller-b`, a deployment- or
 digest-derived name, or an unknown region. No cell server takes the `gw` role
-yet. The founder, node pools and the cell autoscaler still generate the old
-names: moving them to `ts-<region>-<n>` needs one node number sequence per
-region (follow-up).
+yet. A region other than GRU is founded on node names: its controller slots
+`controller-a`, `-b` and `-c` are `ts-sfo-1`..`3` for the seed launch, the
+founder, NATS server and TLS names, NetBird peers and the public API
+backends. GRU keeps `gru-1-ctl-1`..`3` until its servers are renamed (TS-632):
+a controller refuses a NATS store of another server name. Node pools and the
+cell autoscaler still generate the old names.
 
 A host agent gives its TerraBase member the host's node as
 `TERRABASE_NODE_NAME`, the member's name in `TERRABASE_PEERS`. The member no
 longer takes the OS hostname, so renaming a host's OS does not change the
 member's identity.
 
-Signed controller slots map by letter: `controller-a`, `-b` and `-c` are
-`ctl-1`, `-2` and `-3`. Member seats map in placement order: the permanent
+Signed controller slots map by letter: in GRU `controller-a`, `-b` and `-c`
+are `ctl-1`, `-2` and `-3`; elsewhere they are the region's nodes 1, 2 and 3. Member seats map in placement order: the permanent
 seat is `db-1` and elastic seat k is `db-(k+1)` (`elastic-gru` is
 `gru-1-db-2`). GRU's fixed addresses are `10.251.0.11`–`.13` for
 `gru-1-ctl-1`..`3` and `10.251.0.21`–`.22` for `gru-1-db-1`..`2`.

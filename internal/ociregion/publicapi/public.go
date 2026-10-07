@@ -204,7 +204,8 @@ func (p planFile) desired() (Desired, error) {
 		}
 		d.OriginPull = *public.OriginPull
 	}
-	members := map[string]netip.Addr{}
+	// A cell without database hosts runs TerraBase on its controllers.
+	members, controllers := map[string]netip.Addr{}, map[string]netip.Addr{}
 	slots := map[string]bool{}
 	addresses := map[netip.Addr]bool{}
 	for _, h := range p.Hosts {
@@ -227,6 +228,7 @@ func (p planFile) desired() (Desired, error) {
 				return Desired{}, err
 			}
 			d.Auth = append(d.Auth, Backend{name, netip.AddrPortFrom(ip, AuthPort)})
+			controllers[name] = ip
 		case strings.HasPrefix(h.Slot, "member-"):
 			letter := strings.TrimPrefix(h.Slot, "member-")
 			if len(letter) != 1 || letter[0] < 'a' || letter[0] > 'z' {
@@ -242,6 +244,9 @@ func (p planFile) desired() (Desired, error) {
 		}
 	}
 	slices.SortFunc(d.Auth, func(a, b Backend) int { return strings.Compare(a.Name, b.Name) })
+	if len(members) == 0 {
+		maps.Copy(members, controllers)
+	}
 	for name, ip := range members {
 		d.Members = append(d.Members, Backend{name, netip.AddrPortFrom(ip, uint16(d.ClientPort))})
 	}

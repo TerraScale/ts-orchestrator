@@ -180,10 +180,16 @@ func validatePublic(plan Object, network, subnet netip.Prefix) Object {
 		fail("manual public API load balancer bandwidth must satisfy 10 <= min_mbps <= max_mbps <= 8000")
 	}
 	seen := map[string]bool{}
+	cell := naming.RegionCell(text(plan["cell"]))
 	for _, v := range arr(p["terrabase_members"]) {
 		ok := false
 		for n := 1; n <= int(number(plan["database_members"])); n++ {
-			name, err := naming.RegionCell(text(plan["cell"])).Server(naming.Member, n)
+			name, err := cell.Server(naming.Member, n)
+			ok = ok || err == nil && v == name
+		}
+		// A colocated cell's controllers are its TerraBase members.
+		for _, h := range arr(plan["hosts"]) {
+			name, err := cell.ControllerSlot(text(obj(h)["slot"]))
 			ok = ok || err == nil && v == name
 		}
 		if !ok || seen[text(v)] {
@@ -231,7 +237,9 @@ func validateBoundary(sec Object, network netip.Prefix, gateway, public Object) 
 				}
 				p, _ := prefix(public["subnet_cidr"])
 				s, _ := prefix(r["source"])
-				if p.Overlaps(s) && !tsAuthBackendRule(key, r, public) && (key != "workload_nsg_rules" || r["source"] != public["subnet_cidr"] || r["protocol"] != "6" || !eq(r["tcp_min"], public["client_port"]) || !eq(r["tcp_max"], public["client_port"])) {
+				// Members, or a colocated cell's controllers, serve the
+				// client port to the load balancer.
+				if p.Overlaps(s) && !tsAuthBackendRule(key, r, public) && (r["source"] != public["subnet_cidr"] || r["protocol"] != "6" || !eq(r["tcp_min"], public["client_port"]) || !eq(r["tcp_max"], public["client_port"])) {
 					fail("manual plan " + key + " admits the public API subnet beyond the member client port")
 				}
 			}

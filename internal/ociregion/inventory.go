@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 var activeStates = []string{"CREATING", "PROVISIONING", "STARTING", "RUNNING", "STOPPING", "STOPPED", "AVAILABLE", "ACTIVE", "FAULTY", "UPDATING", "TERMINATING", "DELETING"}
@@ -341,8 +343,9 @@ func (e *Engine) verifyInventory(plan, inventory Object, path string, now time.T
 		m := obj(v)
 		shape := obj(m["shape-config"])
 		if m["id"] == existing["instance_id"] {
-			if m["shape"] != "VM.Standard.A1.Flex" || number(shape["ocpus"]) != 2 || number(shape["memory-in-gbs"]) != 4 {
-				fail("Forgejo A1 dimensions changed")
+			// The plan's dimensions bound Forgejo's share of the estimate.
+			if m["shape"] != "VM.Standard.A1.Flex" || number(shape["ocpus"]) > number(existing["expected_ocpus"]) || number(shape["memory-in-gbs"]) > number(existing["expected_memory_gb"]) {
+				fail("Forgejo A1 dimensions exceed the plan")
 			}
 			continue
 		}
@@ -364,7 +367,11 @@ func (e *Engine) verifyInventory(plan, inventory Object, path string, now time.T
 		} else {
 			fail("preview instance has no approved owner: " + str(m["id"]))
 		}
-		if m["shape"] != "VM.Standard.A1.Flex" || number(shape["ocpus"]) != 1 || number(shape["memory-in-gbs"]) != 6 {
+		if !slices.ContainsFunc(arr(plan["hosts"]), func(v any) bool {
+			h := obj(v)
+			return m["shape"] == "VM.Standard.A1.Flex" && m["shape"] == h["shape"] &&
+				number(shape["ocpus"]) == number(h["ocpus"]) && number(shape["memory-in-gbs"]) == number(h["memory_gb"])
+		}) {
 			fail("preview instance dimensions exceed the plan")
 		}
 		preview = append(preview, v)
@@ -453,6 +460,11 @@ func verifyGateways(plan Object, resources any, preview Object) {
 		}
 		for _, v := range active(resources, kind) {
 			m := obj(v)
+			// Without an operator gateway, ts-ops's peering gateways belong
+			// to other cells.
+			if kind == "local-peering-gateway" && plan["operator_gateway"] == nil && m["vcn-id"] == existing["vcn_id"] {
+				continue
+			}
 			seen[canonical([]any{m["id"], m["compartment-id"], m[field]})] = true
 		}
 		expectedSet := map[string]bool{}
@@ -490,15 +502,25 @@ func (e *Engine) estimate(plan, inventory Object, path string, now time.Time, ma
 	budget := obj(plan["budget"])
 	rates := obj(budget["rates"])
 	hours := budget["month_hours"]
-	ocpus, memory, storage := add(2), add(4), add(50, obj(plan["existing_forgejo"])["expected_volume_gb"])
+	// Always Free covers A1 compute and block storage in the home region
+	// only, beside Forgejo: another region's hosts pay for all of theirs.
+	forgejo := obj(plan["existing_forgejo"])
+	ocpus, memory, storage := add(forgejo["expected_ocpus"]), add(forgejo["expected_memory_gb"]), add(50, forgejo["expected_volume_gb"])
+	hostOCPUs, hostMemory, hostStorage := add(0), add(0), add(0)
 	for _, v := range arr(plan["hosts"]) {
 		h := obj(v)
-		ocpus.Add(ocpus, rat(h["ocpus"]))
-		memory.Add(memory, rat(h["memory_gb"]))
-		storage.Add(storage, add(h["boot_gb"], h["data_gb"]))
+		hostOCPUs.Add(hostOCPUs, rat(h["ocpus"]))
+		hostMemory.Add(hostMemory, rat(h["memory_gb"]))
+		hostStorage.Add(hostStorage, add(h["boot_gb"], h["data_gb"]))
 	}
-	compute := add(mul(nonnegative(sub(mul(ocpus, hours), 1500)), rates["a1_ocpu_hour"]), mul(nonnegative(sub(mul(memory, hours), 9000)), rates["a1_memory_gb_hour"]))
-	block := mul(nonnegative(sub(storage, 200)), add(rates["block_gb_month"], mul(plan["volume_vpus_per_gb"], rates["block_vpu_gb_month"])))
+	billed := func(home, hosts *big.Rat, allowance any) *big.Rat {
+		if plan["region"] == catalog.OCIRegion(catalog.Bootstrap) {
+			return nonnegative(sub(add(home, hosts), allowance))
+		}
+		return add(nonnegative(sub(home, allowance)), hosts)
+	}
+	compute := add(mul(billed(mul(ocpus, hours), mul(hostOCPUs, hours), 1500), rates["a1_ocpu_hour"]), mul(billed(mul(memory, hours), mul(hostMemory, hours), 9000), rates["a1_memory_gb_hour"]))
+	block := mul(billed(storage, hostStorage, 200), add(rates["block_gb_month"], mul(plan["volume_vpus_per_gb"], rates["block_vpu_gb_month"])))
 	imageGiB := add(0)
 	for _, v := range arr(inventory["images"]) {
 		imageGiB.Add(imageGiB, rat(positiveGiB(obj(v)["billable_size_in_gbs"], "scoped image size")))

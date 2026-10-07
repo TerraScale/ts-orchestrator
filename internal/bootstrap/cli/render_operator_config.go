@@ -17,11 +17,10 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/app"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
-
-const operatorInstallDirectory = "/var/lib/terrascale-operator"
 
 func (c command) renderOperatorConfigAt(args []string, now time.Time) error {
 	flags := flag.NewFlagSet("render-operator-config", flag.ContinueOnError)
@@ -129,7 +128,9 @@ func operatorConfigFromRecord(record bootstrapmaterial.Record, grant app.Trusted
 		}
 		urls = append(urls, "tls://"+slot.PrivateIP+":4222")
 	}
-	path := func(name string) string { return filepath.Join(operatorInstallDirectory, name) }
+	path := func(name string) string {
+		return filepath.Join(bootstrapstart.OperatorDirectory(record.Config.Cell), name)
+	}
 	return app.Config{Version: app.ConfigVersion,
 		NATS: natscell.Config{Cell: record.Config.Cell, Instance: "operator-" + grant.Actor,
 			Replicas: len(record.Config.Slots), ClientRole: "operator", URL: strings.Join(urls, ","),
