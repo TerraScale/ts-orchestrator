@@ -68,6 +68,8 @@ type Agent struct {
 	// filesystem the controller confirmed as the member's; empty until then
 	// and once the mount fails verification.
 	terraBaseVolumeConfirmed string
+	// roleFilesFailures holds each role's last failed file renewal.
+	roleFilesFailures map[string]roleFilesFailure
 }
 
 // An open cycle has no outcome until work has succeeded or failed. A transient
@@ -838,13 +840,17 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 				return err
 			}
 		}
+		filesErr := a.refreshRoleFiles(ctx, d)
+		report := a.reportFor(d, "running", nil)
 		if a.terraBaseMember(d) {
-			return a.publishReport(ctx, a.terraBaseRunningReport(ctx, d))
+			report = a.terraBaseRunningReport(ctx, d)
+		} else if a.tsAuthReplica(d) {
+			report = a.tsAuthRunningReport(ctx, d)
 		}
-		if a.tsAuthReplica(d) {
-			return a.publishReport(ctx, a.tsAuthRunningReport(ctx, d))
+		if filesErr != nil {
+			report.Error = strings.TrimPrefix(report.Error+"; "+filesErr.Error(), "; ")
 		}
-		return a.publishReport(ctx, a.reportFor(d, "running", nil))
+		return a.publishReport(ctx, report)
 	}
 	var query cycleQuery
 	var cycle cycleReply
@@ -903,6 +909,10 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	if err != nil {
 		return err
 	}
+	roleEnv, err := a.prepareRoleFiles(ctx, d, secrets)
+	if err != nil {
+		return err
+	}
 	if len(secrets) != 0 {
 		workload.Env = maps.Clone(d.Env)
 		if workload.Env == nil {
@@ -922,6 +932,13 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 			return err
 		}
 		workload.DrainTimeout, started = tsAuthDrain, "starting"
+	}
+	if len(roleEnv) != 0 {
+		workload.Env = maps.Clone(workload.Env)
+		if workload.Env == nil {
+			workload.Env = map[string]string{}
+		}
+		maps.Copy(workload.Env, roleEnv)
 	}
 	var latest desiredReply
 	if err := a.request(ctx, "desired", struct {

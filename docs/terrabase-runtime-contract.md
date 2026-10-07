@@ -97,6 +97,11 @@ host-owned keys `TERRABASE_DATA_DIRECTORY`, `TERRABASE_PEER_CERTIFICATE`,
 `TERRABASE_PEER_PRIVATE_KEY`, `TERRABASE_PEER_CLIENT_CA`,
 `TERRABASE_CLIENT_CERTIFICATE`, `TERRABASE_CLIENT_PRIVATE_KEY`,
 `DOTNET_BUNDLE_EXTRACT_BASE_DIR` or `TERRABASE_NODE_NAME`.
+Nor may it set the `TERRABASE_NATS_*` keys the host sets for the member's
+NATS identity ([role files](#role-files)). Its `secrets` may name only
+secret files: keys ending in `_FILE`, such as
+`TERRABASE_BACKUP_SECRET_KEY_FILE` and
+`TERRABASE_BACKUP_KMS_PRIVATE_KEY_FILE` for TS-633's backups.
 
 Recommended GRU values: `TERRABASE_PEER_PORT=9443`,
 `TERRABASE_CLIENT_PORT=9465`, admin port 9464 (loopback). Cell and host
@@ -201,6 +206,42 @@ The member's environment is the host base environment
 | `TERRABASE_PEER_CLIENT_CA` | `<root>/tls/ca.pem` |
 | `TERRABASE_CLIENT_CERTIFICATE`, `TERRABASE_CLIENT_PRIVATE_KEY` | The member certificate and key, only when `TERRABASE_CLIENT_PORT` is set |
 | `TERRABASE_NODE_NAME` | The host's node, the member's name in `TERRABASE_PEERS`; without it the binary would take the OS hostname (TS-609) |
+
+### Role files
+
+The host keeps a member's secret files and NATS identity in
+`<managed runtime root>/roles/terrabase` (`/srv/ts-managed/roles/terrabase`
+on the image; supervisor, workload group, 0750). Each file is 0600 and
+owned by the workload user, so only the member's process reads it. A
+profile secret `KEY_FILE` is written to `key_file` (the key in lower case),
+and the member gets `KEY_FILE=<that path>`; the value never enters the
+environment. The host reads these secrets from the Vault at every start and
+every hour while the member runs; TerraBase reads its backup keys only at
+start, so rotating one takes a member restart (a release).
+
+Its NATS identity ([role identities](nats-fabric.md#role-identities)) lets
+the member use the KV bucket `terrabase_backup_leases` on the cell's NATS,
+which TS-633's backup shipper leases need:
+
+| Variable | Value |
+| --- | --- |
+| `TERRABASE_NATS_URL` | The host's own NATS servers (`nats.url` of `host.json`) |
+| `TERRABASE_NATS_CREDENTIALS_FILE` | `nats.creds`: the member's user JWT and nkey seed |
+| `TERRABASE_NATS_CERTIFICATE`, `TERRABASE_NATS_PRIVATE_KEY` | `nats.pem`, `nats.key`: its client certificate for the client port's mutual TLS |
+| `TERRABASE_NATS_CA` | `nats-ca.pem`: the cell CA bundle |
+
+The client port is ts-orch's broker bridge: it completes mutual TLS before
+any NATS byte, and the server's INFO then says `tls_required=false`. A
+client must dial TLS first (NATS.Net `TlsMode.Implicit`, nats.go a TLS
+dialer as in `natscell/tls_dialer.go`); a client that waits for INFO before
+it upgrades never connects.
+
+Both last 48 hours. The host renews them once half has passed. A running
+member re-reads them at every connect and reconnect (terrabase#60), and the
+server closes a connection whose JWT expires. The host
+sets these variables only while it holds a current identity. A member that
+starts without one runs without NATS until its next start. The host
+reports why in its running report.
 
 The process runs as the workload user (`terrascale-workload`, uid/gid 2000 on
 the image) in its own cgroup under the host agent. There is no per-member

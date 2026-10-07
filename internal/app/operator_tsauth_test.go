@@ -83,7 +83,8 @@ func TestTSAuthGRUConfigIsValid(t *testing.T) {
 }
 
 // TestWorkloadProfileSecretsStayWithTheirRole refuses a signed profile whose
-// secrets reach another role's Vault secrets, and a TerraBase profile with any.
+// secrets reach another role's Vault secrets, a TerraBase profile with any but
+// secret files, and one that sets the host's NATS identity settings.
 func TestWorkloadProfileSecretsStayWithTheirRole(t *testing.T) {
 	ref := func(name string) map[string]vaultsecret.Ref {
 		return map[string]vaultsecret.Ref{"TOKEN": {Vault: "ocid1.vault.oc1.sa-saopaulo-1.vault", Name: name}}
@@ -92,10 +93,15 @@ func TestWorkloadProfileSecretsStayWithTheirRole(t *testing.T) {
 	if err := validateWorkloadProfiles("gru", map[string]WorkloadProfile{"billing": {Resources: resources, Secrets: ref("gru-1-billing-token")}}); err != nil {
 		t.Fatal(err)
 	}
+	file := map[string]vaultsecret.Ref{"TERRABASE_BACKUP_SECRET_KEY_FILE": {Vault: "ocid1.vault.oc1.sa-saopaulo-1.vault", Name: "gru-1-terrabase-backup-secret-key"}}
+	if err := validateWorkloadProfiles("gru", map[string]WorkloadProfile{"terrabase": {Resources: resources, Secrets: file}}); err != nil {
+		t.Fatalf("a TerraBase secret file was refused: %v", err)
+	}
 	for name, profiles := range map[string]map[string]WorkloadProfile{
-		"other role": {"billing": {Resources: resources, Secrets: ref("gru-1-netbird-admin-pat")}},
-		"terrabase":  {"terrabase": {Resources: resources, Secrets: ref("gru-1-terrabase-token")}},
-		"also env":   {"billing": {Resources: resources, Env: map[string]string{"TOKEN": "x"}, Secrets: ref("gru-1-billing-token")}},
+		"other role":     {"billing": {Resources: resources, Secrets: ref("gru-1-netbird-admin-pat")}},
+		"terrabase":      {"terrabase": {Resources: resources, Secrets: ref("gru-1-terrabase-token")}},
+		"terrabase nats": {"terrabase": {Resources: resources, Env: map[string]string{"TERRABASE_NATS_URL": "tls://x:4222"}}},
+		"also env":       {"billing": {Resources: resources, Env: map[string]string{"TOKEN": "x"}, Secrets: ref("gru-1-billing-token")}},
 		// gru-1-billing-eu-token would be ambiguous between the two roles.
 		"longer role": {"billing": {Resources: resources, Secrets: ref("gru-1-billing-eu-token")}, "billing-eu": {Resources: resources}},
 	} {

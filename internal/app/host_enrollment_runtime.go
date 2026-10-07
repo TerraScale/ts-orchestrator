@@ -93,13 +93,7 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	rootPEM, err := os.ReadFile(cfg.NATS.Embedded.TLS.CAFile)
-	if err != nil || len(rootPEM) == 0 || len(rootPEM) > 8192 {
-		return nil, nil, nil, errors.New("regional host enrollment CA is unavailable")
-	}
-	issuer, err := hostenroll.LoadIssuer(cfg.NATS.Cell, runtime.CellAccount(),
-		cfg.Controller.HostNATSIssuerSeedFile, cfg.Controller.HostTLSIssuerKeyFile,
-		cfg.Controller.HostTLSIssuerCertFile, rootPEM)
+	issuer, err := loadHostIssuer(cfg, runtime)
 	if err != nil {
 		return nil, nil, nil, err
 	}

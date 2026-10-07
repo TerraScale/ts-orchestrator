@@ -209,6 +209,8 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 		TSAuthRoot:              cfg.Host.TSAuthRoot,
 		RoleMemoryMaxBytes:      cfg.Host.RoleMemoryMaxBytes,
 		SecretResolver:          vaultsecret.ReadRefs,
+		NATSURL:                 cfg.NATS.URL,
+		NATSCAFile:              cfg.NATS.TLS.CAFile,
 		TerraBaseDataVolume:     cfg.Host.TerraBaseDataVolume,
 		TerraBaseDataVolumeID:   cfg.Host.TerraBaseDataVolumeID,
 		ManagedS3Credentials:    managedS3Credentials,

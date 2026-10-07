@@ -491,6 +491,16 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			restartGate = release
 		}
 	}
+	// A cell that enrolls hosts issues its placed roles' NATS identities with
+	// the same issuer (TS-651).
+	var roleIdentity host.RoleIdentityIssuer
+	if managed != nil && !cfg.NATS.Lab {
+		issuer, err := loadHostIssuer(cfg, runtime)
+		if err != nil {
+			return err
+		}
+		roleIdentity = roleIdentityIssuer(issuer, runtime, cfg.NATS.Replicas)
+	}
 	hostController, _, err := retryControllerOpen(ctx, "open regional host control", fullClusterReady, false,
 		func(attempt context.Context) (*host.Controller, error) {
 			return host.NewController(attempt, host.ControllerConfig{
@@ -504,6 +514,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				ManagedCredentialFloor:      credentialFloor,
 				ManagedVolumeInspector:      volumeInspector,
 				TerraBaseCA:                 terraBaseCA,
+				RoleIdentity:                roleIdentity,
 				RestartGate:                 restartGate,
 			})
 		}, nil)

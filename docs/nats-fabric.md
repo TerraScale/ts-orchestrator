@@ -78,11 +78,50 @@ global. Keys are lowercase tokens separated by dots, most general first
 | `TS_DELIVERY_*`, `OBJ_TS_ARTIFACTS` | stream, KV, object | regional | Signed artifact delivery |
 | `TS_REGION_LIFECYCLE` | KV | home only | Region lifecycle records |
 | `TS_DECISIONS` | stream | regional | Decision journal |
+| `terrabase_backup_leases` | KV | regional, memory, 15 s TTL | TS-633's backup shipper leases, used by TerraBase members ([role identities](#role-identities)) |
 
 A configuration bucket that a rebuilt region must get back also goes into
 `kvsnapshot.Buckets`, which snapshots it to OCI Object Storage and restores
 it on boot (TS-559). That list is `TS_SERVICE_SET`, `TS_TRUST_ROOTS`,
 `TS_HOST_ENROLLMENT`, `TS_ROLLOUTS` and `TS_OCI_DESIRED` today.
+
+## Role identities
+
+A role ts-orch places can get its own NATS user (TS-651), so its members
+use regional KV buckets without any controller credential. Buckets of a
+role are named `<role>_<noun>` in lower case (`-` written `_`), unlike
+ts-orch's own `TS_` names. `roleidentity.Grants` lists each role's buckets
+and its settings prefix; today only `terrabase` has one.
+
+- **Signer.** The cell account has one scoped signer, role `role`. Its key
+  is derived from the host NATS issuer seed (`roleidentity.Signer`), so
+  every controller can issue role users without new material. Its template
+  grants publish on `$KV.{{tag(kv)}}.>` and the bucket stream's
+  `STREAM.INFO`, `STREAM.MSG.GET` and `DIRECT.GET`, and subscribe on
+  `_INBOX.>`. Each user carries one `kv:<bucket>` tag per granted bucket, so
+  adding a bucket to `Grants` needs only a controller release. Tags are
+  lower case, so a role can never name a `TS_` bucket.
+- **No stream API beyond reads.** A stream create request names any
+  subjects, so a role that could create its bucket could capture
+  controller traffic. The leader creates each granted bucket before it
+  issues the role's credentials.
+- **Replies.** Role users share NATS clients' default `_INBOX` prefix (the
+  NATS.Net default TerraBase uses), so one role can see another role's
+  JetStream replies. ts-orch's own users reply on private prefixes. Give a
+  role confidential replies by moving the template to
+  `_INBOX.{{subject()}}.>` once its clients set that prefix.
+- **Client certificate.** The host TLS issuer signs it, as it signs host
+  certificates, with the URI
+  `spiffe://hosts.<cell>.terrascale.internal/roles/<role>/<node>`. It
+  expires with the JWT, after 48 hours.
+- **Delivery.** A host whose current desired runs the role asks the leader
+  (`agent.<hash>.role-identity`) with a fresh nkey and P-256 key, and writes
+  the files described in
+  [TerraBase's role files](terrabase-runtime-contract.md#role-files).
+- **Turning it on in a region.** The leader issues nothing until the
+  brokers' cell account holds the signer:
+  [apply the role claim](broker-claim-rotation.md#role-claim) once per
+  region.
 
 ## Which pattern to use
 

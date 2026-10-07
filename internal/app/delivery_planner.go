@@ -12,6 +12,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/roleidentity"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -57,8 +58,18 @@ func validateWorkloadProfiles(cell string, profiles map[string]WorkloadProfile) 
 				return fmt.Errorf("workload environment for %q is invalid", role)
 			}
 		}
-		if role == terrabase.Role && len(profile.Secrets) != 0 {
-			return fmt.Errorf("workload profile for %q takes no Vault secrets", role)
+		for key := range profile.Secrets {
+			if role == terrabase.Role && !vaultsecret.FileKey(key) {
+				return fmt.Errorf("workload profile for %q takes only Vault secret files (keys ending in _FILE)", role)
+			}
+			if roleidentity.Reserved(role, key) {
+				return fmt.Errorf("workload profile for %q: the host sets %s for its NATS identity", role, key)
+			}
+		}
+		for key := range profile.Env {
+			if roleidentity.Reserved(role, key) {
+				return fmt.Errorf("workload profile for %q: the host sets %s for its NATS identity", role, key)
+			}
 		}
 		if err := vaultsecret.ValidateRefs(cell, role, profile.Secrets, profile.Env); err != nil {
 			return fmt.Errorf("workload profile for %q: %w", role, err)

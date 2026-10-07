@@ -124,7 +124,11 @@ set.
 A workload profile names its secrets in `secrets`; its host agent reads them
 with the instance principal each time it starts a replica. Signed config and
 desired state hold only the names, so rotating a secret (above) needs a
-restart, not a new signature. See [services](cell-spec.md#vault-secrets).
+restart, not a new signature. A key ending in `_FILE` is delivered as a
+0600 file of the workload user instead of an environment value, and the
+host reads it again hourly, so a rotation reaches the file without a
+restart; a process that reads the file only at start (TerraBase's backup
+keys) still needs one. See [services](cell-spec.md#vault-secrets).
 
 ## Retired OpenBao entries
 

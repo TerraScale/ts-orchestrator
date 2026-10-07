@@ -18,6 +18,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/roleidentity"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/nats-io/nats.go"
@@ -267,6 +268,10 @@ type AgentConfig struct {
 	// SecretResolver reads a desired's Vault secrets at each start; nil
 	// refuses a desired with secrets.
 	SecretResolver func(context.Context, map[string]vaultsecret.Ref) (map[string]string, error)
+	// NATSURL and NATSCAFile are the host's own NATS servers and CA bundle,
+	// which a role's NATS identity connects with (TS-651).
+	NATSURL    string
+	NATSCAFile string
 }
 
 type ControllerConfig struct {
@@ -292,6 +297,8 @@ type ControllerConfig struct {
 	ControlLog                  jetstream.Stream
 	// TerraBaseCA signs C# TerraBase member certificates; nil refuses them.
 	TerraBaseCA *terrabase.CA
+	// RoleIdentity issues a granted role's NATS identity; nil refuses it.
+	RoleIdentity RoleIdentityIssuer
 	// RestartGate, when set, is asked before a host opens a new cycle to
 	// apply desired. A cycle it does not grant is held: the host keeps its
 	// running workload and reports it waiting at the new generation, and
@@ -545,9 +552,20 @@ func validateDesired(d Desired, cell string, r Registration) error {
 			return errors.New("invalid workload environment")
 		}
 	}
-	// A C# TerraBase member's environment is host-owned.
-	if len(d.Secrets) != 0 && d.Role == terrabase.Role {
-		return errors.New("terrabase takes no Vault secrets")
+	// A C# TerraBase member's environment is host-owned: it takes only
+	// secret files, whose paths the host sets.
+	for key := range d.Secrets {
+		if d.Role == terrabase.Role && !vaultsecret.FileKey(key) {
+			return errors.New("terrabase takes only Vault secret files (keys ending in _FILE)")
+		}
+		if roleidentity.Reserved(d.Role, key) {
+			return fmt.Errorf("the host sets %s for %s's NATS identity", key, d.Role)
+		}
+	}
+	for key := range d.Env {
+		if roleidentity.Reserved(d.Role, key) {
+			return fmt.Errorf("the host sets %s for %s's NATS identity", key, d.Role)
+		}
 	}
 	return vaultsecret.ValidateRefs(d.Cell, d.Role, d.Secrets, d.Env)
 }

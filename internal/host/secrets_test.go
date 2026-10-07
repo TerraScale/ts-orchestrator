@@ -9,9 +9,10 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
-// TestDesiredSecretRefs accepts a role's own Vault secret names and refuses
-// them on a withdrawal, a TerraBase member, a managed member, for another
-// role's secrets, or for a key the environment also sets.
+// TestDesiredSecretRefs accepts a role's own Vault secret names, and only
+// secret files for a TerraBase member, and refuses them on a withdrawal, a
+// managed member, for another role's secrets, for a key the environment also
+// sets or one the host sets for the role's NATS identity.
 func TestDesiredSecretRefs(t *testing.T) {
 	registration := Registration{Node: "node-a", Environment: "test", Roles: []string{"billing", "terrabase"}}
 	desired := func() Desired {
@@ -36,6 +37,24 @@ func TestDesiredSecretRefs(t *testing.T) {
 		},
 	} {
 		d := desired()
+		change(&d)
+		if err := validateDesired(d, "gru", registration); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	files := desired()
+	files.Role, files.Env = "terrabase", nil
+	files.Secrets = map[string]vaultsecret.Ref{"TERRABASE_BACKUP_SECRET_KEY_FILE": {Vault: tsAuthTestVault, Name: "gru-1-terrabase-backup-secret-key"}}
+	if err := validateDesired(files, "gru", registration); err != nil {
+		t.Fatalf("a TerraBase secret file was refused: %v", err)
+	}
+	for name, change := range map[string]func(*Desired){
+		"NATS setting in env": func(d *Desired) { d.Env = map[string]string{"TERRABASE_NATS_URL": "tls://x:4222"} },
+		"NATS setting as a secret": func(d *Desired) {
+			d.Secrets = map[string]vaultsecret.Ref{"TERRABASE_NATS_CREDENTIALS_FILE": {Vault: tsAuthTestVault, Name: "gru-1-terrabase-creds"}}
+		},
+	} {
+		d := files
 		change(&d)
 		if err := validateDesired(d, "gru", registration); err == nil {
 			t.Errorf("%s: accepted", name)

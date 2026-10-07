@@ -182,6 +182,13 @@ A profile's `secrets` maps environment keys to OCI Vault secrets:
   `cloudflare`, `netbird`, `trust`, `ts-dashboard`, or one that extends or
   prefixes them, such as `ts`) takes none, and neither does `terrabase`. A key
   may not also be set in `env`. At most 64 secrets, 96 KiB together.
+- A key ending in `_FILE` names a secret file instead (TS-651): the host
+  writes the secret to a 0600 file of the workload user in
+  `<managed runtime root>/roles/<role>/<key in lower case>` and sets the
+  key to that path, so the value never enters an environment. It reads
+  the secret again at each start and hourly while the replica runs. A
+  `terrabase` profile takes only secret files, and needs every host and
+  controller on a binary from TS-651 first: an older one refuses it.
 - A spec whose profiles name secrets requires binary level 2
   ([binary levels](#binary-levels)); `service add|update` sets it.
 - Every native workload on a host runs as the one workload user, so a replica

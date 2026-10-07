@@ -194,6 +194,11 @@ type Ref struct {
 	Name  string `json:"name"`
 }
 
+// FileKey reports whether a secret's key names a file: the host writes the
+// value to a file only the workload user reads and sets the key to its path
+// (TS-651), so the value never enters an environment.
+func FileKey(key string) bool { return strings.HasSuffix(key, "_FILE") }
+
 // MaxRefs bounds a workload's secrets, as profiles bound their environment.
 const MaxRefs = 64
 

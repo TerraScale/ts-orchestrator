@@ -40,6 +40,7 @@ type Controller struct {
 	credentialFloor        func(context.Context, Registration) (uint64, error)
 	volumeInspector        ManagedVolumeInspector
 	terraBaseCA            *terrabase.CA
+	roleIdentity           RoleIdentityIssuer
 	restartGate            func(context.Context, string, Desired) (bool, error)
 	artifacts              ArtifactStore
 	responseKey            ed25519.PrivateKey
@@ -126,7 +127,7 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 		managedVerifier: cfg.ManagedRegistrationVerifier, managedDesiredVerifier: cfg.ManagedDesiredVerifier,
 		managedEffectGate: managedEffectGate, materialProvider: cfg.ManagedMaterialProvider,
 		credentialFloor: cfg.ManagedCredentialFloor, volumeInspector: cfg.ManagedVolumeInspector,
-		terraBaseCA: cfg.TerraBaseCA, restartGate: cfg.RestartGate, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}),
+		terraBaseCA: cfg.TerraBaseCA, roleIdentity: cfg.RoleIdentity, restartGate: cfg.RestartGate, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}),
 		authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, authorityLeader: cfg.AuthorityLeader,
 		cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
 }
@@ -677,7 +678,7 @@ func sameReportMeaning(a, b Report) bool {
 // hostOperations are the host request subjects a leader serves.
 var hostOperations = []string{"session", "desired", "artifact", "material", "cycle", "report",
 	"drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format",
-	"rollout", "rollout-binary"}
+	"role-identity", "rollout", "rollout-binary"}
 
 // hostLeaderPoll is how often Run follows authority leadership.
 const hostLeaderPoll = 500 * time.Millisecond
@@ -780,7 +781,7 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	case "session":
 		payload, err = c.handleSession(ctx, req)
 	case "desired", "artifact", "cycle", "report", "material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format",
-		"rollout", "rollout-binary":
+		"role-identity", "rollout", "rollout-binary":
 		payload, err = c.handleAuthorized(ctx, req)
 	default:
 		err = errors.New("unknown host operation")
@@ -1129,6 +1130,8 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (any, er
 		return c.serveTerraBasePeer(ctx, req, r)
 	case "terrabase-format":
 		return c.serveTerraBaseFormat(ctx, req, r)
+	case "role-identity":
+		return c.serveRoleIdentity(ctx, req, r)
 	}
 	return nil, errors.New("unknown host operation")
 }
