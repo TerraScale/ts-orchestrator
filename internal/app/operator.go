@@ -116,6 +116,7 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	toGeneration := flags.Uint64("to", 0, "rollout rollback: the earlier generation to publish again")
 	ocpus := flags.Float64("ocpus", 0, "node resize: the instance's OCPUs")
 	newName := flags.String("new-name", "", "node rename: the node's new name")
+	atlasCell := flags.String("cell", "", "atlas add-region: the region's cell, such as sfo-1")
 	memoryGB := flags.Float64("memory-gb", 0, "node resize: the instance's memory in GB")
 	var forwards operatorForwardFlags
 	flags.Var(&forwards, "nats-forward", "transient PRIVATE_IP:4222=LOOPBACK_IP:PORT Bastion forward (repeatable)")
@@ -275,6 +276,8 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	case "service-add", "service-update", "service-remove":
 		return operatorServiceChange(ctx, cfg, runtime, strings.TrimPrefix(operation, "service-"), *role,
 			*profilePath, *specPath, *releasers, *outPath, output)
+	case "atlas-add-region":
+		return operatorAtlasAddRegion(ctx, cfg, runtime, *atlasCell, *outPath, output)
 	case "service-apply", "spec-apply":
 		if *artifactPath == "" {
 			return errors.New("apply requires -f SIGNED")

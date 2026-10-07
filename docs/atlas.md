@@ -47,3 +47,22 @@ are vars in ts-atlas `wrangler.toml`; its CI deploys them from `main`.
 4. `ts-orch atlas publish --plan deploy/oci-region/plan.json --section deploy/oci-region/atlas-gru-1.json` publishes once; `/v1/discovery` answers 200.
 5. Move the controllers to a binary with binary level 11 in place (`selfupdate`), add the section to the spec (`ts-orch get`, add `"atlas"`, `requires_binary: 11`), `diff`, `release sign-spec --root` and `apply` ([cell spec](cell-spec.md#commands)).
 6. Check: `updated` in `/v1/discovery` stays within 10 s of now.
+
+## Add a region
+
+A new region is listed by one planned amendment of the global home's spec,
+never by hand-editing `atlas.regions`:
+
+1. `ts-orch atlas add-region --config <gru-1 operator config> --cell sfo-1 --out sfo-1-atlas.json`
+   reads the running spec from the leader, appends `sfo-1` from the
+   [region catalog](../internal/ociregion/catalog) (name, country, latitude,
+   longitude) with `https://sfo.api.terrascale.tech` and
+   `https://sfo.auth.terrascale.tech`, keeps regions in catalog order, prints
+   the leader's plan and writes the unsigned candidate. A region already
+   listed exactly so prints `"status":"unchanged"` and writes no file; a
+   different entry for the cell is refused.
+2. `ts-orch release sign-spec --root ...` signs it: any `atlas` change needs a
+   root (`cellspec.AuthorityChanges`).
+3. `ts-orch apply --config ... -f <signed>`; within 10 s the region is in
+   `/v1/discovery`. `atlas.Discover` reads that document for commands that
+   must check a region is listed.

@@ -320,6 +320,33 @@ func operatorServiceHostImage(ctx context.Context, cfg Config, runtime *natscell
 	return planSpec(ctx, cfg, runtime, current, next, out, output)
 }
 
+// operatorAtlasAddRegion plans the next generation of the global home's spec
+// with cell's catalog region listed in its atlas section. Any atlas change
+// needs a root signature (cellspec.AuthorityChanges).
+func operatorAtlasAddRegion(ctx context.Context, cfg Config, runtime *natscell.Runtime, cell, out string,
+	output io.Writer,
+) error {
+	if cell == "" {
+		return errors.New("atlas add-region requires --cell")
+	}
+	reply, err := requestCellSpec(ctx, cfg, runtime, cellSpecGetKind, []byte("{}"))
+	if err != nil {
+		return err
+	}
+	current := reply.Spec
+	if current.Atlas == nil {
+		return fmt.Errorf("cell %s publishes no atlas section; use the global home's operator config", cfg.NATS.Cell)
+	}
+	section, _, err := current.Atlas.AddRegion(cell)
+	if err != nil {
+		return err
+	}
+	next := current
+	next.Generation++
+	next.Atlas = &section
+	return planSpec(ctx, cfg, runtime, current, next, out, output)
+}
+
 // readCanonicalEnvelope reads a signed envelope file, which a spec holds
 // byte for byte and so must be canonical, as the release tools write it.
 func readCanonicalEnvelope(path string) ([]byte, error) {

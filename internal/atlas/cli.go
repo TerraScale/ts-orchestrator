@@ -19,6 +19,12 @@ import (
 
 const usage = `Usage: ts-orch atlas <command> [flags]
 
+  add-region  --config OPERATOR_JSON --cell CELL [--out FILE]
+      Plan listing CELL (sfo-1) in the global home's cell spec atlas section
+      from the region catalog, with https://<region>.api and .auth
+      .terrascale.tech; --out writes the unsigned candidate for
+      ts-orch release sign-spec --root, then ts-orch apply. A region already
+      listed so plans nothing; a different entry is refused.
   key      --plan FILE
       Store a new P-256 publish key as the cell's Vault secret
       <cell>-atlas-publish-key unless the Vault holds one, and print

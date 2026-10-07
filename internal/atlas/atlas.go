@@ -21,12 +21,15 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 	sdkatlas "terrascale.tech/sdk/atlas"
 )
@@ -106,6 +109,45 @@ func (c Config) Validate(cell string) error {
 		}
 	}
 	return nil
+}
+
+// AddRegion returns c with region cell (sfo-1) listed as the catalog
+// describes it, with its regional API and auth origins, in catalog order.
+// added is false when cell is already listed exactly so; a different entry
+// for cell is refused.
+func (c Config) AddRegion(cell string) (next Config, added bool, err error) {
+	name, index, _ := strings.Cut(cell, "-")
+	entry, known := catalog.LookupName(name)
+	if n, err := strconv.Atoi(index); !known || err != nil || n < 1 || strconv.Itoa(n) != index {
+		return c, false, fmt.Errorf("cell %q is not <catalog region>-<n>, such as %s-1", cell, catalog.Names()[0])
+	}
+	region := Region{ID: cell, Name: entry.City, Country: entry.Country, Lat: entry.Latitude, Lon: entry.Longitude,
+		API: "https://" + name + ".api.terrascale.tech", Auth: "https://" + name + ".auth.terrascale.tech"}
+	if i := slices.IndexFunc(c.Regions, func(r Region) bool { return r.ID == cell }); i >= 0 {
+		if c.Regions[i] != region {
+			return c, false, fmt.Errorf("atlas already lists region %s as %+v, not the catalog's %+v", cell, c.Regions[i], region)
+		}
+		return c, false, nil
+	}
+	// Regions outside the catalog sort last; cells of one region by number.
+	order := func(r Region) (int, int) {
+		name, index, _ := strings.Cut(r.ID, "-")
+		n, _ := strconv.Atoi(index)
+		if i := slices.Index(catalog.Names(), name); i >= 0 {
+			return i, n
+		}
+		return catalog.Len, n
+	}
+	at := slices.IndexFunc(c.Regions, func(r Region) bool {
+		ri, rn := order(r)
+		ni, nn := order(region)
+		return ri > ni || ri == ni && rn > nn
+	})
+	if at < 0 {
+		at = len(c.Regions)
+	}
+	c.Regions = slices.Insert(slices.Clone(c.Regions), at, region)
+	return c, true, nil
 }
 
 func httpsURL(raw string) bool {

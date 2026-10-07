@@ -133,6 +133,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "vault":
 		return vaultsecret.Run(ctx, args[1:], commandio.NewWriter(output))
 	case "atlas":
+		if len(args) > 1 && args[1] == "add-region" {
+			return app.Run(ctx, append([]string{"operator", "atlas-add-region"}, args[2:]...), output)
+		}
 		return atlas.Run(ctx, args[1:], commandio.NewWriter(output), ociregion.LoadPlan)
 	case "ouroboros":
 		return tsauth.RunOuroboros(ctx, args[1:], commandio.NewWriter(output), ociregion.LoadPlan)

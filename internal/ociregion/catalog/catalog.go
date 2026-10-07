@@ -18,9 +18,11 @@ type Entry struct {
 	// OCIRegionKey is the OCI region key a tenancy subscribes with, for
 	// example SJC for us-sanjose-1; it differs from the product cell code.
 	OCIRegionKey string
-	// City, Latitude and Longitude are display metadata for operator views
-	// (the dashboard world map). They authorize nothing.
+	// City, Country (ISO 3166-1 alpha-2), Latitude and Longitude are display
+	// metadata for operator views (the dashboard world map) and the cell's
+	// Atlas region entry. They authorize nothing.
 	City                string
+	Country             string
 	Latitude, Longitude float64
 }
 
@@ -38,9 +40,9 @@ const (
 
 // entries is ordered: placement assigns permanent members in this order.
 var entries = [...]Entry{
-	{Cell: GRU, OCIRegion: "sa-saopaulo-1", OCIRegionKey: "GRU", City: "São Paulo", Latitude: -23.43, Longitude: -46.47},
-	{Cell: SFO, OCIRegion: "us-sanjose-1", OCIRegionKey: "SJC", City: "San Jose", Latitude: 37.34, Longitude: -121.89},
-	{Cell: FRA, OCIRegion: "eu-frankfurt-1", OCIRegionKey: "FRA", City: "Frankfurt", Latitude: 50.11, Longitude: 8.68},
+	{Cell: GRU, OCIRegion: "sa-saopaulo-1", OCIRegionKey: "GRU", City: "São Paulo", Country: "BR", Latitude: -23.43, Longitude: -46.47},
+	{Cell: SFO, OCIRegion: "us-sanjose-1", OCIRegionKey: "SJC", City: "San Jose", Country: "US", Latitude: 37.34, Longitude: -121.89},
+	{Cell: FRA, OCIRegion: "eu-frankfurt-1", OCIRegionKey: "FRA", City: "Frankfurt", Country: "DE", Latitude: 50.11, Longitude: 8.68},
 }
 
 // Len is the number of supported cells.
