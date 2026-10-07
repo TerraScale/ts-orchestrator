@@ -271,6 +271,30 @@ plan: create A gru.auth.terrascale.tech 203.0.113.10 (proxied)
 	}
 }
 
+// Every cell's strict rule shares the zone's configuration ruleset; a later
+// cell's rule, which only sets Full (strict), does not displace an earlier one.
+func TestEdgeStepsKeepEachCellsStrictRule(t *testing.T) {
+	f, cloudflare := newFakeCloudflare(t)
+	address := netip.MustParseAddr("203.0.113.10")
+	cells := map[string][]string{"gru-1": {"gru.api.terrascale.tech", "gru.auth.terrascale.tech"},
+		"sfo-1": {"sfo.api.terrascale.tech", "sfo.auth.terrascale.tech", "sfo.orch.terrascale.tech"}}
+	for _, cell := range []string{"gru-1", "sfo-1"} {
+		steps, err := cloudflare.edgeSteps(t.Context(), cells[cell], address, cell, testOriginPull(t))
+		if err != nil || run(t.Context(), steps, true, io.Discard) != nil {
+			t.Fatal(cell, err)
+		}
+	}
+	f.writes = nil
+	for cell, names := range cells {
+		if steps, err := cloudflare.edgeSteps(t.Context(), names, address, cell, testOriginPull(t)); err != nil || len(steps) != 0 {
+			t.Fatalf("%s rerun planned %d: %v", cell, len(steps), err)
+		}
+	}
+	if len(f.ruleset.Rules) != 2 || len(f.writes) != 0 {
+		t.Fatalf("rules=%+v writes=%v", f.ruleset.Rules, f.writes)
+	}
+}
+
 func TestEdgeStepsKeepOtherRulesAndRepairDrift(t *testing.T) {
 	f, cloudflare := newFakeCloudflare(t)
 	other := configRule{ID: "other", Ref: "someone-else", Expression: "true", Action: "set_config",

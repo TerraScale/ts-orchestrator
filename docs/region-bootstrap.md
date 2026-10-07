@@ -879,9 +879,10 @@ ts-orch oci-region dns --plan deploy/oci-region/plan.json --apply
    leaves Vault, the load balancer and `ts-orch`'s memory.
    When the stored certificate misses a planned name or expires within a
    year, `cert` issues a new one into a new version of the same secret,
-   installs it on the load balancer as `origin-<hash>` and points both HTTPS
-   listeners at it. The previous certificate stays installed, and its Origin
-   CA certificate stays in Cloudflare, until an operator removes them. `apply`
+   installs it on the load balancer as `origin-<hash>` and points every HTTPS
+   listener at it, `ts-orch` included. The previous certificate stays
+   installed, and its Origin CA certificate stays in Cloudflare, until an
+   operator removes them. `apply`
    refuses to rename a hostname until the served certificate names it, then
    updates the hostname in place.
 3. `apply` reads that secret, fetches Cloudflare's ranges, creates the
@@ -899,7 +900,9 @@ ts-orch oci-region dns --plan deploy/oci-region/plan.json --apply
    verifies the unique active Cloudflare zone client certificate against
    the reviewed CA and refuses conflicting hostname AOP overrides. It sets
    SSL Full (strict) for both names with a configuration rule
-   (`ts-orch-gru-1-api-ssl-strict`), enables custom zone AOP through
+   (`ts-orch-gru-1-api-ssl-strict`), last in the zone's configuration
+   ruleset or followed only by rules that set nothing but Full (strict),
+   such as another cell's, enables custom zone AOP through
    `origin_tls_client_auth/settings`, and verifies it before publishing
    proxied A records. Missing, ambiguous, pending, expired, or unrelated
    client certificates stop publication. Names holding other record types
@@ -916,7 +919,8 @@ SDK logs.
 
 `inspect-foundation` reads the load balancer back with the same check
 `apply` uses: active, flexible at the planned bandwidth, public, in the
-public subnet; both hostnames bound to their own HTTPS listener and backend
+public subnet, whose security list egress also covers 8444 with
+`public_api.orch`; every hostname bound to its own HTTPS listener and backend
 set, each serving `origin` and verifying the client certificate; port 80
 only redirecting; `terrabase` verifying member TLS; `ts-auth` holding
 exactly every controller; and `terrabase` holding only planned members at the

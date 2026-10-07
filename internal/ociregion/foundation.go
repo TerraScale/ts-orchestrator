@@ -292,7 +292,11 @@ func (e *Engine) livePublicBalancer(plan, ids, public, security Object) {
 	}
 	private := Object{"direction": "EGRESS", "destination": plan["subnet_cidr"], "destination_type": "CIDR_BLOCK"}
 	compareSecurity(security["ingress-security-rules"], []any{}, "public API security-list ingress", "INGRESS")
-	compareSecurity(security["egress-security-rules"], []any{tcpRule(public["client_port"], private), tcpRule(publicapi.AuthPort, private)}, "public API security-list egress", "EGRESS")
+	egress := []any{}
+	for _, r := range d.Egress() {
+		egress = append(egress, tcpRule(r.Port, private))
+	}
+	compareSecurity(security["egress-security-rules"], egress, "public API security-list egress", "EGRESS")
 	var balancer Object
 	for _, v := range rows(e.oci(region, "lb", "load-balancer", "list", "--compartment-id", str(network), "--all")) {
 		if obj(v)["id"] == ids["network_load_balancer"] {

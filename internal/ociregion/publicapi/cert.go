@@ -78,7 +78,7 @@ func (p Provisioner) certSteps(ctx context.Context, d Desired, cloudflare Cloudf
 		served, _ := field(balancer, "certificates", servedCertificate(balancer), "public-certificate").(string)
 		if secret == nil || rotate || !sameCertificate(served, origin) {
 			id := fmt.Sprint(balancer["id"])
-			steps = append(steps, step{fmt.Sprintf("install the origin certificate on %s and serve it on both HTTPS listeners", d.Names.LB),
+			steps = append(steps, step{fmt.Sprintf("install the origin certificate on %s and serve it on every HTTPS listener", d.Names.LB),
 				func(ctx context.Context) error { return p.serveOrigin(ctx, d, id, origin, key) }})
 		}
 	}
@@ -87,7 +87,7 @@ func (p Provisioner) certSteps(ctx context.Context, d Desired, cloudflare Cloudf
 
 // serveOrigin installs an origin certificate under a name derived from its
 // content, since a load balancer certificate cannot be replaced in place, and
-// points both HTTPS listeners at it. The certificate it replaces stays
+// points every HTTPS listener at it. The certificate it replaces stays
 // installed until an operator deletes it.
 func (p Provisioner) serveOrigin(ctx context.Context, d Desired, id, origin, key string) error {
 	name := certificateName(origin)
@@ -110,7 +110,8 @@ func (p Provisioner) serveOrigin(ctx context.Context, d Desired, id, origin, key
 			return err
 		}
 	}
-	for _, listener := range []string{"terrabase", "ts-auth"} {
+	for _, h := range d.hosts() {
+		listener := h.set
 		if field(balancer, "listeners", listener, "ssl-configuration", "certificate-name") == name {
 			continue
 		}

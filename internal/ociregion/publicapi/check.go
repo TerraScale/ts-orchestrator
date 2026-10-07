@@ -54,7 +54,7 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 		}
 	}
 	listeners, _ := lb["listeners"].(map[string]any)
-	// Both HTTPS listeners serve the first origin certificate or a rotation of it.
+	// Every HTTPS listener serves the first origin certificate or a rotation of it.
 	served := servedCertificate(lb)
 	if served != originCertificate && !strings.HasPrefix(served, originCertificate+"-") {
 		return differs("origin certificate", served)

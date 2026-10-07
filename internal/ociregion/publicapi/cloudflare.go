@@ -157,6 +157,18 @@ func (r configRule) same(other configRule) bool {
 		len(other.Parameters) == 1 && other.Parameters["ssl"] == "strict"
 }
 
+// strictTail reports whether only rules that set nothing but Full (strict),
+// such as another cell's, follow rules[i]: a later rule wins, and these
+// cannot downgrade it.
+func strictTail(rules []configRule, i int) bool {
+	for _, r := range rules[i+1:] {
+		if r.Action != "set_config" || len(r.Parameters) != 1 || r.Parameters["ssl"] != "strict" {
+			return false
+		}
+	}
+	return true
+}
+
 // checkStrictTLS verifies the last matching configuration cannot downgrade TLS.
 func (c Cloudflare) checkStrictTLS(ctx context.Context, entry string, want configRule) error {
 	var ruleset struct {
@@ -171,7 +183,8 @@ func (c Cloudflare) checkStrictTLS(ctx context.Context, entry string, want confi
 			count++
 		}
 	}
-	if count != 1 || len(ruleset.Rules) == 0 || ruleset.Rules[len(ruleset.Rules)-1].Ref != want.Ref || !want.same(ruleset.Rules[len(ruleset.Rules)-1]) {
+	i := slices.IndexFunc(ruleset.Rules, func(r configRule) bool { return r.Ref == want.Ref })
+	if count != 1 || !want.same(ruleset.Rules[i]) || !strictTail(ruleset.Rules, i) {
 		return fmt.Errorf("Cloudflare rule %s must be uniquely enabled with SSL Full (strict) at the end of the configuration ruleset", want.Ref)
 	}
 	return nil
@@ -242,7 +255,7 @@ func (c Cloudflare) edgeSteps(ctx context.Context, names []string, address netip
 		steps = append(steps, step{what, func(ctx context.Context) error {
 			return writeStrict(ctx, http.MethodPost, "/zones/"+zone+"/rulesets/"+ruleset.ID+"/rules", strict)
 		}})
-	case !strict.same(ruleset.Rules[current]) || current != len(ruleset.Rules)-1:
+	case !strict.same(ruleset.Rules[current]) || !strictTail(ruleset.Rules, current):
 		id := ruleset.Rules[current].ID
 		steps = append(steps, step{what, func(ctx context.Context) error {
 			// Cloudflare's documented empty after position moves the rule last.

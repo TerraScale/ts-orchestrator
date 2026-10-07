@@ -812,6 +812,74 @@ func TestSFOPlanServesTheMachinesAPI(t *testing.T) {
 	}
 }
 
+// sfo-1, the first cell serving the Machines API, comes up through cert,
+// apply and dns against fake resource IDs, reads back as planned, and a
+// rotated origin certificate reaches every HTTPS listener, ts-orch included.
+func TestSFOEdgeComesUpAndRotatesItsOrigin(t *testing.T) {
+	wire, err := os.ReadFile(filepath.Join("..", "..", "..", "deploy", "oci-region", "sfo-1-plan.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plan map[string]any
+	if err := json.Unmarshal(wire, &plan); err != nil {
+		t.Fatal(err)
+	}
+	plan["resource_ids"] = map[string]any{"network_compartment": "network", "control_compartment": "control", "vcn": "vcn",
+		"network_security_group": "ctl-nsg", "workload_network_security_group": "db-nsg", "vault": "vault", "key": "key"}
+	wire, _ = json.Marshal(plan)
+	d := testDesired(t, string(wire))
+	d.OriginPull = testOriginPull(t)
+	f := newFakeOCI(t)
+	fc, cloudflare := newFakeCloudflare(t)
+	p := Provisioner{Client: f, Pause: func(context.Context, time.Duration) error { return nil }}
+	steps, err := p.certSteps(t.Context(), d, cloudflare)
+	if err != nil || run(t.Context(), steps, true, io.Discard) != nil {
+		t.Fatal(err)
+	}
+	members, cell := testCA(t), testCA(t)
+	if _, err := p.Provision(t.Context(), d, cloudflare, members, cell); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.RunDNS(t.Context(), d, cloudflare, true, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range d.hostNames() {
+		if records := fc.records[name]; len(records) != 1 || records[0].Content != "203.0.113.10" || !records[0].Proxied {
+			t.Fatalf("%s records %v", name, records)
+		}
+	}
+	// A Vault bundle missing a planned name, here sfo.orch, gets a new version.
+	certificate, key, _, err := issueOrigin(t.Context(), cloudflare, d.hostNames()[:2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.content = base64.StdEncoding.EncodeToString([]byte(certificate + key))
+	steps, err = p.certSteps(t.Context(), d, cloudflare)
+	if err != nil || len(steps) != 2 || run(t.Context(), steps, true, io.Discard) != nil {
+		t.Fatalf("rotation: %v, %d", err, len(steps))
+	}
+	served := servedCertificate(f.balancer)
+	for _, h := range d.hosts() {
+		if got := field(f.balancer, "listeners", h.set, "ssl-configuration", "certificate-name"); got == originCertificate || got != served {
+			t.Fatalf("listener %s serves %v, want %s", h.set, got, served)
+		}
+	}
+	if err := d.CheckBalancer(f.balancer); err != nil {
+		t.Fatal(err)
+	}
+	before := len(f.mutations())
+	var out bytes.Buffer
+	if err := p.RunDNS(t.Context(), d, cloudflare, true, &out); err != nil || out.String() != "no changes\n" {
+		t.Fatalf("dns after rotation %q: %v", out.String(), err)
+	}
+	if steps, err := p.certSteps(t.Context(), d, cloudflare); err != nil || len(steps) != 0 {
+		t.Fatalf("cert rerun planned %d: %v", len(steps), err)
+	}
+	if _, err := p.Provision(t.Context(), d, cloudflare, members, cell); err != nil || len(f.mutations()) != before {
+		t.Fatalf("apply rerun changed %v: %v", f.mutations()[before:], err)
+	}
+}
+
 func TestOriginPullCAIsCloudflares(t *testing.T) {
 	block, _ := pem.Decode([]byte(originPullCA))
 	certificate, err := x509.ParseCertificate(block.Bytes)
@@ -884,7 +952,7 @@ func TestCertIssuesIntoVaultThenInstallsOnTheLoadBalancer(t *testing.T) {
 		t.Fatalf("dry run issued %d, mutated %v: %v", fc.issued, f.mutations(), err)
 	}
 	want := `plan: create a Cloudflare Origin CA certificate for gru.api.terrascale.tech and gru.auth.terrascale.tech (RSA 2048, 5475 days) into vault secret gru-1-api-origin
-plan: install the origin certificate on gru-1-api and serve it on both HTTPS listeners
+plan: install the origin certificate on gru-1-api and serve it on every HTTPS listener
 2 changes planned; rerun with --apply to apply them
 `
 	if out.String() != want {
