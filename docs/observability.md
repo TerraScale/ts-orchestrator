@@ -67,11 +67,33 @@ as on the host enrollment listener.
 | `ts_orch_terrabase_members{stage}`, `ts_orch_terrabase_replicas{database,partition,state}`, `ts_orch_rollout_progress_ratio` | `placement.Summarize` (first 64 partitions labeled) |
 | `ts_orch_delivery_intents_total{result}`, `ts_orch_delivery_transport_retries_total` | delivery consumer |
 | `ts_orch_host_*` | `/proc/stat`, `/proc/meminfo`, `/proc/pressure/*`, `statfs` on role mounts |
+| `ts_orch_host_clock_{synchronized,offset_seconds,max_error_seconds}` | read-only `adjtimex`: the kernel state the time daemon sets (see [clock sync](#clock-sync)) |
 | `ts_orch_log_records_total{level}` | slog handler |
 | `ts_orch_credential_expiry_timestamp_seconds{name,kind}` | controllers: `maintenance.Scan` over every configured certificate and NATS JWT file (see [self-healing](self-healing.md)) |
 
 Scrape-time sections are cached for three seconds so scrapes, dashboard ticks
 and snapshot requests do not repeatedly walk JetStream or `/proc`.
+
+### Clock sync
+
+TerraBase refuses remote HLC stamps more than 1 s ahead, and its leases
+assume bounded drift (TS-642). Every node syncs to the OCI NTP service at
+169.254.169.254: the signed host image installs
+`/etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf` (polling every
+32–64 s), and the bootstrap and controller units require
+`systemd-timesyncd` and `systemd-time-wait-sync` (see [releases](releases.md)).
+The controller also refuses broker effects while the kernel's error bound
+exceeds 250 ms.
+
+The `clock_skew` insight reads each member's error bound, the larger of the
+kernel's maximum error and the last measured offset. It warns above 100 ms,
+turns critical above 500 ms, and turns critical when the kernel reports the
+clock unsynchronized. The bound grows by 500 µs/s while no NTP sample
+arrives, so a node that silently lost its server warns after about 3 minutes
+and turns critical after about 16. A daemon that polls less often than every
+~3 minutes (chrony's default `maxpoll 10`) would raise false warnings; keep
+the poll interval near 64 s if the daemon changes. Insights show on the
+dashboard; no channel pushes them to a person yet (TS-625, ntfy).
 
 ## Logs and events
 

@@ -200,6 +200,15 @@ func WriteSystemMetrics(w io.Writer, view SystemView) {
 				float64(psi.FullTotal)/1e6)
 		}
 	}
+	if clock := view.Clock; clock != nil {
+		synchronized := 0.0
+		if clock.Synchronized {
+			synchronized = 1
+		}
+		WriteGauge(w, MetricPrefix+"host_clock_synchronized", synchronized)
+		WriteGauge(w, MetricPrefix+"host_clock_offset_seconds", clock.OffsetSeconds)
+		WriteGauge(w, MetricPrefix+"host_clock_max_error_seconds", clock.MaxErrorSeconds)
+	}
 	for _, filesystem := range view.Filesystems {
 		WriteGauge(w, Series(MetricPrefix+"host_filesystem_size_bytes", "role", filesystem.Role), float64(filesystem.SizeBytes))
 		WriteGauge(w, Series(MetricPrefix+"host_filesystem_avail_bytes", "role", filesystem.Role), float64(filesystem.AvailBytes))
@@ -213,7 +222,9 @@ func WriteSystemMetrics(w io.Writer, view SystemView) {
 // skipped; a filesystem that cannot be read is reported with zero sizes
 // rather than failing the whole view.
 func ReadSystem(filesystems []FilesystemRole) (SystemView, error) {
-	return readSystem("/proc", filesystems, statFilesystem)
+	view, err := readSystem("/proc", filesystems, statFilesystem)
+	view.Clock = readClock()
+	return view, err
 }
 
 func readSystem(procRoot string, filesystems []FilesystemRole,

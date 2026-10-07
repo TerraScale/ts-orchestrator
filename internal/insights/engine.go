@@ -287,6 +287,7 @@ var ruleInputs = map[string][]string{
 	"volume_stuck":         {"cluster", "snapshot", "section placement", "volumes"},
 	"disk_time_to_full":    {"cluster", "snapshot", "section system"},
 	"memory_pressure":      {"cluster", "snapshot", "section system"},
+	"clock_skew":           {"cluster", "snapshot", "section system"},
 	"oci_errors":           {"cluster", "snapshot", "section oci"},
 	"certificate_expiring": {"certificates", "cluster", "snapshot", "section credentials"},
 	"netbird_peer":         {"netbird"},

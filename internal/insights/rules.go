@@ -3,6 +3,7 @@ package insights
 import (
 	"fmt"
 	"maps"
+	"math"
 	"net/url"
 	"slices"
 	"strings"
@@ -166,6 +167,7 @@ func DefaultRules() []Rule {
 		{Name: "volume_stuck", Description: "A volume is stuck attaching.", Evaluate: volumeStuck},
 		{Name: "disk_time_to_full", Description: "A filesystem fills soon or is nearly full.", Evaluate: diskTimeToFull},
 		{Name: "memory_pressure", Description: "A member is short of memory.", Evaluate: memoryPressure},
+		{Name: "clock_skew", Description: "A member's clock lost time sync or may be off.", Evaluate: clockSkew},
 		{Name: "oci_errors", Description: "OCI API errors or 429s spike.", Evaluate: ociErrors},
 		{Name: "region_unreachable", Description: "A linked region stopped answering.", Evaluate: regionUnreachable},
 		{Name: "certificate_expiring", Description: "A certificate or delegation expires soon.", Evaluate: certificateExpiring},
@@ -712,6 +714,48 @@ func memoryPressure(inputs *Inputs) []Insight {
 				Labels: map[string]string{"member": member.Member}, Value: ratio, Unit: "ratio", Comparison: "<",
 				Threshold: threshold(inputs.Thresholds.MemoryUsedWarning)}},
 			Actions: []Action{{Label: "List the largest processes", Command: "ps aux --sort=-rss | head"}}})
+	}
+	return out
+}
+
+// Clock skew bounds (TS-642). TerraBase refuses remote HLC stamps more than
+// 1 s ahead and its leases assume bounded drift.
+const (
+	clockSkewWarning  = 0.1 // seconds
+	clockSkewCritical = 0.5
+)
+
+// clockSkew judges the kernel's error bound, which covers the measured
+// offset and keeps growing while the daemon gets no sample, so a node that
+// silently lost its NTP server crosses 500 ms about 16 minutes later, long
+// before the kernel clears its synchronized flag.
+func clockSkew(inputs *Inputs) []Insight {
+	var out []Insight
+	for _, member := range members(inputs) {
+		if member.System == nil || member.System.Clock == nil {
+			continue
+		}
+		clock := member.System.Clock
+		skew := max(clock.MaxErrorSeconds, math.Abs(clock.OffsetSeconds))
+		insight := Insight{Severity: SeverityWarning, Score: skew * 1000,
+			Title: fmt.Sprintf("%s clock may be off by %.0f ms", member.Member, skew*1000),
+			Why: fmt.Sprintf("%s's clock error bound is %.0f ms; TerraBase refuses stamps more than 1 s apart "+
+				"and its leases assume bounded drift.", member.Member, skew*1000),
+			Entity: Entity{Kind: "member", ID: member.Member, Href: memberHref(member.Member)},
+			Evidence: []Evidence{{Label: "Clock error bound", Value: skew, Unit: "seconds", Comparison: "<",
+				Threshold: threshold(clockSkewWarning)}},
+			Actions: []Action{{Label: "Check the time daemon", Command: "timedatectl timesync-status"}}}
+		switch {
+		case !clock.Synchronized:
+			insight.Severity, insight.Score = SeverityCritical, 1e6
+			insight.Title = member.Member + " lost time sync"
+			insight.Why = member.Member + "'s kernel reports its clock unsynchronized; its time can drift without bound."
+		case skew > clockSkewCritical:
+			insight.Severity, insight.Evidence[0].Threshold = SeverityCritical, threshold(clockSkewCritical)
+		case skew <= clockSkewWarning:
+			continue
+		}
+		out = append(out, insight)
 	}
 	return out
 }

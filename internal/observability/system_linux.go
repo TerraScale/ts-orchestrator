@@ -18,3 +18,21 @@ func statFilesystem(path string) (FilesystemView, error) {
 	}
 	return view, nil
 }
+
+// readClock reads the kernel's NTP state through a read-only adjtimex.
+func readClock() *ClockView {
+	var state unix.Timex
+	status, err := unix.Adjtimex(&state)
+	if err != nil {
+		return nil
+	}
+	offset := float64(state.Offset) / 1e6 // microseconds unless STA_NANO
+	if state.Status&unix.STA_NANO != 0 {
+		offset = float64(state.Offset) / 1e9
+	}
+	return &ClockView{
+		Synchronized:    status != unix.TIME_ERROR && state.Status&(unix.STA_UNSYNC|unix.STA_CLOCKERR) == 0,
+		OffsetSeconds:   offset,
+		MaxErrorSeconds: float64(state.Maxerror) / 1e6,
+	}
+}

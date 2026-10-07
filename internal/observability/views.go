@@ -219,6 +219,18 @@ type SystemView struct {
 	Filesystems     []FilesystemView `json:"filesystems,omitempty"`
 	UptimeSeconds   float64          `json:"uptime_seconds"`
 	ProcessRSSBytes uint64           `json:"process_rss_bytes"`
+	// Clock is the kernel's NTP discipline state; nil when it cannot be read.
+	Clock *ClockView `json:"clock,omitempty"`
+}
+
+// ClockView is the kernel clock state set by the node's time daemon
+// (systemd-timesyncd or chrony): whether it is synchronized, the offset the
+// daemon last measured against its server, and the kernel's bound on the
+// clock's error, which grows by 500 µs/s while no sample arrives.
+type ClockView struct {
+	Synchronized    bool    `json:"synchronized"`
+	OffsetSeconds   float64 `json:"offset_seconds"`
+	MaxErrorSeconds float64 `json:"max_error_seconds"`
 }
 
 // CPUSeconds is cumulative CPU time across all CPUs by mode.

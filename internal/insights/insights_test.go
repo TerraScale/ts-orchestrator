@@ -429,3 +429,22 @@ func TestHandler(t *testing.T) {
 		}
 	}
 }
+
+func TestClockSkewWarnsPagesAndPagesOnLostSync(t *testing.T) {
+	for _, test := range []struct {
+		clock observability.ClockView
+		want  Severity
+	}{
+		{observability.ClockView{Synchronized: true, OffsetSeconds: 0.0002, MaxErrorSeconds: 0.03}, ""},
+		{observability.ClockView{Synchronized: true, OffsetSeconds: -0.15, MaxErrorSeconds: 0.03}, SeverityWarning},
+		{observability.ClockView{Synchronized: true, MaxErrorSeconds: 0.6}, SeverityCritical},
+		{observability.ClockView{MaxErrorSeconds: 0.001}, SeverityCritical},
+	} {
+		clock := test.clock
+		got := evaluate(t, clockSkew, &Inputs{Cluster: &observability.ClusterSnapshot{Members: []observability.MemberSnapshot{
+			{Member: "ts-gru-1", System: &observability.SystemView{Clock: &clock}}}}})
+		if test.want == "" && len(got) != 0 || test.want != "" && (len(got) != 1 || got[0].Severity != test.want) {
+			t.Errorf("clock %+v: insights = %+v, want %q", clock, got, test.want)
+		}
+	}
+}

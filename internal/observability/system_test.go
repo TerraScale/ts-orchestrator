@@ -85,10 +85,12 @@ func TestReadSystemFromProcFixture(t *testing.T) {
 		view.Filesystems[1].Role != "store" {
 		t.Fatalf("filesystems = %+v", view.Filesystems)
 	}
+	view.Clock = &ClockView{Synchronized: true, OffsetSeconds: -0.002, MaxErrorSeconds: 0.0235}
 	var output bytes.Buffer
 	WriteSystemMetrics(&output, view)
 	text := output.String()
-	for _, want := range []string{`ts_orch_host_cpu_seconds_total{mode="user"} 10`, `ts_orch_host_memory_total_bytes 8192000000`,
+	for _, want := range []string{`ts_orch_host_clock_synchronized 1`, `ts_orch_host_clock_offset_seconds -0.002`,
+		`ts_orch_host_clock_max_error_seconds 0.0235`, `ts_orch_host_cpu_seconds_total{mode="user"} 10`, `ts_orch_host_memory_total_bytes 8192000000`,
 		`ts_orch_host_pressure_avg10{resource="memory",kind="full"} 0.25`, `ts_orch_host_filesystem_avail_bytes{role="nats"} 40`} {
 		if !strings.Contains(text, want) {
 			t.Errorf("metrics lack %q:\n%s", want, text)
@@ -124,7 +126,8 @@ func TestReadSystemOnThisHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.CPUCount < 1 || view.MemTotalBytes == 0 || len(view.Filesystems) != 1 || view.Filesystems[0].SizeBytes == 0 {
+	if view.CPUCount < 1 || view.MemTotalBytes == 0 || len(view.Filesystems) != 1 || view.Filesystems[0].SizeBytes == 0 ||
+		view.Clock == nil {
 		t.Fatalf("host view = %+v", view)
 	}
 }
