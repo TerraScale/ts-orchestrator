@@ -122,6 +122,8 @@ and its settings prefix; today only `terrabase` has one.
   brokers' cell account holds the signer:
   [apply the role claim](broker-claim-rotation.md#role-claim) once per
   region.
+- **Live.** gru-1 since 2026-10-07: the
+  [delivery record](evidence/ts-651-role-identity-gru-1-20261007.md).
 
 ## Which pattern to use
 
