@@ -153,10 +153,16 @@ func TestNewIMDSClientRetainsBoundedTransport(t *testing.T) {
 func TestReadControllerHostMetadataNamesTheControllerSlot(t *testing.T) {
 	instanceID := "ocid1.instance.oc1.sa-saopaulo-1.ctl2"
 	slot := []byte(`{"schemaVersion":1,"slot":"controller-b"}`)
+	name := []byte("gru-1-ctl-2")
 	client := imdsDoFunc(func(request *http.Request) (*http.Response, error) {
 		switch request.URL.String() {
 		case imdsInstanceURL:
 			return imdsResponse(http.StatusOK, []byte(instanceID), -1), nil
+		case imdsNameURL:
+			if name == nil {
+				return imdsResponse(http.StatusInternalServerError, nil, 0), nil
+			}
+			return imdsResponse(http.StatusOK, name, int64(len(name))), nil
 		case imdsBootstrapURL:
 			if slot == nil {
 				return imdsResponse(http.StatusNotFound, nil, 0), nil
@@ -173,6 +179,19 @@ func TestReadControllerHostMetadataNamesTheControllerSlot(t *testing.T) {
 		string(metadata.Wire) != `{"schema_version":2,"cell":"gru","region":"GRU","node":"gru-1-ctl-2"}` {
 		t.Fatalf("controller host metadata = %+v, %v", metadata, err)
 	}
+	// A node the rename named keeps its name; another region's does not.
+	for display, want := range map[string]string{"ts-gru-2": "ts-gru-2", "ts-sfo-2": "gru-1-ctl-2", "gru-1-ctl-9": "gru-1-ctl-2"} {
+		name = []byte(display)
+		if metadata, err := ReadControllerHostMetadata(t.Context(), client, "gru", "GRU"); err != nil ||
+			metadata.Descriptor != hostboot.Static("gru", "GRU", want) || !metadata.Descriptor.IsController() {
+			t.Errorf("display name %s: metadata = %+v, %v, want node %s", display, metadata.Descriptor, err, want)
+		}
+	}
+	name = nil
+	if _, err := ReadControllerHostMetadata(t.Context(), client, "gru", "GRU"); err == nil {
+		t.Fatal("an unreadable display name fell back to the slot's name")
+	}
+	name = []byte("gru-1-ctl-2")
 	for _, invalid := range [][]byte{[]byte(`{"schemaVersion":1,"slot":"member-a"}`),
 		[]byte(`{"schemaVersion":2,"slot":"controller-a"}`), []byte(`{"slot":"controller-a","extra":1}`)} {
 		slot = invalid

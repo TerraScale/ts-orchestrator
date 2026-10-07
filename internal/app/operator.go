@@ -115,6 +115,7 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	launchImage := flags.Bool("launch", false, "service allow-image: new managed hosts boot the image; revoke-image: only stop new hosts booting it")
 	toGeneration := flags.Uint64("to", 0, "rollout rollback: the earlier generation to publish again")
 	ocpus := flags.Float64("ocpus", 0, "node resize: the instance's OCPUs")
+	newName := flags.String("new-name", "", "node rename: the node's new name")
 	memoryGB := flags.Float64("memory-gb", 0, "node resize: the instance's memory in GB")
 	var forwards operatorForwardFlags
 	flags.Var(&forwards, "nats-forward", "transient PRIVATE_IP:4222=LOOPBACK_IP:PORT Bastion forward (repeatable)")
@@ -281,9 +282,9 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 		return operatorSpecApply(ctx, cfg, runtime, *artifactPath, output)
 	case "rollout-status", "rollout-publish", "rollout-pause", "rollout-resume", "rollout-rollback":
 		return operatorRollout(ctx, cfg, runtime, strings.TrimPrefix(operation, "rollout-"), rolloutRequest, output)
-	case "node-status", "node-drain", "node-undrain", "node-reboot", "node-resize", "node-add", "node-retire":
+	case "node-status", "node-drain", "node-undrain", "node-reboot", "node-resize", "node-add", "node-retire", "node-rename":
 		return operatorNode(ctx, cfg, runtime, strings.TrimPrefix(operation, "node-"),
-			nodeOpRequest{Node: *node, OCPUs: float32(*ocpus), MemoryGB: float32(*memoryGB)}, *wait, output)
+			nodeOpRequest{Node: *node, To: *newName, OCPUs: float32(*ocpus), MemoryGB: float32(*memoryGB)}, *wait, output)
 	case "trust-roots":
 		return operatorTrustRoots(ctx, cfg, runtime, *outPath, output)
 	case "trust-rotate":

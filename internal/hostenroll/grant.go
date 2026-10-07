@@ -153,6 +153,18 @@ func (store *GrantStore) Claim(ctx context.Context, candidate Grant) (Grant, uin
 	return current, revision, nil
 }
 
+// Forget deletes instanceID's grant, so the instance enrolls afresh: ts-orch
+// node rename re-enrolls a renamed static host under its new name (TS-609).
+func (store *GrantStore) Forget(ctx context.Context, instanceID string) error {
+	if store == nil || store.kv == nil || instanceID == "" {
+		return mutationNotApplied(errors.New("host enrollment grant store is unavailable"))
+	}
+	if err := store.kv.Delete(ctx, grantKey(instanceID)); err != nil && !errors.Is(err, jetstream.ErrKeyNotFound) {
+		return fmt.Errorf("forget host enrollment grant: %w", err)
+	}
+	return nil
+}
+
 // Finish persists exact signed bytes before any network response. A lost reply
 // returns the identical response on the next exact request.
 func (store *GrantStore) Finish(ctx context.Context, expected Grant, revision uint64, response []byte) (Grant, error) {

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/core"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 )
 
@@ -21,6 +23,7 @@ import (
 type ociNodeCompute struct {
 	compute core.ComputeClient
 	storage core.BlockstorageClient
+	network core.VirtualNetworkClient
 
 	once        sync.Once
 	compartment string
@@ -40,7 +43,11 @@ func newOCINodeCompute(region string) (nodeCompute, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ociNodeCompute{compute: compute, storage: storage}, nil
+	network, err := factory.Network()
+	if err != nil {
+		return nil, err
+	}
+	return &ociNodeCompute{compute: compute, storage: storage, network: network}, nil
 }
 
 func (c *ociNodeCompute) ownCompartment(ctx context.Context) (string, error) {
@@ -119,6 +126,71 @@ func instanceOfNode(instance core.Instance) nodeInstance {
 	return found
 }
 
+// Rename gives the instance, its boot volume and its primary VNIC's hostname
+// label, which sets the OS hostname at the next boot, the node's new name.
+// The leader's policy may not let it update the VNIC: that is logged, the
+// node's name is the instance's.
+func (c *ociNodeCompute) Rename(ctx context.Context, id, name string) error {
+	if _, err := c.compute.UpdateInstance(ctx, core.UpdateInstanceRequest{InstanceId: common.String(id),
+		UpdateInstanceDetails: core.UpdateInstanceDetails{DisplayName: common.String(name)}}); err != nil {
+		return err
+	}
+	instance, err := c.compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: common.String(id)})
+	if err != nil {
+		return err
+	}
+	volume, err := c.bootVolume(ctx, instance.Instance)
+	if err != nil {
+		return err
+	}
+	if _, err := c.storage.UpdateBootVolume(ctx, core.UpdateBootVolumeRequest{BootVolumeId: common.String(volume),
+		UpdateBootVolumeDetails: core.UpdateBootVolumeDetails{DisplayName: common.String(name + " (Boot Volume)")}}); err != nil {
+		return err
+	}
+	if err := c.renameHostname(ctx, instance.Instance, name); err != nil {
+		slog.Warn("node rename kept the OS hostname", observability.ComponentKey, "nodes", "instance", id, "error", err)
+	}
+	return nil
+}
+
+func (c *ociNodeCompute) renameHostname(ctx context.Context, instance core.Instance, name string) error {
+	attachments, err := c.compute.ListVnicAttachments(ctx, core.ListVnicAttachmentsRequest{
+		CompartmentId: instance.CompartmentId, InstanceId: instance.Id})
+	if err != nil {
+		return err
+	}
+	for _, attachment := range attachments.Items {
+		if attachment.LifecycleState != core.VnicAttachmentLifecycleStateAttached || attachment.VnicId == nil {
+			continue
+		}
+		vnic, err := c.network.GetVnic(ctx, core.GetVnicRequest{VnicId: attachment.VnicId})
+		if err != nil {
+			return err
+		}
+		if vnic.IsPrimary != nil && *vnic.IsPrimary {
+			_, err = c.network.UpdateVnic(ctx, core.UpdateVnicRequest{VnicId: attachment.VnicId,
+				UpdateVnicDetails: core.UpdateVnicDetails{HostnameLabel: common.String(name)}})
+			return err
+		}
+	}
+	return fmt.Errorf("instance %s has no attached primary VNIC", *instance.Id)
+}
+
+// bootVolume is the instance's attached boot volume.
+func (c *ociNodeCompute) bootVolume(ctx context.Context, instance core.Instance) (string, error) {
+	attachments, err := c.compute.ListBootVolumeAttachments(ctx, core.ListBootVolumeAttachmentsRequest{
+		AvailabilityDomain: instance.AvailabilityDomain, CompartmentId: instance.CompartmentId, InstanceId: instance.Id})
+	if err != nil {
+		return "", err
+	}
+	for _, attachment := range attachments.Items {
+		if attachment.LifecycleState == core.BootVolumeAttachmentLifecycleStateAttached && attachment.BootVolumeId != nil {
+			return *attachment.BootVolumeId, nil
+		}
+	}
+	return "", fmt.Errorf("instance %s has no attached boot volume", *instance.Id)
+}
+
 // Backup takes a FULL backup of the instance's boot volume and waits until
 // it is available. token makes a repeated request return the same backup.
 func (c *ociNodeCompute) Backup(ctx context.Context, id, name string, tags map[string]string, token string) (string, error) {
@@ -126,19 +198,9 @@ func (c *ociNodeCompute) Backup(ctx context.Context, id, name string, tags map[s
 	if err != nil {
 		return "", err
 	}
-	attachments, err := c.compute.ListBootVolumeAttachments(ctx, core.ListBootVolumeAttachmentsRequest{
-		AvailabilityDomain: instance.AvailabilityDomain, CompartmentId: instance.CompartmentId, InstanceId: common.String(id)})
+	volume, err := c.bootVolume(ctx, instance.Instance)
 	if err != nil {
 		return "", err
-	}
-	volume := ""
-	for _, attachment := range attachments.Items {
-		if attachment.LifecycleState == core.BootVolumeAttachmentLifecycleStateAttached && attachment.BootVolumeId != nil {
-			volume = *attachment.BootVolumeId
-		}
-	}
-	if volume == "" {
-		return "", fmt.Errorf("instance %s has no attached boot volume", id)
 	}
 	created, err := c.storage.CreateBootVolumeBackup(ctx, core.CreateBootVolumeBackupRequest{OpcRetryToken: common.String(token),
 		CreateBootVolumeBackupDetails: core.CreateBootVolumeBackupDetails{BootVolumeId: common.String(volume),

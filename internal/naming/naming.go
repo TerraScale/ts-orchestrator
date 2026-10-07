@@ -145,6 +145,14 @@ func Validate(name string) error {
 	return nil
 }
 
+// IsNode reports whether name is a node of region, ts-<region>-<n> (not its
+// data volume).
+func IsNode(name, region string) bool {
+	match := nodeScheme.FindStringSubmatch(name)
+	return match != nil && match[1] == strings.ToLower(region) && !strings.HasSuffix(name, "-data") &&
+		catalog.IsCell(strings.ToUpper(region))
+}
+
 // NATSServer is a NATS server name: a catalog cell's controller slot gets its
 // server name (gru-1-ctl-1); lab cells and instances outside the scheme keep
 // <cell>-<instance>.

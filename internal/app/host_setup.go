@@ -120,6 +120,10 @@ func runHostSetupWithMetadata(ctx context.Context, bundle hostenroll.PublicBundl
 	if err := validateHostSetupRootOwner(outputRoot, runtime.ownerUID); err != nil {
 		return err
 	}
+	renamed, err := resetRenamedHostEnrollment(outputRoot, metadata)
+	if err != nil {
+		return err
+	}
 	pending, err := readOrCreateHostEnrollment(outputRoot, metadata)
 	if err != nil {
 		return err
@@ -133,16 +137,19 @@ func runHostSetupWithMetadata(ctx context.Context, bundle hostenroll.PublicBundl
 		descriptor != metadata.Descriptor || request.Operation != "enroll" {
 		return errors.New("persisted host enrollment request differs from current OCI metadata")
 	}
-	active, err := installedHostCredentialActive(outputRoot, bundle, descriptor.Node, pending, request)
-	if err != nil {
-		return err
+	// A renamed host's installed configuration names its old node.
+	active := false
+	if !renamed {
+		if active, err = installedHostCredentialActive(outputRoot, bundle, descriptor.Node, pending, request); err != nil {
+			return err
+		}
 	}
 	if active {
 		_, _ = fmt.Fprintf(output, "host %s enrollment is current in cell %s\n", descriptor.Node, bundle.Cell)
 		return nil
 	}
 	requestWire := pending.Request
-	if _, err := os.Stat(filepath.Join(outputRoot, "host.json")); err == nil {
+	if _, err := os.Stat(filepath.Join(outputRoot, "host.json")); err == nil && !renamed {
 		requestWire, err = createRenewalRequest(outputRoot, pending, request)
 		if err != nil {
 			return err
@@ -225,6 +232,41 @@ func runHostSetupWithMetadata(ctx context.Context, bundle hostenroll.PublicBundl
 	}
 	_, _ = fmt.Fprintf(output, "host %s enrolled in cell %s\n", descriptor.Node, bundle.Cell)
 	return nil
+}
+
+// resetRenamedHostEnrollment reports a static host that ts-orch node rename
+// renamed (TS-609): host.json names another node of its cell. It enrolls
+// afresh under the new name: a persisted request for another node is
+// dropped, and host.json stays until the enrollment replaces it, so its
+// host-local options carry over.
+func resetRenamedHostEnrollment(root string, metadata hostenroll.InstanceMetadata) (bool, error) {
+	current := metadata.Descriptor
+	config, err := LoadConfig(filepath.Join(root, "host.json"))
+	if errors.Is(err, os.ErrNotExist) || !current.IsStatic() {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if config.NATS.Cell != current.Cell || config.Host.Node == "" || config.Host.Node == current.Node {
+		return false, nil
+	}
+	if wire, err := os.ReadFile(filepath.Join(root, pendingHostEnrollmentFile)); err == nil {
+		var pending pendingHostEnrollment
+		var request hostenroll.Request
+		if json.Unmarshal(wire, &pending) != nil || json.Unmarshal(pending.Request, &request) != nil ||
+			request.Descriptor != string(metadata.Wire) {
+			if err := os.Remove(filepath.Join(root, pendingHostEnrollmentFile)); err != nil {
+				return false, err
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	if err := os.Remove(filepath.Join(root, ".host-enrollment-renewal.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	return true, nil
 }
 
 func parsePersistedHostRequest(wire []byte) (hostenroll.Request, error) {

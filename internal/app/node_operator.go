@@ -22,6 +22,9 @@ const nodeUsage = `Usage: ts-orch node <command> --config OPERATOR_JSON [flags]
   add      --node N                             Create a granted node's missing backends out of rotation, check, return them
   retire   --node N                             Drain a node without replicas or a controller, remove its backends,
                                                 back its boot volume up (kept 7 days) and terminate its instance
+  rename   --node N --new-name M                Drain N, rename its instance, boot volume and hostname to M, reboot it,
+                                                re-enroll its host as M, move its roles, check, return it; the cell
+                                                spec must grant M at N's address first (service grant-host)
 
 The authority leader runs one operation at a time. It refuses one that would
 leave a load balancer set with fewer healthy backends than its min_serving.
@@ -37,7 +40,8 @@ func runNode(ctx context.Context, args []string, output io.Writer) error {
 		_, err := io.WriteString(output, nodeUsage)
 		return err
 	}
-	if !slices.Contains([]string{"status", nodeOpDrain, nodeOpUndrain, nodeOpReboot, nodeOpResize, nodeOpAdd, nodeOpRetire}, args[0]) {
+	if !slices.Contains([]string{"status", nodeOpDrain, nodeOpUndrain, nodeOpReboot, nodeOpResize, nodeOpAdd, nodeOpRetire,
+		nodeOpRename}, args[0]) {
 		return fmt.Errorf("unknown node command %q", args[0])
 	}
 	return runOperator(ctx, append([]string{"node-" + args[0]}, args[1:]...), output)

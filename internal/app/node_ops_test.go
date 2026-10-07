@@ -70,6 +70,18 @@ type nodeInstances struct {
 	calls []string
 	// names renames a node's instance; an empty name removes it.
 	names map[string]string
+	// rebooted, when set, runs after a node's reboot.
+	rebooted func(node string)
+}
+
+func (c *nodeInstances) Rename(_ context.Context, id, name string) error {
+	node := strings.TrimPrefix(id, "ocid1.instance.")
+	c.calls = append(c.calls, "rename "+node+" "+name)
+	if c.names == nil {
+		c.names = map[string]string{}
+	}
+	c.names[node] = name
+	return nil
 }
 
 func (c *nodeInstances) Backup(_ context.Context, id, name string, tags map[string]string, token string) (string, error) {
@@ -138,6 +150,9 @@ func (c *nodeInstances) Reboot(_ context.Context, id string) error {
 	node := strings.TrimPrefix(id, "ocid1.instance.")
 	c.calls = append(c.calls, "reboot "+node)
 	c.restart(node)
+	if c.rebooted != nil {
+		c.rebooted(node)
+	}
 	return nil
 }
 
@@ -465,5 +480,141 @@ func TestNodeAddJoinsAMissingBackend(t *testing.T) {
 	}
 	if !slices.Contains(balancer.log, "ts-auth 10.0.0.13:8080 created") {
 		t.Fatalf("load balancer %q", balancer.log)
+	}
+}
+
+// renameHosts is a host plane whose nodes run terrabase and ts-auth as
+// desired; a node that enrolls under a new name reports from a new session
+// and its old name stops reporting.
+type renameHosts struct {
+	mu       sync.Mutex
+	nodes    []string
+	down     map[string]bool
+	sessions map[string]string
+	desired  map[string]host.Desired
+	retired  []string
+}
+
+func newRenameHosts() *renameHosts {
+	h := &renameHosts{nodes: []string{"ctl-1", "ctl-2", "ctl-3"}, down: map[string]bool{},
+		sessions: map[string]string{"ctl-1": "s1", "ctl-2": "s2", "ctl-3": "s3"}, desired: map[string]host.Desired{}}
+	for _, node := range h.nodes {
+		for _, role := range []string{"terrabase", "ts-auth"} {
+			h.desired[node+"/"+role] = host.Desired{Node: node, Role: role, Generation: 7}
+		}
+	}
+	return h
+}
+
+func (h *renameHosts) enroll(from, to string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.nodes, h.down[from], h.sessions[to] = append(h.nodes, to), true, "n1"
+}
+
+func (h *renameHosts) ListHosts(context.Context) ([]host.HostStatus, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var statuses []host.HostStatus
+	for _, node := range h.nodes {
+		status := host.HostStatus{Registration: host.Registration{Node: node, Roles: []string{"terrabase", "ts-auth"}}}
+		for _, role := range status.Registration.Roles {
+			if d, ok := h.desired[node+"/"+role]; ok && !d.Withdrawn && !h.down[node] {
+				status.Reports = append(status.Reports, host.Report{Node: node, Role: role, Generation: d.Generation,
+					State: "running", SessionID: h.sessions[node], ObservedAt: time.Now()})
+			}
+		}
+		statuses = append(statuses, status)
+	}
+	return statuses, nil
+}
+
+func (h *renameHosts) ListDesired(_ context.Context, role string) ([]host.Desired, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var desired []host.Desired
+	for _, d := range h.desired {
+		if role == "" || d.Role == role {
+			desired = append(desired, d)
+		}
+	}
+	return desired, nil
+}
+
+func (h *renameHosts) ApplyDesired(_ context.Context, d host.Desired) (host.Receipt, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.desired[d.Node+"/"+d.Role] = d
+	return host.Receipt{}, nil
+}
+
+func (h *renameHosts) RetireIdle(_ context.Context, node string) (bool, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.retired = append(h.retired, node)
+	return true, nil
+}
+
+// A rename needs the new name granted at the node's address. It fences the
+// node there, renames the instance, forgets its enrollment and reboots it;
+// once the host enrolled under the new name, the old name's roles move to
+// it, the old name retires, and the node returns once they serve (TS-609).
+func TestNodeRenameReenrollsTheHostAndMovesItsRoles(t *testing.T) {
+	ops, balancer, instances := newNodeOpsTest(t)
+	ctx := t.Context()
+	hosts := newRenameHosts()
+	ops.fence.hosts, ops.desired = hosts, hosts
+	ops.forget = func(_ context.Context, id string) error {
+		instances.calls = append(instances.calls, "forget "+id)
+		return nil
+	}
+	instances.rebooted = func(node string) { hosts.enroll(node, "ts-gru-1") }
+	request := nodeOpRequest{Node: "ctl-1", To: "ts-gru-1", Op: nodeOpRename}
+	if _, err := ops.submit(ctx, 3, "mariogk", "op-0", request); err == nil || !strings.Contains(err.Error(), "no host grant") {
+		t.Fatalf("renamed to an ungranted name: %v", err)
+	}
+	spec, _ := ops.fence.spec()
+	both := map[string]string{"ctl-1": "10.0.0.11", "ts-gru-1": "10.0.0.11", "ctl-2": "10.0.0.12", "ctl-3": "10.0.0.13"}
+	ops.fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return spec, both }
+	if _, err := ops.submit(ctx, 3, "mariogk", "op-0", request); err == nil || !strings.Contains(err.Error(), "still grants ctl-1") {
+		t.Fatalf("renamed while the old name keeps its grant: %v", err)
+	}
+	ops.controllers = func(node string) bool { return node == "ctl-1" }
+	renamed := map[string]string{"ts-gru-1": "10.0.0.11", "ctl-2": "10.0.0.12", "ctl-3": "10.0.0.13"}
+	ops.fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return spec, renamed }
+	if _, err := ops.submit(ctx, 3, "mariogk", "op-0", request); err == nil || !strings.Contains(err.Error(), "controller slot") {
+		t.Fatalf("renamed a controller node without its slot: %v", err)
+	}
+	ops.controllers = func(node string) bool { return node == "ts-gru-1" }
+	if _, err := ops.submit(ctx, 3, "mariogk", "op-1", nodeOpRequest{Node: "ctl-1", Op: nodeOpRename}); err == nil {
+		t.Fatal("a rename without --new-name was queued")
+	}
+	if _, err := ops.submit(ctx, 3, "mariogk", "op-1", request); err != nil {
+		t.Fatal(err)
+	}
+	if err := ops.pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if op := ops.operation(t, "ts-gru-1"); op.State != nodeOpDone || op.From != "ctl-1" || op.Instance != "ocid1.instance.ctl-1" ||
+		op.Session != "s1" {
+		t.Fatalf("operation %+v", op)
+	}
+	if want := []string{"rename ctl-1 ts-gru-1", "forget ocid1.instance.ctl-1", "reboot ctl-1"}; !slices.Equal(instances.calls, want) {
+		t.Fatalf("instances %q, want %q", instances.calls, want)
+	}
+	for _, role := range []string{"terrabase", "ts-auth"} {
+		if moved, old := hosts.desired["ts-gru-1/"+role], hosts.desired["ctl-1/"+role]; moved.Withdrawn || moved.Generation != 7 ||
+			moved.AuthorityEpoch != 3 || !old.Withdrawn {
+			t.Fatalf("%s desired: new %+v, old %+v", role, moved, old)
+		}
+	}
+	if !slices.Equal(hosts.retired, []string{"ctl-1"}) {
+		t.Fatalf("retired %v", hosts.retired)
+	}
+	if !balancer.sets["terrabase"][0].Serving() || !balancer.sets["ts-auth"][0].Serving() {
+		t.Fatal("the renamed node was not returned")
+	}
+	if _, found, _ := ops.fence.record(ctx, "ts-gru-1"); found {
+		t.Fatal("the fence record was left")
 	}
 }

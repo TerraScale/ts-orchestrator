@@ -16,6 +16,7 @@ import (
 
 const (
 	imdsInstanceURL   = "http://169.254.169.254/opc/v2/instance/id"
+	imdsNameURL       = "http://169.254.169.254/opc/v2/instance/displayName"
 	imdsDescriptorURL = "http://169.254.169.254/opc/v2/instance/metadata/" + hostboot.MetadataKey
 	imdsEnrollmentURL = "http://169.254.169.254/opc/v2/instance/metadata/" + hostboot.EnrollmentMetadataKey
 	// imdsBootstrapURL is the controller launch hint naming its signed slot.
@@ -93,8 +94,10 @@ func readInstanceID(ctx context.Context, client HTTPDoer) (string, error) {
 }
 
 // ReadControllerHostMetadata returns the static descriptor of the host agent
-// on a controller VM: the server name of the controller's launch slot in
-// cell and region. An instance without a controller slot is not a host.
+// on a controller VM: its instance's display name once that is a node of the
+// region (ts-node rename renamed it, TS-609), else the server name of the
+// controller's launch slot in cell and region. An instance without a
+// controller slot is not a host.
 func ReadControllerHostMetadata(ctx context.Context, client HTTPDoer, cell, region string) (InstanceMetadata, error) {
 	instanceID, err := readInstanceID(ctx, client)
 	if err != nil {
@@ -117,6 +120,15 @@ func ReadControllerHostMetadata(ctx context.Context, client HTTPDoer, cell, regi
 	node, err := naming.RegionCell(region).ControllerSlot(bootstrap.Slot)
 	if err != nil {
 		return InstanceMetadata{}, err
+	}
+	// A failed read fails setup: falling back to the slot's name would
+	// enroll a renamed node under its old name.
+	name, err := readIMDS(ctx, client, imdsNameURL, 256)
+	if err != nil {
+		return InstanceMetadata{}, fmt.Errorf("read OCI IMDSv2 display name: %w", err)
+	}
+	if displayName := strings.TrimSpace(string(name)); naming.IsNode(displayName, region) {
+		node = displayName
 	}
 	descriptor := hostboot.Static(cell, region, node)
 	encoded, err := descriptor.CanonicalBytes()

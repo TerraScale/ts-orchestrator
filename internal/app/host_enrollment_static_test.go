@@ -653,6 +653,42 @@ func TestGrantedControllerHostColocatesATerraBaseMember(t *testing.T) {
 		registration.Capacity != (host.Capacity{CPU: 2, MemoryBytes: 5 << 30, DiskBytes: 22 << 30}) || registration.ManagedOCI != nil {
 		t.Fatalf("colocated host registration = %+v", registration)
 	}
+	// ts-orch node rename (TS-609): the spec grants ts-gru-1 at the address
+	// and the leader forgets the instance's enrollment and renames it. Its
+	// host-setup then enrolls the node afresh under the new name, keeping
+	// host.json's host-local options and the member at its address.
+	installed.Host.SelfUpdateRoot = "/var/lib/terrascale-orchestrator"
+	if wire, err = protocol.EncodeJSON(installed); err != nil || os.WriteFile(filepath.Join(root, "host.json"), wire, 0o600) != nil {
+		t.Fatalf("write a host-local option: %v", err)
+	}
+	renamed := lab.enrollment.services.current
+	renamed.Generation++
+	renamed.HostGrants = []cellspec.HostGrant{{Node: "ts-gru-1", PrivateIP: "10.251.0.11",
+		Roles: []string{terrabase.Role, tsauth.Role}, Environment: "canary", Controller: "controller-a"}}
+	if err := lab.enrollment.services.validateHostGrants(renamed.HostGrants, workloads); err != nil {
+		t.Fatalf("grant renaming a colocated member's node: %v", err)
+	}
+	lab.enrollment.services.adopt(renamed, renamed.Generation)
+	renamedMetadata := lab.launchController(t, "ocid1.instance.oc1.sa-saopaulo-1.ctl1", "ts-gru-1", "10.251.0.11")
+	if err := lab.setup(ctx, root, renamedMetadata, "10.251.0.11"); err == nil {
+		t.Fatal("a renamed host enrolled while its instance's first enrollment stands")
+	}
+	if err := lab.enrollment.grants.Forget(ctx, "ocid1.instance.oc1.sa-saopaulo-1.ctl1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := lab.setup(ctx, root, renamedMetadata, "10.251.0.11"); err != nil {
+		t.Fatalf("renamed controller host setup: %v", err)
+	}
+	if wire, err = os.ReadFile(filepath.Join(root, "host.json")); err != nil || json.Unmarshal(wire, &installed) != nil {
+		t.Fatalf("renamed host config: %v", err)
+	}
+	if installed.Host.Node != "ts-gru-1" || installed.Host.SelfUpdateRoot != "/var/lib/terrascale-orchestrator" ||
+		installed.Observability.ListenAddress != controllerHostObservability {
+		t.Fatalf("renamed host config = %+v, observability %+v", installed.Host, installed.Observability)
+	}
+	if roles := lab.registration(t, ctx, "ts-gru-1").Roles; !slices.Equal(roles, []string{terrabase.Role, tsauth.Role}) {
+		t.Fatalf("renamed host roles = %v", roles)
+	}
 	// A listed member without a grant still enrolls through the member
 	// checks.
 	member := lab.launch(t, "ocid1.instance.oc1.sa-saopaulo-1.db1", "gru-1-db-1", "10.251.0.21")

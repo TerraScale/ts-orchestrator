@@ -19,6 +19,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
@@ -559,6 +560,14 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		policy.nodes.controllers = func(node string) bool {
 			_, controller := serverOf(node)
 			return controller
+		}
+		policy.nodes.desired = hostController
+		policy.nodes.forget = func(ctx context.Context, instanceID string) error {
+			grants, err := hostenroll.OpenGrantStore(ctx, runtime.JetStream(), cfg.NATS.Replicas)
+			if err != nil {
+				return err
+			}
+			return grants.Forget(ctx, instanceID)
 		}
 	}
 	// Cell specs verify with the cell's roots, so the root chain opens first.

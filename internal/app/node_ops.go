@@ -16,6 +16,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -32,6 +33,11 @@ import (
 // JetStream cluster and every role desired on the node reports running at
 // its desired generation, which needs the member's /readyz (TerraBase
 // answers it only once caught up with its peers) since the action.
+//
+// rename gives a node its new name (TS-609 renames gru-1-ctl-1 to ts-gru-1)
+// once the cell spec grants the new name at its address: the instance, boot
+// volume and hostname take it, the host re-enrolls under it at the reboot,
+// and the roles desired on the old name move to it.
 //
 // add brings a granted, enrolled node in: its missing backends in the sets
 // that name a role it runs are created out of rotation, then checked and
@@ -50,6 +56,7 @@ const (
 	nodeOpResize  = "resize"
 	nodeOpAdd     = "add"
 	nodeOpRetire  = "retire"
+	nodeOpRename  = "rename"
 
 	// retiredBackupDays is how long a retired node's boot volume backup is
 	// kept (its delete-after tag).
@@ -95,6 +102,10 @@ type nodeOp struct {
 	Session string `json:"session,omitempty"`
 	// Backup is a retired node's boot volume backup.
 	Backup string `json:"backup,omitempty"`
+	// From is a renamed node's old name and Instance its instance, which
+	// keeps its ID across the rename.
+	From     string `json:"from,omitempty"`
+	Instance string `json:"instance,omitempty"`
 }
 
 func (op nodeOp) active() bool { return op.State == nodeOpQueued || op.State == nodeOpRunning }
@@ -102,6 +113,7 @@ func (op nodeOp) active() bool { return op.State == nodeOpQueued || op.State == 
 // nodeOpRequest is the operator's request.
 type nodeOpRequest struct {
 	Node     string  `json:"node,omitempty"`
+	To       string  `json:"to,omitempty"`
 	Op       string  `json:"op,omitempty"`
 	OCPUs    float32 `json:"ocpus,omitzero"`
 	MemoryGB float32 `json:"memory_gb,omitzero"`
@@ -141,6 +153,14 @@ type nodeCompute interface {
 	// token makes a repeated request return the same one.
 	Backup(ctx context.Context, id, name string, tags map[string]string, token string) (string, error)
 	Terminate(ctx context.Context, id string) error
+	// Rename gives the instance and its boot volume the node's new name.
+	Rename(ctx context.Context, id, name string) error
+}
+
+// nodeDesired writes host desired state: host.Controller.
+type nodeDesired interface {
+	ApplyDesired(ctx context.Context, d host.Desired) (host.Receipt, error)
+	RetireIdle(ctx context.Context, node string) (bool, error)
 }
 
 // nodeOps runs node operations on the authority leader.
@@ -155,6 +175,11 @@ type nodeOps struct {
 	// refuses: a controller leaves the cell through its membership. Nil
 	// reports none.
 	controllers func(node string) bool
+	// desired moves a renamed node's roles to its new name.
+	desired nodeDesired
+	// forget deletes an instance's host enrollment grant, so a renamed host
+	// enrolls afresh under its new name.
+	forget func(ctx context.Context, instanceID string) error
 	// poll overrides nodeOpPoll in tests.
 	poll time.Duration
 	wake chan struct{}
@@ -238,10 +263,21 @@ func (o *nodeOps) serve(ctx context.Context, wire []byte, cell string, policy si
 // would break a set's quorum guard now, rather than queue it behind a
 // failure nobody is fixing; one that waits for another operation queues.
 func (o *nodeOps) submit(ctx context.Context, epoch uint64, actor, id string, request nodeOpRequest) (nodeOp, error) {
+	from := ""
 	switch request.Op {
-	case nodeOpDrain, nodeOpUndrain, nodeOpReboot, nodeOpAdd, nodeOpRetire:
+	case nodeOpDrain, nodeOpUndrain, nodeOpReboot, nodeOpAdd, nodeOpRetire, nodeOpRename:
 		if request.OCPUs != 0 || request.MemoryGB != 0 {
 			return nodeOp{}, fmt.Errorf("node %s takes no shape", request.Op)
+		}
+		if (request.Op == nodeOpRename) != (request.To != "") {
+			return nodeOp{}, errors.New("--new-name names a renamed node's new name, for node rename only")
+		}
+		if request.Op == nodeOpRename {
+			if err := naming.Validate(request.To); err != nil || request.To == request.Node {
+				return nodeOp{}, fmt.Errorf("node rename needs a new node name: %q", request.To)
+			}
+			// The operation, its fence and the node's grant go by the new name.
+			from, request.Node = request.Node, request.To
 		}
 	case nodeOpResize:
 		if request.OCPUs <= 0 || request.OCPUs > 64 || request.MemoryGB <= 0 || request.MemoryGB > 1024 {
@@ -256,6 +292,21 @@ func (o *nodeOps) submit(ctx context.Context, epoch uint64, actor, id string, re
 	}
 	if addresses[request.Node] == "" {
 		return nodeOp{}, fmt.Errorf("no host grant names node %q", request.Node)
+	}
+	if from != "" {
+		if addresses[from] != "" {
+			return nodeOp{}, fmt.Errorf("the cell spec still grants %s; grant %s at its address first (ts-orch service grant-host)",
+				from, request.Node)
+		}
+		if o.controllers != nil && o.controllers(from) && !o.controllers(request.Node) {
+			return nodeOp{}, fmt.Errorf("%s runs a controller: %s's host grant must name its controller slot (--controller)",
+				from, request.Node)
+		}
+		if old, found, err := o.load(ctx, from); err != nil {
+			return nodeOp{}, err
+		} else if found && old.active() {
+			return nodeOp{}, fmt.Errorf("node %s has a %s operation %s (%s)", from, old.Op, old.ID, old.State)
+		}
 	}
 	current, found, err := o.load(ctx, request.Node)
 	if err != nil {
@@ -291,7 +342,7 @@ func (o *nodeOps) submit(ctx context.Context, epoch uint64, actor, id string, re
 	}
 	now := o.now().UTC()
 	op := nodeOp{ID: id, Node: request.Node, Op: request.Op, OCPUs: request.OCPUs, MemoryGB: request.MemoryGB,
-		Actor: actor, State: nodeOpQueued, RequestedAt: now, UpdatedAt: now}
+		From: from, Actor: actor, State: nodeOpQueued, RequestedAt: now, UpdatedAt: now}
 	if err := o.save(ctx, epoch, op); err != nil {
 		return nodeOp{}, err
 	}
@@ -500,6 +551,8 @@ func (o *nodeOps) execute(ctx context.Context, epoch uint64, op *nodeOp) error {
 		return err
 	case nodeOpRetire:
 		return o.retire(ctx, epoch, api, *spec, addresses[op.Node], op, step)
+	case nodeOpRename:
+		return o.rename(ctx, epoch, api, *spec, addresses[op.Node], op, step)
 	case nodeOpDrain:
 		if err := step("fence"); err != nil {
 			return err
@@ -714,6 +767,128 @@ func (o *nodeOps) retire(ctx context.Context, epoch uint64, api lb.API, spec cel
 	// The record holds no backend now; letting go of it deletes it.
 	_, err := o.fence.restore(ctx, api, epoch, op.Node, holdOperation, false)
 	return err
+}
+
+// rename fences the node at its granted address, renames its instance,
+// forgets its host enrollment and reboots it; the host enrolls under the new
+// name, the roles desired on the old name move to it, and the node returns
+// once they serve.
+func (o *nodeOps) rename(ctx context.Context, epoch uint64, api lb.API, spec cellspec.ReleaseFence, address string,
+	op *nodeOp, step func(string) error,
+) error {
+	if op.ActedAt.IsZero() {
+		if op.Step == "" || op.Step == "fence" {
+			if err := step("fence"); err != nil {
+				return err
+			}
+			if err := o.fence.fence(ctx, api, epoch, spec, op.Node, address, durationOr(spec.DrainGraceSeconds,
+				defaultFenceGrace), holdOperation); err != nil {
+				return err
+			}
+		}
+		if err := step("act"); err != nil {
+			return err
+		}
+		if o.cluster != nil {
+			if err := o.cluster(ctx, op.Node); err != nil {
+				return err
+			}
+		}
+		instances, err := o.instances(ctx)
+		if err != nil {
+			return err
+		}
+		if op.Instance == "" {
+			instance, err := instances.Find(ctx, op.From)
+			if err != nil {
+				return err
+			}
+			if op.Session, err = nodeSession(ctx, o.fence.hosts, op.From); err != nil {
+				return err
+			}
+			op.Instance = instance.ID
+			if err := o.save(ctx, epoch, *op); err != nil {
+				return err
+			}
+		}
+		if o.forget == nil || o.desired == nil {
+			return errors.New("this leader cannot re-enroll a renamed host")
+		}
+		slog.Info("node operation renames an instance", observability.ComponentKey, "nodes", "node", op.From,
+			"to", op.Node, "instance", op.Instance)
+		if err := instances.Rename(ctx, op.Instance, op.Node); err != nil {
+			return err
+		}
+		if err := o.forget(ctx, op.Instance); err != nil {
+			return err
+		}
+		if err := instances.Reboot(ctx, op.Instance); err != nil {
+			return err
+		}
+		op.ActedAt = o.now().UTC()
+	}
+	if err := step("check"); err != nil {
+		return err
+	}
+	for {
+		moved, err := o.moveDesired(ctx, epoch, op.From, op.Node)
+		if err != nil {
+			return err
+		}
+		if moved {
+			break
+		}
+		if err := o.wait(ctx, epoch); err != nil {
+			return fmt.Errorf("%s has not enrolled as %s: %w", op.From, op.Node, err)
+		}
+	}
+	if err := o.serving(ctx, epoch, *op); err != nil {
+		return err
+	}
+	if err := step("return"); err != nil {
+		return err
+	}
+	_, err := o.fence.restore(ctx, api, epoch, op.Node, holdOperation, true)
+	return err
+}
+
+// moveDesired gives node to every role desired on from, once to has
+// enrolled, withdraws them from from and retires from. It reports false
+// while to is not registered.
+func (o *nodeOps) moveDesired(ctx context.Context, epoch uint64, from, to string) (bool, error) {
+	statuses, err := o.fence.hosts.ListHosts(ctx)
+	if err != nil {
+		return false, err
+	}
+	if !slices.ContainsFunc(statuses, func(status host.HostStatus) bool { return status.Registration.Node == to }) {
+		return false, nil
+	}
+	desired, err := o.fence.hosts.ListDesired(ctx, "")
+	if err != nil {
+		return false, err
+	}
+	for _, d := range desired {
+		if d.Node != from || d.Withdrawn {
+			continue
+		}
+		// The workload reconciler may have placed the replica already.
+		if !slices.ContainsFunc(desired, func(e host.Desired) bool { return e.Node == to && e.Role == d.Role && !e.Withdrawn }) {
+			moved := d
+			moved.Node, moved.AuthorityEpoch = to, epoch
+			if _, err := o.desired.ApplyDesired(ctx, moved); err != nil {
+				return false, fmt.Errorf("move %s to %s: %w", d.Role, to, err)
+			}
+		}
+		withdrawn := d
+		withdrawn.Withdrawn, withdrawn.AuthorityEpoch = true, epoch
+		if _, err := o.desired.ApplyDesired(ctx, withdrawn); err != nil {
+			return false, fmt.Errorf("withdraw %s from %s: %w", d.Role, from, err)
+		}
+	}
+	// ponytail: the old name's registration stays, retired; delete it once
+	// a host plane API removes registrations.
+	_, err = o.desired.RetireIdle(ctx, from)
+	return err == nil, err
 }
 
 // removeBackends deletes node's backends from every fenced set and from

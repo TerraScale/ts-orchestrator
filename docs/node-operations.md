@@ -13,6 +13,7 @@ ts-orch node reboot  --config operator.json --node ts-gru-2 --wait 30m
 ts-orch node resize  --config operator.json --node ts-gru-2 --ocpus 1 --memory-gb 4 --wait 30m
 ts-orch node add     --config operator.json --node ts-gru-4 --wait 30m
 ts-orch node retire  --config operator.json --node ts-gru-4 --wait 30m
+ts-orch node rename  --config operator.json --node gru-1-ctl-1 --new-name ts-gru-1 --wait 30m
 ```
 
 Every command is a signed request to the cell's authority leader on the
@@ -67,6 +68,26 @@ gone. Remove the node's host grant from the cell spec afterwards; until
 then the edge reconciler reports its missing instance. The leader finds a node's instance by its display name,
 the node's name, in its own compartment. Its instance principal needs `manage
 instance-family` there (the reviewed controller policy grants it).
+
+`rename` gives a node a new name (TS-609 renames `gru-1-ctl-N` to
+`ts-gru-N`), in place. First switch its host grant with one root-signed
+generation: `ts-orch service grant-host --node ts-gru-1 --private-ip <its
+address> --roles ... --environment ... --controller controller-a` replaces
+the old name's grant at that address (`--controller` names the controller
+slot whose VM it is; rename refuses a controller node without it). Then
+`rename` fences the node at that address, renames its instance, its boot
+volume (`<name> (Boot Volume)`) and its primary VNIC's hostname label (the
+OS hostname from the next boot; logged and skipped where the leader's
+policy cannot update the VNIC), forgets the instance's host enrollment and
+reboots it. `host-setup` takes the node from the instance's display name
+and enrolls it afresh under the new name. The check waits for that
+enrollment, moves every role desired on the old name to the new one,
+withdraws them from the old name and retires it, then waits for the roles
+to run as usual; the node returns after the load balancer's health checks.
+The node's NATS server name, certificate CN and TerraBase member name do not
+change (`gru-1-ctl-N` stay internal peer IDs): its TerraBase member is the
+one `TERRABASE_PEERS` lists at its address, with the same data and
+certificate.
 
 ## Who holds a node out
 
