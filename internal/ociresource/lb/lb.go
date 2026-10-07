@@ -193,9 +193,10 @@ func (d delta) restamp(target ociresource.Target[Spec], tags ociresource.Tags) b
 // serving reports whether an observed backend takes requests.
 func (b Backend) serving() bool { return !b.Drain && !b.backup && !b.offline }
 
-// Serving reports an observed backend in rotation: neither drained, backup
-// nor offline.
-func (b Backend) Serving() bool { return b.serving() }
+// Serving reports an observed backend the load balancer may route to:
+// neither drained nor offline. A backup serves too, once the primaries
+// fail their health checks.
+func (b Backend) Serving() bool { return !b.Drain && !b.offline }
 
 // Fenced returns the backend with drain and offline set and its weight and
 // backup kept, for UpdateBackend: a release fence takes a node's backend
