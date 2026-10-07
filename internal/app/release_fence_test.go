@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"sync"
@@ -744,5 +746,38 @@ func TestReleaseFenceCompletesALeftRecordForTheCurrentSpec(t *testing.T) {
 	}
 	if _, err := kv.Get(ctx, fencedKey("ctl-2")); !errors.Is(err, jetstream.ErrKeyNotFound) {
 		t.Fatalf("ctl-2's fence is still recorded: %v", err)
+	}
+}
+
+// A deposed leader deletes no mark or permit: the new leader may be
+// writing them.
+func TestReleaseFenceCleanupStopsOnALostLease(t *testing.T) {
+	fence, _, _, kv, _ := newFenceTest(t)
+	ctx := t.Context()
+	if _, err := kv.Put(ctx, "fence.ts-auth.7", []byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+	fence.fencer.(*fenceLease).lost = true
+	if err := fence.deleteGuarded(ctx, 3, "fence.ts-auth.7"); !errors.Is(err, authority.ErrFenced) {
+		t.Fatalf("deleted under a lost lease: %v", err)
+	}
+	if err := fence.sweep(ctx, 3, "ts-auth", 9); !errors.Is(err, authority.ErrFenced) {
+		t.Fatalf("swept under a lost lease: %v", err)
+	}
+	if _, err := kv.Get(ctx, "fence.ts-auth.7"); err != nil {
+		t.Fatalf("the mark is gone: %v", err)
+	}
+}
+
+// A release whose fence mark could not be written was not submitted, and
+// roll reports it so that the leader retries it rather than failing it.
+func TestReleaseFencePrepareFailureIsRetried(t *testing.T) {
+	deployer := nativeDeployer{submit: func(_ context.Context, intent delivery.Intent) (delivery.Intent, string, error) {
+		return intent, "", fmt.Errorf("%w: %w", errFencePrepare, errors.New("KV unavailable"))
+	}}
+	err := deployer.roll(t.Context(), delivery.Intent{Role: "ts-auth", ArtifactDigest: strings.Repeat("a", 64)},
+		delivery.ArtifactRecord{}, time.Second, io.Discard)
+	if !errors.Is(err, errFencePrepare) {
+		t.Fatalf("roll: %v", err)
 	}
 }

@@ -24,6 +24,11 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
 )
 
+// errFencePrepare reports a release whose fence mark could not be written:
+// it was not submitted, and an earlier submission of it may still be
+// rolling, so it is retried rather than failed.
+var errFencePrepare = errors.New("the release fence mark was not written")
+
 // serviceReleaseMaxAge bounds the age of a CI release claim the leader has
 // not started yet: CI signs it right before it publishes, so an older one
 // is a replay or a release the cell missed, which CI runs again.
@@ -328,7 +333,9 @@ func (r *serviceReleases) release(ctx context.Context, role string, state servic
 		return rollback, save(state)
 	})
 	switch err := deployer.roll(ctx, intent, rollback, wait, progress); {
-	case errors.Is(err, errRecoveryNotStarted):
+	case errors.Is(err, errRecoveryNotStarted), errors.Is(err, errFencePrepare):
+		// Nothing proves the release, or its rollback, reached the hosts or
+		// failed there: a later pass resumes it.
 		return state, err
 	case errors.Is(err, errRollbackUnfinished):
 		return unfinished(err)
@@ -408,9 +415,10 @@ func (r *serviceReleases) deployer(actor string, recovering func(context.Context
 			if err != nil {
 				return intent, "", err
 			}
-			// Sequence the release before any host can see it.
+			// Sequence the release before any host can see it. Nothing is
+			// published yet; the release stays rolling and is retried.
 			if err := r.fences.prepare(ctx, intent); err != nil {
-				return intent, "", err
+				return intent, "", fmt.Errorf("%w: %w", errFencePrepare, err)
 			}
 			return intent, fingerprint, r.deliveries.SubmitVerified(ctx, intent, actor)
 		}}

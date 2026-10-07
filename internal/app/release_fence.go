@@ -280,25 +280,35 @@ func (f *releaseFence) sequence(ctx context.Context, intent delivery.Intent) err
 			}
 		}
 	}
-	if err := f.fencer.Guard(ctx, epoch); err != nil {
-		return err
-	}
+	keys := []string{sequencedKey(role, release)}
 	for _, node := range nodes {
-		if err := f.kv.Delete(ctx, permitKey(role, release, node)); err != nil {
+		keys = append(keys, permitKey(role, release, node))
+	}
+	// The mark goes last, so an interrupted cleanup leaves the release held,
+	// never open.
+	slices.Reverse(keys)
+	for _, key := range keys {
+		if err := f.deleteGuarded(ctx, epoch, key); err != nil {
 			return err
 		}
 	}
-	if err := f.kv.Delete(ctx, sequencedKey(role, release)); err != nil {
+	return f.sweep(ctx, epoch, role, release)
+}
+
+// deleteGuarded deletes key while this leader still holds epoch: the
+// bucket enforces no epoch, and a new leader may be writing the same keys.
+func (f *releaseFence) deleteGuarded(ctx context.Context, epoch uint64, key string) error {
+	if err := f.fencer.Guard(ctx, epoch); err != nil {
 		return err
 	}
-	return f.sweep(ctx, role, release)
+	return f.kv.Delete(ctx, key)
 }
 
 // sweep deletes the marks and permits of role's releases before release,
 // which a failed or superseded sequence left. Only now that every node
 // serves release may they go: while desired still named an older release,
 // its mark held the restarts into it.
-func (f *releaseFence) sweep(ctx context.Context, role string, release uint64) error {
+func (f *releaseFence) sweep(ctx context.Context, epoch uint64, role string, release uint64) error {
 	keys, err := f.kv.ListKeysFiltered(ctx, "fence."+role+".>")
 	if errors.Is(err, jetstream.ErrNoKeysFound) {
 		return nil
@@ -310,7 +320,7 @@ func (f *releaseFence) sweep(ctx context.Context, role string, release uint64) e
 	for key := range keys.Keys() {
 		number, _, _ := strings.Cut(strings.TrimPrefix(key, "fence."+role+"."), ".")
 		if older, err := strconv.ParseUint(number, 10, 64); err == nil && older < release {
-			if err := f.kv.Delete(ctx, key); err != nil {
+			if err := f.deleteGuarded(ctx, epoch, key); err != nil {
 				return err
 			}
 		}
@@ -588,10 +598,7 @@ func (f *releaseFence) reconcile(ctx context.Context) error {
 		}
 	}
 	for _, key := range marks {
-		if err := f.fencer.Guard(ctx, epoch); err != nil {
-			return err
-		}
-		if err := f.kv.Delete(ctx, key); err != nil {
+		if err := f.deleteGuarded(ctx, epoch, key); err != nil {
 			return err
 		}
 	}
