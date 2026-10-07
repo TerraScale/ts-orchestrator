@@ -22,6 +22,8 @@ type nodeHosts struct {
 	mu       sync.Mutex
 	sessions map[string]string
 	down     map[string]bool
+	// states overrides a node/role report's state.
+	states map[string]string
 }
 
 func (h *nodeHosts) ListDesired(_ context.Context, role string) ([]host.Desired, error) {
@@ -40,7 +42,11 @@ func (h *nodeHosts) ListHosts(context.Context) ([]host.HostStatus, error) {
 		status := host.HostStatus{Registration: host.Registration{Node: node, Roles: []string{"terrabase", "ts-auth"}}}
 		if !h.down[node] {
 			for _, role := range status.Registration.Roles {
-				status.Reports = append(status.Reports, host.Report{Node: node, Role: role, Generation: 7, State: "running",
+				state := h.states[node+"/"+role]
+				if state == "" {
+					state = "running"
+				}
+				status.Reports = append(status.Reports, host.Report{Node: node, Role: role, Generation: 7, State: state,
 					SessionID: h.sessions[node], ObservedAt: time.Now()})
 			}
 		}
@@ -58,11 +64,29 @@ type nodeInstances struct {
 	t     *testing.T
 	shape map[string][2]float32
 	calls []string
+	// names renames a node's instance; an empty name removes it.
+	names map[string]string
 }
 
-func (c *nodeInstances) Find(_ context.Context, node string) (nodeInstance, error) {
-	shape := c.shape[node]
-	return nodeInstance{ID: "ocid1.instance." + node, State: "RUNNING", OCPUs: shape[0], MemoryGB: shape[1]}, nil
+func (c *nodeInstances) Instances(context.Context) ([]nodeInstance, error) {
+	var instances []nodeInstance
+	for _, node := range []string{"ctl-1", "ctl-2", "ctl-3"} {
+		name, renamed := c.names[node]
+		if !renamed {
+			name = node
+		}
+		if name != "" {
+			shape := c.shape[node]
+			instances = append(instances, nodeInstance{ID: "ocid1.instance." + node, Name: name, State: "RUNNING",
+				OCPUs: shape[0], MemoryGB: shape[1]})
+		}
+	}
+	return instances, nil
+}
+
+func (c *nodeInstances) Find(ctx context.Context, node string) (nodeInstance, error) {
+	instances, _ := c.Instances(ctx)
+	return findNode(instances, node)
 }
 
 func (c *nodeInstances) restart(node string) {
@@ -103,7 +127,8 @@ func newNodeOpsTest(t *testing.T) (*nodeOps, *fenceLB, *nodeInstances) {
 	spec := &cellspec.ReleaseFence{LoadBalancerID: "ocid1.loadbalancer.oc1..x",
 		BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465}, {Name: "ts-auth", Port: 8080}}}
 	fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return spec, fenceAddresses }
-	hosts := &nodeHosts{sessions: map[string]string{"ctl-1": "s1", "ctl-2": "s2", "ctl-3": "s3"}, down: map[string]bool{}}
+	hosts := &nodeHosts{sessions: map[string]string{"ctl-1": "s1", "ctl-2": "s2", "ctl-3": "s3"}, down: map[string]bool{},
+		states: map[string]string{}}
 	fence.hosts = hosts
 	instances := &nodeInstances{hosts: hosts, lb: balancer, t: t, shape: map[string][2]float32{}}
 	ops := newNodeOps(fence, func(context.Context) (nodeCompute, error) { return instances, nil }, nil)

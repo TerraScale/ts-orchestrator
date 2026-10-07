@@ -1218,6 +1218,10 @@ func TestReleaseFenceLevelValidateAndDiff(t *testing.T) {
 		fence.BackendSets[0].Min() != DefaultMinServing {
 		t.Fatalf("level %d", quorum.Level())
 	}
+	guarded.BackendSets[0].Role = "terrabase"
+	if owned := (Spec{ReleaseFence: &guarded}); owned.Level() != 14 {
+		t.Fatalf("level %d", owned.Level())
+	}
 	for name, broken := range map[string]func(*ReleaseFence){
 		"not a load balancer": func(f *ReleaseFence) { f.LoadBalancerID = "ocid1.instance.oc1..x" },
 		"no sets":             func(f *ReleaseFence) { f.BackendSets = nil },
@@ -1225,6 +1229,7 @@ func TestReleaseFenceLevelValidateAndDiff(t *testing.T) {
 		"no port":             func(f *ReleaseFence) { f.BackendSets = []FencedSet{{Name: "terrabase"}} },
 		"long grace":          func(f *ReleaseFence) { f.DrainGraceSeconds = 301 },
 		"negative quorum":     func(f *ReleaseFence) { f.BackendSets[0].MinServing = -1 },
+		"bad role":            func(f *ReleaseFence) { f.BackendSets[0].Role = "Not A Role" },
 	} {
 		invalid := fence
 		invalid.BackendSets = slices.Clone(fence.BackendSets)

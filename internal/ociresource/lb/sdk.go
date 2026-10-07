@@ -107,7 +107,7 @@ func (a sdkAPI) CreateBackend(ctx context.Context, id, backendSet string, backen
 	response, err := a.client.CreateBackend(ctx, loadbalancer.CreateBackendRequest{LoadBalancerId: new(id),
 		BackendSetName: new(backendSet), OpcRetryToken: new(common.RetryToken()),
 		CreateBackendDetails: loadbalancer.CreateBackendDetails{IpAddress: new(backend.IP), Port: new(backend.Port),
-			Weight: new(defaultWeight), Backup: new(false), Drain: new(backend.Drain), Offline: new(false)}})
+			Weight: new(defaultWeight), Backup: new(false), Drain: new(backend.Drain), Offline: new(backend.offline)}})
 	if err != nil {
 		return "", fmt.Errorf("create OCI load balancer backend: %w", err)
 	}

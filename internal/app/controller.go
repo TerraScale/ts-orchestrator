@@ -837,6 +837,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	if policy.nodes != nil {
 		workers.Go(func() { policy.nodes.run(runCtx) })
+		edge := newEdgeReconciler(cfg.NATS.Cell, fences)
+		edge.ops = policy.nodes
+		workers.Go(func() { edge.run(runCtx) })
 	}
 	if rolloutExecutor != nil {
 		workers.Go(func() { workerErrors <- rolloutExecutor(runCtx) })

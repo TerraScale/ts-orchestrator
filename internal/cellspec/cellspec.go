@@ -57,8 +57,8 @@ const (
 	// the desired OCI resources, level 8 the trusted signers, level 9 the
 	// launch image, level 10 the artifact store quota, level 11 the Atlas
 	// publisher, level 12 the release fence, level 13 a fenced set's
-	// min_serving.
-	BinaryLevel = 13
+	// min_serving, level 14 a fenced set's role.
+	BinaryLevel = 14
 	// MaxHostImages bounds the image allow-list: the images a rollout moves
 	// between, plus room to stage the next one.
 	MaxHostImages = 4
@@ -210,6 +210,10 @@ type FencedSet struct {
 	// while at least this many backends of other nodes serve healthy in
 	// the set. Zero means DefaultMinServing.
 	MinServing int `json:"min_serving,omitzero"`
+	// Role makes the leader's edge reconciler own the set: its backends
+	// are the role's replicas, each in rotation only while it serves.
+	// Empty leaves the set's membership to an operator.
+	Role string `json:"role,omitempty"`
 }
 
 // DefaultMinServing keeps two members of every fenced set serving, for
@@ -241,6 +245,9 @@ func (f ReleaseFence) validate() error {
 		}
 		if set.MinServing < 0 || set.MinServing > 64 {
 			return fmt.Errorf("%w: release_fence min_serving must be between 0 and 64", ErrInvalid)
+		}
+		if set.Role != "" && !tokenRE.MatchString(set.Role) {
+			return fmt.Errorf("%w: release_fence role must be a role name", ErrInvalid)
 		}
 	}
 	if f.DrainGraceSeconds < 0 || f.DrainGraceSeconds > 300 || f.SettleSeconds < 0 || f.SettleSeconds > 300 {
@@ -533,6 +540,9 @@ func (s Spec) Level() uint64 {
 		level = 12
 		if slices.ContainsFunc(s.ReleaseFence.BackendSets, func(set FencedSet) bool { return set.MinServing != 0 }) {
 			level = 13
+		}
+		if slices.ContainsFunc(s.ReleaseFence.BackendSets, func(set FencedSet) bool { return set.Role != "" }) {
+			level = 14
 		}
 	}
 	return level

@@ -495,6 +495,13 @@ func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec
 		return fmt.Errorf("no host grant gives the address of %s; its restart stays held", node)
 	}
 	defer f.lockNode(node)()
+	return f.fenceLocked(ctx, api, epoch, spec, node, address, grace, holder)
+}
+
+// fenceLocked is fence with node's lock held.
+func (f *releaseFence) fenceLocked(ctx context.Context, api lb.API, epoch uint64, spec cellspec.ReleaseFence, node,
+	address string, grace time.Duration, holder string,
+) error {
 	record, found, err := f.record(ctx, node)
 	if err != nil {
 		return err
@@ -531,6 +538,14 @@ func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec
 			return err
 		}
 	}
+	return f.takeOutRecord(ctx, api, epoch, node, record, grace)
+}
+
+// takeOutRecord takes the recorded backends that are not offline yet out
+// of rotation, each under the quorum guard, and records them offline.
+func (f *releaseFence) takeOutRecord(ctx context.Context, api lb.API, epoch uint64, node string, record fenceRecord,
+	grace time.Duration,
+) error {
 	if !slices.ContainsFunc(record.Backends, func(backend fencedBackend) bool { return !backend.Offline }) {
 		return nil
 	}
@@ -653,6 +668,12 @@ func (f *releaseFence) save(ctx context.Context, epoch uint64, node string, reco
 // health checks pass; it reports whether any were returned.
 func (f *releaseFence) restore(ctx context.Context, api lb.API, epoch uint64, node, holder string, healthy bool) (bool, error) {
 	defer f.lockNode(node)()
+	return f.restoreLocked(ctx, api, epoch, node, holder, healthy)
+}
+
+// restoreLocked is restore with node's lock held.
+func (f *releaseFence) restoreLocked(ctx context.Context, api lb.API, epoch uint64, node, holder string, healthy bool,
+) (bool, error) {
 	record, found, err := f.record(ctx, node)
 	if err != nil || !found {
 		return false, err

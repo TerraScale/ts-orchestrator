@@ -109,15 +109,17 @@ type nodeOpReply struct {
 // nodeInstance is a node's OCI instance as observed.
 type nodeInstance struct {
 	ID       string
+	Name     string
 	State    string
 	OCPUs    float32
 	MemoryGB float32
 }
 
 // nodeCompute changes a node's instance. Find locates it by its display
-// name, the node's name.
+// name, the node's name; Instances lists every one the nodes may be.
 type nodeCompute interface {
 	Find(ctx context.Context, node string) (nodeInstance, error)
+	Instances(ctx context.Context) ([]nodeInstance, error)
 	Reboot(ctx context.Context, id string) error
 	Resize(ctx context.Context, id string, ocpus, memoryGB float32) error
 }
@@ -143,6 +145,20 @@ func newNodeOps(fence *releaseFence, compute func(context.Context) (nodeCompute,
 	cluster func(context.Context, string) error,
 ) *nodeOps {
 	return &nodeOps{fence: fence, compute: compute, cluster: cluster, wake: make(chan struct{}, 1), now: time.Now}
+}
+
+// findNode is the one instance named node.
+func findNode(instances []nodeInstance, node string) (nodeInstance, error) {
+	var found []nodeInstance
+	for _, instance := range instances {
+		if instance.Name == node {
+			found = append(found, instance)
+		}
+	}
+	if len(found) != 1 {
+		return nodeInstance{}, fmt.Errorf("%d instances are named %s", len(found), node)
+	}
+	return found[0], nil
 }
 
 func (o *nodeOps) instances(ctx context.Context) (nodeCompute, error) {

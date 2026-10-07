@@ -122,11 +122,20 @@ func (f *fenceLB) WaitWorkRequest(context.Context, string) error { return nil }
 func (f *fenceLB) GetLoadBalancer(context.Context, string) (lb.LoadBalancer, error) {
 	return lb.LoadBalancer{}, nil
 }
-func (f *fenceLB) CreateBackend(context.Context, string, string, lb.Backend) (string, error) {
-	return "", errors.New("unused")
+func (f *fenceLB) CreateBackend(_ context.Context, _, set string, backend lb.Backend) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sets[set] = append(f.sets[set], backend)
+	f.log = append(f.log, set+" "+backend.Name()+" created")
+	return "wr", nil
 }
-func (f *fenceLB) DeleteBackend(context.Context, string, string, string) (string, error) {
-	return "", errors.New("unused")
+
+func (f *fenceLB) DeleteBackend(_ context.Context, _, set, name string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sets[set] = slices.DeleteFunc(f.sets[set], func(b lb.Backend) bool { return b.Name() == name })
+	f.log = append(f.log, set+" "+name+" deleted")
+	return "wr", nil
 }
 func (f *fenceLB) UpdateTags(context.Context, string, string, ociresource.Tags) (string, error) {
 	return "", errors.New("unused")

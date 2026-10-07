@@ -52,26 +52,38 @@ func (c *ociNodeCompute) ownCompartment(ctx context.Context) (string, error) {
 }
 
 func (c *ociNodeCompute) Find(ctx context.Context, node string) (nodeInstance, error) {
-	compartment, err := c.ownCompartment(ctx)
-	if err != nil {
-		return nodeInstance{}, fmt.Errorf("read this controller's compartment: %w", err)
-	}
-	response, err := c.compute.ListInstances(ctx, core.ListInstancesRequest{CompartmentId: common.String(compartment),
-		DisplayName: common.String(node)})
+	instances, err := c.Instances(ctx)
 	if err != nil {
 		return nodeInstance{}, err
 	}
+	return findNode(instances, node)
+}
+
+// Instances lists the instances of the leader's compartment that are not
+// terminated.
+func (c *ociNodeCompute) Instances(ctx context.Context) ([]nodeInstance, error) {
+	compartment, err := c.ownCompartment(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read this controller's compartment: %w", err)
+	}
 	var found []nodeInstance
-	for _, instance := range response.Items {
-		if state := instance.LifecycleState; state != core.InstanceLifecycleStateTerminated &&
-			state != core.InstanceLifecycleStateTerminating {
-			found = append(found, instanceOfNode(instance))
+	request := core.ListInstancesRequest{CompartmentId: common.String(compartment)}
+	for {
+		response, err := c.compute.ListInstances(ctx, request)
+		if err != nil {
+			return nil, err
 		}
+		for _, instance := range response.Items {
+			if state := instance.LifecycleState; state != core.InstanceLifecycleStateTerminated &&
+				state != core.InstanceLifecycleStateTerminating {
+				found = append(found, instanceOfNode(instance))
+			}
+		}
+		if response.OpcNextPage == nil {
+			return found, nil
+		}
+		request.Page = response.OpcNextPage
 	}
-	if len(found) != 1 {
-		return nodeInstance{}, fmt.Errorf("%d instances are named %s in this controller's compartment", len(found), node)
-	}
-	return found[0], nil
 }
 
 func (c *ociNodeCompute) Reboot(ctx context.Context, id string) error {
@@ -91,6 +103,9 @@ func instanceOfNode(instance core.Instance) nodeInstance {
 	found := nodeInstance{State: string(instance.LifecycleState)}
 	if instance.Id != nil {
 		found.ID = *instance.Id
+	}
+	if instance.DisplayName != nil {
+		found.Name = *instance.DisplayName
 	}
 	if config := instance.ShapeConfig; config != nil && config.Ocpus != nil && config.MemoryInGBs != nil {
 		found.OCPUs, found.MemoryGB = *config.Ocpus, *config.MemoryInGBs
