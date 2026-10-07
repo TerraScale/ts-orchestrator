@@ -299,6 +299,9 @@ type ControllerConfig struct {
 	TerraBaseCA *terrabase.CA
 	// RoleIdentity issues a granted role's NATS identity; nil refuses it.
 	RoleIdentity RoleIdentityIssuer
+	// NodeAddress returns the private address the cell spec grants node,
+	// empty without a grant; it finds the member of a renamed node (TS-609).
+	NodeAddress func(node string) string
 	// RestartGate, when set, is asked before a host opens a new cycle to
 	// apply desired. A cycle it does not grant is held: the host keeps its
 	// running workload and reports it waiting at the new generation, and

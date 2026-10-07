@@ -82,7 +82,7 @@ Changes take effect as follows:
 ### Host grants
 
 A spec's `host_grants` let static hosts enroll, such as controller VMs.
-Each grant is `{node, private_ip, roles, environment}`. The host agent on such
+Each grant is `{node, private_ip, roles, environment, controller}`. The host agent on such
 a host enrolls through the regular enrollment endpoint with a static
 descriptor naming `node`. The controller accepts it only from `private_ip`,
 and only when OCI shows the running instance named `node` holding that
@@ -92,13 +92,22 @@ lists the roles, and `host-setup` writes them to `host.json`.
 
 A grant may name only roles the cell delivers (a signed or spec profile),
 never placement's member role. It lists `terrabase` exactly when the
-effective `TERRABASE_PEERS` lists its node, at the grant's `private_ip`:
-the host then runs that TerraBase member beside its other roles, with both
+effective `TERRABASE_PEERS` lists a member named after its node, or else one
+at the grant's `private_ip`, at that address: the host then runs that
+TerraBase member, under the member's name, beside its other roles, with both
 roles' capacity, and `host-setup` gives it the TerraBase root (TS-578). This
 is how a controller VM colocates a member. Such a host enrolls through the
 grant's checks (granted address, running instance of that name), not a
 database host's descriptor checks, since a controller VM has no descriptor.
 A member without a grant still enrolls through the TerraBase profile.
+`controller` (optional, binary level 17) names the controller slot, such as
+`controller-a`, whose VM the host is, once the node no longer carries the
+slot's NATS server name. Without it the slot's VM is the node of that name
+(`gru-1-ctl-1` for controller-a in GRU, `ts-sfo-1` in SFO). Rollouts, their
+drain and node operations find a controller's node this way. TS-609 renames
+gru-1's nodes to `ts-gru-N`: their NATS server names, certificate CNs and
+TerraBase member names stay `gru-1-ctl-N`, internal peer IDs that are not
+node names.
 Changing a granted member's roles registers the host's next generation: its
 host agent's session ends and its workloads restart once the old session
 expires, so drain its load balancer backends first. A role that a grant
@@ -316,7 +325,7 @@ nothing back yet; check it with `ts-orch get` against that region.
 ## Binary levels
 
 Each ts-orch binary understands cell specs up to its `cellspec.BinaryLevel`
-(16 today; level 2 adds profile `secrets`, level 3 the `budget`, level 4 `host_images`, level 5 the `kv_snapshot` schedule, level 6 the `rollout_policy`, level 7 `oci_desired`, level 8 `signers`, level 9 `launch_image`, level 10 `artifact_store`, level 11 `atlas`, level 12 `release_fence`, level 13 a fenced set's `min_serving`, level 14 its `role`, level 15 the fence's `canary`, level 16 `machines_api`, see [Machines API](machines-api.md#production-the-cell-spec-section)). Adding or changing `machines_api` needs a root. A change that adds a section
+(17 today; level 2 adds profile `secrets`, level 3 the `budget`, level 4 `host_images`, level 5 the `kv_snapshot` schedule, level 6 the `rollout_policy`, level 7 `oci_desired`, level 8 `signers`, level 9 `launch_image`, level 10 `artifact_store`, level 11 `atlas`, level 12 `release_fence`, level 13 a fenced set's `min_serving`, level 14 its `role`, level 15 the fence's `canary`, level 16 `machines_api`, see [Machines API](machines-api.md#production-the-cell-spec-section), level 17 a host grant's `controller`). Adding or changing `machines_api` needs a root. A change that adds a section
 raises the level, and every amendment that uses the section sets
 `requires_binary` to it. A controller
 whose binary understands less refuses such an amendment by name and keeps its
@@ -344,7 +353,7 @@ the record. Re-apply its services as a new cell spec.
 | `ts-orch service add --config F --role R --profile F [--spec F] [--releasers A,B] [--out F]` | operator host | Plans the next generation with R added and prints the leader's plan. With `--out`, writes the unsigned candidate. An identical existing service plans nothing (`"status":"unchanged"`). A different existing service is refused: use `update`. |
 | `ts-orch service update --config F --role R --profile F [--spec F] [--releasers A,B] [--out F]` | operator host | Same as `add` for an existing role; keeps its releasers unless `--releasers` is given. |
 | `ts-orch service remove --config F --role R [--out F]` | operator host | Plans the next generation without R. |
-| `ts-orch service grant-host --config F --node N --private-ip IP --roles A,B --environment E [--out F]` | operator host | Plans the next generation with N's host grant set; the plan lists N under `host_grants` and `root_required`. |
+| `ts-orch service grant-host --config F --node N --private-ip IP --roles A,B --environment E [--controller SLOT] [--out F]` | operator host | Plans the next generation with N's host grant set; the plan lists N under `host_grants` and `root_required`. A grant at another node's address replaces that node's grant (a rename); `--controller` names the controller slot whose VM N is. |
 | `ts-orch service revoke-host --config F --node N [--out F]` | operator host | Plans the next generation without N's host grant. The host's next enrollment or renewal is refused; credentials already issued stay valid until they expire, at most 48 hours. |
 | `ts-orch service allow-image --config F --image-id ID --receipt F --delegation F [--launch] [--out F]` | operator host | Plans the next generation with the image allowed and, with `--launch`, as the launch image; the plan lists it under `host_images` (and `launch_image`) and `root_required`. The leader checks that the receipt qualifies the image now. |
 | `ts-orch service revoke-image --config F --image-id ID [--launch] [--out F]` | operator host | Plans the next generation without the image. Hosts still running it become foreign to the fleet; if it was the launch image, new hosts boot the pin again. With `--launch`, only new hosts stop booting it and it stays allowed. |

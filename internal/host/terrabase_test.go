@@ -304,7 +304,7 @@ func TestTerraBasePeerCertificateFollowsCurrentRegistration(t *testing.T) {
 		Digest: digest, Generation: 1, AuthorityEpoch: 1, Env: env}); err != nil {
 		t.Fatal(err)
 	}
-	_, csr, err := terrabase.NewMemberKey()
+	key, csr, err := terrabase.NewMemberKey()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,6 +326,37 @@ func TestTerraBasePeerCertificateFollowsCurrentRegistration(t *testing.T) {
 	}
 	if err := ask(moved); err == nil {
 		t.Fatal("signed for a desired of the host's previous environment")
+	}
+	// A renamed node gets the certificate of the member at its granted
+	// address, which keeps its name (TS-609).
+	renamed := Registration{Cell: "gru", Node: "ts-gru-1", Environment: "production", Roles: []string{"terrabase"},
+		PublicKey: base64.StdEncoding.EncodeToString(public), NATSUserPublicKey: testNATSUserKey("ts-gru-1"), Generation: 1}
+	if _, err := c.Register(t.Context(), renamed); err != nil {
+		t.Fatal(err)
+	}
+	members := map[string]string{terrabase.EnvPeerPort: "9443", terrabase.EnvPeers: "gru-1-ctl-1=10.0.0.2:9443,node-a=10.0.0.1:9443"}
+	if _, err := c.ApplyDesired(t.Context(), Desired{Cell: "gru", Node: "ts-gru-1", Environment: "production", Role: "terrabase",
+		Digest: digest, Generation: 1, AuthorityEpoch: 1, Env: members}); err != nil {
+		t.Fatal(err)
+	}
+	askRenamed := func() (any, error) {
+		return c.serveTerraBasePeer(t.Context(), request{Node: "ts-gru-1", Payload: payload}, renamed)
+	}
+	if _, err := askRenamed(); err == nil {
+		t.Fatal("signed for a node without a grant naming its member's address")
+	}
+	c.nodeAddress = func(node string) string { return map[string]string{"ts-gru-1": "10.0.0.2"}[node] }
+	reply, err := askRenamed()
+	if err != nil {
+		t.Fatalf("renamed node's member: %v", err)
+	}
+	profile, err := terrabase.ParseProfile(members)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer, _ := profile.Peer("gru-1-ctl-1")
+	if !terrabase.CurrentCertificate(reply.(terraBasePeerReply).Certificate, key, caPEM, peer, time.Now()) {
+		t.Fatal("the renamed node's certificate does not name its member")
 	}
 }
 
@@ -441,5 +472,27 @@ func TestTerraBaseRunningNeedsTheClientReadyz(t *testing.T) {
 	delete(d.Env, terrabase.EnvClientPort)
 	if s, err := state(); s != "running" || err != nil {
 		t.Fatalf("member without a client listener: %s %v", s, err)
+	}
+}
+
+// A renamed node runs the member at one of its addresses under the member's
+// name, so TERRABASE_NODE_NAME keeps its peer list entry (TS-609).
+func TestTerraBasePeerOfARenamedNodeIsTheMemberAtItsAddress(t *testing.T) {
+	profile, err := terrabase.ParseProfile(map[string]string{terrabase.EnvPeerPort: "9443",
+		terrabase.EnvPeers: "gru-1-ctl-1=10.0.0.2:9443,gru-1-ctl-2=10.0.0.3:9443"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{cfg: AgentConfig{Node: "ts-gru-1"}, addresses: func() ([]string, error) { return []string{"127.0.0.1", "10.0.0.2"}, nil }}
+	if peer, ok := a.terraBasePeer(profile); !ok || peer.Name != "gru-1-ctl-1" {
+		t.Fatalf("terraBasePeer = %+v, %v, want the member at 10.0.0.2", peer, ok)
+	}
+	a.cfg.Node = "gru-1-ctl-2"
+	if peer, ok := a.terraBasePeer(profile); !ok || peer.Name != "gru-1-ctl-2" {
+		t.Fatalf("terraBasePeer = %+v, %v, want the member named after the node", peer, ok)
+	}
+	a.cfg.Node, a.addresses = "ts-gru-9", func() ([]string, error) { return []string{"10.0.0.9"}, nil }
+	if _, ok := a.terraBasePeer(profile); ok {
+		t.Fatal("a node neither named nor at a member's address runs a member")
 	}
 }

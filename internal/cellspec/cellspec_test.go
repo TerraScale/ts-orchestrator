@@ -596,6 +596,37 @@ func TestHostGrantsValidateDiffAndWiden(t *testing.T) {
 	}
 }
 
+// A host grant that names its controller slot needs binary level 17, and a
+// slot belongs to one grant (TS-609 renames the slot's node).
+func TestHostGrantControllerNeedsLevelSeventeen(t *testing.T) {
+	id := Identity{DeploymentID: "terrascale-gru", Cell: "gru", Environment: "canary"}
+	grant := func(node, ip, controller string) HostGrant {
+		return HostGrant{Node: node, PrivateIP: ip, Roles: []string{"api"}, Environment: "canary", Controller: controller}
+	}
+	spec := testSpec(id, 1)
+	spec.HostGrants = []HostGrant{grant("ts-gru-1", "10.251.0.11", "controller-a"), grant("ts-gru-2", "10.251.0.12", "")}
+	if spec.Level() != 17 {
+		t.Fatalf("level with a grant controller = %d", spec.Level())
+	}
+	if err := spec.Validate(); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("grant controller below level 17: %v", err)
+	}
+	spec.RequiresBinary = 17
+	if err := spec.Validate(); err != nil {
+		t.Fatalf("valid grant controller: %v", err)
+	}
+	for name, grants := range map[string][]HostGrant{
+		"not a slot":    {grant("ts-gru-1", "10.251.0.11", "ctl-1")},
+		"repeated slot": {grant("ts-gru-1", "10.251.0.11", "controller-a"), grant("ts-gru-2", "10.251.0.12", "controller-a")},
+	} {
+		invalid := spec
+		invalid.HostGrants = grants
+		if err := invalid.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
 // A spec whose profiles name Vault secrets needs binary level 2, so an older
 // binary refuses it by name instead of failing to read the new field.
 func TestProfileSecretsRequireLevelTwo(t *testing.T) {

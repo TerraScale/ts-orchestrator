@@ -62,8 +62,9 @@ const (
 	// launch image, level 10 the artifact store quota, level 11 the Atlas
 	// publisher, level 12 the release fence, level 13 a fenced set's
 	// min_serving, level 14 a fenced set's role, level 15 the release
-	// fence's canary, level 16 the Machines API.
-	BinaryLevel = 16
+	// fence's canary, level 16 the Machines API, level 17 a host grant's
+	// controller.
+	BinaryLevel = 17
 	// MaxHostImages bounds the image allow-list: the images a rollout moves
 	// between, plus room to stage the next one.
 	MaxHostImages = 4
@@ -81,10 +82,11 @@ const (
 )
 
 var (
-	ErrInvalid  = errors.New("cell spec is invalid")
-	tokenRE     = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-	hostRE      = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}[a-z0-9]$`)
-	deploymentR = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+	ErrInvalid   = errors.New("cell spec is invalid")
+	tokenRE      = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+	hostRE       = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}[a-z0-9]$`)
+	controllerRE = regexp.MustCompile(`^controller-[a-z]$`)
+	deploymentR  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 )
 
 // NewerBinaryError refuses an amendment that needs a newer binary. It is
@@ -126,11 +128,15 @@ type Service struct {
 // registers Roles in Environment, with one replica's resources per role.
 // Controller VMs run their own ts-auth host agents this way, and role
 // terrabase colocates the member TERRABASE_PEERS lists at PrivateIP.
+// Controller names the controller slot (controller-a) whose VM the host is,
+// once the node no longer carries the slot's NATS server name (TS-609
+// renamed gru-1-ctl-1 to ts-gru-1); empty means that name.
 type HostGrant struct {
 	Node        string   `json:"node"`
 	PrivateIP   string   `json:"private_ip"`
 	Roles       []string `json:"roles"`
 	Environment string   `json:"environment"`
+	Controller  string   `json:"controller,omitempty"`
 }
 
 // HostImage is one qualified OS image that managed hosts may run besides the
@@ -493,8 +499,14 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("%w: signers must be sorted by actor without repeats", ErrInvalid)
 		}
 	}
-	addresses := map[string]bool{}
+	addresses, controllers := map[string]bool{}, map[string]bool{}
 	for index, grant := range s.HostGrants {
+		if grant.Controller != "" {
+			if !controllerRE.MatchString(grant.Controller) || controllers[grant.Controller] {
+				return fmt.Errorf("%w: host grant %q controller must be one controller-<letter> slot per grant", ErrInvalid, grant.Node)
+			}
+			controllers[grant.Controller] = true
+		}
 		address, err := netip.ParseAddr(grant.PrivateIP)
 		if !hostRE.MatchString(grant.Node) || index > 0 && s.HostGrants[index-1].Node >= grant.Node ||
 			err != nil || !address.Is4() || !address.IsPrivate() || address.String() != grant.PrivateIP ||
@@ -645,6 +657,9 @@ func (s Spec) Level() uint64 {
 	}
 	if s.MachinesAPI != nil {
 		level = 16
+	}
+	if slices.ContainsFunc(s.HostGrants, func(grant HostGrant) bool { return grant.Controller != "" }) {
+		level = 17
 	}
 	return level
 }

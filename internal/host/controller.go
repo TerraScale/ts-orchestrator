@@ -41,6 +41,7 @@ type Controller struct {
 	volumeInspector        ManagedVolumeInspector
 	terraBaseCA            *terrabase.CA
 	roleIdentity           RoleIdentityIssuer
+	nodeAddress            func(string) string
 	restartGate            func(context.Context, string, Desired) (bool, error)
 	artifacts              ArtifactStore
 	responseKey            ed25519.PrivateKey
@@ -127,7 +128,7 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 		managedVerifier: cfg.ManagedRegistrationVerifier, managedDesiredVerifier: cfg.ManagedDesiredVerifier,
 		managedEffectGate: managedEffectGate, materialProvider: cfg.ManagedMaterialProvider,
 		credentialFloor: cfg.ManagedCredentialFloor, volumeInspector: cfg.ManagedVolumeInspector,
-		terraBaseCA: cfg.TerraBaseCA, roleIdentity: cfg.RoleIdentity, restartGate: cfg.RestartGate, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}),
+		terraBaseCA: cfg.TerraBaseCA, roleIdentity: cfg.RoleIdentity, nodeAddress: cfg.NodeAddress, restartGate: cfg.RestartGate, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}),
 		authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, authorityLeader: cfg.AuthorityLeader,
 		cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
 }

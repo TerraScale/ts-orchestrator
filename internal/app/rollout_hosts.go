@@ -43,7 +43,7 @@ type rolloutHosts struct {
 	board     jetstream.KeyValue
 	// colocated are the controllers and the hosts on their VMs, which never
 	// take part as hosts.
-	colocated map[string]bool
+	colocated func(string) bool
 
 	mu sync.Mutex
 	// last is when each host's last exchange was accepted, and held when
@@ -71,7 +71,7 @@ func (c *rolloutControl) Exchange(ctx context.Context, registration host.Registr
 		return host.RolloutStep{}, errors.New("the rollout executor is not running")
 	}
 	node := registration.Node
-	if hosts.colocated[node] {
+	if hosts.colocated(node) {
 		return host.RolloutStep{}, errors.New("a host on a controller's VM moves with its controller")
 	}
 	if len(exchange.Reply) > maxHostReply {
@@ -370,16 +370,21 @@ func (c *rolloutControl) hostRolloutActive(ctx context.Context) (string, error) 
 	return "orchestrator host rollout " + record.RolloutID + " is active", nil
 }
 
-// colocatedNodes are the controllers and the hosts on their VMs.
-func colocatedNodes(cell string, controllers []rollout.Unit) map[string]bool {
-	colocated := map[string]bool{}
-	for _, controller := range controllers {
-		colocated[controller.ID] = true
-		if name, err := naming.RegionCell(strings.ToUpper(cell)).ControllerSlot(controller.ID); err == nil {
-			colocated[name] = true
+// colocatedNodes reports the controllers and the hosts on their VMs: the node
+// nodeOf names for each controller slot, and the slot's own server name. It
+// reads nodeOf on every call, so a host grant renamed since start counts.
+func colocatedNodes(cell string, controllers []rollout.Unit, nodeOf func(string) string) func(string) bool {
+	return func(node string) bool {
+		for _, controller := range controllers {
+			if node == controller.ID || node == nodeOf(controller.ID) {
+				return true
+			}
+			if name, err := naming.RegionCell(strings.ToUpper(cell)).ControllerSlot(controller.ID); err == nil && name == node {
+				return true
+			}
 		}
+		return false
 	}
-	return colocated
 }
 
 // hostUnits lists the cell's joined hosts as rollout units: a host joined
@@ -389,7 +394,7 @@ func colocatedNodes(cell string, controllers []rollout.Unit) map[string]bool {
 // (all of them together when the partition is unknown), so a wave never
 // stops two seats of one partition.
 func hostUnits(list func(context.Context) ([]host.HostStatus, error), board jetstream.KeyValue,
-	colocated map[string]bool,
+	colocated func(string) bool,
 ) func(context.Context) ([]rollout.Unit, error) {
 	return func(ctx context.Context) ([]rollout.Unit, error) {
 		hosts, err := list(ctx)
@@ -399,7 +404,7 @@ func hostUnits(list func(context.Context) ([]host.HostStatus, error), board jets
 		partitions := map[string][]string{}
 		for _, status := range hosts {
 			r := status.Registration
-			if colocated[r.Node] {
+			if colocated(r.Node) {
 				continue
 			}
 			entry, err := board.Get(ctx, joinedKey(r.Node))

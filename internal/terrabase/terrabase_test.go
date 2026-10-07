@@ -68,6 +68,30 @@ func TestParsePeersRejectsScopedAddresses(t *testing.T) {
 	}
 }
 
+// A renamed node keeps its member's name: the member is the peer named
+// after the node, or else the one peer at its address (TS-609).
+func TestMemberIsTheNamedPeerOrTheOneAtTheAddress(t *testing.T) {
+	profile, err := ParseProfile(map[string]string{EnvPeerPort: "9443",
+		EnvPeers: "gru-1-ctl-1=10.251.0.11:9443,gru-1-ctl-2=10.251.0.12:9443"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		node, address, want string
+	}{
+		{"gru-1-ctl-1", "", "gru-1-ctl-1"},
+		{"gru-1-ctl-2", "10.251.0.11", "gru-1-ctl-2"}, // the name wins
+		{"ts-gru-1", "10.251.0.11", "gru-1-ctl-1"},
+		{"ts-gru-3", "10.251.0.13", ""},
+		{"ts-gru-3", "", ""},
+	} {
+		peer, ok := profile.Member(c.node, c.address)
+		if ok != (c.want != "") || peer.Name != c.want {
+			t.Errorf("Member(%q, %q) = %q, %v, want %q", c.node, c.address, peer.Name, ok, c.want)
+		}
+	}
+}
+
 func TestLayoutEnvAddsHostOwnedPaths(t *testing.T) {
 	profile := Profile{PeerPort: 9443, ClientPort: 9465}
 	env := Layout("/srv/ts-managed/terrabase").Env(map[string]string{EnvPeerPort: "9443"}, profile, "ts-gru-1")

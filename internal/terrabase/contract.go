@@ -52,9 +52,10 @@ const (
 	// EnvBundleExtract is where the single-file bundle extracts its native
 	// libraries; without it the binary needs a writable HOME.
 	EnvBundleExtract = "DOTNET_BUNDLE_EXTRACT_BASE_DIR"
-	// EnvNodeName is the member's name in EnvPeers: its host's node. Without
-	// it the binary takes the OS hostname, so renaming a host's OS (TS-609)
-	// would leave a restarted member outside its peer list.
+	// EnvNodeName is the member's name in EnvPeers: its host's node, or the
+	// name a renamed node's member keeps (Profile.Member). Without it the
+	// binary takes the OS hostname, so renaming a host's OS (TS-609) would
+	// leave a restarted member outside its peer list.
 	EnvNodeName = "TERRABASE_NODE_NAME"
 )
 
@@ -125,10 +126,10 @@ func (l Layout) Certificate() string { return filepath.Join(l.TLS(), "member.pem
 func (l Layout) CA() string          { return filepath.Join(l.TLS(), "ca.pem") }
 
 // Env is the member's environment: the profile settings, the host-owned paths
-// and node, the member's name.
-func (l Layout) Env(env map[string]string, profile Profile, node string) map[string]string {
+// and member, the member's name.
+func (l Layout) Env(env map[string]string, profile Profile, member string) map[string]string {
 	result := maps.Clone(env)
-	result[EnvNodeName] = node
+	result[EnvNodeName] = member
 	result[EnvDataDirectory] = l.Data()
 	result[EnvBundleExtract] = l.Bundle()
 	result[EnvPeerCertificate] = l.Certificate()
@@ -144,6 +145,21 @@ func (l Layout) Env(env map[string]string, profile Profile, node string) map[str
 // Peer returns the member named node.
 func (p Profile) Peer(node string) (Peer, bool) {
 	index := slices.IndexFunc(p.Peers, func(peer Peer) bool { return peer.Name == node })
+	if index < 0 {
+		return Peer{}, false
+	}
+	return p.Peers[index], true
+}
+
+// Member returns the member a host runs: the one named after its node, or
+// else the one at the host's private address, which outlives a rename of
+// the node (TS-609 keeps member names such as gru-1-ctl-1). Members share
+// one peer port, so an address names at most one.
+func (p Profile) Member(node, address string) (Peer, bool) {
+	if peer, ok := p.Peer(node); ok {
+		return peer, true
+	}
+	index := slices.IndexFunc(p.Peers, func(peer Peer) bool { return peer.Address.Addr().String() == address })
 	if index < 0 {
 		return Peer{}, false
 	}

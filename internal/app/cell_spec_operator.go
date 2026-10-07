@@ -259,7 +259,11 @@ func operatorServiceHostGrant(ctx context.Context, cfg Config, runtime *natscell
 	current := reply.Spec
 	next := current
 	next.Generation++
-	next.HostGrants = slices.DeleteFunc(slices.Clone(current.HostGrants), func(g cellspec.HostGrant) bool { return g.Node == grant.Node })
+	// A grant at another node's address replaces that node's grant: the
+	// host there is renamed (TS-609).
+	next.HostGrants = slices.DeleteFunc(slices.Clone(current.HostGrants), func(g cellspec.HostGrant) bool {
+		return g.Node == grant.Node || set && g.PrivateIP == grant.PrivateIP
+	})
 	if set {
 		next.HostGrants = append(next.HostGrants, grant)
 		slices.SortFunc(next.HostGrants, func(a, b cellspec.HostGrant) int { return strings.Compare(a.Node, b.Node) })

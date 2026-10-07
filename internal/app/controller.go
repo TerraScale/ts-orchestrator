@@ -289,7 +289,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return fmt.Errorf("start broker admission gate: %w", err)
 	}
-	planner := &regionalDeliveryPlanner{profiles: services.profiles}
+	planner := &regionalDeliveryPlanner{profiles: services.profiles, address: services.nodeAddress}
 	service, _, err := retryControllerOpen(ctx, "open regional delivery stores", fullClusterReady, false,
 		func(attempt context.Context) (*delivery.Service, error) {
 			return delivery.Open(attempt, delivery.Config{
@@ -515,6 +515,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				ManagedVolumeInspector:      volumeInspector,
 				TerraBaseCA:                 terraBaseCA,
 				RoleIdentity:                roleIdentity,
+				NodeAddress:                 services.nodeAddress,
 				RestartGate:                 restartGate,
 			})
 		}, nil)
@@ -536,19 +537,29 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				return lb.NewSDKAPI(factory)
 			}}
 		policy.rollouts.fence = fences
-		brokers := map[string]bool{}
-		for _, id := range cfg.NATS.Embedded.BrokerIDs {
-			brokers[natscell.ServerName(cfg.NATS.Cell, id)] = true
+		// serverOf is the NATS server name of the controller on node's VM,
+		// which a host grant can name apart from the server (TS-609).
+		serverOf := func(node string) (string, bool) {
+			for _, id := range cfg.NATS.Embedded.BrokerIDs {
+				if services.controllerNode(cfg.NATS.Cell, id) == node {
+					return natscell.ServerName(cfg.NATS.Cell, id), true
+				}
+			}
+			return "", false
 		}
 		policy.nodes = newNodeOps(fences, func(context.Context) (nodeCompute, error) { return newOCINodeCompute(region) },
 			func(ctx context.Context, node string) error {
-				gate := rolloutexec.ClusterGate{Cluster: runtime, ServerOf: func(string) (string, bool) { return node, true }}
-				if !brokers[node] {
+				server, controller := serverOf(node)
+				gate := rolloutexec.ClusterGate{Cluster: runtime, ServerOf: func(string) (string, bool) { return server, true }}
+				if !controller {
 					return gate.Check(ctx, rollout.Record{Kind: rollout.KindHost}, "")
 				}
 				return gate.Check(ctx, rollout.Record{Kind: rollout.KindController}, node)
 			})
-		policy.nodes.controllers = brokers
+		policy.nodes.controllers = func(node string) bool {
+			_, controller := serverOf(node)
+			return controller
+		}
 	}
 	// Cell specs verify with the cell's roots, so the root chain opens first.
 	if services.roots != nil {

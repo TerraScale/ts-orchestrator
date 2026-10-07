@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc32"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -69,7 +70,11 @@ func (c *Controller) serveTerraBasePeer(ctx context.Context, req request, r Regi
 	if err != nil {
 		return nil, err
 	}
-	peer, listed := profile.Peer(req.Node)
+	var address string
+	if c.nodeAddress != nil {
+		address = c.nodeAddress(req.Node)
+	}
+	peer, listed := profile.Member(req.Node, address)
 	if !listed {
 		return nil, fmt.Errorf("node %s is not in %s", req.Node, terrabase.EnvPeers)
 	}
@@ -217,7 +222,7 @@ func (a *Agent) terraBaseServedExpiry(ctx context.Context, d Desired) (time.Time
 	if err != nil {
 		return time.Time{}, err
 	}
-	peer, _ := profile.Peer(a.cfg.Node)
+	peer, _ := a.terraBasePeer(profile)
 	layout := terrabase.Layout(a.cfg.TerraBaseRoot)
 	ca, err := os.ReadFile(layout.CA())
 	if err != nil {
@@ -251,7 +256,7 @@ func (a *Agent) prepareTerraBase(ctx context.Context, d Desired) (map[string]str
 	if err != nil {
 		return nil, time.Time{}, err
 	}
-	peer, listed := profile.Peer(a.cfg.Node)
+	peer, listed := a.terraBasePeer(profile)
 	if !listed {
 		return nil, time.Time{}, fmt.Errorf("node %s is not in %s", a.cfg.Node, terrabase.EnvPeers)
 	}
@@ -321,7 +326,43 @@ func (a *Agent) prepareTerraBase(ctx context.Context, d Desired) (map[string]str
 		}
 		certificate = reply.Certificate
 	}
-	return layout.Env(d.Env, profile, a.cfg.Node), terrabase.CertificateExpiry(certificate), nil
+	return layout.Env(d.Env, profile, peer.Name), terrabase.CertificateExpiry(certificate), nil
+}
+
+// terraBasePeer is this host's member in profile: the one named after its
+// node, or else the one at one of its addresses, since a renamed node keeps
+// its member's name (TS-609).
+func (a *Agent) terraBasePeer(profile terrabase.Profile) (terrabase.Peer, bool) {
+	if peer, ok := profile.Peer(a.cfg.Node); ok {
+		return peer, true
+	}
+	addresses, err := a.interfaceAddresses()
+	if err != nil {
+		return terrabase.Peer{}, false
+	}
+	for _, address := range addresses {
+		if peer, ok := profile.Member(a.cfg.Node, address); ok {
+			return peer, true
+		}
+	}
+	return terrabase.Peer{}, false
+}
+
+func (a *Agent) interfaceAddresses() ([]string, error) {
+	if a.addresses != nil {
+		return a.addresses()
+	}
+	prefixes, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
+	addresses := make([]string, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		if network, ok := prefix.(*net.IPNet); ok {
+			addresses = append(addresses, network.IP.String())
+		}
+	}
+	return addresses, nil
 }
 
 // terraBaseState is "running" once the member answers its health endpoint
@@ -338,7 +379,7 @@ func (a *Agent) terraBaseState(ctx context.Context, d Desired) (string, error) {
 		return "starting", err
 	}
 	if profile.ClientPort != 0 {
-		peer, _ := profile.Peer(a.cfg.Node)
+		peer, _ := a.terraBasePeer(profile)
 		layout := terrabase.Layout(a.cfg.TerraBaseRoot)
 		ca, err := os.ReadFile(layout.CA())
 		if err == nil {

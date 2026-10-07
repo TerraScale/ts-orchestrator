@@ -108,6 +108,7 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	node := flags.String("node", "", "service grant-host, revoke-host: the static host's server name; node: the node")
 	privateIP := flags.String("private-ip", "", "service grant-host: the host's private IPv4 address")
 	roles := flags.String("roles", "", "service grant-host: comma-separated roles the host runs")
+	controllerSlot := flags.String("controller", "", "service grant-host: the controller slot (controller-a) whose VM a renamed node is")
 	receiptPath := flags.String("receipt", "", "rollout publish: signed binary receipt or update receipt; service allow-image: signed image receipt")
 	delegationPath := flags.String("delegation", "", "rollout publish, service allow-image: the receipt's root-signed delegation")
 	imageID := flags.String("image-id", "", "service allow-image, revoke-image: the OCI image OCID")
@@ -265,7 +266,8 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 		return operatorSpecDiff(ctx, cfg, runtime, *artifactPath, output)
 	case "service-grant-host", "service-revoke-host":
 		return operatorServiceHostGrant(ctx, cfg, runtime, operation == "service-grant-host", cellspec.HostGrant{
-			Node: *node, PrivateIP: *privateIP, Roles: splitList(*roles), Environment: *environment}, *outPath, output)
+			Node: *node, PrivateIP: *privateIP, Roles: splitList(*roles), Environment: *environment, Controller: *controllerSlot},
+			*outPath, output)
 	case "service-allow-image", "service-revoke-image":
 		return operatorServiceHostImage(ctx, cfg, runtime, operation == "service-allow-image", *launchImage, *imageID,
 			*receiptPath, *delegationPath, *outPath, output)

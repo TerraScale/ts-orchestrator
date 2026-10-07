@@ -25,6 +25,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -509,7 +510,7 @@ func (r *specRegistry) validateHostGrants(grants []cellspec.HostGrant, profiles 
 		members, _ = terrabase.ParseProfile(effective.Env)
 	}
 	for _, grant := range grants {
-		peer, member := members.Peer(grant.Node)
+		peer, member := members.Member(grant.Node, grant.PrivateIP)
 		if member != slices.Contains(grant.Roles, terrabase.Role) || member && peer.Address.Addr().String() != grant.PrivateIP {
 			return fmt.Errorf("host grant %q lists role %q exactly when %s lists the node at the grant's address",
 				grant.Node, terrabase.Role, terrabase.EnvPeers)
@@ -663,6 +664,28 @@ func (r *specRegistry) ociDesired() *cellspec.OCIDesired {
 
 // releaseFence is the current spec's release fence, or nil, and the private
 // address of each granted node.
+// nodeAddress returns the private address the current spec grants node,
+// empty without a grant.
+func (r *specRegistry) nodeAddress(node string) string {
+	grant, _, _ := r.hostGrant(node)
+	return grant.PrivateIP
+}
+
+// controllerNode returns the node whose VM runs controller slot of cell: the
+// host grant that names the slot, else the slot's NATS server name.
+func (r *specRegistry) controllerNode(cell, slot string) string {
+	if r != nil {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		for _, grant := range r.current.HostGrants {
+			if grant.Controller == slot {
+				return grant.Node
+			}
+		}
+	}
+	return naming.NATSServer(cell, slot)
+}
+
 func (r *specRegistry) releaseFence() (*cellspec.ReleaseFence, map[string]string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

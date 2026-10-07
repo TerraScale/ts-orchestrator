@@ -22,7 +22,9 @@ import (
 type regionalDeliveryPlanner struct {
 	hosts *host.Controller
 	// profiles returns the current cell spec's delivery profiles.
-	profiles  func() map[string]WorkloadProfile
+	profiles func() map[string]WorkloadProfile
+	// address returns the private address the cell spec grants a node.
+	address   func(node string) string
 	workloads *workload.Reconciler
 }
 
@@ -105,17 +107,23 @@ func validateWorkloadProfiles(cell string, profiles map[string]WorkloadProfile) 
 }
 
 // terraBasePlacement places one C# member on each host the signed peer list
-// names, so a member never moves: while a listed host is unavailable the
-// release cannot be placed. A member's data lives on its host, so a failed
-// member, for example a release that never started, is replaced in place.
+// names, by its node or its granted address (address may be nil), so a
+// member never moves: while a listed host is unavailable the release cannot
+// be placed. A member's data lives on its host, so a failed member, for
+// example a release that never started, is replaced in place.
 func terraBasePlacement(profile WorkloadProfile, replicas int, candidates []placement.WorkloadHost, previous []placement.Assignment,
+	address func(string) string,
 ) ([]placement.WorkloadHost, []placement.Assignment, error) {
 	if members, err := terrabase.ParseProfile(profile.Env); err == nil {
 		if replicas != len(members.Peers) {
 			return nil, nil, fmt.Errorf("terrabase release asks for %d members, %s lists %d", replicas, terrabase.EnvPeers, len(members.Peers))
 		}
 		candidates = slices.DeleteFunc(slices.Clone(candidates), func(candidate placement.WorkloadHost) bool {
-			_, listed := members.Peer(candidate.Node)
+			var granted string
+			if address != nil {
+				granted = address(candidate.Node)
+			}
+			_, listed := members.Member(candidate.Node, granted)
 			return !listed
 		})
 	}
@@ -180,7 +188,7 @@ func (p *regionalDeliveryPlanner) plan(ctx context.Context, intent delivery.Inte
 	}
 	candidates, previous := observation.Candidates, releaseFailures(observation, intent.ArtifactDigest)
 	if intent.Role == terrabase.Role {
-		if candidates, previous, err = terraBasePlacement(profile, shape.Replicas, candidates, previous); err != nil {
+		if candidates, previous, err = terraBasePlacement(profile, shape.Replicas, candidates, previous, p.address); err != nil {
 			return nil, err
 		}
 	}

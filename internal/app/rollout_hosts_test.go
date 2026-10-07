@@ -49,10 +49,19 @@ func newHostSinkFixture(t *testing.T) *hostSinkFixture {
 	}
 	control := &rolloutControl{cell: "gru", layout: selfupdate.Layout{Root: t.TempDir(), Owner: os.Getuid()}}
 	control.hosts.Store(&rolloutHosts{collector: rolloutexec.NewCollector("gru", nil, nil), board: board,
-		colocated: colocatedNodes("gru", []rollout.Unit{{ID: "controller-a", Group: "controllers"}}),
+		colocated: colocatedNodes("gru", []rollout.Unit{{ID: "controller-a", Group: "controllers"}}, renamedSlotA),
 		last:      map[string]time.Time{}, held: map[string]time.Time{}})
 	return &hostSinkFixture{control: control, board: board, key: key, host: host.Registration{Cell: "gru",
 		Node: "gru-1-db-1", Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(public)}}
+}
+
+// renamedSlotA is a cell spec whose host grant names controller-a's VM
+// ts-gru-1 (TS-609).
+func renamedSlotA(slot string) string {
+	if slot == "controller-a" {
+		return "ts-gru-1"
+	}
+	return "gru-" + slot
 }
 
 func (f *hostSinkFixture) proof(t *testing.T, key ed25519.PrivateKey) []byte {
@@ -139,7 +148,7 @@ func TestHostRolloutExchangeVerifiesTheProofAndRelaysTheStep(t *testing.T) {
 	}
 	// A host on a controller's VM, or one registered as a controller, is
 	// never a host unit.
-	for _, node := range []string{"gru-1-ctl-1", "controller-a"} {
+	for _, node := range []string{"gru-1-ctl-1", "controller-a", "ts-gru-1"} {
 		colocated := f.host
 		colocated.Node = node
 		if _, err := f.control.Exchange(ctx, colocated, host.RolloutExchange{Proof: f.proof(t, f.key)}); err == nil {
@@ -176,13 +185,15 @@ func TestHostRolloutBinaryServesTheLeadersRelease(t *testing.T) {
 // hosts share one group so a wave stops one seat at a time.
 func TestHostUnitsAreTheJoinedHostsGroupedByTerraBaseSeats(t *testing.T) {
 	f := newHostSinkFixture(t)
-	for _, node := range []string{"gru-1-ctl-1", "gru-1-db-1", "gru-1-db-2", "gru-1-api-1", "gru-1-db-4"} {
+	for _, node := range []string{"gru-1-ctl-1", "ts-gru-1", "gru-1-db-1", "gru-1-db-2", "gru-1-api-1", "gru-1-db-4"} {
 		if _, err := f.board.Create(t.Context(), joinedKey(node), []byte("key-"+node)); err != nil {
 			t.Fatal(err)
 		}
 	}
 	registrations := []host.Registration{
 		{Node: "gru-1-ctl-1", Roles: []string{"ts-auth"}, PublicKey: "key-gru-1-ctl-1"},
+		// controller-a's VM after its rename (TS-609).
+		{Node: "ts-gru-1", Roles: []string{"ts-auth"}, PublicKey: "key-ts-gru-1"},
 		{Node: "gru-1-db-1", Roles: []string{"terrabase"}, PublicKey: "key-gru-1-db-1"},
 		{Node: "gru-1-db-2", Roles: []string{"terrabase"}, PublicKey: "key-gru-1-db-2"},
 		{Node: "gru-1-db-3", Roles: []string{"terrabase"}, PublicKey: "key-gru-1-db-3"},
@@ -197,7 +208,7 @@ func TestHostUnitsAreTheJoinedHostsGroupedByTerraBaseSeats(t *testing.T) {
 		}
 		return statuses, nil
 	}
-	units, err := hostUnits(list, f.board, colocatedNodes("gru", []rollout.Unit{{ID: "controller-a", Group: "controllers"}}))(t.Context())
+	units, err := hostUnits(list, f.board, colocatedNodes("gru", []rollout.Unit{{ID: "controller-a", Group: "controllers"}}, renamedSlotA))(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}

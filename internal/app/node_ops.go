@@ -151,9 +151,10 @@ type nodeOps struct {
 	// cluster returns nil once node's controller, if it runs one, is back
 	// in a whole JetStream cluster; nil checks nothing.
 	cluster func(ctx context.Context, node string) error
-	// controllers names the nodes that run a controller, which retire
-	// refuses: a controller leaves the cell through its membership.
-	controllers map[string]bool
+	// controllers reports a node that runs a controller, which retire
+	// refuses: a controller leaves the cell through its membership. Nil
+	// reports none.
+	controllers func(node string) bool
 	// poll overrides nodeOpPoll in tests.
 	poll time.Duration
 	wake chan struct{}
@@ -268,7 +269,7 @@ func (o *nodeOps) submit(ctx context.Context, epoch uint64, actor, id string, re
 		return nodeOp{}, err
 	}
 	if request.Op == nodeOpRetire {
-		if o.controllers[request.Node] {
+		if o.controllers != nil && o.controllers(request.Node) {
 			return nodeOp{}, fmt.Errorf("node %s runs a controller; ts-orch node retire takes only hosts without one", request.Node)
 		}
 		if role, err := nodeReplica(ctx, o.fence.hosts, request.Node); err != nil {

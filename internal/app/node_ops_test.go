@@ -413,7 +413,7 @@ func TestRolloutFenceDrainsBeforeTheStepAndReturnsAfter(t *testing.T) {
 func TestNodeRetireRemovesBacksUpAndTerminates(t *testing.T) {
 	ops, balancer, instances := newNodeOpsTest(t)
 	ctx := t.Context()
-	ops.controllers = map[string]bool{"ctl-1": true}
+	ops.controllers = func(node string) bool { return node == "ctl-1" }
 	if _, err := ops.submit(ctx, 3, "mariogk", "op-1", nodeOpRequest{Node: "ctl-1", Op: nodeOpRetire}); err == nil ||
 		!strings.Contains(err.Error(), "controller") {
 		t.Fatalf("retired a controller: %v", err)

@@ -482,8 +482,16 @@ func TestCellSpecAmendsARunningController(t *testing.T) {
 	if _, err := service("apply", "--file", keys.signRoot(t, root, granted)); err == nil || !strings.Contains(err.Error(), "host grant") {
 		t.Fatalf("removed a role a host grant names: %v", err)
 	}
-	applyPlanned(`"host_grants":["gru-1-ctl-1"]`, "revoke-host", "--node", "gru-1-ctl-1")
-	if got := list(); len(got.HostGrants) != 0 || got.Generation != before+3 {
+	// A grant at the node's address renames it, naming its controller slot
+	// (TS-609).
+	applyPlanned(`"host_grants":["gru-1-ctl-1","ts-gru-1"]`, "grant-host", "--node", "ts-gru-1", "--private-ip", "10.251.0.11",
+		"--roles", "web", "--environment", "test", "--controller", "controller-a")
+	if got := list(); len(got.HostGrants) != 1 || got.HostGrants[0].Node != "ts-gru-1" || got.HostGrants[0].Controller != "controller-a" ||
+		got.RequiresBinary != 17 {
+		t.Fatalf("after rename: %+v", got)
+	}
+	applyPlanned(`"host_grants":["ts-gru-1"]`, "revoke-host", "--node", "ts-gru-1")
+	if got := list(); len(got.HostGrants) != 0 || got.Generation != before+4 {
 		t.Fatalf("after revoke: %+v", got)
 	}
 }
@@ -537,6 +545,21 @@ func TestSpecRegistryValidatesHostGrants(t *testing.T) {
 	if _, capacity, ok := registry.hostGrant("gru-1-db-1"); !ok ||
 		capacity != (host.Capacity{CPU: 2, MemoryBytes: 2 << 30, DiskBytes: 2 << 30}) {
 		t.Fatalf("colocated grant capacity = %+v, %v", capacity, ok)
+	}
+	// A renamed node keeps the member at its address, and its grant names
+	// the controller slot whose VM it is (TS-609).
+	if registry.controllerNode("gru", "controller-a") != "gru-1-ctl-1" {
+		t.Fatal("a slot without a grant does not keep its server name")
+	}
+	renamed := grant("ts-gru-1", "10.251.0.21", terrabase.Role, "web")
+	renamed.Generation, renamed.RequiresBinary, renamed.HostGrants[0].Controller = 3, 17, "controller-a"
+	if err := registry.validate(renamed); err != nil {
+		t.Fatalf("grant renaming a member's node: %v", err)
+	}
+	registry.adopt(renamed, 3)
+	if registry.controllerNode("gru", "controller-a") != "ts-gru-1" || registry.controllerNode("gru", "controller-b") != "gru-1-ctl-2" ||
+		registry.nodeAddress("ts-gru-1") != "10.251.0.21" || registry.nodeAddress("gru-1-db-1") != "" {
+		t.Fatal("the renamed grant does not map its controller slot and address")
 	}
 }
 

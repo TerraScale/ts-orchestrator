@@ -91,6 +91,9 @@ type rolloutControl struct {
 	reported atomic.Pointer[releasechannel.Status]
 	// program derives the executor's rollouts; the channel reads its proofs.
 	program rolloutexec.ReleaseProgram
+	// controllerNode returns the node of a controller slot's VM, which a
+	// host grant can name (TS-609); nil keeps the slot's NATS server name.
+	controllerNode func(slot string) string
 	// policy is the policy of the next rollout: the cell spec's, else the
 	// signed config's.
 	policy func() rollout.Policy
@@ -120,6 +123,7 @@ func newRolloutControl(cfg Config, services *specRegistry, region string) (*roll
 	}
 	c.policy = func() rollout.Policy { return signed }
 	if services != nil {
+		c.controllerNode = func(slot string) string { return services.controllerNode(cfg.NATS.Cell, slot) }
 		c.policy = func() rollout.Policy { return services.rolloutPolicy(signed) }
 	}
 	if settings != nil && settings.Executor && !settings.Enabled {
@@ -234,7 +238,7 @@ func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscel
 	}
 	c.conn = runtime.Conn()
 	c.program = rolloutexec.ReleaseProgram{Store: store, Proofs: collector, Controllers: controllers, Policy: c.policy()}
-	colocated := colocatedNodes(cfg.NATS.Cell, controllers)
+	colocated := colocatedNodes(cfg.NATS.Cell, controllers, c.nodeOf)
 	sink := &rolloutHosts{collector: collector, board: board, colocated: colocated, last: map[string]time.Time{},
 		held: map[string]time.Time{}}
 	gate := rolloutGate{cluster: rolloutexec.ClusterGate{Cluster: runtime, ServerOf: func(unit string) (string, bool) {
@@ -248,12 +252,12 @@ func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscel
 	if c.fence != nil {
 		nodes = newRolloutFence(ctx, c.fence, func(unit string) string {
 			if known[unit] {
-				return natscell.ServerName(cfg.NATS.Cell, unit)
+				return c.nodeOf(unit)
 			}
 			return unit
 		}, func(node string) string {
 			for _, unit := range controllers {
-				if natscell.ServerName(cfg.NATS.Cell, unit.ID) == node {
+				if c.nodeOf(unit.ID) == node {
 					return unit.ID
 				}
 			}
@@ -292,6 +296,14 @@ func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscel
 		}
 		return executor.Run(ctx)
 	}, nil
+}
+
+// nodeOf is the node of controller slot's VM.
+func (c *rolloutControl) nodeOf(slot string) string {
+	if c.controllerNode != nil {
+		return c.controllerNode(slot)
+	}
+	return natscell.ServerName(c.cell, slot)
 }
 
 // nextProgram derives the executor's rollouts under the current policy, so a

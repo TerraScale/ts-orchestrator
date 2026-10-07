@@ -650,7 +650,7 @@ func TestTerraBasePlacementKeepsMembersOnListedHosts(t *testing.T) {
 		{Cell: "gru", Node: "spare-1", Roles: []string{"terrabase"}, CurrentSession: true, Admitted: true, Healthy: true, Capacity: placement.Resources{CPU: 64, MemoryBytes: 64 << 30, DiskBytes: 64 << 30}},
 	}
 	failed := []placement.Assignment{{Node: "gru-1-db-1", Role: "terrabase"}}
-	candidates, previous, err := terraBasePlacement(profile, 1, hosts, failed)
+	candidates, previous, err := terraBasePlacement(profile, 1, hosts, failed, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -665,11 +665,20 @@ func TestTerraBasePlacementKeepsMembersOnListedHosts(t *testing.T) {
 	if failed[0].Pending {
 		t.Fatal("terraBasePlacement changed its input")
 	}
-	if candidates, _, _ := terraBasePlacement(profile, 1, hosts, nil); len(candidates) != 1 || candidates[0].Node != "gru-1-db-1" {
+	if candidates, _, _ := terraBasePlacement(profile, 1, hosts, nil, nil); len(candidates) != 1 || candidates[0].Node != "gru-1-db-1" {
 		t.Fatalf("candidates %+v, want only the listed host", candidates)
 	}
-	if _, _, err := terraBasePlacement(profile, 2, hosts, nil); err == nil {
+	if _, _, err := terraBasePlacement(profile, 2, hosts, nil, nil); err == nil {
 		t.Fatal("placed more members than the peer list names")
+	}
+	// A renamed node keeps the member its granted address lists (TS-609).
+	renamed := append([]placement.WorkloadHost(nil), hosts...)
+	renamed[0].Node = "ts-gru-1"
+	address := func(node string) string {
+		return map[string]string{"ts-gru-1": "10.0.0.1", "spare-1": "10.0.0.9"}[node]
+	}
+	if candidates, _, _ := terraBasePlacement(profile, 1, renamed, nil, address); len(candidates) != 1 || candidates[0].Node != "ts-gru-1" {
+		t.Fatalf("candidates %+v, want the renamed node at the member's address", candidates)
 	}
 }
 
