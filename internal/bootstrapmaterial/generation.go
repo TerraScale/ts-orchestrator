@@ -189,11 +189,6 @@ func (check *generationCheck) controllerIssuers(generation bootstrap.MaterialGen
 	}
 }
 
-// interRegionDomain bounds every name an interregion leaf certificate holds.
-// TS-668: the exact names (leaf.<hub>.interregion.terrascale.internal on a
-// parent's listener) are settled with the interregion TLS generator.
-const interRegionDomain = ".interregion.terrascale.internal"
-
 // interRegion checks a schema-2 generation's interregion files (TS-668) and
 // the controller configs read supplied:
 //   - interregion.jwt is an account of its own, signed by the operator;
@@ -283,10 +278,10 @@ func (check *generationCheck) interRegionLeaf(name string, certPEM, keyPEM []byt
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}})
 	named := len(leaf.IPAddresses) == 0 && len(leaf.URIs) == 0 && len(leaf.EmailAddresses) == 0
 	for _, dns := range leaf.DNSNames {
-		named = named && strings.HasSuffix(dns, interRegionDomain)
+		named = named && strings.HasSuffix(dns, "."+interRegionDomain)
 	}
 	if err != nil || leaf.IsCA || !named {
-		check.fail(name + " is not a leaf of the interregion CA with names only under " + interRegionDomain[1:])
+		check.fail(name + " is not a leaf of the interregion CA with names only under " + interRegionDomain)
 	}
 	check.certificate(name, leaf)
 }

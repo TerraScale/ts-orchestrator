@@ -339,12 +339,16 @@ func TestRootStepsRunTheKnownGoodRelease(t *testing.T) {
 	knownGood()
 	t.Setenv("DELEGATE_EXIT", "0")
 	t.Setenv("DELEGATE_SLEEP", "30")
-	defer func(timeout time.Duration) { delegateTimeout = timeout }(delegateTimeout)
-	delegateTimeout = 200 * time.Millisecond
+	// The short deadline still leaves a loaded race run time to start the
+	// delegate's shell, which logs its call before it hangs.
+	timeout := delegateTimeout
+	defer func() { delegateTimeout = timeout }()
+	delegateTimeout = 2 * time.Second
 	started := time.Now()
 	if output, err := invoke(watchdog...); err != nil || !strings.Contains(output, "outcome=idle") || len(calls()) != 4 || time.Since(started) > 10*time.Second {
 		t.Fatalf("fallback after a hung delegate = %q %v in %s, calls %q", output, err, time.Since(started), calls())
 	}
+	delegateTimeout = timeout
 	// The delegate itself runs the step; it never delegates again.
 	knownGood()
 	t.Setenv(delegatedEnv, "1")

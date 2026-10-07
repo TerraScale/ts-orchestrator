@@ -55,7 +55,8 @@ domain and NATS cluster name stay the lower-case cell token (`gru`). When
 
 `ts-orch bootstrap generate-interregion-material --material-directory
 <controller material> --config <reviewed config> --config-sha256 <digest>
---directory <new private dir> --out <public inventory>` issues a region's
+--directory <new private dir> --out <public inventory> [--cell-jwt FILE]
+[--interregion-ca-cert FILE --interregion-ca-key FILE]` issues a region's
 interregion credentials from its controller material
 (`bootstrapmaterial.GenerateInterRegion`). The reviewed config is
 `{"topology": {"hub": "gru", "parents": {...}}, "listenPort": 7422}`; the
@@ -67,31 +68,78 @@ owner-only directory it writes:
   permissions, `DisallowBearer`, no JetStream, and one scoped signing key per
   direct child whose template is that child's subtree permissions,
   leafnode-only.
-- `cell-interregion.jwt` and `system-interregion.jwt`: the material's cell
-  and system accounts reissued with the contract and `LeafNodeConn = 0`.
-  Point the embedded broker at these instead of `cell.jwt` and `system.jwt`.
+- `cell-interregion.jwt` and `system-interregion.jwt`: the cell and system
+  accounts reissued with the contract and `LeafNodeConn = 0`. The cell claim
+  starts from `--cell-jwt`, the claim the brokers hold, when one was applied
+  after the material (a [role claim](broker-claim-rotation.md#role-claim)):
+  it must be this material's cell account signed by its operator, and its
+  signers (host and role), limits and expiry are kept. Without the flag it
+  starts from the material's `cell.jwt`. Either way it is issued strictly
+  later. Apply it with `broker-claim-apply` first; the brokers' `cell.jwt`
+  and `system.jwt` then carry these two files' bytes.
 - per child, `child-<cell>.seed` (its scoped signing key, kept for rotation)
   and `leaf-<cell>.creds`: one leaf-only user that key issued, with no
   permissions or limits of its own. These credentials are pairwise: each
-  parent/child link has its own, and they go to that child only.
+  parent/child link has its own, and they go to that child only, which
+  installs them as `leaf-<parent>.creds`.
+- `interregion-ca.pem`: the one interregion CA, an EC P-256 root that
+  issues leaves directly, name-constrained to
+  `.interregion.terrascale.internal`. The hub creates it with
+  `interregion-ca.key`; every other region passes the hub's two files
+  (`--interregion-ca-cert`, `--interregion-ca-key`, which must be an
+  owner-only `0600` file) and holds the certificate only.
+- per controller slot, `interregion-tls-<slot>-cert.pem` and
+  `interregion-tls-<slot>-key.pem`, with the DNS name
+  `leaf.<cell>.interregion.terrascale.internal`: server and client
+  certificates in a region with children, client-only otherwise.
 
 Before anything is written, the claims pass the same contract verifier the
 server runs at startup, and the credentials pass the dialing side's check.
 The material is immutable like the controller material: a second run with
-the same input returns it, any other input is refused. Its metadata
-(`interregion.json`, also the public inventory) records each file's SHA-256,
-the controller material digest it was issued from, and `ledgerDigest`, the
-SHA-256 of the whole record, which is the value the deployment's signed
-bootstrap ledger records for this material.
+the same input (the cell claim and CA included) returns it, any other input
+is refused. Its metadata (`interregion.json`, also the public inventory)
+records each file's SHA-256 and purpose, the controller material digest it
+was issued from, the digest of `--cell-jwt`, and `ledgerDigest`, the SHA-256
+of the whole record, which is the value the deployment's signed bootstrap
+ledger records for this material. Files of purpose `owner-only`
+(`interregion-ca.key`, `child-<cell>.seed`) are never published.
 
-A child's remote comes only from the reviewed private-peer receipt
-(`bootstrapmaterial.LeafRemote`): the receipt's exact bytes must hash to the
-reviewed digest, and it must be a passing, unexpired
-`oci_private_peer_foundation_configuration_readback` of exactly the
-parent/child peering that allows the parent's leaf port. Every URL is a
-parent controller address inside the parent subnet the receipt observed, and
-the credentials file must be byte-identical to the parent's issued
-`leaf-<child>.creds`.
+A child's remote (`bootstrapmaterial.LeafRemote`) lists the parent
+controllers' private addresses first, then, given a reviewed NetBird
+inventory, their NetBird addresses. Both lists start at the parent
+controller with the child slot's index (`controller-b` dials the parent's
+`controller-b` first), so the child's brokers spread over the parent's. Its
+`server_name` is `leaf.<parent>.interregion.terrascale.internal`.
+
+- The private addresses come from the reviewed private-peer receipt: its
+  exact bytes must hash to the reviewed digest, and it must be a passing,
+  unexpired `oci_private_peer_foundation_configuration_readback` of exactly
+  the parent/child peering that allows the parent's leaf port. Every address
+  is inside the parent subnet the receipt observed.
+- The NetBird addresses come from the output of `ts-orch netbird
+  inventory`, also pinned by digest. It must show the managed network range
+  (`10.200.0.0/16`), for every parent controller exactly one connected
+  `<parent>-servers` peer registered from the controller's private IP with
+  an address in that range, and the enabled fabric policy
+  `<child>-servers-to-<parent>-servers-fabric` accepting TCP on the leaf
+  port. Any other inventory is refused, never skipped. Without one the
+  remote has the private addresses only. The URLs only say where to dial:
+  mutual TLS and `server_name` authenticate the parent either way.
+- The credentials file must be byte-identical to the parent's issued
+  `leaf-<child>.creds`.
+
+`ts-orch bootstrap render-interregion-config --material <public inventory>
+--slot <slot> --out FILE` writes one controller's
+`nats.embedded.interregion` block (`bootstrapmaterial.RenderInterRegion`),
+with every file in the controller credential directory
+(`/var/lib/terrascale-orchestrator-secrets`). A child adds
+`--parent-material <parent's public inventory> --leaf-credentials <its copy
+of leaf-<child>.creds> --receipt FILE --receipt-sha256 HEX`, and optionally
+`--netbird-inventory FILE --netbird-inventory-sha256 HEX`. The block passes
+the broker's startup check (`natscell.InterRegion.Validate`). It is a
+separate command because `render-controller-config` renders the whole
+signed config from the manifest candidate and its own reviewed inputs; the
+block is merged into the controller config the material generation pins.
 
 ## Subject contract
 

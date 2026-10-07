@@ -98,6 +98,10 @@ const maxLeafConnectionsPerLink = 5
 
 func (ir *InterRegion) active() bool { return ir != nil && ir.Enabled }
 
+// Validate runs startup's configuration check of this block for a
+// production broker of cell, so a rendered block is checked before use.
+func (ir *InterRegion) Validate(cell string) error { return ir.validate(Config{Cell: cell}) }
+
 func (ir *InterRegion) validate(cfg Config) error {
 	if !ir.active() {
 		return nil

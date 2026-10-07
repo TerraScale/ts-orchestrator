@@ -26,6 +26,7 @@ Commands:
   open-rotated-customer-material
   generate-controller-material
   generate-interregion-material
+  render-interregion-config
   role-claim
   provision-controller-material
   sign-peer-receipt-delegation

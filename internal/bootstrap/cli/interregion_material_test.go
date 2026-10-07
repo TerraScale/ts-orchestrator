@@ -39,15 +39,20 @@ func TestGenerateInterRegionMaterialWritesThePublicInventory(t *testing.T) {
 	sum := sha256.Sum256(wire)
 	out := filepath.Join(root, "interregion-public.json")
 	var output bytes.Buffer
-	run := func(digest string) error {
-		return (command{ctx: context.Background(), output: &output}).generateInterRegionMaterialAt([]string{
+	run := func(digest string, extra ...string) error {
+		return (command{ctx: context.Background(), output: &output}).generateInterRegionMaterialAt(append([]string{
 			"--material-directory", material, "--config", configPath, "--config-sha256", digest,
-			"--directory", filepath.Join(root, "interregion"), "--out", out}, now)
+			"--directory", filepath.Join(root, "interregion"), "--out", out}, extra...), now)
 	}
+	// The reissued cell claim must be newer than the material's.
+	time.Sleep(time.Until(time.Unix(time.Now().Unix()+1, 0)))
 	if err := run(strings.Repeat("0", 64)); err == nil {
 		t.Fatal("unreviewed configuration accepted")
 	}
-	if err := run(hex.EncodeToString(sum[:])); err != nil {
+	if err := run(hex.EncodeToString(sum[:]), "--cell-jwt", filepath.Join(material, "system.jwt")); err == nil {
+		t.Fatal("another account's claim accepted as the cell claim")
+	}
+	if err := run(hex.EncodeToString(sum[:]), "--cell-jwt", filepath.Join(material, "cell.jwt")); err != nil {
 		t.Fatal(err)
 	}
 	public, err := os.ReadFile(out)
@@ -59,8 +64,37 @@ func TestGenerateInterRegionMaterialWritesThePublicInventory(t *testing.T) {
 		!strings.Contains(output.String(), record.LedgerDigest) {
 		t.Fatalf("public inventory = %s, %v", public, err)
 	}
-	seed, err := os.ReadFile(filepath.Join(root, "interregion", "child-sfo.seed"))
-	if err != nil || bytes.Contains(public, seed) {
-		t.Fatalf("public inventory carries the child signing seed (%v)", err)
+	for _, name := range []string{"child-sfo.seed", "interregion-ca.key"} {
+		secret, err := os.ReadFile(filepath.Join(root, "interregion", name))
+		if err != nil || bytes.Contains(public, secret) {
+			t.Fatalf("public inventory carries %s (%v)", name, err)
+		}
+	}
+
+	// The hub's block for one slot, at the installed paths.
+	block := filepath.Join(root, "interregion-controller-b.json")
+	render := func(extra ...string) error {
+		return (command{ctx: context.Background(), output: &output}).renderInterRegionConfigAt(append([]string{
+			"--material", out, "--slot", "controller-b", "--out", block}, extra...), now)
+	}
+	if err := render("--receipt", configPath); err == nil {
+		t.Fatal("a receipt without the parent's inventory was accepted")
+	}
+	if err := render(); err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := os.ReadFile(block)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var interregion natscell.InterRegion
+	if err := json.Unmarshal(rendered, &interregion, json.RejectUnknownMembers(true)); err != nil ||
+		interregion.Validate("gru") != nil || interregion.Listen == nil ||
+		interregion.Listen.TLS.CertFile != "/var/lib/terrascale-orchestrator-secrets/interregion-tls-controller-b-cert.pem" {
+		t.Fatalf("rendered block %s: %v", rendered, err)
+	}
+	digest := sha256.Sum256(rendered)
+	if !strings.Contains(output.String(), hex.EncodeToString(digest[:])) {
+		t.Fatalf("output %q lacks the block digest", output.String())
 	}
 }
