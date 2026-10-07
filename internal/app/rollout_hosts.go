@@ -265,9 +265,8 @@ func followHostRollouts(h hostRollout) func(context.Context, host.RolloutSession
 // meanwhile. The seat controller in turn starts no seat restart while a
 // host rollout is active (hostRolloutActive).
 //
-// ponytail: the restarting seat is not drained first, so the load balancer
-// stops sending it requests only once its health check fails; route host
-// restarts through a seat drain once the seat records can hold one.
+// With a release fence, a controller or host step then waits until the
+// unit's node is out of rotation on the load balancer (rolloutFence).
 type rolloutGate struct {
 	cluster      rolloutexec.Gate
 	drainedSeats func(context.Context) (map[string]bool, error)
@@ -275,15 +274,30 @@ type rolloutGate struct {
 	held func(unit string) bool
 	// serving returns nil while every TerraBase member serves; nil skips it.
 	serving func(ctx context.Context, unit string) error
+	// fenced returns nil once the unit's node is out of rotation; nil
+	// fences nothing.
+	fenced func(ctx context.Context, unit string) error
 }
 
 func (g rolloutGate) Check(ctx context.Context, record rollout.Record, unit string) error {
 	if err := g.cluster.Check(ctx, record, unit); err != nil {
 		return err
 	}
-	if record.Kind != rollout.KindHost || unit == "" {
+	if unit == "" {
 		return nil
 	}
+	if record.Kind == rollout.KindHost {
+		if err := g.hostRules(ctx, unit); err != nil {
+			return err
+		}
+	}
+	if g.fenced != nil {
+		return g.fenced(ctx, unit)
+	}
+	return nil
+}
+
+func (g rolloutGate) hostRules(ctx context.Context, unit string) error {
 	if g.held != nil && g.held(unit) {
 		return fmt.Errorf("%w: an operator holds restarts on %s", rolloutexec.ErrGateHeld, unit)
 	}

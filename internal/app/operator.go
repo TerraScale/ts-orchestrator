@@ -105,7 +105,7 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	specPath := flags.String("spec", "", "service add, update: the role's reconciled service spec JSON")
 	outPath := flags.String("out", "", "service add, update, remove: new unsigned candidate file")
 	releasers := flags.String("releasers", "", "service add, update: comma-separated trusted signers that may release the role; update keeps the current ones when unset")
-	node := flags.String("node", "", "service grant-host, revoke-host: the static host's server name")
+	node := flags.String("node", "", "service grant-host, revoke-host: the static host's server name; node: the node")
 	privateIP := flags.String("private-ip", "", "service grant-host: the host's private IPv4 address")
 	roles := flags.String("roles", "", "service grant-host: comma-separated roles the host runs")
 	receiptPath := flags.String("receipt", "", "rollout publish: signed binary receipt or update receipt; service allow-image: signed image receipt")
@@ -113,6 +113,8 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	imageID := flags.String("image-id", "", "service allow-image, revoke-image: the OCI image OCID")
 	launchImage := flags.Bool("launch", false, "service allow-image: new managed hosts boot the image; revoke-image: only stop new hosts booting it")
 	toGeneration := flags.Uint64("to", 0, "rollout rollback: the earlier generation to publish again")
+	ocpus := flags.Float64("ocpus", 0, "node resize: the instance's OCPUs")
+	memoryGB := flags.Float64("memory-gb", 0, "node resize: the instance's memory in GB")
 	var forwards operatorForwardFlags
 	flags.Var(&forwards, "nats-forward", "transient PRIVATE_IP:4222=LOOPBACK_IP:PORT Bastion forward (repeatable)")
 	if err := flags.Parse(args[1:]); err != nil {
@@ -277,6 +279,9 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 		return operatorSpecApply(ctx, cfg, runtime, *artifactPath, output)
 	case "rollout-status", "rollout-publish", "rollout-pause", "rollout-resume", "rollout-rollback":
 		return operatorRollout(ctx, cfg, runtime, strings.TrimPrefix(operation, "rollout-"), rolloutRequest, output)
+	case "node-status", "node-drain", "node-undrain", "node-reboot", "node-resize":
+		return operatorNode(ctx, cfg, runtime, strings.TrimPrefix(operation, "node-"),
+			nodeOpRequest{Node: *node, OCPUs: float32(*ocpus), MemoryGB: float32(*memoryGB)}, *wait, output)
 	case "trust-roots":
 		return operatorTrustRoots(ctx, cfg, runtime, *outPath, output)
 	case "trust-rotate":

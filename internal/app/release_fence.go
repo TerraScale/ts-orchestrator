@@ -34,8 +34,13 @@ import (
 // (drain, then offline after the grace), permits the node, waits until the
 // node serves the release, returns the backends and waits for their health
 // checks, then settles before the next node. A backend is fenced only
-// while another backend of its set serves healthy. The fenced backends are
-// recorded before the load balancer changes, so a new leader returns them.
+// while the set's quorum guard (min_serving backends of other nodes) serves
+// healthy. The fenced backends are recorded before the load balancer
+// changes, so a new leader returns them.
+//
+// Node operations and controller rollouts take nodes out the same way. A
+// node's record names its holders: release, rollout and maintenance. Its
+// backends return only when the last holder lets go.
 const (
 	defaultFenceGrace  = 15 * time.Second
 	defaultFenceSettle = 10 * time.Second
@@ -51,6 +56,13 @@ func permitKey(role string, release uint64, node string) string {
 }
 
 func fencedKey(node string) string { return "fenced." + node }
+
+// Holders of a node's fence.
+const (
+	holdRelease     = "release"
+	holdRollout     = "rollout"
+	holdMaintenance = "maintenance"
+)
 
 // releaseOf is the release a desired or report generation belongs to: a
 // reconciled role's release-scoped generation, or the generation itself.
@@ -95,9 +107,20 @@ type fencedBackend struct {
 }
 
 // fenceRecord is a node's fence, recorded before the load balancer
-// changes: every backend taken, or being taken, out of rotation.
+// changes: every backend taken, or being taken, out of rotation, and who
+// holds it out.
 type fenceRecord struct {
 	Backends []fencedBackend `json:"backends"`
+	Holders  []string        `json:"holders,omitempty"`
+}
+
+// holders are the record's holders; a record written before holders
+// existed belongs to a release fence.
+func (r fenceRecord) holders() []string {
+	if len(r.Holders) == 0 {
+		return []string{holdRelease}
+	}
+	return r.Holders
 }
 
 // releaseFence is the leader's side of a release fence. Every change it
@@ -120,6 +143,30 @@ type releaseFence struct {
 
 	mu  sync.Mutex
 	api lb.API
+	// nodes serializes the fences and restores of each node; quorum
+	// serializes taking any backend out, so two nodes never pass the
+	// quorum guard on the same observation.
+	nodes  sync.Map
+	quorum sync.Mutex
+}
+
+// lockNode serializes changes to node's fence in this leader.
+func (f *releaseFence) lockNode(node string) func() {
+	lock, _ := f.nodes.LoadOrStore(node, &sync.Mutex{})
+	lock.(*sync.Mutex).Lock()
+	return lock.(*sync.Mutex).Unlock
+}
+
+// minServing is set's quorum guard in the current fence.
+func (f *releaseFence) minServing(set string) int {
+	if spec, _ := f.spec(); spec != nil {
+		for _, fenced := range spec.BackendSets {
+			if fenced.Name == set {
+				return fenced.Min()
+			}
+		}
+	}
+	return cellspec.DefaultMinServing
 }
 
 func (f *releaseFence) client(ctx context.Context) (lb.API, error) {
@@ -224,7 +271,7 @@ func (f *releaseFence) sequence(ctx context.Context, intent delivery.Intent) err
 		if allocated, err := f.allocated(ctx, role, release, node); err != nil {
 			return err
 		} else if !allocated {
-			if _, err := f.restore(ctx, api, epoch, node, false); err != nil {
+			if _, err := f.restore(ctx, api, epoch, node, holdRelease, false); err != nil {
 				return err
 			}
 		}
@@ -250,7 +297,7 @@ nodes:
 			return err
 		}
 		if state != "running" {
-			if err := f.fence(ctx, api, epoch, *spec, node, addresses[node], grace); err != nil {
+			if err := f.fence(ctx, api, epoch, *spec, node, addresses[node], grace, holdRelease); err != nil {
 				return err
 			}
 			if err := f.fencer.Guard(ctx, epoch); err != nil {
@@ -276,7 +323,7 @@ nodes:
 					// its replacement.
 					slog.Info("release fence returns a withdrawn node", observability.ComponentKey, "rollout", "role", role,
 						"release", release, "node", node)
-					if _, err := f.restore(ctx, api, epoch, node, false); err != nil {
+					if _, err := f.restore(ctx, api, epoch, node, holdRelease, false); err != nil {
 						return err
 					}
 					continue nodes
@@ -286,7 +333,7 @@ nodes:
 				}
 			}
 		}
-		returned, err := f.restore(ctx, api, epoch, node, true)
+		returned, err := f.restore(ctx, api, epoch, node, holdRelease, true)
 		if err != nil {
 			return err
 		}
@@ -431,27 +478,35 @@ func (f *releaseFence) nodeState(ctx context.Context, role string, release uint6
 	return "", nil
 }
 
-// fence takes node's in-rotation backends out of every fenced set. Each
-// backend is recorded before the load balancer changes and marked offline
-// once it is out, so a fence a deposed leader left part-way is finished
-// from its record. A record that an earlier release left, under another
-// fence configuration, gains every backend the current one takes out, so
-// the node never restarts while one of them serves. Right before each
-// backend is drained, and again before it is set offline, a backend of
-// another node must serve healthy in its set.
+// fence takes node's in-rotation backends out of every fenced set for
+// holder. Each backend is recorded before the load balancer changes and
+// marked offline once it is out, so a fence a deposed leader left part-way
+// is finished from its record. A record that an earlier fence left, under
+// another fence configuration, gains every backend the current one takes
+// out, so the node never restarts while one of them serves. Right before
+// each backend is drained, and again before it is set offline, the set's
+// quorum guard must hold without it.
 func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec cellspec.ReleaseFence, node,
-	address string, grace time.Duration,
+	address string, grace time.Duration, holder string,
 ) error {
-	record, found, err := f.record(ctx, node)
-	if err != nil {
-		return err
-	}
 	if address == "" {
 		// No host grant names the node: its backends are unknown, so it is
 		// never restarted unfenced.
 		return fmt.Errorf("no host grant gives the address of %s; its restart stays held", node)
 	}
-	added := false
+	defer f.lockNode(node)()
+	record, found, err := f.record(ctx, node)
+	if err != nil {
+		return err
+	}
+	added := !slices.Contains(record.holders(), holder)
+	if added {
+		record.Holders = append(slices.Clone(record.holders()), holder)
+		if !found {
+			record.Holders = []string{holder}
+		}
+		slices.Sort(record.Holders)
+	}
 	for _, set := range spec.BackendSets {
 		observed, err := api.ListBackends(ctx, spec.LoadBalancerID, set.Name)
 		if err != nil {
@@ -471,24 +526,20 @@ func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec
 			added = true
 		}
 	}
-	pending := slices.ContainsFunc(record.Backends, func(backend fencedBackend) bool { return !backend.Offline })
-	if !pending {
-		return nil
-	}
 	if added || !found {
 		if err := f.save(ctx, epoch, node, record); err != nil {
 			return err
 		}
+	}
+	if !slices.ContainsFunc(record.Backends, func(backend fencedBackend) bool { return !backend.Offline }) {
+		return nil
 	}
 	for _, offline := range []bool{false, true} {
 		for _, backend := range record.Backends {
 			if backend.Offline {
 				continue
 			}
-			if err := f.alternative(ctx, api, epoch, backend, node); err != nil {
-				return err
-			}
-			if err := f.update(ctx, api, epoch, backend, true, offline); err != nil {
+			if err := f.takeOut(ctx, api, epoch, backend, node, offline); err != nil {
 				return err
 			}
 		}
@@ -510,28 +561,49 @@ func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec
 	return nil
 }
 
-// alternative waits until a backend of another node serves healthy in
-// backend's set: taking backend out must leave the set serving.
-func (f *releaseFence) alternative(ctx context.Context, api lb.API, epoch uint64, backend fencedBackend, node string) error {
-	id := backend.LoadBalancerID
+// takeOut drains backend, or sets it offline, once the quorum guard holds
+// without it: at least the set's min_serving backends of other nodes serve
+// healthy. Until then it waits, so an operation that would break the
+// quorum queues behind the one that holds it.
+func (f *releaseFence) takeOut(ctx context.Context, api lb.API, epoch uint64, backend fencedBackend, node string,
+	offline bool,
+) error {
+	minimum := f.minServing(backend.Set)
 	for {
-		observed, err := api.ListBackends(ctx, id, backend.Set)
-		if err != nil {
-			return err
+		f.quorum.Lock()
+		serving, err := servingOthers(ctx, api, backend)
+		if err == nil && serving >= minimum {
+			err = f.update(ctx, api, epoch, backend, true, offline)
 		}
-		unhealthy, err := api.UnhealthyBackends(ctx, id, backend.Set)
-		if err != nil {
+		f.quorum.Unlock()
+		if err != nil || serving >= minimum {
 			return err
-		}
-		for _, other := range observed {
-			if other.IP != backend.IP && other.Serving() && !unhealthy[other.Name()] {
-				return nil
-			}
 		}
 		if err := f.wait(ctx, epoch, fencePoll); err != nil {
-			return fmt.Errorf("%s backend of %s is the last healthy one: %w", backend.Set, node, err)
+			return fmt.Errorf("%s backend of %s: %d other backends serve healthy, the set keeps at least %d (the last healthy ones stay): %w",
+				backend.Set, node, serving, minimum, err)
 		}
 	}
+}
+
+// servingOthers counts the backends of other nodes that serve healthy in
+// backend's set.
+func servingOthers(ctx context.Context, api lb.API, backend fencedBackend) (int, error) {
+	observed, err := api.ListBackends(ctx, backend.LoadBalancerID, backend.Set)
+	if err != nil {
+		return 0, err
+	}
+	unhealthy, err := api.UnhealthyBackends(ctx, backend.LoadBalancerID, backend.Set)
+	if err != nil {
+		return 0, err
+	}
+	serving := 0
+	for _, other := range observed {
+		if other.IP != backend.IP && other.Serving() && !unhealthy[other.Name()] {
+			serving++
+		}
+	}
+	return serving, nil
 }
 
 // update sets one backend's drain and offline flags under the epoch.
@@ -575,16 +647,27 @@ func (f *releaseFence) save(ctx context.Context, epoch uint64, node string, reco
 	return err
 }
 
-// restore returns the backends recorded for node to rotation on the load
+// restore lets holder go of node's fence. When no other holder keeps the
+// node out, it returns the recorded backends to rotation on the load
 // balancer they were taken from and, with healthy, waits until their
 // health checks pass; it reports whether any were returned.
-func (f *releaseFence) restore(ctx context.Context, api lb.API, epoch uint64, node string, healthy bool) (bool, error) {
+func (f *releaseFence) restore(ctx context.Context, api lb.API, epoch uint64, node, holder string, healthy bool) (bool, error) {
+	defer f.lockNode(node)()
 	record, found, err := f.record(ctx, node)
 	if err != nil || !found {
 		return false, err
 	}
+	if others := slices.DeleteFunc(slices.Clone(record.holders()), func(h string) bool { return h == holder }); len(others) > 0 {
+		if len(others) == len(record.holders()) {
+			return false, nil
+		}
+		record.Holders = others
+		return false, f.save(ctx, epoch, node, record)
+	}
 	// Recorded as back in rotation before the load balancer changes, so a
-	// restore cut short leaves a record the next fence drains again.
+	// restore cut short leaves a record the next fence drains again; the
+	// holder stays on it until it is gone, so the holder finishes it.
+	record.Holders = []string{holder}
 	for i := range record.Backends {
 		record.Backends[i].Offline = false
 	}
@@ -615,12 +698,13 @@ func (f *releaseFence) restore(ctx context.Context, api lb.API, epoch uint64, no
 		return false, err
 	}
 	slog.Info("release fence returned a node to rotation", observability.ComponentKey, "rollout", "node", node)
-	return true, f.kv.Delete(ctx, fencedKey(node))
+	return len(record.Backends) > 0, f.kv.Delete(ctx, fencedKey(node))
 }
 
-// reconcile undoes every fence once the cell has no release fence: a
-// dropped fence leaves no backend out of rotation, even one a failed
-// release left and no later release marks, and no restart held. It returns
+// reconcile undoes every release's fence once the cell has no release
+// fence: a dropped fence leaves no backend out of rotation for a release,
+// even one a failed release left and no later release marks, and no
+// restart held; other holders keep their nodes out. It returns
 // recorded backends without waiting for their health checks, which a
 // failed node may never pass, and clears every mark and permit, so every
 // node may restart at once. The leader runs it on every pass, bounded.
@@ -654,7 +738,7 @@ func (f *releaseFence) reconcile(ctx context.Context) error {
 			return err
 		}
 		for _, key := range fenced {
-			if _, err := f.restore(ctx, api, epoch, strings.TrimPrefix(key, fencedKey("")), false); err != nil {
+			if _, err := f.restore(ctx, api, epoch, strings.TrimPrefix(key, fencedKey("")), holdRelease, false); err != nil {
 				return err
 			}
 		}

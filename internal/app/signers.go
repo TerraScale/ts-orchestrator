@@ -28,6 +28,8 @@ type signerPolicy struct {
 	services *specRegistry
 	// rollouts answers the operator's rollout requests.
 	rollouts *rolloutControl
+	// nodes answers node operations; nil without a release fence bucket.
+	nodes *nodeOps
 }
 
 // ValidateTrustedSignerGrant applies the same actor, scope, and key checks used

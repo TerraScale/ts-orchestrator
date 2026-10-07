@@ -1211,12 +1211,20 @@ func TestReleaseFenceLevelValidateAndDiff(t *testing.T) {
 	if spec.Level() != 12 || spec.Validate() != nil {
 		t.Fatalf("level %d, %v", spec.Level(), spec.Validate())
 	}
+	// A set's own quorum guard needs level 13; zero is the default of 2.
+	guarded := fence
+	guarded.BackendSets = []FencedSet{{Name: "terrabase", Port: 9465, MinServing: 1}}
+	if quorum := (Spec{ReleaseFence: &guarded}); quorum.Level() != 13 || guarded.BackendSets[0].Min() != 1 ||
+		fence.BackendSets[0].Min() != DefaultMinServing {
+		t.Fatalf("level %d", quorum.Level())
+	}
 	for name, broken := range map[string]func(*ReleaseFence){
 		"not a load balancer": func(f *ReleaseFence) { f.LoadBalancerID = "ocid1.instance.oc1..x" },
 		"no sets":             func(f *ReleaseFence) { f.BackendSets = nil },
 		"unsorted sets":       func(f *ReleaseFence) { f.BackendSets = []FencedSet{f.BackendSets[1], f.BackendSets[0]} },
 		"no port":             func(f *ReleaseFence) { f.BackendSets = []FencedSet{{Name: "terrabase"}} },
 		"long grace":          func(f *ReleaseFence) { f.DrainGraceSeconds = 301 },
+		"negative quorum":     func(f *ReleaseFence) { f.BackendSets[0].MinServing = -1 },
 	} {
 		invalid := fence
 		invalid.BackendSets = slices.Clone(fence.BackendSets)

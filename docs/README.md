@@ -39,5 +39,6 @@ These pages describe the current greenfield Go implementation.
 | [ts-auth deployment](ts-auth-deployment.md) | ts-auth on the gru-1 controllers: placement, Vault secret refs, TerraBase tenant, load balancer values and the live runbook |
 | [TerraBase serving lifecycle](terrabase-serving-lifecycle-plan.md) | Current health gate, drain and rollback; open replication, membership, serving proof and scale-in work |
 | [Generic workloads](generic-workloads.md) | The generic workload spec on apps and machines, artifact kinds, native and OCI runtime drivers, and TerraBase and ts-auth as templates |
+| [Node operations](node-operations.md) | TS-632: `ts-orch node drain\|undrain\|reboot\|resize`, fence holders, the quorum guard and deploys that drain first; never the oci CLI |
 | [Zero-downtime TerraBase rollouts](terrabase-zero-downtime-rollouts.md) | TS-571: L7 backend-set reconciler with drain and health guard, seats as backends, one seat at a time through a restart permit |
 | [Deployment convergence benchmark](benchmarks/deployment-convergence-20260925.md) | In-memory deploy-to-apply latency measurement |

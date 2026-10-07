@@ -71,6 +71,11 @@ func ReadInstanceMetadata(ctx context.Context, client HTTPDoer) (InstanceMetadat
 	return InstanceMetadata{InstanceID: instanceID, Descriptor: descriptor, Wire: encoded}, nil
 }
 
+// ReadInstanceID returns this instance's OCID from OCI IMDSv2.
+func ReadInstanceID(ctx context.Context, client HTTPDoer) (string, error) {
+	return readInstanceID(ctx, client)
+}
+
 func readInstanceID(ctx context.Context, client HTTPDoer) (string, error) {
 	if client == nil {
 		return "", errors.New("IMDS client is required")

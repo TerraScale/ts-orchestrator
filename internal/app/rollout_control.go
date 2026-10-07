@@ -99,6 +99,9 @@ type rolloutControl struct {
 	// drainedSeats, when the TerraBase seat controller runs, holds host
 	// steps while a seat is out of rotation (rolloutGate).
 	drainedSeats func(context.Context) (map[string]bool, error)
+	// fence, with the cell spec's release fence, takes each unit's node
+	// out of rotation before its step (rolloutFence); nil fences nothing.
+	fence *releaseFence
 	// spool and layout are the step relay's directory and the node's
 	// release root; tests point them elsewhere.
 	spool  string
@@ -241,6 +244,23 @@ func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscel
 		c.program.Hosts = hostUnits(hosts.ListHosts, board, colocated)
 		gate.serving = terraBaseServing(hosts)
 	}
+	var nodes *rolloutFence
+	if c.fence != nil {
+		nodes = newRolloutFence(ctx, c.fence, func(unit string) string {
+			if known[unit] {
+				return natscell.ServerName(cfg.NATS.Cell, unit)
+			}
+			return unit
+		}, func(node string) string {
+			for _, unit := range controllers {
+				if natscell.ServerName(cfg.NATS.Cell, unit.ID) == node {
+					return unit.ID
+				}
+			}
+			return node
+		})
+		gate.fenced = nodes.check
+	}
 	c.hosts.Store(sink)
 	executor := &rolloutexec.Executor{Cell: cfg.NATS.Cell, Store: store, Fencer: fencer, Proofs: collector, Status: c,
 		Driver:   rolloutexec.KVDriver{KV: board, Cell: cfg.NATS.Cell, Key: responseKey, Releases: store},
@@ -261,6 +281,9 @@ func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscel
 			}
 		})
 		workers.Go(func() { wakeOnRolloutChanges(ctx, board, wake) })
+		if nodes != nil {
+			workers.Go(func() { nodes.returnLoop(ctx, store, collector, fencer) })
+		}
 		if c.follow {
 			workers.Go(func() { c.followChannel(ctx, store, fencer, runtime.JetStream(), cfg.NATS.Replicas) })
 		}

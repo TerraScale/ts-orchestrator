@@ -161,6 +161,23 @@ func serveHostEnrollment(ctx context.Context, conn *nats.Conn, cell string, poli
 			}
 			return
 		}
+		if decodeErr == nil && strings.HasPrefix(envelope.Kind, "node.") {
+			reply := nodeOpReply{Error: "node operations need the cell's release channel (controller.rollouts.channel)"}
+			if policy.nodes != nil {
+				var err error
+				reply, err = policy.nodes.serve(requestCtx, message.Data, cell, policy, fencer)
+				if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrNotLeader) || !fencer.Current().CanMutate() {
+					return
+				}
+				if err != nil {
+					reply = nodeOpReply{Error: err.Error()}
+				}
+			}
+			if wire, marshalErr := json.Marshal(reply); marshalErr == nil {
+				_ = message.Respond(wire)
+			}
+			return
+		}
 		if decodeErr == nil && services != nil && services.roots != nil &&
 			(envelope.Kind == rootListKind || envelope.Kind == rootRotateKind) {
 			reply, err := services.roots.serve(requestCtx, message.Data, policy, fencer)

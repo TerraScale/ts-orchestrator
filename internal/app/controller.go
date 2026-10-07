@@ -30,6 +30,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/seatrollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
@@ -510,6 +511,33 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	planner.hosts = hostController
+	// One release fence takes nodes out of rotation for service releases,
+	// controller rollouts and node operations (TS-632).
+	var fences *releaseFence
+	if releaseChannel != nil {
+		fences = &releaseFence{kv: releaseChannel, hosts: hostController, fencer: control, spec: services.releaseFence,
+			seats: seatStore != nil,
+			open: func(context.Context) (lb.API, error) {
+				factory, err := ociclient.InstancePrincipal(region)
+				if err != nil {
+					return nil, err
+				}
+				return lb.NewSDKAPI(factory)
+			}}
+		policy.rollouts.fence = fences
+		brokers := map[string]bool{}
+		for _, id := range cfg.NATS.Embedded.BrokerIDs {
+			brokers[natscell.ServerName(cfg.NATS.Cell, id)] = true
+		}
+		policy.nodes = newNodeOps(fences, func(context.Context) (nodeCompute, error) { return newOCINodeCompute(region) },
+			func(ctx context.Context, node string) error {
+				gate := rolloutexec.ClusterGate{Cluster: runtime, ServerOf: func(string) (string, bool) { return node, true }}
+				if !brokers[node] {
+					return gate.Check(ctx, rollout.Record{Kind: rollout.KindHost}, "")
+				}
+				return gate.Check(ctx, rollout.Record{Kind: rollout.KindController}, node)
+			})
+	}
 	// Cell specs verify with the cell's roots, so the root chain opens first.
 	if services.roots != nil {
 		services.roots.fencer = control
@@ -804,17 +832,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	if policy.rollouts.follow && policy.rollouts.channel != nil {
 		releases := &serviceReleases{cell: cfg.NATS.Cell, channel: policy.rollouts.channel, deliveries: service,
-			hosts: hostController, profiles: services.profiles, fencer: control,
-			fences: &releaseFence{kv: releaseChannel, hosts: hostController, fencer: control, spec: services.releaseFence,
-				seats: seatStore != nil,
-				open: func(context.Context) (lb.API, error) {
-					factory, err := ociclient.InstancePrincipal(region)
-					if err != nil {
-						return nil, err
-					}
-					return lb.NewSDKAPI(factory)
-				}}}
+			hosts: hostController, profiles: services.profiles, fencer: control, fences: fences}
 		workers.Go(func() { releases.run(runCtx, runtime.JetStream(), cfg.NATS.Replicas) })
+	}
+	if policy.nodes != nil {
+		workers.Go(func() { policy.nodes.run(runCtx) })
 	}
 	if rolloutExecutor != nil {
 		workers.Go(func() { workerErrors <- rolloutExecutor(runCtx) })

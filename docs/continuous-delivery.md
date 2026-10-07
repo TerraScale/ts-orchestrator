@@ -601,10 +601,13 @@ them). Before each host step the leader also waits:
   next host restarts, a member down for any other reason holds every host
   step, and no TerraBase release is restarting a seat meanwhile.
 
-The restarting seat is not drained first: the load balancer stops sending
-it requests once its health check fails, and requests in flight to it fail;
-routing host restarts through a seat drain needs the seat records to hold
-one (TS-571). The steady-state check covers static TerraBase members
+With the cell spec's `release_fence`, every controller and host step
+first takes the unit's node out of rotation on the load balancer and the
+leader returns it once the unit serves again ([node
+operations](node-operations.md#deploys-drain-first), TS-632). Without one,
+the restarting node is not drained first: the load balancer stops sending
+it requests once its health check fails, and requests in flight to it
+fail. The steady-state check covers static TerraBase members
 (`terrabase` desired), not managed placement members. A host accepts scoped
 update receipts by default and has no separate opt-out; the leader, which
 signs every step, honours the controller's `allow_scoped_auto_sign`.

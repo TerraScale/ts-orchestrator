@@ -245,7 +245,7 @@ func newFenceTest(t *testing.T) (*releaseFence, *fenceCell, *fenceLB, jetstream.
 			lb.Backend{IP: fenceAddresses[node], Port: 8080}.Fenced(node == "ctl-1", node == "ctl-1"))
 	}
 	spec := &cellspec.ReleaseFence{LoadBalancerID: "ocid1.loadbalancer.oc1..x",
-		BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465}, {Name: "ts-auth", Port: 8080}}}
+		BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465, MinServing: 1}, {Name: "ts-auth", Port: 8080, MinServing: 1}}}
 	cell := &fenceCell{t: t, gate: releaseGate(kv), lb: balancer, nodes: []string{"ctl-1", "ctl-2", "ctl-3"}, release: 7,
 		broken: map[string]bool{}}
 	fence := &releaseFence{kv: kv, hosts: cell, fencer: &fenceLease{},
@@ -394,7 +394,7 @@ func TestReleaseFenceRestoresTheRecordedLoadBalancer(t *testing.T) {
 		}
 		cell.broken["ctl-1"], cell.unfenced = false, true
 		moved := &cellspec.ReleaseFence{LoadBalancerID: "ocid1.loadbalancer.oc1..moved",
-			BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465}}}
+			BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465, MinServing: 1}}}
 		if drop {
 			moved = nil
 		}
@@ -729,7 +729,7 @@ func TestReleaseFenceCompletesALeftRecordForTheCurrentSpec(t *testing.T) {
 	fence, cell, balancer, kv, intent := newFenceTest(t)
 	ctx := t.Context()
 	terrabaseOnly := &cellspec.ReleaseFence{LoadBalancerID: "ocid1.loadbalancer.oc1..x",
-		BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465}}}
+		BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465, MinServing: 1}}}
 	both, _ := fence.spec()
 	fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return terrabaseOnly, fenceAddresses }
 	// Under the first fence ctl-2's ts-auth backend may serve while it
@@ -836,7 +836,7 @@ func TestReleaseFenceDrainsAgainAfterACutShortRestore(t *testing.T) {
 	// rotation, its record kept.
 	balancer.down["10.0.0.11:9465"] = true
 	short, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
-	if _, err := fence.restore(short, balancer, 3, "ctl-1", true); err == nil {
+	if _, err := fence.restore(short, balancer, 3, "ctl-1", holdRelease, true); err == nil {
 		t.Fatal("the restore passed an unhealthy backend")
 	}
 	cancel()

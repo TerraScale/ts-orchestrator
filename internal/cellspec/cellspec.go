@@ -56,8 +56,9 @@ const (
 	// level 5 the kv_snapshot schedule, level 6 the rollout policy, level 7
 	// the desired OCI resources, level 8 the trusted signers, level 9 the
 	// launch image, level 10 the artifact store quota, level 11 the Atlas
-	// publisher, level 12 the release fence.
-	BinaryLevel = 12
+	// publisher, level 12 the release fence, level 13 a fenced set's
+	// min_serving.
+	BinaryLevel = 13
 	// MaxHostImages bounds the image allow-list: the images a rollout moves
 	// between, plus room to stage the next one.
 	MaxHostImages = 4
@@ -205,6 +206,22 @@ type ReleaseFence struct {
 type FencedSet struct {
 	Name string `json:"name"`
 	Port int    `json:"port"`
+	// MinServing is the quorum guard: a node's backend is taken out only
+	// while at least this many backends of other nodes serve healthy in
+	// the set. Zero means DefaultMinServing.
+	MinServing int `json:"min_serving,omitzero"`
+}
+
+// DefaultMinServing keeps two members of every fenced set serving, for
+// example two TerraBase members and two ts-auth replicas.
+const DefaultMinServing = 2
+
+// Min is the set's quorum guard.
+func (s FencedSet) Min() int {
+	if s.MinServing > 0 {
+		return s.MinServing
+	}
+	return DefaultMinServing
 }
 
 // MaxFencedSets bounds a release fence's backend sets.
@@ -221,6 +238,9 @@ func (f ReleaseFence) validate() error {
 	for i, set := range f.BackendSets {
 		if !tokenRE.MatchString(set.Name) || i > 0 && f.BackendSets[i-1].Name >= set.Name || set.Port < 1 || set.Port > 65535 {
 			return fmt.Errorf("%w: release_fence backend sets must be sorted names without repeats, each with a port", ErrInvalid)
+		}
+		if set.MinServing < 0 || set.MinServing > 64 {
+			return fmt.Errorf("%w: release_fence min_serving must be between 0 and 64", ErrInvalid)
 		}
 	}
 	if f.DrainGraceSeconds < 0 || f.DrainGraceSeconds > 300 || f.SettleSeconds < 0 || f.SettleSeconds > 300 {
@@ -511,6 +531,9 @@ func (s Spec) Level() uint64 {
 	}
 	if s.ReleaseFence != nil {
 		level = 12
+		if slices.ContainsFunc(s.ReleaseFence.BackendSets, func(set FencedSet) bool { return set.MinServing != 0 }) {
+			level = 13
+		}
 	}
 	return level
 }
