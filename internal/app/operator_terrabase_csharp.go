@@ -171,6 +171,9 @@ type nativeDeployer struct {
 	// recovering, when set, records the rollback intent before roll
 	// submits it and returns the intent to submit.
 	recovering func(context.Context, delivery.Intent) (delivery.Intent, error)
+	// sequence, when set, restarts an accepted intent's nodes one at a
+	// time (a release fence) before the readiness gate counts them.
+	sequence func(context.Context, delivery.Intent) error
 }
 
 // current returns the digest the role's running replicas serve, the
@@ -287,6 +290,11 @@ func (d nativeDeployer) rollOut(ctx context.Context, intent delivery.Intent, wai
 				accepted = true
 				if err := printJSON(output, terraBaseReleaseStep{Step: "deploy", Digest: intent.ArtifactDigest, Generation: intent.Generation}); err != nil {
 					return true, err
+				}
+				if d.sequence != nil {
+					if err := d.sequence(gateCtx, intent); err != nil {
+						return true, err
+					}
 				}
 			default:
 				return !unchanged(receipt), errors.Join(submitErr, fmt.Errorf("delivery %s: %s", receipt.Status, receipt.Error))

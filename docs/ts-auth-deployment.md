@@ -329,8 +329,10 @@ Cloudflare closes a request after 100 s and the load balancer idles out after
 
 A green ts-auth `main` CI releases ts-auth to every region with no human
 step ([automatic service releases](continuous-delivery.md#automatic-service-releases-ts-610)):
-the region's leader runs this same gate and rollback. The operator command
-stays for a release by hand.
+the region's leader runs this same gate and rollback, one node at a time
+behind the cell spec's `release_fence`. The operator command stays for a
+release by hand; it bypasses the fence and restarts every replica at
+once, so drain the backends first.
 
 `operator ts-auth-release` is `operator terrabase-release` for role
 `ts-auth` (see [TerraBase deployment](terrabase-deployment.md#run) for the

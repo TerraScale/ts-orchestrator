@@ -24,6 +24,11 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
 )
 
+// errFencePrepare reports a release whose fence mark could not be written:
+// it was not submitted, and an earlier submission of it may still be
+// rolling, so it is retried rather than failed.
+var errFencePrepare = errors.New("the release fence mark was not written")
+
 // serviceReleaseMaxAge bounds the age of a CI release claim the leader has
 // not started yet: CI signs it right before it publishes, so an older one
 // is a replay or a release the cell missed, which CI runs again.
@@ -59,6 +64,9 @@ type serviceReleases struct {
 	hosts      seatrollout.Hosts
 	profiles   func() map[string]WorkloadProfile
 	fencer     authority.Fencer
+	// fences restarts each release one node at a time when the cell spec
+	// has a release fence; nil restarts every replica at once.
+	fences *releaseFence
 	// interval is how often the channels are read; zero means
 	// defaultChannelInterval.
 	interval time.Duration
@@ -100,6 +108,11 @@ func (r *serviceReleases) run(ctx context.Context, js jetstream.JetStream, repli
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
+		if r.fencer.Current().CanMutate() {
+			if err := r.fences.reconcile(ctx); err != nil && ctx.Err() == nil {
+				slog.Warn("release fence", observability.ComponentKey, "rollout", "error", err)
+			}
+		}
 		for _, role := range serviceReleaseRoles {
 			if !r.fencer.Current().CanMutate() {
 				break
@@ -278,7 +291,8 @@ func (r *serviceReleases) release(ctx context.Context, role string, state servic
 	}
 	wait := r.wait
 	if wait == 0 {
-		wait = defaultReleaseWait(role, state.Intent.DesiredReplicas)
+		// A fenced release restarts its nodes one at a time.
+		wait = defaultReleaseWait(role, state.Intent.DesiredReplicas) + r.fences.allowance(state.Intent.DesiredReplicas)
 	}
 	progress := &stickyWriter{writer: serviceReleaseLog{role: role}}
 	unfinished := func(err error) (serviceReleaseState, error) {
@@ -319,7 +333,9 @@ func (r *serviceReleases) release(ctx context.Context, role string, state servic
 		return rollback, save(state)
 	})
 	switch err := deployer.roll(ctx, intent, rollback, wait, progress); {
-	case errors.Is(err, errRecoveryNotStarted):
+	case errors.Is(err, errRecoveryNotStarted), errors.Is(err, errFencePrepare):
+		// Nothing proves the release, or its rollback, reached the hosts or
+		// failed there: a later pass resumes it.
 		return state, err
 	case errors.Is(err, errRollbackUnfinished):
 		return unfinished(err)
@@ -384,7 +400,7 @@ func (r *serviceReleases) fresh(ctx context.Context, role string, intent deliver
 // under the leader's current authority epoch; recovering records a
 // rollback before it is submitted.
 func (r *serviceReleases) deployer(actor string, recovering func(context.Context, delivery.Intent) (delivery.Intent, error)) nativeDeployer {
-	return nativeDeployer{service: r.deliveries, hosts: r.hosts, recovering: recovering,
+	deployer := nativeDeployer{service: r.deliveries, hosts: r.hosts, recovering: recovering,
 		submit: func(ctx context.Context, intent delivery.Intent) (delivery.Intent, string, error) {
 			if !r.fencer.Current().CanMutate() {
 				return intent, "", errors.New("this controller no longer holds the authority lease")
@@ -399,8 +415,17 @@ func (r *serviceReleases) deployer(actor string, recovering func(context.Context
 			if err != nil {
 				return intent, "", err
 			}
+			// Sequence the release before any host can see it. Nothing is
+			// published yet; the release stays rolling and is retried.
+			if err := r.fences.prepare(ctx, intent); err != nil {
+				return intent, "", fmt.Errorf("%w: %w", errFencePrepare, err)
+			}
 			return intent, fingerprint, r.deliveries.SubmitVerified(ctx, intent, actor)
 		}}
+	if r.fences != nil {
+		deployer.sequence = r.fences.sequence
+	}
+	return deployer
 }
 
 // reportQuietly reports state and only logs a failure: status.json is

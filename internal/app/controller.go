@@ -26,6 +26,8 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
@@ -469,6 +471,25 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		restartGate = seatStore.Granted
 		policy.rollouts.drainedSeats = seatStore.Drained
 	}
+	// Service releases sequenced by a release fence (TS-610) hold a host's
+	// restart until the leader permits its node, on every controller.
+	var releaseChannel jetstream.KeyValue
+	if policy.rollouts.follow && policy.rollouts.channel != nil {
+		if releaseChannel, err = openChannelBucket(ctx, runtime.JetStream(), cfg.NATS.Replicas); err != nil {
+			return err
+		}
+		release := releaseGate(releaseChannel)
+		if seats := restartGate; seats != nil {
+			restartGate = func(ctx context.Context, node string, desired host.Desired) (bool, error) {
+				if granted, err := seats(ctx, node, desired); err != nil || !granted {
+					return granted, err
+				}
+				return release(ctx, node, desired)
+			}
+		} else {
+			restartGate = release
+		}
+	}
 	hostController, _, err := retryControllerOpen(ctx, "open regional host control", fullClusterReady, false,
 		func(attempt context.Context) (*host.Controller, error) {
 			return host.NewController(attempt, host.ControllerConfig{
@@ -783,7 +804,16 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	if policy.rollouts.follow && policy.rollouts.channel != nil {
 		releases := &serviceReleases{cell: cfg.NATS.Cell, channel: policy.rollouts.channel, deliveries: service,
-			hosts: hostController, profiles: services.profiles, fencer: control}
+			hosts: hostController, profiles: services.profiles, fencer: control,
+			fences: &releaseFence{kv: releaseChannel, hosts: hostController, fencer: control, spec: services.releaseFence,
+				seats: seatStore != nil,
+				open: func(context.Context) (lb.API, error) {
+					factory, err := ociclient.InstancePrincipal(region)
+					if err != nil {
+						return nil, err
+					}
+					return lb.NewSDKAPI(factory)
+				}}}
 		workers.Go(func() { releases.run(runCtx, runtime.JetStream(), cfg.NATS.Replicas) })
 	}
 	if rolloutExecutor != nil {

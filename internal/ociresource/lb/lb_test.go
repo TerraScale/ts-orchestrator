@@ -430,3 +430,19 @@ func TestSpecValidation(t *testing.T) {
 		t.Fatal("published under another kind")
 	}
 }
+
+// Fenced changes only drain and offline: a fence returns a backend with
+// the weight and backup it had, which Shape reads and Shaped sets.
+func TestFencedKeepsTheBackendsShape(t *testing.T) {
+	observed := Backend{IP: "10.0.0.1", Port: 80, weight: 3, offline: true, name: "10.0.0.1:80"}
+	returned := observed.Fenced(false, false)
+	if weight, backup := returned.Shape(); !returned.Serving() || weight != 3 || backup {
+		t.Fatalf("returned to rotation: %+v", returned)
+	}
+	if fenced := observed.Fenced(true, true); fenced.Serving() || !fenced.Drain || !fenced.offline || fenced.weight != 3 {
+		t.Fatalf("fenced: %+v", fenced)
+	}
+	if weight, backup := (Backend{IP: "10.0.0.1", Port: 80}).Shaped(3, true).Shape(); weight != 3 || !backup {
+		t.Fatalf("shaped: %d %v", weight, backup)
+	}
+}

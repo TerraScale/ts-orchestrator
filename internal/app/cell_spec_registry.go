@@ -90,7 +90,10 @@ type specRegistry struct {
 	// loaded, admits an oci_desired section's entries.
 	ociReconcile  bool
 	signedDesired *cellspec.OCIDesired
-	ociRegion     *oci.RegionConfig
+	// publicLB is the backend set oci_reconcile.public_lb owns; a release
+	// fence may not name it.
+	publicLB  *OciReconcileLBConfig
+	ociRegion *oci.RegionConfig
 	// signedArtifactStore is the signed config's artifact store quota, or
 	// the default; artifactStoreLimit is the most this controller's
 	// embedded NATS store holds beside control state.
@@ -139,7 +142,7 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 		r.signedPolicy = &policy
 	}
 	if reconcile := cfg.Controller.OciReconcile; reconcile != nil && reconcile.Enabled {
-		r.ociReconcile, r.signedDesired = true, reconcile.Desired
+		r.ociReconcile, r.signedDesired, r.publicLB = true, reconcile.Desired, reconcile.PublicLB
 	}
 	if memberRole != "" {
 		r.reserved = append(r.reserved, memberRole)
@@ -473,6 +476,14 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 			return err
 		}
 	}
+	if fence, public := spec.ReleaseFence, r.publicLB; fence != nil && public != nil && fence.LoadBalancerID == public.LoadBalancerID {
+		for _, set := range fence.BackendSets {
+			if set.Name == public.BackendSet {
+				// The reconciler would return a fenced backend to rotation.
+				return fmt.Errorf("release_fence names backend set %q, which oci_reconcile.public_lb owns", set.Name)
+			}
+		}
+	}
 	if store := spec.ArtifactStore; store != nil && store.MaxBytes > r.artifactStoreLimit {
 		return fmt.Errorf("artifact_store max_bytes %d exceeds this controller's %d: its embedded NATS store_max_bytes less %d bytes for control state",
 			store.MaxBytes, max(r.artifactStoreLimit, 0), controlStoreHeadroomBytes)
@@ -648,6 +659,18 @@ func (r *specRegistry) ociDesired() *cellspec.OCIDesired {
 		return r.current.OCIDesired
 	}
 	return r.signedDesired
+}
+
+// releaseFence is the current spec's release fence, or nil, and the private
+// address of each granted node.
+func (r *specRegistry) releaseFence() (*cellspec.ReleaseFence, map[string]string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	addresses := make(map[string]string, len(r.current.HostGrants))
+	for _, grant := range r.current.HostGrants {
+		addresses[grant.Node] = grant.PrivateIP
+	}
+	return r.current.ReleaseFence, addresses
 }
 
 // atlasConfig is the current spec's Atlas publisher, or nil.

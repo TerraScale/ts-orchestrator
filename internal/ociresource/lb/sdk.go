@@ -1,6 +1,7 @@
 package lb
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
@@ -113,13 +114,14 @@ func (a sdkAPI) CreateBackend(ctx context.Context, id, backendSet string, backen
 	return deref(response.OpcWorkRequestId), nil
 }
 
-// UpdateBackend sets every flag, so it also clears a backup, offline or
-// reweighted backend.
+// UpdateBackend sets every flag from the backend: weight (zero means 1),
+// backup, drain and offline. The reconciler passes its managed shape; a
+// release fence passes the observed one with Fenced.
 func (a sdkAPI) UpdateBackend(ctx context.Context, id, backendSet string, backend Backend) (string, error) {
 	response, err := a.client.UpdateBackend(ctx, loadbalancer.UpdateBackendRequest{LoadBalancerId: new(id),
 		BackendSetName: new(backendSet), BackendName: new(backend.Name()), OpcRetryToken: new(common.RetryToken()),
-		UpdateBackendDetails: loadbalancer.UpdateBackendDetails{Weight: new(defaultWeight), Backup: new(false),
-			Drain: new(backend.Drain), Offline: new(false)}})
+		UpdateBackendDetails: loadbalancer.UpdateBackendDetails{Weight: new(cmp.Or(backend.weight, defaultWeight)),
+			Backup: new(backend.backup), Drain: new(backend.Drain), Offline: new(backend.offline)}})
 	if err != nil {
 		return "", fmt.Errorf("update OCI load balancer backend: %w", err)
 	}
