@@ -11,6 +11,7 @@ listener https gru.api.terrascale.tech: :443, Origin CA certificate, requires th
 listener https gru.auth.terrascale.tech: :443, Origin CA certificate, requires the customer origin-pull client certificate, to backend set ts-auth
 listener http: :80, 301 to https
 backend-set terrabase: seeded with gru-1-db-1 10.251.0.21:9465, then owned by the controller (freeform ownership GRU/lb-backends/public-terrabase for ts-470-gru-rebuild-2), TLS verified against the member CA, GET /readyz
+backend-set terrabase-primary: the same, for /v1/management requests (routing policy terrabase_routes)
 backend-set ts-auth: gru-1-ctl-1 10.251.0.11:8080, gru-1-ctl-2 10.251.0.12:8080, gru-1-ctl-3 10.251.0.13:8080, GET /readyz
 cloudflare: SSL Full (strict) for gru.api.terrascale.tech and gru.auth.terrascale.tech, custom zone Authenticated Origin Pulls on; requires public_api.origin_pull CA and certificate ID (oci-region dns)
 dns-record gru.api.terrascale.tech: A to the gru-1-api public IP, proxied (oci-region dns)

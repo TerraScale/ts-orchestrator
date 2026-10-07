@@ -186,6 +186,17 @@ func (f *fakeOCI) Call(_ context.Context, args ...string) (map[string]any, error
 		rendered["name"] = c.Flags["listener-name"]
 		f.balancer["listeners"].(map[string]any)[c.Flags["listener-name"]] = rendered
 		return data(map[string]any{}), nil
+	case c.Path == "lb routing-policy create":
+		policy := loadbalancer.RoutingPolicy{Name: new(c.Flags["name"]),
+			ConditionLanguageVersion: loadbalancer.RoutingPolicyConditionLanguageVersionEnum(c.Flags["condition-language-version"])}
+		if err := jsonFlag(c, "rules", &policy.Rules); err != nil {
+			f.t.Fatal(err)
+		}
+		if f.balancer["routing-policies"] == nil {
+			f.balancer["routing-policies"] = map[string]any{}
+		}
+		f.balancer["routing-policies"].(map[string]any)[*policy.Name] = f.render(policy)
+		return data(map[string]any{}), nil
 	case c.Path == "lb load-balancer update":
 		var tags map[string]any
 		if err := jsonFlag(c, "freeform-tags", &tags); err != nil {
@@ -362,7 +373,7 @@ func TestProvisionBuildsTheEdgeThenResumes(t *testing.T) {
 	for range 6 {
 		want = append(want, "network nsg rules add")
 	}
-	want = append(want, "lb load-balancer create")
+	want = append(want, "lb load-balancer create", "lb routing-policy create", "lb listener update")
 	if got := f.mutations(); !slices.Equal(got, want) {
 		t.Fatalf("mutations=%v\nwant=%v", got, want)
 	}

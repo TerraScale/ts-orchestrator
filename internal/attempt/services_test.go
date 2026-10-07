@@ -189,7 +189,7 @@ func TestServicesPhaseDerivesGRUsCommittedProfiles(t *testing.T) {
 	if b, err := os.ReadFile(a.Path("services", "ts-auth.profile.json")); err != nil || json.Unmarshal(b, &profile) != nil {
 		t.Fatal(err)
 	}
-	if err := tsauth.ValidateProfile(tsauth.Cell, nil, profile.Env, profile.Secrets); err != nil {
+	if err := tsauth.ValidateProfile("gru", nil, profile.Env, profile.Secrets); err != nil {
 		t.Fatal(err)
 	}
 	if err := tsauth.ValidateMembers(profile.Env, a.profileEnv(a.Path("services", "terrabase.profile.json"))); err != nil {

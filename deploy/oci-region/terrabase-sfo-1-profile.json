@@ -1,0 +1,22 @@
+{
+  "resources": {
+    "cpu": 1,
+    "memory_bytes": 4294967296,
+    "disk_bytes": 21474836480
+  },
+  "env": {
+    "TERRABASE_AUTH_AUDIENCE": "https://sfo.api.terrascale.tech,https://gru.api.terrascale.tech",
+    "TERRABASE_AUTH_ISSUER": "https://gru.auth.terrascale.tech/terrascale",
+    "TERRABASE_CATALOG_PRIMARY": "ts-sfo-1",
+    "TERRABASE_CLIENT_PORT": "9465",
+    "TERRABASE_PEERS": "ts-sfo-1=10.252.0.11:9443,ts-sfo-2=10.252.0.12:9443,ts-sfo-3=10.252.0.13:9443",
+    "TERRABASE_PEER_PORT": "9443",
+    "TERRABASE_REGION": "sfo-1"
+  },
+  "secrets": {
+    "TERRABASE_MANAGEMENT_CREDENTIAL_FILE": {
+      "vault": "ocid1.vault.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrzcofqki6a5podtjnhvyiol7yqehrd77tp2hoeynxp5wozv54mq6a",
+      "name": "sfo-1-terrabase-management-credential"
+    }
+  }
+}

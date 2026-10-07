@@ -59,6 +59,7 @@ var creators = map[string]creator{
 	"lb backend-set update":           updateBackendSet,
 	"lb hostname update":              updateHostname,
 	"lb listener update":              updateListener,
+	"lb routing-policy create":        createRoutingPolicy,
 	"vault secret create-base64":      createSecret,
 	"vault secret update-base64":      updateSecret,
 	"vault secret list":               listSecrets,
@@ -93,6 +94,7 @@ var createFlags = map[string][]string{
 	"lb backend-set update":          {"load-balancer-id", "backend-set-name", "details"},
 	"lb hostname update":             {"load-balancer-id", "name", "hostname"},
 	"lb listener update":             {"load-balancer-id", "listener-name", "details"},
+	"lb routing-policy create":       {"load-balancer-id", "name", "condition-language-version", "rules"},
 	"vault secret create-base64":     {"compartment-id", "vault-id", "key-id", "secret-name", "description", "secret-content-content"},
 	"vault secret update-base64":     {"secret-id", "secret-content-content"},
 	"vault secret list":              {"compartment-id", "vault-id", "name"},
@@ -566,6 +568,25 @@ func updateListener(ctx context.Context, c *SDKClient, command sdkcli.Command) (
 	}
 	response, err := client.UpdateListener(ctx, loadbalancer.UpdateListenerRequest{LoadBalancerId: &values[0], ListenerName: &values[1],
 		UpdateListenerDetails: details})
+	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
+}
+
+func createRoutingPolicy(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {
+	values, err := flags(command, "load-balancer-id", "name", "condition-language-version")
+	if err != nil {
+		return nil, err
+	}
+	details := loadbalancer.CreateRoutingPolicyDetails{Name: &values[1],
+		ConditionLanguageVersion: loadbalancer.CreateRoutingPolicyDetailsConditionLanguageVersionEnum(values[2])}
+	if err := jsonFlag(command, "rules", &details.Rules); err != nil {
+		return nil, err
+	}
+	client, err := c.loadBalancer()
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateRoutingPolicy(ctx, loadbalancer.CreateRoutingPolicyRequest{LoadBalancerId: &values[0],
+		CreateRoutingPolicyDetails: details})
 	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
 }
 

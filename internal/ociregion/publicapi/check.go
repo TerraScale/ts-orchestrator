@@ -27,8 +27,9 @@ func same(v any, want any) bool { return fmt.Sprint(v) == fmt.Sprint(want) }
 // differs from the configuration apply creates: bandwidth, hostname
 // bindings, listeners and their client-certificate checks, and backend sets
 // holding the planned backends: exactly every controller for ts-auth, and
-// for terrabase exactly the seed, or, once the plan hands the set to the
-// controller, planned members only with at least one of them serving.
+// for terrabase and terrabase-primary exactly the seed, or, once the plan
+// hands the sets to the controller, planned members only with at least one of
+// them serving; and the routing policy sending Management to terrabase-primary.
 func (d Desired) CheckBalancer(lb map[string]any) error {
 	if err := d.OriginPull.Validate(); err != nil {
 		return err
@@ -70,8 +71,9 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 				l["default-backend-set-name"] == "terrabase" && (l["hostname-names"] == nil || same(l["hostname-names"], []string{})) &&
 				l["path-route-set-name"] == nil && l["routing-policy-name"] == nil
 		} else {
+			routes := map[string]any{"terrabase": managementRoutes}[name]
 			ok = ok && same(l["port"], 443) && l["default-backend-set-name"] == name && same(l["hostname-names"], []string{name}) &&
-				same(l["rule-set-names"], []string{"security-headers"}) && l["path-route-set-name"] == nil && l["routing-policy-name"] == nil &&
+				same(l["rule-set-names"], []string{"security-headers"}) && l["path-route-set-name"] == nil && l["routing-policy-name"] == routes &&
 				field(l, "ssl-configuration", "certificate-name") == served && field(l, "ssl-configuration", "verify-peer-certificate") == true &&
 				same(field(l, "connection-configuration", "idle-timeout"), IdleTimeout)
 		}
@@ -93,15 +95,20 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 		field(uri, "path") != "{path}" || field(uri, "query") != "{query}" {
 		return differs("https-redirect rule set", redirect)
 	}
+	policies, _ := lb["routing-policies"].(map[string]any)
+	policy := policies[managementRoutes]
+	if len(policies) != 1 || field(policy, "condition-language-version") != "V1" || !sameRules(field(policy, "rules"), managementRules) {
+		return differs("routing policies", policies)
+	}
 	sets, _ := lb["backend-sets"].(map[string]any)
-	if !slices.Equal(slices.Sorted(maps.Keys(sets)), slices.Sorted(maps.Keys(hostnames))) {
+	if !slices.Equal(slices.Sorted(maps.Keys(sets)), slices.Sorted(slices.Values(append(slices.Collect(maps.Keys(hostnames)), primarySet)))) {
 		return differs("backend sets", slices.Sorted(maps.Keys(sets)))
 	}
 	terrabaseWant := d.TerraBase
 	if d.controllerOwned() {
 		terrabaseWant = d.Members
 	}
-	wants := map[string][]Backend{"terrabase": terrabaseWant, "ts-auth": d.Auth}
+	wants := map[string][]Backend{"terrabase": terrabaseWant, primarySet: terrabaseWant, "ts-auth": d.Auth}
 	if d.OrchHost != "" {
 		wants["ts-orch"] = d.Orch
 	}
@@ -122,7 +129,7 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 		ok := err == nil && field(set, "health-checker", "protocol") == "HTTP" &&
 			field(set, "health-checker", "url-path") == path && same(field(set, "health-checker", "port"), port) &&
 			same(field(set, "health-checker", "return-code"), 200)
-		owned := name == "terrabase" && d.controllerOwned()
+		owned := (name == "terrabase" || name == primarySet) && d.controllerOwned()
 		if owned {
 			// The controller owns these backends: any planned members,
 			// drained during a release, with at least one serving.
@@ -141,7 +148,7 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 				ok = ok && (b[flag] == nil || b[flag] == false || flag == "drain" && owned)
 			}
 		}
-		if bundle := map[string]string{"terrabase": memberCA, "ts-orch": cellCA}[name]; bundle != "" {
+		if bundle := map[string]string{"terrabase": memberCA, primarySet: memberCA, "ts-orch": cellCA}[name]; bundle != "" {
 			forcePlaintext := field(set, "health-checker", "is-force-plain-text")
 			ok = ok && (forcePlaintext == nil || forcePlaintext == false) &&
 				field(set, "ssl-configuration", "certificate-name") == bundle && field(set, "ssl-configuration", "verify-peer-certificate") == true
@@ -169,6 +176,29 @@ func (d Desired) CheckBalancer(lb map[string]any) error {
 		return fmt.Errorf("load balancer %s origin certificate: %w", d.Names.LB, err)
 	}
 	return nil
+}
+
+// sameRules reports whether CLI-shaped routing rules are exactly want.
+func sameRules(live any, want []any) bool {
+	rules, _ := live.([]any)
+	if len(rules) != len(want) {
+		return false
+	}
+	for i, rule := range rules {
+		w := want[i].(map[string]any)
+		actions, _ := field(rule, "actions").([]any)
+		wantActions := w["actions"].([]any)
+		if field(rule, "name") != w["name"] || field(rule, "condition") != w["condition"] || len(actions) != len(wantActions) {
+			return false
+		}
+		for j, action := range actions {
+			wa := wantActions[j].(map[string]any)
+			if field(action, "name") != wa["name"] || field(action, "backend-set-name") != wa["backendSetName"] {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // sameCA reports whether a load balancer bundle holds exactly pemCA.

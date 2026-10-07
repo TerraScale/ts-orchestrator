@@ -1,0 +1,44 @@
+{
+  "resources": {
+    "cpu": 1,
+    "memory_bytes": 1073741824,
+    "disk_bytes": 2147483648
+  },
+  "env": {
+    "TS_AUTH_PUBLIC_ORIGIN": "https://sfo.auth.terrascale.tech",
+    "TS_AUTH_TERRASCALE_API_URL": "https://sfo.api.terrascale.tech",
+    "TS_AUTH_TERRASCALE_API_ENDPOINTS": "https://10.252.0.11:9465;https://10.252.0.12:9465;https://10.252.0.13:9465",
+    "TS_AUTH_TERRASCALE_API_CA": "-----BEGIN CERTIFICATE-----\nMIIBjDCCATGgAwIBAgIQOJlzYHCQwWS/pBWgN47mLjAKBggqhkjOPQQDAjAkMSIw\nIAYDVQQDExlUZXJyYUJhc2UgbWVtYmVyIENBIHNmby0xMB4XDTI2MTAwNzExNTIy\nNVoXDTM2MTAwNDExNTcyNVowJDEiMCAGA1UEAxMZVGVycmFCYXNlIG1lbWJlciBD\nQSBzZm8tMTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABMxaMRZtw5s/jho2UIpu\nh90Qn7nLKhOP9w8RzwVgW2etGBhZJck4Y7c7nZfyeW4ycMZONYO4fuYDXz5gmRUh\neQqjRTBDMA4GA1UdDwEB/wQEAwIBBjASBgNVHRMBAf8ECDAGAQH/AgEAMB0GA1Ud\nDgQWBBQd7x174jQJp3QB0P+J/2cIB/IUiTAKBggqhkjOPQQDAgNJADBGAiEA5XHS\nfGHaSmsuqgbJAvP2gLlz5UsZquQb3Cek1P+VHRECIQD8j2qDr7RF9Pq0/xvVndO0\nMx7SKg6M+py/Sao5nYYb5w==\n-----END CERTIFICATE-----\n",
+    "TS_AUTH_TERRASCALE_API_FAILOVER": "true",
+    "TS_AUTH_DATABASE": "auth",
+    "TS_AUTH_ACCESS_TOKEN_AUDIENCES": "https://sfo.api.terrascale.tech",
+    "TS_AUTH_DASHBOARD_REDIRECT_URIS": "https://dash.terrascale.tech/login/callback",
+    "TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS": "https://dash.terrascale.tech/login"
+  },
+  "secrets": {
+    "TS_AUTH_MASTER_KEY": {
+      "vault": "ocid1.vault.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrzcofqki6a5podtjnhvyiol7yqehrd77tp2hoeynxp5wozv54mq6a",
+      "name": "sfo-1-ts-auth-master-key"
+    },
+    "TS_AUTH_AUDIT_SIGNING_KEY": {
+      "vault": "ocid1.vault.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrzcofqki6a5podtjnhvyiol7yqehrd77tp2hoeynxp5wozv54mq6a",
+      "name": "sfo-1-ts-auth-audit-signing-key"
+    },
+    "TS_AUTH_OPERATOR_KEY": {
+      "vault": "ocid1.vault.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrzcofqki6a5podtjnhvyiol7yqehrd77tp2hoeynxp5wozv54mq6a",
+      "name": "sfo-1-ts-auth-operator-key"
+    },
+    "TS_AUTH_DASHBOARD_CLIENT_SECRET": {
+      "vault": "ocid1.vault.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrzcofqki6a5podtjnhvyiol7yqehrd77tp2hoeynxp5wozv54mq6a",
+      "name": "sfo-1-ts-auth-dashboard-client-secret"
+    },
+    "TS_AUTH_TERRASCALE_API_KEY": {
+      "vault": "ocid1.vault.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrzcofqki6a5podtjnhvyiol7yqehrd77tp2hoeynxp5wozv54mq6a",
+      "name": "sfo-1-ts-auth-terrascale-api-key"
+    },
+    "TS_AUTH_TERRASCALE_PROJECT_ID": {
+      "vault": "ocid1.vault.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrzcofqki6a5podtjnhvyiol7yqehrd77tp2hoeynxp5wozv54mq6a",
+      "name": "sfo-1-ts-auth-terrascale-project-id"
+    }
+  }
+}

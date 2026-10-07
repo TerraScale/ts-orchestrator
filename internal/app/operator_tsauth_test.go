@@ -137,6 +137,25 @@ func TestTSAuthAutoscaleBoundsAreFixed(t *testing.T) {
 	}
 }
 
+// TestSFOProfilesAreValid checks the committed sfo-1 TerraBase and ts-auth
+// profiles together, as the sfo controllers validate them (TS-662).
+func TestSFOProfilesAreValid(t *testing.T) {
+	profiles := map[string]WorkloadProfile{}
+	for role, file := range map[string]string{terrabase.Role: "terrabase-sfo-1-profile.json", tsauth.Role: "ts-auth-sfo-1-profile.json"} {
+		profile, err := readReleaseProfile("../../deploy/oci-region/" + file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		profiles[role] = profile
+	}
+	if err := validateWorkloadProfiles("sfo", profiles); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateWorkloadProfiles("gru", profiles); err == nil {
+		t.Fatal("gru accepted sfo's ts-auth profile")
+	}
+}
+
 func tsAuthGRUConfig(t *testing.T) (WorkloadProfile, workload.ServiceSpec) {
 	t.Helper()
 	profile, err := readReleaseProfile("../../deploy/oci-region/ts-auth-gru-1-profile.json")

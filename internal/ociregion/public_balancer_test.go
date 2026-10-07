@@ -100,12 +100,17 @@ const liveBalancer = `{"id":"` + testBalancerID + `","lifecycle-state":"ACTIVE",
 "listeners":{
  "http":{"port":80,"protocol":"HTTP","default-backend-set-name":"terrabase","rule-set-names":["https-redirect"]},
  "terrabase":{"port":443,"protocol":"HTTP","default-backend-set-name":"terrabase","hostname-names":["terrabase"],"rule-set-names":["security-headers"],
+  "routing-policy-name":"terrabase_routes",
   "ssl-configuration":{"certificate-name":"origin","verify-peer-certificate":true},"connection-configuration":{"idle-timeout":120}},
  "ts-auth":{"port":443,"protocol":"HTTP","default-backend-set-name":"ts-auth","hostname-names":["ts-auth"],"rule-set-names":["security-headers"],
   "ssl-configuration":{"certificate-name":"origin","verify-peer-certificate":true},"connection-configuration":{"idle-timeout":120}}},
 "rule-sets":{"https-redirect":{"items":[{"action":"REDIRECT","response-code":301,"conditions":[{"attribute-name":"PATH","attribute-value":"/","operator":"PREFIX_MATCH"}],"redirect-uri":{"protocol":"HTTPS","host":"{host}","port":443,"path":"{path}","query":"{query}"}}]}},
+"routing-policies":{"terrabase_routes":{"name":"terrabase_routes","condition-language-version":"V1","rules":[{"name":"management_to_primary",
+ "condition":"any(http.request.url.path sw '/v1/management')","actions":[{"name":"FORWARD_TO_BACKENDSET","backend-set-name":"terrabase-primary"}]}]}},
 "backend-sets":{
  "terrabase":{"backends":[{"ip-address":"10.251.0.21","port":9465}],"health-checker":{"protocol":"HTTP","url-path":"/readyz","port":9465,"return-code":200},
+  "ssl-configuration":{"certificate-name":"member-ca","verify-peer-certificate":true}},
+ "terrabase-primary":{"backends":[{"ip-address":"10.251.0.21","port":9465}],"health-checker":{"protocol":"HTTP","url-path":"/readyz","port":9465,"return-code":200},
   "ssl-configuration":{"certificate-name":"member-ca","verify-peer-certificate":true}},
  "ts-auth":{"backends":[{"ip-address":"10.251.0.11","port":8080},{"ip-address":"10.251.0.12","port":8080},{"ip-address":"10.251.0.13","port":8080}],
   "health-checker":{"protocol":"HTTP","url-path":"/readyz","port":8080,"return-code":200}}}}`
@@ -141,6 +146,13 @@ func TestLiveBalancerReadback(t *testing.T) {
 		want string
 	}{
 		"exact": {func(Object, *[]any) {}, ""},
+		"management not routed": {func(lb Object, _ *[]any) {
+			delete(obj(obj(lb["listeners"])["terrabase"]), "routing-policy-name")
+		}, "listener terrabase"},
+		"management routed elsewhere": {func(lb Object, _ *[]any) {
+			rules := obj(obj(lb["routing-policies"])["terrabase_routes"])["rules"].([]any)
+			obj(obj(rules[0])["actions"].([]any)[0])["backend-set-name"] = "terrabase"
+		}, "routing policies"},
 		"unready TerraBase health check": {func(lb Object, _ *[]any) {
 			obj(obj(obj(lb["backend-sets"])["terrabase"])["health-checker"])["return-code"] = 503
 		}, "backend set terrabase"},

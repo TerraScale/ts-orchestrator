@@ -52,6 +52,10 @@ type Store struct {
 	fencer         authority.Fencer
 }
 
+// BucketMaxBytes is what each of the two buckets reserves on every
+// controller's JetStream store.
+const BucketMaxBytes = 256 << 20
+
 // OpenStore provisions or binds both buckets for region.
 func OpenStore(ctx context.Context, js jetstream.JetStream, region string, replicas int, fencer authority.Fencer) (*Store, error) {
 	if js == nil || fencer == nil || !validRegion(region) || replicas != 1 && replicas != 3 && replicas != 5 {
@@ -60,7 +64,7 @@ func OpenStore(ctx context.Context, js jetstream.JetStream, region string, repli
 	open := func(bucket, description string) (jetstream.KeyValue, error) {
 		kv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
 			Bucket: bucket, Description: description, History: 4, MaxValueSize: maxRecordBytes,
-			MaxBytes: 256 << 20, Storage: jetstream.FileStorage, Replicas: replicas,
+			MaxBytes: BucketMaxBytes, Storage: jetstream.FileStorage, Replicas: replicas,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("open %s: %w", bucket, err)

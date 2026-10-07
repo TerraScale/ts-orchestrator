@@ -270,7 +270,9 @@ The next region runs them all with one command, `ts-orch region create`
   balancer's public subnet `10.252.0.128/26`, and `public_api.terrabase_members`
   naming the nodes. The controller NSG admits the TerraBase client port from
   the public subnet, as a colocated cell needs. `orchestrator_owner` stays
-  null until the controllers own the load balancer's backends (TS-632).
+  null: the cell spec's `release_fence` names a role for `terrabase`,
+  `terrabase-primary` and `ts-auth`, so the leader's edge reconciler (TS-632)
+  owns their backends, not `oci_reconcile.public_lb`.
 - **No operator gateway.** A local peering gateway only peers VCNs of one
   region, and ts-ops is in `sa-saopaulo-1`. The plan sets `operator_gateway`
   and `netbird` to null. The nodes enroll in NetBird through the cell's NAT
@@ -292,6 +294,16 @@ The next region runs them all with one command, `ts-orch region create`
 - **Trust.** The cell uses the same root, release leaf, operator key and
   recipient signer as GRU, so one update delegation scoped to both cells
   covers CI auto-deploy.
+- **Edge (TS-662).** `public-api cert` and `apply` built `sfo-1-api` like
+  `gru-1-api`, including `terrabase-primary` and its Management route, plus
+  `sfo.orch` for the Machines API. Vault's `gru-1-cloudflare-dns-edit-token`
+  cannot read the zone's configuration rules, so the `dns` steps (the
+  `ts-orch-sfo-1-api-ssl-strict` rule and the proxied records) were made with
+  the `cf` CLI; see the [evidence](evidence/ts-662-sfo-public-edge-20261007.md).
+- **Host setup.** The image's `host-setup` ran its baked binary, which
+  refused `ts-sfo-N` names, so the nodes never enrolled. sfo-1's nodes got
+  the self-update drop-in (`60-selfupdate.conf`) by hand before #283 made
+  `selfupdate prepare` install it.
 - **Fabric.** The NATS link to GRU (TS-562) needs `nats.embedded.interregion`
   in both regions' signed controller configs, and only a re-found changes a
   signed config today. sfo-1 runs as its own cell until an in-place path

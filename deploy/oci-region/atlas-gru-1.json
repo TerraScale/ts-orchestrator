@@ -13,6 +13,15 @@
       "lon": -46.47,
       "api": "https://gru.api.terrascale.tech",
       "auth": "https://gru.auth.terrascale.tech"
+    },
+    {
+      "id": "sfo-1",
+      "name": "San Francisco",
+      "country": "US",
+      "lat": 37.62,
+      "lon": -122.38,
+      "api": "https://sfo.api.terrascale.tech",
+      "auth": "https://sfo.auth.terrascale.tech"
     }
   ],
   "services": [

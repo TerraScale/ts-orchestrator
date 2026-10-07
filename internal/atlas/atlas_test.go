@@ -101,14 +101,17 @@ func TestPublishSignsAMonotonicTopologyWithProbedHealth(t *testing.T) {
 	server := fakeAtlas(t, publishKeys, status, &got)
 	defer server.Close()
 	config := testConfig(t)
-	config.URL, config.Regions[0].API = server.URL+"/", server.URL
+	config.URL = server.URL + "/"
+	for i := range config.Regions {
+		config.Regions[i].API = server.URL
+	}
 	publisher := Publisher{HTTP: server.Client(), Key: key}
 	now := time.Unix(1_791_159_807, 0)
 	if err := publisher.Publish(t.Context(), config, now, nil); err != nil {
 		t.Fatal(err)
 	}
-	if got.V != 1 || got.Updated != now.Unix() || len(got.Regions) != 1 || !got.Regions[0].OK ||
-		got.Regions[0].ID != "gru-1" || len(got.Services) != len(config.Services) {
+	if got.V != 1 || got.Updated != now.Unix() || len(got.Regions) != 2 || !got.Regions[0].OK || !got.Regions[1].OK ||
+		got.Regions[0].ID != "gru-1" || got.Regions[1].ID != "sfo-1" || len(got.Services) != len(config.Services) {
 		t.Fatalf("published %+v", got)
 	}
 	// A second publish within the same second still moves updated on, and a

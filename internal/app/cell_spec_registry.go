@@ -130,7 +130,7 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 		rolloutExecutor:     cfg.Controller.Rollouts != nil && cfg.Controller.Rollouts.Executor,
 		signedArtifactStore: cmp.Or(cfg.Controller.ArtifactStoreMaxBytes, delivery.DefaultArtifactStoreMaxBytes)}
 	if cfg.NATS.Embedded != nil {
-		r.artifactStoreLimit = cfg.NATS.Embedded.StoreLimitBytes() - controlStoreHeadroomBytes
+		r.artifactStoreLimit = cfg.NATS.Embedded.StoreLimitBytes() - specStoreHeadroomBytes
 	}
 	if _, signed := cfg.Controller.Workloads[terrabase.Role]; signed {
 		r.terraBaseCA = true
@@ -485,9 +485,13 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 			}
 		}
 	}
-	if store := spec.ArtifactStore; store != nil && store.MaxBytes > r.artifactStoreLimit {
+	limit, headroom := r.artifactStoreLimit, specStoreHeadroomBytes
+	if spec.MachinesAPI != nil {
+		limit, headroom = limit-machinesAPIStoreBytes, headroom+machinesAPIStoreBytes
+	}
+	if store := spec.ArtifactStore; store != nil && store.MaxBytes > limit {
 		return fmt.Errorf("artifact_store max_bytes %d exceeds this controller's %d: its embedded NATS store_max_bytes less %d bytes for control state",
-			store.MaxBytes, max(r.artifactStoreLimit, 0), controlStoreHeadroomBytes)
+			store.MaxBytes, max(limit, 0), headroom)
 	}
 	if spec.RolloutPolicy != nil && !r.rolloutExecutor {
 		return errors.New("a rollout policy needs the controllers' rollout executor (controller.rollouts.executor)")

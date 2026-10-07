@@ -76,6 +76,18 @@ const (
 	cellCA = "cell-ca"
 )
 
+// TerraBase Management requests go to their own backend set, so an operator
+// can pin catalog writes to the catalog primary while it moves (TS-578);
+// otherwise it holds the same members as terrabase.
+const (
+	primarySet       = "terrabase-primary"
+	managementRoutes = "terrabase_routes"
+)
+
+// managementRules is the terrabase listener's routing policy.
+var managementRules = []any{map[string]any{"name": "management_to_primary", "condition": "any(http.request.url.path sw '/v1/management')",
+	"actions": []any{map[string]any{"name": "FORWARD_TO_BACKENDSET", "backendSetName": primarySet}}}}
+
 const usage = `Usage: ts-orch oci-region public-api <command> --plan PLAN [flags]
 
   preview     List every resource, certificate and record the edge uses; no calls
@@ -375,6 +387,7 @@ func (d Desired) backendSets() map[string]map[string]any {
 			"sslConfiguration": map[string]any{"certificateName": memberCA, "verifyPeerCertificate": true, "verifyDepth": 1}},
 		"ts-auth": {"policy": "ROUND_ROBIN", "backends": backends(d.Auth), "healthChecker": health(AuthPort)},
 	}
+	sets[primarySet] = maps.Clone(sets["terrabase"])
 	// The Machines API speaks TLS with each controller's signed certificate,
 	// which the cell CA signs directly.
 	if d.OrchHost != "" {
@@ -385,11 +398,16 @@ func (d Desired) backendSets() map[string]map[string]any {
 }
 
 // httpsListener is the HTTPS listener for a backend set's hostname, serving
-// certificate and requiring Cloudflare's origin-pull client certificate.
+// certificate and requiring Cloudflare's origin-pull client certificate. The
+// terrabase listener routes Management requests by managementRoutes.
 func (d Desired) httpsListener(set, certificate string) map[string]any {
-	return map[string]any{"defaultBackendSetName": set, "port": 443, "protocol": "HTTP", "hostnameNames": []string{set},
+	listener := map[string]any{"defaultBackendSetName": set, "port": 443, "protocol": "HTTP", "hostnameNames": []string{set},
 		"sslConfiguration":        map[string]any{"certificateName": certificate, "verifyPeerCertificate": true, "verifyDepth": 1},
 		"connectionConfiguration": map[string]any{"idleTimeout": IdleTimeout}, "ruleSetNames": []string{"security-headers"}}
+	if set == "terrabase" {
+		listener["routingPolicyName"] = managementRoutes
+	}
+	return listener
 }
 
 // loadBalancer is the load balancer's configuration: HTTPS on 443 routed by
@@ -412,6 +430,9 @@ func (d Desired) loadBalancer(origin, key, members, cell string) map[string]stri
 		hostnames[h.set] = map[string]any{"name": h.set, "hostname": h.name}
 		listeners[h.set] = d.httpsListener(h.set, originCertificate)
 	}
+	// OCI creates a load balancer without routing policies; apply adds
+	// managementRoutes once it exists (routeManagement).
+	delete(listeners["terrabase"].(map[string]any), "routingPolicyName")
 	return map[string]string{
 		"shape-details": command.JSON(map[string]any{"minimumBandwidthInMbps": d.MinMbps, "maximumBandwidthInMbps": d.MaxMbps}),
 		"certificates":  command.JSON(certificates),
@@ -452,6 +473,7 @@ func (d Desired) Preview() []string {
 		"listener http: :80, 301 to https",
 		fmt.Sprintf("backend-set terrabase: seeded with %s, then owned by the controller (%s), TLS verified against the member CA, GET %s",
 			names(d.TerraBase), or(ownedBy(d), "tag it before oci_reconcile.public_lb"), HealthPath),
+		fmt.Sprintf("backend-set %s: the same, for /v1/management requests (routing policy %s)", primarySet, managementRoutes),
 		fmt.Sprintf("backend-set ts-auth: %s, GET %s", names(d.Auth), HealthPath),
 		fmt.Sprintf("cloudflare: SSL Full (strict) for %s, custom zone Authenticated Origin Pulls on; requires public_api.origin_pull CA and certificate ID (oci-region dns)", strings.Join(d.hostNames(), " and ")),
 	}
@@ -1026,6 +1048,9 @@ func (p Provisioner) Provision(ctx context.Context, d Desired, cloudflare Cloudf
 	if balancer, err = p.converge(ctx, d, balancer); err != nil {
 		return nil, err
 	}
+	if balancer, err = p.routeManagement(ctx, d, balancer); err != nil {
+		return nil, err
+	}
 	if err := d.checkAttachments(balancer, edge.subnet, edge.nsg); err != nil {
 		return nil, err
 	}
@@ -1160,7 +1185,7 @@ func (p Provisioner) converge(ctx context.Context, d Desired, balancer map[strin
 		}
 	}
 	for name, set := range d.backendSets() {
-		if name == "terrabase" && d.controllerOwned() {
+		if (name == "terrabase" || name == primarySet) && d.controllerOwned() {
 			continue
 		}
 		var want []string
@@ -1176,6 +1201,42 @@ func (p Provisioner) converge(ctx context.Context, d Desired, balancer map[strin
 		}
 		if balancer, err = p.await(ctx, d.Names.LB, func() (map[string]any, error) { return p.balancer(ctx, d) }, func(r map[string]any) bool {
 			return r["lifecycle-state"] == "ACTIVE" && slices.Equal(liveBackends(r, name), want)
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return balancer, nil
+}
+
+// routeManagement adds the managementRoutes routing policy and points the
+// terrabase listener at it.
+func (p Provisioner) routeManagement(ctx context.Context, d Desired, balancer map[string]any) (map[string]any, error) {
+	id, err := command.ID(balancer)
+	if err != nil {
+		return nil, err
+	}
+	reload := func(ready func(map[string]any) bool) (err error) {
+		balancer, err = p.await(ctx, d.Names.LB, func() (map[string]any, error) { return p.balancer(ctx, d) }, func(r map[string]any) bool {
+			return r["lifecycle-state"] == "ACTIVE" && ready(r)
+		})
+		return err
+	}
+	if field(balancer, "routing-policies", managementRoutes) == nil {
+		if _, err := p.Client.Call(ctx, "lb", "routing-policy", "create", "--load-balancer-id", id, "--name", managementRoutes,
+			"--condition-language-version", "V1", "--rules", command.JSON(managementRules)); err != nil {
+			return nil, err
+		}
+		if err := reload(func(r map[string]any) bool { return field(r, "routing-policies", managementRoutes) != nil }); err != nil {
+			return nil, err
+		}
+	}
+	if field(balancer, "listeners", "terrabase", "routing-policy-name") != managementRoutes {
+		if _, err := p.Client.Call(ctx, "lb", "listener", "update", "--load-balancer-id", id, "--listener-name", "terrabase",
+			"--details", command.JSON(d.httpsListener("terrabase", servedCertificate(balancer)))); err != nil {
+			return nil, err
+		}
+		if err := reload(func(r map[string]any) bool {
+			return field(r, "listeners", "terrabase", "routing-policy-name") == managementRoutes
 		}); err != nil {
 			return nil, err
 		}

@@ -1,0 +1,8 @@
+{
+  "role": "ts-auth",
+  "environment": "canary",
+  "kind": "stateless",
+  "replicas": {"min": 3, "max": 3},
+  "placement": {"max_per_failure_domain": 1},
+  "rollout": {"max_surge": 1, "max_unavailable": 1}
+}

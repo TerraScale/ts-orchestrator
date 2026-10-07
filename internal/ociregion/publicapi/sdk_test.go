@@ -112,9 +112,16 @@ func TestSDKDecodesEveryCommandTheProvisionerSends(t *testing.T) {
 		case "lb listener update":
 			var details loadbalancer.UpdateListenerDetails
 			err2 = jsonFlag(command, "details", &details)
-			if err2 == nil && (*details.Port != 443 || !strings.HasPrefix(*details.SslConfiguration.CertificateName, originCertificate+"-") ||
+			if err2 == nil && (*details.Port != 443 || !strings.HasPrefix(*details.SslConfiguration.CertificateName, originCertificate) ||
 				*details.SslConfiguration.VerifyPeerCertificate != true) {
 				t.Fatalf("listener %+v", details)
+			}
+		case "lb routing-policy create":
+			var rules []loadbalancer.RoutingRule
+			err2 = jsonFlag(command, "rules", &rules)
+			if err2 == nil && (command.Flags["name"] != managementRoutes || len(rules) != 1 || len(rules[0].Actions) != 1 ||
+				*rules[0].Actions[0].(loadbalancer.ForwardToBackendSet).BackendSetName != primarySet) {
+				t.Fatalf("routing policy %v", rules)
 			}
 		case "lb load-balancer update":
 			var tags map[string]string

@@ -9,6 +9,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machines"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/capacity"
 )
@@ -16,6 +17,18 @@ import (
 // controlStoreHeadroomBytes keeps room for the configured intent stream,
 // host state, placement KV, and authority log beside the artifact store.
 const controlStoreHeadroomBytes int64 = 1536 << 20
+
+// specStoreHeadroomBytes is what a cell spec's artifact store leaves beside
+// it: the other streams that reserve their max_bytes on every controller,
+// delivery intents (1 GiB), decisions, host state, placement, host
+// enrollment and metric history, hold about 1.7 GiB together. Embedded NATS
+// refuses every stream update, even a shrink, once reservations pass
+// store_max_bytes (TS-662).
+const specStoreHeadroomBytes int64 = 2048 << 20
+
+// machinesAPIStoreBytes is what the Machines API's two buckets reserve
+// beside them while the cell spec carries machines_api.
+const machinesAPIStoreBytes int64 = 2 * machines.BucketMaxBytes
 
 const (
 	artifactStoreKeeperInterval = time.Minute

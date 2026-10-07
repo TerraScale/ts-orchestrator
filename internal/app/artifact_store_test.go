@@ -22,12 +22,24 @@ func TestArtifactStoreQuotaFromTheCellSpec(t *testing.T) {
 		t.Fatalf("generation 0 quota = %d", quota)
 	}
 	set := cellspec.Spec{Schema: cellspec.Schema, Generation: 1, RequiresBinary: 10,
-		ArtifactStore: &cellspec.ArtifactStore{MaxBytes: 4<<30 - controlStoreHeadroomBytes + 1}}
+		ArtifactStore: &cellspec.ArtifactStore{MaxBytes: 4<<30 - specStoreHeadroomBytes + 1}}
 	if err := registry.validate(set); err == nil || !strings.Contains(err.Error(), "store_max_bytes") {
 		t.Fatalf("quota beyond the embedded store: %v", err)
 	}
 	set.ArtifactStore.MaxBytes = 2 << 30
 	if err := registry.validate(set); err != nil {
+		t.Fatal(err)
+	}
+	// The Machines API's buckets reserve their room too: sfo-1 went past
+	// store_max_bytes with both (TS-662).
+	withAPI := set
+	withAPI.RequiresBinary, withAPI.MachinesAPI = 16, &cellspec.MachinesAPI{Issuer: "https://gru.auth.terrascale.tech/terrascale",
+		Audience: "https://gru.orch.terrascale.tech", JWKSURLs: []string{"https://gru.auth.terrascale.tech/terrascale/.well-known/jwks.json"}, Clients: []string{"ts-orch-cli"}}
+	if err := registry.validate(withAPI); err == nil || !strings.Contains(err.Error(), "store_max_bytes") {
+		t.Fatalf("quota leaving no room for the Machines API: %v", err)
+	}
+	withAPI.ArtifactStore = &cellspec.ArtifactStore{MaxBytes: 1 << 30}
+	if err := registry.validate(withAPI); err != nil {
 		t.Fatal(err)
 	}
 	registry.adopt(set, 1)
