@@ -123,6 +123,9 @@ type Gate struct {
 	// admission also accepts its current release under a binary-update
 	// receipt; the zero value accepts only the image receipt binary.
 	SelfUpdate selfupdate.Layout
+	// LoadedControllerConfig is the loaded config's exact bytes. An adopted
+	// schema-2 generation pins them in place of the manifest's (TS-668).
+	LoadedControllerConfig []byte
 }
 
 type executableBinaryChecker struct{}
@@ -402,10 +405,6 @@ func (gate Gate) initialProofs(state bootstrap.SlotState, anchor bootstrap.Verif
 		return bootstrap.VerifiedManifest{}, bootstrap.VerifiedReceipt{}, release.VerifiedImage{}, fmt.Errorf("%w: current signed manifest differs from intent: %v", ErrAdmission, err)
 	}
 	payload := manifest.Manifest()
-	if payload.ControllerConfigSHA256 != gate.LoadedControllerConfigSHA256 {
-		return bootstrap.VerifiedManifest{}, bootstrap.VerifiedReceipt{}, release.VerifiedImage{},
-			fmt.Errorf("%w: loaded controller config differs from signed ledger manifest", ErrAdmission)
-	}
 	if payload.ReleaseReceiptSHA256 != state.Intent.ReleaseReceiptDigest ||
 		payload.ImageOCID != state.Intent.ImageOCID || len(payload.ReleaseImageReceiptWire) == 0 {
 		return bootstrap.VerifiedManifest{}, bootstrap.VerifiedReceipt{}, release.VerifiedImage{}, ErrAdmission
@@ -479,6 +478,10 @@ func (gate Gate) AdmitInitial(ctx context.Context) (AcceptedInstall, error) {
 	manifest, receipt, image, err := gate.initialProofs(state, anchor, observed, now)
 	if err != nil {
 		return AcceptedInstall{}, err
+	}
+	// A first install has no adopted generation: the manifest pins the config.
+	if manifest.Manifest().ControllerConfigSHA256 != gate.LoadedControllerConfigSHA256 {
+		return AcceptedInstall{}, fmt.Errorf("%w: loaded controller config differs from signed ledger manifest", ErrAdmission)
 	}
 	binary, err := gate.binaryChecker().VerifyCurrent(image)
 	if err != nil {
@@ -668,8 +671,12 @@ func (gate Gate) AdmitRestart(ctx context.Context) (AcceptedInstall, error) {
 		return AcceptedInstall{}, fmt.Errorf("%w: accepted historical manifest is invalid: %v", ErrAdmission, err)
 	}
 	payload := manifest.Manifest()
-	if payload.ControllerConfigSHA256 != gate.LoadedControllerConfigSHA256 {
-		return AcceptedInstall{}, fmt.Errorf("%w: loaded controller config differs from accepted manifest", ErrAdmission)
+	pins, err := gate.Material.RestartPins(manifest, gate.Roots, marker.PrimaryPrivateIP)
+	if err != nil {
+		return AcceptedInstall{}, fmt.Errorf("read installed controller material generation: %w", err)
+	}
+	if err := gate.restartConfig(&pins, payload, marker.ManifestSHA256); err != nil {
+		return AcceptedInstall{}, err
 	}
 	if marker.SeedSlot != payload.SeedSlot {
 		return AcceptedInstall{}, fmt.Errorf("%w: accepted seed role differs from signed manifest", ErrAdmission)
@@ -725,10 +732,6 @@ func (gate Gate) AdmitRestart(ctx context.Context) (AcceptedInstall, error) {
 	if (payload.ManagedMaterial == nil) != (marker.ManagedMaterial == nil) ||
 		payload.ManagedMaterial != nil && *payload.ManagedMaterial != *marker.ManagedMaterial {
 		return AcceptedInstall{}, fmt.Errorf("%w: accepted managed material domain differs", ErrAdmission)
-	}
-	pins, err := gate.Material.RestartPins(manifest, gate.Roots, marker.PrimaryPrivateIP)
-	if err != nil {
-		return AcceptedInstall{}, fmt.Errorf("read installed controller material generation: %w", err)
 	}
 	if err := gate.Material.VerifyRestart(ctx, manifest, pins); err != nil {
 		return AcceptedInstall{}, fmt.Errorf("verify installed controller materials: %w", err)
@@ -790,6 +793,22 @@ func (gate Gate) AdmitRestart(ctx context.Context) (AcceptedInstall, error) {
 		}
 	}
 	return marker, nil
+}
+
+// restartConfig checks the loaded controller config against the digest the
+// accepted install expects, the adopted generation's for the slot or the
+// manifest's (MaterialPins.controllerConfigSHA256), and hands its bytes to
+// the generation's file check.
+func (gate Gate) restartConfig(pins *MaterialPins, manifest bootstrap.Manifest, manifestSHA256 string) error {
+	want, err := pins.controllerConfigSHA256(manifest, manifestSHA256)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrAdmission, err)
+	}
+	if want != gate.LoadedControllerConfigSHA256 {
+		return fmt.Errorf("%w: loaded controller config differs from accepted manifest", ErrAdmission)
+	}
+	pins.config = gate.LoadedControllerConfig
+	return nil
 }
 
 func coveredAt(issuedAt, expiresAt, acceptedAt time.Time) bool {

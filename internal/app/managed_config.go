@@ -132,15 +132,19 @@ func loadSignedManagedControllerConfig(cfg Config) (oci.RegionIntent, oci.Region
 	if err != nil || manifest.Slot != marker.Slot {
 		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, errors.New("installed controller manifest slot is invalid")
 	}
-	configWire, err := cfg.signedWire()
-	if err != nil || controllerSHA256(configWire) != manifest.ControllerConfigSHA256 {
-		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, errors.New("loaded controller config differs from installed signed manifest")
-	}
-	if _, err := ValidateInstalledControllerConfig(manifest, marker.PrimaryPrivateIP); err != nil {
+	uid, gid, err := controllerServiceIdentity()
+	if err != nil {
 		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, err
 	}
-	_, gid, err := controllerServiceIdentity()
+	want, err := expectedControllerConfigSHA256(manifest, marker.ManifestSHA256, uid, gid)
 	if err != nil {
+		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, err
+	}
+	configWire, err := cfg.signedWire()
+	if err != nil || controllerSHA256(configWire) != want {
+		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, errors.New("loaded controller config differs from installed signed manifest")
+	}
+	if _, err := ValidateLoadedControllerConfig(manifest, configWire, want, marker.PrimaryPrivateIP); err != nil {
 		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, err
 	}
 	var sidecars [3][]byte
@@ -167,6 +171,21 @@ func loadSignedManagedControllerConfig(cfg Config) (oci.RegionIntent, oci.Region
 	}
 	settings, err := parseManagedPlacementSettings(sidecars[2])
 	return intent, region, settings, err
+}
+
+// expectedControllerConfigSHA256 is the config digest the accepted install
+// expects, as restart admission reads it: an adopted material generation's
+// for the slot, else the manifest's (TS-668).
+func expectedControllerConfigSHA256(manifest bootstrap.Manifest, manifestSHA256 string, uid, gid uint32) (string, error) {
+	baked, err := bootstrapstart.LoadBakedInputs()
+	if err != nil {
+		return "", err
+	}
+	material, err := bootstrapstart.NewMaterialStore(nil, uid, gid)
+	if err != nil {
+		return "", err
+	}
+	return material.ControllerConfigSHA256(manifest, manifestSHA256, baked.Roots)
 }
 
 func readBoundedConfigFile(path string) ([]byte, error) {

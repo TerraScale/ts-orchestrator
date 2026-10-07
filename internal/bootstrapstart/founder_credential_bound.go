@@ -85,6 +85,8 @@ func (check LiveCredentials) generationBound(manifest bootstrap.Manifest, roots 
 	if pins.Generation == nil {
 		return CredentialBound{}, false, nil
 	}
+	// Restart admission bound this config to the accepted manifest.
+	pins.config = check.ControllerConfig
 	if err := check.verifyPaths(pins, manifest); err != nil {
 		return CredentialBound{}, true, err
 	}

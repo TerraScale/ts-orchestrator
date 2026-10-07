@@ -42,6 +42,9 @@ type LiveCredentials struct {
 	directory              string
 	allowUnsafeAncestors   bool
 	runChild               func(context.Context, []byte, uint32, uint32) error
+	// ControllerConfig is the loaded controller config's exact bytes, which an
+	// adopted schema-2 generation pins (TS-668); continuity checks them.
+	ControllerConfig []byte
 }
 
 func NewLiveCredentialChecker(cfg natscell.Config, serviceUID, serviceGID uint32,
@@ -139,6 +142,13 @@ func (check LiveCredentials) verifyPaths(expected MaterialPins, manifest bootstr
 			return fmt.Errorf("%w: TerraBase member CA paths differ from fixed roles", ErrLiveCredentials)
 		}
 		paths = append(paths, check.TerraBaseCACertFile, check.TerraBaseCAKeyFile)
+	}
+	// Only an adopted generation pins interregion files (TS-668).
+	for _, path := range e.InterRegion.Files() {
+		if !expected.interRegion(filepath.Base(path)) {
+			return fmt.Errorf("%w: interregion credential path is not pinned by the adopted generation", ErrLiveCredentials)
+		}
+		paths = append(paths, path)
 	}
 	seen := make(map[string]bool, len(paths))
 	for _, path := range paths {

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,9 +13,11 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/app"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap/generationtest"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machinesapi"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
@@ -477,6 +480,72 @@ func TestInstalledControllerConfigFromAnotherBinaryStillStarts(t *testing.T) {
 		if _, err := app.ValidateInstalledControllerConfig(manifest, ""); err == nil {
 			t.Errorf("%s: installed config accepted", name)
 		}
+	}
+}
+
+// A material generation may pin the slot's new controller config (TS-668).
+// The loaded config passes the installed checks in place of the manifest's:
+// it must be the expected one, and its interregion files must be in the
+// credential directory.
+func TestLoadedControllerConfigFromAGeneration(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	args, manifest := renderInputs(t, now, keepEverySecret)
+	output := filepath.Join(t.TempDir(), "controller.json")
+	if err := renderControllerConfigAt(append(args, "--out", output), now); err != nil {
+		t.Fatal(err)
+	}
+	wire, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, flag := range []string{"--oci-region-intent", "--oci-region-config", "--placement-config"} {
+		body, err := os.ReadFile(args[slices.Index(args, flag)+1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest.ControllerFiles = append(manifest.ControllerFiles, bootstrap.ControllerConfigFile{
+			Name: bootstrap.ControllerConfigFileNames[index], SHA256: digest(body), Bytes: body})
+	}
+	manifest.ControllerConfig, manifest.ControllerConfigSHA256 = wire, digest(wire)
+	material := generationtest.New(t, now).SchemaTwo(t).WithoutIssuers(t).InterRegion(t, now, manifest.ControllerSlots)
+	var generated struct {
+		NATS natscell.Config `json:"nats"`
+	}
+	if err := protocol.DecodeTolerant(material.Files["controller-controller-a.json"], &generated,
+		bootstrap.MaxControllerConfigBytes); err != nil {
+		t.Fatal(err)
+	}
+	loaded := func(change func(*natscell.InterRegion)) []byte {
+		var cfg app.Config
+		if err := protocol.DecodeStrict(wire, &cfg, bootstrap.MaxControllerConfigBytes); err != nil {
+			t.Fatal(err)
+		}
+		interregion := *generated.NATS.Embedded.InterRegion
+		change(&interregion)
+		cfg.NATS.Embedded.InterRegion = &interregion
+		config, err := protocol.EncodeJSON(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return config
+	}
+	config := loaded(func(*natscell.InterRegion) {})
+	if _, err := app.ValidateLoadedControllerConfig(manifest, config, digest(config), ""); err != nil {
+		t.Fatalf("the generation's config: %v", err)
+	}
+	if _, err := app.ValidateLoadedControllerConfig(manifest, config, manifest.ControllerConfigSHA256, ""); err == nil {
+		t.Error("accepted a config other than the expected one")
+	}
+	outside := loaded(func(ir *natscell.InterRegion) { ir.AccountJWTFile = "/etc/terrascale-orchestrator/interregion.jwt" })
+	if _, err := app.ValidateLoadedControllerConfig(manifest, outside, digest(outside), ""); err == nil {
+		t.Error("accepted an interregion file outside the credential directory")
+	}
+	other := []byte(strings.Replace(string(config), `"candidate_id":"controller-a"`, `"candidate_id":"controller-b"`, 1))
+	if bytes.Equal(other, config) {
+		t.Fatal("the config names no candidate")
+	}
+	if _, err := app.ValidateLoadedControllerConfig(manifest, other, digest(other), ""); err == nil {
+		t.Error("accepted another slot's config")
 	}
 }
 

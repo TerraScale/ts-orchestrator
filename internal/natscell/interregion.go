@@ -587,6 +587,22 @@ func (ir *InterRegion) Contract(cell string) (InterRegionContract, int, error) {
 	return contract, contract.links(len(ir.Remotes)), nil
 }
 
+// Files lists every file an enabled block reads: the account JWT, the
+// listener's TLS and each remote's credentials and TLS. None when disabled.
+func (ir *InterRegion) Files() []string {
+	if !ir.active() {
+		return nil
+	}
+	files := []string{ir.AccountJWTFile}
+	if ir.Listen != nil {
+		files = append(files, ir.Listen.TLS.CAFile, ir.Listen.TLS.CertFile, ir.Listen.TLS.KeyFile)
+	}
+	for _, remote := range ir.Remotes {
+		files = append(files, remote.CredentialsFile, remote.TLS.CAFile, remote.TLS.CertFile, remote.TLS.KeyFile)
+	}
+	return files
+}
+
 // ValidateLeafCredentials is the remote-side check of a leaf credentials
 // file: a leaf-only user of peerAccount, issued by one of its scoped child
 // signing keys, without permissions or limits of its own.

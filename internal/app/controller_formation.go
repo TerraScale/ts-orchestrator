@@ -216,6 +216,7 @@ func admitProductionControllerRestartLocal(ctx context.Context, cfg Config) erro
 		Credentials:                  checker, Material: material, Markers: bootstrapstart.NewMarkerStore(),
 		SelfUpdate: selfupdate.NewLayout(selfUpdateRoot(cfg.Controller.SelfUpdateRoot)),
 	}
+	gate.LoadedControllerConfig = loadedWire
 	_, err = gate.AdmitRestartLocal(ctx, manifest)
 	return err
 }

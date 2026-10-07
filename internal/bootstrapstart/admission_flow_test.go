@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap/generationtest"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
@@ -742,5 +743,94 @@ func TestMaterialStoreStopsBeforeSecondSecretWhenCurrentProofExpires(t *testing.
 	}
 	if _, err := os.Stat(filepath.Join(installed, "regional.creds")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("second secret installed after expiry: %v", err)
+	}
+}
+
+// adoptedMaterialChecker returns the pins of an adopted generation and keeps
+// the pins VerifyRestart is given.
+type adoptedMaterialChecker struct {
+	*countingMaterialChecker
+	pins, verified MaterialPins
+}
+
+func (checker *adoptedMaterialChecker) RestartPins(bootstrap.HistoricalManifest, trust.Keyring, string,
+) (MaterialPins, error) {
+	return checker.pins, nil
+}
+
+func (checker *adoptedMaterialChecker) VerifyRestart(ctx context.Context, manifest bootstrap.HistoricalManifest,
+	pins MaterialPins,
+) error {
+	checker.verified = pins
+	return checker.countingMaterialChecker.VerifyRestart(ctx, manifest, pins)
+}
+
+// Full and local restart admission accept the controller config an adopted
+// schema-2 generation pins for the slot, bound to the accepted manifest, and
+// the current proofs still hold, so no continuation is needed (TS-668).
+func TestRestartAdmissionFollowsTheGenerationsControllerConfig(t *testing.T) {
+	fixture := newAdmissionFlowFixture(t)
+	marker, err := fixture.gate.AdmitInitial(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestWire := fixture.ledger.state.ManifestRecord.Bytes
+	envelope, err := trust.DecodeEnvelope(manifestWire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := bootstrap.ManifestPayload(envelope.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := []byte(`{"nats":{"cell":"gru"},"controller":{"candidate_id":"controller-b"}}`)
+	adopted := func(manifestSHA256 string) *adoptedMaterialChecker {
+		expected := bootstrap.MaterialGenerationExpectation{DeploymentID: manifest.DeploymentID,
+			Environment: manifest.Environment, ClusterID: manifest.ClusterID, Cell: manifest.Cell,
+			ControllerSlots: manifest.ControllerSlots}
+		material := generationtest.New(t, time.Now()).SchemaTwo(t).WithoutIssuers(t).
+			With(map[string][]byte{"controller-controller-b.json": config})
+		generation := material.Generation(expected, 1, "")
+		generation.ControllerConfigs[0].ManifestSHA256 = manifestSHA256
+		signed, err := bootstrap.SignMaterialGeneration(generation, time.Now().Add(-time.Minute), time.Now().Add(time.Hour),
+			fixture.rootPrivate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		verified, err := bootstrap.VerifyAdoptedMaterialGenerationChain([]trust.Envelope{signed}, fixture.gate.Roots, expected)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &adoptedMaterialChecker{countingMaterialChecker: fixture.material, pins: MaterialPins{
+			Digests: expectedMaterials(manifest, manifest.Slot), Generation: &verified[0], slot: manifest.Slot}}
+	}
+	restart := func(material MaterialChecker, loaded []byte) (full, local error) {
+		gate := fixture.gate
+		gate.Material, gate.Continuation = material, nil
+		gate.LoadedControllerConfigSHA256, gate.LoadedControllerConfig = digest(loaded), loaded
+		_, full = gate.AdmitRestart(t.Context())
+		_, local = gate.AdmitRestartLocal(t.Context(), manifestWire)
+		return full, local
+	}
+	bound := adopted(marker.ManifestSHA256)
+	if full, local := restart(bound, config); full != nil || local != nil {
+		t.Fatalf("the generation's config: full %v, local %v", full, local)
+	}
+	if !bytes.Equal(bound.verified.config, config) {
+		t.Fatal("the loaded config did not reach the generation check")
+	}
+	for name, test := range map[string]struct {
+		material MaterialChecker
+		loaded   []byte
+	}{
+		"the manifest's old config":          {bound, manifest.ControllerConfig},
+		"a config matching neither":          {bound, []byte(`{"nats":{},"controller":{"other":true}}`)},
+		"a config bound to another manifest": {adopted(digest([]byte("another manifest"))), config},
+		"a new config without a generation":  {fixture.material, config},
+	} {
+		if full, local := restart(test.material, test.loaded); !errors.Is(full, ErrAdmission) ||
+			!errors.Is(local, ErrAdmission) {
+			t.Errorf("%s: full %v, local %v", name, full, local)
+		}
 	}
 }

@@ -221,6 +221,7 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 	}
 	checker.TerraBaseCACertFile = cfg.Controller.TerraBaseCACertFile
 	checker.TerraBaseCAKeyFile = cfg.Controller.TerraBaseCAKeyFile
+	checker.ControllerConfig = loadedWire
 	anchorEnvelope, err := trust.DecodeEnvelope(baked.AnchorWire)
 	if err != nil {
 		return fmt.Errorf("decode baked controller anchor: %w", err)
@@ -233,6 +234,7 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 		ClockCheck: clockCheck,
 		SelfUpdate: selfupdate.NewLayout(selfUpdateRoot(cfg.Controller.SelfUpdateRoot)),
 	}
+	gate.LoadedControllerConfig = loadedWire
 	if initial {
 		gate.InitialPeerFloor = func(ctx context.Context, marker bootstrapstart.AcceptedInstall,
 			state bootstrap.SlotState, now time.Time,

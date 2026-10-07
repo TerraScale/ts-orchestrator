@@ -69,8 +69,12 @@ func (gate Gate) AdmitRestartLocal(ctx context.Context, installedManifest []byte
 		return AcceptedInstall{}, fmt.Errorf("%w: accepted historical manifest is invalid: %v", ErrAdmission, err)
 	}
 	payload := manifest.Manifest()
-	if payload.ControllerConfigSHA256 != gate.LoadedControllerConfigSHA256 {
-		return AcceptedInstall{}, fmt.Errorf("%w: loaded controller config differs from accepted manifest", ErrAdmission)
+	pins, err := gate.Material.RestartPins(manifest, gate.Roots, marker.PrimaryPrivateIP)
+	if err != nil {
+		return AcceptedInstall{}, fmt.Errorf("read installed controller material generation: %w", err)
+	}
+	if err := gate.restartConfig(&pins, payload, marker.ManifestSHA256); err != nil {
+		return AcceptedInstall{}, err
 	}
 	if marker.SeedSlot != payload.SeedSlot {
 		return AcceptedInstall{}, fmt.Errorf("%w: accepted seed role differs from signed manifest", ErrAdmission)
@@ -101,10 +105,6 @@ func (gate Gate) AdmitRestartLocal(ctx context.Context, installedManifest []byte
 	if (payload.ManagedMaterial == nil) != (marker.ManagedMaterial == nil) ||
 		payload.ManagedMaterial != nil && *payload.ManagedMaterial != *marker.ManagedMaterial {
 		return AcceptedInstall{}, fmt.Errorf("%w: accepted managed material domain differs", ErrAdmission)
-	}
-	pins, err := gate.Material.RestartPins(manifest, gate.Roots, marker.PrimaryPrivateIP)
-	if err != nil {
-		return AcceptedInstall{}, fmt.Errorf("read installed controller material generation: %w", err)
 	}
 	if err := gate.Material.VerifyRestart(ctx, manifest, pins); err != nil {
 		return AcceptedInstall{}, fmt.Errorf("verify installed controller materials: %w", err)
