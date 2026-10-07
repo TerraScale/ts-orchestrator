@@ -57,7 +57,7 @@ type Agent struct {
 	nativeDesired    map[string]nativeRootDesired
 	memoryCheck      func(Registration) error
 	wallNow          func() time.Time
-	// addresses overrides this host's interface addresses in tests.
+	// addresses overrides this host's own addresses in tests.
 	addresses      func() ([]string, error)
 	watchdogTicks  <-chan time.Time
 	loadMu         sync.Mutex

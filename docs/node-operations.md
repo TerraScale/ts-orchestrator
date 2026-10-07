@@ -49,6 +49,12 @@ each step starts, so a new leader resumes it:
    stays out and the operation fails; fix it and run `undrain` (which
    releases the failed operation's hold too) or the operation again.
 
+Each operation has 30 minutes. One whose node never serves fails then, keeps
+the node out, and frees the leader for the next operation. A host agent on a
+controller's VM runs a new release only from its next start, so when a
+release fixes what kept the node from serving, `node reboot` restarts the
+agent on it (ts-gru-2, 2026-10-07).
+
 `drain` stops after step 1 and keeps the node out until `undrain`, which
 runs steps 3 and 4. `undrain` also releases a fence at the node's address
 under a name no grant holds, which a failed `rename` whose grant went back

@@ -880,13 +880,16 @@ func (o *nodeOps) rename(ctx context.Context, epoch uint64, api lb.API, spec cel
 
 // moveDesired gives node to every role desired on from, once to has
 // enrolled, withdraws them from from and retires from. It reports false
-// while to is not registered.
+// while to has no live host session: a registration an earlier rename left
+// under to is not the renamed host.
 func (o *nodeOps) moveDesired(ctx context.Context, epoch uint64, from, to string) (bool, error) {
 	statuses, err := o.fence.hosts.ListHosts(ctx)
 	if err != nil {
 		return false, err
 	}
-	if !slices.ContainsFunc(statuses, func(status host.HostStatus) bool { return status.Registration.Node == to }) {
+	if !slices.ContainsFunc(statuses, func(status host.HostStatus) bool {
+		return status.Registration.Node == to && !status.SessionExpiresAt.IsZero()
+	}) {
 		return false, nil
 	}
 	desired, err := o.fence.hosts.ListDesired(ctx, "")

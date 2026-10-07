@@ -510,7 +510,10 @@ func newRenameHosts() *renameHosts {
 func (h *renameHosts) enroll(from, to string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.nodes, h.down[from], h.sessions[to] = append(h.nodes, to), true, "n1"
+	if !slices.Contains(h.nodes, to) {
+		h.nodes = append(h.nodes, to)
+	}
+	h.down[from], h.sessions[to] = true, "n1"
 }
 
 func (h *renameHosts) ListHosts(context.Context) ([]host.HostStatus, error) {
@@ -519,6 +522,9 @@ func (h *renameHosts) ListHosts(context.Context) ([]host.HostStatus, error) {
 	var statuses []host.HostStatus
 	for _, node := range h.nodes {
 		status := host.HostStatus{Registration: host.Registration{Node: node, Roles: []string{"terrabase", "ts-auth"}}}
+		if h.sessions[node] != "" && !h.down[node] {
+			status.SessionExpiresAt = time.Now().Add(30 * time.Second)
+		}
 		for _, role := range status.Registration.Roles {
 			if d, ok := h.desired[node+"/"+role]; ok && !d.Withdrawn && !h.down[node] {
 				status.Reports = append(status.Reports, host.Report{Node: node, Role: role, Generation: d.Generation,
@@ -643,6 +649,30 @@ func TestNodeRenameReenrollsTheHostAndMovesItsRoles(t *testing.T) {
 	}
 	if _, found, _ := ops.fence.record(ctx, "ts-gru-1"); found {
 		t.Fatal("the fence record was left")
+	}
+}
+
+// A registration a failed rename left under the new name has no session:
+// the roles move only once the renamed host enrolled there (TS-632, gru-1
+// 2026-10-07).
+func TestNodeRenameMovesRolesOnlyToALiveSession(t *testing.T) {
+	ops, _, _ := newNodeOpsTest(t)
+	ctx := t.Context()
+	hosts := newRenameHosts()
+	ops.fence.hosts, ops.desired = hosts, hosts
+	hosts.nodes = append(hosts.nodes, "ts-gru-1")
+	if moved, err := ops.moveDesired(ctx, 3, "ctl-1", "ts-gru-1"); err != nil || moved {
+		t.Fatalf("moved %t (%v) to a stale registration", moved, err)
+	}
+	if _, found := hosts.desired["ts-gru-1/terrabase"]; found || hosts.desired["ctl-1/terrabase"].Withdrawn {
+		t.Fatalf("desired %+v", hosts.desired)
+	}
+	hosts.enroll("ctl-1", "ts-gru-1")
+	if moved, err := ops.moveDesired(ctx, 3, "ctl-1", "ts-gru-1"); err != nil || !moved {
+		t.Fatalf("moved %t (%v) after the host enrolled", moved, err)
+	}
+	if d := hosts.desired["ts-gru-1/terrabase"]; d.Withdrawn || d.Digest == "" {
+		t.Fatalf("terrabase desired %+v", d)
 	}
 }
 

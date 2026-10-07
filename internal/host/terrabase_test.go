@@ -495,4 +495,15 @@ func TestTerraBasePeerOfARenamedNodeIsTheMemberAtItsAddress(t *testing.T) {
 	if _, ok := a.terraBasePeer(profile); ok {
 		t.Fatal("a node neither named nor at a member's address runs a member")
 	}
+	// Without netlink, as the host unit runs (gru-1 2026-10-07): the member
+	// at a local address is found through a socket's source address.
+	local, err := terrabase.ParseProfile(map[string]string{terrabase.EnvPeerPort: "9443",
+		terrabase.EnvPeers: "gru-1-ctl-1=192.0.2.7:9443,gru-1-ctl-2=127.0.0.1:9443"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a = &Agent{cfg: AgentConfig{Node: "ts-gru-2"}}
+	if peer, ok := a.terraBasePeer(local); !ok || peer.Name != "gru-1-ctl-2" {
+		t.Fatalf("terraBasePeer = %+v, %v, want the member at 127.0.0.1", peer, ok)
+	}
 }

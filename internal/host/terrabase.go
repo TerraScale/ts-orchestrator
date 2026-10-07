@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -336,33 +337,29 @@ func (a *Agent) terraBasePeer(profile terrabase.Profile) (terrabase.Peer, bool) 
 	if peer, ok := profile.Peer(a.cfg.Node); ok {
 		return peer, true
 	}
-	addresses, err := a.interfaceAddresses()
-	if err != nil {
-		return terrabase.Peer{}, false
-	}
-	for _, address := range addresses {
-		if peer, ok := profile.Member(a.cfg.Node, address); ok {
+	for _, peer := range profile.Peers {
+		if a.ownAddress(peer.Address) {
 			return peer, true
 		}
 	}
 	return terrabase.Peer{}, false
 }
 
-func (a *Agent) interfaceAddresses() ([]string, error) {
+// ownAddress reports whether address is one of this host's: a UDP socket
+// connected to it, which sends nothing, takes it as its source.
+// net.InterfaceAddrs would need netlink, which the host unit's
+// RestrictAddressFamilies refuses.
+func (a *Agent) ownAddress(address netip.AddrPort) bool {
 	if a.addresses != nil {
-		return a.addresses()
+		own, err := a.addresses()
+		return err == nil && slices.Contains(own, address.Addr().String())
 	}
-	prefixes, err := net.InterfaceAddrs()
+	conn, err := net.DialUDP("udp", nil, net.UDPAddrFromAddrPort(address))
 	if err != nil {
-		return nil, err
+		return false
 	}
-	addresses := make([]string, 0, len(prefixes))
-	for _, prefix := range prefixes {
-		if network, ok := prefix.(*net.IPNet); ok {
-			addresses = append(addresses, network.IP.String())
-		}
-	}
-	return addresses, nil
+	defer conn.Close()
+	return conn.LocalAddr().(*net.UDPAddr).AddrPort().Addr().Unmap() == address.Addr().Unmap()
 }
 
 // terraBaseState is "running" once the member answers its health endpoint
