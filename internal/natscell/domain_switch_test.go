@@ -31,7 +31,7 @@ func TestRollingJetStreamDomainSwitchKeepsData(t *testing.T) {
 	// The parent never runs: the remote dials a closed port, so only the
 	// domain changes, not the link.
 	gru := &testRegion{testRegionKeys: newTestRegionKeys(t)}
-	region.cfg.Embedded.InterRegion.Remotes = []LeafRemote{{Peer: "gru",
+	region.cfg.Embedded.InterRegion.Remotes = []LeafRemote{{Peer: "gru", ServerName: testLeafServerName,
 		URLs:            []string{fmt.Sprintf("nats-leaf://127.0.0.1:%d", freeClientPort(t))},
 		CredentialsFile: gru.childLeafCredentials(t, "sfo-leaf.creds", domain), PeerAccount: gru.interregionID,
 		TLS: region.cfg.TLS}}
