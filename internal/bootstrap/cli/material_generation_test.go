@@ -120,4 +120,31 @@ func TestSignMaterialGeneration(t *testing.T) {
 	if err := sign(secondCandidate, secondDir, chainOne, chainTwo, keyPath); err == nil {
 		t.Fatal("an existing chain file was overwritten")
 	}
+
+	// Schema 2 (TS-668) extends the chain; every controller config the
+	// candidate pins must be in the material directory.
+	upgraded := rollover.SchemaTwo(t).WithoutIssuers(t).InterRegion(t, now, expected.ControllerSlots)
+	previous, _ := trust.Fingerprint(chain[1])
+	thirdCandidate, thirdDir := stage("g3", upgraded, upgraded.Generation(expected, 3, previous))
+	unconfiguredDir := filepath.Join(directory, "g3-unconfigured")
+	if err := os.CopyFS(unconfiguredDir, os.DirFS(thirdDir)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(unconfiguredDir, "controller-controller-b.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := sign(thirdCandidate, unconfiguredDir, chainTwo, refused, keyPath); err == nil {
+		t.Fatal("signed without a pinned controller config")
+	}
+	chainThree := filepath.Join(directory, "chain-3.json")
+	if err := sign(thirdCandidate, thirdDir, chainTwo, chainThree, keyPath); err != nil {
+		t.Fatal(err)
+	}
+	wire, _ = os.ReadFile(chainThree)
+	if chain, err = bootstrap.DecodeMaterialGenerationChain(wire); err != nil {
+		t.Fatal(err)
+	}
+	if verified, err := bootstrap.VerifyMaterialGenerationChain(chain, roots, expected, now); err != nil || len(verified) != 3 {
+		t.Fatalf("schema 2 extends the chain: %v", err)
+	}
 }

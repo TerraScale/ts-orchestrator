@@ -3,11 +3,15 @@ package bootstrapmaterial
 import (
 	"crypto/ecdsa"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json/jsontext"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io/fs"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -19,6 +23,8 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/roleidentity"
 )
 
 // CheckGenerationFiles reads every file a material generation pins (TS-568)
@@ -33,12 +39,18 @@ import (
 //   - the account signer seed is AccountSigner;
 //   - operator.jwt is the operator's own, names the system account and has
 //     no signing keys; system.jwt and cell.jwt are signed by it; cell.jwt
-//     has JetStream and exactly two signing keys, the host scope of
-//     HostSigner and the unscoped AccountSigner;
+//     has JetStream and exactly these signing keys: the host scope of
+//     HostSigner, in schema 2 the role scope of RoleSigner, and the
+//     unscoped AccountSigner when the controller issuers are pinned;
 //   - system.creds is a system account user with only its claim-update and
-//     reply grants.
+//     reply grants;
+//   - schema 2 (TS-668): the interregion files and controller configs, see
+//     generationCheck.interRegion.
 //
-// Everything must be valid at now. It returns the first expiry, which
+// A slot's own files (its interregion leaf TLS, and its controller config,
+// read as controller-<slot>.json) are checked when read has them: a read
+// that returns fs.ErrNotExist skips them, since a controller holds only its
+// own. Everything must be valid at now. It returns the first expiry, which
 // bounds the generation's signature. A cell.jwt replacement is also checked
 // against the running claim (issue time, exports) when a broker applies it.
 func CheckGenerationFiles(generation bootstrap.MaterialGeneration, read func(name string) ([]byte, error), now time.Time,
@@ -49,6 +61,9 @@ func CheckGenerationFiles(generation bootstrap.MaterialGeneration, read func(nam
 	files := map[string][]byte{}
 	for _, secret := range generation.Secrets {
 		data, err := read(secret.TargetFile)
+		if secret.Slot != "" && errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
 		if err != nil {
 			return time.Time{}, fmt.Errorf("read %s: %w", secret.TargetFile, err)
 		}
@@ -59,33 +74,30 @@ func CheckGenerationFiles(generation bootstrap.MaterialGeneration, read func(nam
 		}
 		files[secret.TargetFile] = data
 	}
-	cell := strings.ToLower(string(generation.Cell))
-	check := generationCheck{now: now}
-	var roots []*x509.Certificate
-	for rest := files["ca.pem"]; ; {
-		var block *pem.Block
-		if block, rest = pem.Decode(rest); block == nil {
-			if len(strings.TrimSpace(string(rest))) != 0 {
-				check.fail("ca.pem has trailing data that is not a certificate")
-			}
-			break
-		}
-		ca, err := x509.ParseCertificate(block.Bytes)
-		if block.Type != "CERTIFICATE" || err != nil || !ca.IsCA || !ca.BasicConstraintsValid ||
-			ca.KeyUsage&x509.KeyUsageCertSign == 0 || ca.CheckSignatureFrom(ca) != nil {
-			check.fail("ca.pem holds something other than a self-signed CA")
+	configs := map[string][]byte{}
+	for _, pin := range generation.ControllerConfigs {
+		name := "controller-" + pin.Slot + ".json"
+		data, err := read(name)
+		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
-		check.certificate("ca.pem", ca)
-		roots = append(roots, ca)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("read %s: %w", name, err)
+		}
+		if int64(len(data)) != pin.Size || digest(data) != pin.SHA256 {
+			return time.Time{}, fmt.Errorf("%w: %s differs from its pinned digest or size",
+				bootstrap.ErrMaterialGenerationInvalid, name)
+		}
+		configs[pin.Slot] = data
 	}
-	if len(roots) == 0 || len(roots) > 4 {
-		check.fail("ca.pem must hold one to four CAs")
-	}
-	if issuer, err := controllerIssuer(files["controller-tls-issuer-key.pem"], files["controller-tls-issuer-cert.pem"], roots); err != nil {
-		check.fail(err.Error())
-	} else {
-		check.certificate("controller-tls-issuer-cert.pem", issuer)
+	cell := strings.ToLower(string(generation.Cell))
+	check := generationCheck{now: now}
+	roots := check.bundle("ca.pem", files["ca.pem"])
+	// Schema 2 may pin no controller issuers; Validate ties them to
+	// AccountSigner.
+	issuing := generation.AccountSigner != ""
+	if issuing {
+		check.controllerIssuers(generation, files, roots)
 	}
 	if _, issuer, _, err := hostenroll.ParseTLSIssuer(files["host-tls-issuer-key.pem"], files["host-tls-issuer-cert.pem"],
 		roots); err != nil {
@@ -97,15 +109,6 @@ func CheckGenerationFiles(generation bootstrap.MaterialGeneration, read func(nam
 			check.fail("the host TLS issuer is not constrained to the cell's hosts")
 		}
 		check.certificate("host-tls-issuer-cert.pem", issuer)
-	}
-	if signer, err := nkeys.FromSeed([]byte(strings.TrimSpace(string(files["controller-account-signer.seed"])))); err != nil {
-		check.fail("controller-account-signer.seed is not an NKey seed")
-	} else {
-		public, _ := signer.PublicKey()
-		signer.Wipe()
-		if public != generation.AccountSigner {
-			check.fail("controller-account-signer.seed is not the generation's account signer")
-		}
 	}
 	operator, err := jwt.DecodeOperatorClaims(strings.TrimSpace(string(files["operator.jwt"])))
 	// Decoding verifies each signature against the claim's issuer; the
@@ -121,6 +124,7 @@ func CheckGenerationFiles(generation bootstrap.MaterialGeneration, read func(nam
 	if err != nil || system.Subject != generation.SystemAccount || system.Issuer != generation.Operator ||
 		operator == nil || !operator.DidSign(system) {
 		check.fail("system.jwt is not the system account signed by the operator")
+		system = nil
 	} else {
 		check.jwt("system.jwt", system.IssuedAt, system.Expires)
 	}
@@ -128,12 +132,21 @@ func CheckGenerationFiles(generation bootstrap.MaterialGeneration, read func(nam
 	if err != nil || cellClaim.Subject != generation.CellAccount || cellClaim.Issuer != generation.Operator ||
 		operator == nil || !operator.DidSign(cellClaim) {
 		check.fail("cell.jwt is not the cell account signed by the operator")
+		cellClaim = nil
 	} else {
 		hostScope, hostScoped := cellClaim.SigningKeys.GetScope(generation.HostSigner)
-		accountScope, accountSigner := cellClaim.SigningKeys.GetScope(generation.AccountSigner)
-		if len(cellClaim.SigningKeys) != 2 || !hostScoped || !reflect.DeepEqual(hostScope, expectedHostScope(cell, generation.HostSigner)) ||
-			!accountSigner || accountScope != nil {
-			check.fail("cell.jwt must have exactly the host scope and the unscoped account signer as signing keys")
+		keys := hostScoped && reflect.DeepEqual(hostScope, expectedHostScope(cell, generation.HostSigner))
+		if issuing {
+			accountScope, accountSigner := cellClaim.SigningKeys.GetScope(generation.AccountSigner)
+			keys = keys && accountSigner && accountScope == nil
+		}
+		if generation.RoleSigner != "" {
+			roleScope, roleScoped := cellClaim.SigningKeys.GetScope(generation.RoleSigner)
+			keys = keys && roleScoped && reflect.DeepEqual(roleScope, roleidentity.Scope(generation.RoleSigner))
+		}
+		if !keys || len(cellClaim.SigningKeys) != 1+boolInt(issuing)+boolInt(generation.RoleSigner != "") {
+			check.fail("cell.jwt must have exactly the host scope, in schema 2 the role scope, and with controller " +
+				"issuers the unscoped account signer as signing keys")
 		}
 		if cellClaim.Limits.JetStreamLimits == (jwt.JetStreamLimits{}) {
 			check.fail("cell.jwt grants no JetStream")
@@ -148,10 +161,220 @@ func CheckGenerationFiles(generation bootstrap.MaterialGeneration, read func(nam
 			check.jwt("system.creds", user.IssuedAt, user.Expires)
 		}
 	}
+	check.interRegion(generation, files, configs, operator, system, cellClaim)
 	if len(check.problems) != 0 {
 		return time.Time{}, fmt.Errorf("%w: %s", bootstrap.ErrMaterialGenerationInvalid, strings.Join(check.problems, "; "))
 	}
 	return check.first, nil
+}
+
+// controllerIssuers checks the controller TLS issuer and the account signer.
+func (check *generationCheck) controllerIssuers(generation bootstrap.MaterialGeneration, files map[string][]byte,
+	roots []*x509.Certificate,
+) {
+	if issuer, err := controllerIssuer(files["controller-tls-issuer-key.pem"], files["controller-tls-issuer-cert.pem"],
+		roots); err != nil {
+		check.fail(err.Error())
+	} else {
+		check.certificate("controller-tls-issuer-cert.pem", issuer)
+	}
+	if signer, err := nkeys.FromSeed([]byte(strings.TrimSpace(string(files["controller-account-signer.seed"])))); err != nil {
+		check.fail("controller-account-signer.seed is not an NKey seed")
+	} else {
+		public, _ := signer.PublicKey()
+		signer.Wipe()
+		if public != generation.AccountSigner {
+			check.fail("controller-account-signer.seed is not the generation's account signer")
+		}
+	}
+}
+
+// interRegionDomain bounds every name an interregion leaf certificate holds.
+// TS-668: the exact names (leaf.<hub>.interregion.terrascale.internal on a
+// parent's listener) are settled with the interregion TLS generator.
+const interRegionDomain = ".interregion.terrascale.internal"
+
+// interRegion checks a schema-2 generation's interregion files (TS-668) and
+// the controller configs read supplied:
+//   - interregion.jwt is an account of its own, signed by the operator;
+//   - interregion-ca.pem holds one to four self-signed CAs, and each slot's
+//     leaf TLS is a matching certificate and key, not a CA, that chains to
+//     one for server or client use and holds only DNS names under
+//     .interregion.terrascale.internal;
+//   - a child's leaf-<parent>.creds is a leaf user without permissions of
+//     its own, issued by a scoped signing key of another interregion account;
+//   - each config enables interregion exactly when the files are pinned. Its
+//     block then passes startup's validation, references only pinned files,
+//     by absolute path, pins on each remote the account that issued its
+//     credentials, and its contract accepts system.jwt, cell.jwt and
+//     interregion.jwt (natscell VerifyClaims: LeafNodeConn 0 and so on).
+//
+// The contract comes from a config, so pinned interregion files need one.
+func (check *generationCheck) interRegion(generation bootstrap.MaterialGeneration, files, configs map[string][]byte,
+	operator *jwt.OperatorClaims, system, cellClaim *jwt.AccountClaims,
+) {
+	pinned := map[string]bool{}
+	for _, secret := range generation.Secrets {
+		pinned[secret.TargetFile] = true
+	}
+	var interregion *jwt.AccountClaims
+	if pinned["interregion.jwt"] {
+		claim, err := jwt.DecodeAccountClaims(strings.TrimSpace(string(files["interregion.jwt"])))
+		if err != nil || claim.Issuer != generation.Operator || operator == nil || !operator.DidSign(claim) ||
+			!nkeys.IsValidPublicAccountKey(claim.Subject) || slices.Contains([]string{generation.SystemAccount,
+			generation.CellAccount, generation.HostSigner, generation.AccountSigner, generation.RoleSigner}, claim.Subject) {
+			check.fail("interregion.jwt is not an interregion account signed by the operator")
+		} else {
+			interregion = claim
+			check.jwt("interregion.jwt", claim.IssuedAt, claim.Expires)
+		}
+		roots := x509.NewCertPool()
+		for _, ca := range check.bundle("interregion-ca.pem", files["interregion-ca.pem"]) {
+			roots.AddCert(ca)
+		}
+		// Another slot's pair is absent; half a pair fails as a mismatch.
+		for _, slot := range generation.ControllerSlots {
+			if cert, key := bootstrap.InterRegionTLSFiles(slot); files[cert] != nil || files[key] != nil {
+				check.interRegionLeaf(cert, files[cert], files[key], roots)
+			}
+		}
+	}
+	leafAccounts := map[string]string{}
+	for name := range pinned {
+		if strings.HasPrefix(name, "leaf-") {
+			account, err := check.leafCredentials(name, files[name])
+			if err != nil || interregion != nil && account == interregion.Subject {
+				check.fail(name + " is not a leaf user of another region's interregion account without permissions of its own")
+			}
+			leafAccounts[name] = account
+		}
+	}
+	contracts := 0
+	for _, slot := range generation.ControllerSlots {
+		if data, supplied := configs[slot]; supplied &&
+			check.controllerConfig(generation, slot, data, pinned, leafAccounts, system, cellClaim, interregion) {
+			contracts++
+		}
+	}
+	if pinned["interregion.jwt"] && contracts == 0 {
+		check.fail("the interregion files need a controller config to check their contract against")
+	}
+}
+
+// interRegionLeaf checks one slot's interregion leaf certificate and key.
+func (check *generationCheck) interRegionLeaf(name string, certPEM, keyPEM []byte, roots *x509.CertPool) {
+	pair, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		check.fail(name + " and its key are not a matching certificate and key")
+		return
+	}
+	leaf, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil {
+		check.fail(name + " is not a certificate")
+		return
+	}
+	intermediates := x509.NewCertPool()
+	for _, der := range pair.Certificate[1:] {
+		if intermediate, err := x509.ParseCertificate(der); err == nil {
+			intermediates.AddCert(intermediate)
+		}
+	}
+	_, err = leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, CurrentTime: check.now,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}})
+	named := len(leaf.IPAddresses) == 0 && len(leaf.URIs) == 0 && len(leaf.EmailAddresses) == 0
+	for _, dns := range leaf.DNSNames {
+		named = named && strings.HasSuffix(dns, interRegionDomain)
+	}
+	if err != nil || leaf.IsCA || !named {
+		check.fail(name + " is not a leaf of the interregion CA with names only under " + interRegionDomain[1:])
+	}
+	check.certificate(name, leaf)
+}
+
+// leafCredentials returns the interregion account that issued a leaf user
+// through a scoped signing key, as natscell's remote check requires: no
+// permissions or limits of its own, the seed matching the JWT.
+func (check *generationCheck) leafCredentials(name string, data []byte) (string, error) {
+	raw, err := jwt.ParseDecoratedJWT(data)
+	if err != nil {
+		return "", err
+	}
+	claim, err := jwt.DecodeUserClaims(raw)
+	if err != nil {
+		return "", err
+	}
+	pair, err := nkeys.ParseDecoratedUserNKey(data)
+	if err != nil {
+		return "", err
+	}
+	public, err := pair.PublicKey()
+	pair.Wipe()
+	if err != nil || public != claim.Subject || !nkeys.IsValidPublicAccountKey(claim.IssuerAccount) ||
+		claim.Issuer == claim.IssuerAccount || !claim.HasEmptyPermissions() {
+		return "", errors.New("not a scoped leaf user")
+	}
+	check.jwt(name, claim.IssuedAt, claim.Expires)
+	return claim.IssuerAccount, nil
+}
+
+// controllerConfig checks one supplied controller config and reports whether
+// its interregion contract was applied. app.Config cannot be imported here:
+// only the nats block is decoded, strictly.
+func (check *generationCheck) controllerConfig(generation bootstrap.MaterialGeneration, slot string, data []byte,
+	pinned map[string]bool, leafAccounts map[string]string, system, cellClaim, interregion *jwt.AccountClaims,
+) bool {
+	name := "controller-" + slot + ".json"
+	var top map[string]jsontext.Value
+	var nats natscell.Config
+	if protocol.DecodeStrict(data, &top, bootstrap.MaxControllerConfigBytes) != nil || top["controller"] == nil ||
+		top["nats"] == nil || protocol.DecodeStrict(top["nats"], &nats, bootstrap.MaxControllerConfigBytes) != nil {
+		check.fail(name + " is not a controller config")
+		return false
+	}
+	var ir *natscell.InterRegion
+	if nats.Embedded != nil {
+		ir = nats.Embedded.InterRegion
+	}
+	if enabled := ir != nil && ir.Enabled; enabled != pinned["interregion.jwt"] {
+		check.fail(name + " must enable interregion exactly when the generation pins the interregion files")
+		return false
+	} else if !enabled {
+		return false
+	}
+	contract, links, err := ir.Contract(nats.Cell)
+	if err != nil || nats.Cell != strings.ToLower(string(generation.Cell)) {
+		check.fail(name + " has no valid interregion block for this cell")
+		return false
+	}
+	if system != nil && cellClaim != nil && interregion != nil {
+		if err := contract.VerifyClaims(system, cellClaim, interregion, links); err != nil {
+			check.fail("system.jwt, cell.jwt and interregion.jwt fail the interregion contract of " + name + ": " + err.Error())
+		}
+	}
+	cert, key := bootstrap.InterRegionTLSFiles(slot)
+	file := func(path, want string) bool {
+		return filepath.IsAbs(path) && filepath.Clean(path) == path && filepath.Base(path) == want && pinned[want]
+	}
+	tlsFiles := func(files natscell.TLSFiles) bool {
+		return file(files.CAFile, "interregion-ca.pem") && file(files.CertFile, cert) && file(files.KeyFile, key)
+	}
+	pinnedOnly := file(ir.AccountJWTFile, "interregion.jwt") && file(nats.Embedded.CellJWTFile, "cell.jwt") &&
+		file(nats.Embedded.SystemJWTFile, "system.jwt") && (ir.Listen == nil || tlsFiles(ir.Listen.TLS))
+	dialed := map[string]bool{}
+	for _, remote := range ir.Remotes {
+		creds := "leaf-" + remote.Peer + ".creds"
+		pinnedOnly = pinnedOnly && tlsFiles(remote.TLS) && file(remote.CredentialsFile, creds) &&
+			remote.PeerAccount == leafAccounts[creds]
+		dialed[creds] = true
+	}
+	for creds := range leafAccounts {
+		pinnedOnly = pinnedOnly && dialed[creds]
+	}
+	if !pinnedOnly {
+		check.fail(name + "'s interregion block references a file this generation does not pin, " +
+			"or a remote account that did not issue its credentials")
+	}
+	return true
 }
 
 // controllerIssuer checks the controller TLS issuer: a single EC key and
@@ -200,6 +423,32 @@ type generationCheck struct {
 }
 
 func (check *generationCheck) fail(problem string) { check.problems = append(check.problems, problem) }
+
+// bundle parses one to four self-signed CAs.
+func (check *generationCheck) bundle(name string, data []byte) []*x509.Certificate {
+	var roots []*x509.Certificate
+	for rest := data; ; {
+		var block *pem.Block
+		if block, rest = pem.Decode(rest); block == nil {
+			if len(strings.TrimSpace(string(rest))) != 0 {
+				check.fail(name + " has trailing data that is not a certificate")
+			}
+			break
+		}
+		ca, err := x509.ParseCertificate(block.Bytes)
+		if block.Type != "CERTIFICATE" || err != nil || !ca.IsCA || !ca.BasicConstraintsValid ||
+			ca.KeyUsage&x509.KeyUsageCertSign == 0 || ca.CheckSignatureFrom(ca) != nil {
+			check.fail(name + " holds something other than a self-signed CA")
+			continue
+		}
+		check.certificate(name, ca)
+		roots = append(roots, ca)
+	}
+	if len(roots) == 0 || len(roots) > 4 {
+		check.fail(name + " must hold one to four CAs")
+	}
+	return roots
+}
 
 func (check *generationCheck) expires(name string, notAfter time.Time) {
 	if !check.now.Before(notAfter) {

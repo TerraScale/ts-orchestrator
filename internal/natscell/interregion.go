@@ -573,6 +573,20 @@ func (c InterRegionContract) VerifyClaims(system, cell, interregion *jwt.Account
 	return c.verify(system, cell, interregion, links)
 }
 
+// Contract checks an enabled block of cell's configuration as startup does
+// and returns its subject contract and leaf link count, so a tool can check
+// account claims against a configuration it has not started (TS-668).
+func (ir *InterRegion) Contract(cell string) (InterRegionContract, int, error) {
+	if !ir.active() {
+		return InterRegionContract{}, 0, errors.New("interregion is not enabled")
+	}
+	if err := ir.validate(Config{Cell: cell}); err != nil {
+		return InterRegionContract{}, 0, err
+	}
+	contract := InterRegionContract{Cell: cell, Peers: ir.Peers, GlobalHome: ir.GlobalHome, Subtrees: ir.Subtrees}
+	return contract, contract.links(len(ir.Remotes)), nil
+}
+
 // ValidateLeafCredentials is the remote-side check of a leaf credentials
 // file: a leaf-only user of peerAccount, issued by one of its scoped child
 // signing keys, without permissions or limits of its own.

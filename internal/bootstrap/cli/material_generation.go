@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"path/filepath"
 	"time"
 
@@ -25,7 +26,8 @@ func (c command) signMaterialGenerationAt(args []string, now time.Time) error {
 	flags := flag.NewFlagSet("sign-material-generation", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	candidatePath := flags.String("candidate", "", "reviewed unsigned material generation JSON")
-	materialDir := flags.String("material", "", "directory holding every pinned file under its target name")
+	materialDir := flags.String("material", "", "directory holding every pinned file under its target name, "+
+		"and each pinned controller config as controller-<slot>.json")
 	chainPath := flags.String("chain", "", "the cell's signed generation chain; required after generation 1")
 	rootPublicPath := flags.String("root-key", "", "offline root Ed25519 public key PEM")
 	rootPrivatePath := flags.String("signing-key", "", "owner-only offline root Ed25519 PKCS#8 private key PEM")
@@ -50,8 +52,14 @@ func (c command) signMaterialGenerationAt(args []string, now time.Time) error {
 	if err := protocol.DecodeStrict(candidateWire, &generation, bootstrap.MaxMaterialGenerationBytes); err != nil {
 		return fmt.Errorf("decode candidate generation: %w", err)
 	}
+	// The owner checks every file, so a missing slot file or controller
+	// config is an error here, never skipped.
 	firstExpiry, err := bootstrapmaterial.CheckGenerationFiles(generation, func(name string) ([]byte, error) {
-		return c.readBoundedRegular(filepath.Join(*materialDir, name), bootstrap.MaxSecretBytes)
+		data, err := c.readBoundedRegular(filepath.Join(*materialDir, name), bootstrap.MaxSecretBytes)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("%s is missing from the material directory", name)
+		}
+		return data, err
 	}, now)
 	if err != nil {
 		return err

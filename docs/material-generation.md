@@ -38,8 +38,67 @@ version, SHA-256 and size bound), exactly these renewable files:
   - **Lifetime cap:** `issuedLifetimeHours` is enforced by the controllers'
     own issuing and by restart admission, not by NATS.
   - **Cleanup after a compromise:** rotate the signer with a new generation.
-- **Interregion material** is not part of a generation and is renewed
-  separately.
+- **Interregion material** is not part of a schema-1 generation. Schema 2
+  can carry it (below).
+
+## Schema 2 (TS-668)
+
+Schema 2 lets a generation link a running cell into the interregion leaf
+fabric without re-founding it. Controllers adopt it from TS-668 PR 6 on.
+Until then nothing in production installs a generation, and a binary from
+before schema 2 refuses one. Schema 2 adds the following:
+
+- **`controllerConfigs`**: one `{slot, manifestSha256, sha256, size}` per
+  controller slot, in `controllerSlots` order. Each pins the slot's new
+  `controller.json`, bound to that slot's accepted manifest digest. The
+  config bytes travel beside the chain, not in it. A config may be at most
+  16 KiB, the manifest's own limit.
+- **`roleSigner`**: required. It is the public key of the cell account's
+  role signer ([role identities](nats-fabric.md#role-identities)).
+  `cell.jwt` must carry exactly the host scope and the role scope, plus the
+  unscoped account signer when the controller issuers are pinned.
+- **Controller issuers all or none.** gru-1 and sfo-1 were founded without
+  controller issuers. Without them, `accountSigner` is empty,
+  `issuedLifetimeHours` is 0, and the cell issues nothing under the
+  generation. Every other renewable file is still required.
+- **Interregion files**, Vault purpose `interregion`, all or none:
+  - `interregion.jwt` and `interregion-ca.pem`;
+  - each slot's `interregion-tls-<slot>-cert.pem` and
+    `interregion-tls-<slot>-key.pem`, bound to that slot;
+  - on a child, its one `leaf-<parent>.creds`.
+
+  `interregion-ca.key` and `child-<cell>.seed` stay offline and can never
+  be pinned. Interregion files require the controller configs.
+
+A chain may move from schema 1 to schema 2 but never back. The role signer
+never changes. Once a generation carries controller configs, every later
+generation must carry them too, because a controller would otherwise
+restart on a config that nothing pins.
+
+The signer adds these checks for schema 2:
+
+- **Controller configs:** each `controller-<slot>.json` in the material
+  directory matches its digest and size. Its `nats` block decodes strictly.
+  It enables interregion exactly when the interregion files are pinned.
+- **Interregion blocks:** each block passes startup's validation. It
+  references only pinned files, by absolute path. Each remote pins the
+  account that issued its credentials.
+- **Contract:** `system.jwt`, `cell.jwt` and `interregion.jwt` pass each
+  config's contract (`natscell` `VerifyClaims`). For example, the system
+  and cell accounts must set `LeafNodeConn = 0`.
+- **`interregion.jwt`** is an account of its own, signed by the operator.
+- **Leaf credentials:** `leaf-<parent>.creds` is a leaf user with no
+  permissions of its own. It is issued by a scoped key of another
+  region's interregion account.
+- **Leaf TLS:** each slot's certificate and key match. The certificate is
+  not a CA, chains to `interregion-ca.pem`, and holds only DNS names under
+  `.interregion.terrascale.internal`.
+
+A controller holds only its own slot's files. `CheckGenerationFiles` skips
+another slot's files when they are absent. It needs at least one config
+to take the contract from.
+
+## The chain
 
 Generations form a hash chain. Generation 1 has no `previous`. Every later
 generation names its predecessor's envelope fingerprint and keeps the fixed
@@ -55,7 +114,9 @@ keys.
 
 Put the files in one directory under their target names, publish them to
 Vault, and write the unsigned candidate (`bootstrap.MaterialGeneration` JSON)
-with their references. Then run:
+with their references. For schema 2, also put each pinned controller config
+in the directory as `controller-<slot>.json`. The command refuses a
+candidate if any pinned file or config is missing. Then run:
 
 ```sh
 ts-orch bootstrap sign-material-generation \
@@ -84,7 +145,8 @@ rules the running cell applies (`bootstrapmaterial.CheckGenerationFiles`):
     no signing keys.
   - `system.jwt` and `cell.jwt` are signed by the operator.
   - `cell.jwt` grants JetStream and has exactly two signing keys: the host
-    scope of `hostSigner` and the unscoped account signer.
+    scope of `hostSigner` and the unscoped account signer. Schema 2 differs
+    (see above).
   - `system.creds` is a system account user with only its claim-update and
     reply grants.
 - **Validity:** everything is valid now.
