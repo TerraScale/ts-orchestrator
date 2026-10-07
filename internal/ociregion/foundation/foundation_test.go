@@ -196,6 +196,15 @@ func (f *fakeOCI) handle(region string, args []string) (any, error) {
 		return Object{}, nil
 	case "network nsg rules list":
 		return clone(append([]any{}, f.nsgRules[flags["nsg-id"]]...)), nil
+	case "network nsg rules remove":
+		var ids []string
+		if err := json.Unmarshal([]byte(flags["security-rule-ids"]), &ids); err != nil {
+			return nil, err
+		}
+		f.nsgRules[flags["nsg-id"]] = slices.DeleteFunc(f.nsgRules[flags["nsg-id"]], func(r any) bool {
+			return slices.Contains(ids, text(r.(Object)["id"]))
+		})
+		return Object{}, nil
 	case "os retention-rule create":
 		var amount int
 		fmt.Sscan(flags["time-amount"], &amount)

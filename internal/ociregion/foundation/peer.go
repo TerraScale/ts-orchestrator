@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 )
 
 const peerUsage = `Usage: ts-orch oci-region peer --pair-intent INTENT --left-plan PLAN --right-plan PLAN --out BOUND_INTENT [--apply]
+       ts-orch oci-region peer --pair-intent INTENT --left-plan PLAN --right-plan PLAN --drop-port PORT [--apply]
 
 Creates the OCI private peering of two bound regional plans that
 inspect-private-peer reads back: on each side a DRG with the cell VCN
@@ -29,6 +31,10 @@ Without --apply it only prints the changes. With --apply it reads both
 sides first, makes the changes, writes BOUND_INTENT with the OCIDs bound and
 runs inspect-private-peer's live network checks on it. It never removes or
 replaces a rule and never overwrites a different BOUND_INTENT.
+
+--drop-port removes, on both sides, only the controller NSG's ingress rule
+for one of the intent's ports from the peer subnet, so new connections on it
+cannot take the private path: a failover test. Rerun without it to restore.
 `
 
 // RunPeer is `ts-orch oci-region peer`.
@@ -41,14 +47,15 @@ func RunPeer(ctx context.Context, args []string, out io.Writer) error {
 	right := fs.String("right-plan", "", "right bound regional plan")
 	outPath := fs.String("out", "", "bound pair intent to write")
 	apply := fs.Bool("apply", false, "make the changes; without it, only print them")
+	drop := fs.Int("drop-port", 0, "remove both sides' NSG ingress rule for this intent port (failover test)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return err
 	}
-	if fs.NArg() != 0 || *intentPath == "" || *left == "" || *right == "" || *outPath == "" {
-		return errors.New("usage: ts-orch oci-region peer --pair-intent INTENT --left-plan PLAN --right-plan PLAN --out BOUND_INTENT [--apply]")
+	if fs.NArg() != 0 || *intentPath == "" || *left == "" || *right == "" || (*outPath == "") == (*drop == 0) {
+		return errors.New("usage: ts-orch oci-region peer --pair-intent INTENT --left-plan PLAN --right-plan PLAN (--out BOUND_INTENT | --drop-port PORT) [--apply]")
 	}
 	engine := &ociregion.Engine{Context: ctx}
 	intent, plans, err := engine.PrivatePeerPair(*intentPath, *left, *right)
@@ -61,6 +68,9 @@ func RunPeer(ctx context.Context, args []string, out io.Writer) error {
 		if p.Clients[region], err = publicapi.NewClient(region); err != nil {
 			return err
 		}
+	}
+	if *drop != 0 {
+		return p.Drop(ctx, intent, plans, *drop, *apply)
 	}
 	return p.Run(ctx, intent, plans, *outPath, *apply)
 }
@@ -166,6 +176,53 @@ func (p *Peer) Run(ctx context.Context, intent Object, plans []Object, out strin
 	}
 	if err := p.Check(out); err != nil {
 		return fmt.Errorf("the bound pair intent %s fails inspection: %w", out, err)
+	}
+	return nil
+}
+
+// Drop removes, on both sides, the controller NSG's ingress rules admitting
+// TCP port from the peer subnet. It touches no other rule; a rerun of Run
+// adds them back.
+func (p *Peer) Drop(ctx context.Context, intent Object, plans []Object, port int, apply bool) error {
+	want := strconv.Itoa(port)
+	if !slices.ContainsFunc(arr(intent["allowed_tcp_ports"]), func(v any) bool { return fmt.Sprint(v) == want }) {
+		return fmt.Errorf("TCP %d is not a port of the pair intent", port)
+	}
+	f := &Foundation{Out: p.Out, Apply: apply}
+	for i, plan := range plans {
+		name, err := naming.RegionCell(text(plan["cell"])).Name()
+		if err != nil {
+			return err
+		}
+		subnet, nsg, c := text(plans[1-i]["subnet_cidr"]), text(obj(plan["resource_ids"])["network_security_group"]), p.Clients[text(plan["region"])]
+		v, err := f.call(ctx, c, "network", "nsg", "rules", "list", "--nsg-id", nsg, "--all")
+		if err != nil {
+			return fmt.Errorf("read %s's NSG rules: %w", name, err)
+		}
+		live, err := command.Rows(v)
+		if err != nil {
+			return err
+		}
+		var ids []string
+		for _, r := range live {
+			ports := obj(obj(r["tcp-options"])["destination-port-range"])
+			if r["direction"] == "INGRESS" && r["source"] == subnet && r["protocol"] == "6" &&
+				fmt.Sprint(ports["min"]) == want && fmt.Sprint(ports["max"]) == want {
+				ids = append(ids, text(r["id"]))
+			}
+		}
+		if len(ids) == 0 {
+			fmt.Fprintf(p.Out, "%s's NSG has no TCP %d rule from %s\n", name, port, subnet)
+			continue
+		}
+		if err := f.change(ctx, fmt.Sprintf("remove TCP %d from %s in %s's NSG", port, subnet, name), c,
+			"network", "nsg", "rules", "remove", "--nsg-id", nsg, "--security-rule-ids", command.JSON(ids)); err != nil {
+			return err
+		}
+	}
+	if !apply && f.planned > 0 {
+		_, err := fmt.Fprintf(p.Out, "%d changes planned; rerun with --apply to make them\n", f.planned)
+		return err
 	}
 	return nil
 }

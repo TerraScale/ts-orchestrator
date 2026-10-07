@@ -433,3 +433,68 @@ func TestInterruptedPeerResumes(t *testing.T) {
 		})
 	}
 }
+
+// A failover test drops one port's NSG ingress rule on both sides and
+// nothing else; the next apply restores exactly those rules.
+func TestPeerDropPortRemovesOnlyThatRule(t *testing.T) {
+	x := newPair(t)
+	intent := decode(mustRead(t, x.intent)).(Object)
+	intent["allowed_tcp_ports"] = []any{7422, 9443}
+	writeJSON(t, x.intent, intent)
+	if log, err := x.run(t, true); err != nil {
+		t.Fatalf("%v\n%s", err, log)
+	}
+	rules := func() map[string][]any {
+		r := map[string][]any{}
+		for cell, plan := range x.plans {
+			r[cell] = clone(x.f.nsgRules[text(obj(plan["resource_ids"])["network_security_group"])]).([]any)
+		}
+		return r
+	}
+	before := rules()
+	drop := func(port int, apply bool) string {
+		t.Helper()
+		var log bytes.Buffer
+		engine := &ociregion.Engine{Context: t.Context(), Dependency: x.f.dependency}
+		intent, plans, err := engine.PrivatePeerPair(x.intent, x.left, x.right)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := &Peer{Clients: map[string]command.Client{sfo: client{x.f, sfo}, gru: client{x.f, gru}}, Out: &log}
+		if err := p.Drop(t.Context(), intent, plans, port, apply); err != nil {
+			t.Fatalf("drop %d: %v\n%s", port, err, log.String())
+		}
+		return log.String()
+	}
+	x.f.writes = nil
+	if log := drop(7422, false); len(x.f.writes) != 0 || !strings.Contains(log, "2 changes planned") {
+		t.Fatalf("dry drop wrote %v:\n%s", x.f.writes, log)
+	}
+	drop(7422, true)
+	if want := []string{sfo + " network nsg rules remove", gru + " network nsg rules remove"}; !slices.Equal(x.f.writes, want) {
+		t.Fatalf("drop wrote %v, want %v", x.f.writes, want)
+	}
+	for cell, live := range rules() {
+		if len(live) != len(before[cell])-1 || strings.Contains(command.JSON(live), `"min":7422`) {
+			t.Fatalf("%s NSG after drop: %s", cell, command.JSON(live))
+		}
+	}
+	if log := drop(7422, true); !strings.Contains(log, "has no TCP 7422 rule") {
+		t.Fatalf("second drop:\n%s", log)
+	}
+	if engine := (&ociregion.Engine{Context: t.Context(), Dependency: x.f.dependency}); engine.CheckPrivatePeer(x.out, x.left, x.right) == nil {
+		t.Fatal("inspection passes with a dropped port")
+	}
+	x.f.writes = nil
+	if log, err := x.run(t, true); err != nil {
+		t.Fatalf("restore: %v\n%s", err, log)
+	}
+	if want := []string{sfo + " network nsg rules add", gru + " network nsg rules add"}; !slices.Equal(x.f.writes, want) {
+		t.Fatalf("restore wrote %v, want %v", x.f.writes, want)
+	}
+	var log bytes.Buffer
+	p := &Peer{Out: &log}
+	if err := p.Drop(t.Context(), intent, nil, 22, true); err == nil {
+		t.Fatal("dropped a port outside the intent")
+	}
+}

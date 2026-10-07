@@ -1067,6 +1067,12 @@ read's ETag, and a conflicting live rule is refused, never removed.
 4. Read back the receipt with `inspect-private-peer --pair-intent
    pair-bound.json` and both cells' plans, inventories and admissions.
 
+To test failover off the private path, `--drop-port PORT` (instead of
+`--out`) removes only the controller NSG's ingress rule for that intent port
+from the peer subnet, on both sides; without `--apply` it prints the
+removals. The NSG is stateful, so connections already open stay up until they
+reconnect. Rerun step 3 to restore the rules.
+
 `inspect-foundation` still compares each cell's rules exactly with its plan,
 so it reports the peer rules, and sfo-1's hand-added NAT route and egress, as
 drift until the plans carry them.
