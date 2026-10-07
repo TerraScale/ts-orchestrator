@@ -63,6 +63,15 @@ var creators = map[string]creator{
 	"vault secret update-base64":      updateSecret,
 	"vault secret list":               listSecrets,
 	"secrets secret-bundle get":       getSecretBundle,
+	"iam compartment create":          createCompartment,
+	"iam dynamic-group create":        createDynamicGroup,
+	"iam policy create":               createPolicy,
+	"network vcn create":              createVCN,
+	"network service-gateway create":  createServiceGateway,
+	"kms management vault create":     createVault,
+	"kms management key create":       createKey,
+	"os bucket create":                createBucket,
+	"os retention-rule create":        createRetentionRule,
 }
 
 // createFlags lists every flag each in-binary creator consumes.
@@ -78,16 +87,26 @@ var createFlags = map[string][]string{
 	"network nsg rules remove": {"nsg-id", "security-rule-ids"},
 	"lb load-balancer create": {"compartment-id", "display-name", "shape-name", "subnet-ids", "is-private",
 		"network-security-group-ids", "shape-details", "certificates", "hostnames", "backend-sets", "listeners", "rule-sets"},
-	"lb certificate create":         {"load-balancer-id", "certificate"},
-	"lb load-balancer update-shape": {"load-balancer-id", "shape-name", "shape-details"},
-	"lb load-balancer update":       {"load-balancer-id", "freeform-tags"},
-	"lb backend-set update":         {"load-balancer-id", "backend-set-name", "details"},
-	"lb hostname update":            {"load-balancer-id", "name", "hostname"},
-	"lb listener update":            {"load-balancer-id", "listener-name", "details"},
-	"vault secret create-base64":    {"compartment-id", "vault-id", "key-id", "secret-name", "description", "secret-content-content"},
-	"vault secret update-base64":    {"secret-id", "secret-content-content"},
-	"vault secret list":             {"compartment-id", "vault-id", "name"},
-	"secrets secret-bundle get":     {"secret-id"},
+	"lb certificate create":          {"load-balancer-id", "certificate"},
+	"lb load-balancer update-shape":  {"load-balancer-id", "shape-name", "shape-details"},
+	"lb load-balancer update":        {"load-balancer-id", "freeform-tags"},
+	"lb backend-set update":          {"load-balancer-id", "backend-set-name", "details"},
+	"lb hostname update":             {"load-balancer-id", "name", "hostname"},
+	"lb listener update":             {"load-balancer-id", "listener-name", "details"},
+	"vault secret create-base64":     {"compartment-id", "vault-id", "key-id", "secret-name", "description", "secret-content-content"},
+	"vault secret update-base64":     {"secret-id", "secret-content-content"},
+	"vault secret list":              {"compartment-id", "vault-id", "name"},
+	"secrets secret-bundle get":      {"secret-id"},
+	"iam compartment create":         {"compartment-id", "name", "description"},
+	"iam dynamic-group create":       {"compartment-id", "name", "description", "matching-rule"},
+	"iam policy create":              {"compartment-id", "name", "description", "statements"},
+	"network vcn create":             {"compartment-id", "display-name", "cidr-block", "dns-label", "wait-for-state"},
+	"network service-gateway create": {"compartment-id", "vcn-id", "display-name", "services", "wait-for-state"},
+	"kms management vault create":    {"compartment-id", "display-name", "vault-type"},
+	"kms management key create":      {"compartment-id", "display-name", "key-shape", "protection-mode", "endpoint"},
+	"os bucket create": {"namespace-name", "compartment-id", "name", "kms-key-id", "versioning", "public-access-type",
+		"storage-tier"},
+	"os retention-rule create": {"namespace-name", "bucket-name", "display-name", "time-amount", "time-unit"},
 }
 
 // secretBearing commands carry private keys; they never reach the oci CLI,
@@ -270,7 +289,7 @@ func createRouteTable(ctx context.Context, c *SDKClient, command sdkcli.Command)
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateRouteTable(ctx, core.CreateRouteTableRequest{CreateRouteTableDetails: core.CreateRouteTableDetails{
+	response, err := client.CreateRouteTable(ctx, core.CreateRouteTableRequest{OpcRetryToken: retryToken(), CreateRouteTableDetails: core.CreateRouteTableDetails{
 		CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], RouteRules: rules}})
 	if err != nil {
 		return nil, err
@@ -298,7 +317,7 @@ func createSecurityList(ctx context.Context, c *SDKClient, command sdkcli.Comman
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateSecurityList(ctx, core.CreateSecurityListRequest{CreateSecurityListDetails: core.CreateSecurityListDetails{
+	response, err := client.CreateSecurityList(ctx, core.CreateSecurityListRequest{OpcRetryToken: retryToken(), CreateSecurityListDetails: core.CreateSecurityListDetails{
 		CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], IngressSecurityRules: ingress, EgressSecurityRules: egress}})
 	if err != nil {
 		return nil, err
@@ -326,7 +345,7 @@ func createSubnet(ctx context.Context, c *SDKClient, command sdkcli.Command) (an
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateSubnet(ctx, core.CreateSubnetRequest{CreateSubnetDetails: core.CreateSubnetDetails{
+	response, err := client.CreateSubnet(ctx, core.CreateSubnetRequest{OpcRetryToken: retryToken(), CreateSubnetDetails: core.CreateSubnetDetails{
 		CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], CidrBlock: &values[3], DnsLabel: &values[4],
 		RouteTableId: &values[5], SecurityListIds: securityLists, ProhibitPublicIpOnVnic: prohibitPublicIP}})
 	if err != nil {
@@ -347,7 +366,7 @@ func createNSG(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, 
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateNetworkSecurityGroup(ctx, core.CreateNetworkSecurityGroupRequest{
+	response, err := client.CreateNetworkSecurityGroup(ctx, core.CreateNetworkSecurityGroupRequest{OpcRetryToken: retryToken(),
 		CreateNetworkSecurityGroupDetails: core.CreateNetworkSecurityGroupDetails{CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2]}})
 	if err != nil {
 		return nil, err

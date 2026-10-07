@@ -641,6 +641,9 @@ func newClient(region string, secret bool) (command.Client, error) {
 	return NewSDKClient(region, backend)
 }
 
+// NewClient is the region's OCI client for commands that carry no key material.
+func NewClient(region string) (command.Client, error) { return newClient(region, false) }
+
 type Provisioner struct {
 	Client       command.Client
 	Pause        func(context.Context, time.Duration) error

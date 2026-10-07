@@ -27,6 +27,8 @@ var handlers = map[string]handler{
 	"iam compartment list":                          iamCompartmentList,
 	"iam policy get":                                iamPolicyGet,
 	"iam dynamic-group get":                         iamDynamicGroupGet,
+	"iam dynamic-group list":                        iamDynamicGroupList,
+	"iam policy list":                               iamPolicyList,
 	"iam region-subscription list":                  iamRegionSubscriptionList,
 	"iam availability-domain list":                  iamAvailabilityDomainList,
 	"network vcn get":                               networkVcnGet,
@@ -50,7 +52,9 @@ var handlers = map[string]handler{
 	"nlb network-load-balancer get":                 nlbGet,
 	"vault secret get":                              vaultSecretGet,
 	"kms management vault get":                      kmsVaultGet,
+	"kms management vault list":                     kmsVaultList,
 	"kms management key get":                        kmsKeyGet,
+	"kms management key list":                       kmsKeyList,
 	"os ns get":                                     osNamespaceGet,
 	"os bucket get":                                 osBucketGet,
 	"os retention-rule list":                        osRetentionRuleList,
@@ -140,6 +144,36 @@ func iamDynamicGroupGet(ctx context.Context, c *Client, command Command) (any, e
 	}
 	response, err := client.GetDynamicGroup(ctx, identity.GetDynamicGroupRequest{DynamicGroupId: &id})
 	return response.DynamicGroup, err
+}
+
+func iamDynamicGroupList(ctx context.Context, c *Client, command Command) (any, error) {
+	id, err := command.flag("compartment-id")
+	if err != nil {
+		return nil, err
+	}
+	client, err := c.identity()
+	if err != nil {
+		return nil, err
+	}
+	return pages(command.All, func(page *string) ([]identity.DynamicGroup, *string, error) {
+		response, err := client.ListDynamicGroups(ctx, identity.ListDynamicGroupsRequest{CompartmentId: &id, Page: page})
+		return response.Items, response.OpcNextPage, err
+	})
+}
+
+func iamPolicyList(ctx context.Context, c *Client, command Command) (any, error) {
+	id, err := command.flag("compartment-id")
+	if err != nil {
+		return nil, err
+	}
+	client, err := c.identity()
+	if err != nil {
+		return nil, err
+	}
+	return pages(command.All, func(page *string) ([]identity.Policy, *string, error) {
+		response, err := client.ListPolicies(ctx, identity.ListPoliciesRequest{CompartmentId: &id, Page: page})
+		return response.Items, response.OpcNextPage, err
+	})
 }
 
 func iamRegionSubscriptionList(ctx context.Context, c *Client, command Command) (any, error) {
@@ -399,15 +433,39 @@ func kmsVaultGet(ctx context.Context, c *Client, command Command) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	client, err := c.KMSVaults()
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.GetVault(ctx, keymanagement.GetVaultRequest{VaultId: &id})
+	return response.Vault, err
+}
+
+// KMSVaults is the region's KMS vault client.
+func (c *Client) KMSVaults() (keymanagement.KmsVaultClient, error) {
 	client, err := keymanagement.NewKmsVaultClientWithConfigurationProvider(c.factory.Provider())
 	if err != nil {
-		return nil, fmt.Errorf("create OCI KMS vault client: %w", err)
+		return client, fmt.Errorf("create OCI KMS vault client: %w", err)
 	}
 	client.SetRegion(c.factory.Region())
 	c.factory.Configure(&client.BaseClient, ociclient.ServiceKMS)
 	c.pin(&client.BaseClient)
-	response, err := client.GetVault(ctx, keymanagement.GetVaultRequest{VaultId: &id})
-	return response.Vault, err
+	return client, nil
+}
+
+func kmsVaultList(ctx context.Context, c *Client, command Command) (any, error) {
+	compartment, err := command.flag("compartment-id")
+	if err != nil {
+		return nil, err
+	}
+	client, err := c.KMSVaults()
+	if err != nil {
+		return nil, err
+	}
+	return pages(command.All, func(page *string) ([]keymanagement.VaultSummary, *string, error) {
+		response, err := client.ListVaults(ctx, keymanagement.ListVaultsRequest{CompartmentId: &compartment, Page: page})
+		return response.Items, response.OpcNextPage, err
+	})
 }
 
 func kmsKeyGet(ctx context.Context, c *Client, command Command) (any, error) {
@@ -419,17 +477,46 @@ func kmsKeyGet(ctx context.Context, c *Client, command Command) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	client, err := c.KMSManagement(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.GetKey(ctx, keymanagement.GetKeyRequest{KeyId: &id})
+	return response.Key, err
+}
+
+// KMSManagement is the KMS management client of one vault endpoint, which
+// must be in the client's region.
+func (c *Client) KMSManagement(endpoint string) (keymanagement.KmsManagementClient, error) {
 	if !kmsEndpointInRegion(endpoint, c.factory.Region()) {
-		return nil, fmt.Errorf("KMS management endpoint %q is outside region %s", endpoint, c.factory.Region())
+		return keymanagement.KmsManagementClient{}, fmt.Errorf("KMS management endpoint %q is outside region %s", endpoint, c.factory.Region())
 	}
 	client, err := keymanagement.NewKmsManagementClientWithConfigurationProvider(c.factory.Provider(), endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("create OCI KMS management client: %w", err)
+		return client, fmt.Errorf("create OCI KMS management client: %w", err)
 	}
 	c.factory.Configure(&client.BaseClient, ociclient.ServiceKMS)
 	c.pin(&client.BaseClient)
-	response, err := client.GetKey(ctx, keymanagement.GetKeyRequest{KeyId: &id})
-	return response.Key, err
+	return client, nil
+}
+
+func kmsKeyList(ctx context.Context, c *Client, command Command) (any, error) {
+	compartment, err := command.flag("compartment-id")
+	if err != nil {
+		return nil, err
+	}
+	endpoint, err := command.flag("endpoint")
+	if err != nil {
+		return nil, err
+	}
+	client, err := c.KMSManagement(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	return pages(command.All, func(page *string) ([]keymanagement.KeySummary, *string, error) {
+		response, err := client.ListKeys(ctx, keymanagement.ListKeysRequest{CompartmentId: &compartment, Page: page})
+		return response.Items, response.OpcNextPage, err
+	})
 }
 
 // kmsEndpointInRegion accepts only a bare https origin on the OCI KMS

@@ -1018,12 +1018,45 @@ and the intended network boundary.
 
 1. Create the reviewed regional foundation under the selected ownership
    boundary only after the pre-create inventory, capacity, security, and cost
-   review passes. Record the exact compartment, network, routing, security,
-   Vault/KMS, IAM, and bootstrap-storage identities. Do not rely on an old
-   Terraform plan or receipt as proof of current live state.
-2. Update the reviewed plan with the exact created resource IDs and an
-   explicit `bootstrap_object_prefix` before capturing a fresh inventory and
-   cost admission. Choose the canonical prefix intended for the signed
+   review passes. `ts-orch oci-region foundation` creates it from the plan
+   (TS-663); do not create these resources by hand with the `oci` CLI:
+
+   ```sh
+   ts-orch oci-region foundation \
+     --plan /ABSOLUTE/PATH/manual-region-plan.json \
+     --out /ABSOLUTE/PATH/bound-region-plan.json          # dry run: prints the creates
+   ts-orch oci-region foundation \
+     --plan /ABSOLUTE/PATH/manual-region-plan.json \
+     --out /ABSOLUTE/PATH/bound-region-plan.json --apply
+   ```
+
+   It finds each resource by its static name in its compartment and creates
+   only what is missing, so a rerun creates nothing and an interrupted run
+   resumes. For cell `<cell>` (`sfo-1`) the names are the plan's
+   `preview_compartment_names` under `parent_compartment_id`; in the network
+   compartment `<cell>-vcn` (DNS label `<cell>` without the dash),
+   `<cell>-service-gateway` (the plan's `service_gateway_service_id`, all
+   services of the region key), `<cell>-private-routes`,
+   `<cell>-private-security`, the private subnet `<cell>-private` (no public
+   IPs), and the NSGs `<cell>-controllers-nsg` and, when the plan declares
+   `workload_nsg_rules`, `<cell>-databases-nsg`, with the plan's rules; in the
+   control compartment the DEFAULT vault `<cell>-vault`, its HSM AES-256 key
+   `<cell>-key` and the `foundation_buckets`, encrypted with that key (head
+   and material versioned, ledger and backup under `bucket_retention_days`).
+   The plan's `identity` dynamic groups and the controller and Object Storage
+   key policies are written in the home region, `sa-saopaulo-1`, the only
+   region OCI accepts IAM writes in. With a null `netbird`, it also creates
+   `<cell>-netbird-enrollment` in the control compartment, letting both
+   dynamic groups read the secret named `<cell>-netbird-setup-key` once it is
+   stored. A same-named resource that differs from the plan (another CIDR,
+   compartment, matching rule or statements) is refused, never adopted.
+   With `--apply` it runs `inspect-foundation`'s live checks on the result
+   and only then writes the bound plan: the plan with `resource_ids` filled.
+   It never overwrites a different file. It does not create the operator
+   gateway peering, a host `LiveS3Credential` policy or egress: a NAT gateway
+   is still outside the plan boundary below.
+2. Review the bound plan, with an explicit `bootstrap_object_prefix`, before
+   capturing a fresh inventory and cost admission. Choose the canonical prefix intended for the signed
    bootstrap storage domain; an empty string is valid if the domain is
    deliberately unprefixed. The foundation inspection provisionally checks
    the controller IAM object grants against this plan prefix because the

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -150,8 +151,12 @@ func TestSDKDecodesEveryCommandTheProvisionerSends(t *testing.T) {
 		}
 		decoded[command.Path] = true
 	}
+	// The foundation's creates are checked by its own tests, through
+	// DecodeCreate.
+	foundation := []string{"iam compartment create", "iam dynamic-group create", "iam policy create", "network vcn create",
+		"network service-gateway create", "kms management vault create", "kms management key create", "os bucket create", "os retention-rule create"}
 	for path := range creators {
-		if !decoded[path] {
+		if !decoded[path] && !slices.Contains(foundation, path) {
 			t.Errorf("provisioner never exercised %s", path)
 		}
 	}

@@ -447,6 +447,12 @@ func controllerStatements(plan, ids Object, prefix string) []string {
 func RequiredControllerStatements(plan, ids Object, prefix string) ([]string, error) {
 	return capture(func() []string { return controllerStatements(plan, ids, prefix) })
 }
+
+// ObjectStorageKeyStatement is the Object Storage key policy's one statement:
+// the region's Object Storage may use exactly the plan's key.
+func ObjectStorageKeyStatement(plan, ids Object) string {
+	return fmt.Sprintf("Allow service objectstorage-%s to use keys in compartment %s where all {target.key.id='%s', any {request.permission='KEY_READ', request.permission='KEY_ENCRYPT', request.permission='KEY_DECRYPT'}}", str(plan["region"]), str(obj(plan["preview_compartment_names"])["control"]), str(ids["key"]))
+}
 func netbirdStatements(plan Object) []string {
 	c := obj(plan["netbird"])
 	r := []string{}
@@ -485,7 +491,7 @@ func (e *Engine) liveIAM(plan, ids Object, prefix string) {
 	if kp["lifecycle-state"] != "ACTIVE" || kp["name"] != identity["objectstorage_key_policy_name"] || kp["compartment-id"] != ids["control_compartment"] {
 		fail("live Object Storage key policy differs from exact reviewed statements")
 	}
-	statement := fmt.Sprintf("Allow service objectstorage-%s to use keys in compartment %s where all {target.key.id='%s', any {request.permission='KEY_READ', request.permission='KEY_ENCRYPT', request.permission='KEY_DECRYPT'}}", str(plan["region"]), str(obj(plan["preview_compartment_names"])["control"]), str(ids["key"]))
+	statement := ObjectStorageKeyStatement(plan, ids)
 	if !eq(kp["statements"], []string{statement}) {
 		fail("Object Storage key policy is not limited to the reviewed region and key")
 	}
@@ -580,6 +586,24 @@ func (e *Engine) currentAdmission(plan, inventory Object, inventoryPath, admissi
 	}
 	return cost, admission, admitted
 }
+
+// checkFoundation runs inspect-foundation's live checks of every plan-bound
+// foundation resource.
+func (e *Engine) checkFoundation(plan Object, prefix string) Object {
+	ids := e.requiredIDs(plan)
+	for _, name := range []string{"check_live_compartments", "check_live_vault", "check_live_network", "check_live_buckets"} {
+		e.call(name, []any{plan, ids}, Object{})
+	}
+	e.call("check_live_iam", []any{plan, ids, prefix}, Object{})
+	return ids
+}
+
+// CheckFoundation runs inspect-foundation's live checks against plan,
+// without its inventory and budget admission.
+func (e *Engine) CheckFoundation(plan Object) error {
+	_, err := capture(func() Object { return e.checkFoundation(plan, requiredPrefix(plan)) })
+	return err
+}
 func (e *Engine) inspectFoundation(plan Object, planPath, inventoryPath, admissionPath string) Object {
 	prefix := requiredPrefix(plan)
 	inventory := readJSON(inventoryPath, 4*1024*1024, "manual region inventory")
@@ -588,11 +612,7 @@ func (e *Engine) inspectFoundation(plan Object, planPath, inventoryPath, admissi
 	if greater(cost["total"], 200) {
 		fail("live foundation inspection exceeds the USD 200 monthly ceiling")
 	}
-	ids := e.requiredIDs(plan)
-	for _, name := range []string{"check_live_compartments", "check_live_vault", "check_live_network", "check_live_buckets"} {
-		e.call(name, []any{plan, ids}, Object{})
-	}
-	e.call("check_live_iam", []any{plan, ids, prefix}, Object{})
+	ids := e.checkFoundation(plan, prefix)
 	now := e.now()
 	expires, _ := parseTime(admission["expires_at"])
 	if now.Before(admitted) {
