@@ -839,9 +839,12 @@ releases/v1/services/<role>/status.json         the region leader's report
    health checks; and settles. A node that fails the release keeps its
    backends out of rotation and the release rolls back the same way, one
    node at a time; a new leader returns recorded backends, always to the
-   load balancer recorded with them, and a cell spec that drops its fence
-   returns every recorded backend: the leader checks on every pass and
-   before every release, marked or not. Every load
+   load balancer recorded with them and with the weight and backup flag
+   they had. A cell spec that drops its fence returns every recorded
+   backend without waiting for health checks a failed node may never pass,
+   and clears every mark and permit, so every node may restart at once: the
+   leader checks on every pass, bounded to 2 minutes, and before every
+   release. Every load
    balancer change and permit is guarded by the authority epoch the leader
    started under, so a deposed leader stops. Once every node
    serves the release, its marks are removed, so later scaling is not held.

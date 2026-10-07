@@ -656,3 +656,54 @@ func TestReleaseFenceDroppedReturnsLeftBackends(t *testing.T) {
 		}
 	}
 }
+
+// A fenced backend returns with the weight it had.
+func TestReleaseFenceKeepsABackendsWeight(t *testing.T) {
+	fence, _, balancer, _, intent := newFenceTest(t)
+	balancer.sets["terrabase"][1] = balancer.sets["terrabase"][1].Shaped(3, false)
+	ctx := t.Context()
+	if err := fence.prepare(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.sequence(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if weight, backup := balancer.sets["terrabase"][1].Shape(); weight != 3 || backup || !balancer.sets["terrabase"][1].Serving() {
+		t.Fatalf("ctl-2's terrabase backend returned as %d %v", weight, backup)
+	}
+}
+
+// Dropping the fence returns a failed node's backend without waiting for a
+// health check it may never pass, and clears every mark and permit, so no
+// restart stays held.
+func TestReleaseFenceDroppedReturnsWithoutWaitingAndClearsMarks(t *testing.T) {
+	fence, cell, balancer, kv, intent := newFenceTest(t)
+	ctx := t.Context()
+	cell.broken["ctl-1"] = true
+	if err := fence.prepare(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.sequence(ctx, intent); err == nil {
+		t.Fatal("a failed node passed")
+	}
+	balancer.down["10.0.0.11:9465"] = true
+	fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return nil, fenceAddresses }
+	limited, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	if err := fence.reconcile(limited); err != nil {
+		t.Fatal(err)
+	}
+	if !balancer.sets["terrabase"][0].Serving() {
+		t.Fatal("ctl-1 stays out of rotation")
+	}
+	keys, err := kv.ListKeys(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key := range keys.Keys() {
+		t.Errorf("left %s", key)
+	}
+	if granted, err := cell.gate(ctx, "ctl-2", host.Desired{Role: "ts-auth", Generation: 7 << 24}); err != nil || !granted {
+		t.Fatalf("a restart stays held: %v %v", granted, err)
+	}
+}

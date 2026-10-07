@@ -84,6 +84,9 @@ type fencedBackend struct {
 	Set  string `json:"set"`
 	IP   string `json:"ip"`
 	Port int    `json:"port"`
+	// Weight and Backup are the backend's own, restored with it.
+	Weight int  `json:"weight,omitzero"`
+	Backup bool `json:"backup,omitzero"`
 }
 
 // fenceRecord is a node's fence, recorded before the load balancer changes:
@@ -265,7 +268,7 @@ func (f *releaseFence) sequence(ctx context.Context, intent delivery.Intent) err
 				}
 			}
 		}
-		returned, err := f.restore(ctx, api, epoch, node)
+		returned, err := f.restore(ctx, api, epoch, node, true)
 		if err != nil {
 			return err
 		}
@@ -379,7 +382,9 @@ func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec
 			}
 			for _, backend := range observed {
 				if backend.IP == address && backend.Port == set.Port && backend.Serving() {
-					record.Backends = append(record.Backends, fencedBackend{Set: set.Name, IP: address, Port: set.Port})
+					weight, backup := backend.Shape()
+					record.Backends = append(record.Backends, fencedBackend{Set: set.Name, IP: address, Port: set.Port,
+						Weight: weight, Backup: backup})
 				}
 			}
 		}
@@ -447,7 +452,8 @@ func (f *releaseFence) update(ctx context.Context, api lb.API, epoch uint64, id 
 	if err := f.fencer.Guard(ctx, epoch); err != nil {
 		return err
 	}
-	request, err := api.UpdateBackend(ctx, id, backend.Set, lb.Backend{IP: backend.IP, Port: backend.Port}.Fenced(drain, offline))
+	request, err := api.UpdateBackend(ctx, id, backend.Set,
+		lb.Backend{IP: backend.IP, Port: backend.Port}.Shaped(backend.Weight, backend.Backup).Fenced(drain, offline))
 	if err != nil {
 		return err
 	}
@@ -482,9 +488,9 @@ func (f *releaseFence) save(ctx context.Context, epoch uint64, node string, reco
 }
 
 // restore returns the backends recorded for node to rotation on the load
-// balancer they were taken from, and waits until their health checks
-// pass; it reports whether any were returned.
-func (f *releaseFence) restore(ctx context.Context, api lb.API, epoch uint64, node string) (bool, error) {
+// balancer they were taken from and, with healthy, waits until their
+// health checks pass; it reports whether any were returned.
+func (f *releaseFence) restore(ctx context.Context, api lb.API, epoch uint64, node string, healthy bool) (bool, error) {
 	record, found, err := f.record(ctx, node)
 	if err != nil || !found {
 		return false, err
@@ -496,7 +502,7 @@ func (f *releaseFence) restore(ctx context.Context, api lb.API, epoch uint64, no
 	}
 	for _, backend := range record.Backends {
 		name := lb.Backend{IP: backend.IP, Port: backend.Port}.Name()
-		for {
+		for healthy {
 			unhealthy, err := api.UnhealthyBackends(ctx, record.LoadBalancerID, backend.Set)
 			if err != nil {
 				return false, err
@@ -516,10 +522,12 @@ func (f *releaseFence) restore(ctx context.Context, api lb.API, epoch uint64, no
 	return true, f.kv.Delete(ctx, fencedKey(node))
 }
 
-// reconcile returns every recorded fence to rotation once the cell has no
-// release fence: a dropped fence leaves no backend out of rotation, even
-// one a failed release left and no later release marks. The leader runs it
-// on every pass.
+// reconcile undoes every fence once the cell has no release fence: a
+// dropped fence leaves no backend out of rotation, even one a failed
+// release left and no later release marks, and no restart held. It returns
+// recorded backends without waiting for their health checks, which a
+// failed node may never pass, and clears every mark and permit, so every
+// node may restart at once. The leader runs it on every pass, bounded.
 func (f *releaseFence) reconcile(ctx context.Context) error {
 	if f == nil {
 		return nil
@@ -527,48 +535,55 @@ func (f *releaseFence) reconcile(ctx context.Context) error {
 	if spec, _ := f.spec(); spec != nil {
 		return nil
 	}
-	keys, err := f.kv.ListKeysFiltered(ctx, fencedKey("*"))
-	if errors.Is(err, jetstream.ErrNoKeysFound) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	var fenced, marks []string
+	for _, filter := range []string{fencedKey("*"), "fence.>"} {
+		keys, err := f.kv.ListKeysFiltered(ctx, filter)
+		if errors.Is(err, jetstream.ErrNoKeysFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		for key := range keys.Keys() {
+			if filter == "fence.>" {
+				marks = append(marks, key)
+			} else {
+				fenced = append(fenced, strings.TrimPrefix(key, fencedKey("")))
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+	if len(fenced) == 0 && len(marks) == 0 {
 		return nil
-	}
-	if err != nil {
-		return err
-	}
-	recorded := false
-	for range keys.Keys() {
-		recorded = true
-	}
-	if !recorded {
-		return ctx.Err()
 	}
 	epoch, err := f.leading(ctx)
 	if err != nil {
 		return err
 	}
-	api, err := f.client(ctx)
-	if err != nil {
-		return err
+	if len(fenced) > 0 {
+		api, err := f.client(ctx)
+		if err != nil {
+			return err
+		}
+		for _, node := range fenced {
+			if _, err := f.restore(ctx, api, epoch, node, false); err != nil {
+				return err
+			}
+		}
 	}
-	return f.restoreAll(ctx, api, epoch)
-}
-
-// restoreAll returns every recorded fence.
-func (f *releaseFence) restoreAll(ctx context.Context, api lb.API, epoch uint64) error {
-	keys, err := f.kv.ListKeysFiltered(ctx, fencedKey("*"))
-	if errors.Is(err, jetstream.ErrNoKeysFound) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	defer keys.Stop()
-	for key := range keys.Keys() {
-		if _, err := f.restore(ctx, api, epoch, strings.TrimPrefix(key, fencedKey(""))); err != nil {
+	for _, key := range marks {
+		if err := f.fencer.Guard(ctx, epoch); err != nil {
+			return err
+		}
+		if err := f.kv.Delete(ctx, key); err != nil {
 			return err
 		}
 	}
-	// The lister closes early, without an error, when ctx ends.
-	return ctx.Err()
+	return nil
 }
 
 func durationOr(seconds int, fallback time.Duration) time.Duration {

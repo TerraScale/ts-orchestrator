@@ -197,12 +197,20 @@ func (b Backend) serving() bool { return !b.Drain && !b.backup && !b.offline }
 // nor offline.
 func (b Backend) Serving() bool { return b.serving() }
 
-// Fenced returns the observed backend with drain and offline set, weight 1
-// and not a backup, for UpdateBackend: a release fence takes a node's
-// backend out of rotation and returns it.
+// Fenced returns the backend with drain and offline set and its weight and
+// backup kept, for UpdateBackend: a release fence takes a node's backend
+// out of rotation and returns it as it was.
 func (b Backend) Fenced(drain, offline bool) Backend {
-	b.weight, b.backup = defaultWeight, false
 	b.Drain, b.offline = drain, offline
+	return b
+}
+
+// Shape is an observed backend's weight and backup flag.
+func (b Backend) Shape() (weight int, backup bool) { return b.weight, b.backup }
+
+// Shaped returns the backend with weight (zero means 1) and backup.
+func (b Backend) Shaped(weight int, backup bool) Backend {
+	b.weight, b.backup = weight, backup
 	return b
 }
 
