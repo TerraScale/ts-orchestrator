@@ -1222,6 +1222,36 @@ func TestReleaseFenceLevelValidateAndDiff(t *testing.T) {
 	if owned := (Spec{ReleaseFence: &guarded}); owned.Level() != 14 {
 		t.Fatalf("level %d", owned.Level())
 	}
+	// A canary (TS-623) needs level 15 and a canary Vault secret of the cell.
+	canary := Canary{Credentials: vaultsecret.Ref{Vault: "ocid1.vault.oc1.sa-saopaulo-1.example", Name: "gru-1-canary-credentials"},
+		Project: "01a11059-a955-7b4d-b9b9-ac5ba2d25c35", Database: "canary", AuthURL: "https://gru.auth.terrascale.tech",
+		APIURL: "https://gru.api.terrascale.tech", DashboardLoginURL: "https://dash.terrascale.tech/login"}
+	gated := fence
+	gated.Canary = &canary
+	if canaried := (Spec{ReleaseFence: &gated}); canaried.Level() != 15 {
+		t.Fatalf("level %d", canaried.Level())
+	}
+	withCanary := spec
+	withCanary.ReleaseFence, withCanary.RequiresBinary = &gated, 15
+	if err := withCanary.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, broken := range map[string]func(*Canary){
+		"another role's secret": func(c *Canary) { c.Credentials.Name = "gru-1-ts-auth-api-key" },
+		"no project":            func(c *Canary) { c.Project = "" },
+		"bad database":          func(c *Canary) { c.Database = "Canary DB" },
+		"auth path":             func(c *Canary) { c.AuthURL = "https://gru.auth.terrascale.tech/terrascale" },
+		"plain api":             func(c *Canary) { c.APIURL = "http://gru.api.terrascale.tech" },
+		"plain dashboard":       func(c *Canary) { c.DashboardLoginURL = "http://dash.terrascale.tech/login" },
+	} {
+		invalid := canary
+		broken(&invalid)
+		next := withCanary
+		next.ReleaseFence = &ReleaseFence{LoadBalancerID: fence.LoadBalancerID, BackendSets: fence.BackendSets, Canary: &invalid}
+		if err := next.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("canary %s: %v", name, err)
+		}
+	}
 	for name, broken := range map[string]func(*ReleaseFence){
 		"not a load balancer": func(f *ReleaseFence) { f.LoadBalancerID = "ocid1.instance.oc1..x" },
 		"no sets":             func(f *ReleaseFence) { f.BackendSets = nil },
@@ -1248,6 +1278,7 @@ func TestReleaseFenceLevelValidateAndDiff(t *testing.T) {
 	}{
 		"add":    {after: &fence, change: "added"},
 		"change": {before: &fence, after: &moved, change: "updated"},
+		"canary": {before: &fence, after: &gated, change: "updated"},
 		"keep":   {before: &fence, after: &fence},
 		"remove": {before: &fence, change: "removed"},
 	} {

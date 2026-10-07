@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -221,14 +222,20 @@ func (f *releaseFence) prepare(ctx context.Context, intent delivery.Intent) erro
 	if _, err := f.leading(ctx); err != nil {
 		return err
 	}
-	_, err := f.kv.Put(ctx, sequencedKey(intent.Role, intent.Generation), []byte("{}"))
+	// A release issued again keeps its mark, and with it its canary.
+	_, err := f.kv.Create(ctx, sequencedKey(intent.Role, intent.Generation), []byte("{}"))
+	if errors.Is(err, jetstream.ErrKeyExists) {
+		return nil
+	}
 	return err
 }
 
 // sequence restarts the nodes of an accepted, sequenced release one at a
 // time and opens the release to every restart once each node serves it. A
-// node that fails the release keeps its backends fenced.
-func (f *releaseFence) sequence(ctx context.Context, intent delivery.Intent) error {
+// node that fails the release keeps its backends fenced. With gate and the
+// fence's canary, the first node must pass gate before the next restarts
+// (TS-623); a rollback passes a nil gate.
+func (f *releaseFence) sequence(ctx context.Context, intent delivery.Intent, gate canaryGate) error {
 	role, release := intent.Role, intent.Generation
 	// Without a fence every recorded backend returns first, whether or not
 	// this release was marked.
@@ -277,6 +284,12 @@ func (f *releaseFence) sequence(ctx context.Context, intent delivery.Intent) err
 		}
 	}
 	grace, settle := durationOr(spec.DrainGraceSeconds, defaultFenceGrace), durationOr(spec.SettleSeconds, defaultFenceSettle)
+	var canary *canaryRecord
+	if gate != nil && spec.Canary != nil {
+		if canary, err = f.canary(ctx, role, release); err != nil {
+			return err
+		}
+	}
 	// The workload reconciler may move the release's replicas while it
 	// rolls, so the allocations are read again after every node: a node it
 	// adds is fenced and permitted before the release opens.
@@ -291,10 +304,39 @@ nodes:
 		if !found {
 			break
 		}
+		if canary != nil && canary.Node != "" && !canary.Passed && node != canary.Node && !done[canary.Node] {
+			// A new leader resumes with the canary, whichever node another
+			// fence holds out.
+			if allocated, err := f.allocated(ctx, role, release, canary.Node); err != nil {
+				return err
+			} else if allocated {
+				node = canary.Node
+			} else {
+				*canary = canaryRecord{}
+			}
+		}
 		done[node], nodes = true, append(nodes, node)
 		state, err := f.nodeState(ctx, role, release, node)
 		if err != nil {
 			return err
+		}
+		target := canaryTarget{Role: role, Node: node, Address: addresses[node]}
+		if spec.Canary != nil {
+			target.Canary = *spec.Canary
+		}
+		if canary != nil && canary.Node == "" {
+			// The first node is the canary. Its baseline is taken before it
+			// changes; one that already serves the release has none, so
+			// every check must pass.
+			canary.Node = node
+			if state != "running" {
+				canary.Baseline = slices.Sorted(maps.Keys(gate(ctx, target)))
+				slog.Info("release canary baseline", observability.ComponentKey, "rollout", "role", role,
+					"release", release, "node", node, "failing", canary.Baseline)
+			}
+			if err := f.saveCanary(ctx, epoch, role, release, *canary); err != nil {
+				return err
+			}
 		}
 		if state != "running" {
 			if err := f.fence(ctx, api, epoch, *spec, node, addresses[node], grace, holdRelease); err != nil {
@@ -310,7 +352,7 @@ nodes:
 				"release", release, "node", node)
 			for state != "running" {
 				if state == "failed" {
-					return fmt.Errorf("%s replica %s failed release %d; its backends stay fenced", role, node, release)
+					return fmt.Errorf("%w: %s replica %s failed release %d; its backends stay fenced", errBadRelease, role, node, release)
 				}
 				if err := f.wait(ctx, epoch, fencePoll); err != nil {
 					return fmt.Errorf("%s replica %s did not serve release %d: %w", role, node, release, err)
@@ -326,11 +368,25 @@ nodes:
 					if _, err := f.restore(ctx, api, epoch, node, holdRelease, false); err != nil {
 						return err
 					}
+					if canary != nil && canary.Node == node && !canary.Passed {
+						// The next node is the canary.
+						*canary = canaryRecord{}
+						if err := f.saveCanary(ctx, epoch, role, release, *canary); err != nil {
+							return err
+						}
+					}
 					continue nodes
 				}
 				if state, err = f.nodeState(ctx, role, release, node); err != nil {
 					return err
 				}
+			}
+		}
+		if canary != nil && canary.Node == node && !canary.Passed {
+			// Still out of rotation: the release reaches no other node
+			// unless the canary passes.
+			if err := f.gateCanary(ctx, epoch, gate, target, release, canary); err != nil {
+				return err
 			}
 		}
 		returned, err := f.restore(ctx, api, epoch, node, holdRelease, true)
@@ -381,6 +437,60 @@ func (f *releaseFence) nextNode(ctx context.Context, role string, release uint64
 		}
 	}
 	return best, found, nil
+}
+
+// canary reads release's canary from its mark.
+func (f *releaseFence) canary(ctx context.Context, role string, release uint64) (*canaryRecord, error) {
+	entry, err := f.kv.Get(ctx, sequencedKey(role, release))
+	if err != nil {
+		return nil, err
+	}
+	var record canaryRecord
+	if err := json.Unmarshal(entry.Value(), &record); err != nil {
+		return nil, fmt.Errorf("decode the canary of %s release %d: %w", role, release, err)
+	}
+	return &record, nil
+}
+
+func (f *releaseFence) saveCanary(ctx context.Context, epoch uint64, role string, release uint64, record canaryRecord) error {
+	wire, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	if err := f.fencer.Guard(ctx, epoch); err != nil {
+		return err
+	}
+	_, err = f.kv.Put(ctx, sequencedKey(role, release), wire)
+	return err
+}
+
+// gateCanary runs gate against the canary, which serves the release, until
+// no check that passed in its baseline fails, at most canaryAttempts times;
+// it fails the release otherwise.
+func (f *releaseFence) gateCanary(ctx context.Context, epoch uint64, gate canaryGate, target canaryTarget, release uint64,
+	canary *canaryRecord,
+) error {
+	started := time.Now()
+	failed := gate(ctx, target)
+	regressions := canary.regressions(failed)
+	for attempt := 1; len(regressions) > 0 && attempt < canaryAttempts; attempt++ {
+		slog.Warn("release canary failed a check; retrying", observability.ComponentKey, "rollout", "role", target.Role,
+			"release", release, "node", target.Node, "failed", regressions)
+		if err := f.wait(ctx, epoch, canaryRetry); err != nil {
+			return err
+		}
+		failed = gate(ctx, target)
+		regressions = canary.regressions(failed)
+	}
+	if len(regressions) > 0 {
+		return fmt.Errorf("%w: %s canary %s failed release %d's gate (%s); its backends stay fenced", errBadRelease,
+			target.Role, target.Node, release, strings.Join(regressions, "; "))
+	}
+	canary.Passed = true
+	slog.Info("release canary passed", observability.ComponentKey, "rollout", "role", target.Role, "release", release,
+		"node", target.Node, "took", time.Since(started).Round(time.Second), "failing_before", canary.Baseline,
+		"failing", slices.Sorted(maps.Keys(failed)))
+	return f.saveCanary(ctx, epoch, target.Role, release, *canary)
 }
 
 // allocated reports whether node has an active allocation of role at
@@ -454,6 +564,9 @@ func (f *releaseFence) allowance(replicas int) time.Duration {
 	}
 	perNode := durationOr(spec.DrainGraceSeconds, defaultFenceGrace) + durationOr(spec.SettleSeconds, defaultFenceSettle) +
 		5*time.Minute
+	if spec.Canary != nil {
+		return time.Duration(replicas)*perNode + canaryAllowance
+	}
 	return time.Duration(replicas) * perNode
 }
 

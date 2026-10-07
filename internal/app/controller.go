@@ -834,6 +834,14 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if policy.rollouts.follow && policy.rollouts.channel != nil {
 		releases := &serviceReleases{cell: cfg.NATS.Cell, channel: policy.rollouts.channel, deliveries: service,
 			hosts: hostController, profiles: services.profiles, fencer: control, fences: fences}
+		var memberCA []byte
+		if terraBaseCA != nil {
+			memberCA = terraBaseCA.CertificatePEM()
+		}
+		releases.canary = newSmokeGate(memberCA, func() int {
+			profile, _ := terrabase.ParseProfile(services.profiles()[terrabase.Role].Env)
+			return profile.ClientPort
+		}).check
 		workers.Go(func() { releases.run(runCtx, runtime.JetStream(), cfg.NATS.Replicas) })
 	}
 	if policy.nodes != nil {

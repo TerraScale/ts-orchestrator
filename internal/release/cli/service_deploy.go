@@ -83,7 +83,11 @@ func (c command) serviceDeployWith(args []string, env deployEnv) error {
 	}
 	defer clear(private)
 
+	// The elapsed times measure CI green to rolled out (TS-623): the job
+	// starts once the tests passed.
+	started := time.Now()
 	for _, cell := range cells {
+		cellStarted := time.Now()
 		// The NATS cell is the lower-case logical cell.
 		request := delivery.ArtifactClaimRequest{Source: delivery.ArtifactSource{Repository: *repository, Commit: *commit,
 			TreeDigest: tree}, Cell: strings.ToLower(cell), Role: *role, Environment: *environment}
@@ -117,9 +121,11 @@ func (c command) serviceDeployWith(args []string, env deployEnv) error {
 		fmt.Fprintf(c.output, "%s %s published: %s %s\n", cell, *role, digest, *commit)
 		if err := releasechannel.AwaitService(c.ctx, location, cell, *role, digest, issued, *poll,
 			time.Now().Add(*regionTimeout), c.output); err != nil {
-			return fmt.Errorf("service rollout stopped: %w", err)
+			return fmt.Errorf("service rollout stopped after %s: %w", time.Since(started).Round(time.Second), err)
 		}
+		fmt.Fprintf(c.output, "%s %s rolled out in %s\n", cell, *role, time.Since(cellStarted).Round(time.Second))
 	}
-	_, err = fmt.Fprintf(c.output, "%s complete: %s %s in %s\n", *role, digest, *commit, strings.Join(cells, " "))
+	_, err = fmt.Fprintf(c.output, "%s complete: %s %s in %s after %s\n", *role, digest, *commit, strings.Join(cells, " "),
+		time.Since(started).Round(time.Second))
 	return err
 }

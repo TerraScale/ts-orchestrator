@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"maps"
 	"net/netip"
+	"net/url"
 	"reflect"
 	"regexp"
 	"slices"
@@ -57,8 +58,9 @@ const (
 	// the desired OCI resources, level 8 the trusted signers, level 9 the
 	// launch image, level 10 the artifact store quota, level 11 the Atlas
 	// publisher, level 12 the release fence, level 13 a fenced set's
-	// min_serving, level 14 a fenced set's role.
-	BinaryLevel = 14
+	// min_serving, level 14 a fenced set's role, level 15 the release
+	// fence's canary.
+	BinaryLevel = 15
 	// MaxHostImages bounds the image allow-list: the images a rollout moves
 	// between, plus room to stage the next one.
 	MaxHostImages = 4
@@ -199,6 +201,60 @@ type ReleaseFence struct {
 	BackendSets       []FencedSet `json:"backend_sets"`
 	DrainGraceSeconds int         `json:"drain_grace_seconds,omitzero"`
 	SettleSeconds     int         `json:"settle_seconds,omitzero"`
+	// Canary gates each release on its first node (TS-623): once the node
+	// serves the release, still out of rotation, the leader runs live
+	// checks against it before any other node restarts. Nil gates nothing.
+	Canary *Canary `json:"canary,omitempty"`
+}
+
+// Canary is what a release fence's canary gate checks with: credentials of
+// a test project, read from Vault, and the database of that project the
+// gate writes a document in. AuthURL and APIURL are the cell's public
+// ts-auth and TerraBase origins, used for the role the canary does not run;
+// DashboardLoginURL, when set, is the dashboard's sign-in page.
+type Canary struct {
+	Credentials       vaultsecret.Ref `json:"credentials"`
+	Project           string          `json:"project"`
+	Database          string          `json:"database"`
+	AuthURL           string          `json:"auth_url"`
+	APIURL            string          `json:"api_url"`
+	DashboardLoginURL string          `json:"dashboard_login_url,omitempty"`
+}
+
+// CanaryRole and CanaryKey name the canary's Vault secret:
+// <cell>-<n>-canary-credentials.
+const (
+	CanaryRole = "canary"
+	CanaryKey  = "CANARY_CREDENTIALS"
+)
+
+var (
+	// canaryProjectRE admits a ts-auth project id, such as a UUID.
+	canaryProjectRE  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
+	canaryDatabaseRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)
+)
+
+func (c Canary) validate(cell string) error {
+	if err := vaultsecret.ValidateRefs(cell, CanaryRole, map[string]vaultsecret.Ref{CanaryKey: c.Credentials}, nil); err != nil {
+		return fmt.Errorf("%w: release_fence canary: %w", ErrInvalid, err)
+	}
+	if !canaryProjectRE.MatchString(c.Project) || !canaryDatabaseRE.MatchString(c.Database) || !originURL(c.AuthURL) ||
+		!originURL(c.APIURL) || c.DashboardLoginURL != "" && !httpsURL(c.DashboardLoginURL) {
+		return fmt.Errorf("%w: release_fence canary needs a project, a database name and https auth_url and api_url origins", ErrInvalid)
+	}
+	return nil
+}
+
+// httpsURL reports an absolute https URL without credentials.
+func httpsURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil && len(raw) <= 2048
+}
+
+// originURL reports an https origin: no path, query or fragment.
+func originURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	return httpsURL(raw) && err == nil && parsed.Path == "" && parsed.RawQuery == "" && parsed.Fragment == ""
 }
 
 // FencedSet is one backend set; a node's backend in it is the node's
@@ -231,7 +287,7 @@ func (s FencedSet) Min() int {
 // MaxFencedSets bounds a release fence's backend sets.
 const MaxFencedSets = 8
 
-func (f ReleaseFence) validate() error {
+func (f ReleaseFence) validate(cell string) error {
 	if !strings.HasPrefix(f.LoadBalancerID, "ocid1.loadbalancer.") || len(f.LoadBalancerID) > 255 ||
 		strings.ContainsAny(f.LoadBalancerID, " \t\r\n/") {
 		return fmt.Errorf("%w: release_fence load_balancer_id must be a load balancer OCID", ErrInvalid)
@@ -252,6 +308,9 @@ func (f ReleaseFence) validate() error {
 	}
 	if f.DrainGraceSeconds < 0 || f.DrainGraceSeconds > 300 || f.SettleSeconds < 0 || f.SettleSeconds > 300 {
 		return fmt.Errorf("%w: release_fence drain_grace_seconds and settle_seconds must be between 0 and 300", ErrInvalid)
+	}
+	if f.Canary != nil {
+		return f.Canary.validate(cell)
 	}
 	return nil
 }
@@ -441,7 +500,7 @@ func (s Spec) Validate() error {
 		}
 	}
 	if s.ReleaseFence != nil {
-		if err := s.ReleaseFence.validate(); err != nil {
+		if err := s.ReleaseFence.validate(s.Identity.Cell); err != nil {
 			return err
 		}
 	}
@@ -543,6 +602,9 @@ func (s Spec) Level() uint64 {
 		}
 		if slices.ContainsFunc(s.ReleaseFence.BackendSets, func(set FencedSet) bool { return set.Role != "" }) {
 			level = 14
+		}
+		if s.ReleaseFence.Canary != nil {
+			level = 15
 		}
 	}
 	return level

@@ -160,6 +160,10 @@ var errRollbackUnfinished = errors.New("the rollback has not finished")
 // was submitted.
 var errRecoveryNotStarted = errors.New("the rollback was not started")
 
+// errBadRelease is evidence against a release itself: a replica reported it
+// failed, or its canary failed the gate. A timeout or a lost lease is not.
+var errBadRelease = errors.New("the release is bad")
+
 // nativeDeployer rolls a native role out to an admitted release through the
 // readiness gate and rolls a release that fails it back. The operator's
 // release commands and the leader's service release channel (TS-610) share
@@ -168,12 +172,15 @@ type nativeDeployer struct {
 	service *delivery.Service
 	hosts   seatrollout.Hosts
 	submit  func(context.Context, delivery.Intent) (delivery.Intent, string, error)
-	// recovering, when set, records the rollback intent before roll
-	// submits it and returns the intent to submit.
-	recovering func(context.Context, delivery.Intent) (delivery.Intent, error)
+	// recovering, when set, records the rollback intent, and the gate error
+	// that caused it, before roll submits it and returns the intent to
+	// submit.
+	recovering func(context.Context, delivery.Intent, error) (delivery.Intent, error)
 	// sequence, when set, restarts an accepted intent's nodes one at a
-	// time (a release fence) before the readiness gate counts them.
-	sequence func(context.Context, delivery.Intent) error
+	// time (a release fence) before the readiness gate counts them, the
+	// first passing canary when it is set (TS-623).
+	sequence func(context.Context, delivery.Intent, canaryGate) error
+	canary   canaryGate
 }
 
 // current returns the digest the role's running replicas serve, the
@@ -229,13 +236,15 @@ func (d nativeDeployer) roll(ctx context.Context, intent delivery.Intent, rollba
 	}
 	intent.Source, intent.ArtifactDigest, intent.ManifestDigest = rollback.Source, rollback.Digest, rollback.ManifestDigest
 	intent.OperationID, intent.AuthorityEpoch, intent.Generation = "", 0, generation+1
+	// A rollback restores what served before; no canary gates it.
+	d.canary = nil
 	// A fresh context with its own deadline: the command's context may be
 	// the one that expired or was interrupted.
 	recovery, cancel := context.WithTimeout(context.Background(), wait+time.Minute)
 	defer cancel()
 	if d.recovering != nil {
 		var err error
-		if intent, err = d.recovering(recovery, intent); err != nil {
+		if intent, err = d.recovering(recovery, intent, gateErr); err != nil {
 			return fmt.Errorf("%s release %s failed its readiness gate (%w): %w: %w", role, digest, gateErr, errRecoveryNotStarted, err)
 		}
 	}
@@ -292,7 +301,7 @@ func (d nativeDeployer) rollOut(ctx context.Context, intent delivery.Intent, wai
 					return true, err
 				}
 				if d.sequence != nil {
-					if err := d.sequence(gateCtx, intent); err != nil {
+					if err := d.sequence(gateCtx, intent, d.canary); err != nil {
 						return true, err
 					}
 				}
@@ -405,7 +414,7 @@ func terraBaseReady(statuses []host.HostStatus, intent delivery.Intent, now time
 				continue
 			}
 			if report.State == "failed" {
-				return false, fmt.Errorf("%s replica %s failed: %s", intent.Role, report.Node, report.Error)
+				return false, fmt.Errorf("%w: %s replica %s failed: %s", errBadRelease, intent.Role, report.Node, report.Error)
 			}
 			if report.State == "running" && now.Sub(report.ObservedAt) < host.ReportMaxAge {
 				running++

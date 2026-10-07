@@ -67,6 +67,9 @@ type serviceReleases struct {
 	// fences restarts each release one node at a time when the cell spec
 	// has a release fence; nil restarts every replica at once.
 	fences *releaseFence
+	// canary gates a fenced release on its first node when the fence has
+	// a canary (TS-623).
+	canary canaryGate
 	// interval is how often the channels are read; zero means
 	// defaultChannelInterval.
 	interval time.Duration
@@ -172,7 +175,14 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 			case !issued.After(state.IssuedAt):
 				return fmt.Errorf("release.json holds a claim issued at %s, not after the cell's last %s release", issued, role)
 			}
-			if age := time.Since(issued); age > serviceReleaseMaxAge {
+			if bad, found, err := knownBad(ctx, kv, role, record.Digest); err != nil {
+				return err
+			} else if found {
+				next.State, next.Reason = releasechannel.StateFailed,
+					fmt.Sprintf("%s %s is known bad in this cell since %s (%s); release a new build", role, record.Digest,
+						bad.At.Format(time.RFC3339), bad.Reason)
+			}
+			if age := time.Since(issued); next.State == releasechannel.StateRolling && age > serviceReleaseMaxAge {
 				next.State, next.Reason = releasechannel.StateFailed,
 					fmt.Sprintf("the claim was issued %s ago, more than %s; run the release again", age.Round(time.Second), serviceReleaseMaxAge)
 			}
@@ -187,7 +197,7 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 		}
 		state.claim, state.location = claim, location
 	}
-	finished, err := r.release(ctx, role, state, func(next serviceReleaseState) error {
+	finished, err := r.release(ctx, kv, role, state, func(next serviceReleaseState) error {
 		state = next
 		if revision, err = saveServiceRelease(ctx, kv, key, state, revision); err != nil {
 			return err
@@ -229,7 +239,7 @@ func (r *serviceReleases) verify(ctx context.Context, role string, claim []byte)
 // changed or rolled back. save records progress; an error from release or
 // save means the release may be retried, and a release whose rollback has
 // not finished stays rolling.
-func (r *serviceReleases) release(ctx context.Context, role string, state serviceReleaseState,
+func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, role string, state serviceReleaseState,
 	save func(serviceReleaseState) error,
 ) (serviceReleaseState, error) {
 	failed := func(err error) (serviceReleaseState, error) {
@@ -311,7 +321,9 @@ func (r *serviceReleases) release(ctx context.Context, role string, state servic
 				return state, err
 			}
 		}
-		if _, err := r.deployer(state.Actor, nil).rollOut(ctx, intent, wait, progress); err != nil {
+		deployer := r.deployer(state.Actor, nil)
+		deployer.canary = nil
+		if _, err := deployer.rollOut(ctx, intent, wait, progress); err != nil {
 			return unfinished(err)
 		}
 		return failed(fmt.Errorf("%s release %s failed its readiness gate and was rolled back to %s", role, state.Digest, state.Previous))
@@ -326,7 +338,13 @@ func (r *serviceReleases) release(ctx context.Context, role string, state servic
 			return state, err
 		}
 	}
-	deployer := r.deployer(state.Actor, func(ctx context.Context, rollback delivery.Intent) (delivery.Intent, error) {
+	deployer := r.deployer(state.Actor, func(ctx context.Context, rollback delivery.Intent, cause error) (delivery.Intent, error) {
+		// Recorded before the rollback: the cell never releases it again.
+		if errors.Is(cause, errBadRelease) {
+			if err := markKnownBad(ctx, kv, role, state.Digest, cause); err != nil {
+				return rollback, err
+			}
+		}
 		rollback.SchemaVersion, rollback.OperationID = delivery.SchemaVersion, uuid.New().String()
 		rollback.AuthorityEpoch = r.fencer.Current().Epoch
 		state.Rollback, state.Reason = &rollback, "rolling back to "+state.Previous
@@ -399,7 +417,7 @@ func (r *serviceReleases) fresh(ctx context.Context, role string, intent deliver
 // deployer submits intents for actor, the signer of the release's claim,
 // under the leader's current authority epoch; recovering records a
 // rollback before it is submitted.
-func (r *serviceReleases) deployer(actor string, recovering func(context.Context, delivery.Intent) (delivery.Intent, error)) nativeDeployer {
+func (r *serviceReleases) deployer(actor string, recovering func(context.Context, delivery.Intent, error) (delivery.Intent, error)) nativeDeployer {
 	deployer := nativeDeployer{service: r.deliveries, hosts: r.hosts, recovering: recovering,
 		submit: func(ctx context.Context, intent delivery.Intent) (delivery.Intent, string, error) {
 			if !r.fencer.Current().CanMutate() {
@@ -423,7 +441,7 @@ func (r *serviceReleases) deployer(actor string, recovering func(context.Context
 			return intent, fingerprint, r.deliveries.SubmitVerified(ctx, intent, actor)
 		}}
 	if r.fences != nil {
-		deployer.sequence = r.fences.sequence
+		deployer.sequence, deployer.canary = r.fences.sequence, r.canary
 	}
 	return deployer
 }
@@ -453,6 +471,40 @@ func (r *serviceReleases) report(ctx context.Context, role string, state service
 	slog.Info("service release status", observability.ComponentKey, "rollout", "role", role, "digest", status.Digest,
 		"state", status.State, "reason", status.Reason)
 	return releasechannel.WriteServiceStatus(ctx, location, status)
+}
+
+// knownBadRecord withdraws a release digest from a cell: one rolled back
+// on evidence against it (errBadRelease), not on a timeout (TS-623).
+// Remove the knownBadKey entry only after review.
+type knownBadRecord struct {
+	At     time.Time `json:"at"`
+	Reason string    `json:"reason"`
+}
+
+func knownBadKey(role, digest string) string { return "knownbad." + role + "." + digest }
+
+func knownBad(ctx context.Context, kv jetstream.KeyValue, role, digest string) (knownBadRecord, bool, error) {
+	entry, err := kv.Get(ctx, knownBadKey(role, digest))
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return knownBadRecord{}, false, nil
+	}
+	if err != nil {
+		return knownBadRecord{}, false, err
+	}
+	var record knownBadRecord
+	if err := json.Unmarshal(entry.Value(), &record); err != nil {
+		return knownBadRecord{}, false, fmt.Errorf("decode %s: %w", entry.Key(), err)
+	}
+	return record, true, nil
+}
+
+func markKnownBad(ctx context.Context, kv jetstream.KeyValue, role, digest string, cause error) error {
+	wire, err := json.Marshal(knownBadRecord{At: time.Now().UTC(), Reason: releasechannel.Clip(cause.Error())})
+	if err != nil {
+		return err
+	}
+	_, err = kv.Put(ctx, knownBadKey(role, digest), wire)
+	return err
 }
 
 func loadServiceRelease(ctx context.Context, kv jetstream.KeyValue, key string) (serviceReleaseState, uint64, error) {

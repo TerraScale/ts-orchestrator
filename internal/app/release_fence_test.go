@@ -277,7 +277,7 @@ func TestReleaseFenceRestartsOneFencedNodeAtATime(t *testing.T) {
 	if granted, err := cell.gate(ctx, "ctl-1", host.Desired{Role: "ts-auth", Generation: 7 << 24}); err != nil || granted {
 		t.Fatalf("an unpermitted node may restart: %v %v", granted, err)
 	}
-	if err := fence.sequence(ctx, intent); err != nil {
+	if err := fence.sequence(ctx, intent, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(cell.restarts, []string{"ctl-1", "ctl-2", "ctl-3"}) {
@@ -314,7 +314,7 @@ func TestReleaseFenceKeepsTheLastHealthyBackend(t *testing.T) {
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent); err == nil || !strings.Contains(err.Error(), "last healthy") {
+	if err := fence.sequence(ctx, intent, nil); err == nil || !strings.Contains(err.Error(), "last healthy") {
 		t.Fatalf("fenced the last healthy backend: %v", err)
 	}
 	if len(balancer.log) != 0 {
@@ -329,7 +329,7 @@ func TestReleaseFenceLeavesAFailedNodeFencedAndANewLeaderReturnsIt(t *testing.T)
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent); err == nil || !strings.Contains(err.Error(), "stay fenced") {
+	if err := fence.sequence(ctx, intent, nil); err == nil || !strings.Contains(err.Error(), "stay fenced") {
 		t.Fatalf("a failed node: %v", err)
 	}
 	if balancer.sets["terrabase"][0].Serving() || !slices.Equal(cell.restarts, []string{"ctl-1"}) {
@@ -341,7 +341,7 @@ func TestReleaseFenceLeavesAFailedNodeFencedAndANewLeaderReturnsIt(t *testing.T)
 	// The node serves after all (a rollback, say): the next sequence of the
 	// release, here by a new leader, returns its backends and goes on.
 	cell.broken["ctl-1"] = false
-	if err := fence.sequence(ctx, intent); err != nil {
+	if err := fence.sequence(ctx, intent, nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, backend := range balancer.sets["terrabase"] {
@@ -361,7 +361,7 @@ func TestReleaseFenceWithoutASpecRestartsEveryNode(t *testing.T) {
 	if granted, err := cell.gate(ctx, "ctl-2", host.Desired{Role: "ts-auth", Generation: 7 << 24}); err != nil || !granted {
 		t.Fatalf("an unsequenced release is held: %v %v", granted, err)
 	}
-	if err := fence.sequence(ctx, intent); err != nil || len(balancer.log) != 0 {
+	if err := fence.sequence(ctx, intent, nil); err != nil || len(balancer.log) != 0 {
 		t.Fatalf("sequence %v, load balancer %q", err, balancer.log)
 	}
 }
@@ -379,7 +379,7 @@ func TestReleaseFenceFinishesAPartWayFence(t *testing.T) {
 		`"set":"terrabase","ip":"10.0.0.11","port":9465}]}`)); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent); err != nil {
+	if err := fence.sequence(ctx, intent, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(cell.restarts, []string{"ctl-1", "ctl-2", "ctl-3"}) || balancer.log[0] != "terrabase 10.0.0.11:9465 drain" ||
@@ -398,7 +398,7 @@ func TestReleaseFenceRestoresTheRecordedLoadBalancer(t *testing.T) {
 		if err := fence.prepare(ctx, intent); err != nil {
 			t.Fatal(err)
 		}
-		if err := fence.sequence(ctx, intent); err == nil {
+		if err := fence.sequence(ctx, intent, nil); err == nil {
 			t.Fatal("a failed node passed")
 		}
 		cell.broken["ctl-1"], cell.unfenced = false, true
@@ -409,7 +409,7 @@ func TestReleaseFenceRestoresTheRecordedLoadBalancer(t *testing.T) {
 		}
 		fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return moved, fenceAddresses }
 		balancer.ids = nil
-		if err := fence.sequence(ctx, intent); err != nil {
+		if err := fence.sequence(ctx, intent, nil); err != nil {
 			t.Fatal(err)
 		}
 		if !balancer.sets["terrabase"][0].Serving() || len(balancer.ids) == 0 || balancer.ids[0] != "ocid1.loadbalancer.oc1..x" {
@@ -430,7 +430,7 @@ func TestReleaseFenceStopsOnALostLease(t *testing.T) {
 	// balancer change: the lease, sequence and fence record pass first.
 	lease := fence.fencer.(*fenceLease)
 	lease.lose = lease.guards + 3
-	if err := fence.sequence(ctx, intent); !errors.Is(err, authority.ErrFenced) {
+	if err := fence.sequence(ctx, intent, nil); !errors.Is(err, authority.ErrFenced) {
 		t.Fatalf("sequence after the lease was lost: %v", err)
 	}
 	if len(balancer.log) != 0 || len(cell.restarts) != 0 {
@@ -450,7 +450,7 @@ func TestReleaseFenceRollsBackTheFencedNodeFirst(t *testing.T) {
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent); err == nil {
+	if err := fence.sequence(ctx, intent, nil); err == nil {
 		t.Fatal("a failed node passed")
 	}
 	// The rollback, a newer release that ctl-2 serves.
@@ -461,7 +461,7 @@ func TestReleaseFenceRollsBackTheFencedNodeFirst(t *testing.T) {
 	}
 	limited, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	if err := fence.sequence(limited, rollback); err != nil {
+	if err := fence.sequence(limited, rollback, nil); err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
 	if !slices.Equal(cell.restarts, []string{"ctl-2", "ctl-1"}) {
@@ -523,7 +523,7 @@ func TestReleaseFenceNeedsAnotherHealthyNode(t *testing.T) {
 		if err := fence.prepare(ctx, intent); err != nil {
 			t.Fatal(err)
 		}
-		if err := fence.sequence(ctx, intent); err == nil {
+		if err := fence.sequence(ctx, intent, nil); err == nil {
 			t.Errorf("%s: the release went on", name)
 		}
 		cancel()
@@ -560,7 +560,7 @@ func TestReleaseFenceChecksTheAlternativeAtEachChange(t *testing.T) {
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent); err == nil || !strings.Contains(err.Error(), "last healthy") {
+	if err := fence.sequence(ctx, intent, nil); err == nil || !strings.Contains(err.Error(), "last healthy") {
 		t.Fatalf("sequence: %v", err)
 	}
 	if slices.Contains(balancer.log, "terrabase 10.0.0.11:9465 offline") || len(cell.restarts) != 0 {
@@ -583,7 +583,7 @@ func TestReleaseFenceResumesADrainedBackendOnlyBesideAnAlternative(t *testing.T)
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent); err == nil {
+	if err := fence.sequence(ctx, intent, nil); err == nil {
 		t.Fatal("the resumed fence went on")
 	}
 	if len(balancer.log) != 0 || len(cell.restarts) != 0 {
@@ -623,7 +623,7 @@ func TestReleaseFenceSweepsOlderReleases(t *testing.T) {
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent); err != nil {
+	if err := fence.sequence(ctx, intent, nil); err != nil {
 		t.Fatal(err)
 	}
 	keys, err := kv.ListKeys(ctx)
@@ -655,7 +655,7 @@ func TestReleaseFenceDroppedReturnsLeftBackends(t *testing.T) {
 		if err := fence.prepare(ctx, intent); err != nil {
 			t.Fatal(err)
 		}
-		if err := fence.sequence(ctx, intent); err == nil {
+		if err := fence.sequence(ctx, intent, nil); err == nil {
 			t.Fatal("a failed node passed")
 		}
 		fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return nil, fenceAddresses }
@@ -664,7 +664,7 @@ func TestReleaseFenceDroppedReturnsLeftBackends(t *testing.T) {
 			t.Fatal(err)
 		}
 		if through == "release" {
-			if err := fence.sequence(ctx, next); err != nil {
+			if err := fence.sequence(ctx, next, nil); err != nil {
 				t.Fatal(err)
 			}
 		} else if err := fence.reconcile(ctx); err != nil {
@@ -687,7 +687,7 @@ func TestReleaseFenceKeepsABackendsWeight(t *testing.T) {
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent); err != nil {
+	if err := fence.sequence(ctx, intent, nil); err != nil {
 		t.Fatal(err)
 	}
 	if weight, backup := balancer.sets["terrabase"][1].Shape(); weight != 3 || backup || !balancer.sets["terrabase"][1].Serving() {
@@ -705,7 +705,7 @@ func TestReleaseFenceDroppedReturnsWithoutWaitingAndClearsMarks(t *testing.T) {
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent); err == nil {
+	if err := fence.sequence(ctx, intent, nil); err == nil {
 		t.Fatal("a failed node passed")
 	}
 	balancer.down["10.0.0.11:9465"] = true
@@ -747,7 +747,7 @@ func TestReleaseFenceCompletesALeftRecordForTheCurrentSpec(t *testing.T) {
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent); err == nil {
+	if err := fence.sequence(ctx, intent, nil); err == nil {
 		t.Fatal("a failed node passed")
 	}
 	if !balancer.sets["ts-auth"][1].Serving() {
@@ -759,7 +759,7 @@ func TestReleaseFenceCompletesALeftRecordForTheCurrentSpec(t *testing.T) {
 	if err := fence.prepare(ctx, next); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, next); err != nil {
+	if err := fence.sequence(ctx, next, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Contains(balancer.log, "ts-auth 10.0.0.12:8080 offline") || cell.restarts[0] != "ctl-2" {
@@ -818,7 +818,7 @@ func TestReleaseFenceFollowsReplicasTheReconcilerMoves(t *testing.T) {
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent); err != nil {
+	if err := fence.sequence(ctx, intent, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(cell.restarts, []string{"ctl-1", "ctl-2", "ctl-3"}) || !slices.Contains(balancer.log, "terrabase 10.0.0.13:9465 offline") {
@@ -838,7 +838,7 @@ func TestReleaseFenceDrainsAgainAfterACutShortRestore(t *testing.T) {
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent); err == nil {
+	if err := fence.sequence(ctx, intent, nil); err == nil {
 		t.Fatal("a failed node passed")
 	}
 	// The health check never passes in time: the backend is back in
@@ -857,7 +857,7 @@ func TestReleaseFenceDrainsAgainAfterACutShortRestore(t *testing.T) {
 	if err := fence.prepare(ctx, rollback); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, rollback); err != nil {
+	if err := fence.sequence(ctx, rollback, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(balancer.log) < 2 || balancer.log[0] != "terrabase 10.0.0.11:9465 drain" || balancer.log[1] != "terrabase 10.0.0.11:9465 offline" {
@@ -874,7 +874,7 @@ func TestReleaseFenceFencesABackupBackend(t *testing.T) {
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent); err != nil {
+	if err := fence.sequence(ctx, intent, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Contains(balancer.log, "terrabase 10.0.0.12:9465 offline") {
@@ -902,7 +902,7 @@ func TestReleaseFenceReturnsAWithdrawnNode(t *testing.T) {
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent); err != nil {
+	if err := fence.sequence(ctx, intent, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(cell.restarts, []string{"ctl-1", "ctl-2", "ctl-3"}) {
@@ -928,7 +928,7 @@ func TestReleaseFenceReturnsANodeAFailedReleaseLeft(t *testing.T) {
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent); err == nil {
+	if err := fence.sequence(ctx, intent, nil); err == nil {
 		t.Fatal("a failed node passed")
 	}
 	if balancer.sets["terrabase"][1].Serving() {
@@ -939,7 +939,7 @@ func TestReleaseFenceReturnsANodeAFailedReleaseLeft(t *testing.T) {
 	if err := fence.prepare(ctx, next); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, next); err != nil {
+	if err := fence.sequence(ctx, next, nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, set := range []string{"terrabase", "ts-auth"} {

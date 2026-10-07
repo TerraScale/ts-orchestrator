@@ -919,6 +919,79 @@ Limits of this part:
   database before merging the release, or its first node fails the gate
   and the release rolls back.
 
+#### Canary before every node (TS-623)
+
+Every CI release reaches one cell first and, inside each cell, one node
+first. `service-deploy` publishes to its `--cell`s in order and stops at the
+first that does not report the release `complete`, so later regions never
+see it. Inside a cell with a `release_fence`, the first node the fence
+restarts is the release's **canary**. With the fence's `canary` (cell spec
+level 15) the leader gates the release on it:
+
+1. Before the canary changes, the leader runs the canary gate against it
+   (the baseline) and records the node and the checks that already fail in
+   the release's mark, `fence.<role>.<release>`.
+2. It drains the canary, restarts it into the release and waits until it
+   reports the release `running` (`/healthz` and `/readyz`; a TerraBase
+   member is ready only once it caught up with the catalog primary).
+3. Still out of rotation, the canary must pass the gate again. A check that
+   passed in the baseline and fails now, three times 15 s apart, fails the
+   release: the canary keeps its backends out, the release rolls back (the
+   canary first, then returned to rotation) and the leader records the
+   digest in `knownbad.<role>.<digest>` before the rollback. The cell reports
+   `failed`, CI stops, and a known-bad digest is refused (`failed`, "known
+   bad") however often CI publishes it again: fix forward with a new build.
+   A replica that reports the release `failed` records it the same way; a
+   release that only timed out, or whose leader lost its lease, is rolled
+   back but not recorded, so it may run again once its cause is fixed.
+   Remove a record only after review.
+4. Once the canary passes it returns to rotation and the other nodes follow
+   one at a time, ungated.
+
+A check that already failed in the baseline is logged, not blamed on the
+release, so a broken dependency neither marks a good release bad nor
+blocks the release that fixes it. A rollback is never gated. A new leader
+resumes from the mark: it keeps the baseline, gates the recorded canary
+before any other node, and never gates a canary that passed. The canary
+adds 3 minutes to the release's readiness gate.
+
+The gate is `canaryGate` in `internal/app`; `smokeGate` is the focused
+smoke suite until TS-601's live cross-product E2E suite replaces it. It
+checks the canary's role on the canary over the private network and the
+other role through the cell's public origin (`auth_url`, `api_url`):
+
+| Check | What must hold |
+| --- | --- |
+| `ts-auth discovery` | `GET /terrascale/.well-known/openid-configuration` names an issuer, token endpoint and JWKS |
+| `ts-auth token` | With a ts-auth key in the credentials, `client_credentials` gets a bearer token for it; without one, an unknown well-formed key is refused as `invalid_client` (which still reads ts-auth's storage) |
+| `terrabase documents` | With the credentials' TerraBase key, else that token, in `project`/`database`: the `canary` collection exists (created on first use), a document is created with `If-None-Match: *`, read back with its ETag, replaced with `If-Match`, refused with 412 for the stale ETag, and deleted with `If-Match`. A TerraBase canary is reached at its private address, verified against the member CA |
+| `dashboard login` | Only with `dashboard_login_url`: the page answers 200 with the dashboard's own password form, never a redirect to ts-auth's hosted page |
+
+The credentials (Vault secret `<cell>-<n>-canary-credentials`) are a ts-auth
+API key (`tsk_…`), a TerraBase API key (`tb_…`) or both, separated by white
+space, of a dedicated test project: they reach only that project's database.
+TerraBase serves data routes to `tb_` keys until TS-589 moves them to ts-auth
+project tokens; then the ts-auth key alone covers both checks. Store the
+secret in the cell's control compartment (`gru-1-control`), which every
+controller reads. Reasons never contain a key or the token.
+
+`service-deploy` prints each cell's time and the total since the deploy job
+started, which runs once CI is green.
+
+Measured without a canary, from the CI deploy job's start (CI green) to the
+leader reporting `complete`: TerraBase `d214f55` (run 414, 2026-10-07) 9 min
+14 s on gru-1's three nodes: published after 19 s, admitted 15 s later, then
+8 min 40 s rolling, about 2 min 53 s per node. The canary adds its two gate
+runs (a few seconds each; a failing check is retried twice, 15 s apart) to the first node; the
+nodes already restart one at a time.
+
+Limits: without a `release_fence` there is no canary node (every replica
+restarts at once); with TerraBase seats the seat controller orders
+TerraBase, so only the fence's other roles are gated; a first release, with
+nothing to roll back to, fails without a known-bad record. The controllers'
+egress (the VCN, Oracle services and Cloudflare on 443) does not reach the
+dashboard on Fly, so `dashboard_login_url` needs an egress rule for it.
+
 #### gru-1 wiring
 
 Live since 2026-10-07. Names and OCIDs only; the secrets stay in OCI Vault

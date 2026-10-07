@@ -354,8 +354,16 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	assertTerraBaseMember(t, ctx, adminPort, member, runner, channelDigest)
 	// A second pass reports the finished release again and changes nothing.
 	pass(releasechannel.StateComplete, "")
-	publish(third, now.Add(time.Second))
+	thirdDigest := publish(third, now.Add(time.Second))
 	pass(releasechannel.StateFailed, "was rolled back to "+channelDigest)
+	assertTerraBaseMember(t, ctx, adminPort, member, runner, channelDigest)
+	// TS-623: the rolled-back digest is known bad; CI running it again
+	// never reaches the members.
+	if bad, found, err := knownBad(ctx, kv, terrabase.Role, thirdDigest); err != nil || !found || bad.Reason == "" {
+		t.Fatalf("known bad %+v %v %v", bad, found, err)
+	}
+	publish(third, now.Add(1500*time.Millisecond))
+	pass(releasechannel.StateFailed, "is known bad in this cell")
 	assertTerraBaseMember(t, ctx, adminPort, member, runner, channelDigest)
 	// A replayed older claim never reaches the members.
 	publish(viaChannel, now)
