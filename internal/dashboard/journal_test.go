@@ -278,7 +278,7 @@ func TestJournalPagesRenderProviderData(t *testing.T) {
 		"/releases":  {"Version matrix", "v0.43.0", "mixed versions", "rolled back", "signer-q4", "batch 1 of 3", "Target"},
 		"/rollouts":  {"Rollout phases", "batch-1", "Known-bad releases", "v0.42.9"},
 		"/ci":        {"v0.43.1-rc.1", "rolling upgrade", "Admitted release"},
-		"/topology":  {"<ts-topology", "region:fra", "member:fra:ctl-1", "seat:fra:orders/p0/s1", "NATS route"},
+		"/topology":  {`<svg class="topo"`, `data-node="ctl-1"`, "ts-orch controller", "Services + NATS"},
 		"/members":   {"Fleet CPU heatmap", "Capacity", "heatmap"},
 		"/nats":      {"Messages per second", "Leadership and quorum timeline", "Route RTT"},
 		"/terrabase": {"Seats by database", "Time to full", "Scaling and placement decisions", "Scaled the TerraBase pool up"},

@@ -43,6 +43,7 @@ type uiState struct {
 var pageParams = map[string]func(string) bool{
 	"id":       validSearch,
 	"host":     validToken,
+	"nats":     func(value string) bool { return value == "1" },
 	"db":       validToken,
 	"volume":   validToken,
 	"release":  validToken,

@@ -87,7 +87,7 @@ func New() *World {
 			history: observability.NewHistory(observability.HistoryConfig{Interval: sampleEvery}),
 			sampler: &observability.SnapshotSampler{}}
 		state.backfill(now)
-		state.provider = &regionview.Provider{Cell: region.name, Cluster: state, History: state.history,
+		state.provider = &regionview.Provider{Cell: region.name, Cluster: state, History: state.history, Nodes: region.nodes,
 			Decisions: regional{store: world.store, region: region.name}}
 		config := insights.Config{Region: region.name, Cluster: state, History: state.history,
 			Decisions: regional{store: world.store, region: region.name}, Interval: 5 * time.Second,

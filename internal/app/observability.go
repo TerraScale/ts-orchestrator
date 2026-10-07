@@ -149,6 +149,8 @@ type controllerObservation struct {
 	ociResources insights.OCIResourceProvider
 	// credentials are the controller's expiring credential files.
 	credentials []maintenance.CredentialFile
+	// nodes lists the cell's granted nodes for the topology view.
+	nodes func(context.Context) []regionview.Node
 }
 
 // attachController registers controller metrics, readiness checks and the

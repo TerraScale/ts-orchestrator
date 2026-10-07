@@ -219,17 +219,14 @@ progress.bad { --pico-progress-color: var(--ts-bad); }
 .narrow { max-width: 28rem; }
 
 /* ---- charts ---- */
-ts-chart, ts-topology, ts-map, ts-timeline { display: block; width: 100%; height: 14rem; position: relative; }
+ts-chart, ts-map, ts-timeline { display: block; width: 100%; height: 14rem; position: relative; }
 ts-chart.tall, ts-timeline.tall { height: 20rem; }
 ts-chart.short { height: 9rem; }
 ts-chart.gauge { height: 8.5rem; }
-/* The topology uses most of the viewport at most and shrinks to its
-   fitted graph (app.js sets the height). */
-ts-topology { height: clamp(26rem, calc(100dvh - 11rem), 64rem); max-height: clamp(26rem, calc(100dvh - 11rem), 64rem); }
 ts-map { height: 22rem; }
 ts-timeline { height: 12rem; }
 ts-sparkline { display: block; height: 1.9rem; width: 100%; color: var(--ts-info); }
-ts-chart:not(:defined), ts-topology:not(:defined), ts-map:not(:defined), ts-timeline:not(:defined) {
+ts-chart:not(:defined), ts-map:not(:defined), ts-timeline:not(:defined) {
   background: repeating-linear-gradient(90deg, var(--ts-plane), var(--ts-hairline) 40%, var(--ts-plane) 80%);
   background-size: 200% 100%; animation: ts-loading 1.4s linear infinite; border-radius: 0.4rem; opacity: 0.6;
 }
@@ -332,3 +329,24 @@ details.decision > summary { cursor: pointer; }
 .seat[data-dim] { opacity: 0.25; }
 .insight[aria-current] { box-shadow: 0 0 0 2px var(--ts-info), var(--ts-shadow); }
 .phase-row + .phase-row { margin-top: 0; }
+
+/* ---- topology: server-rendered SVG ---- */
+.topo-scroll { overflow-x: auto; }
+svg.topo { display: block; max-width: none; font: 12px/1.2 system-ui, sans-serif; }
+.topo text { fill: var(--ts-ink); }
+.topo .sub, .topo .detail { fill: var(--ts-ink-3); font-size: 11px; }
+.topo .region-name { font-weight: 700; font-size: 15px; }
+.topo .node-name, .topo .server-name { font-weight: 600; }
+.topo .region-box { fill: color-mix(in srgb, var(--ts-hairline) 35%, transparent); stroke: var(--ts-hairline); }
+.topo .sd { fill: var(--s, var(--ts-idle)); }
+.topo .sd.hub { stroke: var(--ts-ink); stroke-width: 1.5; }
+.topo .node .box { fill: var(--ts-surface); stroke: var(--s, var(--ts-hairline)); stroke-width: 1.5; }
+.topo .jetstream .box { fill: var(--ts-surface); stroke: var(--ts-hairline); }
+.topo a:hover .box, .topo a:focus-visible .box { stroke-width: 3; }
+.topo a, .topo text { text-decoration: none; }
+.topo a:hover text, .topo a:focus-visible text { text-decoration: underline; }
+.topo a:focus-visible { outline: 2px solid var(--ts-info); }
+.topo .edge { fill: none; stroke: var(--s, var(--ts-idle)); stroke-width: 1.6; }
+.topo .edge.s-idle, .topo .e-leaf { stroke-dasharray: 4 3; }
+.topo .edge.s-bad { stroke-width: 2.2; }
+.topo .edge-label { fill: var(--ts-ink-2); font-size: 11px; text-anchor: middle; }

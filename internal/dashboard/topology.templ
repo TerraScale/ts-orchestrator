@@ -1,23 +1,111 @@
 package dashboard
 
-// topologyBody is the force graph of regions, controllers, hosts and
-// TerraBase seats with NATS routes and leaf connections.
+// topologyBody draws every region's nodes and the services on them as
+// server-rendered SVG; nats=1 adds the NATS layer. The page stream patches
+// #content, so the graph follows the cell live.
 templ topologyBody(current view) {
 	<div id="content">
 		<div class="page-head">
 			<h1>Topology</h1>
+			<nav class="segmented" aria-label="Layers">
+				<a
+					href={ safe(current.State.keep("/topology", "nats", "")) }
+					if current.State.param("nats") != "1" {
+						aria-current="true"
+					}
+				>Services</a>
+				<a
+					href={ safe(current.State.keep("/topology", "nats", "1")) }
+					if current.State.param("nats") == "1" {
+						aria-current="true"
+					}
+				>Services + NATS</a>
+			</nav>
 			<span class="legend">
-				<span><span class="dot s-ok"></span>ready / serving</span>
-				<span><span class="dot s-run"></span>converging</span>
-				<span><span class="dot s-warn"></span>draining / degraded</span>
-				<span><span class="dot s-bad"></span>missing / not ready</span>
-				<span><span class="dot s-idle"></span>unknown</span>
+				<span><span class="dot s-ok"></span>ready / running</span>
+				<span><span class="dot s-run"></span>starting / operation</span>
+				<span><span class="dot s-warn"></span>fenced / draining / stopped</span>
+				<span><span class="dot s-bad"></span>missing / failed / no report</span>
+				<span><span class="dot s-idle"></span>unknown / expected</span>
 			</span>
 		</div>
 		@notes(current)
 		<article class="topology">
-			<p class="muted"><small>Each region groups its controllers (inner ring, NATS routes), hosts (outer ring, leaf connections to the meta leader) and TerraBase seats; other regions show what their summary reports. Hover highlights neighbors, click opens details.</small></p>
-			<ts-topology data-spec={ current.topologyJSON() } role="img" aria-label="Topology graph of regions, controllers, hosts and seats"></ts-topology>
+			<p class="muted"><small>Each region is a column of its nodes with the services their host grants place, each service's release digest and verified report, fences, active node operations and load balancer backends (from the fence records). Arcs on the left join nodes that replicate a TerraBase partition. The NATS layer adds each controller's server, the route mesh, the other nodes' client sessions, JetStream health and the links between regions. Click a node or service to open its page.</small></p>
+			@topologySVG(current.topologyGraph())
 		</article>
 	</div>
+}
+
+templ topologySVG(graph topoGraph) {
+	<div class="topo-scroll">
+		<svg class="topo" width={ itos(graph.Width) } height={ itos(graph.Height) } viewBox={ "0 0 " + itos(graph.Width) + " " + itos(graph.Height) } role="img" aria-label="Topology of regions, nodes and services">
+			for _, region := range graph.Regions {
+				<g class={ "region", sClass(region.Status) }>
+					<rect class="region-box" x={ itos(region.X) } y={ itos(region.Y) } width={ itos(region.W) } height={ itos(region.H) } rx="10"></rect>
+					<a href={ safe(region.Href) }>
+						<title>{ region.Name }: { region.Caption }</title>
+						<circle class="sd" cx={ itos(region.X + 20) } cy={ itos(region.Y + 22) } r="6"></circle>
+						<text class="region-name" x={ itos(region.X + 32) } y={ itos(region.Y + 27) }>{ region.Name }</text>
+						<text class="sub" x={ itos(region.X + 20) } y={ itos(region.Y + 45) }>{ region.Caption }</text>
+					</a>
+				</g>
+			}
+			for _, edge := range graph.Edges {
+				<path class={ edge.Class() } d={ edge.Path }><title>{ edge.Title }</title></path>
+				if edge.Label != "" {
+					<text class={ "edge-label", sClass(edge.Status) } x={ itos(edge.LX) } y={ itos(edge.LY) }>{ edge.Label }</text>
+				}
+			}
+			for _, region := range graph.Regions {
+				for _, node := range region.Nodes {
+					<g class={ "node", sClass(node.Status) } data-node={ node.Name }>
+						<a href={ safe(node.Href) }>
+							<title>{ node.Name }</title>
+							<rect class="box" x={ itos(node.X) } y={ itos(node.Y) } width={ itos(node.W) } height={ itos(node.H) } rx="7"></rect>
+							<circle class="sd" cx={ itos(node.X + 14) } cy={ itos(node.Y + 16) } r="5"></circle>
+							<text class="node-name" x={ itos(node.X + 26) } y={ itos(node.Y + 20) }>{ node.Name }</text>
+							<text class="sub" x={ itos(node.X + 26) } y={ itos(node.Y + 34) }>{ node.Sub }</text>
+						</a>
+						for _, row := range node.Rows {
+							@topologyRow(row)
+						}
+					</g>
+				}
+				for _, server := range region.Servers {
+					<g class={ "server", sClass(server.Status) } data-server={ server.Name }>
+						<a href={ safe(server.Href) }>
+							<title>NATS server { server.Name }: { server.Detail }</title>
+							<circle class={ "sd", templ.KV("hub", server.Hub) } cx={ itos(server.X) } cy={ itos(server.Y) } r="7"></circle>
+							<text class="server-name" x={ itos(server.X + 12) } y={ itos(server.Y - 2) }>
+								{ short(server.Name, 18) }
+								if server.Hub {
+									★
+								}
+							</text>
+							<text class="sub" x={ itos(server.X + 12) } y={ itos(server.Y + 11) }>{ server.Detail }</text>
+						</a>
+					</g>
+				}
+				if len(region.JetStream) > 0 {
+					<g class="jetstream">
+						<rect class="box" x={ itos(region.JetStreamBox.X) } y={ itos(region.JetStreamBox.Y) } width={ itos(region.JetStreamBox.W) } height={ itos(region.JetStreamBox.H) } rx="7"></rect>
+						<text class="node-name" x={ itos(region.JetStreamBox.X + 10) } y={ itos(region.JetStreamBox.Y + 18) }>JetStream</text>
+						for _, row := range region.JetStream {
+							@topologyRow(row)
+						}
+					</g>
+				}
+			}
+		</svg>
+	</div>
+}
+
+templ topologyRow(row topoRow) {
+	<a class={ "row", sClass(row.Status) } href={ safe(row.Href) }>
+		<title>{ row.Label }: { row.Detail }</title>
+		<circle class="sd" cx={ itos(row.X + 3) } cy={ itos(row.Y - 4) } r="4"></circle>
+		<text x={ itos(row.X + 13) } y={ itos(row.Y) }>{ row.Label }</text>
+		<text class="detail" x={ itos(row.X + row.DX) } y={ itos(row.Y) }>{ row.Short() }</text>
+	</a>
 }

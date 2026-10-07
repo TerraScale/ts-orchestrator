@@ -44,8 +44,11 @@ const (
 	// carries over the region link.
 	maxTopologyMembers = 64
 	maxTopologyHosts   = 256
-	cacheTTL           = 3 * time.Second
-	maxRequestBytes    = 256
+	// maxNodeServices and maxNodeBackends bound one node's lists.
+	maxNodeServices = 16
+	maxNodeBackends = 16
+	cacheTTL        = 3 * time.Second
+	maxRequestBytes = 256
 )
 
 // Status is a region's overall condition.
@@ -130,6 +133,41 @@ type Host struct {
 	Serving int    `json:"serving"`
 }
 
+// Node is one cell server and what runs on it, for the topology view.
+type Node struct {
+	Name string `json:"name"`
+	// Address is the private address the node's host grant names.
+	Address string `json:"address,omitempty"`
+	// Member is the orchestrator controller member on this node, if any.
+	Member   string    `json:"member,omitempty"`
+	Services []Service `json:"services,omitempty"`
+	// Fence names who holds the node out of its load balancer backend sets
+	// (release, drain, health, ...); empty when nothing does.
+	Fence []string `json:"fence,omitempty"`
+	// Operation is the node's queued or running node operation with its
+	// step ("drain: fence"); empty when none is active.
+	Operation string `json:"operation,omitempty"`
+	// Backends are the node's load balancer backends: the ones its fence
+	// record took out, else one per backend set of a role it runs.
+	Backends []Backend `json:"backends,omitempty"`
+}
+
+// Service is one role a host grant places on a node and its host report.
+type Service struct {
+	Role   string `json:"role"`
+	Digest string `json:"digest,omitempty"`
+	// State is the verified report's state (running, starting, stopped,
+	// failed); empty when no current report verifies.
+	State string `json:"state,omitempty"`
+}
+
+// Backend is one of a node's load balancer backends. Offline is from the
+// node's fence record, not a live load balancer read.
+type Backend struct {
+	Set     string `json:"set"`
+	Offline bool   `json:"offline,omitzero"`
+}
+
 // Summary is one region's card on the global view.
 type Summary struct {
 	Version int    `json:"version"`
@@ -152,6 +190,9 @@ type Summary struct {
 	// bounded, for the topology view. Older regions omit them.
 	Members []Member `json:"members,omitempty"`
 	Hosts   []Host   `json:"hosts,omitempty"`
+	// Nodes are the region's granted nodes and their services, bounded.
+	// Older regions omit them.
+	Nodes []Node `json:"nodes,omitempty"`
 }
 
 // MixedVersions reports whether members run more than one build.
@@ -176,6 +217,8 @@ type Provider struct {
 	Decisions decisionlog.Source
 	Insights  insights.Source
 	Links     regionlink.Requester
+	// Nodes lists the cell's nodes and their services; nil lists none.
+	Nodes func(ctx context.Context) []Node
 	// LatestDecisions and TopInsights bound the lists; zero takes the
 	// defaults.
 	LatestDecisions int
@@ -252,6 +295,10 @@ func (provider *Provider) Local(ctx context.Context) Summary {
 		summary.Insights = open[:min(len(open), cmp.Or(provider.TopInsights, DefaultTopInsights))]
 	}
 	summary.Health = score(summary, cluster != nil, open)
+	if provider.Nodes != nil {
+		summary.Nodes = provider.Nodes(ctx)
+		summary.boundNodes()
+	}
 	return summary
 }
 
@@ -534,6 +581,7 @@ func (summary *Summary) boundTopology() {
 	summary.Hosts = summary.Hosts[:min(len(summary.Hosts), maxTopologyHosts)]
 	summary.Quorum.Missing = summary.Quorum.Missing[:min(len(summary.Quorum.Missing), maxTopologyMembers)]
 	summary.Versions = summary.Versions[:min(len(summary.Versions), maxTopologyMembers)]
+	summary.boundNodes()
 	// Version members are the legacy topology source when Members is
 	// absent: bound them across the whole summary, not per version, or 64
 	// versions of 64 names would still expand into thousands of
@@ -545,6 +593,16 @@ func (summary *Summary) boundTopology() {
 		keep := min(len(members), budget)
 		summary.Versions[index].Members = members[:keep]
 		budget -= keep
+	}
+}
+
+func (summary *Summary) boundNodes() {
+	summary.Nodes = summary.Nodes[:min(len(summary.Nodes), maxTopologyMembers)]
+	for index := range summary.Nodes {
+		node := &summary.Nodes[index]
+		node.Services = node.Services[:min(len(node.Services), maxNodeServices)]
+		node.Backends = node.Backends[:min(len(node.Backends), maxNodeBackends)]
+		node.Fence = node.Fence[:min(len(node.Fence), maxNodeBackends)]
 	}
 }
 

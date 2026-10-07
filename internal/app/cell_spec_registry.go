@@ -675,6 +675,13 @@ func (r *specRegistry) nodeAddress(node string) string {
 	return grant.PrivateIP
 }
 
+// hostGrants is a copy of the current spec's host grants.
+func (r *specRegistry) hostGrants() []cellspec.HostGrant {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.current.HostGrants)
+}
+
 // controllerNode returns the node whose VM runs controller slot of cell: the
 // host grant that names the slot, else the slot's NATS server name.
 func (r *specRegistry) controllerNode(cell, slot string) string {

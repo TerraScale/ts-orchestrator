@@ -118,7 +118,7 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	go runHistorySampler(ctx, observed, runtime.member, history,
 		withAutoscaleSamples(observability.ClusterCollect(cluster, collector), observed.autoscalers))
 	regions := &regionview.Provider{Cell: runtime.cell, Cluster: cluster, Snapshot: collector, History: history,
-		Decisions: journal, Links: links}
+		Decisions: journal, Links: links, Nodes: observed.nodes}
 	insightConfig := insights.Config{Region: runtime.cell, Cluster: cluster, Local: collector,
 		History: history, Decisions: journal, Reachability: regions, Holds: observed.holds}
 	// Optional providers of the other slices: each stays nil, and its rules

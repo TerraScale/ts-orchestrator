@@ -14,7 +14,7 @@ providers; it never changes control-plane state.
 | `/decisions` | The merged decision journal, filterable by region, kind, actor, status and subject; `?id=` opens a decision's whole chain with its signals, gates, rule and rejected alternatives. |
 | `/releases` | Each release's journey (CI qualified, signed, staged, canary, soak, batches, complete or rolled back) per region, and the version matrix of regions × units with drift highlighted. |
 | `/rollouts`, `/ci` | Rollout phase diagrams, release history, known-bad releases, managed TerraBase updates, qualification runs. |
-| `/topology` | Every region as a labeled group: its controllers on an inner ring (NATS routes), hosts on an outer ring (leaf connections to the meta leader) and TerraBase seats around their hosts. Other regions draw the members and seat hosts their summary reports. Edges and hosts are colored only from evidence: a route is healthy when both controllers report a full route mesh, hosts known only from placement and routes inferred from readiness stay grey (unknown), and links between two other regions are unknown. The graph is fitted and centered on load and resize; regions collapse and expand, node kinds filter from the toolbar, hover highlights neighbors and a click opens a details panel. |
+| `/topology` | Server-rendered SVG, one column per region (every catalog region the region view lists) and one box per node (`ts-<region>-<n>` with its private address): the ts-orch controller (build, authority and meta leader), the host agent, each role its host grant places (TerraBase member, ts-auth, ...) with its release digest and verified host report, TerraBase seats serving, the node's fence and active node operation, and its load balancer backends (from the fence records, not a live load balancer read). Arcs left of the nodes join nodes that replicate a TerraBase partition (tooltip: partitions and the latest replication lag). **Services + NATS** (`nats=1`) adds each controller's NATS server with connections and peers, the route mesh, the other nodes' client sessions, JetStream health (streams, KV buckets, store, streams with offline replicas or lag) and the links between regions; a region without a leaf link is drawn red. Colors come only from evidence: an unproven route or client connection is grey and dashed, a link between two other regions is unknown. Every box links to its node, member, region or NATS page. Another region shows what its summary carries (no per-server NATS counts, no replication arcs). |
 | `/members`, `/nats`, `/terrabase`, `/storage`, `/oci`, `/events` | Host time series, fleet heatmap and capacity; NATS rates, lag and backlog; seat grids, stage history and time-to-full forecasts; volumes, capacity treemap and backups; OCI rates, latency, 429s and inventory; the live event stream with search and chart click-through. |
 
 The OCI page also counts the managed fleet by OCI lifecycle state from the
@@ -77,8 +77,6 @@ Taken from the preview with headless Chromium.
 ![Decision chain](decision-chain.png)
 ![Releases and version matrix](releases.png)
 ![Topology](topology.png)
-![Topology details panel, dark](topology-details.png)
-![Topology on a phone](topology-mobile.png)
 ![Region](region.png)
 ![TerraBase](terrabase.png)
 ![Hosts](hosts.png)

@@ -552,7 +552,6 @@ func TestDashboardScriptGuards(t *testing.T) {
 		"only a backdrop click closes the palette":                              "e.composedPath()[0] === this",
 		"a failed GeoJSON load is retried":                                      "if (geoLoading === attempt) geoLoading = null;",
 		"the map keeps the operator's zoom":                                     "zoom: current && current.zoom ? current.zoom : 1.15",
-		"topology tooltips read the current spec":                               "(this.spec().nodes || []).find((node) => node.id === p.data.id)",
 		"copy works without the clipboard API":                                  "if (!navigator.clipboard || !navigator.clipboard.writeText) { manual(); return; }",
 	} {
 		if !strings.Contains(script, want) {

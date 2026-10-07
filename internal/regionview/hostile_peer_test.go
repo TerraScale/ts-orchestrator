@@ -39,12 +39,16 @@ func TestRemoteSummaryFromHostilePeerIsBounded(t *testing.T) {
 	const flood = 5000
 	names := make([]string, flood)
 	hostile := Summary{Version: summaryVersion, Region: "sfo", Local: true,
-		Versions: make([]Version, 100), Members: make([]Member, flood), Hosts: make([]Host, flood),
+		Versions: make([]Version, 100), Members: make([]Member, flood), Hosts: make([]Host, flood), Nodes: make([]Node, 100),
 		Decisions: []decisionlog.Decision{{ID: "forged", Region: "gru"}}}
 	for index := range flood {
 		names[index] = "n" + strconv.Itoa(index)
 		hostile.Members[index] = Member{Name: names[index], Role: "controller", Ready: true}
 		hostile.Hosts[index] = Host{Name: names[index]}
+		if index < len(hostile.Nodes) {
+			hostile.Nodes[index] = Node{Name: names[index], Services: make([]Service, 100), Backends: make([]Backend, 100),
+				Fence: names[:100]}
+		}
 		if index < len(hostile.Versions) {
 			hostile.Versions[index] = Version{Version: names[index], Members: names[:100]}
 		}
@@ -98,6 +102,10 @@ func TestRemoteSummaryFromHostilePeerIsBounded(t *testing.T) {
 		len(sfo.Versions[0].Members) != maxTopologyMembers || len(sfo.Members) != maxTopologyMembers {
 		t.Fatalf("unbounded peer lists: members=%d hosts=%d missing=%d versions=%d", len(sfo.Members), len(sfo.Hosts),
 			len(sfo.Quorum.Missing), len(sfo.Versions))
+	}
+	if len(sfo.Nodes) != maxTopologyMembers || len(sfo.Nodes[0].Services) != maxNodeServices ||
+		len(sfo.Nodes[0].Backends) != maxNodeBackends || len(sfo.Nodes[0].Fence) != maxNodeBackends {
+		t.Fatalf("unbounded peer nodes: nodes=%d", len(sfo.Nodes))
 	}
 	if mia := byRegion["mia"]; mia.Reach != decisionlog.RegionError || len(mia.Members) != 0 {
 		t.Fatalf("a summary naming another region must be rejected: %s", mia.Reach)

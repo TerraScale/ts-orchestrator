@@ -818,7 +818,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		brokerIDs: cfg.NATS.Embedded.BrokerIDs, authority: control, placements: placementStore, managed: managed != nil,
 		holds: placementHolds, autoscalers: workloadReconciler, linkedPeers: globalMirrorPeers(cfg.NATS),
 		rollouts: rollouts, budgets: budgets, ociResources: ociReconcile.resources(),
-		credentials: controllerCredentialFiles(cfg)},
+		credentials: controllerCredentialFiles(cfg),
+		nodes:       topologySource(cfg.NATS.Cell, cfg.NATS.Embedded.BrokerIDs, services, hostController, policy.nodes)},
 		[]observability.FilesystemRole{{Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
 		return fmt.Errorf("attach controller observability: %w", err)
 	}

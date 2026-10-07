@@ -1,12 +1,14 @@
 package devfake
 
 import (
+	"context"
 	"fmt"
 	"hash/fnv"
 	"math"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
 
 const (
@@ -327,4 +329,33 @@ func contains(list []string, value string) bool {
 		}
 	}
 	return false
+}
+
+// nodes are the region's granted nodes: one per controller, then one per
+// seat host, each running TerraBase and ts-auth. The second host of a
+// region with a draining seat is fenced for a drain.
+func (r region) nodes(context.Context) []regionview.Node {
+	var nodes []regionview.Node
+	digest := "sha256:7da6542c9f0e1b2a"
+	for index, controller := range r.controllers {
+		state := "running"
+		if r.name == "gru" && index == 2 {
+			state = "starting"
+		}
+		nodes = append(nodes, regionview.Node{Name: fmt.Sprintf("ts-%s-%d", r.name, index+1),
+			Address: fmt.Sprintf("10.251.0.%d", 11+index), Member: controller,
+			Services: []regionview.Service{{Role: "ts-auth", Digest: "sha256:f8e35965a1b2", State: state}},
+			Backends: []regionview.Backend{{Set: "ts-auth"}}})
+	}
+	for index, host := range r.hosts {
+		node := regionview.Node{Name: host, Address: fmt.Sprintf("10.251.1.%d", 21+index),
+			Services: []regionview.Service{{Role: "terrabase", Digest: digest, State: "running"}},
+			Backends: []regionview.Backend{{Set: "terrabase"}}}
+		if r.name == "sfo" && index == 1 {
+			node.Fence, node.Operation = []string{"drain"}, "drain: fence"
+			node.Backends[0].Offline = true
+		}
+		nodes = append(nodes, node)
+	}
+	return nodes
 }

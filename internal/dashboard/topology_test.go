@@ -1,159 +1,196 @@
 package dashboard
 
 import (
+	"net/url"
+	"strings"
 	"testing"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
 
-func TestRemoteTopologyUsesSummaryMembersAndHosts(t *testing.T) {
+// topologyFixture is a healthy GRU cell seen from ctl-1: three colocated
+// nodes, each running a controller, ts-auth and a TerraBase member, and one
+// partition replicated over all three.
+func topologyFixture(query string) view {
+	values, _ := url.ParseQuery(query)
+	var members []observability.MemberSnapshot
+	nodes := []regionview.Node{}
+	var summaryMembers []regionview.Member
+	for index, name := range []string{"ctl-1", "ctl-2", "ctl-3"} {
+		member := memberSnapshot()
+		member.Cell, member.Member = "gru", name
+		member.NATS.ServerName, member.NATS.IsMetaLeader = "gru-1-"+name, index == 0
+		member.NATS.MetaPeers, member.NATS.ClusterPeers, member.NATS.Connections = nil, 3, 4+index
+		member.Placement = &observability.PlacementView{Databases: []observability.DatabaseView{{DatabaseID: "orders",
+			PartitionID: "p0", Members: []observability.MemberView{{SeatID: "s1", Stage: "serving", HostNode: "ts-gru-1"},
+				{SeatID: "s2", Stage: "serving", HostNode: "ts-gru-2"}, {SeatID: "s3", Stage: "serving", HostNode: "ts-gru-3"}}}}}
+		members = append(members, member)
+		summaryMembers = append(summaryMembers, regionview.Member{Name: name, Role: "controller", Ready: true,
+			Version: "v0.43.0", MetaLeader: index == 0})
+		node := "ts-gru-" + itoa(index+1)
+		nodes = append(nodes, regionview.Node{Name: node, Address: "10.251.0.1" + itoa(index+1), Member: name,
+			Services: []regionview.Service{{Role: "terrabase", Digest: "sha256:7da6542c9f0e1b2a3c", State: "running"},
+				{Role: "ts-auth", Digest: "sha256:f8e35965", State: "running"}},
+			Backends: []regionview.Backend{{Set: "terrabase"}}})
+	}
+	return view{State: parseState(values), Ready: true, Local: &members[0],
+		Cluster: &observability.ClusterSnapshot{Cell: "gru", Members: members},
+		Regions: []regionview.Summary{{Region: "gru", Local: true, Reach: decisionlog.RegionOK,
+			Health:  regionview.Health{Score: 100, Status: regionview.StatusHealthy},
+			Leaders: regionview.Leaders{Authority: "ctl-1", MetaLeader: "gru-1-ctl-1"},
+			Members: summaryMembers, Nodes: nodes}}}
+}
+
+func withSFO(current view, reach string) view {
+	current.Regions = append(current.Regions, regionview.Summary{Region: "sfo", Reach: reach,
+		Health:  regionview.Health{Score: 90, Status: regionview.StatusHealthy},
+		Members: []regionview.Member{{Name: "ctl-1", Role: "controller", Ready: true, Version: "v0.43.0", MetaLeader: true}},
+		Nodes: []regionview.Node{{Name: "ts-sfo-1", Address: "10.252.0.11", Member: "ctl-1",
+			Services: []regionview.Service{{Role: "terrabase", Digest: "sha256:7da6542c9f0e", State: "running"}}}}})
+	return current
+}
+
+func renderTopology(t *testing.T, current view) string {
+	t.Helper()
+	return renderHTML(t, topologyBody(current))
+}
+
+func nodeClass(body, node string) string {
+	at := strings.Index(body, `data-node="`+node+`"`)
+	if at < 0 {
+		return ""
+	}
+	start := strings.LastIndex(body[:at], `class="`)
+	return body[start+len(`class="`) : at-2]
+}
+
+func TestTopologyHealthyCell(t *testing.T) {
 	t.Parallel()
-	summary := regionview.Summary{Region: "sfo",
-		Leaders: regionview.Leaders{Authority: "c1", MetaLeader: "c1"},
-		Quorum:  regionview.Quorum{Missing: []string{"c3"}},
-		Members: []regionview.Member{{Name: "c1", Role: "controller", Ready: true, Version: "v1"},
-			{Name: "c2", Role: "controller", Ready: false, Version: "v1"}, {Name: "h0", Role: "host", Ready: true}},
-		Hosts: []regionview.Host{{Name: "h1", Seats: 3, Serving: 2}}}
-	spec := topologySpec{}
-	nodes := map[string]topologyNode{}
-	remoteTopology(&spec, func(node topologyNode) { nodes[node.ID] = node }, summary, uiState{})
-	for id, kind := range map[string]string{"member:sfo:c1": "controller", "member:sfo:c2": "controller",
-		"member:sfo:c3": "controller", "member:sfo:h0": "host", "member:sfo:h1": "host"} {
-		if node, ok := nodes[id]; !ok || node.Kind != kind || node.Region != "sfo" {
-			t.Errorf("node %s = %+v, want a %s in sfo", id, node, kind)
+	body := renderTopology(t, topologyFixture("nats=1"))
+	for _, node := range []string{"ts-gru-1", "ts-gru-2", "ts-gru-3"} {
+		if got := nodeClass(body, node); got != "node s-ok" {
+			t.Errorf("%s class = %q, want a healthy node", node, got)
 		}
 	}
-	if nodes["member:sfo:c2"].State != "bad" || nodes["member:sfo:c3"].StateLabel != "missing" {
-		t.Errorf("states = %+v %+v", nodes["member:sfo:c2"], nodes["member:sfo:c3"])
-	}
-	if nodes["member:sfo:c1"].Details["JetStream"] != "meta leader" || nodes["member:sfo:h1"].Details["serving"] != "2" {
-		t.Errorf("details = %+v %+v", nodes["member:sfo:c1"].Details, nodes["member:sfo:h1"].Details)
-	}
-	routes, leaves := 0, 0
-	for _, link := range spec.Links {
-		switch link.Kind {
-		case "route":
-			routes++
-			// Answering is not route evidence: c1-c2 and c1-c3 touch a
-			// not-ready or missing controller, nothing is drawn healthy.
-			if link.State == "ok" {
-				t.Errorf("route %+v is drawn healthy from readiness alone", link)
-			}
-		case "leaf":
-			leaves++
-			if link.Source != "member:sfo:c1" {
-				t.Errorf("leaf %+v does not start at the meta leader", link)
-			}
+	for _, want := range []string{"<svg", "10.251.0.11", "member ctl-1", "TerraBase member", "7da6542c9f0e", "ts-auth",
+		"LB terrabase", "in rotation", "ts-orch controller", "v0.43.0", "meta leader", `data-server="gru-1-ctl-1"`,
+		"edge e-route s-ok", "edge e-replication s-ok", "1 partition(s) replicate", "JetStream", `href="/members/ctl-2"`,
+		`href="/regions/gru/hosts/ts-gru-1"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("healthy topology lacks %q", want)
 		}
 	}
-	// h0 is a seatless host member and still gets its leaf.
-	if routes != 3 || leaves != 2 {
-		t.Errorf("routes=%d leaves=%d, want 3 and 2", routes, leaves)
+	if svg := body[strings.Index(body, "<svg"):]; strings.Contains(svg, "s-bad") {
+		t.Error("a healthy cell draws something broken")
 	}
-	if nodes["member:sfo:h1"].State != "idle" || nodes["member:sfo:h0"].State != "ok" {
-		t.Errorf("a placement-only host must be unknown, a ready host member ok: %+v %+v",
-			nodes["member:sfo:h1"], nodes["member:sfo:h0"])
+	if again := renderTopology(t, topologyFixture("nats=1")); again != body {
+		t.Error("the layout is not deterministic")
+	}
+	// Without nats=1 the NATS layer is hidden.
+	plain := renderTopology(t, topologyFixture(""))
+	if strings.Contains(plain, "data-server=") || strings.Contains(plain, "e-route") || !strings.Contains(plain, "e-replication") {
+		t.Error("the services layer must hide NATS and keep replication")
 	}
 }
 
-// The NATS meta leader is a server name, so the summary flags the leading
-// member; a hostile summary's duplicates must not produce self routes.
-func TestRemoteTopologyMetaLeaderFlagAndDuplicates(t *testing.T) {
+func TestTopologyDrainedNode(t *testing.T) {
 	t.Parallel()
-	summary := regionview.Summary{Region: "sfo",
-		Leaders: regionview.Leaders{MetaLeader: "sfo-c2"},
-		Quorum:  regionview.Quorum{Missing: []string{"c1", "c3"}},
-		Members: []regionview.Member{{Name: "c1", Role: "controller", Ready: true},
-			{Name: "c2", Role: "controller", Ready: true, MetaLeader: true}, {Name: "c1", Role: "controller", Ready: true}},
-		Hosts: []regionview.Host{{Name: "h1", Seats: 1}, {Name: "c1", Seats: 1}}}
-	spec := topologySpec{}
-	nodes := map[string]topologyNode{}
-	remoteTopology(&spec, func(node topologyNode) {
-		if _, ok := nodes[node.ID]; !ok {
-			nodes[node.ID] = node
-		}
-	}, summary, uiState{})
-	if nodes["member:sfo:c1"].Kind != "controller" || nodes["member:sfo:c1"].State != "ok" {
-		t.Errorf("c1 = %+v", nodes["member:sfo:c1"])
+	current := topologyFixture("")
+	node := &current.Regions[0].Nodes[1]
+	node.Fence, node.Operation = []string{"drain"}, "drain: fence"
+	node.Backends = []regionview.Backend{{Set: "terrabase", Offline: true}}
+	current.Cluster.Members[0].Placement.Databases[0].Members[1].Stage = "draining"
+	body := renderTopology(t, current)
+	if got := nodeClass(body, "ts-gru-2"); got != "node s-warn" {
+		t.Errorf("drained node class = %q, want warn", got)
 	}
-	routes := 0
-	for _, link := range spec.Links {
-		if link.Source == link.Target {
-			t.Errorf("self link %+v", link)
-		}
-		if link.Kind == "leaf" && (link.Source != "member:sfo:c2" || link.Target != "member:sfo:h1") {
-			t.Errorf("leaf %+v, want c2 -> h1 only", link)
-		}
-		if link.Kind == "route" {
-			routes++
+	for _, want := range []string{"fenced", "drain: fence", "out of rotation", "edge e-replication s-warn", "seat not serving"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("drained topology lacks %q", want)
 		}
 	}
-	if routes != 3 {
-		t.Errorf("routes = %d, want 3 for c1, c2, c3", routes)
+	if got := nodeClass(body, "ts-gru-1"); got != "node s-ok" {
+		t.Errorf("an undrained node turned %q", got)
 	}
 }
 
-// Seat IDs repeat across databases and partitions; every placed seat keeps
-// its own node, and routes are healthy only with full-mesh route counts.
-func TestLocalTopologySeatsAndRouteEvidence(t *testing.T) {
+func TestTopologyNATSLinkDown(t *testing.T) {
 	t.Parallel()
-	first, second := memberSnapshot(), memberSnapshot()
-	second.Member, second.Authority.Leader, second.NATS.IsMetaLeader, second.NATS.ServerName = "ctl-2", false, false, "fra-ctl-2"
-	first.NATS.ServerName, first.NATS.MetaLeader, second.NATS.MetaLeader = "fra-ctl-1", "fra-ctl-1", "fra-ctl-1"
-	// Route pooling: ctl-2 has three route connections but sees no peer.
-	first.NATS.Routes, second.NATS.Routes = 3, 3
-	first.NATS.ClusterPeers, second.NATS.ClusterPeers = 2, 1
-	first.NATS.MetaPeers = []observability.PeerView{{Name: "fra-ctl-2", Current: true}}
-	database := first.Placement.Databases[0]
-	other := database
-	other.PartitionID = "p1"
-	first.Placement = &observability.PlacementView{Databases: []observability.DatabaseView{database, other}}
-	current := view{Cluster: &observability.ClusterSnapshot{Cell: "fra", Members: []observability.MemberSnapshot{first, second}}}
-	spec := current.topology()
-	seats, ids := 0, map[string]bool{}
-	for _, node := range spec.Nodes {
-		if ids[node.ID] {
-			t.Errorf("duplicate node %s", node.ID)
-		}
-		ids[node.ID] = true
-		if node.Kind == "seat" {
-			seats++
-		}
-		if node.Kind == "host" && node.State != "idle" {
-			t.Errorf("placement-only host %+v must be unknown", node)
+	current := withSFO(topologyFixture("nats=1"), decisionlog.RegionNotLinked)
+	// ctl-1 sees ctl-3 offline: every route to it breaks.
+	current.Cluster.Members[0].NATS.MetaPeers = []observability.PeerView{{Name: "gru-1-ctl-3", Offline: true}}
+	current.Cluster.Members[0].NATS.Streams = []observability.StreamView{{Name: "KV_desired", Replicas: 3, OfflinePeers: 1}}
+	body := renderTopology(t, current)
+	for _, want := range []string{"edge e-region s-bad", "GRU ↔ SFO: missing (no leaf link)", "edge e-route s-bad",
+		"KV_desired", "1 offline"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("link-down topology lacks %q", want)
 		}
 	}
-	if seats != 6 {
-		t.Errorf("seats = %d, want 3 per partition", seats)
+	// ctl-1 ↔ ctl-2 still has full-mesh evidence on both ends.
+	if !strings.Contains(body, "edge e-route s-ok") {
+		t.Error("an unaffected route lost its health")
 	}
-	for _, link := range spec.Links {
-		switch link.Kind {
-		case "leaf":
-			if link.Source != "member:fra:ctl-1" {
-				t.Errorf("leaf %+v must start at the meta leader member", link)
-			}
-		case "route":
-			if link.State != "idle" {
-				t.Errorf("route %+v: ctl-2 sees no route peer, so the route is unproven", link)
-			}
-		}
+	linked := renderTopology(t, withSFO(topologyFixture("nats=1"), decisionlog.RegionOK))
+	if !strings.Contains(linked, "edge e-region s-ok") || !strings.Contains(linked, "GRU ↔ SFO: linked") {
+		t.Error("a linked region is not drawn healthy")
 	}
 }
 
-func TestRemoteTopologyFallsBackToVersions(t *testing.T) {
+func TestTopologyTwoRegions(t *testing.T) {
 	t.Parallel()
-	summary := regionview.Summary{Region: "fra",
-		Versions: []regionview.Version{{Version: "v1", Members: []string{"a", "b"}}}}
-	spec := topologySpec{}
-	count := 0
-	remoteTopology(&spec, func(node topologyNode) {
-		count++
-		if node.Kind != "controller" || node.State != "ok" {
-			t.Errorf("node = %+v", node)
+	current := withSFO(topologyFixture("nats=1"), decisionlog.RegionOK)
+	graph := current.topologyGraph()
+	if len(graph.Regions) != 2 || graph.Regions[0].Name != "GRU" || graph.Regions[1].Name != "SFO" {
+		t.Fatalf("regions = %+v", graph.Regions)
+	}
+	if graph.Regions[1].X <= graph.Regions[0].X+graph.Regions[0].W {
+		t.Error("region columns overlap")
+	}
+	for _, region := range graph.Regions {
+		for index := 1; index < len(region.Nodes); index++ {
+			if region.Nodes[index].Y < region.Nodes[index-1].Y+region.Nodes[index-1].H {
+				t.Errorf("%s node rows overlap", region.Name)
+			}
 		}
-	}, summary, uiState{})
-	if count != 2 || len(spec.Links) != 3 {
-		t.Errorf("nodes=%d links=%d, want 2 and 3", count, len(spec.Links))
+		if region.Y+region.H > graph.Height || region.X+region.W > graph.Width {
+			t.Errorf("%s exceeds the canvas", region.Name)
+		}
+	}
+	sfo := graph.Regions[1]
+	if len(sfo.Nodes) != 1 || sfo.Nodes[0].Name != "ts-sfo-1" || sfo.Nodes[0].Status != "ok" {
+		t.Errorf("sfo nodes = %+v", sfo.Nodes)
+	}
+	// Another region's controller opens that region, not a local member page.
+	if href := sfo.Nodes[0].Rows[0].Href; !strings.HasPrefix(href, "/region?") || !strings.Contains(href, "r=sfo") {
+		t.Errorf("remote controller href = %q", href)
+	}
+	if len(sfo.Servers) != 1 || sfo.Servers[0].Detail != "counts in its region" {
+		t.Errorf("sfo servers = %+v", sfo.Servers)
+	}
+}
+
+// A region whose summary predates nodes still shows its members and seat
+// hosts, and a missing controller is drawn broken.
+func TestTopologyOlderSummary(t *testing.T) {
+	t.Parallel()
+	nodes := topologyNodes(regionview.Summary{Region: "fra",
+		Members: []regionview.Member{{Name: "c1", Role: "controller", Ready: true}, {Name: "h0", Role: "host", Ready: true}},
+		Quorum:  regionview.Quorum{Missing: []string{"c2"}}, Hosts: []regionview.Host{{Name: "h1", Seats: 2, Serving: 1}}})
+	var names []string
+	for _, node := range nodes {
+		names = append(names, node.Name+"/"+node.Member)
+	}
+	if got := strings.Join(names, ","); got != "c1/c1,h0/,c2/c2,h1/" {
+		t.Errorf("nodes = %s", got)
+	}
+	current := view{State: parseState(url.Values{}), Regions: []regionview.Summary{{Region: "fra",
+		Members: []regionview.Member{{Name: "c1", Role: "controller", Ready: true}},
+		Quorum:  regionview.Quorum{Missing: []string{"c2"}}}}}
+	body := renderTopology(t, current)
+	if got := nodeClass(body, "c2"); got != "node s-bad" || !strings.Contains(body, "missing: did not answer") {
+		t.Errorf("missing controller class = %q", got)
 	}
 }
