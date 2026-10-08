@@ -210,10 +210,12 @@ type HistoryConfig struct {
 // raw -> 1m -> 5m -> 1h downsampling over 14 days. It is safe for concurrent
 // use; Append and Range never perform I/O.
 type History struct {
-	config  HistoryConfig
-	mu      sync.RWMutex
-	series  map[string]*series
-	dropped uint64
+	config       HistoryConfig
+	mu           sync.RWMutex
+	series       map[string]*series
+	dropped      uint64
+	dropMinutes  map[int64]bool
+	newestMinute int64
 }
 
 // NewHistory returns an empty store.
@@ -224,7 +226,7 @@ func NewHistory(config HistoryConfig) *History {
 	if config.MaxSeries <= 0 {
 		config.MaxSeries = DefaultHistorySeries
 	}
-	return &History{config: config, series: map[string]*series{}}
+	return &History{config: config, series: map[string]*series{}, dropMinutes: map[int64]bool{}}
 }
 
 // HistoryMetrics is the history store's metric set.
@@ -265,6 +267,14 @@ func (history *History) Append(at time.Time, samples []Sample) {
 	millis := at.UnixMilli()
 	history.mu.Lock()
 	defer history.mu.Unlock()
+	minute := millis / time.Minute.Milliseconds()
+	history.newestMinute = max(history.newestMinute, minute)
+	oldestMinute := history.newestMinute - int64(rawRetention/time.Minute)
+	for at := range history.dropMinutes {
+		if at < oldestMinute {
+			delete(history.dropMinutes, at)
+		}
+	}
 	// Prune first, so series that stopped reporting free their slots.
 	stale := millis - staleSeriesAfter.Milliseconds()
 	for key, current := range history.series {
@@ -282,6 +292,9 @@ func (history *History) Append(at time.Time, samples []Sample) {
 		if !ok {
 			if len(history.series) >= history.config.MaxSeries {
 				history.dropped++
+				if minute >= oldestMinute {
+					history.dropMinutes[minute] = true
+				}
 				historyDropped.Inc()
 				continue
 			}
@@ -494,6 +507,20 @@ func (history *History) Stats() HistoryStats {
 	history.mu.RLock()
 	defer history.mu.RUnlock()
 	return HistoryStats{Series: len(history.series), Dropped: history.dropped}
+}
+
+// DroppedBetween reports lost raw coverage, conservatively rounded to minutes.
+// Only the raw retention window is tracked; the lifetime counter is unchanged.
+func (history *History) DroppedBetween(start, end time.Time) bool {
+	history.mu.RLock()
+	defer history.mu.RUnlock()
+	first, last := start.UnixMilli()/time.Minute.Milliseconds(), end.UnixMilli()/time.Minute.Milliseconds()
+	for minute := range history.dropMinutes {
+		if minute >= first && minute <= last {
+			return true
+		}
+	}
+	return false
 }
 
 func labelsMatch(labels []Label, want map[string]string) bool {

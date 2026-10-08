@@ -274,7 +274,7 @@ func (s *Store) Query(from, to time.Time, expected []string) (Usage, error) {
 			result.Missing = append(result.Missing, node)
 		}
 	}
-	result.Truncated = result.Truncated || s.History.Stats().Dropped > 0
+	result.Truncated = result.Truncated || s.History.DroppedBetween(from, to)
 	result.Complete = result.Complete && !result.Truncated && len(result.Missing) == 0 && len(result.Nodes) > 0 && len(result.Replicas) > 0
 	return result, nil
 }

@@ -130,51 +130,7 @@ func (g SSHGenerator) Execute(ctx context.Context, runID string, w Workload, cli
 	job.ID = newID()
 	job.Workload = w
 	job.Clients = clients
-	data, err := json.Marshal(job)
-	if err != nil {
-		return err
-	}
-	command := exec.CommandContext(ctx, "ssh", "-F", "/dev/null", "-oBatchMode=yes", "-oStrictHostKeyChecking=yes", "-oClearAllForwardings=yes", "-oConnectTimeout=10", "--", g.User+"@"+g.Address, "timeout --signal=INT --kill-after=120s 900s nice -n 19 "+g.WorkerPath+" bench worker")
-	command.Stdin = bytes.NewReader(data)
-	pipe, err := command.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	command.Stderr = io.Discard
-	if err := command.Start(); err != nil {
-		return errors.New("cannot start benchmark SSH worker")
-	}
-	scanner := bufio.NewScanner(pipe)
-	scanner.Buffer(make([]byte, 4096), 256<<10)
-	var streamErr error
-	for scanner.Scan() {
-		var sample Sample
-		if err := json.Unmarshal(scanner.Bytes(), &sample); err != nil {
-			streamErr = errors.New("worker returned invalid JSONL")
-			break
-		}
-		if err := emit(sample); err != nil {
-			streamErr = err
-			break
-		}
-	}
-	if streamErr != nil {
-		_ = command.Process.Kill()
-	}
-	waitErr := command.Wait()
-	if streamErr != nil {
-		return streamErr
-	}
-	if scanner.Err() != nil {
-		return errors.New("worker stream exceeded limits or disconnected")
-	}
-	if waitErr != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return errors.New("benchmark worker failed; inspect worker locally without printing credentials")
-	}
-	return nil
+	return g.runWorker(ctx, job, emit)
 }
 
 func localInstanceID(ctx context.Context) (string, error) {
@@ -243,15 +199,11 @@ func noServingProcesses() error {
 }
 
 // Worker is a bounded load-generator job, never a regional workload allocation.
-func Worker(ctx context.Context, in io.Reader, out io.Writer) (resultErr error) {
-	ctx, cancel := context.WithTimeout(ctx, MaxRun)
-	defer cancel()
-	var job Job
-	decoder := json.NewDecoder(io.LimitReader(in, 1<<20))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&job); err != nil {
-		return errors.New("invalid benchmark job")
-	}
+func Worker(ctx context.Context, in io.Reader, out io.Writer) error {
+	return workerSession(ctx, in, out, executeJob)
+}
+
+func executeJob(ctx context.Context, job Job, out io.Writer) error {
 	if !idPattern.MatchString(job.ID) || job.Workload.Validate() != nil || len(job.Clients) < 1 || len(job.Clients) > 3 {
 		return errors.New("invalid benchmark job bounds")
 	}
@@ -326,31 +278,7 @@ func runContainers(ctx context.Context, job Job, secrets map[string]string, out 
 		names = append(names, "bench-"+job.ID+"-"+client)
 	}
 	defer func() {
-		cleanup, stop := context.WithTimeout(context.WithoutCancel(ctx), 90*time.Second)
-		defer stop()
-		// Names are newly generated ULIDs; never replace a pre-existing container.
-		for _, name := range names {
-			inspect := exec.CommandContext(cleanup, "podman", "inspect", "--format", "{{ index .Config.Labels \"ts-bench-job\" }}", name)
-			data, err := inspect.Output()
-			if err != nil {
-				check := exec.CommandContext(cleanup, "podman", "container", "exists", name).Run()
-				var exit *exec.ExitError
-				if !errors.As(check, &exit) || exit.ExitCode() != 1 {
-					resultErr = errors.Join(resultErr, errors.New("cannot verify benchmark container cleanup"))
-				}
-				continue
-			}
-			if strings.TrimSpace(string(data)) != job.ID {
-				resultErr = errors.Join(resultErr, errors.New("refused cleanup of a foreign container"))
-				continue
-			}
-			if exec.CommandContext(cleanup, "podman", "stop", "--ignore", "--time", "30", name).Run() != nil {
-				resultErr = errors.Join(resultErr, errors.New("benchmark container stop failed"))
-			}
-			if exec.CommandContext(cleanup, "podman", "rm", "--force", "--ignore", name).Run() != nil {
-				resultErr = errors.Join(resultErr, errors.New("benchmark container cleanup failed"))
-			}
-		}
+		resultErr = errors.Join(resultErr, cleanupContainers(ctx, job.ID, names))
 	}()
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -385,6 +313,41 @@ func runContainers(ctx context.Context, job Job, secrets map[string]string, out 
 	return runErr
 }
 
+// Cleanup errors must survive cancellation and cannot acknowledge a clean stop.
+type containerCleanupError struct{ error }
+
+func cleanupContainers(ctx context.Context, jobID string, names []string) (resultErr error) {
+	cleanup, stop := context.WithTimeout(context.WithoutCancel(ctx), 90*time.Second)
+	defer stop()
+	// Names are newly generated ULIDs; never replace a pre-existing container.
+	for _, name := range names {
+		inspect := exec.CommandContext(cleanup, "podman", "inspect", "--format", "{{ index .Config.Labels \"ts-bench-job\" }}", name)
+		data, err := inspect.Output()
+		if err != nil {
+			check := exec.CommandContext(cleanup, "podman", "container", "exists", name).Run()
+			var exit *exec.ExitError
+			if !errors.As(check, &exit) || exit.ExitCode() != 1 {
+				resultErr = errors.Join(resultErr, errors.New("cannot verify benchmark container cleanup"))
+			}
+			continue
+		}
+		if strings.TrimSpace(string(data)) != jobID {
+			resultErr = errors.Join(resultErr, errors.New("refused cleanup of a foreign container"))
+			continue
+		}
+		if exec.CommandContext(cleanup, "podman", "stop", "--ignore", "--time", "30", name).Run() != nil {
+			resultErr = errors.Join(resultErr, errors.New("benchmark container stop failed"))
+		}
+		if exec.CommandContext(cleanup, "podman", "rm", "--force", "--ignore", name).Run() != nil {
+			resultErr = errors.Join(resultErr, errors.New("benchmark container cleanup failed"))
+		}
+	}
+	if resultErr != nil {
+		return &containerCleanupError{resultErr}
+	}
+	return nil
+}
+
 func container(ctx context.Context, job Job, client, name string, workload []byte, secrets map[string]string, emit func([]byte) error) error {
 	reader, writer, err := os.Pipe()
 	if err != nil {
@@ -415,12 +378,13 @@ func container(ctx context.Context, job Job, client, name string, workload []byt
 			break
 		}
 	}
+	if scanErr := scanner.Err(); scanErr != nil {
+		emitErr = errors.Join(emitErr, fmt.Errorf("client JSONL exceeded limits: %w", scanErr))
+		_ = command.Process.Kill()
+	}
 	err = command.Wait()
 	if emitErr != nil {
 		return emitErr
-	}
-	if scanner.Err() != nil {
-		return errors.New("client JSONL exceeded limits")
 	}
 	if err != nil {
 		if ctx.Err() != nil {

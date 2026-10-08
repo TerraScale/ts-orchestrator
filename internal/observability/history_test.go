@@ -268,3 +268,20 @@ func TestHistorySamplerSnapshotsToKV(t *testing.T) {
 		t.Fatalf("restored metrics = %v", got)
 	}
 }
+
+func TestDroppedCoverageIsBoundedToRawRetention(t *testing.T) {
+	history := NewHistory(HistoryConfig{MaxSeries: 1})
+	start := time.Now().Truncate(time.Minute).Add(-1000 * time.Minute)
+	for minute := range 1000 {
+		at := start.Add(time.Duration(minute) * time.Minute)
+		history.Append(at, []Sample{{Metric: "resident", Value: 1}, {Metric: "dropped", Value: 1}})
+	}
+	last := start.Add(999 * time.Minute)
+	if len(history.dropMinutes) != 61 || history.Stats().Dropped != 1000 || !history.DroppedBetween(last, last) || history.DroppedBetween(start, start) {
+		t.Fatalf("drop coverage is not bounded: minutes=%d stats=%+v", len(history.dropMinutes), history.Stats())
+	}
+	history.Append(last.Add(61*time.Minute), []Sample{{Metric: "resident", Value: 1}})
+	if len(history.dropMinutes) != 0 || history.DroppedBetween(last, last.Add(time.Hour)) {
+		t.Fatal("expired drops still poison recovered windows")
+	}
+}

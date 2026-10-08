@@ -315,6 +315,18 @@ func TestPodmanHelper(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(state, name), []byte(label), 0600); err != nil {
 			os.Exit(2)
 		}
+		switch os.Getenv("TS_761_PODMAN_MODE") {
+		case "oversized":
+			_, _ = io.WriteString(os.Stdout, strings.Repeat("x", 1<<20))
+			for {
+				time.Sleep(time.Minute)
+			}
+		case "stream":
+			_ = json.NewEncoder(os.Stdout).Encode(Sample{TS: time.Now().UTC(), Client: "go", SDK: "go", SDKVersion: "test", Region: "gru", Op: "doc.get", Count: 100, P99: 30, Max: 40})
+			for {
+				time.Sleep(time.Minute)
+			}
+		}
 		fmt.Println("invalid-result")
 		os.Exit(0)
 	case "inspect":

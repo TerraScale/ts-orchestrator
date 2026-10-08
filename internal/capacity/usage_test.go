@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,8 +17,13 @@ import (
 )
 
 func fixture(t *testing.T) (*Store, time.Time, time.Time) {
+	return fixtureWithLimit(t, 4096)
+}
+
+func fixtureWithLimit(t *testing.T, maxSeries int) (*Store, time.Time, time.Time) {
 	t.Helper()
 	s := NewStore("gru")
+	s.History = observability.NewHistory(observability.HistoryConfig{Interval: 5 * time.Second, MaxSeries: maxSeries})
 	to := time.Now().UTC().Truncate(5 * time.Second).Add(-5 * time.Second)
 	from := to.Add(-2 * time.Minute)
 	for _, node := range []string{"a", "b"} {
@@ -31,6 +38,65 @@ func fixture(t *testing.T) (*Store, time.Time, time.Time) {
 		}
 	}
 	return s, from, to
+}
+
+func TestRecoveredWindowDoesNotInheritEarlierOverflow(t *testing.T) {
+	s, from, to := fixtureWithLimit(t, 32)
+	s.History.Append(from, []observability.Sample{{Metric: "capacity_cpu_usage", Labels: observability.L("node", "dropped"), Value: 1}})
+	lost, err := s.Query(from, to, nil)
+	if err != nil || !lost.Truncated || lost.Complete {
+		t.Fatalf("lost coverage was hidden: %+v %v", lost, err)
+	}
+	healthyFrom := from.Truncate(time.Minute).Add(time.Minute)
+	recovered, err := s.Query(healthyFrom, to, nil)
+	if err != nil || recovered.Truncated || !recovered.Complete || s.History.Stats().Dropped == 0 {
+		t.Fatalf("earlier overflow poisoned healthy coverage: %+v %v", recovered, err)
+	}
+	// A later drop must not conceal the earlier queried loss.
+	s.History.Append(to, []observability.Sample{{Metric: "capacity_cpu_usage", Labels: observability.L("node", "another"), Value: 1}})
+	lost, err = s.Query(from, healthyFrom, nil)
+	if err != nil || !lost.Truncated {
+		t.Fatalf("only the latest drop was retained: %+v %v", lost, err)
+	}
+}
+
+func TestQueryClosesOwnedConnectionsAndPreservesCallerTransport(t *testing.T) {
+	_, from, to := fixture(t)
+	closed := make(chan struct{}, 4)
+	var connections atomic.Int32
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(Usage{Region: "gru", From: from, To: to, Complete: true})
+	}))
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			connections.Add(1)
+		}
+		if state == http.StateClosed {
+			closed <- struct{}{}
+		}
+	}
+	server.Start()
+	defer server.Close()
+	client := Client{URLs: []string{server.URL}, Token: strings.Repeat("a", 32)}
+	if _, err := client.Query(t.Context(), "gru", from, to); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-closed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("query retained an owned idle connection")
+	}
+	transport := &http.Transport{}
+	defer transport.CloseIdleConnections()
+	client.HTTP = &http.Client{Transport: transport}
+	for range 2 {
+		if _, err := client.Query(t.Context(), "gru", from, to); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if connections.Load() != 2 {
+		t.Fatalf("caller transport did not reuse its connection: %d", connections.Load())
+	}
 }
 
 func TestWindowTotalsAndMissingData(t *testing.T) {

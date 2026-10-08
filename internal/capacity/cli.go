@@ -44,9 +44,13 @@ func (c Client) Query(ctx context.Context, region string, from, to time.Time) (U
 	if len(c.Token) < 32 || len(c.Token) > 4096 || strings.ContainsAny(c.Token, "\r\n") {
 		return Usage{}, errors.New("usage requires a valid bearer token")
 	}
-	hc := http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{Proxy: nil}}
+	hc := http.Client{Timeout: 15 * time.Second}
 	if c.HTTP != nil {
 		hc = *c.HTTP
+	} else {
+		transport := &http.Transport{Proxy: nil, IdleConnTimeout: 30 * time.Second}
+		defer transport.CloseIdleConnections()
+		hc.Transport = transport
 	}
 	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	var best *Usage

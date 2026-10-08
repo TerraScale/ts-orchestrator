@@ -129,6 +129,9 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 				return errors.New("unexpected client or result after summary")
 			}
 			if sample.Type == "summary" {
+				if !summaryMatchesMix(sample, w) {
+					return errors.New("summary operations must match workload mix")
+				}
 				summaries[sample.Client] = true
 			} else {
 				if sample.TS.Before(stage.From.Add(-2 * time.Second)) {
@@ -174,14 +177,15 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 		}
 		usageCancel()
 		run.Stages = append(run.Stages, stage)
-		if resultErr != nil {
-			return run, resultErr
+		if stage.Stopped != "" && err == context.Canceled {
+			// Only a clean cancellation may complete a safety-stopped run.
+			err = nil
+		}
+		if err != nil || resultErr != nil {
+			return run, errors.Join(err, resultErr)
 		}
 		if stage.Stopped != "" {
 			return run, nil
-		}
-		if err != nil {
-			return run, err
 		}
 		if len(summaries) != len(clients) {
 			return run, errors.New("client exited without its summary")
@@ -201,10 +205,12 @@ func contains(values []string, value string) bool {
 
 func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 	v := Verdict{P99TargetMS: w.Targets.P99, Bottleneck: "unknown", Scale: "unknown"}
+	finalQualified := false
 	for _, stage := range stages {
 		qualified := stage.Stopped == "" && stage.Usage.Complete
 		summaries := map[string]bool{}
 		perClient := map[string]map[int64]uint64{}
+		perOperation := map[string]bool{}
 		summaryRates := map[string]float64{}
 		ops := 0.0
 		start := stage.From.Add(time.Duration(w.Warmup) * time.Second)
@@ -213,7 +219,7 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 				summaries[sample.Client] = true
 				ops += sample.OpsPerS
 				summaryRates[sample.Client] = sample.OpsPerS
-				if sample.ErrorRate > 0.01 {
+				if sample.ErrorRate > 0.01 || !summaryMatchesMix(sample, w) {
 					qualified = false
 				}
 				continue
@@ -230,11 +236,19 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 				perClient[sample.Client] = seconds
 			}
 			seconds[sample.TS.Unix()] += sample.Count
+			if sample.Count > sample.Errors {
+				perOperation[sample.Client+"/"+sample.Op] = true
+			}
 		}
 		if len(summaries) != len(clients) {
 			qualified = false
 		}
 		for _, client := range clients {
+			for _, op := range w.Mix {
+				if !perOperation[client+"/"+op.Op] {
+					qualified = false
+				}
+			}
 			seconds := perClient[client]
 			duration := stage.Duration
 			if duration == 0 {
@@ -265,6 +279,7 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 			v.MaxSustainedOps = ops
 			v.Qualified = true
 		}
+		finalQualified = qualified
 	}
 	if len(stages) == 0 {
 		return v
@@ -311,7 +326,7 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 	case memoryRatio < 0.2:
 		v.Bottleneck = "memory"
 		v.Scale = "up"
-	case last.Stopped != "" || !v.Qualified:
+	case !finalQualified:
 		v.Bottleneck = "latency/errors"
 		v.Scale = "up"
 	case cpuRatio > 0.6 && memoryRatio > 0.6:
@@ -321,6 +336,18 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 		v.Bottleneck = "none"
 	}
 	return v
+}
+
+func summaryMatchesMix(sample Sample, w Workload) bool {
+	if len(sample.PerOp) != len(w.Mix) {
+		return false
+	}
+	for _, op := range w.Mix {
+		if _, ok := sample.PerOp[op.Op]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func WriteVerdict(out io.Writer, run Run) error {

@@ -34,7 +34,9 @@ Service totals sum replica means. Their summed maxima are a conservative
 upper bound, and summed minimum headroom is a conservative lower bound;
 replica peaks need not occur at the same instant. Inspect `replicas` for
 individual values. Truncation or missing usage, requests or limits makes the
-window incomplete. Longer configured telemetry intervals can therefore
+window incomplete. Dropped-series coverage is tracked for the queried hour,
+conservatively rounded to minutes; healthy later windows recover without a
+controller restart. Longer configured telemetry intervals can therefore
 produce incomplete benchmark windows.
 
 Hosts default to a ten-second telemetry interval; an explicit
@@ -91,8 +93,13 @@ No images are pulled, named volumes created or credentials written to disk.
 Each container has a fresh ULID name and ownership label. Cleanup stops and
 removes only these owned containers with a fresh context after cancellation
 or malformed output. Clients receive SIGINT and a 30-second shutdown reserve
-for their SDK database cleanup. Container and remote worker timeouts bound
-orphaned execution. The end-to-end load deadline is 15 minutes; resource
+for their SDK database cleanup. On cancellation the parent sends a control
+message and keeps SSH open to drain results until the worker acknowledges
+owned-container cleanup. Missing or failed acknowledgement fails the run;
+the parent terminates SSH after a 120-second cleanup reserve. Stdin EOF,
+SIGINT, SIGTERM and SIGHUP cancel the remote job, and broken stdout returns
+an error without skipping cleanup. Container and remote worker timeouts
+bound orphaned execution. The end-to-end load deadline is 15 minutes; resource
 cleanup has a separate bounded reserve. Client database cleanup remains
 part of the shared client contract and requires integration validation.
 
@@ -111,11 +118,15 @@ step has its own `warmup_s`; measurement and warmups together must fit within
 when an emitted operation has error rate above 1% or p99 above twice target.
 A qualified stage needs complete regional usage, at least 30 seconds of
 per-client measurements, the configured measurement duration, all client
-summaries, error rate at most 1% and measured p99 at target. Percentiles are
+summaries with exactly the workload's operation keys, successful measurement
+evidence for every client/operation, error rate at most 1% and measured p99
+at target. Percentiles are
 checked per client/operation; they are never averaged. The capacity figure
 is the sum of client summary throughput for the highest qualifying stage.
 Node or service headroom below 20% identifies CPU or memory pressure; more than 60%
-CPU and memory headroom permits a scale-down recommendation. Otherwise the
+CPU and memory headroom permits a scale-down recommendation only when the
+final stage qualifies. An earlier qualifying stage retains its maximum
+sustained throughput even when a later ramp stage fails latency. Otherwise the
 recommendation is up for latency/errors, or ok. An incomplete window or
 failed run reports `qualified: false` and `scale: unknown`, never a safe
 scale-down. These are recommendations; the benchmark never changes serving

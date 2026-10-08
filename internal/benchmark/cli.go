@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/capacity"
@@ -49,6 +51,10 @@ func CLI(ctx context.Context, args []string, out io.Writer) error {
 		if len(args) != 1 {
 			return errors.New("worker reads one job from stdin")
 		}
+		// Broken SSH output must return EPIPE so deferred container cleanup runs.
+		signal.Ignore(syscall.SIGPIPE)
+		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+		defer stop()
 		return Worker(ctx, os.Stdin, out)
 	}
 	if args[0] != "run" {
