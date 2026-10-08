@@ -716,12 +716,6 @@ func (controller *Controller) verifyManagedCanaryTimeoutAtAuthorityCommit(ctx co
 	return nil
 }
 
-func (controller *Controller) verifyManagedCanaryFailure(ctx context.Context, epoch uint64,
-	update ManagedUpdateIntent, expected VersionedMemberState, environment, role string,
-) error {
-	return controller.verifyManagedCanaryFailureChecked(ctx, epoch, update, expected, environment, role, true)
-}
-
 func (controller *Controller) verifyManagedCanaryFailureAtAuthorityCommit(ctx context.Context, epoch uint64,
 	update ManagedUpdateIntent, expected VersionedMemberState, environment, role string,
 ) error {

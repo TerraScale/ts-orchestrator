@@ -11,7 +11,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"slices"
-	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
@@ -545,8 +544,6 @@ func (producer BackupOperationProducer) AcknowledgeComplete(ctx context.Context,
 	}
 	return commitBackupExact(ctx, producer, epoch, record, sequence)
 }
-
-func backupZeroDigest() string { return strings.Repeat("0", 64) }
 
 // VerifyCommittedPublication authenticates the exact proof chain before a
 // status response exposes durable historical bytes from the authority log.

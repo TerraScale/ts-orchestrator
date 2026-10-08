@@ -1243,11 +1243,6 @@ func volumeSizeGB(bytes int64) (int64, error) {
 	return gigabytes, nil
 }
 
-func hasAttachedVolume(instance oci.Instance, state MemberState) bool {
-	_, attached := observedAttachment(instance, state)
-	return attached
-}
-
 func observedAttachment(instance oci.Instance, state MemberState) (oci.Attachment, bool) {
 	if state.VolumeID == "" || state.AttachmentID == "" {
 		return oci.Attachment{}, false

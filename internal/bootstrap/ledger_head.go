@@ -2337,35 +2337,6 @@ func (ledger *Ledger) loadSeedProof(
 	return &manifestCopy, &manifestRecordCopy, &receiptCopy, &receiptRecordCopy, nil
 }
 
-func (ledger *Ledger) decodeSeedReceipt(scope BootstrapScope, body []byte, current bool) (Receipt, trust.Envelope, error) {
-	envelope, err := trust.DecodeEnvelope(body)
-	if err != nil {
-		return Receipt{}, trust.Envelope{}, fmt.Errorf("%w: decode seed receipt envelope: %v", ErrInvalidRecord, err)
-	}
-	expected := trust.Scope{
-		Domain: seedReceiptDomain, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
-		Environment: ledger.config.Environment, Role: roleController, Slot: scope.Slot,
-	}
-	if envelope.Scope != expected {
-		return Receipt{}, trust.Envelope{}, fmt.Errorf("%w: seed receipt signed scope mismatch", ErrRecordAuthorization)
-	}
-	now := ledger.now()
-	var payload []byte
-	if current {
-		payload, err = trust.VerifyCurrent(envelope, expected, ledger.config.TrustRoots, now, ledger.config.TrustPolicy)
-	} else {
-		payload, err = trust.VerifyHistorical(envelope, expected, ledger.config.TrustRoots, ledger.config.TrustPolicy)
-	}
-	if err != nil {
-		return Receipt{}, trust.Envelope{}, fmt.Errorf("%w: verify root-signed seed receipt: %v", ErrRecordAuthorization, err)
-	}
-	var receipt Receipt
-	if err := decodeCanonicalPayload(payload, &receipt); err != nil || receipt.validate() != nil {
-		return Receipt{}, trust.Envelope{}, fmt.Errorf("%w: seed receipt payload is invalid", ErrInvalidRecord)
-	}
-	return receipt, envelope, nil
-}
-
 func validateSeedReceiptForIntent(receipt Receipt, intent Intent, intentDigest string) error {
 	if intent.Mode != IntentModeExternalSeed || receipt.DeploymentID != intent.DeploymentID ||
 		receipt.Environment != intent.Environment || string(receipt.Cell) != intent.Cell ||

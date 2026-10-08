@@ -569,18 +569,6 @@ func ReadJSON(path string, limit int, label string) (Object, error) {
 	return capture(func() Object { return readJSON(path, limit, label) })
 }
 func SHA256(path string) (string, error) { return capture(func() string { return fileSHA(path) }) }
-func RequireOCID(value any, kind, region string) error {
-	_, err := capture(func() bool { requireOCID(value, kind, region); return true })
-	return err
-}
-func RunOCI(ctx context.Context, region string, args ...string) (any, error) {
-	e := &Engine{Context: ctx}
-	return capture(func() any { return e.oci(region, args...) })
-}
-func WriteJSON(path string, value any) error {
-	_, err := capture(func() bool { writeJSON(path, value); return true })
-	return err
-}
 func writeJSON(path string, value any) {
 	must(true, os.MkdirAll(filepath.Dir(path), 0755))
 	wire := must(json.Marshal(value, json.Deterministic(true), jsontext.Multiline(true), json.FormatNilMapAsNull(true)))

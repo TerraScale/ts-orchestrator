@@ -106,11 +106,6 @@ func unitPriority(name string, o Object, host bool) int64 {
 	}
 	return pid
 }
-func ProcStatIdentity(raw string) (pid int64, start string, err error) {
-	defer recoverError(&err)
-	pid, start = procStatIdentity(raw)
-	return
-}
 func procStatIdentity(raw string) (int64, string) {
 	before, after, ok := strings.CutLast(raw, ")")
 	if !ok {
@@ -126,11 +121,6 @@ func procStatIdentity(raw string) (int64, string) {
 		fail("invalid /proc stat PID/start time")
 	}
 	return pid, fields[19]
-}
-func ProcCgroupPath(raw string) (path string, err error) {
-	defer recoverError(&err)
-	path = procCgroupPath(raw)
-	return
 }
 func procCgroupPath(raw string) string {
 	var path string

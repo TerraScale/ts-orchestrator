@@ -175,14 +175,6 @@ func peerDRGRoutes(actual []any, network, subnet netip.Prefix, accepted, label s
 	}
 }
 
-func exactPeerRows(actual any, expected []any, label string) []any {
-	r := rows(actual)
-	if !slices.Equal(orderedRows(r), orderedRows(expected)) {
-		fail("live " + label + " differs from the exact private peer intent")
-	}
-	return r
-}
-
 // privatePeerRules are the NSG ingress and security-list egress rules a
 // private peer adds to a cell: TCP on each allowed port from and to the peer
 // subnet.

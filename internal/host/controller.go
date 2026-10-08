@@ -146,7 +146,6 @@ func (c *Controller) guard(ctx context.Context, epoch uint64) error {
 	return c.authorityGuard(ctx, epoch)
 }
 
-func registrationKey(cell, node string) string  { return "registration." + cell + "." + node }
 func sessionKey(cell, node string) string       { return "session." + cell + "." + node }
 func desiredKey(cell, node, role string) string { return "desired." + cell + "." + node + "." + role }
 func reportKey(cell, node, role string) string  { return "report." + cell + "." + node + "." + role }

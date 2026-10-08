@@ -372,17 +372,6 @@ func ParseKernelOOMRecord(raw string) (result Object, err error) {
 	return Object{"victim_pid": pid, "cgroup_path": filepath.Join(CgroupRoot, strings.TrimLeft(fields["task_memcg"], "/")), "event_at_utc": parsed["event_at_utc"], "boot_id": parsed["boot_id"], "journal_cursor": parsed["cursor"]}, nil
 }
 
-func ParseSystemdShow(raw, label string) (result Object, err error) {
-	defer recoverError(&err)
-	r := parseProperties(raw, label)
-	for _, k := range []string{"ActiveState", "MainPID", "NRestarts", "ControlGroup"} {
-		if _, ok := r[k]; !ok {
-			fail("%s raw systemd properties omit required fields", label)
-		}
-	}
-	return r, nil
-}
-
 func cgroupIOWeight(path, device string) int64 {
 	weights := map[string]int64{}
 	for line := range strings.SplitSeq(rawText(filepath.Join(path, "io.weight")), "\n") {

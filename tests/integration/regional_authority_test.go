@@ -675,21 +675,6 @@ func guardPassDetails(ctx context.Context, candidates []*authority.Runtime, cand
 	return passed, details
 }
 
-func waitForGuard(ctx context.Context, candidate *authority.Runtime, epoch uint64) error {
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		if err := guardWithRetry(ctx, candidate, epoch); err == nil {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("wait for authority guard at epoch %d: %w (snapshot: %+v)", epoch, ctx.Err(), candidate.Current())
-		case <-ticker.C:
-		}
-	}
-}
-
 func guardWithRetry(ctx context.Context, candidate *authority.Runtime, epoch uint64) error {
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()

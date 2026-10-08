@@ -431,12 +431,6 @@ func (producer BackupOperationProducer) VerifyCutWithLeaf(ctx context.Context,
 	return cut, leaf, err
 }
 
-func verifyCutWithBundle(record authority.BackupOperationRecord, memberID string, wire []byte,
-	receipt PreparationReceipt, bundle InitialBundle,
-) (BackupCut, error) {
-	return verifyCutWithBundleLeaf(record, memberID, wire, receipt, bundle, nil)
-}
-
 func verifyCutWithBundleLeaf(record authority.BackupOperationRecord, memberID string, wire []byte,
 	receipt PreparationReceipt, bundle InitialBundle, leafDER *[]byte,
 ) (BackupCut, error) {

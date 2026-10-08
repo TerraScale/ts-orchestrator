@@ -73,10 +73,6 @@ func CommandSubject(region, command string) (string, error) {
 	return regionalSubject(region, "command", command)
 }
 
-func ObservationSubject(region, observation string) (string, error) {
-	return regionalSubject(region, "observation", observation)
-}
-
 // ObservabilitySubject is a read-only member telemetry route inside one
 // regional cell, for example ts.orch.v1.gru.obs.snapshot. Every controller
 // answers it; it carries no signed state and never drives a mutation.
@@ -103,10 +99,6 @@ func AgentObservationSubject(region, userPublicKey, observation string) (string,
 		return "", err
 	}
 	return root + ".agent." + userPublicKey + ".observation." + observation, nil
-}
-
-func AgentAckSubject(region, nodeID, acknowledgement string) (string, error) {
-	return agentSubject(region, nodeID, "ack", acknowledgement)
 }
 
 func AgentReplySubject(region, nodeID, operationID string) (string, error) {
