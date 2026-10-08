@@ -23,7 +23,7 @@ func TestNetBirdAdmissionSurvivesFenceAndGrantRemovalWithoutLosingQuorum(t *test
 	spec, _ := f.spec()
 	spec.BackendSets[0].MinServing = 3
 	api.sets["terrabase"] = append(api.sets["terrabase"], lb.Backend{IP: "10.0.0.14", Port: 9465})
-	record := network.Record{ID: "admitted", Node: "ctl-2", Phase: "drain", Deadline: time.Now().Add(time.Minute)}
+	record := network.Record{ID: "06RK99WTQK58C48FH8SYH45C8S", Node: "ctl-2", Phase: "drain", Deadline: time.Now().Add(time.Minute)}
 	if err := saveNetBirdTestAdmission(t.Context(), &n, 3, record); err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestNetBirdAdmissionRequiresVerifiedFenceAndAddress(t *testing.T) {
 	f, _, _, _, _ := newFenceTest(t)
 	f.spec = func() (*cellspec.ReleaseFence, map[string]string) { return nil, map[string]string{} }
 	n := netbirdRollout{fence: f}
-	if err := saveNetBirdTestAdmission(t.Context(), &n, 3, network.Record{ID: "not-admitted", Node: "ctl-1", Phase: "drain"}); err == nil {
+	if err := saveNetBirdTestAdmission(t.Context(), &n, 3, network.Record{ID: "3H43XCS35PSC8Z1HC82FZJC2PK", Node: "ctl-1", Phase: "drain"}); err == nil {
 		t.Fatal("new transaction admitted without its fence/address snapshot")
 	}
 }
@@ -89,7 +89,7 @@ func TestNetBirdDrainPreflightKeepsAdmissionAndLiveGatesAfterFenceRemoval(t *tes
 	n.fence.spec = func() (*cellspec.ReleaseFence, map[string]string) {
 		return spec, map[string]string{"leader": addresses["leader"], "selected": addresses["selected"]}
 	}
-	record := network.Record{ID: "admitted", Node: "selected", Phase: "drain", Deadline: time.Now().Add(time.Minute), Target: network.Target{Pin: pin}}
+	record := network.Record{ID: "06RK99WTQK58C48FH8SYH45C8S", Node: "selected", Phase: "drain", Deadline: time.Now().Add(time.Minute), Target: network.Target{Pin: pin}}
 	if err := saveNetBirdTestAdmission(t.Context(), n, 3, record); err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestNetBirdDrainPreflightKeepsAdmissionAndLiveGatesAfterFenceRemoval(t *tes
 		resolved[record.Node] != "10.251.0.12" || resolved["leader"] != addresses["leader"] {
 		t.Fatalf("resumed preflight lost admitted scope or live peers: fence=%+v addresses=%v err=%v", saved, resolved, err)
 	}
-	if other, _, err := n.preflightAddresses(t.Context(), "other"); err != nil || other != nil {
+	if other, _, err := n.preflightAddresses(t.Context(), "2VP7F78J0ZNFE8BE3RYC7BNX9T"); err != nil || other != nil {
 		t.Fatalf("another node reused the active node's admission: %+v %v", other, err)
 	}
 	if err := n.saveAt(t.Context(), 3, "netbird.status.leader", network.Status{Version: "0.79.0", Connected: true, ObservedAt: time.Now()}); err != nil {

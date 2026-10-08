@@ -6,9 +6,9 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"os"
-	"uuid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	network "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/rollout"
 )
 
@@ -50,7 +50,7 @@ func (state netbirdState) commandFor(node string) (network.Command, bool, error)
 	if state.Record.Node != node || command.ID == "" || !netbirdCommandAllowed(state.Record, command.Action) {
 		return network.Command{}, false, nil
 	}
-	if command.Transaction != state.Record.ID || command.ID != state.Record.ID+"."+command.Action ||
+	if command.Transaction != state.Record.ID || command.ID != network.CommandID(state.Record.ID, command.Action) ||
 		network.Hash(command.Target) != network.Hash(state.Record.Target) {
 		return network.Command{}, false, errors.New("NetBird command does not match the active transaction")
 	}
@@ -72,6 +72,9 @@ func readNetBirdState(ctx context.Context, reader netbirdStateReader) (netbirdSt
 	if err := json.Unmarshal(entry.Payload, &state, json.RejectUnknownMembers(true)); err != nil {
 		return state, err
 	}
+	if (state.Record.ID != "" || state.Record.Phase != "" || state.Record.Node != "") && !entityid.Valid(state.Record.ID) {
+		return state, errors.New("invalid NetBird journal identity")
+	}
 	state.Revision = entry.Sequence
 	return state, nil
 }
@@ -89,6 +92,9 @@ func (n *netbirdRollout) commitStateAt(ctx context.Context, epoch uint64, state 
 	if !ok {
 		return errors.New("NetBird requires an authority journal writer")
 	}
+	if (next.Record.ID != "" || next.Record.Phase != "" || next.Record.Node != "") && !entityid.Valid(next.Record.ID) {
+		return errors.New("invalid NetBird journal identity")
+	}
 	original, err := json.Marshal(*state, json.Deterministic(true))
 	if err != nil {
 		return err
@@ -97,7 +103,7 @@ func (n *netbirdRollout) commitStateAt(ctx context.Context, epoch uint64, state 
 	if err != nil {
 		return err
 	}
-	expected, operation := state.Revision, uuid.New().String()
+	expected, operation := state.Revision, entityid.New()
 	for attempt := range 3 {
 		revision, err := store.CommitNetBirdState(ctx, epoch, operation, expected, wire)
 		if err == nil {
@@ -128,7 +134,7 @@ func (n *netbirdRollout) commitStateAt(ctx context.Context, epoch uint64, state 
 
 func (n *netbirdRollout) sendAt(ctx context.Context, epoch uint64, state *netbirdState, node string, command network.Command) error {
 	if state.Revision == 0 || state.Record.Node != node || state.Record.ID != command.Transaction ||
-		command.ID != state.Record.ID+"."+command.Action || network.Hash(command.Target) != network.Hash(state.Record.Target) ||
+		command.ID != network.CommandID(state.Record.ID, command.Action) || network.Hash(command.Target) != network.Hash(state.Record.Target) ||
 		!netbirdCommandAllowed(state.Record, command.Action) {
 		return errors.New("NetBird command does not match its journal snapshot")
 	}

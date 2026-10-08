@@ -3,7 +3,6 @@ package client
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
@@ -20,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
 )
 
@@ -30,7 +30,6 @@ const (
 	rollbackWindow   = 5 * time.Minute
 )
 
-var transactionPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,128}$`)
 var managedVersionPattern = regexp.MustCompile(`^0\.80\.[0-9]+$`)
 var runningVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 var errManagedUnitNotEnabled = errors.New("NetBird service is disabled or missing")
@@ -47,6 +46,7 @@ type ManagedOptions struct {
 	// access. It is verified against the pin before any service mutation.
 	BinaryPath    string
 	TransactionID string
+	Bootstrap     bool
 	// Prepare records the existing journal under the operation lock before
 	// any installation effects, so the worker can prove a failed first attempt.
 	Prepare func(ManagedResult) error
@@ -54,6 +54,7 @@ type ManagedOptions struct {
 
 type ManagedResult struct {
 	TransactionID    string    `json:"transaction_id"`
+	Bootstrap        bool      `json:"bootstrap,omitempty"`
 	Version          string    `json:"version"`
 	PreviousVersion  string    `json:"previous_version,omitempty"`
 	RollbackDeadline time.Time `json:"rollback_deadline"`
@@ -450,7 +451,7 @@ func (m managedClient) readTransaction() (managedTransaction, error) {
 	}
 	var transaction managedTransaction
 	if json.Unmarshal(body, &transaction, json.RejectUnknownMembers(true)) != nil ||
-		!transactionPattern.MatchString(transaction.TransactionID) || !SHA256Pattern.MatchString(transaction.BinarySHA256) ||
+		!entityid.Valid(transaction.TransactionID) || !SHA256Pattern.MatchString(transaction.BinarySHA256) ||
 		transaction.PreviousSHA256 != "" && !SHA256Pattern.MatchString(transaction.PreviousSHA256) ||
 		transaction.RollbackSHA256 != "" && !SHA256Pattern.MatchString(transaction.RollbackSHA256) ||
 		transaction.Architecture != "arm64" && transaction.Architecture != "amd64" || transaction.RollbackDeadline.IsZero() {
@@ -657,9 +658,9 @@ func (m managedClient) install(ctx context.Context, pin Pin, cfg netbird.Config,
 		return ManagedResult{}, err
 	}
 	if options.TransactionID == "" {
-		options.TransactionID = rand.Text()
+		options.TransactionID = entityid.New()
 	}
-	if !transactionPattern.MatchString(options.TransactionID) {
+	if !entityid.Valid(options.TransactionID) {
 		return ManagedResult{}, errors.New("invalid managed NetBird transaction identity")
 	}
 	lock, err := m.lock()
@@ -689,7 +690,7 @@ func (m managedClient) install(ctx context.Context, pin Pin, cfg netbird.Config,
 		}
 	}
 	if transaction.TransactionID == options.TransactionID && !transaction.Pending {
-		if transaction.BinarySHA256 != archive.BinarySHA256 || transaction.Architecture != m.architecture {
+		if transaction.BinarySHA256 != archive.BinarySHA256 || transaction.Architecture != m.architecture || transaction.Bootstrap != options.Bootstrap {
 			return transaction.ManagedResult, errors.New("managed NetBird transaction pin does not match")
 		}
 		if transaction.RolledBack {
@@ -697,7 +698,7 @@ func (m managedClient) install(ctx context.Context, pin Pin, cfg netbird.Config,
 		}
 		return transaction.ManagedResult, nil
 	}
-	if transaction.Pending && (transaction.TransactionID != options.TransactionID || transaction.BinarySHA256 != archive.BinarySHA256 || transaction.Version != pin.Version) {
+	if transaction.Pending && (transaction.TransactionID != options.TransactionID || transaction.Bootstrap != options.Bootstrap || transaction.BinarySHA256 != archive.BinarySHA256 || transaction.Version != pin.Version) {
 		return transaction.ManagedResult, errors.New("another managed NetBird transaction is pending")
 	}
 	if transaction.Pending && !time.Now().Before(transaction.RollbackDeadline) {
@@ -705,7 +706,7 @@ func (m managedClient) install(ctx context.Context, pin Pin, cfg netbird.Config,
 	}
 	resuming := transaction.Pending
 	if !resuming {
-		transaction = managedTransaction{ManagedResult: ManagedResult{TransactionID: options.TransactionID,
+		transaction = managedTransaction{ManagedResult: ManagedResult{TransactionID: options.TransactionID, Bootstrap: options.Bootstrap,
 			Version: pin.Version, Pending: true, RollbackDeadline: time.Now().Add(rollbackWindow)},
 			BinarySHA256: archive.BinarySHA256, Architecture: m.architecture, StateBackup: true}
 	}
@@ -891,6 +892,9 @@ func (m managedClient) finishModeWithProof(ctx context.Context, transactionID st
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if !entityid.Valid(transactionID) || proof != nil && proof.PreviousTransactionID != "" && !entityid.Valid(proof.PreviousTransactionID) {
+		return errors.New("invalid managed NetBird transaction identity")
+	}
 	lock, err := m.lock()
 	if err != nil {
 		return err
@@ -903,7 +907,7 @@ func (m managedClient) finishModeWithProof(ctx context.Context, transactionID st
 	if transaction.TransactionID != transactionID || transactionID == "" {
 		// A watchdog armed before journal commit cannot replace completed state;
 		// explicit worker rollback still requires its durable preparation proof.
-		if rollback && transactionPattern.MatchString(transactionID) && !transaction.Pending &&
+		if rollback && entityid.Valid(transactionID) && !transaction.Pending &&
 			(pendingOnly || proof != nil && !proof.InstallCommitted &&
 				(!proof.InstallStarted || transaction.TransactionID == proof.PreviousTransactionID)) {
 			// Preparation may arm an orphaned watchdog before journal commit.

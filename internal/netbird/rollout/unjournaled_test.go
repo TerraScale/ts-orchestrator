@@ -20,14 +20,14 @@ func TestPreJournalInstallFailureRequiresNoopRollbackAcknowledgment(t *testing.T
 			f.advance(target, "install")
 			// The worker acknowledged an error before pending.json or mutation.
 			status := f.statuses[node]
-			status.ActionID, status.Error = f.record().ID+".install", "snapshot preparation failed"
+			status.ActionID, status.Error = CommandID(f.record().ID, "install"), "snapshot preparation failed"
 			f.statuses[node] = status
 			f.advance(target, "rollback-check")
 			if err := f.tick(target); err != nil || !f.drained[node] || f.record().RecoveryComplete || f.record().Phase != "rollback-check" {
 				t.Fatalf("unchanged observation waived the required rollback proof: record=%+v error=%v", f.record(), err)
 			}
 			// Worker proof and its durable tombstone authorize this exact ack.
-			status.ActionID, status.Error = f.record().ID+".rollback", ""
+			status.ActionID, status.Error = CommandID(f.record().ID, "rollback"), ""
 			f.statuses[node] = status
 			if err := f.tick(target); err != nil || f.drained[node] || !f.record().RecoveryComplete || f.record().Phase != "failed" {
 				t.Fatalf("proven no-op rollback stranded an unchanged node: record=%+v error=%v", f.record(), err)

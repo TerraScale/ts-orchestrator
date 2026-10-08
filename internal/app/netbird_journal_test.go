@@ -73,7 +73,7 @@ func saveNetBirdTestCommand(ctx context.Context, n *netbirdRollout, epoch uint64
 
 func TestNetBirdStaleTickCannotOverwriteJournalOrCommand(t *testing.T) {
 	n := netbirdRollout{fence: &releaseFence{fencer: &fenceLease{}}}
-	record := network.Record{ID: "upgrade", Node: "node-a", Phase: "install"}
+	record := network.Record{ID: "7E5HKSCCJSQJGMM2DVVHCQDQFV", Node: "node-a", Phase: "install"}
 	if err := saveNetBirdTestRecord(t.Context(), &n, 3, record); err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestNetBirdStaleTickCannotOverwriteJournalOrCommand(t *testing.T) {
 	if err := n.saveRecordAt(t.Context(), 3, &current, record); err != nil {
 		t.Fatal(err)
 	}
-	command := network.Command{ID: "upgrade.rollback", Transaction: "upgrade", Action: "rollback"}
+	command := network.Command{ID: network.CommandID("7E5HKSCCJSQJGMM2DVVHCQDQFV", "rollback"), Transaction: "7E5HKSCCJSQJGMM2DVVHCQDQFV", Action: "rollback"}
 	if err := n.sendAt(t.Context(), 3, &current, record.Node, command); err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestNetBirdStaleTickCannotOverwriteJournalOrCommand(t *testing.T) {
 		t.Fatalf("stale journal transition accepted: %v", err)
 	}
 	old := command
-	old.Action, old.ID = "install", "upgrade.install"
+	old.Action, old.ID = "install", network.CommandID("7E5HKSCCJSQJGMM2DVVHCQDQFV", "install")
 	if err := n.sendAt(t.Context(), 3, &stale, record.Node, old); !errors.Is(err, authority.ErrConflict) {
 		t.Fatalf("stale command accepted: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestNetBirdStaleTickCannotOverwriteJournalOrCommand(t *testing.T) {
 
 func TestNetBirdNewTransactionDropsPreviousNodeCommand(t *testing.T) {
 	n := netbirdRollout{fence: &releaseFence{fencer: &fenceLease{}}}
-	record := network.Record{ID: "old", Node: "node-a", Phase: "install"}
+	record := network.Record{ID: "3WFCQVW916SRRSWMQAV8D0MHZE", Node: "node-a", Phase: "install"}
 	if err := saveNetBirdTestRecord(t.Context(), &n, 3, record); err != nil {
 		t.Fatal(err)
 	}
@@ -114,10 +114,10 @@ func TestNetBirdNewTransactionDropsPreviousNodeCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := n.sendAt(t.Context(), 3, &state, "node-a", network.Command{ID: "old.install", Transaction: "old", Action: "install"}); err != nil {
+	if err := n.sendAt(t.Context(), 3, &state, "node-a", network.Command{ID: network.CommandID("3WFCQVW916SRRSWMQAV8D0MHZE", "install"), Transaction: "3WFCQVW916SRRSWMQAV8D0MHZE", Action: "install"}); err != nil {
 		t.Fatal(err)
 	}
-	record.ID, record.Node = "new", "node-b"
+	record.ID, record.Node = "2S68NEPB3AF7KVEFYXRZVNNGRJ", "node-b"
 	if err := n.saveRecordAt(t.Context(), 3, &state, record); err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestNetBirdRollbackCannotResignPreviousConfirmation(t *testing.T) {
 	}
 	n := netbirdRollout{cell: "gru", key: key, services: &specRegistry{current: cellspec.Spec{NetBird: &cellspec.NetBird{}}},
 		fence: &releaseFence{fencer: &fenceLease{}}}
-	record := network.Record{ID: "upgrade", Node: "node-a", Phase: "confirm"}
+	record := network.Record{ID: "7E5HKSCCJSQJGMM2DVVHCQDQFV", Node: "node-a", Phase: "confirm"}
 	if err := saveNetBirdTestRecord(t.Context(), &n, 3, record); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestNetBirdRollbackCannotResignPreviousConfirmation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	confirm := network.Command{ID: "upgrade.confirm", Transaction: "upgrade", Action: "confirm"}
+	confirm := network.Command{ID: network.CommandID("7E5HKSCCJSQJGMM2DVVHCQDQFV", "confirm"), Transaction: "7E5HKSCCJSQJGMM2DVVHCQDQFV", Action: "confirm"}
 	if err := n.sendAt(t.Context(), 3, &state, record.Node, confirm); err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestNetBirdRollbackCannotResignPreviousConfirmation(t *testing.T) {
 	if err != nil || len(step) != 0 {
 		t.Fatalf("rollback re-signed obsolete confirmation: %q %v", step, err)
 	}
-	rollback := network.Command{ID: "upgrade.rollback", Transaction: "upgrade", Action: "rollback"}
+	rollback := network.Command{ID: network.CommandID("7E5HKSCCJSQJGMM2DVVHCQDQFV", "rollback"), Transaction: "7E5HKSCCJSQJGMM2DVVHCQDQFV", Action: "rollback"}
 	if err := n.sendAt(t.Context(), 3, &state, record.Node, rollback); err != nil {
 		t.Fatal(err)
 	}
@@ -207,12 +207,12 @@ func TestNetBirdExchangeRejectsConcurrentRollbackBeforeCommandIssuance(t *testin
 	lease := &netbirdIssuanceRace{fenceLease: &fenceLease{}}
 	n := netbirdRollout{cell: "gru", key: key, services: &specRegistry{current: cellspec.Spec{NetBird: &cellspec.NetBird{}}},
 		fence: &releaseFence{fencer: lease}}
-	record := network.Record{ID: "upgrade", Node: "node-a", Phase: "confirm"}
+	record := network.Record{ID: "7E5HKSCCJSQJGMM2DVVHCQDQFV", Node: "node-a", Phase: "confirm"}
 	if err := saveNetBirdTestRecord(t.Context(), &n, 3, record); err != nil {
 		t.Fatal(err)
 	}
 	if err := saveNetBirdTestCommand(t.Context(), &n, 3, record.Node,
-		network.Command{ID: "upgrade.confirm", Transaction: "upgrade", Action: "confirm"}); err != nil {
+		network.Command{ID: network.CommandID("7E5HKSCCJSQJGMM2DVVHCQDQFV", "confirm"), Transaction: "7E5HKSCCJSQJGMM2DVVHCQDQFV", Action: "confirm"}); err != nil {
 		t.Fatal(err)
 	}
 	lease.beforeCommit = func() error {

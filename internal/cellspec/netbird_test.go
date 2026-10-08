@@ -15,7 +15,7 @@ func TestNetBirdPinValidationAndAmendment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := Identity{DeploymentID: "terrascale-gru", Cell: "gru", Environment: "production"}
+	id := Identity{DeploymentID: "5MDYB72MN6NMSTJ8H7WCQ6ZK5P", Cell: "gru", Environment: "production"}
 	managed := NetBird{Pin: pin, Enrollment: netbird.Config{
 		ManagementURL: netbird.DefaultManagementURL, Region: netbird.DefaultRegion,
 		SetupKeySecretID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.setupkey"}}

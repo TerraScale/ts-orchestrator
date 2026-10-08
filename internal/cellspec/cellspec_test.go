@@ -1326,21 +1326,21 @@ func TestReleaseFenceLevelValidateAndDiff(t *testing.T) {
 	}
 }
 
-// The Machines API platform organization needs level 20 and a valid policy, and every added
+// The Machines API platform organization needs level 21 and a valid policy, and every added
 // or changed one needs a root: it decides who reads the cell.
 func TestMachinesAPILevelValidateAndDiff(t *testing.T) {
 	f := newFixture(t)
 	api := MachinesAPI{PlatformOrganizationID: "01M4EB0GDPPHGJPPVY77EMZQKT", Issuer: "https://gru.auth.terrascale.tech/terrascale", Audience: "https://sfo.orch.terrascale.tech",
 		JWKSURLs: []string{"https://gru.auth.terrascale.tech/terrascale/.well-known/jwks.json"}, Clients: []string{"0000000000NY47MDQEXMPZDJR7"}}
 	spec := testSpec(f.id, 1)
-	spec.MachinesAPI, spec.RequiresBinary = &api, 20
-	if spec.Level() != 20 || spec.Validate() != nil {
+	spec.MachinesAPI, spec.RequiresBinary = &api, 21
+	if spec.Level() != 21 || spec.Validate() != nil {
 		t.Fatalf("level %d, %v", spec.Level(), spec.Validate())
 	}
 	tooOld := spec
-	tooOld.RequiresBinary = 19
+	tooOld.RequiresBinary = 20
 	if err := tooOld.Validate(); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("platform organization accepted below level 20: %v", err)
+		t.Fatalf("platform organization accepted below level 21: %v", err)
 	}
 	withoutPlatform := api
 	withoutPlatform.PlatformOrganizationID = ""

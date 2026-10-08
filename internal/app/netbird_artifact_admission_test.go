@@ -264,7 +264,7 @@ func TestNetBirdArtifactTouchFailureStopsAdmissionAndDrain(t *testing.T) {
 			for _, phase := range []string{"", "drain"} {
 				reconciler := network.Reconciler{
 					Load: func(context.Context) (network.Record, error) {
-						return network.Record{Phase: phase, Node: "node-a", Deadline: time.Now().Add(time.Minute)}, nil
+						return network.Record{ID: "3SZXBVR5V33QM5VPHV61CJAJF9", Phase: phase, Node: "node-a", Deadline: time.Now().Add(time.Minute)}, nil
 					},
 					Status:    func(context.Context, string) (network.Status, error) { return network.Status{Version: "0.79.0"}, nil },
 					Preflight: func(ctx context.Context, _ string) error { return r.artifactsReady(ctx) },
@@ -349,7 +349,7 @@ func TestNetBirdArtifactVerificationStopsAdmissionAndDrain(t *testing.T) {
 				for _, phase := range []string{"", "drain"} {
 					reconciler := network.Reconciler{
 						Load: func(context.Context) (network.Record, error) {
-							return network.Record{Phase: phase, Node: "node-a", Deadline: time.Now().Add(time.Minute)}, nil
+							return network.Record{ID: "3SZXBVR5V33QM5VPHV61CJAJF9", Phase: phase, Node: "node-a", Deadline: time.Now().Add(time.Minute)}, nil
 						},
 						Status:    func(context.Context, string) (network.Status, error) { return network.Status{Version: "0.79.0"}, nil },
 						Preflight: func(ctx context.Context, _ string) error { return r.artifactsReady(ctx) },

@@ -14,6 +14,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	network "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -27,7 +28,7 @@ type netbirdRecoveryLease struct {
 
 func (l *netbirdRecoveryLease) Current() authority.Snapshot {
 	snapshot := l.fenceLease.Current()
-	snapshot.CandidateID, snapshot.Leader = "controller-a-a1b2c3d4", l.leader
+	snapshot.CandidateID, snapshot.Leader = "01M4EB0GDPPHGJPPVY77EMZQKT", l.leader
 	return snapshot
 }
 
@@ -187,11 +188,11 @@ func TestNetBirdRecoveryRejectsUnsafeRequestsWithoutDialing(t *testing.T) {
 				peer.services.current.HostGrants[0].PrivateIP = address
 			}
 			peer.services.mu.Unlock()
-			request := netbirdRecoveryRequest{Requester: "controller-a", Responder: "controller-b", Authority: "controller-a-a1b2c3d4", Node: "node-a", Address: address}
+			request := netbirdRecoveryRequest{Requester: "controller-a", Responder: "controller-b", Authority: "01M4EB0GDPPHGJPPVY77EMZQKT", Node: "node-a", Address: address}
 			payload, _ := protocol.EncodeJSON(request)
 			now := time.Now()
 			envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: "gru", Kind: netbirdRecoveryRequestKind,
-				Actor: "controller-a", OperationID: rand.Text(), Generation: 9, Epoch: 3}, now, now.Add(netbirdRecoveryLifetime), leader.key)
+				Actor: "controller-a", OperationID: entityid.New(), Generation: 9, Epoch: 3}, now, now.Add(netbirdRecoveryLifetime), leader.key)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -210,8 +211,8 @@ func TestNetBirdRecoveryRejectsUnsafeRequestsWithoutDialing(t *testing.T) {
 
 func TestNetBirdRecoveryRejectsUnsignedReplayedWrongNodeAndExpiredReplies(t *testing.T) {
 	leader, _ := netbirdRecoveryControllers(t)
-	request := netbirdRecoveryRequest{Requester: "controller-a", Responder: "controller-b", Authority: "controller-a-a1b2c3d4", Node: "node-a", Address: "10.251.0.11"}
-	scope, err := leader.recoveryScope(request, netbirdRecoveryRequestKind, request.Requester, rand.Text(), 3)
+	request := netbirdRecoveryRequest{Requester: "controller-a", Responder: "controller-b", Authority: "01M4EB0GDPPHGJPPVY77EMZQKT", Node: "node-a", Address: "10.251.0.11"}
+	scope, err := leader.recoveryScope(request, netbirdRecoveryRequestKind, request.Requester, entityid.New(), 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +225,7 @@ func TestNetBirdRecoveryRejectsUnsignedReplayedWrongNodeAndExpiredReplies(t *tes
 			issued, expires := now, now.Add(netbirdRecoveryLifetime)
 			switch issue {
 			case "replayed":
-				responseScope.OperationID = "previous-request"
+				responseScope.OperationID = "7SR6C4VQACRFWNG35GQE7SG22C"
 			case "wrong-node":
 				proof.Request.Node = "node-b"
 			case "wrong-controller":

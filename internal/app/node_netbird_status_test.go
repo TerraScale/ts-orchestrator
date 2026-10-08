@@ -40,11 +40,11 @@ func TestNodeStatusSkipsDisappearedNetBirdKeysAndReportsCorruption(t *testing.T)
 	put("netbird.status.present", network.Status{Version: "0.80.0"})
 	put("netbird.status.gone", network.Status{Version: "0.79.0"})
 	ops := nodeOps{fence: &releaseFence{kv: disappearingNetBirdStatusKV{KeyValue: kv, key: "netbird.status.gone"}, fencer: &fenceLease{}}}
-	if err := saveNetBirdTestRecord(t.Context(), &netbirdRollout{fence: ops.fence}, 3, network.Record{ID: "upgrade", Node: "present"}); err != nil {
+	if err := saveNetBirdTestRecord(t.Context(), &netbirdRollout{fence: ops.fence}, 3, network.Record{ID: "7E5HKSCCJSQJGMM2DVVHCQDQFV", Node: "present"}); err != nil {
 		t.Fatal(err)
 	}
 	status, err := ops.status(t.Context())
-	if err != nil || status.NetBird == nil || status.NetBird.ID != "upgrade" || len(status.NetBirdNodes) != 1 || status.NetBirdNodes["present"].Version != "0.80.0" {
+	if err != nil || status.NetBird == nil || status.NetBird.ID != "7E5HKSCCJSQJGMM2DVVHCQDQFV" || len(status.NetBirdNodes) != 1 || status.NetBirdNodes["present"].Version != "0.80.0" {
 		t.Fatalf("disappearing node lost otherwise valid status: %+v %v", status, err)
 	}
 	if _, err := kv.Put(t.Context(), "netbird.status.present", []byte(`{"unexpected":true}`)); err != nil {

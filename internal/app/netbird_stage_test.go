@@ -60,7 +60,7 @@ func signedNetbirdStage(t *testing.T, key ed25519.PrivateKey, request netbirdSta
 	}
 	now := time.Now().UTC()
 	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: "gru", Kind: netbirdStageKind,
-		Actor: "ops", OperationID: "netbird-stage-test", Generation: 1, Epoch: epoch}, now, now.Add(time.Minute), key)
+		Actor: "ops", OperationID: "6FG8JSQDE0WD6HX997W10WK3DM", Generation: 1, Epoch: epoch}, now, now.Add(time.Minute), key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func newNetbirdStageFixture(t *testing.T, ctx context.Context) netbirdStageFixtu
 	if err := broker.WaitForCluster(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
-	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: "gru", CandidateID: "stage-controller", Replicas: 1})
+	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: "gru", CandidateID: "739PSJDKA86QX9QSHM4Q778WVM", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -31,7 +31,7 @@ func signedCommand(t *testing.T, action string) (Config, []byte) {
 		t.Fatal(err)
 	}
 	cfg := Config{Cell: "gru", Node: "node-a", Directory: t.TempDir(), Controller: public}
-	command := network.Command{ID: "transaction-1." + action, Transaction: "transaction-1", Generation: 1, Action: action, Target: network.Target{Pin: pin,
+	command := network.Command{ID: network.CommandID("1XSA1KQFHZFFN74D9VXYVJGJE6", action), Transaction: "1XSA1KQFHZFFN74D9VXYVJGJE6", Generation: 1, Action: action, Target: network.Target{Pin: pin,
 		Enrollment: netbird.Config{ManagementURL: netbird.DefaultManagementURL, Region: "sa-saopaulo-1", SetupKeySecretID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.example.valid"}}}
 	return cfg, signCommand(t, cfg, key, command, 3)
 }
@@ -196,19 +196,19 @@ func TestSpoolReadRejectsUnsafeFilesWithoutBlocking(t *testing.T) {
 }
 
 func TestWorkerRejectsReplayedTransactionsAcrossLeaderFailover(t *testing.T) {
-	last := ledger{Generation: 20, Epoch: 3, Transaction: "new", Action: "confirm", ActionID: "new.confirm"}
+	last := ledger{Generation: 20, Epoch: 3, Transaction: "2S68NEPB3AF7KVEFYXRZVNNGRJ", Action: "confirm", ActionID: network.CommandID("2S68NEPB3AF7KVEFYXRZVNNGRJ", "confirm")}
 	for _, test := range []struct {
 		name, transaction, action string
 		generation, epoch         uint64
 		accepted                  bool
 	}{
-		{"old transaction signed by new leader", "old", "install", 19, 4, false},
-		{"generation reused for another transaction", "other", "install", 20, 4, false},
-		{"install replay after confirm", "new", "install", 20, 4, false},
-		{"duplicate confirmation", "new", "confirm", 20, 4, false},
-		{"old leader", "next", "install", 21, 2, false},
-		{"failover rollback", "new", "rollback", 20, 4, true},
-		{"next transaction", "next", "install", 21, 4, true},
+		{"old transaction signed by new leader", "3WFCQVW916SRRSWMQAV8D0MHZE", "install", 19, 4, false},
+		{"generation reused for another transaction", "2VP7F78J0ZNFE8BE3RYC7BNX9T", "install", 20, 4, false},
+		{"install replay after confirm", "2S68NEPB3AF7KVEFYXRZVNNGRJ", "install", 20, 4, false},
+		{"duplicate confirmation", "2S68NEPB3AF7KVEFYXRZVNNGRJ", "confirm", 20, 4, false},
+		{"old leader", "7WVH811H6PKN5FZS9M96YYWYMF", "install", 21, 2, false},
+		{"failover rollback", "2S68NEPB3AF7KVEFYXRZVNNGRJ", "rollback", 20, 4, true},
+		{"next transaction", "7WVH811H6PKN5FZS9M96YYWYMF", "install", 21, 4, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			command := network.Command{ID: test.transaction + "." + test.action, Transaction: test.transaction, Action: test.action, Generation: test.generation}
@@ -220,8 +220,8 @@ func TestWorkerRejectsReplayedTransactionsAcrossLeaderFailover(t *testing.T) {
 	}
 	// A crash after journaling authority, before recording the effect's
 	// result, must still allow the same idempotent install to resume.
-	interrupted := ledger{Generation: 21, Epoch: 4, Transaction: "next", Action: "install", ActionID: "new.confirm"}
-	if !interrupted.accepts(network.Command{ID: "next.install", Transaction: "next", Action: "install", Generation: 21}, protocol.Envelope{Generation: 21, Epoch: 4}) {
+	interrupted := ledger{Generation: 21, Epoch: 4, Transaction: "7WVH811H6PKN5FZS9M96YYWYMF", Action: "install", ActionID: network.CommandID("2S68NEPB3AF7KVEFYXRZVNNGRJ", "confirm")}
+	if !interrupted.accepts(network.Command{ID: network.CommandID("7WVH811H6PKN5FZS9M96YYWYMF", "install"), Transaction: "7WVH811H6PKN5FZS9M96YYWYMF", Action: "install", Generation: 21}, protocol.Envelope{Generation: 21, Epoch: 4}) {
 		t.Fatal("interrupted installation cannot resume")
 	}
 }
@@ -229,7 +229,7 @@ func TestWorkerRejectsReplayedTransactionsAcrossLeaderFailover(t *testing.T) {
 func TestWorkerPrivateLedgerSurvivesForgedDeletedRelayResultAndRestart(t *testing.T) {
 	cfg, command, key := workerFixture(t)
 	targetHash := network.Hash(command.Target)
-	last := ledger{Generation: 20, Epoch: 4, Transaction: "latest", Action: "confirm", ActionID: "latest.confirm",
+	last := ledger{Generation: 20, Epoch: 4, Transaction: "6A9DXA113MF6SB6HF7QT199XK4", Action: "confirm", ActionID: network.CommandID("6A9DXA113MF6SB6HF7QT199XK4", "confirm"),
 		TargetHash: targetHash, InstalledTargetHash: targetHash, AppliedTargetHash: targetHash}
 	if err := saveLedger(cfg.StateDirectory, last); err != nil {
 		t.Fatal(err)
@@ -257,8 +257,8 @@ func TestWorkerPrivateLedgerSurvivesForgedDeletedRelayResultAndRestart(t *testin
 				t.Fatalf("restart lost worker authority: %+v, %v", restarted, err)
 			}
 			for _, stale := range []network.Command{
-				{ID: "old.install", Transaction: "old", Generation: 19, Action: "install", Target: command.Target},
-				{ID: "latest.install", Transaction: "latest", Generation: 20, Action: "install", Target: command.Target},
+				{ID: network.CommandID("3WFCQVW916SRRSWMQAV8D0MHZE", "install"), Transaction: "3WFCQVW916SRRSWMQAV8D0MHZE", Generation: 19, Action: "install", Target: command.Target},
+				{ID: network.CommandID("6A9DXA113MF6SB6HF7QT199XK4", "install"), Transaction: "6A9DXA113MF6SB6HF7QT199XK4", Generation: 20, Action: "install", Target: command.Target},
 			} {
 				wire := signCommand(t, cfg, key, stale, 5)
 				if err := applyStep(t.Context(), cfg, &restarted, wire, func(context.Context, network.Command) error {
@@ -281,7 +281,7 @@ func TestWorkerAppliedTargetRequiresSuccessfulInstallAndConfirmation(t *testing.
 	last := ledger{AppliedTargetHash: previousHash}
 	apply := func(action string, effectErr error) {
 		t.Helper()
-		command.Action, command.ID = action, command.Transaction+"."+action
+		command.Action, command.ID = action, network.CommandID(command.Transaction, action)
 		if err := applyStep(t.Context(), cfg, &last, signCommand(t, cfg, key, command, 3), func(context.Context, network.Command) error { return effectErr }); err != nil {
 			t.Fatal(err)
 		}
@@ -319,7 +319,7 @@ func TestWorkerRejectsConfirmationForAnUninstalledTarget(t *testing.T) {
 	if err := applyStep(t.Context(), cfg, &last, signCommand(t, cfg, key, command, 3), func(context.Context, network.Command) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
-	command.Action, command.ID = "confirm", command.Transaction+".confirm"
+	command.Action, command.ID = "confirm", network.CommandID(command.Transaction, "confirm")
 	command.Target.Enrollment.ManagementIP = "10.250.10.155"
 	if err := applyStep(t.Context(), cfg, &last, signCommand(t, cfg, key, command, 3), func(context.Context, network.Command) error {
 		t.Fatal("confirmation acknowledged a different enrollment target")
@@ -340,7 +340,7 @@ func TestWorkerFailedInstallCannotBeConfirmed(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	command.Action, command.ID = "confirm", command.Transaction+".confirm"
+	command.Action, command.ID = "confirm", network.CommandID(command.Transaction, "confirm")
 	if err := applyStep(t.Context(), cfg, &last, signCommand(t, cfg, key, command, 3), func(context.Context, network.Command) error {
 		t.Fatal("failed installation was confirmed")
 		return nil
@@ -419,5 +419,14 @@ func TestWorkerMissingRequiresExecutableAbsence(t *testing.T) {
 	t.Setenv("PATH", strings.Join([]string{t.TempDir(), path}, string(os.PathListSeparator)))
 	if executableMissing() {
 		t.Fatal("executable in later PATH directory was marked missing")
+	}
+}
+
+func TestVerifyRejectsSignedOldTransactionID(t *testing.T) {
+	cfg, command, key := workerFixture(t)
+	command.Transaction = "old-transaction"
+	command.ID = network.CommandID(command.Transaction, command.Action)
+	if _, _, err := Verify(cfg, signCommand(t, cfg, key, command, 3)); err == nil {
+		t.Fatal("signed command accepted an old transaction ID")
 	}
 }

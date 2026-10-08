@@ -28,7 +28,7 @@ func (ctx *canceledBootstrapPublication) Err() error {
 }
 
 func TestManagedBootstrapEnrollmentRejectsEveryPendingTransaction(t *testing.T) {
-	for _, id := range []string{"controller-transaction", "bootstrap-transaction"} {
+	for _, id := range []string{"3E5CET39DG1PW2BJ1P3SYBY7X3", "3DVDKVFBDX2VFQ61MECW8S7YBV"} {
 		t.Run(id, func(t *testing.T) {
 			f := newManagedFixture(t)
 			root := managedBootstrapDefaults(t, f)
@@ -336,7 +336,7 @@ func TestManagedBootstrapConfigPreservesEveryDurableAdmission(t *testing.T) {
 				t.Fatal(err)
 			}
 			_ = lock.Close()
-			transaction := managedTransaction{ManagedResult: ManagedResult{TransactionID: "admitted",
+			transaction := managedTransaction{ManagedResult: ManagedResult{TransactionID: "06RK99WTQK58C48FH8SYH45C8S",
 				Version: f.pin.Version, Pending: phase == "pending", RolledBack: phase == "rolledback",
 				RollbackDeadline: time.Now().Add(time.Minute)},
 				BinarySHA256: f.pin.Archives.AMD64.BinarySHA256, Architecture: "amd64"}

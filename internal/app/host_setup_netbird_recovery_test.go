@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"io"
@@ -18,6 +16,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
@@ -137,8 +136,8 @@ func TestHostSetupSeedsNetBirdWhenFirstInstalledResponseIsRenewal(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := sha256.Sum256([]byte(metadata.InstanceID))
-	if _, err := kv.Update(ctx, hex.EncodeToString(key[:]), wire, revision); err != nil {
+	key := entityid.Derive("host-enrollment", metadata.InstanceID)
+	if _, err := kv.Update(ctx, key, wire, revision); err != nil {
 		t.Fatal(err)
 	}
 	if err := runHostSetupWithMetadata(ctx, lab.bundle, metadata, root, io.Discard, runner); err != nil {

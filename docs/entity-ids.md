@@ -7,6 +7,12 @@ millisecond. Validate inbound identities with `entityid.Valid` or `Parse`.
 Prefixes, UUID entity IDs, lowercase spellings, overflow and the zero ID are
 rejected.
 
+Managed NetBird rollout, transaction, journal-operation and command IDs use
+ULIDs too. Bootstrap ownership is an explicit persisted boolean, never an ID
+prefix; command retries derive their own action-scoped ULID. NetBird
+provider-assigned peer/group IDs and setup-key secrets retain their native
+external contracts.
+
 Stable operational keys use domain-separated `entityid.Derive` so a retried
 operation addresses the same record. Domain and values are length-framed before
 hashing, including values containing NUL. These have timestamp zero and carry no
@@ -50,24 +56,32 @@ data and recreates bootstrap state through the current startup path.
    orchestrator inventories include `TS_APPS`, `TS_MACHINES`,
    `TS_MACHINE_STATUS`, `TS_TENANTS`, `TS_VOLUMES`, `TS_ROLLOUTS`,
    `TS_HOST_ENROLLMENT`, `TS_HOST_STATE`, `TS_OCI_OPERATIONS`,
-   `TS_DELIVERY_OPERATIONS`, `TS_PLACEMENT_STATE`, `TS_STORAGE_USAGE`, and
-   entity-bearing control-log/release-channel records. Verify signed bootstrap
-   configuration and material, global directory records, object-store heads,
+   `TS_DELIVERY_OPERATIONS`, `TS_PLACEMENT_STATE`, `TS_STORAGE_USAGE`,
+   `TS_REGION_LIFECYCLE` and entity-bearing control-log/release-channel records.
+   In `TS_CONTROL_R3`, inventory retained authority leases and owner/transition
+   references, barriers, lifecycle pending intents/approvals and NetBird
+   journals/commands with their dependent effect/fencing records. Verify signed
+   bootstrap configuration and material, global directory records, object-store heads,
    snapshots and backups too: none may restore old entity references. These
    are inventory candidates, not verified live deletion targets.
    Include retained desired-release generations and active-rollout slots,
    node-operation/fence records, OCI ownership journals and consumed permits,
-   and both rollout step/reply boards. Include retained decision-log records,
+   and both rollout step/reply boards and signed health proofs. Include retained
+   decision-log records,
    disabled/revoked enrollment grants and terminal tombstones, first-format
    controller grants (pending, closed and consumed) and local initializer
    attempt/consumption files. Reset these with the affected volumes and signed
    placement/member records, never independently while old writers can run.
-   Fresh signed enrollment policy must authorize only the current intended
-   instances; wiping tombstones does not authorize previously revoked nodes. Inspect retained, retired and restore
-   volumes and their provider create-key tags; affected old resources must be
+   Stop NetBird workers and rollback timers before resetting affected local
+   managed transaction journals, backup directories, worker ledgers and staged
+   spool command/result/status files; preserve the live mesh and its external
+   peer identities. Fresh signed enrollment policy must authorize only intended
+   current instances; wiping tombstones does not authorize revoked nodes.
+   Inspect retained, retired and restore volumes and their provider create-key tags; affected old resources must be
    deleted, never adopted through an old tag or rewritten in place.
    Verify local pending activations, proofs, watchdogs, retained artifacts,
-   signed release/update receipts and delegations, and retained material
+   signed release/update receipts and delegations, accepted image receipts and
+   their root-signed pinned admission manifests, and retained material
    receipts/configuration before deletion. Replace required signed inputs with
    freshly qualified current-format material.
 4. Restart against fresh state and current signed bootstrap configuration on

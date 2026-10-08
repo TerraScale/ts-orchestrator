@@ -339,7 +339,7 @@ func TestSpoolDiagnosticsReadableAndAuthorityPrivate(t *testing.T) {
 		}
 	}
 	private := t.TempDir()
-	if err := saveLedger(private, ledger{ActionID: "private-authority"}); err != nil {
+	if err := saveLedger(private, ledger{ActionID: "45DBCR8Q0GQD0HCEPS6PDDNM5K"}); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(filepath.Join(private, "ledger.json"))

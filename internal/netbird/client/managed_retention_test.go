@@ -84,7 +84,7 @@ func TestManagedRollbackExecutableHelper(t *testing.T) {
 	}
 	m := managedClient{root: root, architecture: "amd64",
 		systemctl: func(context.Context, ...string) error { return nil }}
-	if err := m.finishMode(t.Context(), "test-transaction", true, true); err != nil {
+	if err := m.finishMode(t.Context(), "7ZZ773YKB490QT19V3PQ57H4DP", true, true); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -102,7 +102,7 @@ func TestManagedSnapshotRetentionWaitsForDurableSuccessor(t *testing.T) {
 		t.Fatal(err)
 	}
 	control := f.m.systemctl
-	f.options.TransactionID = "interrupted-successor"
+	f.options.TransactionID = "59E8YWTWHDWBBGTSBFPZ1ZZWNG"
 	f.m.systemctl = func(ctx context.Context, args ...string) error {
 		if slices.Equal(args, []string{"restart", rollbackUnit + ".timer"}) {
 			current, err := f.m.readTransaction()
@@ -122,7 +122,7 @@ func TestManagedSnapshotRetentionWaitsForDurableSuccessor(t *testing.T) {
 	}
 	assertManagedFile(t, f.m.previousBinary(first), f.old)
 	f.m.systemctl = control
-	f.options.TransactionID = "durable-successor"
+	f.options.TransactionID = "70HGMKC321XR6PJNB1Q2CKW98W"
 	f.m.enroll = func(context.Context, netbird.Config) error {
 		current, err := f.m.readTransaction()
 		entries, listErr := os.ReadDir(f.m.path(managedDirectory + "/transactions"))

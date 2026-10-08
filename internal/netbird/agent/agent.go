@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
 	network "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/rollout"
@@ -130,6 +131,11 @@ func loadLedger(directory string) (ledger, error) {
 	}
 	var last ledger
 	err = json.Unmarshal(wire, &last, json.RejectUnknownMembers(true))
+	if err == nil && (last.ActionID != "" && !entityid.Valid(last.ActionID) ||
+		last.Transaction != "" && !entityid.Valid(last.Transaction) ||
+		last.PreviousManagedTransaction != "" && !entityid.Valid(last.PreviousManagedTransaction)) {
+		err = errors.New("invalid NetBird ledger identity")
+	}
 	return last, err
 }
 
@@ -170,6 +176,9 @@ func ReadStatus(directory string) (network.Status, error) {
 	}
 	var status network.Status
 	err = json.Unmarshal(wire, &status, json.RejectUnknownMembers(true))
+	if err == nil {
+		err = status.Validate()
+	}
 	return status, err
 }
 
@@ -186,7 +195,7 @@ func Verify(cfg Config, wire []byte) (network.Command, protocol.Envelope, error)
 	if err := json.Unmarshal(step.Payload, &command, json.RejectUnknownMembers(true)); err != nil {
 		return command, step, err
 	}
-	if command.ID != step.OperationID || command.Transaction == "" || command.ID != command.Transaction+"."+command.Action || step.Epoch == 0 || command.Generation == 0 || command.Generation != step.Generation {
+	if command.ID != step.OperationID || !entityid.Valid(command.Transaction) || command.ID != network.CommandID(command.Transaction, command.Action) || step.Epoch == 0 || command.Generation == 0 || command.Generation != step.Generation {
 		return command, step, errors.New("invalid NetBird command binding")
 	}
 	if command.Action != "install" && command.Action != "confirm" && command.Action != "rollback" {
@@ -306,7 +315,6 @@ func Run(ctx context.Context, cfg Config) error {
 				status.Pending = current.TransactionID
 			}
 		} else {
-			status.Pending = "unknown"
 			status.Error = "cannot read managed NetBird transaction"
 		}
 		status.Missing = executableMissing()

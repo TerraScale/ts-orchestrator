@@ -178,6 +178,9 @@ func (n *netbirdRollout) refreshInventory(ctx context.Context) error {
 }
 
 func (n *netbirdRollout) Exchange(ctx context.Context, registration host.Registration, status network.Status) ([]byte, error) {
+	if err := status.Validate(); err != nil {
+		return nil, err
+	}
 	pin, err := n.target(ctx)
 	if err != nil {
 		return nil, err

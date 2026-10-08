@@ -32,7 +32,7 @@ func TestNetBirdRemovalKeepsFailedRollbackExchangeUntilFenceReturns(t *testing.T
 			}
 			n := netbirdRollout{cell: "gru", key: key, fence: &releaseFence{kv: fenceKV(t), fencer: &fenceLease{}}, services: &specRegistry{}}
 			target := network.Target{Pin: pin}
-			record := network.Record{ID: "failed-upgrade", Node: "node-a", Previous: "0.79.0", Target: target,
+			record := network.Record{ID: "0EZB50X4TS1WNE5MVCZ3S99DW3", Node: "node-a", Previous: "0.79.0", Target: target,
 				PinHash: network.Hash(target), Phase: "failed", RollbackRequired: new(true)}
 			if legacy {
 				record.RollbackRequired = nil
@@ -43,7 +43,7 @@ func TestNetBirdRemovalKeepsFailedRollbackExchangeUntilFenceReturns(t *testing.T
 			if err := n.fence.save(t.Context(), 3, record.Node, fenceRecord{Holders: []string{netbirdHold}}); err != nil {
 				t.Fatal(err)
 			}
-			command := network.Command{ID: record.ID + ".rollback", Transaction: record.ID, Action: "rollback", Generation: 1, Target: target}
+			command := network.Command{ID: network.CommandID(record.ID, "rollback"), Transaction: record.ID, Action: "rollback", Generation: 1, Target: target}
 			if err := saveNetBirdTestCommand(t.Context(), &n, 3, record.Node, command); err != nil {
 				t.Fatal(err)
 			}
@@ -125,7 +125,7 @@ func TestNetBirdRemovalWithoutAnOutstandingRecordStaysDisabled(t *testing.T) {
 	for _, phase := range []string{"", "done", "failed"} {
 		record := network.Record{Phase: phase, RecoveryComplete: true}
 		if phase != "" {
-			record.ID = "finished"
+			record.ID = "7XXDG352V7P4SAYRZ21NWHEXTJ"
 		}
 		if err := saveNetBirdTestRecord(t.Context(), &n, 3, record); err != nil {
 			t.Fatal(err)

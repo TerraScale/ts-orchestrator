@@ -25,7 +25,7 @@ func TestNetBirdRolloutPersistsProgressAndRejectsFencedLeader(t *testing.T) {
 	kv := fenceKV(t)
 	lease := &fenceLease{}
 	r := netbirdRollout{fence: &releaseFence{kv: kv, fencer: lease}}
-	before := network.Record{ID: "upgrade-1", Node: "node-a", Previous: "0.79.0", Phase: "check"}
+	before := network.Record{ID: "4845ZN4B5KA6F2FCQQZE93Y54S", Node: "node-a", Previous: "0.79.0", Phase: "check"}
 	if err := saveNetBirdTestRecord(t.Context(), &r, 3, before); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestNetBirdPinRemovalFinishesExistingTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := netbirdRollout{fence: &releaseFence{kv: fenceKV(t), fencer: &fenceLease{}}, services: &specRegistry{}}
-	record := network.Record{ID: "existing", Node: "node-a", Phase: "confirm", Target: network.Target{Pin: pin}}
+	record := network.Record{ID: "60YZ75PP1XJESPGSK8EFF8GQNF", Node: "node-a", Phase: "confirm", Target: network.Target{Pin: pin}}
 	if err := saveNetBirdTestRecord(t.Context(), &r, 3, record); err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestNetBirdArtifactCollectionRetainsInFlightPin(t *testing.T) {
 	previous.Archives.AMD64.BinarySHA256 = strings.Repeat("b", 64)
 	r := netbirdRollout{cell: "gru", fence: &releaseFence{kv: fenceKV(t), fencer: &fenceLease{}},
 		services: &specRegistry{current: cellspec.Spec{NetBird: &cellspec.NetBird{Pin: pin}}}}
-	record := network.Record{ID: "previous", Phase: "rollback-check", Target: network.Target{Pin: previous}}
+	record := network.Record{ID: "1P4DT7KVBAJVZ9B4AJPV2KEYWF", Phase: "rollback-check", Target: network.Target{Pin: previous}}
 	if err := saveNetBirdTestRecord(t.Context(), &r, 3, record); err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestNetBirdDrainDeadlineIncludesGraceAndAllowsRecoveryRetries(t *testing.T)
 			if tc.expired {
 				deadline = time.Now().Add(-time.Minute)
 			}
-			if err := saveNetBirdTestRecord(t.Context(), &n, 3, network.Record{Node: "ctl-1", Phase: tc.phase, Deadline: deadline}); err != nil {
+			if err := saveNetBirdTestRecord(t.Context(), &n, 3, network.Record{ID: "4H828TAVQA1MJ7WHF4634YW4B6", Node: "ctl-1", Phase: tc.phase, Deadline: deadline}); err != nil {
 				t.Fatal(err)
 			}
 			stopped := errors.New("captured bounded drain context")
@@ -275,7 +275,7 @@ func TestNetBirdPartialDrainExpiresWithoutRelaxingQuorumAndCanRecover(t *testing
 	n := netbirdRollout{fence: f}
 	// TerraBase can drain, but ts-auth has no healthy alternative to ctl-2.
 	api.down[lb.Backend{IP: fenceAddresses["ctl-3"], Port: 8080}.Name()] = true
-	record := network.Record{Node: "ctl-2", Phase: "drain", Deadline: time.Now().Add(100 * time.Millisecond)}
+	record := network.Record{ID: "4H828TAVQA1MJ7WHF4634YW4B6", Node: "ctl-2", Phase: "drain", Deadline: time.Now().Add(100 * time.Millisecond)}
 	if err := saveNetBirdTestRecord(t.Context(), &n, 3, record); err != nil {
 		t.Fatal(err)
 	}
