@@ -1,179 +1,184 @@
 package observability
 
 import (
-	"crypto/hmac"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 const (
-	// SessionCookieName carries a browser session on a token-protected
-	// listener with the dashboard enabled.
 	SessionCookieName = "ts_orch_session"
-	// SessionTTL bounds one browser session. Sessions are not persisted: a
-	// process restart signs every browser out.
-	SessionTTL = 12 * time.Hour
-
-	sessionVersion   = "v2"
+	// SessionBucket contains only hashes and token generations, with no TTL.
+	SessionBucket    = "TS_DASHBOARD_SESSIONS"
 	maxLoginFormSize = 8 << 10
-	// maxRevoked bounds the signed-out sessions remembered until they
-	// expire; past it the process key rotates, which signs everyone out.
-	maxRevoked = 4096
 )
 
-// sessions issues and verifies browser session cookies. A cookie proves only
-// that its holder presented the listener's bearer token within SessionTTL to
-// this process: the MAC key is random per process and never leaves memory,
-// so a cookie grants exactly the read-only access the token grants.
-type sessions struct {
-	mu  sync.Mutex
-	key [32]byte
-	// generation counts key rotations. A cookie verified against one key
-	// is accepted only while that key is still current, so a rotation that
-	// clears revoked cannot resurrect a revoked cookie mid-verification.
-	generation uint64
-	secure     bool
-	now        func() time.Time
-	// revoked holds the IDs of signed-out sessions until they expire, so
-	// signing out ends the session for every copy of the cookie.
-	revoked map[string]time.Time
+// SessionStore persists sessions in the regional bootstrap store. Scope keeps
+// the NetBird token separate from an independently configured local listener.
+type SessionStore struct {
+	kv     jetstream.KeyValue
+	leader nats.JetStreamContext
+	scope  string
 }
 
-func newSessions(secure bool) (*sessions, error) {
-	manager := &sessions{secure: secure, now: time.Now, revoked: map[string]time.Time{}}
-	if _, err := rand.Read(manager.key[:]); err != nil {
+func OpenSessionStore(ctx context.Context, js jetstream.JetStream, replicas int, scope string) (*SessionStore, error) {
+	if js == nil || replicas < 1 || replicas > 5 || scope == "" {
+		return nil, errors.New("dashboard sessions require JetStream, replicas and a listener scope")
+	}
+	kv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
+		Bucket: SessionBucket, Description: "Hashed dashboard sessions and token generations",
+		History: 1, Storage: jetstream.FileStorage, Replicas: replicas,
+		MaxValueSize: 1024, MaxBytes: 16 << 20,
+	})
+	if err != nil {
 		return nil, err
 	}
-	return manager, nil
-}
-
-// currentKey returns the signing key and its rotation generation.
-func (manager *sessions) currentKey() ([32]byte, uint64) {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	return manager.key, manager.generation
-}
-
-func sessionMAC(key [32]byte, payload string) []byte {
-	digest := hmac.New(sha256.New, key[:])
-	digest.Write([]byte("ts-orch dashboard session\x00" + payload))
-	return digest.Sum(nil)
-}
-
-// issue returns a cookie value "v2.<expiry unix>.<session id>.<mac>". The
-// random session ID makes every login distinct and revocable.
-func (manager *sessions) issue() (string, time.Time) {
-	expires := manager.now().Add(SessionTTL).Truncate(time.Second)
-	var id [16]byte
-	_, _ = rand.Read(id[:])
-	payload := sessionVersion + "." + strconv.FormatInt(expires.Unix(), 10) + "." +
-		base64.RawURLEncoding.EncodeToString(id[:])
-	key, _ := manager.currentKey()
-	return payload + "." + base64.RawURLEncoding.EncodeToString(sessionMAC(key, payload)), expires
-}
-
-// parse verifies a cookie value and returns its session ID, expiry and the
-// key generation that verified it. Callers must recheck the generation under
-// mu before trusting the result.
-func (manager *sessions) parse(value string) (string, time.Time, uint64, bool) {
-	parts := strings.Split(value, ".")
-	if len(parts) != 4 || parts[0] != sessionVersion {
-		return "", time.Time{}, 0, false
+	leader, err := js.Conn().JetStream()
+	if err != nil {
+		return nil, err
 	}
-	expiry, id, encoded := parts[1], parts[2], parts[3]
-	seconds, err := strconv.ParseInt(expiry, 10, 64)
-	if err != nil || strconv.FormatInt(seconds, 10) != expiry {
-		return "", time.Time{}, 0, false
-	}
-	if raw, err := base64.RawURLEncoding.DecodeString(id); err != nil || len(raw) != 16 {
-		return "", time.Time{}, 0, false
-	}
-	key, generation := manager.currentKey()
-	presented, err := base64.RawURLEncoding.DecodeString(encoded)
-	if err != nil || !hmac.Equal(presented, sessionMAC(key, parts[0]+"."+expiry+"."+id)) {
-		return "", time.Time{}, 0, false
-	}
-	// A cookie claiming a lifetime longer than SessionTTL was not issued
-	// by this process, whatever its MAC says.
-	now := manager.now()
-	expires := time.Unix(seconds, 0)
-	if !now.Before(expires) || expires.After(now.Add(SessionTTL)) {
-		return "", time.Time{}, 0, false
-	}
-	return id, expires, generation, true
+	return &SessionStore{kv: kv, leader: leader, scope: sessionHash(scope)}, nil
 }
 
-func (manager *sessions) valid(value string) bool {
-	id, _, generation, ok := manager.parse(value)
-	return ok && manager.accept(id, generation)
+func sessionHash(value string) string {
+	digest := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(digest[:])
 }
 
-// accept reports whether a session verified under key generation is still
-// live. The generation check and the revocation lookup share one lock, so a
-// concurrent rotation cannot slip between them.
-func (manager *sessions) accept(id string, generation uint64) bool {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	if generation != manager.generation {
-		// The key rotated after the MAC check: the cookie was signed
-		// with a retired key, and revoked no longer remembers it.
+// get reads the leader, since a follower could still accept a revoked session.
+func (store *SessionStore) get(ctx context.Context, key string) (*nats.RawStreamMsg, error) {
+	msg, err := store.leader.GetLastMsg("KV_"+SessionBucket, "$KV."+SessionBucket+"."+key, nats.Context(ctx))
+	if err != nil {
+		return nil, err
+	}
+	if msg.Header.Get("KV-Operation") != "" {
+		return nil, jetstream.ErrKeyNotFound
+	}
+	return msg, nil
+}
+
+type sessions struct {
+	secure  bool
+	binding atomic.Pointer[sessionBinding]
+}
+
+type sessionBinding struct {
+	store      *SessionStore
+	tokenHash  string
+	generation uint64
+}
+
+// SetSessionStore enables browser login once the controller's NATS is ready.
+// CAS makes a changed token advance the generation once across controllers;
+// restoring an old token cannot resurrect its previous sessions.
+func (server *Server) SetSessionStore(ctx context.Context, store *SessionStore) error {
+	if store == nil || server.token == nil {
+		return errors.New("dashboard sessions require a store and a token")
+	}
+	hash := sessionHash(string(server.token))
+	key := "token." + store.scope
+	for attempts := 0; attempts < 8; attempts++ {
+		entry, err := store.get(ctx, key)
+		var revision uint64
+		switch {
+		case errors.Is(err, nats.ErrMsgNotFound), errors.Is(err, jetstream.ErrKeyNotFound):
+			revision, err = store.kv.Create(ctx, key, []byte(hash))
+		case err != nil:
+			return err
+		case string(entry.Data) == hash:
+			revision = entry.Sequence
+		default:
+			revision, err = store.kv.Update(ctx, key, []byte(hash), entry.Sequence)
+		}
+		if errors.Is(err, jetstream.ErrKeyExists) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		server.sessions.binding.Store(&sessionBinding{store: store, tokenHash: hash, generation: revision})
+		return nil
+	}
+	return errors.New("dashboard token changed concurrently")
+}
+
+func (binding *sessionBinding) current(ctx context.Context) bool {
+	entry, err := binding.store.get(ctx, "token."+binding.store.scope)
+	return err == nil && entry.Sequence == binding.generation && string(entry.Data) == binding.tokenHash
+}
+
+func (binding *sessionBinding) key(value string) string {
+	return "session." + binding.store.scope + "." + sessionHash(value)
+}
+
+func (manager *sessions) issue(ctx context.Context) (string, error) {
+	binding := manager.binding.Load()
+	if binding == nil || !binding.current(ctx) {
+		return "", errors.New("dashboard session store unavailable or token retired")
+	}
+	var raw [32]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	value := base64.RawURLEncoding.EncodeToString(raw[:])
+	_, err := binding.store.kv.Create(ctx, binding.key(value), []byte(strconv.FormatUint(binding.generation, 10)))
+	if err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+func (manager *sessions) valid(ctx context.Context, value string) bool {
+	raw, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil || len(raw) != 32 || base64.RawURLEncoding.EncodeToString(raw) != value {
 		return false
 	}
-	_, revoked := manager.revoked[id]
-	return !revoked
+	binding := manager.binding.Load()
+	if binding == nil || !binding.current(ctx) {
+		return false
+	}
+	entry, err := binding.store.get(ctx, binding.key(value))
+	return err == nil && string(entry.Data) == strconv.FormatUint(binding.generation, 10)
 }
 
-// revoke ends a session for every copy of its cookie until it expires.
-func (manager *sessions) revoke(value string) {
-	id, expires, generation, ok := manager.parse(value)
-	if !ok {
-		return
+func (manager *sessions) revoke(ctx context.Context, value string) error {
+	binding := manager.binding.Load()
+	if binding == nil {
+		return errors.New("dashboard session store unavailable")
 	}
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	if generation != manager.generation {
-		// Already invalid: the key that signed it is retired.
-		return
-	}
-	now := manager.now()
-	for other, until := range manager.revoked {
-		if !now.Before(until) {
-			delete(manager.revoked, other)
-		}
-	}
-	if len(manager.revoked) >= maxRevoked {
-		// Too many live sign-outs to remember: a new key ends every
-		// session instead, which is the safe direction.
-		_, _ = rand.Read(manager.key[:])
-		manager.generation++
-		clear(manager.revoked)
-		return
-	}
-	manager.revoked[id] = expires
+	return binding.store.kv.Purge(ctx, binding.key(value))
 }
 
-func (manager *sessions) cookie(value string, expires time.Time) *http.Cookie {
+func (manager *sessions) cookie(value string) *http.Cookie {
 	cookie := &http.Cookie{Name: SessionCookieName, Value: value, Path: "/", HttpOnly: true,
 		Secure: manager.secure, SameSite: http.SameSiteStrictMode}
 	if value == "" {
 		cookie.MaxAge = -1
 	} else {
-		cookie.Expires = expires
+		// Browsers cap persistent cookies (Chromium: 400 days). Refresh on
+		// authenticated requests; the server-side session never expires.
+		cookie.MaxAge = 1<<31 - 1
+		cookie.Expires = time.Date(9999, time.December, 31, 23, 59, 59, 0, time.UTC)
 	}
 	return cookie
 }
 
 func (manager *sessions) authenticated(request *http.Request) bool {
 	cookie, err := request.Cookie(SessionCookieName)
-	return err == nil && manager.valid(cookie.Value)
+	return err == nil && manager.valid(request.Context(), cookie.Value)
 }
 
 // HandleLogin mounts the browser login routes of the dashboard. page renders
@@ -198,9 +203,12 @@ func (server *Server) HandleLogin(page http.Handler) {
 		// Revoke the session itself, not only this browser's cookie: a
 		// copied cookie stops working too.
 		if cookie, err := request.Cookie(SessionCookieName); err == nil {
-			server.sessions.revoke(cookie.Value)
+			if err := server.sessions.revoke(request.Context(), cookie.Value); err != nil {
+				writePlain(writer, http.StatusServiceUnavailable, "session revocation unavailable\n")
+				return
+			}
 		}
-		http.SetCookie(writer, server.sessions.cookie("", time.Time{}))
+		http.SetCookie(writer, server.sessions.cookie(""))
 		http.Redirect(writer, request, "/login", http.StatusSeeOther)
 	})
 }
@@ -225,8 +233,12 @@ func (server *Server) login(writer http.ResponseWriter, request *http.Request) {
 		http.Redirect(writer, request, "/login?failed=1&next="+url.QueryEscape(next), http.StatusSeeOther)
 		return
 	}
-	value, expires := server.sessions.issue()
-	http.SetCookie(writer, server.sessions.cookie(value, expires))
+	value, err := server.sessions.issue(request.Context())
+	if err != nil {
+		writePlain(writer, http.StatusServiceUnavailable, "session storage unavailable\n")
+		return
+	}
+	http.SetCookie(writer, server.sessions.cookie(value))
 	http.Redirect(writer, request, next, http.StatusSeeOther)
 }
 
@@ -240,11 +252,19 @@ func sameOriginForm(request *http.Request) bool {
 		return false
 	}
 	origin := request.Header.Get("Origin")
+	if origin == "null" {
+		return request.Header.Get("Sec-Fetch-Site") == "same-origin"
+	}
 	if origin == "" {
 		return true
 	}
 	parsed, err := url.Parse(origin)
-	return err == nil && parsed.Host == request.Host && (parsed.Scheme == "http" || parsed.Scheme == "https")
+	scheme := "http"
+	if request.TLS != nil {
+		scheme = "https"
+	}
+	return err == nil && parsed.Host == request.Host && parsed.Scheme == scheme &&
+		parsed.User == nil && parsed.Path == "" && parsed.RawQuery == "" && parsed.Fragment == ""
 }
 
 // LocalRedirectPath returns raw when it is a path on this listener, and "/"
@@ -264,6 +284,6 @@ func LocalRedirectPath(raw string) string {
 // wantsLoginPage reports a browser navigation that should be sent to the
 // login form instead of receiving a bare 401.
 func wantsLoginPage(request *http.Request) bool {
-	return request.Method == http.MethodGet && request.Header.Get("Datastar-Request") == "" &&
+	return request.Method == http.MethodGet && request.Header.Get("Datastar-Request") == "" && request.Header.Get("Authorization") == "" &&
 		strings.Contains(request.Header.Get("Accept"), "text/html")
 }

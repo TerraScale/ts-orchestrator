@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"errors"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"net"
 	"net/http"
 	"net/netip"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -50,8 +52,14 @@ func TestDashboardLoopFollowsTheSpec(t *testing.T) {
 		return tokens[ref.Name], nil
 	}
 	address := func() (netbirdAddresses, bool) { return netbirdAddresses{netip.MustParseAddr("127.0.0.1")}, true }
+	broker, err := natscell.Start(t.Context(), natscell.Config{Cell: "lab", Instance: "one", Replicas: 1, Lab: true,
+		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "js")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = broker.Close() })
 	runtime := &runtimeObservability{registry: observability.NewRegistry(false), health: new(observability.Health),
-		events: observability.NewEventBus(16)}
+		events: observability.NewEventBus(16), sessionJS: broker.JetStream(), sessionReplicas: 1}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() { runtime.dashboardLoop(ctx, current, address, read); close(done) }()
@@ -118,4 +126,13 @@ func TestDashboardLoopFollowsTheSpec(t *testing.T) {
 	if boards != 0 {
 		t.Errorf("%d dashboards are still fed after the listener closed", boards)
 	}
+}
+
+func TestDashboardStorageFailureHasSafeCleanup(t *testing.T) {
+	runtime := &runtimeObservability{}
+	stop, _, err := runtime.startDashboard(t.Context(), dashboardListener{})
+	if err == nil || stop == nil {
+		t.Fatal("storage failure must return an error and safe cleanup")
+	}
+	stop()
 }

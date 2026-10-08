@@ -25,6 +25,7 @@ type ServerDeps struct {
 	Snapshots SnapshotSource
 	Cluster   ClusterSource
 	Events    EventSource
+	Sessions  *SessionStore
 }
 
 // Server is the private observability listener. Additional read-only routes,
@@ -85,11 +86,15 @@ func newServer(config Config, token []byte, deps ServerDeps) (*Server, error) {
 	if deps.Registry == nil || deps.Health == nil {
 		return nil, errors.New("observability server requires a registry and health checks")
 	}
-	manager, err := newSessions(config.TLSCertFile != "")
-	if err != nil {
-		return nil, err
-	}
+	manager := &sessions{secure: config.TLSCertFile != ""}
 	server := &Server{mux: http.NewServeMux(), deps: deps, sessions: manager, token: token}
+	if deps.Sessions != nil && token != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.SetSessionStore(ctx, deps.Sessions); err != nil {
+			return nil, err
+		}
+	}
 	server.mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, _ *http.Request) {
 		writePlain(writer, http.StatusOK, "ok\n")
 	})
@@ -195,7 +200,7 @@ func LiteralHost(host string) bool {
 func (server *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if server.token != nil && !bearerMatches(request.Header.Get("Authorization"), server.token) &&
-			(!server.loginMounted.Load() || !server.sessions.authenticated(request)) {
+			(request.Header.Get("Authorization") != "" || !server.loginMounted.Load() || !server.sessions.authenticated(request)) {
 			if server.loginMounted.Load() && wantsLoginPage(request) {
 				http.Redirect(writer, request, "/login?next="+url.QueryEscape(LocalRedirectPath(request.URL.RequestURI())),
 					http.StatusSeeOther)
@@ -204,6 +209,11 @@ func (server *Server) authenticate(next http.Handler) http.Handler {
 			writer.Header().Set("WWW-Authenticate", `Bearer realm="ts-orch"`)
 			writePlain(writer, http.StatusUnauthorized, "unauthorized\n")
 			return
+		}
+		if server.token != nil && server.loginMounted.Load() && request.Header.Get("Authorization") == "" {
+			if cookie, err := request.Cookie(SessionCookieName); err == nil {
+				http.SetCookie(writer, server.sessions.cookie(cookie.Value))
+			}
 		}
 		next.ServeHTTP(writer, request)
 	})

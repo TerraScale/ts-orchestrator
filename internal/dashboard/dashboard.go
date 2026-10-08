@@ -175,7 +175,7 @@ func (dashboard *Dashboard) guard(next http.Handler) http.Handler {
 		header.Set("Content-Security-Policy", contentSecurityPolicy)
 		header.Set("X-Content-Type-Options", "nosniff")
 		header.Set("X-Frame-Options", "DENY")
-		header.Set("Referrer-Policy", "no-referrer")
+		header.Set("Referrer-Policy", "same-origin")
 		header.Set("Cache-Control", "no-store")
 		next.ServeHTTP(writer, request)
 	})

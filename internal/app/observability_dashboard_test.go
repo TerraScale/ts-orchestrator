@@ -77,6 +77,13 @@ func TestControllerDashboardRequiresSignIn(t *testing.T) {
 	if status, _, page := browse("/login"); status != http.StatusOK || !strings.Contains(page, `name="token"`) {
 		t.Fatalf("/login = %d", status)
 	}
+	store, err := observability.OpenSessionStore(ctx, nats.JetStream(), 1, "local."+telemetry.member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := telemetry.server.SetSessionStore(ctx, store); err != nil {
+		t.Fatal(err)
+	}
 	login, err := client.PostForm("http://"+address+"/login", url.Values{"token": {token}, "next": {"/members"}})
 	if err != nil {
 		t.Fatal(err)

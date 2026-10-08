@@ -1665,7 +1665,7 @@ func login(failed bool, next string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 126, "<main class=\"container narrow\"><article><h1>Sign in</h1><p class=\"muted\">Enter this listener's observability bearer token. The session lasts 12 hours or until the orchestrator restarts.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 126, "<main class=\"container narrow\"><article><h1>Sign in</h1><p class=\"muted\">Enter this listener's observability bearer token. You stay signed in until you sign out or the dashboard token changes.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

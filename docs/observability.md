@@ -202,11 +202,24 @@ Access control follows the listener:
 - With `bearer_token_file`, every page and stream requires either the
   `Authorization: Bearer` header or a session cookie. `POST /login` exchanges
   the token for a session cookie (`HttpOnly`, `SameSite=Strict`, `Secure` with
-  TLS) valid for 12 hours. The cookie is MACed with a random per-process key,
-  so a restart signs every browser out, and it grants exactly the read-only
-  access of the token. Login and logout refuse cross-site form posts
-  (`Sec-Fetch-Site`, `Origin`). A browser navigation without credentials is
-  redirected to `/login`; other clients get `401`.
+  TLS), with no server-side expiry. Random session values are stored only as
+  SHA-256 hashes in the regional NATS KV bucket `TS_DASHBOARD_SESSIONS`
+  (file-backed, regional replica count, no TTL). Sessions survive controller
+  and broker restarts. Logout revokes every copy; changing the dashboard
+  token advances a persisted generation and revokes all sessions, even if an
+  old token is later restored. The cookie requests the maximum persistent
+  lifetime and is refreshed on authenticated requests; browsers may impose
+  their own cap (Chromium: 400 days without a visit).
+  Login requires the session store to be ready; storage failures fail closed,
+  and logout returns `503` if revocation cannot be persisted. A tokenless
+  loopback dashboard still needs no session. Token-protected host dashboards
+  without a controller KV store support bearer authentication only.
+  Login and logout refuse cross-site form posts (`Sec-Fetch-Site`, `Origin`);
+  `Origin: null` is accepted only with `Sec-Fetch-Site: same-origin`. The
+  `same-origin` referrer policy preserves the form's Origin on NetBird HTTP
+  hostnames, where browsers omit Fetch Metadata. Origins must match the
+  listener's scheme and host. A browser navigation without credentials is
+  redirected to `/login?next=<path>`; bearer and stream clients get `401`.
 - Without a token the listener is loopback only (enforced at config load
   and in `Start`), and the dashboard additionally refuses any `Host` header
   that is not an IP literal or `localhost`, so a web page cannot reach it

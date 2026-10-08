@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/nats-io/nats.go/jetstream"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
@@ -28,14 +30,16 @@ import (
 // observable while the cell forms, and the role attaches its providers once
 // they exist. Observability never gates or drives a control-plane effect.
 type runtimeObservability struct {
-	config   observability.Config
-	cell     string
-	member   string
-	role     string
-	registry *observability.Registry
-	health   *observability.Health
-	events   *observability.EventBus
-	server   *observability.Server
+	config          observability.Config
+	cell            string
+	member          string
+	role            string
+	registry        *observability.Registry
+	health          *observability.Health
+	events          *observability.EventBus
+	server          *observability.Server
+	sessionJS       jetstream.JetStream
+	sessionReplicas int
 	// boards are the dashboards this runtime serves: the listener's, and the
 	// NetBird listener's while the cell spec enables it. The role attaches
 	// its providers once they exist; they are kept, so a dashboard added
@@ -168,6 +172,16 @@ type controllerObservation struct {
 func (runtime *runtimeObservability) attachController(ctx context.Context, observed controllerObservation,
 	filesystems []observability.FilesystemRole,
 ) error {
+	runtime.sessionJS, runtime.sessionReplicas = observed.nats.JetStream(), observed.replicas
+	if runtime.server != nil && runtime.config.Dashboard && runtime.config.BearerTokenFile != "" {
+		store, err := observability.OpenSessionStore(ctx, runtime.sessionJS, runtime.sessionReplicas, "local."+runtime.member)
+		if err == nil {
+			err = runtime.server.SetSessionStore(ctx, store)
+		}
+		if err != nil {
+			slog.Warn("dashboard session storage unavailable", observability.ComponentKey, "dashboard", "error", err)
+		}
+	}
 	runtime.registry.Register(delivery.Metrics)
 	if observed.managed {
 		runtime.registry.Register(oci.Metrics)

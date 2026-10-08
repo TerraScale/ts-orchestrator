@@ -138,6 +138,12 @@ func (addresses netbirdAddresses) listen() []string {
 // dashboard fed the runtime's providers. The returned channel yields when
 // any of them stops serving.
 func (runtime *runtimeObservability) startDashboard(ctx context.Context, listener dashboardListener) (func(), <-chan error, error) {
+	openCtx, openCancel := context.WithTimeout(ctx, 5*time.Second)
+	store, err := observability.OpenSessionStore(openCtx, runtime.sessionJS, runtime.sessionReplicas, "netbird")
+	openCancel()
+	if err != nil {
+		return func() {}, nil, err
+	}
 	serveCtx, cancel := context.WithCancel(ctx)
 	var servers []*observability.Server
 	var boards []*dashboard.Dashboard
@@ -154,17 +160,17 @@ func (runtime *runtimeObservability) startDashboard(ctx context.Context, listene
 	for _, address := range listener.addresses.listen() {
 		settings := observability.Config{ListenAddress: address, Dashboard: true}
 		server, err := observability.NewTokenServer(settings, listener.token, observability.ServerDeps{
-			Registry: runtime.registry, Health: runtime.health, Events: runtime.events})
+			Registry: runtime.registry, Health: runtime.health, Events: runtime.events, Sessions: store})
 		if err != nil {
 			stop()
-			return nil, nil, err
+			return func() {}, nil, err
 		}
 		board := dashboard.New(dashboard.Options{Health: runtime.health, Events: runtime.events, SignOut: true})
 		board.Mount(server)
 		serving, err := server.Start(serveCtx, settings)
 		if err != nil {
 			stop()
-			return nil, nil, err
+			return func() {}, nil, err
 		}
 		servers, boards = append(servers, server), append(boards, board)
 		runtime.addBoard(board)
