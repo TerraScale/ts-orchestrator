@@ -236,7 +236,7 @@ func TestValidateRefs(t *testing.T) {
 	for i := range MaxRefs + 1 {
 		tooMany["K"+strconv.Itoa(i)] = ref("gru-1-ts-auth-k" + strconv.Itoa(i))
 	}
-	for _, role := range []string{"netbird", "api", "api-gateway", "trust", "cloudflare", "ts", "ts-dashboard", "ts-dashboard-x"} {
+	for _, role := range []string{"netbird", "api", "api-gateway", "trust", "cloudflare", "orch", "orch-dashboard", "ts", "ts-dashboard", "ts-dashboard-x", "ts-orchestrator"} {
 		if err := ValidateRefs("gru", role, map[string]Ref{"K": ref("gru-1-" + role + "-k")}, nil); err == nil {
 			t.Errorf("role %s reached the cell's infrastructure secrets", role)
 		}

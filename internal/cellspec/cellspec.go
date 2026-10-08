@@ -579,7 +579,7 @@ func (s Spec) Validate() error {
 		}
 	}
 	if s.Dashboard != nil {
-		if err := vaultsecret.ValidateRefs(s.Identity.Cell, DashboardRole,
+		if err := vaultsecret.ValidateDeliveryRefs(s.Identity.Cell, DashboardRole,
 			map[string]vaultsecret.Ref{DashboardKey: s.Dashboard.Token}, nil); err != nil {
 			return fmt.Errorf("%w: dashboard: %w", ErrInvalid, err)
 		}
