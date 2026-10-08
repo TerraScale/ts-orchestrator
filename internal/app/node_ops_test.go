@@ -408,6 +408,17 @@ func TestRolloutFenceDrainsBeforeTheStepAndReturnsAfter(t *testing.T) {
 	if since, ready = fences.unitServes("ctl-1", record, true, sources); !ready || since.IsZero() {
 		t.Fatal("a unit that proves the target is not ready")
 	}
+	record.Phase, record.Units["controller-1"] = rollout.PhaseFrozen, rollout.UnitProgress{State: rollout.UnitRollingBack}
+	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "other", StartNonce: "b", ReceivedAt: time.Now()}
+	if _, ready = fences.unitServes("ctl-1", record, true, sources); !ready {
+		t.Fatal("a frozen rollout held its node although the node serves")
+	}
+	record.Phase = rollout.PhaseRollingBack
+	if _, ready = fences.unitServes("ctl-1", record, true, sources); ready {
+		t.Fatal("a unit rolling back is ready")
+	}
+	record.Phase, record.Units["controller-1"] = "", rollout.UnitProgress{State: rollout.UnitSoaking}
+	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "new", StartNonce: "b", ReceivedAt: time.Now()}
 	if reason, err := nodeRolesServing(ctx, ops.fence.hosts, "ctl-1", since.Add(-time.Second)); err != nil || reason != "" {
 		t.Fatalf("roles: %q %v", reason, err)
 	}

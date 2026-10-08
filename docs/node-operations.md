@@ -109,7 +109,7 @@ one lets go:
 | Holder | Set by | Released |
 | --- | --- | --- |
 | `release` | a service release with a `release_fence` (TS-610) | once the node serves the release |
-| `rollout` | the orchestrator's own rollout, before a controller or host step | once the unit proves its release and the node's roles run |
+| `rollout` | the orchestrator's own rollout, before a controller or host step | once the unit proves its release and the node's roles run; while the rollout is frozen, once the node serves |
 | `operation` | `reboot`, `resize` | at the operation's return step |
 | `maintenance` | `drain` | `undrain` |
 | `health` | the edge reconciler, for a replica that does not serve | once the node serves |

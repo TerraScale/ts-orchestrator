@@ -233,7 +233,10 @@ func (r *rolloutFence) unitServes(node string, record rollout.Record, active boo
 ) (time.Time, bool) {
 	unit := r.unitOf(node)
 	want := ""
-	if progress, in := record.Units[unit]; active && in {
+	// A frozen rollout moves nothing until an operator resumes it, and its
+	// rollback fences each node again before that node's step, so its nodes
+	// return once they serve whatever they run (ts-gru-2, 2026-10-07).
+	if progress, in := record.Units[unit]; active && in && record.Phase != rollout.PhaseFrozen {
 		switch progress.State {
 		case rollout.UnitPending, rollout.UnitPreparing, rollout.UnitRollingBack:
 			return time.Time{}, false
