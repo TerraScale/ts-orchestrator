@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"os"
 	"strings"
 	"testing"
@@ -61,7 +62,7 @@ func backupControllerResponseFrame(t *testing.T, req request, payload any,
 	issued := time.Now().UTC()
 	signed, err := protocol.SignEnvelope(responseWire, protocol.EnvelopeScope{
 		Region: "gru", Kind: "host.response." + req.Operation, Actor: "controller",
-		OperationID: req.Nonce, Epoch: req.Epoch,
+		OperationID: entityid.Derive("host-request", req.Nonce), Epoch: req.Epoch,
 	}, issued, issued.Add(requestTTL), controllerKey)
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +77,7 @@ func backupControllerResponseFrame(t *testing.T, req request, payload any,
 	}
 	if err := protocol.VerifyEnvelope(decoded, protocol.EnvelopeScope{
 		Region: "gru", Kind: "host.response." + req.Operation, Actor: "controller",
-		OperationID: req.Nonce, Epoch: req.Epoch,
+		OperationID: entityid.Derive("host-request", req.Nonce), Epoch: req.Epoch,
 	}, controllerKey.Public().(ed25519.PublicKey), time.Now().UTC(), protocol.VerifyPolicy{
 		MaxLifetime: requestTTL, ClockSkew: maxClockSkew,
 	}); err != nil {

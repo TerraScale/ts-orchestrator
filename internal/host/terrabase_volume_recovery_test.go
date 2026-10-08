@@ -48,7 +48,7 @@ func signTerraBaseFormatTest(t *testing.T, cfg VolumeInitConfig, key ed25519.Pri
 		t.Fatal(err)
 	}
 	signed, err := protocol.SignEnvelope(wire, protocol.EnvelopeScope{Region: cfg.Cell, Kind: "host.response.terrabase-format",
-		Actor: "controller", OperationID: "0000000000NDG3M0JRZJ6RM9PZ", Epoch: 1}, issued, issued.Add(requestTTL), key)
+		Actor: "controller", OperationID: entityid.Derive("host-request", "000000000000ab603a0258fc8d8a26df"), Epoch: 1}, issued, issued.Add(requestTTL), key)
 	if err != nil {
 		t.Fatal(err)
 	}

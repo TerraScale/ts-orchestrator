@@ -956,7 +956,7 @@ func TestHostSessionRejectsReplayAndForeignIdentity(t *testing.T) {
 	c, _, _, _, _ := testController(t)
 	key := registerTestHost(t, c)
 	id := "014D2PF2DBSQQG28T5CY4TQKFF"
-	nonce := "5BSQQG28T5CY4TQKFF04HMASW9"
+	nonce := "abcdef0123456789abcdef0123456789"
 	makeAcquire := func(issued time.Time) request {
 		r := request{Version: 1, Node: "node-a", NATSUserPublicKey: testNATSUserKey("node-a"), Operation: "session", SessionID: id, Nonce: nonce, IssuedAt: issued, Payload: []byte(`{"kind":"acquire"}`)}
 		if err := signRequest(&r, key, "gru"); err != nil {
@@ -1385,7 +1385,7 @@ func TestAgentResendsRequestsDeniedByAFollowerController(t *testing.T) {
 			Epoch: req.Epoch, Operation: req.Operation, Error: authority.ErrNotLeader.Error()})
 		issued := time.Now().UTC()
 		signed, _ := protocol.SignEnvelope(data, protocol.EnvelopeScope{Region: "gru", Kind: "host.response." + req.Operation,
-			Actor: "controller", OperationID: req.Nonce, Epoch: req.Epoch}, issued, issued.Add(requestTTL), controllerKey)
+			Actor: "controller", OperationID: entityid.Derive("host-request", req.Nonce), Epoch: req.Epoch}, issued, issued.Add(requestTTL), controllerKey)
 		wire, _ := protocol.EncodeJSON(signed)
 		_ = msg.Respond(wire)
 	})

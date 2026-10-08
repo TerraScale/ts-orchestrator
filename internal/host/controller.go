@@ -875,7 +875,7 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 		return
 	}
 	issued := time.Now().UTC()
-	signed, err := protocol.SignEnvelope(data, protocol.EnvelopeScope{Region: c.cell, Kind: "host.response." + req.Operation, Actor: "controller", OperationID: req.Nonce, Epoch: req.Epoch}, issued, issued.Add(requestTTL), c.responseKey)
+	signed, err := protocol.SignEnvelope(data, protocol.EnvelopeScope{Region: c.cell, Kind: "host.response." + req.Operation, Actor: "controller", OperationID: entityid.Derive("host-request", req.Nonce), Epoch: req.Epoch}, issued, issued.Add(requestTTL), c.responseKey)
 	if err != nil {
 		return
 	}

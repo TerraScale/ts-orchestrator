@@ -168,7 +168,7 @@ func signRequest(r *request, key ed25519.PrivateKey, cell string) error {
 	if err != nil {
 		return err
 	}
-	r.Envelope, err = protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: cell, Kind: "host." + r.Operation, Actor: r.Node, OperationID: r.Nonce, Epoch: r.Epoch}, r.IssuedAt, r.IssuedAt.Add(requestTTL), key)
+	r.Envelope, err = protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: cell, Kind: "host." + r.Operation, Actor: r.Node, OperationID: entityid.Derive("host-request", r.Nonce), Epoch: r.Epoch}, r.IssuedAt, r.IssuedAt.Add(requestTTL), key)
 	return err
 }
 
@@ -179,7 +179,7 @@ func verifyRequest(r request, key ed25519.PublicKey, cell string, now time.Time)
 	if !r.Envelope.IssuedAt.Equal(r.IssuedAt) || r.Envelope.Epoch != r.Epoch {
 		return errors.New("host request envelope binding mismatch")
 	}
-	return protocol.VerifyEnvelope(r.Envelope, protocol.EnvelopeScope{Region: cell, Kind: "host." + r.Operation, Actor: r.Node, OperationID: r.Nonce, Epoch: r.Epoch}, key, now, protocol.VerifyPolicy{MaxLifetime: requestTTL, ClockSkew: maxClockSkew})
+	return protocol.VerifyEnvelope(r.Envelope, protocol.EnvelopeScope{Region: cell, Kind: "host." + r.Operation, Actor: r.Node, OperationID: entityid.Derive("host-request", r.Nonce), Epoch: r.Epoch}, key, now, protocol.VerifyPolicy{MaxLifetime: requestTTL, ClockSkew: maxClockSkew})
 }
 
 func decodeStrict(data []byte, destination any) error {
@@ -224,7 +224,7 @@ func exchangeWithEnvelope(ctx context.Context, conn *nats.Conn, cell string, con
 	if err := protocol.DecodeStrict(msg.Data, &signed, 512<<10); err != nil {
 		return err
 	}
-	if err := protocol.VerifyEnvelope(signed, protocol.EnvelopeScope{Region: cell, Kind: "host.response." + r.Operation, Actor: "controller", OperationID: r.Nonce, Epoch: r.Epoch}, controllerKey, time.Now().UTC(), protocol.VerifyPolicy{MaxLifetime: requestTTL, ClockSkew: maxClockSkew}); err != nil {
+	if err := protocol.VerifyEnvelope(signed, protocol.EnvelopeScope{Region: cell, Kind: "host.response." + r.Operation, Actor: "controller", OperationID: entityid.Derive("host-request", r.Nonce), Epoch: r.Epoch}, controllerKey, time.Now().UTC(), protocol.VerifyPolicy{MaxLifetime: requestTTL, ClockSkew: maxClockSkew}); err != nil {
 		return err
 	}
 	var result response

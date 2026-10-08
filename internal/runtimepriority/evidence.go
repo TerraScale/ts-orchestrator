@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
+
+var processNonceRE = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 func rawJSON(raw, label, hash string, max int) any {
 	if len(raw) > max {
@@ -55,7 +55,7 @@ func validateProof(report, member Object, label string) Object {
 	if !exact(proof, "schema_version", "nonce", "process", "scope", "authority", "serving", "listeners", "object", "replication") || n(proof, "schema_version") != 1 {
 		fail("%s ServingProof must be alpha wire version 1 shape", label)
 	}
-	if !regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString(str(proof, "nonce")) {
+	if !processNonceRE.MatchString(str(proof, "nonce")) {
 		fail("%s ServingProof nonce malformed", label)
 	}
 	process, scope, authority, listeners, ob, rep := sub(proof, "process"), sub(proof, "scope"), sub(proof, "authority"), sub(proof, "listeners"), sub(proof, "object"), sub(proof, "replication")
@@ -262,7 +262,7 @@ func ValidateReportEvidence(evidence, request Object, observed string, member, p
 		}
 		managed := sub(report, "managed")
 		binding, registered := sub(managed, "member"), sub(registration, "managed_member")
-		if !exact(binding, "scope", "host_attempt") || !exact(registered, "scope", "host_attempt") || !same(binding["scope"], expected["scope"]) || !same(registered["scope"], expected["scope"]) || !same(binding["host_attempt"], registered["host_attempt"]) || !same(managed["authority"], expected["authority"]) || str(managed, "process_start") == "" || !entityid.Valid(str(managed, "process_boot_id")) || managed["storage_recovered"] != true || managed["listener_ready"] != true {
+		if !exact(binding, "scope", "host_attempt") || !exact(registered, "scope", "host_attempt") || !same(binding["scope"], expected["scope"]) || !same(registered["scope"], expected["scope"]) || !same(binding["host_attempt"], registered["host_attempt"]) || !same(managed["authority"], expected["authority"]) || str(managed, "process_start") == "" || !processNonceRE.MatchString(str(managed, "process_boot_id")) || managed["storage_recovered"] != true || managed["listener_ready"] != true {
 			fail("%s accepted managed report lacks exact process/mount readiness", label)
 		}
 		num(binding["host_attempt"], "host attempt", 1)

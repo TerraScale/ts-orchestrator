@@ -289,13 +289,13 @@ func testManagedPlacementIntentForRegions(regions ...oci.Region) placement.Inten
 			placement.CanonicalRosterRow{
 				Region: region, SeatID: permanentSeatID(region), FailureDomain: "FAULT-DOMAIN-1",
 				MemberID:    entityid.Derive("test-member", fmt.Sprint(index*2+1)),
-				Incarnation: entityid.Derive("test-incarnation", fmt.Sprint(index*2+1)), TLSLeafSHA256: fmt.Sprintf("%064x", index*2+1),
+				Incarnation: fmt.Sprintf("%032x", index*2+1), TLSLeafSHA256: fmt.Sprintf("%064x", index*2+1),
 				ServerName: fmt.Sprintf("permanent-%s.tb.example", strings.ToLower(string(region))),
 			},
 			placement.CanonicalRosterRow{
 				Region: region, SeatID: elasticSeatID(region), FailureDomain: "FAULT-DOMAIN-2",
 				MemberID:    entityid.Derive("test-member", fmt.Sprint(index*2+2)),
-				Incarnation: entityid.Derive("test-incarnation", fmt.Sprint(index*2+2)), TLSLeafSHA256: fmt.Sprintf("%064x", index*2+2),
+				Incarnation: fmt.Sprintf("%032x", index*2+2), TLSLeafSHA256: fmt.Sprintf("%064x", index*2+2),
 				ServerName: fmt.Sprintf("elastic-%s.tb.example", strings.ToLower(string(region))),
 			},
 		)
@@ -327,7 +327,7 @@ func testManagedPlacementIntentForRegions(regions ...oci.Region) placement.Inten
 		SchemaVersion: placement.IntentSchemaVersion, DatabaseID: databaseID, PartitionID: "0000000000Z3WK359G2W66CVT8",
 		ActiveRegions: active, Generation: 7,
 		CanonicalRoster: placement.CanonicalRoster{
-			ClusterID: "014D2PF2DBSQQG28T5CY4TQKFF", TenantID: "01HW000000E008000000000080",
+			ClusterID: "0123456789abcdef0123456789abcdef", TenantID: "01HW000000E008000000000080",
 			DatabaseID: "01HW000000E008000000000081", ShardID: 1,
 			Authority: placement.AuthorityReference{
 				Version: 2, Epoch: 7, ConfigurationID: strings.Repeat("a", 64),

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -218,6 +219,9 @@ func backupAdmissionSpec(t *testing.T, baseline placement.Intent) (managedmateri
 			MaterialDirectory: materialPath, ReplicationIP: ip, ReplicationPort: uint16(port),
 			ClientIP: ip, ClientPort: 9465}
 	}
+	slices.SortFunc(spec.Members[:], func(a, b managedmaterial.InitialMember) int {
+		return strings.Compare(a.MemberID, b.MemberID)
+	})
 	spec.Recipient.Signature = ed25519.Sign(recipientPrivate, managedmaterial.RecipientGrantMessage(spec))
 	return spec, recipientPublic
 }

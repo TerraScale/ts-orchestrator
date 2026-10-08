@@ -576,7 +576,7 @@ func verifyTerraBaseFormatGrant(cfg VolumeInitConfig, signed protocol.Envelope) 
 	if err := decodeStrict([]byte(signed.Payload), &reply); err != nil {
 		return "", err
 	}
-	if reply.Error != "" || reply.Nonce != signed.OperationID || reply.Epoch != signed.Epoch ||
+	if reply.Error != "" || !lowerHex(reply.Nonce, 32) || entityid.Derive("host-request", reply.Nonce) != signed.OperationID || reply.Epoch != signed.Epoch ||
 		reply.Operation != "terrabase-format" || reply.Node != cfg.Node {
 		return "", errors.New("first-format grant binding is invalid")
 	}

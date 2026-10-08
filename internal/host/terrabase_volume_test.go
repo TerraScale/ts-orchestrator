@@ -8,6 +8,7 @@ import (
 	"crypto/ed25519"
 	"encoding/binary"
 	"errors"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"io"
 	"net"
 	"os"
@@ -573,7 +574,7 @@ func TestTerraBaseDataVolumeFormatGrantVerification(t *testing.T) {
 			t.Fatal(err)
 		}
 		signed, err := protocol.SignEnvelope(data, protocol.EnvelopeScope{Region: "gru", Kind: "host.response." + operation,
-			Actor: "controller", OperationID: "0000000000KE3PYRYHV31RNC96", Epoch: 3}, issued, issued.Add(requestTTL), key)
+			Actor: "controller", OperationID: entityid.Derive("host-request", "0000000000009b876f63d1d8c38ab126"), Epoch: 3}, issued, issued.Add(requestTTL), key)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -668,13 +669,13 @@ func TestTerraBaseDataVolumeAsksForGrantOnlyWhenBlank(t *testing.T) {
 		received <- wire
 		_, _ = connection.Write([]byte{0})
 	}()
-	grant := protocol.Envelope{OperationID: "0000000000KE3PYRYHV31RNC96", Payload: []byte(`{}`)}
+	grant := protocol.Envelope{OperationID: entityid.Derive("host-request", "0000000000009b876f63d1d8c38ab126"), Payload: []byte(`{}`)}
 	if err := requestTerraBaseDataVolume(t.Context(), socket, &grant); err != nil {
 		t.Fatal(err)
 	}
 	rest, ok := bytes.CutPrefix(<-received, append(slices.Clone(terraBaseDataRequest), '\n'))
 	var decoded protocol.Envelope
-	if !ok || protocol.DecodeStrict(rest, &decoded, 64<<10) != nil || decoded.OperationID != "0000000000KE3PYRYHV31RNC96" {
+	if !ok || protocol.DecodeStrict(rest, &decoded, 64<<10) != nil || decoded.OperationID != grant.OperationID {
 		t.Fatalf("grant request framing = %q", rest)
 	}
 }

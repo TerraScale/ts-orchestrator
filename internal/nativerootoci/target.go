@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"regexp"
+	"strings"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/oklog/ulid/v2"
@@ -24,6 +25,7 @@ const (
 var (
 	namespacePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`)
 	bucketPattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,254}$`)
+	opaqueIdentity   = regexp.MustCompile(`^[0-9a-f]{32}$`)
 	lowerDigest      = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
@@ -81,12 +83,12 @@ func (target Target) probeKey() string { return ProbePrefix + target.Publication
 // namespace. Every input is an accepted, signed member identity, never an IPC
 // locator. The caller compares the result with TerraBase's request value.
 func PublicationDigest(clusterID, tenantID, databaseID, memberID, incarnation string, shard uint64) (string, error) {
-	cluster, err := entityid.Parse(clusterID)
-	if err != nil || len(cluster) != 16 || !entityid.Valid(clusterID) || shard == 0 {
+	cluster, err := hex.DecodeString(clusterID)
+	if err != nil || len(cluster) != 16 || !opaqueIdentity.MatchString(clusterID) || strings.Trim(clusterID, "0") == "" || shard == 0 {
 		return "", errors.New("signed native cluster or shard is invalid")
 	}
-	incarnationBytes, err := entityid.Parse(incarnation)
-	if err != nil || len(incarnationBytes) != 16 || !entityid.Valid(incarnation) {
+	incarnationBytes, err := hex.DecodeString(incarnation)
+	if err != nil || len(incarnationBytes) != 16 || !opaqueIdentity.MatchString(incarnation) || strings.Trim(incarnation, "0") == "" {
 		return "", errors.New("signed native member incarnation is invalid")
 	}
 	tenant, err := canonicalID(tenantID)
