@@ -93,7 +93,7 @@ naming scheme and who may read what.
 | Command | Purpose |
 | --- | --- |
 | `ts-orch vault put --vault-id OCID --key-id OCID --compartment-id OCID --name NAME --file FILE` | Store FILE once as secret NAME with the operator's `~/.oci/config`, then prove the stored copy equals FILE |
-| `ts-orch vault render --vault-id OCID --scope SCOPE --template FILE --out FILE` | On a host, as root: fill each `{{KEY}}` with secret `<scope>-<key>` read with the instance principal; write FILE atomically, mode `0600` |
+| `ts-orch vault render --vault-id OCID --scope SCOPE --template FILE --out FILE` | On a host, as root: fill each `{{KEY}}` with secret `<scope>-<key>` read with the instance principal; write FILE atomically, mode `0600`, in a private tmpfs directory with swap disabled |
 | `ts-orch region plan LABEL OCI_REGION --out FILE [--from PLAN]` | Derive a non-home region's plan from another region's reviewed plan; reads OCI, creates nothing ([new region](new-region.md)) |
 | `ts-orch region create LABEL OCI_REGION --state DIR --attempt-base FILE --home-plan FILE` | Bring the region up: foundation, private peering with gru-1, NetBird, founding attempt, edge, DNS, Atlas, verify; resumable, prints each step's wall time |
 | `ts-orch region verify LABEL --plan BOUND_PLAN [--wait D]` | Fail unless api and auth answer, every load balancer backend is healthy and Atlas lists the region |

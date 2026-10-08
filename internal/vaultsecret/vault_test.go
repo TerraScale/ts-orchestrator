@@ -153,7 +153,12 @@ func TestWriteFileReplacesOwnerOnly(t *testing.T) {
 	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFile(path, []byte("new")); err != nil {
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if err := writeMemoryFile(root, filepath.Base(path), []byte("new")); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(path)
@@ -220,7 +225,7 @@ func (e testSecretServiceError) GetOpcRequestID() string { return "" }
 // cell's secrets, an unknown Vault, or an environment key it also sets.
 func TestValidateRefs(t *testing.T) {
 	ref := func(name string) Ref { return Ref{Vault: testTarget.VaultID, Name: name} }
-	valid := map[string]Ref{"TS_AUTH_MASTER_KEY": ref("gru-1-ts-auth-master-key"), "b_2": ref("gru-12-ts-auth-x")}
+	valid := map[string]Ref{"TS_AUTH_MASTER_KEY": ref("gru-1-ts-auth-master-key"), "b_2": ref("gru-12-ts-auth-x"), "RING": ref("gru-ts-auth-signing-key-ring")}
 	if err := ValidateRefs("gru", "ts-auth", valid, map[string]string{"TS_AUTH_PUBLIC_ORIGIN": "https://x"}); err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +250,6 @@ func TestValidateRefs(t *testing.T) {
 	}{
 		"other role":       {refs: map[string]Ref{"K": ref("gru-1-netbird-admin-pat")}},
 		"other cell":       {refs: map[string]Ref{"K": ref("sfo-1-ts-auth-master-key")}},
-		"no index":         {refs: map[string]Ref{"K": ref("gru-ts-auth-master-key")}},
 		"zero index":       {refs: map[string]Ref{"K": ref("gru-01-ts-auth-master-key")}},
 		"no key":           {refs: map[string]Ref{"K": ref("gru-1-ts-auth")}},
 		"role only prefix": {refs: map[string]Ref{"K": ref("gru-1-ts-authx-key")}},

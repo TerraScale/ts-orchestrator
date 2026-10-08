@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
@@ -28,7 +29,14 @@ const usage = `Usage: ts-orch vault <command> [flags]
   render  --vault-id OCID --scope SCOPE --template FILE --out FILE
       On a host, as root: replace each {{KEY}} of the template with the JSON-quoted
       secret <scope>-<key>, read with the instance principal, and write FILE
-      atomically, mode 0600.
+      atomically, mode 0600, in a private tmpfs directory with swap disabled.
+  deliver --cell REGION --service SERVICE --refs FILE --dir /run/DIRECTORY [--refresh 1m] [--once]
+      Read a JSON map of keys to {vault, name} using the instance principal.
+      Publish owner-only files named by lowercasing each key. Poll CURRENT versions;
+      changed versions atomically replace files without redeploying the consumer.
+  version --vault-id OCID --name NAME --secret-id OCID --expect-current N --file FILE [--instance-principal]
+      Publish an owner-supplied value as a new CURRENT version with If-Match.
+      On any uncertain result, reread CURRENT before retrying. Never generates keys.
 
 Output names secrets and OCIDs, never a value. See docs/secrets.md.
 `
@@ -51,9 +59,19 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	compartmentID := flags.String("compartment-id", "", "the compartment of a new secret")
 	name := flags.String("name", "", "the secret name")
 	file := flags.String("file", "", "the secret value")
+	secretID := flags.String("secret-id", "", "the exact secret OCID")
+	expected := flags.Int64("expect-current", 0, "the current version the owner read")
+	instancePrincipal := flags.Bool("instance-principal", false, "publish as the regional service principal")
 	scope := flags.String("scope", "", "the secret name prefix, a cell such as gru-1")
 	template := flags.String("template", "", "the template to render")
 	out := flags.String("out", "", "the rendered file")
+	cell := flags.String("cell", "", "the region name, gru or sfo")
+	service := flags.String("service", "", "the owner service")
+	refs := flags.String("refs", "", "the public Vault reference JSON file")
+	directory := flags.String("dir", "", "the private tmpfs delivery directory")
+	refresh := flags.Duration("refresh", time.Minute, "the CURRENT version polling interval")
+	once := flags.Bool("once", false, "deliver the current versions once")
+	fileNames := flags.Bool("file-names", false, "reference keys are exact filenames for existing signed paths")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -69,6 +87,48 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		region = parts[3]
 	}
 	switch args[0] {
+	case "version":
+		if region == "" || *name == "" || *secretID == "" || *expected < 1 || *file == "" {
+			return errors.New("version requires --vault-id, --name, --secret-id, --expect-current and --file")
+		}
+		value, err := readValue(*file)
+		if err != nil {
+			return err
+		}
+		defer clear(value)
+		var factory *ociclient.Factory
+		if *instancePrincipal {
+			factory, err = ociclient.InstancePrincipal(region)
+		} else {
+			factory, err = ociclient.OperatorConfig(region)
+		}
+		if err != nil {
+			return err
+		}
+		client, err := ocivault.NewVaultsClientWithConfigurationProvider(factory.Provider())
+		if err != nil {
+			return err
+		}
+		client.SetRegion(factory.Region())
+		factory.Configure(&client.BaseClient, ociclient.ServiceVault)
+		stored, err := PublishVersion(ctx, client, Ref{Vault: *vaultID, Name: *name}, *secretID, *expected, value)
+		if err != nil {
+			return err
+		}
+		bundles, err := SecretsClient(factory)
+		if err != nil {
+			return errors.New("published version; readback client unavailable, reread CURRENT before retrying")
+		}
+		current, err := ReadCurrent(ctx, bundles, Ref{Vault: *vaultID, Name: *name})
+		if err != nil || current.ID != *secretID || current.Version <= *expected || current.Value() != string(value) {
+			return errors.New("published version; CURRENT readback differs or is unavailable, reread before retrying")
+		}
+		return printLine(output, stored)
+	case "deliver":
+		if *cell == "" || *service == "" || *refs == "" || *directory == "" || *refresh <= 0 {
+			return errors.New("deliver requires --cell, --service, --refs, --dir and a positive --refresh")
+		}
+		return Deliver(ctx, *cell, *service, *refs, *directory, *refresh, *once, *fileNames, output)
 	case "put":
 		if *vaultID == "" || *keyID == "" || *compartmentID == "" || *name == "" || *file == "" {
 			return errors.New("put requires --vault-id, --key-id, --compartment-id, --name and --file")
@@ -111,6 +171,11 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		if os.Geteuid() != 0 {
 			return errors.New("render runs as root: its file holds secrets")
 		}
+		root, err := openMemoryDirectory(filepath.Dir(*out))
+		if err != nil {
+			return err
+		}
+		defer root.Close()
 		text, err := os.ReadFile(*template)
 		if err != nil {
 			return err
@@ -128,7 +193,7 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 			return err
 		}
 		defer clear(rendered)
-		if err := writeFile(*out, rendered); err != nil {
+		if err := writeMemoryFile(root, filepath.Base(*out), rendered); err != nil {
 			return err
 		}
 		return printLine(output, map[string]any{"file": *out, "secrets": names})
@@ -220,39 +285,6 @@ func readValue(path string) ([]byte, error) {
 		return nil, fmt.Errorf("--file holds over %d bytes", maxValue)
 	}
 	return value, err
-}
-
-// writeFile replaces path atomically with an owner-only file: a temporary
-// file in its directory, fsync, rename and a directory fsync.
-func writeFile(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	file, err := os.CreateTemp(dir, "."+filepath.Base(path)+".")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(file.Name())
-	err = file.Chmod(0o600)
-	if err == nil {
-		_, err = file.Write(data)
-	}
-	if err == nil {
-		err = file.Sync()
-	}
-	if closeErr := file.Close(); err == nil {
-		err = closeErr
-	}
-	if err == nil {
-		err = os.Rename(file.Name(), path)
-	}
-	if err != nil {
-		return err
-	}
-	directory, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer directory.Close()
-	return directory.Sync()
 }
 
 func printLine(output io.Writer, value any) error {

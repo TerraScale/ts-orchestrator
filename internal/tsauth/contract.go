@@ -119,6 +119,8 @@ const (
 	EnvDashboardClientSecret = "TS_AUTH_DASHBOARD_CLIENT_SECRET"
 	EnvAPIKey                = "TS_AUTH_TERRASCALE_API_KEY"
 	EnvProjectID             = "TS_AUTH_TERRASCALE_PROJECT_ID"
+	// The signing owner publishes ring versions; replicas reopen this file.
+	EnvSigningKeyRingFile = "TS_AUTH_SIGNING_KEY_RING_FILE"
 )
 
 // Settings the host agent owns.
@@ -136,7 +138,7 @@ var Secrets = []string{EnvMasterKey, EnvAuditSigningKey, EnvOperatorKey, EnvDash
 // OptionalSecrets are ts-auth secrets a profile may name as Vault secret
 // refs: the SMTP relay credentials, and the service clients (id:secret pairs)
 // that may use the client credentials grant.
-var OptionalSecrets = []string{"TS_AUTH_SMTP_USERNAME", "TS_AUTH_SMTP_PASSWORD", "TS_AUTH_SERVICE_CLIENTS"}
+var OptionalSecrets = []string{"TS_AUTH_SMTP_USERNAME", "TS_AUTH_SMTP_PASSWORD", "TS_AUTH_SERVICE_CLIENTS", EnvSigningKeyRingFile, "TS_AUTH_OCI_PRIVATE_KEY"}
 
 // optionalSecrets are ts-auth secrets that no profile may carry, as env or
 // refs, yet.

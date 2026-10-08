@@ -175,7 +175,9 @@ func TestOfflineHostSandboxWritableManagedPathOnly(t *testing.T) {
 	}
 	d := unitDirectives(string(read(t, filepath.Join(deployRoot(t), "deploy/systemd/terrascale-orchestrator-host.service"))), "")
 	equal(t, d["ProtectSystem"], "strict")
-	equal(t, d["ReadWritePaths"], "-"+managedDir)
+	equal(t, d["ReadWritePaths"], "-"+managedDir+" /run/terrascale-orchestrator-host")
+	equal(t, d["RuntimeDirectory"], "terrascale-orchestrator-host")
+	equal(t, d["RuntimeDirectoryMode"], "0755")
 	base := t.TempDir()
 	if err := os.Chmod(base, 0755); err != nil {
 		t.Fatal(err)

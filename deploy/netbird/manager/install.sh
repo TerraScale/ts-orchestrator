@@ -7,7 +7,7 @@ set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 STACK=/opt/ts-ops/netbird
-CONFIG=/etc/netbird/config.yaml
+CONFIG=/run/terrascale-netbird/config.yaml
 DATA=/var/srv/appdata/netbird
 LIBEXEC=/usr/local/libexec/homelab/netbird
 # gru-1's OCI Vault; ts-ops reads its NetBird secrets with its instance
@@ -20,7 +20,7 @@ usage() {
 Usage: install.sh [--dry-run] [--help]
 
 Run as root from /opt/ts-ops/netbird on ts-ops with ts-orch on PATH. Renders
-/etc/netbird/config.yaml from OCI Vault with the instance principal, installs
+/run/terrascale-netbird/config.yaml from OCI Vault with the instance principal, installs
 the NetBird server and dashboard Quadlets (loopback publishes plus UDP 3478), the
 store backup timer, and OnFailure ntfy hooks, then starts the server and
 dashboard. Never restarts Forgejo, Postgres, or Caddy. Create the owner with
@@ -75,7 +75,7 @@ if [[ "$dry_run" -eq 1 ]]; then
   exit 0
 fi
 
-mkdir -p "$(dirname "$CONFIG")"
+install -d -m 0700 "$(dirname "$CONFIG")"
 ts-orch vault render --vault-id "$VAULT" --scope gru-1 --template "$root/templates/config.yaml.tmpl" --out "$CONFIG"
 [[ "$(stat -c '%U:%G %a' "$CONFIG")" == 'root:root 600' ]] || fail "$CONFIG must be root:root 0600"
 
