@@ -68,6 +68,7 @@ type staticEnrollmentLab struct {
 	fleet      *staticHostFleet
 	bundle     hostenroll.PublicBundle
 	epoch      uint64
+	js         jetstream.JetStream
 }
 
 func startStaticEnrollmentLab(t *testing.T, ctx context.Context, workloads map[string]WorkloadProfile) staticEnrollmentLab {
@@ -124,7 +125,7 @@ func startStaticEnrollmentLab(t *testing.T, ctx context.Context, workloads map[s
 		owner: "regional-owner", generation: 1, environment: "production", fleet: fleet,
 		controller: hostController, grants: grants, issuer: issuer, responseKey: controllerPrivate,
 		fencer: control, services: services},
-		controller: hostController, fleet: fleet, bundle: bundle, epoch: control.Current().Epoch}
+		controller: hostController, fleet: fleet, bundle: bundle, epoch: control.Current().Epoch, js: broker.JetStream()}
 }
 
 // launch records an operator-launched instance carrying the static

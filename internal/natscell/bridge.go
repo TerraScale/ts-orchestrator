@@ -14,7 +14,34 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 )
 
-type bridgePair struct{ external, internal net.Conn }
+var ErrBridgeClosed = errors.New("broker bridge is closed")
+
+type bridgePair struct {
+	external, internal net.Conn
+	listener           net.Listener
+}
+
+type bridgeListener struct {
+	net.Listener
+	bridge *Bridge
+}
+
+func (l *bridgeListener) Close() error {
+	l.bridge.mu.Lock()
+	pairs := make(map[*bridgePair]struct{})
+	for pair := range l.bridge.pairs {
+		if pair.listener == l.Listener {
+			_ = pair.internal.Close()
+			delete(l.bridge.pairs, pair)
+			pairs[pair] = struct{}{}
+		}
+	}
+	delete(l.bridge.listeners, l.Listener)
+	l.bridge.mu.Unlock()
+	err := l.Listener.Close()
+	closeBridgeExternal(pairs)
+	return err
+}
 
 type BridgeStatus struct {
 	Open           bool
@@ -25,26 +52,27 @@ type BridgeStatus struct {
 }
 
 func (p *bridgePair) close() {
-	_ = p.external.Close()
 	_ = p.internal.Close()
+	_ = p.external.Close()
 }
 
 // Bridge is the only production client TCP listener. Its mTLS handshakes
 // happen before NATS INFO; the NATS server itself has DontListen set. The gate
 // starts closed and a fence closes every accepted socket, including live ones.
 type Bridge struct {
-	server   *server.Server
-	listener net.Listener
-	account  string
-	mu       sync.Mutex
-	open     bool
-	closed   bool
-	deadline time.Time
-	sequence uint64
-	floor    uint64
-	jwt      string
-	pairs    map[*bridgePair]struct{}
-	timer    *time.Timer
+	server    *server.Server
+	listener  net.Listener
+	listeners map[net.Listener]struct{}
+	account   string
+	mu        sync.Mutex
+	open      bool
+	closed    bool
+	deadline  time.Time
+	sequence  uint64
+	floor     uint64
+	jwt       string
+	pairs     map[*bridgePair]struct{}
+	timer     *time.Timer
 }
 
 func startBridge(s *server.Server, address string, tlsConfig *tls.Config, account string) (*Bridge, error) {
@@ -55,9 +83,34 @@ func startBridge(s *server.Server, address string, tlsConfig *tls.Config, accoun
 	if err != nil {
 		return nil, fmt.Errorf("listen for regional broker clients: %w", err)
 	}
-	b := &Bridge{server: s, listener: listener, account: account, pairs: make(map[*bridgePair]struct{})}
-	go b.accept()
+	b := &Bridge{server: s, listener: listener, account: account, pairs: make(map[*bridgePair]struct{}), listeners: make(map[net.Listener]struct{})}
+	go b.accept(listener)
 	return b, nil
+}
+
+// Every additional listener shares the primary listener's mTLS and ticket
+// fence, including closing its established sessions when that fence expires.
+func (b *Bridge) listen(address string, config *tls.Config) (net.Listener, error) {
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return nil, ErrBridgeClosed
+	}
+	b.mu.Unlock()
+	listener, err := tls.Listen("tcp", address, config)
+	if err != nil {
+		return nil, fmt.Errorf("listen for regional broker clients at %s: %w", address, err)
+	}
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		_ = listener.Close()
+		return nil, ErrBridgeClosed
+	}
+	b.listeners[listener] = struct{}{}
+	go b.accept(listener)
+	b.mu.Unlock()
+	return &bridgeListener{Listener: listener, bridge: b}, nil
 }
 
 func (b *Bridge) Addr() net.Addr { return b.listener.Addr() }
@@ -92,12 +145,13 @@ func (b *Bridge) OpenUntil(sequence uint64, rawJWT string, deadline time.Time) e
 		return errors.New("broker account JWT was not applied locally")
 	}
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	if b.closed || sequence < b.floor {
+		b.mu.Unlock()
 		return errors.New("broker bridge is closed or claim sequence is stale")
 	}
+	var pairs map[*bridgePair]struct{}
 	if b.open && (b.sequence != sequence || b.jwt != rawJWT) {
-		b.fenceLocked()
+		pairs = b.fenceLocked()
 	}
 	b.sequence, b.jwt, b.deadline, b.open = sequence, rawJWT, deadline, true
 	if b.timer != nil {
@@ -105,11 +159,15 @@ func (b *Bridge) OpenUntil(sequence uint64, rawJWT string, deadline time.Time) e
 	}
 	b.timer = time.AfterFunc(time.Until(deadline), func() {
 		b.mu.Lock()
-		defer b.mu.Unlock()
+		var expired map[*bridgePair]struct{}
 		if b.open && b.sequence == sequence && b.deadline.Equal(deadline) {
-			b.fenceLocked()
+			expired = b.fenceLocked()
 		}
+		b.mu.Unlock()
+		closeBridgeExternal(expired)
 	})
+	b.mu.Unlock()
+	closeBridgeExternal(pairs)
 	return nil
 }
 
@@ -118,8 +176,9 @@ func (b *Bridge) Fence() {
 		return
 	}
 	b.mu.Lock()
-	b.fenceLocked()
+	pairs := b.fenceLocked()
 	b.mu.Unlock()
+	closeBridgeExternal(pairs)
 }
 
 // FenceClaim closes old sessions and prevents an earlier ticket from reopening
@@ -130,11 +189,17 @@ func (b *Bridge) FenceClaim(sequence uint64) {
 	}
 	b.mu.Lock()
 	b.floor = max(b.floor, sequence)
-	b.fenceLocked()
+	pairs := b.fenceLocked()
 	b.mu.Unlock()
+	closeBridgeExternal(pairs)
 }
 
-func (b *Bridge) fenceLocked() {
+// InProcessConn's net.Pipe close is nonblocking; revoke it before publishing
+// detached sessions so a concurrent fence cannot acknowledge a usable path.
+func (b *Bridge) fenceLocked() map[*bridgePair]struct{} {
+	for pair := range b.pairs {
+		_ = pair.internal.Close()
+	}
 	b.open = false
 	b.sequence = 0
 	b.jwt = ""
@@ -143,8 +208,14 @@ func (b *Bridge) fenceLocked() {
 		b.timer.Stop()
 		b.timer = nil
 	}
-	for p := range b.pairs {
-		p.close()
+	pairs := b.pairs
+	b.pairs = make(map[*bridgePair]struct{})
+	return pairs
+}
+
+func closeBridgeExternal(pairs map[*bridgePair]struct{}) {
+	for pair := range pairs {
+		_ = pair.external.Close()
 	}
 }
 
@@ -153,17 +224,30 @@ func (b *Bridge) Close() {
 		return
 	}
 	b.mu.Lock()
-	if !b.closed {
-		b.closed = true
-		b.fenceLocked()
-		_ = b.listener.Close()
+	if b.closed {
+		b.mu.Unlock()
+		return
 	}
+	b.closed = true
+	pairs := b.fenceLocked()
+	listeners := b.listeners
+	b.listeners = make(map[net.Listener]struct{})
 	b.mu.Unlock()
+	_ = b.listener.Close()
+	for listener := range listeners {
+		_ = listener.Close()
+	}
+	closeBridgeExternal(pairs)
 }
 
-func (b *Bridge) accept() {
+func (b *Bridge) accept(listener net.Listener) {
+	defer func() {
+		b.mu.Lock()
+		delete(b.listeners, listener)
+		b.mu.Unlock()
+	}()
 	for {
-		external, err := b.listener.Accept()
+		external, err := listener.Accept()
 		if err != nil {
 			return
 		}
@@ -174,11 +258,11 @@ func (b *Bridge) accept() {
 			_ = external.Close()
 			continue
 		}
-		go b.serve(external)
+		go b.serve(external, listener)
 	}
 }
 
-func (b *Bridge) serve(external net.Conn) {
+func (b *Bridge) serve(external net.Conn, listener net.Listener) {
 	defer external.Close()
 	if err := external.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		return
@@ -193,9 +277,10 @@ func (b *Bridge) serve(external net.Conn) {
 	if err != nil {
 		return
 	}
-	pair := &bridgePair{external: external, internal: internal}
+	pair := &bridgePair{external: external, internal: internal, listener: listener}
 	b.mu.Lock()
-	if b.closed || !b.open || !time.Now().Before(b.deadline) {
+	_, additional := b.listeners[listener]
+	if b.closed || listener != b.listener && !additional || !b.open || !time.Now().Before(b.deadline) {
 		b.mu.Unlock()
 		pair.close()
 		return

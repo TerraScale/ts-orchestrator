@@ -232,6 +232,7 @@ type fenceLease struct {
 	lost bool
 	// lose, when set, loses the lease after that many guards.
 	lose, guards int
+	netbird      authority.LogEntry
 }
 
 func (l *fenceLease) Current() authority.Snapshot {

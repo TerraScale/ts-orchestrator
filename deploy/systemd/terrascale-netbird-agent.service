@@ -1,0 +1,32 @@
+[Unit]
+Description=Apply authenticated TerraScale NetBird client changes
+Wants=network-online.target
+After=network-online.target terrascale-orchestrator-host-setup.service
+PartOf=terrascale-orchestrator-host.service
+ConditionPathExists=/etc/terrascale-orchestrator/host.json
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecCondition=/bin/sh -c 'b=/var/lib/terrascale-orchestrator/current/terrascale-orchestrator; [ -x "$$b" ] || b=/usr/local/bin/terrascale-orchestrator; exec "$$b" netbird agent run --help'
+ExecStart=/bin/sh -c 'b=/var/lib/terrascale-orchestrator/current/terrascale-orchestrator; [ -x "$$b" ] || b=/usr/local/bin/terrascale-orchestrator; exec "$$b" netbird agent run --config /etc/terrascale-orchestrator/host.json'
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+StateDirectory=terrascale-netbird-agent terrascale-orchestrator/netbird-managed
+StateDirectoryMode=0700
+# This root worker verifies signed host commands before changing the binary
+# or systemd units; the workload host remains under ProtectSystem=strict.
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

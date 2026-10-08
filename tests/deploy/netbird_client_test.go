@@ -249,7 +249,12 @@ func TestNetbirdAdditiveInstallerPreservesOrchestrator(t *testing.T) {
 	for _, name := range []string{"netbird.service", "terrascale-netbird-enroll.service"} {
 		symlink(t, filepath.Join(stage, "etc/systemd/system/multi-user.target.wants", name))
 	}
-	contains(t, string(read(t, filepath.Join(stage, "etc/systemd/system/terrascale-netbird-enroll.service.d/command.conf"))), "/usr/local/lib/terrascale-orchestrator/netbird-enroll netbird-enroll")
+	override := string(read(t, filepath.Join(stage, "etc/systemd/system/terrascale-netbird-enroll.service.d/command.conf")))
+	for _, want := range []string{"/usr/local/lib/terrascale-orchestrator/netbird-enroll netbird-enroll",
+		"StateDirectory=terrascale-orchestrator/netbird-managed",
+		"ReadWritePaths=/usr/local/bin /var/lib/terrascale-orchestrator/netbird-managed"} {
+		contains(t, override, want)
+	}
 	equal(t, mode(t, filepath.Join(stage, "var/lib/netbird")), os.FileMode(0700))
 }
 func TestNetbirdUnitsRetryWithoutGatingOrchestrator(t *testing.T) {

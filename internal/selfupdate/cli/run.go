@@ -58,9 +58,13 @@ type Restarter func(ctx context.Context, unit string) error
 // SystemctlRestart asks systemd for a non-blocking restart, exactly like the
 // existing host-setup unit does.
 func SystemctlRestart(ctx context.Context, unit string) error {
-	output, err := exec.CommandContext(ctx, "systemctl", "--no-block", "restart", unit).CombinedOutput()
+	return systemctl(ctx, "--no-block", "restart", unit)
+}
+
+func systemctl(ctx context.Context, args ...string) error {
+	output, err := exec.CommandContext(ctx, "systemctl", args...).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("restart %s: %w: %s", unit, err, strings.TrimSpace(string(output)))
+		return fmt.Errorf("systemctl %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
 	}
 	return nil
 }
@@ -192,7 +196,18 @@ func (c command) prepare(args []string) error {
 		return err
 	}
 	if c.delegate(layout.layout(), append([]string{"prepare"}, args...)) {
-		return c.backstopPrepare(layout.layout(), *unit)
+		if err := c.backstopPrepare(layout.layout(), *unit); err != nil {
+			return err
+		}
+		unlock, err := layout.layout().Lock()
+		if err != nil {
+			return err
+		}
+		defer unlock()
+		if err := c.installCurrentNetBirdAgent(layout.layout(), *systemd, *unit); err != nil {
+			slog.Warn("self-update could not prepare the NetBird worker", "error", err)
+		}
+		return nil
 	}
 	check, err := proof.check(*layout.root, *unit)
 	if err != nil {
@@ -241,7 +256,67 @@ func (c command) prepare(args []string) error {
 			}
 		}
 	}
+	if err := c.installCurrentNetBirdAgent(layout.layout(), *systemd, *unit); err != nil {
+		slog.Warn("self-update could not prepare the NetBird worker", "error", err)
+	}
 	return nil
+}
+
+// The caller holds the layout lock through the probe and startup request.
+func (c command) installCurrentNetBirdAgent(layout selfupdate.Layout, systemd, unit string) error {
+	// Packaged worker and enrollment units execute the image's default release tree.
+	if layout.Root != selfupdate.DefaultRoot {
+		return fmt.Errorf("managed NetBird units require --root %s; configured root is %s", selfupdate.DefaultRoot, layout.Root)
+	}
+	current, err := layout.Current()
+	if err != nil {
+		return err
+	}
+	if err := layout.VerifyRelease(current); err != nil {
+		return err
+	}
+	_, hostConfigErr := os.Stat("/etc/terrascale-orchestrator/host.json")
+	start := systemd == "/etc/systemd/system" &&
+		(unit == selfupdate.HostUnit || unit == selfupdate.ControllerUnit) && hostConfigErr == nil
+	return c.installNetBirdAgent(layout.BinaryPath(current), systemd, start)
+}
+
+func (c command) installNetBirdAgent(binary, systemd string, start bool) error {
+	// The baked fallback can run prepare while an older current release
+	// still owns ExecStart. Do not add its Wants dependency until it supports the worker.
+	ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
+	defer cancel()
+	probe := exec.CommandContext(ctx, binary, "netbird", "agent", "run", "--help")
+	probe.WaitDelay = time.Second
+	if output, err := probe.CombinedOutput(); err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("probe NetBird worker support: %w", ctx.Err())
+		}
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() >= 0 {
+			slog.Debug("self-update current release does not support the NetBird worker", "binary", binary,
+				"error", err, "output", strings.TrimSpace(string(output)))
+			return nil
+		}
+		return fmt.Errorf("probe NetBird worker support: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	_, err := selfupdate.InstallNetBirdAgent(systemd)
+	if err != nil || !start {
+		return err
+	}
+	if _, err := os.Stat(filepath.Join(systemd, selfupdate.HostSetupUnit)); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	// Retry reload even when a previous failed or interrupted prepare wrote every file.
+	if err := systemctl(c.ctx, "daemon-reload"); err != nil {
+		return err
+	}
+	if err := systemctl(c.ctx, "enable", selfupdate.NetBirdAgentUnit); err != nil {
+		return err
+	}
+	return c.restart(c.ctx, selfupdate.NetBirdAgentUnit)
 }
 
 func (c command) watchdog(args []string) error {

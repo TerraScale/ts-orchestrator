@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -105,6 +106,8 @@ type fencedBackend struct {
 	Backup bool `json:"backup,omitzero"`
 	// Offline is set once the backend is out of rotation.
 	Offline bool `json:"offline,omitzero"`
+	// Keep the admitted quorum when the live spec is changed or removed.
+	Minimum int `json:"min_serving,omitempty"`
 }
 
 // fenceRecord is a node's fence, recorded before the load balancer
@@ -158,6 +161,37 @@ func (f *releaseFence) lockNode(node string) func() {
 	return lock.(*sync.Mutex).Unlock
 }
 
+func (f *releaseFence) lockNodeContext(ctx context.Context, node string) (func(), error) {
+	lock, _ := f.nodes.LoadOrStore(node, &sync.Mutex{})
+	if err := lockFenceContext(ctx, lock.(*sync.Mutex)); err != nil {
+		return nil, err
+	}
+	return lock.(*sync.Mutex).Unlock, nil
+}
+
+// Keep bounded operations cancellable while legacy operations hold the lock.
+func lockFenceContext(ctx context.Context, lock *sync.Mutex) error {
+	retry := time.NewTicker(10 * time.Millisecond)
+	defer retry.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if lock.TryLock() {
+			if err := ctx.Err(); err != nil {
+				lock.Unlock()
+				return err
+			}
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-retry.C:
+		}
+	}
+}
+
 // minServing is set's quorum guard in the current fence.
 func (f *releaseFence) minServing(set string) int {
 	if spec, _ := f.spec(); spec != nil {
@@ -171,7 +205,9 @@ func (f *releaseFence) minServing(set string) int {
 }
 
 func (f *releaseFence) client(ctx context.Context) (lb.API, error) {
-	f.mu.Lock()
+	if err := lockFenceContext(ctx, &f.mu); err != nil {
+		return nil, err
+	}
 	defer f.mu.Unlock()
 	if f.api == nil {
 		api, err := f.open(ctx)
@@ -505,6 +541,17 @@ func (f *releaseFence) allocated(ctx context.Context, role string, release uint6
 	}), nil
 }
 
+func (f *releaseFence) loadJSON(ctx context.Context, key string, value any) error {
+	entry, err := f.kv.Get(ctx, key)
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return os.ErrNotExist
+	}
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(entry.Value(), value, json.RejectUnknownMembers(true))
+}
+
 // keys lists the bucket's keys that match filter.
 func (f *releaseFence) keys(ctx context.Context, filter string) ([]string, error) {
 	lister, err := f.kv.ListKeysFiltered(ctx, filter)
@@ -607,7 +654,11 @@ func (f *releaseFence) fence(ctx context.Context, api lb.API, epoch uint64, spec
 		// never restarted unfenced.
 		return fmt.Errorf("no host grant gives the address of %s; its restart stays held", node)
 	}
-	defer f.lockNode(node)()
+	unlock, err := f.lockNodeContext(ctx, node)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	return f.fenceLocked(ctx, api, epoch, spec, node, address, grace, holder)
 }
 
@@ -642,7 +693,7 @@ func (f *releaseFence) fenceLocked(ctx context.Context, api lb.API, epoch uint64
 			}
 			weight, backup := backend.Shape()
 			record.Backends = append(record.Backends, fencedBackend{LoadBalancerID: spec.LoadBalancerID, Set: set.Name,
-				IP: address, Port: set.Port, Weight: weight, Backup: backup})
+				IP: address, Port: set.Port, Weight: weight, Backup: backup, Minimum: set.Min()})
 			added = true
 		}
 	}
@@ -697,8 +748,20 @@ func (f *releaseFence) takeOut(ctx context.Context, api lb.API, epoch uint64, ba
 	offline bool,
 ) error {
 	minimum := f.minServing(backend.Set)
+	if backend.Minimum > 0 {
+		minimum = backend.Minimum
+		if spec, _ := f.spec(); spec != nil {
+			for _, set := range spec.BackendSets {
+				if set.Name == backend.Set {
+					minimum = max(minimum, set.Min())
+				}
+			}
+		}
+	}
 	for {
-		f.quorum.Lock()
+		if err := lockFenceContext(ctx, &f.quorum); err != nil {
+			return err
+		}
 		serving, err := servingOthers(ctx, api, backend)
 		if err == nil && serving >= minimum {
 			err = f.update(ctx, api, epoch, backend, true, offline)
@@ -780,7 +843,11 @@ func (f *releaseFence) save(ctx context.Context, epoch uint64, node string, reco
 // balancer they were taken from and, with healthy, waits until their
 // health checks pass; it reports whether any were returned.
 func (f *releaseFence) restore(ctx context.Context, api lb.API, epoch uint64, node, holder string, healthy bool) (bool, error) {
-	defer f.lockNode(node)()
+	unlock, err := f.lockNodeContext(ctx, node)
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
 	return f.restoreLocked(ctx, api, epoch, node, holder, healthy)
 }
 

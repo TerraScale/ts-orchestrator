@@ -26,6 +26,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"path"
 	"reflect"
 	"regexp"
 	"slices"
@@ -36,6 +37,9 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machinesapi"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/bucket"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/nsg"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/routetable"
@@ -64,8 +68,8 @@ const (
 	// min_serving, level 14 a fenced set's role, level 15 the release
 	// fence's canary, level 16 the Machines API, level 17 a host grant's
 	// controller, level 18 the dashboard, level 19 a signer's
-	// can_install_material.
-	BinaryLevel = 19
+	// can_install_material, level 20 the managed NetBird client.
+	BinaryLevel = 20
 	// MaxHostImages bounds the image allow-list: the images a rollout moves
 	// between, plus room to stage the next one.
 	MaxHostImages = 4
@@ -207,6 +211,49 @@ type Spec struct {
 	// token read from Vault; nil serves it there on none. Adding or
 	// changing it needs a root.
 	Dashboard *Dashboard `json:"dashboard,omitempty"`
+	// NetBird pins the client every node installs and the public Vault-backed
+	// enrollment settings; a changed pin rolls through the cell one at a time.
+	NetBird *NetBird `json:"netbird,omitempty"`
+}
+
+type NetBird struct {
+	Pin        client.Pin     `json:"pin"`
+	Enrollment netbird.Config `json:"enrollment"`
+}
+
+// Validate checks release provenance and confines enrollment to this cell.
+func (n NetBird) Validate(cell string) error {
+	if err := client.ValidatePin(n.Pin); err != nil {
+		return err
+	}
+	if err := client.ValidateManagedVersion(n.Pin.Version); err != nil {
+		return err
+	}
+	file := n.Pin.EnrollmentConfig
+	if !client.SHA256Pattern.MatchString(file.SHA256) || path.Clean(file.Path) != file.Path ||
+		!strings.HasPrefix(file.Path, "deploy/image/inputs/") || path.Ext(file.Path) != ".json" {
+		return errors.New("NetBird enrollment input needs a pinned JSON file under deploy/image/inputs")
+	}
+	if err := n.Enrollment.Validate(); err != nil {
+		return err
+	}
+	region, ok := catalog.LookupName(cell)
+	if !ok {
+		return errors.New("NetBird enrollment requires a catalog cell")
+	}
+	effectiveRegion := n.Enrollment.Region
+	if effectiveRegion == "" {
+		effectiveRegion = netbird.DefaultRegion
+	}
+	if effectiveRegion != region.OCIRegion {
+		return errors.New("NetBird enrollment region differs from the cell")
+	}
+	for _, name := range n.Enrollment.PeerNames {
+		if !strings.HasPrefix(name, "ts-"+cell+"-") && !strings.HasPrefix(name, cell+"-") {
+			return errors.New("NetBird peer name differs from the cell")
+		}
+	}
+	return nil
 }
 
 // DashboardPort is where a controller serves the operator dashboard on its
@@ -584,6 +631,11 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("%w: dashboard: %w", ErrInvalid, err)
 		}
 	}
+	if s.NetBird != nil {
+		if err := s.NetBird.Validate(s.Identity.Cell); err != nil {
+			return fmt.Errorf("%w: netbird: %w", ErrInvalid, err)
+		}
+	}
 	return nil
 }
 
@@ -642,7 +694,7 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 // 10 with an artifact store quota, 11 with an Atlas publisher, 12 with
 // a release fence (13, 14 and 15 with its min_serving, role and canary) and
 // 16 with the Machines API, 17 once a host grant names its controller and
-// 18 with the dashboard, which an older binary could not read.
+// 18 with the dashboard, 19 with material-install authority, 20 with NetBird.
 func (s Spec) Level() uint64 {
 	level := uint64(1)
 	for _, service := range s.Services {
@@ -700,6 +752,9 @@ func (s Spec) Level() uint64 {
 	}
 	if slices.ContainsFunc(s.Signers, func(signer TrustedSigner) bool { return signer.CanInstallMaterial }) {
 		level = 19
+	}
+	if s.NetBird != nil {
+		level = 20
 	}
 	return level
 }
@@ -992,6 +1047,11 @@ func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
 	if next.Dashboard != nil && !reflect.DeepEqual(current.Dashboard, next.Dashboard) {
 		changes = append(changes, "dashboard")
 	}
+	// Enrollment widens the node's Vault and manager authority. Once it is
+	// authorized, changing only verified client artifacts is an ordinary bump.
+	if next.NetBird != nil && (current.NetBird == nil || !reflect.DeepEqual(current.NetBird.Enrollment, next.NetBird.Enrollment)) {
+		changes = append(changes, "netbird enrollment")
+	}
 	if change := budgetChange(current.Budget, next.Budget); change != "" && change != "lowered" {
 		changes = append(changes, "budget")
 	}
@@ -1078,6 +1138,7 @@ type Plan struct {
 	// MachinesAPI is "added", "updated" or "removed" when the Machines API
 	// changes.
 	MachinesAPI string `json:"machines_api,omitempty"`
+	NetBird     string `json:"netbird,omitempty"`
 	// RootRequired lists the authority-widening changes; the amendment
 	// applies only when a root signed it.
 	RootRequired []string `json:"root_required,omitempty"`
@@ -1208,6 +1269,14 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 	case before != nil && *before != *after:
 		plan.Dashboard = "updated"
 	}
+	switch before, after := current.NetBird, next.NetBird; {
+	case before == nil && after != nil:
+		plan.NetBird = "added"
+	case before != nil && after == nil:
+		plan.NetBird = "removed"
+	case before != nil && !reflect.DeepEqual(before, after):
+		plan.NetBird = "updated"
+	}
 	return plan, nil
 }
 
@@ -1238,7 +1307,7 @@ func (p Plan) Empty() bool {
 	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 && p.Budget == "" &&
 		p.KVSnapshot == "" && p.RolloutPolicy == "" && p.OCIDesired == "" && len(p.Signers) == 0 &&
 		p.LaunchImage == "" && p.ArtifactStore == "" && p.Atlas == "" && p.ReleaseFence == "" && p.MachinesAPI == "" &&
-		p.Dashboard == ""
+		p.Dashboard == "" && p.NetBird == ""
 }
 
 // Validate checks each entry's policy and spec and the prune delay. The

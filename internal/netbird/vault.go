@@ -83,11 +83,19 @@ func readOCISecret(ctx context.Context, region, secretID, label string, maxBytes
 	if ctx.Err() != nil {
 		return nil, errors.New("NetBird OCI Vault read was canceled")
 	}
-	provider, err := auth.InstancePrincipalConfigurationForRegionWithCustomClient(common.Region(region), boundedInstancePrincipalDispatcher)
-	if err != nil {
-		return nil, errors.New("cannot create OCI instance-principal credentials for NetBird")
-	}
-	client, err := secrets.NewSecretsClientWithConfigurationProvider(provider)
+	client, err := initializeSecretsClient(ctx, func() (secrets.SecretsClient, error) {
+		provider, err := auth.InstancePrincipalConfigurationForRegionWithCustomClient(common.Region(region), func(dispatcher common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error) {
+			bounded, err := boundedInstancePrincipalDispatcher(dispatcher)
+			if err != nil {
+				return nil, err
+			}
+			return instancePrincipalContextDispatcher{ctx: ctx, dispatcher: bounded}, nil
+		})
+		if err != nil {
+			return secrets.SecretsClient{}, errors.New("cannot create OCI instance-principal credentials for NetBird")
+		}
+		return secrets.NewSecretsClientWithConfigurationProvider(provider)
+	})
 	if err != nil {
 		return nil, errors.New("cannot create OCI Secrets client for NetBird")
 	}
@@ -177,6 +185,38 @@ func retryableVaultError(err error) bool {
 	}
 	status := failure.GetHTTPStatusCode()
 	return status == http.StatusTooManyRequests || status >= http.StatusInternalServerError
+}
+
+// SDK credential retries sleep without context checks. Initialization is
+// read-only, so cancellation can release the caller while its backoff finishes.
+func initializeSecretsClient(ctx context.Context, initialize func() (secrets.SecretsClient, error)) (secrets.SecretsClient, error) {
+	if err := ctx.Err(); err != nil {
+		return secrets.SecretsClient{}, err
+	}
+	type result struct {
+		client secrets.SecretsClient
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		client, err := initialize()
+		done <- result{client, err}
+	}()
+	select {
+	case <-ctx.Done():
+		return secrets.SecretsClient{}, ctx.Err()
+	case initialized := <-done:
+		return initialized.client, initialized.err
+	}
+}
+
+type instancePrincipalContextDispatcher struct {
+	ctx        context.Context
+	dispatcher common.HTTPRequestDispatcher
+}
+
+func (d instancePrincipalContextDispatcher) Do(request *http.Request) (*http.Response, error) {
+	return d.dispatcher.Do(request.WithContext(d.ctx))
 }
 
 // Preserve OCI's TLS refresh wrapper while bounding metadata/federation access.

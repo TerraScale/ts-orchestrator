@@ -94,6 +94,7 @@ const (
 	MutationEnrollmentEffect  HostMutationKind = "enrollment-effect"
 	MutationManagedUpdate     HostMutationKind = "managed-update"
 	MutationBackupOperation   HostMutationKind = "backup-operation"
+	MutationNetBirdState      HostMutationKind = "netbird-state"
 )
 
 // WorkloadScope identifies one admitted database partition. The terminal gate

@@ -167,9 +167,8 @@ func regionServersGroups() []string {
 	return names
 }
 
-// serverAccessPolicies grant admin dashboard access and same-region ping.
-// NetBird distributes peer DNS labels only to policy-visible peers, so ping
-// also makes sibling servers' names resolve without granting them TCP access.
+// serverAccessPolicies grant dashboard access, DNS visibility and the
+// same-cell service probes used by managed NetBird rollouts.
 func serverAccessPolicies() []PolicySpec {
 	var policies []PolicySpec
 	for _, group := range append([]string{"gru-servers"}, regionServersGroups()...) {
@@ -179,7 +178,10 @@ func serverAccessPolicies() []PolicySpec {
 			Protocol:    "tcp", Ports: []string{"9463"}, Sources: []string{"operators", "ops-automation"}, Destinations: []string{group}},
 			PolicySpec{Name: group + "-to-" + group + "-ping",
 				Description: cell + " servers → same-region servers: ICMP diagnostics and peer DNS visibility",
-				Protocol:    "icmp", Sources: []string{group}, Destinations: []string{group}})
+				Protocol:    "icmp", Sources: []string{group}, Destinations: []string{group}},
+			PolicySpec{Name: group + "-to-" + group + "-service-health",
+				Description: cell + " servers → same-region servers: NATS client 4222, ts-auth readiness 8080, TerraBase readiness 9465",
+				Protocol:    "tcp", Ports: []string{"4222", "8080", "9465"}, Sources: []string{group}, Destinations: []string{group}})
 	}
 	return policies
 }

@@ -324,6 +324,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	if a.cfg.FollowRollouts != nil {
 		go a.cfg.FollowRollouts(work, a)
 	}
+	if a.cfg.FollowNetBird != nil {
+		go a.cfg.FollowNetBird(work, a)
+	}
 	ticker := time.NewTicker(a.cfg.PollInterval)
 	defer ticker.Stop()
 	type roleFailure struct {

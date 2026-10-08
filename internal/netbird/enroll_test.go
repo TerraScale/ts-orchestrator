@@ -500,7 +500,8 @@ func TestCancellationPropagatesFromObserveAndAwaitDaemon(t *testing.T) {
 
 // The pinned client's effective configuration must keep every key the
 // settings check reads. Bumping NetBird fails here until the fixture is
-// refreshed from the new release's `netbird debug config`.
+// refreshed from the new release's `netbird debug config`, using an isolated
+// daemon with these settings and no enrollment. Only configFile is normalized.
 func TestPinnedClientDebugConfigFixtureSatisfiesServerSettings(t *testing.T) {
 	inputs, err := os.ReadFile("../../deploy/image/image-inputs.json")
 	if err != nil {

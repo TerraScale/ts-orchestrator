@@ -128,6 +128,10 @@ func releaseUnderLoad(t *testing.T, seated bool) (failures, served int64) {
 	}()
 
 	hosts := &loadHosts{desired: map[string]uint64{}, reports: map[string]host.Report{}}
+	if !seated {
+		hosts.stopped = make(chan struct{}, len(seats))
+		hosts.restart = make(chan struct{})
+	}
 	for _, node := range seats {
 		hosts.desired[node] = 1
 		hosts.report(node, 1, "running")
@@ -184,6 +188,20 @@ func releaseUnderLoad(t *testing.T, seated bool) (failures, served int64) {
 	}
 	time.Sleep(300 * time.Millisecond)
 	hosts.release(2)
+	if !seated {
+		// Hold every member stopped until the actual load samples the outage;
+		// independent host polls and brief listener gaps can miss it in CI.
+		for range seats {
+			select {
+			case <-hosts.stopped:
+			case <-ctx.Done():
+				t.Fatal("members did not stop before the load deadline")
+			}
+		}
+		before := atomic.LoadInt64(&failures)
+		await("a request fails with every seat stopped", func() bool { return atomic.LoadInt64(&failures) > before })
+		close(hosts.restart)
+	}
 	await("every seat runs the release and serves again", func() bool {
 		drained, _ := records.Drained(ctx)
 		return hosts.running(2) && len(drained) == 0 && edge.serving() == 2
@@ -276,6 +294,8 @@ type loadHosts struct {
 	mu      sync.Mutex
 	desired map[string]uint64
 	reports map[string]host.Report
+	stopped chan struct{}
+	restart chan struct{}
 }
 
 func (h *loadHosts) ListDesired(_ context.Context, role string) ([]host.Desired, error) {
@@ -350,6 +370,18 @@ func (h *loadHosts) run(ctx context.Context, t *testing.T, node string, member *
 		}
 		addr := member.addr
 		member.stop()
+		if h.stopped != nil {
+			select {
+			case h.stopped <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			select {
+			case <-h.restart:
+			case <-ctx.Done():
+				return
+			}
+		}
 		member.start(t, addr, desired)
 		running = desired
 		h.report(node, running, "starting")

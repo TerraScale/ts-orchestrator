@@ -30,6 +30,13 @@ type GuestBuildOptions struct {
 }
 
 func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Writer) (result error) {
+	pin, e := client.LoadPin(filepath.Join(repo, "deploy/image/image-inputs.json"))
+	if e != nil {
+		return e
+	}
+	if e = client.VerifyBinary(o.NetBirdBinary, pin.Archives.Arm64.BinarySHA256, "arm64"); e != nil {
+		return e
+	}
 	g, e := NewGuest(ctx, o.Image, false, nil)
 	if e != nil {
 		return e
@@ -58,7 +65,7 @@ func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Wr
 			return e
 		}
 	}
-	for _, p := range []string{NetBird, NetBirdConfig, "/var/lib/netbird"} {
+	for _, p := range []string{NetBird, NetBirdConfig, NetBirdPin, NetBirdFallback, "/var/lib/netbird"} {
 		if e = g.AssertAbsent(p, "NetBird artifact"); e != nil {
 			return e
 		}
@@ -82,7 +89,7 @@ func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Wr
 	if len(names) > 0 {
 		return errors.New("base image has a conflicting bootstrap trust-root directory")
 	}
-	for _, p := range []string{"/var/lib/terrascale-orchestrator-bootstrap", "/var/lib/terrascale-orchestrator-secrets", "/var/lib/terrascale-orchestrator-controller"} {
+	for _, p := range []string{"/var/lib/terrascale-orchestrator", "/var/lib/terrascale-orchestrator-bootstrap", "/var/lib/terrascale-orchestrator-secrets", "/var/lib/terrascale-orchestrator-controller"} {
 		if e = g.AssertAbsent(p, "orchestrator state root"); e != nil {
 			return e
 		}
@@ -131,15 +138,26 @@ func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Wr
 			return e
 		}
 	}
+	if e = g.Directory("/etc/systemd/system/terrascale-netbird-enroll.service.d", 0, 0, 0755); e != nil {
+		return e
+	}
 	for _, dir := range []struct {
 		p       string
 		u, g, m int
-	}{{"/var/lib/terrascale-orchestrator-secrets", uid, gid, 0700}, {"/var/lib/terrascale-orchestrator-controller", uid, gid, 0700}, {"/srv/ts-managed", 0, 2000, 0750}, {VolumeState, 0, 0, 0700}, {"/var/lib/netbird", 0, 0, 0700}} {
+	}{{"/var/lib/terrascale-orchestrator", 0, 0, 0755}, {"/var/lib/terrascale-orchestrator-secrets", uid, gid, 0700}, {"/var/lib/terrascale-orchestrator-controller", uid, gid, 0700}, {"/srv/ts-managed", 0, 2000, 0750}, {VolumeState, 0, 0, 0700}, {"/var/lib/netbird", 0, 0, 0700}} {
 		if e = g.Directory(dir.p, dir.u, dir.g, dir.m); e != nil {
 			return e
 		}
 	}
-	uploads := []upload{{o.Sysusers, "/etc/sysusers.d/terrascale-orchestrator.conf", 0644}, {o.Profile, Profile, 0644}, {o.Binary, Helper, 0755}, {o.Binary, "/usr/local/bin/terrascale-orchestrator", 0755}, {o.NetBirdBinary, NetBird, 0755}, {o.NetBirdConfig, NetBirdConfig, 0644}, {o.NativeVerifier, Native, 0755}, {o.Timesyncd, TimeConfig, 0644}, {filepath.Join(repo, "deploy/udev", path.Base(OCIDevicePaths)), OCIDevicePaths, 0644}}
+	pinWire, e := json.Marshal(pin)
+	if e != nil {
+		return e
+	}
+	pinPath := filepath.Join(o.Work, "netbird-pin.json")
+	if e = os.WriteFile(pinPath, pinWire, 0644); e != nil {
+		return e
+	}
+	uploads := []upload{{o.Sysusers, "/etc/sysusers.d/terrascale-orchestrator.conf", 0644}, {o.Profile, Profile, 0644}, {o.Binary, Helper, 0755}, {o.Binary, "/usr/local/bin/terrascale-orchestrator", 0755}, {o.NetBirdBinary, NetBird, 0755}, {o.NetBirdBinary, NetBirdFallback, 0755}, {pinPath, NetBirdPin, 0644}, {o.NetBirdConfig, NetBirdConfig, 0644}, {o.NativeVerifier, Native, 0755}, {o.Timesyncd, TimeConfig, 0644}, {filepath.Join(repo, "deploy/udev", path.Base(OCIDevicePaths)), OCIDevicePaths, 0644}}
 	for _, name := range append(append([]string{"terrascale-orchestrator-bootstrap.service", "terrascale-orchestrator-controller-install.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service"}, NetBirdUnits...), HostUnitFiles...) {
 		uploads = append(uploads, upload{filepath.Join(repo, "deploy/systemd", name), "/etc/systemd/system/" + name, 0644})
 	}
@@ -362,6 +380,13 @@ func OfflineBuild(ctx context.Context, repo string, o OfflineOptions, out io.Wri
 	if (o.NetBirdBinary != "" || o.NetBirdSHA256 != "") && (o.NetBirdBinary == "" || !client.SHA256Pattern.MatchString(o.NetBirdSHA256)) {
 		return errors.New("a supplied NetBird binary needs --netbird-binary and a lowercase --netbird-sha256")
 	}
+	pin, e := client.LoadPin(filepath.Join(repo, "deploy/image/image-inputs.json"))
+	if e != nil {
+		return e
+	}
+	if o.NetBirdBinary != "" && o.NetBirdSHA256 != pin.Archives.Arm64.BinarySHA256 {
+		return errors.New("supplied NetBird SHA-256 differs from the image pin")
+	}
 	for _, tool := range []string{"qemu-img", "guestfish", "systemctl", "systemd-sysusers"} {
 		if _, e := exec.LookPath(tool); e != nil {
 			return fmt.Errorf("missing required command: %s", tool)
@@ -440,10 +465,6 @@ func OfflineBuild(ctx context.Context, repo string, o OfflineOptions, out io.Wri
 	}
 	netbird := filepath.Join(work, "netbird")
 	if o.NetBirdBinary == "" {
-		pin, e := client.LoadPin(filepath.Join(repo, "deploy/image/image-inputs.json"))
-		if e != nil {
-			return e
-		}
 		if e = client.Fetch(ctx, pin, "arm64", netbird, os.Getenv("TS_NETBIRD_CLIENT_CACHE"), nil); e != nil {
 			return e
 		}
@@ -560,6 +581,11 @@ func OfflineBuild(ctx context.Context, repo string, o OfflineOptions, out io.Wri
 		return e
 	}
 	expected := []string{"/usr/local/bin/terrascale-orchestrator=" + binaryDigest, NetBird + "=" + o.NetBirdSHA256, NetBirdConfig + "=" + configDigest, Native + "=" + o.NativeSHA256, "/boot/vmlinuz-" + o.KernelRelease + "=" + kernelDigest, OCIDevicePaths + "=" + ruleDigest}
+	pinDigest, e := fileHash(filepath.Join(work, "netbird-pin.json"))
+	if e != nil {
+		return e
+	}
+	expected = append(expected, NetBirdFallback+"="+o.NetBirdSHA256, NetBirdPin+"="+pinDigest)
 	if e = GuestVerify(ctx, candidate, expected, out); e != nil {
 		return e
 	}

@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -147,11 +148,14 @@ type Response struct {
 	RegistrationReceipt host.Receipt `json:"registration_receipt"`
 	// Roles are the granted roles of a host enrolled by a cell spec host
 	// grant; TerraBase and managed hosts omit them.
-	Roles             []string  `json:"roles,omitempty"`
-	NATSUserJWT       string    `json:"nats_user_jwt"`
-	TLSCertificatePEM string    `json:"tls_certificate_pem"`
-	ExpiresAt         time.Time `json:"expires_at"`
-	Signature         string    `json:"signature"`
+	Roles []string `json:"roles,omitempty"`
+	// NetBird is the authenticated cell pin and public Vault enrollment
+	// configuration for first boot; it contains no setup key.
+	NetBird           *cellspec.NetBird `json:"netbird,omitempty"`
+	NATSUserJWT       string            `json:"nats_user_jwt"`
+	TLSCertificatePEM string            `json:"tls_certificate_pem"`
+	ExpiresAt         time.Time         `json:"expires_at"`
+	Signature         string            `json:"signature"`
 }
 
 var roleRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
@@ -199,6 +203,11 @@ func VerifyResponse(wire []byte, public ed25519.PublicKey, request Request, requ
 	for i, role := range response.Roles {
 		if !roleRE.MatchString(role) || i > 0 && response.Roles[i-1] >= role || i >= 32 {
 			return Response{}, errors.New("host enrollment response roles are invalid")
+		}
+	}
+	if response.NetBird != nil {
+		if err := response.NetBird.Validate(descriptor.Cell); err != nil {
+			return Response{}, fmt.Errorf("host enrollment NetBird pin: %w", err)
 		}
 	}
 	signature, err := base64.StdEncoding.DecodeString(response.Signature)

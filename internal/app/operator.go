@@ -59,7 +59,7 @@ func (forwards *operatorForwardFlags) Set(value string) error {
 
 func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: operator <terrabase-release|ts-auth-release|terrabase-deploy|terrabase-update|terrabase-sync|terrabase-status|terrabase-walkthrough|hosts|host-register|host-enrollment-revoke|material-credentials|material-credentials-status|placement-apply|managed-update-prepare|placement-list|terminal-plan|terminal-apply|terminal-status|backup-start|backup-abort|backup-status|broker-claim-apply|artifact-push|deploy|rollback|trust-roots|trust-rotate|material-generation <publish|status|arm|disarm>|status> --config FILE")
+		return errors.New("usage: operator <terrabase-release|ts-auth-release|terrabase-deploy|terrabase-update|terrabase-sync|terrabase-status|terrabase-walkthrough|hosts|host-register|host-enrollment-revoke|material-credentials|material-credentials-status|placement-apply|managed-update-prepare|placement-list|terminal-plan|terminal-apply|terminal-status|backup-start|backup-abort|backup-status|broker-claim-apply|artifact-push|netbird-stage|deploy|rollback|trust-roots|trust-rotate|material-generation <publish|status|arm|disarm>|status> --config FILE")
 	}
 	operation := args[0]
 	if operation == "material-generation" && len(args) > 1 {
@@ -77,6 +77,7 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	flags.SetOutput(io.Discard)
 	configPath := flags.String("config", "", "JSON role configuration")
 	artifactPath := flags.String("file", "", "artifact file to upload")
+	architecture := flags.String("architecture", "", "netbird-stage: artifact architecture (arm64 or amd64)")
 	flags.StringVar(artifactPath, "f", "", "diff, apply: cell spec file")
 	repository := flags.String("repository", "", "HTTPS source repository")
 	commit := flags.String("commit", "", "source commit SHA")
@@ -253,6 +254,11 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 			return errors.New("broker-claim-apply requires --file and --expected-sequence")
 		}
 		return operatorBrokerClaimApply(ctx, cfg, runtime, *artifactPath, *expectedSequence, output)
+	case "netbird-stage":
+		if *artifactPath == "" || (*architecture != "arm64" && *architecture != "amd64") {
+			return errors.New("netbird-stage requires --file and --architecture arm64|amd64")
+		}
+		return operatorNetBirdStage(ctx, cfg, runtime, *artifactPath, *architecture, output)
 	case "artifact-push":
 		if *artifactPath == "" || *repository == "" || *commit == "" || *treeDigest == "" || *role == "" || *environment == "" {
 			return errors.New("artifact-push requires --file, --repository, --commit, --tree-digest, --role and --environment")

@@ -60,19 +60,19 @@
     }
   },
   "netbird": {
-    "version": "0.79.0",
+    "version": "0.80.0",
     "archives": {
       "arm64": {
-        "url": "https://github.com/netbirdio/netbird/releases/download/v0.79.0/netbird_0.79.0_linux_arm64.tar.gz",
-        "bytes": 14585432,
-        "sha256": "275a98268c84422a66e18c7d771015284b8856400174536beb8b0ce737cdadd3",
-        "binary_sha256": "7a562fb95a43eba5fe17ff08e0047ea39a9ccce1411f25f7a59d4e470f851817"
+        "url": "https://github.com/netbirdio/netbird/releases/download/v0.80.0/netbird_0.80.0_linux_arm64.tar.gz",
+        "bytes": 14601271,
+        "sha256": "8cbd99fa068a7b0f3968b2d31dc341acc17dd1e97c3053e61ed5905dbdae7341",
+        "binary_sha256": "b3f589a873ed02c9cf1cf81a085976e4648b85333338de5cbb522f2e8cb540d0"
       },
       "amd64": {
-        "url": "https://github.com/netbirdio/netbird/releases/download/v0.79.0/netbird_0.79.0_linux_amd64.tar.gz",
-        "bytes": 15933764,
-        "sha256": "d6f8d26fa21527772f87094557e1196f2a669b1ab4033f650424dce33ba71efd",
-        "binary_sha256": "18db53727a3c76a845b52247c7355effe6a3210d41b4b37b0e48fe477e3bbcf9"
+        "url": "https://github.com/netbirdio/netbird/releases/download/v0.80.0/netbird_0.80.0_linux_amd64.tar.gz",
+        "bytes": 15959645,
+        "sha256": "47ffaba4fc3929f31795bd6c5232d6c29744d3169e2c93e6d9c84624f0ef6405",
+        "binary_sha256": "777ab46ceb0ca1a3e8336e336b076a37b34255eee8c082ccc071ad954a28d2a2"
       }
     },
     "enrollment_config": {

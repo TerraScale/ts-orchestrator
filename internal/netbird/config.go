@@ -89,11 +89,17 @@ func LoadControllerConfig(path string) (Config, error) {
 	return loadConfig(path, true)
 }
 
+// Validate checks public enrollment settings without reading OCI Vault.
+func (cfg Config) Validate() error {
+	_, err := cfg.normalized()
+	return err
+}
+
 func loadConfig(path string, rootOwned bool) (Config, error) {
 	if path == "" || !strings.HasPrefix(path, "/") {
 		return Config{}, errors.New("netbird-enroll requires an absolute --config path")
 	}
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0)
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return Config{}, errors.New("cannot open NetBird enrollment configuration")
 	}

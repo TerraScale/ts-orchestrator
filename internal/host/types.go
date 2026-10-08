@@ -265,6 +265,7 @@ type AgentConfig struct {
 	// FollowRollouts, when set, takes part in the cell's orchestrator
 	// rollouts over this agent's session (rollout.go) until ctx ends.
 	FollowRollouts func(ctx context.Context, session RolloutSession)
+	FollowNetBird  func(ctx context.Context, session NetBirdSession)
 	// SecretResolver reads a desired's Vault secrets at each start; nil
 	// refuses a desired with secrets.
 	SecretResolver func(context.Context, map[string]vaultsecret.Ref) (map[string]string, error)

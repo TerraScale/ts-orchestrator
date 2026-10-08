@@ -299,10 +299,10 @@ func TestOfflineCommand(t *testing.T) {
 }
 
 type offlineFixture struct {
-	t                                                                                                                                                                            *testing.T
-	root, inputs, base, binary, verifier, netbird, netbirdConfig, qualification, rootA, rootB, timesync, shims, guest, events, releaseArgs, metadata, tool, output, kernelOutput string
-	kernel                                                                                                                                                                       []byte
-	priority                                                                                                                                                                     map[string]string
+	t                                                                                                                                                                                  *testing.T
+	root, repo, inputs, base, binary, verifier, netbird, netbirdConfig, qualification, rootA, rootB, timesync, shims, guest, events, releaseArgs, metadata, tool, output, kernelOutput string
+	kernel                                                                                                                                                                             []byte
+	priority                                                                                                                                                                           map[string]string
 }
 
 func newOffline(t *testing.T) *offlineFixture {
@@ -323,6 +323,15 @@ func newOffline(t *testing.T) *offlineFixture {
 	netbird[16] = 3
 	f.netbird = file("netbird client", netbird)
 	f.netbirdConfig = file("netbird config.json", jsonBytes(t, validNetbirdConfig()))
+	f.repo = filepath.Join(dir, "repo")
+	if err := os.CopyFS(filepath.Join(f.repo, "deploy"), os.DirFS(filepath.Join(deployRoot(t), "deploy"))); err != nil {
+		t.Fatal(err)
+	}
+	inputsPath := filepath.Join(f.repo, "deploy/image/image-inputs.json")
+	inputsWire := read(t, inputsPath)
+	inputs := object(t, inputsWire)
+	pinnedDigest := inputs["netbird"].(map[string]any)["archives"].(map[string]any)["arm64"].(map[string]any)["binary_sha256"].(string)
+	write(t, inputsPath, bytes.Replace(inputsWire, []byte(pinnedDigest), []byte(digest(netbird)), 1), 0644)
 	f.qualification = file("qualification.json", []byte("mock qualification"))
 	f.rootA = file("bootstrap root a.pem", []byte("bootstrap public key a"))
 	f.rootB = file("bootstrap root b.pem", []byte("bootstrap public key b"))
@@ -404,7 +413,7 @@ func (f *offlineFixture) run(roots []string, replace, env map[string]string, ext
 	for k, v := range env {
 		environment[k] = v
 	}
-	return runDeploy(f.t, deployRoot(f.t), environment, filepath.Join(deployRoot(f.t), "deploy/image/build-offline.sh"), args...)
+	return runDeploy(f.t, f.repo, environment, filepath.Join(f.repo, "deploy/image/build-offline.sh"), args...)
 }
 func (f *offlineFixture) eventText() string {
 	b, err := os.ReadFile(f.events)
@@ -496,6 +505,10 @@ func TestOfflineVerifiedInputsInstalled(t *testing.T) {
 	for path, source := range map[string]string{verifierGuest: f.verifier, netbirdGuest: f.netbird, "/usr/local/bin/terrascale-orchestrator": f.binary, priorityHelperGuest: f.binary} {
 		f.installed(path, read(t, source), 0755, owner)
 	}
+	f.installed("/usr/local/lib/terrascale-orchestrator/netbird-client", read(t, f.netbird), 0755, owner)
+	bakedPin := object(t, read(t, f.path("/etc/terrascale-orchestrator/netbird-pin.json")))
+	inputs := object(t, read(t, filepath.Join(f.repo, "deploy/image/image-inputs.json")))
+	equal(t, bakedPin, inputs["netbird"])
 	f.installed(netbirdConfigGuest, read(t, f.netbirdConfig), 0644, owner)
 	f.installed(timeWaitDropin, []byte("[Service]\nTimeoutStartSec=300s\n"), 0644, owner)
 	f.installed(ociRuleGuest, read(t, filepath.Join(deployRoot(t), "deploy/udev/65-terrascale-oci-device-paths.rules")), 0644, owner)
@@ -529,7 +542,7 @@ func TestOfflineVerifiedInputsInstalled(t *testing.T) {
 	for _, name := range []string{"systemd-timesyncd.service", "systemd-time-wait-sync.service"} {
 		symlink(t, f.path("/etc/systemd/system/sysinit.target.wants/"+name))
 	}
-	for _, name := range []string{"terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service", "netbird.service", "terrascale-netbird-enroll.service"} {
+	for _, name := range []string{"terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service", "netbird.service", "terrascale-netbird-enroll.service", "terrascale-netbird-agent.service"} {
 		symlink(t, f.path("/etc/systemd/system/multi-user.target.wants/"+name))
 	}
 	for _, link := range []string{"sockets.target.wants/ssh.socket", "ssh.service.requires/ssh.socket"} {
@@ -555,7 +568,10 @@ func TestOfflineRejectsBadPublicInputsBeforeImageEffects(t *testing.T) {
 	}{
 		{"native-digest", "native verifier bytes do not match", func(*offlineFixture) {}, map[string]string{"--native-verifier-sha256": strings.Repeat("0", 64)}, nil},
 		{"native-architecture", "ELF64 little-endian AArch64", func(f *offlineFixture) { b := read(f.t, f.verifier); b[18] = 62; write(f.t, f.verifier, b, 0644) }, nil, nil},
-		{"netbird-digest", "NetBird binary bytes differ from the pinned SHA-256", func(*offlineFixture) {}, map[string]string{"--netbird-sha256": strings.Repeat("0", 64)}, nil},
+		{"netbird-digest", "supplied NetBird SHA-256 differs from the image pin", func(*offlineFixture) {}, map[string]string{"--netbird-sha256": strings.Repeat("0", 64)}, nil},
+		{"netbird-self-pinned", "supplied NetBird SHA-256 differs from the image pin", func(f *offlineFixture) {
+			write(f.t, f.netbird, append(read(f.t, f.netbird), []byte("different client")...), 0644)
+		}, nil, nil},
 		{"setup-key", "unexpected or missing fields", func(f *offlineFixture) {
 			c := object(f.t, read(f.t, f.netbirdConfig))
 			c["setup_key"] = "secret-value"
@@ -627,6 +643,21 @@ func TestOfflineRejectsBaseArtifacts(t *testing.T) {
 			contains(t, f.eventText(), "guestfish-listen")
 		})
 	}
+}
+
+func TestOfflineRejectsPersistedSelfUpdateState(t *testing.T) {
+	t.Parallel()
+	f := newOffline(t)
+	state := "/var/lib/terrascale-orchestrator"
+	release := "releases/" + strings.Repeat("a", 64)
+	write(t, f.path(state+"/"+release+"/terrascale-orchestrator"), []byte("previous serving release"), 0555)
+	if err := os.Symlink(release, f.path(state+"/current")); err != nil {
+		t.Fatal(err)
+	}
+	f.reject(f.run(nil, nil, nil), "base image has a conflicting orchestrator state root: "+state)
+	absent(t, f.kernelOutput)
+	absent(t, f.path("/usr/local/bin/terrascale-orchestrator"))
+	f.cleanTemp()
 }
 func TestOfflineDeploymentMaterialNeverBaked(t *testing.T) {
 	t.Parallel()
@@ -1146,10 +1177,10 @@ func TestOfflineBuildAcceptsRelativeOutputPaths(t *testing.T) {
 	f := newOffline(t)
 	imageOutput, kernelOutput := f.output, f.kernelOutput
 	var err error
-	if f.output, err = filepath.Rel(deployRoot(t), imageOutput); err != nil {
+	if f.output, err = filepath.Rel(f.repo, imageOutput); err != nil {
 		t.Fatal(err)
 	}
-	if f.kernelOutput, err = filepath.Rel(deployRoot(t), kernelOutput); err != nil {
+	if f.kernelOutput, err = filepath.Rel(f.repo, kernelOutput); err != nil {
 		t.Fatal(err)
 	}
 	successful(t, f.run(nil, nil, nil))

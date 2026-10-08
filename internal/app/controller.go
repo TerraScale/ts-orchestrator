@@ -527,6 +527,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// One release fence takes nodes out of rotation for service releases,
 	// controller rollouts and node operations (TS-632).
 	var fences *releaseFence
+	var networkControl *netbirdRollout
 	if releaseChannel != nil {
 		fences = &releaseFence{kv: releaseChannel, hosts: hostController, fencer: control, spec: services.releaseFence,
 			seats: seatStore != nil,
@@ -561,6 +562,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			_, controller := serverOf(node)
 			return controller
 		}
+		networkControl = &netbirdRollout{cell: cfg.NATS.Cell, fence: fences, services: services, nodes: policy.nodes, key: responseKey, cfg: cfg, fleet: fleet, artifacts: service.Artifacts(), conn: runtime.Conn(), runtime: runtime}
+		hostController.SetNetBirdSink(networkControl)
 		policy.nodes.desired = hostController
 		policy.nodes.forget = func(ctx context.Context, instanceID string) error {
 			grants, err := hostenroll.OpenGrantStore(ctx, runtime.JetStream(), cfg.NATS.Replicas)
@@ -645,6 +648,14 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	runCtx, stop := context.WithCancel(ctx)
 	defer stop()
+	if networkControl != nil {
+		go networkControl.meshListener(runCtx)
+		recoverySub, err := networkControl.serveRecovery(runCtx, netbirdSSH)
+		if err != nil {
+			return fmt.Errorf("serve NetBird recovery proofs: %w", err)
+		}
+		defer recoverySub.Unsubscribe()
+	}
 	var enrollmentErrors <-chan error
 	var managedEnrollment *managedHostEnrollment
 	if managed != nil && !cfg.NATS.Lab {
@@ -856,7 +867,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	workers.Go(func() { workerErrors <- services.Run(runCtx) })
 	workers.Go(func() {
 		workerErrors <- artifactStoreKeeper{control: control, service: service, hosts: hostController,
-			quota: services.artifactStoreMaxBytes, storeDir: cfg.NATS.Embedded.StoreDir}.Run(runCtx)
+			quota: services.artifactStoreMaxBytes, storeDir: cfg.NATS.Embedded.StoreDir, netbird: networkControl}.Run(runCtx)
 	})
 	if global != nil && global.writer == nil {
 		workers.Go(func() {
@@ -881,6 +892,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		edge := newEdgeReconciler(cfg.NATS.Cell, fences)
 		edge.ops = policy.nodes
 		workers.Go(func() { edge.run(runCtx) })
+	}
+	if networkControl != nil {
+		workers.Go(func() { networkControl.run(runCtx) })
 	}
 	if rolloutExecutor != nil {
 		workers.Go(func() { workerErrors <- rolloutExecutor(runCtx) })

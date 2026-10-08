@@ -24,6 +24,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
@@ -156,14 +157,14 @@ func ValidateConfig(path string) (Config, error) {
 	return c, nil
 }
 func VerifyBinary(path, expected, architecture string) error {
+	return verifyBinaryLimit(path, expected, architecture, MaxBinaryBytes)
+}
+
+func verifyBinaryLimit(path, expected, architecture string, maximum int64) error {
 	if !SHA256Pattern.MatchString(expected) {
 		return errors.New("NetBird binary SHA-256 must be 64 lowercase hex characters")
 	}
-	s, e := os.Lstat(path)
-	if e != nil || !s.Mode().IsRegular() || s.Size() < 64 || s.Size() > MaxBinaryBytes {
-		return errors.New("NetBird binary must be a regular executable between 64 bytes and 128 MiB")
-	}
-	f, e := os.Open(path)
+	f, e := openBoundedFileLimit(path, 64, maximum)
 	if e != nil {
 		return e
 	}
@@ -181,11 +182,16 @@ func VerifyBinary(path, expected, architecture string) error {
 	if string(header[:7]) != "\x7fELF\x02\x01\x01" || (binary.LittleEndian.Uint16(header[16:]) != 2 && binary.LittleEndian.Uint16(header[16:]) != 3) || binary.LittleEndian.Uint16(header[18:]) != machine || binary.LittleEndian.Uint32(header[20:]) != 1 || binary.LittleEndian.Uint16(header[52:]) != 64 {
 		return fmt.Errorf("NetBird binary must be an ELF64 little-endian %s executable", architecture)
 	}
-	digest, e := SHA256(path)
+	h := sha256.New()
+	h.Write(header[:])
+	n, e := io.Copy(h, io.LimitReader(f, maximum+1-int64(len(header))))
 	if e != nil {
 		return e
 	}
-	if digest != expected {
+	if n+int64(len(header)) > maximum {
+		return fmt.Errorf("NetBird binary exceeds %d bytes", maximum)
+	}
+	if hex.EncodeToString(h.Sum(nil)) != expected {
 		return errors.New("NetBird binary bytes differ from the pinned SHA-256")
 	}
 	return nil
@@ -350,7 +356,7 @@ func Fetch(ctx context.Context, p Pin, architecture, output, cache string, clien
 	return os.Rename(binary, output)
 }
 func copyFile(source, destination string, mode os.FileMode) error {
-	f, e := os.Open(source)
+	f, e := openBoundedFile(source, 0)
 	if e != nil {
 		return e
 	}
@@ -359,8 +365,31 @@ func copyFile(source, destination string, mode os.FileMode) error {
 	if e != nil {
 		return e
 	}
-	_, e = io.Copy(out, f)
+	n, e := io.Copy(out, io.LimitReader(f, MaxBinaryBytes+1))
+	if n > MaxBinaryBytes {
+		e = errors.Join(e, errors.New("NetBird source exceeds 128 MiB"))
+	}
 	return errors.Join(e, out.Close(), os.Chmod(destination, mode))
+}
+
+// Verify the opened descriptor: a relay may replace a staged path between
+// inspection and open, including with a FIFO that would block a root worker.
+func openBoundedFile(path string, minimum int64) (*os.File, error) {
+	return openBoundedFileLimit(path, minimum, MaxBinaryBytes)
+}
+
+func openBoundedFileLimit(path string, minimum, maximum int64) (*os.File, error) {
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	file := os.NewFile(uintptr(fd), path)
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() < minimum || info.Size() > maximum {
+		file.Close()
+		return nil, fmt.Errorf("NetBird source must be a direct regular file within %d bytes", maximum)
+	}
+	return file, nil
 }
 func orderedKeys(raw []byte) ([]string, error) {
 	decoder := jsontext.NewDecoder(strings.NewReader(string(raw)))
@@ -562,8 +591,14 @@ func Install(ctx context.Context, repo string, o InstallOptions, out io.Writer) 
 	for _, f := range []struct {
 		src, dst string
 		mode     os.FileMode
-	}{{binary, "usr/local/bin/netbird", 0755}, {o.EnrollBinary, "usr/local/lib/terrascale-orchestrator/netbird-enroll", 0755}, {o.Config, "etc/terrascale-orchestrator/netbird.json", 0644}, {filepath.Join(repo, "deploy/systemd/netbird.service"), "etc/systemd/system/netbird.service", 0644}, {filepath.Join(repo, "deploy/systemd/terrascale-netbird-enroll.service"), "etc/systemd/system/terrascale-netbird-enroll.service", 0644}} {
-		if e = installFile(f.src, filepath.Join(root, f.dst), f.mode); e != nil {
+		digest   string
+	}{{binary, "usr/local/bin/netbird", 0755, a.BinarySHA256}, {o.EnrollBinary, "usr/local/lib/terrascale-orchestrator/netbird-enroll", 0755, o.EnrollSHA256}, {o.Config, "etc/terrascale-orchestrator/netbird.json", 0644, ""}, {filepath.Join(repo, "deploy/systemd/netbird.service"), "etc/systemd/system/netbird.service", 0644, ""}, {filepath.Join(repo, "deploy/systemd/terrascale-netbird-enroll.service"), "etc/systemd/system/terrascale-netbird-enroll.service", 0644, ""}} {
+		if f.digest != "" {
+			e = installManagedBinary(f.src, filepath.Join(root, f.dst), f.digest, o.Architecture)
+		} else {
+			e = installFile(f.src, filepath.Join(root, f.dst), f.mode)
+		}
+		if e != nil {
 			return e
 		}
 	}
@@ -572,7 +607,8 @@ func Install(ctx context.Context, repo string, o InstallOptions, out io.Writer) 
 		return e
 	}
 	override := filepath.Join(work, "command.conf")
-	if e = os.WriteFile(override, []byte("[Service]\nExecStart=\nExecStart=/usr/local/lib/terrascale-orchestrator/netbird-enroll netbird-enroll --config /etc/terrascale-orchestrator/netbird.json\n"), 0644); e != nil {
+	if e = os.WriteFile(override, []byte("[Service]\nExecStart=\nExecStart=/usr/local/lib/terrascale-orchestrator/netbird-enroll netbird-enroll --config /etc/terrascale-orchestrator/netbird.json\n"+
+		"StateDirectory=terrascale-orchestrator/netbird-managed\nReadWritePaths=/usr/local/bin /var/lib/terrascale-orchestrator/netbird-managed\n"), 0644); e != nil {
 		return e
 	}
 	if e = installFile(override, filepath.Join(dropin, "command.conf"), 0644); e != nil {

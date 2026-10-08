@@ -77,6 +77,11 @@ mesh/region/bridge reservations, the live audit and
 on PCs/user clients, and NetBird connectivity on regional servers).
 Change a cell's servers and load balancer backends only with `ts-orch node`
 ([node operations](docs/node-operations.md)), never with the `oci` CLI.
+
+The cell spec pins NetBird clients; ts-orch installs missing agents and rolls
+pin changes one node at a time. See [managed NetBird](docs/netbird-managed.md)
+for first adoption, verified artifacts and the pin-bump workflow.
+
 `make release-linux` creates static Linux amd64 and arm64 executables and
 requires no Go runtime on the target machine. Forgejo CI repeats the checks
 against the event's exact commit, verifies both ELF architectures and the

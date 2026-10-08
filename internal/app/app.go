@@ -36,9 +36,12 @@ import (
 
 func Run(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: terrascale-orchestrator <bootstrap-controller|run|host|check|operator|identity-new|netbird-enroll> --config FILE")
+		return errors.New("usage: terrascale-orchestrator <bootstrap-controller|run|host|check|operator|identity-new|netbird-enroll|netbird-agent> --config FILE")
 	}
 	command := args[0]
+	if command == "netbird-agent" {
+		return runNetBirdAgent(ctx, args[1:])
+	}
 	if command == "bootstrap-credential-check" {
 		if len(args) != 1 {
 			return errors.New("bootstrap credential check accepts no arguments")
@@ -221,6 +224,7 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 		ClockCheck:       clockCheck,
 		LoadInterval:     time.Duration(cfg.Host.LoadTelemetrySeconds) * time.Second,
 		FollowRollouts:   hostRollouts(cfg, key, controllerKey),
+		FollowNetBird:    hostNetBird(cfg, controllerKey),
 		VolumeInitSocket: "/run/terrascale-orchestrator-volume-init.sock",
 		// The activation proof follows native recovery, so a release whose
 		// agent cannot recover its workloads is never confirmed.

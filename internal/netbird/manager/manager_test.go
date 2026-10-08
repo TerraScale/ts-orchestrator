@@ -124,6 +124,11 @@ func TestGRUDesiredStateDerivesEveryOtherRegion(t *testing.T) {
 			Description: cell + " servers → same-region servers: ICMP diagnostics and peer DNS visibility",
 			Protocol:    "icmp", Sources: []string{group}, Destinations: []string{group}}
 	}
+	health := func(group, cell string) PolicySpec {
+		return PolicySpec{Name: group + "-to-" + group + "-service-health",
+			Description: cell + " servers → same-region servers: NATS client 4222, ts-auth readiness 8080, TerraBase readiness 9465",
+			Protocol:    "tcp", Ports: []string{"4222", "8080", "9465"}, Sources: []string{group}, Destinations: []string{group}}
+	}
 	wantPolicies := []PolicySpec{
 		{Name: "operators-to-gru-cell-ops-ports", RenamedFrom: []string{"operators-to-gru-cell"},
 			Description: "Operators → GRU cell subnet: SSH 22, NATS 4222, TerraBase 9465",
@@ -141,9 +146,9 @@ func TestGRUDesiredStateDerivesEveryOtherRegion(t *testing.T) {
 		ssh("ops-automation-to-fra-servers-ssh", "Operator automation peers → FRA servers: NetBird SSH with identity-provider login", "ops-automation", "fra-servers"),
 		fabric("gru-servers-to-fra-servers-fabric", "GRU servers → FRA servers", "gru-servers", "fra-servers"),
 		fabric("fra-servers-to-gru-servers-fabric", "FRA servers → GRU servers", "fra-servers", "gru-servers"),
-		dashboard("gru-servers", "GRU"), ping("gru-servers", "GRU"),
-		dashboard("sfo-servers", "SFO"), ping("sfo-servers", "SFO"),
-		dashboard("fra-servers", "FRA"), ping("fra-servers", "FRA"),
+		dashboard("gru-servers", "GRU"), ping("gru-servers", "GRU"), health("gru-servers", "GRU"),
+		dashboard("sfo-servers", "SFO"), ping("sfo-servers", "SFO"), health("sfo-servers", "SFO"),
+		dashboard("fra-servers", "FRA"), ping("fra-servers", "FRA"), health("fra-servers", "FRA"),
 		{Name: "operators-to-ts-ops-forgejo", RenamedFrom: []string{"operators-to-forgejo"},
 			Description: "Operators → ts-ops: Git SSH 22, HTTPS 443, admin SSH 2022",
 			Protocol:    "tcp", Ports: []string{"22", "443", "2022"},
@@ -257,6 +262,13 @@ func TestSyncRenamesLegacyObjectsInPlaceAndConverges(t *testing.T) {
 			if rule.Protocol != "icmp" || len(rule.Ports) != 0 || len(rule.Sources) != 1 ||
 				!sameSet(minimumIDs(rule.Sources), minimumIDs(rule.Destinations)) {
 				t.Fatalf("same-region peer visibility grants excess access: %+v", policy)
+			}
+		}
+		if strings.HasSuffix(policy.Name, "-service-health") {
+			rule := policy.Rules[0]
+			if rule.Protocol != "tcp" || !slices.Equal(rule.Ports, []string{"4222", "8080", "9465"}) ||
+				len(rule.Sources) != 1 || !sameSet(minimumIDs(rule.Sources), minimumIDs(rule.Destinations)) {
+				t.Fatalf("mesh health policy exceeds same-cell service access: %+v", policy)
 			}
 		}
 	}

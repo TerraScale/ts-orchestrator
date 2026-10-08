@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -50,27 +49,25 @@ type Controller struct {
 	// retireMu orders RetireIdle against this process's desired commits,
 	// which hold it for reading; the retirement marks themselves live in
 	// host state, so a later leader enforces them too.
-	retireMu         sync.RWMutex
-	ready            chan struct{}
-	readyOnce        sync.Once
-	cacheMu          sync.Mutex
-	cacheFile        *os.File
-	cacheDigest      string
-	cacheSize        int64
-	cacheDownloading bool
-	cacheClosed      bool
-	cacheCancel      context.CancelFunc
-	cacheContext     context.Context
-	cacheRetryAfter  time.Time
-	sessionDiagMu    sync.Mutex
-	sessionDiagAt    map[string]time.Time
-	authorityEpoch   func() uint64
-	authorityGuard   func(context.Context, uint64) error
-	authorityLeader  func() bool
+	retireMu        sync.RWMutex
+	ready           chan struct{}
+	readyOnce       sync.Once
+	cacheMu         sync.Mutex
+	workloadCache   artifactCache
+	netbirdCache    artifactCache
+	cacheClosed     bool
+	cacheCancel     context.CancelFunc
+	cacheContext    context.Context
+	sessionDiagMu   sync.Mutex
+	sessionDiagAt   map[string]time.Time
+	authorityEpoch  func() uint64
+	authorityGuard  func(context.Context, uint64) error
+	authorityLeader func() bool
 	// loadSink, when set, accepts "load" host telemetry; see SetLoadSink.
 	loadSink atomic.Pointer[LoadSink]
 	// rolloutSink, when set, serves host self-updates; see SetRolloutSink.
 	rolloutSink atomic.Pointer[RolloutSink]
+	netbirdSink atomic.Pointer[NetBirdSink]
 }
 
 func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, error) {
@@ -678,7 +675,7 @@ func sameReportMeaning(a, b Report) bool {
 // hostOperations are the host request subjects a leader serves.
 var hostOperations = []string{"session", "desired", "artifact", "material", "cycle", "report",
 	"drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format",
-	"role-identity", "rollout", "rollout-binary"}
+	"role-identity", "rollout", "rollout-binary", "netbird", "netbird-binary"}
 
 // hostLeaderPoll is how often Run follows authority leadership.
 const hostLeaderPoll = 500 * time.Millisecond
@@ -781,7 +778,7 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	case "session":
 		payload, err = c.handleSession(ctx, req)
 	case "desired", "artifact", "cycle", "report", "material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format",
-		"role-identity", "rollout", "rollout-binary":
+		"role-identity", "rollout", "rollout-binary", "netbird", "netbird-binary":
 		payload, err = c.handleAuthorized(ctx, req)
 	default:
 		err = errors.New("unknown host operation")
@@ -1126,6 +1123,8 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (any, er
 		return c.storeLoad(ctx, req, r)
 	case "rollout", "rollout-binary":
 		return c.serveRollout(ctx, req, r)
+	case "netbird", "netbird-binary":
+		return c.serveNetBird(ctx, req, r)
 	case "terrabase-peer":
 		return c.serveTerraBasePeer(ctx, req, r)
 	case "terrabase-format":

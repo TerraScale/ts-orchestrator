@@ -29,6 +29,8 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
@@ -88,7 +90,7 @@ func runHostSetup(ctx context.Context, args []string, output io.Writer) error {
 		}
 	}
 	return runHostSetupWithMetadata(ctx, bundle, metadata, *outputRoot, output,
-		hostSetupRuntime{post: postHostEnrollment, ownerUID: 0})
+		hostSetupRuntime{post: postHostEnrollment, ownerUID: 0, netbird: client.InstallBootstrapConfig})
 }
 
 type hostEnrollmentPoster func(context.Context, hostenroll.PublicBundle, []byte) ([]byte, error)
@@ -96,6 +98,7 @@ type hostEnrollmentPoster func(context.Context, hostenroll.PublicBundle, []byte)
 type hostSetupRuntime struct {
 	post     hostEnrollmentPoster
 	ownerUID uint32
+	netbird  func(context.Context, string, client.Pin, netbird.Config) (bool, error)
 }
 
 // runHostSetupWithMetadata keeps the guest enrollment flow identical after the
@@ -222,7 +225,7 @@ func runHostSetupWithMetadata(ctx context.Context, bundle hostenroll.PublicBundl
 	if err := validateHostCredentials(bundle, descriptor.Node, pending, request, response); err != nil {
 		return err
 	}
-	if err := installHostEnrollment(outputRoot, bundle, descriptor, pending, response, runtime.ownerUID); err != nil {
+	if err := installHostEnrollment(ctx, outputRoot, bundle, descriptor, pending, response, runtime.ownerUID, runtime.netbird); err != nil {
 		return err
 	}
 	if request.Operation == "renew" {
@@ -668,8 +671,9 @@ func validateHostCredentials(bundle hostenroll.PublicBundle, node string, pendin
 	return nil
 }
 
-func installHostEnrollment(root string, bundle hostenroll.PublicBundle, descriptor hostboot.Descriptor,
+func installHostEnrollment(ctx context.Context, root string, bundle hostenroll.PublicBundle, descriptor hostboot.Descriptor,
 	pending pendingHostEnrollment, response hostenroll.Response, ownerUID uint32,
+	bootstrapNetBird func(context.Context, string, client.Pin, netbird.Config) (bool, error),
 ) error {
 	node := descriptor.Node
 	responseWire, err := protocol.EncodeJSON(response)
@@ -706,6 +710,19 @@ func installHostEnrollment(root string, bundle hostenroll.PublicBundle, descript
 	}
 	for _, file := range files {
 		if err := writeAtomicHostFile(filepath.Join(credentialRoot, file.name), file.data, file.mode); err != nil {
+			return err
+		}
+	}
+	if response.NetBird != nil {
+		_, err := os.Lstat(filepath.Join(root, "host.json"))
+		if errors.Is(err, os.ErrNotExist) {
+			if bootstrapNetBird == nil {
+				return errors.New("host bootstrap NetBird configuration installer is unavailable")
+			}
+			if _, err := bootstrapNetBird(ctx, root, response.NetBird.Pin, response.NetBird.Enrollment); err != nil {
+				return err
+			}
+		} else if err != nil {
 			return err
 		}
 	}

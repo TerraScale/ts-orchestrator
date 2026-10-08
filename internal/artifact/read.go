@@ -7,9 +7,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -29,10 +31,8 @@ func ReadVerified(ctx context.Context, js jetstream.JetStream, store interface {
 	if err != nil {
 		return fmt.Errorf("inspect artifact: %w", err)
 	}
-	if info == nil || info.Name != name || info.Bucket != bucket || info.Deleted ||
-		info.Opts != nil && info.Opts.Link != nil || info.Size != uint64(signedSize) ||
-		info.NUID == "" || info.Chunks == 0 || uint64(info.Chunks) > uint64(signedSize) {
-		return fmt.Errorf("%w: artifact object metadata", ErrInvalid)
+	if err := validateMetadata(info, bucket, name, signedSize); err != nil {
+		return err
 	}
 	stream, err := js.Stream(ctx, "OBJ_"+bucket)
 	if err != nil {
@@ -41,6 +41,74 @@ func ReadVerified(ctx context.Context, js jetstream.JetStream, store interface {
 	return verifyChunks(ctx, info, bucket, digest, signedSize, dst, func(ctx context.Context, sequence uint64, subject string) (*jetstream.RawStreamMsg, error) {
 		return stream.GetMsg(ctx, sequence, jetstream.WithGetMsgSubject(subject))
 	})
+}
+
+// ReadVerifiedAuthoritative verifies captured leader metadata using standard
+// MSG.GET chunk reads, so a stale replica cannot authorize corruption repair.
+// Callers must discard dst if this function returns an error.
+func ReadVerifiedAuthoritative(ctx context.Context, js jetstream.JetStream, info *jetstream.ObjectInfo,
+	bucket, name, digest string, signedSize, maxBytes int64, dst io.Writer,
+) error {
+	if js == nil || js.Conn() == nil || dst == nil || signedSize <= 0 || signedSize > maxBytes || len(digest) != 64 {
+		return fmt.Errorf("%w: reader arguments", ErrInvalid)
+	}
+	if err := validateMetadata(info, bucket, name, signedSize); err != nil {
+		return err
+	}
+	options := js.Options()
+	prefix := options.APIPrefix
+	if options.Domain != "" {
+		prefix = "$JS." + options.Domain + ".API."
+	} else if prefix == "" {
+		prefix = jetstream.DefaultAPIPrefix
+	}
+	apiSubject := strings.TrimSuffix(prefix, ".") + ".STREAM.MSG.GET.OBJ_" + bucket
+	if _, bounded := ctx.Deadline(); !bounded && options.DefaultTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, options.DefaultTimeout)
+		defer cancel()
+	}
+	return verifyChunks(ctx, info, bucket, digest, signedSize, dst, func(ctx context.Context, sequence uint64, subject string) (*jetstream.RawStreamMsg, error) {
+		request, err := json.Marshal(struct {
+			Sequence uint64 `json:"seq"`
+			Subject  string `json:"next_by_subj"`
+		}{sequence, subject})
+		if err != nil {
+			return nil, err
+		}
+		message, err := js.Conn().RequestWithContext(ctx, apiSubject, request)
+		if err != nil {
+			return nil, err
+		}
+		var response struct {
+			Error   *jetstream.APIError `json:"error"`
+			Message *struct {
+				Subject  string `json:"subject"`
+				Sequence uint64 `json:"seq"`
+				Data     []byte `json:"data"`
+			} `json:"message"`
+		}
+		if err := json.Unmarshal(message.Data, &response); err != nil {
+			return nil, err
+		}
+		if response.Error != nil {
+			return nil, response.Error
+		}
+		if response.Message == nil {
+			return nil, jetstream.ErrInvalidJetStreamResponse
+		}
+		return &jetstream.RawStreamMsg{Subject: response.Message.Subject, Sequence: response.Message.Sequence,
+			Data: response.Message.Data}, nil
+	})
+}
+
+func validateMetadata(info *jetstream.ObjectInfo, bucket, name string, signedSize int64) error {
+	if info == nil || info.Name != name || info.Bucket != bucket || info.Deleted ||
+		info.Opts != nil && info.Opts.Link != nil || info.Size != uint64(signedSize) ||
+		info.NUID == "" || info.Chunks == 0 || uint64(info.Chunks) > uint64(signedSize) {
+		return fmt.Errorf("%w: artifact object metadata", ErrInvalid)
+	}
+	return nil
 }
 
 func verifyChunks(ctx context.Context, info *jetstream.ObjectInfo, bucket, digest string, sizeLimit int64, dst io.Writer,

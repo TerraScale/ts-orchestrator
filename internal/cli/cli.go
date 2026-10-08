@@ -131,6 +131,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		if args[0] == "netbird" && len(args) > 1 && args[1] == "path-audit" {
 			return pathaudit.Run(ctx, args[2:], commandio.NewWriter(output))
 		}
+		if args[0] == "netbird" && len(args) > 1 && args[1] == "agent" {
+			return app.Run(ctx, append([]string{"netbird-agent"}, args[2:]...), output)
+		}
 		if args[0] == "netbird" && len(args) > 1 && slices.Contains(netbirdmanager.Commands, args[1]) {
 			return netbirdmanager.Run(ctx, args[1:], commandio.NewWriter(output))
 		}

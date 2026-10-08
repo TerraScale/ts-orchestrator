@@ -659,13 +659,15 @@ new setup key.
 
 ## Server enrollment
 
-The shared GRU image installs NetBird 0.79.0 for every controller and managed
+The shared GRU image installs NetBird 0.80.0 for every controller and managed
 host. `deploy/image/image-inputs.json` pins the upstream ARM64 and AMD64 archive
 sizes, SHA-256 checksums and extracted binary checksums. `ts-orch netbird
 client` verifies the archive before streaming only its regular root-level
 `netbird` executable; it does not extract archive paths or execute the
 upstream installation script. `TS_NETBIRD_CLIENT_CACHE` optionally reuses
 archives by digest, with verification on each use.
+The running cell's signed pin and automatic updates are documented in the
+[managed-client runbook](../../docs/netbird-managed.md).
 
 The image enables `netbird.service` and `terrascale-netbird-enroll.service`.
 The daemon stores its identity in root-owned `/var/lib/netbird` (0700).

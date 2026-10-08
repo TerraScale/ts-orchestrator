@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
+	network "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -127,10 +129,12 @@ type nodeFenceStatus struct {
 }
 
 type nodeOpReply struct {
-	Operation  *nodeOp           `json:"operation,omitempty"`
-	Operations []nodeOp          `json:"operations,omitempty"`
-	Fences     []nodeFenceStatus `json:"fences,omitempty"`
-	Error      string            `json:"error,omitempty"`
+	NetBird      *network.Record           `json:"netbird,omitempty"`
+	NetBirdNodes map[string]network.Status `json:"netbird_nodes,omitempty"`
+	Operation    *nodeOp                   `json:"operation,omitempty"`
+	Operations   []nodeOp                  `json:"operations,omitempty"`
+	Fences       []nodeFenceStatus         `json:"fences,omitempty"`
+	Error        string                    `json:"error,omitempty"`
 }
 
 // nodeInstance is a node's OCI instance as observed.
@@ -400,6 +404,32 @@ func (o *nodeOps) quorum(ctx context.Context, node string) error {
 // status lists every node's latest operation and every fenced node.
 func (o *nodeOps) status(ctx context.Context) (nodeOpReply, error) {
 	var reply nodeOpReply
+	if reader, ok := o.fence.fencer.(netbirdStateReader); ok {
+		state, err := readNetBirdState(ctx, reader)
+		if err != nil {
+			return reply, err
+		}
+		if state.Revision != 0 {
+			reply.NetBird = &state.Record
+		}
+	}
+	networkKeys, err := o.fence.keys(ctx, "netbird.status.*")
+	if err != nil {
+		return reply, err
+	}
+	if len(networkKeys) > 0 {
+		reply.NetBirdNodes = make(map[string]network.Status, len(networkKeys))
+	}
+	for _, key := range networkKeys {
+		var status network.Status
+		if err := o.fence.loadJSON(ctx, key, &status); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return reply, err
+			}
+			continue
+		}
+		reply.NetBirdNodes[strings.TrimPrefix(key, "netbird.status.")] = status
+	}
 	keys, err := o.fence.keys(ctx, nodeOpKey("*"))
 	if err != nil {
 		return reply, err

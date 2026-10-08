@@ -10,8 +10,10 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -95,6 +97,22 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 	}
 	hostConfig := Config{Cell: "gru", Instance: "host-a", Replicas: 1, ClientRole: "host",
 		URL: r.URL(), CredentialsFile: hostCredentials, TLS: tlsFiles}
+	meshListener, err := r.bridge.listen("127.0.0.1:0", r.brokerTLS.ServerConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer meshListener.Close()
+	meshConfig := hostConfig
+	meshConfig.URL = "tls://" + meshListener.Addr().String()
+	if _, err := Start(ctx, meshConfig); err == nil {
+		t.Fatal("second listener bypassed the closed production bridge")
+	}
+	for _, address := range []string{"0.0.0.0", "127.0.0.1", "10.251.0.11", "8.8.8.8", "fd00::1"} {
+		if listener, err := r.ListenNetBird(netip.MustParseAddr(address)); err == nil {
+			listener.Close()
+			t.Fatalf("mesh listener accepted non-mesh address %s", address)
+		}
+	}
 	if _, err := Start(ctx, hostConfig); err == nil {
 		t.Fatal("closed production bridge admitted a client")
 	}
@@ -106,6 +124,37 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 		t.Fatalf("real TLS-first JWT client: %v", err)
 	}
 	defer client.Close()
+	meshClient, err := Start(ctx, meshConfig)
+	if err != nil {
+		t.Fatalf("authenticated second listener failed: %v", err)
+	}
+	defer meshClient.Close()
+	if err := meshClient.Conn().FlushWithContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := meshListener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for meshClient.Conn().IsConnected() {
+		if ctx.Err() != nil {
+			t.Fatal("closing mesh listener left its accepted session alive")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := client.Conn().FlushWithContext(ctx); err != nil {
+		t.Fatalf("closing mesh listener interrupted the OCI session: %v", err)
+	}
+	meshListener, err = r.bridge.listen("127.0.0.1:0", r.brokerTLS.ServerConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer meshListener.Close()
+	meshConfig.URL = "tls://" + meshListener.Addr().String()
+	meshClient, err = Start(ctx, meshConfig)
+	if err != nil {
+		t.Fatalf("replacement mesh listener did not admit its authenticated client: %v", err)
+	}
+	defer meshClient.Close()
 	if !client.Conn().IsConnected() {
 		t.Fatal("TLS-first client disconnected")
 	}
@@ -126,6 +175,10 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 	if _, err := Start(ctx, wrongCA); err == nil {
 		t.Fatal("untrusted TLS peer connected")
 	}
+	wrongCA.URL = meshConfig.URL
+	if _, err := Start(ctx, wrongCA); err == nil {
+		t.Fatal("second listener bypassed mutual TLS")
+	}
 	// NATS uses second-resolution iat; a replacement must be issued later.
 	time.Sleep(time.Until(time.Unix(cell.IssuedAt+1, 0)))
 	cell.Revoke(hostUserID)
@@ -139,7 +192,7 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 	if err := r.Bridge().OpenUntil(2, revokedRaw, time.Now().Add(5*time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	for client.Conn().IsConnected() {
+	for client.Conn().IsConnected() || meshClient.Conn().IsConnected() {
 		if ctx.Err() != nil {
 			t.Fatal("fence did not close live client")
 		}
@@ -157,6 +210,14 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 	r.Bridge().FenceClaim(3)
 	if err := r.Bridge().OpenUntil(2, revokedRaw, time.Now().Add(time.Second)); err == nil {
 		t.Fatal("old claim ticket reopened fenced bridge")
+	}
+	r.Bridge().Close()
+	if _, err := r.bridge.listen("127.0.0.1:0", r.brokerTLS.ServerConfig()); !errors.Is(err, ErrBridgeClosed) {
+		t.Fatalf("closed bridge did not return its shutdown sentinel: %v", err)
+	}
+	if connection, err := net.DialTimeout("tcp", meshListener.Addr().String(), time.Second); err == nil {
+		connection.Close()
+		t.Fatal("bridge close left second listener serving")
 	}
 }
 

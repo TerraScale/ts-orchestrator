@@ -132,6 +132,9 @@ func (enrollment *managedHostEnrollment) enrollStatic(ctx context.Context, epoch
 			RequestSHA256: hostenroll.RequestSHA256(wire), Nonce: request.Nonce,
 			RegistrationReceipt: receipt, Roles: admission.roles(),
 			NATSUserJWT: jwt, TLSCertificatePEM: string(chain), ExpiresAt: expires}
+		if enrollment.services != nil {
+			response.NetBird = enrollment.services.netbird()
+		}
 		if err := response.Sign(enrollment.responseKey); err != nil {
 			return nil, err
 		}

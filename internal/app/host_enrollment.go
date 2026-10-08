@@ -134,6 +134,19 @@ func serveHostEnrollment(ctx context.Context, conn *nats.Conn, cell string, poli
 			// The global leader answers it (serveCellSpecRelay).
 			return
 		}
+		if decodeErr == nil && envelope.Kind == netbirdStageKind {
+			reply, err := serveNetBirdStage(requestCtx, message.Data, policy, fencer, services, conn)
+			if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrNotLeader) || !fencer.Current().CanMutate() {
+				return
+			}
+			if err != nil {
+				reply = netbirdStageReply{Error: err.Error()}
+			}
+			if wire, marshalErr := json.Marshal(reply); marshalErr == nil {
+				_ = message.Respond(wire)
+			}
+			return
+		}
 		if decodeErr == nil && services != nil &&
 			(envelope.Kind == cellSpecGetKind || envelope.Kind == cellSpecDiffKind || envelope.Kind == cellSpecApplyKind) {
 			reply, err := services.serve(requestCtx, message.Data, policy, fencer, controller)

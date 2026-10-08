@@ -44,6 +44,7 @@ type artifactStoreKeeper struct {
 	hosts    *host.Controller
 	quota    func() int64
 	storeDir string
+	netbird  *netbirdRollout
 }
 
 func (k artifactStoreKeeper) Run(ctx context.Context) error {
@@ -70,7 +71,12 @@ func (k artifactStoreKeeper) pass(ctx context.Context) {
 		slog.Warn("artifact store quota not applied", observability.ComponentKey, "delivery", "error", err)
 	}
 	collection, err := k.service.CollectArtifacts(ctx, func(ctx context.Context) ([]delivery.ArtifactUse, error) {
-		return artifactsInUse(ctx, k.hosts)
+		uses, err := artifactsInUse(ctx, k.hosts)
+		if err != nil || k.netbird == nil {
+			return uses, err
+		}
+		network, err := k.netbird.artifactsInUse(ctx)
+		return append(uses, network...), err
 	}, time.Now(), guard)
 	if len(collection.Deleted)+len(collection.Purged) > 0 {
 		slog.Info("artifact store collected", observability.ComponentKey, "delivery",
