@@ -26,6 +26,12 @@ import (
 
 func fenceKV(t *testing.T) jetstream.KeyValue {
 	t.Helper()
+	kv, _, _ := fenceBroker(t)
+	return kv
+}
+
+func fenceBroker(t *testing.T) (jetstream.KeyValue, *nats.Conn, jetstream.JetStream) {
+	t.Helper()
 	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +54,7 @@ func fenceKV(t *testing.T) jetstream.KeyValue {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return kv
+	return kv, conn, js
 }
 
 // fenceLB is a load balancer whose backends report healthy unless listed in
@@ -145,12 +151,15 @@ func (f *fenceLB) UpdateTags(context.Context, string, string, ociresource.Tags) 
 // restarts into it as soon as the restart gate grants it; until then it
 // serves the previous release. Nodes in broken fail the release.
 type fenceCell struct {
-	t       *testing.T
-	gate    func(context.Context, string, host.Desired) (bool, error)
-	lb      *fenceLB
-	nodes   []string
-	release uint64
-	broken  map[string]bool
+	t           *testing.T
+	gate        func(context.Context, string, host.Desired) (bool, error)
+	lb          *fenceLB
+	nodes       []string
+	release     uint64
+	role        string
+	environment string
+	digests     map[uint64]string
+	broken      map[string]bool
 	// stalled nodes restart but report nothing, like a replica the
 	// reconciler is about to withdraw.
 	stalled map[string]bool
@@ -165,9 +174,11 @@ type fenceCell struct {
 }
 
 func (c *fenceCell) ListDesired(context.Context, string) ([]host.Desired, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	var desired []host.Desired
 	for _, node := range c.nodes {
-		desired = append(desired, host.Desired{Node: node, Role: "ts-auth", Generation: c.release << 24})
+		desired = append(desired, host.Desired{Node: node, Role: c.role, Generation: c.release << 24})
 	}
 	return desired, nil
 }
@@ -177,12 +188,12 @@ func (c *fenceCell) ListHosts(ctx context.Context) ([]host.HostStatus, error) {
 	defer c.mu.Unlock()
 	var statuses []host.HostStatus
 	for _, node := range c.nodes {
-		desired := host.Desired{Node: node, Role: "ts-auth", Generation: c.release << 24}
+		desired := host.Desired{Node: node, Role: c.role, Generation: c.release << 24}
 		granted, err := c.gate(ctx, node, desired)
 		if err != nil {
 			return nil, err
 		}
-		report := host.Report{Node: node, Role: "ts-auth", Generation: (c.release - 1) << 24, State: "running",
+		report := host.Report{Node: node, Role: c.role, Environment: c.environment, Generation: (c.release - 1) << 24, State: "running",
 			ObservedAt: time.Now()}
 		if granted {
 			if !slices.Contains(c.restarts, node) {
@@ -209,6 +220,7 @@ func (c *fenceCell) ListHosts(ctx context.Context) ([]host.HostStatus, error) {
 				report.State = "failed"
 			}
 		}
+		report.Digest = c.digests[releaseOf(report.Generation)]
 		statuses = append(statuses, host.HostStatus{Reports: []host.Report{report}})
 	}
 	return statuses, nil
@@ -246,6 +258,11 @@ var fenceAddresses = map[string]string{"ctl-1": "10.0.0.11", "ctl-2": "10.0.0.12
 func newFenceTest(t *testing.T) (*releaseFence, *fenceCell, *fenceLB, jetstream.KeyValue, delivery.Intent) {
 	t.Helper()
 	kv := fenceKV(t)
+	return newFenceTestWithStore(t, kv)
+}
+
+func newFenceTestWithStore(t *testing.T, kv jetstream.KeyValue) (*releaseFence, *fenceCell, *fenceLB, jetstream.KeyValue, delivery.Intent) {
+	t.Helper()
 	balancer := &fenceLB{t: t, down: map[string]bool{}, sets: map[string][]lb.Backend{}}
 	for _, node := range []string{"ctl-1", "ctl-2", "ctl-3"} {
 		balancer.sets["terrabase"] = append(balancer.sets["terrabase"], lb.Backend{IP: fenceAddresses[node], Port: 9465})
@@ -255,7 +272,7 @@ func newFenceTest(t *testing.T) (*releaseFence, *fenceCell, *fenceLB, jetstream.
 	}
 	spec := &cellspec.ReleaseFence{LoadBalancerID: "ocid1.loadbalancer.oc1..x",
 		BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465, MinServing: 1}, {Name: "ts-auth", Port: 8080, MinServing: 1}}}
-	cell := &fenceCell{t: t, gate: releaseGate(kv), lb: balancer, nodes: []string{"ctl-1", "ctl-2", "ctl-3"}, release: 7,
+	cell := &fenceCell{t: t, gate: releaseGate(kv), lb: balancer, nodes: []string{"ctl-1", "ctl-2", "ctl-3"}, release: 7, role: "ts-auth",
 		broken: map[string]bool{}}
 	fence := &releaseFence{kv: kv, hosts: cell, fencer: &fenceLease{},
 		spec: func() (*cellspec.ReleaseFence, map[string]string) { return spec, fenceAddresses },

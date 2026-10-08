@@ -57,6 +57,33 @@ TS_FJ_PROBE_BINARY=/absolute/path/to/fj mise exec -- go test ./scripts/ci \
   -run '^TestFJAttachmentProbe$' -count=1
 ```
 
+## TerraBase upgrade traffic regression (TS-719, first slice)
+
+`TestTerraBaseReleaseFenceUnderLoad` runs in the fast CI tier. It exercises
+the active service-release engine, signed artifact admission, JetStream
+delivery receipts, canary gate and automatic rollback while four HTTP clients
+send requests through modeled backend routing. Every grace, poll, retry and
+settle wait includes at least eight fresh requests. A successful canary
+precedes the other nodes; a failed canary leaves them on the predecessor
+until rollback; a member readiness failure returns the failed node first.
+Every case requires zero failed requests, the expected restart order,
+delivery of each artifact to every node, the final artifact on all three
+running members and all three backends restored with no remaining fence.
+An all-backends-down negative control must register a failed request.
+
+```sh
+nice -n 19 env GOMAXPROCS=2 GOFLAGS=-p=1 mise exec -- go test -race \
+  ./internal/app -run '^TestTerraBaseReleaseFenceUnderLoad$' -count=1 -v
+```
+
+This is simulated request-availability evidence. It does not qualify real
+TerraBase replication or storage, OCI load-balancer draining, keep-alive
+behavior, or a staging deployment. TS-719 remains open for a dedicated
+staging CI job with pinned baseline/candidate releases, SDK data traffic
+without retries, a deliberately failing gate, and retained per-node and
+request evidence. The repository currently records no dedicated staging
+cell identity or runner credentials; production cells must not be substituted.
+
 Offline driver contracts do not start Firecracker guests. Actual VM
 qualification still uses the explicit commands and prerequisites in the
 [Firecracker guide](../tests/firecracker/README.md) and

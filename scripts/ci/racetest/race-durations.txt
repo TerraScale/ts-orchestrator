@@ -38,6 +38,7 @@ rest - 130/60
 ./internal/app TestCellSpecAmendsARunningController 8
 ./internal/app TestRootRotationOnARunningController 5
 ./internal/app TestTerraBaseReleaseUnderLoadServesNoErrors 6 idle
+./internal/app TestTerraBaseReleaseFenceUnderLoad 8 idle
 ./internal/app * 1
 
 # Founder runtime and replacement tests re-verify signed plans on every
