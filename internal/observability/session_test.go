@@ -837,3 +837,66 @@ func TestCommittedRotationRevokesBeforeCleanupAndRetriesCollection(t *testing.T)
 		t.Fatal("retry did not collect the retired generation")
 	}
 }
+
+func TestTokenRotationBetweenSessionReadsRejectsOldGeneration(t *testing.T) {
+	t.Parallel()
+	server, _ := newLoginServer(t)
+	value, err := server.sessions.issue(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := server.sessions.binding.Load()
+	store := binding.store
+	leader := store.leader
+	rotated, err := NewTokenServer(Config{Dashboard: true}, strings.Repeat("b", 48), ServerDeps{Registry: NewRegistry(false), Health: new(Health)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotationStore := *store
+	rotationStore.kv = noSessionEnumeration{store.kv}
+	rotatedDuringRead := false
+	store.leader = sessionReadFault{JetStreamContext: leader, read: func(stream, subject string, opts ...nats.JSOpt) (*nats.RawStreamMsg, error) {
+		if subject == "$KV."+SessionBucket+"."+binding.key(value) {
+			// Commit rotation after the initial generation check while retaining
+			// the old record, as when cleanup is unavailable on another controller.
+			if err := rotated.SetSessionStore(t.Context(), &rotationStore); err == nil {
+				t.Fatal("rotation unexpectedly collected the old session")
+			}
+			rotatedDuringRead = true
+		}
+		return leader.GetLastMsg(stream, subject, opts...)
+	}}
+	if valid, err := server.sessions.valid(t.Context(), value); err != nil || valid {
+		t.Fatal("authentication accepted a generation retired during its reads")
+	}
+	if !rotatedDuringRead || rotated.sessions.binding.Load() == nil {
+		t.Fatal("test did not commit rotation between the generation and session reads")
+	}
+	if _, err := rotationStore.get(t.Context(), binding.key(value)); err != nil {
+		t.Fatal("test failed to retain the old session record")
+	}
+}
+
+func TestFinalGenerationReadOutageFailsClosed(t *testing.T) {
+	t.Parallel()
+	server, _ := newLoginServer(t)
+	value, err := server.sessions.issue(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := server.sessions.binding.Load().store
+	leader := store.leader
+	tokenReads := 0
+	store.leader = sessionReadFault{JetStreamContext: leader, read: func(stream, subject string, opts ...nats.JSOpt) (*nats.RawStreamMsg, error) {
+		if strings.Contains(subject, ".token.") {
+			tokenReads++
+			if tokenReads == 2 {
+				return nil, nats.ErrTimeout
+			}
+		}
+		return leader.GetLastMsg(stream, subject, opts...)
+	}}
+	if valid, err := server.sessions.valid(t.Context(), value); valid || !errors.Is(err, nats.ErrTimeout) {
+		t.Fatal("final generation read outage authorized a session or hid the error")
+	}
+}

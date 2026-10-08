@@ -141,3 +141,17 @@ Full observability/dashboard race suites, focused app race tests, vet,
 formatting and generated-template checks passed. Chromium and Firefox both
 repeated login, browser reopening, controller/NATS restart, cross-site logout
 rejection, and copied-cookie revocation with this revision.
+
+## Fourth reviewer round
+
+Authentication now checks the leader-backed token generation again after the
+session hash matches, within the existing five-second deadline. A rotation
+committed between the first generation read and the session-record read cannot
+authorize the retired generation, even if its record remains during failed
+cleanup. An error on the final generation read fails closed as a storage error.
+
+Both deterministic regressions failed before the fix and passed thirty race
+repetitions afterward. Full observability/dashboard race suites, vet,
+formatting and generated-template checks passed. Chromium and Firefox repeated
+login, browser reopening, controller/NATS restart, cross-site logout rejection,
+and copied-cookie revocation successfully.

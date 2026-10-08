@@ -336,7 +336,11 @@ func (manager *sessions) valid(ctx context.Context, value string) (bool, error) 
 	if err != nil {
 		return false, err
 	}
-	return subtle.ConstantTimeCompare(entry.Data, []byte(sessionHash(value))) == 1, nil
+	if subtle.ConstantTimeCompare(entry.Data, []byte(sessionHash(value))) != 1 {
+		return false, nil
+	}
+	// Rotation can commit while the session read is in flight, before cleanup.
+	return binding.current(ctx)
 }
 
 func (manager *sessions) revoke(ctx context.Context, value string) error {
