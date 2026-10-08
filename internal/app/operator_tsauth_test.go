@@ -71,10 +71,9 @@ func TestTSAuthGRUConfigIsValid(t *testing.T) {
 		t.Fatal("accepted ts-auth endpoints of a member the terrabase profile dropped")
 	}
 	delete(profiles, terrabase.Role)
-	// The committed profile names the six secrets and the SMTP relay
-	// credentials, and the release binds their names: a renamed secret is a
-	// new config digest.
-	if len(profile.Secrets) != len(tsauth.Secrets)+2 {
+	// The committed profile names the six secrets, the SMTP relay credentials
+	// and the OCI signing API key; renaming a secret changes the config digest.
+	if len(profile.Secrets) != len(tsauth.Secrets)+3 {
 		t.Fatalf("committed profile names %d secrets", len(profile.Secrets))
 	}
 	renamed := maps.Clone(profile.Secrets)
@@ -231,13 +230,14 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 
 	identity := testHostWorkloadIdentity()
 	secrets := map[string]string{tsauth.EnvAPIKey: "tb_fake-key", tsauth.EnvProjectID: "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d",
-		"TS_AUTH_SMTP_USERNAME": "fake-smtp-user", "TS_AUTH_SMTP_PASSWORD": "fake-smtp-password"}
+		"TS_AUTH_SMTP_USERNAME": "fake-smtp-user", "TS_AUTH_SMTP_PASSWORD": "fake-smtp-password",
+		"TS_AUTH_OCI_PRIVATE_KEY": "fake-oci-private-key"}
 	for _, key := range tsauth.Generated {
 		secrets[key], _ = tsauth.Generate(ctx)
 	}
 	vault := bundles{}
 	for key, value := range secrets {
-		vault[tsauth.SecretName("gru-1", key)] = value
+		vault[profile.Secrets[key].Name] = value
 	}
 	var output bytes.Buffer
 	replicas := map[string]*childRunner{}

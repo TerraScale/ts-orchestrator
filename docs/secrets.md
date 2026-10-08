@@ -96,6 +96,44 @@ OCI `If-Match` while publishing a new CURRENT version. Reread CURRENT on an
 uncertain result; never blindly retry a signing-ring mutation. `put` remains
 create-once and never rotates a value. Historical versions remain retained.
 
+## TS-703 signing publisher
+
+Each region has an API-key-only IAM user and group named
+`gru-ts-auth-signing` or `sfo-ts-auth-signing`. The regional ring secret is
+`gru-ts-auth-signing-key-ring` or `sfo-ts-auth-signing-key-ring`. The API private
+key is retained in the same regional Vault as `gru-ts-auth-oci-signing-key` or
+`sfo-ts-auth-oci-signing-key`; no private key belongs in a profile or env file.
+The [inventory](secrets-inventory.md) records the secret OCIDs and live checks.
+
+Each group's policy grants `read secret-bundles` only on its ring OCID and
+`use secrets` on the same OCID, constrained to `SECRET_READ` and `SECRET_UPDATE`.
+The API identity has no secret creation/deletion or KMS grants. Live conditional
+publication of the unchanged placeholder and denial of master-key reads were
+verified in both regions. The host/controller dynamic groups have a separate
+bundle-read grant for their region's API private-key secret.
+
+The regional [GRU profile](../deploy/oci-region/ts-auth-gru-1-profile.json) and
+[SFO profile](../deploy/oci-region/ts-auth-sfo-1-profile.json) carry the six
+non-secret `TS_AUTH_SIGNING_KEY_*` / `TS_AUTH_OCI_*` settings and the
+`TS_AUTH_OCI_PRIVATE_KEY` Vault reference. The host resolves that reference into
+the process environment in memory at start. ts-auth owns ring bootstrap,
+conditional version publication and refresh; its UID-2000 IMDS block remains.
+These profiles are prepared for signed in-place application, not applied by
+this provision step. No auth binary, signing ring or auth identity data has
+been changed. TS-703 must verify the applied profiles before deploying #56.
+For an attempt's `services` phase, set `ts_auth_profile` and `ts_auth_service`
+to the reviewed regional files. The plan-derived bootstrap profile has no
+provisioned publisher IAM identity and cannot start the TS-703 release.
+
+TS-754's auth cutover follows verified Vault delivery. Fence every old auth
+writer in both regions before the owning TS-754 data operation. Its storage
+contract and matching SDK release must be ready first. If TerraBase replaces
+the auth storage project, update `TS_AUTH_TERRASCALE_PROJECT_ID` and its narrowed
+`TS_AUTH_TERRASCALE_API_KEY` together in each regional Vault before starting the
+new writer. The host derives `TS_AUTH_DATABASE` from that project ID; there is
+no `TS_AUTH_PROJECT_ID` setting. Preserve master-key bytes, derivation and
+sealed material; coordinate signing-ring changes separately with TS-703.
+
 ## Read a secret
 
 Go services can import

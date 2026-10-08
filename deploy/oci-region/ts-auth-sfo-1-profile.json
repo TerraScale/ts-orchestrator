@@ -13,7 +13,13 @@
     "TS_AUTH_DATABASE": "auth",
     "TS_AUTH_ACCESS_TOKEN_AUDIENCES": "https://sfo.api.terrascale.tech",
     "TS_AUTH_DASHBOARD_REDIRECT_URIS": "https://dash.terrascale.tech/login/callback",
-    "TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS": "https://dash.terrascale.tech/login"
+    "TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS": "https://dash.terrascale.tech/login",
+    "TS_AUTH_SIGNING_KEY_VAULT": "ocid1.vault.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrzcofqki6a5podtjnhvyiol7yqehrd77tp2hoeynxp5wozv54mq6a",
+    "TS_AUTH_SIGNING_KEY_SECRET": "sfo-ts-auth-signing-key-ring",
+    "TS_AUTH_OCI_REGION": "us-sanjose-1",
+    "TS_AUTH_OCI_TENANCY": "ocid1.tenancy.oc1..aaaaaaaae4zbeypc66rholaayphrk6h2eg7j4up6tfncehv6agji6o5v4yga",
+    "TS_AUTH_OCI_USER": "ocid1.user.oc1..aaaaaaaa3ppx6twqobvegq42zb43m3fleuv3jsgeexiz6mw7kx5gf2z3v7cq",
+    "TS_AUTH_OCI_FINGERPRINT": "36:1a:65:ed:02:4c:10:ba:dc:08:21:9e:37:8c:c2:8d"
   },
   "secrets": {
     "TS_AUTH_MASTER_KEY": {
@@ -39,6 +45,10 @@
     "TS_AUTH_TERRASCALE_PROJECT_ID": {
       "vault": "ocid1.vault.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrzcofqki6a5podtjnhvyiol7yqehrd77tp2hoeynxp5wozv54mq6a",
       "name": "sfo-1-ts-auth-terrascale-project-id"
+    },
+    "TS_AUTH_OCI_PRIVATE_KEY": {
+      "vault": "ocid1.vault.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrzcofqki6a5podtjnhvyiol7yqehrd77tp2hoeynxp5wozv54mq6a",
+      "name": "sfo-ts-auth-oci-signing-key"
     }
   }
 }

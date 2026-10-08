@@ -249,7 +249,7 @@ func (m *loadMember) start(t *testing.T, addr string, generation uint64) {
 	m.addr = listener.Addr().String()
 	m.ready.Store(false)
 	m.server = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/readyz" && !m.ready.Load() {
+		if !m.ready.Load() {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
