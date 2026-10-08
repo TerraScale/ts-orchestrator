@@ -44,7 +44,7 @@ func (c Client) Query(ctx context.Context, region string, from, to time.Time) (U
 	if len(c.Token) < 32 || len(c.Token) > 4096 || strings.ContainsAny(c.Token, "\r\n") {
 		return Usage{}, errors.New("usage requires a valid bearer token")
 	}
-	hc := http.Client{Timeout: 15 * time.Second}
+	hc := http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{Proxy: nil}}
 	if c.HTTP != nil {
 		hc = *c.HTTP
 	}

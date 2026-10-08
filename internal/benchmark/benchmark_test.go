@@ -64,6 +64,7 @@ func usageFixture(_ context.Context, region string, from, to time.Time) (capacit
 func TestRunnerRampPersistsAndStopsAtFirstUnsafeStep(t *testing.T) {
 	w := workload(t)
 	w.Name = "ramp"
+	w.Duration = 90
 	now := time.Now().UTC().Add(-time.Minute)
 	repo := new(memoryRepository)
 	calls := 0
@@ -166,6 +167,19 @@ func TestAdmissionRejectsServingNodesAndOtherRegions(t *testing.T) {
 	}
 }
 
+func TestServiceLimitCanBeTheBottleneckOnAnIdleNode(t *testing.T) {
+	w := workload(t)
+	from := time.Now().UTC().Add(-time.Minute)
+	to := from.Add(30 * time.Second)
+	u, _ := usageFixture(t.Context(), "gru", from, to)
+	u.Replicas[0].CPU.Headroom = &capacity.Stats{Min: 0.05, Max: 0.05, Mean: 0.05, Complete: true}
+	u.Replicas[0].CPU.Limit = &capacity.Stats{Min: 1, Max: 1, Mean: 1, Complete: true}
+	v := capacityVerdict(w, []Stage{{From: from, To: to, Usage: u}}, []string{"go"})
+	if v.Bottleneck != "cpu" || v.Scale != "up" {
+		t.Fatalf("ignored service cgroup pressure: %+v", v)
+	}
+}
+
 func TestPinnedSDKRejectsULIDProjectBeforeNetwork(t *testing.T) {
 	project := newID()
 	runID := newID()
@@ -202,6 +216,29 @@ func TestPinnedSDKRejectsULIDProjectBeforeNetwork(t *testing.T) {
 	}
 	if requests != 0 {
 		t.Fatalf("SDK emitted %d requests before rejecting ULID", requests)
+	}
+}
+
+func TestJSONLPreservesRequiredZeroFields(t *testing.T) {
+	data, err := json.Marshal(Sample{Client: "go", Region: "gru", Op: "doc.get"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value map[string]json.RawMessage
+	if err := json.Unmarshal(data, &value); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"count", "errors", "p50_us", "p95_us", "p99_us", "max_us"} {
+		if string(value[key]) != "0" {
+			t.Errorf("required zero field %s omitted", key)
+		}
+	}
+	data, err = json.Marshal(Sample{Type: "summary", Client: "go", Region: "gru", Workload: "point-reads", PerOp: map[string]json.RawMessage{"doc.get": json.RawMessage(`{}`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"ts"`) || !strings.Contains(string(data), `"error_rate":0`) {
+		t.Fatalf("summary contract changed: %s", data)
 	}
 }
 

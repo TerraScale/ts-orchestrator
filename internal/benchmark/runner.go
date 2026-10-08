@@ -24,6 +24,7 @@ type Verdict struct {
 
 type Stage struct {
 	Concurrency int            `json:"concurrency"`
+	Duration    int            `json:"duration_s"`
 	From        time.Time      `json:"from"`
 	To          time.Time      `json:"to"`
 	Samples     []Sample       `json:"samples"`
@@ -77,6 +78,17 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 	}
 	ctx, cancel := context.WithTimeout(ctx, MaxRun)
 	defer cancel()
+	levels := []int{w.Concurrency}
+	if w.Name == "ramp" {
+		levels = nil
+		for n := 1; n < w.Concurrency; n *= 2 {
+			levels = append(levels, n)
+		}
+		levels = append(levels, w.Concurrency)
+		if w.Duration < 30*len(levels) || w.Duration+w.Warmup*len(levels) > 840 {
+			return run, errors.New("ramp needs at least 30 measurement seconds per concurrency step and must fit warmups within 840 seconds")
+		}
+	}
 	run = Run{ID: newID(), Region: region, Workload: w, Clients: clients, Started: r.Now().UTC(), Status: "running", Stages: []Stage{}}
 	if err := r.Repository.SaveRun(ctx, run); err != nil {
 		return run, err
@@ -96,18 +108,16 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 		defer cancel()
 		resultErr = errors.Join(resultErr, r.Repository.SaveRun(finish, run))
 	}()
-	levels := []int{w.Concurrency}
-	if w.Name == "ramp" {
-		levels = nil
-		for n := 1; n < w.Concurrency; n *= 2 {
-			levels = append(levels, n)
-		}
-		levels = append(levels, w.Concurrency)
-	}
 	for stageIndex, level := range levels {
 		workload := w
 		workload.Concurrency = level
-		stage := Stage{Concurrency: level, From: r.Now().UTC(), Samples: []Sample{}}
+		if w.Name == "ramp" {
+			workload.Duration = w.Duration / len(levels)
+			if stageIndex == 0 {
+				workload.Duration += w.Duration % len(levels)
+			}
+		}
+		stage := Stage{Concurrency: level, Duration: workload.Duration, From: r.Now().UTC(), Samples: []Sample{}}
 		stageCtx, stop := context.WithCancel(ctx)
 		seen := map[string]time.Time{}
 		summaries := map[string]bool{}
@@ -195,12 +205,14 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 		qualified := stage.Stopped == "" && stage.Usage.Complete
 		summaries := map[string]bool{}
 		perClient := map[string]map[int64]uint64{}
+		summaryRates := map[string]float64{}
 		ops := 0.0
 		start := stage.From.Add(time.Duration(w.Warmup) * time.Second)
 		for _, sample := range stage.Samples {
 			if sample.Type == "summary" {
 				summaries[sample.Client] = true
 				ops += sample.OpsPerS
+				summaryRates[sample.Client] = sample.OpsPerS
 				if sample.ErrorRate > 0.01 {
 					qualified = false
 				}
@@ -224,13 +236,23 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 		}
 		for _, client := range clients {
 			seconds := perClient[client]
-			if len(seconds) < max(30, w.Duration-2) {
+			duration := stage.Duration
+			if duration == 0 {
+				duration = w.Duration
+			}
+			if len(seconds) < max(30, duration-2) {
 				qualified = false
 				continue
 			}
 			var times []int64
+			var count uint64
 			for at := range seconds {
 				times = append(times, at)
+				count += seconds[at]
+			}
+			observed := float64(count) / float64(len(seconds))
+			if observed == 0 || summaryRates[client] < observed*0.95 || summaryRates[client] > observed*1.05 {
+				qualified = false
 			}
 			slices.Sort(times)
 			for i := 1; i < len(times); i++ {
@@ -264,6 +286,19 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 		}
 		if node.Memory.Limit.Max > 0 {
 			memoryRatio = min(memoryRatio, node.Memory.Headroom.Min/node.Memory.Limit.Max)
+		}
+	}
+	// A service can hit its cgroup cap while its node still has spare capacity.
+	for _, replica := range last.Usage.Replicas {
+		if replica.CPU.Headroom == nil || replica.CPU.Limit == nil || replica.Memory.Headroom == nil || replica.Memory.Limit == nil {
+			v.Qualified = false
+			return v
+		}
+		if replica.CPU.Limit.Max > 0 {
+			cpuRatio = min(cpuRatio, replica.CPU.Headroom.Min/replica.CPU.Limit.Max)
+		}
+		if replica.Memory.Limit.Max > 0 {
+			memoryRatio = min(memoryRatio, replica.Memory.Headroom.Min/replica.Memory.Limit.Max)
 		}
 	}
 	v.CPUHeadroom = &cpu

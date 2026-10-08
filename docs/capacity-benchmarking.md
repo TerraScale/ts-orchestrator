@@ -105,14 +105,16 @@ history. Failures retain their run record. Reports append to
 `reports/<region>/<date>-<workload>.md`, preserving previous runs that day.
 
 `ramp` doubles concurrency from one up to the workload's configured maximum,
-running the same shared workload at each step. Every run stops immediately
+dividing `duration_s` across steps with at least 30 seconds per step. Each
+step has its own `warmup_s`; measurement and warmups together must fit within
+840 seconds. Every run stops immediately
 when an emitted operation has error rate above 1% or p99 above twice target.
 A qualified stage needs complete regional usage, at least 30 seconds of
 per-client measurements, the configured measurement duration, all client
 summaries, error rate at most 1% and measured p99 at target. Percentiles are
 checked per client/operation; they are never averaged. The capacity figure
 is the sum of client summary throughput for the highest qualifying stage.
-Node headroom below 20% identifies CPU or memory pressure; more than 60%
+Node or service headroom below 20% identifies CPU or memory pressure; more than 60%
 CPU and memory headroom permits a scale-down recommendation. Otherwise the
 recommendation is up for latency/errors, or ok. An incomplete window or
 failed run reports `qualified: false` and `scale: unknown`, never a safe

@@ -81,18 +81,52 @@ func (s Sample) validate(client, region, workload string, now time.Time) error {
 		return errors.New("client result identity mismatch")
 	}
 	if s.Type == "summary" {
-		if s.Workload != workload || !finite(s.OpsPerS) || s.OpsPerS < 0 || !finite(s.ErrorRate) || s.ErrorRate < 0 || s.ErrorRate > 1 || len(s.PerOp) == 0 {
+		if s.Workload != workload || !finite(s.OpsPerS) || s.OpsPerS < 0 || !finite(s.ErrorRate) || s.ErrorRate < 0 || s.ErrorRate > 1 || len(s.PerOp) == 0 || len(s.PerOp) > len(operations) {
 			return errors.New("invalid client summary")
+		}
+		for op, data := range s.PerOp {
+			if !slices.Contains(operations, op) || len(data) > 64<<10 || len(data) == 0 || data[0] != '{' {
+				return errors.New("invalid per-operation summary")
+			}
 		}
 		return nil
 	}
-	if s.Type != "" || s.TS.IsZero() || s.TS.After(now.Add(2*time.Second)) || s.TS.Before(now.Add(-MaxRun-time.Minute)) || !slices.Contains(operations, s.Op) || s.SDK == "" || s.SDKVersion == "" || s.Errors > s.Count {
+	if s.Type != "" || s.TS.IsZero() || s.TS.After(now.Add(2*time.Second)) || s.TS.Before(now.Add(-MaxRun-time.Minute)) || !slices.Contains(operations, s.Op) || s.SDK == "" || len(s.SDK) > 64 || s.SDKVersion == "" || len(s.SDKVersion) > 128 || s.Errors > s.Count || len(s.PerOp) > 0 {
 		return errors.New("invalid per-second client sample")
 	}
 	if !finite(s.P50) || !finite(s.P95) || !finite(s.P99) || !finite(s.Max) || s.P50 < 0 || s.P50 > s.P95 || s.P95 > s.P99 || s.P99 > s.Max {
 		return errors.New("invalid latency percentiles")
 	}
 	return nil
+}
+
+// Required per-second fields stay present when their value is zero.
+func (s Sample) MarshalJSON() ([]byte, error) {
+	if s.Type == "summary" {
+		return json.Marshal(struct {
+			Type     string                     `json:"type"`
+			Client   string                     `json:"client"`
+			Region   string                     `json:"region"`
+			Workload string                     `json:"workload"`
+			Ops      float64                    `json:"ops_per_s"`
+			Errors   float64                    `json:"error_rate"`
+			PerOp    map[string]json.RawMessage `json:"per_op"`
+		}{s.Type, s.Client, s.Region, s.Workload, s.OpsPerS, s.ErrorRate, s.PerOp})
+	}
+	return json.Marshal(struct {
+		TS      time.Time `json:"ts"`
+		Client  string    `json:"client"`
+		SDK     string    `json:"sdk"`
+		Version string    `json:"sdk_version"`
+		Region  string    `json:"region"`
+		Op      string    `json:"op"`
+		Count   uint64    `json:"count"`
+		Errors  uint64    `json:"errors"`
+		P50     float64   `json:"p50_us"`
+		P95     float64   `json:"p95_us"`
+		P99     float64   `json:"p99_us"`
+		Max     float64   `json:"max_us"`
+	}{s.TS, s.Client, s.SDK, s.SDKVersion, s.Region, s.Op, s.Count, s.Errors, s.P50, s.P95, s.P99, s.Max})
 }
 
 func finite(value float64) bool { return !math.IsNaN(value) && !math.IsInf(value, 0) }

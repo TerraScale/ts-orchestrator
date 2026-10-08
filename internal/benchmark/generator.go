@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/oracle/oci-go-sdk/v65/core"
 	sdk "terrascale.tech/sdk"
@@ -37,14 +38,11 @@ type Job struct {
 }
 
 func ociRegion(region string) (string, error) {
-	switch region {
-	case "gru":
-		return "sa-saopaulo-1", nil
-	case "sfo":
-		return "us-sanjose-1", nil
-	default:
+	entry, ok := catalog.LookupName(region)
+	if !ok || (region != "gru" && region != "sfo") {
 		return "", errors.New("region must be gru or sfo")
 	}
+	return entry.OCIRegion, nil
 }
 
 // Admission rejects every orchestrator-owned node, even one currently drained.
