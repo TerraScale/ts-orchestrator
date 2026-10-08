@@ -99,12 +99,17 @@ owned-container cleanup. Missing or failed acknowledgement fails the run;
 the parent terminates SSH after a 120-second cleanup reserve. Stdin EOF,
 SIGINT, SIGTERM and SIGHUP cancel the remote job, and broken stdout returns
 an error without skipping cleanup. Container and remote worker timeouts
-bound orphaned execution. The end-to-end load deadline is 15 minutes; resource
-cleanup has a separate bounded reserve. Client database cleanup remains
+bound orphaned execution. Measurement plus warmup is capped at 780 seconds,
+leaving 60 seconds for client startup, summary emission and database cleanup
+inside the 840-second container lifetime. The end-to-end load deadline is
+15 minutes; resource cleanup has a separate bounded reserve. Client database cleanup remains
 part of the shared client contract and requires integration validation.
 
-The runner validates client, region, operation, timestamps and percentiles;
-it streams each JSONL record and saves it through the public Go SDK. Every
+The runner validates client, region, operation, timestamps and percentiles.
+Required JSONL fields must be present and non-null, including zero-valued
+latency/error fields. A failed final run save returns a failed, unqualified
+run with an unknown scaling recommendation in the CLI and local report.
+It streams each JSONL record and saves it through the public Go SDK. Every
 run is a plain ULID. The `benchmark` database has `runs`, `results` and
 `usage` collections; results and usage refer to `run_id` and stage number.
 Run metadata includes the final capacity verdict, not duplicate raw result
@@ -114,7 +119,7 @@ history. Failures retain their run record. Reports append to
 `ramp` doubles concurrency from one up to the workload's configured maximum,
 dividing `duration_s` across steps with at least 30 seconds per step. Each
 step has its own `warmup_s`; measurement and warmups together must fit within
-840 seconds. Every run stops immediately
+780 seconds. Every run stops immediately
 when an emitted operation has error rate above 1% or p99 above twice target.
 A qualified stage needs complete regional usage, at least 30 seconds of
 per-client measurements, the configured measurement duration, all client

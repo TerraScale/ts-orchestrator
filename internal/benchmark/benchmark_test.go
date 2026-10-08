@@ -29,12 +29,16 @@ func workload(t *testing.T) Workload {
 }
 
 type memoryRepository struct {
-	runs    []Run
-	results []Sample
-	fail    bool
+	runs     []Run
+	results  []Sample
+	fail     bool
+	finalErr error
 }
 
 func (m *memoryRepository) SaveRun(_ context.Context, r Run) error {
+	if len(m.runs) > 0 && m.finalErr != nil {
+		return m.finalErr
+	}
 	m.runs = append(m.runs, r)
 	return nil
 }
@@ -323,6 +327,11 @@ func TestPodmanHelper(t *testing.T) {
 			}
 		case "stream":
 			_ = json.NewEncoder(os.Stdout).Encode(Sample{TS: time.Now().UTC(), Client: "go", SDK: "go", SDKVersion: "test", Region: "gru", Op: "doc.get", Count: 100, P99: 30, Max: 40})
+			for {
+				time.Sleep(time.Minute)
+			}
+		case "missing-fields":
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"ts": time.Now().UTC(), "client": "go", "sdk": "go", "sdk_version": "test", "region": "gru", "op": "doc.get", "count": 100, "errors": 0})
 			for {
 				time.Sleep(time.Minute)
 			}

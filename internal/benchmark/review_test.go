@@ -24,10 +24,10 @@ func measuredStage(t *testing.T, w Workload, clients []string) Stage {
 		for _, op := range w.Mix {
 			perOp[op.Op] = json.RawMessage(`{}`)
 			for second := range 30 {
-				stage.Samples = append(stage.Samples, Sample{TS: from.Add(time.Duration(second+1) * time.Second), Client: client, Op: op.Op, Count: 100, P99: 30})
+				stage.Samples = append(stage.Samples, Sample{TS: from.Add(time.Duration(second+1) * time.Second), Client: client, SDK: client, SDKVersion: "test", Region: "gru", Op: op.Op, Count: 100, P99: 30, Max: 30})
 			}
 		}
-		stage.Samples = append(stage.Samples, Sample{Type: "summary", Client: client, OpsPerS: 100 * float64(len(w.Mix)), PerOp: perOp})
+		stage.Samples = append(stage.Samples, Sample{Type: "summary", Client: client, Region: "gru", Workload: w.Name, OpsPerS: 100 * float64(len(w.Mix)), PerOp: perOp})
 	}
 	return stage
 }
@@ -75,6 +75,7 @@ func TestFinalLatencyFailurePreservesMaximumWithoutScaleDown(t *testing.T) {
 	for i := range last.Samples {
 		if last.Samples[i].Type == "" {
 			last.Samples[i].P99 = w.Targets.P99 * 1500
+			last.Samples[i].Max = last.Samples[i].P99
 		}
 	}
 	v := capacityVerdict(w, []Stage{first, last}, []string{"go"})
@@ -134,7 +135,7 @@ func TestOversizedClientLineCancelsBeforeWaitingAndCleansUp(t *testing.T) {
 }
 
 func TestSSHCancelAndStreamFailuresWaitForRemoteCleanup(t *testing.T) {
-	for _, mode := range []string{"complete", "cancel", "oversized", "emit-error", "cleanup-error", "no-ack"} {
+	for _, mode := range []string{"complete", "cancel", "oversized", "emit-error", "cleanup-error", "no-ack", "missing-fields"} {
 		t.Run(mode, func(t *testing.T) {
 			installHelper(t, "ssh", "TestSSHWorkerHelper")
 			installHelper(t, "podman", "TestPodmanHelper")
@@ -172,6 +173,10 @@ func TestSSHCancelAndStreamFailuresWaitForRemoteCleanup(t *testing.T) {
 				if !errors.Is(err, emitErr) {
 					t.Fatalf("emit error lost: %v", err)
 				}
+			case "missing-fields":
+				if err == nil || !strings.Contains(err.Error(), "worker returned invalid JSONL") {
+					t.Fatalf("missing latency evidence was accepted: %v", err)
+				}
 			default:
 				if err == nil || err == context.Canceled || !strings.Contains(err.Error(), "cleanup was not acknowledged") {
 					t.Fatalf("missing cleanup acknowledgement was hidden: %v", err)
@@ -196,6 +201,11 @@ func TestSSHWorkerHelper(t *testing.T) {
 		}
 		if mode == "oversized" {
 			_, _ = io.WriteString(out, strings.Repeat("x", 300<<10)+"\n")
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		if mode == "missing-fields" {
+			_ = json.NewEncoder(out).Encode(map[string]any{"ts": time.Now().UTC(), "client": "go", "sdk": "go", "sdk_version": "test", "region": "gru", "op": "doc.get", "count": 100, "errors": 0})
 			<-ctx.Done()
 			return ctx.Err()
 		}

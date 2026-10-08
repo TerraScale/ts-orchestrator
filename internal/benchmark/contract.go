@@ -2,9 +2,11 @@
 package benchmark
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"regexp"
 	"slices"
@@ -19,6 +21,11 @@ var languages = []string{"go", "dotnet", "rust"}
 var operations = []string{"doc.create", "doc.get", "doc.update", "doc.delete", "query.simple", "query.indexed", "txn.multi"}
 
 const MaxRun = 15 * time.Minute
+
+const clientLifetime = MaxRun - time.Minute
+
+// Keep a minute for client initialization, summary emission and database cleanup.
+const workloadBudgetSeconds = int((clientLifetime - time.Minute) / time.Second)
 
 type Workload struct {
 	Name        string `json:"name"`
@@ -40,8 +47,8 @@ type Workload struct {
 }
 
 func (w Workload) Validate() error {
-	if !namePattern.MatchString(w.Name) || w.Duration < 30 || w.Duration > 840 || w.Warmup < 0 || w.Warmup > 300 || w.Duration+w.Warmup > 840 || w.Concurrency < 1 || w.Concurrency > 65536 || w.Dataset.Documents < 1 || w.Dataset.Documents > 10000000 || w.Dataset.DocSize < 1 || w.Dataset.DocSize > 4<<20 || !finite(w.Targets.P99) || w.Targets.P99 <= 0 || len(w.Mix) == 0 || len(w.Mix) > 7 {
-		return errors.New("invalid workload or unbounded duration; duration must be 30..840 seconds and duration + warmup <= 840")
+	if !namePattern.MatchString(w.Name) || w.Duration < 30 || w.Duration > workloadBudgetSeconds || w.Warmup < 0 || w.Warmup > 300 || w.Duration+w.Warmup > workloadBudgetSeconds || w.Concurrency < 1 || w.Concurrency > 65536 || w.Dataset.Documents < 1 || w.Dataset.Documents > 10000000 || w.Dataset.DocSize < 1 || w.Dataset.DocSize > 4<<20 || !finite(w.Targets.P99) || w.Targets.P99 <= 0 || len(w.Mix) == 0 || len(w.Mix) > 7 {
+		return fmt.Errorf("invalid workload or unbounded duration; duration must be 30..%d seconds and duration + warmup <= %d", workloadBudgetSeconds, workloadBudgetSeconds)
 	}
 	seen := map[string]bool{}
 	for _, op := range w.Mix {
@@ -71,6 +78,30 @@ type Sample struct {
 	OpsPerS    float64                    `json:"ops_per_s,omitempty"`
 	ErrorRate  float64                    `json:"error_rate,omitempty"`
 	PerOp      map[string]json.RawMessage `json:"per_op,omitempty"`
+}
+
+// Presence is checked at both JSONL boundaries before zero values can qualify.
+func (s *Sample) UnmarshalJSON(data []byte) error {
+	type wireSample Sample
+	var value wireSample
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	required := []string{"ts", "client", "sdk", "sdk_version", "region", "op", "count", "errors", "p50_us", "p95_us", "p99_us", "max_us"}
+	if value.Type == "summary" {
+		required = []string{"type", "client", "region", "workload", "ops_per_s", "error_rate", "per_op"}
+	}
+	for _, key := range required {
+		if len(fields[key]) == 0 || bytes.Equal(bytes.TrimSpace(fields[key]), []byte("null")) {
+			return fmt.Errorf("benchmark JSONL requires non-null %s", key)
+		}
+	}
+	*s = Sample(value)
+	return nil
 }
 
 func (s Sample) Validate(client, region, workload string) error {

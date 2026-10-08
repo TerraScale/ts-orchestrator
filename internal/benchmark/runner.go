@@ -85,8 +85,8 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 			levels = append(levels, n)
 		}
 		levels = append(levels, w.Concurrency)
-		if w.Duration < 30*len(levels) || w.Duration+w.Warmup*len(levels) > 840 {
-			return run, errors.New("ramp needs at least 30 measurement seconds per concurrency step and must fit warmups within 840 seconds")
+		if w.Duration < 30*len(levels) || w.Duration+w.Warmup*len(levels) > workloadBudgetSeconds {
+			return run, fmt.Errorf("ramp needs at least 30 measurement seconds per concurrency step and must fit warmups within %d seconds", workloadBudgetSeconds)
 		}
 	}
 	run = Run{ID: newID(), Region: region, Workload: w, Clients: clients, Started: r.Now().UTC(), Status: "running", Stages: []Stage{}}
@@ -106,7 +106,12 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 		}
 		finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 		defer cancel()
-		resultErr = errors.Join(resultErr, r.Repository.SaveRun(finish, run))
+		if err := r.Repository.SaveRun(finish, run); err != nil {
+			resultErr = errors.Join(resultErr, err)
+			run.Status = "failed"
+			run.Verdict.Qualified = false
+			run.Verdict.Scale = "unknown"
+		}
 	}()
 	for stageIndex, level := range levels {
 		workload := w

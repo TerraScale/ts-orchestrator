@@ -357,7 +357,7 @@ func container(ctx context.Context, job Job, client, name string, workload []byt
 	// Secrets cross an inherited pipe, never argv, logs, a disk file or stdin.
 	env := fmt.Sprintf("TS_BENCH_CLIENT_ID=%s\nTS_BENCH_CLIENT_SECRET=%s\nTS_BENCH_RUN_ID=%s\n", secrets["TS_BENCH_CLIENT_ID"], secrets["TS_BENCH_CLIENT_SECRET"], newID())
 	go func() { _, _ = io.WriteString(writer, env); _ = writer.Close() }()
-	command := exec.CommandContext(ctx, "podman", "run", "--rm", "--pull=never", "--name", name, "--label", "ts-bench-job="+job.ID, "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=256", "--cpus=1", "--memory=1g", "--tmpfs", "/tmp:rw,size=256m", "--stop-signal=SIGINT", "--stop-timeout=30", "--timeout=840", "--env-file=/proc/self/fd/3", "-i", job.Images[client], "run", "--workload", "/dev/stdin", "--region", job.Region, "--out", "/dev/stdout")
+	command := exec.CommandContext(ctx, "podman", "run", "--rm", "--pull=never", "--name", name, "--label", "ts-bench-job="+job.ID, "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=256", "--cpus=1", "--memory=1g", "--tmpfs", "/tmp:rw,size=256m", "--stop-signal=SIGINT", "--stop-timeout=30", fmt.Sprintf("--timeout=%d", int(clientLifetime/time.Second)), "--env-file=/proc/self/fd/3", "-i", job.Images[client], "run", "--workload", "/dev/stdin", "--region", job.Region, "--out", "/dev/stdout")
 	command.ExtraFiles = []*os.File{reader}
 	command.Stdin = bytes.NewReader(workload)
 	command.Stderr = io.Discard
