@@ -121,6 +121,9 @@ conditional version publication and refresh; its UID-2000 IMDS block remains.
 These profiles are prepared for signed in-place application, not applied by
 this provision step. No auth binary, signing ring or auth identity data has
 been changed. TS-703 must verify the applied profiles before deploying #56.
+For an attempt's `services` phase, set `ts_auth_profile` and `ts_auth_service`
+to the reviewed regional files. The plan-derived bootstrap profile has no
+provisioned publisher IAM identity and cannot start the TS-703 release.
 
 TS-754's auth cutover follows verified Vault delivery. Fence every old auth
 writer in both regions before the owning TS-754 data operation. Its storage

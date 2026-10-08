@@ -143,10 +143,9 @@ func TestServicesPhaseDerivesANewCellsFirstGenerations(t *testing.T) {
 	}
 }
 
-// GRU's derived profiles mean what its committed files do. Its TerraBase
-// waits for the issuer: in the home cell that is its own ts-auth, which
-// needs TerraBase first.
-func TestServicesPhaseDerivesGRUsCommittedProfiles(t *testing.T) {
+// The plan derives GRU's bootstrap profiles; the reviewed profile supplies
+// the separately provisioned signing publisher identity.
+func TestServicesPhaseDerivesGRUsBootstrapProfiles(t *testing.T) {
 	committed := func(name string) Object {
 		var o Object
 		b, err := os.ReadFile(filepath.Join("../../deploy/oci-region", name))
@@ -159,6 +158,11 @@ func TestServicesPhaseDerivesGRUsCommittedProfiles(t *testing.T) {
 		return o
 	}
 	authProfile := committed("ts-auth-gru-1-profile.json")
+	for _, key := range []string{"TS_AUTH_SIGNING_KEY_VAULT", "TS_AUTH_SIGNING_KEY_SECRET", "TS_AUTH_OCI_REGION",
+		"TS_AUTH_OCI_TENANCY", "TS_AUTH_OCI_USER", "TS_AUTH_OCI_FINGERPRINT"} {
+		delete(object(authProfile["env"]), key)
+	}
+	delete(object(authProfile["secrets"]), "TS_AUTH_OCI_PRIVATE_KEY")
 	a, leader := servicesAttempt(t, "../../deploy/oci-region/plan.json", str(object(authProfile["env"]), "TS_AUTH_TERRASCALE_API_CA"))
 	// The committed profile names the live Vault.
 	for _, ref := range object(authProfile["secrets"]) {
@@ -204,6 +208,40 @@ func TestServicesPhaseDerivesGRUsCommittedProfiles(t *testing.T) {
 	}
 	if leader.count("grant-host") != 3 {
 		t.Fatal(leader.commands)
+	}
+}
+
+func TestServicesPhaseKeepsConfiguredSigningProfiles(t *testing.T) {
+	for _, cell := range []string{"gru", "sfo"} {
+		t.Run(cell, func(t *testing.T) {
+			plan := "plan.json"
+			if cell == "sfo" {
+				plan = "sfo-1-plan.json"
+			}
+			a, leader := servicesAttempt(t, filepath.Join("../../deploy/oci-region", plan), testCA)
+			profile := filepath.Join("../../deploy/oci-region", "ts-auth-"+cell+"-1-profile.json")
+			a.Config["ts_auth_profile"] = profile
+			a.Config["ts_auth_service"] = filepath.Join("../../deploy/oci-region", "ts-auth-"+cell+"-1-service.json")
+			a.PhaseServices()
+			if a.Err() != nil {
+				t.Fatal(a.Err())
+			}
+			if exists(a.derivedProfile(tsauth.Role)) {
+				t.Fatal("derived a replacement for the reviewed signing profile")
+			}
+			applied := 0
+			for _, c := range leader.commands {
+				if slices.Contains(c, "add") && flagValue(c, "--role") == tsauth.Role {
+					if flagValue(c, "--profile") != profile {
+						t.Fatal("did not use the reviewed signing profile")
+					}
+					applied++
+				}
+			}
+			if applied != 1 {
+				t.Fatalf("planned %d ts-auth profiles, want 1", applied)
+			}
+		})
 	}
 }
 

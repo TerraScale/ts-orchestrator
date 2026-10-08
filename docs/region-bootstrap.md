@@ -287,8 +287,10 @@ The next region runs them all with one command, `ts-orch region create`
   the plan: identity, material, anchor, manifests, founder records, image
   import region and receipts, spec delegation and fleet config. Its
   `services` phase derives the cell's TerraBase and ts-auth profiles and
-  host grants from the plan, so `attempt.json` needs no
-  `terrabase_profile`, `ts_auth_profile` or `ts_auth_service`. It installs
+  host grants from the plan. TS-703 releases need `ts_auth_profile` and
+  `ts_auth_service` set to the reviewed regional files after the scoped Vault
+  publisher is provisioned; the plan cannot derive its IAM identity. See
+  [the signing publisher](secrets.md#ts-703-signing-publisher). It installs
   the operator material of a cell other than GRU in
   `/var/lib/terrascale-operator-<cell>` (`-sfo`), never over GRU's.
 - **Trust.** The cell uses the same root, release leaf, operator key and
