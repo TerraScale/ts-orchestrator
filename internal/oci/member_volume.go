@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -214,7 +216,7 @@ func (v *MemberVolumes) Resize(ctx context.Context, member, recordedID string, s
 	if !ok {
 		return RetainedVolume{}, ErrVolumeResizeUnsupported
 	}
-	cloud, identity, found, err := f.findVolumeByCreateKey(ctx, name)
+	cloud, identity, found, err := f.findVolumeByCreateKey(ctx, memberVolumeCreateKey(name))
 	if err != nil {
 		return RetainedVolume{}, err
 	}
@@ -256,7 +258,7 @@ func (v *MemberVolumes) volumeName(member string) (string, error) {
 
 func (v *MemberVolumes) ensureVolume(ctx context.Context, name string, sizeGB int64, recorded string) (CloudVolume, error) {
 	f := v.fleet
-	cloud, _, found, err := f.findVolumeByCreateKey(ctx, name)
+	cloud, _, found, err := f.findVolumeByCreateKey(ctx, memberVolumeCreateKey(name))
 	if err != nil {
 		return CloudVolume{}, err
 	}
@@ -266,7 +268,7 @@ func (v *MemberVolumes) ensureVolume(ctx context.Context, name string, sizeGB in
 	case recorded != "" && cloud.ID != recorded:
 		return CloudVolume{}, fmt.Errorf("%w: data volume %s is %s, not the recorded %s", ErrForeignResource, name, cloud.ID, recorded)
 	case !found:
-		request := VolumeCreateRequest{Name: name, CreateKey: name, SizeGB: sizeGB, AvailabilityDomain: f.config.AvailabilityDomain}
+		request := VolumeCreateRequest{Name: name, CreateKey: memberVolumeCreateKey(name), SizeGB: sizeGB, AvailabilityDomain: f.config.AvailabilityDomain}
 		// Stable within one incarnation, fresh after retirement: a lost create
 		// response replays, but a reused name cannot replay a retired volume.
 		retry, err := v.memberCreateToken(ctx, name)
@@ -274,7 +276,7 @@ func (v *MemberVolumes) ensureVolume(ctx context.Context, name string, sizeGB in
 			return CloudVolume{}, err
 		}
 		_, createErr := f.provider.CreateVolume(ctx, request, volumeTags(f.config, request), retry)
-		cloud, _, found, err = f.findVolumeByCreateKey(ctx, name)
+		cloud, _, found, err = f.findVolumeByCreateKey(ctx, memberVolumeCreateKey(name))
 		if err != nil || !found {
 			return CloudVolume{}, errors.Join(ErrOutcomeUnknown, createErr, err,
 				fmt.Errorf("data volume %s was not observed after its create", name))
@@ -308,7 +310,11 @@ func (v *MemberVolumes) memberCreateToken(ctx context.Context, name string) (str
 	return retryToken(strings.Join(append([]string{f.config.Owner, string(f.config.Region), name}, retired...), ":")), nil
 }
 
-func retiredMemberCreateKey(volumeID string) string { return "retired-" + digest(volumeID)[:32] }
+func memberVolumeCreateKey(name string) string { return entityid.Derive("member-volume", name) }
+
+func retiredMemberCreateKey(volumeID string) string {
+	return entityid.Derive("retired-volume", volumeID)
+}
 
 // Retire is called after the member has drained and before terminating its
 // host. It detaches only the exact recorded volume from that member instance,
@@ -334,7 +340,7 @@ func (v *MemberVolumes) Retire(ctx context.Context, request MemberVolumeRequest)
 			volume.FreeformTags[tagRetiredInstance] != request.InstanceID {
 			return RetainedVolume{}, fmt.Errorf("%w: recorded volume %s was retired for a different member or instance", ErrForeignResource, request.VolumeID)
 		}
-	} else if identity.CreateKey != name || volume.LifecycleState != "AVAILABLE" || volume.ETag == "" {
+	} else if identity.CreateKey != memberVolumeCreateKey(name) || volume.LifecycleState != "AVAILABLE" || volume.ETag == "" {
 		return RetainedVolume{}, fmt.Errorf("%w: recorded volume %s is not available data of member %s", ErrForeignResource, request.VolumeID, request.Member)
 	}
 	updater, ok := f.provider.(VolumeUpdater)
@@ -390,7 +396,7 @@ func (v *MemberVolumes) Retire(ctx context.Context, request MemberVolumeRequest)
 	// Re-read the ETag after detach. An interrupted tag write retries the
 	// same exact volume; its retired create key frees the static name.
 	volume, identity, err = f.reobserveVolume(ctx, request.VolumeID)
-	if err != nil || identity.CreateKey != name || volume.ETag == "" {
+	if err != nil || identity.CreateKey != memberVolumeCreateKey(name) || volume.ETag == "" {
 		return RetainedVolume{}, errors.Join(err, ErrForeignResource)
 	}
 	tags := maps.Clone(volume.FreeformTags)

@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
@@ -39,7 +41,6 @@ var (
 	ErrManifestInvalid  = errors.New("bootstrap manifest is invalid")
 	ErrReceiptInvalid   = errors.New("bootstrap instance receipt is invalid")
 	ErrIdentityMismatch = errors.New("bootstrap instance identity does not match receipt")
-	deploymentRE        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 	clusterRE           = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 	ociIDRE             = regexp.MustCompile(`^ocid1\.[a-z0-9-]+\.[a-z0-9-]+\.[a-z0-9-]*\.[a-z0-9-]+(?:\.[a-z0-9-]+)?$`)
 	sha256RE            = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -337,8 +338,8 @@ func validateManifestEnvelopeSize(envelope trust.Envelope) error {
 // deployment, launch-profile, signer-delegation, and secret-scope constraints.
 func (manifest Manifest) Validate() error {
 	ociRegion, err := manifest.Cell.OCIRegion()
-	if err != nil || manifest.SchemaVersion != ManifestSchemaVersion || !deploymentRE.MatchString(manifest.DeploymentID) ||
-		!clusterRE.MatchString(manifest.ClusterID) || manifest.Environment != "production" && manifest.Environment != "canary" ||
+	if err != nil || manifest.SchemaVersion != ManifestSchemaVersion || !entityid.Valid(manifest.DeploymentID) ||
+		!entityid.Valid(manifest.ClusterID) || manifest.Environment != "production" && manifest.Environment != "canary" ||
 		manifest.OCIRegion != ociRegion || manifest.IntentGeneration == 0 || !sha256RE.MatchString(manifest.IntentSHA256) ||
 		manifest.ControllerRole != "controller" || !controllerSlotRE.MatchString(manifest.Slot) || !controllerSlotRE.MatchString(manifest.SeedSlot) ||
 		!slices.Contains(manifest.ControllerSlots, manifest.Slot) || !slices.Contains(manifest.ControllerSlots, manifest.SeedSlot) ||
@@ -503,8 +504,8 @@ func (secret SecretReference) validate(manifest Manifest) error {
 }
 
 func (expected ManifestExpectation) validate() error {
-	if !deploymentRE.MatchString(expected.DeploymentID) || expected.Environment != "production" && expected.Environment != "canary" ||
-		!clusterRE.MatchString(expected.ClusterID) || !controllerSlotRE.MatchString(expected.Slot) || !isOCID(expected.ImageOCID, "image") {
+	if !entityid.Valid(expected.DeploymentID) || expected.Environment != "production" && expected.Environment != "canary" ||
+		!entityid.Valid(expected.ClusterID) || !controllerSlotRE.MatchString(expected.Slot) || !isOCID(expected.ImageOCID, "image") {
 		return fmt.Errorf("%w: invalid expected manifest identity", ErrManifestInvalid)
 	}
 	if _, err := expected.Cell.OCIRegion(); err != nil {

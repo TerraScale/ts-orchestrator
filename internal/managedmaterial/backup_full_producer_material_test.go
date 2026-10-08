@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -277,11 +278,8 @@ func backupFullBundle(t *testing.T, packet backupProcessPacket, input backupFull
 		backupSHA(authorityWire) != packet.SourceAuthoritySHA256 {
 		t.Fatal("Go authority recreation differs from exact live Rust authority", err)
 	}
-	var tokenID [16]byte
+	tokenID, _ := entityid.Parse(entityid.New())
 	var tokenSecret [32]byte
-	if _, err := rand.Read(tokenID[:]); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := rand.Read(tokenSecret[:]); err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +289,7 @@ func backupFullBundle(t *testing.T, packet backupProcessPacket, input backupFull
 	verifier.Write(tokenID[:])
 	verifier.Write(tokenSecret[:])
 	verifierHex := hex.EncodeToString(verifier.Sum(nil))
-	encodedID := base64.RawURLEncoding.EncodeToString(tokenID[:])
+	encodedID := tokenID.String()
 	token := "tbk1." + encodedID + "." + base64.RawURLEncoding.EncodeToString(tokenSecret[:])
 	registry, err := json.Marshal(apiKeyRegistry{Version: 1, Keys: []apiKeyEntry{{
 		ID: encodedID, VerifierSHA256: verifierHex,

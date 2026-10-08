@@ -9,7 +9,8 @@ import (
 	"log/slog"
 	"slices"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
@@ -74,7 +75,7 @@ func operatorSpecRelay(ctx context.Context, cfg Config, runtime *natscell.Runtim
 	}
 	now := time.Now().UTC()
 	relay, err := protocol.SignEnvelope(signedSpec, protocol.EnvelopeScope{Region: target, Kind: cellSpecRelayKind,
-		Actor: cfg.Operator.Actor, OperationID: "cell-spec-relay." + uuid.New().String(), Generation: 1,
+		Actor: cfg.Operator.Actor, OperationID: entityid.New(), Generation: 1,
 	}, now, now.Add(cellspec.MaxSpecLifetime), codec.PrivateKey)
 	if err != nil {
 		return err

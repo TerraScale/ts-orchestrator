@@ -116,7 +116,7 @@ func (r *rolloutRequester) sign(kind string, payload any, edit func(*protocol.En
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	scope := protocol.EnvelopeScope{Region: "gru", Kind: kind, Actor: "ops", OperationID: "rollout.test",
+	scope := protocol.EnvelopeScope{Region: "gru", Kind: kind, Actor: "ops", OperationID: "0000000000EDWEB4XTSZSDFWS4",
 		Generation: 1, Epoch: 7}
 	issued := time.Now().UTC()
 	if edit != nil {

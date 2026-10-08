@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 const (
@@ -200,7 +202,7 @@ func VerifyEnvelope(
 
 func normalizeScope(scope EnvelopeScope) (EnvelopeScope, error) {
 	region, err := CanonicalRegion(scope.Region)
-	if err != nil || !validKind(scope.Kind) || !validIdentity(scope.Actor, 256) || !validIdentity(scope.OperationID, 128) {
+	if err != nil || !validKind(scope.Kind) || !validIdentity(scope.Actor, 256) || !entityid.Valid(scope.OperationID) {
 		return EnvelopeScope{}, ErrInvalidScope
 	}
 	scope.Region = region

@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -186,7 +188,7 @@ func validateLedgerDelegations(config LedgerConfig, historical bool) error {
 }
 
 func validateLedgerAnchor(config LedgerConfig) error {
-	if !deploymentRE.MatchString(config.DeploymentID) || !clusterRE.MatchString(config.ClusterID) ||
+	if !entityid.Valid(config.DeploymentID) || !entityid.Valid(config.ClusterID) ||
 		config.InitialRegionIntentGeneration == 0 || !validDigest(config.InitialRegionIntentSHA256) {
 		return errors.New("bootstrap ledger requires trusted deployment, cluster, and initial region-intent identity")
 	}
@@ -534,7 +536,7 @@ func (config LedgerConfig) storageDomain() StorageDomain {
 }
 
 func validateLedgerScope(scope BootstrapScope) error {
-	if !deploymentRE.MatchString(scope.DeploymentID) || !slotNameRE.MatchString(scope.Slot) ||
+	if !entityid.Valid(scope.DeploymentID) || !slotNameRE.MatchString(scope.Slot) ||
 		!catalog.IsCell(scope.Cell) {
 		return errors.New("bootstrap ledger scope has an invalid deployment, cell, or controller slot")
 	}

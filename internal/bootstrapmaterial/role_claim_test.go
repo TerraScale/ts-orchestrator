@@ -23,7 +23,7 @@ import (
 func TestRoleClaimAddsTheControllersRoleSigner(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "material")
 	record, err := bootstrapmaterial.Generate(directory, bootstrapmaterial.Config{Environment: "production",
-		Region: "sa-saopaulo-1", Cell: "gru", DeploymentID: "alpha-20260927", ClusterID: "alpha-gru", SubnetCIDR: "10.251.0.0/24",
+		Region: "sa-saopaulo-1", Cell: "gru", DeploymentID: "0000000000XXVM2FA4QBBHZBKD", ClusterID: "00000000000C2KQX35BT9P1FFG", SubnetCIDR: "10.251.0.0/24",
 		Slots: []bootstrapmaterial.Slot{{Name: "controller-a", PrivateIP: "10.251.0.10"}, {Name: "controller-b", PrivateIP: "10.251.0.11"},
 			{Name: "controller-c", PrivateIP: "10.251.0.12"}}, ValidityHours: 48}, time.Now().UTC().Add(-time.Minute).Truncate(time.Second))
 	if err != nil {

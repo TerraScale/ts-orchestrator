@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 )
@@ -85,7 +87,7 @@ func (command ManagedBackupCommand) matchesDesired(desired Desired, registration
 		registration.ManagedPlacement != nil &&
 		registration.ManagedPlacement.DatabaseID == command.DatabaseID &&
 		registration.ManagedPlacement.PartitionID == command.PartitionID &&
-		command.ExpectedProcess.PID >= 2 && lowerHex(command.ExpectedProcess.StartNonce, 32)
+		command.ExpectedProcess.PID >= 2 && entityid.Valid(command.ExpectedProcess.StartNonce)
 }
 
 func (command ManagedBackupCommand) matchesRecord(record authority.BackupOperationRecord) bool {
@@ -214,7 +216,7 @@ func (c *Controller) RequestManagedBackupOperation(ctx context.Context, epoch ui
 		report.ObservedAt.After(time.Now().Add(maxClockSkew)) ||
 		validateManagedReportForDesired(report, desired) != nil ||
 		report.Managed == nil || report.Managed.ProcessPID < 2 ||
-		!lowerHex(report.Managed.ProcessBootID, 32) {
+		!entityid.Valid(report.Managed.ProcessBootID) {
 		return errors.Join(errors.New("backup relay lacks a current native process report"), err)
 	}
 	envelope, err := backupRelayEnvelope(record, memberID, kind, proofMemberID)
@@ -608,6 +610,6 @@ func (a *Agent) reportManagedBackupProcess(ctx context.Context, desired Desired,
 
 func backupProcessLocallyRecovered(status memberstatus.Status, observedPID int) bool {
 	return observedPID >= 2 && observedPID == status.Process.PID &&
-		lowerHex(status.Process.StartNonce, 32) && status.Local.StorageRecovered &&
+		entityid.Valid(status.Process.StartNonce) && status.Local.StorageRecovered &&
 		status.Local.ReplicationListenerReady
 }

@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
@@ -406,7 +408,7 @@ func (rollout *terrabaseRollout) prepare(ctx context.Context, status placementSt
 	update := placement.ManagedUpdateIntent{SchemaVersion: placement.ManagedUpdateSchemaVersion,
 		Cell: rollout.cfg.NATS.Cell, DatabaseID: rollout.intent.DatabaseID, PartitionID: rollout.intent.PartitionID,
 		PlacementGeneration: rollout.intent.Generation, PlacementPayloadDigest: rollout.payloadDigest(),
-		PlacementSequence: status.Sequence, AuthorityEpoch: epoch, OperationID: "u-" + hex.EncodeToString(sum[:15]),
+		PlacementSequence: status.Sequence, AuthorityEpoch: epoch, OperationID: entityid.Derive("managed-update", hex.EncodeToString(sum[:])),
 		Role: rollout.initial.Role, Environment: rollout.initial.Environment,
 		OldArtifactDigest: member.UpdatePins.ArtifactDigest, CandidateArtifactDigest: candidate.Digest,
 		CandidateManifestDigest: candidate.ManifestDigest, CandidateSourceDigest: candidate.Source.TreeDigest,

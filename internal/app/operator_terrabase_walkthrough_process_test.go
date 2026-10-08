@@ -56,7 +56,7 @@ func TestTerraBaseWalkthroughAgainstRealMembers(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
 
-	plan := terrabaseDeployPlan{PlacementDatabaseID: "preview", PartitionID: "p1", ManagedRuntimeRoot: root,
+	plan := terrabaseDeployPlan{PlacementDatabaseID: "0000000000HX30KC7N7WJ1ZFC8", PartitionID: "00000000003ZJEV7X3HYJENEYG", ManagedRuntimeRoot: root,
 		Members: [2]terrabaseDeployMember{{PrivateIP: "10.251.0.21", FaultDomain: "FAULT-DOMAIN-1"},
 			{PrivateIP: "10.251.0.22", FaultDomain: "FAULT-DOMAIN-2"}},
 		ReplicationPort: 9443, ClientPort: 9465,

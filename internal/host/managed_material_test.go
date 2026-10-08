@@ -18,9 +18,9 @@ func TestManagedMaterialChunkIsConfidentialAndBoundToHostSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := request{Node: "node-a", SessionID: "session-a", Epoch: 9, Nonce: "nonce-a"}
+	request := request{Node: "node-a", SessionID: "0000000000Z9BTABDZ10CG462J", Epoch: 9, Nonce: "nonce-a"}
 	query := materialQuery{Role: "terrabase", File: "server.key", DesiredGeneration: 7,
-		DesiredFingerprint: "fingerprint-a", MemberID: "member-a", HostAttempt: 1,
+		DesiredFingerprint: "fingerprint-a", MemberID: "0000000000WM3QQGQPMW5X58P9", HostAttempt: 1,
 		RegistrationGeneration: 3, InstanceID: "instance-a", Offset: 0, Length: 100,
 		EphemeralPublicKey: private.PublicKey().Bytes()}
 	secret := []byte("sensitive replication private key bytes")
@@ -98,9 +98,9 @@ func TestManagedMemberLayoutIsCreatedOnceWithExactOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	launch := ManagedMemberLaunch{Member: ManagedMemberBinding{Scope: MemberScope{
-		ClusterID: strings.Repeat("1", 32), TenantID: "10000000-0000-4000-8000-000000000001",
-		DatabaseID: "20000000-0000-4000-8000-000000000001", ShardID: 1,
-		MemberID: "30000000-0000-4000-8000-000000000001", Incarnation: strings.Repeat("2", 32),
+		ClusterID: "0H248H248H248H248H248H248H", TenantID: "0G000000008008000000000001",
+		DatabaseID: "10000000008008000000000001", ShardID: 1,
+		MemberID: "1G000000008008000000000001", Incarnation: "1248H248H248H248H248H248H2",
 	}, HostAttempt: 1}}
 	paths, err := ensureManagedMemberLayout(root, launch, identity)
 	if err != nil {

@@ -31,7 +31,7 @@ import (
 
 func testConfig() Config {
 	return Config{Environment: "production", Region: "sa-saopaulo-1", Cell: "gru",
-		DeploymentID: "alpha-20260927", ClusterID: "alpha-gru", SubnetCIDR: "10.251.0.0/24",
+		DeploymentID: "0000000000XXVM2FA4QBBHZBKD", ClusterID: "00000000000C2KQX35BT9P1FFG", SubnetCIDR: "10.251.0.0/24",
 		Slots:         []Slot{{"controller-a", "10.251.0.10"}, {"controller-b", "10.251.0.11"}, {"controller-c", "10.251.0.12"}},
 		ValidityHours: 48}
 }

@@ -80,7 +80,9 @@ func TestBrokerClaimReplyRejectsForgedReceipts(t *testing.T) {
 		data  func(t *testing.T) []byte
 		cause string
 	}{
-		{"unsigned success", func(*testing.T) []byte { return []byte(`{"status":"fenced","sequence":1,"hash":"forged"}`) }, "decode untrusted"},
+		{"unsigned success", func(*testing.T) []byte {
+			return []byte(`{"status":"fenced","sequence":1,"hash":"0000000000RPYNQGXVXJSC20CX"}`)
+		}, "decode untrusted"},
 		{"unsigned error", func(*testing.T) []byte { return []byte(`{"error":"control log compare-and-set conflict"}`) }, "unsigned broker claim reply"},
 		{"signed wrong kind", func(t *testing.T) []byte {
 			return sign(t, with(func(r *receipt) { r.kind = "broker.claim.other" }))

@@ -34,7 +34,7 @@ func TestBilledGiBRequiresLexicalInteger(t *testing.T) {
 	}
 }
 func TestJSONRejectsNestedDuplicateAndTrailingValue(t *testing.T) {
-	for _, wire := range []string{`{"plan":{"id":"first","id":"other"}}`, `{"valid":true}{"extra":true}`} {
+	for _, wire := range []string{`{"plan":{"id":"first","id":"0000000000V4MRM46HP1SNGDYW"}}`, `{"valid":true}{"extra":true}`} {
 		if _, err := decodeJSON([]byte(wire)); err == nil {
 			t.Fatalf("accepted ambiguous JSON %s", wire)
 		}

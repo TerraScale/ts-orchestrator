@@ -59,15 +59,15 @@ func TestTerraBaseRolloutClassifiesConnectAndStatusErrors(t *testing.T) {
 func TestSoakSampleRequiresTheHostsCurrentServingProof(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	member := func(host *placementHostStatus) placementMemberStatus {
-		return placementMemberStatus{SeatID: "seat-a", Stage: string(placement.StageServing), ArtifactDigest: "c",
-			Update: &placementUpdateStatus{OperationID: "u-1", Phase: string(placement.ManagedUpdateSeatCanaryServing)},
+		return placementMemberStatus{SeatID: "000000000077F1R6E1XPKAC2D4", Stage: string(placement.StageServing), ArtifactDigest: "c",
+			Update: &placementUpdateStatus{OperationID: "0000000000VWA5N990CSNH40S5", Phase: string(placement.ManagedUpdateSeatCanaryServing)},
 			Host:   host}
 	}
 	healthy := func() *placementHostStatus {
 		return &placementHostStatus{SessionCurrent: true, ReportState: "running", ProcessPID: 77, ServingProof: true}
 	}
 	if sample := soakSample(member(healthy()), now); sample.Gap || !sample.Serving || sample.ProcessPID != 77 ||
-		sample.OperationID != "u-1" || sample.Phase != string(placement.ManagedUpdateSeatCanaryServing) {
+		sample.OperationID != "0000000000VWA5N990CSNH40S5" || sample.Phase != string(placement.ManagedUpdateSeatCanaryServing) {
 		t.Fatalf("healthy sample = %+v", sample)
 	}
 	wedged := healthy()

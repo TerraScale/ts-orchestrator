@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workloadspec"
@@ -107,7 +109,7 @@ func TestStoreAppVersionsFollowConfigChanges(t *testing.T) {
 	draft := testApp("ts-auth")
 	draft.ID, draft.Version = "", 42 // The store owns both.
 	app, err := store.PutApp(ctx, epoch, draft)
-	if err != nil || app.Version != 1 || !idRE.MatchString(app.ID) || app.Revision == 0 {
+	if err != nil || app.Version != 1 || !entityid.Valid(app.ID) || app.Revision == 0 {
 		t.Fatalf("create = %+v, %v", app, err)
 	}
 	if _, err := store.PutApp(ctx, epoch, draft); !errors.Is(err, ErrConflict) {
@@ -433,39 +435,41 @@ func TestStoreRefusesTamperedRecords(t *testing.T) {
 		key   string
 		value []byte
 	}{
-		"app under another name": {appKey("evil"), encode(other)},
-		"unknown field":          {appKey("evil"), []byte(strings.Replace(string(encode(testApp("evil"))), `"name"`, `"owner":"x","name"`, 1))},
-		"invalid record":         {appKey("evil"), encode(invalid)},
-		"duplicate field":        {appKey("evil"), []byte(`{"name":"evil","name":"evil"}`)},
-		"not json":               {appKey("evil"), []byte("{")},
-		"machine of another app": {machineKey("evil", machine.ID), encode(machine)},
-		"status of another app":  {statusKey("evil", machine.ID), encode(Status{ID: machine.ID, App: "ts-auth", State: StateStarted, UpdatedAt: time.Now()})},
+		"app under another name":   {appKey("evil"), encode(other)},
+		"unknown field":            {appKey("evil"), []byte(strings.Replace(string(encode(testApp("evil"))), `"name"`, `"owner":"x","name"`, 1))},
+		"invalid record":           {appKey("evil"), encode(invalid)},
+		"duplicate field":          {appKey("evil"), []byte(`{"name":"evil","name":"evil"}`)},
+		"not json":                 {appKey("evil"), []byte("{")},
+		"machine under another ID": {entityid.Derive("wrong-machine", machine.ID), encode(machine)},
+		"status under another ID":  {entityid.Derive("wrong-status", machine.ID), encode(Status{ID: machine.ID, App: "ts-auth", State: StateStarted, UpdatedAt: time.Now()})},
 	}
 	for name, tamper := range cases {
 		kv := store.apps
-		if strings.HasPrefix(tamper.key, "status.") {
+		if strings.HasPrefix(name, "status ") {
 			kv = store.statuses
+		} else if strings.HasPrefix(name, "machine ") {
+			kv = store.machines
 		}
 		if _, err := kv.Put(ctx, tamper.key, tamper.value); err != nil {
 			t.Fatal(err)
 		}
 		var getErr, listErr error
 		switch {
-		case strings.HasPrefix(tamper.key, "apps."):
+		case kv == store.apps:
 			_, getErr = store.App(ctx, "evil")
 			_, listErr = store.Apps(ctx)
-		case strings.HasPrefix(tamper.key, "machines."):
-			_, getErr = store.Machine(ctx, "evil", machine.ID)
+		case kv == store.machines:
+			_, getErr = store.Machine(ctx, "ts-auth", tamper.key)
 			_, listErr = store.Machines(ctx, "")
 		default:
-			_, getErr = store.Status(ctx, "evil", machine.ID)
+			_, getErr = store.Status(ctx, "ts-auth", tamper.key)
 			_, listErr = store.Statuses(ctx, "")
 		}
 		if !errors.Is(getErr, ErrInvalid) || !errors.Is(listErr, ErrInvalid) {
 			t.Fatalf("%s: read = %v, list = %v", name, getErr, listErr)
 		}
 		// The bad record fails only the lists that include it.
-		if machines, err := store.Machines(ctx, "ts-auth"); err != nil || len(machines) != 1 {
+		if machines, err := store.Machines(ctx, "ts-auth"); (kv == store.machines && !errors.Is(err, ErrInvalid)) || (kv != store.machines && (err != nil || len(machines) != 1)) {
 			t.Fatalf("%s: ts-auth machines = %d, %v", name, len(machines), err)
 		}
 		if err := kv.Purge(ctx, tamper.key); err != nil {
@@ -521,7 +525,7 @@ func TestStoreSweepsStatusesWithoutTheirMachine(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The machine is deleted between a host report's read and its write.
-	if err := store.apps.Delete(ctx, gone.key()); err != nil {
+	if err := store.machines.Delete(ctx, gone.key()); err != nil {
 		t.Fatal(err)
 	}
 	goneStatus.State = StateStopped

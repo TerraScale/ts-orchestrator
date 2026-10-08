@@ -34,6 +34,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machinesapi"
@@ -91,7 +93,6 @@ var (
 	tokenRE      = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 	hostRE       = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}[a-z0-9]$`)
 	controllerRE = regexp.MustCompile(`^controller-[a-z]$`)
-	deploymentR  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 )
 
 // NewerBinaryError refuses an amendment that needs a newer binary. It is
@@ -336,8 +337,6 @@ const (
 )
 
 var (
-	// canaryProjectRE admits a ts-auth project id, such as a UUID.
-	canaryProjectRE  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
 	canaryDatabaseRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)
 )
 
@@ -345,7 +344,7 @@ func (c Canary) validate(cell string) error {
 	if err := vaultsecret.ValidateRefs(cell, CanaryRole, map[string]vaultsecret.Ref{CanaryKey: c.Credentials}, nil); err != nil {
 		return fmt.Errorf("%w: release_fence canary: %w", ErrInvalid, err)
 	}
-	if !canaryProjectRE.MatchString(c.Project) || !canaryDatabaseRE.MatchString(c.Database) || !originURL(c.AuthURL) ||
+	if !entityid.Valid(c.Project) || !canaryDatabaseRE.MatchString(c.Database) || !originURL(c.AuthURL) ||
 		!originURL(c.APIURL) || c.DashboardLoginURL != "" && !httpsURL(c.DashboardLoginURL) {
 		return fmt.Errorf("%w: release_fence canary needs a project, a database name and https auth_url and api_url origins", ErrInvalid)
 	}
@@ -504,7 +503,7 @@ type Verified struct {
 }
 
 func (id Identity) Validate() error {
-	if !deploymentR.MatchString(id.DeploymentID) || !tokenRE.MatchString(id.Cell) || !tokenRE.MatchString(id.Environment) {
+	if !entityid.Valid(id.DeploymentID) || !tokenRE.MatchString(id.Cell) || !tokenRE.MatchString(id.Environment) {
 		return fmt.Errorf("%w: deployment, cell or environment", ErrInvalid)
 	}
 	return nil

@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
@@ -14,8 +13,9 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"github.com/nats-io/nats.go/jetstream"
-	"github.com/oklog/ulid/v2"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
@@ -300,7 +300,7 @@ func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, ro
 			return state, err
 		}
 		intent := nativeIntent(record, nativeRelease{Role: role, Replicas: replicas, Profile: profile}, generation)
-		intent.SchemaVersion, intent.OperationID = delivery.SchemaVersion, ulid.MustNew(ulid.Now(), rand.Reader).String()
+		intent.SchemaVersion, intent.OperationID = delivery.SchemaVersion, entityid.New()
 		intent.AuthorityEpoch = r.fencer.Current().Epoch
 		state.Digest, state.Actor, state.Previous, state.Intent = record.Digest, actor, previous, &intent
 		state.Retained = nil
@@ -366,7 +366,7 @@ func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, ro
 				return rollback, err
 			}
 		}
-		rollback.SchemaVersion, rollback.OperationID = delivery.SchemaVersion, ulid.MustNew(ulid.Now(), rand.Reader).String()
+		rollback.SchemaVersion, rollback.OperationID = delivery.SchemaVersion, entityid.New()
 		rollback.AuthorityEpoch = r.fencer.Current().Epoch
 		state.Rollback, state.Reason = &rollback, "rolling back to "+state.Previous
 		return rollback, save(state)
@@ -430,7 +430,7 @@ func (r *serviceReleases) fresh(ctx context.Context, role string, intent deliver
 	if err != nil {
 		return intent, false, err
 	}
-	intent.OperationID, intent.AuthorityEpoch = ulid.MustNew(ulid.Now(), rand.Reader).String(), epoch
+	intent.OperationID, intent.AuthorityEpoch = entityid.New(), epoch
 	intent.Generation = max(intent.Generation, nextReleaseGeneration(desired))
 	return intent, true, nil
 }
@@ -445,7 +445,7 @@ func (r *serviceReleases) deployer(actor string, recovering func(context.Context
 				return intent, "", errors.New("this controller no longer holds the authority lease")
 			}
 			if intent.OperationID == "" {
-				intent.OperationID = ulid.MustNew(ulid.Now(), rand.Reader).String()
+				intent.OperationID = entityid.New()
 			}
 			if intent.AuthorityEpoch == 0 {
 				intent.AuthorityEpoch = r.fencer.Current().Epoch

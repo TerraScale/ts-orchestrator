@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 func safeReplicaSnapshot(now time.Time, cells ...*fakeCell) ReplicaSnapshot {
@@ -20,13 +22,13 @@ func safeReplicaSnapshot(now time.Time, cells ...*fakeCell) ReplicaSnapshot {
 	} else {
 		for n := 1; n <= 4; n++ {
 			name := NodeName("gru-1", n)
-			members = append(members, NodeIdentity{Name: name, InstanceID: "ocid-" + name, Incarnation: name + "-p1"})
+			members = append(members, NodeIdentity{Name: name, InstanceID: "ocid-" + name, Incarnation: entityid.Derive("test-process", name+"-p1")})
 		}
 	}
 	return ReplicaSnapshot{Schema: 1, Cell: "gru-1", SampledAt: now, Complete: true, Members: members,
 		Placements: []ReplicaPlacement{
-			{Org: "acme", Database: "primary", Shard: 1, LiveReplicas: []string{"gru-1-db-1", "gru-1-db-2", "gru-1-db-3"}},
-			{Org: "other", Database: "quiet", Shard: 2, LiveReplicas: []string{"gru-1-db-1", "gru-1-db-2", "gru-1-db-3"}},
+			{Org: entityid.Derive("test-entity", "acme"), Database: entityid.Derive("test-entity", "primary"), Shard: 1, LiveReplicas: []string{"gru-1-db-1", "gru-1-db-2", "gru-1-db-3"}},
+			{Org: entityid.Derive("test-entity", "other"), Database: entityid.Derive("test-entity", "quiet"), Shard: 2, LiveReplicas: []string{"gru-1-db-1", "gru-1-db-2", "gru-1-db-3"}},
 		}}
 }
 
@@ -36,7 +38,7 @@ func TestReplicaInventoryRequiresExactIdentityMembership(t *testing.T) {
 		change func(*ReplicaSnapshot)
 	}{
 		{"old instance", func(s *ReplicaSnapshot) { s.Members[0].InstanceID = "predecessor-ocid" }},
-		{"old incarnation", func(s *ReplicaSnapshot) { s.Members[0].Incarnation = "predecessor-start" }},
+		{"old incarnation", func(s *ReplicaSnapshot) { s.Members[0].Incarnation = "0000000000RHB5KCASP9GW9MZF" }},
 		{"missing empty member", func(s *ReplicaSnapshot) { s.Members = s.Members[:3] }},
 		{"duplicate member", func(s *ReplicaSnapshot) { s.Members[1] = s.Members[0] }},
 		{"unknown member", func(s *ReplicaSnapshot) { s.Members[3] = fakeNodeIdentity("gru-1-db-5") }},

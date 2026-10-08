@@ -186,7 +186,7 @@ func documents(ctx context.Context, e *environment) (err error) {
 	if len(query.Items) != 1 || query.Items[0].ID != created.ID || query.Count == nil || query.Count.Value != 1 {
 		return errors.New("query/count did not match updated document")
 	}
-	txID := tb.DocumentIDFor("items", "TS-512-transaction")
+	txID := tb.NewID()
 	tx, err := db.Tx().Put("items", txID, map[string]any{"n": 7}, tb.IfNoneMatchAny()).Patch("items", created.ID, tb.Ops(tb.Inc("/n", 1)), tb.IfMatch(patched.Version)).Commit(ctx)
 	if err != nil {
 		return err

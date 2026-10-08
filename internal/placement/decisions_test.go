@@ -37,7 +37,7 @@ func TestJournaledStoreRecordsTransitions(t *testing.T) {
 	inner := &journalTestStore{members: map[string]VersionedMemberState{}}
 	store := JournaledStore(inner, "gru")
 	ctx := t.Context()
-	state := MemberState{DatabaseID: "db", PartitionID: "p0", MemberID: "m1", Stage: StagePreparedHost, WriterEpoch: 3}
+	state := MemberState{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD", MemberID: "0000000000E53AR49PEP1CY8VB", Stage: StagePreparedHost, WriterEpoch: 3}
 	mustCAS := func(expected uint64, state MemberState) {
 		t.Helper()
 		if _, err := store.CompareAndSwap(ctx, expected, state); err != nil {
@@ -52,8 +52,8 @@ func TestJournaledStoreRecordsTransitions(t *testing.T) {
 	mustCAS(3, state)
 
 	admission := decisionlog.Record(ctx, decisionlog.Decision{Kind: decisionlog.KindReleaseAdmitted})
-	decisionlog.Correlate(ManagedUpdateCorrelation("db", "p0", "op-1"), admission)
-	state.ManagedRuntimeTarget = ManagedRuntimeTarget{OperationID: "op-1", Phase: ManagedUpdateSeatPrepared}
+	decisionlog.Correlate(ManagedUpdateCorrelation("0000000000T8H7NEY8XQ530245", "00000000003K6TBW31R91GBDRD", "0000000000M44BFMMJRNPNN6BB"), admission)
+	state.ManagedRuntimeTarget = ManagedRuntimeTarget{OperationID: "0000000000M44BFMMJRNPNN6BB", Phase: ManagedUpdateSeatPrepared}
 	mustCAS(4, state)
 	state.ManagedRuntimeTarget.Phase = ManagedUpdateSeatCanaryServing
 	state.ManagedRuntimeTarget.Outcome = "canary-serving"
@@ -90,13 +90,13 @@ func TestJournaledStoreRecordsTransitions(t *testing.T) {
 	}
 	// A seat first seen through a listing reports where it came from.
 	inner.fail = false
-	inner.members["m2"] = VersionedMemberState{State: MemberState{DatabaseID: "db", PartitionID: "p0", MemberID: "m2",
+	inner.members["m2"] = VersionedMemberState{State: MemberState{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD", MemberID: "00000000001VZK2HQDVVKV22S3",
 		Stage: StageAwaitingAttach}, Revision: 9}
-	if _, err := store.ListMembers(ctx, "db", "p0"); err != nil {
+	if _, err := store.ListMembers(ctx, "0000000000T8H7NEY8XQ530245", "00000000003K6TBW31R91GBDRD"); err != nil {
 		t.Fatal(err)
 	}
-	mustCAS(9, MemberState{DatabaseID: "db", PartitionID: "p0", MemberID: "m2", Stage: StagePreparedDesired})
-	latest, _ := journal.Query(ctx, decisionlog.Query{SubjectID: "db/p0/m2"})
+	mustCAS(9, MemberState{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD", MemberID: "00000000001VZK2HQDVVKV22S3", Stage: StagePreparedDesired})
+	latest, _ := journal.Query(ctx, decisionlog.Query{SubjectID: memberStateKey("0000000000T8H7NEY8XQ530245", "00000000003K6TBW31R91GBDRD", "00000000001VZK2HQDVVKV22S3")})
 	if len(latest.Decisions) != 1 || latest.Decisions[0].Reason != "The reconciler committed prepared-desired after awaiting-attach." {
 		t.Fatalf("m2 = %+v", latest.Decisions)
 	}
@@ -107,13 +107,13 @@ func TestJournaledSeatSubjectsAreQualified(t *testing.T) {
 	journal := decisionlog.NewJournal(decisionlog.JournalConfig{Region: "gru"})
 	t.Cleanup(decisionlog.SetDefault(journal))
 	store := JournaledStore(&journalTestStore{members: map[string]VersionedMemberState{}}, "gru")
-	for _, partition := range []string{"p0", "p1"} {
-		if _, err := store.CompareAndSwap(t.Context(), 0, MemberState{DatabaseID: "db", PartitionID: partition,
-			MemberID: "permanent-a", Stage: StagePreparedHost}); err != nil {
+	for _, partition := range []string{"00000000003K6TBW31R91GBDRD", "00000000009WTTZWVWDNSXXPA0"} {
+		if _, err := store.CompareAndSwap(t.Context(), 0, MemberState{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: partition,
+			MemberID: "00000000000E5NVMSGX0D07DPA", Stage: StagePreparedHost}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	one, _ := journal.Query(t.Context(), decisionlog.Query{SubjectKind: "seat", SubjectID: "db/p0/permanent-a"})
+	one, _ := journal.Query(t.Context(), decisionlog.Query{SubjectKind: "seat", SubjectID: memberStateKey("0000000000T8H7NEY8XQ530245", "00000000003K6TBW31R91GBDRD", "00000000000E5NVMSGX0D07DPA")})
 	if len(one.Decisions) != 1 {
 		t.Fatalf("seat history mixes partitions: %+v", one.Decisions)
 	}
@@ -127,7 +127,7 @@ func TestConcurrentReadDoesNotHideATransition(t *testing.T) {
 	t.Cleanup(decisionlog.SetDefault(journal))
 	inner := &journalTestStore{members: map[string]VersionedMemberState{}}
 	store := JournaledStore(inner, "gru").(*journaledStore)
-	state := MemberState{DatabaseID: "db", PartitionID: "p0", MemberID: "m1", Stage: StageAwaitingHost}
+	state := MemberState{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD", MemberID: "0000000000E53AR49PEP1CY8VB", Stage: StageAwaitingHost}
 	if _, err := store.CompareAndSwap(t.Context(), 0, state); err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestConcurrentReadDoesNotHideATransition(t *testing.T) {
 	if _, err := store.CompareAndSwap(t.Context(), 1, state); err != nil {
 		t.Fatal(err)
 	}
-	serving, _ := journal.Query(t.Context(), decisionlog.Query{SubjectID: "db/p0/m1"})
+	serving, _ := journal.Query(t.Context(), decisionlog.Query{SubjectID: memberStateKey("0000000000T8H7NEY8XQ530245", "00000000003K6TBW31R91GBDRD", "0000000000E53AR49PEP1CY8VB")})
 	if len(serving.Decisions) != 2 || serving.Decisions[0].Reason != "The reconciler committed serving after awaiting-host." {
 		t.Fatalf("decisions = %+v", serving.Decisions)
 	}
@@ -149,8 +149,8 @@ func TestUnknownPredecessorDoesNotRepeatAPhase(t *testing.T) {
 	journal := decisionlog.NewJournal(decisionlog.JournalConfig{Region: "gru"})
 	t.Cleanup(decisionlog.SetDefault(journal))
 	store := JournaledStore(&journalTestStore{members: map[string]VersionedMemberState{}}, "gru").(*journaledStore)
-	state := MemberState{DatabaseID: "db", PartitionID: "p0", MemberID: "m1", Stage: StageServing,
-		ManagedRuntimeTarget: ManagedRuntimeTarget{OperationID: "op", Phase: ManagedUpdateSeatPrepared}}
+	state := MemberState{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD", MemberID: "0000000000E53AR49PEP1CY8VB", Stage: StageServing,
+		ManagedRuntimeTarget: ManagedRuntimeTarget{OperationID: "0000000000C8KM8N5ZFHV5BEXT", Phase: ManagedUpdateSeatPrepared}}
 	if _, err := store.CompareAndSwap(t.Context(), 0, state); err != nil {
 		t.Fatal(err)
 	}
@@ -171,20 +171,20 @@ func TestResumedUpdateLinksToTheAdmissionWithoutCorrelation(t *testing.T) {
 	journal := decisionlog.NewJournal(decisionlog.JournalConfig{Region: "gru"})
 	t.Cleanup(decisionlog.SetDefault(journal))
 	store := JournaledStore(&journalTestStore{members: map[string]VersionedMemberState{}}, "gru")
-	state := MemberState{DatabaseID: "db", PartitionID: "p0", MemberID: "m1", Stage: StageServing,
-		ManagedRuntimeTarget: ManagedRuntimeTarget{OperationID: "op-resumed", Phase: ManagedUpdateSeatCanaryServing}}
+	state := MemberState{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD", MemberID: "0000000000E53AR49PEP1CY8VB", Stage: StageServing,
+		ManagedRuntimeTarget: ManagedRuntimeTarget{OperationID: "0000000000V6DTRPBF1X97QFBR", Phase: ManagedUpdateSeatCanaryServing}}
 	if _, err := store.CompareAndSwap(t.Context(), 0, state); err != nil {
 		t.Fatal(err)
 	}
 	result, _ := journal.Query(t.Context(), decisionlog.Query{Kinds: []decisionlog.Kind{decisionlog.KindCanaryPromoted}})
-	if len(result.Decisions) != 1 || result.Decisions[0].ParentID != ManagedUpdateAdmissionID("gru", "db", "p0", "op-resumed") {
+	if len(result.Decisions) != 1 || result.Decisions[0].ParentID != ManagedUpdateAdmissionID("gru", "0000000000T8H7NEY8XQ530245", "00000000003K6TBW31R91GBDRD", "0000000000V6DTRPBF1X97QFBR") {
 		t.Fatalf("promotion = %+v", result.Decisions)
 	}
-	if id := ManagedUpdateAdmissionID("gru", "db", "p0", "op-resumed"); id != ManagedUpdateAdmissionID("gru", "db", "p0", "op-resumed") ||
-		id == ManagedUpdateAdmissionID("gru", "db", "p1", "op-resumed") {
+	if id := ManagedUpdateAdmissionID("gru", "0000000000T8H7NEY8XQ530245", "00000000003K6TBW31R91GBDRD", "0000000000V6DTRPBF1X97QFBR"); id != ManagedUpdateAdmissionID("gru", "0000000000T8H7NEY8XQ530245", "00000000003K6TBW31R91GBDRD", "0000000000V6DTRPBF1X97QFBR") ||
+		id == ManagedUpdateAdmissionID("gru", "0000000000T8H7NEY8XQ530245", "00000000009WTTZWVWDNSXXPA0", "0000000000V6DTRPBF1X97QFBR") {
 		t.Fatal("admission IDs are not a function of the partition-scoped operation")
 	}
-	if _, ok := decisionlog.IDTime(ManagedUpdateAdmissionID("gru", "db", "p0", "op-resumed")); ok {
+	if _, ok := decisionlog.IDTime(ManagedUpdateAdmissionID("gru", "0000000000T8H7NEY8XQ530245", "00000000003K6TBW31R91GBDRD", "0000000000V6DTRPBF1X97QFBR")); ok {
 		t.Fatal("an admission ID reads as a time-ordered ID")
 	}
 }
@@ -195,7 +195,7 @@ func TestJournaledPhasesStayBoundedPerSeat(t *testing.T) {
 	journal := decisionlog.NewJournal(decisionlog.JournalConfig{Region: "gru"})
 	t.Cleanup(decisionlog.SetDefault(journal))
 	store := JournaledStore(&journalTestStore{members: map[string]VersionedMemberState{}}, "gru").(*journaledStore)
-	state := MemberState{DatabaseID: "db", PartitionID: "p0", MemberID: "m1", Stage: StageServing}
+	state := MemberState{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD", MemberID: "0000000000E53AR49PEP1CY8VB", Stage: StageServing}
 	revision := uint64(0)
 	for index := range 50 {
 		state.ManagedRuntimeTarget = ManagedRuntimeTarget{OperationID: fmt.Sprintf("op-%d", index),

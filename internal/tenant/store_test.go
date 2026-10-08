@@ -68,7 +68,7 @@ func TestStoreRoundTripAndList(t *testing.T) {
 	if _, err := store.Create(ctx, acme); !errors.Is(err, ErrExists) {
 		t.Fatalf("second Create = %v, want ErrExists", err)
 	}
-	beta, err := New("beta", "org_02", "prj_02", "gru", Spec{Plan: "starter", Members: 1, TerraBase: digestA}, t0)
+	beta, err := New("000000000007B370ZNASV1RJBJ", "0000000000SENYWME143WT9XQ0", "0000000000DJCXD2R63PD0AFEM", "gru", Spec{Plan: "starter", Members: 1, TerraBase: digestA}, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,16 +83,16 @@ func TestStoreRoundTripAndList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := store.Get(ctx, "acme")
+	got, err := store.Get(ctx, "0000000000WT9WWA18KD4ET6PG")
 	if err != nil || !reflect.DeepEqual(got, updated) {
 		t.Fatalf("Get = %+v, %v; want %+v", got, err, updated)
 	}
 	tenants, err := store.List(ctx)
-	if err != nil || len(tenants) != 2 || tenants[0].Tenant.ID != "acme" || tenants[1].Tenant.ID != "beta" ||
-		!reflect.DeepEqual(tenants[0], updated) {
+	if err != nil || len(tenants) != 2 || tenants[1].Tenant.ID != "0000000000WT9WWA18KD4ET6PG" || tenants[0].Tenant.ID != "000000000007B370ZNASV1RJBJ" ||
+		!reflect.DeepEqual(tenants[1], updated) {
 		t.Fatalf("List = %+v, %v", tenants, err)
 	}
-	if _, err := store.Get(ctx, "gamma"); !errors.Is(err, ErrNotFound) {
+	if _, err := store.Get(ctx, "0000000000YB93Q2ZWXZ0R3WKB"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Get(missing) = %v, want ErrNotFound", err)
 	}
 }
@@ -140,7 +140,7 @@ func TestStoreRefusesInvalidWrites(t *testing.T) {
 	if _, err := store.Create(ctx, acme); !errors.Is(err, ErrExists) {
 		t.Fatalf("Create over a retained tenant = %v, want ErrExists", err)
 	}
-	if got, err := store.Get(ctx, "acme"); err != nil || got.Tenant.State != StateDeleted {
+	if got, err := store.Get(ctx, "0000000000WT9WWA18KD4ET6PG"); err != nil || got.Tenant.State != StateDeleted {
 		t.Fatalf("Get = %+v, %v; want the deleted tenant untouched", got, err)
 	}
 }
@@ -155,11 +155,11 @@ func TestStoreConcurrentWritersOneWins(t *testing.T) {
 	if _, err := left.Create(ctx, newTenant(t)); err != nil {
 		t.Fatal(err)
 	}
-	leftRead, err := left.Get(ctx, "acme")
+	leftRead, err := left.Get(ctx, "0000000000WT9WWA18KD4ET6PG")
 	if err != nil {
 		t.Fatal(err)
 	}
-	rightRead, err := right.Get(ctx, "acme")
+	rightRead, err := right.Get(ctx, "0000000000WT9WWA18KD4ET6PG")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestStoreConcurrentWritersOneWins(t *testing.T) {
 	if _, err := right.Update(ctx, rightRead.Revision, scale); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale Update = %v, want ErrConflict", err)
 	}
-	reread, err := right.Get(ctx, "acme")
+	reread, err := right.Get(ctx, "0000000000WT9WWA18KD4ET6PG")
 	if err != nil || reread.Tenant.State != StateSuspended {
 		t.Fatalf("reread = %+v, %v; want the suspension", reread, err)
 	}
@@ -211,16 +211,16 @@ func TestStoreRefusesTamperedRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry, err := kv.Get(ctx, "tenant.acme")
+	entry, err := kv.Get(ctx, "0000000000WT9WWA18KD4ET6PG")
 	if err != nil {
 		t.Fatal(err)
 	}
 	valid := string(entry.Value())
 	for name, tc := range map[string]struct{ key, value string }{
-		"copied under another id": {"tenant.beta", valid},
-		"unknown field":           {"tenant.acme", strings.Replace(valid, `"id":`, `"owner":"mallory","id":`, 1)},
-		"invalid members":         {"tenant.acme", strings.Replace(valid, `"members":3`, `"members":2`, 1)},
-		"not json":                {"tenant.acme", "{"},
+		"copied under another id": {"000000000007B370ZNASV1RJBJ", valid},
+		"unknown field":           {"0000000000WT9WWA18KD4ET6PG", strings.Replace(valid, `"id":`, `"owner":"mallory","id":`, 1)},
+		"invalid members":         {"0000000000WT9WWA18KD4ET6PG", strings.Replace(valid, `"members":3`, `"members":2`, 1)},
+		"not json":                {"0000000000WT9WWA18KD4ET6PG", "{"},
 	} {
 		if _, err := kv.Put(ctx, tc.key, []byte(tc.value)); err != nil {
 			t.Fatal(err)
@@ -235,7 +235,7 @@ func TestStoreRefusesTamperedRecords(t *testing.T) {
 		if err := kv.Purge(ctx, tc.key); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := kv.Put(ctx, "tenant.acme", []byte(valid)); err != nil {
+		if _, err := kv.Put(ctx, "0000000000WT9WWA18KD4ET6PG", []byte(valid)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -266,13 +266,13 @@ func TestStoreRefusesDeleteMarkers(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, remove := range map[string]func() error{
-		"delete": func() error { return kv.Delete(ctx, "tenant.acme") },
-		"purge":  func() error { return kv.Purge(ctx, "tenant.acme") },
+		"delete": func() error { return kv.Delete(ctx, "0000000000WT9WWA18KD4ET6PG") },
+		"purge":  func() error { return kv.Purge(ctx, "0000000000WT9WWA18KD4ET6PG") },
 	} {
 		if err := remove(); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := store.Get(ctx, "acme"); !errors.Is(err, ErrCorrupt) {
+		if _, err := store.Get(ctx, "0000000000WT9WWA18KD4ET6PG"); !errors.Is(err, ErrCorrupt) {
 			t.Errorf("%s: Get = %v, want ErrCorrupt", name, err)
 		}
 		if _, err := store.List(ctx); !errors.Is(err, ErrCorrupt) {
@@ -302,7 +302,7 @@ func TestStoreRefusesFutureStamps(t *testing.T) {
 	store := openStore(t, startCell(t)())
 	store.now = func() time.Time { return t0 }
 	ctx := t.Context()
-	early, err := New("acme", "org_01", "prj_01", "gru",
+	early, err := New("0000000000WT9WWA18KD4ET6PG", "0000000000GG77KS2XN2FPA9SS", "00000000005C91M54AQR9YGVT5", "gru",
 		Spec{Plan: "standard", Members: 3, TerraBase: digestA}, t0.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)

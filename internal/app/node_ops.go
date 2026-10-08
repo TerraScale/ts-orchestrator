@@ -16,6 +16,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	network "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/rollout"
@@ -267,6 +268,9 @@ func (o *nodeOps) serve(ctx context.Context, wire []byte, cell string, policy si
 // would break a set's quorum guard now, rather than queue it behind a
 // failure nobody is fixing; one that waits for another operation queues.
 func (o *nodeOps) submit(ctx context.Context, epoch uint64, actor, id string, request nodeOpRequest) (nodeOp, error) {
+	if !entityid.Valid(id) {
+		return nodeOp{}, errors.New("node operation ID must be a canonical ULID")
+	}
 	from := ""
 	switch request.Op {
 	case nodeOpDrain, nodeOpUndrain, nodeOpReboot, nodeOpAdd, nodeOpRetire, nodeOpRename:
@@ -471,6 +475,9 @@ func (o *nodeOps) load(ctx context.Context, node string) (nodeOp, bool, error) {
 	var op nodeOp
 	if err := json.Unmarshal(entry.Value(), &op); err != nil {
 		return nodeOp{}, false, fmt.Errorf("decode the operation of %s: %w", node, err)
+	}
+	if !entityid.Valid(op.ID) || op.Node != node {
+		return nodeOp{}, false, errors.New("stored node operation identity is invalid")
 	}
 	return op, true, nil
 }

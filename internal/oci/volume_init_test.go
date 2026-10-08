@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 )
 
@@ -52,7 +54,7 @@ func newVolumeInitFixture(t *testing.T) (*fleet, *fakeProvider, *KVJournal, Volu
 		t.Fatal(err)
 	}
 	fleet := api.(*fleet)
-	host, err := fleet.EnsureHost(t.Context(), testEnsureRequest("volume-init-host"))
+	host, err := fleet.EnsureHost(t.Context(), testEnsureRequest(entityid.Derive("test-operation", "volume-init-host")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +62,7 @@ func newVolumeInitFixture(t *testing.T) (*fleet, *fakeProvider, *KVJournal, Volu
 	instance.LifecycleState = "RUNNING"
 	provider.instances[host.ID] = instance
 	volume, err := fleet.CreateRetainedVolume(t.Context(), VolumeCreateRequest{
-		Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "volume-init-owned-create", SizeGB: 50,
+		Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: "00000000005XQ4CBN4YC3ETEXN", SizeGB: 50,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -69,14 +71,14 @@ func newVolumeInitFixture(t *testing.T) (*fleet, *fakeProvider, *KVJournal, Volu
 	cloudVolume.LifecycleState = "AVAILABLE"
 	provider.volumes[volume.ID] = cloudVolume
 	attachment, err := fleet.AttachRetainedVolume(t.Context(), VolumeAttachRequest{
-		DatabaseID: "db-main", PartitionID: "partition-main", VolumeID: volume.ID,
-		InstanceID: host.ID, IdempotencyKey: "volume-init-first-attach",
+		DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", VolumeID: volume.ID,
+		InstanceID: host.ID, IdempotencyKey: entityid.Derive("test-attach", "volume-init-first-attach"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	pins := VolumeInitializationPins{
-		DatabaseID: "db-main", PartitionID: "partition-main", InstanceID: host.ID,
+		DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", InstanceID: host.ID,
 		HostCreateKey: host.CreateKey, VolumeID: volume.ID, AttachmentID: attachment.ID,
 		AttachmentETag: attachment.ETag, Device: attachment.Device,
 		FileSystemUUID: "12345678-1234-1234-1234-123456789abc", FileSystemType: "ext4",
@@ -183,8 +185,8 @@ func TestVolumeFormatPermitJournalOneWinnerAndImmutableBinding(t *testing.T) {
 	config, _ := testRegionConfig()
 	record := VolumeFormatPermitRecord{
 		Region: config.Region, Generation: config.Generation, Owner: config.Owner,
-		DatabaseID: "db-main", PartitionID: "partition-main",
-		InstanceID: "ocid1.instance.format-owner", HostCreateKey: "format-owner",
+		DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ",
+		InstanceID: "ocid1.instance.format-owner", HostCreateKey: "0000000000DWTH9DFW5RRMYGPH",
 		VolumeID: "ocid1.volume.format-once", AttachmentID: "ocid1.volumeattachment.format-once",
 		AttachmentETag: "attachment-etag", Device: "/dev/oracleoci/oraclevdb",
 		FileSystemUUID: "12345678-1234-1234-1234-123456789abc", FileSystemType: "ext4",

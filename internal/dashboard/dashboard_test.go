@@ -46,7 +46,7 @@ func memberSnapshot() observability.MemberSnapshot {
 	return observability.MemberSnapshot{Version: observability.SnapshotVersion, Cell: "fra", Member: "ctl-1",
 		Role: "controller", BuildVersion: "abc123def456", StartedAt: testNow.Add(-3 * time.Hour),
 		ObservedAt: testNow, Ready: true,
-		Authority: &observability.AuthorityView{Leader: true, Ready: true, CanMutate: true, OwnerID: "ctl-1",
+		Authority: &observability.AuthorityView{Leader: true, Ready: true, CanMutate: true, OwnerID: "00000000009DQWP5T1WY4KP1TS",
 			Epoch: 7, Revision: 42},
 		NATS: &observability.NATSView{ServerName: "ctl-1", Connections: 5, Routes: 2, ClusterPeers: 3,
 			MetaLeader: "ctl-1", IsMetaLeader: true, MetaClusterSize: 3, StoreUsedBytes: 512 << 20,
@@ -56,13 +56,13 @@ func memberSnapshot() observability.MemberSnapshot {
 			Streams:   []observability.StreamView{{Name: "TS_DELIVERY", Messages: 12, Bytes: 4096, Replicas: 3, Leader: "ctl-1"}},
 			Consumers: []observability.ConsumerView{{Stream: "TS_DELIVERY", Name: "placement", NumPending: 4}}},
 		Placement: &observability.PlacementView{StageCounts: map[string]int{"serving": 2, "joining": 1},
-			Databases: []observability.DatabaseView{{DatabaseID: "orders", PartitionID: "p0", Generation: 3,
+			Databases: []observability.DatabaseView{{DatabaseID: "00000000000DMQEY0YD7RZ04RR", PartitionID: "00000000003K6TBW31R91GBDRD", Generation: 3,
 				DesiredSeats: 3, Serving: 2, Stages: map[string]int{"serving": 2, "joining": 1},
 				Members: []observability.MemberView{
-					{SeatID: "s1", Stage: "serving", HostNode: "host-a", FailureDomain: "FD-1"},
-					{SeatID: "s2", Stage: "serving", HostNode: "host-b", FailureDomain: "FD-2"},
-					{SeatID: "s3", Stage: "joining", HostNode: "host-a", FailureDomain: "FD-1"}},
-				Rollout: &observability.RolloutView{OperationID: "op-rollout-1", ArtifactDigest: "sha256:feedface",
+					{SeatID: "0000000000DNKA8DBDEPN1J9XM", Stage: "serving", HostNode: "host-a", FailureDomain: "FD-1"},
+					{SeatID: "0000000000K6ST06WNWDFCTSJY", Stage: "serving", HostNode: "host-b", FailureDomain: "FD-2"},
+					{SeatID: "000000000036XR713YE93E9M0S", Stage: "joining", HostNode: "host-a", FailureDomain: "FD-1"}},
+				Rollout: &observability.RolloutView{OperationID: "0000000000HAAS49GS9KYXGSQT", ArtifactDigest: "sha256:feedface",
 					Seats: 3, Completed: 1, Phases: map[string]int{"done": 1, "pending": 2}}}}},
 		Delivery: &observability.DeliveryView{Acknowledged: 10, Deferred: 1, TransportRetries: 2},
 		OCI: &observability.OCIView{Operations: []observability.OCIOperationView{{Service: "compute",
@@ -123,8 +123,8 @@ func TestEveryPageRendersProviderData(t *testing.T) {
 		"/nats":      {"TS_DELIVERY", "placement", "this server", "ctl-3", "512.0 MiB / 1.0 GiB"},
 		"/oci":       {"GET /instances/{id}", "429", "500ms", "OCI inventory provider is attached"},
 		"/storage":   {"/var/lib/ts/nats", "95.0%", "50.0%", "900 / 1000"},
-		"/terrabase": {"orders", "p0", "joining 1, serving 2", "s3: joining on host-a"},
-		"/rollouts":  {"op-rollout-1", "sha256:feedface", "1 / 3", "done 1, pending 2", "33.3%"},
+		"/terrabase": {"00000000000DMQEY0YD7RZ04RR", "00000000003K6TBW31R91GBDRD", "joining 1, serving 2", "000000000036XR713YE93E9M0S: joining on host-a"},
+		"/rollouts":  {"0000000000HAAS49GS9KYXGSQT", "sha256:feedface", "1 / 3", "done 1, pending 2", "33.3%"},
 		"/events":    {"placement held", "reason=capacity", `<option value="placement"`},
 	} {
 		response := get(t, handler, path)
@@ -518,8 +518,8 @@ func TestToastLinksTheRegionScopedInsight(t *testing.T) {
 		Insight: insight}).Render(context.Background(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(body.String(), "id=sfo%3Aoci%3Ax") || !strings.Contains(body.String(), "region=all") ||
-		!strings.Contains(body.String(), "#insight-sfo:oci:x") {
+	if !strings.Contains(body.String(), "id="+insight.Key) || !strings.Contains(body.String(), "region=all") ||
+		!strings.Contains(body.String(), "#insight-"+insight.Key) {
 		t.Fatalf("toast = %s", body.String())
 	}
 }

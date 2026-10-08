@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -52,7 +54,7 @@ func SignPreparationReceipt(cell, partition string, spec InitialSpec, bundle Ini
 	object ObjectReference, controllerKey ed25519.PrivateKey, now time.Time,
 ) (PreparationReceipt, error) {
 	if len(controllerKey) != ed25519.PrivateKeySize || now.IsZero() ||
-		!repositoryToken.MatchString(cell) || !repositoryToken.MatchString(partition) ||
+		!repositoryToken.MatchString(cell) || !entityid.Valid(partition) ||
 		spec.PartitionID != partition ||
 		!lowerHexDigest(object.SHA256) || object.VersionID == "" || object.ETag == "" ||
 		object.SpecSHA256 == "" {

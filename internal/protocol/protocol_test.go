@@ -21,7 +21,7 @@ func TestEnvelopeV1GoldenVector(t *testing.T) {
 	issuedAt := time.Date(2026, time.September, 24, 12, 0, 0, 123456789, time.UTC)
 	envelope, err := SignEnvelope(
 		[]byte(`{"replicas":3,"name":"alpha"}`),
-		EnvelopeScope{Region: "GRU", Kind: "test.command", Actor: "controller:gru", OperationID: "op-001", Generation: 3, Epoch: 7},
+		EnvelopeScope{Region: "GRU", Kind: "test.command", Actor: "controller:gru", OperationID: "0000000000SP2S0FM13N018RM0", Generation: 3, Epoch: 7},
 		issuedAt,
 		issuedAt.Add(time.Minute),
 		privateKey,
@@ -43,7 +43,7 @@ func TestEnvelopeV1GoldenVector(t *testing.T) {
 	if envelope.KeyID != "sha256:56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c" {
 		t.Fatalf("KeyID() = %s", envelope.KeyID)
 	}
-	if envelope.Signature != "Z0Y61XeUWHXa346wdkZeop63MCVyy6npXKWq36BvArv7gF3FvZSp5kGB-qTuGp5wzw9Zt8RtU2VmcK536ZENCw" {
+	if envelope.Signature != "RgrB2ZI-RXrohAE749IyNk60xUQ9QzwAAJVBue_17-TXwNH2XTziznRj5qN8wnqWZFkqg8dwAiE2yFnvrq-_DA" {
 		t.Fatalf("signature = %s", envelope.Signature)
 	}
 	var decoded Envelope
@@ -52,7 +52,7 @@ func TestEnvelopeV1GoldenVector(t *testing.T) {
 	}
 	if err := VerifyEnvelope(decoded, EnvelopeScope{
 		Region: "GRU", Kind: "test.command", Actor: "controller:gru",
-		OperationID: "op-001", Generation: 3, Epoch: 7,
+		OperationID: "0000000000SP2S0FM13N018RM0", Generation: 3, Epoch: 7,
 	}, privateKey.Public().(ed25519.PublicKey), issuedAt, VerifyPolicy{
 		MaxLifetime: time.Minute, ClockSkew: 0,
 	}); err != nil {
@@ -305,8 +305,8 @@ func TestSubjectBuildersUseVersionedRegionalAndHashedAgentScopes(t *testing.T) {
 	if want := "ts.orch.v1.gru.agent." + HashToken("oci://node-42") + ".command.drain"; agent != want {
 		t.Fatalf("AgentCommandSubject() = %q, want %q", agent, want)
 	}
-	reply, err := AgentReplySubject("GRU", "oci://node-42", "op-123")
-	if err != nil || !strings.HasSuffix(reply, ".reply."+HashToken("op-123")[:32]) {
+	reply, err := AgentReplySubject("GRU", "oci://node-42", "0000000000RCKH58KJ5M6FJATY")
+	if err != nil || !strings.HasSuffix(reply, ".reply."+HashToken("0000000000RCKH58KJ5M6FJATY")[:32]) {
 		t.Fatalf("AgentReplySubject() = %q, %v", reply, err)
 	}
 	observability, err := ObservabilitySubject("GRU", "snapshot")
@@ -344,7 +344,7 @@ func testScope() EnvelopeScope {
 		Region:      "gru",
 		Kind:        "delivery.intent",
 		Actor:       "controller:gru",
-		OperationID: "op-123",
+		OperationID: "0000000000RCKH58KJ5M6FJATY",
 		Generation:  7,
 		Epoch:       11,
 	}

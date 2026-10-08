@@ -16,7 +16,7 @@ func testMarker() AcceptedInstall {
 	return AcceptedInstall{
 		SchemaVersion: 1, AnchorSHA256: digest, ManifestSHA256: digest,
 		ReceiptSHA256: digest, ImageReceiptSHA256: digest,
-		DeploymentID: "deployment-a", Cell: "GRU", Slot: "controller-a", SeedSlot: "seed-a",
+		DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "GRU", Slot: "controller-a", SeedSlot: "seed-a",
 		ImageOCID:       "ocid1.image.oc1.sa-saopaulo-1.example",
 		InstanceOCID:    "ocid1.instance.oc1.sa-saopaulo-1.example",
 		PrimaryVNICOCID: "ocid1.vnic.oc1.sa-saopaulo-1.example", PrimaryPrivateIP: "10.0.0.3",

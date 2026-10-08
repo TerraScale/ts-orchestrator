@@ -44,26 +44,26 @@ func customerOpenFixture(t *testing.T) (string, string, string, string, managedm
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalog, err := managedmaterial.InitialCatalog("30000000-0000-0000-0000-000000000001", nil)
+	catalog, err := managedmaterial.InitialCatalog("1G000000000000000000000001", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	spec := managedmaterial.InitialSpec{
-		PlacementDatabaseID: "db-main", PartitionID: "partition-a",
-		Scope: managedmaterial.AuthorityScope{ClusterID: "0102030405060708090a0b0c0d0e0f10",
-			TenantID:   "10000000-0000-0000-0000-000000000001",
-			DatabaseID: "20000000-0000-0000-0000-000000000001", ShardID: 7, Epoch: 1},
+		PlacementDatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8",
+		Scope: managedmaterial.AuthorityScope{ClusterID: "01081G81860W40J2GB1G6GW3RG",
+			TenantID:   "0G000000000000000000000001",
+			DatabaseID: "10000000000000000000000001", ShardID: 7, Epoch: 1},
 		LiveS3: managedmaterial.LiveS3Target{Bucket: "alpha-live", Region: "sa-saopaulo-1",
 			Endpoint:   "https://alpha.compat.objectstorage.sa-saopaulo-1.oci.customer-oci.com",
 			Credential: oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3}},
 		Catalogs: []managedmaterial.InitialCatalogInput{{CollectionID: catalog.CollectionID, CanonicalCatalog: catalog.Bytes}},
 		Members: [2]managedmaterial.InitialMember{
-			{SeatID: "permanent-a", MemberID: "40000000-0000-0000-0000-000000000001",
-				Incarnation: "01010101010101010101010101010101", ServerName: "a.replication.example",
+			{SeatID: "00000000000E5NVMSGX0D07DPA", MemberID: "20000000000000000000000001",
+				Incarnation: "01040G2081040G2081040G2081", ServerName: "a.replication.example",
 				FailureDomain: "FAULT-DOMAIN-1", MaterialDirectory: "/var/lib/terrabase/attempt-a/material",
 				ReplicationIP: "10.0.0.11", ReplicationPort: 9443, ClientIP: "10.0.0.11", ClientPort: 9465},
-			{SeatID: "elastic-gru", MemberID: "40000000-0000-0000-0000-000000000002",
-				Incarnation: "02020202020202020202020202020202", ServerName: "b.replication.example",
+			{SeatID: "00000000008SEAHD1YMMYV3ARR", MemberID: "20000000000000000000000002",
+				Incarnation: "02081040G2081040G2081040G2", ServerName: "b.replication.example",
 				FailureDomain: "FAULT-DOMAIN-2", MaterialDirectory: "/var/lib/terrabase/attempt-b/material",
 				ReplicationIP: "10.0.0.12", ReplicationPort: 9443, ClientIP: "10.0.0.12", ClientPort: 9465},
 		},
@@ -81,7 +81,7 @@ func customerOpenFixture(t *testing.T) (string, string, string, string, managedm
 	specDigest := sha256.Sum256(specWire)
 	specSHA := hex.EncodeToString(specDigest[:])
 	object := managedmaterial.ObjectReference{
-		Name:      "material/v2/gru/db-main/partition-a/g1-" + specSHA + ".json",
+		Name:      "material/v2/gru/" + spec.PlacementDatabaseID + "/" + spec.PartitionID + "/g1-" + specSHA + ".json",
 		VersionID: "version-1", ETag: "etag-1", SHA256: strings.Repeat("a", 64), SpecSHA256: specSHA,
 	}
 	receipt, err := managedmaterial.SignPreparationReceipt("gru", spec.PartitionID, spec, bundle,
@@ -212,7 +212,7 @@ func TestOpenCustomerMaterialRejectsWrongKeyTamperAndBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	try("tampered-envelope", specPath, tamperedPath, recipientPath)
-	spec.PartitionID = "partition-b"
+	spec.PartitionID = "00000000001WFHC56Q8NB0X6T8"
 	mismatchWire, err := protocol.EncodeJSON(spec)
 	if err != nil {
 		t.Fatal(err)
@@ -268,7 +268,7 @@ func TestOpenRotatedCustomerMaterialVerifiesPendingReceiptAndCreatesOwnerOnlyOut
 	}
 	request := managedmaterial.CredentialRequest{
 		DatabaseID: spec.PlacementDatabaseID, PartitionID: spec.PartitionID,
-		InitialReceiptSHA: initialSHA, ExpectedGeneration: 1, OperationID: "rotate-one",
+		InitialReceiptSHA: initialSHA, ExpectedGeneration: 1, OperationID: "0000000000CBFCJRYSV24E2Z96",
 		Action: managedmaterial.CredentialRotate, Recipient: grantSpec.Recipient,
 	}
 	requestWire, err := protocol.EncodeJSON(request)
@@ -368,7 +368,7 @@ func TestOpenRotatedCustomerMaterialVerifiesPendingReceiptAndCreatesOwnerOnlyOut
 	wrongSpec.Scope.ShardID++
 	try("wrong-spec", writeJSON("wrong-spec.json", wrongSpec), requestPath, replyPath, recipientPath)
 	wrongRequest := request
-	wrongRequest.OperationID = "different-operation"
+	wrongRequest.OperationID = "0000000000FJ9GNZE6HPZH55W4"
 	try("wrong-request", specPath, writeJSON("wrong-request.json", wrongRequest), replyPath, recipientPath)
 	revocation := request
 	revocation.Action = managedmaterial.CredentialRevoke

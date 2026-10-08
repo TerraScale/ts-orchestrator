@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
@@ -291,7 +293,7 @@ func validateInstallContinuity(proof InstallContinuity) error {
 		credentialDigest, credentialErr = InstallContinuityGenerationDigest(proof.MaterialGenerationSHA256)
 	}
 	if err != nil || proof.SchemaVersion != InstallContinuitySchemaVersion ||
-		!deploymentRE.MatchString(proof.DeploymentID) || !clusterRE.MatchString(proof.ClusterID) ||
+		!entityid.Valid(proof.DeploymentID) || !entityid.Valid(proof.ClusterID) ||
 		(proof.Environment != "production" && proof.Environment != "canary") || region == "" || proof.OCIRegion != region ||
 		!controllerSlotRE.MatchString(proof.Slot) || !sha256RE.MatchString(proof.GenesisAnchorSHA256) ||
 		!sha256RE.MatchString(proof.AcceptedMarkerSHA256) || !sha256RE.MatchString(proof.ManifestSHA256) ||

@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
@@ -249,7 +251,7 @@ func newSignedBinaryFixture(t *testing.T, delegationLifetime time.Duration) sign
 	delegation, err := trust.SignDelegation(trust.Delegation{
 		SchemaVersion: trust.SchemaVersion, SubjectKeyID: delegateID, SubjectPublicKey: encodedPublic,
 		Capabilities: []trust.Capability{{
-			Domain: binaryDomain, DeploymentID: testRevision, Cell: "BUILD", Environment: "canary",
+			Domain: binaryDomain, DeploymentID: entityid.Derive("build", testRevision), Cell: "BUILD", Environment: "canary",
 			Role: "artifact", Slots: []string{"linux-amd64"}, Actions: []string{"sign"},
 		}},
 	}, delegationIssued, delegationExpires, rootPrivate)

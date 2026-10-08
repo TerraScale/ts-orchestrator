@@ -64,14 +64,14 @@ func TestManifestVerifiesExactSlotAndReturnsDefensiveCopies(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := VerifyManifest(envelope, authority.roots, ManifestExpectation{
-		DeploymentID: "deployment-a", Environment: "production", ClusterID: "cluster-a",
+		DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "production", ClusterID: "0000000000RMSAJ9B0JFV7ESHN",
 		Cell: oci.RegionGRU, Slot: "peer-b", ImageOCID: authority.manifest.ImageOCID, StorageDomain: authority.manifest.StorageDomain,
 		ControllerSlots: slices.Clone(authority.manifest.ControllerSlots),
 	}, authority.now, authority.policy); err == nil {
 		t.Fatal("manifest scoped to seed-a verified as peer-b")
 	}
 	wrongImage := ManifestExpectation{
-		DeploymentID: "deployment-a", Environment: "production", ClusterID: "cluster-a",
+		DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "production", ClusterID: "0000000000RMSAJ9B0JFV7ESHN",
 		Cell: oci.RegionGRU, Slot: "peer-b", ImageOCID: "ocid1.image.oc1.iad.otherimage", StorageDomain: authority.manifest.StorageDomain,
 		ControllerSlots: slices.Clone(authority.manifest.ControllerSlots),
 	}
@@ -393,7 +393,7 @@ func TestSeedAndPeerReceiptsBindExactInstanceAndManifest(t *testing.T) {
 		"wrong compartment": func(facts *InstanceFacts) {
 			facts.CompartmentOCID = "ocid1.compartment.oc1..foreign"
 		},
-		"wrong create key": func(facts *InstanceFacts) { facts.CreateKey = "different-launch-key" },
+		"wrong create key": func(facts *InstanceFacts) { facts.CreateKey = "0000000000DBMGSH7AGWFS7GFS" },
 		"wrong intent":     func(facts *InstanceFacts) { facts.IntentSHA256 = digestBytes([]byte("different-intent")) },
 		"wrong subnet":     func(facts *InstanceFacts) { facts.Profile.SubnetOCID = "ocid1.subnet.oc1.iad.foreign" },
 	}
@@ -631,7 +631,7 @@ func newTestBootstrapAuthority(t *testing.T) testBootstrapAuthority {
 	delegationEnvelope, err := trust.SignDelegation(trust.Delegation{
 		SchemaVersion: trust.SchemaVersion, SubjectKeyID: peerKeyID, SubjectPublicKey: peerPublicString,
 		Capabilities: []trust.Capability{{
-			Domain: peerReceiptDomain, DeploymentID: "deployment-a", Cell: string(oci.RegionGRU),
+			Domain: peerReceiptDomain, DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: string(oci.RegionGRU),
 			Environment: "production", Role: "controller", Slots: []string{"peer-b"}, Actions: []string{"sign"},
 		}},
 	}, now.Add(-time.Minute), now.Add(20*time.Minute), rootPrivate)
@@ -639,7 +639,7 @@ func newTestBootstrapAuthority(t *testing.T) testBootstrapAuthority {
 		t.Fatal(err)
 	}
 	releaseEnvelope, err := trust.Sign([]byte(`{}`), trust.Scope{
-		Domain: release.ImageDomain, DeploymentID: "release-a", Cell: "GRU", Environment: "production",
+		Domain: release.ImageDomain, DeploymentID: "0000000000NBCYX286D4RHE6ZP", Cell: "GRU", Environment: "production",
 		Role: "oci-image", Slot: "ocid1.image.oc1.sa-saopaulo-1.image",
 	}, now.Add(-time.Minute), now.Add(20*time.Minute), rootPrivate)
 	if err != nil {
@@ -655,8 +655,8 @@ func newTestBootstrapAuthority(t *testing.T) testBootstrapAuthority {
 	}
 	regional := []byte("regional shared private key")
 	manifest := Manifest{
-		SchemaVersion: ManifestSchemaVersion, DeploymentID: "deployment-a", Environment: "production",
-		ClusterID: "cluster-a", Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1", IntentGeneration: 4,
+		SchemaVersion: ManifestSchemaVersion, DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "production",
+		ClusterID: "0000000000RMSAJ9B0JFV7ESHN", Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1", IntentGeneration: 4,
 		IntentSHA256: digestBytes([]byte("regional intent")), ControllerRole: "controller", Slot: "seed-a",
 		SeedSlot: "seed-a", ControllerSlots: []string{"peer-b", "seed-a"},
 		Profiles: []LaunchProfile{
@@ -723,7 +723,7 @@ func (authority testBootstrapAuthority) verifyManifest(t *testing.T, slot string
 func (authority testBootstrapAuthority) facts(manifest VerifiedManifest, slot string) InstanceFacts {
 	profile, _ := manifest.Profile(slot)
 	return InstanceFacts{
-		DeploymentID: "deployment-a", Environment: "production", ClusterID: "cluster-a", Cell: oci.RegionGRU,
+		DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "production", ClusterID: "0000000000RMSAJ9B0JFV7ESHN", Cell: oci.RegionGRU,
 		OCIRegion: "sa-saopaulo-1", Role: "controller", Slot: slot,
 		InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1." + slot, CompartmentOCID: profile.CompartmentOCID,
 		ImageOCID: authority.manifest.ImageOCID, CreateKey: "launch-" + slot,
@@ -743,7 +743,7 @@ func keyID(t *testing.T, publicKey ed25519.PublicKey) string {
 func makeDifferentEnvelopeWire(t *testing.T, authority testBootstrapAuthority) []byte {
 	t.Helper()
 	envelope, err := trust.Sign([]byte(`{"changed":true}`), trust.Scope{
-		Domain: release.ImageDomain, DeploymentID: "release-b", Cell: "GRU", Environment: "production",
+		Domain: release.ImageDomain, DeploymentID: "0000000000A16YGSP64YK28MAE", Cell: "GRU", Environment: "production",
 		Role: "oci-image", Slot: authority.manifest.ImageOCID,
 	}, authority.now.Add(-time.Minute), authority.now.Add(20*time.Minute), authority.rootPrivate)
 	if err != nil {

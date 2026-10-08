@@ -3,11 +3,11 @@ package placement
 import (
 	"cmp"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"slices"
 	"sync"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
@@ -35,9 +35,7 @@ func ManagedUpdateCorrelation(databaseID, partitionID, operationID string) strin
 // being read as a time-ordered ID; Journal.Chain searches the archive's
 // retention for such IDs.
 func ManagedUpdateAdmissionID(cell, databaseID, partitionID, operationID string) string {
-	digest := sha256.Sum256([]byte("managed update admission\x00" + cell + "\x00" + databaseID + "\x00" +
-		partitionID + "\x00" + operationID))
-	return "mu" + hex.EncodeToString(digest[:15])
+	return entityid.Derive("managed-update-admission", cell, databaseID, partitionID, operationID)
 }
 
 // marksPerSeat bounds the revisions remembered per seat.
@@ -80,7 +78,7 @@ type seatMark struct {
 }
 
 func seatKey(state MemberState) string {
-	return state.DatabaseID + "/" + state.PartitionID + "/" + state.MemberID
+	return memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID)
 }
 
 func markOf(state MemberState) seatMark {

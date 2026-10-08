@@ -1056,13 +1056,13 @@ func TestLedgerFailsClosedOnUnknownPermanentAndMalformedStorageOutcomes(t *testi
 func TestLedgerRejectsInvalidScopeConfigurationAndOversizedRecords(t *testing.T) {
 	fixture := newLedgerFixture(t)
 	for _, scope := range []BootstrapScope{{}, {DeploymentID: "deployment/other", Cell: "GRU", Slot: "controller-a"},
-		{DeploymentID: "deployment-a", Cell: "gru", Slot: "controller-a"},
-		{DeploymentID: "deployment-a", Cell: "GRU", Slot: "../other"}} {
+		{DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "gru", Slot: "controller-a"},
+		{DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "GRU", Slot: "../other"}} {
 		if _, err := fixture.ledger.ReadSlot(t.Context(), scope); err == nil {
 			t.Errorf("ReadSlot accepted invalid scope %+v", scope)
 		}
 	}
-	if _, err := fixture.ledger.ReadSlot(t.Context(), BootstrapScope{DeploymentID: "deployment-a", Cell: "GRU", Slot: "controller-b"}); !errors.Is(err, ErrRecordAuthorization) {
+	if _, err := fixture.ledger.ReadSlot(t.Context(), BootstrapScope{DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "GRU", Slot: "controller-b"}); !errors.Is(err, ErrRecordAuthorization) {
 		t.Fatalf("ReadSlot accepted a slot outside the anchor: %v", err)
 	}
 	for _, config := range []LedgerConfig{
@@ -1515,7 +1515,7 @@ func newLedgerFixture(t *testing.T) *ledgerFixture {
 	}
 	var err error
 	config := LedgerConfig{
-		DeploymentID: "deployment-a", Cell: oci.RegionGRU, ClusterID: "cluster-a",
+		DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: oci.RegionGRU, ClusterID: "0000000000RMSAJ9B0JFV7ESHN",
 		InitialRegionIntentGeneration: 4, InitialRegionIntentSHA256: bodyDigest([]byte("region-intent")),
 		Namespace: "namespace", Bucket: "bootstrap-ledger", KMSKeyID: "ocid1.key.oc1.sa-saopaulo-1.ledger", Prefix: "private/bootstrap",
 		HeadBucket: "bootstrap-head", HeadKMSKeyID: "ocid1.key.oc1.sa-saopaulo-1.head", Environment: fixture.environment,
@@ -1944,7 +1944,7 @@ func (fixture *ledgerFixture) retirement(scope BootstrapScope, state SlotState, 
 }
 
 func testBootstrapScope() BootstrapScope {
-	return BootstrapScope{DeploymentID: "deployment-a", Cell: "GRU", Slot: "controller-a"}
+	return BootstrapScope{DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "GRU", Slot: "controller-a"}
 }
 
 type fakeObjectStorageClient struct {

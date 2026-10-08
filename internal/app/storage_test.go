@@ -38,10 +38,10 @@ func TestPlacementVolumeIDsListsPlacedRetainedVolumesOnce(t *testing.T) {
 		return placement.VersionedMemberState{State: placement.MemberState{VolumeID: volumeID, Stage: stage}}
 	}
 	store := volumeListStore{
-		intents: []placement.Intent{{DatabaseID: "db-a", PartitionID: "p1"}, {DatabaseID: "db-b", PartitionID: "p1"}},
+		intents: []placement.Intent{{DatabaseID: "00000000001Y9Z8VKC1VV66J6B", PartitionID: "00000000003ZJEV7X3HYJENEYG"}, {DatabaseID: "0000000000FX8HQMQT5DWS7PQ9", PartitionID: "00000000003ZJEV7X3HYJENEYG"}},
 		members: map[string][]placement.VersionedMemberState{
-			"db-a/p1": {member("vol-1", placement.StageAwaitingRuntimeContract), member("", placement.StagePreparedHost), member("vol-1", placement.StageAwaitingRuntimeContract)},
-			"db-b/p1": {member("vol-2", placement.StageAwaitingRuntimeContract), member("vol-3", placement.StageRemoved)},
+			"00000000001Y9Z8VKC1VV66J6B/00000000003ZJEV7X3HYJENEYG": {member("vol-1", placement.StageAwaitingRuntimeContract), member("", placement.StagePreparedHost), member("vol-1", placement.StageAwaitingRuntimeContract)},
+			"0000000000FX8HQMQT5DWS7PQ9/00000000003ZJEV7X3HYJENEYG": {member("vol-2", placement.StageAwaitingRuntimeContract), member("vol-3", placement.StageRemoved)},
 		},
 	}
 	volumes, err := placementVolumeIDs(t.Context(), store)
@@ -52,9 +52,9 @@ func TestPlacementVolumeIDsListsPlacedRetainedVolumesOnce(t *testing.T) {
 
 func TestPlacementVolumeIDsSkipsAnUnreadablePartition(t *testing.T) {
 	store := volumeListStore{
-		intents: []placement.Intent{{DatabaseID: "db-a", PartitionID: "p1"}, {DatabaseID: "db-broken", PartitionID: "p1"}},
+		intents: []placement.Intent{{DatabaseID: "00000000001Y9Z8VKC1VV66J6B", PartitionID: "00000000003ZJEV7X3HYJENEYG"}, {DatabaseID: "0000000000CKCFR634PYANR7D4", PartitionID: "00000000003ZJEV7X3HYJENEYG"}},
 		members: map[string][]placement.VersionedMemberState{
-			"db-a/p1": {{State: placement.MemberState{VolumeID: "vol-1", Stage: placement.StageAwaitingRuntimeContract}}},
+			"00000000001Y9Z8VKC1VV66J6B/00000000003ZJEV7X3HYJENEYG": {{State: placement.MemberState{VolumeID: "vol-1", Stage: placement.StageAwaitingRuntimeContract}}},
 		},
 	}
 	volumes, err := placementVolumeIDs(t.Context(), store)

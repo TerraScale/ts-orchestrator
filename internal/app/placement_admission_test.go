@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -72,7 +73,7 @@ func TestPlacementAdmissionRejectsSignedLegacyAndNoncanonicalPayload(t *testing.
 	policy, privateKey := newPlacementAdmissionPolicy(t)
 	intent := testManagedPlacementIntent()
 	legacy := placement.Intent{
-		SchemaVersion: 1, DatabaseID: "db-main", PartitionID: intent.PartitionID,
+		SchemaVersion: 1, DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: intent.PartitionID,
 		ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: intent.Generation,
 	}
 
@@ -148,7 +149,7 @@ func TestPlacementAdmissionCreatesPlacementOnlyOnce(t *testing.T) {
 			*intent = testManagedPlacementIntentForRegions(oci.RegionGRU)
 		}},
 		{name: "member rotation", mutate: func(intent *placement.Intent) {
-			intent.CanonicalRoster.Rows[0].MemberID = "018f0000-0000-7000-8000-000000000010"
+			intent.CanonicalRoster.Rows[0].MemberID = "01HW000000E00800000000000G"
 		}},
 		{name: "incarnation rotation", mutate: func(intent *placement.Intent) {
 			intent.CanonicalRoster.Rows[0].Incarnation = strings.Repeat("d", 32)
@@ -287,19 +288,19 @@ func testManagedPlacementIntentForRegions(regions ...oci.Region) placement.Inten
 		rows = append(rows,
 			placement.CanonicalRosterRow{
 				Region: region, SeatID: permanentSeatID(region), FailureDomain: "FAULT-DOMAIN-1",
-				MemberID:    fmt.Sprintf("018f0000-0000-7000-8000-%012x", index*2+1),
-				Incarnation: fmt.Sprintf("%032x", index*2+1), TLSLeafSHA256: fmt.Sprintf("%064x", index*2+1),
+				MemberID:    entityid.Derive("test-member", fmt.Sprint(index*2+1)),
+				Incarnation: entityid.Derive("test-incarnation", fmt.Sprint(index*2+1)), TLSLeafSHA256: fmt.Sprintf("%064x", index*2+1),
 				ServerName: fmt.Sprintf("permanent-%s.tb.example", strings.ToLower(string(region))),
 			},
 			placement.CanonicalRosterRow{
 				Region: region, SeatID: elasticSeatID(region), FailureDomain: "FAULT-DOMAIN-2",
-				MemberID:    fmt.Sprintf("018f0000-0000-7000-8000-%012x", index*2+2),
-				Incarnation: fmt.Sprintf("%032x", index*2+2), TLSLeafSHA256: fmt.Sprintf("%064x", index*2+2),
+				MemberID:    entityid.Derive("test-member", fmt.Sprint(index*2+2)),
+				Incarnation: entityid.Derive("test-incarnation", fmt.Sprint(index*2+2)), TLSLeafSHA256: fmt.Sprintf("%064x", index*2+2),
 				ServerName: fmt.Sprintf("elastic-%s.tb.example", strings.ToLower(string(region))),
 			},
 		)
 	}
-	databaseID := "db-main"
+	databaseID := "0000000000JJVVW9EMWY1PE1VX"
 	manifests := make([]placement.RuntimeManifest, 0, len(rows))
 	for index, row := range rows {
 		peer := rows[index^1]
@@ -323,11 +324,11 @@ func testManagedPlacementIntentForRegions(regions ...oci.Region) placement.Inten
 		})
 	}
 	return placement.Intent{
-		SchemaVersion: placement.IntentSchemaVersion, DatabaseID: databaseID, PartitionID: "partition-a",
+		SchemaVersion: placement.IntentSchemaVersion, DatabaseID: databaseID, PartitionID: "0000000000Z3WK359G2W66CVT8",
 		ActiveRegions: active, Generation: 7,
 		CanonicalRoster: placement.CanonicalRoster{
-			ClusterID: "0123456789abcdef0123456789abcdef", TenantID: "018f0000-0000-7000-8000-000000000100",
-			DatabaseID: "018f0000-0000-7000-8000-000000000101", ShardID: 1,
+			ClusterID: "014D2PF2DBSQQG28T5CY4TQKFF", TenantID: "01HW000000E008000000000080",
+			DatabaseID: "01HW000000E008000000000081", ShardID: 1,
 			Authority: placement.AuthorityReference{
 				Version: 2, Epoch: 7, ConfigurationID: strings.Repeat("a", 64),
 				CertificateSHA256: strings.Repeat("b", 64), TrustedKeySHA256: strings.Repeat("c", 64),
@@ -340,20 +341,13 @@ func testManagedPlacementIntentForRegions(regions ...oci.Region) placement.Inten
 }
 
 func permanentSeatID(region oci.Region) string {
-	switch region {
-	case oci.RegionGRU:
-		return "permanent-a"
-	case oci.RegionSFO:
-		return "permanent-b"
-	case oci.RegionFRA:
-		return "permanent-c"
-	default:
-		return ""
-	}
+	ids, _ := placement.RegionSeatIDs(region)
+	return ids[0]
 }
 
 func elasticSeatID(region oci.Region) string {
-	return "elastic-" + strings.ToLower(string(region))
+	ids, _ := placement.RegionSeatIDs(region)
+	return ids[1]
 }
 
 func signedPlacementEnvelope(
@@ -396,7 +390,7 @@ type placementAdmissionTestControl struct {
 
 func newPlacementAdmissionControl() *placementAdmissionTestControl {
 	return &placementAdmissionTestControl{
-		snapshot: authority.Snapshot{Scope: "gru", CandidateID: "controller-a", Leader: true, Ready: true,
+		snapshot: authority.Snapshot{Scope: "gru", CandidateID: "0000000000GR3712FB1A87M2H7", Leader: true, Ready: true,
 			Epoch: 3, Revision: 1, ExpiresAt: time.Now().Add(time.Minute)},
 		entries:  make(map[string]authority.LogEntry),
 		terminal: make(map[string]authority.LogEntry),

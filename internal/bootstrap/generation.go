@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"github.com/nats-io/nkeys"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
@@ -166,7 +168,7 @@ func (generation MaterialGeneration) Validate() error {
 	if _, err := generation.Cell.OCIRegion(); err != nil || generation.SchemaVersion < 1 ||
 		generation.SchemaVersion > MaterialGenerationSchemaVersion ||
 		v1 && (generation.RoleSigner != "" || len(generation.ControllerConfigs) != 0) ||
-		!deploymentRE.MatchString(generation.DeploymentID) || !clusterRE.MatchString(generation.ClusterID) ||
+		!entityid.Valid(generation.DeploymentID) || !entityid.Valid(generation.ClusterID) ||
 		generation.Environment != "production" && generation.Environment != "canary" ||
 		len(generation.ControllerSlots) == 0 || len(generation.ControllerSlots) > 64 || generation.Generation == 0 ||
 		generation.Generation > MaxMaterialGenerations ||

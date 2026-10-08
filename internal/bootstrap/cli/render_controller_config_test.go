@@ -203,7 +203,7 @@ func TestRenderControllerConfigRejectsIncompleteOrInvalidTSAuthInputs(t *testing
 			return path, servicePath, fixtureFileDigest(path)
 		}, want: "ts-auth"},
 		{name: "wrong service role", mutate: func(t *testing.T, profilePath, _ string, _ app.WorkloadProfile, service workload.ServiceSpec) (string, string, string) {
-			service.Role = "other"
+			service.Role = "0000000000V4MRM46HP1SNGDYW"
 			path := filepath.Join(t.TempDir(), "service.json")
 			wire, err := protocol.EncodeJSON(service)
 			if err != nil {

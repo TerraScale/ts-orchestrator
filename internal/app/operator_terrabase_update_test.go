@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
@@ -80,14 +82,14 @@ func TestTerraBaseUpdateRollsReleasesSeatBySeatAndRollsBackAHeldCandidate(t *tes
 	if err != nil {
 		t.Fatalf("release 2 rollout: %v (%v, rejected %v)", err, steps, fake.rejected)
 	}
-	if !slices.Equal(steps, []string{"artifact:admitted", "seat permanent-a:prepared", "seat permanent-a:canary-serving",
-		"seat permanent-a:soaked", "seat elastic-gru:prepared", "seat elastic-gru:canary-serving", "rollout:complete"}) {
+	if !slices.Equal(steps, []string{"artifact:admitted", "seat 00000000000E5NVMSGX0D07DPA:prepared", "seat 00000000000E5NVMSGX0D07DPA:canary-serving",
+		"seat 00000000000E5NVMSGX0D07DPA:soaked", "seat 00000000008SEAHD1YMMYV3ARR:prepared", "seat 00000000008SEAHD1YMMYV3ARR:canary-serving", "rollout:complete"}) {
 		t.Fatalf("release 2 steps = %v", steps)
 	}
 	r2 := fake.prepares[0].CandidateArtifactDigest
 	if len(fake.prepares) != 2 || fake.prepares[0].OldArtifactDigest != initial.Digest ||
-		fake.prepares[1].CanarySeatID != "elastic-gru" ||
-		fake.prepares[1].Seats[1].SeatID != "permanent-a" || fake.prepares[1].Seats[1].ArtifactDigest != r2 {
+		fake.prepares[1].CanarySeatID != "00000000008SEAHD1YMMYV3ARR" ||
+		fake.prepares[1].Seats[0].SeatID != "00000000000E5NVMSGX0D07DPA" || fake.prepares[1].Seats[0].ArtifactDigest != r2 {
 		t.Fatalf("release 2 was not rolled canary then peer: %+v", fake.prepares)
 	}
 	if steps, err := update(second); err != nil || !slices.Equal(steps, []string{"artifact:admitted", "rollout:complete"}) ||
@@ -102,11 +104,11 @@ func TestTerraBaseUpdateRollsReleasesSeatBySeatAndRollsBackAHeldCandidate(t *tes
 	}
 	fake.failing = r3
 	steps, err = update(third)
-	if err == nil || !strings.Contains(err.Error(), "held on seat permanent-a") {
+	if err == nil || !strings.Contains(err.Error(), "held on seat 00000000000E5NVMSGX0D07DPA") {
 		t.Fatalf("a failing candidate did not stop the rollout: %v %v", steps, err)
 	}
 	last := fake.prepares[len(fake.prepares)-1]
-	if len(fake.prepares) != 4 || last.CanarySeatID != "permanent-a" || last.OldArtifactDigest != r3 ||
+	if len(fake.prepares) != 4 || last.CanarySeatID != "00000000000E5NVMSGX0D07DPA" || last.OldArtifactDigest != r3 ||
 		last.CandidateArtifactDigest != r2 || fake.seats[1].pins.ArtifactDigest != r2 || !fake.seats[1].serving {
 		t.Fatalf("held candidate was not rolled back with its peer untouched: %+v", fake.prepares)
 	}
@@ -115,7 +117,7 @@ func TestTerraBaseUpdateRollsReleasesSeatBySeatAndRollsBackAHeldCandidate(t *tes
 	}
 	var knownBad staged.KnownBad
 	readDeployTestState(t, state, filepath.Join(deployKnownBadDirectory, r3+".json"), &knownBad)
-	if knownBad.Digest != r3 || knownBad.SeatID != "permanent-a" || !strings.Contains(knownBad.Reason, "held") {
+	if knownBad.Digest != r3 || knownBad.SeatID != "00000000000E5NVMSGX0D07DPA" || !strings.Contains(knownBad.Reason, "held") {
 		t.Fatalf("held candidate was not recorded known bad: %+v", knownBad)
 	}
 	fake.failing = ""
@@ -145,14 +147,14 @@ func TestTerraBaseUpdateRollsReleasesSeatBySeatAndRollsBackAHeldCandidate(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	fake.failing, fake.failingSeat = r4, "elastic-gru"
+	fake.failing, fake.failingSeat = r4, "00000000008SEAHD1YMMYV3ARR"
 	steps, err = update(fourth)
-	if err == nil || !strings.Contains(err.Error(), "held on seat elastic-gru") {
+	if err == nil || !strings.Contains(err.Error(), "held on seat 00000000008SEAHD1YMMYV3ARR") {
 		t.Fatalf("second-seat hold did not stop the rollout: %v %v", steps, err)
 	}
 	reverts := fake.prepares[4:]
-	if len(reverts) != 4 || reverts[2].CanarySeatID != "elastic-gru" || reverts[2].CandidateArtifactDigest != r2 ||
-		reverts[3].CanarySeatID != "permanent-a" || reverts[3].OldArtifactDigest != r4 || reverts[3].CandidateArtifactDigest != r2 {
+	if len(reverts) != 4 || reverts[2].CanarySeatID != "00000000008SEAHD1YMMYV3ARR" || reverts[2].CandidateArtifactDigest != r2 ||
+		reverts[3].CanarySeatID != "00000000000E5NVMSGX0D07DPA" || reverts[3].OldArtifactDigest != r4 || reverts[3].CandidateArtifactDigest != r2 {
 		t.Fatalf("both seats were not returned to release 2: %+v", reverts)
 	}
 	for _, seat := range fake.seats {
@@ -215,8 +217,8 @@ func TestTerraBaseUpdateSoaksTheFirstSeatAndRollsBackARestartingCandidate(t *tes
 	if err == nil || !strings.Contains(err.Error(), "failed its soak") {
 		t.Fatalf("a restarting canary passed its soak: %v", err)
 	}
-	if len(fake.prepares) != 2 || fake.prepares[0].CanarySeatID != "permanent-a" ||
-		fake.prepares[1].CanarySeatID != "permanent-a" || fake.prepares[1].CandidateArtifactDigest != initial.Digest {
+	if len(fake.prepares) != 2 || fake.prepares[0].CanarySeatID != "00000000000E5NVMSGX0D07DPA" ||
+		fake.prepares[1].CanarySeatID != "00000000000E5NVMSGX0D07DPA" || fake.prepares[1].CandidateArtifactDigest != initial.Digest {
 		t.Fatalf("soak failure reached the second seat or was not rolled back: %+v", fake.prepares)
 	}
 	for _, seat := range fake.seats {
@@ -226,7 +228,7 @@ func TestTerraBaseUpdateSoaksTheFirstSeatAndRollsBackARestartingCandidate(t *tes
 	}
 	var knownBad staged.KnownBad
 	readDeployTestState(t, state, filepath.Join(deployKnownBadDirectory, r2+".json"), &knownBad)
-	if !strings.Contains(knownBad.Reason, "restarted") {
+	if !strings.Contains(knownBad.Reason, "seat process restarted") {
 		t.Fatalf("soak failure not recorded known bad: %+v", knownBad)
 	}
 }
@@ -253,9 +255,9 @@ func startFakeRolloutController(t *testing.T, cell *deployTestCellServices, inte
 		// Every seat has a live host report, as a real host publishes.
 		fake.seats = append(fake.seats, &fakeRolloutSeat{serving: true, pid: 100, pins: placement.ManagedUpdateSeat{
 			SeatID: row.SeatID, Region: row.Region, MemberID: row.MemberID, Incarnation: row.Incarnation,
-			TLSLeafSHA256: row.TLSLeafSHA256, RuntimeManifestDigest: digest, HostNode: "host-" + row.SeatID,
+			TLSLeafSHA256: row.TLSLeafSHA256, RuntimeManifestDigest: digest, HostNode: "host-" + strings.ToLower(row.SeatID),
 			HostGeneration: 1, HostAttempt: 1, OCIInstanceID: "ocid1.instance.oc1..fake-" + row.SeatID,
-			OCIOwner: deployTestOwner, OCIFleetGeneration: 1, CreateKey: "th-" + row.SeatID,
+			OCIOwner: deployTestOwner, OCIFleetGeneration: 1, CreateKey: entityid.Derive("test-create", row.SeatID),
 			VolumeID: "ocid1.volume.oc1..fake-" + row.SeatID, AttachmentID: "ocid1.volumeattachment.oc1..fake-" + row.SeatID,
 			AttachmentETag: "etag", AttachmentDevice: "/dev/oracleoci/oraclevdb", DesiredGeneration: 1,
 			ArtifactDigest: manifest.ArtifactDigest}})
@@ -424,7 +426,7 @@ func (fake *fakeRolloutController) status(wire []byte) ([]byte, error) {
 	}
 	now := time.Now().UTC()
 	signed, err := protocol.SignEnvelope(reportWire, protocol.EnvelopeScope{Region: deployTestCell,
-		Kind: placementStatusReplyKind, Actor: "controller", OperationID: "status-" + request.Nonce,
+		Kind: placementStatusReplyKind, Actor: "controller", OperationID: entityid.Derive("status", request.Nonce),
 		Generation: 1, Epoch: envelope.Epoch}, now, now.Add(time.Minute), fake.cell.controllerKey)
 	if err != nil {
 		return nil, err

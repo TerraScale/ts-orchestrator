@@ -25,7 +25,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const restoreDocument = "/v1/projects/p1/databases/d1/collections/c1/documents/doc-1"
+const restoreDocument = "/v1/projects/00000000000000000000000002/databases/00000000000000000000000003/collections/00000000000000000000000004/documents/00000000000000000000000005"
 
 func restorePlan(t *testing.T) string {
 	t.Helper()
@@ -51,7 +51,7 @@ func TestRestoreCheckPlanWithoutApply(t *testing.T) {
 	binary := fakeRelease(t)
 	plan := restorePlan(t)
 	var output bytes.Buffer
-	if err := runRestoreCheck(t.Context(), []string{"--plan", plan, "--binary", binary, "--organization", "org-1",
+	if err := runRestoreCheck(t.Context(), []string{"--plan", plan, "--binary", binary, "--organization", "00000000000000000000000001",
 		"--document", restoreDocument, "--scratch-instance", "ocid1.instance.scratch", "--restored-volume", "ocid1.volume.restored"}, &output); err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestRestoreCheckRejectsBadFlags(t *testing.T) {
 	plan := restorePlan(t)
 	unverified := filepath.Join(t.TempDir(), "terrabase-linux-amd64")
 	writeFile(t, unverified, []byte("\x7fELF"))
-	base := []string{"--plan", plan, "--binary", binary, "--organization", "org-1", "--scratch-instance", "ocid1.instance.scratch",
+	base := []string{"--plan", plan, "--binary", binary, "--organization", "00000000000000000000000001", "--scratch-instance", "ocid1.instance.scratch",
 		"--restored-volume", "ocid1.volume.restored"}
 	for name, args := range map[string][]string{
 		"no binary":       {"--organization", "o", "--document", restoreDocument},
@@ -148,8 +148,8 @@ func (s restoreServers) verify(t *testing.T, wait time.Duration) (string, error)
 			DatabaseID     string   `json:"databaseId"`
 		}
 		if err := json.UnmarshalRead(r.Body, &body); err != nil || body.Name != "restore-check" ||
-			!slices.Equal(body.Scopes, []string{"documents:read"}) || body.OrganizationID != "org-1" ||
-			body.ProjectID != "p1" || body.DatabaseID != "d1" {
+			!slices.Equal(body.Scopes, []string{"documents:read"}) || body.OrganizationID != "00000000000000000000000001" ||
+			body.ProjectID != "00000000000000000000000002" || body.DatabaseID != "00000000000000000000000003" {
 			t.Errorf("API key request = %+v, %v", body, err)
 		}
 		w.WriteHeader(s.keyStatus)
@@ -198,8 +198,8 @@ func (s restoreServers) verify(t *testing.T, wait time.Duration) (string, error)
 	roots.AppendCertsFromPEM(caPEM)
 	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots}}
 	defer transport.CloseIdleConnections()
-	request := restoreCheckRequest{Document: restoreDocument, ReadyPath: "/readyz", organization: "org-1",
-		project: "p1", database: "d1", id: "doc-1", wait: wait}
+	request := restoreCheckRequest{Document: restoreDocument, ReadyPath: "/readyz", organization: "00000000000000000000000001",
+		project: "00000000000000000000000002", database: "00000000000000000000000003", id: "00000000000000000000000005", wait: wait}
 	return verifyRestore(t.Context(), &http.Client{Transport: transport, Timeout: 5 * time.Second},
 		adminServer.URL, clientServer.URL, request)
 }
@@ -295,17 +295,17 @@ func TestRestoreVolumeConfigUsesThePlanScope(t *testing.T) {
 
 func TestVerifyRestoreReadsTheDocumentWithAReadOnlyKey(t *testing.T) {
 	ok := restoreServers{readyStatus: http.StatusOK, keyStatus: http.StatusCreated, keySecret: "s3cret",
-		docStatus: http.StatusOK, docID: "doc-1"}
+		docStatus: http.StatusOK, docID: "00000000000000000000000005"}
 	etag, err := ok.verify(t, 5*time.Second)
 	if err != nil || etag != `"v7"` {
 		t.Fatalf("verify = %q, %v", etag, err)
 	}
 	for name, servers := range map[string]restoreServers{
-		"never ready":  {readyStatus: http.StatusServiceUnavailable, keyStatus: http.StatusCreated, keySecret: "s3cret", docStatus: http.StatusOK, docID: "doc-1"},
-		"key rejected": {readyStatus: http.StatusOK, keyStatus: http.StatusBadRequest, keySecret: "s3cret", docStatus: http.StatusOK, docID: "doc-1"},
-		"no document":  {readyStatus: http.StatusOK, keyStatus: http.StatusCreated, keySecret: "s3cret", docStatus: http.StatusNotFound, docID: "doc-1"},
-		"other id":     {readyStatus: http.StatusOK, keyStatus: http.StatusCreated, keySecret: "s3cret", docStatus: http.StatusOK, docID: "doc-2"},
-		"wrong bearer": {readyStatus: http.StatusOK, keyStatus: http.StatusCreated, keySecret: "other", docStatus: http.StatusOK, docID: "doc-1"},
+		"never ready":  {readyStatus: http.StatusServiceUnavailable, keyStatus: http.StatusCreated, keySecret: "s3cret", docStatus: http.StatusOK, docID: "00000000000000000000000005"},
+		"key rejected": {readyStatus: http.StatusOK, keyStatus: http.StatusBadRequest, keySecret: "s3cret", docStatus: http.StatusOK, docID: "00000000000000000000000005"},
+		"no document":  {readyStatus: http.StatusOK, keyStatus: http.StatusCreated, keySecret: "s3cret", docStatus: http.StatusNotFound, docID: "00000000000000000000000005"},
+		"other id":     {readyStatus: http.StatusOK, keyStatus: http.StatusCreated, keySecret: "s3cret", docStatus: http.StatusOK, docID: "00000000000000000000000006"},
+		"wrong bearer": {readyStatus: http.StatusOK, keyStatus: http.StatusCreated, keySecret: "other", docStatus: http.StatusOK, docID: "00000000000000000000000005"},
 	} {
 		etag, err := servers.verify(t, 600*time.Millisecond)
 		if err == nil {

@@ -15,7 +15,7 @@ import (
 
 func testProof(unit, digest string, at time.Time) HealthProof {
 	return HealthProof{Schema: HealthSchema, Cell: "gru", Unit: unit, BinarySHA256: digest, ProcessID: 42,
-		StartNonce: "0123456789abcdef0123456789abcdef", ObservedAt: at}
+		StartNonce: "014D2PF2DBSQQG28T5CY4TQKFF", ObservedAt: at}
 }
 
 func TestCollectorKeepsOnlyVerifiedNewestProofsOnTheirOwnSubject(t *testing.T) {
@@ -174,7 +174,7 @@ func TestCollectorAcceptsANewIncarnationWhoseClockSteppedBack(t *testing.T) {
 	}
 	restarted := func(at time.Time) HealthProof {
 		proof := testProof("ctl-a", toDigest, at)
-		proof.ProcessID, proof.StartNonce = 43, "fedcba9876543210fedcba9876543210"
+		proof.ProcessID, proof.StartNonce = 43, "7YVJX9GXJM688FXQ5TK1V58CGG"
 		return proof
 	}
 	// The old incarnation proved 5 s ago: an earlier-reading proof of
@@ -225,7 +225,7 @@ func TestCollectorRefusesASupersededIncarnation(t *testing.T) {
 		t.Fatal(err)
 	}
 	b := testProof("h1", fromDigest, start.Add(10*time.Second))
-	b.ProcessID, b.StartNonce = 43, "fedcba9876543210fedcba9876543210"
+	b.ProcessID, b.StartNonce = 43, "7YVJX9GXJM688FXQ5TK1V58CGG"
 	now = start.Add(10 * time.Second)
 	if err := collector.Observe(subject, sign(b)); err != nil {
 		t.Fatal(err)

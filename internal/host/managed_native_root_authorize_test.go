@@ -58,7 +58,7 @@ func TestManagedNativeRootAuthorizesLiveRunnerAndRevokesStaleWitnesses(t *testin
 		agent := &Agent{cfg: AgentConfig{WorkloadIdentity: WorkloadIdentity{UID: peer.UID, GID: peer.GID},
 			ClockCheck: func() error { return nil }}, runner: runner,
 			nativeRoots: map[string]*managedNativeRoot{role: root}}
-		if err := agent.acceptSession(session{SessionID: "accepted-session", Epoch: 1,
+		if err := agent.acceptSession(session{SessionID: "0000000000GW5TVN8XNYT7ZYN0", Epoch: 1,
 			ExpiresAt: time.Now().Add(sessionTTL)}); err != nil {
 			t.Fatal(err)
 		}

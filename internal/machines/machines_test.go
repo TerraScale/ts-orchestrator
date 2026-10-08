@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workloadspec"
 )
@@ -41,7 +43,7 @@ func testMachine(app App) Machine {
 
 func TestAppValidate(t *testing.T) {
 	tenant := testApp("acme-db")
-	tenant.Class, tenant.Tenant = ClassTenant, "acme"
+	tenant.Class, tenant.Tenant = ClassTenant, "0000000000NY47MDQEXMPZDJR7"
 	for name, app := range map[string]App{"platform": testApp("ts-auth"), "tenant": tenant} {
 		if err := app.Validate(); err != nil {
 			t.Fatalf("%s: %v", name, err)
@@ -152,7 +154,7 @@ func TestNewMachineIDIsValidAndUnique(t *testing.T) {
 	seen := map[string]bool{}
 	for range 1000 {
 		id := NewMachineID()
-		if !idRE.MatchString(id) || seen[id] {
+		if !entityid.Valid(id) || seen[id] {
 			t.Fatalf("machine ID %q is malformed or repeated", id)
 		}
 		seen[id] = true
@@ -167,7 +169,7 @@ func TestAppWorkloadSpec(t *testing.T) {
 	stateful.Stateful = &workloadspec.Stateful{Quorum: 2}
 	stateful.Regions = map[string]int{"gru": 3, "fra": 0}
 	tenant := testApp("acme-web")
-	tenant.Class, tenant.Tenant = ClassTenant, "acme"
+	tenant.Class, tenant.Tenant = ClassTenant, "0000000000NY47MDQEXMPZDJR7"
 	tenant.Config.Artifact, tenant.Config.Image = workloadspec.ArtifactImage, "ghcr.io/acme/web"
 	tenant.Config.Command = []string{"web"}
 	tenant.Config.Lifecycle.PostStart = []string{"/bin/true"}

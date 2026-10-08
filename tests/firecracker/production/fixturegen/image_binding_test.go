@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -38,7 +40,7 @@ func TestPacketImageReceiptBindsExecutableAndImage(t *testing.T) {
 	imageOCID := "ocid1.image.oc1.sa-saopaulo-1.CUSTOM"
 	delegation, err := trust.SignDelegation(trust.Delegation{
 		SchemaVersion: trust.SchemaVersion, SubjectKeyID: delegateID, SubjectPublicKey: publicWire,
-		Capabilities: []trust.Capability{{Domain: release.ImageDomain, DeploymentID: revision, Cell: "GRU",
+		Capabilities: []trust.Capability{{Domain: release.ImageDomain, DeploymentID: entityid.Derive("build", revision), Cell: "GRU",
 			Environment: "production", Role: "oci-image", Slots: []string{imageOCID}, Actions: []string{"sign"}}},
 	}, manifest.FixtureNow.Add(-time.Minute), manifest.FixtureNow.Add(2*time.Hour), rootKey)
 	if err != nil {

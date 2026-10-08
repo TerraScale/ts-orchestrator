@@ -4,14 +4,14 @@
 package machines
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -24,7 +24,6 @@ var (
 	tokenRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 	// poolRE is hostpool's node pool name rule.
 	poolRE   = regexp.MustCompile(`^[a-z][a-z0-9-]{0,40}$`)
-	idRE     = regexp.MustCompile(`^[0-9a-f]{16}$`)
 	digestRE = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	envRE    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
@@ -70,12 +69,12 @@ type App struct {
 
 // Validate checks the app in isolation.
 func (a App) Validate() error {
-	if !tokenRE.MatchString(a.Name) || !idRE.MatchString(a.ID) || a.Version == 0 {
+	if !tokenRE.MatchString(a.Name) || !entityid.Valid(a.ID) || a.Version == 0 {
 		return fmt.Errorf("%w: app name, ID or version", ErrInvalid)
 	}
 	switch {
 	case a.Class == ClassPlatform && a.Tenant == "":
-	case a.Class == ClassTenant && tokenRE.MatchString(a.Tenant):
+	case a.Class == ClassTenant && entityid.Valid(a.Tenant):
 	default:
 		return fmt.Errorf("%w: app %s class %q needs a tenant exactly when it is a tenant app", ErrInvalid, a.Name, a.Class)
 	}
@@ -317,7 +316,7 @@ type Machine struct {
 
 // Validate checks the machine in isolation.
 func (m Machine) Validate() error {
-	if !idRE.MatchString(m.ID) || !tokenRE.MatchString(m.App) || !idRE.MatchString(m.AppID) ||
+	if !entityid.Valid(m.ID) || !tokenRE.MatchString(m.App) || !entityid.Valid(m.AppID) ||
 		!validRegion(m.Region) || m.Version == 0 {
 		return fmt.Errorf("%w: machine identity or version", ErrInvalid)
 	}
@@ -348,7 +347,7 @@ type Status struct {
 
 // Validate checks the status in isolation.
 func (s Status) Validate() error {
-	if !idRE.MatchString(s.ID) || !tokenRE.MatchString(s.App) || !slices.Contains(states, s.State) || s.UpdatedAt.IsZero() {
+	if !entityid.Valid(s.ID) || !tokenRE.MatchString(s.App) || !slices.Contains(states, s.State) || s.UpdatedAt.IsZero() {
 		return fmt.Errorf("%w: machine status", ErrInvalid)
 	}
 	return nil
@@ -357,11 +356,7 @@ func (s Status) Validate() error {
 // NewMachineID returns a random machine ID.
 func NewMachineID() string { return newID() }
 
-func newID() string {
-	var id [8]byte
-	_, _ = rand.Read(id[:]) // crypto/rand.Read never fails.
-	return hex.EncodeToString(id[:])
-}
+func newID() string { return entityid.New() }
 
 func validRegion(region string) bool {
 	_, ok := catalog.LookupName(region)

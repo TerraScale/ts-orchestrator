@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 func TestReadyMemberDiscoveryFencesDrainAndResize(t *testing.T) {
@@ -63,7 +65,7 @@ func TestReadyMemberDiscoveryFencesDrainAndResize(t *testing.T) {
 			// Freshness alone cannot authorize an unsafe newly introduced shard.
 			s.now = s.controller.replicasAfter.Add(time.Second)
 			snapshot = safeReplicaSnapshot(s.now, cell)
-			snapshot.Placements = append(snapshot.Placements, ReplicaPlacement{Org: "new", Database: "introduced", Shard: 1,
+			snapshot.Placements = append(snapshot.Placements, ReplicaPlacement{Org: entityid.Derive("test-org", "new"), Database: entityid.Derive("test-database", "introduced"), Shard: 1,
 				LiveReplicas: []string{added.Name}})
 			state := s.observe()
 			if state.Replicas == nil {
@@ -86,7 +88,7 @@ func TestReadyMemberDiscoveryFencesDrainAndResize(t *testing.T) {
 					s.now = s.controller.replicasAfter.Add(time.Second)
 				}
 				fresh := safeReplicaSnapshot(s.now, cell)
-				fresh.Placements = append(fresh.Placements, ReplicaPlacement{Org: "new", Database: "introduced", Shard: 1,
+				fresh.Placements = append(fresh.Placements, ReplicaPlacement{Org: entityid.Derive("test-org", "new"), Database: entityid.Derive("test-database", "introduced"), Shard: 1,
 					LiveReplicas: []string{"gru-1-db-1", "gru-1-db-2", "gru-1-db-3"}})
 				return fresh, nil
 			}

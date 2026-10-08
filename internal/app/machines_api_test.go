@@ -53,13 +53,13 @@ func TestControllerServesMachinesAPI(t *testing.T) {
 		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"),
 				StoreMaxBytes: 4 << 30, Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller"}}}},
-		Controller: ControllerConfig{CandidateID: "one", ResponseKeyFile: filepath.Join(root, "controller.key"),
+		Controller: ControllerConfig{CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
 			ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{{Actor: "ops",
 				PublicKey: base64.StdEncoding.EncodeToString(operatorPublic), Roles: []string{"web"}, Environments: []string{"test"}}},
 			Workloads: map[string]WorkloadProfile{"terrabase": {Resources: resources}, "web": {Resources: resources}},
 			MachinesAPI: &machinesapi.Config{ListenAddress: fmt.Sprintf("127.0.0.1:%d", apiPort), Issuer: issuer,
-				Audience: audience, JWKSURLs: []string{jwks.URL}, Clients: []string{"ts-orch-cli"},
-				Members: map[string][]string{machinesapi.PlatformOrg: {"admin"}}},
+				Audience: audience, JWKSURLs: []string{jwks.URL}, Clients: []string{"00000000000000000000000001"},
+				PlatformOrganizationID: "0000000000N2TZG5XH1FX62SDF", Members: map[string][]string{"0000000000N2TZG5XH1FX62SDF": {"00000000000000000000000002"}}},
 		},
 	})
 	runCtx, stop := context.WithCancel(ctx)
@@ -96,8 +96,8 @@ func TestControllerServesMachinesAPI(t *testing.T) {
 		t.Fatalf("anonymous GET /v1/apps = %d %s", code, body)
 	}
 	now := time.Now().Unix()
-	code, body := get(signTestAccessToken(t, key, "k1", map[string]any{"iss": issuer, "aud": audience, "sub": "admin",
-		"client_id": "ts-orch-cli", "scope": "orch:read", "iat": now, "exp": now + 600}))
+	code, body := get(signTestAccessToken(t, key, "k1", map[string]any{"iss": issuer, "aud": audience, "sub": "00000000000000000000000002",
+		"client_id": "00000000000000000000000001", "scope": "orch:read", "iat": now, "exp": now + 600}))
 	// The app store opened empty: no app has moved onto it yet.
 	if code != http.StatusOK || strings.TrimSpace(string(body)) != `{"apps":[]}` {
 		t.Fatalf("GET /v1/apps = %d %s", code, body)
@@ -140,7 +140,7 @@ func TestMachinesAPIFollowsTheCellSpec(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = broker.Close() })
-	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: "gru", CandidateID: "machines-spec", Replicas: 1})
+	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: "gru", CandidateID: "0000000000N8R21NWNZ7QZ2X0N", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestMachinesAPIFollowsTheCellSpec(t *testing.T) {
 	}
 	await(0)
 	current.Store(&cellspec.MachinesAPI{Issuer: "https://gru.auth.terrascale.tech/terrascale", Audience: "https://gru.orch.terrascale.tech",
-		JWKSURLs: []string{"http://127.0.0.1:1/jwks.json"}, Clients: []string{"ts-orch-cli"}})
+		JWKSURLs: []string{"http://127.0.0.1:1/jwks.json"}, Clients: []string{"00000000000000000000000001"}})
 	await(http.StatusOK)
 	current.Store(nil)
 	await(0)

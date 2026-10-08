@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 var (
@@ -37,7 +39,7 @@ func testPolicy() Policy {
 func newRecord(t *testing.T, units []Unit, policy Policy) Record {
 	t.Helper()
 	record, err := New(Spec{
-		RolloutID: "r1", Kind: KindController, Cell: "gru", FromDigest: fromDigest, ToDigest: toDigest,
+		RolloutID: "0000000000039PRXZD4Z9STA2E", Kind: KindController, Cell: "gru", FromDigest: fromDigest, ToDigest: toDigest,
 		Units: units, Policy: policy, AuthorityEpoch: 7,
 	}, testStart)
 	if err != nil {
@@ -56,7 +58,7 @@ func apply(t *testing.T, record Record, event Event) Record {
 }
 
 func health(at time.Time, pid int64) Health {
-	return Health{Digest: toDigest, ProcessID: pid, StartNonce: "n" + fmt.Sprint(pid), ObservedAt: at}
+	return Health{Digest: toDigest, ProcessID: pid, StartNonce: entityid.Derive("process", fmt.Sprint(pid)), ObservedAt: at}
 }
 
 // soakWave prepares every unit of the current wave and feeds reports from
@@ -174,7 +176,7 @@ func TestPlanWavesRejectsInvalidUnits(t *testing.T) {
 }
 
 func TestNewRejectsKnownBadAndInvalidSpecs(t *testing.T) {
-	spec := Spec{RolloutID: "r1", Kind: KindHost, Cell: "gru", FromDigest: fromDigest, ToDigest: toDigest,
+	spec := Spec{RolloutID: "0000000000039PRXZD4Z9STA2E", Kind: KindHost, Cell: "gru", FromDigest: fromDigest, ToDigest: toDigest,
 		Units: seats(), Policy: DefaultPolicy(), AuthorityEpoch: 1, KnownBad: []string{toDigest}}
 	if _, err := New(spec, testStart); !errors.Is(err, ErrKnownBad) {
 		t.Fatalf("known-bad target started: %v", err)
@@ -549,13 +551,13 @@ func checkInvariants(t *testing.T, seed uint64, before, after Record) {
 }
 
 func TestOperationIDIsStableAndDistinct(t *testing.T) {
-	first := OperationID("r1", "ctrl-b", PhaseCanary, 0)
-	if first != OperationID("r1", "ctrl-b", PhaseCanary, 0) {
+	first := OperationID("0000000000GBSYKHMNVHNRT6RH", "ctrl-b", PhaseCanary, 0)
+	if first != OperationID("0000000000GBSYKHMNVHNRT6RH", "ctrl-b", PhaseCanary, 0) {
 		t.Fatal("operation ID is not deterministic")
 	}
 	for _, other := range []string{
-		OperationID("r2", "ctrl-b", PhaseCanary, 0), OperationID("r1", "ctrl-c", PhaseCanary, 0),
-		OperationID("r1", "ctrl-b", PhaseRollingBack, 0), OperationID("r1", "ctrl-b", PhaseCanary, 1),
+		OperationID("0000000000VDVZT0DFJNS2394R", "ctrl-b", PhaseCanary, 0), OperationID("0000000000GBSYKHMNVHNRT6RH", "ctrl-c", PhaseCanary, 0),
+		OperationID("0000000000GBSYKHMNVHNRT6RH", "ctrl-b", PhaseRollingBack, 0), OperationID("0000000000GBSYKHMNVHNRT6RH", "ctrl-b", PhaseCanary, 1),
 	} {
 		if other == first {
 			t.Fatal("operation IDs collide")

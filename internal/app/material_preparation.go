@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
@@ -23,8 +23,7 @@ const maxMaterialWireBytes = maxMaterialSpecBytes + 4096
 const maxMaterialReplyBytes = 64 << 10
 
 func materialPrepareOperationID(spec []byte) string {
-	digest := sha256.Sum256(spec)
-	return "material-g1-" + hex.EncodeToString(digest[:16])
+	return entityid.Derive("material-g1", string(spec))
 }
 
 type materialPrepareReply struct {

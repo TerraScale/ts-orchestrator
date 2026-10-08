@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 const (
@@ -38,7 +40,7 @@ const (
 // wrapped error for logs; clients only learn that the token was refused.
 var ErrUnauthenticated = errors.New("access token rejected")
 
-// Principal is who a verified access token speaks for: a user's UUID, or a
+// Principal is who a verified access token speaks for: a user's ULID, or a
 // service client's ID for a client-credentials token.
 type Principal struct {
 	Subject  string
@@ -173,8 +175,8 @@ func (v *Verifier) verify(ctx context.Context, token string) (Principal, error) 
 		return Principal{}, errors.New("token is not valid yet")
 	case claims.IssuedAt != nil && now.Add(clockSkew).Before(time.Unix(*claims.IssuedAt, 0)):
 		return Principal{}, errors.New("token was issued in the future")
-	case claims.Subject == "":
-		return Principal{}, errors.New("token has no sub")
+	case !entityid.Valid(claims.Subject) || !entityid.Valid(claims.ClientID):
+		return Principal{}, errors.New("token subject and client ID must be canonical ULIDs")
 	}
 	return Principal{Subject: claims.Subject, ClientID: claims.ClientID, Scopes: strings.Fields(claims.Scope)}, nil
 }

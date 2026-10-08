@@ -8,8 +8,6 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
-	fc "git.terrascale.tech/TerraScale/ts-orchestrator/internal/qualification/firecracker"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +17,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	fc "git.terrascale.tech/TerraScale/ts-orchestrator/internal/qualification/firecracker"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 type mmObject = map[string]any
@@ -69,9 +70,9 @@ const mmSecret = "ocid1.vaultsecret.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaa
 
 func mmID(member string) string {
 	if member == "a" {
-		return "018f0000-0000-7000-8000-000000000001"
+		return "01HW000000E008000000000001"
 	}
-	return "018f0000-0000-7000-8000-000000000002"
+	return "01HW000000E008000000000002"
 }
 func mmDir(scope mmObject) string {
 	identity := fmt.Sprintf("%v/%v/%v/%v/%v/%v/1", scope["cluster_id"], scope["tenant_id"], scope["database_id"], scope["shard_id"], scope["member_id"], scope["incarnation"])
@@ -118,14 +119,14 @@ func mmManifest(t *testing.T) *mmFixture {
 	s3 := mmObject{"version": 1, "ack_profile": "object_durable", "bucket": bucket, "region": mmRegion, "endpoint": mmEndpoint}
 	for _, member := range []string{"a", "b"} {
 		peer := "b"
-		inc := "bb"
+		inc := "5VQEXVQEXVQEXVQEXVQEXVQEXV"
 		ip := "10.77.39.11"
 		peerIP := "10.77.39.12"
 		uuid := "76f1b43d-7d79-4f41-9a6e-cc1f4aaab102"
 		fault := "FAULT-DOMAIN-1"
 		if member == "b" {
 			peer = "a"
-			inc = "cc"
+			inc = "6CSK6CSK6CSK6CSK6CSK6CSK6C"
 			ip, peerIP = peerIP, ip
 			uuid = "76f1b43d-7d79-4f41-9a6e-cc1f4aaab103"
 			fault = "FAULT-DOMAIN-2"
@@ -155,13 +156,13 @@ func mmManifest(t *testing.T) *mmFixture {
 		}
 		inputs["authority_tbca"] = authority
 		inputs["signed_v2_s3_config"] = record(member+"-signed-v2-s3-config.json", mmJSON(t, s3))
-		scope := mmObject{"cluster_id": strings.Repeat("11", 16), "tenant_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "database_id": "22222222-2222-2222-2222-222222222222", "shard_id": 7, "member_id": mmID(member), "incarnation": strings.Repeat(inc, 16)}
+		scope := mmObject{"cluster_id": "0H248H248H248H248H248H248H", "tenant_id": "5ANANANANANANANANANANANANA", "database_id": "1248H248H248H248H248H248H2", "shard_id": 7, "member_id": mmID(member), "incarnation": inc}
 		dirs[member] = mmDir(scope)
 		runtime := mmObject{"device_path": "/dev/oracleoci/oraclevdb", "mount_path": dirs[member] + "/volume", "filesystem_uuid": uuid, "filesystem_type": "ext4", "replication_listen_address": ip + ":7000", "replication_peer_member_id": mmID(peer), "replication_peer_address": peerIP + ":7000", "live_s3_target_sha256": mmTarget(bucket), "live_s3_credential": mmObject{"secret_ocid": mmSecret, "version_number": 1}}
 		for field, input := range map[string]string{"trusted_key_sha256": "trusted_public_key", "server_certificate_sha256": "server_crt", "server_private_key_sha256": "server_key", "client_ca_roots_sha256": "client_ca_pem", "client_managed_material_manifest_sha256": "client_managed_manifest", "replication_server_ca_sha256": "server_ca_pem", "live_s3_config_sha256": "signed_v2_s3_config"} {
 			runtime[field] = mmMap(inputs[input])["sha256"]
 		}
-		config := mmObject{"version": 1, "node": "node-" + member, "failure_domain": fault, "member": mmObject{"scope": scope, "host_attempt": 1}, "authority": mmObject{"epoch": 1, "configuration_id": strings.Repeat("a", 64), "certificate_sha256": authority["sha256"], "tls_leaf_sha256": strings.Repeat("a", 64)}, "runtime": runtime, "volume_id": "ocid1.volume.fixture-" + member, "attachment_id": "ocid1.volumeattachment.fixture-" + member, "attachment_etag": "fixture-attachment-" + member, "source_digest": strings.Repeat("a", 64), "system_reserve_bytes": 1 << 30, "collection_id": "21212121-2121-2121-2121-212121212121", "schema_generation": 1, "schema_digest": strings.Repeat("a", 64), "document_id": "018f0000-0000-7000-8000-000000000021"}
+		config := mmObject{"version": 1, "node": "node-" + member, "failure_domain": fault, "member": mmObject{"scope": scope, "host_attempt": 1}, "authority": mmObject{"epoch": 1, "configuration_id": strings.Repeat("a", 64), "certificate_sha256": authority["sha256"], "tls_leaf_sha256": strings.Repeat("a", 64)}, "runtime": runtime, "volume_id": "ocid1.volume.fixture-" + member, "attachment_id": "ocid1.volumeattachment.fixture-" + member, "attachment_etag": "fixture-attachment-" + member, "source_digest": strings.Repeat("a", 64), "system_reserve_bytes": 1 << 30, "collection_id": "1144GJ289144GJ289144GJ2891", "schema_generation": 1, "schema_digest": strings.Repeat("a", 64), "document_id": "01HW000000E008000000000011"}
 		members[member] = mmObject{"inputs": inputs, "guest_config": config}
 	}
 	return &mmFixture{manifest: mmObject{"profile": "managed-member-serving-v1", "source_commits": mmObject{"orchestrator": strings.Repeat("a", 40), "terrabase": strings.Repeat("b", 40)}, "inputs": common, "members": members}, dirs: dirs, path: filepath.Join(dir, "manifest.json")}
@@ -268,11 +269,11 @@ func TestManagedMemberCanonicalGuestTools(t *testing.T) {
 func TestManagedMemberDistinctSignedRuntimeDirectories(t *testing.T) {
 	dirs := map[string]string{}
 	for _, member := range []string{"a", "b"} {
-		inc := "bb"
+		inc := "5VQEXVQEXVQEXVQEXVQEXVQEXV"
 		if member == "b" {
-			inc = "cc"
+			inc = "6CSK6CSK6CSK6CSK6CSK6CSK6C"
 		}
-		scope := mmObject{"cluster_id": strings.Repeat("aa", 16), "tenant_id": mmID("a"), "database_id": mmID("a"), "shard_id": 1, "member_id": mmID(member), "incarnation": strings.Repeat(inc, 16)}
+		scope := mmObject{"cluster_id": "5ANANANANANANANANANANANANA", "tenant_id": mmID("a"), "database_id": mmID("a"), "shard_id": 1, "member_id": mmID(member), "incarnation": inc}
 		dirs[member] = fc.ManagedMemberDirectory(scope, 1)
 		if dirs[member] != mmDir(scope) {
 			t.Fatal(dirs)
@@ -508,8 +509,8 @@ func TestManagedMemberManifestSecurityMatrix(t *testing.T) {
 		case "shard_overflow":
 			scope["shard_id"] = jsontext.Value(`18446744073709551616`)
 			want = "scope"
-		case "uppercase_tenant":
-			scope["tenant_id"] = strings.ToUpper(scope["tenant_id"].(string))
+		case "lowercase_tenant":
+			scope["tenant_id"] = strings.ToLower(scope["tenant_id"].(string))
 			want = "scope"
 		case "runtime_directory":
 			want = "runtime directory"
@@ -541,7 +542,7 @@ func TestManagedMemberManifestSecurityMatrix(t *testing.T) {
 	t.Run("runtime_directory", func(t *testing.T) { check(t, "runtime_directory", false) })
 	t.Run("pinned", func(t *testing.T) {
 		t.Cleanup(mmPatchDirs(base.dirs))
-		for _, name := range []string{"valid", "wrong_peer", "s3_config_hash", "s3_target_hash", "credential_version_2", "credential_version_bool", "credential_version_float", "credential_ocid", "s3_endpoint", "s3_region", "shard_zero", "shard_bool", "shard_negative", "shard_overflow", "uppercase_tenant"} {
+		for _, name := range []string{"valid", "wrong_peer", "s3_config_hash", "s3_target_hash", "credential_version_2", "credential_version_bool", "credential_version_float", "credential_ocid", "s3_endpoint", "s3_region", "shard_zero", "shard_bool", "shard_negative", "shard_overflow", "lowercase_tenant"} {
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
 				check(t, name, false)
@@ -636,7 +637,7 @@ func TestManagedMemberRealProtectedMaterialStaging(t *testing.T) {
 			commands = append(commands, event["label"].(string))
 		}
 	}
-	names := []string{"install-dir-ts-managed", "install-dir-6efe9447512debbf02bcd921c78d666c", "install-dir-material", "install-dir-control", "install-dir-volume"}
+	names := []string{"install-dir-ts-managed", "install-dir-" + filepath.Base(fc.ManagedMemberDirs["a"]), "install-dir-material", "install-dir-control", "install-dir-volume"}
 	want := slices.Clone(names)
 	for _, pair := range mmMaterials {
 		want = append(want, "install-"+pair[1], "hash-"+pair[1])

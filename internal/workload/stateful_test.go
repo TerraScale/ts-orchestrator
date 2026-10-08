@@ -1,6 +1,8 @@
 package workload
 
 import (
+	_ "embed"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -11,7 +13,7 @@ import (
 
 func tbMember(id string, region oci.Region, domain string, kind placement.MemberKind, lag uint64) StatefulMember {
 	return StatefulMember{
-		Observation: placement.MemberObservation{DatabaseID: "db-main", PartitionID: "partition-a", MemberID: id,
+		Observation: placement.MemberObservation{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8", MemberID: id,
 			Region: region, FailureDomain: domain, InstanceID: "ocid1.instance." + id, VolumeID: "ocid1.volume." + id,
 			Stage: placement.StageServing, Healthy: true, CurrentSession: true},
 		Kind:        kind,
@@ -21,17 +23,24 @@ func tbMember(id string, region oci.Region, domain string, kind placement.Member
 
 // gruOnly is a minimal admitted intent that keeps GRU and drops SFO, so the
 // SFO elastic seat is no longer desired.
+//
+//go:embed testdata/current-placement.json
+var currentPlacement []byte
+
 func gruOnly() placement.Intent {
-	return placement.Intent{SchemaVersion: 1, DatabaseID: "db-main", PartitionID: "partition-a",
-		ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: 2}
+	var intent placement.Intent
+	if err := json.Unmarshal(currentPlacement, &intent); err != nil {
+		panic(err)
+	}
+	return intent
 }
 
 func twoRegionMembers() []StatefulMember {
 	return []StatefulMember{
-		tbMember("permanent-a", oci.RegionGRU, "fd-1", placement.MemberPermanent, 0),
-		tbMember("elastic-gru", oci.RegionGRU, "fd-2", placement.MemberElastic, 3),
-		tbMember("permanent-b", oci.RegionSFO, "fd-1", placement.MemberPermanent, 0),
-		tbMember("elastic-sfo", oci.RegionSFO, "fd-2", placement.MemberElastic, 5),
+		tbMember("00000000000E5NVMSGX0D07DPA", oci.RegionGRU, "fd-1", placement.MemberPermanent, 0),
+		tbMember("00000000008SEAHD1YMMYV3ARR", oci.RegionGRU, "fd-2", placement.MemberElastic, 3),
+		tbMember("00000000008TFNX7CNMVMM1QSK", oci.RegionSFO, "fd-1", placement.MemberPermanent, 0),
+		tbMember("0000000000JY3SY711G94XJ4QD", oci.RegionSFO, "fd-2", placement.MemberElastic, 5),
 	}
 }
 
@@ -45,7 +54,7 @@ func TestStatefulScaleDownGates(t *testing.T) {
 		mutate func(*StatefulScaleDownInput)
 		want   StatefulVerdict
 	}{
-		{name: "undesired elastic seat may begin retirement", want: StatefulVerdict{Allowed: true, Candidate: "elastic-sfo", Reason: "safe-to-begin-retirement"}},
+		{name: "undesired elastic seat may begin retirement", want: StatefulVerdict{Allowed: true, Candidate: "0000000000JY3SY711G94XJ4QD", Reason: "safe-to-begin-retirement"}},
 		{name: "managed update blocks", mutate: func(in *StatefulScaleDownInput) { in.ManagedUpdateInFlight = true }, want: StatefulVerdict{Reason: "managed-update-in-flight"}},
 		{name: "backup blocks", mutate: func(in *StatefulScaleDownInput) { in.BackupInFlight = true }, want: StatefulVerdict{Reason: "backup-in-flight"}},
 		{name: "topology cooldown", mutate: func(in *StatefulScaleDownInput) {
@@ -72,8 +81,8 @@ func TestStatefulScaleDownGates(t *testing.T) {
 		}, want: StatefulVerdict{Reason: "quorum-floor-not-met"}},
 		{name: "extra elastic seat is retired before permanent seats", mutate: func(in *StatefulScaleDownInput) {
 			in.Members = []StatefulMember{in.Members[0], in.Members[1], in.Members[2],
-				tbMember("elastic-gru-2", oci.RegionGRU, "fd-3", placement.MemberElastic, 1)}
-		}, want: StatefulVerdict{Allowed: true, Candidate: "elastic-gru-2", Reason: "safe-to-begin-retirement"}},
+				tbMember("00000000003BAF1RX3SX0H8SKG", oci.RegionGRU, "fd-3", placement.MemberElastic, 1)}
+		}, want: StatefulVerdict{Allowed: true, Candidate: "00000000003BAF1RX3SX0H8SKG", Reason: "safe-to-begin-retirement"}},
 		{name: "permanent seats are never candidates", mutate: func(in *StatefulScaleDownInput) {
 			in.Members = []StatefulMember{in.Members[0], in.Members[1], in.Members[2]}
 		}, want: StatefulVerdict{Reason: "quorum-floor-not-met"}},

@@ -143,7 +143,7 @@ func TestControllerCreatesDetectsAndCorrectsDrift(t *testing.T) {
 				t.Fatalf("generation pass result=%+v err=%v", result, err)
 			}
 			tags := cloud.cloud["a"].Tags
-			if controller.Ownership.Stale(tags, 2, next.SpecDigest) || !controller.Ownership.Stale(tags, 2, "other") ||
+			if controller.Ownership.Stale(tags, 2, next.SpecDigest) || !controller.Ownership.Stale(tags, 2, "0000000000V4MRM46HP1SNGDYW") ||
 				!controller.Ownership.Owns(widgetKey("a"), tags) {
 				t.Fatalf("ownership tags were not restamped: %+v", tags)
 			}
@@ -169,7 +169,7 @@ func TestReportPolicyNeverMutates(t *testing.T) {
 func TestForeignResourcesAreNeverTouched(t *testing.T) {
 	for _, tags := range []Tags{
 		{},
-		{Freeform: map[string]string{freeformManagedBy: managedByValue, freeformOwner: "someone-else", freeformResource: "GRU/widget/a"}},
+		{Freeform: map[string]string{freeformManagedBy: managedByValue, freeformOwner: "00000000005KBY8XNJ83MMCJWP", freeformResource: "GRU/widget/a"}},
 		{Freeform: map[string]string{freeformManagedBy: managedByValue, freeformOwner: "cell-gru", freeformResource: "GRU/widget/b"}},
 	} {
 		store := NewMemoryStore()

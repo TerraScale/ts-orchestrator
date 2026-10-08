@@ -10,6 +10,8 @@ import (
 	"slices"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
@@ -88,18 +90,20 @@ func SelfUpdateProgram(id, cell, from, to string, controllers []rollout.Unit, ho
 ) Program {
 	var program Program
 	if len(controllers) > 0 {
-		program = append(program, rollout.Spec{RolloutID: id + "-controllers", Kind: rollout.KindController, Cell: cell,
+		program = append(program, rollout.Spec{RolloutID: entityid.Derive("release-controllers", id), Kind: rollout.KindController, Cell: cell,
 			FromDigest: from, ToDigest: to, Units: controllers, Policy: policy})
 	}
 	if len(hosts) > 0 {
-		program = append(program, rollout.Spec{RolloutID: id + "-hosts", Kind: rollout.KindHost, Cell: cell,
+		program = append(program, rollout.Spec{RolloutID: entityid.Derive("release-hosts", id), Kind: rollout.KindHost, Cell: cell,
 			FromDigest: from, ToDigest: to, Units: hosts, Policy: policy})
 	}
 	return program
 }
 
 // ReleaseRolloutID is the rollout ID prefix of a desired release generation.
-func ReleaseRolloutID(generation uint64) string { return fmt.Sprintf("release-g%d", generation) }
+func ReleaseRolloutID(generation uint64) string {
+	return entityid.Derive("release-rollout", fmt.Sprint(generation))
+}
 
 // ReleaseProgram derives the executor's program from the cell's desired
 // release (rollout.Store.Desired): the controllers that do not run it yet
@@ -135,7 +139,7 @@ func (p ReleaseProgram) Program(ctx context.Context) (Program, error) {
 	}
 	id := ReleaseRolloutID(release.Generation)
 	var program Program
-	controllers, done, err := p.rollout(ctx, id+"-controllers", rollout.KindController, p.Controllers, desired)
+	controllers, done, err := p.rollout(ctx, entityid.Derive("release-controllers", id), rollout.KindController, p.Controllers, desired)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +153,7 @@ func (p ReleaseProgram) Program(ctx context.Context) (Program, error) {
 	if err != nil || len(units) == 0 {
 		return program, err
 	}
-	hosts, _, err := p.rollout(ctx, id+"-hosts", rollout.KindHost, units, desired)
+	hosts, _, err := p.rollout(ctx, entityid.Derive("release-hosts", id), rollout.KindHost, units, desired)
 	if err != nil {
 		return nil, err
 	}

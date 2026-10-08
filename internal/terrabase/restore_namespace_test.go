@@ -74,7 +74,7 @@ func TestRestoreNamespaceHasOnlyLoopbackAndLocalTraffic(t *testing.T) {
 			t.Fatal("private namespace reached the host's loopback listener")
 		}
 		servers := restoreServers{readyStatus: http.StatusOK, keyStatus: http.StatusCreated, keySecret: "s3cret",
-			docStatus: http.StatusOK, docID: "doc-1"}
+			docStatus: http.StatusOK, docID: "00000000000000000000000005"}
 		if etag, err := servers.verify(t, 5*time.Second); err != nil || etag != `"v7"` {
 			t.Fatalf("readiness/admin/document traffic in namespace: %q, %v", etag, err)
 		}

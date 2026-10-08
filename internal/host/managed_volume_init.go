@@ -12,6 +12,8 @@ import (
 	"slices"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -214,11 +216,11 @@ func exchangeVolumeInit(connection net.Conn, wire []byte) error {
 	case 0:
 		return nil
 	case volumeInitNeedsGrant:
-		var attempt [32]byte
+		var attempt [26]byte
 		if _, err := io.ReadFull(connection, attempt[:]); err != nil {
 			return err
 		}
-		if !lowerHex(string(attempt[:]), 32) {
+		if !entityid.Valid(string(attempt[:])) {
 			return errors.New("volume initializer returned an invalid first-format attempt")
 		}
 		return terraBaseFormatNeeded{AttemptID: string(attempt[:])}

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -26,11 +27,11 @@ func TestPreseededSelfConsistentMaterialCannotGainR3Authority(t *testing.T) {
 	// A first writer can mint its own valid authority and TLS material and
 	// encrypt an attacker-known token to the real customer's recipient key.
 	// Structural checks alone accepted this bundle before the provisioning seal.
-	id := bytes.Repeat([]byte{0x11}, 16)
+	id, _ := entityid.Parse("01HW000000E008000000000011")
 	secret := bytes.Repeat([]byte{0x22}, 32)
-	tokenID := base64.RawURLEncoding.EncodeToString(id)
+	tokenID := id.String()
 	token := "tbk1." + tokenID + "." + base64.RawURLEncoding.EncodeToString(secret)
-	message := append([]byte("TB-APIKEY-V1\x00"), id...)
+	message := append([]byte("TB-APIKEY-V1\x00"), id[:]...)
 	message = append(message, secret...)
 	verifier := sha256.Sum256(message)
 	verifierHex := hex.EncodeToString(verifier[:])

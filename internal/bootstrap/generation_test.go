@@ -16,8 +16,8 @@ import (
 var generationNow = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 
 func generationExpectation() bootstrap.MaterialGenerationExpectation {
-	return bootstrap.MaterialGenerationExpectation{DeploymentID: "gru-1-deployment", Environment: "production",
-		ClusterID: "gru-1", Cell: "GRU", ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}}
+	return bootstrap.MaterialGenerationExpectation{DeploymentID: "0000000000YY15F5R431V5JPJ9", Environment: "production",
+		ClusterID: "00000000006GRRF84JEVN9TX7M", Cell: "GRU", ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}}
 }
 
 func signGeneration(t *testing.T, generation bootstrap.MaterialGeneration, key ed25519.PrivateKey) trust.Envelope {
@@ -73,7 +73,7 @@ func TestMaterialGenerationChain(t *testing.T) {
 
 	_, otherRoot, _ := ed25519.GenerateKey(rand.Reader)
 	otherDeployment := expected
-	otherDeployment.DeploymentID = "another-deployment"
+	otherDeployment.DeploymentID = "00000000000ZGTG9F4ZD9XG0T1"
 	tampered := second
 	tampered.Payload = []byte(strings.Replace(string(tampered.Payload), `"issuedLifetimeHours":168`, `"issuedLifetimeHours":2160`, 1))
 	newCell := generationtest.New(t, generationNow).Generation(expected, 2, verified[0].Fingerprint())
@@ -137,7 +137,9 @@ func TestMaterialGenerationShape(t *testing.T) {
 		"a cell-issued leaf": func(generation *bootstrap.MaterialGeneration) {
 			generation.Secrets[0].TargetFile, generation.Secrets[0].Purpose = "controller-a-tls-cert.pem", bootstrap.SecretController
 		},
-		"a slot-bound secret": func(generation *bootstrap.MaterialGeneration) { generation.Secrets[0].Slot = "controller-a" },
+		"a slot-bound secret": func(generation *bootstrap.MaterialGeneration) {
+			generation.Secrets[0].Slot = "controller-a"
+		},
 		"a wrong purpose": func(generation *bootstrap.MaterialGeneration) {
 			for index := range generation.Secrets {
 				if generation.Secrets[index].TargetFile == "controller-tls-issuer-key.pem" {

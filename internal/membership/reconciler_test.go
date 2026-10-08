@@ -232,7 +232,7 @@ func TestFileEvidenceRoutesOnlyWellFormedOwnerOnlyEnvelopes(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
-	candidate := bootstrap.RetirementEvidence{SchemaVersion: 1, DeploymentID: "deployment-1", Cell: "GRU",
+	candidate := bootstrap.RetirementEvidence{SchemaVersion: 1, DeploymentID: "0000000000DMC7WFP9VHV640EP", Cell: "GRU",
 		Environment: "production", Role: "controller", Slot: "controller-b", PreviousAttempt: 1,
 		PreviousGeneration: 1, PreviousResultDigest: strings.Repeat("c", 64), PriorInstanceOCID: instanceB,
 		PriorCreateKey: "founder-controller-b-key", Disposition: bootstrap.SlotRetirementDisposition,

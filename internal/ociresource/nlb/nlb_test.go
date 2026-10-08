@@ -270,7 +270,7 @@ func TestSpecValidation(t *testing.T) {
 			t.Fatalf("accepted %+v", spec)
 		}
 	}
-	if _, err := Publish(t.Context(), ociresource.NewMemoryStore(), ociresource.Key{Region: "GRU", Kind: "other", Name: "x"},
+	if _, err := Publish(t.Context(), ociresource.NewMemoryStore(), ociresource.Key{Region: "GRU", Kind: "0000000000V4MRM46HP1SNGDYW", Name: "x"},
 		ociresource.PolicyEnforce, Spec{NLBID: nlbID, BackendSet: "api", Backends: []Backend{{IP: "10.0.0.1", Port: 1}}}); err == nil {
 		t.Fatal("published under another kind")
 	}

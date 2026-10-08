@@ -123,8 +123,8 @@ func TestWatchdogAppliesTheUnitsSpooledRolloutStep(t *testing.T) {
 				t.Fatal(err)
 			}
 			step, err := rolloutexec.SignStepCommand(rolloutexec.StepCommand{Schema: rolloutexec.StepSchema, Cell: "gru",
-				RolloutID: "release-g1-controllers", Kind: rollout.KindController, Unit: tc.node,
-				OperationID: rollout.OperationID("release-g1-controllers", tc.node, rollout.PhaseCanary, 0),
+				RolloutID: "0000000000N710EPNTQEYZ67K1", Kind: rollout.KindController, Unit: tc.node,
+				OperationID: rollout.OperationID("0000000000N710EPNTQEYZ67K1", tc.node, rollout.PhaseCanary, 0),
 				Action:      rolloutexec.StepPrepare, Digest: digest, Replaces: previous, Epoch: 3, ProofWindowSeconds: 60},
 				key, now, time.Time{})
 			if err != nil {
@@ -145,7 +145,7 @@ func TestWatchdogAppliesTheUnitsSpooledRolloutStep(t *testing.T) {
 			}
 			bakedInputs = func() (bootstrapstart.BakedInputs, error) {
 				return bootstrapstart.BakedInputs{Genesis: genesis, Identity: bootstrapstart.BakedIdentity{
-					DeploymentID: "ts-560-test", Environment: "canary", Cell: "GRU"}}, nil
+					DeploymentID: "0000000000FBPQEED3YHZXX2AS", Environment: "canary", Cell: "GRU"}}, nil
 			}
 			t.Cleanup(func() { rolloutSpoolDir, hostSpoolDir, bakedInputs = previousSpool, previousHostSpool, previousBaked })
 

@@ -311,7 +311,7 @@ func TestCopyRefusesConflictingResourcesBeforeMutation(t *testing.T) {
 			case "source key":
 				b.KmsKeyId = new("unrelated")
 			case "existing policy":
-				s.policy = &objectstorage.ReplicationPolicySummary{Id: new("other"), Name: new("other")}
+				s.policy = &objectstorage.ReplicationPolicySummary{Id: new("0000000000V4MRM46HP1SNGDYW"), Name: new("0000000000V4MRM46HP1SNGDYW")}
 			case "destination ownership":
 				d.buckets["sfo-1-dr-gru-1-backup"] = objectstorage.Bucket{Name: new("sfo-1-dr-gru-1-backup")}
 			case "retention":
@@ -392,7 +392,7 @@ func TestCopyRefusesUnpinnedAndReplacedResources(t *testing.T) {
 						}
 					} else {
 						name := r.MirrorBucket
-						if resource == "seed" {
+						if resource == "0000000000SF1REEJJX6TC691V" {
 							name = r.SeedBucket
 						}
 						if unpinned {
@@ -461,7 +461,7 @@ func TestCopyRechecksPinnedPolicyBeforeBackfill(t *testing.T) {
 }
 
 func TestCopyRechecksDestinationIDsAcrossProvisioningSteps(t *testing.T) {
-	for _, resource := range []string{"mirror", "seed"} {
+	for _, resource := range []string{"mirror", "0000000000SF1REEJJX6TC691V"} {
 		t.Run(resource, func(t *testing.T) {
 			c, s, d := objectFixture()
 			c.apply = true
@@ -638,8 +638,8 @@ func TestConfigValidatesReviewedResourceNamesAndIDs(t *testing.T) {
 		c := configFixture()
 		c.GRU.BucketIDs = map[string]string{"gru-1-dr-sfo-1-backup": "ocid1.bucket.oc1.sa-saopaulo-1.mirror", "gru-1-dr-sfo-1-backup-seed": "ocid1.bucket.oc1.sa-saopaulo-1.seed"}
 		c.SFO.BucketIDs = map[string]string{"sfo-1-dr-gru-1-head": "ocid1.bucket.oc1.us-sanjose-1.mirror", "sfo-1-dr-gru-1-head-seed": "ocid1.bucket.oc1.us-sanjose-1.seed"}
-		c.GRU.PolicyIDs = map[string]string{"TS-641-gru-1-backup": "12345678-1234-1234-1234-123456789abc"}
-		c.SFO.PolicyIDs = map[string]string{"TS-641-sfo-1-head": "87654321-1234-1234-1234-123456789abc"}
+		c.GRU.PolicyIDs = map[string]string{"TS-641-gru-1-backup": "0J6HB7G4HM28T14D0J6HB7H6NW"}
+		c.SFO.PolicyIDs = map[string]string{"TS-641-sfo-1-head": "47CN1J24HM28T14D0J6HB7H6NW"}
 		return c
 	}
 	if err := valid().Validate(); err != nil {
@@ -654,7 +654,7 @@ func TestConfigValidatesReviewedResourceNamesAndIDs(t *testing.T) {
 		"duplicate bucket ID": func(c *Config) {
 			c.GRU.BucketIDs["gru-1-dr-sfo-1-backup-seed"] = c.GRU.BucketIDs["gru-1-dr-sfo-1-backup"]
 		},
-		"unexpected policy name": func(c *Config) { c.GRU.PolicyIDs["other"] = "policy-2" },
+		"unexpected policy name": func(c *Config) { c.GRU.PolicyIDs["0000000000V4MRM46HP1SNGDYW"] = "policy-2" },
 		"crossed policy name":    func(c *Config) { c.GRU.PolicyIDs["TS-641-sfo-1-head"] = "policy-2" },
 		"empty policy ID":        func(c *Config) { c.GRU.PolicyIDs["TS-641-gru-1-backup"] = "" },
 		"malformed policy ID":    func(c *Config) { c.GRU.PolicyIDs["TS-641-gru-1-backup"] = "policy\nreplacement" },

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 )
 
@@ -57,7 +59,7 @@ func TestActionIdentityRecheckRejectsReplacementWithFreshInventory(t *testing.T)
 					pressure := cache.before[original.Nodes[replacement].Name]
 					pressure.InstanceID = cell.instances[replacement].ID
 					cell.process[pressure.Node]++
-					pressure.ProcessID = pressure.Node + "-p2"
+					pressure.ProcessID = entityid.Derive("test-process", pressure.Node+"-p2")
 					if change == "incarnation" {
 						pressure.SampledAt = s.now
 						cache.before[pressure.Node] = pressure

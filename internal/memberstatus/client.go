@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"golang.org/x/sys/unix"
 )
 
@@ -105,7 +107,7 @@ func (c *Client) ServingProofForPeer(ctx context.Context, status Status, peerMem
 }
 
 func (c *Client) servingProof(ctx context.Context, status Status, peerMemberID, peerIncarnation string) (ServingProof, error) {
-	if !status.verified || !canonicalUUID(peerMemberID) || peerMemberID == c.scope.MemberID ||
+	if !status.verified || !canonicalID(peerMemberID) || peerMemberID == c.scope.MemberID ||
 		status.Scope != c.scope || status.Authority != c.authority || !status.Process.valid() ||
 		status.ReceiverOnly || !status.Serving || !status.Local.Healthy || !status.Local.Ready {
 		return ServingProof{}, ErrNotServing
@@ -134,7 +136,7 @@ func (c *Client) servingProof(ctx context.Context, status Status, peerMemberID, 
 		!lowerHex(proof.Object.RootSHA256, 64) || !lowerHex(proof.Object.TargetSHA256, 64) ||
 		!lowerHex(proof.Object.InboxArchiveSHA256AtRecovery, 64) ||
 		proof.Object.RemoteAppliedSequence > proof.Object.RemoteInboxDurableSequence ||
-		proof.Replication.PeerMemberID != peerMemberID || !lowerHex(proof.Replication.PeerIncarnation, 32) ||
+		proof.Replication.PeerMemberID != peerMemberID || !entityid.Valid(proof.Replication.PeerIncarnation) ||
 		peerIncarnation != "" && proof.Replication.PeerIncarnation != peerIncarnation ||
 		!proof.Replication.CurrentAuthenticated ||
 		proof.Replication.LocalSourceSequence != proof.Object.LocalSourceSequence ||

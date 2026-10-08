@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
 )
@@ -22,7 +23,7 @@ const volume = "ocid1.volume.a"
 
 func owned(id, state, kind string, age time.Duration) oci.CloudVolumeBackup {
 	return oci.CloudVolumeBackup{ID: id, VolumeID: volume, LifecycleState: state, Type: kind,
-		CreatedAt: now.Add(-age), FreeformTags: scope.Tags(volume, "k-"+id), ETag: "etag-" + id}
+		CreatedAt: now.Add(-age), FreeformTags: scope.Tags(volume, entityid.Derive("test-backup", id)), ETag: "etag-" + id}
 }
 
 func TestScopeOwnsRequiresExactTagsAndSourceVolume(t *testing.T) {
@@ -50,7 +51,7 @@ func TestScopeOwnsRequiresExactTagsAndSourceVolume(t *testing.T) {
 func TestPlanCreatesFirstFullThenIncrementalsOnInterval(t *testing.T) {
 	policy := Policy{Enabled: true, FullEvery: 3}
 	actions := Plan(policy, scope, volume, nil, now)
-	if len(actions) != 1 || actions[0].Kind != ActionCreate || actions[0].Type != TypeFull || actions[0].Key == "" {
+	if len(actions) != 1 || actions[0].Kind != ActionCreate || actions[0].Type != TypeFull || !entityid.Valid(actions[0].Key) {
 		t.Fatalf("first plan = %+v", actions)
 	}
 	// Same slot replays the same idempotency key.
@@ -269,7 +270,7 @@ func TestRunnerRefusesFollowersFencedAndDisabled(t *testing.T) {
 
 func orphan(id, volumeID string, age time.Duration) oci.CloudVolumeBackup {
 	return oci.CloudVolumeBackup{ID: id, VolumeID: volumeID, LifecycleState: "AVAILABLE", Type: TypeFull,
-		CreatedAt: now.Add(-age), FreeformTags: scope.Tags(volumeID, "k-"+id), ETag: "etag-" + id}
+		CreatedAt: now.Add(-age), FreeformTags: scope.Tags(volumeID, entityid.Derive("test-backup", id)), ETag: "etag-" + id}
 }
 
 func TestRunnerPrunesOrphanedBackupsOfRemovedVolumesAfterRetention(t *testing.T) {

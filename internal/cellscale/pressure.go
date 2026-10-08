@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 )
 
@@ -40,8 +41,6 @@ const (
 
 var (
 	ErrInvalidPressure = errors.New("invalid node pressure")
-	orgRE              = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`)
-	projectRE          = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 	releaseRE          = regexp.MustCompile(`^[A-Za-z0-9._:+-]{1,128}$`)
 )
 
@@ -112,7 +111,7 @@ type NodeIdentity struct {
 }
 
 func (id NodeIdentity) valid() bool {
-	return dbNode(id.Name) && releaseRE.MatchString(id.InstanceID) && releaseRE.MatchString(id.Incarnation)
+	return dbNode(id.Name) && releaseRE.MatchString(id.InstanceID) && entityid.Valid(id.Incarnation)
 }
 
 func (p NodePressure) Identity() NodeIdentity {
@@ -169,7 +168,7 @@ func (p NodePressure) Validate() error {
 	}
 	seen := make(map[string]bool, len(p.TopTenants))
 	for _, tenant := range p.TopTenants {
-		if !projectRE.MatchString(tenant.Project) || !(tenant.RequestRate >= 0 && tenant.RequestRate <= maxRate) ||
+		if !entityid.Valid(tenant.Project) || !(tenant.RequestRate >= 0 && tenant.RequestRate <= maxRate) ||
 			!(tenant.CPUShare >= 0 && tenant.CPUShare <= 1) {
 			return fmt.Errorf("%w: tenant %q", ErrInvalidPressure, tenant.Project)
 		}

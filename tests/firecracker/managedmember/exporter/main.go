@@ -19,18 +19,19 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"syscall"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/oklog/ulid/v2"
 	"golang.org/x/sys/unix"
 )
 
 var (
-	memberIDs          = [2]string{"018f0000-0000-7000-8000-000000000001", "018f0000-0000-7000-8000-000000000002"}
-	memberIncarnations = [2]string{strings.Repeat("bb", 16), strings.Repeat("cc", 16)}
+	memberIDs          = [2]string{"01HW000000E008000000000001", "01HW000000E008000000000002"}
+	memberIncarnations = [2]string{"5VQEXVQEXVQEXVQEXVQEXVQEXV", "6CSK6CSK6CSK6CSK6CSK6CSK6C"}
 	memberDNSNames     = [2]string{"member-a.terrabase.test", "member-b.terrabase.test"}
 	failureDomains     = [2]string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"}
-	memberDirs         = [2]string{"/srv/ts-managed/6efe9447512debbf02bcd921c78d666c", "/srv/ts-managed/948d999055329358cc417bcc96edb470"}
+	memberDirs         = [2]string{"/srv/ts-managed/a7d686b2920f18ea45a75e47ff9cd46e", "/srv/ts-managed/876d955c0b319006125266730d25349c"}
 	guestIPs           = [2]string{"10.77.39.11", "10.77.39.12"}
 	volumeUUIDs        = [2]string{"76f1b43d-7d79-4f41-9a6e-cc1f4aaab102", "76f1b43d-7d79-4f41-9a6e-cc1f4aaab103"}
 	lowerSHA256        = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -149,21 +150,18 @@ func export(cfg options) (err error) {
 		return err
 	}
 	public := signer.Public().(ed25519.PublicKey)
-	var keyID [16]byte
+	keyID := ulid.MustParse(entityid.New())
 	var keySecret [32]byte
-	if _, err = rand.Read(keyID[:]); err != nil {
-		return err
-	}
 	if _, err = rand.Read(keySecret[:]); err != nil {
 		return err
 	}
 	defer clear(keySecret[:])
-	token := "tbk1." + base64.RawURLEncoding.EncodeToString(keyID[:]) + "." + base64.RawURLEncoding.EncodeToString(keySecret[:])
+	token := "tbk1." + keyID.String() + "." + base64.RawURLEncoding.EncodeToString(keySecret[:])
 	verifierInput := append([]byte("TB-APIKEY-V1\x00"), keyID[:]...)
 	verifierInput = append(verifierInput, keySecret[:]...)
 	verifier := sha256.Sum256(verifierInput)
 	registry, err := json.Marshal(map[string]any{"version": 1, "keys": []any{map[string]any{
-		"id": base64.RawURLEncoding.EncodeToString(keyID[:]), "verifier_sha256": hex.EncodeToString(verifier[:]),
+		"id": keyID.String(), "verifier_sha256": hex.EncodeToString(verifier[:]),
 		"tenant": tenantID, "database": databaseID, "shard": "1", "collections": []string{collectionID},
 		"permissions": []string{"read", "write"}, "revoked": false,
 	}}})

@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 type fakeOCIResources struct {
@@ -47,7 +49,7 @@ func TestOCIDriftInsightsNeedARepeatedObservation(t *testing.T) {
 	provider := &fakeOCIResources{resources: ociFixture(c.now.Add(-time.Second))}
 	engine := NewEngine(Config{Region: "gru", OCIResources: provider, Now: c.Now})
 	first := engine.Evaluate(t.Context())
-	if len(first.Insights) != 1 || first.Insights[0].Key != "oci_drift:foreign:GRU/route-table-rules/private" {
+	if len(first.Insights) != 1 || first.Insights[0].Key != entityid.Derive("insight", "gru", "oci_drift:foreign:GRU/route-table-rules/private") {
 		t.Fatalf("only the foreign object fires at once: %+v", first.Insights)
 	}
 	// Re-reading the same observation past the threshold is not evidence
@@ -69,11 +71,11 @@ func TestOCIDriftInsightsNeedARepeatedObservation(t *testing.T) {
 	if len(byKey) != 4 {
 		t.Fatalf("insights=%+v", evaluation.Insights)
 	}
-	if byKey["oci_drift:drift:GRU/nsg-rules/controller"].Severity != SeverityWarning ||
-		byKey["oci_drift:drift:GRU/bucket-protection/backups"].Severity != SeverityInfo {
+	if byKey[entityid.Derive("insight", "gru", "oci_drift:drift:GRU/nsg-rules/controller")].Severity != SeverityWarning ||
+		byKey[entityid.Derive("insight", "gru", "oci_drift:drift:GRU/bucket-protection/backups")].Severity != SeverityInfo {
 		t.Fatalf("severities=%+v", byKey)
 	}
-	failing := byKey["oci_drift:error:GRU/security-list-rules/private"]
+	failing := byKey[entityid.Derive("insight", "gru", "oci_drift:error:GRU/security-list-rules/private")]
 	if text := failing.Evidence[0].Text; len(text) > maxOCIErrorText+len("…") {
 		t.Fatalf("error evidence is not bounded: %d bytes", len(text))
 	}

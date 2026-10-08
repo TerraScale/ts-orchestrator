@@ -90,7 +90,7 @@ func TestSoakRequiresAPositiveProcessIdentity(t *testing.T) {
 	start := time.Unix(1_800_000_000, 0)
 	digest := strings.Repeat("c", 64)
 	sample := func(offset time.Duration, pid int) SoakSample {
-		return SoakSample{At: start.Add(offset), ArtifactDigest: digest, OperationID: "u-1",
+		return SoakSample{At: start.Add(offset), ArtifactDigest: digest, OperationID: "0000000000VWA5N990CSNH40S5",
 			Phase: "canary-serving", Serving: true, ProcessPID: pid}
 	}
 	soak := &Soak{Window: time.Minute, Digest: digest, Promoted: "canary-serving"}

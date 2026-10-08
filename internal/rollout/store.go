@@ -8,6 +8,8 @@ import (
 	"slices"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go/jetstream"
@@ -37,7 +39,7 @@ type CellState struct {
 
 func (state CellState) validate(cell string) error {
 	if state.SchemaVersion != SchemaVersion || state.Cell != cell ||
-		state.ActiveRolloutID != "" && !tokenRE.MatchString(state.ActiveRolloutID) ||
+		state.ActiveRolloutID != "" && !entityid.Valid(state.ActiveRolloutID) ||
 		len(state.KnownBad) > MaxKnownBad || len(state.Attempts) > maxAttemptDigest {
 		return fmt.Errorf("%w: cell rollout state", ErrInvalid)
 	}
@@ -73,7 +75,7 @@ func OpenStore(ctx context.Context, js jetstream.JetStream, cell string, replica
 	return &Store{kv: kv, fencer: fencer, cell: cell}, nil
 }
 
-func rolloutKey(id string) string { return "rollout." + id }
+func rolloutKey(id string) string { return id }
 
 // knownBadKey holds one durable known-bad record. The cell's KnownBad list is
 // bounded and ages out its oldest entries; these per-digest records do not,
@@ -140,7 +142,7 @@ func (s *Store) Cell(ctx context.Context) (CellState, uint64, error) {
 
 // Load returns a rollout record and its KV revision.
 func (s *Store) Load(ctx context.Context, rolloutID string) (Record, uint64, error) {
-	if !tokenRE.MatchString(rolloutID) {
+	if !entityid.Valid(rolloutID) {
 		return Record{}, 0, fmt.Errorf("%w: rollout ID", ErrInvalid)
 	}
 	entry, err := s.kv.Get(ctx, rolloutKey(rolloutID))

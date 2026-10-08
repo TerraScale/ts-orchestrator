@@ -48,7 +48,7 @@ func verifiedAnchorFixture(t *testing.T) (bootstrap.VerifiedBootstrapAnchor, boo
 	slots := []string{"controller-b"}
 	capabilities := make([]trust.Capability, 0, 5)
 	for _, domain := range []string{"bootstrap-slot-head", "bootstrap-intent", "bootstrap-result", "bootstrap-candidate", "bootstrap-progress"} {
-		capabilities = append(capabilities, trust.Capability{Domain: domain, DeploymentID: "deployment-a",
+		capabilities = append(capabilities, trust.Capability{Domain: domain, DeploymentID: "0000000000F9PR1WNVDTEXS31Z",
 			Cell: "GRU", Environment: "production", Role: "controller", Slots: slices.Clone(slots), Actions: []string{"sign"}})
 	}
 	grant, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion,
@@ -68,7 +68,7 @@ func verifiedAnchorFixture(t *testing.T) (bootstrap.VerifiedBootstrapAnchor, boo
 	}
 	intentDigest := sha256.Sum256(intentWire)
 	anchor := bootstrap.BootstrapAnchor{SchemaVersion: bootstrap.BootstrapAnchorSchemaVersion,
-		DeploymentID: "deployment-a", Environment: "production", ClusterID: "cluster-a", Cell: oci.RegionGRU,
+		DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "production", ClusterID: "0000000000RMSAJ9B0JFV7ESHN", Cell: oci.RegionGRU,
 		OCIRegion: "sa-saopaulo-1", ControllerSlots: slots, LedgerDelegationWire: grantWire,
 		StorageDomain: bootstrap.StorageDomain{Namespace: "namespace-a", LedgerBucket: "ledger-bucket",
 			LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", HeadBucket: "head-bucket",
@@ -129,7 +129,7 @@ func TestLedgerOpenerUsesExactVerifiedGrantAndBakedRoots(t *testing.T) {
 			currentConfig.AnchorExpiresAt, historicalConfig.AnchorExpiresAt)
 	}
 	for _, config := range []bootstrap.LedgerConfig{currentConfig, historicalConfig} {
-		if config.DeploymentID != "deployment-a" || config.Cell != oci.RegionGRU ||
+		if config.DeploymentID != "0000000000F9PR1WNVDTEXS31Z" || config.Cell != oci.RegionGRU ||
 			config.Namespace != "namespace-a" || config.Bucket != "ledger-bucket" ||
 			config.HeadBucket != "head-bucket" || !slices.Equal(config.ControllerSlots, []string{"controller-b"}) ||
 			len(config.TrustRoots) != 1 || len(config.Delegations) != 1 {

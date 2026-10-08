@@ -1,5 +1,7 @@
 package memberstatus
 
+import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 // VerifyReportedServing checks a current, signed host report against the
 // expected member process, accepted authority, and named signed survivor. A
 // controller must additionally verify the host session and report freshness.
@@ -28,7 +30,7 @@ func VerifyReportedServing(proof ServingProof, expected Identity, survivor Survi
 // signed old process, scope, authority, and survivor. The host must separately
 // reconcile the original request nonce from its durable FileStore.
 func VerifyReportedDrain(envelope DrainEnvelope, operationID string, expected Identity, survivor Survivor, minimumSourceSequence uint64) error {
-	if !lowerHex(operationID, 32) || !expected.Process.valid() || !expected.Scope.valid() ||
+	if !entityid.Valid(operationID) || !expected.Process.valid() || !expected.Scope.valid() ||
 		!expected.Authority.valid() || !survivor.valid() || envelope.SchemaVersion != 1 ||
 		!lowerHex(envelope.Nonce, 32) || !envelope.Process.valid() ||
 		envelope.OperationID != operationID || envelope.State != "complete" ||

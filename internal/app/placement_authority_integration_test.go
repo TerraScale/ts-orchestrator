@@ -27,7 +27,7 @@ func TestSignedPlacementUsesBusinessKeyInRealAuthorityLog(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = broker.Close() })
 	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{
-		Scope: "gru", CandidateID: "placement-authority", Replicas: 1,
+		Scope: "gru", CandidateID: "0000000000RSVEVH5A778HC7A2", Replicas: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +40,7 @@ func TestSignedPlacementUsesBusinessKeyInRealAuthorityLog(t *testing.T) {
 
 	policy, privateKey := newPlacementAdmissionPolicy(t)
 	intent := testManagedPlacementIntent()
-	if intent.DatabaseID != "db-main" || intent.DatabaseID == intent.CanonicalRoster.DatabaseID {
+	if intent.DatabaseID != "0000000000JJVVW9EMWY1PE1VX" || intent.DatabaseID == intent.CanonicalRoster.DatabaseID {
 		t.Fatalf("fixture conflates business key and canonical TerraBase database ID: %+v", intent)
 	}
 	sign := func(intent placement.Intent) []byte {
@@ -69,7 +69,7 @@ func TestSignedPlacementUsesBusinessKeyInRealAuthorityLog(t *testing.T) {
 		t.Fatalf("signed placement did not commit through real authority: receipt=%+v err=%v", receipt, err)
 	}
 	entry, err := control.ReadPlacementIntent(ctx, intent.DatabaseID, intent.PartitionID)
-	if err != nil || entry.SubjectKey != "db-main.partition-a" || entry.Sequence != receipt.Sequence {
+	if err != nil || entry.SubjectKey != intent.DatabaseID+"."+intent.PartitionID || entry.Sequence != receipt.Sequence {
 		t.Fatalf("runtime read did not return the business-key record: entry=%+v err=%v", entry, err)
 	}
 	reader, err := authority.OpenReader(ctx, broker.JetStream(), "gru")
@@ -100,7 +100,7 @@ func TestSignedPlacementUsesBusinessKeyInRealAuthorityLog(t *testing.T) {
 	}
 
 	wrong := intent
-	wrong.DatabaseID = strings.ToUpper(intent.CanonicalRoster.DatabaseID)
+	wrong.DatabaseID = strings.ToLower(intent.CanonicalRoster.DatabaseID)
 	if _, err := verifyAndApplyPlacement(ctx, sign(wrong), "gru", policy, control); err == nil {
 		t.Fatal("uppercase UUID was accepted as the lowercase business key")
 	}

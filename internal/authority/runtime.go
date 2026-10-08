@@ -9,7 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -167,7 +168,7 @@ func Start(ctx context.Context, js jetstream.JetStream, config Config) (*Runtime
 		readStream:  readStream,
 		config:      config,
 		leaseSub:    fmt.Sprintf("%s.%s.lease", controlSubjectRoot, config.Scope),
-		ownerID:     uuid.New().String(),
+		ownerID:     entityid.New(),
 		logger:      logger,
 		diagnostics: authorityDiagnosticQueue,
 		diagTimes:   make(map[string]time.Time),
@@ -242,8 +243,8 @@ func (c Config) validate() error {
 	if !natsToken.MatchString(c.Scope) {
 		return errors.New("authority scope must be a lowercase NATS token")
 	}
-	if !natsToken.MatchString(c.CandidateID) {
-		return errors.New("authority candidate ID must be a lowercase NATS token")
+	if !entityid.Valid(c.CandidateID) {
+		return errors.New("authority candidate ID must be a canonical uppercase ULID")
 	}
 	if c.LeaseDuration == 0 {
 		c.LeaseDuration = defaultLeaseDuration
@@ -368,7 +369,7 @@ func (r *Runtime) appendLease(ctx context.Context, lastSequence, leaseSequence, 
 	}
 	lease := leaseRecord{
 		Version: 1, Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID,
-		Epoch: epoch, LeaseDuration: int64(r.config.LeaseDuration), TransitionID: uuid.New().String(), Released: released,
+		Epoch: epoch, LeaseDuration: int64(r.config.LeaseDuration), TransitionID: entityid.New(), Released: released,
 	}
 	data, err := jsonMarshal(lease)
 	if err != nil {

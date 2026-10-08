@@ -196,7 +196,7 @@ func TestCellSpecAmendsARunningController(t *testing.T) {
 	operatorNKey, operatorSeed := testNKey(t)
 	testEd25519(t, root, "controller.key")
 	operatorPublic, _ := testEd25519(t, root, "operator.key")
-	keys := newTestSpecTrust(t, root, cellspec.Identity{DeploymentID: "lab-gru", Cell: "gru", Environment: "test"})
+	keys := newTestSpecTrust(t, root, cellspec.Identity{DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "gru", Environment: "test"})
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{"terrabase", "web"}, Environments: []string{"test"}}
 	resources := placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}
@@ -205,7 +205,7 @@ func TestCellSpecAmendsARunningController(t *testing.T) {
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"),
 				StoreMaxBytes: 4 << 30, Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller", Global: true},
 					{PublicKey: operatorNKey, Role: "operator"}}}},
-		Controller: ControllerConfig{CandidateID: "one", ResponseKeyFile: filepath.Join(root, "controller.key"),
+		Controller: ControllerConfig{CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
 			ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads: map[string]WorkloadProfile{"terrabase": {Resources: resources}},
 			SpecTrust: keys.config(), Global: &GlobalControlConfig{Enabled: true, Home: "gru"}},
@@ -307,7 +307,7 @@ func TestCellSpecAmendsARunningController(t *testing.T) {
 	next := updated
 	next.Generation = 3
 	foreign := newTestSpecTrust(t, root, keys.identity)
-	other := newTestSpecTrust(t, root, cellspec.Identity{DeploymentID: "lab-sfo", Cell: "sfo", Environment: "test"})
+	other := newTestSpecTrust(t, root, cellspec.Identity{DeploymentID: "0000000000TV3Q06FF4VNZW415", Cell: "sfo", Environment: "test"})
 	otherSet := next
 	otherSet.Identity = other.identity
 	// Only a root may change TerraBase's resources.
@@ -630,7 +630,7 @@ func TestCellSpecTerraBaseSettingsAndReleasers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry.identity = cellspec.Identity{DeploymentID: "lab-gru", Cell: "gru", Environment: "canary"}
+	registry.identity = cellspec.Identity{DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "gru", Environment: "canary"}
 	if len(registry.current.Services) != 0 {
 		t.Fatalf("TerraBase joined the generation 0 spec: %+v", registry.current.Services)
 	}

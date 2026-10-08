@@ -27,8 +27,9 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"github.com/nats-io/nats.go/jetstream"
-	"github.com/oklog/ulid/v2"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
@@ -107,7 +108,7 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30,
 				Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller"}, {PublicKey: operatorNKey, Role: "operator"},
 					{PublicKey: hostNKey, Role: "host", Node: "node-a"}}}},
-		Controller: ControllerConfig{CandidateID: "one", ResponseKeyFile: filepath.Join(root, "controller.key"),
+		Controller: ControllerConfig{CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
 			ArtifactStoreMaxBytes: 512 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads:           map[string]WorkloadProfile{"terrabase": profile},
 			TerraBaseCACertFile: filepath.Join(root, "ca", "member-ca.pem"), TerraBaseCAKeyFile: filepath.Join(root, "ca", "member-ca.key")},
@@ -416,7 +417,7 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 		t.Fatal(err)
 	}
 	stale := nativeIntent(record, nativeRelease{Role: terrabase.Role, Replicas: 1, Profile: profile}, 1)
-	stale.SchemaVersion, stale.OperationID = delivery.SchemaVersion, ulid.Make().String()
+	stale.SchemaVersion, stale.OperationID = delivery.SchemaVersion, entityid.Derive("test-operation", "earlier-leader")
 	stale.AuthorityEpoch = releases.fencer.Current().Epoch + 7
 	key := releasechannel.ServiceStatusKey("GRU", terrabase.Role)
 	_, revision, err := loadServiceRelease(ctx, kv, key)
@@ -452,7 +453,7 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 			t.Fatal(err)
 		}
 		forward := nativeIntent(record, nativeRelease{Role: terrabase.Role, Replicas: 1, Profile: profile}, 1)
-		forward.SchemaVersion, forward.OperationID = delivery.SchemaVersion, ulid.Make().String()
+		forward.SchemaVersion, forward.OperationID = delivery.SchemaVersion, entityid.Derive("test-operation", "earlier-forward", digest)
 		forward.AuthorityEpoch = releases.fencer.Current().Epoch + 7
 		state := serviceReleaseState{IssuedAt: issued, Digest: digest, Actor: actor, Previous: previous,
 			Intent: &forward, State: releasechannel.StateRolling}
@@ -463,7 +464,7 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 			}
 			intent := forward
 			intent.Source, intent.ArtifactDigest, intent.ManifestDigest = back.Source, back.Digest, back.ManifestDigest
-			intent.OperationID = ulid.Make().String()
+			intent.OperationID = entityid.Derive("test-operation", "earlier-rollback", digest)
 			state.Rollback = &intent
 		}
 		sum := sha256.Sum256(claim)
@@ -538,7 +539,7 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	}
 	retry := *state.Rollback
 	retry.Source, retry.ArtifactDigest, retry.ManifestDigest = good.Source, good.Digest, good.ManifestDigest
-	retry.OperationID, retry.Generation = ulid.Make().String(), retry.Generation+1
+	retry.OperationID, retry.Generation = entityid.Derive("test", "retried-rollback"), retry.Generation+1
 	state.Rollback, state.Previous = &retry, unreadableDigest
 	if _, err := saveServiceRelease(ctx, kv, key, state, revision); err != nil {
 		t.Fatal(err)

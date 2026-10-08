@@ -23,6 +23,8 @@ import (
 	"strconv"
 	"strings"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
@@ -177,7 +179,7 @@ func specDigest(spec InitialSpec) (string, error) {
 }
 
 func (repository *Repository) objectName(database, partition string, generation uint64, specSHA string) (string, error) {
-	if repository == nil || !repositoryToken.MatchString(database) || !repositoryToken.MatchString(partition) || generation != 1 ||
+	if repository == nil || !entityid.Valid(database) || !entityid.Valid(partition) || generation != 1 ||
 		len(specSHA) != 64 || !lowerHexDigest(specSHA) {
 		return "", errors.New("managed material object scope is invalid")
 	}
@@ -321,11 +323,11 @@ func (repository *Repository) LookupInitial(ctx context.Context, partition strin
 func (repository *Repository) validObjectName(name, specSHA string) bool {
 	parts := strings.Split(name, "/")
 	if len(parts) != 6 || parts[0] != "material" || parts[1] != "v2" ||
-		parts[2] != repository.config.Cell || !repositoryToken.MatchString(parts[4]) ||
+		parts[2] != repository.config.Cell || !entityid.Valid(parts[4]) ||
 		parts[5] != "g1-"+specSHA+".json" {
 		return false
 	}
-	return repositoryToken.MatchString(parts[3])
+	return entityid.Valid(parts[3])
 }
 
 func (repository *Repository) read(ctx context.Context, name, versionID, etag, wantSHA string,
@@ -401,11 +403,11 @@ func validateStoredBundle(bundle InitialBundle) error {
 		!lowerHexDigest(bundle.Customer.HTTPSCASHA256) {
 		return ErrMaterialConflict
 	}
-	identifier, idErr := base64.RawURLEncoding.DecodeString(bundle.Customer.TokenID)
+	_, idErr := entityid.Parse(bundle.Customer.TokenID)
 	public, publicErr := base64.RawURLEncoding.DecodeString(bundle.Customer.EphemeralPublicKey)
 	nonce, nonceErr := base64.RawURLEncoding.DecodeString(bundle.Customer.Nonce)
 	ciphertext, ciphertextErr := base64.RawURLEncoding.DecodeString(bundle.Customer.Ciphertext)
-	if idErr != nil || len(identifier) != 16 || publicErr != nil || len(public) != 32 ||
+	if idErr != nil || publicErr != nil || len(public) != 32 ||
 		nonceErr != nil || len(nonce) != 12 || ciphertextErr != nil || len(ciphertext) < 16 ||
 		len(ciphertext) > 16<<10 {
 		return ErrMaterialConflict
@@ -427,7 +429,7 @@ func validateStoredBundle(bundle InitialBundle) error {
 				return ErrMaterialConflict
 			}
 		}
-		if _, err := canonicalUUID(member.MemberID); err != nil || len(member.Files) != wantFileCount {
+		if _, err := canonicalID(member.MemberID); err != nil || len(member.Files) != wantFileCount {
 			return ErrMaterialConflict
 		}
 		if index == 0 {
@@ -630,8 +632,7 @@ func verifyStoredRegistry(spec InitialSpec, member MemberBundle, customer Custom
 		return ErrMaterialConflict
 	}
 	key := registry.Keys[0]
-	id, err := base64.RawURLEncoding.DecodeString(key.ID)
-	if err != nil || len(id) != 16 || !lowerHexDigest(key.VerifierSHA256) ||
+	if !entityid.Valid(key.ID) || !lowerHexDigest(key.VerifierSHA256) ||
 		key.ID != customer.TokenID || key.VerifierSHA256 != customer.VerifierSHA256 ||
 		key.Tenant != spec.Scope.TenantID || key.Database != spec.Scope.DatabaseID ||
 		key.Shard != strconv.FormatUint(spec.Scope.ShardID, 10) ||

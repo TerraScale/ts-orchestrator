@@ -367,7 +367,7 @@ func TestTerraBaseSyncCompletesRealSignedRollingUpdateAndLatchesRollback(t *test
 	if err := syncTerraBase(t.Context(), state, cell.root, feed.run, update, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if len(controller.prepares) != 2 || controller.prepares[0].CanarySeatID != "permanent-a" || controller.prepares[1].CanarySeatID != "elastic-gru" {
+	if len(controller.prepares) != 2 || controller.prepares[0].CanarySeatID != "00000000000E5NVMSGX0D07DPA" || controller.prepares[1].CanarySeatID != "00000000008SEAHD1YMMYV3ARR" {
 		t.Fatalf("automatic release did not update both seats sequentially: %+v", controller.prepares)
 	}
 	third := feed.add(cell.root, "3", 30)

@@ -68,7 +68,7 @@ func TestHotspotMovesRequireAttributedDemand(t *testing.T) {
 				policy := testPolicy()
 				state := observeState(t, policy, newFakeCell(4, small, 2, 100))
 				hot := state.Nodes[0].Pressure
-				idle := TenantLoad{Project: project("idle")}
+				idle := TenantLoad{Project: project("0000000000F6H63RT9R93XQ0MH")}
 				useful := TenantLoad{Project: project("useful")}
 				if signal == "CPU" {
 					hot.CPUUtil, useful.CPUShare = 0.9, 0.6

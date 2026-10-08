@@ -20,7 +20,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
 )
@@ -130,7 +131,7 @@ func (client *walkthroughClient) run(ctx context.Context) error {
 	collection := client.profile.Collections[0]
 	scope := fmt.Sprintf("/v1/tenants/%s/databases/%s/shards/%d", client.profile.TenantID,
 		client.profile.DatabaseID, client.profile.ShardID)
-	document := uuid.New().String()
+	document := entityid.New()
 	point := scope + "/collections/" + collection.CollectionID + "/documents/" + document
 	for _, member := range client.profile.Members {
 		status, _, err := client.request(ctx, member, http.MethodGet, "/openapi.json", nil, "")
@@ -140,7 +141,7 @@ func (client *walkthroughClient) run(ctx context.Context) error {
 	client.expect("missing-credential-rejected", a, err == nil && status == http.StatusUnauthorized, status, err)
 	status, _, err = client.request(ctx, a, http.MethodGet, point, nil, "tbk1.AAAAAAAAAAAAAAAAAAAAAA.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 	client.expect("invalid-credential-rejected", a, err == nil && status == http.StatusUnauthorized, status, err)
-	foreign := fmt.Sprintf("/v1/tenants/%s/databases/%s/shards/%d/collections/%s/documents/%s", uuid.New(),
+	foreign := fmt.Sprintf("/v1/tenants/%s/databases/%s/shards/%d/collections/%s/documents/%s", entityid.New(),
 		client.profile.DatabaseID, client.profile.ShardID, collection.CollectionID, document)
 	status, _, err = client.request(ctx, a, http.MethodGet, foreign, nil, "")
 	client.expect("wrong-tenant-rejected", a, err == nil && status == http.StatusForbidden, status, err)

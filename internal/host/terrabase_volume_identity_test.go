@@ -13,7 +13,7 @@ func TestTerraBaseDataVolumeNameReuseGetsOneFreshFormatGrant(t *testing.T) {
 	c, _, _, _, _ := testController(t)
 	retired := Registration{Cell: "gru", Node: "gru-1-db-1", Roles: []string{terrabase.Role}, PublicKey: "first-host", Generation: 1,
 		TerraBaseDataVolumeID: "ocid1.volume.oc1..retired"}
-	const attempt = "0123456789abcdef0123456789abcdef"
+	const attempt = "014D2PF2DBSQQG28T5CY4TQKFF"
 	ask := func(r Registration, volumeID, mounted string) (terraBaseFormatReply, error) {
 		t.Helper()
 		query := terraBaseFormatQuery{VolumeID: volumeID, Mounted: mounted}

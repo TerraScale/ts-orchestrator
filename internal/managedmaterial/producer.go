@@ -27,6 +27,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 const recipientDomain = "TB-CUSTOMER-RECIPIENT-V1\x00"
@@ -194,11 +196,8 @@ func GenerateInitial(spec InitialSpec, trustedRecipientSigner ed25519.PublicKey,
 			return InitialBundle{}, err
 		}
 	}
-	var tokenID [16]byte
+	tokenID, _ := entityid.Parse(entityid.New())
 	var tokenSecret [32]byte
-	if _, err := rand.Read(tokenID[:]); err != nil {
-		return InitialBundle{}, err
-	}
 	if _, err := rand.Read(tokenSecret[:]); err != nil {
 		return InitialBundle{}, err
 	}
@@ -208,7 +207,7 @@ func GenerateInitial(spec InitialSpec, trustedRecipientSigner ed25519.PublicKey,
 	verifier.Write(tokenID[:])
 	verifier.Write(tokenSecret[:])
 	verifierHex := hex.EncodeToString(verifier.Sum(nil))
-	token := "tbk1." + base64.RawURLEncoding.EncodeToString(tokenID[:]) + "." + base64.RawURLEncoding.EncodeToString(tokenSecret[:])
+	token := "tbk1." + tokenID.String() + "." + base64.RawURLEncoding.EncodeToString(tokenSecret[:])
 	for index, seat := range spec.Members {
 		files := members[index].Files
 		files["authority.tbca"] = makeFile(authority.Certificate)
@@ -226,7 +225,7 @@ func GenerateInitial(spec InitialSpec, trustedRecipientSigner ed25519.PublicKey,
 		}
 		files["signed-v2-s3-config.json"] = makeFile(liveS3)
 		registry, err := json.Marshal(apiKeyRegistry{Version: 1, Keys: []apiKeyEntry{{
-			ID: base64.RawURLEncoding.EncodeToString(tokenID[:]), VerifierSHA256: verifierHex,
+			ID: tokenID.String(), VerifierSHA256: verifierHex,
 			Tenant: spec.Scope.TenantID, Database: spec.Scope.DatabaseID,
 			Shard: strconv.FormatUint(spec.Scope.ShardID, 10), Collections: initialCollectionIDs(spec.Catalogs),
 			TableIDs:    initialSQLTableIDs(spec.SQLTables),
@@ -387,10 +386,10 @@ func validateInitialSpec(spec InitialSpec, signer ed25519.PublicKey, now time.Ti
 		!now.Before(spec.Recipient.ExpiresAt) || spec.Recipient.ExpiresAt.After(now.Add(30*24*time.Hour)) {
 		return errors.New("initial material recipient grant is invalid")
 	}
-	if _, err := canonicalUUID(spec.Scope.TenantID); err != nil {
+	if _, err := canonicalID(spec.Scope.TenantID); err != nil {
 		return err
 	}
-	if _, err := canonicalUUID(spec.Scope.DatabaseID); err != nil {
+	if _, err := canonicalID(spec.Scope.DatabaseID); err != nil {
 		return err
 	}
 	if _, err := initialCatalogs(spec.Catalogs); err != nil {
@@ -399,23 +398,23 @@ func validateInitialSpec(spec InitialSpec, signer ed25519.PublicKey, now time.Ti
 	if err := spec.ValidateSQLConfiguration(); err != nil {
 		return err
 	}
-	if !repositoryToken.MatchString(spec.PlacementDatabaseID) || !repositoryToken.MatchString(spec.PartitionID) {
+	if !entityid.Valid(spec.PlacementDatabaseID) || !entityid.Valid(spec.PartitionID) {
 		return errors.New("initial material placement database or partition ID is invalid")
 	}
-	cluster, err := hex.DecodeString(spec.Scope.ClusterID)
-	if err != nil || len(cluster) != 16 || allZero(cluster) || spec.Scope.ShardID == 0 || spec.Scope.Epoch != 1 {
+	cluster, err := entityid.Parse(spec.Scope.ClusterID)
+	if err != nil || len(cluster) != 16 || allZero(cluster[:]) || spec.Scope.ShardID == 0 || spec.Scope.Epoch != 1 {
 		return errors.New("initial material shard scope is invalid")
 	}
 	if !ed25519.Verify(signer, recipientGrantMessage(spec), spec.Recipient.Signature) {
 		return errors.New("initial material recipient signature is invalid")
 	}
 	for _, member := range spec.Members {
-		if _, err := canonicalUUID(member.MemberID); err != nil {
+		if _, err := canonicalID(member.MemberID); err != nil {
 			return err
 		}
-		incarnation, err := hex.DecodeString(member.Incarnation)
-		if err != nil || len(incarnation) != 16 || allZero(incarnation) ||
-			!repositoryToken.MatchString(member.SeatID) ||
+		incarnation, err := entityid.Parse(member.Incarnation)
+		if err != nil || len(incarnation) != 16 || allZero(incarnation[:]) ||
+			!entityid.Valid(member.SeatID) ||
 			!validServerName(member.ServerName) || !validFailureDomain(member.FailureDomain) ||
 			!filepath.IsAbs(member.MaterialDirectory) || filepath.Clean(member.MaterialDirectory) != member.MaterialDirectory ||
 			member.MaterialDirectory == "/" || len(member.MaterialDirectory) > 100 ||
@@ -491,13 +490,13 @@ func encryptCustomerToken(spec InitialSpec, token, verifierHex string, caPEM []b
 	if len(parts) != 3 || parts[0] != "tbk1" {
 		return CustomerEnvelope{}, errors.New("customer token grammar is invalid")
 	}
-	id, idErr := base64.RawURLEncoding.DecodeString(parts[1])
+	id, idErr := entityid.Parse(parts[1])
 	secret, secretErr := base64.RawURLEncoding.DecodeString(parts[2])
 	verifier := sha256.New()
 	verifier.Write([]byte("TB-APIKEY-V1\x00"))
-	verifier.Write(id)
+	verifier.Write(id[:])
 	verifier.Write(secret)
-	if idErr != nil || secretErr != nil || len(id) != 16 || len(secret) != 32 ||
+	if idErr != nil || secretErr != nil || len(secret) != 32 ||
 		verifierHex != hex.EncodeToString(verifier.Sum(nil)) {
 		return CustomerEnvelope{}, errors.New("customer token differs from API verifier")
 	}

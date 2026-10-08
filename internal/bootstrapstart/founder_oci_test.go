@@ -24,7 +24,7 @@ func founderOCIRequestFixture(t *testing.T) bootstrap.FounderPeerLaunchRequest {
 	fixture := newFounderSelectionFixture(t)
 	manifestWire := fixture.manifests["controller-b"]
 	return bootstrap.FounderPeerLaunchRequest{
-		DeploymentID: "deployment-a", Cell: oci.RegionGRU, Environment: "production",
+		DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: oci.RegionGRU, Environment: "production",
 		Slot: "controller-b", ManifestWire: manifestWire, ManifestSHA256: digestWire(manifestWire),
 		RetryToken: "fixed-original-token",
 		Row: bootstrap.FounderPeerRow{
@@ -200,7 +200,7 @@ func TestFounderOCIAttemptRejectsChangedAuthorityTokenAndDeadline(t *testing.T) 
 	}
 	if sameFounderAttempt(attempt, request, deadline.Add(time.Second), now) ||
 		sameFounderAttempt(attempt, request, deadline, deadline) ||
-		sameFounderAttempt(attempt, request, deadline, now.In(time.FixedZone("other", 0))) {
+		sameFounderAttempt(attempt, request, deadline, now.In(time.FixedZone("0000000000V4MRM46HP1SNGDYW", 0))) {
 		t.Fatal("an extended or expired effect deadline was accepted")
 	}
 }

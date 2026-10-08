@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 func TestManagedLaunchRejectsReserveDifferentFromBakedImage(t *testing.T) {
@@ -50,11 +52,12 @@ func TestManagedLaunchRejectsReserveDifferentFromBakedImage(t *testing.T) {
 func managedContractFixture() (Registration, Desired, ed25519.PrivateKey) {
 	key := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
 	registration := Registration{
+		ID:   entityid.Derive("host", "gru", "node-a"),
 		Cell: "gru", Node: "node-a", Environment: "production", FailureDomain: "FAULT-DOMAIN-1",
 		Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(key.Public().(ed25519.PublicKey)), NATSUserPublicKey: testNATSUserKey("node-a"), Generation: 1,
 		Capacity: Capacity{MemoryBytes: 8 << 30}, SystemReserveBytes: 1 << 30,
-		ManagedOCI:    &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..node-a", Owner: "terrascale", FleetGeneration: 1, CreateKey: "node-a"},
-		ManagedMember: &ManagedMemberBinding{Scope: MemberScope{ClusterID: strings.Repeat("a", 32), TenantID: "018f0000-0000-7000-8000-000000000001", DatabaseID: "018f0000-0000-7000-8000-000000000001", ShardID: 1, MemberID: "018f0000-0000-7000-8000-000000000001", Incarnation: strings.Repeat("b", 32)}, HostAttempt: 1},
+		ManagedOCI:    &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..node-a", Owner: "terrascale", FleetGeneration: 1, CreateKey: "00000000000000000000000001"},
+		ManagedMember: &ManagedMemberBinding{Scope: MemberScope{ClusterID: "5ANANANANANANANANANANANANA", TenantID: "01HW000000E008000000000001", DatabaseID: "01HW000000E008000000000001", ShardID: 1, MemberID: "01HW000000E008000000000001", Incarnation: "5VQEXVQEXVQEXVQEXVQEXVQEXV"}, HostAttempt: 1},
 	}
 	desired := Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase", Generation: 1, AuthorityEpoch: 1, Digest: strings.Repeat("a", 64),
 		ManagedMember: &ManagedMemberLaunch{OCI: *registration.ManagedOCI, Member: *registration.ManagedMember,
@@ -87,7 +90,7 @@ func TestManagedDesiredMemoryAndIdentityBoundaries(t *testing.T) {
 		{name: "reserve differs from registration", change: func(_ *Registration, d *Desired) { d.ManagedMember.SystemReserveBytes += 1 << 20 }},
 		{name: "another host attempt", change: func(_ *Registration, d *Desired) { d.ManagedMember.Member.HostAttempt++ }},
 		{name: "another member", change: func(_ *Registration, d *Desired) {
-			d.ManagedMember.Member.Scope.MemberID = "018f0000-0000-7000-8000-000000000002"
+			d.ManagedMember.Member.Scope.MemberID = "01HW000000E008000000000002"
 		}},
 		{name: "wrong attachment", change: func(_ *Registration, d *Desired) { d.ManagedMember.AttachmentID = "" }},
 		{name: "generic arguments", change: func(_ *Registration, d *Desired) { d.Args = []string{"--memory-limit-bytes", "1"} }},

@@ -18,7 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
@@ -329,7 +330,7 @@ func documentCRUD(ctx context.Context, client *http.Client, apiURL, token string
 	if err := expect("create the collection", http.StatusCreated, response, body, err); err != nil {
 		return err
 	}
-	document := collections + "/" + canaryCollection + "/documents/" + uuid.NewV7().String()
+	document := collections + "/" + canaryCollection + "/documents/" + entityid.New()
 	response, body, err = send(http.MethodPut, document, http.Header{"If-None-Match": {"*"}}, []byte(`{"n":1}`))
 	if err := expect("create a document", http.StatusCreated, response, body, err); err != nil {
 		return err

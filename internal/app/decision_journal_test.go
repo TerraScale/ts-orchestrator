@@ -66,7 +66,7 @@ func TestWatchControlPlaneJournalsLeadershipAndHealth(t *testing.T) {
 	previousWatch, previousHealth := controlPlaneWatchInterval, clusterHealthInterval
 	controlPlaneWatchInterval, clusterHealthInterval = 20*time.Millisecond, 50*time.Millisecond
 	t.Cleanup(func() { controlPlaneWatchInterval, clusterHealthInterval = previousWatch, previousHealth })
-	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, OwnerID: "two", Epoch: 4}}
+	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, OwnerID: "0000000000FH1WEBBP25VGJXZG", Epoch: 4}}
 	health := &fakeClusterHealth{}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
@@ -75,7 +75,7 @@ func TestWatchControlPlaneJournalsLeadershipAndHealth(t *testing.T) {
 
 	health.ready.Store(true) // first formation: not journaled
 	time.Sleep(200 * time.Millisecond)
-	fencer.set(authority.Snapshot{Ready: true, Leader: true, OwnerID: "one", Epoch: 5})
+	fencer.set(authority.Snapshot{Ready: true, Leader: true, OwnerID: "0000000000DV8998ZCQW1J2V2R", Epoch: 5})
 	leader := waitForDecisions(t, journal, decisionlog.KindLeaderChanged, 1)
 	if leader[0].Epoch != 5 || leader[0].Subject.ID != "one" ||
 		leader[0].Reason != "This controller acquired the regional authority lease, ending epoch 4." {
@@ -116,7 +116,7 @@ func TestHoldJournalDeduplicatesReasons(t *testing.T) {
 	}
 	log := new(placementHoldLog)
 	log.record(reason)
-	log.record("other")
+	log.record("0000000000V4MRM46HP1SNGDYW")
 	log.record(reason)
 	log.record("reconciliation error: transient")
 	if got := log.Holds(time.Now()); len(got) != 2 {

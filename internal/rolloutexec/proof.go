@@ -3,7 +3,6 @@ package rolloutexec
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -15,6 +14,8 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"github.com/nats-io/nats.go"
 
@@ -49,7 +50,6 @@ var (
 
 	unitRE   = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,127}$`)
 	digestRE = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	nonceRE  = regexp.MustCompile(`^[0-9a-f]{32}$`)
 )
 
 // HealthProof is signed by a running unit while it is healthy. It names the
@@ -72,7 +72,7 @@ type HealthProof struct {
 
 func (proof HealthProof) validate() error {
 	if proof.Schema != HealthSchema || !unitRE.MatchString(proof.Cell) || !unitRE.MatchString(proof.Unit) ||
-		!digestRE.MatchString(proof.BinarySHA256) || proof.ProcessID <= 0 || !nonceRE.MatchString(proof.StartNonce) ||
+		!digestRE.MatchString(proof.BinarySHA256) || proof.ProcessID <= 0 || !entityid.Valid(proof.StartNonce) ||
 		proof.ObservedAt.IsZero() {
 		return fmt.Errorf("%w: health proof", ErrInvalid)
 	}
@@ -109,7 +109,7 @@ func (proof HealthProof) sameIncarnation(other HealthProof) bool {
 }
 
 func healthScope(cell, unit string) trust.Scope {
-	return trust.Scope{Domain: HealthDomain, DeploymentID: unit, Cell: cell, Environment: "rollout", Role: "health", Slot: "v1"}
+	return trust.Scope{Domain: HealthDomain, DeploymentID: entityid.Derive("host", cell, unit), Cell: cell, Environment: "rollout", Role: "health", Slot: "v1"}
 }
 
 // SignHealthProof signs proof with the unit's own key.
@@ -200,7 +200,11 @@ func (c *Collector) Observe(subject string, wire []byte) error {
 	if err != nil {
 		return err
 	}
-	unit := envelope.Scope.DeploymentID
+	var payload HealthProof
+	if err := protocol.DecodeStrict(envelope.Payload, &payload, trust.MaxPayloadBytes); err != nil {
+		return err
+	}
+	unit := payload.Unit
 	if !unitRE.MatchString(unit) || subject != protocol.RolloutProofSubject(c.cell, unit) {
 		return fmt.Errorf("%w: health proof subject", ErrInvalid)
 	}
@@ -365,12 +369,8 @@ func ProcessIdentity(cell, unit, executable string) (HealthProof, error) {
 	if err != nil {
 		return HealthProof{}, fmt.Errorf("hash running executable: %w", err)
 	}
-	nonce := make([]byte, 16)
-	if _, err := rand.Read(nonce); err != nil {
-		return HealthProof{}, err
-	}
 	return HealthProof{Schema: HealthSchema, Cell: cell, Unit: unit, BinarySHA256: digest,
-		ProcessID: int64(os.Getpid()), StartNonce: hex.EncodeToString(nonce)}, nil
+		ProcessID: int64(os.Getpid()), StartNonce: entityid.New()}, nil
 }
 
 func hashExecutable(path string) (string, error) {

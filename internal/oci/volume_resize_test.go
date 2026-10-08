@@ -76,7 +76,7 @@ func resizeFixture(t *testing.T) (*fleet, *resizeProvider, *fakeJournal, *fakeFe
 		t.Fatal(err)
 	}
 	created, err := built.CreateRetainedVolume(t.Context(), VolumeCreateRequest{
-		Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "resize-volume", SizeGB: 50,
+		Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: "00000000007ZA298B7HFNPARDE", SizeGB: 50,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func resizeFixture(t *testing.T) (*fleet, *resizeProvider, *fakeJournal, *fakeFe
 }
 
 func resizeRequest(volumeID string, sizeGB int64) VolumeResizeRequest {
-	return VolumeResizeRequest{DatabaseID: "db-main", PartitionID: "partition-main", VolumeID: volumeID, SizeGB: sizeGB}
+	return VolumeResizeRequest{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", VolumeID: volumeID, SizeGB: sizeGB}
 }
 
 func TestResizeRetainedVolumeGrowsAndKeepsDurableOwnership(t *testing.T) {
@@ -112,14 +112,14 @@ func TestResizeRetainedVolumeGrowsAndKeepsDurableOwnership(t *testing.T) {
 		t.Fatalf("resized volume looks foreign: %v", err)
 	}
 	again, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{
-		Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "resize-volume", SizeGB: 50,
+		Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: "00000000007ZA298B7HFNPARDE", SizeGB: 50,
 	})
 	if err != nil || again.ID != created.ID || again.SizeGB != 100 {
 		t.Fatalf("re-ensure of resized volume failed: %+v, %v", again, err)
 	}
 	// A raised desired size never issues a second create for the same key.
 	raised, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{
-		Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "resize-volume", SizeGB: 200,
+		Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: "00000000007ZA298B7HFNPARDE", SizeGB: 200,
 	})
 	if err != nil || raised.ID != created.ID || provider.volumeCreates != 1 {
 		t.Fatalf("raised desired size broke re-ensure: %+v, %v creates=%d", raised, err, provider.volumeCreates)
@@ -279,8 +279,8 @@ func TestKVJournalAdvancesAndRepairsResizedVolumeOwnership(t *testing.T) {
 	}
 	config, _ := testRegionConfig()
 	volumeID := "ocid1.volume.kv-resize"
-	create := OperationIntent{Action: actionVolumeCreate, Key: "kv-resize", Region: config.Region,
-		Generation: config.Generation, Owner: config.Owner, CreateKey: "kv-resize",
+	create := OperationIntent{Action: actionVolumeCreate, Key: "0000000000SMNKFNWD58KD1MK5", Region: config.Region,
+		Generation: config.Generation, Owner: config.Owner, CreateKey: "0000000000SMNKFNWD58KD1MK5",
 		AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50, CreatedAt: time.Now().UTC()}
 	if err := journal.RecordIntent(ctx, create); err != nil {
 		t.Fatal(err)
@@ -289,10 +289,10 @@ func TestKVJournalAdvancesAndRepairsResizedVolumeOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	identity := ResourceIdentity{ID: volumeID, Region: config.Region, Generation: config.Generation,
-		Owner: config.Owner, CreateKey: "kv-resize", AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50}
+		Owner: config.Owner, CreateKey: "0000000000SMNKFNWD58KD1MK5", AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50}
 	resize := OperationIntent{Action: actionVolumeResize, Key: volumeResizeKey(volumeID, 100), Region: config.Region,
 		Generation: config.Generation, Owner: config.Owner, ResourceID: volumeID, VolumeID: volumeID,
-		CreateKey: "kv-resize", ExpectedETag: "etag-50", AvailabilityDomain: config.AvailabilityDomain,
+		CreateKey: "0000000000SMNKFNWD58KD1MK5", ExpectedETag: "etag-50", AvailabilityDomain: config.AvailabilityDomain,
 		SizeGB: 100, PreviousSizeGB: 50, CreatedAt: time.Now().UTC()}
 	bad := resize
 	bad.Key = volumeResizeKey(volumeID, 90)
@@ -406,8 +406,8 @@ func TestKVJournalRepairsOwnershipFromALaterResizeAttempt(t *testing.T) {
 	}
 	config, _ := testRegionConfig()
 	volumeID := "ocid1.volume.kv-attempt"
-	create := OperationIntent{Action: actionVolumeCreate, Key: "kv-attempt", Region: config.Region,
-		Generation: config.Generation, Owner: config.Owner, CreateKey: "kv-attempt",
+	create := OperationIntent{Action: actionVolumeCreate, Key: "0000000000AWVJBFH0DM35QKQH", Region: config.Region,
+		Generation: config.Generation, Owner: config.Owner, CreateKey: "0000000000AWVJBFH0DM35QKQH",
 		AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50, CreatedAt: time.Now().UTC()}
 	if err := journal.RecordIntent(ctx, create); err != nil {
 		t.Fatal(err)
@@ -417,7 +417,7 @@ func TestKVJournalRepairsOwnershipFromALaterResizeAttempt(t *testing.T) {
 	}
 	first := OperationIntent{Action: actionVolumeResize, Key: volumeResizeKey(volumeID, 100), Region: config.Region,
 		Generation: config.Generation, Owner: config.Owner, ResourceID: volumeID, VolumeID: volumeID,
-		CreateKey: "kv-attempt", ExpectedETag: "etag-50", AvailabilityDomain: config.AvailabilityDomain,
+		CreateKey: "0000000000AWVJBFH0DM35QKQH", ExpectedETag: "etag-50", AvailabilityDomain: config.AvailabilityDomain,
 		SizeGB: 100, PreviousSizeGB: 50, CreatedAt: time.Now().UTC()}
 	if err := journal.RecordIntent(ctx, first); err != nil {
 		t.Fatal(err)
@@ -434,7 +434,7 @@ func TestKVJournalRepairsOwnershipFromALaterResizeAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	grown := ResourceIdentity{ID: volumeID, Region: config.Region, Generation: config.Generation,
-		Owner: config.Owner, CreateKey: "kv-attempt", AvailabilityDomain: config.AvailabilityDomain, SizeGB: 100}
+		Owner: config.Owner, CreateKey: "0000000000AWVJBFH0DM35QKQH", AvailabilityDomain: config.AvailabilityDomain, SizeGB: 100}
 	if owned, err := journal.IsOwnedVolume(ctx, grown); err != nil || !owned {
 		t.Fatalf("volume grown by attempt 2 not owned: %v %v", owned, err)
 	}

@@ -22,14 +22,14 @@ import (
 func testDeployment(t *testing.T) InitialDeployment {
 	t.Helper()
 	deployment, err := NewDeploymentIdentity(InitialDeployment{
-		Region: oci.RegionGRU, PlacementDatabaseID: "preview", PartitionID: "p1",
+		Region: oci.RegionGRU, PlacementDatabaseID: "0000000000HX30KC7N7WJ1ZFC8", PartitionID: "00000000003ZJEV7X3HYJENEYG",
 		LiveS3: LiveS3Target{Bucket: "alpha-live", Region: "sa-saopaulo-1",
 			Endpoint:      "https://alpha.compat.objectstorage.sa-saopaulo-1.oci.customer-oci.com",
 			Credential:    oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.alpha", VersionNumber: 1},
 			NativeOCIRoot: &NativeOCIRoot{Namespace: "alpha"}},
 		Members: [2]DeploymentMember{
-			{SeatID: "permanent-a", ServerName: "permanent-a.terrabase.internal", FailureDomain: "FAULT-DOMAIN-1", PrivateIP: "10.0.0.21"},
-			{SeatID: "elastic-gru", ServerName: "elastic-gru.terrabase.internal", FailureDomain: "FAULT-DOMAIN-2", PrivateIP: "10.0.0.22"},
+			{SeatID: "00000000000E5NVMSGX0D07DPA", ServerName: "permanent-a.terrabase.internal", FailureDomain: "FAULT-DOMAIN-1", PrivateIP: "10.0.0.21"},
+			{SeatID: "00000000008SEAHD1YMMYV3ARR", ServerName: "elastic-gru.terrabase.internal", FailureDomain: "FAULT-DOMAIN-2", PrivateIP: "10.0.0.22"},
 		},
 		ReplicationPort: 7422, ClientPort: 8080, ManagedRuntimeRoot: "/srv/ts-managed",
 	}, 1)
@@ -77,7 +77,7 @@ func TestInitialDeploymentRendersAdmittedPlacementFromReceipt(t *testing.T) {
 	if err != nil || !bytes.Equal(again.Recipient.Signature, spec.Recipient.Signature) {
 		t.Fatal("recipient grant signing is not deterministic for a retained expiry")
 	}
-	receipt, err := service.PrepareInitial(t.Context(), 9, "p1", spec, now)
+	receipt, err := service.PrepareInitial(t.Context(), 9, spec.PartitionID, spec, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestInitialDeploymentRendersAdmittedPlacementFromReceipt(t *testing.T) {
 	if err := intent.ValidateForAdmission(); err != nil {
 		t.Fatal(err)
 	}
-	if intent.CanonicalRoster.Rows[0].SeatID != "permanent-a" || intent.CanonicalRoster.Rows[0].FailureDomain != "FAULT-DOMAIN-1" ||
+	if intent.CanonicalRoster.Rows[0].SeatID != "00000000000E5NVMSGX0D07DPA" || intent.CanonicalRoster.Rows[0].FailureDomain != "FAULT-DOMAIN-1" ||
 		intent.RuntimeManifests[0].ReplicationListenAddress != "10.0.0.21:7422" ||
 		intent.RuntimeManifests[0].ReplicationPeerAddress != "10.0.0.22:7422" ||
 		intent.RuntimeManifests[1].FileSystemUUID != deployment.Members[1].FileSystemUUID {
@@ -148,7 +148,7 @@ func TestInitialDeploymentRejectsUnsafeInputs(t *testing.T) {
 		{"same ports", func(d *InitialDeployment) { d.ClientPort = d.ReplicationPort }},
 		{"foreign S3 region", func(d *InitialDeployment) { d.LiveS3.Region = "us-sanjose-1" }},
 		{"relative root", func(d *InitialDeployment) { d.ManagedRuntimeRoot = "srv/ts-managed" }},
-		{"database token", func(d *InitialDeployment) { d.PlacementDatabaseID = "Preview" }},
+		{"database token", func(d *InitialDeployment) { d.PlacementDatabaseID = "db.1" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			deployment := testDeployment(t)
@@ -222,7 +222,7 @@ func TestRecipientKeyReadersRequireOwnerOnlyPEM(t *testing.T) {
 }
 
 func TestInitialCatalogEncodesTerraBaseUTF8Field(t *testing.T) {
-	catalog, err := InitialCatalog("30000000-0000-0000-0000-000000000001", DeploymentDocumentFields)
+	catalog, err := InitialCatalog("1G000000000000000000000001", DeploymentDocumentFields)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,11 +233,11 @@ func TestInitialCatalogEncodesTerraBaseUTF8Field(t *testing.T) {
 		len(catalog.Bytes) != 120 {
 		t.Fatalf("TBSCH001 bytes %s digest %s", got, catalog.SchemaDigest)
 	}
-	collection, _ := canonicalUUID(catalog.CollectionID)
+	collection, _ := canonicalID(catalog.CollectionID)
 	if !validInitialCatalog(catalog, collection) {
 		t.Fatal("field catalog failed the authority envelope check")
 	}
-	empty, err := InitialCatalog("30000000-0000-0000-0000-000000000001", nil)
+	empty, err := InitialCatalog("1G000000000000000000000001", nil)
 	if err != nil || len(empty.Bytes) != 102 || !validInitialCatalog(empty, collection) {
 		t.Fatalf("empty catalog changed: %v", err)
 	}

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -35,8 +37,8 @@ var (
 	ErrNoRelease        = errors.New("the cell has no such release generation")
 )
 
-func generationKey(generation uint64) string {
-	return "release.gen." + strconv.FormatUint(generation, 10)
+func generationKey(cell string, generation uint64) string {
+	return entityid.Derive("release", cell, strconv.FormatUint(generation, 10))
 }
 
 // Release is one generation of the cell's desired orchestrator binary.
@@ -47,6 +49,7 @@ func generationKey(generation uint64) string {
 // channel can refuse a run older than the cell's newest. RollbackOf names
 // the earlier generation a rollback repeats.
 type Release struct {
+	ID             string    `json:"id"`
 	Generation     uint64    `json:"generation"`
 	Digest         string    `json:"digest"`
 	SourceRevision string    `json:"source_revision,omitempty"`
@@ -59,7 +62,7 @@ type Release struct {
 }
 
 func (r Release) validate() error {
-	if r.Generation == 0 || !digestRE.MatchString(r.Digest) || r.RunNumber < 0 ||
+	if !entityid.Valid(r.ID) || r.Generation == 0 || !digestRE.MatchString(r.Digest) || r.RunNumber < 0 ||
 		r.SourceRevision != "" && !release.ValidSourceRevision(r.SourceRevision) ||
 		len(r.Receipt) > maxReleaseWire || len(r.Delegation) > maxReleaseWire ||
 		len(r.Delegation) > 0 && len(r.Receipt) == 0 || r.RollbackOf >= r.Generation ||
@@ -132,7 +135,7 @@ func (s *Store) generation(ctx context.Context, desired Desired, generation uint
 	if generation == 0 || generation > desired.Generation() {
 		return Release{}, fmt.Errorf("%w: %d", ErrNoRelease, generation)
 	}
-	entry, err := s.kv.Get(ctx, generationKey(generation))
+	entry, err := s.kv.Get(ctx, generationKey(s.cell, generation))
 	if errors.Is(err, jetstream.ErrKeyNotFound) {
 		return Release{}, fmt.Errorf("%w: %d is no longer retained", ErrNoRelease, generation)
 	}
@@ -143,7 +146,7 @@ func (s *Store) generation(ctx context.Context, desired Desired, generation uint
 	if err := protocol.DecodeTolerant(entry.Value(), &release, maxRecordBytes); err != nil {
 		return Release{}, err
 	}
-	if err := release.validate(); err != nil || release.Generation != generation {
+	if err := release.validate(); err != nil || release.Generation != generation || release.ID != generationKey(s.cell, generation) {
 		return Release{}, fmt.Errorf("%w: stored generation %d", ErrInvalid, generation)
 	}
 	return release, nil
@@ -170,6 +173,7 @@ func (s *Store) PublishRelease(ctx context.Context, epoch uint64, release Releas
 		next := desired
 		next.Release = release
 		next.Release.Generation = desired.Generation() + 1
+		next.Release.ID = generationKey(s.cell, next.Release.Generation)
 		next.Release.CreatedAt = release.CreatedAt.UTC()
 		if err := next.validate(s.cell); err != nil {
 			return Release{}, err
@@ -189,7 +193,7 @@ func (s *Store) PublishRelease(ctx context.Context, epoch uint64, release Releas
 		}
 		if newest := next.Generation(); newest > ReleaseHistory && s.fencer.Guard(ctx, epoch) == nil {
 			// Best effort: a missed purge only keeps one more old copy.
-			_ = s.kv.Purge(ctx, generationKey(newest-ReleaseHistory))
+			_ = s.kv.Purge(ctx, generationKey(s.cell, newest-ReleaseHistory))
 		}
 		return next.Release, nil
 	}
@@ -204,7 +208,7 @@ func (s *Store) retain(ctx context.Context, epoch uint64, release Release) error
 	if err := s.fencer.Guard(ctx, epoch); err != nil {
 		return err
 	}
-	if _, err := s.kv.Put(ctx, generationKey(release.Generation), encoded); err != nil {
+	if _, err := s.kv.Put(ctx, generationKey(s.cell, release.Generation), encoded); err != nil {
 		return fmt.Errorf("retain release generation: %w", err)
 	}
 	return nil

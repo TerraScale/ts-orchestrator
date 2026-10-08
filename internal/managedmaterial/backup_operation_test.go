@@ -61,10 +61,10 @@ func TestBackupUnknownCommitReleasesOnlyExactR3Readback(t *testing.T) {
 		BackupTargetDigest: strings.Repeat("f", 64),
 		SignerKeyID:        backupKeyID(signer.Public().(ed25519.PublicKey))}
 	roster := []authority.BackupOperationMember{
-		{MemberID: "33333333-3333-3333-3333-333333333333", Incarnation: strings.Repeat("5", 32),
+		{MemberID: "1K6CSK6CSK6CSK6CSK6CSK6CSK", Incarnation: "2NANANANANANANANANANANANAN",
 			Origin:        strings.Repeat("3", 32) + strings.Repeat("5", 32),
 			TLSLeafSHA256: strings.Repeat("1", 64), Node: "host-a", Role: "terrabase"},
-		{MemberID: "44444444-4444-4444-4444-444444444444", Incarnation: strings.Repeat("6", 32),
+		{MemberID: "248H248H248H248H248H248H24", Incarnation: "36CSK6CSK6CSK6CSK6CSK6CSK6",
 			Origin:        strings.Repeat("4", 32) + strings.Repeat("6", 32),
 			TLSLeafSHA256: strings.Repeat("2", 64), Node: "host-b", Role: "terrabase"},
 	}
@@ -80,7 +80,7 @@ func TestBackupUnknownCommitReleasesOnlyExactR3Readback(t *testing.T) {
 		store := &unknownBackupStore{alter: altered}
 		producer := BackupOperationProducer{Store: store}
 		record, sequence, err := producer.allocatePrepareWithMaterial(t.Context(), 1,
-			"database-a", "partition-a", 1, roster, time.Now().UTC(), receipt, manifest, signer,
+			"0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", 1, roster, time.Now().UTC(), receipt, manifest, signer,
 			func(context.Context) error { return nil })
 		if altered {
 			if !errors.Is(err, authority.ErrOutcomeUnknown) || sequence != 0 ||

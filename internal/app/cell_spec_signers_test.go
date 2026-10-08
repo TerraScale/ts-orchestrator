@@ -57,7 +57,7 @@ func TestCellSpecSignersReplaceTheSignedSigners(t *testing.T) {
 	ops, opsKey := signer("ops")
 	ci, ciKey := signer("ci")
 	dir := t.TempDir()
-	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "lab-gru", Cell: "gru", Environment: "canary"})
+	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "gru", Environment: "canary"})
 	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true},
 		Controller: ControllerConfig{SpecTrust: keys.config(), TrustedSigners: []TrustedSignerConfig{ops}}}
 	policy, err := buildSignerPolicy(cfg)

@@ -99,7 +99,7 @@ func TestControllerDashboardRequiresSignIn(t *testing.T) {
 	if status, _, page := browse("/members"); status != http.StatusOK || !strings.Contains(page, "still starting") {
 		t.Fatalf("/members before attach = %d", status)
 	}
-	lease := observedAuthority{snapshot: authority.Snapshot{Leader: true, Ready: true, OwnerID: "one", Epoch: 3,
+	lease := observedAuthority{snapshot: authority.Snapshot{Leader: true, Ready: true, OwnerID: "0000000000DV8998ZCQW1J2V2R", Epoch: 3,
 		ExpiresAt: time.Now().Add(time.Minute)}}
 	if err := telemetry.attachController(ctx, controllerObservation{nats: nats, replicas: 1,
 		brokerIDs: []string{"one", "two"}, authority: lease}, nil); err != nil {

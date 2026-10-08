@@ -123,7 +123,7 @@ func TestControllerWithholdsPreparedDesiredWhenFreshInputsChange(t *testing.T) {
 			h.statuses[0].SessionExpiresAt = time.Now().Add(-time.Second)
 		}},
 		{"host desired target", false, func(_ *placementTestFleet, h *placementTestHosts) {
-			h.desired = []host.Desired{{Cell: "gru", Node: "node-permanent-a", Role: "terrabase", Digest: "different"}}
+			h.desired = []host.Desired{{Cell: "gru", Node: "node-" + strings.ToLower(permanentMember(oci.RegionGRU)), Role: "terrabase", Digest: "different"}}
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -177,7 +177,7 @@ func TestControllerWithholdsPreparedDesiredWhenFreshInputsChange(t *testing.T) {
 func TestControllerPreparedDesiredValidatesTheObservedHost(t *testing.T) {
 	for name, change := range map[string]func(*oci.Instance){
 		"unchanged":        nil,
-		"owner":            func(instance *oci.Instance) { instance.Owner = "other" },
+		"owner":            func(instance *oci.Instance) { instance.Owner = "0000000000V4MRM46HP1SNGDYW" },
 		"fleet generation": func(instance *oci.Instance) { instance.Generation++ },
 		"boot descriptor":  func(instance *oci.Instance) { instance.BootDescriptorSHA256 = strings.Repeat("0", 64) },
 	} {
@@ -430,11 +430,11 @@ func TestControllerMovesLegacyServingMemberToRuntimeHoldWhenHostIsLost(t *testin
 	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
 	store := newPlacementMemoryStore(t, intent)
 	store.members[permanentMember(oci.RegionGRU)] = VersionedMemberState{
-		State:    testMemberState(t, intent, Seat{MemberID: "permanent-a", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent}, StageServing),
+		State:    testMemberState(t, intent, Seat{MemberID: "00000000000E5NVMSGX0D07DPA", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent}, StageServing),
 		Revision: 1,
 	}
 	store.members[elasticMember(oci.RegionGRU)] = VersionedMemberState{
-		State:    testMemberState(t, intent, Seat{MemberID: "elastic-gru", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-2", Kind: MemberElastic}, StageServing),
+		State:    testMemberState(t, intent, Seat{MemberID: "00000000008SEAHD1YMMYV3ARR", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-2", Kind: MemberElastic}, StageServing),
 		Revision: 1,
 	}
 	instances := attachedInstances(t, intent)
@@ -519,8 +519,8 @@ func TestControllerRejectsEnsuredHostThatDiffersFromPinnedProfile(t *testing.T) 
 		change func(*oci.Instance)
 	}{
 		{"compute memory", func(instance *oci.Instance) { instance.MemoryInGBs++ }},
-		{"profile digest", func(instance *oci.Instance) { instance.PlacementProfileDigest = "other" }},
-		{"owner", func(instance *oci.Instance) { instance.Owner = "other" }},
+		{"profile digest", func(instance *oci.Instance) { instance.PlacementProfileDigest = "0000000000V4MRM46HP1SNGDYW" }},
+		{"owner", func(instance *oci.Instance) { instance.Owner = "0000000000V4MRM46HP1SNGDYW" }},
 		{"fleet generation", func(instance *oci.Instance) { instance.Generation++ }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -693,65 +693,12 @@ func TestControllerHoldsWholePlacementBeforePreparingMissingSeat(t *testing.T) {
 	}
 }
 
-func TestControllerSkipsHistoricalIntentWithoutBlockingLaterManagedPlacement(t *testing.T) {
-	legacy := committedTestIntent(t, Intent{
-		SchemaVersion: 1, DatabaseID: "0-legacy", PartitionID: "partition-a",
-		ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: 1,
-	})
-	profileDraft := validIntent(oci.RegionGRU)
-	profileDraft.SchemaVersion = profileIntentSchemaVersion
-	profileDraft.DatabaseID = "1-profile"
-	profileDraft.CanonicalRoster = CanonicalRoster{}
-	profileDraft.RuntimeManifests = nil
-	profileOnly := committedTestIntent(t, profileDraft)
-	managedDraft := validIntent(oci.RegionGRU)
-	managedDraft.DatabaseID = "z-managed"
-	managedDraft.Generation = 7
-	managed := committedTestIntent(t, managedDraft)
-	if legacy.PayloadDigest() == "" || profileOnly.PayloadDigest() == "" || managed.PayloadDigest() == "" ||
-		legacy.DatabaseID >= profileOnly.DatabaseID || profileOnly.DatabaseID >= managed.DatabaseID {
-		t.Fatal("test intents are not ordered committed v1, v2, then v3")
-	}
-	store := &placementMemoryStore{
-		intents: []Intent{legacy, profileOnly, managed}, members: make(map[string]VersionedMemberState),
-	}
-	instance := attachedInstances(t, managed)[0]
-	fleet := &placementTestFleet{ensureResult: &instance}
-	var holds []string
-	controller := startTestPlacementController(t, store, fleet, &placementTestHosts{}, func(reason string) { holds = append(holds, reason) })
-
-	if err := controller.Tick(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	prepared, exists := store.members[permanentMember(oci.RegionGRU)]
-	if !exists || len(store.members) != 1 || prepared.State.DatabaseID != managed.DatabaseID ||
-		prepared.State.Stage != StagePreparedHost || store.casCalls != 1 || fleet.ensureCalls != 0 || len(holds) != 2 {
-		t.Fatalf("historical intents blocked or mutated the independent v3 placement: members=%+v CAS=%d ensures=%d holds=%v",
-			store.members, store.casCalls, fleet.ensureCalls, holds)
-	}
-
-	if err := controller.Tick(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	profileDigest, err := managed.ProfileDigest(oci.RegionGRU)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if state := store.members[permanentMember(oci.RegionGRU)].State; state.DatabaseID != managed.DatabaseID ||
-		state.Stage != StageAwaitingHost || store.casCalls != 2 || fleet.ensureCalls != 1 ||
-		len(fleet.ensureRequests) != 1 || fleet.ensureRequests[0].PlacementProfileDigest != profileDigest ||
-		fleet.ensureRequests[0].PlacementGeneration != managed.Generation || len(holds) != 4 {
-		t.Fatalf("later managed placement did not launch its pinned profile: state=%+v CAS=%d requests=%+v holds=%v",
-			state, store.casCalls, fleet.ensureRequests, holds)
-	}
-}
-
 func TestControllerFailingPlacementDoesNotStarveLaterPlacement(t *testing.T) {
 	failingDraft := validIntent(oci.RegionGRU)
-	failingDraft.DatabaseID = "a-failing"
+	failingDraft.DatabaseID = "0000000000ZDFG8AVKATN4TM9W"
 	failing := committedTestIntent(t, failingDraft)
 	laterDraft := validIntent(oci.RegionGRU)
-	laterDraft.DatabaseID = "z-later"
+	laterDraft.DatabaseID = "00000000006GZX5HDQZN73AY33"
 	later := committedTestIntent(t, laterDraft)
 	store := &placementMemoryStore{intents: []Intent{failing, later}, members: make(map[string]VersionedMemberState)}
 	launchErr := errors.New("injected OCI launch failure")
@@ -896,10 +843,10 @@ func TestControllerRejectsStaleManagedRegistrationBeforeAdmissionOrVolume(t *tes
 		}{
 			{"missing placement", func(r *host.Registration) { r.ManagedPlacement = nil }},
 			{"intent generation", func(r *host.Registration) { r.ManagedPlacement.IntentGeneration++ }},
-			{"payload digest", func(r *host.Registration) { r.ManagedPlacement.IntentPayloadDigest = "stale" }},
-			{"roster digest", func(r *host.Registration) { r.ManagedPlacement.CanonicalRosterDigest = "stale" }},
-			{"profile digest", func(r *host.Registration) { r.ManagedPlacement.ManagedHostProfileDigest = "stale" }},
-			{"member incarnation", func(r *host.Registration) { r.ManagedMember.Scope.Incarnation = "stale" }},
+			{"payload digest", func(r *host.Registration) { r.ManagedPlacement.IntentPayloadDigest = "0000000000RNVXNPAX5Y5BB8RY" }},
+			{"roster digest", func(r *host.Registration) { r.ManagedPlacement.CanonicalRosterDigest = "0000000000RNVXNPAX5Y5BB8RY" }},
+			{"profile digest", func(r *host.Registration) { r.ManagedPlacement.ManagedHostProfileDigest = "0000000000RNVXNPAX5Y5BB8RY" }},
+			{"member incarnation", func(r *host.Registration) { r.ManagedMember.Scope.Incarnation = "0000000000RNVXNPAX5Y5BB8RY" }},
 			{"host attempt", func(r *host.Registration) { r.ManagedMember.HostAttempt++ }},
 			{"allocatable memory", func(r *host.Registration) { r.Capacity.MemoryBytes++ }},
 			{"system reserve", func(r *host.Registration) { r.SystemReserveBytes++ }},
@@ -984,9 +931,9 @@ func TestControllerAllowsLiveETagChurnButRejectsImmutableInstanceDrift(t *testin
 		change func(*oci.Instance)
 	}{
 		{"shape", func(instance *oci.Instance) { instance.Shape = "VM.Standard.E5.Flex" }},
-		{"profile digest", func(instance *oci.Instance) { instance.PlacementProfileDigest = "other" }},
+		{"profile digest", func(instance *oci.Instance) { instance.PlacementProfileDigest = "0000000000V4MRM46HP1SNGDYW" }},
 		{"placement generation", func(instance *oci.Instance) { instance.PlacementGeneration++ }},
-		{"owner", func(instance *oci.Instance) { instance.Owner = "other" }},
+		{"owner", func(instance *oci.Instance) { instance.Owner = "0000000000V4MRM46HP1SNGDYW" }},
 		{"fleet generation", func(instance *oci.Instance) { instance.Generation++ }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -1143,10 +1090,10 @@ func testMemberState(t *testing.T, intent Intent, seat Seat, stage MemberStage) 
 	}
 	attempt := uint64(1)
 	state := MemberState{
-		SchemaVersion: placementSchemaVersion, DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
+		SchemaVersion: managedUpdateMemberStateSchemaVersion, DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
 		MemberID: seat.MemberID, Region: seat.Region, FailureDomain: seat.FailureDomain, Kind: seat.Kind,
 		Stage: stage, CreateKey: hostCreateKey(intent, seat, attempt), HostAttempt: attempt,
-		HostNode: "node-" + seat.MemberID, InstanceID: "instance-" + seat.MemberID,
+		HostNode: "node-" + strings.ToLower(seat.MemberID), InstanceID: "instance-" + seat.MemberID,
 		InstanceETag: "etag-1", VolumeID: "volume-" + seat.MemberID,
 		AttachmentID: "attachment-" + seat.MemberID, HostGeneration: 1,
 		CanonicalRosterRow: row, CanonicalRosterDigest: rosterDigest, AuthorityReference: intent.CanonicalRoster.Authority,
@@ -1190,7 +1137,7 @@ func TestTerminalTargetsUseExactAdmittedSeatsAndDurableAttemptKeys(t *testing.T)
 			t.Fatalf("terminal target changed signed seat or durable create key: %+v", targets[index])
 		}
 	}
-	states[0].State.CreateKey = "other-host-key"
+	states[0].State.CreateKey = "00000000005V7B700A13WSMMS8"
 	if _, err := TerminalTargetsForRegion(intent, oci.RegionGRU,
 		[]string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"}, states); err == nil {
 		t.Fatal("terminal plan accepted a durable member with a different host create key")
@@ -1323,7 +1270,7 @@ func (store *placementMemoryStore) CompareAndSwap(_ context.Context, expected ui
 type placementTestFencer struct{}
 
 func (placementTestFencer) Current() authority.Snapshot {
-	return authority.Snapshot{CandidateID: "controller-a", OwnerID: "owner-a", Leader: true, Ready: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Minute)}
+	return authority.Snapshot{CandidateID: "0000000000GR3712FB1A87M2H7", OwnerID: "00000000004AS2NC5H2SW57SZG", Leader: true, Ready: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Minute)}
 }
 
 func (placementTestFencer) Guard(context.Context, uint64) error { return nil }

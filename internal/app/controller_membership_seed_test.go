@@ -13,6 +13,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -54,7 +55,7 @@ func testRetirementWire(t *testing.T, slot, instance string) []byte {
 	}
 	now := time.Now().UTC().Truncate(time.Second)
 	envelope, err := bootstrap.SignSlotRetirement(bootstrap.RetirementEvidence{SchemaVersion: 1,
-		DeploymentID: "deployment-1", Cell: "GRU", Environment: "production", Role: "controller", Slot: slot,
+		DeploymentID: "0000000000DMC7WFP9VHV640EP", Cell: "GRU", Environment: "production", Role: "controller", Slot: slot,
 		PreviousAttempt: 1, PreviousGeneration: 1, PreviousResultDigest: strings.Repeat("c", 64),
 		PriorInstanceOCID: instance, PriorCreateKey: "founder-" + slot + "-key",
 		Disposition: bootstrap.SlotRetirementDisposition, ObservedEvidenceDigest: strings.Repeat("2", 64),
@@ -91,7 +92,7 @@ func TestSeedRoutingOverNATSRunsUnderTheRealLeaderLease(t *testing.T) {
 		t.Cleanup(func() { _ = runtime.Close() })
 		return runtime
 	}
-	leader, seedAuthority := start("controller-c-1"), start("controller-a-1")
+	leader, seedAuthority := start(entityid.Derive("test-controller", "controller-c-1")), start("0000000000Y0WXHAAJ7JVKJYN1")
 	if !leader.Current().CanMutate() || seedAuthority.Current().Leader {
 		t.Fatal("the non-seed controller must lead for this test")
 	}
@@ -170,7 +171,7 @@ func (forged seedAuthorityAsLeader) Current() authority.Snapshot {
 	snapshot.Leader, snapshot.Ready, snapshot.Epoch = true, true, forged.epoch
 	snapshot.Revision, snapshot.ExpiresAt = 1, time.Now().Add(time.Hour)
 	// A follower's snapshot names the lease holder; claim the seed's own.
-	snapshot.CandidateID, snapshot.OwnerID = "controller-a-1", "forged-owner"
+	snapshot.CandidateID, snapshot.OwnerID = "0000000000Y0WXHAAJ7JVKJYN1", "forged-owner"
 	return snapshot
 }
 

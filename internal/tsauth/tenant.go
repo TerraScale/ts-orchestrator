@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 // TerraScale's own organization in the production TerraBase, the one end
@@ -114,6 +116,9 @@ func (t TerraBase) ensure(ctx context.Context, organization, path, name string) 
 			if found != "" {
 				return "", fmt.Errorf("two named %q; remove one first", name)
 			}
+			if !entityid.Valid(item.ID) {
+				return "", errors.New("TerraBase returned a noncanonical entity ID")
+			}
 			found = item.ID
 		}
 		return found, nil
@@ -134,7 +139,7 @@ func (t TerraBase) ensure(ctx context.Context, organization, path, name string) 
 		}
 		return "", err
 	}
-	if created.ID == "" || created.Name != name {
+	if !entityid.Valid(created.ID) || created.Name != name {
 		return "", fmt.Errorf("TerraBase created %q without its ID", name)
 	}
 	return created.ID, nil
@@ -172,7 +177,7 @@ func (t TerraBase) user() string {
 }
 
 func (t TerraBase) management(ctx context.Context, method, organization, path string, body any, status int, result any) error {
-	if !ulidRE.MatchString(t.user()) {
+	if !entityid.Valid(t.user()) || organization != "" && !entityid.Valid(organization) {
 		return errors.New("TerraBase acting user must be a canonical uppercase ULID")
 	}
 	headers := http.Header{"Authorization": {"Bearer " + t.Credential}, "X-TerraBase-User-Id": {t.user()}}
@@ -222,7 +227,7 @@ func (t TerraBase) CheckKey(ctx context.Context, tenant Tenant, key string) erro
 // TS-535 and so the admin listener: the credential carries no verified
 // email, so it cannot accept an invitation.
 func (t TerraBase) EnsureOwner(ctx context.Context, organization, owner, email string) ([]string, error) {
-	if !ulidRE.MatchString(owner) || owner == BootstrapUser {
+	if !entityid.Valid(organization) || !entityid.Valid(owner) || owner == BootstrapUser {
 		return nil, errors.New("TerraBase owner must be a canonical uppercase user ULID distinct from the bootstrap actor")
 	}
 	nominee := t
@@ -280,6 +285,9 @@ func (t TerraBase) roles(ctx context.Context, organization string) (map[string]s
 	}
 	roles := make(map[string]string, len(members))
 	for _, member := range members {
+		if !entityid.Valid(member.UserID) {
+			return nil, errors.New("TerraBase returned a noncanonical user ID")
+		}
 		roles[member.UserID] = member.Role
 	}
 	return roles, nil

@@ -53,9 +53,9 @@ func newGenerationInstall(t *testing.T) *generationInstall {
 	public, private, _ := ed25519.GenerateKey(rand.Reader)
 	install.roots, _ = trust.ParseKeyring(public)
 	install.rootKey = private
-	install.expected = bootstrap.MaterialGenerationExpectation{DeploymentID: "gru-1-deployment", Environment: "production",
-		ClusterID: "gru-1", Cell: "GRU", ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}}
-	install.manifest = bootstrap.Manifest{DeploymentID: "gru-1-deployment", Environment: "production", ClusterID: "gru-1",
+	install.expected = bootstrap.MaterialGenerationExpectation{DeploymentID: "0000000000YY15F5R431V5JPJ9", Environment: "production",
+		ClusterID: "00000000006GRRF84JEVN9TX7M", Cell: "GRU", ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}}
+	install.manifest = bootstrap.Manifest{DeploymentID: "0000000000YY15F5R431V5JPJ9", Environment: "production", ClusterID: "00000000006GRRF84JEVN9TX7M",
 		Cell: "GRU", Slot: "controller-a", SeedSlot: "controller-b", ControllerSlots: install.expected.ControllerSlots}
 	// Manifest-era material: placeholder bytes, except the controller
 	// credentials, which renewal re-signs.
@@ -228,7 +228,7 @@ func TestRestartPinsRefuseUntrustedOrStaleMaterial(t *testing.T) {
 		},
 		"another deployment's chain": func(install *generationInstall) {
 			other := install.expected
-			other.DeploymentID = "another-deployment"
+			other.DeploymentID = "00000000000ZGTG9F4ZD9XG0T1"
 			install.adopt(install.material, other, install.rootKey)
 		},
 		"a renewable file the generation did not pin": func(install *generationInstall) {

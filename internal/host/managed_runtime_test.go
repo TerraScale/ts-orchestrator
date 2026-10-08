@@ -37,7 +37,7 @@ func TestManagedRuntimePinsRequireExactPreprovisionedIdentity(t *testing.T) {
 		LiveS3TargetSHA256:                  strings.Repeat("8", 64),
 		LiveS3Credential:                    oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3},
 		ReplicationListenAddress:            "10.0.0.11:7000",
-		ReplicationPeerMemberID:             "018f0000-0000-7000-8000-000000000002",
+		ReplicationPeerMemberID:             "01HW000000E008000000000002",
 		ReplicationPeerAddress:              "10.0.0.12:7001", ReplicationServerCASHA256: strings.Repeat("6", 64),
 	}
 	desired.ManagedMember.Runtime = &pins
@@ -261,7 +261,7 @@ func TestManagedReportRejectsStaleOrRetargetedEvidence(t *testing.T) {
 		FileSystemUUID: desired.ManagedMember.Runtime.FileSystemUUID,
 		FileSystemType: "ext4", MountDevice: "/dev/sdb", MountPath: "/srv/managed/volume", MountID: 23,
 		ProcessPID: 1234, ProcessStart: "123456", ProcessCgroup: "/terrascale-host/terrabase",
-		ProcessBootID: strings.Repeat("a", 32), StorageRecovered: true, ListenerReady: true,
+		ProcessBootID: "0000000000RGF72VFGE3H7MAZJ", StorageRecovered: true, ListenerReady: true,
 	}}
 	if err := validateManagedReportForDesired(report, desired); err != nil {
 		t.Fatal(err)
@@ -293,7 +293,7 @@ func TestManagedReportRejectsStaleOrRetargetedEvidence(t *testing.T) {
 	newProcess := *report.Managed
 	newProcess.ProcessPID++
 	newProcess.ProcessStart = "123999"
-	newProcess.ProcessBootID = strings.Repeat("b", 32)
+	newProcess.ProcessBootID = "0000000000RGF72VFGE3H7MAZK"
 	restarted.Managed = &newProcess
 	if err := validateManagedReportForDesired(restarted, desired); err != nil {
 		t.Fatalf("fresh restart observation rejected: %v", err)

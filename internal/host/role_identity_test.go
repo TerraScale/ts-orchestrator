@@ -141,7 +141,7 @@ func TestRoleFilesDeliverSecretsAndNATSIdentity(t *testing.T) {
 	if err := agent.ensureRoleIdentity(t.Context(), "terrabase", t.TempDir()); err == nil || issued != 1 {
 		t.Fatalf("a host without an active member got an identity: %v", err)
 	}
-	if err := agent.ensureRoleIdentity(t.Context(), "billing", t.TempDir()); err == nil {
+	if err := agent.ensureRoleIdentity(t.Context(), "00000000001JAWFV71SRD9EM17", t.TempDir()); err == nil {
 		t.Fatal("a role without a grant got an identity")
 	}
 	agent.roleFilesFailures = map[string]roleFilesFailure{"terrabase": {at: time.Now(), err: errors.New("held")}}

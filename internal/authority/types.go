@@ -9,7 +9,8 @@ import (
 	"log/slog"
 	"strings"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -141,12 +142,12 @@ type TerminalIntent struct {
 // acknowledgements. It does not by itself authenticate the operator signature
 // or prove the resources are owned by this workload.
 func (intent TerminalIntent) Validate() error {
-	if !natsToken.MatchString(intent.Cell) || !natsToken.MatchString(intent.DatabaseID) ||
-		!natsToken.MatchString(intent.PartitionID) || !natsToken.MatchString(intent.Owner) ||
+	if !natsToken.MatchString(intent.Cell) || !entityid.Valid(intent.DatabaseID) ||
+		!entityid.Valid(intent.PartitionID) || !natsToken.MatchString(intent.Owner) ||
 		!catalog.IsCell(intent.Region) ||
 		!strings.HasPrefix(intent.CompartmentID, "ocid1.compartment.") ||
 		intent.FleetGeneration == 0 || intent.PlacementGeneration == 0 ||
-		!validTerminalDigest(intent.PlacementPayloadDigest) || !natsToken.MatchString(intent.OperationID) ||
+		!validTerminalDigest(intent.PlacementPayloadDigest) || !entityid.Valid(intent.OperationID) ||
 		!validTerminalNonce(intent.Nonce) ||
 		!intent.DisposableWorkload || !intent.AcknowledgePermanentDataLoss || !intent.AuthorizeForcedStop ||
 		len(intent.Targets) == 0 || len(intent.Targets) > 64 {
@@ -155,8 +156,8 @@ func (intent TerminalIntent) Validate() error {
 	seats := make(map[string]struct{}, len(intent.Targets))
 	resources := make(map[string]struct{}, len(intent.Targets)*3)
 	for _, target := range intent.Targets {
-		if !natsToken.MatchString(target.SeatID) || target.MemberID == "" ||
-			!natsToken.MatchString(target.HostCreateKey) || !natsToken.MatchString(target.DataCreateKey) ||
+		if !entityid.Valid(target.SeatID) || !entityid.Valid(target.MemberID) ||
+			!entityid.Valid(target.HostCreateKey) || !entityid.Valid(target.DataCreateKey) ||
 			(target.InstanceID == "") != (target.BootVolumeID == "") ||
 			target.InstanceID != "" && !strings.HasPrefix(target.InstanceID, "ocid1.instance.") ||
 			target.BootVolumeID != "" && !strings.HasPrefix(target.BootVolumeID, "ocid1.bootvolume.") ||
@@ -188,10 +189,7 @@ func validTerminalDigest(value string) bool {
 	return err == nil && hex.EncodeToString(decoded) == value
 }
 
-func validTerminalNonce(value string) bool {
-	parsed, err := uuid.Parse(value)
-	return err == nil && parsed.String() == value && parsed != uuid.Nil()
-}
+func validTerminalNonce(value string) bool { return entityid.Valid(value) }
 
 // LogEntry is a host mutation committed to the shared ordered control log.
 type LogEntry struct {

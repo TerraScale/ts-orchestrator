@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/artifact"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -255,6 +257,11 @@ func (c *Controller) readLeaderState(ctx context.Context, key string, destinatio
 
 // Register admits a public host key and role scope. A generation is immutable.
 func (c *Controller) Register(ctx context.Context, r Registration) (Receipt, error) {
+	id := entityid.Derive("host", r.Cell, r.Node)
+	if r.ID != "" && r.ID != id {
+		return Receipt{}, errors.New("host ID differs from its node identity")
+	}
+	r.ID = id
 	if err := validateRegistration(r, c.cell); err != nil {
 		return Receipt{}, err
 	}

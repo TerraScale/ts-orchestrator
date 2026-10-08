@@ -14,6 +14,8 @@ import (
 	"time"
 	"uuid"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"golang.org/x/sys/unix"
 )
 
@@ -34,13 +36,13 @@ func (r *Runner) Call(ctx context.Context, role, phase string, fields Object) (r
 	adapter := sub(r.Manifest, "adapter")
 	deadline := n(sub(adapter, "deadlines_seconds"), role)
 	sent := time.Now().UTC()
-	request := Object{"schema": AdapterInputSchema, "request_id": uuid.New().String(), "run_id": r.State["run_id"], "run_manifest_sha256": r.State["manifest_hash"], "harness_sha256": r.State["harness_sha256"], "contract_id": sub(r.Manifest, "adapter_contract")["id"], "role": role, "phase": phase, "sent_at_utc": sent.Format("2006-01-02T15:04:05.000Z"), "deadline_seconds": deadline, "deadline_at_utc": sent.Add(time.Duration(deadline) * time.Second).Format("2006-01-02T15:04:05.000Z"), "identity": r.Manifest["identity"], "probe_source_revision": r.Manifest["repository_revision"], "controller_identity": r.Manifest["controller_identity"], "managed_member": r.Manifest["managed_member"], "transport": r.Manifest["transport"], "adapter_source_path": adapter["executable_path"], "adapter_source_sha256": adapter["executable_sha256"], "qualification": r.Manifest["qualification"], "controller_qualification": r.Manifest["controller_qualification"], "memory_floor_evidence": r.Manifest["memory_floor_evidence"], "pressure": r.Manifest["pressure"], "evidence_dir": r.EvidenceDir}
+	request := Object{"schema": AdapterInputSchema, "request_id": entityid.New(), "run_id": r.State["run_id"], "run_manifest_sha256": r.State["manifest_hash"], "harness_sha256": r.State["harness_sha256"], "contract_id": sub(r.Manifest, "adapter_contract")["id"], "role": role, "phase": phase, "sent_at_utc": sent.Format("2006-01-02T15:04:05.000Z"), "deadline_seconds": deadline, "deadline_at_utc": sent.Add(time.Duration(deadline) * time.Second).Format("2006-01-02T15:04:05.000Z"), "identity": r.Manifest["identity"], "probe_source_revision": r.Manifest["repository_revision"], "controller_identity": r.Manifest["controller_identity"], "managed_member": r.Manifest["managed_member"], "transport": r.Manifest["transport"], "adapter_source_path": adapter["executable_path"], "adapter_source_sha256": adapter["executable_sha256"], "qualification": r.Manifest["qualification"], "controller_qualification": r.Manifest["controller_qualification"], "memory_floor_evidence": r.Manifest["memory_floor_evidence"], "pressure": r.Manifest["pressure"], "evidence_dir": r.EvidenceDir}
 	for k, v := range fields {
 		request[k] = v
 	}
 	if role == "database_progress" {
 		request["transaction_id"] = Object{"expires_at_unix_ms": strconv.FormatInt(time.Now().UnixMilli()+600000, 10), "nonce": strings.ReplaceAll(uuid.New().String(), "-", "")}
-		request["document_id"] = uuid.New().String()
+		request["document_id"] = entityid.New()
 		request["value"] = time.Now().UnixNano() % 2000000000
 	}
 	if role == "qualify" || role == "service_state" {

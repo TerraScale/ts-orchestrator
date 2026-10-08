@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
@@ -1539,8 +1541,7 @@ func hostNode(config RegionConfig, createKey string) string {
 func retryToken(value string) string { return digest(value) }
 
 func validCreateKey(value string) bool {
-	return len(value) > 0 && len(value) <= maxCreateKeyBytes &&
-		!strings.ContainsAny(value, " \t\r\n") && strings.TrimSpace(value) == value
+	return entityid.Valid(value)
 }
 
 func validManagedPrivateIP(value string) bool {

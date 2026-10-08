@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strings"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 
@@ -30,7 +32,6 @@ const (
 var (
 	ErrInvalidDescriptor = errors.New("managed host boot descriptor is invalid")
 	descriptorToken      = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
-	descriptorCreateKey  = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?$`)
 	descriptorDigest     = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	descriptorImageID    = regexp.MustCompile(`^ocid1\.image\.[A-Za-z0-9][A-Za-z0-9._-]{0,242}$`)
 )
@@ -177,8 +178,8 @@ func (descriptor Descriptor) validateFields() error {
 		!descriptorToken.MatchString(descriptor.Node) || !descriptorToken.MatchString(descriptor.Owner) ||
 		!validCreateKey(descriptor.CreateKey) || !descriptorImageID.MatchString(descriptor.ImageID) ||
 		descriptor.FleetGeneration == 0 || descriptor.HostAttempt == 0 || descriptor.IntentGeneration == 0 ||
-		!descriptorToken.MatchString(descriptor.DatabaseID) || !descriptorToken.MatchString(descriptor.PartitionID) ||
-		!descriptorToken.MatchString(descriptor.SeatID) ||
+		!entityid.Valid(descriptor.DatabaseID) || !entityid.Valid(descriptor.PartitionID) ||
+		!entityid.Valid(descriptor.SeatID) ||
 		!descriptorDigest.MatchString(descriptor.IntentPayloadDigest) ||
 		!descriptorDigest.MatchString(descriptor.CanonicalRosterDigest) ||
 		!descriptorDigest.MatchString(descriptor.ManagedHostProfileDigest) ||
@@ -193,5 +194,5 @@ func validCellRegion(cell, region string) bool {
 }
 
 func validCreateKey(value string) bool {
-	return descriptorCreateKey.MatchString(value)
+	return entityid.Valid(value)
 }

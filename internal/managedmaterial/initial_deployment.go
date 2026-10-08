@@ -14,6 +14,8 @@ import (
 	"time"
 	"uuid"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -72,18 +74,18 @@ func NewDeploymentIdentity(deployment InitialDeployment, collections int) (Initi
 	if collections < 1 || collections > 16 {
 		return InitialDeployment{}, errors.New("a managed deployment needs 1 to 16 collections")
 	}
-	cluster := uuid.New()
-	deployment.Scope = AuthorityScope{ClusterID: strings.ReplaceAll(cluster.String(), "-", ""),
-		TenantID: uuid.New().String(), DatabaseID: uuid.New().String(), ShardID: 1, Epoch: 1}
+	cluster := entityid.New()
+	deployment.Scope = AuthorityScope{ClusterID: cluster,
+		TenantID: entityid.New(), DatabaseID: entityid.New(), ShardID: 1, Epoch: 1}
 	for index := range deployment.Members {
-		incarnation := uuid.New()
-		deployment.Members[index].MemberID = uuid.New().String()
-		deployment.Members[index].Incarnation = strings.ReplaceAll(incarnation.String(), "-", "")
+		incarnation := entityid.New()
+		deployment.Members[index].MemberID = entityid.New()
+		deployment.Members[index].Incarnation = incarnation
 		deployment.Members[index].FileSystemUUID = uuid.New().String()
 	}
 	deployment.CollectionIDs = make([]string, collections)
 	for index := range deployment.CollectionIDs {
-		deployment.CollectionIDs[index] = uuid.New().String()
+		deployment.CollectionIDs[index] = entityid.New()
 	}
 	return deployment, nil
 }
@@ -98,8 +100,8 @@ func (deployment InitialDeployment) Validate() error {
 	if err != nil {
 		return err
 	}
-	if !repositoryToken.MatchString(deployment.PlacementDatabaseID) || !repositoryToken.MatchString(deployment.PartitionID) {
-		return errors.New("placement database and partition IDs must be lower-case tokens")
+	if !entityid.Valid(deployment.PlacementDatabaseID) || !entityid.Valid(deployment.PartitionID) {
+		return errors.New("placement database and partition IDs must be canonical uppercase ULIDs")
 	}
 	if err := deployment.LiveS3.Validate(); err != nil {
 		return err
@@ -110,20 +112,20 @@ func (deployment InitialDeployment) Validate() error {
 	if deployment.ReplicationPort == 0 || deployment.ClientPort == 0 || deployment.ReplicationPort == deployment.ClientPort {
 		return errors.New("replication and client ports must be distinct and nonzero")
 	}
-	if _, err := canonicalUUID(deployment.Scope.TenantID); err != nil {
+	if _, err := canonicalID(deployment.Scope.TenantID); err != nil {
 		return err
 	}
-	if _, err := canonicalUUID(deployment.Scope.DatabaseID); err != nil {
+	if _, err := canonicalID(deployment.Scope.DatabaseID); err != nil {
 		return err
 	}
-	if !lowerHexIdentity(deployment.Scope.ClusterID) || deployment.Scope.ShardID == 0 || deployment.Scope.Epoch != 1 {
+	if !entityid.Valid(deployment.Scope.ClusterID) || deployment.Scope.ShardID == 0 || deployment.Scope.Epoch != 1 {
 		return errors.New("deployment shard scope is invalid")
 	}
 	if len(deployment.CollectionIDs) == 0 {
 		return errors.New("deployment needs at least one collection")
 	}
 	for _, id := range deployment.CollectionIDs {
-		if _, err := canonicalUUID(id); err != nil {
+		if _, err := canonicalID(id); err != nil {
 			return err
 		}
 	}
@@ -131,10 +133,10 @@ func (deployment InitialDeployment) Validate() error {
 		ip, err := netip.ParseAddr(member.PrivateIP)
 		if member.SeatID != seats[index] || !validServerName(member.ServerName) ||
 			!validFailureDomain(member.FailureDomain) || err != nil || !ip.Is4() || !validPrivateIP(member.PrivateIP) ||
-			!lowerHexIdentity(member.Incarnation) || !validFileSystemUUID(member.FileSystemUUID) {
+			!entityid.Valid(member.Incarnation) || !validFileSystemUUID(member.FileSystemUUID) {
 			return fmt.Errorf("deployment member %d is incomplete or out of seat order", index)
 		}
-		if _, err := canonicalUUID(member.MemberID); err != nil {
+		if _, err := canonicalID(member.MemberID); err != nil {
 			return err
 		}
 	}
@@ -166,15 +168,15 @@ func (deployment InitialDeployment) binding(index int) host.ManagedMemberBinding
 
 // DraftSpec returns the unsigned generation-one material spec. Members are
 // ordered by member ID (TerraBase authority order); catalogs are
-// DeploymentDocumentFields schemas ordered by collection UUID bytes.
+// DeploymentDocumentFields schemas ordered by collection ULID bytes.
 func (deployment InitialDeployment) DraftSpec() (InitialSpec, error) {
 	if err := deployment.Validate(); err != nil {
 		return InitialSpec{}, err
 	}
 	collections := slices.Clone(deployment.CollectionIDs)
 	slices.SortFunc(collections, func(left, right string) int {
-		a, _ := uuid.Parse(left)
-		b, _ := uuid.Parse(right)
+		a, _ := entityid.Parse(left)
+		b, _ := entityid.Parse(right)
 		return bytes.Compare(a[:], b[:])
 	})
 	spec := InitialSpec{PlacementDatabaseID: deployment.PlacementDatabaseID, PartitionID: deployment.PartitionID,
@@ -318,18 +320,6 @@ func RenderInitialPlacement(receipt PreparationReceipt, deployment InitialDeploy
 		return placement.Intent{}, fmt.Errorf("rendered placement differs from prepared material: %w", err)
 	}
 	return intent, nil
-}
-
-func lowerHexIdentity(value string) bool {
-	if len(value) != 32 || strings.Trim(value, "0") == "" {
-		return false
-	}
-	for index := range len(value) {
-		if !lowerAlphaNumeric(value[index]) || value[index] > 'f' {
-			return false
-		}
-	}
-	return true
 }
 
 func validFileSystemUUID(value string) bool {

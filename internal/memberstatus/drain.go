@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 // DrainRecord is written durably before the first POST. Its request nonce and
@@ -24,7 +26,7 @@ type DrainStore interface {
 // PrepareDrain saves an exact idempotent request only after a live serving
 // proof names the required survivor and its applied ACK covers the source.
 func (c *Client) PrepareDrain(status Status, proof ServingProof, survivor Survivor, operationID string, store DrainStore) (DrainRecord, error) {
-	if store == nil || !status.verified || !proof.verified || !lowerHex(operationID, 32) || !survivor.valid() ||
+	if store == nil || !status.verified || !proof.verified || !entityid.Valid(operationID) || !survivor.valid() ||
 		status.Process != proof.Process || status.Scope != proof.Scope || status.Authority != proof.Authority ||
 		status.Scope != c.scope || status.Authority != c.authority || status.ReceiverOnly || !status.Serving ||
 		proof.Replication.PeerMemberID != survivor.MemberID || proof.Replication.PeerIncarnation != survivor.Incarnation ||
@@ -135,7 +137,7 @@ func (c *Client) drainStatus(ctx context.Context, record DrainRecord, current St
 }
 
 func (r DrainRecord) valid(scope Scope, authority Authority) bool {
-	return r.Request.SchemaVersion == 1 && lowerHex(r.Request.OperationID, 32) && lowerHex(r.Request.Nonce, 32) &&
+	return r.Request.SchemaVersion == 1 && entityid.Valid(r.Request.OperationID) && lowerHex(r.Request.Nonce, 32) &&
 		r.Request.Expected.Process.valid() && r.Request.Expected.Scope == scope && r.Request.Expected.Authority == authority &&
 		r.Survivor.valid() && r.Survivor.MemberID != scope.MemberID
 }

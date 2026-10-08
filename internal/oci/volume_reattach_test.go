@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 // newReattachFixture returns the volume-init fixture plus a running
@@ -13,7 +15,7 @@ func newReattachFixture(t *testing.T) (*fleet, *fakeProvider, *KVJournal, Volume
 	t.Helper()
 	fleet, provider, journal, pins, _ := newVolumeInitFixture(t)
 	fleet.attachmentSettle = 50 * time.Millisecond
-	request := testEnsureRequest("volume-init-replacement")
+	request := testEnsureRequest(entityid.Derive("test-operation", "volume-init-replacement"))
 	request.PrivateIP = "10.251.0.22"
 	request.BootPins.HostAttempt = 2
 	replacement, err := fleet.EnsureHost(t.Context(), request)
@@ -51,7 +53,7 @@ func TestFencedDetachRequiresATerminatedInstanceAndIsJournaled(t *testing.T) {
 	}
 	setInstanceState(provider, pins.InstanceID, "TERMINATED")
 	stale := request
-	stale.ExpectedETag = "stale"
+	stale.ExpectedETag = "0000000000RNVXNPAX5Y5BB8RY"
 	if err := fleet.DetachFencedAttachment(ctx, stale); !errors.Is(err, ErrStaleETag) {
 		t.Fatalf("stale attachment fence detached: %v", err)
 	}
@@ -146,7 +148,7 @@ func TestReattachAttachesOverDetachedHistoryAndGrantsOnlyAMount(t *testing.T) {
 	provider.attachments[pins.AttachmentID] = history
 
 	request := VolumeAttachRequest{DatabaseID: pins.DatabaseID, PartitionID: pins.PartitionID,
-		VolumeID: pins.VolumeID, InstanceID: replacement.ID, IdempotencyKey: "volume-init-reattach"}
+		VolumeID: pins.VolumeID, InstanceID: replacement.ID, IdempotencyKey: entityid.Derive("test-attach", "volume-init-reattach")}
 	if _, err := fleet.AttachRetainedVolume(ctx, request); !errors.Is(err, ErrAttachmentRecoveryHold) {
 		t.Fatalf("a regular attach adopted a volume with attachment history: %v", err)
 	}

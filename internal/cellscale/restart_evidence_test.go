@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 type restartCache struct {
@@ -85,7 +87,7 @@ func TestRollingResizeNeedsPostRestartReadiness(t *testing.T) {
 }
 
 func TestRollingResizeChecksActualPlacementQuorum(t *testing.T) {
-	for _, evidence := range []string{"under-replicated", "missing", "stale"} {
+	for _, evidence := range []string{"under-replicated", "missing", "0000000000RNVXNPAX5Y5BB8RY"} {
 		t.Run(evidence, func(t *testing.T) {
 			policy := testPolicy()
 			cell := newFakeCell(4, small, 2, 150)
@@ -98,7 +100,7 @@ func TestRollingResizeChecksActualPlacementQuorum(t *testing.T) {
 				if evidence == "missing" {
 					return ReplicaSnapshot{}, errors.New("inventory unavailable")
 				}
-				if evidence == "stale" {
+				if evidence == "0000000000RNVXNPAX5Y5BB8RY" {
 					snapshot.SampledAt = s.now.Add(-MaxPressureAge - time.Second)
 				} else {
 					snapshot.Placements[1].LiveReplicas = []string{"gru-1-db-1", "gru-1-db-2"}
@@ -237,7 +239,7 @@ func TestRollingResizeRejectsPreEffectSampleWithinClockSkew(t *testing.T) {
 		// by a clock four seconds ahead, and belongs to a different process
 		// than the first cached observation, yet still predates this resize.
 		earlier.SampledAt = s.now.Add(-30 * time.Second)
-		later.ProcessID, later.SampledAt = node.Name+"-p2", s.now.Add(3*time.Second)
+		later.ProcessID, later.SampledAt = entityid.Derive("test-process", node.Name+"-p2"), s.now.Add(3*time.Second)
 		source.earlier[node.Name], source.later[node.Name] = earlier, later
 		source.starts[node.Name] = cell.process[node.Name]
 	}

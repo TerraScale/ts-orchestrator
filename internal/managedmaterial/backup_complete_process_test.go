@@ -61,7 +61,7 @@ func runBackupGoRustCompleteProcessBridge(t *testing.T, fullProducer bool) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
 	runtime, err := authority.Start(ctx, js, authority.Config{
-		Scope: "gru", CandidateID: "d10-complete-process-bridge", Replicas: 1,
+		Scope: "gru", CandidateID: "0000000000Z5PQQEQKXJAW7SWD", Replicas: 1,
 	})
 	if err != nil {
 		t.Fatal(err)

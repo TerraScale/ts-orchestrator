@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -32,14 +34,14 @@ func TestEnsureHostRecoversLostLaunchResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want, err := fleet.EnsureHost(ctx, testEnsureRequest("node-create-01"))
+	want, err := fleet.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "node-create-01")))
 	if err != nil {
 		t.Fatalf("EnsureHost after lost response: %v", err)
 	}
 	if provider.launches != 1 || want.ID == "" || want.Node == "" || want.State != "PROVISIONING" {
 		t.Fatalf("unexpected recovered host: launches=%d host=%+v", provider.launches, want)
 	}
-	request := testEnsureRequest("node-create-01")
+	request := testEnsureRequest(entityid.Derive("test-operation", "node-create-01"))
 	if want.Shape != request.Shape || want.WholeOCPUs != request.WholeOCPUs || want.MemoryInGBs != request.MemoryInGBs ||
 		want.PlacementProfileDigest != request.PlacementProfileDigest || want.PlacementGeneration != request.PlacementGeneration {
 		t.Fatalf("EnsureHost did not return the verified immutable placement profile: host=%+v request=%+v", want, request)
@@ -49,7 +51,7 @@ func TestEnsureHostRecoversLostLaunchResponse(t *testing.T) {
 		t.Fatalf("lost-response replay changed the signed tuple or retry token: requests=%+v", provider.launchRequests)
 	}
 
-	again, err := fleet.EnsureHost(ctx, testEnsureRequest("node-create-01"))
+	again, err := fleet.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "node-create-01")))
 	if err != nil {
 		t.Fatalf("idempotent EnsureHost: %v", err)
 	}
@@ -73,7 +75,7 @@ func TestEnsureHostKeepsStaticNameAcrossReleases(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := fleet.EnsureHost(t.Context(), testEnsureRequest(fmt.Sprintf("node-release-%d", i))); err != nil {
+		if _, err := fleet.EnsureHost(t.Context(), testEnsureRequest(entityid.Derive("test-operation", fmt.Sprintf("node-release-%d", i)))); err != nil {
 			t.Fatal(err)
 		}
 		launches = append(launches, provider.launchRequests[0])
@@ -94,14 +96,14 @@ func TestFleetRejectsNamesOutsideItsCellBeforeAnyEffect(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"", "orchestrator-host-0123456789abcdef01234567", "gru-controller-a", "gru-1-ctl-1", "sfo-1-db-1", "gru-1-db-1-data"} {
-		request := testEnsureRequest("node-bad-name")
+		request := testEnsureRequest(entityid.Derive("test-operation", "node-bad-name"))
 		request.Name = name
 		if _, err := fleet.EnsureHost(t.Context(), request); err == nil {
 			t.Fatalf("host name %q was accepted", name)
 		}
 	}
 	for _, name := range []string{"", "ts-member-data-0123456789ab", "gru-1-db-1", "sfo-1-db-1-data"} {
-		request := VolumeCreateRequest{Name: name, DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-bad-name", SizeGB: 50}
+		request := VolumeCreateRequest{Name: name, DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: entityid.Derive("test-operation", "data-bad-name"), SizeGB: 50}
 		if _, err := fleet.CreateRetainedVolume(t.Context(), request); err == nil {
 			t.Fatalf("volume name %q was accepted", name)
 		}
@@ -120,7 +122,7 @@ func TestEnsureHostHoldsChangedBootPinsAndImageAcrossRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := testEnsureRequest("node-immutable-boot")
+	request := testEnsureRequest(entityid.Derive("test-operation", "node-immutable-boot"))
 	if _, err := fleet.EnsureHost(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +209,7 @@ func TestEnsureHostRequalifiesTheImageBeforeTheProviderLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fleet.EnsureHost(t.Context(), testEnsureRequest("node-revoked-launch")); !errors.Is(err, ErrImageNotQualified) ||
+	if _, err := fleet.EnsureHost(t.Context(), testEnsureRequest(entityid.Derive("test-operation", "node-revoked-launch"))); !errors.Is(err, ErrImageNotQualified) ||
 		provider.launchCalls != 0 {
 		t.Fatalf("a revoked launch image reached OCI: calls=%d err=%v", provider.launchCalls, err)
 	}
@@ -227,7 +229,7 @@ func TestEnsureHostNeverMixesCellSpecVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fleet.EnsureHost(t.Context(), testEnsureRequest("node-version-change")); !errors.Is(err, ErrImageNotQualified) ||
+	if _, err := fleet.EnsureHost(t.Context(), testEnsureRequest(entityid.Derive("test-operation", "node-version-change"))); !errors.Is(err, ErrImageNotQualified) ||
 		provider.launchCalls != 0 {
 		t.Fatalf("a launch chosen under another spec version reached OCI: calls=%d err=%v", provider.launchCalls, err)
 	}
@@ -236,7 +238,7 @@ func TestEnsureHostNeverMixesCellSpecVersions(t *testing.T) {
 	// releases once the launch returns.
 	heldDuringLaunch := 0
 	provider.launchObservationMutation = func(*CloudInstance) { heldDuringLaunch = verifier.held }
-	replayed, err := fleet.EnsureHost(t.Context(), testEnsureRequest("node-version-change"))
+	replayed, err := fleet.EnsureHost(t.Context(), testEnsureRequest(entityid.Derive("test-operation", "node-version-change")))
 	if err != nil || replayed.ImageID != newer || provider.launchCalls != 1 || heldDuringLaunch != 1 || verifier.held != 0 {
 		t.Fatalf("replay under one version = %+v, %v (calls %d, held %d then %d)", replayed, err, provider.launchCalls,
 			heldDuringLaunch, verifier.held)
@@ -279,8 +281,8 @@ func TestFleetKeepsHostsOfAllowedEarlierImages(t *testing.T) {
 				test.member && (observed[0].ID != host.ID || observed[0].ImageID != config.ImageID) {
 				t.Fatalf("Observe = %+v, %v; want member %t", observed, err, test.member)
 			}
-			_, err = fleet.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main",
-				VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-earlier-image"})
+			_, err = fleet.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ",
+				VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: entityid.Derive("test-attach", "attach-earlier-image")})
 			want := ErrForeignResource
 			if test.member {
 				want = ErrImageNotQualified
@@ -312,7 +314,7 @@ func TestEnsureHostBootsTheCellSpecLaunchImage(t *testing.T) {
 	launching := fleet.(interface{ verifyLaunchImage(context.Context) error })
 	// Every new launch qualifies its image when it chooses it and again right
 	// before the provider launch, the signed pin included.
-	earlier, err := fleet.EnsureHost(ctx, testEnsureRequest("node-before-launch-image"))
+	earlier, err := fleet.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "node-before-launch-image")))
 	if err != nil || earlier.ImageID != config.ImageID || !slices.Equal(verifier.images, []string{config.ImageID, config.ImageID}) {
 		t.Fatalf("pinned launch = %+v, %v; verified %v", earlier, err, verifier.images)
 	}
@@ -326,12 +328,12 @@ func TestEnsureHostBootsTheCellSpecLaunchImage(t *testing.T) {
 	verifier.images = nil
 	verifier.allowed = []string{config.ImageID, newer}
 	verifier.err = errors.New("receipt expired")
-	if _, err := fleet.EnsureHost(ctx, testEnsureRequest("node-unqualified-launch")); !errors.Is(err, ErrImageNotQualified) ||
+	if _, err := fleet.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "node-unqualified-launch"))); !errors.Is(err, ErrImageNotQualified) ||
 		provider.launchCalls != 1 {
 		t.Fatalf("unqualified launch image reached OCI: calls=%d err=%v", provider.launchCalls, err)
 	}
 	verifier.err = nil
-	launched, err := fleet.EnsureHost(ctx, testEnsureRequest("node-launch-image"))
+	launched, err := fleet.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "node-launch-image")))
 	if err != nil || launched.ImageID != newer || provider.launchRequests[len(provider.launchRequests)-1].ImageID != newer ||
 		!slices.Contains(verifier.images, newer) {
 		t.Fatalf("launch image host = %+v, %v; verified %v", launched, err, verifier.images)
@@ -341,7 +343,7 @@ func TestEnsureHostBootsTheCellSpecLaunchImage(t *testing.T) {
 	}
 
 	// Retrying the earlier launch keeps its pinned image; nothing relaunches.
-	again, err := fleet.EnsureHost(ctx, testEnsureRequest("node-before-launch-image"))
+	again, err := fleet.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "node-before-launch-image")))
 	if err != nil || again.ID != earlier.ID || again.ImageID != config.ImageID || provider.launches != 2 {
 		t.Fatalf("retry after the launch image moved = %+v, %v (launches %d)", again, err, provider.launches)
 	}
@@ -352,7 +354,7 @@ func TestEnsureHostBootsTheCellSpecLaunchImage(t *testing.T) {
 	// A spec-image launch journaled before OCI saw it qualifies again before
 	// its replay, and keeps its image after the launch image moves.
 	provider.launchErrorBeforeCreate = errors.New("OCI unavailable")
-	if _, err := fleet.EnsureHost(ctx, testEnsureRequest("node-replayed-launch")); err == nil {
+	if _, err := fleet.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "node-replayed-launch"))); err == nil {
 		t.Fatal("launch with OCI unavailable succeeded")
 	}
 	provider.launchErrorBeforeCreate = nil
@@ -360,12 +362,12 @@ func TestEnsureHostBootsTheCellSpecLaunchImage(t *testing.T) {
 	newest := "ocid1.image.oc1.sa-saopaulo-1.newest"
 	verifier.allowed, verifier.launch = []string{config.ImageID, newer, newest}, newest
 	verifier.err = errors.New("OCI image deleted")
-	if _, err := fleet.EnsureHost(ctx, testEnsureRequest("node-replayed-launch")); !errors.Is(err, ErrImageNotQualified) ||
+	if _, err := fleet.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "node-replayed-launch"))); !errors.Is(err, ErrImageNotQualified) ||
 		provider.launchCalls != calls {
 		t.Fatalf("replay of an unqualified journaled image reached OCI: calls=%d err=%v", provider.launchCalls-calls, err)
 	}
 	verifier.err, verifier.images = nil, nil
-	replayed, err := fleet.EnsureHost(ctx, testEnsureRequest("node-replayed-launch"))
+	replayed, err := fleet.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "node-replayed-launch")))
 	if err != nil || replayed.ImageID != newer || !slices.Equal(verifier.images, []string{newer}) {
 		t.Fatalf("replayed spec-image launch = %+v, %v; verified %v", replayed, err, verifier.images)
 	}
@@ -380,7 +382,7 @@ func TestEnsureHostBootsTheCellSpecLaunchImage(t *testing.T) {
 		t.Fatal(err)
 	}
 	var hold *CreateRecoveryHoldError
-	if _, err := restarted.EnsureHost(ctx, testEnsureRequest("node-before-launch-image")); !errors.As(err, &hold) || provider.launches != 3 {
+	if _, err := restarted.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "node-before-launch-image"))); !errors.As(err, &hold) || provider.launches != 3 {
 		t.Fatalf("retry of a revoked image's launch: launches=%d err=%v", provider.launches, err)
 	}
 }
@@ -389,7 +391,7 @@ func TestObserveWithholdsLegacyLaunchWithoutBootDescriptor(t *testing.T) {
 	config, regionIntent := testRegionConfig()
 	provider := newFakeProvider(config)
 	journal := newFakeJournal()
-	createKey := "node-legacy-unbound"
+	createKey := entityid.Derive("test-operation", "node-legacy-unbound")
 	operation := testLaunchIntent(createKey)
 	operation.BootDescriptor, operation.BootDescriptorSHA256 = "", ""
 	if err := journal.RecordIntent(t.Context(), operation); err != nil {
@@ -427,7 +429,7 @@ func TestEnsureHostRejectsSameCreateKeyComputeProfileDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := testEnsureRequest("node-profile-drift")
+	request := testEnsureRequest(entityid.Derive("test-operation", "node-profile-drift"))
 	if _, err := fleet.EnsureHost(ctx, request); err != nil {
 		t.Fatal(err)
 	}
@@ -453,7 +455,7 @@ func TestEnsureHostRejectsMissingSignedComputeProfileBeforePersistence(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = fleet.EnsureHost(t.Context(), EnsureRequest{Name: "gru-1-db-1", CreateKey: "node-unsigned", PrivateIP: "10.251.0.21", FaultDomain: "FAULT-DOMAIN-1"})
+	_, err = fleet.EnsureHost(t.Context(), EnsureRequest{Name: "gru-1-db-1", CreateKey: entityid.Derive("test-operation", "node-unsigned"), PrivateIP: "10.251.0.21", FaultDomain: "FAULT-DOMAIN-1"})
 	if !errors.Is(err, ErrPlacementProfileMismatch) {
 		t.Fatalf("missing signed profile was not held: %v", err)
 	}
@@ -471,7 +473,7 @@ func TestOCIShapeRejectionCannotConfirmOrAdoptInstance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := testEnsureRequest("node-provider-shape-rejection")
+	request := testEnsureRequest(entityid.Derive("test-operation", "node-provider-shape-rejection"))
 	_, err = fleet.EnsureHost(t.Context(), request)
 	if !errors.Is(err, ErrOutcomeUnknown) {
 		t.Fatalf("provider shape rejection was not held as an unknown outcome: %v", err)
@@ -516,12 +518,12 @@ func TestEnsureHostWithholdsNilOrMismatchedObservedSizing(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = fleet.EnsureHost(t.Context(), testEnsureRequest("node-bad-observed-profile"))
+			_, err = fleet.EnsureHost(t.Context(), testEnsureRequest(entityid.Derive("test-operation", "node-bad-observed-profile")))
 			if !errors.Is(err, ErrPlacementProfileMismatch) || !errors.Is(err, ErrOutcomeUnknown) {
 				t.Fatalf("mismatched observed sizing was not held as unknown: %v", err)
 			}
 			operation, found, getErr := journal.GetOperation(t.Context(), OperationScope{
-				Action: actionLaunch, Key: "node-bad-observed-profile", Region: config.Region,
+				Action: actionLaunch, Key: entityid.Derive("test-operation", "node-bad-observed-profile"), Region: config.Region,
 				Generation: config.Generation, Owner: config.Owner,
 			})
 			result, resultFound, resultErr := journal.GetResult(t.Context(), operation)
@@ -544,7 +546,7 @@ func TestStaleLeaderCannotLaunch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = fleet.EnsureHost(ctx, testEnsureRequest("node-create-02"))
+	_, err = fleet.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "node-create-02")))
 	if !errors.Is(err, authority.ErrFenced) {
 		t.Fatalf("expected stale leader fence, got %v", err)
 	}
@@ -564,7 +566,7 @@ func TestEnsureHostRefusesForeignResourceWithSameCreateKey(t *testing.T) {
 		FreeformTags: map[string]string{
 			tagManagedBy: managedByValue, tagOwner: "another-owner", tagRegion: string(config.Region),
 			tagGeneration: fmt.Sprint(config.Generation), tagResource: resourceMemberHost,
-			tagCreateKey: "shared-create-key", tagHostNode: "host-foreign",
+			tagCreateKey: entityid.Derive("test-operation", "shared-create-key"), tagHostNode: "host-foreign",
 		},
 	}
 	provider.instances[foreign.ID] = foreign
@@ -573,7 +575,7 @@ func TestEnsureHostRefusesForeignResourceWithSameCreateKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = fleet.EnsureHost(ctx, testEnsureRequest("shared-create-key"))
+	_, err = fleet.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "shared-create-key")))
 	if !errors.Is(err, ErrForeignResource) {
 		t.Fatalf("expected ownership refusal, got %v", err)
 	}
@@ -586,7 +588,7 @@ func TestEnsureHostIgnoresTerminatedHostOfAnotherFleet(t *testing.T) {
 	ctx := t.Context()
 	config, intent := testRegionConfig()
 	provider := newFakeProvider(config)
-	tags := hostTags(config, "shared-create-key")
+	tags := hostTags(config, entityid.Derive("test-operation", "shared-create-key"))
 	tags[tagOwner] = "previous-cell"
 	provider.instances["ocid1.instance.previous"] = CloudInstance{
 		ID: "ocid1.instance.previous", CompartmentID: config.CompartmentID,
@@ -597,7 +599,7 @@ func TestEnsureHostIgnoresTerminatedHostOfAnotherFleet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, err := fleet.EnsureHost(ctx, testEnsureRequest("shared-create-key"))
+	host, err := fleet.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "shared-create-key")))
 	if err != nil || provider.launches != 1 || host.ID == "ocid1.instance.previous" {
 		t.Fatalf("terminated host of another fleet blocked the launch: host=%+v launches=%d err=%v", host, provider.launches, err)
 	}
@@ -607,7 +609,7 @@ func TestEnsureHostDoesNotAdoptMatchingTagsWithoutJournalProof(t *testing.T) {
 	ctx := t.Context()
 	config, intent := testRegionConfig()
 	provider := newFakeProvider(config)
-	createKey := "node-seeded-unowned"
+	createKey := entityid.Derive("test-operation", "node-seeded-unowned")
 	provider.instances["ocid1.instance.seeded"] = CloudInstance{
 		ID: "ocid1.instance.seeded", CompartmentID: config.CompartmentID,
 		AvailabilityDomain: config.AvailabilityDomain, FaultDomain: "FAULT-DOMAIN-1",
@@ -640,7 +642,7 @@ func TestEnsureHostHoldsExpiredUnknownCreateWithoutProviderCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	operation := testLaunchIntent("node-expired-unknown")
+	operation := testLaunchIntent(entityid.Derive("test-operation", "node-expired-unknown"))
 	operation.CreatedAt = time.Now().Add(-maxCreateRetryAge - time.Minute).UTC()
 	if err := journal.RecordIntent(ctx, operation); err != nil {
 		t.Fatal(err)
@@ -668,7 +670,7 @@ func TestEnsureHostHoldsExpiredUnknownCreateWithoutProviderCall(t *testing.T) {
 
 func TestFakeJournalRetryPreservesOriginalIntentTimestamp(t *testing.T) {
 	journal := newFakeJournal()
-	intent := testLaunchIntent("node-fake-journal-timestamp")
+	intent := testLaunchIntent(entityid.Derive("test-operation", "node-fake-journal-timestamp"))
 	if err := journal.RecordIntent(t.Context(), intent); err != nil {
 		t.Fatal(err)
 	}
@@ -702,8 +704,8 @@ func TestCreateRetainedVolumeHoldsExpiredUnknownWithoutProviderCall(t *testing.T
 		t.Fatal(err)
 	}
 	operation := OperationIntent{
-		Action: actionVolumeCreate, Key: "volume-expired-unknown", Region: config.Region,
-		Generation: config.Generation, Owner: config.Owner, CreateKey: "volume-expired-unknown",
+		Action: actionVolumeCreate, Key: "0000000000VJ9SVET0Z23MT1N9", Region: config.Region,
+		Generation: config.Generation, Owner: config.Owner, CreateKey: "0000000000VJ9SVET0Z23MT1N9",
 		AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50,
 		CreatedAt: time.Now().Add(-maxCreateRetryAge - time.Minute).UTC(),
 	}
@@ -714,7 +716,7 @@ func TestCreateRetainedVolumeHoldsExpiredUnknownWithoutProviderCall(t *testing.T
 		t.Fatal(err)
 	}
 
-	_, err = fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: operation.CreateKey, SizeGB: operation.SizeGB})
+	_, err = fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: operation.CreateKey, SizeGB: operation.SizeGB})
 	if !errors.Is(err, ErrCreateRecoveryHold) {
 		t.Fatalf("expired unknown volume create was not held for operator reconciliation: %v", err)
 	}
@@ -736,8 +738,8 @@ func TestCreateRetainedVolumeHoldsExpiredUnconfirmedIntentWithoutProviderCall(t 
 		t.Fatal(err)
 	}
 	operation := OperationIntent{
-		Action: actionVolumeCreate, Key: "volume-expired-unconfirmed", Region: config.Region,
-		Generation: config.Generation, Owner: config.Owner, CreateKey: "volume-expired-unconfirmed",
+		Action: actionVolumeCreate, Key: "0000000000YQAEJG3H71Y7JJFQ", Region: config.Region,
+		Generation: config.Generation, Owner: config.Owner, CreateKey: "0000000000YQAEJG3H71Y7JJFQ",
 		AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50,
 		CreatedAt: time.Now().Add(-maxCreateRetryAge - time.Minute).UTC(),
 	}
@@ -745,7 +747,7 @@ func TestCreateRetainedVolumeHoldsExpiredUnconfirmedIntentWithoutProviderCall(t 
 		t.Fatal(err)
 	}
 
-	_, err = fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: operation.CreateKey, SizeGB: operation.SizeGB})
+	_, err = fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: operation.CreateKey, SizeGB: operation.SizeGB})
 	if !errors.Is(err, ErrCreateRecoveryHold) {
 		t.Fatalf("expired unconfirmed volume create was not held for operator reconciliation: %v", err)
 	}
@@ -766,7 +768,7 @@ func TestConfirmedMissingHostRequiresOperatorReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := testEnsureRequest("node-confirmed-missing")
+	request := testEnsureRequest(entityid.Derive("test-operation", "node-confirmed-missing"))
 	created, err := fleet.EnsureHost(ctx, request)
 	if err != nil {
 		t.Fatal(err)
@@ -794,7 +796,7 @@ func TestConfirmedMissingVolumeRequiresOperatorReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "volume-confirmed-missing", SizeGB: 50}
+	request := VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: "0000000000MDM31EDA5G71P2X0", SizeGB: 50}
 	created, err := fleet.CreateRetainedVolume(ctx, request)
 	if err != nil {
 		t.Fatal(err)
@@ -823,7 +825,7 @@ func TestEnsureHostReturnsCurrentETagWithoutRewritingCreateReceipt(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := testEnsureRequest("node-etag-recovery")
+	request := testEnsureRequest(entityid.Derive("test-operation", "node-etag-recovery"))
 	first, err := fleet.EnsureHost(ctx, request)
 	if err != nil {
 		t.Fatal(err)
@@ -864,7 +866,7 @@ func TestCreateRetainedVolumeRecoversLostResponseAndIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	request := VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-volume-create-01", SizeGB: 50}
+	request := VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: "0000000000W65572DYTNARBJNA", SizeGB: 50}
 	created, err := fleet.CreateRetainedVolume(ctx, request)
 	if err != nil {
 		t.Fatalf("CreateRetainedVolume after lost response: %v", err)
@@ -902,14 +904,14 @@ func TestCreateRetainedVolumeRejectsForeignScopeAndDuplicateCreateKeys(t *testin
 		FreeformTags: map[string]string{
 			tagManagedBy: managedByValue, tagOwner: "another-owner", tagRegion: string(config.Region),
 			tagGeneration: fmt.Sprint(config.Generation), tagResource: resourceMemberData,
-			tagCreateKey: "data-volume-foreign", tagVolumeSize: "50",
+			tagCreateKey: "0000000000CE6GXQ81RAFB44ZH", tagVolumeSize: "50",
 		},
 	}
 	fleet, err := newTestFleet(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-volume-foreign", SizeGB: 50}); !errors.Is(err, ErrForeignResource) {
+	if _, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: "0000000000CE6GXQ81RAFB44ZH", SizeGB: 50}); !errors.Is(err, ErrForeignResource) {
 		t.Fatalf("foreign tagged volume was not refused: %v", err)
 	}
 	if provider.volumeCreates != 0 {
@@ -918,17 +920,17 @@ func TestCreateRetainedVolumeRejectsForeignScopeAndDuplicateCreateKeys(t *testin
 
 	config, intent = testRegionConfig()
 	provider = newFakeProvider(config)
-	key := "data-volume-seeded-unowned"
+	key := entityid.Derive("test-create", "data-volume-seeded-unowned")
 	provider.volumes["ocid1.volume.seeded"] = CloudVolume{
 		ID: "ocid1.volume.seeded", CompartmentID: config.CompartmentID,
 		AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50, VPUsPerGB: 10, LifecycleState: "AVAILABLE",
-		FreeformTags: volumeTags(config, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: key, SizeGB: 50}),
+		FreeformTags: volumeTags(config, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: key, SizeGB: 50}),
 	}
 	fleet, err = newTestFleet(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: key, SizeGB: 50}); !errors.Is(err, ErrRetainedVolumeUnknown) {
+	if _, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: key, SizeGB: 50}); !errors.Is(err, ErrRetainedVolumeUnknown) {
 		t.Fatalf("unowned matching-tag volume was adopted instead of refused: %v", err)
 	}
 	if provider.volumeCreates != 0 {
@@ -942,14 +944,14 @@ func TestCreateRetainedVolumeRejectsForeignScopeAndDuplicateCreateKeys(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-volume-duplicate", SizeGB: 64})
+	created, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: "0000000000WY2W2F7JE4R2MJGZ", SizeGB: 64})
 	if err != nil {
 		t.Fatal(err)
 	}
 	duplicate := provider.volumes[created.ID]
 	duplicate.ID = "ocid1.volume.duplicate"
 	provider.volumes[duplicate.ID] = duplicate
-	if _, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-volume-duplicate", SizeGB: 64}); !errors.Is(err, ErrDuplicateCreateKey) {
+	if _, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: "0000000000WY2W2F7JE4R2MJGZ", SizeGB: 64}); !errors.Is(err, ErrDuplicateCreateKey) {
 		t.Fatalf("duplicate create key selected an arbitrary volume: %v", err)
 	}
 }
@@ -967,7 +969,7 @@ func TestCreateRetainedVolumeRejectsObservedPerformanceTierDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = fleet.CreateRetainedVolume(t.Context(), VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "tier-drift", SizeGB: 50})
+	_, err = fleet.CreateRetainedVolume(t.Context(), VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: "0000000000DGTZMG30FH0XZNAQ", SizeGB: 50})
 	if !errors.Is(err, ErrForeignResource) {
 		t.Fatalf("retained volume with unbudgeted tier was accepted: %v", err)
 	}
@@ -981,7 +983,7 @@ func TestCreateRetainedVolumeEnforcesFleetSizeCeilingBeforeOCI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fleet.CreateRetainedVolume(t.Context(), VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "oversize-preview", SizeGB: 51}); err == nil {
+	if _, err := fleet.CreateRetainedVolume(t.Context(), VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: "0000000000CAS89NNGQQJPDNKV", SizeGB: 51}); err == nil {
 		t.Fatal("volume above the preview fleet ceiling reached creation")
 	}
 	if provider.volumeCreateCalls != 0 {
@@ -998,8 +1000,8 @@ func TestCreateRetainedVolumePinsProfileBeforeMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, request := range []VolumeCreateRequest{
-		{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "too-small", SizeGB: 49},
-		{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "wrong-ad", SizeGB: 50, AvailabilityDomain: "another-AD"},
+		{Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: "00000000002TKRQZ3PM8RG049S", SizeGB: 49},
+		{Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: "0000000000PTPQ7VR5V3B30JC3", SizeGB: 50, AvailabilityDomain: "another-AD"},
 	} {
 		if _, err := fleet.CreateRetainedVolume(ctx, request); err == nil {
 			t.Fatalf("invalid volume profile was accepted: %+v", request)
@@ -1023,7 +1025,7 @@ func TestCreateRetainedVolumeDoesNotReplayAfterAuthorityIsFenced(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-volume-fenced-retry", SizeGB: 50})
+	_, err = fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: "0000000000QYRPKGEP473C6ZJJ", SizeGB: 50})
 	if !errors.Is(err, authority.ErrFenced) || !errors.Is(err, ErrOutcomeUnknown) {
 		t.Fatalf("lost response was replayed after authority fencing: %v", err)
 	}
@@ -1043,7 +1045,7 @@ func TestCreateRetainedVolumeKeepsUnconfirmedOutcomeUnowned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "data-volume-unconfirmed", SizeGB: 50}
+	request := VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: "0000000000Z6QY4XVPVTCQA09C", SizeGB: 50}
 	if _, err := fleet.CreateRetainedVolume(ctx, request); !errors.Is(err, ErrOutcomeUnknown) {
 		t.Fatalf("ambiguous provider outcome was not held: %v", err)
 	}
@@ -1067,12 +1069,12 @@ func TestCreateRetainedVolumeKeepsUnconfirmedOutcomeUnowned(t *testing.T) {
 		t.Fatal("test provider did not retain the ambiguous volume")
 	}
 
-	host, err := fleet.EnsureHost(ctx, testEnsureRequest("node-unconfirmed-volume"))
+	host, err := fleet.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "node-unconfirmed-volume")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fleet.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main",
-		VolumeID: ambiguousVolumeID, InstanceID: host.ID, IdempotencyKey: "attach-unconfirmed-volume",
+	if _, err := fleet.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ",
+		VolumeID: ambiguousVolumeID, InstanceID: host.ID, IdempotencyKey: entityid.Derive("test-attach", "attach-unconfirmed-volume"),
 	}); !errors.Is(err, ErrRetainedVolumeUnknown) {
 		t.Fatalf("unconfirmed retained volume was attachable: %v", err)
 	}
@@ -1089,7 +1091,7 @@ func TestTerminateRequiresNoAttachedVolumeAndVerifiedWriterStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, err := fleet.EnsureHost(ctx, testEnsureRequest("node-create-03"))
+	host, err := fleet.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "node-create-03")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1127,7 +1129,7 @@ func TestRetainedVolumeAttachRequiresDurableOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, err := fleet.EnsureHost(ctx, testEnsureRequest("node-create-04"))
+	host, err := fleet.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "node-create-04")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1142,10 +1144,10 @@ func TestRetainedVolumeAttachRequiresDurableOwnership(t *testing.T) {
 		},
 	}
 
-	_, err = fleet.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main",
-		VolumeID: "ocid1.volume.retained", InstanceID: host.ID, IdempotencyKey: "attach-volume-01",
+	_, err = fleet.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ",
+		VolumeID: "ocid1.volume.retained", InstanceID: host.ID, IdempotencyKey: entityid.Derive("test-attach", "attach-volume-01"),
 	})
-	if !errors.Is(err, ErrRetainedVolumeUnknown) {
+	if !errors.Is(err, ErrForeignResource) {
 		t.Fatalf("untagged/unjournaled volume must not be adopted, got %v", err)
 	}
 	if provider.attachCalls != 0 {
@@ -1165,7 +1167,7 @@ func TestRetainedVolumeAttachPersistsDeviceAndRecoversAmbiguousOutcome(t *testin
 	provider.afterAttach = func(provider *fakeProvider, _ string) {
 		provider.attachmentListErr = errors.New("attachment observation unavailable")
 	}
-	request := VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main", VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-durable-device"}
+	request := VolumeAttachRequest{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: entityid.Derive("test-attach", "attach-durable-device")}
 	if _, err := fleet.AttachRetainedVolume(ctx, request); !errors.Is(err, ErrOutcomeUnknown) {
 		t.Fatalf("lost attachment observation was not reported as ambiguous: %v", err)
 	}
@@ -1216,7 +1218,7 @@ func TestRetainedVolumeAttachHoldsExistingAttachmentWithoutOperation(t *testing.
 		LifecycleState: "ATTACHED", ETag: "unbound-etag", Device: "/dev/oracleoci/oraclevdb",
 		IsReadOnly: boolPointer(false), IsShareable: boolPointer(false), IsPvEncryptionInTransitEnabled: boolPointer(true),
 	}
-	request := VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main", VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-existing-without-op"}
+	request := VolumeAttachRequest{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: entityid.Derive("test-attach", "attach-existing-without-op")}
 	if _, err := fleet.AttachRetainedVolume(ctx, request); !errors.Is(err, ErrAttachmentRecoveryHold) {
 		t.Fatalf("unbound existing attachment was adopted: %v", err)
 	}
@@ -1238,7 +1240,7 @@ func TestRetainedVolumeAttachHoldsExistingAttachmentWithoutOperation(t *testing.
 func TestRetainedVolumeAttachRecoversExactAttachmentFromIntentWithoutResult(t *testing.T) {
 	ctx := t.Context()
 	config, provider, journal, fleet, host, volume := newAttachTestState(t)
-	request := VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main", VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-intent-only-recovery"}
+	request := VolumeAttachRequest{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: entityid.Derive("test-attach", "attach-intent-only-recovery")}
 	intent := OperationIntent{
 		Action: actionVolumeAttach, Key: request.IdempotencyKey, Region: config.Region,
 		Generation: config.Generation, Owner: config.Owner, ResourceID: host.ID, CreateKey: host.CreateKey,
@@ -1276,7 +1278,7 @@ func TestRetainedVolumeAttachHoldsExpiredPendingAndUnknownIntents(t *testing.T) 
 		t.Run(name, func(t *testing.T) {
 			ctx := t.Context()
 			config, provider, journal, fleet, host, volume := newAttachTestState(t)
-			request := VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main", VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-expired-" + name}
+			request := VolumeAttachRequest{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: entityid.Derive("test-attach", "attach-expired", name)}
 			intent := OperationIntent{
 				Action: actionVolumeAttach, Key: request.IdempotencyKey, Region: config.Region,
 				Generation: config.Generation, Owner: config.Owner, ResourceID: host.ID, CreateKey: host.CreateKey,
@@ -1310,7 +1312,7 @@ func TestRetainedVolumeAttachHoldsExpiredPendingAndUnknownIntents(t *testing.T) 
 func TestRetainedVolumeAttachConfirmsExactObservationAfterRetryWindow(t *testing.T) {
 	ctx := t.Context()
 	config, provider, journal, fleet, host, volume := newAttachTestState(t)
-	request := VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main", VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-expired-observed"}
+	request := VolumeAttachRequest{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: entityid.Derive("test-attach", "attach-expired-observed")}
 	intent := OperationIntent{
 		Action: actionVolumeAttach, Key: request.IdempotencyKey, Region: config.Region,
 		Generation: config.Generation, Owner: config.Owner, ResourceID: host.ID, CreateKey: host.CreateKey,
@@ -1363,8 +1365,8 @@ func TestRetainedVolumeAttachRechecksRetryWindowAfterAuthorityGuard(t *testing.T
 		}
 	}
 
-	_, err = fleetValue.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main",
-		VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-expires-during-guard",
+	_, err = fleetValue.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ",
+		VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: entityid.Derive("test-attach", "attach-expires-during-guard"),
 	})
 	if !errors.Is(err, ErrCreateRecoveryHold) {
 		t.Fatalf("attachment that expired during authority guard was not held: %v", err)
@@ -1376,7 +1378,7 @@ func TestRetainedVolumeAttachRechecksRetryWindowAfterAuthorityGuard(t *testing.T
 		t.Fatalf("expired attachment called OCI or reselected its device: attachCalls=%d deviceLists=%d", provider.attachCalls, provider.deviceListCalls)
 	}
 	intent, found, err := journal.GetOperation(ctx, OperationScope{
-		Action: actionVolumeAttach, Key: "attach-expires-during-guard", Region: host.Region,
+		Action: actionVolumeAttach, Key: entityid.Derive("test-attach", "attach-expires-during-guard"), Region: host.Region,
 		Generation: host.Generation, Owner: host.Owner,
 	})
 	if err != nil || !found || !validDevicePath(intent.Device) {
@@ -1392,11 +1394,11 @@ func TestRetainedVolumeOperationsHoldWithoutImageVerifier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := nilVerifierFleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "no-qualification", SizeGB: 50}); !errors.Is(err, ErrImageQualificationUnavailable) {
+	if _, err := nilVerifierFleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: "0000000000FMHEFZNR056ZVCDX", SizeGB: 50}); !errors.Is(err, ErrImageQualificationUnavailable) {
 		t.Fatalf("volume creation without image evidence was not held: %v", err)
 	}
-	if _, err := nilVerifierFleet.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main",
-		VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-no-qualification",
+	if _, err := nilVerifierFleet.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ",
+		VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: entityid.Derive("test-attach", "attach-no-qualification"),
 	}); !errors.Is(err, ErrImageQualificationUnavailable) {
 		t.Fatalf("volume attachment without image evidence was not held: %v", err)
 	}
@@ -1414,7 +1416,7 @@ func TestEnsureHostHoldsAnUnqualifiedPin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := unverified.EnsureHost(t.Context(), testEnsureRequest("node-unverified-pin")); !errors.Is(err, ErrImageQualificationUnavailable) {
+	if _, err := unverified.EnsureHost(t.Context(), testEnsureRequest(entityid.Derive("test-operation", "node-unverified-pin"))); !errors.Is(err, ErrImageQualificationUnavailable) {
 		t.Fatalf("launch without image evidence: %v", err)
 	}
 	refusing, err := NewFleetWithImageVerifier(config, regionIntent, provider, newFakeJournal(),
@@ -1422,7 +1424,7 @@ func TestEnsureHostHoldsAnUnqualifiedPin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := refusing.EnsureHost(t.Context(), testEnsureRequest("node-refused-pin")); !errors.Is(err, ErrImageNotQualified) {
+	if _, err := refusing.EnsureHost(t.Context(), testEnsureRequest(entityid.Derive("test-operation", "node-refused-pin"))); !errors.Is(err, ErrImageNotQualified) {
 		t.Fatalf("launch of a refused pin: %v", err)
 	}
 	if provider.launchCalls != 0 {
@@ -1477,8 +1479,8 @@ func TestRetainedVolumeAttachRequiresPinnedImageAndConsistentNaming(t *testing.T
 			instance := provider.instances[host.ID]
 			test.mutate(&instance)
 			provider.instances[host.ID] = instance
-			_, err := fleet.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main",
-				VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-unqualified-host",
+			_, err := fleet.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ",
+				VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: entityid.Derive("test-attach", "attach-unqualified-host"),
 			})
 			if !errors.Is(err, ErrImageNotQualified) || provider.attachCalls != 0 {
 				t.Fatalf("ineligible host reached attachment: err=%v calls=%d", err, provider.attachCalls)
@@ -1490,14 +1492,14 @@ func TestRetainedVolumeAttachRequiresPinnedImageAndConsistentNaming(t *testing.T
 func TestRetainedVolumeAttachConfirmsTheSettledAttachment(t *testing.T) {
 	ctx := t.Context()
 	_, provider, journal, fleet, host, volume := newAttachTestState(t)
-	attachment, err := fleet.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main",
-		VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-settles",
+	attachment, err := fleet.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ",
+		VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: entityid.Derive("test-attach", "attach-settles"),
 	})
 	if err != nil || attachment.ETag != "a1" || attachment.State != "ATTACHED" || provider.attachCalls != 1 {
 		t.Fatalf("settled attachment = %+v, %v (calls %d)", attachment, err, provider.attachCalls)
 	}
 	operation, found, err := journal.GetOperation(ctx, OperationScope{
-		Action: actionVolumeAttach, Key: "attach-settles", Region: host.Region,
+		Action: actionVolumeAttach, Key: entityid.Derive("test-attach", "attach-settles"), Region: host.Region,
 		Generation: host.Generation, Owner: host.Owner,
 	})
 	if err != nil || !found {
@@ -1514,12 +1516,12 @@ func TestRetainedVolumeAttachConfirmsTheSettledAttachment(t *testing.T) {
 
 func TestRetainedVolumeAttachScopesItsRetryTokenToTheFleet(t *testing.T) {
 	config, provider, _, fleet, host, volume := newAttachTestState(t)
-	if _, err := fleet.AttachRetainedVolume(t.Context(), VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main",
-		VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-shared-key",
+	if _, err := fleet.AttachRetainedVolume(t.Context(), VolumeAttachRequest{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ",
+		VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: entityid.Derive("test-attach", "attach-shared-key"),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	scoped := retryToken(strings.Join([]string{config.Owner, string(config.Region), fmt.Sprint(config.Generation), "attach-shared-key"}, ":"))
+	scoped := retryToken(strings.Join([]string{config.Owner, string(config.Region), fmt.Sprint(config.Generation), entityid.Derive("test-attach", "attach-shared-key")}, ":"))
 	if _, ok := provider.attachRetryTokens[scoped]; !ok || len(provider.attachRetryTokens) != 1 {
 		t.Fatalf("attach used an unscoped OCI retry token: %v", provider.attachRetryTokens)
 	}
@@ -1547,14 +1549,14 @@ func TestRetainedVolumeAttachRejectsIncompleteObservedPolicy(t *testing.T) {
 				test.mutate(&attachment)
 				provider.attachments[attachmentID] = attachment
 			}
-			_, err := fleet.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main",
-				VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-invalid-observation",
+			_, err := fleet.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ",
+				VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: entityid.Derive("test-attach", "attach-invalid-observation"),
 			})
 			if !errors.Is(err, ErrOutcomeUnknown) || provider.attachCalls != 1 {
 				t.Fatalf("incomplete attachment observation was accepted: err=%v calls=%d", err, provider.attachCalls)
 			}
 			operation, found, lookupErr := journal.GetOperation(ctx, OperationScope{
-				Action: actionVolumeAttach, Key: "attach-invalid-observation", Region: host.Region,
+				Action: actionVolumeAttach, Key: entityid.Derive("test-attach", "attach-invalid-observation"), Region: host.Region,
 				Generation: host.Generation, Owner: host.Owner,
 			})
 			if lookupErr != nil || !found {
@@ -1577,7 +1579,7 @@ func TestObserveReturnsOnlyDurablyOwnedInstancesAndTerminalState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, err := fleet.EnsureHost(ctx, testEnsureRequest("node-create-05"))
+	host, err := fleet.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "node-create-05")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1607,7 +1609,7 @@ func TestObserveWithholdsOwnedInstanceAfterComputeProfileDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, err := fleet.EnsureHost(t.Context(), testEnsureRequest("node-observe-profile-drift"))
+	host, err := fleet.EnsureHost(t.Context(), testEnsureRequest(entityid.Derive("test-operation", "node-observe-profile-drift")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1630,7 +1632,7 @@ func TestObserveSkipsUnverifiedIdentitiesWithoutBlockingOwnedInstances(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	owned, err := fleet.EnsureHost(ctx, testEnsureRequest("node-owned-observation"))
+	owned, err := fleet.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "node-owned-observation")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1727,17 +1729,17 @@ func TestObserveWithholdsOnlyUnverifiedRetainedVolumeHost(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			bad, err := setup.EnsureHost(ctx, testEnsureRequest("observe-attachment-bad"))
+			bad, err := setup.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "observe-attachment-bad")))
 			if err != nil {
 				t.Fatal(err)
 			}
-			goodRequest := testEnsureRequest("observe-attachment-good")
+			goodRequest := testEnsureRequest(entityid.Derive("test-operation", "observe-attachment-good"))
 			goodRequest.PrivateIP = "10.251.0.22"
 			good, err := setup.EnsureHost(ctx, goodRequest)
 			if err != nil {
 				t.Fatal(err)
 			}
-			owned, err := setup.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "observe-attachment-volume", SizeGB: 50})
+			owned, err := setup.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: "00000000004CCHBA53BNA84CNX", SizeGB: 50})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1805,7 +1807,7 @@ func TestObserveAllowsEnsureHostToRecoverDurableUnknownLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	createKey := "node-durable-unknown"
+	createKey := entityid.Derive("test-operation", "node-durable-unknown")
 	operation := testLaunchIntent(createKey)
 	operation.Region = config.Region
 	operation.Generation = config.Generation
@@ -1871,7 +1873,7 @@ func testEnsureRequest(createKey string) EnsureRequest {
 		Name: "gru-1-db-1", CreateKey: createKey, PrivateIP: "10.251.0.21", FaultDomain: "FAULT-DOMAIN-1", Shape: "VM.Standard.E5.Flex",
 		WholeOCPUs: 1, MemoryInGBs: 6, PlacementProfileDigest: strings.Repeat("a", 64), PlacementGeneration: 3,
 		BootPins: HostBootPins{
-			DatabaseID: "db-main", PartitionID: "partition-main", SeatID: "permanent-gru",
+			DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", SeatID: "0000000000M4R4NE7RJXQ9M8NM",
 			HostAttempt: 1, IntentPayloadDigest: strings.Repeat("b", 64),
 			CanonicalRosterDigest: strings.Repeat("c", 64), RuntimeManifestDigest: strings.Repeat("d", 64),
 		},
@@ -1905,7 +1907,7 @@ func sameLaunchProfile(a, b LaunchRequest) bool {
 
 func writableSnapshot() authority.Snapshot {
 	return authority.Snapshot{
-		CandidateID: "candidate-1", Leader: true, Ready: true, Epoch: 4, Revision: 9,
+		CandidateID: "00000000008VQHCQFMKQSH41D6", Leader: true, Ready: true, Epoch: 4, Revision: 9,
 		ExpiresAt: time.Now().Add(time.Minute), ObservedAt: time.Now(),
 	}
 }
@@ -2132,12 +2134,12 @@ func TestObserveWithholdsOnlySDKBootDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	badRequest := testEnsureRequest("sdk-boot-drift")
+	badRequest := testEnsureRequest(entityid.Derive("test-operation", "sdk-boot-drift"))
 	bad, err := setup.EnsureHost(t.Context(), badRequest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	goodRequest := testEnsureRequest("sdk-healthy")
+	goodRequest := testEnsureRequest(entityid.Derive("test-operation", "sdk-healthy"))
 	goodRequest.PrivateIP = "10.251.0.22"
 	good, err := setup.EnsureHost(t.Context(), goodRequest)
 	if err != nil {
@@ -2312,11 +2314,11 @@ func newAttachTestState(t *testing.T) (RegionConfig, *fakeProvider, *fakeJournal
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, err := fleet.EnsureHost(ctx, testEnsureRequest("attach-test-host"))
+	host, err := fleet.EnsureHost(ctx, testEnsureRequest(entityid.Derive("test-operation", "attach-test-host")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	volume, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "db-main", PartitionID: "partition-main", CreateKey: "attach-test-volume", SizeGB: 50})
+	volume, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{Name: "gru-1-db-1-data", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: "0000000000SXHAFTXWBNBVG4JP", SizeGB: 50})
 	if err != nil {
 		t.Fatal(err)
 	}

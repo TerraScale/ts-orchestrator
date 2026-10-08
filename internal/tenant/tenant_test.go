@@ -16,7 +16,7 @@ var (
 
 func newTenant(t *testing.T) Tenant {
 	t.Helper()
-	tenant, err := New("acme", "org_01", "prj_01", "gru",
+	tenant, err := New("0000000000WT9WWA18KD4ET6PG", "0000000000GG77KS2XN2FPA9SS", "00000000005C91M54AQR9YGVT5", "gru",
 		Spec{Plan: "standard", Members: 3, TerraBase: digestA, Auth: digestB}, t0)
 	if err != nil {
 		t.Fatal(err)
@@ -34,20 +34,20 @@ func TestNewValidatesIdentityAndSpec(t *testing.T) {
 		"short id":        {"ab", "gru", good},
 		"reserved id":     {"api", "gru", good},
 		"upper id":        {"Acme", "gru", good},
-		"server cell":     {"acme", "gru-1", good},
-		"unknown cell":    {"acme", "xyz", good},
-		"unknown plan":    {"acme", "gru", Spec{Plan: "huge", Members: 1, TerraBase: digestA}},
-		"two members":     {"acme", "gru", Spec{Plan: "starter", Members: 2, TerraBase: digestA}},
-		"no terrabase":    {"acme", "gru", Spec{Plan: "starter", Members: 1}},
-		"upper digest":    {"acme", "gru", Spec{Plan: "starter", Members: 1, TerraBase: strings.Repeat("A", 64)}},
-		"short ts-auth":   {"acme", "gru", Spec{Plan: "starter", Members: 1, TerraBase: digestA, Auth: "abc"}},
-		"prefixed digest": {"acme", "gru", Spec{Plan: "starter", Members: 1, TerraBase: "sha256:" + digestA[7:]}},
+		"server cell":     {"0000000000WT9WWA18KD4ET6PG", "gru-1", good},
+		"unknown cell":    {"0000000000WT9WWA18KD4ET6PG", "xyz", good},
+		"unknown plan":    {"0000000000WT9WWA18KD4ET6PG", "gru", Spec{Plan: "huge", Members: 1, TerraBase: digestA}},
+		"two members":     {"0000000000WT9WWA18KD4ET6PG", "gru", Spec{Plan: "starter", Members: 2, TerraBase: digestA}},
+		"no terrabase":    {"0000000000WT9WWA18KD4ET6PG", "gru", Spec{Plan: "starter", Members: 1}},
+		"upper digest":    {"0000000000WT9WWA18KD4ET6PG", "gru", Spec{Plan: "starter", Members: 1, TerraBase: strings.Repeat("A", 64)}},
+		"short ts-auth":   {"0000000000WT9WWA18KD4ET6PG", "gru", Spec{Plan: "starter", Members: 1, TerraBase: digestA, Auth: "abc"}},
+		"prefixed digest": {"0000000000WT9WWA18KD4ET6PG", "gru", Spec{Plan: "starter", Members: 1, TerraBase: "sha256:" + digestA[7:]}},
 	} {
-		if _, err := New(tc.id, "org_01", "prj_01", tc.cell, tc.spec, t0); !errors.Is(err, ErrInvalid) {
+		if _, err := New(tc.id, "0000000000GG77KS2XN2FPA9SS", "00000000005C91M54AQR9YGVT5", tc.cell, tc.spec, t0); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: New error = %v, want ErrInvalid", name, err)
 		}
 	}
-	tenant, err := New("acme", "org_01", "prj_01", "gru", good, t0)
+	tenant, err := New("0000000000WT9WWA18KD4ET6PG", "0000000000GG77KS2XN2FPA9SS", "00000000005C91M54AQR9YGVT5", "gru", good, t0)
 	if err != nil || tenant.Generation != 1 || tenant.State != StateActive || !tenant.CreatedAt.Equal(t0) ||
 		tenant.Spec.Member != Plans()[0].Member {
 		t.Fatalf("New = %+v, %v; want active generation 1 with the starter plan's resources", tenant, err)
@@ -226,7 +226,7 @@ func TestCheckSuccessorRefusesForgedRecords(t *testing.T) {
 		"skipped generation":    func(n *Tenant) { n.Generation += 1 },
 		"replayed":              func(n *Tenant) { n.Generation = prev.Generation },
 		"earlier":               func(n *Tenant) { n.UpdatedAt = t0.Add(-time.Second) },
-		"moved organization":    func(n *Tenant) { n.Organization = "org_02" },
+		"moved organization":    func(n *Tenant) { n.Organization = "0000000000SENYWME143WT9XQ0" },
 		"moved cell":            func(n *Tenant) { n.Cell = "fra" },
 		"rewritten creation":    func(n *Tenant) { n.CreatedAt = t0.Add(-time.Hour) },
 		"retention not deleted": func(n *Tenant) { n.RetainUntil = t0.Add(DefaultRetention) },

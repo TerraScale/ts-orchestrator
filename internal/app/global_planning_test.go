@@ -197,7 +197,7 @@ func TestPlannerRunnerProposesOnTheGlobalLeaderOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	global, err := authority.Start(ctx, js, authority.Config{Scope: protocol.GlobalScope, CandidateID: "gru-a", Replicas: 1,
+	global, err := authority.Start(ctx, js, authority.Config{Scope: protocol.GlobalScope, CandidateID: "0000000000F2D374M7NMRHJJQT", Replicas: 1,
 		LeaseDuration: 5 * time.Second, RenewInterval: 500 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)

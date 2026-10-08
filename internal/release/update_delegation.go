@@ -8,6 +8,8 @@ import (
 	"slices"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -33,7 +35,7 @@ const (
 	// MaxUpdateReceiptLifetime bounds one automatically signed receipt.
 	MaxUpdateReceiptLifetime = 31 * 24 * time.Hour
 
-	updateDelegationDeployment = "binary-update"
+	updateDelegationDeployment = "0000000000TA7Q4JYMWMMHHMPQ"
 	updateDelegationCell       = "global"
 	updateDelegationRole       = "release-signer"
 	updateDelegationSlot       = "lineage"
@@ -149,7 +151,7 @@ func UpdateDelegationScope(environment string) trust.Scope {
 // UpdateReceiptScope is the leaf signature scope of one update receipt.
 func UpdateReceiptScope(receipt BinaryUpdateReceipt, environment string) trust.Scope {
 	return trust.Scope{
-		Domain: UpdateReceiptDomain, DeploymentID: receipt.Binary.SourceRevision, Cell: receipt.Cell,
+		Domain: UpdateReceiptDomain, DeploymentID: entityid.Derive("build", receipt.Binary.SourceRevision), Cell: receipt.Cell,
 		Environment: environment, Role: "artifact", Slot: "linux-" + receipt.Binary.GOARCH,
 	}
 }

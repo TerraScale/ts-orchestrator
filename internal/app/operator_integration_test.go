@@ -130,7 +130,7 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30,
 				Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller"}, {PublicKey: operatorNKey, Role: "operator"}, {PublicKey: hostNKey, Role: "host", Node: "node-a"}}}},
-		Controller: ControllerConfig{CandidateID: "one", ResponseKeyFile: filepath.Join(root, "controller.key"), ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
+		Controller: ControllerConfig{CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"), ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads: map[string]WorkloadProfile{"terrabase": {Resources: placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}}}},
 	}
 	controllerConfigPath := testJSONFile(t, root, "controller.json", controllerConfig)
@@ -264,7 +264,7 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 		t.Fatalf("status accepted wrong fingerprint: %v", err)
 	}
 	placeIntent := testManagedPlacementIntent()
-	placeIntent.DatabaseID = "db-a"
+	placeIntent.DatabaseID = "00000000001Y9Z8VKC1VV66J6B"
 	placeIntent.Generation = 1
 	placePath := testJSONFile(t, root, "placement.json", placeIntent)
 	output.Reset()
@@ -297,7 +297,7 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 		t.Fatalf("committed placement intent: %v, %+v", err, committed)
 	}
 	secondIntent := placeIntent
-	secondIntent.PartitionID = "partition-b"
+	secondIntent.PartitionID = "00000000001WFHC56Q8NB0X6T8"
 	secondIntent.CanonicalRoster.ShardID = 2
 	secondPath := testJSONFile(t, root, "placement-b.json", secondIntent)
 	output.Reset()

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 	"time"
-	"uuid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -84,14 +84,14 @@ func TestFenceTerminalGrantsRetriesAfterPartialPreMarkerFailure(t *testing.T) {
 
 func terminalFenceRetryIntent() authority.TerminalIntent {
 	return authority.TerminalIntent{
-		Cell: "gru", DatabaseID: "db-terminal-retry", PartitionID: "partition-terminal-retry",
+		Cell: "gru", DatabaseID: "0000000000YTZ52ZCRJ2CZJY1B", PartitionID: "00000000000X8MPY6PN7KAJJGB",
 		Region: string(oci.RegionGRU), Owner: "regional-owner", CompartmentID: "ocid1.compartment.oc1..owned",
 		FleetGeneration: 1, PlacementGeneration: 1,
 		PlacementPayloadDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		OperationID:            "terminal-retry", Nonce: uuid.New().String(), Targets: []authority.TerminalTarget{
-			{SeatID: "seat-a", MemberID: "member-a", HostCreateKey: "host-create-a", DataCreateKey: "data-create-a",
+		OperationID:            "0000000000YGC05EERJ4NN90HC", Nonce: entityid.New(), Targets: []authority.TerminalTarget{
+			{SeatID: "000000000077F1R6E1XPKAC2D4", MemberID: "0000000000WM3QQGQPMW5X58P9", HostCreateKey: "0000000000RW49ETSDPDJTBD4J", DataCreateKey: "0000000000EYBZFNSX933SXJNG",
 				InstanceID: "ocid1.instance.oc1..terminal-a", BootVolumeID: "ocid1.bootvolume.oc1..terminal-a"},
-			{SeatID: "seat-b", MemberID: "member-b", HostCreateKey: "host-create-b", DataCreateKey: "data-create-b",
+			{SeatID: "0000000000GXPF5F560P92PC00", MemberID: "0000000000N9X5GQEQJ9NA9A7V", HostCreateKey: "0000000000JPBJ0SS1W1ZX3R03", DataCreateKey: "000000000020W73MW4ZYWMCX8C",
 				InstanceID: "ocid1.instance.oc1..terminal-b", BootVolumeID: "ocid1.bootvolume.oc1..terminal-b"},
 		},
 		DisposableWorkload: true, AcknowledgePermanentDataLoss: true, AuthorizeForcedStop: true,
@@ -120,7 +120,7 @@ type terminalFenceRetryFencer struct {
 }
 
 func (fencer *terminalFenceRetryFencer) Current() authority.Snapshot {
-	return authority.Snapshot{Scope: "gru", CandidateID: "terminal-test", OwnerID: "terminal-test",
+	return authority.Snapshot{Scope: "gru", CandidateID: "0000000000G2MMHNF41VCKD3JR", OwnerID: "0000000000G2MMHNF41VCKD3JR",
 		Leader: true, Ready: true, Epoch: fencer.epoch, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}
 }
 

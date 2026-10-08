@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 )
 
@@ -67,7 +69,7 @@ func (c *Controller) readRegistration(ctx context.Context, node string) (Registr
 	if err := decodeStrict(entry.Payload, &r); err != nil {
 		return Registration{}, 0, false, err
 	}
-	if r.Node != node {
+	if r.Node != node || r.ID != entityid.Derive("host", c.cell, node) {
 		return Registration{}, 0, false, errors.New("registration log identity mismatch")
 	}
 	if err := validateRegistration(r, c.cell); err != nil {
@@ -113,5 +115,5 @@ func mutationPayload(value any) ([]byte, string, error) {
 		return nil, "", errors.New("host mutation exceeds value limit")
 	}
 	hash := sha256.Sum256(data)
-	return data, hex.EncodeToString(hash[:16]), nil
+	return data, entityid.Derive("host-mutation", hex.EncodeToString(hash[:])), nil
 }

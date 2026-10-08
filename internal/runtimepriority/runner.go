@@ -10,7 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
@@ -24,7 +25,7 @@ type Runner struct {
 func NewRunner(manifest Object, hash, evidence string) *Runner {
 	binary, _ := os.Executable()
 	wire, _, _ := readNoFollow(binary, MaxProbeBytes)
-	return &Runner{Manifest: manifest, EvidenceDir: evidence, State: Object{"manifest_hash": hash, "run_id": uuid.New().String(), "harness_sha256": sub(sub(manifest, "transport"), "runtime")["stress_launcher_sha256"], "runner_sha256": Hash(wire), "results": []any{}, "memory_usage_samples": []any{}, "previous_host_rows": Object{}, "baseline_host_rows": Object{}, "previous_services": Object{}, "baseline_services": Object{}, "probe_fingerprint": Object{}, "last_event_sequence_by_origin": Object{}, "pressure_processes": Object{}, "pressure_completed": false, "failure_observed": false, "recovery_observed": false, "oom_observed": false, "oom_restore_cleanup_verified": false}}
+	return &Runner{Manifest: manifest, EvidenceDir: evidence, State: Object{"manifest_hash": hash, "run_id": entityid.New(), "harness_sha256": sub(sub(manifest, "transport"), "runtime")["stress_launcher_sha256"], "runner_sha256": Hash(wire), "results": []any{}, "memory_usage_samples": []any{}, "previous_host_rows": Object{}, "baseline_host_rows": Object{}, "previous_services": Object{}, "baseline_services": Object{}, "probe_fingerprint": Object{}, "last_event_sequence_by_origin": Object{}, "pressure_processes": Object{}, "pressure_completed": false, "failure_observed": false, "recovery_observed": false, "oom_observed": false, "oom_restore_cleanup_verified": false}}
 }
 func (r *Runner) stateObject(k string) Object {
 	if o, ok := r.State[k].(map[string]any); ok {

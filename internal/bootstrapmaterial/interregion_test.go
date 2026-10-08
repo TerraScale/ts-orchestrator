@@ -394,7 +394,7 @@ func linkedRegions(t *testing.T) (linkedRegion, linkedRegion, time.Time) {
 	root := t.TempDir()
 	now := time.Now().UTC().Truncate(time.Second)
 	sfoConfig := testConfig()
-	sfoConfig.Region, sfoConfig.Cell, sfoConfig.ClusterID, sfoConfig.SubnetCIDR = "us-sanjose-1", "sfo", "alpha-sfo", "10.252.0.0/24"
+	sfoConfig.Region, sfoConfig.Cell, sfoConfig.ClusterID, sfoConfig.SubnetCIDR = "us-sanjose-1", "sfo", "00000000000000000000000002", "10.252.0.0/24"
 	sfoConfig.Slots = []Slot{{"controller-a", "10.252.0.10"}, {"controller-b", "10.252.0.11"}, {"controller-c", "10.252.0.12"}}
 	gru := linkedRegion{material: filepath.Join(root, "gru"), directory: filepath.Join(root, "gru-interregion")}
 	sfo := linkedRegion{material: filepath.Join(root, "sfo"), directory: filepath.Join(root, "sfo-interregion")}

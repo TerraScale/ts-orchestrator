@@ -14,7 +14,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"io"
 	"math/big"
 	"os"
@@ -23,6 +22,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -555,9 +556,9 @@ func TestApplyStampsTheControllerOwnershipOfTheTerraBaseSet(t *testing.T) {
 	// else changes first, not even a pending bandwidth change.
 	wider := testDesired(t, strings.Replace(ownedPlan, `"max_mbps":100`, `"max_mbps":200`, 1))
 	for _, claim := range []map[string]any{
-		{"terrascale-managed-by": "ts-orchestrator", "terrascale-owner": "someone-else", "terrascale-resource-key": d.Owned.String()},
+		{"terrascale-managed-by": "ts-orchestrator", "terrascale-owner": "00000000005KBY8XNJ83MMCJWP", "terrascale-resource-key": d.Owned.String()},
 		{"terrascale-managed-by": "ts-orchestrator", "terrascale-owner": "ts-470-gru-rebuild-2", "terrascale-resource-key": "GRU/nlb-backends/public-api"},
-		{"terrascale-owner": "someone-else"},
+		{"terrascale-owner": "00000000005KBY8XNJ83MMCJWP"},
 		{"terrascale-resource-key": "GRU/nlb-backends/public-api"},
 	} {
 		f.balancer["freeform-tags"], f.calls = claim, nil

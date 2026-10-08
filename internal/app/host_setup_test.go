@@ -21,10 +21,10 @@ func TestPersistedHostRequestRecoveryAcrossReplayWindow(t *testing.T) {
 	descriptor := hostboot.Descriptor{
 		SchemaVersion: hostboot.SchemaVersion, Cell: "gru", Region: "GRU",
 		Node: "host-0123456789abcdef01234567", Owner: "terrascale",
-		CreateKey: "th-0123456789abcdef0123456789abcdef0123456789abcdef",
+		CreateKey: "0000000000AVXGCP7NEZ0TK93A",
 		ImageID:   "ocid1.image.oc1.sa-saopaulo-1.image-a", FleetGeneration: 7,
 		HostAttempt: 2, IntentGeneration: 9,
-		DatabaseID: "database-a", PartitionID: "partition-a", SeatID: "permanent-a",
+		DatabaseID: "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "00000000000E5NVMSGX0D07DPA",
 		IntentPayloadDigest: strings.Repeat("a", 64), CanonicalRosterDigest: strings.Repeat("b", 64),
 		ManagedHostProfileDigest: strings.Repeat("c", 64), RuntimeManifestDigest: strings.Repeat("d", 64),
 	}

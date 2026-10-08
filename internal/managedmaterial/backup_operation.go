@@ -16,7 +16,8 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 )
@@ -192,7 +193,7 @@ func validateBackupRoster(receipt PreparationReceipt, members []authority.Backup
 		for seatIndex, seat := range receipt.Spec.Members {
 			if seat.MemberID == member.MemberID && seat.Incarnation == member.Incarnation &&
 				receipt.Members[seatIndex].TLSLeafSHA256 == member.TLSLeafSHA256 &&
-				member.Origin == strings.ReplaceAll(seat.MemberID, "-", "")+seat.Incarnation {
+				member.Origin == authority.BackupMemberOrigin(seat.MemberID, seat.Incarnation) {
 				found = true
 				break
 			}
@@ -277,7 +278,7 @@ func (producer BackupOperationProducer) allocatePrepareWithMaterial(ctx context.
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return authority.BackupOperationRecord{}, 0, err
 	}
-	operationID := uuid.New().String()
+	operationID := entityid.New()
 	// Rust Prepare can spend two sequential 60-second stages producing a
 	// durable Cut. Leave room for both stages and host polling, while staying
 	// below the member's five-minute maximum signed-envelope lifetime.

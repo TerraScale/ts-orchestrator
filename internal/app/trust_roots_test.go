@@ -69,7 +69,7 @@ func TestRootRegistryAdoptsOnlyExtendingChains(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := trust.ChainIdentity{DeploymentID: "lab-gru", Cell: "gru", Environment: "test"}
+	id := trust.ChainIdentity{DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "gru", Environment: "test"}
 	path := filepath.Join(t.TempDir(), "trust", "root-chain.json")
 	registry, err := newRootRegistry(genesis, id, trust.RootChain{}, path)
 	if err != nil {
@@ -141,7 +141,7 @@ func TestRootRepairNeverRollsBackAValidRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := trust.ChainIdentity{DeploymentID: "lab-gru", Cell: "gru", Environment: "test"}
+	id := trust.ChainIdentity{DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "gru", Environment: "test"}
 	// The persisted chain's directory is a file, so every persist fails.
 	blocked := filepath.Join(t.TempDir(), "blocked")
 	if err := os.WriteFile(blocked, nil, 0o600); err != nil {
@@ -194,7 +194,7 @@ func TestRootRotationOnARunningController(t *testing.T) {
 	operatorNKey, operatorSeed := testNKey(t)
 	testEd25519(t, root, "controller.key")
 	operatorPublic, _ := testEd25519(t, root, "operator.key")
-	identity := cellspec.Identity{DeploymentID: "lab-gru", Cell: "gru", Environment: "test"}
+	identity := cellspec.Identity{DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "gru", Environment: "test"}
 	id := trust.ChainIdentity{DeploymentID: identity.DeploymentID, Cell: identity.Cell, Environment: identity.Environment}
 	genesisTrust := newTestSpecTrust(t, root, identity)
 	r1, attacker := newRootKey(t), newRootKey(t)
@@ -207,7 +207,7 @@ func TestRootRotationOnARunningController(t *testing.T) {
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"),
 				StoreMaxBytes: 4 << 30, Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller"},
 					{PublicKey: operatorNKey, Role: "operator"}}}},
-		Controller: ControllerConfig{CandidateID: "one", ResponseKeyFile: filepath.Join(root, "controller.key"),
+		Controller: ControllerConfig{CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
 			ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads: map[string]WorkloadProfile{"terrabase": {Resources: resources}},
 			SpecTrust: genesisTrust.config()},

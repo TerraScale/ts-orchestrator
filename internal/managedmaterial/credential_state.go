@@ -10,6 +10,8 @@ import (
 	"errors"
 	"strconv"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -89,13 +91,12 @@ func validSQLTableGrantIDs(ids []string) bool {
 	}
 	var previous []byte
 	for _, id := range ids {
-		decoded, err := hex.DecodeString(id)
-		if err != nil || len(decoded) != 16 || hex.EncodeToString(decoded) != id ||
-			decoded[6]>>4 != 7 || decoded[8]&0xc0 != 0x80 ||
-			previous != nil && bytes.Compare(previous, decoded) >= 0 {
+		decoded, err := entityid.Parse(id)
+		if err != nil || len(decoded) != 16 || !entityid.Valid(id) ||
+			previous != nil && bytes.Compare(previous, decoded[:]) >= 0 {
 			return false
 		}
-		previous = decoded
+		previous = decoded[:]
 	}
 	return true
 }
@@ -217,8 +218,8 @@ func (receipt CredentialReceipt) signingMaterial() ([]byte, error) {
 func (receipt CredentialReceipt) Verify(controllerKey ed25519.PublicKey,
 	initialSHA string, authorityKey ed25519.PublicKey,
 ) error {
-	if receipt.Version != 1 || !repositoryToken.MatchString(receipt.DatabaseID) ||
-		!repositoryToken.MatchString(receipt.PartitionID) || !lowerHexDigest(receipt.RequestSHA256) ||
+	if receipt.Version != 1 || !entityid.Valid(receipt.DatabaseID) ||
+		!entityid.Valid(receipt.PartitionID) || !lowerHexDigest(receipt.RequestSHA256) ||
 		!lowerHexDigest(receipt.PreviousSHA256) || receipt.State.Generation < 2 ||
 		len(controllerKey) != ed25519.PublicKeySize ||
 		VerifyCredentialState(receipt.State, initialSHA, authorityKey) != nil {
@@ -247,7 +248,7 @@ func (receipt CredentialReceipt) Verify(controllerKey ed25519.PublicKey,
 func validCredentialCustomer(customer CustomerEnvelope, registry apiKeyRegistry) bool {
 	if customer.Version != 2 || !lowerHexDigest(customer.VerifierSHA256) ||
 		!lowerHexDigest(customer.HTTPSCASHA256) ||
-		!canonicalCredentialEncoding(customer.TokenID, 16) ||
+		!entityid.Valid(customer.TokenID) ||
 		!canonicalCredentialEncoding(customer.EphemeralPublicKey, 32) ||
 		!canonicalCredentialEncoding(customer.Nonce, 12) ||
 		!canonicalCredentialCiphertext(customer.Ciphertext) {

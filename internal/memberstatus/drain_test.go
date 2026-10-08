@@ -13,11 +13,11 @@ import (
 
 func testIdentity() Identity {
 	return Identity{
-		Process: Process{PID: 1234, StartNonce: strings.Repeat("a", 32)},
+		Process: Process{PID: 1234, StartNonce: "0000000000RGF72VFGE3H7MAZJ"},
 		Scope: Scope{
-			ClusterID: strings.Repeat("b", 32), TenantID: "018f0000-0000-7000-8000-000000000001",
-			DatabaseID: "018f0000-0000-7000-8000-000000000002", ShardID: 1,
-			MemberID: "018f0000-0000-7000-8000-000000000003", Incarnation: strings.Repeat("c", 32),
+			ClusterID: "5VQEXVQEXVQEXVQEXVQEXVQEXV", TenantID: "01HW000000E008000000000001",
+			DatabaseID: "01HW000000E008000000000002", ShardID: 1,
+			MemberID: "01HW000000E008000000000003", Incarnation: "6CSK6CSK6CSK6CSK6CSK6CSK6C",
 		},
 		Authority: Authority{
 			Epoch: 7, ConfigurationID: strings.Repeat("d", 64),
@@ -30,39 +30,39 @@ func testRecord() DrainRecord {
 	identity := testIdentity()
 	return DrainRecord{
 		Request: DrainRequest{
-			SchemaVersion: 1, OperationID: strings.Repeat("1", 32), Nonce: strings.Repeat("2", 32), Expected: identity,
+			SchemaVersion: 1, OperationID: "0H248H248H248H248H248H248H", Nonce: strings.Repeat("2", 32), Expected: identity,
 		},
-		Survivor:       Survivor{MemberID: "018f0000-0000-7000-8000-000000000004", Incarnation: strings.Repeat("3", 32)},
+		Survivor:       Survivor{MemberID: "01HW000000E008000000000004", Incarnation: "1K6CSK6CSK6CSK6CSK6CSK6CSK"},
 		SourceSequence: 12,
 	}
 }
 
 func testReceiptJSON() string {
-	return `{"schema_version":1,"operation_id":"` + strings.Repeat("1", 32) +
+	return `{"schema_version":1,"operation_id":"` + "0H248H248H248H248H248H248H" +
 		`","request_nonce":"` + strings.Repeat("2", 32) +
-		`","requested_process":{"pid":1234,"start_nonce":"` + strings.Repeat("a", 32) +
-		`"},"drained_process":{"pid":2345,"start_nonce":"` + strings.Repeat("4", 32) +
-		`"},"scope":{"cluster_id":"` + strings.Repeat("b", 32) +
-		`","tenant_id":"018f0000-0000-7000-8000-000000000001","database_id":"018f0000-0000-7000-8000-000000000002","shard_id":1,"member_id":"018f0000-0000-7000-8000-000000000003","incarnation":"` + strings.Repeat("c", 32) +
+		`","requested_process":{"pid":1234,"start_nonce":"` + "0000000000RGF72VFGE3H7MAZJ" +
+		`"},"drained_process":{"pid":2345,"start_nonce":"` + "00000000001Y950NE9P7D3CARJ" +
+		`"},"scope":{"cluster_id":"` + "5VQEXVQEXVQEXVQEXVQEXVQEXV" +
+		`","tenant_id":"01HW000000E008000000000001","database_id":"01HW000000E008000000000002","shard_id":1,"member_id":"01HW000000E008000000000003","incarnation":"` + "6CSK6CSK6CSK6CSK6CSK6CSK6C" +
 		`"},"authority":{"epoch":7,"configuration_id":"` + strings.Repeat("d", 64) +
 		`","certificate_sha256":"` + strings.Repeat("e", 64) +
 		`","tls_leaf_sha256":"` + strings.Repeat("f", 64) +
-		`"},"local_source_origin":{"member_id":"018f0000-0000-7000-8000-000000000003","incarnation":"` + strings.Repeat("c", 32) +
+		`"},"local_source_origin":{"member_id":"01HW000000E008000000000003","incarnation":"` + "6CSK6CSK6CSK6CSK6CSK6CSK6C" +
 		`"},"local_source_durable_sequence":12,"archived_source_sequence":12,"object_root_sha256":"` + strings.Repeat("5", 64) +
-		`","peer":{"origin":{"member_id":"018f0000-0000-7000-8000-000000000004","incarnation":"` + strings.Repeat("3", 32) +
+		`","peer":{"origin":{"member_id":"01HW000000E008000000000004","incarnation":"` + "1K6CSK6CSK6CSK6CSK6CSK6CSK" +
 		`"},"durable_sequence":12,"applied_sequence":12,"local_inbox_durable_sequence":9,"local_inbox_applied_sequence":9},"replication_quiesced":true}`
 }
 
 func testEnvelope(receipt, digest string) []byte {
 	return []byte(fmt.Sprintf(`{"schema_version":1,"nonce":"%s","process":{"pid":2345,"start_nonce":"%s"},"operation_id":"%s","state":"complete","receipt_sha256":"%s","receipt":%s}`,
-		strings.Repeat("6", 32), strings.Repeat("4", 32), strings.Repeat("1", 32), digest, receipt))
+		strings.Repeat("6", 32), "00000000001Y950NE9P7D3CARJ", "0H248H248H248H248H248H248H", digest, receipt))
 }
 
 func TestDrainReceiptBindsOriginalRequestAndCurrentResponder(t *testing.T) {
 	record := testRecord()
 	receipt := testReceiptJSON()
 	sum := sha256.Sum256([]byte(receipt))
-	status := Status{Process: Process{PID: 2345, StartNonce: strings.Repeat("4", 32)}}
+	status := Status{Process: Process{PID: 2345, StartNonce: "00000000001Y950NE9P7D3CARJ"}}
 	envelope, err := validateDrainEnvelope(testEnvelope(receipt, hex.EncodeToString(sum[:])), http.StatusOK,
 		strings.Repeat("6", 32), status, record)
 	if err != nil || envelope.Receipt == nil || envelope.Receipt.RequestedProcess != record.Request.Expected.Process {

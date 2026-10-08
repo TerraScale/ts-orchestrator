@@ -115,7 +115,7 @@ func TestManagedBackupLaunchReadsExactSignedMaterialAndKeepsSecretsOutOfArgs(t *
 		BackupS3CredentialSHA256: manifest.BackupS3CredentialSHA256,
 		BackupDataKeySHA256:      manifest.BackupDataKeySHA256,
 		BackupOwner:              true, LiveS3TargetSHA256: fixture.SourceTargetDigest,
-		ReplicationPeerMemberID: "44444444-4444-4444-4444-444444444444",
+		ReplicationPeerMemberID: "248H248H248H248H248H248H24",
 	}}
 	if slices.Contains(managedHostFileNames[:], backupCredentialFileName) ||
 		slices.Contains(managedHostFileNames[:], backupDataKeyFileName) {
@@ -149,7 +149,7 @@ func TestManagedBackupLaunchReadsExactSignedMaterialAndKeepsSecretsOutOfArgs(t *
 		t.Fatal("backup target pin mismatch accepted")
 	}
 	wrong := launch
-	wrong.Member.Scope.DatabaseID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	wrong.Member.Scope.DatabaseID = "5ANANANANANANANANANANANANA"
 	if _, err := readManagedBackupMaterial(material, wrong, public, live, identity, identity.UID, false); err == nil {
 		t.Fatal("wrong source database accepted")
 	}
@@ -165,7 +165,7 @@ func TestManagedBackupLaunchReadsExactSignedMaterialAndKeepsSecretsOutOfArgs(t *
 	writeBackupTestFile(t, peerMaterial, backupManifestFileName, []byte(fixture.Manifest.EnvelopeJSON))
 	writeBackupTestFile(t, peerMaterial, backupS3ConfigFileName, []byte(fixture.BackupS3ConfigJSON))
 	peer := launch
-	peer.Member.Scope.MemberID = "44444444-4444-4444-4444-444444444444"
+	peer.Member.Scope.MemberID = "248H248H248H248H248H248H24"
 	peer.Member.Scope.Incarnation = strings.Repeat("6", 32)
 	peerPins := *launch.Runtime
 	peerPins.BackupOwner = false

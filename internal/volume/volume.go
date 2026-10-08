@@ -5,7 +5,6 @@
 package volume
 
 import (
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"path"
@@ -13,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
@@ -41,13 +42,11 @@ var (
 )
 
 var (
-	idRE = regexp.MustCompile(`^vol_[a-z2-7]{16}$`)
 	// appRE and machineRE are internal/machines' app name and machine ID
 	// rules.
-	appRE     = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
-	machineRE = regexp.MustCompile(`^[0-9a-f]{16}$`)
-	nameRE    = regexp.MustCompile(`^[a-z0-9_]{1,30}$`)
-	zoneRE    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$`)
+	appRE  = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
+	nameRE = regexp.MustCompile(`^[a-z0-9_]{1,30}$`)
+	zoneRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$`)
 )
 
 // State is the reconciler's view of a volume. Growing, restoring and
@@ -130,8 +129,8 @@ type Status struct {
 	Message           string `json:"message,omitempty"`
 }
 
-// NewID returns a fresh volume ID: vol_ and 16 random base32 characters.
-func NewID() string { return "vol_" + strings.ToLower(rand.Text()[:16]) }
+// NewID returns a fresh canonical ULID for a volume.
+func NewID() string { return entityid.New() }
 
 // Destroying reports whether destroy was requested.
 func (v Volume) Destroying() bool { return !v.DestroyRequestedAt.IsZero() }
@@ -141,7 +140,7 @@ func (v Volume) Validate() error {
 	switch {
 	case v.SchemaVersion != SchemaVersion:
 		return fmt.Errorf("%w: schema version %d", ErrInvalid, v.SchemaVersion)
-	case !idRE.MatchString(v.ID):
+	case !entityid.Valid(v.ID):
 		return fmt.Errorf("%w: id %q", ErrInvalid, v.ID)
 	case !appRE.MatchString(v.App):
 		return fmt.Errorf("%w: app %q", ErrInvalid, v.App)
@@ -157,7 +156,7 @@ func (v Volume) Validate() error {
 		return fmt.Errorf("%w: vpus_per_gb must be 0 to %d in steps of 10", ErrInvalid, maxVPUsPerGB)
 	case v.SnapshotRetentionDays < 1 || v.SnapshotRetentionDays > maxSnapshotRetentionDays:
 		return fmt.Errorf("%w: snapshot retention must be 1 to %d days", ErrInvalid, maxSnapshotRetentionDays)
-	case v.MachineID != "" && !machineRE.MatchString(v.MachineID):
+	case v.MachineID != "" && !entityid.Valid(v.MachineID):
 		return fmt.Errorf("%w: machine %q", ErrInvalid, v.MachineID)
 	case v.CreatedAt.IsZero():
 		return fmt.Errorf("%w: no creation time", ErrInvalid)
@@ -179,7 +178,7 @@ func (s Status) validate(destroying bool) error {
 		return fmt.Errorf("%w: a created volume has an OCID", ErrInvalid)
 	case s.SizeGB != 0 && (s.SizeGB < MinSizeGB || s.SizeGB > MaxSizeGB):
 		return fmt.Errorf("%w: status size", ErrInvalid)
-	case s.AttachedMachineID != "" && (!machineRE.MatchString(s.AttachedMachineID) || s.OCID == ""):
+	case s.AttachedMachineID != "" && (!entityid.Valid(s.AttachedMachineID) || s.OCID == ""):
 		return fmt.Errorf("%w: attached machine %q", ErrInvalid, s.AttachedMachineID)
 	case len(s.Message) > maxMessageBytes:
 		return fmt.Errorf("%w: status message is too long", ErrInvalid)
@@ -242,7 +241,7 @@ var systemPaths = []string{"/dev", "/proc", "/run", "/sys"}
 
 func (m Mount) validate() error {
 	clean := path.Clean(m.Path)
-	if !idRE.MatchString(m.Volume) || !path.IsAbs(m.Path) || clean != m.Path || clean == "/" || len(m.Path) > 255 ||
+	if !entityid.Valid(m.Volume) || !path.IsAbs(m.Path) || clean != m.Path || clean == "/" || len(m.Path) > 255 ||
 		strings.ContainsFunc(m.Path, func(r rune) bool { return r <= ' ' || r == ':' || r == 0x7f }) {
 		return fmt.Errorf("%w: mount %q at %q needs a volume ID and a clean absolute path", ErrInvalid, m.Volume, m.Path)
 	}

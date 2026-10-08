@@ -154,7 +154,7 @@ func TestCheckBalancerSecurityHTTPRedirect(t *testing.T) {
 		{"path routing", "listener", "path-route-set-name", "plaintext"},
 		{"routing policy", "listener", "routing-policy-name", "plaintext"},
 		{"missing redirect binding", "listener", "rule-set-names", nil},
-		{"additional rule binding", "listener", "rule-set-names", []any{"https-redirect", "other"}},
+		{"additional rule binding", "listener", "rule-set-names", []any{"https-redirect", "0000000000V4MRM46HP1SNGDYW"}},
 		{"missing rule", "rule-set", "items", nil},
 		{"empty rules", "rule-set", "items", []any{}},
 		{"other action", "redirect", "action", "ADD_HTTP_RESPONSE_HEADER"},

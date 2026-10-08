@@ -12,7 +12,7 @@ func TestSummarizeCountsStagesAndRolloutProgress(t *testing.T) {
 	t.Parallel()
 	prepared := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	member := func(seat string, stage MemberStage, operation string, phase ManagedUpdateSeatPhase, at time.Time) VersionedMemberState {
-		state := MemberState{DatabaseID: "db", PartitionID: "p0", MemberID: seat, Stage: stage, HostNode: "host-" + seat}
+		state := MemberState{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD", MemberID: seat, Stage: stage, HostNode: "host-" + seat}
 		if operation != "" {
 			state.ManagedRuntimeTarget = ManagedRuntimeTarget{OperationID: operation, Phase: phase, PreparedAt: at,
 				ArtifactDigest: "sha256:new"}
@@ -20,9 +20,9 @@ func TestSummarizeCountsStagesAndRolloutProgress(t *testing.T) {
 		return VersionedMemberState{State: state, Revision: 1}
 	}
 	store := &placementMemoryStore{
-		intents: []Intent{{DatabaseID: "db", PartitionID: "p0", Generation: 4,
-			CanonicalRoster: CanonicalRoster{Rows: []CanonicalRosterRow{{SeatID: "a"}, {SeatID: "b"}, {SeatID: "c"}}}},
-			{DatabaseID: "idle", PartitionID: "p0", Generation: 1}},
+		intents: []Intent{{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD", Generation: 4,
+			CanonicalRoster: CanonicalRoster{Rows: []CanonicalRosterRow{{SeatID: "0000000000NR756QAGVQCJMV00"}, {SeatID: "00000000002CXZ93EYQ224Z7QR"}, {SeatID: "00000000004X8BXAJ3KVRH7WYM"}}}},
+			{DatabaseID: "0000000000F6H63RT9R93XQ0MH", PartitionID: "00000000003K6TBW31R91GBDRD", Generation: 1}},
 		members: map[string]VersionedMemberState{
 			"a": member("a", StageServing, "update-2", ManagedUpdateSeatCanaryServing, prepared.Add(time.Minute)),
 			"b": member("b", StageAwaitingHealthy, "update-2", ManagedUpdateSeatPrepared, prepared.Add(2*time.Minute)),

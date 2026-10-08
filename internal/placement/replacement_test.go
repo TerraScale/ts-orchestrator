@@ -48,7 +48,9 @@ func TestCanReplaceLostMemberGate(t *testing.T) {
 		{"survivor same domain", func(_ *MemberObservation, s *MemberObservation, _ *RetirementEvidence) {
 			s.FailureDomain = "FAULT-DOMAIN-1"
 		}, "survivor-anti-affinity-violated"},
-		{"other instance", func(_ *MemberObservation, _ *MemberObservation, e *RetirementEvidence) { e.InstanceID = "other" }, "retirement-evidence-identity-mismatch"},
+		{"other instance", func(_ *MemberObservation, _ *MemberObservation, e *RetirementEvidence) {
+			e.InstanceID = "0000000000V4MRM46HP1SNGDYW"
+		}, "retirement-evidence-identity-mismatch"},
 		{"replication", func(_ *MemberObservation, _ *MemberObservation, e *RetirementEvidence) { e.ReplicationHealthy = false }, "replication-health-unverified"},
 		{"quorum", func(_ *MemberObservation, _ *MemberObservation, e *RetirementEvidence) { e.QuorumSafe = false }, "quorum-safety-unverified"},
 		{"writer proof", func(_ *MemberObservation, _ *MemberObservation, e *RetirementEvidence) { e.WriterStopProof = nil }, "writer-stop-unverified"},
@@ -80,7 +82,7 @@ func servingSurvivor(t *testing.T, controller *Controller, intent Intent, state 
 	}
 	proof := memberstatus.ServingProof{
 		SchemaVersion: 1, Nonce: strings.Repeat("1", 32),
-		Process: memberstatus.Process{PID: 1234, StartNonce: strings.Repeat("2", 32)},
+		Process: memberstatus.Process{PID: 1234, StartNonce: "0000000000CKQBAZNQ7H580DDY"},
 		Scope: memberstatus.Scope{
 			ClusterID: intent.CanonicalRoster.ClusterID, TenantID: intent.CanonicalRoster.TenantID,
 			DatabaseID: intent.CanonicalRoster.DatabaseID, ShardID: intent.CanonicalRoster.ShardID,

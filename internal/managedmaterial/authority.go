@@ -10,7 +10,9 @@ import (
 	"hash/crc32"
 	"slices"
 	"strings"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/oklog/ulid/v2"
 )
 
 const (
@@ -46,7 +48,7 @@ type AuthorityCatalog struct {
 }
 
 // InitialCatalogInput is one exact canonical TBCAT001 catalog in the signed
-// operator request. Catalogs are sorted by collection UUID bytes.
+// operator request. Catalogs are sorted by collection ULID bytes.
 type InitialCatalogInput struct {
 	CollectionID     string `json:"collection_id"`
 	CanonicalCatalog []byte `json:"canonical_catalog"`
@@ -75,7 +77,7 @@ const (
 // InitialCatalog produces a generation-one TBCAT001 envelope around a
 // TBSCH001 schema with the given optional UTF-8 fields and no relationships.
 func InitialCatalog(collectionID string, fields []CatalogUTF8Field) (AuthorityCatalog, error) {
-	collection, err := canonicalUUID(collectionID)
+	collection, err := canonicalID(collectionID)
 	if err != nil {
 		return AuthorityCatalog{}, err
 	}
@@ -140,15 +142,15 @@ func SignInitialAuthorityV2(scope AuthorityScope, members [2]AuthorityMember, ca
 	if len(signer) != ed25519.PrivateKeySize || scope.ShardID == 0 || scope.Epoch == 0 {
 		return SignedAuthority{}, errors.New("initial authority signer or scope is invalid")
 	}
-	cluster, err := hex.DecodeString(scope.ClusterID)
-	if err != nil || len(cluster) != 16 || allZero(cluster) {
+	cluster, err := entityid.Parse(scope.ClusterID)
+	if err != nil || len(cluster) != 16 || allZero(cluster[:]) {
 		return SignedAuthority{}, errors.New("initial authority cluster ID is invalid")
 	}
-	tenant, err := canonicalUUID(scope.TenantID)
+	tenant, err := canonicalID(scope.TenantID)
 	if err != nil {
 		return SignedAuthority{}, err
 	}
-	database, err := canonicalUUID(scope.DatabaseID)
+	database, err := canonicalID(scope.DatabaseID)
 	if err != nil {
 		return SignedAuthority{}, err
 	}
@@ -157,19 +159,19 @@ func SignInitialAuthorityV2(scope AuthorityScope, members [2]AuthorityMember, ca
 	}
 	var previousCollection []byte
 	for _, catalog := range catalogs {
-		collection, err := canonicalUUID(catalog.CollectionID)
+		collection, err := canonicalID(catalog.CollectionID)
 		if err != nil || catalog.SchemaGeneration != 1 || !validInitialCatalog(catalog, collection) ||
 			previousCollection != nil && bytes.Compare(previousCollection, collection[:]) >= 0 {
 			return SignedAuthority{}, errors.New("initial authority catalog is invalid or out of order")
 		}
 		previousCollection = collection[:]
 	}
-	var memberIDs [2]uuid.UUID
+	var memberIDs [2]ulid.ULID
 	var leafPins [2]string
 	for index, member := range members {
-		memberIDs[index], err = canonicalUUID(member.MemberID)
-		incarnation, decodeErr := hex.DecodeString(member.Incarnation)
-		if err != nil || decodeErr != nil || len(incarnation) != 16 || allZero(incarnation) ||
+		memberIDs[index], err = canonicalID(member.MemberID)
+		incarnation, decodeErr := entityid.Parse(member.Incarnation)
+		if err != nil || decodeErr != nil || len(incarnation) != 16 || allZero(incarnation[:]) ||
 			!validServerName(member.ServerName) || !validFailureDomain(member.FailureDomain) ||
 			len(member.LeafDER) == 0 || len(member.LeafDER) > maxCatalogBytes {
 			return SignedAuthority{}, errors.New("initial authority member is invalid")
@@ -187,7 +189,7 @@ func SignInitialAuthorityV2(scope AuthorityScope, members [2]AuthorityMember, ca
 	payload = binary.LittleEndian.AppendUint32(payload, 0)
 	payload = binary.LittleEndian.AppendUint16(payload, 2)
 	payload = binary.LittleEndian.AppendUint16(payload, 1)
-	payload = append(payload, cluster...)
+	payload = append(payload, cluster[:]...)
 	payload = append(payload, tenant[:]...)
 	payload = append(payload, database[:]...)
 	payload = binary.LittleEndian.AppendUint64(payload, scope.ShardID)
@@ -196,10 +198,10 @@ func SignInitialAuthorityV2(scope AuthorityScope, members [2]AuthorityMember, ca
 	payload = binary.LittleEndian.AppendUint16(payload, uint16(len(catalogs)))
 	payload = binary.LittleEndian.AppendUint16(payload, uint16(len(catalogs)))
 	for index, member := range members {
-		incarnation, _ := hex.DecodeString(member.Incarnation)
+		incarnation, _ := entityid.Parse(member.Incarnation)
 		fingerprint, _ := hex.DecodeString(leafPins[index])
 		payload = append(payload, memberIDs[index][:]...)
-		payload = append(payload, incarnation...)
+		payload = append(payload, incarnation[:]...)
 		payload = append(payload, fingerprint...)
 		payload = append(payload, byte(len(member.ServerName)))
 		payload = append(payload, member.ServerName...)
@@ -207,7 +209,7 @@ func SignInitialAuthorityV2(scope AuthorityScope, members [2]AuthorityMember, ca
 		payload = append(payload, member.FailureDomain...)
 	}
 	for _, catalog := range catalogs {
-		collection, _ := canonicalUUID(catalog.CollectionID)
+		collection, _ := canonicalID(catalog.CollectionID)
 		schemaDigest, _ := hex.DecodeString(catalog.SchemaDigest)
 		payload = append(payload, collection[:]...)
 		payload = binary.LittleEndian.AppendUint64(payload, catalog.SchemaGeneration)
@@ -216,7 +218,7 @@ func SignInitialAuthorityV2(scope AuthorityScope, members [2]AuthorityMember, ca
 		payload = append(payload, catalog.Bytes...)
 	}
 	for _, catalog := range catalogs {
-		collection, _ := canonicalUUID(catalog.CollectionID)
+		collection, _ := canonicalID(catalog.CollectionID)
 		schemaDigest, _ := hex.DecodeString(catalog.SchemaDigest)
 		payload = append(payload, collection[:]...)
 		payload = binary.LittleEndian.AppendUint64(payload, catalog.SchemaGeneration)
@@ -233,7 +235,7 @@ func SignInitialAuthorityV2(scope AuthorityScope, members [2]AuthorityMember, ca
 		TrustedKey: slices.Clone(signer.Public().(ed25519.PublicKey)), MemberLeafPins: leafPins}, nil
 }
 
-func validInitialCatalog(catalog AuthorityCatalog, collection uuid.UUID) bool {
+func validInitialCatalog(catalog AuthorityCatalog, collection ulid.ULID) bool {
 	data := catalog.Bytes
 	if len(data) < 102 || len(data) > maxCatalogBytes || !bytes.Equal(data[:8], []byte("TBCAT001")) ||
 		binary.LittleEndian.Uint32(data[8:12]) != uint32(len(data)) ||
@@ -260,7 +262,7 @@ func initialCatalogs(inputs []InitialCatalogInput) ([]AuthorityCatalog, error) {
 	catalogs := make([]AuthorityCatalog, 0, len(inputs))
 	var previousCollection []byte
 	for _, input := range inputs {
-		collection, err := canonicalUUID(input.CollectionID)
+		collection, err := canonicalID(input.CollectionID)
 		if err != nil || previousCollection != nil && bytes.Compare(previousCollection, collection[:]) >= 0 ||
 			len(input.CanonicalCatalog) < 102 || len(input.CanonicalCatalog) > maxCatalogBytes {
 			return nil, errors.New("initial catalogs are invalid or out of order")
@@ -278,13 +280,7 @@ func initialCatalogs(inputs []InitialCatalogInput) ([]AuthorityCatalog, error) {
 	return catalogs, nil
 }
 
-func canonicalUUID(value string) (uuid.UUID, error) {
-	parsed, err := uuid.Parse(value)
-	if err != nil || parsed == uuid.Nil() || parsed.String() != value {
-		return uuid.UUID{}, errors.New("initial authority UUID is invalid")
-	}
-	return parsed, nil
-}
+func canonicalID(value string) (ulid.ULID, error) { return entityid.Parse(value) }
 
 func allZero(value []byte) bool {
 	return !slices.ContainsFunc(value, func(b byte) bool { return b != 0 })

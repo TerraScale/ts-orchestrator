@@ -99,7 +99,7 @@ func startLocal(ctx context.Context) (_ *environment, teardown func() error, err
 	if err != nil {
 		return nil, teardown, err
 	}
-	e := &environment{Target: "local", Region: "local-1", Credential: rand.Text() + rand.Text(), UserID: "ts512-" + rand.Text(), HTTP: &http.Client{
+	e := &environment{Target: "local", Region: "local-1", Credential: rand.Text() + rand.Text(), UserID: tb.NewID(), HTTP: &http.Client{
 		Timeout:       10 * time.Second,
 		Transport:     &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS13}, ForceAttemptHTTP2: true},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },

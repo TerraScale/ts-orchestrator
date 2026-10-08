@@ -303,7 +303,7 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 		var wire []byte
 		switch forgedMode.Load() {
 		case 1:
-			wire = []byte(`{"status":"fenced","sequence":1,"hash":"forged"}`)
+			wire = []byte(`{"status":"fenced","sequence":1,"hash":"0000000000RPYNQGXVXJSC20CX"}`)
 		case 2:
 			wire = []byte(`{"error":"control log compare-and-set conflict"}`)
 		case 3, 4, 5:

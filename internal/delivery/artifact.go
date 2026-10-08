@@ -13,6 +13,8 @@ import (
 	"os"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/artifact"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	nats "github.com/nats-io/nats.go"
@@ -34,8 +36,7 @@ type signedAdmission struct {
 func artifactKey(digest string) string { return "sha256-" + digest }
 
 func admissionKey(digest, cell, role, environment string) string {
-	scope := sha256.Sum256([]byte(cell + "\x00" + role + "\x00" + environment))
-	return "a_" + digest + "_" + hex.EncodeToString(scope[:])
+	return entityid.Derive("artifact-admission", digest, cell, role, environment)
 }
 
 const admissionCASAttempts = 8

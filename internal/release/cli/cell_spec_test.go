@@ -19,7 +19,7 @@ import (
 
 func TestSignSpecDelegationThenSpec(t *testing.T) {
 	fixture := newDelegationFixture(t)
-	id := cellspec.Identity{DeploymentID: "terrascale-prod", Cell: "gru", Environment: "production"}
+	id := cellspec.Identity{DeploymentID: "0000000000VVK5ZNRRNEED4PH3", Cell: "gru", Environment: "production"}
 	candidate, err := cellspec.Encode(cellspec.Spec{Schema: cellspec.Schema, Identity: id, Generation: 3, RequiresBinary: 1,
 		Services: []cellspec.Service{{Role: "api", Profile: cellspec.Profile{
 			Resources: placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}}}}})
@@ -98,7 +98,7 @@ func TestSignSpecDelegationThenSpec(t *testing.T) {
 	}
 	sum := sha256.Sum256(wire)
 	want := `{"generation":3,"requires_binary":1,"signer":"leaf","sha256":"` + hex.EncodeToString(sum[:]) +
-		`","deployment_id":"terrascale-prod","cell":"gru","environment":"production"}` + "\n"
+		`","deployment_id":"0000000000VVK5ZNRRNEED4PH3","cell":"gru","environment":"production"}` + "\n"
 	if output.String() != want {
 		t.Fatalf("output = %q, want %q", output.String(), want)
 	}

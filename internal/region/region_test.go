@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
@@ -249,7 +251,7 @@ func TestCreateRunsEveryStepOnceAndResumes(t *testing.T) {
 	}
 	var config map[string]any
 	data, _ := os.ReadFile(filepath.Join(state, "attempt.json"))
-	if err := json.Unmarshal(data, &config); err != nil || config["deployment_id"] != "fra-1-found-1" || config["prefix"] != "fra-1" ||
+	if err := json.Unmarshal(data, &config); err != nil || !entityid.Valid(config["deployment_id"].(string)) || config["prefix"] != "fra-1" ||
 		config["base_plan"] != state+"/bound-plan.json" || config["validity_days"] != 364.0 ||
 		config["image"].(map[string]any)["netbird_config"] != state+"/netbird.json" {
 		t.Fatalf("attempt config: %s", data)

@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
@@ -54,8 +56,7 @@ type brokerClaimApplyReply struct {
 }
 
 func brokerClaimOperationID(raw string) string {
-	digest := sha256.Sum256([]byte(raw))
-	return "broker-claim-" + hex.EncodeToString(digest[:])
+	return entityid.Derive("broker-claim", raw)
 }
 
 // verifyBrokerClaimReply checks a claim-apply reply against the exact

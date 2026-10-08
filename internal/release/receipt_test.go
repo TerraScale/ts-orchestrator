@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -178,9 +180,9 @@ func newReleaseFixture(t *testing.T, delegationLifetime time.Duration) releaseFi
 	delegation, err := trust.SignDelegation(trust.Delegation{
 		SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encodedPublic,
 		Capabilities: []trust.Capability{
-			{Domain: BinaryDomain, DeploymentID: testSourceRevision, Cell: "BUILD", Environment: "canary",
+			{Domain: BinaryDomain, DeploymentID: entityid.Derive("build", testSourceRevision), Cell: "BUILD", Environment: "canary",
 				Role: "artifact", Slots: []string{"linux-amd64"}, Actions: []string{"sign"}},
-			{Domain: ImageDomain, DeploymentID: testSourceRevision, Cell: "GRU", Environment: "canary",
+			{Domain: ImageDomain, DeploymentID: entityid.Derive("build", testSourceRevision), Cell: "GRU", Environment: "canary",
 				Role: "oci-image", Slots: []string{image.OCIImageOCID}, Actions: []string{"sign"}},
 		},
 	}, delegationIssuedAt, delegationIssuedAt.Add(delegationLifetime), rootPrivate)

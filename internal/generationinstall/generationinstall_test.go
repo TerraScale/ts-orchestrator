@@ -23,8 +23,8 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
-var expected = bootstrap.MaterialGenerationExpectation{DeploymentID: "gru-1-deployment", Environment: "production",
-	ClusterID: "gru-1", Cell: "GRU", ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}}
+var expected = bootstrap.MaterialGenerationExpectation{DeploymentID: "0000000000YY15F5R431V5JPJ9", Environment: "production",
+	ClusterID: "00000000006GRRF84JEVN9TX7M", Cell: "GRU", ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}}
 
 // cell is gru-1's schema-2 material (TS-668) under one root, and its bucket.
 type cell struct {

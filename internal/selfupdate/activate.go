@@ -1,14 +1,14 @@
 package selfupdate
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"regexp"
 	"slices"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -28,8 +28,7 @@ const (
 var errUnreadableActivation = errors.New("self-update activation record is unreadable")
 
 var (
-	unitRE         = regexp.MustCompile(`^[a-z0-9][a-z0-9@_.-]{0,127}\.service$`)
-	activationIDRE = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	unitRE = regexp.MustCompile(`^[a-z0-9][a-z0-9@_.-]{0,127}\.service$`)
 )
 
 // Activation is the durable record of one pending A/B switch. It is written
@@ -48,7 +47,7 @@ type Activation struct {
 func (activation Activation) validate() error {
 	if activation.Schema != ActivationSchema || !digestRE.MatchString(activation.Target) ||
 		!digestRE.MatchString(activation.Previous) || activation.Target == activation.Previous ||
-		!activationIDRE.MatchString(activation.ActivationID) || !unitRE.MatchString(activation.Unit) ||
+		!entityid.Valid(activation.ActivationID) || !unitRE.MatchString(activation.Unit) ||
 		activation.ActivatedAt.IsZero() || !activation.Deadline.After(activation.ActivatedAt) ||
 		activation.Deadline.Sub(activation.ActivatedAt) > MaxProofWindow {
 		return fmt.Errorf("%w: activation record", ErrInvalid)
@@ -149,12 +148,9 @@ func Activate(layout Layout, digest, unit string, now time.Time, window time.Dur
 			return Activation{}, err
 		}
 	}
-	id := make([]byte, 16)
-	if _, err := rand.Read(id); err != nil {
-		return Activation{}, err
-	}
+
 	activation := Activation{
-		Schema: ActivationSchema, ActivationID: hex.EncodeToString(id), Unit: unit,
+		Schema: ActivationSchema, ActivationID: entityid.NewAt(now), Unit: unit,
 		Target: digest, Previous: previous, ActivatedAt: now.UTC(), Deadline: now.UTC().Add(window),
 	}
 	encoded, err := protocol.EncodeJSON(activation)

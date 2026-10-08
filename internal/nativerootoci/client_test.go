@@ -177,7 +177,7 @@ func TestNativeRootSignedConfigSelectsOnlyExactTarget(t *testing.T) {
 		t.Fatalf("generic config selected native root: enabled = %t, error = %v", enabled, err)
 	}
 	for _, changed := range [][]byte{
-		bytes.Replace(native, []byte(`"namespace":"grxnmoqvrcdv"`), []byte(`"namespace":"other"`), 1),
+		bytes.Replace(native, []byte(`"namespace":"grxnmoqvrcdv"`), []byte(`"namespace":"0000000000V4MRM46HP1SNGDYW"`), 1),
 		bytes.Replace(native, []byte(`"ack_profile":"object_durable"`), []byte(`"ack_profile":"weak"`), 1),
 		append(bytes.TrimSuffix(native, []byte("}")), []byte(`,"unexpected":true}`)...),
 	} {

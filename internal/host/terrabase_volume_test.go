@@ -505,7 +505,7 @@ func TestTerraBaseDataVolumeFirstFormatIsFenced(t *testing.T) {
 		}
 		return reply.(terraBaseFormatReply), nil
 	}
-	const attempt = "0123456789abcdef0123456789abcdef"
+	const attempt = "014D2PF2DBSQQG28T5CY4TQKFF"
 	first, err := ask(member, attempt)
 	if err != nil || !first.Granted || !hostvolume.ValidUUID(first.UUID) || first.AttemptID != attempt {
 		t.Fatalf("first request = %+v, %v; want a grant with a UUID", first, err)
@@ -523,7 +523,7 @@ func TestTerraBaseDataVolumeFirstFormatIsFenced(t *testing.T) {
 			t.Fatalf("later request from %s = %+v, %v; want a refusal naming %s", r.PublicKey, again, err, first.UUID)
 		}
 	}
-	if again, err := ask(member, "fedcba9876543210fedcba9876543210"); err != nil || again.Granted || again.UUID != first.UUID {
+	if again, err := ask(member, "7YVJX9GXJM688FXQ5TK1V58CGG"); err != nil || again.Granted || again.UUID != first.UUID {
 		t.Fatalf("different initializer = %+v, %v; want a refusal", again, err)
 	}
 	other, err := ask(Registration{Cell: "gru", Node: "gru-1-db-2", Roles: []string{terrabase.Role},
@@ -567,13 +567,13 @@ func TestTerraBaseDataVolumeFormatGrantVerification(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		data, err := protocol.EncodeJSON(response{Nonce: "nonce-1", Node: node, SessionID: "session", Epoch: 3,
+		data, err := protocol.EncodeJSON(response{Nonce: "0000000000KE3PYRYHV31RNC96", Node: node, SessionID: "00000000007WXF3V7BQMA11AT1", Epoch: 3,
 			Operation: operation, Payload: payload})
 		if err != nil {
 			t.Fatal(err)
 		}
 		signed, err := protocol.SignEnvelope(data, protocol.EnvelopeScope{Region: "gru", Kind: "host.response." + operation,
-			Actor: "controller", OperationID: "nonce-1", Epoch: 3}, issued, issued.Add(requestTTL), key)
+			Actor: "controller", OperationID: "0000000000KE3PYRYHV31RNC96", Epoch: 3}, issued, issued.Add(requestTTL), key)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -598,7 +598,7 @@ func TestTerraBaseDataVolumeFormatGrantVerification(t *testing.T) {
 		"other volume": sign(controllerKey, "terrabase-format", cfg.Node,
 			terraBaseFormatReply{Granted: true, UUID: uuid, VolumeID: "ocid1.volume.oc1..other", AttemptID: attempt}, now),
 		"other attempt": sign(controllerKey, "terrabase-format", cfg.Node,
-			terraBaseFormatReply{Granted: true, UUID: uuid, AttemptID: "fedcba9876543210fedcba9876543210"}, now),
+			terraBaseFormatReply{Granted: true, UUID: uuid, AttemptID: "7YVJX9GXJM688FXQ5TK1V58CGG"}, now),
 		"missing attempt": sign(controllerKey, "terrabase-format", cfg.Node,
 			terraBaseFormatReply{Granted: true, UUID: uuid}, now),
 	} {
@@ -625,7 +625,7 @@ func TestTerraBaseDataVolumeFormatGrantVerification(t *testing.T) {
 // framing: the initializer answers a blank device with the grant result byte,
 // and a grant follows the fixed request after a newline.
 func TestTerraBaseDataVolumeAsksForGrantOnlyWhenBlank(t *testing.T) {
-	const attempt = "0123456789abcdef0123456789abcdef"
+	const attempt = "014D2PF2DBSQQG28T5CY4TQKFF"
 	client, server := net.Pipe()
 	defer client.Close()
 	go func() {
@@ -668,13 +668,13 @@ func TestTerraBaseDataVolumeAsksForGrantOnlyWhenBlank(t *testing.T) {
 		received <- wire
 		_, _ = connection.Write([]byte{0})
 	}()
-	grant := protocol.Envelope{OperationID: "nonce-1", Payload: []byte(`{}`)}
+	grant := protocol.Envelope{OperationID: "0000000000KE3PYRYHV31RNC96", Payload: []byte(`{}`)}
 	if err := requestTerraBaseDataVolume(t.Context(), socket, &grant); err != nil {
 		t.Fatal(err)
 	}
 	rest, ok := bytes.CutPrefix(<-received, append(slices.Clone(terraBaseDataRequest), '\n'))
 	var decoded protocol.Envelope
-	if !ok || protocol.DecodeStrict(rest, &decoded, 64<<10) != nil || decoded.OperationID != "nonce-1" {
+	if !ok || protocol.DecodeStrict(rest, &decoded, 64<<10) != nil || decoded.OperationID != "0000000000KE3PYRYHV31RNC96" {
 		t.Fatalf("grant request framing = %q", rest)
 	}
 }
@@ -764,7 +764,7 @@ func TestTerraBaseDataVolumeAdoptedFilesystemIsRecorded(t *testing.T) {
 	if reply := ask(`{"mounted":"` + adopted + `"}`); reply.Granted || reply.UUID != adopted {
 		t.Fatalf("adopting = %+v, want the adopted UUID recorded without a grant", reply)
 	}
-	if reply := ask(`{"attempt_id":"0123456789abcdef0123456789abcdef"}`); reply.Granted || reply.UUID != adopted {
+	if reply := ask(`{"attempt_id":"014D2PF2DBSQQG28T5CY4TQKFF"}`); reply.Granted || reply.UUID != adopted {
 		t.Fatalf("first format after adoption = %+v, want a refusal", reply)
 	}
 	if reply := ask(`{"mounted":"0f8fad5b-d9cb-469f-a165-70867728950e"}`); reply.UUID != adopted {

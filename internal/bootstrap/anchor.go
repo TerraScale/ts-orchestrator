@@ -8,6 +8,8 @@ import (
 	"slices"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
@@ -54,7 +56,7 @@ type BootstrapAnchor struct {
 func (anchor BootstrapAnchor) Validate() error {
 	ociRegion, err := anchor.Cell.OCIRegion()
 	if err != nil || anchor.SchemaVersion != BootstrapAnchorSchemaVersion && anchor.SchemaVersion != bootstrapAnchorV2SchemaVersion ||
-		!deploymentRE.MatchString(anchor.DeploymentID) || !clusterRE.MatchString(anchor.ClusterID) ||
+		!entityid.Valid(anchor.DeploymentID) || !entityid.Valid(anchor.ClusterID) ||
 		(anchor.Environment != "production" && anchor.Environment != "canary") || anchor.OCIRegion != ociRegion {
 		return fmt.Errorf("%w: required identity or region binding", ErrBootstrapAnchorInvalid)
 	}
@@ -120,7 +122,7 @@ type BootstrapAnchorExpectation struct {
 }
 
 func (expected BootstrapAnchorExpectation) validate() error {
-	if !deploymentRE.MatchString(expected.DeploymentID) ||
+	if !entityid.Valid(expected.DeploymentID) ||
 		(expected.Environment != "production" && expected.Environment != "canary") {
 		return fmt.Errorf("%w: invalid expected deployment identity", ErrBootstrapAnchorInvalid)
 	}
@@ -443,7 +445,7 @@ func canonicalRegionIntent(wire []byte) (oci.RegionIntent, error) {
 
 func decodeBootstrapLedgerDelegation(envelope trust.Envelope) (trust.Delegation, error) {
 	expectedScope := trust.Scope{
-		Domain: trust.DelegationDomain, DeploymentID: "root", Cell: "global",
+		Domain: trust.DelegationDomain, DeploymentID: trust.DelegationDeploymentID, Cell: "global",
 		Environment: "global", Role: "delegate", Slot: "capabilities",
 	}
 	if envelope.Scope != expectedScope {

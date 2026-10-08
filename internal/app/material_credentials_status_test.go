@@ -9,8 +9,8 @@ import (
 
 func TestCredentialStatusRequiresBothCurrentNativeReports(t *testing.T) {
 	expected := [2]managedmaterial.InitialMember{
-		{SeatID: "seat-a", MemberID: "member-a", Incarnation: "incarnation-a"},
-		{SeatID: "seat-b", MemberID: "member-b", Incarnation: "incarnation-b"},
+		{SeatID: "000000000077F1R6E1XPKAC2D4", MemberID: "0000000000WM3QQGQPMW5X58P9", Incarnation: "0000000000K3C57PB9P48HR73K"},
+		{SeatID: "0000000000GXPF5F560P92PC00", MemberID: "0000000000N9X5GQEQJ9NA9A7V", Incarnation: "0000000000XQE3FEVYC47GP876"},
 	}
 	listed := make([]host.HostStatus, 2)
 	for index, member := range expected {
@@ -20,7 +20,7 @@ func TestCredentialStatusRequiresBothCurrentNativeReports(t *testing.T) {
 		listed[index] = host.HostStatus{Verified: true, Registration: host.Registration{
 			Node: member.MemberID,
 			ManagedPlacement: &host.ManagedPlacementBinding{
-				DatabaseID: "database-a", PartitionID: "partition-a", SeatID: member.SeatID,
+				DatabaseID: "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: member.SeatID,
 			},
 			ManagedMember: &binding,
 		}, Reports: []host.Report{{State: "running", Managed: &host.ManagedRuntimeReport{
@@ -29,7 +29,7 @@ func TestCredentialStatusRequiresBothCurrentNativeReports(t *testing.T) {
 	}
 	check := func(hosts []host.HostStatus, want bool) {
 		t.Helper()
-		applied, members := credentialMembersApplied(expected, 2, hosts, "database-a", "partition-a")
+		applied, members := credentialMembersApplied(expected, 2, hosts, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8")
 		if applied != want {
 			t.Fatalf("applied=%t, want %t; members=%+v", applied, want, members)
 		}

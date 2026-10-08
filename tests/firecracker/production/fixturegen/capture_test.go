@@ -39,7 +39,7 @@ func TestCapturePreservesExactKeyBytesAndCAS(t *testing.T) {
 	if _, err := put([]byte(`{"generation":2}`), new("*"), nil); !isCaptureStatus(err, http.StatusPreconditionFailed) {
 		t.Fatalf("duplicate immutable create = %v", err)
 	}
-	if _, err := put([]byte(`{"generation":2}`), nil, new("stale")); !isCaptureStatus(err, http.StatusPreconditionFailed) {
+	if _, err := put([]byte(`{"generation":2}`), nil, new("0000000000RNVXNPAX5Y5BB8RY")); !isCaptureStatus(err, http.StatusPreconditionFailed) {
 		t.Fatalf("stale HEAD update = %v", err)
 	}
 	updated, err := put([]byte(`{"generation":2}`), nil, created.ETag)

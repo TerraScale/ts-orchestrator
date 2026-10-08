@@ -28,7 +28,11 @@ func TestManagedUpdateIntentValidatesSignedCompatibilityAndExactPredecessors(t *
 	}
 	promoted := intent
 	promoted.Seats = slices.Clone(intent.Seats)
-	promoted.Seats[1].ArtifactDigest = intent.CandidateArtifactDigest
+	for i := range promoted.Seats {
+		if promoted.Seats[i].SeatID != promoted.CanarySeatID {
+			promoted.Seats[i].ArtifactDigest = intent.CandidateArtifactDigest
+		}
+	}
 	if err := promoted.Validate(); err != nil {
 		t.Fatalf("a peer that already serves the candidate was rejected: %v", err)
 	}
@@ -124,7 +128,11 @@ func TestManagedUpdateIntentRejectsUnqualifiedOrMismatchedCompatibility(t *testi
 		{
 			name: "canary already on the candidate",
 			mutate: func(intent *ManagedUpdateIntent) {
-				intent.Seats[0].ArtifactDigest = intent.CandidateArtifactDigest
+				for i := range intent.Seats {
+					if intent.Seats[i].SeatID == intent.CanarySeatID {
+						intent.Seats[i].ArtifactDigest = intent.CandidateArtifactDigest
+					}
+				}
 			},
 		},
 	}
@@ -147,7 +155,7 @@ func TestManagedUpdateDurabilityDigestBindsRetainedFormatsAndTargets(t *testing.
 		t.Fatalf("Digest() error = %v", err)
 	}
 
-	profile.Volumes[0].FileSystemType = "xfs"
+	profile.Volumes[0].FileSystemType = "ext4"
 	changed, err := profile.Digest()
 	if err != nil {
 		t.Fatalf("Digest() after valid format change error = %v", err)
@@ -476,7 +484,7 @@ func newManagedUpdateSeatOutcomeFixture(t *testing.T) managedUpdateSeatOutcomeFi
 	requestDigest := strings.Repeat("9", 64)
 	canaryState.SchemaVersion = managedUpdateMemberStateSchemaVersion
 	canaryState.ManagedRuntimeTarget = ManagedRuntimeTarget{
-		OperationID: "managed-update-a", AuthoritySequence: 41, RequestSHA256: requestDigest,
+		OperationID: "0000000000E44GT0K557ASV7P0", AuthoritySequence: 41, RequestSHA256: requestDigest,
 		PreparedAt: preparedAt, PlacementGeneration: intent.Generation,
 		PlacementPayloadDigest: intent.PayloadDigest(), CanarySeatID: canaryState.MemberID,
 		PreviousDesiredGeneration: canaryState.DesiredGeneration,
@@ -487,7 +495,7 @@ func newManagedUpdateSeatOutcomeFixture(t *testing.T) managedUpdateSeatOutcomeFi
 	}
 	canaryState.DesiredGeneration = canaryState.ManagedRuntimeTarget.DesiredGeneration
 	canaryState.UpdatedAt = preparedAt.Add(time.Second)
-	canaryState.OperationID = "managed-update-seat-prepared"
+	canaryState.OperationID = "000000000017GVSFVBERDYJFKX"
 	canaryPredecessor := canaryState
 	canaryPredecessor.ManagedRuntimeTarget = ManagedRuntimeTarget{}
 	canaryPredecessor.DesiredGeneration = canaryState.ManagedRuntimeTarget.PreviousDesiredGeneration
@@ -819,7 +827,7 @@ func managedCanaryServingReport(t *testing.T, controller *Controller, intent Int
 	if err != nil {
 		t.Fatalf("ManagedMountPath() error = %v", err)
 	}
-	process := memberstatus.Process{PID: 1234, StartNonce: strings.Repeat("2", 32)}
+	process := memberstatus.Process{PID: 1234, StartNonce: "0000000000CKQBAZNQ7H580DDY"}
 	authorityBinding := memberstatus.Authority{
 		Epoch: state.AuthorityReference.Epoch, ConfigurationID: state.AuthorityReference.ConfigurationID,
 		CertificateSHA256: state.AuthorityReference.CertificateSHA256,
@@ -887,14 +895,15 @@ func validManagedUpdateIntent(t *testing.T) ManagedUpdateIntent {
 		SchemaVersion: ManagedUpdateSchemaVersion,
 		Region:        oci.RegionGRU,
 		Volumes: []ManagedUpdateVolumeProfile{
-			{SeatID: "elastic-gru", VolumeID: "ocid1.volume.oc1..volume-a", FileSystemUUID: "123e4567-e89b-12d3-a456-426614174000", FileSystemType: "ext4"},
-			{SeatID: "permanent-a", VolumeID: "ocid1.volume.oc1..volume-b", FileSystemUUID: "123e4567-e89b-12d3-a456-426614174001", FileSystemType: "xfs"},
+			{SeatID: "00000000008SEAHD1YMMYV3ARR", VolumeID: "ocid1.volume.oc1..volume-a", FileSystemUUID: "123e4567-e89b-12d3-a456-426614174000", FileSystemType: "ext4"},
+			{SeatID: "00000000000E5NVMSGX0D07DPA", VolumeID: "ocid1.volume.oc1..volume-b", FileSystemUUID: "123e4567-e89b-12d3-a456-426614174001", FileSystemType: "xfs"},
 		},
 		SQLSchemaBundleSHA256: strings.Repeat("a", 64),
 		LiveS3ConfigSHA256:    strings.Repeat("b", 64),
 		LiveS3TargetSHA256:    strings.Repeat("c", 64),
 		LiveS3Credential:      oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1..secret-a", VersionNumber: 1},
 	}
+	slices.SortFunc(profile.Volumes, func(a, b ManagedUpdateVolumeProfile) int { return strings.Compare(a.SeatID, b.SeatID) })
 	profileDigest, err := profile.Digest()
 	if err != nil {
 		t.Fatalf("profile.Digest() error = %v", err)
@@ -903,27 +912,28 @@ func validManagedUpdateIntent(t *testing.T) ManagedUpdateIntent {
 	intent := ManagedUpdateIntent{
 		SchemaVersion:           ManagedUpdateSchemaVersion,
 		Cell:                    "gru",
-		DatabaseID:              "database-a",
-		PartitionID:             "partition-a",
+		DatabaseID:              "0000000000WVSMBJNMAWCDJBSK",
+		PartitionID:             "0000000000Z3WK359G2W66CVT8",
 		PlacementGeneration:     7,
 		PlacementPayloadDigest:  strings.Repeat("d", 64),
 		PlacementSequence:       18,
 		AuthorityEpoch:          9,
-		OperationID:             "update-a",
+		OperationID:             "00000000000NV7A9CE3MES6S1F",
 		Role:                    "terrabase",
 		Environment:             "production",
 		OldArtifactDigest:       strings.Repeat("e", 64),
 		CandidateArtifactDigest: strings.Repeat("f", 64),
 		CandidateManifestDigest: strings.Repeat("1", 64),
 		CandidateSourceDigest:   strings.Repeat("2", 64),
-		CanarySeatID:            "elastic-gru",
+		CanarySeatID:            "00000000008SEAHD1YMMYV3ARR",
 		CanaryDesiredGeneration: 5,
 		DurabilityProfile:       profile,
 		Seats: []ManagedUpdateSeat{
-			{SeatID: "elastic-gru", Region: oci.RegionGRU, MemberID: "123e4567-e89b-12d3-a456-426614174000", Incarnation: strings.Repeat("3", 32), TLSLeafSHA256: strings.Repeat("4", 64), RuntimeManifestDigest: strings.Repeat("5", 64), HostNode: "node-a", HostGeneration: 2, HostAttempt: 1, OCIInstanceID: "ocid1.instance.oc1..instance-a", OCIOwner: "owner-a", OCIFleetGeneration: 3, CreateKey: "host-a", VolumeID: "ocid1.volume.oc1..volume-a", AttachmentID: "ocid1.volumeattachment.oc1..attachment-a", AttachmentETag: "attachment-etag-a", AttachmentDevice: "/dev/oracleoci/oraclevda", DesiredGeneration: 4, ArtifactDigest: strings.Repeat("e", 64)},
-			{SeatID: "permanent-a", Region: oci.RegionGRU, MemberID: "123e4567-e89b-12d3-a456-426614174001", Incarnation: strings.Repeat("6", 32), TLSLeafSHA256: strings.Repeat("7", 64), RuntimeManifestDigest: strings.Repeat("8", 64), HostNode: "node-b", HostGeneration: 4, HostAttempt: 1, OCIInstanceID: "ocid1.instance.oc1..instance-b", OCIOwner: "owner-a", OCIFleetGeneration: 3, CreateKey: "host-b", VolumeID: "ocid1.volume.oc1..volume-b", AttachmentID: "ocid1.volumeattachment.oc1..attachment-b", AttachmentETag: "attachment-etag-b", AttachmentDevice: "/dev/oracleoci/oraclevdb", DesiredGeneration: 8, ArtifactDigest: strings.Repeat("e", 64)},
+			{SeatID: "00000000008SEAHD1YMMYV3ARR", Region: oci.RegionGRU, MemberID: "0J7S2PFT4V2B9T8NJ2CRA1EG00", Incarnation: "1K6CSK6CSK6CSK6CSK6CSK6CSK", TLSLeafSHA256: strings.Repeat("4", 64), RuntimeManifestDigest: strings.Repeat("5", 64), HostNode: "node-a", HostGeneration: 2, HostAttempt: 1, OCIInstanceID: "ocid1.instance.oc1..instance-a", OCIOwner: "owner-a", OCIFleetGeneration: 3, CreateKey: "0000000000R58Y74PAABAQ7X2V", VolumeID: "ocid1.volume.oc1..volume-a", AttachmentID: "ocid1.volumeattachment.oc1..attachment-a", AttachmentETag: "attachment-etag-a", AttachmentDevice: "/dev/oracleoci/oraclevda", DesiredGeneration: 4, ArtifactDigest: strings.Repeat("e", 64)},
+			{SeatID: "00000000000E5NVMSGX0D07DPA", Region: oci.RegionGRU, MemberID: "0J7S2PFT4V2B9T8NJ2CRA1EG01", Incarnation: "0000000000X5AZ7ZW8WWRYDG59", TLSLeafSHA256: strings.Repeat("7", 64), RuntimeManifestDigest: strings.Repeat("8", 64), HostNode: "node-b", HostGeneration: 4, HostAttempt: 1, OCIInstanceID: "ocid1.instance.oc1..instance-b", OCIOwner: "owner-a", OCIFleetGeneration: 3, CreateKey: "0000000000GTA7T55FAST9ZNW4", VolumeID: "ocid1.volume.oc1..volume-b", AttachmentID: "ocid1.volumeattachment.oc1..attachment-b", AttachmentETag: "attachment-etag-b", AttachmentDevice: "/dev/oracleoci/oraclevdb", DesiredGeneration: 8, ArtifactDigest: strings.Repeat("e", 64)},
 		},
 	}
+	slices.SortFunc(intent.Seats, func(a, b ManagedUpdateSeat) int { return strings.Compare(a.SeatID, b.SeatID) })
 	statement := ManagedCompatibilityEvidence{
 		SchemaVersion:                    ManagedCompatibilitySchemaVersion,
 		Cell:                             intent.Cell,

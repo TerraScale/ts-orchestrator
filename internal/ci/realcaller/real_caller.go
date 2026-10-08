@@ -27,7 +27,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 type Object = map[string]any
@@ -333,7 +334,7 @@ func CatalogBinding(spec Object, collectionID string) (uint64, string, error) {
 	if e != nil {
 		return 0, "", e
 	}
-	id, e := uuid.Parse(collectionID)
+	id, e := entityid.Parse(collectionID)
 	if e != nil {
 		return 0, "", e
 	}
@@ -713,7 +714,7 @@ func Scenario(ctx context.Context, o Options, run Runner) (Object, error) {
 	}
 	scope := obj(spec["scope"])
 	prefix := fmt.Sprintf("/v1/tenants/%v/databases/%v/shards/%v", scope["tenant_id"], scope["database_id"], scope["shard_id"])
-	docID := uuid.NewV7().String()
+	docID := entityid.New()
 	point := prefix + "/collections/" + o.CollectionID + "/documents/" + docID
 	before, e := Hosts(ctx, o.Operator, o.OperatorConfig, o.NATSForward, run)
 	if e != nil {

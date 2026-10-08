@@ -151,7 +151,7 @@ func TestBackupGoRustProcessBridge(t *testing.T) {
 	js := backupProcessJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
-	runtime, err := authority.Start(ctx, js, authority.Config{Scope: "gru", CandidateID: "d10-process-bridge", Replicas: 1})
+	runtime, err := authority.Start(ctx, js, authority.Config{Scope: "gru", CandidateID: "0000000000VYN4VJQR62ZHXCS7", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

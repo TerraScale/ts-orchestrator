@@ -123,17 +123,17 @@ func TestSignedOperatorPreparationCommitsExactMaterialAndReturnsCiphertext(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstCatalog, err := managedmaterial.InitialCatalog("30000000-0000-0000-0000-000000000001", nil)
+	firstCatalog, err := managedmaterial.InitialCatalog("1G000000000000000000000001", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondCatalog, err := managedmaterial.InitialCatalog("30000000-0000-0000-0000-000000000002", nil)
+	secondCatalog, err := managedmaterial.InitialCatalog("1G000000000000000000000002", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec := managedmaterial.InitialSpec{PlacementDatabaseID: "db-main", PartitionID: "partition-a",
-		Scope: managedmaterial.AuthorityScope{ClusterID: "0102030405060708090a0b0c0d0e0f10",
-			TenantID: "10000000-0000-0000-0000-000000000001", DatabaseID: "20000000-0000-0000-0000-000000000001",
+	spec := managedmaterial.InitialSpec{PlacementDatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8",
+		Scope: managedmaterial.AuthorityScope{ClusterID: "01081G81860W40J2GB1G6GW3RG",
+			TenantID: "0G000000000000000000000001", DatabaseID: "10000000000000000000000001",
 			ShardID: 7, Epoch: 1},
 		LiveS3: managedmaterial.LiveS3Target{Bucket: "alpha-live", Region: "sa-saopaulo-1",
 			Endpoint:   "https://alpha.compat.objectstorage.sa-saopaulo-1.oci.customer-oci.com",
@@ -143,10 +143,10 @@ func TestSignedOperatorPreparationCommitsExactMaterialAndReturnsCiphertext(t *te
 			{CollectionID: secondCatalog.CollectionID, CanonicalCatalog: secondCatalog.Bytes},
 		},
 		Members: [2]managedmaterial.InitialMember{
-			{SeatID: "permanent-a", MemberID: "40000000-0000-0000-0000-000000000001", Incarnation: "01010101010101010101010101010101",
+			{SeatID: "00000000000E5NVMSGX0D07DPA", MemberID: "20000000000000000000000001", Incarnation: "01040G2081040G2081040G2081",
 				ServerName: "a.replication.example", FailureDomain: "FAULT-DOMAIN-1", ReplicationIP: "10.0.0.11", ReplicationPort: 9443,
 				ClientIP: "10.0.0.11", ClientPort: 9465},
-			{SeatID: "elastic-gru", MemberID: "40000000-0000-0000-0000-000000000002", Incarnation: "02020202020202020202020202020202",
+			{SeatID: "00000000008SEAHD1YMMYV3ARR", MemberID: "20000000000000000000000002", Incarnation: "02081040G2081040G2081040G2",
 				ServerName: "b.replication.example", FailureDomain: "FAULT-DOMAIN-2", ReplicationIP: "10.0.0.12", ReplicationPort: 9443,
 				ClientIP: "10.0.0.12", ClientPort: 9465},
 		},

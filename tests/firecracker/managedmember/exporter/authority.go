@@ -14,11 +14,11 @@ import (
 )
 
 const (
-	clusterID    = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	tenantID     = "018f0000-0000-7000-8000-000000000001"
+	clusterID    = "5ANANANANANANANANANANANANA"
+	tenantID     = "01HW000000E008000000000001"
 	databaseID   = tenantID
-	collectionID = "21212121-2121-2121-2121-212121212121"
-	documentID   = "018f0000-0000-7000-8000-000000000021"
+	collectionID = "1144GJ289144GJ289144GJ2891"
+	documentID   = "01HW000000E008000000000011"
 )
 
 type memberCertificate struct {

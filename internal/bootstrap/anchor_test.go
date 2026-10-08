@@ -52,15 +52,15 @@ func newBootstrapAnchorFixture(t *testing.T) bootstrapAnchorFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ledgerGrant := signBootstrapLedgerGrant(t, rootPrivate, ledgerPublic, "deployment-a", oci.RegionFRA,
+	ledgerGrant := signBootstrapLedgerGrant(t, rootPrivate, ledgerPublic, "0000000000F9PR1WNVDTEXS31Z", oci.RegionFRA,
 		"production", []string{"seed-a"}, now.Add(-4*time.Hour), now.Add(MaxBootstrapAnchorLifetime-4*time.Hour))
 	ledgerWire, err := trust.EncodeEnvelope(ledgerGrant)
 	if err != nil {
 		t.Fatal(err)
 	}
 	anchor := BootstrapAnchor{
-		SchemaVersion: BootstrapAnchorSchemaVersion, DeploymentID: "deployment-a", Environment: "production",
-		ClusterID: "cluster-a", Cell: oci.RegionFRA, OCIRegion: "eu-frankfurt-1",
+		SchemaVersion: BootstrapAnchorSchemaVersion, DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "production",
+		ClusterID: "0000000000RMSAJ9B0JFV7ESHN", Cell: oci.RegionFRA, OCIRegion: "eu-frankfurt-1",
 		ControllerSlots: []string{"seed-a"}, LedgerDelegationWire: bytes.Clone(ledgerWire),
 		StorageDomain: StorageDomain{
 			Namespace: "namespace-a", LedgerBucket: "bootstrap-ledger",
@@ -191,9 +191,9 @@ func TestBootstrapAnchorRejectsWrongLocalIdentityAndRoot(t *testing.T) {
 	fixture := newBootstrapAnchorFixture(t)
 	envelope := fixture.sign(t, fixture.now.Add(-time.Minute), fixture.now.Add(24*time.Hour))
 	for _, expected := range []BootstrapAnchorExpectation{
-		{DeploymentID: "deployment-b", Environment: "production", Cell: oci.RegionFRA},
-		{DeploymentID: "deployment-a", Environment: "canary", Cell: oci.RegionFRA},
-		{DeploymentID: "deployment-a", Environment: "production", Cell: oci.RegionGRU},
+		{DeploymentID: "0000000000ZXZXWAQ4NH7H4V97", Environment: "production", Cell: oci.RegionFRA},
+		{DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "canary", Cell: oci.RegionFRA},
+		{DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "production", Cell: oci.RegionGRU},
 	} {
 		if _, err := VerifyBootstrapAnchor(envelope, fixture.roots, expected, fixture.now, BootstrapAnchorTrustPolicy()); err == nil {
 			t.Fatalf("VerifyBootstrapAnchor() accepted wrong local identity %+v", expected)
@@ -208,7 +208,7 @@ func TestBootstrapAnchorRejectsWrongLocalIdentityAndRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := VerifyBootstrapAnchor(envelope, wrongRoots, BootstrapAnchorExpectation{
-		DeploymentID: "deployment-a", Environment: "production", Cell: oci.RegionFRA,
+		DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "production", Cell: oci.RegionFRA,
 	}, fixture.now, BootstrapAnchorTrustPolicy()); !errors.Is(err, trust.ErrUntrustedKey) {
 		t.Fatalf("VerifyBootstrapAnchor() error for wrong root = %v", err)
 	}

@@ -163,7 +163,7 @@ func (plan terrabaseDeployPlan) base(region oci.Region) managedmaterial.InitialD
 		ReplicationPort: plan.ReplicationPort, ClientPort: plan.ClientPort, ManagedRuntimeRoot: plan.ManagedRuntimeRoot}
 	for index, member := range plan.Members {
 		deployment.Members[index] = managedmaterial.DeploymentMember{SeatID: seats[index],
-			ServerName:    seats[index] + "." + plan.PartitionID + "." + plan.PlacementDatabaseID + ".terrabase.internal",
+			ServerName:    strings.ToLower(seats[index]+"."+plan.PartitionID+"."+plan.PlacementDatabaseID) + ".terrabase.internal",
 			FailureDomain: member.FaultDomain, PrivateIP: member.PrivateIP}
 	}
 	return deployment

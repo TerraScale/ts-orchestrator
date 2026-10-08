@@ -7,6 +7,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/app"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 func TestOperatorConfigUsesRegionalMaterialCell(t *testing.T) {
@@ -16,7 +17,7 @@ func TestOperatorConfigUsesRegionalMaterialCell(t *testing.T) {
 		t.Run(test.cell, func(t *testing.T) {
 			now := time.Now().UTC().Truncate(time.Second)
 			cfg := bootstrapmaterial.Config{Environment: "production", Cell: test.cell,
-				Region: test.region, DeploymentID: "alpha-20260927", ClusterID: "alpha-" + test.cell,
+				Region: test.region, DeploymentID: "0000000000XXVM2FA4QBBHZBKD", ClusterID: entityid.Derive("test-cluster", test.cell),
 				SubnetCIDR: "10.251.0.0/24", ValidityHours: 48,
 				Slots: []bootstrapmaterial.Slot{{Name: "controller-a", PrivateIP: "10.251.0.10"},
 					{Name: "controller-b", PrivateIP: "10.251.0.11"},

@@ -58,7 +58,7 @@ func TestSignedPlacementSizingReachesProviderThroughController(t *testing.T) {
 		t.Fatal(err)
 	}
 	rosterRow, err := committed[0].RosterRowForSeat(placement.Seat{
-		MemberID: "permanent-a", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: placement.MemberPermanent,
+		MemberID: "00000000000E5NVMSGX0D07DPA", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: placement.MemberPermanent,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestSignedPlacementSizingReachesProviderThroughController(t *testing.T) {
 		t.Fatalf("provider launches = %d, want one", len(provider.launches))
 	}
 	launch := provider.launches[0]
-	if want := map[string]string{"permanent-a": "gru-1-db-1", "elastic-gru": "gru-1-db-2"}[rosterRow.SeatID]; launch.DisplayName != want {
+	if want := map[string]string{permanentSeatID(oci.RegionGRU): "gru-1-db-1", elasticSeatID(oci.RegionGRU): "gru-1-db-2"}[rosterRow.SeatID]; launch.DisplayName != want {
 		t.Fatalf("placement launched seat %s as %q, want its static name %q", rosterRow.SeatID, launch.DisplayName, want)
 	}
 	descriptor, err := hostboot.Parse([]byte(launch.BootDescriptor))

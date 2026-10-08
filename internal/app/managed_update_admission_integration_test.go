@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
@@ -39,7 +41,7 @@ func TestTrustedOperatorManagedUpdatePrepareCommitsThroughAppToR3(t *testing.T) 
 	}
 	t.Cleanup(func() { _ = broker.Close() })
 	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{
-		Scope: cell, CandidateID: "managed-update-app-integration", Replicas: 1,
+		Scope: cell, CandidateID: "00000000003GNSSN4GVAYA2191", Replicas: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -271,7 +273,7 @@ func managedUpdateAppIntent(t *testing.T, initial placement.Intent, sequence, ep
 		SchemaVersion: placement.ManagedUpdateSchemaVersion, Cell: "gru", DatabaseID: initial.DatabaseID,
 		PartitionID: initial.PartitionID, PlacementGeneration: initial.Generation,
 		PlacementPayloadDigest: initial.PayloadDigest(), PlacementSequence: sequence, AuthorityEpoch: epoch,
-		OperationID: "managed-update-app-integration", Role: "terrabase", Environment: "production",
+		OperationID: "00000000003GNSSN4GVAYA2191", Role: "terrabase", Environment: "production",
 		OldArtifactDigest: canary.RuntimeManifest.ArtifactDigest, CandidateArtifactDigest: artifact.Digest,
 		CandidateManifestDigest: artifact.ManifestDigest, CandidateSourceDigest: artifact.Source.TreeDigest,
 		CanarySeatID: canary.MemberID, CanaryDesiredGeneration: canary.DesiredGeneration + 1,
@@ -342,7 +344,7 @@ func managedUpdateAppBaseline(t *testing.T, intent placement.Intent, epoch uint6
 		instanceID := fmt.Sprintf("ocid1.instance.oc1..managed-%c", 'a'+rune(index))
 		volumeID := fmt.Sprintf("ocid1.volume.oc1..managed-%c", 'a'+rune(index))
 		attachmentID := fmt.Sprintf("ocid1.volumeattachment.oc1..managed-%c", 'a'+rune(index))
-		createKey := fmt.Sprintf("managed-create-%c", 'a'+rune(index))
+		createKey := entityid.Derive("test-create", fmt.Sprint(index))
 		attachmentETag := fmt.Sprintf("attachment-etag-%c", 'a'+rune(index))
 		attachmentDevice := fmt.Sprintf("/dev/oracleoci/oraclevd%c", 'a'+rune(index))
 		hostGeneration := uint64(2 + index*2)
@@ -358,7 +360,7 @@ func managedUpdateAppBaseline(t *testing.T, intent placement.Intent, epoch uint6
 			CanonicalRosterDigest: rosterDigest, AuthorityReference: intent.CanonicalRoster.Authority,
 			RuntimeManifest: manifest, RuntimeManifestDigest: manifestDigest,
 			DesiredGeneration: desiredGeneration, HostGeneration: hostGeneration,
-			OperationID: fmt.Sprintf("serving-member-%c", 'a'+rune(index)), UpdatedAt: now,
+			OperationID: entityid.Derive("test-operation", fmt.Sprintf("serving-member-%c", 'a'+rune(index))), UpdatedAt: now,
 		}
 		if err := state.Validate(); err != nil {
 			t.Fatalf("build member %s serving state: %v", seatID, err)
@@ -421,7 +423,7 @@ func managedUpdateAppBaseline(t *testing.T, intent placement.Intent, epoch uint6
 
 		peer := intent.CanonicalRoster.Rows[index^1]
 		proof := memberstatus.ServingProof{SchemaVersion: 1, Nonce: strings.Repeat(string('1'+rune(index)), 32),
-			Process: memberstatus.Process{PID: 100 + index, StartNonce: strings.Repeat(string('a'+rune(index)), 32)},
+			Process: memberstatus.Process{PID: 100 + index, StartNonce: entityid.Derive("test-process", fmt.Sprint(index))},
 			Scope: memberstatus.Scope{ClusterID: intent.CanonicalRoster.ClusterID,
 				TenantID: intent.CanonicalRoster.TenantID, DatabaseID: intent.CanonicalRoster.DatabaseID,
 				ShardID: intent.CanonicalRoster.ShardID, MemberID: row.MemberID, Incarnation: row.Incarnation},
@@ -456,7 +458,7 @@ func managedUpdateAppBaseline(t *testing.T, intent placement.Intent, epoch uint6
 		statuses = append(statuses, host.HostStatus{Registration: registration, SessionExpiresAt: now.Add(time.Hour),
 			Verified: true, Reports: []host.Report{{Cell: "gru", Node: hostNode, Environment: "production",
 				Role: "terrabase", Digest: manifest.ArtifactDigest, Generation: desiredGeneration,
-				SessionID: "session-current", Epoch: epoch, State: "running", ObservedAt: now,
+				SessionID: "0000000000A712487Z6V55WY3E", Epoch: epoch, State: "running", ObservedAt: now,
 				Managed: managedReport}}})
 		states = append(states, state)
 		instances = append(instances, instance)

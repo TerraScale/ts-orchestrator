@@ -6,6 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 const (
@@ -588,26 +590,11 @@ func (journal *Journal) Stats() Stats {
 
 // IDTime returns the record time encoded in a decision ID made by NewID.
 func IDTime(id string) (time.Time, bool) {
-	if len(id) < 16 {
+	parsed, err := entityid.Parse(id)
+	if err != nil || parsed.Time() == 0 {
 		return time.Time{}, false
 	}
-	var nanos uint64
-	for _, character := range id[:16] {
-		var digit uint64
-		switch {
-		case character >= '0' && character <= '9':
-			digit = uint64(character - '0')
-		case character >= 'a' && character <= 'f':
-			digit = uint64(character-'a') + 10
-		default:
-			return time.Time{}, false
-		}
-		nanos = nanos<<4 | digit
-	}
-	if nanos == 0 || nanos > 1<<63-1 {
-		return time.Time{}, false
-	}
-	return time.Unix(0, int64(nanos)).UTC(), true
+	return time.UnixMilli(int64(parsed.Time())).UTC(), true
 }
 
 var (

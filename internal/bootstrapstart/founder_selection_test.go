@@ -90,7 +90,7 @@ func newFounderSelectionFixture(t *testing.T) *founderSelectionFixture {
 		t.Fatal(err)
 	}
 	anchorValue := bootstrap.BootstrapAnchor{SchemaVersion: bootstrap.BootstrapAnchorSchemaVersion,
-		DeploymentID: "deployment-a", Environment: "production", ClusterID: "cluster-a", Cell: oci.RegionGRU,
+		DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "production", ClusterID: "0000000000RMSAJ9B0JFV7ESHN", Cell: oci.RegionGRU,
 		OCIRegion: "sa-saopaulo-1", StorageDomain: domain, ControllerSlots: slots, LedgerDelegationWire: ledgerWire,
 		InitialRegionIntentGeneration: 4, InitialRegionIntentSHA256: digestWire(regionWire), InitialRegionIntentWire: regionWire}
 	anchorEnvelope, err := bootstrap.SignBootstrapAnchor(anchorValue, now.Add(-time.Minute), now.Add(23*time.Hour), root)
@@ -106,7 +106,7 @@ func newFounderSelectionFixture(t *testing.T) *founderSelectionFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	releaseEnvelope, err := trust.Sign([]byte(`{}`), trust.Scope{Domain: "terrascale.release.image", DeploymentID: "release-a",
+	releaseEnvelope, err := trust.Sign([]byte(`{}`), trust.Scope{Domain: "terrascale.release.image", DeploymentID: "0000000000NBCYX286D4RHE6ZP",
 		Cell: "GRU", Environment: "production", Role: "oci-image", Slot: "ocid1.image.oc1.sa-saopaulo-1.image"},
 		now.Add(-time.Minute), now.Add(23*time.Hour), root)
 	if err != nil {
@@ -133,7 +133,7 @@ func newFounderSelectionFixture(t *testing.T) *founderSelectionFixture {
 	pins := make([]FounderManifestPin, 0, 3)
 	for _, slot := range slots {
 		manifest := bootstrap.Manifest{SchemaVersion: bootstrap.ManifestSchemaVersion,
-			DeploymentID: "deployment-a", Environment: "production", ClusterID: "cluster-a", Cell: oci.RegionGRU,
+			DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "production", ClusterID: "0000000000RMSAJ9B0JFV7ESHN", Cell: oci.RegionGRU,
 			OCIRegion: "sa-saopaulo-1", IntentGeneration: 4, IntentSHA256: digestWire(regionWire),
 			ControllerRole: "controller", Slot: slot, SeedSlot: "seed-a", ControllerSlots: slices.Clone(slots),
 			Profiles: slices.Clone(profiles), ImageOCID: "ocid1.image.oc1.sa-saopaulo-1.image", ImageArchitecture: "linux-amd64",
@@ -179,7 +179,7 @@ func newFounderSelectionFixture(t *testing.T) *founderSelectionFixture {
 			PrivateIP: ipBySlot[slot], RouteEndpoints: routes,
 			ClientEndpoints: []bootstrap.FounderEndpoint{{Slot: slot, PrivateIP: ipBySlot[slot], Port: 4222}}, TLSMaterial: material})
 	}
-	plan := bootstrap.FounderPlan{SchemaVersion: bootstrap.FounderPlanSchemaVersion, DeploymentID: "deployment-a",
+	plan := bootstrap.FounderPlan{SchemaVersion: bootstrap.FounderPlanSchemaVersion, DeploymentID: "0000000000F9PR1WNVDTEXS31Z",
 		Cell: oci.RegionGRU, Environment: "production", SeedSlot: "seed-a", AnchorSHA256: digestWire(anchorWire),
 		ControllerSlots: slots, SeedManifestSHA256: digestWire(manifests["seed-a"]), SeedPrivateIP: ipBySlot["seed-a"],
 		Peers: peers, Budget: bootstrap.FounderResourceBudget{WholeOCPUs: 4, MemoryInGB: 24, BootVolumeGB: 100},
@@ -188,7 +188,7 @@ func newFounderSelectionFixture(t *testing.T) *founderSelectionFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	planEnvelope, err := trust.Sign(planPayload, trust.Scope{Domain: bootstrap.FounderPlanDomain, DeploymentID: "deployment-a",
+	planEnvelope, err := trust.Sign(planPayload, trust.Scope{Domain: bootstrap.FounderPlanDomain, DeploymentID: "0000000000F9PR1WNVDTEXS31Z",
 		Cell: "GRU", Environment: "production", Role: "controller", Slot: "seed-a"}, now.Add(-time.Minute), now.Add(22*time.Hour), root)
 	if err != nil {
 		t.Fatal(err)
@@ -204,10 +204,10 @@ func newFounderSelectionFixture(t *testing.T) *founderSelectionFixture {
 	accepted := testMarker()
 	accepted.Slot, accepted.AnchorSHA256, accepted.AcceptedAt = "seed-a", digestWire(anchorWire), now
 	accepted.ManifestSHA256 = digestWire(manifests["seed-a"])
-	selection := FounderSelection{SchemaVersion: 1, DeploymentID: "deployment-a", Cell: "GRU", Environment: "production",
+	selection := FounderSelection{SchemaVersion: 1, DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "GRU", Environment: "production",
 		Generation: 1, PlanSHA256: digestWire(planWire), AnchorSHA256: digestWire(anchorWire), Manifests: pins}
 	return &founderSelectionFixture{now: now, root: root,
-		baked:    BakedInputs{Identity: BakedIdentity{SchemaVersion: 1, DeploymentID: "deployment-a", Cell: oci.RegionGRU, Environment: "production"}, Roots: roots, AnchorWire: anchorWire},
+		baked:    BakedInputs{Identity: BakedIdentity{SchemaVersion: 1, DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: oci.RegionGRU, Environment: "production"}, Roots: roots, AnchorWire: anchorWire},
 		accepted: accepted, domain: domain, plan: plan, planWire: planWire, anchorWire: anchorWire, manifests: manifests,
 		objects: &founderSelectionObjects{items: make(map[string][]byte), reads: make(map[string]int)},
 		floor:   testFounderFloor(t), selection: selection}
@@ -227,7 +227,7 @@ func signTestDelegation(t *testing.T, root ed25519.PrivateKey, subject ed25519.P
 	capabilities := make([]trust.Capability, 0, len(domains))
 	for _, domain := range domains {
 		capabilities = append(capabilities, trust.Capability{Domain: domain,
-			DeploymentID: "deployment-a", Cell: "GRU", Environment: "production", Role: "controller",
+			DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "GRU", Environment: "production", Role: "controller",
 			Slots: slices.Clone(slots), Actions: []string{"sign"}})
 	}
 	envelope, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion,
@@ -249,7 +249,7 @@ func (fixture *founderSelectionFixture) signSelection(t *testing.T, selection Fo
 		t.Fatal(err)
 	}
 	envelope, err := trust.Sign(payload, trust.Scope{Domain: FounderSelectionDomain,
-		DeploymentID: "deployment-a", Cell: "GRU", Environment: "production",
+		DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "GRU", Environment: "production",
 		Role: "deployment-anchor", Slot: "region"}, fixture.now.Add(-time.Minute), expiresAt, fixture.root)
 	if err != nil {
 		t.Fatal(err)
@@ -264,17 +264,17 @@ func (fixture *founderSelectionFixture) signSelection(t *testing.T, selection Fo
 func (fixture *founderSelectionFixture) publish(t *testing.T, selection FounderSelection) []byte {
 	t.Helper()
 	selectionWire := fixture.signSelection(t, selection, fixture.now.Add(time.Hour))
-	selector := FounderSelectionObjectName(fixture.domain, "deployment-a", "GRU", "production")
+	selector := FounderSelectionObjectName(fixture.domain, "0000000000F9PR1WNVDTEXS31Z", "GRU", "production")
 	fixture.objects.items[fixture.domain.HeadBucket+"/"+selector] = selectionWire
 	for digest, wire := range map[string][]byte{digestWire(fixture.planWire): fixture.planWire,
 		digestWire(fixture.anchorWire): fixture.anchorWire} {
 		fixture.objects.items[fixture.domain.LedgerBucket+"/"+FounderImmutableObjectName(fixture.domain,
-			"deployment-a", "GRU", "production", digest)] = wire
+			"0000000000F9PR1WNVDTEXS31Z", "GRU", "production", digest)] = wire
 	}
 	for _, wire := range fixture.manifests {
 		digest := digestWire(wire)
 		fixture.objects.items[fixture.domain.LedgerBucket+"/"+FounderImmutableObjectName(fixture.domain,
-			"deployment-a", "GRU", "production", digest)] = wire
+			"0000000000F9PR1WNVDTEXS31Z", "GRU", "production", digest)] = wire
 	}
 	return selectionWire
 }
@@ -312,7 +312,7 @@ func TestCurrentFounderSelectionReadsRealSignedSnapshotAndSupersedes(t *testing.
 		t.Fatalf("selected B: generation=%d err=%v", current.SelectionGeneration, err)
 	}
 	fixture.objects.items[fixture.domain.HeadBucket+"/"+FounderSelectionObjectName(fixture.domain,
-		"deployment-a", "GRU", "production")] = a
+		"0000000000F9PR1WNVDTEXS31Z", "GRU", "production")] = a
 	restarted := fixture.reader(t)
 	if _, err := restarted.ReadCurrent(t.Context(), fixture.now); !errors.Is(err, ErrFounderSelectionFloor) {
 		t.Fatalf("unexpired selected B rolled back to A: %v", err)
@@ -342,7 +342,7 @@ func (fixture *founderSelectionFixture) resignSelectedAnchorAndPlan(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	newPlan, err := trust.Sign(payload, trust.Scope{Domain: bootstrap.FounderPlanDomain, DeploymentID: "deployment-a",
+	newPlan, err := trust.Sign(payload, trust.Scope{Domain: bootstrap.FounderPlanDomain, DeploymentID: "0000000000F9PR1WNVDTEXS31Z",
 		Cell: "GRU", Environment: "production", Role: "controller", Slot: "seed-a"},
 		fixture.now.Add(-30*time.Second), fixture.now.Add(22*time.Hour), fixture.root)
 	if err != nil {
@@ -364,7 +364,7 @@ func TestCurrentFounderSelectionRejectsTornAndWrongPins(t *testing.T) {
 		{name: "wrong scope", mutate: func(f *founderSelectionFixture) { f.selection.Cell = "SFO" }},
 		{name: "missing manifest", mutate: func(f *founderSelectionFixture) { f.selection.Manifests = f.selection.Manifests[:2] }},
 		{name: "torn selector", mutate: func(f *founderSelectionFixture) {
-			key := f.domain.HeadBucket + "/" + FounderSelectionObjectName(f.domain, "deployment-a", "GRU", "production")
+			key := f.domain.HeadBucket + "/" + FounderSelectionObjectName(f.domain, "0000000000F9PR1WNVDTEXS31Z", "GRU", "production")
 			f.objects.onGet = func(got string, count int) {
 				if got == key && count == 2 {
 					f.objects.items[key] = []byte(`{"changed":true}`)
@@ -393,7 +393,7 @@ func TestCurrentFounderSelectionRejectsExpiredAndMissingFloor(t *testing.T) {
 		t.Fatalf("missing provisioned floor: %v", err)
 	}
 	expired := fixture.signSelection(t, fixture.selection, fixture.now)
-	key := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain, "deployment-a", "GRU", "production")
+	key := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain, "0000000000F9PR1WNVDTEXS31Z", "GRU", "production")
 	fixture.objects.items[key] = expired
 	if err := fixture.floor.Initialize(1, digestWire(expired)); err != nil {
 		t.Fatal(err)
@@ -422,7 +422,7 @@ func TestCurrentFounderSelectionRejectsSameGenerationEquivocationAndWrongDomain(
 		t.Fatal(err)
 	}
 	wrong, err := trust.Sign(payload, trust.Scope{Domain: "terrascale.bootstrap.other-selection",
-		DeploymentID: "deployment-a", Cell: "GRU", Environment: "production", Role: "deployment-anchor", Slot: "region"},
+		DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "GRU", Environment: "production", Role: "deployment-anchor", Slot: "region"},
 		fixture.now.Add(-time.Minute), fixture.now.Add(time.Hour), fixture.root)
 	if err != nil {
 		t.Fatal(err)
@@ -431,7 +431,7 @@ func TestCurrentFounderSelectionRejectsSameGenerationEquivocationAndWrongDomain(
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain, "deployment-a", "GRU", "production")
+	key := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain, "0000000000F9PR1WNVDTEXS31Z", "GRU", "production")
 	fixture.objects.items[key] = wire
 	if _, err := fixture.reader(t).ReadCurrent(t.Context(), fixture.now); !errors.Is(err, ErrFounderSelection) {
 		t.Fatalf("wrong signed domain: %v", err)
@@ -489,7 +489,7 @@ func TestCurrentFounderSelectionRequiresAcceptedSeedContinuity(t *testing.T) {
 	if err := protocol.DecodeStrict(envelope.Payload, &anchor, bootstrap.MaxBootstrapAnchorBytes); err != nil {
 		t.Fatal(err)
 	}
-	anchor.ClusterID = "cluster-other"
+	anchor.ClusterID = "00000000008VMKF156EF2Q9G14"
 	changed, err := bootstrap.SignBootstrapAnchor(anchor, fixture.now.Add(-30*time.Second), fixture.now.Add(23*time.Hour), fixture.root)
 	if err != nil {
 		t.Fatal(err)
@@ -513,7 +513,7 @@ func TestCurrentFounderSelectionExpiresDuringRead(t *testing.T) {
 	fresh := time.Now().UTC()
 	wire := fixture.signSelection(t, fixture.selection, fresh.Add(50*time.Millisecond))
 	fixture.publish(t, fixture.selection)
-	selector := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain, "deployment-a", "GRU", "production")
+	selector := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain, "0000000000F9PR1WNVDTEXS31Z", "GRU", "production")
 	fixture.objects.items[selector] = wire
 	if err := fixture.floor.Initialize(1, digestWire(wire)); err != nil {
 		t.Fatal(err)

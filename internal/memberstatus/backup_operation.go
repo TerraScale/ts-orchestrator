@@ -237,7 +237,7 @@ func (c *Client) BackupPublish(ctx context.Context, completion []byte) ([]byte, 
 }
 
 func (c *Client) BackupOperationStatus(ctx context.Context, operationID string) (BackupOperationStatus, error) {
-	if !canonicalUUID(operationID) {
+	if !canonicalID(operationID) {
 		return BackupOperationStatus{}, errors.New("backup operation ID is invalid")
 	}
 	code, body, _, err := c.exchangeBounded(ctx, http.MethodGet,

@@ -11,7 +11,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
 )
 
-var request = Request{DatabaseID: "db", PartitionID: "p", VolumeID: "vol", OldInstanceID: "old",
+var request = Request{DatabaseID: "0000000000FFE2BMB99VWR8Y1A", PartitionID: "00000000002J6YKHD7MH6HKSBC", VolumeID: "vol", OldInstanceID: "old",
 	ReplacementInstanceID: "new", AttachKey: "reattach-1"}
 
 func attachment(id, instance, state string) Attachment {
@@ -35,8 +35,8 @@ func TestDecide(t *testing.T) {
 		{"wait replacement", true, []Attachment{attachment("a", "old", "DETACHED"), attachment("b", "new", "ATTACHING")}, false, StepWaitAttached},
 		{"grant mount", true, []Attachment{attachment("a", "old", "DETACHED"), attachment("b", "new", "ATTACHED")}, false, StepGrantMount},
 		{"done", true, []Attachment{attachment("b", "new", "ATTACHED")}, true, StepDone},
-		{"third instance holds", true, []Attachment{attachment("c", "other", "ATTACHED")}, false, StepHold},
-		{"third instance detached is history", true, []Attachment{attachment("c", "other", "DETACHED")}, false, StepAttach},
+		{"third instance holds", true, []Attachment{attachment("c", "0000000000V4MRM46HP1SNGDYW", "ATTACHED")}, false, StepHold},
+		{"third instance detached is history", true, []Attachment{attachment("c", "0000000000V4MRM46HP1SNGDYW", "DETACHED")}, false, StepAttach},
 		{"two replacement attachments hold", true, []Attachment{attachment("b", "new", "ATTACHED"), attachment("d", "new", "ATTACHING")}, false, StepHold},
 		{"unknown old state holds", true, []Attachment{attachment("a", "old", "FAULTY")}, false, StepHold},
 		{"other volume holds", true, []Attachment{{ID: "x", VolumeID: "vol-2", InstanceID: "new", State: "ATTACHED"}}, false, StepHold},

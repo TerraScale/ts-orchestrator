@@ -25,9 +25,9 @@ func imdsDescriptorFixture(t *testing.T) []byte {
 	wire, err := (hostboot.Descriptor{
 		SchemaVersion: hostboot.SchemaVersion,
 		Cell:          "gru", Region: "GRU", Node: "host-0123456789abcdef01234567", Owner: "terrascale",
-		FleetGeneration: 7, CreateKey: "th-0123456789abcdef0123456789abcdef0123456789abcdef",
-		ImageID: "ocid1.image.oc1.sa-saopaulo-1.image-a", DatabaseID: "database-a",
-		PartitionID: "partition-a", SeatID: "permanent-a", HostAttempt: 2, IntentGeneration: 9,
+		FleetGeneration: 7, CreateKey: "0000000000AVXGCP7NEZ0TK93A",
+		ImageID: "ocid1.image.oc1.sa-saopaulo-1.image-a", DatabaseID: "0000000000WVSMBJNMAWCDJBSK",
+		PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "00000000000E5NVMSGX0D07DPA", HostAttempt: 2, IntentGeneration: 9,
 		IntentPayloadDigest: strings.Repeat("a", 64), CanonicalRosterDigest: strings.Repeat("b", 64),
 		ManagedHostProfileDigest: strings.Repeat("c", 64), RuntimeManifestDigest: strings.Repeat("d", 64),
 	}).CanonicalBytes()
@@ -71,7 +71,7 @@ func TestReadInstanceMetadataUsesOnlyBoundedFixedEndpoints(t *testing.T) {
 	})
 	metadata, err := ReadInstanceMetadata(ctx, client)
 	if err != nil || metadata.InstanceID != instanceID ||
-		!bytes.Equal(metadata.Wire, descriptorWire) || metadata.Descriptor.SeatID != "permanent-a" ||
+		!bytes.Equal(metadata.Wire, descriptorWire) || metadata.Descriptor.SeatID != "00000000000E5NVMSGX0D07DPA" ||
 		!slices.Equal(endpoints, []string{
 			"http://169.254.169.254/opc/v2/instance/id",
 			"http://169.254.169.254/opc/v2/instance/metadata/terrascale_hostboot_v1",
@@ -192,7 +192,7 @@ func TestReadControllerHostMetadataNamesTheControllerSlot(t *testing.T) {
 		t.Fatal("an unreadable display name fell back to the slot's name")
 	}
 	name = []byte("gru-1-ctl-2")
-	for _, invalid := range [][]byte{[]byte(`{"schemaVersion":1,"slot":"member-a"}`),
+	for _, invalid := range [][]byte{[]byte(`{"schemaVersion":1,"slot":"0000000000WM3QQGQPMW5X58P9"}`),
 		[]byte(`{"schemaVersion":2,"slot":"controller-a"}`), []byte(`{"slot":"controller-a","extra":1}`)} {
 		slot = invalid
 		if _, err := ReadControllerHostMetadata(t.Context(), client, "gru", "GRU"); err == nil {

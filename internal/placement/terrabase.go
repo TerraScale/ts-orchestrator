@@ -3,7 +3,6 @@ package placement
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/base32"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -12,7 +11,8 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -20,16 +20,8 @@ import (
 
 const (
 	// IntentSchemaVersion is the only schema accepted for new managed
-	// placement admissions. Older schemas remain readable for historical hold.
+	// placement admissions. Historical schemas are rejected.
 	IntentSchemaVersion                   = 5
-	legacyIntentSchemaVersion             = 1
-	profileIntentSchemaVersion            = 2
-	rosterIntentSchemaVersion             = 3
-	ulidRuntimeIntentSchemaVersion        = 4
-	legacyMemberStateSchemaVersion        = 1
-	rosterMemberStateSchemaVersion        = 2
-	ulidMemberStateSchemaVersion          = 3
-	placementSchemaVersion                = 4
 	managedUpdateMemberStateSchemaVersion = 5
 	maxDatabaseIDLength                   = 63
 	maxPartitionIDLength                  = 63
@@ -126,11 +118,8 @@ type RuntimeManifest struct {
 }
 
 func (manifest RuntimeManifest) Validate() error {
-	return manifest.validateWithIdentity(canonicalTerraBaseUUID, true)
-}
 
-func (manifest RuntimeManifest) validateWithIdentity(validMemberID func(string) bool, requireManagedClient bool) error {
-	if !knownRegion(manifest.Region) || !validToken(manifest.SeatID) ||
+	if !knownRegion(manifest.Region) || !entityid.Valid(manifest.SeatID) ||
 		!validLowerSHA256Digest(manifest.ArtifactDigest) || !validLowerSHA256Digest(manifest.SourceDigest) ||
 		!filepath.IsAbs(manifest.ManagedRuntimeRoot) || filepath.Clean(manifest.ManagedRuntimeRoot) != manifest.ManagedRuntimeRoot ||
 		manifest.ManagedRuntimeRoot == "/" || len(manifest.ManagedRuntimeRoot) > 54 ||
@@ -144,20 +133,20 @@ func (manifest RuntimeManifest) validateWithIdentity(validMemberID func(string) 
 		return fmt.Errorf("%w: incomplete runtime manifest", ErrInvalidIntent)
 	}
 	peer := manifest.ReplicationPeerMemberID != "" || manifest.ReplicationPeerAddress != "" || manifest.ReplicationServerCASHA256 != ""
-	if peer && (!validMemberID(manifest.ReplicationPeerMemberID) ||
+	if peer && (!entityid.Valid(manifest.ReplicationPeerMemberID) ||
 		!validPrivateIPv4Endpoint(manifest.ReplicationPeerAddress) ||
 		!validLowerSHA256Digest(manifest.ReplicationServerCASHA256)) {
 		return fmt.Errorf("%w: incomplete runtime peer triple", ErrInvalidIntent)
 	}
-	if requireManagedClient && (!validLowerSHA256Digest(manifest.ClientManagedMaterialManifestSHA256) || !peer) {
+	if !validLowerSHA256Digest(manifest.ClientManagedMaterialManifestSHA256) || !peer {
 		return fmt.Errorf("%w: schema-5 managed HTTPS requires a pinned client material manifest and outbound peer", ErrInvalidIntent)
 	}
-	if requireManagedClient && (!validLowerSHA256Digest(manifest.LiveS3ConfigSHA256) ||
-		!validLowerSHA256Digest(manifest.LiveS3TargetSHA256) || manifest.LiveS3Credential.Validate() != nil) {
+	if !validLowerSHA256Digest(manifest.LiveS3ConfigSHA256) ||
+		!validLowerSHA256Digest(manifest.LiveS3TargetSHA256) || manifest.LiveS3Credential.Validate() != nil {
 		return fmt.Errorf("%w: managed ObjectDurable target or credential pin is incomplete", ErrInvalidIntent)
 	}
 	if manifest.BackupManifestSHA256 != "" {
-		if !requireManagedClient || !validLowerSHA256Digest(manifest.BackupManifestSHA256) ||
+		if !validLowerSHA256Digest(manifest.BackupManifestSHA256) ||
 			!validLowerSHA256Digest(manifest.BackupS3ConfigSHA256) ||
 			!validLowerSHA256Digest(manifest.BackupS3TargetSHA256) ||
 			!validLowerSHA256Digest(manifest.BackupS3CredentialSHA256) ||
@@ -180,18 +169,12 @@ func (manifest RuntimeManifest) validateWithIdentity(validMemberID func(string) 
 	if manifest.SQLSchemaBundleSHA256 != "" && !validLowerSHA256Digest(manifest.SQLSchemaBundleSHA256) {
 		return fmt.Errorf("%w: invalid SQL schema bundle pin", ErrInvalidIntent)
 	}
-	if !requireManagedClient && manifest.ClientManagedMaterialManifestSHA256 != "" {
-		return fmt.Errorf("%w: historical runtime manifest cannot carry managed client material", ErrInvalidIntent)
-	}
 	return nil
 }
 
 func (manifest RuntimeManifest) Digest() (string, error) {
-	return manifest.digestWithIdentity(canonicalTerraBaseUUID, true)
-}
 
-func (manifest RuntimeManifest) digestWithIdentity(validMemberID func(string) bool, requireManagedClient bool) (string, error) {
-	if err := manifest.validateWithIdentity(validMemberID, requireManagedClient); err != nil {
+	if err := manifest.Validate(); err != nil {
 		return "", err
 	}
 	encoded, err := protocol.EncodeJSON(manifest)
@@ -270,11 +253,9 @@ func (profile ManagedHostProfile) Validate() error {
 }
 
 func (intent Intent) Validate() error {
-	if intent.SchemaVersion != legacyIntentSchemaVersion && intent.SchemaVersion != profileIntentSchemaVersion &&
-		intent.SchemaVersion != rosterIntentSchemaVersion && intent.SchemaVersion != ulidRuntimeIntentSchemaVersion &&
-		intent.SchemaVersion != IntentSchemaVersion ||
-		!validBoundedToken(intent.DatabaseID, maxDatabaseIDLength) ||
-		!validBoundedToken(intent.PartitionID, maxPartitionIDLength) || intent.Generation == 0 ||
+	if intent.SchemaVersion != IntentSchemaVersion ||
+		!entityid.Valid(intent.DatabaseID) ||
+		!entityid.Valid(intent.PartitionID) || intent.Generation == 0 ||
 		len(intent.ActiveRegions) < 1 || len(intent.ActiveRegions) > len(regionsInOrder) {
 		return fmt.Errorf("%w: schema, identity, generation or region count", ErrInvalidIntent)
 	}
@@ -285,12 +266,6 @@ func (intent Intent) Validate() error {
 		if slices.Contains(intent.ActiveRegions[:index], region) {
 			return fmt.Errorf("%w: repeated region %q", ErrInvalidIntent, region)
 		}
-	}
-	if intent.SchemaVersion == legacyIntentSchemaVersion {
-		if len(intent.ManagedHostProfiles) != 0 || !intent.CanonicalRoster.isZero() || len(intent.RuntimeManifests) != 0 {
-			return fmt.Errorf("%w: historical schema 1 cannot carry managed profiles or a canonical roster", ErrInvalidIntent)
-		}
-		return nil
 	}
 	if !canonicalRegions(intent.ActiveRegions) || len(intent.ManagedHostProfiles) != len(intent.ActiveRegions) {
 		return fmt.Errorf("%w: managed profiles must exactly cover canonically ordered selected regions", ErrInvalidIntent)
@@ -303,24 +278,8 @@ func (intent Intent) Validate() error {
 			return err
 		}
 	}
-	if intent.SchemaVersion == profileIntentSchemaVersion {
-		if !intent.CanonicalRoster.isZero() || len(intent.RuntimeManifests) != 0 {
-			return fmt.Errorf("%w: historical schema 2 cannot carry a canonical roster", ErrInvalidIntent)
-		}
-		return nil
-	}
-	validMemberID := canonicalLegacyMemberID
-	if intent.SchemaVersion == IntentSchemaVersion {
-		validMemberID = canonicalTerraBaseUUID
-	}
-	if err := intent.CanonicalRoster.validateWithIdentity(intent.ActiveRegions, validMemberID); err != nil {
+	if err := intent.CanonicalRoster.Validate(intent.ActiveRegions); err != nil {
 		return err
-	}
-	if intent.SchemaVersion == rosterIntentSchemaVersion {
-		if len(intent.RuntimeManifests) != 0 {
-			return fmt.Errorf("%w: historical schema 3 cannot carry runtime manifests", ErrInvalidIntent)
-		}
-		return nil
 	}
 	if len(intent.RuntimeManifests) != len(intent.CanonicalRoster.Rows) {
 		return fmt.Errorf("%w: runtime manifests must cover every canonical roster seat", ErrInvalidIntent)
@@ -328,7 +287,7 @@ func (intent Intent) Validate() error {
 	uuids := make(map[string]struct{}, len(intent.RuntimeManifests))
 	for index, manifest := range intent.RuntimeManifests {
 		row := intent.CanonicalRoster.Rows[index]
-		if err := manifest.validateWithIdentity(validMemberID, intent.SchemaVersion == IntentSchemaVersion); err != nil {
+		if err := manifest.Validate(); err != nil {
 			return err
 		}
 		if manifest.Region != row.Region || manifest.SeatID != row.SeatID ||
@@ -350,7 +309,7 @@ func (intent Intent) Validate() error {
 }
 
 // ValidateForAdmission limits newly signed managed placements to schema 5.
-// Historical schemas remain decodable for explicit per-intent hold.
+// Only the current schema is accepted.
 func (intent Intent) ValidateForAdmission() error {
 	if intent.SchemaVersion != IntentSchemaVersion {
 		return fmt.Errorf("%w: schema %d is historical and cannot authorize a new managed placement", ErrInvalidIntent, intent.SchemaVersion)
@@ -364,12 +323,9 @@ func (roster CanonicalRoster) isZero() bool {
 }
 
 func (roster CanonicalRoster) Validate(activeRegions []oci.Region) error {
-	return roster.validateWithIdentity(activeRegions, canonicalTerraBaseUUID)
-}
 
-func (roster CanonicalRoster) validateWithIdentity(activeRegions []oci.Region, validMemberID func(string) bool) error {
-	if !lowerHex(roster.ClusterID, 32) || allZeroHex(roster.ClusterID) ||
-		!validMemberID(roster.TenantID) || !validMemberID(roster.DatabaseID) ||
+	if !entityid.Valid(roster.ClusterID) || allZeroHex(roster.ClusterID) ||
+		!entityid.Valid(roster.TenantID) || !entityid.Valid(roster.DatabaseID) ||
 		roster.ShardID == 0 || roster.Authority.Validate() != nil ||
 		len(roster.Rows) != len(activeRegions)*2 {
 		return fmt.Errorf("%w: canonical roster shared scope or row count", ErrInvalidIntent)
@@ -386,7 +342,7 @@ func (roster CanonicalRoster) validateWithIdentity(activeRegions []oci.Region, v
 			seatID = elasticMember(region)
 		}
 		if row.Region != region || row.SeatID != seatID || !validFailureDomain(row.FailureDomain) ||
-			!validMemberID(row.MemberID) || !lowerHex(row.Incarnation, 32) || allZeroHex(row.Incarnation) ||
+			!entityid.Valid(row.MemberID) || !entityid.Valid(row.Incarnation) || allZeroHex(row.Incarnation) ||
 			!validLowerSHA256Digest(row.TLSLeafSHA256) || !validServerName(row.ServerName) {
 			return fmt.Errorf("%w: invalid or noncanonical row %d in TerraBase member roster", ErrInvalidIntent, index)
 		}
@@ -463,25 +419,7 @@ func seatIDForKind(region oci.Region, kind MemberKind) string {
 	}
 }
 
-func canonicalTerraBaseUUID(value string) bool {
-	parsed, err := uuid.Parse(value)
-	return err == nil && parsed != uuid.Nil() && parsed.String() == value
-}
-
-func canonicalLegacyMemberID(value string) bool {
-	if len(value) != 26 || value[0] < '0' || value[0] > '7' {
-		return false
-	}
-	nonzero := false
-	for index := range len(value) {
-		character := value[index]
-		if !strings.ContainsRune("0123456789ABCDEFGHJKMNPQRSTVWXYZ", rune(character)) {
-			return false
-		}
-		nonzero = nonzero || character != '0'
-	}
-	return nonzero
-}
+func canonicalTerraBaseID(value string) bool { return entityid.Valid(value) }
 
 func lowerHex(value string, length int) bool {
 	if len(value) != length {
@@ -582,8 +520,7 @@ func (intent Intent) PayloadDigest() string { return intent.committedPayloadSHA 
 // OperationID is stable across regional log consumers and binds one admitted
 // database/partition generation without depending on lease history.
 func (intent Intent) OperationID() string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d", intent.DatabaseID, intent.PartitionID, intent.Generation)))
-	return "p-" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:]))
+	return entityid.Derive("placement-intent", intent.DatabaseID, intent.PartitionID, fmt.Sprint(intent.Generation))
 }
 
 // DecodeCommittedIntent validates canonical bytes returned from the ordered
@@ -687,20 +624,14 @@ func RegionSeatIDs(region oci.Region) ([2]string, error) {
 }
 
 func permanentMember(region oci.Region) string {
-	switch region {
-	case oci.RegionGRU:
-		return "permanent-a"
-	case oci.RegionSFO:
-		return "permanent-b"
-	case oci.RegionFRA:
-		return "permanent-c"
-	default:
+	if !slices.Contains(regionsInOrder, region) {
 		return ""
 	}
+	return entityid.Derive("placement-seat", string(region), "1")
 }
 
 func elasticMember(region oci.Region) string {
-	return "elastic-" + strings.ToLower(string(region))
+	return entityid.Derive("placement-seat", string(region), "2")
 }
 
 // knownRegion admits a catalog region only once it has a permanent seat
@@ -714,9 +645,7 @@ func validBoundedToken(value string, maxLength int) bool {
 	return len(value) <= maxLength && validToken(value)
 }
 
-func validDatabaseKeyID(value string) bool {
-	return validBoundedToken(value, maxDatabaseIDLength)
-}
+func validDatabaseKeyID(value string) bool { return entityid.Valid(value) }
 
 type MemberStage string
 
@@ -857,20 +786,15 @@ func (state MemberState) PredecessorState() MemberState {
 }
 
 func (state MemberState) Validate() error {
-	validStateFailureDomain := validBoundedToken(strings.ToLower(state.FailureDomain), 63)
-	if state.SchemaVersion >= rosterMemberStateSchemaVersion {
-		validStateFailureDomain = validFailureDomain(state.FailureDomain)
-	}
-	if state.SchemaVersion != legacyMemberStateSchemaVersion && state.SchemaVersion != rosterMemberStateSchemaVersion &&
-		state.SchemaVersion != ulidMemberStateSchemaVersion && state.SchemaVersion != placementSchemaVersion &&
-		state.SchemaVersion != managedUpdateMemberStateSchemaVersion ||
-		!validBoundedToken(state.DatabaseID, maxDatabaseIDLength) ||
-		!validBoundedToken(state.PartitionID, maxPartitionIDLength) || !validToken(state.MemberID) ||
+	validStateFailureDomain := validFailureDomain(state.FailureDomain)
+	if state.SchemaVersion != managedUpdateMemberStateSchemaVersion ||
+		!entityid.Valid(state.DatabaseID) ||
+		!entityid.Valid(state.PartitionID) || !entityid.Valid(state.MemberID) ||
 		!knownRegion(state.Region) || !validStateFailureDomain ||
 		state.Kind != MemberPermanent && state.Kind != MemberElastic || !knownStage(state.Stage) ||
-		!validToken(state.CreateKey) || state.HostAttempt == 0 || state.IntentGeneration == 0 ||
+		!entityid.Valid(state.CreateKey) || state.HostAttempt == 0 || state.IntentGeneration == 0 ||
 		stageRequiresHostGeneration(state.Stage) && state.HostGeneration == 0 ||
-		!validToken(state.OperationID) || state.UpdatedAt.IsZero() || state.UpdatedAt.Location() != time.UTC ||
+		!entityid.Valid(state.OperationID) || state.UpdatedAt.IsZero() || state.UpdatedAt.Location() != time.UTC ||
 		!state.HostLostAt.IsZero() && state.HostLostAt.Location() != time.UTC ||
 		!state.AttachRequestedAt.IsZero() && state.AttachRequestedAt.Location() != time.UTC ||
 		state.PreviousInstanceID != "" && (state.HostAttempt < 2 || state.PreviousInstanceID == state.InstanceID) ||
@@ -889,27 +813,14 @@ func (state MemberState) Validate() error {
 			return errors.New("invalid TerraBase member state managed profile digest")
 		}
 	}
-	if state.SchemaVersion == legacyMemberStateSchemaVersion {
-		if state.CanonicalRosterRow != (CanonicalRosterRow{}) || state.CanonicalRosterDigest != "" ||
-			state.AuthorityReference != (AuthorityReference{}) || state.RuntimeManifest != (RuntimeManifest{}) ||
-			state.RuntimeManifestDigest != "" || state.ManagedRuntimeTarget != (ManagedRuntimeTarget{}) ||
-			state.AttachmentDevice != "" || state.AttachmentETag != "" {
-			return errors.New("invalid legacy TerraBase member state roster pin")
-		}
-		return nil
-	}
-	validMemberID := canonicalLegacyMemberID
-	if state.SchemaVersion == placementSchemaVersion || state.SchemaVersion == managedUpdateMemberStateSchemaVersion {
-		validMemberID = canonicalTerraBaseUUID
-	}
 	if !validLowerSHA256Digest(state.IntentPayloadDigest) ||
 		!validLowerSHA256Digest(state.ManagedHostProfileDigest) ||
 		state.ManagedHostProfile.Region != state.Region || state.ManagedHostProfile.Validate() != nil ||
 		state.CanonicalRosterRow.Region != state.Region || state.CanonicalRosterRow.SeatID != state.MemberID ||
 		state.CanonicalRosterRow.FailureDomain != state.FailureDomain ||
 		!validFailureDomain(state.CanonicalRosterRow.FailureDomain) ||
-		!validMemberID(state.CanonicalRosterRow.MemberID) ||
-		!lowerHex(state.CanonicalRosterRow.Incarnation, 32) || allZeroHex(state.CanonicalRosterRow.Incarnation) ||
+		!entityid.Valid(state.CanonicalRosterRow.MemberID) ||
+		!entityid.Valid(state.CanonicalRosterRow.Incarnation) || allZeroHex(state.CanonicalRosterRow.Incarnation) ||
 		!validLowerSHA256Digest(state.CanonicalRosterRow.TLSLeafSHA256) ||
 		!validServerName(state.CanonicalRosterRow.ServerName) ||
 		!validLowerSHA256Digest(state.CanonicalRosterDigest) || state.AuthorityReference.Validate() != nil {
@@ -919,25 +830,13 @@ func (state MemberState) Validate() error {
 		state.Kind == MemberElastic && state.CanonicalRosterRow.SeatID != elasticMember(state.Region) {
 		return errors.New("invalid TerraBase member state seat pin")
 	}
-	if state.SchemaVersion == rosterMemberStateSchemaVersion {
-		if state.RuntimeManifest != (RuntimeManifest{}) || state.RuntimeManifestDigest != "" ||
-			state.ManagedRuntimeTarget != (ManagedRuntimeTarget{}) ||
-			state.AttachmentDevice != "" || state.AttachmentETag != "" {
-			return errors.New("historical member state cannot carry runtime pins")
-		}
-		return nil
-	}
 	if state.RuntimeManifest.Region != state.Region || state.RuntimeManifest.SeatID != state.MemberID ||
 		!validLowerSHA256Digest(state.RuntimeManifestDigest) {
 		return errors.New("invalid TerraBase member runtime manifest pin")
 	}
-	digest, err := state.RuntimeManifest.digestWithIdentity(validMemberID,
-		state.SchemaVersion == placementSchemaVersion || state.SchemaVersion == managedUpdateMemberStateSchemaVersion)
+	digest, err := state.RuntimeManifest.Digest()
 	if err != nil || digest != state.RuntimeManifestDigest {
 		return errors.New("invalid TerraBase member runtime manifest digest")
-	}
-	if state.SchemaVersion == placementSchemaVersion && state.ManagedRuntimeTarget != (ManagedRuntimeTarget{}) {
-		return errors.New("historical member state cannot carry a managed runtime target")
 	}
 	if state.SchemaVersion == managedUpdateMemberStateSchemaVersion && state.ManagedRuntimeTarget.OperationID != "" {
 		if err := state.ManagedRuntimeTarget.Validate(state); err != nil {
@@ -953,7 +852,7 @@ func (state MemberState) Validate() error {
 }
 
 func (target ManagedRuntimeTarget) Validate(state MemberState) error {
-	if !validToken(target.OperationID) || target.AuthoritySequence == 0 ||
+	if !entityid.Valid(target.OperationID) || target.AuthoritySequence == 0 ||
 		!validLowerSHA256Digest(target.RequestSHA256) ||
 		target.PreparedAt.IsZero() || target.PreparedAt.Location() != time.UTC ||
 		target.PreparedAt.After(state.UpdatedAt) ||

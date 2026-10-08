@@ -331,7 +331,7 @@ func TestReconcilerHoldsVolumesItCannotProve(t *testing.T) {
 		mutate func(*Volume)
 		setup  func(c *fakeCloud, v Volume) string // returns the status OCID to record, if any
 	}{
-		"gone": {setup: func(*fakeCloud, Volume) string { return "ocid1.volume.oc1.sa-saopaulo-1.gone" }},
+		"000000000050XVKQQF0BK88ENZ": {setup: func(*fakeCloud, Volume) string { return "ocid1.volume.oc1.sa-saopaulo-1.gone" }},
 		"other volume's tags": {setup: func(c *fakeCloud, v Volume) string {
 			other := CloudVolume{ID: "ocid1.volume.oc1.sa-saopaulo-1.x", CompartmentID: testSettings.CompartmentID, Zone: testZone,
 				SizeGB: 50, State: "AVAILABLE", Tags: foreignTags(NewID())}

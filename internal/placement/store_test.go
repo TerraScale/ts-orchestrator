@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -14,21 +16,19 @@ import (
 )
 
 func TestMemberStateKeyIncludesPartitionIdentity(t *testing.T) {
-	first := memberStateKey("db-main", "partition-a", "permanent-a")
-	second := memberStateKey("db-main", "partition-b", "permanent-a")
+	first := memberStateKey("0000000000JJVVW9EMWY1PE1VX", "0000000000Z3WK359G2W66CVT8", "00000000000E5NVMSGX0D07DPA")
+	second := memberStateKey("0000000000JJVVW9EMWY1PE1VX", "00000000001WFHC56Q8NB0X6T8", "00000000000E5NVMSGX0D07DPA")
 	if first == second {
 		t.Fatalf("partition member keys collide: %q", first)
 	}
-	if memberStatePrefix("db-main", "partition-a") != "member.db-main.partition-a." ||
-		memberStatePrefix("db-main", "partition-b") != "member.db-main.partition-b." {
-		t.Fatal("member state prefixes do not preserve the composite identity")
+	if !entityid.Valid(first) || !entityid.Valid(second) {
+		t.Fatal("member keys must be plain ULIDs")
 	}
 }
 
 func TestReadMemberUsesExactKeyAndReturnsExplicitAbsence(t *testing.T) {
-	state := validMemberStateForPins()
-	state.SchemaVersion = legacyMemberStateSchemaVersion
-	state.DatabaseID = "db-main"
+	state := validMemberStateForPins(t)
+	state.DatabaseID = "0000000000JJVVW9EMWY1PE1VX"
 	data, err := protocol.EncodeJSON(state)
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +40,7 @@ func TestReadMemberUsesExactKeyAndReturnsExplicitAbsence(t *testing.T) {
 	if err != nil || got.Revision != entry.revision || !reflect.DeepEqual(got.State, state) {
 		t.Fatalf("exact member lookup = %+v, %v; want revision %d and original state", got, err, entry.revision)
 	}
-	if kv.key != "member.db-main.partition-a.permanent-a" {
+	if kv.key != memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID) {
 		t.Fatalf("member lookup read key %q; want exact composite key", kv.key)
 	}
 
@@ -81,9 +81,9 @@ func (entry fixedMemberEntry) Operation() jetstream.KeyValueOp { return jetstrea
 
 func TestIntentListAllowsDifferentPartitionsButRejectsDuplicateCompositeIdentity(t *testing.T) {
 	first := validIntent(oci.RegionGRU)
-	first.PartitionID = "partition-b"
+	first.PartitionID = "00000000001WFHC56Q8NB0X6T8"
 	second := validIntent(oci.RegionGRU)
-	second.PartitionID = "partition-a"
+	second.PartitionID = "0000000000Z3WK359G2W66CVT8"
 	first = committedIntentForTest(t, first)
 	second = committedIntentForTest(t, second)
 	reader := intentReaderFunc(func(context.Context, string) ([]Intent, error) {
@@ -94,7 +94,7 @@ func TestIntentListAllowsDifferentPartitionsButRejectsDuplicateCompositeIdentity
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Intent{second, first}
+	want := []Intent{first, second}
 	if !reflect.DeepEqual(intents, want) {
 		t.Fatalf("partition intents = %#v, want %#v", intents, want)
 	}
@@ -109,7 +109,7 @@ func TestIntentListAllowsDifferentPartitionsButRejectsDuplicateCompositeIdentity
 
 func TestIntentListRejectsUncommittedOrMalformedPayloadDigests(t *testing.T) {
 	legacy := Intent{
-		SchemaVersion: legacyIntentSchemaVersion, DatabaseID: "db-legacy", PartitionID: "partition-a",
+		SchemaVersion: 1, DatabaseID: "0000000000AJ79CD84K5P2YR0E", PartitionID: "0000000000Z3WK359G2W66CVT8",
 		ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: 1,
 	}
 	managed := validIntent(oci.RegionGRU)
@@ -137,48 +137,6 @@ func TestIntentListRejectsUncommittedOrMalformedPayloadDigests(t *testing.T) {
 	}
 }
 
-func TestIntentListReturnsCommittedHistoricalAndManagedIntentsInStableOrder(t *testing.T) {
-	legacy := Intent{
-		SchemaVersion: legacyIntentSchemaVersion, DatabaseID: "db-legacy", PartitionID: "partition-a",
-		ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: 1,
-	}
-	managed := validIntent(oci.RegionGRU)
-	legacy = committedIntentForTest(t, legacy)
-	managed = committedIntentForTest(t, managed)
-	store := &jetStreamStore{cell: "gru", intents: intentReaderFunc(func(context.Context, string) ([]Intent, error) {
-		return []Intent{managed, legacy}, nil
-	})}
-	intents, err := store.ListIntents(context.Background())
-	if err != nil {
-		t.Fatalf("list mixed historical and managed intents: %v", err)
-	}
-	want := []Intent{legacy, managed}
-	if !reflect.DeepEqual(intents, want) {
-		t.Fatalf("mixed placement intents = %#v, want sorted list %#v", intents, want)
-	}
-	for _, intent := range intents {
-		if !validLowerSHA256Digest(intent.PayloadDigest()) {
-			t.Fatalf("schema %d intent lost its committed payload digest: %q", intent.SchemaVersion, intent.PayloadDigest())
-		}
-	}
-	if intents[0].SchemaVersion != legacyIntentSchemaVersion || intents[1].SchemaVersion != IntentSchemaVersion {
-		t.Fatalf("mixed intent schema order = %d, %d; want database/partition sort order", intents[0].SchemaVersion, intents[1].SchemaVersion)
-	}
-
-	managedDuplicate := validIntent(oci.RegionGRU)
-	managedDuplicate.DatabaseID = legacy.DatabaseID
-	managedDuplicate.PartitionID = legacy.PartitionID
-	managedDuplicate = committedIntentForTest(t, managedDuplicate)
-	store.intents = intentReaderFunc(func(context.Context, string) ([]Intent, error) {
-		return []Intent{legacy, managedDuplicate}, nil
-	})
-	if _, err := store.ListIntents(context.Background()); !errors.Is(err, ErrInvalidIntent) {
-		t.Fatalf("cross-schema duplicate identity error = %v, want ErrInvalidIntent", err)
-	}
-}
-
-type intentReaderFunc func(context.Context, string) ([]Intent, error)
-
 func committedIntentForTest(t *testing.T, intent Intent) Intent {
 	t.Helper()
 	payload, err := protocol.EncodeJSON(intent)
@@ -199,3 +157,5 @@ func (reader intentReaderFunc) ListPlacementIntents(ctx context.Context, cell st
 func (intentReaderFunc) ReadTerminalIntent(context.Context, string, string) (authority.LogEntry, error) {
 	return authority.LogEntry{}, authority.ErrNotFound
 }
+
+type intentReaderFunc func(context.Context, string) ([]Intent, error)

@@ -222,7 +222,7 @@ func TestOrchestratorRejectsInvalidSnapshot(t *testing.T) {
 		{"not ready", func(s *observability.MemberSnapshot) { s.Ready = false }, "FAIL"},
 		{"missing build", func(s *observability.MemberSnapshot) { s.BuildVersion = "" }, "FAIL"},
 		{"missing member", func(s *observability.MemberSnapshot) { s.Member = "" }, "FAIL"},
-		{"stale", func(s *observability.MemberSnapshot) { s.ObservedAt = time.Now().Add(-time.Minute) }, "FAIL"},
+		{"0000000000RNVXNPAX5Y5BB8RY", func(s *observability.MemberSnapshot) { s.ObservedAt = time.Now().Add(-time.Minute) }, "FAIL"},
 		{"future", func(s *observability.MemberSnapshot) { s.ObservedAt = time.Now().Add(time.Minute) }, "FAIL"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

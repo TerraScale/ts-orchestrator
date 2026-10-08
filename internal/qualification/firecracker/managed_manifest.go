@@ -18,6 +18,8 @@ import (
 	"syscall"
 	"uuid"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"golang.org/x/sys/unix"
 )
 
@@ -32,8 +34,8 @@ const RustFSImage = "docker.io/rustfs/rustfs@sha256:ba0a1b53e36f321c0d46f3867104
 var ManagedGuestIPs = map[string]string{"a": "10.77.39.11", "b": "10.77.39.12"}
 var ManagedGuestMACs = map[string]string{"a": "02:fc:77:39:00:01", "b": "02:fc:77:39:00:02"}
 var ManagedVolumeUUIDs = map[string]string{"a": "76f1b43d-7d79-4f41-9a6e-cc1f4aaab102", "b": "76f1b43d-7d79-4f41-9a6e-cc1f4aaab103"}
-var ManagedMemberIDs = map[string]string{"a": "018f0000-0000-7000-8000-000000000001", "b": "018f0000-0000-7000-8000-000000000002"}
-var ManagedMemberDirs = map[string]string{"a": "/srv/ts-managed/6efe9447512debbf02bcd921c78d666c", "b": "/srv/ts-managed/948d999055329358cc417bcc96edb470"}
+var ManagedMemberIDs = map[string]string{"a": "01HW000000E008000000000001", "b": "01HW000000E008000000000002"}
+var ManagedMemberDirs = map[string]string{"a": "/srv/ts-managed/a7d686b2920f18ea45a75e47ff9cd46e", "b": "/srv/ts-managed/876d955c0b319006125266730d25349c"}
 var ManagedMaterials = [][2]string{{"authority_tbca", "authority.tbca"}, {"trusted_public_key", "trusted-public-key"}, {"server_crt", "server.crt"}, {"server_key", "server.key"}, {"client_ca_pem", "client-ca.pem"}, {"server_ca_pem", "server-ca.pem"}, {"client_managed_manifest", "client-managed-manifest.json"}, {"client_config", "client-config.json"}, {"client_chain", "client-chain.pem"}, {"client_private_key", "client-private-key.pem"}, {"client_api_keys", "client-api-keys.json"}, {"signed_v2_s3_config", "signed-v2-s3-config.json"}}
 var ManagedCommonInputs = []string{"kernel", "rootfs", "firecracker", "go_host_test", "tb_server"}
 var ManagedMemberInputs = []string{"volume_ext4", "authority_tbca", "trusted_public_key", "server_crt", "server_key", "client_ca_pem", "server_ca_pem", "client_managed_manifest", "client_config", "client_chain", "client_private_key", "client_api_keys", "client_api_token", "client_https_ca_pem", "signed_v2_s3_config"}
@@ -379,11 +381,11 @@ func ValidateManagedConfig(member string, c Object, inputs map[string]ManagedInp
 		return fmt.Errorf("%s: guest_config has unexpected or missing fields", member)
 	}
 	fault := "FAULT-DOMAIN-1"
-	inc := "bb"
+	inc := "5VQEXVQEXVQEXVQEXVQEXVQEXV"
 	peer := "b"
 	if member == "b" {
 		fault = "FAULT-DOMAIN-2"
-		inc = "cc"
+		inc = "6CSK6CSK6CSK6CSK6CSK6CSK6C"
 		peer = "a"
 	}
 	if !exactValue(c["version"], 1) || c["node"] != "node-"+member || c["failure_domain"] != fault {
@@ -395,10 +397,10 @@ func ValidateManagedConfig(member string, c Object, inputs map[string]ManagedInp
 	}
 	scope := object(binding["scope"])
 	shard, shardOK := integerExact(scope["shard_id"])
-	if !exactFields(scope, []string{"cluster_id", "tenant_id", "database_id", "shard_id", "member_id", "incarnation"}) || !regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString(str(scope["cluster_id"])) || !CanonicalUUID(str(scope["tenant_id"])) || !CanonicalUUID(str(scope["database_id"])) || !CanonicalUUID(str(scope["member_id"])) || scope["member_id"] != ManagedMemberIDs[member] || !shardOK || shard == 0 || !regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString(str(scope["incarnation"])) {
+	if !exactFields(scope, []string{"cluster_id", "tenant_id", "database_id", "shard_id", "member_id", "incarnation"}) || !entityid.Valid(str(scope["cluster_id"])) || !entityid.Valid(str(scope["tenant_id"])) || !entityid.Valid(str(scope["database_id"])) || !entityid.Valid(str(scope["member_id"])) || scope["member_id"] != ManagedMemberIDs[member] || !shardOK || shard == 0 || !entityid.Valid(str(scope["incarnation"])) {
 		return fmt.Errorf("%s: member scope is malformed", member)
 	}
-	if scope["incarnation"] != strings.Repeat(inc, 16) {
+	if scope["incarnation"] != inc {
 		return fmt.Errorf("%s: member incarnation mismatch", member)
 	}
 	if ManagedMemberDirectory(scope, 1) != ManagedMemberDirs[member] {
@@ -439,7 +441,7 @@ func ValidateManagedConfig(member string, c Object, inputs map[string]ManagedInp
 	if !exactValue(c["system_reserve_bytes"], 1<<30) {
 		return fmt.Errorf("%s: signed system reserve mismatch", member)
 	}
-	if c["collection_id"] != "21212121-2121-2121-2121-212121212121" || c["document_id"] != "018f0000-0000-7000-8000-000000000021" || !exactValue(c["schema_generation"], 1) || !shaPattern.MatchString(str(c["schema_digest"])) {
+	if c["collection_id"] != "1144GJ289144GJ289144GJ2891" || c["document_id"] != "01HW000000E008000000000011" || !exactValue(c["schema_generation"], 1) || !shaPattern.MatchString(str(c["schema_digest"])) {
 		return fmt.Errorf("%s: active document binding mismatch", member)
 	}
 	return nil

@@ -130,7 +130,7 @@ func TestRolloutExecutorUpdatesARunningCell(t *testing.T) {
 	if reply := command("publish", "good", 0); reply.Status != "published" || reply.Desired == nil || reply.Desired.Generation != 1 {
 		t.Fatalf("publish = %+v", reply)
 	}
-	waitPhase("release-g1-controllers", rollout.PhaseComplete)
+	waitPhase("0000000000N710EPNTQEYZ67K1", rollout.PhaseComplete)
 	waitSettled("good")
 	if order := starts.on(digests["good"]); !slices.Equal(order, []string{"ctl-b", "ctl-c", "ctl-a"}) {
 		t.Fatalf("controllers moved as %v, want one per wave and the seed last", order)

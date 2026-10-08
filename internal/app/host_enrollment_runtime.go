@@ -16,6 +16,8 @@ import (
 	"reflect"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
@@ -26,7 +28,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
-	"uuid"
 )
 
 func hostNATSUserPublicKey(config natscell.Config) (string, error) {
@@ -427,7 +428,7 @@ func (enrollment *managedHostEnrollment) beginGrantMutation(ctx context.Context,
 	if !ok {
 		return "", 0, errors.New("managed host enrollment requires an R3 grant effect journal")
 	}
-	effectID := uuid.New().String()
+	effectID := entityid.New()
 	scope := authority.WorkloadScope{DatabaseID: descriptor.DatabaseID, PartitionID: descriptor.PartitionID}
 	sequence, err := journal.BeginEnrollmentEffect(ctx, epoch, scope, effectID, instanceID)
 	if err != nil {
@@ -554,6 +555,7 @@ func (enrollment *managedHostEnrollment) registration(ctx context.Context, reque
 		return host.Registration{}, errors.New("host enrollment memory profile exceeds signed range")
 	}
 	return host.Registration{
+		ID:   entityid.Derive("host", enrollment.cell, descriptor.Node),
 		Cell: enrollment.cell, Node: descriptor.Node, FailureDomain: row.FailureDomain,
 		Environment: enrollment.environment, Roles: []string{"terrabase"},
 		PublicKey: request.IdentityPublicKey, NATSUserPublicKey: request.NATSUserPublicKey,

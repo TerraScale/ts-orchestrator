@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/nats-io/nats.go/jetstream"
@@ -69,7 +71,7 @@ func (reader authorityIntentReader) ListPlacementIntents(ctx context.Context, ce
 	}
 	result := make([]Intent, 0, len(entries))
 	for _, entry := range entries {
-		if entry.Kind != authority.MutationPlacementIntent || entry.Sequence == 0 || entry.Epoch == 0 || !validToken(entry.OperationID) {
+		if entry.Kind != authority.MutationPlacementIntent || entry.Sequence == 0 || entry.Epoch == 0 || !entityid.Valid(entry.OperationID) {
 			return nil, fmt.Errorf("%w: malformed ordered placement log identity", ErrInvalidIntent)
 		}
 		intent, err := DecodeCommittedIntent(entry.Payload)
@@ -172,7 +174,7 @@ func (store *jetStreamStore) ReadTerminalIntent(ctx context.Context, databaseID,
 }
 
 func (store *jetStreamStore) ListMembers(ctx context.Context, databaseID, partitionID string) ([]VersionedMemberState, error) {
-	if !validDatabaseKeyID(databaseID) || !validBoundedToken(partitionID, maxPartitionIDLength) {
+	if !validDatabaseKeyID(databaseID) || !entityid.Valid(partitionID) {
 		return nil, fmt.Errorf("%w: database or partition id", ErrInvalidIntent)
 	}
 	keys, err := store.state.Keys(ctx)
@@ -182,11 +184,10 @@ func (store *jetStreamStore) ListMembers(ctx context.Context, databaseID, partit
 	if err != nil {
 		return nil, err
 	}
-	prefix := memberStatePrefix(databaseID, partitionID)
 	result := make([]VersionedMemberState, 0)
 	for _, key := range keys {
-		if !strings.HasPrefix(key, prefix) {
-			continue
+		if !entityid.Valid(key) {
+			return nil, fmt.Errorf("%w: invalid member key", ErrStoreCorrupt)
 		}
 		entry, err := store.state.Get(ctx, key)
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
@@ -202,8 +203,11 @@ func (store *jetStreamStore) ListMembers(ctx context.Context, databaseID, partit
 		if err := json.Unmarshal(entry.Value(), &state, json.RejectUnknownMembers(true)); err != nil {
 			return nil, fmt.Errorf("%w: decode %s: %v", ErrStoreCorrupt, key, err)
 		}
-		if err := state.Validate(); err != nil || state.DatabaseID != databaseID || state.PartitionID != partitionID || memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID) != key {
+		if err := state.Validate(); err != nil || memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID) != key {
 			return nil, fmt.Errorf("%w: invalid state at %s", ErrStoreCorrupt, key)
+		}
+		if state.DatabaseID != databaseID || state.PartitionID != partitionID {
+			continue
 		}
 		result = append(result, VersionedMemberState{State: state, Revision: entry.Revision()})
 	}
@@ -214,8 +218,8 @@ func (store *jetStreamStore) ListMembers(ctx context.Context, databaseID, partit
 }
 
 func (store *jetStreamStore) ReadMember(ctx context.Context, databaseID, partitionID, seatID string) (VersionedMemberState, error) {
-	if !validDatabaseKeyID(databaseID) || !validBoundedToken(partitionID, maxPartitionIDLength) ||
-		!validToken(seatID) {
+	if !validDatabaseKeyID(databaseID) || !entityid.Valid(partitionID) ||
+		!entityid.Valid(seatID) {
 		return VersionedMemberState{}, fmt.Errorf("%w: database, partition, or seat id", ErrInvalidIntent)
 	}
 	key := memberStateKey(databaseID, partitionID, seatID)
@@ -267,12 +271,8 @@ func (store *jetStreamStore) CompareAndSwap(ctx context.Context, expected uint64
 	return revision, nil
 }
 
-func memberStatePrefix(databaseID, partitionID string) string {
-	return "member." + databaseID + "." + partitionID + "."
-}
-
 func memberStateKey(databaseID, partitionID, memberID string) string {
-	return memberStatePrefix(databaseID, partitionID) + memberID
+	return entityid.Derive("placement-member", databaseID, partitionID, memberID)
 }
 
 var _ Store = (*jetStreamStore)(nil)

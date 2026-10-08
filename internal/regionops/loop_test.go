@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -121,7 +123,7 @@ func TestLoopAdmitsSubscribesAndWaitsOnTheGlobalLeader(t *testing.T) {
 		},
 		Now: func() time.Time { return clock }}
 
-	proposal := regionlifecycle.Proposal{ID: "sfo-g1-0123456789ab", Cell: "sfo", OCIRegion: "us-sanjose-1",
+	proposal := regionlifecycle.Proposal{ID: entityid.Derive("test-proposal", "sfo-g1-0123456789ab"), Cell: "sfo", OCIRegion: "us-sanjose-1",
 		Reason: "planner: capacity", EvidenceDigests: []string{"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
 		EstimatedMonthlyCents: 9_000, ProposedAt: start}
 	record, err := machine.Propose(proposal, start)
@@ -264,7 +266,7 @@ func TestAdmissionRefusalsAreJournaledOnce(t *testing.T) {
 		AdmissionTTL: regionlifecycle.DefaultAdmissionTTL, ProposalTTL: 72 * time.Hour,
 		ApprovalMaxLifetime: 7 * 24 * time.Hour, ClockSkew: time.Minute, MinIdle: 14 * 24 * time.Hour,
 		Approvers: map[string]ed25519.PublicKey{approver: public}}}
-	proposal := regionlifecycle.Proposal{ID: "fra-g1-0123456789ab", Cell: "fra", OCIRegion: "eu-frankfurt-1",
+	proposal := regionlifecycle.Proposal{ID: entityid.Derive("test-proposal", entityid.Derive("test-proposal", "fra-g1-0123456789ab")), Cell: "fra", OCIRegion: "eu-frankfurt-1",
 		Reason: "planner: latency", EvidenceDigests: []string{"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
 		EstimatedMonthlyCents: 9_000, ProposedAt: now}
 	payload, err := protocol.EncodeJSON(regionlifecycle.ApprovalPayload{Cell: "fra", ProposalDigest: proposal.Digest(),
@@ -317,7 +319,7 @@ func TestAdmissionRefusalsAreJournaledOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := proposal
-	second.ID = "fra-g2-0123456789ab"
+	second.ID = entityid.Derive("test-proposal", "fra-g2")
 	reproposed, err := machine.Repropose(rejected, second, now)
 	if err != nil {
 		t.Fatal(err)
@@ -369,7 +371,7 @@ func mustProposed(t *testing.T, machine regionlifecycle.Machine, proposal region
 func startGlobalAuthority(ctx context.Context, t *testing.T, js jetstream.JetStream) *authority.Runtime {
 	t.Helper()
 	runtime, err := authority.Start(ctx, js, authority.Config{
-		Scope: protocol.GlobalScope, CandidateID: "gru-a", Replicas: 1,
+		Scope: protocol.GlobalScope, CandidateID: "0000000000F2D374M7NMRHJJQT", Replicas: 1,
 		LeaseDuration: 5 * time.Second, RenewInterval: 500 * time.Millisecond,
 	})
 	if err != nil {
@@ -433,7 +435,7 @@ func TestDriveWithoutEffectorsJournalsTheWait(t *testing.T) {
 		AdmissionTTL: regionlifecycle.DefaultAdmissionTTL, ProposalTTL: 72 * time.Hour,
 		ApprovalMaxLifetime: 7 * 24 * time.Hour, ClockSkew: time.Minute, MinIdle: 14 * 24 * time.Hour,
 		Approvers: map[string]ed25519.PublicKey{approver: public}}}
-	proposal := regionlifecycle.Proposal{ID: "fra-g1-0123456789ab", Cell: "fra", OCIRegion: "eu-frankfurt-1",
+	proposal := regionlifecycle.Proposal{ID: entityid.Derive("test-proposal", entityid.Derive("test-proposal", "fra-g1-0123456789ab")), Cell: "fra", OCIRegion: "eu-frankfurt-1",
 		Reason: "planner: latency", EvidenceDigests: []string{"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
 		EstimatedMonthlyCents: 9_000, ProposedAt: now}
 	payload, err := protocol.EncodeJSON(regionlifecycle.ApprovalPayload{Cell: "fra", ProposalDigest: proposal.Digest(),

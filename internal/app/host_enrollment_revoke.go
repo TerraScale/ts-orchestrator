@@ -3,8 +3,6 @@ package app
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -12,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
@@ -39,8 +39,7 @@ type hostEnrollmentRevokeReply struct {
 }
 
 func hostEnrollmentRevokeOperationID(instanceID string) string {
-	sum := sha256.Sum256([]byte(instanceID))
-	return "host-enrollment-revoke." + hex.EncodeToString(sum[:])
+	return entityid.Derive("host-enrollment-revoke", instanceID)
 }
 
 func operatorHostEnrollmentRevoke(ctx context.Context, cfg Config, runtime *natscell.Runtime,

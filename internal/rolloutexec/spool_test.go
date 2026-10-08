@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
@@ -73,8 +75,8 @@ func newBoardFixture(t *testing.T) *boardFixture {
 }
 
 func (f *boardFixture) step() Step {
-	return Step{RolloutID: "rel1-controllers", Kind: rollout.KindController, Unit: "ctl-b",
-		OperationID: rollout.OperationID("rel1-controllers", "ctl-b", rollout.PhaseCanary, 0), Action: StepPrepare,
+	return Step{RolloutID: entityid.Derive("release-controllers", "rel1"), Kind: rollout.KindController, Unit: "ctl-b",
+		OperationID: rollout.OperationID(entityid.Derive("release-controllers", "rel1"), "ctl-b", rollout.PhaseCanary, 0), Action: StepPrepare,
 		Digest: f.to, Replaces: f.from, Epoch: 7, ProofWindow: 10 * time.Minute}
 }
 
@@ -132,7 +134,7 @@ func signTestRelease(t *testing.T, data []byte, now time.Time) ([]byte, []byte, 
 	source := strings.Repeat("e", 40)
 	delegation, err := trust.SignDelegation(trust.Delegation{
 		SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encoded,
-		Capabilities: []trust.Capability{{Domain: release.BinaryDomain, DeploymentID: source, Cell: "BUILD",
+		Capabilities: []trust.Capability{{Domain: release.BinaryDomain, DeploymentID: entityid.Derive("build", source), Cell: "BUILD",
 			Environment: "canary", Role: "artifact", Slots: []string{"linux-" + runtime.GOARCH}, Actions: []string{"sign"}}},
 	}, now.Add(-time.Minute), now.Add(time.Hour), rootPrivate)
 	if err != nil {

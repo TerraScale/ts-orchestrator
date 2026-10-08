@@ -34,7 +34,7 @@ func TestSDKClientImportsIntoStandIn(t *testing.T) {
 		t.Helper()
 		err := imageimport.RunImporters(t.Context(), []string{"--qcow2", qcow2, "--sha256", digest,
 			"--compartment-id", "ocid1.compartment.oc1..c", "--namespace", "ns", "--bucket", "images",
-			"--display-name", "terrascale-test", "--out", out}, io.Discard, imageimporttest.Importer(region.URL))
+			"--display-name", "0000000000EKYENDPQ5JG1M4A1", "--out", out}, io.Discard, imageimporttest.Importer(region.URL))
 		if err != nil {
 			t.Fatalf("%v\nrequests: %q", err, region.Requests())
 		}

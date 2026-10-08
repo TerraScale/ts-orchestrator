@@ -43,9 +43,9 @@ func TestFullPageWithUnsearchedHistoryIsTruncated(t *testing.T) {
 
 func TestArchiveScanSkipsSkewedRecordsInsteadOfStopping(t *testing.T) {
 	base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	older := Decision{ID: "older", Region: "gru", Kind: KindHeld, Time: base.Add(time.Minute)}
+	older := Decision{ID: "00000000007M2BHZ0MP819C5RF", Region: "gru", Kind: KindHeld, Time: base.Add(time.Minute)}
 	// Published first by a controller whose clock runs ahead.
-	ahead := Decision{ID: "ahead", Region: "gru", Kind: KindHeld, Time: base.Add(4 * time.Minute)}
+	ahead := Decision{ID: "0000000000HPQQ4SQ462GH8ZMJ", Region: "gru", Kind: KindHeld, Time: base.Add(4 * time.Minute)}
 	newest := []Decision{{ID: "n1", Region: "gru", Kind: KindHeld, Time: base.Add(5 * time.Minute)},
 		{ID: "n2", Region: "gru", Kind: KindHeld, Time: base.Add(6 * time.Minute)}}
 	archive := &fakeArchive{complete: true, decisions: []Decision{ahead, older, newest[0], newest[1]}}
@@ -60,7 +60,7 @@ func TestArchiveScanSkipsSkewedRecordsInsteadOfStopping(t *testing.T) {
 	for _, decision := range result.Decisions {
 		found[decision.ID] = true
 	}
-	if !found["older"] {
+	if !found["00000000007M2BHZ0MP819C5RF"] {
 		t.Fatalf("an archived record behind a skewed one was skipped: %+v", result)
 	}
 }
@@ -139,7 +139,7 @@ func TestReplayedRecordRepublishesUntilDurable(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	go func() { _ = journal.Run(ctx) }()
-	decision := Decision{ID: "mu-admission", Kind: KindReleaseAdmitted, Summary: "admitted"}
+	decision := Decision{ID: "0000000000NV66QQK0A0C5BBG2", Kind: KindReleaseAdmitted, Summary: "admitted"}
 	journal.Record(ctx, decision)
 	waitFor(t, func() bool { return journal.Stats().PublishFailed == 1 })
 	journal.Record(ctx, decision)
@@ -247,7 +247,7 @@ func TestOversizedChainReplyKeepsRootAndRequested(t *testing.T) {
 // still found in the archive.
 func TestChainFindsEvictedDeterministicIDInArchive(t *testing.T) {
 	now := time.Now().UTC()
-	admission := Decision{ID: "mu0123456789abcdef", Region: "gru", Kind: KindReleaseAdmitted, Time: now.Add(-48 * time.Hour)}
+	admission := Decision{ID: "0000000000FKJSKJAEWPGR20W7", Region: "gru", Kind: KindReleaseAdmitted, Time: now.Add(-48 * time.Hour)}
 	phase := Decision{ID: newIDAt(now.Add(-time.Hour)), Region: "gru", Kind: KindUpgradeStarted,
 		ParentID: admission.ID, Time: now.Add(-time.Hour)}
 	other := Decision{ID: newIDAt(now), Region: "gru", Kind: KindHeld, Time: now}

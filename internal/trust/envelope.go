@@ -18,6 +18,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -26,7 +28,7 @@ const (
 	MaxPayloadBytes           = 1 << 20
 	MaxEnvelopeBytes          = MaxPayloadBytes + 16<<10
 	DelegationDomain          = "terrascale.trust.delegation"
-	delegationDeployment      = "root"
+	DelegationDeploymentID    = "0000000000XXZR988BPPNZ2B32"
 	delegationCell            = "global"
 	delegationEnvironment     = "global"
 	delegationRole            = "delegate"
@@ -340,7 +342,7 @@ func (delegation Delegation) Validate() error {
 
 func (capability Capability) validate() error {
 	if !domainRE.MatchString(capability.Domain) || capability.Domain == DelegationDomain ||
-		!identityRE.MatchString(capability.DeploymentID) || !cellRE.MatchString(capability.Cell) ||
+		!entityid.Valid(capability.DeploymentID) || !cellRE.MatchString(capability.Cell) ||
 		!tokenRE.MatchString(capability.Environment) || !tokenRE.MatchString(capability.Role) ||
 		len(capability.Slots) == 0 || len(capability.Slots) > maxCapabilitySlots || len(capability.Actions) != 1 || capability.Actions[0] != "sign" {
 		return fmt.Errorf("%w: invalid delegation capability", ErrInvalid)
@@ -443,7 +445,7 @@ func (scope Scope) validate() error {
 	if scope.Domain == DelegationDomain && scope == delegationScope() {
 		return nil
 	}
-	if !identityRE.MatchString(scope.DeploymentID) || !cellRE.MatchString(scope.Cell) ||
+	if !entityid.Valid(scope.DeploymentID) || !cellRE.MatchString(scope.Cell) ||
 		!tokenRE.MatchString(scope.Environment) || !tokenRE.MatchString(scope.Role) || !slotRE.MatchString(scope.Slot) {
 		return fmt.Errorf("%w: incomplete or invalid scope", ErrInvalid)
 	}
@@ -452,7 +454,7 @@ func (scope Scope) validate() error {
 
 func delegationScope() Scope {
 	return Scope{
-		Domain: DelegationDomain, DeploymentID: delegationDeployment, Cell: delegationCell,
+		Domain: DelegationDomain, DeploymentID: DelegationDeploymentID, Cell: delegationCell,
 		Environment: delegationEnvironment, Role: delegationRole, Slot: delegationSlot,
 	}
 }

@@ -62,11 +62,11 @@ func TestOperatorPlacementListEmptyCurrentSet(t *testing.T) {
 func TestOperatorPlacementListSortsCurrentIdentityWithoutPayload(t *testing.T) {
 	base := testManagedPlacementIntent()
 	first := base
-	first.DatabaseID, first.PartitionID, first.Generation = "db-z", "partition-a", 3
+	first.DatabaseID, first.PartitionID, first.Generation = "0000000000ZYVVW9EMWY1PE1VX", "0000000000Z3WK359G2W66CVT8", 3
 	second := base
-	second.DatabaseID, second.PartitionID, second.Generation = "db-a", "partition-b", 8
+	second.DatabaseID, second.PartitionID, second.Generation = "00000000001Y9Z8VKC1VV66J6B", "00000000001WFHC56Q8NB0X6T8", 8
 	third := base
-	third.DatabaseID, third.PartitionID, third.Generation = "db-a", "partition-a", 9
+	third.DatabaseID, third.PartitionID, third.Generation = "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", 9
 	firstEntry, firstDigest := placementListEntry(t, first, 3)
 	secondEntry, secondDigest := placementListEntry(t, second, 2)
 	thirdEntry, thirdDigest := placementListEntry(t, third, 1)
@@ -87,9 +87,9 @@ func TestOperatorPlacementListSortsCurrentIdentityWithoutPayload(t *testing.T) {
 		database, partition, operation, digest string
 		generation                             uint64
 	}{
-		{"db-a", "partition-a", third.OperationID(), thirdDigest, 9},
-		{"db-a", "partition-b", second.OperationID(), secondDigest, 8},
-		{"db-z", "partition-a", first.OperationID(), firstDigest, 3},
+		{"00000000001Y9Z8VKC1VV66J6B", "00000000001WFHC56Q8NB0X6T8", second.OperationID(), secondDigest, 8},
+		{"00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", third.OperationID(), thirdDigest, 9},
+		{"0000000000ZYVVW9EMWY1PE1VX", "0000000000Z3WK359G2W66CVT8", first.OperationID(), firstDigest, 3},
 	} {
 		row := got.Placements[index]
 		if row.DatabaseID != want.database || row.PartitionID != want.partition ||

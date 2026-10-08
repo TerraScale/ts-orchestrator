@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"golang.org/x/sys/unix"
 )
 
@@ -182,11 +184,11 @@ func encodeNativeValidationRequest(input NativeMaterialInput) ([]byte, error) {
 	}
 	backupPresent := len(input.BackupManagedManifest) > 0
 	if backupPresent {
-		set, err := hex.DecodeString(input.ExpectedBackupSet)
+		set, err := entityid.Parse(input.ExpectedBackupSet)
 		if len(input.BackupManagedManifest) > 16<<10 || len(input.BackupS3Config) == 0 ||
 			len(input.BackupS3Config) > 16<<10 || !lowerHexDigest(input.ExpectedBackupTargetDigest) ||
-			err != nil || len(set) != 16 || hex.EncodeToString(set) != input.ExpectedBackupSet ||
-			bytes.Equal(set, make([]byte, 16)) ||
+			err != nil || len(set) != 16 || !entityid.Valid(input.ExpectedBackupSet) ||
+			bytes.Equal(set[:], make([]byte, 16)) ||
 			input.ExpectedBackupTargetDigest == input.ExpectedS3TargetDigest {
 			return nil, errors.New("native backup material validation input is incomplete")
 		}

@@ -36,7 +36,7 @@ func TestOpenCustomerEnvelopeUsesProducerWireAndRecipient(t *testing.T) {
 		t.Fatal("tampered customer ciphertext opened")
 	}
 	otherSpec := spec
-	otherSpec.PartitionID = "partition-b"
+	otherSpec.PartitionID = "00000000001WFHC56Q8NB0X6T8"
 	if _, err := OpenCustomerEnvelope(otherSpec, bundle.Customer, recipient); err == nil {
 		t.Fatal("different preparation context opened customer envelope")
 	}

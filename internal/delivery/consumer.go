@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
@@ -641,7 +643,7 @@ func validatePlan(intent Intent, shape PlanShape, plan []host.Desired) error {
 // so a signer or grant revoked since then stops it.
 func (s *Service) verifiedIntent(ctx context.Context, wire []byte) (Intent, string, error) {
 	sum := sha256.Sum256(wire)
-	key := "w_" + hex.EncodeToString(sum[:])
+	key := entityid.Derive("delivery-verified", hex.EncodeToString(sum[:]))
 	e, err := s.getOperation(ctx, key)
 	if err == nil {
 		var cached struct {
@@ -688,7 +690,7 @@ func (s *Service) verifiedIntent(ctx context.Context, wire []byte) (Intent, stri
 
 func (s *Service) reject(ctx context.Context, wire []byte, reason string) (bool, error) {
 	sum := sha256.Sum256(wire)
-	key := "r_" + hex.EncodeToString(sum[:])
+	key := entityid.Derive("delivery-rejected", hex.EncodeToString(sum[:]))
 	b, err := json.Marshal(Receipt{Fingerprint: hex.EncodeToString(sum[:]), Status: "rejected", Error: reason})
 	if err != nil {
 		return false, err

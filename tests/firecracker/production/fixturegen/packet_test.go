@@ -30,7 +30,7 @@ func packetFixture(t *testing.T) (string, Manifest, ed25519.PrivateKey, trust.Ke
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest := Manifest{SchemaVersion: ManifestVersion, DeploymentID: "deployment-a", Cell: "GRU",
+	manifest := Manifest{SchemaVersion: ManifestVersion, DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "GRU",
 		Environment: "production", FixtureNow: time.Now().UTC().Truncate(time.Second),
 		Binary: BinaryInput{Path: "input/orchestrator", GuestPath: "/usr/local/bin/terrascale-orchestrator", Architecture: "amd64"}}
 	for _, name := range RequiredSourcePaths() {
@@ -39,7 +39,7 @@ func packetFixture(t *testing.T) (string, Manifest, ed25519.PrivateKey, trust.Ke
 	add := func(name string, body []byte) {
 		t.Helper()
 		owner, mode := expectedOwnership(name, map[string]string{
-			"controller-a": "a", "controller-b": "b", "seed-a": "seed",
+			"controller-a": "a", "controller-b": "b", "seed-a": "0000000000SF1REEJJX6TC691V",
 		})
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, filepath.FromSlash(name))), 0o700); err != nil {
 			t.Fatal(err)

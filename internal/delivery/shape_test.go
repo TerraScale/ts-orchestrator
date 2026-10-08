@@ -26,7 +26,7 @@ func (p shapedPlanner) PlanShaped(_ context.Context, i Intent) (PlanShape, []hos
 
 func TestValidatePlanHonoursRecordedShape(t *testing.T) {
 	digest := strings.Repeat("a", 64)
-	intent := Intent{SchemaVersion: SchemaVersion, OperationID: "deploy-shaped", ArtifactDigest: digest,
+	intent := Intent{SchemaVersion: SchemaVersion, OperationID: "0000000000EDPXMR5BWKVR88BY", ArtifactDigest: digest,
 		ManifestDigest: digest, Cell: "lab", Role: "worker", Environment: "production", Generation: 3,
 		DesiredReplicas: 1, ConfigDigest: ConfigDigestOf(nil, nil, nil), AuthorityEpoch: 1}
 	shape := PlanShape{Generation: intent.Generation << 24, Replicas: 3}

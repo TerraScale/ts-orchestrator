@@ -55,8 +55,8 @@ func TestBackupStatusReplyExposesCompleteEvidenceOnlyAfterRelease(t *testing.T) 
 		t.Fatal(err)
 	}
 	record := authority.BackupOperationRecord{
-		DatabaseID: "database-a", PartitionID: "partition-a",
-		OperationID:        "77777777-7777-7777-7777-777777777777",
+		DatabaseID: "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8",
+		OperationID:        "3QEXVQEXVQEXVQEXVQEXVQEXVQ",
 		PublicationReceipt: []byte(fixture.PublishedHead.EnvelopeJSON),
 		CompleteRelease:    []byte(fixture.CompleteRelease.EnvelopeJSON),
 	}
@@ -87,8 +87,8 @@ func TestBackupStatusOperatorRejectsSignedReplyOver64KiB(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload, err := protocol.EncodeJSON(backupOperationReply{
-		DatabaseID: "database-a", PartitionID: "partition-a",
-		OperationID: "77777777-7777-7777-7777-777777777777", State: "complete",
+		DatabaseID: "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8",
+		OperationID: "3QEXVQEXVQEXVQEXVQEXVQEXVQ", State: "complete",
 		PublicationReceipt: strings.Repeat("r", maxBackupStatusReplyBytes),
 	})
 	if err != nil {
@@ -97,7 +97,7 @@ func TestBackupStatusOperatorRejectsSignedReplyOver64KiB(t *testing.T) {
 	now := time.Now().UTC()
 	signed, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{
 		Region: "gru", Kind: "backup.operation.reply", Actor: "controller",
-		OperationID: "88888888-8888-8888-8888-888888888888", Generation: 1, Epoch: 1,
+		OperationID: "48H248H248H248H248H248H248", Generation: 1, Epoch: 1,
 	}, now, now.Add(time.Minute), private)
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +122,7 @@ func TestBackupCompleteMaximumStatusFitsSigned64KiBFrameSizeModel(t *testing.T) 
 	}
 	reply := backupOperationReply{
 		DatabaseID: strings.Repeat("d", 63), PartitionID: strings.Repeat("p", 63),
-		OperationID: "77777777-7777-7777-7777-777777777777", State: "complete",
+		OperationID: "3QEXVQEXVQEXVQEXVQEXVQEXVQ", State: "complete",
 		Ordinal: maxUint, Attempt: maxUint, Sequence: maxUint,
 		PublicationReceipt: string(sizeOnlyBackupEnvelopeAtMost(t, 18<<10, private)),
 		CompleteRelease:    string(sizeOnlyBackupEnvelopeAtMost(t, 30<<10, private)),
@@ -134,7 +134,7 @@ func TestBackupCompleteMaximumStatusFitsSigned64KiBFrameSizeModel(t *testing.T) 
 	now := time.Now().UTC()
 	signed, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{
 		Region: "gru", Kind: "backup.operation.reply", Actor: "controller",
-		OperationID: "88888888-8888-8888-8888-888888888888", Generation: 1, Epoch: 1,
+		OperationID: "48H248H248H248H248H248H248", Generation: 1, Epoch: 1,
 	}, now, now.Add(time.Minute), private)
 	if err != nil {
 		t.Fatal(err)
@@ -149,7 +149,7 @@ func TestBackupCompleteMaximumStatusFitsSigned64KiBFrameSizeModel(t *testing.T) 
 	}
 	if err := protocol.VerifyEnvelope(decoded, protocol.EnvelopeScope{
 		Region: "gru", Kind: "backup.operation.reply", Actor: "controller",
-		OperationID: "88888888-8888-8888-8888-888888888888", Generation: 1, Epoch: 1,
+		OperationID: "48H248H248H248H248H248H248", Generation: 1, Epoch: 1,
 	}, private.Public().(ed25519.PublicKey), time.Now().UTC(), protocol.VerifyPolicy{
 		MaxLifetime: time.Minute, ClockSkew: 30 * time.Second,
 	}); err != nil {

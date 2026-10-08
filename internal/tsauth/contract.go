@@ -27,6 +27,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -57,7 +59,7 @@ const (
 
 	// DashboardClientID is ts-auth's confidential OIDC client for ts-dashboard,
 	// which the dashboard (Fly app ts-dashboard) serves at DashboardOrigin.
-	DashboardClientID    = "ts-dashboard"
+	DashboardClientID    = "01K72QMFXR0QW7MX6Z8HG1AXW0"
 	DashboardOrigin      = "https://dash.terrascale.tech"
 	DashboardRedirectURI = DashboardOrigin + "/login/callback"
 	// DashboardLogoutURI is the dashboard's sign-in page, the exact
@@ -147,8 +149,6 @@ var optionalSecrets = []string{"TS_AUTH_STRIPE_SECRET_KEY", "TS_AUTH_STRIPE_WEBH
 
 var (
 	assetRE  = regexp.MustCompile(`^ts-auth-linux-(?:amd64|arm64)$`)
-	ulidRE   = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
-	uuidV7RE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	apiKeyRE = regexp.MustCompile(`^[\x21-\x7e]+$`)
 )
 
@@ -304,9 +304,8 @@ func validSecret(key, value string) error {
 		return nil
 	}
 	if slices.ContainsFunc(Projects, func(project Project) bool { return project.ProjectIDKey == key }) {
-		// Existing regional projects keep their UUIDv7 IDs when a host restarts.
-		if !ulidRE.MatchString(value) && !uuidV7RE.MatchString(value) {
-			return fmt.Errorf("%s must be a canonical uppercase ULID or lowercase UUIDv7", key)
+		if !entityid.Valid(value) {
+			return fmt.Errorf("%s must be a canonical uppercase ULID", key)
 		}
 		return nil
 	}

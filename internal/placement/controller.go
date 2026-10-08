@@ -2,8 +2,6 @@ package placement
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -12,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
@@ -354,8 +354,7 @@ intents:
 			if state.Region != seat.Region || state.Kind != seat.Kind || state.FailureDomain != seat.FailureDomain {
 				return fmt.Errorf("%w: admitted placement seat conflicts with durable member identity", ErrStoreCorrupt)
 			}
-			if state.SchemaVersion != placementSchemaVersion &&
-				state.SchemaVersion != managedUpdateMemberStateSchemaVersion ||
+			if state.SchemaVersion != managedUpdateMemberStateSchemaVersion ||
 				state.CanonicalRosterRow != rowsBySeat[seat.MemberID] ||
 				state.RuntimeManifest != manifestsBySeat[seat.MemberID] ||
 				state.RuntimeManifestDigest != manifestDigestsBySeat[seat.MemberID] ||
@@ -1223,9 +1222,7 @@ func memberOperationID(intent Intent, memberID string, attempt uint64, action st
 }
 
 func digestToken(prefix string, values ...string) string {
-	joined := strings.Join(values, "\x00")
-	sum := sha256.Sum256([]byte(joined))
-	return prefix + "-" + hex.EncodeToString(sum[:24])
+	return entityid.Derive(prefix, values...)
 }
 
 func volumeSizeGB(bytes int64) (int64, error) {

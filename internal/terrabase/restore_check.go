@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/hostvolume"
@@ -140,11 +141,11 @@ func restoreVolumeConfig(planPath, compartment string) (oci.MemberVolumeConfig, 
 
 func resolveRestoreCheck(binary, organization, document, scratch, restored, readyPath string, wait time.Duration, apply bool) (restoreCheckRequest, error) {
 	match := documentPathRE.FindStringSubmatch(document)
-	if match == nil || !pathSegment(match[1]) || !pathSegment(match[2]) || !pathSegment(match[3]) || !pathSegment(match[4]) {
+	if match == nil || !entityid.Valid(match[1]) || !entityid.Valid(match[2]) || !entityid.Valid(match[3]) || !entityid.Valid(match[4]) {
 		return restoreCheckRequest{}, fmt.Errorf("--document %q is not /v1/projects/P/databases/D/collections/C/documents/ID", document)
 	}
-	if !pathSegment(organization) {
-		return restoreCheckRequest{}, fmt.Errorf("--organization %q is not a plain ID", organization)
+	if !entityid.Valid(organization) {
+		return restoreCheckRequest{}, fmt.Errorf("--organization %q is not a canonical ULID", organization)
 	}
 	if !strings.HasPrefix(scratch, "ocid1.instance.") || strings.ContainsAny(scratch, " \t\r\n/") {
 		return restoreCheckRequest{}, fmt.Errorf("--scratch-instance %q is not an instance OCID", scratch)

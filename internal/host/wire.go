@@ -3,14 +3,14 @@ package host
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -148,13 +148,7 @@ func decodePublicKey(encoded string) (ed25519.PublicKey, error) {
 	return ed25519.PublicKey(key), nil
 }
 
-func randomID() (string, error) {
-	var value [16]byte
-	if _, err := rand.Read(value[:]); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(value[:]), nil
-}
+func randomID() (string, error) { return entityid.New(), nil }
 
 func signRequest(r *request, key ed25519.PrivateKey, cell string) error {
 	if len(key) != ed25519.PrivateKeySize {
@@ -169,14 +163,8 @@ func signRequest(r *request, key ed25519.PrivateKey, cell string) error {
 }
 
 func verifyRequest(r request, key ed25519.PublicKey, cell string, now time.Time) error {
-	if r.Version != 1 || len(r.Nonce) != 32 || len(r.SessionID) != 32 || r.IssuedAt.IsZero() || r.IssuedAt.After(now.Add(maxClockSkew)) || now.Sub(r.IssuedAt) >= requestTTL {
+	if r.Version != 1 || !entityid.Valid(r.Nonce) || !entityid.Valid(r.SessionID) || r.IssuedAt.IsZero() || r.IssuedAt.After(now.Add(maxClockSkew)) || now.Sub(r.IssuedAt) >= requestTTL {
 		return errors.New("invalid or expired host request")
-	}
-	if _, err := hex.DecodeString(r.Nonce); err != nil {
-		return errors.New("invalid nonce")
-	}
-	if _, err := hex.DecodeString(r.SessionID); err != nil {
-		return errors.New("invalid session ID")
 	}
 	if !r.Envelope.IssuedAt.Equal(r.IssuedAt) || r.Envelope.Epoch != r.Epoch {
 		return errors.New("host request envelope binding mismatch")

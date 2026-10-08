@@ -34,7 +34,7 @@ func TestManagedUpdateR3PrepareHeldRestartReconciliation(t *testing.T) {
 	t.Cleanup(func() { _ = broker.Close() })
 
 	runtime, err := authority.Start(ctx, broker.JetStream(), authority.Config{
-		Scope: "gru", CandidateID: "managed-update-r3", Replicas: 1,
+		Scope: "gru", CandidateID: "0000000000ZWGEDFHNGTFMNM86", Replicas: 1,
 	})
 	if err != nil {
 		t.Fatalf("start R3 authority runtime: %v", err)

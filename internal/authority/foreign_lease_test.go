@@ -11,12 +11,12 @@ func TestVerifyLeaseHolderFencesEveryOtherTermWithoutTakingAuthority(t *testing.
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	leader, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "leader", LeaseDuration: 5 * time.Second,
+	leader, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000FHEQV98X4ASD7RXW", LeaseDuration: 5 * time.Second,
 		RenewInterval: time.Second, Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	seed, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "seed", LeaseDuration: 5 * time.Second,
+	seed, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000SF1REEJJX6TC691V", LeaseDuration: 5 * time.Second,
 		RenewInterval: time.Second, Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -32,10 +32,10 @@ func TestVerifyLeaseHolderFencesEveryOtherTermWithoutTakingAuthority(t *testing.
 	for name, check := range map[string]func() error{
 		"stale epoch": func() error { return seed.VerifyLeaseHolder(ctx, term.Epoch+1, term.CandidateID, term.OwnerID) },
 		"other candidate": func() error {
-			return seed.VerifyLeaseHolder(ctx, term.Epoch, "seed", term.OwnerID)
+			return seed.VerifyLeaseHolder(ctx, term.Epoch, "0000000000SF1REEJJX6TC691V", term.OwnerID)
 		},
 		"other owner process": func() error {
-			return seed.VerifyLeaseHolder(ctx, term.Epoch, term.CandidateID, "restarted")
+			return seed.VerifyLeaseHolder(ctx, term.Epoch, term.CandidateID, "0000000000DKT0SAM6NFTCGPGT")
 		},
 		"empty identity": func() error { return seed.VerifyLeaseHolder(ctx, term.Epoch, "", "") },
 	} {

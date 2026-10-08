@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
@@ -147,7 +148,7 @@ func (f *selfUpdateFixture) perSourceReceipt(data []byte) ([]byte, []byte) {
 	keyID, encoded := f.leaf()
 	delegation, err := trust.SignDelegation(trust.Delegation{
 		SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encoded,
-		Capabilities: []trust.Capability{{Domain: release.BinaryDomain, DeploymentID: strings.Repeat("1", 40),
+		Capabilities: []trust.Capability{{Domain: release.BinaryDomain, DeploymentID: entityid.Derive("build", strings.Repeat("1", 40)),
 			Cell: "BUILD", Environment: "production", Role: "artifact", Slots: []string{"linux-amd64"},
 			Actions: []string{"sign"}}},
 	}, f.now.Add(-time.Minute), f.now.Add(time.Hour), f.rootPrivate)

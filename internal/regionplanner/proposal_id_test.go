@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlifecycle"
 )
 
@@ -17,7 +19,7 @@ func TestProposalIDsCarryTheProposalGeneration(t *testing.T) {
 	planner := Planner{Policy: testPolicy()}
 	signals := []Signal{signal(SignalUnplaceableIntent, "sfo", "intent-1", time.Hour)}
 	fresh, err := planner.Plan(signals, []regionlifecycle.Record{activeGRU()}, now)
-	if err != nil || len(fresh) != 1 || !strings.HasPrefix(fresh[0].ID, "sfo-g1-") {
+	if err != nil || len(fresh) != 1 || !entityid.Valid(fresh[0].ID) {
 		t.Fatalf("first attempt = %+v, %v", fresh, err)
 	}
 	rejected := activeGRU()
@@ -25,13 +27,13 @@ func TestProposalIDsCarryTheProposalGeneration(t *testing.T) {
 	rejected.Proposal.Cell, rejected.Proposal.ID = "sfo", fresh[0].ID
 	rejected.UpdatedAt = now.Add(-48 * time.Hour)
 	again, err := planner.Plan(signals, []regionlifecycle.Record{activeGRU(), rejected}, now)
-	if err != nil || len(again) != 1 || !strings.HasPrefix(again[0].ID, "sfo-g8-") || again[0].ID == fresh[0].ID {
+	if err != nil || len(again) != 1 || !entityid.Valid(again[0].ID) || again[0].ID == fresh[0].ID {
 		t.Fatalf("re-proposal after generation 7 = %+v, %v", again, err)
 	}
 	if err := again[0].Validate(); err != nil {
 		t.Fatal(err)
 	}
-	// A cell and generation too long for the visible form still yield a
+	// A long cell and generation still yield a
 	// valid ID that differs per generation.
 	long := strings.Repeat("a", 31)
 	entry := CatalogEntry{Cell: long, OCIRegion: "xx-test-1", EstimatedMonthlyCents: 1}

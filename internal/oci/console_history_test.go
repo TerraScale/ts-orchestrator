@@ -243,7 +243,7 @@ func newConsoleHistoryTest(t *testing.T) (RegionConfig, RegionIntent, *KVJournal
 		t.Fatal(err)
 	}
 	instanceID := "ocid1.instance.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	createKey := "node-console-proof"
+	createKey := "00000000000000000000000001"
 	launch := testLaunchIntent(createKey)
 	if err := journal.RecordIntent(t.Context(), launch); err != nil {
 		t.Fatal(err)

@@ -254,7 +254,7 @@ func TestPeerPortOpen(t *testing.T) {
 			t.Errorf("%s: open %v, want %v", name, got, want)
 		}
 	}
-	if peerPortOpen([]string{"nsg"}, rules, sender, []string{"other"}, 9443) {
+	if peerPortOpen([]string{"nsg"}, rules, sender, []string{"0000000000V4MRM46HP1SNGDYW"}, 9443) {
 		t.Error("a rule for another group opened the port")
 	}
 	if peerPortOpen([]string{"cidr"}, rules, netip.MustParseAddr("10.9.0.1"), nil, 9443) {

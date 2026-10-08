@@ -40,7 +40,7 @@ func fastControlPlaneWatch(t *testing.T) {
 func TestQuorumLossIsJournaledWithoutAValidLease(t *testing.T) {
 	journal := installTestJournal(t)
 	fastControlPlaneWatch(t)
-	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, OwnerID: "two", Epoch: 4,
+	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, OwnerID: "0000000000FH1WEBBP25VGJXZG", Epoch: 4,
 		ExpiresAt: time.Now().Add(time.Hour)}}
 	health := &metaClusterHealth{}
 	health.ready.Store(true)
@@ -49,7 +49,7 @@ func TestQuorumLossIsJournaledWithoutAValidLease(t *testing.T) {
 	go func() { watchControlPlane(ctx, "lab", "one", fencer, health, 3); close(done) }()
 	defer func() { cancel(); <-done }()
 	time.Sleep(150 * time.Millisecond)
-	fencer.set(authority.Snapshot{Ready: false, OwnerID: "one-candidate-uuid", Reason: "control-log-unavailable"})
+	fencer.set(authority.Snapshot{Ready: false, OwnerID: "0000000000CAA4X2ZKZ65HN8EW", Reason: "control-log-unavailable"})
 	health.ready.Store(false)
 	degraded := waitForDecisions(t, journal, decisionlog.KindQuorumDegraded, 1)
 	if degraded[0].Status != decisionlog.StatusFailed {
@@ -62,7 +62,7 @@ func TestQuorumLossIsJournaledWithoutAValidLease(t *testing.T) {
 func TestFollowerWithAValidLeaseLeavesQuorumToTheLeader(t *testing.T) {
 	journal := installTestJournal(t)
 	fastControlPlaneWatch(t)
-	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, OwnerID: "two", Epoch: 4,
+	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, OwnerID: "0000000000FH1WEBBP25VGJXZG", Epoch: 4,
 		ExpiresAt: time.Now().Add(time.Hour)}}
 	health := &metaClusterHealth{}
 	health.ready.Store(true)
@@ -85,7 +85,7 @@ func TestFollowerWithAValidLeaseLeavesQuorumToTheLeader(t *testing.T) {
 func TestMetaLeaderElectionIsJournaledOnce(t *testing.T) {
 	journal := installTestJournal(t)
 	fastControlPlaneWatch(t)
-	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, OwnerID: "two", Epoch: 4,
+	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, OwnerID: "0000000000FH1WEBBP25VGJXZG", Epoch: 4,
 		ExpiresAt: time.Now().Add(time.Hour)}}
 	health := &metaClusterHealth{}
 	health.ready.Store(true)
@@ -112,7 +112,7 @@ func TestMetaLeaderElectionIsJournaledOnce(t *testing.T) {
 func TestQuorumLossSeenUnderAValidLeaseIsJournaledOnceTheLeaseExpires(t *testing.T) {
 	journal := installTestJournal(t)
 	fastControlPlaneWatch(t)
-	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, OwnerID: "two", Epoch: 4,
+	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, OwnerID: "0000000000FH1WEBBP25VGJXZG", Epoch: 4,
 		ExpiresAt: time.Now().Add(time.Hour)}}
 	health := &metaClusterHealth{}
 	health.ready.Store(true)
@@ -123,6 +123,6 @@ func TestQuorumLossSeenUnderAValidLeaseIsJournaledOnceTheLeaseExpires(t *testing
 	time.Sleep(150 * time.Millisecond)
 	health.ready.Store(false)
 	time.Sleep(200 * time.Millisecond)
-	fencer.set(authority.Snapshot{Ready: true, OwnerID: "two", Epoch: 4, ExpiresAt: time.Now().Add(-time.Second)})
+	fencer.set(authority.Snapshot{Ready: true, OwnerID: "0000000000FH1WEBBP25VGJXZG", Epoch: 4, ExpiresAt: time.Now().Add(-time.Second)})
 	waitForDecisions(t, journal, decisionlog.KindQuorumDegraded, 1)
 }

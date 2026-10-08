@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"slices"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -43,7 +45,6 @@ const (
 
 var (
 	cellToken = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
-	idToken   = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
 )
 
 // RegionState is the roster's view of a region's lifecycle. It mirrors the
@@ -141,12 +142,14 @@ type DirectoryEntry struct {
 func (d DirectoryEntry) Key() string { return DirectoryKey(d.DatabaseID, d.PartitionID) }
 
 // DirectoryKey is the record key for a database partition.
-func DirectoryKey(databaseID, partitionID string) string { return databaseID + "." + partitionID }
+func DirectoryKey(databaseID, partitionID string) string {
+	return entityid.Derive("directory", databaseID, partitionID)
+}
 
 // Validate requires valid identities, the home region among ActiveRegions,
 // sorted unique regions, and a bounded active set.
 func (d DirectoryEntry) Validate() error {
-	if !idToken.MatchString(d.DatabaseID) || !idToken.MatchString(d.PartitionID) || d.Generation == 0 {
+	if !entityid.Valid(d.DatabaseID) || !entityid.Valid(d.PartitionID) || d.Generation == 0 {
 		return errors.New("directory entry needs database, partition and generation")
 	}
 	if len(DirectoryKey(d.DatabaseID, d.PartitionID)) > 128 {

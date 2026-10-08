@@ -8,10 +8,10 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
@@ -258,11 +258,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err := restoreControllerKV(ctx, cfg, runtime.JetStream(), fullClusterReady); err != nil {
 		return err
 	}
-	candidateID := cfg.Controller.CandidateID
-	if candidateID == "" {
-		candidateID = cfg.NATS.Instance
-	}
-	candidateID = strings.TrimSuffix(candidateID[:min(len(candidateID), 48)], "-") + "-" + uuid.New().String()[:8]
+	candidateID := entityid.New()
 	control, stopAuthority, err := retryControllerOpen(ctx, "start regional authority", fullClusterReady, true,
 		func(attempt context.Context) (*authority.Runtime, error) {
 			return authority.Start(attempt, runtime.JetStream(), authority.Config{

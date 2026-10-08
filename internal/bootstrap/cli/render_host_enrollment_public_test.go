@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -30,7 +31,7 @@ func TestHostEnrollmentPublicBundleUsesRegionalMaterialAndImagePaths(t *testing.
 		t.Run(test.cell, func(t *testing.T) {
 			config := bootstrapmaterial.Config{
 				Environment: test.environment, Region: test.region, Cell: test.cell,
-				DeploymentID: "ts-preview-" + test.cell, ClusterID: "ts-preview-" + test.cell,
+				DeploymentID: entityid.Derive("test-deployment", test.cell), ClusterID: entityid.Derive("test-cluster", test.cell),
 				SubnetCIDR: test.subnet, ValidityHours: test.validityHours,
 			}
 			for index, ip := range test.ips {

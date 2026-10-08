@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -652,7 +654,7 @@ func enrollmentEffectSubjectKey(scope WorkloadScope, effectID string) (string, e
 	if _, err := placementIntentSubjectKey(scope.DatabaseID, scope.PartitionID); err != nil {
 		return "", err
 	}
-	if len(effectID) > 55 || !natsToken.MatchString(effectID) {
+	if len(effectID) > 55 || !entityid.Valid(effectID) {
 		return "", errors.New("enrollment effect ID is invalid")
 	}
 	return scope.DatabaseID + "." + scope.PartitionID + "." + effectID, nil
@@ -670,7 +672,7 @@ func decodeEnrollmentEffect(entry LogEntry, scope WorkloadScope, effectID string
 	subjectKey, err := enrollmentEffectSubjectKey(scope, effectID)
 	if err != nil || entry.Kind != MutationEnrollmentEffect || entry.SubjectKey != subjectKey ||
 		entry.Epoch == 0 || entry.Sequence == 0 ||
-		entry.OperationID != effectID && entry.OperationID != effectID+"-settled" {
+		entry.OperationID != effectID && entry.OperationID != entityid.Derive("enrollment-settled", effectID) {
 		return EnrollmentEffect{}, errors.New("enrollment effect log identity is invalid")
 	}
 	var payload enrollmentEffectPayload
@@ -680,7 +682,7 @@ func decodeEnrollmentEffect(entry LogEntry, scope WorkloadScope, effectID string
 	canonical, err := enrollmentEffectBytes(payload.InstanceID, payload.Phase)
 	if err != nil || !bytes.Equal(canonical, entry.Payload) ||
 		payload.Phase == "pending" && entry.OperationID != effectID ||
-		payload.Phase == "settled" && entry.OperationID != effectID+"-settled" {
+		payload.Phase == "settled" && entry.OperationID != entityid.Derive("enrollment-settled", effectID) {
 		return EnrollmentEffect{}, errors.New("enrollment effect log payload is invalid")
 	}
 	return EnrollmentEffect{EffectID: effectID, InstanceID: payload.InstanceID,
@@ -735,7 +737,7 @@ func (r *Runtime) SettleEnrollmentEffect(ctx context.Context, epoch uint64, scop
 		return 0, err
 	}
 	return r.commitMutation(ctx, epoch, MutationEnrollmentEffect, subjectKey,
-		effectID+"-settled", expectedSequence, payload)
+		entityid.Derive("enrollment-settled", effectID), expectedSequence, payload)
 }
 
 // SettleFencedEnrollmentEffect recovers a pending effect from a lost leader
@@ -768,7 +770,7 @@ func (r *Runtime) SettleFencedEnrollmentEffect(ctx context.Context, currentEpoch
 		return 0, err
 	}
 	return r.commitMutationVerified(ctx, currentEpoch, MutationEnrollmentEffect, subjectKey,
-		effectID+"-settled", expectedSequence, payload, verifyFence)
+		entityid.Derive("enrollment-settled", effectID), expectedSequence, payload, verifyFence)
 }
 
 // ListPendingEnrollmentEffects reads all effects for one workload, including
@@ -797,7 +799,7 @@ func (r *Runtime) ListPendingEnrollmentEffects(ctx context.Context, scope Worklo
 	effectIDs := make([]string, 0, len(info.State.Subjects))
 	for subject := range info.State.Subjects {
 		effectID, ok := strings.CutPrefix(subject, prefix)
-		if !ok || strings.Contains(effectID, ".") || !natsToken.MatchString(effectID) {
+		if !ok || strings.Contains(effectID, ".") || !entityid.Valid(effectID) {
 			return nil, errors.New("enrollment effect subject is invalid")
 		}
 		effectIDs = append(effectIDs, effectID)
@@ -921,7 +923,7 @@ func OpenReader(ctx context.Context, js jetstream.JetStream, scope string) (*Rea
 		return nil, errors.New("JetStream is required")
 	}
 	if !natsToken.MatchString(scope) {
-		return nil, errors.New("authority scope must be a lowercase NATS token")
+		return nil, errors.New("authority scope must be a canonical ULID")
 	}
 	stream, err := js.Stream(ctx, ControlStreamName)
 	if err != nil {
@@ -1182,8 +1184,8 @@ func validateMutation(kind HostMutationKind, subjectKey, operationID string, pay
 	if err := validateMutationKey(kind, subjectKey); err != nil {
 		return err
 	}
-	if !natsToken.MatchString(operationID) {
-		return errors.New("host mutation operation ID must be a lowercase NATS token")
+	if !entityid.Valid(operationID) {
+		return errors.New("host mutation operation ID must be a canonical ULID")
 	}
 	if len(payload) == 0 || len(payload) > maxControlPayload {
 		return errors.New("host mutation payload size is invalid")
@@ -1222,7 +1224,7 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 		return errors.New("host mutation subject key has the wrong shape")
 	}
 	for _, part := range parts {
-		if !natsToken.MatchString(part) {
+		if !natsToken.MatchString(part) && !entityid.Valid(part) {
 			return errors.New("host mutation subject key contains an invalid token")
 		}
 	}
@@ -1258,8 +1260,8 @@ func mutationSubject(scope string, kind HostMutationKind, subjectKey string) str
 }
 
 func placementIntentSubjectKey(databaseID, partitionID string) (string, error) {
-	if !natsToken.MatchString(databaseID) || !natsToken.MatchString(partitionID) {
-		return "", errors.New("placement intent database and partition IDs must be lowercase NATS tokens")
+	if !entityid.Valid(databaseID) || !entityid.Valid(partitionID) {
+		return "", errors.New("placement intent database and partition IDs must be canonical ULIDs")
 	}
 	return databaseID + "." + partitionID, nil
 }
@@ -1272,8 +1274,8 @@ func decodeLease(data []byte) (leaseRecord, error) {
 	if err := json.Unmarshal(data, &lease, json.RejectUnknownMembers(true)); err != nil {
 		return lease, err
 	}
-	if lease.Version != 1 || !natsToken.MatchString(lease.Scope) || !natsToken.MatchString(lease.CandidateID) ||
-		!natsToken.MatchString(lease.OwnerID) || !natsToken.MatchString(lease.TransitionID) || lease.Epoch == 0 ||
+	if lease.Version != 1 || !natsToken.MatchString(lease.Scope) || !entityid.Valid(lease.CandidateID) ||
+		!entityid.Valid(lease.OwnerID) || !entityid.Valid(lease.TransitionID) || lease.Epoch == 0 ||
 		lease.LeaseDuration < int64(time.Second) || lease.LeaseDuration > int64(5*time.Minute) {
 		return lease, ErrLeaseCorrupt
 	}

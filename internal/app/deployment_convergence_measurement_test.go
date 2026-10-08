@@ -96,7 +96,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 			},
 		},
 		Controller: ControllerConfig{
-			CandidateID: "one", ResponseKeyFile: filepath.Join(root, "controller.key"),
+			CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
 			ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads: map[string]WorkloadProfile{
 				"terrabase": {Resources: placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}},

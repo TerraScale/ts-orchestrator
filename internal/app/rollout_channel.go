@@ -17,6 +17,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -407,17 +408,17 @@ func channelGeneration(ctx context.Context, store *rollout.Store, epoch uint64, 
 func (c *rolloutControl) generationState(ctx context.Context, store *rollout.Store, generation rollout.Release,
 ) (releasechannel.State, string, error) {
 	parts := []struct {
-		suffix string
+		domain string
 		units  func(context.Context) ([]rollout.Unit, error)
 	}{
-		{"-controllers", func(context.Context) ([]rollout.Unit, error) { return c.program.Controllers, nil }},
-		{"-hosts", c.program.Hosts},
+		{"release-controllers", func(context.Context) ([]rollout.Unit, error) { return c.program.Controllers, nil }},
+		{"release-hosts", c.program.Hosts},
 	}
 	for _, part := range parts {
 		if part.units == nil {
 			continue
 		}
-		record, _, err := store.Load(ctx, rolloutexec.ReleaseRolloutID(generation.Generation)+part.suffix)
+		record, _, err := store.Load(ctx, entityid.Derive(part.domain, rolloutexec.ReleaseRolloutID(generation.Generation)))
 		if err == nil {
 			switch record.Phase {
 			case rollout.PhaseComplete:

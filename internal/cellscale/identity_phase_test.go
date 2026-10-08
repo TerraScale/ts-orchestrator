@@ -10,6 +10,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 type identityPhaseSource struct {
@@ -186,8 +188,8 @@ func TestNodeIdentityReplacementAtEveryControllerPhase(t *testing.T) {
 // The reusable name can route to a successor after the controller's last
 // check. The mutation receiver must enforce both complete identity tuples.
 func TestMembershipMutationIdentityPreconditionAtDelivery(t *testing.T) {
-	from := NodeIdentity{Name: "gru-1-db-1", InstanceID: "ocid-source", Incarnation: "source-p1"}
-	to := NodeIdentity{Name: "gru-1-db-2", InstanceID: "ocid-target", Incarnation: "target-p1"}
+	from := NodeIdentity{Name: "gru-1-db-1", InstanceID: "ocid-source", Incarnation: "0000000000H2BEXJJHC72DFA9J"}
+	to := NodeIdentity{Name: "gru-1-db-2", InstanceID: "ocid-target", Incarnation: "0000000000JTQA48Z3KA3EDBRE"}
 	for _, operation := range []string{"join", "drain", "move"} {
 		for _, endpoint := range []string{"source", "target"} {
 			if endpoint == "target" && operation != "move" {
@@ -214,7 +216,7 @@ func TestMembershipMutationIdentityPreconditionAtDelivery(t *testing.T) {
 						if change == "OCI replacement" {
 							current.InstanceID += "-replacement"
 						} else {
-							current.Incarnation += "-reboot"
+							current.Incarnation = entityid.Derive("test-process", current.Incarnation, "reboot")
 						}
 						if body.Expected != currentFrom || operation == "move" && body.Target != currentTo {
 							w.WriteHeader(http.StatusConflict)
@@ -275,7 +277,7 @@ func TestIdentityTransitionInvalidatesAllOperationalState(t *testing.T) {
 				history := s.controller.History()
 				s.now = s.now.Add(-time.Second)
 				next := old
-				next.Incarnation += "-replacement"
+				next.Incarnation = entityid.Derive("test-process", next.Incarnation, "replacement")
 				if change == "OCI replacement" {
 					next.InstanceID += "-replacement"
 				}
@@ -308,7 +310,7 @@ func TestRetiredIncarnationCannotResolveConflictingTimestamp(t *testing.T) {
 	old := *original.Nodes[0].Pressure
 	s.now = s.now.Add(10 * time.Second)
 	successor := old
-	successor.ProcessID += "-reboot"
+	successor.ProcessID = entityid.Derive("test-process", successor.ProcessID, "reboot")
 	successor.SampledAt = s.now
 	s.controller.transitionIdentity(successor.Identity(), time.Time{})
 	if !s.controller.retainPressure(successor.Node, successor) {
@@ -345,7 +347,7 @@ func TestUnseenIncarnationCannotRetireCurrentWithObsoleteEvidence(t *testing.T) 
 				s.controller.pressureAfter[current.Node] = current.SampledAt.Add(test.floor)
 			}
 			obsolete := current
-			obsolete.ProcessID = "unseen-predecessor"
+			obsolete.ProcessID = entityid.Derive("test-process", "unseen-predecessor")
 			obsolete.SampledAt = current.SampledAt.Add(test.offset)
 			if s.controller.retainPressure(obsolete.Node, obsolete) ||
 				s.controller.activeIdentities[current.Node] != current.Identity() ||

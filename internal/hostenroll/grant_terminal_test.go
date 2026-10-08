@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -53,7 +55,7 @@ func terminalTestStore(t *testing.T) *GrantStore {
 
 func terminalTestGrant(instanceID string) Grant {
 	return Grant{
-		SchemaVersion: 1, InstanceID: instanceID, CreateKey: "host-create-1",
+		SchemaVersion: 1, InstanceID: instanceID, CreateKey: "0000000000B7W1E1H4V9EGD4XT",
 		DescriptorSHA256: terminalTestDigest, Request: []byte("signed-enrollment-request"),
 	}
 }
@@ -62,7 +64,7 @@ func TestGrantStoreTerminalFenceCreatesDurableTombstone(t *testing.T) {
 	store := terminalTestStore(t)
 	candidate := terminalTestGrant("ocid1.instance.terminal-missing")
 	expected := Grant{SchemaVersion: 1, InstanceID: candidate.InstanceID, CreateKey: candidate.CreateKey}
-	const operationID = "terminal-op-missing"
+	operationID := entityid.Derive("test-terminal", "terminal-op-missing")
 
 	fenced, revision, err := store.TerminalFence(t.Context(), expected, 0, operationID)
 	if err != nil {
@@ -85,7 +87,7 @@ func TestGrantStoreTerminalFenceCreatesDurableTombstone(t *testing.T) {
 		t.Fatalf("same-operation positive-revision tombstone retry: grant=%+v revision=%d err=%v", retried, retryRevision, err)
 	}
 	mismatchedTombstone := readback
-	mismatchedTombstone.CreateKey = "foreign-create-key"
+	mismatchedTombstone.CreateKey = "0000000000KN642MZ7NB6BSMTV"
 	if _, _, err := store.TerminalFence(t.Context(), mismatchedTombstone, readRevision, operationID); err == nil {
 		t.Fatal("positive-revision tombstone retry accepted a foreign create key")
 	}
@@ -116,16 +118,16 @@ func TestGrantStoreTerminalFenceRereadsGrantThatWinsCreateRace(t *testing.T) {
 		t.Fatal(err)
 	}
 	createOnly := Grant{SchemaVersion: 1, InstanceID: candidate.InstanceID, CreateKey: candidate.CreateKey}
-	if _, _, err := store.TerminalFence(t.Context(), createOnly, 0, "terminal-op-create-race"); err == nil {
+	if _, _, err := store.TerminalFence(t.Context(), createOnly, 0, entityid.Derive("test-terminal", "terminal-op-create-race")); err == nil {
 		t.Fatal("create-if-absent terminal fence replaced a grant that won the race")
 	}
 	current, currentRevision, err := store.Read(t.Context(), candidate.InstanceID)
 	if err != nil || currentRevision != revision || current.Disabled || current.OwnerToken != active.OwnerToken {
 		t.Fatalf("losing create-only fence changed the grant: grant=%+v revision=%d err=%v", current, currentRevision, err)
 	}
-	fenced, fencedRevision, err := store.TerminalFence(t.Context(), current, currentRevision, "terminal-op-create-race")
+	fenced, fencedRevision, err := store.TerminalFence(t.Context(), current, currentRevision, entityid.Derive("test-terminal", "terminal-op-create-race"))
 	if err != nil || fencedRevision <= currentRevision || !fenced.Disabled ||
-		fenced.TerminalOperationID != "terminal-op-create-race" || !bytes.Equal(fenced.Request, active.Request) {
+		fenced.TerminalOperationID != entityid.Derive("test-terminal", "terminal-op-create-race") || !bytes.Equal(fenced.Request, active.Request) {
 		t.Fatalf("revalidated exact grant was not fenced: grant=%+v revision=%d err=%v", fenced, fencedRevision, err)
 	}
 }
@@ -137,7 +139,7 @@ func TestGrantStoreTerminalFenceCASDisablesExactGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const operationID = "terminal-op-existing"
+	operationID := entityid.Derive("test-terminal", "terminal-op-existing")
 
 	fenced, fencedRevision, err := store.TerminalFence(t.Context(), active, revision, operationID)
 	if err != nil {
@@ -195,7 +197,7 @@ func TestGrantStoreTerminalFenceRejectsMismatchedAndCorruptSnapshots(t *testing.
 		mutate func(*Grant)
 	}{
 		{name: "instance", mutate: func(grant *Grant) { grant.InstanceID += "-foreign" }},
-		{name: "create key", mutate: func(grant *Grant) { grant.CreateKey = "foreign-create-key" }},
+		{name: "create key", mutate: func(grant *Grant) { grant.CreateKey = "0000000000KN642MZ7NB6BSMTV" }},
 		{name: "descriptor digest", mutate: func(grant *Grant) { grant.DescriptorSHA256 = strings.Repeat("b", 64) }},
 		{name: "request", mutate: func(grant *Grant) { grant.Request = []byte("foreign-request") }},
 	} {
@@ -203,7 +205,7 @@ func TestGrantStoreTerminalFenceRejectsMismatchedAndCorruptSnapshots(t *testing.
 			mismatched := active
 			mismatched.Request = bytes.Clone(active.Request)
 			test.mutate(&mismatched)
-			if _, _, err := store.TerminalFence(t.Context(), mismatched, revision, "terminal-op-pins"); err == nil {
+			if _, _, err := store.TerminalFence(t.Context(), mismatched, revision, entityid.Derive("test-terminal", "terminal-op-pins")); err == nil {
 				t.Fatal("mismatched snapshot was fenced")
 			}
 			current, currentRevision, err := store.Read(t.Context(), candidate.InstanceID)
@@ -221,7 +223,7 @@ func TestGrantStoreTerminalFenceRejectsMismatchedAndCorruptSnapshots(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := store.TerminalFence(t.Context(), active, corruptRevision, "terminal-op-corrupt"); err == nil {
+	if _, _, err := store.TerminalFence(t.Context(), active, corruptRevision, entityid.Derive("test-terminal", "terminal-op-corrupt")); err == nil {
 		t.Fatal("corrupt grant was replaced by a terminal tombstone")
 	}
 	corruptAfter, err := store.kv.Get(t.Context(), grantKey(candidate.InstanceID))
@@ -261,7 +263,7 @@ func TestGrantStoreTerminalFenceBlocksDelayedRenewalWork(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ClaimRenew() before the fence: %v", err)
 	}
-	const operationID = "terminal-op-renewal"
+	operationID := entityid.Derive("test-terminal", "terminal-op-renewal")
 	if _, _, err := store.TerminalFence(t.Context(), beforeRenewal, beforeRenewalRevision, operationID); err == nil {
 		t.Fatal("stale terminal snapshot overwrote a renewal claim that won the revision race")
 	}
@@ -339,18 +341,18 @@ func TestGrantStoreTerminalFencePreservesFinishWinners(t *testing.T) {
 				}
 			}
 
-			if _, _, err := store.TerminalFence(ctx, staleSnapshot, staleRevision, "terminal-op-finish-"+operation); err == nil {
+			if _, _, err := store.TerminalFence(ctx, staleSnapshot, staleRevision, entityid.Derive("test-terminal", "terminal-op-finish-"+operation)); err == nil {
 				t.Fatalf("stale terminal snapshot overwrote a winning %s finish", operation)
 			}
 			completed, completedRevision, err := store.Read(ctx, candidate.InstanceID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			fenced, fencedRevision, err := store.TerminalFence(ctx, completed, completedRevision, "terminal-op-finish-"+operation)
+			fenced, fencedRevision, err := store.TerminalFence(ctx, completed, completedRevision, entityid.Derive("test-terminal", "terminal-op-finish-"+operation))
 			if err != nil {
 				t.Fatalf("TerminalFence() after winning %s finish: %v", operation, err)
 			}
-			if !fenced.Disabled || fenced.TerminalOperationID != "terminal-op-finish-"+operation ||
+			if !fenced.Disabled || fenced.TerminalOperationID != entityid.Derive("test-terminal", "terminal-op-finish-"+operation) ||
 				fencedRevision <= completedRevision {
 				t.Fatalf("terminal fence did not disable the completed %s grant: grant=%+v revision=%d", operation, fenced, fencedRevision)
 			}

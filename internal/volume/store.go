@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -73,7 +75,7 @@ func (s *Store) Create(ctx context.Context, v Volume) (Volume, error) {
 // Get reads one volume. A record that does not match its key or this cell
 // is refused rather than returned.
 func (s *Store) Get(ctx context.Context, id string) (Volume, error) {
-	if !idRE.MatchString(id) {
+	if !entityid.Valid(id) {
 		return Volume{}, fmt.Errorf("%w: id %q", ErrInvalid, id)
 	}
 	entry, err := s.kv.Get(ctx, id)
@@ -188,7 +190,7 @@ func (s *Store) Release(ctx context.Context, id, machineID string) (Volume, erro
 }
 
 func (s *Store) setMachine(ctx context.Context, id, from, to string) (Volume, error) {
-	if !machineRE.MatchString(from + to) {
+	if !entityid.Valid(from + to) {
 		return Volume{}, fmt.Errorf("%w: machine %q", ErrInvalid, from+to)
 	}
 	v, err := s.Get(ctx, id)

@@ -14,7 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
@@ -39,7 +40,7 @@ func TestBackupAdmissionRechecksRosterAtFinalR3Commit(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = broker.Close() })
 	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{
-		Scope: cell, CandidateID: "backup-roster-r3-integration", Replicas: 1,
+		Scope: cell, CandidateID: "0000000000G3799641MSM6590R", Replicas: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +90,7 @@ func TestBackupAdmissionRechecksRosterAtFinalR3Commit(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := control.CommitMaterialReceipt(ctx, epoch, spec.PlacementDatabaseID,
-		spec.PartitionID, "material-g1-"+receipt.SpecSHA256[:24], 0, receiptPayload); err != nil {
+		spec.PartitionID, entityid.Derive("material-receipt", receipt.SpecSHA256), 0, receiptPayload); err != nil {
 		t.Fatalf("commit exact material receipt to R3: %v", err)
 	}
 	preparation := managedmaterial.PreparationService{Cell: cell, Repository: repository, Receipts: control,
@@ -106,7 +107,7 @@ func TestBackupAdmissionRechecksRosterAtFinalR3Commit(t *testing.T) {
 		t.Fatalf("decode committed baseline placement: %v", err)
 	}
 	placementSequence, err := control.CommitPlacementIntent(ctx, epoch, intent.DatabaseID, intent.PartitionID,
-		"backup-roster-integration-placement", 0, intentPayload)
+		entityid.Derive("test", "backup-roster-integration-placement"), 0, intentPayload)
 	if err != nil {
 		t.Fatalf("commit exact baseline placement to R3: %v", err)
 	}
@@ -131,7 +132,7 @@ func TestBackupAdmissionRechecksRosterAtFinalR3Commit(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{
-		Region: cell, Kind: "backup.operation", Actor: grant.Actor, OperationID: uuid.New().String(),
+		Region: cell, Kind: "backup.operation", Actor: grant.Actor, OperationID: entityid.New(),
 		Generation: 1, Epoch: epoch,
 	}, now, now.Add(time.Minute), operatorPrivate)
 	if err != nil {
@@ -159,11 +160,11 @@ func backupAdmissionSpec(t *testing.T, baseline placement.Intent) (managedmateri
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstCatalog, err := managedmaterial.InitialCatalog("30000000-0000-0000-0000-000000000001", nil)
+	firstCatalog, err := managedmaterial.InitialCatalog("1G000000000000000000000001", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondCatalog, err := managedmaterial.InitialCatalog("30000000-0000-0000-0000-000000000002", nil)
+	secondCatalog, err := managedmaterial.InitialCatalog("1G000000000000000000000002", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,8 +189,8 @@ func backupAdmissionSpec(t *testing.T, baseline placement.Intent) (managedmateri
 	spec.Backup = &managedmaterial.InitialBackupSpec{Target: backupTarget,
 		OwnerMemberID: baseline.CanonicalRoster.Rows[0].MemberID,
 		DataKey:       oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.backupkey", VersionNumber: 5},
-		DataKeyID:     "backup-key-v1", DataKeySHA256: strings.Repeat("a", 64),
-		RetentionPolicyID: "retention-30d", RetentionUntilUnixMS: uint64(now.Add(30 * 24 * time.Hour).UnixMilli()),
+		DataKeyID:     entityid.Derive("test-key", "backup-key-v1"), DataKeySHA256: strings.Repeat("a", 64),
+		RetentionPolicyID: entityid.Derive("test-retention", "retention-30d"), RetentionUntilUnixMS: uint64(now.Add(30 * 24 * time.Hour).UnixMilli()),
 		MaxPointCadenceMS: 60_000}
 
 	for index, row := range baseline.CanonicalRoster.Rows {

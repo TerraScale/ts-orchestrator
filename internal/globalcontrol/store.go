@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"sync"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
@@ -72,8 +74,8 @@ func (r *Reader) Roster(ctx context.Context) (Roster, uint64, error) {
 // Directory returns a database partition's directory entry.
 func (r *Reader) Directory(ctx context.Context, databaseID, partitionID string) (DirectoryEntry, uint64, error) {
 	var directory DirectoryEntry
-	if !idToken.MatchString(databaseID) || !idToken.MatchString(partitionID) {
-		return DirectoryEntry{}, 0, errors.New("directory database and partition must be lowercase tokens")
+	if !entityid.Valid(databaseID) || !entityid.Valid(partitionID) {
+		return DirectoryEntry{}, 0, errors.New("directory database and partition must be canonical ULIDs")
 	}
 	key := DirectoryKey(databaseID, partitionID)
 	entry, sequence, err := r.read(ctx, KindDirectory, key)
@@ -115,36 +117,9 @@ func (r *Reader) read(ctx context.Context, kind Kind, key string) (record, uint6
 		return record{}, 0, ErrRecordCorrupt
 	}
 	if !epochHeaderMatches(message.Header, stored.Epoch) {
-		legacy, err := r.legacyRecord(readCtx, message)
-		if err != nil {
-			return record{}, 0, err
-		}
-		if !legacy {
-			return record{}, 0, ErrRecordCorrupt
-		}
+		return record{}, 0, ErrRecordCorrupt
 	}
 	return stored, message.Sequence, nil
-}
-
-// legacyRecord reports whether a record without the epoch header was
-// written by a writer that predates the term barrier: it has no epoch header
-// at all and its sequence precedes the first term barrier in the stream (or
-// no barrier exists yet). Such a record stays readable, and the next write
-// supersedes it with a headered record under the barrier. A record appended
-// after the first barrier must carry a matching header, so fencing is
-// unchanged; a present but mismatching header is always corruption.
-func (r *Reader) legacyRecord(ctx context.Context, message *jetstream.RawStreamMsg) (bool, error) {
-	if len(message.Header.Values(EpochHeader)) != 0 {
-		return false, nil
-	}
-	first, err := r.stream.GetMsg(ctx, 1, jetstream.WithGetMsgSubject(subject(KindTerm, termKey)))
-	if errors.Is(err, jetstream.ErrMsgNotFound) {
-		return true, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("read first global term barrier: %w", err)
-	}
-	return message.Sequence < first.Sequence, nil
 }
 
 // checkMirrorGapFree requires the mirror to hold every home sequence from 1

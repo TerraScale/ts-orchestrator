@@ -1,0 +1,107 @@
+{
+  "schema_version": 5,
+  "database_id": "0000000000JJVVW9EMWY1PE1VX",
+  "partition_id": "0000000000Z3WK359G2W66CVT8",
+  "active_regions": [
+    "GRU"
+  ],
+  "generation": 1,
+  "canonical_roster": {
+    "cluster_id": "014D2PF2DBSQQG28T5CY4TQKFF",
+    "tenant_id": "01HW000000E008000000000080",
+    "database_id": "01HW000000E008000000000081",
+    "shard_id": 1,
+    "authority": {
+      "version": 2,
+      "epoch": 7,
+      "configuration_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "certificate_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "trusted_key_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "members": [
+      {
+        "region": "GRU",
+        "seat_id": "00000000000E5NVMSGX0D07DPA",
+        "failure_domain": "FAULT-DOMAIN-1",
+        "member_id": "00000000005QB6T6F0DBAEFNXS",
+        "incarnation": "0000000000CW5QNJGTBQQ8MGWY",
+        "tls_leaf_sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+        "server_name": "permanent-gru.tb.example"
+      },
+      {
+        "region": "GRU",
+        "seat_id": "00000000008SEAHD1YMMYV3ARR",
+        "failure_domain": "FAULT-DOMAIN-2",
+        "member_id": "0000000000TX1HT5JFFAMW33Q4",
+        "incarnation": "0000000000YSXEQ3WYWMAZQ020",
+        "tls_leaf_sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+        "server_name": "elastic-gru.tb.example"
+      }
+    ]
+  },
+  "managed_host_profiles": [
+    {
+      "region": "GRU",
+      "compute": {
+        "shape": "VM.Standard.E4.Flex",
+        "whole_ocpus": 1,
+        "memory_in_gbs": 6
+      },
+      "process_memory_bytes": 4294967296,
+      "memory_headroom_bytes": 1073741824,
+      "cgroup_memory_max_bytes": 4294967296,
+      "system_reserve_bytes": 1073741824,
+      "allocatable_memory_bytes": 5368709120
+    }
+  ],
+  "runtime_manifests": [
+    {
+      "region": "GRU",
+      "seat_id": "00000000000E5NVMSGX0D07DPA",
+      "artifact_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "source_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "managed_runtime_root": "/srv/terrascale-managed",
+      "filesystem_uuid": "00000001-1234-1234-1234-123456789abc",
+      "filesystem_type": "ext4",
+      "trusted_key_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "server_certificate_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "server_private_key_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "client_ca_roots_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "client_managed_material_manifest_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "live_s3_config_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "live_s3_target_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+      "live_s3_credential": {
+        "secret_ocid": "ocid1.vaultsecret.oc1.sa-saopaulo-1.alpha",
+        "version_number": 3
+      },
+      "replication_listen_address": "10.0.0.11:7000",
+      "replication_peer_member_id": "0000000000TX1HT5JFFAMW33Q4",
+      "replication_peer_address": "10.0.0.12:7001",
+      "replication_server_ca_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "region": "GRU",
+      "seat_id": "00000000008SEAHD1YMMYV3ARR",
+      "artifact_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "source_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "managed_runtime_root": "/srv/terrascale-managed",
+      "filesystem_uuid": "00000002-1234-1234-1234-123456789abc",
+      "filesystem_type": "ext4",
+      "trusted_key_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "server_certificate_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "server_private_key_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "client_ca_roots_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "client_managed_material_manifest_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "live_s3_config_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "live_s3_target_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+      "live_s3_credential": {
+        "secret_ocid": "ocid1.vaultsecret.oc1.sa-saopaulo-1.alpha",
+        "version_number": 3
+      },
+      "replication_listen_address": "10.0.0.12:7001",
+      "replication_peer_member_id": "00000000005QB6T6F0DBAEFNXS",
+      "replication_peer_address": "10.0.0.11:7000",
+      "replication_server_ca_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ]
+}

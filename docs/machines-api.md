@@ -46,7 +46,7 @@ previous `version` or `desired` state until the next observation.
 `updated_at` says when it was observed. The API returns no snapshot of both.
 
 A path value becomes part of a KV key only after it matches the model's
-rules (an app name is a DNS label, a machine ID is 16 hex digits).
+rules (an app name is a DNS label, a machine ID is a canonical uppercase 26-character Crockford ULID).
 Otherwise the request gets 400 `invalid_name`, so a value cannot widen a
 key filter.
 
@@ -65,12 +65,13 @@ A controller serves the API when its config has `controller.machines_api`:
     "http://127.0.0.1:8080/terrascale/.well-known/jwks.json",
     "http://10.251.0.12:8080/terrascale/.well-known/jwks.json"
   ],
-  "clients": ["ts-orch-cli"],
-  "members": {"terrascale": ["<user UUID>"], "<organization ID>": ["<user UUID>"]}
+  "clients": ["01K72QMFXR0QW7MX6Z8HG1AXW0"],
+  "platform_organization_id": "<platform organization ULID>",
+  "members": {"<platform organization ULID>": ["<user ULID>"], "<organization ID>": ["<user ULID>"]}
 }
 ```
 
-- Every read uses the replicated `TS_APPS`, `TS_MACHINE_STATUS` and
+- Every read uses the replicated `TS_APPS`, `TS_MACHINES`, `TS_MACHINE_STATUS` and
   `TS_TENANTS` buckets, which every controller can read, so any controller
   answers.
 - Off loopback the listener requires `tls_cert_file` and `tls_key_file`:
@@ -92,8 +93,9 @@ tenancy policy, with the same fields as above minus the listener:
   "issuer": "https://gru.auth.terrascale.tech/terrascale",
   "audience": "https://sfo.orch.terrascale.tech",
   "jwks_urls": ["https://gru.auth.terrascale.tech/terrascale/.well-known/jwks.json"],
-  "clients": ["ts-orch-cli"],
-  "members": {"terrascale": ["<user UUID>"]}
+  "clients": ["01K72QMFXR0QW7MX6Z8HG1AXW0"],
+  "platform_organization_id": "<platform organization ULID>",
+  "members": {"<platform organization ULID>": ["<user ULID>"]}
 }
 ```
 
@@ -167,12 +169,12 @@ Authorization combines scopes with organization membership.
 
 **Tenancy.** ts-auth tokens don't carry an organization or project yet, so
 the `members` map decides which organization a `sub` acts for. A `sub` is a
-user UUID, or a service client's ID for a client-credentials token. A
+user ULID, or a service client's ID for a client-credentials token. A
 subject belongs to at most one organization. The map is part of the
 controller config, so in production a root signs who acts for which
 organization.
 
-- Members of `terrascale`, the platform organization, see every app:
+- Members of `platform_organization_id`, the platform organization, see every app:
   platform apps and tenant apps.
 - Members of any other organization see only the tenant apps whose
   tenant's `organization` (in `TS_TENANTS`) is theirs. An app whose tenant

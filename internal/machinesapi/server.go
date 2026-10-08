@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machines"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tenant"
@@ -29,10 +31,6 @@ import (
 
 // ScopeRead is the scope every read needs.
 const ScopeRead = "orch:read"
-
-// PlatformOrg is TerraScale's own organization in Config.Members. Its
-// members see every app; platform apps belong to it.
-const PlatformOrg = "terrascale"
 
 // maxConnections bounds the connections one controller serves: the public
 // load balancer sends the internet here, and these hosts also run the
@@ -45,14 +43,12 @@ var openAPI []byte
 var (
 	// appRE and machineRE are internal/machines' name and ID rules; a path
 	// value becomes part of a KV key only after it matches.
-	appRE     = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
-	machineRE = regexp.MustCompile(`^[0-9a-f]{16}$`)
-	// orgRE is internal/tenant's rule for ts-auth organization IDs.
-	orgRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+	appRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 )
 
 // Config is controller.machines_api of the controller config.
 type Config struct {
+	PlatformOrganizationID string `json:"platform_organization_id,omitempty"`
 	// ListenAddress is the API's ip:port; the regional load balancer
 	// forwards the public host to it. Anything but loopback needs TLS.
 	ListenAddress string `json:"listen_address"`
@@ -70,7 +66,7 @@ type Config struct {
 	// Every ts-auth token carries every audience, so the client is what
 	// keeps another service's tokens out.
 	Clients []string `json:"clients"`
-	// Members maps each organization ID to the ts-auth subjects (user UUIDs
+	// Members maps each organization ID to the ts-auth subjects (user ULIDs
 	// or service client IDs) that act for it. ts-auth tokens carry no
 	// organization yet, so this signed map is the tenancy.
 	Members map[string][]string `json:"members"`
@@ -110,13 +106,21 @@ func (c Config) Validate() error {
 			return fmt.Errorf("machines_api jwks_url %q must be https, or http to a loopback or private address", raw)
 		}
 	}
+	if c.PlatformOrganizationID != "" && !entityid.Valid(c.PlatformOrganizationID) {
+		return errors.New("machines_api platform_organization_id must be a canonical ULID")
+	}
+	for _, client := range c.Clients {
+		if !entityid.Valid(client) {
+			return errors.New("machines_api clients must be canonical ULIDs")
+		}
+	}
 	seen := map[string]bool{}
 	for org, subjects := range c.Members {
-		if !orgRE.MatchString(org) {
+		if !entityid.Valid(org) {
 			return fmt.Errorf("machines_api members: organization %q", org)
 		}
 		for _, subject := range subjects {
-			if subject == "" || seen[subject] {
+			if !entityid.Valid(subject) || seen[subject] {
 				return fmt.Errorf("machines_api members: subject %q is empty or in two organizations", subject)
 			}
 			seen[subject] = true
@@ -253,7 +257,7 @@ func (s *Server) authorized(scope string, next func(http.ResponseWriter, *http.R
 // owning tenant once and never the whole tenant bucket. A missing tenant
 // owns nothing a tenant organization can see.
 func (s *Server) visible(ctx context.Context, c caller, app machines.App, owners map[string]string) (bool, error) {
-	if c.Org == PlatformOrg {
+	if c.Org == s.config.PlatformOrganizationID {
 		return true, nil
 	}
 	if app.Class != machines.ClassTenant {
@@ -361,8 +365,8 @@ func (s *Server) listMachines(w http.ResponseWriter, r *http.Request, _ caller, 
 
 func (s *Server) getMachine(w http.ResponseWriter, r *http.Request, _ caller, app machines.App) {
 	id := r.PathValue("id")
-	if !machineRE.MatchString(id) {
-		writeError(w, http.StatusBadRequest, "invalid_name", "machine IDs are 16 lower-case hex digits")
+	if !entityid.Valid(id) {
+		writeError(w, http.StatusBadRequest, "invalid_name", "machine IDs must be canonical uppercase ULIDs")
 		return
 	}
 	machine, err := s.apps.Machine(r.Context(), app.Name, id)

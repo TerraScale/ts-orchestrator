@@ -204,7 +204,7 @@ func newManagedEnrollmentFixture(t *testing.T) managedEnrollmentFixture {
 	}
 	row := committed.CanonicalRoster.Rows[0]
 	instance := oci.Instance{
-		ID: "ocid1.instance.oc1..node-a", Node: "node-a", CreateKey: "host-create-a", Region: oci.RegionGRU,
+		ID: "ocid1.instance.oc1..node-a", Node: "node-a", CreateKey: "0000000000RW49ETSDPDJTBD4J", Region: oci.RegionGRU,
 		PrivateIP:  "10.0.0.11",
 		Generation: 1, Owner: "regional-owner", FaultDomain: row.FailureDomain,
 		Shape: profile.Compute.Shape, WholeOCPUs: profile.Compute.WholeOCPUs,
@@ -212,14 +212,14 @@ func newManagedEnrollmentFixture(t *testing.T) managedEnrollmentFixture {
 		PlacementGeneration: committed.Generation, ETag: "etag-a", State: "RUNNING",
 	}
 	state := placement.MemberState{
-		SchemaVersion: 4, DatabaseID: committed.DatabaseID, PartitionID: committed.PartitionID,
+		SchemaVersion: 5, DatabaseID: committed.DatabaseID, PartitionID: committed.PartitionID,
 		MemberID: row.SeatID, Region: oci.RegionGRU, FailureDomain: row.FailureDomain,
 		Kind: placement.MemberPermanent, Stage: placement.StageAwaitingHost, CreateKey: instance.CreateKey,
 		HostNode: instance.Node, InstanceID: instance.ID, HostAttempt: 1,
 		IntentGeneration: committed.Generation, IntentPayloadDigest: committed.PayloadDigest(),
 		ManagedHostProfile: profile, ManagedHostProfileDigest: profileDigest,
 		CanonicalRosterRow: row, CanonicalRosterDigest: rosterDigest,
-		AuthorityReference: committed.CanonicalRoster.Authority, OperationID: "prepare-a", UpdatedAt: time.Now().UTC(),
+		AuthorityReference: committed.CanonicalRoster.Authority, OperationID: "0000000000XKSKB83V4DB22823", UpdatedAt: time.Now().UTC(),
 	}
 	state.RuntimeManifest = committed.RuntimeManifests[0]
 	state.RuntimeManifestDigest, err = state.RuntimeManifest.Digest()

@@ -110,7 +110,7 @@ func TestLoadConfigSkipsOnlyANewerBinarysMembers(t *testing.T) {
 	for name, body := range map[string]string{
 		"typo at this version":       `{"version": 1, "nats": {"cell": "gru", "cel": "gru"}}`,
 		"typo in an unversioned one": `{"nats": {"cell": "gru"}, "controler": {}}`,
-		"duplicate member":           `{"version": 1000, "nats": {"cell": "gru", "cell": "other"}}`,
+		"duplicate member":           `{"version": 1000, "nats": {"cell": "gru", "cell": "0000000000V4MRM46HP1SNGDYW"}}`,
 		"wrong type":                 `{"version": 1000, "nats": {"cell": 7}}`,
 		"version not a number":       `{"version": "1000", "added": true}`,
 	} {

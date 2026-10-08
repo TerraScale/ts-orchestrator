@@ -14,6 +14,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
@@ -154,7 +155,7 @@ func managedImageVerifierFixture(t *testing.T) (*managedImageVerifier, *fixedMan
 	}
 	delegation, err := trust.SignDelegation(trust.Delegation{
 		SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encodedPublic,
-		Capabilities: []trust.Capability{{Domain: release.ImageDomain, DeploymentID: "0123456789abcdef0123456789abcdef01234567",
+		Capabilities: []trust.Capability{{Domain: release.ImageDomain, DeploymentID: entityid.Derive("build", "0123456789abcdef0123456789abcdef01234567"),
 			Cell: "GRU", Environment: "production", Role: "oci-image", Slots: []string{managedImageTestOCID}, Actions: []string{"sign"}}},
 	}, now.Add(-time.Minute), now.Add(time.Hour), rootPrivate)
 	if err != nil {

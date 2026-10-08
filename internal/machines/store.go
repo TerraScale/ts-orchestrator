@@ -8,15 +8,18 @@ import (
 	"slices"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
 const (
-	// Bucket holds apps and machines, the desired state. It is snapshotted
+	// Bucket holds apps; MachineBucket holds machine desired state. It is snapshotted
 	// with the other configuration buckets.
-	Bucket = "TS_APPS"
+	Bucket        = "TS_APPS"
+	MachineBucket = "TS_MACHINES"
 	// StatusBucket holds observed machine states. A rebuilt cell relearns
 	// them from its hosts, so it is not snapshotted.
 	StatusBucket = "TS_MACHINE_STATUS"
@@ -30,9 +33,9 @@ var (
 	ErrHasMachines = errors.New("app still has machines")
 )
 
-func appKey(name string) string        { return "apps." + name }
-func machineKey(app, id string) string { return "machines." + app + "." + id }
-func statusKey(app, id string) string  { return "status." + app + "." + id }
+func appKey(name string) string        { return entityid.Derive("app", name) }
+func machineKey(app, id string) string { return id }
+func statusKey(app, id string) string  { return id }
 
 func (a App) key() string     { return appKey(a.Name) }
 func (m Machine) key() string { return machineKey(m.App, m.ID) }
@@ -47,16 +50,16 @@ func (s *Status) revision() *uint64  { return &s.Revision }
 // is a compare-and-swap on the record's Revision (zero creates). Every read
 // checks that a record is valid and belongs to its key.
 type Store struct {
-	apps, statuses jetstream.KeyValue
-	region         string
-	fencer         authority.Fencer
+	apps, machines, statuses jetstream.KeyValue
+	region                   string
+	fencer                   authority.Fencer
 }
 
-// BucketMaxBytes is what each of the two buckets reserves on every
+// BucketMaxBytes is what each of the three buckets reserves on every
 // controller's JetStream store.
 const BucketMaxBytes = 256 << 20
 
-// OpenStore provisions or binds both buckets for region.
+// OpenStore provisions or binds all three buckets for region.
 func OpenStore(ctx context.Context, js jetstream.JetStream, region string, replicas int, fencer authority.Fencer) (*Store, error) {
 	if js == nil || fencer == nil || !validRegion(region) || replicas != 1 && replicas != 3 && replicas != 5 {
 		return nil, fmt.Errorf("%w: store configuration", ErrInvalid)
@@ -75,11 +78,15 @@ func OpenStore(ctx context.Context, js jetstream.JetStream, region string, repli
 	if err != nil {
 		return nil, err
 	}
+	machines, err := open(MachineBucket, "ts-orch machines")
+	if err != nil {
+		return nil, err
+	}
 	statuses, err := open(StatusBucket, "ts-orch observed machine states")
 	if err != nil {
 		return nil, err
 	}
-	return &Store{apps: apps, statuses: statuses, region: region, fencer: fencer}, nil
+	return &Store{apps: apps, machines: machines, statuses: statuses, region: region, fencer: fencer}, nil
 }
 
 // App returns an app.
@@ -89,7 +96,7 @@ func (s *Store) App(ctx context.Context, name string) (App, error) {
 
 // Apps lists every app by name.
 func (s *Store) Apps(ctx context.Context) ([]App, error) {
-	apps, err := list[App](ctx, s.apps, "apps.*")
+	apps, err := list[App](ctx, s.apps, "*")
 	slices.SortFunc(apps, func(a, b App) int { return cmp.Compare(a.Name, b.Name) })
 	return apps, err
 }
@@ -143,7 +150,14 @@ func (s *Store) DeleteApp(ctx context.Context, epoch uint64, app App) error {
 
 // Machine returns a machine.
 func (s *Store) Machine(ctx context.Context, app, id string) (Machine, error) {
-	return get[Machine](ctx, s.apps, machineKey(app, id))
+	if !entityid.Valid(id) {
+		return Machine{}, ErrInvalid
+	}
+	value, err := get[Machine](ctx, s.machines, machineKey(app, id))
+	if err == nil && value.App != app {
+		return Machine{}, ErrNotFound
+	}
+	return value, err
 }
 
 // Machines lists the machines whose App is app, orphans included, or every
@@ -153,7 +167,10 @@ func (s *Store) Machines(ctx context.Context, app string) ([]Machine, error) {
 	if err != nil {
 		return nil, err
 	}
-	machines, err := list[Machine](ctx, s.apps, filter)
+	machines, err := list[Machine](ctx, s.machines, filter)
+	if app != "" {
+		machines = slices.DeleteFunc(machines, func(value Machine) bool { return value.App != app })
+	}
 	slices.SortFunc(machines, func(a, b Machine) int { return cmp.Or(cmp.Compare(a.App, b.App), cmp.Compare(a.ID, b.ID)) })
 	return machines, err
 }
@@ -194,7 +211,7 @@ func (s *Store) PutMachine(ctx context.Context, epoch uint64, machine Machine) (
 			return Machine{}, fmt.Errorf("%w: machine %s is destroyed", ErrInvalid, machine.ID)
 		}
 	}
-	if err := put(ctx, s, s.apps, epoch, &machine); err != nil {
+	if err := put(ctx, s, s.machines, epoch, &machine); err != nil {
 		return Machine{}, err
 	}
 	return machine, nil
@@ -222,7 +239,7 @@ func (s *Store) DeleteMachine(ctx context.Context, epoch uint64, machine Machine
 	if current.Host != "" && status.State != StateDestroyed {
 		return fmt.Errorf("%w: machine %s has not been observed destroyed", ErrInvalid, machine.ID)
 	}
-	if err := remove(ctx, s, s.apps, epoch, current.key(), current.Revision); err != nil {
+	if err := remove(ctx, s, s.machines, epoch, current.key(), current.Revision); err != nil {
 		return err
 	}
 	if status.Revision != 0 {
@@ -268,7 +285,14 @@ func (s *Store) SweepStatuses(ctx context.Context, epoch uint64) (int, error) {
 
 // Status returns a machine's observed status.
 func (s *Store) Status(ctx context.Context, app, id string) (Status, error) {
-	return get[Status](ctx, s.statuses, statusKey(app, id))
+	if !entityid.Valid(id) {
+		return Status{}, ErrInvalid
+	}
+	value, err := get[Status](ctx, s.statuses, statusKey(app, id))
+	if err == nil && value.App != app {
+		return Status{}, ErrNotFound
+	}
+	return value, err
 }
 
 // Statuses lists the statuses of app's machines, or of every machine when
@@ -279,6 +303,9 @@ func (s *Store) Statuses(ctx context.Context, app string) ([]Status, error) {
 		return nil, err
 	}
 	statuses, err := list[Status](ctx, s.statuses, filter)
+	if app != "" {
+		statuses = slices.DeleteFunc(statuses, func(value Status) bool { return value.App != app })
+	}
 	slices.SortFunc(statuses, func(a, b Status) int { return cmp.Or(cmp.Compare(a.App, b.App), cmp.Compare(a.ID, b.ID)) })
 	return statuses, err
 }
@@ -316,12 +343,12 @@ func (s *Store) PutStatus(ctx context.Context, epoch uint64, status Status) (Sta
 
 func appFilter(prefix, app string) (string, error) {
 	if app == "" {
-		return prefix + ".>", nil
+		return "*", nil
 	}
 	if !tokenRE.MatchString(app) {
 		return "", fmt.Errorf("%w: app name", ErrInvalid)
 	}
-	return prefix + "." + app + ".*", nil
+	return "*", nil
 }
 
 type record[T any] interface {

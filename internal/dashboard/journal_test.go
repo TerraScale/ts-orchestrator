@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
@@ -170,13 +172,13 @@ func testDecisions() []decisionlog.Decision {
 		{ID: "d1", Time: at(50), Region: "fra", Actor: decisionlog.Actor{Slice: "rollout", Member: "ctl-1"},
 			Kind: decisionlog.KindReleaseAdmitted, Subject: release, Summary: "Admitted release v0.43.0",
 			Status: decisionlog.StatusSucceeded, Attrs: map[string]string{"qualification": "passed", "delegation": "signer-q4"}},
-		{ID: "d2", ParentID: "d1", Time: at(40), Region: "fra", Actor: decisionlog.Actor{Slice: "rollout"},
+		{ID: "d2", ParentID: "000000000012DW218K5MV0GCVX", Time: at(40), Region: "fra", Actor: decisionlog.Actor{Slice: "rollout"},
 			Kind: decisionlog.KindCanaryPromoted, Subject: release, Summary: "Promoted the canary of v0.43.0",
 			Reason: "Every health gate held.", Rule: "canary health gates", Status: decisionlog.StatusSucceeded,
 			Signals: []decisionlog.Signal{{Name: "error_rate", Value: 0.3, Unit: "%", Comparison: "<=", Threshold: threshold,
 				Passed: decisionlog.Passed(true)}},
 			Alternatives: []decisionlog.Alternative{{Option: "extend the canary", Reason: "gates held with margin"}}},
-		{ID: "d3", ParentID: "d2", Time: at(30), Region: "fra", Actor: decisionlog.Actor{Slice: "rollout"},
+		{ID: "d3", ParentID: "0000000000V88PE8JVRSWDV1G8", Time: at(30), Region: "fra", Actor: decisionlog.Actor{Slice: "rollout"},
 			Kind: decisionlog.KindBatchPromoted, Subject: release, Summary: "Promoted batch 1 of 3",
 			Status: decisionlog.StatusInProgress, Attrs: map[string]string{"batch": "1", "batches": "3"}},
 		{ID: "d4", Time: at(45), Region: "gru", Actor: decisionlog.Actor{Slice: "rollout"},
@@ -186,7 +188,7 @@ func testDecisions() []decisionlog.Decision {
 			Kind: decisionlog.KindScaleUp, Subject: decisionlog.Subject{Kind: "service", ID: "terrabase-pool"},
 			Summary: "Scaled the TerraBase pool up", Status: decisionlog.StatusSucceeded},
 		{ID: "d6", Time: at(10), Region: "fra", Actor: decisionlog.Actor{Slice: "storage"},
-			Kind: decisionlog.KindBackupTaken, Subject: decisionlog.Subject{Kind: "database", ID: "orders"},
+			Kind: decisionlog.KindBackupTaken, Subject: decisionlog.Subject{Kind: "database", ID: "00000000000DMQEY0YD7RZ04RR"},
 			Summary: "Backed up orders", Status: decisionlog.StatusSucceeded},
 		{ID: "d7", Time: at(5), Region: "fra", Actor: decisionlog.Actor{Slice: "authority"},
 			Kind: decisionlog.KindLeaderChanged, Subject: decisionlog.Subject{Kind: "member", ID: "ctl-1"},
@@ -195,7 +197,7 @@ func testDecisions() []decisionlog.Decision {
 }
 
 func testInsight(key, title string, severity insights.Severity, region string) insights.Insight {
-	return insights.Insight{Key: key, Rule: "disk_time_to_full", Severity: severity, Region: region, Title: title,
+	return insights.Insight{Key: entityid.Derive("insight", region, key), Rule: "disk_time_to_full", Severity: severity, Region: region, Title: title,
 		Why: "The nats filesystem fills in about 2d.", FirstSeen: testNow.Add(-time.Hour), LastSeen: testNow,
 		Entity: insights.Entity{Kind: "host", ID: "ctl-1", Href: "/members?host=ctl-1"},
 		Evidence: []insights.Evidence{{Label: "Used", Metric: observability.HistFSRatio,
@@ -245,7 +247,7 @@ func fullJournal() (*Journal, *fakeInsights, *fakeDecisions) {
 		Versions: fakeVersions{{Region: "fra", Kind: "controller", Unit: "ctl-1", Version: "v0.43.0"},
 			{Region: "fra", Kind: "controller", Unit: "ctl-2", Version: "v0.42.1"},
 			{Region: "sfo", Kind: "seat", Unit: "orders-1", Version: "terrabase 3.8.1"}},
-		Rollouts: fakeRollouts{{ID: "ro-1", Release: "v0.43.0", Phase: "batch-1", PhaseStarted: testNow.Add(-time.Hour),
+		Rollouts: fakeRollouts{{ID: "0000000000N6KCZG3MWDGZ0WBE", Release: "v0.43.0", Phase: "batch-1", PhaseStarted: testNow.Add(-time.Hour),
 			PhaseDeadline: testNow.Add(-time.Minute)}},
 		Volumes: fakeVolumes{{ID: "vol-stuck", Host: "host-a", State: "attaching", StateSince: testNow.Add(-time.Hour)}},
 		Qualification: fakeQualification{{Release: "v0.43.1-rc.1", Status: "running", Time: testNow,
@@ -524,7 +526,7 @@ func TestStreamRaisesToastsForNewInsights(t *testing.T) {
 	source.push(insights.Change{Type: insights.ChangeOpened, Time: testNow, Insight: opened})
 	_, data := reader.next()
 	if !strings.Contains(data, "selector #toasts") || !strings.Contains(data, "mode append") ||
-		!strings.Contains(data, "Controller quorum at risk") || !strings.Contains(data, `data-key="quorum:fra"`) ||
+		!strings.Contains(data, "Controller quorum at risk") || !strings.Contains(data, `data-key="`+opened.Key+`"`) ||
 		strings.Contains(data, "Old problem") {
 		t.Fatalf("toast patch = %q", data)
 	}

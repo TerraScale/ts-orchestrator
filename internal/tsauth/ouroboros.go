@@ -14,6 +14,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 // FlyApp is the dashboard's Fly app. TS-472 reads its TerraBase settings
@@ -253,6 +255,9 @@ func (u TSAuthUsers) UserID(ctx context.Context, email string) (string, error) {
 			return "", fmt.Errorf("list ts-auth users: %w", err)
 		}
 		for _, item := range page.Data {
+			if !entityid.Valid(item.ID) {
+				return "", errors.New("ts-auth returned a noncanonical user ID")
+			}
 			if strings.EqualFold(item.Email, email) {
 				found = append(found, item)
 			}
@@ -272,7 +277,7 @@ func (u TSAuthUsers) UserID(ctx context.Context, email string) (string, error) {
 	if !owner.EmailVerified || owner.Anonymous || owner.Banned {
 		return "", fmt.Errorf("ts-auth user %s must have verified %s and be neither anonymous nor banned", owner.ID, email)
 	}
-	if !ulidRE.MatchString(owner.ID) || owner.ID == BootstrapUser {
+	if !entityid.Valid(owner.ID) || owner.ID == BootstrapUser {
 		return "", fmt.Errorf("ts-auth user %s has an unusable id", email)
 	}
 	return owner.ID, nil

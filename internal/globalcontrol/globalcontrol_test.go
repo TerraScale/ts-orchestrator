@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats-server/v2/server"
@@ -60,11 +62,11 @@ func TestRosterValidation(t *testing.T) {
 func TestDirectoryValidation(t *testing.T) {
 	t.Parallel()
 
-	entry := DirectoryEntry{DatabaseID: "db-1", PartitionID: "p0", HomeRegion: "gru", ActiveRegions: []string{"gru", "sfo"}, Generation: 1}
+	entry := DirectoryEntry{DatabaseID: "00000000004SJMRETVW39JX054", PartitionID: "00000000003K6TBW31R91GBDRD", HomeRegion: "gru", ActiveRegions: []string{"gru", "sfo"}, Generation: 1}
 	if err := entry.ValidateAgainst(testRoster(1)); err != nil {
 		t.Fatal(err)
 	}
-	if entry.Key() != "db-1.p0" || DirectoryKey("a--b", "c") == DirectoryKey("a", "b--c") {
+	if entry.Key() != DirectoryKey(entry.DatabaseID, entry.PartitionID) || DirectoryKey("a--b", "c") == DirectoryKey("a", "b--c") {
 		t.Fatalf("directory keys collide or changed: %q", entry.Key())
 	}
 	provisioning := entry
@@ -165,7 +167,7 @@ func TestHomeWriterGuardsAndCompareAndSets(t *testing.T) {
 	}
 	assertMirrorConsumers(ctx, t, js, []string{"fra", "sfo"})
 	epoch := global.Current().Epoch
-	entry := DirectoryEntry{DatabaseID: "db-1", PartitionID: "p0", HomeRegion: "gru", ActiveRegions: []string{"gru"}, Generation: 1}
+	entry := DirectoryEntry{DatabaseID: "00000000004SJMRETVW39JX054", PartitionID: "00000000003K6TBW31R91GBDRD", HomeRegion: "gru", ActiveRegions: []string{"gru"}, Generation: 1}
 	if _, err := writer.PutDirectory(ctx, epoch, entry); !errors.Is(err, ErrRosterRequired) {
 		t.Fatalf("directory without roster = %v", err)
 	}
@@ -201,18 +203,18 @@ func TestHomeWriterGuardsAndCompareAndSets(t *testing.T) {
 	if _, err := writer.PutDirectory(ctx, epoch, inactive); err == nil {
 		t.Fatal("directory accepted a provisioning region")
 	}
-	read, sequence, err := writer.Directory(ctx, "db-1", "p0")
+	read, sequence, err := writer.Directory(ctx, "00000000004SJMRETVW39JX054", "00000000003K6TBW31R91GBDRD")
 	if err != nil || read.Generation != 1 || read.HomeRegion != "gru" || sequence == 0 {
 		t.Fatalf("directory readback = %+v, %d, %v", read, sequence, err)
 	}
-	if _, _, err := writer.Directory(ctx, "db-2", "p0"); !errors.Is(err, ErrNotFound) {
+	if _, _, err := writer.Directory(ctx, "00000000000DXJQRPPVPZTKPAZ", "00000000003K6TBW31R91GBDRD"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing directory entry = %v", err)
 	}
 	// A record written outside the writer cannot be read as valid state.
-	if _, err := js.Publish(ctx, protocol.GlobalState(string(KindDirectory), "db-9", "p0"), []byte(`{"version":1}`)); err != nil {
+	if _, err := js.Publish(ctx, protocol.GlobalState(string(KindDirectory), DirectoryKey("00000000000000000000000009", "00000000003K6TBW31R91GBDRD")), []byte(`{"version":1}`)); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := writer.Directory(ctx, "db-9", "p0"); !errors.Is(err, ErrRecordCorrupt) {
+	if _, _, err := writer.Directory(ctx, "00000000000000000000000009", "00000000003K6TBW31R91GBDRD"); !errors.Is(err, ErrRecordCorrupt) {
 		t.Fatalf("corrupt directory entry = %v", err)
 	}
 	roster, _, err := writer.Roster(ctx)
@@ -285,7 +287,7 @@ func TestHomeRefusesADriftedMirrorConsumer(t *testing.T) {
 func startAuthority(ctx context.Context, t *testing.T, js jetstream.JetStream, scope string) *authority.Runtime {
 	t.Helper()
 	runtime, err := authority.Start(ctx, js, authority.Config{
-		Scope: scope, CandidateID: scope + "-a", Replicas: 1,
+		Scope: scope, CandidateID: entityid.Derive("test-controller", scope), Replicas: 1,
 		LeaseDuration: 5 * time.Second, RenewInterval: 500 * time.Millisecond,
 	})
 	if err != nil {

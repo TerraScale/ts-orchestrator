@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 // Restore drill. A member's backups are proven restorable by restoring one
@@ -21,6 +23,8 @@ const RestoreVolumeDevice = "/dev/oracleoci/oraclevdz"
 
 const (
 	resourceMemberRestore = "member-data-restore"
+	tagRestoreMember      = "terrascale-restore-member"
+	tagRestoreBackup      = "terrascale-restore-backup"
 	// restoreSettleTimeout bounds the wait until a restored volume is
 	// AVAILABLE; OCI restores a backup into a new volume in minutes.
 	restoreSettleTimeout = 20 * time.Minute
@@ -75,7 +79,7 @@ func (v *MemberVolumes) Restore(ctx context.Context, request RestoreRequest) (Re
 		return RestoredVolume{}, err
 	}
 	restoreName := "restore-" + name
-	createKey := "restore-" + digest(f.config.Owner, request.Member, backup.ID)[:32]
+	createKey := entityid.Derive("restore-volume", f.config.Owner, request.Member, backup.ID)
 	volume, found, err := v.findRestoredVolume(ctx, createKey)
 	if err != nil {
 		return RestoredVolume{}, err
@@ -88,6 +92,7 @@ func (v *MemberVolumes) Restore(ctx context.Context, request RestoreRequest) (Re
 			AvailabilityDomain: f.config.AvailabilityDomain, SourceBackupID: backup.ID}
 		tags := volumeTags(f.config, create)
 		tags[tagResource] = resourceMemberRestore
+		tags[tagRestoreMember], tags[tagRestoreBackup] = request.Member, backup.ID
 		retry := retryToken(strings.Join([]string{f.config.Owner, string(f.config.Region), createKey}, ":"))
 		_, createErr := f.provider.CreateVolume(ctx, create, tags, retry)
 		if volume, found, err = v.findRestoredVolume(ctx, createKey); err != nil || !found {
@@ -125,7 +130,7 @@ func (v *MemberVolumes) VerifyRestoredAttachment(ctx context.Context, scratchIns
 	if err != nil {
 		return Attachment{}, err
 	}
-	if volume.LifecycleState != "AVAILABLE" || !strings.HasPrefix(identity.CreateKey, "restore-") {
+	if volume.LifecycleState != "AVAILABLE" || !f.memberName(volume.FreeformTags[tagRestoreMember], false) || volume.FreeformTags[tagRestoreBackup] == "" || identity.CreateKey != entityid.Derive("restore-volume", f.config.Owner, volume.FreeformTags[tagRestoreMember], volume.FreeformTags[tagRestoreBackup]) {
 		return Attachment{}, fmt.Errorf("%w: volume %s is not an available restore copy", ErrForeignResource, restoredVolumeID)
 	}
 	if err := v.requireOnlyAttachment(ctx, scratchInstanceID, restoredVolumeID, true); err != nil {
@@ -164,7 +169,7 @@ func (v *MemberVolumes) requireScratchInstance(ctx context.Context, instanceID s
 }
 
 func (v *MemberVolumes) selectBackup(ctx context.Context, backups volumeBackupReader, name, backupID, source string) (CloudVolumeBackup, error) {
-	current, _, found, err := v.fleet.findVolumeByCreateKey(ctx, name)
+	current, _, found, err := v.fleet.findVolumeByCreateKey(ctx, memberVolumeCreateKey(name))
 	if err != nil {
 		return CloudVolumeBackup{}, err
 	}

@@ -117,7 +117,7 @@ func TestNewLeaderFirstWriteFencesTheOldTerm(t *testing.T) {
 	if _, err := next.PutRoster(ctx, 2, testRoster(2)); err != nil {
 		t.Fatal(err)
 	}
-	entry := DirectoryEntry{DatabaseID: "db-1", PartitionID: "p0", HomeRegion: "gru", ActiveRegions: []string{"gru"}, Generation: 1}
+	entry := DirectoryEntry{DatabaseID: "00000000004SJMRETVW39JX054", PartitionID: "00000000003K6TBW31R91GBDRD", HomeRegion: "gru", ActiveRegions: []string{"gru"}, Generation: 1}
 	if _, err := old.PutDirectory(ctx, 1, entry); !errors.Is(err, authority.ErrFenced) {
 		t.Fatalf("old leader directory write after the new term = %v", err)
 	}
@@ -142,7 +142,7 @@ func TestConcurrentWritersNeverInterleaveTerms(t *testing.T) {
 		wait.Go(func() {
 			for index := range 20 {
 				entry := DirectoryEntry{
-					DatabaseID: "db-" + strconv.FormatUint(epoch, 10), PartitionID: "p" + strconv.Itoa(index),
+					DatabaseID: "0000000000B703KMD4B8J6EWBB" + strconv.FormatUint(epoch, 10), PartitionID: "0000000000KJ432RJ85B7APRW2" + strconv.Itoa(index),
 					HomeRegion: "gru", ActiveRegions: []string{"gru"}, Generation: 1,
 				}
 				_, _ = writer.PutDirectory(ctx, epoch, entry)
@@ -254,11 +254,8 @@ func TestHomeRemovesMirrorConsumersOfRemovedPeers(t *testing.T) {
 	}
 }
 
-// TestLegacyRecordsBeforeTheFirstBarrierStayReadable: records an older
-// writer stored without the epoch header (before any term barrier) are read
-// and superseded by the next fenced write; a headerless record appended after
-// a barrier is still corruption.
-func TestLegacyRecordsBeforeTheFirstBarrierStayReadable(t *testing.T) {
+// Headerless records are rejected even before the first term barrier.
+func TestHeaderlessRecordsBeforeTheFirstBarrierAreRejected(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	js := newTestJetStream(t)
@@ -278,21 +275,8 @@ func TestLegacyRecordsBeforeTheFirstBarrierStayReadable(t *testing.T) {
 	if _, err := js.Publish(ctx, subject(KindRoster, RosterKey), legacy); err != nil {
 		t.Fatal(err)
 	}
-	if roster, _, err := writer.Roster(ctx); err != nil || roster.Generation != 1 {
-		t.Fatalf("legacy roster = %+v, %v", roster, err)
-	}
-	if _, err := writer.PutRoster(ctx, 1, testRoster(2)); err != nil {
-		t.Fatalf("a fenced write over a legacy record = %v", err)
-	}
-	if roster, _, err := writer.Roster(ctx); err != nil || roster.Generation != 2 {
-		t.Fatalf("roster after the upgrade write = %+v, %v", roster, err)
-	}
-	// The barrier now exists: a headerless append is not legacy.
-	if _, err := js.Publish(ctx, subject(KindRoster, RosterKey), legacy); err != nil {
-		t.Fatal(err)
-	}
 	if _, _, err := writer.Roster(ctx); !errors.Is(err, ErrRecordCorrupt) {
-		t.Fatalf("headerless record after the barrier = %v, want corruption", err)
+		t.Fatalf("headerless record before the barrier = %v, want corruption", err)
 	}
 }
 

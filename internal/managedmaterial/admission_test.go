@@ -43,7 +43,7 @@ func admittedInitialFixtureOptions(t *testing.T, nativeRoot, sqlEnabled, backupE
 		}
 		service.RecipientSigner = public
 		spec.SQLTables = []InitialSQLTable{{
-			TableID: "44444444-4444-7444-8444-444444444444", Name: "items",
+			TableID: "248H248H24EH288H248H248H24", Name: "items",
 			KeyColumn: "id", PayloadColumn: "body",
 		}}
 		for index := range spec.Members {
@@ -63,12 +63,12 @@ func admittedInitialFixtureOptions(t *testing.T, nativeRoot, sqlEnabled, backupE
 		}
 		spec.Members[index].MaterialDirectory = path
 	}
-	receipt, err := service.PrepareInitial(t.Context(), 9, "partition-a", spec, time.Now().UTC())
+	receipt, err := service.PrepareInitial(t.Context(), 9, "0000000000Z3WK359G2W66CVT8", spec, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
 	intent := placement.Intent{SchemaVersion: placement.IntentSchemaVersion, DatabaseID: spec.PlacementDatabaseID,
-		PartitionID: "partition-a", ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: 1,
+		PartitionID: "0000000000Z3WK359G2W66CVT8", ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: 1,
 		CanonicalRoster: placement.CanonicalRoster{ClusterID: spec.Scope.ClusterID, TenantID: spec.Scope.TenantID,
 			DatabaseID: spec.Scope.DatabaseID, ShardID: spec.Scope.ShardID,
 			Authority: placement.AuthorityReference{Version: 2, Epoch: spec.Scope.Epoch,

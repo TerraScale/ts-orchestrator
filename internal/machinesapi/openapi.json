@@ -70,7 +70,7 @@
         "operationId": "getMachine",
         "parameters": [
           {"$ref": "#/components/parameters/App"},
-          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[0-9a-f]{16}$"}}
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"}}
         ],
         "responses": {
           "200": {"description": "The machine", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Machine"}}}},

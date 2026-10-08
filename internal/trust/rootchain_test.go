@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	testChainID = ChainIdentity{DeploymentID: "deployment-a", Cell: "gru", Environment: "production"}
+	testChainID = ChainIdentity{DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "gru", Environment: "production"}
 	testChainAt = time.Date(2026, time.October, 5, 12, 0, 0, 0, time.UTC)
 )
 

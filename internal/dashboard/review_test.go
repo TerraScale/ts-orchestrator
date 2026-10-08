@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"github.com/a-h/templ"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
@@ -254,19 +256,21 @@ func TestInsightIdentityIsRegionScoped(t *testing.T) {
 	dashboard, source, _ := journalDashboard(Options{})
 	source.evaluation.Insights = append(source.evaluation.Insights,
 		testInsight("oci_throttled:sfo", "Same key in FRA", insights.SeverityWarning, "fra"))
-	body := get(t, dashboard.Handler(), "/insights?id=sfo:oci_throttled:sfo").Body.String()
-	if !strings.Contains(body, `id="insight-fra:oci_throttled:sfo"`) || !strings.Contains(body, `id="insight-sfo:oci_throttled:sfo"`) {
+	fraID := entityid.Derive("insight", "fra", "oci_throttled:sfo")
+	sfoID := entityid.Derive("insight", "sfo", "oci_throttled:sfo")
+	body := get(t, dashboard.Handler(), "/insights?id="+sfoID).Body.String()
+	if !strings.Contains(body, `id="insight-`+fraID+`"`) || !strings.Contains(body, `id="insight-`+sfoID+`"`) {
 		t.Fatal("cards with the same key in two regions share a DOM id")
 	}
 	card := func(id string) string {
 		start := strings.Index(body, `id="insight-`+id+`"`)
 		return body[start : start+strings.Index(body[start:], ">")]
 	}
-	if !strings.Contains(card("sfo:oci_throttled:sfo"), "aria-current") || strings.Contains(card("fra:oci_throttled:sfo"), "aria-current") {
+	if !strings.Contains(card(sfoID), "aria-current") || strings.Contains(card(fraID), "aria-current") {
 		t.Fatal("the selection marks the wrong card")
 	}
 	global := get(t, dashboard.Handler(), "/?r=sfo").Body.String()
-	if !strings.Contains(global, "id=fra%3Aoci_throttled%3Asfo") || !strings.Contains(global, "id=sfo%3Aoci_throttled%3Asfo") {
+	if !strings.Contains(global, "id="+fraID) || !strings.Contains(global, "id="+sfoID) {
 		t.Fatal("global insight links do not carry the region")
 	}
 }
@@ -336,7 +340,7 @@ func TestRegionFiltersFollowTheSelectedRegion(t *testing.T) {
 		t.Fatal("the region select does not show the effective region")
 	}
 	body = get(t, dashboard.Handler(), "/insights?r=sfo").Body.String()
-	if strings.Contains(body, `id="insight-fra:`) || !strings.Contains(body, `id="insight-sfo:`) {
+	if strings.Contains(body, `id="insight-`+entityid.Derive("insight", "fra", "disk:ctl-1")) || !strings.Contains(body, `id="insight-`+entityid.Derive("insight", "sfo", "oci_throttled:sfo")) {
 		t.Fatal("the insights page ignores the selected region")
 	}
 }

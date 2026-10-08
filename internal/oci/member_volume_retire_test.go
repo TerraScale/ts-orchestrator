@@ -81,7 +81,7 @@ func TestMemberVolumeRetireRetainsAndNameReuseCreatesFreshVolume(t *testing.T) {
 	if retired.ID != first.VolumeID || retired.State != "AVAILABLE" || old.SizeGB != 50 ||
 		old.FreeformTags[tagResource] != resourceMemberRetiredData || old.FreeformTags[tagRetiredNode] != testMember ||
 		old.FreeformTags[tagRetiredInstance] != request.InstanceID || old.FreeformTags[tagRetiredAt] != now.Format(time.RFC3339Nano) ||
-		old.FreeformTags[tagCreateKey] == testMemberVolume || provider.detaches != 1 || provider.updates != 1 || provider.deletes != 0 {
+		old.FreeformTags[tagCreateKey] == memberVolumeCreateKey(testMemberVolume) || provider.detaches != 1 || provider.updates != 1 || provider.deletes != 0 {
 		t.Fatalf("retirement did not detach/tag/retain the recorded volume: %+v, provider %+v", old, provider)
 	}
 	if _, _, err := volumes.fleet.reobserveVolume(t.Context(), retired.ID); !errors.Is(err, ErrForeignResource) {
@@ -215,7 +215,7 @@ func TestMemberVolumeRetireRefusesOtherLiveAttachmentAndWrongRecordedData(t *tes
 				delete(provider.volumes, request.VolumeID)
 			case "foreign instance":
 				instance := provider.instances[request.InstanceID]
-				instance.CompartmentID = "other"
+				instance.CompartmentID = "0000000000V4MRM46HP1SNGDYW"
 				provider.instances[instance.ID] = instance
 			}
 			if _, err := volumes.Retire(t.Context(), request); err == nil || provider.detaches != 0 || provider.updates != 0 || provider.deletes != 0 {
