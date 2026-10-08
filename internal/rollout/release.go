@@ -13,6 +13,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
 )
 
 // The cell's desired orchestrator release lives in the rollout bucket: one
@@ -333,22 +334,16 @@ func (s *Store) ReleasePins(ctx context.Context) (rollback, knownBad []string, e
 		return nil, nil, err
 	}
 	knownBad = slices.Clone(state.KnownBad)
-	lister, err := s.kv.ListKeysFiltered(ctx, "knownbad.*")
-	if err != nil && !errors.Is(err, jetstream.ErrNoKeysFound) {
+	keys, err := releasechannel.PinKeys(ctx, s.kv, "knownbad.*")
+	if err != nil {
 		return nil, nil, err
 	}
-	if err == nil {
-		defer lister.Stop()
-		for key := range lister.Keys() {
-			digest := strings.TrimPrefix(key, "knownbad.")
-			if !digestRE.MatchString(digest) {
-				return nil, nil, fmt.Errorf("%w: known-bad key %q", ErrInvalid, key)
-			}
-			knownBad = append(knownBad, digest)
+	for _, key := range keys {
+		digest := strings.TrimPrefix(key, "knownbad.")
+		if !digestRE.MatchString(digest) {
+			return nil, nil, fmt.Errorf("%w: known-bad key %q", ErrInvalid, key)
 		}
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, nil, err
+		knownBad = append(knownBad, digest)
 	}
 	// A rollout's predecessor may predate the retained generation window,
 	// or be the image's baked binary, which has no generation of its own.

@@ -61,8 +61,8 @@ func TestGRURebuildPlanKeepsFreshBindingsAndCSharpPeers(t *testing.T) {
 	}
 	channel := 0
 	for _, statement := range statements {
-		if strings.Contains(statement, "target.bucket.name='gru-1-head', target.object.name='releases/v1/*', request.permission='OBJECT_READ'}") ||
-			strings.Contains(statement, "target.bucket.name='gru-1-head', target.object.name='releases/v1/orchestrator/status.json', any {request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}") {
+		if strings.Contains(statement, "target.bucket.name='gru-1-head', target.object.name='releases/*', request.permission='OBJECT_READ'}") ||
+			strings.Contains(statement, "target.bucket.name='gru-1-head', target.object.name='releases/orchestrator/status.json', any {request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}") {
 			channel++
 		}
 	}

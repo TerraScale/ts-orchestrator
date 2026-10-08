@@ -53,7 +53,7 @@ func TestServiceReleasePinsCompletedPassRefresh(t *testing.T) {
 	if err := markKnownBad(ctx, kv, tsauth.Role, strings.Repeat("d", 64), errors.New("other role")); err != nil {
 		t.Fatal(err)
 	}
-	// A legacy report must be refreshed even when only pin support changed.
+	// A report without an inventory must be refreshed even without progress.
 	if err := releasechannel.WriteServiceStatus(ctx, location, releasechannel.ServiceStatus{Cell: "GRU", Role: role,
 		Digest: state.Digest, IssuedAt: state.IssuedAt, State: state.State}); err != nil {
 		t.Fatal(err)
@@ -126,25 +126,53 @@ func TestServiceReleasePinsInvalidClaimPreservesState(t *testing.T) {
 }
 
 // Override only key enumeration; the remaining KV behavior stays real.
-type servicePinsKeys struct {
+type servicePinsWatch struct {
 	jetstream.KeyValue
-	keys []string
-	err  error
+	keys       []string
+	err        error
+	incomplete bool
 }
 
-func (kv servicePinsKeys) Keys(context.Context, ...jetstream.WatchOpt) ([]string, error) {
-	return kv.keys, kv.err
+func (kv servicePinsWatch) WatchFiltered(_ context.Context, _ []string, _ ...jetstream.WatchOpt) (jetstream.KeyWatcher, error) {
+	if kv.err != nil {
+		return nil, kv.err
+	}
+	updates := make(chan jetstream.KeyValueEntry, len(kv.keys)+1)
+	for _, key := range kv.keys {
+		updates <- servicePinsEntry{key: key}
+	}
+	if !kv.incomplete {
+		updates <- nil
+	}
+	close(updates)
+	return servicePinsWatcher{updates: updates}, nil
 }
+
+type servicePinsEntry struct {
+	jetstream.KeyValueEntry
+	key string
+}
+
+func (entry servicePinsEntry) Key() string { return entry.key }
+
+type servicePinsWatcher struct {
+	updates <-chan jetstream.KeyValueEntry
+}
+
+func (watcher servicePinsWatcher) Updates() <-chan jetstream.KeyValueEntry { return watcher.updates }
+func (servicePinsWatcher) Stop() error                                     { return nil }
 
 func TestServiceReleasePinsRejectIncompleteReports(t *testing.T) {
-	listingErr := errors.New("key listing unavailable")
+	watchErr := errors.New("pin watcher unavailable")
 	for _, tc := range []struct {
-		name     string
-		keys     []string
-		err      error
-		previous string
+		name       string
+		keys       []string
+		err        error
+		incomplete bool
+		previous   string
 	}{
-		{name: "listing failure", keys: []string{knownBadKey(terrabase.Role, strings.Repeat("b", 64))}, err: listingErr},
+		{name: "watcher creation failure", err: watchErr},
+		{name: "closed before completion marker", keys: []string{knownBadKey(terrabase.Role, strings.Repeat("b", 64))}, incomplete: true},
 		{name: "invalid digest", keys: []string{knownBadKey(terrabase.Role, "not-a-digest")}},
 		{name: "uppercase digest", keys: []string{knownBadKey(terrabase.Role, strings.Repeat("B", 64))}},
 		{name: "extra suffix", keys: []string{knownBadKey(terrabase.Role, strings.Repeat("b", 64)+".extra")}},
@@ -152,10 +180,14 @@ func TestServiceReleasePinsRejectIncompleteReports(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r, kv, bucket, _ := servicePinsFixture(t)
-			err := r.report(t.Context(), servicePinsKeys{KeyValue: kv, keys: tc.keys, err: tc.err}, terrabase.Role,
+			ctx := t.Context()
+			err := r.report(ctx, servicePinsWatch{KeyValue: kv, keys: tc.keys, err: tc.err, incomplete: tc.incomplete}, terrabase.Role,
 				serviceReleaseState{Previous: tc.previous, State: releasechannel.StateComplete})
 			if err == nil || tc.err != nil && !errors.Is(err, tc.err) {
-				t.Fatalf("report error = %v, want refusal preserving listing errors", err)
+				t.Fatalf("report error = %v, want refusal preserving watcher errors", err)
+			}
+			if ctx.Err() != nil {
+				t.Fatalf("report context changed: %v", ctx.Err())
 			}
 			if bucket.puts[releasechannel.ServiceStatusObject(terrabase.Role)] != 0 {
 				t.Fatal("published incomplete pins")
@@ -168,7 +200,7 @@ func TestServiceReleasePinsEmptySupportAndDeduplication(t *testing.T) {
 	r, kv, bucket, location := servicePinsFixture(t)
 	ctx, role := t.Context(), terrabase.Role
 	state := serviceReleaseState{State: releasechannel.StateComplete}
-	if err := r.report(ctx, kv, role, state); err != nil {
+	if err := r.report(ctx, servicePinsWatch{KeyValue: kv}, role, state); err != nil {
 		t.Fatal(err)
 	}
 	status, found, err := releasechannel.ReadServiceStatus(ctx, location, role)
@@ -177,7 +209,7 @@ func TestServiceReleasePinsEmptySupportAndDeduplication(t *testing.T) {
 	}
 	older, newer := strings.Repeat("b", 64), strings.Repeat("c", 64)
 	keys := []string{knownBadKey(role, newer), knownBadKey(role, older), knownBadKey(role, newer), knownBadKey(tsauth.Role, "invalid")}
-	if err := r.report(ctx, servicePinsKeys{KeyValue: kv, keys: keys}, role, state); err != nil {
+	if err := r.report(ctx, servicePinsWatch{KeyValue: kv, keys: keys}, role, state); err != nil {
 		t.Fatal(err)
 	}
 	status, _, err = releasechannel.ReadServiceStatus(ctx, location, role)
@@ -192,14 +224,14 @@ func TestServiceReleasePinsEmptySupportAndDeduplication(t *testing.T) {
 	if bucket.puts[releasechannel.ServiceStatusObject(role)] != 2 {
 		t.Fatal("follower overwrote the leader's pins")
 	}
-	// Even a key listing that returns partial success after cancellation is refused.
+	// Even a completion marker received after cancellation is refused.
 	r.fencer = rolloutTestFence{epoch: 7}
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
-	if err := r.report(canceled, servicePinsKeys{KeyValue: kv, keys: keys[:1]}, role, state); !errors.Is(err, context.Canceled) {
-		t.Fatalf("canceled listing = %v", err)
+	if err := r.report(canceled, servicePinsWatch{KeyValue: kv, keys: keys[:1]}, role, state); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled watch = %v", err)
 	}
 	if bucket.puts[releasechannel.ServiceStatusObject(role)] != 2 {
-		t.Fatal("canceled listing published partial pins")
+		t.Fatal("canceled watch published partial pins")
 	}
 }

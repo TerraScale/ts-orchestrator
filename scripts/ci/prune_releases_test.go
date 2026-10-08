@@ -97,7 +97,7 @@ func TestPruneReleasesKeepsNewestRecentAndPinned(t *testing.T) {
 	}
 	slices.Sort(deleted)
 	if !slices.Equal(deleted, []string{"20"}) ||
-		!strings.Contains(output, "TS_RELEASE_PRUNE_V1 repository=TerraScale/demo releases=26 deleted=1 kept_pinned=4 bytes=1010 dry_run=false") {
+		!strings.Contains(output, "TS_RELEASE_PRUNE repository=TerraScale/demo releases=26 deleted=1 kept_pinned=4 bytes=1010 dry_run=false") {
 		t.Fatalf("deleted %v\n%s", deleted, output)
 	}
 }

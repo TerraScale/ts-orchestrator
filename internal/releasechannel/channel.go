@@ -37,14 +37,14 @@ import (
 )
 
 const (
-	ChannelSchema = "terrascale.orchestrator.release-channel.v1"
-	StatusSchema  = "terrascale.orchestrator.release-status.v1"
+	ChannelSchema = "terrascale.orchestrator.release-channel"
+	StatusSchema  = "terrascale.orchestrator.release-status"
 
 	// ChannelObject, StatusObject and BinaryPrefix live in the region's
 	// head bucket.
-	ChannelObject = "releases/v1/orchestrator/channel.json"
-	StatusObject  = "releases/v1/orchestrator/status.json"
-	BinaryPrefix  = "releases/v1/orchestrator/binaries/"
+	ChannelObject = "releases/orchestrator/channel.json"
+	StatusObject  = "releases/orchestrator/status.json"
+	BinaryPrefix  = "releases/orchestrator/binaries/"
 
 	// MaxChannelBytes bounds a channel: one delegation and two receipts.
 	MaxChannelBytes = 4 * trust.MaxEnvelopeBytes

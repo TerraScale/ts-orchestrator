@@ -21,8 +21,8 @@ import (
 // and rolls the role out through the release gate; it reports in
 // status.json, which CI polls.
 const (
-	ServiceStatusSchema = "terrascale.orchestrator.service-release-status.v1"
-	servicePrefix       = "releases/v1/services/"
+	ServiceStatusSchema = "terrascale.orchestrator.service-release-status"
+	servicePrefix       = "releases/services/"
 	// MaxServiceClaimBytes bounds release.json: one signed artifact claim.
 	MaxServiceClaimBytes = 8 << 10
 	// MaxServiceBinaryBytes bounds a service binary, the artifact store's

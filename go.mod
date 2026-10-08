@@ -9,6 +9,7 @@ require (
 	github.com/nats-io/nats-server/v2 v2.15.0
 	github.com/nats-io/nats.go v1.54.0
 	github.com/nats-io/nkeys v0.4.16
+	github.com/oklog/ulid/v2 v2.1.2
 	github.com/oracle/oci-go-sdk/v65 v65.126.0
 	github.com/starfederation/datastar-go v1.2.2
 	golang.org/x/net v0.58.0

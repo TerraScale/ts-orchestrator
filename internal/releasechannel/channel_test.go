@@ -201,7 +201,7 @@ func TestChannelVerifyRefusesTampering(t *testing.T) {
 			channel.Receipts[0] = bytes.Replace(channel.Receipts[0], []byte(`"payload":{`), []byte(`"payload":{"x":1,`), 1)
 		}},
 		"another schema": {edit: func(channel *Channel) {
-			channel.Schema = "terrascale.orchestrator.release-channel.v2"
+			channel.Schema = "unknown"
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {

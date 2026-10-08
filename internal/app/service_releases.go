@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
@@ -12,9 +13,9 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"uuid"
 
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/oklog/ulid/v2"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
@@ -290,7 +291,7 @@ func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, ro
 			return state, err
 		}
 		intent := nativeIntent(record, nativeRelease{Role: role, Replicas: replicas, Profile: profile}, generation)
-		intent.SchemaVersion, intent.OperationID = delivery.SchemaVersion, uuid.New().String()
+		intent.SchemaVersion, intent.OperationID = delivery.SchemaVersion, ulid.MustNew(ulid.Now(), rand.Reader).String()
 		intent.AuthorityEpoch = r.fencer.Current().Epoch
 		state.Digest, state.Actor, state.Previous, state.Intent = record.Digest, actor, previous, &intent
 		state.Retained = nil
@@ -356,7 +357,7 @@ func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, ro
 				return rollback, err
 			}
 		}
-		rollback.SchemaVersion, rollback.OperationID = delivery.SchemaVersion, uuid.New().String()
+		rollback.SchemaVersion, rollback.OperationID = delivery.SchemaVersion, ulid.MustNew(ulid.Now(), rand.Reader).String()
 		rollback.AuthorityEpoch = r.fencer.Current().Epoch
 		state.Rollback, state.Reason = &rollback, "rolling back to "+state.Previous
 		return rollback, save(state)
@@ -420,7 +421,7 @@ func (r *serviceReleases) fresh(ctx context.Context, role string, intent deliver
 	if err != nil {
 		return intent, false, err
 	}
-	intent.OperationID, intent.AuthorityEpoch = uuid.New().String(), epoch
+	intent.OperationID, intent.AuthorityEpoch = ulid.MustNew(ulid.Now(), rand.Reader).String(), epoch
 	intent.Generation = max(intent.Generation, nextReleaseGeneration(desired))
 	return intent, true, nil
 }
@@ -435,7 +436,7 @@ func (r *serviceReleases) deployer(actor string, recovering func(context.Context
 				return intent, "", errors.New("this controller no longer holds the authority lease")
 			}
 			if intent.OperationID == "" {
-				intent.OperationID = uuid.New().String()
+				intent.OperationID = ulid.MustNew(ulid.Now(), rand.Reader).String()
 			}
 			if intent.AuthorityEpoch == 0 {
 				intent.AuthorityEpoch = r.fencer.Current().Epoch
@@ -483,14 +484,11 @@ func (r *serviceReleases) report(ctx context.Context, kv jetstream.KeyValue, rol
 	}
 	slices.Sort(pins.Rollback)
 	pins.Rollback = slices.Compact(pins.Rollback)
-	keys, err := kv.Keys(ctx)
-	if err != nil && !errors.Is(err, jetstream.ErrNoKeysFound) {
+	prefix := knownBadKey(role, "")
+	keys, err := releasechannel.PinKeys(ctx, kv, prefix+">")
+	if err != nil {
 		return fmt.Errorf("list %s release pins: %w", role, err)
 	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	prefix := knownBadKey(role, "")
 	for _, key := range keys {
 		if digest, found := strings.CutPrefix(key, prefix); found {
 			if len(digest) != sha256.Size*2 || !lowerHexString(digest) {

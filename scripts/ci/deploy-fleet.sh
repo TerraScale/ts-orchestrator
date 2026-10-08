@@ -39,7 +39,7 @@ work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/deploy-fleet.XXXXXX")
 trap 'rm -rf -- "$work"' EXIT
 mkdir "$work/release" "$work/oci"
 
-# The key's group may only read the leaf secret and write releases/v1/* in
+# The key's group may only read the leaf secret and write releases/* in
 # the head buckets; the region of each call is set by ts-orch.
 printf '%s\n' "$TS_DEPLOY_OCI_KEY" > "$work/oci/key.pem"
 unset TS_DEPLOY_OCI_KEY

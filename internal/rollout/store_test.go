@@ -472,7 +472,7 @@ func TestReleasePinsIncludesHistoryActivePredecessorAndDurableKnownBad(t *testin
 			t.Fatal(err)
 		}
 	}
-	if _, _, err := store.Begin(ctx, testSpec("r1"), testStart); err != nil {
+	if _, _, err := store.Begin(ctx, testSpec("01000000000000000000000001"), testStart); err != nil {
 		t.Fatal(err)
 	}
 	bad := strings.Repeat("e", 64)

@@ -664,7 +664,7 @@ aborting a release changes what the controllers run.
 Every merge to `main` is signed and published to every region by CI,
 region by region; nothing is copied by hand. CI cannot reach a cell's
 private NATS, so each region's release channel lives in its head bucket
-(`<cell>-head`, for example `gru-1-head`), under `releases/v1/orchestrator/`
+(`<cell>-head`, for example `gru-1-head`), under `releases/orchestrator/`
 (`internal/releasechannel`):
 
 ```text
@@ -675,6 +675,10 @@ channel.json        the region's current release: cell, environment, source
 status.json         the region leader's report: run, state (rolling |
                     complete | failed) and reason
 ```
+
+Release paths and schema identifiers are unversioned. Obsolete release
+storage is discarded and the cell is rebootstrapped, with releases published
+afresh; there is no migration, backfill, or compatibility reader.
 
 1. `ci.yml` on `main` dispatches `deploy.yml` after the image dispatch, only
    while the repository variable `TS_AUTO_DEPLOY_CELLS` is set. It refuses
@@ -718,11 +722,11 @@ and the secret `TS_DEPLOY_OCI_KEY`. The OCI user's group needs only:
 
 ```text
 Allow group ts-orch-deploy to read secret-bundles in compartment <vault compartment> where target.secret.name = '<leaf secret>'
-Allow group ts-orch-deploy to manage objects in compartment <cell>-control where all {target.bucket.name='<cell>-head', target.object.name='releases/v1/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}
+Allow group ts-orch-deploy to manage objects in compartment <cell>-control where all {target.bucket.name='<cell>-head', target.object.name='releases/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}
 ```
 
-and each region's controllers `OBJECT_READ` on `releases/v1/*` plus
-`OBJECT_CREATE`/`OBJECT_OVERWRITE` on `releases/v1/orchestrator/status.json`.
+and each region's controllers `OBJECT_READ` on `releases/*` plus
+`OBJECT_CREATE`/`OBJECT_OVERWRITE` on `releases/orchestrator/status.json`.
 
 The region's authority leader follows its channel
 (`controller.rollouts.channel`, on by default in production; TS-560) over
@@ -770,8 +774,8 @@ The reviewed controller policy statements
 applies) grant the controllers the channel:
 
 ```text
-Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-head', target.object.name='releases/v1/*', request.permission='OBJECT_READ'}
-Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-head', target.object.name='releases/v1/orchestrator/status.json', any {request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}
+Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-head', target.object.name='releases/*', request.permission='OBJECT_READ'}
+Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-head', target.object.name='releases/orchestrator/status.json', any {request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}
 ```
 
 Limits of this part:
@@ -790,7 +794,7 @@ Limits of this part:
 - A `channel.json` that does not decode, or names a higher run, stops every
   later deployment to that region until an operator inspects it (fail
   closed). The deployment covers at most three cells, the job timeout.
-- Binaries are never deleted from `releases/v1/orchestrator/binaries/`; an
+- Binaries are never deleted from `releases/orchestrator/binaries/`; an
   Object Storage lifecycle rule should expire old ones.
 
 ### Automatic service releases (TS-610)
@@ -802,9 +806,9 @@ serves any native role; the leader's release rule for a role (its replica
 count) is `serviceReleaseReplicas`.
 
 ```text
-releases/v1/services/<role>/binaries/<sha256>   the binary, written once
-releases/v1/services/<role>/release.json        the signed artifact claim
-releases/v1/services/<role>/status.json         the region leader's report
+releases/services/<role>/binaries/<sha256>   the binary, written once
+releases/services/<role>/release.json        the signed artifact claim
+releases/services/<role>/status.json         the region leader's report
 ```
 
 1. The service's CI runs `ts-orch release service-deploy` (the
@@ -904,12 +908,12 @@ releases/v1/services/<role>/status.json         the region leader's report
 
 Credentials: the service repositories hold one scoped OCI API key
 (`TS_RELEASE_OCI_KEY`) for the IAM user `ts-service-release`, whose group may
-only read the release key's secret and write `releases/v1/services/*` in the
+only read the release key's secret and write `releases/services/*` in the
 head buckets:
 
 ```text
 Allow group ts-service-release to read secret-bundles in compartment <vault compartment> where target.secret.name = 'ts-service-release-key'
-Allow group ts-service-release to manage objects in compartment <cell>-control where all {target.bucket.name='<cell>-head', target.object.name='releases/v1/services/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}
+Allow group ts-service-release to manage objects in compartment <cell>-control where all {target.bucket.name='<cell>-head', target.object.name='releases/services/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}
 ```
 
 The release key is an Ed25519 PKCS#8 PEM in that Vault secret. Its public
@@ -917,11 +921,11 @@ key is a trusted signer of each cell (`ci-release` in the cell spec's
 `signers`) with `roles` `terrabase` and `ts-auth`, the cell's environment
 and `repositories` limited to the two source repositories; it cannot sign
 orchestrator updates, register hosts or change the cell spec. The
-controllers already read `releases/v1/*` in their head bucket and need
+controllers already read `releases/*` in their head bucket and need
 `OBJECT_CREATE`/`OBJECT_OVERWRITE` on each role's
-`releases/v1/services/<role>/status.json` too, one statement per role: OCI
+`releases/services/<role>/status.json` too, one statement per role: OCI
 matches a `*` only at the end of an object name, so
-`releases/v1/services/*/status.json` grants nothing. Both are in
+`releases/services/*/status.json` grants nothing. Both are in
 `ociregion.RequiredControllerStatements`.
 
 Limits of this part:
@@ -929,7 +933,7 @@ Limits of this part:
 - Without a release fence a release writes every replica's desired at
   once, so every replica restarts together.
 - Roles other than `terrabase` and `ts-auth` need a release rule first.
-- Binaries are never deleted from `releases/v1/services/*/binaries/`; an
+- Binaries are never deleted from `releases/services/*/binaries/`; an
   Object Storage lifecycle rule should expire old ones.
 - A release that needs new storage state waits for an operator: ts-auth's
   readiness requires every collection of `AuthStore.RequiredCollections`
@@ -1092,7 +1096,7 @@ image builds add `image-<sha>-run-<id>-attempt-<n>`). The daily
 `prune-releases.yml` deletes, through the Forgejo API, every CI pre-release
 past the newest 20 that is older than 7 days, unless a region pins it. The
 attachments leave the ts-forgejo bucket; the git tags stay. Each deletion is
-logged, and the job ends with one `TS_RELEASE_PRUNE_V1` line (releases,
+logged, and the job ends with one `TS_RELEASE_PRUNE` line (releases,
 deleted, kept as pinned, bytes freed). Dispatch it with `dry_run=true` to
 only log. TerraBase runs the same job (`--role terrabase`).
 
