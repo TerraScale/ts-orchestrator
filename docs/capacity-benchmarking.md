@@ -182,7 +182,7 @@ also needs alignment with the shared JWT client contract. The Rust client's
 records corresponding ULID, database-delete and indexed-query blockers.
 Slice 1's shared workloads/images are not published in the observed checkout.
 SDK persistence and client database cleanup are therefore not live-qualified;
-this slice remains draft until those contracts can be exercised together.
+those contracts must be exercised together before a complete GRU/SFO run.
 
 Read-only OCI inventory on 2026-10-08 found three serving controllers and
 `ts-ops` in GRU, and three serving controllers in SFO. There was no dedicated
