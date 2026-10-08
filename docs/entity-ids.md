@@ -20,6 +20,9 @@ records without scanning other tenants. Primary machine/status keys remain
 plain ULIDs. The index is written before machine creation; interrupted creates
 can leave harmless empty lookups, while deletes use index revisions to preserve
 concurrent writers.
+Store startup rejects historical app records and incomplete restored indexes;
+it never repairs or silently exposes partial inventory. Restore current records
+and their index together from a qualified consistent snapshot.
 
 Node names remain `ts-<region>-<n>`. Region/role labels, OCI resource IDs, OS and
 filesystem UUIDs, certificate/configuration SHA-256 fingerprints, artifact

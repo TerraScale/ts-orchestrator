@@ -93,6 +93,22 @@ func OpenStore(ctx context.Context, js jetstream.JetStream, region string, repli
 	if err != nil {
 		return nil, err
 	}
+	if _, err := list[App](ctx, apps, ">"); err != nil {
+		return nil, fmt.Errorf("app inventory requires current-format state: %w", err)
+	}
+	inventory, err := list[Machine](ctx, machines, ">")
+	if err != nil {
+		return nil, err
+	}
+	for _, machine := range inventory {
+		entry, err := index.Get(ctx, machine.App+"."+machine.ID)
+		if err != nil {
+			return nil, fmt.Errorf("machine %s has no readable app index: %w", machine.ID, err)
+		}
+		if string(entry.Value()) != machine.ID {
+			return nil, fmt.Errorf("%w: machine %s app index", ErrInvalid, machine.ID)
+		}
+	}
 	return &Store{apps: apps, machines: machines, statuses: statuses, index: index, region: region, fencer: fencer}, nil
 }
 

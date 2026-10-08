@@ -115,6 +115,43 @@ func TestAppListingsIgnoreUnrelatedCorruptRecords(t *testing.T) {
 	}
 }
 
+func TestOpenStoreRejectsHistoricalOrIncompleteSnapshot(t *testing.T) {
+	store, fence, srv := testStore(t)
+	app := createApp(t, store, "restored")
+	machine := createMachine(t, store, app)
+	conn, err := nats.Connect(srv.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	js, err := jetstream.New(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenStore(t.Context(), js, "gru", 1, fence); err != nil {
+		t.Fatalf("current snapshot rejected: %v", err)
+	}
+	if err := store.index.Delete(t.Context(), app.Name+"."+machine.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenStore(t.Context(), js, "gru", 1, fence); err == nil {
+		t.Fatal("accepted machine hidden by incomplete snapshot index")
+	}
+	if _, err := store.index.Put(t.Context(), app.Name+"."+machine.ID, []byte(machine.ID)); err != nil {
+		t.Fatal(err)
+	}
+	data, err := protocol.EncodeJSON(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.apps.Put(t.Context(), "apps."+app.Name, data); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenStore(t.Context(), js, "gru", 1, fence); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("accepted historical key without reset: %v", err)
+	}
+}
+
 func mustPutMachine(t *testing.T, store *Store, machine Machine) Machine {
 	t.Helper()
 	machine, err := store.PutMachine(t.Context(), epoch, machine)
