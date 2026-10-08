@@ -13,20 +13,23 @@ import (
 )
 
 // History tiers. Raw samples are kept for an hour, one-minute rollups for
-// six hours and five-minute rollups for a day; a range query reads the
-// finest tier that still covers its start.
+// six hours, five-minute rollups for a day and hourly rollups for 14 days.
+// A range query reads the finest tier that still covers its start.
 const (
 	TierRaw = "raw"
 	Tier1m  = "1m"
 	Tier5m  = "5m"
+	Tier1h  = "1h"
 
 	DefaultHistoryInterval = 10 * time.Second
 	DefaultHistorySeries   = 4096
 	rawRetention           = time.Hour
 	oneMinuteRetention     = 6 * time.Hour
 	fiveMinuteRetention    = 24 * time.Hour
-	// staleSeriesAfter drops a series that stopped reporting for a day.
-	staleSeriesAfter = fiveMinuteRetention
+	// HistoryRetention is the oldest metric data retained for queries.
+	HistoryRetention = 14 * 24 * time.Hour
+	// staleSeriesAfter drops a series that stopped reporting for 14 days.
+	staleSeriesAfter = HistoryRetention
 )
 
 // Label is one metric label pair.
@@ -204,7 +207,7 @@ type HistoryConfig struct {
 }
 
 // History is a bounded in-memory time-series store of key metrics with
-// raw -> 1m -> 5m downsampling over about a day. It is safe for concurrent
+// raw -> 1m -> 5m -> 1h downsampling over 14 days. It is safe for concurrent
 // use; Append and Range never perform I/O.
 type History struct {
 	config  HistoryConfig
@@ -252,6 +255,7 @@ func (history *History) newSeries(metric string, labels []Label, counter bool) *
 		TierRaw: newTier(0, rawRetention, interval),
 		Tier1m:  newTier(time.Minute, oneMinuteRetention, interval),
 		Tier5m:  newTier(5*time.Minute, fiveMinuteRetention, interval),
+		Tier1h:  newTier(time.Hour, HistoryRetention, interval),
 	}}
 }
 
@@ -297,7 +301,7 @@ func (history *History) Append(at time.Time, samples []Sample) {
 			}
 		}
 		current.last, current.lastValue, current.sampled = millis, sample.Value, true
-		for _, name := range []string{TierRaw, Tier1m, Tier5m} {
+		for _, name := range []string{TierRaw, Tier1m, Tier5m, Tier1h} {
 			current.tiers[name].add(millis, sample.Value, increase, counted)
 		}
 		historySamples.Inc()
@@ -350,8 +354,10 @@ func TierFor(start, now time.Time) string {
 		return TierRaw
 	case age <= oneMinuteRetention:
 		return Tier1m
-	default:
+	case age <= fiveMinuteRetention:
 		return Tier5m
+	default:
+		return Tier1h
 	}
 }
 
@@ -371,6 +377,7 @@ func (history *History) Range(query HistoryQuery) HistoryResult {
 		query.MaxSeries = 64
 	}
 	start, end := query.Start.UnixMilli(), query.End.UnixMilli()
+	cutoff := time.Now().Add(-HistoryRetention).UnixMilli()
 	history.mu.RLock()
 	defer history.mu.RUnlock()
 	result := HistoryResult{}
@@ -391,6 +398,9 @@ func (history *History) Range(query HistoryQuery) HistoryResult {
 		out := HistorySeries{Metric: current.metric, Tier: tierName, Labels: labelMap(current.labels)}
 		var previous *bucket
 		for _, b := range t.buckets() {
+			if b.lastAt() < cutoff {
+				continue
+			}
 			if b.Start < start-t.step.Milliseconds() || b.Start > end {
 				continue
 			}
@@ -439,10 +449,13 @@ func (history *History) Range(query HistoryQuery) HistoryResult {
 // may lack the 1m one, so a fresh tier must not hide older restored data.
 // Without full coverage it takes the tier reaching furthest back.
 func (current *series) coveringTier(chosen string, start int64) string {
-	order := []string{TierRaw, Tier1m, Tier5m}
+	order := []string{TierRaw, Tier1m, Tier5m, Tier1h}
 	best, bestOldest := chosen, int64(math.MaxInt64)
 	for _, name := range order[max(slices.Index(order, chosen), 0):] {
 		t := current.tiers[name]
+		if t == nil {
+			continue
+		}
 		oldest, ok := t.oldest()
 		if !ok {
 			continue

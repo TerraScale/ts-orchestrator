@@ -21,6 +21,8 @@ var timeRanges = []timeRange{
 	{Key: "1h", Duration: time.Hour},
 	{Key: "6h", Duration: 6 * time.Hour},
 	{Key: "24h", Duration: 24 * time.Hour},
+	{Key: "7d", Duration: 7 * 24 * time.Hour},
+	{Key: "14d", Duration: 14 * 24 * time.Hour},
 }
 
 const defaultRange = "1h"

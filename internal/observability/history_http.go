@@ -11,16 +11,16 @@ import (
 
 // ParseHistoryQuery reads a range query from URL parameters: metric (required),
 // label.<name>=<value> filters, range (a duration back from now, default 1h)
-// or start/end as RFC 3339 times, tier (raw, 1m or 5m), rate=1 and max.
+// or start/end as RFC 3339 times, tier (raw, 1m, 5m or 1h), rate=1 and max.
 func ParseHistoryQuery(values url.Values, now time.Time) (HistoryQuery, error) {
 	query := HistoryQuery{Metric: values.Get("metric"), End: now, Tier: values.Get("tier")}
 	if query.Metric == "" {
 		return HistoryQuery{}, errors.New("metric is required")
 	}
 	switch query.Tier {
-	case "", TierRaw, Tier1m, Tier5m:
+	case "", TierRaw, Tier1m, Tier5m, Tier1h:
 	default:
-		return HistoryQuery{}, errors.New("tier must be raw, 1m or 5m")
+		return HistoryQuery{}, errors.New("tier must be raw, 1m, 5m or 1h")
 	}
 	for name, value := range values {
 		if label, ok := strings.CutPrefix(name, "label."); ok && label != "" && len(value) > 0 {
@@ -33,8 +33,8 @@ func ParseHistoryQuery(values url.Values, now time.Time) (HistoryQuery, error) {
 	window := time.Hour
 	if raw := values.Get("range"); raw != "" {
 		parsed, err := time.ParseDuration(raw)
-		if err != nil || parsed <= 0 || parsed > 7*24*time.Hour {
-			return HistoryQuery{}, errors.New("range must be a positive duration of at most a week")
+		if err != nil || parsed <= 0 || parsed > HistoryRetention {
+			return HistoryQuery{}, errors.New("range must be a positive duration of at most 14 days")
 		}
 		window = parsed
 	}

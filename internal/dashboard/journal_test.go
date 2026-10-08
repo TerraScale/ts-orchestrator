@@ -391,16 +391,16 @@ func TestChartTooltipsEscapeProviderText(t *testing.T) {
 
 func TestURLStateIsValidatedAndCarried(t *testing.T) {
 	t.Parallel()
-	state := parseState(url.Values{"range": {"24h"}, "r": {"SFO"}, "live": {"0"}, "kind": {"rollback,held"},
+	state := parseState(url.Values{"range": {"14d"}, "r": {"SFO"}, "live": {"0"}, "kind": {"rollback,held"},
 		"q": {"host-a"}, "id": {"x\x00y"}, "actor": {"<script>"}, "unknown": {"1"}})
-	if state.Range.Key != "24h" || state.Region != "sfo" || state.Live {
+	if state.Range.Key != "14d" || state.Region != "sfo" || state.Live {
 		t.Fatalf("shared state = %+v", state)
 	}
 	if state.param("kind") != "rollback,held" || state.param("q") != "host-a" || state.param("id") != "" ||
 		state.param("actor") != "" || state.param("unknown") != "" {
 		t.Fatalf("page params = %v", state.Params)
 	}
-	if link := state.link("/decisions", "id", "d1"); link != "/decisions?id=d1&live=0&r=sfo&range=24h" {
+	if link := state.link("/decisions", "id", "d1"); link != "/decisions?id=d1&live=0&r=sfo&range=14d" {
 		t.Fatalf("link = %s", link)
 	}
 	if link := state.keep("/decisions", "kind", ""); !strings.Contains(link, "q=host-a") || strings.Contains(link, "kind=") {
@@ -416,15 +416,15 @@ func TestURLStateIsValidatedAndCarried(t *testing.T) {
 	}
 	// The entity lives in its own region whatever region the page shows:
 	// a GRU insight opened while SFO is selected links into GRU.
-	if got := state.adopt("/nats?stream=x", "gru"); got != "/nats?live=0&r=gru&range=24h&stream=x" {
+	if got := state.adopt("/nats?stream=x", "gru"); got != "/nats?live=0&r=gru&range=14d&stream=x" {
 		t.Errorf("adopt kept the selected region over the entity's: %s", got)
 	}
 	// A local entity ("" region) drops the inherited remote selection.
-	if got := state.adopt("/members?host=a", ""); got != "/members?host=a&live=0&range=24h" {
+	if got := state.adopt("/members?host=a", ""); got != "/members?host=a&live=0&range=14d" {
 		t.Errorf("local entity = %s", got)
 	}
 	// A region the link names itself wins.
-	if got := state.adopt("/region?r=fra", "gru"); got != "/region?live=0&r=fra&range=24h" {
+	if got := state.adopt("/region?r=fra", "gru"); got != "/region?live=0&r=fra&range=14d" {
 		t.Errorf("explicit region = %s", got)
 	}
 	plain := parseState(url.Values{})
@@ -448,6 +448,31 @@ func TestURLStateIsValidatedAndCarried(t *testing.T) {
 	}
 }
 
+func TestLongTimeRangesReachChartHistory(t *testing.T) {
+	t.Parallel()
+	for key, duration := range map[string]time.Duration{"7d": 7 * 24 * time.Hour, "14d": 14 * 24 * time.Hour} {
+		t.Run(key, func(t *testing.T) {
+			state := parseState(url.Values{"range": {key}})
+			if state.Range.Key != key || state.Range.Duration != duration {
+				t.Fatalf("range = %+v, want %s over %s", state.Range, key, duration)
+			}
+			now := time.Now()
+			history := observability.NewHistory(observability.HistoryConfig{})
+			history.Append(now.Add(-duration+time.Hour), []observability.Sample{{Metric: observability.HistCPUUtilization, Value: 0.2}})
+			history.Append(now, []observability.Sample{{Metric: observability.HistCPUUtilization, Value: 0.8}})
+			current := view{State: state, Now: now, Journal: &Journal{History: history}}
+			series := current.historyRange(observability.HistCPUUtilization, nil, "", false)
+			if len(series) != 1 || len(series[0].Points) != 2 || series[0].Points[0][1] != 0.2 {
+				t.Fatalf("chart history over %s = %+v, want the older and current samples", key, series)
+			}
+			chart := current.lineChart("line", "percent", series, "No history")
+			if chart.Start != now.Add(-duration).UnixMilli() || chart.End != now.UnixMilli() {
+				t.Fatalf("chart bounds = %d..%d, want the full %s range", chart.Start, chart.End, key)
+			}
+		})
+	}
+}
+
 func TestPausedPagesDoNotStream(t *testing.T) {
 	t.Parallel()
 	dashboard, _, _ := journalDashboard(Options{})
@@ -455,9 +480,14 @@ func TestPausedPagesDoNotStream(t *testing.T) {
 	if strings.Contains(body, "data-init=\"@get") || !strings.Contains(body, "Paused") {
 		t.Fatal("a paused page still opens its stream")
 	}
-	body = get(t, dashboard.Handler(), "/region?range=6h&r=fra").Body.String()
-	if !strings.Contains(body, "/region/stream?r=fra&amp;range=6h") {
+	body = get(t, dashboard.Handler(), "/region?range=14d&r=fra").Body.String()
+	if !strings.Contains(body, "/region/stream?r=fra&amp;range=14d") {
 		t.Fatal("the stream does not carry the page state")
+	}
+	for _, key := range []string{"7d", "14d"} {
+		if !strings.Contains(body, `href="/region?r=fra&amp;range=`+key+`"`) {
+			t.Errorf("the global picker lacks %s", key)
+		}
 	}
 }
 

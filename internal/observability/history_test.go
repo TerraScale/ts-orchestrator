@@ -76,7 +76,7 @@ func TestHistoryRateHandlesCounterReset(t *testing.T) {
 func TestHistoryLabelsBoundsAndStaleSeries(t *testing.T) {
 	history := NewHistory(HistoryConfig{MaxSeries: 3})
 	now := time.Now()
-	history.Append(now.Add(-48*time.Hour), []Sample{{Metric: "old", Value: 1}})
+	history.Append(now.Add(-15*24*time.Hour), []Sample{{Metric: "old", Value: 1}})
 	history.Append(now, []Sample{
 		{Metric: "m", Labels: L("member", "a", "role", "x"), Value: 1},
 		{Metric: "m", Labels: L("role", "y", "member", "b"), Value: 2},
@@ -84,7 +84,7 @@ func TestHistoryLabelsBoundsAndStaleSeries(t *testing.T) {
 		{Metric: "nan", Value: math.NaN()},
 	})
 	if stats := history.Stats(); stats.Series != 3 || stats.Dropped != 0 {
-		t.Fatalf("stats = %+v (the day-old series must free its slot)", stats)
+		t.Fatalf("stats = %+v (the expired series must free its slot)", stats)
 	}
 	history.Append(now, []Sample{{Metric: "m", Labels: L("member", "d"), Value: 4}})
 	if stats := history.Stats(); stats.Series != 3 || stats.Dropped != 1 {
@@ -104,7 +104,7 @@ func TestHistoryLabelsBoundsAndStaleSeries(t *testing.T) {
 		t.Fatalf("latest = %v", latest)
 	}
 	if metrics := history.Metrics(); len(metrics) != 1 || metrics[0] != "m" {
-		t.Fatalf("metrics = %v (the day-old series must be pruned)", metrics)
+		t.Fatalf("metrics = %v (the expired series must be pruned)", metrics)
 	}
 }
 
@@ -230,6 +230,10 @@ func TestHistorySamplerSnapshotsToKV(t *testing.T) {
 	snapshots, err := OpenHistorySnapshots(t.Context(), js, 1, 512<<10)
 	if err != nil {
 		t.Fatal(err)
+	}
+	status, err := snapshots.kv.Status(t.Context())
+	if err != nil || status.TTL() != HistoryRetention {
+		t.Fatalf("snapshot retention = %v, error %v", status, err)
 	}
 	if data, err := snapshots.Load(t.Context(), "ctrl-1"); err != nil || data != nil {
 		t.Fatalf("empty load = %v, %v", data, err)

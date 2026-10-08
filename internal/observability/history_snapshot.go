@@ -38,19 +38,28 @@ type seriesSnapshot struct {
 	Tiers   map[string][]bucket `json:"tiers"`
 }
 
-// Export encodes the 1m and 5m tiers as gzip-compressed JSON of at most
-// limit bytes. When everything does not fit it keeps only the 5m tier, and
-// then only as many series as fit. Raw samples are not exported: they
-// cover an hour and are rebuilt quickly after a restart.
+// Export encodes the 1m, 5m and 1h tiers as gzip-compressed JSON of at most
+// limit bytes. When everything does not fit it drops the 1m and then the
+// 5m tier, and finally keeps only as many hourly series as fit. Raw samples
+// are not exported: they cover an hour and are rebuilt quickly after a restart.
 func (history *History) Export(limit int) ([]byte, error) {
 	history.mu.RLock()
 	keys := slices.Sorted(maps.Keys(history.series))
 	all := make([]seriesSnapshot, 0, len(keys))
+	cutoff := time.Now().Add(-HistoryRetention).UnixMilli()
 	for _, key := range keys {
 		current := history.series[key]
+		if current.last < cutoff {
+			continue
+		}
+		tiers := map[string][]bucket{}
+		for _, name := range []string{Tier1m, Tier5m, Tier1h} {
+			tiers[name] = slices.DeleteFunc(current.tiers[name].buckets(), func(b bucket) bool {
+				return b.lastAt() < cutoff
+			})
+		}
 		all = append(all, seriesSnapshot{Metric: current.metric, Labels: current.labels,
-			Counter: current.counter, Last: current.last, Tiers: map[string][]bucket{
-				Tier1m: current.tiers[Tier1m].buckets(), Tier5m: current.tiers[Tier5m].buckets()}})
+			Counter: current.counter, Last: current.last, Tiers: tiers})
 	}
 	history.mu.RUnlock()
 	encode := func(series []seriesSnapshot) ([]byte, error) {
@@ -69,8 +78,14 @@ func (history *History) Export(limit int) ([]byte, error) {
 	if err != nil || limit <= 0 || len(data) <= limit {
 		return data, err
 	}
-	for index := range all {
-		delete(all[index].Tiers, Tier1m)
+	for _, name := range []string{Tier1m, Tier5m} {
+		for index := range all {
+			delete(all[index].Tiers, name)
+		}
+		data, err = encode(all)
+		if err != nil || len(data) <= limit {
+			return data, err
+		}
 	}
 	for count := len(all); count > 0; count /= 2 {
 		data, err = encode(all[:count])
@@ -97,11 +112,12 @@ func (history *History) Import(data []byte) error {
 	}
 	history.mu.Lock()
 	defer history.mu.Unlock()
+	cutoff := time.Now().Add(-HistoryRetention).UnixMilli()
 	for _, restored := range snapshot.Series {
 		labels := sortedLabels(restored.Labels)
 		key := seriesKey(restored.Metric, labels)
 		if _, exists := history.series[key]; exists || len(history.series) >= history.config.MaxSeries ||
-			restored.Metric == "" {
+			restored.Metric == "" || restored.Last < cutoff {
 			continue
 		}
 		current := history.newSeries(restored.Metric, labels, restored.Counter)
@@ -112,7 +128,9 @@ func (history *History) Import(data []byte) error {
 			if !ok || name == TierRaw {
 				continue
 			}
-			buckets = slices.DeleteFunc(slices.Clone(buckets), func(b bucket) bool { return b.Count == 0 })
+			buckets = slices.DeleteFunc(slices.Clone(buckets), func(b bucket) bool {
+				return b.Count == 0 || b.lastAt() < cutoff
+			})
 			for index, b := range buckets {
 				if index == len(buckets)-1 {
 					// Export includes the bucket being filled: restore it
@@ -157,7 +175,7 @@ func OpenHistorySnapshots(ctx context.Context, js jetstream.JetStream, replicas 
 	kv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: HistoryBucket,
 		Description: "Member metric history snapshots for the dashboard", History: 1,
 		MaxValueSize: maxValue, MaxBytes: int64(maxValue) * 32, Storage: jetstream.FileStorage,
-		Replicas: replicas, TTL: 2 * fiveMinuteRetention})
+		Replicas: replicas, TTL: HistoryRetention})
 	if err != nil {
 		return nil, err
 	}

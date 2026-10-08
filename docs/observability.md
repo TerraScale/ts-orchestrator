@@ -80,6 +80,29 @@ prerequisites before claiming production SLO coverage.
 Scrape-time sections are cached for three seconds so scrapes, dashboard ticks
 and snapshot requests do not repeatedly walk JetStream or `/proc`.
 
+### Metric history
+
+The dashboard's global time-range picker offers `15m`, `1h`, `6h`, `24h`,
+`7d` and `14d`. Its bounded in-memory history keeps these tiers:
+
+| Tier | Resolution | Retention |
+| --- | --- | --- |
+| `raw` | Sampling interval (10 seconds by default) | 1 hour |
+| `1m` | 1 minute | 6 hours |
+| `5m` | 5 minutes | 24 hours |
+| `1h` | 1 hour | 14 days |
+
+Queries automatically select the finest tier covering their start. With
+history snapshots enabled, snapshots preserve the `1m`, `5m` and `1h`
+rollups across restarts; raw samples are rebuilt. The existing snapshot size
+fallback drops the `1m` tier, then the `5m` tier, and can truncate the exported
+hourly series to fit the byte limit, so a restored snapshot may contain
+incomplete history.
+
+This is the first TS-718 slice: longer retention and dashboard ranges for
+the existing collected metrics. Central node/service collection and the log
+archive are still pending; this slice does not complete TS-718.
+
 ### Clock sync
 
 TerraBase refuses remote HLC stamps more than 1 s ahead, and its leases
