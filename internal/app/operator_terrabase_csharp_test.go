@@ -84,7 +84,8 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer cancel()
 	root := t.TempDir()
-	port, adminPort, peerPort := freeTCPPort(t), freeTCPPort(t), freeTCPPort(t)
+	ports := reserveControllerPorts(t, 3)
+	port, adminPort, peerPort := ports[0], ports[1], ports[2]
 	controllerNKey, controllerSeed := testNKey(t)
 	operatorNKey, operatorSeed := testNKey(t)
 	hostNKey, hostSeed := testNKey(t)
