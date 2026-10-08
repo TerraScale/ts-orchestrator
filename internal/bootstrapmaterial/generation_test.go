@@ -16,10 +16,10 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/roleidentity"
 )
 
-// generationNow is the real clock: the fixture's NATS JWTs are always issued
-// now (jwt.Encode stamps iat itself), and a check at a fixed earlier instant
-// would see them issued in the future.
-var generationNow = time.Now().UTC().Truncate(time.Second)
+// generationNow anchors certificate validity and expiry assertions. Keep it
+// older than the clock skew to catch checks using it for wall-clock JWTs
+// (jwt.Encode stamps iat itself), without waiting for the fixture to age.
+var generationNow = time.Now().UTC().Truncate(time.Second).Add(-10 * time.Minute)
 
 func generationExpectation() bootstrap.MaterialGenerationExpectation {
 	return bootstrap.MaterialGenerationExpectation{DeploymentID: "gru-1-deployment", Environment: "production",
@@ -27,7 +27,7 @@ func generationExpectation() bootstrap.MaterialGenerationExpectation {
 }
 
 func check(material generationtest.Material) (time.Time, error) {
-	return bootstrapmaterial.CheckGenerationFiles(material.Generation(generationExpectation(), 1, ""), material.Read, generationNow)
+	return bootstrapmaterial.CheckGenerationFiles(material.Generation(generationExpectation(), 1, ""), material.Read, time.Now())
 }
 
 // cellJWT re-signs the material's cell account JWT after edit.
@@ -158,7 +158,7 @@ func TestCheckGenerationFilesSchemaTwo(t *testing.T) {
 		return material.Read(name)
 	}
 	generation := material.Generation(generationExpectation(), 1, "")
-	if _, err := bootstrapmaterial.CheckGenerationFiles(generation, own, generationNow); err != nil {
+	if _, err := bootstrapmaterial.CheckGenerationFiles(generation, own, time.Now()); err != nil {
 		t.Fatalf("one slot's files: %v", err)
 	}
 	noConfigs := func(name string) ([]byte, error) {
@@ -167,11 +167,11 @@ func TestCheckGenerationFilesSchemaTwo(t *testing.T) {
 		}
 		return material.Read(name)
 	}
-	if _, err := bootstrapmaterial.CheckGenerationFiles(generation, noConfigs, generationNow); err == nil {
+	if _, err := bootstrapmaterial.CheckGenerationFiles(generation, noConfigs, time.Now()); err == nil {
 		t.Error("checked the interregion files without a contract")
 	}
 	changed := material.With(map[string][]byte{"controller-controller-a.json": material.Files["controller-controller-b.json"]})
-	if _, err := bootstrapmaterial.CheckGenerationFiles(generation, changed.Read, generationNow); err == nil {
+	if _, err := bootstrapmaterial.CheckGenerationFiles(generation, changed.Read, time.Now()); err == nil {
 		t.Error("accepted a controller config that differs from its pin")
 	}
 
@@ -219,7 +219,7 @@ func TestCheckGenerationFilesRefusesFutureJWTs(t *testing.T) {
 	issued := time.Now()
 	material := generationtest.New(t, issued)
 	generation := material.Generation(generationExpectation(), 1, "")
-	if _, err := bootstrapmaterial.CheckGenerationFiles(generation, material.Read, issued.Add(10*time.Second)); err != nil {
+	if _, err := bootstrapmaterial.CheckGenerationFiles(generation, material.Read, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := bootstrapmaterial.CheckGenerationFiles(generation, material.Read, issued.Add(-10*time.Minute)); err == nil ||
