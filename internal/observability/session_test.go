@@ -978,6 +978,10 @@ func TestAuthoritativeTokenVersionsRejectStaleControllersAndReconcileBindings(t 
 	if err := staleLogout.sessions.revoke(t.Context(), logoutCookie); err != nil || sessionValid(t, restored.sessions, t.Context(), logoutCookie) {
 		t.Fatal("logout on a matching-token stale binding failed to revoke a copied cookie")
 	}
+	logoutCookie = issue(restored)
+	if err := second.sessions.revoke(t.Context(), logoutCookie); err != nil || sessionValid(t, restored.sessions, t.Context(), logoutCookie) {
+		t.Fatal("logout on a retired-token listener failed to revoke the current cookie")
+	}
 	version.Number = 4
 	build(a, version)
 	if sessionValid(t, first.sessions, t.Context(), fresh) {

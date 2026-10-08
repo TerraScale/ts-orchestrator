@@ -220,7 +220,7 @@ func (server *Server) SetSessionStore(ctx context.Context, store *SessionStore) 
 
 func (binding *sessionBinding) current(ctx context.Context) (bool, error) {
 	latest, err := binding.latest(ctx)
-	return latest != nil && latest.generation == binding.generation, err
+	return latest != nil && latest.tokenHash == binding.tokenHash && latest.generation == binding.generation, err
 }
 
 func (binding *sessionBinding) latest(ctx context.Context) (*sessionBinding, error) {
@@ -232,20 +232,23 @@ func (binding *sessionBinding) latest(ctx context.Context) (*sessionBinding, err
 		return nil, err
 	}
 	token, err := readSessionToken(entry.Data)
-	if err != nil || token.Hash != binding.tokenHash {
+	if err != nil {
 		return nil, err
 	}
 	if token.Generation == 0 {
 		token.Generation = entry.Sequence
 	}
-	if token.Generation == binding.generation {
+	if token.Hash == binding.tokenHash && token.Generation == binding.generation {
 		return binding, nil
 	}
-	return &sessionBinding{store: binding.store, tokenHash: binding.tokenHash, generation: token.Generation}, nil
+	return &sessionBinding{store: binding.store, tokenHash: token.Hash, generation: token.Generation}, nil
 }
 
 func (manager *sessions) reconcile(ctx context.Context, binding *sessionBinding) (*sessionBinding, error) {
 	latest, err := binding.latest(ctx)
+	if latest != nil && latest.tokenHash != binding.tokenHash {
+		return nil, nil
+	}
 	if latest != nil && latest != binding {
 		manager.binding.CompareAndSwap(binding, latest)
 	}
@@ -470,7 +473,8 @@ func (manager *sessions) revoke(ctx context.Context, value string) error {
 		return nil
 	}
 	var err error
-	binding, err = manager.reconcile(ctx, binding)
+	// Logout proves cookie possession even on a listener with a retired token.
+	binding, err = binding.latest(ctx)
 	if err != nil || binding == nil {
 		return err
 	}

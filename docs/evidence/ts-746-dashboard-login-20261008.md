@@ -196,3 +196,9 @@ passed. Chromium and Firefox passed login, browser reopen, controller/NATS
 restart, cross-site logout rejection, and copied-cookie revocation with the
 versioned-token harness. These are local checks; post-deploy regional
 verification remains pending.
+
+Logout also reads the current generation on a listener still serving a
+retired token. It verifies the supplied cookie hash before CAS-purging, so
+users can revoke their current copied cookie through any scope listener
+without authorizing that cookie on a retired-token listener. The authority
+regression covers both matching-token and retired-token logout.
