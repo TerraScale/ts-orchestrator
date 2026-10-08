@@ -51,6 +51,7 @@ controller from serving its region.
 | `GET /v1/snapshot[?metrics=1]` | token | This member's `MemberSnapshot` JSON. |
 | `GET /v1/cluster[?metrics=1]` | token | Cell-wide `ClusterSnapshot` (only with `cluster_aggregation`). |
 | `GET /v1/events?after=N&limit=M` | token | Recent events, oldest first. |
+| `GET /v1/usage?region=gru&from=<RFC3339>&to=<RFC3339>` | token required | Node, service and replica CPU/memory for a window within the last hour; [capacity benchmarking](capacity-benchmarking.md). |
 
 Requests carrying `Forwarded`, `X-Forwarded-For` or `X-Real-IP` are rejected,
 as on the host enrollment listener.

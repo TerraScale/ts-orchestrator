@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,6 +67,8 @@ func (s *Sampler) Sample(terrabase map[string]memberstatus.Load) Report {
 	memTotal := uint64(0)
 	if view, err := s.config.ReadSystem(s.config.Filesystems); err == nil {
 		memTotal = view.MemTotalBytes
+		report.Host.CPUCores = view.CPUCount
+		report.Host.MemoryBytes = view.MemTotalBytes
 		busy := view.CPUSeconds.Busy()
 		total := busy + view.CPUSeconds.Idle + view.CPUSeconds.IOWait
 		if s.hostSeen && total > s.host.total && busy >= s.host.usage {
@@ -93,6 +96,7 @@ func (s *Sampler) Sample(terrabase map[string]memberstatus.Load) Report {
 		usage := RoleUsage{Role: role}
 		if s.config.CgroupRoot != "" {
 			group := filepath.Join(s.config.CgroupRoot, role)
+			usage.CPULimit, usage.MemoryLimit, usage.LimitsRead = readLimits(group)
 			if seconds, identity, ok := readGroupCPUSeconds(group); ok {
 				present[role] = struct{}{}
 				previous, seen := s.roles[role]
@@ -127,6 +131,44 @@ func (s *Sampler) Sample(terrabase map[string]memberstatus.Load) Report {
 		}
 	}
 	return report
+}
+
+// A nil limit with LimitsRead means the kernel reports "max" (unlimited).
+func readLimits(group string) (*float64, *uint64, bool) {
+	cpu, err := os.ReadFile(filepath.Join(group, "cpu.max"))
+	if err != nil {
+		return nil, nil, false
+	}
+	fields := strings.Fields(string(cpu))
+	if len(fields) != 2 {
+		return nil, nil, false
+	}
+	period, err := strconv.ParseFloat(fields[1], 64)
+	if err != nil || period <= 0 {
+		return nil, nil, false
+	}
+	var cores *float64
+	if fields[0] != "max" {
+		quota, err := strconv.ParseFloat(fields[0], 64)
+		if err != nil || quota <= 0 || !finiteWithin(quota/period, MaxCPUCores) {
+			return nil, nil, false
+		}
+		value := quota / period
+		cores = &value
+	}
+	memory, err := os.ReadFile(filepath.Join(group, "memory.max"))
+	if err != nil {
+		return nil, nil, false
+	}
+	var cap *uint64
+	if value := strings.TrimSpace(string(memory)); value != "max" {
+		limit, err := strconv.ParseUint(value, 10, 64)
+		if err != nil || limit > MaxMemoryBytes {
+			return nil, nil, false
+		}
+		cap = &limit
+	}
+	return cores, cap, true
 }
 
 func ratio(numerator, denominator float64) *float64 {

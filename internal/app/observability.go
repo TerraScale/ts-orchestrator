@@ -14,6 +14,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/capacity"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
@@ -32,6 +33,7 @@ import (
 // observable while the cell forms, and the role attaches its providers once
 // they exist. Observability never gates or drives a control-plane effect.
 type runtimeObservability struct {
+	usage           *capacity.Store
 	config          observability.Config
 	cell            string
 	member          string
@@ -89,6 +91,7 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 		return false, "runtime is still starting"
 	}})
 	if role == "controller" {
+		runtime.usage = capacity.NewStore(cfg.NATS.Cell)
 		runtime.startDecisionJournal(ctx)
 	}
 	if !settings.Enabled() {
@@ -105,6 +108,7 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 		return runtime, nil
 	}
 	var board *dashboard.Dashboard
+	runtime.mountUsage(server)
 	if settings.Dashboard {
 		// A token-protected listener issues browser sessions; a tokenless
 		// one is loopback only and refuses DNS names against rebinding.
@@ -126,6 +130,12 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 	slog.Info("observability listener ready", observability.ComponentKey, "observability",
 		"address", server.Addr().String(), "dashboard", board != nil)
 	return runtime, nil
+}
+
+func (runtime *runtimeObservability) mountUsage(server *observability.Server) {
+	if runtime.usage != nil {
+		server.HandleAuthenticated("GET /v1/usage", runtime.usage.Handler(runtime.usage.Expected))
+	}
 }
 
 // watchObservabilityListener logs a listener that stops serving after it

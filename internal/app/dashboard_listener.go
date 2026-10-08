@@ -173,6 +173,7 @@ func (runtime *runtimeObservability) startDashboard(ctx context.Context, listene
 			return func() {}, nil, err
 		}
 		board := dashboard.New(dashboard.Options{Health: runtime.health, Events: runtime.events, SignOut: true})
+		runtime.mountUsage(server)
 		board.Mount(server)
 		serving, err := server.Start(serveCtx, settings)
 		if err != nil {

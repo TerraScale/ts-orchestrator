@@ -20,6 +20,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
@@ -596,6 +597,35 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	planner.workloads = workloadReconciler
+	telemetry.usage.SetExpected(func(ctx context.Context) ([]string, error) {
+		hosts, err := hostController.ListHosts(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var nodes []string
+		for _, status := range hosts {
+			nodes = append(nodes, status.Registration.Node)
+		}
+		desired, err := hostController.ListDesired(ctx, "")
+		if err != nil {
+			return nil, err
+		}
+		for _, allocation := range desired {
+			if !allocation.Withdrawn {
+				nodes = append(nodes, allocation.Node+"/"+allocation.Role)
+			}
+		}
+		return nodes, nil
+	})
+	hostController.SetLoadSink(func(origin hostload.Origin, report hostload.Report) error {
+		if hostLoad != nil {
+			if err := hostLoad.Record(origin, report); err != nil {
+				return err
+			}
+		}
+		profiles, _ := services.effective()
+		return telemetry.usage.Record(origin, report, loadRequests(profileResources(profiles)))
+	})
 	services.changed = func(profiles map[string]WorkloadProfile, specs []workload.ServiceSpec) {
 		resources := profileResources(profiles)
 		if err := workloadReconciler.SetServices(specs, resources); err != nil {

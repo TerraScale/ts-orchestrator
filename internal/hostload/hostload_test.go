@@ -56,6 +56,26 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
+func TestSamplerReadsFiniteAndUnlimitedLimits(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root+"/cpu.max", "150000 100000\n")
+	writeFile(t, root+"/memory.max", "1048576\n")
+	cpu, memory, ok := readLimits(root)
+	if !ok || cpu == nil || *cpu != 1.5 || memory == nil || *memory != 1048576 {
+		t.Fatalf("finite limits %v %v %t", cpu, memory, ok)
+	}
+	writeFile(t, root+"/cpu.max", "max 100000\n")
+	writeFile(t, root+"/memory.max", "max\n")
+	cpu, memory, ok = readLimits(root)
+	if !ok || cpu != nil || memory != nil {
+		t.Fatal("unlimited limits lost")
+	}
+	writeFile(t, root+"/cpu.max", "NaN 100000\n")
+	if _, _, ok := readLimits(root); ok {
+		t.Fatal("accepted malformed quota")
+	}
+}
+
 func TestSamplerDiffsCgroupAndHostCounters(t *testing.T) {
 	root := t.TempDir()
 	now := time.Unix(1_000, 0)
