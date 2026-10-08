@@ -41,9 +41,8 @@ var (
 )
 
 // Config identifies this candidate within one regional or global control log.
-// Scope and CandidateID must be lowercase NATS tokens. The runtime adds a
-// random process ID so restarting or duplicating a candidate cannot adopt its
-// previous incarnation's lease.
+// Scope is a lowercase NATS token and CandidateID is a canonical ULID. A fresh
+// owner ULID prevents a restarted or duplicated candidate adopting its old lease.
 type Config struct {
 	Scope         string
 	CandidateID   string

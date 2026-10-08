@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -39,7 +40,8 @@ func TestCellSpecAddsTSAuthToARunningCell(t *testing.T) {
 	operatorPublic, _ := testEd25519(t, root, "operator.key")
 	rootKey, rootPrivateKey := writeTestPEMKeyPair(t, root, "root")
 	leafKey, leafPrivateKey := writeTestPEMKeyPair(t, root, "leaf")
-	const deployment, environment = "lab-gru-1", "canary"
+	const environment = "canary"
+	deployment := entityid.Derive("test-deployment", "lab-gru-1")
 	nodes := []string{"ctl-1", "ctl-2", "ctl-3"}
 	var grants []natscell.NKeyGrant
 	controllerSeeds := make([]string, 3)
@@ -74,7 +76,7 @@ func TestCellSpecAddsTSAuthToARunningCell(t *testing.T) {
 				Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: ports[index], RouteHost: "127.0.0.1",
 					RoutePort: ports[3+index], Routes: natscell.PeerRoutes(routes, routes[index]),
 					StoreDir: filepath.Join(root, instance), StoreMaxBytes: 4 << 30, Users: grants}},
-			Controller: ControllerConfig{CandidateID: instance, ResponseKeyFile: filepath.Join(root, "controller.key"),
+			Controller: ControllerConfig{CandidateID: entityid.Derive("test-controller", instance), ResponseKeyFile: filepath.Join(root, "controller.key"),
 				ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 				Workloads: map[string]WorkloadProfile{"terrabase": {Resources: placement.Resources{
 					CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}}},

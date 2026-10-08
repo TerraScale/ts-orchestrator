@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -187,7 +188,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 			Source: source, ArtifactDigest: artifact.Digest, ManifestDigest: artifact.ManifestDigest,
 			Cell: "gru", Role: "terrabase", Environment: "test", Generation: uint64(index + 1),
 			DesiredReplicas: 1, ConfigDigest: delivery.ConfigDigestOf(nil, nil, nil),
-			OperationID: fmt.Sprintf("convergence-%03d", index+1),
+			OperationID: entityid.Derive("test-convergence", fmt.Sprint(index+1)),
 		}
 		intentPaths[index] = testJSONFile(t, root, fmt.Sprintf("intent-%03d.json", index+1), intent)
 	}

@@ -21,6 +21,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rolloutexec"
@@ -280,7 +281,7 @@ func startRolloutTestCell(t *testing.T, ctx context.Context, config rolloutTestC
 		cfg, runtime := configs[index], cell.runtimes[index]
 		// The authority runtime keeps the context it started with.
 		control := retryOpen(t, ctx, func(context.Context) (*authority.Runtime, error) {
-			return authority.Start(ctx, runtime.JetStream(), authority.Config{Scope: config.cell, CandidateID: id,
+			return authority.Start(ctx, runtime.JetStream(), authority.Config{Scope: config.cell, CandidateID: entityid.Derive("test-controller", id),
 				Replicas: 3, LeaseDuration: 5 * time.Second, RenewInterval: 500 * time.Millisecond})
 		})
 		t.Cleanup(func() { _ = control.Close() })

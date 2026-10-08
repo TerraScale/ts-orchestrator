@@ -969,7 +969,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	telemetry.markStarted()
 	policy.rollouts.ready.Store(true)
-	slog.Info("controller ready", observability.ComponentKey, "controller", observability.EventKey, true)
+	slog.Info("controller ready", observability.ComponentKey, "controller", observability.EventKey, true, "candidate_id", candidateID)
 	fmt.Fprintf(output, "controller %s ready in cell %s via %s\n", cfg.NATS.Instance, cfg.NATS.Cell, runtime.URL())
 	if err := notifier.Ready("controller " + cfg.NATS.Instance + " ready in cell " + cfg.NATS.Cell); err != nil {
 		slog.Warn("systemd readiness notification failed", observability.ComponentKey, "controller", "error", err)
