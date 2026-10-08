@@ -26,6 +26,9 @@ type ServerDeps struct {
 	Cluster   ClusterSource
 	Events    EventSource
 	Sessions  *SessionStore
+	// LocalSessions preserves browser login on hosts without KV permissions.
+	// Controllers keep it false and attach the persistent regional store.
+	LocalSessions bool
 }
 
 // Server is the private observability listener. Additional read-only routes,
@@ -87,6 +90,9 @@ func newServer(config Config, token []byte, deps ServerDeps) (*Server, error) {
 		return nil, errors.New("observability server requires a registry and health checks")
 	}
 	manager := &sessions{secure: config.TLSCertFile != ""}
+	if deps.LocalSessions {
+		manager.local = make(map[string]struct{})
+	}
 	server := &Server{mux: http.NewServeMux(), deps: deps, sessions: manager, token: token}
 	if deps.Sessions != nil && token != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -24,7 +25,12 @@ const (
 	// SessionBucket contains only hashes and token generations, with no TTL.
 	SessionBucket    = "TS_DASHBOARD_SESSIONS"
 	maxLoginFormSize = 8 << 10
+	// Never evict a live session. At capacity, reuse the browser's session,
+	// sign out elsewhere, or rotate the token to reclaim abandoned sessions.
+	maxSessions = 1024
 )
+
+var errSessionCapacity = errors.New("dashboard session capacity reached")
 
 // SessionStore persists sessions in the regional bootstrap store. Scope keeps
 // the NetBird token separate from an independently configured local listener.
@@ -32,6 +38,7 @@ type SessionStore struct {
 	kv     jetstream.KeyValue
 	leader nats.JetStreamContext
 	scope  string
+	stream jetstream.Stream
 }
 
 func OpenSessionStore(ctx context.Context, js jetstream.JetStream, replicas int, scope string) (*SessionStore, error) {
@@ -50,7 +57,11 @@ func OpenSessionStore(ctx context.Context, js jetstream.JetStream, replicas int,
 	if err != nil {
 		return nil, err
 	}
-	return &SessionStore{kv: kv, leader: leader, scope: sessionHash(scope)}, nil
+	stream, err := js.Stream(ctx, "KV_"+SessionBucket)
+	if err != nil {
+		return nil, err
+	}
+	return &SessionStore{kv: kv, leader: leader, scope: sessionHash(scope), stream: stream}, nil
 }
 
 func sessionHash(value string) string {
@@ -73,6 +84,9 @@ func (store *SessionStore) get(ctx context.Context, key string) (*nats.RawStream
 type sessions struct {
 	secure  bool
 	binding atomic.Pointer[sessionBinding]
+	mu      sync.Mutex
+	// Hosts have no controller KV grant; keep their existing process-local login.
+	local map[string]struct{}
 }
 
 type sessionBinding struct {
@@ -101,16 +115,23 @@ func (server *Server) SetSessionStore(ctx context.Context, store *SessionStore) 
 		case string(entry.Data) == hash:
 			revision = entry.Sequence
 		default:
+			// Reclaim the retired generation before updating metadata, even
+			// when the bucket has reached its byte limit.
+			if _, err = (&sessionBinding{store: store, generation: entry.Sequence + 1}).collect(ctx); err != nil {
+				return err
+			}
 			revision, err = store.kv.Update(ctx, key, []byte(hash), entry.Sequence)
 		}
-		if errors.Is(err, jetstream.ErrKeyExists) {
+		if errors.Is(err, jetstream.ErrKeyExists) || errors.Is(err, jetstream.ErrKeyRevisionMismatch) {
 			continue
 		}
 		if err != nil {
 			return err
 		}
-		server.sessions.binding.Store(&sessionBinding{store: store, tokenHash: hash, generation: revision})
-		return nil
+		binding := &sessionBinding{store: store, tokenHash: hash, generation: revision}
+		server.sessions.binding.Store(binding)
+		_, err = binding.collect(ctx)
+		return err
 	}
 	return errors.New("dashboard token changed concurrently")
 }
@@ -121,45 +142,187 @@ func (binding *sessionBinding) current(ctx context.Context) bool {
 }
 
 func (binding *sessionBinding) key(value string) string {
-	return "session." + binding.store.scope + "." + sessionHash(value)
+	slot, _ := sessionSlot(value)
+	return "session." + binding.store.scope + "." + strconv.FormatUint(binding.generation, 10) + "." + slot
+}
+
+// collect deletes immutable records from older generations without KV purge
+// markers. A stale controller never deletes a newer generation's sessions.
+func (binding *sessionBinding) collect(ctx context.Context) (int, error) {
+	watcher, err := binding.store.kv.Watch(ctx, "session."+binding.store.scope+".>", jetstream.MetaOnly())
+	if err != nil {
+		return 0, err
+	}
+	defer watcher.Stop()
+	count := 0
+	for {
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case entry, ok := <-watcher.Updates():
+			if !ok {
+				return 0, errors.New("dashboard session enumeration interrupted")
+			}
+			if entry == nil {
+				return count, nil
+			}
+			parts := strings.Split(entry.Key(), ".")
+			if len(parts) != 4 {
+				continue
+			}
+			generation, err := strconv.ParseUint(parts[2], 10, 64)
+			if err != nil {
+				return 0, err
+			}
+			if generation == binding.generation && entry.Operation() == jetstream.KeyValuePut {
+				count++
+			}
+			if generation < binding.generation || entry.Operation() != jetstream.KeyValuePut {
+				if err := binding.store.purgeThrough(ctx, entry.Key(), entry.Revision()); err != nil {
+					return 0, err
+				}
+			}
+		}
+	}
+}
+
+// A sequence cutoff preserves a slot reused concurrently after logout or
+// enumeration, while removing retired records and their purge markers.
+func (store *SessionStore) purgeThrough(ctx context.Context, key string, revision uint64) error {
+	return store.stream.Purge(ctx, jetstream.WithPurgeSubject("$KV."+SessionBucket+"."+key), jetstream.WithPurgeSequence(revision+1))
 }
 
 func (manager *sessions) issue(ctx context.Context) (string, error) {
 	binding := manager.binding.Load()
-	if binding == nil || !binding.current(ctx) {
-		return "", errors.New("dashboard session store unavailable or token retired")
+	if binding == nil && manager.local == nil {
+		return "", errors.New("dashboard session store unavailable")
+	}
+	if binding != nil {
+		if !binding.current(ctx) {
+			return "", errors.New("dashboard token retired")
+		}
+		count, err := binding.collect(ctx)
+		if err != nil {
+			return "", err
+		}
+		if count >= maxSessions {
+			return "", errSessionCapacity
+		}
 	}
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return "", err
 	}
-	value := base64.RawURLEncoding.EncodeToString(raw[:])
-	_, err := binding.store.kv.Create(ctx, binding.key(value), []byte(strconv.FormatUint(binding.generation, 10)))
-	if err != nil {
-		return "", err
+	encoded := base64.RawURLEncoding.EncodeToString(raw[:])
+	if binding == nil {
+		manager.mu.Lock()
+		defer manager.mu.Unlock()
+		if len(manager.local) >= maxSessions {
+			return "", errSessionCapacity
+		}
+		value := "v3.0." + encoded
+		manager.local[sessionHash(value)] = struct{}{}
+		return value, nil
 	}
-	return value, nil
+	// Fixed CAS-allocated slots enforce capacity across all controllers,
+	// including simultaneous logins. Only the cookie's digest is stored.
+	start := (int(raw[0])<<8 | int(raw[1])) % maxSessions
+	for offset := range maxSessions {
+		value := "v3." + strconv.Itoa((start+offset)%maxSessions) + "." + encoded
+		_, err := binding.store.kv.Create(ctx, binding.key(value), []byte(sessionHash(value)))
+		if errors.Is(err, jetstream.ErrKeyExists) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		return value, nil
+	}
+	return "", errSessionCapacity
+}
+
+func sessionSlot(value string) (string, bool) {
+	parts := strings.Split(value, ".")
+	if len(parts) != 3 || parts[0] != "v3" {
+		return "", false
+	}
+	slot, err := strconv.Atoi(parts[1])
+	if err != nil || slot < 0 || slot >= maxSessions || strconv.Itoa(slot) != parts[1] {
+		return "", false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil || len(raw) != 32 || base64.RawURLEncoding.EncodeToString(raw) != parts[2] {
+		return "", false
+	}
+	return parts[1], true
+}
+
+func validSessionValue(value string) bool {
+	_, ok := sessionSlot(value)
+	return ok
 }
 
 func (manager *sessions) valid(ctx context.Context, value string) bool {
-	raw, err := base64.RawURLEncoding.DecodeString(value)
-	if err != nil || len(raw) != 32 || base64.RawURLEncoding.EncodeToString(raw) != value {
+	if !validSessionValue(value) {
 		return false
 	}
 	binding := manager.binding.Load()
-	if binding == nil || !binding.current(ctx) {
+	if binding == nil {
+		manager.mu.Lock()
+		defer manager.mu.Unlock()
+		_, ok := manager.local[sessionHash(value)]
+		return ok
+	}
+	if !binding.current(ctx) {
 		return false
 	}
 	entry, err := binding.store.get(ctx, binding.key(value))
-	return err == nil && string(entry.Data) == strconv.FormatUint(binding.generation, 10)
+	return err == nil && subtle.ConstantTimeCompare(entry.Data, []byte(sessionHash(value))) == 1
 }
 
 func (manager *sessions) revoke(ctx context.Context, value string) error {
+	if !validSessionValue(value) {
+		return nil
+	}
 	binding := manager.binding.Load()
 	if binding == nil {
-		return errors.New("dashboard session store unavailable")
+		manager.mu.Lock()
+		defer manager.mu.Unlock()
+		if manager.local == nil {
+			return errors.New("dashboard session store unavailable")
+		}
+		delete(manager.local, sessionHash(value))
+		return nil
 	}
-	return binding.store.kv.Purge(ctx, binding.key(value))
+	entry, err := binding.store.get(ctx, binding.key(value))
+	if errors.Is(err, nats.ErrMsgNotFound) || errors.Is(err, jetstream.ErrKeyNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if subtle.ConstantTimeCompare(entry.Data, []byte(sessionHash(value))) != 1 {
+		return nil
+	}
+	key := binding.key(value)
+	err = binding.store.kv.Purge(ctx, key, jetstream.LastRevision(entry.Sequence))
+	if errors.Is(err, jetstream.ErrKeyRevisionMismatch) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	marker, err := binding.store.leader.GetLastMsg("KV_"+SessionBucket, "$KV."+SessionBucket+"."+key, nats.Context(ctx))
+	if errors.Is(err, nats.ErrMsgNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if marker.Header.Get("KV-Operation") == "PURGE" {
+		return binding.store.purgeThrough(ctx, key, marker.Sequence)
+	}
+	return nil
 }
 
 func (manager *sessions) cookie(value string) *http.Cookie {
@@ -233,8 +396,17 @@ func (server *Server) login(writer http.ResponseWriter, request *http.Request) {
 		http.Redirect(writer, request, "/login?failed=1&next="+url.QueryEscape(next), http.StatusSeeOther)
 		return
 	}
+	if cookie, err := request.Cookie(SessionCookieName); err == nil && server.sessions.valid(request.Context(), cookie.Value) {
+		http.SetCookie(writer, server.sessions.cookie(cookie.Value))
+		http.Redirect(writer, request, next, http.StatusSeeOther)
+		return
+	}
 	value, err := server.sessions.issue(request.Context())
 	if err != nil {
+		if errors.Is(err, errSessionCapacity) {
+			writePlain(writer, http.StatusServiceUnavailable, "dashboard session limit reached; sign out in another browser or rotate the dashboard token\n")
+			return
+		}
 		writePlain(writer, http.StatusServiceUnavailable, "session storage unavailable\n")
 		return
 	}

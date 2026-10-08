@@ -2,14 +2,17 @@ package app
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -124,4 +127,83 @@ func TestControllerDashboardRequiresSignIn(t *testing.T) {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("/metrics with bearer = %d", response.StatusCode)
 	}
+}
+
+func TestHostDashboardKeepsLocalBrowserLoginWithoutJetStream(t *testing.T) {
+	original := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(original) })
+	token := strings.Repeat("h", 48)
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenFile, []byte(token), 0600); err != nil {
+		t.Fatal(err)
+	}
+	telemetry, err := startRuntimeObservability(t.Context(), Config{Observability: observability.Config{
+		ListenAddress: freeLoopbackAddress(t), BearerTokenFile: tokenFile, Dashboard: true}}, "host", "host-one")
+	if err != nil || telemetry.server == nil {
+		t.Fatalf("host listener: %v", err)
+	}
+	defer telemetry.close()
+	request := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(url.Values{"token": {token}}.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	recorder := httptest.NewRecorder()
+	telemetry.server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusSeeOther || len(recorder.Result().Cookies()) != 1 {
+		t.Fatalf("host login = %d", recorder.Code)
+	}
+	cookie := recorder.Result().Cookies()[0]
+	request = httptest.NewRequest(http.MethodGet, "http://localhost/", nil)
+	request.AddCookie(cookie)
+	recorder = httptest.NewRecorder()
+	telemetry.server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("host dashboard = %d", recorder.Code)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/logout", nil)
+	request.AddCookie(cookie)
+	recorder = httptest.NewRecorder()
+	telemetry.server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("host logout = %d", recorder.Code)
+	}
+	request = httptest.NewRequest(http.MethodGet, "http://localhost/", nil)
+	request.AddCookie(cookie)
+	recorder = httptest.NewRecorder()
+	telemetry.server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatal("host logout did not revoke the copied cookie")
+	}
+}
+
+func TestDashboardSessionAttachmentRetriesAndStops(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	var attempts atomic.Int32
+	done := make(chan struct{})
+	go func() {
+		retryDashboardSessionAttachment(ctx, func(attempt context.Context) error {
+			if _, ok := attempt.Deadline(); !ok {
+				t.Error("attachment attempt is unbounded")
+			}
+			switch attempts.Add(1) {
+			case 1:
+				return errors.New("opening bucket temporarily unavailable")
+			case 2:
+				return errors.New("binding token temporarily unavailable")
+			default:
+				return nil
+			}
+		})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("attachment never retried to success")
+	}
+	if attempts.Load() != 3 {
+		t.Fatal("failed open and bind were not retried")
+	}
+	stopped, cancelStopped := context.WithCancel(t.Context())
+	cancelStopped()
+	retryDashboardSessionAttachment(stopped, func(context.Context) error { t.Fatal("canceled runtime attempted attachment"); return nil })
 }

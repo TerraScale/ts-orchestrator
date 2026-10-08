@@ -2,11 +2,15 @@ package observability
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
+	"sync"
 
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -452,5 +456,155 @@ func TestSessionsSurviveBrokerRestart(t *testing.T) {
 	}
 	if err := second.sessions.revoke(t.Context(), value); err == nil {
 		t.Fatal("NATS outage reported successful revocation")
+	}
+}
+
+func TestLogoutUnknownCookiesNeverWritesAndReusedSlotsRemainValid(t *testing.T) {
+	t.Parallel()
+	server, token := newLoginServer(t)
+	response := postLogin(server, url.Values{"token": {token}})
+	cookie := response.Result().Cookies()[0]
+	binding := server.sessions.binding.Load()
+	before, err := binding.store.kv.Status(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 64 {
+		unknown := "v3." + strconv.Itoa(i) + "." + base64.RawURLEncoding.EncodeToString(bytesOf(2))
+		request := httptest.NewRequest(http.MethodPost, "/logout", nil)
+		request.AddCookie(&http.Cookie{Name: SessionCookieName, Value: unknown})
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusSeeOther {
+			t.Fatal("unknown cookie logout failed")
+		}
+	}
+	for _, malformed := range []string{"garbage", "v3.-1.AA", "v3.1024.AA", "v3.01." + base64.RawURLEncoding.EncodeToString(bytesOf(1))} {
+		if err := server.sessions.revoke(t.Context(), malformed); err != nil {
+			t.Fatal(err)
+		}
+	}
+	after, err := binding.store.kv.Status(t.Context())
+	if err != nil || after.Values() != before.Values() || after.Bytes() != before.Bytes() {
+		t.Fatal("unauthenticated logout grew or changed the bucket")
+	}
+	if !server.sessions.valid(t.Context(), cookie.Value) {
+		t.Fatal("unknown cookie revoked a legitimate session")
+	}
+	entry, err := binding.store.get(t.Context(), binding.key(cookie.Value))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := server.sessions.revoke(t.Context(), cookie.Value); err != nil {
+		t.Fatal(err)
+	}
+	// Reuse that exact slot, as a simultaneous login can do after its purge.
+	parts := strings.Split(cookie.Value, ".")
+	replacement := "v3." + parts[1] + "." + base64.RawURLEncoding.EncodeToString(bytesOf(3))
+	if _, err := binding.store.kv.Create(t.Context(), binding.key(replacement), []byte(sessionHash(replacement))); err != nil {
+		t.Fatal(err)
+	}
+	if err := binding.store.purgeThrough(t.Context(), binding.key(cookie.Value), entry.Sequence); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.sessions.revoke(t.Context(), cookie.Value); err != nil {
+		t.Fatal(err)
+	}
+	if !server.sessions.valid(t.Context(), replacement) {
+		t.Fatal("stale logout or compaction deleted a reused slot")
+	}
+	if err := server.sessions.revoke(t.Context(), replacement); err != nil {
+		t.Fatal(err)
+	}
+	status, err := binding.store.kv.Status(t.Context())
+	if err != nil || status.Values() != 1 {
+		t.Fatal("logout retained a purge marker")
+	}
+}
+
+func bytesOf(value byte) []byte {
+	raw := make([]byte, 32)
+	for i := range raw {
+		raw[i] = value
+	}
+	return raw
+}
+
+func TestSessionCapacityIsSharedAndRotationReclaimsIt(t *testing.T) {
+	t.Parallel()
+	store := newTestSessionStore(t)
+	build := func(token string) *Server {
+		t.Helper()
+		server, err := NewTokenServer(Config{Dashboard: true}, token, ServerDeps{Registry: NewRegistry(false), Health: new(Health), Sessions: store})
+		if err != nil {
+			t.Fatal(err)
+		}
+		server.HandleLogin(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		return server
+	}
+	token := strings.Repeat("a", 48)
+	first, second := build(token), build(token)
+	binding := first.sessions.binding.Load()
+	for i := range maxSessions - 1 {
+		cookie := "v3." + strconv.Itoa(i) + "." + base64.RawURLEncoding.EncodeToString(bytesOf(1))
+		if _, err := store.kv.Create(t.Context(), binding.key(cookie), []byte(sessionHash(cookie))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var wg sync.WaitGroup
+	results := make(chan error, 2)
+	values := make(chan string, 2)
+	for _, server := range []*Server{first, second} {
+		wg.Go(func() {
+			value, err := server.sessions.issue(t.Context())
+			results <- err
+			if err == nil {
+				values <- value
+			}
+		})
+	}
+	wg.Wait()
+	close(results)
+	close(values)
+	accepted, rejected := 0, 0
+	for err := range results {
+		if err == nil {
+			accepted++
+		} else if errors.Is(err, errSessionCapacity) {
+			rejected++
+		} else {
+			t.Fatal(err)
+		}
+	}
+	if accepted != 1 || rejected != 1 {
+		t.Fatal("concurrent controllers exceeded the session capacity")
+	}
+	value := <-values
+	response := postLogin(first, url.Values{"token": {token}})
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "session limit reached") {
+		t.Fatal("full store did not explain how to recover")
+	}
+	request := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(url.Values{"token": {token}}.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.AddCookie(&http.Cookie{Name: SessionCookieName, Value: value})
+	recorder := httptest.NewRecorder()
+	first.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusSeeOther || recorder.Result().Cookies()[0].Value != value {
+		t.Fatal("login failed to reuse an existing session at capacity")
+	}
+	rotated := build(strings.Repeat("b", 48))
+	status, err := store.kv.Status(t.Context())
+	if err != nil || status.Values() != 1 {
+		t.Fatal("rotation retained abandoned sessions or markers")
+	}
+	fresh, err := rotated.sessions.issue(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := binding.collect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if !rotated.sessions.valid(t.Context(), fresh) {
+		t.Fatal("stale controller collected a newer generation")
 	}
 }

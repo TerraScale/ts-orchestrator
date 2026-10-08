@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 
@@ -93,7 +94,7 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 		return runtime, nil
 	}
 	server, err := observability.NewServer(settings, observability.ServerDeps{Registry: runtime.registry,
-		Health: runtime.health, Events: runtime.events})
+		Health: runtime.health, Events: runtime.events, LocalSessions: role == "host"})
 	if err != nil {
 		// An unusable bearer token file (missing, shared or malformed) fails
 		// closed for the listener only: nothing is served, and the role
@@ -174,13 +175,13 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 ) error {
 	runtime.sessionJS, runtime.sessionReplicas = observed.nats.JetStream(), observed.replicas
 	if runtime.server != nil && runtime.config.Dashboard && runtime.config.BearerTokenFile != "" {
-		store, err := observability.OpenSessionStore(ctx, runtime.sessionJS, runtime.sessionReplicas, "local."+runtime.member)
-		if err == nil {
-			err = runtime.server.SetSessionStore(ctx, store)
-		}
-		if err != nil {
-			slog.Warn("dashboard session storage unavailable", observability.ComponentKey, "dashboard", "error", err)
-		}
+		go retryDashboardSessionAttachment(ctx, func(attempt context.Context) error {
+			store, err := observability.OpenSessionStore(attempt, runtime.sessionJS, runtime.sessionReplicas, "local."+runtime.member)
+			if err != nil {
+				return err
+			}
+			return runtime.server.SetSessionStore(attempt, store)
+		})
 	}
 	runtime.registry.Register(delivery.Metrics)
 	if observed.managed {
@@ -383,4 +384,31 @@ func authorityView(snapshot authority.Snapshot) observability.AuthorityView {
 		CanMutate: snapshot.CanMutate(), OwnerID: snapshot.OwnerID, Epoch: snapshot.Epoch,
 		Revision: snapshot.Revision, ExpiresAt: snapshot.ExpiresAt, ObservedAt: snapshot.ObservedAt,
 		Reason: snapshot.Reason}
+}
+
+// Retry without blocking controller startup; each attempt and the backoff are
+// bounded and stop with the runtime, including during a JetStream outage.
+func retryDashboardSessionAttachment(ctx context.Context, attach func(context.Context) error) {
+	delay := 100 * time.Millisecond
+	warned := false
+	for ctx.Err() == nil {
+		attempt, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err := attach(attempt)
+		cancel()
+		if err == nil {
+			return
+		}
+		if !warned {
+			slog.Warn("dashboard session storage unavailable; retrying", observability.ComponentKey, "dashboard", "error", err)
+			warned = true
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		delay = min(2*delay, 5*time.Second)
+	}
 }

@@ -213,7 +213,18 @@ Access control follows the listener:
   Login requires the session store to be ready; storage failures fail closed,
   and logout returns `503` if revocation cannot be persisted. A tokenless
   loopback dashboard still needs no session. Token-protected host dashboards
-  without a controller KV store support bearer authentication only.
+  preserve process-local browser sessions without controller KV permissions;
+  those host-only sessions end on host restart. Controller and NetBird
+  dashboards use the persistent KV store; controller attachment retries with
+  bounded backoff if the store is temporarily unavailable.
+  Each listener scope allows 1,024 sessions, allocated with KV CAS slots
+  across controllers. Existing sessions are never evicted or aged out. A
+  repeated login renews its existing cookie; at capacity, new login returns
+  `503` with instructions to sign out elsewhere or rotate the dashboard token.
+  Rotation reclaims obsolete generations before updating metadata, and logout
+  checks the stored cookie hash before purging its expected revision. Sequence
+  cutoffs compact purge markers without deleting concurrently reused slots.
+  The bucket also retains its 16 MiB hard limit.
   Login and logout refuse cross-site form posts (`Sec-Fetch-Site`, `Origin`);
   `Origin: null` is accepted only with `Sec-Fetch-Site: same-origin`. The
   `same-origin` referrer policy preserves the form's Origin on NetBird HTTP

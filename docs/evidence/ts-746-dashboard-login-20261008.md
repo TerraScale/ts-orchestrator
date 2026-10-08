@@ -67,3 +67,26 @@ printing their values. Bearer-authenticated `/topology` returns HTTP 200 in
 both regions. Live browser verification of the new login remains pending
 review, merge, and a rollout path that respects the existing GRU recovery fences.
 No rollout fences, signing grants, or deployment settings were changed.
+
+## Reviewer regression checks
+
+The first ts-reviewer round identified four issues: host dashboard login lacked
+its previous local backend, controller attachment did not retry transient
+errors, obsolete sessions accumulated at the fixed byte limit, and arbitrary
+logout cookies could create purge markers.
+
+The follow-up keeps hosts' process-local login, retries controller attachment
+with bounded attempts/backoff, uses CAS-allocated slots to cap each listener
+scope at 1,024 live sessions without evicting them, and reclaims retired
+generations. Logout verifies the stored hash and purges only that revision;
+sequence-bounded marker compaction preserves slots reused concurrently.
+New regressions cover unknown-cookie floods leaving KV bytes/count unchanged,
+logout/compaction preserving reused slots, simultaneous allocation at capacity
+across controllers, reusing a login at capacity, rotation reclaiming all old
+records, stale collectors preserving a newer generation, host login/logout,
+and attachment retry/cancellation.
+
+The follow-up focused race tests, full-repository fast suite (`umask 022`),
+vet, formatting and generated-template checks passed. Chromium and Firefox
+also repeated the full local login/browser-reopen/controller-and-broker-restart/
+cross-site-logout/copied-cookie-revocation journey with the corrected backend.
