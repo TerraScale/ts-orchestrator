@@ -39,7 +39,7 @@ func TestTerminalMarkerWaitsForNestedWorkloadEffectAndFencesPlacement(t *testing
 	intent := TerminalIntent{Cell: "gru", DatabaseID: "00000000001Y9Z8VKC1VV66J6B", PartitionID: "0000000000Z3WK359G2W66CVT8",
 		Region: "GRU", Owner: "owner-a", CompartmentID: "ocid1.compartment.oc1..terminaltest",
 		FleetGeneration: 1, PlacementGeneration: 1, PlacementPayloadDigest: strings.Repeat("a", 64),
-		OperationID: "000000000052P5CTS9VW60Z1PQ", Nonce: entityid.New(),
+		OperationID: "000000000052P5CTS9VW60Z1PQ", Nonce: "0123456789abcdef0123456789abcdef",
 		Targets:            []TerminalTarget{{SeatID: "000000000077F1R6E1XPKAC2D4", MemberID: "0000000000WM3QQGQPMW5X58P9", HostCreateKey: "0000000000R58Y74PAABAQ7X2V", DataCreateKey: "0000000000NMFV7B37QZWENX9Z"}},
 		DisposableWorkload: true, AcknowledgePermanentDataLoss: true, AuthorizeForcedStop: true}
 	payload, err := json.Marshal(intent, json.Deterministic(true))
@@ -371,7 +371,7 @@ func TestManagedUpdateSuccessorFollowsOnlyATerminalOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	successor := first
-	successor.OperationID, successor.CanarySeatID = "00000000006QPQSQ5R3B4H4MAX", "00000000000E5NVMSGX0D07DPA"
+	successor.OperationID, successor.CanarySeatID = "00000000006QPQSQ5R3B4H4MAX", "000000000082AXF7GZQT1D126Y"
 	successor.SignedRequest = []byte("peer promotion request")
 	successor.SignedRequestSHA256 = digestString(successor.SignedRequest)
 	if _, err := runtime.CommitManagedUpdate(ctx, epoch, successor, prepared, nil); !errors.Is(err, ErrInvalidTransition) {
@@ -403,7 +403,7 @@ func validManagedUpdateRecord() ManagedUpdateRecord {
 		OperationID: "00000000000NV7A9CE3MES6S1F", Phase: ManagedUpdatePrepared, SignedRequest: request,
 		SignedRequestSHA256: digestString(request), PlacementGeneration: 1,
 		PlacementPayloadDigest: strings.Repeat("a", 64), PlacementSequence: 1,
-		CanarySeatID: "00000000008SEAHD1YMMYV3ARR", CanaryDesiredGeneration: 2,
+		CanarySeatID: "0000000000XG8SBD7XGE97V28G", CanaryDesiredGeneration: 2,
 		OldArtifactDigest: strings.Repeat("b", 64), CandidateArtifactDigest: strings.Repeat("c", 64),
 		CandidateManifestDigest: strings.Repeat("d", 64), CandidateSourceDigest: strings.Repeat("e", 64),
 		DurabilityProfileSHA256: strings.Repeat("f", 64),
@@ -437,7 +437,7 @@ func TestTerminalAdmissionRerunsSettlementProofAfterGlobalCASConflict(t *testing
 	intent := TerminalIntent{Cell: "gru", DatabaseID: scope.DatabaseID, PartitionID: scope.PartitionID,
 		Region: "GRU", Owner: "owner-a", CompartmentID: "ocid1.compartment.oc1..terminaltest",
 		FleetGeneration: 1, PlacementGeneration: 1, PlacementPayloadDigest: strings.Repeat("a", 64),
-		OperationID: "000000000035AP0Y31MVCHHG0B", Nonce: entityid.New(),
+		OperationID: "000000000035AP0Y31MVCHHG0B", Nonce: "0123456789abcdef0123456789abcdef",
 		Targets:            []TerminalTarget{{SeatID: "000000000077F1R6E1XPKAC2D4", MemberID: "0000000000WM3QQGQPMW5X58P9", HostCreateKey: "0000000000R58Y74PAABAQ7X2V", DataCreateKey: "0000000000NMFV7B37QZWENX9Z"}},
 		DisposableWorkload: true, AcknowledgePermanentDataLoss: true, AuthorizeForcedStop: true}
 	payload, err := json.Marshal(intent, json.Deterministic(true))

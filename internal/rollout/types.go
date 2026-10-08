@@ -44,6 +44,7 @@ var (
 	ErrConflict          = errors.New("rollout record changed concurrently")
 
 	tokenRE  = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,127}$`)
+	nonceRE  = regexp.MustCompile(`^[0-9a-f]{32}$`)
 	digestRE = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 

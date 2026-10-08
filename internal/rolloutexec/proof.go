@@ -3,6 +3,7 @@ package rolloutexec
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -49,6 +50,7 @@ var (
 	ErrInvalid = errors.New("rollout executor input is invalid")
 
 	unitRE   = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,127}$`)
+	nonceRE  = regexp.MustCompile(`^[0-9a-f]{32}$`)
 	digestRE = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
@@ -72,7 +74,7 @@ type HealthProof struct {
 
 func (proof HealthProof) validate() error {
 	if proof.Schema != HealthSchema || !unitRE.MatchString(proof.Cell) || !unitRE.MatchString(proof.Unit) ||
-		!digestRE.MatchString(proof.BinarySHA256) || proof.ProcessID <= 0 || !entityid.Valid(proof.StartNonce) ||
+		!digestRE.MatchString(proof.BinarySHA256) || proof.ProcessID <= 0 || !nonceRE.MatchString(proof.StartNonce) ||
 		proof.ObservedAt.IsZero() {
 		return fmt.Errorf("%w: health proof", ErrInvalid)
 	}
@@ -369,8 +371,12 @@ func ProcessIdentity(cell, unit, executable string) (HealthProof, error) {
 	if err != nil {
 		return HealthProof{}, fmt.Errorf("hash running executable: %w", err)
 	}
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return HealthProof{}, err
+	}
 	return HealthProof{Schema: HealthSchema, Cell: cell, Unit: unit, BinarySHA256: digest,
-		ProcessID: int64(os.Getpid()), StartNonce: entityid.New()}, nil
+		ProcessID: int64(os.Getpid()), StartNonce: hex.EncodeToString(nonce[:])}, nil
 }
 
 func hashExecutable(path string) (string, error) {

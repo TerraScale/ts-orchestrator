@@ -17,8 +17,6 @@ import (
 	"syscall"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
-
 	"golang.org/x/sys/unix"
 )
 
@@ -136,7 +134,7 @@ func (c *Client) servingProof(ctx context.Context, status Status, peerMemberID, 
 		!lowerHex(proof.Object.RootSHA256, 64) || !lowerHex(proof.Object.TargetSHA256, 64) ||
 		!lowerHex(proof.Object.InboxArchiveSHA256AtRecovery, 64) ||
 		proof.Object.RemoteAppliedSequence > proof.Object.RemoteInboxDurableSequence ||
-		proof.Replication.PeerMemberID != peerMemberID || !entityid.Valid(proof.Replication.PeerIncarnation) ||
+		proof.Replication.PeerMemberID != peerMemberID || !lowerHexIdentity(proof.Replication.PeerIncarnation) ||
 		peerIncarnation != "" && proof.Replication.PeerIncarnation != peerIncarnation ||
 		!proof.Replication.CurrentAuthenticated ||
 		proof.Replication.LocalSourceSequence != proof.Object.LocalSourceSequence ||

@@ -177,7 +177,7 @@ type Survivor struct {
 }
 
 func (s Scope) valid() bool {
-	return entityid.Valid(s.ClusterID) && entityid.Valid(s.Incarnation) && s.ShardID != 0 &&
+	return lowerHexIdentity(s.ClusterID) && lowerHexIdentity(s.Incarnation) && s.ShardID != 0 &&
 		canonicalID(s.TenantID) && canonicalID(s.DatabaseID) && canonicalID(s.MemberID)
 }
 
@@ -186,10 +186,10 @@ func (a Authority) valid() bool {
 		lowerHex(a.CertificateSHA256, 64) && lowerHex(a.TLSLeafSHA256, 64)
 }
 
-func (p Process) valid() bool { return p.PID >= 2 && entityid.Valid(p.StartNonce) }
+func (p Process) valid() bool { return p.PID >= 2 && lowerHex(p.StartNonce, 32) }
 
 func (s Survivor) valid() bool {
-	return canonicalID(s.MemberID) && entityid.Valid(s.Incarnation)
+	return canonicalID(s.MemberID) && lowerHexIdentity(s.Incarnation)
 }
 
 func lowerHex(value string, length int) bool {
@@ -297,3 +297,7 @@ var ErrNotServing = errors.New("member is not serving with current proof")
 var ErrStaleBinding = errors.New("member process or authority binding changed")
 var ErrOperationConflict = errors.New("member drain operation conflicts with persisted intent")
 var ErrOutcomeUnknown = errors.New("member drain outcome requires reconciliation")
+
+func lowerHexIdentity(value string) bool {
+	return lowerHex(value, 32) && strings.Trim(value, "0") != ""
+}

@@ -16,8 +16,8 @@ import (
 )
 
 func TestMemberStateKeyIncludesPartitionIdentity(t *testing.T) {
-	first := memberStateKey("0000000000JJVVW9EMWY1PE1VX", "0000000000Z3WK359G2W66CVT8", "00000000000E5NVMSGX0D07DPA")
-	second := memberStateKey("0000000000JJVVW9EMWY1PE1VX", "00000000001WFHC56Q8NB0X6T8", "00000000000E5NVMSGX0D07DPA")
+	first := memberStateKey("0000000000JJVVW9EMWY1PE1VX", "0000000000Z3WK359G2W66CVT8", "000000000082AXF7GZQT1D126Y")
+	second := memberStateKey("0000000000JJVVW9EMWY1PE1VX", "00000000001WFHC56Q8NB0X6T8", "000000000082AXF7GZQT1D126Y")
 	if first == second {
 		t.Fatalf("partition member keys collide: %q", first)
 	}
@@ -55,6 +55,38 @@ type exactLookupKV struct {
 	entry fixedMemberEntry
 	key   string
 	err   error
+}
+
+func TestListMembersReadsOnlyRequestedPartitionSeats(t *testing.T) {
+	state := validMemberStateForPins(t)
+	data, err := protocol.EncodeJSON(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID)
+	kv := &partitionLookupKV{entry: fixedMemberEntry{key: key, value: data, revision: 9}}
+	store := &jetStreamStore{state: kv}
+	members, err := store.ListMembers(t.Context(), state.DatabaseID, state.PartitionID)
+	if err != nil || len(members) != 1 || !reflect.DeepEqual(members[0].State, state) {
+		t.Fatalf("partition members = %+v, %v", members, err)
+	}
+	if kv.reads != len(regionsInOrder)*SeatsPerRegion {
+		t.Fatalf("partition lookup made %d reads", kv.reads)
+	}
+}
+
+type partitionLookupKV struct {
+	jetstream.KeyValue
+	entry fixedMemberEntry
+	reads int
+}
+
+func (kv *partitionLookupKV) Get(_ context.Context, key string) (jetstream.KeyValueEntry, error) {
+	kv.reads++
+	if key != kv.entry.key {
+		return nil, jetstream.ErrKeyNotFound
+	}
+	return kv.entry, nil
 }
 
 func (kv *exactLookupKV) Get(_ context.Context, key string) (jetstream.KeyValueEntry, error) {

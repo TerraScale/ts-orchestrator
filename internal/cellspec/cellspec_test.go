@@ -1330,22 +1330,23 @@ func TestReleaseFenceLevelValidateAndDiff(t *testing.T) {
 // or changed one needs a root: it decides who reads the cell.
 func TestMachinesAPILevelValidateAndDiff(t *testing.T) {
 	f := newFixture(t)
-	api := MachinesAPI{Issuer: "https://gru.auth.terrascale.tech/terrascale", Audience: "https://sfo.orch.terrascale.tech",
+	api := MachinesAPI{PlatformOrganizationID: "01M4EB0GDPPHGJPPVY77EMZQKT", Issuer: "https://gru.auth.terrascale.tech/terrascale", Audience: "https://sfo.orch.terrascale.tech",
 		JWKSURLs: []string{"https://gru.auth.terrascale.tech/terrascale/.well-known/jwks.json"}, Clients: []string{"0000000000NY47MDQEXMPZDJR7"}}
 	spec := testSpec(f.id, 1)
 	spec.MachinesAPI, spec.RequiresBinary = &api, 16
 	if spec.Level() != 16 || spec.Validate() != nil {
 		t.Fatalf("level %d, %v", spec.Level(), spec.Validate())
 	}
-	if got := api.Config("10.252.0.11", "/c.pem", "/k.pem"); got.ListenAddress != "10.252.0.11:8444" || got.Validate() != nil {
+	if got := api.Config("10.252.0.11", "/c.pem", "/k.pem"); got.ListenAddress != "10.252.0.11:8444" || got.PlatformOrganizationID != api.PlatformOrganizationID || got.Validate() != nil {
 		t.Fatalf("listener %+v: %v", got, got.Validate())
 	}
 	for name, broken := range map[string]func(*MachinesAPI){
-		"http issuer": func(a *MachinesAPI) { a.Issuer = "http://gru.auth.terrascale.tech/terrascale" },
-		"no audience": func(a *MachinesAPI) { a.Audience = "" },
-		"no clients":  func(a *MachinesAPI) { a.Clients = nil },
-		"no key sets": func(a *MachinesAPI) { a.JWKSURLs = nil },
-		"public http": func(a *MachinesAPI) { a.JWKSURLs = []string{"http://gru.auth.terrascale.tech/jwks.json"} },
+		"invalid platform organization": func(a *MachinesAPI) { a.PlatformOrganizationID = "org_platform" },
+		"http issuer":                   func(a *MachinesAPI) { a.Issuer = "http://gru.auth.terrascale.tech/terrascale" },
+		"no audience":                   func(a *MachinesAPI) { a.Audience = "" },
+		"no clients":                    func(a *MachinesAPI) { a.Clients = nil },
+		"no key sets":                   func(a *MachinesAPI) { a.JWKSURLs = nil },
+		"public http":                   func(a *MachinesAPI) { a.JWKSURLs = []string{"http://gru.auth.terrascale.tech/jwks.json"} },
 	} {
 		invalid := api
 		broken(&invalid)

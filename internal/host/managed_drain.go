@@ -70,10 +70,10 @@ func (command ManagedDrainCommand) matchesDesired(desired Desired, registration 
 		command.VolumeID == launch.VolumeID && command.AttachmentID == launch.AttachmentID &&
 		registration.ManagedMember != nil && *registration.ManagedMember == command.Member &&
 		registration.ManagedOCI != nil && *registration.ManagedOCI == command.OCI &&
-		command.ExpectedProcess.PID >= 2 && entityid.Valid(command.ExpectedProcess.StartNonce) &&
+		command.ExpectedProcess.PID >= 2 && lowerHex(command.ExpectedProcess.StartNonce, 32) &&
 		command.Survivor.MemberID == launch.Runtime.ReplicationPeerMemberID &&
 		command.Survivor.MemberID != command.Member.Scope.MemberID &&
-		entityid.Valid(command.Survivor.Incarnation)
+		lowerHexIdentity(command.Survivor.Incarnation)
 }
 
 func drainIdentity(command ManagedDrainCommand) memberstatus.Identity {

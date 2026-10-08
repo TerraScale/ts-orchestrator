@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 var (
@@ -58,7 +56,7 @@ func apply(t *testing.T, record Record, event Event) Record {
 }
 
 func health(at time.Time, pid int64) Health {
-	return Health{Digest: toDigest, ProcessID: pid, StartNonce: entityid.Derive("process", fmt.Sprint(pid)), ObservedAt: at}
+	return Health{Digest: toDigest, ProcessID: pid, StartNonce: fmt.Sprintf("%032x", pid), ObservedAt: at}
 }
 
 // soakWave prepares every unit of the current wave and feeds reports from

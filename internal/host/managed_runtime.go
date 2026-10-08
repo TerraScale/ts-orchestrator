@@ -18,8 +18,6 @@ import (
 	"syscall"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
-
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 	"golang.org/x/sys/unix"
 )
@@ -931,7 +929,7 @@ func validateManagedReportForDesired(report Report, desired Desired) error {
 		observation.FileSystemType != launch.Runtime.FileSystemType ||
 		observation.MountDevice != launch.Runtime.DevicePath || observation.MountPath != launch.Runtime.MountPath ||
 		observation.MountID == 0 || observation.ProcessPID < 2 || observation.ProcessStart == "" ||
-		!strings.HasPrefix(observation.ProcessCgroup, "/") || !entityid.Valid(observation.ProcessBootID) ||
+		!strings.HasPrefix(observation.ProcessCgroup, "/") || !lowerHex(observation.ProcessBootID, 32) ||
 		!observation.StorageRecovered || !observation.ListenerReady {
 		return errors.New("managed report lacks exact mounted process identity")
 	}

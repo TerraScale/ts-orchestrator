@@ -28,7 +28,7 @@ func terminalFixture(t *testing.T) (*fleet, *fakeProvider, *fakeJournal, *fakeFe
 		OperationID: "0000000000YQ07YFE5HRZF55KH", Nonce: "00000000008008000000000001",
 		DisposableWorkload: true, AcknowledgePermanentDataLoss: true, AuthorizeForcedStop: true,
 	}
-	for i, seat := range []string{"00000000000E5NVMSGX0D07DPA", "00000000008SEAHD1YMMYV3ARR"} {
+	for i, seat := range []string{"000000000082AXF7GZQT1D126Y", "0000000000XG8SBD7XGE97V28G"} {
 		request := testEnsureRequest(entityid.Derive("test-operation", "terminal-host", seat))
 		request.BootPins.SeatID = seat
 		request.PrivateIP = "10.251.0.2" + string(rune('1'+i))

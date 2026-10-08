@@ -827,7 +827,7 @@ func managedCanaryServingReport(t *testing.T, controller *Controller, intent Int
 	if err != nil {
 		t.Fatalf("ManagedMountPath() error = %v", err)
 	}
-	process := memberstatus.Process{PID: 1234, StartNonce: "0000000000CKQBAZNQ7H580DDY"}
+	process := memberstatus.Process{PID: 1234, StartNonce: "00000000000064eeb57eb73c4a8035be"}
 	authorityBinding := memberstatus.Authority{
 		Epoch: state.AuthorityReference.Epoch, ConfigurationID: state.AuthorityReference.ConfigurationID,
 		CertificateSHA256: state.AuthorityReference.CertificateSHA256,
@@ -895,8 +895,8 @@ func validManagedUpdateIntent(t *testing.T) ManagedUpdateIntent {
 		SchemaVersion: ManagedUpdateSchemaVersion,
 		Region:        oci.RegionGRU,
 		Volumes: []ManagedUpdateVolumeProfile{
-			{SeatID: "00000000008SEAHD1YMMYV3ARR", VolumeID: "ocid1.volume.oc1..volume-a", FileSystemUUID: "123e4567-e89b-12d3-a456-426614174000", FileSystemType: "ext4"},
-			{SeatID: "00000000000E5NVMSGX0D07DPA", VolumeID: "ocid1.volume.oc1..volume-b", FileSystemUUID: "123e4567-e89b-12d3-a456-426614174001", FileSystemType: "xfs"},
+			{SeatID: "0000000000XG8SBD7XGE97V28G", VolumeID: "ocid1.volume.oc1..volume-a", FileSystemUUID: "123e4567-e89b-12d3-a456-426614174000", FileSystemType: "ext4"},
+			{SeatID: "000000000082AXF7GZQT1D126Y", VolumeID: "ocid1.volume.oc1..volume-b", FileSystemUUID: "123e4567-e89b-12d3-a456-426614174001", FileSystemType: "xfs"},
 		},
 		SQLSchemaBundleSHA256: strings.Repeat("a", 64),
 		LiveS3ConfigSHA256:    strings.Repeat("b", 64),
@@ -925,12 +925,12 @@ func validManagedUpdateIntent(t *testing.T) ManagedUpdateIntent {
 		CandidateArtifactDigest: strings.Repeat("f", 64),
 		CandidateManifestDigest: strings.Repeat("1", 64),
 		CandidateSourceDigest:   strings.Repeat("2", 64),
-		CanarySeatID:            "00000000008SEAHD1YMMYV3ARR",
+		CanarySeatID:            "0000000000XG8SBD7XGE97V28G",
 		CanaryDesiredGeneration: 5,
 		DurabilityProfile:       profile,
 		Seats: []ManagedUpdateSeat{
-			{SeatID: "00000000008SEAHD1YMMYV3ARR", Region: oci.RegionGRU, MemberID: "0J7S2PFT4V2B9T8NJ2CRA1EG00", Incarnation: "1K6CSK6CSK6CSK6CSK6CSK6CSK", TLSLeafSHA256: strings.Repeat("4", 64), RuntimeManifestDigest: strings.Repeat("5", 64), HostNode: "node-a", HostGeneration: 2, HostAttempt: 1, OCIInstanceID: "ocid1.instance.oc1..instance-a", OCIOwner: "owner-a", OCIFleetGeneration: 3, CreateKey: "0000000000R58Y74PAABAQ7X2V", VolumeID: "ocid1.volume.oc1..volume-a", AttachmentID: "ocid1.volumeattachment.oc1..attachment-a", AttachmentETag: "attachment-etag-a", AttachmentDevice: "/dev/oracleoci/oraclevda", DesiredGeneration: 4, ArtifactDigest: strings.Repeat("e", 64)},
-			{SeatID: "00000000000E5NVMSGX0D07DPA", Region: oci.RegionGRU, MemberID: "0J7S2PFT4V2B9T8NJ2CRA1EG01", Incarnation: "0000000000X5AZ7ZW8WWRYDG59", TLSLeafSHA256: strings.Repeat("7", 64), RuntimeManifestDigest: strings.Repeat("8", 64), HostNode: "node-b", HostGeneration: 4, HostAttempt: 1, OCIInstanceID: "ocid1.instance.oc1..instance-b", OCIOwner: "owner-a", OCIFleetGeneration: 3, CreateKey: "0000000000GTA7T55FAST9ZNW4", VolumeID: "ocid1.volume.oc1..volume-b", AttachmentID: "ocid1.volumeattachment.oc1..attachment-b", AttachmentETag: "attachment-etag-b", AttachmentDevice: "/dev/oracleoci/oraclevdb", DesiredGeneration: 8, ArtifactDigest: strings.Repeat("e", 64)},
+			{SeatID: "0000000000XG8SBD7XGE97V28G", Region: oci.RegionGRU, MemberID: "0J7S2PFT4V2B9T8NJ2CRA1EG00", Incarnation: "33333333333333333333333333333333", TLSLeafSHA256: strings.Repeat("4", 64), RuntimeManifestDigest: strings.Repeat("5", 64), HostNode: "node-a", HostGeneration: 2, HostAttempt: 1, OCIInstanceID: "ocid1.instance.oc1..instance-a", OCIOwner: "owner-a", OCIFleetGeneration: 3, CreateKey: "0000000000R58Y74PAABAQ7X2V", VolumeID: "ocid1.volume.oc1..volume-a", AttachmentID: "ocid1.volumeattachment.oc1..attachment-a", AttachmentETag: "attachment-etag-a", AttachmentDevice: "/dev/oracleoci/oraclevda", DesiredGeneration: 4, ArtifactDigest: strings.Repeat("e", 64)},
+			{SeatID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, MemberID: "0J7S2PFT4V2B9T8NJ2CRA1EG01", Incarnation: "000000000000e955f3ff88e731e6c0a9", TLSLeafSHA256: strings.Repeat("7", 64), RuntimeManifestDigest: strings.Repeat("8", 64), HostNode: "node-b", HostGeneration: 4, HostAttempt: 1, OCIInstanceID: "ocid1.instance.oc1..instance-b", OCIOwner: "owner-a", OCIFleetGeneration: 3, CreateKey: "0000000000GTA7T55FAST9ZNW4", VolumeID: "ocid1.volume.oc1..volume-b", AttachmentID: "ocid1.volumeattachment.oc1..attachment-b", AttachmentETag: "attachment-etag-b", AttachmentDevice: "/dev/oracleoci/oraclevdb", DesiredGeneration: 8, ArtifactDigest: strings.Repeat("e", 64)},
 		},
 	}
 	slices.SortFunc(intent.Seats, func(a, b ManagedUpdateSeat) int { return strings.Compare(a.SeatID, b.SeatID) })

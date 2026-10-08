@@ -430,11 +430,11 @@ func TestControllerMovesLegacyServingMemberToRuntimeHoldWhenHostIsLost(t *testin
 	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
 	store := newPlacementMemoryStore(t, intent)
 	store.members[permanentMember(oci.RegionGRU)] = VersionedMemberState{
-		State:    testMemberState(t, intent, Seat{MemberID: "00000000000E5NVMSGX0D07DPA", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent}, StageServing),
+		State:    testMemberState(t, intent, Seat{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent}, StageServing),
 		Revision: 1,
 	}
 	store.members[elasticMember(oci.RegionGRU)] = VersionedMemberState{
-		State:    testMemberState(t, intent, Seat{MemberID: "00000000008SEAHD1YMMYV3ARR", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-2", Kind: MemberElastic}, StageServing),
+		State:    testMemberState(t, intent, Seat{MemberID: "0000000000XG8SBD7XGE97V28G", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-2", Kind: MemberElastic}, StageServing),
 		Revision: 1,
 	}
 	instances := attachedInstances(t, intent)
@@ -846,7 +846,7 @@ func TestControllerRejectsStaleManagedRegistrationBeforeAdmissionOrVolume(t *tes
 			{"payload digest", func(r *host.Registration) { r.ManagedPlacement.IntentPayloadDigest = "0000000000RNVXNPAX5Y5BB8RY" }},
 			{"roster digest", func(r *host.Registration) { r.ManagedPlacement.CanonicalRosterDigest = "0000000000RNVXNPAX5Y5BB8RY" }},
 			{"profile digest", func(r *host.Registration) { r.ManagedPlacement.ManagedHostProfileDigest = "0000000000RNVXNPAX5Y5BB8RY" }},
-			{"member incarnation", func(r *host.Registration) { r.ManagedMember.Scope.Incarnation = "0000000000RNVXNPAX5Y5BB8RY" }},
+			{"member incarnation", func(r *host.Registration) { r.ManagedMember.Scope.Incarnation = "000000000000c577dad95d2f8ab5a31e" }},
 			{"host attempt", func(r *host.Registration) { r.ManagedMember.HostAttempt++ }},
 			{"allocatable memory", func(r *host.Registration) { r.Capacity.MemoryBytes++ }},
 			{"system reserve", func(r *host.Registration) { r.SystemReserveBytes++ }},

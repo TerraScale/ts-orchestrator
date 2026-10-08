@@ -98,9 +98,9 @@ func TestManagedMemberLayoutIsCreatedOnceWithExactOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	launch := ManagedMemberLaunch{Member: ManagedMemberBinding{Scope: MemberScope{
-		ClusterID: "0H248H248H248H248H248H248H", TenantID: "0G000000008008000000000001",
+		ClusterID: "11111111111111111111111111111111", TenantID: "0G000000008008000000000001",
 		DatabaseID: "10000000008008000000000001", ShardID: 1,
-		MemberID: "1G000000008008000000000001", Incarnation: "1248H248H248H248H248H248H2",
+		MemberID: "1G000000008008000000000001", Incarnation: "22222222222222222222222222222222",
 	}, HostAttempt: 1}}
 	paths, err := ensureManagedMemberLayout(root, launch, identity)
 	if err != nil {

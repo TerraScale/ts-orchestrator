@@ -6,8 +6,6 @@ import (
 	"slices"
 	"time"
 	"unicode/utf8"
-
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 // Spec is the caller-supplied rollout definition. KnownBad is the cell's
@@ -327,7 +325,7 @@ func (record *Record) healthy(unit string, health Health, at time.Time) error {
 	if progress.State != UnitSoaking {
 		return fmt.Errorf("%w: unit %q is %s", ErrInvalidTransition, unit, progress.State)
 	}
-	if health.ProcessID <= 0 || !entityid.Valid(health.StartNonce) || health.ObservedAt.IsZero() {
+	if health.ProcessID <= 0 || !nonceRE.MatchString(health.StartNonce) || health.ObservedAt.IsZero() {
 		return fmt.Errorf("%w: health report identity", ErrInvalid)
 	}
 	if health.ObservedAt.Before(record.PhaseStartedAt) || health.ObservedAt.After(at.Add(time.Minute)) {

@@ -17,9 +17,9 @@ func TestReplacementHostRegistersOverASupersededAttempt(t *testing.T) {
 	controller, _, _, _, _ := testControllerWithVerifier(t, managedRegistrationVerifierFunc(func(context.Context, Registration) error {
 		return nil
 	}))
-	scope := MemberScope{ClusterID: "5ANANANANANANANANANANANANA", TenantID: "01HW000000E008000000000001",
+	scope := MemberScope{ClusterID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TenantID: "01HW000000E008000000000001",
 		DatabaseID: "01HW000000E008000000000001", ShardID: 1,
-		MemberID: "01HW000000E008000000000001", Incarnation: "5VQEXVQEXVQEXVQEXVQEXVQEXV"}
+		MemberID: "01HW000000E008000000000001", Incarnation: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
 	registration := func(node string, attempt uint64) Registration {
 		public, _, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
@@ -29,7 +29,7 @@ func TestReplacementHostRegistersOverASupersededAttempt(t *testing.T) {
 			Cell: "gru", Node: node, Environment: "production", FailureDomain: "FAULT-DOMAIN-1",
 			Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(public), NATSUserPublicKey: testNATSUserKey(node), Generation: 1,
 			ManagedPlacement: &ManagedPlacementBinding{
-				DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "00000000000E5NVMSGX0D07DPA", IntentGeneration: 7,
+				DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "000000000082AXF7GZQT1D126Y", IntentGeneration: 7,
 				IntentPayloadDigest: strings.Repeat("c", 64), CanonicalRosterDigest: strings.Repeat("d", 64),
 				ManagedHostProfileDigest: strings.Repeat("e", 64),
 			},

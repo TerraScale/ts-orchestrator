@@ -10,16 +10,16 @@ func TestServingProofReceivedPrefixesAreOrderedWhenPresent(t *testing.T) {
 	survivor := testRecord().Survivor
 	proofJSON := func(replication string) []byte {
 		return []byte(`{"schema_version":1,"nonce":"` + strings.Repeat("7", 32) +
-			`","process":{"pid":1234,"start_nonce":"` + "0000000000RGF72VFGE3H7MAZJ" +
-			`"},"scope":{"cluster_id":"` + "5VQEXVQEXVQEXVQEXVQEXVQEXV" +
-			`","tenant_id":"01HW000000E008000000000001","database_id":"01HW000000E008000000000002","shard_id":1,"member_id":"01HW000000E008000000000003","incarnation":"` + "6CSK6CSK6CSK6CSK6CSK6CSK6C" +
+			`","process":{"pid":1234,"start_nonce":"` + "000000000000c41e716df070e27a2bf2" +
+			`"},"scope":{"cluster_id":"` + "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" +
+			`","tenant_id":"01HW000000E008000000000001","database_id":"01HW000000E008000000000002","shard_id":1,"member_id":"01HW000000E008000000000003","incarnation":"` + "cccccccccccccccccccccccccccccccc" +
 			`"},"authority":{"epoch":7,"configuration_id":"` + strings.Repeat("d", 64) +
 			`","certificate_sha256":"` + strings.Repeat("e", 64) +
 			`","tls_leaf_sha256":"` + strings.Repeat("f", 64) +
 			`"},"serving":true,"listeners":{"client":true,"replication":true},"object":{"root_sha256":"` + strings.Repeat("5", 64) +
 			`","target_sha256":"` + strings.Repeat("6", 64) +
 			`","native_commit_seq_at_recovery":30,"inbox_archive_sha256_at_recovery":"` + strings.Repeat("8", 64) +
-			`","local_source_sequence":12,"remote_inbox_durable_sequence":9,"remote_applied_sequence":9},"replication":{"local_source_sequence":12,"peer_member_id":"01HW000000E008000000000004","peer_incarnation":"` + "1K6CSK6CSK6CSK6CSK6CSK6CSK" +
+			`","local_source_sequence":12,"remote_inbox_durable_sequence":9,"remote_applied_sequence":9},"replication":{"local_source_sequence":12,"peer_member_id":"01HW000000E008000000000004","peer_incarnation":"` + "33333333333333333333333333333333" +
 			`","current_authenticated":true,` + replication + `}}`)
 	}
 	for _, tc := range []struct {

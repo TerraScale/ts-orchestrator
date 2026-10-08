@@ -53,6 +53,25 @@ func TestWorldHasThreeMovingRegions(t *testing.T) {
 	if err != nil || len(result.Decisions) == 0 {
 		t.Fatalf("no rollback decision: %v %v", result, err)
 	}
+	holds, err := options.Journal.Decisions.Query(ctx, decisionlog.Query{
+		Kinds: []decisionlog.Kind{decisionlog.KindHeld, decisionlog.KindHoldCleared}, Limit: decisionlog.MaxQueryLimit,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	matched := map[decisionlog.Kind]bool{}
+	for _, event := range holds.Decisions {
+		if event.Subject.Kind == "database" {
+			if event.Attrs["database_id"] != event.Subject.ID ||
+				event.Attrs["partition_id"] != entityid.Derive("preview-partition", event.Subject.ID) {
+				t.Fatalf("database hold lacks partition correlation: %+v", event)
+			}
+			matched[event.Kind] = true
+		}
+	}
+	if !matched[decisionlog.KindHeld] || !matched[decisionlog.KindHoldCleared] {
+		t.Fatal("preview lacks database hold and clearing")
+	}
 	if evaluation := options.Journal.Insights.Current(); len(evaluation.Insights) == 0 {
 		t.Fatal("the fake world raises no insight")
 	}

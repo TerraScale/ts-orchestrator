@@ -487,7 +487,7 @@ func ValidateManagedRegistrationPins(registration Registration, pins ManagedRegi
 
 func validateManagedMemberBinding(binding ManagedMemberBinding) error {
 	scope := binding.Scope
-	if !entityid.Valid(scope.ClusterID) || !entityid.Valid(scope.Incarnation) ||
+	if !lowerHexIdentity(scope.ClusterID) || !lowerHexIdentity(scope.Incarnation) ||
 		!canonicalMemberID(scope.TenantID) || !canonicalMemberID(scope.DatabaseID) ||
 		!canonicalMemberID(scope.MemberID) || scope.ShardID == 0 || binding.HostAttempt == 0 {
 		return errors.New("managed member identity is invalid")

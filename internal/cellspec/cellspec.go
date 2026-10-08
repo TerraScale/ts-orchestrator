@@ -284,18 +284,19 @@ const MachinesAPIPort = 8444
 // at MachinesAPIPort with its signed controller TLS certificate, which the
 // load balancer verifies against the cell CA.
 type MachinesAPI struct {
-	Issuer   string              `json:"issuer"`
-	Audience string              `json:"audience"`
-	JWKSURLs []string            `json:"jwks_urls"`
-	Clients  []string            `json:"clients"`
-	Members  map[string][]string `json:"members,omitempty"`
+	PlatformOrganizationID string              `json:"platform_organization_id,omitempty"`
+	Issuer                 string              `json:"issuer"`
+	Audience               string              `json:"audience"`
+	JWKSURLs               []string            `json:"jwks_urls"`
+	Clients                []string            `json:"clients"`
+	Members                map[string][]string `json:"members,omitempty"`
 }
 
 // Config is the API's listener on host with the controller's TLS files.
 func (m MachinesAPI) Config(host, certFile, keyFile string) machinesapi.Config {
 	return machinesapi.Config{ListenAddress: net.JoinHostPort(host, strconv.Itoa(MachinesAPIPort)),
 		TLSCertFile: certFile, TLSKeyFile: keyFile, Issuer: m.Issuer, Audience: m.Audience,
-		JWKSURLs: m.JWKSURLs, Clients: m.Clients, Members: m.Members}
+		JWKSURLs: m.JWKSURLs, Clients: m.Clients, Members: m.Members, PlatformOrganizationID: m.PlatformOrganizationID}
 }
 
 // ReleaseFence names the load balancer backend sets that serve a node's

@@ -188,8 +188,8 @@ func TestNodeIdentityReplacementAtEveryControllerPhase(t *testing.T) {
 // The reusable name can route to a successor after the controller's last
 // check. The mutation receiver must enforce both complete identity tuples.
 func TestMembershipMutationIdentityPreconditionAtDelivery(t *testing.T) {
-	from := NodeIdentity{Name: "gru-1-db-1", InstanceID: "ocid-source", Incarnation: "0000000000H2BEXJJHC72DFA9J"}
-	to := NodeIdentity{Name: "gru-1-db-2", InstanceID: "ocid-target", Incarnation: "0000000000JTQA48Z3KA3EDBRE"}
+	from := NodeIdentity{Name: "gru-1-db-1", InstanceID: "ocid-source", Incarnation: "0000000000008896eeca5161c4d7a932"}
+	to := NodeIdentity{Name: "gru-1-db-2", InstanceID: "ocid-target", Incarnation: "00000000000096aea223e39a86e6af0e"}
 	for _, operation := range []string{"join", "drain", "move"} {
 		for _, endpoint := range []string{"source", "target"} {
 			if endpoint == "target" && operation != "move" {

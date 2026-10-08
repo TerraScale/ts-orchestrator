@@ -82,14 +82,14 @@ func TestTerraBaseUpdateRollsReleasesSeatBySeatAndRollsBackAHeldCandidate(t *tes
 	if err != nil {
 		t.Fatalf("release 2 rollout: %v (%v, rejected %v)", err, steps, fake.rejected)
 	}
-	if !slices.Equal(steps, []string{"artifact:admitted", "seat 00000000000E5NVMSGX0D07DPA:prepared", "seat 00000000000E5NVMSGX0D07DPA:canary-serving",
-		"seat 00000000000E5NVMSGX0D07DPA:soaked", "seat 00000000008SEAHD1YMMYV3ARR:prepared", "seat 00000000008SEAHD1YMMYV3ARR:canary-serving", "rollout:complete"}) {
+	if !slices.Equal(steps, []string{"artifact:admitted", "seat 000000000082AXF7GZQT1D126Y:prepared", "seat 000000000082AXF7GZQT1D126Y:canary-serving",
+		"seat 000000000082AXF7GZQT1D126Y:soaked", "seat 0000000000XG8SBD7XGE97V28G:prepared", "seat 0000000000XG8SBD7XGE97V28G:canary-serving", "rollout:complete"}) {
 		t.Fatalf("release 2 steps = %v", steps)
 	}
 	r2 := fake.prepares[0].CandidateArtifactDigest
 	if len(fake.prepares) != 2 || fake.prepares[0].OldArtifactDigest != initial.Digest ||
-		fake.prepares[1].CanarySeatID != "00000000008SEAHD1YMMYV3ARR" ||
-		fake.prepares[1].Seats[0].SeatID != "00000000000E5NVMSGX0D07DPA" || fake.prepares[1].Seats[0].ArtifactDigest != r2 {
+		fake.prepares[1].CanarySeatID != "0000000000XG8SBD7XGE97V28G" ||
+		fake.prepares[1].Seats[0].SeatID != "000000000082AXF7GZQT1D126Y" || fake.prepares[1].Seats[0].ArtifactDigest != r2 {
 		t.Fatalf("release 2 was not rolled canary then peer: %+v", fake.prepares)
 	}
 	if steps, err := update(second); err != nil || !slices.Equal(steps, []string{"artifact:admitted", "rollout:complete"}) ||
@@ -104,11 +104,11 @@ func TestTerraBaseUpdateRollsReleasesSeatBySeatAndRollsBackAHeldCandidate(t *tes
 	}
 	fake.failing = r3
 	steps, err = update(third)
-	if err == nil || !strings.Contains(err.Error(), "held on seat 00000000000E5NVMSGX0D07DPA") {
+	if err == nil || !strings.Contains(err.Error(), "held on seat 000000000082AXF7GZQT1D126Y") {
 		t.Fatalf("a failing candidate did not stop the rollout: %v %v", steps, err)
 	}
 	last := fake.prepares[len(fake.prepares)-1]
-	if len(fake.prepares) != 4 || last.CanarySeatID != "00000000000E5NVMSGX0D07DPA" || last.OldArtifactDigest != r3 ||
+	if len(fake.prepares) != 4 || last.CanarySeatID != "000000000082AXF7GZQT1D126Y" || last.OldArtifactDigest != r3 ||
 		last.CandidateArtifactDigest != r2 || fake.seats[1].pins.ArtifactDigest != r2 || !fake.seats[1].serving {
 		t.Fatalf("held candidate was not rolled back with its peer untouched: %+v", fake.prepares)
 	}
@@ -117,7 +117,7 @@ func TestTerraBaseUpdateRollsReleasesSeatBySeatAndRollsBackAHeldCandidate(t *tes
 	}
 	var knownBad staged.KnownBad
 	readDeployTestState(t, state, filepath.Join(deployKnownBadDirectory, r3+".json"), &knownBad)
-	if knownBad.Digest != r3 || knownBad.SeatID != "00000000000E5NVMSGX0D07DPA" || !strings.Contains(knownBad.Reason, "held") {
+	if knownBad.Digest != r3 || knownBad.SeatID != "000000000082AXF7GZQT1D126Y" || !strings.Contains(knownBad.Reason, "held") {
 		t.Fatalf("held candidate was not recorded known bad: %+v", knownBad)
 	}
 	fake.failing = ""
@@ -147,14 +147,14 @@ func TestTerraBaseUpdateRollsReleasesSeatBySeatAndRollsBackAHeldCandidate(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	fake.failing, fake.failingSeat = r4, "00000000008SEAHD1YMMYV3ARR"
+	fake.failing, fake.failingSeat = r4, "0000000000XG8SBD7XGE97V28G"
 	steps, err = update(fourth)
-	if err == nil || !strings.Contains(err.Error(), "held on seat 00000000008SEAHD1YMMYV3ARR") {
+	if err == nil || !strings.Contains(err.Error(), "held on seat 0000000000XG8SBD7XGE97V28G") {
 		t.Fatalf("second-seat hold did not stop the rollout: %v %v", steps, err)
 	}
 	reverts := fake.prepares[4:]
-	if len(reverts) != 4 || reverts[2].CanarySeatID != "00000000008SEAHD1YMMYV3ARR" || reverts[2].CandidateArtifactDigest != r2 ||
-		reverts[3].CanarySeatID != "00000000000E5NVMSGX0D07DPA" || reverts[3].OldArtifactDigest != r4 || reverts[3].CandidateArtifactDigest != r2 {
+	if len(reverts) != 4 || reverts[2].CanarySeatID != "0000000000XG8SBD7XGE97V28G" || reverts[2].CandidateArtifactDigest != r2 ||
+		reverts[3].CanarySeatID != "000000000082AXF7GZQT1D126Y" || reverts[3].OldArtifactDigest != r4 || reverts[3].CandidateArtifactDigest != r2 {
 		t.Fatalf("both seats were not returned to release 2: %+v", reverts)
 	}
 	for _, seat := range fake.seats {
@@ -217,8 +217,8 @@ func TestTerraBaseUpdateSoaksTheFirstSeatAndRollsBackARestartingCandidate(t *tes
 	if err == nil || !strings.Contains(err.Error(), "failed its soak") {
 		t.Fatalf("a restarting canary passed its soak: %v", err)
 	}
-	if len(fake.prepares) != 2 || fake.prepares[0].CanarySeatID != "00000000000E5NVMSGX0D07DPA" ||
-		fake.prepares[1].CanarySeatID != "00000000000E5NVMSGX0D07DPA" || fake.prepares[1].CandidateArtifactDigest != initial.Digest {
+	if len(fake.prepares) != 2 || fake.prepares[0].CanarySeatID != "000000000082AXF7GZQT1D126Y" ||
+		fake.prepares[1].CanarySeatID != "000000000082AXF7GZQT1D126Y" || fake.prepares[1].CandidateArtifactDigest != initial.Digest {
 		t.Fatalf("soak failure reached the second seat or was not rolled back: %+v", fake.prepares)
 	}
 	for _, seat := range fake.seats {

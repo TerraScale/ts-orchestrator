@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -79,8 +81,12 @@ func operatorTerminalPlan(ctx context.Context, cfg Config, runtime *natscell.Run
 	if operationID == "" {
 		operationID = entityid.New()
 	}
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return err
+	}
 	request := terminalRequest{DatabaseID: databaseID, PartitionID: partitionID,
-		OperationID: operationID, Nonce: entityid.New()}
+		OperationID: operationID, Nonce: hex.EncodeToString(nonce[:])}
 	if !validTerminalRequest(request) {
 		return errors.New("terminal plan requires a valid database, partition, and operation ID")
 	}
@@ -125,8 +131,12 @@ func operatorTerminalApply(ctx context.Context, cfg Config, runtime *natscell.Ru
 func operatorTerminalStatus(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 	databaseID, partitionID string, output io.Writer,
 ) error {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return err
+	}
 	request := terminalRequest{DatabaseID: databaseID, PartitionID: partitionID,
-		OperationID: entityid.New(), Nonce: entityid.New()}
+		OperationID: entityid.New(), Nonce: hex.EncodeToString(nonce[:])}
 	if !validTerminalRequest(request) {
 		return errors.New("terminal status requires a valid database and partition")
 	}
@@ -368,11 +378,11 @@ func handleTerminalRequest(ctx context.Context, wire []byte, action, cell string
 }
 
 func validTerminalRequest(request terminalRequest) bool {
-	nonce, err := entityid.Parse(request.Nonce)
+	nonce, err := hex.DecodeString(request.Nonce)
 	return entityid.Valid(request.DatabaseID) &&
 		entityid.Valid(request.PartitionID) &&
 		entityid.Valid(request.OperationID) &&
-		err == nil && entityid.Valid(request.Nonce) && nonce.String() == request.Nonce
+		err == nil && len(nonce) == 16 && strings.Trim(request.Nonce, "0") != "" && hex.EncodeToString(nonce) == request.Nonce
 }
 
 func buildTerminalPlan(ctx context.Context, cell string, region oci.RegionConfig,

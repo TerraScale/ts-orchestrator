@@ -97,7 +97,7 @@ func (record BackupOperationRecord) validate() error {
 		!backupHex(record.SourceScopeDigest, 32) || !backupHex(record.SourceAuthoritySHA256, 32) ||
 		!backupHex(record.SourceConfigurationID, 32) || !backupHex(record.SourceTargetDigest, 32) ||
 		!entityid.Valid(record.BackupSet) || !backupHex(record.BackupTargetDigest, 32) ||
-		!backupID(record.OwnerMemberID) || !entityid.Valid(record.OwnerIncarnation) ||
+		!backupID(record.OwnerMemberID) || (!backupHex(record.OwnerIncarnation, 16) || strings.Trim(record.OwnerIncarnation, "0") == "") ||
 		record.Ordinal == 0 || record.CompletedOrdinal == math.MaxUint64 ||
 		(record.State == "complete" && record.Ordinal != record.CompletedOrdinal ||
 			record.State != "complete" && record.Ordinal != record.CompletedOrdinal+1) || record.Attempt == 0 ||
@@ -126,7 +126,7 @@ func (record BackupOperationRecord) validate() error {
 	for index, member := range record.Roster {
 		hostRole := member.Node + "\x00" + member.Role
 		if !backupID(member.MemberID) || !backupHex(member.Origin, 32) ||
-			!entityid.Valid(member.Incarnation) || !backupHex(member.TLSLeafSHA256, 32) ||
+			(!backupHex(member.Incarnation, 16) || strings.Trim(member.Incarnation, "0") == "") || !backupHex(member.TLSLeafSHA256, 32) ||
 			!natsToken.MatchString(member.Node) || !natsToken.MatchString(member.Role) ||
 			member.Origin != BackupMemberOrigin(member.MemberID, member.Incarnation) ||
 			len(member.CutEnvelope) > 64<<10 || len(member.CutLeafDER) > 4096 ||
@@ -472,8 +472,8 @@ func BackupMemberOrigin(member, incarnation string) string {
 	if err != nil {
 		return ""
 	}
-	inc, err := entityid.Parse(incarnation)
-	if err != nil {
+	inc, err := hex.DecodeString(incarnation)
+	if err != nil || !backupHex(incarnation, 16) || strings.Trim(incarnation, "0") == "" {
 		return ""
 	}
 	return hex.EncodeToString(id[:]) + hex.EncodeToString(inc[:])

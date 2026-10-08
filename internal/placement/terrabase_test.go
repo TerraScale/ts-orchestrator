@@ -28,10 +28,10 @@ func TestDesiredSeatsContainsExactlyTwoAntiAffineMembersPerSelectedRegion(t *tes
 		t.Fatal(err)
 	}
 	want := []Seat{
-		{MemberID: "00000000000E5NVMSGX0D07DPA", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent},
-		{MemberID: "00000000008SEAHD1YMMYV3ARR", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-2", Kind: MemberElastic},
-		{MemberID: "00000000003Q8RZSSGTPDF1ZQS", Region: oci.RegionFRA, FailureDomain: "FAULT-DOMAIN-2", Kind: MemberPermanent},
-		{MemberID: "00000000008H78HY66V6W4Z1MG", Region: oci.RegionFRA, FailureDomain: "FAULT-DOMAIN-3", Kind: MemberElastic},
+		{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent},
+		{MemberID: "0000000000XG8SBD7XGE97V28G", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-2", Kind: MemberElastic},
+		{MemberID: "0000000000M6NPX5VJR7J4KHXR", Region: oci.RegionFRA, FailureDomain: "FAULT-DOMAIN-2", Kind: MemberPermanent},
+		{MemberID: "0000000000DRX0N2BW96GK619K", Region: oci.RegionFRA, FailureDomain: "FAULT-DOMAIN-3", Kind: MemberElastic},
 	}
 	if !reflect.DeepEqual(seats, want) {
 		t.Fatalf("seats = %#v, want %#v", seats, want)
@@ -347,10 +347,10 @@ func TestCanRetireRequiresEveryIndependentSafetyProof(t *testing.T) {
 	intent := validIntent(oci.RegionGRU, oci.RegionSFO)
 	candidate := testCandidate()
 	survivors := healthyMembers(
-		MemberObservation{MemberID: "00000000000E5NVMSGX0D07DPA", Region: oci.RegionGRU, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "00000000008SEAHD1YMMYV3ARR", Region: oci.RegionGRU, FailureDomain: "fd-b"},
-		MemberObservation{MemberID: "00000000008TFNX7CNMVMM1QSK", Region: oci.RegionSFO, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "0000000000JY3SY711G94XJ4QD", Region: oci.RegionSFO, FailureDomain: "fd-c"},
+		MemberObservation{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000XG8SBD7XGE97V28G", Region: oci.RegionGRU, FailureDomain: "fd-b"},
+		MemberObservation{MemberID: "000000000031KRKJZMCK6VE679", Region: oci.RegionSFO, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000684PWEEY0RSW7AJQ", Region: oci.RegionSFO, FailureDomain: "fd-c"},
 	)
 	complete := RetirementEvidence{
 		DatabaseID:         candidate.DatabaseID,
@@ -410,19 +410,19 @@ func TestCanRetireHoldsWhenReplicaFloorOrAntiAffinityIsLost(t *testing.T) {
 	}
 
 	oneShort := healthyMembers(
-		MemberObservation{MemberID: "00000000000E5NVMSGX0D07DPA", Region: oci.RegionGRU, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "00000000008TFNX7CNMVMM1QSK", Region: oci.RegionSFO, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "0000000000JY3SY711G94XJ4QD", Region: oci.RegionSFO, FailureDomain: "fd-c"},
+		MemberObservation{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "000000000031KRKJZMCK6VE679", Region: oci.RegionSFO, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000684PWEEY0RSW7AJQ", Region: oci.RegionSFO, FailureDomain: "fd-c"},
 	)
 	if allowed, reason := CanRetire(intent, candidate, oneShort, proof); allowed || reason != "replica-floor-or-health-not-met" {
 		t.Fatalf("replica floor gate = (%v, %q)", allowed, reason)
 	}
 
 	duplicateDomain := healthyMembers(
-		MemberObservation{MemberID: "00000000000E5NVMSGX0D07DPA", Region: oci.RegionGRU, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "00000000008SEAHD1YMMYV3ARR", Region: oci.RegionGRU, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "00000000008TFNX7CNMVMM1QSK", Region: oci.RegionSFO, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "0000000000JY3SY711G94XJ4QD", Region: oci.RegionSFO, FailureDomain: "fd-c"},
+		MemberObservation{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000XG8SBD7XGE97V28G", Region: oci.RegionGRU, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "000000000031KRKJZMCK6VE679", Region: oci.RegionSFO, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000684PWEEY0RSW7AJQ", Region: oci.RegionSFO, FailureDomain: "fd-c"},
 	)
 	if allowed, reason := CanRetire(intent, candidate, duplicateDomain, proof); allowed || reason != "survivor-anti-affinity-violated" {
 		t.Fatalf("anti-affinity gate = (%v, %q)", allowed, reason)
@@ -432,7 +432,7 @@ func TestCanRetireHoldsWhenReplicaFloorOrAntiAffinityIsLost(t *testing.T) {
 func TestCanRetireNeverRemovesAStillDesiredSeat(t *testing.T) {
 	intent := validIntent(oci.RegionGRU)
 	candidate := testCandidate()
-	candidate.MemberID = "00000000000E5NVMSGX0D07DPA"
+	candidate.MemberID = "000000000082AXF7GZQT1D126Y"
 	candidate.Region = oci.RegionGRU
 	proof := RetirementEvidence{
 		DatabaseID:         candidate.DatabaseID,
@@ -448,8 +448,8 @@ func TestCanRetireNeverRemovesAStillDesiredSeat(t *testing.T) {
 		VolumeRetained:     true,
 	}
 	if allowed, reason := CanRetire(intent, candidate, healthyMembers(
-		MemberObservation{MemberID: "00000000000E5NVMSGX0D07DPA", Region: oci.RegionGRU, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "00000000008SEAHD1YMMYV3ARR", Region: oci.RegionGRU, FailureDomain: "fd-b"},
+		MemberObservation{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000XG8SBD7XGE97V28G", Region: oci.RegionGRU, FailureDomain: "fd-b"},
 	), proof); allowed || reason != "candidate-still-desired" {
 		t.Fatalf("desired member retirement gate = (%v, %q)", allowed, reason)
 	}
@@ -461,8 +461,8 @@ func TestCanRetireDoesNotCountPreparedOrAwaitingMembersAsServing(t *testing.T) {
 	candidate.MemberID = "0000000000J62EWD8ZF4E1V9MV"
 	candidate.Region = oci.RegionFRA
 	survivors := healthyMembers(
-		MemberObservation{MemberID: "00000000000E5NVMSGX0D07DPA", Region: oci.RegionGRU, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "00000000008SEAHD1YMMYV3ARR", Region: oci.RegionGRU, FailureDomain: "fd-b"},
+		MemberObservation{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000XG8SBD7XGE97V28G", Region: oci.RegionGRU, FailureDomain: "fd-b"},
 	)
 	survivors[1].Stage = StageAwaitingHealthy
 	proof := RetirementEvidence{
@@ -496,7 +496,7 @@ func healthyMembers(members ...MemberObservation) []MemberObservation {
 
 func testCandidate() MemberObservation {
 	return MemberObservation{
-		DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8", MemberID: "00000000008H78HY66V6W4Z1MG", Region: oci.RegionFRA,
+		DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8", MemberID: "0000000000DRX0N2BW96GK619K", Region: oci.RegionFRA,
 		InstanceID: "instance-fra", VolumeID: "volume-fra", Stage: StageServing,
 	}
 }
@@ -511,8 +511,8 @@ func TestCanRetireDoesNotCountHealthySurvivorsFromAnotherPartition(t *testing.T)
 		WriterStopProof: []byte("verified-proof"), VolumeRetained: true,
 	}
 	survivors := healthyMembers(
-		MemberObservation{MemberID: "00000000000E5NVMSGX0D07DPA", Region: oci.RegionGRU, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "00000000008SEAHD1YMMYV3ARR", Region: oci.RegionGRU, FailureDomain: "fd-b"},
+		MemberObservation{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000XG8SBD7XGE97V28G", Region: oci.RegionGRU, FailureDomain: "fd-b"},
 	)
 	for index := range survivors {
 		survivors[index].PartitionID = "0000000000Q6JWK5HSVBS382F2"
@@ -580,19 +580,19 @@ func testCanonicalRoster(regions []oci.Region) CanonicalRoster {
 			CanonicalRosterRow{
 				Region: region, SeatID: permanentMember(region), FailureDomain: "FAULT-DOMAIN-1",
 				MemberID:    entityid.Derive("fixture-member", fmt.Sprint(regionIndex*2+1)),
-				Incarnation: entityid.Derive("fixture-incarnation", fmt.Sprint(regionIndex*2+1)), TLSLeafSHA256: fmt.Sprintf("%064x", regionIndex*2+1),
+				Incarnation: fmt.Sprintf("%032x", regionIndex*2+1), TLSLeafSHA256: fmt.Sprintf("%064x", regionIndex*2+1),
 				ServerName: fmt.Sprintf("permanent-%s.tb.example", strings.ToLower(string(region))),
 			},
 			CanonicalRosterRow{
 				Region: region, SeatID: elasticMember(region), FailureDomain: "FAULT-DOMAIN-2",
 				MemberID:    entityid.Derive("fixture-member", fmt.Sprint(regionIndex*2+2)),
-				Incarnation: entityid.Derive("fixture-incarnation", fmt.Sprint(regionIndex*2+2)), TLSLeafSHA256: fmt.Sprintf("%064x", regionIndex*2+2),
+				Incarnation: fmt.Sprintf("%032x", regionIndex*2+2), TLSLeafSHA256: fmt.Sprintf("%064x", regionIndex*2+2),
 				ServerName: fmt.Sprintf("elastic-%s.tb.example", strings.ToLower(string(region))),
 			},
 		)
 	}
 	return CanonicalRoster{
-		ClusterID: "014D2PF2DBSQQG28T5CY4TQKFF", TenantID: "01HW000000E008000000000080",
+		ClusterID: "0123456789abcdef0123456789abcdef", TenantID: "01HW000000E008000000000080",
 		DatabaseID: "01HW000000E008000000000081", ShardID: 1,
 		Authority: AuthorityReference{
 			Version: 2, Epoch: 7, ConfigurationID: strings.Repeat("a", 64),

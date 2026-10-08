@@ -37,10 +37,10 @@ func gruOnly() placement.Intent {
 
 func twoRegionMembers() []StatefulMember {
 	return []StatefulMember{
-		tbMember("00000000000E5NVMSGX0D07DPA", oci.RegionGRU, "fd-1", placement.MemberPermanent, 0),
-		tbMember("00000000008SEAHD1YMMYV3ARR", oci.RegionGRU, "fd-2", placement.MemberElastic, 3),
-		tbMember("00000000008TFNX7CNMVMM1QSK", oci.RegionSFO, "fd-1", placement.MemberPermanent, 0),
-		tbMember("0000000000JY3SY711G94XJ4QD", oci.RegionSFO, "fd-2", placement.MemberElastic, 5),
+		tbMember("000000000082AXF7GZQT1D126Y", oci.RegionGRU, "fd-1", placement.MemberPermanent, 0),
+		tbMember("0000000000XG8SBD7XGE97V28G", oci.RegionGRU, "fd-2", placement.MemberElastic, 3),
+		tbMember("000000000031KRKJZMCK6VE679", oci.RegionSFO, "fd-1", placement.MemberPermanent, 0),
+		tbMember("0000000000684PWEEY0RSW7AJQ", oci.RegionSFO, "fd-2", placement.MemberElastic, 5),
 	}
 }
 
@@ -54,7 +54,7 @@ func TestStatefulScaleDownGates(t *testing.T) {
 		mutate func(*StatefulScaleDownInput)
 		want   StatefulVerdict
 	}{
-		{name: "undesired elastic seat may begin retirement", want: StatefulVerdict{Allowed: true, Candidate: "0000000000JY3SY711G94XJ4QD", Reason: "safe-to-begin-retirement"}},
+		{name: "undesired elastic seat may begin retirement", want: StatefulVerdict{Allowed: true, Candidate: "0000000000684PWEEY0RSW7AJQ", Reason: "safe-to-begin-retirement"}},
 		{name: "managed update blocks", mutate: func(in *StatefulScaleDownInput) { in.ManagedUpdateInFlight = true }, want: StatefulVerdict{Reason: "managed-update-in-flight"}},
 		{name: "backup blocks", mutate: func(in *StatefulScaleDownInput) { in.BackupInFlight = true }, want: StatefulVerdict{Reason: "backup-in-flight"}},
 		{name: "topology cooldown", mutate: func(in *StatefulScaleDownInput) {

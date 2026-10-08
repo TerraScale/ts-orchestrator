@@ -10,8 +10,6 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"time"
-
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 const successorCatalogSetDomain = "TB-D11-DOCUMENT-CATALOGS-V1\x00"
@@ -65,15 +63,15 @@ func (service PreparationService) ProduceSuccessor(ctx context.Context, database
 	}
 	var oldIncarnations, newIncarnations [2][16]byte
 	for index, oldMember := range receipt.Spec.Members {
-		decoded, decodeErr := entityid.Parse(oldMember.Incarnation)
-		if decodeErr != nil || len(decoded) != len(oldIncarnations[index]) || allZero(decoded[:]) {
+		decoded, decodeErr := hex.DecodeString(oldMember.Incarnation)
+		if decodeErr != nil || !lowerHexIdentity(oldMember.Incarnation) || len(decoded) != len(oldIncarnations[index]) || allZero(decoded[:]) {
 			return SuccessorMaterial{}, ErrMaterialConflict
 		}
 		copy(oldIncarnations[index][:], decoded[:])
 	}
 	for index, newMember := range request.Members {
-		decoded, decodeErr := entityid.Parse(newMember.Incarnation)
-		if decodeErr != nil || len(decoded) != len(newIncarnations[index]) || allZero(decoded[:]) {
+		decoded, decodeErr := hex.DecodeString(newMember.Incarnation)
+		if decodeErr != nil || !lowerHexIdentity(newMember.Incarnation) || len(decoded) != len(newIncarnations[index]) || allZero(decoded[:]) {
 			return SuccessorMaterial{}, ErrMaterialConflict
 		}
 		copy(newIncarnations[index][:], decoded[:])

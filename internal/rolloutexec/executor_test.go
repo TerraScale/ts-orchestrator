@@ -61,7 +61,7 @@ func newFleet(c *clock, digest string, units ...string) *fakeFleet {
 func (f *fakeFleet) restart(unit string) {
 	f.nextPID++
 	u := f.units[unit]
-	u.pid, u.nonce = f.nextPID, entityid.Derive("test-process", fmt.Sprint(f.nextPID))
+	u.pid, u.nonce = f.nextPID, fmt.Sprintf("%032x", f.nextPID)
 }
 
 func (f *fakeFleet) Latest(unit string) (HealthProof, bool) {

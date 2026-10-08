@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"sync"
 	"time"
@@ -48,8 +49,10 @@ func Valid(value string) bool {
 func Derive(domain string, values ...string) string {
 	h := sha256.New()
 	for _, value := range append([]string{domain}, values...) {
+		var size [8]byte
+		binary.BigEndian.PutUint64(size[:], uint64(len(value)))
+		h.Write(size[:])
 		h.Write([]byte(value))
-		h.Write([]byte{0})
 	}
 	return ulid.MustNew(0, bytes.NewReader(h.Sum(nil)[:10])).String()
 }

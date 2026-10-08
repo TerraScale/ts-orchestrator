@@ -9,12 +9,14 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
+	"github.com/oklog/ulid/v2"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 type unknownBackupStore struct {
@@ -61,10 +63,10 @@ func TestBackupUnknownCommitReleasesOnlyExactR3Readback(t *testing.T) {
 		BackupTargetDigest: strings.Repeat("f", 64),
 		SignerKeyID:        backupKeyID(signer.Public().(ed25519.PublicKey))}
 	roster := []authority.BackupOperationMember{
-		{MemberID: "1K6CSK6CSK6CSK6CSK6CSK6CSK", Incarnation: "2NANANANANANANANANANANANAN",
+		{MemberID: "1K6CSK6CSK6CSK6CSK6CSK6CSK", Incarnation: "55555555555555555555555555555555",
 			Origin:        strings.Repeat("3", 32) + strings.Repeat("5", 32),
 			TLSLeafSHA256: strings.Repeat("1", 64), Node: "host-a", Role: "terrabase"},
-		{MemberID: "248H248H248H248H248H248H24", Incarnation: "36CSK6CSK6CSK6CSK6CSK6CSK6",
+		{MemberID: "248H248H248H248H248H248H24", Incarnation: "66666666666666666666666666666666",
 			Origin:        strings.Repeat("4", 32) + strings.Repeat("6", 32),
 			TLSLeafSHA256: strings.Repeat("2", 64), Node: "host-b", Role: "terrabase"},
 	}
@@ -240,19 +242,33 @@ func TestBackupCompleteRustGoldenProofsAndCanonicalHead(t *testing.T) {
 		release.PublicationReceipt != base64.RawURLEncoding.EncodeToString([]byte(fixture.PublishedHead.EnvelopeJSON)) {
 		t.Fatalf("Go Complete Release verification differs from Rust: %v", err)
 	}
+	setBytes, err := hex.DecodeString(candidate.BackupSet)
+	if err != nil || len(setBytes) != 16 {
+		t.Fatal("frozen head set is invalid")
+	}
+	var setID ulid.ULID
+	copy(setID[:], setBytes)
 	headBytes, err := base64.RawURLEncoding.DecodeString(receipt.CatalogHeadBytes)
 	if err != nil || !verifyBackupCatalogHeadBytes(headBytes,
-		authority.BackupOperationRecord{BackupSet: candidate.BackupSet,
+		authority.BackupOperationRecord{BackupSet: setID.String(),
 			BackupTargetDigest: candidate.BackupTargetDigest, Ordinal: candidate.Ordinal},
 		candidate.PreviousHeadSHA256) || backupSHA(headBytes) != receipt.CatalogHeadSHA256 {
 		t.Fatalf("Go canonical catalog-head verification differs from Rust: %v", err)
+	}
+	for _, invalidSet := range []string{candidate.BackupSet, strings.ToLower(setID.String()), entityid.New()} {
+		if verifyBackupCatalogHeadBytes(headBytes,
+			authority.BackupOperationRecord{BackupSet: invalidSet,
+				BackupTargetDigest: candidate.BackupTargetDigest, Ordinal: candidate.Ordinal},
+			candidate.PreviousHeadSHA256) {
+			t.Fatalf("catalog head accepted mismatched/noncanonical set %q", invalidSet)
+		}
 	}
 	if err := decodeCanonicalBackupSigned(append([]byte(fixture.Candidate.EnvelopeJSON), ' '),
 		backupCandidateDomain, owner, 8<<10, &candidate); err == nil {
 		t.Fatal("noncanonical Candidate envelope was accepted")
 	}
 	if verifyBackupCatalogHeadBytes(append(bytes.Clone(headBytes), 'x'),
-		authority.BackupOperationRecord{BackupSet: candidate.BackupSet,
+		authority.BackupOperationRecord{BackupSet: setID.String(),
 			BackupTargetDigest: candidate.BackupTargetDigest, Ordinal: candidate.Ordinal},
 		candidate.PreviousHeadSHA256) {
 		t.Fatal("altered catalog head bytes were accepted")

@@ -9,8 +9,8 @@ import (
 
 func TestCredentialStatusRequiresBothCurrentNativeReports(t *testing.T) {
 	expected := [2]managedmaterial.InitialMember{
-		{SeatID: "000000000077F1R6E1XPKAC2D4", MemberID: "0000000000WM3QQGQPMW5X58P9", Incarnation: "0000000000K3C57PB9P48HR73K"},
-		{SeatID: "0000000000GXPF5F560P92PC00", MemberID: "0000000000N9X5GQEQJ9NA9A7V", Incarnation: "0000000000XQE3FEVYC47GP876"},
+		{SeatID: "000000000077F1R6E1XPKAC2D4", MemberID: "0000000000WM3QQGQPMW5X58P9", Incarnation: "00000000000098d853d969b1111c1c73"},
+		{SeatID: "0000000000GXPF5F560P92PC00", MemberID: "0000000000N9X5GQEQJ9NA9A7V", Incarnation: "000000000000eddc37bb7e610f0b20e6"},
 	}
 	listed := make([]host.HostStatus, 2)
 	for index, member := range expected {

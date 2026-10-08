@@ -24,7 +24,7 @@ func TestPersistedHostRequestRecoveryAcrossReplayWindow(t *testing.T) {
 		CreateKey: "0000000000AVXGCP7NEZ0TK93A",
 		ImageID:   "ocid1.image.oc1.sa-saopaulo-1.image-a", FleetGeneration: 7,
 		HostAttempt: 2, IntentGeneration: 9,
-		DatabaseID: "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "00000000000E5NVMSGX0D07DPA",
+		DatabaseID: "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "000000000082AXF7GZQT1D126Y",
 		IntentPayloadDigest: strings.Repeat("a", 64), CanonicalRosterDigest: strings.Repeat("b", 64),
 		ManagedHostProfileDigest: strings.Repeat("c", 64), RuntimeManifestDigest: strings.Repeat("d", 64),
 	}

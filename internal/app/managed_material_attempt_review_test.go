@@ -35,7 +35,7 @@ func TestManagedMaterialFollowsTheCurrentDurableHostAttempt(t *testing.T) {
 	desired := host.Desired{ManagedMember: &host.ManagedMemberLaunch{Member: binding, OCI: oci,
 		Runtime: &host.ManagedRuntimePins{}}}
 	registration := host.Registration{Node: "replacement-node", ManagedMember: &binding, ManagedOCI: &oci,
-		ManagedPlacement: &host.ManagedPlacementBinding{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "0000000000KJ432RJ85B7APRW2", SeatID: "00000000000E5NVMSGX0D07DPA"}}
+		ManagedPlacement: &host.ManagedPlacementBinding{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "0000000000KJ432RJ85B7APRW2", SeatID: "000000000082AXF7GZQT1D126Y"}}
 	current := placement.MemberState{HostAttempt: 2, HostNode: "replacement-node",
 		InstanceID: "ocid1.instance.oc1..replacement", CreateKey: "00000000005TNNS4T26SFB7M25"}
 

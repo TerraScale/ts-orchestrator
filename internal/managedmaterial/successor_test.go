@@ -44,7 +44,7 @@ func successorFixture(t *testing.T, service PreparationService, spec InitialSpec
 		}
 		request.Members[index] = AuthorityMember{
 			MemberID:      []string{"2G000000000000000000000001", "2G000000000000000000000002"}[index],
-			Incarnation:   []string{"030C1G60R30C1G60R30C1G60R3", "040G2081040G2081040G208104"}[index],
+			Incarnation:   []string{"03030303030303030303030303030303", "04040404040404040404040404040404"}[index],
 			ServerName:    name,
 			FailureDomain: []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"}[index],
 			LeafDER:       leaf,
@@ -207,16 +207,16 @@ func TestProduceSuccessorAllowsMemberIDReuseWithFreshOrigins(t *testing.T) {
 
 func TestProduceSuccessorRejectsCaseVariantOfOldIncarnation(t *testing.T) {
 	service, spec, _, _ := preparationFixture(t)
-	spec.Members[0].Incarnation = "51PB1X9SFP0WC2JEJBBHPQX3WG"
+	spec.Members[0].Incarnation = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
 	now := time.Now().UTC().Truncate(time.Second)
 	if _, err := service.PrepareInitial(t.Context(), 9, spec.PartitionID, spec, now); err != nil {
 		t.Fatal(err)
 	}
 	request := successorFixture(t, service, spec, now)
 	request.Members[0].MemberID = spec.Members[0].MemberID
-	request.Members[0].Incarnation = strings.ToLower(spec.Members[0].Incarnation)
+	request.Members[0].Incarnation = strings.ToUpper(spec.Members[0].Incarnation)
 	if request.Members[0].Incarnation == spec.Members[0].Incarnation {
-		t.Fatal("fixture did not change ULID spelling")
+		t.Fatal("fixture did not change hex spelling")
 	}
 	if _, err := service.ProduceSuccessor(t.Context(), spec.PlacementDatabaseID,
 		spec.PartitionID, request, now); err == nil {
@@ -253,8 +253,8 @@ func TestProduceSuccessorRejectsStaleOrMismatchedMaterial(t *testing.T) {
 		},
 		"same incarnation": func(r *SuccessorRequest) { r.Members[1].Incarnation = r.Members[0].Incarnation },
 		"case-variant successor incarnation": func(r *SuccessorRequest) {
-			r.Members[0].Incarnation = "5BSQQG28T5CY4TQKFF04HMASW9"
-			r.Members[1].Incarnation = strings.ToLower(r.Members[0].Incarnation)
+			r.Members[0].Incarnation = "abcdef0123456789abcdef0123456789"
+			r.Members[1].Incarnation = strings.ToUpper(r.Members[0].Incarnation)
 		},
 		"wrong server name": func(r *SuccessorRequest) { r.Members[0].ServerName = "wrong.replication.example" },
 		"wrong leaf": func(r *SuccessorRequest) {

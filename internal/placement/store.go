@@ -177,39 +177,23 @@ func (store *jetStreamStore) ListMembers(ctx context.Context, databaseID, partit
 	if !validDatabaseKeyID(databaseID) || !entityid.Valid(partitionID) {
 		return nil, fmt.Errorf("%w: database or partition id", ErrInvalidIntent)
 	}
-	keys, err := store.state.Keys(ctx)
-	if errors.Is(err, jetstream.ErrNoKeysFound) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	result := make([]VersionedMemberState, 0)
-	for _, key := range keys {
-		if !entityid.Valid(key) {
-			return nil, fmt.Errorf("%w: invalid member key", ErrStoreCorrupt)
-		}
-		entry, err := store.state.Get(ctx, key)
-		if errors.Is(err, jetstream.ErrKeyNotFound) {
-			continue
-		}
+	// Every supported region has exactly two fixed seats in this schema.
+	result := make([]VersionedMemberState, 0, len(regionsInOrder)*SeatsPerRegion)
+	for _, region := range regionsInOrder {
+		seats, err := RegionSeatIDs(region)
 		if err != nil {
 			return nil, err
 		}
-		if entry.Operation() != jetstream.KeyValuePut {
-			return nil, fmt.Errorf("%w: tombstone at %s", ErrStoreCorrupt, key)
+		for _, seat := range seats {
+			member, err := store.ReadMember(ctx, databaseID, partitionID, seat)
+			if errors.Is(err, ErrMemberNotFound) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, member)
 		}
-		var state MemberState
-		if err := json.Unmarshal(entry.Value(), &state, json.RejectUnknownMembers(true)); err != nil {
-			return nil, fmt.Errorf("%w: decode %s: %v", ErrStoreCorrupt, key, err)
-		}
-		if err := state.Validate(); err != nil || memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID) != key {
-			return nil, fmt.Errorf("%w: invalid state at %s", ErrStoreCorrupt, key)
-		}
-		if state.DatabaseID != databaseID || state.PartitionID != partitionID {
-			continue
-		}
-		result = append(result, VersionedMemberState{State: state, Revision: entry.Revision()})
 	}
 	slices.SortFunc(result, func(a, b VersionedMemberState) int {
 		return strings.Compare(a.State.MemberID, b.State.MemberID)

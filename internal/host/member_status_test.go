@@ -14,14 +14,14 @@ import (
 	"time"
 )
 
-const memberStatusFixture = `{"schema_version":2,"nonce":"00000000000000000000000000000001","process":{"pid":123,"start_nonce":"00000000000000000000000002"},"scope":{"cluster_id":"00000000000000000000000003","tenant_id":"01HW000000E008000000000001","database_id":"01HW000000E008000000000002","shard_id":1,"member_id":"01HW000000E008000000000003","incarnation":"00000000000000000000000004"},"authority":{"epoch":1,"configuration_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","certificate_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","tls_leaf_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"local":{"storage_recovered":true,"replication_listener_ready":true,"healthy":true,"ready":false},"receiver_only":false,"serving":false,"capabilities":{"serving_proof":true,"durable_drain":true}}`
+const memberStatusFixture = `{"schema_version":2,"nonce":"00000000000000000000000000000001","process":{"pid":123,"start_nonce":"00000000000000000000000000000002"},"scope":{"cluster_id":"00000000000000000000000000000003","tenant_id":"01HW000000E008000000000001","database_id":"01HW000000E008000000000002","shard_id":1,"member_id":"01HW000000E008000000000003","incarnation":"00000000000000000000000000000004"},"authority":{"epoch":1,"configuration_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","certificate_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","tls_leaf_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"local":{"storage_recovered":true,"replication_listener_ready":true,"healthy":true,"ready":false},"receiver_only":false,"serving":false,"capabilities":{"serving_proof":true,"durable_drain":true}}`
 
 func memberFixtureExpectation() ExpectedMemberStatus {
 	return ExpectedMemberStatus{
 		Scope: MemberScope{
-			ClusterID: "00000000000000000000000003", TenantID: "01HW000000E008000000000001",
+			ClusterID: "00000000000000000000000000000003", TenantID: "01HW000000E008000000000001",
 			DatabaseID: "01HW000000E008000000000002", ShardID: 1,
-			MemberID: "01HW000000E008000000000003", Incarnation: "00000000000000000000000004",
+			MemberID: "01HW000000E008000000000003", Incarnation: "00000000000000000000000000000004",
 		},
 		Authority: MemberAuthority{
 			Epoch: 1, ConfigurationID: strings.Repeat("a", 64),

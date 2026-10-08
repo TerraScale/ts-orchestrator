@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -88,7 +87,7 @@ func terminalFenceRetryIntent() authority.TerminalIntent {
 		Region: string(oci.RegionGRU), Owner: "regional-owner", CompartmentID: "ocid1.compartment.oc1..owned",
 		FleetGeneration: 1, PlacementGeneration: 1,
 		PlacementPayloadDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		OperationID:            "0000000000YGC05EERJ4NN90HC", Nonce: entityid.New(), Targets: []authority.TerminalTarget{
+		OperationID:            "0000000000YGC05EERJ4NN90HC", Nonce: "0123456789abcdef0123456789abcdef", Targets: []authority.TerminalTarget{
 			{SeatID: "000000000077F1R6E1XPKAC2D4", MemberID: "0000000000WM3QQGQPMW5X58P9", HostCreateKey: "0000000000RW49ETSDPDJTBD4J", DataCreateKey: "0000000000EYBZFNSX933SXJNG",
 				InstanceID: "ocid1.instance.oc1..terminal-a", BootVolumeID: "ocid1.bootvolume.oc1..terminal-a"},
 			{SeatID: "0000000000GXPF5F560P92PC00", MemberID: "0000000000N9X5GQEQJ9NA9A7V", HostCreateKey: "0000000000JPBJ0SS1W1ZX3R03", DataCreateKey: "000000000020W73MW4ZYWMCX8C",

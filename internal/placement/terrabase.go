@@ -324,7 +324,7 @@ func (roster CanonicalRoster) isZero() bool {
 
 func (roster CanonicalRoster) Validate(activeRegions []oci.Region) error {
 
-	if !entityid.Valid(roster.ClusterID) || allZeroHex(roster.ClusterID) ||
+	if !lowerHex(roster.ClusterID, 32) || allZeroHex(roster.ClusterID) ||
 		!entityid.Valid(roster.TenantID) || !entityid.Valid(roster.DatabaseID) ||
 		roster.ShardID == 0 || roster.Authority.Validate() != nil ||
 		len(roster.Rows) != len(activeRegions)*2 {
@@ -342,7 +342,7 @@ func (roster CanonicalRoster) Validate(activeRegions []oci.Region) error {
 			seatID = elasticMember(region)
 		}
 		if row.Region != region || row.SeatID != seatID || !validFailureDomain(row.FailureDomain) ||
-			!entityid.Valid(row.MemberID) || !entityid.Valid(row.Incarnation) || allZeroHex(row.Incarnation) ||
+			!entityid.Valid(row.MemberID) || !lowerHex(row.Incarnation, 32) || allZeroHex(row.Incarnation) ||
 			!validLowerSHA256Digest(row.TLSLeafSHA256) || !validServerName(row.ServerName) {
 			return fmt.Errorf("%w: invalid or noncanonical row %d in TerraBase member roster", ErrInvalidIntent, index)
 		}
@@ -820,7 +820,7 @@ func (state MemberState) Validate() error {
 		state.CanonicalRosterRow.FailureDomain != state.FailureDomain ||
 		!validFailureDomain(state.CanonicalRosterRow.FailureDomain) ||
 		!entityid.Valid(state.CanonicalRosterRow.MemberID) ||
-		!entityid.Valid(state.CanonicalRosterRow.Incarnation) || allZeroHex(state.CanonicalRosterRow.Incarnation) ||
+		!lowerHex(state.CanonicalRosterRow.Incarnation, 32) || allZeroHex(state.CanonicalRosterRow.Incarnation) ||
 		!validLowerSHA256Digest(state.CanonicalRosterRow.TLSLeafSHA256) ||
 		!validServerName(state.CanonicalRosterRow.ServerName) ||
 		!validLowerSHA256Digest(state.CanonicalRosterDigest) || state.AuthorityReference.Validate() != nil {

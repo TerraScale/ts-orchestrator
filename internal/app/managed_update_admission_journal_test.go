@@ -12,7 +12,7 @@ import (
 func TestManagedUpdateAdmissionIsJournaledOncePerOperation(t *testing.T) {
 	journal := installTestJournal(t)
 	intent := placement.ManagedUpdateIntent{OperationID: "0000000000FHW0KDCDCG304MTS", DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD",
-		CanarySeatID: "00000000000E5NVMSGX0D07DPA"}
+		CanarySeatID: "000000000082AXF7GZQT1D126Y"}
 	for range 3 {
 		recordManagedUpdateAdmission(t.Context(), "lab", "operator", intent, 12)
 	}

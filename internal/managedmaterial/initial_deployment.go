@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/ecdh"
 	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -74,11 +76,18 @@ func NewDeploymentIdentity(deployment InitialDeployment, collections int) (Initi
 	if collections < 1 || collections > 16 {
 		return InitialDeployment{}, errors.New("a managed deployment needs 1 to 16 collections")
 	}
-	cluster := entityid.New()
+	var token [16]byte
+	if _, err := rand.Read(token[:]); err != nil {
+		return InitialDeployment{}, err
+	}
+	cluster := hex.EncodeToString(token[:])
 	deployment.Scope = AuthorityScope{ClusterID: cluster,
 		TenantID: entityid.New(), DatabaseID: entityid.New(), ShardID: 1, Epoch: 1}
 	for index := range deployment.Members {
-		incarnation := entityid.New()
+		if _, err := rand.Read(token[:]); err != nil {
+			return InitialDeployment{}, err
+		}
+		incarnation := hex.EncodeToString(token[:])
 		deployment.Members[index].MemberID = entityid.New()
 		deployment.Members[index].Incarnation = incarnation
 		deployment.Members[index].FileSystemUUID = uuid.New().String()
@@ -118,7 +127,7 @@ func (deployment InitialDeployment) Validate() error {
 	if _, err := canonicalID(deployment.Scope.DatabaseID); err != nil {
 		return err
 	}
-	if !entityid.Valid(deployment.Scope.ClusterID) || deployment.Scope.ShardID == 0 || deployment.Scope.Epoch != 1 {
+	if !lowerHexIdentity(deployment.Scope.ClusterID) || deployment.Scope.ShardID == 0 || deployment.Scope.Epoch != 1 {
 		return errors.New("deployment shard scope is invalid")
 	}
 	if len(deployment.CollectionIDs) == 0 {
@@ -133,7 +142,7 @@ func (deployment InitialDeployment) Validate() error {
 		ip, err := netip.ParseAddr(member.PrivateIP)
 		if member.SeatID != seats[index] || !validServerName(member.ServerName) ||
 			!validFailureDomain(member.FailureDomain) || err != nil || !ip.Is4() || !validPrivateIP(member.PrivateIP) ||
-			!entityid.Valid(member.Incarnation) || !validFileSystemUUID(member.FileSystemUUID) {
+			!lowerHexIdentity(member.Incarnation) || !validFileSystemUUID(member.FileSystemUUID) {
 			return fmt.Errorf("deployment member %d is incomplete or out of seat order", index)
 		}
 		if _, err := canonicalID(member.MemberID); err != nil {
@@ -325,4 +334,16 @@ func RenderInitialPlacement(receipt PreparationReceipt, deployment InitialDeploy
 func validFileSystemUUID(value string) bool {
 	parsed, err := uuid.Parse(value)
 	return err == nil && parsed != uuid.Nil() && parsed.String() == value
+}
+
+func lowerHexIdentity(value string) bool {
+	if len(value) != 32 || strings.Trim(value, "0") == "" {
+		return false
+	}
+	for index := range len(value) {
+		if !lowerAlphaNumeric(value[index]) || value[index] > 'f' {
+			return false
+		}
+	}
+	return true
 }

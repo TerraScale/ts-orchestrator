@@ -3,7 +3,9 @@ package host
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -150,6 +152,14 @@ func decodePublicKey(encoded string) (ed25519.PublicKey, error) {
 
 func randomID() (string, error) { return entityid.New(), nil }
 
+func randomNonce() (string, error) {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(nonce[:]), nil
+}
+
 func signRequest(r *request, key ed25519.PrivateKey, cell string) error {
 	if len(key) != ed25519.PrivateKeySize {
 		return errors.New("invalid host identity key")
@@ -163,7 +173,7 @@ func signRequest(r *request, key ed25519.PrivateKey, cell string) error {
 }
 
 func verifyRequest(r request, key ed25519.PublicKey, cell string, now time.Time) error {
-	if r.Version != 1 || !entityid.Valid(r.Nonce) || !entityid.Valid(r.SessionID) || r.IssuedAt.IsZero() || r.IssuedAt.After(now.Add(maxClockSkew)) || now.Sub(r.IssuedAt) >= requestTTL {
+	if r.Version != 1 || !lowerHex(r.Nonce, 32) || !entityid.Valid(r.SessionID) || r.IssuedAt.IsZero() || r.IssuedAt.After(now.Add(maxClockSkew)) || now.Sub(r.IssuedAt) >= requestTTL {
 		return errors.New("invalid or expired host request")
 	}
 	if !r.Envelope.IssuedAt.Equal(r.IssuedAt) || r.Envelope.Epoch != r.Epoch {

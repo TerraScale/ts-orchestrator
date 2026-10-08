@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -103,7 +102,7 @@ func TestTerminalPlanApplyAndStatusRequireSignedExactInventory(t *testing.T) {
 		FaultDomains:  []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"}}
 	inventory := &terminalTestInventory{}
 	request := terminalRequest{DatabaseID: placed.DatabaseID, PartitionID: placed.PartitionID,
-		OperationID: "0000000000YTXFV0CFVPJ6FSQ7", Nonce: entityid.New()}
+		OperationID: "0000000000YTXFV0CFVPJ6FSQ7", Nonce: "0123456789abcdef0123456789abcdef"}
 	sign := func(action, operationID string, generation uint64, payload any, issued, expires time.Time) []byte {
 		t.Helper()
 		encoded, err := protocol.EncodeJSON(payload)
@@ -179,7 +178,7 @@ func TestTerminalPlanApplyAndStatusRequireSignedExactInventory(t *testing.T) {
 		t.Fatalf("new plan after marker = %v, want fenced", err)
 	}
 	statusRequest := terminalRequest{DatabaseID: request.DatabaseID, PartitionID: request.PartitionID,
-		OperationID: "0000000000E4VAM0DX058W0Q36", Nonce: entityid.New()}
+		OperationID: "0000000000E4VAM0DX058W0Q36", Nonce: "0123456789abcdef0123456789abcdef"}
 	statusWire := sign("status", statusRequest.OperationID, 1, statusRequest, now, now.Add(time.Minute))
 	status, err := handleTerminalRequest(ctx, statusWire, "status", "gru", policy, control,
 		region, terminalTestMembers{}, inventory, fence, proof,

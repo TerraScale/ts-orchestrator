@@ -58,7 +58,7 @@ func TestSignedPlacementSizingReachesProviderThroughController(t *testing.T) {
 		t.Fatal(err)
 	}
 	rosterRow, err := committed[0].RosterRowForSeat(placement.Seat{
-		MemberID: "00000000000E5NVMSGX0D07DPA", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: placement.MemberPermanent,
+		MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: placement.MemberPermanent,
 	})
 	if err != nil {
 		t.Fatal(err)

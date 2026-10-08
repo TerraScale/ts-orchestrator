@@ -423,7 +423,7 @@ func managedUpdateAppBaseline(t *testing.T, intent placement.Intent, epoch uint6
 
 		peer := intent.CanonicalRoster.Rows[index^1]
 		proof := memberstatus.ServingProof{SchemaVersion: 1, Nonce: strings.Repeat(string('1'+rune(index)), 32),
-			Process: memberstatus.Process{PID: 100 + index, StartNonce: entityid.Derive("test-process", fmt.Sprint(index))},
+			Process: memberstatus.Process{PID: 100 + index, StartNonce: fmt.Sprintf("%032x", index+1)},
 			Scope: memberstatus.Scope{ClusterID: intent.CanonicalRoster.ClusterID,
 				TenantID: intent.CanonicalRoster.TenantID, DatabaseID: intent.CanonicalRoster.DatabaseID,
 				ShardID: intent.CanonicalRoster.ShardID, MemberID: row.MemberID, Incarnation: row.Incarnation},

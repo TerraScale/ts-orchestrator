@@ -38,7 +38,7 @@ func TestReplicaInventoryRequiresExactIdentityMembership(t *testing.T) {
 		change func(*ReplicaSnapshot)
 	}{
 		{"old instance", func(s *ReplicaSnapshot) { s.Members[0].InstanceID = "predecessor-ocid" }},
-		{"old incarnation", func(s *ReplicaSnapshot) { s.Members[0].Incarnation = "0000000000RHB5KCASP9GW9MZF" }},
+		{"old incarnation", func(s *ReplicaSnapshot) { s.Members[0].Incarnation = "000000000000c45659b159b261c4d3ef" }},
 		{"missing empty member", func(s *ReplicaSnapshot) { s.Members = s.Members[:3] }},
 		{"duplicate member", func(s *ReplicaSnapshot) { s.Members[1] = s.Members[0] }},
 		{"unknown member", func(s *ReplicaSnapshot) { s.Members[3] = fakeNodeIdentity("gru-1-db-5") }},

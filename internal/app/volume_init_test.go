@@ -33,7 +33,7 @@ func TestVolumeInitRequiresCurrentExactPlacementSeat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seat := placement.Seat{MemberID: "00000000000E5NVMSGX0D07DPA", Region: oci.RegionGRU,
+	seat := placement.Seat{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU,
 		FailureDomain: "FAULT-DOMAIN-1", Kind: placement.MemberPermanent}
 	row, err := intent.RosterRowForSeat(seat)
 	if err != nil {

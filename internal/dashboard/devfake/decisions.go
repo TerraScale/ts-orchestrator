@@ -283,6 +283,7 @@ func (world *World) seedDecisions(now time.Time) {
 	gru := world.regions[0]
 	held := gru.databases[0]
 	partition := held.id
+	partitionAttrs := map[string]string{"database_id": held.id, "partition_id": entityid.Derive("preview-partition", held.id)}
 	seat := entityid.Derive("preview-seat", gru.name, held.id, "2")
 	for _, minutes := range []int{140, 125, 110} {
 		world.store.record(decisionlog.Decision{Time: ago(time.Duration(minutes) * time.Minute), Region: gru.name,
@@ -292,12 +293,12 @@ func (world *World) seedDecisions(now time.Time) {
 			Rule:   "placement reconciliation safety gate", Status: decisionlog.StatusPending})
 	}
 	world.store.record(decisionlog.Decision{Time: ago(95 * time.Minute), Region: gru.name, Actor: decisionlog.Actor{Slice: "placement", Member: gru.leader},
-		Kind: decisionlog.KindHeld, Subject: decisionlog.Subject{Kind: "database", ID: partition},
+		Kind: decisionlog.KindHeld, Subject: decisionlog.Subject{Kind: "database", ID: partition}, Attrs: partitionAttrs,
 		Summary: "Placement held database/" + partition,
 		Reason:  "database " + partition + " has no admitted managed placement profile; host reconciliation is held",
 		Rule:    "placement reconciliation safety gate", Status: decisionlog.StatusPending})
 	world.store.record(decisionlog.Decision{Time: ago(70 * time.Minute), Region: gru.name, Actor: decisionlog.Actor{Slice: "placement", Member: gru.leader},
-		Kind: decisionlog.KindHoldCleared, Subject: decisionlog.Subject{Kind: "database", ID: partition},
+		Kind: decisionlog.KindHoldCleared, Subject: decisionlog.Subject{Kind: "database", ID: partition}, Attrs: partitionAttrs,
 		Summary: "Placement hold on " + partition + " cleared",
 		Reason:  "The signed placement profile was admitted and the seat's volume attached.",
 		Rule:    "placement reconciliation safety gate", Status: decisionlog.StatusSucceeded})

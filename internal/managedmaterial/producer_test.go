@@ -50,7 +50,7 @@ func initialFixture(t *testing.T) (InitialSpec, ed25519.PublicKey, *ecdh.Private
 	spec := InitialSpec{
 		PlacementDatabaseID: "0000000000JJVVW9EMWY1PE1VX",
 		PartitionID:         "0000000000Z3WK359G2W66CVT8",
-		Scope: AuthorityScope{ClusterID: "01081G81860W40J2GB1G6GW3RG",
+		Scope: AuthorityScope{ClusterID: "0102030405060708090a0b0c0d0e0f10",
 			TenantID: "0G000000000000000000000001", DatabaseID: "10000000000000000000000001",
 			ShardID: 7, Epoch: 1},
 		LiveS3: LiveS3Target{Bucket: "alpha-live", Region: "sa-saopaulo-1",
@@ -61,11 +61,11 @@ func initialFixture(t *testing.T) (InitialSpec, ed25519.PublicKey, *ecdh.Private
 			{CollectionID: secondCatalog.CollectionID, CanonicalCatalog: secondCatalog.Bytes},
 		},
 		Members: [2]InitialMember{
-			{SeatID: "00000000000E5NVMSGX0D07DPA", MemberID: "20000000000000000000000001", Incarnation: "01040G2081040G2081040G2081",
+			{SeatID: "000000000082AXF7GZQT1D126Y", MemberID: "20000000000000000000000001", Incarnation: "01010101010101010101010101010101",
 				ServerName: "a.replication.example", FailureDomain: "FAULT-DOMAIN-1",
 				MaterialDirectory: "/var/lib/terrabase/attempt-a/material", ReplicationIP: "10.0.0.11", ReplicationPort: 9443,
 				ClientIP: "10.0.0.11", ClientPort: 9465},
-			{SeatID: "00000000008SEAHD1YMMYV3ARR", MemberID: "20000000000000000000000002", Incarnation: "02081040G2081040G2081040G2",
+			{SeatID: "0000000000XG8SBD7XGE97V28G", MemberID: "20000000000000000000000002", Incarnation: "02020202020202020202020202020202",
 				ServerName: "b.replication.example", FailureDomain: "FAULT-DOMAIN-2",
 				MaterialDirectory: "/var/lib/terrabase/attempt-b/material", ReplicationIP: "10.0.0.12", ReplicationPort: 9443,
 				ClientIP: "10.0.0.12", ClientPort: 9465},
@@ -385,7 +385,7 @@ func TestSQLSchemaBundleMatchesFrozenRustRowVector(t *testing.T) {
 	seed := bytes.Repeat([]byte{0x42}, ed25519.SeedSize)
 	signer := ed25519.NewKeyFromSeed(seed)
 	bundle, err := encodeSQLSchemaBundle(AuthorityScope{
-		ClusterID: "01081G81860W40J2GB1G6GW3RG",
+		ClusterID: "0102030405060708090a0b0c0d0e0f10",
 		TenantID:  "0G000000000000000000000001", DatabaseID: "10000000000000000000000001",
 		ShardID: 7, Epoch: 1,
 	}, strings.Repeat("a", 64), []InitialSQLTable{table}, signer)
@@ -582,7 +582,7 @@ func TestExportSQLProcessPacket(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec.Scope = AuthorityScope{
-		ClusterID: "1H64RK2C9H64RK2C9H64RK2C9H",
+		ClusterID: "31313131313131313131313131313131",
 		TenantID:  "21850M2GA1850M2GA1850M2GA1", DatabaseID: "2HA58N2MAHA58N2MAHA58N2MAH",
 		ShardID: 7, Epoch: 1,
 	}

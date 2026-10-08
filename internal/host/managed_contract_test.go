@@ -57,7 +57,7 @@ func managedContractFixture() (Registration, Desired, ed25519.PrivateKey) {
 		Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(key.Public().(ed25519.PublicKey)), NATSUserPublicKey: testNATSUserKey("node-a"), Generation: 1,
 		Capacity: Capacity{MemoryBytes: 8 << 30}, SystemReserveBytes: 1 << 30,
 		ManagedOCI:    &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..node-a", Owner: "terrascale", FleetGeneration: 1, CreateKey: "00000000000000000000000001"},
-		ManagedMember: &ManagedMemberBinding{Scope: MemberScope{ClusterID: "5ANANANANANANANANANANANANA", TenantID: "01HW000000E008000000000001", DatabaseID: "01HW000000E008000000000001", ShardID: 1, MemberID: "01HW000000E008000000000001", Incarnation: "5VQEXVQEXVQEXVQEXVQEXVQEXV"}, HostAttempt: 1},
+		ManagedMember: &ManagedMemberBinding{Scope: MemberScope{ClusterID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TenantID: "01HW000000E008000000000001", DatabaseID: "01HW000000E008000000000001", ShardID: 1, MemberID: "01HW000000E008000000000001", Incarnation: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, HostAttempt: 1},
 	}
 	desired := Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase", Generation: 1, AuthorityEpoch: 1, Digest: strings.Repeat("a", 64),
 		ManagedMember: &ManagedMemberLaunch{OCI: *registration.ManagedOCI, Member: *registration.ManagedMember,

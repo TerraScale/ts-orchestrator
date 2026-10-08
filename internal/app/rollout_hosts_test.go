@@ -68,7 +68,7 @@ func (f *hostSinkFixture) proof(t *testing.T, key ed25519.PrivateKey) []byte {
 	t.Helper()
 	now := time.Now().UTC()
 	wire, err := rolloutexec.SignHealthProof(rolloutexec.HealthProof{Schema: rolloutexec.HealthSchema, Cell: "gru",
-		Unit: f.host.Node, BinarySHA256: strings.Repeat("a", 64), ProcessID: 7, StartNonce: "00000000000000000000000001",
+		Unit: f.host.Node, BinarySHA256: strings.Repeat("a", 64), ProcessID: 7, StartNonce: "00000000000000000000000000000001",
 		ObservedAt: now}, key, now)
 	if err != nil {
 		t.Fatal(err)

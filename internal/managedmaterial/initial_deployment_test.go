@@ -28,8 +28,8 @@ func testDeployment(t *testing.T) InitialDeployment {
 			Credential:    oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.alpha", VersionNumber: 1},
 			NativeOCIRoot: &NativeOCIRoot{Namespace: "alpha"}},
 		Members: [2]DeploymentMember{
-			{SeatID: "00000000000E5NVMSGX0D07DPA", ServerName: "permanent-a.terrabase.internal", FailureDomain: "FAULT-DOMAIN-1", PrivateIP: "10.0.0.21"},
-			{SeatID: "00000000008SEAHD1YMMYV3ARR", ServerName: "elastic-gru.terrabase.internal", FailureDomain: "FAULT-DOMAIN-2", PrivateIP: "10.0.0.22"},
+			{SeatID: "000000000082AXF7GZQT1D126Y", ServerName: "permanent-a.terrabase.internal", FailureDomain: "FAULT-DOMAIN-1", PrivateIP: "10.0.0.21"},
+			{SeatID: "0000000000XG8SBD7XGE97V28G", ServerName: "elastic-gru.terrabase.internal", FailureDomain: "FAULT-DOMAIN-2", PrivateIP: "10.0.0.22"},
 		},
 		ReplicationPort: 7422, ClientPort: 8080, ManagedRuntimeRoot: "/srv/ts-managed",
 	}, 1)
@@ -89,7 +89,7 @@ func TestInitialDeploymentRendersAdmittedPlacementFromReceipt(t *testing.T) {
 	if err := intent.ValidateForAdmission(); err != nil {
 		t.Fatal(err)
 	}
-	if intent.CanonicalRoster.Rows[0].SeatID != "00000000000E5NVMSGX0D07DPA" || intent.CanonicalRoster.Rows[0].FailureDomain != "FAULT-DOMAIN-1" ||
+	if intent.CanonicalRoster.Rows[0].SeatID != "000000000082AXF7GZQT1D126Y" || intent.CanonicalRoster.Rows[0].FailureDomain != "FAULT-DOMAIN-1" ||
 		intent.RuntimeManifests[0].ReplicationListenAddress != "10.0.0.21:7422" ||
 		intent.RuntimeManifests[0].ReplicationPeerAddress != "10.0.0.22:7422" ||
 		intent.RuntimeManifests[1].FileSystemUUID != deployment.Members[1].FileSystemUUID {

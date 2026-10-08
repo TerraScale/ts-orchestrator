@@ -52,3 +52,9 @@ func TestConcurrentGeneration(t *testing.T) {
 		seen[id] = true
 	}
 }
+
+func TestDeriveSeparatesTuplesContainingNUL(t *testing.T) {
+	if Derive("storage-usage", "a\x00b", "c") == Derive("storage-usage", "a", "b\x00c") {
+		t.Fatal("distinct tuples must not share a derived identity")
+	}
+}

@@ -18,7 +18,7 @@ func TestDesiredMaterialMatchesReceiptPinsSQLAndBackupDigests(t *testing.T) {
 		sqlBundle     = "4444444444444444444444444444444444444444444444444444444444444444"
 	)
 	manifest := placement.RuntimeManifest{
-		Region: oci.RegionGRU, SeatID: "00000000000E5NVMSGX0D07DPA", ArtifactDigest: strings.Repeat("d", 64),
+		Region: oci.RegionGRU, SeatID: "000000000082AXF7GZQT1D126Y", ArtifactDigest: strings.Repeat("d", 64),
 		SourceDigest: strings.Repeat("e", 64), TrustedKeySHA256: strings.Repeat("f", 64),
 		ServerCertificateSHA256: strings.Repeat("1", 64), ServerPrivateKeySHA256: strings.Repeat("2", 64),
 		ClientCARootsSHA256: strings.Repeat("3", 64), ClientManagedMaterialManifestSHA256: strings.Repeat("5", 64),
@@ -36,7 +36,7 @@ func TestDesiredMaterialMatchesReceiptPinsSQLAndBackupDigests(t *testing.T) {
 		CanonicalRoster:  placement.CanonicalRoster{Authority: placement.AuthorityReference{Epoch: 1}},
 		RuntimeManifests: []placement.RuntimeManifest{manifest}}
 	seat := managedmaterial.InitialMember{SeatID: manifest.SeatID, MemberID: "20000000000000000000000001",
-		Incarnation: "01040G2081040G2081040G2081"}
+		Incarnation: "01010101010101010101010101010101"}
 	receipt := managedmaterial.PreparationReceipt{
 		AuthorityConfigurationID: configuration, AuthoritySHA256: certificate,
 		Spec: managedmaterial.InitialSpec{Scope: managedmaterial.AuthorityScope{

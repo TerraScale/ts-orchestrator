@@ -21,7 +21,7 @@ func TestDescriptorCanonicalBytesAndDigestAreExact(t *testing.T) {
 	if !bytes.Equal(wire, secondWire) {
 		t.Fatal("canonical descriptor bytes changed between calls")
 	}
-	wantWire := []byte(`{"schema_version":1,"cell":"gru","region":"GRU","node":"host-0123456789abcdef01234567","owner":"terrascale","fleet_generation":7,"create_key":"0000000000AVXGCP7NEZ0TK93A","image_id":"ocid1.image.oc1.sa-saopaulo-1.image-a","database_id":"0000000000WVSMBJNMAWCDJBSK","partition_id":"0000000000Z3WK359G2W66CVT8","seat_id":"00000000000E5NVMSGX0D07DPA","host_attempt":2,"intent_generation":9,"intent_payload_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","canonical_roster_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","managed_host_profile_digest":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","runtime_manifest_digest":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}`)
+	wantWire := []byte(`{"schema_version":1,"cell":"gru","region":"GRU","node":"host-0123456789abcdef01234567","owner":"terrascale","fleet_generation":7,"create_key":"0000000000AVXGCP7NEZ0TK93A","image_id":"ocid1.image.oc1.sa-saopaulo-1.image-a","database_id":"0000000000WVSMBJNMAWCDJBSK","partition_id":"0000000000Z3WK359G2W66CVT8","seat_id":"000000000082AXF7GZQT1D126Y","host_attempt":2,"intent_generation":9,"intent_payload_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","canonical_roster_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","managed_host_profile_digest":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","runtime_manifest_digest":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}`)
 	if !bytes.Equal(wire, wantWire) {
 		t.Fatalf("CanonicalBytes() = %s, want %s", wire, wantWire)
 	}
@@ -153,7 +153,7 @@ func testDescriptor() Descriptor {
 		CreateKey: "0000000000AVXGCP7NEZ0TK93A",
 		ImageID:   "ocid1.image.oc1.sa-saopaulo-1.image-a", FleetGeneration: 7,
 		HostAttempt: 2, IntentGeneration: 9,
-		DatabaseID: "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "00000000000E5NVMSGX0D07DPA",
+		DatabaseID: "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "000000000082AXF7GZQT1D126Y",
 		IntentPayloadDigest:      strings.Repeat("a", 64),
 		CanonicalRosterDigest:    strings.Repeat("b", 64),
 		ManagedHostProfileDigest: strings.Repeat("c", 64),

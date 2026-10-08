@@ -215,7 +215,7 @@ func readManagedBackupMaterial(material string, launch ManagedMemberLaunch, trus
 		owner != pins.BackupOwner ||
 		owner && manifest.OwnerIncarnation != launch.Member.Scope.Incarnation ||
 		!owner && manifest.OwnerMemberID != pins.ReplicationPeerMemberID ||
-		!entityid.Valid(manifest.OwnerIncarnation) {
+		!lowerHexIdentity(manifest.OwnerIncarnation) {
 		return nil, errors.New("managed backup manifest differs from signed runtime authority")
 	}
 	args := []string{"--backup-managed-manifest", manifestPath,

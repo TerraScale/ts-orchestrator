@@ -567,7 +567,7 @@ func TestTerraBaseDataVolumeFormatGrantVerification(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		data, err := protocol.EncodeJSON(response{Nonce: "0000000000KE3PYRYHV31RNC96", Node: node, SessionID: "00000000007WXF3V7BQMA11AT1", Epoch: 3,
+		data, err := protocol.EncodeJSON(response{Nonce: "0000000000009b876f63d1d8c38ab126", Node: node, SessionID: "00000000007WXF3V7BQMA11AT1", Epoch: 3,
 			Operation: operation, Payload: payload})
 		if err != nil {
 			t.Fatal(err)

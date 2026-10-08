@@ -188,7 +188,9 @@ func validTerminalDigest(value string) bool {
 	return err == nil && hex.EncodeToString(decoded) == value
 }
 
-func validTerminalNonce(value string) bool { return entityid.Valid(value) }
+func validTerminalNonce(value string) bool {
+	return backupHex(value, 16) && strings.Trim(value, "0") != ""
+}
 
 // LogEntry is a host mutation committed to the shared ordered control log.
 type LogEntry struct {

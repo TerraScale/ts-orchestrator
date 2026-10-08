@@ -27,7 +27,7 @@ func imdsDescriptorFixture(t *testing.T) []byte {
 		Cell:          "gru", Region: "GRU", Node: "host-0123456789abcdef01234567", Owner: "terrascale",
 		FleetGeneration: 7, CreateKey: "0000000000AVXGCP7NEZ0TK93A",
 		ImageID: "ocid1.image.oc1.sa-saopaulo-1.image-a", DatabaseID: "0000000000WVSMBJNMAWCDJBSK",
-		PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "00000000000E5NVMSGX0D07DPA", HostAttempt: 2, IntentGeneration: 9,
+		PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "000000000082AXF7GZQT1D126Y", HostAttempt: 2, IntentGeneration: 9,
 		IntentPayloadDigest: strings.Repeat("a", 64), CanonicalRosterDigest: strings.Repeat("b", 64),
 		ManagedHostProfileDigest: strings.Repeat("c", 64), RuntimeManifestDigest: strings.Repeat("d", 64),
 	}).CanonicalBytes()
@@ -71,7 +71,7 @@ func TestReadInstanceMetadataUsesOnlyBoundedFixedEndpoints(t *testing.T) {
 	})
 	metadata, err := ReadInstanceMetadata(ctx, client)
 	if err != nil || metadata.InstanceID != instanceID ||
-		!bytes.Equal(metadata.Wire, descriptorWire) || metadata.Descriptor.SeatID != "00000000000E5NVMSGX0D07DPA" ||
+		!bytes.Equal(metadata.Wire, descriptorWire) || metadata.Descriptor.SeatID != "000000000082AXF7GZQT1D126Y" ||
 		!slices.Equal(endpoints, []string{
 			"http://169.254.169.254/opc/v2/instance/id",
 			"http://169.254.169.254/opc/v2/instance/metadata/terrascale_hostboot_v1",

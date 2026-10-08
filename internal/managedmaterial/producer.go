@@ -401,8 +401,8 @@ func validateInitialSpec(spec InitialSpec, signer ed25519.PublicKey, now time.Ti
 	if !entityid.Valid(spec.PlacementDatabaseID) || !entityid.Valid(spec.PartitionID) {
 		return errors.New("initial material placement database or partition ID is invalid")
 	}
-	cluster, err := entityid.Parse(spec.Scope.ClusterID)
-	if err != nil || len(cluster) != 16 || allZero(cluster[:]) || spec.Scope.ShardID == 0 || spec.Scope.Epoch != 1 {
+	cluster, err := hex.DecodeString(spec.Scope.ClusterID)
+	if err != nil || !lowerHexIdentity(spec.Scope.ClusterID) || len(cluster) != 16 || allZero(cluster[:]) || spec.Scope.ShardID == 0 || spec.Scope.Epoch != 1 {
 		return errors.New("initial material shard scope is invalid")
 	}
 	if !ed25519.Verify(signer, recipientGrantMessage(spec), spec.Recipient.Signature) {
@@ -412,8 +412,8 @@ func validateInitialSpec(spec InitialSpec, signer ed25519.PublicKey, now time.Ti
 		if _, err := canonicalID(member.MemberID); err != nil {
 			return err
 		}
-		incarnation, err := entityid.Parse(member.Incarnation)
-		if err != nil || len(incarnation) != 16 || allZero(incarnation[:]) ||
+		incarnation, err := hex.DecodeString(member.Incarnation)
+		if err != nil || !lowerHexIdentity(member.Incarnation) || len(incarnation) != 16 || allZero(incarnation[:]) ||
 			!entityid.Valid(member.SeatID) ||
 			!validServerName(member.ServerName) || !validFailureDomain(member.FailureDomain) ||
 			!filepath.IsAbs(member.MaterialDirectory) || filepath.Clean(member.MaterialDirectory) != member.MaterialDirectory ||

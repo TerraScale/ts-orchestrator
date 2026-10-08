@@ -109,11 +109,11 @@ func TestJournaledSeatSubjectsAreQualified(t *testing.T) {
 	store := JournaledStore(&journalTestStore{members: map[string]VersionedMemberState{}}, "gru")
 	for _, partition := range []string{"00000000003K6TBW31R91GBDRD", "00000000009WTTZWVWDNSXXPA0"} {
 		if _, err := store.CompareAndSwap(t.Context(), 0, MemberState{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: partition,
-			MemberID: "00000000000E5NVMSGX0D07DPA", Stage: StagePreparedHost}); err != nil {
+			MemberID: "000000000082AXF7GZQT1D126Y", Stage: StagePreparedHost}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	one, _ := journal.Query(t.Context(), decisionlog.Query{SubjectKind: "seat", SubjectID: memberStateKey("0000000000T8H7NEY8XQ530245", "00000000003K6TBW31R91GBDRD", "00000000000E5NVMSGX0D07DPA")})
+	one, _ := journal.Query(t.Context(), decisionlog.Query{SubjectKind: "seat", SubjectID: memberStateKey("0000000000T8H7NEY8XQ530245", "00000000003K6TBW31R91GBDRD", "000000000082AXF7GZQT1D126Y")})
 	if len(one.Decisions) != 1 {
 		t.Fatalf("seat history mixes partitions: %+v", one.Decisions)
 	}

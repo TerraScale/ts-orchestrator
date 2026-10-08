@@ -392,7 +392,7 @@ func TestReconcilerNeverUsesDedicatedTerraBaseHosts(t *testing.T) {
 	cell := newFakeCell()
 	cell.addHost("node-a", "fd-1", true)
 	cell.addHost("tb-1", "fd-2", true, func(r *host.Registration) {
-		r.ManagedPlacement = &host.ManagedPlacementBinding{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "0000000000KJ432RJ85B7APRW2", SeatID: "00000000008SEAHD1YMMYV3ARR"}
+		r.ManagedPlacement = &host.ManagedPlacementBinding{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "0000000000KJ432RJ85B7APRW2", SeatID: "0000000000XG8SBD7XGE97V28G"}
 	})
 	cell.seed("node-a", "api", testDigest, 4)
 	cell.runAll()

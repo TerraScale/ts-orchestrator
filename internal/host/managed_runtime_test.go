@@ -261,7 +261,7 @@ func TestManagedReportRejectsStaleOrRetargetedEvidence(t *testing.T) {
 		FileSystemUUID: desired.ManagedMember.Runtime.FileSystemUUID,
 		FileSystemType: "ext4", MountDevice: "/dev/sdb", MountPath: "/srv/managed/volume", MountID: 23,
 		ProcessPID: 1234, ProcessStart: "123456", ProcessCgroup: "/terrascale-host/terrabase",
-		ProcessBootID: "0000000000RGF72VFGE3H7MAZJ", StorageRecovered: true, ListenerReady: true,
+		ProcessBootID: "000000000000c41e716df070e27a2bf2", StorageRecovered: true, ListenerReady: true,
 	}}
 	if err := validateManagedReportForDesired(report, desired); err != nil {
 		t.Fatal(err)
@@ -293,7 +293,7 @@ func TestManagedReportRejectsStaleOrRetargetedEvidence(t *testing.T) {
 	newProcess := *report.Managed
 	newProcess.ProcessPID++
 	newProcess.ProcessStart = "123999"
-	newProcess.ProcessBootID = "0000000000RGF72VFGE3H7MAZK"
+	newProcess.ProcessBootID = "000000000000c41e716df070e27a2bf3"
 	restarted.Managed = &newProcess
 	if err := validateManagedReportForDesired(restarted, desired); err != nil {
 		t.Fatalf("fresh restart observation rejected: %v", err)

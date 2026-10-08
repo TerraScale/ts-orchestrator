@@ -8,16 +8,27 @@ Prefixes, UUID entity IDs, lowercase spellings, overflow and the zero ID are
 rejected.
 
 Stable operational keys use domain-separated `entityid.Derive` so a retried
-operation addresses the same record. These have timestamp zero and carry no
+operation addresses the same record. Domain and values are length-framed before
+hashing, including values containing NUL. These have timestamp zero and carry no
 creation-time claim. They are not customer document identities or a substitute
 for TerraBase's atomic uniqueness guarantees. Entity keys in NATS KV have no
 type prefix; machines have their own `TS_MACHINES` bucket alongside `TS_APPS`
 and `TS_MACHINE_STATUS`.
+The separate, snapshotted `TS_MACHINE_APP_INDEX` uses app-name/ULID lookup
+addresses (`<app-name>.<machine-ULID>`), not entity IDs, to select an app's
+records without scanning other tenants. Primary machine/status keys remain
+plain ULIDs. The index is written before machine creation; interrupted creates
+can leave harmless empty lookups, while deletes use index revisions to preserve
+concurrent writers.
 
 Node names remain `ts-<region>-<n>`. Region/role labels, OCI resource IDs, OS and
 filesystem UUIDs, certificate/configuration SHA-256 fingerprints, artifact
-digests and cryptographic secrets/nonces retain their native formats. A
-TerraBase document's key owns its identity; its payload does not add a second
+digests and cryptographic secrets/nonces retain their native formats. Local
+signed-admission cluster tokens and member incarnations are nonzero
+128-bit lowercase hex; tenant, database and member entity IDs are ULIDs.
+These admission fields are distinct from live gRPC origin identity bytes.
+Process, terminal and host-request nonces use cryptographic random bytes.
+A TerraBase document's key owns its identity; its payload does not add a second
 `id` field.
 
 ## Clean reset
@@ -34,18 +45,34 @@ data and recreates bootstrap state through the current startup path.
    writers in every serving region before deleting any data.
 3. Delete affected entity data and stale references together. Candidate
    orchestrator inventories include `TS_APPS`, `TS_MACHINES`,
-   `TS_MACHINE_STATUS`, `TS_TENANTS`, `TS_VOLUMES`, `TS_ROLLOUTS`,
+   `TS_MACHINE_STATUS`, `TS_MACHINE_APP_INDEX`, `TS_TENANTS`, `TS_VOLUMES`, `TS_ROLLOUTS`,
    `TS_HOST_ENROLLMENT`, `TS_HOST_STATE`, `TS_OCI_OPERATIONS`,
    `TS_DELIVERY_OPERATIONS`, `TS_PLACEMENT_STATE`, `TS_STORAGE_USAGE`, and
    entity-bearing control-log/release-channel records. Verify signed bootstrap
    configuration and material, global directory records, object-store heads,
    snapshots and backups too: none may restore old entity references. These
    are inventory candidates, not verified live deletion targets.
+   Include retained desired-release generations and active-rollout slots,
+   node-operation/fence records, OCI ownership journals and consumed permits,
+   and both rollout step/reply boards. Inspect retained, retired and restore
+   volumes and their provider create-key tags; affected old resources must be
+   deleted, never adopted through an old tag or rewritten in place.
+   Verify local pending activations, proofs, watchdogs, retained artifacts,
+   signed release/update receipts and delegations, and retained material
+   receipts/configuration before deletion. Replace required signed inputs with
+   freshly qualified current-format material.
 4. Restart against fresh state and current signed bootstrap configuration on
    the existing cell. Preserve OCI instances, node names, NATS membership and
    routes; do not re-found the cell. Recreate management bindings and service
    keys with bootstrap actor `01M4EB0GDPPHGJPPVY77EMZQKT`, writing secrets
    directly to protected configuration. Sessions and old tokens may expire.
+   This is a coordinated direct binary installation with old controllers and
+   hosts stopped/fenced, not an ordinary rolling self-update: old relays,
+   watchdogs and receipt/proof verifiers cannot deliver or authorize this
+   first cutover. Start only current-format writers. Fresh-state startup and
+   re-enrollment must recreate the cleared system/operational records; a
+   reset must not depend on restoring an old snapshot or resuming an old
+   rollout. Normal rolling updates resume after the clean cutover qualifies.
 5. Verify readiness, a new release/rollout, host re-enrollment and a document
    create/read through the live consumers. Record exact deleted targets and
    validation evidence in the PR before declaring the cutover complete.

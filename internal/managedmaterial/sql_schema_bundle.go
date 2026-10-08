@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -153,11 +152,11 @@ func encodeSQLSchemaBundle(scope AuthorityScope, configurationID string, tables 
 		return nil, err
 	}
 	configuration, configurationErr := hex.DecodeString(configurationID)
-	cluster, clusterErr := entityid.Parse(scope.ClusterID)
+	cluster, clusterErr := hex.DecodeString(scope.ClusterID)
 	tenant, tenantErr := canonicalID(scope.TenantID)
 	database, databaseErr := canonicalID(scope.DatabaseID)
 	if configurationErr != nil || len(configuration) != sha256.Size ||
-		clusterErr != nil || allZero(cluster[:]) || tenantErr != nil || databaseErr != nil ||
+		clusterErr != nil || !lowerHexIdentity(scope.ClusterID) || allZero(cluster[:]) || tenantErr != nil || databaseErr != nil ||
 		scope.ShardID == 0 || scope.Epoch == 0 {
 		return nil, errors.New("SQL schema bundle authority scope is invalid")
 	}

@@ -347,12 +347,12 @@ func TestManagedOCIBindingValidation(t *testing.T) {
 		Cell: "gru", Node: "host-a", Environment: "production", FailureDomain: "FAULT-DOMAIN-1",
 		Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(public), NATSUserPublicKey: testNATSUserKey("host-a"), Generation: 1,
 		ManagedPlacement: &ManagedPlacementBinding{
-			DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "00000000000E5NVMSGX0D07DPA", IntentGeneration: 7,
+			DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "000000000082AXF7GZQT1D126Y", IntentGeneration: 7,
 			IntentPayloadDigest: strings.Repeat("c", 64), CanonicalRosterDigest: strings.Repeat("d", 64),
 			ManagedHostProfileDigest: strings.Repeat("e", 64),
 		},
 		ManagedOCI:         &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..host-a", Owner: "terrascale", FleetGeneration: 4, CreateKey: "0000000000R58Y74PAABAQ7X2V"},
-		ManagedMember:      &ManagedMemberBinding{Scope: MemberScope{ClusterID: "5ANANANANANANANANANANANANA", TenantID: "01HW000000E008000000000001", DatabaseID: "01HW000000E008000000000001", ShardID: 1, MemberID: "01HW000000E008000000000001", Incarnation: "5VQEXVQEXVQEXVQEXVQEXVQEXV"}, HostAttempt: 1},
+		ManagedMember:      &ManagedMemberBinding{Scope: MemberScope{ClusterID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TenantID: "01HW000000E008000000000001", DatabaseID: "01HW000000E008000000000001", ShardID: 1, MemberID: "01HW000000E008000000000001", Incarnation: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, HostAttempt: 1},
 		SystemReserveBytes: 1 << 30, Capacity: Capacity{MemoryBytes: 8 << 30},
 	}
 	tests := []struct {
@@ -420,15 +420,15 @@ func TestManagedRegistrationRequiresCurrentVerifierAndRechecksRetries(t *testing
 			Cell: "gru", Node: "managed-a", Environment: "production", FailureDomain: "FAULT-DOMAIN-1",
 			Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(public), NATSUserPublicKey: testNATSUserKey("0000000000S5ATCRTJQX4NGEC4"), Generation: 1,
 			ManagedPlacement: &ManagedPlacementBinding{
-				DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "00000000000E5NVMSGX0D07DPA", IntentGeneration: 7,
+				DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "000000000082AXF7GZQT1D126Y", IntentGeneration: 7,
 				IntentPayloadDigest: strings.Repeat("c", 64), CanonicalRosterDigest: strings.Repeat("d", 64),
 				ManagedHostProfileDigest: strings.Repeat("e", 64),
 			},
 			ManagedOCI: &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..managed-a", Owner: "terrascale", FleetGeneration: 4, CreateKey: "0000000000S5ATCRTJQX4NGEC4"},
 			ManagedMember: &ManagedMemberBinding{Scope: MemberScope{
-				ClusterID: "5ANANANANANANANANANANANANA", TenantID: "01HW000000E008000000000001",
+				ClusterID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TenantID: "01HW000000E008000000000001",
 				DatabaseID: "01HW000000E008000000000001", ShardID: 1,
-				MemberID: "01HW000000E008000000000001", Incarnation: "5VQEXVQEXVQEXVQEXVQEXVQEXV",
+				MemberID: "01HW000000E008000000000001", Incarnation: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 			}, HostAttempt: 1},
 			SystemReserveBytes: 1 << 30, Capacity: Capacity{MemoryBytes: 5 << 30},
 		}
@@ -754,7 +754,7 @@ func TestStartupWaitsForOldSessionAndCancellation(t *testing.T) {
 	oldKey := registerTestHost(t, c)
 	acquire := func(key ed25519.PrivateKey, id string) request {
 		t.Helper()
-		req := request{Version: 1, Node: "node-a", NATSUserPublicKey: testNATSUserKey("node-a"), Operation: "session", SessionID: id, Nonce: "5BSQQG28T5CY4TQKFF04HMASW9", IssuedAt: time.Now().UTC(), Payload: []byte(`{"kind":"acquire"}`)}
+		req := request{Version: 1, Node: "node-a", NATSUserPublicKey: testNATSUserKey("node-a"), Operation: "session", SessionID: id, Nonce: "abcdef0123456789abcdef0123456789", IssuedAt: time.Now().UTC(), Payload: []byte(`{"kind":"acquire"}`)}
 		if err := signRequest(&req, key, "gru"); err != nil {
 			t.Fatal(err)
 		}
@@ -990,7 +990,7 @@ func TestHostSessionRejectsReplayAndForeignIdentity(t *testing.T) {
 	if _, err := c.handleSession(t.Context(), forged); err == nil {
 		t.Fatal("foreign host key accepted")
 	}
-	renew := request{Version: 1, Node: "node-a", NATSUserPublicKey: testNATSUserKey("node-a"), Operation: "session", SessionID: id, Epoch: 99, Nonce: "0H248H248H248H248H248H248H", IssuedAt: time.Now().UTC(), Payload: []byte(`{"kind":"renew"}`)}
+	renew := request{Version: 1, Node: "node-a", NATSUserPublicKey: testNATSUserKey("node-a"), Operation: "session", SessionID: id, Epoch: 99, Nonce: "11111111111111111111111111111111", IssuedAt: time.Now().UTC(), Payload: []byte(`{"kind":"renew"}`)}
 	if err := signRequest(&renew, key, "gru"); err != nil {
 		t.Fatal(err)
 	}
@@ -1021,7 +1021,7 @@ func signedHostRequest(t *testing.T, key ed25519.PrivateKey, operation, sessionI
 	if err != nil {
 		t.Fatal(err)
 	}
-	nonce, err := randomID()
+	nonce, err := randomNonce()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1077,7 +1077,7 @@ func TestListHostsAcceptsSameBindingSessionChurn(t *testing.T) {
 					if kind == "renewal" {
 						current.ExpiresAt = current.ExpiresAt.Add(time.Second)
 						current.LastIssuedAt = time.Now().UTC()
-						current.LastNonce = "0H248H248H248H248H248H248H"
+						current.LastNonce = "11111111111111111111111111111111"
 					}
 					finalExpiry = current.ExpiresAt
 					if _, err := c.cas(ctx, key, current, revision); err != nil {
@@ -2252,12 +2252,12 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 		Cell: "gru", Node: "node-a", Environment: "production", FailureDomain: "FAULT-DOMAIN-1",
 		Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(hostPublic), NATSUserPublicKey: testNATSUserKey("node-a"), Generation: 1,
 		ManagedPlacement: &ManagedPlacementBinding{
-			DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "00000000000E5NVMSGX0D07DPA", IntentGeneration: 7,
+			DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "000000000082AXF7GZQT1D126Y", IntentGeneration: 7,
 			IntentPayloadDigest: strings.Repeat("c", 64), CanonicalRosterDigest: strings.Repeat("d", 64),
 			ManagedHostProfileDigest: strings.Repeat("e", 64),
 		},
 		ManagedOCI:         &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..host-a", Owner: "terrascale", FleetGeneration: 4, CreateKey: "0000000000VT6DWMG3CBD096WX"},
-		ManagedMember:      &ManagedMemberBinding{Scope: MemberScope{ClusterID: "5ANANANANANANANANANANANANA", TenantID: "01HW000000E008000000000001", DatabaseID: "01HW000000E008000000000001", ShardID: 1, MemberID: "01HW000000E008000000000001", Incarnation: "5VQEXVQEXVQEXVQEXVQEXVQEXV"}, HostAttempt: 1},
+		ManagedMember:      &ManagedMemberBinding{Scope: MemberScope{ClusterID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TenantID: "01HW000000E008000000000001", DatabaseID: "01HW000000E008000000000001", ShardID: 1, MemberID: "01HW000000E008000000000001", Incarnation: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, HostAttempt: 1},
 		SystemReserveBytes: 1 << 30, Capacity: Capacity{MemoryBytes: 8 << 30},
 	}
 	registrationReceipt, err := c.Register(t.Context(), registration)
@@ -2398,7 +2398,7 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		nonce, err := randomID()
+		nonce, err := randomNonce()
 		if err != nil {
 			t.Fatal(err)
 		}

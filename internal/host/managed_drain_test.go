@@ -18,7 +18,7 @@ import (
 func TestManagedDrainCommandPersistsAcrossLeaderEpoch(t *testing.T) {
 	registration, desired, hostKey := managedContractFixture()
 	registration.ManagedPlacement = &ManagedPlacementBinding{
-		DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "00000000000E5NVMSGX0D07DPA",
+		DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "000000000082AXF7GZQT1D126Y",
 		IntentGeneration: 1, IntentPayloadDigest: strings.Repeat("1", 64),
 		CanonicalRosterDigest: strings.Repeat("2", 64), ManagedHostProfileDigest: strings.Repeat("3", 64),
 	}
@@ -65,7 +65,7 @@ func TestManagedDrainCommandPersistsAcrossLeaderEpoch(t *testing.T) {
 	s := accepted.(session)
 	proof := memberstatus.ServingProof{
 		SchemaVersion: 1, Nonce: strings.Repeat("5", 32),
-		Process:   memberstatus.Process{PID: 1234, StartNonce: "0000000000ZNE0R0JBQKHE9QKA"},
+		Process:   memberstatus.Process{PID: 1234, StartNonce: "000000000000fd5c0c024bbce2e4de6a"},
 		Scope:     drainIdentity(ManagedDrainCommand{Member: desired.ManagedMember.Member}).Scope,
 		Authority: drainIdentity(ManagedDrainCommand{Authority: desired.ManagedMember.Authority}).Authority,
 		Serving:   true, Listeners: memberstatus.Listeners{Client: true, Replication: true},
@@ -75,7 +75,7 @@ func TestManagedDrainCommandPersistsAcrossLeaderEpoch(t *testing.T) {
 		},
 		Replication: memberstatus.ReplicationProof{
 			LocalSourceSequence: 12, PeerMemberID: desired.ManagedMember.Runtime.ReplicationPeerMemberID,
-			PeerIncarnation: "0000000000000000000000000A", CurrentAuthenticated: true,
+			PeerIncarnation: "0000000000000000000000000000000a", CurrentAuthenticated: true,
 			PeerDurableSequence: 12, PeerAppliedSequence: 12,
 		},
 	}
@@ -135,9 +135,9 @@ func TestManagedDrainCommandBindsDesiredAndNativeProcess(t *testing.T) {
 		Member: desired.ManagedMember.Member, Authority: desired.ManagedMember.Authority,
 		OCI: desired.ManagedMember.OCI, VolumeID: desired.ManagedMember.VolumeID,
 		AttachmentID:    desired.ManagedMember.AttachmentID,
-		ExpectedProcess: memberstatus.Process{PID: 1234, StartNonce: "0000000000CKQBAZNQ7H580DDY"},
+		ExpectedProcess: memberstatus.Process{PID: 1234, StartNonce: "00000000000064eeb57eb73c4a8035be"},
 		Survivor: memberstatus.Survivor{MemberID: desired.ManagedMember.Runtime.ReplicationPeerMemberID,
-			Incarnation: "1K6CSK6CSK6CSK6CSK6CSK6CSK"},
+			Incarnation: "33333333333333333333333333333333"},
 		SourceSequence: 12,
 	}
 	if !command.matchesDesired(desired, registration) {

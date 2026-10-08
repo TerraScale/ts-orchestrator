@@ -82,7 +82,7 @@ func servingSurvivor(t *testing.T, controller *Controller, intent Intent, state 
 	}
 	proof := memberstatus.ServingProof{
 		SchemaVersion: 1, Nonce: strings.Repeat("1", 32),
-		Process: memberstatus.Process{PID: 1234, StartNonce: "0000000000CKQBAZNQ7H580DDY"},
+		Process: memberstatus.Process{PID: 1234, StartNonce: "00000000000064eeb57eb73c4a8035be"},
 		Scope: memberstatus.Scope{
 			ClusterID: intent.CanonicalRoster.ClusterID, TenantID: intent.CanonicalRoster.TenantID,
 			DatabaseID: intent.CanonicalRoster.DatabaseID, ShardID: intent.CanonicalRoster.ShardID,

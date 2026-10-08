@@ -42,7 +42,7 @@ func signTerraBaseFormatTest(t *testing.T, cfg VolumeInitConfig, key ed25519.Pri
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire, err := protocol.EncodeJSON(response{Nonce: "0000000000NDG3M0JRZJ6RM9PZ", Node: cfg.Node, SessionID: "00000000007WXF3V7BQMA11AT1", Epoch: 1,
+	wire, err := protocol.EncodeJSON(response{Nonce: "000000000000ab603a0258fc8d8a26df", Node: cfg.Node, SessionID: "00000000007WXF3V7BQMA11AT1", Epoch: 1,
 		Operation: "terrabase-format", Payload: payload})
 	if err != nil {
 		t.Fatal(err)

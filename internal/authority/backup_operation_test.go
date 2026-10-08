@@ -23,17 +23,17 @@ func backupRecordFixture() BackupOperationRecord {
 		SourceScopeDigest: strings.Repeat("a", 64), SourceAuthoritySHA256: strings.Repeat("b", 64),
 		SourceConfigurationID: strings.Repeat("c", 64), SourceTargetDigest: strings.Repeat("d", 64),
 		BackupSet: "7EXVQEXVQEXVQEXVQEXVQEXVQE", BackupTargetDigest: strings.Repeat("f", 64),
-		OwnerMemberID: "1K6CSK6CSK6CSK6CSK6CSK6CSK", OwnerIncarnation: "2NANANANANANANANANANANANAN",
+		OwnerMemberID: "1K6CSK6CSK6CSK6CSK6CSK6CSK", OwnerIncarnation: "55555555555555555555555555555555",
 		Ordinal: 1, Attempt: 1, AttemptHighWater: 1,
 		OperationID: "3QEXVQEXVQEXVQEXVQEXVQEXVQ",
 		Nonce:       strings.Repeat("9", 32), PrepareEnvelope: []byte(`{"version":1}`),
 		PrepareExpiresAtMS: 1_900_000_060_000, State: "accepted",
 		Roster: []BackupOperationMember{
 			{Origin: strings.Repeat("3", 32) + strings.Repeat("5", 32),
-				MemberID: "1K6CSK6CSK6CSK6CSK6CSK6CSK", Incarnation: "2NANANANANANANANANANANANAN",
+				MemberID: "1K6CSK6CSK6CSK6CSK6CSK6CSK", Incarnation: "55555555555555555555555555555555",
 				TLSLeafSHA256: strings.Repeat("1", 64), Node: "host-a", Role: "terrabase"},
 			{Origin: strings.Repeat("4", 32) + strings.Repeat("6", 32),
-				MemberID: "248H248H248H248H248H248H24", Incarnation: "36CSK6CSK6CSK6CSK6CSK6CSK6",
+				MemberID: "248H248H248H248H248H248H24", Incarnation: "66666666666666666666666666666666",
 				TLSLeafSHA256: strings.Repeat("2", 64), Node: "host-b", Role: "terrabase"},
 		}}
 }
@@ -674,7 +674,7 @@ func TestBackupActiveFencesTerminalUntilAllRosterAbort(t *testing.T) {
 	intent := TerminalIntent{Cell: "gru", DatabaseID: "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8",
 		Region: "GRU", Owner: "owner-a", CompartmentID: "ocid1.compartment.oc1..backupgate",
 		FleetGeneration: 1, PlacementGeneration: 1, PlacementPayloadDigest: strings.Repeat("a", 64),
-		OperationID: "0000000000WT247GS8H7FQE9FW", Nonce: entityid.New(),
+		OperationID: "0000000000WT247GS8H7FQE9FW", Nonce: "0123456789abcdef0123456789abcdef",
 		Targets: []TerminalTarget{{SeatID: "000000000077F1R6E1XPKAC2D4", MemberID: "0000000000WM3QQGQPMW5X58P9",
 			HostCreateKey: "0000000000R58Y74PAABAQ7X2V", DataCreateKey: "0000000000NMFV7B37QZWENX9Z"}},
 		DisposableWorkload: true, AcknowledgePermanentDataLoss: true, AuthorizeForcedStop: true}

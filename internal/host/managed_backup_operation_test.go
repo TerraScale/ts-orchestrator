@@ -103,7 +103,7 @@ func TestBackupRelaySerializedBoundsAtDERAndCompleteCaps(t *testing.T) {
 func TestBackupHeldRestartDiscoversR3WithoutPriorHostCommand(t *testing.T) {
 	registration, desired, hostKey := managedContractFixture()
 	registration.ManagedPlacement = &ManagedPlacementBinding{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8",
-		SeatID: "00000000000E5NVMSGX0D07DPA", IntentGeneration: 1,
+		SeatID: "000000000082AXF7GZQT1D126Y", IntentGeneration: 1,
 		IntentPayloadDigest: strings.Repeat("1", 64), CanonicalRosterDigest: strings.Repeat("2", 64),
 		ManagedHostProfileDigest: strings.Repeat("3", 64)}
 	paths, err := runtimePaths("/srv/managed", *desired.ManagedMember)
@@ -207,7 +207,7 @@ func TestBackupHeldRestartDiscoversR3WithoutPriorHostCommand(t *testing.T) {
 	if err != nil || !fetched.Pending || fetched.Command != nil {
 		t.Fatalf("signed Agent lost R3 pending restart: %+v, %v", fetched, err)
 	}
-	process := memberstatus.Process{PID: 1234, StartNonce: "00000000009DM5HATADQN00NBQ"}
+	process := memberstatus.Process{PID: 1234, StartNonce: "0000000000004b6858ab4a6dea005577"}
 	report := Report{Cell: desired.Cell, Node: desired.Node, Environment: desired.Environment,
 		Role: desired.Role, Digest: desired.Digest, Generation: desired.Generation,
 		SessionID: s.SessionID, Epoch: s.Epoch, State: "running", ObservedAt: time.Now().UTC(),
@@ -253,7 +253,7 @@ func TestBackupHeldRestartDiscoversR3WithoutPriorHostCommand(t *testing.T) {
 	}
 	// A restored Prepare holder is deliberately not client ready. The backup
 	// report can bind its local process without claiming a serving proof.
-	held := memberstatus.Status{Process: memberstatus.Process{PID: 1234, StartNonce: "00000000009DM5HATADQN00NBQ"},
+	held := memberstatus.Status{Process: memberstatus.Process{PID: 1234, StartNonce: "0000000000004b6858ab4a6dea005577"},
 		Local: memberstatus.Local{StorageRecovered: true, ReplicationListenerReady: true}}
 	if !backupProcessLocallyRecovered(held, 1234) || backupProcessLocallyRecovered(held, 1235) {
 		t.Fatal("held restart process identity was not checked exactly")

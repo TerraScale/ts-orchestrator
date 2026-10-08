@@ -142,8 +142,8 @@ func SignInitialAuthorityV2(scope AuthorityScope, members [2]AuthorityMember, ca
 	if len(signer) != ed25519.PrivateKeySize || scope.ShardID == 0 || scope.Epoch == 0 {
 		return SignedAuthority{}, errors.New("initial authority signer or scope is invalid")
 	}
-	cluster, err := entityid.Parse(scope.ClusterID)
-	if err != nil || len(cluster) != 16 || allZero(cluster[:]) {
+	cluster, err := hex.DecodeString(scope.ClusterID)
+	if err != nil || !lowerHexIdentity(scope.ClusterID) || len(cluster) != 16 || allZero(cluster[:]) {
 		return SignedAuthority{}, errors.New("initial authority cluster ID is invalid")
 	}
 	tenant, err := canonicalID(scope.TenantID)
@@ -170,8 +170,8 @@ func SignInitialAuthorityV2(scope AuthorityScope, members [2]AuthorityMember, ca
 	var leafPins [2]string
 	for index, member := range members {
 		memberIDs[index], err = canonicalID(member.MemberID)
-		incarnation, decodeErr := entityid.Parse(member.Incarnation)
-		if err != nil || decodeErr != nil || len(incarnation) != 16 || allZero(incarnation[:]) ||
+		incarnation, decodeErr := hex.DecodeString(member.Incarnation)
+		if err != nil || decodeErr != nil || !lowerHexIdentity(member.Incarnation) || len(incarnation) != 16 || allZero(incarnation[:]) ||
 			!validServerName(member.ServerName) || !validFailureDomain(member.FailureDomain) ||
 			len(member.LeafDER) == 0 || len(member.LeafDER) > maxCatalogBytes {
 			return SignedAuthority{}, errors.New("initial authority member is invalid")
@@ -198,7 +198,7 @@ func SignInitialAuthorityV2(scope AuthorityScope, members [2]AuthorityMember, ca
 	payload = binary.LittleEndian.AppendUint16(payload, uint16(len(catalogs)))
 	payload = binary.LittleEndian.AppendUint16(payload, uint16(len(catalogs)))
 	for index, member := range members {
-		incarnation, _ := entityid.Parse(member.Incarnation)
+		incarnation, _ := hex.DecodeString(member.Incarnation)
 		fingerprint, _ := hex.DecodeString(leafPins[index])
 		payload = append(payload, memberIDs[index][:]...)
 		payload = append(payload, incarnation[:]...)

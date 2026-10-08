@@ -82,6 +82,39 @@ func createMachine(t *testing.T, store *Store, app App) Machine {
 	return machine
 }
 
+func TestAppListingsIgnoreUnrelatedCorruptRecords(t *testing.T) {
+	store, _, _ := testStore(t)
+	app := createApp(t, store, "scoped")
+	machine := createMachine(t, store, app)
+	other := createApp(t, store, "other")
+	otherMachine := createMachine(t, store, other)
+	for _, kv := range []jetstream.KeyValue{store.machines, store.statuses} {
+		if _, err := kv.Put(t.Context(), otherMachine.ID, []byte(`{"broken":true}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	machines, err := store.Machines(t.Context(), app.Name)
+	if err != nil || len(machines) != 1 || machines[0].ID != machine.ID {
+		t.Fatalf("scoped machines = %+v, %v", machines, err)
+	}
+	statuses, err := store.Statuses(t.Context(), app.Name)
+	if err != nil || len(statuses) != 0 {
+		t.Fatalf("scoped statuses = %+v, %v", statuses, err)
+	}
+	if _, err := store.Machines(t.Context(), ""); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("global inventory must reject corrupt records: %v", err)
+	}
+	// An interrupted create may leave an index entry without a machine.
+	id := entityid.New()
+	if _, err := store.index.Put(t.Context(), app.Name+"."+id, []byte(id)); err != nil {
+		t.Fatal(err)
+	}
+	machines, err = store.Machines(t.Context(), app.Name)
+	if err != nil || len(machines) != 1 {
+		t.Fatalf("interrupted-create lookup = %+v, %v", machines, err)
+	}
+}
+
 func mustPutMachine(t *testing.T, store *Store, machine Machine) Machine {
 	t.Helper()
 	machine, err := store.PutMachine(t.Context(), epoch, machine)
@@ -453,6 +486,11 @@ func TestStoreRefusesTamperedRecords(t *testing.T) {
 		if _, err := kv.Put(ctx, tamper.key, tamper.value); err != nil {
 			t.Fatal(err)
 		}
+		if kv == store.machines {
+			if _, err := store.index.Put(ctx, "ts-auth."+tamper.key, []byte(tamper.key)); err != nil {
+				t.Fatal(err)
+			}
+		}
 		var getErr, listErr error
 		switch {
 		case kv == store.apps:
@@ -474,6 +512,11 @@ func TestStoreRefusesTamperedRecords(t *testing.T) {
 		}
 		if err := kv.Purge(ctx, tamper.key); err != nil {
 			t.Fatal(err)
+		}
+		if kv == store.machines {
+			if err := store.index.Purge(ctx, "ts-auth."+tamper.key); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 

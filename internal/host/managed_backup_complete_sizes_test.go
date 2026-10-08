@@ -95,16 +95,16 @@ func backupSizeCommand(envelope []byte, kind string) ManagedBackupCommand {
 		Kind: kind, Epoch: 1, DesiredGeneration: 1,
 		DesiredDigest: strings.Repeat("a", 64),
 		Member: ManagedMemberBinding{HostAttempt: 1, Scope: MemberScope{
-			ClusterID: "0H248H248H248H248H248H248H", TenantID: "1248H248H248H248H248H248H2",
+			ClusterID: "11111111111111111111111111111111", TenantID: "1248H248H248H248H248H248H2",
 			DatabaseID: "0000000000WVSMBJNMAWCDJBSK", ShardID: 1,
 			MemberID:    "1K6CSK6CSK6CSK6CSK6CSK6CSK",
-			Incarnation: "2NANANANANANANANANANANANAN",
+			Incarnation: "55555555555555555555555555555555",
 		}},
 		Authority: MemberAuthority{Epoch: 1, ConfigurationID: strings.Repeat("c", 64),
 			CertificateSHA256: strings.Repeat("d", 64), TLSLeafSHA256: leafSHA},
 		OCI: ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..host-a",
 			Owner: "terrascale", FleetGeneration: 1, CreateKey: "0000000000R58Y74PAABAQ7X2V"},
-		ExpectedProcess: memberstatus.Process{PID: 1234, StartNonce: "00000000009DM5HATADQN00NBQ"},
+		ExpectedProcess: memberstatus.Process{PID: 1234, StartNonce: "0000000000004b6858ab4a6dea005577"},
 		Envelope:        bytes.Clone(envelope), EnvelopeSHA256: hex.EncodeToString(sum[:]),
 	}
 }
@@ -183,7 +183,7 @@ func TestBackupCompleteGoldenReleaseFitsHostRelayAndSerializedRecords(t *testing
 	const (
 		operationID = "3QEXVQEXVQEXVQEXVQEXVQEXVQ"
 		memberID    = "1K6CSK6CSK6CSK6CSK6CSK6CSK"
-		incarnation = "2NANANANANANANANANANANANAN"
+		incarnation = "55555555555555555555555555555555"
 		leafSHA     = "e28d33b97bf0f79144c0d7b5e90bdbb94cc0e98fb7c3305e93557a7d43e186bb"
 	)
 	release := []byte(fixture.CompleteRelease.EnvelopeJSON)
@@ -290,16 +290,16 @@ func TestBackupCompleteConservativeMaxSignedHostFramesFit64KiB(t *testing.T) {
 	command.Epoch, command.DesiredGeneration = maxUint, maxUint
 	command.DesiredDigest = strings.Repeat("a", 64)
 	command.Member = ManagedMemberBinding{HostAttempt: maxUint, Scope: MemberScope{
-		ClusterID: "0H248H248H248H248H248H248H", TenantID: "1248H248H248H248H248H248H2",
+		ClusterID: "11111111111111111111111111111111", TenantID: "1248H248H248H248H248H248H2",
 		DatabaseID: "1K6CSK6CSK6CSK6CSK6CSK6CSK", ShardID: maxUint,
-		MemberID: command.MemberID, Incarnation: "2NANANANANANANANANANANANAN",
+		MemberID: command.MemberID, Incarnation: "55555555555555555555555555555555",
 	}}
 	command.Authority = MemberAuthority{Epoch: maxUint, ConfigurationID: strings.Repeat("c", 64),
 		CertificateSHA256: strings.Repeat("d", 64), TLSLeafSHA256: strings.Repeat("e", 64)}
 	command.OCI = ManagedOCIBinding{Region: "GRU",
 		InstanceID: "ocid1.instance." + strings.Repeat("x", 240),
 		Owner:      strings.Repeat("o", 63), FleetGeneration: maxUint, CreateKey: strings.Repeat("k", 128)}
-	command.ExpectedProcess = memberstatus.Process{PID: int(^uint(0) >> 1), StartNonce: "00000000002NNZ5G4S3F5MYJ7J"}
+	command.ExpectedProcess = memberstatus.Process{PID: int(^uint(0) >> 1), StartNonce: "000000000000156bf2c0991bcb4f48f2"}
 	completeSum := sha256.Sum256(completeEnvelope)
 	command.EnvelopeSHA256 = hex.EncodeToString(completeSum[:])
 	commandRecord := authority.BackupOperationRecord{
@@ -352,7 +352,7 @@ func TestBackupCompleteConservativeMaxSignedHostFramesFit64KiB(t *testing.T) {
 			{MemberID: command.MemberID, Incarnation: command.Member.Scope.Incarnation,
 				TLSLeafSHA256: command.Authority.TLSLeafSHA256, Node: command.Node, Role: command.Role},
 			{MemberID: "248H248H248H248H248H248H24",
-				Incarnation: "36CSK6CSK6CSK6CSK6CSK6CSK6", TLSLeafSHA256: hex.EncodeToString(leafDERHash[:]),
+				Incarnation: "66666666666666666666666666666666", TLSLeafSHA256: hex.EncodeToString(leafDERHash[:]),
 				Node: strings.Repeat("m", 63), Role: strings.Repeat("s", 63),
 				CutEnvelope: cut, CutLeafDER: der},
 		},
@@ -419,7 +419,7 @@ func TestBackupCompleteAuthorityRecordFitsOneMiBSizeOnlyBound(t *testing.T) {
 		memberOrigin := strings.ReplaceAll(memberID, "-", "") + strings.Repeat("5", 32)
 		record.Roster[index] = authority.BackupOperationMember{
 			Origin: memberOrigin, MemberID: memberID,
-			Incarnation: "2NANANANANANANANANANANANAN", TLSLeafSHA256: leafSHA,
+			Incarnation: "55555555555555555555555555555555", TLSLeafSHA256: leafSHA,
 			Node: strings.Repeat("n", 61) + fmt.Sprintf("%02d", index), Role: strings.Repeat("r", 63),
 			CutEnvelope: bytes.Repeat([]byte("x"), 8<<10), CutLeafDER: bytes.Clone(der),
 			BarrierAcknowledged: true, CompleteAcknowledged: true,

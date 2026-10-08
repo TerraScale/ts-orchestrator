@@ -248,7 +248,7 @@ func TestSoakRequiresAStableServingProcessForTheWholeWindow(t *testing.T) {
 
 func TestKnownBadSetRefusesRecordedDigests(t *testing.T) {
 	digest := strings.Repeat("a", 64)
-	record := KnownBad{Digest: digest, SeatID: "00000000000E5NVMSGX0D07DPA", OperationID: "0000000000VWA5N990CSNH40S5", Reason: "held", RecordedAt: time.Now()}
+	record := KnownBad{Digest: digest, SeatID: "000000000082AXF7GZQT1D126Y", OperationID: "0000000000VWA5N990CSNH40S5", Reason: "held", RecordedAt: time.Now()}
 	if err := record.Validate(); err != nil {
 		t.Fatal(err)
 	}

@@ -207,7 +207,7 @@ func TestManagedVolumeInitFailuresNeverReachMountOrClaimReadiness(t *testing.T) 
 func TestManagedVolumeInitPermitRequiresCurrentSignedState(t *testing.T) {
 	registration, desired, hostKey := managedContractFixture()
 	registration.ManagedPlacement = &ManagedPlacementBinding{
-		DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "00000000000E5NVMSGX0D07DPA", IntentGeneration: 7,
+		DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "000000000082AXF7GZQT1D126Y", IntentGeneration: 7,
 		IntentPayloadDigest: strings.Repeat("c", 64), CanonicalRosterDigest: strings.Repeat("d", 64),
 		ManagedHostProfileDigest: strings.Repeat("e", 64),
 	}
@@ -282,7 +282,7 @@ func TestManagedVolumeInitPermitRequiresCurrentSignedState(t *testing.T) {
 			current.SessionID = "248H248H248H248H248H248H24"
 			current.Epoch++
 			current.ExpiresAt = time.Now().Add(sessionTTL)
-			current.LastNonce = "2NANANANANANANANANANANANAN"
+			current.LastNonce = "55555555555555555555555555555555"
 			current.LastIssuedAt = time.Now().UTC()
 			if _, err := controller.cas(ctx, key, current, revision); err != nil {
 				return VolumeInitObservation{}, errors.New("test could not replace current host session")

@@ -105,8 +105,8 @@ func TestTerraBaseDeployDrivesManagedPlacementToDesiredState(t *testing.T) {
 	}
 
 	cell.tickUntil(t, func(members map[string]placement.MemberState) bool {
-		return len(members) == 2 && members["00000000000E5NVMSGX0D07DPA"].Stage == placement.StageAwaitingHost &&
-			members["00000000008SEAHD1YMMYV3ARR"].Stage == placement.StageAwaitingHost
+		return len(members) == 2 && members["000000000082AXF7GZQT1D126Y"].Stage == placement.StageAwaitingHost &&
+			members["0000000000XG8SBD7XGE97V28G"].Stage == placement.StageAwaitingHost
 	})
 	if len(cell.provider.launches) != 2 {
 		t.Fatalf("launches = %d, want one host per member", len(cell.provider.launches))
@@ -127,8 +127,8 @@ func TestTerraBaseDeployDrivesManagedPlacementToDesiredState(t *testing.T) {
 	agents := cell.enrollMembers(t, intent)
 	defer agents()
 	cell.tickUntil(t, func(members map[string]placement.MemberState) bool {
-		return members["00000000000E5NVMSGX0D07DPA"].Stage == placement.StageAwaitingHealthy &&
-			members["00000000008SEAHD1YMMYV3ARR"].Stage == placement.StageAwaitingHealthy
+		return members["000000000082AXF7GZQT1D126Y"].Stage == placement.StageAwaitingHealthy &&
+			members["0000000000XG8SBD7XGE97V28G"].Stage == placement.StageAwaitingHealthy
 	})
 	desired, err := cell.hosts.ListDesired(ctx, "terrabase")
 	if err != nil || len(desired) != 2 {
@@ -196,12 +196,12 @@ func TestTerraBaseDeployHoldsVolumeAttachOnUnqualifiedImageLaunchOptions(t *test
 	var intent placement.Intent
 	readDeployTestState(t, state, deployIntentFile, &intent)
 	cell.tickUntil(t, func(members map[string]placement.MemberState) bool {
-		return len(members) == 2 && members["00000000008SEAHD1YMMYV3ARR"].Stage == placement.StageAwaitingHost
+		return len(members) == 2 && members["0000000000XG8SBD7XGE97V28G"].Stage == placement.StageAwaitingHost
 	})
 	agents := cell.enrollMembers(t, intent)
 	defer agents()
 	cell.tickUntil(t, func(members map[string]placement.MemberState) bool {
-		return members["00000000000E5NVMSGX0D07DPA"].Stage == placement.StagePreparedAttach
+		return members["000000000082AXF7GZQT1D126Y"].Stage == placement.StagePreparedAttach
 	})
 	for range 3 {
 		if err := cell.placement.Tick(ctx); err != nil {
@@ -569,7 +569,7 @@ func (cell *deployTestCellServices) enrollMembers(t *testing.T, intent placement
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	var done []chan error
-	for _, seat := range []string{"00000000000E5NVMSGX0D07DPA", "00000000008SEAHD1YMMYV3ARR"} {
+	for _, seat := range []string{"000000000082AXF7GZQT1D126Y", "0000000000XG8SBD7XGE97V28G"} {
 		member, err := cell.store.ReadMember(ctx, intent.DatabaseID, intent.PartitionID, seat)
 		if err != nil {
 			t.Fatal(err)

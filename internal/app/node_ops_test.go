@@ -404,7 +404,7 @@ func TestRolloutFenceDrainsBeforeTheStepAndReturnsAfter(t *testing.T) {
 	}
 	record := rollout.Record{ToDigest: "new", FromDigest: "old", Units: map[string]rollout.UnitProgress{
 		"controller-1": {State: rollout.UnitPreparing}}}
-	sources := proofs{"controller-1": {BinarySHA256: "old", StartNonce: "0000000000NR756QAGVQCJMV00", ReceivedAt: time.Now()}}
+	sources := proofs{"controller-1": {BinarySHA256: "old", StartNonce: "000000000000ae0e535d50ddd92a6c00", ReceivedAt: time.Now()}}
 	since, ready := fences.unitServes("ctl-1", record, true, sources)
 	if ready {
 		t.Fatal("a unit being stepped is ready")
@@ -413,12 +413,12 @@ func TestRolloutFenceDrainsBeforeTheStepAndReturnsAfter(t *testing.T) {
 	if _, ready = fences.unitServes("ctl-1", record, true, sources); ready {
 		t.Fatal("a unit on the old release is ready")
 	}
-	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "new", StartNonce: "00000000002CXZ93EYQ224Z7QR", ReceivedAt: time.Now()}
+	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "new", StartNonce: "000000000000133bf48ddeb8844f9ef8", ReceivedAt: time.Now()}
 	if since, ready = fences.unitServes("ctl-1", record, true, sources); !ready || since.IsZero() {
 		t.Fatal("a unit that proves the target is not ready")
 	}
 	record.Phase, record.Units["controller-1"] = rollout.PhaseFrozen, rollout.UnitProgress{State: rollout.UnitRollingBack}
-	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "0000000000V4MRM46HP1SNGDYW", StartNonce: "00000000002CXZ93EYQ224Z7QR", ReceivedAt: time.Now()}
+	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "0000000000V4MRM46HP1SNGDYW", StartNonce: "000000000000133bf48ddeb8844f9ef8", ReceivedAt: time.Now()}
 	if _, ready = fences.unitServes("ctl-1", record, true, sources); !ready {
 		t.Fatal("a frozen rollout held its node although the node serves")
 	}
@@ -427,7 +427,7 @@ func TestRolloutFenceDrainsBeforeTheStepAndReturnsAfter(t *testing.T) {
 		t.Fatal("a unit rolling back is ready")
 	}
 	record.Phase, record.Units["controller-1"] = "", rollout.UnitProgress{State: rollout.UnitSoaking}
-	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "new", StartNonce: "00000000002CXZ93EYQ224Z7QR", ReceivedAt: time.Now()}
+	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "new", StartNonce: "000000000000133bf48ddeb8844f9ef8", ReceivedAt: time.Now()}
 	if reason, err := nodeRolesServing(ctx, ops.fence.hosts, "ctl-1", since.Add(-time.Second)); err != nil || reason != "" {
 		t.Fatalf("roles: %q %v", reason, err)
 	}

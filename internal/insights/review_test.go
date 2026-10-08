@@ -42,8 +42,8 @@ func TestDiskUsageWarningDoesNotHideAFasterFill(t *testing.T) {
 
 func TestHoldsInDifferentPartitionsStaySeparate(t *testing.T) {
 	view := &observability.PlacementView{Databases: []observability.DatabaseView{
-		{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD", Members: []observability.MemberView{{SeatID: "00000000000E5NVMSGX0D07DPA", UpdatePhase: "held"}}},
-		{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003ZJEV7X3HYJENEYG", Members: []observability.MemberView{{SeatID: "00000000000E5NVMSGX0D07DPA", UpdatePhase: "held"}}}}}
+		{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD", Members: []observability.MemberView{{SeatID: "000000000082AXF7GZQT1D126Y", UpdatePhase: "held"}}},
+		{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003ZJEV7X3HYJENEYG", Members: []observability.MemberView{{SeatID: "000000000082AXF7GZQT1D126Y", UpdatePhase: "held"}}}}}
 	engine := NewEngine(Config{Region: "gru", Cluster: &fakeCluster{snapshot: observability.ClusterSnapshot{
 		Members: []observability.MemberSnapshot{{Member: "c1", Placement: view}}}}})
 	held := 0
@@ -189,7 +189,7 @@ func (failingVolumes) Volumes(context.Context) ([]Volume, error) { return nil, e
 // cleared, even while the journal input of the same rule is unavailable.
 func TestSeatHoldResolvesWhileTheJournalIsUnavailable(t *testing.T) {
 	held := &observability.PlacementView{Databases: []observability.DatabaseView{{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD",
-		Members: []observability.MemberView{{SeatID: "00000000000E5NVMSGX0D07DPA", UpdatePhase: "held"}}}}}
+		Members: []observability.MemberView{{SeatID: "000000000082AXF7GZQT1D126Y", UpdatePhase: "held"}}}}}
 	cluster := &fakeCluster{snapshot: observability.ClusterSnapshot{
 		Members: []observability.MemberSnapshot{{Member: "c1", Placement: held}}}}
 	engine := NewEngine(Config{Region: "gru", Cluster: cluster, Decisions: &truncatingDecisions{}})
@@ -211,7 +211,7 @@ func TestStuckAttachmentIsReportedOnce(t *testing.T) {
 	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
 	since := now.Add(-time.Hour)
 	view := &observability.PlacementView{Databases: []observability.DatabaseView{{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD",
-		Members: []observability.MemberView{{SeatID: "00000000000E5NVMSGX0D07DPA", Stage: "awaiting-attach", HostNode: "host-a",
+		Members: []observability.MemberView{{SeatID: "000000000082AXF7GZQT1D126Y", Stage: "awaiting-attach", HostNode: "host-a",
 			UpdatedAt: since}}}}}
 	cluster := &observability.ClusterSnapshot{Members: []observability.MemberSnapshot{{Member: "c1", Placement: view}}}
 	got := evaluate(t, volumeStuck, &Inputs{Now: now, Cluster: cluster, Thresholds: Thresholds{}.withDefaults(),

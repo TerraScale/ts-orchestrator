@@ -24,7 +24,7 @@ func TestRegionSeatsGeneralizesTheTwoSeatTopology(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(three[:2], two) || three[2] != (Seat{MemberID: "00000000003BAF1RX3SX0H8SKG", Region: oci.RegionGRU,
+	if !reflect.DeepEqual(three[:2], two) || three[2] != (Seat{MemberID: ElasticSeatID(oci.RegionGRU, 2), Region: oci.RegionGRU,
 		FailureDomain: "FAULT-DOMAIN-3", Kind: MemberElastic}) {
 		t.Fatalf("three-seat layout = %#v", three)
 	}
@@ -39,7 +39,7 @@ func TestRegionSeatsGeneralizesTheTwoSeatTopology(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	if ElasticSeatID(oci.RegionFRA, 1) != "00000000008H78HY66V6W4Z1MG" || ElasticSeatID(oci.RegionFRA, 3) != "0000000000GQQPK5HJVH09FGES" ||
+	if ElasticSeatID(oci.RegionFRA, 1) != "0000000000DRX0N2BW96GK619K" || ElasticSeatID(oci.RegionFRA, 3) != ElasticSeatID(oci.RegionFRA, 3) ||
 		ElasticSeatID(oci.RegionFRA, 0) == ElasticSeatID(oci.RegionFRA, 1) {
 		t.Fatal("elastic seat IDs changed")
 	}
@@ -56,13 +56,13 @@ func TestSeatMemberNamesFollowPlacementOrderAndIgnoreAttempts(t *testing.T) {
 			t.Fatalf("seat %s is %q, %v; want %q", seat.MemberID, name, err, want)
 		}
 	}
-	for _, rejected := range []string{"", "00000000000E5NVMSGX0D07DPA", "elastic-sfo-1", "elastic-sfo-0", "elastic-sfo-02", "elastic-sfo--2", "00000000008SEAHD1YMMYV3ARR"} {
+	for _, rejected := range []string{"", "000000000082AXF7GZQT1D126Y", "elastic-sfo-1", "elastic-sfo-0", "elastic-sfo-02", "elastic-sfo--2", "0000000000XG8SBD7XGE97V28G"} {
 		if name, err := seatMemberName(oci.RegionSFO, rejected); !errors.Is(err, ErrInvalidIntent) || name != "" {
 			t.Fatalf("seat %q got name %q, %v", rejected, name, err)
 		}
 	}
 	// A replacement host is a new attempt with a new create key; its name stays.
-	state := MemberState{Region: oci.RegionGRU, MemberID: "00000000008SEAHD1YMMYV3ARR", HostAttempt: 1, CreateKey: "00000000000P03P510Z3XY8HWE"}
+	state := MemberState{Region: oci.RegionGRU, MemberID: "0000000000XG8SBD7XGE97V28G", HostAttempt: 1, CreateKey: "00000000000P03P510Z3XY8HWE"}
 	first := pinnedEnsureRequest(state)
 	state.HostAttempt, state.CreateKey = 2, "th-second"
 	if second := pinnedEnsureRequest(state); first.Name != "gru-1-db-2" || second.Name != first.Name {

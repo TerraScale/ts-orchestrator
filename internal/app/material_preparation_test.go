@@ -143,10 +143,10 @@ func TestSignedOperatorPreparationCommitsExactMaterialAndReturnsCiphertext(t *te
 			{CollectionID: secondCatalog.CollectionID, CanonicalCatalog: secondCatalog.Bytes},
 		},
 		Members: [2]managedmaterial.InitialMember{
-			{SeatID: "00000000000E5NVMSGX0D07DPA", MemberID: "20000000000000000000000001", Incarnation: "01040G2081040G2081040G2081",
+			{SeatID: "000000000082AXF7GZQT1D126Y", MemberID: "20000000000000000000000001", Incarnation: "01010101010101010101010101010101",
 				ServerName: "a.replication.example", FailureDomain: "FAULT-DOMAIN-1", ReplicationIP: "10.0.0.11", ReplicationPort: 9443,
 				ClientIP: "10.0.0.11", ClientPort: 9465},
-			{SeatID: "00000000008SEAHD1YMMYV3ARR", MemberID: "20000000000000000000000002", Incarnation: "02081040G2081040G2081040G2",
+			{SeatID: "0000000000XG8SBD7XGE97V28G", MemberID: "20000000000000000000000002", Incarnation: "02020202020202020202020202020202",
 				ServerName: "b.replication.example", FailureDomain: "FAULT-DOMAIN-2", ReplicationIP: "10.0.0.12", ReplicationPort: 9443,
 				ClientIP: "10.0.0.12", ClientPort: 9465},
 		},

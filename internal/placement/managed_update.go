@@ -218,7 +218,7 @@ func (intent ManagedUpdateIntent) Validate() error {
 
 func (seat ManagedUpdateSeat) validate(intent ManagedUpdateIntent) error {
 	if !entityid.Valid(seat.SeatID) || !knownRegion(seat.Region) || !strings.EqualFold(string(seat.Region), intent.Cell) ||
-		!entityid.Valid(seat.MemberID) || !entityid.Valid(seat.Incarnation) || allZeroHex(seat.Incarnation) ||
+		!entityid.Valid(seat.MemberID) || !lowerHex(seat.Incarnation, 32) || allZeroHex(seat.Incarnation) ||
 		!validLowerSHA256Digest(seat.TLSLeafSHA256) || !validLowerSHA256Digest(seat.RuntimeManifestDigest) ||
 		!validToken(seat.HostNode) || seat.HostGeneration == 0 || seat.HostAttempt == 0 ||
 		!validOCID(seat.OCIInstanceID, "instance") || !validToken(seat.OCIOwner) || seat.OCIFleetGeneration == 0 ||

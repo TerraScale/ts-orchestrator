@@ -237,7 +237,7 @@ func validateMemberExpectation(expected ExpectedMemberStatus, p *processRunner) 
 	if os.Geteuid() != 0 || p.identity.UID == 0 || p.identity.GID == 0 {
 		return errors.New("member status requires a root supervisor and non-root tenant")
 	}
-	if !entityid.Valid(expected.Scope.ClusterID) || !entityid.Valid(expected.Scope.Incarnation) || expected.Scope.ShardID == 0 ||
+	if !lowerHexIdentity(expected.Scope.ClusterID) || !lowerHexIdentity(expected.Scope.Incarnation) || expected.Scope.ShardID == 0 ||
 		!canonicalMemberID(expected.Scope.TenantID) || !canonicalMemberID(expected.Scope.DatabaseID) || !canonicalMemberID(expected.Scope.MemberID) ||
 		!lowerHex(expected.Authority.ConfigurationID, 64) || !lowerHex(expected.Authority.CertificateSHA256, 64) ||
 		!lowerHex(expected.Authority.TLSLeafSHA256, 64) || expected.Authority.Epoch == 0 {
@@ -401,7 +401,7 @@ func decodeMemberStatus(data []byte, nonce string, pid int, expected ExpectedMem
 	// malformed, incomplete or out-of-range block is dropped instead of
 	// failing the status, so a telemetry bug can never stop a serving member.
 	status.Load = memberstatus.DecodeLoad(load)
-	if status.SchemaVersion != 2 || status.Nonce != nonce || status.Process.PID != pid || !entityid.Valid(status.Process.StartNonce) ||
+	if status.SchemaVersion != 2 || status.Nonce != nonce || status.Process.PID != pid || !lowerHex(status.Process.StartNonce, 32) ||
 		status.Scope.ShardID == 0 || !canonicalMemberID(status.Scope.TenantID) ||
 		!canonicalMemberID(status.Scope.DatabaseID) || !canonicalMemberID(status.Scope.MemberID) ||
 		status.Scope != expected.Scope || status.Authority != expected.Authority ||
@@ -411,4 +411,8 @@ func decodeMemberStatus(data []byte, nonce string, pid int, expected ExpectedMem
 		return MemberStatus{}, errors.New("member status identity or capability mismatch")
 	}
 	return status, nil
+}
+
+func lowerHexIdentity(value string) bool {
+	return lowerHex(value, 32) && strings.Trim(value, "0") != ""
 }
