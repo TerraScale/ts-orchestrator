@@ -503,7 +503,7 @@ func (c *rolloutControl) serve(ctx context.Context, wire []byte, policy signerPo
 		reply.Status = "paused"
 	case rolloutResumeKind:
 		if _, err = store.PauseReleases(ctx, epoch, false); err == nil {
-			reply.Resumed, err = rolloutexec.Resume(ctx, store, epoch, now)
+			reply.Resumed, err = rolloutexec.Resume(ctx, store, c.program.Proofs, epoch, now)
 		}
 		reply.Status = "resumed"
 	default:

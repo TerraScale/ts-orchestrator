@@ -394,6 +394,11 @@ func TestHeldRollbackFreezesAndResumeNeverRetargets(t *testing.T) {
 	if _, err := Apply(record, Event{Kind: EventResume, At: at}); !errors.Is(err, ErrAttemptsExhausted) {
 		t.Fatalf("resume beyond retry budget: %v", err)
 	}
+	// A unit an operator moved off the target by hand is done, retries or not.
+	ended := apply(t, record, Event{Kind: EventResume, At: at, Left: []string{"ctrl-b"}})
+	if ended.Phase != PhaseAborted || ended.Units["ctrl-b"].State != UnitRolledBack || len(NextActions(ended)) != 0 {
+		t.Fatalf("resume of a unit moved off the target = %s, ctrl-b %s", ended.Phase, ended.Units["ctrl-b"].State)
+	}
 }
 
 func TestAbortAndFreeze(t *testing.T) {

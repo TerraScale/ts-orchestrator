@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -312,7 +313,7 @@ func (e *Executor) preflight(ctx context.Context, record rollout.Record) *rollou
 }
 
 func (e *Executor) prepare(ctx context.Context, record rollout.Record, action rollout.Action) (*rollout.Event, error) {
-	if reason := e.peersServing(record, action.Peers); reason != "" {
+	if reason := e.peersServing(ctx, record, action.Peers); reason != "" {
 		e.hold(record, action.Unit, reason)
 		return nil, nil
 	}
@@ -405,7 +406,7 @@ func (e *Executor) rollback(ctx context.Context, record rollout.Record, action r
 	key := stepKey(record.RolloutID, action.Unit, StepRollback) + "/" + action.OperationID
 	step, sent := e.issued[key]
 	if !sent || !step.accepted {
-		if reason := e.peersServing(record, action.Peers); reason != "" {
+		if reason := e.peersServing(ctx, record, action.Peers); reason != "" {
 			e.hold(record, action.Unit, reason)
 			return nil, nil
 		}
@@ -583,13 +584,27 @@ func stepKey(rolloutID, unit string, action StepAction) string {
 }
 
 // peersServing requires a fresh proof from every group peer, on either
-// side of the rollout, so a step never takes a second replica down.
-func (e *Executor) peersServing(record rollout.Record, peers []string) string {
+// side of the rollout, so a step never takes a second replica down. A peer
+// the rollout does not step (pending or rolled back) may serve a third
+// release an operator installed by hand, unless the cell knows it bad.
+func (e *Executor) peersServing(ctx context.Context, record rollout.Record, peers []string) string {
 	for _, peer := range peers {
 		proof, ok := e.Proofs.Latest(peer)
-		if !ok || !e.fresh(proof) ||
-			proof.BinarySHA256 != record.FromDigest && proof.BinarySHA256 != record.ToDigest {
+		if !ok || !e.fresh(proof) {
 			return "group peer " + peer + " is not serving"
+		}
+		digest := proof.BinarySHA256
+		if digest == record.FromDigest || digest == record.ToDigest {
+			continue
+		}
+		state := record.Units[peer].State
+		if state != rollout.UnitPending && state != rollout.UnitRolledBack || slices.Contains(record.KnownBad, digest) {
+			return "group peer " + peer + " is not serving"
+		}
+		// The record keeps a bounded list; the store has every rejected
+		// digest. A failed read holds the step.
+		if bad, err := e.Store.IsKnownBad(ctx, digest); err != nil || bad {
+			return "group peer " + peer + " serves a release the cell may know bad"
 		}
 	}
 	return ""

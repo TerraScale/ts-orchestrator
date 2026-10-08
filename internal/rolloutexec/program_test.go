@@ -145,13 +145,105 @@ func TestResumeRetriesTheRollbackOfAFrozenRollout(t *testing.T) {
 	h.publish(fromDigest)
 	h.publish(toDigest)
 	h.run(10, func() bool { return h.phase("release-g2-controllers") == rollout.PhaseFrozen })
-	if id, err := Resume(t.Context(), h.store, 7, h.clock.Now()); err != nil || id != "release-g2-controllers" {
+	if id, err := Resume(t.Context(), h.store, h.fleet, 7, h.clock.Now()); err != nil || id != "release-g2-controllers" {
 		t.Fatalf("resume = %q %v", id, err)
 	}
 	h.fleet.refuseRollback = false
 	h.run(10, func() bool { return h.phase("release-g2-controllers") == rollout.PhaseRolledBack })
-	if id, err := Resume(t.Context(), h.store, 7, h.clock.Now()); err != nil || id != "" {
+	if id, err := Resume(t.Context(), h.store, h.fleet, 7, h.clock.Now()); err != nil || id != "" {
 		t.Fatalf("resume without a frozen rollout = %q %v", id, err)
+	}
+}
+
+// A resume that leaves one controller on the release an operator installed
+// still rolls its group peer back: the left controller serves as its peer.
+func TestResumeRollsBackThePeersOfAUnitAnOperatorMovedOffTheTarget(t *testing.T) {
+	h, _ := releaseHarness(t)
+	h.fleet.wrongBinary["ctl-c"] = true
+	h.fleet.refuseRollback = true
+	h.publish(fromDigest)
+	h.publish(toDigest)
+	h.run(100, func() bool { return h.phase("release-g2-controllers") == rollout.PhaseFrozen })
+	if record, _ := h.load("release-g2-controllers"); record.Units["ctl-b"].State != rollout.UnitRollingBack {
+		t.Fatalf("ctl-b = %s, want it waiting for its rollback", record.Units["ctl-b"].State)
+	}
+	fixed := strings.Repeat("d", 64)
+	h.fleet.units["ctl-c"].digest = fixed
+	h.fleet.restart("ctl-c")
+	h.fleet.refuseRollback = false
+	steps := len(h.fleet.stepLog())
+	if id, err := Resume(t.Context(), h.store, h.fleet, 7, h.clock.Now()); err != nil || id != "release-g2-controllers" {
+		t.Fatalf("resume = %q %v", id, err)
+	}
+	h.run(20, func() bool { return h.phase("release-g2-controllers") == rollout.PhaseRolledBack })
+	if got := h.fleet.stepLog()[steps:]; !slices.Equal(got, []string{"rollback:ctl-b"}) {
+		t.Fatalf("steps after the resume = %v, want ctl-b's rollback only", got)
+	}
+	if got := h.digests("ctl-a", "ctl-b", "ctl-c"); !slices.Equal(got, []string{fromDigest, fromDigest, fixed}) {
+		t.Fatalf("controllers after the resume: %v", got)
+	}
+}
+
+// A frozen canary rollback resumes once an operator moved a pending peer to
+// a newer release: the peer is not stepped and serves as the canary's peer.
+func TestResumeRollsBackACanaryWhosePendingPeerAnOperatorMoved(t *testing.T) {
+	h, _ := releaseHarness(t)
+	h.fleet.wrongBinary["ctl-b"] = true
+	h.fleet.refuseRollback = true
+	h.publish(fromDigest)
+	h.publish(toDigest)
+	h.run(10, func() bool { return h.phase("release-g2-controllers") == rollout.PhaseFrozen })
+	fixed := strings.Repeat("d", 64)
+	h.fleet.units["ctl-c"].digest = fixed
+	h.fleet.restart("ctl-c")
+	h.fleet.refuseRollback = false
+	steps := len(h.fleet.stepLog())
+	if id, err := Resume(t.Context(), h.store, h.fleet, 7, h.clock.Now()); err != nil || id != "release-g2-controllers" {
+		t.Fatalf("resume = %q %v", id, err)
+	}
+	h.run(20, func() bool { return h.phase("release-g2-controllers") == rollout.PhaseRolledBack })
+	if got := h.fleet.stepLog()[steps:]; !slices.Equal(got, []string{"rollback:ctl-b"}) {
+		t.Fatalf("steps after the resume = %v, want the canary's rollback only", got)
+	}
+	if record, _ := h.load("release-g2-controllers"); record.Units["ctl-c"].State != rollout.UnitPending {
+		t.Fatalf("ctl-c = %s, want it left pending", record.Units["ctl-c"].State)
+	}
+}
+
+// An operator who moved a frozen rollout's units by hand to a newer release
+// resumes it without stepping them back to the old one, and the next
+// generation starts from what they run (ts-gru-2, 2026-10-08).
+func TestResumeLeavesTheUnitsAnOperatorMovedOffTheTarget(t *testing.T) {
+	h, program := releaseHarness(t)
+	h.fleet.wrongBinary["ctl-b"] = true
+	h.fleet.refuseRollback = true
+	h.publish(fromDigest)
+	h.publish(toDigest)
+	h.run(10, func() bool { return h.phase("release-g2-controllers") == rollout.PhaseFrozen })
+	fixed := strings.Repeat("d", 64)
+	for _, unit := range []string{"ctl-a", "ctl-b", "ctl-c"} {
+		h.fleet.units[unit].digest = fixed
+		h.fleet.restart(unit)
+	}
+	steps := len(h.fleet.stepLog())
+	if id, err := Resume(t.Context(), h.store, h.fleet, 7, h.clock.Now()); err != nil || id != "release-g2-controllers" {
+		t.Fatalf("resume = %q %v", id, err)
+	}
+	if phase := h.phase("release-g2-controllers"); !phase.Terminal() {
+		t.Fatalf("resumed rollout = %s, want it ended", phase)
+	}
+	for range 3 {
+		if err := h.executor.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := h.fleet.stepLog()[steps:]; len(got) != 0 {
+		t.Fatalf("resume stepped units back: %v", got)
+	}
+	// The next generation names what they run: nothing starts.
+	h.publish(fixed)
+	if got, err := program.Program(t.Context()); got != nil || err != nil {
+		t.Fatalf("program for the release the operator installed = %v %v", got, err)
 	}
 }
 

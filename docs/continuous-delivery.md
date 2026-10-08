@@ -645,7 +645,11 @@ aborting a release changes what the controllers run.
   nothing.
 - `pause` / `resume`: a paused cell starts no further rollout; one in flight
   runs to completion or rollback, so a pause never strands a half-updated
-  quorum. `resume` also retries the rollback of a frozen rollout.
+  quorum. `resume` also retries the rollback of a frozen rollout. A unit
+  whose fresh proof names a third release (neither the rollback's, nor the
+  target, nor known bad), which an operator installed by hand, is done
+  rather than stepped back; a rollout left with nothing to roll back ends
+  and frees the cell's rollout slot for the next generation.
 - `rollback --to GEN`: re-verifies GEN's receipt, publishes its release
   again as a new generation and aborts a rollout in flight towards another
   release (its touched units return to their predecessor and its target

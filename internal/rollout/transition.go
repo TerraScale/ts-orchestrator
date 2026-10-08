@@ -104,6 +104,10 @@ type Event struct {
 	Health Health
 	Reason string
 	At     time.Time
+	// Left, for EventResume, lists the units that already prove a third
+	// release, neither FromDigest nor ToDigest nor known bad: an operator
+	// moved them off the target.
+	Left []string
 }
 
 // Apply returns the record that results from event. The input is never
@@ -166,7 +170,7 @@ func Apply(record Record, event Event) (Record, error) {
 		}
 		next.enter(PhaseFrozen, at, time.Time{}, reasonOr(event.Reason, "frozen"))
 	case EventResume:
-		err = next.resume(at)
+		err = next.resume(at, event.Left)
 	default:
 		err = fmt.Errorf("%w: event kind", ErrInvalid)
 	}
@@ -538,10 +542,19 @@ func (record *Record) abort(at time.Time, reason string) error {
 }
 
 // resume continues a frozen rollout by retrying its rollback. Units still on
-// the forward path are rolled back too; nothing moves towards ToDigest.
-func (record *Record) resume(at time.Time) error {
+// the forward path are rolled back too; nothing moves towards ToDigest. A
+// unit in left, which an operator already moved off the target by hand, is
+// done: stepping it back to FromDigest could undo the fix (ts-gru-2,
+// 2026-10-08).
+func (record *Record) resume(at time.Time, left []string) error {
 	if err := record.requirePhase(PhaseFrozen); err != nil {
 		return err
+	}
+	for _, id := range left {
+		if progress, in := record.Units[id]; in && progress.State.touched() {
+			progress.State = UnitRolledBack
+			record.Units[id] = progress
+		}
 	}
 	for id, progress := range record.Units {
 		if progress.State == UnitHeld {
