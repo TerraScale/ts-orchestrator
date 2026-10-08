@@ -13,7 +13,13 @@
     "TS_AUTH_SMTP_HOST": "smtp.email.sa-saopaulo-1.oci.oraclecloud.com",
     "TS_AUTH_SMTP_PORT": "587",
     "TS_AUTH_SMTP_FROM_ADDRESS": "noreply@terrascale.tech",
-    "TS_AUTH_SMTP_CHECK_REVOCATION": "false"
+    "TS_AUTH_SMTP_CHECK_REVOCATION": "false",
+    "TS_AUTH_SIGNING_KEY_VAULT": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq",
+    "TS_AUTH_SIGNING_KEY_SECRET": "gru-ts-auth-signing-key-ring",
+    "TS_AUTH_OCI_REGION": "sa-saopaulo-1",
+    "TS_AUTH_OCI_TENANCY": "ocid1.tenancy.oc1..aaaaaaaae4zbeypc66rholaayphrk6h2eg7j4up6tfncehv6agji6o5v4yga",
+    "TS_AUTH_OCI_USER": "ocid1.user.oc1..aaaaaaaave6pf7bgqa3ouro3fgz2ryakvgmohygd3u6gv4yyxuywcux662ma",
+    "TS_AUTH_OCI_FINGERPRINT": "83:a7:a5:99:01:d7:1b:fd:5b:7f:47:95:9d:9e:fc:e4"
   },
   "secrets": {
     "TS_AUTH_MASTER_KEY": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-master-key"},
@@ -23,6 +29,7 @@
     "TS_AUTH_TERRASCALE_API_KEY": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-terrascale-api-key"},
     "TS_AUTH_TERRASCALE_PROJECT_ID": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-terrascale-project-id"},
     "TS_AUTH_SMTP_USERNAME": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-smtp-username"},
-    "TS_AUTH_SMTP_PASSWORD": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-smtp-password"}
+    "TS_AUTH_SMTP_PASSWORD": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-1-ts-auth-smtp-password"},
+    "TS_AUTH_OCI_PRIVATE_KEY": {"vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq", "name": "gru-ts-auth-oci-signing-key"}
   }
 }
