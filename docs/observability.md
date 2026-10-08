@@ -199,6 +199,12 @@ renders as a short note; raw upstream error text is never shown.
 
 Access control follows the listener:
 
+Dashboard bearer tokens, whether in Vault or a local file, must contain at
+least 32 cryptographically random bytes (256 bits), encoded as base64 or hex.
+Do not use a human-chosen phrase. The session bucket retains a SHA-256 token
+digest for rotation comparison; bucket readers can test guesses offline,
+so the token's entropy is required for this digest to resist guessing.
+
 - With `bearer_token_file`, every page and stream requires either the
   `Authorization: Bearer` header or a session cookie. `POST /login` exchanges
   the token for a session cookie (`HttpOnly`, `SameSite=Strict`, `Secure` with
@@ -227,7 +233,8 @@ Access control follows the listener:
   preserve process-local browser sessions without controller KV permissions;
   those host-only sessions end on host restart. Controller and NetBird
   dashboards use the persistent KV store; controller attachment retries with
-  bounded backoff if the store is temporarily unavailable.
+  bounded backoff with jitter if the store is temporarily unavailable. Changed
+  errors are logged immediately; unchanged failures are logged every minute.
   Each listener scope allows 1,024 sessions, allocated with KV CAS slots
   across controllers. Existing sessions are never evicted or aged out. A
   repeated login renews its existing cookie; at capacity, new login returns
@@ -236,7 +243,9 @@ Access control follows the listener:
   a failed metadata update preserves active sessions. Logout
   checks the stored cookie hash before purging its expected revision. Sequence
   cutoffs compact purge markers without deleting concurrently reused slots.
-  Collection runs on store attachment and token rotation. Uncontended login
+  Collection runs on store attachment and token rotation. A failed cleanup
+  pass is logged and leaves the committed binding usable; a later attachment
+  or rotation retries reclamation. Uncontended login
   claims a CAS slot directly. After eight occupied-slot conflicts, one
   metadata snapshot identifies free slots, avoiding serial network probes
   of every occupied slot. CAS still resolves concurrent allocations.

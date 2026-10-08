@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -213,7 +214,11 @@ func (server *Server) SetSessionStore(ctx context.Context, store *SessionStore) 
 		}
 		binding := &sessionBinding{store: store, tokenHash: hash, generation: generation}
 		server.sessions.binding.Store(binding)
-		return binding.collect(ctx)
+		// Reclamation failure cannot undo a committed, usable registration.
+		if err := binding.collect(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Warn("dashboard session reclamation deferred", ComponentKey, "dashboard", "error", err)
+		}
+		return nil
 	}
 	return errors.New("dashboard token changed concurrently")
 }
@@ -274,6 +279,9 @@ func (binding *sessionBinding) collect(ctx context.Context) error {
 			return ctx.Err()
 		case entry, ok := <-watcher.Updates():
 			if !ok {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
 				return errors.New("dashboard session enumeration interrupted")
 			}
 			if entry == nil {
@@ -445,12 +453,17 @@ func (manager *sessions) valid(ctx context.Context, value string) (bool, error) 
 	}
 	// Uncached leader reads prevent stale grants after another controller's
 	// logout or token rotation; outages must not authorize cached sessions.
-	var err error
-	binding, err = manager.reconcile(ctx, binding)
-	if err != nil || binding == nil {
-		return false, err
-	}
 	entry, err := binding.store.get(ctx, binding.key(value))
+	if errors.Is(err, nats.ErrMsgNotFound) || errors.Is(err, jetstream.ErrKeyNotFound) ||
+		err == nil && subtle.ConstantTimeCompare(entry.Data, []byte(sessionHash(value))) != 1 {
+		// Only a miss needs reconciliation; successful reads keep the final fence.
+		latest, reconcileErr := manager.reconcile(ctx, binding)
+		if reconcileErr != nil || latest == nil || latest == binding {
+			return false, reconcileErr
+		}
+		binding = latest
+		entry, err = binding.store.get(ctx, binding.key(value))
+	}
 	if errors.Is(err, nats.ErrMsgNotFound) || errors.Is(err, jetstream.ErrKeyNotFound) {
 		return false, nil
 	}

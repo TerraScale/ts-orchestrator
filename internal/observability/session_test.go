@@ -822,11 +822,22 @@ func TestCommittedRotationRevokesBeforeCleanupAndRetriesCollection(t *testing.T)
 	}
 	kv := store.kv
 	store.kv = noSessionEnumeration{kv}
-	if err := rotated.SetSessionStore(t.Context(), store); err == nil {
-		t.Fatal("rotation did not report the failed cleanup")
+	if err := rotated.SetSessionStore(t.Context(), store); err != nil {
+		t.Fatal("cleanup failure rejected a committed registration")
 	}
 	if sessionValid(t, server.sessions, t.Context(), value) {
 		t.Fatal("cleanup failure resurrected a committed rotation")
+	}
+	fresh, err := rotated.sessions.issue(t.Context())
+	if err != nil || !sessionValid(t, rotated.sessions, t.Context(), fresh) {
+		t.Fatal("cleanup failure made the current binding unavailable")
+	}
+	reattached, err := NewTokenServer(Config{Dashboard: true}, strings.Repeat("b", 48), ServerDeps{Registry: NewRegistry(false), Health: new(Health), Sessions: store})
+	if err != nil || !sessionValid(t, reattached.sessions, t.Context(), fresh) {
+		t.Fatal("cleanup failure prevented a new listener from attaching")
+	}
+	if err := rotated.sessions.revoke(t.Context(), fresh); err != nil {
+		t.Fatal(err)
 	}
 	store.kv = kv
 	if err := rotated.SetSessionStore(t.Context(), store); err != nil {
@@ -859,8 +870,8 @@ func TestTokenRotationBetweenSessionReadsRejectsOldGeneration(t *testing.T) {
 		if subject == "$KV."+SessionBucket+"."+binding.key(value) {
 			// Commit rotation after the initial generation check while retaining
 			// the old record, as when cleanup is unavailable on another controller.
-			if err := rotated.SetSessionStore(t.Context(), &rotationStore); err == nil {
-				t.Fatal("rotation unexpectedly collected the old session")
+			if err := rotated.SetSessionStore(t.Context(), &rotationStore); err != nil {
+				t.Fatal("cleanup failure rejected rotation")
 			}
 			rotatedDuringRead = true
 		}
@@ -890,7 +901,7 @@ func TestFinalGenerationReadOutageFailsClosed(t *testing.T) {
 	store.leader = sessionReadFault{JetStreamContext: leader, read: func(stream, subject string, opts ...nats.JSOpt) (*nats.RawStreamMsg, error) {
 		if strings.Contains(subject, ".token.") {
 			tokenReads++
-			if tokenReads == 2 {
+			if tokenReads == 1 {
 				return nil, nats.ErrTimeout
 			}
 		}
@@ -898,6 +909,61 @@ func TestFinalGenerationReadOutageFailsClosed(t *testing.T) {
 	}}
 	if valid, err := server.sessions.valid(t.Context(), value); valid || !errors.Is(err, nats.ErrTimeout) {
 		t.Fatal("final generation read outage authorized a session or hid the error")
+	}
+}
+
+func TestSteadyStateSessionValidationUsesTwoLeaderReads(t *testing.T) {
+	t.Parallel()
+	server, _ := newLoginServer(t)
+	value, err := server.sessions.issue(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := server.sessions.binding.Load().store
+	leader := store.leader
+	var reads []string
+	store.leader = sessionReadFault{JetStreamContext: leader, read: func(stream, subject string, opts ...nats.JSOpt) (*nats.RawStreamMsg, error) {
+		reads = append(reads, subject)
+		return leader.GetLastMsg(stream, subject, opts...)
+	}}
+	if !sessionValid(t, server.sessions, t.Context(), value) || len(reads) != 2 ||
+		!strings.Contains(reads[0], ".session.") || !strings.Contains(reads[1], ".token.") {
+		t.Fatal("steady-state authorization did not use a session read and a final generation fence")
+	}
+}
+
+type closedSessionWatcher struct {
+	jetstream.KeyWatcher
+	updates <-chan jetstream.KeyValueEntry
+}
+
+func (watcher closedSessionWatcher) Updates() <-chan jetstream.KeyValueEntry { return watcher.updates }
+func (closedSessionWatcher) Stop() error                                     { return nil }
+
+type canceledSessionEnumeration struct {
+	jetstream.KeyValue
+	cancel context.CancelFunc
+}
+
+func (store canceledSessionEnumeration) Watch(context.Context, string, ...jetstream.WatchOpt) (jetstream.KeyWatcher, error) {
+	updates := make(chan jetstream.KeyValueEntry)
+	close(updates)
+	store.cancel()
+	return closedSessionWatcher{updates: updates}, nil
+}
+
+func TestSessionCollectionReportsCancellationWhenWatcherCloses(t *testing.T) {
+	t.Parallel()
+	server, _ := newLoginServer(t)
+	binding := server.sessions.binding.Load()
+	kv := binding.store.kv
+	for range 20 {
+		ctx, cancel := context.WithCancel(t.Context())
+		binding.store.kv = canceledSessionEnumeration{KeyValue: kv, cancel: cancel}
+		if err := binding.collect(ctx); !errors.Is(err, context.Canceled) {
+			t.Fatal("closed watcher hid the cancellation cause")
+		}
+		cancel()
 	}
 }
 

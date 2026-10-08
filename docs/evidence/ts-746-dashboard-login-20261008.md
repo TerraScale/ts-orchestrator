@@ -232,3 +232,37 @@ Full observability/dashboard race suites, vet, formatting, and generated
 template checks passed. Chromium and Firefox repeated login, browser reopen,
 controller/NATS restart, cross-site logout refusal, and copied-cookie
 revocation successfully with the allocation check.
+
+## Seventh reviewer round
+
+Steady-state cookie authentication now reads the session record and then
+the leader-backed token generation, retaining the final fail-closed rotation
+fence. Only an absent record or digest mismatch reconciles the cached
+binding and rereads under a changed generation. The RPC-count regression
+requires two leader reads; stale-controller reconciliation, rotations during
+validation, and final-read outages remain covered.
+
+Collection remains bounded by the registration context but is best-effort
+after the token CAS commits. Its error is logged instead of rejecting a
+healthy binding or new listener. Retired records cannot authenticate, and
+a later attachment or rotation retries cleanup. Watcher closure caused by
+cancellation returns the context error. Regressions verify current login
+and new listener attachment during enumeration failure, continued refusal
+of retired cookies, later cleanup, and accurate cancellation reporting.
+
+Dashboard bearer tokens now have an explicit documented requirement: at
+least 32 cryptographically random bytes, encoded as base64 or hex. KV readers
+can test offline guesses against the persisted token digest; human-chosen
+phrases are unsuitable. This addresses the reviewer-approved documentation
+option without introducing another shared secret.
+
+Attachment retries use the existing fleet retry pattern of up to 20 percent
+jitter. Changed errors log immediately; identical failures log at most once
+per minute. The retry regression checks repeated transient failures, changed
+errors, duplicate suppression, bounded attempts, success, and cancellation.
+Ten focused race repetitions passed across auth/collection and app retries.
+
+Full observability/dashboard race suites, vet, formatting, and generated
+template checks passed. Chromium and Firefox repeated login, browser reopen,
+controller/NATS restart, cross-site logout refusal, and copied-cookie
+revocation with the two-read authorization path.

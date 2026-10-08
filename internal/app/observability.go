@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"slices"
 	"sync"
@@ -390,7 +391,8 @@ func authorityView(snapshot authority.Snapshot) observability.AuthorityView {
 // bounded and stop with the runtime, including during a JetStream outage.
 func retryDashboardSessionAttachment(ctx context.Context, attach func(context.Context) error) {
 	delay := 100 * time.Millisecond
-	warned := false
+	var lastError string
+	var nextWarning time.Time
 	for ctx.Err() == nil {
 		attempt, cancel := context.WithTimeout(ctx, 5*time.Second)
 		err := attach(attempt)
@@ -398,11 +400,11 @@ func retryDashboardSessionAttachment(ctx context.Context, attach func(context.Co
 		if err == nil {
 			return
 		}
-		if !warned {
+		if err.Error() != lastError || time.Now().After(nextWarning) {
 			slog.Warn("dashboard session storage unavailable; retrying", observability.ComponentKey, "dashboard", "error", err)
-			warned = true
+			lastError, nextWarning = err.Error(), time.Now().Add(time.Minute)
 		}
-		timer := time.NewTimer(delay)
+		timer := time.NewTimer(delay + time.Duration(rand.Int64N(int64(delay)/5+1)))
 		select {
 		case <-ctx.Done():
 			timer.Stop()

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -175,6 +176,10 @@ func TestHostDashboardKeepsLocalBrowserLoginWithoutJetStream(t *testing.T) {
 }
 
 func TestDashboardSessionAttachmentRetriesAndStops(t *testing.T) {
+	var logs bytes.Buffer
+	original := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(original) })
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	var attempts atomic.Int32
@@ -185,9 +190,9 @@ func TestDashboardSessionAttachmentRetriesAndStops(t *testing.T) {
 				t.Error("attachment attempt is unbounded")
 			}
 			switch attempts.Add(1) {
-			case 1:
+			case 1, 2:
 				return errors.New("opening bucket temporarily unavailable")
-			case 2:
+			case 3:
 				return errors.New("binding token temporarily unavailable")
 			default:
 				return nil
@@ -200,8 +205,12 @@ func TestDashboardSessionAttachmentRetriesAndStops(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("attachment never retried to success")
 	}
-	if attempts.Load() != 3 {
+	if attempts.Load() != 4 {
 		t.Fatal("failed open and bind were not retried")
+	}
+	if strings.Count(logs.String(), "dashboard session storage unavailable; retrying") != 2 ||
+		!strings.Contains(logs.String(), "opening bucket temporarily unavailable") || !strings.Contains(logs.String(), "binding token temporarily unavailable") {
+		t.Fatal("attachment hid a changed failure or repeated an unchanged warning")
 	}
 	stopped, cancelStopped := context.WithCancel(t.Context())
 	cancelStopped()
