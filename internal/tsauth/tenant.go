@@ -20,7 +20,7 @@ const (
 	// becomes its owner; ts-auth has no users before it runs. It is a fixed
 	// service identity, not a ts-auth user, and stays an admin after
 	// EnsureOwner hands the ownership to a person.
-	BootstrapUser = "ts-orchestrator"
+	BootstrapUser = "01M4EB0GDPPHGJPPVY77EMZQKT"
 )
 
 // KeyScopes are the scopes of every project's TerraBase API key.
@@ -172,6 +172,9 @@ func (t TerraBase) user() string {
 }
 
 func (t TerraBase) management(ctx context.Context, method, organization, path string, body any, status int, result any) error {
+	if !ulidRE.MatchString(t.user()) {
+		return errors.New("TerraBase acting user must be a canonical uppercase ULID")
+	}
 	headers := http.Header{"Authorization": {"Bearer " + t.Credential}, "X-TerraBase-User-Id": {t.user()}}
 	if organization != "" {
 		headers.Set("X-TerraBase-Organization-Id", organization)
@@ -219,6 +222,9 @@ func (t TerraBase) CheckKey(ctx context.Context, tenant Tenant, key string) erro
 // TS-535 and so the admin listener: the credential carries no verified
 // email, so it cannot accept an invitation.
 func (t TerraBase) EnsureOwner(ctx context.Context, organization, owner, email string) ([]string, error) {
+	if !ulidRE.MatchString(owner) || owner == BootstrapUser {
+		return nil, errors.New("TerraBase owner must be a canonical uppercase user ULID distinct from the bootstrap actor")
+	}
 	nominee := t
 	nominee.User = owner
 	path := "/v1/management/organizations/" + url.PathEscape(organization)

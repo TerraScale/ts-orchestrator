@@ -51,7 +51,7 @@ const (
 	// in its own failure domain, serve together (TS-578).
 	Replicas = 3
 	// Database is ts-auth's own TerraBase database. ts-auth selects it as
-	// TS_AUTH_DATABASE=<project-uuid>/auth; the host joins the project ID it
+	// TS_AUTH_DATABASE=<project-ulid>/auth; the host joins the project ID it
 	// read from the Vault to it.
 	Database = "auth"
 
@@ -147,7 +147,7 @@ var optionalSecrets = []string{"TS_AUTH_STRIPE_SECRET_KEY", "TS_AUTH_STRIPE_WEBH
 
 var (
 	assetRE  = regexp.MustCompile(`^ts-auth-linux-(?:amd64|arm64)$`)
-	uuidRE   = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	ulidRE   = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 	apiKeyRE = regexp.MustCompile(`^[\x21-\x7e]+$`)
 )
 
@@ -257,7 +257,7 @@ type Layout string
 func (l Layout) Bundle() string { return filepath.Join(string(l), "bundle") }
 
 // Env is the replica's environment: the profile, the secrets and the
-// host-owned settings. TS_AUTH_DATABASE becomes <project-uuid>/<database>
+// host-owned settings. TS_AUTH_DATABASE becomes <project-ulid>/<database>
 // from the secrets' project ID and the profile's database, the selector
 // ts-auth reads; the project ID itself is not passed on. A replica listens on
 // port of every interface.
@@ -303,8 +303,8 @@ func validSecret(key, value string) error {
 		return nil
 	}
 	if slices.ContainsFunc(Projects, func(project Project) bool { return project.ProjectIDKey == key }) {
-		if !uuidRE.MatchString(value) {
-			return fmt.Errorf("%s must be a lowercase hyphenated UUID", key)
+		if !ulidRE.MatchString(value) {
+			return fmt.Errorf("%s must be a canonical uppercase ULID", key)
 		}
 		return nil
 	}

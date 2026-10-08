@@ -212,14 +212,14 @@ func TestBootstrapAgainstTerraBaseRelease(t *testing.T) {
 	if err := own(t.Context(), terraBase, users, organization, email, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "sign in once") {
 		t.Fatalf("missing user: %v", err)
 	}
-	tsAuthUsers = []map[string]any{{"id": "usr_other", "email": "someone@terrascale.tech", "email_verified": true},
-		{"id": "usr_mario", "email": "MarioGK@terrascale.tech", "email_verified": true}}
-	if result := owned(); fmt.Sprint(result["steps"]) != "[added transferred kept ts-orchestrator as admin]" ||
-		result["owner"] != "usr_mario" || result["admin"] != BootstrapUser || result["organization_id"] != organization {
+	tsAuthUsers = []map[string]any{{"id": "01K78000000000000000001002", "email": "someone@terrascale.tech", "email_verified": true},
+		{"id": "01K78000000000000000001001", "email": "MarioGK@terrascale.tech", "email_verified": true}}
+	if result := owned(); fmt.Sprint(result["steps"]) != "[added transferred kept "+BootstrapUser+" as admin]" ||
+		result["owner"] != "01K78000000000000000001001" || result["admin"] != BootstrapUser || result["organization_id"] != organization {
 		t.Fatalf("ownership: %v", result)
 	}
-	roles, err := TerraBase{HTTP: terraBase.HTTP, AdminURL: adminURL, Credential: terraBase.Credential, User: "usr_mario", ManagementOnAdmin: true}.roles(t.Context(), organization)
-	if err != nil || len(roles) != 2 || roles["usr_mario"] != "owner" || roles[BootstrapUser] != "admin" {
+	roles, err := TerraBase{HTTP: terraBase.HTTP, AdminURL: adminURL, Credential: terraBase.Credential, User: "01K78000000000000000001001", ManagementOnAdmin: true}.roles(t.Context(), organization)
+	if err != nil || len(roles) != 2 || roles["01K78000000000000000001001"] != "owner" || roles[BootstrapUser] != "admin" {
 		t.Fatalf("roles %v: %v", roles, err)
 	}
 	if result := owned(); fmt.Sprint(result["steps"]) != "[]" {
@@ -227,11 +227,11 @@ func TestBootstrapAgainstTerraBaseRelease(t *testing.T) {
 	}
 	// Another verified address is not added once the organization is handed
 	// over: any member manages every database.
-	if steps, err := terraBase.EnsureOwner(t.Context(), organization, "usr_other", "someone@terrascale.tech"); err == nil ||
+	if steps, err := terraBase.EnsureOwner(t.Context(), organization, "01K78000000000000000001002", "someone@terrascale.tech"); err == nil ||
 		!strings.Contains(err.Error(), "owned by another user") || len(steps) != 0 {
 		t.Fatalf("second owner: %v, %v", steps, err)
 	}
-	if roles, err := terraBase.roles(t.Context(), organization); err != nil || len(roles) != 2 || roles["usr_other"] != "" {
+	if roles, err := terraBase.roles(t.Context(), organization); err != nil || len(roles) != 2 || roles["01K78000000000000000001002"] != "" {
 		t.Fatalf("roles after a refused owner %v: %v", roles, err)
 	}
 	// As an admin the bootstrap identity still finds everything.
@@ -241,7 +241,7 @@ func TestBootstrapAgainstTerraBaseRelease(t *testing.T) {
 	// is issued or stored.
 	stale := newVault(t)
 	stale.add(SecretName("gru-1", EnvProjectID), "ACTIVE")
-	stale.withSecrets("gru-1", map[string]string{EnvProjectID: "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d"})
+	stale.withSecrets("gru-1", map[string]string{EnvProjectID: "01K78000000000000000000001"})
 	if _, err := bootstrap(t.Context(), terraBase, stale, stale, testTarget, "gru-1", &bytes.Buffer{}); err == nil ||
 		!strings.Contains(err.Error(), "names project") || len(stale.creates) != 0 {
 		t.Fatalf("stale project ID: %v, %d Vault creates", err, len(stale.creates))
@@ -249,7 +249,7 @@ func TestBootstrapAgainstTerraBaseRelease(t *testing.T) {
 
 	// A key for another tenant does not reach this database.
 	foreign, err := TerraBase{HTTP: terraBase.HTTP, ClientURL: clientURL, AdminURL: adminURL, Credential: terraBase.Credential,
-		User: "someone-else", ManagementOnAdmin: true}.EnsureTenant(t.Context(), Projects[0])
+		User: "01K78000000000000000001005", ManagementOnAdmin: true}.EnsureTenant(t.Context(), Projects[0])
 	if err != nil {
 		t.Fatal(err)
 	}

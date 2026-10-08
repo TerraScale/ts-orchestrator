@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	testProjectID = "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d"
+	testProjectID = "01K78000000000000000000001"
 	sentinel      = "SENTINEL-do-not-print"
 )
 
@@ -273,8 +273,10 @@ func TestValidateSecrets(t *testing.T) {
 		"api key with space": with(EnvAPIKey, "tb_ "+sentinel),
 		"empty api key":      with(EnvAPIKey, ""),
 		"4097-char api key":  with(EnvAPIKey, strings.Repeat("k", 4097)),
-		"non-uuid project":   with(EnvProjectID, "ts-auth"),
-		"uppercase project":  with(EnvProjectID, strings.ToUpper(testProjectID)),
+		"non-ulid project":   with(EnvProjectID, "ts-auth"),
+		"lowercase project":  with(EnvProjectID, strings.ToLower(testProjectID)),
+		"uuid project":       with(EnvProjectID, "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d"),
+		"overflow project":   with(EnvProjectID, "81K78000000000000000000001"),
 		"none":               nil,
 	} {
 		err := ValidateSecrets(secrets)
@@ -292,7 +294,7 @@ func TestLayoutEnv(t *testing.T) {
 	env := Layout("/srv/ts-managed/ts-auth").Env(profile, secrets, 8080)
 	want := validProfile()
 	maps.Copy(want, secrets)
-	// ts-auth reads TS_AUTH_DATABASE as <project-uuid>/<database> and gets no
+	// ts-auth reads TS_AUTH_DATABASE as <project-ulid>/<database> and gets no
 	// separate project ID.
 	want[EnvDatabase] = testProjectID + "/auth"
 	delete(want, EnvProjectID)

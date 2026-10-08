@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"unicode"
 )
 
 // FlyApp is the dashboard's Fly app. TS-472 reads its TerraBase settings
@@ -273,7 +272,7 @@ func (u TSAuthUsers) UserID(ctx context.Context, email string) (string, error) {
 	if !owner.EmailVerified || owner.Anonymous || owner.Banned {
 		return "", fmt.Errorf("ts-auth user %s must have verified %s and be neither anonymous nor banned", owner.ID, email)
 	}
-	if owner.ID == "" || owner.ID == BootstrapUser || len(owner.ID) > 256 || strings.ContainsFunc(owner.ID, unicode.IsControl) {
+	if !ulidRE.MatchString(owner.ID) || owner.ID == BootstrapUser {
 		return "", fmt.Errorf("ts-auth user %s has an unusable id", email)
 	}
 	return owner.ID, nil

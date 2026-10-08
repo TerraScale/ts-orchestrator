@@ -37,26 +37,32 @@ func TestOuroborosTSAuthUserLookup(t *testing.T) {
 	set := func(owners ...map[string]any) {
 		users = nil
 		for index := range 120 {
-			users = append(users, map[string]any{"id": fmt.Sprintf("usr_%03d", index), "email": fmt.Sprintf("user%d@example.com", index), "email_verified": true})
+			users = append(users, map[string]any{"id": fmt.Sprintf("%026d", index+1000), "email": fmt.Sprintf("user%d@example.com", index), "email_verified": true})
 		}
 		users = append(users, owners...)
 		cursors = nil
 	}
 
-	set(map[string]any{"id": "usr_mario", "email": "MarioGK@TerraScale.tech", "email_verified": true})
-	if id, err := lookup.UserID(t.Context(), email); err != nil || id != "usr_mario" || fmt.Sprint(cursors) != "[ usr_099]" {
+	set(map[string]any{"id": "01K78000000000000000001001", "email": "MarioGK@TerraScale.tech", "email_verified": true})
+	if id, err := lookup.UserID(t.Context(), email); err != nil || id != "01K78000000000000000001001" || fmt.Sprint(cursors) != "[ 00000000000000000000001099]" {
 		t.Fatalf("user %q, cursors %v: %v", id, cursors, err)
 	}
 	for name, owners := range map[string][]map[string]any{
 		"sign in once":     nil,
-		"must have verifi": {{"id": "usr_mario", "email": email}},
-		"neither anonymou": {{"id": "usr_mario", "email": email, "email_verified": true, "banned": true}},
-		"has 2 users":      {{"id": "usr_a", "email": email, "email_verified": true}, {"id": "usr_b", "email": email, "email_verified": true}},
+		"must have verifi": {{"id": "01K78000000000000000001001", "email": email}},
+		"neither anonymou": {{"id": "01K78000000000000000001001", "email": email, "email_verified": true, "banned": true}},
+		"has 2 users":      {{"id": "01K78000000000000000001003", "email": email, "email_verified": true}, {"id": "01K78000000000000000001004", "email": email, "email_verified": true}},
 		"unusable id":      {{"id": BootstrapUser, "email": email, "email_verified": true}},
 	} {
 		set(owners...)
 		if _, err := lookup.UserID(t.Context(), email); err == nil || !strings.Contains(err.Error(), name) {
 			t.Errorf("%s: %v", name, err)
+		}
+	}
+	for _, id := range []string{"", "usr_mario", "01a1105a-7350-7f48-a96e-d71bbb45d7a8", strings.ToLower("01K78000000000000000001001"), "81K78000000000000000001001", "01K7800000000000000000100I"} {
+		set(map[string]any{"id": id, "email": email, "email_verified": true})
+		if _, err := lookup.UserID(t.Context(), email); err == nil || !strings.Contains(err.Error(), "unusable id") {
+			t.Errorf("accepted noncanonical owner %q: %v", id, err)
 		}
 	}
 	wrong := lookup
@@ -67,7 +73,7 @@ func TestOuroborosTSAuthUserLookup(t *testing.T) {
 }
 
 func TestOuroborosFlySecrets(t *testing.T) {
-	const projectID, key = "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d", "tb_SENTINEL-0123456789abcdef"
+	const projectID, key = "01K78000000000000000000001", "tb_SENTINEL-0123456789abcdef"
 	clientSecret := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("C"), 32))
 	newDashboardVault := func() *fakeVault {
 		return newVault(t).withSecrets("gru-1", map[string]string{dashboard.ProjectIDKey: projectID, dashboard.APIKeyKey: key,
@@ -187,7 +193,7 @@ func TestOuroborosSecretNames(t *testing.T) {
 	var names []string
 	for _, project := range Projects {
 		names = append(names, project.Name+"/"+project.Database, SecretName("gru-1", project.ProjectIDKey), SecretName("gru-1", project.APIKeyKey))
-		if validSecret(project.ProjectIDKey, "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d") != nil || validSecret(project.ProjectIDKey, "auth") == nil ||
+		if validSecret(project.ProjectIDKey, "01K78000000000000000000001") != nil || validSecret(project.ProjectIDKey, "auth") == nil ||
 			validSecret(project.APIKeyKey, "tb_key") != nil || validSecret(project.APIKeyKey, "tb key") == nil {
 			t.Errorf("%s secrets validated wrongly", project.Name)
 		}
@@ -212,7 +218,7 @@ func TestOuroborosSecretNames(t *testing.T) {
 func TestManagementOnAdminListener(t *testing.T) {
 	var seen []string
 	admin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer credential" || r.Header.Get("X-TerraBase-User-Id") != BootstrapUser {
+		if r.Header.Get("Authorization") != "Bearer credential" || r.Header.Get("X-TerraBase-User-Id") != BootstrapUser || !ulidRE.MatchString(r.Header.Get("X-TerraBase-User-Id")) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -227,17 +233,17 @@ func TestManagementOnAdminListener(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
-		_ = json.MarshalWrite(w, named{ID: fmt.Sprintf("id-%d", len(seen)), Name: body.Name})
+		_ = json.MarshalWrite(w, named{ID: fmt.Sprintf("%026d", len(seen)), Name: body.Name})
 	}))
 	t.Cleanup(admin.Close)
 	terraBase := TerraBase{HTTP: admin.Client(), ClientURL: "https://127.0.0.1:1", AdminURL: admin.URL, Credential: "credential", ManagementOnAdmin: true}
 	tenant, err := terraBase.EnsureTenant(t.Context(), dashboard)
-	if err != nil || tenant != (Tenant{OrganizationID: "id-2", Project: "ts-dashboard", ProjectID: "id-4", DatabaseID: "id-6", Database: "dashboard"}) {
+	if err != nil || tenant != (Tenant{OrganizationID: "00000000000000000000000002", Project: "ts-dashboard", ProjectID: "00000000000000000000000004", DatabaseID: "00000000000000000000000006", Database: "dashboard"}) {
 		t.Fatalf("tenant %+v: %v", tenant, err)
 	}
 	if got := fmt.Sprint(seen); got != "[GET /v1/management/organizations POST /v1/management/organizations "+
-		"GET /v1/management/organizations/id-2/projects POST /v1/management/organizations/id-2/projects "+
-		"GET /v1/management/organizations/id-2/projects/id-4/databases POST /v1/management/organizations/id-2/projects/id-4/databases]" {
+		"GET /v1/management/organizations/00000000000000000000000002/projects POST /v1/management/organizations/00000000000000000000000002/projects "+
+		"GET /v1/management/organizations/00000000000000000000000002/projects/00000000000000000000000004/databases POST /v1/management/organizations/00000000000000000000000002/projects/00000000000000000000000004/databases]" {
 		t.Fatal(got)
 	}
 }
@@ -248,10 +254,10 @@ func TestManagementOnAdminListener(t *testing.T) {
 // can leave, it takes only the remaining steps, each as the right user; once
 // the organization is handed over it adds nobody else.
 func TestEnsureOwnerAddsTransfersAndKeepsTheBootstrapAdmin(t *testing.T) {
-	const org, mario, email = "org-1", "usr_mario", "mariogk@terrascale.tech"
-	const add, start, confirm, relist, readmin = "ts-orchestrator PUT /members/usr_mario", "ts-orchestrator POST /ownership-transfer",
-		"usr_mario POST /ownership-transfer/confirm", "usr_mario GET /members", "usr_mario PUT /members/ts-orchestrator/role"
-	const list = "ts-orchestrator GET /members"
+	const org, mario, email = "01K78000000000000000002001", "01K78000000000000000001001", "mariogk@terrascale.tech"
+	const add, start, confirm, relist, readmin = "01M4EB0GDPPHGJPPVY77EMZQKT PUT /members/01K78000000000000000001001", "01M4EB0GDPPHGJPPVY77EMZQKT POST /ownership-transfer",
+		"01K78000000000000000001001 POST /ownership-transfer/confirm", "01K78000000000000000001001 GET /members", "01K78000000000000000001001 PUT /members/01M4EB0GDPPHGJPPVY77EMZQKT/role"
+	const list = "01M4EB0GDPPHGJPPVY77EMZQKT GET /members"
 	for _, test := range []struct {
 		name    string
 		roles   map[string]string
@@ -262,15 +268,15 @@ func TestEnsureOwnerAddsTransfersAndKeepsTheBootstrapAdmin(t *testing.T) {
 		err     string
 	}{
 		{"fresh", map[string]string{BootstrapUser: "owner"}, "", mario,
-			"[added transferred kept ts-orchestrator as admin]", []string{list, add, start, confirm, relist, readmin}, ""},
+			"[added transferred kept 01M4EB0GDPPHGJPPVY77EMZQKT as admin]", []string{list, add, start, confirm, relist, readmin}, ""},
 		{"after the add", map[string]string{BootstrapUser: "owner", mario: "member"}, "", mario,
-			"[transferred kept ts-orchestrator as admin]", []string{list, start, confirm, relist, readmin}, ""},
+			"[transferred kept 01M4EB0GDPPHGJPPVY77EMZQKT as admin]", []string{list, start, confirm, relist, readmin}, ""},
 		{"after the offer", map[string]string{BootstrapUser: "owner", mario: "member"}, mario, mario,
-			"[transferred kept ts-orchestrator as admin]", []string{list, start, confirm, relist, readmin}, ""},
+			"[transferred kept 01M4EB0GDPPHGJPPVY77EMZQKT as admin]", []string{list, start, confirm, relist, readmin}, ""},
 		{"after the confirm", map[string]string{BootstrapUser: "member", mario: "owner"}, "", mario,
-			"[kept ts-orchestrator as admin]", []string{list, readmin}, ""},
+			"[kept 01M4EB0GDPPHGJPPVY77EMZQKT as admin]", []string{list, readmin}, ""},
 		{"done", map[string]string{BootstrapUser: "admin", mario: "owner"}, "", mario, "[]", []string{list}, ""},
-		{"another address", map[string]string{BootstrapUser: "admin", mario: "owner"}, "", "usr_other", "[]", []string{list}, "owned by another user"},
+		{"another address", map[string]string{BootstrapUser: "admin", mario: "owner"}, "", "01K78000000000000000001002", "[]", []string{list}, "owned by another user"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			roles, nominee := test.roles, test.nominee
@@ -316,7 +322,7 @@ func TestEnsureOwnerAddsTransfersAndKeepsTheBootstrapAdmin(t *testing.T) {
 				strings.Join(calls, "; ") != strings.Join(test.calls, "; ") {
 				t.Fatalf("steps %v, err %v, calls:\n%s", steps, err, strings.Join(calls, "\n"))
 			}
-			if test.err == "" && (roles[mario] != "owner" || roles[BootstrapUser] != "admin") || test.err != "" && roles["usr_other"] != "" {
+			if test.err == "" && (roles[mario] != "owner" || roles[BootstrapUser] != "admin") || test.err != "" && roles["01K78000000000000000001002"] != "" {
 				t.Fatalf("roles %v", roles)
 			}
 		})

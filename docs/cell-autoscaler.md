@@ -77,7 +77,7 @@ of at most 64 KiB:
 | `io_queue_depth` | mean in-flight I/O | [0, 1e9] |
 | `p95_latency_ms` | client request latency | [0, 1e9] |
 | `load` | the member status load block from [autoscale telemetry](autoscale-telemetry.md), unchanged: `connections`, `storage_bytes`, `replication_lag_seq`, `write_qps` | required, non-null; `memberstatus.DecodeLoad` and `Load.Validate` |
-| `top_tenants` | at most 10 distinct ts-auth projects, by request rate; `cpu_share` is the tenant's fraction of the node's CPU time | `project` a lowercase UUID, share in [0, 1]; duplicate projects are rejected |
+| `top_tenants` | at most 10 distinct ts-auth projects, by request rate; `cpu_share` is the tenant's fraction of the node's CPU time | `project` a canonical uppercase ULID, share in [0, 1]; duplicate projects are rejected |
 
 Every field except `top_tenants` is required and non-null, including every
 counter in `load`. When a tenant entry is present, all three of its fields

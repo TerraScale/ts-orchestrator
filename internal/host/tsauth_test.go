@@ -19,7 +19,7 @@ import (
 const tsAuthTestAPIKey = "tb_never-print-this-api-key"
 
 func tsAuthTestSecrets() map[string]string {
-	secrets := map[string]string{tsauth.EnvAPIKey: tsAuthTestAPIKey, tsauth.EnvProjectID: "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d"}
+	secrets := map[string]string{tsauth.EnvAPIKey: tsAuthTestAPIKey, tsauth.EnvProjectID: "01K78000000000000000000001"}
 	for i, key := range tsauth.Generated {
 		secrets[key] = base64.StdEncoding.EncodeToString([]byte(strings.Repeat(string(rune('a'+i)), 32)))
 	}
@@ -77,7 +77,7 @@ func TestTSAuthReplicaGetsVaultSecrets(t *testing.T) {
 	if _, set := env[tsauth.EnvProjectID]; set {
 		t.Error("the project ID reached the replica on its own")
 	}
-	// ts-auth selects its database as <project-uuid>/auth.
+	// ts-auth selects its database as <project-ulid>/auth.
 	bundle := tsauth.Layout(agent.cfg.TSAuthRoot).Bundle()
 	if env[tsauth.EnvListen] != "http://0.0.0.0:8080" || env[tsauth.EnvBundleExtract] != bundle ||
 		env[tsauth.EnvDatabase] != secrets[tsauth.EnvProjectID]+"/auth" || env[tsauth.EnvDashboardRedirectURIs] != tsauth.DashboardRedirectURI {

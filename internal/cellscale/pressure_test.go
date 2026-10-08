@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,11 +22,11 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 )
 
-// project is a test tenant's ts-auth project id: a lowercase UUID named by a
+// project is a test tenant's ts-auth project ID: a canonical ULID named by a
 // readable label.
 func project(label string) string {
 	sum := sha256.Sum256([]byte(label))
-	return fmt.Sprintf("%x-%x-%x-%x-%x", sum[:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16])
+	return fmt.Sprintf("%026d", binary.BigEndian.Uint64(sum[:8]))
 }
 
 func validPressure() NodePressure {
@@ -63,6 +64,23 @@ func TestNodePressureValidate(t *testing.T) {
 		mutate(&p)
 		if err := p.Validate(); !errors.Is(err, ErrInvalidPressure) {
 			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestNodePressureRequiresCanonicalProjectULIDs(t *testing.T) {
+	for _, id := range []string{"00000000000000000000000000", "01K78000000000000000000001", "7ZZZZZZZZZZZZZZZZZZZZZZZZZ"} {
+		p := validPressure()
+		p.TopTenants[0].Project = id
+		if err := p.Validate(); err != nil {
+			t.Errorf("project %q: %v", id, err)
+		}
+	}
+	for _, id := range []string{"", "01a1105a-7350-7f48-a96e-d71bbb45d7a8", "prj_01K78000000000000000000001", "01k78000000000000000000001", "81K78000000000000000000001", "01K7800000000000000000000I", "01K7800000000000000000000", "01K780000000000000000000010"} {
+		p := validPressure()
+		p.TopTenants[0].Project = id
+		if err := p.Validate(); !errors.Is(err, ErrInvalidPressure) {
+			t.Errorf("accepted noncanonical project %q: %v", id, err)
 		}
 	}
 }

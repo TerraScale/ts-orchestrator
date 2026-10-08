@@ -1302,7 +1302,9 @@ func (s *Server) createLeafNode(conn net.Conn, rURL *url.URL, remote *leafNodeCf
 			s.Errorf("Unable to lookup account %s for solicited leafnode connection: %v", lacc, err)
 			return nil
 		}
+		acc.mu.RLock()
 		remoteSuffix = fmt.Sprintf(" for account: %s", acc.traceLabel())
+		acc.mu.RUnlock()
 	}
 
 	c.mu.Lock()

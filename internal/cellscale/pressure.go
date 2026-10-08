@@ -41,7 +41,7 @@ const (
 var (
 	ErrInvalidPressure = errors.New("invalid node pressure")
 	orgRE              = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`)
-	projectRE          = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	projectRE          = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 	releaseRE          = regexp.MustCompile(`^[A-Za-z0-9._:+-]{1,128}$`)
 )
 
@@ -63,7 +63,7 @@ func (s NodeState) valid() bool {
 
 // TenantLoad is one ts-auth project's share of a node's load.
 type TenantLoad struct {
-	// Project is the ts-auth project id, a lowercase UUID.
+	// Project is the ts-auth project ID, a canonical uppercase ULID.
 	Project     string  `json:"project"`
 	RequestRate float64 `json:"request_rate"`
 	// CPUShare is the tenant's fraction of the node's CPU time, in [0,1].

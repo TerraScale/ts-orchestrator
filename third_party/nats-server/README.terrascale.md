@@ -7,7 +7,7 @@ tag `v2.15.0` resolves to commit `eb763679aa3c24a40dcd3012aa046ad1996d851c`
 (annotated tag object `4165d0d62508a8abe99feed39bb9e8ca4216aede`). The
 upstream Apache-2.0 `LICENSE`, module files, and tests are retained.
 
-The sole upstream source change is in `server/server.go`: when `DontListen` is
+The first upstream source change is in `server/server.go`: when `DontListen` is
 true, `Server.Start()` closes `clientListenReady` itself. In v2.15.0, route
 startup waits on that channel, but the normal closer, `AcceptLoop`, is skipped
 when the client listener is disabled. Without the change an embedded broker
@@ -22,10 +22,14 @@ The second change, also in `server/server.go`, adds the exported
 `$SYS.REQ.ACCOUNT.<account>.CLAIMS.UPDATE` requests (routed or client-sent)
 without the resolver's interregion contract check; the resolver validates a
 replacement in `Store` and then installs it through this wrapper. No other
-server behavior changes.
+server behavior changes in that wrapper.
+
+`server/accounts.go` serializes account claim updates and captures trace labels
+under the account lock. `server/leafnode.go` also holds the account read lock
+when capturing a solicited leaf's label, preventing a race with claim refresh.
 
 Compare this directory with the upstream `v2.15.0` Go module archive before
-upgrading. Apart from this README, `server/server.go` must be the only differing
-file. An upgrade must pass the route-start, absent-client-listener, bounded
+upgrading. Apart from this README, `server/server.go`, `server/accounts.go` and
+`server/leafnode.go` are the changed upstream files. An upgrade must pass the route-start, absent-client-listener, bounded
 shutdown, R3 formation, and real JWT bridge caller regressions before replacing
 this pinned copy.

@@ -75,7 +75,7 @@ breaks these rules:
 | `TS_AUTH_PUBLIC_ORIGIN` | Exactly `https://<cell>.auth.terrascale.tech`, the cell's regional host, `https://gru.auth.terrascale.tech` in gru-1 (user decision 2026-10-05; `auth.terrascale.tech` stays the ts-atlas proxy). `<cell>` is the lower-case catalog cell (`gru`, `sfo`, `fra`); a cell outside the catalog, or another cell's URLs, are refused. ts-auth's issuer is `<origin>/terrascale`. |
 | `TS_AUTH_TERRASCALE_API_URL` | Exactly `https://<cell>.api.terrascale.tech`, `https://gru.api.terrascale.tech` in gru-1. |
 | `TS_AUTH_TERRASCALE_API_ENDPOINTS`, `TS_AUTH_TERRASCALE_API_CA`, `TS_AUTH_TERRASCALE_API_FAILOVER` | Optional, endpoints and CA together: the [private TerraBase path](#private-terrabase-path). Each endpoint is `https://<IP>:<TERRABASE_CLIENT_PORT>` of a member the cell's `terrabase` profile lists in `TERRABASE_PEERS`, at most once, `;`-separated; the CA is 1 to 4 PEM CA certificates. Several endpoints need `TS_AUTH_TERRASCALE_API_FAILOVER=true`. Checked by the controller against the cell's current `terrabase` profile, so a spec that drops a member ts-auth still names is refused. |
-| `TS_AUTH_DATABASE` | Exactly `auth`, the database `ouroboros bootstrap` creates. The host passes ts-auth `<project-uuid>/auth`, the project from the Vault. |
+| `TS_AUTH_DATABASE` | Exactly `auth`, the database `ouroboros bootstrap` creates. The host passes ts-auth `<project-ulid>/auth`, the project from the Vault. |
 | `TS_AUTH_ACCESS_TOKEN_AUDIENCES` | Exactly `https://<cell>.api.terrascale.tech`, the cell TerraBase's `auth-audience`: every access token names it, so a dashboard user's token reaches TerraBase's Management API (TS-519). |
 | `TS_AUTH_DASHBOARD_REDIRECT_URIS` | Exactly `https://dash.terrascale.tech/login/callback`, the dashboard's callback. |
 | `TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS` | Exactly `https://dash.terrascale.tech/login`, the `post_logout_redirect_uri` the dashboard sends; ts-auth compares it exactly. |
@@ -101,7 +101,7 @@ The profile's `secrets` name six Vault secrets; the host agent reads them
 
 The project ID is not secret; it travels with the API key because the key
 reaches only that project's database. The host joins it to the profile's
-database as `TS_AUTH_DATABASE=<project-uuid>/auth`, the selector ts-auth
+database as `TS_AUTH_DATABASE=<project-ulid>/auth`, the selector ts-auth
 reads, and does not pass `TS_AUTH_TERRASCALE_PROJECT_ID` itself.
 
 ### SMTP relay
@@ -352,9 +352,14 @@ dashboard keep their data in the production TerraBase, the same release end
 users reach at `https://gru.api.terrascale.tech`, as ordinary tenants: there
 is no private TerraBase instance. `tsauth.Projects` is the table.
 
+The stable bootstrap service actor is `01M4EB0GDPPHGJPPVY77EMZQKT`
+(`tsauth.BootstrapUser`). Management requests send that ULID as
+`X-TerraBase-User-Id`. Phase B requires a canonical uppercase user ULID
+distinct from this service actor; prefixed and UUID user IDs are rejected.
+
 | Object | Name | How |
 | --- | --- | --- |
-| Organization | `terrascale`, owner `ts-orchestrator` until phase B, then the person | Management API on the member's client listener (9465), or from TerraBase TS-519 its loopback admin listener (9464) |
+| Organization | `terrascale`, owner `01M4EB0GDPPHGJPPVY77EMZQKT` until phase B, then the person | Management API on the member's client listener (9465), or from TerraBase TS-519 its loopback admin listener (9464) |
 | Project, database | `ts-auth`, `auth` (`TS_AUTH_DATABASE`) | Management API |
 | Project, database | `ts-dashboard`, `dashboard` | Management API |
 | API keys | one per project, scopes `documents:read`, `documents:write`, narrowed to that project's organization, project and database | `POST /admin/api-keys` on the member's loopback admin listener (9464) |
@@ -370,14 +375,14 @@ The names are stable: `<cell>-<key lowercased, _ replaced by ->`.
 
 ### Phase A: tenants and keys (always)
 
-`ouroboros bootstrap` acts as the fixed service identity `ts-orchestrator`
-(header `X-TerraBase-User-Id: ts-orchestrator`, with the member's Management
+`ouroboros bootstrap` acts as the fixed service identity `01M4EB0GDPPHGJPPVY77EMZQKT`
+(header `X-TerraBase-User-Id: 01M4EB0GDPPHGJPPVY77EMZQKT`, with the member's Management
 service credential). The Management API needs that credential
 (`TERRABASE_MANAGEMENT_CREDENTIAL_FILE` from TerraBase TS-519 on, before it
 `TERRABASE_DASHBOARD_CREDENTIAL_FILE`); without one it answers 401 and the
 command stops. Phase B refuses to add a member once another user owns the
 organization, so a rerun with a different address changes nothing. The creator of an organization becomes its first owner, so a
-new organization is owned by `ts-orchestrator`. The command reaches both
+new organization is owned by `01M4EB0GDPPHGJPPVY77EMZQKT`. The command reaches both
 listeners through an SSH forward to `gru-1-db-1`, trusts the cell's member CA
 and checks the member certificate names `--member`.
 
@@ -439,15 +444,15 @@ served.
 
 Then, only for the steps still undone:
 
-1. Add the user as a member, acting as `ts-orchestrator`. TerraBase records
+1. Add the user as a member, acting as the bootstrap actor. TerraBase records
    the address only in the audit event `member.added`.
-2. Start the ownership transfer to the user (as `ts-orchestrator`) and
-   confirm it acting as the user. Confirming demotes `ts-orchestrator` to
+2. Start the ownership transfer to the user (as the bootstrap actor) and
+   confirm it acting as the user. Confirming demotes the bootstrap actor to
    member.
-3. Make `ts-orchestrator` admin again, acting as the new owner.
+3. Make the bootstrap actor admin again, acting as the new owner.
 
-`ts-orchestrator` is never removed. The command prints
-`{"organization_id","owner","admin":"ts-orchestrator","steps":[...]}`; a rerun
+The bootstrap actor is never removed. The command prints
+`{"organization_id","owner","admin":"01M4EB0GDPPHGJPPVY77EMZQKT","steps":[...]}`; a rerun
 prints `"steps":[]`. Phase A reruns still work afterwards: an admin may list
 and create projects and databases.
 
@@ -738,7 +743,7 @@ shred -u "$WORK/dashboard-credential" "$WORK/ts-auth-sk"
 ```
 
 Expect the two phase A lines with `"created":false`, then
-`{"organization_id":"...","owner":"<user id>","admin":"ts-orchestrator","steps":[...]}`.
+`{"organization_id":"...","owner":"<user id>","admin":"01M4EB0GDPPHGJPPVY77EMZQKT","steps":[...]}`.
 A rerun prints `"steps":[]`. If the person has not signed in, it stops with
 `ts-auth instance <slug> has no user mariogk@terrascale.tech yet: sign in once
 with that address (for example on the dashboard), then rerun`; sign in and
@@ -787,7 +792,7 @@ TerraBase release binary.
   wrong credential, the credential on the client listener and a certificate
   for another member are refused. It then runs phase B against a fake
   ts-auth users API: the missing-user message, the member add and ownership
-  transfer with `ts-orchestrator` kept as admin, a no-op rerun, and a phase A
+  transfer with the bootstrap actor kept as admin, a no-op rerun, and a phase A
   rerun after the transfer. Passed locally against
   `ci-7f743f1abe3180aeca77fe23d0eabefdf8c6a5af-run-13654`
   (`terrabase-linux-amd64`, SHA-256
