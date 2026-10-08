@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -551,6 +552,18 @@ func TestSessionCapacityIsSharedAndRotationReclaimsIt(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Model an interrupted logout: its retained marker is still a free slot.
+	last := "v3." + strconv.Itoa(maxSessions-1) + "." + base64.RawURLEncoding.EncodeToString(bytesOf(1))
+	if _, err := store.kv.Create(t.Context(), binding.key(last), []byte(sessionHash(last))); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.kv.Purge(t.Context(), binding.key(last)); err != nil {
+		t.Fatal(err)
+	}
+	// Occupied slots must not each cost a network round trip. At 5 ms per
+	// probe, a serial scan can consume the complete session deadline.
+	latency := &slowSessionCreates{KeyValue: store.kv}
+	store.kv = latency
 	var wg sync.WaitGroup
 	results := make(chan error, 2)
 	values := make(chan string, 2)
@@ -578,6 +591,9 @@ func TestSessionCapacityIsSharedAndRotationReclaimsIt(t *testing.T) {
 	}
 	if accepted != 1 || rejected != 1 {
 		t.Fatal("concurrent controllers exceeded the session capacity")
+	}
+	if latency.creates.Load() > 20 {
+		t.Fatal("near-capacity allocation probed occupied slots serially")
 	}
 	value := <-values
 	response := postLogin(first, url.Values{"token": {token}})
@@ -716,10 +732,10 @@ func TestSessionReadsHonorRequestCancellation(t *testing.T) {
 type noSessionEnumeration struct{ jetstream.KeyValue }
 
 func (noSessionEnumeration) Watch(context.Context, string, ...jetstream.WatchOpt) (jetstream.KeyWatcher, error) {
-	return nil, errors.New("login must not enumerate the session namespace")
+	return nil, errors.New("session enumeration unavailable")
 }
 
-func TestLoginDoesNotEnumerateSessions(t *testing.T) {
+func TestUncontendedLoginDoesNotEnumerateSessions(t *testing.T) {
 	t.Parallel()
 	server, token := newLoginServer(t)
 	store := server.sessions.binding.Load().store
@@ -729,5 +745,95 @@ func TestLoginDoesNotEnumerateSessions(t *testing.T) {
 		if response.Code != http.StatusSeeOther || len(response.Result().Cookies()) != 1 {
 			t.Fatal("login attempted session enumeration")
 		}
+	}
+}
+
+type slowSessionCreates struct {
+	jetstream.KeyValue
+	creates atomic.Int32
+}
+
+func (store *slowSessionCreates) Create(ctx context.Context, key string, value []byte, opts ...jetstream.KVCreateOpt) (uint64, error) {
+	store.creates.Add(1)
+	timer := time.NewTimer(5 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	case <-timer.C:
+		return store.KeyValue.Create(ctx, key, value, opts...)
+	}
+}
+
+type sessionUpdateFault struct{ jetstream.KeyValue }
+
+func (sessionUpdateFault) Update(context.Context, string, []byte, uint64) (uint64, error) {
+	return 0, context.DeadlineExceeded
+}
+
+func TestFailedTokenRotationPreservesActiveSessions(t *testing.T) {
+	t.Parallel()
+	server, _ := newLoginServer(t)
+	store := server.sessions.binding.Load().store
+	value, err := server.sessions.issue(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := store.kv.Status(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotated, err := NewTokenServer(Config{Dashboard: true}, strings.Repeat("b", 48), ServerDeps{Registry: NewRegistry(false), Health: new(Health)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kv := store.kv
+	store.kv = sessionUpdateFault{kv}
+	if err := rotated.SetSessionStore(t.Context(), store); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("rotation did not report the failed metadata update")
+	}
+	if !sessionValid(t, server.sessions, t.Context(), value) {
+		t.Fatal("failed rotation deleted an active session")
+	}
+	after, err := store.kv.Status(t.Context())
+	if err != nil || after.Values() != before.Values() || after.Bytes() != before.Bytes() {
+		t.Fatal("failed rotation changed persisted sessions")
+	}
+	store.kv = kv
+	if err := rotated.SetSessionStore(t.Context(), store); err != nil {
+		t.Fatal(err)
+	}
+	if sessionValid(t, server.sessions, t.Context(), value) {
+		t.Fatal("successful rotation preserved a revoked session")
+	}
+}
+
+func TestCommittedRotationRevokesBeforeCleanupAndRetriesCollection(t *testing.T) {
+	t.Parallel()
+	server, _ := newLoginServer(t)
+	store := server.sessions.binding.Load().store
+	value, err := server.sessions.issue(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotated, err := NewTokenServer(Config{Dashboard: true}, strings.Repeat("b", 48), ServerDeps{Registry: NewRegistry(false), Health: new(Health)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kv := store.kv
+	store.kv = noSessionEnumeration{kv}
+	if err := rotated.SetSessionStore(t.Context(), store); err == nil {
+		t.Fatal("rotation did not report the failed cleanup")
+	}
+	if sessionValid(t, server.sessions, t.Context(), value) {
+		t.Fatal("cleanup failure resurrected a committed rotation")
+	}
+	store.kv = kv
+	if err := rotated.SetSessionStore(t.Context(), store); err != nil {
+		t.Fatal(err)
+	}
+	status, err := store.kv.Status(t.Context())
+	if err != nil || status.Values() != 1 {
+		t.Fatal("retry did not collect the retired generation")
 	}
 }

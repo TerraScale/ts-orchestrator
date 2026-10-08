@@ -116,11 +116,8 @@ func (server *Server) SetSessionStore(ctx context.Context, store *SessionStore) 
 		case string(entry.Data) == hash:
 			revision = entry.Sequence
 		default:
-			// Reclaim the retired generation before updating metadata, even
-			// when the bucket has reached its byte limit.
-			if err = (&sessionBinding{store: store, generation: entry.Sequence + 1}).collect(ctx); err != nil {
-				return err
-			}
+			// Failed rotation must preserve active sessions. Reclaim records
+			// only after the generation's CAS commits their revocation.
 			revision, err = store.kv.Update(ctx, key, []byte(hash), entry.Sequence)
 		}
 		if errors.Is(err, jetstream.ErrKeyExists) || errors.Is(err, jetstream.ErrKeyRevisionMismatch) {
@@ -194,6 +191,39 @@ func (store *SessionStore) purgeThrough(ctx context.Context, key string, revisio
 	return store.stream.Purge(ctx, jetstream.WithPurgeSubject("$KV."+SessionBucket+"."+key), jetstream.WithPurgeSequence(revision+1))
 }
 
+// A busy scope needs one metadata snapshot, not a leader RPC per occupied
+// slot. Purge markers are reusable; CAS resolves allocations after the snapshot.
+func (binding *sessionBinding) occupied(ctx context.Context) ([maxSessions]bool, error) {
+	var occupied [maxSessions]bool
+	prefix := "session." + binding.store.scope + "." + strconv.FormatUint(binding.generation, 10) + "."
+	watcher, err := binding.store.kv.Watch(ctx, prefix+"*", jetstream.MetaOnly())
+	if err != nil {
+		return occupied, err
+	}
+	defer watcher.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return occupied, ctx.Err()
+		case entry, ok := <-watcher.Updates():
+			if !ok {
+				return occupied, errors.New("dashboard session enumeration interrupted")
+			}
+			if entry == nil {
+				return occupied, nil
+			}
+			if entry.Operation() != jetstream.KeyValuePut {
+				continue
+			}
+			slot, err := strconv.Atoi(strings.TrimPrefix(entry.Key(), prefix))
+			if err != nil || slot < 0 || slot >= maxSessions {
+				return occupied, errors.New("invalid dashboard session slot")
+			}
+			occupied[slot] = true
+		}
+	}
+}
+
 func (manager *sessions) issue(ctx context.Context) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, sessionStoreTimeout)
 	defer cancel()
@@ -228,10 +258,24 @@ func (manager *sessions) issue(ctx context.Context) (string, error) {
 	// Fixed CAS-allocated slots enforce capacity across all controllers,
 	// including simultaneous logins. Only the cookie's digest is stored.
 	start := (int(raw[0])<<8 | int(raw[1])) % maxSessions
-	for offset := range maxSessions {
-		value := "v3." + strconv.Itoa((start+offset)%maxSessions) + "." + encoded
+	const probes = 8
+	var occupied [maxSessions]bool
+	for offset := range maxSessions + probes {
+		if offset == probes {
+			var err error
+			occupied, err = binding.occupied(ctx)
+			if err != nil {
+				return "", err
+			}
+		}
+		slot := (start + offset) % maxSessions
+		if occupied[slot] {
+			continue
+		}
+		value := "v3." + strconv.Itoa(slot) + "." + encoded
 		_, err := binding.store.kv.Create(ctx, binding.key(value), []byte(sessionHash(value)))
 		if errors.Is(err, jetstream.ErrKeyExists) {
+			occupied[slot] = true
 			continue
 		}
 		if err != nil {

@@ -225,11 +225,14 @@ Access control follows the listener:
   across controllers. Existing sessions are never evicted or aged out. A
   repeated login renews its existing cookie; at capacity, new login returns
   `503` with instructions to sign out elsewhere or rotate the dashboard token.
-  Rotation reclaims obsolete generations before updating metadata, and logout
+  Rotation commits the new generation before reclaiming obsolete records;
+  a failed metadata update preserves active sessions. Logout
   checks the stored cookie hash before purging its expected revision. Sequence
   cutoffs compact purge markers without deleting concurrently reused slots.
-  Collection runs on store attachment and token rotation; a new login only
-  claims an available CAS slot, without enumerating the session namespace.
+  Collection runs on store attachment and token rotation. Uncontended login
+  claims a CAS slot directly. After eight occupied-slot conflicts, one
+  metadata snapshot identifies free slots, avoiding serial network probes
+  of every occupied slot. CAS still resolves concurrent allocations.
   The bucket also retains its 16 MiB hard limit.
   Login and logout refuse cross-site form posts (`Sec-Fetch-Site`, `Origin`);
   `Origin: null` is accepted only with `Sec-Fetch-Site: same-origin`. The

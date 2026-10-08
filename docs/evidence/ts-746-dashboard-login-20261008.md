@@ -121,3 +121,23 @@ complete observability/dashboard race suites, full-repository fast tests,
 vet, formatting and template generation passed. Chromium and Firefox repeated
 login, browser reopen, controller/broker restart, cross-site logout rejection
 and copied-cookie revocation successfully.
+
+## Third reviewer round
+
+Rotation now commits the new token-generation CAS before deleting retired
+records. A timed-out metadata update leaves active sessions and KV bytes/count
+unchanged. If collection fails after the CAS commits, old sessions remain
+revoked and a subsequent attachment retries cleanup.
+
+Uncontended login still allocates directly. After eight occupied-slot
+conflicts, one metadata-only snapshot identifies available slots; CAS creates
+only those candidates. Purge markers from interrupted logout are reusable.
+The near-capacity regression injects 5 ms latency per Create, pits two
+controllers against the last slot, verifies exactly one login succeeds, and
+limits the pair to at most 20 Create requests instead of a serial 1,024-slot
+probe. Rotation/failure/allocation regressions passed ten race repetitions.
+
+Full observability/dashboard race suites, focused app race tests, vet,
+formatting and generated-template checks passed. Chromium and Firefox both
+repeated login, browser reopening, controller/NATS restart, cross-site logout
+rejection, and copied-cookie revocation with this revision.
