@@ -1,8 +1,10 @@
 # Secrets in OCI Vault
 
-Every TerraScale secret lives in the gru-1 OCI Vault. OpenBao is retired for
-TerraScale (decision of 2026-10-05): nothing in this repository reads it, and
-its old entries are kept, not deleted.
+TerraScale production secrets belong in the Vault of their serving region:
+`gru` (`sa-saopaulo-1`) or `sfo` (`us-sanjose-1`). The
+[TS-745 inventory](secrets-inventory.md) distinguishes verified Vault records
+from consumers and plaintext copies that still need migration. Production
+OpenBao reads are retired; homelab ts-router/ts-reviewer stay on OpenBao.
 
 | Vault | Value |
 | --- | --- |
@@ -15,7 +17,8 @@ the secret, and receipts and evidence carry names, OCIDs and checksums only.
 ## Names
 
 A secret is named `<scope>-<service>-<key>`, lowercase words joined by
-hyphens. The scope is the Vault's cell, `gru-1`; the service is the consumer
+hyphens. New secrets use the region, `gru` or `sfo`, as their scope. Existing signed
+`gru-1` / `sfo-1` names remain valid. The service is the consumer
 (`ts-auth`, `netbird`, `cloudflare`, `trust`); the key says what it holds.
 Code derives a name from an environment-style key `SERVICE_KEY` by lowering
 it and turning `_` into `-`: `NETBIRD_RELAY_AUTH_SECRET` of `gru-1` is
@@ -40,7 +43,7 @@ read that compartment.
 | --- | --- | --- |
 | `gru-1-ts-auth-*` | `gru-1-control` | ts-auth replicas, through the secret refs of its profile; see [ts-auth deployment](ts-auth-deployment.md) |
 | `gru-1-netbird-setup-key`, `gru-1-netbird-admin-pat` | `gru-1-control` | Server enrollment and controller reconciliation; see [NetBird](../deploy/netbird/README.md#secrets-and-tokens) |
-| `gru-1-netbird-datastore-encryption-key`, `gru-1-netbird-relay-auth-secret`, `gru-1-netbird-session-cookie-encryption-key` | `ts-ops` | `/etc/netbird/config.yaml` on ts-ops, rendered by `install.sh` |
+| `gru-1-netbird-datastore-encryption-key`, `gru-1-netbird-relay-auth-secret`, `gru-1-netbird-session-cookie-encryption-key` | `ts-ops` | `/run/terrascale-netbird/config.yaml` on ts-ops, fetched before each server start |
 | `gru-1-netbird-owner-email`, `gru-1-netbird-owner-password` | `TerraScale` | NetBird dashboard owner login |
 | `gru-1-netbird-automation-user-id`, `-pat`, `-pat-id`, `-pat-expires` | `TerraScale` | `ts-orch netbird --pat-file` and operator API calls |
 | `gru-1-netbird-ssh-automation-email`, `-password` | `TerraScale` | `ts-orch netbird ssh`: browserless NetBird SSH login |
@@ -78,40 +81,75 @@ It never replaces an existing secret. It always reads the current version
 back and fails unless it equals the input, so a rerun proves the stored
 copy. It prints `{"secret", "id", "created"}`.
 
-To rotate, add a version without putting the value on a command line, then
-rerun `put` with the new value to prove it:
+The rotating owner adds a version with an optimistic concurrency check. Supply
+bytes on stdin, never in arguments or a disk staging file:
 
 ```sh
-umask 077
-base64 -w0 new-value > new-value.b64
-jq -n --rawfile c new-value.b64 '{secretContentContent: $c}' > new-value.json
-oci vault secret update-base64 --secret-id "$SECRET" --from-json file://new-value.json
-shred -u new-value new-value.b64 new-value.json
+ts-orch vault version --vault-id "$VAULT" --name "$NAME" \
+  --secret-id "$SECRET" --expect-current "$VERSION" --file /dev/stdin
 ```
+
+A regional privileged publisher may use `--instance-principal` instead of the
+operator profile. Grant writes only to its owned secret OCIDs. The command
+checks the named target, ACTIVE state and expected CURRENT version, then uses
+OCI `If-Match` while publishing a new CURRENT version. Reread CURRENT on an
+uncertain result; never blindly retry a signing-ring mutation. `put` remains
+create-once and never rotates a value. Historical versions remain retained.
 
 ## Read a secret
 
-Operators read a secret into an owner-only file or an environment variable,
-never onto the terminal:
+Go services can import
+`git.terrascale.tech/TerraScale/ts-orchestrator/pkg/vaultsecret`. `Read` returns
+OCIDs, CURRENT version numbers, and values accessible only through `Value()`;
+formatting and JSON show metadata only. `Watch` reads at startup, polls CURRENT,
+and invokes the consumer only when an OCID/version changes. The consumer must
+validate the complete snapshot and atomically replace its in-memory state.
+Reads have a 30-second deadline; a startup failure refuses initialization.
+Later read/apply failures retain the last successfully applied snapshot and
+retry on the next interval. No secret content is included in SDK errors.
+An older CURRENT version of the same secret is refused after a newer version
+was applied: OCI can briefly serve stale reads after publication. To roll back,
+publish the previous content as a new version instead of moving an old stage.
+
+A service in another language can use its OCI SDK equivalent or the single
+binary's file delivery path:
 
 ```sh
-vault_secret() {
-  oci secrets secret-bundle get-secret-bundle-by-name --vault-id "$VAULT" --secret-name "$1" \
-    --query 'data."secret-bundle-content".content' --raw-output | base64 -d
-}
-(umask 077; vault_secret gru-1-netbird-automation-pat > "$PAT")
-export CF_API_TOKEN="$(vault_secret gru-1-cloudflare-dns-edit-token)"
+ts-orch vault deliver --cell gru --service ts-auth \
+  --refs /etc/terrascale-orchestrator/vault/ts-auth.json \
+  --dir /run/ts-auth-vault --refresh 1m
 ```
+
+The reference file maps environment-style keys to `{ "vault": "<Vault OCID>",
+"name": "gru-ts-auth-<purpose>" }`. The existing numbered names also work.
+Files are named by lowercasing keys. The directory must already exist, be
+owned by the delivery process, have mode 0700, and reside on tmpfs with swap
+disabled. Consumers use the same UID, or use the host agent's workload-owned
+`_FILE` deliveries described below. Under systemd, `Type=notify` waits for the
+first complete delivery (`READY=1`); `RuntimeDirectoryMode=0700` creates the
+private directory. `--once` verifies/delivers one snapshot and exits.
+
+For existing signed controller paths, `--file-names` accepts reference keys
+such as `controller-a.creds` as exact filenames. The service/region restriction
+still applies; directory separators and hidden filenames are refused.
+
+The writer replaces each 0600 file atomically. Services must reopen files to
+observe versions; an already-open descriptor or a startup-only loader keeps
+its old bytes. Coupled signing-key material belongs in one ring secret so one
+atomic replacement publishes the entire ring. Every ref is limited to the
+configured service and region; IAM must independently grant only its secret
+OCIDs. Outputs contain directory paths, secret OCIDs and version numbers.
 
 ## Render a host file
 
 `ts-orch vault render` runs on a host as root. It replaces each `{{KEY}}` of a
 template with the JSON-quoted current secret `<scope>-<key>`, read with the
-instance principal, and writes the file atomically with mode `0600`:
+instance principal, and writes the file atomically with mode `0600` in a private tmpfs directory
+with swap disabled:
 
 ```sh
 ts-orch vault render --vault-id "$VAULT" --scope gru-1 \
-  --template /opt/ts-ops/netbird/templates/config.yaml.tmpl --out /etc/netbird/config.yaml
+  --template /opt/ts-ops/netbird/templates/config.yaml.tmpl --out /run/terrascale-netbird/config.yaml
 ```
 
 It prints the file and the secret names it read, and refuses to run as any
@@ -125,8 +163,9 @@ A workload profile names its secrets in `secrets`; its host agent reads them
 with the instance principal each time it starts a replica. Signed config and
 desired state hold only the names, so rotating a secret (above) needs a
 restart, not a new signature. A key ending in `_FILE` is delivered as a
-0600 file of the workload user instead of an environment value, and the
-host reads it again hourly, so a rotation reaches the file without a
+0600 file of the workload user under
+`/run/terrascale-orchestrator-host/roles/<role>` instead of an environment value.
+The host reads it again each minute, so a rotation reaches the file without a
 restart; a process that reads the file only at start (TerraBase's backup
 keys) still needs one. See [services](cell-spec.md#vault-secrets).
 

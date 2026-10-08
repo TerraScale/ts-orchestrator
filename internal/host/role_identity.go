@@ -24,7 +24,7 @@ import (
 )
 
 // A placed role's members get their own files from the host (TS-651), in
-// <managed runtime root>/roles/<role>, each 0600 and owned by the workload
+// /run/terrascale-orchestrator-host/roles/<role>, each 0600 and owned by the workload
 // user. A Vault secret whose key ends in _FILE is written there and the key
 // names the file, so the value never enters an environment. A role that
 // roleidentity grants buckets gets a NATS user and client certificate there
@@ -78,10 +78,19 @@ func (c *Controller) serveRoleIdentity(ctx context.Context, req request, r Regis
 
 // secretFilesRefresh is how often a running member's secret files are read
 // from the Vault again.
-const secretFilesRefresh = time.Hour
+const secretFilesRefresh = time.Minute
+
+const RoleFilesDirectory = "/run/terrascale-orchestrator-host/roles"
+
+func (a *Agent) roleFilesDirectory() string {
+	if a.roleFilesRoot != "" {
+		return a.roleFilesRoot
+	}
+	return RoleFilesDirectory
+}
 
 func (a *Agent) roleDir(role string) string {
-	return filepath.Join(a.cfg.ManagedRuntimeRoot, "roles", role)
+	return filepath.Join(a.roleFilesDirectory(), role)
 }
 
 // prepareRoleFiles writes d's file secrets, taking them out of secrets, and
@@ -134,7 +143,7 @@ type roleFilesFailure struct {
 }
 
 // refreshRoleFiles renews a running member's files when they are due: its
-// secret files hourly and its NATS identity at half its lifetime. After a
+// secret files each minute and its NATS identity at half its lifetime. After a
 // failure it reports the same error for a minute before it tries again.
 func (a *Agent) refreshRoleFiles(ctx context.Context, d Desired) error {
 	fileRefs := maps.Clone(d.Secrets)
@@ -191,7 +200,7 @@ func (a *Agent) ensureRoleDir(role string) (string, error) {
 	if a.cfg.ManagedRuntimeRoot == "" {
 		return "", errors.New(role + " needs role files, which need the host's managed runtime root")
 	}
-	roles := filepath.Join(a.cfg.ManagedRuntimeRoot, "roles")
+	roles := a.roleFilesDirectory()
 	if err := validateWorkloadRoot("role files", roles, a.cfg.WorkloadIdentity,
 		a.cfg.InstallRoot, a.cfg.StateRoot, a.cfg.TerraBaseRoot, a.cfg.TSAuthRoot); err != nil {
 		return "", err
@@ -199,6 +208,11 @@ func (a *Agent) ensureRoleDir(role string) (string, error) {
 	supervisor, gid := os.Geteuid(), int(a.cfg.WorkloadIdentity.GID)
 	if err := ensureOwnedDir(roles, supervisor, gid, 0o750); err != nil {
 		return "", err
+	}
+	if a.roleFilesRoot == "" {
+		if err := vaultsecret.RequireMemoryFilesystem(roles); err != nil {
+			return "", err
+		}
 	}
 	dir := a.roleDir(role)
 	return dir, ensureOwnedDir(dir, supervisor, gid, 0o750)

@@ -97,7 +97,7 @@ func Ensure(ctx context.Context, client VaultClient, target Target, name, descri
 			stored.ID, stored.Provisioning = id, provisioning
 			return stored, nil
 		}
-		return stored, fmt.Errorf("create Vault secret %s: %w", name, err)
+		return stored, fmt.Errorf("create Vault secret %s failed", name)
 	}
 	if response.Id == nil || !secretOCIDRE.MatchString(*response.Id) {
 		return stored, fmt.Errorf("create Vault secret %s: OCI returned no secret OCID", name)
@@ -116,7 +116,7 @@ func lookup(ctx context.Context, client VaultClient, target Target, name string)
 	for range 32 {
 		response, err := client.ListSecrets(ctx, request)
 		if err != nil {
-			return "", false, fmt.Errorf("list Vault secret %s: %w", name, err)
+			return "", false, fmt.Errorf("list Vault secret %s failed", name)
 		}
 		for _, item := range response.Items {
 			if item.SecretName == nil || *item.SecretName != name {
@@ -141,17 +141,40 @@ func lookup(ctx context.Context, client VaultClient, target Target, name string)
 // Read reads the current version of secret name. Errors name the secret,
 // never its content.
 func Read(ctx context.Context, client BundleClient, vaultID, name string) (string, error) {
-	if err := safeEnv(); err != nil {
+	response, err := readBundle(ctx, client, vaultID, name)
+	if err != nil {
 		return "", err
+	}
+	return decodeBundle(response.SecretBundle, name)
+}
+
+func readBundle(ctx context.Context, client BundleClient, vaultID, name string) (ocisecrets.GetSecretBundleByNameResponse, error) {
+	if err := safeEnv(); err != nil {
+		return ocisecrets.GetSecretBundleByNameResponse{}, err
 	}
 	response, err := client.GetSecretBundleByName(ctx, ocisecrets.GetSecretBundleByNameRequest{
 		SecretName: new(name), VaultId: new(vaultID), Stage: ocisecrets.GetSecretBundleByNameStageCurrent,
 	})
 	if err != nil {
-		return "", fmt.Errorf("read Vault secret %s: %w", name, err)
+		return response, &readError{name: name, cause: err}
 	}
+	return response, nil
+}
+
+// Keep the SDK error available for retry classification, without printing
+// a response body that might contain secret material.
+type readError struct {
+	name  string
+	cause error
+}
+
+func (e *readError) Error() string    { return "read Vault secret " + e.name + " failed" }
+func (e *readError) Unwrap() error    { return e.cause }
+func (e *readError) GoString() string { return e.Error() }
+
+func decodeBundle(bundle ocisecrets.SecretBundle, name string) (string, error) {
 	var content *string
-	switch bundle := response.SecretBundleContent.(type) {
+	switch bundle := bundle.SecretBundleContent.(type) {
 	case ocisecrets.Base64SecretBundleContentDetails:
 		content = bundle.Content
 	case *ocisecrets.Base64SecretBundleContentDetails:
@@ -162,9 +185,15 @@ func Read(ctx context.Context, client BundleClient, vaultID, name string) (strin
 	if content == nil {
 		return "", fmt.Errorf("Vault secret %s has no base64 content", name)
 	}
+	if len(*content) > base64.StdEncoding.EncodedLen(maxValue) {
+		return "", fmt.Errorf("Vault secret %s exceeds %d bytes", name, maxValue)
+	}
 	value, err := base64.StdEncoding.Strict().DecodeString(*content)
 	if err != nil {
 		return "", fmt.Errorf("Vault secret %s is not base64", name)
+	}
+	if len(value) > maxValue {
+		return "", fmt.Errorf("Vault secret %s exceeds %d bytes", name, maxValue)
 	}
 	return string(value), nil
 }
@@ -213,7 +242,7 @@ var (
 	// A role that is, extends or prefixes one names no secrets, so no
 	// workload reaches the NetBird, origin, trust or Cloudflare secrets its
 	// host may read.
-	infrastructure = []string{"api", "cloudflare", "netbird", "trust", "ts-dashboard"}
+	infrastructure = []string{"api", "cloudflare", "netbird", "orch", "trust", "ts-dashboard", "ts-orchestrator"}
 )
 
 // region is the OCI region of the ref's Vault, or "" when the OCID names none.
@@ -242,23 +271,41 @@ func ValidateRefs(cell, role string, refs map[string]Ref, env map[string]string)
 	}) {
 		return fmt.Errorf("role %s shares a name with the cell's infrastructure secrets and names no Vault secrets", role)
 	}
+	return ValidateDeliveryRefs(cell, role, refs, env)
+}
+
+// ValidateDeliveryRefs binds a privileged delivery to one regional service.
+// Workload profiles also apply ValidateRefs's infrastructure-name restriction.
+func ValidateDeliveryRefs(cell, service string, refs map[string]Ref, env map[string]string) error {
+	if len(refs) > MaxRefs || !nameRE.MatchString(service) {
+		return errors.New("Vault delivery needs a service name and at most 64 references")
+	}
 	entry, known := catalog.LookupName(cell)
+	files := map[string]bool{}
 	for key, ref := range refs {
 		if !known || ref.region() != entry.OCIRegion {
-			return fmt.Errorf("Vault secret %s of %s must name a Vault in cell %s's region", key, role, cell)
+			return fmt.Errorf("Vault secret %s of %s must name a Vault in cell %s's region", key, service, cell)
 		}
 		if !envKeyRE.MatchString(key) {
-			return fmt.Errorf("Vault secret key %q of %s is not an environment name", key, role)
+			return fmt.Errorf("Vault secret key %q of %s is not an environment name", key, service)
 		}
 		if _, set := env[key]; set {
-			return fmt.Errorf("%s sets %s both in env and as a Vault secret", role, key)
+			return fmt.Errorf("%s sets %s both in env and as a Vault secret", service, key)
 		}
+		if files[strings.ToLower(key)] {
+			return errors.New("Vault secret keys must name distinct files after lowercasing")
+		}
+		files[strings.ToLower(key)] = true
 		rest, inCell := strings.CutPrefix(ref.Name, cell+"-")
-		index, rest, _ := strings.Cut(rest, "-")
-		secretKey, ofRole := strings.CutPrefix(rest, role+"-")
-		if ref.region() == "" || len(ref.Name) > 255 || !nameRE.MatchString(ref.Name) || !inCell || !ofRole ||
-			secretKey == "" || index == "" || index[0] == '0' || strings.Trim(index, "0123456789") != "" {
-			return fmt.Errorf("Vault secret %s of %s must name a regional Vault and a secret %s-<n>-%s-<key>", key, role, cell, role)
+		secretKey, ofService := strings.CutPrefix(rest, service+"-")
+		if !ofService {
+			// Existing signed profiles retain their cell-number namespace.
+			index, legacy, _ := strings.Cut(rest, "-")
+			secretKey, ofService = strings.CutPrefix(legacy, service+"-")
+			ofService = ofService && index != "" && index[0] != '0' && strings.Trim(index, "0123456789") == ""
+		}
+		if len(ref.Name) > 255 || !nameRE.MatchString(ref.Name) || !inCell || !ofService || secretKey == "" {
+			return fmt.Errorf("Vault secret %s of %s must name %s-%s-<purpose> or an existing %s-<n>-%s-<purpose>", key, service, cell, service, cell, service)
 		}
 	}
 	return nil

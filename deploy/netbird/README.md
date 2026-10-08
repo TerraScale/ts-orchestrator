@@ -452,9 +452,11 @@ from a `0600` file. Remove access by deleting the peer, or blocking the user
 
 Every NetBird secret is in the gru-1 OCI Vault; see [secrets](../../docs/secrets.md)
 for names, compartments and how to read or rotate one. `install.sh` renders
-`/etc/netbird/config.yaml` (root `0600`) from
+`/run/terrascale-netbird/config.yaml` (root `0600`, private tmpfs) from
 [`manager/templates/config.yaml.tmpl`](manager/templates/config.yaml.tmpl)
-with `ts-orch vault render` and ts-ops's instance principal. The template's
+with `ts-orch vault render` and ts-ops's instance principal. The server unit
+reads Vault again before each start; the container binds the runtime directory,
+so no rendered configuration is kept in `/etc` on the host. The template's
 three keys are 32 random bytes in base64 (`openssl rand -base64 32`):
 `gru-1-netbird-datastore-encryption-key`, `gru-1-netbird-relay-auth-secret`
 and `gru-1-netbird-session-cookie-encryption-key`, in compartment `ts-ops`,

@@ -17,12 +17,15 @@ PublishPort=3478:3478/udp
 # 4.9 Quadlet has neither AddHost nor the host-gateway alias).
 PodmanArgs=--add-host=netbird.terrascale.tech:10.89.77.1
 Volume=/var/srv/appdata/netbird/data:/var/lib/netbird:Z
-Volume=/etc/netbird/config.yaml:/etc/netbird/config.yaml:ro,Z
+Volume=/run/terrascale-netbird:/etc/netbird:ro,Z
 Exec=--config /etc/netbird/config.yaml
 # Lets setup-owner.sh mint the owner PAT; /api/setup closes once an owner exists.
 Environment=NB_SETUP_PAT_ENABLED=true
 
 [Service]
+RuntimeDirectory=terrascale-netbird
+RuntimeDirectoryMode=0700
+ExecStartPre=/usr/local/bin/ts-orch vault render --vault-id ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq --scope gru-1 --template /opt/ts-ops/netbird/templates/config.yaml.tmpl --out /run/terrascale-netbird/config.yaml
 Restart=always
 RestartSec=5s
 TimeoutStartSec=120
@@ -30,7 +33,8 @@ TimeoutStartSec=120
 CPUWeight=50
 MemoryHigh=256M
 MemoryMax=384M
-MemorySwapMax=256M
+MemorySwapMax=0
+LimitCORE=0
 
 [Install]
 WantedBy=multi-user.target
