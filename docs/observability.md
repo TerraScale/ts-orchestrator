@@ -210,8 +210,12 @@ Access control follows the listener:
   old token is later restored. The cookie requests the maximum persistent
   lifetime and is refreshed on authenticated requests; browsers may impose
   their own cap (Chromium: 400 days without a visit).
-  Login requires the session store to be ready; storage failures fail closed,
-  and logout returns `503` if revocation cannot be persisted. A tokenless
+  Login requires the session store to be ready. Session storage operations
+  have a five-second deadline and honor earlier request cancellation. Read
+  failures return `503` without redirecting to login or changing the cookie;
+  logout returns `503` if revocation cannot be persisted. Token generation
+  and session records are read from the leader without caching, so copied
+  cookies cannot use a cached grant after logout or rotation. A tokenless
   loopback dashboard still needs no session. Token-protected host dashboards
   preserve process-local browser sessions without controller KV permissions;
   those host-only sessions end on host restart. Controller and NetBird
@@ -224,6 +228,8 @@ Access control follows the listener:
   Rotation reclaims obsolete generations before updating metadata, and logout
   checks the stored cookie hash before purging its expected revision. Sequence
   cutoffs compact purge markers without deleting concurrently reused slots.
+  Collection runs on store attachment and token rotation; a new login only
+  claims an available CAS slot, without enumerating the session namespace.
   The bucket also retains its 16 MiB hard limit.
   Login and logout refuse cross-site form posts (`Sec-Fetch-Site`, `Origin`);
   `Origin: null` is accepted only with `Sec-Fetch-Site: same-origin`. The

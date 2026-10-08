@@ -98,3 +98,26 @@ was the existing cellscale drain-recovery test's 200 ms success deadline under
 load. Its successful recovery phase now permits five seconds; stale-evidence
 refusal phases retain the short deadline. Fifty focused race repeats, the full
 cellscale race suite, vet and formatting passed locally at low CPU priority.
+
+## Second reviewer round
+
+The requested absolute/inactivity session cap conflicts with TS-746's explicit
+requirement that sessions never expire. The no-TTL design remains deliberate;
+logout and token rotation revoke sessions, and the slot limit bounds storage.
+Authorization remains uncached to avoid stale grants after revocation.
+
+Session validation now distinguishes storage errors from invalid cookies.
+Storage operations share a five-second deadline and preserve earlier request
+cancellation. Read outages return HTTP 503 without redirecting or modifying
+the cookie; bearer authentication remains independent, and the original
+cookie authenticates again when the store recovers. Login no longer runs a
+watcher/collection pass; CAS slots enforce capacity, with collection limited
+to store attachment and token rotation.
+
+Regressions cover both failed token/session reads, bounded deadlines,
+cancellation, cookie preservation/recovery, bearer behavior during an outage,
+and login with session enumeration disabled. Focused app/auth race tests,
+complete observability/dashboard race suites, full-repository fast tests,
+vet, formatting and template generation passed. Chromium and Firefox repeated
+login, browser reopen, controller/broker restart, cross-site logout rejection
+and copied-cookie revocation successfully.

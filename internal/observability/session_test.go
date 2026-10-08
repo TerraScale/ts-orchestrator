@@ -254,7 +254,7 @@ func TestSessionsPersistAndTokenRotationRevokesPermanently(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := build(token)
-	if !second.sessions.valid(t.Context(), value) {
+	if !sessionValid(t, second.sessions, t.Context(), value) {
 		t.Fatal("restart lost the session")
 	}
 	binding := second.sessions.binding.Load()
@@ -271,7 +271,7 @@ func TestSessionsPersistAndTokenRotationRevokesPermanently(t *testing.T) {
 		t.Fatal("session cookie is not persistent")
 	}
 	for _, invalid := range []string{"", "v2.123.x.y", value + "x", strings.Repeat("A", 43)} {
-		if second.sessions.valid(t.Context(), invalid) {
+		if sessionValid(t, second.sessions, t.Context(), invalid) {
 			t.Fatal("invalid session accepted")
 		}
 	}
@@ -282,15 +282,15 @@ func TestSessionsPersistAndTokenRotationRevokesPermanently(t *testing.T) {
 	if err := second.sessions.revoke(t.Context(), value); err != nil {
 		t.Fatal(err)
 	}
-	if first.sessions.valid(t.Context(), value) || !first.sessions.valid(t.Context(), other) {
+	if sessionValid(t, first.sessions, t.Context(), value) || !sessionValid(t, first.sessions, t.Context(), other) {
 		t.Fatal("logout did not revoke exactly the copied session")
 	}
 	rotated := build(strings.Repeat("b", 48))
-	if first.sessions.valid(t.Context(), other) || rotated.sessions.valid(t.Context(), other) {
+	if sessionValid(t, first.sessions, t.Context(), other) || sessionValid(t, rotated.sessions, t.Context(), other) {
 		t.Fatal("token rotation did not revoke sessions on every controller")
 	}
 	restored := build(token)
-	if restored.sessions.valid(t.Context(), other) {
+	if sessionValid(t, restored.sessions, t.Context(), other) {
 		t.Fatal("restored token resurrected a session")
 	}
 	if _, err := rotated.sessions.issue(t.Context()); err == nil {
@@ -380,8 +380,8 @@ func TestSessionStorageFailuresFailClosed(t *testing.T) {
 	if response.Code != http.StatusServiceUnavailable || len(response.Result().Cookies()) != 0 {
 		t.Fatal("unavailable storage issued a cookie")
 	}
-	if server.sessions.valid(context.Background(), cookie.Value) {
-		t.Fatal("unavailable storage authenticated")
+	if valid, err := server.sessions.valid(context.Background(), cookie.Value); valid || err == nil {
+		t.Fatal("unavailable storage did not report an authentication error")
 	}
 	request := httptest.NewRequest(http.MethodPost, "/logout", nil)
 	request.AddCookie(cookie)
@@ -441,15 +441,15 @@ func TestSessionsSurviveBrokerRestart(t *testing.T) {
 	broker.WaitForShutdown()
 	broker, conn, second := start()
 	defer func() { conn.Close(); broker.Shutdown(); broker.WaitForShutdown() }()
-	if !second.sessions.valid(t.Context(), value) {
+	if !sessionValid(t, second.sessions, t.Context(), value) {
 		t.Fatal("broker/controller restart lost session")
 	}
-	if second.sessions.valid(t.Context(), revoked) {
+	if sessionValid(t, second.sessions, t.Context(), revoked) {
 		t.Fatal("restart resurrected logged-out session")
 	}
 	conn.Close()
-	if second.sessions.valid(t.Context(), value) {
-		t.Fatal("NATS outage accepted a session")
+	if valid, err := second.sessions.valid(t.Context(), value); valid || err == nil {
+		t.Fatal("NATS outage did not report an authentication error")
 	}
 	if _, err := second.sessions.issue(t.Context()); err == nil {
 		t.Fatal("NATS outage issued a session")
@@ -488,7 +488,7 @@ func TestLogoutUnknownCookiesNeverWritesAndReusedSlotsRemainValid(t *testing.T) 
 	if err != nil || after.Values() != before.Values() || after.Bytes() != before.Bytes() {
 		t.Fatal("unauthenticated logout grew or changed the bucket")
 	}
-	if !server.sessions.valid(t.Context(), cookie.Value) {
+	if !sessionValid(t, server.sessions, t.Context(), cookie.Value) {
 		t.Fatal("unknown cookie revoked a legitimate session")
 	}
 	entry, err := binding.store.get(t.Context(), binding.key(cookie.Value))
@@ -510,7 +510,7 @@ func TestLogoutUnknownCookiesNeverWritesAndReusedSlotsRemainValid(t *testing.T) 
 	if err := server.sessions.revoke(t.Context(), cookie.Value); err != nil {
 		t.Fatal(err)
 	}
-	if !server.sessions.valid(t.Context(), replacement) {
+	if !sessionValid(t, server.sessions, t.Context(), replacement) {
 		t.Fatal("stale logout or compaction deleted a reused slot")
 	}
 	if err := server.sessions.revoke(t.Context(), replacement); err != nil {
@@ -601,10 +601,133 @@ func TestSessionCapacityIsSharedAndRotationReclaimsIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := binding.collect(t.Context()); err != nil {
+	if err := binding.collect(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if !rotated.sessions.valid(t.Context(), fresh) {
+	if !sessionValid(t, rotated.sessions, t.Context(), fresh) {
 		t.Fatal("stale controller collected a newer generation")
+	}
+}
+
+func sessionValid(t *testing.T, manager *sessions, ctx context.Context, value string) bool {
+	t.Helper()
+	valid, err := manager.valid(ctx, value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return valid
+}
+
+type sessionReadFault struct {
+	nats.JetStreamContext
+	read func(string, string, ...nats.JSOpt) (*nats.RawStreamMsg, error)
+}
+
+func (fault sessionReadFault) GetLastMsg(stream, subject string, opts ...nats.JSOpt) (*nats.RawStreamMsg, error) {
+	return fault.read(stream, subject, opts...)
+}
+
+func TestSessionReadOutagesReturn503WithoutLosingTheCookie(t *testing.T) {
+	t.Parallel()
+	server, token := newLoginServer(t)
+	response := postLogin(server, url.Values{"token": {token}})
+	cookie := response.Result().Cookies()[0]
+	store := server.sessions.binding.Load().store
+	leader := store.leader
+	for _, key := range []string{"token", "session"} {
+		t.Run(key, func(t *testing.T) {
+			store.leader = sessionReadFault{JetStreamContext: leader, read: func(stream, subject string, opts ...nats.JSOpt) (*nats.RawStreamMsg, error) {
+				if key == "session" && strings.Contains(subject, ".token.") {
+					return leader.GetLastMsg(stream, subject, opts...)
+				}
+				for _, opt := range opts {
+					if ctx, ok := opt.(nats.ContextOpt); ok {
+						if deadline, bounded := ctx.Deadline(); bounded && time.Until(deadline) <= sessionStoreTimeout {
+							return nil, nats.ErrTimeout
+						}
+					}
+				}
+				t.Fatal("session leader read has no bounded deadline")
+				return nil, nats.ErrTimeout
+			}}
+			for _, route := range []struct{ method, path string }{{"GET", "/"}, {"GET", "/login"}, {"POST", "/login"}, {"POST", "/logout"}} {
+				request := httptest.NewRequest(route.method, route.path, strings.NewReader(url.Values{"token": {token}}.Encode()))
+				request.Header.Set("Accept", "text/html")
+				request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				request.AddCookie(cookie)
+				recorder := httptest.NewRecorder()
+				server.ServeHTTP(recorder, request)
+				if recorder.Code != http.StatusServiceUnavailable || recorder.Header().Get("Location") != "" || len(recorder.Result().Cookies()) != 0 {
+					t.Fatalf("%s %s hid an outage or changed the cookie: status=%d", route.method, route.path, recorder.Code)
+				}
+			}
+			for _, bearer := range []struct {
+				token string
+				code  int
+			}{{token, http.StatusOK}, {"wrong", http.StatusUnauthorized}} {
+				request := httptest.NewRequest(http.MethodGet, "/", nil)
+				request.Header.Set("Authorization", "Bearer "+bearer.token)
+				request.AddCookie(cookie)
+				recorder := httptest.NewRecorder()
+				server.ServeHTTP(recorder, request)
+				if recorder.Code != bearer.code {
+					t.Fatal("store outage affected bearer authentication")
+				}
+			}
+			if key == "token" {
+				if _, err := server.sessions.issue(t.Context()); err == nil {
+					t.Fatal("outage issued a session")
+				}
+			}
+		})
+	}
+	store.leader = leader
+	if !sessionValid(t, server.sessions, t.Context(), cookie.Value) {
+		t.Fatal("store recovery lost the existing session")
+	}
+}
+
+func TestSessionReadsHonorRequestCancellation(t *testing.T) {
+	t.Parallel()
+	server, token := newLoginServer(t)
+	response := postLogin(server, url.Values{"token": {token}})
+	value := response.Result().Cookies()[0].Value
+	store := server.sessions.binding.Load().store
+	store.leader = sessionReadFault{JetStreamContext: store.leader, read: func(_, _ string, opts ...nats.JSOpt) (*nats.RawStreamMsg, error) {
+		for _, opt := range opts {
+			if ctx, ok := opt.(nats.ContextOpt); ok {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}
+		}
+		return nil, errors.New("missing request context")
+	}}
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	if valid, err := server.sessions.valid(ctx, value); valid || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("stalled leader did not honor the request deadline")
+	}
+	if time.Since(started) > time.Second {
+		t.Fatal("request cancellation waited for the full session timeout")
+	}
+}
+
+type noSessionEnumeration struct{ jetstream.KeyValue }
+
+func (noSessionEnumeration) Watch(context.Context, string, ...jetstream.WatchOpt) (jetstream.KeyWatcher, error) {
+	return nil, errors.New("login must not enumerate the session namespace")
+}
+
+func TestLoginDoesNotEnumerateSessions(t *testing.T) {
+	t.Parallel()
+	server, token := newLoginServer(t)
+	store := server.sessions.binding.Load().store
+	store.kv = noSessionEnumeration{store.kv}
+	for range 3 {
+		response := postLogin(server, url.Values{"token": {token}})
+		if response.Code != http.StatusSeeOther || len(response.Result().Cookies()) != 1 {
+			t.Fatal("login attempted session enumeration")
+		}
 	}
 }

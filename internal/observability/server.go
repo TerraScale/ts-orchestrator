@@ -205,16 +205,26 @@ func LiteralHost(host string) bool {
 
 func (server *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if server.token != nil && !bearerMatches(request.Header.Get("Authorization"), server.token) &&
-			(request.Header.Get("Authorization") != "" || !server.loginMounted.Load() || !server.sessions.authenticated(request)) {
-			if server.loginMounted.Load() && wantsLoginPage(request) {
-				http.Redirect(writer, request, "/login?next="+url.QueryEscape(LocalRedirectPath(request.URL.RequestURI())),
-					http.StatusSeeOther)
+		if server.token != nil && !bearerMatches(request.Header.Get("Authorization"), server.token) {
+			authenticated := false
+			if request.Header.Get("Authorization") == "" && server.loginMounted.Load() {
+				var err error
+				authenticated, err = server.sessions.authenticated(request)
+				if err != nil {
+					writePlain(writer, http.StatusServiceUnavailable, "session storage unavailable\n")
+					return
+				}
+			}
+			if !authenticated {
+				if server.loginMounted.Load() && wantsLoginPage(request) {
+					http.Redirect(writer, request, "/login?next="+url.QueryEscape(LocalRedirectPath(request.URL.RequestURI())),
+						http.StatusSeeOther)
+					return
+				}
+				writer.Header().Set("WWW-Authenticate", `Bearer realm="ts-orch"`)
+				writePlain(writer, http.StatusUnauthorized, "unauthorized\n")
 				return
 			}
-			writer.Header().Set("WWW-Authenticate", `Bearer realm="ts-orch"`)
-			writePlain(writer, http.StatusUnauthorized, "unauthorized\n")
-			return
 		}
 		if server.token != nil && server.loginMounted.Load() && request.Header.Get("Authorization") == "" {
 			if cookie, err := request.Cookie(SessionCookieName); err == nil {

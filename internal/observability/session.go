@@ -23,8 +23,9 @@ import (
 const (
 	SessionCookieName = "ts_orch_session"
 	// SessionBucket contains only hashes and token generations, with no TTL.
-	SessionBucket    = "TS_DASHBOARD_SESSIONS"
-	maxLoginFormSize = 8 << 10
+	SessionBucket       = "TS_DASHBOARD_SESSIONS"
+	maxLoginFormSize    = 8 << 10
+	sessionStoreTimeout = 5 * time.Second
 	// Never evict a live session. At capacity, reuse the browser's session,
 	// sign out elsewhere, or rotate the token to reclaim abandoned sessions.
 	maxSessions = 1024
@@ -117,7 +118,7 @@ func (server *Server) SetSessionStore(ctx context.Context, store *SessionStore) 
 		default:
 			// Reclaim the retired generation before updating metadata, even
 			// when the bucket has reached its byte limit.
-			if _, err = (&sessionBinding{store: store, generation: entry.Sequence + 1}).collect(ctx); err != nil {
+			if err = (&sessionBinding{store: store, generation: entry.Sequence + 1}).collect(ctx); err != nil {
 				return err
 			}
 			revision, err = store.kv.Update(ctx, key, []byte(hash), entry.Sequence)
@@ -130,15 +131,20 @@ func (server *Server) SetSessionStore(ctx context.Context, store *SessionStore) 
 		}
 		binding := &sessionBinding{store: store, tokenHash: hash, generation: revision}
 		server.sessions.binding.Store(binding)
-		_, err = binding.collect(ctx)
-		return err
+		return binding.collect(ctx)
 	}
 	return errors.New("dashboard token changed concurrently")
 }
 
-func (binding *sessionBinding) current(ctx context.Context) bool {
+func (binding *sessionBinding) current(ctx context.Context) (bool, error) {
 	entry, err := binding.store.get(ctx, "token."+binding.store.scope)
-	return err == nil && entry.Sequence == binding.generation && string(entry.Data) == binding.tokenHash
+	if errors.Is(err, nats.ErrMsgNotFound) || errors.Is(err, jetstream.ErrKeyNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return entry.Sequence == binding.generation && string(entry.Data) == binding.tokenHash, nil
 }
 
 func (binding *sessionBinding) key(value string) string {
@@ -148,23 +154,22 @@ func (binding *sessionBinding) key(value string) string {
 
 // collect deletes immutable records from older generations without KV purge
 // markers. A stale controller never deletes a newer generation's sessions.
-func (binding *sessionBinding) collect(ctx context.Context) (int, error) {
+func (binding *sessionBinding) collect(ctx context.Context) error {
 	watcher, err := binding.store.kv.Watch(ctx, "session."+binding.store.scope+".>", jetstream.MetaOnly())
 	if err != nil {
-		return 0, err
+		return err
 	}
 	defer watcher.Stop()
-	count := 0
 	for {
 		select {
 		case <-ctx.Done():
-			return 0, ctx.Err()
+			return ctx.Err()
 		case entry, ok := <-watcher.Updates():
 			if !ok {
-				return 0, errors.New("dashboard session enumeration interrupted")
+				return errors.New("dashboard session enumeration interrupted")
 			}
 			if entry == nil {
-				return count, nil
+				return nil
 			}
 			parts := strings.Split(entry.Key(), ".")
 			if len(parts) != 4 {
@@ -172,14 +177,11 @@ func (binding *sessionBinding) collect(ctx context.Context) (int, error) {
 			}
 			generation, err := strconv.ParseUint(parts[2], 10, 64)
 			if err != nil {
-				return 0, err
-			}
-			if generation == binding.generation && entry.Operation() == jetstream.KeyValuePut {
-				count++
+				return err
 			}
 			if generation < binding.generation || entry.Operation() != jetstream.KeyValuePut {
 				if err := binding.store.purgeThrough(ctx, entry.Key(), entry.Revision()); err != nil {
-					return 0, err
+					return err
 				}
 			}
 		}
@@ -193,20 +195,19 @@ func (store *SessionStore) purgeThrough(ctx context.Context, key string, revisio
 }
 
 func (manager *sessions) issue(ctx context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, sessionStoreTimeout)
+	defer cancel()
 	binding := manager.binding.Load()
 	if binding == nil && manager.local == nil {
 		return "", errors.New("dashboard session store unavailable")
 	}
 	if binding != nil {
-		if !binding.current(ctx) {
-			return "", errors.New("dashboard token retired")
-		}
-		count, err := binding.collect(ctx)
+		current, err := binding.current(ctx)
 		if err != nil {
 			return "", err
 		}
-		if count >= maxSessions {
-			return "", errSessionCapacity
+		if !current {
+			return "", errors.New("dashboard token retired")
 		}
 	}
 	var raw [32]byte
@@ -262,28 +263,44 @@ func validSessionValue(value string) bool {
 	return ok
 }
 
-func (manager *sessions) valid(ctx context.Context, value string) bool {
+func (manager *sessions) valid(ctx context.Context, value string) (bool, error) {
 	if !validSessionValue(value) {
-		return false
+		return false, nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, sessionStoreTimeout)
+	defer cancel()
 	binding := manager.binding.Load()
 	if binding == nil {
 		manager.mu.Lock()
 		defer manager.mu.Unlock()
+		if manager.local == nil {
+			return false, errors.New("dashboard session store unavailable")
+		}
 		_, ok := manager.local[sessionHash(value)]
-		return ok
+		return ok, nil
 	}
-	if !binding.current(ctx) {
-		return false
+	// Uncached leader reads prevent stale grants after another controller's
+	// logout or token rotation; outages must not authorize cached sessions.
+	current, err := binding.current(ctx)
+	if err != nil || !current {
+		return false, err
 	}
 	entry, err := binding.store.get(ctx, binding.key(value))
-	return err == nil && subtle.ConstantTimeCompare(entry.Data, []byte(sessionHash(value))) == 1
+	if errors.Is(err, nats.ErrMsgNotFound) || errors.Is(err, jetstream.ErrKeyNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return subtle.ConstantTimeCompare(entry.Data, []byte(sessionHash(value))) == 1, nil
 }
 
 func (manager *sessions) revoke(ctx context.Context, value string) error {
 	if !validSessionValue(value) {
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, sessionStoreTimeout)
+	defer cancel()
 	binding := manager.binding.Load()
 	if binding == nil {
 		manager.mu.Lock()
@@ -339,9 +356,12 @@ func (manager *sessions) cookie(value string) *http.Cookie {
 	return cookie
 }
 
-func (manager *sessions) authenticated(request *http.Request) bool {
+func (manager *sessions) authenticated(request *http.Request) (bool, error) {
 	cookie, err := request.Cookie(SessionCookieName)
-	return err == nil && manager.valid(request.Context(), cookie.Value)
+	if err != nil {
+		return false, nil
+	}
+	return manager.valid(request.Context(), cookie.Value)
 }
 
 // HandleLogin mounts the browser login routes of the dashboard. page renders
@@ -351,7 +371,16 @@ func (manager *sessions) authenticated(request *http.Request) bool {
 func (server *Server) HandleLogin(page http.Handler) {
 	server.loginMounted.Store(true)
 	server.mux.Handle("GET /login", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if server.token == nil || server.sessions.authenticated(request) {
+		if server.token == nil {
+			http.Redirect(writer, request, LocalRedirectPath(request.URL.Query().Get("next")), http.StatusSeeOther)
+			return
+		}
+		authenticated, err := server.sessions.authenticated(request)
+		if err != nil {
+			writePlain(writer, http.StatusServiceUnavailable, "session storage unavailable\n")
+			return
+		}
+		if authenticated {
 			http.Redirect(writer, request, LocalRedirectPath(request.URL.Query().Get("next")), http.StatusSeeOther)
 			return
 		}
@@ -396,12 +425,21 @@ func (server *Server) login(writer http.ResponseWriter, request *http.Request) {
 		http.Redirect(writer, request, "/login?failed=1&next="+url.QueryEscape(next), http.StatusSeeOther)
 		return
 	}
-	if cookie, err := request.Cookie(SessionCookieName); err == nil && server.sessions.valid(request.Context(), cookie.Value) {
-		http.SetCookie(writer, server.sessions.cookie(cookie.Value))
-		http.Redirect(writer, request, next, http.StatusSeeOther)
-		return
+	ctx, cancel := context.WithTimeout(request.Context(), sessionStoreTimeout)
+	defer cancel()
+	if cookie, err := request.Cookie(SessionCookieName); err == nil {
+		valid, err := server.sessions.valid(ctx, cookie.Value)
+		if err != nil {
+			writePlain(writer, http.StatusServiceUnavailable, "session storage unavailable\n")
+			return
+		}
+		if valid {
+			http.SetCookie(writer, server.sessions.cookie(cookie.Value))
+			http.Redirect(writer, request, next, http.StatusSeeOther)
+			return
+		}
 	}
-	value, err := server.sessions.issue(request.Context())
+	value, err := server.sessions.issue(ctx)
 	if err != nil {
 		if errors.Is(err, errSessionCapacity) {
 			writePlain(writer, http.StatusServiceUnavailable, "dashboard session limit reached; sign out in another browser or rotate the dashboard token\n")
