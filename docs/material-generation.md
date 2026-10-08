@@ -320,6 +320,11 @@ unit, and does the install:
 Restart admission therefore sees either the previous set or the complete
 new one.
 
+**At boot,** bootstrap admission runs before the controller and before
+`prepare`. It must run the current release too, since the image-baked binary
+may refuse the new config's members: `prepare` installs that drop-in
+([binary-only self-update](continuous-delivery.md#binary-only-self-update)).
+
 ## Install continuity with a generation
 
 After the manifest's current proofs lapse, a restart needs an owner-signed

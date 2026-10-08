@@ -286,6 +286,12 @@ host whose image predates it (one with the host-setup unit), from the
 release that runs the step, without reloading systemd: it applies from the
 node's next boot. The first host or controller start after a release with it
 is `known-good` installs it; a `ts-orch node reboot` then makes it count.
+Bootstrap admission (`terrascale-orchestrator-bootstrap.service`, which the
+controller requires) gets the same kind of drop-in from `prepare` on a
+controller (TS-668): it runs `bootstrap-controller` with `current`, or the
+baked binary until one is seeded, so a `controller.json` a newer release
+installed (a material generation) is admitted at boot. The image does not
+carry it: the first controller start after a release with it installs it.
 Nodes that installed the earlier opt-in drop-ins by hand keep their
 `selfupdate-<unit>.env` files and `@<unit>` timers until they are rebuilt
 from this image.

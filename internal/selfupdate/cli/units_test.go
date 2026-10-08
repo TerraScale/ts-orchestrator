@@ -129,12 +129,34 @@ func TestHostSetupDropinRunsTheCurrentRelease(t *testing.T) {
 	if data, err := os.ReadFile(dropin); err != nil || string(data) != selfupdate.HostSetupDropin {
 		t.Fatalf("%s differs from selfupdate.HostSetupDropin: %v", dropin, err)
 	}
-	base := execLines(t, filepath.Join(deploy, selfupdate.HostSetupUnit), "ExecStart")
-	if len(base) != 1 || !strings.HasPrefix(base[0], selfupdate.DefaultBakedBinary+" host-setup ") {
-		t.Fatalf("%s ExecStart = %q", selfupdate.HostSetupUnit, base)
+	checkCurrentReleaseDropin(t, selfupdate.HostSetupUnit, "host-setup", selfupdate.HostSetupDropin,
+		selfupdate.InstallHostSetupDropin)
+}
+
+// Bootstrap admission runs the current release too, so a controller.json a
+// material generation installed is admitted at boot (TS-668: the image's
+// binary refused its server_name and ts-sfo-3 did not come back).
+func TestBootstrapDropinRunsTheCurrentRelease(t *testing.T) {
+	checkCurrentReleaseDropin(t, selfupdate.BootstrapUnit, "bootstrap-controller", selfupdate.BootstrapDropin,
+		selfupdate.InstallBootstrapDropin)
+}
+
+// checkCurrentReleaseDropin checks that dropin runs the image unit's own
+// command with the current release, or the baked binary while there is none,
+// and that install writes it once, only beside the unit.
+func checkCurrentReleaseDropin(t *testing.T, unit, command, dropin string, install func(string) (bool, error)) {
+	t.Helper()
+	deploy := filepath.Join("..", "..", "..", "deploy", "systemd")
+	base := execLines(t, filepath.Join(deploy, unit), "ExecStart")
+	if len(base) != 1 || !strings.HasPrefix(base[0], selfupdate.DefaultBakedBinary+" "+command+" ") {
+		t.Fatalf("%s ExecStart = %q", unit, base)
 	}
 	args := strings.TrimPrefix(base[0], selfupdate.DefaultBakedBinary)
-	got := execLines(t, dropin, "ExecStart")
+	path := filepath.Join(t.TempDir(), "60-selfupdate.conf")
+	if err := os.WriteFile(path, []byte(dropin), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := execLines(t, path, "ExecStart")
 	if len(got) != 2 || got[0] != "" || !strings.HasPrefix(got[1], "/bin/sh -c '") || !strings.HasSuffix(got[1], args+"'") {
 		t.Fatalf("drop-in ExecStart = %q, want reset then a shell running %q", got, args)
 	}
@@ -161,26 +183,24 @@ func TestHostSetupDropinRunsTheCurrentRelease(t *testing.T) {
 			}
 		}
 		out, err := exec.Command("/bin/sh", "-c", script).Output()
-		if err != nil || !strings.HasPrefix(string(out), want+" host-setup --public-config ") {
-			t.Fatalf("drop-in ran %q, %v; want %s", out, err, want)
+		if err != nil || !strings.HasPrefix(string(out), want+args) {
+			t.Fatalf("drop-in ran %q, %v; want %s%s", out, err, want, args)
 		}
 	}
-	// prepare's installer: nothing without the host-setup unit, then the
-	// drop-in once.
+	// prepare's installer: nothing without the unit, then the drop-in once.
 	systemd := t.TempDir()
-	if installed, err := selfupdate.InstallHostSetupDropin(systemd); err != nil || installed {
-		t.Fatalf("installed without a host-setup unit: %v, %v", installed, err)
+	if installed, err := install(systemd); err != nil || installed {
+		t.Fatalf("installed without %s: %v, %v", unit, installed, err)
 	}
-	if err := os.WriteFile(filepath.Join(systemd, selfupdate.HostSetupUnit), []byte("[Service]\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(systemd, unit), []byte("[Service]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []bool{true, false} {
-		if installed, err := selfupdate.InstallHostSetupDropin(systemd); err != nil || installed != want {
-			t.Fatalf("InstallHostSetupDropin = %v, %v, want %v", installed, err, want)
+		if installed, err := install(systemd); err != nil || installed != want {
+			t.Fatalf("install %s = %v, %v, want %v", unit, installed, err, want)
 		}
 	}
-	if data, err := os.ReadFile(filepath.Join(systemd, selfupdate.HostSetupUnit+".d", "60-selfupdate.conf")); err != nil ||
-		string(data) != selfupdate.HostSetupDropin {
+	if data, err := os.ReadFile(filepath.Join(systemd, unit+".d", "60-selfupdate.conf")); err != nil || string(data) != dropin {
 		t.Fatalf("installed drop-in: %v", err)
 	}
 }
