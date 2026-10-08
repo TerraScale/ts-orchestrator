@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 func TestOuroborosTSAuthUserLookup(t *testing.T) {
@@ -218,7 +220,7 @@ func TestOuroborosSecretNames(t *testing.T) {
 func TestManagementOnAdminListener(t *testing.T) {
 	var seen []string
 	admin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer credential" || r.Header.Get("X-TerraBase-User-Id") != BootstrapUser || !ulidRE.MatchString(r.Header.Get("X-TerraBase-User-Id")) {
+		if r.Header.Get("Authorization") != "Bearer credential" || r.Header.Get("X-TerraBase-User-Id") != BootstrapUser || !entityid.Valid(r.Header.Get("X-TerraBase-User-Id")) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

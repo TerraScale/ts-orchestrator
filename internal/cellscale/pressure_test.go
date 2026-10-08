@@ -83,7 +83,7 @@ func TestNodePressureRequiresCanonicalProjectULIDs(t *testing.T) {
 	}
 }
 
-func TestNodePressureAcceptsOpaqueProcessIDs(t *testing.T) {
+func TestNodePressureRejectsNonULIDProcessIDs(t *testing.T) {
 	for _, processID := range []string{"p", "A0._:+-", strings.Repeat("p", 128)} {
 		p := validPressure()
 		p.ProcessID = processID
