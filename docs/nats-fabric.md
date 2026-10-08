@@ -31,6 +31,10 @@ contract derive from the same builders.
   (`protocol.RegionToken`). A caller-controlled identity (machine ID, tenant
   name, node ID) never enters a subject raw: use `protocol.HashToken`, or a
   token the feature validates against this rule.
+- **Entity IDs and KV keys** are canonical uppercase 26-character ULIDs,
+  without type prefixes ([entity IDs](entity-ids.md)). Node names and symbolic
+  region/role/index labels keep their naming contracts. Validate entity IDs
+  before using them in a record key or an entity-bearing subject.
 - **Wire format**: strict JSON (`protocol.DecodeStrict`), bounded sizes, and
   `protocol.Envelope` (Ed25519, scoped to region, kind, actor, operation,
   generation and epoch) for every signed request.

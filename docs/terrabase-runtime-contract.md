@@ -367,7 +367,7 @@ with the controller's grant:
 2. Only then the agent sends host operation `terrabase-format` to the leader
    controller, naming the registered volume OCID and initializer attempt. The controller rejects
    requests naming a different OCID and records
-   `terrabase-format.<cell>.<node>.<SHA-256(volume OCID)>` =
+   a canonical ULID key derived from cell, node and volume OCID =
    `{"uuid":...,"attempt_id":...,"host_key":...,"generation":...}` in
    the host state KV (`TS_HOST_STATE`) before it answers `Granted=true`.
    Retries from that exact attempt, host key and registration generation
