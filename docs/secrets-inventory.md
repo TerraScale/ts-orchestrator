@@ -18,7 +18,7 @@ Homelab ts-router/ts-reviewer and personal operator authentication are out of sc
 | `TS_AUTH_SERVICE_CLIENTS` | ts-auth | gru | `gru-1-ts-auth-service-clients` | `ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqardizp6ay4eeocxbvmgdbhvvovsstoiheha7sxofuc7uq` | Host launch environment resolved from named Vault refs; source AuthOptions / ts-orchestrator tsauth | Vault present; runtime refresh/cleanup pending |
 | `TS_AUTH_SMTP_USERNAME` | ts-auth | gru | `gru-1-ts-auth-smtp-username` | `ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqav2g4gqez2tjnjjnxolcfhbo4abkgsbv6ly3nbgeethga` | Host launch environment resolved from named Vault refs; source AuthOptions / ts-orchestrator tsauth | Vault present; runtime refresh/cleanup pending |
 | `TS_AUTH_SMTP_PASSWORD` | ts-auth | gru | `gru-1-ts-auth-smtp-password` | `ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqavu3xcmjoxuzgaratzdsmxtcbz2creyndv3prl3cbwlja` | Host launch environment resolved from named Vault refs; source AuthOptions / ts-orchestrator tsauth | Vault present; runtime refresh/cleanup pending |
-| `Signing key ring / tenant signing private keys (TS-703)` | ts-auth | gru | `gru-ts-auth-signing-key-ring` | `ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqaowehcf6aqwj2w4otbmfhm2vchqswwvhvxoxxqksyxhla` | OCI Vault placeholder; TS-703 owns populated ring | Scoped API identity read/conditional-update verified, CURRENT v2; auth cutover pending |
+| `Signing key ring / tenant signing private keys (TS-703)` | ts-auth | gru | `gru-ts-auth-signing-key-ring` | `ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqaowehcf6aqwj2w4otbmfhm2vchqswwvhvxoxxqksyxhla` | OCI Vault placeholder; TS-703 owns populated ring | Scoped read/update/version-list/deprecated-schedule verified, unchanged CURRENT v3; probe schedule cancelled, auth cutover pending |
 | `TS_AUTH_OCI_PRIVATE_KEY` | ts-auth | gru | `gru-ts-auth-oci-signing-key` | `ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqa7r6s547dgh5prvnovoky6qhtofma2chfcdcezindlp2a` | OCI Vault; regional host delivery reference | Private key readback and primary host instance-principal delivery into private tmpfs verified equal; profile application pending |
 | `TERRABASE_MANAGEMENT_CREDENTIAL_FILE` | terrabase | gru | `gru-1-terrabase-management-credential` | `ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqa2iviraupawpjuhxwcmdns6ujaef5lpfhknz6e3jd7jua` | Vault plus persistent /etc/terrascale-orchestrator/terrabase-management-credential and role file | Vault present; persistent copies need verified cleanup |
 | `TERRABASE_BACKUP_SECRET_KEY_FILE` | terrabase | gru | `gru-1-terrabase-backup-secret-key` | `ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqa36qdp2azrk6xf6hdbj3jmqiiykoiwnb6zxxjx33nv7yq` | Vault / role files; BackupSettings reads files at startup | Vault present; reload/instance-principal KMS change needed |
@@ -51,7 +51,7 @@ Homelab ts-router/ts-reviewer and personal operator authentication are out of sc
 | `TS_AUTH_SERVICE_CLIENTS` | ts-auth | sfo | `sfo-1-ts-auth-service-clients` | Not observed | Host launch environment resolved from named Vault refs; source AuthOptions / ts-orchestrator tsauth | Not observed; regional service owner must confirm whether configured |
 | `TS_AUTH_SMTP_USERNAME` | ts-auth | sfo | `sfo-1-ts-auth-smtp-username` | Not observed | Host launch environment resolved from named Vault refs; source AuthOptions / ts-orchestrator tsauth | Not observed; regional service owner must confirm whether configured |
 | `TS_AUTH_SMTP_PASSWORD` | ts-auth | sfo | `sfo-1-ts-auth-smtp-password` | Not observed | Host launch environment resolved from named Vault refs; source AuthOptions / ts-orchestrator tsauth | Not observed; regional service owner must confirm whether configured |
-| `Signing key ring / tenant signing private keys (TS-703)` | ts-auth | sfo | `sfo-ts-auth-signing-key-ring` | `ocid1.vaultsecret.oc1.us-sanjose-1.amaaaaaappuhpdqaywoamqgb3i5jrtxh4a5qs2jadvehpltsfembvl2jlp4q` | OCI Vault placeholder; TS-703 owns populated ring | Scoped API identity read/conditional-update verified, CURRENT v2; auth cutover pending |
+| `Signing key ring / tenant signing private keys (TS-703)` | ts-auth | sfo | `sfo-ts-auth-signing-key-ring` | `ocid1.vaultsecret.oc1.us-sanjose-1.amaaaaaappuhpdqaywoamqgb3i5jrtxh4a5qs2jadvehpltsfembvl2jlp4q` | OCI Vault placeholder; TS-703 owns populated ring | Scoped read/update/version-list/deprecated-schedule verified, unchanged CURRENT v3; probe schedule cancelled, auth cutover pending |
 | `TS_AUTH_OCI_PRIVATE_KEY` | ts-auth | sfo | `sfo-ts-auth-oci-signing-key` | `ocid1.vaultsecret.oc1.us-sanjose-1.amaaaaaappuhpdqa4hskphlzjiatnwobituemdnajdszhmdi54qywfv4gruq` | OCI Vault; regional host delivery reference | Private key readback and primary host instance-principal delivery into private tmpfs verified equal; profile application pending |
 | `TERRABASE_MANAGEMENT_CREDENTIAL_FILE` | terrabase | sfo | `sfo-1-terrabase-management-credential` | `ocid1.vaultsecret.oc1.us-sanjose-1.amaaaaaappuhpdqas7gypegmgs6wgnn4wgw6z6x4xmxjbm5lc764xytyduqa` | Vault plus persistent /etc/terrascale-orchestrator/terrabase-management-credential and role file | Vault present; persistent copies need verified cleanup |
 | `TERRABASE_BACKUP_SECRET_KEY_FILE` | terrabase | sfo | `sfo-1-terrabase-backup-secret-key` | Not observed | Vault / role files; BackupSettings reads files at startup | Not observed; confirm backup enablement and migrate existing values, never invent keys |
@@ -609,16 +609,29 @@ All six control hosts now have create-once Vault copies of 229 credential/materi
 
 ## TS-703 publisher provision (2026-10-08)
 
-Both API identities conditionally published the unchanged ring placeholder as CURRENT v2. Their master-key, API private-key and opposite-region ring bundle reads were denied. Both regional primary instance principals fetched the API private key into a separate private tmpfs verification directory with equal bytes; controller and host services remained active. Profiles carry only public IAM metadata and Vault references. Applying those profiles and deploying ts-auth are separate, pending operations.
+Both API identities conditionally published the unchanged ring placeholder as CURRENT v3. Version listing and deprecated-v1 deletion scheduling were verified for TS-703's pruning contract; both probe schedules were immediately cancelled by the operator and no version was deleted. Their master-key, API private-key and opposite-region ring bundle reads remained denied. Both regional primary instance principals fetched the API private key into a separate private tmpfs verification directory with equal bytes; controller and host services remained active. Profiles carry only public IAM metadata and Vault references. Applying those profiles and deploying ts-auth are separate, pending operations.
 
 | Regional IAM resource | gru | sfo |
 | --- | --- | --- |
 | API-key-only user | `ocid1.user.oc1..aaaaaaaave6pf7bgqa3ouro3fgz2ryakvgmohygd3u6gv4yyxuywcux662ma` | `ocid1.user.oc1..aaaaaaaa3ppx6twqobvegq42zb43m3fleuv3jsgeexiz6mw7kx5gf2z3v7cq` |
 | Signing group | `ocid1.group.oc1..aaaaaaaavhjmu54obxkoci3ubmvqwkc2xaglcrdnslap4tuvl64knphb2evq` | `ocid1.group.oc1..aaaaaaaareh6vdj34pcih4omcqxln33olfyzq3ftrol4ldtknnxiz7nuvx6a` |
-| Ring-only read/update policy | `ocid1.policy.oc1..aaaaaaaadnf2bzo72dba6jbasse7fvc53c3cw5t33wyondlgzjf5wpixm2wq` | `ocid1.policy.oc1..aaaaaaaacsqnum34t2hbcgge5u3hnjozjz5sg52jz4gwxzrwbtixzmmxbazq` |
+| Ring-only read/update/version-prune policy | `ocid1.policy.oc1..aaaaaaaadnf2bzo72dba6jbasse7fvc53c3cw5t33wyondlgzjf5wpixm2wq` | `ocid1.policy.oc1..aaaaaaaacsqnum34t2hbcgge5u3hnjozjz5sg52jz4gwxzrwbtixzmmxbazq` |
 | Host private-key read policy | `ocid1.policy.oc1..aaaaaaaaqbidnamimd4x5mziguetmflrt7eycgttuptdd7spsfximdhi7cba` | `ocid1.policy.oc1..aaaaaaaaid2c3ekyqhcyhzqycokolbopdtzmz3infg5ueozxrjtw7l37pl6q` |
 
 IAM changes took time to propagate; successful ring reads were followed by temporary authentication failures on other requests. An unauthenticated negative probe does not establish denied access. The final read/write and authenticated-denial checks passed without granting KMS encryption/decryption, key delegation, secret creation/deletion, or access to another service’s secrets.
+
+The pruning update changed only the two existing ring-policy OCIDs above.
+`inspect secret-versions` grants version listing on that ring; `manage
+secret-versions` is constrained to the same ring and
+`request.operation = 'ScheduleSecretVersionDeletion'`. The existing
+ring-scoped `SECRET_UPDATE` grant supplies the other permission scheduling
+needs. Version cancellation remains operator-only. The live probe retained
+every historical version and the current placeholder bytes. Publisher
+cancellation and other-secret version listing were denied in both regions;
+signed bundle/metadata GETs returned parseable `Date` headers. The exact
+policy statements were read back, each publisher still belongs only to its
+regional signing group, and its single API key matches the prepared profile.
+See the exact statements and OCI permission mapping in [secrets.md](secrets.md#ts-703-signing-publisher).
 
 Profile metadata and TS-754 rollout sequencing are documented in [secrets.md](secrets.md#ts-703-signing-publisher). No auth release or signing-ring bootstrap was run.
 

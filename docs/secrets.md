@@ -107,10 +107,33 @@ The [inventory](secrets-inventory.md) records the secret OCIDs and live checks.
 
 Each group's policy grants `read secret-bundles` only on its ring OCID and
 `use secrets` on the same OCID, constrained to `SECRET_READ` and `SECRET_UPDATE`.
-The API identity has no secret creation/deletion or KMS grants. Live conditional
-publication of the unchanged placeholder and denial of master-key reads were
-verified in both regions. The host/controller dynamic groups have a separate
-bundle-read grant for their region's API private-key secret.
+TS-703 also lists and prunes deprecated versions to stay within OCI's version
+limit. `ListSecretVersions` requires `SECRET_VERSION_INSPECT`; scheduling a
+version requires `SECRET_VERSION_DELETE` and `SECRET_UPDATE`. These are
+separate `secret-versions` permissions: `use secrets` alone cannot list or
+prune versions. Add only these two ring-scoped statements:
+
+```text
+Allow group id <regional signing group OCID> to inspect secret-versions in compartment id <regional control compartment OCID> where target.secret.id = '<regional ring secret OCID>'
+Allow group id <regional signing group OCID> to manage secret-versions in compartment id <regional control compartment OCID> where all {target.secret.id = '<regional ring secret OCID>', request.operation = 'ScheduleSecretVersionDeletion'}
+```
+
+The operation condition excludes version cancellation; the operator retains
+that recovery permission. OCI accepts scheduling only for `DEPRECATED`
+versions. ts-auth must exclude `CURRENT`, `PREVIOUS` and `PENDING` when pruning.
+The API identity has no secret-resource creation/deletion or KMS grants.
+See [Oracle's permission and operation mapping](https://docs.oracle.com/en-us/iaas/Content/Identity/policyreference/keypolicyreference.htm).
+
+In both regions, live checks verified version listing, conditional publication
+of the unchanged placeholder as CURRENT v3, and scheduling its deprecated v1.
+The operator immediately cancelled each probe schedule and verified no version
+remained scheduled for deletion. No version was deleted. Master-key, private
+API-key and opposite-region ring bundle reads remained denied. The
+host/controller dynamic groups have a separate bundle-read grant for their
+region's API private-key secret. Signed bundle and metadata GETs returned
+parseable OCI `Date` headers for TS-703's activation/retirement clock. Both
+primary controller/host services stayed active; profile application and auth
+deployment remain pending.
 
 The regional [GRU profile](../deploy/oci-region/ts-auth-gru-1-profile.json) and
 [SFO profile](../deploy/oci-region/ts-auth-sfo-1-profile.json) carry the six
