@@ -7,7 +7,7 @@
   ],
   "generation": 1,
   "canonical_roster": {
-    "cluster_id": "014D2PF2DBSQQG28T5CY4TQKFF",
+    "cluster_id": "0123456789abcdef0123456789abcdef",
     "tenant_id": "01HW000000E008000000000080",
     "database_id": "01HW000000E008000000000081",
     "shard_id": 1,
@@ -24,7 +24,7 @@
         "seat_id": "000000000082AXF7GZQT1D126Y",
         "failure_domain": "FAULT-DOMAIN-1",
         "member_id": "00000000005QB6T6F0DBAEFNXS",
-        "incarnation": "0000000000CW5QNJGTBQQ8MGWY",
+        "incarnation": "000000000000670b7aca1a5dee8a439e",
         "tls_leaf_sha256": "0000000000000000000000000000000000000000000000000000000000000001",
         "server_name": "permanent-gru.tb.example"
       },
@@ -33,7 +33,7 @@
         "seat_id": "0000000000XG8SBD7XGE97V28G",
         "failure_domain": "FAULT-DOMAIN-2",
         "member_id": "0000000000TX1HT5JFFAMW33Q4",
-        "incarnation": "0000000000YSXEQ3WYWMAZQ020",
+        "incarnation": "000000000000f67aeb8f9ee515fb8040",
         "tls_leaf_sha256": "0000000000000000000000000000000000000000000000000000000000000002",
         "server_name": "elastic-gru.tb.example"
       }

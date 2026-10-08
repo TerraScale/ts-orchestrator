@@ -81,8 +81,8 @@ func TestStatefulScaleDownGates(t *testing.T) {
 		}, want: StatefulVerdict{Reason: "quorum-floor-not-met"}},
 		{name: "extra elastic seat is retired before permanent seats", mutate: func(in *StatefulScaleDownInput) {
 			in.Members = []StatefulMember{in.Members[0], in.Members[1], in.Members[2],
-				tbMember("00000000003BAF1RX3SX0H8SKG", oci.RegionGRU, "fd-3", placement.MemberElastic, 1)}
-		}, want: StatefulVerdict{Allowed: true, Candidate: "00000000003BAF1RX3SX0H8SKG", Reason: "safe-to-begin-retirement"}},
+				tbMember("00000000001KY1W0TAXRQFR4RE", oci.RegionGRU, "fd-3", placement.MemberElastic, 1)}
+		}, want: StatefulVerdict{Allowed: true, Candidate: "00000000001KY1W0TAXRQFR4RE", Reason: "safe-to-begin-retirement"}},
 		{name: "permanent seats are never candidates", mutate: func(in *StatefulScaleDownInput) {
 			in.Members = []StatefulMember{in.Members[0], in.Members[1], in.Members[2]}
 		}, want: StatefulVerdict{Reason: "quorum-floor-not-met"}},

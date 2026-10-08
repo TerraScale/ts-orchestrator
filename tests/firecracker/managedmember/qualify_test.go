@@ -119,14 +119,14 @@ func mmManifest(t *testing.T) *mmFixture {
 	s3 := mmObject{"version": 1, "ack_profile": "object_durable", "bucket": bucket, "region": mmRegion, "endpoint": mmEndpoint}
 	for _, member := range []string{"a", "b"} {
 		peer := "b"
-		inc := "5VQEXVQEXVQEXVQEXVQEXVQEXV"
+		inc := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 		ip := "10.77.39.11"
 		peerIP := "10.77.39.12"
 		uuid := "76f1b43d-7d79-4f41-9a6e-cc1f4aaab102"
 		fault := "FAULT-DOMAIN-1"
 		if member == "b" {
 			peer = "a"
-			inc = "6CSK6CSK6CSK6CSK6CSK6CSK6C"
+			inc = "cccccccccccccccccccccccccccccccc"
 			ip, peerIP = peerIP, ip
 			uuid = "76f1b43d-7d79-4f41-9a6e-cc1f4aaab103"
 			fault = "FAULT-DOMAIN-2"
@@ -156,7 +156,7 @@ func mmManifest(t *testing.T) *mmFixture {
 		}
 		inputs["authority_tbca"] = authority
 		inputs["signed_v2_s3_config"] = record(member+"-signed-v2-s3-config.json", mmJSON(t, s3))
-		scope := mmObject{"cluster_id": "0H248H248H248H248H248H248H", "tenant_id": "5ANANANANANANANANANANANANA", "database_id": "1248H248H248H248H248H248H2", "shard_id": 7, "member_id": mmID(member), "incarnation": inc}
+		scope := mmObject{"cluster_id": "11111111111111111111111111111111", "tenant_id": "5ANANANANANANANANANANANANA", "database_id": "1248H248H248H248H248H248H2", "shard_id": 7, "member_id": mmID(member), "incarnation": inc}
 		dirs[member] = mmDir(scope)
 		runtime := mmObject{"device_path": "/dev/oracleoci/oraclevdb", "mount_path": dirs[member] + "/volume", "filesystem_uuid": uuid, "filesystem_type": "ext4", "replication_listen_address": ip + ":7000", "replication_peer_member_id": mmID(peer), "replication_peer_address": peerIP + ":7000", "live_s3_target_sha256": mmTarget(bucket), "live_s3_credential": mmObject{"secret_ocid": mmSecret, "version_number": 1}}
 		for field, input := range map[string]string{"trusted_key_sha256": "trusted_public_key", "server_certificate_sha256": "server_crt", "server_private_key_sha256": "server_key", "client_ca_roots_sha256": "client_ca_pem", "client_managed_material_manifest_sha256": "client_managed_manifest", "replication_server_ca_sha256": "server_ca_pem", "live_s3_config_sha256": "signed_v2_s3_config"} {
@@ -269,11 +269,11 @@ func TestManagedMemberCanonicalGuestTools(t *testing.T) {
 func TestManagedMemberDistinctSignedRuntimeDirectories(t *testing.T) {
 	dirs := map[string]string{}
 	for _, member := range []string{"a", "b"} {
-		inc := "5VQEXVQEXVQEXVQEXVQEXVQEXV"
+		inc := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 		if member == "b" {
-			inc = "6CSK6CSK6CSK6CSK6CSK6CSK6C"
+			inc = "cccccccccccccccccccccccccccccccc"
 		}
-		scope := mmObject{"cluster_id": "5ANANANANANANANANANANANANA", "tenant_id": mmID("a"), "database_id": mmID("a"), "shard_id": 1, "member_id": mmID(member), "incarnation": inc}
+		scope := mmObject{"cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "tenant_id": mmID("a"), "database_id": mmID("a"), "shard_id": 1, "member_id": mmID(member), "incarnation": inc}
 		dirs[member] = fc.ManagedMemberDirectory(scope, 1)
 		if dirs[member] != mmDir(scope) {
 			t.Fatal(dirs)

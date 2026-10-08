@@ -25,7 +25,7 @@ func terminalFixture(t *testing.T) (*fleet, *fakeProvider, *fakeJournal, *fakeFe
 		Cell: "gru", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", Region: string(config.Region),
 		Owner: config.Owner, CompartmentID: config.CompartmentID, FleetGeneration: config.Generation,
 		PlacementGeneration: 3, PlacementPayloadDigest: testEnsureRequest(entityid.Derive("test-operation", "unused")).BootPins.IntentPayloadDigest,
-		OperationID: "0000000000YQ07YFE5HRZF55KH", Nonce: "00000000008008000000000001",
+		OperationID: "0000000000YQ07YFE5HRZF55KH", Nonce: "00000000000040008000000000000001",
 		DisposableWorkload: true, AcknowledgePermanentDataLoss: true, AuthorizeForcedStop: true,
 	}
 	for i, seat := range []string{"000000000082AXF7GZQT1D126Y", "0000000000XG8SBD7XGE97V28G"} {

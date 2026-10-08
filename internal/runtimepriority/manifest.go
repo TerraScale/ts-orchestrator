@@ -24,7 +24,12 @@ func validateScope(v any, label string) Object {
 	if !exact(o, "cluster_id", "tenant_id", "database_id", "shard_id", "member_id", "incarnation") {
 		fail("%s must contain exactly the alpha member scope fields", label)
 	}
-	for _, k := range []string{"cluster_id", "incarnation", "tenant_id", "database_id", "member_id"} {
+	for _, k := range []string{"cluster_id", "incarnation"} {
+		if value := str(o, k); !processNonceRE.MatchString(value) || value == strings.Repeat("0", 32) {
+			fail("%s.%s must be a nonzero lowercase 128-bit token", label, k)
+		}
+	}
+	for _, k := range []string{"tenant_id", "database_id", "member_id"} {
 		if !entityid.Valid(str(o, k)) {
 			fail("%s.%s must be a canonical uppercase ULID", label, k)
 		}

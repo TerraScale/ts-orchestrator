@@ -50,7 +50,7 @@ func customerOpenFixture(t *testing.T) (string, string, string, string, managedm
 	}
 	spec := managedmaterial.InitialSpec{
 		PlacementDatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8",
-		Scope: managedmaterial.AuthorityScope{ClusterID: "01081G81860W40J2GB1G6GW3RG",
+		Scope: managedmaterial.AuthorityScope{ClusterID: "0102030405060708090a0b0c0d0e0f10",
 			TenantID:   "0G000000000000000000000001",
 			DatabaseID: "10000000000000000000000001", ShardID: 7, Epoch: 1},
 		LiveS3: managedmaterial.LiveS3Target{Bucket: "alpha-live", Region: "sa-saopaulo-1",

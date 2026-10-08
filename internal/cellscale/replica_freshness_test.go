@@ -147,7 +147,7 @@ func TestMembershipMismatchPreservesReplicaRefusalTimestamp(t *testing.T) {
 					t.Fatal("conflicting placement accepted")
 				}
 				mismatch := safeReplicaSnapshot(s.now.Add(offset), cell)
-				mismatch.Members[0].Incarnation = "000000000000eb01f0fae8525a46a494"
+				mismatch.Members[0].Incarnation = "0000000000XC0Z1YQ8A9D4D94M"
 				floor := under.SampledAt
 				if mismatch.SampledAt.After(floor) {
 					floor = mismatch.SampledAt

@@ -28,7 +28,7 @@ import (
 
 var (
 	memberIDs          = [2]string{"01HW000000E008000000000001", "01HW000000E008000000000002"}
-	memberIncarnations = [2]string{"5VQEXVQEXVQEXVQEXVQEXVQEXV", "6CSK6CSK6CSK6CSK6CSK6CSK6C"}
+	memberIncarnations = [2]string{"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "cccccccccccccccccccccccccccccccc"}
 	memberDNSNames     = [2]string{"member-a.terrabase.test", "member-b.terrabase.test"}
 	failureDomains     = [2]string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"}
 	memberDirs         = [2]string{"/srv/ts-managed/a7d686b2920f18ea45a75e47ff9cd46e", "/srv/ts-managed/876d955c0b319006125266730d25349c"}

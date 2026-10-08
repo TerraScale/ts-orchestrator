@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	clusterID    = "5ANANANANANANANANANANANANA"
+	clusterID    = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	tenantID     = "01HW000000E008000000000001"
 	databaseID   = tenantID
 	collectionID = "1144GJ289144GJ289144GJ2891"
