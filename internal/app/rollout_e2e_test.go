@@ -131,7 +131,7 @@ func TestRolloutExecutorUpdatesARunningCell(t *testing.T) {
 	if reply := command("publish", "good", 0); reply.Status != "published" || reply.Desired == nil || reply.Desired.Generation != 1 {
 		t.Fatalf("publish = %+v", reply)
 	}
-	waitPhase("0000000000N710EPNTQEYZ67K1", rollout.PhaseComplete)
+	waitPhase(entityid.Derive("release-controllers", rolloutexec.ReleaseRolloutID(1)), rollout.PhaseComplete)
 	waitSettled("good")
 	if order := starts.on(digests["good"]); !slices.Equal(order, []string{"ctl-b", "ctl-c", "ctl-a"}) {
 		t.Fatalf("controllers moved as %v, want one per wave and the seed last", order)
@@ -140,7 +140,7 @@ func TestRolloutExecutorUpdatesARunningCell(t *testing.T) {
 	// Generation 2 never becomes healthy: the proof deadline rolls the
 	// canary back through selfupdate.Restore and marks the release bad.
 	command("publish", "bad", 0)
-	waitPhase("release-g2-controllers", rollout.PhaseRolledBack)
+	waitPhase(entityid.Derive("release-controllers", rolloutexec.ReleaseRolloutID(2)), rollout.PhaseRolledBack)
 	waitSettled("good")
 	if moved := starts.on(digests["bad"]); !slices.Equal(moved, []string{"ctl-b"}) {
 		t.Fatalf("units that ran the bad release = %v, want the canary only", moved)
@@ -154,7 +154,7 @@ func TestRolloutExecutorUpdatesARunningCell(t *testing.T) {
 		if !status.DesiredKnownBad || status.Desired.Digest != digests["bad"] {
 			t.Fatalf("status does not report the rejected release: %+v", status)
 		}
-		if status.Rollout != nil && strings.Contains(status.Rollout.Waiting, "release-g2-controllers stopped the program: rollout ended rolled-back") {
+		if status.Rollout != nil && strings.Contains(status.Rollout.Waiting, entityid.Derive("release-controllers", rolloutexec.ReleaseRolloutID(2))+" stopped the program: rollout ended rolled-back") {
 			break
 		}
 		if ctx.Err() != nil {
@@ -175,7 +175,7 @@ func TestRolloutExecutorUpdatesARunningCell(t *testing.T) {
 	if reply := command("resume", "", 0); reply.Status != "resumed" || reply.Paused {
 		t.Fatalf("resume = %+v", reply)
 	}
-	waitPhase("release-g3-controllers", rollout.PhaseComplete)
+	waitPhase(entityid.Derive("release-controllers", rolloutexec.ReleaseRolloutID(3)), rollout.PhaseComplete)
 	waitSettled("good2")
 
 	// Rolling back to generation 1 is a new generation.
@@ -184,7 +184,7 @@ func TestRolloutExecutorUpdatesARunningCell(t *testing.T) {
 		reply.Desired.RollbackOf != 1 || reply.Desired.Digest != digests["good"] {
 		t.Fatalf("rollback = %+v", reply)
 	}
-	waitPhase("release-g4-controllers", rollout.PhaseComplete)
+	waitPhase(entityid.Derive("release-controllers", rolloutexec.ReleaseRolloutID(4)), rollout.PhaseComplete)
 	waitSettled("good")
 	history := command("status", "", 0).History
 	var generations []uint64
