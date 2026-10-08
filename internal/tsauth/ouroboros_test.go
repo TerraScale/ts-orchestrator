@@ -63,7 +63,7 @@ func TestOuroborosTSAuthUserLookup(t *testing.T) {
 	}
 	for _, id := range []string{"", "usr_mario", "01a1105a-7350-7f48-a96e-d71bbb45d7a8", strings.ToLower("01K78000000000000000001001"), "81K78000000000000000001001", "01K7800000000000000000100I"} {
 		set(map[string]any{"id": id, "email": email, "email_verified": true})
-		if _, err := lookup.UserID(t.Context(), email); err == nil || !strings.Contains(err.Error(), "unusable id") {
+		if _, err := lookup.UserID(t.Context(), email); err == nil || !strings.Contains(err.Error(), "noncanonical user ID") {
 			t.Errorf("accepted noncanonical owner %q: %v", id, err)
 		}
 	}
