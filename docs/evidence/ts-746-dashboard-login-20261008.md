@@ -39,6 +39,31 @@ The server never expires a session. Cookies request the maximum persistent
 lifetime and refresh on authenticated requests. Browser-enforced cookie caps
 still apply: Chromium removes a cookie after 400 days without a visit.
 
-## Deployment verification
+## Local Go checks
 
-Pending CI, ts-reviewer approval, merge, and regional rollout.
+Passed with the repository's documented `umask 022`, every local check at
+`nice -n 19`: `make test-fast` for the entire repository, focused authentication
+race tests, observability/dashboard race suites, vet of the three changed
+packages, formatting, generated templ consistency, and `make release-check`
+for static Linux amd64 and arm64 binaries. An initial broader local run under
+`umask 077` failed existing exact-mode fixtures; the focused mode check and
+full fast suite passed after correcting the shell environment.
+
+## Deployment prerequisites
+
+PR: https://git.terrascale.tech/TerraScale/ts-orchestrator/pulls/330
+
+Read-only checks on 2026-10-08 confirmed:
+
+- `TS_AUTO_DEPLOY_CELLS` is unset, so main CI does not dispatch deployment.
+- The current `TS_RELEASE_UPDATE_DELEGATION` allows only GRU, arm64, canary.
+- `ts-orch release fleet-status --namespace grxnmoqvrcdv` reports GRU's
+  channel run 1570 failed: `release-g5-controllers frozen: rollback deadline exceeded`.
+- The authenticated live GRU `/rollouts` page still shows that rollout frozen;
+  SFO's current channel run 1609 is complete.
+
+Both regional Vault tokens were fetched to owner-only temporary files without
+printing their values. Bearer-authenticated `/topology` returns HTTP 200 in
+both regions. Live browser verification of the new login remains pending
+review, merge, and a rollout path that respects the existing GRU recovery fences.
+No rollout fences, signing grants, or deployment settings were changed.
