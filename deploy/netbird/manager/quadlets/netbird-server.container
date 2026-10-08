@@ -33,7 +33,8 @@ TimeoutStartSec=120
 CPUWeight=50
 MemoryHigh=256M
 MemoryMax=384M
-MemorySwapMax=256M
+MemorySwapMax=0
+LimitCORE=0
 
 [Install]
 WantedBy=multi-user.target

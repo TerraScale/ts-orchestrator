@@ -52,7 +52,7 @@ fail() {
 [[ $EUID -eq 0 ]] || fail "run as root"
 [[ "$(hostname -s)" == ts-ops ]] || fail "refusing to run outside ts-ops"
 [[ "$root" == "$STACK" ]] || fail "run from the staged stack at $STACK"
-command -v ts-orch >/dev/null || fail "ts-orch must be on PATH to render $CONFIG from OCI Vault"
+[[ -x /usr/local/bin/ts-orch ]] || fail "/usr/local/bin/ts-orch must be installed for the Vault render and server restart hook"
 
 # The ports must be free or already held by this stack. Any non-runtime
 # listener on the port fails, whatever address it binds. Rootful Podman
@@ -76,7 +76,7 @@ if [[ "$dry_run" -eq 1 ]]; then
 fi
 
 install -d -m 0700 "$(dirname "$CONFIG")"
-ts-orch vault render --vault-id "$VAULT" --scope gru-1 --template "$root/templates/config.yaml.tmpl" --out "$CONFIG"
+/usr/local/bin/ts-orch vault render --vault-id "$VAULT" --scope gru-1 --template "$root/templates/config.yaml.tmpl" --out "$CONFIG"
 [[ "$(stat -c '%U:%G %a' "$CONFIG")" == 'root:root 600' ]] || fail "$CONFIG must be root:root 0600"
 
 install -d -m 0700 "$DATA/data" "$DATA/backups"
