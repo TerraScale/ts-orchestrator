@@ -24,7 +24,7 @@ func TestReleaseGenerationsPublishRollBackAndPause(t *testing.T) {
 	if err != nil || second.Generation != 2 {
 		t.Fatalf("second publish = %+v %v", second, err)
 	}
-	if receipt, delegation, err := store.Receipt(ctx, fromDigest); err != nil || string(receipt) != "0000000000GBSYKHMNVHNRT6RH" || delegation != nil {
+	if receipt, delegation, err := store.Receipt(ctx, fromDigest); err != nil || string(receipt) != "r1" || delegation != nil {
 		t.Fatalf("receipt of a retained generation = %q %q %v", receipt, delegation, err)
 	}
 	if receipt, _, err := store.Receipt(ctx, otherBad); err != nil || receipt != nil {

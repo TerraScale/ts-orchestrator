@@ -10,6 +10,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
@@ -56,22 +57,22 @@ func New() *World {
 			hosts:    []string{"gru-host-a", "gru-host-b", "gru-host-c", "gru-host-d", "gru-host-e"},
 			versions: map[string]string{"gru-ctl-1": "v0.43.0", "gru-ctl-2": "v0.43.0", "gru-ctl-3": "v0.43.0"},
 			leader:   "gru-ctl-1", epoch: 41, fullDisk: "gru-ctl-2",
-			databases: []database{{id: "orders", seats: 3}, {id: "billing", seats: 3}, {id: "catalog", seats: 3},
-				{id: "sessions", seats: 3, stages: []string{"serving", "serving", "awaiting-attach"}},
-				{id: "ledger", seats: 3, rollout: &observability.RolloutView{OperationID: "op-tb-382-gru",
+			databases: []database{{id: entityid.Derive("preview-database", "orders"), name: "orders", seats: 3}, {id: entityid.Derive("preview-database", "billing"), name: "billing", seats: 3}, {id: entityid.Derive("preview-database", "catalog"), name: "catalog", seats: 3},
+				{id: entityid.Derive("preview-database", "sessions"), name: "sessions", seats: 3, stages: []string{"serving", "serving", "awaiting-attach"}},
+				{id: entityid.Derive("preview-database", "ledger"), name: "ledger", seats: 3, rollout: &observability.RolloutView{OperationID: entityid.Derive("preview-rollout", "terrabase-3.8.2", "gru"),
 					ArtifactDigest: "sha256:3b81c9e2d0f4", Seats: 3, Completed: 1, Phases: map[string]int{"done": 1, "pending": 2}}},
-				{id: "search", seats: 3}}},
+				{id: entityid.Derive("preview-database", "search"), name: "search", seats: 3}}},
 		{name: "sfo", controllers: []string{"sfo-ctl-1", "sfo-ctl-2", "sfo-ctl-3"},
 			hosts:    []string{"sfo-host-a", "sfo-host-b", "sfo-host-c", "sfo-host-d"},
 			versions: map[string]string{"sfo-ctl-1": "v0.43.0", "sfo-ctl-2": "v0.42.1", "sfo-ctl-3": "v0.42.1"},
 			leader:   "sfo-ctl-2", epoch: 17, throttled: true,
-			databases: []database{{id: "orders", seats: 3}, {id: "analytics", seats: 3,
-				stages: []string{"serving", "draining", "awaiting-healthy"}}, {id: "catalog", seats: 3}, {id: "media", seats: 3}}},
+			databases: []database{{id: entityid.Derive("preview-database", "orders"), name: "orders", seats: 3}, {id: entityid.Derive("preview-database", "analytics"), name: "analytics", seats: 3,
+				stages: []string{"serving", "draining", "awaiting-healthy"}}, {id: entityid.Derive("preview-database", "catalog"), name: "catalog", seats: 3}, {id: entityid.Derive("preview-database", "media"), name: "media", seats: 3}}},
 		{name: "fra", controllers: []string{"fra-ctl-1", "fra-ctl-2"}, missing: []string{"fra-ctl-3"},
 			hosts:    []string{"fra-host-a", "fra-host-b", "fra-host-c"},
 			versions: map[string]string{"fra-ctl-1": "v0.42.1", "fra-ctl-2": "v0.42.1"},
 			leader:   "fra-ctl-1", epoch: 9, backlog: true,
-			databases: []database{{id: "orders", seats: 3}, {id: "gdpr-vault", seats: 3}, {id: "catalog", seats: 3,
+			databases: []database{{id: entityid.Derive("preview-database", "orders"), name: "orders", seats: 3}, {id: entityid.Derive("preview-database", "gdpr-vault"), name: "gdpr-vault", seats: 3}, {id: entityid.Derive("preview-database", "catalog"), name: "catalog", seats: 3,
 				stages: []string{"serving", "serving", "cordoned"}}}},
 	}
 	world.stuck = now.Add(-22 * time.Minute)
@@ -174,7 +175,7 @@ func (world *World) tick(now time.Time, random *rand.Rand) {
 	world.mu.Unlock()
 	region := world.regions[random.IntN(len(world.regions))]
 	db := region.databases[random.IntN(len(region.databases))]
-	seat := fmt.Sprintf("%s-%d", db.id, random.IntN(db.seats)+1)
+	seat := entityid.Derive("preview-seat", region.name, db.id, fmt.Sprint(random.IntN(db.seats)+1))
 	switch random.IntN(4) {
 	case 0:
 		world.store.record(decisionlog.Decision{Time: now, Region: region.name,
@@ -185,8 +186,8 @@ func (world *World) tick(now time.Time, random *rand.Rand) {
 	case 1:
 		world.store.record(decisionlog.Decision{Time: now, Region: region.name,
 			Actor: decisionlog.Actor{Slice: "delivery", Member: region.leader}, Kind: decisionlog.KindDeliveryApplied,
-			Subject: decisionlog.Subject{Kind: "intent", ID: fmt.Sprintf("intent-%04d", random.IntN(9999))},
-			Summary: "Applied a desired-state intent for " + db.id, Reason: "The intent's generation is newer than the applied one.",
+			Subject: decisionlog.Subject{Kind: "intent", ID: entityid.New()},
+			Summary: "Applied a desired-state intent for " + db.name, Reason: "The intent's generation is newer than the applied one.",
 			Rule: "apply newer generations in order", Status: decisionlog.StatusSucceeded})
 	}
 	levels := []string{"INFO", "INFO", "INFO", "WARN", "ERROR"}

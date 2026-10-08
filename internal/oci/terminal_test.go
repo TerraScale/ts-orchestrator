@@ -49,7 +49,7 @@ func terminalFixture(t *testing.T) (*fleet, *fakeProvider, *fakeJournal, *fakeFe
 			t.Fatalf("boot binding missing for %s: %v", host.ID, err)
 		}
 		intent.Targets = append(intent.Targets, authority.TerminalTarget{
-			SeatID: seat, MemberID: "0000000000X19BS9EF0RNYQC5B" + string(rune('1'+i)),
+			SeatID: seat, MemberID: entityid.Derive("test-terminal-member", seat),
 			HostCreateKey: request.CreateKey, DataCreateKey: dataKey,
 			InstanceID: host.ID, BootVolumeID: binding.BootVolumeID, DataVolumeID: volume.ID,
 		})
