@@ -8,10 +8,12 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
+	"golang.org/x/sync/errgroup"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/command"
@@ -51,6 +53,7 @@ type CopyReport struct {
 	PolicyID       string     `json:"policy_id,omitempty"`
 	LastSync       *time.Time `json:"last_sync,omitempty"`
 	Seeded         int        `json:"seeded"`
+	Mirrored       int        `json:"mirrored"` // Source objects already identical in the mirror.
 	Planned        bool       `json:"planned"`
 }
 
@@ -59,6 +62,7 @@ type copier struct {
 	namespace, sourceRegion, targetRegion, sourceCell, targetCell string
 	sourceConfig, targetConfig                                    Region
 	apply                                                         bool
+	workers                                                       int
 	Pause                                                         func(context.Context, time.Duration) error
 }
 
@@ -75,7 +79,7 @@ func newCopier(source, target *ociclient.Factory, config Config, sourceCell, tar
 	}
 	return &copier{source: s, target: t, namespace: config.Namespace, sourceRegion: source.Region(),
 		targetRegion: target.Region(), sourceCell: sourceCell, targetCell: targetCell,
-		sourceConfig: sourceConfig, targetConfig: targetConfig, apply: apply, Pause: command.Pause}, nil
+		sourceConfig: sourceConfig, targetConfig: targetConfig, apply: apply, workers: 16, Pause: command.Pause}, nil
 }
 
 func (c *copier) copy(ctx context.Context, role string) (CopyReport, error) {
@@ -150,20 +154,8 @@ func (c *copier) copy(ctx context.Context, role string) (CopyReport, error) {
 			return r, errors.New("create replication returned no valid policy ID; inspect manually before pinning in config")
 		}
 	}
-	policy, err = c.policy(ctx, r)
-	if err != nil {
+	if err := c.replicating(ctx, &r); err != nil {
 		return r, err
-	}
-	r.PolicyID = *policy.Id
-	if policy.TimeLastSync != nil {
-		r.LastSync = &policy.TimeLastSync.Time
-	}
-	if policy.Status != objectstorage.ReplicationPolicySummaryStatusActive {
-		return r, fmt.Errorf("replication %s is %s; check Object Storage service grants", r.PolicyID, policy.Status)
-	}
-	mirror, err := c.target.GetBucket(ctx, objectstorage.GetBucketRequest{NamespaceName: &c.namespace, BucketName: &r.MirrorBucket})
-	if err != nil || !same(mirror.Id, r.MirrorBucketID) || mirror.IsReadOnly == nil || !*mirror.IsReadOnly {
-		return r, fmt.Errorf("replication destination %s changed identity or is not read-only yet; review and pin report IDs before rerunning: %v", r.MirrorBucket, err)
 	}
 	// Policy creation is another asynchronous boundary. A same-name seed
 	// replacement must not receive writes belonging to the recorded OCID.
@@ -174,11 +166,36 @@ func (c *copier) copy(ctx context.Context, role string) (CopyReport, error) {
 	// to the mirror, closing the race between inventory and policy creation.
 	// ponytail: seed versions are retained without GC until a qualified cold
 	// restore defines the baseline/window; add a scoped lifecycle then.
-	r.Seeded, err = c.seed(ctx, r)
+	r.Seeded, r.Mirrored, err = c.seed(ctx, r)
 	if err == nil {
 		_, err = c.bucket(ctx, r.SeedBucket, r.SeedBucketID, true, false)
 	}
+	// Skipped objects count only while the policy still feeds the same
+	// read-only mirror; a removed policy makes the mirror writable again.
+	if err == nil {
+		err = c.replicating(ctx, &r)
+	}
 	return r, err
+}
+
+// replicating binds the active policy to the recorded read-only mirror.
+func (c *copier) replicating(ctx context.Context, r *CopyReport) error {
+	policy, err := c.policy(ctx, *r)
+	if err != nil {
+		return err
+	}
+	r.PolicyID = *policy.Id
+	if policy.TimeLastSync != nil {
+		r.LastSync = &policy.TimeLastSync.Time
+	}
+	if policy.Status != objectstorage.ReplicationPolicySummaryStatusActive {
+		return fmt.Errorf("replication %s is %s; check Object Storage service grants", r.PolicyID, policy.Status)
+	}
+	mirror, err := c.target.GetBucket(ctx, objectstorage.GetBucketRequest{NamespaceName: &c.namespace, BucketName: &r.MirrorBucket})
+	if err != nil || !same(mirror.Id, r.MirrorBucketID) || mirror.IsReadOnly == nil || !*mirror.IsReadOnly {
+		return fmt.Errorf("replication destination %s changed identity or is not read-only yet; review and pin report IDs before rerunning: %v", r.MirrorBucket, err)
+	}
+	return nil
 }
 
 func (c *copier) policy(ctx context.Context, r CopyReport) (*objectstorage.ReplicationPolicySummary, error) {
@@ -263,86 +280,128 @@ func (c *copier) bucket(ctx context.Context, name, id string, seed, create bool)
 	return id, nil
 }
 
-func (c *copier) seed(ctx context.Context, r CopyReport) (int, error) {
+// seed copies every current source object that the mirror lacks. Objects
+// on one inventory page are copied by bounded workers; a sequential pass
+// spends most of its time polling copy work requests.
+func (c *copier) seed(ctx context.Context, r CopyReport) (int, int, error) {
 	request := objectstorage.ListObjectsRequest{NamespaceName: &c.namespace, BucketName: &r.SourceBucket,
 		Fields: new("name,size,md5,etag"), Limit: new(1000)}
-	copied := 0
+	var copied, mirrored atomic.Int64
+	counts := func() (int, int) { return int(copied.Load()), int(mirrored.Load()) }
 	for {
 		response, err := c.source.ListObjects(ctx, request)
 		if err != nil {
-			return copied, err
+			s, m := counts()
+			return s, m, err
 		}
+		group, groupCtx := errgroup.WithContext(ctx)
+		group.SetLimit(max(c.workers, 1))
 		for _, object := range response.Objects {
-			if object.Name == nil || *object.Name == "" || object.Etag == nil || *object.Etag == "" || object.Size == nil || *object.Size < 0 {
-				return copied, errors.New("backfill inventory lacks object size or ETag")
-			}
-			head, err := c.seedMetadata(ctx, r.SeedBucket, *object.Name)
-			if err == nil {
-				matched, matchErr := c.matchesSeed(ctx, r, object, head)
-				if matchErr != nil {
-					return copied, matchErr
+			group.Go(func() error {
+				seededOne, mirroredOne, err := c.seedObject(groupCtx, ctx, r, object)
+				if seededOne {
+					copied.Add(1)
 				}
-				if matched {
-					continue
+				if mirroredOne {
+					mirrored.Add(1)
 				}
-			}
-			if err != nil && !ociError(err, http.StatusNotFound, "ObjectNotFound") {
-				return copied, err
-			}
-			details := objectstorage.CopyObjectDetails{SourceObjectName: object.Name, SourceObjectIfMatchETag: object.Etag,
-				DestinationRegion: &c.targetRegion, DestinationNamespace: &c.namespace, DestinationBucket: &r.SeedBucket, DestinationObjectName: object.Name}
-			if err != nil {
-				details.DestinationObjectIfNoneMatchETag = new("*")
-			} else {
-				if head.ETag == nil || *head.ETag == "" {
-					return copied, errors.New("backfill destination lacks ETag")
-				}
-				details.DestinationObjectIfMatchETag = head.ETag
-			}
-			// Each asynchronous copy addresses a bucket name, so admission
-			// must still bind that name to the recorded seed identity.
-			if _, err := c.bucket(ctx, r.SeedBucket, r.SeedBucketID, true, false); err != nil {
-				return copied, err
-			}
-			// Inherit the admitted destination bucket's key. An explicit
-			// cross-region KMS header is resolved by the source endpoint and
-			// fails with KmsHostNotFound for the destination region's key.
-			copy, err := c.source.CopyObject(ctx, objectstorage.CopyObjectRequest{NamespaceName: &c.namespace, BucketName: &r.SourceBucket,
-				CopyObjectDetails: details})
-			if err != nil {
-				return copied, fmt.Errorf("backfill %s: %w", *object.Name, err)
-			}
-			if copy.OpcWorkRequestId == nil || *copy.OpcWorkRequestId == "" {
-				return copied, errors.New("copy returned no work request ID")
-			}
-			if err := c.waitCopy(ctx, *copy.OpcWorkRequestId); err != nil {
-				return copied, err
-			}
-			head, err = c.seedMetadata(ctx, r.SeedBucket, *object.Name)
-			if err != nil {
-				return copied, fmt.Errorf("backfill %s failed checksum/size readback: %v", *object.Name, err)
-			}
-			matched, err := c.matchesSeed(ctx, r, object, head)
-			if err != nil {
-				return copied, err
-			}
-			if !matched {
-				return copied, fmt.Errorf("backfill %s failed checksum/size readback", *object.Name)
-			}
-			copied++
+				return err
+			})
+		}
+		err = group.Wait()
+		s, m := counts()
+		if err != nil {
+			return s, m, err
 		}
 		next := response.NextStartWith
 		if next == nil || *next == "" {
-			return copied, nil
+			return s, m, nil
 		}
 		if request.Start != nil && *next <= *request.Start {
-			return copied, errors.New("backfill inventory pagination did not advance")
+			return s, m, errors.New("backfill inventory pagination did not advance")
 		}
 		request.Start = next
 	}
 }
 
-func (c *copier) matchesSeed(ctx context.Context, r CopyReport, object objectstorage.ObjectSummary, head objectstorage.GetObjectResponse) (bool, error) {
+// seedObject reports whether it verified a new seed copy, or found the
+// object already identical in the mirror. Neither is true for an object
+// a previous pass already seeded. ctx stops admitting work after a sibling
+// fails; a copy already submitted is seen through on drain, because an
+// abandoned server-side copy would race a rerun's copy of the same object.
+func (c *copier) seedObject(ctx, drain context.Context, r CopyReport, object objectstorage.ObjectSummary) (copied, mirrored bool, err error) {
+	if object.Name == nil || *object.Name == "" || object.Etag == nil || *object.Etag == "" || object.Size == nil || *object.Size < 0 {
+		return false, false, errors.New("backfill inventory lacks object size or ETag")
+	}
+	// Replication already holds this version, so the seed covers only what
+	// the mirror lacks. Source deletes replicate to the mirror: the source
+	// bucket's retention rule, not the seed, protects these objects.
+	head, err := c.metadata(ctx, r.MirrorBucket, *object.Name)
+	if err == nil {
+		matched, err := c.matches(ctx, r, r.MirrorBucket, object, head)
+		if err != nil || matched {
+			return false, matched, err
+		}
+	} else if !ociError(err, http.StatusNotFound, "ObjectNotFound") {
+		return false, false, err
+	}
+	head, err = c.metadata(ctx, r.SeedBucket, *object.Name)
+	if err == nil {
+		matched, err := c.matches(ctx, r, r.SeedBucket, object, head)
+		if err != nil || matched {
+			return false, false, err
+		}
+	}
+	if err != nil && !ociError(err, http.StatusNotFound, "ObjectNotFound") {
+		return false, false, err
+	}
+	details := objectstorage.CopyObjectDetails{SourceObjectName: object.Name, SourceObjectIfMatchETag: object.Etag,
+		DestinationRegion: &c.targetRegion, DestinationNamespace: &c.namespace, DestinationBucket: &r.SeedBucket, DestinationObjectName: object.Name}
+	if err != nil {
+		details.DestinationObjectIfNoneMatchETag = new("*")
+	} else {
+		if head.ETag == nil || *head.ETag == "" {
+			return false, false, errors.New("backfill destination lacks ETag")
+		}
+		details.DestinationObjectIfMatchETag = head.ETag
+	}
+	// Each asynchronous copy addresses a bucket name, so admission
+	// must still bind that name to the recorded seed identity.
+	if _, err := c.bucket(ctx, r.SeedBucket, r.SeedBucketID, true, false); err != nil {
+		return false, false, err
+	}
+	// Inherit the admitted destination bucket's key. An explicit
+	// cross-region KMS header is resolved by the source endpoint and
+	// fails with KmsHostNotFound for the destination region's key.
+	if err := ctx.Err(); err != nil {
+		return false, false, err
+	}
+	started, err := c.source.CopyObject(drain, objectstorage.CopyObjectRequest{NamespaceName: &c.namespace, BucketName: &r.SourceBucket,
+		CopyObjectDetails: details})
+	if err != nil {
+		return false, false, fmt.Errorf("backfill %s: %w", *object.Name, err)
+	}
+	if started.OpcWorkRequestId == nil || *started.OpcWorkRequestId == "" {
+		return false, false, errors.New("copy returned no work request ID")
+	}
+	if err := c.waitCopy(drain, *started.OpcWorkRequestId); err != nil {
+		return false, false, err
+	}
+	head, err = c.metadata(drain, r.SeedBucket, *object.Name)
+	if err != nil {
+		return false, false, fmt.Errorf("backfill %s failed checksum/size readback: %w", *object.Name, err)
+	}
+	matched, err := c.matches(drain, r, r.SeedBucket, object, head)
+	if err != nil {
+		return false, false, err
+	}
+	if !matched {
+		return false, false, fmt.Errorf("backfill %s failed checksum/size readback", *object.Name)
+	}
+	return true, false, nil
+}
+
+func (c *copier) matches(ctx context.Context, r CopyReport, bucket string, object objectstorage.ObjectSummary, head objectstorage.GetObjectResponse) (bool, error) {
 	if head.ContentLength == nil || *head.ContentLength != *object.Size {
 		return false, nil
 	}
@@ -359,7 +418,7 @@ func (c *copier) matchesSeed(ctx context.Context, r CopyReport, object objectsto
 	if err != nil {
 		return false, err
 	}
-	target, err := c.digest(ctx, c.target, r.SeedBucket, *object.Name, *head.ETag, *object.Size)
+	target, err := c.digest(ctx, c.target, bucket, *object.Name, *head.ETag, *object.Size)
 	return source == target, err
 }
 
@@ -388,7 +447,7 @@ func (c *copier) digest(ctx context.Context, client objectClient, bucket, name, 
 // OCI HEAD errors have no service code, so a 404 cannot distinguish an absent
 // object from refused access. GET supplies ObjectNotFound; close immediately
 // after receiving metadata rather than downloading the body.
-func (c *copier) seedMetadata(ctx context.Context, bucket, name string) (objectstorage.GetObjectResponse, error) {
+func (c *copier) metadata(ctx context.Context, bucket, name string) (objectstorage.GetObjectResponse, error) {
 	response, err := c.target.GetObject(ctx, objectstorage.GetObjectRequest{NamespaceName: &c.namespace, BucketName: &bucket, ObjectName: &name})
 	if err != nil {
 		return response, err

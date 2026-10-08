@@ -97,7 +97,13 @@ func ensureVaultReplica(ctx context.Context, client vaultReplicaClient, vaultID,
 		return report, err
 	}
 	if replica != nil {
-		if replica.Status != keymanagement.VaultReplicaSummaryStatusCreated {
+		switch replica.Status {
+		case keymanagement.VaultReplicaSummaryStatusCreated:
+		case keymanagement.VaultReplicaSummaryStatusCreating, "":
+			// An interrupted run can leave the replica mid-creation.
+			report.Status = "CREATING"
+			return report, fmt.Errorf("existing vault replica is still being created (%q); re-run once it reaches CREATED", replica.Status)
+		default:
 			return report, fmt.Errorf("existing vault replica is %q; expected CREATED", replica.Status)
 		}
 		report.CryptoEndpoint, err = vaultReplicaEndpoint(replica.CryptoEndpoint, targetRegion)
@@ -152,7 +158,8 @@ func ensureVaultReplica(ctx context.Context, client vaultReplicaClient, vaultID,
 					report.Status = "CREATED"
 				}
 				return report, err
-			case keymanagement.VaultReplicaSummaryStatusCreating:
+			// OCI first lists a new replica with no status (seen 2026-10-08).
+			case keymanagement.VaultReplicaSummaryStatusCreating, "":
 			default:
 				return report, fmt.Errorf("vault replica entered unexpected state %q", replica.Status)
 			}

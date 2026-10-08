@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,11 +21,15 @@ type fakeObjects struct {
 	policy       *objectstorage.ReplicationPolicySummary
 	pages        [][]objectstorage.ObjectSummary
 	heads        map[string]objectstorage.HeadObjectResponse
+	mirror       map[string]objectstorage.HeadObjectResponse
+	mu           *sync.Mutex // Shared by both regions; backfill workers call them concurrently.
 	copies       []objectstorage.CopyObjectRequest
 	creates      int
 	list         int
 	retention    bool
 	copyErr      error
+	copyErrs     map[string]error // By source object name.
+	beforeCopy   func(objectstorage.CopyObjectRequest)
 	status       objectstorage.WorkRequestStatusEnum
 	remote       *fakeObjects
 	createErr    error
@@ -35,6 +40,8 @@ type fakeObjects struct {
 }
 
 func (f *fakeObjects) GetBucket(_ context.Context, r objectstorage.GetBucketRequest) (objectstorage.GetBucketResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if b, ok := f.buckets[*r.BucketName]; ok {
 		return objectstorage.GetBucketResponse{Bucket: b}, nil
 	}
@@ -95,6 +102,8 @@ func (f *fakeObjects) CreateReplicationPolicy(_ context.Context, r objectstorage
 	return response, nil
 }
 func (f *fakeObjects) ListObjects(_ context.Context, r objectstorage.ListObjectsRequest) (objectstorage.ListObjectsResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	i := f.list
 	f.list++
 	if f.afterList != nil {
@@ -110,6 +119,8 @@ func (f *fakeObjects) ListObjects(_ context.Context, r objectstorage.ListObjects
 	return response, nil
 }
 func (f *fakeObjects) GetObject(_ context.Context, r objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if *r.BucketName == "gru-1-backup" {
 		for _, page := range f.pages {
 			for _, object := range page {
@@ -119,16 +130,28 @@ func (f *fakeObjects) GetObject(_ context.Context, r objectstorage.GetObjectRequ
 			}
 		}
 	}
-	if h, ok := f.heads[*r.ObjectName]; ok {
+	heads := f.heads
+	if *r.BucketName == "sfo-1-dr-gru-1-backup" {
+		heads = f.mirror
+	}
+	if h, ok := heads[*r.ObjectName]; ok {
 		return objectstorage.GetObjectResponse{ContentLength: h.ContentLength, ContentMd5: h.ContentMd5, ETag: h.ETag,
 			Content: io.NopCloser(strings.NewReader("contents"))}, nil
 	}
 	return objectstorage.GetObjectResponse{}, newServiceFailure(http.StatusNotFound, "ObjectNotFound", "missing", "request")
 }
 func (f *fakeObjects) CopyObject(_ context.Context, r objectstorage.CopyObjectRequest) (objectstorage.CopyObjectResponse, error) {
+	if f.beforeCopy != nil {
+		f.beforeCopy(r)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.copies = append(f.copies, r)
 	if f.copyErr != nil {
 		return objectstorage.CopyObjectResponse{}, f.copyErr
+	}
+	if err := f.copyErrs[*r.SourceObjectName]; err != nil {
+		return objectstorage.CopyObjectResponse{}, err
 	}
 	f.heads[*r.SourceObjectName] = objectstorage.HeadObjectResponse{ContentLength: new(int64(8)), ContentMd5: new("checksum"), ETag: new("copy-etag")}
 	if f.afterCopy != nil {
@@ -137,12 +160,15 @@ func (f *fakeObjects) CopyObject(_ context.Context, r objectstorage.CopyObjectRe
 	return objectstorage.CopyObjectResponse{OpcWorkRequestId: new("copy-1")}, nil
 }
 func (f *fakeObjects) GetWorkRequest(context.Context, objectstorage.GetWorkRequestRequest) (objectstorage.GetWorkRequestResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return objectstorage.GetWorkRequestResponse{WorkRequest: objectstorage.WorkRequest{Status: f.status}}, nil
 }
 
 func objectFixture() (*copier, *fakeObjects, *fakeObjects) {
-	s := &fakeObjects{buckets: map[string]objectstorage.Bucket{}, heads: map[string]objectstorage.HeadObjectResponse{}, status: objectstorage.WorkRequestStatusCompleted}
-	t := &fakeObjects{buckets: map[string]objectstorage.Bucket{}, heads: s.heads}
+	mu := &sync.Mutex{}
+	s := &fakeObjects{buckets: map[string]objectstorage.Bucket{}, heads: map[string]objectstorage.HeadObjectResponse{}, status: objectstorage.WorkRequestStatusCompleted, mu: mu}
+	t := &fakeObjects{buckets: map[string]objectstorage.Bucket{}, heads: s.heads, mu: mu}
 	s.remote = t
 	c := &copier{source: s, target: t, namespace: "namespace", sourceRegion: "sa-saopaulo-1", targetRegion: "us-sanjose-1",
 		sourceCell: "gru", targetCell: "sfo", sourceConfig: Region{CompartmentID: "gru-control", KeyID: "gru-key"},
@@ -189,6 +215,87 @@ func TestCopyActivatesMirrorBeforeBackfillAndVerifiesAllPages(t *testing.T) {
 	_, err = c.copy(t.Context(), "backup")
 	if err != nil || s.creates != 1 || d.creates != 2 || len(s.copies) != 2 {
 		t.Fatalf("resume: %v, %+v", err, s.copies)
+	}
+}
+
+func TestBackfillSkipsIdenticalMirrorCopiesAndCopiesConcurrently(t *testing.T) {
+	c, s, d := objectFixture()
+	c.apply = true
+	c.workers = 4
+	d.mirror = map[string]objectstorage.HeadObjectResponse{}
+	var pages [][]objectstorage.ObjectSummary
+	for page := range 2 {
+		var objects []objectstorage.ObjectSummary
+		for i := range 5 {
+			name := fmt.Sprintf("v1/db/wal/%d-%d", page, i)
+			objects = append(objects, objectstorage.ObjectSummary{Name: new(name), Size: new(int64(8)), Md5: new("checksum"), Etag: new(name)})
+			md5 := "checksum"
+			if i == 4 {
+				md5 = "older version"
+			}
+			if i >= 2 {
+				d.mirror[name] = objectstorage.HeadObjectResponse{ContentLength: new(int64(8)), ContentMd5: new(md5), ETag: new("mirror")}
+			}
+		}
+		pages = append(pages, objects)
+	}
+	s.pages = pages
+	r, err := c.copy(t.Context(), "backup")
+	if err != nil || r.Seeded != 6 || r.Mirrored != 4 || len(s.copies) != 6 {
+		t.Fatalf("copy = %+v, %v, copies=%d", r, err, len(s.copies))
+	}
+	for _, copy := range s.copies {
+		if name := *copy.SourceObjectName; strings.HasSuffix(name, "-2") || strings.HasSuffix(name, "-3") {
+			t.Fatalf("identical mirror object %s was seeded again", name)
+		}
+	}
+}
+
+func TestBackfillDrainsSubmittedCopiesAfterASiblingFails(t *testing.T) {
+	c, s, _ := objectFixture()
+	c.apply = true
+	c.workers = 2
+	s.pages = [][]objectstorage.ObjectSummary{{{Name: new("v1/a"), Size: new(int64(8)), Md5: new("checksum"), Etag: new("a")},
+		{Name: new("v1/b"), Size: new(int64(8)), Md5: new("checksum"), Etag: new("b")}}}
+	s.copyErrs = map[string]error{"v1/a": newServiceFailure(http.StatusPreconditionFailed, "PreconditionFailed", "moved", "request")}
+	// v1/a fails only after v1/b's server-side copy is running.
+	submitted := make(chan struct{})
+	s.beforeCopy = func(r objectstorage.CopyObjectRequest) {
+		if *r.SourceObjectName == "v1/a" {
+			<-submitted
+		}
+	}
+	s.afterCopy = func() { close(submitted) }
+	s.status = objectstorage.WorkRequestStatusInProgress
+	c.Pause = func(ctx context.Context, _ time.Duration) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+		s.mu.Lock()
+		s.status = objectstorage.WorkRequestStatusCompleted
+		s.mu.Unlock()
+		return nil
+	}
+	r, err := c.copy(t.Context(), "backup")
+	if err == nil || r.Seeded != 1 {
+		t.Fatalf("submitted copy abandoned after a sibling failed: %+v, %v", r, err)
+	}
+}
+
+func TestBackfillRechecksTheMirrorBeforeSuccess(t *testing.T) {
+	c, s, d := objectFixture()
+	c.apply = true
+	s.pages = [][]objectstorage.ObjectSummary{{{Name: new("v1/db/wal/0"), Size: new(int64(8)), Md5: new("checksum"), Etag: new("source")}}}
+	d.mirror = map[string]objectstorage.HeadObjectResponse{"v1/db/wal/0": {ContentLength: new(int64(8)), ContentMd5: new("checksum"), ETag: new("mirror")}}
+	s.afterList = func() {
+		mirror := d.buckets["sfo-1-dr-gru-1-backup"]
+		mirror.Id = new("ocid1.bucket.oc1.us-sanjose-1.replacement")
+		d.buckets[*mirror.Name] = mirror
+	}
+	if r, err := c.copy(t.Context(), "backup"); err == nil || r.Mirrored != 1 || len(s.copies) != 0 {
+		t.Fatalf("replaced mirror accepted: %+v, %v", r, err)
 	}
 }
 

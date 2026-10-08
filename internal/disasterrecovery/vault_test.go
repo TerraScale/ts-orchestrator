@@ -114,7 +114,7 @@ func TestVaultReplicaConflicts(t *testing.T) {
 		{"creating", func(r *keymanagement.VaultReplicaSummary) { r.Status = keymanagement.VaultReplicaSummaryStatusCreating }},
 		{"deleting", func(r *keymanagement.VaultReplicaSummary) { r.Status = keymanagement.VaultReplicaSummaryStatusDeleting }},
 		{"deleted", func(r *keymanagement.VaultReplicaSummary) { r.Status = keymanagement.VaultReplicaSummaryStatusDeleted }},
-		{"unknown state", func(r *keymanagement.VaultReplicaSummary) { r.Status = "" }},
+		{"listed without status", func(r *keymanagement.VaultReplicaSummary) { r.Status = "" }},
 		{"missing endpoint", func(r *keymanagement.VaultReplicaSummary) { r.CryptoEndpoint = nil }},
 		{"source endpoint", func(r *keymanagement.VaultReplicaSummary) {
 			r.CryptoEndpoint = common.String("https://replica-crypto.kms.sa-saopaulo-1.oraclecloud.com")
@@ -134,8 +134,14 @@ func TestVaultReplicaConflicts(t *testing.T) {
 			replica := vaultTestReplica(keymanagement.VaultReplicaSummaryStatusCreated)
 			test.change(&replica)
 			fake.pages = []keymanagement.ListVaultReplicasResponse{{Items: []keymanagement.VaultReplicaSummary{replica}}}
-			if _, err := ensureVaultReplica(t.Context(), fake, vaultTestID, vaultTestSource, vaultTestTarget, true); err == nil || len(fake.creates) != 0 {
+			report, err := ensureVaultReplica(t.Context(), fake, vaultTestID, vaultTestSource, vaultTestTarget, true)
+			if err == nil || len(fake.creates) != 0 {
 				t.Fatalf("conflict error = %v; writes = %d", err, len(fake.creates))
+			}
+			// A replica an interrupted run left mid-creation asks for a re-run.
+			if creating := test.name == "creating" || test.name == "listed without status"; creating != strings.Contains(err.Error(), "re-run") ||
+				creating != (report.Status == "CREATING") {
+				t.Fatalf("in-progress replica report = %+v, %v", report, err)
 			}
 		})
 	}
@@ -210,12 +216,13 @@ func TestVaultReplicaCreation(t *testing.T) {
 		fake := newFakeVaultReplicaClient(t)
 		fake.pages = []keymanagement.ListVaultReplicasResponse{
 			{}, {},
+			{Items: []keymanagement.VaultReplicaSummary{vaultTestReplica("")}},
 			{Items: []keymanagement.VaultReplicaSummary{vaultTestReplica(keymanagement.VaultReplicaSummaryStatusCreating)}},
 			{Items: []keymanagement.VaultReplicaSummary{vaultTestReplica(keymanagement.VaultReplicaSummaryStatusCreated)}},
 		}
 		started := time.Now()
 		report, err := ensureVaultReplica(t.Context(), fake, vaultTestID, vaultTestSource, vaultTestTarget, true)
-		if err != nil || report.Status != "CREATED" || report.CryptoEndpoint != vaultTestCrypto || len(fake.creates) != 1 || fake.gets != 4 || time.Since(started) != 4*time.Second {
+		if err != nil || report.Status != "CREATED" || report.CryptoEndpoint != vaultTestCrypto || len(fake.creates) != 1 || fake.gets != 5 || time.Since(started) != 6*time.Second {
 			t.Fatalf("create = %+v, %v; writes = %d, reads = %d", report, err, len(fake.creates), fake.gets)
 		}
 		request := fake.creates[0]

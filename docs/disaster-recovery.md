@@ -31,7 +31,8 @@ preparation against administrative bucket replacement and policy changes.
 
 **Recovery is not implemented yet.** This command prepares copies; it does not
 rebuild a cell, restore TerraBase or ts-auth, or measure RTO/RPO. TS-641 stays
-open until the cold-restore service contract and the sfo drill below pass.
+open until the cold-restore service contract (TerraBase: TS-743) and the sfo
+drill below pass.
 Never use quorum recovery or a regional founding attempt to run this drill
 against serving gru-1.
 
@@ -48,8 +49,13 @@ therefore gets a dedicated mirror in the other region:
 | sfo-1-head | gru-1-dr-sfo-1-head | gru-1-dr-sfo-1-head-seed |
 
 OCI only replicates objects uploaded **after** policy creation. The command
-activates the policy first, then enumerates all current source objects into
-a separate writable, versioned seed bucket. Source ETag and destination CAS
+activates the policy first, then enumerates all current source objects and
+copies each one the mirror lacks into a separate writable, versioned seed
+bucket. An object whose mirror copy already matches its size and checksum
+is counted in `mirrored` instead of copied again; a differing mirror version
+still gets the source version seeded. Each inventory page is copied by 16
+workers. The policy and read-only mirror identity are checked again before
+success. Source ETag and destination CAS
 conditions prevent a changed source or concurrent backfill from silently
 winning; every completed copy must match its size and checksum (ordinary MD5,
 or streamed SHA-256 for missing/multipart checksums). Object names
@@ -70,7 +76,10 @@ point cannot be established. No such reader is implemented by this command.
 A mirror alone can lack wrapped data keys and snapshots that predate its
 policy. Seeds preserve only versions actually copied by a seed pass. An
 object created later and overwritten or deleted before another pass has no
-historical seed copy; the unversioned mirror can lose it too. Archival
+historical seed copy; the unversioned mirror can lose it too. Source deletes
+and overwrites replicate to the mirror, and objects the mirror already held
+are not seeded: the source bucket's retention rule (35 days on
+`gru-1-backup`) is their only delete protection. Archival
 capture of subsequent generations is required before claiming a durable
 recovery baseline. Seed retention and garbage collection must be bound to
 that validated baseline before monthly drills are enabled; this command
@@ -91,7 +100,12 @@ reported `isVaultReplicable=true`). The command creates/reuses their Vault
 replicas and reports the remote cryptographic endpoint. Recovery must use
 the original key ID at that endpoint and prove it unwraps an existing copied
 data key with the source endpoint unreachable. A newly generated key cannot
-decrypt existing backups. Key replication does **not** replicate Vault
+decrypt existing backups. That proof passed for GRU on 2026-10-08 (see the
+evidence below). OCI lists each replica endpoint in the source region's
+domain, but each region resolves only its own: us-sanjose-1 under
+`oci.oraclecloud.com`, sa-saopaulo-1 under `oraclecloud.com`. Use the
+destination region's form of the listed host, e.g.
+`ffvmfu2naagt6-crypto.kms.us-sanjose-1.oci.oraclecloud.com`. Key replication does **not** replicate Vault
 secrets: bootstrap credentials, role secret refs, ts-auth signing/master
 keys, S3 credentials and the KMS API signing credential need separate secret
 replication and a destination-only read test.
@@ -201,4 +215,6 @@ Record the first result here and on TS-641 before claiming this outcome.
 The [2026-10-07 live preparation record](evidence/ts-641-replication-20261007.md)
 tracks the scoped IAM changes, retained backup mirror/seed and policy IDs,
 GRU Vault replica, copy-request corrections and bounded backfill result.
-It is partial preparation; it does not establish a full recovery baseline.
+The [2026-10-08 record](evidence/ts-641-replication-20261008.md) completes
+all four copy directions and both Vault replicas, and proves a copied GRU
+data key unwraps in SFO. Copies alone do not establish a recovery point.
