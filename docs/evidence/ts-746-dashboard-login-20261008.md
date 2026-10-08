@@ -122,6 +122,17 @@ vet, formatting and template generation passed. Chromium and Firefox repeated
 login, browser reopen, controller/broker restart, cross-site logout rejection
 and copied-cookie revocation successfully.
 
+## CI run 1695
+
+The cluster-health fixture selected route ports, released them, and let NATS
+choose its client ports automatically. CI assigned peer2's client listener
+the same port as its route listener (`36603`), causing a fatal bind failure.
+The fixture now uses the existing `reserveControllerPorts` helper to select
+six distinct client/route ports together, and explicitly configures both
+listeners. Ten race repetitions of the real three-broker cluster-health
+test and distinct-port regression passed, along with vet, formatting and
+diff checks. Production code is unchanged by this fixture correction.
+
 ## Third reviewer round
 
 Rotation now commits the new token-generation CAS before deleting retired

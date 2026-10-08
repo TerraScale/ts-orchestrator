@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"net"
 	"path/filepath"
 	"testing"
 	"time"
@@ -19,21 +18,18 @@ func TestClusterHealthIsHealthyOnEveryFormedBroker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	root := t.TempDir()
-	routePorts, routes := make([]int, 3), make([]string, 3)
+	// Allocate client and route ports together so an ephemeral client listener
+	// cannot claim a route port before its broker starts.
+	ports := reserveControllerPorts(t, 6)
+	routePorts, routes := ports[3:], make([]string, 3)
 	for index := range routePorts {
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		routePorts[index] = listener.Addr().(*net.TCPAddr).Port
-		listener.Close()
 		routes[index] = fmt.Sprintf("nats-route://127.0.0.1:%d", routePorts[index])
 	}
 	runtimes := make([]*natscell.Runtime, 3)
 	for index := range runtimes {
 		instance := fmt.Sprintf("peer%d", index)
 		runtime, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: instance, Replicas: 3, Lab: true,
-			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, RouteHost: "127.0.0.1",
+			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: ports[index], RouteHost: "127.0.0.1",
 				RoutePort: routePorts[index], Routes: natscell.PeerRoutes(routes, routes[index]),
 				StoreDir: filepath.Join(root, instance), BrokerIDs: []string{"peer0", "peer1", "peer2"}}})
 		if err != nil {
