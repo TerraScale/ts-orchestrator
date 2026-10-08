@@ -8,6 +8,7 @@ These pages describe the current greenfield Go implementation.
 | [Unified CLI](cli.md) | Prefer Go `ts-orch` commands for operational tooling; bootstrap/release migration and remaining scripts |
 | [Contributing](../CONTRIBUTING.md) | CLI-first Go feature development, automation boundaries, and verification |
 | [Multi-region foundation](multi-region.md) | Feature-flagged interregion leafnodes, global control stream, region lifecycle and planner |
+| [NetBird control-plane path](network/netbird-control-plane.md) | TS-676 live root cause, private preferred policy prerequisites and read-only path audit |
 | [NATS fabric](nats-fabric.md) | Orchestrator-to-orchestrator transport: subject, stream and KV naming, which pattern to use, global documents |
 | [New region](new-region.md) | `ts-orch region create` brings a non-home region up in one command; `region verify` checks it serves |
 | [Manual regional bootstrap](region-bootstrap.md) | Operator-created regional foundation and controller A, followed by orchestrator-managed peers and workloads |

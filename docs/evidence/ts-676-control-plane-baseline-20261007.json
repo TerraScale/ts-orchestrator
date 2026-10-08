@@ -1,0 +1,505 @@
+{
+  "captured_at": "2026-10-07T20:37:08Z",
+  "mode": "read_only_baseline",
+  "notes": [
+    "No nodes, manager host, DNS, routes or firewall rules were changed.",
+    "Read-only endpoint probes use valid TLS SNI and certificate verification.",
+    "Dashboard source 64.181.243.47 is SFO NAT public IP; manager public endpoint is 163.176.73.79.",
+    "GRU has NAT and DRG routes now, contrary to historical bootstrap documentation, but security list egress excludes the manager public /32.",
+    "Client relay list is STUN3478 plus secure relay on443; no TURN endpoint advertised."
+  ],
+  "nodes": [
+    {
+      "peer": "ts-gru-1",
+      "ssh_exit_code": 0,
+      "hostname": "gru-1-ctl-1",
+      "captured_at": "2026-10-07T20:37:08Z",
+      "management_config": [
+        "\"management_url\": \"https://netbird.terrascale.tech\"",
+        "\"management_ip\": \"10.250.10.155\""
+      ],
+      "control_plane_sockets": [
+        "ESTAB 0      0               10.251.0.11:48528         10.250.10.155:443   users:((\"netbird\",pid=734,fd=8))           ",
+        "ESTAB 0      0               10.251.0.11:48550         10.250.10.155:443   users:((\"netbird\",pid=734,fd=12))          ",
+        "ESTAB 0      0               10.251.0.11:34052         10.250.10.155:443   users:((\"netbird\",pid=734,fd=24))          ",
+        "ESTAB 0      0               10.251.0.11:48544         10.250.10.155:443   users:((\"netbird\",pid=734,fd=10))          "
+      ],
+      "oci_dns_answers": [
+        "netbird.terrascale.tech IN A 163.176.73.79                  -- link: enp0s6"
+      ],
+      "tls_probes": [
+        "private_tls remote=10.250.10.155 http=200 verify=0 exit=0",
+        "public_tls remote= http=000 verify=0 exit=28"
+      ]
+    },
+    {
+      "peer": "ts-gru-2",
+      "ssh_exit_code": 0,
+      "hostname": "gru-1-ctl-2",
+      "captured_at": "2026-10-07T20:37:08Z",
+      "management_config": [
+        "\"management_url\": \"https://netbird.terrascale.tech\"",
+        "\"management_ip\": \"10.250.10.155\""
+      ],
+      "control_plane_sockets": [
+        "ESTAB 0      0               10.251.0.12:41966        10.250.10.155:443   users:((\"netbird\",pid=733,fd=9))          ",
+        "ESTAB 0      0               10.251.0.12:41980        10.250.10.155:443   users:((\"netbird\",pid=733,fd=11))         ",
+        "ESTAB 0      0               10.251.0.12:41958        10.250.10.155:443   users:((\"netbird\",pid=733,fd=8))          "
+      ],
+      "oci_dns_answers": [
+        "netbird.terrascale.tech IN A 163.176.73.79                  -- link: enp0s6"
+      ],
+      "tls_probes": [
+        "private_tls remote=10.250.10.155 http=200 verify=0 exit=0",
+        "public_tls remote= http=000 verify=0 exit=28"
+      ]
+    },
+    {
+      "peer": "ts-gru-3",
+      "ssh_exit_code": 0,
+      "hostname": "gru-1-ctl-3",
+      "captured_at": "2026-10-07T20:37:08Z",
+      "management_config": [
+        "\"management_url\": \"https://netbird.terrascale.tech\"",
+        "\"management_ip\": \"10.250.10.155\""
+      ],
+      "control_plane_sockets": [
+        "ESTAB 0      0               10.251.0.13:57232         10.250.10.155:443   users:((\"netbird\",pid=733,fd=7))           ",
+        "ESTAB 0      0               10.251.0.13:57234         10.250.10.155:443   users:((\"netbird\",pid=733,fd=9))           ",
+        "ESTAB 0      0               10.251.0.13:57246         10.250.10.155:443   users:((\"netbird\",pid=733,fd=11))          "
+      ],
+      "oci_dns_answers": [
+        "netbird.terrascale.tech IN A 163.176.73.79                  -- link: enp0s6"
+      ],
+      "tls_probes": [
+        "private_tls remote=10.250.10.155 http=200 verify=0 exit=0",
+        "public_tls remote= http=000 verify=0 exit=28"
+      ]
+    },
+    {
+      "peer": "ts-sfo-1",
+      "ssh_exit_code": 0,
+      "hostname": "ts-sfo-1",
+      "captured_at": "2026-10-07T20:37:10Z",
+      "management_config": [
+        "\"management_url\": \"https://netbird.terrascale.tech\""
+      ],
+      "control_plane_sockets": [
+        "ESTAB 0      0               10.252.0.11:35360         163.176.73.79:443   users:((\"netbird\",pid=912,fd=9))           ",
+        "ESTAB 0      4496            10.252.0.11:37864         163.176.73.79:443   users:((\"netbird\",pid=912,fd=13))          ",
+        "ESTAB 0      0               10.252.0.11:37856         163.176.73.79:443   users:((\"netbird\",pid=912,fd=10))          "
+      ],
+      "oci_dns_answers": [
+        "netbird.terrascale.tech IN A 163.176.73.79                  -- link: enp0s6"
+      ],
+      "tls_probes": [
+        "private_tls remote= http=000 verify=0 exit=28",
+        "public_tls remote=163.176.73.79 http=200 verify=0 exit=0"
+      ]
+    },
+    {
+      "peer": "ts-sfo-2",
+      "ssh_exit_code": 0,
+      "hostname": "ts-sfo-2",
+      "captured_at": "2026-10-07T20:37:10Z",
+      "management_config": [
+        "\"management_url\": \"https://netbird.terrascale.tech\""
+      ],
+      "control_plane_sockets": [
+        "ESTAB 0      4448            10.252.0.12:48542         163.176.73.79:443   users:((\"netbird\",pid=924,fd=13))          ",
+        "ESTAB 0      0               10.252.0.12:48526         163.176.73.79:443   users:((\"netbird\",pid=924,fd=10))          ",
+        "ESTAB 0      0               10.252.0.12:48514         163.176.73.79:443   users:((\"netbird\",pid=924,fd=9))           "
+      ],
+      "oci_dns_answers": [
+        "netbird.terrascale.tech IN A 163.176.73.79                  -- link: enp0s6"
+      ],
+      "tls_probes": [
+        "private_tls remote= http=000 verify=0 exit=28",
+        "public_tls remote=163.176.73.79 http=200 verify=0 exit=0"
+      ]
+    },
+    {
+      "peer": "ts-sfo-3",
+      "ssh_exit_code": 0,
+      "hostname": "ts-sfo-3",
+      "captured_at": "2026-10-07T20:37:10Z",
+      "management_config": [
+        "\"management_url\": \"https://netbird.terrascale.tech\""
+      ],
+      "control_plane_sockets": [
+        "ESTAB 0      0               10.252.0.13:39560         163.176.73.79:443   users:((\"netbird\",pid=891,fd=10))          ",
+        "ESTAB 0      4384            10.252.0.13:39562         163.176.73.79:443   users:((\"netbird\",pid=891,fd=13))          ",
+        "ESTAB 0      0               10.252.0.13:39556         163.176.73.79:443   users:((\"netbird\",pid=891,fd=9))           "
+      ],
+      "oci_dns_answers": [
+        "netbird.terrascale.tech IN A 163.176.73.79                  -- link: enp0s6"
+      ],
+      "tls_probes": [
+        "private_tls remote= http=000 verify=0 exit=28",
+        "public_tls remote=163.176.73.79 http=200 verify=0 exit=0"
+      ]
+    }
+  ],
+  "oci_readback": [
+    {
+      "name": "ts-ops-vcn",
+      "state": "AVAILABLE",
+      "cidrs": [
+        "10.250.0.0/16"
+      ]
+    },
+    {
+      "name": "ts-ops",
+      "state": "RUNNING"
+    },
+    {
+      "name": "ts-ops",
+      "state": "AVAILABLE",
+      "private": "10.250.10.155",
+      "public": "163.176.73.79",
+      "primary": true
+    },
+    {
+      "name": "gru-1-private-routes",
+      "routes": [
+        {
+          "destination": "all-gru-services-in-oracle-services-network",
+          "destination-type": "SERVICE_CIDR_BLOCK",
+          "network-entity-id": "ocid1.servicegateway.oc1.sa-saopaulo-1.aaaaaaaa6eqxxbtbzjg4xjhdtgatk77l5xtuufapm6hoxwdfjmiuimthuuxq"
+        },
+        {
+          "destination": "10.250.10.155/32",
+          "destination-type": "CIDR_BLOCK",
+          "network-entity-id": "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.aaaaaaaayqdnpy77rzq2xvcfdlk356qchcj7hcsfysuyogxfozvffmeauhyq"
+        },
+        {
+          "destination": "0.0.0.0/0",
+          "destination-type": "CIDR_BLOCK",
+          "network-entity-id": "ocid1.natgateway.oc1.sa-saopaulo-1.aaaaaaaafgmtdw5enzeez26p5rq44xbi3fe3kqouxhu43qfu5cmcaotq2rqa"
+        },
+        {
+          "destination": "10.252.0.0/25",
+          "destination-type": "CIDR_BLOCK",
+          "network-entity-id": "ocid1.drg.oc1.sa-saopaulo-1.aaaaaaaa7gppe3zfkizrvmdeozj6kucpukxgvtfralwi5neqmjuz4y6hfxba"
+        }
+      ]
+    },
+    {
+      "name": "sfo-1-private-routes",
+      "routes": [
+        {
+          "destination": "all-sjc-services-in-oracle-services-network",
+          "destination-type": "SERVICE_CIDR_BLOCK",
+          "network-entity-id": "ocid1.servicegateway.oc1.us-sanjose-1.aaaaaaaamqfpeephcjoto2cb47qk2u357s4ieq7fb4l2mm6semavcuuzjoda"
+        },
+        {
+          "destination": "0.0.0.0/0",
+          "destination-type": "CIDR_BLOCK",
+          "network-entity-id": "ocid1.natgateway.oc1.us-sanjose-1.aaaaaaaa7sxesb746nizxvw7fpvcrcybvlnsfbnjljnihecxyv5twbmkaebq"
+        },
+        {
+          "destination": "10.251.0.0/25",
+          "destination-type": "CIDR_BLOCK",
+          "network-entity-id": "ocid1.drg.oc1.us-sanjose-1.aaaaaaaamoytewdt22r2ocnds5ia4lyny7etqoxlsj5o2hjux6csmqtzwg5q"
+        }
+      ]
+    },
+    {
+      "name": "sfo-1-nat",
+      "state": "AVAILABLE",
+      "blocked": false,
+      "public": "64.181.243.47"
+    },
+    {
+      "name": "gru-1-nat",
+      "state": "AVAILABLE",
+      "blocked": false,
+      "public": "163.176.30.185"
+    },
+    {
+      "name": "gru-1-private-security",
+      "egress_destinations": [
+        "10.250.10.155/32",
+        "10.251.0.0/24",
+        "10.252.0.0/25",
+        "103.21.244.0/22",
+        "103.22.200.0/22",
+        "103.31.4.0/22",
+        "104.16.0.0/13",
+        "104.24.0.0/14",
+        "108.162.192.0/18",
+        "131.0.72.0/22",
+        "141.101.64.0/18",
+        "162.158.0.0/15",
+        "169.254.169.254/32",
+        "172.64.0.0/13",
+        "173.245.48.0/20",
+        "188.114.96.0/20",
+        "190.93.240.0/20",
+        "197.234.240.0/22",
+        "198.41.128.0/17",
+        "all-gru-services-in-oracle-services-network"
+      ],
+      "manager_egress": [
+        {
+          "destination": "10.250.10.155/32",
+          "protocol": "6",
+          "tcp-options": {
+            "destination-port-range": {
+              "max": 443,
+              "min": 443
+            },
+            "source-port-range": null
+          },
+          "udp-options": null
+        },
+        {
+          "destination": "10.250.10.155/32",
+          "protocol": "17",
+          "tcp-options": null,
+          "udp-options": {
+            "destination-port-range": {
+              "max": 3478,
+              "min": 3478
+            },
+            "source-port-range": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "ts-ops-public",
+      "cidr": "10.250.10.0/24"
+    },
+    {
+      "name": "ts-ops-public-rt",
+      "routes": [
+        {
+          "destination": "0.0.0.0/0",
+          "destination-type": "CIDR_BLOCK",
+          "network-entity-id": "ocid1.internetgateway.oc1.sa-saopaulo-1.aaaaaaaaubi6okhp3hff5uojvcszg36r4jkay6zctgyejzfmr44tkyeauona"
+        },
+        {
+          "destination": "10.251.0.0/25",
+          "destination-type": "CIDR_BLOCK",
+          "network-entity-id": "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.aaaaaaaaull5hl6p45bcresgenubvy3taefyid4kdvshbzpz4ox7uulnnu4a"
+        }
+      ]
+    },
+    {
+      "name": "sfo-1-private-security",
+      "egress_destinations": [
+        "10.251.0.0/25",
+        "10.252.0.0/24",
+        "103.21.244.0/22",
+        "103.22.200.0/22",
+        "103.31.4.0/22",
+        "104.16.0.0/13",
+        "104.24.0.0/14",
+        "108.162.192.0/18",
+        "131.0.72.0/22",
+        "141.101.64.0/18",
+        "162.158.0.0/15",
+        "163.176.73.79/32",
+        "169.254.169.254/32",
+        "172.64.0.0/13",
+        "173.245.48.0/20",
+        "188.114.96.0/20",
+        "190.93.240.0/20",
+        "197.234.240.0/22",
+        "198.41.128.0/17",
+        "all-sjc-services-in-oracle-services-network"
+      ],
+      "manager_egress": [
+        {
+          "destination": "163.176.73.79/32",
+          "protocol": "6",
+          "tcp-options": {
+            "destination-port-range": {
+              "max": 443,
+              "min": 443
+            },
+            "source-port-range": null
+          },
+          "udp-options": null
+        },
+        {
+          "destination": "163.176.73.79/32",
+          "protocol": "17",
+          "tcp-options": null,
+          "udp-options": {
+            "destination-port-range": {
+              "max": 3478,
+              "min": 3478
+            },
+            "source-port-range": null
+          }
+        }
+      ]
+    }
+  ],
+  "after_probes": [
+    {
+      "peer": "ts-gru-1",
+      "captured_at": "2026-10-07T20:54:07Z",
+      "daemon_status": "Connected",
+      "management": {
+        "url": "https://netbird.terrascale.tech:443",
+        "connected": true
+      },
+      "signal": {
+        "url": "https://netbird.terrascale.tech:443",
+        "connected": true
+      },
+      "relays": [
+        {
+          "uri": "stun:netbird.terrascale.tech:3478",
+          "available": true,
+          "transport": null
+        },
+        {
+          "uri": "rels://netbird.terrascale.tech:443",
+          "available": true,
+          "transport": "ws"
+        }
+      ],
+      "managed_hosts_entry": "10.250.10.155\tnetbird.terrascale.tech\t# terrascale-netbird-manager",
+      "ssh_exit_code": 0
+    },
+    {
+      "peer": "ts-gru-2",
+      "captured_at": "2026-10-07T20:54:11Z",
+      "daemon_status": "Connected",
+      "management": {
+        "url": "https://netbird.terrascale.tech:443",
+        "connected": true
+      },
+      "signal": {
+        "url": "https://netbird.terrascale.tech:443",
+        "connected": true
+      },
+      "relays": [
+        {
+          "uri": "stun:netbird.terrascale.tech:3478",
+          "available": true,
+          "transport": null
+        },
+        {
+          "uri": "rels://netbird.terrascale.tech:443",
+          "available": true,
+          "transport": "ws"
+        }
+      ],
+      "managed_hosts_entry": "10.250.10.155\tnetbird.terrascale.tech\t# terrascale-netbird-manager",
+      "ssh_exit_code": 0
+    },
+    {
+      "peer": "ts-gru-3",
+      "captured_at": "2026-10-07T20:54:07Z",
+      "daemon_status": "Connected",
+      "management": {
+        "url": "https://netbird.terrascale.tech:443",
+        "connected": true
+      },
+      "signal": {
+        "url": "https://netbird.terrascale.tech:443",
+        "connected": true
+      },
+      "relays": [
+        {
+          "uri": "stun:netbird.terrascale.tech:3478",
+          "available": true,
+          "transport": null
+        },
+        {
+          "uri": "rels://netbird.terrascale.tech:443",
+          "available": true,
+          "transport": "ws"
+        }
+      ],
+      "managed_hosts_entry": "10.250.10.155\tnetbird.terrascale.tech\t# terrascale-netbird-manager",
+      "ssh_exit_code": 0
+    },
+    {
+      "peer": "ts-sfo-1",
+      "captured_at": "2026-10-07T20:54:13Z",
+      "daemon_status": "Connected",
+      "management": {
+        "url": "https://netbird.terrascale.tech:443",
+        "connected": true
+      },
+      "signal": {
+        "url": "https://netbird.terrascale.tech:443",
+        "connected": true
+      },
+      "relays": [
+        {
+          "uri": "stun:netbird.terrascale.tech:3478",
+          "available": true,
+          "transport": null
+        },
+        {
+          "uri": "rels://netbird.terrascale.tech:443",
+          "available": true,
+          "transport": "ws"
+        }
+      ],
+      "managed_hosts_entry": "",
+      "ssh_exit_code": 0
+    },
+    {
+      "peer": "ts-sfo-2",
+      "captured_at": "2026-10-07T20:54:10Z",
+      "daemon_status": "Connected",
+      "management": {
+        "url": "https://netbird.terrascale.tech:443",
+        "connected": true
+      },
+      "signal": {
+        "url": "https://netbird.terrascale.tech:443",
+        "connected": true
+      },
+      "relays": [
+        {
+          "uri": "stun:netbird.terrascale.tech:3478",
+          "available": true,
+          "transport": null
+        },
+        {
+          "uri": "rels://netbird.terrascale.tech:443",
+          "available": true,
+          "transport": "ws"
+        }
+      ],
+      "managed_hosts_entry": "",
+      "ssh_exit_code": 0
+    },
+    {
+      "peer": "ts-sfo-3",
+      "captured_at": "2026-10-07T20:54:11Z",
+      "daemon_status": "Connected",
+      "management": {
+        "url": "https://netbird.terrascale.tech:443",
+        "connected": true
+      },
+      "signal": {
+        "url": "https://netbird.terrascale.tech:443",
+        "connected": true
+      },
+      "relays": [
+        {
+          "uri": "stun:netbird.terrascale.tech:3478",
+          "available": true,
+          "transport": null
+        },
+        {
+          "uri": "rels://netbird.terrascale.tech:443",
+          "available": true,
+          "transport": "ws"
+        }
+      ],
+      "managed_hosts_entry": "",
+      "ssh_exit_code": 0
+    }
+  ]
+}

@@ -30,6 +30,8 @@ func TestLocalCommandDispatchWithoutRuntimeConfig(t *testing.T) {
 		{args: []string{"release", "--help"}, want: "sign-binary"},
 		{args: []string{"image", "--help"}, want: "build-offline"},
 		{args: []string{"netbird", "--help"}, want: "install"},
+		{args: []string{"netbird", "path-audit", "--help"}, want: "--expected-ip"},
+		{args: []string{"netbird", "path-audit"}, want: "requires --vault-id", wantError: true},
 		{args: []string{"netbird", "sync", "--help"}, want: "prune-peers"},
 		{args: []string{"netbird", "inventory", "unexpected"}, want: "no positional arguments", wantError: true},
 		{args: []string{"oci-region", "--help"}, want: "preview"},
