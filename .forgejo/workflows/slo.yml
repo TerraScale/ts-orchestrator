@@ -1,0 +1,48 @@
+name: Service SLO policy checks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'deploy/observability/**'
+      - 'tests/slo/**'
+      - '.forgejo/workflows/slo.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'deploy/observability/**'
+      - 'tests/slo/**'
+      - '.forgejo/workflows/slo.yml'
+  workflow_dispatch:
+
+jobs:
+  policy:
+    name: Prometheus rule evaluations and dashboard contract
+    runs-on: terrascale-builder
+    timeout-minutes: 10
+    env:
+      CI: 'true'
+      GOMAXPROCS: '2'
+      GOFLAGS: -p=2
+      GOCACHE: /cache/go/build
+      GOMODCACHE: /cache/go/mod
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          github-server-url: https://git.terrascale.tech
+          ref: ${{ forgejo.sha }}
+          persist-credentials: false
+      - name: Fetch checksum-pinned Prometheus evaluator
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${RUNNER_TEMP}"
+          curl --fail --location --silent --show-error --retry 3 \
+            https://github.com/prometheus/prometheus/releases/download/v3.15.0/prometheus-3.15.0.linux-amd64.tar.gz \
+            -o prometheus.tar.gz
+          printf '%s  prometheus.tar.gz\n' \
+            2a542df32eac02ee17b9d844fb2aa1de00dafa5476579ba8a3ba862e9d572ea0 | sha256sum --check
+          tar -xzf prometheus.tar.gz prometheus-3.15.0.linux-amd64/promtool
+          printf 'TS_SLO_PROMTOOL=%s/prometheus-3.15.0.linux-amd64/promtool\n' "${RUNNER_TEMP}" >> "${GITHUB_ENV}"
+      - name: Evaluate rules and validate dashboard
+        run: go test ./tests/slo -count=1 -v

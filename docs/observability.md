@@ -57,6 +57,12 @@ as on the host enrollment listener.
 
 ## Metrics
 
+Closed-beta service availability policy, multi-window burn-rate rules and an
+importable Grafana dashboard live in
+[deploy/observability/slo.md](../deploy/observability/slo.md). These are policy
+assets; service request telemetry and a verified monitoring backend are
+prerequisites before claiming production SLO coverage.
+
 | Family | Source |
 | --- | --- |
 | `ts_orch_build_info`, `ts_orch_ready`, `ts_orch_ready_check{check}` | collector |

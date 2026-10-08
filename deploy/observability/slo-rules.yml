@@ -1,0 +1,159 @@
+# TS-714: provisional closed-beta availability policy; see slo.md.
+groups:
+  - name: service-slo
+    interval: 1m
+    rules:
+      - record: slo:objective
+        expr: vector(0.999)
+        labels:
+          service: terrabase
+          slo: availability
+      - record: slo:objective
+        expr: vector(0.999)
+        labels:
+          service: ts-auth
+          slo: availability
+      - record: slo:objective
+        expr: vector(0.999)
+        labels:
+          service: ts-dashboard
+          slo: availability
+      - record: slo:objective
+        expr: vector(0.999)
+        labels:
+          service: ts-atlas
+          slo: availability
+      - record: slo:objective
+        expr: vector(0.999)
+        labels:
+          service: ts-router
+          slo: availability
+      - record: slo:error_budget:ratio
+        expr: 1 - slo:objective
+      - record: slo:requests:rate5m
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome=~"good|bad"}[5m]))
+        labels:
+          slo: availability
+      - record: slo:errors:ratio5m
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome="bad"}[5m])) / on (service) slo:requests:rate5m
+        labels:
+          slo: availability
+      - record: slo:burn_rate:ratio5m
+        expr: slo:errors:ratio5m / slo:error_budget:ratio
+      - record: slo:requests:rate30m
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome=~"good|bad"}[30m]))
+        labels:
+          slo: availability
+      - record: slo:errors:ratio30m
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome="bad"}[30m])) / on (service) slo:requests:rate30m
+        labels:
+          slo: availability
+      - record: slo:burn_rate:ratio30m
+        expr: slo:errors:ratio30m / slo:error_budget:ratio
+      - record: slo:requests:rate1h
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome=~"good|bad"}[1h]))
+        labels:
+          slo: availability
+      - record: slo:errors:ratio1h
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome="bad"}[1h])) / on (service) slo:requests:rate1h
+        labels:
+          slo: availability
+      - record: slo:burn_rate:ratio1h
+        expr: slo:errors:ratio1h / slo:error_budget:ratio
+      - record: slo:requests:rate2h
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome=~"good|bad"}[2h]))
+        labels:
+          slo: availability
+      - record: slo:errors:ratio2h
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome="bad"}[2h])) / on (service) slo:requests:rate2h
+        labels:
+          slo: availability
+      - record: slo:burn_rate:ratio2h
+        expr: slo:errors:ratio2h / slo:error_budget:ratio
+      - record: slo:requests:rate6h
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome=~"good|bad"}[6h]))
+        labels:
+          slo: availability
+      - record: slo:errors:ratio6h
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome="bad"}[6h])) / on (service) slo:requests:rate6h
+        labels:
+          slo: availability
+      - record: slo:burn_rate:ratio6h
+        expr: slo:errors:ratio6h / slo:error_budget:ratio
+      - record: slo:requests:rate1d
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome=~"good|bad"}[1d]))
+        labels:
+          slo: availability
+      - record: slo:errors:ratio1d
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome="bad"}[1d])) / on (service) slo:requests:rate1d
+        labels:
+          slo: availability
+      - record: slo:burn_rate:ratio1d
+        expr: slo:errors:ratio1d / slo:error_budget:ratio
+      - record: slo:requests:rate3d
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome=~"good|bad"}[3d]))
+        labels:
+          slo: availability
+      - record: slo:errors:ratio3d
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome="bad"}[3d])) / on (service) slo:requests:rate3d
+        labels:
+          slo: availability
+      - record: slo:burn_rate:ratio3d
+        expr: slo:errors:ratio3d / slo:error_budget:ratio
+      - record: slo:requests:increase30d
+        expr: sum by (service) (increase(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome=~"good|bad"}[30d]))
+        labels:
+          slo: availability
+      - record: slo:errors:ratio30d
+        expr: sum by (service) (increase(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome="bad"}[30d])) / sum by (service) (increase(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome=~"good|bad"}[30d]))
+        labels:
+          slo: availability
+      - record: slo:budget_remaining:ratio30d
+        expr: 1 - slo:errors:ratio30d / slo:error_budget:ratio
+      - alert: ServiceSLOBurnFast
+        expr: (slo:burn_rate:ratio1h > 14.4) and on (service, slo) (slo:burn_rate:ratio5m > 14.4)
+        labels:
+          severity: critical
+          long_window: 1h
+          short_window: 5m
+        annotations:
+          summary: '{{ $labels.service }} availability error budget is burning'
+          description: 'Burn exceeds 14.4x in both 1h and 5m; inspect service failures before changing capacity or releases.'
+      - alert: ServiceSLOBurnSlow
+        expr: (slo:burn_rate:ratio6h > 6) and on (service, slo) (slo:burn_rate:ratio30m > 6)
+        labels:
+          severity: critical
+          long_window: 6h
+          short_window: 30m
+        annotations:
+          summary: '{{ $labels.service }} availability error budget is burning'
+          description: 'Burn exceeds 6x in both 6h and 30m; inspect service failures before changing capacity or releases.'
+      - alert: ServiceSLOBurnDaily
+        expr: (slo:burn_rate:ratio1d > 3) and on (service, slo) (slo:burn_rate:ratio2h > 3)
+        labels:
+          severity: warning
+          long_window: 1d
+          short_window: 2h
+        annotations:
+          summary: '{{ $labels.service }} availability error budget is burning'
+          description: 'Burn exceeds 3x in both 1d and 2h; inspect service failures before changing capacity or releases.'
+      - alert: ServiceSLOBurnSteady
+        expr: (slo:burn_rate:ratio3d > 1) and on (service, slo) (slo:burn_rate:ratio6h > 1)
+        labels:
+          severity: warning
+          long_window: 3d
+          short_window: 6h
+        annotations:
+          summary: '{{ $labels.service }} availability error budget is burning'
+          description: 'Burn exceeds 1x in both 3d and 6h; inspect service failures before changing capacity or releases.'
+      - alert: ServiceSLOTelemetryMissing
+        expr: |
+          (slo:objective unless on (service) sum by (service) (count_over_time(terrascale_slo_requests_total{outcome="good"}[5m])))
+          or
+          (slo:objective unless on (service) sum by (service) (count_over_time(terrascale_slo_requests_total{outcome="bad"}[5m])))
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.service }} SLO telemetry is missing'
+          description: 'No recent good or bad request counter; restore instrumentation or collection. Missing telemetry is not availability success.'
