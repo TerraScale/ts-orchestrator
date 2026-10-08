@@ -26,6 +26,8 @@ type ServerDeps struct {
 	Cluster   ClusterSource
 	Events    EventSource
 	Sessions  *SessionStore
+	// TokenVersion orders shared Vault-token registrations; local files omit it.
+	TokenVersion TokenVersion
 	// LocalSessions preserves browser login on hosts without KV permissions.
 	// Controllers keep it false and attach the persistent regional store.
 	LocalSessions bool

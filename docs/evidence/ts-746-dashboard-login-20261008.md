@@ -166,3 +166,33 @@ repetitions afterward. Full observability/dashboard race suites, vet,
 formatting and generated-template checks passed. Chromium and Firefox repeated
 login, browser reopening, controller/NATS restart, cross-site logout rejection,
 and copied-cookie revocation successfully.
+
+## Fifth reviewer round
+
+NetBird registration now carries the secret OCID and version from the same
+OCI CURRENT bundle response as the token, plus the adopted signed-spec
+generation. CAS refuses older Vault versions, conflicting values at one
+version, obsolete secret references, and unversioned overwrites before
+changing metadata or collecting sessions. A newer spec checkpoint for an
+unchanged token preserves the logical session generation. A real Vault
+version rotation advances it, including same-value and A-to-B-to-A rotations.
+Restoring an old value therefore requires creating a newer Vault version.
+
+Matching-token listeners reconcile to the current logical generation for
+authentication, issuance, and logout; retired cookies remain revoked. Failed
+listener starts invalidate the token cache so the next check rereads Vault.
+The listener regression uses the real five-minute cache: another controller
+registers version 2, then an address change restarts the cached version-1
+listener. Its stale registration cannot revoke version-2 sessions, and the
+next check refreshes Vault and recovers. Vault outages preserve a serving
+listener. Authority tests cover signed-reference fencing, checkpoint
+preservation, same-value rotations, A-to-B-to-A reconciliation, and logout
+from a matching-token stale binding. Missing Vault metadata fails safely.
+
+Ten race repetitions of the authority/rotation/logout regressions and the
+app listener-cache regression passed. Full observability and Vault race
+suites, repository fast tests, vet, formatting, and generated-template checks
+passed. Chromium and Firefox passed login, browser reopen, controller/NATS
+restart, cross-site logout rejection, and copied-cookie revocation with the
+versioned-token harness. These are local checks; post-deploy regional
+verification remains pending.

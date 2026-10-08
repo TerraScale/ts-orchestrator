@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -96,29 +97,113 @@ type sessionBinding struct {
 	generation uint64
 }
 
+// TokenVersion orders versions within a Vault secret and reference changes
+// across signed cell specs. Source is the secret's OCID, never its value.
+type TokenVersion struct {
+	Source         string `json:"source"`
+	Number         int64  `json:"number"`
+	SpecGeneration uint64 `json:"spec_generation"`
+}
+
+type sessionToken struct {
+	Hash       string       `json:"hash"`
+	Version    TokenVersion `json:"version"`
+	Generation uint64       `json:"generation"`
+}
+
+func readSessionToken(data []byte) (sessionToken, error) {
+	// Accept the hash-only metadata written before authoritative versions.
+	if len(data) == 64 {
+		if _, err := hex.DecodeString(string(data)); err == nil {
+			return sessionToken{Hash: string(data)}, nil
+		}
+	}
+	var token sessionToken
+	err := json.Unmarshal(data, &token)
+	return token, err
+}
+
+func (token *sessionToken) advance(previous sessionToken) (bool, error) {
+	if previous.Version != (TokenVersion{}) {
+		switch {
+		case token.Version == (TokenVersion{}):
+			return false, errors.New("dashboard token registration has no authoritative version")
+		case token.Version.Source != previous.Version.Source:
+			if token.Version.SpecGeneration <= previous.Version.SpecGeneration {
+				return false, errors.New("dashboard token reference is stale")
+			}
+		case token.Version.Number < previous.Version.Number:
+			return false, errors.New("dashboard token version is stale")
+		case token.Version.Number == previous.Version.Number:
+			if token.Hash != previous.Hash {
+				return false, errors.New("dashboard token version has conflicting values")
+			}
+			token.Version.SpecGeneration = max(token.Version.SpecGeneration, previous.Version.SpecGeneration)
+		default:
+			// A current Vault version can be read by an older adopted spec,
+			// but must not lower the fence against obsolete reference changes.
+			token.Version.SpecGeneration = max(token.Version.SpecGeneration, previous.Version.SpecGeneration)
+		}
+	}
+	return token.Hash != previous.Hash || token.Version != previous.Version, nil
+}
+
 // SetSessionStore enables browser login once the controller's NATS is ready.
-// CAS makes a changed token advance the generation once across controllers;
-// restoring an old token cannot resurrect its previous sessions.
+// CAS orders rotations and Vault/spec versions refuse stale registrations.
+// Restoring an old value in a new Vault version cannot resurrect sessions.
 func (server *Server) SetSessionStore(ctx context.Context, store *SessionStore) error {
 	if store == nil || server.token == nil {
 		return errors.New("dashboard sessions require a store and a token")
 	}
 	hash := sessionHash(string(server.token))
+	want := sessionToken{Hash: hash, Version: server.deps.TokenVersion, Generation: 1}
+	if want.Version != (TokenVersion{}) && (want.Version.Source == "" || want.Version.Number <= 0 || want.Version.SpecGeneration == 0) {
+		return errors.New("dashboard token requires a Vault version and signed spec generation")
+	}
 	key := "token." + store.scope
 	for attempts := 0; attempts < 8; attempts++ {
 		entry, err := store.get(ctx, key)
-		var revision uint64
+		var generation uint64
+		data, marshalErr := json.Marshal(want)
+		if marshalErr != nil {
+			return marshalErr
+		}
 		switch {
 		case errors.Is(err, nats.ErrMsgNotFound), errors.Is(err, jetstream.ErrKeyNotFound):
-			revision, err = store.kv.Create(ctx, key, []byte(hash))
+			_, err = store.kv.Create(ctx, key, data)
+			generation = want.Generation
 		case err != nil:
 			return err
-		case string(entry.Data) == hash:
-			revision = entry.Sequence
 		default:
+			previous, readErr := readSessionToken(entry.Data)
+			if readErr != nil {
+				return readErr
+			}
+			if previous.Generation == 0 {
+				previous.Generation = entry.Sequence
+			}
+			changed, advanceErr := want.advance(previous)
+			if advanceErr != nil {
+				return advanceErr
+			}
+			if !changed {
+				generation = previous.Generation
+				break
+			}
+			want.Generation = previous.Generation
+			if want.Hash != previous.Hash || want.Version.Source != previous.Version.Source || want.Version.Number != previous.Version.Number {
+				// The KV sequence orders rotations; spec-only checkpoint updates
+				// retain the session generation so existing browsers stay logged in.
+				want.Generation = entry.Sequence + 1
+			}
+			data, err = json.Marshal(want)
+			if err != nil {
+				return err
+			}
 			// Failed rotation must preserve active sessions. Reclaim records
 			// only after the generation's CAS commits their revocation.
-			revision, err = store.kv.Update(ctx, key, []byte(hash), entry.Sequence)
+			_, err = store.kv.Update(ctx, key, data, entry.Sequence)
+			generation = want.Generation
 		}
 		if errors.Is(err, jetstream.ErrKeyExists) || errors.Is(err, jetstream.ErrKeyRevisionMismatch) {
 			continue
@@ -126,7 +211,7 @@ func (server *Server) SetSessionStore(ctx context.Context, store *SessionStore) 
 		if err != nil {
 			return err
 		}
-		binding := &sessionBinding{store: store, tokenHash: hash, generation: revision}
+		binding := &sessionBinding{store: store, tokenHash: hash, generation: generation}
 		server.sessions.binding.Store(binding)
 		return binding.collect(ctx)
 	}
@@ -134,14 +219,37 @@ func (server *Server) SetSessionStore(ctx context.Context, store *SessionStore) 
 }
 
 func (binding *sessionBinding) current(ctx context.Context) (bool, error) {
+	latest, err := binding.latest(ctx)
+	return latest != nil && latest.generation == binding.generation, err
+}
+
+func (binding *sessionBinding) latest(ctx context.Context) (*sessionBinding, error) {
 	entry, err := binding.store.get(ctx, "token."+binding.store.scope)
 	if errors.Is(err, nats.ErrMsgNotFound) || errors.Is(err, jetstream.ErrKeyNotFound) {
-		return false, nil
+		return nil, nil
 	}
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	return entry.Sequence == binding.generation && string(entry.Data) == binding.tokenHash, nil
+	token, err := readSessionToken(entry.Data)
+	if err != nil || token.Hash != binding.tokenHash {
+		return nil, err
+	}
+	if token.Generation == 0 {
+		token.Generation = entry.Sequence
+	}
+	if token.Generation == binding.generation {
+		return binding, nil
+	}
+	return &sessionBinding{store: binding.store, tokenHash: binding.tokenHash, generation: token.Generation}, nil
+}
+
+func (manager *sessions) reconcile(ctx context.Context, binding *sessionBinding) (*sessionBinding, error) {
+	latest, err := binding.latest(ctx)
+	if latest != nil && latest != binding {
+		manager.binding.CompareAndSwap(binding, latest)
+	}
+	return latest, err
 }
 
 func (binding *sessionBinding) key(value string) string {
@@ -232,11 +340,12 @@ func (manager *sessions) issue(ctx context.Context) (string, error) {
 		return "", errors.New("dashboard session store unavailable")
 	}
 	if binding != nil {
-		current, err := binding.current(ctx)
+		var err error
+		binding, err = manager.reconcile(ctx, binding)
 		if err != nil {
 			return "", err
 		}
-		if !current {
+		if binding == nil {
 			return "", errors.New("dashboard token retired")
 		}
 	}
@@ -325,8 +434,9 @@ func (manager *sessions) valid(ctx context.Context, value string) (bool, error) 
 	}
 	// Uncached leader reads prevent stale grants after another controller's
 	// logout or token rotation; outages must not authorize cached sessions.
-	current, err := binding.current(ctx)
-	if err != nil || !current {
+	var err error
+	binding, err = manager.reconcile(ctx, binding)
+	if err != nil || binding == nil {
 		return false, err
 	}
 	entry, err := binding.store.get(ctx, binding.key(value))
@@ -358,6 +468,11 @@ func (manager *sessions) revoke(ctx context.Context, value string) error {
 		}
 		delete(manager.local, sessionHash(value))
 		return nil
+	}
+	var err error
+	binding, err = manager.reconcile(ctx, binding)
+	if err != nil || binding == nil {
+		return err
 	}
 	entry, err := binding.store.get(ctx, binding.key(value))
 	if errors.Is(err, nats.ErrMsgNotFound) || errors.Is(err, jetstream.ErrKeyNotFound) {

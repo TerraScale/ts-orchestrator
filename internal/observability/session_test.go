@@ -900,3 +900,102 @@ func TestFinalGenerationReadOutageFailsClosed(t *testing.T) {
 		t.Fatal("final generation read outage authorized a session or hid the error")
 	}
 }
+
+func TestAuthoritativeTokenVersionsRejectStaleControllersAndReconcileBindings(t *testing.T) {
+	t.Parallel()
+	store := newTestSessionStore(t)
+	create := func(token string, version TokenVersion) (*Server, error) {
+		return NewTokenServer(Config{Dashboard: true}, token, ServerDeps{Registry: NewRegistry(false), Health: new(Health), Sessions: store, TokenVersion: version})
+	}
+	build := func(token string, version TokenVersion) *Server {
+		t.Helper()
+		server, err := create(token, version)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return server
+	}
+	issue := func(server *Server) string {
+		t.Helper()
+		value, err := server.sessions.issue(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	a, b, c := strings.Repeat("a", 48), strings.Repeat("b", 48), strings.Repeat("c", 48)
+	version := TokenVersion{Source: "vault-secret-one", Number: 1, SpecGeneration: 10}
+	first := build(a, version)
+	staleLogout := build(a, version)
+	oldCookie := issue(first)
+	version.Number = 2
+	second := build(b, version)
+	currentCookie := issue(second)
+	before, err := store.kv.Status(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stale := range []TokenVersion{
+		{Source: version.Source, Number: 1, SpecGeneration: 11},
+		{Source: version.Source, Number: 2, SpecGeneration: 10}, // conflicting hash
+		{Source: "obsolete-reference", Number: 9, SpecGeneration: 9},
+		{Source: "obsolete-reference", Number: 9, SpecGeneration: 10},
+		{}, // an unversioned registration cannot overwrite a versioned scope
+	} {
+		if _, err := create(c, stale); err == nil {
+			t.Fatal("stale or conflicting registration changed the shared token")
+		}
+	}
+	if err := first.SetSessionStore(t.Context(), store); err == nil {
+		t.Fatal("cached old token rolled back the shared scope")
+	}
+	after, err := store.kv.Status(t.Context())
+	if err != nil || before.Bytes() != after.Bytes() || before.Values() != after.Values() || !sessionValid(t, second.sessions, t.Context(), currentCookie) {
+		t.Fatal("stale registration invalidated the current controller's sessions")
+	}
+	// An unrelated signed-spec change advances the reference fence without
+	// revoking sessions or stranding the controller's existing binding.
+	version.SpecGeneration = 11
+	build(b, version)
+	if !sessionValid(t, second.sessions, t.Context(), currentCookie) {
+		t.Fatal("spec checkpoint expired an existing session")
+	}
+	if _, err := create(c, TokenVersion{Source: "obsolete-reference", Number: 1, SpecGeneration: 10}); err == nil {
+		t.Fatal("old reference bypassed the new signed-spec checkpoint")
+	}
+	// Legitimate A-to-B-to-A rotation has a newer Vault version. The already
+	// running A controller can create fresh sessions without reviving its old one.
+	version.Number = 3
+	restored := build(a, version)
+	if sessionValid(t, first.sessions, t.Context(), oldCookie) {
+		t.Fatal("binding reconciliation resurrected an old A cookie")
+	}
+	fresh := issue(first)
+	if !sessionValid(t, restored.sessions, t.Context(), fresh) {
+		t.Fatal("matching-token controller remained bound to the retired generation")
+	}
+	logoutCookie := issue(restored)
+	if err := staleLogout.sessions.revoke(t.Context(), logoutCookie); err != nil || sessionValid(t, restored.sessions, t.Context(), logoutCookie) {
+		t.Fatal("logout on a matching-token stale binding failed to revoke a copied cookie")
+	}
+	version.Number = 4
+	build(a, version)
+	if sessionValid(t, first.sessions, t.Context(), fresh) {
+		t.Fatal("same-value Vault rotation failed to revoke its preceding sessions")
+	}
+	other := TokenVersion{Source: "vault-secret-two", Number: 1, SpecGeneration: 12}
+	build(c, other)
+	if _, err := create(a, version); err == nil {
+		t.Fatal("old signed reference rolled back the new secret")
+	}
+	other.Number, other.SpecGeneration = 2, 1
+	latest := build(b, other)
+	entry, err := store.get(t.Context(), "token."+store.scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := readSessionToken(entry.Data)
+	if err != nil || record.Version.SpecGeneration != 12 || !sessionValid(t, latest.sessions, t.Context(), issue(latest)) {
+		t.Fatal("a current Vault version lowered the signed-reference fence")
+	}
+}

@@ -207,7 +207,14 @@ Access control follows the listener:
   (file-backed, regional replica count, no TTL). Sessions survive controller
   and broker restarts. Logout revokes every copy; changing the dashboard
   token advances a persisted generation and revokes all sessions, even if an
-  old token is later restored. The cookie requests the maximum persistent
+  old token value is later restored in a new Vault version. Shared NetBird
+  registrations carry the OCI secret ID/version and signed-spec generation;
+  a cached older version or obsolete secret reference cannot rotate the store
+  backward. Restoring a previous value requires a newer Vault version, rather
+  than promoting an older version number. Spec-only checkpoints preserve
+  sessions; listeners with the current token hash reconcile their binding
+  without reviving cookies from a retired session generation.
+  The cookie requests the maximum persistent
   lifetime and is refreshed on authenticated requests; browsers may impose
   their own cap (Chromium: 400 days without a visit).
   Login requires the session store to be ready. Session storage operations

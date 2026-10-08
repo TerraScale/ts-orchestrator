@@ -42,9 +42,10 @@ var (
 
 // dashboardListener is what one NetBird listener serves.
 type dashboardListener struct {
-	section   cellspec.Dashboard
-	addresses netbirdAddresses
-	token     string
+	section    cellspec.Dashboard
+	addresses  netbirdAddresses
+	token      vaultsecret.VersionedValue
+	generation uint64
 }
 
 // dashboardLoop serves the operator dashboard on this controller's NetBird
@@ -55,8 +56,8 @@ type dashboardListener struct {
 // listener and a removed section stops it, without a controller restart. A
 // listener that cannot start is retried at the next check; the dashboard
 // never stops the controller.
-func (runtime *runtimeObservability) dashboardLoop(ctx context.Context, current func() *cellspec.Dashboard,
-	addresses func() (netbirdAddresses, bool), readToken func(context.Context, vaultsecret.Ref) (string, error),
+func (runtime *runtimeObservability) dashboardLoop(ctx context.Context, current func() (*cellspec.Dashboard, uint64),
+	addresses func() (netbirdAddresses, bool), readToken func(context.Context, vaultsecret.Ref) (vaultsecret.VersionedValue, error),
 ) {
 	var running, want dashboardListener
 	var serving <-chan error
@@ -66,14 +67,15 @@ func (runtime *runtimeObservability) dashboardLoop(ctx context.Context, current 
 	ticker := time.NewTicker(dashboardCheck)
 	defer ticker.Stop()
 	for {
-		section := current()
+		section, generation := current()
 		var err error
 		if section == nil {
 			want = dashboardListener{}
-		} else if want.section != *section || time.Since(read) >= dashboardTokenRead {
+		} else if want.section != *section || want.generation != generation || time.Since(read) >= dashboardTokenRead {
 			token, readErr := readToken(ctx, section.Token)
 			switch {
 			case readErr == nil:
+				want.generation = generation
 				want.section, want.token, read = *section, token, time.Now()
 			case want.section != *section:
 				// A new section never serves the old token.
@@ -94,6 +96,10 @@ func (runtime *runtimeObservability) dashboardLoop(ctx context.Context, current 
 			stop, running, serving = func() {}, dashboardListener{}, nil
 			if section != nil && err == nil {
 				stop, serving, err = runtime.startDashboard(ctx, want)
+				if err != nil {
+					// A cached version rejected by KV must be refreshed next check.
+					read = time.Time{}
+				}
 				if err == nil {
 					running = want
 					slog.Info("dashboard serving on the NetBird address", observability.ComponentKey, "dashboard",
@@ -159,8 +165,9 @@ func (runtime *runtimeObservability) startDashboard(ctx context.Context, listene
 	stopped := make(chan error, len(listener.addresses))
 	for _, address := range listener.addresses.listen() {
 		settings := observability.Config{ListenAddress: address, Dashboard: true}
-		server, err := observability.NewTokenServer(settings, listener.token, observability.ServerDeps{
-			Registry: runtime.registry, Health: runtime.health, Events: runtime.events, Sessions: store})
+		server, err := observability.NewTokenServer(settings, listener.token.Value, observability.ServerDeps{
+			Registry: runtime.registry, Health: runtime.health, Events: runtime.events, Sessions: store,
+			TokenVersion: observability.TokenVersion{Source: listener.token.SecretID, Number: listener.token.Number, SpecGeneration: listener.generation}})
 		if err != nil {
 			stop()
 			return func() {}, nil, err
@@ -200,10 +207,6 @@ func localNetBirdAddresses() (netbirdAddresses, bool) {
 }
 
 // readDashboardToken reads the dashboard token with the instance principal.
-func readDashboardToken(ctx context.Context, ref vaultsecret.Ref) (string, error) {
-	values, err := vaultsecret.ReadRefs(ctx, map[string]vaultsecret.Ref{cellspec.DashboardKey: ref})
-	if err != nil {
-		return "", err
-	}
-	return values[cellspec.DashboardKey], nil
+func readDashboardToken(ctx context.Context, ref vaultsecret.Ref) (vaultsecret.VersionedValue, error) {
+	return vaultsecret.ReadRefVersioned(ctx, ref)
 }

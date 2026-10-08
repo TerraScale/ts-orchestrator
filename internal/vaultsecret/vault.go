@@ -148,6 +148,33 @@ func Read(ctx context.Context, client BundleClient, vaultID, name string) (strin
 	return decodeBundle(response.SecretBundle, name)
 }
 
+// VersionedValue binds a value to its authoritative OCI secret version.
+type VersionedValue struct {
+	Value    string `json:"-"`
+	SecretID string
+	Number   int64
+}
+
+// ReadVersioned returns the value and metadata from one CURRENT bundle.
+func ReadVersioned(ctx context.Context, client BundleClient, vaultID, name string) (VersionedValue, error) {
+	response, err := readBundle(ctx, client, vaultID, name)
+	if err != nil {
+		return VersionedValue{}, err
+	}
+	bundle := response.SecretBundle
+	if bundle.SecretId == nil || *bundle.SecretId == "" || bundle.VersionNumber == nil || *bundle.VersionNumber <= 0 {
+		return VersionedValue{}, fmt.Errorf("Vault secret %s has no authoritative version", name)
+	}
+	value, err := decodeBundle(bundle, name)
+	if err != nil {
+		return VersionedValue{}, err
+	}
+	if strings.ContainsRune(value, 0) {
+		return VersionedValue{}, fmt.Errorf("Vault secret %s does not fit an environment variable", name)
+	}
+	return VersionedValue{Value: value, SecretID: *bundle.SecretId, Number: *bundle.VersionNumber}, nil
+}
+
 func readBundle(ctx context.Context, client BundleClient, vaultID, name string) (ocisecrets.GetSecretBundleByNameResponse, error) {
 	if err := safeEnv(); err != nil {
 		return ocisecrets.GetSecretBundleByNameResponse{}, err
@@ -196,6 +223,25 @@ func decodeBundle(bundle ocisecrets.SecretBundle, name string) (string, error) {
 		return "", fmt.Errorf("Vault secret %s exceeds %d bytes", name, maxValue)
 	}
 	return string(value), nil
+}
+
+// ReadRefVersioned resolves one versioned secret with the instance principal.
+func ReadRefVersioned(ctx context.Context, ref Ref) (VersionedValue, error) {
+	if err := safeEnv(); err != nil {
+		return VersionedValue{}, err
+	}
+	if ref.region() == "" {
+		return VersionedValue{}, fmt.Errorf("Vault secret %s names no regional Vault", ref.Name)
+	}
+	factory, err := ociclient.InstancePrincipal(ref.region())
+	if err != nil {
+		return VersionedValue{}, err
+	}
+	client, err := SecretsClient(factory)
+	if err != nil {
+		return VersionedValue{}, err
+	}
+	return ReadVersioned(ctx, client, ref.Vault, ref.Name)
 }
 
 // ReadBack reads a secret that may have been created a moment ago: a new
