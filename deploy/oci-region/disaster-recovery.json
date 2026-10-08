@@ -1,0 +1,21 @@
+{
+    "version": 1,
+    "namespace": "grxnmoqvrcdv",
+    "gru": {
+        "compartment_id": "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq",
+        "vault_id": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq",
+        "key_id": "ocid1.key.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr57gu27ray2ukib2irijktpd6eqa6ou5zeqstsmasvqcr7hmfu2ia",
+        "policy_ids": {
+            "TS-641-gru-1-backup": "13d06611-adab-4443-afd0-4a57eaca82f3"
+        }
+    },
+    "sfo": {
+        "compartment_id": "ocid1.compartment.oc1..aaaaaaaafwid62t6kwfqqw765ymv44y6z7bnpciudyhpob3eo5xkkacglqna",
+        "vault_id": "ocid1.vault.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrzcofqki6a5podtjnhvyiol7yqehrd77tp2hoeynxp5wozv54mq6a",
+        "key_id": "ocid1.key.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrouiqfow5c2hwfmopv6y2ncanvp3ftxafijawe3uc3w6gc6sv4uuq",
+        "bucket_ids": {
+            "sfo-1-dr-gru-1-backup": "ocid1.bucket.oc1.us-sanjose-1.aaaaaaaawentiemlb37auxpbox42dvkczszzs7tlariqgzbfobu4psm3stzq",
+            "sfo-1-dr-gru-1-backup-seed": "ocid1.bucket.oc1.us-sanjose-1.aaaaaaaa4ibijpgbydhpzif2x4vyi5meqg3xjxh4w3exakiv7pwngonopbza"
+        }
+    }
+}

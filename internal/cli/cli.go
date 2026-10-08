@@ -20,6 +20,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ci/sourcedigest"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard/accesscheck"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/disasterrecovery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/image"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/liveverify"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/logscan"
@@ -85,6 +86,7 @@ Operator tooling:
   atlas                  Create the Atlas publish key; publish the cell's topology to Atlas once
   runtime-priority       Qualify runtime resources and run bounded pressure
   cluster                Break-glass controller quorum-loss recovery
+  disaster-recovery      Prepare cross-region Object Storage and Vault recovery copies
   cell-autoscaler        Scale TerraBase cell nodes and shapes within policy
 
 Use ts-orch bootstrap --help or ts-orch release --help to list their commands.
@@ -163,6 +165,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return runQualification(ctx, args[1:], commandio.NewWriter(output))
 	case "cluster":
 		return runCluster(ctx, args[1:], commandio.NewWriter(output))
+	case "disaster-recovery":
+		return disasterrecovery.Run(ctx, args[1:], commandio.NewWriter(output))
 	case "cell-autoscaler":
 		return cellscale.Run(ctx, args[1:], commandio.NewWriter(output))
 	case "runtime-priority":
