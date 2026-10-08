@@ -109,6 +109,21 @@ func Session(ctx context.Context, vaultID, netbird string, args []string, stdin 
 // Peers maps every peer the NetBird client lists to its NetBird IP, by DNS
 // name and by peer name. netbird is the client command, split on spaces.
 func Peers(ctx context.Context, netbird string) (map[string]string, error) {
+	peers, err := Addresses(ctx, netbird)
+	if err != nil {
+		return nil, err
+	}
+	return ipv4Addresses(peers), nil
+}
+
+// PeerAddress holds a peer's addresses reported by the connected NetBird client.
+type PeerAddress struct {
+	IP   string
+	IPv6 string
+}
+
+// Addresses maps peer DNS names and short names to their NetBird addresses.
+func Addresses(ctx context.Context, netbird string) (map[string]PeerAddress, error) {
 	command := strings.Fields(netbird)
 	if len(command) == 0 {
 		return nil, errors.New("netbird ssh needs a NetBird command")
@@ -117,31 +132,48 @@ func Peers(ctx context.Context, netbird string) (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("netbird status: %w", err)
 	}
-	return peerAddresses(status), nil
+	return allPeerAddresses(status), nil
 }
 
 // peerAddresses maps every peer in "netbird status --json" to its NetBird
 // IP, by DNS name (gru-1-ctl-1.nb.ts.internal) and by peer name
 // (gru-1-ctl-1). Devices that keep NetBird DNS off cannot resolve them.
 func peerAddresses(status []byte) map[string]string {
+	return ipv4Addresses(allPeerAddresses(status))
+}
+
+func ipv4Addresses(peers map[string]PeerAddress) map[string]string {
+	addresses := make(map[string]string, len(peers))
+	for name, peer := range peers {
+		addresses[name] = peer.IP
+	}
+	return addresses
+}
+
+func allPeerAddresses(status []byte) map[string]PeerAddress {
 	var parsed struct {
 		Peers struct {
 			Details []struct {
 				FQDN string `json:"fqdn"`
 				IP   string `json:"netbirdIp"`
+				IPv6 string `json:"netbirdIpv6"`
 			} `json:"details"`
 		} `json:"peers"`
 	}
 	if json.Unmarshal(status, &parsed) != nil {
 		return nil
 	}
-	addresses := map[string]string{}
+	addresses := map[string]PeerAddress{}
 	for _, peer := range parsed.Peers.Details {
 		if _, err := netip.ParseAddr(peer.IP); err != nil || peer.FQDN == "" {
 			continue
 		}
 		name, _, _ := strings.Cut(peer.FQDN, ".")
-		addresses[peer.FQDN], addresses[name] = peer.IP, peer.IP
+		if ip, err := netip.ParseAddr(peer.IPv6); err != nil || !ip.Is6() {
+			peer.IPv6 = ""
+		}
+		address := PeerAddress{IP: peer.IP, IPv6: peer.IPv6}
+		addresses[peer.FQDN], addresses[name] = address, address
 	}
 	return addresses
 }

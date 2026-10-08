@@ -49,12 +49,17 @@ type PriorityInputs struct {
 	SystemLow     int64  `json:"system_slice_memory_low_bytes"`
 }
 type TerraBasePin struct {
-	SourceRevision      string `json:"source_revision"`
-	SourceTree          string `json:"source_tree"`
-	RunID               int64  `json:"run_id"`
-	RunNumber           int64  `json:"run_number"`
+	SourceRevision      string           `json:"source_revision"`
+	SourceTree          string           `json:"source_tree"`
+	RunID               int64            `json:"run_id"`
+	RunNumber           int64            `json:"run_number"`
+	QualificationSHA256 string           `json:"qualification_sha256"`
+	BinarySHA256        string           `json:"binary_sha256"`
+	Archive             *VerifierArchive `json:"archive,omitempty"`
+}
+type VerifierArchive struct {
+	ReleaseTag          string `json:"release_tag"`
 	QualificationSHA256 string `json:"qualification_sha256"`
-	BinarySHA256        string `json:"binary_sha256"`
 }
 type Inputs struct {
 	raw        jsontext.Value
@@ -88,6 +93,43 @@ func ValidateTerraBase(p TerraBasePin) error {
 	if !client.SHA256Pattern.MatchString(p.BinarySHA256) {
 		return errors.New("terrabase.binary_sha256 must be a SHA-256")
 	}
+	if p.Archive != nil && (p.Archive.ReleaseTag != "native-verifier-alpha-"+p.BinarySHA256 || !client.SHA256Pattern.MatchString(p.Archive.QualificationSHA256)) {
+		return errors.New("native verifier archive needs its digest-named release and pinned image qualification")
+	}
+	return nil
+}
+
+// VerifyTerraBaseArchive admits the same verifier bytes from a retained image,
+// whose original TerraBase qualification and source identity remain pinned.
+func VerifyTerraBaseArchive(pin TerraBasePin, qualificationPath, binaryPath string) error {
+	if err := ValidateTerraBase(pin); err != nil {
+		return err
+	}
+	if pin.Archive == nil || qualificationPath == "" || binaryPath == "" {
+		return errors.New("native verifier archive needs qualification and binary files")
+	}
+	for _, p := range []struct{ path, digest string }{{qualificationPath, pin.Archive.QualificationSHA256}, {binaryPath, pin.BinarySHA256}} {
+		digest, err := client.SHA256(p.path)
+		if err != nil {
+			return err
+		}
+		if digest != p.digest {
+			return errors.New("native verifier archive bytes differ from their pin")
+		}
+	}
+	var q struct {
+		Schema string
+		Inputs struct {
+			Manifest struct{ TerraBase TerraBasePin }
+		}
+	}
+	if err := readJSON(qualificationPath, &q); err != nil {
+		return err
+	}
+	pin.Archive = nil
+	if q.Schema != "terrascale.image.qualification.v2" || q.Inputs.Manifest.TerraBase != pin {
+		return errors.New("archived image qualification differs from the TerraBase verifier pin")
+	}
 	return nil
 }
 func LoadInputs(root, path string) (Inputs, error) {
@@ -118,6 +160,9 @@ func LoadInputs(root, path string) (Inputs, error) {
 		keys    []string
 		message string
 	}{{"base", []string{"release_tag", "source_url", "checksum_name", "signer_fingerprint", "oci_image_ocid", "kernel_release", "assets"}, "base has unexpected fields"}, {"priority", []string{"profile_id", "system_reserve_bytes", "host_memory_min_bytes", "host_memory_low_bytes", "controller_memory_min_bytes", "controller_memory_low_bytes", "system_slice_memory_min_bytes", "system_slice_memory_low_bytes"}, "priority has unexpected fields"}, {"terrabase", []string{"source_revision", "source_tree", "run_id", "run_number", "qualification_sha256", "binary_sha256"}, "terrabase has unexpected fields"}} {
+		if item.key == "terrabase" && v.TerraBase.Archive != nil {
+			item.keys = append(item.keys, "archive")
+		}
 		if e = requireKeys(fields[item.key], item.keys, item.message); e != nil {
 			return v, e
 		}
@@ -272,7 +317,7 @@ func TerraBaseQualification(qualificationPath, detailPath string) (TerraBasePin,
 	if e != nil {
 		return TerraBasePin{}, e
 	}
-	p := TerraBasePin{q.SourceRevision, q.SourceTree, v.RunID, v.RunNumber, digest, artifact}
+	p := TerraBasePin{SourceRevision: q.SourceRevision, SourceTree: q.SourceTree, RunID: v.RunID, RunNumber: v.RunNumber, QualificationSHA256: digest, BinarySHA256: artifact}
 	return p, ValidateTerraBase(p)
 }
 func readJSON(path string, v any) error {

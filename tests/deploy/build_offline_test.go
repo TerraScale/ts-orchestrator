@@ -540,6 +540,11 @@ func TestOfflineVerifiedInputsInstalled(t *testing.T) {
 	absent(t, f.path(filepath.Base(f.qualification)))
 }
 
+func TestOfflineRequiresNativeVerifier(t *testing.T) {
+	f := newOffline(t)
+	f.reject(f.run(nil, map[string]string{"--native-verifier-binary": "", "--native-verifier-sha256": ""}, nil), "missing required build-offline argument")
+}
+
 func TestOfflineRejectsBadPublicInputsBeforeImageEffects(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

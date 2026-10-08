@@ -87,11 +87,12 @@ func runInputs(root string, args []string, out, stderr io.Writer) (error, int) {
 	fs := flag.NewFlagSet("image-inputs", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	file := fs.String("file", filepath.Join(root, "deploy/image/image-inputs.json"), "image input manifest")
-	qualification := fs.String("qualification", "", "TerraBase qualification")
+	qualification := fs.String("qualification", "", "TerraBase or archived image qualification")
+	binary := fs.String("binary", "", "archived native verifier binary")
 	detail := fs.String("run-detail", "", "Fast run detail")
 	command := ""
 	for i, a := range args {
-		if a == "check" || a == "pin-terrabase" {
+		if a == "check" || a == "pin-terrabase" || a == "verify-terrabase-archive" {
 			command = a
 			args = append(append([]string{}, args[:i]...), args[i+1:]...)
 			break
@@ -104,7 +105,7 @@ func runInputs(root string, args []string, out, stderr io.Writer) (error, int) {
 		return e, 2
 	}
 	if fs.NArg() != 0 || command == "" {
-		return errors.New("usage: ts-orch image inputs [--file MANIFEST] check|pin-terrabase"), 2
+		return errors.New("usage: ts-orch image inputs [--file MANIFEST] check|pin-terrabase|verify-terrabase-archive"), 2
 	}
 	manifest, e := LoadInputs(root, *file)
 	if e != nil {
@@ -116,6 +117,13 @@ func runInputs(root string, args []string, out, stderr io.Writer) (error, int) {
 			return e, 1
 		}
 		_, e = fmt.Fprintf(out, "image inputs valid sha256=%s\n", digest)
+		return e, 0
+	}
+	if command == "verify-terrabase-archive" {
+		if e := VerifyTerraBaseArchive(manifest.TerraBase, *qualification, *binary); e != nil {
+			return e, 1
+		}
+		_, e := fmt.Fprintln(out, "archived native verifier valid")
 		return e, 0
 	}
 	if *qualification == "" || *detail == "" {

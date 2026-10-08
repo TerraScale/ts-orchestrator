@@ -53,7 +53,11 @@
     "run_id": 11696,
     "run_number": 1012,
     "qualification_sha256": "69ef5119a78ec1692d49f12447f66cdeb72ca09d8e42f135c05e779ef0e992e9",
-    "binary_sha256": "33f316ab64ab9d83127a5921ea6b5a92304e78dfd179d3b5c0935977c7e9f33c"
+    "binary_sha256": "33f316ab64ab9d83127a5921ea6b5a92304e78dfd179d3b5c0935977c7e9f33c",
+    "archive": {
+      "release_tag": "native-verifier-alpha-33f316ab64ab9d83127a5921ea6b5a92304e78dfd179d3b5c0935977c7e9f33c",
+      "qualification_sha256": "e2d065e9b8af97adde5e50abcd0b44d5e2ab449c651fea759d1428ada0152758"
+    }
   },
   "netbird": {
     "version": "0.79.0",

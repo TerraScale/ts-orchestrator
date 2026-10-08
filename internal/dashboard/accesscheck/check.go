@@ -70,7 +70,7 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 		}
 		tokens[region] = token
 	}
-	peers, err := sshlogin.Peers(ctx, *netbird)
+	peers, err := sshlogin.Addresses(ctx, *netbird)
 	if err != nil {
 		return err
 	}
@@ -79,13 +79,14 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 
 type fetch func(context.Context, string, string, time.Duration) (string, string, error)
 
-func check(ctx context.Context, out io.Writer, peers, tokens map[string]string, timeout time.Duration, get fetch) error {
+func check(ctx context.Context, out io.Writer, peers map[string]sshlogin.PeerAddress, tokens map[string]string, timeout time.Duration, get fetch) error {
 	var failures []error
 	network := netip.MustParsePrefix("10.200.0.0/16")
 	for _, region := range []string{"gru", "sfo"} {
 		for n := 1; n <= 3; n++ {
 			name := fmt.Sprintf("ts-%s-%d", region, n)
-			ip := peers[name]
+			peer := peers[name]
+			ip := peer.IP
 			address, err := netip.ParseAddr(ip)
 			if err != nil || !network.Contains(address) {
 				failures = append(failures, fmt.Errorf("%s missing a 10.200.0.0/16 address in NetBird status", name))
@@ -102,9 +103,13 @@ func check(ctx context.Context, out io.Writer, peers, tokens map[string]string, 
 					} else if status != "200" {
 						result = "FAIL HTTP " + status
 						failures = append(failures, fmt.Errorf("%s: HTTP %s", url, status))
-					} else if remoteIP != ip {
+					} else if remoteIP != ip && (host == ip || peer.IPv6 == "" || remoteIP != peer.IPv6) {
 						result = "FAIL resolved to " + remoteIP
-						failures = append(failures, fmt.Errorf("%s: connected to %s, expected %s", url, remoteIP, ip))
+						expected := ip
+						if host != ip && peer.IPv6 != "" {
+							expected += " or " + peer.IPv6
+						}
+						failures = append(failures, fmt.Errorf("%s: connected to %s, expected %s", url, remoteIP, expected))
 					}
 					if _, err := fmt.Fprintf(out, "%s %s\n", result, url); err != nil {
 						return err

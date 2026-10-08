@@ -231,7 +231,13 @@ runs locally) finds its candidate by source revision:
   profile, and the TerraBase artifact pin. `ts-orch image inputs`
   validates the file; its `pin-terrabase` command rewrites only the TerraBase
   pin from a published, Fast-qualified release, and the build re-derives that
-  pin from the release to prove it.
+  pin from the release to prove it. When its original release/run is gone,
+  `terrabase.archive` selects a retained copy in ts-orchestrator: the build
+  verifies the pinned image qualification and exact binary SHA-256, and
+  requires that image's original TerraBase pin to match all source, run and
+  qualification fields. Archive tags start `native-verifier-alpha-` and
+  are outside the CI release-pruning pattern. The verifier remains mandatory
+  for production managed-material preparation, including C# workload cells.
 
 The build checks the binary with `ts-orch release binary-candidate` (static ARM64
 ELF, Go toolchain, clean embedded revision, size and digest against the

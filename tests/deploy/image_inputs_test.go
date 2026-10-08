@@ -49,6 +49,62 @@ func (f *imageInputsFixture) replacePin(field string) {
 	write(f.t, f.manifest, bytes.Replace(b, []byte(old), []byte(strings.Repeat("0", 64)), 1), 0600)
 }
 func TestImageInputsCheckedInManifest(t *testing.T) { successful(t, newImageInputs(t).tool("check")) }
+func TestImageInputsRejectMissingVerifierPin(t *testing.T) {
+	for _, raw := range []string{"null", "{}"} {
+		t.Run(raw, func(t *testing.T) {
+			f := newImageInputs(t)
+			b := read(t, f.manifest)
+			var fields map[string]jsontext.Value
+			if err := json.Unmarshal(b, &fields); err != nil {
+				t.Fatal(err)
+			}
+			write(t, f.manifest, bytes.Replace(b, fields["terrabase"], []byte(raw), 1), 0600)
+			r := f.tool("check")
+			equal(t, r.Code, 1)
+			contains(t, r.Stderr, "terrabase has unexpected fields")
+		})
+	}
+}
+
+func TestImageInputsVerifyArchivedVerifier(t *testing.T) {
+	for _, name := range []string{"valid", "wrong-binary", "wrong-qualification", "wrong-source", "missing-files"} {
+		t.Run(name, func(t *testing.T) {
+			f := newImageInputs(t)
+			binary := filepath.Join(t.TempDir(), "tb-server-linux-arm64")
+			write(t, binary, elf("arm64", "archived native verifier"), 0600)
+			b := read(t, f.manifest)
+			pin := object(t, b)["terrabase"].(map[string]any)
+			archive := pin["archive"].(map[string]any)
+			oldBinary, oldQualification := pin["binary_sha256"].(string), archive["qualification_sha256"].(string)
+			delete(pin, "archive")
+			pin["binary_sha256"] = digest(read(t, binary))
+			if name == "wrong-source" {
+				pin["source_revision"] = strings.Repeat("a", 40)
+			}
+			qualification := filepath.Join(t.TempDir(), "image-qualification.json")
+			write(t, qualification, jsonBytes(t, map[string]any{"schema": "terrascale.image.qualification.v2", "inputs": map[string]any{"manifest": map[string]any{"terrabase": pin}}}), 0600)
+			b = bytes.ReplaceAll(b, []byte(oldBinary), []byte(digest(read(t, binary))))
+			b = bytes.ReplaceAll(b, []byte(oldQualification), []byte(digest(read(t, qualification))))
+			write(t, f.manifest, b, 0600)
+			args := []string{"verify-terrabase-archive", "--qualification", qualification, "--binary", binary}
+			switch name {
+			case "wrong-binary":
+				write(t, binary, elf("arm64", "different verifier"), 0600)
+			case "wrong-qualification":
+				write(t, qualification, []byte("{}"), 0600)
+			case "missing-files":
+				args = args[:1]
+			}
+			r := f.tool(args...)
+			if name == "valid" {
+				successful(t, r)
+			} else {
+				equal(t, r.Code, 1)
+				contains(t, r.Stderr, "verifier")
+			}
+		})
+	}
+}
 func TestImageInputsRejectNonCanonicalFormatting(t *testing.T) {
 	f := newImageInputs(t)
 	write(t, f.manifest, jsonBytes(t, object(t, read(t, f.manifest))), 0600)

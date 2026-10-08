@@ -129,31 +129,42 @@ signed_base_sha256=$(awk -v name="$(input_json .base.checksum_name)" \
 }
 echo "base image verified tag=$base_tag sha256=$signed_base_sha256"
 
-# TerraBase native verifier: the pinned Fast-qualified release artifact.
+# TerraBase native verifier: mandatory for production managed controllers.
+# The archive retains exact qualified-image bytes after the original release
+# and Actions run are deleted; both bytes and provenance remain digest-pinned.
 terrabase_sha=$(input_json .terrabase.source_revision)
 terrabase_run_id=$(input_json .terrabase.run_id)
 terrabase_run_number=$(input_json .terrabase.run_number)
 terrabase_tag="ci-${terrabase_sha}-run-${terrabase_run_id}"
-for asset in qualification.json tb-server-linux-arm64; do
-	fj release asset download -r TerraScale/TerraBase "$terrabase_tag" "$asset" -o "$work/terrabase/$asset" >/dev/null
-done
-[[ $(sha256 "$work/terrabase/qualification.json") == "$(input_json .terrabase.qualification_sha256)" &&
-	$(sha256 "$work/terrabase/tb-server-linux-arm64") == "$(input_json .terrabase.binary_sha256)" ]] || {
-	echo "TerraBase release $terrabase_tag differs from the pinned digests" >&2
-	exit 1
-}
-fj actions run-detail "$terrabase_run_number" -r TerraScale/TerraBase > "$work/terrabase/run-detail.json"
-[[ $(jq -r .status "$work/terrabase/run-detail.json") == success ]] || {
-	echo "TerraBase run $terrabase_run_number has not succeeded" >&2
-	exit 1
-}
-cp -- "$inputs" "$work/terrabase/inputs-check.json"
-"$TS_ORCH_BIN" image inputs --file "$work/terrabase/inputs-check.json" pin-terrabase \
-	--qualification "$work/terrabase/qualification.json" --run-detail "$work/terrabase/run-detail.json" >/dev/null
-cmp -s -- "$inputs" "$work/terrabase/inputs-check.json" || {
-	echo "TerraBase release $terrabase_tag does not reproduce the pinned inputs" >&2
-	exit 1
-}
+if [[ $(input_json '.terrabase.archive != null') == true ]]; then
+	terrabase_tag=$(input_json .terrabase.archive.release_tag)
+	for asset in image-qualification.json tb-server-linux-arm64; do
+		fj release asset download -r "$repository" "$terrabase_tag" "$asset" -o "$work/terrabase/$asset" >/dev/null
+	done
+	"$TS_ORCH_BIN" image inputs --file "$inputs" verify-terrabase-archive \
+		--qualification "$work/terrabase/image-qualification.json" --binary "$work/terrabase/tb-server-linux-arm64" >/dev/null
+else
+	for asset in qualification.json tb-server-linux-arm64; do
+		fj release asset download -r TerraScale/TerraBase "$terrabase_tag" "$asset" -o "$work/terrabase/$asset" >/dev/null
+	done
+	[[ $(sha256 "$work/terrabase/qualification.json") == "$(input_json .terrabase.qualification_sha256)" &&
+		$(sha256 "$work/terrabase/tb-server-linux-arm64") == "$(input_json .terrabase.binary_sha256)" ]] || {
+		echo "TerraBase release $terrabase_tag differs from the pinned digests" >&2
+		exit 1
+	}
+	fj actions run-detail "$terrabase_run_number" -r TerraScale/TerraBase > "$work/terrabase/run-detail.json"
+	[[ $(jq -r .status "$work/terrabase/run-detail.json") == success ]] || {
+		echo "TerraBase run $terrabase_run_number has not succeeded" >&2
+		exit 1
+	}
+	cp -- "$inputs" "$work/terrabase/inputs-check.json"
+	"$TS_ORCH_BIN" image inputs --file "$work/terrabase/inputs-check.json" pin-terrabase \
+		--qualification "$work/terrabase/qualification.json" --run-detail "$work/terrabase/run-detail.json" >/dev/null
+	cmp -s -- "$inputs" "$work/terrabase/inputs-check.json" || {
+		echo "TerraBase release $terrabase_tag does not reproduce the pinned inputs" >&2
+		exit 1
+	}
+fi
 echo "terrabase verified tag=$terrabase_tag binary_sha256=$(input_json .terrabase.binary_sha256)"
 
 # Orchestrator candidate: the successful ci.yml run on main for this revision.

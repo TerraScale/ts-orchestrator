@@ -6,15 +6,16 @@ providers; it never changes control-plane state.
 
 ## NetBird access
 
-Connect the laptop to NetBird and open a topology URL below. Enter the
+Use the existing NetBird connection on delta, beta or mariogk-dev and open a
+topology URL below. Enter the
 region's dashboard token on `/login`; the browser keeps a read-only session
-for 12 hours. Delta, beta and mariogk-dev use the same URLs. TCP 9463 is
+for 12 hours. TCP 9463 is
 private: the NetBird operator policy and host firewall admit it through `wt0`,
 and it has no public listener or OCI ingress rule. The signed cell spec's
 `dashboard.token` enables the listener in place; never re-found a serving cell
 to change access ([listener contract](../observability.md#on-the-netbird-address-cell-spec)).
 
-LINKS: controller topology URLs (NetBird inventory, 2026-10-07):
+LINKS: controller topology URLs (verified from mariogk-dev, 2026-10-07 23:03 UTC):
 
 | Controller | By NetBird IP | By NetBird DNS |
 |---|---|---|
@@ -55,7 +56,7 @@ region's three controllers. Token rotation is picked up within five minutes.
 
 ### Check every controller from this device
 
-Run this on the laptop, delta, beta and mariogk-dev with NetBird connected
+Run this only on delta, beta or mariogk-dev with NetBird already connected
 and both token files available. Build once with `nice -n 19 make build`:
 
 ```sh
@@ -68,9 +69,16 @@ The thin wrapper runs `ts-orch dashboard check`. It reads current IPs from
 `netbird status --json`, requires all six controllers, and curls `/healthz`
 and authenticated `/topology` by IP and native DNS: 24 requests total. It
 returns 0 only when every response is HTTP 200 from the expected NetBird IP.
+Native DNS may connect to the intended peer's IPv4 or IPv6 address reported
+by NetBird; an address belonging to another peer fails the check.
 It bypasses HTTP proxies, refuses redirects, does not override DNS, and passes
 tokens to curl through stdin. IP replacement needs no script edit. Each
 request has a five-second timeout (override with `--timeout 10s`).
+
+Never run checks, SSH, NetBird login/up, browser automation or SSO prompts on
+`mariogk-desktop`. The wrapper rejects hosts outside delta, beta and
+mariogk-dev. Use plain HTTP over NetBird for acceptance; if remote access to
+an allowed operator host is needed, use `netbird ssh --no-browser`.
 
 Use `NB='sudo -n netbird-wt0'` on a NixOS dev VM or set `NB` to the connected
 client command and `TS_ORCH` to an existing binary. For the host-network

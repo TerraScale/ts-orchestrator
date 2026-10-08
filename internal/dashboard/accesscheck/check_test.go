@@ -11,24 +11,31 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
 )
 
 func TestFleetCheckRequiresEveryAddressEndpointAndRegionToken(t *testing.T) {
-	peers := map[string]string{}
+	peers := map[string]sshlogin.PeerAddress{}
 	for i, region := range []string{"gru", "sfo"} {
 		for n := 1; n <= 3; n++ {
-			peers[fmt.Sprintf("ts-%s-%d", region, n)] = fmt.Sprintf("10.200.%d.%d", i, n)
+			peers[fmt.Sprintf("ts-%s-%d", region, n)] = sshlogin.PeerAddress{IP: fmt.Sprintf("10.200.%d.%d", i, n), IPv6: fmt.Sprintf("fd9c:200::%d:%d", i, n)}
 		}
 	}
 	tokens := map[string]string{"gru": "gru-secret", "sfo": "sfo-secret"}
-	for _, failure := range []string{"", "missing", "dns", "unauthorized", "redirect", "wrong-address"} {
+	for _, failure := range []string{"", "ipv6", "missing", "dns", "unauthorized", "redirect", "wrong-address", "wrong-ipv6", "missing-ipv6"} {
 		t.Run(failure, func(t *testing.T) {
-			inventory := map[string]string{}
+			inventory := map[string]sshlogin.PeerAddress{}
 			for name, ip := range peers {
 				inventory[name] = ip
 			}
 			if failure == "missing" {
 				delete(inventory, "ts-sfo-3")
+			}
+			if failure == "missing-ipv6" {
+				peer := inventory["ts-sfo-3"]
+				peer.IPv6 = ""
+				inventory["ts-sfo-3"] = peer
 			}
 			calls := 0
 			get := func(_ context.Context, url, token string, timeout time.Duration) (string, string, error) {
@@ -42,8 +49,11 @@ func TestFleetCheckRequiresEveryAddressEndpointAndRegionToken(t *testing.T) {
 				}
 				ip := ""
 				for name, address := range inventory {
-					if strings.Contains(url, name+".") || strings.Contains(url, address+":") {
-						ip = address
+					if strings.Contains(url, name+".") || strings.Contains(url, address.IP+":") {
+						ip = address.IP
+						if failure == "ipv6" && strings.Contains(url, name+".") {
+							ip = address.IPv6
+						}
 					}
 				}
 				if strings.Contains(url, "ts-sfo-3.nb.ts.internal:9463/topology") {
@@ -56,14 +66,26 @@ func TestFleetCheckRequiresEveryAddressEndpointAndRegionToken(t *testing.T) {
 						return "302", ip, nil
 					case "wrong-address":
 						return "200", "10.200.1.2", nil
+					case "wrong-ipv6":
+						return "200", "fd9c:200::1:2", nil
+					case "missing-ipv6":
+						return "200", "fd9c:200::1:3", nil
 					}
 				}
 				return "200", ip, nil
 			}
 			var out bytes.Buffer
 			err := check(t.Context(), &out, inventory, tokens, 5*time.Second, get)
-			if (err != nil) != (failure != "") {
+			if (err != nil) != (failure != "" && failure != "ipv6") {
 				t.Fatalf("check error = %v", err)
+			}
+			if failure == "wrong-address" || failure == "wrong-ipv6" {
+				if !strings.Contains(err.Error(), "expected 10.200.1.3 or fd9c:200::1:3") {
+					t.Fatalf("failure omitted an accepted peer address: %v", err)
+				}
+			}
+			if failure == "missing-ipv6" && strings.Contains(err.Error(), " or ") {
+				t.Fatalf("failure advertised an unavailable IPv6 address: %v", err)
 			}
 			wantCalls := 24
 			if failure == "missing" {

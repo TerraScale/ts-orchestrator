@@ -277,11 +277,16 @@ func TestRunRejectsBadArgumentsBeforeVaultOrNetBird(t *testing.T) {
 }
 
 func TestDestinationNamingAPeerUsesItsNetBirdIP(t *testing.T) {
-	// The shape of "netbird status --json" from clients 0.71 and 0.79.
-	addresses := peerAddresses([]byte(`{"fqdn":"delta.nb.ts.internal","netbirdIp":"10.200.87.10/16","peers":{"details":[
+	// The shape of "netbird status --json", including 0.80's IPv6 field.
+	status := []byte(`{"fqdn":"delta.nb.ts.internal","netbirdIp":"10.200.87.10/16","peers":{"details":[
 		{"fqdn":"gru-1-ctl-1.nb.ts.internal","netbirdIp":"10.200.87.215","status":"Connected"},
-		{"fqdn":"ts-sfo-1.nb.ts.internal","netbirdIp":"10.200.112.213","status":"Idle"},
-		{"fqdn":"broken.nb.ts.internal","netbirdIp":"not-an-ip"}]}}`))
+		{"fqdn":"ts-sfo-1.nb.ts.internal","netbirdIp":"10.200.112.213","netbirdIpv6":"fd9c:200::1","status":"Idle"},
+		{"fqdn":"broken.nb.ts.internal","netbirdIp":"not-an-ip"}]}}`)
+	addresses := peerAddresses(status)
+	dualStack := allPeerAddresses(status)
+	if dualStack["ts-sfo-1"].IPv6 != "fd9c:200::1" || dualStack["ts-sfo-1.nb.ts.internal"].IPv6 != "fd9c:200::1" || dualStack["gru-1-ctl-1"].IPv6 != "" {
+		t.Fatalf("peer address families = %#v", dualStack)
+	}
 	for name, tc := range map[string]struct{ args, want []string }{
 		"DNS name":   {[]string{"root@gru-1-ctl-1.nb.ts.internal", "hostname"}, []string{"root@10.200.87.215", "hostname"}},
 		"peer name":  {[]string{"-L", "1:127.0.0.1:2", "root@ts-sfo-1", "sleep", "9"}, []string{"-L", "1:127.0.0.1:2", "root@10.200.112.213", "sleep", "9"}},
