@@ -90,3 +90,11 @@ The follow-up focused race tests, full-repository fast suite (`umask 022`),
 vet, formatting and generated-template checks passed. Chromium and Firefox
 also repeated the full local login/browser-reopen/controller-and-broker-restart/
 cross-site-logout/copied-cookie-revocation journey with the corrected backend.
+
+## CI run 1671
+
+The dashboard race suite and both release architectures passed. The sole failure
+was the existing cellscale drain-recovery test's 200 ms success deadline under
+load. Its successful recovery phase now permits five seconds; stale-evidence
+refusal phases retain the short deadline. Fifty focused race repeats, the full
+cellscale race suite, vet and formatting passed locally at low CPU priority.

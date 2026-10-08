@@ -311,6 +311,8 @@ func TestDrainNeedsFreshPlacementBeforeTerminationAndRecovery(t *testing.T) {
 			// without repeating the completed drain or chasing a moving floor.
 			s.now = s.now.Add(MaxPressureClockSkew + time.Second)
 			cell.replicas = func() (ReplicaSnapshot, error) { return safeReplicaSnapshot(s.now, cell), nil }
+			// Successful recovery must tolerate scheduling delays in loaded race CI.
+			s.controller.config.ReadyTimeout = 5 * time.Second
 			if err := s.controller.apply(t.Context(), state, action); err != nil || !slices.Equal(cell.callLog(), []string{"drain gru-1-db-4", "terminate gru-1-db-4"}) {
 				t.Fatalf("fresh fully replicated drain recovery failed: err=%v calls=%v", err, cell.callLog())
 			}
