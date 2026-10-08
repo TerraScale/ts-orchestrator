@@ -167,12 +167,11 @@ func TestDashboardLoopFollowsTheSpec(t *testing.T) {
 	section = nil
 	mu.Unlock()
 	eventually("the listener kept serving without a section", func() bool { return status("/healthz", "") == 0 })
-	runtime.boardsMu.Lock()
-	boards := len(runtime.boards)
-	runtime.boardsMu.Unlock()
-	if boards != 0 {
-		t.Errorf("%d dashboards are still fed after the listener closed", boards)
-	}
+	eventually("dashboards are still fed after listener cleanup", func() bool {
+		runtime.boardsMu.Lock()
+		defer runtime.boardsMu.Unlock()
+		return len(runtime.boards) == 0
+	})
 }
 
 func TestDashboardStorageFailureHasSafeCleanup(t *testing.T) {

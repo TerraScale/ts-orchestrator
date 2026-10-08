@@ -202,3 +202,10 @@ retired token. It verifies the supplied cookie hash before CAS-purging, so
 users can revoke their current copied cookie through any scope listener
 without authorizing that cookie on a retired-token listener. The authority
 regression covers both matching-token and retired-token logout.
+
+Rebased onto main 6c079536, preserving its bounded bundle decoding and
+redacted SDK errors. Rebase verification exposed a lifecycle-test race:
+the socket closes before the stop function finishes removing dashboard
+feeds. The regression now waits for completed cleanup and still requires
+zero dashboards within its existing five-second deadline.
+Thirty race repetitions of listener recovery and cleanup passed.
