@@ -88,6 +88,9 @@ func TestWatchPublishesChangedVersionsAndRetries(t *testing.T) {
 		if reads >= 4 && reads <= 5 {
 			version = 2
 		}
+		if reads >= 7 {
+			version = 3
+		}
 		return map[string]Current{"KEY_FILE": {ID: "id", Version: version, value: sentinel}}, nil
 	}
 	err := watch(ctx, map[string]Ref{"KEY_FILE": {}}, time.Millisecond, read,
@@ -109,7 +112,7 @@ func TestWatchPublishesChangedVersionsAndRetries(t *testing.T) {
 				t.Fatal("watch exposed secret content in an error")
 			}
 		})
-	if !errors.Is(err, context.Canceled) || !slices.Equal(applied, []int64{1, 2, 1}) || failures != 2 || reads != 6 {
+	if !errors.Is(err, context.Canceled) || !slices.Equal(applied, []int64{1, 2, 3}) || failures != 3 || reads != 7 {
 		t.Fatalf("version publication/retry mismatch: reads=%d applied=%v failures=%d err=%v", reads, applied, failures, err)
 	}
 }

@@ -107,6 +107,9 @@ validate the complete snapshot and atomically replace its in-memory state.
 Reads have a 30-second deadline; a startup failure refuses initialization.
 Later read/apply failures retain the last successfully applied snapshot and
 retry on the next interval. No secret content is included in SDK errors.
+An older CURRENT version of the same secret is refused after a newer version
+was applied: OCI can briefly serve stale reads after publication. To roll back,
+publish the previous content as a new version instead of moving an old stage.
 
 A service in another language can use its OCI SDK equivalent or the single
 binary's file delivery path:

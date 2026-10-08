@@ -121,6 +121,13 @@ func watch(ctx context.Context, refs map[string]Ref, interval time.Duration,
 		if err != nil {
 			return err
 		}
+		// OCI can briefly return an older CURRENT after a successful write.
+		// Rollback publishes old content as a new version, never an old stage.
+		for key, value := range next {
+			if previous, ok := installed[key]; ok && previous.ID == value.ID && value.Version < previous.Version {
+				return errors.New("Vault CURRENT moved backwards; retaining the last applied snapshot")
+			}
+		}
 		if maps.EqualFunc(installed, next, func(a, b Current) bool { return a.ID == b.ID && a.Version == b.Version }) {
 			return nil
 		}
