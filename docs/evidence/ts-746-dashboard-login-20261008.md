@@ -209,3 +209,26 @@ the socket closes before the stop function finishes removing dashboard
 feeds. The regression now waits for completed cleanup and still requires
 zero dashboards within its existing five-second deadline.
 Thirty race repetitions of listener recovery and cleanup passed.
+
+## Sixth reviewer round
+
+Allocation now retains the KV Create revision and checks the leader-backed
+token generation again before returning a cookie. A completed rotation
+between reconciliation and Create, or a failure of that final generation
+read, refuses login with HTTP 503 and no cookie/redirect. The allocation is
+removed through its created revision without leaving a purge marker; a
+concurrently reused slot with a later revision remains untouched. Cleanup
+shares the existing request deadline, and its failure is reported alongside
+the generation-check error.
+
+Deterministic regressions reproduced the previous successful response for
+a retired allocation and for a failed final generation read. The rotation
+regression registers Vault version 2 and completes collection before the
+version-1 allocation commits. The outage regression checks both removal
+and preservation of a concurrently reused, still-valid slot. All three
+cases pass thirty race repetitions with the fix.
+
+Full observability/dashboard race suites, vet, formatting, and generated
+template checks passed. Chromium and Firefox repeated login, browser reopen,
+controller/NATS restart, cross-site logout refusal, and copied-cookie
+revocation successfully with the allocation check.

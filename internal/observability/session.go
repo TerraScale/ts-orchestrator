@@ -385,13 +385,21 @@ func (manager *sessions) issue(ctx context.Context) (string, error) {
 			continue
 		}
 		value := "v3." + strconv.Itoa(slot) + "." + encoded
-		_, err := binding.store.kv.Create(ctx, binding.key(value), []byte(sessionHash(value)))
+		revision, err := binding.store.kv.Create(ctx, binding.key(value), []byte(sessionHash(value)))
 		if errors.Is(err, jetstream.ErrKeyExists) {
 			occupied[slot] = true
 			continue
 		}
 		if err != nil {
 			return "", err
+		}
+		// Rotation can finish cleanup before this in-flight allocation commits.
+		current, err := binding.current(ctx)
+		if err != nil || !current {
+			if err == nil {
+				err = errors.New("dashboard token retired")
+			}
+			return "", errors.Join(err, binding.store.purgeThrough(ctx, binding.key(value), revision))
 		}
 		return value, nil
 	}

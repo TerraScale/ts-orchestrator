@@ -901,6 +901,99 @@ func TestFinalGenerationReadOutageFailsClosed(t *testing.T) {
 	}
 }
 
+type sessionCreateHook struct {
+	jetstream.KeyValue
+	before func()
+	after  func(string, uint64)
+}
+
+func (store sessionCreateHook) Create(ctx context.Context, key string, value []byte, opts ...jetstream.KVCreateOpt) (uint64, error) {
+	if store.before != nil {
+		store.before()
+	}
+	revision, err := store.KeyValue.Create(ctx, key, value, opts...)
+	if err == nil && store.after != nil {
+		store.after(key, revision)
+	}
+	return revision, err
+}
+
+func TestRotationBetweenReconciliationAndAllocationRejectsLoginAndRemovesRecord(t *testing.T) {
+	t.Parallel()
+	server, token := newLoginServer(t)
+	store := server.sessions.binding.Load().store
+	server.deps.TokenVersion = TokenVersion{Source: "test-vault-secret", Number: 1, SpecGeneration: 1}
+	if err := server.SetSessionStore(t.Context(), store); err != nil {
+		t.Fatal(err)
+	}
+	rotationStore := *store
+	rotated, err := NewTokenServer(Config{Dashboard: true}, strings.Repeat("b", 48), ServerDeps{Registry: NewRegistry(false), Health: new(Health),
+		TokenVersion: TokenVersion{Source: "test-vault-secret", Number: 2, SpecGeneration: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var allocated string
+	store.kv = sessionCreateHook{KeyValue: store.kv, before: func() {
+		if err := rotated.SetSessionStore(t.Context(), &rotationStore); err != nil {
+			t.Fatal(err)
+		}
+	}, after: func(key string, _ uint64) { allocated = key }}
+	response := postLogin(server, url.Values{"token": {token}})
+	if response.Code != http.StatusServiceUnavailable || len(response.Result().Cookies()) != 0 || response.Header().Get("Location") != "" {
+		t.Fatal("login reported success for an allocation after completed token rotation")
+	}
+	if allocated == "" {
+		t.Fatal("test did not allocate after rotation")
+	}
+	if _, err := store.get(t.Context(), allocated); !errors.Is(err, nats.ErrMsgNotFound) {
+		t.Fatal("failed login left a retired allocation or purge marker")
+	}
+	status, err := store.kv.Status(t.Context())
+	if err != nil || status.Values() != 1 {
+		t.Fatal("failed login changed the rotated token or left an orphan record")
+	}
+}
+
+func TestAllocationGenerationReadOutageCleansUpWithoutDeletingReusedSlot(t *testing.T) {
+	t.Parallel()
+	for _, reuse := range []bool{false, true} {
+		t.Run(strconv.FormatBool(reuse), func(t *testing.T) {
+			server, token := newLoginServer(t)
+			store := server.sessions.binding.Load().store
+			kv, leader := store.kv, store.leader
+			var allocated, replacement string
+			store.kv = sessionCreateHook{KeyValue: kv, after: func(key string, revision uint64) {
+				allocated = key
+				if reuse {
+					if err := store.purgeThrough(t.Context(), key, revision); err != nil {
+						t.Fatal(err)
+					}
+					replacement = "v3." + strings.Split(key, ".")[3] + "." + base64.RawURLEncoding.EncodeToString(bytesOf(3))
+					if _, err := kv.Create(t.Context(), key, []byte(sessionHash(replacement))); err != nil {
+						t.Fatal(err)
+					}
+				}
+				store.leader = sessionReadFault{JetStreamContext: leader, read: func(string, string, ...nats.JSOpt) (*nats.RawStreamMsg, error) {
+					return nil, nats.ErrTimeout
+				}}
+			}}
+			response := postLogin(server, url.Values{"token": {token}})
+			if response.Code != http.StatusServiceUnavailable || len(response.Result().Cookies()) != 0 {
+				t.Fatal("failed allocation generation read issued a cookie")
+			}
+			store.leader = leader
+			entry, err := store.get(t.Context(), allocated)
+			if reuse {
+				if err != nil || string(entry.Data) != sessionHash(replacement) || !sessionValid(t, server.sessions, t.Context(), replacement) {
+					t.Fatal("allocation cleanup deleted a concurrently reused slot")
+				}
+			} else if !errors.Is(err, nats.ErrMsgNotFound) {
+				t.Fatal("generation read outage left the allocation or a purge marker")
+			}
+		})
+	}
+}
+
 func TestAuthoritativeTokenVersionsRejectStaleControllersAndReconcileBindings(t *testing.T) {
 	t.Parallel()
 	store := newTestSessionStore(t)
