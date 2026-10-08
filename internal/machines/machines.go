@@ -1,6 +1,6 @@
 // Package machines owns the shared orchestration model: apps, the machines
 // that run them and their observed status, and their store in the regional
-// KV buckets TS_APPS and TS_MACHINE_STATUS. See docs/apps-machines.md.
+// KV buckets TS_APPS, TS_MACHINES and TS_MACHINE_STATUS. See docs/apps-machines.md.
 package machines
 
 import (

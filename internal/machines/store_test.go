@@ -106,7 +106,7 @@ func TestAppListingsIgnoreUnrelatedCorruptRecords(t *testing.T) {
 	}
 	// An interrupted create may leave an index entry without a machine.
 	id := entityid.New()
-	if _, err := store.index.Put(t.Context(), app.Name+"."+id, []byte(id)); err != nil {
+	if _, err := store.machines.Put(t.Context(), app.Name+"."+id, []byte(id)); err != nil {
 		t.Fatal(err)
 	}
 	machines, err = store.Machines(t.Context(), app.Name)
@@ -131,13 +131,13 @@ func TestOpenStoreRejectsHistoricalOrIncompleteSnapshot(t *testing.T) {
 	if _, err := OpenStore(t.Context(), js, "gru", 1, fence); err != nil {
 		t.Fatalf("current snapshot rejected: %v", err)
 	}
-	if err := store.index.Delete(t.Context(), app.Name+"."+machine.ID); err != nil {
+	if err := store.machines.Delete(t.Context(), app.Name+"."+machine.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := OpenStore(t.Context(), js, "gru", 1, fence); err == nil {
 		t.Fatal("accepted machine hidden by incomplete snapshot index")
 	}
-	if _, err := store.index.Put(t.Context(), app.Name+"."+machine.ID, []byte(machine.ID)); err != nil {
+	if _, err := store.machines.Put(t.Context(), app.Name+"."+machine.ID, []byte(machine.ID)); err != nil {
 		t.Fatal(err)
 	}
 	data, err := protocol.EncodeJSON(app)
@@ -524,7 +524,7 @@ func TestStoreRefusesTamperedRecords(t *testing.T) {
 			t.Fatal(err)
 		}
 		if kv == store.machines {
-			if _, err := store.index.Put(ctx, "ts-auth."+tamper.key, []byte(tamper.key)); err != nil {
+			if _, err := store.machines.Put(ctx, "ts-auth."+tamper.key, []byte(tamper.key)); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -551,7 +551,7 @@ func TestStoreRefusesTamperedRecords(t *testing.T) {
 			t.Fatal(err)
 		}
 		if kv == store.machines {
-			if err := store.index.Purge(ctx, "ts-auth."+tamper.key); err != nil {
+			if err := store.machines.Purge(ctx, "ts-auth."+tamper.key); err != nil {
 				t.Fatal(err)
 			}
 		}

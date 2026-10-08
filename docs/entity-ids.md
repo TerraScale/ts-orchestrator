@@ -14,15 +14,15 @@ creation-time claim. They are not customer document identities or a substitute
 for TerraBase's atomic uniqueness guarantees. Entity keys in NATS KV have no
 type prefix; machines have their own `TS_MACHINES` bucket alongside `TS_APPS`
 and `TS_MACHINE_STATUS`.
-The separate, snapshotted `TS_MACHINE_APP_INDEX` uses app-name/ULID lookup
-addresses (`<app-name>.<machine-ULID>`), not entity IDs, to select an app's
-records without scanning other tenants. Primary machine/status keys remain
-plain ULIDs. The index is written before machine creation; interrupted creates
-can leave harmless empty lookups, while deletes use index revisions to preserve
-concurrent writers.
-Store startup rejects historical app records and incomplete restored indexes;
-it never repairs or silently exposes partial inventory. Restore current records
-and their index together from a qualified consistent snapshot.
+App-name/ULID lookup addresses (`<app-name>.<machine-ULID>`) live alongside
+primary machine records in `TS_MACHINES`; they are lookup references, not
+entity IDs. App-specific listings remain server-filtered. A single stream
+snapshot and object upload capture both primary records and their index, so
+independent upload failures cannot split the recovery point. The index is
+written before machine creation and removed after machine deletion; interrupted
+writes may leave harmless empty lookups. Deletes use index revisions to preserve
+concurrent writers. Startup rejects historical app records and incomplete
+inventory; it never repairs or silently exposes partial state.
 
 Node names remain `ts-<region>-<n>`. Region/role labels, OCI resource IDs, OS and
 filesystem UUIDs, certificate/configuration SHA-256 fingerprints, artifact
@@ -48,7 +48,7 @@ data and recreates bootstrap state through the current startup path.
    writers in every serving region before deleting any data.
 3. Delete affected entity data and stale references together. Candidate
    orchestrator inventories include `TS_APPS`, `TS_MACHINES`,
-   `TS_MACHINE_STATUS`, `TS_MACHINE_APP_INDEX`, `TS_TENANTS`, `TS_VOLUMES`, `TS_ROLLOUTS`,
+   `TS_MACHINE_STATUS`, `TS_TENANTS`, `TS_VOLUMES`, `TS_ROLLOUTS`,
    `TS_HOST_ENROLLMENT`, `TS_HOST_STATE`, `TS_OCI_OPERATIONS`,
    `TS_DELIVERY_OPERATIONS`, `TS_PLACEMENT_STATE`, `TS_STORAGE_USAGE`, and
    entity-bearing control-log/release-channel records. Verify signed bootstrap
@@ -57,7 +57,13 @@ data and recreates bootstrap state through the current startup path.
    are inventory candidates, not verified live deletion targets.
    Include retained desired-release generations and active-rollout slots,
    node-operation/fence records, OCI ownership journals and consumed permits,
-   and both rollout step/reply boards. Inspect retained, retired and restore
+   and both rollout step/reply boards. Include retained decision-log records,
+   disabled/revoked enrollment grants and terminal tombstones, first-format
+   controller grants (pending, closed and consumed) and local initializer
+   attempt/consumption files. Reset these with the affected volumes and signed
+   placement/member records, never independently while old writers can run.
+   Fresh signed enrollment policy must authorize only the current intended
+   instances; wiping tombstones does not authorize previously revoked nodes. Inspect retained, retired and restore
    volumes and their provider create-key tags; affected old resources must be
    deleted, never adopted through an old tag or rewritten in place.
    Verify local pending activations, proofs, watchdogs, retained artifacts,

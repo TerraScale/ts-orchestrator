@@ -70,8 +70,9 @@ const (
 	// min_serving, level 14 a fenced set's role, level 15 the release
 	// fence's canary, level 16 the Machines API, level 17 a host grant's
 	// controller, level 18 the dashboard, level 19 a signer's
-	// can_install_material, level 20 the managed NetBird client.
-	BinaryLevel = 20
+	// can_install_material, level 20 the managed NetBird client,
+	// level 21 the Machines API platform organization.
+	BinaryLevel = 21
 	// MaxHostImages bounds the image allow-list: the images a rollout moves
 	// between, plus room to stage the next one.
 	MaxHostImages = 4
@@ -694,7 +695,8 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 // 10 with an artifact store quota, 11 with an Atlas publisher, 12 with
 // a release fence (13, 14 and 15 with its min_serving, role and canary) and
 // 16 with the Machines API, 17 once a host grant names its controller and
-// 18 with the dashboard, 19 with material-install authority, 20 with NetBird.
+// 18 with the dashboard, 19 with material-install authority, 20 with NetBird,
+// and 21 with the Machines API platform organization.
 func (s Spec) Level() uint64 {
 	level := uint64(1)
 	for _, service := range s.Services {
@@ -755,6 +757,9 @@ func (s Spec) Level() uint64 {
 	}
 	if s.NetBird != nil {
 		level = 20
+	}
+	if s.MachinesAPI != nil && s.MachinesAPI.PlatformOrganizationID != "" {
+		level = 21
 	}
 	return level
 }

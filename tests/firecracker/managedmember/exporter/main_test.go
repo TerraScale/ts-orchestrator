@@ -13,6 +13,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/qualification/firecracker"
 )
 
 func TestAuthoritySeedRequiresProtectedFileAndIndependentPin(t *testing.T) {
@@ -176,5 +177,13 @@ func TestExportMemberIncludesLiveS3MaterialAndPins(t *testing.T) {
 	if wire.Runtime.ConfigSHA256 != entry.SHA256 || wire.Runtime.TargetSHA256 != targetDigest ||
 		wire.Runtime.Credential.SecretOCID != fixtureS3SecretOCID || wire.Runtime.Credential.VersionNumber != 1 {
 		t.Fatalf("runtime wire pins differ from exported material: %s", encoded)
+	}
+}
+
+func TestExportDirectoriesMatchQualificationScopes(t *testing.T) {
+	for index, name := range []string{"a", "b"} {
+		if memberDirs[index] != firecracker.ManagedMemberDirs[name] {
+			t.Fatalf("member %s exporter directory %s differs from qualification %s", name, memberDirs[index], firecracker.ManagedMemberDirs[name])
+		}
 	}
 }

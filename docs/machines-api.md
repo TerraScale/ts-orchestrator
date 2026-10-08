@@ -85,7 +85,7 @@ A controller serves the API when its config has `controller.machines_api`:
 
 ### Production: the cell spec section
 
-A root-signed cell spec amendment (binary level 16) carries the token and
+A root-signed cell spec amendment (binary level 21 when it names `platform_organization_id`) carries the token and
 tenancy policy, with the same fields as above minus the listener:
 
 ```json

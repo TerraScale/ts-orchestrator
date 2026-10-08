@@ -21,8 +21,8 @@ const (
 	// with the other configuration buckets.
 	Bucket        = "TS_APPS"
 	MachineBucket = "TS_MACHINES"
-	// IndexBucket maps app lookup addresses to machine IDs; its keys are not entity IDs.
-	IndexBucket = "TS_MACHINE_APP_INDEX"
+	// MachineBucket also holds app-name/ULID lookup addresses, so a single
+	// stream snapshot captures machine records and their index together.
 	// StatusBucket holds observed machine states. A rebuilt cell relearns
 	// them from its hosts, so it is not snapshotted.
 	StatusBucket = "TS_MACHINE_STATUS"
@@ -53,16 +53,16 @@ func (s *Status) revision() *uint64  { return &s.Revision }
 // is a compare-and-swap on the record's Revision (zero creates). Every read
 // checks that a record is valid and belongs to its key.
 type Store struct {
-	apps, machines, statuses, index jetstream.KeyValue
-	region                          string
-	fencer                          authority.Fencer
+	apps, machines, statuses jetstream.KeyValue
+	region                   string
+	fencer                   authority.Fencer
 }
 
-// BucketMaxBytes is what each of the four buckets reserves on every
+// BucketMaxBytes is what each of the three buckets reserves on every
 // controller's JetStream store.
 const BucketMaxBytes = 256 << 20
 
-// OpenStore provisions or binds all four buckets for region.
+// OpenStore provisions or binds all three buckets for region.
 func OpenStore(ctx context.Context, js jetstream.JetStream, region string, replicas int, fencer authority.Fencer) (*Store, error) {
 	if js == nil || fencer == nil || !validRegion(region) || replicas != 1 && replicas != 3 && replicas != 5 {
 		return nil, fmt.Errorf("%w: store configuration", ErrInvalid)
@@ -89,19 +89,15 @@ func OpenStore(ctx context.Context, js jetstream.JetStream, region string, repli
 	if err != nil {
 		return nil, err
 	}
-	index, err := open(IndexBucket, "ts-orch app to machine lookup index")
-	if err != nil {
-		return nil, err
-	}
 	if _, err := list[App](ctx, apps, ">"); err != nil {
 		return nil, fmt.Errorf("app inventory requires current-format state: %w", err)
 	}
-	inventory, err := list[Machine](ctx, machines, ">")
+	inventory, err := list[Machine](ctx, machines, "*")
 	if err != nil {
 		return nil, err
 	}
 	for _, machine := range inventory {
-		entry, err := index.Get(ctx, machine.App+"."+machine.ID)
+		entry, err := machines.Get(ctx, machine.App+"."+machine.ID)
 		if err != nil {
 			return nil, fmt.Errorf("machine %s has no readable app index: %w", machine.ID, err)
 		}
@@ -109,7 +105,7 @@ func OpenStore(ctx context.Context, js jetstream.JetStream, region string, repli
 			return nil, fmt.Errorf("%w: machine %s app index", ErrInvalid, machine.ID)
 		}
 	}
-	return &Store{apps: apps, machines: machines, statuses: statuses, index: index, region: region, fencer: fencer}, nil
+	return &Store{apps: apps, machines: machines, statuses: statuses, region: region, fencer: fencer}, nil
 }
 
 // App returns an app.
@@ -253,7 +249,7 @@ func (s *Store) PutMachine(ctx context.Context, epoch uint64, machine Machine) (
 	if err := s.fencer.Guard(ctx, epoch); err != nil {
 		return Machine{}, err
 	}
-	if _, err := s.index.Put(ctx, machine.App+"."+machine.ID, []byte(machine.ID)); err != nil {
+	if _, err := s.machines.Put(ctx, machine.App+"."+machine.ID, []byte(machine.ID)); err != nil {
 		return Machine{}, err
 	}
 	if err := put(ctx, s, s.machines, epoch, &machine); err != nil {
@@ -284,7 +280,7 @@ func (s *Store) DeleteMachine(ctx context.Context, epoch uint64, machine Machine
 	if current.Host != "" && status.State != StateDestroyed {
 		return fmt.Errorf("%w: machine %s has not been observed destroyed", ErrInvalid, machine.ID)
 	}
-	index, err := s.index.Get(ctx, machine.App+"."+machine.ID)
+	index, err := s.machines.Get(ctx, machine.App+"."+machine.ID)
 	if err != nil {
 		return err
 	}
@@ -300,7 +296,7 @@ func (s *Store) DeleteMachine(ctx context.Context, epoch uint64, machine Machine
 	if err := s.fencer.Guard(ctx, epoch); err != nil {
 		return err
 	}
-	if err := s.index.Delete(ctx, index.Key(), jetstream.LastRevision(index.Revision())); err != nil &&
+	if err := s.machines.Delete(ctx, index.Key(), jetstream.LastRevision(index.Revision())); err != nil &&
 		!errors.Is(err, jetstream.ErrKeyRevisionMismatch) && !errors.Is(err, jetstream.ErrKeyExists) {
 		return err
 	}
@@ -413,7 +409,7 @@ func (s *Store) appMachineIDs(ctx context.Context, app string) ([]string, error)
 	if !tokenRE.MatchString(app) {
 		return nil, fmt.Errorf("%w: app name", ErrInvalid)
 	}
-	watcher, err := s.index.WatchFiltered(ctx, []string{app + ".*"}, jetstream.IgnoreDeletes())
+	watcher, err := s.machines.WatchFiltered(ctx, []string{app + ".*"}, jetstream.IgnoreDeletes())
 	if err != nil {
 		return nil, err
 	}

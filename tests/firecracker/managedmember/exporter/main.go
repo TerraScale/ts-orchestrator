@@ -22,6 +22,7 @@ import (
 	"syscall"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/qualification/firecracker"
 	"github.com/oklog/ulid/v2"
 	"golang.org/x/sys/unix"
 )
@@ -31,7 +32,7 @@ var (
 	memberIncarnations = [2]string{"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "cccccccccccccccccccccccccccccccc"}
 	memberDNSNames     = [2]string{"member-a.terrabase.test", "member-b.terrabase.test"}
 	failureDomains     = [2]string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"}
-	memberDirs         = [2]string{"/srv/ts-managed/a7d686b2920f18ea45a75e47ff9cd46e", "/srv/ts-managed/876d955c0b319006125266730d25349c"}
+	memberDirs         = [2]string{managedMemberDirectory(0), managedMemberDirectory(1)}
 	guestIPs           = [2]string{"10.77.39.11", "10.77.39.12"}
 	volumeUUIDs        = [2]string{"76f1b43d-7d79-4f41-9a6e-cc1f4aaab102", "76f1b43d-7d79-4f41-9a6e-cc1f4aaab103"}
 	lowerSHA256        = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -322,4 +323,11 @@ func makeVolume(path, uuid string) error {
 		return fmt.Errorf("format fixture volume: %w: %s", err, output)
 	}
 	return nil
+}
+
+func managedMemberDirectory(index int) string {
+	return firecracker.ManagedMemberDirectory(firecracker.Object{
+		"cluster_id": clusterID, "tenant_id": tenantID, "database_id": databaseID,
+		"shard_id": 1, "member_id": memberIDs[index], "incarnation": memberIncarnations[index],
+	}, 1)
 }

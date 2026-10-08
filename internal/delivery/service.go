@@ -470,7 +470,7 @@ func retryableIntentPublishError(err error, attemptDeadlineExpired bool) bool {
 }
 
 func operationKey(id string) string {
-	return id
+	return entityid.Derive("delivery-operation", id)
 }
 
 type operationValue struct {
