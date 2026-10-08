@@ -242,7 +242,7 @@ var (
 	// A role that is, extends or prefixes one names no secrets, so no
 	// workload reaches the NetBird, origin, trust or Cloudflare secrets its
 	// host may read.
-	infrastructure = []string{"api", "cloudflare", "netbird", "trust", "ts-dashboard"}
+	infrastructure = []string{"api", "cloudflare", "netbird", "orch", "trust", "ts-dashboard", "ts-orchestrator"}
 )
 
 // region is the OCI region of the ref's Vault, or "" when the OCID names none.

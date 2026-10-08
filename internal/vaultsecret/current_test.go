@@ -149,4 +149,8 @@ func TestExactDeliveryFilenamesStayWithinService(t *testing.T) {
 	if _, _, err := deliveryNames("gru", "ts-orchestrator", map[string]Ref{"controller-a.creds": ref}, true); err == nil {
 		t.Fatal("exact filename bypassed service isolation")
 	}
+	ref.Name = "gru-ts-orchestrator-controller-a-ticket-key"
+	if err := ValidateRefs("gru", "ts-orchestrator", map[string]Ref{"KEY_FILE": ref}, nil); err == nil {
+		t.Fatal("a native workload can reach controller-only material")
+	}
 }
