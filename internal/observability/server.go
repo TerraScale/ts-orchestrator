@@ -279,7 +279,7 @@ func (server *Server) Start(ctx context.Context, config Config) (<-chan error, e
 		server.reclaimCancel, server.reclaimDone = cancel, make(chan struct{})
 		go func() {
 			defer close(server.reclaimDone)
-			server.sessions.retryCollection(cleanupCtx)
+			server.sessions.retryCleanup(cleanupCtx)
 		}()
 	}
 	result := make(chan error, 1)

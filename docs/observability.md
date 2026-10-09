@@ -223,8 +223,12 @@ so the token's entropy is required for this digest to resist guessing.
   The cookie requests the maximum persistent
   lifetime and is refreshed on authenticated requests; browsers may impose
   their own cap (Chromium: 400 days without a visit).
-  Login requires the session store to be ready. Session storage operations
-  have a five-second deadline and honor earlier request cancellation. Read
+  Login requires the session store to be ready. Authentication and issuance
+  share a five-second deadline and honor earlier request cancellation.
+  Rejected allocations roll back with an independent five-second deadline,
+  including after browser disconnects. Failed rollbacks retain only their
+  key and revision for the listener's cleanup worker to retry; sequence
+  cutoffs preserve slots reused at later revisions. Read
   failures return `503` without redirecting to login or changing the cookie;
   logout returns `503` if revocation cannot be persisted. Token generation
   and session records are read from the leader without caching, so copied

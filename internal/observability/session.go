@@ -86,12 +86,19 @@ func (store *SessionStore) get(ctx context.Context, key string) (*nats.RawStream
 }
 
 type sessions struct {
-	secure  bool
-	binding atomic.Pointer[sessionBinding]
-	reclaim atomic.Pointer[sessionBinding]
-	mu      sync.Mutex
+	secure    bool
+	binding   atomic.Pointer[sessionBinding]
+	reclaim   atomic.Pointer[sessionBinding]
+	mu        sync.Mutex
+	rollbacks map[string]sessionRollback
 	// Hosts have no controller KV grant; keep their existing process-local login.
 	local map[string]struct{}
+}
+
+type sessionRollback struct {
+	store    *SessionStore
+	key      string
+	revision uint64
 }
 
 type sessionBinding struct {
@@ -228,8 +235,8 @@ func (server *Server) SetSessionStore(ctx context.Context, store *SessionStore) 
 	return errors.New("dashboard token changed concurrently")
 }
 
-// The listener owns retries, independently of successful token registration.
-func (manager *sessions) retryCollection(ctx context.Context) {
+// The listener owns collection and rollback retries, independently of requests.
+func (manager *sessions) retryCleanup(ctx context.Context) {
 	delay := 100 * time.Millisecond
 	var lastError string
 	var nextWarning time.Time
@@ -242,14 +249,20 @@ func (manager *sessions) retryCollection(ctx context.Context) {
 		case <-timer.C:
 		}
 		pending := manager.reclaim.Load()
-		if pending == nil {
+		manager.mu.Lock()
+		rollbackCount := len(manager.rollbacks)
+		manager.mu.Unlock()
+		if pending == nil && rollbackCount == 0 {
 			delay = 5 * time.Second
 			continue
 		}
 		attempt, cancel := context.WithTimeout(ctx, sessionStoreTimeout)
-		binding, err := manager.binding.Load().latest(attempt)
-		if err == nil {
-			if binding == nil {
+		err := manager.retryRollbacks(attempt)
+		if err == nil && pending != nil {
+			binding, readErr := manager.binding.Load().latest(attempt)
+			if readErr != nil {
+				err = readErr
+			} else if binding == nil {
 				err = errors.New("dashboard token metadata unavailable for reclamation")
 			} else {
 				err = binding.collect(attempt)
@@ -265,6 +278,45 @@ func (manager *sessions) retryCollection(ctx context.Context) {
 		}
 		delay = min(2*delay, 5*time.Second)
 	}
+}
+
+func (manager *sessions) rollback(ctx context.Context, allocation sessionRollback) error {
+	// Rejected allocations must be removed even after the browser disconnects.
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), sessionStoreTimeout)
+	defer cancel()
+	err := allocation.store.purgeThrough(cleanup, allocation.key, allocation.revision)
+	if err != nil {
+		manager.mu.Lock()
+		if manager.rollbacks == nil {
+			manager.rollbacks = make(map[string]sessionRollback)
+		}
+		if previous := manager.rollbacks[allocation.key]; previous.revision < allocation.revision {
+			// One revision cutoff also covers older failed allocations at this key.
+			manager.rollbacks[allocation.key] = allocation
+		}
+		manager.mu.Unlock()
+	}
+	return err
+}
+
+func (manager *sessions) retryRollbacks(ctx context.Context) error {
+	manager.mu.Lock()
+	allocations := make([]sessionRollback, 0, len(manager.rollbacks))
+	for _, allocation := range manager.rollbacks {
+		allocations = append(allocations, allocation)
+	}
+	manager.mu.Unlock()
+	for _, allocation := range allocations {
+		if err := allocation.store.purgeThrough(ctx, allocation.key, allocation.revision); err != nil {
+			return err
+		}
+		manager.mu.Lock()
+		if manager.rollbacks[allocation.key] == allocation {
+			delete(manager.rollbacks, allocation.key)
+		}
+		manager.mu.Unlock()
+	}
+	return nil
 }
 
 func (binding *sessionBinding) current(ctx context.Context) (bool, error) {
@@ -451,7 +503,7 @@ func (manager *sessions) issue(ctx context.Context) (string, error) {
 			if err == nil {
 				err = errors.New("dashboard token retired")
 			}
-			return "", errors.Join(err, binding.store.purgeThrough(ctx, binding.key(value), revision))
+			return "", errors.Join(err, manager.rollback(ctx, sessionRollback{store: binding.store, key: binding.key(value), revision: revision}))
 		}
 		return value, nil
 	}

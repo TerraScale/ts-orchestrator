@@ -614,7 +614,7 @@ func TestSessionCapacityIsSharedAndRotationReclaimsIt(t *testing.T) {
 	retriesDone := make(chan struct{})
 	go func() {
 		defer close(retriesDone)
-		rotated.sessions.retryCollection(retryCtx)
+		rotated.sessions.retryCleanup(retryCtx)
 	}()
 	t.Cleanup(func() { stopRetries(); <-retriesDone })
 	for deadline := time.Now().Add(25 * time.Second); ; time.Sleep(10 * time.Millisecond) {
@@ -1107,6 +1107,119 @@ type sessionCreateHook struct {
 	jetstream.KeyValue
 	before func()
 	after  func(string, uint64)
+}
+
+func TestCanceledIssuanceRollsBackWithIndependentDeadline(t *testing.T) {
+	t.Parallel()
+	server, _ := newLoginServer(t)
+	store := server.sessions.binding.Load().store
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var allocated string
+	store.kv = sessionCreateHook{KeyValue: store.kv, after: func(key string, _ uint64) {
+		allocated = key
+		cancel()
+	}}
+	value, err := server.sessions.issue(ctx)
+	if value != "" || err == nil || allocated == "" {
+		t.Fatal("canceled issuance returned a cookie or did not allocate")
+	}
+	if _, err := store.get(t.Context(), allocated); !errors.Is(err, nats.ErrMsgNotFound) {
+		t.Fatal("canceled issuance left an occupied slot or purge marker")
+	}
+}
+
+type failingSessionPurges struct {
+	jetstream.Stream
+	down      atomic.Bool
+	unbounded atomic.Bool
+}
+
+func (stream *failingSessionPurges) Purge(ctx context.Context, opts ...jetstream.StreamPurgeOpt) error {
+	if deadline, ok := ctx.Deadline(); !ok || ctx.Err() != nil || time.Until(deadline) > sessionStoreTimeout {
+		stream.unbounded.Store(true)
+	}
+	if stream.down.Load() {
+		return nats.ErrTimeout
+	}
+	return stream.Stream.Purge(ctx, opts...)
+}
+
+func TestFailedCanceledAllocationRollbackRetriesAndPreservesReusedSlot(t *testing.T) {
+	t.Parallel()
+	for _, reuse := range []bool{false, true} {
+		t.Run(strconv.FormatBool(reuse), func(t *testing.T) {
+			server, _ := newLoginServer(t)
+			store := server.sessions.binding.Load().store
+			stream := &failingSessionPurges{Stream: store.stream}
+			stream.down.Store(true)
+			store.stream = stream
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			kv := store.kv
+			var allocated string
+			var revision uint64
+			store.kv = sessionCreateHook{KeyValue: kv, after: func(key string, sequence uint64) {
+				allocated, revision = key, sequence
+				cancel()
+			}}
+			value, err := server.sessions.issue(ctx)
+			if err == nil || value != "" || stream.unbounded.Load() {
+				t.Fatal("failed rollback authorized a cookie or reused an expired/unbounded context")
+			}
+			server.sessions.mu.Lock()
+			pending := server.sessions.rollbacks[allocated]
+			server.sessions.mu.Unlock()
+			if pending.revision != revision || revision == 0 {
+				t.Fatal("failed rollback was not retained for retry")
+			}
+			var replacement string
+			if reuse {
+				// Recreate the slot at a later revision before the stale retry.
+				if err := stream.Stream.Purge(t.Context(), jetstream.WithPurgeSubject("$KV."+SessionBucket+"."+allocated)); err != nil {
+					t.Fatal(err)
+				}
+				replacement = "v3." + strings.Split(allocated, ".")[3] + "." + base64.RawURLEncoding.EncodeToString(bytesOf(3))
+				if _, err := kv.Create(t.Context(), allocated, []byte(sessionHash(replacement))); err != nil {
+					t.Fatal(err)
+				}
+			}
+			store.kv = kv
+			stream.down.Store(false)
+			probe, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			address := probe.Addr().String()
+			_ = probe.Close()
+			if _, err := server.Start(t.Context(), Config{ListenAddress: address, Dashboard: true}); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = server.Close() })
+			for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+				server.sessions.mu.Lock()
+				remaining := len(server.sessions.rollbacks)
+				server.sessions.mu.Unlock()
+				if remaining == 0 {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("recovered rollback did not retry independently")
+				}
+			}
+			entry, err := store.get(t.Context(), allocated)
+			if reuse {
+				if err != nil || string(entry.Data) != sessionHash(replacement) || !sessionValid(t, server.sessions, t.Context(), replacement) {
+					t.Fatal("stale rollback removed a valid reused slot")
+				}
+			} else if !errors.Is(err, nats.ErrMsgNotFound) {
+				t.Fatal("retry left the canceled allocation or a purge marker")
+			}
+			if stream.unbounded.Load() {
+				t.Fatal("retry used an expired or unbounded context")
+			}
+		})
+	}
 }
 
 func (store sessionCreateHook) Create(ctx context.Context, key string, value []byte, opts ...jetstream.KVCreateOpt) (uint64, error) {

@@ -301,3 +301,29 @@ Ten combined capacity/retry race repetitions and ten app dashboard/lifecycle
 race repetitions passed. Chromium and Firefox passed login, browser reopen,
 controller/NATS restart, cross-site logout refusal, and copied-cookie
 revocation through the production Server.Start path.
+
+## Ninth reviewer round
+
+Rejected allocation rollback now uses a fresh five-second context that
+retains request values but does not inherit cancellation or an expired
+deadline. Authentication/issuance still honor the original request budget
+and never return a cookie after the final generation check fails.
+
+If rollback cannot purge, the session manager retains only the key, created
+revision, and store handle for the listener cleanup worker. It coalesces
+repeated failures at one key to the highest revision. Retries use the worker's
+existing bounded, runtime-cancelled attempts and jittered backoff. Exact
+revision cutoffs preserve later slot reuse; queue entries clear only if the
+completed allocation still matches, preserving concurrently queued work.
+No raw token or cookie value is retained in this retry queue.
+
+The canceled-issuance regression failed before the fix, leaving an occupied
+slot. Thirty race repetitions now cover immediate cleanup after cancellation,
+a failed cleanup retained for automatic retry, recovery without reattachment,
+valid concurrent slot reuse, and non-expired bounded cleanup contexts.
+
+Full observability/dashboard race suites, ten app dashboard/lifecycle race
+repetitions, repository fast tests, vet, formatting, and generated-template
+checks passed. Chromium and Firefox repeated login, browser reopen,
+controller/NATS restart, cross-site logout refusal, and copied-cookie
+revocation through Server.Start.
