@@ -85,7 +85,7 @@ func TestLogRedactionNormalSemantics(t *testing.T) {
 	for _, format := range []string{"json", "logfmt"} {
 		t.Run(format, func(t *testing.T) {
 			logger, output, bus := redactionLogger(t, format, slog.String("cell", "gru"), slog.String("role", "controller"))
-			logger.Info("routine tick", "count", 4, "ready", true, "elapsed", 2*time.Second, "version", "1.2.3", "host", "controller.example.test")
+			logger.Info("routine tick", "count", 4, "ready", true, "elapsed", 2*time.Second, "version", "0.0.3", "host", "controller.example.test")
 			logger.Info("member ready", EventKey, true)
 			logger.With(ComponentKey, "placement").Warn("awaiting host", "reason", "not ready")
 			logger.With(ComponentKey, "placement").Warn("awaiting host", "reason", "not ready")
@@ -270,6 +270,33 @@ func TestLogRedactionSnapshotDepthConsumesBudget(t *testing.T) {
 				if value != omittedLogValue {
 					t.Fatalf("value at depth limit was retained: %v", value)
 				}
+			}
+		})
+	}
+}
+
+func TestLogRedactionOversizedMapKeys(t *testing.T) {
+	t.Parallel()
+	prefix := strings.Repeat("x", 8<<20)
+	details := map[string]int{prefix + "a": 1, prefix + "b": 2}
+	s := logSanitizer{remaining: maxLogAttrs}
+	if frozen := s.snapshot(reflect.ValueOf(details), 0); frozen != omittedLogValue || !s.truncated {
+		t.Fatal("oversized map keys were admitted for sorting and traversal")
+	}
+	for _, format := range []string{"json", "logfmt"} {
+		t.Run(format, func(t *testing.T) {
+			logger, output, bus := redactionLogger(t, format)
+			logger.Warn("large keys", "details", details)
+			events := bus.Recent(0)
+			if len(events) != 1 || events[0].Attrs[logTruncatedKey] != "true" {
+				t.Fatal("oversized key omission was not visible in the event ring")
+			}
+			var frozen string
+			if err := json.Unmarshal([]byte(events[0].Attrs["details"]), &frozen); err != nil || frozen != omittedLogValue {
+				t.Fatal("oversized map was not omitted as frozen JSON text")
+			}
+			if !strings.Contains(output.String(), logTruncatedKey) || output.Len() > maxLogMessageBytes {
+				t.Fatal("oversized key omission was not visible and bounded in output")
 			}
 		})
 	}

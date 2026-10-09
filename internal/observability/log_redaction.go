@@ -352,6 +352,12 @@ func (s *logSanitizer) snapshot(value reflect.Value, depth int) any {
 		}
 		// Collect only bounded maps; sorted traversal makes nested clipping stable.
 		keys := value.MapKeys()
+		for _, key := range keys {
+			if len(key.String()) > maxLogScanBytes {
+				s.truncated = true
+				return omittedLogValue
+			}
+		}
 		slices.SortFunc(keys, func(a, b reflect.Value) int {
 			return strings.Compare(a.String(), b.String())
 		})
