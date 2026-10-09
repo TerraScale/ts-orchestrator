@@ -266,3 +266,38 @@ Full observability/dashboard race suites, vet, formatting, and generated
 template checks passed. Chromium and Firefox repeated login, browser reopen,
 controller/NATS restart, cross-site logout refusal, and copied-cookie
 revocation with the two-read authorization path.
+
+## Eighth reviewer round
+
+A failed initial collection now queues a retry independently of successful
+registration. Each token-protected dashboard listener starts one cleanup
+worker, using the listener/runtime context. Attempts have a five-second
+deadline and exponential backoff from 100 ms to five seconds with up to
+20 percent jitter. Changed failures log immediately; identical failures log
+once per minute. Idle workers make no KV calls. Listener close cancels and
+joins the worker; runtime cancellation stops it too.
+
+The retry uses the latest session binding and revision-bounded collection,
+so old cookies stay revoked and active sessions are preserved. A successful
+pass clears only its observed pending request, retaining a concurrently
+queued retry. This removes the need for another token registration, restart,
+or deploy after storage recovers. Registration remains available during
+collection failure.
+
+Ten real-listener race repetitions verified login during enumeration failure,
+recovery and retired-record removal without reattachment, preservation of
+the active cookie, bounded contexts, and cancellation during an in-flight
+retry through both runtime cancellation and listener close.
+
+The worker reads the authoritative shared generation for each attempt without
+changing the listener's authentication binding. The cancellation case also
+rotates a second controller while cleanup is pending, verifying that the
+first listener reclaims all retired generations, preserves the new active
+cookie, and still refuses that cookie under its retired bearer token. The
+capacity regression now waits for deferred collection when an initial
+1,024-record pass exhausts its deadline under load.
+
+Ten combined capacity/retry race repetitions and ten app dashboard/lifecycle
+race repetitions passed. Chromium and Firefox passed login, browser reopen,
+controller/NATS restart, cross-site logout refusal, and copied-cookie
+revocation through the production Server.Start path.

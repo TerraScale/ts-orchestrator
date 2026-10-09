@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	mathrand "math/rand/v2"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -87,6 +88,7 @@ func (store *SessionStore) get(ctx context.Context, key string) (*nats.RawStream
 type sessions struct {
 	secure  bool
 	binding atomic.Pointer[sessionBinding]
+	reclaim atomic.Pointer[sessionBinding]
 	mu      sync.Mutex
 	// Hosts have no controller KV grant; keep their existing process-local login.
 	local map[string]struct{}
@@ -215,12 +217,54 @@ func (server *Server) SetSessionStore(ctx context.Context, store *SessionStore) 
 		binding := &sessionBinding{store: store, tokenHash: hash, generation: generation}
 		server.sessions.binding.Store(binding)
 		// Reclamation failure cannot undo a committed, usable registration.
-		if err := binding.collect(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			slog.Warn("dashboard session reclamation deferred", ComponentKey, "dashboard", "error", err)
+		if err := binding.collect(ctx); err != nil {
+			server.sessions.reclaim.Store(binding)
+			if !errors.Is(err, context.Canceled) {
+				slog.Warn("dashboard session reclamation deferred", ComponentKey, "dashboard", "error", err)
+			}
 		}
 		return nil
 	}
 	return errors.New("dashboard token changed concurrently")
+}
+
+// The listener owns retries, independently of successful token registration.
+func (manager *sessions) retryCollection(ctx context.Context) {
+	delay := 100 * time.Millisecond
+	var lastError string
+	var nextWarning time.Time
+	for {
+		timer := time.NewTimer(delay + time.Duration(mathrand.Int64N(int64(delay)/5+1)))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		pending := manager.reclaim.Load()
+		if pending == nil {
+			delay = 5 * time.Second
+			continue
+		}
+		attempt, cancel := context.WithTimeout(ctx, sessionStoreTimeout)
+		binding, err := manager.binding.Load().latest(attempt)
+		if err == nil {
+			if binding == nil {
+				err = errors.New("dashboard token metadata unavailable for reclamation")
+			} else {
+				err = binding.collect(attempt)
+			}
+		}
+		cancel()
+		if err == nil {
+			// A concurrent failed registration must retain its own retry request.
+			manager.reclaim.CompareAndSwap(pending, nil)
+		} else if ctx.Err() == nil && (err.Error() != lastError || time.Now().After(nextWarning)) {
+			slog.Warn("dashboard session reclamation retry failed", ComponentKey, "dashboard", "error", err)
+			lastError, nextWarning = err.Error(), time.Now().Add(time.Minute)
+		}
+		delay = min(2*delay, 5*time.Second)
+	}
 }
 
 func (binding *sessionBinding) current(ctx context.Context) (bool, error) {

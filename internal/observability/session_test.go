@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -609,9 +610,24 @@ func TestSessionCapacityIsSharedAndRotationReclaimsIt(t *testing.T) {
 		t.Fatal("login failed to reuse an existing session at capacity")
 	}
 	rotated := build(strings.Repeat("b", 48))
-	status, err := store.kv.Status(t.Context())
-	if err != nil || status.Values() != 1 {
-		t.Fatal("rotation retained abandoned sessions or markers")
+	retryCtx, stopRetries := context.WithCancel(t.Context())
+	retriesDone := make(chan struct{})
+	go func() {
+		defer close(retriesDone)
+		rotated.sessions.retryCollection(retryCtx)
+	}()
+	t.Cleanup(func() { stopRetries(); <-retriesDone })
+	for deadline := time.Now().Add(25 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		status, err := store.kv.Status(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status.Values() == 1 && rotated.sessions.reclaim.Load() == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("rotation retries retained abandoned sessions or markers")
+		}
 	}
 	fresh, err := rotated.sessions.issue(t.Context())
 	if err != nil {
@@ -733,6 +749,126 @@ type noSessionEnumeration struct{ jetstream.KeyValue }
 
 func (noSessionEnumeration) Watch(context.Context, string, ...jetstream.WatchOpt) (jetstream.KeyWatcher, error) {
 	return nil, errors.New("session enumeration unavailable")
+}
+
+type recoveringSessionEnumeration struct {
+	jetstream.KeyValue
+	down      atomic.Bool
+	blocking  atomic.Bool
+	attempts  atomic.Int32
+	entered   chan struct{}
+	unbounded atomic.Bool
+}
+
+func (store *recoveringSessionEnumeration) Watch(ctx context.Context, key string, opts ...jetstream.WatchOpt) (jetstream.KeyWatcher, error) {
+	store.attempts.Add(1)
+	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > sessionStoreTimeout {
+		store.unbounded.Store(true)
+	}
+	if store.blocking.Load() {
+		select {
+		case store.entered <- struct{}{}:
+		default:
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	if store.down.Load() {
+		return nil, errors.New("session enumeration temporarily unavailable")
+	}
+	return store.KeyValue.Watch(ctx, key, opts...)
+}
+
+func TestListenerRetriesDeferredCollectionAndStopsOnCloseOrCancellation(t *testing.T) {
+	t.Parallel()
+	for _, cancelRuntime := range []bool{false, true} {
+		t.Run(strconv.FormatBool(cancelRuntime), func(t *testing.T) {
+			first, _ := newLoginServer(t)
+			value, err := first.sessions.issue(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			old := first.sessions.binding.Load()
+			store := *old.store
+			fault := &recoveringSessionEnumeration{KeyValue: store.kv, entered: make(chan struct{}, 1)}
+			fault.down.Store(true)
+			store.kv = fault
+			token := strings.Repeat("b", 48)
+			rotated, err := NewTokenServer(Config{Dashboard: true}, token, ServerDeps{Registry: NewRegistry(false), Health: new(Health), Sessions: &store})
+			if err != nil {
+				t.Fatal("cleanup outage prevented listener construction")
+			}
+			rotated.HandleLogin(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			probe, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			address := probe.Addr().String()
+			_ = probe.Close()
+			if _, err := rotated.Start(ctx, Config{ListenAddress: address, Dashboard: true}); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = rotated.Close() })
+			response := postLogin(rotated, url.Values{"token": {token}})
+			if response.Code != http.StatusSeeOther || len(response.Result().Cookies()) != 1 {
+				t.Fatal("cleanup outage prevented login")
+			}
+			currentCookie := response.Result().Cookies()[0].Value
+			current := rotated
+			if cancelRuntime {
+				// Another controller rotates again while this listener's retry
+				// is pending. Collection must use the shared latest generation.
+				current, err = NewTokenServer(Config{Dashboard: true}, strings.Repeat("c", 48), ServerDeps{Registry: NewRegistry(false), Health: new(Health), Sessions: &store})
+				if err != nil {
+					t.Fatal(err)
+				}
+				currentCookie, err = current.sessions.issue(t.Context())
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			fault.down.Store(false)
+			for deadline := time.Now().Add(10 * time.Second); rotated.sessions.reclaim.Load() != nil; time.Sleep(10 * time.Millisecond) {
+				if time.Now().After(deadline) {
+					t.Fatal("recovery did not reclaim without another registration")
+				}
+			}
+			if _, err := old.store.get(t.Context(), old.key(value)); !errors.Is(err, nats.ErrMsgNotFound) {
+				t.Fatal("retry retained a retired session")
+			}
+			if !sessionValid(t, current.sessions, t.Context(), currentCookie) || fault.attempts.Load() < 2 || fault.unbounded.Load() {
+				t.Fatal("cleanup retry was unbounded, absent, or revoked the active cookie")
+			}
+			status, err := store.kv.Status(t.Context())
+			if err != nil || status.Values() != 2 {
+				t.Fatal("retry did not reclaim every retired generation")
+			}
+			if cancelRuntime && sessionValid(t, rotated.sessions, t.Context(), currentCookie) {
+				t.Fatal("reclamation changed the retired listener's authentication binding")
+			}
+			fault.blocking.Store(true)
+			rotated.sessions.reclaim.Store(rotated.sessions.binding.Load())
+			select {
+			case <-fault.entered:
+			case <-time.After(8 * time.Second):
+				t.Fatal("cleanup worker did not start its next attempt")
+			}
+			if cancelRuntime {
+				cancel()
+			} else {
+				if err := rotated.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			select {
+			case <-rotated.reclaimDone:
+			case <-time.After(time.Second):
+				t.Fatal("listener cleanup worker outlived cancellation or close")
+			}
+		})
+	}
 }
 
 func TestUncontendedLoginDoesNotEnumerateSessions(t *testing.T) {

@@ -36,12 +36,14 @@ type ServerDeps struct {
 // Server is the private observability listener. Additional read-only routes,
 // such as the dashboard, are mounted with Handle before or after Start.
 type Server struct {
-	mux      *http.ServeMux
-	token    []byte
-	deps     ServerDeps
-	http     *http.Server
-	listen   net.Listener
-	sessions *sessions
+	mux           *http.ServeMux
+	token         []byte
+	deps          ServerDeps
+	http          *http.Server
+	listen        net.Listener
+	sessions      *sessions
+	reclaimCancel context.CancelFunc
+	reclaimDone   chan struct{}
 	// loginMounted enables session cookies as an alternative to the bearer
 	// header. It is set only by HandleLogin, so a listener without the
 	// dashboard keeps accepting the bearer header alone.
@@ -272,6 +274,14 @@ func (server *Server) Start(ctx context.Context, config Config) (<-chan error, e
 	server.http = &http.Server{Handler: server, ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout: 10 * time.Second, IdleTimeout: time.Minute, MaxHeaderBytes: 4096}
 	server.listen = listener
+	if config.Dashboard && server.token != nil {
+		cleanupCtx, cancel := context.WithCancel(ctx)
+		server.reclaimCancel, server.reclaimDone = cancel, make(chan struct{})
+		go func() {
+			defer close(server.reclaimDone)
+			server.sessions.retryCollection(cleanupCtx)
+		}()
+	}
 	result := make(chan error, 1)
 	go func() {
 		err := server.http.Serve(listener)
@@ -294,7 +304,14 @@ func (server *Server) Addr() net.Addr {
 
 // Close stops the listener and open connections.
 func (server *Server) Close() error {
-	if server == nil || server.http == nil {
+	if server == nil {
+		return nil
+	}
+	if server.reclaimCancel != nil {
+		server.reclaimCancel()
+		<-server.reclaimDone
+	}
+	if server.http == nil {
 		return nil
 	}
 	return server.http.Close()

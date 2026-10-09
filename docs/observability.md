@@ -244,8 +244,10 @@ so the token's entropy is required for this digest to resist guessing.
   checks the stored cookie hash before purging its expected revision. Sequence
   cutoffs compact purge markers without deleting concurrently reused slots.
   Collection runs on store attachment and token rotation. A failed cleanup
-  pass is logged and leaves the committed binding usable; a later attachment
-  or rotation retries reclamation. Uncontended login
+  pass is logged and leaves the committed binding usable. The listener retries
+  deferred collection independently, using five-second attempts and bounded
+  backoff with jitter; runtime cancellation and listener close stop retries.
+  Uncontended login
   claims a CAS slot directly. After eight occupied-slot conflicts, one
   metadata snapshot identifies free slots, avoiding serial network probes
   of every occupied slot. CAS still resolves concurrent allocations.
