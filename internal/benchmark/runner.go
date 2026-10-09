@@ -232,6 +232,10 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 	finalEvidenceComplete := false
 	finalSLOViolation := false
 	for _, stage := range stages {
+		duration := stage.Duration
+		if duration == 0 {
+			duration = w.Duration
+		}
 		evidenceComplete := true
 		sloViolation := stage.Stopped != ""
 		summaries := map[string]bool{}
@@ -242,7 +246,6 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 		for _, sample := range stage.Samples {
 			if sample.Type == "summary" {
 				summaries[sample.Client] = true
-				ops += sample.OpsPerS
 				summaryRates[sample.Client] = sample.OpsPerS
 				if sample.ErrorRate > 0.01 {
 					sloViolation = true
@@ -260,6 +263,10 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 			if sample.TS.Before(start) {
 				continue
 			}
+			if !sample.TS.Before(start.Add(time.Duration(duration) * time.Second)) {
+				evidenceComplete = false
+				continue
+			}
 			if sample.Count > 0 && (sample.P99 > w.Targets.P99*1000 || float64(sample.Errors)/float64(sample.Count) > 0.01) {
 				sloViolation = true
 			}
@@ -268,7 +275,7 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 				seconds = map[int64]uint64{}
 				perClient[sample.Client] = seconds
 			}
-			seconds[sample.TS.Unix()] += sample.Count
+			seconds[int64(sample.TS.Sub(start)/time.Second)] += sample.Count
 			if sample.Count > sample.Errors {
 				perOperation[sample.Client+"/"+sample.Op] = true
 			}
@@ -283,10 +290,6 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 				}
 			}
 			seconds := perClient[client]
-			duration := stage.Duration
-			if duration == 0 {
-				duration = w.Duration
-			}
 			if len(seconds) < max(30, duration-2) {
 				evidenceComplete = false
 				continue
@@ -297,7 +300,9 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 				times = append(times, at)
 				count += seconds[at]
 			}
-			observed := float64(count) / float64(len(seconds))
+			// Missing intervals still consume measurement time.
+			observed := float64(count) / float64(duration)
+			ops += observed
 			if observed == 0 || summaryRates[client] < observed*0.95 || summaryRates[client] > observed*1.05 {
 				evidenceComplete = false
 			}

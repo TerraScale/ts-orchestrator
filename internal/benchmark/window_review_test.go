@@ -5,11 +5,75 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestQualificationRejectsSamplesOutsideMeasurementWindow(t *testing.T) {
+	w := workload(t)
+	clients := []string{"go", "rust"}
+	for _, mode := range []string{"alternating seconds", "at measurement end", "after measurement end"} {
+		t.Run(mode, func(t *testing.T) {
+			first, last := measuredStage(t, w, clients), measuredStage(t, w, clients)
+			for i := range last.Samples {
+				sample := &last.Samples[i]
+				if sample.Type != "" {
+					continue
+				}
+				start := last.MeasurementFrom[sample.Client]
+				if mode == "alternating seconds" {
+					sample.TS = start.Add(2 * sample.TS.Sub(start))
+				} else if sample.TS.Equal(start.Add(29 * time.Second)) {
+					sample.TS = start.Add(30 * time.Second)
+					if mode == "after measurement end" {
+						sample.TS = sample.TS.Add(time.Nanosecond)
+					}
+				}
+			}
+			last.To = last.To.Add(30 * time.Second)
+			for _, stages := range [][]Stage{{last}, {first, last}} {
+				v := capacityVerdict(w, stages, clients)
+				if v.Qualified != (len(stages) == 2) || v.Scale != "unknown" || v.Bottleneck != "unknown" || len(stages) == 1 && v.MaxSustainedOps != 0 || len(stages) == 2 && v.MaxSustainedOps != 200 {
+					t.Fatalf("out-of-window evidence qualified or displaced earlier capacity: %+v", v)
+				}
+			}
+		})
+	}
+}
+
+func TestQualificationCountsMissingIntervalsInElapsedThroughput(t *testing.T) {
+	for _, duration := range []int{40, 60} {
+		t.Run((time.Duration(duration) * time.Second).String(), func(t *testing.T) {
+			w := workload(t)
+			w.Duration = duration
+			clients := []string{"go", "rust"}
+			stage := measuredStage(t, w, clients)
+			var samples []Sample
+			for _, sample := range stage.Samples {
+				second := sample.TS.Sub(stage.MeasurementFrom[sample.Client]) / time.Second
+				if sample.Type == "" && (second == 10 || second == 20) {
+					continue
+				}
+				samples = append(samples, sample)
+			}
+			stage.Samples = samples
+			v := capacityVerdict(w, []Stage{stage}, clients)
+			if duration == 40 {
+				if v.Qualified || v.Scale != "unknown" || v.MaxSustainedOps != 0 {
+					t.Fatalf("inflated summary agreed only after excluding missing time: %+v", v)
+				}
+			} else {
+				want := 2 * float64((duration-2)*100) / float64(duration)
+				if !v.Qualified || v.Scale != "down" || math.Abs(v.MaxSustainedOps-want) > 1e-9 {
+					t.Fatalf("missing seconds inflated sustained throughput: got %+v, want %.9f ops/s", v, want)
+				}
+			}
+		})
+	}
+}
 
 func TestWorkerMeasurementMarkersExcludeWarmupAfterStartup(t *testing.T) {
 	installHelper(t, "ssh", "TestSSHWorkerHelper")

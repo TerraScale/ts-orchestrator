@@ -130,6 +130,8 @@ The worker carries each client's first reporting timestamp plus `warmup_s`
 in a private measurement-start marker before forwarding its samples. The
 runner saves these per-client boundaries in stage metadata, excludes earlier
 intervals from qualification, and keeps controls out of shared JSONL results.
+Each client's measurement window ends after the stage's configured duration;
+samples at or after that boundary leave qualification incomplete.
 OCI/SSH/Vault startup and different container start times cannot shift warmup.
 Missing, repeated or contradictory timing markers fail the run. Every run stops immediately
 when an emitted operation has error rate above 1% or p99 above twice target.
@@ -142,7 +144,9 @@ summaries with exactly the workload's operation keys, successful measurement
 evidence for every client/operation, error rate at most 1% and measured p99
 at target. Percentiles are
 checked per client/operation; they are never averaged. The capacity figure
-is the sum of client summary throughput for the highest qualifying stage.
+is the sum of measured client counts divided by the full configured measurement
+duration for the highest qualifying stage. Missing intervals consume time in
+that denominator; each summary must agree with its measured rate within 5%.
 Node or service headroom below 20% identifies CPU or memory pressure; more than 60%
 CPU and memory headroom permits a scale-down recommendation only when the
 final stage qualifies. An earlier qualifying stage retains its maximum

@@ -17,15 +17,15 @@ import (
 func measuredStage(t *testing.T, w Workload, clients []string) Stage {
 	t.Helper()
 	from := time.Now().UTC().Add(-time.Minute)
-	stage := Stage{From: from, To: from.Add(30 * time.Second), Duration: 30, MeasurementFrom: map[string]time.Time{}}
+	stage := Stage{From: from, To: from.Add(time.Duration(w.Warmup+1+w.Duration) * time.Second), Duration: w.Duration, MeasurementFrom: map[string]time.Time{}}
 	stage.Usage, _ = usageFixture(t.Context(), "gru", stage.From, stage.To)
 	for _, client := range clients {
 		stage.MeasurementFrom[client] = from.Add(time.Duration(w.Warmup+1) * time.Second)
 		perOp := map[string]json.RawMessage{}
 		for _, op := range w.Mix {
 			perOp[op.Op] = json.RawMessage(`{}`)
-			for second := range 30 {
-				stage.Samples = append(stage.Samples, Sample{TS: from.Add(time.Duration(second+1) * time.Second), Client: client, SDK: client, SDKVersion: "test", Region: "gru", Op: op.Op, Count: 100, P99: 30, Max: 30})
+			for second := range w.Duration {
+				stage.Samples = append(stage.Samples, Sample{TS: stage.MeasurementFrom[client].Add(time.Duration(second) * time.Second), Client: client, SDK: client, SDKVersion: "test", Region: "gru", Op: op.Op, Count: 100, P99: 30, Max: 30})
 			}
 		}
 		stage.Samples = append(stage.Samples, Sample{Type: "summary", Client: client, Region: "gru", Workload: w.Name, OpsPerS: 100 * float64(len(w.Mix)), PerOp: perOp})
