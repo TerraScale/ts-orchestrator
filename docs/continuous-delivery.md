@@ -756,8 +756,8 @@ polls:
    when it completed or every controller already proves the release, and
    `failed` when it was rolled back, aborted, frozen, refused or replaced by
    another generation first, or the channel does not verify or decode. A
-   report that differs from the stored one is stored and published on
-   `ts.orch.v1.<cell>.release.status` (`protocol.ReleaseStatusSubject`) for
+   report that differs from the stored one, or whose inventory heartbeat is
+   due, is stored and published on `protocol.ReleaseStatusSubject` for
    fan-in across regions; comparing with the stored report, not the
    leader's memory, replaces one a deposed leader left.
 
@@ -766,8 +766,9 @@ into it. Until it does, CI cannot reach the cell's NATS, so the leader
 bridges the CI edge every 30 s: it copies `channel.json` from the region's
 head bucket (the controller's OCI region and instance principal, the
 namespace from Object Storage) into the channel key, and the stored report
-back out to `status.json` when they differ (the head bucket keeps versions,
-so an unchanged report is not rewritten; a stale or forged one is). Only
+back out to `status.json` when they differ, including the timestamp of each
+successful inventory heartbeat. Copying an old KV report never renews its
+collection timestamp. Only
 this edge reads Object Storage.
 
 The rollout itself rolls a release that never becomes healthy back, marks it
@@ -1115,7 +1116,9 @@ The orchestrator reports every retained release generation and the active
 rollout's predecessor; service roles report their persisted previous digest.
 Both include all durable known-bad keys, even entries older than the bounded
 orchestrator cell list. Pin changes refresh status even when release progress
-has not changed. No `TS_RELEASE_PINS` repo variable is needed for these pins.
+has not changed. Stable inventories are refreshed every 30 seconds, including
+roles with no `release.json`; removing a claim preserves persisted release
+pins. No `TS_RELEASE_PINS` repo variable is needed for these pins.
 Retain external CI tools (`TS_ORCH_RELEASE` and `TS_PRUNE_ORCH_RELEASE`) and
 founding images through Forgejo's native non-prerelease flag, because they
 are dependencies outside the cell's rollback inventory. Clear that flag on
@@ -1126,7 +1129,12 @@ The former manual pins were retained this way for TS-653: tool
 `ci-a33737f4497f1a1efe429bf31ac6d9a836a83658-run-14752`.
 
 The pruning workflow uses `fleet-status --require-pins`: it refuses a missing
-status or a leader that has not published pins yet. Deploy the updated leader
+status, absent pins, or an inventory more than two minutes old. Missing
+timestamps and timestamps more than 30 seconds ahead of the reader also
+stop pruning. `updated_at` records the start of the successful complete
+inventory read; collection or publication failures cannot renew it. A blocked
+release or unavailable store may expire the report, which stops pruning until
+the leader successfully refreshes it. Deploy the updated leader
 in every region before pruning resumes. An empty `pins` object means the
 leader read cell state and found no rollback or known-bad pins. Unreadable
 cell state never publishes an incomplete pin list. With no pin at all the

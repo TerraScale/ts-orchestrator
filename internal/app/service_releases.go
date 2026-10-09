@@ -154,8 +154,14 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 			return err
 		}
 		claim, found, err := releasechannel.ReadServiceClaim(ctx, location, role)
-		if err != nil || !found {
+		if err != nil {
 			return err
+		}
+		if !found {
+			if revision == 0 {
+				state.State, state.Reason = releasechannel.StateRolling, "the service release channel has no claim"
+			}
+			return r.report(ctx, kv, role, state)
 		}
 		sum := sha256.Sum256(claim)
 		if state.Claim == hex.EncodeToString(sum[:]) && state.State != releasechannel.StateRolling {
@@ -467,11 +473,13 @@ func (r *serviceReleases) reportQuietly(ctx context.Context, kv jetstream.KeyVal
 	}
 }
 
-// report writes the role's status.json when it differs from state.
+// report writes the role's status.json when it changes or its inventory heartbeat is due.
 func (r *serviceReleases) report(ctx context.Context, kv jetstream.KeyValue, role string, state serviceReleaseState) error {
 	if !r.fencer.Current().CanMutate() {
 		return errors.New("this controller no longer holds the authority lease")
 	}
+	// A stalled inventory must not look newer than when collection began.
+	updatedAt := time.Now().UTC()
 	pins := &releasechannel.ReleasePins{Rollback: []string{}, KnownBad: []string{}}
 	rollback := slices.Clone(state.Retained)
 	if state.Previous != "" {
@@ -505,14 +513,17 @@ func (r *serviceReleases) report(ctx context.Context, kv jetstream.KeyValue, rol
 		return err
 	}
 	status := releasechannel.ServiceStatus{Schema: releasechannel.ServiceStatusSchema, Cell: strings.ToUpper(r.cell),
-		Role: role, Digest: state.Digest, IssuedAt: state.IssuedAt, State: state.State, Reason: releasechannel.Clip(state.Reason), Pins: pins}
+		Role: role, Digest: state.Digest, IssuedAt: state.IssuedAt, State: state.State, Reason: releasechannel.Clip(state.Reason),
+		UpdatedAt: updatedAt, Pins: pins}
 	stored, found, err := releasechannel.ReadServiceStatus(ctx, location, role)
-	if err == nil && found && stored.Cell == status.Cell && stored.Digest == status.Digest &&
+	if err != nil {
+		return err
+	}
+	if found && stored.Cell == status.Cell && stored.Digest == status.Digest &&
 		stored.IssuedAt.Equal(status.IssuedAt) && stored.State == status.State && stored.Reason == status.Reason &&
-		stored.Pins.Equal(status.Pins) {
+		stored.Pins.Equal(status.Pins) && !releasechannel.PinRefreshDue(stored.UpdatedAt, updatedAt) {
 		return nil
 	}
-	status.UpdatedAt = time.Now().UTC()
 	slog.Info("service release status", observability.ComponentKey, "rollout", "role", role, "digest", status.Digest,
 		"state", status.State, "reason", status.Reason)
 	if !r.fencer.Current().CanMutate() {

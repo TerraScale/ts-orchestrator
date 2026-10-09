@@ -282,7 +282,7 @@ func (c command) fleetStatusWith(args []string, storage func(string) (releasecha
 					return fmt.Errorf("%s %s has no release pins from its leader", cell, role)
 				}
 				if *requirePins {
-					if err := status.Pins.Validate(); err != nil {
+					if err := status.Pins.ValidateFresh(status.UpdatedAt, time.Now().UTC()); err != nil {
 						return err
 					}
 				}
@@ -305,7 +305,7 @@ func (c command) fleetStatusWith(args []string, storage func(string) (releasecha
 				return fmt.Errorf("%s has no release pins from its leader", cell)
 			}
 			if err == nil && *requirePins {
-				return status.Pins.Validate()
+				return status.Pins.ValidateFresh(status.UpdatedAt, time.Now().UTC())
 			}
 			return err
 		}()
