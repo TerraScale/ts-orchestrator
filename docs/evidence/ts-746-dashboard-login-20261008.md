@@ -327,3 +327,32 @@ repetitions, repository fast tests, vet, formatting, and generated-template
 checks passed. Chromium and Firefox repeated login, browser reopen,
 controller/NATS restart, cross-site logout refusal, and copied-cookie
 revocation through Server.Start.
+
+## Tenth reviewer round
+
+A lost Create acknowledgment now triggers reconciliation under the rollback's
+fresh five-second context, even when the browser request has been canceled.
+The leader's current slot record must match the expected cookie digest before
+cleanup removes it through that record's revision. A missing record or a
+different digest needs no removal. The normal ErrKeyExists capacity path
+remains unchanged.
+
+If reconciliation or purge is unavailable, the listener cleanup worker retains
+the store, key, and expected digest for independent retry. Ambiguous allocations
+at one slot have separate digest identities; acknowledged allocations continue
+coalescing by revision. No raw cookie or token enters the retry queue. A digest
+check protects reuse before reconciliation, and the sequence cutoff protects
+reuse between reconciliation and purge.
+
+The committed-write/lost-acknowledgment regression failed before the fix,
+leaving an occupied slot after returning a timeout. Thirty race repetitions
+now cover that case, canceled requests, unavailable leader reconciliation,
+unavailable purge, automatic recovery through Server.Start, and valid slot
+reuse both before and after the ownership read. Existing cancellation and
+generation-read rollback regressions passed in the same repetitions.
+
+Full observability/dashboard race suites, repository fast tests, vet,
+formatting, and generated-template checks passed. Playwright Chromium and
+Firefox passed login, navigation redirect, reload, browser reopen,
+controller/NATS restart, cross-site logout refusal, and copied-cookie
+revocation on the updated local server from beta.

@@ -99,6 +99,7 @@ type sessionRollback struct {
 	store    *SessionStore
 	key      string
 	revision uint64
+	hash     string
 }
 
 type sessionBinding struct {
@@ -284,19 +285,45 @@ func (manager *sessions) rollback(ctx context.Context, allocation sessionRollbac
 	// Rejected allocations must be removed even after the browser disconnects.
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), sessionStoreTimeout)
 	defer cancel()
-	err := allocation.store.purgeThrough(cleanup, allocation.key, allocation.revision)
+	err := allocation.purge(cleanup)
 	if err != nil {
 		manager.mu.Lock()
 		if manager.rollbacks == nil {
 			manager.rollbacks = make(map[string]sessionRollback)
 		}
-		if previous := manager.rollbacks[allocation.key]; previous.revision < allocation.revision {
+		id := allocation.id()
+		if previous, exists := manager.rollbacks[id]; !exists || previous.revision < allocation.revision {
 			// One revision cutoff also covers older failed allocations at this key.
-			manager.rollbacks[allocation.key] = allocation
+			manager.rollbacks[id] = allocation
 		}
 		manager.mu.Unlock()
 	}
 	return err
+}
+
+func (allocation sessionRollback) id() string {
+	if allocation.hash != "" {
+		// Lost acknowledgments at a reused slot retain independent ownership checks.
+		return allocation.key + "." + allocation.hash
+	}
+	return allocation.key
+}
+
+func (allocation sessionRollback) purge(ctx context.Context) error {
+	if allocation.revision == 0 {
+		entry, err := allocation.store.get(ctx, allocation.key)
+		if errors.Is(err, nats.ErrMsgNotFound) || errors.Is(err, jetstream.ErrKeyNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if subtle.ConstantTimeCompare(entry.Data, []byte(allocation.hash)) != 1 {
+			return nil
+		}
+		allocation.revision = entry.Sequence
+	}
+	return allocation.store.purgeThrough(ctx, allocation.key, allocation.revision)
 }
 
 func (manager *sessions) retryRollbacks(ctx context.Context) error {
@@ -307,12 +334,12 @@ func (manager *sessions) retryRollbacks(ctx context.Context) error {
 	}
 	manager.mu.Unlock()
 	for _, allocation := range allocations {
-		if err := allocation.store.purgeThrough(ctx, allocation.key, allocation.revision); err != nil {
+		if err := allocation.purge(ctx); err != nil {
 			return err
 		}
 		manager.mu.Lock()
-		if manager.rollbacks[allocation.key] == allocation {
-			delete(manager.rollbacks, allocation.key)
+		if manager.rollbacks[allocation.id()] == allocation {
+			delete(manager.rollbacks, allocation.id())
 		}
 		manager.mu.Unlock()
 	}
@@ -495,7 +522,7 @@ func (manager *sessions) issue(ctx context.Context) (string, error) {
 			continue
 		}
 		if err != nil {
-			return "", err
+			return "", errors.Join(err, manager.rollback(ctx, sessionRollback{store: binding.store, key: binding.key(value), hash: sessionHash(value)}))
 		}
 		// Rotation can finish cleanup before this in-flight allocation commits.
 		current, err := binding.current(ctx)

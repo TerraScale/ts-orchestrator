@@ -1105,8 +1105,9 @@ func TestSessionCollectionReportsCancellationWhenWatcherCloses(t *testing.T) {
 
 type sessionCreateHook struct {
 	jetstream.KeyValue
-	before func()
-	after  func(string, uint64)
+	before  func()
+	after   func(string, uint64)
+	lostAck bool
 }
 
 func TestCanceledIssuanceRollsBackWithIndependentDeadline(t *testing.T) {
@@ -1230,7 +1231,135 @@ func (store sessionCreateHook) Create(ctx context.Context, key string, value []b
 	if err == nil && store.after != nil {
 		store.after(key, revision)
 	}
+	if err == nil && store.lostAck {
+		return 0, nats.ErrTimeout
+	}
 	return revision, err
+}
+
+func TestLostAllocationAcknowledgmentRollsBackCommittedWrite(t *testing.T) {
+	t.Parallel()
+	server, _ := newLoginServer(t)
+	store := server.sessions.binding.Load().store
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var allocated string
+	store.kv = sessionCreateHook{KeyValue: store.kv, lostAck: true, after: func(key string, _ uint64) {
+		allocated = key
+		cancel()
+	}}
+	value, err := server.sessions.issue(ctx)
+	if value != "" || !errors.Is(err, nats.ErrTimeout) || allocated == "" {
+		t.Fatal("lost acknowledgment issued a cookie or did not commit the test allocation")
+	}
+	if _, err := store.get(t.Context(), allocated); !errors.Is(err, nats.ErrMsgNotFound) {
+		t.Fatal("lost acknowledgment left an occupied slot or purge marker")
+	}
+}
+
+func TestAmbiguousAllocationCleanupRetriesAndPreservesReusedSlots(t *testing.T) {
+	t.Parallel()
+	for _, scenario := range []string{"read-outage", "purge-outage", "reused-before-read", "reused-after-read"} {
+		t.Run(scenario, func(t *testing.T) {
+			server, _ := newLoginServer(t)
+			store := server.sessions.binding.Load().store
+			kv, leader := store.kv, store.leader
+			stream := &failingSessionPurges{Stream: store.stream}
+			stream.down.Store(scenario == "purge-outage")
+			store.stream = stream
+			var readsDown, reuseOnRead atomic.Bool
+			readsDown.Store(scenario != "purge-outage")
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			var allocated, expectedHash, replacement string
+			reuse := func(revision uint64) {
+				t.Helper()
+				if err := stream.Stream.Purge(t.Context(), jetstream.WithPurgeSubject("$KV."+SessionBucket+"."+allocated), jetstream.WithPurgeSequence(revision+1)); err != nil {
+					t.Fatal(err)
+				}
+				replacement = "v3." + strings.Split(allocated, ".")[3] + "." + base64.RawURLEncoding.EncodeToString(bytesOf(3))
+				if _, err := kv.Create(t.Context(), allocated, []byte(sessionHash(replacement))); err != nil {
+					t.Fatal(err)
+				}
+			}
+			store.kv = sessionCreateHook{KeyValue: kv, lostAck: true, after: func(key string, _ uint64) {
+				allocated = key
+				entry, err := store.get(t.Context(), key)
+				if err != nil {
+					t.Fatal(err)
+				}
+				expectedHash = string(entry.Data)
+				store.leader = sessionReadFault{JetStreamContext: leader, read: func(stream, subject string, opts ...nats.JSOpt) (*nats.RawStreamMsg, error) {
+					if readsDown.Load() {
+						return nil, nats.ErrTimeout
+					}
+					entry, err := leader.GetLastMsg(stream, subject, opts...)
+					if err == nil && subject == "$KV."+SessionBucket+"."+allocated && reuseOnRead.Swap(false) {
+						reuse(entry.Sequence)
+					}
+					return entry, err
+				}}
+				cancel()
+			}}
+			value, err := server.sessions.issue(ctx)
+			if value != "" || !errors.Is(err, nats.ErrTimeout) || allocated == "" || stream.unbounded.Load() {
+				t.Fatal("ambiguous write authorized a cookie or used an expired/unbounded cleanup context")
+			}
+			server.sessions.mu.Lock()
+			pending := len(server.sessions.rollbacks)
+			for _, allocation := range server.sessions.rollbacks {
+				if allocation.key != allocated || allocation.hash != expectedHash {
+					t.Error("cleanup did not retain the expected allocation hash")
+				}
+			}
+			server.sessions.mu.Unlock()
+			if pending != 1 {
+				t.Fatal("unavailable reconciliation was not retained for retry")
+			}
+			if scenario == "reused-before-read" {
+				entry, err := leader.GetLastMsg("KV_"+SessionBucket, "$KV."+SessionBucket+"."+allocated)
+				if err != nil {
+					t.Fatal(err)
+				}
+				reuse(entry.Sequence)
+			}
+			reuseOnRead.Store(scenario == "reused-after-read")
+			readsDown.Store(false)
+			stream.down.Store(false)
+			probe, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			address := probe.Addr().String()
+			_ = probe.Close()
+			if _, err := server.Start(t.Context(), Config{ListenAddress: address, Dashboard: true}); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = server.Close() })
+			for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+				server.sessions.mu.Lock()
+				remaining := len(server.sessions.rollbacks)
+				server.sessions.mu.Unlock()
+				if remaining == 0 {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("recovered ambiguous allocation did not retry independently")
+				}
+			}
+			entry, err := store.get(t.Context(), allocated)
+			if strings.HasPrefix(scenario, "reused-") {
+				if err != nil || string(entry.Data) != sessionHash(replacement) || !sessionValid(t, server.sessions, t.Context(), replacement) {
+					t.Fatal("ownership reconciliation removed a valid reused slot")
+				}
+			} else if !errors.Is(err, nats.ErrMsgNotFound) {
+				t.Fatal("retry left the ambiguous allocation or a purge marker")
+			}
+			if stream.unbounded.Load() {
+				t.Fatal("cleanup retry used an expired or unbounded context")
+			}
+		})
+	}
 }
 
 func TestRotationBetweenReconciliationAndAllocationRejectsLoginAndRemovesRecord(t *testing.T) {
