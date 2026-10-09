@@ -2587,11 +2587,17 @@ func TestRetireIdleRefusesNewAllocations(t *testing.T) {
 	// The mark is in the ordered log: a successor controller enforces it.
 	successor := &Controller{cell: c.cell, conn: c.conn, state: c.state, controlLog: c.controlLog,
 		mutations: c.mutations, artifacts: c.artifacts, authorityEpoch: c.authorityEpoch, authorityGuard: c.authorityGuard}
+	if statuses, err := successor.ListHosts(t.Context()); err != nil || len(statuses) != 1 || !statuses[0].Retired {
+		t.Fatalf("successor discovery lost durable retirement: %+v, %v", statuses, err)
+	}
 	if _, err := successor.ApplyDesired(t.Context(), next); !errors.Is(err, ErrHostRetiring) {
 		t.Fatalf("a successor placed on a retired host: %v", err)
 	}
 	if err := successor.Unretire(t.Context(), "node-a"); err != nil {
 		t.Fatal(err)
+	}
+	if statuses, err := c.ListHosts(t.Context()); err != nil || len(statuses) != 1 || statuses[0].Retired {
+		t.Fatalf("discovery retained retirement after unretire: %+v, %v", statuses, err)
 	}
 	if _, err := c.ApplyDesired(t.Context(), next); err != nil {
 		t.Fatalf("an unretired host refused an allocation: %v", err)

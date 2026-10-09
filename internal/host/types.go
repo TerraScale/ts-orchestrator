@@ -219,6 +219,7 @@ type ManagedRuntimeReport struct {
 
 type HostStatus struct {
 	Registration     Registration `json:"registration"`
+	Retired          bool         `json:"retired,omitempty"`
 	SessionExpiresAt time.Time    `json:"session_expires_at,omitzero"`
 	Reports          []Report     `json:"reports,omitempty"`
 	Verified         bool         `json:"verified"`

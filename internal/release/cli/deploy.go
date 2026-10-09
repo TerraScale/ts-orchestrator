@@ -40,8 +40,8 @@ func (c command) deploy(args []string) error {
 		storage: operatorObjectStorage, secret: readVaultSecret})
 }
 
-// deployWith signs one CI-qualified release for every cell with the online
-// update leaf, then deploys independent cells concurrently. Each cell owns
+// deployWith signs and deploys one CI-qualified release independently in
+// every cell with the online update leaf. Each cell owns
 // its quorum, health gates and rollback. A failed cell fails the command
 // after every other started deployment has finished.
 func (c command) deployWith(args []string, env deployEnv) error {

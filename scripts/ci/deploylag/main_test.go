@@ -36,6 +36,71 @@ func TestHistoryKeepsFirstQualificationAcrossFailedDeploymentAndRerun(t *testing
 	}
 }
 
+func TestHistoryPaginatesQualificationStatusesAndFailsOnUnreadablePage(t *testing.T) {
+	for _, unreadable := range []bool{false, true} {
+		t.Run(fmt.Sprint(unreadable), func(t *testing.T) {
+			var pages []string
+			a := api{readToken: "read", client: &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {
+				body, status := `[{"sha":"abc"}]`, http.StatusOK
+				if strings.HasSuffix(r.URL.Path, "/statuses") {
+					page := r.URL.Query().Get("page")
+					pages = append(pages, page)
+					switch page {
+					case "1":
+						entry := `{"context":"deployment/qualified","status":"success","created_at":"2026-10-09T14:59:00Z"}`
+						body = "[" + strings.Repeat(entry+",", 49) + entry + "]"
+					case "2":
+						body = `[{"context":"deployment/qualified","status":"success","created_at":"2026-10-09T14:00:00Z"}]`
+						if unreadable {
+							status = http.StatusServiceUnavailable
+						}
+					default:
+						t.Fatalf("unexpected page %s", page)
+					}
+				}
+				return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body))}, nil
+			})}}
+			history, err := a.history(t.Context(), "ts-auth")
+			if (err != nil) != unreadable || strings.Join(pages, ",") != "1,2" {
+				t.Fatalf("pages=%v history=%+v err=%v", pages, history, err)
+			}
+			if !unreadable && history[0].GreenAt.Format(time.RFC3339) != "2026-10-09T14:00:00Z" {
+				t.Fatalf("pagination reset the qualification clock: %+v", history)
+			}
+		})
+	}
+}
+
+func TestRunDeliversAlertAfterCollectionContextEnds(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	delivered := false
+	a := api{readToken: "read", writeToken: "write", client: &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/api/v1/deployments" {
+			cancel()
+			return nil, context.Canceled
+		}
+		if strings.HasSuffix(r.URL.Path, "/issues") {
+			deadline, bounded := r.Context().Deadline()
+			if r.Context().Err() != nil || !bounded || time.Until(deadline) <= 0 || time.Until(deadline) > notificationBudget {
+				t.Fatal("alert reused the expired collection context or lacks its own bounded budget")
+			}
+			if r.Method == "POST" {
+				wire, _ := io.ReadAll(r.Body)
+				delivered = strings.Contains(string(wire), "live fleet proof unavailable")
+			}
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("[]"))}, nil
+	})}}
+	readNative := func(ctx context.Context, _, _ string) (observation, error) {
+		<-ctx.Done()
+		return observation{}, ctx.Err()
+	}
+	if err := run(ctx, a, time.Now, readNative, true); err == nil || !delivered {
+		t.Fatalf("expired collection did not deliver its failure alert: delivered=%v err=%v", delivered, err)
+	}
+}
+
 func TestAlertCreatesAssignedIncidentAndClosesItAfterRecovery(t *testing.T) {
 	var methods []string
 	a := api{writeToken: "write", client: &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {

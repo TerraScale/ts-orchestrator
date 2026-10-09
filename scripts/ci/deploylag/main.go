@@ -25,6 +25,8 @@ const forge = "https://git.terrascale.tech/api/v1/repos/TerraScale/"
 const qualifiedContext = "deployment/qualified"
 const alertTitle = "TS-768: Deployment lag exceeds 30 minutes"
 const lagLimit = 30 * time.Minute
+const collectionBudget = 7 * time.Minute
+const notificationBudget = 90 * time.Second
 
 var services = []string{"ts-orchestrator", "terrabase", "ts-auth", "ts-atlas", "ts-status", "ts-dashboard"}
 var regions = []string{"GRU", "SFO"}
@@ -93,20 +95,25 @@ func (a api) history(ctx context.Context, service string) ([]commit, error) {
 	}
 	found := false
 	for i := range commits {
-		var statuses []struct {
-			Context   string    `json:"context"`
-			State     string    `json:"status"`
-			CreatedAt time.Time `json:"created_at"`
-		}
-		if err := a.request(ctx, "GET", forge+service+"/commits/"+commits[i].SHA+"/statuses?limit=50",
-			a.readToken, nil, &statuses); err != nil {
-			return nil, err
-		}
-		for _, status := range statuses {
-			if status.Context == qualifiedContext && status.State == "success" &&
-				!status.CreatedAt.IsZero() && (commits[i].GreenAt.IsZero() || status.CreatedAt.Before(commits[i].GreenAt)) {
-				commits[i].GreenAt = status.CreatedAt
-				found = true
+		for page := 1; ; page++ {
+			var statuses []struct {
+				Context   string    `json:"context"`
+				State     string    `json:"status"`
+				CreatedAt time.Time `json:"created_at"`
+			}
+			url := fmt.Sprintf("%s%s/commits/%s/statuses?limit=50&page=%d", forge, service, commits[i].SHA, page)
+			if err := a.request(ctx, "GET", url, a.readToken, nil, &statuses); err != nil {
+				return nil, err
+			}
+			for _, status := range statuses {
+				if status.Context == qualifiedContext && status.State == "success" &&
+					!status.CreatedAt.IsZero() && (commits[i].GreenAt.IsZero() || status.CreatedAt.Before(commits[i].GreenAt)) {
+					commits[i].GreenAt = status.CreatedAt
+					found = true
+				}
+			}
+			if len(statuses) < 50 {
+				break
 			}
 		}
 	}
@@ -243,13 +250,15 @@ func (a api) alert(ctx context.Context, findings []string) error {
 
 func run(ctx context.Context, a api, now func() time.Time,
 	readNative func(context.Context, string, string) (observation, error), notify bool) error {
+	collectCtx, cancelCollection := context.WithTimeout(ctx, collectionBudget)
+	defer cancelCollection()
 	histories := make(map[string][]commit)
 	var findings []string
 	var lock sync.Mutex
 	var workers sync.WaitGroup
 	for _, service := range services {
 		workers.Go(func() {
-			history, err := a.history(ctx, service)
+			history, err := a.history(collectCtx, service)
 			lock.Lock()
 			defer lock.Unlock()
 			if err != nil {
@@ -264,7 +273,7 @@ func run(ctx context.Context, a api, now func() time.Time,
 	for _, service := range services[:3] {
 		for _, region := range regions {
 			workers.Go(func() {
-				proof, err := readNative(ctx, service, region)
+				proof, err := readNative(collectCtx, service, region)
 				lock.Lock()
 				defer lock.Unlock()
 				if err != nil {
@@ -276,8 +285,9 @@ func run(ctx context.Context, a api, now func() time.Time,
 		}
 	}
 	var edge []observation
-	err := a.request(ctx, "GET", "https://status.terrascale.tech/api/v1/deployments", "", nil, &edge)
+	err := a.request(collectCtx, "GET", "https://status.terrascale.tech/api/v1/deployments", "", nil, &edge)
 	workers.Wait()
+	cancelCollection()
 	if err != nil {
 		findings = append(findings, "- Edge deployment observations unavailable from ts-status")
 	}
@@ -323,7 +333,10 @@ func run(ctx context.Context, a api, now func() time.Time,
 		}
 	}
 	if notify {
-		if err := a.alert(ctx, findings); err != nil {
+		// Collection failure still gets a bounded opportunity to deliver its alert.
+		alertCtx, cancelAlert := context.WithTimeout(context.WithoutCancel(ctx), notificationBudget)
+		defer cancelAlert()
+		if err := a.alert(alertCtx, findings); err != nil {
 			return fmt.Errorf("deployment alert could not be delivered: %w", err)
 		}
 	}

@@ -238,6 +238,26 @@ func TestHostUnitsAreTheJoinedHostsGroupedByTerraBaseSeats(t *testing.T) {
 	}
 }
 
+func TestHostUnitsExcludeRetiredHistoryButKeepCurrentHostsWithoutSessions(t *testing.T) {
+	f := newHostSinkFixture(t)
+	statuses := []host.HostStatus{
+		{Registration: host.Registration{Node: "retired-history", PublicKey: "old-key"}, Retired: true},
+		{Registration: host.Registration{Node: "current-host", PublicKey: "current-key"}},
+	}
+	load := hostUnits(func(context.Context) ([]host.HostStatus, error) { return statuses, nil }, f.board,
+		func(string) bool { return false })
+	if _, err := load(t.Context()); err == nil || !strings.Contains(err.Error(), "current-host has not joined") {
+		t.Fatalf("historical retirement blocked rollout or a missing current session was silently omitted: %v", err)
+	}
+	if _, err := f.board.Create(t.Context(), joinedKey("current-host"), []byte("current-key")); err != nil {
+		t.Fatal(err)
+	}
+	units, err := load(t.Context())
+	if err != nil || len(units) != 1 || units[0].ID != "current-host" {
+		t.Fatalf("retired history participated or silent current host disappeared: %+v, %v", units, err)
+	}
+}
+
 type passGate struct{}
 
 func (passGate) Check(context.Context, rollout.Record, string) error { return nil }

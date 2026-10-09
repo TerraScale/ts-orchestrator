@@ -404,7 +404,8 @@ func hostUnits(list func(context.Context) ([]host.HostStatus, error), board jets
 		partitions := map[string][]string{}
 		for _, status := range hosts {
 			r := status.Registration
-			if colocated(r.Node) {
+			// A durable retirement excludes history; session loss never excludes a current host.
+			if status.Retired || colocated(r.Node) {
 				continue
 			}
 			entry, err := board.Get(ctx, joinedKey(r.Node))

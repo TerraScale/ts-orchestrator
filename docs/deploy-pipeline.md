@@ -33,7 +33,9 @@ A region is complete only when every current controller and participating host
 freshly proves the target binary. An unjoined host, a changed registration key,
 a stale proof or conflicting predecessor releases keeps deployment pending.
 A completed historical rollout is insufficient proof that every current server
-still runs its target. Diagnose the reported reason; update an existing host
+still runs its target. Durably retired registrations remain visible for
+diagnosis but do not participate; a lost session never excludes a current host.
+Diagnose the reported reason; update an existing host
 in place when it needs initial self-update enrollment. Never re-found a serving
 cell to complete a deployment.
 
@@ -66,6 +68,10 @@ The guard reads main ancestry and those markers rather than treating a failed
 deployment as a failed build. Continuous green builds cannot reset the clock
 of the oldest pending build. The latest 50 main commits bound API work; absent
 markers or unreadable observations fail visibly.
+Commit statuses are paginated so reruns cannot hide a commit's first
+qualification. Collection has a seven-minute budget; alert delivery receives
+its own 90-second budget even when collection expires, within the job's
+15-minute limit.
 If the deployed revision is outside the checked ancestry, incomplete history
 also fails visibly instead of restarting the 30-minute clock.
 
