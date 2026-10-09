@@ -77,7 +77,7 @@ func TestTSAuthReplicaGetsVaultSecrets(t *testing.T) {
 	if _, set := env[tsauth.EnvProjectID]; set {
 		t.Error("the project ID reached the replica on its own")
 	}
-	// ts-auth selects its database as <project-ulid>/auth.
+	// ts-auth selects its database as <project-id>/auth.
 	bundle := tsauth.Layout(agent.cfg.TSAuthRoot).Bundle()
 	if env[tsauth.EnvListen] != "http://0.0.0.0:8080" || env[tsauth.EnvBundleExtract] != bundle ||
 		env[tsauth.EnvDatabase] != secrets[tsauth.EnvProjectID]+"/auth" || env[tsauth.EnvDashboardRedirectURIs] != tsauth.DashboardRedirectURI {
@@ -93,6 +93,19 @@ func TestTSAuthReplicaGetsVaultSecrets(t *testing.T) {
 	withdrawn.Withdrawn = true
 	if agent.tsAuthReplica(withdrawn) || (&Agent{}).tsAuthReplica(d) {
 		t.Fatal("a withdrawn desired or a host without a ts-auth root launches a replica")
+	}
+}
+
+func TestTSAuthReplicaKeepsExistingUUIDProject(t *testing.T) {
+	agent := tsAuthTestAgent(t)
+	secrets := tsAuthTestSecrets()
+	secrets[tsauth.EnvProjectID] = "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d"
+	env, err := agent.prepareTSAuth(tsAuthTestDesired(), secrets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env[tsauth.EnvDatabase] != secrets[tsauth.EnvProjectID]+"/auth" {
+		t.Fatal("existing project ID changed before reaching the replica")
 	}
 }
 
