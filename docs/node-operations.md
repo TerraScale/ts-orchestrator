@@ -170,4 +170,4 @@ offline, one node at a time. The leader returns the node once its unit
 proves the release it should run (the target, or the previous one after a
 rollback) and every role on the node reports running since this leader
 first saw that process. A rollout that ends before stepping a fenced unit returns its node
-too. This makes `TS_AUTO_DEPLOY_CELLS` safe for a cell with a release fence.
+too. This makes automatic deployment safe for a cell with a release fence.

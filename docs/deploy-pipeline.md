@@ -6,17 +6,18 @@ Part of [TS-768](https://ku.mariogk.com/terrascale/issue/TS-768).
 
 `ci.yml` validates the exact main revision, builds static amd64/arm64 binaries,
 and retains their qualification manifest. Its final step dispatches `deploy.yml`;
-a dispatch failure fails CI. Documentation-only changes do not create a build.
+a dispatch failure fails CI. Documentation-only main changes also build and deploy.
 The deploy job checks main ancestry before using credentials, waits up to five
 minutes for the producing CI run, and rejects failed or cancelled runs. A queued
 revision overtaken by a newer qualified main revision is skipped. An active
 deployment always finishes; workflows never cancel it to deploy a newer build.
 
 `scripts/ci/deploy-fleet.sh` verifies the retained bytes and CI provenance, reads
-the delegated release leaf from OCI Vault, and signs every configured cell and
-architecture before publishing anything. A delegation outside any required
-cell, architecture, environment or source lineage rejects the whole deployment.
-GRU and SFO upload and publish independently, then roll concurrently. A failure
+the delegated release leaf from OCI Vault, and signs each region within its
+independent worker. A delegation outside a required cell, architecture or
+environment fails that region visibly. Source qualification and lineage remain
+required for every signature. GRU and SFO sign, upload, publish and roll
+concurrently. A signing, storage, publication or rollout failure
 in one region does not interrupt another region's healthy rollout; the command
 waits for all started regions and returns failure if any failed.
 
@@ -40,20 +41,22 @@ cell to complete a deployment.
 
 Required variables:
 
-- `TS_AUTO_DEPLOY_CELLS=GRU SFO`, `TS_AUTO_DEPLOY_ENVIRONMENT=production`, and
-  `TS_AUTO_DEPLOY_ARCHES=arm64` for the verified 2026-10-09 inventory. Both cells
-  have three running A1 controllers and no workload compute instances. Add an
-  architecture when actual server inventory requires it.
 - `TS_OBJECT_NAMESPACE`, `TS_RELEASE_VAULT_ID`, `TS_RELEASE_LEAF_SECRET`, and
-  canonical `TS_RELEASE_UPDATE_DELEGATION` covering every configured target.
+  canonical `TS_RELEASE_UPDATE_DELEGATION` covering every serving target.
 - `TS_DEPLOY_OCI_USER`, `TS_DEPLOY_OCI_TENANCY`, and `TS_DEPLOY_OCI_FINGERPRINT`.
+
+There is no deployment switch. Until serving-fleet discovery lands, the script
+always deploys GRU and SFO using the verified `canary` environment and ARM64
+inventory: three running A1 controllers per cell and no workload compute
+instances. These constants follow the standalone switch-removal PR #347;
+repository variables cannot disable a cell or change its signed scope.
 
 Required secrets are `TS_DEPLOY_OCI_KEY` and `TS_DEPLOY_READ_TOKEN`. The OCI key
 may read only the release leaf and manage the regional release objects.
 The offline root key stays outside Actions. Delegations last at most 31 days;
 renew them before expiry. Never print credential files, tokens or private keys.
-The signed node environment and delegation must agree with the repository
-environment before its value changes.
+The signed node environment and delegation must agree. The root's offline key
+and scoped signing checks remain mandatory for each region.
 
 ## Live verification and timing
 

@@ -22,6 +22,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
@@ -237,6 +238,11 @@ func runRestoreControllerMaterial(ctx context.Context, args []string, output io.
 	}
 	if flags.NArg() != 0 || os.Geteuid() != 0 || *remove && *check {
 		return errors.New("usage (root): restore-controller-material [--remove-disk-copies | --check]")
+	}
+	// The credential directory's tmpfs belongs to the host, where admission
+	// and the controller see it.
+	if moved, err := selfupdate.RunInHostMounts(ctx, output, os.Stderr); moved || err != nil {
+		return err
 	}
 	note, err := bootstrapstart.RestoreMaterial(ctx, exactSecretReader(func() (oci.Region, error) {
 		target, err := bootstrapstart.AcceptedGenerationTarget()

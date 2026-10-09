@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
-# Deploy one CI-qualified main revision to every configured region
+# Deploy one CI-qualified main revision to every serving region, the
 # concurrently, with ts-orch release deploy (docs/deploy-pipeline.md).
 #
 # usage: deploy-fleet.sh FORGEJO_PROFILES
 #
 # FORGEJO_PROFILES is the directory configure-fj-profiles.sh created. Inputs:
 #   SOURCE_SHA, SOURCE_CI_RUN_ID   the revision and its successful ci.yml run
-#   TS_AUTO_DEPLOY_CELLS           every serving cell
-#   TS_AUTO_DEPLOY_ARCHES          architectures to sign (default arm64)
-#   TS_AUTO_DEPLOY_ENVIRONMENT     release environment (default production)
 #   TS_OBJECT_NAMESPACE            Object Storage namespace of the head buckets
 #   TS_RELEASE_VAULT_ID            OCI Vault holding the update leaf key
 #   TS_RELEASE_LEAF_SECRET         the leaf key's secret name
@@ -23,16 +20,16 @@ profiles=${1:-}
 	echo 'SOURCE_SHA and SOURCE_CI_RUN_ID must name the qualified run' >&2
 	exit 2
 }
-for variable in TS_AUTO_DEPLOY_CELLS TS_OBJECT_NAMESPACE TS_RELEASE_VAULT_ID TS_RELEASE_LEAF_SECRET \
+for variable in TS_OBJECT_NAMESPACE TS_RELEASE_VAULT_ID TS_RELEASE_LEAF_SECRET \
 	TS_RELEASE_UPDATE_DELEGATION TS_DEPLOY_OCI_USER TS_DEPLOY_OCI_TENANCY TS_DEPLOY_OCI_FINGERPRINT \
 	TS_DEPLOY_OCI_KEY FORGEJO_SERVER_URL; do
 	[[ -n ${!variable:-} ]] || { echo "$variable is required" >&2; exit 2; }
 done
 [[ $(git rev-parse HEAD) == "$SOURCE_SHA" ]] || { echo 'checked-out source differs from the deployed revision' >&2; exit 1; }
-read -ra cells <<< "$TS_AUTO_DEPLOY_CELLS"
-read -ra architectures <<< "${TS_AUTO_DEPLOY_ARCHES:-arm64}"
-# Independent cells share the same 30-minute rollout window.
-((${#cells[@]} >= 1 && ${#cells[@]} <= 3)) || { echo 'TS_AUTO_DEPLOY_CELLS must name one to three cells' >&2; exit 2; }
+# Verified serving inventory: both cells use ARM64 and the canary trust scope.
+# Region discovery will replace these constants in the shared TS-768 contract.
+cells=(GRU SFO)
+architectures=(arm64)
 
 umask 077
 work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/deploy-fleet.XXXXXX")
@@ -68,5 +65,5 @@ export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.$FORGEJO_SERVER_URL/.extraheade
 XDG_DATA_HOME="$profiles/read" dist/ts-orch release deploy --dir "$work/release" --source-revision "$SOURCE_SHA" \
 	--update-delegation "$work/update-delegation.json" --root-key "$root_key" \
 	--signing-key-secret "$TS_RELEASE_LEAF_SECRET" --vault-id "$TS_RELEASE_VAULT_ID" \
-	--environment "${TS_AUTO_DEPLOY_ENVIRONMENT:-production}" --source-checkout . \
+	--environment canary --source-checkout . \
 	--namespace "$TS_OBJECT_NAMESPACE" --region-timeout 30m --poll 5s "${args[@]}"

@@ -239,6 +239,13 @@ allow writing them. A managed host agent refuses role files or a member key
 on anything but tmpfs with swap off, so those members do not start without
 the mounts, and the controller's stager refuses such a spool.
 
+Every mount is made in the host's mount namespace. systemd runs a unit's
+`ExecStartPre=+` steps in the unit's private namespace, where a tmpfs ends up
+hidden beneath the main process's sandbox and goes with the unit, so prepare
+and `restore-controller-material` first run themselves again through
+`nsenter --mount=/proc/1/ns/mnt`. A host mount reaches every unit's namespace,
+already running or not, and lasts until the next reboot.
+
 A node's first start on a new release runs the known-good release's prepare
 and the drop-ins it installed, which may predate the mounts. Every prepare
 that knows them writes `/run/terrascale-orchestrator-memory-prepare` before it

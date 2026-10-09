@@ -1,10 +1,10 @@
 name: Deploy ts-orch to every region
 
 # ci.yml dispatches this workflow as its last step on main (trigger "ci"),
-# once the revision's release is retained. TS_AUTO_DEPLOY_CELLS must name
-# every serving cell; docs/deploy-pipeline.md lists every input. The job
-# signs the release and deploys independent regions concurrently. Each cell
-# retains its quorum, health gates and automatic rollback. Deployments
+# once the revision's release is retained. Every green main push deploys;
+# docs/deploy-pipeline.md lists every input. Each region signs, publishes and
+# rolls independently; quorum, health gates and automatic rollback remain.
+# A failure never cancels another region. Deployments
 # queue rather than cancel each other, so CI never abandons a region
 # mid-rollout: a running deployment always finishes, a newer dispatch
 # replaces one still pending, and a queued deployment that a newer qualified
@@ -105,9 +105,6 @@ jobs:
         shell: bash
         env:
           FORGEJO_SERVER_URL: ${{ github.server_url }}
-          TS_AUTO_DEPLOY_CELLS: ${{ vars.TS_AUTO_DEPLOY_CELLS }}
-          TS_AUTO_DEPLOY_ARCHES: ${{ vars.TS_AUTO_DEPLOY_ARCHES }}
-          TS_AUTO_DEPLOY_ENVIRONMENT: ${{ vars.TS_AUTO_DEPLOY_ENVIRONMENT }}
           TS_OBJECT_NAMESPACE: ${{ vars.TS_OBJECT_NAMESPACE }}
           TS_RELEASE_VAULT_ID: ${{ vars.TS_RELEASE_VAULT_ID }}
           TS_RELEASE_LEAF_SECRET: ${{ vars.TS_RELEASE_LEAF_SECRET }}
