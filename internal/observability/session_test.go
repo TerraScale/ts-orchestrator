@@ -43,6 +43,29 @@ func newLoginServer(t *testing.T) (*Server, string) {
 	return server, token
 }
 
+func TestDashboardSessionStoreRejectsOldTokenMetadata(t *testing.T) {
+	server, token := newLoginServer(t)
+	for name, data := range map[string]string{
+		"hash-only":          sessionHash(token),
+		"missing generation": `{"hash":"` + sessionHash(token) + `"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := newTestSessionStore(t)
+			key := "token." + store.scope
+			if _, err := store.kv.Put(t.Context(), key, []byte(data)); err != nil {
+				t.Fatal(err)
+			}
+			if err := server.SetSessionStore(t.Context(), store); err == nil {
+				t.Fatal("accepted old token metadata")
+			}
+			entry, err := store.get(t.Context(), key)
+			if err != nil || string(entry.Data) != data {
+				t.Fatalf("rejected metadata was rewritten: %v", err)
+			}
+		})
+	}
+}
+
 func postLogin(server *Server, form url.Values, headers ...string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")

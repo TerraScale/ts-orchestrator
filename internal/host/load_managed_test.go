@@ -35,7 +35,7 @@ func TestLoadOperationValidatesCurrentManagedBinding(t *testing.T) {
 			if _, err := c.Register(t.Context(), registration); err != nil {
 				t.Fatal(err)
 			}
-			result, err := c.handleSession(t.Context(), signedHostRequest(t, hostKey, "session", strings.Repeat("1", 32), 0,
+			result, err := c.handleSession(t.Context(), signedHostRequest(t, hostKey, "session", "0000000000M44BFMMJRNPNN6BB", 0,
 				struct {
 					Kind string `json:"kind"`
 				}{"acquire"}))

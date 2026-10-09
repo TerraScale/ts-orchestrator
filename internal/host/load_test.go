@@ -178,7 +178,7 @@ func TestLoadOperationRejectsInvalidAuthorizationBeforeSink(t *testing.T) {
 		want   string
 	}{
 		{"wrong session", func(t *testing.T, _ *Controller, req *request, key ed25519.PrivateKey) {
-			req.SessionID = strings.Repeat("f", 32)
+			req.SessionID = "0000000000M44BFMMJRNPNN6BB"
 			if err := signRequest(req, key, "gru"); err != nil {
 				t.Fatal(err)
 			}

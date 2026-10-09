@@ -123,15 +123,14 @@ type sessionToken struct {
 }
 
 func readSessionToken(data []byte) (sessionToken, error) {
-	// Accept the hash-only metadata written before authoritative versions.
-	if len(data) == 64 {
-		if _, err := hex.DecodeString(string(data)); err == nil {
-			return sessionToken{Hash: string(data)}, nil
-		}
-	}
 	var token sessionToken
-	err := json.Unmarshal(data, &token)
-	return token, err
+	if err := json.Unmarshal(data, &token); err != nil {
+		return token, err
+	}
+	if token.Generation == 0 {
+		return token, errors.New("dashboard token metadata requires a generation")
+	}
+	return token, nil
 }
 
 func (token *sessionToken) advance(previous sessionToken) (bool, error) {
@@ -189,9 +188,6 @@ func (server *Server) SetSessionStore(ctx context.Context, store *SessionStore) 
 			previous, readErr := readSessionToken(entry.Data)
 			if readErr != nil {
 				return readErr
-			}
-			if previous.Generation == 0 {
-				previous.Generation = entry.Sequence
 			}
 			changed, advanceErr := want.advance(previous)
 			if advanceErr != nil {
@@ -362,9 +358,6 @@ func (binding *sessionBinding) latest(ctx context.Context) (*sessionBinding, err
 	token, err := readSessionToken(entry.Data)
 	if err != nil {
 		return nil, err
-	}
-	if token.Generation == 0 {
-		token.Generation = entry.Sequence
 	}
 	if token.Hash == binding.tokenHash && token.Generation == binding.generation {
 		return binding, nil

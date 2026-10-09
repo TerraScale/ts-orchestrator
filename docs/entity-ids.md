@@ -37,6 +37,9 @@ signed-admission cluster tokens and member incarnations are nonzero
 128-bit lowercase hex; tenant, database and member entity IDs are ULIDs.
 These admission fields are distinct from live gRPC origin identity bytes.
 Process, terminal and host-request nonces use cryptographic random bytes.
+Dashboard login uses opaque bearer-cookie secrets and fixed, scoped capacity
+slots; token-generation metadata fences rotations. Historical hash-only token
+metadata and metadata without a generation are rejected without rewriting.
 A TerraBase document's key owns its identity; its payload does not add a second
 `id` field.
 
@@ -57,7 +60,8 @@ data and recreates bootstrap state through the current startup path.
    `TS_MACHINE_STATUS`, `TS_TENANTS`, `TS_VOLUMES`, `TS_ROLLOUTS`,
    `TS_HOST_ENROLLMENT`, `TS_HOST_STATE`, `TS_OCI_OPERATIONS`,
    `TS_DELIVERY_OPERATIONS`, `TS_PLACEMENT_STATE`, `TS_STORAGE_USAGE`,
-   `TS_REGION_LIFECYCLE` and entity-bearing control-log/release-channel records.
+   `TS_REGION_LIFECYCLE`, `TS_DASHBOARD_SESSIONS` and entity-bearing
+   control-log/release-channel records.
    In `TS_CONTROL_LOG`, inventory retained authority leases and owner/transition
    references, barriers, lifecycle pending intents/approvals and NetBird
    journals/commands with their dependent effect/fencing records. Verify signed
