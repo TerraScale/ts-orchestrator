@@ -2765,6 +2765,7 @@ func (s *Server) startRouteAcceptLoop() {
 	info := Info{
 		ID:           s.info.ID,
 		Name:         s.info.Name,
+		RaftNodeID:   s.info.RaftNodeID,
 		Version:      s.info.Version,
 		GoVersion:    runtime.Version(),
 		AuthRequired: false,

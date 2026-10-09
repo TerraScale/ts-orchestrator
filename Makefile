@@ -15,14 +15,14 @@ BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
 TS_TEST_TIER ?= full
 export TS_TEST_TIER
 
-.PHONY: verify ci-verify format-check generate generate-check test test-fast dashboard-preview vet fixturetest-check race-test terrabase-walkthrough-process terrabase-release-process netbird-backup-check netbird-podman-test shellcheck build build-linux release-linux release-check image run host check clean
+.PHONY: verify ci-verify format-check generate generate-check test test-fast dashboard-preview vet fixturetest-check race-test nats-identity-check terrabase-walkthrough-process terrabase-release-process netbird-backup-check netbird-podman-test shellcheck build build-linux release-linux release-check image run host check clean
 
-verify: format-check generate-check vet race-test netbird-backup-check
+verify: format-check generate-check vet race-test nats-identity-check netbird-backup-check
 
 # CI runs the independent checks and the release build at once. The race
 # scheduler prints complete shard logs; stream them as each shard finishes.
 ci-verify:
-	$(MAKE) --jobs --keep-going --output-sync=none format-check generate-check vet shellcheck race-test release-check netbird-backup-check \
+	$(MAKE) --jobs --keep-going --output-sync=none format-check generate-check vet shellcheck race-test nats-identity-check release-check netbird-backup-check \
 		$(if $(filter pr,$(TS_TEST_TIER)),,fixturetest-check)
 
 format-check:
@@ -71,6 +71,10 @@ fixturetest-check:
 
 race-test:
 	GO="$(GO)" bash scripts/ci/racetest/race-test.sh
+
+# This regression lives in the separate vendored NATS module.
+nats-identity-check:
+	$(GO) -C third_party/nats-server test -race ./server -run '^TestTerraScaleSystemAdvertisesActualRaftIdentity$$'
 
 # Walk through two local tb-server members built from the paired TerraBase
 # revision, in a finite memory cgroup as tb-server requires:

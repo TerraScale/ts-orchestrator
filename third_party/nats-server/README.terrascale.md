@@ -28,8 +28,16 @@ server behavior changes in that wrapper.
 under the account lock. `server/leafnode.go` also holds the account read lock
 when capturing a solicited leaf's label, preventing a race with claim refresh.
 
+TS-776 preparation adds `raft_node_id` to client/route INFO and system server
+advertisements in `server/server.go`, `server/route.go` and `server/events.go`.
+It reports the actual current eight-character Raft ID. Receivers and Raft
+identity calculation are unchanged in this preparation release, so it can
+roll beside the previous binary. Every controller must deploy preparation
+before a later release consumes explicit IDs and renames its server.
+
 Compare this directory with the upstream `v2.15.0` Go module archive before
-upgrading. Apart from this README, `server/server.go`, `server/accounts.go` and
-`server/leafnode.go` are the changed upstream files. An upgrade must pass the route-start, absent-client-listener, bounded
+upgrading. Apart from this README and the TerraScale regression test,
+`server/server.go`, `server/accounts.go`, `server/leafnode.go`,
+`server/route.go` and `server/events.go` are the changed upstream files. An upgrade must pass the route-start, absent-client-listener, bounded
 shutdown, R3 formation, and real JWT bridge caller regressions before replacing
 this pinned copy.

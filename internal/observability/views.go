@@ -60,6 +60,7 @@ type AuthorityView struct {
 // NATSView is the embedded broker and JetStream health of one member.
 type NATSView struct {
 	ServerName      string         `json:"server_name"`
+	RaftNodeID      string         `json:"raft_node_id,omitempty"`
 	Connections     int            `json:"connections"`
 	Routes          int            `json:"routes"`
 	ClusterPeers    int            `json:"cluster_peers"`

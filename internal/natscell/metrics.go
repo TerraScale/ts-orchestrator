@@ -35,7 +35,7 @@ func (r *Runtime) Observe(ctx context.Context) (observability.NATSView, error) {
 		return observability.NATSView{}, err
 	}
 	view := observability.NATSView{
-		ServerName: varz.Name, Connections: varz.Connections, Routes: varz.Routes,
+		ServerName: varz.Name, RaftNodeID: r.server.NodeName(), Connections: varz.Connections, Routes: varz.Routes,
 		ClusterPeers: r.peerCount(), SlowConsumers: varz.SlowConsumers,
 		InMsgs: varz.InMsgs, OutMsgs: varz.OutMsgs, InBytes: varz.InBytes, OutBytes: varz.OutBytes,
 	}

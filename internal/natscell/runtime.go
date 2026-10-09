@@ -364,6 +364,9 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 		if err != nil {
 			return nil, fmt.Errorf("create embedded NATS: %w", err)
 		}
+		if err := pinNodeIdentity(cfg.Embedded.StoreDir, cfg.Cell, cfg.Instance, r.server.NodeName()); err != nil {
+			return nil, fmt.Errorf("pin embedded NATS Raft identity: %w", err)
+		}
 		r.server.ConfigureLogger()
 		r.serverName = options.ServerName
 		for _, id := range cfg.Embedded.BrokerIDs {
