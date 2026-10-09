@@ -598,6 +598,23 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	planner.workloads = workloadReconciler
 	telemetry.usage.SetExpected(hostController.ExpectedUsage)
+	inventoryCtx, stopInventory := context.WithCancel(ctx)
+	defer stopInventory()
+	go func() {
+		for {
+			attempt, cancel := context.WithTimeout(inventoryCtx, 10*time.Second)
+			err := hostController.InitializeUsageHistory(attempt)
+			cancel()
+			if err != nil {
+				slog.Debug("capacity inventory baseline unavailable", observability.ComponentKey, "capacity", "error", err)
+			}
+			select {
+			case <-inventoryCtx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
+		}
+	}()
 	hostController.SetLoadSink(func(origin hostload.Origin, report hostload.Report) error {
 		profiles, _ := services.effective()
 		return telemetry.recordHostLoad(hostLoad.record, origin, report, loadRequests(profileResources(profiles)))

@@ -45,7 +45,9 @@ type Controller struct {
 	artifacts              ArtifactStore
 	responseKey            ed25519.PrivateKey
 	registrationMu         sync.Mutex
-	controlLogInfoMu       sync.Mutex
+	controlLogInfoOnce     sync.Once
+	controlLogInfoGate     chan struct{}
+	usageHistory           authority.HostHistory
 	// retireMu orders RetireIdle against this process's desired commits,
 	// which hold it for reading; the retirement marks themselves live in
 	// host state, so a later leader enforces them too.
@@ -572,12 +574,27 @@ func casConflict(err error) bool {
 
 // controlLogSubjects reads the control log's state for the subjects matching
 // filter. jetstream's Stream.Info caches its reply in the shared handle
-// without a lock, so concurrent readers such as the workload reconciler and
-// the delivery planner take turns.
+// without a lock; Info and history GetMsg calls share this lock because
+// GetMsg reads that cached configuration too.
 func (c *Controller) controlLogSubjects(ctx context.Context, filter string) (*jetstream.StreamInfo, error) {
-	c.controlLogInfoMu.Lock()
-	defer c.controlLogInfoMu.Unlock()
+	if err := c.lockControlLog(ctx); err != nil {
+		return nil, err
+	}
+	defer func() { <-c.controlLogInfoGate }()
 	return c.controlLog.Info(ctx, jetstream.WithSubjectFilter(filter))
+}
+
+func (c *Controller) lockControlLog(ctx context.Context) error {
+	c.controlLogInfoOnce.Do(func() { c.controlLogInfoGate = make(chan struct{}, 1) })
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	select {
+	case c.controlLogInfoGate <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (c *Controller) ListHosts(ctx context.Context) ([]HostStatus, error) {

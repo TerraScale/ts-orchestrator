@@ -19,8 +19,12 @@ change. Missing registered nodes and active allocations are listed in `missing`.
 Expected nodes and allocations come from timestamped committed control-log
 history over `[from, to)`, including the state immediately before `from`.
 Later admissions do not enter an older window; later withdrawals do not erase
-missing replicas from it. Historical inventory reads use a pinned log watermark
-and a ten-second deadline; unavailable or oversized inventory returns HTTP 503.
+missing replicas from it. A startup baseline reads only the latest state per
+host subject; a five-second refresh caches one hour of incremental changes.
+Usage queries advance this checkpoint to a pinned log watermark, without
+replaying lifetime mutations. Windows preceding startup or an expired baseline
+are unavailable. A checkpoint idle for an hour is reseeded from latest state.
+Reads have a ten-second deadline; unavailable or oversized inventory returns HTTP 503.
 Missing values stay JSON `null`; they never become zero usage or spare capacity.
 
 Each resource contains `usage`, `request`, `limit` and `headroom` statistics:
@@ -130,7 +134,13 @@ The runner validates client, region, operation, timestamps and percentiles.
 Required JSONL fields must be present and non-null, including zero-valued
 latency/error fields. Failed initial or final run saves return a failed, ended, unqualified
 run with an unknown scaling recommendation in the CLI and local report.
-It streams each JSONL record and saves it through the public Go SDK. Every
+It streams each JSONL record and saves it through the public Go SDK. Validation
+and safety checks enqueue results without waiting for storage or operator
+output. One consumer preserves order, with a 256-record queue and a 30-second
+deadline per save. Queue overflow cancels load and fails the run. Pending results
+must drain before usage and final run persistence, within 30 seconds after
+generator cleanup. A blocked output writer cannot be forcibly interrupted;
+drain timeout fails the CLI run and cancels remaining saves. Every
 run is a plain ULID. The `benchmark` database has `runs`, `results` and
 `usage` collections; results and usage refer to `run_id` and stage number.
 Run metadata includes the final capacity verdict, not duplicate raw result
@@ -156,8 +166,8 @@ capacity verdict remain unknown; no usage query is issued.
 OCI/SSH/Vault startup and different container start times cannot shift warmup.
 Missing, repeated or contradictory timing markers fail the run. Every run stops immediately
 when an emitted operation has error rate above 1% or p99 above twice target.
-Stage cancellation precedes SDK storage and output writes; the triggering
-record gets a separate 30-second save deadline. Storage, output and cleanup
+Safety cancellation precedes enqueueing the triggering result; pending saves
+use deadlines independent of load cancellation. Storage, output and cleanup
 failures remain failures even when a safety threshold also stopped the run.
 A qualified stage needs complete regional usage, at least 30 seconds of
 per-client measurements, the configured measurement duration, all client

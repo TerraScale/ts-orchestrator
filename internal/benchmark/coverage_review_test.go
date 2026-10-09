@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -160,14 +161,25 @@ func TestSafetyStopTruncatesUsageBeforePersistenceAndCleanup(t *testing.T) {
 	w.Warmup = 5
 	base := time.Now().UTC().Add(-time.Minute)
 	now := base
+	var clockMu sync.Mutex
+	clock := func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		return now
+	}
+	setNow := func(at time.Time) {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		now = at
+	}
 	g := generatorFunc(func(ctx context.Context, _ string, _ Workload, _ []string, emit func(Sample) error) error {
-		now = base.Add(5 * time.Second)
+		setNow(base.Add(5 * time.Second))
 		if err := emit(Sample{Type: "measurement_start", Client: "go", Region: "gru", TS: base.Add(10 * time.Second)}); err != nil {
 			return err
 		}
 		for second := 10; second <= 12; second++ {
-			now = base.Add(time.Duration(second) * time.Second)
-			sample := Sample{TS: now, Client: "go", SDK: "go", SDKVersion: "test", Region: "gru", Op: "doc.get", Count: 100}
+			setNow(base.Add(time.Duration(second) * time.Second))
+			sample := Sample{TS: clock(), Client: "go", SDK: "go", SDKVersion: "test", Region: "gru", Op: "doc.get", Count: 100}
 			if second == 12 {
 				sample.Errors = 2
 			}
@@ -175,12 +187,14 @@ func TestSafetyStopTruncatesUsageBeforePersistenceAndCleanup(t *testing.T) {
 				return err
 			}
 		}
-		now = base.Add(72 * time.Second)
+		setNow(base.Add(72 * time.Second))
 		return ctx.Err()
 	})
 	repo := &resultRepository{save: func(_ context.Context, sample Sample) error {
 		if sample.Errors > 0 {
+			clockMu.Lock()
 			now = now.Add(30 * time.Second)
+			clockMu.Unlock()
 		}
 		return nil
 	}}
@@ -190,7 +204,7 @@ func TestSafetyStopTruncatesUsageBeforePersistenceAndCleanup(t *testing.T) {
 		}
 		return usageFixture(ctx, region, from, to)
 	}
-	run, err := (Runner{Now: func() time.Time { return now }, Generator: g, Repository: repo, Usage: usage}).Execute(t.Context(), "gru", w, []string{"go"}, io.Discard)
+	run, err := (Runner{Now: clock, Generator: g, Repository: repo, Usage: usage}).Execute(t.Context(), "gru", w, []string{"go"}, io.Discard)
 	if err != nil || !run.Stages[0].StoppedAt.Equal(base.Add(12*time.Second)) || run.Verdict.Qualified || run.Verdict.Scale != "up" {
 		t.Fatalf("safety stop did not retain truncated usage and measured pressure: %+v %v", run, err)
 	}

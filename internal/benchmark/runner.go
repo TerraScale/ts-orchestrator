@@ -2,7 +2,6 @@ package benchmark
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -129,6 +128,16 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 		}
 		stage := Stage{Concurrency: level, Duration: workload.Duration, From: r.Now().UTC(), Samples: []Sample{}, MeasurementFrom: map[string]time.Time{}}
 		stageCtx, stop := context.WithCancel(ctx)
+		pending := make(chan Sample, resultQueueSize)
+		persistCtx, cancelPersistence := context.WithCancel(context.WithoutCancel(ctx))
+		persisted := make(chan error, 1)
+		go func(runID string) {
+			err := r.persistResults(persistCtx, runID, stageIndex, pending, out)
+			if err != nil {
+				stop()
+			}
+			persisted <- err
+		}(run.ID)
 		seen := map[string]time.Time{}
 		summaries := map[string]bool{}
 		err := r.Generator.Execute(stageCtx, run.ID, workload, clients, func(sample Sample) error {
@@ -177,25 +186,32 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 				return errors.New("benchmark result bound reached")
 			}
 			stage.Samples = append(stage.Samples, sample)
-			saveCtx := stageCtx
 			if sample.Type == "" && (sample.Count > 0 && float64(sample.Errors)/float64(sample.Count) > 0.01 || sample.P99 > w.Targets.P99*2000) {
 				stage.Stopped = "error rate >1% or p99 >2x target"
 				stage.StoppedAt = r.Now().UTC()
 				stop()
-				var saveCancel context.CancelFunc
-				saveCtx, saveCancel = context.WithTimeout(context.WithoutCancel(stageCtx), 30*time.Second)
-				defer saveCancel()
 			}
-			if err := r.Repository.SaveResult(saveCtx, run.ID, stageIndex, sample); err != nil {
-				return fmt.Errorf("save benchmark result: %w", err)
+			select {
+			case pending <- sample:
+				return nil
+			default:
+				stop()
+				return errors.New("benchmark result queue overflow")
 			}
-			if err := json.NewEncoder(out).Encode(sample); err != nil {
-				return fmt.Errorf("stream benchmark result: %w", err)
-			}
-			return nil
 		})
 		stop()
 		stage.To = r.Now().UTC()
+		close(pending)
+		drainCtx, drainCancel := context.WithTimeout(context.WithoutCancel(ctx), resultDrainTimeout)
+		var persistenceErr error
+		select {
+		case persistenceErr = <-persisted:
+		case <-drainCtx.Done():
+			// ponytail: a blocked writer outlives this CLI run; require cancellable output before service reuse.
+			persistenceErr = errors.New("benchmark result drain timed out")
+		}
+		drainCancel()
+		cancelPersistence()
 		usageCtx, usageCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		usageFrom, usageTo := measurementWindow(stage, clients)
 		stage.Usage = capacity.Usage{Region: region}
@@ -211,8 +227,8 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 			// Only a clean cancellation may complete a safety-stopped run.
 			err = nil
 		}
-		if err != nil || resultErr != nil {
-			return run, errors.Join(err, resultErr)
+		if err != nil || persistenceErr != nil || resultErr != nil {
+			return run, errors.Join(err, persistenceErr, resultErr)
 		}
 		if stage.Stopped != "" {
 			return run, nil

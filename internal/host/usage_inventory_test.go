@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -15,6 +16,9 @@ import (
 
 func TestExpectedUsageKeepsHistoricalAdmissionsAndWithdrawals(t *testing.T) {
 	c, _, _, mutations, key := testController(t)
+	if err := c.InitializeUsageHistory(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	publish := func(kind authority.HostMutationKind, subjectKey string, value any) *jetstream.RawStreamMsg {
 		t.Helper()
 		payload, err := json.Marshal(value)
@@ -76,5 +80,18 @@ func TestExpectedUsageKeepsHistoricalAdmissionsAndWithdrawals(t *testing.T) {
 	cancel()
 	if _, err := c.ExpectedUsage(ctx, from, to); err == nil {
 		t.Fatal("cancelled inventory query silently succeeded")
+	}
+}
+
+func TestUsageInventoryLockHonorsRequestDeadline(t *testing.T) {
+	c, _, _, _, _ := testController(t)
+	if err := c.lockControlLog(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { <-c.controlLogInfoGate }()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancel()
+	if err := c.InitializeUsageHistory(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("inventory lock ignored request deadline: %v", err)
 	}
 }
