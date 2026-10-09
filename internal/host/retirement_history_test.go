@@ -4,12 +4,63 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/nats-io/nats.go/jetstream"
 )
+
+func TestControllerRejectsObsoleteRetirementState(t *testing.T) {
+	for _, value := range []string{`{"retired":true,"at":"2026-10-09T00:00:00Z"}`, `{"retired":false}`, `malformed`} {
+		t.Run(value, func(t *testing.T) {
+			c, _, store, mutations, key := testController(t)
+			js, err := jetstream.New(c.conn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			obsoleteKey := "retired.gru.node-a"
+			revision, err := c.state.Put(t.Context(), obsoleteKey, []byte(value))
+			if err != nil {
+				t.Fatal(err)
+			}
+			restarted, err := NewController(t.Context(), ControllerConfig{Cell: c.cell, Conn: c.conn, JS: js,
+				State: c.state, ControlLog: c.controlLog, Artifacts: store, ResponseKey: key, StateReplicas: 1,
+				HostMutations: c.mutations, AuthorityEpoch: c.authorityEpoch, AuthorityGuard: c.authorityGuard})
+			if restarted != nil {
+				restarted.cacheCancel()
+				t.Fatal("host controller can allocate over obsolete retirement state")
+			}
+			if err == nil || !strings.Contains(err.Error(), "obsolete retirement keys") {
+				t.Fatalf("startup over obsolete state: %v", err)
+			}
+			entry, err := c.state.Get(t.Context(), obsoleteKey)
+			if err != nil || entry.Revision() != revision || string(entry.Value()) != value {
+				t.Fatalf("startup changed the old safety mark: %v", err)
+			}
+			if _, err := mutations.ReadHostMutation(t.Context(), authority.MutationRetirement, "gru.node-a"); !errors.Is(err, authority.ErrNotFound) {
+				t.Fatalf("startup migrated obsolete state: %v", err)
+			}
+		})
+	}
+}
+
+type unavailableRetirementKeys struct {
+	jetstream.KeyValue
+	err error
+}
+
+func (state unavailableRetirementKeys) ListKeysFiltered(context.Context, ...string) (jetstream.KeyLister, error) {
+	return nil, state.err
+}
+
+func TestRetirementStorageValidationFailsClosed(t *testing.T) {
+	failure := errors.New("host state unavailable")
+	if err := rejectObsoleteRetirementState(t.Context(), unavailableRetirementKeys{err: failure}, "gru"); !errors.Is(err, failure) {
+		t.Fatalf("failed storage validation accepted: %v", err)
+	}
+}
 
 func TestRetirementAndRenameKeepHistoricalUsageWindows(t *testing.T) {
 	c, _, _, _, _ := testController(t)

@@ -28,6 +28,15 @@ commits with JetStream timestamps. Hosts retired before the window are excluded;
 or restoring an identity later cannot rewrite an earlier answer. An idle check
 must succeed in the same authority epoch before retirement is committed.
 Admission checks and historical inventory read the same retirement records.
+Host control refuses to start while the cell's host-state KV contains obsolete
+`retired.<cell>.<node>` keys, including cleared or malformed values. It validates
+their absence before enabling host RPCs or allocation. Retirement state is
+greenfield: there is no migration, fallback reader or automatic deletion of
+old safety marks. A cell with obsolete retirement state must remain on its
+current controller until its node lifecycle and obsolete data are resolved;
+never clear an active retirement mark, interrupt reclamation or re-found the
+serving cell to bypass this check. Supported updates keep the cell and its
+control log in place.
 A startup baseline reads only the latest state per host subject; a five-second
 refresh caches one hour of incremental changes.
 Usage queries advance this checkpoint to a pinned log watermark, without

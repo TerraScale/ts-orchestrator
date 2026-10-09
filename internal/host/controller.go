@@ -115,6 +115,9 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 	if status.Config().Replicas != replicas {
 		return nil, fmt.Errorf("host state has %d replicas, requires %d", status.Config().Replicas, replicas)
 	}
+	if err := rejectObsoleteRetirementState(ctx, state, cfg.Cell); err != nil {
+		return nil, err
+	}
 	controlLog := cfg.ControlLog
 	if controlLog == nil {
 		controlLog, err = cfg.JS.Stream(ctx, "TS_CONTROL_LOG")
