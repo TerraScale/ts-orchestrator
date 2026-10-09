@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -257,7 +258,12 @@ func (s *logSanitizer) attr(a slog.Attr, depth int, sensitive bool) (slog.Attr, 
 		}
 		return slog.Attr{Key: key, Value: slog.GroupValue(children...)}, true
 	}
-	if value.Kind() == slog.KindString {
+	if value.Kind() == slog.KindTime {
+		// Event values expose zone names, unlike RFC3339 log output.
+		at := value.Time()
+		zone, offset := at.Zone()
+		value = slog.TimeValue(at.In(time.FixedZone(s.text(zone, maxLogNameBytes), offset)))
+	} else if value.Kind() == slog.KindString {
 		value = slog.StringValue(s.text(value.String(), maxLogValueBytes))
 	} else if value.Kind() == slog.KindAny {
 		value = s.anyValue(value.Any(), depth)

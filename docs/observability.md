@@ -247,6 +247,8 @@ when attached; maps and slices become bounded JSON text. Logging levels, event
 selection and repeated-event suppression retain their existing behavior.
 Application-provided `LogValuer`, error and stringer callbacks still execute
 synchronously and must avoid blocking work.
+Typed time attributes keep their instant and offset, with zone names redacted
+and bounded to 64 bytes before formatting.
 
 This TS-718 slice prepares structured runtime logs for central collection. It does
 not add retention or search of archived logs. Embedded NATS output, workload
