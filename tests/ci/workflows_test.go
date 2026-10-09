@@ -176,7 +176,7 @@ func TestWorkflowContracts(t *testing.T) {
 		requireText(t, gateStep, "if: ${{ inputs.trigger == 'ci' }}")
 		requireText(t, gateStep, "GATE_WORKFLOW: deploy.yml\n")
 		requireText(t, gateStep, `bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" "${SOURCE_CI_RUN_ID}" "${SOURCE_CI_RUN_NUMBER}" 300`)
-		_, rollStep, _ := strings.Cut(deploy, "- name: Sign and roll the release out region by region")
+		_, rollStep, _ := strings.Cut(deploy, "- name: Sign and deploy every region concurrently")
 		requireText(t, rollStep, "if: ${{ steps.gate.outputs.skip != 'true' }}")
 		requireText(t, rollStep, `run: bash scripts/ci/deploy-fleet.sh "${RUNNER_TEMP}/forgejo"`)
 		// The OCI key reaches only the rollout step, and the leaf key never
