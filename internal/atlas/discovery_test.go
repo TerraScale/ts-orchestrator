@@ -3,8 +3,10 @@ package atlas
 import (
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 const discoveryBody = `{"v":1,"updated":1791159807,"stale":false,"closest":"gru-1",
@@ -64,5 +66,44 @@ func TestDiscoverRefusesRedirectsErrorsAndOversizeBodies(t *testing.T) {
 	}
 	if _, err := Discover(t.Context(), http.DefaultClient, "http://atlas.terrascale.tech"); err == nil {
 		t.Error("plain http was accepted")
+	}
+}
+
+func TestServingDiscoveryIncludesUnhealthyRegionsAndNewAdmittedRegions(t *testing.T) {
+	now := time.Now().UTC()
+	discovery := Discovery{V: 1, Updated: now.Unix(), Regions: []DiscoveredRegion{
+		{Region: Region{ID: "sfo-1"}, Health: "down"},
+		{Region: Region{ID: "gru-1"}, Health: "unknown"},
+	}}
+	cells, err := discovery.ServingCells(now)
+	if err != nil || !slices.Equal(cells, []string{"GRU", "SFO"}) {
+		t.Fatalf("unhealthy region excluded or unfounded catalog region included: %v %v", cells, err)
+	}
+	discovery.Regions = append(discovery.Regions, DiscoveredRegion{Region: Region{ID: "fra-1"}})
+	cells, err = discovery.ServingCells(now)
+	if err != nil || !slices.Equal(cells, []string{"FRA", "GRU", "SFO"}) {
+		t.Fatalf("new admitted region requires a caller list edit: %v %v", cells, err)
+	}
+}
+
+func TestServingDiscoveryRejectsEmptyStaleDuplicateAndUnsupportedMembership(t *testing.T) {
+	now := time.Now().UTC()
+	for name, change := range map[string]func(*Discovery){
+		"empty":              func(d *Discovery) { d.Regions = nil },
+		"wrong version":      func(d *Discovery) { d.V = 2 },
+		"stale flag":         func(d *Discovery) { d.Stale = true },
+		"stale timestamp":    func(d *Discovery) { d.Updated = now.Add(-StaleAfter - time.Second).Unix() },
+		"future timestamp":   func(d *Discovery) { d.Updated = now.Add(Interval + time.Second).Unix() },
+		"duplicate":          func(d *Discovery) { d.Regions = append(d.Regions, d.Regions[0]) },
+		"unknown cell":       func(d *Discovery) { d.Regions[0].ID = "unknown-1" },
+		"unbound cell index": func(d *Discovery) { d.Regions[0].ID = "gru-2" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			discovery := Discovery{V: 1, Updated: now.Unix(), Regions: []DiscoveredRegion{{Region: Region{ID: "gru-1"}}}}
+			change(&discovery)
+			if cells, err := discovery.ServingCells(now); err == nil {
+				t.Fatalf("invalid discovery accepted: %v", cells)
+			}
+		})
 	}
 }

@@ -9,11 +9,12 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -29,12 +30,14 @@ import (
 // serviceBucket is a region's head bucket whose leader admits the role's
 // claim as a controller would, then reports outcome for it.
 type serviceBucket struct {
-	mu      sync.Mutex
-	cell    string
-	signer  ed25519.PublicKey
-	outcome releasechannel.State
-	objects map[string][]byte
-	log     *[]string
+	mu          sync.Mutex
+	cell        string
+	environment string
+	signer      ed25519.PublicKey
+	outcome     releasechannel.State
+	objects     map[string][]byte
+	log         *[]string
+	logMu       *sync.Mutex
 }
 
 func (bucket *serviceBucket) PutObject(_ context.Context, request objectstorage.PutObjectRequest) (objectstorage.PutObjectResponse, error) {
@@ -49,7 +52,9 @@ func (bucket *serviceBucket) PutObject(_ context.Context, request objectstorage.
 		return objectstorage.PutObjectResponse{}, httpError(412)
 	}
 	bucket.objects[name] = data
+	bucket.logMu.Lock()
 	*bucket.log = append(*bucket.log, "put "+bucket.cell+" "+name)
+	bucket.logMu.Unlock()
 	return objectstorage.PutObjectResponse{}, nil
 }
 
@@ -86,7 +91,7 @@ func (bucket *serviceBucket) status() ([]byte, bool) {
 		status.Digest = record.Digest
 		binary := bucket.objects[releasechannel.ServiceBinaryObject("ts-auth", record.Digest)]
 		sum := sha256.Sum256(binary)
-		if actor != "ci-release" || record.Role != "ts-auth" || hex.EncodeToString(sum[:]) != record.Digest || int64(len(binary)) != record.Size {
+		if actor != "ci-release" || record.Role != "ts-auth" || record.Environment != bucket.environment || hex.EncodeToString(sum[:]) != record.Digest || int64(len(binary)) != record.Size {
 			err = errors.New("the binary is not the claimed one")
 		}
 	}
@@ -101,6 +106,7 @@ type serviceDeployFixture struct {
 	binary, checkout, commit, key string
 	buckets                       map[string]*serviceBucket
 	log                           []string
+	logMu                         sync.Mutex
 	env                           deployEnv
 }
 
@@ -132,12 +138,13 @@ func newServiceDeployFixture(t *testing.T) *serviceDeployFixture {
 	fixture.key = filepath.Join(directory, "release.key")
 	writePrivateKey(t, fixture.key, private)
 	for _, cell := range []string{"GRU", "SFO"} {
-		fixture.buckets[cell] = &serviceBucket{cell: cell, signer: public, outcome: releasechannel.StateComplete,
-			objects: map[string][]byte{}, log: &fixture.log}
+		fixture.buckets[cell] = &serviceBucket{cell: cell, environment: "canary", signer: public, outcome: releasechannel.StateComplete,
+			objects: map[string][]byte{}, log: &fixture.log, logMu: &fixture.logMu}
 	}
 	fixture.env = deployEnv{
-		storage: func(cell string) (releasechannel.ObjectClient, error) { return fixture.buckets[cell], nil },
-		secret:  func(context.Context, string, string) ([]byte, error) { return nil, errors.New("no Vault in this test") },
+		discover: func(context.Context) ([]string, error) { return []string{"GRU", "SFO"}, nil },
+		storage:  func(cell string) (releasechannel.ObjectClient, error) { return fixture.buckets[cell], nil },
+		secret:   func(context.Context, string, string) ([]byte, error) { return nil, errors.New("no Vault in this test") },
 	}
 	return fixture
 }
@@ -153,7 +160,7 @@ func (fixture *serviceDeployFixture) args(cells ...string) []string {
 	return args
 }
 
-func TestServiceDeployReleasesTheCanaryFirstThenEachRegion(t *testing.T) {
+func TestServiceDeployReleasesEveryRegion(t *testing.T) {
 	fixture := newServiceDeployFixture(t)
 	var output bytes.Buffer
 	c := command{ctx: t.Context(), output: &output}
@@ -168,7 +175,9 @@ func TestServiceDeployReleasesTheCanaryFirstThenEachRegion(t *testing.T) {
 		"put SFO " + releasechannel.ServiceBinaryObject("ts-auth", digest),
 		"put SFO " + releasechannel.ServiceReleaseObject("ts-auth"),
 	}
-	if fmt.Sprint(fixture.log) != fmt.Sprint(want) {
+	slices.Sort(fixture.log)
+	slices.Sort(want)
+	if !slices.Equal(fixture.log, want) {
 		t.Fatalf("writes %q, want %q", fixture.log, want)
 	}
 	if !strings.Contains(output.String(), "ts-auth complete: "+digest) {
@@ -193,7 +202,7 @@ func TestServiceDeployReleasesTheCanaryFirstThenEachRegion(t *testing.T) {
 	}
 }
 
-func TestServiceDeployStopsWhenTheCanaryRollsBack(t *testing.T) {
+func TestServiceDeployFinishesOtherRegionsWhenOneRollsBack(t *testing.T) {
 	fixture := newServiceDeployFixture(t)
 	fixture.buckets["GRU"].outcome = releasechannel.StateFailed
 	c := command{ctx: t.Context(), output: io.Discard}
@@ -201,10 +210,35 @@ func TestServiceDeployStopsWhenTheCanaryRollsBack(t *testing.T) {
 	if !errors.Is(err, releasechannel.ErrFailed) {
 		t.Fatalf("a rolled-back canary: %v", err)
 	}
-	for _, entry := range fixture.log {
-		if strings.HasPrefix(entry, "put SFO ") {
-			t.Fatalf("SFO saw the release: %q", fixture.log)
-		}
+	if !slices.Contains(fixture.log, "put SFO "+releasechannel.ServiceReleaseObject("ts-auth")) {
+		t.Fatalf("SFO did not receive its independent release: %q", fixture.log)
+	}
+}
+
+func TestServiceDeployStorageFailuresAreRegionalAndAllReported(t *testing.T) {
+	for _, failBoth := range []bool{false, true} {
+		t.Run(strconv.FormatBool(failBoth), func(t *testing.T) {
+			fixture := newServiceDeployFixture(t)
+			storage := fixture.env.storage
+			gruError, sfoError := errors.New("GRU storage unavailable"), errors.New("SFO storage unavailable")
+			fixture.env.storage = func(cell string) (releasechannel.ObjectClient, error) {
+				if cell == "GRU" {
+					return nil, gruError
+				}
+				if failBoth && cell == "SFO" {
+					return nil, sfoError
+				}
+				return storage(cell)
+			}
+			var output bytes.Buffer
+			err := (command{ctx: t.Context(), output: &output}).serviceDeployWith(fixture.args("GRU", "SFO"), fixture.env)
+			if !errors.Is(err, gruError) || errors.Is(err, sfoError) != failBoth ||
+				slices.Contains(fixture.log, "put SFO "+releasechannel.ServiceReleaseObject("ts-auth")) == failBoth ||
+				!strings.Contains(output.String(), "GRU ts-auth failed:") ||
+				strings.Contains(output.String(), "SFO ts-auth failed:") != failBoth {
+				t.Fatalf("service deploy = %v, writes %q\n%s", err, fixture.log, output.String())
+			}
+		})
 	}
 }
 
@@ -218,8 +252,9 @@ func TestServiceDeployRefusesIncompleteArguments(t *testing.T) {
 	if err := c.serviceDeployWith(fixture.args("NOPE"), fixture.env); err == nil {
 		t.Fatal("service-deploy accepted an unknown cell")
 	}
+	fixture.env.discover = func(context.Context) ([]string, error) { return nil, nil }
 	if err := c.serviceDeployWith(fixture.args(), fixture.env); err == nil {
-		t.Fatal("service-deploy accepted no cell")
+		t.Fatal("service-deploy accepted empty serving discovery")
 	}
 	if len(fixture.log) != 0 {
 		t.Fatalf("a refused deployment wrote %q", fixture.log)

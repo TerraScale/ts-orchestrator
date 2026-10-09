@@ -635,7 +635,11 @@ func (c *Controller) ListHosts(ctx context.Context) ([]HostStatus, error) {
 		} else if !exists {
 			continue
 		}
-		status := HostStatus{Registration: r, Verified: !c.readOnly}
+		retirement, retirementRevision, err := c.readRetirement(ctx, node)
+		if err != nil {
+			return nil, err
+		}
+		status := HostStatus{Registration: r, Retired: retirement.Retired, Verified: !c.readOnly}
 		s, _, exists, err := c.sessionSnapshot(ctx, sessionKey(c.cell, r.Node))
 		if err != nil {
 			return nil, err
@@ -681,6 +685,9 @@ func (c *Controller) ListHosts(ctx context.Context) ([]HostStatus, error) {
 		confirmed, confirmedRevision, ok, err := c.readRegistration(ctx, node)
 		if err != nil || !ok || confirmedRevision != registrationRevision || !sameJSON(confirmed, r) {
 			return nil, errors.New("registration changed during host status read")
+		}
+		if _, revision, err := c.readRetirement(ctx, node); err != nil || revision != retirementRevision {
+			return nil, errors.New("retirement changed during host status read")
 		}
 		hosts = append(hosts, status)
 	}

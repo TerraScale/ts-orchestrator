@@ -404,17 +404,18 @@ func hostUnits(list func(context.Context) ([]host.HostStatus, error), board jets
 		partitions := map[string][]string{}
 		for _, status := range hosts {
 			r := status.Registration
-			if colocated(r.Node) {
+			// A durable retirement excludes history; session loss never excludes a current host.
+			if status.Retired || colocated(r.Node) {
 				continue
 			}
 			entry, err := board.Get(ctx, joinedKey(r.Node))
 			if errors.Is(err, jetstream.ErrKeyNotFound) {
-				continue
+				return nil, fmt.Errorf("host %s has not joined self-update", r.Node)
 			} else if err != nil {
 				return nil, err
 			}
 			if string(entry.Value()) != r.PublicKey {
-				continue
+				return nil, fmt.Errorf("host %s has not proved its current registration key", r.Node)
 			}
 			var seats []string
 			switch {

@@ -158,8 +158,11 @@ const (
 
 // Status is the region leader's report on the release in its channel.
 type Status struct {
-	Schema         string       `json:"schema"`
-	Cell           string       `json:"cell"`
+	Schema string `json:"schema"`
+	Cell   string `json:"cell"`
+	// Deployment scope comes from the running controller, not the desired channel.
+	Environment    string       `json:"environment,omitempty"`
+	Architectures  []string     `json:"architectures,omitempty"`
 	SourceRevision string       `json:"source_revision"`
 	RunNumber      int64        `json:"run_number"`
 	State          State        `json:"state"`

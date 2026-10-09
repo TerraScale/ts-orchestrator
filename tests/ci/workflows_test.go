@@ -63,8 +63,10 @@ func TestWorkflowContracts(t *testing.T) {
 		// The image job starts once the release is retained, so it never
 		// holds a builder slot while the checks run.
 		steps := matches(ci, `(?m)^      - name: (.+)$`)
-		if len(steps) < 3 || steps[len(steps)-1] != "Start the fleet deployment for this revision" ||
-			steps[len(steps)-2] != "Start the image build for this revision" || steps[len(steps)-3] != "Retain verified binaries and qualification manifest" {
+		if len(steps) < 4 || steps[len(steps)-1] != "Start the fleet deployment for this revision" ||
+			steps[len(steps)-2] != "Start the image build for this revision" ||
+			steps[len(steps)-3] != "Record the qualified main build for the deployment-lag guard" ||
+			steps[len(steps)-4] != "Retain verified binaries and qualification manifest" {
 			t.Fatalf("image and deploy dispatches must follow the retained release: %v", steps)
 		}
 		_, dispatchStep, _ := strings.Cut(ci, "- name: Start the image build for this revision")
@@ -142,7 +144,7 @@ func TestWorkflowContracts(t *testing.T) {
 		}
 		steps := matches(deploy, `(?m)^      - name: (.+)$`)
 		gate := slices.Index(steps, "Wait for ci.yml and skip a failed or overtaken revision")
-		roll := slices.Index(steps, "Sign and roll the release out region by region")
+		roll := slices.Index(steps, "Sign and deploy every region concurrently")
 		if gate < 0 || roll != gate+1 || roll != len(steps)-1 {
 			t.Fatalf("the rollout must follow the CI gate: %v", steps)
 		}
@@ -160,8 +162,8 @@ func TestWorkflowContracts(t *testing.T) {
 		gateStep, _, _ = strings.Cut(gateStep, "- name:")
 		requireText(t, gateStep, "if: ${{ inputs.trigger == 'ci' }}")
 		requireText(t, gateStep, "GATE_WORKFLOW: deploy.yml\n")
-		requireText(t, gateStep, `bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" "${SOURCE_CI_RUN_ID}" "${SOURCE_CI_RUN_NUMBER}" 6000`)
-		_, rollStep, _ := strings.Cut(deploy, "- name: Sign and roll the release out region by region")
+		requireText(t, gateStep, `bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" "${SOURCE_CI_RUN_ID}" "${SOURCE_CI_RUN_NUMBER}" 300`)
+		_, rollStep, _ := strings.Cut(deploy, "- name: Sign and deploy every region concurrently")
 		requireText(t, rollStep, "if: ${{ steps.gate.outputs.skip != 'true' }}")
 		requireText(t, rollStep, `run: bash scripts/ci/deploy-fleet.sh "${RUNNER_TEMP}/forgejo"`)
 		// The OCI key reaches only the rollout step, and the leaf key never
@@ -171,9 +173,10 @@ func TestWorkflowContracts(t *testing.T) {
 		}
 		wrapper := workflowText(t, "scripts/ci/deploy-fleet.sh")
 		forbidText(t, wrapper, "TS_AUTO_DEPLOY_")
-		requireText(t, wrapper, "cells=(GRU SFO)")
-		requireText(t, wrapper, "architectures=(arm64)")
-		requireText(t, wrapper, "--environment canary")
+		for _, flag := range []string{"--cell", "--environment", "--arch"} {
+			forbidText(t, wrapper, flag)
+		}
+		requireText(t, wrapper, "'.artifacts[].name'")
 		requireText(t, wrapper, "dist/ts-orch release deploy ")
 		requireText(t, wrapper, `--signing-key-secret "$TS_RELEASE_LEAF_SECRET" --vault-id "$TS_RELEASE_VAULT_ID"`)
 		forbidText(t, wrapper, "--signing-key \"")

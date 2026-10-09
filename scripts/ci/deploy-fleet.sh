@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy one CI-qualified main revision to every serving region, the
-# canary first, with ts-orch release deploy (docs/continuous-delivery.md).
+# concurrently, with ts-orch release deploy (docs/deploy-pipeline.md).
 #
 # usage: deploy-fleet.sh FORGEJO_PROFILES
 #
@@ -26,11 +26,6 @@ for variable in TS_OBJECT_NAMESPACE TS_RELEASE_VAULT_ID TS_RELEASE_LEAF_SECRET \
 	[[ -n ${!variable:-} ]] || { echo "$variable is required" >&2; exit 2; }
 done
 [[ $(git rev-parse HEAD) == "$SOURCE_SHA" ]] || { echo 'checked-out source differs from the deployed revision' >&2; exit 1; }
-# Verified serving inventory: both cells use ARM64 and the canary trust scope.
-# Region discovery will replace these constants in the shared TS-768 contract.
-cells=(GRU SFO)
-architectures=(arm64)
-
 umask 077
 work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/deploy-fleet.XXXXXX")
 trap 'rm -rf -- "$work"' EXIT
@@ -47,13 +42,14 @@ export OCI_CONFIG_FILE=$work/oci/config
 printf '%s' "$TS_RELEASE_UPDATE_DELEGATION" > "$work/update-delegation.json"
 
 tag="ci-${SOURCE_SHA}-run-${SOURCE_CI_RUN_ID}"
-args=()
-for asset in qualification.json "${architectures[@]/#/terrascale-orchestrator-linux-}"; do
+XDG_DATA_HOME="$profiles/read" fj release asset download -r TerraScale/ts-orchestrator "$tag" qualification.json \
+	-o "$work/release/qualification.json" >/dev/null
+assets=$(jq -er '.artifacts[].name' "$work/release/qualification.json")
+while IFS= read -r asset; do
+	[[ $asset =~ ^terrascale-orchestrator-linux-(amd64|arm64)$ ]] || { echo 'invalid qualified binary name' >&2; exit 2; }
 	XDG_DATA_HOME="$profiles/read" fj release asset download -r TerraScale/ts-orchestrator "$tag" "$asset" \
 		-o "$work/release/$asset" >/dev/null
-done
-for architecture in "${architectures[@]}"; do args+=(--arch "$architecture"); done
-for cell in "${cells[@]}"; do args+=(--cell "$cell"); done
+done <<< "$assets"
 root_key=$(jq -er '.trust_roots[0].path' deploy/image/image-inputs.json)
 
 make build GO=go
@@ -65,5 +61,5 @@ export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.$FORGEJO_SERVER_URL/.extraheade
 XDG_DATA_HOME="$profiles/read" dist/ts-orch release deploy --dir "$work/release" --source-revision "$SOURCE_SHA" \
 	--update-delegation "$work/update-delegation.json" --root-key "$root_key" \
 	--signing-key-secret "$TS_RELEASE_LEAF_SECRET" --vault-id "$TS_RELEASE_VAULT_ID" \
-	--environment canary --source-checkout . \
-	--namespace "$TS_OBJECT_NAMESPACE" --region-timeout 30m "${args[@]}"
+	--source-checkout . \
+	--namespace "$TS_OBJECT_NAMESPACE" --region-timeout 30m --poll 5s

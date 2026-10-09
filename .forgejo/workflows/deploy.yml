@@ -2,9 +2,9 @@ name: Deploy ts-orch to every region
 
 # ci.yml dispatches this workflow as its last step on main (trigger "ci"),
 # once the revision's release is retained. Every green main push deploys;
-# docs/continuous-delivery.md lists every input. The job signs the release
-# with the update leaf and rolls it out one region at a time: a region that
-# rolls it back fails this run, and no later region sees it. Deployments
+# docs/deploy-pipeline.md lists every input. Each region signs, publishes and
+# rolls independently; quorum, health gates and automatic rollback remain.
+# A failure never cancels another region. Deployments
 # queue rather than cancel each other, so CI never abandons a region
 # mid-rollout: a running deployment always finishes, a newer dispatch
 # replaces one still pending, and a queued deployment that a newer qualified
@@ -41,9 +41,9 @@ jobs:
     if: ${{ forgejo.ref == 'refs/heads/main' }}
     name: deploy/every-region
     runs-on: terrascale-builder
-    # 100 minutes for the gate's wait (6000s), 30 per region for three
-    # regions (--region-timeout in scripts/ci/deploy-fleet.sh) and slack.
-    timeout-minutes: 400
+    # Five minutes for the dispatching CI job to finish, thirty for the
+    # concurrent region rollouts, and fifteen for signing/build setup.
+    timeout-minutes: 50
     env:
       SOURCE_SHA: ${{ inputs.source_revision }}
       SOURCE_CI_RUN_ID: ${{ inputs.source_ci_run_id }}
@@ -98,9 +98,9 @@ jobs:
           GATE_WORKFLOW: deploy.yml
         run: |
           FORGEJO_READ_TOKEN_FILE="${RUNNER_TEMP}/forgejo/read-token" \
-            bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" "${SOURCE_CI_RUN_ID}" "${SOURCE_CI_RUN_NUMBER}" 6000
+            bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" "${SOURCE_CI_RUN_ID}" "${SOURCE_CI_RUN_NUMBER}" 300
 
-      - name: Sign and roll the release out region by region
+      - name: Sign and deploy every region concurrently
         if: ${{ steps.gate.outputs.skip != 'true' }}
         shell: bash
         env:

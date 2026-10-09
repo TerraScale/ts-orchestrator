@@ -208,7 +208,20 @@ func TestHostUnitsAreTheJoinedHostsGroupedByTerraBaseSeats(t *testing.T) {
 		}
 		return statuses, nil
 	}
-	units, err := hostUnits(list, f.board, colocatedNodes("gru", []rollout.Unit{{ID: "controller-a", Group: "controllers"}}, renamedSlotA))(t.Context())
+	load := hostUnits(list, f.board, colocatedNodes("gru", []rollout.Unit{{ID: "controller-a", Group: "controllers"}}, renamedSlotA))
+	if _, err := load(t.Context()); err == nil || !strings.Contains(err.Error(), "gru-1-db-3 has not joined") {
+		t.Fatalf("an unjoined host was omitted: %v", err)
+	}
+	if _, err := f.board.Put(t.Context(), joinedKey("gru-1-db-3"), []byte("key-gru-1-db-3")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := load(t.Context()); err == nil || !strings.Contains(err.Error(), "gru-1-db-4 has not proved") {
+		t.Fatalf("a replaced host was omitted: %v", err)
+	}
+	if _, err := f.board.Put(t.Context(), joinedKey("gru-1-db-4"), []byte("key-of-the-new-gru-1-db-4")); err != nil {
+		t.Fatal(err)
+	}
+	units, err := load(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,12 +229,32 @@ func TestHostUnitsAreTheJoinedHostsGroupedByTerraBaseSeats(t *testing.T) {
 	for _, unit := range units {
 		groups[unit.ID] = unit.Group
 	}
-	if len(groups) != 3 || groups["gru-1-db-1"] != groups["gru-1-db-2"] || groups["gru-1-api-1"] == groups["gru-1-db-1"] {
-		t.Fatalf("host units = %+v, want the joined db pair in one group and the api host alone, not the replaced db-4", units)
+	if len(groups) != 5 || groups["gru-1-db-1"] != groups["gru-1-db-2"] || groups["gru-1-api-1"] == groups["gru-1-db-1"] {
+		t.Fatalf("host units = %+v, want every db host in one group and the api host alone", units)
 	}
 	if _, err := hostUnits(func(context.Context) ([]host.HostStatus, error) { return nil, errors.New("no log") },
 		f.board, nil)(t.Context()); err == nil {
 		t.Fatal("an unreadable host list moved no host silently")
+	}
+}
+
+func TestHostUnitsExcludeRetiredHistoryButKeepCurrentHostsWithoutSessions(t *testing.T) {
+	f := newHostSinkFixture(t)
+	statuses := []host.HostStatus{
+		{Registration: host.Registration{Node: "retired-history", PublicKey: "old-key"}, Retired: true},
+		{Registration: host.Registration{Node: "current-host", PublicKey: "current-key"}},
+	}
+	load := hostUnits(func(context.Context) ([]host.HostStatus, error) { return statuses, nil }, f.board,
+		func(string) bool { return false })
+	if _, err := load(t.Context()); err == nil || !strings.Contains(err.Error(), "current-host has not joined") {
+		t.Fatalf("historical retirement blocked rollout or a missing current session was silently omitted: %v", err)
+	}
+	if _, err := f.board.Create(t.Context(), joinedKey("current-host"), []byte("current-key")); err != nil {
+		t.Fatal(err)
+	}
+	units, err := load(t.Context())
+	if err != nil || len(units) != 1 || units[0].ID != "current-host" {
+		t.Fatalf("retired history participated or silent current host disappeared: %+v, %v", units, err)
 	}
 }
 

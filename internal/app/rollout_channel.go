@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	goruntime "runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -208,7 +209,8 @@ func (c *rolloutControl) consumeUpdates(ctx context.Context, store *rollout.Stor
 func (c *rolloutControl) consumeChannel(ctx context.Context, store *rollout.Store, kv jetstream.KeyValue, epoch uint64,
 	wire []byte, now time.Time,
 ) error {
-	status := releasechannel.Status{Schema: releasechannel.StatusSchema, Cell: strings.ToUpper(c.cell), UpdatedAt: now}
+	status := releasechannel.Status{Schema: releasechannel.StatusSchema, Cell: strings.ToUpper(c.cell), UpdatedAt: now,
+		Environment: c.environment, Architectures: slices.Clone(c.architectures)}
 	var channel releasechannel.Channel
 	if len(wire) == 0 {
 		status.State, status.Reason = releasechannel.StateRolling, "the cell has no release channel"
@@ -268,7 +270,8 @@ func (c *rolloutControl) report(ctx context.Context, kv jetstream.KeyValue, stat
 
 func sameReport(a, b releasechannel.Status) bool {
 	return a.Cell == b.Cell && a.RunNumber == b.RunNumber && a.SourceRevision == b.SourceRevision &&
-		a.State == b.State && a.Reason == b.Reason && a.Pins.Equal(b.Pins)
+		a.State == b.State && a.Reason == b.Reason && a.Pins.Equal(b.Pins) &&
+		a.Environment == b.Environment && slices.Equal(a.Architectures, b.Architectures)
 }
 
 // bridgeChannel is the CI edge until TS-562 announces releases over NATS.
@@ -399,10 +402,8 @@ func channelGeneration(ctx context.Context, store *rollout.Store, epoch uint64, 
 }
 
 // generationState is the progress of one generation's rollouts: the
-// controllers', then the hosts'. A part with no rollout is complete once
-// every one of its units already runs the release. Hosts that cannot start
-// their rollout (one does not prove itself, or they run different releases)
-// do not hold the region: CI moves on, and the reason says why they wait.
+// controllers', then the hosts'. Completion requires every current unit to
+// freshly prove the target, even after its recorded rollout completed.
 func (c *rolloutControl) generationState(ctx context.Context, store *rollout.Store, generation rollout.Release,
 ) (releasechannel.State, string, error) {
 	parts := []struct {
@@ -412,7 +413,6 @@ func (c *rolloutControl) generationState(ctx context.Context, store *rollout.Sto
 		{"-controllers", func(context.Context) ([]rollout.Unit, error) { return c.program.Controllers, nil }},
 		{"-hosts", c.program.Hosts},
 	}
-	note := ""
 	for _, part := range parts {
 		if part.units == nil {
 			continue
@@ -421,13 +421,13 @@ func (c *rolloutControl) generationState(ctx context.Context, store *rollout.Sto
 		if err == nil {
 			switch record.Phase {
 			case rollout.PhaseComplete:
-				continue
 			case rollout.PhaseRolledBack, rollout.PhaseAborted, rollout.PhaseFrozen:
 				return releasechannel.StateFailed, fmt.Sprintf("%s %s: %s", record.RolloutID, record.Phase, record.Reason), nil
+			default:
+				return releasechannel.StateRolling, fmt.Sprintf("%s %s", record.RolloutID, record.Phase), nil
 			}
-			return releasechannel.StateRolling, fmt.Sprintf("%s %s", record.RolloutID, record.Phase), nil
 		}
-		if !errors.Is(err, jetstream.ErrKeyNotFound) {
+		if err != nil && !errors.Is(err, jetstream.ErrKeyNotFound) {
 			return "", "", err
 		}
 		// No rollout of this part started (yet) for this generation.
@@ -458,9 +458,8 @@ func (c *rolloutControl) generationState(ctx context.Context, store *rollout.Sto
 		if err == nil && len(behind) == 0 {
 			continue
 		}
-		if err != nil && part.suffix == "-hosts" {
-			note = "the hosts wait: " + err.Error()
-			continue
+		if err != nil {
+			return releasechannel.StateRolling, "waiting for health proofs: " + err.Error(), nil
 		}
 		reason := "waiting for the rollout to start"
 		if status := c.status.Load(); status != nil && status.Waiting != "" {
@@ -468,5 +467,5 @@ func (c *rolloutControl) generationState(ctx context.Context, store *rollout.Sto
 		}
 		return releasechannel.StateRolling, reason, nil
 	}
-	return releasechannel.StateComplete, note, nil
+	return releasechannel.StateComplete, "", nil
 }

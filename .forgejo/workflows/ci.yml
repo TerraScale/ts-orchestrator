@@ -111,6 +111,19 @@ jobs:
           FORGEJO_SERVER_URL: ${{ github.server_url }}
         run: bash scripts/ci/publish-qualification.sh
 
+
+      # Deployment failure must not erase the time this build became qualified.
+      - name: Record the qualified main build for the deployment-lag guard
+        if: forgejo.event_name == 'push' && forgejo.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ forgejo.token }}
+        run: |
+          set -euo pipefail
+          curl -fsS --connect-timeout 10 --max-time 30 -o /dev/null \
+            -H "Authorization: token ${FORGEJO_TOKEN}" -H 'Content-Type: application/json' \
+            --data '{"state":"success","context":"deployment/qualified","description":"Verified main build ready for automatic deployment"}' \
+            "https://git.terrascale.tech/api/v1/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}"
       # Last, after the release is retained, so the image job never holds a
       # builder slot while it waits for these checks; it still confirms this
       # run succeeded and skips itself if it did not. The run's own result
