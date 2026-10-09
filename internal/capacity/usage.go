@@ -83,7 +83,8 @@ func NewStore(region string) *Store {
 	return &Store{Region: region, History: observability.NewHistory(observability.HistoryConfig{Interval: 5 * time.Second}), last: map[string]time.Time{}}
 }
 
-// Record uses controller receive time and the requests from the adopted spec.
+// Record uses controller receive time and adopted requests for every allocated
+// role, including placeholders supplied by the controller when usage is unknown.
 func (s *Store) Record(origin hostload.Origin, report hostload.Report, requests map[string]hostload.Request) error {
 	if origin.Cell != s.Region || origin.Node == "" {
 		return errors.New("capacity report origin mismatch")
@@ -111,6 +112,7 @@ func (s *Store) Record(origin hostload.Origin, report hostload.Report, requests 
 		samples = append(samples, observability.Sample{Metric: "capacity_" + metric, Labels: observability.L("node", origin.Node, "service", service, "environment", origin.Environment), Value: value})
 	}
 	var cpuRequest, memoryRequest float64
+	requestsKnown := true
 	for _, role := range report.Roles {
 		request, known := requests[role.Role]
 		if known {
@@ -118,6 +120,8 @@ func (s *Store) Record(origin hostload.Origin, report hostload.Report, requests 
 			add(role.Role, "memory_request", float64(request.MemoryBytes))
 			cpuRequest += request.CPUCores
 			memoryRequest += float64(request.MemoryBytes)
+		} else {
+			requestsKnown = false
 		}
 		if role.CPUCores != nil {
 			add(role.Role, "cpu_usage", *role.CPUCores)
@@ -147,8 +151,10 @@ func (s *Store) Record(origin hostload.Origin, report hostload.Report, requests 
 			}
 		}
 	}
-	add("", "cpu_request", cpuRequest)
-	add("", "memory_request", memoryRequest)
+	if requestsKnown {
+		add("", "cpu_request", cpuRequest)
+		add("", "memory_request", memoryRequest)
+	}
 	if report.Host.CPUCores > 0 {
 		limit := float64(report.Host.CPUCores)
 		add("", "cpu_limit", limit)
@@ -254,7 +260,7 @@ func (s *Store) Query(from, to time.Time, expected []string) (Usage, error) {
 			continue
 		}
 		result.Replicas = append(result.Replicas, row)
-		seen[row.Node+"/"+row.Service] = true
+		seen[row.Node+"/"+row.Service] = row.CPU.Usage != nil || row.Memory.Usage != nil
 		key = row.Environment + "/" + row.Service
 		total := services[key]
 		if total == nil {

@@ -288,6 +288,7 @@ func runContainers(ctx context.Context, job Job, secrets map[string]string, out 
 		wg.Add(1)
 		go func(client, name string) {
 			defer wg.Done()
+			started := false
 			err := container(ctx, job, client, name, workload, secrets, func(line []byte) error {
 				var sample Sample
 				if json.Unmarshal(line, &sample) != nil {
@@ -298,6 +299,13 @@ func runContainers(ctx context.Context, job Job, secrets map[string]string, out 
 				}
 				mu.Lock()
 				defer mu.Unlock()
+				if !started && sample.Type == "" {
+					// The first client interval anchors warmup independently of job startup.
+					if err := json.NewEncoder(out).Encode(workerControl{Type: "measurement_start", JobID: job.ID, Client: client, MeasurementFrom: sample.TS.Add(time.Duration(job.Workload.Warmup) * time.Second)}); err != nil {
+						return err
+					}
+					started = true
+				}
 				_, err := out.Write(append(line, '\n'))
 				return err
 			})

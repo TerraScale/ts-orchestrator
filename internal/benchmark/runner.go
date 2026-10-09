@@ -23,13 +23,14 @@ type Verdict struct {
 }
 
 type Stage struct {
-	Concurrency int            `json:"concurrency"`
-	Duration    int            `json:"duration_s"`
-	From        time.Time      `json:"from"`
-	To          time.Time      `json:"to"`
-	Samples     []Sample       `json:"samples"`
-	Usage       capacity.Usage `json:"usage"`
-	Stopped     string         `json:"stopped,omitempty"`
+	Concurrency     int                  `json:"concurrency"`
+	Duration        int                  `json:"duration_s"`
+	From            time.Time            `json:"from"`
+	To              time.Time            `json:"to"`
+	Samples         []Sample             `json:"samples"`
+	Usage           capacity.Usage       `json:"usage"`
+	Stopped         string               `json:"stopped,omitempty"`
+	MeasurementFrom map[string]time.Time `json:"measurement_from"`
 }
 
 type Run struct {
@@ -91,6 +92,9 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 	}
 	run = Run{ID: newID(), Region: region, Workload: w, Clients: clients, Started: r.Now().UTC(), Status: "running", Stages: []Stage{}}
 	if err := r.Repository.SaveRun(ctx, run); err != nil {
+		run.Status = "failed"
+		run.Ended = r.Now().UTC()
+		run.Verdict = capacityVerdict(w, nil, clients)
 		return run, err
 	}
 	defer func() {
@@ -122,16 +126,23 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 				workload.Duration += w.Duration % len(levels)
 			}
 		}
-		stage := Stage{Concurrency: level, Duration: workload.Duration, From: r.Now().UTC(), Samples: []Sample{}}
+		stage := Stage{Concurrency: level, Duration: workload.Duration, From: r.Now().UTC(), Samples: []Sample{}, MeasurementFrom: map[string]time.Time{}}
 		stageCtx, stop := context.WithCancel(ctx)
 		seen := map[string]time.Time{}
 		summaries := map[string]bool{}
 		err := r.Generator.Execute(stageCtx, run.ID, workload, clients, func(sample Sample) error {
+			if sample.Type == "measurement_start" {
+				if !contains(clients, sample.Client) || sample.Region != region || !stage.MeasurementFrom[sample.Client].IsZero() || sample.TS.IsZero() || sample.TS.Before(stage.From.Add(time.Duration(w.Warmup)*time.Second-2*time.Second)) || sample.TS.After(r.Now().Add(time.Duration(w.Warmup)*time.Second+2*time.Second)) {
+					return errors.New("invalid client measurement marker")
+				}
+				stage.MeasurementFrom[sample.Client] = sample.TS
+				return nil
+			}
 			if err := sample.validate(sample.Client, region, w.Name, r.Now()); err != nil {
 				return err
 			}
-			if !contains(clients, sample.Client) || summaries[sample.Client] {
-				return errors.New("unexpected client or result after summary")
+			if !contains(clients, sample.Client) || summaries[sample.Client] || stage.MeasurementFrom[sample.Client].IsZero() {
+				return errors.New("unexpected client, result after summary, or missing measurement marker")
 			}
 			if sample.Type == "summary" {
 				if !summaryMatchesMix(sample, w) {
@@ -139,6 +150,9 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 				}
 				summaries[sample.Client] = true
 			} else {
+				if sample.TS.Before(stage.MeasurementFrom[sample.Client].Add(-time.Duration(w.Warmup) * time.Second)) {
+					return errors.New("sample predates its client measurement epoch")
+				}
 				if sample.TS.Before(stage.From.Add(-2 * time.Second)) {
 					return errors.New("sample predates benchmark stage")
 				}
@@ -225,7 +239,6 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 		perOperation := map[string]bool{}
 		summaryRates := map[string]float64{}
 		ops := 0.0
-		start := stage.From.Add(time.Duration(w.Warmup) * time.Second)
 		for _, sample := range stage.Samples {
 			if sample.Type == "summary" {
 				summaries[sample.Client] = true
@@ -237,6 +250,11 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 				if !summaryMatchesMix(sample, w) {
 					evidenceComplete = false
 				}
+				continue
+			}
+			start := stage.MeasurementFrom[sample.Client]
+			if start.IsZero() {
+				evidenceComplete = false
 				continue
 			}
 			if sample.TS.Before(start) {

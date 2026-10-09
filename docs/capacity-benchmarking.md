@@ -27,8 +27,11 @@ The sampler reads `cpu.max` and resolves the smallest finite `memory.max`
 from the role through its cgroup ancestors, bounded by physical RAM. A role
 with no finite memory cap in that hierarchy uses physical host capacity.
 Unreadable or malformed ancestors leave limits unknown. Limits are caps, not a
-reservation of shared ancestor capacity. Node requests cover reporting,
-currently allocated roles; missing allocations make the answer incomplete.
+reservation of shared ancestor capacity. Node requests include every registered,
+non-withdrawn allocation even when its process is stopped or its cgroup cannot
+be read. Such replicas retain their signed requests and unknown usage/limits;
+they remain listed as missing measurements. Unknown adopted requests leave
+node reservation totals unknown.
 
 Raw buckets are five seconds. Coverage requires at least two buckets, with no
 gap larger than one quarter of the query window (bounded to 10–60 seconds).
@@ -110,7 +113,7 @@ part of the shared client contract and requires integration validation.
 
 The runner validates client, region, operation, timestamps and percentiles.
 Required JSONL fields must be present and non-null, including zero-valued
-latency/error fields. A failed final run save returns a failed, unqualified
+latency/error fields. Failed initial or final run saves return a failed, ended, unqualified
 run with an unknown scaling recommendation in the CLI and local report.
 It streams each JSONL record and saves it through the public Go SDK. Every
 run is a plain ULID. The `benchmark` database has `runs`, `results` and
@@ -122,7 +125,13 @@ history. Failures retain their run record. Reports append to
 `ramp` doubles concurrency from one up to the workload's configured maximum,
 dividing `duration_s` across steps with at least 30 seconds per step. Each
 step has its own `warmup_s`; measurement and warmups together must fit within
-780 seconds. Every run stops immediately
+780 seconds. Clients emit per-second intervals during warmup as well as measurement.
+The worker carries each client's first reporting timestamp plus `warmup_s`
+in a private measurement-start marker before forwarding its samples. The
+runner saves these per-client boundaries in stage metadata, excludes earlier
+intervals from qualification, and keeps controls out of shared JSONL results.
+OCI/SSH/Vault startup and different container start times cannot shift warmup.
+Missing, repeated or contradictory timing markers fail the run. Every run stops immediately
 when an emitted operation has error rate above 1% or p99 above twice target.
 Stage cancellation precedes SDK storage and output writes; the triggering
 record gets a separate 30-second save deadline. Storage, output and cleanup

@@ -17,9 +17,10 @@ import (
 func measuredStage(t *testing.T, w Workload, clients []string) Stage {
 	t.Helper()
 	from := time.Now().UTC().Add(-time.Minute)
-	stage := Stage{From: from, To: from.Add(30 * time.Second), Duration: 30}
+	stage := Stage{From: from, To: from.Add(30 * time.Second), Duration: 30, MeasurementFrom: map[string]time.Time{}}
 	stage.Usage, _ = usageFixture(t.Context(), "gru", stage.From, stage.To)
 	for _, client := range clients {
+		stage.MeasurementFrom[client] = from.Add(time.Duration(w.Warmup+1) * time.Second)
 		perOp := map[string]json.RawMessage{}
 		for _, op := range w.Mix {
 			perOp[op.Op] = json.RawMessage(`{}`)
@@ -360,7 +361,11 @@ func TestSSHWorkerHelper(t *testing.T) {
 	}
 	err := workerSession(context.Background(), os.Stdin, os.Stdout, func(ctx context.Context, job Job, out io.Writer) error {
 		if mode == "complete" {
-			return json.NewEncoder(out).Encode(Sample{TS: time.Now().UTC(), Client: "go", SDK: "go", SDKVersion: "test", Region: "gru", Op: "doc.get", Count: 100, P99: 30, Max: 40})
+			at := time.Now().UTC()
+			if err := json.NewEncoder(out).Encode(workerControl{Type: "measurement_start", JobID: job.ID, Client: "go", MeasurementFrom: at.Add(time.Duration(job.Workload.Warmup) * time.Second)}); err != nil {
+				return err
+			}
+			return json.NewEncoder(out).Encode(Sample{TS: at, Client: "go", SDK: "go", SDKVersion: "test", Region: "gru", Op: "doc.get", Count: 100, P99: 30, Max: 40})
 		}
 		if mode == "oversized" {
 			_, _ = io.WriteString(out, strings.Repeat("x", 300<<10)+"\n")

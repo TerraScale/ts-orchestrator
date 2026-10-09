@@ -14,10 +14,12 @@ import (
 const cleanupWait = 120 * time.Second
 
 type workerControl struct {
-	Type    string `json:"type"`
-	JobID   string `json:"job_id"`
-	Clean   bool   `json:"clean,omitempty"`
-	Success bool   `json:"success,omitempty"`
+	Type            string    `json:"type"`
+	JobID           string    `json:"job_id"`
+	Clean           bool      `json:"clean,omitempty"`
+	Success         bool      `json:"success,omitempty"`
+	Client          string    `json:"client,omitempty"`
+	MeasurementFrom time.Time `json:"measurement_from,omitzero"`
 }
 
 func (g SSHGenerator) runWorker(ctx context.Context, job Job, emit func(Sample) error) error {
@@ -55,6 +57,7 @@ func (g SSHGenerator) runWorker(ctx context.Context, job Job, emit func(Sample) 
 	}
 	reader := bufio.NewReaderSize(stdout, 256<<10)
 	var acknowledgement *workerControl
+	started := map[string]bool{}
 	droppingLine := false
 	for {
 		line, readErr := reader.ReadSlice('\n')
@@ -75,12 +78,23 @@ func (g SSHGenerator) runWorker(ctx context.Context, job Job, emit func(Sample) 
 				} else {
 					acknowledgement = &control
 				}
+			} else if control.Type == "measurement_start" {
+				if acknowledgement != nil || control.JobID != job.ID || !contains(job.Clients, control.Client) || started[control.Client] || control.MeasurementFrom.IsZero() {
+					fail(errors.New("invalid worker measurement marker"))
+				} else if ctx.Err() == nil && streamErr == nil {
+					started[control.Client] = true
+					if err := emit(Sample{Type: "measurement_start", Client: control.Client, Region: job.Region, TS: control.MeasurementFrom}); err != nil {
+						fail(err)
+					}
+				}
 			} else if acknowledgement != nil {
 				fail(errors.New("worker emitted results after cleanup"))
 			} else if ctx.Err() == nil && streamErr == nil {
 				var sample Sample
 				if err := json.Unmarshal(line, &sample); err != nil {
 					streamErr = errors.New("worker returned invalid JSONL")
+				} else if !started[sample.Client] {
+					streamErr = errors.New("client result arrived before its measurement marker")
 				} else {
 					streamErr = emit(sample)
 				}

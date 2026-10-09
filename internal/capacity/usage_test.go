@@ -182,3 +182,38 @@ func TestRecordRejectsSpoofedRegionAndThrottles(t *testing.T) {
 		t.Fatalf("unbounded reports: %v", err)
 	}
 }
+
+func TestAllocatedRequestsSurviveMissingMeasurements(t *testing.T) {
+	for _, known := range []bool{true, false} {
+		t.Run(map[bool]string{true: "known request", false: "unknown request"}[known], func(t *testing.T) {
+			s := NewStore("gru")
+			cpu, memory := 0.25, 0.5
+			report := hostload.Report{SchemaVersion: hostload.SchemaVersion, Host: hostload.HostUsage{CPUCores: 4, MemoryBytes: 8192, CPU: &cpu, Memory: &memory}, Roles: []hostload.RoleUsage{{Role: "terrabase"}, {Role: "api"}}}
+			requests := map[string]hostload.Request{"terrabase": {CPUCores: 2, MemoryBytes: 1024}}
+			if known {
+				requests["api"] = hostload.Request{CPUCores: 1, MemoryBytes: 512}
+			}
+			if err := s.Record(hostload.Origin{Cell: "gru", Node: "a", Environment: "production"}, report, requests); err != nil {
+				t.Fatal(err)
+			}
+			to := time.Now().UTC().Add(time.Second)
+			result, err := s.Query(to.Add(-10*time.Second), to, []string{"a", "a/terrabase", "a/api"})
+			if err != nil || len(result.Nodes) != 1 || result.Complete || len(result.Missing) != 2 {
+				t.Fatalf("missing measurements were concealed: %+v %v", result, err)
+			}
+			node := result.Nodes[0]
+			if known {
+				if node.CPU.Request == nil || node.CPU.Request.Mean != 3 || node.Memory.Request == nil || node.Memory.Request.Mean != 1536 {
+					t.Fatalf("allocated reservations disappeared: %+v", node)
+				}
+			} else if node.CPU.Request != nil || node.Memory.Request != nil {
+				t.Fatalf("partial reservations reported as a node total: %+v", node)
+			}
+			for _, replica := range result.Replicas {
+				if replica.CPU.Usage != nil || replica.Memory.Usage != nil || replica.CPU.Headroom != nil || replica.Memory.Headroom != nil {
+					t.Fatalf("missing measurements became spare capacity: %+v", replica)
+				}
+			}
+		})
+	}
+}

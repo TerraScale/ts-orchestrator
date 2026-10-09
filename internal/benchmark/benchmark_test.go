@@ -33,9 +33,13 @@ type memoryRepository struct {
 	results  []Sample
 	fail     bool
 	finalErr error
+	firstErr error
 }
 
 func (m *memoryRepository) SaveRun(_ context.Context, r Run) error {
+	if len(m.runs) == 0 && m.firstErr != nil {
+		return m.firstErr
+	}
 	if len(m.runs) > 0 && m.finalErr != nil {
 		return m.finalErr
 	}
@@ -54,7 +58,18 @@ func (m *memoryRepository) SaveUsage(context.Context, string, int, capacity.Usag
 type generatorFunc func(context.Context, string, Workload, []string, func(Sample) error) error
 
 func (f generatorFunc) Execute(ctx context.Context, id string, w Workload, c []string, emit func(Sample) error) error {
-	return f(ctx, id, w, c, emit)
+	started := map[string]bool{}
+	return f(ctx, id, w, c, func(sample Sample) error {
+		if sample.Type == "measurement_start" {
+			started[sample.Client] = true
+		} else if sample.Type == "" && !started[sample.Client] {
+			started[sample.Client] = true
+			if err := emit(Sample{Type: "measurement_start", Client: sample.Client, Region: sample.Region, TS: sample.TS.Add(time.Duration(w.Warmup) * time.Second)}); err != nil {
+				return err
+			}
+		}
+		return emit(sample)
+	})
 }
 
 func usageFixture(_ context.Context, region string, from, to time.Time) (capacity.Usage, error) {
@@ -318,6 +333,26 @@ func TestPodmanHelper(t *testing.T) {
 			os.Exit(2)
 		}
 		switch os.Getenv("TS_761_PODMAN_MODE") {
+		case "warmup":
+			var w Workload
+			if json.NewDecoder(os.Stdin).Decode(&w) != nil {
+				os.Exit(2)
+			}
+			client, delay := "go", 10
+			if strings.HasSuffix(name, "-rust") {
+				client, delay = "rust", 6
+			}
+			at := time.Now().UTC().Add(-time.Duration(w.Warmup+w.Duration+delay) * time.Second)
+			encoder := json.NewEncoder(os.Stdout)
+			for second := range w.Warmup + w.Duration {
+				count, p99 := uint64(100), 100.0
+				if second < w.Warmup {
+					count, p99 = 10, w.Targets.P99*1500
+				}
+				_ = encoder.Encode(Sample{TS: at.Add(time.Duration(second) * time.Second), Client: client, SDK: client, SDKVersion: "test", Region: "gru", Op: "doc.get", Count: count, P50: 10, P95: 30, P99: p99, Max: p99})
+			}
+			_ = encoder.Encode(Sample{Type: "summary", Client: client, Region: "gru", Workload: w.Name, OpsPerS: 100, PerOp: map[string]json.RawMessage{"doc.get": json.RawMessage(`{}`)}})
+			os.Exit(0)
 		case "oversized":
 			_, _ = io.WriteString(os.Stdout, strings.Repeat("x", 1<<20))
 			for {
