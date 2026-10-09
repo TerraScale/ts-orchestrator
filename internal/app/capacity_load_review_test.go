@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/capacity"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 )
@@ -17,13 +18,13 @@ func TestCapacityLimitDoesNotRejectAutoscalerReports(t *testing.T) {
 	report := hostload.Report{SchemaVersion: hostload.SchemaVersion, Host: hostload.HostUsage{CPUCores: 4, MemoryBytes: 8192}}
 	for node := range 257 {
 		origin := hostload.Origin{Cell: "gru", Node: fmt.Sprintf("node-%d", node)}
-		if err := telemetry.recordHostLoad(load, origin, report, nil); err != nil {
+		if err := telemetry.recordHostLoad(load.Record, origin, report, nil); err != nil {
 			t.Fatalf("optional history rejected autoscaler node %d: %v", node, err)
 		}
 	}
 	now = now.Add(10 * time.Second)
 	origin := hostload.Origin{Cell: "gru", Node: "node-256"}
-	if err := telemetry.recordHostLoad(load, origin, report, nil); err != nil {
+	if err := telemetry.recordHostLoad(load.Record, origin, report, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(load.Nodes()) != 257 {
@@ -51,10 +52,22 @@ func TestCapacityStillRecordsWhenAutoscalerRejects(t *testing.T) {
 	if err := load.Record(origin, report); err != nil {
 		t.Fatal(err)
 	}
-	if err := telemetry.recordHostLoad(load, origin, report, nil); !errors.Is(err, hostload.ErrTooFrequent) {
+	if err := telemetry.recordHostLoad(load.Record, origin, report, nil); !errors.Is(err, hostload.ErrTooFrequent) {
 		t.Fatalf("autoscaler rejection was hidden: %v", err)
 	}
 	if telemetry.usage.History.Stats().Series == 0 {
 		t.Fatal("autoscaler rejection gated capacity history")
+	}
+}
+
+func TestFencedTelemetryCannotEnterCapacityHistory(t *testing.T) {
+	telemetry := &runtimeObservability{usage: capacity.NewStore("gru")}
+	load := &hostTelemetry{load: hostload.NewAggregator(hostload.AggregatorConfig{}), fencer: &fenceLease{lost: true}}
+	report := hostload.Report{SchemaVersion: hostload.SchemaVersion, Host: hostload.HostUsage{CPUCores: 4, MemoryBytes: 8192}}
+	if err := telemetry.recordHostLoad(load.record, hostload.Origin{Cell: "gru", Node: "node"}, report, nil); !errors.Is(err, authority.ErrFenced) {
+		t.Fatalf("demoted collector report was accepted: %v", err)
+	}
+	if telemetry.usage.History.Stats().Series != 0 {
+		t.Fatal("demoted collector fed capacity history")
 	}
 }

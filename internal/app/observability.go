@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -18,6 +19,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/maintenance"
@@ -66,10 +68,13 @@ type runtimeObservability struct {
 	stopJournal context.CancelFunc
 }
 
-func (r *runtimeObservability) recordHostLoad(load *hostload.Aggregator, origin hostload.Origin, report hostload.Report, requests map[string]hostload.Request) error {
+func (r *runtimeObservability) recordHostLoad(load host.LoadSink, origin hostload.Origin, report hostload.Report, requests map[string]hostload.Request) error {
 	var loadErr error
 	if load != nil {
-		loadErr = load.Record(origin, report)
+		loadErr = load(origin, report)
+		if errors.Is(loadErr, authority.ErrFenced) {
+			return loadErr
+		}
 	}
 	usageErr := r.usage.Record(origin, report, requests)
 	if load == nil {

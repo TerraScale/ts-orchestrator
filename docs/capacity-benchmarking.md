@@ -49,8 +49,10 @@ an empty or inverted intersection leaves service and overall usage incomplete.
 Capacity history limits never reject an otherwise accepted autoscaler report;
 both consumers record independently.
 
-Hosts default to a ten-second telemetry interval; an explicit
-`host.load_telemetry_seconds` chooses 5–3600 seconds. Capacity collection does
+Hosts default to a fifteen-second telemetry interval; an explicit
+`host.load_telemetry_seconds` chooses 5–3600 seconds, and `0` disables reporting.
+For short benchmark stages, configure 5–10 second reporting to cover the
+measurement window densely. Capacity collection does
 not enable autoscaling. Its existing `controller.autoscale.host_telemetry`
 gate is preserved. Update the binary in place through the normal release
 channel. A serving cell is never re-founded to enable this feature.

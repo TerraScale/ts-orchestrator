@@ -619,7 +619,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	})
 	hostController.SetLoadSink(func(origin hostload.Origin, report hostload.Report) error {
 		profiles, _ := services.effective()
-		return telemetry.recordHostLoad(hostLoad, origin, report, loadRequests(profileResources(profiles)))
+		return telemetry.recordHostLoad(hostLoad.record, origin, report, loadRequests(profileResources(profiles)))
 	})
 	services.changed = func(profiles map[string]WorkloadProfile, specs []workload.ServiceSpec) {
 		resources := profileResources(profiles)
