@@ -195,6 +195,12 @@ func (c command) prepare(args []string) error {
 	if err := parse(flags, args); err != nil {
 		return err
 	}
+	// The runtime secret mounts below belong to the host (TS-745).
+	if layout.layout().Root == selfupdate.DefaultRoot {
+		if moved, err := selfupdate.RunInHostMounts(c.ctx, c.output, os.Stderr); moved || err != nil {
+			return err
+		}
+	}
 	if c.delegate(layout.layout(), append([]string{"prepare"}, args...)) {
 		if err := c.backstopPrepare(layout.layout(), *unit); err != nil {
 			return err
