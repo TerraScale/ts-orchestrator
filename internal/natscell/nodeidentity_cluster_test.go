@@ -90,6 +90,31 @@ func TestPrepareNodeIdentityPreservesR3State(t *testing.T) {
 	if _, err := consumer.Next(jetstream.FetchMaxWait(5 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
+	current := func(cluster *jetstream.ClusterInfo) bool {
+		if cluster == nil || cluster.Leader == "" || len(cluster.Replicas) != 2 {
+			return false
+		}
+		for _, replica := range cluster.Replicas {
+			if !replica.Current || replica.Offline || replica.Lag != 0 {
+				return false
+			}
+		}
+		return true
+	}
+	waitForReplicas := func() {
+		waitUntil(t, ctx, "current R3 stream and consumer replicas", func() bool {
+			probe, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+			js := cluster.runtimes[0].JetStream()
+			retained, err := js.Stream(probe, "FORMATION")
+			if err != nil || !current(retained.CachedInfo().Cluster) {
+				return false
+			}
+			worker, err := retained.Consumer(probe, "IDENTITY")
+			return err == nil && current(worker.CachedInfo().Cluster)
+		})
+	}
+	waitForReplicas()
 	var identities [3]nodeIdentity
 	for index, runtime := range cluster.runtimes {
 		identities[index] = readNodeIdentity(t, cluster.stores[index])
@@ -115,7 +140,9 @@ func TestPrepareNodeIdentityPreservesR3State(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitUntil(t, ctx, "R3 stream quorum on two retained stores", func() bool {
-		_, err := cluster.runtimes[0].JetStream().Stream(ctx, "FORMATION")
+		probe, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		_, err := cluster.runtimes[0].JetStream().Stream(probe, "FORMATION")
 		return err == nil
 	})
 	publish(0)
@@ -124,6 +151,7 @@ func TestPrepareNodeIdentityPreservesR3State(t *testing.T) {
 		waitUntil(t, ctx, "full metadata quorum", func() bool { return cluster.runtimes[index].FullClusterReady(3) })
 		assertAdvertisedNodeID(t, cluster.runtimes[index].server.ClusterAddr().Port, identities[index].NodeID)
 	}
+	waitForReplicas()
 	// Each rolling restart misses a write and must catch up using the same ID.
 	for index := range 3 {
 		cluster.stop(index)
@@ -135,6 +163,7 @@ func TestPrepareNodeIdentityPreservesR3State(t *testing.T) {
 		if got := readNodeIdentity(t, cluster.stores[index]); got != identities[index] {
 			t.Fatalf("rolling restart changed identity: %+v", got)
 		}
+		waitForReplicas()
 	}
 	for _, runtime := range cluster.runtimes {
 		got, err := runtime.JetStream().Stream(ctx, "FORMATION")
