@@ -1,18 +1,11 @@
 name: TerraScale Orchestrator Go checks
 
-# Documentation and evidence never change a build: they neither run the
-# checks nor produce a candidate or an image.
+# Every main change is checked and deployed, including documentation.
 on:
   push:
     branches: [develop, main]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
   pull_request:
     branches: [develop, main]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
   workflow_dispatch:
   # Weekly full check of main that also rebuilds the image, so base and
   # package updates land even when no image input changed.
@@ -134,12 +127,10 @@ jobs:
           FORGEJO_SERVER_URL: ${{ github.server_url }}
         run: bash scripts/ci/dispatch-image.sh
 
-      # The fleet deployment (deploy.yml) starts the same way and stays off
-      # until the repository variable TS_AUTO_DEPLOY_CELLS names the cells.
-      # The weekly run deploys nothing: its revision is already deployed.
+      # Every successful main push starts fleet deployment after retention.
+      # Dispatch failure must be visible in CI.
       - name: Start the fleet deployment for this revision
-        if: ${{ forgejo.event_name != 'pull_request' && forgejo.event_name != 'schedule' && forgejo.ref == 'refs/heads/main' && vars.TS_AUTO_DEPLOY_CELLS != '' }}
-        continue-on-error: true
+        if: ${{ forgejo.event_name == 'push' && forgejo.ref == 'refs/heads/main' }}
         shell: bash
         env:
           FORGEJO_TOKEN: ${{ github.token }}

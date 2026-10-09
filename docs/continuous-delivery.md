@@ -689,8 +689,8 @@ obsolete head-bucket release objects for both orchestrator and service roles.
 Keep fleet deployment and pruning paused until every region has the new
 leader, then publish fresh channels and service claims before resuming them.
 
-1. `ci.yml` on `main` dispatches `deploy.yml` after the image dispatch, only
-   while the repository variable `TS_AUTO_DEPLOY_CELLS` is set. It refuses
+1. Every green push to `main`, including documentation changes, dispatches
+   `deploy.yml` after the image dispatch. No deployment switch is required. It refuses
    a revision that is not on `main` before any secret is used, and builds
    the signer with private Go caches. A running deployment is never
    cancelled; a newer dispatch replaces one still pending, and one that a
@@ -720,9 +720,10 @@ and run under the root-signed delegation. `status.json` is telemetry; a
 forged report can stop CI or move it to the next region, but no region
 accepts a release without verifying it.
 
-Inputs (repository variables unless noted): `TS_AUTO_DEPLOY_CELLS` (for
-example `GRU SFO FRA`, canary first), `TS_AUTO_DEPLOY_ARCHES` (default
-`arm64`), `TS_AUTO_DEPLOY_ENVIRONMENT` (default `production`),
+The script always targets GRU and SFO, ARM64, with their current `canary`
+trust scope. These constants will be replaced by ts-orch region discovery;
+there is no per-repository target list or environment switch to configure.
+Inputs (repository variables unless noted):
 `TS_OBJECT_NAMESPACE`, `TS_RELEASE_VAULT_ID`, `TS_RELEASE_LEAF_SECRET`,
 `TS_RELEASE_UPDATE_DELEGATION` (the envelope from `ts-orch release
 sign-update-delegation`, re-issued at most every 31 days),
@@ -1056,8 +1057,6 @@ organization secret (`ts-auth` also has a repository copy):
 
 | Variable | Value |
 | --- | --- |
-| `TS_AUTO_DEPLOY_CELLS` | `GRU` |
-| `TS_AUTO_DEPLOY_ENVIRONMENT` | `canary` |
 | `TS_ORCH_RELEASE` | `ci-214cf4ddbe0c6b1a93f6ecdde710c7d05b9f44fc-run-14652` |
 | `TS_ORCH_SHA256` | `a357e0d0364a6cbf6607f6d8813bc61c4c5a843e8232b6b17d2cf03a852883a0` |
 | `TS_OBJECT_NAMESPACE` | `grxnmoqvrcdv` |
@@ -1095,9 +1094,9 @@ node's time is the load balancer: each backend change is a work request
 of 10 to 20 s, six to take a node out of three sets and three to return it,
 one after another, plus the health checks.
 
-ts-orchestrator's own `TS_AUTO_DEPLOY_CELLS` stays unset until a
-controller self-update drains its node from the load balancer first
-(TS-632): a self-update restarts the node's TerraBase member and ts-auth.
+Controller self-updates drain their node from the load balancer before
+restarting its TerraBase member and ts-auth (TS-632). Fleet deployment
+automatically follows every green main push.
 
 ### CI pre-release retention (TS-608)
 

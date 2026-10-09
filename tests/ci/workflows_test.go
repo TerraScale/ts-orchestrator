@@ -56,22 +56,9 @@ func matches(text, pattern string) []string {
 func TestWorkflowContracts(t *testing.T) {
 	ci := workflowText(t, ".forgejo/workflows/ci.yml")
 	image := workflowText(t, ".forgejo/workflows/image.yml")
-	t.Run("docs_skip_and_ci_dispatches_images", func(t *testing.T) {
-		_, rest, ok := strings.Cut(ci, "    paths-ignore:\n")
-		if !ok {
-			t.Fatal("missing paths-ignore")
-		}
-		var patterns []string
-		for line := range strings.SplitSeq(rest, "\n") {
-			match := regexp.MustCompile(`^      - '([^']+)'$`).FindStringSubmatch(line)
-			if match == nil {
-				break
-			}
-			patterns = append(patterns, match[1])
-		}
-		if !reflect.DeepEqual(patterns, []string{"docs/**", "**/*.md"}) {
-			t.Fatalf("paths-ignore: %v", patterns)
-		}
+	t.Run("every_main_change_dispatches_delivery", func(t *testing.T) {
+		forbidText(t, ci, "paths-ignore:")
+		forbidText(t, ci, "TS_AUTO_DEPLOY_")
 		forbidText(t, image, "  push:")
 		// The image job starts once the release is retained, so it never
 		// holds a builder slot while the checks run.
@@ -86,11 +73,10 @@ func TestWorkflowContracts(t *testing.T) {
 		requireText(t, dispatchStep, "continue-on-error: true")
 		_, deployStep, _ := strings.Cut(ci, "- name: Start the fleet deployment for this revision")
 		requireText(t, deployStep, "run: bash scripts/ci/dispatch-image.sh deploy.yml\n")
-		requireText(t, deployStep, "continue-on-error: true")
-		requireText(t, deployStep, "forgejo.ref == 'refs/heads/main' && vars.TS_AUTO_DEPLOY_CELLS != ''")
+		forbidText(t, deployStep, "continue-on-error:")
+		requireText(t, deployStep, "if: ${{ forgejo.event_name == 'push' && forgejo.ref == 'refs/heads/main' }}")
 		// The weekly run rebuilds the image but never redeploys.
 		requireText(t, ci, "  schedule:\n    - cron: ")
-		requireText(t, deployStep, "forgejo.event_name != 'schedule'")
 		requireText(t, workflowText(t, "scripts/ci/dispatch-image.sh"), `source_ci_run_id:$run_id, source_ci_run_number:$run_number, trigger:"ci"`)
 		requireText(t, image, "inputs.trigger == 'ci'")
 		requireText(t, image, "  cancel-in-progress: false\n")
@@ -139,13 +125,14 @@ func TestWorkflowContracts(t *testing.T) {
 			t.Fatalf("inputs: %v", got)
 		}
 	})
-	t.Run("deploy_waits_for_ci_and_stays_off_until_configured", func(t *testing.T) {
+	t.Run("deploy_waits_for_ci_without_an_opt_in", func(t *testing.T) {
 		deploy := workflowText(t, ".forgejo/workflows/deploy.yml")
 		forbidText(t, deploy, "  push:")
 		if got := matches(deploy, `(?m)^    name: (.+)$`); !reflect.DeepEqual(got, []string{"deploy/every-region"}) {
 			t.Fatalf("jobs: %v", got)
 		}
-		requireText(t, deploy, "    if: ${{ forgejo.ref == 'refs/heads/main' && vars.TS_AUTO_DEPLOY_CELLS != '' }}\n")
+		requireText(t, deploy, "    if: ${{ forgejo.ref == 'refs/heads/main' }}\n")
+		forbidText(t, deploy, "TS_AUTO_DEPLOY_")
 		// Queued, never cancelled: CI never abandons a region mid-rollout.
 		requireText(t, deploy, "  group: ts-orchestrator-deploy\n  cancel-in-progress: false\n")
 		_, dispatch, _ := strings.Cut(deploy, "workflow_dispatch:")
@@ -183,6 +170,10 @@ func TestWorkflowContracts(t *testing.T) {
 			t.Error("the OCI key must be passed to the rollout step only")
 		}
 		wrapper := workflowText(t, "scripts/ci/deploy-fleet.sh")
+		forbidText(t, wrapper, "TS_AUTO_DEPLOY_")
+		requireText(t, wrapper, "cells=(GRU SFO)")
+		requireText(t, wrapper, "architectures=(arm64)")
+		requireText(t, wrapper, "--environment canary")
 		requireText(t, wrapper, "dist/ts-orch release deploy ")
 		requireText(t, wrapper, `--signing-key-secret "$TS_RELEASE_LEAF_SECRET" --vault-id "$TS_RELEASE_VAULT_ID"`)
 		forbidText(t, wrapper, "--signing-key \"")
