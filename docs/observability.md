@@ -243,14 +243,69 @@ renders as a short note; raw upstream error text is never shown.
 
 Access control follows the listener:
 
+Dashboard bearer tokens, whether in Vault or a local file, must contain at
+least 32 cryptographically random bytes (256 bits), encoded as base64 or hex.
+Do not use a human-chosen phrase. The session bucket retains a SHA-256 token
+digest for rotation comparison; bucket readers can test guesses offline,
+so the token's entropy is required for this digest to resist guessing.
+
 - With `bearer_token_file`, every page and stream requires either the
   `Authorization: Bearer` header or a session cookie. `POST /login` exchanges
   the token for a session cookie (`HttpOnly`, `SameSite=Strict`, `Secure` with
-  TLS) valid for 12 hours. The cookie is MACed with a random per-process key,
-  so a restart signs every browser out, and it grants exactly the read-only
-  access of the token. Login and logout refuse cross-site form posts
-  (`Sec-Fetch-Site`, `Origin`). A browser navigation without credentials is
-  redirected to `/login`; other clients get `401`.
+  TLS), with no server-side expiry. Random session values are stored only as
+  SHA-256 hashes in the regional NATS KV bucket `TS_DASHBOARD_SESSIONS`
+  (file-backed, regional replica count, no TTL). Sessions survive controller
+  and broker restarts. Logout revokes every copy; changing the dashboard
+  token advances a persisted generation and revokes all sessions, even if an
+  old token value is later restored in a new Vault version. Shared NetBird
+  registrations carry the OCI secret ID/version and signed-spec generation;
+  a cached older version or obsolete secret reference cannot rotate the store
+  backward. Restoring a previous value requires a newer Vault version, rather
+  than promoting an older version number. Spec-only checkpoints preserve
+  sessions; listeners with the current token hash reconcile their binding
+  without reviving cookies from a retired session generation.
+  The cookie requests the maximum persistent
+  lifetime and is refreshed on authenticated requests; browsers may impose
+  their own cap (Chromium: 400 days without a visit).
+  Login requires the session store to be ready. Authentication and issuance
+  share a five-second deadline and honor earlier request cancellation.
+  Rejected allocations roll back with an independent five-second deadline,
+  including after browser disconnects. Failed rollbacks retain only their
+  key and revision for the listener's cleanup worker to retry; sequence
+  cutoffs preserve slots reused at later revisions. Read
+  failures return `503` without redirecting to login or changing the cookie;
+  logout returns `503` if revocation cannot be persisted. Token generation
+  and session records are read from the leader without caching, so copied
+  cookies cannot use a cached grant after logout or rotation. A tokenless
+  loopback dashboard still needs no session. Token-protected host dashboards
+  preserve process-local browser sessions without controller KV permissions;
+  those host-only sessions end on host restart. Controller and NetBird
+  dashboards use the persistent KV store; controller attachment retries with
+  bounded backoff with jitter if the store is temporarily unavailable. Changed
+  errors are logged immediately; unchanged failures are logged every minute.
+  Each listener scope allows 1,024 sessions, allocated with KV CAS slots
+  across controllers. Existing sessions are never evicted or aged out. A
+  repeated login renews its existing cookie; at capacity, new login returns
+  `503` with instructions to sign out elsewhere or rotate the dashboard token.
+  Rotation commits the new generation before reclaiming obsolete records;
+  a failed metadata update preserves active sessions. Logout
+  checks the stored cookie hash before purging its expected revision. Sequence
+  cutoffs compact purge markers without deleting concurrently reused slots.
+  Collection runs on store attachment and token rotation. A failed cleanup
+  pass is logged and leaves the committed binding usable. The listener retries
+  deferred collection independently, using five-second attempts and bounded
+  backoff with jitter; runtime cancellation and listener close stop retries.
+  Uncontended login
+  claims a CAS slot directly. After eight occupied-slot conflicts, one
+  metadata snapshot identifies free slots, avoiding serial network probes
+  of every occupied slot. CAS still resolves concurrent allocations.
+  The bucket also retains its 16 MiB hard limit.
+  Login and logout refuse cross-site form posts (`Sec-Fetch-Site`, `Origin`);
+  `Origin: null` is accepted only with `Sec-Fetch-Site: same-origin`. The
+  `same-origin` referrer policy preserves the form's Origin on NetBird HTTP
+  hostnames, where browsers omit Fetch Metadata. Origins must match the
+  listener's scheme and host. A browser navigation without credentials is
+  redirected to `/login?next=<path>`; bearer and stream clients get `401`.
 - Without a token the listener is loopback only (enforced at config load
   and in `Start`), and the dashboard additionally refuses any `Host` header
   that is not an IP literal or `localhost`, so a web page cannot reach it

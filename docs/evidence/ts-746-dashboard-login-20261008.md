@@ -1,0 +1,358 @@
+# TS-746 browser login evidence
+
+Host: beta, 2026-10-08. No dashboard tokens or session cookie values are recorded.
+
+## Original failure
+
+Real headless Playwright Chromium and Firefox both submitted the deployed GRU
+login form at `http://ts-gru-1.nb.ts.internal:9463/login` with `Origin: null`
+and no `Sec-Fetch-Site`. Both received HTTP 403, `cross-site request refused`.
+The shared T3 browser reproduced the same failure. A deliberately invalid
+placeholder token suffices to reproduce the CSRF rejection before token checking.
+
+## Local verification
+
+A local Go harness mounted the production observability server and dashboard
+on a file-backed embedded NATS server. The browsers addressed it by an HTTP
+DNS hostname mapped to loopback (`ts746.nb.ts.internal:19463`), reproducing
+NetBird's non-secure-context behavior: Fetch Metadata is absent. A second
+listener with the original `no-referrer` policy reproduced HTTP 403 and
+`Origin: null` in both browsers.
+
+With `Referrer-Policy: same-origin`, both Chromium and Firefox:
+
+- Redirected an unauthenticated `/members` navigation to `/login?next=...`.
+- Submitted a matching Origin and received HTTP 303, landing on `/members`.
+- Received a persistent `HttpOnly`, `SameSite=Strict` cookie and HTTP 200 on reload.
+- Kept HTTP 200 after closing and reopening the browser with its saved cookie jar.
+- Kept HTTP 200 after restarting the Go controller and embedded NATS using the same disk store.
+- Refused a different-origin form POST to `/logout` with HTTP 403.
+- Logged out successfully; a second browser context replaying a copy of the cookie redirected to login.
+
+Go regression tests cover opaque same-origin forms, refusal of cross-site and
+same-site forms, mismatching schemes/hosts, redirects on guarded routes,
+401 for invalid bearer tokens (even with a valid cookie) and stream requests,
+cookie renewal, hashed storage, no KV TTL, broker/controller restart,
+logout persistence, A-to-B-to-A token rotation, and storage failures.
+
+The server never expires a session. Cookies request the maximum persistent
+lifetime and refresh on authenticated requests. Browser-enforced cookie caps
+still apply: Chromium removes a cookie after 400 days without a visit.
+
+## Local Go checks
+
+Passed with the repository's documented `umask 022`, every local check at
+`nice -n 19`: `make test-fast` for the entire repository, focused authentication
+race tests, observability/dashboard race suites, vet of the three changed
+packages, formatting, generated templ consistency, and `make release-check`
+for static Linux amd64 and arm64 binaries. An initial broader local run under
+`umask 077` failed existing exact-mode fixtures; the focused mode check and
+full fast suite passed after correcting the shell environment.
+
+## Deployment prerequisites
+
+PR: https://git.terrascale.tech/TerraScale/ts-orchestrator/pulls/330
+
+Read-only checks on 2026-10-08 confirmed:
+
+- `TS_AUTO_DEPLOY_CELLS` is unset, so main CI does not dispatch deployment.
+- The current `TS_RELEASE_UPDATE_DELEGATION` allows only GRU, arm64, canary.
+- `ts-orch release fleet-status --namespace grxnmoqvrcdv` reports GRU's
+  channel run 1570 failed: `release-g5-controllers frozen: rollback deadline exceeded`.
+- The authenticated live GRU `/rollouts` page still shows that rollout frozen;
+  SFO's current channel run 1609 is complete.
+
+Both regional Vault tokens were fetched to owner-only temporary files without
+printing their values. Bearer-authenticated `/topology` returns HTTP 200 in
+both regions. Live browser verification of the new login remains pending
+review, merge, and a rollout path that respects the existing GRU recovery fences.
+No rollout fences, signing grants, or deployment settings were changed.
+
+## Reviewer regression checks
+
+The first ts-reviewer round identified four issues: host dashboard login lacked
+its previous local backend, controller attachment did not retry transient
+errors, obsolete sessions accumulated at the fixed byte limit, and arbitrary
+logout cookies could create purge markers.
+
+The follow-up keeps hosts' process-local login, retries controller attachment
+with bounded attempts/backoff, uses CAS-allocated slots to cap each listener
+scope at 1,024 live sessions without evicting them, and reclaims retired
+generations. Logout verifies the stored hash and purges only that revision;
+sequence-bounded marker compaction preserves slots reused concurrently.
+New regressions cover unknown-cookie floods leaving KV bytes/count unchanged,
+logout/compaction preserving reused slots, simultaneous allocation at capacity
+across controllers, reusing a login at capacity, rotation reclaiming all old
+records, stale collectors preserving a newer generation, host login/logout,
+and attachment retry/cancellation.
+
+The follow-up focused race tests, full-repository fast suite (`umask 022`),
+vet, formatting and generated-template checks passed. Chromium and Firefox
+also repeated the full local login/browser-reopen/controller-and-broker-restart/
+cross-site-logout/copied-cookie-revocation journey with the corrected backend.
+
+## CI run 1671
+
+The dashboard race suite and both release architectures passed. The sole failure
+was the existing cellscale drain-recovery test's 200 ms success deadline under
+load. Its successful recovery phase now permits five seconds; stale-evidence
+refusal phases retain the short deadline. Fifty focused race repeats, the full
+cellscale race suite, vet and formatting passed locally at low CPU priority.
+
+## Second reviewer round
+
+The requested absolute/inactivity session cap conflicts with TS-746's explicit
+requirement that sessions never expire. The no-TTL design remains deliberate;
+logout and token rotation revoke sessions, and the slot limit bounds storage.
+Authorization remains uncached to avoid stale grants after revocation.
+
+Session validation now distinguishes storage errors from invalid cookies.
+Storage operations share a five-second deadline and preserve earlier request
+cancellation. Read outages return HTTP 503 without redirecting or modifying
+the cookie; bearer authentication remains independent, and the original
+cookie authenticates again when the store recovers. Login no longer runs a
+watcher/collection pass; CAS slots enforce capacity, with collection limited
+to store attachment and token rotation.
+
+Regressions cover both failed token/session reads, bounded deadlines,
+cancellation, cookie preservation/recovery, bearer behavior during an outage,
+and login with session enumeration disabled. Focused app/auth race tests,
+complete observability/dashboard race suites, full-repository fast tests,
+vet, formatting and template generation passed. Chromium and Firefox repeated
+login, browser reopen, controller/broker restart, cross-site logout rejection
+and copied-cookie revocation successfully.
+
+## CI run 1695
+
+The cluster-health fixture selected route ports, released them, and let NATS
+choose its client ports automatically. CI assigned peer2's client listener
+the same port as its route listener (`36603`), causing a fatal bind failure.
+The fixture now uses the existing `reserveControllerPorts` helper to select
+six distinct client/route ports together, and explicitly configures both
+listeners. Ten race repetitions of the real three-broker cluster-health
+test and distinct-port regression passed, along with vet, formatting and
+diff checks. Production code is unchanged by this fixture correction.
+
+## Third reviewer round
+
+Rotation now commits the new token-generation CAS before deleting retired
+records. A timed-out metadata update leaves active sessions and KV bytes/count
+unchanged. If collection fails after the CAS commits, old sessions remain
+revoked and a subsequent attachment retries cleanup.
+
+Uncontended login still allocates directly. After eight occupied-slot
+conflicts, one metadata-only snapshot identifies available slots; CAS creates
+only those candidates. Purge markers from interrupted logout are reusable.
+The near-capacity regression injects 5 ms latency per Create, pits two
+controllers against the last slot, verifies exactly one login succeeds, and
+limits the pair to at most 20 Create requests instead of a serial 1,024-slot
+probe. Rotation/failure/allocation regressions passed ten race repetitions.
+
+Full observability/dashboard race suites, focused app race tests, vet,
+formatting and generated-template checks passed. Chromium and Firefox both
+repeated login, browser reopening, controller/NATS restart, cross-site logout
+rejection, and copied-cookie revocation with this revision.
+
+## Fourth reviewer round
+
+Authentication now checks the leader-backed token generation again after the
+session hash matches, within the existing five-second deadline. A rotation
+committed between the first generation read and the session-record read cannot
+authorize the retired generation, even if its record remains during failed
+cleanup. An error on the final generation read fails closed as a storage error.
+
+Both deterministic regressions failed before the fix and passed thirty race
+repetitions afterward. Full observability/dashboard race suites, vet,
+formatting and generated-template checks passed. Chromium and Firefox repeated
+login, browser reopening, controller/NATS restart, cross-site logout rejection,
+and copied-cookie revocation successfully.
+
+## Fifth reviewer round
+
+NetBird registration now carries the secret OCID and version from the same
+OCI CURRENT bundle response as the token, plus the adopted signed-spec
+generation. CAS refuses older Vault versions, conflicting values at one
+version, obsolete secret references, and unversioned overwrites before
+changing metadata or collecting sessions. A newer spec checkpoint for an
+unchanged token preserves the logical session generation. A real Vault
+version rotation advances it, including same-value and A-to-B-to-A rotations.
+Restoring an old value therefore requires creating a newer Vault version.
+
+Matching-token listeners reconcile to the current logical generation for
+authentication, issuance, and logout; retired cookies remain revoked. Failed
+listener starts invalidate the token cache so the next check rereads Vault.
+The listener regression uses the real five-minute cache: another controller
+registers version 2, then an address change restarts the cached version-1
+listener. Its stale registration cannot revoke version-2 sessions, and the
+next check refreshes Vault and recovers. Vault outages preserve a serving
+listener. Authority tests cover signed-reference fencing, checkpoint
+preservation, same-value rotations, A-to-B-to-A reconciliation, and logout
+from a matching-token stale binding. Missing Vault metadata fails safely.
+
+Ten race repetitions of the authority/rotation/logout regressions and the
+app listener-cache regression passed. Full observability and Vault race
+suites, repository fast tests, vet, formatting, and generated-template checks
+passed. Chromium and Firefox passed login, browser reopen, controller/NATS
+restart, cross-site logout rejection, and copied-cookie revocation with the
+versioned-token harness. These are local checks; post-deploy regional
+verification remains pending.
+
+Logout also reads the current generation on a listener still serving a
+retired token. It verifies the supplied cookie hash before CAS-purging, so
+users can revoke their current copied cookie through any scope listener
+without authorizing that cookie on a retired-token listener. The authority
+regression covers both matching-token and retired-token logout.
+
+Rebased onto main 6c079536, preserving its bounded bundle decoding and
+redacted SDK errors. Rebase verification exposed a lifecycle-test race:
+the socket closes before the stop function finishes removing dashboard
+feeds. The regression now waits for completed cleanup and still requires
+zero dashboards within its existing five-second deadline.
+Thirty race repetitions of listener recovery and cleanup passed.
+
+## Sixth reviewer round
+
+Allocation now retains the KV Create revision and checks the leader-backed
+token generation again before returning a cookie. A completed rotation
+between reconciliation and Create, or a failure of that final generation
+read, refuses login with HTTP 503 and no cookie/redirect. The allocation is
+removed through its created revision without leaving a purge marker; a
+concurrently reused slot with a later revision remains untouched. Cleanup
+shares the existing request deadline, and its failure is reported alongside
+the generation-check error.
+
+Deterministic regressions reproduced the previous successful response for
+a retired allocation and for a failed final generation read. The rotation
+regression registers Vault version 2 and completes collection before the
+version-1 allocation commits. The outage regression checks both removal
+and preservation of a concurrently reused, still-valid slot. All three
+cases pass thirty race repetitions with the fix.
+
+Full observability/dashboard race suites, vet, formatting, and generated
+template checks passed. Chromium and Firefox repeated login, browser reopen,
+controller/NATS restart, cross-site logout refusal, and copied-cookie
+revocation successfully with the allocation check.
+
+## Seventh reviewer round
+
+Steady-state cookie authentication now reads the session record and then
+the leader-backed token generation, retaining the final fail-closed rotation
+fence. Only an absent record or digest mismatch reconciles the cached
+binding and rereads under a changed generation. The RPC-count regression
+requires two leader reads; stale-controller reconciliation, rotations during
+validation, and final-read outages remain covered.
+
+Collection remains bounded by the registration context but is best-effort
+after the token CAS commits. Its error is logged instead of rejecting a
+healthy binding or new listener. Retired records cannot authenticate, and
+a later attachment or rotation retries cleanup. Watcher closure caused by
+cancellation returns the context error. Regressions verify current login
+and new listener attachment during enumeration failure, continued refusal
+of retired cookies, later cleanup, and accurate cancellation reporting.
+
+Dashboard bearer tokens now have an explicit documented requirement: at
+least 32 cryptographically random bytes, encoded as base64 or hex. KV readers
+can test offline guesses against the persisted token digest; human-chosen
+phrases are unsuitable. This addresses the reviewer-approved documentation
+option without introducing another shared secret.
+
+Attachment retries use the existing fleet retry pattern of up to 20 percent
+jitter. Changed errors log immediately; identical failures log at most once
+per minute. The retry regression checks repeated transient failures, changed
+errors, duplicate suppression, bounded attempts, success, and cancellation.
+Ten focused race repetitions passed across auth/collection and app retries.
+
+Full observability/dashboard race suites, vet, formatting, and generated
+template checks passed. Chromium and Firefox repeated login, browser reopen,
+controller/NATS restart, cross-site logout refusal, and copied-cookie
+revocation with the two-read authorization path.
+
+## Eighth reviewer round
+
+A failed initial collection now queues a retry independently of successful
+registration. Each token-protected dashboard listener starts one cleanup
+worker, using the listener/runtime context. Attempts have a five-second
+deadline and exponential backoff from 100 ms to five seconds with up to
+20 percent jitter. Changed failures log immediately; identical failures log
+once per minute. Idle workers make no KV calls. Listener close cancels and
+joins the worker; runtime cancellation stops it too.
+
+The retry uses the latest session binding and revision-bounded collection,
+so old cookies stay revoked and active sessions are preserved. A successful
+pass clears only its observed pending request, retaining a concurrently
+queued retry. This removes the need for another token registration, restart,
+or deploy after storage recovers. Registration remains available during
+collection failure.
+
+Ten real-listener race repetitions verified login during enumeration failure,
+recovery and retired-record removal without reattachment, preservation of
+the active cookie, bounded contexts, and cancellation during an in-flight
+retry through both runtime cancellation and listener close.
+
+The worker reads the authoritative shared generation for each attempt without
+changing the listener's authentication binding. The cancellation case also
+rotates a second controller while cleanup is pending, verifying that the
+first listener reclaims all retired generations, preserves the new active
+cookie, and still refuses that cookie under its retired bearer token. The
+capacity regression now waits for deferred collection when an initial
+1,024-record pass exhausts its deadline under load.
+
+Ten combined capacity/retry race repetitions and ten app dashboard/lifecycle
+race repetitions passed. Chromium and Firefox passed login, browser reopen,
+controller/NATS restart, cross-site logout refusal, and copied-cookie
+revocation through the production Server.Start path.
+
+## Ninth reviewer round
+
+Rejected allocation rollback now uses a fresh five-second context that
+retains request values but does not inherit cancellation or an expired
+deadline. Authentication/issuance still honor the original request budget
+and never return a cookie after the final generation check fails.
+
+If rollback cannot purge, the session manager retains only the key, created
+revision, and store handle for the listener cleanup worker. It coalesces
+repeated failures at one key to the highest revision. Retries use the worker's
+existing bounded, runtime-cancelled attempts and jittered backoff. Exact
+revision cutoffs preserve later slot reuse; queue entries clear only if the
+completed allocation still matches, preserving concurrently queued work.
+No raw token or cookie value is retained in this retry queue.
+
+The canceled-issuance regression failed before the fix, leaving an occupied
+slot. Thirty race repetitions now cover immediate cleanup after cancellation,
+a failed cleanup retained for automatic retry, recovery without reattachment,
+valid concurrent slot reuse, and non-expired bounded cleanup contexts.
+
+Full observability/dashboard race suites, ten app dashboard/lifecycle race
+repetitions, repository fast tests, vet, formatting, and generated-template
+checks passed. Chromium and Firefox repeated login, browser reopen,
+controller/NATS restart, cross-site logout refusal, and copied-cookie
+revocation through Server.Start.
+
+## Tenth reviewer round
+
+A lost Create acknowledgment now triggers reconciliation under the rollback's
+fresh five-second context, even when the browser request has been canceled.
+The leader's current slot record must match the expected cookie digest before
+cleanup removes it through that record's revision. A missing record or a
+different digest needs no removal. The normal ErrKeyExists capacity path
+remains unchanged.
+
+If reconciliation or purge is unavailable, the listener cleanup worker retains
+the store, key, and expected digest for independent retry. Ambiguous allocations
+at one slot have separate digest identities; acknowledged allocations continue
+coalescing by revision. No raw cookie or token enters the retry queue. A digest
+check protects reuse before reconciliation, and the sequence cutoff protects
+reuse between reconciliation and purge.
+
+The committed-write/lost-acknowledgment regression failed before the fix,
+leaving an occupied slot after returning a timeout. Thirty race repetitions
+now cover that case, canceled requests, unavailable leader reconciliation,
+unavailable purge, automatic recovery through Server.Start, and valid slot
+reuse both before and after the ownership read. Existing cancellation and
+generation-read rollback regressions passed in the same repetitions.
+
+Full observability/dashboard race suites, repository fast tests, vet,
+formatting, and generated-template checks passed. Playwright Chromium and
+Firefox passed login, navigation redirect, reload, browser reopen,
+controller/NATS restart, cross-site logout refusal, and copied-cookie
+revocation on the updated local server from beta.

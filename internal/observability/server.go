@@ -25,17 +25,25 @@ type ServerDeps struct {
 	Snapshots SnapshotSource
 	Cluster   ClusterSource
 	Events    EventSource
+	Sessions  *SessionStore
+	// TokenVersion orders shared Vault-token registrations; local files omit it.
+	TokenVersion TokenVersion
+	// LocalSessions preserves browser login on hosts without KV permissions.
+	// Controllers keep it false and attach the persistent regional store.
+	LocalSessions bool
 }
 
 // Server is the private observability listener. Additional read-only routes,
 // such as the dashboard, are mounted with Handle before or after Start.
 type Server struct {
-	mux      *http.ServeMux
-	token    []byte
-	deps     ServerDeps
-	http     *http.Server
-	listen   net.Listener
-	sessions *sessions
+	mux           *http.ServeMux
+	token         []byte
+	deps          ServerDeps
+	http          *http.Server
+	listen        net.Listener
+	sessions      *sessions
+	reclaimCancel context.CancelFunc
+	reclaimDone   chan struct{}
 	// loginMounted enables session cookies as an alternative to the bearer
 	// header. It is set only by HandleLogin, so a listener without the
 	// dashboard keeps accepting the bearer header alone.
@@ -85,11 +93,18 @@ func newServer(config Config, token []byte, deps ServerDeps) (*Server, error) {
 	if deps.Registry == nil || deps.Health == nil {
 		return nil, errors.New("observability server requires a registry and health checks")
 	}
-	manager, err := newSessions(config.TLSCertFile != "")
-	if err != nil {
-		return nil, err
+	manager := &sessions{secure: config.TLSCertFile != ""}
+	if deps.LocalSessions {
+		manager.local = make(map[string]struct{})
 	}
 	server := &Server{mux: http.NewServeMux(), deps: deps, sessions: manager, token: token}
+	if deps.Sessions != nil && token != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.SetSessionStore(ctx, deps.Sessions); err != nil {
+			return nil, err
+		}
+	}
 	server.mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, _ *http.Request) {
 		writePlain(writer, http.StatusOK, "ok\n")
 	})
@@ -194,16 +209,31 @@ func LiteralHost(host string) bool {
 
 func (server *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if server.token != nil && !bearerMatches(request.Header.Get("Authorization"), server.token) &&
-			(!server.loginMounted.Load() || !server.sessions.authenticated(request)) {
-			if server.loginMounted.Load() && wantsLoginPage(request) {
-				http.Redirect(writer, request, "/login?next="+url.QueryEscape(LocalRedirectPath(request.URL.RequestURI())),
-					http.StatusSeeOther)
+		if server.token != nil && !bearerMatches(request.Header.Get("Authorization"), server.token) {
+			authenticated := false
+			if request.Header.Get("Authorization") == "" && server.loginMounted.Load() {
+				var err error
+				authenticated, err = server.sessions.authenticated(request)
+				if err != nil {
+					writePlain(writer, http.StatusServiceUnavailable, "session storage unavailable\n")
+					return
+				}
+			}
+			if !authenticated {
+				if server.loginMounted.Load() && wantsLoginPage(request) {
+					http.Redirect(writer, request, "/login?next="+url.QueryEscape(LocalRedirectPath(request.URL.RequestURI())),
+						http.StatusSeeOther)
+					return
+				}
+				writer.Header().Set("WWW-Authenticate", `Bearer realm="ts-orch"`)
+				writePlain(writer, http.StatusUnauthorized, "unauthorized\n")
 				return
 			}
-			writer.Header().Set("WWW-Authenticate", `Bearer realm="ts-orch"`)
-			writePlain(writer, http.StatusUnauthorized, "unauthorized\n")
-			return
+		}
+		if server.token != nil && server.loginMounted.Load() && request.Header.Get("Authorization") == "" {
+			if cookie, err := request.Cookie(SessionCookieName); err == nil {
+				http.SetCookie(writer, server.sessions.cookie(cookie.Value))
+			}
 		}
 		next.ServeHTTP(writer, request)
 	})
@@ -244,6 +274,14 @@ func (server *Server) Start(ctx context.Context, config Config) (<-chan error, e
 	server.http = &http.Server{Handler: server, ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout: 10 * time.Second, IdleTimeout: time.Minute, MaxHeaderBytes: 4096}
 	server.listen = listener
+	if config.Dashboard && server.token != nil {
+		cleanupCtx, cancel := context.WithCancel(ctx)
+		server.reclaimCancel, server.reclaimDone = cancel, make(chan struct{})
+		go func() {
+			defer close(server.reclaimDone)
+			server.sessions.retryCleanup(cleanupCtx)
+		}()
+	}
 	result := make(chan error, 1)
 	go func() {
 		err := server.http.Serve(listener)
@@ -266,7 +304,14 @@ func (server *Server) Addr() net.Addr {
 
 // Close stops the listener and open connections.
 func (server *Server) Close() error {
-	if server == nil || server.http == nil {
+	if server == nil {
+		return nil
+	}
+	if server.reclaimCancel != nil {
+		server.reclaimCancel()
+		<-server.reclaimDone
+	}
+	if server.http == nil {
 		return nil
 	}
 	return server.http.Close()

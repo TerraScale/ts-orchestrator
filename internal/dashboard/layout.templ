@@ -278,7 +278,7 @@ templ login(failed bool, next string) {
 		<main class="container narrow">
 			<article>
 				<h1>Sign in</h1>
-				<p class="muted">Enter this listener's observability bearer token. The session lasts 12 hours or until the orchestrator restarts.</p>
+				<p class="muted">Enter this listener's observability bearer token. You stay signed in until you sign out or the dashboard token changes.</p>
 				if failed {
 					<p class="bad" role="alert">That token was not accepted.</p>
 				}

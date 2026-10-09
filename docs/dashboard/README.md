@@ -9,7 +9,8 @@ providers; it never changes control-plane state.
 Use the existing NetBird connection on delta, beta or mariogk-dev and open a
 topology URL below. Enter the
 region's dashboard token on `/login`; the browser keeps a read-only session
-for 12 hours. TCP 9463 is
+until sign-out or a dashboard token change, including across controller
+restarts. TCP 9463 is
 private: the NetBird operator policy and host firewall admit it through `wt0`,
 and it has no public listener or OCI ingress rule. The signed cell spec's
 `dashboard.token` enables the listener in place; never re-found a serving cell

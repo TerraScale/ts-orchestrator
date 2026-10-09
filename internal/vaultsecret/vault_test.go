@@ -24,6 +24,38 @@ var testTarget = Target{CompartmentID: "ocid1.compartment.oc1..operator", VaultI
 // sentinel must never reach an error or output.
 const sentinel = "-----BEGIN PRIVATE KEY-----sentinel"
 
+type versionedVault struct {
+	*fakeVault
+	id      *string
+	version *int64
+}
+
+func (vault versionedVault) GetSecretBundleByName(ctx context.Context, request ocisecrets.GetSecretBundleByNameRequest) (ocisecrets.GetSecretBundleByNameResponse, error) {
+	response, err := vault.fakeVault.GetSecretBundleByName(ctx, request)
+	response.SecretId, response.VersionNumber = vault.id, vault.version
+	return response, err
+}
+
+func TestReadVersionedRequiresAuthoritativeMetadata(t *testing.T) {
+	vault := newVault()
+	name := "gru-1-orch-dashboard-token"
+	vault.store(name, sentinel)
+	for _, tc := range []struct {
+		id      *string
+		version *int64
+		ok      bool
+	}{{new("secret-id"), new(int64(7)), true}, {nil, new(int64(7)), false}, {new(""), new(int64(7)), false}, {new("secret-id"), nil, false}, {new("secret-id"), new(int64(0)), false}} {
+		value, err := ReadVersioned(t.Context(), versionedVault{vault, tc.id, tc.version}, testTarget.VaultID, name)
+		if tc.ok {
+			if err != nil || value.Value != sentinel || value.SecretID != "secret-id" || value.Number != 7 {
+				t.Fatal("versioned read did not preserve the bundle's value and version")
+			}
+		} else if err == nil || strings.Contains(err.Error(), sentinel) || value.Value != "" {
+			t.Fatal("versioned read accepted missing metadata or exposed a value")
+		}
+	}
+}
+
 // fakeVault keeps secrets in memory.
 type fakeVault struct {
 	items   []ocivault.SecretSummary

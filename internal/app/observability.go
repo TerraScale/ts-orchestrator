@@ -4,10 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
@@ -28,14 +32,16 @@ import (
 // observable while the cell forms, and the role attaches its providers once
 // they exist. Observability never gates or drives a control-plane effect.
 type runtimeObservability struct {
-	config   observability.Config
-	cell     string
-	member   string
-	role     string
-	registry *observability.Registry
-	health   *observability.Health
-	events   *observability.EventBus
-	server   *observability.Server
+	config          observability.Config
+	cell            string
+	member          string
+	role            string
+	registry        *observability.Registry
+	health          *observability.Health
+	events          *observability.EventBus
+	server          *observability.Server
+	sessionJS       jetstream.JetStream
+	sessionReplicas int
 	// boards are the dashboards this runtime serves: the listener's, and the
 	// NetBird listener's while the cell spec enables it. The role attaches
 	// its providers once they exist; they are kept, so a dashboard added
@@ -89,7 +95,7 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 		return runtime, nil
 	}
 	server, err := observability.NewServer(settings, observability.ServerDeps{Registry: runtime.registry,
-		Health: runtime.health, Events: runtime.events})
+		Health: runtime.health, Events: runtime.events, LocalSessions: role == "host"})
 	if err != nil {
 		// An unusable bearer token file (missing, shared or malformed) fails
 		// closed for the listener only: nothing is served, and the role
@@ -170,6 +176,16 @@ type controllerObservation struct {
 func (runtime *runtimeObservability) attachController(ctx context.Context, observed controllerObservation,
 	filesystems []observability.FilesystemRole,
 ) error {
+	runtime.sessionJS, runtime.sessionReplicas = observed.nats.JetStream(), observed.replicas
+	if runtime.server != nil && runtime.config.Dashboard && runtime.config.BearerTokenFile != "" {
+		go retryDashboardSessionAttachment(ctx, func(attempt context.Context) error {
+			store, err := observability.OpenSessionStore(attempt, runtime.sessionJS, runtime.sessionReplicas, "local."+runtime.member)
+			if err != nil {
+				return err
+			}
+			return runtime.server.SetSessionStore(attempt, store)
+		})
+	}
 	runtime.registry.Register(delivery.Metrics)
 	if observed.managed {
 		runtime.registry.Register(oci.Metrics)
@@ -371,4 +387,32 @@ func authorityView(snapshot authority.Snapshot) observability.AuthorityView {
 		CanMutate: snapshot.CanMutate(), OwnerID: snapshot.OwnerID, Epoch: snapshot.Epoch,
 		Revision: snapshot.Revision, ExpiresAt: snapshot.ExpiresAt, ObservedAt: snapshot.ObservedAt,
 		Reason: snapshot.Reason}
+}
+
+// Retry without blocking controller startup; each attempt and the backoff are
+// bounded and stop with the runtime, including during a JetStream outage.
+func retryDashboardSessionAttachment(ctx context.Context, attach func(context.Context) error) {
+	delay := 100 * time.Millisecond
+	var lastError string
+	var nextWarning time.Time
+	for ctx.Err() == nil {
+		attempt, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err := attach(attempt)
+		cancel()
+		if err == nil {
+			return
+		}
+		if err.Error() != lastError || time.Now().After(nextWarning) {
+			slog.Warn("dashboard session storage unavailable; retrying", observability.ComponentKey, "dashboard", "error", err)
+			lastError, nextWarning = err.Error(), time.Now().Add(time.Minute)
+		}
+		timer := time.NewTimer(delay + time.Duration(rand.Int64N(int64(delay)/5+1)))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		delay = min(2*delay, 5*time.Second)
+	}
 }
