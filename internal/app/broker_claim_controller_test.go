@@ -124,7 +124,7 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 	clientPort := reserveControllerPort(t)
 	controllerConfig := Config{NATS: natscell.Config{Cell: "gru", Instance: "broker-a", Replicas: 1,
 		CredentialsFile: controllerCreds, TLS: tlsFiles, Embedded: &natscell.Embedded{
-			Host: "127.0.0.1", Port: clientPort, StoreDir: filepath.Join(root, "broker"), StoreMaxBytes: 2 << 30,
+			Host: "127.0.0.1", Port: clientPort, StoreDir: filepath.Join(root, "broker"), StoreMaxBytes: 4 << 30,
 			TLS: tlsFiles, RouteTLS: tlsFiles, OperatorJWTFile: operatorFile, SystemJWTFile: systemFile,
 			CellJWTFile: cellFile, SystemCredentialsFile: systemCreds, TicketPublicKeyFile: ticketFile,
 			BrokerIDs: []string{"broker-a"}}},

@@ -12,7 +12,7 @@ import (
 // the controller's embedded NATS store holds beside control state, and the
 // leader raises it only while the disk has room for the store to fill.
 func TestArtifactStoreQuotaFromTheCellSpec(t *testing.T) {
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true, Embedded: &natscell.Embedded{StoreMaxBytes: 4 << 30}},
+	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true, Embedded: &natscell.Embedded{StoreMaxBytes: 6 << 30}},
 		Controller: ControllerConfig{ArtifactStoreMaxBytes: 512 << 20}}
 	registry, err := newSpecRegistry(cfg, "")
 	if err != nil {
@@ -22,9 +22,13 @@ func TestArtifactStoreQuotaFromTheCellSpec(t *testing.T) {
 		t.Fatalf("generation 0 quota = %d", quota)
 	}
 	set := cellspec.Spec{Schema: cellspec.Schema, Generation: 1, RequiresBinary: 10,
-		ArtifactStore: &cellspec.ArtifactStore{MaxBytes: 4<<30 - specStoreHeadroomBytes + 1}}
+		ArtifactStore: &cellspec.ArtifactStore{MaxBytes: cfg.NATS.Embedded.StoreMaxBytes - specStoreHeadroomBytes + 1}}
 	if err := registry.validate(set); err == nil || !strings.Contains(err.Error(), "store_max_bytes") {
 		t.Fatalf("quota beyond the embedded store: %v", err)
+	}
+	set.ArtifactStore.MaxBytes--
+	if err := registry.validate(set); err != nil {
+		t.Fatalf("quota exactly leaving spec headroom: %v", err)
 	}
 	set.ArtifactStore.MaxBytes = 2 << 30
 	if err := registry.validate(set); err != nil {
@@ -35,12 +39,13 @@ func TestArtifactStoreQuotaFromTheCellSpec(t *testing.T) {
 	withAPI := set
 	withAPI.RequiresBinary, withAPI.MachinesAPI = 16, &cellspec.MachinesAPI{Issuer: "https://gru.auth.terrascale.tech/terrascale",
 		Audience: "https://gru.orch.terrascale.tech", JWKSURLs: []string{"https://gru.auth.terrascale.tech/terrascale/.well-known/jwks.json"}, Clients: []string{"ts-orch-cli"}}
+	withAPI.ArtifactStore = &cellspec.ArtifactStore{MaxBytes: cfg.NATS.Embedded.StoreMaxBytes - specStoreHeadroomBytes - machinesAPIStoreBytes + 1}
 	if err := registry.validate(withAPI); err == nil || !strings.Contains(err.Error(), "store_max_bytes") {
 		t.Fatalf("quota leaving no room for the Machines API: %v", err)
 	}
-	withAPI.ArtifactStore = &cellspec.ArtifactStore{MaxBytes: 1 << 30}
+	withAPI.ArtifactStore.MaxBytes--
 	if err := registry.validate(withAPI); err != nil {
-		t.Fatal(err)
+		t.Fatalf("quota exactly leaving Machines API headroom: %v", err)
 	}
 	registry.adopt(set, 1)
 	if quota := registry.artifactStoreMaxBytes(); quota != 2<<30 {

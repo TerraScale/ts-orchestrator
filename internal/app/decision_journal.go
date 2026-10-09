@@ -68,8 +68,8 @@ func (runtime *runtimeObservability) startDecisionJournal(ctx context.Context) {
 }
 
 // attachJournal opens the replicated stream, serves cross-region queries,
-// and, when the private listener runs, starts the history sampler, the
-// insight engine and the region provider. Nothing here can fail the
+// and starts history collection and query providers independently of
+// whether the private listener runs. Nothing here can fail the
 // controller: every step that cannot start is logged and skipped.
 func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed controllerObservation,
 	collector *observability.Collector, cluster observability.ClusterSource,
@@ -90,9 +90,6 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	}
 	if observed.nats != nil {
 		go watchControlPlane(ctx, runtime.cell, runtime.member, observed.authority, observed.nats, observed.replicas)
-	}
-	if runtime.server == nil {
-		return
 	}
 	links, err := regionlink.New(runtime.cell, conn, configuredRegions(runtime.cell), regionRequestTimeout)
 	if err != nil {
@@ -115,12 +112,16 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	}
 	history := observability.NewHistory(observability.HistoryConfig{})
 	runtime.registry.Register(observability.HistoryMetrics)
+	sharedHistory := &hostMetricHistory{local: history,
+		shared: observability.NewHistory(observability.HistoryConfig{Interval: observability.HostMetricInterval})}
+	runtime.registry.RegisterWriter(sharedHistory.writeMetrics)
+	go sharedHistory.run(ctx, observed.nats.JetStream(), runtime.cell, observed.replicas, observed.hostLoad, runtime.events)
 	go runHistorySampler(ctx, observed, runtime.member, history,
-		withAutoscaleSamples(observability.ClusterCollect(cluster, collector), observed.autoscalers, observed.hostLoad))
-	regions := &regionview.Provider{Cell: runtime.cell, Cluster: cluster, Snapshot: collector, History: history,
+		withoutHostMetricSamples(withAutoscaleSamples(observability.ClusterCollect(cluster, collector), observed.autoscalers, observed.hostLoad)))
+	regions := &regionview.Provider{Cell: runtime.cell, Cluster: cluster, Snapshot: collector, History: sharedHistory,
 		Decisions: journal, Links: links, Nodes: observed.nodes}
 	insightConfig := insights.Config{Region: runtime.cell, Cluster: cluster, Local: collector,
-		History: history, Decisions: journal, Reachability: regions, Holds: observed.holds}
+		History: sharedHistory, Decisions: journal, Reachability: regions, Holds: observed.holds}
 	// Optional providers of the other slices: each stays nil, and its rules
 	// silent, unless that slice runs on this controller.
 	var volumes insights.VolumeProvider
@@ -149,12 +150,14 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 		}
 	}
 	federation := decisionlog.Federation{Local: journal, Links: links}
-	providers := journalProviders{Decisions: federation, Live: journal, History: history, Insights: engine,
+	providers := journalProviders{Decisions: federation, Live: journal, History: sharedHistory, Insights: engine,
 		Summarizer: insights.Summarizer{Decisions: federation, Insights: engine, Scope: "all regions",
 			AttentionScope: strings.ToUpper(runtime.cell)},
 		Regions: regions}
 	runtime.providers.Store(&providers)
-	mountJournalAPI(runtime.server, providers)
+	if runtime.server != nil {
+		mountJournalAPI(runtime.server, providers)
+	}
 	// Rollout, version, qualification and inventory providers stay nil
 	// until a controller runs their slices; the pages say so.
 	runtime.attachBoards(func() {

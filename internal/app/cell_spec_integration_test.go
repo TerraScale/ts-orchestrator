@@ -73,7 +73,7 @@ func TestCellSpecAddsTSAuthToARunningCell(t *testing.T) {
 			NATS: natscell.Config{Cell: "gru", Instance: instance, Replicas: 3, Lab: true, NKeySeedFile: controllerSeeds[index],
 				Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: ports[index], RouteHost: "127.0.0.1",
 					RoutePort: ports[3+index], Routes: natscell.PeerRoutes(routes, routes[index]),
-					StoreDir: filepath.Join(root, instance), StoreMaxBytes: 2 << 30, Users: grants}},
+					StoreDir: filepath.Join(root, instance), StoreMaxBytes: 4 << 30, Users: grants}},
 			Controller: ControllerConfig{CandidateID: instance, ResponseKeyFile: filepath.Join(root, "controller.key"),
 				ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 				Workloads: map[string]WorkloadProfile{"terrabase": {Resources: placement.Resources{

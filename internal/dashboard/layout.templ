@@ -260,6 +260,9 @@ templ ago(value time.Time) {
 }
 
 templ chart(class string, spec chartSpec) {
+	if spec.Warning != "" {
+		<p class="note warn" role="status">{ spec.Warning }</p>
+	}
 	<ts-chart class={ class } data-spec={ spec.JSON() } role="img" aria-label={ chartLabel(spec) }></ts-chart>
 }
 

@@ -78,7 +78,7 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 			NATS: natscell.Config{Cell: "lab", Instance: instance, Replicas: 3, Lab: true,
 				Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: clientPorts[index],
 					RouteHost: "127.0.0.1", RoutePort: routePorts[index], Routes: natscell.PeerRoutes(routes, routes[index]),
-					StoreDir: filepath.Join(root, instance), StoreMaxBytes: 2 << 30}},
+					StoreDir: filepath.Join(root, instance), StoreMaxBytes: 4 << 30}},
 			Controller: ControllerConfig{CandidateID: instance, ResponseKeyFile: filepath.Join(root, "response.key"),
 				ArtifactStoreMaxBytes: 64 << 20,
 				TrustedSigners: []TrustedSignerConfig{{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(public),

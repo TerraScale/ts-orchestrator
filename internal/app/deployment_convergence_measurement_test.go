@@ -87,7 +87,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 		NATS: natscell.Config{
 			Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{
-				Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 2 << 30,
+				Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30,
 				Users: []natscell.NKeyGrant{
 					{PublicKey: controllerNKey, Role: "controller"},
 					{PublicKey: operatorNKey, Role: "operator"},

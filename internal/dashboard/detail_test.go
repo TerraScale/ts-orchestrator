@@ -125,6 +125,104 @@ func TestPartitionHoldHistoryIsScopedToThePartition(t *testing.T) {
 	}
 }
 
+type replayingHostHistory struct {
+	*observability.History
+	pending, incomplete bool
+}
+
+func (h replayingHostHistory) Range(query observability.HistoryQuery) observability.HistoryResult {
+	result := h.History.Range(query)
+	result.Pending = h.pending
+	result.Incomplete = h.incomplete
+	return result
+}
+
+type incompleteHostHistory struct{ *observability.History }
+
+func (h incompleteHostHistory) Range(query observability.HistoryQuery) observability.HistoryResult {
+	result := h.History.Range(query)
+	result.Incomplete = true
+	return result
+}
+
+func TestHostDetailChartsDiscloseReplayCapacity(t *testing.T) {
+	now := time.Now()
+	history := observability.NewHistory(observability.HistoryConfig{})
+	history.Append(now, []observability.Sample{{Metric: observability.HistHostCPUUtilization,
+		Labels: observability.L("member", "host-a"), Value: 0.25}})
+	handler := New(Options{Now: func() time.Time { return now }, Journal: &Journal{History: incompleteHostHistory{history}},
+		Snapshots: fixedSnapshots{snapshot: memberSnapshot()}}).Handler()
+	response := get(t, handler, "/regions/fra/hosts/host-a")
+	body := response.Body.String()
+	if response.Code != http.StatusOK || strings.Count(body, "Regional metric history is incomplete:") != 5 ||
+		!strings.Contains(body, `role="status"`) || !strings.Contains(body, "0.25") ||
+		strings.Contains(body, "Loading regional metric history") {
+		t.Fatalf("host charts hid incomplete replay or available samples: status=%d body=%s", response.Code, body)
+	}
+}
+
+func TestHostDetailChartsWaitForRegionalReplay(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name               string
+		cached, incomplete bool
+		loadingCharts      int
+	}{
+		{name: "cached CPU", cached: true, loadingCharts: 4},
+		{name: "no samples", loadingCharts: 5},
+		{name: "cached CPU with loss", cached: true, incomplete: true, loadingCharts: 4},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			now := time.Now().UTC().Truncate(time.Hour)
+			history := &replayingHostHistory{History: observability.NewHistory(observability.HistoryConfig{}),
+				pending: true, incomplete: test.incomplete}
+			if test.cached {
+				history.Append(now, []observability.Sample{{Metric: observability.HistHostCPUUtilization,
+					Labels: observability.L("member", "host-a"), Value: 0.25}})
+			}
+			handler := New(Options{Now: func() time.Time { return now }, Journal: &Journal{History: history},
+				Snapshots: fixedSnapshots{snapshot: memberSnapshot()}}).Handler()
+			response := get(t, handler, "/regions/fra/hosts/host-a")
+			body := response.Body.String()
+			warning := "Regional metric history is loading."
+			if test.incomplete {
+				warning = "Regional metric history is incomplete: some retained measurements are unavailable. " + warning
+			}
+			if response.Code != http.StatusOK ||
+				strings.Count(body, `aria-label="Loading regional metric history"`) != test.loadingCharts ||
+				strings.Count(body, `<p class="note warn" role="status">`+warning+`</p>`) != 5 {
+				t.Fatalf("host charts hid replay status: status=%d body=%s", response.Code, body)
+			}
+			matches := regexp.MustCompile(`<ts-chart[^>]*data-spec="([^"]*)"`).FindAllStringSubmatch(body, -1)
+			if len(matches) != 5 {
+				t.Fatalf("rendered %d charts, want 5", len(matches))
+			}
+			var cpu chartSpec
+			if err := json.Unmarshal([]byte(html.UnescapeString(matches[0][1])), &cpu); err != nil {
+				t.Fatal(err)
+			}
+			if test.cached && (cpu.Empty != "" || cpu.Unit != "percent" || len(cpu.Series) != 1 ||
+				cpu.Series[0].Name != "host-a" || len(cpu.Series[0].Points) != 1 ||
+				cpu.Series[0].Points[0] != [2]float64{float64(now.UnixMilli()), 0.25}) {
+				t.Fatalf("pending replay hid cached CPU sample: %+v", cpu)
+			}
+
+			history.pending = false
+			response = get(t, handler, "/regions/fra/hosts/host-a")
+			body = response.Body.String()
+			lossWarnings := 0
+			if test.incomplete {
+				lossWarnings = 5
+			}
+			if response.Code != http.StatusOK || strings.Contains(body, "Regional metric history is loading.") ||
+				strings.Contains(body, "Loading regional metric history") ||
+				strings.Count(body, "Regional metric history is incomplete:") != lossWarnings {
+				t.Fatalf("replay completion did not clear only loading status: status=%d body=%s", response.Code, body)
+			}
+		})
+	}
+}
+
 func TestHostDetailChartsScopeNodeAndRange(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC().Truncate(time.Hour)

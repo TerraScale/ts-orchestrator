@@ -337,6 +337,10 @@ type HistoryResult struct {
 	Series []HistorySeries `json:"series"`
 	// Truncated reports that more series matched than MaxSeries.
 	Truncated bool `json:"truncated,omitzero"`
+	// Pending marks regional history that has not completed archive replay.
+	Pending bool `json:"pending,omitzero"`
+	// Incomplete marks retained samples omitted or rejected during regional replay.
+	Incomplete bool `json:"incomplete,omitzero"`
 }
 
 // HistorySource is the range-query interface the dashboard charts and the

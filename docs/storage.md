@@ -87,7 +87,9 @@ The quota is `controller.artifact_store_max_bytes` (default 2 GiB; rendered
 controller configs set 512 MiB) until a cell spec sets
 [`artifact_store`](cell-spec.md#model). The leader applies the spec's quota
 within a minute. Every controller refuses a quota above its embedded NATS
-`store_max_bytes` less 1.5 GiB for control state, and the leader raises it
+`store_max_bytes` less 3 GiB for control state and host metric history at
+startup. Cell-spec validation requires 3.5 GiB headroom, or 4 GiB with
+`machines_api`. The leader raises the quota
 only while the NATS store's disk has room for the store to fill. A
 controller restart never shrinks a larger quota already in force.
 

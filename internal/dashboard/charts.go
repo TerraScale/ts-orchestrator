@@ -52,6 +52,8 @@ type chartSpec struct {
 	Click string `json:"click,omitempty"`
 	// Empty is shown instead of a chart when there is nothing to draw.
 	Empty string `json:"empty,omitempty"`
+	// Warning accompanies partial charts without hiding available samples.
+	Warning string `json:"-"`
 }
 
 type chartSeries struct {
@@ -113,6 +115,10 @@ func (current view) historyRange(metric string, labels map[string]string, nameBy
 	}
 	result := current.Journal.History.Range(observability.HistoryQuery{Metric: metric, Labels: labels,
 		Start: current.Now.Add(-current.State.Range.Duration), End: current.Now, Rate: rate, MaxSeries: 64})
+	return historyChartSeries(result, metric, nameBy)
+}
+
+func historyChartSeries(result observability.HistoryResult, metric, nameBy string) []chartSeries {
 	series := make([]chartSeries, 0, len(result.Series))
 	for _, found := range result.Series {
 		if len(found.Points) == 0 {

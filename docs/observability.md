@@ -102,7 +102,7 @@ incomplete history.
 The existing host detail page (`/regions/{r}/hosts/{h}`) charts host CPU
 utilization, memory used ratio and disk used ratio, plus per-service CPU cores
 and memory used bytes, over the selected range including `14d`. These charts
-read only this controller's local region and match `member` to the
+read the replicated resource history for this controller's region and match `member` to the
 authenticated host node name in lowercase; service series are named by their
 `service` role. Host history uses separate `host_cpu_utilization`,
 `host_memory_used_ratio` and `host_disk_used_ratio` metrics so controller
@@ -113,16 +113,86 @@ Host load collection is independent of autoscaling. An omitted
 `host.load_telemetry_seconds` reports every 15 seconds; explicit `0` disables
 reporting, and explicit intervals of 5–3600 seconds are preserved through
 credential renewal. The authority leader accepts authenticated reports and
-retains their resource measurements in the existing bounded history.
+collects their resource measurements. The five resource charts use one
+minute sampling; controller history continues at its existing interval.
 Service readings must match the host's current registration and desired
 allocation. Cached reports are discarded on demotion or a new authority
 term. `controller.autoscale.host_telemetry` still separately authorizes
 using these reports to change replica counts.
 
+The authority leader publishes one compressed resource batch per regional
+minute to the existing embedded JetStream store. Publication uses an
+acknowledgement and a stream sequence compare-and-set, so retries and
+leadership changes cannot create extra batches for a minute. Every controller
+replays this archive into a separate history store, including the publisher;
+member snapshots cannot overwrite it. A new leader or restarted controller
+can query previously acknowledged resource batches. Replay never supplies
+live autoscaling signals or lifecycle evidence. A guard before publication
+checks the authority term; the separate telemetry stream is not an atomic
+control-log effect.
+
+The stream retains batches for 14 days and reserves 1.5 GiB on each replica.
+At most one 64 KiB compressed batch per minute, allowing 128 bytes of
+publication headers and 4 KiB of metadata
+per message, needs less than 1.4 GiB over 14 days. Batches contain at most 4,096 resource
+series and inflate to at most 1 MiB. The producer orders samples by host,
+service, and metric, retaining a prefix that fits all three bounds. Exceeding
+capacity omits later series instead of blocking the whole region's archive;
+selection stays stable rather than rotating hosts between minutes. Dashboard
+events disclose overflow and recovery, and
+`ts_orch_host_history_dropped_samples_total` counts omitted producer samples
+after confirming that pending batch was stored, without counting failed
+retries or another writer’s batch skipped during a leadership handoff. Full
+streams still reject writes instead of deleting retained data. Failed opening or
+publication appears in dashboard events and
+`ts_orch_host_history_failures_total`; `ts_orch_host_history_replay_ready`
+is zero until replay catches up without archive omissions, rejected batches,
+or losing samples to the cache limit. Resource API results mark ongoing replay
+with `pending`. Charts keep available measurements visible during replay or
+reconnection, with a loading status alongside any coverage warning. Empty
+charts show “Loading regional metric history”.
+
+Every trimmed batch stores an `incomplete` marker within the payload bounds.
+Replacing an unconfirmed batch at a new minute or authority epoch also marks
+the following batch incomplete. This coverage flag survives failed attempts
+and skipped competing-writer batches until a marked publication is confirmed.
+Retries within the same minute and epoch keep the pending body unchanged.
+Lost acknowledgements can therefore cause a conservative warning even when
+the earlier batch was stored. Before a marked batch is stored, this pending
+coverage evidence remains local to the publishing process.
+Replay on every controller, including after publisher or reader restart,
+propagates that marker to resource queries, chart warnings, zero replay readiness,
+and `ts_orch_host_history_archive_incomplete`. The marker applies to all regional
+resource queries, including hosts and services omitted from the retained prefix.
+Later complete batches do not clear the warning: a restart must rebuild from
+an archive containing no marked batches. Producer omission totals remain local
+to the publishing process; the replicated marker preserves coverage status.
+
+The replay cache holds at most 4,096 distinct series across retained batches,
+not per minute. Host or service replacement can exceed that bound even when
+every batch fits. Resource queries then return `incomplete`, host charts show
+a capacity warning alongside any available data, and
+`ts_orch_host_history_replay_dropped_samples_total` counts cache omissions.
+The warning and readiness failure remain until controller restart rebuilds
+a complete cache from the remaining archive; JetStream data is preserved.
+This conservative warning covers all regional resource queries, even if
+their series fit or the omitted samples have since expired.
+Invalid retained batches are skipped so replay can continue, but count in
+`ts_orch_host_history_failures_total` and keep resource queries incomplete,
+charts warned, and replay readiness zero until a complete cache is rebuilt.
+
+These are sampled measurements, not an archive of every 15-second host
+report. Missing reports, publication failures and measurements before the
+next sampling boundary leave gaps. Other metric history still uses bounded
+member snapshots; its snapshot truncation limits remain. Shared memory also
+retains the existing 4,096-series bound. Retained JetStream stores must
+survive: complete regional store loss is not recovered from Object Storage
+by this slice.
+
 This nonfinal TS-718 slice requires the updated binary on each host and
-controller. Production fleet rollout, history durability across leadership
-changes and the central log archive remain pending. It does not complete
-TS-718 or establish a central archive for every node and service.
+controller. Production fleet rollout and the central log archive remain
+pending. It does not complete TS-718 or establish a central archive for every
+node and service.
 
 ### Clock sync
 

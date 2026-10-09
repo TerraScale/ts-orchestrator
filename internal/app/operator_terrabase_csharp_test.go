@@ -103,7 +103,7 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 		Repositories: []string{terrabase.Repository}}
 	controllerConfigPath := testJSONFile(t, root, "controller.json", Config{
 		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
-			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 2 << 30,
+			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30,
 				Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller"}, {PublicKey: operatorNKey, Role: "operator"},
 					{PublicKey: hostNKey, Role: "host", Node: "node-a"}}}},
 		Controller: ControllerConfig{CandidateID: "one", ResponseKeyFile: filepath.Join(root, "controller.key"),

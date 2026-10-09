@@ -461,10 +461,23 @@ func (current view) hostVolumes() []insights.Volume {
 
 func (current view) hostChart(metric, unit, nameBy, empty string) chartSpec {
 	var series []chartSeries
-	if current.Path["r"] == current.localRegion() {
-		series = current.historyRange(metric, map[string]string{"member": strings.ToLower(current.Path["h"])}, nameBy, false)
+	var warning string
+	if current.Path["r"] == current.localRegion() && current.Journal != nil && current.Journal.History != nil {
+		result := current.Journal.History.Range(observability.HistoryQuery{Metric: metric,
+			Labels: map[string]string{"member": strings.ToLower(current.Path["h"])},
+			Start:  current.Now.Add(-current.State.Range.Duration), End: current.Now, MaxSeries: 64})
+		series = historyChartSeries(result, metric, nameBy)
+		if result.Incomplete {
+			warning = "Regional metric history is incomplete: some retained measurements are unavailable."
+		}
+		if result.Pending {
+			empty = "Loading regional metric history"
+			warning = strings.TrimSpace(warning + " Regional metric history is loading.")
+		}
 	}
-	return current.lineChart("line", unit, series, empty)
+	spec := current.lineChart("line", unit, series, empty)
+	spec.Warning = warning
+	return spec
 }
 
 // detailWindow names how far back the page's decision query looks: the
