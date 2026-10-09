@@ -22,8 +22,8 @@ TerraBase main push ──► fast.yml: fast ∥ release ──► publish ─�
 
 ### 1. Orchestrator CI (`.forgejo/workflows/ci.yml`)
 
-Runs on every push to `main` or `develop` except documentation-only changes
-(`docs/**`, `**/*.md`). A newer push cancels a running check of the same
+Runs on every push to `main` or `develop`, including documentation-only
+changes. A newer push cancels a running check of the same
 branch; on `main` the newest revision contains every older one and is the
 candidate. The run stays one job because `ts-orch release` admission requires
 exactly one job in the qualifying run, so parallelism is inside it:
@@ -89,8 +89,8 @@ roll out through the managed update path and signed desired state.
 
 ### 6. Fleet deployment (`.forgejo/workflows/deploy.yml`)
 
-Off until the repository variable `TS_AUTO_DEPLOY_CELLS` names the cells.
-`ci.yml` on `main` dispatches it after the image build; it waits for the
+Every successful push to `main`, including documentation changes, dispatches
+deployment automatically. `ci.yml` dispatches it after the image dispatch; it waits for the
 same `ci.yml` run, signs the binary update receipts with the update leaf
 from OCI Vault and publishes the release to each region's head bucket, the
 canary first, waiting for each region to report the rollout complete. A
@@ -136,7 +136,7 @@ promoted with `--image-dir`.
 | TerraBase pin bump into the image inputs | end of TerraBase `publish` | `TS_PIN_BUMP_TOKEN` secret (decision 2) |
 | Local image build | `make image SOURCE=<sha>` | revision |
 | Verification, OCI import, image signing, receipt | `ts-orch image promote` | leaf signing key, root-signed delegation, OCI target |
-| Binary update signing and region-by-region rollout | end of `ci.yml` on `main`, once `TS_AUTO_DEPLOY_CELLS` is set | monthly root-signed update delegation |
+| Binary update signing and region-by-region rollout | every green push to `main` | monthly root-signed update delegation |
 | TerraBase and ts-auth rollout to every region | their `main` CI `deploy` job ([automatic service releases](continuous-delivery.md#automatic-service-releases-ts-610)) | none |
 
 ## Measured (Forgejo runs, 2026-09-29)
