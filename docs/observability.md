@@ -231,6 +231,31 @@ last five minutes (same level, component, message and attributes) is kept off
 the bus, so a loop that logs the same warning every tick cannot push every
 other event out of the ring; every such record is still written to the log.
 
+### Structured log content
+
+`NewLogger` sanitizes records before both formatted output and notable-event
+selection. Sensitive attribute names and recognizable credentials in messages,
+errors, scoped attributes and groups are redacted. This includes bearer tokens,
+JWTs, NATS seeds, PEM credentials and credentials in URLs. Applications must still
+avoid logging secrets: arbitrary unlabelled secret values cannot be recognized.
+
+Messages are limited to 4,096 bytes, attribute names and group names to 64 bytes,
+and string values to 512 bytes. Each record has at most 32 attributes including
+scoped attributes, with at most eight group levels. Clipping preserves UTF-8 and
+adds a visible `log_truncated` attribute. Inputs exceeding the 64 KiB scan bound
+and unsupported objects are omitted with that marker. Scoped values are frozen
+when attached; maps and slices become bounded JSON text. Logging levels, event
+selection and repeated-event suppression retain their existing behavior.
+Application-provided `LogValuer`, error and stringer callbacks still execute
+synchronously and must avoid blocking work.
+Typed time attributes keep their instant and offset, with zone names redacted
+and bounded to 64 bytes before formatting.
+
+This TS-718 slice prepares structured runtime logs for central collection. It does
+not add retention or search of archived logs. Embedded NATS output, workload
+stdout/stderr and events published directly to `EventBus` bypass this handler;
+their collection and sanitization remain follow-up work.
+
 ### Log scan
 
 `scripts/log-scan.sh` counts the WARN and ERROR records of the last 20

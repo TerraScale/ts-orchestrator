@@ -63,6 +63,8 @@ func ParseLogConfig(format, level string) (LogConfig, slog.Level, error) {
 // WARN and above, and records carrying EventKey=true, are also published to
 // bus when it is non-nil. Static attributes such as cell, member and role are
 // attached to every record.
+// This path bounds and redacts known credential forms before either sink;
+// direct EventBus.Publish callers do not pass through this preparation.
 func NewLogger(output io.Writer, config LogConfig, bus *EventBus, attrs ...slog.Attr) (*slog.Logger, error) {
 	config, level, err := ParseLogConfig(config.Format, config.Level)
 	if err != nil {
@@ -78,6 +80,7 @@ func NewLogger(output io.Writer, config LogConfig, bus *EventBus, attrs ...slog.
 	if bus != nil {
 		handler = &EventTee{next: handler, bus: bus, counters: newLogCounters(), repeats: newEventRepeats()}
 	}
+	handler = &redactingHandler{next: handler}
 	if len(attrs) > 0 {
 		handler = handler.WithAttrs(attrs)
 	}
