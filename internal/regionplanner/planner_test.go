@@ -222,7 +222,7 @@ func TestRunOnlyProposesAndNeverApproves(t *testing.T) {
 func startGlobalAuthority(ctx context.Context, t *testing.T, js jetstream.JetStream) *authority.Runtime {
 	t.Helper()
 	runtime, err := authority.Start(ctx, js, authority.Config{
-		Scope: protocol.GlobalScope, CandidateID: "gru-a", Replicas: 1,
+		Scope: protocol.GlobalScope, CandidateID: "0000000000F2D374M7NMRHJJQT", Replicas: 1,
 		LeaseDuration: 5 * time.Second, RenewInterval: 500 * time.Millisecond,
 	})
 	if err != nil {

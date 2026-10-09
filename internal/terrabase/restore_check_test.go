@@ -25,7 +25,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const restoreDocument = "/v1/projects/p1/databases/d1/collections/c1/documents/doc-1"
+const restoreDocument = "/v1/projects/00000000000000000000000002/databases/atlas/collections/restore_canary/documents/by-key?id=00000000000000000000000005"
 
 func restorePlan(t *testing.T) string {
 	t.Helper()
@@ -51,7 +51,7 @@ func TestRestoreCheckPlanWithoutApply(t *testing.T) {
 	binary := fakeRelease(t)
 	plan := restorePlan(t)
 	var output bytes.Buffer
-	if err := runRestoreCheck(t.Context(), []string{"--plan", plan, "--binary", binary, "--organization", "org-1",
+	if err := runRestoreCheck(t.Context(), []string{"--plan", plan, "--binary", binary, "--organization", "00000000000000000000000001", "--database", "00000000000000000000000003",
 		"--document", restoreDocument, "--scratch-instance", "ocid1.instance.scratch", "--restored-volume", "ocid1.volume.restored"}, &output); err != nil {
 		t.Fatal(err)
 	}
@@ -61,9 +61,41 @@ func TestRestoreCheckPlanWithoutApply(t *testing.T) {
 	}
 	want := restoreCheckRequest{Step: "plan", Plan: plan, Compartment: "ocid1.compartment.workload", Device: "/dev/oracleoci/oraclevdz",
 		ScratchInstance: "ocid1.instance.scratch", RestoredVolume: "ocid1.volume.restored", Binary: binary,
-		Document: restoreDocument, ReadyPath: "/readyz"}
+		Document: restoreDocument, DatabaseID: "00000000000000000000000003", ReadyPath: "/readyz"}
 	if got != want || !strings.Contains(output.String(), `"apply":false`) {
 		t.Fatalf("plan = %s, want %+v", output.String(), want)
+	}
+}
+
+func TestRestoreCheckRequiresIDsAndSafeNames(t *testing.T) {
+	organization, database := "00000000000000000000000001", "00000000000000000000000003"
+	resolve := func(org, db, document string) (restoreCheckRequest, error) {
+		return resolveRestoreCheck("terrabase-linux-amd64", org, db, document,
+			"ocid1.instance.scratch", "ocid1.volume.restored", "/readyz", time.Minute, false)
+	}
+	request, err := resolve(organization, database, restoreDocument)
+	if err != nil || request.DatabaseID != database || request.project != "00000000000000000000000002" {
+		t.Fatalf("named database/collection with separate scoped ID: %+v, %v", request, err)
+	}
+	for _, name := range []string{".", "..", "%2e%2e", "atlas?query=1", "atlas#fragment", "atlas/other"} {
+		for _, segment := range []string{"atlas", "restore_canary"} {
+			if _, err := resolve(organization, database, strings.Replace(restoreDocument, segment, name, 1)); err == nil {
+				t.Errorf("accepted unsafe %s name %q", segment, name)
+			}
+		}
+	}
+	for _, id := range []string{"", "orders", "01k78000000000000000000001", "01a1105a-7350-7f48-a96e-d71bbb45d7a8"} {
+		if _, err := resolve(id, database, restoreDocument); err == nil {
+			t.Errorf("accepted invalid organization ID %q", id)
+		}
+		if _, err := resolve(organization, id, restoreDocument); err == nil {
+			t.Errorf("accepted invalid database ID %q", id)
+		}
+		for _, segment := range []string{"00000000000000000000000002", "00000000000000000000000005"} {
+			if _, err := resolve(organization, database, strings.Replace(restoreDocument, segment, id, 1)); err == nil {
+				t.Errorf("accepted invalid URL entity ID %q", id)
+			}
+		}
 	}
 }
 
@@ -72,12 +104,13 @@ func TestRestoreCheckRejectsBadFlags(t *testing.T) {
 	plan := restorePlan(t)
 	unverified := filepath.Join(t.TempDir(), "terrabase-linux-amd64")
 	writeFile(t, unverified, []byte("\x7fELF"))
-	base := []string{"--plan", plan, "--binary", binary, "--organization", "org-1", "--scratch-instance", "ocid1.instance.scratch",
+	base := []string{"--plan", plan, "--binary", binary, "--organization", "00000000000000000000000001", "--database", "00000000000000000000000003", "--scratch-instance", "ocid1.instance.scratch",
 		"--restored-volume", "ocid1.volume.restored"}
 	for name, args := range map[string][]string{
 		"no binary":       {"--organization", "o", "--document", restoreDocument},
 		"no organization": {"--binary", binary, "--document", restoreDocument},
 		"no document":     base,
+		"no database":     {"--plan", plan, "--binary", binary, "--organization", "00000000000000000000000001", "--document", restoreDocument, "--scratch-instance", "ocid1.instance.scratch", "--restored-volume", "ocid1.volume.restored"},
 		"unknown flag":    append(slices.Clone(base), "--document", restoreDocument, "--format"),
 		"extra argument":  append(slices.Clone(base), "--document", restoreDocument, "extra"),
 		"no checksum":     {"--plan", plan, "--binary", unverified, "--organization", "o", "--document", restoreDocument, "--scratch-instance", "ocid1.instance.scratch", "--restored-volume", "ocid1.volume.restored"},
@@ -87,14 +120,16 @@ func TestRestoreCheckRejectsBadFlags(t *testing.T) {
 		"no restored ID":  {"--plan", plan, "--binary", binary, "--organization", "o", "--document", restoreDocument, "--scratch-instance", "ocid1.instance.scratch"},
 		"not a volume":    append(slices.Clone(base), "--document", restoreDocument, "--restored-volume", "ocid1.instance.scratch"),
 		"bad volume ID":   append(slices.Clone(base), "--document", restoreDocument, "--restored-volume", "ocid1.volume.restore/other"),
-		"traversal":       append(slices.Clone(base), "--document", "/v1/projects/p/databases/../collections/c/documents/x"),
-		"dot segment":     append(slices.Clone(base), "--document", "/v1/projects/p/databases/d/collections/./documents/x"),
+		"traversal":       append(slices.Clone(base), "--document", "/v1/projects/00000000000000000000000002/databases/../collections/c/documents/by-key?id=x"),
+		"dot segment":     append(slices.Clone(base), "--document", "/v1/projects/00000000000000000000000002/databases/d/collections/./documents/by-key?id=x"),
 		"query":           append(slices.Clone(base), "--document", restoreDocument+"?x=1"),
+		"duplicate id":    append(slices.Clone(base), "--document", restoreDocument+"&id=00000000000000000000000006"),
+		"old route":       append(slices.Clone(base), "--document", strings.Replace(restoreDocument, "by-key?id=", "", 1)),
 		"fragment":        append(slices.Clone(base), "--document", restoreDocument+"#x"),
-		"escaped":         append(slices.Clone(base), "--document", "/v1/projects/p/databases/d/collections/c/documents/%2e%2e"),
-		"empty segment":   append(slices.Clone(base), "--document", "/v1/projects//databases/d/collections/c/documents/x"),
+		"escaped":         append(slices.Clone(base), "--document", "/v1/projects/00000000000000000000000002/databases/d/collections/c/documents/by-key?id=%2e%2e"),
+		"empty segment":   append(slices.Clone(base), "--document", "/v1/projects//databases/d/collections/c/documents/by-key?id=x"),
 		"extra segment":   append(slices.Clone(base), "--document", restoreDocument+"/more"),
-		"other prefix":    append(slices.Clone(base), "--document", "/v2/projects/p/databases/d/collections/c/documents/x"),
+		"other prefix":    append(slices.Clone(base), "--document", "/v2/projects/p/databases/d/collections/c/documents/by-key?id=x"),
 		"device flag":     append(slices.Clone(base), "--document", restoreDocument, "--device", "/dev/oracleoci/oraclevdb"),
 		"bad ready path":  append(slices.Clone(base), "--document", restoreDocument, "--ready-path", "/../admin"),
 		"no wait":         append(slices.Clone(base), "--document", restoreDocument, "--wait", "0s"),
@@ -148,8 +183,8 @@ func (s restoreServers) verify(t *testing.T, wait time.Duration) (string, error)
 			DatabaseID     string   `json:"databaseId"`
 		}
 		if err := json.UnmarshalRead(r.Body, &body); err != nil || body.Name != "restore-check" ||
-			!slices.Equal(body.Scopes, []string{"documents:read"}) || body.OrganizationID != "org-1" ||
-			body.ProjectID != "p1" || body.DatabaseID != "d1" {
+			!slices.Equal(body.Scopes, []string{"documents:read"}) || body.OrganizationID != "00000000000000000000000001" ||
+			body.ProjectID != "00000000000000000000000002" || body.DatabaseID != "00000000000000000000000003" {
 			t.Errorf("API key request = %+v, %v", body, err)
 		}
 		w.WriteHeader(s.keyStatus)
@@ -182,7 +217,7 @@ func (s restoreServers) verify(t *testing.T, wait time.Duration) (string, error)
 			w.WriteHeader(s.readyStatus)
 			return
 		}
-		if r.URL.Path != restoreDocument || r.Header.Get("Authorization") != "Bearer s3cret" {
+		if r.URL.RequestURI() != restoreDocument || r.Header.Get("Authorization") != "Bearer s3cret" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -198,8 +233,8 @@ func (s restoreServers) verify(t *testing.T, wait time.Duration) (string, error)
 	roots.AppendCertsFromPEM(caPEM)
 	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots}}
 	defer transport.CloseIdleConnections()
-	request := restoreCheckRequest{Document: restoreDocument, ReadyPath: "/readyz", organization: "org-1",
-		project: "p1", database: "d1", id: "doc-1", wait: wait}
+	request := restoreCheckRequest{Document: restoreDocument, ReadyPath: "/readyz", organization: "00000000000000000000000001",
+		project: "00000000000000000000000002", DatabaseID: "00000000000000000000000003", id: "00000000000000000000000005", wait: wait}
 	return verifyRestore(t.Context(), &http.Client{Transport: transport, Timeout: 5 * time.Second},
 		adminServer.URL, clientServer.URL, request)
 }
@@ -295,17 +330,17 @@ func TestRestoreVolumeConfigUsesThePlanScope(t *testing.T) {
 
 func TestVerifyRestoreReadsTheDocumentWithAReadOnlyKey(t *testing.T) {
 	ok := restoreServers{readyStatus: http.StatusOK, keyStatus: http.StatusCreated, keySecret: "s3cret",
-		docStatus: http.StatusOK, docID: "doc-1"}
+		docStatus: http.StatusOK, docID: "00000000000000000000000005"}
 	etag, err := ok.verify(t, 5*time.Second)
 	if err != nil || etag != `"v7"` {
 		t.Fatalf("verify = %q, %v", etag, err)
 	}
 	for name, servers := range map[string]restoreServers{
-		"never ready":  {readyStatus: http.StatusServiceUnavailable, keyStatus: http.StatusCreated, keySecret: "s3cret", docStatus: http.StatusOK, docID: "doc-1"},
-		"key rejected": {readyStatus: http.StatusOK, keyStatus: http.StatusBadRequest, keySecret: "s3cret", docStatus: http.StatusOK, docID: "doc-1"},
-		"no document":  {readyStatus: http.StatusOK, keyStatus: http.StatusCreated, keySecret: "s3cret", docStatus: http.StatusNotFound, docID: "doc-1"},
-		"other id":     {readyStatus: http.StatusOK, keyStatus: http.StatusCreated, keySecret: "s3cret", docStatus: http.StatusOK, docID: "doc-2"},
-		"wrong bearer": {readyStatus: http.StatusOK, keyStatus: http.StatusCreated, keySecret: "other", docStatus: http.StatusOK, docID: "doc-1"},
+		"never ready":  {readyStatus: http.StatusServiceUnavailable, keyStatus: http.StatusCreated, keySecret: "s3cret", docStatus: http.StatusOK, docID: "00000000000000000000000005"},
+		"key rejected": {readyStatus: http.StatusOK, keyStatus: http.StatusBadRequest, keySecret: "s3cret", docStatus: http.StatusOK, docID: "00000000000000000000000005"},
+		"no document":  {readyStatus: http.StatusOK, keyStatus: http.StatusCreated, keySecret: "s3cret", docStatus: http.StatusNotFound, docID: "00000000000000000000000005"},
+		"other id":     {readyStatus: http.StatusOK, keyStatus: http.StatusCreated, keySecret: "s3cret", docStatus: http.StatusOK, docID: "00000000000000000000000006"},
+		"wrong bearer": {readyStatus: http.StatusOK, keyStatus: http.StatusCreated, keySecret: "other", docStatus: http.StatusOK, docID: "00000000000000000000000005"},
 	} {
 		etag, err := servers.verify(t, 600*time.Millisecond)
 		if err == nil {

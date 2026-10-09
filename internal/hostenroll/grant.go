@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -91,15 +91,14 @@ func OpenGrantStore(ctx context.Context, js jetstream.JetStream, replicas int) (
 }
 
 func grantKey(instanceID string) string {
-	sum := sha256.Sum256([]byte(instanceID))
-	return hex.EncodeToString(sum[:])
+	return entityid.Derive("host-enrollment", instanceID)
 }
 
 // Claim creates a grant once, or returns a completed exact replay. A changed
 // key, nonce, CSR, or descriptor for the same OCI instance is held.
 func (store *GrantStore) Claim(ctx context.Context, candidate Grant) (Grant, uint64, error) {
 	if store == nil || store.kv == nil || candidate.SchemaVersion != 1 || candidate.InstanceID == "" ||
-		candidate.CreateKey == "" || len(candidate.DescriptorSHA256) != 64 ||
+		!entityid.Valid(candidate.CreateKey) || len(candidate.DescriptorSHA256) != 64 ||
 		len(candidate.Request) == 0 || len(candidate.Request) > 16<<10 || len(candidate.Response) != 0 || candidate.Disabled ||
 		candidate.OwnerToken != "" || !candidate.LeaseUntil.IsZero() {
 		return Grant{}, 0, mutationNotApplied(errors.New("host enrollment grant candidate is invalid"))
@@ -346,19 +345,7 @@ func sameGrant(left, right Grant) bool {
 		left.TerminalOperationID == right.TerminalOperationID
 }
 
-func validTerminalOperationID(value string) bool {
-	if len(value) == 0 || len(value) > 63 {
-		return false
-	}
-	for index, character := range value {
-		if character >= 'a' && character <= 'z' || character >= '0' && character <= '9' ||
-			index > 0 && (character == '_' || character == '-') {
-			continue
-		}
-		return false
-	}
-	return true
-}
+func validTerminalOperationID(value string) bool { return entityid.Valid(value) }
 
 // ClaimRenew serializes renewal and caches the exact signed response.
 func (store *GrantStore) ClaimRenew(ctx context.Context, instanceID string, request []byte,

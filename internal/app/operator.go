@@ -11,7 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
@@ -593,7 +594,7 @@ func submitIntent(ctx context.Context, cfg Config, runtime *natscell.Runtime, in
 		return intent, "", errors.New("delivery intent belongs to another cell")
 	}
 	if intent.OperationID == "" {
-		intent.OperationID = uuid.New().String()
+		intent.OperationID = entityid.New()
 	}
 	// Both setup calls are read-only. Keep their total recovery within ten
 	// seconds, and never replay Submit after an ambiguous intent publish.

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 func fleetView(t *testing.T, region Region) (instances, volumes, attachments map[string]int, observed time.Time) {
@@ -20,8 +22,8 @@ func fleetView(t *testing.T, region Region) (instances, volumes, attachments map
 func TestCompleteObserveSweepPublishesTheFleetByLifecycleState(t *testing.T) {
 	ctx := t.Context()
 	_, _, _, subject, host, volume := newAttachTestState(t)
-	if _, err := subject.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main",
-		VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-inventory",
+	if _, err := subject.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ",
+		VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: entityid.Derive("test-attach", "attach-inventory"),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -96,8 +98,8 @@ func sum(counts map[string]int) int {
 func TestInventoryCountsOnlyVerifiedHosts(t *testing.T) {
 	ctx := t.Context()
 	_, provider, _, subject, host, volume := newAttachTestState(t)
-	if _, err := subject.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main",
-		VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-inventory-partial",
+	if _, err := subject.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ",
+		VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: entityid.Derive("test-attach", "attach-inventory-partial"),
 	}); err != nil {
 		t.Fatal(err)
 	}

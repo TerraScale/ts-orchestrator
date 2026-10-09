@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -188,14 +190,14 @@ func (r *Runtime) validateManagedUpdateTransition(
 
 func (record ManagedUpdateRecord) Validate() error {
 	if record.SchemaVersion != 1 || !natsToken.MatchString(record.Cell) ||
-		!natsToken.MatchString(record.DatabaseID) || !natsToken.MatchString(record.PartitionID) ||
-		!natsToken.MatchString(record.OperationID) ||
+		!entityid.Valid(record.DatabaseID) || !entityid.Valid(record.PartitionID) ||
+		!entityid.Valid(record.OperationID) ||
 		record.Phase != ManagedUpdatePrepared && record.Phase != ManagedUpdateCanaryServing &&
 			record.Phase != ManagedUpdateHeld ||
 		len(record.SignedRequest) == 0 || len(record.SignedRequest) > maxManagedUpdateRequestBytes ||
 		!validTerminalDigest(record.SignedRequestSHA256) ||
 		!validTerminalDigest(record.PlacementPayloadDigest) || record.PlacementGeneration == 0 ||
-		record.PlacementSequence == 0 || !natsToken.MatchString(record.CanarySeatID) ||
+		record.PlacementSequence == 0 || !entityid.Valid(record.CanarySeatID) ||
 		record.CanaryDesiredGeneration == 0 || !validTerminalDigest(record.OldArtifactDigest) ||
 		!validTerminalDigest(record.CandidateArtifactDigest) ||
 		record.CandidateArtifactDigest == record.OldArtifactDigest ||
@@ -243,8 +245,8 @@ func (record ManagedUpdateRecord) SameIdentity(other ManagedUpdateRecord) bool {
 }
 
 func managedUpdateSubjectKey(databaseID, partitionID, operationID string, phase ManagedUpdatePhase) (string, error) {
-	if !natsToken.MatchString(databaseID) || !natsToken.MatchString(partitionID) ||
-		!natsToken.MatchString(operationID) ||
+	if !entityid.Valid(databaseID) || !entityid.Valid(partitionID) ||
+		!entityid.Valid(operationID) ||
 		phase != ManagedUpdatePrepared && phase != ManagedUpdateCanaryServing && phase != ManagedUpdateHeld {
 		return "", errors.New("managed update subject identity is invalid")
 	}
@@ -372,7 +374,7 @@ func listManagedUpdateEntries(
 			return nil, errors.New("managed update subject is outside its workload prefix")
 		}
 		parts := strings.Split(key, ".")
-		if len(parts) != 2 || !natsToken.MatchString(parts[0]) {
+		if len(parts) != 2 || !entityid.Valid(parts[0]) {
 			return nil, errors.New("managed update subject has an invalid operation identity")
 		}
 		phase := ManagedUpdatePhase(parts[1])

@@ -35,7 +35,7 @@ func TestTruncatedViewsAreVisibleOnMetrics(t *testing.T) {
 	out.Reset()
 	databases := make([]DatabaseView, maxLabeledDatabases+1)
 	for index := range databases {
-		databases[index] = DatabaseView{DatabaseID: fmt.Sprint(index), PartitionID: "p"}
+		databases[index] = DatabaseView{DatabaseID: fmt.Sprint(index), PartitionID: "00000000002J6YKHD7MH6HKSBC"}
 	}
 	WritePlacementMetrics(&out, PlacementView{Databases: databases})
 	if !strings.Contains(out.String(), "ts_orch_terrabase_view_truncated 1") {

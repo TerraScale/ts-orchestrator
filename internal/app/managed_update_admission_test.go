@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json/v2"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -34,7 +35,7 @@ func TestManagedUpdatePrepareProducerRegionMatchesLowercaseCell(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = broker.Close() })
 	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{
-		Scope: cell, CandidateID: "managed-update-admission", Replicas: 1,
+		Scope: cell, CandidateID: "0000000000EA3538G44CHCDVJH", Replicas: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -126,40 +127,42 @@ func signedManagedUpdateIntent(t *testing.T, epoch uint64) placement.ManagedUpda
 			SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.secret-a", VersionNumber: 1,
 		},
 		Volumes: []placement.ManagedUpdateVolumeProfile{
-			{SeatID: "elastic-gru", VolumeID: "ocid1.volume.oc1..volume-a",
+			{SeatID: "0000000000XG8SBD7XGE97V28G", VolumeID: "ocid1.volume.oc1..volume-a",
 				FileSystemUUID: "123e4567-e89b-12d3-a456-426614174000", FileSystemType: "ext4"},
-			{SeatID: "permanent-a", VolumeID: "ocid1.volume.oc1..volume-b",
+			{SeatID: "000000000082AXF7GZQT1D126Y", VolumeID: "ocid1.volume.oc1..volume-b",
 				FileSystemUUID: "123e4567-e89b-12d3-a456-426614174001", FileSystemType: "xfs"},
 		},
 	}
+	slices.SortFunc(profile.Volumes, func(a, b placement.ManagedUpdateVolumeProfile) int { return strings.Compare(a.SeatID, b.SeatID) })
 	profileDigest, err := profile.Digest()
 	if err != nil {
 		t.Fatal(err)
 	}
 	intent := placement.ManagedUpdateIntent{
-		SchemaVersion: placement.ManagedUpdateSchemaVersion, Cell: "gru", DatabaseID: "db-main",
-		PartitionID: "partition-a", PlacementGeneration: 7, PlacementPayloadDigest: strings.Repeat("d", 64),
-		PlacementSequence: 18, AuthorityEpoch: epoch, OperationID: "managed-update-a", Role: "terrabase",
+		SchemaVersion: placement.ManagedUpdateSchemaVersion, Cell: "gru", DatabaseID: "0000000000JJVVW9EMWY1PE1VX",
+		PartitionID: "0000000000Z3WK359G2W66CVT8", PlacementGeneration: 7, PlacementPayloadDigest: strings.Repeat("d", 64),
+		PlacementSequence: 18, AuthorityEpoch: epoch, OperationID: "0000000000E44GT0K557ASV7P0", Role: "terrabase",
 		Environment: "production", OldArtifactDigest: oldArtifact, CandidateArtifactDigest: candidateArtifact,
 		CandidateManifestDigest: strings.Repeat("1", 64), CandidateSourceDigest: strings.Repeat("2", 64),
-		CanarySeatID: "elastic-gru", CanaryDesiredGeneration: 5, DurabilityProfile: profile,
+		CanarySeatID: "0000000000XG8SBD7XGE97V28G", CanaryDesiredGeneration: 5, DurabilityProfile: profile,
 		Seats: []placement.ManagedUpdateSeat{
-			{SeatID: "elastic-gru", Region: oci.RegionGRU, MemberID: "123e4567-e89b-12d3-a456-426614174000",
-				Incarnation: strings.Repeat("3", 32), TLSLeafSHA256: strings.Repeat("4", 64),
+			{SeatID: "0000000000XG8SBD7XGE97V28G", Region: oci.RegionGRU, MemberID: "0J7S2PFT4V2B9T8NJ2CRA1EG00",
+				Incarnation: "33333333333333333333333333333333", TLSLeafSHA256: strings.Repeat("4", 64),
 				RuntimeManifestDigest: strings.Repeat("5", 64), HostNode: "node-a", HostGeneration: 2,
 				HostAttempt: 1, OCIInstanceID: "ocid1.instance.oc1..instance-a", OCIOwner: "owner-a",
-				OCIFleetGeneration: 3, CreateKey: "host-a", VolumeID: "ocid1.volume.oc1..volume-a",
+				OCIFleetGeneration: 3, CreateKey: "0000000000R58Y74PAABAQ7X2V", VolumeID: "ocid1.volume.oc1..volume-a",
 				AttachmentID: "ocid1.volumeattachment.oc1..attachment-a", AttachmentETag: "etag-a",
 				AttachmentDevice: "/dev/oracleoci/oraclevda", DesiredGeneration: 4, ArtifactDigest: oldArtifact},
-			{SeatID: "permanent-a", Region: oci.RegionGRU, MemberID: "123e4567-e89b-12d3-a456-426614174001",
-				Incarnation: strings.Repeat("6", 32), TLSLeafSHA256: strings.Repeat("7", 64),
+			{SeatID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, MemberID: "0J7S2PFT4V2B9T8NJ2CRA1EG01",
+				Incarnation: "66666666666666666666666666666666", TLSLeafSHA256: strings.Repeat("7", 64),
 				RuntimeManifestDigest: strings.Repeat("8", 64), HostNode: "node-b", HostGeneration: 4,
 				HostAttempt: 1, OCIInstanceID: "ocid1.instance.oc1..instance-b", OCIOwner: "owner-a",
-				OCIFleetGeneration: 3, CreateKey: "host-b", VolumeID: "ocid1.volume.oc1..volume-b",
+				OCIFleetGeneration: 3, CreateKey: "0000000000GTA7T55FAST9ZNW4", VolumeID: "ocid1.volume.oc1..volume-b",
 				AttachmentID: "ocid1.volumeattachment.oc1..attachment-b", AttachmentETag: "etag-b",
 				AttachmentDevice: "/dev/oracleoci/oraclevdb", DesiredGeneration: 8, ArtifactDigest: oldArtifact},
 		},
 	}
+	slices.SortFunc(intent.Seats, func(a, b placement.ManagedUpdateSeat) int { return strings.Compare(a.SeatID, b.SeatID) })
 	statement := placement.ManagedCompatibilityEvidence{
 		SchemaVersion: placement.ManagedCompatibilitySchemaVersion, Cell: intent.Cell,
 		OperationID: intent.OperationID, OldArtifactDigest: intent.OldArtifactDigest,

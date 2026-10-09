@@ -19,7 +19,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"golang.org/x/sys/unix"
 
@@ -236,7 +237,7 @@ func validateMemberExpectation(expected ExpectedMemberStatus, p *processRunner) 
 	if os.Geteuid() != 0 || p.identity.UID == 0 || p.identity.GID == 0 {
 		return errors.New("member status requires a root supervisor and non-root tenant")
 	}
-	if !lowerHex(expected.Scope.ClusterID, 32) || !lowerHex(expected.Scope.Incarnation, 32) || expected.Scope.ShardID == 0 ||
+	if !lowerHexIdentity(expected.Scope.ClusterID) || !lowerHexIdentity(expected.Scope.Incarnation) || expected.Scope.ShardID == 0 ||
 		!canonicalMemberID(expected.Scope.TenantID) || !canonicalMemberID(expected.Scope.DatabaseID) || !canonicalMemberID(expected.Scope.MemberID) ||
 		!lowerHex(expected.Authority.ConfigurationID, 64) || !lowerHex(expected.Authority.CertificateSHA256, 64) ||
 		!lowerHex(expected.Authority.TLSLeafSHA256, 64) || expected.Authority.Epoch == 0 {
@@ -272,10 +273,7 @@ func lowerHex(value string, length int) bool {
 	return true
 }
 
-func canonicalMemberID(value string) bool {
-	parsed, err := uuid.Parse(value)
-	return err == nil && parsed != uuid.Nil() && parsed.String() == value
-}
+func canonicalMemberID(value string) bool { return entityid.Valid(value) }
 
 type memberPathSnapshot struct {
 	parent syscall.Stat_t
@@ -413,4 +411,8 @@ func decodeMemberStatus(data []byte, nonce string, pid int, expected ExpectedMem
 		return MemberStatus{}, errors.New("member status identity or capability mismatch")
 	}
 	return status, nil
+}
+
+func lowerHexIdentity(value string) bool {
+	return lowerHex(value, 32) && strings.Trim(value, "0") != ""
 }

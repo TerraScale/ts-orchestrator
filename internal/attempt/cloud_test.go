@@ -111,7 +111,7 @@ func TestControllerObjectGrantsReplaceOnlyDifferingStatements(t *testing.T) {
 	ids := Object{"controller_policy": "ocid1.policy.oc1..p", "controller_dynamic_group": "ocid1.dynamicgroup.oc1..g",
 		"control_compartment": "ocid1.compartment.oc1..c", "key": "ocid1.key.oc1.sa-saopaulo-1.k", "vault": "ocid1.vault.oc1.sa-saopaulo-1.v"}
 	plan["resource_ids"] = ids
-	cloud := &policyCloud{statements: []string{"stale"}, etag: "etag-1"}
+	cloud := &policyCloud{statements: []string{"0000000000RNVXNPAX5Y5BB8RY"}, etag: "etag-1"}
 	a.Cloud = cloud
 	a.controllerObjectGrants(plan)
 	want, err := ociregion.RequiredControllerStatements(plan, ids, a.Prefix)
@@ -134,7 +134,7 @@ func TestControllerObjectGrantsRefuseAnUnconditionalPolicyUpdate(t *testing.T) {
 	ids := Object{"controller_policy": "ocid1.policy.oc1..p", "controller_dynamic_group": "ocid1.dynamicgroup.oc1..g",
 		"control_compartment": "ocid1.compartment.oc1..c", "key": "ocid1.key.oc1.sa-saopaulo-1.k", "vault": "ocid1.vault.oc1.sa-saopaulo-1.v"}
 	plan := Object{"cell": "GRU", "region": "sa-saopaulo-1", "foundation_buckets": Object{"ledger": "ledger", "head": "head", "backup": "backup", "material": "material"}, "resource_ids": ids}
-	cloud := &policyCloud{statements: []string{"stale"}}
+	cloud := &policyCloud{statements: []string{"0000000000RNVXNPAX5Y5BB8RY"}}
 	a.Cloud = cloud
 	a.controllerObjectGrants(plan)
 	if a.Err() == nil || !strings.Contains(a.Err().Error(), "ETag") || len(cloud.updated) != 0 {
@@ -231,7 +231,7 @@ func TestLaunchDetailsDecodesTheMemberLaunchWriterOutput(t *testing.T) {
 	plan := ociregion.Object{"availability_domain": "AD-1", "volume_vpus_per_gb": 10, "orchestrator_owner": "ts-470-gru-rebuild-2",
 		"resource_ids": ociregion.Object{"workload_compartment": "ocid1.compartment.oc1..w", "subnet": "ocid1.subnet.oc1..s",
 			"workload_network_security_group": "ocid1.networksecuritygroup.oc1..w"}}
-	host := ociregion.Object{"slot": "member-a", "fault_domain": "FAULT-DOMAIN-1", "private_ip": "10.251.0.21",
+	host := ociregion.Object{"slot": "0000000000WM3QQGQPMW5X58P9", "fault_domain": "FAULT-DOMAIN-1", "private_ip": "10.251.0.21",
 		"shape": "VM.Standard.A1.Flex", "ocpus": 1, "memory_gb": 6, "boot_gb": 50}
 	metadata := ociregion.Object{"terrascale_hostboot_v1": `{"schema_version":2,"cell":"gru","region":"GRU","node":"gru-1-db-1"}`}
 	wire, err := json.Marshal(ociregion.MemberLaunchDocument(plan, host, "gru-1-db-1", "ocid1.image.fixture", metadata))

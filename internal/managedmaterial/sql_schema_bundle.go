@@ -10,7 +10,8 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"uuid"
+
+	"github.com/oklog/ulid/v2"
 )
 
 const (
@@ -67,25 +68,25 @@ func validateSQLTables(tables []InitialSQLTable, catalogs []InitialCatalogInput)
 	}
 
 	names := make(map[string]struct{}, len(tables))
-	collectionIDs := make(map[uuid.UUID]struct{}, len(catalogs))
+	collectionIDs := make(map[ulid.ULID]struct{}, len(catalogs))
 	for _, catalog := range catalogs {
-		id, err := canonicalUUID(catalog.CollectionID)
+		id, err := canonicalID(catalog.CollectionID)
 		if err != nil {
 			return errors.New("initial SQL table set conflicts with catalog identities")
 		}
 		collectionIDs[id] = struct{}{}
 	}
-	var previousID uuid.UUID
+	var previousID ulid.ULID
 	for index, table := range tables {
-		id, err := canonicalUUID(table.TableID)
-		if err != nil || id[6]>>4 != 7 || id[8]&0xc0 != 0x80 {
-			return errors.New("initial SQL table ID must be a canonical UUIDv7")
+		id, err := canonicalID(table.TableID)
+		if err != nil {
+			return errors.New("initial SQL table ID must be a canonical ULID")
 		}
 		if _, exists := collectionIDs[id]; exists {
 			return errors.New("initial SQL table ID duplicates a catalog collection ID")
 		}
 		if index > 0 && bytes.Compare(previousID[:], id[:]) >= 0 {
-			return errors.New("initial SQL tables must be strictly sorted by UUID bytes")
+			return errors.New("initial SQL tables must be strictly sorted by ULID bytes")
 		}
 		previousID = id
 		if _, exists := names[table.Name]; exists {
@@ -108,9 +109,9 @@ func sqlTableRow(table InitialSQLTable) ([]byte, error) {
 	if table.KeyColumn == table.PayloadColumn {
 		return nil, errors.New("initial SQL key and payload columns must differ")
 	}
-	id, err := canonicalUUID(table.TableID)
-	if err != nil || id[6]>>4 != 7 || id[8]&0xc0 != 0x80 {
-		return nil, errors.New("initial SQL table ID must be a canonical UUIDv7")
+	id, err := canonicalID(table.TableID)
+	if err != nil {
+		return nil, errors.New("initial SQL table ID must be a canonical ULID")
 	}
 	row := make([]byte, 0, 28+3+len(table.Name)+len(table.KeyColumn)+len(table.PayloadColumn))
 	row = append(row, id[:]...)
@@ -152,10 +153,10 @@ func encodeSQLSchemaBundle(scope AuthorityScope, configurationID string, tables 
 	}
 	configuration, configurationErr := hex.DecodeString(configurationID)
 	cluster, clusterErr := hex.DecodeString(scope.ClusterID)
-	tenant, tenantErr := canonicalUUID(scope.TenantID)
-	database, databaseErr := canonicalUUID(scope.DatabaseID)
+	tenant, tenantErr := canonicalID(scope.TenantID)
+	database, databaseErr := canonicalID(scope.DatabaseID)
 	if configurationErr != nil || len(configuration) != sha256.Size ||
-		clusterErr != nil || len(cluster) != 16 || allZero(cluster) || tenantErr != nil || databaseErr != nil ||
+		clusterErr != nil || !lowerHexIdentity(scope.ClusterID) || allZero(cluster[:]) || tenantErr != nil || databaseErr != nil ||
 		scope.ShardID == 0 || scope.Epoch == 0 {
 		return nil, errors.New("SQL schema bundle authority scope is invalid")
 	}
@@ -166,7 +167,7 @@ func encodeSQLSchemaBundle(scope AuthorityScope, configurationID string, tables 
 	payload = binary.LittleEndian.AppendUint16(payload, sqlSchemaBundleVersion)
 	payload = binary.LittleEndian.AppendUint16(payload, uint16(len(tables)))
 	payload = append(payload, configuration...)
-	payload = append(payload, cluster...)
+	payload = append(payload, cluster[:]...)
 	payload = append(payload, tenant[:]...)
 	payload = append(payload, database[:]...)
 	payload = binary.LittleEndian.AppendUint64(payload, scope.ShardID)
@@ -213,11 +214,11 @@ func sqlTableSetDigest(tables []InitialSQLTable) (string, error) {
 func initialSQLTableIDs(tables []InitialSQLTable) []string {
 	ids := make([]string, 0, len(tables))
 	for _, table := range tables {
-		id, err := canonicalUUID(table.TableID)
+		id, err := canonicalID(table.TableID)
 		if err != nil {
 			return nil
 		}
-		ids = append(ids, hex.EncodeToString(id[:]))
+		ids = append(ids, id.String())
 	}
 	return ids
 }

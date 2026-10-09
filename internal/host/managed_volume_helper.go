@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"io"
 	"log/slog"
 	"net"
@@ -266,7 +267,7 @@ func verifyVolumeInitPermit(cfg VolumeInitConfig, signed protocol.Envelope, meta
 	if err := decodeStrict([]byte(signed.Payload), &reply); err != nil {
 		return volumeInitPermit{}, err
 	}
-	if reply.Error != "" || reply.Nonce != signed.OperationID || reply.Epoch != signed.Epoch ||
+	if reply.Error != "" || !lowerHex(reply.Nonce, 32) || entityid.Derive("host-request", reply.Nonce) != signed.OperationID || reply.Epoch != signed.Epoch ||
 		reply.Operation != "volume-init" || reply.Node != cfg.Node || reply.SessionID == "" {
 		return volumeInitPermit{}, errors.New("volume initializer response binding is invalid")
 	}

@@ -53,7 +53,7 @@ printf '%%s\n%%s\n%%s\n' "$PATH" "$LANG" "${OCI_CONFIG_FILE-unset}" > %s
 	t.Setenv("OCI_CONFIG_FILE", "must-not-be-inherited")
 	want := Config{
 		NATS: natscell.Config{Cell: "gru", Instance: "broker-a", Replicas: 3, CredentialsFile: "/var/lib/example/controller.creds"},
-		Controller: ControllerConfig{CandidateID: "broker-a", ArtifactStoreMaxBytes: 64 << 20,
+		Controller: ControllerConfig{CandidateID: "0000000000RTDFYAHDCP6Y401P", ArtifactStoreMaxBytes: 64 << 20,
 			TrustedSigners: []TrustedSignerConfig{{Actor: "operator", PublicKey: "public-key", Roles: []string{"terrabase"}}},
 			Workloads:      map[string]WorkloadProfile{"terrabase": {Args: []string{"-region", "gru"}, Env: map[string]string{"LOG_LEVEL": "debug"}}}},
 	}

@@ -14,9 +14,9 @@ import (
 func completedManagedSlotForRetirement() SlotState {
 	result := strings.Repeat("c", 64)
 	return SlotState{
-		Intent: Intent{SchemaVersion: 2, Mode: IntentModeManaged, DeploymentID: "deployment-1", Cell: "GRU",
+		Intent: Intent{SchemaVersion: 2, Mode: IntentModeManaged, DeploymentID: "0000000000DMC7WFP9VHV640EP", Cell: "GRU",
 			Environment: "production", Role: roleController, Slot: "controller-b", Attempt: 1, Generation: 1,
-			CreateKey: "founder-controller-b-0123456789abcdef01234567"},
+			CreateKey: "0000000000BGNP7XAX1V0HT06F"},
 		Head: SlotHead{SchemaVersion: 2, Slot: "controller-b", Attempt: 1, Generation: 1,
 			IntentDigest: strings.Repeat("a", 64), ResultDigest: result, CandidateDigest: strings.Repeat("d", 64)},
 		Result:       &Result{InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.controller-b", Attempt: 1},

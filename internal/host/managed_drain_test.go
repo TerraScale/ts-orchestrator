@@ -18,7 +18,7 @@ import (
 func TestManagedDrainCommandPersistsAcrossLeaderEpoch(t *testing.T) {
 	registration, desired, hostKey := managedContractFixture()
 	registration.ManagedPlacement = &ManagedPlacementBinding{
-		DatabaseID: "db-main", PartitionID: "partition-a", SeatID: "permanent-a",
+		DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "000000000082AXF7GZQT1D126Y",
 		IntentGeneration: 1, IntentPayloadDigest: strings.Repeat("1", 64),
 		CanonicalRosterDigest: strings.Repeat("2", 64), ManagedHostProfileDigest: strings.Repeat("3", 64),
 	}
@@ -36,7 +36,7 @@ func TestManagedDrainCommandPersistsAcrossLeaderEpoch(t *testing.T) {
 		LiveS3TargetSHA256:                  strings.Repeat("8", 64),
 		LiveS3Credential:                    oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3},
 		ReplicationListenAddress:            "10.0.0.11:7000",
-		ReplicationPeerMemberID:             "018f0000-0000-7000-8000-000000000002",
+		ReplicationPeerMemberID:             "01HW000000E008000000000002",
 		ReplicationPeerAddress:              "10.0.0.12:7001", ReplicationServerCASHA256: strings.Repeat("6", 64),
 	}
 	desired.ManagedMember.AttachmentETag = "etag-current"
@@ -54,7 +54,7 @@ func TestManagedDrainCommandPersistsAcrossLeaderEpoch(t *testing.T) {
 	if _, err := controller.ApplyDesired(t.Context(), desired); err != nil {
 		t.Fatal(err)
 	}
-	sessionID := strings.Repeat("4", 32)
+	sessionID := "00000000000000000000000004"
 	accepted, err := controller.handleSession(t.Context(), signedHostRequest(t, hostKey, "session", sessionID, 0,
 		struct {
 			Kind string `json:"kind"`
@@ -65,7 +65,7 @@ func TestManagedDrainCommandPersistsAcrossLeaderEpoch(t *testing.T) {
 	s := accepted.(session)
 	proof := memberstatus.ServingProof{
 		SchemaVersion: 1, Nonce: strings.Repeat("5", 32),
-		Process:   memberstatus.Process{PID: 1234, StartNonce: strings.Repeat("6", 32)},
+		Process:   memberstatus.Process{PID: 1234, StartNonce: "000000000000fd5c0c024bbce2e4de6a"},
 		Scope:     drainIdentity(ManagedDrainCommand{Member: desired.ManagedMember.Member}).Scope,
 		Authority: drainIdentity(ManagedDrainCommand{Authority: desired.ManagedMember.Authority}).Authority,
 		Serving:   true, Listeners: memberstatus.Listeners{Client: true, Replication: true},
@@ -75,7 +75,7 @@ func TestManagedDrainCommandPersistsAcrossLeaderEpoch(t *testing.T) {
 		},
 		Replication: memberstatus.ReplicationProof{
 			LocalSourceSequence: 12, PeerMemberID: desired.ManagedMember.Runtime.ReplicationPeerMemberID,
-			PeerIncarnation: strings.Repeat("a", 32), CurrentAuthenticated: true,
+			PeerIncarnation: "0000000000000000000000000000000a", CurrentAuthenticated: true,
 			PeerDurableSequence: 12, PeerAppliedSequence: 12,
 		},
 	}
@@ -100,7 +100,7 @@ func TestManagedDrainCommandPersistsAcrossLeaderEpoch(t *testing.T) {
 		t.Fatal(err)
 	}
 	command := ManagedDrainCommand{
-		OperationID: strings.Repeat("b", 32), Node: desired.Node, Role: desired.Role,
+		OperationID: "5VQEXVQEXVQEXVQEXVQEXVQEXV", Node: desired.Node, Role: desired.Role,
 		Epoch: 1, DesiredGeneration: desired.Generation, ExpectedETag: "instance-etag",
 		Member: desired.ManagedMember.Member, Authority: desired.ManagedMember.Authority,
 		OCI: desired.ManagedMember.OCI, VolumeID: desired.ManagedMember.VolumeID,
@@ -127,17 +127,17 @@ func TestManagedDrainCommandPersistsAcrossLeaderEpoch(t *testing.T) {
 func TestManagedDrainCommandBindsDesiredAndNativeProcess(t *testing.T) {
 	registration, desired, _ := managedContractFixture()
 	desired.ManagedMember.Runtime = &ManagedRuntimePins{
-		ReplicationPeerMemberID: "018f0000-0000-7000-8000-000000000002",
+		ReplicationPeerMemberID: "01HW000000E008000000000002",
 	}
 	command := ManagedDrainCommand{
-		OperationID: strings.Repeat("1", 32), Node: desired.Node, Role: desired.Role,
+		OperationID: "0H248H248H248H248H248H248H", Node: desired.Node, Role: desired.Role,
 		Epoch: 2, DesiredGeneration: desired.Generation, ExpectedETag: "etag-current",
 		Member: desired.ManagedMember.Member, Authority: desired.ManagedMember.Authority,
 		OCI: desired.ManagedMember.OCI, VolumeID: desired.ManagedMember.VolumeID,
 		AttachmentID:    desired.ManagedMember.AttachmentID,
-		ExpectedProcess: memberstatus.Process{PID: 1234, StartNonce: strings.Repeat("2", 32)},
+		ExpectedProcess: memberstatus.Process{PID: 1234, StartNonce: "00000000000064eeb57eb73c4a8035be"},
 		Survivor: memberstatus.Survivor{MemberID: desired.ManagedMember.Runtime.ReplicationPeerMemberID,
-			Incarnation: strings.Repeat("3", 32)},
+			Incarnation: "33333333333333333333333333333333"},
 		SourceSequence: 12,
 	}
 	if !command.matchesDesired(desired, registration) {
@@ -148,7 +148,7 @@ func TestManagedDrainCommandBindsDesiredAndNativeProcess(t *testing.T) {
 	if !sameManagedDrainOperation(command, newLeader) {
 		t.Fatal("leader change changed the durable member drain operation")
 	}
-	newLeader.OperationID = strings.Repeat("9", 32)
+	newLeader.OperationID = "00000000000000000000000009"
 	if sameManagedDrainOperation(command, newLeader) {
 		t.Fatal("new operation reused an existing member drain command")
 	}

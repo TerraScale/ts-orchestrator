@@ -57,7 +57,7 @@ func TestManagedCredentialFloorRejectsOldHostSessionAndReadOutage(t *testing.T) 
 		managedRegistrationVerifierFunc(func(context.Context, Registration) error { return nil }))
 	registration, _, hostKey := managedContractFixture()
 	registration.ManagedPlacement = &ManagedPlacementBinding{
-		DatabaseID: "database-a", PartitionID: "partition-a", SeatID: "seat-a",
+		DatabaseID: "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "000000000077F1R6E1XPKAC2D4",
 		IntentGeneration: 1, IntentPayloadDigest: strings.Repeat("a", 64),
 		CanonicalRosterDigest: strings.Repeat("b", 64), ManagedHostProfileDigest: strings.Repeat("c", 64),
 	}
@@ -65,7 +65,7 @@ func TestManagedCredentialFloorRejectsOldHostSessionAndReadOutage(t *testing.T) 
 		t.Fatal(err)
 	}
 	controller.credentialFloor = func(context.Context, Registration) (uint64, error) { return 1, nil }
-	sessionID := "0123456789abcdef0123456789abcdef"
+	sessionID := "014D2PF2DBSQQG28T5CY4TQKFF"
 	acquire := signedHostRequest(t, hostKey, "session", sessionID, 0, struct {
 		Kind string `json:"kind"`
 	}{"acquire"})

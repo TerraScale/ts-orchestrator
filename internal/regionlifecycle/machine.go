@@ -14,6 +14,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -72,7 +74,7 @@ type Proposal struct {
 
 // Validate requires bounded identities, evidence digests and a cost estimate.
 func (p Proposal) Validate() error {
-	if !idToken.MatchString(p.ID) || !cellToken.MatchString(p.Cell) || p.Cell == protocol.GlobalScope ||
+	if !entityid.Valid(p.ID) || !cellToken.MatchString(p.Cell) || p.Cell == protocol.GlobalScope ||
 		p.OCIRegion == "" || len(p.OCIRegion) > 63 || p.Reason == "" || len(p.Reason) > 256 ||
 		len(p.EvidenceDigests) == 0 || len(p.EvidenceDigests) > maxEvidence ||
 		p.EstimatedMonthlyCents == 0 || p.ProposedAt.IsZero() {
@@ -289,9 +291,7 @@ type Machine struct {
 // that later reuses an older proposal ID (only the immediately preceding one
 // is refused) never reuses that attempt's OCI retry tokens or tags.
 func CreateKey(cell, proposalID string, proposalGeneration uint64, step Step) string {
-	digest := sha256.Sum256([]byte("terrascale-region-step-v2\x00" + cell + "\x00" + proposalID + "\x00" +
-		strconv.FormatUint(proposalGeneration, 10) + "\x00" + string(step)))
-	return hex.EncodeToString(digest[:16])
+	return entityid.Derive("region-step", cell, proposalID, strconv.FormatUint(proposalGeneration, 10), string(step))
 }
 
 // Propose creates a new Proposed record.

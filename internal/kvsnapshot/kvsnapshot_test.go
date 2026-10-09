@@ -82,6 +82,7 @@ type fakeObjects struct {
 	puts    int // successful PutObject calls
 	etags   int
 	getErr  error
+	putErr  error
 	lastKMS string
 }
 
@@ -104,6 +105,9 @@ func (fake *fakeObjects) GetObject(_ context.Context, request objectstorage.GetO
 func (fake *fakeObjects) PutObject(_ context.Context, request objectstorage.PutObjectRequest) (objectstorage.PutObjectResponse, error) {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
+	if fake.putErr != nil {
+		return objectstorage.PutObjectResponse{}, fake.putErr
+	}
 	data, err := io.ReadAll(request.PutObjectBody)
 	if err != nil {
 		return objectstorage.PutObjectResponse{}, err

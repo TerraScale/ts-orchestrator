@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"io"
 	"os"
 	"strings"
@@ -60,7 +61,7 @@ func TestWorkerRejectsMissingLatencyEvidenceAndCleansUp(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("TS_761_PODMAN_STATE", state)
 	t.Setenv("TS_761_PODMAN_MODE", "missing-fields")
-	job := Job{ID: newID(), Region: "gru", Workload: workload(t), Clients: []string{"go"}, Images: map[string]string{"go": "test"}}
+	job := Job{ID: entityid.New(), Region: "gru", Workload: workload(t), Clients: []string{"go"}, Images: map[string]string{"go": "test"}}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	var out bytes.Buffer

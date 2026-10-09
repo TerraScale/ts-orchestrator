@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/capacity"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
@@ -89,7 +90,7 @@ func TestRunnerRampPersistsAndStopsAtFirstUnsafeStep(t *testing.T) {
 	calls := 0
 	g := generatorFunc(func(ctx context.Context, id string, w Workload, clients []string, emit func(Sample) error) error {
 		calls++
-		if !idPattern.MatchString(id) {
+		if !entityid.Valid(id) {
 			t.Fatal("run ID is not a ULID")
 		}
 		if w.Concurrency == 2 {
@@ -204,10 +205,10 @@ func TestServiceLimitCanBeTheBottleneckOnAnIdleNode(t *testing.T) {
 	}
 }
 
-func TestPinnedSDKRejectsULIDProjectBeforeNetwork(t *testing.T) {
-	project := newID()
-	runID := newID()
-	requests := 0
+func TestSDKPersistsULIDKeysWithoutPayloadIDs(t *testing.T) {
+	project := entityid.New()
+	runID := entityid.New()
+	requests, documents := 0, 0
 	key := "tb_" + strings.Repeat("a", 43)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -219,11 +220,19 @@ func TestPinnedSDKRejectsULIDProjectBeforeNetwork(t *testing.T) {
 			t.Errorf("non-public SDK path %s", r.URL.Path)
 		}
 		if strings.Contains(r.URL.Path, "/documents/") {
-			id := filepath.Base(r.URL.Path)
-			if !idPattern.MatchString(id) {
+			id := r.URL.Query().Get("id")
+			if !entityid.Valid(id) {
 				t.Errorf("non-ULID entity %s", id)
 			}
+			documents++
 			data, _ := io.ReadAll(r.Body)
+			var payload map[string]json.RawMessage
+			if err := json.Unmarshal(data, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if _, repeated := payload["id"]; repeated {
+				t.Error("document payload repeated its entity ID")
+			}
 			if strings.Contains(r.URL.Path, "/runs/") && strings.Contains(string(data), `"samples":[`) {
 				t.Error("run duplicated result history")
 			}
@@ -231,15 +240,24 @@ func TestPinnedSDKRejectsULIDProjectBeforeNetwork(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("ETag", `"tbv1-test"`)
 		w.WriteHeader(201)
-		_, _ = io.WriteString(w, `{"name":"benchmark","id":"`+runID+`","version":"tbv1-test"}`)
+		_, _ = io.WriteString(w, `{"name":"benchmark","id":"`+runID+`","projectId":"`+project+`","version":"tbv1-test"}`)
 	}))
 	defer server.Close()
-	_, err := NewRepository(t.Context(), server.URL, project, key)
-	if err == nil || !strings.Contains(err.Error(), "SDK_BLOCKED") || !strings.Contains(err.Error(), "UUID") {
-		t.Fatalf("SDK contract blocker was hidden: %v", err)
+	repo, err := NewRepository(t.Context(), server.URL, project, key)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if requests != 0 {
-		t.Fatalf("SDK emitted %d requests before rejecting ULID", requests)
+	if err := repo.SaveRun(t.Context(), Run{ID: runID, Stages: []Stage{{Samples: []Sample{{Count: 1}}}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SaveResult(t.Context(), runID, 0, Sample{Count: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SaveUsage(t.Context(), runID, 0, capacity.Usage{}); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 7 || documents != 3 {
+		t.Fatalf("SDK requests=%d documents=%d; want 7 and 3", requests, documents)
 	}
 }
 
@@ -282,7 +300,7 @@ func TestContainersCleanUpAfterMalformedOutputWithoutExposingSecrets(t *testing.
 	if err := os.WriteFile(filepath.Join(state, "foreign"), []byte("foreign"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	job := Job{ID: newID(), Region: "gru", Workload: workload(t), Clients: []string{"go", "rust"}, Images: map[string]string{"go": "image-go", "rust": "image-rust"}}
+	job := Job{ID: entityid.New(), Region: "gru", Workload: workload(t), Clients: []string{"go", "rust"}, Images: map[string]string{"go": "image-go", "rust": "image-rust"}}
 	var output bytes.Buffer
 	err = runContainers(t.Context(), job, map[string]string{"TS_BENCH_CLIENT_ID": "test-client", "TS_BENCH_CLIENT_SECRET": "private-test-value"}, &output)
 	if err == nil {

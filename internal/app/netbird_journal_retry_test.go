@@ -26,13 +26,13 @@ func TestNetBirdRecoverySaveSurvivesUnchangedIssuanceDuringHealthAndReturn(t *te
 		"10.0.0.1": "ts-gru-1", "10.0.0.2": "ts-gru-2", "10.0.0.3": "ts-gru-3",
 	}}}
 	now := time.Now().UTC()
-	record := network.Record{ID: "upgrade", Node: "node-a", Previous: "0.79.0", Target: target,
+	record := network.Record{ID: "7E5HKSCCJSQJGMM2DVVHCQDQFV", Node: "node-a", Previous: "0.79.0", Target: target,
 		PinHash: network.Hash(target), Phase: "rollback-check", RollbackRequired: new(true),
 		StartedAt: now.Add(-time.Minute), Deadline: now.Add(time.Minute)}
 	if err := saveNetBirdTestRecord(t.Context(), &n, 3, record); err != nil {
 		t.Fatal(err)
 	}
-	command := network.Command{ID: record.ID + ".rollback", Transaction: record.ID, Action: "rollback", Target: target}
+	command := network.Command{ID: network.CommandID(record.ID, "rollback"), Transaction: record.ID, Action: "rollback", Target: target}
 	if err := saveNetBirdTestCommand(t.Context(), &n, 3, record.Node, command); err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestNetBirdJournalRetryRejectsChangedOriginalPayload(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			n := netbirdRollout{fence: &releaseFence{fencer: &fenceLease{}}}
-			original := netbirdState{Record: network.Record{ID: "upgrade", Node: "node-a", Phase: "install"}}
+			original := netbirdState{Record: network.Record{ID: "7E5HKSCCJSQJGMM2DVVHCQDQFV", Node: "node-a", Phase: "install"}}
 			snapshot := netbirdState{}
 			if err := n.commitStateAt(t.Context(), 3, &snapshot, original); err != nil {
 				t.Fatal(err)
@@ -136,7 +136,7 @@ func TestNetBirdJournalRetryRemainsBoundedAndFenced(t *testing.T) {
 		t.Run(map[bool]string{false: "bounded", true: "fenced"}[fenced], func(t *testing.T) {
 			lease := &netbirdConflictingLease{fenceLease: &fenceLease{}, fence: fenced}
 			n := netbirdRollout{fence: &releaseFence{fencer: lease}}
-			original := netbirdState{Record: network.Record{ID: "upgrade", Node: "node-a", Phase: "install"}}
+			original := netbirdState{Record: network.Record{ID: "7E5HKSCCJSQJGMM2DVVHCQDQFV", Node: "node-a", Phase: "install"}}
 			wire, err := json.Marshal(original)
 			if err != nil {
 				t.Fatal(err)

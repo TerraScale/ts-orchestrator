@@ -15,12 +15,12 @@ func TestStoreActiveAndKnownBadFollowTheCellSlot(t *testing.T) {
 	if _, err := store.IsKnownBad(ctx, "not-a-digest"); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("malformed digest = %v", err)
 	}
-	record, revision, err := store.Begin(ctx, testSpec("r1"), testStart)
+	record, revision, err := store.Begin(ctx, testSpec("0000000000GBSYKHMNVHNRT6RH"), testStart)
 	if err != nil {
 		t.Fatal(err)
 	}
 	active, activeRevision, ok, err := store.Active(ctx)
-	if err != nil || !ok || active.RolloutID != "r1" || activeRevision != revision {
+	if err != nil || !ok || active.RolloutID != "0000000000GBSYKHMNVHNRT6RH" || activeRevision != revision {
 		t.Fatalf("active = %s %d %v %v", active.RolloutID, activeRevision, ok, err)
 	}
 	if err := store.Settle(ctx, active, 7); err != nil {

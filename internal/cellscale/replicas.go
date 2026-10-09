@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 const ReplicaPath = "/v1/cell/replicas"
@@ -57,7 +59,7 @@ func (s ReplicaSnapshot) Validate() error {
 	seen := map[key]bool{}
 	for _, placement := range s.Placements {
 		k := key{placement.Org, placement.Database, placement.Shard}
-		if !orgRE.MatchString(placement.Org) || !releaseRE.MatchString(placement.Database) || placement.Shard == 0 ||
+		if !entityid.Valid(placement.Org) || !entityid.Valid(placement.Database) || placement.Shard == 0 ||
 			placement.LiveReplicas == nil || seen[k] {
 			return errors.New("invalid or duplicate database/shard placement")
 		}

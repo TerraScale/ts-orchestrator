@@ -15,6 +15,8 @@ import (
 	"time"
 	"unicode"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
@@ -53,6 +55,7 @@ var ErrDesiredConflict = errors.New("desired generation or target conflicts with
 // Registration is the controller's durable allowlist for one host identity.
 // PublicKey is a base64 encoded Ed25519 key; a higher Generation rotates it.
 type Registration struct {
+	ID                 string                   `json:"host_id"`
 	Cell               string                   `json:"cell"`
 	Node               string                   `json:"node"`
 	FailureDomain      string                   `json:"failure_domain"`
@@ -373,6 +376,9 @@ func validateDigest(value string) error {
 }
 
 func validateRegistration(r Registration, cell string) error {
+	if r.ID != "" && !entityid.Valid(r.ID) {
+		return errors.New("host ID must be a canonical ULID")
+	}
 	if r.Cell != cell {
 		return errors.New("registration belongs to another cell")
 	}
@@ -438,13 +444,13 @@ func validateRegistration(r Registration, cell string) error {
 }
 
 func validateManagedPlacementBinding(binding ManagedPlacementBinding) error {
-	if err := validateToken(binding.DatabaseID, "managed placement database id"); err != nil {
+	if err := validateEntityID(binding.DatabaseID); err != nil {
 		return err
 	}
-	if err := validateToken(binding.PartitionID, "managed placement partition id"); err != nil {
+	if err := validateEntityID(binding.PartitionID); err != nil {
 		return err
 	}
-	if err := validateToken(binding.SeatID, "managed placement seat id"); err != nil {
+	if err := validateEntityID(binding.SeatID); err != nil {
 		return err
 	}
 	if binding.IntentGeneration == 0 || validateDigest(binding.IntentPayloadDigest) != nil ||
@@ -481,7 +487,7 @@ func ValidateManagedRegistrationPins(registration Registration, pins ManagedRegi
 
 func validateManagedMemberBinding(binding ManagedMemberBinding) error {
 	scope := binding.Scope
-	if !lowerHex(scope.ClusterID, 32) || !lowerHex(scope.Incarnation, 32) ||
+	if !lowerHexIdentity(scope.ClusterID) || !lowerHexIdentity(scope.Incarnation) ||
 		!canonicalMemberID(scope.TenantID) || !canonicalMemberID(scope.DatabaseID) ||
 		!canonicalMemberID(scope.MemberID) || scope.ShardID == 0 || binding.HostAttempt == 0 {
 		return errors.New("managed member identity is invalid")
@@ -662,4 +668,11 @@ func validPrivateIPv4Endpoint(address string) bool {
 	endpoint, err := netip.ParseAddrPort(address)
 	return err == nil && endpoint.String() == address && endpoint.Port() != 0 &&
 		endpoint.Addr().Is4() && endpoint.Addr().IsPrivate()
+}
+
+func validateEntityID(value string) error {
+	if !entityid.Valid(value) {
+		return errors.New("entity ID must be a canonical uppercase ULID")
+	}
+	return nil
 }

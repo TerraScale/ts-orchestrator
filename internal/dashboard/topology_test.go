@@ -23,9 +23,9 @@ func topologyFixture(query string) view {
 		member.Cell, member.Member = "gru", name
 		member.NATS.ServerName, member.NATS.IsMetaLeader = "gru-1-"+name, index == 0
 		member.NATS.MetaPeers, member.NATS.ClusterPeers, member.NATS.Connections = nil, 3, 4+index
-		member.Placement = &observability.PlacementView{Databases: []observability.DatabaseView{{DatabaseID: "orders",
-			PartitionID: "p0", Members: []observability.MemberView{{SeatID: "s1", Stage: "serving", HostNode: "ts-gru-1"},
-				{SeatID: "s2", Stage: "serving", HostNode: "ts-gru-2"}, {SeatID: "s3", Stage: "serving", HostNode: "ts-gru-3"}}}}}
+		member.Placement = &observability.PlacementView{Databases: []observability.DatabaseView{{DatabaseID: "00000000000DMQEY0YD7RZ04RR",
+			PartitionID: "00000000003K6TBW31R91GBDRD", Members: []observability.MemberView{{SeatID: "0000000000DNKA8DBDEPN1J9XM", Stage: "serving", HostNode: "ts-gru-1"},
+				{SeatID: "0000000000K6ST06WNWDFCTSJY", Stage: "serving", HostNode: "ts-gru-2"}, {SeatID: "000000000036XR713YE93E9M0S", Stage: "serving", HostNode: "ts-gru-3"}}}}}
 		members = append(members, member)
 		summaryMembers = append(summaryMembers, regionview.Member{Name: name, Role: "controller", Ready: true,
 			Version: "v0.43.0", MetaLeader: index == 0})

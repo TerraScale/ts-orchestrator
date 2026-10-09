@@ -6,18 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// Bucket is the cell's tenant KV bucket; a tenant is the key tenant.<id>.
+// Bucket is the cell's tenant KV bucket; each key is the tenant ULID.
 const Bucket = "TS_TENANTS"
 
 const (
-	keyPrefix     = "tenant."
 	maxValueBytes = 8 << 10
 	// clockSkew is how far past the store's clock a write may be stamped.
 	clockSkew = time.Minute
@@ -117,7 +117,7 @@ func (s *Store) Create(ctx context.Context, t Tenant) (Versioned, error) {
 	if err != nil {
 		return Versioned{}, err
 	}
-	revision, err := s.kv.Update(ctx, keyPrefix+t.ID, data, 0)
+	revision, err := s.kv.Update(ctx, t.ID, data, 0)
 	if errors.Is(err, jetstream.ErrKeyExists) || errors.Is(err, jetstream.ErrKeyRevisionMismatch) {
 		return Versioned{}, fmt.Errorf("%w: %s", ErrExists, t.ID)
 	}
@@ -147,7 +147,7 @@ func (s *Store) Update(ctx context.Context, revision uint64, next Tenant) (Versi
 	if err != nil {
 		return Versioned{}, err
 	}
-	revision, err = s.kv.Update(ctx, keyPrefix+next.ID, data, revision)
+	revision, err = s.kv.Update(ctx, next.ID, data, revision)
 	if errors.Is(err, jetstream.ErrKeyExists) || errors.Is(err, jetstream.ErrKeyRevisionMismatch) {
 		return Versioned{}, fmt.Errorf("%w: %s", ErrConflict, next.ID)
 	}
@@ -160,10 +160,10 @@ func (s *Store) Update(ctx context.Context, revision uint64, next Tenant) (Versi
 // Get reads one tenant. Tenants are never removed, so a delete marker is
 // tampering, not absence.
 func (s *Store) Get(ctx context.Context, id string) (Versioned, error) {
-	if !idRE.MatchString(id) {
+	if !entityid.Valid(id) {
 		return Versioned{}, fmt.Errorf("%w: id %q", ErrInvalid, id)
 	}
-	key := keyPrefix + id
+	key := id
 	msg, err := s.leader.GetLastMsg("KV_"+Bucket, "$KV."+Bucket+"."+key, nats.Context(ctx))
 	if errors.Is(err, nats.ErrMsgNotFound) {
 		return Versioned{}, fmt.Errorf("%w: %s", ErrNotFound, id)
@@ -184,7 +184,7 @@ func (s *Store) Get(ctx context.Context, id string) (Versioned, error) {
 // fails the list, and so does a listing cut short, so a reconciler never
 // takes a tampered or truncated bucket for tenants that are gone.
 func (s *Store) List(ctx context.Context) ([]Versioned, error) {
-	watcher, err := s.kv.WatchFiltered(ctx, []string{keyPrefix + "*"}, jetstream.MetaOnly())
+	watcher, err := s.kv.WatchFiltered(ctx, []string{"*"}, jetstream.MetaOnly())
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +196,7 @@ func (s *Store) List(ctx context.Context) ([]Versioned, error) {
 			complete = true
 			break
 		}
-		ids = append(ids, strings.TrimPrefix(entry.Key(), keyPrefix))
+		ids = append(ids, entry.Key())
 	}
 	if !complete {
 		if err := ctx.Err(); err != nil {
@@ -233,7 +233,7 @@ func decode(key string, value []byte, revision uint64) (Versioned, error) {
 	if err := t.Validate(); err != nil {
 		return Versioned{}, fmt.Errorf("%w: %s: %v", ErrCorrupt, key, err)
 	}
-	if key != keyPrefix+t.ID {
+	if key != t.ID {
 		return Versioned{}, fmt.Errorf("%w: %s holds tenant %s", ErrCorrupt, key, t.ID)
 	}
 	return Versioned{Tenant: t, Revision: revision}, nil

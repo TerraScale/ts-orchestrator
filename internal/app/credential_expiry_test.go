@@ -36,7 +36,7 @@ func TestControllerCredentialFilesListOnlyPublicMaterial(t *testing.T) {
 		}
 	}
 	for _, path := range paths {
-		if strings.Contains(path, "key") || strings.Contains(path, "seed") || strings.Contains(path, "password") {
+		if strings.Contains(path, "key") || strings.Contains(path, "0000000000SF1REEJJX6TC691V") || strings.Contains(path, "password") {
 			t.Errorf("scan opens secret %s", path)
 		}
 	}

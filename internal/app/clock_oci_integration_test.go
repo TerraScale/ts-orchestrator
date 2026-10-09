@@ -64,7 +64,7 @@ func TestUnhealthyAuthorityClockStopsOCILaunchBeforeIntent(t *testing.T) {
 	t.Cleanup(func() { _ = broker.Close() })
 	var healthy atomic.Bool
 	healthy.Store(true)
-	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: "gru", CandidateID: "clock-oci", Replicas: 1,
+	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: "gru", CandidateID: "0000000000999SG7965GCYC9GD", Replicas: 1,
 		ClockCheck: func() error {
 			if !healthy.Load() {
 				return authority.ErrClockUnhealthy
@@ -94,11 +94,11 @@ func TestUnhealthyAuthorityClockStopsOCILaunchBeforeIntent(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = fleet.EnsureHost(ctx, oci.EnsureRequest{
-		Name: "gru-1-db-1", CreateKey: "clock-fenced-host", PrivateIP: "10.251.0.21", FaultDomain: "FAULT-DOMAIN-1",
+		Name: "gru-1-db-1", CreateKey: "0000000000WTMKBKTNXTWEMRYP", PrivateIP: "10.251.0.21", FaultDomain: "FAULT-DOMAIN-1",
 		Shape: region.Shape, WholeOCPUs: 1, MemoryInGBs: 6,
 		PlacementProfileDigest: strings.Repeat("a", 64), PlacementGeneration: 1,
 		BootPins: oci.HostBootPins{
-			DatabaseID: "db-clock", PartitionID: "partition-clock", SeatID: "permanent-gru",
+			DatabaseID: "0000000000SPNBE1B5PSS9BMK6", PartitionID: "0000000000R8WYPN3QERZ3PEKH", SeatID: "0000000000M4R4NE7RJXQ9M8NM",
 			HostAttempt: 1, IntentPayloadDigest: strings.Repeat("b", 64),
 			CanonicalRosterDigest: strings.Repeat("c", 64), RuntimeManifestDigest: strings.Repeat("d", 64),
 		},

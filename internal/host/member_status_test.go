@@ -14,14 +14,14 @@ import (
 	"time"
 )
 
-const memberStatusFixture = `{"schema_version":2,"nonce":"00000000000000000000000000000001","process":{"pid":123,"start_nonce":"00000000000000000000000000000002"},"scope":{"cluster_id":"00000000000000000000000000000003","tenant_id":"018f0000-0000-7000-8000-000000000001","database_id":"018f0000-0000-7000-8000-000000000002","shard_id":1,"member_id":"018f0000-0000-7000-8000-000000000003","incarnation":"00000000000000000000000000000004"},"authority":{"epoch":1,"configuration_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","certificate_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","tls_leaf_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"local":{"storage_recovered":true,"replication_listener_ready":true,"healthy":true,"ready":false},"receiver_only":false,"serving":false,"capabilities":{"serving_proof":true,"durable_drain":true}}`
+const memberStatusFixture = `{"schema_version":2,"nonce":"00000000000000000000000000000001","process":{"pid":123,"start_nonce":"00000000000000000000000000000002"},"scope":{"cluster_id":"00000000000000000000000000000003","tenant_id":"01HW000000E008000000000001","database_id":"01HW000000E008000000000002","shard_id":1,"member_id":"01HW000000E008000000000003","incarnation":"00000000000000000000000000000004"},"authority":{"epoch":1,"configuration_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","certificate_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","tls_leaf_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"local":{"storage_recovered":true,"replication_listener_ready":true,"healthy":true,"ready":false},"receiver_only":false,"serving":false,"capabilities":{"serving_proof":true,"durable_drain":true}}`
 
 func memberFixtureExpectation() ExpectedMemberStatus {
 	return ExpectedMemberStatus{
 		Scope: MemberScope{
-			ClusterID: "00000000000000000000000000000003", TenantID: "018f0000-0000-7000-8000-000000000001",
-			DatabaseID: "018f0000-0000-7000-8000-000000000002", ShardID: 1,
-			MemberID: "018f0000-0000-7000-8000-000000000003", Incarnation: "00000000000000000000000000000004",
+			ClusterID: "00000000000000000000000000000003", TenantID: "01HW000000E008000000000001",
+			DatabaseID: "01HW000000E008000000000002", ShardID: 1,
+			MemberID: "01HW000000E008000000000003", Incarnation: "00000000000000000000000000000004",
 		},
 		Authority: MemberAuthority{
 			Epoch: 1, ConfigurationID: strings.Repeat("a", 64),
@@ -97,25 +97,25 @@ func TestDecodeMemberStatusServingRequiresLiveReadiness(t *testing.T) {
 	}
 }
 
-func TestMemberStatusRequiresNativeCanonicalUUID(t *testing.T) {
-	if !canonicalMemberID("018f0000-0000-7000-8000-000000000001") {
+func TestMemberStatusRequiresCanonicalULID(t *testing.T) {
+	if !canonicalMemberID("01HW000000E008000000000001") {
 		t.Fatal("native canonical UUID was rejected")
 	}
 	for _, value := range []string{
-		"01ARZ3NDEKTSV4RRFFQ69G5FAV",
+		"acct_0000000000Y3F2HK4F04NBVBD6",
 		"018F0000-0000-7000-8000-000000000001",
 		"018f0000000070008000000000000001",
-		"00000000-0000-0000-0000-000000000000",
+		"00000000000000000000000000",
 	} {
 		if canonicalMemberID(value) {
 			t.Fatalf("noncanonical or historical identity accepted: %q", value)
 		}
 	}
 	expected := memberFixtureExpectation()
-	expected.Scope.MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-	legacyBody := strings.Replace(memberStatusFixture, "018f0000-0000-7000-8000-000000000003", expected.Scope.MemberID, 1)
+	expected.Scope.MemberID = "018f0000-0000-7000-8000-000000000003"
+	legacyBody := strings.Replace(memberStatusFixture, "01HW000000E008000000000003", expected.Scope.MemberID, 1)
 	if _, err := decodeMemberStatus([]byte(legacyBody), "00000000000000000000000000000001", 123, expected); err == nil {
-		t.Fatal("historical ULID member status was accepted even with matching expectation")
+		t.Fatal("UUID member status was accepted even with matching expectation")
 	}
 	zeroShard := strings.Replace(memberStatusFixture, `"shard_id":1`, `"shard_id":0`, 1)
 	expected = memberFixtureExpectation()

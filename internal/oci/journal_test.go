@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -43,7 +45,7 @@ func TestJournalBootBindingSurvivesReopenAndRejectsRebinding(t *testing.T) {
 	}
 	config, _ := testRegionConfig()
 	binding := BootBinding{InstanceID: "ocid1.instance.boot-binding", BootVolumeID: "ocid1.bootvolume.boot-binding",
-		Region: config.Region, Generation: config.Generation, Owner: config.Owner, CreateKey: "boot-binding-host",
+		Region: config.Region, Generation: config.Generation, Owner: config.Owner, CreateKey: "00000000009R9M51DSAZK1GRKK",
 		CompartmentID: config.CompartmentID, AvailabilityDomain: config.AvailabilityDomain,
 		ImageID: config.ImageID, SizeGB: int64(config.BootVolumeGB), VPUsPerGB: int64(config.BootVolumeVPUsPerGB)}
 	if err := journal.RecordBootBinding(t.Context(), binding); err != nil {
@@ -75,7 +77,7 @@ func TestJournalRepairsOwnershipProjectionAfterPartialFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	intent := testLaunchIntent("node-create-journal-1")
+	intent := testLaunchIntent(entityid.Derive("test-operation", "node-create-journal-1"))
 	if err := journal.RecordIntent(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +104,7 @@ func TestJournalPinsSignedPlacementComputeProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	intent := testLaunchIntent("node-journal-profile")
+	intent := testLaunchIntent(entityid.Derive("test-operation", "node-journal-profile"))
 	if err := journal.RecordIntent(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
@@ -130,8 +132,8 @@ func TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome(t *testing.T)
 		t.Fatal(err)
 	}
 	intent := OperationIntent{
-		Action: actionVolumeCreate, Key: "data-volume-unknown", Region: RegionGRU,
-		Generation: 7, Owner: "orchestrator", CreateKey: "data-volume-unknown",
+		Action: actionVolumeCreate, Key: "00000000006S5Z7HCQC6MPC61G", Region: RegionGRU,
+		Generation: 7, Owner: "orchestrator", CreateKey: "00000000006S5Z7HCQC6MPC61G",
 		AvailabilityDomain: "sa-saopaulo-1-AD-1", SizeGB: 50, CreatedAt: time.Now().UTC(),
 	}
 	if err := journal.RecordIntent(ctx, intent); err != nil {
@@ -175,7 +177,7 @@ func TestJournalOperationLookupRecoversPersistedAttachmentDevice(t *testing.T) {
 	intent := OperationIntent{
 		Action: actionVolumeAttach, Key: "attach-journal-recovery", Region: RegionGRU,
 		Generation: 7, Owner: "orchestrator", ResourceID: "ocid1.instance.attach-target",
-		CreateKey: "host-create-key", VolumeID: "ocid1.volume.retained", ExpectedETag: "host-etag",
+		CreateKey: "0000000000NQKJR630FYJ4DPE1", VolumeID: "ocid1.volume.retained", ExpectedETag: "host-etag",
 		Device: "/dev/oracleoci/oraclevdb", IsReadOnly: false, IsShareable: false,
 		IsPvEncryptionInTransitEnabled: true, CreatedAt: time.Now().UTC(),
 	}
@@ -219,7 +221,7 @@ func TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding(t *testin
 	intent := OperationIntent{
 		Action: actionVolumeAttach, Key: "attach-projection-repair", Region: RegionGRU,
 		Generation: 7, Owner: "orchestrator", ResourceID: "ocid1.instance.attach-target",
-		CreateKey: "host-create-key", VolumeID: "ocid1.volume.retained", ExpectedETag: "host-etag",
+		CreateKey: "0000000000NQKJR630FYJ4DPE1", VolumeID: "ocid1.volume.retained", ExpectedETag: "host-etag",
 		Device: "/dev/oracleoci/oraclevdb", IsReadOnly: false, IsShareable: false,
 		IsPvEncryptionInTransitEnabled: true, CreatedAt: time.Now().UTC(),
 	}
@@ -282,7 +284,7 @@ func TestJournalConcurrentConflictingResultsHaveOneImmutableWinner(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	intent := testLaunchIntent("node-create-journal-race")
+	intent := testLaunchIntent(entityid.Derive("test-operation", "node-create-journal-race"))
 	if err := journal.RecordIntent(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
@@ -393,7 +395,7 @@ type failAttachmentProjectionKV struct {
 }
 
 func (kv *failAttachmentProjectionKV) Create(ctx context.Context, key string, value []byte, opts ...jetstream.KVCreateOpt) (uint64, error) {
-	if kv.failOnce && strings.HasPrefix(key, "attachment.") {
+	if kv.failOnce && decodeKind(value) == "attachment" {
 		kv.failOnce = false
 		return 0, errors.New("injected attachment projection failure")
 	}
@@ -401,7 +403,7 @@ func (kv *failAttachmentProjectionKV) Create(ctx context.Context, key string, va
 }
 
 func (kv *failOwnershipCreateKV) Create(ctx context.Context, key string, value []byte, opts ...jetstream.KVCreateOpt) (uint64, error) {
-	if kv.failOnce && strings.HasPrefix(key, "instance.") {
+	if kv.failOnce && decodeKind(value) == "instance" {
 		kv.failOnce = false
 		return 0, errors.New("injected projection failure")
 	}
@@ -426,3 +428,5 @@ func (kv *barrierGetKV) Get(ctx context.Context, key string) (jetstream.KeyValue
 	<-kv.release
 	return entry, nil
 }
+
+func decodeKind(value []byte) string { entry, _ := decodeJournalEntry(value); return entry.Kind }

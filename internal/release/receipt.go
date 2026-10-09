@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 
@@ -181,7 +183,7 @@ func (receipt ImageReceipt) Validate() error {
 // BinaryScope returns the exact signed scope for a binary receipt.
 func BinaryScope(receipt BinaryReceipt, environment string) trust.Scope {
 	return trust.Scope{
-		Domain: BinaryDomain, DeploymentID: receipt.SourceRevision, Cell: "BUILD",
+		Domain: BinaryDomain, DeploymentID: entityid.Derive("build", receipt.SourceRevision), Cell: "BUILD",
 		Environment: environment, Role: "artifact", Slot: "linux-" + receipt.GOARCH,
 	}
 }
@@ -190,7 +192,7 @@ func BinaryScope(receipt BinaryReceipt, environment string) trust.Scope {
 // the logical region code carried by ImageReceipt.OCIRegion.
 func ImageScope(receipt ImageReceipt, environment string) trust.Scope {
 	return trust.Scope{
-		Domain: ImageDomain, DeploymentID: receipt.SourceRevision, Cell: receipt.OCIRegion,
+		Domain: ImageDomain, DeploymentID: entityid.Derive("build", receipt.SourceRevision), Cell: receipt.OCIRegion,
 		Environment: environment, Role: "oci-image", Slot: receipt.OCIImageOCID,
 	}
 }

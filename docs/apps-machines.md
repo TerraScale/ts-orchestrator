@@ -27,7 +27,7 @@ A **machine config** is what a host runs: the admitted artifact `role` and
 `max_retries`, or `no`).
 
 A **machine** is one placed instance of an app, the desired state: its `id`
-(16 hex digits), `app` and `app_id`, `region`, `host` and the host's
+(a canonical uppercase 26-character Crockford ULID), `app` and `app_id`, `region`, `host` and the host's
 `failure_domain`, the app `version` and `config` it runs, and the `desired`
 state (`started`, `stopped` or `destroyed`).
 
@@ -57,7 +57,7 @@ name a secret. When the scheduler admits an app (slice 2) it also requires:
 
 ## Store
 
-The replicated JetStream KV bucket `TS_APPS`, in the regional cell, holds
+The replicated JetStream KV buckets `TS_APPS` and `TS_MACHINES`, in the regional cell, hold
 the desired state and snapshots to Object Storage with the other
 configuration buckets ([kv snapshots](../internal/kvsnapshot)). Statuses
 live in `TS_MACHINE_STATUS`, which is not snapshotted: a rebuilt cell
@@ -65,9 +65,9 @@ relearns them from its hosts.
 
 | Bucket | Key | Value |
 | --- | --- | --- |
-| `TS_APPS` | `apps.<app>` | App |
-| `TS_APPS` | `machines.<app>.<id>` | Machine |
-| `TS_MACHINE_STATUS` | `status.<app>.<id>` | Status |
+| `TS_APPS` | ULID derived from the app name | App |
+| `TS_MACHINES` | Machine ULID | Machine |
+| `TS_MACHINE_STATUS` | Machine ULID | Status |
 
 Only controllers can reach the buckets, and only the authority leader
 writes them. A store is bound to its region. Every write checks the

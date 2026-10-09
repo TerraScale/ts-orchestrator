@@ -168,7 +168,7 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = broker.Close() })
-	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: cell, CandidateID: "managed-enrollment", Replicas: 1})
+	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: cell, CandidateID: "0000000000E907NSBAGPHGG5DT", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 	intent := testManagedPlacementIntentForRegions(regionID)
 	first := apply("placement-7.json", intent)
 	entry, err := control.ReadPlacementIntent(ctx, intent.DatabaseID, intent.PartitionID)
-	if err != nil || entry.Sequence != first.Sequence || entry.SubjectKey != "db-main.partition-a" {
+	if err != nil || entry.Sequence != first.Sequence || entry.SubjectKey != intent.DatabaseID+"."+intent.PartitionID {
 		t.Fatalf("real authority readback: entry=%+v err=%v", entry, err)
 	}
 	admitted, err := placement.NewAuthorityIntentReader(control, cell, regionID)

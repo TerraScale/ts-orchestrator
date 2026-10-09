@@ -23,6 +23,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"github.com/oracle/oci-go-sdk/v65/core"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
@@ -108,7 +110,7 @@ func New(ctx context.Context, configPath string, out, errOut io.Writer) (*Attemp
 	if e = json.Unmarshal(b, &c); e != nil {
 		return nil, e
 	}
-	if c == nil || str(c, "workdir") == "" || str(c, "deployment_id") == "" || str(c, "prefix") == "" {
+	if c == nil || str(c, "workdir") == "" || !entityid.Valid(str(c, "deployment_id")) || str(c, "prefix") == "" {
 		return nil, fmt.Errorf("attempt config lacks workdir, deployment_id or prefix")
 	}
 	work, e := filepath.Abs(str(c, "workdir"))
@@ -505,8 +507,7 @@ func (a *Attempt) PhaseMaterial() {
 	}
 	base["bootstrap_object_prefix"] = a.Prefix
 	base["purpose"] = cell.Cell + " bootstrap attempt " + a.Deployment
-	id := sha256.Sum256([]byte(a.Deployment + "\x00" + a.Prefix))
-	base["seed_a_create_identity"] = "seed-a-" + hex.EncodeToString(id[:])[:16]
+	base["seed_a_create_identity"] = entityid.Derive("seed-create", a.Deployment, a.Prefix)
 	for slot := range object(object(base["resource_ids"])["instances"]) {
 		object(object(base["resource_ids"])["instances"])[slot] = nil
 	}

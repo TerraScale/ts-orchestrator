@@ -207,7 +207,7 @@ func TestProductionControllerRejectsUnhealthyClockBeforeAdmission(t *testing.T) 
 		clock *fixedControllerClock
 	}{
 		{"unhealthy", &fixedControllerClock{err: errors.New("NTP unsynchronized")}},
-		{"stale", &fixedControllerClock{bound: brokerauth.ClockBound{
+		{"0000000000RNVXNPAX5Y5BB8RY", &fixedControllerClock{bound: brokerauth.ClockBound{
 			SampledAt: time.Now().Add(-2 * time.Second), MaxError: time.Millisecond}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

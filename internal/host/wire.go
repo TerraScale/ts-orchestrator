@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
@@ -148,12 +150,14 @@ func decodePublicKey(encoded string) (ed25519.PublicKey, error) {
 	return ed25519.PublicKey(key), nil
 }
 
-func randomID() (string, error) {
-	var value [16]byte
-	if _, err := rand.Read(value[:]); err != nil {
+func randomID() (string, error) { return entityid.New(), nil }
+
+func randomNonce() (string, error) {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
 		return "", err
 	}
-	return hex.EncodeToString(value[:]), nil
+	return hex.EncodeToString(nonce[:]), nil
 }
 
 func signRequest(r *request, key ed25519.PrivateKey, cell string) error {
@@ -164,24 +168,18 @@ func signRequest(r *request, key ed25519.PrivateKey, cell string) error {
 	if err != nil {
 		return err
 	}
-	r.Envelope, err = protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: cell, Kind: "host." + r.Operation, Actor: r.Node, OperationID: r.Nonce, Epoch: r.Epoch}, r.IssuedAt, r.IssuedAt.Add(requestTTL), key)
+	r.Envelope, err = protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: cell, Kind: "host." + r.Operation, Actor: r.Node, OperationID: entityid.Derive("host-request", r.Nonce), Epoch: r.Epoch}, r.IssuedAt, r.IssuedAt.Add(requestTTL), key)
 	return err
 }
 
 func verifyRequest(r request, key ed25519.PublicKey, cell string, now time.Time) error {
-	if r.Version != 1 || len(r.Nonce) != 32 || len(r.SessionID) != 32 || r.IssuedAt.IsZero() || r.IssuedAt.After(now.Add(maxClockSkew)) || now.Sub(r.IssuedAt) >= requestTTL {
+	if r.Version != 1 || !lowerHex(r.Nonce, 32) || !entityid.Valid(r.SessionID) || r.IssuedAt.IsZero() || r.IssuedAt.After(now.Add(maxClockSkew)) || now.Sub(r.IssuedAt) >= requestTTL {
 		return errors.New("invalid or expired host request")
-	}
-	if _, err := hex.DecodeString(r.Nonce); err != nil {
-		return errors.New("invalid nonce")
-	}
-	if _, err := hex.DecodeString(r.SessionID); err != nil {
-		return errors.New("invalid session ID")
 	}
 	if !r.Envelope.IssuedAt.Equal(r.IssuedAt) || r.Envelope.Epoch != r.Epoch {
 		return errors.New("host request envelope binding mismatch")
 	}
-	return protocol.VerifyEnvelope(r.Envelope, protocol.EnvelopeScope{Region: cell, Kind: "host." + r.Operation, Actor: r.Node, OperationID: r.Nonce, Epoch: r.Epoch}, key, now, protocol.VerifyPolicy{MaxLifetime: requestTTL, ClockSkew: maxClockSkew})
+	return protocol.VerifyEnvelope(r.Envelope, protocol.EnvelopeScope{Region: cell, Kind: "host." + r.Operation, Actor: r.Node, OperationID: entityid.Derive("host-request", r.Nonce), Epoch: r.Epoch}, key, now, protocol.VerifyPolicy{MaxLifetime: requestTTL, ClockSkew: maxClockSkew})
 }
 
 func decodeStrict(data []byte, destination any) error {
@@ -226,7 +224,7 @@ func exchangeWithEnvelope(ctx context.Context, conn *nats.Conn, cell string, con
 	if err := protocol.DecodeStrict(msg.Data, &signed, 512<<10); err != nil {
 		return err
 	}
-	if err := protocol.VerifyEnvelope(signed, protocol.EnvelopeScope{Region: cell, Kind: "host.response." + r.Operation, Actor: "controller", OperationID: r.Nonce, Epoch: r.Epoch}, controllerKey, time.Now().UTC(), protocol.VerifyPolicy{MaxLifetime: requestTTL, ClockSkew: maxClockSkew}); err != nil {
+	if err := protocol.VerifyEnvelope(signed, protocol.EnvelopeScope{Region: cell, Kind: "host.response." + r.Operation, Actor: "controller", OperationID: entityid.Derive("host-request", r.Nonce), Epoch: r.Epoch}, controllerKey, time.Now().UTC(), protocol.VerifyPolicy{MaxLifetime: requestTTL, ClockSkew: maxClockSkew}); err != nil {
 		return err
 	}
 	var result response

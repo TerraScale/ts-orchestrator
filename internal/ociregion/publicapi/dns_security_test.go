@@ -42,25 +42,27 @@ func TestDNSSecurityPreflightRefusesUnsafeOrigin(t *testing.T) {
 		"unsafe backend peer auth": {func(f *fakeOCI) {
 			field(f.balancer, "backend-sets", "terrabase", "ssl-configuration").(map[string]any)["verify-peer-certificate"] = false
 		}, "backend set terrabase"},
-		"missing NSG attachment":    {func(f *fakeOCI) { delete(f.balancer, "network-security-group-ids") }, "attachments differ"},
-		"other NSG attachment":      {func(f *fakeOCI) { f.balancer["network-security-group-ids"] = []any{"other"} }, "attachments differ"},
-		"extra NSG attachment":      {func(f *fakeOCI) { f.balancer["network-security-group-ids"] = []any{"nsg", "other"} }, "attachments differ"},
+		"missing NSG attachment": {func(f *fakeOCI) { delete(f.balancer, "network-security-group-ids") }, "attachments differ"},
+		"other NSG attachment":   {func(f *fakeOCI) { f.balancer["network-security-group-ids"] = []any{"0000000000V4MRM46HP1SNGDYW"} }, "attachments differ"},
+		"extra NSG attachment": {func(f *fakeOCI) {
+			f.balancer["network-security-group-ids"] = []any{"nsg", "0000000000V4MRM46HP1SNGDYW"}
+		}, "attachments differ"},
 		"missing subnet attachment": {func(f *fakeOCI) { delete(f.balancer, "subnet-ids") }, "attachments differ"},
-		"other subnet attachment":   {func(f *fakeOCI) { f.balancer["subnet-ids"] = []any{"other"} }, "attachments differ"},
-		"extra subnet attachment":   {func(f *fakeOCI) { f.balancer["subnet-ids"] = []any{"subnet", "other"} }, "attachments differ"},
-		"other LB compartment":      {func(f *fakeOCI) { f.balancer["compartment-id"] = "other" }, "attachments differ"},
+		"other subnet attachment":   {func(f *fakeOCI) { f.balancer["subnet-ids"] = []any{"0000000000V4MRM46HP1SNGDYW"} }, "attachments differ"},
+		"extra subnet attachment":   {func(f *fakeOCI) { f.balancer["subnet-ids"] = []any{"subnet", "0000000000V4MRM46HP1SNGDYW"} }, "attachments differ"},
+		"other LB compartment":      {func(f *fakeOCI) { f.balancer["compartment-id"] = "0000000000V4MRM46HP1SNGDYW" }, "attachments differ"},
 		"missing network":           {func(f *fakeOCI) { f.network = map[string]map[string]any{} }, "does not exist"},
 		"missing gateway":           {func(f *fakeOCI) { delete(f.network, "internet-gateway") }, "does not exist"},
 		"missing route table":       {func(f *fakeOCI) { delete(f.network, "route-table") }, "does not exist"},
 		"missing subnet":            {func(f *fakeOCI) { delete(f.network, "subnet") }, "does not exist"},
 		"missing security list":     {func(f *fakeOCI) { delete(f.network, "security-list") }, "does not exist"},
 		"missing NSG":               {func(f *fakeOCI) { delete(f.network, "nsg") }, "does not exist"},
-		"other NSG VCN":             {func(f *fakeOCI) { f.network["nsg"]["vcn-id"] = "other" }, "reviewed network configuration"},
+		"other NSG VCN":             {func(f *fakeOCI) { f.network["nsg"]["vcn-id"] = "0000000000V4MRM46HP1SNGDYW" }, "reviewed network configuration"},
 		"subnet extra security list": {func(f *fakeOCI) {
 			f.network["subnet"]["security-list-ids"] = []any{"security-list", "default"}
 		}, "reviewed network configuration"},
 		"subnet other route table": {func(f *fakeOCI) {
-			f.network["subnet"]["route-table-id"] = "other"
+			f.network["subnet"]["route-table-id"] = "0000000000V4MRM46HP1SNGDYW"
 		}, "reviewed network configuration"},
 		"subnet other CIDR": {func(f *fakeOCI) {
 			f.network["subnet"]["cidr-block"] = "10.251.0.0/25"

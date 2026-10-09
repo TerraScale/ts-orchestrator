@@ -99,7 +99,7 @@ func startLocal(ctx context.Context) (_ *environment, teardown func() error, err
 	if err != nil {
 		return nil, teardown, err
 	}
-	e := &environment{Target: "local", Region: "local-1", Credential: rand.Text() + rand.Text(), UserID: "ts512-" + rand.Text(), HTTP: &http.Client{
+	e := &environment{Target: "local", Region: "local-1", Credential: rand.Text() + rand.Text(), UserID: tb.NewID(), HTTP: &http.Client{
 		Timeout:       10 * time.Second,
 		Transport:     &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS13}, ForceAttemptHTTP2: true},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
@@ -110,7 +110,7 @@ func startLocal(ctx context.Context) (_ *environment, teardown func() error, err
 	}
 	base, err := startLocalProcess(dir, append(localEnv(), "TERRABASE_REGION="+e.Region), bin,
 		"--admin-port=0", "--client-port=0", "--client-certificate="+certFile, "--client-private-key="+keyFile,
-		"--dashboard-credential-file="+credFile, "--data-directory="+filepath.Join(dir, "data"))
+		"--management-credential-file="+credFile, "--data-directory="+filepath.Join(dir, "data"), "--memory-budget=268435456")
 	if err != nil {
 		return nil, teardown, err
 	}
@@ -135,7 +135,7 @@ func startLocal(ctx context.Context) (_ *environment, teardown func() error, err
 	if err != nil {
 		return nil, teardown, fmt.Errorf("TerraBase startup: %w", err)
 	}
-	management, err := tb.NewManagement(tb.Config{BaseURL: e.TerraBaseURL, Token: e.Credential, HTTPClient: e.HTTP, MaxRetries: -1})
+	management, err := tb.NewManagement(tb.Config{BaseURL: e.AdminURL, Token: e.Credential, HTTPClient: e.HTTP, MaxRetries: -1})
 	if err != nil {
 		return nil, teardown, err
 	}

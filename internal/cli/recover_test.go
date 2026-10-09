@@ -59,7 +59,7 @@ func recoveryFixture(t *testing.T) (string, string, string) {
 	}
 	now := time.Now().UTC().Truncate(time.Second)
 	envelope, err := bootstrap.SignSlotRetirement(bootstrap.RetirementEvidence{SchemaVersion: 1,
-		DeploymentID: "deployment-1", Cell: "GRU", Environment: "production", Role: "controller",
+		DeploymentID: "0000000000DMC7WFP9VHV640EP", Cell: "GRU", Environment: "production", Role: "controller",
 		Slot: "controller-b", PreviousAttempt: 1, PreviousGeneration: 1,
 		PreviousResultDigest: strings.Repeat("c", 64), PriorInstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.b",
 		PriorCreateKey: "founder-controller-b-key", Disposition: bootstrap.SlotRetirementDisposition,

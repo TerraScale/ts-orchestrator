@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -42,7 +44,7 @@ func proofScope(activationID, digest string) trust.Scope {
 
 // SignVersionProof signs proof with the process's own identity key.
 func SignVersionProof(proof VersionProof, privateKey ed25519.PrivateKey, now time.Time) ([]byte, error) {
-	if proof.Schema != ProofSchema || !activationIDRE.MatchString(proof.ActivationID) || !unitRE.MatchString(proof.Unit) ||
+	if proof.Schema != ProofSchema || !entityid.Valid(proof.ActivationID) || !unitRE.MatchString(proof.Unit) ||
 		!digestRE.MatchString(proof.BinarySHA256) || proof.ProcessID <= 0 || proof.ObservedAt.IsZero() {
 		return nil, fmt.Errorf("%w: version proof", ErrInvalid)
 	}

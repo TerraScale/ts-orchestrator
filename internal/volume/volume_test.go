@@ -5,12 +5,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 const testZone = "Uocm:SA-SAOPAULO-1-AD-1"
 
 // m1 and m2 are machine IDs.
-const m1, m2 = "00000000000000a1", "00000000000000a2"
+const m1, m2 = "0000000000NDAHWBAS9TWA2688", "0000000000010GG0W1SYDN4G5Z"
 
 var created = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 
@@ -22,7 +24,7 @@ func testVolume(id string) Volume {
 
 func TestNewIDIsValidAndUnique(t *testing.T) {
 	a, b := NewID(), NewID()
-	if !idRE.MatchString(a) || a == b {
+	if !entityid.Valid(a) || a == b {
 		t.Fatalf("NewID gave %q and %q", a, b)
 	}
 }
@@ -41,7 +43,7 @@ func TestValidateRejectsMalformedRecords(t *testing.T) {
 		"vpus step":             func(v *Volume) { v.VPUsPerGB = 15 },
 		"vpus max":              func(v *Volume) { v.VPUsPerGB = 130 },
 		"retention":             func(v *Volume) { v.SnapshotRetentionDays = 0 },
-		"machine":               func(v *Volume) { v.MachineID = "m1" },
+		"machine":               func(v *Volume) { v.MachineID = "invalid" },
 		"no created_at":         func(v *Volume) { v.CreatedAt = time.Time{} },
 		"destroying claimed":    func(v *Volume) { v.DestroyRequestedAt = created; v.MachineID = m1 },
 		"state":                 func(v *Volume) { v.Status.State = "extending" },

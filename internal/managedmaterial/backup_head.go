@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 // Rust's BackupCatalogHead::encode uses this framed canonical JSON. The
@@ -76,6 +77,7 @@ func verifyBackupCatalogHeadBytes(headBytes []byte, record authority.BackupOpera
 			return false
 		}
 	}
+	expectedSet, setErr := entityid.Parse(record.BackupSet)
 	set, setOK := backupNumericArrayBytes(head.BackupSet[:])
 	target, targetOK := backupNumericArrayBytes(head.BackupTargetDigest[:])
 	previous, previousOK := backupNumericArrayBytes(head.PreviousHeadSHA256[:])
@@ -83,7 +85,7 @@ func verifyBackupCatalogHeadBytes(headBytes []byte, record authority.BackupOpera
 	plainHash, plainOK := backupNumericArrayBytes(head.Catalog.PlaintextSHA256[:])
 	_, nonceOK := backupNumericArrayBytes(head.Catalog.Nonce[:])
 	if !setOK || !targetOK || !previousOK || !cipherOK || !plainOK || !nonceOK ||
-		hex.EncodeToString(set) != record.BackupSet ||
+		setErr != nil || !bytes.Equal(set, expectedSet[:]) ||
 		hex.EncodeToString(target) != record.BackupTargetDigest ||
 		hex.EncodeToString(previous) != previousHeadSHA ||
 		bytes.Equal(cipherHash, make([]byte, 32)) || bytes.Equal(plainHash, make([]byte, 32)) {

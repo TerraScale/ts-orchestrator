@@ -136,7 +136,7 @@ func TestSoakTreatsUnknownProcessAndReportGapsAsUnknown(t *testing.T) {
 	start := time.Unix(1_800_000_000, 0)
 	digest := strings.Repeat("c", 64)
 	sample := func(offset time.Duration, pid int) SoakSample {
-		return SoakSample{At: start.Add(offset), ArtifactDigest: digest, OperationID: "u-1",
+		return SoakSample{At: start.Add(offset), ArtifactDigest: digest, OperationID: "0000000000VWA5N990CSNH40S5",
 			Phase: "canary-serving", Serving: true, ProcessPID: pid}
 	}
 	gap := func(offset time.Duration) SoakSample {
@@ -195,7 +195,7 @@ func TestSoakTreatsUnknownProcessAndReportGapsAsUnknown(t *testing.T) {
 func TestSoakRequiresAStableServingProcessForTheWholeWindow(t *testing.T) {
 	start := time.Unix(1_800_000_000, 0)
 	healthy := func(offset time.Duration, pid int) SoakSample {
-		return SoakSample{At: start.Add(offset), ArtifactDigest: strings.Repeat("c", 64), OperationID: "u-1",
+		return SoakSample{At: start.Add(offset), ArtifactDigest: strings.Repeat("c", 64), OperationID: "0000000000VWA5N990CSNH40S5",
 			Phase: "canary-serving", Serving: true, ProcessPID: pid}
 	}
 	soak := &Soak{Window: time.Minute, Digest: strings.Repeat("c", 64), Promoted: "canary-serving"}
@@ -220,7 +220,11 @@ func TestSoakRequiresAStableServingProcessForTheWholeWindow(t *testing.T) {
 			s.ArtifactDigest = strings.Repeat("d", 64)
 			return s
 		}(),
-		"new op": func() SoakSample { s := healthy(30*time.Second, 77); s.OperationID = "u-2"; return s }(),
+		"new op": func() SoakSample {
+			s := healthy(30*time.Second, 77)
+			s.OperationID = "0000000000XAEJFGHY9DQZTT6W"
+			return s
+		}(),
 	} {
 		soak := &Soak{Window: time.Minute, Digest: strings.Repeat("c", 64), Promoted: "canary-serving"}
 		if _, err := soak.Observe(healthy(0, 77)); err != nil {
@@ -244,7 +248,7 @@ func TestSoakRequiresAStableServingProcessForTheWholeWindow(t *testing.T) {
 
 func TestKnownBadSetRefusesRecordedDigests(t *testing.T) {
 	digest := strings.Repeat("a", 64)
-	record := KnownBad{Digest: digest, SeatID: "permanent-a", OperationID: "u-1", Reason: "held", RecordedAt: time.Now()}
+	record := KnownBad{Digest: digest, SeatID: "000000000082AXF7GZQT1D126Y", OperationID: "0000000000VWA5N990CSNH40S5", Reason: "held", RecordedAt: time.Now()}
 	if err := record.Validate(); err != nil {
 		t.Fatal(err)
 	}

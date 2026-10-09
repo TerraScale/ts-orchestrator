@@ -2,12 +2,16 @@ package rollout
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -46,8 +50,29 @@ func TestReleasePinsIncludesAllRetainedGenerationsAfterFailedPurges(t *testing.T
 			t.Fatal("fixture's old rollback target is still in the bounded history")
 		}
 	}
-	if _, err := store.kv.Get(ctx, generationKey(ReleaseHistory+3)); !errors.Is(err, jetstream.ErrKeyNotFound) {
+	if _, err := store.kv.Get(ctx, generationKey(store.cell, ReleaseHistory+3)); !errors.Is(err, jetstream.ErrKeyNotFound) {
 		t.Fatalf("desired head already has a retained copy: %v", err)
+	}
+	_, signer, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := trust.Sign([]byte(`{}`), trust.Scope{Domain: "terrascale.orchestrator.rollout-step",
+		DeploymentID: entityid.New(), Cell: store.cell, Environment: "production", Role: "prepare", Slot: "controller-a"},
+		testStart, testStart.Add(time.Minute), signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := trust.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.kv.Put(ctx, entityid.Derive("rollout-step", "controller-a"), wire); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.kv.Put(ctx, entityid.Derive("rollout-step-reply", "controller-a"),
+		[]byte(`{"unit":"controller-a","operation_id":"`+envelope.Scope.DeploymentID+`","outcome":"current","epoch":7}`)); err != nil {
+		t.Fatal(err)
 	}
 	want := []string{fromDigest, toDigest, recent[1], head}
 	rollback, knownBad, err := store.ReleasePins(ctx)
@@ -78,11 +103,14 @@ func TestReleasePinsRefusesInvalidRetainedRecords(t *testing.T) {
 		key  string
 		wire []byte
 	}{
-		{"corrupt JSON", generationKey(1), []byte("{")},
-		{"invalid digest", generationKey(1), []byte(strings.Replace(string(wire), fromDigest, "short", 1))},
-		{"mismatched generation", generationKey(2), wire},
+		{"corrupt JSON", generationKey(store.cell, 1), []byte("{")},
+		{"invalid digest", generationKey(store.cell, 1), []byte(strings.Replace(string(wire), fromDigest, "short", 1))},
+		{"mismatched generation", generationKey(store.cell, 2), wire},
 		{"noncanonical key", "release.gen.01", wire},
-		{"zero generation", generationKey(0), []byte(strings.Replace(string(wire), `"generation":1`, `"generation":0`, 1))},
+		{"zero generation", generationKey(store.cell, 0), []byte(strings.Replace(string(wire), `"generation":1`, `"generation":0`, 1))},
+		{"misbound abandonment", entityid.Derive("abandoned", "one"), []byte(`{"abandoned_rollout":"` + entityid.Derive("abandoned", "two") + `"}`)},
+		{"versioned abandonment", entityid.Derive("abandoned", "one"), []byte(`{"abandoned_rollout":"` + entityid.Derive("abandoned", "one") + `","schema_version":1}`)},
+		{"misbound membership", HostMembershipKey("ts-gru-1"), []byte(`{"node":"ts-gru-2","public_key":"key"}`)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := store.kv.Put(ctx, tc.key, tc.wire); err != nil {
@@ -132,7 +160,7 @@ func TestReleasePinsRefusesIncompleteRetainedReads(t *testing.T) {
 		{"unavailable read", errors.New("generation unavailable")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			store.kv = releasePinReadFailureKV{KeyValue: kv, key: generationKey(1), err: tc.err}
+			store.kv = releasePinReadFailureKV{KeyValue: kv, key: generationKey(store.cell, 1), err: tc.err}
 			rollback, knownBad, err := store.ReleasePins(ctx)
 			if !errors.Is(err, tc.err) || rollback != nil || knownBad != nil {
 				t.Fatalf("incomplete read returned pins: %v %v %v", rollback, knownBad, err)
@@ -175,7 +203,7 @@ func TestReleasePinsRefusesIncompleteRetainedInventory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	entry, err := store.kv.Get(ctx, generationKey(1))
+	entry, err := store.kv.Get(ctx, generationKey(store.cell, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +225,7 @@ func TestReleasePinsRefusesIncompleteRetainedInventory(t *testing.T) {
 			if err == nil || rollback != nil || knownBad != nil {
 				t.Fatalf("incomplete watcher returned pins: %v %v %v", rollback, knownBad, err)
 			}
-			if !slices.Equal(failed.filters, []string{"release.gen.*"}) || tc.err == nil && !watcher.stopped {
+			if !slices.Equal(failed.filters, []string{">"}) || tc.err == nil && !watcher.stopped {
 				t.Fatalf("filters=%v stopped=%v", failed.filters, watcher.stopped)
 			}
 		})

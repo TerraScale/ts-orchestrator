@@ -297,7 +297,7 @@ func TestEdgeStepsKeepEachCellsStrictRule(t *testing.T) {
 
 func TestEdgeStepsKeepOtherRulesAndRepairDrift(t *testing.T) {
 	f, cloudflare := newFakeCloudflare(t)
-	other := configRule{ID: "other", Ref: "someone-else", Expression: "true", Action: "set_config",
+	other := configRule{ID: "0000000000V4MRM46HP1SNGDYW", Ref: "00000000005KBY8XNJ83MMCJWP", Expression: "true", Action: "set_config",
 		Parameters: map[string]any{"ssl": "flexible", "automatic_https_rewrites": true}, Enabled: true}
 	f.ruleset = &fakeRuleset{"rs", []configRule{other}}
 	f.aop = true
@@ -314,7 +314,7 @@ func TestEdgeStepsKeepOtherRulesAndRepairDrift(t *testing.T) {
 	if !slices.Equal(f.writes, []string{"POST /zones/zone/rulesets/rs/rules", "PUT /zones/zone/dns_records/old"}) {
 		t.Fatalf("writes=%v", f.writes)
 	}
-	if len(f.ruleset.Rules) != 2 || f.ruleset.Rules[0].Ref != "someone-else" || f.ruleset.Rules[1].Ref != "ts-orch-gru-1-api-ssl-strict" {
+	if len(f.ruleset.Rules) != 2 || f.ruleset.Rules[0].Ref != "00000000005KBY8XNJ83MMCJWP" || f.ruleset.Rules[1].Ref != "ts-orch-gru-1-api-ssl-strict" {
 		t.Fatalf("rules=%+v", f.ruleset.Rules)
 	}
 	if r := f.records["gru.api.terrascale.tech"][0]; !r.Proxied || r.Content != "203.0.113.10" {

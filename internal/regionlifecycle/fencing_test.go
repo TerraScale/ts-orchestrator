@@ -246,7 +246,7 @@ func TestApprovalsRenewMidFlight(t *testing.T) {
 
 	// Retirement approvals renew while the retirement runs.
 	active := f.runTo(t, record, Active)
-	retiring, err := f.machine.ProposeRetire(active, IdleEvidence{IdleSince: f.now.Add(-30 * 24 * time.Hour), EvidenceDigest: digest("idle")}, f.now)
+	retiring, err := f.machine.ProposeRetire(active, IdleEvidence{IdleSince: f.now.Add(-30 * 24 * time.Hour), EvidenceDigest: digest("0000000000F6H63RT9R93XQ0MH")}, f.now)
 	if err != nil {
 		t.Fatal(err)
 	}

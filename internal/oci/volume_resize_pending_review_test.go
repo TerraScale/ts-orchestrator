@@ -21,8 +21,8 @@ func TestKVJournalOwnsAVolumeGrownByItsOwnUnconfirmedResize(t *testing.T) {
 			}
 			config, _ := testRegionConfig()
 			volumeID := "ocid1.volume.kv-pending"
-			create := OperationIntent{Action: actionVolumeCreate, Key: "kv-pending", Region: config.Region,
-				Generation: config.Generation, Owner: config.Owner, CreateKey: "kv-pending",
+			create := OperationIntent{Action: actionVolumeCreate, Key: "0000000000EC741T888EGXAX24", Region: config.Region,
+				Generation: config.Generation, Owner: config.Owner, CreateKey: "0000000000EC741T888EGXAX24",
 				AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50, CreatedAt: time.Now().UTC()}
 			if err := journal.RecordIntent(ctx, create); err != nil {
 				t.Fatal(err)
@@ -31,7 +31,7 @@ func TestKVJournalOwnsAVolumeGrownByItsOwnUnconfirmedResize(t *testing.T) {
 				t.Fatal(err)
 			}
 			identity := ResourceIdentity{ID: volumeID, Region: config.Region, Generation: config.Generation,
-				Owner: config.Owner, CreateKey: "kv-pending", AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50}
+				Owner: config.Owner, CreateKey: "0000000000EC741T888EGXAX24", AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50}
 			if owned, err := journal.IsOwnedVolume(ctx, identity); err != nil || !owned {
 				t.Fatalf("created volume not owned: %v %v", owned, err)
 			}
@@ -42,7 +42,7 @@ func TestKVJournalOwnsAVolumeGrownByItsOwnUnconfirmedResize(t *testing.T) {
 			}
 			resize := OperationIntent{Action: actionVolumeResize, Key: volumeResizeKey(volumeID, 100), Region: config.Region,
 				Generation: config.Generation, Owner: config.Owner, ResourceID: volumeID, VolumeID: volumeID,
-				CreateKey: "kv-pending", ExpectedETag: "etag-50", AvailabilityDomain: config.AvailabilityDomain,
+				CreateKey: "0000000000EC741T888EGXAX24", ExpectedETag: "etag-50", AvailabilityDomain: config.AvailabilityDomain,
 				SizeGB: 100, PreviousSizeGB: 50, CreatedAt: time.Now().UTC()}
 			if err := journal.RecordIntent(ctx, resize); err != nil {
 				t.Fatal(err)
@@ -58,7 +58,7 @@ func TestKVJournalOwnsAVolumeGrownByItsOwnUnconfirmedResize(t *testing.T) {
 				t.Fatal("a size other than the journaled target was owned")
 			}
 			moved := grown
-			moved.CreateKey = "someone-else"
+			moved.CreateKey = "00000000005KBY8XNJ83MMCJWP"
 			if owned, _ := journal.IsOwnedVolume(ctx, moved); owned {
 				t.Fatal("a volume with another create key was owned")
 			}

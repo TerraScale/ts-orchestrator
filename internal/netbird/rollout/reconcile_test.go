@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
 )
@@ -123,6 +124,9 @@ func (f *rolloutFixture) reconciler() *Reconciler {
 				f.t.Fatalf("sent %s to serving node %s without a drain", command.Action, node)
 			}
 			record := f.record()
+			if !entityid.Valid(record.ID) || !entityid.Valid(command.ID) || command.ID != CommandID(record.ID, command.Action) {
+				f.t.Fatalf("invalid transaction/command identity: %+v %+v", record, command)
+			}
 			if record.Node != node || record.ID != command.Transaction || !reflect.DeepEqual(record.Target, command.Target) {
 				f.t.Fatalf("effect did not use persisted transaction: %#v %#v", record, command)
 			}
@@ -478,7 +482,7 @@ func TestRollbackAcknowledgmentWithAnErrorKeepsTheFence(t *testing.T) {
 	f.advance(target, "rollback-check")
 	node := f.record().Node
 	status := f.statuses[node]
-	status.ActionID, status.Error = f.record().ID+".rollback", "previous binary restart failed"
+	status.ActionID, status.Error = CommandID(f.record().ID, "rollback"), "previous binary restart failed"
 	f.statuses[node] = status
 	if err := f.tick(target); err != nil || f.record().Phase != "rollback-check" || !f.drained[node] || slices.Contains(f.effects, "return:"+node) {
 		t.Fatalf("errored rollback acknowledgment returned the node: record=%+v effects=%v error=%v", f.record(), f.effects, err)
@@ -544,7 +548,7 @@ func TestFailedRecoveryPersistsCompletionAfterReturnSucceeds(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := f.statuses[record.Node]
-	status.ActionID = record.ID + ".rollback"
+	status.ActionID = CommandID(record.ID, "rollback")
 	f.statuses[record.Node] = status
 	f.returnError[record.Node] = errors.New("LB return incomplete")
 	if err := f.tick(target); !errors.Is(err, f.returnError[record.Node]) || f.record().RecoveryComplete || !f.drained[record.Node] {
@@ -592,7 +596,7 @@ func TestFailedRecoveryRetriesDrainBeforeUnhealthyStatus(t *testing.T) {
 				t.Fatal(err)
 			}
 			status := f.statuses[record.Node]
-			status.ActionID = record.ID + ".rollback"
+			status.ActionID = CommandID(record.ID, "rollback")
 			f.statuses[record.Node] = status
 			returnErr, drainErr := errors.New("LB health check failed"), errors.New("quorum unavailable")
 			f.returnError[record.Node] = returnErr
@@ -692,7 +696,7 @@ func TestFirstInstallRollbackReturnsRestoredAbsence(t *testing.T) {
 	f.now = f.record().Deadline.Add(time.Second)
 	f.advance(target, "rollback-check")
 	rolledBack := f.statuses[node]
-	if !rolledBack.Missing || rolledBack.Version != "" || rolledBack.ActionID != f.record().ID+".rollback" {
+	if !rolledBack.Missing || rolledBack.Version != "" || rolledBack.ActionID != CommandID(f.record().ID, "rollback") {
 		t.Fatalf("first install did not restore acknowledged absence: %+v", rolledBack)
 	}
 	f.returnError[node] = errors.New("ordinary role/LB health is not ready")
@@ -773,7 +777,7 @@ func TestFirstInstallRecoveryRejectsUnprovenAbsence(t *testing.T) {
 				if err := f.reconciler().Save(t.Context(), record); err != nil {
 					t.Fatal(err)
 				}
-				status := Status{Missing: true, ActionID: record.ID + ".rollback", ObservedAt: f.now}
+				status := Status{Missing: true, ActionID: CommandID(record.ID, "rollback"), ObservedAt: f.now}
 				switch invalid {
 				case "not-missing":
 					status.Missing = false
@@ -786,7 +790,7 @@ func TestFirstInstallRecoveryRejectsUnprovenAbsence(t *testing.T) {
 				case "zero-time":
 					status.ObservedAt = time.Time{}
 				case "wrong-action":
-					status.ActionID = "other.rollback"
+					status.ActionID = CommandID("2VP7F78J0ZNFE8BE3RYC7BNX9T", "rollback")
 				case "error":
 					status.Error = "rollback failed"
 				case "pending":
@@ -830,7 +834,7 @@ func TestLegacyFailedRecordsRequireRollbackAcknowledgmentOnPinChanges(t *testing
 				t.Fatalf("legacy failure bypassed recovery proof: record=%+v effects=%v error=%v", f.record(), f.effects, err)
 			}
 			status := f.statuses[node]
-			status.ActionID = record.ID + ".rollback"
+			status.ActionID = CommandID(record.ID, "rollback")
 			f.statuses[node] = status
 			if err := f.tick(changed); err != nil || f.drained[node] || f.record().Phase != "drain" || f.record().ID == record.ID {
 				t.Fatalf("acknowledged legacy recovery could not proceed: record=%+v error=%v", f.record(), err)
@@ -874,7 +878,7 @@ func TestConfirmationRequiresTheAppliedTargetIdentity(t *testing.T) {
 	f.deferActions = true
 	node := f.record().Node
 	status := f.statuses[node]
-	status.ActionID, status.Pending = f.record().ID+".confirm", ""
+	status.ActionID, status.Pending = CommandID(f.record().ID, "confirm"), ""
 	status.AppliedTargetHash = Hash(rolloutTarget("0.80.1"))
 	f.statuses[node] = status
 	if err := f.tick(target); err != nil || f.record().Phase != "confirm" || !f.drained[node] || slices.Contains(f.effects, "return:"+node) {
@@ -1038,5 +1042,14 @@ func TestReturnRefusesAReportedPendingTransaction(t *testing.T) {
 	before := len(f.effects)
 	if err := f.tick(target); err == nil || !f.drained[node] || len(f.effects) != before {
 		t.Fatalf("returned node with pending network mutation: %#v %v %v", f.record(), f.effects, err)
+	}
+}
+
+func TestReconcilerRejectsOldTransactionWithoutEffects(t *testing.T) {
+	f := newRolloutFixture(t)
+	r := f.reconciler()
+	r.Load = func(context.Context) (Record, error) { return Record{ID: "old-transaction", Phase: "install"}, nil }
+	if err := r.Tick(t.Context(), rolloutTarget("0.80.0"), f.nodes); err == nil || len(f.effects) != 0 {
+		t.Fatalf("invalid transaction reached effects: %v %v", err, f.effects)
 	}
 }

@@ -22,8 +22,8 @@ import (
 var generationNow = time.Now().UTC().Truncate(time.Second).Add(-10 * time.Minute)
 
 func generationExpectation() bootstrap.MaterialGenerationExpectation {
-	return bootstrap.MaterialGenerationExpectation{DeploymentID: "gru-1-deployment", Environment: "production",
-		ClusterID: "gru-1", Cell: "GRU", ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}}
+	return bootstrap.MaterialGenerationExpectation{DeploymentID: "0000000000YY15F5R431V5JPJ9", Environment: "production",
+		ClusterID: "00000000006GRRF84JEVN9TX7M", Cell: "GRU", ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}}
 }
 
 func check(material generationtest.Material) (time.Time, error) {

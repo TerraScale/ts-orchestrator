@@ -36,7 +36,7 @@ func TestVerifiedAnchorWritesToCommandOutput(t *testing.T) {
 		"--identity", identityPath, "--root-key", fixture.rootPath}, fixture.now); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), `"clusterId":"cluster-a"`) {
+	if !strings.Contains(output.String(), `"clusterId":"0000000000RMSAJ9B0JFV7ESHN"`) {
 		t.Fatalf("verification output was not routed to the command writer: %q", output.String())
 	}
 }

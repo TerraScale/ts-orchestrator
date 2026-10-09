@@ -83,7 +83,7 @@ func signedRetirement(t *testing.T, slot string, attempt uint64, instance string
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
-	candidate := bootstrap.RetirementEvidence{SchemaVersion: 1, DeploymentID: "deployment-1", Cell: "GRU",
+	candidate := bootstrap.RetirementEvidence{SchemaVersion: 1, DeploymentID: "0000000000DMC7WFP9VHV640EP", Cell: "GRU",
 		Environment: "production", Role: "controller", Slot: slot, PreviousAttempt: attempt,
 		PreviousGeneration: 1, PreviousResultDigest: strings.Repeat("c", 64), PriorInstanceOCID: instance,
 		PriorCreateKey: "founder-" + slot + "-key", Disposition: bootstrap.SlotRetirementDisposition,
@@ -116,7 +116,7 @@ type seedHarness struct {
 func newSeedHarness(t *testing.T) *seedHarness {
 	t.Helper()
 	harness := &seedHarness{lease: &fakeLease{}, cell: newFakeCell(), replacer: newSeedFounderStub()}
-	harness.lease.set(seedTermEpoch, "gru-controller-c-1234", "owner-c")
+	harness.lease.set(seedTermEpoch, "000000000057DFR5HRY5QD68EQ", "0000000000P2GFAE1EE5N7T3Q1")
 	server, err := NewSeedServer(t.Context(), seedTopology(), SeedServerDependencies{Leases: harness.lease,
 		Instances: harness.cell, Replacer: harness.replacer, Logger: quietLogger()})
 	if err != nil {
@@ -132,7 +132,7 @@ func (h *seedHarness) request(t *testing.T, mutate func(*SeedReplaceRequest)) Se
 	request := SeedReplaceRequest{Version: SeedReplaceRequestVersion, Cell: "gru", Slot: "controller-b",
 		PreviousAttempt: 1, PriorInstanceOCID: instanceB,
 		Retirement: signedRetirement(t, "controller-b", 1, instanceB), Epoch: seedTermEpoch,
-		CandidateID: "gru-controller-c-1234", OwnerID: "owner-c"}
+		CandidateID: "000000000057DFR5HRY5QD68EQ", OwnerID: "0000000000P2GFAE1EE5N7T3Q1"}
 	if mutate != nil {
 		mutate(&request)
 	}
@@ -157,7 +157,7 @@ func awaitStarted(t *testing.T, replacer *seedFounderStub) Action {
 func TestNonSeedLeaderRoutesReplacementToTheSeed(t *testing.T) {
 	harness := newSeedHarness(t)
 	leader := &fakeLeadership{snapshot: leaderSnapshot(seedTermEpoch)}
-	leader.snapshot.CandidateID, leader.snapshot.OwnerID = "gru-controller-c-1234", "owner-c"
+	leader.snapshot.CandidateID, leader.snapshot.OwnerID = "000000000057DFR5HRY5QD68EQ", "0000000000P2GFAE1EE5N7T3Q1"
 	cell := newFakeCell()
 	wire := signedRetirement(t, "controller-b", 1, instanceB)
 	evidence := cell.evidence["controller-b"]
@@ -217,8 +217,8 @@ func TestSeedRefusesRequestsOutsideTheCurrentTermOrScope(t *testing.T) {
 	harness := newSeedHarness(t)
 	for name, mutate := range map[string]func(*SeedReplaceRequest){
 		"stale epoch":           func(r *SeedReplaceRequest) { r.Epoch = seedTermEpoch - 1 },
-		"other candidate":       func(r *SeedReplaceRequest) { r.CandidateID = "gru-controller-b-9999" },
-		"other owner":           func(r *SeedReplaceRequest) { r.OwnerID = "restarted" },
+		"other candidate":       func(r *SeedReplaceRequest) { r.CandidateID = "0000000000RQQB0PSJ84MK6YCM" },
+		"other owner":           func(r *SeedReplaceRequest) { r.OwnerID = "0000000000DKT0SAM6NFTCGPGT" },
 		"other cell":            func(r *SeedReplaceRequest) { r.Cell = "sfo" },
 		"seed slot":             func(r *SeedReplaceRequest) { r.Slot = "controller-a" },
 		"unknown slot":          func(r *SeedReplaceRequest) { r.Slot = "controller-z" },

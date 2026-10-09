@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"io"
 	"os"
 	"path/filepath"
@@ -211,7 +212,7 @@ func TestCleanupStopsAllOwnedContainersConcurrently(t *testing.T) {
 			state := t.TempDir()
 			t.Setenv("TS_761_PODMAN_STATE", state)
 			t.Setenv("TS_761_PODMAN_MODE", mode)
-			jobID := newID()
+			jobID := entityid.New()
 			names := []string{"bench-" + jobID + "-go", "bench-" + jobID + "-dotnet", "bench-" + jobID + "-rust"}
 			for _, name := range names {
 				if err := os.WriteFile(filepath.Join(state, name), []byte(jobID), 0600); err != nil {
@@ -288,7 +289,7 @@ func TestOversizedClientLineCancelsBeforeWaitingAndCleansUp(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("TS_761_PODMAN_STATE", state)
 	t.Setenv("TS_761_PODMAN_MODE", "oversized")
-	job := Job{ID: newID(), Region: "gru", Workload: workload(t), Clients: []string{"go"}, Images: map[string]string{"go": "test"}}
+	job := Job{ID: entityid.New(), Region: "gru", Workload: workload(t), Clients: []string{"go"}, Images: map[string]string{"go": "test"}}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	err := runContainers(ctx, job, map[string]string{"TS_BENCH_CLIENT_ID": "test-client", "TS_BENCH_CLIENT_SECRET": "private-test-value"}, io.Discard)
@@ -310,7 +311,7 @@ func TestSSHCancelAndStreamFailuresWaitForRemoteCleanup(t *testing.T) {
 			t.Setenv("TS_761_PODMAN_STATE", state)
 			t.Setenv("TS_761_PODMAN_MODE", "stream")
 			t.Setenv("TS_761_SSH_MODE", mode)
-			job := Job{ID: newID(), Region: "gru", Workload: workload(t), Clients: []string{"go"}, Images: map[string]string{"go": "test"}}
+			job := Job{ID: entityid.New(), Region: "gru", Workload: workload(t), Clients: []string{"go"}, Images: map[string]string{"go": "test"}}
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 			emitErr := errors.New("storage failed")
@@ -396,7 +397,7 @@ func TestSSHWorkerHelper(t *testing.T) {
 }
 
 func TestWorkerDisconnectCancelsBeforeAcknowledging(t *testing.T) {
-	job := Job{ID: newID()}
+	job := Job{ID: entityid.New()}
 	var input, output bytes.Buffer
 	_ = json.NewEncoder(&input).Encode(job)
 	err := workerSession(t.Context(), &input, &output, func(ctx context.Context, _ Job, _ io.Writer) error {

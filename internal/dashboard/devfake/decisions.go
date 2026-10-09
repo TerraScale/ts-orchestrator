@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 // store is an in-memory, multi-region decision journal. It implements
@@ -137,7 +138,7 @@ func (world *World) seedLeadership(region *region, now time.Time) {
 	leadership := func(at time.Time, member string, epoch uint64, reason string) {
 		world.store.record(decisionlog.Decision{Time: at, Region: region.name,
 			Actor: decisionlog.Actor{Slice: "authority", Member: member}, Kind: decisionlog.KindLeaderChanged,
-			Subject: decisionlog.Subject{Kind: "member", ID: member},
+			Subject: decisionlog.Subject{Kind: "member", ID: entityid.Derive("preview-member", member)},
 			Summary: fmt.Sprintf("%s became the regional authority leader (epoch %d)", member, epoch),
 			Reason:  reason, Rule: "fenced JetStream authority lease", Status: decisionlog.StatusSucceeded, Epoch: epoch,
 			Signals: []decisionlog.Signal{{Name: "epoch", Value: float64(epoch)},
@@ -219,7 +220,7 @@ func (world *World) seedDecisions(now time.Time) {
 		world.seedLeadership(region, now)
 		// The last release every region completed.
 		old := releaseChain{store: store, region: region.name, member: leader, epoch: region.epoch,
-			release: decisionlog.Subject{Kind: "release", ID: "sha256:4be1c0de77a1", Name: "v0.42.1"}}
+			release: decisionlog.Subject{Kind: "release", ID: entityid.Derive("preview-release", "4be1c0de77a1"), Name: "v0.42.1"}}
 		world.fullRollout(&old, ago(40*time.Hour), healthGates)
 		// Autoscaling, backups, launches and seat moves.
 		for hour := 46; hour > 0; hour -= 3 + len(region.name)%2 {
@@ -240,7 +241,7 @@ func (world *World) seedDecisions(now time.Time) {
 				if kind == decisionlog.KindScaleUp {
 					host := fmt.Sprintf("%s-host-%c", region.name, 'f'+rune(hour%5))
 					store.record(decisionlog.Decision{Time: at.Add(3 * time.Minute), Region: region.name, Actor: member("placement"),
-						Kind: decisionlog.KindHostLaunched, Subject: decisionlog.Subject{Kind: "host", ID: host},
+						Kind: decisionlog.KindHostLaunched, Subject: decisionlog.Subject{Kind: "host", ID: entityid.Derive("preview-host", host)},
 						Summary: "Launched host " + host + " in FAULT-DOMAIN-" + fmt.Sprint(hour%3+1), ParentID: scale.ID,
 						Reason: "The pool needed one more host and this fault domain had the fewest seats.",
 						Rule:   "spread seats across fault domains", Status: decisionlog.StatusSucceeded,
@@ -250,14 +251,14 @@ func (world *World) seedDecisions(now time.Time) {
 			if hour%6 == 0 || hour%6 == 1 {
 				store.record(decisionlog.Decision{Time: at.Add(20 * time.Minute), Region: region.name, Actor: member("storage"),
 					Kind: decisionlog.KindBackupTaken, Subject: decisionlog.Subject{Kind: "database", ID: region.databases[hour%len(region.databases)].id},
-					Summary: "Backed up " + region.databases[hour%len(region.databases)].id + " to object storage",
+					Summary: "Backed up " + region.databases[hour%len(region.databases)].name + " to object storage",
 					Reason:  "The six-hour backup schedule came due.", Rule: "backup every 6h, keep 14 days",
 					Signals: []decisionlog.Signal{{Name: "size", Value: float64(2+hour%5) * 1.1e9, Unit: "bytes"}},
 					Status:  decisionlog.StatusSucceeded})
 			}
 			if hour%4 == 0 {
 				db := region.databases[(hour/4)%len(region.databases)]
-				seat := fmt.Sprintf("%s-%d", db.id, hour%db.seats+1)
+				seat := entityid.Derive("preview-seat", region.name, db.id, fmt.Sprint(hour%db.seats+1))
 				store.record(decisionlog.Decision{Time: at.Add(35 * time.Minute), Region: region.name, Actor: member("placement"),
 					Kind: decisionlog.KindStageChanged, Subject: decisionlog.Subject{Kind: "seat", ID: seat},
 					Summary: "Seat " + seat + " moved from awaiting-healthy to serving",
@@ -266,7 +267,7 @@ func (world *World) seedDecisions(now time.Time) {
 			}
 		}
 		store.record(decisionlog.Decision{Time: ago(9 * time.Hour), Region: region.name, Actor: member("storage"),
-			Kind: decisionlog.KindVolumeResized, Subject: decisionlog.Subject{Kind: "volume", ID: region.name + "-vol-data-3"},
+			Kind: decisionlog.KindVolumeResized, Subject: decisionlog.Subject{Kind: "volume", ID: entityid.Derive("preview-volume", region.name, "data-3")},
 			Summary: "Grew volume " + region.name + "-vol-data-3 from 200 GiB to 300 GiB",
 			Reason:  "Projected time to full dropped under 7 days.", Rule: "resize at 7 days to full",
 			Signals: []decisionlog.Signal{gate("days_to_full", 5.2, "days", "<", 7)}, Status: decisionlog.StatusSucceeded})
@@ -281,8 +282,9 @@ func (world *World) seedDecisions(now time.Time) {
 	// cleared.
 	gru := world.regions[0]
 	held := gru.databases[0]
-	partition := held.id + "/p0"
-	seat := held.id + "-2"
+	partition := held.id
+	partitionAttrs := map[string]string{"database_id": held.id, "partition_id": entityid.Derive("preview-partition", held.id)}
+	seat := entityid.Derive("preview-seat", gru.name, held.id, "2")
 	for _, minutes := range []int{140, 125, 110} {
 		world.store.record(decisionlog.Decision{Time: ago(time.Duration(minutes) * time.Minute), Region: gru.name,
 			Actor: decisionlog.Actor{Slice: "placement", Member: gru.leader}, Kind: decisionlog.KindHeld,
@@ -291,12 +293,12 @@ func (world *World) seedDecisions(now time.Time) {
 			Rule:   "placement reconciliation safety gate", Status: decisionlog.StatusPending})
 	}
 	world.store.record(decisionlog.Decision{Time: ago(95 * time.Minute), Region: gru.name, Actor: decisionlog.Actor{Slice: "placement", Member: gru.leader},
-		Kind: decisionlog.KindHeld, Subject: decisionlog.Subject{Kind: "database", ID: partition},
+		Kind: decisionlog.KindHeld, Subject: decisionlog.Subject{Kind: "database", ID: partition}, Attrs: partitionAttrs,
 		Summary: "Placement held database/" + partition,
 		Reason:  "database " + partition + " has no admitted managed placement profile; host reconciliation is held",
 		Rule:    "placement reconciliation safety gate", Status: decisionlog.StatusPending})
 	world.store.record(decisionlog.Decision{Time: ago(70 * time.Minute), Region: gru.name, Actor: decisionlog.Actor{Slice: "placement", Member: gru.leader},
-		Kind: decisionlog.KindHoldCleared, Subject: decisionlog.Subject{Kind: "database", ID: partition},
+		Kind: decisionlog.KindHoldCleared, Subject: decisionlog.Subject{Kind: "database", ID: partition}, Attrs: partitionAttrs,
 		Summary: "Placement hold on " + partition + " cleared",
 		Reason:  "The signed placement profile was admitted and the seat's volume attached.",
 		Rule:    "placement reconciliation safety gate", Status: decisionlog.StatusSucceeded})
@@ -309,7 +311,7 @@ func (world *World) seedDecisions(now time.Time) {
 		Signals: []decisionlog.Signal{gate("cluster_peers", 2, "", ">=", 3), {Name: "meta_offline_peers", Value: 1}}})
 	world.store.record(decisionlog.Decision{Time: ago(2*time.Hour + 50*time.Minute), Region: fra.name,
 		Actor: decisionlog.Actor{Slice: "membership", Member: fra.leader}, Kind: decisionlog.KindHeld,
-		Subject: decisionlog.Subject{Kind: "member", ID: fra.missing[0]}, Summary: "Held replacing " + fra.missing[0],
+		Subject: decisionlog.Subject{Kind: "member", ID: entityid.Derive("preview-member", fra.missing[0])}, Summary: "Held replacing " + fra.missing[0],
 		Reason: "The controller may be rebooting; replacement waits 30 minutes of absence and a healthy OCI instance check.",
 		Rule:   "replace a controller after 30m absent and instance terminated", Status: decisionlog.StatusPending,
 		Signals:      []decisionlog.Signal{gate("absent_minutes", 10, "", ">=", 30), {Name: "instance_state", Text: "STOPPED"}},
@@ -353,7 +355,7 @@ func (world *World) fullRollout(chain *releaseChain, start time.Time, gates func
 // held in FRA; v0.42.9 was rolled back at canary in FRA.
 func (world *World) seedCurrentRelease(now time.Time, gates func(float64, float64) []decisionlog.Signal) {
 	gru, sfo, fra := world.regions[0], world.regions[1], world.regions[2]
-	current := decisionlog.Subject{Kind: "release", ID: "sha256:9f2c7ab3e410", Name: "v0.43.0"}
+	current := decisionlog.Subject{Kind: "release", ID: entityid.Derive("preview-release", "9f2c7ab3e410"), Name: "v0.43.0"}
 	world.fullRollout(&releaseChain{store: world.store, region: gru.name, member: gru.leader, release: current, epoch: gru.epoch},
 		now.Add(-6*time.Hour), gates)
 	chain := &releaseChain{store: world.store, region: sfo.name, member: sfo.leader, release: current, epoch: sfo.epoch}
@@ -379,7 +381,7 @@ func (world *World) seedCurrentRelease(now time.Time, gates func(float64, float6
 		"FRA is below full controller strength; a rollout waits for full quorum.", "rollouts need full quorum",
 		[]decisionlog.Signal{gate("controllers_answering", 2, "", ">=", 3)}, map[string]string{"stage": "staged"})
 	bad := &releaseChain{store: world.store, region: fra.name, member: fra.leader, epoch: fra.epoch,
-		release: decisionlog.Subject{Kind: "release", ID: "sha256:77d0be55aa09", Name: "v0.42.9"}}
+		release: decisionlog.Subject{Kind: "release", ID: entityid.Derive("preview-release", "77d0be55aa09"), Name: "v0.42.9"}}
 	at := now.Add(-20 * time.Hour)
 	bad.step(at, decisionlog.KindReleaseAdmitted, decisionlog.StatusSucceeded, "Admitted release v0.42.9",
 		"The release passed CI qualification.", "signed release with qualification evidence", nil,

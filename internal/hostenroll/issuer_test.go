@@ -57,7 +57,7 @@ func TestLoadIssuerRefusesTrailingRootData(t *testing.T) {
 		}
 		return path
 	}
-	seedPath, keyPath, certPath := write("seed", seed), write("key.pem", key), write("cert.pem", cert)
+	seedPath, keyPath, certPath := write("0000000000SF1REEJJX6TC691V", seed), write("key.pem", key), write("cert.pem", cert)
 	if _, err := hostenroll.LoadIssuer("gru", cellID, seedPath, keyPath, certPath, rootPEM); err != nil {
 		t.Fatal(err)
 	}

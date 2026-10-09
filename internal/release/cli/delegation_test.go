@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -143,7 +144,7 @@ func TestSignDelegationBinaryThenImageRetainsBinaryAuthority(t *testing.T) {
 	}
 	for _, architecture := range []string{"amd64", "arm64"} {
 		if !slices.ContainsFunc(first.Capabilities(), func(cap trust.Capability) bool {
-			return cap.Domain == release.BinaryDomain && cap.DeploymentID == testRevision &&
+			return cap.Domain == release.BinaryDomain && cap.DeploymentID == entityid.Derive("build", testRevision) &&
 				cap.Cell == "BUILD" && cap.Environment == "canary" && cap.Role == "artifact" &&
 				slices.Equal(cap.Slots, []string{"linux-" + architecture}) && slices.Equal(cap.Actions, []string{"sign"})
 		}) {

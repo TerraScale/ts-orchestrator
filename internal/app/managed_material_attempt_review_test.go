@@ -30,14 +30,14 @@ func (reader stubMemberReader) ReadMember(context.Context, string, string, strin
 // including the next attempt after a replacement, and never to a superseded
 // one (#127 12097).
 func TestManagedMaterialFollowsTheCurrentDurableHostAttempt(t *testing.T) {
-	binding := host.ManagedMemberBinding{Scope: host.MemberScope{MemberID: "member-a"}, HostAttempt: 2}
-	oci := host.ManagedOCIBinding{InstanceID: "ocid1.instance.oc1..replacement", CreateKey: "replacement-key"}
+	binding := host.ManagedMemberBinding{Scope: host.MemberScope{MemberID: "0000000000WM3QQGQPMW5X58P9"}, HostAttempt: 2}
+	oci := host.ManagedOCIBinding{InstanceID: "ocid1.instance.oc1..replacement", CreateKey: "00000000005TNNS4T26SFB7M25"}
 	desired := host.Desired{ManagedMember: &host.ManagedMemberLaunch{Member: binding, OCI: oci,
 		Runtime: &host.ManagedRuntimePins{}}}
 	registration := host.Registration{Node: "replacement-node", ManagedMember: &binding, ManagedOCI: &oci,
-		ManagedPlacement: &host.ManagedPlacementBinding{DatabaseID: "db", PartitionID: "p", SeatID: "permanent-a"}}
+		ManagedPlacement: &host.ManagedPlacementBinding{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "0000000000KJ432RJ85B7APRW2", SeatID: "000000000082AXF7GZQT1D126Y"}}
 	current := placement.MemberState{HostAttempt: 2, HostNode: "replacement-node",
-		InstanceID: "ocid1.instance.oc1..replacement", CreateKey: "replacement-key"}
+		InstanceID: "ocid1.instance.oc1..replacement", CreateKey: "00000000005TNNS4T26SFB7M25"}
 
 	placements := &stubPlacementReader{}
 	provider := admittedManagedMaterialProvider(managedmaterial.PreparationService{}, placements, stubMemberReader{state: current},

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go/jetstream"
@@ -34,13 +35,6 @@ func (c *Controller) InitializeUsageHistory(ctx context.Context) error {
 func (c *Controller) ExpectedUsage(ctx context.Context, from, to time.Time) ([]hostload.UsageInterval, error) {
 	if c == nil || c.controlLog == nil || !from.Before(to) {
 		return nil, errors.New("historical host inventory is unavailable")
-	}
-	floor, err := c.quarantineHistoryFloor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if from.Before(floor) {
-		return nil, errors.New("inventory window predates the retirement history import")
 	}
 	if err := c.lockControlLog(ctx); err != nil {
 		return nil, err
@@ -78,7 +72,7 @@ func (c *Controller) ExpectedUsage(ctx context.Context, from, to time.Time) ([]h
 			if err := decodeStrict(entry.Payload, &registration); err != nil {
 				return nil, err
 			}
-			if entry.SubjectKey != registrationSubjectKey(c.cell, registration.Node) {
+			if entry.SubjectKey != registrationSubjectKey(c.cell, registration.Node) || registration.ID != entityid.Derive("host", c.cell, registration.Node) {
 				return nil, errors.New("historical registration identity mismatch")
 			}
 			if err := validateRegistration(registration, c.cell); err != nil {

@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
@@ -206,7 +208,7 @@ func founderFixtureWithAdmissibleRelease(t *testing.T, fixture *founderSignerFix
 	imageID := fixture.plan.Peers[0].ImageOCID
 	grant, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion,
 		SubjectKeyID: keyID, SubjectPublicKey: publicWire, Capabilities: []trust.Capability{{
-			Domain: release.ImageDomain, DeploymentID: revision, Cell: "GRU", Environment: "production",
+			Domain: release.ImageDomain, DeploymentID: entityid.Derive("build", revision), Cell: "GRU", Environment: "production",
 			Role: "oci-image", Slots: []string{imageID}, Actions: []string{"sign"},
 		}}}, fixture.now.Add(-10*time.Minute), fixture.now.Add(2*time.Hour), fixture.root)
 	if err != nil {

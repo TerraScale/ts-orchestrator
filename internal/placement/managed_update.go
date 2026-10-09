@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -121,16 +123,16 @@ type ManagedCompatibilityEvidence struct {
 // envelope verification remains the responsibility of the admission boundary.
 func (intent ManagedUpdateIntent) Validate() error {
 	if intent.SchemaVersion != ManagedUpdateSchemaVersion || !validToken(intent.Cell) ||
-		!validDatabaseKeyID(intent.DatabaseID) || !validBoundedToken(intent.PartitionID, maxPartitionIDLength) ||
+		!validDatabaseKeyID(intent.DatabaseID) || !entityid.Valid(intent.PartitionID) ||
 		intent.PlacementGeneration == 0 || !validLowerSHA256Digest(intent.PlacementPayloadDigest) ||
-		intent.PlacementSequence == 0 || intent.AuthorityEpoch == 0 || !validToken(intent.OperationID) ||
+		intent.PlacementSequence == 0 || intent.AuthorityEpoch == 0 || !entityid.Valid(intent.OperationID) ||
 		intent.Role != "terrabase" || !validToken(intent.Environment) ||
 		!validLowerSHA256Digest(intent.OldArtifactDigest) ||
 		!validLowerSHA256Digest(intent.CandidateArtifactDigest) ||
 		intent.CandidateArtifactDigest == intent.OldArtifactDigest ||
 		!validLowerSHA256Digest(intent.CandidateManifestDigest) ||
 		!validLowerSHA256Digest(intent.CandidateSourceDigest) ||
-		!validToken(intent.CanarySeatID) || intent.CanaryDesiredGeneration == 0 ||
+		!entityid.Valid(intent.CanarySeatID) || intent.CanaryDesiredGeneration == 0 ||
 		len(intent.Seats) != 2 {
 		return errors.New("invalid managed TerraBase update intent")
 	}
@@ -215,12 +217,12 @@ func (intent ManagedUpdateIntent) Validate() error {
 }
 
 func (seat ManagedUpdateSeat) validate(intent ManagedUpdateIntent) error {
-	if !validToken(seat.SeatID) || !knownRegion(seat.Region) || !strings.EqualFold(string(seat.Region), intent.Cell) ||
-		!validToken(seat.MemberID) || !lowerHex(seat.Incarnation, 32) || allZeroHex(seat.Incarnation) ||
+	if !entityid.Valid(seat.SeatID) || !knownRegion(seat.Region) || !strings.EqualFold(string(seat.Region), intent.Cell) ||
+		!entityid.Valid(seat.MemberID) || !lowerHex(seat.Incarnation, 32) || allZeroHex(seat.Incarnation) ||
 		!validLowerSHA256Digest(seat.TLSLeafSHA256) || !validLowerSHA256Digest(seat.RuntimeManifestDigest) ||
 		!validToken(seat.HostNode) || seat.HostGeneration == 0 || seat.HostAttempt == 0 ||
 		!validOCID(seat.OCIInstanceID, "instance") || !validToken(seat.OCIOwner) || seat.OCIFleetGeneration == 0 ||
-		!validToken(seat.CreateKey) || !validOCID(seat.VolumeID, "volume") ||
+		!entityid.Valid(seat.CreateKey) || !validOCID(seat.VolumeID, "volume") ||
 		!validOCID(seat.AttachmentID, "volumeattachment") || seat.AttachmentETag == "" ||
 		strings.ContainsAny(seat.AttachmentETag, "\r\n\x00") || !validManagedDevicePath(seat.AttachmentDevice) ||
 		seat.DesiredGeneration == 0 || !validLowerSHA256Digest(seat.ArtifactDigest) {
@@ -246,7 +248,7 @@ func (profile ManagedUpdateDurabilityProfile) Validate() error {
 		return errors.New("managed durability volumes must be sorted by seat ID")
 	}
 	for index, volume := range profile.Volumes {
-		if !validToken(volume.SeatID) || (index > 0 && profile.Volumes[index-1].SeatID == volume.SeatID) ||
+		if !entityid.Valid(volume.SeatID) || (index > 0 && profile.Volumes[index-1].SeatID == volume.SeatID) ||
 			!validOCID(volume.VolumeID, "volume") || !validFilesystemUUID(volume.FileSystemUUID) ||
 			volume.FileSystemType != "ext4" && volume.FileSystemType != "xfs" {
 			return errors.New("invalid managed durability volume profile")

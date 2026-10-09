@@ -362,7 +362,7 @@ func TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState(t *testing.T)
 			t.Fatalf("read %s: %v", bucket, err)
 		}
 		deniedCtx, deniedCancel := context.WithTimeout(ctx, 250*time.Millisecond)
-		_, err = store.PutString(deniedCtx, "probe", "forged")
+		_, err = store.PutString(deniedCtx, "probe", "0000000000RPYNQGXVXJSC20CX")
 		deniedCancel()
 		if err == nil {
 			t.Fatalf("operator wrote controller-owned %s", bucket)

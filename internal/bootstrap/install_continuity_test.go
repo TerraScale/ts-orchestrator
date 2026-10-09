@@ -199,7 +199,7 @@ func installContinuityFixture(t *testing.T) (InstallContinuity, ed25519.PrivateK
 	}
 	proof := InstallContinuity{
 		SchemaVersion: InstallContinuitySchemaVersion,
-		DeploymentID:  "deployment-a", Environment: "production", ClusterID: "cluster-a",
+		DeploymentID:  "0000000000F9PR1WNVDTEXS31Z", Environment: "production", ClusterID: "0000000000RMSAJ9B0JFV7ESHN",
 		Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1", Slot: "controller-a",
 		GenesisAnchorSHA256:  digestBytes([]byte("genesis anchor")),
 		AcceptedMarkerSHA256: digestBytes([]byte("accepted marker")),

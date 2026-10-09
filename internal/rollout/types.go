@@ -18,6 +18,8 @@ import (
 	"slices"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -42,6 +44,7 @@ var (
 	ErrConflict          = errors.New("rollout record changed concurrently")
 
 	tokenRE  = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,127}$`)
+	nonceRE  = regexp.MustCompile(`^[0-9a-f]{32}$`)
 	digestRE = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
@@ -224,7 +227,7 @@ type Record struct {
 // Validate checks the record's structural invariants. It is applied on every
 // decode and before every store write.
 func (record Record) Validate() error {
-	if record.SchemaVersion != SchemaVersion || !tokenRE.MatchString(record.RolloutID) || !record.Kind.valid() ||
+	if record.SchemaVersion != SchemaVersion || !entityid.Valid(record.RolloutID) || !record.Kind.valid() ||
 		!tokenRE.MatchString(record.Cell) || !digestRE.MatchString(record.FromDigest) || !digestRE.MatchString(record.ToDigest) ||
 		record.FromDigest == record.ToDigest || record.AuthorityEpoch == 0 || record.StartedAt.IsZero() ||
 		record.PhaseStartedAt.IsZero() || len(record.Reason) > maxReason || len(record.KnownBad) > MaxKnownBad {
@@ -328,6 +331,5 @@ func (record Record) InFlight() []string {
 // OperationID derives the idempotent executor operation identity for one
 // unit step, so a retried transition never creates a second operation.
 func OperationID(rolloutID, unit string, phase Phase, attempt int) string {
-	sum := sha256.Sum256(fmt.Appendf(nil, "rollout\x00%s\x00%s\x00%s\x00%d", rolloutID, unit, phase, attempt))
-	return "ro-" + hex.EncodeToString(sum[:16])
+	return entityid.Derive("rollout", rolloutID, unit, string(phase), fmt.Sprint(attempt))
 }

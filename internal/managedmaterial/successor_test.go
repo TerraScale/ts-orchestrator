@@ -43,7 +43,7 @@ func successorFixture(t *testing.T, service PreparationService, spec InitialSpec
 			t.Fatal(err)
 		}
 		request.Members[index] = AuthorityMember{
-			MemberID:      []string{"50000000-0000-0000-0000-000000000001", "50000000-0000-0000-0000-000000000002"}[index],
+			MemberID:      []string{"2G000000000000000000000001", "2G000000000000000000000002"}[index],
 			Incarnation:   []string{"03030303030303030303030303030303", "04040404040404040404040404040404"}[index],
 			ServerName:    name,
 			FailureDomain: []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"}[index],
@@ -148,7 +148,7 @@ func TestProduceSuccessorKeepsCrossedMappingInPredecessorSeatOrder(t *testing.T)
 	if err != nil {
 		t.Fatalf("crossed predecessor-to-successor seat mapping was rejected: %v", err)
 	}
-	firstID, err := canonicalUUID(request.Members[1].MemberID)
+	firstID, err := canonicalID(request.Members[1].MemberID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestProduceSuccessorRejectsCaseVariantOfOldIncarnation(t *testing.T) {
 	request.Members[0].MemberID = spec.Members[0].MemberID
 	request.Members[0].Incarnation = strings.ToUpper(spec.Members[0].Incarnation)
 	if request.Members[0].Incarnation == spec.Members[0].Incarnation {
-		t.Fatal("fixture did not change hexadecimal spelling")
+		t.Fatal("fixture did not change hex spelling")
 	}
 	if _, err := service.ProduceSuccessor(t.Context(), spec.PlacementDatabaseID,
 		spec.PartitionID, request, now); err == nil {

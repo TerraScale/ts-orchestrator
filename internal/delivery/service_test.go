@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
@@ -236,7 +238,7 @@ func testIntent(t *testing.T, s *Service, ctx context.Context) Intent {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Intent{SchemaVersion: SchemaVersion, OperationID: "deploy-one", Source: source, ArtifactDigest: artifact.Digest, ManifestDigest: artifact.ManifestDigest, Cell: "lab", Role: "worker", Environment: "production", Generation: 1, DesiredReplicas: 1, ConfigDigest: ConfigDigestOf(nil, nil, nil), AuthorityEpoch: 1}
+	return Intent{SchemaVersion: SchemaVersion, OperationID: "0000000000EF7XYFTYFG8Q39NY", Source: source, ArtifactDigest: artifact.Digest, ManifestDigest: artifact.ManifestDigest, Cell: "lab", Role: "worker", Environment: "production", Generation: 1, DesiredReplicas: 1, ConfigDigest: ConfigDigestOf(nil, nil, nil), AuthorityEpoch: 1}
 }
 
 func TestSubmitOperationReadRetriesTransientLeaderFailure(t *testing.T) {
@@ -341,7 +343,7 @@ func TestSubmitRetriesOtherTypedTransientPublishErrors(t *testing.T) {
 				return &jetstream.PubAck{}, nil
 			}}
 			attempt := intent
-			attempt.OperationID = fmt.Sprintf("transient-%d", index)
+			attempt.OperationID = entityid.Derive("test-delivery", fmt.Sprintf("transient-%d", index))
 			if err := service.Submit(ctx, attempt); err != nil {
 				t.Fatal(err)
 			}
@@ -549,7 +551,7 @@ func TestSubmitPublishStopsImmediatelyForPermanentErrors(t *testing.T) {
 				return nil, test.err
 			}}
 			attempt := intent
-			attempt.OperationID = fmt.Sprintf("permanent-%d", index)
+			attempt.OperationID = entityid.Derive("test-delivery", fmt.Sprintf("permanent-%d", index))
 			if err := service.Submit(ctx, attempt); !errors.Is(err, test.err) {
 				t.Fatalf("Submit error=%v, want %v", err, test.err)
 			}
@@ -592,7 +594,7 @@ func TestSubmitPublishRetriesGenericAPI5xxButNotJetStreamDisabledCodes(t *testin
 				return nil, test.err
 			}}
 			attempt := intent
-			attempt.OperationID = fmt.Sprintf("disabled-%d", index)
+			attempt.OperationID = entityid.Derive("test-delivery", fmt.Sprintf("disabled-%d", index))
 			if err := service.Submit(ctx, attempt); !errors.Is(err, test.err) {
 				t.Fatalf("Submit error=%v, want %v", err, test.err)
 			}
@@ -924,7 +926,7 @@ func TestStrictIntentRejectsDuplicateAndUnknownFields(t *testing.T) {
 
 func TestSignedUnadmittedIntentHasQueryVisibleRejection(t *testing.T) {
 	s, ctx := testService(t, &testWriter{})
-	i := Intent{SchemaVersion: SchemaVersion, OperationID: "unadmitted-one", Source: ArtifactSource{Repository: "https://git.terrascale.tech/TerraScale/ts-orchestrator", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TreeDigest: hex.EncodeToString(sha256.New().Sum(nil))}, ArtifactDigest: hex.EncodeToString(sha256.New().Sum(nil)), ManifestDigest: hex.EncodeToString(sha256.New().Sum(nil)), Cell: "lab", Role: "worker", Environment: "production", Generation: 1, DesiredReplicas: 1, ConfigDigest: ConfigDigestOf(nil, nil, nil), AuthorityEpoch: 1}
+	i := Intent{SchemaVersion: SchemaVersion, OperationID: "0000000000NQMHCVBYP1N8ZHTR", Source: ArtifactSource{Repository: "https://git.terrascale.tech/TerraScale/ts-orchestrator", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TreeDigest: hex.EncodeToString(sha256.New().Sum(nil))}, ArtifactDigest: hex.EncodeToString(sha256.New().Sum(nil)), ManifestDigest: hex.EncodeToString(sha256.New().Sum(nil)), Cell: "lab", Role: "worker", Environment: "production", Generation: 1, DesiredReplicas: 1, ConfigDigest: ConfigDigestOf(nil, nil, nil), AuthorityEpoch: 1}
 	if err := s.Submit(ctx, i); err != nil {
 		t.Fatal(err)
 	}
@@ -1248,7 +1250,7 @@ func TestPreConsumerConflictingPublishCannotImpersonateReceipt(t *testing.T) {
 
 func TestRealHostDesiredCallerRejectsEpochHandoff(t *testing.T) {
 	s, r, ctx := testServiceWithRuntime(t, &testWriter{})
-	control, err := authority.Start(ctx, r.JetStream(), authority.Config{Scope: "lab", CandidateID: "delivery-test", Replicas: 1, RenewInterval: 3 * time.Second})
+	control, err := authority.Start(ctx, r.JetStream(), authority.Config{Scope: "lab", CandidateID: "0000000000A8ZV3QT0H276P43A", Replicas: 1, RenewInterval: 3 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1310,7 +1312,7 @@ func TestRealHostDesiredCallerRejectsEpochHandoff(t *testing.T) {
 		t.Fatalf("host desired=%+v", desired)
 	}
 	other := i
-	other.OperationID = "deploy-two"
+	other.OperationID = "0000000000FJWGFCWW9Q05ET6C"
 	other.Generation = 2
 	guardCalls.Store(0)
 	armed.Store(true)

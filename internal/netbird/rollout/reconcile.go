@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
 )
@@ -35,12 +36,24 @@ type Status struct {
 	ObservedAt        time.Time `json:"observed_at"`
 }
 
+func (status Status) Validate() error {
+	if status.Pending != "" && !entityid.Valid(status.Pending) || status.ActionID != "" && !entityid.Valid(status.ActionID) {
+		return errors.New("invalid NetBird status identity")
+	}
+	return nil
+}
+
 type Command struct {
 	Generation  uint64 `json:"generation"`
 	ID          string `json:"id"`
 	Transaction string `json:"transaction"`
 	Action      string `json:"action"`
 	Target      Target `json:"target"`
+}
+
+// CommandID gives retries of one action the same independently scoped ID.
+func CommandID(transaction, action string) string {
+	return entityid.Derive("netbird-command", transaction, action)
 }
 
 type Record struct {
@@ -131,6 +144,9 @@ func (r *Reconciler) Tick(ctx context.Context, target Target, nodes []string) er
 	if err != nil {
 		return err
 	}
+	if record.Phase != "" && !entityid.Valid(record.ID) {
+		return errors.New("invalid NetBird rollout identity")
+	}
 	if record.RecoveryReturning && !record.RecoveryComplete {
 		// Fence an interrupted return before any status or health gate.
 		if err := r.Drain(ctx, record.Node); err != nil {
@@ -158,7 +174,7 @@ func (r *Reconciler) Tick(ctx context.Context, target Target, nodes []string) er
 		return nil
 	}
 	rollbackAcknowledged := func(status Status) bool {
-		return status.ActionID == record.ID+".rollback" && status.Error == "" && status.Version == record.Previous && status.Pending == ""
+		return status.ActionID == CommandID(record.ID, "rollback") && status.Error == "" && status.Version == record.Previous && status.Pending == ""
 	}
 	recovered := func(status Status, since time.Time) error {
 		if record.Previous == "" {
@@ -204,7 +220,7 @@ func (r *Reconciler) Tick(ctx context.Context, target Target, nodes []string) er
 			if err != nil {
 				return err
 			}
-			if status.Pending != "" {
+			if status.Pending != "" || status.Error != "" {
 				return fmt.Errorf("NetBird transaction still pending on %s", node)
 			}
 			statuses[node] = status
@@ -223,7 +239,7 @@ func (r *Reconciler) Tick(ctx context.Context, target Target, nodes []string) er
 			if err := r.Preflight(ctx, node); err != nil {
 				return err
 			}
-			record = Record{ID: fmt.Sprintf("%s-%d", hash[:16], now.UnixNano()), Node: node, Previous: status.Version,
+			record = Record{ID: entityid.New(), Node: node, Previous: status.Version,
 				Target: target, PinHash: hash, Phase: "drain", StartedAt: now, Deadline: now.Add(10 * time.Minute)}
 			return r.Save(ctx, record)
 		}
@@ -231,7 +247,7 @@ func (r *Reconciler) Tick(ctx context.Context, target Target, nodes []string) er
 	}
 	transition := func(phase string) error { record.Phase = phase; return r.Save(ctx, record) }
 	command := func(action string) error {
-		return r.Send(ctx, record.Node, Command{ID: record.ID + "." + action, Generation: uint64(record.StartedAt.UnixNano()), Transaction: record.ID, Action: action, Target: record.Target})
+		return r.Send(ctx, record.Node, Command{ID: CommandID(record.ID, action), Generation: uint64(record.StartedAt.UnixNano()), Transaction: record.ID, Action: action, Target: record.Target})
 	}
 	rollback := func(reason string) error {
 		record.RollbackRequired = new(true)
@@ -262,7 +278,7 @@ func (r *Reconciler) Tick(ctx context.Context, target Target, nodes []string) er
 		if err != nil {
 			return err
 		}
-		if status.ActionID == record.ID+".install" {
+		if status.ActionID == CommandID(record.ID, "install") {
 			if status.Error != "" {
 				return rollback(status.Error)
 			}
@@ -291,7 +307,7 @@ func (r *Reconciler) Tick(ctx context.Context, target Target, nodes []string) er
 		if err != nil {
 			return err
 		}
-		if status.ActionID == record.ID+".confirm" && status.Error == "" && status.Pending == "" && status.Version == record.Target.Pin.Version && status.AppliedTargetHash == record.PinHash {
+		if status.ActionID == CommandID(record.ID, "confirm") && status.Error == "" && status.Pending == "" && status.Version == record.Target.Pin.Version && status.AppliedTargetHash == record.PinHash {
 			record.Deadline = now.Add(2 * time.Minute)
 			return transition("return")
 		}
@@ -307,7 +323,7 @@ func (r *Reconciler) Tick(ctx context.Context, target Target, nodes []string) er
 		if err != nil {
 			return failedReturn(err)
 		}
-		if status.Pending != "" || status.Version != record.Target.Pin.Version || status.AppliedTargetHash != record.PinHash || status.ActionID != record.ID+".confirm" || status.Error != "" {
+		if status.Pending != "" || status.Version != record.Target.Pin.Version || status.AppliedTargetHash != record.PinHash || status.ActionID != CommandID(record.ID, "confirm") || status.Error != "" {
 			return failedReturn(errors.New("confirmed NetBird transaction changed before return"))
 		}
 		if err := r.Healthy(ctx, record.Node, status, record.StartedAt); err != nil {

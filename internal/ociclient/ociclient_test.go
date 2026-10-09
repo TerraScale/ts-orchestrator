@@ -6,10 +6,10 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -188,7 +188,7 @@ func TestConfiguredClientSharesLimiterAndRetriesThrottling(t *testing.T) {
 		t.Fatal("limiter is not shared")
 	}
 
-	// A cancelled context stops at the limiter before any request is sent.
+	// The limiter rejects a reservation beyond the deadline without waiting.
 	blocked, err := New(testProvider(t), Options{Region: "sa-saopaulo-1",
 		Limits: map[Service]Limit{ServiceCompute: {PerSecond: 0.001, Burst: 1}}})
 	if err != nil {
@@ -201,15 +201,15 @@ func TestConfiguredClientSharesLimiterAndRetriesThrottling(t *testing.T) {
 	PinHost(&slow.BaseClient, server.URL)
 	slow.HTTPClient = server.Client()
 	blocked.Limiter(ServiceCompute).Allow()
-	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	before := calls.Load()
 	_, err = slow.GetInstance(ctx, core.GetInstanceRequest{InstanceId: new("ocid1.instance.oc1.sa-saopaulo-1.x")})
 	if err == nil || calls.Load() != before {
 		t.Fatalf("limiter admitted a request: err=%v", err)
 	}
-	if !errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
-		t.Logf("limiter error: %v", err)
+	if ctx.Err() != nil || !strings.Contains(err.Error(), "rate limiter") {
+		t.Fatalf("expected immediate limiter rejection before deadline: %v", err)
 	}
 }
 

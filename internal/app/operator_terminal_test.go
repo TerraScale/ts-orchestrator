@@ -9,7 +9,6 @@ import (
 	"errors"
 	"testing"
 	"time"
-	"uuid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
@@ -103,7 +102,7 @@ func TestTerminalPlanApplyAndStatusRequireSignedExactInventory(t *testing.T) {
 		FaultDomains:  []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"}}
 	inventory := &terminalTestInventory{}
 	request := terminalRequest{DatabaseID: placed.DatabaseID, PartitionID: placed.PartitionID,
-		OperationID: "cleanup-a", Nonce: uuid.New().String()}
+		OperationID: "0000000000YTXFV0CFVPJ6FSQ7", Nonce: "0123456789abcdef0123456789abcdef"}
 	sign := func(action, operationID string, generation uint64, payload any, issued, expires time.Time) []byte {
 		t.Helper()
 		encoded, err := protocol.EncodeJSON(payload)
@@ -159,7 +158,7 @@ func TestTerminalPlanApplyAndStatusRequireSignedExactInventory(t *testing.T) {
 		t.Fatal("plan or rejected signed apply disabled grants before admission")
 	}
 	applyWire := sign("apply", approved.OperationID, approved.PlacementGeneration, approved, now, now.Add(time.Minute))
-	control.pending = []authority.EnrollmentEffect{{EffectID: "old-effect", InstanceID: "ocid1.instance.oc1..old",
+	control.pending = []authority.EnrollmentEffect{{EffectID: "0000000000F637JQA32HGV7PS4", InstanceID: "ocid1.instance.oc1..old",
 		Epoch: 2, Sequence: 9, Phase: "pending"}}
 	if _, err := handleTerminalRequest(ctx, applyWire, "apply", "gru", policy, control,
 		region, terminalTestMembers{}, inventory, fence, proof, grantOK); err == nil {
@@ -179,7 +178,7 @@ func TestTerminalPlanApplyAndStatusRequireSignedExactInventory(t *testing.T) {
 		t.Fatalf("new plan after marker = %v, want fenced", err)
 	}
 	statusRequest := terminalRequest{DatabaseID: request.DatabaseID, PartitionID: request.PartitionID,
-		OperationID: "status-a", Nonce: uuid.New().String()}
+		OperationID: "0000000000E4VAM0DX058W0Q36", Nonce: "0123456789abcdef0123456789abcdef"}
 	statusWire := sign("status", statusRequest.OperationID, 1, statusRequest, now, now.Add(time.Minute))
 	status, err := handleTerminalRequest(ctx, statusWire, "status", "gru", policy, control,
 		region, terminalTestMembers{}, inventory, fence, proof,

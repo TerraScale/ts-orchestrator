@@ -211,10 +211,15 @@ Roll back the same way without the two settings.
 
 ts-auth (ts-auth#36) serves one issuer, `https://gru.auth.terrascale.tech/terrascale`,
 with discovery at `https://gru.auth.terrascale.tech/terrascale/.well-known/openid-configuration`.
-At startup it registers the confidential client `ts-dashboard` from
+At startup it registers the dashboard confidential client
+`01M4EQ2FRJ8S8B29E8TQVWNW4J` from
 `TS_AUTH_DASHBOARD_CLIENT_SECRET` and the two profile URIs above.
 `ouroboros fly-secrets` hands the dashboard the matching `TS_AUTH_ISSUER`,
 `TS_AUTH_CLIENT_ID`, `TS_AUTH_REDIRECT_URL` and `TS_AUTH_CLIENT_SECRET`.
+This ID matches `OidcIssuer.DashboardClientId` in ts-auth revision
+`ac893792853c564b54947b2bcf9b0019d5e9cd9f`. Qualify a release with this
+registration before the coordinated greenfield deployment; old auth releases
+registering `ts-dashboard` are not compatible.
 
 - Every secret lives in the gru-1 Vault (phase 1) in the control
   compartment, read from the plan's `resource_ids` (`control_compartment`,
@@ -752,7 +757,7 @@ Dashboard handoff, Fly app `ts-dashboard`. It sets `TERRABASE_URL`
 `TERRABASE_DATABASE` (`dashboard`) and `TERRABASE_API_KEY` (from the Vault),
 and the dashboard's ts-auth client: `TS_AUTH_ISSUER`
 (`https://gru.auth.terrascale.tech/terrascale`), `TS_AUTH_CLIENT_ID`
-(`ts-dashboard`), `TS_AUTH_REDIRECT_URL`
+(`01M4EQ2FRJ8S8B29E8TQVWNW4J`), `TS_AUTH_REDIRECT_URL`
 (`https://dash.terrascale.tech/login/callback`) and `TS_AUTH_CLIENT_SECRET`
 (from the Vault, the secret ts-auth registers).
 

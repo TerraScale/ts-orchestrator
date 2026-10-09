@@ -10,6 +10,8 @@ import (
 	"net/netip"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -37,7 +39,7 @@ func (service PreparationService) PrepareInitial(ctx context.Context, epoch uint
 	partition string, spec InitialSpec, now time.Time,
 ) (PreparationReceipt, error) {
 	if ctx == nil || service.Repository == nil || service.Receipts == nil || service.Fencer == nil ||
-		len(service.ControllerKey) != ed25519.PrivateKeySize || !repositoryToken.MatchString(partition) ||
+		len(service.ControllerKey) != ed25519.PrivateKeySize || !entityid.Valid(partition) ||
 		service.Cell != service.Repository.config.Cell || epoch == 0 || spec.PartitionID != partition {
 		return PreparationReceipt{}, errors.New("managed material preparation service is incomplete")
 	}
@@ -91,7 +93,7 @@ func (service PreparationService) PrepareInitial(ctx context.Context, epoch uint
 	if err := service.Fencer.Guard(ctx, epoch); err != nil {
 		return PreparationReceipt{}, err
 	}
-	operationID := "material-g1-" + object.SpecSHA256[:24]
+	operationID := entityid.Derive("material-preparation", object.SpecSHA256)
 	_, commitErr := service.Receipts.CommitMaterialReceipt(ctx, epoch, spec.PlacementDatabaseID,
 		partition, operationID, 0, payload)
 	if commitErr != nil && !errors.Is(commitErr, authority.ErrConflict) &&
@@ -120,7 +122,7 @@ func (service PreparationService) Current(ctx context.Context, database, partiti
 func (service PreparationService) CurrentBundle(ctx context.Context, database, partition string) (PreparationReceipt, InitialBundle, error) {
 	if ctx == nil || service.Repository == nil || service.Receipts == nil ||
 		len(service.ControllerKey) != ed25519.PrivateKeySize ||
-		!repositoryToken.MatchString(database) || !repositoryToken.MatchString(partition) ||
+		!entityid.Valid(database) || !entityid.Valid(partition) ||
 		service.Cell != service.Repository.config.Cell {
 		return PreparationReceipt{}, InitialBundle{}, errors.New("managed material receipt reader is incomplete")
 	}

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 type cycleRecord struct {
@@ -27,7 +29,7 @@ func (c *Controller) serveCycle(ctx context.Context, req request, r Registration
 	if err := decodeStrict(req.Payload, &query); err != nil {
 		return nil, err
 	}
-	if !slices.Contains(r.Roles, query.Role) || validateDigest(query.Digest) != nil || query.Generation == 0 || query.AuthorityEpoch == 0 || len(query.Attempt) != 32 {
+	if !slices.Contains(r.Roles, query.Role) || validateDigest(query.Digest) != nil || query.Generation == 0 || query.AuthorityEpoch == 0 || !entityid.Valid(query.Attempt) {
 		return nil, errors.New("invalid cycle query")
 	}
 	var desired Desired

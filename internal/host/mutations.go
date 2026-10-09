@@ -6,12 +6,35 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 func registrationSubjectKey(cell, node string) string  { return cell + "." + node }
 func desiredSubjectKey(cell, node, role string) string { return cell + "." + node + "." + role }
+
+func rejectObsoleteRetirementState(ctx context.Context, state jetstream.KeyValue, cell string) error {
+	keys, err := state.ListKeysFiltered(ctx, "retired."+cell+".>", "retirement-quarantine."+cell+".>", "retirement-cutover."+cell)
+	if err != nil {
+		return fmt.Errorf("validate host retirement storage: %w", err)
+	}
+	defer keys.Stop()
+	obsolete := false
+	for range keys.Keys() {
+		obsolete = true
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if obsolete {
+		return errors.New("host state contains obsolete retirement keys; updated host control cannot start over this state")
+	}
+	return nil
+}
 
 func (c *Controller) readRetirement(ctx context.Context, node string) (retirement, uint64, error) {
 	if err := validateToken(node, "node"); err != nil {
@@ -67,7 +90,7 @@ func (c *Controller) readRegistration(ctx context.Context, node string) (Registr
 	if err := decodeStrict(entry.Payload, &r); err != nil {
 		return Registration{}, 0, false, err
 	}
-	if r.Node != node {
+	if r.Node != node || r.ID != entityid.Derive("host", c.cell, node) {
 		return Registration{}, 0, false, errors.New("registration log identity mismatch")
 	}
 	if err := validateRegistration(r, c.cell); err != nil {
@@ -113,5 +136,5 @@ func mutationPayload(value any) ([]byte, string, error) {
 		return nil, "", errors.New("host mutation exceeds value limit")
 	}
 	hash := sha256.Sum256(data)
-	return data, hex.EncodeToString(hash[:16]), nil
+	return data, entityid.Derive("host-mutation", hex.EncodeToString(hash[:])), nil
 }

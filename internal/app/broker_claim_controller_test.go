@@ -128,7 +128,7 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 			TLS: tlsFiles, RouteTLS: tlsFiles, OperatorJWTFile: operatorFile, SystemJWTFile: systemFile,
 			CellJWTFile: cellFile, SystemCredentialsFile: systemCreds, TicketPublicKeyFile: ticketFile,
 			BrokerIDs: []string{"broker-a"}}},
-		Controller: ControllerConfig{CandidateID: "broker-a", ResponseKeyFile: filepath.Join(root, "response.key"),
+		Controller: ControllerConfig{CandidateID: "0000000000RTDFYAHDCP6Y401P", ResponseKeyFile: filepath.Join(root, "response.key"),
 			BrokerTicketKeyFile: filepath.Join(root, "ticket.key"), ArtifactStoreMaxBytes: 64 << 20,
 			TrustedSigners: []TrustedSignerConfig{grant}, Workloads: map[string]WorkloadProfile{
 				"terrabase": {Resources: placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}},
@@ -141,7 +141,7 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 	previousServiceTrust := specBakedInputs
 	specBakedInputs = func() (bootstrapstart.BakedInputs, error) {
 		return bootstrapstart.BakedInputs{Identity: bootstrapstart.BakedIdentity{SchemaVersion: 1,
-			DeploymentID: "broker-claim", Environment: "test", Cell: "GRU"}, Genesis: testSpecRoots(t)}, nil
+			DeploymentID: "000000000073E652YS073VHPZY", Environment: "test", Cell: "GRU"}, Genesis: testSpecRoots(t)}, nil
 	}
 	clock := &testBrokerClock{}
 	clock.healthy.Store(true)

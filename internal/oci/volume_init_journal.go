@@ -6,31 +6,27 @@ import (
 	"errors"
 	"fmt"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/nats-io/nats.go/jetstream"
 )
-
-type volumeFormatPermitEntry struct {
-	SchemaVersion int                      `json:"schema_version"`
-	Record        VolumeFormatPermitRecord `json:"record"`
-}
 
 // ClaimVolumeFormatPermit atomically creates a one-way first-format record.
 // Only the caller whose KV Create positively succeeded receives true. A retry
 // or an ambiguous write never receives another format authorization.
 func (journal *KVJournal) ClaimVolumeFormatPermit(ctx context.Context, record VolumeFormatPermitRecord) (bool, error) {
 	if journal == nil || record.Region == "" || record.Generation == 0 || record.Owner == "" ||
-		record.DatabaseID == "" || record.PartitionID == "" || record.InstanceID == "" ||
-		record.HostCreateKey == "" || record.VolumeID == "" || record.AttachmentID == "" ||
+		!entityid.Valid(record.DatabaseID) || !entityid.Valid(record.PartitionID) || record.InstanceID == "" ||
+		!entityid.Valid(record.HostCreateKey) || record.VolumeID == "" || record.AttachmentID == "" ||
 		record.AttachmentETag == "" || !validDevicePath(record.Device) ||
 		record.FileSystemUUID == "" || record.FileSystemType != "ext4" && record.FileSystemType != "xfs" ||
 		!isLowerHexSHA256(record.BootDescriptorSHA256) {
 		return false, errors.New("volume format permit record is incomplete")
 	}
-	data, err := json.Marshal(volumeFormatPermitEntry{SchemaVersion: 1, Record: record})
+	data, err := json.Marshal(journalEntry{SchemaVersion: journalSchema, Kind: "format-permit", FormatPermit: record})
 	if err != nil {
 		return false, err
 	}
-	key := "volume-format-permit." + digest(string(record.Region), fmt.Sprint(record.Generation), record.Owner, record.VolumeID)
+	key := entityid.Derive("volume-format-permit", string(record.Region), fmt.Sprint(record.Generation), record.Owner, record.VolumeID)
 	if _, err := journal.kv.Create(ctx, key, data); err == nil {
 		return true, nil
 	} else if !errors.Is(err, jetstream.ErrKeyExists) {
@@ -42,28 +38,23 @@ func (journal *KVJournal) ClaimVolumeFormatPermit(ctx context.Context, record Vo
 	if err != nil {
 		return false, err
 	}
-	var current volumeFormatPermitEntry
+	var current journalEntry
 	if err := json.Unmarshal(entry.Value(), &current, json.RejectUnknownMembers(true)); err != nil {
 		return false, err
 	}
-	if current.SchemaVersion != 1 || current.Record != record {
+	if current.SchemaVersion != journalSchema || current.Kind != "format-permit" || current.FormatPermit != record {
 		return false, errors.New("volume format permit key belongs to a different immutable binding")
 	}
 	return false, nil
 }
 
-type volumeMountPermitEntry struct {
-	SchemaVersion int                     `json:"schema_version"`
-	Record        VolumeMountPermitRecord `json:"record"`
-}
-
 func volumeMountPermitKey(region Region, generation uint64, owner, volumeID, attachmentID string) string {
-	return "volume-mount-permit." + digest(string(region), fmt.Sprint(generation), owner, volumeID, attachmentID)
+	return entityid.Derive("volume-mount-permit", string(region), fmt.Sprint(generation), owner, volumeID, attachmentID)
 }
 
 func validVolumeMountPermitRecord(record VolumeMountPermitRecord) bool {
 	return record.Region != "" && record.Generation != 0 && record.Owner != "" &&
-		record.DatabaseID != "" && record.PartitionID != "" && record.VolumeID != "" &&
+		entityid.Valid(record.DatabaseID) && entityid.Valid(record.PartitionID) && record.VolumeID != "" &&
 		record.AttachmentID != "" && record.ReplacementInstanceID != "" && record.FencedInstanceID != "" &&
 		record.ReplacementInstanceID != record.FencedInstanceID && record.FencedInstanceState == instanceStateTerminated
 }
@@ -75,7 +66,7 @@ func (journal *KVJournal) RecordVolumeMountPermit(ctx context.Context, record Vo
 	if journal == nil || !validVolumeMountPermitRecord(record) {
 		return errors.New("volume mount permit record is incomplete")
 	}
-	data, err := json.Marshal(volumeMountPermitEntry{SchemaVersion: 1, Record: record})
+	data, err := json.Marshal(journalEntry{SchemaVersion: journalSchema, Kind: "mount-permit", MountPermit: record})
 	if err != nil {
 		return err
 	}
@@ -110,12 +101,12 @@ func (journal *KVJournal) GetVolumeMountPermit(ctx context.Context, region Regio
 	if err != nil {
 		return VolumeMountPermitRecord{}, false, err
 	}
-	var current volumeMountPermitEntry
+	var current journalEntry
 	if err := json.Unmarshal(entry.Value(), &current, json.RejectUnknownMembers(true)); err != nil {
 		return VolumeMountPermitRecord{}, false, err
 	}
-	record := current.Record
-	if current.SchemaVersion != 1 || !validVolumeMountPermitRecord(record) || record.Region != region ||
+	record := current.MountPermit
+	if current.SchemaVersion != journalSchema || current.Kind != "mount-permit" || !validVolumeMountPermitRecord(record) || record.Region != region ||
 		record.Generation != generation || record.Owner != owner || record.VolumeID != volumeID ||
 		record.AttachmentID != attachmentID {
 		return VolumeMountPermitRecord{}, false, errors.New("volume mount permit record is corrupt")

@@ -22,7 +22,7 @@ import (
 
 const (
 	managedVolumeFirecrackerRoot      = "/srv/ts-managed"
-	managedVolumeFirecrackerUUID      = "76f1b43d-7d79-4f41-9a6e-cc1f4aaab102"
+	managedVolumeFirecrackerUUID      = "3PY6T3TZBS9X0SMVPC3X5ANC82"
 	managedVolumeFirecrackerAlias     = "/dev/oracleoci/oraclevdb"
 	managedVolumeFirecrackerMemberDir = "/srv/ts-managed/6efe9447512debbf02bcd921c78d666c"
 	managedVolumeAuthoritySHA256      = "e9885a5c3c5eac8efbf5d6854866244c54d4adeb862fe91a57d3c8f173d190f0"
@@ -38,7 +38,7 @@ const (
 	managedVolumeServerTLSLeafSHA256  = "3d644bacdddacbba9fe0c753dbbd369220175381672fa579b6b9b9b063c0119d"
 	managedVolumeReplicationDNS       = "member-a.terrabase.test"
 	managedVolumeReplicationIP        = "10.77.39.11"
-	managedVolumePeerMemberID         = "018f0000-0000-7000-8000-000000000002"
+	managedVolumePeerMemberID         = "01HW000000E008000000000002"
 	managedVolumePeerAddress          = "10.77.39.12:7000"
 )
 
@@ -263,9 +263,9 @@ func TestManagedRuntimeFirecrackerMountedVolume(t *testing.T) {
 		t.Fatalf("prepared TerraBase workload differs from pinned runtime: role=%q digest=%q executable=%q memory=%d args=%v",
 			workload.Role, workload.Digest, workload.Executable, workload.CgroupMemoryMaxBytes, workload.Args)
 	}
-	wrongUUID := "00000000-0000-0000-0000-000000000000"
+	wrongUUID := "00000000000000000000000000"
 	if wrongUUID == volumeUUID {
-		wrongUUID = "11111111-1111-1111-1111-111111111111"
+		wrongUUID = "0H248H248H248H248H248H248H"
 	}
 	wrongUUIDDesired := desiredWithManagedRuntime(desired, func(pins *ManagedRuntimePins) {
 		pins.FileSystemUUID = wrongUUID

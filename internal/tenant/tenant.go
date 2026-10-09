@@ -20,6 +20,8 @@ import (
 	"slices"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 )
@@ -30,13 +32,7 @@ const Schema = "terrascale.tenant.v1"
 var (
 	ErrInvalid   = errors.New("tenant is invalid")
 	ErrUnchanged = errors.New("tenant change changes nothing")
-	// ID is a DNS label without hyphens, so it is also one NATS subject and
-	// KV key token and no tenant's role or Vault secret prefix is a prefix
-	// of another's (vaultsecret.ValidateRefs).
-	idRE    = regexp.MustCompile(`^[a-z][a-z0-9]{2,29}$`)
-	refRE   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
-	planRE  = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
-	reserve = []string{"admin", "api", "app", "auth", "dash", "status", "terrascale", "www"}
+	planRE       = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
 )
 
 // Retention bounds how long a deleted tenant's volumes and backups stay.
@@ -145,10 +141,10 @@ func (t Tenant) Validate() error {
 	if t.Schema != Schema {
 		return fmt.Errorf("%w: schema %q", ErrInvalid, t.Schema)
 	}
-	if !idRE.MatchString(t.ID) {
+	if !entityid.Valid(t.ID) {
 		return fmt.Errorf("%w: id %q", ErrInvalid, t.ID)
 	}
-	if _, ok := catalog.LookupName(t.Cell); !ok || !refRE.MatchString(t.Organization) || !refRE.MatchString(t.Project) {
+	if _, ok := catalog.LookupName(t.Cell); !ok || !entityid.Valid(t.Organization) || !entityid.Valid(t.Project) {
 		return fmt.Errorf("%w: organization, project or cell", ErrInvalid)
 	}
 	if err := t.Spec.Validate(); err != nil {
@@ -195,7 +191,7 @@ func CheckNew(t Tenant) error {
 }
 
 // ValidID reports whether a new tenant may take id.
-func ValidID(id string) bool { return idRE.MatchString(id) && !slices.Contains(reserve, id) }
+func ValidID(id string) bool { return entityid.Valid(id) }
 
 // New is generation 1 of an active tenant; it fills spec.Member from the plan.
 func New(id, organization, project, cell string, spec Spec, now time.Time) (Tenant, error) {

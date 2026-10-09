@@ -691,7 +691,7 @@ func TestNativeTenantWorkloadDiesWithSupervisor(t *testing.T) {
 	})
 	install := nativeTestInstallDir(t)
 	script := filepath.Join(install, "workload")
-	diagnostic := filepath.Join(install, "diagnostic")
+	diagnostic := filepath.Join(install, "0000000000XTGQJSECWR54430J")
 	writeNativeTestExecutable(t, script, "#!/bin/sh\nexec \"$@\"\n")
 	copyNativeTestExecutable(t, diagnostic)
 	report := nativeTestReadableMarker(t, "parent-death")

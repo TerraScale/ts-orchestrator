@@ -254,8 +254,8 @@ func TestValidateSecrets(t *testing.T) {
 	if err := ValidateSecrets(with2(testSecrets(), "TS_AUTH_SERVICE_CLIENTS", "smoke:"+sentinel)); err != nil {
 		t.Fatalf("service clients: %v", err)
 	}
-	if err := ValidateSecrets(with2(testSecrets(), EnvProjectID, "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d")); err != nil {
-		t.Fatalf("existing UUIDv7 project: %v", err)
+	if err := ValidateSecrets(with2(testSecrets(), EnvProjectID, "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d")); err == nil {
+		t.Fatal("accepted a UUIDv7 project")
 	}
 	short := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 31))
 	values := append(slices.Collect(maps.Values(testSecrets())), sentinel, short)
@@ -295,12 +295,15 @@ func TestValidateSecrets(t *testing.T) {
 	}
 }
 
-func TestProjectIDsAcceptULIDAndUUIDv7(t *testing.T) {
+func TestProjectIDsRequireCanonicalULID(t *testing.T) {
 	for _, project := range Projects {
 		t.Run(project.Name, func(t *testing.T) {
-			for _, id := range []string{testProjectID, "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d"} {
-				if err := validSecret(project.ProjectIDKey, id); err != nil {
-					t.Fatal(err)
+			if err := validSecret(project.ProjectIDKey, testProjectID); err != nil {
+				t.Fatal(err)
+			}
+			for _, id := range []string{"0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d", strings.ToLower(testProjectID), "00000000000000000000000000"} {
+				if err := validSecret(project.ProjectIDKey, id); err == nil {
+					t.Fatalf("accepted noncanonical project %q", id)
 				}
 			}
 		})

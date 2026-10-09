@@ -10,7 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 type Process struct {
@@ -176,8 +177,8 @@ type Survivor struct {
 }
 
 func (s Scope) valid() bool {
-	return lowerHex(s.ClusterID, 32) && lowerHex(s.Incarnation, 32) && s.ShardID != 0 &&
-		canonicalUUID(s.TenantID) && canonicalUUID(s.DatabaseID) && canonicalUUID(s.MemberID)
+	return lowerHexIdentity(s.ClusterID) && lowerHexIdentity(s.Incarnation) && s.ShardID != 0 &&
+		canonicalID(s.TenantID) && canonicalID(s.DatabaseID) && canonicalID(s.MemberID)
 }
 
 func (a Authority) valid() bool {
@@ -188,7 +189,7 @@ func (a Authority) valid() bool {
 func (p Process) valid() bool { return p.PID >= 2 && lowerHex(p.StartNonce, 32) }
 
 func (s Survivor) valid() bool {
-	return canonicalUUID(s.MemberID) && lowerHex(s.Incarnation, 32)
+	return canonicalID(s.MemberID) && lowerHexIdentity(s.Incarnation)
 }
 
 func lowerHex(value string, length int) bool {
@@ -205,10 +206,7 @@ func lowerHex(value string, length int) bool {
 	return true
 }
 
-func canonicalUUID(value string) bool {
-	id, err := uuid.Parse(value)
-	return err == nil && id != uuid.Nil() && id.String() == value
-}
+func canonicalID(value string) bool { return entityid.Valid(value) }
 
 // decodeRequired rejects duplicate, unknown, null, and absent contract fields.
 func decodeRequired(data []byte, into any, paths ...string) error {
@@ -299,3 +297,7 @@ var ErrNotServing = errors.New("member is not serving with current proof")
 var ErrStaleBinding = errors.New("member process or authority binding changed")
 var ErrOperationConflict = errors.New("member drain operation conflicts with persisted intent")
 var ErrOutcomeUnknown = errors.New("member drain outcome requires reconciliation")
+
+func lowerHexIdentity(value string) bool {
+	return lowerHex(value, 32) && strings.Trim(value, "0") != ""
+}

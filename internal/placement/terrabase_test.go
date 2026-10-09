@@ -1,7 +1,6 @@
 package placement
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -9,7 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -28,10 +28,10 @@ func TestDesiredSeatsContainsExactlyTwoAntiAffineMembersPerSelectedRegion(t *tes
 		t.Fatal(err)
 	}
 	want := []Seat{
-		{MemberID: "permanent-a", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent},
-		{MemberID: "elastic-gru", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-2", Kind: MemberElastic},
-		{MemberID: "permanent-c", Region: oci.RegionFRA, FailureDomain: "FAULT-DOMAIN-2", Kind: MemberPermanent},
-		{MemberID: "elastic-fra", Region: oci.RegionFRA, FailureDomain: "FAULT-DOMAIN-3", Kind: MemberElastic},
+		{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent},
+		{MemberID: "0000000000XG8SBD7XGE97V28G", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-2", Kind: MemberElastic},
+		{MemberID: "0000000000M6NPX5VJR7J4KHXR", Region: oci.RegionFRA, FailureDomain: "FAULT-DOMAIN-2", Kind: MemberPermanent},
+		{MemberID: "0000000000DRX0N2BW96GK619K", Region: oci.RegionFRA, FailureDomain: "FAULT-DOMAIN-3", Kind: MemberElastic},
 	}
 	if !reflect.DeepEqual(seats, want) {
 		t.Fatalf("seats = %#v, want %#v", seats, want)
@@ -49,9 +49,9 @@ func TestDesiredSeatsRejectsSameFailureDomain(t *testing.T) {
 
 func TestIntentRejectsUnselectedRegionAliasesDuplicatesAndStaleGeneration(t *testing.T) {
 	cases := []Intent{
-		{SchemaVersion: IntentSchemaVersion, DatabaseID: "db", PartitionID: "p0", ActiveRegions: []oci.Region{"LAX"}, Generation: 1},
-		{SchemaVersion: legacyIntentSchemaVersion, DatabaseID: "db", PartitionID: "p0", ActiveRegions: []oci.Region{oci.RegionGRU, oci.RegionGRU}, Generation: 1},
-		{SchemaVersion: IntentSchemaVersion, DatabaseID: "db", PartitionID: "p0", ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: 0},
+		{SchemaVersion: IntentSchemaVersion, DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD", ActiveRegions: []oci.Region{"LAX"}, Generation: 1},
+		{SchemaVersion: 1, DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD", ActiveRegions: []oci.Region{oci.RegionGRU, oci.RegionGRU}, Generation: 1},
+		{SchemaVersion: IntentSchemaVersion, DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD", ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: 0},
 	}
 	for _, intent := range cases {
 		if err := intent.Validate(); err == nil {
@@ -145,7 +145,7 @@ func TestManagedIntentRequiresCompleteOrderedRuntimeManifests(t *testing.T) {
 			intent.RuntimeManifests[0].ReplicationPeerAddress = "198.51.100.12:7001"
 		}},
 		{"foreign peer", func(intent *Intent) {
-			intent.RuntimeManifests[0].ReplicationPeerMemberID = "018f0000-0000-7000-8000-000000000016"
+			intent.RuntimeManifests[0].ReplicationPeerMemberID = "01HW000000E00800000000000P"
 			intent.RuntimeManifests[0].ReplicationPeerAddress = "10.0.0.12:7001"
 			intent.RuntimeManifests[0].ReplicationServerCASHA256 = strings.Repeat("a", 64)
 		}},
@@ -157,16 +157,6 @@ func TestManagedIntentRequiresCompleteOrderedRuntimeManifests(t *testing.T) {
 				t.Fatal("incomplete signed runtime manifest was admitted")
 			}
 		})
-	}
-	old := validIntent(oci.RegionGRU)
-	old.SchemaVersion = rosterIntentSchemaVersion
-	old.RuntimeManifests = nil
-	makeHistoricalULIDRoster(&old)
-	if err := old.Validate(); err != nil {
-		t.Fatalf("historical roster intent cannot be read for hold: %v", err)
-	}
-	if err := old.ValidateForAdmission(); err == nil {
-		t.Fatal("schema-3 intent authorized a new runtime launch")
 	}
 }
 
@@ -275,7 +265,7 @@ func TestCanonicalRosterDigestLookupAndValidation(t *testing.T) {
 	}{
 		{name: "wrong cluster ID", mutate: func(intent *Intent) { intent.CanonicalRoster.ClusterID = strings.Repeat("0", 32) }},
 		{name: "noncanonical roster database UUID", mutate: func(intent *Intent) {
-			intent.CanonicalRoster.DatabaseID = strings.ToUpper(intent.CanonicalRoster.DatabaseID)
+			intent.CanonicalRoster.DatabaseID = strings.ToLower(intent.CanonicalRoster.DatabaseID)
 		}},
 		{name: "unknown authority version", mutate: func(intent *Intent) { intent.CanonicalRoster.Authority.Version = 1 }},
 		{name: "zero authority epoch", mutate: func(intent *Intent) { intent.CanonicalRoster.Authority.Epoch = 0 }},
@@ -307,41 +297,7 @@ func TestCanonicalRosterDigestLookupAndValidation(t *testing.T) {
 }
 
 func TestMemberStateManagedProfilePinsAreAdditiveAndValidated(t *testing.T) {
-	legacyState := validMemberStateForPins()
-	legacyState.SchemaVersion = legacyMemberStateSchemaVersion
-	legacyState.DatabaseID = "db-main"
-	if err := legacyState.Validate(); err != nil {
-		t.Fatalf("legacy unpinned member state should remain readable: %v", err)
-	}
-
-	state := validMemberStateForPins()
-	state.SchemaVersion = rosterMemberStateSchemaVersion
-	intent := validIntent(oci.RegionGRU)
-	intent.SchemaVersion = rosterIntentSchemaVersion
-	intent.RuntimeManifests = nil
-	makeHistoricalULIDRoster(&intent)
-	profile := intent.ManagedHostProfiles[0]
-	profileDigest, err := profile.ProfileDigest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	intent.Generation = state.IntentGeneration
-	encoded, err := protocol.EncodeJSON(intent)
-	if err != nil {
-		t.Fatal(err)
-	}
-	payloadDigest := sha256.Sum256(encoded)
-	state.IntentPayloadDigest = hex.EncodeToString(payloadDigest[:])
-	state.ManagedHostProfile = profile
-	state.ManagedHostProfileDigest = profileDigest
-	state.CanonicalRosterRow = intent.CanonicalRoster.Rows[0]
-	rosterBytes, err := protocol.EncodeJSON(intent.CanonicalRoster)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rosterHash := sha256.Sum256(rosterBytes)
-	state.CanonicalRosterDigest = hex.EncodeToString(rosterHash[:])
-	state.AuthorityReference = intent.CanonicalRoster.Authority
+	state := validMemberStateForPins(t)
 	if err := state.Validate(); err != nil {
 		t.Fatalf("valid member-state V2 pins were rejected: %v", err)
 	}
@@ -381,175 +337,20 @@ func TestMemberStateManagedProfilePinsAreAdditiveAndValidated(t *testing.T) {
 	}
 }
 
-func validMemberStateForPins() MemberState {
-	return MemberState{
-		SchemaVersion: placementSchemaVersion, DatabaseID: testDatabaseID, PartitionID: "partition-a",
-		MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1",
-		Kind: MemberPermanent, Stage: StagePreparedHost, CreateKey: "member-create-key", HostAttempt: 1,
-		IntentGeneration: 1, OperationID: "member-operation", UpdatedAt: time.Now().UTC(),
-	}
-}
-
-func TestHistoricalIntentIsReadableButNotAdmissible(t *testing.T) {
-	legacy := Intent{
-		SchemaVersion: legacyIntentSchemaVersion, DatabaseID: "db-main", PartitionID: "partition-a",
-		ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: 1,
-	}
-	payload, err := protocol.EncodeJSON(legacy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	decoded, err := DecodeCommittedIntent(payload)
-	if err != nil || decoded.PayloadDigest() == "" {
-		t.Fatalf("historical committed intent read = %+v, %v", decoded, err)
-	}
-	if err := decoded.ValidateForAdmission(); err == nil {
-		t.Fatal("historical schema-1 intent authorized a new managed placement")
-	}
-}
-
-func TestSchemaFiveUsesNativeUUIDWithoutReinterpretingSchemaFour(t *testing.T) {
-	current := validIntent(oci.RegionGRU)
-	if err := current.ValidateForAdmission(); err != nil {
-		t.Fatalf("native UUID placement rejected: %v", err)
-	}
-	for _, change := range []struct {
-		name   string
-		mutate func(*Intent)
-	}{
-		{"ULID tenant", func(intent *Intent) { intent.CanonicalRoster.TenantID = "01ARZ3NDEKTSV4RRFFQ69G5FAS" }},
-		{"ULID database", func(intent *Intent) { intent.CanonicalRoster.DatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAR" }},
-		{"ULID member", func(intent *Intent) { intent.CanonicalRoster.Rows[0].MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAV" }},
-		{"ULID peer", func(intent *Intent) {
-			intent.RuntimeManifests[0].ReplicationPeerMemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
-			intent.RuntimeManifests[0].ReplicationPeerAddress = "10.0.0.12:7001"
-			intent.RuntimeManifests[0].ReplicationServerCASHA256 = strings.Repeat("a", 64)
-		}},
-		{"noncanonical UUID", func(intent *Intent) {
-			intent.CanonicalRoster.Rows[0].MemberID = strings.ToUpper(intent.CanonicalRoster.Rows[0].MemberID)
-		}},
-	} {
-		t.Run(change.name, func(t *testing.T) {
-			candidate := validIntent(oci.RegionGRU)
-			change.mutate(&candidate)
-			if err := candidate.ValidateForAdmission(); err == nil {
-				t.Fatal("schema 5 admitted a non-native identity")
-			}
-		})
-	}
-
-	historical := validIntent(oci.RegionGRU)
-	historical.SchemaVersion = ulidRuntimeIntentSchemaVersion
-	makeHistoricalULIDRoster(&historical)
-	encoded, err := protocol.EncodeJSON(historical)
-	if err != nil {
-		t.Fatal(err)
-	}
-	decoded, err := DecodeCommittedIntent(encoded)
-	if err != nil || decoded.PayloadDigest() == "" {
-		t.Fatalf("historical schema-4 decode = %+v, %v", decoded, err)
-	}
-	if err := decoded.ValidateForAdmission(); err == nil {
-		t.Fatal("historical ULID placement was admitted again")
-	}
-}
-
-func TestMemberStateSchemaFourPinsNativeUUIDAndReadsSchemaThreeAsHistory(t *testing.T) {
-	intent := validIntent(oci.RegionGRU)
-	state := validMemberStateForPins()
-	state.IntentPayloadDigest = strings.Repeat("a", 64)
-	state.ManagedHostProfile = intent.ManagedHostProfiles[0]
-	var err error
-	state.ManagedHostProfileDigest, err = state.ManagedHostProfile.ProfileDigest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	state.CanonicalRosterRow = intent.CanonicalRoster.Rows[0]
-	rosterBytes, err := protocol.EncodeJSON(intent.CanonicalRoster)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rosterHash := sha256.Sum256(rosterBytes)
-	state.CanonicalRosterDigest = hex.EncodeToString(rosterHash[:])
-	state.AuthorityReference = intent.CanonicalRoster.Authority
-	state.RuntimeManifest = intent.RuntimeManifests[0]
-	state.RuntimeManifestDigest, err = state.RuntimeManifest.Digest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := state.Validate(); err != nil {
-		t.Fatalf("native UUID member state rejected: %v", err)
-	}
-
-	historical := state
-	historical.SchemaVersion = ulidMemberStateSchemaVersion
-	historical.CanonicalRosterRow.MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-	historical.RuntimeManifest.ReplicationPeerMemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
-	historical.RuntimeManifest.ReplicationPeerAddress = "10.0.0.12:7001"
-	historical.RuntimeManifest.ReplicationServerCASHA256 = strings.Repeat("a", 64)
-	historical.RuntimeManifest.ClientManagedMaterialManifestSHA256 = ""
-	historical.RuntimeManifestDigest, err = historical.RuntimeManifest.digestWithIdentity(canonicalLegacyMemberID, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := historical.Validate(); err != nil {
-		t.Fatalf("historical ULID member state unreadable: %v", err)
-	}
-	historical.SchemaVersion = placementSchemaVersion
-	if err := historical.Validate(); err == nil {
-		t.Fatal("new member-state schema accepted historical ULID identity")
-	}
-}
-
-func TestPreV3CanonicalPayloadBytesRemainReadableAsHeldHistory(t *testing.T) {
-	// These golden bytes match the V1 and V2 Intent field sets at clean source
-	// checkpoint 49f7506; they intentionally omit canonical_roster.
-	v1Payload := []byte(`{"schema_version":1,"database_id":"db-legacy-v1","partition_id":"partition-a","active_regions":["GRU"],"generation":1}`)
-	v2Payload := []byte(`{"schema_version":2,"database_id":"db-legacy-v2","partition_id":"partition-a","active_regions":["GRU"],"generation":1,"managed_host_profiles":[{"region":"GRU","compute":{"shape":"VM.Standard.E4.Flex","whole_ocpus":1,"memory_in_gbs":6},"process_memory_bytes":4294967296,"memory_headroom_bytes":1073741824,"cgroup_memory_max_bytes":4294967296,"system_reserve_bytes":1073741824,"allocatable_memory_bytes":5368709120}]}`)
-	historicalPayloads := [][]byte{v1Payload, v2Payload}
-	historical := make([]Intent, 0, len(historicalPayloads))
-	for index, payload := range historicalPayloads {
-		intent, err := DecodeCommittedIntent(payload)
-		if err != nil {
-			t.Fatalf("decode pre-v3 canonical payload %d: %v", index+1, err)
-		}
-		wantDigest := sha256.Sum256(payload)
-		if intent.PayloadDigest() != hex.EncodeToString(wantDigest[:]) {
-			t.Fatalf("pre-v3 schema %d payload digest = %q, want exact golden-byte SHA-256", intent.SchemaVersion, intent.PayloadDigest())
-		}
-		if err := intent.ValidateForAdmission(); err == nil {
-			t.Fatalf("historical schema %d authorized a new placement", intent.SchemaVersion)
-		}
-		historical = append(historical, intent)
-	}
-
-	current := committedIntentForTest(t, validIntent(oci.RegionGRU))
-	store := &jetStreamStore{cell: "gru", intents: intentReaderFunc(func(context.Context, string) ([]Intent, error) {
-		return []Intent{current, historical[1], historical[0]}, nil
-	})}
-	got, err := store.ListIntents(context.Background())
-	if err != nil || len(got) != 3 {
-		t.Fatalf("list historical held intents alongside schema 3: count=%d err=%v", len(got), err)
-	}
-	if got[0].SchemaVersion != legacyIntentSchemaVersion || got[1].SchemaVersion != profileIntentSchemaVersion ||
-		got[2].SchemaVersion != IntentSchemaVersion {
-		t.Fatalf("mixed historical/current schema order = %d, %d, %d", got[0].SchemaVersion, got[1].SchemaVersion, got[2].SchemaVersion)
-	}
-	for _, intent := range got {
-		if !validLowerSHA256Digest(intent.PayloadDigest()) {
-			t.Fatalf("committed schema %d lost its payload digest", intent.SchemaVersion)
-		}
-	}
+func validMemberStateForPins(t *testing.T) MemberState {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	seat := Seat{MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent}
+	return testMemberState(t, intent, seat, StagePreparedHost)
 }
 
 func TestCanRetireRequiresEveryIndependentSafetyProof(t *testing.T) {
 	intent := validIntent(oci.RegionGRU, oci.RegionSFO)
 	candidate := testCandidate()
 	survivors := healthyMembers(
-		MemberObservation{MemberID: "permanent-a", Region: oci.RegionGRU, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "elastic-gru", Region: oci.RegionGRU, FailureDomain: "fd-b"},
-		MemberObservation{MemberID: "permanent-b", Region: oci.RegionSFO, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "elastic-sfo", Region: oci.RegionSFO, FailureDomain: "fd-c"},
+		MemberObservation{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000XG8SBD7XGE97V28G", Region: oci.RegionGRU, FailureDomain: "fd-b"},
+		MemberObservation{MemberID: "000000000031KRKJZMCK6VE679", Region: oci.RegionSFO, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000684PWEEY0RSW7AJQ", Region: oci.RegionSFO, FailureDomain: "fd-c"},
 	)
 	complete := RetirementEvidence{
 		DatabaseID:         candidate.DatabaseID,
@@ -609,19 +410,19 @@ func TestCanRetireHoldsWhenReplicaFloorOrAntiAffinityIsLost(t *testing.T) {
 	}
 
 	oneShort := healthyMembers(
-		MemberObservation{MemberID: "permanent-a", Region: oci.RegionGRU, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "permanent-b", Region: oci.RegionSFO, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "elastic-sfo", Region: oci.RegionSFO, FailureDomain: "fd-c"},
+		MemberObservation{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "000000000031KRKJZMCK6VE679", Region: oci.RegionSFO, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000684PWEEY0RSW7AJQ", Region: oci.RegionSFO, FailureDomain: "fd-c"},
 	)
 	if allowed, reason := CanRetire(intent, candidate, oneShort, proof); allowed || reason != "replica-floor-or-health-not-met" {
 		t.Fatalf("replica floor gate = (%v, %q)", allowed, reason)
 	}
 
 	duplicateDomain := healthyMembers(
-		MemberObservation{MemberID: "permanent-a", Region: oci.RegionGRU, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "elastic-gru", Region: oci.RegionGRU, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "permanent-b", Region: oci.RegionSFO, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "elastic-sfo", Region: oci.RegionSFO, FailureDomain: "fd-c"},
+		MemberObservation{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000XG8SBD7XGE97V28G", Region: oci.RegionGRU, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "000000000031KRKJZMCK6VE679", Region: oci.RegionSFO, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000684PWEEY0RSW7AJQ", Region: oci.RegionSFO, FailureDomain: "fd-c"},
 	)
 	if allowed, reason := CanRetire(intent, candidate, duplicateDomain, proof); allowed || reason != "survivor-anti-affinity-violated" {
 		t.Fatalf("anti-affinity gate = (%v, %q)", allowed, reason)
@@ -631,7 +432,7 @@ func TestCanRetireHoldsWhenReplicaFloorOrAntiAffinityIsLost(t *testing.T) {
 func TestCanRetireNeverRemovesAStillDesiredSeat(t *testing.T) {
 	intent := validIntent(oci.RegionGRU)
 	candidate := testCandidate()
-	candidate.MemberID = "permanent-a"
+	candidate.MemberID = "000000000082AXF7GZQT1D126Y"
 	candidate.Region = oci.RegionGRU
 	proof := RetirementEvidence{
 		DatabaseID:         candidate.DatabaseID,
@@ -647,8 +448,8 @@ func TestCanRetireNeverRemovesAStillDesiredSeat(t *testing.T) {
 		VolumeRetained:     true,
 	}
 	if allowed, reason := CanRetire(intent, candidate, healthyMembers(
-		MemberObservation{MemberID: "permanent-a", Region: oci.RegionGRU, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "elastic-gru", Region: oci.RegionGRU, FailureDomain: "fd-b"},
+		MemberObservation{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000XG8SBD7XGE97V28G", Region: oci.RegionGRU, FailureDomain: "fd-b"},
 	), proof); allowed || reason != "candidate-still-desired" {
 		t.Fatalf("desired member retirement gate = (%v, %q)", allowed, reason)
 	}
@@ -657,11 +458,11 @@ func TestCanRetireNeverRemovesAStillDesiredSeat(t *testing.T) {
 func TestCanRetireDoesNotCountPreparedOrAwaitingMembersAsServing(t *testing.T) {
 	intent := validIntent(oci.RegionGRU)
 	candidate := testCandidate()
-	candidate.MemberID = "extra-member"
+	candidate.MemberID = "0000000000J62EWD8ZF4E1V9MV"
 	candidate.Region = oci.RegionFRA
 	survivors := healthyMembers(
-		MemberObservation{MemberID: "permanent-a", Region: oci.RegionGRU, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "elastic-gru", Region: oci.RegionGRU, FailureDomain: "fd-b"},
+		MemberObservation{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000XG8SBD7XGE97V28G", Region: oci.RegionGRU, FailureDomain: "fd-b"},
 	)
 	survivors[1].Stage = StageAwaitingHealthy
 	proof := RetirementEvidence{
@@ -684,8 +485,8 @@ func TestCanRetireDoesNotCountPreparedOrAwaitingMembersAsServing(t *testing.T) {
 
 func healthyMembers(members ...MemberObservation) []MemberObservation {
 	for index := range members {
-		members[index].DatabaseID = "db-main"
-		members[index].PartitionID = "partition-a"
+		members[index].DatabaseID = "0000000000JJVVW9EMWY1PE1VX"
+		members[index].PartitionID = "0000000000Z3WK359G2W66CVT8"
 		members[index].Healthy = true
 		members[index].CurrentSession = true
 		members[index].Stage = StageServing
@@ -695,7 +496,7 @@ func healthyMembers(members ...MemberObservation) []MemberObservation {
 
 func testCandidate() MemberObservation {
 	return MemberObservation{
-		DatabaseID: "db-main", PartitionID: "partition-a", MemberID: "elastic-fra", Region: oci.RegionFRA,
+		DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8", MemberID: "0000000000DRX0N2BW96GK619K", Region: oci.RegionFRA,
 		InstanceID: "instance-fra", VolumeID: "volume-fra", Stage: StageServing,
 	}
 }
@@ -710,11 +511,11 @@ func TestCanRetireDoesNotCountHealthySurvivorsFromAnotherPartition(t *testing.T)
 		WriterStopProof: []byte("verified-proof"), VolumeRetained: true,
 	}
 	survivors := healthyMembers(
-		MemberObservation{MemberID: "permanent-a", Region: oci.RegionGRU, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "elastic-gru", Region: oci.RegionGRU, FailureDomain: "fd-b"},
+		MemberObservation{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000XG8SBD7XGE97V28G", Region: oci.RegionGRU, FailureDomain: "fd-b"},
 	)
 	for index := range survivors {
-		survivors[index].PartitionID = "another-partition"
+		survivors[index].PartitionID = "0000000000Q6JWK5HSVBS382F2"
 	}
 	if allowed, reason := CanRetire(intent, candidate, survivors, proof); allowed || reason != "survivor-identity-mismatch" {
 		t.Fatalf("another partition authorized retirement: (%v, %q)", allowed, reason)
@@ -761,7 +562,7 @@ func validIntent(regions ...oci.Region) Intent {
 	return Intent{
 		SchemaVersion:       IntentSchemaVersion,
 		DatabaseID:          testDatabaseID,
-		PartitionID:         "partition-a",
+		PartitionID:         "0000000000Z3WK359G2W66CVT8",
 		ActiveRegions:       active,
 		Generation:          1,
 		CanonicalRoster:     roster,
@@ -770,7 +571,7 @@ func validIntent(regions ...oci.Region) Intent {
 	}
 }
 
-const testDatabaseID = "db-main"
+const testDatabaseID = "0000000000JJVVW9EMWY1PE1VX"
 
 func testCanonicalRoster(regions []oci.Region) CanonicalRoster {
 	rows := make([]CanonicalRosterRow, 0, len(regions)*2)
@@ -778,38 +579,26 @@ func testCanonicalRoster(regions []oci.Region) CanonicalRoster {
 		rows = append(rows,
 			CanonicalRosterRow{
 				Region: region, SeatID: permanentMember(region), FailureDomain: "FAULT-DOMAIN-1",
-				MemberID:    fmt.Sprintf("018f0000-0000-7000-8000-%012x", regionIndex*2+1),
+				MemberID:    entityid.Derive("fixture-member", fmt.Sprint(regionIndex*2+1)),
 				Incarnation: fmt.Sprintf("%032x", regionIndex*2+1), TLSLeafSHA256: fmt.Sprintf("%064x", regionIndex*2+1),
 				ServerName: fmt.Sprintf("permanent-%s.tb.example", strings.ToLower(string(region))),
 			},
 			CanonicalRosterRow{
 				Region: region, SeatID: elasticMember(region), FailureDomain: "FAULT-DOMAIN-2",
-				MemberID:    fmt.Sprintf("018f0000-0000-7000-8000-%012x", regionIndex*2+2),
+				MemberID:    entityid.Derive("fixture-member", fmt.Sprint(regionIndex*2+2)),
 				Incarnation: fmt.Sprintf("%032x", regionIndex*2+2), TLSLeafSHA256: fmt.Sprintf("%064x", regionIndex*2+2),
 				ServerName: fmt.Sprintf("elastic-%s.tb.example", strings.ToLower(string(region))),
 			},
 		)
 	}
 	return CanonicalRoster{
-		ClusterID: "0123456789abcdef0123456789abcdef", TenantID: "018f0000-0000-7000-8000-000000000100",
-		DatabaseID: "018f0000-0000-7000-8000-000000000101", ShardID: 1,
+		ClusterID: "0123456789abcdef0123456789abcdef", TenantID: "01HW000000E008000000000080",
+		DatabaseID: "01HW000000E008000000000081", ShardID: 1,
 		Authority: AuthorityReference{
 			Version: 2, Epoch: 7, ConfigurationID: strings.Repeat("a", 64),
 			CertificateSHA256: strings.Repeat("b", 64), TrustedKeySHA256: strings.Repeat("c", 64),
 		},
 		Rows: rows,
-	}
-}
-
-func makeHistoricalULIDRoster(intent *Intent) {
-	intent.CanonicalRoster.TenantID = "01ARZ3NDEKTSV4RRFFQ69G5FAS"
-	intent.CanonicalRoster.DatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAR"
-	for index := range intent.CanonicalRoster.Rows {
-		intent.CanonicalRoster.Rows[index].MemberID = fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G5FA%d", index+1)
-	}
-	for index := range intent.RuntimeManifests {
-		intent.RuntimeManifests[index].ClientManagedMaterialManifestSHA256 = ""
-		intent.RuntimeManifests[index].ReplicationPeerMemberID = intent.CanonicalRoster.Rows[index^1].MemberID
 	}
 }
 
@@ -820,5 +609,24 @@ func testManagedHostProfile(region oci.Region) ManagedHostProfile {
 		ProcessMemoryBytes: 4 * managedMemoryGiB, MemoryHeadroomBytes: managedMemoryGiB,
 		CgroupMemoryMaxBytes: 4 * managedMemoryGiB, SystemReserveBytes: managedMemoryGiB,
 		AllocatableMemoryBytes: 5 * managedMemoryGiB,
+	}
+}
+
+func TestRejectsObsoletePlacementSchemas(t *testing.T) {
+	for schema := 1; schema < IntentSchemaVersion; schema++ {
+		intent := validIntent(oci.RegionGRU)
+		intent.SchemaVersion = schema
+		payload, err := protocol.EncodeJSON(intent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := DecodeCommittedIntent(payload); err == nil {
+			t.Fatalf("accepted obsolete schema %d", schema)
+		}
+	}
+	state := validMemberStateForPins(t)
+	state.SchemaVersion = 4
+	if state.Validate() == nil {
+		t.Fatal("accepted obsolete member schema")
 	}
 }

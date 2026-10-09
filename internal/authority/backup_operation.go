@@ -11,7 +11,8 @@ import (
 	"math"
 	"slices"
 	"strings"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 // BackupOperationRecord is the sole allocator for signed backup attempts in
@@ -88,22 +89,19 @@ func backupHex(value string, bytes int) bool {
 	return true
 }
 
-func backupUUID(value string) bool {
-	parsed, err := uuid.Parse(value)
-	return err == nil && parsed != uuid.Nil() && parsed.String() == value
-}
+func backupID(value string) bool { return entityid.Valid(value) }
 
 func (record BackupOperationRecord) validate() error {
 	if record.Version != 1 || record.DatabaseID == "" || record.PartitionID == "" ||
 		record.PlacementSequence == 0 ||
 		!backupHex(record.SourceScopeDigest, 32) || !backupHex(record.SourceAuthoritySHA256, 32) ||
 		!backupHex(record.SourceConfigurationID, 32) || !backupHex(record.SourceTargetDigest, 32) ||
-		!backupHex(record.BackupSet, 16) || !backupHex(record.BackupTargetDigest, 32) ||
-		!backupUUID(record.OwnerMemberID) || !backupHex(record.OwnerIncarnation, 16) ||
+		!entityid.Valid(record.BackupSet) || !backupHex(record.BackupTargetDigest, 32) ||
+		!backupID(record.OwnerMemberID) || (!backupHex(record.OwnerIncarnation, 16) || strings.Trim(record.OwnerIncarnation, "0") == "") ||
 		record.Ordinal == 0 || record.CompletedOrdinal == math.MaxUint64 ||
 		(record.State == "complete" && record.Ordinal != record.CompletedOrdinal ||
 			record.State != "complete" && record.Ordinal != record.CompletedOrdinal+1) || record.Attempt == 0 ||
-		record.Attempt != record.AttemptHighWater || !backupUUID(record.OperationID) ||
+		record.Attempt != record.AttemptHighWater || !backupID(record.OperationID) ||
 		!backupHex(record.Nonce, 16) || len(record.PrepareEnvelope) == 0 ||
 		len(record.PrepareEnvelope) > 64<<10 || record.PrepareExpiresAtMS == 0 ||
 		record.PrepareExpiresAtMS > math.MaxInt64-30_000 ||
@@ -127,11 +125,10 @@ func (record BackupOperationRecord) validate() error {
 	ownerFound := false
 	for index, member := range record.Roster {
 		hostRole := member.Node + "\x00" + member.Role
-		if !backupUUID(member.MemberID) || !backupHex(member.Origin, 32) ||
-			!backupHex(member.Incarnation, 16) || !backupHex(member.TLSLeafSHA256, 32) ||
+		if !backupID(member.MemberID) || !backupHex(member.Origin, 32) ||
+			(!backupHex(member.Incarnation, 16) || strings.Trim(member.Incarnation, "0") == "") || !backupHex(member.TLSLeafSHA256, 32) ||
 			!natsToken.MatchString(member.Node) || !natsToken.MatchString(member.Role) ||
-			!strings.HasPrefix(member.Origin, strings.ReplaceAll(member.MemberID, "-", "")) ||
-			!strings.HasSuffix(member.Origin, member.Incarnation) ||
+			member.Origin != BackupMemberOrigin(member.MemberID, member.Incarnation) ||
 			len(member.CutEnvelope) > 64<<10 || len(member.CutLeafDER) > 4096 ||
 			index > 0 && record.Roster[index-1].Origin >= member.Origin ||
 			memberIDs[member.MemberID] || hostRoles[hostRole] {
@@ -179,7 +176,7 @@ func (record BackupOperationRecord) validate() error {
 		return err
 	}
 	for _, terminal := range record.Terminal {
-		if !backupUUID(terminal.OperationID) || terminal.Ordinal == 0 ||
+		if !backupID(terminal.OperationID) || terminal.Ordinal == 0 ||
 			terminal.Attempt == 0 || terminal.State != "aborted" && terminal.State != "complete" {
 			return errors.New("backup terminal receipt is invalid")
 		}
@@ -386,7 +383,7 @@ func (r *Runtime) CommitBackupOperationVerified(ctx context.Context, epoch uint6
 		return 0, err
 	}
 	digest := sha256.Sum256(payload)
-	mutationID := "backup-" + hex.EncodeToString(digest[:16])
+	mutationID := entityid.Derive("backup-mutation", hex.EncodeToString(digest[:]))
 	var verify func(context.Context) error
 	if newOperation {
 		verify = func(check context.Context) error {
@@ -467,4 +464,17 @@ func (r *Runtime) requireNoActiveManagedUpdate(ctx context.Context, databaseID, 
 	default:
 		return errors.New("managed update phase is invalid")
 	}
+}
+
+// BackupMemberOrigin is the binary member/incarnation pin used by TerraBase.
+func BackupMemberOrigin(member, incarnation string) string {
+	id, err := entityid.Parse(member)
+	if err != nil {
+		return ""
+	}
+	inc, err := hex.DecodeString(incarnation)
+	if err != nil || !backupHex(incarnation, 16) || strings.Trim(incarnation, "0") == "" {
+		return ""
+	}
+	return hex.EncodeToString(id[:]) + hex.EncodeToString(inc[:])
 }

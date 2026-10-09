@@ -15,7 +15,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -26,26 +27,26 @@ func TestTerminalMarkerWaitsForNestedWorkloadEffectAndFencesPlacement(t *testing
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "terminal-test", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000G2MMHNF41VCKD3JR", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runtime.Close() })
 	epoch := runtime.Current().Epoch
-	if _, err := runtime.CommitPlacementIntent(ctx, epoch, "db-a", "partition-a", "place-a", 0, []byte("admitted")); err != nil {
+	if _, err := runtime.CommitPlacementIntent(ctx, epoch, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", "0000000000H5S31NJTF5YM00K1", 0, []byte("admitted")); err != nil {
 		t.Fatal(err)
 	}
-	intent := TerminalIntent{Cell: "gru", DatabaseID: "db-a", PartitionID: "partition-a",
+	intent := TerminalIntent{Cell: "gru", DatabaseID: "00000000001Y9Z8VKC1VV66J6B", PartitionID: "0000000000Z3WK359G2W66CVT8",
 		Region: "GRU", Owner: "owner-a", CompartmentID: "ocid1.compartment.oc1..terminaltest",
 		FleetGeneration: 1, PlacementGeneration: 1, PlacementPayloadDigest: strings.Repeat("a", 64),
-		OperationID: "terminal-a", Nonce: uuid.New().String(),
-		Targets:            []TerminalTarget{{SeatID: "seat-a", MemberID: "member-a", HostCreateKey: "host-a", DataCreateKey: "data-a"}},
+		OperationID: "000000000052P5CTS9VW60Z1PQ", Nonce: "0123456789abcdef0123456789abcdef",
+		Targets:            []TerminalTarget{{SeatID: "000000000077F1R6E1XPKAC2D4", MemberID: "0000000000WM3QQGQPMW5X58P9", HostCreateKey: "0000000000R58Y74PAABAQ7X2V", DataCreateKey: "0000000000NMFV7B37QZWENX9Z"}},
 		DisposableWorkload: true, AcknowledgePermanentDataLoss: true, AuthorizeForcedStop: true}
 	payload, err := json.Marshal(intent, json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := WorkloadScope{DatabaseID: "db-a", PartitionID: "partition-a"}
+	scope := WorkloadScope{DatabaseID: "00000000001Y9Z8VKC1VV66J6B", PartitionID: "0000000000Z3WK359G2W66CVT8"}
 	effectCtx := WithActiveWorkloadEffectContext(ctx)
 	releaseOuter, err := runtime.BeginActiveWorkloadEffect(effectCtx, epoch, scope)
 	if err != nil {
@@ -89,13 +90,13 @@ func TestTerminalMarkerWaitsForNestedWorkloadEffectAndFencesPlacement(t *testing
 	if _, err := runtime.BeginActiveWorkloadEffect(ctx, epoch, scope); !errors.Is(err, ErrFenced) {
 		t.Fatalf("active effect after terminal marker = %v, want fenced", err)
 	}
-	if _, err := runtime.CommitPlacementIntent(ctx, epoch, "db-a", "partition-a", "place-b", 0, []byte("new")); !errors.Is(err, ErrFenced) {
+	if _, err := runtime.CommitPlacementIntent(ctx, epoch, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", "0000000000FY3Y7FSGAJVR07PF", 0, []byte("new")); !errors.Is(err, ErrFenced) {
 		t.Fatalf("placement after terminal marker = %v, want fenced", err)
 	}
-	if _, err := runtime.ConfirmActivePlacementIntent(ctx, epoch, "db-a", "partition-a", []byte("admitted")); !errors.Is(err, ErrFenced) {
+	if _, err := runtime.ConfirmActivePlacementIntent(ctx, epoch, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", []byte("admitted")); !errors.Is(err, ErrFenced) {
 		t.Fatalf("idempotent placement after terminal marker = %v, want fenced", err)
 	}
-	read, err := runtime.ReadTerminalIntent(ctx, "db-a", "partition-a")
+	read, err := runtime.ReadTerminalIntent(ctx, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8")
 	if err != nil || !bytes.Equal(read.Payload, payload) || read.OperationID != intent.OperationID {
 		t.Fatalf("read immutable terminal marker: %+v, %v", read, err)
 	}
@@ -107,13 +108,13 @@ func TestNestedWorkloadEffectUnderAnotherEpochIsFenced(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "nested-epoch-test", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000BJN5J56B8SDAH30Y", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runtime.Close() })
 	epoch := runtime.Current().Epoch
-	scope := WorkloadScope{DatabaseID: "db-a", PartitionID: "partition-a"}
+	scope := WorkloadScope{DatabaseID: "00000000001Y9Z8VKC1VV66J6B", PartitionID: "0000000000Z3WK359G2W66CVT8"}
 	effectCtx := WithActiveWorkloadEffectContext(ctx)
 	releaseOuter, err := runtime.BeginActiveWorkloadEffect(effectCtx, epoch, scope)
 	if err != nil {
@@ -137,14 +138,14 @@ func TestEnrollmentEffectIsDurableTerminalAdmissionHold(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "grant-effect-test", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000T7KCT1BGERPKVWJZ", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runtime.Close() })
 	epoch := runtime.Current().Epoch
-	scope := WorkloadScope{DatabaseID: "db-a", PartitionID: "partition-a"}
-	effectID, instanceID := uuid.New().String(), "ocid1.instance.oc1..grant-effect-test"
+	scope := WorkloadScope{DatabaseID: "00000000001Y9Z8VKC1VV66J6B", PartitionID: "0000000000Z3WK359G2W66CVT8"}
+	effectID, instanceID := entityid.New(), "ocid1.instance.oc1..grant-effect-test"
 	started, err := runtime.BeginEnrollmentEffect(ctx, epoch, scope, effectID, instanceID)
 	if err != nil || started == 0 {
 		t.Fatalf("start durable enrollment effect: sequence=%d error=%v", started, err)
@@ -184,7 +185,7 @@ func (stream *settledHistoryStream) GetLastMsgForSubject(ctx context.Context, su
 	if !ok {
 		return stream.Stream.GetLastMsgForSubject(ctx, subject)
 	}
-	phase, operationID := "settled", effectID+"-settled"
+	phase, operationID := "settled", entityid.Derive("enrollment-settled", effectID)
 	if effectID == stream.pendingID {
 		phase, operationID = "pending", effectID
 	}
@@ -192,7 +193,7 @@ func (stream *settledHistoryStream) GetLastMsgForSubject(ctx context.Context, su
 	if err != nil {
 		return nil, err
 	}
-	key := "db-a.partition-a." + effectID
+	key := "00000000001Y9Z8VKC1VV66J6B.0000000000Z3WK359G2W66CVT8." + effectID
 	record, err := json.Marshal(controlRecord{Version: 1, Kind: MutationEnrollmentEffect,
 		Scope: "gru", SubjectKey: key, OperationID: operationID, Epoch: 1, Payload: payload})
 	if err != nil {
@@ -205,7 +206,7 @@ func TestPendingEnrollmentEffectsSurviveLargeSettledHistory(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "effect-history-test", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000BM058BHA26MBFW1K", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,16 +215,16 @@ func TestPendingEnrollmentEffectsSurviveLargeSettledHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const prefix = "ts.control.gru.placement.enrollment.db-a.partition-a."
-	const pendingID = "e4097"
+	const prefix = "ts.control.gru.placement.enrollment.00000000001Y9Z8VKC1VV66J6B.0000000000Z3WK359G2W66CVT8."
+	pendingID := entityid.Derive("effect-fixture", "4097")
 	all := make(map[string]uint64, 4098)
 	for index := range 4098 {
-		all[fmt.Sprintf("%se%04d", prefix, index)] = 1
+		all[prefix+entityid.Derive("effect-fixture", fmt.Sprint(index))] = 1
 	}
 	info.State.Subjects = all
 	runtime.readStream = &settledHistoryStream{Stream: runtime.readStream, info: *info,
 		prefix: prefix, pendingID: pendingID}
-	pending, err := runtime.ListPendingEnrollmentEffects(ctx, WorkloadScope{DatabaseID: "db-a", PartitionID: "partition-a"})
+	pending, err := runtime.ListPendingEnrollmentEffects(ctx, WorkloadScope{DatabaseID: "00000000001Y9Z8VKC1VV66J6B", PartitionID: "0000000000Z3WK359G2W66CVT8"})
 	if err != nil || len(pending) != 1 || pending[0].EffectID != pendingID {
 		t.Fatalf("large settled history hid the pending enrollment effect: %+v, %v", pending, err)
 	}
@@ -233,12 +234,12 @@ func TestPriorEpochEnrollmentEffectRequiresExactFenceProof(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	old, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "old-grant-owner", Replicas: 1})
+	old, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000CMQ0HAMXDC0MJCQK", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := WorkloadScope{DatabaseID: "db-a", PartitionID: "partition-a"}
-	effectID, instanceID := uuid.New().String(), "ocid1.instance.oc1..prior-grant-effect"
+	scope := WorkloadScope{DatabaseID: "00000000001Y9Z8VKC1VV66J6B", PartitionID: "0000000000Z3WK359G2W66CVT8"}
+	effectID, instanceID := entityid.New(), "ocid1.instance.oc1..prior-grant-effect"
 	sequence, err := old.BeginEnrollmentEffect(ctx, old.Current().Epoch, scope, effectID, instanceID)
 	if err != nil {
 		t.Fatal(err)
@@ -247,7 +248,7 @@ func TestPriorEpochEnrollmentEffectRequiresExactFenceProof(t *testing.T) {
 	if err := old.Close(); err != nil {
 		t.Fatal(err)
 	}
-	current, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "new-grant-owner", Replicas: 1})
+	current, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000QQE9RSJGEQCGXJ08", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +284,7 @@ func TestManagedUpdateHistoryRetainsExactPrepareAcrossLeaderEpochs(t *testing.T)
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	first, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "managed-update-owner-a", Replicas: 1})
+	first, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000NJ1B8Y3D64AHBVBH", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +327,7 @@ func TestManagedUpdateHistoryRetainsExactPrepareAcrossLeaderEpochs(t *testing.T)
 	}
 	firstClosed = true
 
-	second, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "managed-update-owner-b", Replicas: 1})
+	second, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "00000000002Y5BFHHZ2P4ABRTQ", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +359,7 @@ func TestManagedUpdateSuccessorFollowsOnlyATerminalOutcome(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "managed-update-successor", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000S8X456Y9E7MJXSNB", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,7 +371,7 @@ func TestManagedUpdateSuccessorFollowsOnlyATerminalOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	successor := first
-	successor.OperationID, successor.CanarySeatID = "update-b", "permanent-a"
+	successor.OperationID, successor.CanarySeatID = "00000000006QPQSQ5R3B4H4MAX", "000000000082AXF7GZQT1D126Y"
 	successor.SignedRequest = []byte("peer promotion request")
 	successor.SignedRequestSHA256 = digestString(successor.SignedRequest)
 	if _, err := runtime.CommitManagedUpdate(ctx, epoch, successor, prepared, nil); !errors.Is(err, ErrInvalidTransition) {
@@ -398,11 +399,11 @@ func TestManagedUpdateSuccessorFollowsOnlyATerminalOutcome(t *testing.T) {
 func validManagedUpdateRecord() ManagedUpdateRecord {
 	request := []byte("exact canonical signed managed update request")
 	return ManagedUpdateRecord{
-		SchemaVersion: 1, Cell: "gru", DatabaseID: "db-managed", PartitionID: "partition-a",
-		OperationID: "update-a", Phase: ManagedUpdatePrepared, SignedRequest: request,
+		SchemaVersion: 1, Cell: "gru", DatabaseID: "000000000056C99ETHNC8V7NSN", PartitionID: "0000000000Z3WK359G2W66CVT8",
+		OperationID: "00000000000NV7A9CE3MES6S1F", Phase: ManagedUpdatePrepared, SignedRequest: request,
 		SignedRequestSHA256: digestString(request), PlacementGeneration: 1,
 		PlacementPayloadDigest: strings.Repeat("a", 64), PlacementSequence: 1,
-		CanarySeatID: "elastic-gru", CanaryDesiredGeneration: 2,
+		CanarySeatID: "0000000000XG8SBD7XGE97V28G", CanaryDesiredGeneration: 2,
 		OldArtifactDigest: strings.Repeat("b", 64), CandidateArtifactDigest: strings.Repeat("c", 64),
 		CandidateManifestDigest: strings.Repeat("d", 64), CandidateSourceDigest: strings.Repeat("e", 64),
 		DurabilityProfileSHA256: strings.Repeat("f", 64),
@@ -427,17 +428,17 @@ func TestTerminalAdmissionRerunsSettlementProofAfterGlobalCASConflict(t *testing
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "terminal-cas-test", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "00000000002ZYG3Z5ABHQBABYP", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runtime.Close() })
-	scope := WorkloadScope{DatabaseID: "db-a", PartitionID: "partition-a"}
+	scope := WorkloadScope{DatabaseID: "00000000001Y9Z8VKC1VV66J6B", PartitionID: "0000000000Z3WK359G2W66CVT8"}
 	intent := TerminalIntent{Cell: "gru", DatabaseID: scope.DatabaseID, PartitionID: scope.PartitionID,
 		Region: "GRU", Owner: "owner-a", CompartmentID: "ocid1.compartment.oc1..terminaltest",
 		FleetGeneration: 1, PlacementGeneration: 1, PlacementPayloadDigest: strings.Repeat("a", 64),
-		OperationID: "terminal-cas", Nonce: uuid.New().String(),
-		Targets:            []TerminalTarget{{SeatID: "seat-a", MemberID: "member-a", HostCreateKey: "host-a", DataCreateKey: "data-a"}},
+		OperationID: "000000000035AP0Y31MVCHHG0B", Nonce: "0123456789abcdef0123456789abcdef",
+		Targets:            []TerminalTarget{{SeatID: "000000000077F1R6E1XPKAC2D4", MemberID: "0000000000WM3QQGQPMW5X58P9", HostCreateKey: "0000000000R58Y74PAABAQ7X2V", DataCreateKey: "0000000000NMFV7B37QZWENX9Z"}},
 		DisposableWorkload: true, AcknowledgePermanentDataLoss: true, AuthorizeForcedStop: true}
 	payload, err := json.Marshal(intent, json.Deterministic(true))
 	if err != nil {
@@ -450,7 +451,7 @@ func TestTerminalAdmissionRerunsSettlementProofAfterGlobalCASConflict(t *testing
 			if calls == 1 {
 				// Simulate an independent leader-effect publication after the
 				// first read-only proof but before the marker CAS.
-				effectID := uuid.New().String()
+				effectID := entityid.New()
 				key, _ := enrollmentEffectSubjectKey(scope, effectID)
 				effectPayload, _ := enrollmentEffectBytes("ocid1.instance.oc1..pending", "pending")
 				record, err := json.Marshal(controlRecord{Version: 1, Kind: MutationEnrollmentEffect,
@@ -559,11 +560,11 @@ func TestAuthorityDiagnosticsAreSafeAndRateLimited(t *testing.T) {
 	runtime := &Runtime{
 		config: Config{Scope: "gru"}, logger: logger, diagTimes: make(map[string]time.Time),
 	}
-	runtime.publishSnapshot(Snapshot{Scope: "gru", CandidateID: "candidate-a", OwnerID: "private-owner-id", Reason: "not-observed"})
+	runtime.publishSnapshot(Snapshot{Scope: "gru", CandidateID: "0000000000C66H81REBS854264", OwnerID: "0000000000DXKPTGJCKZVQAP63", Reason: "not-observed"})
 	runtime.logSnapshotTransition()
-	runtime.publishSnapshot(Snapshot{Scope: "gru", CandidateID: "candidate-a", OwnerID: "private-owner-id", Leader: true, Ready: true, Epoch: 1, Reason: "leader"})
+	runtime.publishSnapshot(Snapshot{Scope: "gru", CandidateID: "0000000000C66H81REBS854264", OwnerID: "0000000000DXKPTGJCKZVQAP63", Leader: true, Ready: true, Epoch: 1, Reason: "leader"})
 	runtime.logSnapshotTransition()
-	runtime.publishSnapshot(Snapshot{Scope: "gru", CandidateID: "candidate-a", OwnerID: "private-owner-id", Leader: true, Ready: true, Epoch: 1, Revision: 8, Reason: "leader"})
+	runtime.publishSnapshot(Snapshot{Scope: "gru", CandidateID: "0000000000C66H81REBS854264", OwnerID: "0000000000DXKPTGJCKZVQAP63", Leader: true, Ready: true, Epoch: 1, Revision: 8, Reason: "leader"})
 	runtime.logSnapshotTransition()
 
 	apiErr := &jetstream.APIError{Code: 503, ErrorCode: 10164, Description: "private-server-description"}
@@ -585,7 +586,7 @@ func TestAuthorityDiagnosticsAreSafeAndRateLimited(t *testing.T) {
 	if strings.Count(logs, "authority state transition") != 2 {
 		t.Fatalf("state transitions were emitted per renewal instead of per state change: %s", logs)
 	}
-	for _, secret := range []string{"private-owner-id", "private-server-description", "candidate-a", "lease_publish"} {
+	for _, secret := range []string{"0000000000DXKPTGJCKZVQAP63", "private-server-description", "0000000000C66H81REBS854264", "lease_publish"} {
 		if strings.Contains(logs, secret) && secret != "lease_publish" {
 			t.Fatalf("diagnostic log exposed %q: %s", secret, logs)
 		}
@@ -617,7 +618,7 @@ func TestPlacementIntentIdentityIncludesPartitionAndIgnoresLeaseHistory(t *testi
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	runtime, err := Start(ctx, js, Config{
-		Scope: "gru", CandidateID: "candidate-a", LeaseDuration: time.Second,
+		Scope: "gru", CandidateID: "0000000000C66H81REBS854264", LeaseDuration: time.Second,
 		RenewInterval: 10 * time.Millisecond, Replicas: 1,
 	})
 	if err != nil {
@@ -636,50 +637,50 @@ func TestPlacementIntentIdentityIncludesPartitionAndIgnoresLeaseHistory(t *testi
 	if epoch == 0 || !runtime.Current().CanMutate() {
 		t.Fatalf("runtime did not acquire authority: %+v", runtime.Current())
 	}
-	if _, err := runtime.CommitHostMutation(ctx, epoch, MutationRegistration, "gru.node-a", "host-operation", 0, []byte("host")); err != nil {
+	if _, err := runtime.CommitHostMutation(ctx, epoch, MutationRegistration, "gru.node-a", "0000000000JDBT2PAM9H86A22N", 0, []byte("host")); err != nil {
 		t.Fatalf("commit host registration for concurrent reads: %v", err)
 	}
-	materialSequence, err := runtime.CommitMaterialReceipt(ctx, epoch, "db-a", "partition-a", "material-operation", 0, []byte("signed-receipt"))
+	materialSequence, err := runtime.CommitMaterialReceipt(ctx, epoch, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", "00000000004RQWCSF109ZZXXMW", 0, []byte("signed-receipt"))
 	if err != nil {
 		t.Fatalf("commit initial material receipt: %v", err)
 	}
-	materialEntry, err := runtime.ReadMaterialReceipt(ctx, "db-a", "partition-a")
+	materialEntry, err := runtime.ReadMaterialReceipt(ctx, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8")
 	if err != nil || materialEntry.Kind != MutationMaterialReceipt || materialEntry.Sequence != materialSequence ||
 		string(materialEntry.Payload) != "signed-receipt" {
 		t.Fatalf("read committed material receipt: %+v, %v", materialEntry, err)
 	}
-	if _, err := runtime.CommitMaterialReceipt(ctx, epoch, "db-a", "partition-a", "other-material", 0, []byte("foreign")); !errors.Is(err, ErrConflict) {
+	if _, err := runtime.CommitMaterialReceipt(ctx, epoch, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", "0000000000W794HACRSCP7P4TY", 0, []byte("foreign")); !errors.Is(err, ErrConflict) {
 		t.Fatalf("second material receipt did not respect R3 CAS: %v", err)
 	}
 
-	firstSequence, err := runtime.CommitPlacementIntent(ctx, epoch, "db-a", "partition-a", "operation-a", 0, []byte("first"))
+	firstSequence, err := runtime.CommitPlacementIntent(ctx, epoch, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", "0000000000SR9J18DPZWQ44CD1", 0, []byte("first"))
 	if err != nil {
 		t.Fatalf("commit first partition: %v", err)
 	}
-	secondSequence, err := runtime.CommitPlacementIntent(ctx, epoch, "db-a", "partition-b", "operation-b", 0, []byte("second"))
+	secondSequence, err := runtime.CommitPlacementIntent(ctx, epoch, "00000000001Y9Z8VKC1VV66J6B", "00000000001WFHC56Q8NB0X6T8", "0000000000ECMERPYM7GPJH1JM", 0, []byte("second"))
 	if err != nil {
 		t.Fatalf("commit second partition of the same database: %v", err)
 	}
 	if secondSequence <= firstSequence {
 		t.Fatalf("second partition sequence %d did not follow first %d", secondSequence, firstSequence)
 	}
-	if _, err := runtime.CommitPlacementIntent(ctx, epoch, "db-a", "partition-a", "operation-c", 0, []byte("stale")); err != ErrConflict {
+	if _, err := runtime.CommitPlacementIntent(ctx, epoch, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", "0000000000VF5V91DK3SK85HVR", 0, []byte("stale")); err != ErrConflict {
 		t.Fatalf("stale same-partition write returned %v, want ErrConflict", err)
 	}
 
-	updatedSequence, err := runtime.CommitPlacementIntent(ctx, epoch, "db-a", "partition-a", "operation-c", firstSequence, []byte("updated"))
+	updatedSequence, err := runtime.CommitPlacementIntent(ctx, epoch, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", "0000000000VF5V91DK3SK85HVR", firstSequence, []byte("updated"))
 	if err != nil {
 		t.Fatalf("commit same-partition update at current sequence: %v", err)
 	}
 	if updatedSequence <= firstSequence {
 		t.Fatalf("updated partition sequence %d did not follow first %d", updatedSequence, firstSequence)
 	}
-	updated, err := runtime.ReadPlacementIntent(ctx, "db-a", "partition-a")
-	if err != nil || updated.SubjectKey != "db-a.partition-a" || updated.Sequence != updatedSequence || string(updated.Payload) != "updated" {
+	updated, err := runtime.ReadPlacementIntent(ctx, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8")
+	if err != nil || updated.SubjectKey != "00000000001Y9Z8VKC1VV66J6B.0000000000Z3WK359G2W66CVT8" || updated.Sequence != updatedSequence || string(updated.Payload) != "updated" {
 		t.Fatalf("read updated partition: entry=%+v err=%v", updated, err)
 	}
-	independent, err := runtime.ReadPlacementIntent(ctx, "db-a", "partition-b")
-	if err != nil || independent.SubjectKey != "db-a.partition-b" || independent.Sequence != secondSequence || string(independent.Payload) != "second" {
+	independent, err := runtime.ReadPlacementIntent(ctx, "00000000001Y9Z8VKC1VV66J6B", "00000000001WFHC56Q8NB0X6T8")
+	if err != nil || independent.SubjectKey != "00000000001Y9Z8VKC1VV66J6B.00000000001WFHC56Q8NB0X6T8" || independent.Sequence != secondSequence || string(independent.Payload) != "second" {
 		t.Fatalf("read independent partition: entry=%+v err=%v", independent, err)
 	}
 	reader, err := OpenReader(ctx, js, "gru")
@@ -706,7 +707,7 @@ func TestPlacementIntentIdentityIncludesPartitionAndIgnoresLeaseHistory(t *testi
 					readErrors <- errors.Join(err, errors.New("runtime host mutation read returned no committed record"))
 					return
 				}
-				if entry, err := runtime.ReadPlacementIntent(ctx, "db-a", "partition-a"); err != nil || entry.Sequence == 0 {
+				if entry, err := runtime.ReadPlacementIntent(ctx, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8"); err != nil || entry.Sequence == 0 {
 					readErrors <- errors.Join(err, errors.New("runtime placement read returned no committed record"))
 					return
 				}
@@ -718,7 +719,7 @@ func TestPlacementIntentIdentityIncludesPartitionAndIgnoresLeaseHistory(t *testi
 					readErrors <- errors.Join(err, errors.New("reader host mutation read returned no committed record"))
 					return
 				}
-				if entry, err := reader.ReadPlacementIntent(ctx, "db-a", "partition-b"); err != nil || entry.Sequence == 0 {
+				if entry, err := reader.ReadPlacementIntent(ctx, "00000000001Y9Z8VKC1VV66J6B", "00000000001WFHC56Q8NB0X6T8"); err != nil || entry.Sequence == 0 {
 					readErrors <- errors.Join(err, errors.New("reader placement read returned no committed record"))
 					return
 				}
@@ -754,7 +755,7 @@ func TestPlacementIntentIdentityIncludesPartitionAndIgnoresLeaseHistory(t *testi
 	if err != nil {
 		t.Fatalf("list current placement intents after lease renewals: %v", err)
 	}
-	if len(intents) != 2 || intents[0].SubjectKey != "db-a.partition-a" || intents[1].SubjectKey != "db-a.partition-b" {
+	if len(intents) != 2 || intents[1].SubjectKey != "00000000001Y9Z8VKC1VV66J6B.0000000000Z3WK359G2W66CVT8" || intents[0].SubjectKey != "00000000001Y9Z8VKC1VV66J6B.00000000001WFHC56Q8NB0X6T8" {
 		t.Fatalf("listed placement identities = %+v, want both distinct partitions", intents)
 	}
 }

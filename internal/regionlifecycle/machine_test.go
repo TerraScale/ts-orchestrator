@@ -11,6 +11,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -43,7 +45,7 @@ func newFixture(t *testing.T) *fixture {
 }
 
 func (f *fixture) proposal() Proposal {
-	return Proposal{ID: "sfo-capacity-1", Cell: "sfo", OCIRegion: "us-sanjose-1",
+	return Proposal{ID: "0000000000AYVCJGZPR9R48GD0", Cell: "sfo", OCIRegion: "us-sanjose-1",
 		Reason: "placement intents name sfo", EvidenceDigests: []string{digest("intent")},
 		EstimatedMonthlyCents: 9_000, ProposedAt: f.now}
 }
@@ -128,16 +130,16 @@ func TestLifecycleBringUpAndRetirementFollowTheStepTable(t *testing.T) {
 		t.Fatalf("completed %d steps, pending %+v", len(record.Completed), record.Pending)
 	}
 
-	if _, err := f.machine.ProposeRetire(record, IdleEvidence{IdleSince: f.now.Add(-time.Hour), EvidenceDigest: digest("idle")}, f.now); !errors.Is(err, ErrNotIdle) {
+	if _, err := f.machine.ProposeRetire(record, IdleEvidence{IdleSince: f.now.Add(-time.Hour), EvidenceDigest: digest("0000000000F6H63RT9R93XQ0MH")}, f.now); !errors.Is(err, ErrNotIdle) {
 		t.Fatalf("retire after one idle hour = %v", err)
 	}
-	if _, err := f.machine.ProposeRetire(record, IdleEvidence{IdleSince: f.now.Add(-30 * 24 * time.Hour), PlacementIntents: 1, EvidenceDigest: digest("idle")}, f.now); !errors.Is(err, ErrNotIdle) {
+	if _, err := f.machine.ProposeRetire(record, IdleEvidence{IdleSince: f.now.Add(-30 * 24 * time.Hour), PlacementIntents: 1, EvidenceDigest: digest("0000000000F6H63RT9R93XQ0MH")}, f.now); !errors.Is(err, ErrNotIdle) {
 		t.Fatalf("retire with a placement intent = %v", err)
 	}
-	if _, err := f.machine.ProposeRetire(record, IdleEvidence{IdleSince: f.now.Add(-30 * 24 * time.Hour), ActiveMembers: 2, EvidenceDigest: digest("idle")}, f.now); !errors.Is(err, ErrNotIdle) {
+	if _, err := f.machine.ProposeRetire(record, IdleEvidence{IdleSince: f.now.Add(-30 * 24 * time.Hour), ActiveMembers: 2, EvidenceDigest: digest("0000000000F6H63RT9R93XQ0MH")}, f.now); !errors.Is(err, ErrNotIdle) {
 		t.Fatalf("retire with active members = %v", err)
 	}
-	record, err := f.machine.ProposeRetire(record, IdleEvidence{IdleSince: f.now.Add(-30 * 24 * time.Hour), EvidenceDigest: digest("idle")}, f.now)
+	record, err := f.machine.ProposeRetire(record, IdleEvidence{IdleSince: f.now.Add(-30 * 24 * time.Hour), EvidenceDigest: digest("0000000000F6H63RT9R93XQ0MH")}, f.now)
 	if err != nil || record.Phase != RetireProposed {
 		t.Fatalf("propose retire = %s, %v", record.Phase, err)
 	}
@@ -283,7 +285,7 @@ func TestCompleteStepRequiresTheJournaledIntent(t *testing.T) {
 	}
 	for name, result := range map[string]StepResult{
 		"wrong step":     {Step: StepFoundation, CreateKey: intent.CreateKey, EvidenceDigest: digest("x")},
-		"wrong key":      {Step: intent.Step, CreateKey: CreateKey("sfo", "other", 1, intent.Step), EvidenceDigest: digest("x")},
+		"wrong key":      {Step: intent.Step, CreateKey: CreateKey("sfo", "0000000000V4MRM46HP1SNGDYW", 1, intent.Step), EvidenceDigest: digest("x")},
 		"no evidence":    {Step: intent.Step, CreateKey: intent.CreateKey},
 		"non-hex digest": {Step: intent.Step, CreateKey: intent.CreateKey, EvidenceDigest: "evidence"},
 	} {
@@ -296,8 +298,8 @@ func TestCompleteStepRequiresTheJournaledIntent(t *testing.T) {
 	}
 	keys := map[string]bool{}
 	for _, def := range steps {
-		key := CreateKey("sfo", "sfo-capacity-1", 1, def.step)
-		if keys[key] || key != CreateKey("sfo", "sfo-capacity-1", 1, def.step) {
+		key := CreateKey("sfo", "0000000000AYVCJGZPR9R48GD0", 1, def.step)
+		if keys[key] || key != CreateKey("sfo", "0000000000AYVCJGZPR9R48GD0", 1, def.step) {
 			t.Fatalf("create key for %s is not unique and deterministic", def.step)
 		}
 		keys[key] = true
@@ -333,7 +335,7 @@ func TestHeldRegionsResumeOnlyByObservation(t *testing.T) {
 	if _, err := f.machine.Resume(held, nil, f.now); !errors.Is(err, ErrStepMismatch) {
 		t.Fatalf("resume without observation = %v", err)
 	}
-	if _, err := f.machine.Resume(held, &Observation{Step: intent.Step, CreateKey: "other", Found: true, EvidenceDigest: digest("x")}, f.now); !errors.Is(err, ErrStepMismatch) {
+	if _, err := f.machine.Resume(held, &Observation{Step: intent.Step, CreateKey: "0000000000V4MRM46HP1SNGDYW", Found: true, EvidenceDigest: digest("x")}, f.now); !errors.Is(err, ErrStepMismatch) {
 		t.Fatalf("resume with a foreign observation = %v", err)
 	}
 	retry, err := f.machine.Resume(held, &Observation{Step: intent.Step, CreateKey: intent.CreateKey}, f.now)
@@ -443,7 +445,7 @@ func TestProposalsExpireAndRejectionIsTerminal(t *testing.T) {
 		t.Fatalf("repropose over an open record = %v", err)
 	}
 	second := f.proposal()
-	second.ID = "sfo-capacity-2"
+	second.ID = entityid.Derive("test-proposal", "sfo-capacity-2")
 	again, err := f.machine.Repropose(expired, second, f.now)
 	if err != nil || again.Phase != Proposed || again.Generation != expired.Generation+1 ||
 		again.ProposalGeneration != again.Generation || again.Approval != nil {

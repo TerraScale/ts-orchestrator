@@ -45,7 +45,7 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = regional.Close() })
 	control, err := authority.Start(ctx, regional.JetStream(), authority.Config{
-		Scope: "lab", CandidateID: "diagnostic", Replicas: 1,
+		Scope: "lab", CandidateID: "0000000000XTGQJSECWR54430J", Replicas: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -370,7 +370,7 @@ func TestReadPathTargetsAndBoundedErrors(t *testing.T) {
 		t.Fatalf("bounded timeout observation = %v", observation)
 	}
 	if readPathError(jetstream.ErrKeyNotFound) != "not_found" ||
-		readPathError(errors.New("private-host-payload")) != "other" || readPathError(nil) != "" {
+		readPathError(errors.New("private-host-payload")) != "0000000000V4MRM46HP1SNGDYW" || readPathError(nil) != "" {
 		t.Fatal("read path error classification exposed content or lost absence")
 	}
 }
@@ -564,14 +564,14 @@ func TestDiagnosticForwardMapKeepsPrivateEndpointIdentity(t *testing.T) {
 
 func TestDiagnosticSnapshotServerIDsAreUniqueByMember(t *testing.T) {
 	if !snapshotServerIDsUnique([]map[string]any{
-		{"server": map[string]string{"id": "id-a", "name": "gru-a"}},
-		{"server": map[string]string{"id": "id-a", "name": "gru-a"}},
+		{"server": map[string]string{"id": "id-a", "name": "0000000000F2D374M7NMRHJJQT"}},
+		{"server": map[string]string{"id": "id-a", "name": "0000000000F2D374M7NMRHJJQT"}},
 		{"server": map[string]string{"id": "id-b", "name": "gru-b"}},
 	}) {
 		t.Fatal("repeated reads of one member made snapshot IDs nonunique")
 	}
 	if snapshotServerIDsUnique([]map[string]any{
-		{"server": map[string]string{"id": "id-a", "name": "gru-a"}},
+		{"server": map[string]string{"id": "id-a", "name": "0000000000F2D374M7NMRHJJQT"}},
 		{"server": map[string]string{"id": "id-a", "name": "gru-b"}},
 	}) {
 		t.Fatal("two live members sharing one NATS server ID passed")
@@ -668,7 +668,7 @@ func TestDiagnosticReadsLiveReplicatedCluster(t *testing.T) {
 	}
 	js := runtimes[0].JetStream()
 	control, err := authority.Start(ctx, js, authority.Config{
-		Scope: "lab", CandidateID: "diagnostic", Replicas: 3,
+		Scope: "lab", CandidateID: "0000000000XTGQJSECWR54430J", Replicas: 3,
 	})
 	if err != nil {
 		t.Fatal(err)

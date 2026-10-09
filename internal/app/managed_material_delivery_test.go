@@ -18,7 +18,7 @@ func TestDesiredMaterialMatchesReceiptPinsSQLAndBackupDigests(t *testing.T) {
 		sqlBundle     = "4444444444444444444444444444444444444444444444444444444444444444"
 	)
 	manifest := placement.RuntimeManifest{
-		Region: oci.RegionGRU, SeatID: "permanent-a", ArtifactDigest: strings.Repeat("d", 64),
+		Region: oci.RegionGRU, SeatID: "000000000082AXF7GZQT1D126Y", ArtifactDigest: strings.Repeat("d", 64),
 		SourceDigest: strings.Repeat("e", 64), TrustedKeySHA256: strings.Repeat("f", 64),
 		ServerCertificateSHA256: strings.Repeat("1", 64), ServerPrivateKeySHA256: strings.Repeat("2", 64),
 		ClientCARootsSHA256: strings.Repeat("3", 64), ClientManagedMaterialManifestSHA256: strings.Repeat("5", 64),
@@ -29,19 +29,19 @@ func TestDesiredMaterialMatchesReceiptPinsSQLAndBackupDigests(t *testing.T) {
 		BackupDataKeySHA256: strings.Repeat("e", 64), BackupOwner: true,
 		BackupS3Credential:      oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.backup", VersionNumber: 4},
 		BackupDataKey:           oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.backupkey", VersionNumber: 5},
-		ReplicationPeerMemberID: "40000000-0000-0000-0000-000000000002",
+		ReplicationPeerMemberID: "20000000000000000000000002",
 		ReplicationPeerAddress:  "10.0.0.12:7001", ReplicationServerCASHA256: strings.Repeat("8", 64),
 	}
 	intent := placement.Intent{ActiveRegions: []oci.Region{oci.RegionGRU},
 		CanonicalRoster:  placement.CanonicalRoster{Authority: placement.AuthorityReference{Epoch: 1}},
 		RuntimeManifests: []placement.RuntimeManifest{manifest}}
-	seat := managedmaterial.InitialMember{SeatID: manifest.SeatID, MemberID: "40000000-0000-0000-0000-000000000001",
+	seat := managedmaterial.InitialMember{SeatID: manifest.SeatID, MemberID: "20000000000000000000000001",
 		Incarnation: "01010101010101010101010101010101"}
 	receipt := managedmaterial.PreparationReceipt{
 		AuthorityConfigurationID: configuration, AuthoritySHA256: certificate,
 		Spec: managedmaterial.InitialSpec{Scope: managedmaterial.AuthorityScope{
-			ClusterID: "0102030405060708090a0b0c0d0e0f10", TenantID: "10000000-0000-0000-0000-000000000001",
-			DatabaseID: "20000000-0000-0000-0000-000000000001", ShardID: 7,
+			ClusterID: "01081G81860W40J2GB1G6GW3RG", TenantID: "0G000000000000000000000001",
+			DatabaseID: "10000000000000000000000001", ShardID: 7,
 		}, Members: [2]managedmaterial.InitialMember{seat}},
 		Members: [2]managedmaterial.MemberPins{{MemberID: seat.MemberID, TLSLeafSHA256: leaf}},
 	}

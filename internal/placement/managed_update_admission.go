@@ -227,7 +227,7 @@ func (controller *Controller) verifyManagedUpdateBaselineChecked(ctx context.Con
 		if !exists || !managedUpdateSeatMatches(provided, state) ||
 			state.Stage != StageServing && !rollback ||
 			state.ManagedRuntimeTarget.Phase == ManagedUpdateSeatHeld && !rollback ||
-			state.SchemaVersion != placementSchemaVersion && state.SchemaVersion != managedUpdateMemberStateSchemaVersion ||
+			state.SchemaVersion != managedUpdateMemberStateSchemaVersion ||
 			provided.OCIOwner != controller.config.ManagedOwner ||
 			provided.OCIFleetGeneration != controller.config.FleetGeneration ||
 			canary && effective != update.OldArtifactDigest ||

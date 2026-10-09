@@ -50,7 +50,7 @@ func TestTerminalSDKDeletesUseExactIfMatchAndPreserveBoot(t *testing.T) {
 func TestLaunchInstanceMapsSignedProfileIntoOCIRequest(t *testing.T) {
 	config, _ := testRegionConfig()
 	request := LaunchRequest{
-		DisplayName: "gru-1-db-1", CreateKey: "sdk-shape-config", PrivateIP: "10.251.0.21", Node: hostNode(config, "sdk-shape-config"), RetryToken: "retry-token-sdk-shape-config",
+		DisplayName: "gru-1-db-1", CreateKey: "00000000002W8M515D00HW6ZEG", PrivateIP: "10.251.0.21", Node: hostNode(config, "00000000002W8M515D00HW6ZEG"), RetryToken: "retry-token-sdk-shape-config",
 		FaultDomain: "FAULT-DOMAIN-1", Shape: config.Shape, WholeOCPUs: 2, MemoryInGBs: 12,
 		PlacementProfileDigest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		PlacementGeneration:    9,

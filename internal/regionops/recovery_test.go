@@ -10,6 +10,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/identity"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlifecycle"
 )
@@ -44,7 +45,7 @@ func TestRecoveredIntentReconcilesBeforeReadmission(t *testing.T) {
 	// A crash left the subscription intent journaled in Subscribing.
 	journaled := func(cell, ociRegion string) {
 		t.Helper()
-		proposal := regionlifecycle.Proposal{ID: cell + "-g1-0123456789ab", Cell: cell, OCIRegion: ociRegion,
+		proposal := regionlifecycle.Proposal{ID: entityid.Derive("test-proposal", cell), Cell: cell, OCIRegion: ociRegion,
 			Reason: "planner: capacity", EvidenceDigests: []string{"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
 			EstimatedMonthlyCents: 9_000, ProposedAt: start}
 		record := mustProposed(t, machine, proposal, start)

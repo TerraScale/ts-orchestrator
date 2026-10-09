@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/autoscale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
@@ -214,7 +216,7 @@ func (f *fakeCell) MoveTenant(_ context.Context, org string, source, destination
 func (f *fakeCell) matchesIdentity(identity NodeIdentity) bool {
 	return slices.ContainsFunc(f.instances, func(instance Instance) bool {
 		return !instance.Foreign && instance.Name == identity.Name && instance.ID == identity.InstanceID &&
-			fmt.Sprintf("%s-p%d", instance.Name, f.process[instance.Name]) == identity.Incarnation
+			entityid.Derive("test-process", fmt.Sprintf("%s-p%d", instance.Name, f.process[instance.Name])) == identity.Incarnation
 	})
 }
 
@@ -250,7 +252,7 @@ func (f *fakeCell) Pressure(_ context.Context, node string) (NodePressure, error
 	slices.SortStableFunc(tenants, func(a, b TenantLoad) int { return cmp.Compare(b.RequestRate, a.RequestRate) })
 	f.samples++
 	pressure := NodePressure{Schema: PressureSchema, Node: node, InstanceID: f.instances[index].ID, State: f.state[node], Release: f.release[node],
-		SampledAt: f.now().Add(time.Duration(f.samples)), ProcessID: fmt.Sprintf("%s-p%d", node, f.process[node]),
+		SampledAt: f.now().Add(time.Duration(f.samples)), ProcessID: entityid.Derive("test-process", fmt.Sprintf("%s-p%d", node, f.process[node])),
 		CPUUtil: cpu, MemoryUtil: math.Min(1, f.memoryGB/shape.MemoryGB), DiskUsedBytes: 50 << 30, DiskTotalBytes: 500 << 30,
 		DiskIOPS: requests / 2, RequestRate: requests, IOQueueDepth: requests / 2000, P95LatencyMS: 5 + 20*cpu,
 		Load:       memberstatus.Load{Connections: uint64(requests / 10), StorageBytes: 50 << 30, ReplicationLagSeq: f.lag[node]},
@@ -275,7 +277,7 @@ func (f *fakeCell) Replicas(context.Context, string) (ReplicaSnapshot, error) {
 	var replicas []string
 	for _, instance := range f.instances {
 		if !instance.Foreign {
-			snapshot.Members = append(snapshot.Members, NodeIdentity{Name: instance.Name, InstanceID: instance.ID, Incarnation: fmt.Sprintf("%s-p%d", instance.Name, f.process[instance.Name])})
+			snapshot.Members = append(snapshot.Members, NodeIdentity{Name: instance.Name, InstanceID: instance.ID, Incarnation: entityid.Derive("test-process", fmt.Sprintf("%s-p%d", instance.Name, f.process[instance.Name]))})
 		}
 		if !instance.Foreign && instance.Running() && f.state[instance.Name] == StateReady && !f.unread[instance.Name] {
 			replicas = append(replicas, instance.Name)
@@ -283,7 +285,7 @@ func (f *fakeCell) Replicas(context.Context, string) (ReplicaSnapshot, error) {
 	}
 	for _, tenants := range f.tenants {
 		for _, tenant := range tenants {
-			snapshot.Placements = append(snapshot.Placements, ReplicaPlacement{Org: tenant.Project, Database: "db", Shard: 1,
+			snapshot.Placements = append(snapshot.Placements, ReplicaPlacement{Org: tenant.Project, Database: entityid.Derive("test-database", "db"), Shard: 1,
 				LiveReplicas: slices.Clone(replicas)})
 		}
 	}
@@ -298,7 +300,7 @@ func (f *fakeCell) memberIdentities() []NodeIdentity {
 	for _, instance := range f.instances {
 		if !instance.Foreign {
 			members = append(members, NodeIdentity{Name: instance.Name, InstanceID: instance.ID,
-				Incarnation: fmt.Sprintf("%s-p%d", instance.Name, f.process[instance.Name])})
+				Incarnation: entityid.Derive("test-process", fmt.Sprintf("%s-p%d", instance.Name, f.process[instance.Name]))})
 		}
 	}
 	return members

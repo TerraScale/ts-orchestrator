@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -98,7 +100,7 @@ func (f *fixture) signed(data []byte) ([]byte, []byte) {
 	keyID, encoded := f.leafIdentity()
 	delegation, err := trust.SignDelegation(trust.Delegation{
 		SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encoded,
-		Capabilities: []trust.Capability{{Domain: release.BinaryDomain, DeploymentID: testSource, Cell: "BUILD",
+		Capabilities: []trust.Capability{{Domain: release.BinaryDomain, DeploymentID: entityid.Derive("build", testSource), Cell: "BUILD",
 			Environment: "canary", Role: "artifact", Slots: []string{"linux-" + runtime.GOARCH}, Actions: []string{"sign"}}},
 	}, f.now.Add(-time.Minute), f.now.Add(time.Hour), f.rootPrivate)
 	if err != nil {
@@ -261,7 +263,7 @@ func TestMissedProofDeadlineRollsBackAndMarksKnownBad(t *testing.T) {
 	// A proof for another activation, a stale proof and a proof from another
 	// key never confirm.
 	other := activation
-	other.ActivationID = strings.Repeat("0", 32)
+	other.ActivationID = "0000000000NY47MDQEXMPZDJR7"
 	stale := f.proof(activation, f.now.Add(-time.Hour))
 	forged := f.proof(activation, f.now.Add(time.Second))
 	forged.PublicKey = f.leafPublic

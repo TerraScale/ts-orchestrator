@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -115,7 +117,7 @@ func (c Ed25519Codec) SignArtifact(ctx context.Context, record ArtifactRecord) (
 		return nil, err
 	}
 	issued := c.clock().UTC()
-	e, err := protocol.SignEnvelope(b, protocol.EnvelopeScope{Region: c.Cell, Kind: artifactKind, Actor: c.Actor, OperationID: record.Digest, Generation: 1}, issued, issued.Add(c.Lifetime), c.PrivateKey)
+	e, err := protocol.SignEnvelope(b, protocol.EnvelopeScope{Region: c.Cell, Kind: artifactKind, Actor: c.Actor, OperationID: entityid.Derive("artifact-admission", record.Digest), Generation: 1}, issued, issued.Add(c.Lifetime), c.PrivateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +156,7 @@ func (c Ed25519Codec) verifyArtifactAt(ctx context.Context, wire []byte, now tim
 	if record.Cell != c.Cell {
 		return ArtifactRecord{}, "", ErrInvalid
 	}
-	trusted, err := c.verifyScopeAt(e, protocol.EnvelopeScope{Region: c.Cell, Kind: artifactKind, OperationID: record.Digest, Generation: 1}, now)
+	trusted, err := c.verifyScopeAt(e, protocol.EnvelopeScope{Region: c.Cell, Kind: artifactKind, OperationID: entityid.Derive("artifact-admission", record.Digest), Generation: 1}, now)
 	if err != nil {
 		return ArtifactRecord{}, "", err
 	}

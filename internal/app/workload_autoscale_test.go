@@ -67,7 +67,7 @@ func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
 }
 
 func TestAbsentAutoscaleConfigKeepsCanonicalControllerJSON(t *testing.T) {
-	encoded, err := protocol.EncodeJSON(ControllerConfig{CandidateID: "slot-a"})
+	encoded, err := protocol.EncodeJSON(ControllerConfig{CandidateID: "0000000000VKJKNDYE2PT2WG3X"})
 	if err != nil {
 		t.Fatal(err)
 	}

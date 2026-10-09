@@ -193,7 +193,7 @@ func TestInventoryAdmitsOperatorLaunchedCSharpHosts(t *testing.T) {
 	}
 	duplicate := dbHost(plan, "gru-1-db-1", tags("gru-1-db-1"))
 	second := dbHost(plan, "gru-1-db-1", tags("gru-1-db-1"))
-	second["id"] = fakeOCID("instance", "sa-saopaulo-1", "other")
+	second["id"] = fakeOCID("instance", "sa-saopaulo-1", "0000000000V4MRM46HP1SNGDYW")
 	wantFailure(t, "two active instances share the C# database host name gru-1-db-1", func() { e.verifyInventory(plan, cellInventory(plan, path, duplicate, second), path, cellNow, 15) })
 	// Hosts match one of the plan's host profiles exactly.
 	small := dbHost(plan, "gru-1-db-1", tags("gru-1-db-1"))

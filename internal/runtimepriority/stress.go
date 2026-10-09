@@ -21,6 +21,8 @@ import (
 	"syscall"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"golang.org/x/sys/unix"
 )
 
@@ -751,7 +753,7 @@ func RunStressWorker(ctx context.Context, manifest Object, nativeRunner, databas
 	if e := ValidateStressWorkerManifest(manifest); e != nil {
 		return e
 	}
-	if !regexp.MustCompile(`^[0-9a-f-]{36}$`).MatchString(runID) {
+	if !entityid.Valid(runID) {
 		fail("stress worker requires the current qualification run ID")
 	}
 	p := sub(manifest, "pressure")

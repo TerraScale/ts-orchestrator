@@ -10,7 +10,7 @@ import (
 )
 
 func TestWorkerUncommittedInstallRollbackSurvivesRestartAndRejectsLateInstall(t *testing.T) {
-	for _, previous := range []string{"", "previous-confirmed"} {
+	for _, previous := range []string{"", "01M4EB0GDPPHGJPPVY77EMZQKT"} {
 		for _, interruption := range []string{"failure", "before-preparation", "after-preparation", "never-delivered"} {
 			t.Run(previous+"/"+interruption, func(t *testing.T) {
 				cfg, command, key := workerFixture(t)
@@ -45,7 +45,7 @@ func TestWorkerUncommittedInstallRollbackSurvivesRestartAndRejectsLateInstall(t 
 					}
 				}
 				install := command
-				command.Action, command.ID = "rollback", command.Transaction+".rollback"
+				command.Action, command.ID = "rollback", network.CommandID(command.Transaction, "rollback")
 				if err := applyStep(t.Context(), cfg, &last, signCommand(t, cfg, key, command, 4), func(context.Context, network.Command) error {
 					persisted, err := loadLedger(cfg.StateDirectory)
 					if err != nil || persisted.Action != "rollback" || persisted.Transaction != command.Transaction {
@@ -88,8 +88,8 @@ func TestWorkerNoopProofCannotWaiveKnownMutationOrLegacyState(t *testing.T) {
 		{"unknown progress", "invalid", "", true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			last := ledger{InstallProgress: test.progress, InstalledTargetHash: test.installed, PreviousManagedTransaction: "previous"}
-			if proof := last.rollbackProof(); proof.InstallCommitted != test.committed || proof.PreviousTransactionID != "previous" {
+			last := ledger{InstallProgress: test.progress, InstalledTargetHash: test.installed, PreviousManagedTransaction: "1P4DT7KVBAJVZ9B4AJPV2KEYWF"}
+			if proof := last.rollbackProof(); proof.InstallCommitted != test.committed || proof.PreviousTransactionID != "1P4DT7KVBAJVZ9B4AJPV2KEYWF" {
 				t.Fatalf("unsafe worker proof: %+v", proof)
 			}
 		})
@@ -99,7 +99,7 @@ func TestWorkerNoopProofCannotWaiveKnownMutationOrLegacyState(t *testing.T) {
 func TestWorkerPreparationPreservesBaselineAndDurablyObservesMatchingMutation(t *testing.T) {
 	cfg, command, _ := workerFixture(t)
 	last := ledger{Transaction: command.Transaction, Action: "install", InstallProgress: "unstarted"}
-	if err := prepareInstall(cfg, &last, command.Transaction, client.ManagedResult{TransactionID: "earlier"}); err != nil {
+	if err := prepareInstall(cfg, &last, command.Transaction, client.ManagedResult{TransactionID: "0VWD7JSS84Y3FHDZ5Y8RJWJJMA"}); err != nil {
 		t.Fatal(err)
 	}
 	// A crash followed by an idempotent retry must keep the original baseline.
@@ -107,7 +107,7 @@ func TestWorkerPreparationPreservesBaselineAndDurablyObservesMatchingMutation(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := prepareInstall(cfg, &restarted, command.Transaction, client.ManagedResult{TransactionID: "unrelated"}); err == nil {
+	if err := prepareInstall(cfg, &restarted, command.Transaction, client.ManagedResult{TransactionID: "47B1SZF31Y8DRYG1YRQ8M14C5R"}); err == nil {
 		t.Fatal("worker accepted a changed completed journal as its original baseline")
 	}
 	unchanged, err := loadLedger(cfg.StateDirectory)
@@ -127,7 +127,7 @@ func TestWorkerRollbackCrashStillPreventsLateInstallBeforeAck(t *testing.T) {
 	cfg, command, key := workerFixture(t)
 	last := ledger{}
 	install := command
-	command.Action, command.ID = "rollback", command.Transaction+".rollback"
+	command.Action, command.ID = "rollback", network.CommandID(command.Transaction, "rollback")
 	func() {
 		defer func() {
 			if crash := recover(); crash != "worker stopped" {

@@ -56,10 +56,10 @@ func TestStreamPublishTailAndScan(t *testing.T) {
 	writer := NewJournal(JournalConfig{Region: "gru", Member: "ctrl-1", Sink: stream, Archive: stream})
 	go func() { _ = writer.Run(ctx) }()
 	parent := writer.Record(ctx, Decision{Kind: KindReleaseAdmitted, Actor: Actor{Slice: "rollout"},
-		Subject: Subject{Kind: "release", ID: "sha256:aa"}, Status: StatusInProgress})
+		Subject: Subject{Kind: "release", ID: "0000000000HYGTY0DVBVSP34H6"}, Status: StatusInProgress})
 	for index := range 5 {
 		writer.Record(ctx, Decision{Kind: KindBatchPromoted, Actor: Actor{Slice: "rollout"}, ParentID: parent,
-			Subject: Subject{Kind: "release", ID: "sha256:aa"}, Summary: fmt.Sprint("batch ", index)})
+			Subject: Subject{Kind: "release", ID: "0000000000HYGTY0DVBVSP34H6"}, Summary: fmt.Sprint("batch ", index)})
 	}
 	waitFor(t, func() bool { return writer.Stats().Published == 6 })
 
@@ -129,7 +129,7 @@ func TestFederationAcrossRegions(t *testing.T) {
 	remoteID := remote.Record(ctx, Decision{Kind: KindScaleUp, Time: base.Add(time.Second),
 		Actor: Actor{Slice: "autoscale"}})
 	// A misbehaving responder must not answer for another region.
-	remote.Ingest(Decision{ID: "forged", Region: "gru", Kind: KindRollback, Time: base}.Normalize(base))
+	remote.Ingest(Decision{ID: "0000000000RPYNQGXVXJSC20CX", Region: "gru", Kind: KindRollback, Time: base}.Normalize(base))
 	if _, err := ServeQueries(ctx, conn, "sfo", remote); err != nil {
 		t.Fatal(err)
 	}

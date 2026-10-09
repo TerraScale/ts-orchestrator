@@ -3,14 +3,14 @@ package attempt
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
 	"net/http"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -108,8 +108,7 @@ func LaunchDetails(wire []byte) (core.LaunchInstanceDetails, error) {
 
 // LaunchRetryToken binds an OCI retry token to the exact launch input bytes.
 func LaunchRetryToken(wire []byte) string {
-	sum := sha256.Sum256(wire)
-	return "ts-attempt-" + hex.EncodeToString(sum[:])[:48]
+	return entityid.Derive("attempt-launch", string(wire))
 }
 
 type sdkCloud struct {

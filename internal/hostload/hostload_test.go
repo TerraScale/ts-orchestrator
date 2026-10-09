@@ -465,7 +465,7 @@ func TestAggregatorDropsSilentContributors(t *testing.T) {
 		now = start.Add(time.Duration(step) * 5 * time.Second)
 		record("live", 0.2)
 		if now.Before(start.Add(50 * time.Minute)) {
-			record("gone", 0.9)
+			record("000000000050XVKQQF0BK88ENZ", 0.9)
 		} else if step%12 == 0 {
 			// Still reporting, but no longer running the role.
 			if err := aggregator.Record(Origin{Cell: "gru", Environment: "prod", Node: "gone"},

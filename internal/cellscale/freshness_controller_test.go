@@ -25,7 +25,7 @@ func (s cachedPressure) Pressure(ctx context.Context, node string) (NodePressure
 
 func TestStalePressureBlocksShrinkAndItsRecheck(t *testing.T) {
 	for _, kind := range []Kind{KindScaleIn, KindResize} {
-		for _, sample := range []string{"unknown", "stale", "future"} {
+		for _, sample := range []string{"unknown", "0000000000RNVXNPAX5Y5BB8RY", "future"} {
 			t.Run(string(kind)+"/"+sample, func(t *testing.T) {
 				captureJournal(t)
 				policy := testPolicy()
@@ -41,7 +41,7 @@ func TestStalePressureBlocksShrinkAndItsRecheck(t *testing.T) {
 					t.Fatalf("fresh setup = %+v, want %s", action, kind)
 				}
 				stamp := time.Time{}
-				if sample == "stale" {
+				if sample == "0000000000RNVXNPAX5Y5BB8RY" {
 					stamp = s.now.Add(-MaxPressureAge - time.Second)
 				} else if sample == "future" {
 					stamp = s.now.Add(MaxPressureClockSkew + time.Second)

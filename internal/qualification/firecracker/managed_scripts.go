@@ -1,10 +1,12 @@
 package firecracker
 
+import "strings"
+
 const managedVolumeSetupScriptA = `#!/bin/sh
 set -eu
 DEVICE=/dev/vdb
 ALIAS=/dev/oracleoci/oraclevdb
-MOUNT=/srv/ts-managed/6efe9447512debbf02bcd921c78d666c/volume
+MOUNT=__MANAGED_MEMBER_DIR__/volume
 UUID=76f1b43d-7d79-4f41-9a6e-cc1f4aaab102
 attempt=0
 while [ "$attempt" -lt 120 ]; do
@@ -14,7 +16,7 @@ while [ "$attempt" -lt 120 ]; do
 done
 [ "$attempt" -lt 120 ] || exit 1
 [ "$(/usr/sbin/blkid -s UUID -o value "$DEVICE")" = "$UUID" ] || exit 1
-for directory in /srv/ts-managed /srv/ts-managed/6efe9447512debbf02bcd921c78d666c /srv/ts-managed/6efe9447512debbf02bcd921c78d666c/material /srv/ts-managed/6efe9447512debbf02bcd921c78d666c/control "$MOUNT"; do
+for directory in /srv/ts-managed __MANAGED_MEMBER_DIR__ __MANAGED_MEMBER_DIR__/material __MANAGED_MEMBER_DIR__/control "$MOUNT"; do
   [ ! -L "$directory" ] && [ -d "$directory" ] || exit 1
 done
 [ ! -e /dev/oracleoci ] || [ -d /dev/oracleoci ] || exit 1
@@ -65,7 +67,7 @@ const managedVolumeSetupScriptB = `#!/bin/sh
 set -eu
 DEVICE=/dev/vdb
 ALIAS=/dev/oracleoci/oraclevdb
-MOUNT=/srv/ts-managed/948d999055329358cc417bcc96edb470/volume
+MOUNT=__MANAGED_MEMBER_DIR__/volume
 UUID=76f1b43d-7d79-4f41-9a6e-cc1f4aaab103
 attempt=0
 while [ "$attempt" -lt 120 ]; do
@@ -75,7 +77,7 @@ while [ "$attempt" -lt 120 ]; do
 done
 [ "$attempt" -lt 120 ] || exit 1
 [ "$(/usr/sbin/blkid -s UUID -o value "$DEVICE")" = "$UUID" ] || exit 1
-for directory in /srv/ts-managed /srv/ts-managed/948d999055329358cc417bcc96edb470 /srv/ts-managed/948d999055329358cc417bcc96edb470/material /srv/ts-managed/948d999055329358cc417bcc96edb470/control "$MOUNT"; do
+for directory in /srv/ts-managed __MANAGED_MEMBER_DIR__ __MANAGED_MEMBER_DIR__/material __MANAGED_MEMBER_DIR__/control "$MOUNT"; do
   [ ! -L "$directory" ] && [ -d "$directory" ] || exit 1
 done
 [ ! -e /dev/oracleoci ] || [ -d /dev/oracleoci ] || exit 1
@@ -178,9 +180,9 @@ MemoryLow=1G
 
 func ManagedVolumeSetupScript(member string) string {
 	if member == "b" {
-		return managedVolumeSetupScriptB
+		return strings.ReplaceAll(managedVolumeSetupScriptB, "__MANAGED_MEMBER_DIR__", ManagedMemberDirs["b"])
 	}
-	return managedVolumeSetupScriptA
+	return strings.ReplaceAll(managedVolumeSetupScriptA, "__MANAGED_MEMBER_DIR__", ManagedMemberDirs["a"])
 }
 func ManagedRunnerScript(member string) string {
 	if member == "b" {

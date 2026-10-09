@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 func TestOuroborosTSAuthUserLookup(t *testing.T) {
@@ -61,7 +63,7 @@ func TestOuroborosTSAuthUserLookup(t *testing.T) {
 	}
 	for _, id := range []string{"", "usr_mario", "01a1105a-7350-7f48-a96e-d71bbb45d7a8", strings.ToLower("01K78000000000000000001001"), "81K78000000000000000001001", "01K7800000000000000000100I"} {
 		set(map[string]any{"id": id, "email": email, "email_verified": true})
-		if _, err := lookup.UserID(t.Context(), email); err == nil || !strings.Contains(err.Error(), "unusable id") {
+		if _, err := lookup.UserID(t.Context(), email); err == nil || !strings.Contains(err.Error(), "noncanonical user ID") {
 			t.Errorf("accepted noncanonical owner %q: %v", id, err)
 		}
 	}
@@ -73,6 +75,8 @@ func TestOuroborosTSAuthUserLookup(t *testing.T) {
 }
 
 func TestOuroborosFlySecrets(t *testing.T) {
+	// ts-auth ac893792 OidcIssuer.DashboardClientId is the registration contract.
+	const registeredDashboardClientID = "01M4EQ2FRJ8S8B29E8TQVWNW4J"
 	const projectID, key = "01K78000000000000000000001", "tb_SENTINEL-0123456789abcdef"
 	clientSecret := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("C"), 32))
 	newDashboardVault := func() *fakeVault {
@@ -82,7 +86,7 @@ func TestOuroborosFlySecrets(t *testing.T) {
 	// The dashboard's ts-auth client is the one ts-auth registers: its
 	// issuer, client id and callback.
 	settings := map[string]any{"TERRABASE_URL": "https://gru.api.terrascale.tech", "TERRABASE_PROJECT_ID": projectID, "TERRABASE_DATABASE": "dashboard",
-		"TS_AUTH_ISSUER": "https://gru.auth.terrascale.tech/terrascale", "TS_AUTH_CLIENT_ID": "ts-dashboard",
+		"TS_AUTH_ISSUER": "https://gru.auth.terrascale.tech/terrascale", "TS_AUTH_CLIENT_ID": registeredDashboardClientID,
 		"TS_AUTH_REDIRECT_URL": "https://dash.terrascale.tech/login/callback"}
 	check := func(output string, staged bool) {
 		t.Helper()
@@ -128,7 +132,7 @@ func TestOuroborosFlySecrets(t *testing.T) {
 	slices.Sort(lines)
 	if string(args) != "secrets import --app ts-dashboard --stage\n" || fmt.Sprint(lines) != "[TERRABASE_API_KEY="+key+
 		" TERRABASE_DATABASE=dashboard TERRABASE_PROJECT_ID="+projectID+" TERRABASE_URL=https://gru.api.terrascale.tech"+
-		" TS_AUTH_CLIENT_ID=ts-dashboard TS_AUTH_CLIENT_SECRET="+clientSecret+" TS_AUTH_ISSUER=https://gru.auth.terrascale.tech/terrascale"+
+		" TS_AUTH_CLIENT_ID="+registeredDashboardClientID+" TS_AUTH_CLIENT_SECRET="+clientSecret+" TS_AUTH_ISSUER=https://gru.auth.terrascale.tech/terrascale"+
 		" TS_AUTH_REDIRECT_URL=https://dash.terrascale.tech/login/callback]" {
 		t.Fatalf("flyctl %q with stdin %q", args, stdin)
 	}
@@ -218,7 +222,7 @@ func TestOuroborosSecretNames(t *testing.T) {
 func TestManagementOnAdminListener(t *testing.T) {
 	var seen []string
 	admin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer credential" || r.Header.Get("X-TerraBase-User-Id") != BootstrapUser || !ulidRE.MatchString(r.Header.Get("X-TerraBase-User-Id")) {
+		if r.Header.Get("Authorization") != "Bearer credential" || r.Header.Get("X-TerraBase-User-Id") != BootstrapUser || !entityid.Valid(r.Header.Get("X-TerraBase-User-Id")) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

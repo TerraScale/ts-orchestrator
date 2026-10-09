@@ -149,7 +149,7 @@ func TestRepositoryCreateOnlyPinsKMSVersionETagAndBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref, err := repository.CreateInitial(t.Context(), 9, "partition-a", spec, bundle, controllerPrivate)
+	ref, err := repository.CreateInitial(t.Context(), 9, "0000000000Z3WK359G2W66CVT8", spec, bundle, controllerPrivate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,21 +159,21 @@ func TestRepositoryCreateOnlyPinsKMSVersionETagAndBytes(t *testing.T) {
 		ref.ETag != client.etag || ref.VersionID != client.version || ref.SHA256 != client.bodySHA {
 		t.Fatal("repository did not require and reobserve a fenced create-only KMS object")
 	}
-	receipt, err := SignPreparationReceipt("gru", "partition-a", spec, bundle, ref, controllerPrivate, time.Now().UTC())
+	receipt, err := SignPreparationReceipt("gru", "0000000000Z3WK359G2W66CVT8", spec, bundle, ref, controllerPrivate, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyPreparationReceipt(receipt, controllerPublic, "gru", "partition-a", bundle); err != nil {
+	if err := VerifyPreparationReceipt(receipt, controllerPublic, "gru", "0000000000Z3WK359G2W66CVT8", bundle); err != nil {
 		t.Fatalf("controller preparation receipt did not verify: %v", err)
 	}
 	tampered := receipt
 	tampered.Members[0].Files = map[string]string{"authority.tbca": ref.SHA256}
-	if err := VerifyPreparationReceipt(tampered, controllerPublic, "gru", "partition-a", bundle); err == nil {
+	if err := VerifyPreparationReceipt(tampered, controllerPublic, "gru", "0000000000Z3WK359G2W66CVT8", bundle); err == nil {
 		t.Fatal("tampered member pins were accepted")
 	}
 	tampered = receipt
 	tampered.Object.VersionID = "other-version"
-	if err := VerifyPreparationReceipt(tampered, controllerPublic, "gru", "partition-a", bundle); err == nil {
+	if err := VerifyPreparationReceipt(tampered, controllerPublic, "gru", "0000000000Z3WK359G2W66CVT8", bundle); err == nil {
 		t.Fatal("substituted object version was accepted")
 	}
 	recovered, err := repository.ReadPinned(t.Context(), ref, controllerPublic)
@@ -205,13 +205,13 @@ func TestRepositoryCreateOnlyPinsKMSVersionETagAndBytes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, _, err := otherRepository.LookupInitial(t.Context(), "partition-a", spec, controllerPublic); !errors.Is(err, ErrMaterialConflict) {
+			if _, _, err := otherRepository.LookupInitial(t.Context(), "0000000000Z3WK359G2W66CVT8", spec, controllerPublic); !errors.Is(err, ErrMaterialConflict) {
 				t.Fatalf("copied object was adopted on lookup: %v", err)
 			}
 			if _, err := otherRepository.ReadPinned(t.Context(), ref, controllerPublic); !errors.Is(err, ErrMaterialConflict) {
 				t.Fatalf("copied object was adopted by pinned read: %v", err)
 			}
-			if _, err := otherRepository.CreateInitial(t.Context(), 9, "partition-a", spec, bundle, controllerPrivate); !errors.Is(err, ErrMaterialConflict) {
+			if _, err := otherRepository.CreateInitial(t.Context(), 9, "0000000000Z3WK359G2W66CVT8", spec, bundle, controllerPrivate); !errors.Is(err, ErrMaterialConflict) {
 				t.Fatalf("copied object was adopted by create reconciliation: %v", err)
 			}
 		})
@@ -228,14 +228,14 @@ func TestRepositoryCreateOnlyPinsKMSVersionETagAndBytes(t *testing.T) {
 	}
 	// An ambiguous response or a later duplicate create never overwrites the
 	// object. Exact byte reobservation is required for both outcomes.
-	if _, err := repository.CreateInitial(t.Context(), 9, "partition-a", spec, bundle, controllerPrivate); err != nil {
+	if _, err := repository.CreateInitial(t.Context(), 9, "0000000000Z3WK359G2W66CVT8", spec, bundle, controllerPrivate); err != nil {
 		t.Fatalf("same immutable bundle retry: %v", err)
 	}
 	other, err := GenerateInitial(spec, signer, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repository.CreateInitial(t.Context(), 9, "partition-a", spec, other, controllerPrivate); !errors.Is(err, ErrMaterialConflict) {
+	if _, err := repository.CreateInitial(t.Context(), 9, "0000000000Z3WK359G2W66CVT8", spec, other, controllerPrivate); !errors.Is(err, ErrMaterialConflict) {
 		t.Fatalf("different signer attempted same immutable generation: %v", err)
 	}
 }
@@ -257,11 +257,11 @@ func TestRepositoryUnknownPutAndFencingNeverGrantObjectAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repository.CreateInitial(t.Context(), 9, "partition-a", spec, bundle, controllerPrivate); err != nil {
+	if _, err := repository.CreateInitial(t.Context(), 9, "0000000000Z3WK359G2W66CVT8", spec, bundle, controllerPrivate); err != nil {
 		t.Fatalf("lost acknowledgement was not resolved by exact read: %v", err)
 	}
 	fencer.deny = true
-	if _, err := repository.CreateInitial(t.Context(), 9, "partition-a", spec, bundle, controllerPrivate); !errors.Is(err, authority.ErrFenced) {
+	if _, err := repository.CreateInitial(t.Context(), 9, "0000000000Z3WK359G2W66CVT8", spec, bundle, controllerPrivate); !errors.Is(err, authority.ErrFenced) {
 		t.Fatalf("fenced create was permitted: %v", err)
 	}
 	if client.putCount != 1 {

@@ -161,7 +161,7 @@ func TestFollowOffersTheDocumentOnEveryChangeAndRecheck(t *testing.T) {
 	// as soon as it is stored, and another cell's change offers nothing.
 	stop, done := follow(time.Hour)
 	expectOffer("g1")
-	put("fra", "other")
+	put("fra", "0000000000V4MRM46HP1SNGDYW")
 	put("sfo", "g2")
 	// The start may race the watch's first delivery; both offer g1.
 	for got := ""; got != "g2"; {

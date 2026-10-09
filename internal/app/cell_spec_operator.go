@@ -10,7 +10,8 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
@@ -117,7 +118,7 @@ func requestAuthority(ctx context.Context, cfg Config, runtime *natscell.Runtime
 	}
 	now := time.Now().UTC()
 	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: cfg.NATS.Cell, Kind: kind,
-		Actor: cfg.Operator.Actor, OperationID: operation + "." + uuid.New().String(), Generation: 1, Epoch: epoch,
+		Actor: cfg.Operator.Actor, OperationID: entityid.New(), Generation: 1, Epoch: epoch,
 	}, now, now.Add(time.Minute), codec.PrivateKey)
 	if err != nil {
 		return nil, err

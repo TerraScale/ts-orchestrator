@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -177,7 +179,7 @@ func readRootChain(path string) (trust.RootChain, error) {
 func parseBakedIdentity(wire []byte) (BakedIdentity, error) {
 	var identity BakedIdentity
 	if err := protocol.DecodeStrict(wire, &identity, maxIdentity); err != nil ||
-		identity.SchemaVersion != 1 || !identityNameRE.MatchString(identity.DeploymentID) ||
+		identity.SchemaVersion != 1 || !entityid.Valid(identity.DeploymentID) ||
 		identity.Environment != "production" && identity.Environment != "canary" {
 		return BakedIdentity{}, ErrBakedInputs
 	}

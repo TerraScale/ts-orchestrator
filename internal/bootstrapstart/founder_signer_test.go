@@ -112,7 +112,7 @@ func newFounderSignerFixture(t *testing.T) *founderSignerFixture {
 		t.Fatal(err)
 	}
 	planEnvelope, err := trust.Sign(payload, trust.Scope{Domain: bootstrap.FounderPlanDomain,
-		DeploymentID: "deployment-a", Cell: "GRU", Environment: "production", Role: "controller", Slot: "seed-a"},
+		DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "GRU", Environment: "production", Role: "controller", Slot: "seed-a"},
 		fixture.now.Add(-time.Minute), fixture.now.Add(22*time.Hour), fixture.root)
 	if err != nil {
 		t.Fatal(err)
@@ -222,7 +222,7 @@ func TestPeerStartupSkipsFounderFloorAndLaunchClients(t *testing.T) {
 	}
 	peer = fixture.accepted
 	peer.Slot = "controller-a"
-	peer.DeploymentID = "another-deployment"
+	peer.DeploymentID = "00000000000ZGTG9F4ZD9XG0T1"
 	if err := RunAdmittedFounder(t.Context(), fixture.baked, peer, 1000, 1000); !errors.Is(err, ErrFounderRuntime) {
 		t.Fatalf("contradictory accepted role scope: %v", err)
 	}

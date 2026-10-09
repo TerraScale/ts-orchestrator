@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ci/realcaller"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
@@ -44,13 +45,13 @@ func rcJSON(t *testing.T, v any) []byte {
 func rcSHA(b []byte) string { d := sha256.Sum256(b); return hex.EncodeToString(d[:]) }
 func rcStatus() rcObject {
 	scope := rcObject{"cluster_id": strings.Repeat("a", 32), "tenant_id": "tenant", "database_id": "database", "shard_id": 1}
-	a := rcObject{"seat_id": "seat-a", "member_id": "member-a", "incarnation": strings.Repeat("a", 32)}
-	b := rcObject{"seat_id": "seat-b", "member_id": "member-b", "incarnation": strings.Repeat("b", 32)}
-	binding := rcObject{"cluster_id": scope["cluster_id"], "tenant_id": "tenant", "database_id": "database", "shard_id": 1, "member_id": "member-a", "incarnation": a["incarnation"]}
+	a := rcObject{"seat_id": "000000000077F1R6E1XPKAC2D4", "member_id": "0000000000WM3QQGQPMW5X58P9", "incarnation": strings.Repeat("a", 32)}
+	b := rcObject{"seat_id": "0000000000GXPF5F560P92PC00", "member_id": "0000000000N9X5GQEQJ9NA9A7V", "incarnation": strings.Repeat("b", 32)}
+	binding := rcObject{"cluster_id": scope["cluster_id"], "tenant_id": "tenant", "database_id": "database", "shard_id": 1, "member_id": "0000000000WM3QQGQPMW5X58P9", "incarnation": a["incarnation"]}
 	oci := rcObject{"instance_id": "ocid1.instance.a", "region": "GRU", "owner": "terrascale", "fleet_generation": 1, "create_key": "a"}
-	proof := rcObject{"serving": true, "listeners": rcObject{"client": true, "replication": true}, "scope": binding, "authority": rcObject{"epoch": 1}, "process": rcObject{"pid": 123, "start_nonce": "boot-a"}, "replication": rcObject{"peer_member_id": "member-b", "peer_incarnation": b["incarnation"], "current_authenticated": true, "local_source_sequence": 3, "peer_durable_sequence": 3, "peer_applied_sequence": 3, "local_inbox_durable_sequence": 2, "local_inbox_applied_sequence": 2}}
-	status := rcObject{"verified": false, "session_expires_at": time.Now().UTC().Add(time.Minute).Format(time.RFC3339Nano), "registration": rcObject{"cell": "gru", "node": "node-a", "environment": "production", "managed_member": rcObject{"scope": binding, "host_attempt": 1}, "managed_oci": oci, "managed_placement": rcObject{"database_id": "placement-db", "partition_id": "partition-a", "seat_id": "seat-a"}}, "reports": []any{rcObject{"cell": "gru", "environment": "production", "node": "node-a", "role": "terrabase", "state": "running", "digest": strings.Repeat("c", 64), "observed_at": time.Now().UTC().Format(time.RFC3339Nano), "managed": rcObject{"member": rcObject{"scope": binding, "host_attempt": 1}, "oci": oci, "authority": rcObject{"epoch": 1}, "process_pid": 123, "process_boot_id": "boot-a", "storage_recovered": true, "listener_ready": true, "serving_proof": proof}}}}
-	return rcObject{"status": status, "spec": rcObject{"scope": scope, "placement_database_id": "placement-db", "partition_id": "partition-a", "members": []any{a, b}}, "member": a, "peer": b, "instance": "ocid1.instance.a", "digest": strings.Repeat("c", 64)}
+	proof := rcObject{"serving": true, "listeners": rcObject{"client": true, "replication": true}, "scope": binding, "authority": rcObject{"epoch": 1}, "process": rcObject{"pid": 123, "start_nonce": "boot-a"}, "replication": rcObject{"peer_member_id": "0000000000N9X5GQEQJ9NA9A7V", "peer_incarnation": b["incarnation"], "current_authenticated": true, "local_source_sequence": 3, "peer_durable_sequence": 3, "peer_applied_sequence": 3, "local_inbox_durable_sequence": 2, "local_inbox_applied_sequence": 2}}
+	status := rcObject{"verified": false, "session_expires_at": time.Now().UTC().Add(time.Minute).Format(time.RFC3339Nano), "registration": rcObject{"cell": "gru", "node": "node-a", "environment": "production", "managed_member": rcObject{"scope": binding, "host_attempt": 1}, "managed_oci": oci, "managed_placement": rcObject{"database_id": "placement-db", "partition_id": "0000000000Z3WK359G2W66CVT8", "seat_id": "000000000077F1R6E1XPKAC2D4"}}, "reports": []any{rcObject{"cell": "gru", "environment": "production", "node": "node-a", "role": "terrabase", "state": "running", "digest": strings.Repeat("c", 64), "observed_at": time.Now().UTC().Format(time.RFC3339Nano), "managed": rcObject{"member": rcObject{"scope": binding, "host_attempt": 1}, "oci": oci, "authority": rcObject{"epoch": 1}, "process_pid": 123, "process_boot_id": "boot-a", "storage_recovered": true, "listener_ready": true, "serving_proof": proof}}}}
+	return rcObject{"status": status, "spec": rcObject{"scope": scope, "placement_database_id": "placement-db", "partition_id": "0000000000Z3WK359G2W66CVT8", "members": []any{a, b}}, "member": a, "peer": b, "instance": "ocid1.instance.a", "digest": strings.Repeat("c", 64)}
 }
 func TestRealCallerCurrentReportExactIdentity(t *testing.T) {
 	for _, name := range []string{"valid", "foreign_instance", "registration_cell", "registration_region", "report_cell", "unauthenticated_replication", "expired_session", "stale_report", "duplicate_report"} {
@@ -89,12 +90,15 @@ func TestRealCallerCurrentReportExactIdentity(t *testing.T) {
 	}
 }
 func TestRealCallerCustomerEnvelopeCommitments(t *testing.T) {
-	id := []byte(strings.Repeat("i", 16))
+	id, err := entityid.Parse("01K78000000000000000000001")
+	if err != nil {
+		t.Fatal(err)
+	}
 	secret := []byte(strings.Repeat("s", 32))
-	encoded := base64.RawURLEncoding.EncodeToString(id)
+	encoded := id.String()
 	token := "tbk1." + encoded + "." + base64.RawURLEncoding.EncodeToString(secret)
 	ca := "CA PEM"
-	reply := rcObject{"customer": rcObject{"token_id": encoded, "verifier_sha256": rcSHA(append(append([]byte("TB-APIKEY-V1\x00"), id...), secret...)), "https_ca_sha256": rcSHA([]byte(ca))}}
+	reply := rcObject{"customer": rcObject{"token_id": encoded, "verifier_sha256": rcSHA(append(append([]byte("TB-APIKEY-V1\x00"), id[:]...), secret...)), "https_ca_sha256": rcSHA([]byte(ca))}}
 	for _, changed := range []bool{false, true} {
 		t.Run(fmt.Sprint(changed), func(t *testing.T) {
 			material := rcObject{"version": 1, "token": token, "https_ca_pem": ca}
@@ -110,6 +114,25 @@ func TestRealCallerCustomerEnvelopeCommitments(t *testing.T) {
 				t.Fatal(gotToken, gotCA, e)
 			}
 		})
+	}
+}
+
+func TestRealCallerCustomerTokenRejectsNoncanonicalIDs(t *testing.T) {
+	rawID := []byte(strings.Repeat("i", 16))
+	rawSecret := []byte(strings.Repeat("s", 32))
+	secret := base64.RawURLEncoding.EncodeToString(rawSecret)
+	verifier := rcSHA(append(append([]byte("TB-APIKEY-V1\x00"), rawID...), rawSecret...))
+	for _, id := range []string{
+		"00000000000000000000000000", "01k78000000000000000000001",
+		"token_01K78000000000000000000001", "81K78000000000000000000001",
+		"01a1105a-7350-7f48-a96e-d71bbb45d7a8",
+		base64.RawURLEncoding.EncodeToString(rawID),
+	} {
+		reply := rcObject{"customer": rcObject{"token_id": id, "verifier_sha256": verifier, "https_ca_sha256": rcSHA([]byte("CA PEM"))}}
+		material := rcObject{"version": 1, "token": "tbk1." + id + "." + secret, "https_ca_pem": "CA PEM"}
+		if _, _, err := realcaller.CustomerMaterial(reply, material); err == nil {
+			t.Errorf("accepted noncanonical token ID %q", id)
+		}
 	}
 }
 func TestRealCallerForwardMapRejections(t *testing.T) {

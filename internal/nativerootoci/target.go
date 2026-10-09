@@ -8,7 +8,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"regexp"
-	"uuid"
+	"strings"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/oklog/ulid/v2"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
@@ -22,6 +25,7 @@ const (
 var (
 	namespacePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`)
 	bucketPattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,254}$`)
+	opaqueIdentity   = regexp.MustCompile(`^[0-9a-f]{32}$`)
 	lowerDigest      = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
@@ -80,22 +84,22 @@ func (target Target) probeKey() string { return ProbePrefix + target.Publication
 // locator. The caller compares the result with TerraBase's request value.
 func PublicationDigest(clusterID, tenantID, databaseID, memberID, incarnation string, shard uint64) (string, error) {
 	cluster, err := hex.DecodeString(clusterID)
-	if err != nil || len(cluster) != 16 || hex.EncodeToString(cluster) != clusterID || shard == 0 {
+	if err != nil || len(cluster) != 16 || !opaqueIdentity.MatchString(clusterID) || strings.Trim(clusterID, "0") == "" || shard == 0 {
 		return "", errors.New("signed native cluster or shard is invalid")
 	}
 	incarnationBytes, err := hex.DecodeString(incarnation)
-	if err != nil || len(incarnationBytes) != 16 || hex.EncodeToString(incarnationBytes) != incarnation {
+	if err != nil || len(incarnationBytes) != 16 || !opaqueIdentity.MatchString(incarnation) || strings.Trim(incarnation, "0") == "" {
 		return "", errors.New("signed native member incarnation is invalid")
 	}
-	tenant, err := canonicalUUID(tenantID)
+	tenant, err := canonicalID(tenantID)
 	if err != nil {
 		return "", err
 	}
-	database, err := canonicalUUID(databaseID)
+	database, err := canonicalID(databaseID)
 	if err != nil {
 		return "", err
 	}
-	member, err := canonicalUUID(memberID)
+	member, err := canonicalID(memberID)
 	if err != nil {
 		return "", err
 	}
@@ -110,16 +114,10 @@ func PublicationDigest(clusterID, tenantID, databaseID, memberID, incarnation st
 	publication.Write([]byte("TBPUBS01"))
 	publication.Write(scope.Sum(nil))
 	publication.Write([]byte{2})
-	publication.Write(cluster)
+	publication.Write(cluster[:])
 	publication.Write(member[:])
-	publication.Write(incarnationBytes)
+	publication.Write(incarnationBytes[:])
 	return hex.EncodeToString(publication.Sum(nil)), nil
 }
 
-func canonicalUUID(value string) (uuid.UUID, error) {
-	parsed, err := uuid.Parse(value)
-	if err != nil || parsed.String() != value || parsed == uuid.Nil() {
-		return uuid.UUID{}, errors.New("signed native member UUID is invalid")
-	}
-	return parsed, nil
-}
+func canonicalID(value string) (ulid.ULID, error) { return entityid.Parse(value) }

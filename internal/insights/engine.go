@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 )
@@ -346,6 +348,7 @@ func (engine *Engine) Evaluate(ctx context.Context) Evaluation {
 			if insight.Region == "" {
 				insight.Region = engine.config.Region
 			}
+			insight.Key = entityid.Derive("insight", insight.Region, insight.Key)
 			if insight.Entity.Region == "" {
 				insight.Entity.Region = insight.Region
 			}

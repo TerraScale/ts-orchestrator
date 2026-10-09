@@ -21,6 +21,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
@@ -189,7 +190,7 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 		control, stopAuthority, err := retryControllerOpen(ctx, "start "+id+" authority", func() bool { return broker.FullClusterReady(3) }, true,
 			func(attempt context.Context) (*authority.Runtime, error) {
 				return authority.Start(attempt, broker.JetStream(), authority.Config{
-					Scope: "gru", CandidateID: id, Replicas: 3, LeaseDuration: 12 * time.Second, RenewInterval: 2 * time.Second,
+					Scope: "gru", CandidateID: entityid.Derive("test-controller", id), Replicas: 3, LeaseDuration: 12 * time.Second, RenewInterval: 2 * time.Second,
 					ClockCheck: func() error { _, err := clock.Measure(); return err }})
 			}, func(control *authority.Runtime) { _ = control.Close() })
 		if err != nil {
@@ -199,7 +200,7 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 		t.Cleanup(func() { stopAuthority(); _ = control.Close() })
 		var gateCtx context.Context
 		gateCtx, gateCancel[index] = context.WithCancel(ctx)
-		gates[index], err = startBrokerGate(gateCtx, Config{NATS: configs[index]}, runtimes[index], controls[index], id, ticketPrivate, ticketPub, clock)
+		gates[index], err = startBrokerGate(gateCtx, Config{NATS: configs[index]}, runtimes[index], controls[index], entityid.Derive("test-controller", id), ticketPrivate, ticketPub, clock)
 		if err != nil {
 			t.Fatalf("start %s gate: %v", id, err)
 		}
@@ -303,7 +304,7 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 		var wire []byte
 		switch forgedMode.Load() {
 		case 1:
-			wire = []byte(`{"status":"fenced","sequence":1,"hash":"forged"}`)
+			wire = []byte(`{"status":"fenced","sequence":1,"hash":"0000000000RPYNQGXVXJSC20CX"}`)
 		case 2:
 			wire = []byte(`{"error":"control log compare-and-set conflict"}`)
 		case 3, 4, 5:

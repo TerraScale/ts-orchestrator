@@ -3,12 +3,12 @@ package oci
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 )
@@ -251,8 +251,8 @@ func (f *fleet) validateTerminalScope(intent authority.TerminalIntent) error {
 		intent.FleetGeneration != f.config.Generation {
 		return fmt.Errorf("%w: terminal intent differs from pinned OCI fleet", ErrForeignResource)
 	}
-	permanentSeat := map[Region]string{RegionGRU: "permanent-a", RegionSFO: "permanent-b", RegionFRA: "permanent-c"}[f.config.Region]
-	elasticSeat := "elastic-" + strings.ToLower(string(f.config.Region))
+	permanentSeat := entityid.Derive("placement-seat", string(f.config.Region), "1")
+	elasticSeat := entityid.Derive("placement-seat", string(f.config.Region), "2")
 	if len(intent.Targets) != 2 || intent.Targets[0].SeatID != permanentSeat || intent.Targets[1].SeatID != elasticSeat {
 		return fmt.Errorf("%w: terminal intent must pin the two ordered workload seats", ErrForeignResource)
 	}
@@ -441,8 +441,7 @@ func (f *fleet) terminalRecordResult(ctx context.Context, intent authority.Termi
 }
 
 func terminalDigestToken(prefix string, values ...string) string {
-	sum := sha256.Sum256([]byte(strings.Join(values, "\x00")))
-	return prefix + "-" + hex.EncodeToString(sum[:24])
+	return entityid.Derive(prefix, values...)
 }
 
 // InspectTerminalStatus reports provider readbacks without advancing teardown.

@@ -79,8 +79,8 @@ func TestCollectArtifactsKeepsRunningRollbackAndRecent(t *testing.T) {
 	all := []string{a, b, c, d, unadmitted, f, g, h}
 	// a ran, then desired jumped to c; b was admitted but never released;
 	// d's delivery is undecided; a rejected delivery of b changed nothing.
-	recordTestDelivery(t, s, ctx, "release-a", "worker", a, 1, "accepted")
-	recordTestDelivery(t, s, ctx, "release-b", "worker", b, 2, "rejected")
+	recordTestDelivery(t, s, ctx, "0000000000NBCYX286D4RHE6ZP", "worker", a, 1, "accepted")
+	recordTestDelivery(t, s, ctx, "0000000000A16YGSP64YK28MAE", "worker", b, 2, "rejected")
 	recordTestDelivery(t, s, ctx, "release-c", "worker", c, 3, "accepted")
 	recordTestDelivery(t, s, ctx, "release-d", "worker", d, 4, "")
 	// A failed upload's chunks: no object references them.

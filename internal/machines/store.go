@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -14,9 +17,12 @@ import (
 )
 
 const (
-	// Bucket holds apps and machines, the desired state. It is snapshotted
+	// Bucket holds apps; MachineBucket holds machine desired state. It is snapshotted
 	// with the other configuration buckets.
-	Bucket = "TS_APPS"
+	Bucket        = "TS_APPS"
+	MachineBucket = "TS_MACHINES"
+	// MachineBucket also holds app-name/ULID lookup addresses, so a single
+	// stream snapshot captures machine records and their index together.
 	// StatusBucket holds observed machine states. A rebuilt cell relearns
 	// them from its hosts, so it is not snapshotted.
 	StatusBucket = "TS_MACHINE_STATUS"
@@ -30,9 +36,9 @@ var (
 	ErrHasMachines = errors.New("app still has machines")
 )
 
-func appKey(name string) string        { return "apps." + name }
-func machineKey(app, id string) string { return "machines." + app + "." + id }
-func statusKey(app, id string) string  { return "status." + app + "." + id }
+func appKey(name string) string        { return entityid.Derive("app", name) }
+func machineKey(app, id string) string { return id }
+func statusKey(app, id string) string  { return id }
 
 func (a App) key() string     { return appKey(a.Name) }
 func (m Machine) key() string { return machineKey(m.App, m.ID) }
@@ -47,16 +53,16 @@ func (s *Status) revision() *uint64  { return &s.Revision }
 // is a compare-and-swap on the record's Revision (zero creates). Every read
 // checks that a record is valid and belongs to its key.
 type Store struct {
-	apps, statuses jetstream.KeyValue
-	region         string
-	fencer         authority.Fencer
+	apps, machines, statuses jetstream.KeyValue
+	region                   string
+	fencer                   authority.Fencer
 }
 
-// BucketMaxBytes is what each of the two buckets reserves on every
+// BucketMaxBytes is what each of the three buckets reserves on every
 // controller's JetStream store.
 const BucketMaxBytes = 256 << 20
 
-// OpenStore provisions or binds both buckets for region.
+// OpenStore provisions or binds all three buckets for region.
 func OpenStore(ctx context.Context, js jetstream.JetStream, region string, replicas int, fencer authority.Fencer) (*Store, error) {
 	if js == nil || fencer == nil || !validRegion(region) || replicas != 1 && replicas != 3 && replicas != 5 {
 		return nil, fmt.Errorf("%w: store configuration", ErrInvalid)
@@ -75,11 +81,31 @@ func OpenStore(ctx context.Context, js jetstream.JetStream, region string, repli
 	if err != nil {
 		return nil, err
 	}
+	machines, err := open(MachineBucket, "ts-orch machines")
+	if err != nil {
+		return nil, err
+	}
 	statuses, err := open(StatusBucket, "ts-orch observed machine states")
 	if err != nil {
 		return nil, err
 	}
-	return &Store{apps: apps, statuses: statuses, region: region, fencer: fencer}, nil
+	if _, err := list[App](ctx, apps, ">"); err != nil {
+		return nil, fmt.Errorf("app inventory requires current-format state: %w", err)
+	}
+	inventory, err := list[Machine](ctx, machines, "*")
+	if err != nil {
+		return nil, err
+	}
+	for _, machine := range inventory {
+		entry, err := machines.Get(ctx, machine.App+"."+machine.ID)
+		if err != nil {
+			return nil, fmt.Errorf("machine %s has no readable app index: %w", machine.ID, err)
+		}
+		if string(entry.Value()) != machine.ID {
+			return nil, fmt.Errorf("%w: machine %s app index", ErrInvalid, machine.ID)
+		}
+	}
+	return &Store{apps: apps, machines: machines, statuses: statuses, region: region, fencer: fencer}, nil
 }
 
 // App returns an app.
@@ -89,7 +115,7 @@ func (s *Store) App(ctx context.Context, name string) (App, error) {
 
 // Apps lists every app by name.
 func (s *Store) Apps(ctx context.Context) ([]App, error) {
-	apps, err := list[App](ctx, s.apps, "apps.*")
+	apps, err := list[App](ctx, s.apps, "*")
 	slices.SortFunc(apps, func(a, b App) int { return cmp.Compare(a.Name, b.Name) })
 	return apps, err
 }
@@ -143,17 +169,37 @@ func (s *Store) DeleteApp(ctx context.Context, epoch uint64, app App) error {
 
 // Machine returns a machine.
 func (s *Store) Machine(ctx context.Context, app, id string) (Machine, error) {
-	return get[Machine](ctx, s.apps, machineKey(app, id))
+	if !entityid.Valid(id) {
+		return Machine{}, ErrInvalid
+	}
+	value, err := get[Machine](ctx, s.machines, machineKey(app, id))
+	if err == nil && value.App != app {
+		return Machine{}, ErrNotFound
+	}
+	return value, err
 }
 
 // Machines lists the machines whose App is app, orphans included, or every
 // machine when app is empty, by app and ID.
 func (s *Store) Machines(ctx context.Context, app string) ([]Machine, error) {
-	filter, err := appFilter("machines", app)
-	if err != nil {
-		return nil, err
+	var machines []Machine
+	var err error
+	if app == "" {
+		machines, err = list[Machine](ctx, s.machines, "*")
+	} else {
+		var ids []string
+		ids, err = s.appMachineIDs(ctx, app)
+		for _, id := range ids {
+			machine, readErr := s.Machine(ctx, app, id)
+			if errors.Is(readErr, ErrNotFound) {
+				continue
+			}
+			if readErr != nil {
+				return nil, readErr
+			}
+			machines = append(machines, machine)
+		}
 	}
-	machines, err := list[Machine](ctx, s.apps, filter)
 	slices.SortFunc(machines, func(a, b Machine) int { return cmp.Or(cmp.Compare(a.App, b.App), cmp.Compare(a.ID, b.ID)) })
 	return machines, err
 }
@@ -167,6 +213,11 @@ func (s *Store) PutMachine(ctx context.Context, epoch uint64, machine Machine) (
 		return Machine{}, err
 	}
 	if machine.Revision == 0 {
+		if _, err := s.machines.Get(ctx, machine.ID); err == nil {
+			return Machine{}, fmt.Errorf("%w: %s", ErrConflict, machine.ID)
+		} else if !errors.Is(err, jetstream.ErrKeyNotFound) {
+			return Machine{}, err
+		}
 		if machine.Region != s.region {
 			return Machine{}, fmt.Errorf("%w: machine %s is not in region %s", ErrInvalid, machine.ID, s.region)
 		}
@@ -194,7 +245,14 @@ func (s *Store) PutMachine(ctx context.Context, epoch uint64, machine Machine) (
 			return Machine{}, fmt.Errorf("%w: machine %s is destroyed", ErrInvalid, machine.ID)
 		}
 	}
-	if err := put(ctx, s, s.apps, epoch, &machine); err != nil {
+	// Publish the index first: a crash may leave an empty lookup, never an invisible machine.
+	if err := s.fencer.Guard(ctx, epoch); err != nil {
+		return Machine{}, err
+	}
+	if _, err := s.machines.Put(ctx, machine.App+"."+machine.ID, []byte(machine.ID)); err != nil {
+		return Machine{}, err
+	}
+	if err := put(ctx, s, s.machines, epoch, &machine); err != nil {
 		return Machine{}, err
 	}
 	return machine, nil
@@ -222,12 +280,25 @@ func (s *Store) DeleteMachine(ctx context.Context, epoch uint64, machine Machine
 	if current.Host != "" && status.State != StateDestroyed {
 		return fmt.Errorf("%w: machine %s has not been observed destroyed", ErrInvalid, machine.ID)
 	}
-	if err := remove(ctx, s, s.apps, epoch, current.key(), current.Revision); err != nil {
+	index, err := s.machines.Get(ctx, machine.App+"."+machine.ID)
+	if err != nil {
+		return err
+	}
+	if err := remove(ctx, s, s.machines, epoch, current.key(), current.Revision); err != nil {
 		return err
 	}
 	if status.Revision != 0 {
 		// Best effort: SweepStatuses retries.
 		_ = remove(ctx, s, s.statuses, epoch, status.key(), status.Revision)
+	}
+	// A concurrent writer refreshes the index before writing its machine, so its
+	// lookup survives this delete. Empty crash-left lookups are harmless.
+	if err := s.fencer.Guard(ctx, epoch); err != nil {
+		return err
+	}
+	if err := s.machines.Delete(ctx, index.Key(), jetstream.LastRevision(index.Revision())); err != nil &&
+		!errors.Is(err, jetstream.ErrKeyRevisionMismatch) && !errors.Is(err, jetstream.ErrKeyExists) {
+		return err
 	}
 	return nil
 }
@@ -268,17 +339,37 @@ func (s *Store) SweepStatuses(ctx context.Context, epoch uint64) (int, error) {
 
 // Status returns a machine's observed status.
 func (s *Store) Status(ctx context.Context, app, id string) (Status, error) {
-	return get[Status](ctx, s.statuses, statusKey(app, id))
+	if !entityid.Valid(id) {
+		return Status{}, ErrInvalid
+	}
+	value, err := get[Status](ctx, s.statuses, statusKey(app, id))
+	if err == nil && value.App != app {
+		return Status{}, ErrNotFound
+	}
+	return value, err
 }
 
 // Statuses lists the statuses of app's machines, or of every machine when
 // app is empty, by app and ID.
 func (s *Store) Statuses(ctx context.Context, app string) ([]Status, error) {
-	filter, err := appFilter("status", app)
-	if err != nil {
-		return nil, err
+	var statuses []Status
+	var err error
+	if app == "" {
+		statuses, err = list[Status](ctx, s.statuses, "*")
+	} else {
+		var ids []string
+		ids, err = s.appMachineIDs(ctx, app)
+		for _, id := range ids {
+			status, readErr := s.Status(ctx, app, id)
+			if errors.Is(readErr, ErrNotFound) {
+				continue
+			}
+			if readErr != nil {
+				return nil, readErr
+			}
+			statuses = append(statuses, status)
+		}
 	}
-	statuses, err := list[Status](ctx, s.statuses, filter)
 	slices.SortFunc(statuses, func(a, b Status) int { return cmp.Or(cmp.Compare(a.App, b.App), cmp.Compare(a.ID, b.ID)) })
 	return statuses, err
 }
@@ -314,14 +405,41 @@ func (s *Store) PutStatus(ctx context.Context, epoch uint64, status Status) (Sta
 	return status, nil
 }
 
-func appFilter(prefix, app string) (string, error) {
-	if app == "" {
-		return prefix + ".>", nil
-	}
+func (s *Store) appMachineIDs(ctx context.Context, app string) ([]string, error) {
 	if !tokenRE.MatchString(app) {
-		return "", fmt.Errorf("%w: app name", ErrInvalid)
+		return nil, fmt.Errorf("%w: app name", ErrInvalid)
 	}
-	return prefix + "." + app + ".*", nil
+	watcher, err := s.machines.WatchFiltered(ctx, []string{app + ".*"}, jetstream.IgnoreDeletes())
+	if err != nil {
+		return nil, err
+	}
+	defer stopWatch(watcher)
+	var ids []string
+	seen := make(map[string]bool)
+	var bad error
+	for {
+		select {
+		case entry, ok := <-watcher.Updates():
+			if !ok {
+				return nil, fmt.Errorf("app machine index watcher closed early")
+			}
+			if entry == nil {
+				if bad != nil {
+					return nil, bad
+				}
+				return ids, nil
+			}
+			id := strings.TrimPrefix(entry.Key(), app+".")
+			if !entityid.Valid(id) || string(entry.Value()) != id {
+				bad = fmt.Errorf("%w: app machine index entry", ErrInvalid)
+			} else if !seen[id] {
+				seen[id] = true
+				ids = append(ids, id)
+			}
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 }
 
 type record[T any] interface {

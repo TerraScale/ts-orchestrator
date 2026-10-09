@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
@@ -341,7 +343,7 @@ func (c *Creation) found(ctx context.Context, cell string) error {
 	}
 	deployment := c.Deployment
 	if deployment == "" {
-		deployment = cell + "-found-1"
+		deployment = entityid.Derive("regional-deployment", cell)
 	}
 	config["workdir"], config["deployment_id"], config["prefix"] = c.path("attempt"), deployment, cell
 	config["base_plan"], config["oci_config"] = c.path("bound-plan.json"), c.path("oci-config")

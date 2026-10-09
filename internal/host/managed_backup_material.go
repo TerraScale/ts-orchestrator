@@ -16,7 +16,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 const (
@@ -73,11 +74,11 @@ type managedBackupCredential struct {
 }
 
 func backupScopeDigest(scope MemberScope) (string, error) {
-	tenant, err := uuid.Parse(scope.TenantID)
+	tenant, err := entityid.Parse(scope.TenantID)
 	if err != nil {
 		return "", err
 	}
-	database, err := uuid.Parse(scope.DatabaseID)
+	database, err := entityid.Parse(scope.DatabaseID)
 	if err != nil {
 		return "", err
 	}
@@ -193,9 +194,9 @@ func readManagedBackupMaterial(material string, launch ManagedMemberLaunch, trus
 	}
 	keySHA := sha256.Sum256(trustKey)
 	owner := manifest.OwnerMemberID == launch.Member.Scope.MemberID
-	backupSet, err := hex.DecodeString(manifest.BackupSet)
-	if err != nil || len(backupSet) != 16 || bytes.Equal(backupSet, make([]byte, 16)) ||
-		hex.EncodeToString(backupSet) != manifest.BackupSet ||
+	backupSet, err := entityid.Parse(manifest.BackupSet)
+	if err != nil || len(backupSet) != 16 || bytes.Equal(backupSet[:], make([]byte, 16)) ||
+		!entityid.Valid(manifest.BackupSet) ||
 		manifest.Version != 1 || manifest.ClusterID != launch.Member.Scope.ClusterID ||
 		manifest.TenantID != launch.Member.Scope.TenantID || manifest.DatabaseID != launch.Member.Scope.DatabaseID ||
 		manifest.ShardID != launch.Member.Scope.ShardID || manifest.SourceScopeDigest != scopeDigest ||
@@ -214,7 +215,7 @@ func readManagedBackupMaterial(material string, launch ManagedMemberLaunch, trus
 		owner != pins.BackupOwner ||
 		owner && manifest.OwnerIncarnation != launch.Member.Scope.Incarnation ||
 		!owner && manifest.OwnerMemberID != pins.ReplicationPeerMemberID ||
-		!lowerHex(manifest.OwnerIncarnation, 32) {
+		!lowerHexIdentity(manifest.OwnerIncarnation) {
 		return nil, errors.New("managed backup manifest differs from signed runtime authority")
 	}
 	args := []string{"--backup-managed-manifest", manifestPath,

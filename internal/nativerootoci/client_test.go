@@ -17,6 +17,25 @@ import (
 
 const nativeTestDigest = "678dcc5f87692c0885126111c6828c7181bedd6cdb268f655ac442e1846a20cb"
 
+func TestPublicationDigestUsesEntityULIDsAndOpaqueAdmissionTokens(t *testing.T) {
+	const tenant = "01HW000000E008000000000001"
+	const database = "01HW000000E008000000000002"
+	const member = "01HW000000E008000000000003"
+	cluster, incarnation := strings.Repeat("a", 32), strings.Repeat("b", 32)
+	got, err := PublicationDigest(cluster, tenant, database, member, incarnation, 1)
+	if err != nil || got != "07b2a132da5e76a9aa6fe3032cde3a379a06f51f56f68503a5edf08ea85a96d1" {
+		t.Fatalf("publication namespace = %q, %v", got, err)
+	}
+	for _, invalid := range []string{member, strings.ToUpper(incarnation), strings.Repeat("0", 32)} {
+		if _, err := PublicationDigest(cluster, tenant, database, member, invalid, 1); err == nil {
+			t.Fatalf("accepted invalid opaque incarnation %q", invalid)
+		}
+		if _, err := PublicationDigest(invalid, tenant, database, member, incarnation, 1); err == nil {
+			t.Fatalf("accepted invalid opaque cluster token %q", invalid)
+		}
+	}
+}
+
 type objectClientStub struct {
 	get func(context.Context, objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error)
 	put func(context.Context, objectstorage.PutObjectRequest) (objectstorage.PutObjectResponse, error)
@@ -177,7 +196,7 @@ func TestNativeRootSignedConfigSelectsOnlyExactTarget(t *testing.T) {
 		t.Fatalf("generic config selected native root: enabled = %t, error = %v", enabled, err)
 	}
 	for _, changed := range [][]byte{
-		bytes.Replace(native, []byte(`"namespace":"grxnmoqvrcdv"`), []byte(`"namespace":"other"`), 1),
+		bytes.Replace(native, []byte(`"namespace":"grxnmoqvrcdv"`), []byte(`"namespace":"0000000000V4MRM46HP1SNGDYW"`), 1),
 		bytes.Replace(native, []byte(`"ack_profile":"object_durable"`), []byte(`"ack_profile":"weak"`), 1),
 		append(bytes.TrimSuffix(native, []byte("}")), []byte(`,"unexpected":true}`)...),
 	} {

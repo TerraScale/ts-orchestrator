@@ -32,8 +32,8 @@ func TestSignMaterialGeneration(t *testing.T) {
 	rootPath, keyPath := filepath.Join(directory, "root.pub"), filepath.Join(directory, "root.key")
 	writeFixture(t, rootPath, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: publicDER}), 0o644)
 	writeFixture(t, keyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateDER}), 0o600)
-	expected := bootstrap.MaterialGenerationExpectation{DeploymentID: "gru-1-deployment", Environment: "production",
-		ClusterID: "gru-1", Cell: "GRU", ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}}
+	expected := bootstrap.MaterialGenerationExpectation{DeploymentID: "0000000000YY15F5R431V5JPJ9", Environment: "production",
+		ClusterID: "00000000006GRRF84JEVN9TX7M", Cell: "GRU", ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}}
 	stage := func(name string, material generationtest.Material, generation bootstrap.MaterialGeneration) (string, string) {
 		t.Helper()
 		materialDir := filepath.Join(directory, name)

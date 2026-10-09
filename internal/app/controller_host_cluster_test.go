@@ -20,6 +20,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -99,7 +100,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 					Host: "127.0.0.1", Port: clientPorts[index], RouteHost: "127.0.0.1", RoutePort: routePorts[index],
 					Routes: natscell.PeerRoutes(routes, routes[index]), StoreDir: filepath.Join(root, instance), StoreMaxBytes: 4 << 30, Users: grants,
 					TLS: tlsFiles, RouteTLS: tlsFiles, RouteUser: r3RouteUser(production), RoutePasswordFile: routePasswordFile}},
-			Controller: ControllerConfig{CandidateID: instance, ResponseKeyFile: filepath.Join(root, "controller.key"),
+			Controller: ControllerConfig{CandidateID: entityid.Derive("test-controller", instance), ResponseKeyFile: filepath.Join(root, "controller.key"),
 				ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 				Workloads: map[string]WorkloadProfile{"terrabase": {Resources: placement.Resources{
 					CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}}}},
@@ -230,7 +231,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	if failedPeer < 0 {
 		t.Fatalf("host connected to unexpected NATS URL %q", connected)
 	}
-	before := waitR3Authority(t, ctx, probe, 0, -1)
+	before := waitR3Authority(t, ctx, probe, 0, "")
 	t.Logf("crashing peer%d host_url=%s authority=%+v", failedPeer, connected, before)
 	if blackhole {
 		proxies[failedPeer].blocked.Store(true)
@@ -323,10 +324,10 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 		}
 	}
 	priorEpoch := uint64(0)
-	if strings.HasPrefix(before.CandidateID, fmt.Sprintf("peer%d-", failedPeer)) {
+	if before.CandidateID == controllerChildCandidateID(t, children[failedPeer]) {
 		priorEpoch = before.Epoch
 	}
-	after := waitR3Authority(t, ctx, probe, priorEpoch, failedPeer)
+	after := waitR3Authority(t, ctx, probe, priorEpoch, controllerChildCandidateID(t, children[failedPeer]))
 	t.Logf("host_url=%s authority_after=%+v", hostConn.ConnectedUrl(), after)
 	operatorProbe, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "operator-probe", Replicas: 3,
 		Lab: true, URL: strings.Join(urls, ","), NKeySeedFile: operatorSeed, TLS: tlsFiles})
@@ -481,7 +482,7 @@ func (h r3AcceptedSessionHandler) WithGroup(name string) slog.Handler {
 	return r3AcceptedSessionHandler{next: h.next.WithGroup(name), sessions: h.sessions}
 }
 
-func waitR3Authority(t *testing.T, ctx context.Context, probe *natscell.Runtime, priorEpoch uint64, failedPeer int) authority.Snapshot {
+func waitR3Authority(t *testing.T, ctx context.Context, probe *natscell.Runtime, priorEpoch uint64, failedCandidate string) authority.Snapshot {
 	t.Helper()
 	checkCtx, cancel := context.WithTimeout(ctx, 35*time.Second)
 	defer cancel()
@@ -492,7 +493,7 @@ func waitR3Authority(t *testing.T, ctx context.Context, probe *natscell.Runtime,
 		last, lastErr = authority.Observe(attempt, probe.JetStream(), "lab")
 		stop()
 		if lastErr == nil && last.Ready && last.Epoch > priorEpoch && last.ExpiresAt.After(time.Now().Add(5*time.Second)) &&
-			(failedPeer < 0 || !strings.HasPrefix(last.CandidateID, fmt.Sprintf("peer%d-", failedPeer))) {
+			last.CandidateID != failedCandidate {
 			return last
 		}
 		select {
@@ -500,8 +501,8 @@ func waitR3Authority(t *testing.T, ctx context.Context, probe *natscell.Runtime,
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
-	t.Fatalf("authority not ready after peer%d loss: prior epoch=%d last=%+v err=%v probe_url=%s: %v",
-		failedPeer, priorEpoch, last, lastErr, probe.Conn().ConnectedUrl(), checkCtx.Err())
+	t.Fatalf("authority not ready after candidate %s loss: prior epoch=%d last=%+v err=%v probe_url=%s: %v",
+		failedCandidate, priorEpoch, last, lastErr, probe.Conn().ConnectedUrl(), checkCtx.Err())
 	return authority.Snapshot{}
 }
 
@@ -893,7 +894,7 @@ func deployR3Workload(t *testing.T, ctx context.Context, root, config string, ru
 		t.Fatal(err)
 	}
 	intent := delivery.Intent{SchemaVersion: delivery.SchemaVersion,
-		OperationID: fmt.Sprintf("r3-workload-%d", generation), Source: source,
+		OperationID: entityid.Derive("test-workload", fmt.Sprint(generation)), Source: source,
 		ArtifactDigest: record.Digest, ManifestDigest: record.ManifestDigest,
 		Cell: "lab", Role: "terrabase", Environment: "test", Generation: generation,
 		DesiredReplicas: 1, ConfigDigest: delivery.ConfigDigestOf(nil, nil, nil)}

@@ -153,7 +153,7 @@ func TestVaultReplicaSourceGuards(t *testing.T) {
 		change func(*keymanagement.Vault)
 	}{
 		{"missing ID", func(v *keymanagement.Vault) { v.Id = nil }},
-		{"wrong ID", func(v *keymanagement.Vault) { v.Id = common.String(vaultTestID + "other") }},
+		{"wrong ID", func(v *keymanagement.Vault) { v.Id = common.String(vaultTestID + "0000000000V4MRM46HP1SNGDYW") }},
 		{"inactive", func(v *keymanagement.Vault) { v.LifecycleState = keymanagement.VaultLifecycleStateDeleting }},
 		{"not replicable", func(v *keymanagement.Vault) { v.IsVaultReplicable = common.Bool(false) }},
 		{"unknown replicability", func(v *keymanagement.Vault) { v.IsVaultReplicable = nil }},
@@ -281,7 +281,7 @@ func TestVaultReplicaPollConflicts(t *testing.T) {
 					}
 					switch name {
 					case "source ID":
-						fake.vault.Id = common.String(vaultTestID + "other")
+						fake.vault.Id = common.String(vaultTestID + "0000000000V4MRM46HP1SNGDYW")
 					case "replication ID":
 						fake.vault.ReplicaDetails = &keymanagement.VaultReplicaDetails{ReplicationId: common.String(map[bool]string{false: "replication-1", true: "replication-2"}[call > 2])}
 					}

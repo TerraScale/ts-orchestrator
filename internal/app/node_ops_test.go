@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
@@ -196,7 +197,7 @@ func (o *nodeOps) operation(t *testing.T, node string) nodeOp {
 func TestNodeRebootDrainsActsChecksAndReturns(t *testing.T) {
 	ops, balancer, instances := newNodeOpsTest(t)
 	ctx := t.Context()
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-1", nodeOpRequest{Node: "ctl-2", Op: nodeOpReboot}); err != nil {
+	if _, err := ops.submit(ctx, 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", nodeOpRequest{Node: "ctl-2", Op: nodeOpReboot}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
@@ -225,7 +226,7 @@ func TestNodeRebootKeepsANodeThatDoesNotServeOut(t *testing.T) {
 	ops.fence.hosts.(*nodeHosts).down["ctl-3"] = true
 	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
-	op := nodeOp{ID: "op-1", Node: "ctl-3", Op: nodeOpReboot, State: nodeOpQueued}
+	op := nodeOp{ID: "0000000000M44BFMMJRNPNN6BB", Node: "ctl-3", Op: nodeOpReboot, State: nodeOpQueued}
 	err := ops.execute(ctx, 3, &op)
 	if err == nil || !strings.Contains(err.Error(), "does not serve") {
 		t.Fatalf("execute: %v", err)
@@ -239,7 +240,7 @@ func TestNodeRebootKeepsANodeThatDoesNotServeOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	ops.fence.hosts.(*nodeHosts).down["ctl-3"] = false
-	if _, err := ops.submit(t.Context(), 3, "mariogk", "op-2", nodeOpRequest{Node: "ctl-3", Op: nodeOpUndrain}); err != nil {
+	if _, err := ops.submit(t.Context(), 3, "mariogk", entityid.Derive("test-node-operation", "2"), nodeOpRequest{Node: "ctl-3", Op: nodeOpUndrain}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(t.Context()); err != nil {
@@ -257,7 +258,7 @@ func TestNodeResizeChangesTheShapeOnce(t *testing.T) {
 	ctx := t.Context()
 	instances.shape["ctl-3"] = [2]float32{1, 4}
 	for _, node := range []string{"ctl-1", "ctl-3"} {
-		if _, err := ops.submit(ctx, 3, "mariogk", "op-"+node, nodeOpRequest{Node: node, Op: nodeOpResize, OCPUs: 1, MemoryGB: 4}); err != nil {
+		if _, err := ops.submit(ctx, 3, "mariogk", entityid.Derive("test-node-operation", node), nodeOpRequest{Node: node, Op: nodeOpResize, OCPUs: 1, MemoryGB: 4}); err != nil {
 			t.Fatal(err)
 		}
 		if err := ops.pass(ctx); err != nil {
@@ -278,13 +279,13 @@ func TestNodeResizeChangesTheShapeOnce(t *testing.T) {
 func TestNodeDrainHoldsAcrossOtherFencesAndGuardsTheQuorum(t *testing.T) {
 	ops, balancer, _ := newNodeOpsTest(t)
 	ctx := t.Context()
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-1", nodeOpRequest{Node: "ctl-1", Op: nodeOpDrain}); err != nil {
+	if _, err := ops.submit(ctx, 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", nodeOpRequest{Node: "ctl-1", Op: nodeOpDrain}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-2", nodeOpRequest{Node: "ctl-2", Op: nodeOpReboot}); err == nil ||
+	if _, err := ops.submit(ctx, 3, "mariogk", entityid.Derive("test-node-operation", "2"), nodeOpRequest{Node: "ctl-2", Op: nodeOpReboot}); err == nil ||
 		!strings.Contains(err.Error(), "keeps at least 2") {
 		t.Fatalf("broke the quorum: %v", err)
 	}
@@ -297,7 +298,7 @@ func TestNodeDrainHoldsAcrossOtherFencesAndGuardsTheQuorum(t *testing.T) {
 	if returned, err := ops.fence.restore(ctx, api, 3, "ctl-1", holdRelease, true); err != nil || returned {
 		t.Fatalf("a release returned a drained node: %v %v", returned, err)
 	}
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-3", nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err != nil {
+	if _, err := ops.submit(ctx, 3, "mariogk", entityid.Derive("test-node-operation", "3"), nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
@@ -310,7 +311,7 @@ func TestNodeDrainHoldsAcrossOtherFencesAndGuardsTheQuorum(t *testing.T) {
 	if !slices.Equal(record.holders(), []string{holdMaintenance}) {
 		t.Fatalf("holders %q", record.holders())
 	}
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-4", nodeOpRequest{Node: "ctl-1", Op: nodeOpUndrain}); err != nil {
+	if _, err := ops.submit(ctx, 3, "mariogk", entityid.Derive("test-node-operation", "4"), nodeOpRequest{Node: "ctl-1", Op: nodeOpUndrain}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
@@ -335,10 +336,10 @@ func TestNodeSubmitRefusals(t *testing.T) {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-1", nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err != nil {
+	if _, err := ops.submit(ctx, 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-2", nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err == nil ||
+	if _, err := ops.submit(ctx, 3, "mariogk", entityid.Derive("test-node-operation", "2"), nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err == nil ||
 		!strings.Contains(err.Error(), "already has") {
 		t.Fatalf("a second operation on one node: %v", err)
 	}
@@ -403,7 +404,7 @@ func TestRolloutFenceDrainsBeforeTheStepAndReturnsAfter(t *testing.T) {
 	}
 	record := rollout.Record{ToDigest: "new", FromDigest: "old", Units: map[string]rollout.UnitProgress{
 		"controller-1": {State: rollout.UnitPreparing}}}
-	sources := proofs{"controller-1": {BinarySHA256: "old", StartNonce: "a", ReceivedAt: time.Now()}}
+	sources := proofs{"controller-1": {BinarySHA256: "old", StartNonce: "000000000000ae0e535d50ddd92a6c00", ReceivedAt: time.Now()}}
 	since, ready := fences.unitServes("ctl-1", record, true, sources)
 	if ready {
 		t.Fatal("a unit being stepped is ready")
@@ -412,12 +413,12 @@ func TestRolloutFenceDrainsBeforeTheStepAndReturnsAfter(t *testing.T) {
 	if _, ready = fences.unitServes("ctl-1", record, true, sources); ready {
 		t.Fatal("a unit on the old release is ready")
 	}
-	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "new", StartNonce: "b", ReceivedAt: time.Now()}
+	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "new", StartNonce: "000000000000133bf48ddeb8844f9ef8", ReceivedAt: time.Now()}
 	if since, ready = fences.unitServes("ctl-1", record, true, sources); !ready || since.IsZero() {
 		t.Fatal("a unit that proves the target is not ready")
 	}
 	record.Phase, record.Units["controller-1"] = rollout.PhaseFrozen, rollout.UnitProgress{State: rollout.UnitRollingBack}
-	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "other", StartNonce: "b", ReceivedAt: time.Now()}
+	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "0000000000V4MRM46HP1SNGDYW", StartNonce: "000000000000133bf48ddeb8844f9ef8", ReceivedAt: time.Now()}
 	if _, ready = fences.unitServes("ctl-1", record, true, sources); !ready {
 		t.Fatal("a frozen rollout held its node although the node serves")
 	}
@@ -426,7 +427,7 @@ func TestRolloutFenceDrainsBeforeTheStepAndReturnsAfter(t *testing.T) {
 		t.Fatal("a unit rolling back is ready")
 	}
 	record.Phase, record.Units["controller-1"] = "", rollout.UnitProgress{State: rollout.UnitSoaking}
-	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "new", StartNonce: "b", ReceivedAt: time.Now()}
+	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "new", StartNonce: "000000000000133bf48ddeb8844f9ef8", ReceivedAt: time.Now()}
 	if reason, err := nodeRolesServing(ctx, ops.fence.hosts, "ctl-1", since.Add(-time.Second)); err != nil || reason != "" {
 		t.Fatalf("roles: %q %v", reason, err)
 	}
@@ -448,16 +449,16 @@ func TestNodeRetireRemovesBacksUpAndTerminates(t *testing.T) {
 	ops, balancer, instances := newNodeOpsTest(t)
 	ctx := t.Context()
 	ops.controllers = func(node string) bool { return node == "ctl-1" }
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-1", nodeOpRequest{Node: "ctl-1", Op: nodeOpRetire}); err == nil ||
+	if _, err := ops.submit(ctx, 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", nodeOpRequest{Node: "ctl-1", Op: nodeOpRetire}); err == nil ||
 		!strings.Contains(err.Error(), "controller") {
 		t.Fatalf("retired a controller: %v", err)
 	}
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-2", nodeOpRequest{Node: "ctl-3", Op: nodeOpRetire}); err == nil ||
+	if _, err := ops.submit(ctx, 3, "mariogk", entityid.Derive("test-node-operation", "2"), nodeOpRequest{Node: "ctl-3", Op: nodeOpRetire}); err == nil ||
 		!strings.Contains(err.Error(), "replica") {
 		t.Fatalf("retired a node with replicas: %v", err)
 	}
 	ops.fence.hosts.(*nodeHosts).withdrawn["ctl-3"] = true
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-3", nodeOpRequest{Node: "ctl-3", Op: nodeOpRetire}); err != nil {
+	if _, err := ops.submit(ctx, 3, "mariogk", entityid.Derive("test-node-operation", "3"), nodeOpRequest{Node: "ctl-3", Op: nodeOpRetire}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
@@ -485,7 +486,7 @@ func TestNodeAddJoinsAMissingBackend(t *testing.T) {
 	_, ops, balancer, _ := newEdgeTest(t)
 	ctx := t.Context()
 	balancer.sets["ts-auth"] = balancer.sets["ts-auth"][:2]
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-1", nodeOpRequest{Node: "ctl-3", Op: nodeOpAdd}); err != nil {
+	if _, err := ops.submit(ctx, 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", nodeOpRequest{Node: "ctl-3", Op: nodeOpAdd}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
@@ -605,23 +606,23 @@ func TestNodeRenameReenrollsTheHostAndMovesItsRoles(t *testing.T) {
 	}
 	instances.rebooted = func(node string) { hosts.enroll(node, "ts-gru-1") }
 	request := nodeOpRequest{Node: "ctl-1", To: "ts-gru-1", Op: nodeOpRename}
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-0", request); err == nil || !strings.Contains(err.Error(), "no host grant") {
+	if _, err := ops.submit(ctx, 3, "mariogk", entityid.Derive("test-node-operation", "0"), request); err == nil || !strings.Contains(err.Error(), "no host grant") {
 		t.Fatalf("renamed to an ungranted name: %v", err)
 	}
 	spec, _ := ops.fence.spec()
 	both := map[string]string{"ctl-1": "10.0.0.11", "ts-gru-1": "10.0.0.11", "ctl-2": "10.0.0.12", "ctl-3": "10.0.0.13"}
 	ops.fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return spec, both }
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-0", request); err == nil || !strings.Contains(err.Error(), "still grants ctl-1") {
+	if _, err := ops.submit(ctx, 3, "mariogk", entityid.Derive("test-node-operation", "0"), request); err == nil || !strings.Contains(err.Error(), "still grants ctl-1") {
 		t.Fatalf("renamed while the old name keeps its grant: %v", err)
 	}
 	ops.controllers = func(node string) bool { return node == "ctl-1" }
 	renamed := map[string]string{"ts-gru-1": "10.0.0.11", "ctl-2": "10.0.0.12", "ctl-3": "10.0.0.13"}
 	ops.fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return spec, renamed }
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-0", request); err == nil || !strings.Contains(err.Error(), "controller slot") {
+	if _, err := ops.submit(ctx, 3, "mariogk", entityid.Derive("test-node-operation", "0"), request); err == nil || !strings.Contains(err.Error(), "controller slot") {
 		t.Fatalf("renamed a controller node without its slot: %v", err)
 	}
 	ops.controllers = func(node string) bool { return node == "ts-gru-1" }
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-1", nodeOpRequest{Node: "ctl-1", Op: nodeOpRename}); err == nil {
+	if _, err := ops.submit(ctx, 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", nodeOpRequest{Node: "ctl-1", Op: nodeOpRename}); err == nil {
 		t.Fatal("a rename without --new-name was queued")
 	}
 	// ctl-1 ran TerraBase release 15 on its permit, and a failed operation
@@ -635,7 +636,7 @@ func TestNodeRenameReenrollsTheHostAndMovesItsRoles(t *testing.T) {
 	if err := ops.fence.fence(ctx, api, 3, *spec, "ctl-1", "10.0.0.11", time.Millisecond, holdOperation); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-1", request); err != nil {
+	if _, err := ops.submit(ctx, 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", request); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
@@ -709,15 +710,15 @@ func TestNodeUndrainReleasesAFenceAFailedRenameLeftAtItsAddress(t *testing.T) {
 	if balancer.sets["terrabase"][0].Serving() {
 		t.Fatal("the stray fence did not take ctl-1's address out")
 	}
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-1", nodeOpRequest{Node: "ts-gru-1", Op: nodeOpUndrain}); err == nil ||
+	if _, err := ops.submit(ctx, 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", nodeOpRequest{Node: "ts-gru-1", Op: nodeOpUndrain}); err == nil ||
 		!strings.Contains(err.Error(), "no host grant") {
 		t.Fatalf("undrain of the ungranted name: %v", err)
 	}
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-2", nodeOpRequest{Node: "ctl-2", Op: nodeOpUndrain}); err == nil ||
+	if _, err := ops.submit(ctx, 3, "mariogk", entityid.Derive("test-node-operation", "2"), nodeOpRequest{Node: "ctl-2", Op: nodeOpUndrain}); err == nil ||
 		!strings.Contains(err.Error(), "not drained") {
 		t.Fatalf("undrain of a node with no fence at its address: %v", err)
 	}
-	if _, err := ops.submit(ctx, 3, "mariogk", "op-3", nodeOpRequest{Node: "ctl-1", Op: nodeOpUndrain}); err != nil {
+	if _, err := ops.submit(ctx, 3, "mariogk", entityid.Derive("test-node-operation", "3"), nodeOpRequest{Node: "ctl-1", Op: nodeOpUndrain}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {

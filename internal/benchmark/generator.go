@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -127,7 +128,7 @@ func (g SSHGenerator) Execute(ctx context.Context, runID string, w Workload, cli
 	// The worker independently checks its own IMDS identity against InstanceID;
 	// an address pointing at another host cannot run this job.
 	job := g.Job
-	job.ID = newID()
+	job.ID = entityid.New()
 	job.Workload = w
 	job.Clients = clients
 	return g.runWorker(ctx, job, emit)
@@ -204,7 +205,7 @@ func Worker(ctx context.Context, in io.Reader, out io.Writer) error {
 }
 
 func executeJob(ctx context.Context, job Job, out io.Writer) error {
-	if !idPattern.MatchString(job.ID) || job.Workload.Validate() != nil || len(job.Clients) < 1 || len(job.Clients) > 3 {
+	if !entityid.Valid(job.ID) || job.Workload.Validate() != nil || len(job.Clients) < 1 || len(job.Clients) > 3 {
 		return errors.New("invalid benchmark job bounds")
 	}
 	for i, client := range job.Clients {
@@ -376,7 +377,7 @@ func container(ctx context.Context, job Job, client, name string, workload []byt
 	}
 	defer reader.Close()
 	// Secrets cross an inherited pipe, never argv, logs, a disk file or stdin.
-	env := fmt.Sprintf("TS_BENCH_CLIENT_ID=%s\nTS_BENCH_CLIENT_SECRET=%s\nTS_BENCH_RUN_ID=%s\n", secrets["TS_BENCH_CLIENT_ID"], secrets["TS_BENCH_CLIENT_SECRET"], newID())
+	env := fmt.Sprintf("TS_BENCH_CLIENT_ID=%s\nTS_BENCH_CLIENT_SECRET=%s\nTS_BENCH_RUN_ID=%s\n", secrets["TS_BENCH_CLIENT_ID"], secrets["TS_BENCH_CLIENT_SECRET"], entityid.New())
 	go func() { _, _ = io.WriteString(writer, env); _ = writer.Close() }()
 	command := exec.CommandContext(ctx, "podman", "run", "--rm", "--pull=never", "--name", name, "--label", "ts-bench-job="+job.ID, "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=256", "--cpus=1", "--memory=1g", "--tmpfs", "/tmp:rw,size=256m", "--stop-signal=SIGINT", "--stop-timeout=30", fmt.Sprintf("--timeout=%d", int(clientLifetime/time.Second)), "--env-file=/proc/self/fd/3", "-i", job.Images[client], "run", "--workload", "/dev/stdin", "--region", job.Region, "--out", "/dev/stdout")
 	command.ExtraFiles = []*os.File{reader}

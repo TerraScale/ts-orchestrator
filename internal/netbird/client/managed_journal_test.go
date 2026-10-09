@@ -17,7 +17,7 @@ func TestManagedJournalReadKeepsPrivateBoundsAndAbsence(t *testing.T) {
 			if _, err := secureManagedDirectory(f.m.root, managedDirectory, 0700); err != nil {
 				t.Fatal(err)
 			}
-			transaction := managedTransaction{ManagedResult: ManagedResult{TransactionID: "owned-transaction",
+			transaction := managedTransaction{ManagedResult: ManagedResult{TransactionID: "5Y9HYJTFQ3N1F9AYDYSNQ9PJ07",
 				Version: f.pin.Version, RollbackDeadline: time.Now().UTC().Add(time.Minute)},
 				BinarySHA256: f.pin.Archives.AMD64.BinarySHA256, Architecture: "amd64"}
 			body, err := json.Marshal(transaction)
@@ -83,7 +83,7 @@ func TestManagedJournalReadDoesNotFollowConcurrentSymlinkReplacement(t *testing.
 	if _, err := secureManagedDirectory(f.m.root, managedDirectory, 0700); err != nil {
 		t.Fatal(err)
 	}
-	transaction := managedTransaction{ManagedResult: ManagedResult{TransactionID: "owned-transaction", Version: f.pin.Version,
+	transaction := managedTransaction{ManagedResult: ManagedResult{TransactionID: "5Y9HYJTFQ3N1F9AYDYSNQ9PJ07", Version: f.pin.Version,
 		RollbackDeadline: time.Now().Add(time.Minute)}, BinarySHA256: f.pin.Archives.AMD64.BinarySHA256, Architecture: "amd64"}
 	if err := f.m.writeTransaction(transaction); err != nil {
 		t.Fatal(err)
@@ -92,7 +92,7 @@ func TestManagedJournalReadDoesNotFollowConcurrentSymlinkReplacement(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	transaction.TransactionID = "outside-transaction"
+	transaction.TransactionID = "6R1YJ635M4CKTW10K08R13Q5A4"
 	unsafe, err := json.Marshal(transaction)
 	if err != nil {
 		t.Fatal(err)
@@ -127,7 +127,7 @@ func TestManagedJournalReadDoesNotFollowConcurrentSymlinkReplacement(t *testing.
 	followed := false
 	for range 1000 {
 		current, err := f.m.readTransaction()
-		if err == nil && current.TransactionID == "outside-transaction" {
+		if err == nil && current.TransactionID == "6R1YJ635M4CKTW10K08R13Q5A4" {
 			followed = true
 		}
 	}

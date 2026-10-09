@@ -58,7 +58,7 @@ func TestRelayedCellSpecReachesTheSpokeThroughPartitions(t *testing.T) {
 	waitLeafCount(ctx, t, gruRuntime, 1)
 
 	global, err := authority.Start(ctx, gruRuntime.JetStream(), authority.Config{
-		Scope: protocol.GlobalScope, CandidateID: "gru-a", Replicas: 1,
+		Scope: protocol.GlobalScope, CandidateID: "0000000000F2D374M7NMRHJJQT", Replicas: 1,
 		LeaseDuration: 5 * time.Second, RenewInterval: 500 * time.Millisecond,
 	})
 	if err != nil {
@@ -90,7 +90,7 @@ func TestRelayedCellSpecReachesTheSpokeThroughPartitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	identity := cellspec.Identity{DeploymentID: "terrascale-test", Cell: "sfo", Environment: "production"}
+	identity := cellspec.Identity{DeploymentID: "0000000000EKYENDPQ5JG1M4A1", Cell: "sfo", Environment: "production"}
 	sign := func(id cellspec.Identity, generation uint64, signer ed25519.PrivateKey) []byte {
 		t.Helper()
 		spec := cellspec.Spec{Schema: cellspec.Schema, Identity: id, Generation: generation, RequiresBinary: 1}

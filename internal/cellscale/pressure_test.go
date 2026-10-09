@@ -3,11 +3,8 @@ package cellscale
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 )
@@ -25,13 +24,12 @@ import (
 // project is a test tenant's ts-auth project ID: a canonical ULID named by a
 // readable label.
 func project(label string) string {
-	sum := sha256.Sum256([]byte(label))
-	return fmt.Sprintf("%026d", binary.BigEndian.Uint64(sum[:8]))
+	return entityid.Derive("test-project", label)
 }
 
 func validPressure() NodePressure {
 	return NodePressure{Schema: PressureSchema, Node: "gru-1-db-2", InstanceID: "ocid-gru-1-db-2", State: StateReady, Release: "sha256:abc",
-		ProcessID: "p1", SampledAt: time.Now().UTC(),
+		ProcessID: entityid.Derive("test-process", "p1"), SampledAt: time.Now().UTC(),
 		CPUUtil: 0.4, MemoryUtil: 0.5, DiskUsedBytes: 10, DiskTotalBytes: 100, DiskIOPS: 900, RequestRate: 1200,
 		IOQueueDepth: 1.5, P95LatencyMS: 12, Load: memberstatus.Load{Connections: 4, StorageBytes: 5, ReplicationLagSeq: 6, WriteQPS: 7.5},
 		TopTenants: []TenantLoad{{Project: project("acme"), RequestRate: 700, CPUShare: 0.6}}}
@@ -69,14 +67,14 @@ func TestNodePressureValidate(t *testing.T) {
 }
 
 func TestNodePressureRequiresCanonicalProjectULIDs(t *testing.T) {
-	for _, id := range []string{"00000000000000000000000000", "01K78000000000000000000001", "7ZZZZZZZZZZZZZZZZZZZZZZZZZ"} {
+	for _, id := range []string{"01K78000000000000000000001", "7ZZZZZZZZZZZZZZZZZZZZZZZZZ"} {
 		p := validPressure()
 		p.TopTenants[0].Project = id
 		if err := p.Validate(); err != nil {
 			t.Errorf("project %q: %v", id, err)
 		}
 	}
-	for _, id := range []string{"", "01a1105a-7350-7f48-a96e-d71bbb45d7a8", "prj_01K78000000000000000000001", "01k78000000000000000000001", "81K78000000000000000000001", "01K7800000000000000000000I", "01K7800000000000000000000", "01K780000000000000000000010"} {
+	for _, id := range []string{"", "00000000000000000000000000", "01a1105a-7350-7f48-a96e-d71bbb45d7a8", "prj_01K78000000000000000000001", "01k78000000000000000000001", "81K78000000000000000000001", "01K7800000000000000000000I", "01K7800000000000000000000", "01K780000000000000000000010"} {
 		p := validPressure()
 		p.TopTenants[0].Project = id
 		if err := p.Validate(); !errors.Is(err, ErrInvalidPressure) {
@@ -85,12 +83,12 @@ func TestNodePressureRequiresCanonicalProjectULIDs(t *testing.T) {
 	}
 }
 
-func TestNodePressureAcceptsOpaqueProcessIDs(t *testing.T) {
+func TestNodePressureRejectsNonULIDProcessIDs(t *testing.T) {
 	for _, processID := range []string{"p", "A0._:+-", strings.Repeat("p", 128)} {
 		p := validPressure()
 		p.ProcessID = processID
-		if err := p.Validate(); err != nil {
-			t.Fatalf("process_id %q: %v", processID, err)
+		if err := p.Validate(); !errors.Is(err, ErrInvalidPressure) {
+			t.Fatalf("non-ULID process_id %q: %v", processID, err)
 		}
 	}
 }
@@ -189,7 +187,7 @@ func TestHTTPSourceAcceptsExplicitZeroCounters(t *testing.T) {
 	// A disk needs positive capacity; every utilization, rate and load counter
 	// may explicitly be zero. The optional tenant list may be absent.
 	want := NodePressure{Schema: PressureSchema, Node: "gru-1-db-2", InstanceID: "ocid-gru-1-db-2", State: StateReady, Release: "r1",
-		ProcessID: "p1", SampledAt: time.Now().UTC(), DiskTotalBytes: 1}
+		ProcessID: entityid.Derive("test-process", "p1"), SampledAt: time.Now().UTC(), DiskTotalBytes: 1}
 	body, err := json.Marshal(want)
 	if err != nil {
 		t.Fatal(err)
@@ -273,7 +271,7 @@ func TestHTTPSourceUnknownLagHoldsController(t *testing.T) {
 }
 
 func fakeNodeIdentity(name string) NodeIdentity {
-	return NodeIdentity{Name: name, InstanceID: "ocid-" + name, Incarnation: name + "-p1"}
+	return NodeIdentity{Name: name, InstanceID: "ocid-" + name, Incarnation: entityid.Derive("test-process", name+"-p1")}
 }
 
 func TestHTTPMembersCallsTheHooks(t *testing.T) {

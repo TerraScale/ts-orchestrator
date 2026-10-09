@@ -32,7 +32,7 @@ func TestMeasureHealthyClockRequiresFreshBound(t *testing.T) {
 		{"missing", nil},
 		{"probe-error", fixedClockSample{err: errors.New("NTP unavailable")}},
 		{"zero", fixedClockSample{bound: ClockBound{MaxError: time.Millisecond}}},
-		{"stale", fixedClockSample{bound: ClockBound{SampledAt: now.Add(-2 * time.Second), MaxError: time.Millisecond}}},
+		{"0000000000RNVXNPAX5Y5BB8RY", fixedClockSample{bound: ClockBound{SampledAt: now.Add(-2 * time.Second), MaxError: time.Millisecond}}},
 		{"future", fixedClockSample{bound: ClockBound{SampledAt: now.Add(time.Second), MaxError: time.Millisecond}}},
 		{"negative-error", fixedClockSample{bound: ClockBound{SampledAt: now, MaxError: -time.Millisecond}}},
 		{"excess-error", fixedClockSample{bound: ClockBound{SampledAt: now, MaxError: MaxClockError + time.Millisecond}}},
@@ -57,7 +57,7 @@ func TestTicketBindsDurableClaimBrokerNonceAndMonotonicDeadline(t *testing.T) {
 	finish := time.Now().Add(-100 * time.Millisecond)
 	start := finish.Add(-30 * time.Millisecond)
 	claim := Claim{Cell: "gru", Account: "account-a", Sequence: 11, Hash: "exact-hash", JWT: "exact-jwt", Epoch: 2}
-	lease := authority.Snapshot{Scope: "gru", CandidateID: "leader", Ready: true, Epoch: 2, Revision: 22,
+	lease := authority.Snapshot{Scope: "gru", CandidateID: "0000000000FHEQV98X4ASD7RXW", Ready: true, Epoch: 2, Revision: 22,
 		ExpiresAt: finish.Add(8 * time.Second)}
 	ticket := Ticket{TicketRequest: request, Epoch: 2, LeaseRevision: 22, ClaimSequence: 11,
 		ClaimHash: claim.Hash, ClaimJWT: claim.JWT, IssuedAt: start.UTC(),
@@ -92,7 +92,7 @@ func TestTicketBindsDurableClaimBrokerNonceAndMonotonicDeadline(t *testing.T) {
 		finish  time.Time
 	}{
 		{"wrong nonce", sign(ticket), TicketRequest{Cell: request.Cell, Broker: request.Broker, Account: request.Account, Nonce: "different"}, bound, claim, lease, finish},
-		{"different durable hash", sign(ticket), request, bound, Claim{Cell: claim.Cell, Account: claim.Account, Sequence: claim.Sequence, Hash: "other", JWT: claim.JWT, Epoch: claim.Epoch}, lease, finish},
+		{"different durable hash", sign(ticket), request, bound, Claim{Cell: claim.Cell, Account: claim.Account, Sequence: claim.Sequence, Hash: "0000000000V4MRM46HP1SNGDYW", JWT: claim.JWT, Epoch: claim.Epoch}, lease, finish},
 		{"stale clock", sign(ticket), request, ClockBound{SampledAt: finish.Add(-2 * time.Second), MaxError: 20 * time.Millisecond}, claim, lease, finish},
 		{"clock error too large", sign(ticket), request, ClockBound{SampledAt: finish, MaxError: MaxClockError + time.Millisecond}, claim, lease, finish},
 		{"slow reply", sign(ticket), request, bound, claim, lease, start.Add(MaxTicketRoundTrip + time.Millisecond)},
@@ -161,7 +161,7 @@ func TestDelayedIssuerCannotSignAfterLeaderLoss(t *testing.T) {
 		t.Fatal(err)
 	}
 	fencer := &pausedTicketFencer{entered: make(chan struct{}), release: make(chan struct{}),
-		snapshot: authority.Snapshot{Scope: "gru", CandidateID: "leader", OwnerID: "owner", Ready: true, Leader: true,
+		snapshot: authority.Snapshot{Scope: "gru", CandidateID: "0000000000FHEQV98X4ASD7RXW", OwnerID: "0000000000WG6WAQW746KJBD69", Ready: true, Leader: true,
 			Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(5 * time.Second)}}
 	issuer := Issuer{Store: &Store{cell: "gru", fencer: fencer}, Account: "account-a",
 		Brokers: map[string]struct{}{"broker-a": {}}, Key: private, Clock: healthyTicketClock{}}

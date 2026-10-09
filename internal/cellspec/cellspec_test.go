@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/bucket"
@@ -48,7 +50,7 @@ func newFixture(t *testing.T) fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := fixture{id: Identity{DeploymentID: "terrascale-prod", Cell: "gru", Environment: "production"},
+	f := fixture{id: Identity{DeploymentID: "0000000000VVK5ZNRRNEED4PH3", Cell: "gru", Environment: "production"},
 		rootPrivate: rootPrivate, leafPublic: leafPublic, leafPrivate: leafPrivate, roots: roots}
 	f.delegation = f.delegationFor(t, f.id)
 	return f
@@ -184,7 +186,7 @@ func TestVerifyRejects(t *testing.T) {
 	invalidReleaser := testSpec(f.id, 1)
 	invalidReleaser.Services[0].Releasers = []string{"Ops"}
 	otherDeployment, otherCell, otherEnvironment := f.id, f.id, f.id
-	otherDeployment.DeploymentID = "terrascale-other"
+	otherDeployment.DeploymentID = "0000000000J8QE4K9GHPJS0ZBW"
 	otherCell.Cell = "sfo"
 	otherEnvironment.Environment = "canary"
 
@@ -256,7 +258,7 @@ func TestSignRejects(t *testing.T) {
 		{"zero validity", testSpec(f.id, 1), 0},
 		{"validity above maximum", testSpec(f.id, 1), MaxSpecLifetime + time.Second},
 		{"unsorted roles", unsorted, time.Hour},
-		{"identity outside the delegation", testSpec(Identity{DeploymentID: "terrascale-prod", Cell: "fra", Environment: "production"}, 1), time.Hour},
+		{"identity outside the delegation", testSpec(Identity{DeploymentID: "0000000000VVK5ZNRRNEED4PH3", Cell: "fra", Environment: "production"}, 1), time.Hour},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -287,7 +289,7 @@ func TestDecodeRejectsNonCanonicalSpec(t *testing.T) {
 }
 
 func TestDiff(t *testing.T) {
-	id := Identity{DeploymentID: "terrascale-prod", Cell: "gru", Environment: "production"}
+	id := Identity{DeploymentID: "0000000000VVK5ZNRRNEED4PH3", Cell: "gru", Environment: "production"}
 	current := testSpec(id, 1)
 	next := testSpec(id, 2)
 	next.Services[0].Profile.Args = []string{"--port", "9090"}
@@ -475,7 +477,7 @@ func TestCandidateReadsUnsignedAndSignedFiles(t *testing.T) {
 }
 
 func TestAuthorityChanges(t *testing.T) {
-	id := Identity{DeploymentID: "terrascale-prod", Cell: "gru", Environment: "production"}
+	id := Identity{DeploymentID: "0000000000VVK5ZNRRNEED4PH3", Cell: "gru", Environment: "production"}
 	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
 	signed := map[string]Profile{terrabase.Role: {Resources: resources, Args: []string{"--serve"},
 		Env: map[string]string{"TERRABASE_REGION": "gru-1", terrabase.EnvPeerPort: "9443",
@@ -552,7 +554,7 @@ func TestAuthorityChanges(t *testing.T) {
 // address, sorted roles and an environment; a plan names every node whose
 // grant changes, and a new or changed grant needs a root.
 func TestHostGrantsValidateDiffAndWiden(t *testing.T) {
-	id := Identity{DeploymentID: "terrascale-gru", Cell: "gru", Environment: "canary"}
+	id := Identity{DeploymentID: "0000000000JEBK9NWSFPY2903S", Cell: "gru", Environment: "canary"}
 	grant := func(node, ip string, roles ...string) HostGrant {
 		return HostGrant{Node: node, PrivateIP: ip, Roles: roles, Environment: "canary"}
 	}
@@ -599,7 +601,7 @@ func TestHostGrantsValidateDiffAndWiden(t *testing.T) {
 // A host grant that names its controller slot needs binary level 17, and a
 // slot belongs to one grant (TS-609 renames the slot's node).
 func TestHostGrantControllerNeedsLevelSeventeen(t *testing.T) {
-	id := Identity{DeploymentID: "terrascale-gru", Cell: "gru", Environment: "canary"}
+	id := Identity{DeploymentID: "0000000000JEBK9NWSFPY2903S", Cell: "gru", Environment: "canary"}
 	grant := func(node, ip, controller string) HostGrant {
 		return HostGrant{Node: node, PrivateIP: ip, Roles: []string{"api"}, Environment: "canary", Controller: controller}
 	}
@@ -729,7 +731,7 @@ func (f fixture) hostImage(t *testing.T, imageID, environment string, root ed255
 	}
 	revision := "0123456789abcdef0123456789abcdef01234567"
 	delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID,
-		SubjectPublicKey: public, Capabilities: []trust.Capability{{Domain: release.ImageDomain, DeploymentID: revision,
+		SubjectPublicKey: public, Capabilities: []trust.Capability{{Domain: release.ImageDomain, DeploymentID: entityid.Derive("build", revision),
 			Cell: "GRU", Environment: environment, Role: "oci-image", Slots: []string{imageID}, Actions: []string{"sign"}}},
 	}, testNow.Add(-time.Minute), testNow.Add(lifetime), root)
 	if err != nil {
@@ -1255,7 +1257,7 @@ func TestReleaseFenceLevelValidateAndDiff(t *testing.T) {
 	}
 	// A canary (TS-623) needs level 15 and a canary Vault secret of the cell.
 	canary := Canary{Credentials: vaultsecret.Ref{Vault: "ocid1.vault.oc1.sa-saopaulo-1.example", Name: "gru-1-canary-credentials"},
-		Project: "01a11059-a955-7b4d-b9b9-ac5ba2d25c35", Database: "canary", AuthURL: "https://gru.auth.terrascale.tech",
+		Project: "01M485KAANFD6VKEDCBEHD4Q1N", Database: "canary", AuthURL: "https://gru.auth.terrascale.tech",
 		APIURL: "https://gru.api.terrascale.tech", DashboardLoginURL: "https://dash.terrascale.tech/login"}
 	gated := fence
 	gated.Canary = &canary
@@ -1324,26 +1326,38 @@ func TestReleaseFenceLevelValidateAndDiff(t *testing.T) {
 	}
 }
 
-// The Machines API needs binary level 16 and a valid policy, and every added
+// The Machines API platform organization needs level 21 and a valid policy, and every added
 // or changed one needs a root: it decides who reads the cell.
 func TestMachinesAPILevelValidateAndDiff(t *testing.T) {
 	f := newFixture(t)
-	api := MachinesAPI{Issuer: "https://gru.auth.terrascale.tech/terrascale", Audience: "https://sfo.orch.terrascale.tech",
-		JWKSURLs: []string{"https://gru.auth.terrascale.tech/terrascale/.well-known/jwks.json"}, Clients: []string{"ts-orch-cli"}}
+	api := MachinesAPI{PlatformOrganizationID: "01M4EB0GDPPHGJPPVY77EMZQKT", Issuer: "https://gru.auth.terrascale.tech/terrascale", Audience: "https://sfo.orch.terrascale.tech",
+		JWKSURLs: []string{"https://gru.auth.terrascale.tech/terrascale/.well-known/jwks.json"}, Clients: []string{"0000000000NY47MDQEXMPZDJR7"}}
 	spec := testSpec(f.id, 1)
-	spec.MachinesAPI, spec.RequiresBinary = &api, 16
-	if spec.Level() != 16 || spec.Validate() != nil {
+	spec.MachinesAPI, spec.RequiresBinary = &api, 21
+	if spec.Level() != 21 || spec.Validate() != nil {
 		t.Fatalf("level %d, %v", spec.Level(), spec.Validate())
 	}
-	if got := api.Config("10.252.0.11", "/c.pem", "/k.pem"); got.ListenAddress != "10.252.0.11:8444" || got.Validate() != nil {
+	tooOld := spec
+	tooOld.RequiresBinary = 20
+	if err := tooOld.Validate(); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("platform organization accepted below level 21: %v", err)
+	}
+	withoutPlatform := api
+	withoutPlatform.PlatformOrganizationID = ""
+	tooOld.MachinesAPI, tooOld.RequiresBinary = &withoutPlatform, 16
+	if tooOld.Level() != 16 || tooOld.Validate() != nil {
+		t.Fatalf("API without platform organization: level %d, %v", tooOld.Level(), tooOld.Validate())
+	}
+	if got := api.Config("10.252.0.11", "/c.pem", "/k.pem"); got.ListenAddress != "10.252.0.11:8444" || got.PlatformOrganizationID != api.PlatformOrganizationID || got.Validate() != nil {
 		t.Fatalf("listener %+v: %v", got, got.Validate())
 	}
 	for name, broken := range map[string]func(*MachinesAPI){
-		"http issuer": func(a *MachinesAPI) { a.Issuer = "http://gru.auth.terrascale.tech/terrascale" },
-		"no audience": func(a *MachinesAPI) { a.Audience = "" },
-		"no clients":  func(a *MachinesAPI) { a.Clients = nil },
-		"no key sets": func(a *MachinesAPI) { a.JWKSURLs = nil },
-		"public http": func(a *MachinesAPI) { a.JWKSURLs = []string{"http://gru.auth.terrascale.tech/jwks.json"} },
+		"invalid platform organization": func(a *MachinesAPI) { a.PlatformOrganizationID = "org_platform" },
+		"http issuer":                   func(a *MachinesAPI) { a.Issuer = "http://gru.auth.terrascale.tech/terrascale" },
+		"no audience":                   func(a *MachinesAPI) { a.Audience = "" },
+		"no clients":                    func(a *MachinesAPI) { a.Clients = nil },
+		"no key sets":                   func(a *MachinesAPI) { a.JWKSURLs = nil },
+		"public http":                   func(a *MachinesAPI) { a.JWKSURLs = []string{"http://gru.auth.terrascale.tech/jwks.json"} },
 	} {
 		invalid := api
 		broken(&invalid)
@@ -1378,7 +1392,7 @@ func TestMachinesAPILevelValidateAndDiff(t *testing.T) {
 // The dashboard needs binary level 18, a token secret of the cell's own
 // orch-dashboard role, and a root to add or change.
 func TestDashboardSection(t *testing.T) {
-	id := Identity{DeploymentID: "terrascale-gru", Cell: "gru", Environment: "canary"}
+	id := Identity{DeploymentID: "0000000000JEBK9NWSFPY2903S", Cell: "gru", Environment: "canary"}
 	vault := "ocid1.vault.oc1.sa-saopaulo-1.vault"
 	spec := testSpec(id, 1)
 	spec.Dashboard = &Dashboard{Token: vaultsecret.Ref{Vault: vault, Name: "gru-1-orch-dashboard-token"}}

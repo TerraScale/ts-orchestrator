@@ -9,41 +9,43 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
 func TestControllerRejectsObsoleteRetirementState(t *testing.T) {
-	for _, value := range []string{`{"retired":true,"at":"2026-10-09T00:00:00Z"}`, `{"retired":false}`, `malformed`} {
-		t.Run(value, func(t *testing.T) {
-			c, _, store, mutations, key := testController(t)
-			js, err := jetstream.New(c.conn)
-			if err != nil {
-				t.Fatal(err)
-			}
-			obsoleteKey := "retired.gru.node-a"
-			revision, err := c.state.Put(t.Context(), obsoleteKey, []byte(value))
-			if err != nil {
-				t.Fatal(err)
-			}
-			restarted, err := NewController(t.Context(), ControllerConfig{Cell: c.cell, Conn: c.conn, JS: js,
-				State: c.state, ControlLog: c.controlLog, Artifacts: store, ResponseKey: key, StateReplicas: 1,
-				HostMutations: c.mutations, AuthorityEpoch: c.authorityEpoch, AuthorityGuard: c.authorityGuard})
-			if restarted != nil {
-				restarted.cacheCancel()
-				t.Fatal("host controller can allocate over obsolete retirement state")
-			}
-			if err == nil || !strings.Contains(err.Error(), "obsolete retirement keys") {
-				t.Fatalf("startup over obsolete state: %v", err)
-			}
-			entry, err := c.state.Get(t.Context(), obsoleteKey)
-			if err != nil || entry.Revision() != revision || string(entry.Value()) != value {
-				t.Fatalf("startup changed the old safety mark: %v", err)
-			}
-			if _, err := mutations.ReadHostMutation(t.Context(), authority.MutationRetirement, "gru.node-a"); !errors.Is(err, authority.ErrNotFound) {
-				t.Fatalf("startup migrated obsolete state: %v", err)
-			}
-		})
+	for _, obsoleteKey := range []string{"retired.gru.node-a", "retirement-quarantine.gru.node-a", "retirement-cutover.gru"} {
+		for _, value := range []string{`{"retired":true,"at":"2026-10-09T00:00:00Z"}`, `{"retired":false}`, `malformed`} {
+			t.Run(obsoleteKey+"/"+value, func(t *testing.T) {
+				c, _, store, mutations, key := testController(t)
+				js, err := jetstream.New(c.conn)
+				if err != nil {
+					t.Fatal(err)
+				}
+				revision, err := c.state.Put(t.Context(), obsoleteKey, []byte(value))
+				if err != nil {
+					t.Fatal(err)
+				}
+				restarted, err := NewController(t.Context(), ControllerConfig{Cell: c.cell, Conn: c.conn, JS: js,
+					State: c.state, ControlLog: c.controlLog, Artifacts: store, ResponseKey: key, StateReplicas: 1,
+					HostMutations: c.mutations, AuthorityEpoch: c.authorityEpoch, AuthorityGuard: c.authorityGuard})
+				if restarted != nil {
+					restarted.cacheCancel()
+					t.Fatal("host controller can allocate over obsolete retirement state")
+				}
+				if err == nil || !strings.Contains(err.Error(), "obsolete retirement keys") {
+					t.Fatalf("startup over obsolete state: %v", err)
+				}
+				entry, err := c.state.Get(t.Context(), obsoleteKey)
+				if err != nil || entry.Revision() != revision || string(entry.Value()) != value {
+					t.Fatalf("startup changed the old safety mark: %v", err)
+				}
+				if _, err := mutations.ReadHostMutation(t.Context(), authority.MutationRetirement, "gru.node-a"); !errors.Is(err, authority.ErrNotFound) {
+					t.Fatalf("startup migrated obsolete state: %v", err)
+				}
+			})
+		}
 	}
 }
 
@@ -58,7 +60,7 @@ func (state unavailableRetirementKeys) ListKeysFiltered(context.Context, ...stri
 
 func TestRetirementStorageValidationFailsClosed(t *testing.T) {
 	failure := errors.New("host state unavailable")
-	if _, err := loadRetirementQuarantines(t.Context(), nil, unavailableRetirementKeys{err: failure}, "gru"); !errors.Is(err, failure) {
+	if err := rejectObsoleteRetirementState(t.Context(), unavailableRetirementKeys{err: failure}, "gru"); !errors.Is(err, failure) {
 		t.Fatalf("failed storage validation accepted: %v", err)
 	}
 }
@@ -92,6 +94,7 @@ func TestRetirementAndRenameKeepHistoricalUsageWindows(t *testing.T) {
 		t.Fatal(err)
 	}
 	registration.Node, registration.NATSUserPublicKey = "node-b", testNATSUserKey("node-b")
+	registration.ID = entityid.Derive("host", "gru", "node-b")
 	if _, err := c.Register(t.Context(), registration); err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +147,7 @@ func TestHistoricalRetirementRequiresStateAndIdentity(t *testing.T) {
 			}
 			registerTestHost(t, c)
 			from := time.Now().UTC()
-			if _, err := mutations.CommitHostMutation(t.Context(), 1, authority.MutationRetirement, "gru.node-a", "invalid-retirement", 0, []byte(value)); err != nil {
+			if _, err := mutations.CommitHostMutation(t.Context(), 1, authority.MutationRetirement, "gru.node-a", entityid.New(), 0, []byte(value)); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := c.ExpectedUsage(t.Context(), from, time.Now().UTC()); err == nil {

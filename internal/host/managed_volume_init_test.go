@@ -207,7 +207,7 @@ func TestManagedVolumeInitFailuresNeverReachMountOrClaimReadiness(t *testing.T) 
 func TestManagedVolumeInitPermitRequiresCurrentSignedState(t *testing.T) {
 	registration, desired, hostKey := managedContractFixture()
 	registration.ManagedPlacement = &ManagedPlacementBinding{
-		DatabaseID: "db-main", PartitionID: "partition-a", SeatID: "permanent-a", IntentGeneration: 7,
+		DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "000000000082AXF7GZQT1D126Y", IntentGeneration: 7,
 		IntentPayloadDigest: strings.Repeat("c", 64), CanonicalRosterDigest: strings.Repeat("d", 64),
 		ManagedHostProfileDigest: strings.Repeat("e", 64),
 	}
@@ -227,7 +227,7 @@ func TestManagedVolumeInitPermitRequiresCurrentSignedState(t *testing.T) {
 		LiveS3TargetSHA256:                  strings.Repeat("7", 64),
 		LiveS3Credential:                    oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3},
 		ReplicationListenAddress:            "10.0.0.11:7000",
-		ReplicationPeerMemberID:             "018f0000-0000-7000-8000-000000000002",
+		ReplicationPeerMemberID:             "01HW000000E008000000000002",
 		ReplicationPeerAddress:              "10.0.0.12:7001",
 		ReplicationServerCASHA256:           strings.Repeat("8", 64),
 	}
@@ -279,7 +279,7 @@ func TestManagedVolumeInitPermitRequiresCurrentSignedState(t *testing.T) {
 			if err != nil || !exists {
 				return VolumeInitObservation{}, errors.New("test could not read current host session")
 			}
-			current.SessionID = "44444444444444444444444444444444"
+			current.SessionID = "248H248H248H248H248H248H24"
 			current.Epoch++
 			current.ExpiresAt = time.Now().Add(sessionTTL)
 			current.LastNonce = "55555555555555555555555555555555"
@@ -320,7 +320,7 @@ func TestManagedVolumeInitPermitRequiresCurrentSignedState(t *testing.T) {
 		t.Fatal("controller did not become ready")
 	}
 
-	const firstSessionID = "11111111111111111111111111111111"
+	const firstSessionID = "0H248H248H248H248H248H248H"
 	acquire := signedHostRequest(t, hostKey, "session", firstSessionID, 0, struct {
 		Kind string `json:"kind"`
 	}{"acquire"})
@@ -429,7 +429,7 @@ func TestManagedVolumeInitPermitRequiresCurrentSignedState(t *testing.T) {
 	if rotatedReceipt.Revision == registrationRevision {
 		t.Fatal("fixture did not advance the registration revision")
 	}
-	const secondSessionID = "22222222222222222222222222222222"
+	const secondSessionID = "00000000000000000000000002"
 	rotatedAcquire := signedHostRequest(t, newHostKey, "session", secondSessionID, 0, struct {
 		Kind string `json:"kind"`
 	}{"acquire"})
@@ -457,7 +457,7 @@ func TestManagedVolumeInitPermitRequiresCurrentSignedState(t *testing.T) {
 	if _, err := controller.cas(t.Context(), stateKey, current, sessionRevision); err != nil {
 		t.Fatalf("expire current host session: %v", err)
 	}
-	const thirdSessionID = "33333333333333333333333333333333"
+	const thirdSessionID = "0000000000RYN967Q4ZZSYRSS0"
 	thirdAcquire := signedHostRequest(t, newHostKey, "session", thirdSessionID, 0, struct {
 		Kind string `json:"kind"`
 	}{"acquire"})

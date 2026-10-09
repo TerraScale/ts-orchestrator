@@ -3,7 +3,6 @@ package managedmaterial
 import (
 	"bytes"
 	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
@@ -12,6 +11,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -82,7 +83,7 @@ func (backup InitialBackupSpec) Validate(live LiveS3Target, members [2]InitialMe
 		backup.DataKey.Validate() != nil || !lowerHexDigest(backup.DataKeySHA256) ||
 		backup.DataKey.SecretOCID == backup.Target.Credential.SecretOCID ||
 		backup.OwnerMemberID != members[0].MemberID && backup.OwnerMemberID != members[1].MemberID ||
-		!validBackupToken(backup.DataKeyID, 256) || !validBackupPolicyID(backup.RetentionPolicyID) ||
+		!entityid.Valid(backup.DataKeyID) || !validBackupPolicyID(backup.RetentionPolicyID) ||
 		backup.MaxPointCadenceMS < 60_000 || backup.MaxPointCadenceMS > 30*24*60*60*1000 ||
 		backup.RetentionUntilUnixMS <= uint64(now.UnixMilli()) ||
 		backup.RetentionUntilUnixMS > uint64(now.Add(365*24*time.Hour).UnixMilli()) {
@@ -149,11 +150,11 @@ type backupManifestEnvelope struct {
 }
 
 func backupScopeDigest(scope AuthorityScope) (string, error) {
-	tenant, err := canonicalUUID(scope.TenantID)
+	tenant, err := canonicalID(scope.TenantID)
 	if err != nil {
 		return "", err
 	}
-	database, err := canonicalUUID(scope.DatabaseID)
+	database, err := canonicalID(scope.DatabaseID)
 	if err != nil {
 		return "", err
 	}
@@ -188,13 +189,7 @@ func generateBackupMaterial(spec InitialSpec, authority SignedAuthority, signer 
 	if err != nil {
 		return File{}, File{}, err
 	}
-	var set [16]byte
-	if _, err := rand.Read(set[:]); err != nil {
-		return File{}, File{}, err
-	}
-	if set == [16]byte{} {
-		return File{}, File{}, errors.New("backup set randomness is invalid")
-	}
+	set := entityid.New()
 	var owner InitialMember
 	for _, member := range spec.Members {
 		if member.MemberID == spec.Backup.OwnerMemberID {
@@ -211,7 +206,7 @@ func generateBackupMaterial(spec InitialSpec, authority SignedAuthority, signer 
 		TenantID: spec.Scope.TenantID, DatabaseID: spec.Scope.DatabaseID, ShardID: spec.Scope.ShardID,
 		SourceScopeDigest: scopeDigest, SourceAuthoritySHA256: hex.EncodeToString(authoritySHA[:]),
 		SourceConfigurationID: authority.ConfigurationID, SourceTargetDigest: liveDigest,
-		BackupSet: hex.EncodeToString(set[:]), OwnerMemberID: owner.MemberID,
+		BackupSet: set, OwnerMemberID: owner.MemberID,
 		OwnerIncarnation: owner.Incarnation, BackupTargetDigest: backupDigest,
 		BackupS3ConfigSHA256:     configFile.SHA256,
 		BackupS3CredentialSHA256: spec.Backup.Target.CredentialSHA256, SignerKeyID: keyID,
@@ -291,8 +286,8 @@ func expectedBackupPayload(spec InitialSpec, authority SignedAuthority, backupSe
 	if spec.Backup == nil {
 		return BackupManifestPayload{}, ErrMaterialConflict
 	}
-	set, err := hex.DecodeString(backupSet)
-	if err != nil || len(set) != 16 || bytes.Equal(set, make([]byte, 16)) || hex.EncodeToString(set) != backupSet {
+	set, err := entityid.Parse(backupSet)
+	if err != nil || len(set) != 16 || !entityid.Valid(set.String()) {
 		return BackupManifestPayload{}, ErrMaterialConflict
 	}
 	scopeDigest, err := backupScopeDigest(spec.Scope)

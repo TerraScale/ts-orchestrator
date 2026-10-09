@@ -12,6 +12,7 @@ import (
 	"errors"
 	"strings"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -87,17 +88,16 @@ func OpenCustomerEnvelope(spec InitialSpec, envelope CustomerEnvelope,
 	if len(parts) != 3 || parts[0] != "tbk1" || parts[1] != envelope.TokenID {
 		return CustomerMaterial{}, errors.New("customer token binding is invalid")
 	}
-	id, idErr := base64.RawURLEncoding.DecodeString(parts[1])
+	id, idErr := entityid.Parse(parts[1])
 	secret, secretErr := base64.RawURLEncoding.DecodeString(parts[2])
 	defer clear(secret)
-	if idErr != nil || secretErr != nil || len(id) != 16 || len(secret) != 32 ||
-		base64.RawURLEncoding.EncodeToString(id) != parts[1] ||
+	if idErr != nil || secretErr != nil || len(secret) != 32 ||
 		base64.RawURLEncoding.EncodeToString(secret) != parts[2] {
 		return CustomerMaterial{}, errors.New("customer token binding is invalid")
 	}
 	verifier := sha256.New()
 	verifier.Write([]byte("TB-APIKEY-V1\x00"))
-	verifier.Write(id)
+	verifier.Write(id[:])
 	verifier.Write(secret)
 	if hex.EncodeToString(verifier.Sum(nil)) != envelope.VerifierSHA256 {
 		return CustomerMaterial{}, errors.New("customer token verifier differs from envelope")

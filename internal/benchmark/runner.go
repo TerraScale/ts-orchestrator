@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/capacity"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 type Verdict struct {
@@ -34,7 +35,7 @@ type Stage struct {
 }
 
 type Run struct {
-	ID       string    `json:"id"`
+	ID       string    `json:"id,omitempty"`
 	Region   string    `json:"region"`
 	Workload Workload  `json:"workload"`
 	Clients  []string  `json:"clients"`
@@ -90,7 +91,7 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 			return run, fmt.Errorf("ramp needs at least 30 measurement seconds per concurrency step and must fit warmups within %d seconds", workloadBudgetSeconds)
 		}
 	}
-	run = Run{ID: newID(), Region: region, Workload: w, Clients: clients, Started: r.Now().UTC(), Status: "running", Stages: []Stage{}}
+	run = Run{ID: entityid.New(), Region: region, Workload: w, Clients: clients, Started: r.Now().UTC(), Status: "running", Stages: []Stage{}}
 	if err := r.Repository.SaveRun(ctx, run); err != nil {
 		run.Status = "failed"
 		run.Ended = r.Now().UTC()

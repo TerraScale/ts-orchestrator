@@ -51,7 +51,7 @@ func TestManagedUpdateR3RollsReleasesAcrossSeatsAndRollsBackHeldCanary(t *testin
 	}
 	t.Cleanup(func() { _ = broker.Close() })
 	runtime, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: "gru",
-		CandidateID: "managed-update-rolling", Replicas: 1})
+		CandidateID: "0000000000D210JQZHC3BEWXCN", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,17 +139,17 @@ func TestManagedUpdateR3RollsReleasesAcrossSeatsAndRollsBackHeldCanary(t *testin
 
 	permanent, elastic := canary.State.MemberID, fixture.peer.State.MemberID
 	publishReports()
-	prepare("release-2-permanent", permanent, r1, r2)
-	serve("release-2-permanent", permanent)
-	prepare("release-2-elastic", elastic, r1, r2)
-	serve("release-2-elastic", elastic)
-	if seat(permanent).ManagedRuntimeTarget.OperationID != "release-2-permanent" {
+	prepare("00000000009GECCPS7VW3MTGN3", permanent, r1, r2)
+	serve("00000000009GECCPS7VW3MTGN3", permanent)
+	prepare("0000000000Z4T6A648T68DX06W", elastic, r1, r2)
+	serve("0000000000Z4T6A648T68DX06W", elastic)
+	if seat(permanent).ManagedRuntimeTarget.OperationID != "00000000009GECCPS7VW3MTGN3" {
 		t.Fatal("promoting the peer changed the served canary target")
 	}
 
 	// The cell's rollout known-bad list is enforced in admission, and an
 	// unreadable list refuses the update instead of admitting it.
-	knownBadUpdate := rollingManagedUpdate(t, fixture, controller, placementSequence, epoch, "release-3-known-bad", permanent, r2, r3)
+	knownBadUpdate := rollingManagedUpdate(t, fixture, controller, placementSequence, epoch, "00000000000WTVX8ESZCTDC38P", permanent, r2, r3)
 	knownBadRecord, _ := signedManagedUpdatePreparedRecord(t, knownBadUpdate)
 	controller.config.KnownBad = fakeKnownBad{bad: map[string]bool{r3.Digest: true}}
 	if _, err := controller.PrepareManagedUpdate(ctx, knownBadRecord); !errors.Is(err, ErrKnownBadCandidate) {
@@ -161,7 +161,7 @@ func TestManagedUpdateR3RollsReleasesAcrossSeatsAndRollsBackHeldCanary(t *testin
 	}
 	controller.config.KnownBad = fakeKnownBad{bad: map[string]bool{strings.Repeat("e", 64): true}}
 
-	prepare("release-3-permanent", permanent, r2, r3)
+	prepare("0000000000JDJ1BMMVSVG25TWR", permanent, r2, r3)
 	chained := seat(permanent).ManagedRuntimeTarget
 	if chained.PreviousArtifactDigest != r2.Digest || chained.PreviousSourceDigest != r2.SourceDigest {
 		t.Fatalf("chained target lost its predecessor: %+v", chained)
@@ -174,21 +174,21 @@ func TestManagedUpdateR3RollsReleasesAcrossSeatsAndRollsBackHeldCanary(t *testin
 		seat(elastic).EffectiveRuntimeManifest().ArtifactDigest != r2.Digest {
 		t.Fatalf("failed canary was not held with its peer serving: canary=%+v", held)
 	}
-	blocked := rollingManagedUpdate(t, fixture, controller, placementSequence, epoch, "release-3-elastic", elastic, r2, r3)
+	blocked := rollingManagedUpdate(t, fixture, controller, placementSequence, epoch, "0000000000ANHD8ZK28645M2RD", elastic, r2, r3)
 	blockedRecord, _ := signedManagedUpdatePreparedRecord(t, blocked)
 	if _, err := controller.PrepareManagedUpdate(ctx, blockedRecord); err == nil {
 		t.Fatal("a held candidate was promoted to its peer")
 	}
 
-	prepare("release-3-rollback", permanent, r3, r2)
-	serve("release-3-rollback", permanent)
+	prepare("0000000000CJ84K6B6KX0KC29A", permanent, r3, r2)
+	serve("0000000000CJ84K6B6KX0KC29A", permanent)
 	restored := seat(permanent)
 	if restored.EffectiveRuntimeManifest().ArtifactDigest != r2.Digest ||
 		restored.ManagedRuntimeTarget.PreviousArtifactDigest != r3.Digest {
 		t.Fatalf("rollback did not restore the replaced artifact: %+v", restored.ManagedRuntimeTarget)
 	}
 	latest, err := runtime.ReadManagedUpdate(ctx, fixture.intent.DatabaseID, fixture.intent.PartitionID)
-	if err != nil || latest.OperationID != "release-3-rollback" ||
+	if err != nil || latest.OperationID != "0000000000CJ84K6B6KX0KC29A" ||
 		!strings.HasSuffix(latest.SubjectKey, string(authority.ManagedUpdateCanaryServing)) {
 		t.Fatalf("latest authority outcome = %+v, %v", latest, err)
 	}
@@ -207,7 +207,7 @@ func TestManagedUpdateR3RollsReleasesAcrossSeatsAndRollsBackHeldCanary(t *testin
 	r4 := AdmittedArtifact{Digest: strings.Repeat("4", 64), ManifestDigest: strings.Repeat("5", 64),
 		SourceDigest: strings.Repeat("3", 64)}
 	admitted[r4.Digest] = r4
-	prepare("release-4-permanent", permanent, r2, r4)
+	prepare("0000000000TMNRSJNWYYCT66GF", permanent, r2, r4)
 	if seat(permanent).ManagedRuntimeTarget.RollbackOfHeld {
 		t.Fatal("a forward update was marked as a rollback")
 	}
@@ -221,13 +221,13 @@ func TestManagedUpdateR3RollsReleasesAcrossSeatsAndRollsBackHeldCanary(t *testin
 			t.Fatalf("%s was not held", operation)
 		}
 	}
-	timeout("release-4-permanent")
-	prepare("release-4-rollback", permanent, r4, r2)
-	timeout("release-4-rollback")
+	timeout("0000000000TMNRSJNWYYCT66GF")
+	prepare("00000000004SZWDPQMXND9KS7B", permanent, r4, r2)
+	timeout("00000000004SZWDPQMXND9KS7B")
 	if !seat(permanent).ManagedRuntimeTarget.RollbackOfHeld {
 		t.Fatal("held rollback lost its rollback mark")
 	}
-	flip := rollingManagedUpdate(t, fixture, controller, placementSequence, epoch, "release-4-flip", permanent, r2, r4)
+	flip := rollingManagedUpdate(t, fixture, controller, placementSequence, epoch, "0000000000A46ZE0FTR6XF6R8H", permanent, r2, r4)
 	flipRecord, _ := signedManagedUpdatePreparedRecord(t, flip)
 	if _, err := controller.PrepareManagedUpdate(ctx, flipRecord); err == nil {
 		t.Fatal("a held rollback was returned to the known-bad candidate")

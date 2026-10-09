@@ -54,14 +54,14 @@ func TestControllerRolloutsAndBudgetsReachInsightsAndTheDashboard(t *testing.T) 
 
 	// The real rollout store, with a rollout whose preflight deadline
 	// passed two hours ago. Begin and Commit journal their decisions.
-	lease := observedAuthority{snapshot: authority.Snapshot{Leader: true, Ready: true, OwnerID: "one", Epoch: 3,
+	lease := observedAuthority{snapshot: authority.Snapshot{Leader: true, Ready: true, OwnerID: "0000000000DV8998ZCQW1J2V2R", Epoch: 3,
 		ExpiresAt: time.Now().Add(time.Minute)}}
 	store, err := rollout.OpenStore(ctx, nats.JetStream(), "lab", 1, lease)
 	if err != nil {
 		t.Fatal(err)
 	}
 	started := time.Now().Add(-3 * time.Hour)
-	record, revision, err := store.Begin(ctx, rollout.Spec{RolloutID: "ro-e2e", Kind: rollout.KindController,
+	record, revision, err := store.Begin(ctx, rollout.Spec{RolloutID: "0000000000GB4N0370RRB4GDWT", Kind: rollout.KindController,
 		Cell: "lab", FromDigest: strings.Repeat("a", 64), ToDigest: strings.Repeat("b", 64),
 		Units:  []rollout.Unit{{ID: "one", Group: "controllers", Seed: true}, {ID: "two", Group: "controllers"}},
 		Policy: rollout.DefaultPolicy(), AuthorityEpoch: 3}, started)
@@ -102,9 +102,9 @@ func TestControllerRolloutsAndBudgetsReachInsightsAndTheDashboard(t *testing.T) 
 	// The engine evaluates as soon as it starts; the journal attaches
 	// asynchronously, so poll until the insights are listed.
 	want := map[string][]string{
-		"/insights":        {"Rollout ro-e2e is past its preflight deadline", "Budget regions is 100% used"},
-		"/rollouts":        {"ro-e2e", "preflight", `href="/rollouts/ro-e2e"`},
-		"/rollouts/ro-e2e": {"preflight", "Rollout ro-e2e is past its preflight deadline", "Admitted controller rollout ro-e2e"},
+		"/insights":                            {"Rollout 0000000000GB is past its preflight deadline", "Budget regions is 100% used"},
+		"/rollouts":                            {"0000000000GB4N0370RRB4GDWT", "preflight", `href="/rollouts/0000000000GB4N0370RRB4GDWT"`},
+		"/rollouts/0000000000GB4N0370RRB4GDWT": {"preflight", "Rollout 0000000000GB is past its preflight deadline", "Admitted controller rollout 0000000000GB4N0370RRB4GDWT"},
 	}
 	deadline := time.Now().Add(30 * time.Second)
 	for {

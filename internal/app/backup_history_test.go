@@ -19,8 +19,8 @@ func TestBackupHistoryCursorBindsActorQueryAndExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	cursor := backupHistoryCursor{Actor: "operator-a", Cell: "gru",
-		Stream: authority.ControlStreamName, DatabaseID: "database-a",
-		PartitionID: "partition-a", OperationID: "77777777-7777-7777-7777-777777777777",
+		Stream: authority.ControlStreamName, DatabaseID: "0000000000WVSMBJNMAWCDJBSK",
+		PartitionID: "0000000000Z3WK359G2W66CVT8", OperationID: "3QEXVQEXVQEXVQEXVQEXVQEXVQ",
 		Watermark: 500, NextSequence: 129, LatestMatchSequence: 7}
 	token, err := signBackupHistoryCursor(cursor, private)
 	if err != nil || len(token) > 8<<10 {
@@ -70,8 +70,8 @@ func TestBackupCompleteStatusFitsSignedReplyBound(t *testing.T) {
 	if err := json.Unmarshal(data, &fixture); err != nil {
 		t.Fatal(err)
 	}
-	record := authority.BackupOperationRecord{DatabaseID: "database-a", PartitionID: "partition-a",
-		OperationID: "77777777-7777-7777-7777-777777777777", State: "complete",
+	record := authority.BackupOperationRecord{DatabaseID: "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8",
+		OperationID: "3QEXVQEXVQEXVQEXVQEXVQEXVQ", State: "complete",
 		Ordinal: 1, Attempt: 1, PublicationReceipt: []byte(fixture.PublishedHead.EnvelopeJSON),
 		CompleteRelease: []byte(fixture.CompleteRelease.EnvelopeJSON)}
 	payload, err := protocol.EncodeJSON(backupStatusReplyFor(record, 42))
@@ -85,7 +85,7 @@ func TestBackupCompleteStatusFitsSignedReplyBound(t *testing.T) {
 	now := time.Now().UTC()
 	signed, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: "gru",
 		Kind: "backup.operation.reply", Actor: "controller",
-		OperationID: "88888888-8888-8888-8888-888888888888", Generation: 1, Epoch: 1},
+		OperationID: "48H248H248H248H248H248H248", Generation: 1, Epoch: 1},
 		now, now.Add(time.Minute), private)
 	if err != nil {
 		t.Fatal(err)

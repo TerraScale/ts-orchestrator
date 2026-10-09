@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -71,14 +71,14 @@ func netbirdSSH(ctx context.Context, address string) error {
 
 // The read-only SSH proof depends on adopted controller grants and authority;
 // draining is authorized separately by the live or persisted release fence.
-func (n *netbirdRollout) recoveryScope(request netbirdRecoveryRequest, kind, actor, nonce string, epoch uint64) (protocol.EnvelopeScope, error) {
+func (n *netbirdRollout) recoveryScope(request netbirdRecoveryRequest, kind, actor, operationID string, epoch uint64) (protocol.EnvelopeScope, error) {
 	if n.services == nil || n.cfg.NATS.Embedded == nil || n.fence == nil || n.fence.fencer == nil ||
 		request.Requester == request.Responder || !slices.Contains(n.cfg.NATS.Embedded.BrokerIDs, request.Requester) ||
 		!slices.Contains(n.cfg.NATS.Embedded.BrokerIDs, request.Responder) {
 		return protocol.EnvelopeScope{}, errors.New("NetBird recovery requires two configured controllers")
 	}
 	current := n.fence.fencer.Current()
-	if !current.Ready || current.Epoch != epoch || epoch == 0 || request.Authority == "" || current.CandidateID != request.Authority || !time.Now().Before(current.ExpiresAt) {
+	if !current.Ready || current.Epoch != epoch || epoch == 0 || !entityid.Valid(request.Authority) || !entityid.Valid(operationID) || current.CandidateID != request.Authority || !time.Now().Before(current.ExpiresAt) {
 		return protocol.EnvelopeScope{}, errors.New("NetBird recovery request has no current regional authority")
 	}
 	n.services.mu.Lock()
@@ -100,7 +100,7 @@ func (n *netbirdRollout) recoveryScope(request netbirdRecoveryRequest, kind, act
 		peerErr != nil || !peer.Is4() || !peer.IsPrivate() || peer.IsLoopback() || netbirdClientRange.Contains(peer) || peer == ip {
 		return protocol.EnvelopeScope{}, errors.New("NetBird recovery target and peer need distinct adopted OCI controller grants")
 	}
-	return protocol.EnvelopeScope{Region: n.cell, Kind: kind, Actor: actor, OperationID: nonce,
+	return protocol.EnvelopeScope{Region: n.cell, Kind: kind, Actor: actor, OperationID: operationID,
 		Generation: n.services.current.Generation, Epoch: epoch}, nil
 }
 
@@ -192,7 +192,7 @@ func (n *netbirdRollout) recoverySSH(ctx context.Context, node, address string) 
 		}
 		request := netbirdRecoveryRequest{Requester: n.cfg.NATS.Instance, Responder: slot,
 			Authority: n.fence.fencer.Current().CandidateID, Node: node, Address: address}
-		scope, err := n.recoveryScope(request, netbirdRecoveryRequestKind, request.Requester, rand.Text(), epoch)
+		scope, err := n.recoveryScope(request, netbirdRecoveryRequestKind, request.Requester, entityid.New(), epoch)
 		if err != nil {
 			continue
 		}

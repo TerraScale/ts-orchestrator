@@ -26,14 +26,14 @@ func TestFounderContinuitySelectionIsReadOnlyAndUsesDurableFloor(t *testing.T) {
 		digest := digestWire(wire)
 		pins = append(pins, FounderContinuityPin{Slot: slot, SHA256: digest})
 		key := fixture.domain.LedgerBucket + "/" + FounderImmutableObjectName(fixture.domain,
-			"deployment-a", "GRU", "production", digest)
+			"0000000000F9PR1WNVDTEXS31Z", "GRU", "production", digest)
 		fixture.objects.items[key] = wire
 	}
-	continuation := FounderSelection{SchemaVersion: 2, DeploymentID: "deployment-a", Cell: "GRU",
+	continuation := FounderSelection{SchemaVersion: 2, DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "GRU",
 		Environment: "production", Generation: 2, Continuities: pins}
 	currentWire := fixture.signSelection(t, continuation, fixture.now.Add(time.Hour))
 	selectorKey := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain,
-		"deployment-a", "GRU", "production")
+		"0000000000F9PR1WNVDTEXS31Z", "GRU", "production")
 	fixture.objects.items[selectorKey] = currentWire
 	reader := fixture.reader(t)
 	if _, err := reader.ReadCurrent(t.Context(), fixture.now); !errors.Is(err, ErrFounderSelection) {
@@ -91,7 +91,7 @@ func TestPublishFounderContinuityProofsBeforeAmbiguousSelectorCAS(t *testing.T) 
 			t.Fatal(err)
 		}
 		claim := bootstrap.InstallContinuity{SchemaVersion: bootstrap.InstallContinuitySchemaVersion,
-			DeploymentID: marker.DeploymentID, Environment: "production", ClusterID: "cluster-a",
+			DeploymentID: marker.DeploymentID, Environment: "production", ClusterID: "0000000000RMSAJ9B0JFV7ESHN",
 			Cell: fixture.baked.Identity.Cell, OCIRegion: "sa-saopaulo-1", Slot: slot,
 			GenesisAnchorSHA256: marker.AnchorSHA256, AcceptedMarkerSHA256: digestWire(markerWire),
 			ManifestSHA256: marker.ManifestSHA256, ResultSHA256: marker.ResultSHA256,
@@ -113,11 +113,11 @@ func TestPublishFounderContinuityProofsBeforeAmbiguousSelectorCAS(t *testing.T) 
 		proofs[slot] = wire
 		pins = append(pins, FounderContinuityPin{Slot: slot, SHA256: digestWire(wire)})
 	}
-	selection := FounderSelection{SchemaVersion: 2, DeploymentID: "deployment-a", Cell: "GRU",
+	selection := FounderSelection{SchemaVersion: 2, DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "GRU",
 		Environment: "production", Generation: 2, Continuities: pins}
 	selectionWire := fixture.signSelection(t, selection, fixture.now.Add(time.Hour))
 	key := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain,
-		"deployment-a", "GRU", "production")
+		"0000000000F9PR1WNVDTEXS31Z", "GRU", "production")
 	store := &founderLedgerObjects{objects: map[string]founderStoredObject{
 		key: {wire: firstWire, etag: "old-etag", modified: fixture.now},
 	}, now: fixture.now}
@@ -140,7 +140,7 @@ func TestPublishFounderContinuityProofsBeforeAmbiguousSelectorCAS(t *testing.T) 
 	}
 	for _, pin := range pins {
 		immutable := fixture.domain.LedgerBucket + "/" + FounderImmutableObjectName(fixture.domain,
-			"deployment-a", "GRU", "production", pin.SHA256)
+			"0000000000F9PR1WNVDTEXS31Z", "GRU", "production", pin.SHA256)
 		if !bytes.Equal(store.objects[immutable].wire, proofs[pin.Slot]) {
 			t.Fatalf("missing immutable continuity proof for %s", pin.Slot)
 		}
@@ -172,7 +172,7 @@ func TestFounderInstallContinuationChecksSeedAndPeerAgainstCurrentSelection(t *t
 			}
 			bound := CredentialBound{SHA256: credentialDigest, ValidUntil: fixture.now.Add(2 * time.Hour)}
 			claim := bootstrap.InstallContinuity{SchemaVersion: bootstrap.InstallContinuitySchemaVersion,
-				DeploymentID: marker.DeploymentID, Environment: "production", ClusterID: "cluster-a",
+				DeploymentID: marker.DeploymentID, Environment: "production", ClusterID: "0000000000RMSAJ9B0JFV7ESHN",
 				Cell: fixture.baked.Identity.Cell, OCIRegion: "sa-saopaulo-1", Slot: slot,
 				GenesisAnchorSHA256: marker.AnchorSHA256, AcceptedMarkerSHA256: digestWire(markerWire),
 				ManifestSHA256: marker.ManifestSHA256, ResultSHA256: marker.ResultSHA256,
@@ -200,13 +200,13 @@ func TestFounderInstallContinuationChecksSeedAndPeerAgainstCurrentSelection(t *t
 				digest := digestWire(wire)
 				pins = append(pins, FounderContinuityPin{Slot: name, SHA256: digest})
 				key := fixture.domain.LedgerBucket + "/" + FounderImmutableObjectName(fixture.domain,
-					"deployment-a", "GRU", "production", digest)
+					"0000000000F9PR1WNVDTEXS31Z", "GRU", "production", digest)
 				fixture.objects.items[key] = wire
 			}
-			selection := FounderSelection{SchemaVersion: 2, DeploymentID: "deployment-a", Cell: "GRU",
+			selection := FounderSelection{SchemaVersion: 2, DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "GRU",
 				Environment: "production", Generation: 2, Continuities: pins}
 			selectorKey := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain,
-				"deployment-a", "GRU", "production")
+				"0000000000F9PR1WNVDTEXS31Z", "GRU", "production")
 			fixture.objects.items[selectorKey] = fixture.signSelection(t, selection, fixture.now.Add(time.Hour))
 			mode := bootstrap.IntentModeManaged
 			if slot == marker.SeedSlot {

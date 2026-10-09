@@ -6,8 +6,6 @@ package regionplanner
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
@@ -16,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlifecycle"
@@ -251,13 +251,7 @@ func (p Planner) proposal(entry CatalogEntry, found *candidate, generation uint6
 	// generation, no two attempts on one cell ever share a proposal ID.
 	round := now.UTC().Truncate(p.Policy.Window).Format(time.RFC3339)
 	gen := strconv.FormatUint(generation, 10)
-	identity := sha256.Sum256([]byte(entry.Cell + "\x00" + gen + "\x00" + round + "\x00" + strings.Join(evidence, ",")))
-	id := entry.Cell + "-g" + gen + "-" + hex.EncodeToString(identity[:6])
-	if len(id) > maxProposalID {
-		// A long cell and generation still get a unique, valid ID: the
-		// generation stays inside the hashed identity.
-		id = entry.Cell + "-" + hex.EncodeToString(identity[:6])
-	}
+	id := entityid.Derive("region-proposal", entry.Cell, gen, round, strings.Join(evidence, ","))
 	return regionlifecycle.Proposal{
 		ID: id, Cell: entry.Cell, OCIRegion: entry.OCIRegion,
 		Reason: "planner: " + strings.Join(reasons, ", "), EvidenceDigests: evidence,

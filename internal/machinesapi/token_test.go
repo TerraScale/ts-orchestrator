@@ -96,7 +96,7 @@ func (i *issuer) sign(kid string, header, claims map[string]any) string {
 func signWith(key *ecdsa.PrivateKey, kid string, header, claims map[string]any) string {
 	now := time.Now().Unix()
 	h := map[string]any{"alg": "ES256", "typ": "at+jwt", "kid": kid}
-	c := map[string]any{"iss": testIssuer, "aud": testAudience, "sub": "user-1", "client_id": "ts-orch-cli",
+	c := map[string]any{"iss": testIssuer, "aud": testAudience, "sub": "0000000000MKRT6SVZW2P1SRPH", "client_id": "00000000006HEQR9ARBF6BV9X9",
 		"scope": "openid orch:read", "iat": now, "exp": now + 3600, "jti": "j"}
 	merge := func(into, from map[string]any) {
 		for name, value := range from {
@@ -138,7 +138,7 @@ func TestVerifierAcceptsAccessToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if principal.Subject != "user-1" || principal.ClientID != "ts-orch-cli" || !principal.HasScope(ScopeRead) || principal.HasScope("orch:write") {
+	if principal.Subject != "0000000000MKRT6SVZW2P1SRPH" || principal.ClientID != "00000000006HEQR9ARBF6BV9X9" || !principal.HasScope(ScopeRead) || principal.HasScope("orch:write") {
 		t.Fatalf("principal = %+v", principal)
 	}
 	// ts-auth sends an array when it has several audiences.
@@ -158,7 +158,7 @@ func TestVerifierRejectsTokens(t *testing.T) {
 	now := time.Now().Unix()
 	valid := i.sign("skey_one", nil, nil)
 	parts := strings.Split(valid, ".")
-	forgedClaims, _ := json.Marshal(map[string]any{"iss": testIssuer, "aud": testAudience, "sub": "admin",
+	forgedClaims, _ := json.Marshal(map[string]any{"iss": testIssuer, "aud": testAudience, "sub": "0000000000FT4JKN5QV2BGQ38B",
 		"scope": "orch:write", "exp": now + 3600})
 	otherKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	cases := map[string]string{

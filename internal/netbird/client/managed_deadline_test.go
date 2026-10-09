@@ -39,7 +39,8 @@ func TestManagedInstallResumesWithinPersistedDeadlineAndReleasesRecoveryLock(t *
 			if err != nil {
 				t.Fatal(err)
 			}
-			transaction.RollbackDeadline = time.Now().Add(250 * time.Millisecond)
+			// Allow protected-file fsyncs to reach the selected blocking boundary.
+			transaction.RollbackDeadline = time.Now().Add(2 * time.Second)
 			transaction.RestartRequired = operation == "restart"
 			if err := f.m.writeTransaction(transaction); err != nil {
 				t.Fatal(err)

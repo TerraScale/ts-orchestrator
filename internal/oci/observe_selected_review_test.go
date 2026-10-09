@@ -3,6 +3,8 @@ package oci
 import (
 	"context"
 	"testing"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 var _ SelectiveObserver = (*fleet)(nil)
@@ -32,7 +34,7 @@ func TestObserveSelectedVerifiesOnlySelectedHosts(t *testing.T) {
 	built := created.(*fleet)
 	var hosts []Instance
 	for index, key := range []string{"selected-a", "other-b", "other-c"} {
-		request := testEnsureRequest(key)
+		request := testEnsureRequest(entityid.Derive("test-operation", key))
 		request.PrivateIP = []string{"10.251.0.31", "10.251.0.32", "10.251.0.33"}[index]
 		host, err := built.EnsureHost(t.Context(), request)
 		if err != nil {

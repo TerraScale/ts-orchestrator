@@ -332,11 +332,15 @@ func (c *rolloutControl) nextProgram(ctx context.Context) (rolloutexec.Program, 
 // The leader's own step posts are left out, so they never wake it.
 func wakeOnRolloutChanges(ctx context.Context, board jetstream.KeyValue, wake chan<- struct{}) {
 	for ctx.Err() == nil {
-		watcher, err := board.WatchFiltered(ctx, []string{"release.desired", "rollout.>", "step-reply.>", "cell"},
-			jetstream.UpdatesOnly())
+		watcher, err := board.WatchAll(ctx, jetstream.UpdatesOnly())
 		if err == nil {
 			for entry := range watcher.Updates() {
 				if entry == nil {
+					continue
+				}
+				// Step addresses are opaque; identify the leader's posts by their signed scope.
+				if envelope, err := trust.DecodeEnvelope(entry.Value()); err == nil &&
+					envelope.Scope.Domain == rolloutexec.StepDomain && entry.Key() == rolloutexec.StepKey(envelope.Scope.Slot) {
 					continue
 				}
 				select {

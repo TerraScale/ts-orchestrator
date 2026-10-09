@@ -7,10 +7,8 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
@@ -18,6 +16,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
@@ -54,7 +54,7 @@ func TestOperatorTerminalTeardownThroughSignedRuntimeAndGrantReadback(t *testing
 		t.Fatal(err)
 	}
 	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{
-		Scope: "gru", CandidateID: "terminal-integration", Replicas: 1,
+		Scope: "gru", CandidateID: "0000000000S9GTF4XKZB00HRAT", Replicas: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -203,7 +203,7 @@ func TestOperatorTerminalTeardownThroughSignedRuntimeAndGrantReadback(t *testing
 			t.Fatalf("create exact fake OCI volume for %s: %v", seat.MemberID, err)
 		}
 		state := placement.MemberState{
-			SchemaVersion: 4, DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
+			SchemaVersion: 5, DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
 			MemberID: seat.MemberID, Region: seat.Region, FailureDomain: seat.FailureDomain,
 			Kind: seat.Kind, Stage: placement.StageAwaitingHost, CreateKey: target.HostCreateKey,
 			HostNode: host.Node, InstanceID: host.ID, VolumeID: volume.ID, HostAttempt: 1,
@@ -212,7 +212,7 @@ func TestOperatorTerminalTeardownThroughSignedRuntimeAndGrantReadback(t *testing
 			CanonicalRosterRow: row, CanonicalRosterDigest: rosterDigest,
 			AuthorityReference: intent.CanonicalRoster.Authority,
 			RuntimeManifest:    manifest, RuntimeManifestDigest: manifestDigest,
-			HostGeneration: 1, OperationID: fmt.Sprintf("terminal-member-%d", index+1), UpdatedAt: time.Now().UTC(),
+			HostGeneration: 1, OperationID: entityid.Derive("test-operation", fmt.Sprintf("terminal-member-%d", index+1)), UpdatedAt: time.Now().UTC(),
 		}
 		if err := state.Validate(); err != nil {
 			t.Fatalf("exact durable placement member %s: %v", seat.MemberID, err)
@@ -261,7 +261,7 @@ func TestOperatorTerminalTeardownThroughSignedRuntimeAndGrantReadback(t *testing
 	var planOutput bytes.Buffer
 	if err := Run(ctx, []string{"operator", "terminal-plan", "--config", operatorConfig,
 		"--database-id", intent.DatabaseID, "--partition-id", intent.PartitionID,
-		"--operation-id", "terminal-cleanup-a"}, &planOutput); err != nil {
+		"--operation-id", entityid.Derive("test", "terminal-cleanup-a")}, &planOutput); err != nil {
 		t.Fatalf("signed terminal plan through restricted operator NKey: %v", err)
 	}
 	var reviewed authority.TerminalIntent
@@ -592,8 +592,7 @@ func terminalIntegrationGrantRequest(t *testing.T, descriptor hostboot.Descripto
 }
 
 func terminalIntegrationGrantKey(instanceID string) string {
-	digest := sha256.Sum256([]byte(instanceID))
-	return hex.EncodeToString(digest[:])
+	return entityid.Derive("host-enrollment", instanceID)
 }
 
 var _ oci.Provider = (*terminalIntegrationProvider)(nil)

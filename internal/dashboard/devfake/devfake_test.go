@@ -13,6 +13,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard/devfake"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 func TestWorldHasThreeMovingRegions(t *testing.T) {
@@ -29,9 +30,47 @@ func TestWorldHasThreeMovingRegions(t *testing.T) {
 		t.Fatalf("SFO should run mixed versions and FRA miss a controller: %+v %+v", regions[1], regions[2])
 	}
 	options := world.Options()
+	cluster, err := options.Cluster.Cluster(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, member := range cluster.Members {
+		if member.Placement == nil {
+			continue
+		}
+		for _, db := range member.Placement.Databases {
+			if !entityid.Valid(db.DatabaseID) || !entityid.Valid(db.PartitionID) {
+				t.Fatalf("invalid preview database identity: %+v", db)
+			}
+			for _, seat := range db.Members {
+				if !entityid.Valid(seat.SeatID) {
+					t.Fatalf("invalid preview seat identity: %s", seat.SeatID)
+				}
+			}
+		}
+	}
 	result, err := options.Journal.Decisions.Query(ctx, decisionlog.Query{Kinds: []decisionlog.Kind{decisionlog.KindRollback}})
 	if err != nil || len(result.Decisions) == 0 {
 		t.Fatalf("no rollback decision: %v %v", result, err)
+	}
+	holds, err := options.Journal.Decisions.Query(ctx, decisionlog.Query{
+		Kinds: []decisionlog.Kind{decisionlog.KindHeld, decisionlog.KindHoldCleared}, Limit: decisionlog.MaxQueryLimit,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	matched := map[decisionlog.Kind]bool{}
+	for _, event := range holds.Decisions {
+		if event.Subject.Kind == "database" {
+			if event.Attrs["database_id"] != event.Subject.ID ||
+				event.Attrs["partition_id"] != entityid.Derive("preview-partition", event.Subject.ID) {
+				t.Fatalf("database hold lacks partition correlation: %+v", event)
+			}
+			matched[event.Kind] = true
+		}
+	}
+	if !matched[decisionlog.KindHeld] || !matched[decisionlog.KindHoldCleared] {
+		t.Fatal("preview lacks database hold and clearing")
 	}
 	if evaluation := options.Journal.Insights.Current(); len(evaluation.Insights) == 0 {
 		t.Fatal("the fake world raises no insight")

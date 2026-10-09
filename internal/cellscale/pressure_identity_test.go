@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 func assertIdentityInvalidated(t *testing.T, c *Controller, old NodeIdentity) {
@@ -71,7 +73,7 @@ func TestReplacementPressureRequiresNewProcessAndPostDiscoverySample(t *testing.
 			cell.process[candidate.Node]++
 			s.now = s.now.Add(time.Second)
 			discovered := s.now
-			candidate.ProcessID = candidate.Node + "-p2"
+			candidate.ProcessID = entityid.Derive("test-process", candidate.Node+"-p2")
 			candidate.SampledAt = discovered.Add(MaxPressureClockSkew + time.Second)
 			switch mode {
 			case "old process":
@@ -174,7 +176,7 @@ func TestReplacementPressureDiscoveryDuringEvidenceIsRetained(t *testing.T) {
 			candidate := *original.Nodes[0].Pressure
 			candidate.InstanceID = cell.instances[0].ID
 			cell.process[candidate.Node]++
-			candidate.ProcessID = candidate.Node + "-p2"
+			candidate.ProcessID = entityid.Derive("test-process", candidate.Node+"-p2")
 			candidate.SampledAt = discovered.Add(MaxPressureClockSkew + time.Second)
 			s.now = discovered.Add(20 * time.Second)
 			cell.replicas = nil
@@ -216,7 +218,7 @@ func TestReplacementPressureRetainsRejectedHighWaterAndConflict(t *testing.T) {
 		t.Fatal("blocked predecessor evidence lost its refusal high-water mark")
 	}
 	candidate.InstanceID = cell.instances[0].ID
-	candidate.ProcessID = "replacement-process"
+	candidate.ProcessID = entityid.Derive("test-process", "replacement-process")
 	candidate.SampledAt = candidate.SampledAt.Add(-time.Second)
 	if current := s.observe(); current.Nodes[0].Pressure != nil {
 		t.Fatal("new process regressed the retained sample high-water mark")
@@ -278,7 +280,7 @@ func TestReplacementPressureFloorSurvivesChainedReplacementsAndClockRegression(t
 	s.observe()
 	s.now = discovered.Add(20 * time.Second)
 	candidate.InstanceID = cell.instances[0].ID
-	candidate.ProcessID = "replacement-C-process"
+	candidate.ProcessID = entityid.Derive("test-process", "replacement-C-process")
 	candidate.SampledAt = discovered.Add(MaxPressureClockSkew)
 	if current := s.observe(); current.Nodes[0].Pressure != nil {
 		t.Fatal("backwards clock weakened the prior replacement's skew floor")

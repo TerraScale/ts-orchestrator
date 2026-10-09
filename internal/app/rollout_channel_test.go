@@ -81,7 +81,7 @@ func newReleaseSigner(t *testing.T) releaseSigner {
 // services is a controller's view of the signer's root.
 func (s releaseSigner) services(t *testing.T) *specRegistry {
 	t.Helper()
-	roots, err := newRootRegistry(s.roots, trust.ChainIdentity{DeploymentID: "ts-560-test", Cell: "gru",
+	roots, err := newRootRegistry(s.roots, trust.ChainIdentity{DeploymentID: "0000000000FBPQEED3YHZXX2AS", Cell: "gru",
 		Environment: "production"}, trust.RootChain{}, "")
 	if err != nil {
 		t.Fatal(err)

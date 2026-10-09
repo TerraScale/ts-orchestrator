@@ -30,7 +30,7 @@ func TestServingStageRequiresCurrentNativeAndNamedSurvivor(t *testing.T) {
 	}
 	proof := memberstatus.ServingProof{
 		SchemaVersion: 1, Nonce: strings.Repeat("1", 32),
-		Process: memberstatus.Process{PID: 1234, StartNonce: strings.Repeat("2", 32)},
+		Process: memberstatus.Process{PID: 1234, StartNonce: "00000000000064eeb57eb73c4a8035be"},
 		Scope: memberstatus.Scope{
 			ClusterID: intent.CanonicalRoster.ClusterID, TenantID: intent.CanonicalRoster.TenantID,
 			DatabaseID: intent.CanonicalRoster.DatabaseID, ShardID: intent.CanonicalRoster.ShardID,

@@ -103,7 +103,7 @@ func TestReplicaInventoryCannotRegressOrResolveConflictsByReplay(t *testing.T) {
 	if !s.controller.replicasUsable(newer) || s.controller.replicasUsable(initial) {
 		t.Fatal("older healthy placement replaced newer under-replicated evidence")
 	}
-	if !s.controller.lastReplicas.SampledAt.Equal(newer.SampledAt) || len(s.controller.lastReplicas.Placements[1].LiveReplicas) != 1 {
+	if !s.controller.lastReplicas.SampledAt.Equal(newer.SampledAt) || len(s.controller.lastReplicas.Placements[slices.IndexFunc(s.controller.lastReplicas.Placements, func(p ReplicaPlacement) bool { return p.Org == newer.Placements[1].Org })].LiveReplicas) != 1 {
 		t.Fatal("replay changed the accepted inventory")
 	}
 	accepted := *s.controller.lastReplicas
@@ -147,7 +147,7 @@ func TestMembershipMismatchPreservesReplicaRefusalTimestamp(t *testing.T) {
 					t.Fatal("conflicting placement accepted")
 				}
 				mismatch := safeReplicaSnapshot(s.now.Add(offset), cell)
-				mismatch.Members[0].Incarnation = "unobserved-process"
+				mismatch.Members[0].Incarnation = "0000000000XC0Z1YQ8A9D4D94M"
 				floor := under.SampledAt
 				if mismatch.SampledAt.After(floor) {
 					floor = mismatch.SampledAt

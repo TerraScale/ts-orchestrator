@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -11,7 +13,8 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
@@ -76,10 +79,14 @@ func operatorTerminalPlan(ctx context.Context, cfg Config, runtime *natscell.Run
 	databaseID, partitionID, operationID string, output io.Writer,
 ) error {
 	if operationID == "" {
-		operationID = uuid.New().String()
+		operationID = entityid.New()
+	}
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return err
 	}
 	request := terminalRequest{DatabaseID: databaseID, PartitionID: partitionID,
-		OperationID: operationID, Nonce: uuid.New().String()}
+		OperationID: operationID, Nonce: hex.EncodeToString(nonce[:])}
 	if !validTerminalRequest(request) {
 		return errors.New("terminal plan requires a valid database, partition, and operation ID")
 	}
@@ -124,8 +131,12 @@ func operatorTerminalApply(ctx context.Context, cfg Config, runtime *natscell.Ru
 func operatorTerminalStatus(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 	databaseID, partitionID string, output io.Writer,
 ) error {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return err
+	}
 	request := terminalRequest{DatabaseID: databaseID, PartitionID: partitionID,
-		OperationID: uuid.New().String(), Nonce: uuid.New().String()}
+		OperationID: entityid.New(), Nonce: hex.EncodeToString(nonce[:])}
 	if !validTerminalRequest(request) {
 		return errors.New("terminal status requires a valid database and partition")
 	}
@@ -367,11 +378,11 @@ func handleTerminalRequest(ctx context.Context, wire []byte, action, cell string
 }
 
 func validTerminalRequest(request terminalRequest) bool {
-	nonce, err := uuid.Parse(request.Nonce)
-	return terminalRequestToken.MatchString(request.DatabaseID) &&
-		terminalRequestToken.MatchString(request.PartitionID) &&
-		terminalRequestToken.MatchString(request.OperationID) &&
-		err == nil && nonce != uuid.Nil() && nonce.String() == request.Nonce
+	nonce, err := hex.DecodeString(request.Nonce)
+	return entityid.Valid(request.DatabaseID) &&
+		entityid.Valid(request.PartitionID) &&
+		entityid.Valid(request.OperationID) &&
+		err == nil && len(nonce) == 16 && strings.Trim(request.Nonce, "0") != "" && hex.EncodeToString(nonce) == request.Nonce
 }
 
 func buildTerminalPlan(ctx context.Context, cell string, region oci.RegionConfig,

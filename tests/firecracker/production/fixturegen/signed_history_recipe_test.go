@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
@@ -89,7 +91,7 @@ func signedHistoryRecipeWithMaterialsAndReceipt(t *testing.T, now time.Time, bin
 		t.Fatal(err)
 	}
 	slots := []string{"controller-a", "controller-b", "seed-a"}
-	deploymentID := "production-restart-fixture"
+	deploymentID := entityid.Derive("test-deployment", "production-restart-fixture")
 	imageOCID := "ocid1.image.oc1.sa-saopaulo-1.restartfixture"
 	if suppliedReceipt != nil {
 		imageOCID = suppliedReceipt.OCIImageOCID
@@ -107,11 +109,11 @@ func signedHistoryRecipeWithMaterialsAndReceipt(t *testing.T, now time.Time, bin
 	if err != nil {
 		t.Fatal(err)
 	}
-	storage := bootstrap.StorageDomain{Namespace: "restart-fixture", LedgerBucket: "ledger-fixture",
+	storage := bootstrap.StorageDomain{Namespace: "0000000000DZBJSM2QGKHTM26H", LedgerBucket: "ledger-fixture",
 		LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledgerfixture", HeadBucket: "head-fixture",
 		HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.headfixture", Prefix: "private/bootstrap"}
 	anchorValue := bootstrap.BootstrapAnchor{SchemaVersion: bootstrap.BootstrapAnchorSchemaVersion,
-		DeploymentID: deploymentID, Environment: "production", ClusterID: "restart-fixture",
+		DeploymentID: deploymentID, Environment: "production", ClusterID: "0000000000DZBJSM2QGKHTM26H",
 		Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1", StorageDomain: storage,
 		ControllerSlots: slices.Clone(slots), LedgerDelegationWire: ledgerGrantWire,
 		InitialRegionIntentGeneration: 1, InitialRegionIntentSHA256: historyDigest(regionWire),
@@ -131,7 +133,7 @@ func signedHistoryRecipeWithMaterialsAndReceipt(t *testing.T, now time.Time, bin
 		releaseRevision = suppliedReceipt.SourceRevision
 	}
 	releaseGrant := historyTestDelegation(t, rootPrivate, releasePublic, []trust.Capability{{
-		Domain: release.ImageDomain, DeploymentID: releaseRevision, Cell: "GRU", Environment: "production",
+		Domain: release.ImageDomain, DeploymentID: entityid.Derive("build", releaseRevision), Cell: "GRU", Environment: "production",
 		Role: "oci-image", Slots: []string{imageOCID}, Actions: []string{"sign"},
 	}}, now)
 	releaseGrantWire := historyTestEnvelope(t, releaseGrant)

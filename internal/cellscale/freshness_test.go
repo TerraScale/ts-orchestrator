@@ -46,7 +46,7 @@ func TestHTTPSourceSampleFreshness(t *testing.T) {
 		want      bool
 	}{
 		{"zero", time.Time{}, false},
-		{"stale", now.Add(-MaxPressureAge - time.Nanosecond), false},
+		{"0000000000RNVXNPAX5Y5BB8RY", now.Add(-MaxPressureAge - time.Nanosecond), false},
 		{"future", now.Add(MaxPressureClockSkew + time.Nanosecond), false},
 		{"current", now, true},
 		{"oldest allowed", now.Add(-MaxPressureAge), true},

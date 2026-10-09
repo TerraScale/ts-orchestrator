@@ -28,7 +28,7 @@ func (r *Runtime) ReadBackupHistoryPage(ctx context.Context, databaseID, partiti
 		return BackupHistoryPage{}, ErrFenced
 	}
 	key, err := placementIntentSubjectKey(databaseID, partitionID)
-	if err != nil || !backupUUID(operationID) {
+	if err != nil || !backupID(operationID) {
 		return BackupHistoryPage{}, ErrInvalidTransition
 	}
 	r.readMu.Lock()
@@ -116,7 +116,7 @@ func decodeBackupHistoryEntry(entry *jetstream.RawStreamMsg, scope, key,
 func (r *Runtime) ReadBackupOperationAtSequence(ctx context.Context, databaseID, partitionID,
 	operationID string, sequence uint64,
 ) (BackupOperationRecord, error) {
-	if r == nil || r.readStream == nil || sequence == 0 || !backupUUID(operationID) {
+	if r == nil || r.readStream == nil || sequence == 0 || !backupID(operationID) {
 		return BackupOperationRecord{}, ErrInvalidTransition
 	}
 	key, err := placementIntentSubjectKey(databaseID, partitionID)

@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 var identityKeys = []string{"oci_instance_id", "image_id", "artifact_id", "config_id", "profile_id", "architecture", "cell", "environment"}
@@ -23,13 +25,13 @@ func validateScope(v any, label string) Object {
 		fail("%s must contain exactly the alpha member scope fields", label)
 	}
 	for _, k := range []string{"cluster_id", "incarnation"} {
-		if !regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString(str(o, k)) {
-			fail("%s.%s must be 32 lowercase hexadecimal characters", label, k)
+		if value := str(o, k); !processNonceRE.MatchString(value) || value == strings.Repeat("0", 32) {
+			fail("%s.%s must be a nonzero lowercase 128-bit token", label, k)
 		}
 	}
 	for _, k := range []string{"tenant_id", "database_id", "member_id"} {
-		if !uuidRE.MatchString(str(o, k)) {
-			fail("%s.%s must be a canonical lowercase UUID", label, k)
+		if !entityid.Valid(str(o, k)) {
+			fail("%s.%s must be a canonical uppercase ULID", label, k)
 		}
 	}
 	num(o["shard_id"], label+".shard_id", 1)
@@ -81,7 +83,7 @@ func validateManaged(v any) Object {
 		fail("source and peer require distinct member IDs and incarnations")
 	}
 	d := sub(m, "document")
-	if !exact(d, "collection_id", "schema_generation", "schema_digest", "utf8_field") || !uuidRE.MatchString(str(d, "collection_id")) || !hashRE.MatchString(str(d, "schema_digest")) {
+	if !exact(d, "collection_id", "schema_generation", "schema_digest", "utf8_field") || !entityid.Valid(str(d, "collection_id")) || !hashRE.MatchString(str(d, "schema_digest")) {
 		fail("managed_member.document does not match alpha document transaction input")
 	}
 	num(d["schema_generation"], "schema_generation", 1)

@@ -408,7 +408,7 @@ func (a *Agent) makeRequest(operation string, payload any) (request, error) {
 	if err != nil {
 		return request{}, err
 	}
-	nonce, err := randomID()
+	nonce, err := randomNonce()
 	if err != nil {
 		return request{}, err
 	}

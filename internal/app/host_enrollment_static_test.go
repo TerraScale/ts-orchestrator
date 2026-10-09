@@ -82,7 +82,7 @@ func startStaticEnrollmentLab(t *testing.T, ctx context.Context, workloads map[s
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = broker.Close() })
-	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: "gru", CandidateID: "static-enrollment", Replicas: 1})
+	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: "gru", CandidateID: "0000000000F8TA328PVB21XWJY", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

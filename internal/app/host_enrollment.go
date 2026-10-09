@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
@@ -23,7 +25,7 @@ const maxRegistrationWireBytes = maxRegistrationBytes + 4096
 func hostRegistrationSubject(cell string) string { return protocol.HostRegisterSubject(cell) }
 
 func hostRegistrationID(r host.Registration) string {
-	return fmt.Sprintf("host-register.%s.%d", r.Node, r.Generation)
+	return entityid.Derive("host-register", r.Node, fmt.Sprint(r.Generation))
 }
 
 func operatorHostRegister(ctx context.Context, cfg Config, runtime *natscell.Runtime, path string, output io.Writer) error {

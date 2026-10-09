@@ -34,6 +34,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machinesapi"
@@ -68,8 +70,9 @@ const (
 	// min_serving, level 14 a fenced set's role, level 15 the release
 	// fence's canary, level 16 the Machines API, level 17 a host grant's
 	// controller, level 18 the dashboard, level 19 a signer's
-	// can_install_material, level 20 the managed NetBird client.
-	BinaryLevel = 20
+	// can_install_material, level 20 the managed NetBird client,
+	// level 21 the Machines API platform organization.
+	BinaryLevel = 21
 	// MaxHostImages bounds the image allow-list: the images a rollout moves
 	// between, plus room to stage the next one.
 	MaxHostImages = 4
@@ -91,7 +94,6 @@ var (
 	tokenRE      = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 	hostRE       = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}[a-z0-9]$`)
 	controllerRE = regexp.MustCompile(`^controller-[a-z]$`)
-	deploymentR  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 )
 
 // NewerBinaryError refuses an amendment that needs a newer binary. It is
@@ -283,18 +285,19 @@ const MachinesAPIPort = 8444
 // at MachinesAPIPort with its signed controller TLS certificate, which the
 // load balancer verifies against the cell CA.
 type MachinesAPI struct {
-	Issuer   string              `json:"issuer"`
-	Audience string              `json:"audience"`
-	JWKSURLs []string            `json:"jwks_urls"`
-	Clients  []string            `json:"clients"`
-	Members  map[string][]string `json:"members,omitempty"`
+	PlatformOrganizationID string              `json:"platform_organization_id,omitempty"`
+	Issuer                 string              `json:"issuer"`
+	Audience               string              `json:"audience"`
+	JWKSURLs               []string            `json:"jwks_urls"`
+	Clients                []string            `json:"clients"`
+	Members                map[string][]string `json:"members,omitempty"`
 }
 
 // Config is the API's listener on host with the controller's TLS files.
 func (m MachinesAPI) Config(host, certFile, keyFile string) machinesapi.Config {
 	return machinesapi.Config{ListenAddress: net.JoinHostPort(host, strconv.Itoa(MachinesAPIPort)),
 		TLSCertFile: certFile, TLSKeyFile: keyFile, Issuer: m.Issuer, Audience: m.Audience,
-		JWKSURLs: m.JWKSURLs, Clients: m.Clients, Members: m.Members}
+		JWKSURLs: m.JWKSURLs, Clients: m.Clients, Members: m.Members, PlatformOrganizationID: m.PlatformOrganizationID}
 }
 
 // ReleaseFence names the load balancer backend sets that serve a node's
@@ -336,8 +339,6 @@ const (
 )
 
 var (
-	// canaryProjectRE admits a ts-auth project id, such as a UUID.
-	canaryProjectRE  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
 	canaryDatabaseRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)
 )
 
@@ -345,7 +346,7 @@ func (c Canary) validate(cell string) error {
 	if err := vaultsecret.ValidateRefs(cell, CanaryRole, map[string]vaultsecret.Ref{CanaryKey: c.Credentials}, nil); err != nil {
 		return fmt.Errorf("%w: release_fence canary: %w", ErrInvalid, err)
 	}
-	if !canaryProjectRE.MatchString(c.Project) || !canaryDatabaseRE.MatchString(c.Database) || !originURL(c.AuthURL) ||
+	if !entityid.Valid(c.Project) || !canaryDatabaseRE.MatchString(c.Database) || !originURL(c.AuthURL) ||
 		!originURL(c.APIURL) || c.DashboardLoginURL != "" && !httpsURL(c.DashboardLoginURL) {
 		return fmt.Errorf("%w: release_fence canary needs a project, a database name and https auth_url and api_url origins", ErrInvalid)
 	}
@@ -504,7 +505,7 @@ type Verified struct {
 }
 
 func (id Identity) Validate() error {
-	if !deploymentR.MatchString(id.DeploymentID) || !tokenRE.MatchString(id.Cell) || !tokenRE.MatchString(id.Environment) {
+	if !entityid.Valid(id.DeploymentID) || !tokenRE.MatchString(id.Cell) || !tokenRE.MatchString(id.Environment) {
 		return fmt.Errorf("%w: deployment, cell or environment", ErrInvalid)
 	}
 	return nil
@@ -694,7 +695,8 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 // 10 with an artifact store quota, 11 with an Atlas publisher, 12 with
 // a release fence (13, 14 and 15 with its min_serving, role and canary) and
 // 16 with the Machines API, 17 once a host grant names its controller and
-// 18 with the dashboard, 19 with material-install authority, 20 with NetBird.
+// 18 with the dashboard, 19 with material-install authority, 20 with NetBird,
+// and 21 with the Machines API platform organization.
 func (s Spec) Level() uint64 {
 	level := uint64(1)
 	for _, service := range s.Services {
@@ -755,6 +757,9 @@ func (s Spec) Level() uint64 {
 	}
 	if s.NetBird != nil {
 		level = 20
+	}
+	if s.MachinesAPI != nil && s.MachinesAPI.PlatformOrganizationID != "" {
+		level = 21
 	}
 	return level
 }

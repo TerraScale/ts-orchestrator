@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"maps"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
@@ -46,13 +48,9 @@ func volumeResizeKey(volumeID string, sizeGB int64) string {
 }
 
 // volumeResizeAttemptKey is the journal key of one attempt to resize a volume
-// to sizeGB. The first attempt keeps the original "<volume>/<size>" key, so
-// intents written before attempts existed stay attempt 1.
+// to sizeGB. Every attempt has its own canonical ULID key.
 func volumeResizeAttemptKey(volumeID string, sizeGB int64, attempt int) string {
-	if attempt <= 1 {
-		return fmt.Sprintf("%s/%d", volumeID, sizeGB)
-	}
-	return fmt.Sprintf("%s/%d/attempt-%d", volumeID, sizeGB, attempt)
+	return entityid.Derive("volume-resize", volumeID, fmt.Sprint(sizeGB), fmt.Sprint(attempt))
 }
 
 // validVolumeResizeKey reports whether key is the key of some bounded

@@ -64,17 +64,17 @@ func (service PreparationService) ProduceSuccessor(ctx context.Context, database
 	var oldIncarnations, newIncarnations [2][16]byte
 	for index, oldMember := range receipt.Spec.Members {
 		decoded, decodeErr := hex.DecodeString(oldMember.Incarnation)
-		if decodeErr != nil || len(decoded) != len(oldIncarnations[index]) || allZero(decoded) {
+		if decodeErr != nil || !lowerHexIdentity(oldMember.Incarnation) || len(decoded) != len(oldIncarnations[index]) || allZero(decoded[:]) {
 			return SuccessorMaterial{}, ErrMaterialConflict
 		}
-		copy(oldIncarnations[index][:], decoded)
+		copy(oldIncarnations[index][:], decoded[:])
 	}
 	for index, newMember := range request.Members {
 		decoded, decodeErr := hex.DecodeString(newMember.Incarnation)
-		if decodeErr != nil || len(decoded) != len(newIncarnations[index]) || allZero(decoded) {
+		if decodeErr != nil || !lowerHexIdentity(newMember.Incarnation) || len(decoded) != len(newIncarnations[index]) || allZero(decoded[:]) {
 			return SuccessorMaterial{}, ErrMaterialConflict
 		}
-		copy(newIncarnations[index][:], decoded)
+		copy(newIncarnations[index][:], decoded[:])
 		for _, oldIncarnation := range oldIncarnations {
 			if newIncarnations[index] == oldIncarnation {
 				return SuccessorMaterial{}, ErrMaterialConflict
@@ -148,8 +148,8 @@ func (service PreparationService) ProduceSuccessor(ctx context.Context, database
 	scope := receipt.Spec.Scope
 	scope.Epoch = request.Epoch
 	certMembers := request.Members
-	leftID, leftErr := canonicalUUID(certMembers[0].MemberID)
-	rightID, rightErr := canonicalUUID(certMembers[1].MemberID)
+	leftID, leftErr := canonicalID(certMembers[0].MemberID)
+	rightID, rightErr := canonicalID(certMembers[1].MemberID)
 	if leftErr != nil || rightErr != nil || leftID == rightID {
 		return SuccessorMaterial{}, ErrMaterialConflict
 	}
@@ -207,7 +207,7 @@ func successorCatalogSetDigest(catalogs []AuthorityCatalog) ([sha256.Size]byte, 
 	material = append(material, successorCatalogSetDomain...)
 	material = binary.LittleEndian.AppendUint16(material, uint16(len(catalogs)))
 	for _, catalog := range catalogs {
-		collection, err := canonicalUUID(catalog.CollectionID)
+		collection, err := canonicalID(catalog.CollectionID)
 		if err != nil {
 			return [sha256.Size]byte{}, ErrMaterialConflict
 		}

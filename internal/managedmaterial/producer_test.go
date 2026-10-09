@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
@@ -38,19 +39,19 @@ func initialFixture(t *testing.T) (InitialSpec, ed25519.PublicKey, *ecdh.Private
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstCatalog, err := InitialCatalog("30000000-0000-0000-0000-000000000001", nil)
+	firstCatalog, err := InitialCatalog("1G000000000000000000000001", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondCatalog, err := InitialCatalog("30000000-0000-0000-0000-000000000002", nil)
+	secondCatalog, err := InitialCatalog("1G000000000000000000000002", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	spec := InitialSpec{
-		PlacementDatabaseID: "db-main",
-		PartitionID:         "partition-a",
+		PlacementDatabaseID: "0000000000JJVVW9EMWY1PE1VX",
+		PartitionID:         "0000000000Z3WK359G2W66CVT8",
 		Scope: AuthorityScope{ClusterID: "0102030405060708090a0b0c0d0e0f10",
-			TenantID: "10000000-0000-0000-0000-000000000001", DatabaseID: "20000000-0000-0000-0000-000000000001",
+			TenantID: "0G000000000000000000000001", DatabaseID: "10000000000000000000000001",
 			ShardID: 7, Epoch: 1},
 		LiveS3: LiveS3Target{Bucket: "alpha-live", Region: "sa-saopaulo-1",
 			Endpoint:   "https://alpha.compat.objectstorage.sa-saopaulo-1.oci.customer-oci.com",
@@ -60,11 +61,11 @@ func initialFixture(t *testing.T) (InitialSpec, ed25519.PublicKey, *ecdh.Private
 			{CollectionID: secondCatalog.CollectionID, CanonicalCatalog: secondCatalog.Bytes},
 		},
 		Members: [2]InitialMember{
-			{SeatID: "permanent-a", MemberID: "40000000-0000-0000-0000-000000000001", Incarnation: "01010101010101010101010101010101",
+			{SeatID: "000000000082AXF7GZQT1D126Y", MemberID: "20000000000000000000000001", Incarnation: "01010101010101010101010101010101",
 				ServerName: "a.replication.example", FailureDomain: "FAULT-DOMAIN-1",
 				MaterialDirectory: "/var/lib/terrabase/attempt-a/material", ReplicationIP: "10.0.0.11", ReplicationPort: 9443,
 				ClientIP: "10.0.0.11", ClientPort: 9465},
-			{SeatID: "elastic-gru", MemberID: "40000000-0000-0000-0000-000000000002", Incarnation: "02020202020202020202020202020202",
+			{SeatID: "0000000000XG8SBD7XGE97V28G", MemberID: "20000000000000000000000002", Incarnation: "02020202020202020202020202020202",
 				ServerName: "b.replication.example", FailureDomain: "FAULT-DOMAIN-2",
 				MaterialDirectory: "/var/lib/terrabase/attempt-b/material", ReplicationIP: "10.0.0.12", ReplicationPort: 9443,
 				ClientIP: "10.0.0.12", ClientPort: 9465},
@@ -83,7 +84,7 @@ func initialSQLFixture(t *testing.T) (InitialSpec, ed25519.PublicKey, *ecdh.Priv
 		t.Fatal(err)
 	}
 	spec.SQLTables = []InitialSQLTable{{
-		TableID: "44444444-4444-7444-8444-444444444444", Name: "items",
+		TableID: "248H248H24EH288H248H248H24", Name: "items",
 		KeyColumn: "id", PayloadColumn: "body",
 	}}
 	for index := range spec.Members {
@@ -112,7 +113,7 @@ func TestInitialMultiCatalogAuthorityBindsCanonicalCatalogsAndActiveRows(t *test
 	}
 	active := certificate[len(certificate)-ed25519.SignatureSize-2*56 : len(certificate)-ed25519.SignatureSize]
 	for index, catalog := range catalogs {
-		collection, err := canonicalUUID(catalog.CollectionID)
+		collection, err := canonicalID(catalog.CollectionID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -228,15 +229,15 @@ func TestGenerateInitialBindsAuthorityTLSRegistryAndCustomerCiphertext(t *testin
 	if len(parts) != 3 {
 		t.Fatal("customer token grammar is invalid")
 	}
-	id, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil || len(id) != 16 {
+	id, err := entityid.Parse(parts[1])
+	if err != nil {
 		t.Fatal("customer token ID is invalid")
 	}
 	secret, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil || len(secret) != 32 {
 		t.Fatal("customer token secret is invalid")
 	}
-	material := append([]byte("TB-APIKEY-V1\x00"), id...)
+	material := append([]byte("TB-APIKEY-V1\x00"), id[:]...)
 	material = append(material, secret...)
 	verifier := sha256.Sum256(material)
 	caDigest := sha256.Sum256([]byte(customer.HTTPSCAPEM))
@@ -364,7 +365,7 @@ func TestGenerateInitialRejectsRecipientAndMemberSubstitution(t *testing.T) {
 
 func TestSQLSchemaBundleMatchesFrozenRustRowVector(t *testing.T) {
 	table := InitialSQLTable{
-		TableID: "44444444-4444-7444-8444-444444444444", Name: "items",
+		TableID: "248H248H24EH288H248H248H24", Name: "items",
 		KeyColumn: "id", PayloadColumn: "body",
 	}
 	row, err := sqlTableRow(table)
@@ -385,7 +386,7 @@ func TestSQLSchemaBundleMatchesFrozenRustRowVector(t *testing.T) {
 	signer := ed25519.NewKeyFromSeed(seed)
 	bundle, err := encodeSQLSchemaBundle(AuthorityScope{
 		ClusterID: "0102030405060708090a0b0c0d0e0f10",
-		TenantID:  "10000000-0000-0000-0000-000000000001", DatabaseID: "20000000-0000-0000-0000-000000000001",
+		TenantID:  "0G000000000000000000000001", DatabaseID: "10000000000000000000000001",
 		ShardID: 7, Epoch: 1,
 	}, strings.Repeat("a", 64), []InitialSQLTable{table}, signer)
 	if err != nil {
@@ -466,7 +467,7 @@ func TestGenerateInitialBindsSQLBundleAndTableGrants(t *testing.T) {
 		}
 		var registry apiKeyRegistry
 		if err := json.Unmarshal(member.Files["client-api-keys.json"].Contents, &registry); err != nil ||
-			len(registry.Keys) != 1 || !slices.Equal(registry.Keys[0].TableIDs, []string{"44444444444474448444444444444444"}) ||
+			len(registry.Keys) != 1 || !slices.Equal(registry.Keys[0].TableIDs, []string{"248H248H24EH288H248H248H24"}) ||
 			!slices.Equal(registry.Keys[0].Collections, initialCollectionIDs(spec.Catalogs)) {
 			t.Fatalf("member %d registry does not bind SQL table and catalog grants: %v", index, err)
 		}
@@ -572,17 +573,17 @@ func TestExportSQLProcessPacket(t *testing.T) {
 	defer os.RemoveAll(staging)
 
 	spec, _, recipient := initialFixture(t)
-	activeCatalog, err := InitialCatalog("21212121-2121-2121-2121-212121212121", nil)
+	activeCatalog, err := InitialCatalog("1144GJ289144GJ289144GJ2891", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	inactiveCatalog, err := InitialCatalog("22222222-2222-2222-2222-222222222222", nil)
+	inactiveCatalog, err := InitialCatalog("1248H248H248H248H248H248H2", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	spec.Scope = AuthorityScope{
-		ClusterID: strings.Repeat("31", 16),
-		TenantID:  "41414141-4141-4141-4141-414141414141", DatabaseID: "51515151-5151-5151-5151-515151515151",
+		ClusterID: "31313131313131313131313131313131",
+		TenantID:  "21850M2GA1850M2GA1850M2GA1", DatabaseID: "2HA58N2MAHA58N2MAHA58N2MAH",
 		ShardID: 7, Epoch: 1,
 	}
 	spec.Catalogs = []InitialCatalogInput{
@@ -590,29 +591,29 @@ func TestExportSQLProcessPacket(t *testing.T) {
 		{CollectionID: inactiveCatalog.CollectionID, CanonicalCatalog: inactiveCatalog.Bytes},
 	}
 	spec.SQLTables = []InitialSQLTable{{
-		TableID: "44444444-4444-7444-8444-444444444444", Name: "items",
+		TableID: "248H248H24EH288H248H248H24", Name: "items",
 		KeyColumn: "id", PayloadColumn: "body",
 	}}
 	memberIDs := [2]string{
-		"61616161-6161-6161-6161-616161616161",
-		"71717171-7171-7171-7171-717171717171",
+		"31C5GP2RB1C5GP2RB1C5GP2RB1",
+		"3HE5RQ2WBHE5RQ2WBHE5RQ2WBH",
 	}
 	incarnations := [2]string{strings.Repeat("62", 16), strings.Repeat("72", 16)}
 	clientIPs := [2]string{"10.0.0.11", "10.0.0.12"}
 	for index := range spec.Members {
 		suffix := string(rune('a' + index))
 		spec.Members[index] = InitialMember{
-			SeatID: "member-" + suffix, MemberID: memberIDs[index], Incarnation: incarnations[index],
+			SeatID: "0000000000SNQ2922YA2BV9HY5" + suffix, MemberID: memberIDs[index], Incarnation: incarnations[index],
 			ServerName: suffix + ".replication.example", FailureDomain: "FAULT-DOMAIN-" + strconv.Itoa(index+1),
-			MaterialDirectory: filepath.Join(packetDirectory, "member-"+suffix),
+			MaterialDirectory: filepath.Join(packetDirectory, "0000000000SNQ2922YA2BV9HY5"+suffix),
 			ReplicationIP:     clientIPs[index], ReplicationPort: 9443,
 			ClientIP: clientIPs[index], ClientPort: 9465, SQLListenPort: 5432,
 		}
 	}
-	if err := os.Mkdir(filepath.Join(staging, "member-a"), 0o700); err != nil {
+	if err := os.Mkdir(filepath.Join(staging, "0000000000WM3QQGQPMW5X58P9"), 0o700); err != nil {
 		t.Fatal("create member-a packet directory")
 	}
-	if err := os.Mkdir(filepath.Join(staging, "member-b"), 0o700); err != nil {
+	if err := os.Mkdir(filepath.Join(staging, "0000000000N9X5GQEQJ9NA9A7V"), 0o700); err != nil {
 		t.Fatal("create member-b packet directory")
 	}
 	for index := range spec.Members {
@@ -643,7 +644,7 @@ func TestExportSQLProcessPacket(t *testing.T) {
 	}
 	packetMembers := make([]sqlProcessPacketMember, 0, len(spec.Members))
 	for index, member := range spec.Members {
-		memberDirectoryName := "member-" + string(rune('a'+index))
+		memberDirectoryName := "0000000000SNQ2922YA2BV9HY5" + string(rune('a'+index))
 		memberDirectory := filepath.Join(staging, memberDirectoryName)
 		files := bundle.Members[index].Files
 		fileNames := make([]string, 0, len(files))
@@ -727,8 +728,8 @@ func TestInitialSQLSpecRejectsInvalidIdentityNamesGrantsAndPorts(t *testing.T) {
 		name   string
 		change func(*InitialSpec)
 	}{
-		{"invalid version", func(spec *InitialSpec) { spec.SQLTables[0].TableID = "44444444-4444-6444-8444-444444444444" }},
-		{"invalid variant", func(spec *InitialSpec) { spec.SQLTables[0].TableID = "44444444-4444-7444-7444-444444444444" }},
+		{"invalid version", func(spec *InitialSpec) { spec.SQLTables[0].TableID = "248H248H24CH288H248H248H24" }},
+		{"invalid variant", func(spec *InitialSpec) { spec.SQLTables[0].TableID = "248H248H24EH278H248H248H24" }},
 		{"reserved table name", func(spec *InitialSpec) { spec.SQLTables[0].Name = "tb_items" }},
 		{"invalid column name", func(spec *InitialSpec) { spec.SQLTables[0].PayloadColumn = "Payload" }},
 		{"duplicate columns", func(spec *InitialSpec) { spec.SQLTables[0].PayloadColumn = spec.SQLTables[0].KeyColumn }},
@@ -749,7 +750,7 @@ func TestInitialSQLSpecRejectsInvalidIdentityNamesGrantsAndPorts(t *testing.T) {
 	t.Run("duplicate names", func(t *testing.T) {
 		spec, signer, _ := initialSQLFixture(t)
 		spec.SQLTables = append(spec.SQLTables, InitialSQLTable{
-			TableID: "44444444-4444-7444-8444-444444444445", Name: "items", KeyColumn: "id", PayloadColumn: "body",
+			TableID: "248H248H24EH288H248H248H25", Name: "items", KeyColumn: "id", PayloadColumn: "body",
 		})
 		if _, err := GenerateInitial(spec, signer, time.Now().UTC()); err == nil {
 			t.Fatal("duplicate SQL table names were accepted")

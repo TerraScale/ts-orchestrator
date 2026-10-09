@@ -20,7 +20,7 @@ func TestRenderedConfigsPreserveTerraBaseTeardownGrant(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	material := bootstrapmaterial.Config{
 		Environment: "canary", Cell: "gru", Region: "sa-saopaulo-1",
-		DeploymentID: "teardown-render-test", ClusterID: "teardown-render-test",
+		DeploymentID: "0000000000SX9TG05TQEFG0XF3", ClusterID: "0000000000QARJ92HJ6PVP4S4P",
 		SubnetCIDR: "10.251.0.0/24", ValidityHours: 48,
 		Slots: []bootstrapmaterial.Slot{
 			{Name: "controller-a", PrivateIP: "10.251.0.10"},

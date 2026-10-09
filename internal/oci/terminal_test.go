@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 )
 
@@ -20,14 +22,14 @@ func terminalFixture(t *testing.T) (*fleet, *fakeProvider, *fakeJournal, *fakeFe
 	}
 	fleet := api.(*fleet)
 	intent := authority.TerminalIntent{
-		Cell: "gru", DatabaseID: "db-main", PartitionID: "partition-main", Region: string(config.Region),
+		Cell: "gru", DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", Region: string(config.Region),
 		Owner: config.Owner, CompartmentID: config.CompartmentID, FleetGeneration: config.Generation,
-		PlacementGeneration: 3, PlacementPayloadDigest: testEnsureRequest("unused").BootPins.IntentPayloadDigest,
-		OperationID: "terminal-op-1", Nonce: "00000000-0000-4000-8000-000000000001",
+		PlacementGeneration: 3, PlacementPayloadDigest: testEnsureRequest(entityid.Derive("test-operation", "unused")).BootPins.IntentPayloadDigest,
+		OperationID: "0000000000YQ07YFE5HRZF55KH", Nonce: "00000000000040008000000000000001",
 		DisposableWorkload: true, AcknowledgePermanentDataLoss: true, AuthorizeForcedStop: true,
 	}
-	for i, seat := range []string{"permanent-a", "elastic-gru"} {
-		request := testEnsureRequest("terminal-host-" + seat)
+	for i, seat := range []string{"000000000082AXF7GZQT1D126Y", "0000000000XG8SBD7XGE97V28G"} {
+		request := testEnsureRequest(entityid.Derive("test-operation", "terminal-host", seat))
 		request.BootPins.SeatID = seat
 		request.PrivateIP = "10.251.0.2" + string(rune('1'+i))
 		host, err := fleet.EnsureHost(t.Context(), request)
@@ -47,7 +49,7 @@ func terminalFixture(t *testing.T) (*fleet, *fakeProvider, *fakeJournal, *fakeFe
 			t.Fatalf("boot binding missing for %s: %v", host.ID, err)
 		}
 		intent.Targets = append(intent.Targets, authority.TerminalTarget{
-			SeatID: seat, MemberID: "00000000-0000-4000-8000-00000000000" + string(rune('1'+i)),
+			SeatID: seat, MemberID: entityid.Derive("test-terminal-member", seat),
 			HostCreateKey: request.CreateKey, DataCreateKey: dataKey,
 			InstanceID: host.ID, BootVolumeID: binding.BootVolumeID, DataVolumeID: volume.ID,
 		})
@@ -167,7 +169,7 @@ func TestTerminalUnknownCreateAndForeignPinsHold(t *testing.T) {
 	if err := fleet.VerifyTerminalInventorySettled(t.Context(), wrong); !errors.Is(err, ErrForeignResource) {
 		t.Fatalf("foreign data ID was admitted: %v", err)
 	}
-	request := testEnsureRequest("terminal-extra-host")
+	request := testEnsureRequest(entityid.Derive("test-operation", "terminal-extra-host"))
 	request.BootPins.SeatID = intent.Targets[0].SeatID
 	operation := testLaunchIntent(request.CreateKey)
 	if err := journal.RecordIntent(t.Context(), operation); err != nil {

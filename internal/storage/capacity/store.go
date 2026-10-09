@@ -2,13 +2,12 @@ package capacity
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -74,8 +73,7 @@ func OpenUsageStore(ctx context.Context, js jetstream.JetStream, replicas int, t
 }
 
 func usageKey(usage VolumeUsage) string {
-	sum := sha256.Sum256([]byte(usage.Cell + "\x00" + usage.Node + "\x00" + string(usage.Role) + "\x00" + usage.VolumeID + "\x00" + usage.MountPath))
-	return "usage." + hex.EncodeToString(sum[:16])
+	return entityid.Derive("storage-usage", usage.Cell, usage.Node, string(usage.Role), usage.VolumeID, usage.MountPath)
 }
 
 // Publish stores one validated measurement under its stable key.

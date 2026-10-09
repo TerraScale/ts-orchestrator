@@ -105,8 +105,8 @@ func TestTerraBaseDeployDrivesManagedPlacementToDesiredState(t *testing.T) {
 	}
 
 	cell.tickUntil(t, func(members map[string]placement.MemberState) bool {
-		return len(members) == 2 && members["permanent-a"].Stage == placement.StageAwaitingHost &&
-			members["elastic-gru"].Stage == placement.StageAwaitingHost
+		return len(members) == 2 && members["000000000082AXF7GZQT1D126Y"].Stage == placement.StageAwaitingHost &&
+			members["0000000000XG8SBD7XGE97V28G"].Stage == placement.StageAwaitingHost
 	})
 	if len(cell.provider.launches) != 2 {
 		t.Fatalf("launches = %d, want one host per member", len(cell.provider.launches))
@@ -127,8 +127,8 @@ func TestTerraBaseDeployDrivesManagedPlacementToDesiredState(t *testing.T) {
 	agents := cell.enrollMembers(t, intent)
 	defer agents()
 	cell.tickUntil(t, func(members map[string]placement.MemberState) bool {
-		return members["permanent-a"].Stage == placement.StageAwaitingHealthy &&
-			members["elastic-gru"].Stage == placement.StageAwaitingHealthy
+		return members["000000000082AXF7GZQT1D126Y"].Stage == placement.StageAwaitingHealthy &&
+			members["0000000000XG8SBD7XGE97V28G"].Stage == placement.StageAwaitingHealthy
 	})
 	desired, err := cell.hosts.ListDesired(ctx, "terrabase")
 	if err != nil || len(desired) != 2 {
@@ -196,12 +196,12 @@ func TestTerraBaseDeployHoldsVolumeAttachOnUnqualifiedImageLaunchOptions(t *test
 	var intent placement.Intent
 	readDeployTestState(t, state, deployIntentFile, &intent)
 	cell.tickUntil(t, func(members map[string]placement.MemberState) bool {
-		return len(members) == 2 && members["elastic-gru"].Stage == placement.StageAwaitingHost
+		return len(members) == 2 && members["0000000000XG8SBD7XGE97V28G"].Stage == placement.StageAwaitingHost
 	})
 	agents := cell.enrollMembers(t, intent)
 	defer agents()
 	cell.tickUntil(t, func(members map[string]placement.MemberState) bool {
-		return members["permanent-a"].Stage == placement.StagePreparedAttach
+		return members["000000000082AXF7GZQT1D126Y"].Stage == placement.StagePreparedAttach
 	})
 	for range 3 {
 		if err := cell.placement.Tick(ctx); err != nil {
@@ -228,7 +228,7 @@ func startDeployTestCell(t *testing.T, consistentNaming, inTransit bool) *deploy
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = broker.Close() })
-	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: deployTestCell, CandidateID: "deploy-controller", Replicas: 1})
+	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: deployTestCell, CandidateID: "0000000000D58ZC5VE3YK35W1J", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -405,7 +405,7 @@ func writeDeployTestPlan(t *testing.T, root string, clientPort uint16) (string, 
 	t.Helper()
 	release := writeDeployTestRelease(t, root, "1")
 	plan := testJSONFile(t, root, "plan.json", terrabaseDeployPlan{Version: 1,
-		PlacementDatabaseID: "preview", PartitionID: "p1", Role: "terrabase", Environment: "canary",
+		PlacementDatabaseID: "0000000000HX30KC7N7WJ1ZFC8", PartitionID: "00000000003ZJEV7X3HYJENEYG", Role: "terrabase", Environment: "canary",
 		Release: release,
 		HostProfile: placement.ManagedHostProfile{
 			Compute:            placement.ComputeTuple{Shape: "VM.Standard.A1.Flex", WholeOCPUs: 1, MemoryInGBs: 6},
@@ -569,7 +569,7 @@ func (cell *deployTestCellServices) enrollMembers(t *testing.T, intent placement
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	var done []chan error
-	for _, seat := range []string{"permanent-a", "elastic-gru"} {
+	for _, seat := range []string{"000000000082AXF7GZQT1D126Y", "0000000000XG8SBD7XGE97V28G"} {
 		member, err := cell.store.ReadMember(ctx, intent.DatabaseID, intent.PartitionID, seat)
 		if err != nil {
 			t.Fatal(err)
@@ -596,7 +596,7 @@ func (cell *deployTestCellServices) enrollMembers(t *testing.T, intent placement
 		if _, err := runDeployTestOperatorErr(ctx, cell, "host-register", "--registration", path); err != nil {
 			t.Fatalf("register %s: %v", seat, err)
 		}
-		connection, err := natscell.Start(ctx, natscell.Config{Cell: deployTestCell, Instance: seat, Replicas: 1,
+		connection, err := natscell.Start(ctx, natscell.Config{Cell: deployTestCell, Instance: "host-" + strings.ToLower(seat), Replicas: 1,
 			Lab: true, URL: cell.broker.URL(), ClientRole: "host"})
 		if err != nil {
 			t.Fatal(err)

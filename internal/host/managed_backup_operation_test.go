@@ -68,8 +68,8 @@ func TestBackupRelaySerializedBoundsAtDERAndCompleteCaps(t *testing.T) {
 	der := bytes.Repeat([]byte{0x42}, 4096)
 	record := authority.BackupOperationRecord{State: "barrier",
 		Roster: []authority.BackupOperationMember{
-			{MemberID: "33333333-3333-3333-3333-333333333333", CutEnvelope: cut, CutLeafDER: der},
-			{MemberID: "44444444-4444-4444-4444-444444444444"}},
+			{MemberID: "1K6CSK6CSK6CSK6CSK6CSK6CSK", CutEnvelope: cut, CutLeafDER: der},
+			{MemberID: "248H248H248H248H248H248H24"}},
 	}
 	proof, err := backupRelayEnvelope(record, record.Roster[1].MemberID,
 		"cut-proof", record.Roster[0].MemberID)
@@ -84,8 +84,8 @@ func TestBackupRelaySerializedBoundsAtDERAndCompleteCaps(t *testing.T) {
 	command := ManagedBackupCommand{Kind: "complete",
 		Envelope:       bytes.Repeat([]byte("x"), maxBackupCompleteRelayBytes),
 		EnvelopeSHA256: strings.Repeat("a", 64),
-		OperationID:    "77777777-7777-7777-7777-777777777777",
-		DatabaseID:     "database-a", PartitionID: "partition-a",
+		OperationID:    "3QEXVQEXVQEXVQEXVQEXVQEXVQ",
+		DatabaseID:     "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8",
 		MemberID: record.Roster[1].MemberID, Node: "host-a", Role: "terrabase"}
 	status := memberstatus.BackupOperationStatus{Version: 1,
 		OperationID: command.OperationID, State: "complete",
@@ -102,8 +102,8 @@ func TestBackupRelaySerializedBoundsAtDERAndCompleteCaps(t *testing.T) {
 
 func TestBackupHeldRestartDiscoversR3WithoutPriorHostCommand(t *testing.T) {
 	registration, desired, hostKey := managedContractFixture()
-	registration.ManagedPlacement = &ManagedPlacementBinding{DatabaseID: "db-main", PartitionID: "partition-a",
-		SeatID: "permanent-a", IntentGeneration: 1,
+	registration.ManagedPlacement = &ManagedPlacementBinding{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8",
+		SeatID: "000000000082AXF7GZQT1D126Y", IntentGeneration: 1,
 		IntentPayloadDigest: strings.Repeat("1", 64), CanonicalRosterDigest: strings.Repeat("2", 64),
 		ManagedHostProfileDigest: strings.Repeat("3", 64)}
 	paths, err := runtimePaths("/srv/managed", *desired.ManagedMember)
@@ -120,7 +120,7 @@ func TestBackupHeldRestartDiscoversR3WithoutPriorHostCommand(t *testing.T) {
 		LiveS3Credential: oci.SecretVersionReference{
 			SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3},
 		ReplicationListenAddress:  "10.0.0.11:7000",
-		ReplicationPeerMemberID:   "018f0000-0000-7000-8000-000000000002",
+		ReplicationPeerMemberID:   "01HW000000E008000000000002",
 		ReplicationPeerAddress:    "10.0.0.12:7001",
 		ReplicationServerCASHA256: strings.Repeat("6", 64)}
 	desired.ManagedMember.AttachmentETag = "etag-current"
@@ -139,7 +139,7 @@ func TestBackupHeldRestartDiscoversR3WithoutPriorHostCommand(t *testing.T) {
 	}
 	record := authority.BackupOperationRecord{DatabaseID: registration.ManagedPlacement.DatabaseID,
 		PartitionID: registration.ManagedPlacement.PartitionID,
-		OperationID: "77777777-7777-7777-7777-777777777777", State: "aborting",
+		OperationID: "3QEXVQEXVQEXVQEXVQEXVQEXVQ", State: "aborting",
 		AbortEnvelope: []byte(`{"version":1,"payload":"abort"}`),
 		Roster: []authority.BackupOperationMember{{MemberID: desired.ManagedMember.Member.Scope.MemberID,
 			Incarnation:   desired.ManagedMember.Member.Scope.Incarnation,
@@ -192,7 +192,7 @@ func TestBackupHeldRestartDiscoversR3WithoutPriorHostCommand(t *testing.T) {
 		t.Fatal(t.Context().Err())
 	}
 	accepted, err := controller.handleSession(t.Context(), signedHostRequest(t, hostKey,
-		"session", strings.Repeat("4", 32), 0, struct {
+		"session", "00000000000000000000000004", 0, struct {
 			Kind string `json:"kind"`
 		}{Kind: "acquire"}))
 	if err != nil {
@@ -207,7 +207,7 @@ func TestBackupHeldRestartDiscoversR3WithoutPriorHostCommand(t *testing.T) {
 	if err != nil || !fetched.Pending || fetched.Command != nil {
 		t.Fatalf("signed Agent lost R3 pending restart: %+v, %v", fetched, err)
 	}
-	process := memberstatus.Process{PID: 1234, StartNonce: strings.Repeat("5", 32)}
+	process := memberstatus.Process{PID: 1234, StartNonce: "0000000000004b6858ab4a6dea005577"}
 	report := Report{Cell: desired.Cell, Node: desired.Node, Environment: desired.Environment,
 		Role: desired.Role, Digest: desired.Digest, Generation: desired.Generation,
 		SessionID: s.SessionID, Epoch: s.Epoch, State: "running", ObservedAt: time.Now().UTC(),
@@ -253,7 +253,7 @@ func TestBackupHeldRestartDiscoversR3WithoutPriorHostCommand(t *testing.T) {
 	}
 	// A restored Prepare holder is deliberately not client ready. The backup
 	// report can bind its local process without claiming a serving proof.
-	held := memberstatus.Status{Process: memberstatus.Process{PID: 1234, StartNonce: strings.Repeat("5", 32)},
+	held := memberstatus.Status{Process: memberstatus.Process{PID: 1234, StartNonce: "0000000000004b6858ab4a6dea005577"},
 		Local: memberstatus.Local{StorageRecovered: true, ReplicationListenerReady: true}}
 	if !backupProcessLocallyRecovered(held, 1234) || backupProcessLocallyRecovered(held, 1235) {
 		t.Fatal("held restart process identity was not checked exactly")
@@ -365,11 +365,11 @@ func TestBackupHostCommandOnlyRelaysExactR3Envelope(t *testing.T) {
 	prepare := []byte(`{"version":1,"payload":"prepare"}`)
 	sum := sha256.Sum256(prepare)
 	prepareSHA := hex.EncodeToString(sum[:])
-	memberID := "33333333-3333-3333-3333-333333333333"
+	memberID := "1K6CSK6CSK6CSK6CSK6CSK6CSK"
 	incarnation := strings.Repeat("5", 32)
 	leafSHA := strings.Repeat("1", 64)
-	record := authority.BackupOperationRecord{DatabaseID: "database-a", PartitionID: "partition-a",
-		OperationID: "77777777-7777-7777-7777-777777777777", State: "accepted",
+	record := authority.BackupOperationRecord{DatabaseID: "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8",
+		OperationID: "3QEXVQEXVQEXVQEXVQEXVQEXVQ", State: "accepted",
 		PrepareEnvelope: prepare, Roster: []authority.BackupOperationMember{{
 			MemberID: memberID, Incarnation: incarnation, Node: "host-a", Role: "terrabase",
 			TLSLeafSHA256: leafSHA}}}
@@ -382,12 +382,12 @@ func TestBackupHostCommandOnlyRelaysExactR3Envelope(t *testing.T) {
 		t.Fatal("exact R3 Prepare was rejected")
 	}
 	changed := command
-	changed.Envelope = []byte(`{"version":1,"payload":"other"}`)
+	changed.Envelope = []byte(`{"version":1,"payload":"0000000000V4MRM46HP1SNGDYW"}`)
 	if changed.matchesRecord(record) {
 		t.Fatal("changed host Prepare envelope was accepted")
 	}
 	changed = command
-	changed.MemberID = "44444444-4444-4444-4444-444444444444"
+	changed.MemberID = "248H248H248H248H248H248H24"
 	if changed.matchesRecord(record) {
 		t.Fatal("wrong roster member received an envelope")
 	}

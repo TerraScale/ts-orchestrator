@@ -168,7 +168,7 @@ func (current view) insightRegions() []string {
 
 // insightID identifies an insight across regions: keys are only unique
 // within the region whose engine raised them.
-func insightID(insight insights.Insight) string { return insight.Region + ":" + insight.Key }
+func insightID(insight insights.Insight) string { return insight.Key }
 
 // insightLink opens one insight on the insights page. It lists every region,
 // so the insight is shown whatever region is selected.

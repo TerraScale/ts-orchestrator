@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
@@ -40,7 +42,7 @@ func testHostImage(t *testing.T, keys testSpecTrust, imageID string, issuedAt ti
 	}
 	revision := "0123456789abcdef0123456789abcdef01234567"
 	delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID,
-		SubjectPublicKey: public, Capabilities: []trust.Capability{{Domain: release.ImageDomain, DeploymentID: revision,
+		SubjectPublicKey: public, Capabilities: []trust.Capability{{Domain: release.ImageDomain, DeploymentID: entityid.Derive("build", revision),
 			Cell: "GRU", Environment: keys.identity.Environment, Role: "oci-image", Slots: []string{imageID},
 			Actions: []string{"sign"}}},
 	}, issuedAt.Add(-time.Minute), issuedAt.Add(lifetime), keys.root)
@@ -92,7 +94,7 @@ func TestSpecRegistryAdmitsOnlyCurrentlyQualifiedHostImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "lab-gru", Cell: "gru", Environment: "canary"})
+	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "gru", Environment: "canary"})
 	registry, err := newSpecRegistry(Config{NATS: natscell.Config{Cell: "gru", Lab: true},
 		Controller: ControllerConfig{SpecTrust: keys.config()}}, "member")
 	if err != nil {
@@ -144,7 +146,7 @@ func TestSpecRegistryAdmitsOnlyCurrentlyQualifiedHostImages(t *testing.T) {
 	// signed by the new root, keeps the image without a new receipt.
 	next := newRootKey(t)
 	rotation, err := trust.EncodeRootChain(trust.RootChain{Rotations: []trust.SignedRotation{
-		signTestRotation(t, trust.ChainIdentity{DeploymentID: "lab-gru", Cell: "gru", Environment: "canary"},
+		signTestRotation(t, trust.ChainIdentity{DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "gru", Environment: "canary"},
 			registry.roots.verified, rootKeys(next), keys.root, next)}})
 	if err != nil {
 		t.Fatal(err)
@@ -196,7 +198,7 @@ func TestSpecRegistryAdmitsOnlyCurrentlyQualifiedHostImages(t *testing.T) {
 // canonical envelope, which a spec could not hold byte for byte.
 func TestServiceHostImageArguments(t *testing.T) {
 	dir := t.TempDir()
-	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "lab-gru", Cell: "gru", Environment: "canary"})
+	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "gru", Environment: "canary"})
 	image := testHostImage(t, keys, "ocid1.image.oc1.sa-saopaulo-1.earlier", time.Now(), time.Hour)
 	receipt, reformatted := filepath.Join(dir, "receipt.json"), filepath.Join(dir, "reformatted.json")
 	if err := os.WriteFile(receipt, image.Receipt, 0o644); err != nil {
@@ -227,7 +229,7 @@ func TestServiceHostImageArguments(t *testing.T) {
 // through the provider launch: adopting a spec or a root rotation waits.
 func TestSpecRegistryAdoptionWaitsForLaunches(t *testing.T) {
 	dir := t.TempDir()
-	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "lab-gru", Cell: "gru", Environment: "canary"})
+	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "gru", Environment: "canary"})
 	registry, err := newSpecRegistry(Config{NATS: natscell.Config{Cell: "gru", Lab: true},
 		Controller: ControllerConfig{SpecTrust: keys.config()}}, "member")
 	if err != nil {

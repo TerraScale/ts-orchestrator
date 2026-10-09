@@ -3,9 +3,9 @@ package backup
 import (
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 )
 
@@ -41,7 +41,7 @@ func (scope Scope) Owns(backup oci.CloudVolumeBackup, volumeID string) bool {
 	tags := backup.FreeformTags
 	return backup.ID != "" && backup.VolumeID == volumeID && tags[tagManagedBy] == managedByValue &&
 		tags[tagOwner] == scope.Owner && tags[tagRegion] == string(scope.Region) &&
-		tags[tagResource] == resourceValue && tags[tagBackupVolume] == volumeID && tags[tagBackupKey] != ""
+		tags[tagResource] == resourceValue && tags[tagBackupVolume] == volumeID && entityid.Valid(tags[tagBackupKey])
 }
 
 // ActionKind is a planned backup effect.
@@ -76,17 +76,18 @@ func inProgress(state string) bool {
 // key to a new attempt, so a replacement is a new request rather than a
 // replay of the failed one.
 func attemptKey(slot string, owned []oci.CloudVolumeBackup) string {
-	failed := 0
+	failed := make(map[string]bool)
 	for _, backup := range owned {
-		key := backup.FreeformTags[tagBackupKey]
-		if backup.LifecycleState == "FAULTY" && (key == slot || strings.HasPrefix(key, slot+"/retry-")) {
-			failed++
+		if backup.LifecycleState == "FAULTY" {
+			failed[backup.FreeformTags[tagBackupKey]] = true
 		}
 	}
-	if failed == 0 {
-		return slot
+	for attempt := 0; ; attempt++ {
+		key := entityid.Derive("backup-attempt", slot, fmt.Sprint(attempt))
+		if !failed[key] {
+			return key
+		}
 	}
-	return fmt.Sprintf("%s/retry-%d", slot, failed)
 }
 
 // Plan decides the backup effects for one volume from its listed backups.

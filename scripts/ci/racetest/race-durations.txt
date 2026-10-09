@@ -42,7 +42,7 @@ rest - 130/60
 ./internal/app TestServiceReleasePinsRefusedClaimsDoNotAccumulate 35
 ./internal/app * 1
 
-# Founder runtime and replacement tests re-verify signed plans on every
+# Founder fixture tests re-verify signed plans on every
 # step in one goroutine (bootstrapstart and its signing dependencies start
 # none outside the supervisor). The race detector made them about fifteen
 # times slower and could find nothing, so they run without it; about 80s

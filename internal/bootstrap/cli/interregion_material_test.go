@@ -21,7 +21,7 @@ func TestGenerateInterRegionMaterialWritesThePublicInventory(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	material := filepath.Join(root, "material")
 	if _, err := bootstrapmaterial.Generate(material, bootstrapmaterial.Config{Environment: "production",
-		Region: "sa-saopaulo-1", Cell: "gru", DeploymentID: "alpha-20260927", ClusterID: "alpha-gru",
+		Region: "sa-saopaulo-1", Cell: "gru", DeploymentID: "0000000000XXVM2FA4QBBHZBKD", ClusterID: "00000000000C2KQX35BT9P1FFG",
 		SubnetCIDR: "10.251.0.0/24", ValidityHours: 48, Slots: []bootstrapmaterial.Slot{
 			{Name: "controller-a", PrivateIP: "10.251.0.10"}, {Name: "controller-b", PrivateIP: "10.251.0.11"},
 			{Name: "controller-c", PrivateIP: "10.251.0.12"}}}, now); err != nil {

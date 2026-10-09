@@ -175,7 +175,7 @@ func TestNetBirdAdmittedRecoveryKeepsPeersAndProgressWhenInventoryFails(t *testi
 		spec: func() (*cellspec.ReleaseFence, map[string]string) {
 			return &cellspec.ReleaseFence{}, map[string]string{"selected": "10.251.0.21"}
 		}}, services: &specRegistry{}, managedAddresses: map[string]string{"peer": "10.251.0.22"}}
-	record := network.Record{ID: "admitted", Node: "selected", Phase: "drain", Deadline: time.Now().Add(time.Minute)}
+	record := network.Record{ID: "06RK99WTQK58C48FH8SYH45C8S", Node: "selected", Phase: "drain", Deadline: time.Now().Add(time.Minute)}
 	if err := saveNetBirdTestAdmission(t.Context(), &n, 3, record); err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestNetBirdAdmittedRecoveryKeepsPeersAndProgressWhenInventoryFails(t *testi
 			return saveNetBirdTestRecord(ctx, &n, 3, record)
 		},
 		Status: func(context.Context, string) (network.Status, error) {
-			return network.Status{Missing: true, ActionID: record.ID + ".rollback", ObservedAt: time.Now()}, nil
+			return network.Status{Missing: true, ActionID: network.CommandID(record.ID, "rollback"), ObservedAt: time.Now()}, nil
 		},
 		Return: func(context.Context, string) error { returns++; return nil },
 	}
@@ -248,7 +248,7 @@ func TestNetBirdRecordedNodeRecoveryIgnoresUnrelatedRetiredInventory(t *testing.
 		t.Fatal(err)
 	}
 	target := network.Target{Pin: pin}
-	record := network.Record{ID: "recovering-netbird", Node: selected.Registration.Node, Previous: "0.79.0", Phase: "rollback-check",
+	record := network.Record{ID: "5BKKWH5RKME8SRYW50FXR130CW", Node: selected.Registration.Node, Previous: "0.79.0", Phase: "rollback-check",
 		Target: target, PinHash: network.Hash(target), StartedAt: time.Now().Add(-time.Minute), Deadline: time.Now().Add(time.Minute)}
 	if err := saveNetBirdTestRecord(t.Context(), &n, 3, record); err != nil {
 		t.Fatal(err)
@@ -257,7 +257,7 @@ func TestNetBirdRecordedNodeRecoveryIgnoresUnrelatedRetiredInventory(t *testing.
 		t.Fatal(err)
 	}
 	if err := n.saveAt(t.Context(), 3, "netbird.status."+record.Node, network.Status{Version: record.Previous,
-		ActionID: record.ID + ".rollback", Connected: true, IP: "10.200.1.2", DNS: record.Node + ".nb.ts.internal", ObservedAt: time.Now()}); err != nil {
+		ActionID: network.CommandID(record.ID, "rollback"), Connected: true, IP: "10.200.1.2", DNS: record.Node + ".nb.ts.internal", ObservedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	r := network.Reconciler{

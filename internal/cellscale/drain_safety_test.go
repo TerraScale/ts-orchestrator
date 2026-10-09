@@ -149,7 +149,7 @@ func TestDrainRechecksFreshDestinationFit(t *testing.T) {
 }
 
 func TestDrainRejectsUnknownAndStaleInventory(t *testing.T) {
-	for _, evidence := range []string{"missing", "partial", "stale", "unknown member"} {
+	for _, evidence := range []string{"missing", "partial", "0000000000RNVXNPAX5Y5BB8RY", "unknown member"} {
 		t.Run(evidence, func(t *testing.T) {
 			policy := testPolicy()
 			cell := newFakeCell(4, small, 2, 150)
@@ -276,7 +276,7 @@ func (m replicaFallback) Replicas(ctx context.Context, node string) (ReplicaSnap
 }
 
 func TestReplicaInventoryFallsBackForObservationsAndConvergence(t *testing.T) {
-	for _, failure := range []string{"transport", "stale", "invalid", "unknown member", "all fail"} {
+	for _, failure := range []string{"transport", "0000000000RNVXNPAX5Y5BB8RY", "invalid", "unknown member", "all fail"} {
 		for _, kind := range []Kind{KindScaleIn, KindResize} {
 			t.Run(failure+"/"+string(kind), func(t *testing.T) {
 				// Exercise fallback and timeout under virtual time, not runner load.

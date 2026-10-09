@@ -7,6 +7,7 @@ import (
 	"math"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
@@ -39,6 +40,7 @@ type region struct {
 
 type database struct {
 	id     string
+	name   string
 	seats  int
 	stages []string
 	// rollout is a managed TerraBase runtime update in progress.
@@ -96,7 +98,7 @@ func (region *region) member(name string, t, start time.Time, placement *observa
 		Role: "controller", BuildVersion: region.versions[name], StartedAt: start.Add(-time.Duration(len(name)) * 7 * time.Hour),
 		ObservedAt: t, Ready: true,
 		Checks: region.checks(name),
-		Authority: &observability.AuthorityView{Leader: leader, Ready: true, CanMutate: leader, OwnerID: region.leader,
+		Authority: &observability.AuthorityView{Leader: leader, Ready: true, CanMutate: leader, OwnerID: entityid.Derive("preview-member", region.leader),
 			Epoch: region.epoch, Revision: region.epoch*40 + uint64(t.Unix()/30)%40, ExpiresAt: t.Add(8 * time.Second),
 			ObservedAt: t},
 		System: &observability.SystemView{CPUCount: cpus,
@@ -293,7 +295,7 @@ func (region *region) oci(t, start time.Time) *observability.OCIView {
 func (region *region) placement(t time.Time) *observability.PlacementView {
 	view := &observability.PlacementView{StageCounts: map[string]int{}}
 	for dbIndex, db := range region.databases {
-		entry := observability.DatabaseView{DatabaseID: db.id, PartitionID: "p0", Generation: uint64(3 + dbIndex),
+		entry := observability.DatabaseView{DatabaseID: db.id, PartitionID: entityid.Derive("preview-partition", db.id), Generation: uint64(3 + dbIndex),
 			DesiredSeats: db.seats, Stages: map[string]int{}}
 		for seat := range db.seats {
 			stage := "serving"
@@ -301,7 +303,7 @@ func (region *region) placement(t time.Time) *observability.PlacementView {
 				stage = db.stages[seat]
 			}
 			host := region.hosts[(dbIndex+seat)%len(region.hosts)]
-			member := observability.MemberView{SeatID: fmt.Sprintf("%s-%d", db.id, seat+1), Stage: stage, HostNode: host,
+			member := observability.MemberView{SeatID: entityid.Derive("preview-seat", region.name, db.id, fmt.Sprint(seat+1)), Stage: stage, HostNode: host,
 				FailureDomain: fmt.Sprintf("FAULT-DOMAIN-%d", seat%3+1), UpdatedAt: t.Add(-time.Duration(seat*17+dbIndex*5) * time.Minute)}
 			if db.rollout != nil {
 				member.UpdatePhase = "done"

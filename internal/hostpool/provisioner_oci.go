@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -207,7 +209,7 @@ func (p *OCIProvisioner) Launch(ctx context.Context, _ uint64, pool NodePool, la
 		if details, err = p.details(pool, launch, image); err != nil {
 			return err
 		}
-		token := common.RetryToken()
+		token := entityid.New()
 		details.FreeformTags[tagLaunchToken] = token
 		request, err := encodeRequest(details)
 		if err != nil {

@@ -27,7 +27,7 @@ func attemptFixture(t *testing.T, legacy bool) (*attempt.Attempt, string) {
 	for _, k := range []string{"root_public", "root_private", "release_leaf_public", "release_leaf_private"} {
 		trust[k] = filepath.Join(dir, k)
 	}
-	config := map[string]any{"workdir": work, "deployment_id": "deployment-a", "prefix": "bootstrap/a", "validity_days": 1, "trust": trust, "tools": map[string]any{"fj_dir": "/fj", "guestfs_tools_dir": "/guestfs", "libguestfs_dir": "/libguestfs", "libguestfs_appliance": "/appliance"}, "orchestrator": map[string]any{"repository": "/repository", "source_revision": strings.Repeat("a", 40), "ci_run_number": 1}, "image": map[string]any{"base_qcow2": "/base.qcow2", "kernel_release": "kernel", "native_verifier": "/native", "native_verifier_sha256": strings.Repeat("b", 64), "timesyncd_config": "/timesyncd", "priority": map[string]any{"profile_id": "profile", "system_reserve_bytes": 1, "host_memory_min_bytes": 1, "host_memory_low_bytes": 1, "controller_memory_min_bytes": 1, "controller_memory_low_bytes": 1, "system_slice_memory_min_bytes": 1, "system_slice_memory_low_bytes": 1}}}
+	config := map[string]any{"workdir": work, "deployment_id": "0000000000F9PR1WNVDTEXS31Z", "prefix": "bootstrap/a", "validity_days": 1, "trust": trust, "tools": map[string]any{"fj_dir": "/fj", "guestfs_tools_dir": "/guestfs", "libguestfs_dir": "/libguestfs", "libguestfs_appliance": "/appliance"}, "orchestrator": map[string]any{"repository": "/repository", "source_revision": strings.Repeat("a", 40), "ci_run_number": 1}, "image": map[string]any{"base_qcow2": "/base.qcow2", "kernel_release": "kernel", "native_verifier": "/native", "native_verifier_sha256": strings.Repeat("b", 64), "timesyncd_config": "/timesyncd", "priority": map[string]any{"profile_id": "profile", "system_reserve_bytes": 1, "host_memory_min_bytes": 1, "host_memory_low_bytes": 1, "controller_memory_min_bytes": 1, "controller_memory_low_bytes": 1, "system_slice_memory_min_bytes": 1, "system_slice_memory_low_bytes": 1}}}
 	b, e := json.Marshal(config)
 	if e != nil {
 		t.Fatal(e)
@@ -363,7 +363,7 @@ func TestAttemptMaterialWritesCanonicalIdentity(t *testing.T) {
 	a.Runner = func(context.Context, attempt.Command) (string, error) { return "", sentinel }
 	a.PhaseMaterial()
 	got := string(script.Read(t, filepath.Join(work, "identity.json")))
-	if want := `{"schemaVersion":1,"deploymentId":"deployment-a","environment":"canary","cell":"GRU"}`; got != want {
+	if want := `{"schemaVersion":1,"deploymentId":"0000000000F9PR1WNVDTEXS31Z","environment":"canary","cell":"GRU"}`; got != want {
 		t.Fatalf("identity %s, want %s", got, want)
 	}
 }

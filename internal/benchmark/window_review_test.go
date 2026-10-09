@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"io"
 	"math"
 	"os"
@@ -87,7 +88,7 @@ func TestWorkerMeasurementMarkersExcludeWarmupAfterStartup(t *testing.T) {
 	now := time.Now().UTC().Add(-90 * time.Second)
 	clients := []string{"go", "rust"}
 	g := generatorFunc(func(ctx context.Context, _ string, w Workload, clients []string, emit func(Sample) error) error {
-		job := Job{ID: newID(), Region: "gru", Workload: w, Clients: clients, Images: map[string]string{"go": "test-go", "rust": "test-rust"}}
+		job := Job{ID: entityid.New(), Region: "gru", Workload: w, Clients: clients, Images: map[string]string{"go": "test-go", "rust": "test-rust"}}
 		return (SSHGenerator{User: "test", Address: "127.0.0.1", WorkerPath: "/test"}).runWorker(ctx, job, func(sample Sample) error {
 			at := sample.TS
 			if sample.Type == "measurement_start" {
@@ -125,7 +126,7 @@ func TestInitialRunSaveFailureProducesFailedLocalReport(t *testing.T) {
 		return nil
 	})
 	run, err := (Runner{Now: func() time.Time { return now }, Generator: g, Repository: repo, Usage: usageFixture}).Execute(t.Context(), "gru", w, []string{"go"}, io.Discard)
-	if !errors.Is(err, repo.firstErr) || !idPattern.MatchString(run.ID) || run.Status != "failed" || run.Ended.IsZero() || run.Verdict.Qualified || run.Verdict.Scale != "unknown" || run.Verdict.Bottleneck != "unknown" || run.Verdict.P99TargetMS != w.Targets.P99 {
+	if !errors.Is(err, repo.firstErr) || !entityid.Valid(run.ID) || run.Status != "failed" || run.Ended.IsZero() || run.Verdict.Qualified || run.Verdict.Scale != "unknown" || run.Verdict.Bottleneck != "unknown" || run.Verdict.P99TargetMS != w.Targets.P99 {
 		t.Fatalf("initial save failure returned an unfinished run: %+v %v", run, err)
 	}
 	path, err := writeReport(t.TempDir(), run)

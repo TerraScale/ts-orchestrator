@@ -280,3 +280,15 @@ func TestManagedManifestRequiresCurrentUserExecutableAccess(t *testing.T) {
 		})
 	}
 }
+
+func TestManagedVolumeSetupUsesRuntimeDirectories(t *testing.T) {
+	for _, member := range []string{"a", "b"} {
+		script := ManagedVolumeSetupScript(member)
+		if !strings.Contains(script, "MOUNT="+ManagedMemberDirs[member]+"/volume") ||
+			strings.Contains(script, "__MANAGED_MEMBER_DIR__") ||
+			strings.Contains(script, "6efe9447512debbf02bcd921c78d666c") ||
+			strings.Contains(script, "948d999055329358cc417bcc96edb470") {
+			t.Fatalf("member %s setup differs from runtime directory", member)
+		}
+	}
+}

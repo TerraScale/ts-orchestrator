@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
@@ -270,7 +272,7 @@ func requestPlacementStatus(ctx context.Context, cfg Config, runtime *natscell.R
 		return placementStatusReport{}, err
 	}
 	scope := protocol.EnvelopeScope{Region: cfg.NATS.Cell, Kind: managedKindPlacementStatus, Actor: cfg.Operator.Actor,
-		OperationID: "status-" + request.Nonce, Generation: 1, Epoch: epoch}
+		OperationID: entityid.Derive("status", request.Nonce), Generation: 1, Epoch: epoch}
 	now := time.Now().UTC()
 	envelope, err := protocol.SignEnvelope(payload, scope, now, now.Add(time.Minute), codec.PrivateKey)
 	if err != nil {
@@ -359,7 +361,7 @@ func (source placementStatusSource) answer(ctx context.Context, wire []byte) ([]
 		return nil, errors.New("placement status request is not authorized")
 	}
 	scope := protocol.EnvelopeScope{Region: source.cell, Kind: managedKindPlacementStatus, Actor: trusted.Actor,
-		OperationID: "status-" + request.Nonce, Generation: 1, Epoch: envelope.Epoch}
+		OperationID: entityid.Derive("status", request.Nonce), Generation: 1, Epoch: envelope.Epoch}
 	if err := protocol.VerifyEnvelope(envelope, scope, trusted.PublicKey, time.Now().UTC(),
 		protocol.VerifyPolicy{MaxLifetime: 5 * time.Minute, ClockSkew: 30 * time.Second}); err != nil {
 		return nil, err

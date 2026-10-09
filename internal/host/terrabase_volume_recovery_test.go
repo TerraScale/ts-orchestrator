@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/nats-io/nats.go/jetstream"
@@ -40,13 +42,13 @@ func signTerraBaseFormatTest(t *testing.T, cfg VolumeInitConfig, key ed25519.Pri
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire, err := protocol.EncodeJSON(response{Nonce: "format-recovery", Node: cfg.Node, SessionID: "session", Epoch: 1,
+	wire, err := protocol.EncodeJSON(response{Nonce: "000000000000ab603a0258fc8d8a26df", Node: cfg.Node, SessionID: "00000000007WXF3V7BQMA11AT1", Epoch: 1,
 		Operation: "terrabase-format", Payload: payload})
 	if err != nil {
 		t.Fatal(err)
 	}
 	signed, err := protocol.SignEnvelope(wire, protocol.EnvelopeScope{Region: cfg.Cell, Kind: "host.response.terrabase-format",
-		Actor: "controller", OperationID: "format-recovery", Epoch: 1}, issued, issued.Add(requestTTL), key)
+		Actor: "controller", OperationID: entityid.Derive("host-request", "000000000000ab603a0258fc8d8a26df"), Epoch: 1}, issued, issued.Add(requestTTL), key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,8 +149,8 @@ func TestTerraBaseDataVolumePendingAttemptPersistsAndFencesRemovedState(t *testi
 		t.Fatal("read created an initializer attempt instead of refusing missing state")
 	}
 	first, err := pendingTerraBaseFormatAttempt(cfg)
-	if err != nil || !lowerHex(first, 32) {
-		t.Fatalf("pending attempt = %q, %v; want 32 hex characters", first, err)
+	if err != nil || !entityid.Valid(first) {
+		t.Fatalf("pending attempt = %q, %v; want a canonical ULID", first, err)
 	}
 	if again, err := pendingTerraBaseFormatAttempt(cfg); err != nil || again != first {
 		t.Fatalf("pending attempt changed across restart = %q, %v; want %s", again, err, first)
@@ -173,7 +175,7 @@ func TestTerraBaseDataVolumePendingAttemptPersistsAndFencesRemovedState(t *testi
 		t.Fatal("old grant accepted after original pending state was removed")
 	}
 	next, err := pendingTerraBaseFormatAttempt(cfg)
-	if err != nil || next == first || !lowerHex(next, 32) {
+	if err != nil || next == first || !entityid.Valid(next) {
 		t.Fatalf("replacement pending state = %q, %v; want a fresh attempt", next, err)
 	}
 	if _, err := verifyTerraBaseFormatGrant(cfg, signed); err == nil {
@@ -201,7 +203,7 @@ func TestTerraBaseDataVolumePendingAttemptPersistsAndFencesRemovedState(t *testi
 func TestTerraBaseDataVolumeLegacyAndClosedRecordsNeverGrant(t *testing.T) {
 	c, _, _, _, _ := testController(t)
 	const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e"
-	const attempt = "0123456789abcdef0123456789abcdef"
+	const attempt = "014D2PF2DBSQQG28T5CY4TQKFF"
 	for _, closed := range []bool{false, true} {
 		r := Registration{Cell: "gru", Node: "gru-1-db-1", Roles: []string{terrabase.Role}, PublicKey: "first-host", Generation: 1,
 			TerraBaseDataVolumeID: fmt.Sprintf("ocid1.volume.oc1..closed-%v", closed)}

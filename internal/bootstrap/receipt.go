@@ -6,6 +6,8 @@ import (
 	"slices"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
@@ -286,8 +288,8 @@ func verifyHistoricalReceipt(envelope trust.Envelope, manifest HistoricalManifes
 
 func (receipt Receipt) validate() error {
 	ociRegion, err := receipt.Cell.OCIRegion()
-	if err != nil || receipt.SchemaVersion != ReceiptSchemaVersion || !deploymentRE.MatchString(receipt.DeploymentID) ||
-		receipt.Environment != "production" && receipt.Environment != "canary" || !clusterRE.MatchString(receipt.ClusterID) ||
+	if err != nil || receipt.SchemaVersion != ReceiptSchemaVersion || !entityid.Valid(receipt.DeploymentID) ||
+		receipt.Environment != "production" && receipt.Environment != "canary" || !entityid.Valid(receipt.ClusterID) ||
 		receipt.OCIRegion != ociRegion || receipt.Role != "controller" || !slotNameRE.MatchString(receipt.Slot) ||
 		!isOCID(receipt.InstanceOCID, "instance") || !isOCID(receipt.CompartmentOCID, "compartment") ||
 		!isOCID(receipt.ImageOCID, "image") || !createKeyRE.MatchString(receipt.CreateKey) ||

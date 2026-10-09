@@ -51,7 +51,7 @@ func (cluster *fakeCluster) set(snapshot observability.ClusterSnapshot) {
 
 func controller(name string, leader bool) observability.MemberSnapshot {
 	return observability.MemberSnapshot{Member: name, Role: "controller", Ready: true, BuildVersion: "v1",
-		Authority: &observability.AuthorityView{Leader: leader, Ready: true, OwnerID: "c1", Epoch: 3}}
+		Authority: &observability.AuthorityView{Leader: leader, Ready: true, OwnerID: "0000000000KZ5R9PYPCAJ654M2", Epoch: 3}}
 }
 
 func healthy() observability.ClusterSnapshot {
@@ -255,27 +255,27 @@ func TestOCIErrorRule(t *testing.T) {
 
 func TestPlacementRules(t *testing.T) {
 	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
-	view := &observability.PlacementView{Databases: []observability.DatabaseView{{DatabaseID: "db", PartitionID: "p0",
+	view := &observability.PlacementView{Databases: []observability.DatabaseView{{DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD",
 		Members: []observability.MemberView{
-			{SeatID: "s1", Stage: "awaiting-attach", UpdatedAt: now.Add(-20 * time.Minute)},
-			{SeatID: "s2", Stage: "serving", UpdatePhase: "held"},
+			{SeatID: "0000000000DNKA8DBDEPN1J9XM", Stage: "awaiting-attach", UpdatedAt: now.Add(-20 * time.Minute)},
+			{SeatID: "0000000000K6ST06WNWDFCTSJY", Stage: "serving", UpdatePhase: "held"},
 		},
-		Rollout: &observability.RolloutView{OperationID: "op-1", Seats: 2, Completed: 1}}}}
+		Rollout: &observability.RolloutView{OperationID: "0000000000M44BFMMJRNPNN6BB", Seats: 2, Completed: 1}}}}
 	cluster := &observability.ClusterSnapshot{Members: []observability.MemberSnapshot{{Member: "c1", Placement: view}}}
 	inputs := &Inputs{Now: now, Cluster: cluster,
 		Holds: []Hold{{Reason: "member m7 OCI host is not currently observed; retained volume is kept", LastSeen: now}}}
-	if got := evaluate(t, volumeStuck, inputs); len(got) != 1 || got[0].Entity.ID != "db/p0/s1" {
+	if got := evaluate(t, volumeStuck, inputs); len(got) != 1 || got[0].Entity.ID != "0000000000T8H7NEY8XQ530245/00000000003K6TBW31R91GBDRD/0000000000DNKA8DBDEPN1J9XM" {
 		t.Fatalf("volume = %+v", got)
 	}
 	held := evaluate(t, memberHeld, inputs)
-	if len(held) != 2 || held[0].Entity.ID != "db/p0/s2" || held[1].Entity.ID != "m7" {
+	if len(held) != 2 || held[0].Entity.ID != "0000000000T8H7NEY8XQ530245/00000000003K6TBW31R91GBDRD/0000000000K6ST06WNWDFCTSJY" || held[1].Entity.ID != "m7" {
 		t.Fatalf("held = %+v", held)
 	}
 	// The rollout must stay at the same progress past the threshold.
-	conditions := map[string]time.Time{"rollout:op-1:1": now.Add(-31 * time.Minute)}
+	conditions := map[string]time.Time{"rollout:0000000000M44BFMMJRNPNN6BB:1": now.Add(-31 * time.Minute)}
 	inputs = &Inputs{Now: now, Cluster: cluster, Thresholds: Thresholds{}.withDefaults(), conditions: conditions,
 		touched: map[string]struct{}{}}
-	if got := rolloutStalled(inputs); len(got) != 1 || got[0].Entity.ID != "op-1" {
+	if got := rolloutStalled(inputs); len(got) != 1 || got[0].Entity.ID != "0000000000M44BFMMJRNPNN6BB" {
 		t.Fatalf("stalled = %+v", got)
 	}
 }

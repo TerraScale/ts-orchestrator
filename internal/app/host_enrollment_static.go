@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
@@ -68,7 +69,7 @@ func (enrollment *managedHostEnrollment) enrollStatic(ctx context.Context, epoch
 	if err != nil {
 		return nil, err
 	}
-	createKey := "static-" + descriptor.Node
+	createKey := entityid.Derive("static-enrollment", enrollment.cell, descriptor.Node)
 	var grant hostenroll.Grant
 	var revision uint64
 	if request.Operation == "renew" {
@@ -260,7 +261,7 @@ func (enrollment *managedHostEnrollment) observeGranted(ctx context.Context, pee
 func (enrollment *managedHostEnrollment) staticRegistration(ctx context.Context, request hostenroll.Request,
 	descriptor hostboot.Descriptor, instance oci.CloudInstance, admission staticAdmission,
 ) (host.Registration, error) {
-	registration := host.Registration{Cell: enrollment.cell, Node: descriptor.Node,
+	registration := host.Registration{ID: entityid.Derive("host", enrollment.cell, descriptor.Node), Cell: enrollment.cell, Node: descriptor.Node,
 		FailureDomain: strings.ToLower(instance.FaultDomain), Environment: enrollment.environment,
 		PublicKey: request.IdentityPublicKey, NATSUserPublicKey: request.NATSUserPublicKey, Generation: 1}
 	registration.Roles, registration.Capacity = []string{terrabase.Role}, admission.Capacity
@@ -314,7 +315,7 @@ func (enrollment *managedHostEnrollment) revokeStatic(ctx context.Context, epoch
 	digest, err := descriptor.Digest()
 	if err != nil || request.Operation != "enroll" || request.InstanceID != instanceID ||
 		descriptor.Cell != enrollment.cell || descriptor.Region != string(enrollment.region) ||
-		grant.CreateKey != "static-"+descriptor.Node || grant.DescriptorSHA256 != digest {
+		grant.CreateKey != entityid.Derive("static-enrollment", enrollment.cell, descriptor.Node) || grant.DescriptorSHA256 != digest {
 		return hostEnrollmentRevokeReceipt{}, errors.New("static host enrollment grant is not bound to this regional cell")
 	}
 	if err := enrollment.fencer.Guard(ctx, epoch); err != nil {

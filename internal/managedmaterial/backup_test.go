@@ -41,7 +41,7 @@ func backupInitialFixture(t *testing.T) (InitialSpec, ed25519.PublicKey) {
 	keySHA := sha256.Sum256(key)
 	spec.Backup = &InitialBackupSpec{Target: target, OwnerMemberID: spec.Members[0].MemberID,
 		DataKey:   oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.backupkey", VersionNumber: 9},
-		DataKeyID: "backup-key-v1", DataKeySHA256: hex.EncodeToString(keySHA[:]),
+		DataKeyID: "0000000000EANCHT87G4P8DB4B", DataKeySHA256: hex.EncodeToString(keySHA[:]),
 		RetentionPolicyID: "retention-30d", RetentionUntilUnixMS: uint64(time.Now().Add(30 * 24 * time.Hour).UnixMilli()),
 		MaxPointCadenceMS: 60_000}
 	return spec, signer

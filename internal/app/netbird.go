@@ -2,15 +2,14 @@ package app
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"runtime"
-	"strings"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
 )
@@ -50,7 +49,7 @@ func enrollNetBirdBootstrap(ctx context.Context, configPath string, output io.Wr
 	if err != nil {
 		return err
 	}
-	bootstrapPending := transaction.Pending && strings.HasPrefix(transaction.TransactionID, "bootstrap-")
+	bootstrapPending := transaction.Pending && transaction.Bootstrap
 	if transaction.Pending && !bootstrapPending {
 		return errors.New("NetBird enrollment waits for the controller-owned managed transaction")
 	}
@@ -58,7 +57,7 @@ func enrollNetBirdBootstrap(ctx context.Context, configPath string, output io.Wr
 	if binaryErr != nil && !errors.Is(binaryErr, os.ErrNotExist) {
 		return binaryErr
 	}
-	if errors.Is(binaryErr, os.ErrNotExist) && transaction.TransactionID != "" && !strings.HasPrefix(transaction.TransactionID, "bootstrap-") {
+	if errors.Is(binaryErr, os.ErrNotExist) && transaction.TransactionID != "" && !transaction.Bootstrap {
 		return errors.New("missing NetBird client awaits the controller-owned fenced rollout")
 	}
 	needsPin := errors.Is(binaryErr, os.ErrNotExist) || bootstrapPending
@@ -80,9 +79,9 @@ func enrollNetBirdBootstrap(ctx context.Context, configPath string, output io.Wr
 		}
 		transactionID := transaction.TransactionID
 		if !bootstrapPending {
-			transactionID = "bootstrap-" + rand.Text()
+			transactionID = entityid.New()
 		}
-		installed, err := runner.install(ctx, pin, cfg, client.ManagedOptions{BinaryPath: runner.fallback, TransactionID: transactionID})
+		installed, err := runner.install(ctx, pin, cfg, client.ManagedOptions{BinaryPath: runner.fallback, TransactionID: transactionID, Bootstrap: true})
 		if err != nil {
 			return err
 		}

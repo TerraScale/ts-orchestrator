@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 )
 
@@ -20,15 +21,15 @@ func (source rollouts) Rollouts(context.Context) ([]insights.Rollout, error) {
 	switch source.region {
 	case "gru":
 		return []insights.Rollout{
-			{ID: "ro-v0.43.0-gru", Release: "v0.43.0", Phase: "complete", PhaseStarted: now.Add(-245 * time.Minute), Done: true},
-			{ID: "ro-terrabase-3.8.2-gru", Release: "terrabase 3.8.2", Phase: "canary-soak", PhaseStarted: now.Add(-26 * time.Minute),
+			{ID: entityid.Derive("preview-rollout", "v0.43.0", "gru"), Release: "v0.43.0", Phase: "complete", PhaseStarted: now.Add(-245 * time.Minute), Done: true},
+			{ID: entityid.Derive("preview-rollout", "terrabase-3.8.2", "gru"), Release: "terrabase 3.8.2", Phase: "canary-soak", PhaseStarted: now.Add(-26 * time.Minute),
 				PhaseDeadline: now.Add(4 * time.Minute)},
 		}, nil
 	case "sfo":
-		return []insights.Rollout{{ID: "ro-v0.43.0-sfo", Release: "v0.43.0", Phase: "batch",
+		return []insights.Rollout{{ID: entityid.Derive("preview-rollout", "v0.43.0", "sfo"), Release: "v0.43.0", Phase: "batch",
 			PhaseStarted: now.Add(-30 * time.Minute), PhaseDeadline: now.Add(-5 * time.Minute)}}, nil
 	case "fra":
-		return []insights.Rollout{{ID: "ro-v0.43.0-fra", Release: "v0.43.0", Phase: "frozen",
+		return []insights.Rollout{{ID: entityid.Derive("preview-rollout", "v0.43.0", "fra"), Release: "v0.43.0", Phase: "frozen",
 			PhaseStarted: now.Add(-140 * time.Minute)}}, nil
 	}
 	return nil, nil
@@ -50,18 +51,18 @@ func (world *World) Volumes(context.Context) ([]insights.Volume, error) {
 	var volumes []insights.Volume
 	for index, host := range world.regions[0].hosts {
 		for slot := range 3 {
-			volumes = append(volumes, insights.Volume{ID: fmt.Sprintf("gru-vol-%s-%d", host[len(host)-1:], slot+1), Host: host,
+			volumes = append(volumes, insights.Volume{ID: entityid.Derive("preview-volume", host, fmt.Sprint(slot+1)), Host: host,
 				State: "attached", StateSince: now.Add(-time.Duration(index*7+slot*3+20) * time.Hour)})
 		}
 	}
-	volumes = append(volumes, insights.Volume{ID: "gru-vol-backup-1", State: "available", StateSince: now.Add(-50 * time.Hour)})
+	volumes = append(volumes, insights.Volume{ID: entityid.Derive("preview-volume", "gru-vol-backup-1"), State: "available", StateSince: now.Add(-50 * time.Hour)})
 	world.mu.Lock()
 	stuck := world.stuck
 	world.mu.Unlock()
 	if !stuck.IsZero() {
-		volumes = append(volumes, insights.Volume{ID: "gru-vol-sessions-3", Host: "gru-host-c", State: "attaching", StateSince: stuck})
+		volumes = append(volumes, insights.Volume{ID: entityid.Derive("preview-volume", "gru-vol-sessions-3"), Host: "gru-host-c", State: "attaching", StateSince: stuck})
 	} else {
-		volumes = append(volumes, insights.Volume{ID: "gru-vol-sessions-3", Host: "gru-host-c", State: "attached",
+		volumes = append(volumes, insights.Volume{ID: entityid.Derive("preview-volume", "gru-vol-sessions-3"), Host: "gru-host-c", State: "attached",
 			StateSince: now.Add(-time.Minute)})
 	}
 	return volumes, nil
@@ -133,7 +134,7 @@ func (world *World) Versions(context.Context) ([]dashboard.UnitVersion, error) {
 					version = "terrabase 3.8.2"
 				}
 				out = append(out, dashboard.UnitVersion{Region: region.name, Kind: "seat",
-					Unit: fmt.Sprintf("%s-%d", db.id, seat+1), Version: version, Since: now.Add(-time.Duration(dbIndex+seat+1) * 5 * time.Hour)})
+					Unit: entityid.Derive("preview-seat", region.name, db.id, fmt.Sprint(seat+1)), Version: version, Since: now.Add(-time.Duration(dbIndex+seat+1) * 5 * time.Hour)})
 			}
 		}
 	}

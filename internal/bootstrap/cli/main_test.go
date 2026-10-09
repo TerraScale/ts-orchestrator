@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/app"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
@@ -89,7 +91,7 @@ func newManifestFixture(t *testing.T, delegationFor, imageFor time.Duration) *ma
 	delegation, err := trust.SignDelegation(trust.Delegation{
 		SchemaVersion: trust.SchemaVersion, SubjectKeyID: delegateKeyID, SubjectPublicKey: encodedDelegatePublic,
 		Capabilities: []trust.Capability{{
-			Domain: release.ImageDomain, DeploymentID: image.SourceRevision, Cell: "GRU", Environment: "production",
+			Domain: release.ImageDomain, DeploymentID: entityid.Derive("build", image.SourceRevision), Cell: "GRU", Environment: "production",
 			Role: "oci-image", Slots: []string{image.OCIImageOCID}, Actions: []string{"sign"},
 		}},
 	}, now.Add(-24*time.Hour), now.Add(delegationFor), rootPrivate)
@@ -112,8 +114,8 @@ func newManifestFixture(t *testing.T, delegationFor, imageFor time.Duration) *ma
 		t.Fatal(err)
 	}
 	manifest := bootstrap.Manifest{
-		SchemaVersion: bootstrap.ManifestSchemaVersion, DeploymentID: "deployment-a", Environment: "production",
-		ClusterID: "cluster-a", Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1", IntentGeneration: 1,
+		SchemaVersion: bootstrap.ManifestSchemaVersion, DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "production",
+		ClusterID: "0000000000RMSAJ9B0JFV7ESHN", Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1", IntentGeneration: 1,
 		IntentSHA256: digest(initialIntentWire), ControllerRole: "controller", Slot: "seed-a", SeedSlot: "seed-a",
 		ControllerSlots: []string{"seed-a"},
 		Profiles: []bootstrap.LaunchProfile{{
@@ -623,7 +625,7 @@ func TestVerifyBootstrapAnchorUsesCurrentRootSetAndStrictIdentityFile(t *testing
 	if err != nil {
 		t.Fatalf("verify-anchor with the current root set: %v", err)
 	}
-	for _, want := range []string{`"clusterId":"cluster-a"`, `"controllerSlots":["seed-a"]`,
+	for _, want := range []string{`"clusterId":"0000000000RMSAJ9B0JFV7ESHN"`, `"controllerSlots":["seed-a"]`,
 		`"initialRegionIntentGeneration":1`, `"ledgerDelegationSubjectKeyId":`} {
 		if !strings.Contains(string(output), want) {
 			t.Errorf("verify-anchor output %q does not contain %q", output, want)
@@ -653,7 +655,7 @@ func TestVerifyBootstrapAnchorUsesCurrentRootSetAndStrictIdentityFile(t *testing
 		wire []byte
 	}{
 		{name: "malformed JSON", wire: []byte(`{"schemaVersion":1,`)},
-		{name: "missing schema version", wire: []byte(`{"deploymentId":"deployment-a","environment":"production","cell":"GRU"}`)},
+		{name: "missing schema version", wire: []byte(`{"deploymentId":"0000000000F9PR1WNVDTEXS31Z","environment":"production","cell":"GRU"}`)},
 		{name: "missing deployment identity", wire: []byte(`{"schemaVersion":1,"environment":"production","cell":"GRU"}`)},
 		{name: "wrong schema version", wire: mustEncodePayload(t, bootstrapstart.BakedIdentity{
 			SchemaVersion: 2, DeploymentID: identity.DeploymentID, Environment: identity.Environment, Cell: identity.Cell,
@@ -1109,7 +1111,7 @@ func TestSignManifestRejectsInvalidCandidatesAndIdentityMismatches(t *testing.T)
 		}},
 		{name: "missing cluster id", candidate: func(t *testing.T, fixture *manifestFixture) []byte {
 			encoded := mustEncodePayload(t, fixture.manifest)
-			withoutCluster := bytes.Replace(encoded, []byte(`"clusterId":"cluster-a",`), nil, 1)
+			withoutCluster := bytes.Replace(encoded, []byte(`"clusterId":"0000000000RMSAJ9B0JFV7ESHN",`), nil, 1)
 			if bytes.Equal(encoded, withoutCluster) {
 				t.Fatal("test failed to remove the clusterId field")
 			}
@@ -1146,7 +1148,7 @@ func TestSignManifestRejectsInvalidCandidatesAndIdentityMismatches(t *testing.T)
 		}},
 		{name: "wrong cluster", candidate: func(t *testing.T, fixture *manifestFixture) []byte {
 			manifest := fixture.manifest
-			manifest.ClusterID = "cluster-b"
+			manifest.ClusterID = "0000000000VH0822NATQRCB70P"
 			return mustEncodePayload(t, manifest)
 		}},
 		{name: "wrong storage domain", candidate: func(t *testing.T, fixture *manifestFixture) []byte {

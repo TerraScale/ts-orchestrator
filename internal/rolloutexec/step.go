@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -89,9 +91,9 @@ type StepCommand struct {
 }
 
 func (command StepCommand) validate() error {
-	if command.Schema != StepSchema || !unitRE.MatchString(command.Cell) || !unitRE.MatchString(command.RolloutID) ||
+	if command.Schema != StepSchema || !unitRE.MatchString(command.Cell) || !entityid.Valid(command.RolloutID) ||
 		command.Kind != rollout.KindController && command.Kind != rollout.KindHost || !unitRE.MatchString(command.Unit) ||
-		!unitRE.MatchString(command.OperationID) || command.Action != StepPrepare && command.Action != StepRollback ||
+		!entityid.Valid(command.OperationID) || command.Action != StepPrepare && command.Action != StepRollback ||
 		!digestRE.MatchString(command.Digest) || command.Epoch == 0 || command.ProofWindowSeconds <= 0 ||
 		len(command.Receipt) > maxReleaseWire || len(command.Delegation) > maxReleaseWire ||
 		len(command.Delegation) > 0 && len(command.Receipt) == 0 ||
@@ -222,8 +224,8 @@ type ReleaseSource interface {
 
 // StepKey and ReplyKey are one unit's keys in rollout.Bucket. Unit
 // identities are hashed so caller-controlled names never become key tokens.
-func StepKey(unit string) string  { return "step." + protocol.HashToken(unit)[:32] }
-func ReplyKey(unit string) string { return "step-reply." + protocol.HashToken(unit)[:32] }
+func StepKey(unit string) string  { return entityid.Derive("rollout-step", unit) }
+func ReplyKey(unit string) string { return entityid.Derive("rollout-step-reply", unit) }
 
 // KVDriver posts signed steps to unit agents through the rollout bucket.
 type KVDriver struct {

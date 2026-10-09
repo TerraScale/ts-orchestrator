@@ -146,7 +146,7 @@ func TestManagedFailedEnableQueryPreservesPriorRollbackBeforeMutation(t *testing
 				t.Fatal(err)
 			}
 			options := f.options
-			options.TransactionID = "next-transaction"
+			options.TransactionID = "4W9FSTA8N5DH64STS19C0G95GK"
 			control, before := f.m.systemctl, len(f.calls)
 			f.m.systemctl = func(ctx context.Context, args ...string) error {
 				if err := control(ctx, args...); err != nil {

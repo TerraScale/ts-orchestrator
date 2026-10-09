@@ -1,14 +1,13 @@
 package decisionlog
 
 import (
-	"crypto/rand"
-	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"maps"
 	"slices"
 	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 // Version is the wire version of Decision. Readers ignore unknown fields, so
@@ -175,13 +174,7 @@ const (
 // children before the parent is recorded set Decision.ID to it.
 func NewID() string { return newIDAt(time.Now()) }
 
-func newIDAt(at time.Time) string {
-	var random [6]byte
-	_, _ = rand.Read(random[:])
-	var stamp [8]byte
-	binary.BigEndian.PutUint64(stamp[:], uint64(at.UnixNano()))
-	return hex.EncodeToString(stamp[:]) + hex.EncodeToString(random[:])
-}
+func newIDAt(at time.Time) string { return entityid.NewAt(at) }
 
 // Normalize fills defaults and enforces bounds. It never fails: a record that
 // is too large loses detail rather than being dropped.
@@ -191,7 +184,7 @@ func (decision Decision) Normalize(now time.Time) Decision {
 		decision.Time = now
 	}
 	decision.Time = decision.Time.UTC()
-	if decision.ID == "" || len(decision.ID) > 64 {
+	if !entityid.Valid(decision.ID) {
 		decision.ID = newIDAt(decision.Time)
 	}
 	if decision.Status == "" {

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
 )
@@ -119,11 +120,11 @@ func TestNetBirdBootstrapRetryResumesPersistedTransactionBeforeAndAfterReplaceme
 			f.runner.status = func(context.Context) (client.ManagedResult, error) { return pending, nil }
 			f.runner.install = func(_ context.Context, _ client.Pin, _ netbird.Config, options client.ManagedOptions) (client.ManagedResult, error) {
 				installs++
-				if !strings.HasPrefix(options.TransactionID, "bootstrap-") || options.BinaryPath != f.runner.fallback ||
+				if !entityid.Valid(options.TransactionID) || !options.Bootstrap || options.BinaryPath != f.runner.fallback ||
 					pending.TransactionID != "" && pending.TransactionID != options.TransactionID {
 					t.Fatalf("bootstrap retry changed persisted installation identity: %+v %+v", options, pending)
 				}
-				pending = client.ManagedResult{TransactionID: options.TransactionID, Pending: true}
+				pending = client.ManagedResult{TransactionID: options.TransactionID, Bootstrap: options.Bootstrap, Pending: true}
 				if test.replaced || installs > 1 {
 					if err := os.WriteFile(f.runner.binary, []byte("installed"), 0600); err != nil {
 						t.Fatal(err)
@@ -168,7 +169,7 @@ func TestNetBirdBootstrapDoesNotConfirmControllerTransaction(t *testing.T) {
 				t.Fatal(err)
 			}
 			f.runner.status = func(context.Context) (client.ManagedResult, error) {
-				return client.ManagedResult{TransactionID: "0123456789abcdef-123", Pending: pending}, nil
+				return client.ManagedResult{TransactionID: "3QBR1KQT1HTTSCJ70S4NNBKM6R", Pending: pending}, nil
 			}
 			enrolls := 0
 			f.runner.enroll = func(context.Context, netbird.Config) error { enrolls++; return nil }
@@ -190,7 +191,7 @@ func TestNetBirdPendingBootstrapRequiresVerifiedFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.runner.status = func(context.Context) (client.ManagedResult, error) {
-		return client.ManagedResult{TransactionID: "bootstrap-persisted", Pending: true}, nil
+		return client.ManagedResult{TransactionID: "6HY7VA1YZA2NVTY123SNDH514X", Bootstrap: true, Pending: true}, nil
 	}
 	if err := enrollNetBirdBootstrap(t.Context(), f.configPath, io.Discard, f.runner); err == nil || !strings.Contains(err.Error(), "bootstrap transaction") {
 		t.Fatalf("pending bootstrap reported success without its verified artifact: %v", err)
@@ -202,7 +203,7 @@ func TestNetBirdBootstrapCannotReplaceMissingControllerManagedBinary(t *testing.
 		t.Run(map[bool]string{false: "confirmed", true: "rolled-back"}[rolledBack], func(t *testing.T) {
 			f := newNetBirdBootstrapFixture(t)
 			f.runner.status = func(context.Context) (client.ManagedResult, error) {
-				return client.ManagedResult{TransactionID: "0123456789abcdef-123", RolledBack: rolledBack}, nil
+				return client.ManagedResult{TransactionID: "3QBR1KQT1HTTSCJ70S4NNBKM6R", RolledBack: rolledBack}, nil
 			}
 			if err := enrollNetBirdBootstrap(t.Context(), f.configPath, io.Discard, f.runner); err == nil || !strings.Contains(err.Error(), "fenced rollout") {
 				t.Fatalf("missing managed binary bypassed controller history: rolledBack=%t err=%v", rolledBack, err)
@@ -226,7 +227,7 @@ func TestNetBirdBootstrapLoadsConfigAfterRecoveryRestoresIt(t *testing.T) {
 		if err := os.WriteFile(f.configPath, wire, 0644); err != nil {
 			t.Fatal(err)
 		}
-		return client.ManagedResult{TransactionID: "bootstrap-expired", RolledBack: true}, nil
+		return client.ManagedResult{TransactionID: "28VM3C1AVKQYWE7V44S6FPVBVS", Bootstrap: true, RolledBack: true}, nil
 	}
 	enrolled := false
 	f.runner.enroll = func(_ context.Context, cfg netbird.Config) error {

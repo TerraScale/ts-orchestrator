@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"regexp"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/autoscale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -32,7 +34,6 @@ var (
 	ErrArtifactStoreFull = errors.New("delivery artifact store quota is full")
 	sha256RE             = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	nameRE               = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-	opRE                 = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 	commitRE             = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 )
 
@@ -139,7 +140,7 @@ type Intent struct {
 }
 
 func (i Intent) Validate() error {
-	if i.SchemaVersion != SchemaVersion || !opRE.MatchString(i.OperationID) || !nameRE.MatchString(i.Cell) || !nameRE.MatchString(i.Role) || !nameRE.MatchString(i.Environment) || !sha256RE.MatchString(i.ArtifactDigest) || !sha256RE.MatchString(i.ManifestDigest) || !sha256RE.MatchString(i.ConfigDigest) || i.Generation == 0 || i.AuthorityEpoch == 0 || i.DesiredReplicas < 0 || i.DesiredReplicas > maxReplicas {
+	if i.SchemaVersion != SchemaVersion || !entityid.Valid(i.OperationID) || !nameRE.MatchString(i.Cell) || !nameRE.MatchString(i.Role) || !nameRE.MatchString(i.Environment) || !sha256RE.MatchString(i.ArtifactDigest) || !sha256RE.MatchString(i.ManifestDigest) || !sha256RE.MatchString(i.ConfigDigest) || i.Generation == 0 || i.AuthorityEpoch == 0 || i.DesiredReplicas < 0 || i.DesiredReplicas > maxReplicas {
 		return fmt.Errorf("%w: delivery intent", ErrInvalid)
 	}
 	return i.Source.validate()

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
@@ -33,7 +35,7 @@ func TestObserveUsesCachedVerificationOnlyWhenOptedIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, err := setup.EnsureHost(t.Context(), testEnsureRequest("cached-host"))
+	host, err := setup.EnsureHost(t.Context(), testEnsureRequest(entityid.Derive("test-operation", "cached-host")))
 	if err != nil {
 		t.Fatal(err)
 	}

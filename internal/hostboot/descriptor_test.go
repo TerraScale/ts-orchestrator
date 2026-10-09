@@ -21,7 +21,7 @@ func TestDescriptorCanonicalBytesAndDigestAreExact(t *testing.T) {
 	if !bytes.Equal(wire, secondWire) {
 		t.Fatal("canonical descriptor bytes changed between calls")
 	}
-	wantWire := []byte(`{"schema_version":1,"cell":"gru","region":"GRU","node":"host-0123456789abcdef01234567","owner":"terrascale","fleet_generation":7,"create_key":"th-0123456789abcdef0123456789abcdef0123456789abcdef","image_id":"ocid1.image.oc1.sa-saopaulo-1.image-a","database_id":"database-a","partition_id":"partition-a","seat_id":"permanent-a","host_attempt":2,"intent_generation":9,"intent_payload_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","canonical_roster_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","managed_host_profile_digest":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","runtime_manifest_digest":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}`)
+	wantWire := []byte(`{"schema_version":1,"cell":"gru","region":"GRU","node":"host-0123456789abcdef01234567","owner":"terrascale","fleet_generation":7,"create_key":"0000000000AVXGCP7NEZ0TK93A","image_id":"ocid1.image.oc1.sa-saopaulo-1.image-a","database_id":"0000000000WVSMBJNMAWCDJBSK","partition_id":"0000000000Z3WK359G2W66CVT8","seat_id":"000000000082AXF7GZQT1D126Y","host_attempt":2,"intent_generation":9,"intent_payload_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","canonical_roster_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","managed_host_profile_digest":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","runtime_manifest_digest":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}`)
 	if !bytes.Equal(wire, wantWire) {
 		t.Fatalf("CanonicalBytes() = %s, want %s", wire, wantWire)
 	}
@@ -69,7 +69,7 @@ func TestDescriptorDigestChangesWithBoundAttemptAndImage(t *testing.T) {
 		{name: "admitted intent", mutate: func(descriptor *Descriptor) { descriptor.IntentGeneration++ }},
 		{name: "profile", mutate: func(descriptor *Descriptor) { descriptor.ManagedHostProfileDigest = strings.Repeat("e", 64) }},
 		{name: "runtime manifest", mutate: func(descriptor *Descriptor) { descriptor.RuntimeManifestDigest = strings.Repeat("f", 64) }},
-		{name: "create key", mutate: func(descriptor *Descriptor) { descriptor.CreateKey = "th-different" }},
+		{name: "create key", mutate: func(descriptor *Descriptor) { descriptor.CreateKey = "0000000000SEXMAJ923GRX9VMQ" }},
 		{name: "fleet generation", mutate: func(descriptor *Descriptor) { descriptor.FleetGeneration++ }},
 		{name: "image identity", mutate: func(descriptor *Descriptor) { descriptor.ImageID = "ocid1.image.oc1.sa-saopaulo-1.image-b" }},
 	} {
@@ -125,8 +125,8 @@ func TestDescriptorRejectsInvalidBindingsAndSecretLikeValues(t *testing.T) {
 		{name: "fleet generation", mutate: func(descriptor *Descriptor) { descriptor.FleetGeneration = 0 }},
 		{name: "host attempt", mutate: func(descriptor *Descriptor) { descriptor.HostAttempt = 0 }},
 		{name: "intent generation", mutate: func(descriptor *Descriptor) { descriptor.IntentGeneration = 0 }},
-		{name: "database ID", mutate: func(descriptor *Descriptor) { descriptor.DatabaseID = "../database" }},
-		{name: "partition ID", mutate: func(descriptor *Descriptor) { descriptor.PartitionID = "partition id" }},
+		{name: "database ID", mutate: func(descriptor *Descriptor) { descriptor.DatabaseID = "bad/id" }},
+		{name: "partition ID", mutate: func(descriptor *Descriptor) { descriptor.PartitionID = "bad/id" }},
 		{name: "seat ID", mutate: func(descriptor *Descriptor) { descriptor.SeatID = "" }},
 		{name: "intent digest", mutate: func(descriptor *Descriptor) { descriptor.IntentPayloadDigest = "not-a-digest" }},
 		{name: "roster digest", mutate: func(descriptor *Descriptor) { descriptor.CanonicalRosterDigest = "" }},
@@ -150,10 +150,10 @@ func testDescriptor() Descriptor {
 	return Descriptor{
 		SchemaVersion: SchemaVersion, Cell: "gru", Region: "GRU",
 		Node: "host-0123456789abcdef01234567", Owner: "terrascale",
-		CreateKey: "th-0123456789abcdef0123456789abcdef0123456789abcdef",
+		CreateKey: "0000000000AVXGCP7NEZ0TK93A",
 		ImageID:   "ocid1.image.oc1.sa-saopaulo-1.image-a", FleetGeneration: 7,
 		HostAttempt: 2, IntentGeneration: 9,
-		DatabaseID: "database-a", PartitionID: "partition-a", SeatID: "permanent-a",
+		DatabaseID: "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8", SeatID: "000000000082AXF7GZQT1D126Y",
 		IntentPayloadDigest:      strings.Repeat("a", 64),
 		CanonicalRosterDigest:    strings.Repeat("b", 64),
 		ManagedHostProfileDigest: strings.Repeat("c", 64),

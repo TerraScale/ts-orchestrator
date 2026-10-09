@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -35,7 +36,7 @@ func TestExpectedUsageKeepsHistoricalAdmissionsAndWithdrawals(t *testing.T) {
 			OperationID string                     `json:"operation_id"`
 			Epoch       uint64                     `json:"epoch"`
 			Payload     []byte                     `json:"payload"`
-		}{1, kind, "gru", subjectKey, "inventory-test", 1, payload})
+		}{1, kind, "gru", subjectKey, entityid.New(), 1, payload})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -49,7 +50,7 @@ func TestExpectedUsageKeepsHistoricalAdmissionsAndWithdrawals(t *testing.T) {
 		}
 		return entry
 	}
-	registration := Registration{Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"api"},
+	registration := Registration{ID: entityid.Derive("host", "gru", "node-a"), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"api"},
 		PublicKey: base64.StdEncoding.EncodeToString(key.Public().(ed25519.PublicKey)), NATSUserPublicKey: testNATSUserKey("node-a"), Generation: 1}
 	first := publish(authority.MutationRegistration, "gru.node-a", registration)
 	desired := Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "api", AuthorityEpoch: 1, Generation: 1}
@@ -70,6 +71,7 @@ func TestExpectedUsageKeepsHistoricalAdmissionsAndWithdrawals(t *testing.T) {
 	desired.Generation++
 	withdrawal := publish(authority.MutationDesired, "gru.node-a.api", desired)
 	registration.Node = "node-b"
+	registration.ID = entityid.Derive("host", "gru", "node-b")
 	registration.NATSUserPublicKey = testNATSUserKey("node-b")
 	second := publish(authority.MutationRegistration, "gru.node-b", registration)
 	desired.Node, desired.Withdrawn = "node-b", false
@@ -93,6 +95,13 @@ func TestExpectedUsageKeepsHistoricalAdmissionsAndWithdrawals(t *testing.T) {
 	cancel()
 	if _, err := c.ExpectedUsage(ctx, from, to); err == nil {
 		t.Fatal("cancelled inventory query silently succeeded")
+	}
+	for _, id := range []string{"", "host-node-b", entityid.Derive("host", "gru", "other-node")} {
+		registration.ID = id
+		entry := publish(authority.MutationRegistration, "gru.node-b", registration)
+		if _, err := c.ExpectedUsage(t.Context(), entry.Time, time.Now()); err == nil || !strings.Contains(err.Error(), "historical registration identity mismatch") {
+			t.Fatalf("inventory accepted host ID %q: %v", id, err)
+		}
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/capacity"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 func TestBlockedResultIODoesNotDelayLaterSafetySample(t *testing.T) {
@@ -194,7 +195,7 @@ func TestFailedResultOutputRetainsReportWithoutRetryingWriter(t *testing.T) {
 	for _, failure := range []error{errResultOutput, errResultDrainTimeout} {
 		t.Run(failure.Error(), func(t *testing.T) {
 			root := t.TempDir()
-			run := Run{ID: newID(), Region: "gru", Workload: workload(t), Started: time.Now().UTC(), Status: "failed", Verdict: Verdict{Scale: "unknown"}}
+			run := Run{ID: entityid.New(), Region: "gru", Workload: workload(t), Started: time.Now().UTC(), Status: "failed", Verdict: Verdict{Scale: "unknown"}}
 			out := writerFunc(func([]byte) (int, error) {
 				t.Error("reporting retried the unavailable result writer")
 				return 0, errors.New("output unavailable")

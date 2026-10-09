@@ -1,5 +1,5 @@
-git.terrascale.tech/TerraScale/ts-go v0.0.0-20261007002450-e534e7feb91f h1:0bhoGgNBoRuAwcSOtLoVIdjX91D6aXxSHPzNJvmKQc4=
-git.terrascale.tech/TerraScale/ts-go v0.0.0-20261007002450-e534e7feb91f/go.mod h1:PVgBKgH0kiXDHL3RijN3OJmTn2A1vjbDP6gvtwG9ucc=
+git.terrascale.tech/TerraScale/ts-go v0.0.0-20261009173424-f8f51d8a46c6 h1:GHEZF8W+VOOxeSFoRZBOik1Fh5fSbehmpFcY3F4CY4c=
+git.terrascale.tech/TerraScale/ts-go v0.0.0-20261009173424-f8f51d8a46c6/go.mod h1:wnG+Zg7VZSpDcSGm5B7j5QJ+DrpP1+bDUVfa0EIrc5I=
 github.com/CAFxX/httpcompression v0.0.9 h1:0ue2X8dOLEpxTm8tt+OdHcgA+gbDge0OqFQWGKSqgrg=
 github.com/CAFxX/httpcompression v0.0.9/go.mod h1:XX8oPZA+4IDcfZ0A71Hz0mZsv/YJOgYygkFhizVPilM=
 github.com/VictoriaMetrics/metrics v1.44.1 h1:OMyGrMkhI3hnq+IpJ1gZK9VhXcsOjUX1CoOFv//bJ0I=
@@ -65,6 +65,7 @@ github.com/oklog/ulid/v2 v2.1.2 h1:IEclFb9JNvzYA6MW2SCxbLzcHTVsfqm3PrqGQJH5zec=
 github.com/oklog/ulid/v2 v2.1.2/go.mod h1:rcEKHmBBKfef9DhnvX7y1HZBYxjXb0cP5ExxNsTT1QQ=
 github.com/oracle/oci-go-sdk/v65 v65.126.0 h1:RuV0MEcLOOgNOBadYbbkUQriCK4Gm5348F/GdWvYPcI=
 github.com/oracle/oci-go-sdk/v65 v65.126.0/go.mod h1:Pzy+BpgkDesvGZXEHgslwhIYobHCPHg6wRta1mWnlqQ=
+github.com/pborman/getopt v0.0.0-20170112200414-7148bc3a4c30/go.mod h1:85jBQOZwpVEaDAr341tbn15RS4fCAsIst0qp7i8ex1o=
 github.com/pierrec/lz4/v4 v4.1.18 h1:xaKrnTkyoqfh1YItXl56+6KJNVYWlEEPuAQW9xsplYQ=
 github.com/pierrec/lz4/v4 v4.1.18/go.mod h1:gZWDp/Ze/IJXGXf23ltt2EXimqmTUXEy0GFuRQyBid4=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

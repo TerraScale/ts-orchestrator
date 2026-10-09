@@ -58,7 +58,7 @@ func TestDeployRetryContract(t *testing.T) {
 		responses []Object
 		attempts  int
 		err       string
-	}{{"fence", []Object{submitted("fc-one-node-loss-2"), {"status": "rejected", "error": PreAcceptanceFenced, "authorityEpoch": 1}, submitted("fc-one-node-loss-epoch-retry-2"), {"status": "accepted", "authorityEpoch": 2}}, 2, ""}, {"other", []Object{submitted("fc-one-node-loss-2"), {"status": "rejected", "error": "artifact is not admitted"}}, 1, "artifact is not admitted"}, {"second_fence", []Object{submitted("fc-one-node-loss-2"), {"status": "rejected", "error": PreAcceptanceFenced}, submitted("fc-one-node-loss-epoch-retry-2"), {"status": "rejected", "error": PreAcceptanceFenced}}, 2, PreAcceptanceFenced}} {
+	}{{"fence", []Object{submitted("fc-one-node-loss-2"), {"status": "rejected", "error": PreAcceptanceFenced, "authorityEpoch": 1}, submitted("fc-one-node-loss-epoch-retry-2"), {"status": "accepted", "authorityEpoch": 2}}, 2, ""}, {"0000000000V4MRM46HP1SNGDYW", []Object{submitted("fc-one-node-loss-2"), {"status": "rejected", "error": "artifact is not admitted"}}, 1, "artifact is not admitted"}, {"second_fence", []Object{submitted("fc-one-node-loss-2"), {"status": "rejected", "error": PreAcceptanceFenced}, submitted("fc-one-node-loss-epoch-retry-2"), {"status": "rejected", "error": PreAcceptanceFenced}}, 2, PreAcceptanceFenced}} {
 		t.Run(tc.name, func(t *testing.T) {
 			l := nativeLab(t)
 			calls := 0

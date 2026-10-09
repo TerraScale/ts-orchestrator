@@ -70,9 +70,9 @@ func TestRepeatedWarningsDoNotFloodEventRing(t *testing.T) {
 	for range 50 {
 		logger.Warn("placement reconcile failed", "error", "timeout")
 	}
-	logger.Warn("placement reconcile failed", "error", "other")
+	logger.Warn("placement reconcile failed", "error", "0000000000V4MRM46HP1SNGDYW")
 	events := bus.Recent(0)
-	if len(events) != 3 || events[0].Message != "controller ready" || events[2].Attrs["error"] != "other" {
+	if len(events) != 3 || events[0].Message != "controller ready" || events[2].Attrs["error"] != "0000000000V4MRM46HP1SNGDYW" {
 		t.Fatalf("events = %+v", events)
 	}
 	if lines := strings.Count(output.String(), "\n"); lines != 52 {

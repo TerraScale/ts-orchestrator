@@ -11,28 +11,29 @@ import (
 	"sync"
 	"testing"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"github.com/nats-io/nats.go/jetstream"
 )
 
 func backupRecordFixture() BackupOperationRecord {
-	return BackupOperationRecord{Version: 1, DatabaseID: "database-a", PartitionID: "partition-a",
+	return BackupOperationRecord{Version: 1, DatabaseID: "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8",
 		PlacementSequence: 1,
 		SourceScopeDigest: strings.Repeat("a", 64), SourceAuthoritySHA256: strings.Repeat("b", 64),
 		SourceConfigurationID: strings.Repeat("c", 64), SourceTargetDigest: strings.Repeat("d", 64),
-		BackupSet: strings.Repeat("e", 32), BackupTargetDigest: strings.Repeat("f", 64),
-		OwnerMemberID: "33333333-3333-3333-3333-333333333333", OwnerIncarnation: strings.Repeat("5", 32),
+		BackupSet: "7EXVQEXVQEXVQEXVQEXVQEXVQE", BackupTargetDigest: strings.Repeat("f", 64),
+		OwnerMemberID: "1K6CSK6CSK6CSK6CSK6CSK6CSK", OwnerIncarnation: "55555555555555555555555555555555",
 		Ordinal: 1, Attempt: 1, AttemptHighWater: 1,
-		OperationID: "77777777-7777-7777-7777-777777777777",
+		OperationID: "3QEXVQEXVQEXVQEXVQEXVQEXVQ",
 		Nonce:       strings.Repeat("9", 32), PrepareEnvelope: []byte(`{"version":1}`),
 		PrepareExpiresAtMS: 1_900_000_060_000, State: "accepted",
 		Roster: []BackupOperationMember{
 			{Origin: strings.Repeat("3", 32) + strings.Repeat("5", 32),
-				MemberID: "33333333-3333-3333-3333-333333333333", Incarnation: strings.Repeat("5", 32),
+				MemberID: "1K6CSK6CSK6CSK6CSK6CSK6CSK", Incarnation: "55555555555555555555555555555555",
 				TLSLeafSHA256: strings.Repeat("1", 64), Node: "host-a", Role: "terrabase"},
 			{Origin: strings.Repeat("4", 32) + strings.Repeat("6", 32),
-				MemberID: "44444444-4444-4444-4444-444444444444", Incarnation: strings.Repeat("6", 32),
+				MemberID: "248H248H248H248H248H248H24", Incarnation: "66666666666666666666666666666666",
 				TLSLeafSHA256: strings.Repeat("2", 64), Node: "host-b", Role: "terrabase"},
 		}}
 }
@@ -43,7 +44,7 @@ func TestBackupAttemptNeedsRosterWideAbortBeforeReuseOfOrdinal(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := first
-	second.OperationID = "88888888-8888-8888-8888-888888888888"
+	second.OperationID = "48H248H248H248H248H248H248"
 	second.Nonce = strings.Repeat("8", 32)
 	second.Attempt = 2
 	second.AttemptHighWater = 2
@@ -251,7 +252,7 @@ func TestBackupCompleteRequiresCommittedProofsAndEveryAcknowledgment(t *testing.
 	next := backupRecordFixture()
 	next.CompletedOrdinal = 1
 	next.Ordinal = 2
-	next.OperationID = "88888888-8888-8888-8888-888888888888"
+	next.OperationID = "48H248H248H248H248H248H248"
 	next.Nonce = strings.Repeat("8", 32)
 	next.Terminal = []BackupTerminalReceipt{{OperationID: complete.OperationID,
 		Ordinal: 1, Attempt: 1, State: "complete"}}
@@ -264,15 +265,15 @@ func TestBackupHistoryPagesExactPartitionAndPayloadOperationID(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "backup-history-page", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000SBF32FW762VKS7H4", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runtime.Close() })
-	subject := mutationSubject("gru", MutationBackupOperation, "database-a.partition-a")
+	subject := mutationSubject("gru", MutationBackupOperation, "0000000000WVSMBJNMAWCDJBSK.0000000000Z3WK359G2W66CVT8")
 	old := backupRecordFixture()
 	later := backupRecordFixture()
-	later.OperationID = "88888888-8888-8888-8888-888888888888"
+	later.OperationID = "48H248H248H248H248H248H248"
 	var oldSequence uint64
 	for index := range 130 {
 		record := later
@@ -284,8 +285,8 @@ func TestBackupHistoryPagesExactPartitionAndPayloadOperationID(t *testing.T) {
 			t.Fatal(err)
 		}
 		outer, err := json.Marshal(controlRecord{Version: 1, Kind: MutationBackupOperation,
-			Scope: "gru", SubjectKey: "database-a.partition-a",
-			OperationID: "mutation-record", Epoch: runtime.Current().Epoch, Payload: payload})
+			Scope: "gru", SubjectKey: "0000000000WVSMBJNMAWCDJBSK.0000000000Z3WK359G2W66CVT8",
+			OperationID: "0000000000SQ81DF1FR1ZA1QQB", Epoch: runtime.Current().Epoch, Payload: payload})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -339,14 +340,14 @@ func TestBackupAllocationAndPlacementRaceAtPinnedSequence(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "backup-placement-race", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000EVS561564DK546QE", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runtime.Close() })
 	epoch := runtime.Current().Epoch
-	initial, err := runtime.CommitPlacementIntent(ctx, epoch, "database-a", "partition-a",
-		"initial-placement", 0, []byte("initial"))
+	initial, err := runtime.CommitPlacementIntent(ctx, epoch, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8",
+		"0000000000Q2Y4A2RFN6VGFFB1", 0, []byte("initial"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,12 +360,12 @@ func TestBackupAllocationAndPlacementRaceAtPinnedSequence(t *testing.T) {
 	go func() {
 		defer wait.Done()
 		placementSequence, placementErr = runtime.CommitPlacementIntent(ctx, epoch,
-			"database-a", "partition-a", "changed-placement", initial, []byte("changed"))
+			"0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", "0000000000PZB5V7E4G0GDVNW8", initial, []byte("changed"))
 	}()
 	go func() {
 		defer wait.Done()
 		backupSequence, backupErr = runtime.CommitBackupOperationVerified(ctx, epoch,
-			"database-a", "partition-a", 0, record, func(context.Context) error { return nil })
+			"0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", 0, record, func(context.Context) error { return nil })
 	}()
 	wait.Wait()
 	if (placementErr == nil) == (backupErr == nil) {
@@ -381,23 +382,23 @@ func TestNewBackupOperationRequiresFinalRosterVerifier(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "backup-verifier-required", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000M3311JQNDM5G57FB", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runtime.Close() })
 	epoch := runtime.Current().Epoch
-	placementSequence, err := runtime.CommitPlacementIntent(ctx, epoch, "database-a", "partition-a",
-		"initial-placement", 0, []byte("initial"))
+	placementSequence, err := runtime.CommitPlacementIntent(ctx, epoch, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8",
+		"0000000000Q2Y4A2RFN6VGFFB1", 0, []byte("initial"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	record := backupRecordFixture()
 	record.PlacementSequence = placementSequence
-	if _, err := runtime.CommitBackupOperation(ctx, epoch, "database-a", "partition-a", 0, record); !errors.Is(err, ErrFenced) {
+	if _, err := runtime.CommitBackupOperation(ctx, epoch, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", 0, record); !errors.Is(err, ErrFenced) {
 		t.Fatalf("new backup operation without final roster proof = %v, want fenced", err)
 	}
-	if _, _, err := runtime.ReadBackupOperation(ctx, "database-a", "partition-a"); !errors.Is(err, ErrNotFound) {
+	if _, _, err := runtime.ReadBackupOperation(ctx, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unverified backup attempt left an R3 record: %v", err)
 	}
 }
@@ -408,7 +409,7 @@ func TestBackupAndManagedUpdateCommitsFenceEachOtherInBothOrders(t *testing.T) {
 			js := newAuthorityTestJetStream(t)
 			ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 			defer cancel()
-			runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "update-backup-" + order, Replicas: 1})
+			runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: entityid.Derive("candidate", order), Replicas: 1})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -416,7 +417,7 @@ func TestBackupAndManagedUpdateCommitsFenceEachOtherInBothOrders(t *testing.T) {
 			epoch := runtime.Current().Epoch
 			initialPlacement := []byte("immutable-initial-placement")
 			placementSequence, err := runtime.CommitPlacementIntent(ctx, epoch,
-				"database-a", "partition-a", "initial-placement", 0, initialPlacement)
+				"0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", "0000000000Q2Y4A2RFN6VGFFB1", 0, initialPlacement)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -429,7 +430,7 @@ func TestBackupAndManagedUpdateCommitsFenceEachOtherInBothOrders(t *testing.T) {
 				if err != nil {
 					t.Fatalf("commit prepared managed update: %v", err)
 				}
-				if _, err := runtime.CommitBackupOperationVerified(ctx, epoch, "database-a", "partition-a", 0,
+				if _, err := runtime.CommitBackupOperationVerified(ctx, epoch, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", 0,
 					backup, func(context.Context) error { return nil }); !errors.Is(err, ErrFenced) {
 					t.Fatalf("backup crossed prepared update: %v", err)
 				}
@@ -440,38 +441,38 @@ func TestBackupAndManagedUpdateCommitsFenceEachOtherInBothOrders(t *testing.T) {
 				if err != nil {
 					t.Fatalf("commit canary-serving result: %v", err)
 				}
-				if _, err := runtime.CommitBackupOperationVerified(ctx, epoch, "database-a", "partition-a", 0,
+				if _, err := runtime.CommitBackupOperationVerified(ctx, epoch, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", 0,
 					backup, func(context.Context) error { return nil }); !errors.Is(err, ErrFenced) {
 					t.Fatalf("backup crossed canary-serving update: %v", err)
 				}
-				latest, err := runtime.ReadManagedUpdate(ctx, "database-a", "partition-a")
+				latest, err := runtime.ReadManagedUpdate(ctx, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8")
 				if err != nil || latest.Sequence != servingSequence ||
 					managedUpdatePhaseFromSubject(latest.SubjectKey) != ManagedUpdateCanaryServing {
 					t.Fatalf("managed update history changed after rejected backup: %+v, %v", latest, err)
 				}
-				if _, _, err := runtime.ReadBackupOperation(ctx, "database-a", "partition-a"); !errors.Is(err, ErrNotFound) {
+				if _, _, err := runtime.ReadBackupOperation(ctx, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8"); !errors.Is(err, ErrNotFound) {
 					t.Fatalf("rejected backup left a durable record: %v", err)
 				}
 			} else {
 				backupSequence, err := runtime.CommitBackupOperationVerified(ctx, epoch,
-					"database-a", "partition-a", 0, backup, func(context.Context) error { return nil })
+					"0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", 0, backup, func(context.Context) error { return nil })
 				if err != nil {
 					t.Fatalf("commit backup before update: %v", err)
 				}
 				if _, err := runtime.CommitManagedUpdate(ctx, epoch, update, 0, nil); !errors.Is(err, ErrFenced) {
 					t.Fatalf("managed update crossed accepted backup: %v", err)
 				}
-				if _, err := runtime.ReadManagedUpdate(ctx, "database-a", "partition-a"); !errors.Is(err, ErrNotFound) {
+				if _, err := runtime.ReadManagedUpdate(ctx, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8"); !errors.Is(err, ErrNotFound) {
 					t.Fatalf("rejected update left a durable record: %v", err)
 				}
-				stored, storedSequence, err := runtime.ReadBackupOperation(ctx, "database-a", "partition-a")
+				stored, storedSequence, err := runtime.ReadBackupOperation(ctx, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8")
 				if err != nil || storedSequence != backupSequence || stored.OperationID != backup.OperationID {
 					t.Fatalf("backup history changed after rejected update: %+v seq=%d err=%v",
 						stored, storedSequence, err)
 				}
 			}
 
-			placement, err := runtime.ReadPlacementIntent(ctx, "database-a", "partition-a")
+			placement, err := runtime.ReadPlacementIntent(ctx, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8")
 			if err != nil || placement.Sequence != placementSequence || !slices.Equal(placement.Payload, initialPlacement) {
 				t.Fatalf("reciprocal exclusion changed immutable placement: %+v, %v", placement, err)
 			}
@@ -483,7 +484,7 @@ func TestConcurrentBackupAndManagedUpdateStartsHaveOneWinner(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "concurrent-update-backup", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "00000000003QJJFQZWRG8PT548", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,7 +492,7 @@ func TestConcurrentBackupAndManagedUpdateStartsHaveOneWinner(t *testing.T) {
 	epoch := runtime.Current().Epoch
 	initialPlacement := []byte("immutable-concurrent-placement")
 	placementSequence, err := runtime.CommitPlacementIntent(ctx, epoch,
-		"database-a", "partition-a", "initial-placement", 0, initialPlacement)
+		"0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", "0000000000Q2Y4A2RFN6VGFFB1", 0, initialPlacement)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -508,7 +509,7 @@ func TestConcurrentBackupAndManagedUpdateStartsHaveOneWinner(t *testing.T) {
 		defer wait.Done()
 		<-start
 		backupSequence, backupErr = runtime.CommitBackupOperationVerified(ctx, epoch,
-			"database-a", "partition-a", 0, backup, func(context.Context) error { return nil })
+			"0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", 0, backup, func(context.Context) error { return nil })
 	}()
 	go func() {
 		defer wait.Done()
@@ -525,7 +526,7 @@ func TestConcurrentBackupAndManagedUpdateStartsHaveOneWinner(t *testing.T) {
 		updateErr == nil && !errors.Is(backupErr, ErrFenced) {
 		t.Fatalf("losing workload mutation was not fenced: backup=%v update=%v", backupErr, updateErr)
 	}
-	placement, err := runtime.ReadPlacementIntent(ctx, "database-a", "partition-a")
+	placement, err := runtime.ReadPlacementIntent(ctx, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8")
 	if err != nil || placement.Sequence != placementSequence || !slices.Equal(placement.Payload, initialPlacement) {
 		t.Fatalf("concurrent exclusion changed immutable placement: %+v, %v", placement, err)
 	}
@@ -535,7 +536,7 @@ func TestBackupStartAllowsDurableHeldManagedUpdate(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "backup-after-update-held", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000E6DGB7QGG8HJ2WQP", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,7 +544,7 @@ func TestBackupStartAllowsDurableHeldManagedUpdate(t *testing.T) {
 	epoch := runtime.Current().Epoch
 	placementPayload := []byte("immutable-held-placement")
 	placementSequence, err := runtime.CommitPlacementIntent(ctx, epoch,
-		"database-a", "partition-a", "initial-placement", 0, placementPayload)
+		"0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", "0000000000Q2Y4A2RFN6VGFFB1", 0, placementPayload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -560,11 +561,11 @@ func TestBackupStartAllowsDurableHeldManagedUpdate(t *testing.T) {
 	}
 	backup := backupRecordFixture()
 	backup.PlacementSequence = placementSequence
-	if _, err := runtime.CommitBackupOperation(ctx, epoch, "database-a", "partition-a", 0, backup); !errors.Is(err, ErrFenced) {
+	if _, err := runtime.CommitBackupOperation(ctx, epoch, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", 0, backup); !errors.Is(err, ErrFenced) {
 		t.Fatalf("unverified backup after held update was admitted: %v", err)
 	}
 	currentRosterMatches := false
-	if _, err := runtime.CommitBackupOperationVerified(ctx, epoch, "database-a", "partition-a", 0, backup,
+	if _, err := runtime.CommitBackupOperationVerified(ctx, epoch, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", 0, backup,
 		func(context.Context) error {
 			if !currentRosterMatches {
 				return ErrFenced
@@ -573,12 +574,12 @@ func TestBackupStartAllowsDurableHeldManagedUpdate(t *testing.T) {
 		}); !errors.Is(err, ErrFenced) {
 		t.Fatalf("stale pre-update serving roster was admitted after Held: %v", err)
 	}
-	if _, _, err := runtime.ReadBackupOperation(ctx, "database-a", "partition-a"); !errors.Is(err, ErrNotFound) {
+	if _, _, err := runtime.ReadBackupOperation(ctx, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("rejected stale roster left a backup record: %v", err)
 	}
 	currentRosterMatches = true
 	verified := false
-	if _, err := runtime.CommitBackupOperationVerified(ctx, epoch, "database-a", "partition-a", 0, backup,
+	if _, err := runtime.CommitBackupOperationVerified(ctx, epoch, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", 0, backup,
 		func(context.Context) error {
 			verified = true
 			return nil
@@ -588,7 +589,7 @@ func TestBackupStartAllowsDurableHeldManagedUpdate(t *testing.T) {
 	if !verified {
 		t.Fatal("final serving-roster verifier did not run")
 	}
-	placement, err := runtime.ReadPlacementIntent(ctx, "database-a", "partition-a")
+	placement, err := runtime.ReadPlacementIntent(ctx, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8")
 	if err != nil || placement.Sequence != placementSequence || !slices.Equal(placement.Payload, placementPayload) {
 		t.Fatalf("backup after held outcome changed immutable placement: %+v, %v", placement, err)
 	}
@@ -609,14 +610,14 @@ func TestBackupStartFailsClosedWhenManagedUpdateHistoryIsUnreadable(t *testing.T
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "backup-unreadable-update", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000ADZVNETZWAXD7T7Q", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runtime.Close() })
 	epoch := runtime.Current().Epoch
 	placementSequence, err := runtime.CommitPlacementIntent(ctx, epoch,
-		"database-a", "partition-a", "initial-placement", 0, []byte("immutable-initial-placement"))
+		"0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", "0000000000Q2Y4A2RFN6VGFFB1", 0, []byte("immutable-initial-placement"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -624,11 +625,11 @@ func TestBackupStartFailsClosedWhenManagedUpdateHistoryIsUnreadable(t *testing.T
 	runtime.readStream = unavailableManagedUpdateHistoryStream{Stream: runtime.readStream, err: unavailable}
 	backup := backupRecordFixture()
 	backup.PlacementSequence = placementSequence
-	if _, err := runtime.CommitBackupOperationVerified(ctx, epoch, "database-a", "partition-a", 0,
+	if _, err := runtime.CommitBackupOperationVerified(ctx, epoch, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", 0,
 		backup, func(context.Context) error { return nil }); !errors.Is(err, unavailable) {
 		t.Fatalf("backup admission did not fail closed on unreadable update history: %v", err)
 	}
-	if _, _, err := runtime.ReadBackupOperation(ctx, "database-a", "partition-a"); !errors.Is(err, ErrNotFound) {
+	if _, _, err := runtime.ReadBackupOperation(ctx, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unreadable update history left a backup record: %v", err)
 	}
 }
@@ -637,11 +638,11 @@ func backupFenceManagedUpdateRecord(placementSequence uint64) ManagedUpdateRecor
 	request := []byte(`{"version":1,"operation":"backup-fence-test"}`)
 	digest := sha256.Sum256(request)
 	return ManagedUpdateRecord{
-		SchemaVersion: 1, Cell: "gru", DatabaseID: "database-a", PartitionID: "partition-a",
-		OperationID: "managed-update-test", Phase: ManagedUpdatePrepared, SignedRequest: request,
+		SchemaVersion: 1, Cell: "gru", DatabaseID: "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8",
+		OperationID: "0000000000KJ8HRHBVGBDZYCYX", Phase: ManagedUpdatePrepared, SignedRequest: request,
 		SignedRequestSHA256: hex.EncodeToString(digest[:]), PlacementGeneration: 1,
 		PlacementPayloadDigest: strings.Repeat("a", 64), PlacementSequence: placementSequence,
-		CanarySeatID: "seat-a", CanaryDesiredGeneration: 2,
+		CanarySeatID: "000000000077F1R6E1XPKAC2D4", CanaryDesiredGeneration: 2,
 		OldArtifactDigest: strings.Repeat("b", 64), CandidateArtifactDigest: strings.Repeat("c", 64),
 		CandidateManifestDigest: strings.Repeat("d", 64), CandidateSourceDigest: strings.Repeat("e", 64),
 		DurabilityProfileSHA256: strings.Repeat("f", 64),
@@ -652,36 +653,36 @@ func TestBackupActiveFencesTerminalUntilAllRosterAbort(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "backup-terminal-gate", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000C8ZZ0Q1TC1W83ETT", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runtime.Close() })
 	epoch := runtime.Current().Epoch
-	placementSequence, err := runtime.CommitPlacementIntent(ctx, epoch, "database-a", "partition-a",
-		"initial-placement", 0, []byte("initial"))
+	placementSequence, err := runtime.CommitPlacementIntent(ctx, epoch, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8",
+		"0000000000Q2Y4A2RFN6VGFFB1", 0, []byte("initial"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	record := backupRecordFixture()
 	record.PlacementSequence = placementSequence
-	sequence, err := runtime.CommitBackupOperationVerified(ctx, epoch, "database-a", "partition-a", 0,
+	sequence, err := runtime.CommitBackupOperationVerified(ctx, epoch, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", 0,
 		record, func(context.Context) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
-	intent := TerminalIntent{Cell: "gru", DatabaseID: "database-a", PartitionID: "partition-a",
+	intent := TerminalIntent{Cell: "gru", DatabaseID: "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8",
 		Region: "GRU", Owner: "owner-a", CompartmentID: "ocid1.compartment.oc1..backupgate",
 		FleetGeneration: 1, PlacementGeneration: 1, PlacementPayloadDigest: strings.Repeat("a", 64),
-		OperationID: "terminal-after-backup", Nonce: uuid.New().String(),
-		Targets: []TerminalTarget{{SeatID: "seat-a", MemberID: "member-a",
-			HostCreateKey: "host-a", DataCreateKey: "data-a"}},
+		OperationID: "0000000000WT247GS8H7FQE9FW", Nonce: "0123456789abcdef0123456789abcdef",
+		Targets: []TerminalTarget{{SeatID: "000000000077F1R6E1XPKAC2D4", MemberID: "0000000000WM3QQGQPMW5X58P9",
+			HostCreateKey: "0000000000R58Y74PAABAQ7X2V", DataCreateKey: "0000000000NMFV7B37QZWENX9Z"}},
 		DisposableWorkload: true, AcknowledgePermanentDataLoss: true, AuthorizeForcedStop: true}
 	payload, err := json.Marshal(intent, json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := WorkloadScope{DatabaseID: "database-a", PartitionID: "partition-a"}
+	scope := WorkloadScope{DatabaseID: "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8"}
 	commitTerminal := func() error {
 		_, err := runtime.CommitTerminalIntent(ctx, epoch, scope, intent.OperationID,
 			payload, func(context.Context) error { return nil })
@@ -693,13 +694,13 @@ func TestBackupActiveFencesTerminalUntilAllRosterAbort(t *testing.T) {
 	record.State = "aborting"
 	record.AbortEnvelope = []byte(`{"version":1,"reason":"abort"}`)
 	record.AbortExpiresAtMS = 1_900_000_120_000
-	sequence, err = runtime.CommitBackupOperation(ctx, epoch, "database-a", "partition-a", sequence, record)
+	sequence, err = runtime.CommitBackupOperation(ctx, epoch, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", sequence, record)
 	if err != nil {
 		t.Fatal(err)
 	}
 	record.Roster = slices.Clone(record.Roster)
 	record.Roster[0].AbortAcknowledged = true
-	sequence, err = runtime.CommitBackupOperation(ctx, epoch, "database-a", "partition-a", sequence, record)
+	sequence, err = runtime.CommitBackupOperation(ctx, epoch, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", sequence, record)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -708,7 +709,7 @@ func TestBackupActiveFencesTerminalUntilAllRosterAbort(t *testing.T) {
 	}
 	record.Roster[1].AbortAcknowledged = true
 	record.State = "aborted"
-	if _, err := runtime.CommitBackupOperation(ctx, epoch, "database-a", "partition-a", sequence, record); err != nil {
+	if _, err := runtime.CommitBackupOperation(ctx, epoch, "0000000000WVSMBJNMAWCDJBSK", "0000000000Z3WK359G2W66CVT8", sequence, record); err != nil {
 		t.Fatal(err)
 	}
 	if err := commitTerminal(); err != nil {

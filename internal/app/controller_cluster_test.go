@@ -18,6 +18,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
@@ -79,7 +80,7 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 				Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: clientPorts[index],
 					RouteHost: "127.0.0.1", RoutePort: routePorts[index], Routes: natscell.PeerRoutes(routes, routes[index]),
 					StoreDir: filepath.Join(root, instance), StoreMaxBytes: 4 << 30}},
-			Controller: ControllerConfig{CandidateID: instance, ResponseKeyFile: filepath.Join(root, "response.key"),
+			Controller: ControllerConfig{CandidateID: entityid.Derive("test-controller", instance), ResponseKeyFile: filepath.Join(root, "response.key"),
 				ArtifactStoreMaxBytes: 64 << 20,
 				TrustedSigners: []TrustedSignerConfig{{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(public),
 					Roles: []string{"terrabase"}, Environments: []string{"test"}}},
@@ -203,7 +204,7 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 		if boot == 1 {
 			found := false
 			for index := range children {
-				if strings.HasPrefix(holder.CandidateID, fmt.Sprintf("peer%d-", index)) {
+				if holder.CandidateID == controllerChildCandidateID(t, children[index]) {
 					failedPeer, found = index, true
 					break
 				}
@@ -497,4 +498,22 @@ func waitControllerChildStopped(t *testing.T, child *controllerChild) {
 		data, _ := os.ReadFile(child.logPath)
 		t.Fatalf("controller did not stop within %s: %s\n%s", controllerStopBudget, child.logPath, data)
 	}
+}
+
+func controllerChildCandidateID(t *testing.T, child *controllerChild) string {
+	t.Helper()
+	data, err := os.ReadFile(child.logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		var record struct {
+			CandidateID string `json:"candidate_id"`
+		}
+		if json.Unmarshal([]byte(line), &record) == nil && entityid.Valid(record.CandidateID) {
+			return record.CandidateID
+		}
+	}
+	t.Fatalf("controller candidate identity missing from %s", child.logPath)
+	return ""
 }

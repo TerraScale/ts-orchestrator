@@ -33,7 +33,7 @@ func TestVolumeInitRequiresCurrentExactPlacementSeat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seat := placement.Seat{MemberID: "permanent-a", Region: oci.RegionGRU,
+	seat := placement.Seat{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU,
 		FailureDomain: "FAULT-DOMAIN-1", Kind: placement.MemberPermanent}
 	row, err := intent.RosterRowForSeat(seat)
 	if err != nil {
@@ -60,10 +60,10 @@ func TestVolumeInitRequiresCurrentExactPlacementSeat(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := placement.MemberState{
-		SchemaVersion: 4, DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
+		SchemaVersion: 5, DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
 		MemberID: seat.MemberID, Region: seat.Region, FailureDomain: seat.FailureDomain,
 		Kind: seat.Kind, Stage: placement.StageAwaitingHealthy,
-		CreateKey: "host-create-key", HostNode: "host-gru-a", InstanceID: "ocid1.instance.oc1..volume-init-test",
+		CreateKey: "0000000000NQKJR630FYJ4DPE1", HostNode: "host-gru-a", InstanceID: "ocid1.instance.oc1..volume-init-test",
 		VolumeID: "ocid1.volume.oc1..first", AttachmentID: "ocid1.volumeattachment.oc1..first",
 		AttachmentDevice: "/dev/oracleoci/oraclevdb", AttachmentETag: "first-attachment-etag",
 		HostAttempt: 1, IntentGeneration: intent.Generation, IntentPayloadDigest: intent.PayloadDigest(),
@@ -71,7 +71,7 @@ func TestVolumeInitRequiresCurrentExactPlacementSeat(t *testing.T) {
 		CanonicalRosterRow: row, CanonicalRosterDigest: rosterDigest,
 		AuthorityReference: intent.CanonicalRoster.Authority, RuntimeManifest: manifest,
 		RuntimeManifestDigest: manifestDigest, DesiredGeneration: intent.Generation,
-		HostGeneration: 1, OperationID: "volume-init-test", UpdatedAt: time.Now().UTC(),
+		HostGeneration: 1, OperationID: "000000000032ZPCV4RYZC2WXBX", UpdatedAt: time.Now().UTC(),
 	}
 	if err := state.Validate(); err != nil {
 		t.Fatalf("fixture placement seat is invalid: %v", err)

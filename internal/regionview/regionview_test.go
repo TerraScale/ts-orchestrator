@@ -38,12 +38,12 @@ func (staticInsights) Subscribe(ctx context.Context, _ int) <-chan insights.Chan
 
 func member(name, version string, leader bool) observability.MemberSnapshot {
 	return observability.MemberSnapshot{Member: name, Role: "controller", Ready: true, BuildVersion: version,
-		Authority: &observability.AuthorityView{Leader: leader, Ready: true, OwnerID: "c1", Epoch: 4},
+		Authority: &observability.AuthorityView{Leader: leader, Ready: true, OwnerID: "0000000000T3V33JGXVEMDPEYF", Epoch: 4},
 		NATS:      &observability.NATSView{MetaLeader: "c2", StoreUsedBytes: 10, StoreLimitBytes: 100},
 		System: &observability.SystemView{CPUCount: 2, MemTotalBytes: 100, MemAvailBytes: 40,
 			Filesystems: []observability.FilesystemView{{Role: "nats", SizeBytes: 1000, AvailBytes: 600}}},
-		Placement: &observability.PlacementView{Databases: []observability.DatabaseView{{DatabaseID: "db",
-			DesiredSeats: 2, Serving: 2, Rollout: &observability.RolloutView{OperationID: "op", Seats: 2, Completed: 1}}}},
+		Placement: &observability.PlacementView{Databases: []observability.DatabaseView{{DatabaseID: "0000000000FFE2BMB99VWR8Y1A",
+			DesiredSeats: 2, Serving: 2, Rollout: &observability.RolloutView{OperationID: "00000000000DXENTQMQFS6VPNY", Seats: 2, Completed: 1}}}},
 	}
 }
 
@@ -88,8 +88,8 @@ func TestLocalSummary(t *testing.T) {
 func TestLocalSummaryTopology(t *testing.T) {
 	leader := member("c2", "v1", true)
 	leader.Placement.Databases[0].Members = []observability.MemberView{
-		{SeatID: "db-1", HostNode: "h1", Stage: "serving"}, {SeatID: "db-2", HostNode: "h1", Stage: "draining"},
-		{SeatID: "db-3", HostNode: "h0", Stage: "serving"}, {SeatID: "db-4"}}
+		{SeatID: "0000000000D0AGSZ25QNHAF8B6", HostNode: "h1", Stage: "serving"}, {SeatID: "000000000098SVGR6D35X6XPT3", HostNode: "h1", Stage: "draining"},
+		{SeatID: "0000000000VEJ0PH18NVM0KEPW", HostNode: "h0", Stage: "serving"}, {SeatID: "0000000000RPN0Y82EPE5T3G2C"}}
 	host := observability.MemberSnapshot{Member: "h0", Role: "host", Ready: false}
 	provider := &Provider{Cell: "gru", Cluster: staticCluster{cluster(leader, member("c1", "v1", false), host)}}
 	summary := provider.Local(t.Context())

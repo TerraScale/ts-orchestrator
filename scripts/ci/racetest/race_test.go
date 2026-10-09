@@ -170,7 +170,7 @@ func newScheduler(t *testing.T) schedulerFixture {
 	script.Write(t, f.script, raceScript, 0o755)
 	durations := filepath.Join(tools, "race-durations.txt")
 	script.Write(t, durations, []byte(fixtureDurations), 0o644)
-	for pkg, names := range map[string][]string{"app": append(slices.Clone(schedulerLabs), "TestOne", "TestTwo", "TestFail", "TestThree"), "bootstrapstart": {"TestStart", "TestRetry", "TestMaterial"}, "other": {"TestOrdinary"}, "deploy": {solo, "TestOfflineOrdinary"}} {
+	for pkg, names := range map[string][]string{"app": append(slices.Clone(schedulerLabs), "TestOne", "TestTwo", "TestFail", "TestThree"), "bootstrapstart": {"TestStart", "TestRetry", "TestMaterial"}, "0000000000V4MRM46HP1SNGDYW": {"TestOrdinary"}, "deploy": {solo, "TestOfflineOrdinary"}} {
 		source := `package fixture
 import("fmt";"os";"testing")
 func record(name string){f,err:=os.OpenFile(os.Getenv("TEST_RECORD"),os.O_CREATE|os.O_APPEND|os.O_WRONLY,0600);if err!=nil{panic(err)};defer f.Close();if _,err:=fmt.Fprintln(f,name);err!=nil{panic(err)}}

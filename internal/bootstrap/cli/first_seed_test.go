@@ -503,7 +503,7 @@ func TestExternalSeedCLIDoesNotOpenOCIWithoutValidSignedInputs(t *testing.T) {
 func TestExternalSeedSignerConsumesGeneratedLedgerKey(t *testing.T) {
 	materialDirectory := filepath.Join(t.TempDir(), "controller-material")
 	config := bootstrapmaterial.Config{Environment: "production", Region: "sa-saopaulo-1",
-		Cell: "gru", DeploymentID: "alpha-20260927", ClusterID: "alpha-gru",
+		Cell: "gru", DeploymentID: "0000000000XXVM2FA4QBBHZBKD", ClusterID: "00000000000C2KQX35BT9P1FFG",
 		SubnetCIDR: "10.251.0.0/24", ValidityHours: 48,
 		Slots: []bootstrapmaterial.Slot{{Name: "controller-a", PrivateIP: "10.251.0.10"},
 			{Name: "controller-b", PrivateIP: "10.251.0.11"},

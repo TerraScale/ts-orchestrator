@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/image"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/image"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport/imageimporttest"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"

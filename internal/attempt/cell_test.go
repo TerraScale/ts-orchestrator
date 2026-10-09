@@ -607,7 +607,7 @@ func TestServicesPhaseAddsServicesThroughSignedSets(t *testing.T) {
 	}
 	delegation := commands[0]
 	if !slices.Contains(delegation, "sign-spec-delegation") || flagValue(delegation, "--signing-key") != "/keys/root.key" ||
-		flagValue(delegation, "--subject-public-key") != "/keys/leaf.pub" || flagValue(delegation, "--deployment-id") != "deployment" ||
+		flagValue(delegation, "--subject-public-key") != "/keys/leaf.pub" || flagValue(delegation, "--deployment-id") != "0000000000F9PR1WNVDTEXS31Z" ||
 		flagValue(delegation, "--cell") != "gru" || flagValue(delegation, "--environment") != "canary" {
 		t.Fatal(delegation)
 	}

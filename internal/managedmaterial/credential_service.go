@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -83,9 +85,9 @@ func (service CredentialService) Apply(ctx context.Context, epoch uint64, reques
 ) (CredentialReceipt, error) {
 	if ctx == nil || epoch == 0 || service.Store == nil || service.Preparation.Fencer == nil ||
 		len(service.Preparation.ControllerKey) != ed25519.PrivateKeySize ||
-		!repositoryToken.MatchString(request.DatabaseID) ||
-		!repositoryToken.MatchString(request.PartitionID) ||
-		!repositoryToken.MatchString(request.OperationID) ||
+		!entityid.Valid(request.DatabaseID) ||
+		!entityid.Valid(request.PartitionID) ||
+		!entityid.Valid(request.OperationID) ||
 		!lowerHexDigest(request.InitialReceiptSHA) || request.ExpectedGeneration == 0 {
 		return CredentialReceipt{}, ErrMaterialConflict
 	}
@@ -187,9 +189,7 @@ func validateCredentialRequest(request CredentialRequest, spec InitialSpec,
 		grantSpec.Recipient = request.Recipient
 		return validateInitialSpec(grantSpec, recipientSigner, now)
 	case CredentialRevoke:
-		identifier, err := base64.RawURLEncoding.DecodeString(request.KeyID)
-		if err != nil || len(identifier) != 16 ||
-			base64.RawURLEncoding.EncodeToString(identifier) != request.KeyID ||
+		if !entityid.Valid(request.KeyID) ||
 			len(request.Recipient.PublicKey) != 0 || len(request.Recipient.Signature) != 0 ||
 			!request.Recipient.ExpiresAt.IsZero() {
 			return ErrMaterialConflict
@@ -224,16 +224,13 @@ func applyCredentialChange(current []byte, request CredentialRequest, spec Initi
 		if len(registry.Keys) == 128 {
 			return nil, nil, ErrMaterialConflict
 		}
-		var identifier [16]byte
+		identifier, _ := entityid.Parse(entityid.New())
 		var secret [32]byte
-		if _, err := rand.Read(identifier[:]); err != nil {
-			return nil, nil, err
-		}
 		if _, err := rand.Read(secret[:]); err != nil {
 			return nil, nil, err
 		}
 		defer clear(secret[:])
-		id := base64.RawURLEncoding.EncodeToString(identifier[:])
+		id := identifier.String()
 		for _, key := range registry.Keys {
 			if key.ID == id {
 				return nil, nil, ErrMaterialConflict
@@ -282,8 +279,7 @@ func validateCredentialRegistry(spec InitialSpec, wire []byte) error {
 	}
 	seen := make(map[string]bool, len(registry.Keys))
 	for _, key := range registry.Keys {
-		identifier, err := base64.RawURLEncoding.DecodeString(key.ID)
-		if err != nil || len(identifier) != 16 || seen[key.ID] || !lowerHexDigest(key.VerifierSHA256) ||
+		if !entityid.Valid(key.ID) || seen[key.ID] || !lowerHexDigest(key.VerifierSHA256) ||
 			key.Tenant != spec.Scope.TenantID || key.Database != spec.Scope.DatabaseID ||
 			key.Shard != strconv.FormatUint(spec.Scope.ShardID, 10) ||
 			len(key.Permissions) != 2 || key.Permissions[0] != "read" || key.Permissions[1] != "write" ||

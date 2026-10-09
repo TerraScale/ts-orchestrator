@@ -10,6 +10,8 @@ import (
 	"slices"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 )
 
@@ -60,7 +62,7 @@ func sameManagedDrainOperation(left, right ManagedDrainCommand) bool {
 
 func (command ManagedDrainCommand) matchesDesired(desired Desired, registration Registration) bool {
 	launch := desired.ManagedMember
-	return len(command.OperationID) == 32 && lowerHex(command.OperationID, 32) &&
+	return entityid.Valid(command.OperationID) &&
 		command.Node == desired.Node && command.Role == desired.Role && command.Epoch != 0 &&
 		command.DesiredGeneration == desired.Generation && command.ExpectedETag != "" &&
 		launch != nil && launch.Runtime != nil && !desired.Withdrawn && command.Member == launch.Member &&
@@ -71,7 +73,7 @@ func (command ManagedDrainCommand) matchesDesired(desired Desired, registration 
 		command.ExpectedProcess.PID >= 2 && lowerHex(command.ExpectedProcess.StartNonce, 32) &&
 		command.Survivor.MemberID == launch.Runtime.ReplicationPeerMemberID &&
 		command.Survivor.MemberID != command.Member.Scope.MemberID &&
-		lowerHex(command.Survivor.Incarnation, 32)
+		lowerHexIdentity(command.Survivor.Incarnation)
 }
 
 func drainIdentity(command ManagedDrainCommand) memberstatus.Identity {

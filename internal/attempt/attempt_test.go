@@ -15,7 +15,7 @@ func smallAttempt(t *testing.T) *Attempt {
 	t.Helper()
 	dir := t.TempDir()
 	config := filepath.Join(dir, "config.json")
-	wire := []byte(`{"workdir":"` + filepath.Join(dir, "work") + `","deployment_id":"deployment","prefix":"bootstrap/a","tools":{}}`)
+	wire := []byte(`{"workdir":"` + filepath.Join(dir, "work") + `","deployment_id":"0000000000F9PR1WNVDTEXS31Z","prefix":"bootstrap/a","tools":{}}`)
 	if err := os.WriteFile(config, wire, 0600); err != nil {
 		t.Fatal(err)
 	}

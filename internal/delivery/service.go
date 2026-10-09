@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
@@ -330,7 +331,7 @@ func (s *Service) SubmitVerified(ctx context.Context, intent Intent, actor strin
 		return err
 	}
 	sum := sha256.Sum256(wire)
-	if _, err := s.operations.Create(ctx, "w_"+hex.EncodeToString(sum[:]), verified); err != nil && !errors.Is(err, jetstream.ErrKeyExists) {
+	if _, err := s.operations.Create(ctx, entityid.Derive("delivery-verified", hex.EncodeToString(sum[:])), verified); err != nil && !errors.Is(err, jetstream.ErrKeyExists) {
 		return fmt.Errorf("record verified delivery intent: %w", err)
 	}
 	if err := s.publishIntent(ctx, IntentSubject(intent.Cell), wire, intent.OperationID+"."+fingerprint); err != nil {
@@ -469,8 +470,7 @@ func retryableIntentPublishError(err error, attemptDeadlineExpired bool) bool {
 }
 
 func operationKey(id string) string {
-	sum := sha256.Sum256([]byte(id))
-	return "o_" + hex.EncodeToString(sum[:])
+	return entityid.Derive("delivery-operation", id)
 }
 
 type operationValue struct {
@@ -525,7 +525,7 @@ func operationValueFromMsg(subject string, msg *nats.RawStreamMsg) (*operationVa
 }
 
 func (s *Service) Status(ctx context.Context, operationID string) (Receipt, error) {
-	if s == nil || !opRE.MatchString(operationID) {
+	if s == nil || !entityid.Valid(operationID) {
 		return Receipt{}, ErrInvalid
 	}
 	e, err := s.getOperation(ctx, operationKey(operationID))

@@ -15,7 +15,7 @@ import (
 func TestExpiredSelectedPlanIsClassifiedAsOperatorActionThroughWrappers(t *testing.T) {
 	fixture := newFounderSelectionFixture(t)
 	selection := fixture.signSelection(t, fixture.selection, fixture.now.Add(23*time.Hour))
-	key := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain, "deployment-a", "GRU", "production")
+	key := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain, "0000000000F9PR1WNVDTEXS31Z", "GRU", "production")
 	fixture.publish(t, fixture.selection)
 	fixture.objects.items[key] = selection
 	if err := fixture.floor.Initialize(1, digestWire(selection)); err != nil {

@@ -32,6 +32,8 @@ import (
 	"syscall"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
@@ -133,8 +135,8 @@ func (cfg Config) validate() error {
 	}
 	region, err := MappedOCIRegion(cfg.Cell)
 	if err != nil || cfg.Region != region ||
-		!identityRE.MatchString(cfg.DeploymentID) ||
-		!clusterRE.MatchString(cfg.ClusterID) ||
+		!entityid.Valid(cfg.DeploymentID) ||
+		!entityid.Valid(cfg.ClusterID) ||
 		cfg.ValidityHours < int(minValidity.Hours()) || cfg.ValidityHours > int(MaxValidity.Hours()) ||
 		len(cfg.Slots) != 3 || cfg.GrantVersion < 0 || cfg.GrantVersion > GrantVersionObservability {
 		return ErrMaterial

@@ -166,7 +166,7 @@ func TestManagedMemberFirecrackerSignedServing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	placement := ManagedPlacementBinding{DatabaseID: "db-fixture", PartitionID: "partition-fixture", SeatID: "seat-" + cfg.Node,
+	placement := ManagedPlacementBinding{DatabaseID: "0000000000FTWBQZATY5ZX75CK", PartitionID: "00000000009TF2AH9GBM2MRH80", SeatID: "0000000000F44W4Y3D2M254AC9" + cfg.Node,
 		IntentGeneration: 1, IntentPayloadDigest: cfg.SourceDigest, CanonicalRosterDigest: cfg.SourceDigest,
 		ManagedHostProfileDigest: cfg.SourceDigest}
 	oci := ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1.." + cfg.Node,

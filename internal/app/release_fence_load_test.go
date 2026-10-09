@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
@@ -169,7 +171,7 @@ func TestTerraBaseReleaseFenceUnderLoad(t *testing.T) {
 					return nil
 				}}
 			intent := nativeIntent(candidate, nativeRelease{Role: terrabase.Role, Replicas: 3}, 7)
-			intent.SchemaVersion, intent.OperationID, intent.AuthorityEpoch = delivery.SchemaVersion, "traffic-upgrade", 3
+			intent.SchemaVersion, intent.OperationID, intent.AuthorityEpoch = delivery.SchemaVersion, entityid.Derive("test-operation", "traffic-upgrade"), 3
 			state := serviceReleaseState{State: releasechannel.StateRolling, Actor: "ops", Digest: candidate.Digest,
 				Previous: previous.Digest, Intent: &intent}
 			var revision uint64

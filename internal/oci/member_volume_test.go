@@ -97,7 +97,7 @@ func TestMemberVolumeCreatesAndAttachesOnceIdempotently(t *testing.T) {
 		t.Fatalf("created volume = %+v (creates %d)", volume, p.volumeCreates)
 	}
 	for key, want := range map[string]string{
-		tagCreateKey: testMemberVolume, tagOwner: "gru-1", tagResource: resourceMemberData, tagVolumeSize: "50",
+		tagCreateKey: memberVolumeCreateKey(testMemberVolume), tagOwner: "gru-1", tagResource: resourceMemberData, tagVolumeSize: "50",
 		tagRegion: "GRU", tagGeneration: "1", tagManagedBy: managedByValue,
 	} {
 		if got := volume.FreeformTags[key]; got != want {
@@ -320,7 +320,7 @@ func TestMemberVolumeResizeGrowsOnlyUnderETag(t *testing.T) {
 		t.Fatal(err)
 	}
 	after := onlyVolume(t, p)
-	if grown.ID != before.ID || grown.SizeGB != 100 || grown.State != "AVAILABLE" || grown.CreateKey != testMemberVolume ||
+	if grown.ID != before.ID || grown.SizeGB != 100 || grown.State != "AVAILABLE" || grown.CreateKey != memberVolumeCreateKey(testMemberVolume) ||
 		provider.updates != 1 || after.SizeGB != 100 || after.FreeformTags[tagVolumeSize] != "100" || after.ETag == before.ETag {
 		t.Fatalf("Resize = %+v, volume %+v (updates %d)", grown, after, provider.updates)
 	}
@@ -359,7 +359,7 @@ func TestMemberVolumeDuplicateCreateKeyHolds(t *testing.T) {
 	ctx := t.Context()
 	volumes, p := memberVolumeFixture(t, nil)
 	addMemberInstance(p, "ocid1.instance.host-1", testMember)
-	tags := volumeTags(p.config, VolumeCreateRequest{CreateKey: testMemberVolume, SizeGB: 50})
+	tags := volumeTags(p.config, VolumeCreateRequest{CreateKey: memberVolumeCreateKey(testMemberVolume), SizeGB: 50})
 	for _, id := range []string{"ocid1.volume.a", "ocid1.volume.b"} {
 		p.volumes[id] = CloudVolume{
 			ID: id, CompartmentID: p.config.CompartmentID, AvailabilityDomain: p.config.AvailabilityDomain,

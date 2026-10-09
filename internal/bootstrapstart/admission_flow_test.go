@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap/generationtest"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -280,7 +282,7 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 	}
 	releaseGrant, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion,
 		SubjectKeyID: releaseID, SubjectPublicKey: releasePublicWire, Capabilities: []trust.Capability{{
-			Domain: release.ImageDomain, DeploymentID: revision, Cell: "GRU", Environment: "production",
+			Domain: release.ImageDomain, DeploymentID: entityid.Derive("build", revision), Cell: "GRU", Environment: "production",
 			Role: "oci-image", Slots: []string{imageID}, Actions: []string{"sign"},
 		}}}, now.Add(-10*time.Minute), now.Add(2*time.Hour), rootPrivate)
 	if err != nil {
@@ -356,14 +358,14 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 			DeploymentID: anchored.DeploymentID, Environment: anchored.Environment,
 			Cell: string(anchored.Cell), Role: "controller", Slot: "controller-b", ImageOCID: imageID,
 			ManifestDigest: verifiedManifest.Digest(), ReleaseReceiptDigest: digest(imageWire),
-			CompartmentOCID: compartmentID, CreateKey: "create-a", OCIRegion: anchored.OCIRegion,
+			CompartmentOCID: compartmentID, CreateKey: "0000000000DQTHYRQR02X2ABFT", OCIRegion: anchored.OCIRegion,
 			AvailabilityDomain: profile.AvailabilityDomain, FaultDomain: profile.FaultDomain,
 			SubnetOCID: profile.SubnetOCID, Shape: profile.Shape,
 			NetworkSecurityGroupIDs: profile.NetworkSecurityGroupOCIDs},
 		IntentRecord:   bootstrap.StoredRecord{SHA256: strings.Repeat("f", 64)},
 		ManifestRecord: &bootstrap.StoredRecord{Bytes: manifestWire, SHA256: verifiedManifest.Digest()},
 		Result: &bootstrap.Result{InstanceOCID: instanceID, ImageOCID: imageID,
-			CompartmentOCID: compartmentID, CreateKey: "create-a", Shape: profile.Shape},
+			CompartmentOCID: compartmentID, CreateKey: "0000000000DQTHYRQR02X2ABFT", Shape: profile.Shape},
 		ResultRecord: &bootstrap.StoredRecord{SHA256: strings.Repeat("e", 64)},
 	}
 	if peer {
@@ -825,7 +827,7 @@ func TestRestartAdmissionFollowsTheGenerationsControllerConfig(t *testing.T) {
 		loaded   []byte
 	}{
 		"the manifest's old config":          {bound, manifest.ControllerConfig},
-		"a config matching neither":          {bound, []byte(`{"nats":{},"controller":{"other":true}}`)},
+		"a config matching neither":          {bound, []byte(`{"nats":{},"controller":{"0000000000V4MRM46HP1SNGDYW":true}}`)},
 		"a config bound to another manifest": {adopted(digest([]byte("another manifest"))), config},
 		"a new config without a generation":  {fixture.material, config},
 	} {

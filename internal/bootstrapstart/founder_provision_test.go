@@ -97,7 +97,7 @@ func TestFreshSeedProvisionRechecksExpiryAtPublication(t *testing.T) {
 	fixture := newFounderSignerFixture(t)
 	selectionWire := fixture.signSelection(t, fixture.selection, fixture.now.Add(-10*time.Second))
 	key := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain,
-		"deployment-a", "GRU", "production")
+		"0000000000F9PR1WNVDTEXS31Z", "GRU", "production")
 	fixture.objects.items[key] = selectionWire
 	floor, uid, gid := testServiceFounderFloor(t)
 	reader, err := NewCurrentFounderAuthorityReader(fixture.baked, fixture.accepted, fixture.objects, floor)
@@ -130,7 +130,7 @@ func TestFreshSeedProvisionHoldsChangedPlanAndLaterGeneration(t *testing.T) {
 		{"missing immutable peer", func(f *founderSelectionFixture) {
 			for key := range f.objects.items {
 				if key == f.domain.LedgerBucket+"/"+FounderImmutableObjectName(f.domain,
-					"deployment-a", "GRU", "production", digestWire(f.manifests["controller-a"])) {
+					"0000000000F9PR1WNVDTEXS31Z", "GRU", "production", digestWire(f.manifests["controller-a"])) {
 					delete(f.objects.items, key)
 				}
 			}

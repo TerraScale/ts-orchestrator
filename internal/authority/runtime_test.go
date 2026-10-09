@@ -21,7 +21,7 @@ func TestStartReobservesCommittedLeaseAfterAmbiguousPublish(t *testing.T) {
 	defer cancel()
 
 	runtime, err := Start(ctx, wrapped, Config{
-		Scope: "gru", CandidateID: "candidate-a", LeaseDuration: 5 * time.Second,
+		Scope: "gru", CandidateID: "0000000000C66H81REBS854264", LeaseDuration: 5 * time.Second,
 		RenewInterval: 2 * time.Second, Replicas: 1,
 	})
 	if err != nil {
@@ -73,7 +73,7 @@ func TestClockHealthFencesGuardAndDurableMutations(t *testing.T) {
 	defer cancel()
 	var healthy atomic.Bool
 	healthy.Store(true)
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "clock-owner", Replicas: 1,
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "000000000082B6JM3GHXKNG2CR", Replicas: 1,
 		ClockCheck: func() error {
 			if !healthy.Load() {
 				return ErrClockUnhealthy
@@ -95,7 +95,7 @@ func TestClockHealthFencesGuardAndDurableMutations(t *testing.T) {
 	if err := runtime.Guard(ctx, epoch); !errors.Is(err, ErrClockUnhealthy) {
 		t.Fatalf("Guard with unhealthy clock = %v", err)
 	}
-	if _, err := runtime.CommitHostMutation(ctx, epoch, MutationRegistration, "gru.node-a", "op-a", 0, []byte(`{"node":"a"}`)); !errors.Is(err, ErrClockUnhealthy) {
+	if _, err := runtime.CommitHostMutation(ctx, epoch, MutationRegistration, "gru.node-a", "000000000076W1KGWFZCGBQ9MM", 0, []byte(`{"node":"a"}`)); !errors.Is(err, ErrClockUnhealthy) {
 		t.Fatalf("durable mutation with unhealthy clock = %v", err)
 	}
 }
@@ -109,7 +109,7 @@ func TestStartDoesNotRetryPermanentOrCanceledLeasePublish(t *testing.T) {
 		defer cancel()
 
 		runtime, err := Start(ctx, wrapped, Config{
-			Scope: "mia", CandidateID: "candidate-a", LeaseDuration: 5 * time.Second,
+			Scope: "mia", CandidateID: "0000000000C66H81REBS854264", LeaseDuration: 5 * time.Second,
 			RenewInterval: 2 * time.Second, Replicas: 1,
 		})
 		if runtime != nil {
@@ -130,7 +130,7 @@ func TestStartDoesNotRetryPermanentOrCanceledLeasePublish(t *testing.T) {
 		defer cancel()
 
 		runtime, err := Start(ctx, wrapped, Config{
-			Scope: "scl", CandidateID: "candidate-a", LeaseDuration: 5 * time.Second,
+			Scope: "scl", CandidateID: "0000000000C66H81REBS854264", LeaseDuration: 5 * time.Second,
 			RenewInterval: 2 * time.Second, Replicas: 1,
 		})
 		if runtime != nil {
@@ -293,8 +293,8 @@ func TestStartupLeasePublishBoundsUnknownOutcomeWithLongParent(t *testing.T) {
 	publisher := &deadlinePublish{}
 	runtime := &Runtime{
 		publisher: publisher, stream: &failedOutcomeProbeStream{},
-		leaseSub: "ts.control.gru.lease", ownerID: "owner-a",
-		config: Config{Scope: "gru", CandidateID: "candidate-a", LeaseDuration: 5 * time.Second},
+		leaseSub: "ts.control.gru.lease", ownerID: "00000000004AS2NC5H2SW57SZG",
+		config: Config{Scope: "gru", CandidateID: "0000000000C66H81REBS854264", LeaseDuration: 5 * time.Second},
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
@@ -327,7 +327,7 @@ func TestStartRejectsExistingControlStreamWithExtraSubject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "candidate-a", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000C66H81REBS854264", Replicas: 1})
 	if runtime != nil || err == nil {
 		t.Fatalf("Start accepted a control stream with an extra subject: runtime=%v err=%v", runtime, err)
 	}

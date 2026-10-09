@@ -49,7 +49,7 @@ func launchMaterialFixture(t *testing.T) (bakedStore, LaunchMaterial) {
 			pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
 	}
 	identity, err := protocol.EncodeJSON(BakedIdentity{
-		SchemaVersion: 1, DeploymentID: "deployment-a", Environment: "production", Cell: oci.RegionGRU,
+		SchemaVersion: 1, DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "production", Cell: oci.RegionGRU,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +132,7 @@ func TestInstallLaunchMaterialWritesVerifiedWriteOnceFiles(t *testing.T) {
 		t.Fatalf("installed launch material differs: %v", err)
 	}
 	baked, err := store.load()
-	if err != nil || baked.Identity.DeploymentID != "deployment-a" || string(baked.AnchorWire) != string(material.Anchor) {
+	if err != nil || baked.Identity.DeploymentID != "0000000000F9PR1WNVDTEXS31Z" || string(baked.AnchorWire) != string(material.Anchor) {
 		t.Fatalf("baked loader rejected installed launch material: %v", err)
 	}
 	unexpected := func(context.Context) (LaunchMaterial, error) {

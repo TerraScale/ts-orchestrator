@@ -27,7 +27,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 type Object = map[string]any
@@ -333,7 +334,7 @@ func CatalogBinding(spec Object, collectionID string) (uint64, string, error) {
 	if e != nil {
 		return 0, "", e
 	}
-	id, e := uuid.Parse(collectionID)
+	id, e := entityid.Parse(collectionID)
 	if e != nil {
 		return 0, "", e
 	}
@@ -360,15 +361,15 @@ func CustomerMaterial(reply, opened Object) (string, string, error) {
 	if len(parts) != 3 || parts[0] != "tbk1" || parts[1] != customer["token_id"] {
 		return "", "", fmt.Errorf("customer token ID differs from verified preparation reply")
 	}
-	id, e := base64.RawURLEncoding.Strict().DecodeString(parts[1])
+	id, e := entityid.Parse(parts[1])
 	if e != nil {
 		return "", "", fmt.Errorf("customer token encoding is invalid")
 	}
 	secret, e := base64.RawURLEncoding.Strict().DecodeString(parts[2])
-	if e != nil || len(id) != 16 || len(secret) != 32 {
+	if e != nil || len(secret) != 32 {
 		return "", "", fmt.Errorf("customer token length is invalid")
 	}
-	material := append(append([]byte("TB-APIKEY-V1\x00"), id...), secret...)
+	material := append(append([]byte("TB-APIKEY-V1\x00"), id[:]...), secret...)
 	if hashBytes(material) != customer["verifier_sha256"] || hashBytes([]byte(ca)) != customer["https_ca_sha256"] {
 		return "", "", fmt.Errorf("opened customer material differs from verified preparation reply")
 	}
@@ -713,7 +714,7 @@ func Scenario(ctx context.Context, o Options, run Runner) (Object, error) {
 	}
 	scope := obj(spec["scope"])
 	prefix := fmt.Sprintf("/v1/tenants/%v/databases/%v/shards/%v", scope["tenant_id"], scope["database_id"], scope["shard_id"])
-	docID := uuid.NewV7().String()
+	docID := entityid.New()
 	point := prefix + "/collections/" + o.CollectionID + "/documents/" + docID
 	before, e := Hosts(ctx, o.Operator, o.OperatorConfig, o.NATSForward, run)
 	if e != nil {

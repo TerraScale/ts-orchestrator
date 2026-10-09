@@ -43,7 +43,7 @@ func verifiedCaptureAnchor(t *testing.T, now time.Time) (bootstrap.VerifiedBoots
 	slots := []string{"controller-a", "controller-b", "seed-a"}
 	var capabilities []trust.Capability
 	for _, domain := range bootstrap.BootstrapLedgerCapabilityDomains() {
-		capabilities = append(capabilities, trust.Capability{Domain: domain, DeploymentID: "deployment-a",
+		capabilities = append(capabilities, trust.Capability{Domain: domain, DeploymentID: "0000000000F9PR1WNVDTEXS31Z",
 			Cell: "GRU", Environment: "production", Role: "controller", Slots: slots, Actions: []string{"sign"}})
 	}
 	grant, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion,
@@ -63,7 +63,7 @@ func verifiedCaptureAnchor(t *testing.T, now time.Time) (bootstrap.VerifiedBoots
 	}
 	digest := sha256.Sum256(regionWire)
 	anchor := bootstrap.BootstrapAnchor{SchemaVersion: bootstrap.BootstrapAnchorSchemaVersion,
-		DeploymentID: "deployment-a", Environment: "production", ClusterID: "cluster-a", Cell: oci.RegionGRU,
+		DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "production", ClusterID: "0000000000RMSAJ9B0JFV7ESHN", Cell: oci.RegionGRU,
 		OCIRegion: "sa-saopaulo-1", ControllerSlots: slots, LedgerDelegationWire: grantWire,
 		StorageDomain: bootstrap.StorageDomain{Namespace: "namespace-a", LedgerBucket: "ledger-bucket",
 			LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", HeadBucket: "head-bucket",

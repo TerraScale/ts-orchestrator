@@ -118,7 +118,7 @@ func TestGlobalHomeNeedsGlobalGrantsUnderRestrictedCredentials(t *testing.T) {
 
 	js := server.JetStream()
 	global, err := authority.Start(ctx, js, authority.Config{
-		Scope: protocol.GlobalScope, CandidateID: "home-a", Replicas: 1,
+		Scope: protocol.GlobalScope, CandidateID: "0000000000RD0JZ6JW4K5EHN9F", Replicas: 1,
 		LeaseDuration: 5 * time.Second, RenewInterval: 500 * time.Millisecond,
 	})
 	if err != nil {

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
@@ -198,7 +200,7 @@ type FounderPeerObservationRequest struct {
 // Signature, anchor, and manifest bindings are checked by VerifyFounderPlan.
 func (plan FounderPlan) Validate() error {
 	region, err := plan.Cell.OCIRegion()
-	if err != nil || plan.SchemaVersion != FounderPlanSchemaVersion || !deploymentRE.MatchString(plan.DeploymentID) ||
+	if err != nil || plan.SchemaVersion != FounderPlanSchemaVersion || !entityid.Valid(plan.DeploymentID) ||
 		(plan.Environment != "production" && plan.Environment != "canary") || !controllerSlotRE.MatchString(plan.SeedSlot) ||
 		!validDigest(plan.AnchorSHA256) || !validDigest(plan.SeedManifestSHA256) ||
 		len(plan.ControllerSlots) != 3 || hasDuplicate(plan.ControllerSlots) || !slices.IsSorted(plan.ControllerSlots) ||
@@ -415,7 +417,7 @@ func verifyFounderPlan(
 	}
 	scope := envelope.Scope
 	if scope.Domain != FounderPlanDomain || scope.Role != roleController ||
-		!deploymentRE.MatchString(scope.DeploymentID) || !controllerSlotRE.MatchString(scope.Slot) ||
+		!entityid.Valid(scope.DeploymentID) || !controllerSlotRE.MatchString(scope.Slot) ||
 		(scope.Environment != "production" && scope.Environment != "canary") {
 		return VerifiedFounderPlan{}, fmt.Errorf("%w: founder-plan signature scope is malformed", ErrFounderPlanAuthorization)
 	}

@@ -19,6 +19,8 @@ import (
 	"syscall"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
@@ -414,19 +416,19 @@ func readTerraBaseFormatAttempt(cfg VolumeInitConfig) (string, error) {
 	}
 	defer file.Close()
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || info.Size() != 33 {
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || info.Size() != 27 {
 		return "", errors.Join(errors.New("invalid durable first-format attempt"), err)
 	}
 	owner, ok := info.Sys().(*syscall.Stat_t)
 	if !ok || owner.Uid != uint32(os.Geteuid()) {
 		return "", errors.New("first-format attempt is not owned by the initializer")
 	}
-	var wire [33]byte
+	var wire [27]byte
 	if _, err := io.ReadFull(file, wire[:]); err != nil {
 		return "", err
 	}
-	attempt := string(wire[:32])
-	if !lowerHex(attempt, 32) || wire[32] != '\n' {
+	attempt := string(wire[:26])
+	if !entityid.Valid(attempt) || wire[26] != '\n' {
 		return "", errors.New("invalid durable first-format attempt")
 	}
 	// A prior create may have failed during fsync. Re-establish durability
@@ -469,7 +471,7 @@ func executeTerraBaseVolume(ctx context.Context, probe volumeFilesystemProbe, gr
 }
 
 // terraBaseFormatGrant pins one UUID and the original initializer/registration.
-// Mounted confirmation clears AttemptID; legacy UUID-only records stay closed.
+// Mounted confirmation clears AttemptID and closes the grant.
 type terraBaseFormatGrant struct {
 	UUID       string `json:"uuid"`
 	AttemptID  string `json:"attempt_id,omitempty"`
@@ -496,7 +498,7 @@ type terraBaseFormatReply struct {
 }
 
 func terraBaseFormatKey(cell, node, volumeID string) string {
-	return fmt.Sprintf("terrabase-format.%s.%s.%x", cell, node, sha256.Sum256([]byte(volumeID)))
+	return entityid.Derive("terrabase-format", cell, node, volumeID)
 }
 
 // serveTerraBaseFormat records a C# member's data volume filesystem, keyed by
@@ -517,7 +519,7 @@ func (c *Controller) serveTerraBaseFormat(ctx context.Context, req request, r Re
 	if query.Mounted != "" && !hostvolume.ValidUUID(query.Mounted) {
 		return nil, errors.New("mounted filesystem UUID is invalid")
 	}
-	if query.Mounted == "" && !lowerHex(query.AttemptID, 32) || query.Mounted != "" && query.AttemptID != "" {
+	if query.Mounted == "" && !entityid.Valid(query.AttemptID) || query.Mounted != "" && query.AttemptID != "" {
 		return nil, errors.New("first-format request has no valid initializer attempt")
 	}
 	key := terraBaseFormatKey(c.cell, req.Node, r.TerraBaseDataVolumeID)
@@ -574,7 +576,7 @@ func verifyTerraBaseFormatGrant(cfg VolumeInitConfig, signed protocol.Envelope) 
 	if err := decodeStrict([]byte(signed.Payload), &reply); err != nil {
 		return "", err
 	}
-	if reply.Error != "" || reply.Nonce != signed.OperationID || reply.Epoch != signed.Epoch ||
+	if reply.Error != "" || !lowerHex(reply.Nonce, 32) || entityid.Derive("host-request", reply.Nonce) != signed.OperationID || reply.Epoch != signed.Epoch ||
 		reply.Operation != "terrabase-format" || reply.Node != cfg.Node {
 		return "", errors.New("first-format grant binding is invalid")
 	}

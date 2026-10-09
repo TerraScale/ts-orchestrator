@@ -8,10 +8,10 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
@@ -258,11 +258,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err := restoreControllerKV(ctx, cfg, runtime.JetStream(), fullClusterReady); err != nil {
 		return err
 	}
-	candidateID := cfg.Controller.CandidateID
-	if candidateID == "" {
-		candidateID = cfg.NATS.Instance
-	}
-	candidateID = strings.TrimSuffix(candidateID[:min(len(candidateID), 48)], "-") + "-" + uuid.New().String()[:8]
+	candidateID := entityid.New()
 	control, stopAuthority, err := retryControllerOpen(ctx, "start regional authority", fullClusterReady, true,
 		func(attempt context.Context) (*authority.Runtime, error) {
 			return authority.Start(attempt, runtime.JetStream(), authority.Config{
@@ -973,7 +969,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	telemetry.markStarted()
 	policy.rollouts.ready.Store(true)
-	slog.Info("controller ready", observability.ComponentKey, "controller", observability.EventKey, true)
+	slog.Info("controller ready", observability.ComponentKey, "controller", observability.EventKey, true, "candidate_id", candidateID)
 	fmt.Fprintf(output, "controller %s ready in cell %s via %s\n", cfg.NATS.Instance, cfg.NATS.Cell, runtime.URL())
 	if err := notifier.Ready("controller " + cfg.NATS.Instance + " ready in cell " + cfg.NATS.Cell); err != nil {
 		slog.Warn("systemd readiness notification failed", observability.ComponentKey, "controller", "error", err)

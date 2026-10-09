@@ -30,7 +30,7 @@ func TestSignRootRotationCollectsOldAndNewRootSignatures(t *testing.T) {
 	writePrivateKey(t, strangerKey, fixture.leafPrivate)
 	chainPath := filepath.Join(dir, "chain.json")
 	writeFixtureFile(t, chainPath, []byte(`{"rotations":[]}`), 0o644)
-	id := trust.ChainIdentity{DeploymentID: "terrascale-prod", Cell: "gru", Environment: "production"}
+	id := trust.ChainIdentity{DeploymentID: "0000000000VVK5ZNRRNEED4PH3", Cell: "gru", Environment: "production"}
 	sign := func(key, signed, out string, newRoots ...string) (string, error) {
 		args := []string{"--genesis-root", fixture.rootPath, "--chain", chainPath, "--deployment-id", id.DeploymentID,
 			"--cell", id.Cell, "--environment", id.Environment, "--signing-key", key, "--out", out}

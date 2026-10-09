@@ -34,7 +34,7 @@ func TestManagedWorkerAcknowledgesPreJournalFailure(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				f.options.TransactionID = "failed-preparation"
+				f.options.TransactionID = "22FE8CPAW11ZMZF376BD8RV1DK"
 				var proof ManagedRollbackProof
 				f.options.Prepare = func(previous ManagedResult) error {
 					if lock, err := f.m.lock(); err == nil {
@@ -99,14 +99,14 @@ func TestManagedWorkerNoopRejectsUnprovenOrPendingTransactions(t *testing.T) {
 	}{
 		{"unstarted absent", "", "", false, false, false, true},
 		{"prepared absent", "", "", false, false, true, true},
-		{"unstarted completed", "earlier", "", false, false, false, true},
-		{"prepared completed", "earlier", "earlier", false, false, true, true},
-		{"unrelated completed", "other", "earlier", false, false, true, false},
-		{"baseline disappeared", "", "earlier", false, false, true, false},
+		{"unstarted completed", "0VWD7JSS84Y3FHDZ5Y8RJWJJMA", "", false, false, false, true},
+		{"prepared completed", "0VWD7JSS84Y3FHDZ5Y8RJWJJMA", "0VWD7JSS84Y3FHDZ5Y8RJWJJMA", false, false, true, true},
+		{"unrelated completed", "2VP7F78J0ZNFE8BE3RYC7BNX9T", "0VWD7JSS84Y3FHDZ5Y8RJWJJMA", false, false, true, false},
+		{"baseline disappeared", "", "0VWD7JSS84Y3FHDZ5Y8RJWJJMA", false, false, true, false},
 		{"known mutation absent", "", "", false, true, true, false},
-		{"known mutation completed", "earlier", "earlier", false, true, true, false},
-		{"other pending unstarted", "other", "", true, false, false, false},
-		{"other pending prepared", "earlier", "earlier", true, false, true, false},
+		{"known mutation completed", "0VWD7JSS84Y3FHDZ5Y8RJWJJMA", "0VWD7JSS84Y3FHDZ5Y8RJWJJMA", false, true, true, false},
+		{"other pending unstarted", "2VP7F78J0ZNFE8BE3RYC7BNX9T", "", true, false, false, false},
+		{"other pending prepared", "0VWD7JSS84Y3FHDZ5Y8RJWJJMA", "0VWD7JSS84Y3FHDZ5Y8RJWJJMA", true, false, true, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			f := newManagedFixture(t)
@@ -128,7 +128,7 @@ func TestManagedWorkerNoopRejectsUnprovenOrPendingTransactions(t *testing.T) {
 				t.Fatal(err)
 			}
 			proof := ManagedRollbackProof{InstallStarted: test.started, InstallCommitted: test.committed, PreviousTransactionID: test.baseline}
-			err = f.m.finishModeWithProof(t.Context(), "our-transaction", true, false, &proof)
+			err = f.m.finishModeWithProof(t.Context(), "6RM8HAK91JYKCX4FCY5QDEW0CY", true, false, &proof)
 			if (err == nil) != test.accepted {
 				t.Fatalf("rollback error=%v, want accepted=%v", err, test.accepted)
 			}
@@ -226,7 +226,7 @@ func TestManagedWorkerWatchdogCleanupCannotRevokeNoopAcknowledgment(t *testing.T
 				return errors.New("systemd unavailable")
 			}
 			proof := &ManagedRollbackProof{}
-			if err := f.m.finishModeWithProof(ctx, "never-committed", true, false, proof); err != nil || !called {
+			if err := f.m.finishModeWithProof(ctx, "59WHTJBB9ED5H7ACSPQAHVZXXK", true, false, proof); err != nil || !called {
 				t.Fatalf("watchdog cleanup revoked the proven no-op: %v called=%v", err, called)
 			}
 			transaction, err := f.m.readTransaction()

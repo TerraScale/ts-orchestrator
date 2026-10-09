@@ -53,9 +53,9 @@ func TestVerifyRestoredAttachmentFailsClosedOnWrongVolumeScopeStateAndAttachment
 			case "wrong returned volume ID":
 				volume.ID = "ocid1.volume.other"
 			case "wrong compartment":
-				volume.CompartmentID = "other"
+				volume.CompartmentID = "0000000000V4MRM46HP1SNGDYW"
 			case "wrong domain":
-				volume.AvailabilityDomain = "other"
+				volume.AvailabilityDomain = "0000000000V4MRM46HP1SNGDYW"
 			case "wrong tier":
 				volume.VPUsPerGB = 20
 			case "wrong size tag":
@@ -63,23 +63,23 @@ func TestVerifyRestoredAttachmentFailsClosedOnWrongVolumeScopeStateAndAttachment
 			case "wrong resource tag":
 				volume.FreeformTags[tagResource] = resourceMemberData
 			case "wrong owner tag":
-				volume.FreeformTags[tagOwner] = "other"
+				volume.FreeformTags[tagOwner] = "0000000000V4MRM46HP1SNGDYW"
 			case "wrong region tag":
 				volume.FreeformTags[tagRegion] = "SFO"
 			case "wrong generation tag":
 				volume.FreeformTags[tagGeneration] = "2"
 			case "wrong managed tag":
-				volume.FreeformTags[tagManagedBy] = "other"
+				volume.FreeformTags[tagManagedBy] = "0000000000V4MRM46HP1SNGDYW"
 			case "wrong create key":
-				volume.FreeformTags[tagCreateKey] = testMemberVolume
+				volume.FreeformTags[tagCreateKey] = memberVolumeCreateKey(testMemberVolume)
 			case "unfinished restore":
 				volume.LifecycleState = "RESTORING"
 			case "wrong device":
 				attachment.Device = MemberVolumeDevice
 			case "wrong returned attachment ID":
-				attachment.ID = "other"
+				attachment.ID = "0000000000V4MRM46HP1SNGDYW"
 			case "wrong instance":
-				attachment.InstanceID = "other"
+				attachment.InstanceID = "0000000000V4MRM46HP1SNGDYW"
 			case "read-only":
 				attachment.IsReadOnly = boolPointer(true)
 			case "shareable":
@@ -106,7 +106,7 @@ func TestVerifyRestoredAttachmentFailsClosedOnWrongVolumeScopeStateAndAttachment
 					instance.DisplayName = testMember
 				}
 				if scenario == "foreign scratch" {
-					instance.CompartmentID = "other"
+					instance.CompartmentID = "0000000000V4MRM46HP1SNGDYW"
 				}
 				if scenario == "stopped scratch" {
 					instance.LifecycleState = "STOPPED"

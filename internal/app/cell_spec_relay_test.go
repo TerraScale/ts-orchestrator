@@ -8,7 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
@@ -51,7 +52,7 @@ func TestRelayedCellSpecNeedsTheTargetsOwnTrust(t *testing.T) {
 	}
 	lead := func(scope string) *authority.Runtime {
 		t.Helper()
-		runtime, err := authority.Start(ctx, js, authority.Config{Scope: scope, CandidateID: scope + "-a", Replicas: 1,
+		runtime, err := authority.Start(ctx, js, authority.Config{Scope: scope, CandidateID: entityid.Derive("test-controller", scope), Replicas: 1,
 			LeaseDuration: 5 * time.Second, RenewInterval: 500 * time.Millisecond})
 		if err != nil {
 			t.Fatal(err)
@@ -84,7 +85,7 @@ func TestRelayedCellSpecNeedsTheTargetsOwnTrust(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "lab-sfo", Cell: "sfo", Environment: "test"})
+	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "0000000000TV3Q06FF4VNZW415", Cell: "sfo", Environment: "test"})
 	sfoConfig := Config{NATS: natscell.Config{Cell: "sfo", Lab: true}, Controller: ControllerConfig{
 		TrustedSigners: []TrustedSignerConfig{grant("ops", opsPublic)}, SpecTrust: keys.config()}}
 	sfoPolicy, err := buildSignerPolicy(sfoConfig)
@@ -112,7 +113,7 @@ func TestRelayedCellSpecNeedsTheTargetsOwnTrust(t *testing.T) {
 		t.Helper()
 		now := time.Now().UTC()
 		relay, err := protocol.SignEnvelope(signed, protocol.EnvelopeScope{Region: region, Kind: cellSpecRelayKind,
-			Actor: actor, OperationID: "cell-spec-relay." + uuid.New().String(), Generation: 1,
+			Actor: actor, OperationID: entityid.New(), Generation: 1,
 		}, now, now.Add(cellspec.MaxSpecLifetime), private)
 		if err != nil {
 			t.Fatal(err)
@@ -122,7 +123,7 @@ func TestRelayedCellSpecNeedsTheTargetsOwnTrust(t *testing.T) {
 			t.Fatal(err)
 		}
 		request, err := protocol.SignEnvelope(relayWire, protocol.EnvelopeScope{Region: "gru", Kind: cellSpecPublishKind,
-			Actor: actor, OperationID: "cell-spec." + uuid.New().String(), Generation: 1, Epoch: global.Current().Epoch,
+			Actor: actor, OperationID: entityid.New(), Generation: 1, Epoch: global.Current().Epoch,
 		}, now, now.Add(time.Minute), private)
 		if err != nil {
 			t.Fatal(err)
@@ -160,7 +161,7 @@ func TestRelayedCellSpecNeedsTheTargetsOwnTrust(t *testing.T) {
 	}
 
 	// The home checks what it can without SFO's trust.
-	other := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "lab-fra", Cell: "fra", Environment: "test"})
+	other := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "00000000003DX3MNPA6WHG6PR2", Cell: "fra", Environment: "test"})
 	fraSpec := mustRead(t, other.sign(t, dir, cellspec.Spec{Schema: cellspec.Schema, Identity: other.identity,
 		Generation: 1, RequiresBinary: 1}))
 	// A signed envelope for SFO's spec scope whose payload is no spec.

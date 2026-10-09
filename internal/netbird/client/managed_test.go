@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
 )
 
@@ -48,7 +49,7 @@ func newManagedFixture(t *testing.T) *managedFixture {
 	t.Helper()
 	f := &managedFixture{old: managedELF("old agent"), next: managedELF("new agent")}
 	f.m = managedClient{root: t.TempDir(), architecture: "amd64", executable: "/usr/local/bin/ts-orch"}
-	f.options = ManagedOptions{TransactionID: "test-transaction", BinaryPath: filepath.Join(t.TempDir(), "staged")}
+	f.options = ManagedOptions{TransactionID: "7ZZ773YKB490QT19V3PQ57H4DP", BinaryPath: filepath.Join(t.TempDir(), "staged")}
 	if err := os.WriteFile(f.options.BinaryPath, f.next, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +357,7 @@ func TestManagedInstallRetriesDoNotReplacePreviousBinaryOrAcceptOtherTransaction
 	}
 	assertManagedFile(t, managedBackup(t, f), f.old)
 	options := f.options
-	options.TransactionID = "different-transaction"
+	options.TransactionID = "0SZR6Y74Z101950CY9J404XT21"
 	if _, err := f.m.install(t.Context(), f.pin, f.cfg, options); err == nil {
 		t.Fatal("overlapping update accepted")
 	}
@@ -706,7 +707,7 @@ func TestManagedNextPreparationFailurePreservesConfirmedRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	options := f.options
-	options.TransactionID = "second-transaction"
+	options.TransactionID = "0R37SFQWTMQNE2B6F1R8PE0GW3"
 	f.m.systemctl = func(ctx context.Context, args ...string) error {
 		if slices.Equal(args, []string{"restart", rollbackUnit + ".timer"}) {
 			return errors.New("simulated crash before new journal commit")
@@ -737,4 +738,36 @@ func TestManagedNextPreparationFailurePreservesConfirmedRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertManagedFile(t, f.m.path(managedBinary), f.old)
+}
+
+func TestManagedTransactionIdentityAndBootstrapOwnership(t *testing.T) {
+	f := newManagedFixture(t)
+	f.options.TransactionID, f.options.Bootstrap = "", true
+	result, err := f.m.install(t.Context(), f.pin, f.cfg, f.options)
+	if err != nil || !entityid.Valid(result.TransactionID) || !result.Bootstrap {
+		t.Fatalf("new bootstrap identity: %+v %v", result, err)
+	}
+	persisted, err := f.m.readTransaction()
+	if err != nil || persisted.TransactionID != result.TransactionID || !persisted.Bootstrap {
+		t.Fatalf("bootstrap ownership did not persist: %+v %v", persisted, err)
+	}
+	f.options.TransactionID, f.options.Bootstrap = result.TransactionID, false
+	if _, err := f.m.install(t.Context(), f.pin, f.cfg, f.options); err == nil {
+		t.Fatal("controller claimed bootstrap transaction")
+	}
+}
+
+func TestManagedTransactionRejectsNoncanonicalIDs(t *testing.T) {
+	for _, id := range []string{"bootstrap-old", "550e8400-e29b-41d4-a716-446655440000", "01m4eb0gdpphgjppvy77emzqkt"} {
+		t.Run(id, func(t *testing.T) {
+			f := newManagedFixture(t)
+			f.options.TransactionID = id
+			if _, err := f.m.install(t.Context(), f.pin, f.cfg, f.options); err == nil || len(f.calls) != 0 {
+				t.Fatalf("invalid ID reached installation: %v %v", err, f.calls)
+			}
+			if err := f.m.finish(t.Context(), id, true); err == nil || len(f.calls) != 0 {
+				t.Fatalf("invalid ID reached rollback: %v %v", err, f.calls)
+			}
+		})
+	}
 }

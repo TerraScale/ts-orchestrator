@@ -19,8 +19,8 @@ import (
 // Any trusted signer reads the status; only can_install_material publishes
 // or arms, and only a chain the cell's roots signed.
 func TestMaterialGenerationRequestsNeedTheGrant(t *testing.T) {
-	expected := bootstrap.MaterialGenerationExpectation{DeploymentID: "gru-1-deployment", Environment: "production",
-		ClusterID: "gru-1", Cell: "GRU", ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}}
+	expected := bootstrap.MaterialGenerationExpectation{DeploymentID: "0000000000YY15F5R431V5JPJ9", Environment: "production",
+		ClusterID: "00000000006GRRF84JEVN9TX7M", Cell: "GRU", ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}}
 	previous := materialGenerationTarget
 	materialGenerationTarget = func() (bootstrapstart.GenerationTarget, error) {
 		return bootstrapstart.GenerationTarget{Slot: "controller-a", Expected: expected}, nil
@@ -28,7 +28,7 @@ func TestMaterialGenerationRequestsNeedTheGrant(t *testing.T) {
 	t.Cleanup(func() { materialGenerationTarget = previous })
 	rootPublic, rootKey, _ := ed25519.GenerateKey(rand.Reader)
 	genesis, _ := trust.ParseKeyring(rootPublic)
-	roots, err := newRootRegistry(genesis, trust.ChainIdentity{DeploymentID: "gru-1-deployment", Cell: "gru",
+	roots, err := newRootRegistry(genesis, trust.ChainIdentity{DeploymentID: "0000000000YY15F5R431V5JPJ9", Cell: "gru",
 		Environment: "production"}, trust.RootChain{}, "")
 	if err != nil {
 		t.Fatal(err)

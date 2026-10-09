@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 )
@@ -126,8 +128,8 @@ func newAgentFixture(t *testing.T) *agentFixture {
 
 func (f *agentFixture) command(t *testing.T, action StepAction, digest string, epoch uint64) []byte {
 	t.Helper()
-	command := StepCommand{Schema: StepSchema, Cell: "gru", RolloutID: "rel1-controllers", Kind: rollout.KindController,
-		Unit: "ctl-b", OperationID: rollout.OperationID("rel1-controllers", "ctl-b", rollout.PhaseCanary, 0),
+	command := StepCommand{Schema: StepSchema, Cell: "gru", RolloutID: entityid.Derive("release-controllers", "rel1"), Kind: rollout.KindController,
+		Unit: "ctl-b", OperationID: rollout.OperationID(entityid.Derive("release-controllers", "rel1"), "ctl-b", rollout.PhaseCanary, 0),
 		Action: action, Digest: digest, Epoch: epoch, ProofWindowSeconds: 600, Receipt: []byte("signed receipt")}
 	// A rollback replaces the rejected target; a forward step replaces the
 	// predecessor (the other release when it targets the predecessor).
@@ -218,8 +220,8 @@ func TestAgentRefusesUnverifiedAndStaleSteps(t *testing.T) {
 		t.Fatalf("step from an older epoch = %+v", reply)
 	}
 	other, _ := testKey(t)
-	wire, err := SignStepCommand(StepCommand{Schema: StepSchema, Cell: "gru", RolloutID: "r", Kind: rollout.KindController,
-		Unit: "ctl-b", OperationID: "ro-1", Action: StepPrepare, Digest: f.to, Replaces: f.from, Epoch: 9, ProofWindowSeconds: 60}, other, f.now, time.Time{})
+	wire, err := SignStepCommand(StepCommand{Schema: StepSchema, Cell: "gru", RolloutID: "00000000002JW3D8YH3EBSQV5Q", Kind: rollout.KindController,
+		Unit: "ctl-b", OperationID: "0000000000N6KCZG3MWDGZ0WBE", Action: StepPrepare, Digest: f.to, Replaces: f.from, Epoch: 9, ProofWindowSeconds: 60}, other, f.now, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,8 +367,8 @@ func TestAgentRollbackOfAnUnmovedUnitRefusesTheRejectedRelease(t *testing.T) {
 // gave up on it is never applied, and a passed deadline is not signed.
 func TestStepCommandsExpireWithTheirPhaseDeadline(t *testing.T) {
 	f := newAgentFixture(t)
-	command := StepCommand{Schema: StepSchema, Cell: "gru", RolloutID: "rel1-controllers", Kind: rollout.KindController,
-		Unit: "ctl-b", OperationID: rollout.OperationID("rel1-controllers", "ctl-b", rollout.PhaseCanary, 0),
+	command := StepCommand{Schema: StepSchema, Cell: "gru", RolloutID: entityid.Derive("release-controllers", "rel1"), Kind: rollout.KindController,
+		Unit: "ctl-b", OperationID: rollout.OperationID(entityid.Derive("release-controllers", "rel1"), "ctl-b", rollout.PhaseCanary, 0),
 		Action: StepPrepare, Digest: f.to, Replaces: f.from, Epoch: 7, ProofWindowSeconds: 600}
 	deadline := f.now.Add(30 * time.Second)
 	wire, err := SignStepCommand(command, f.key, f.now, deadline)

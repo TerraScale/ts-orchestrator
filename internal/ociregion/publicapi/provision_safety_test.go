@@ -109,20 +109,22 @@ func reviewedEgress(port int) map[string]any {
 
 func TestProvisionRejectsNetworkSecurityDriftBeforeMutation(t *testing.T) {
 	for name, edit := range map[string]func(*fakeOCI){
-		"load balancer without NSG":       func(f *fakeOCI) { f.balancer["network-security-group-ids"] = []any{} },
-		"load balancer other NSG":         func(f *fakeOCI) { f.balancer["network-security-group-ids"] = []any{"other"} },
-		"load balancer extra NSG":         func(f *fakeOCI) { f.balancer["network-security-group-ids"] = []any{"nsg", "other"} },
-		"load balancer other subnet":      func(f *fakeOCI) { f.balancer["subnet-ids"] = []any{"other"} },
-		"load balancer extra subnet":      func(f *fakeOCI) { f.balancer["subnet-ids"] = []any{"subnet", "other"} },
-		"load balancer other compartment": func(f *fakeOCI) { f.balancer["compartment-id"] = "other" },
+		"load balancer without NSG": func(f *fakeOCI) { f.balancer["network-security-group-ids"] = []any{} },
+		"load balancer other NSG":   func(f *fakeOCI) { f.balancer["network-security-group-ids"] = []any{"0000000000V4MRM46HP1SNGDYW"} },
+		"load balancer extra NSG": func(f *fakeOCI) {
+			f.balancer["network-security-group-ids"] = []any{"nsg", "0000000000V4MRM46HP1SNGDYW"}
+		},
+		"load balancer other subnet":      func(f *fakeOCI) { f.balancer["subnet-ids"] = []any{"0000000000V4MRM46HP1SNGDYW"} },
+		"load balancer extra subnet":      func(f *fakeOCI) { f.balancer["subnet-ids"] = []any{"subnet", "0000000000V4MRM46HP1SNGDYW"} },
+		"load balancer other compartment": func(f *fakeOCI) { f.balancer["compartment-id"] = "0000000000V4MRM46HP1SNGDYW" },
 		"subnet extra security list":      func(f *fakeOCI) { f.network["subnet"]["security-list-ids"] = []any{"security-list", "default"} },
 		"subnet other security list":      func(f *fakeOCI) { f.network["subnet"]["security-list-ids"] = []any{"default"} },
-		"subnet other route table":        func(f *fakeOCI) { f.network["subnet"]["route-table-id"] = "other" },
+		"subnet other route table":        func(f *fakeOCI) { f.network["subnet"]["route-table-id"] = "0000000000V4MRM46HP1SNGDYW" },
 		"subnet other CIDR":               func(f *fakeOCI) { f.network["subnet"]["cidr-block"] = "10.251.0.0/25" },
 		"subnet private":                  func(f *fakeOCI) { f.network["subnet"]["prohibit-public-ip-on-vnic"] = true },
 		"subnet prohibits ingress":        func(f *fakeOCI) { f.network["subnet"]["prohibit-internet-ingress"] = true },
-		"subnet other VCN":                func(f *fakeOCI) { f.network["subnet"]["vcn-id"] = "other" },
-		"security list other VCN":         func(f *fakeOCI) { f.network["security-list"]["vcn-id"] = "other" },
+		"subnet other VCN":                func(f *fakeOCI) { f.network["subnet"]["vcn-id"] = "0000000000V4MRM46HP1SNGDYW" },
+		"security list other VCN":         func(f *fakeOCI) { f.network["security-list"]["vcn-id"] = "0000000000V4MRM46HP1SNGDYW" },
 		"security list public ingress": func(f *fakeOCI) {
 			f.network["security-list"]["ingress-security-rules"] = []any{map[string]any{"source": "0.0.0.0/0", "protocol": "all"}}
 		},
@@ -149,7 +151,7 @@ func TestProvisionRejectsNetworkSecurityDriftBeforeMutation(t *testing.T) {
 		},
 		"disabled gateway": func(f *fakeOCI) { f.network["internet-gateway"]["is-enabled"] = false },
 		"other gateway route": func(f *fakeOCI) {
-			f.network["route-table"]["route-rules"].([]any)[0].(map[string]any)["network-entity-id"] = "other"
+			f.network["route-table"]["route-rules"].([]any)[0].(map[string]any)["network-entity-id"] = "0000000000V4MRM46HP1SNGDYW"
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

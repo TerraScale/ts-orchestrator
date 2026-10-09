@@ -28,7 +28,7 @@ import (
 // enrollment grants, rollouts and known-bad releases, desired OCI resources,
 // apps and machines, managed volumes) rather than state
 // bound to the authority control log, which a rebuilt cell starts afresh.
-var Buckets = []string{"TS_SERVICE_SET", "TS_TRUST_ROOTS", "TS_HOST_ENROLLMENT", "TS_ROLLOUTS", "TS_OCI_DESIRED", "TS_APPS", "TS_VOLUMES"}
+var Buckets = []string{"TS_SERVICE_SET", "TS_TRUST_ROOTS", "TS_HOST_ENROLLMENT", "TS_ROLLOUTS", "TS_OCI_DESIRED", "TS_APPS", "TS_MACHINES", "TS_VOLUMES"}
 
 const (
 	documentVersion  = 1

@@ -10,7 +10,7 @@ delete with data retention. Ticket: TS-566. Package:
 ## Model
 
 A **tenant** is one record in the cell's `TS_TENANTS` KV bucket, key
-`tenant.<id>`, schema `terrascale.tenant.v1`.
+the tenant’s canonical uppercase 26-character ULID, schema `terrascale.tenant.v1`.
 
 | Field | Meaning |
 | --- | --- |

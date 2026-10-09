@@ -24,9 +24,9 @@ func managedClaimFixture(t *testing.T) (string, ManagedMemberLaunch, WorkloadIde
 	launch := ManagedMemberLaunch{
 		VolumeID: "ocid1.volume.oc1..member-a",
 		Member: ManagedMemberBinding{Scope: MemberScope{
-			ClusterID: strings.Repeat("a", 32), TenantID: "018f0000-0000-7000-8000-000000000001",
-			DatabaseID: "018f0000-0000-7000-8000-000000000002", ShardID: 7,
-			MemberID: "018f0000-0000-7000-8000-000000000003", Incarnation: strings.Repeat("b", 32),
+			ClusterID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TenantID: "01HW000000E008000000000001",
+			DatabaseID: "01HW000000E008000000000002", ShardID: 7,
+			MemberID: "01HW000000E008000000000003", Incarnation: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		}, HostAttempt: 1},
 		Authority: MemberAuthority{Epoch: 3, ConfigurationID: strings.Repeat("c", 64), CertificateSHA256: strings.Repeat("d", 64)},
 		Runtime:   &ManagedRuntimePins{FileSystemUUID: "12345678-1234-1234-1234-123456789abc", FileSystemType: "ext4", TrustedKeySHA256: strings.Repeat("e", 64)},

@@ -5,10 +5,10 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"sync/atomic"
 	"testing"
 	"time"
-	"uuid"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -16,22 +16,22 @@ import (
 
 func TestNetBirdStateRejectsStaleTransitionAndReadsThroughFollower(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
-	runtime, err := Start(t.Context(), js, Config{Scope: "gru", CandidateID: "netbird-cas", Replicas: 1})
+	runtime, err := Start(t.Context(), js, Config{Scope: "gru", CandidateID: "25N2M1ND48SN1GD1DNCM8BTJFP", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runtime.Close() })
 	epoch := runtime.Current().Epoch
-	before, err := runtime.CommitNetBirdState(t.Context(), epoch, "install-a", 0, []byte(`{"record":"install","command":"install"}`))
+	before, err := runtime.CommitNetBirdState(t.Context(), epoch, "0B2R51XPY68AE7SVFGZAGC8DGC", 0, []byte(`{"record":"install","command":"install"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	payload := []byte(`{"record":"rollback","command":"rollback"}`)
-	written, err := runtime.CommitNetBirdState(t.Context(), epoch, "rollback-a", before, payload)
+	written, err := runtime.CommitNetBirdState(t.Context(), epoch, "2R6BD8J8358JYCZ2CXGD7KCE9M", before, payload)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CommitNetBirdState(t.Context(), epoch, "stale-confirm", before, []byte(`{"record":"confirm","command":"confirm"}`)); !errors.Is(err, ErrConflict) {
+	if _, err := runtime.CommitNetBirdState(t.Context(), epoch, "31AMKHTEKXAE8T964Z9TXZKCSG", before, []byte(`{"record":"confirm","command":"confirm"}`)); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale transition error = %v, want conflict", err)
 	}
 	reader, err := OpenReader(t.Context(), js, "gru")
@@ -67,7 +67,7 @@ func TestNetBirdStateHandoffBetweenLeaseCheckAndPublishCannotReplaceSuccessor(t 
 	wrapped := &netbirdHandoffPublisher{JetStream: js}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	old, err := Start(ctx, wrapped, Config{Scope: "gru", CandidateID: "netbird-old", Replicas: 1})
+	old, err := Start(ctx, wrapped, Config{Scope: "gru", CandidateID: "052RQX6EM5DPGHCHJ230S9DCA0", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestNetBirdStateHandoffBetweenLeaseCheckAndPublishCannotReplaceSuccessor(t 
 	old.cancel()
 	<-old.done
 	epoch := old.Current().Epoch
-	before, err := old.CommitNetBirdState(ctx, epoch, "install-a", 0, []byte(`{"record":"install","command":"install"}`))
+	before, err := old.CommitNetBirdState(ctx, epoch, "0B2R51XPY68AE7SVFGZAGC8DGC", 0, []byte(`{"record":"install","command":"install"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestNetBirdStateHandoffBetweenLeaseCheckAndPublishCannotReplaceSuccessor(t 
 		if err != nil {
 			return err
 		}
-		lease.Released, lease.TransitionID = true, uuid.New().String()
+		lease.Released, lease.TransitionID = true, entityid.New()
 		wire, err := json.Marshal(lease)
 		if err != nil {
 			return err
@@ -106,15 +106,15 @@ func TestNetBirdStateHandoffBetweenLeaseCheckAndPublishCannotReplaceSuccessor(t 
 			jetstream.WithExpectLastSequenceForSubject(entry.Sequence, old.leaseSub)); err != nil {
 			return err
 		}
-		successor, err = Start(ctx, js, Config{Scope: "gru", CandidateID: "netbird-new", Replicas: 1})
+		successor, err = Start(ctx, js, Config{Scope: "gru", CandidateID: "5TE7PMMH4P1Q7NWYEWTAFK8SPH", Replicas: 1})
 		if err != nil {
 			return err
 		}
-		_, err = successor.CommitNetBirdState(ctx, successor.Current().Epoch, "rollback-a", before, payload)
+		_, err = successor.CommitNetBirdState(ctx, successor.Current().Epoch, "2R6BD8J8358JYCZ2CXGD7KCE9M", before, payload)
 		return err
 	}
 	wrapped.armed.Store(true)
-	_, err = old.CommitNetBirdState(ctx, epoch, "stale-confirm", before, []byte(`{"record":"confirm","command":"confirm"}`))
+	_, err = old.CommitNetBirdState(ctx, epoch, "31AMKHTEKXAE8T964Z9TXZKCSG", before, []byte(`{"record":"confirm","command":"confirm"}`))
 	if successor != nil {
 		t.Cleanup(func() { _ = successor.Close() })
 	}
@@ -148,7 +148,7 @@ func (s *netbirdExpiryStateRead) GetLastMsgForSubject(ctx context.Context, subje
 
 func TestNetBirdStateLeaseExpiryDuringStateReadPreventsPublication(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
-	runtime, err := Start(t.Context(), js, Config{Scope: "gru", CandidateID: "netbird-expiry", Replicas: 1,
+	runtime, err := Start(t.Context(), js, Config{Scope: "gru", CandidateID: "7E0H8E1QQ6RX2WA68FZ892GDKP", Replicas: 1,
 		LeaseDuration: time.Second, RenewInterval: 100 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
@@ -158,7 +158,7 @@ func TestNetBirdStateLeaseExpiryDuringStateReadPreventsPublication(t *testing.T)
 	<-runtime.done
 	snapshot := runtime.Current()
 	runtime.stream = &netbirdExpiryStateRead{Stream: runtime.stream, expires: snapshot.ExpiresAt}
-	if _, err := runtime.CommitNetBirdState(t.Context(), snapshot.Epoch, "late-install", 0, []byte(`{"record":"install"}`)); !errors.Is(err, ErrFenced) {
+	if _, err := runtime.CommitNetBirdState(t.Context(), snapshot.Epoch, "7B23SVKMY5B2A1TBWCG39SDKKG", 0, []byte(`{"record":"install"}`)); !errors.Is(err, ErrFenced) {
 		t.Fatalf("publication after lease expiry = %v, want fenced", err)
 	}
 	if _, err := runtime.ReadNetBirdState(t.Context()); !errors.Is(err, ErrNotFound) {

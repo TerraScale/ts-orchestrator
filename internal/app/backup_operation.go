@@ -11,7 +11,8 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
@@ -101,7 +102,7 @@ func operatorBackupOperation(ctx context.Context, cfg Config, runtime *natscell.
 		if err != nil || len(payload) > maxBackupAdmissionBytes {
 			return errors.New("backup request exceeds bound")
 		}
-		requestID := uuid.New().String()
+		requestID := entityid.New()
 		now := time.Now().UTC()
 		envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{
 			Region: cfg.NATS.Cell, Kind: "backup.operation", Actor: cfg.Operator.Actor,
@@ -219,7 +220,8 @@ func (runtime backupOperationRuntime) admit(ctx context.Context,
 	canonical, err := protocol.EncodeJSON(request)
 	if err != nil || !bytes.Equal(canonical, envelope.Payload) ||
 		(request.Action != "start" && request.Action != "abort" && request.Action != "status") ||
-		request.DatabaseID == "" || request.PartitionID == "" ||
+		!entityid.Valid(request.DatabaseID) || !entityid.Valid(request.PartitionID) ||
+		request.OperationID != "" && !entityid.Valid(request.OperationID) ||
 		request.HistoryCursor != "" && (request.Action != "status" || request.OperationID == "" ||
 			len(request.HistoryCursor) > maxBackupAdmissionBytes) {
 		return backupOperationReply{}, errors.New("backup admission request is invalid")
@@ -435,7 +437,7 @@ func backupServingMember(intent placement.Intent, row placement.CanonicalRosterR
 			state.IntentGeneration == intent.Generation &&
 			state.IntentPayloadDigest == intent.PayloadDigest() {
 			return authority.BackupOperationMember{
-				Origin:   strings.ReplaceAll(row.MemberID, "-", "") + row.Incarnation,
+				Origin:   authority.BackupMemberOrigin(row.MemberID, row.Incarnation),
 				MemberID: row.MemberID, Incarnation: row.Incarnation,
 				TLSLeafSHA256: row.TLSLeafSHA256, Node: state.HostNode, Role: role}, true
 		}

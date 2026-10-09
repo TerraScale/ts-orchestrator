@@ -42,7 +42,7 @@ func newFounderPlanFixture(t *testing.T) founderPlanFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ledgerGrant := signBootstrapLedgerGrant(t, authority.rootPrivate, ledgerPublic, "deployment-a", oci.RegionGRU,
+	ledgerGrant := signBootstrapLedgerGrant(t, authority.rootPrivate, ledgerPublic, "0000000000F9PR1WNVDTEXS31Z", oci.RegionGRU,
 		"production", controllerSlots, now.Add(-time.Hour), now.Add(24*time.Hour))
 	ledgerGrantWire, err := trust.EncodeEnvelope(ledgerGrant)
 	if err != nil {
@@ -50,8 +50,8 @@ func newFounderPlanFixture(t *testing.T) founderPlanFixture {
 	}
 	storage := authority.manifest.StorageDomain
 	anchorValue := BootstrapAnchor{
-		SchemaVersion: BootstrapAnchorSchemaVersion, DeploymentID: "deployment-a", Environment: "production",
-		ClusterID: "cluster-a", Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1", StorageDomain: storage,
+		SchemaVersion: BootstrapAnchorSchemaVersion, DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "production",
+		ClusterID: "0000000000RMSAJ9B0JFV7ESHN", Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1", StorageDomain: storage,
 		ControllerSlots: slices.Clone(controllerSlots), LedgerDelegationWire: ledgerGrantWire,
 		InitialRegionIntentGeneration: 4, InitialRegionIntentSHA256: digestBytes(intentWire),
 		InitialRegionIntentWire: bytes.Clone(intentWire),
@@ -481,7 +481,7 @@ func TestFounderPlanRejectsCanonicalSignatureScopeAndCurrentAuthorityFailures(t 
 		t.Fatalf("deadline beyond original retry bound error = %v, want ErrFounderPlanExpired", err)
 	}
 	changedAnchor := fixture.anchor.Anchor()
-	changedAnchor.ClusterID = "cluster-other"
+	changedAnchor.ClusterID = "00000000008VMKF156EF2Q9G14"
 	changedAnchorEnvelope, err := SignBootstrapAnchor(changedAnchor, fixture.now.Add(-time.Minute),
 		fixture.now.Add(24*time.Hour), fixture.authority.rootPrivate)
 	if err != nil {

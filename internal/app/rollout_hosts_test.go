@@ -19,7 +19,10 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
@@ -29,6 +32,8 @@ import (
 type hostSinkFixture struct {
 	control *rolloutControl
 	board   jetstream.KeyValue
+	js      jetstream.JetStream
+	store   *rollout.Store
 	key     ed25519.PrivateKey
 	host    host.Registration
 }
@@ -36,7 +41,8 @@ type hostSinkFixture struct {
 func newHostSinkFixture(t *testing.T) *hostSinkFixture {
 	t.Helper()
 	js := testRolloutJetStream(t)
-	if _, err := rollout.OpenStore(t.Context(), js, "gru", 1, rolloutTestFence{epoch: 7}); err != nil {
+	store, err := rollout.OpenStore(t.Context(), js, "gru", 1, rolloutTestFence{epoch: 7})
+	if err != nil {
 		t.Fatal(err)
 	}
 	board, err := js.KeyValue(t.Context(), rollout.Bucket)
@@ -51,7 +57,7 @@ func newHostSinkFixture(t *testing.T) *hostSinkFixture {
 	control.hosts.Store(&rolloutHosts{collector: rolloutexec.NewCollector("gru", nil, nil), board: board,
 		colocated: colocatedNodes("gru", []rollout.Unit{{ID: "controller-a", Group: "controllers"}}, renamedSlotA),
 		last:      map[string]time.Time{}, held: map[string]time.Time{}})
-	return &hostSinkFixture{control: control, board: board, key: key, host: host.Registration{Cell: "gru",
+	return &hostSinkFixture{control: control, board: board, js: js, store: store, key: key, host: host.Registration{Cell: "gru",
 		Node: "gru-1-db-1", Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(public)}}
 }
 
@@ -68,7 +74,7 @@ func (f *hostSinkFixture) proof(t *testing.T, key ed25519.PrivateKey) []byte {
 	t.Helper()
 	now := time.Now().UTC()
 	wire, err := rolloutexec.SignHealthProof(rolloutexec.HealthProof{Schema: rolloutexec.HealthSchema, Cell: "gru",
-		Unit: f.host.Node, BinarySHA256: strings.Repeat("a", 64), ProcessID: 7, StartNonce: strings.Repeat("0", 32),
+		Unit: f.host.Node, BinarySHA256: strings.Repeat("a", 64), ProcessID: 7, StartNonce: "00000000000000000000000000000001",
 		ObservedAt: now}, key, now)
 	if err != nil {
 		t.Fatal(err)
@@ -89,8 +95,51 @@ func (f *hostSinkFixture) exchange(t *testing.T, exchange host.RolloutExchange) 
 
 func (f *hostSinkFixture) joined(t *testing.T, node string) bool {
 	t.Helper()
-	_, err := f.board.Get(t.Context(), joinedKey(node))
+	_, err := f.board.Get(t.Context(), rollout.HostMembershipKey(node))
 	return err == nil
+}
+
+func TestReleasePinsAfterHostJoins(t *testing.T) {
+	f := newHostSinkFixture(t)
+	ctx := t.Context()
+	digest := strings.Repeat("a", 64)
+	if _, err := f.store.PublishRelease(ctx, 7, rollout.Release{Digest: digest, Actor: "ops", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.exchange(t, host.RolloutExchange{Proof: f.proof(t, f.key)}); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := f.board.Keys(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range keys {
+		if key != "release.desired" && !entityid.Valid(key) {
+			t.Fatalf("host joining created a non-ULID key: %s", key)
+		}
+	}
+	rollback, knownBad, err := f.store.ReleasePins(ctx)
+	if err != nil || !slices.Equal(rollback, []string{digest}) || len(knownBad) != 0 {
+		t.Fatalf("pins after host joined: %v %v %v", rollback, knownBad, err)
+	}
+	channel, err := openChannelBucket(ctx, f.js, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.control.consumeChannel(ctx, f.store, channel, 7, nil, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := channel.Get(ctx, releasechannel.StatusKey("GRU"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status releasechannel.Status
+	if err := protocol.DecodeTolerant(entry.Value(), &status, releasechannel.MaxValueBytes); err != nil {
+		t.Fatal(err)
+	}
+	if status.Pins == nil || !slices.Equal(status.Pins.Rollback, []string{digest}) {
+		t.Fatalf("published pins after host joined: %+v", status.Pins)
+	}
 }
 
 // A host joins the release program with a proof its registered key signed,
@@ -115,7 +164,7 @@ func TestHostRolloutExchangeVerifiesTheProofAndRelaysTheStep(t *testing.T) {
 	if _, err := f.board.Put(ctx, rolloutexec.StepKey(f.host.Node), []byte("signed step")); err != nil {
 		t.Fatal(err)
 	}
-	reply := []byte(`{"operation_id":"ro-1","unit":"gru-1-db-1","epoch":7,"outcome":"activated"}`)
+	reply := []byte(`{"operation_id":"0000000000N6KCZG3MWDGZ0WBE","unit":"gru-1-db-1","epoch":7,"outcome":"activated"}`)
 	step, err = f.exchange(t, host.RolloutExchange{Proof: f.proof(t, f.key), Reply: reply})
 	if err != nil || string(step.Step) != "signed step" {
 		t.Fatalf("exchange with a pending step = %+v %v", step, err)
@@ -123,7 +172,7 @@ func TestHostRolloutExchangeVerifiesTheProofAndRelaysTheStep(t *testing.T) {
 	if entry, err := f.board.Get(ctx, rolloutexec.ReplyKey(f.host.Node)); err != nil || string(entry.Value()) != string(reply) {
 		t.Fatalf("reply on the board = %v", err)
 	}
-	foreign := []byte(`{"operation_id":"ro-1","unit":"gru-1-db-2","epoch":7,"outcome":"refused"}`)
+	foreign := []byte(`{"operation_id":"0000000000N6KCZG3MWDGZ0WBE","unit":"gru-1-db-2","epoch":7,"outcome":"refused"}`)
 	if _, err := f.exchange(t, host.RolloutExchange{Proof: f.proof(t, f.key), Reply: foreign}); err == nil {
 		t.Fatal("a reply for another unit was relayed")
 	}
@@ -186,7 +235,11 @@ func TestHostRolloutBinaryServesTheLeadersRelease(t *testing.T) {
 func TestHostUnitsAreTheJoinedHostsGroupedByTerraBaseSeats(t *testing.T) {
 	f := newHostSinkFixture(t)
 	for _, node := range []string{"gru-1-ctl-1", "ts-gru-1", "gru-1-db-1", "gru-1-db-2", "gru-1-api-1", "gru-1-db-4"} {
-		if _, err := f.board.Create(t.Context(), joinedKey(node), []byte("key-"+node)); err != nil {
+		wire, err := protocol.EncodeJSON(rollout.HostMembership{Node: node, PublicKey: "key-" + node})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.board.Create(t.Context(), rollout.HostMembershipKey(node), wire); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -212,13 +265,13 @@ func TestHostUnitsAreTheJoinedHostsGroupedByTerraBaseSeats(t *testing.T) {
 	if _, err := load(t.Context()); err == nil || !strings.Contains(err.Error(), "gru-1-db-3 has not joined") {
 		t.Fatalf("an unjoined host was omitted: %v", err)
 	}
-	if _, err := f.board.Put(t.Context(), joinedKey("gru-1-db-3"), []byte("key-gru-1-db-3")); err != nil {
+	if _, err := f.board.Put(t.Context(), rollout.HostMembershipKey("gru-1-db-3"), []byte(`{"node":"gru-1-db-3","public_key":"key-gru-1-db-3"}`)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := load(t.Context()); err == nil || !strings.Contains(err.Error(), "gru-1-db-4 has not proved") {
 		t.Fatalf("a replaced host was omitted: %v", err)
 	}
-	if _, err := f.board.Put(t.Context(), joinedKey("gru-1-db-4"), []byte("key-of-the-new-gru-1-db-4")); err != nil {
+	if _, err := f.board.Put(t.Context(), rollout.HostMembershipKey("gru-1-db-4"), []byte(`{"node":"gru-1-db-4","public_key":"key-of-the-new-gru-1-db-4"}`)); err != nil {
 		t.Fatal(err)
 	}
 	units, err := load(t.Context())
@@ -249,7 +302,7 @@ func TestHostUnitsExcludeRetiredHistoryButKeepCurrentHostsWithoutSessions(t *tes
 	if _, err := load(t.Context()); err == nil || !strings.Contains(err.Error(), "current-host has not joined") {
 		t.Fatalf("historical retirement blocked rollout or a missing current session was silently omitted: %v", err)
 	}
-	if _, err := f.board.Create(t.Context(), joinedKey("current-host"), []byte("current-key")); err != nil {
+	if _, err := f.board.Create(t.Context(), rollout.HostMembershipKey("current-host"), []byte(`{"node":"current-host","public_key":"current-key"}`)); err != nil {
 		t.Fatal(err)
 	}
 	units, err := load(t.Context())
@@ -390,8 +443,8 @@ func TestHostRolloutFollowerSpoolsTheLeadersStepAndRelaysTheReply(t *testing.T) 
 	release := []byte("orchestrator release for hosts")
 	now := time.Now().UTC()
 	step, err := rolloutexec.SignStepCommand(rolloutexec.StepCommand{Schema: rolloutexec.StepSchema, Cell: "gru",
-		RolloutID: "release-g1-hosts", Kind: rollout.KindHost, Unit: "gru-1-db-1",
-		OperationID: rollout.OperationID("release-g1-hosts", "gru-1-db-1", rollout.PhaseCanary, 0),
+		RolloutID: "0000000000XJEH5D70V6SZ16YY", Kind: rollout.KindHost, Unit: "gru-1-db-1",
+		OperationID: rollout.OperationID("0000000000XJEH5D70V6SZ16YY", "gru-1-db-1", rollout.PhaseCanary, 0),
 		Action:      rolloutexec.StepPrepare, Digest: digestOf(release), Replaces: strings.Repeat("a", 64), Epoch: 3,
 		ProofWindowSeconds: 60}, leader, now, time.Time{})
 	if err != nil {
@@ -425,7 +478,7 @@ func TestHostRolloutFollowerSpoolsTheLeadersStepAndRelaysTheReply(t *testing.T) 
 	if _, err := rolloutexec.VerifyHealthProof(exchange.Proof, "gru", "gru-1-db-1", keys, time.Now().UTC()); err != nil {
 		t.Fatalf("the host's proof does not verify with its key: %v", err)
 	}
-	reply := []byte(`{"operation_id":"ro-1","unit":"gru-1-db-1","epoch":3,"outcome":"activated"}`)
+	reply := []byte(`{"operation_id":"0000000000N6KCZG3MWDGZ0WBE","unit":"gru-1-db-1","epoch":3,"outcome":"activated"}`)
 	if err := os.WriteFile(filepath.Join(layout.Root, rolloutexec.ReplyFile(selfupdate.HostUnit)), reply, 0o644); err != nil {
 		t.Fatal(err)
 	}

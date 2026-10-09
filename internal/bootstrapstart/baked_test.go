@@ -40,7 +40,7 @@ func bakedFixture(t *testing.T) (bakedStore, string, string) {
 	keyWire := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
 	writeBakedFixture(t, filepath.Join(roots, "001.pem"), keyWire)
 	identityWire, err := protocol.EncodeJSON(BakedIdentity{
-		SchemaVersion: 1, DeploymentID: "deployment-a", Environment: "production", Cell: oci.RegionGRU,
+		SchemaVersion: 1, DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "production", Cell: oci.RegionGRU,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +48,7 @@ func bakedFixture(t *testing.T) (bakedStore, string, string) {
 	writeBakedFixture(t, filepath.Join(directory, "identity.json"), identityWire)
 	now := time.Now().UTC().Truncate(time.Second)
 	anchorEnvelope, err := trust.Sign([]byte(`{}`), trust.Scope{
-		Domain: "terrascale.bootstrap.anchor", DeploymentID: "deployment-a", Cell: "GRU",
+		Domain: "terrascale.bootstrap.anchor", DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "GRU",
 		Environment: "production", Role: "deployment-anchor", Slot: "region",
 	}, now, now.Add(time.Hour), private)
 	if err != nil {
@@ -76,7 +76,7 @@ func writeBakedFixture(t *testing.T, path string, wire []byte) {
 func TestBakedInputsRequireCanonicalRootOwnedPublicFiles(t *testing.T) {
 	store, roots, anchorPath := bakedFixture(t)
 	loaded, err := store.load()
-	if err != nil || len(loaded.Roots) != 1 || loaded.Identity.DeploymentID != "deployment-a" || len(loaded.AnchorWire) == 0 {
+	if err != nil || len(loaded.Roots) != 1 || loaded.Identity.DeploymentID != "0000000000F9PR1WNVDTEXS31Z" || len(loaded.AnchorWire) == 0 {
 		t.Fatalf("load baked public inputs = %+v, %v", loaded.Identity, err)
 	}
 	if err := os.Chmod(anchorPath, 0o644); err != nil {

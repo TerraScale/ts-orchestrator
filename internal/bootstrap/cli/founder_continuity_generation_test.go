@@ -27,7 +27,7 @@ func TestFounderContinuityBindsTheAdoptedGeneration(t *testing.T) {
 	}
 	marker := bootstrapstart.AcceptedInstall{SchemaVersion: 1, AnchorSHA256: digest(anchorWire),
 		ManifestSHA256: strings.Repeat("1", 64), ReceiptSHA256: strings.Repeat("2", 64),
-		ImageReceiptSHA256: strings.Repeat("3", 64), DeploymentID: "deployment-a", Cell: "GRU", Slot: "seed-a",
+		ImageReceiptSHA256: strings.Repeat("3", 64), DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "GRU", Slot: "seed-a",
 		SeedSlot: "seed-a", ImageOCID: "ocid1.image.oc1.sa-saopaulo-1.image",
 		InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.instance", PrimaryVNICOCID: "ocid1.vnic.oc1.sa-saopaulo-1.vnic",
 		PrimaryPrivateIP: "10.0.1.10", HeadAttempt: 1, HeadGeneration: 1, ResultSHA256: strings.Repeat("4", 64),
@@ -39,8 +39,8 @@ func TestFounderContinuityBindsTheAdoptedGeneration(t *testing.T) {
 	}
 	markerPath := filepath.Join(fixture.directory, "marker.json")
 	writeFixture(t, markerPath, markerWire, 0o600)
-	expected := bootstrap.MaterialGenerationExpectation{DeploymentID: "deployment-a", Environment: "production",
-		ClusterID: "cluster-a", Cell: "GRU", ControllerSlots: []string{"seed-a"}}
+	expected := bootstrap.MaterialGenerationExpectation{DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "production",
+		ClusterID: "0000000000RMSAJ9B0JFV7ESHN", Cell: "GRU", ControllerSlots: []string{"seed-a"}}
 	material := generationtest.New(t, fixture.now)
 	writeChain := func(name string, key ed25519.PrivateKey) (string, time.Time, string) {
 		t.Helper()

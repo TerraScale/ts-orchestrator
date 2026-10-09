@@ -3,7 +3,8 @@ package placement
 import (
 	"fmt"
 	"strconv"
-	"strings"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
@@ -26,32 +27,26 @@ const SeatsPerRegion = MinSeatsPerRegion
 // ordinal 1 maps to the base ID, so an off-by-one caller gets a distinct
 // (and visibly wrong) ID instead of silently aliasing ordinal 1's member.
 func ElasticSeatID(region oci.Region, ordinal int) string {
-	if ordinal == 1 {
-		return elasticMember(region)
-	}
-	return elasticMember(region) + "-" + strconv.Itoa(ordinal)
+	return entityid.Derive("placement-seat", string(region), strconv.Itoa(ordinal+1))
 }
 
 // seatMemberName is a seat's static member name in placement order: the
 // permanent seat is member 1 and elastic seat k is member k+1, e.g.
 // gru-1-db-2 for elastic-gru. Host attempts and generations never change it.
 func seatMemberName(region oci.Region, memberID string) (string, error) {
-	n := 0
-	switch suffix, elastic := strings.CutPrefix(memberID, elasticMember(region)+"-"); {
-	case !knownRegion(region):
-	case memberID == permanentMember(region):
-		n = 1
-	case memberID == elasticMember(region):
-		n = 2
-	case elastic:
-		if ordinal, err := strconv.Atoi(suffix); err == nil && ordinal > 1 && ElasticSeatID(region, ordinal) == memberID {
-			n = ordinal + 1
+	if !knownRegion(region) {
+		return "", fmt.Errorf("%w: unsupported region", ErrInvalidIntent)
+	}
+	for n := 1; n <= 3; n++ {
+		id := permanentMember(region)
+		if n > 1 {
+			id = ElasticSeatID(region, n-1)
+		}
+		if memberID == id {
+			return naming.RegionCell(string(region)).Server(naming.Member, n)
 		}
 	}
-	if n == 0 {
-		return "", fmt.Errorf("%w: seat %q has no member name", ErrInvalidIntent, memberID)
-	}
-	return naming.RegionCell(string(region)).Server(naming.Member, n)
+	return "", fmt.Errorf("%w: seat %q has no member name", ErrInvalidIntent, memberID)
 }
 
 // RegionSeats returns one region's seats in placement order: the permanent

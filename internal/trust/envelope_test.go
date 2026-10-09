@@ -171,7 +171,7 @@ func TestDelegationRestrictsPurposeCellRoleAndSlot(t *testing.T) {
 		SubjectKeyID:     delegateID,
 		SubjectPublicKey: encodedPublic,
 		Capabilities: []Capability{{
-			Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: "deployment-7", Cell: "GRU",
+			Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: "0000000000KAHFE3RAB6316KW8", Cell: "GRU",
 			Environment: "production", Role: "controller", Slots: []string{"controller-1", "controller-2"}, Actions: []string{"sign"},
 		}},
 	}
@@ -184,7 +184,7 @@ func TestDelegationRestrictsPurposeCellRoleAndSlot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyDelegationCurrent() error = %v", err)
 	}
-	allowedScope := Scope{Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: "deployment-7", Cell: "GRU", Environment: "production", Role: "controller", Slot: "controller-1"}
+	allowedScope := Scope{Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: "0000000000KAHFE3RAB6316KW8", Cell: "GRU", Environment: "production", Role: "controller", Slot: "controller-1"}
 	leaf, err := Sign([]byte(`{"instance":"ocid1.instance"}`), allowedScope, now, now.Add(10*time.Minute), delegatePrivate)
 	if err != nil {
 		t.Fatalf("Sign(leaf) error = %v", err)
@@ -193,10 +193,10 @@ func TestDelegationRestrictsPurposeCellRoleAndSlot(t *testing.T) {
 		t.Fatalf("VerifyDelegatedCurrent(allowed) error = %v", err)
 	}
 	for _, denied := range []Scope{
-		{Domain: "terrascale.bootstrap.seed-receipt", DeploymentID: "deployment-7", Cell: "GRU", Environment: "production", Role: "controller", Slot: "controller-1"},
-		{Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: "deployment-7", Cell: "SFO", Environment: "production", Role: "controller", Slot: "controller-1"},
-		{Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: "deployment-7", Cell: "GRU", Environment: "production", Role: "operator", Slot: "controller-1"},
-		{Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: "deployment-7", Cell: "GRU", Environment: "production", Role: "controller", Slot: "controller-3"},
+		{Domain: "terrascale.bootstrap.seed-receipt", DeploymentID: "0000000000KAHFE3RAB6316KW8", Cell: "GRU", Environment: "production", Role: "controller", Slot: "controller-1"},
+		{Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: "0000000000KAHFE3RAB6316KW8", Cell: "SFO", Environment: "production", Role: "controller", Slot: "controller-1"},
+		{Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: "0000000000KAHFE3RAB6316KW8", Cell: "GRU", Environment: "production", Role: "operator", Slot: "controller-1"},
+		{Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: "0000000000KAHFE3RAB6316KW8", Cell: "GRU", Environment: "production", Role: "controller", Slot: "controller-3"},
 	} {
 		if _, err := VerifyDelegatedCurrent(leaf, denied, verifiedDelegation, now, testPolicy()); !errors.Is(err, ErrCapabilityDenied) {
 			t.Errorf("VerifyDelegatedCurrent(%s) = %v, want ErrCapabilityDenied", denied, err)
@@ -216,7 +216,7 @@ func TestHistoricalDelegatedRecordCanBeAuditedButNotUsedCurrently(t *testing.T) 
 	delegateID, _ := KeyID(delegatePublic)
 	encodedPublic, _ := EncodeDelegatedPublicKey(delegatePublic)
 	delegation := Delegation{SchemaVersion: SchemaVersion, SubjectKeyID: delegateID, SubjectPublicKey: encodedPublic,
-		Capabilities: []Capability{{Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: "deployment-7", Cell: "GRU", Environment: "production", Role: "controller", Slots: []string{"controller-1"}, Actions: []string{"sign"}}}}
+		Capabilities: []Capability{{Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: "0000000000KAHFE3RAB6316KW8", Cell: "GRU", Environment: "production", Role: "controller", Slots: []string{"controller-1"}, Actions: []string{"sign"}}}}
 	issued := time.Date(2026, time.September, 24, 12, 0, 0, 0, time.UTC)
 	delegationEnvelope, err := SignDelegation(delegation, issued, issued.Add(time.Hour), rootPrivate)
 	if err != nil {
@@ -226,7 +226,7 @@ func TestHistoricalDelegatedRecordCanBeAuditedButNotUsedCurrently(t *testing.T) 
 	if err != nil {
 		t.Fatalf("VerifyDelegationHistorical() error = %v", err)
 	}
-	scope := Scope{Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: "deployment-7", Cell: "GRU", Environment: "production", Role: "controller", Slot: "controller-1"}
+	scope := Scope{Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: "0000000000KAHFE3RAB6316KW8", Cell: "GRU", Environment: "production", Role: "controller", Slot: "controller-1"}
 	leaf, err := Sign([]byte(`{"instance":"ocid1.instance"}`), scope, issued.Add(time.Minute), issued.Add(2*time.Minute), delegatePrivate)
 	if err != nil {
 		t.Fatal(err)
@@ -254,7 +254,7 @@ func TestSignRejectsDuplicatePayloadMembers(t *testing.T) {
 }
 
 func testScope() Scope {
-	return Scope{Domain: "terrascale.bootstrap.manifest", DeploymentID: "deployment-7", Cell: "GRU", Environment: "production", Role: "controller", Slot: "controller-1"}
+	return Scope{Domain: "terrascale.bootstrap.manifest", DeploymentID: "0000000000KAHFE3RAB6316KW8", Cell: "GRU", Environment: "production", Role: "controller", Slot: "controller-1"}
 }
 
 func testScopeWithCell(cell string) Scope {

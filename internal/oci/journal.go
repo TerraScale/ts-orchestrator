@@ -7,8 +7,9 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -27,13 +28,15 @@ type KVJournal struct {
 }
 
 type journalEntry struct {
-	SchemaVersion      int                `json:"schema_version"`
-	Kind               string             `json:"kind"`
-	Intent             OperationIntent    `json:"intent,omitzero"`
-	Result             OperationResult    `json:"result,omitzero"`
-	Identity           ResourceIdentity   `json:"identity,omitzero"`
-	AttachmentIdentity AttachmentIdentity `json:"attachment_identity,omitzero"`
-	BootBinding        BootBinding        `json:"boot_binding,omitzero"`
+	FormatPermit       VolumeFormatPermitRecord `json:"format_permit,omitzero"`
+	MountPermit        VolumeMountPermitRecord  `json:"mount_permit,omitzero"`
+	SchemaVersion      int                      `json:"schema_version"`
+	Kind               string                   `json:"kind"`
+	Intent             OperationIntent          `json:"intent,omitzero"`
+	Result             OperationResult          `json:"result,omitzero"`
+	Identity           ResourceIdentity         `json:"identity,omitzero"`
+	AttachmentIdentity AttachmentIdentity       `json:"attachment_identity,omitzero"`
+	BootBinding        BootBinding              `json:"boot_binding,omitzero"`
 }
 
 func (journal *KVJournal) RecordBootBinding(ctx context.Context, binding BootBinding) error {
@@ -91,14 +94,17 @@ func (journal *KVJournal) ListOperations(ctx context.Context) ([]OperationRecord
 	}
 	var records []OperationRecord
 	for _, key := range keys {
-		if !strings.HasPrefix(key, "operation.") {
-			continue
+		if !entityid.Valid(key) {
+			return nil, errors.New("invalid OCI journal key")
 		}
 		entry, err := journal.read(ctx, key)
 		if err != nil {
 			return nil, err
 		}
-		if entry.Kind != "operation" || operationKey(entry.Intent) != key || validateIntent(entry.Intent) != nil {
+		if entry.Kind != "operation" {
+			continue
+		}
+		if operationKey(entry.Intent) != key || validateIntent(entry.Intent) != nil {
 			return nil, errors.New("OCI journal operation inventory is corrupt")
 		}
 		records = append(records, OperationRecord{Intent: entry.Intent, Result: entry.Result})
@@ -779,11 +785,11 @@ func sameResult(a, b OperationResult) bool {
 }
 
 func operationKey(intent OperationIntent) string {
-	return "operation." + digest(intent.Owner, string(intent.Region), fmt.Sprint(intent.Generation), intent.Action, intent.Key)
+	return entityid.Derive("oci-operation", intent.Owner, string(intent.Region), fmt.Sprint(intent.Generation), intent.Action, intent.Key)
 }
 
 func ownershipKey(kind, id string) string {
-	return kind + "." + digest(id)
+	return entityid.Derive("oci-ownership", kind, id)
 }
 
 func digest(parts ...string) string {

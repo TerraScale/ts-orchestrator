@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workloadspec"
@@ -80,6 +82,76 @@ func createMachine(t *testing.T, store *Store, app App) Machine {
 	return machine
 }
 
+func TestAppListingsIgnoreUnrelatedCorruptRecords(t *testing.T) {
+	store, _, _ := testStore(t)
+	app := createApp(t, store, "scoped")
+	machine := createMachine(t, store, app)
+	other := createApp(t, store, "other")
+	otherMachine := createMachine(t, store, other)
+	for _, kv := range []jetstream.KeyValue{store.machines, store.statuses} {
+		if _, err := kv.Put(t.Context(), otherMachine.ID, []byte(`{"broken":true}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	machines, err := store.Machines(t.Context(), app.Name)
+	if err != nil || len(machines) != 1 || machines[0].ID != machine.ID {
+		t.Fatalf("scoped machines = %+v, %v", machines, err)
+	}
+	statuses, err := store.Statuses(t.Context(), app.Name)
+	if err != nil || len(statuses) != 0 {
+		t.Fatalf("scoped statuses = %+v, %v", statuses, err)
+	}
+	if _, err := store.Machines(t.Context(), ""); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("global inventory must reject corrupt records: %v", err)
+	}
+	// An interrupted create may leave an index entry without a machine.
+	id := entityid.New()
+	if _, err := store.machines.Put(t.Context(), app.Name+"."+id, []byte(id)); err != nil {
+		t.Fatal(err)
+	}
+	machines, err = store.Machines(t.Context(), app.Name)
+	if err != nil || len(machines) != 1 {
+		t.Fatalf("interrupted-create lookup = %+v, %v", machines, err)
+	}
+}
+
+func TestOpenStoreRejectsHistoricalOrIncompleteSnapshot(t *testing.T) {
+	store, fence, srv := testStore(t)
+	app := createApp(t, store, "restored")
+	machine := createMachine(t, store, app)
+	conn, err := nats.Connect(srv.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	js, err := jetstream.New(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenStore(t.Context(), js, "gru", 1, fence); err != nil {
+		t.Fatalf("current snapshot rejected: %v", err)
+	}
+	if err := store.machines.Delete(t.Context(), app.Name+"."+machine.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenStore(t.Context(), js, "gru", 1, fence); err == nil {
+		t.Fatal("accepted machine hidden by incomplete snapshot index")
+	}
+	if _, err := store.machines.Put(t.Context(), app.Name+"."+machine.ID, []byte(machine.ID)); err != nil {
+		t.Fatal(err)
+	}
+	data, err := protocol.EncodeJSON(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.apps.Put(t.Context(), "apps."+app.Name, data); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenStore(t.Context(), js, "gru", 1, fence); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("accepted historical key without reset: %v", err)
+	}
+}
+
 func mustPutMachine(t *testing.T, store *Store, machine Machine) Machine {
 	t.Helper()
 	machine, err := store.PutMachine(t.Context(), epoch, machine)
@@ -107,7 +179,7 @@ func TestStoreAppVersionsFollowConfigChanges(t *testing.T) {
 	draft := testApp("ts-auth")
 	draft.ID, draft.Version = "", 42 // The store owns both.
 	app, err := store.PutApp(ctx, epoch, draft)
-	if err != nil || app.Version != 1 || !idRE.MatchString(app.ID) || app.Revision == 0 {
+	if err != nil || app.Version != 1 || !entityid.Valid(app.ID) || app.Revision == 0 {
 		t.Fatalf("create = %+v, %v", app, err)
 	}
 	if _, err := store.PutApp(ctx, epoch, draft); !errors.Is(err, ErrConflict) {
@@ -433,43 +505,55 @@ func TestStoreRefusesTamperedRecords(t *testing.T) {
 		key   string
 		value []byte
 	}{
-		"app under another name": {appKey("evil"), encode(other)},
-		"unknown field":          {appKey("evil"), []byte(strings.Replace(string(encode(testApp("evil"))), `"name"`, `"owner":"x","name"`, 1))},
-		"invalid record":         {appKey("evil"), encode(invalid)},
-		"duplicate field":        {appKey("evil"), []byte(`{"name":"evil","name":"evil"}`)},
-		"not json":               {appKey("evil"), []byte("{")},
-		"machine of another app": {machineKey("evil", machine.ID), encode(machine)},
-		"status of another app":  {statusKey("evil", machine.ID), encode(Status{ID: machine.ID, App: "ts-auth", State: StateStarted, UpdatedAt: time.Now()})},
+		"app under another name":   {appKey("evil"), encode(other)},
+		"unknown field":            {appKey("evil"), []byte(strings.Replace(string(encode(testApp("evil"))), `"name"`, `"owner":"x","name"`, 1))},
+		"invalid record":           {appKey("evil"), encode(invalid)},
+		"duplicate field":          {appKey("evil"), []byte(`{"name":"evil","name":"evil"}`)},
+		"not json":                 {appKey("evil"), []byte("{")},
+		"machine under another ID": {entityid.Derive("wrong-machine", machine.ID), encode(machine)},
+		"status under another ID":  {entityid.Derive("wrong-status", machine.ID), encode(Status{ID: machine.ID, App: "ts-auth", State: StateStarted, UpdatedAt: time.Now()})},
 	}
 	for name, tamper := range cases {
 		kv := store.apps
-		if strings.HasPrefix(tamper.key, "status.") {
+		if strings.HasPrefix(name, "status ") {
 			kv = store.statuses
+		} else if strings.HasPrefix(name, "machine ") {
+			kv = store.machines
 		}
 		if _, err := kv.Put(ctx, tamper.key, tamper.value); err != nil {
 			t.Fatal(err)
 		}
+		if kv == store.machines {
+			if _, err := store.machines.Put(ctx, "ts-auth."+tamper.key, []byte(tamper.key)); err != nil {
+				t.Fatal(err)
+			}
+		}
 		var getErr, listErr error
 		switch {
-		case strings.HasPrefix(tamper.key, "apps."):
+		case kv == store.apps:
 			_, getErr = store.App(ctx, "evil")
 			_, listErr = store.Apps(ctx)
-		case strings.HasPrefix(tamper.key, "machines."):
-			_, getErr = store.Machine(ctx, "evil", machine.ID)
+		case kv == store.machines:
+			_, getErr = store.Machine(ctx, "ts-auth", tamper.key)
 			_, listErr = store.Machines(ctx, "")
 		default:
-			_, getErr = store.Status(ctx, "evil", machine.ID)
+			_, getErr = store.Status(ctx, "ts-auth", tamper.key)
 			_, listErr = store.Statuses(ctx, "")
 		}
 		if !errors.Is(getErr, ErrInvalid) || !errors.Is(listErr, ErrInvalid) {
 			t.Fatalf("%s: read = %v, list = %v", name, getErr, listErr)
 		}
 		// The bad record fails only the lists that include it.
-		if machines, err := store.Machines(ctx, "ts-auth"); err != nil || len(machines) != 1 {
+		if machines, err := store.Machines(ctx, "ts-auth"); (kv == store.machines && !errors.Is(err, ErrInvalid)) || (kv != store.machines && (err != nil || len(machines) != 1)) {
 			t.Fatalf("%s: ts-auth machines = %d, %v", name, len(machines), err)
 		}
 		if err := kv.Purge(ctx, tamper.key); err != nil {
 			t.Fatal(err)
+		}
+		if kv == store.machines {
+			if err := store.machines.Purge(ctx, "ts-auth."+tamper.key); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 
@@ -521,7 +605,7 @@ func TestStoreSweepsStatusesWithoutTheirMachine(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The machine is deleted between a host report's read and its write.
-	if err := store.apps.Delete(ctx, gone.key()); err != nil {
+	if err := store.machines.Delete(ctx, gone.key()); err != nil {
 		t.Fatal(err)
 	}
 	goneStatus.State = StateStopped
