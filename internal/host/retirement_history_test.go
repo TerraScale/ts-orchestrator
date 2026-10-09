@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -81,7 +82,7 @@ func TestRetirementAndRenameKeepHistoricalUsageWindows(t *testing.T) {
 	check := func(reader *Controller, from, to time.Time, want []string) {
 		t.Helper()
 		got, err := reader.ExpectedUsage(t.Context(), from, to)
-		if err != nil || !slices.Equal(got, want) {
+		if err != nil || !slices.Equal(usageIdentities(got), want) {
 			t.Fatalf("inventory [%s,%s) = %v, %v; want %v", from, to, got, err, want)
 		}
 	}
@@ -119,6 +120,19 @@ func TestRetirementAndRenameKeepHistoricalUsageWindows(t *testing.T) {
 	check(c, first.Time, beforeRename, []string{"node-a"})
 	check(c, unretired.Time, time.Now().UTC(), []string{"node-a", "node-b"})
 	check(successor, unretired.Time, time.Now().UTC(), []string{"node-a", "node-b"})
+	end := time.Now().UTC()
+	intervals, err := c.ExpectedUsage(t.Context(), first.Time, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeA := slices.DeleteFunc(intervals, func(interval hostload.UsageInterval) bool { return interval.Node != "node-a" })
+	want := []hostload.UsageInterval{
+		{Node: "node-a", Environment: registration.Environment, From: first.Time, To: retired.Time},
+		{Node: "node-a", Environment: registration.Environment, From: unretired.Time, To: end},
+	}
+	if !slices.Equal(nodeA, want) {
+		t.Fatalf("retirement gap disappeared: %v; want %v", nodeA, want)
+	}
 }
 
 func TestHistoricalRetirementRequiresStateAndIdentity(t *testing.T) {
@@ -212,9 +226,14 @@ func TestAllocationIntervalsMustOverlapNonRetiredTime(t *testing.T) {
 		from, to int
 		active   bool
 	}{{0, 10, true}, {10, 20, false}, {20, 25, true}, {25, 30, false}, {10, 25, true}} {
-		got := overlapsActiveUsage(active, "gru.node-a", from.Add(time.Duration(interval.from)*time.Second), from.Add(time.Duration(interval.to)*time.Second))
+		got := len(intersectActiveUsage(active, "gru.node-a", from.Add(time.Duration(interval.from)*time.Second), from.Add(time.Duration(interval.to)*time.Second))) > 0
 		if got != interval.active {
 			t.Fatalf("allocation [%d,%d) overlap = %t; want %t", interval.from, interval.to, got, interval.active)
 		}
+	}
+	got := intersectActiveUsage(active, "gru.node-a", from.Add(5*time.Second), from.Add(27*time.Second))
+	want := []usageInterval{{from.Add(5 * time.Second), from.Add(10 * time.Second)}, {from.Add(20 * time.Second), from.Add(25 * time.Second)}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("active overlap lost exact boundaries: %v; want %v", got, want)
 	}
 }

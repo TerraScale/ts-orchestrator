@@ -101,7 +101,7 @@ func TestQueryClosesOwnedConnectionsAndPreservesCallerTransport(t *testing.T) {
 
 func TestWindowTotalsAndMissingData(t *testing.T) {
 	s, from, to := fixture(t)
-	result, err := s.Query(from, to, []string{"a", "b", "a/terrabase", "b/terrabase"})
+	result, err := s.Query(from, to, fullWindowInventory(from, to, "production", "a", "b", "a/terrabase", "b/terrabase"))
 	if err != nil || !result.Complete || len(result.Nodes) != 2 || len(result.Replicas) != 2 || len(result.Services) != 1 {
 		t.Fatalf("window: %+v %v", result, err)
 	}
@@ -109,7 +109,7 @@ func TestWindowTotalsAndMissingData(t *testing.T) {
 	if service.CPU.Usage.Mean != 2 || service.CPU.Limit.Min != 8 || service.Memory.Headroom.Min != 600 {
 		t.Fatalf("totals: %+v", service)
 	}
-	result, err = s.Query(from, to, []string{"missing", "a/ts-auth"})
+	result, err = s.Query(from, to, fullWindowInventory(from, to, "production", "a", "b", "a/terrabase", "b/terrabase", "missing", "a/ts-auth"))
 	if err != nil || result.Complete || len(result.Missing) != 2 {
 		t.Fatalf("missing data claimed complete: %+v %v", result, err)
 	}
@@ -141,7 +141,9 @@ func TestAuthenticatedAPIAndRegionalClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.HandleAuthenticated("GET /v1/usage", s.Handler(func(context.Context, time.Time, time.Time) ([]string, error) { return []string{"a", "b"}, nil }))
+	server.HandleAuthenticated("GET /v1/usage", s.Handler(func(context.Context, time.Time, time.Time) ([]hostload.UsageInterval, error) {
+		return fullWindowInventory(from, to, "production", "a", "b", "a/terrabase", "b/terrabase"), nil
+	}))
 	httpServer := httptest.NewServer(server)
 	defer httpServer.Close()
 	response, err := http.Get(httpServer.URL + "/v1/usage")
@@ -197,7 +199,7 @@ func TestAllocatedRequestsSurviveMissingMeasurements(t *testing.T) {
 				t.Fatal(err)
 			}
 			to := time.Now().UTC().Add(time.Second)
-			result, err := s.Query(to.Add(-10*time.Second), to, []string{"a", "a/terrabase", "a/api"})
+			result, err := s.Query(to.Add(-10*time.Second), to, fullWindowInventory(to.Add(-10*time.Second), to, "production", "a", "a/terrabase", "a/api"))
 			if err != nil || len(result.Nodes) != 1 || result.Complete || len(result.Missing) != 2 {
 				t.Fatalf("missing measurements were concealed: %+v %v", result, err)
 			}
@@ -214,6 +216,20 @@ func TestAllocatedRequestsSurviveMissingMeasurements(t *testing.T) {
 					t.Fatalf("missing measurements became spare capacity: %+v", replica)
 				}
 			}
+			for _, service := range result.Services {
+				if service.Service == "terrabase" && (service.CPU.Request == nil || service.CPU.Request.Mean != 2 || service.CPU.Usage != nil) {
+					t.Fatalf("known service requests were lost with unknown usage: %+v", service)
+				}
+			}
 		})
 	}
+}
+
+func fullWindowInventory(from, to time.Time, environment string, identities ...string) []hostload.UsageInterval {
+	intervals := make([]hostload.UsageInterval, 0, len(identities))
+	for _, identity := range identities {
+		node, role, _ := strings.Cut(identity, "/")
+		intervals = append(intervals, hostload.UsageInterval{Node: node, Role: role, Environment: environment, From: from, To: to})
+	}
+	return intervals
 }

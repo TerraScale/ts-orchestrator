@@ -4,20 +4,22 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 )
 
 func TestServiceCoverageRequiresAnOverlappingRange(t *testing.T) {
 	from := time.Now().UTC().Add(-time.Minute)
 	to := from.Add(15 * time.Second)
-	a := summarize([]observability.Point{{Time: from, Value: 1}, {Time: from.Add(5 * time.Second), Value: 1}}, from, to)
+	a := []observability.Point{{Time: from, Value: 1, Min: 1, Max: 1}, {Time: from.Add(5 * time.Second), Value: 1, Min: 1, Max: 1}}
 	for _, offset := range []time.Duration{4, 5, 6} {
-		b := summarize([]observability.Point{{Time: from.Add(offset * time.Second), Value: 2}, {Time: from.Add((offset + 5) * time.Second), Value: 2}}, from, to)
-		if !a.Complete || !b.Complete {
-			t.Fatal("replica fixtures must each cover the requested window")
+		b := []observability.Point{{Time: from.Add(offset * time.Second), Value: 2, Min: 2, Max: 2}, {Time: from.Add((offset + 5) * time.Second), Value: 2, Min: 2, Max: 2}}
+		replicas := []*replicaSeries{
+			{active: []hostload.UsageInterval{{From: from, To: to}}, metrics: map[string][]observability.Point{"cpu_usage": a}},
+			{active: []hostload.UsageInterval{{From: from, To: to}}, metrics: map[string][]observability.Point{"cpu_usage": b}},
 		}
-		total := sumStats(a, b)
-		if total.Complete != (offset == 4) || total.Mean != 3 {
+		total := aggregateMetric(replicas, "cpu_usage", from, to)
+		if total == nil || total.Complete != (offset == 4) || total.Mean != 3 {
 			t.Fatalf("offset %s: aggregate coverage = %+v", offset*time.Second, total)
 		}
 	}
@@ -36,7 +38,7 @@ func TestIncompleteServiceCoverageMakesUsageIncomplete(t *testing.T) {
 			appendResourceSample(s, from.Add(time.Duration(second)*time.Second), node, 3)
 		}
 	}
-	usage, err := s.Query(from, to, []string{"a", "b", "a/api", "b/api"})
+	usage, err := s.Query(from, to, fullWindowInventory(from, to, "", "a", "b", "a/api", "b/api"))
 	if err != nil || len(usage.Services) != 1 || usage.Complete || rowComplete(usage.Services[0]) {
 		t.Fatalf("non-overlapping service coverage claimed complete: %+v %v", usage, err)
 	}
@@ -56,7 +58,7 @@ func TestMeasurementQueryExcludesBoundarySampleSpikes(t *testing.T) {
 		appendResourceSample(s, base.Add(time.Duration(second)*time.Second), "a", 3)
 	}
 	appendResourceSample(s, base.Add(32*time.Second), "a", 0.01)
-	usage, err := s.Query(base.Add(time.Second), base.Add(31*time.Second), []string{"a", "a/api"})
+	usage, err := s.Query(base.Add(time.Second), base.Add(31*time.Second), fullWindowInventory(base.Add(time.Second), base.Add(31*time.Second), "", "a", "a/api"))
 	if err != nil || !usage.Complete || len(usage.Nodes) != 1 || usage.Nodes[0].CPU.Headroom.Min != 3 || usage.Replicas[0].CPU.Headroom.Min != 3 {
 		t.Fatalf("warmup/cleanup samples contaminated measurement headroom: %+v %v", usage, err)
 	}

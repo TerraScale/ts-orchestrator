@@ -20,13 +20,14 @@ const Retention = time.Hour
 const MaxGap = time.Minute
 
 type Stats struct {
-	Mean     float64   `json:"mean"`
-	Min      float64   `json:"min"`
-	Max      float64   `json:"max"`
-	Samples  int       `json:"samples"`
-	From     time.Time `json:"from"`
-	To       time.Time `json:"to"`
-	Complete bool      `json:"complete"`
+	Mean          float64   `json:"mean"`
+	Min           float64   `json:"min"`
+	Max           float64   `json:"max"`
+	Samples       int       `json:"samples"`
+	From          time.Time `json:"from"`
+	To            time.Time `json:"to"`
+	Complete      bool      `json:"complete"`
+	MaxUpperBound *float64  `json:"max_upper_bound,omitempty"`
 }
 
 type Resource struct {
@@ -61,15 +62,15 @@ type Store struct {
 	History  *observability.History
 	mu       sync.Mutex
 	last     map[string]time.Time
-	expected func(context.Context, time.Time, time.Time) ([]string, error)
+	expected func(context.Context, time.Time, time.Time) ([]hostload.UsageInterval, error)
 }
 
-func (s *Store) SetExpected(f func(context.Context, time.Time, time.Time) ([]string, error)) {
+func (s *Store) SetExpected(f func(context.Context, time.Time, time.Time) ([]hostload.UsageInterval, error)) {
 	s.mu.Lock()
 	s.expected = f
 	s.mu.Unlock()
 }
-func (s *Store) Expected(ctx context.Context, from, to time.Time) ([]string, error) {
+func (s *Store) Expected(ctx context.Context, from, to time.Time) ([]hostload.UsageInterval, error) {
 	s.mu.Lock()
 	f := s.expected
 	s.mu.Unlock()
@@ -208,88 +209,80 @@ func summarize(points []observability.Point, from, to time.Time) *Stats {
 	return s
 }
 
-// Query returns replica rows as well as conservative per-service totals:
-// summed replica maxima bound the service's peak even when peaks differ in time.
-func (s *Store) Query(from, to time.Time, expected []string) (Usage, error) {
+// Query aligns active replica measurements before summarizing service totals.
+func (s *Store) Query(from, to time.Time, expected []hostload.UsageInterval) (Usage, error) {
 	result := Usage{Region: s.Region, From: from, To: to, Nodes: []Row{}, Services: []Row{}, Replicas: []Row{}, Missing: []string{}, Complete: true}
 	if err := ValidateWindow(s.Region, from, to, time.Now()); err != nil {
 		return result, err
 	}
-	rows := map[string]*Row{}
-	for _, metric := range []string{"cpu_usage", "cpu_request", "cpu_limit", "cpu_headroom", "memory_usage", "memory_request", "memory_limit", "memory_headroom"} {
+	rows := map[string]*replicaSeries{}
+	keyFor := func(node, environment, service string) string { return node + "/" + environment + "/" + service }
+	for _, interval := range expected {
+		key := keyFor(interval.Node, interval.Environment, interval.Role)
+		if rows[key] == nil {
+			rows[key] = &replicaSeries{Row: Row{Node: interval.Node, Environment: interval.Environment, Service: interval.Role}, metrics: map[string][]observability.Point{}}
+		}
+		rows[key].active = append(rows[key].active, interval)
+	}
+	for _, metric := range resourceMetrics {
 		rangeResult := s.History.Range(observability.HistoryQuery{Metric: "capacity_" + metric, Start: from, End: to, Tier: observability.TierRaw, MaxSeries: 4096})
 		result.Truncated = result.Truncated || rangeResult.Truncated
 		for _, series := range rangeResult.Series {
 			// Raw timestamps have millisecond precision; keep the window exclusive at its end.
-			points := slices.DeleteFunc(series.Points, func(point observability.Point) bool {
-				return point.Time.Before(from) || !point.Time.Before(to)
-			})
+			points := windowPoints(series.Points, from, to)
 			if len(points) == 0 {
 				continue
 			}
-			key := series.Labels["node"] + "/" + series.Labels["environment"] + "/" + series.Labels["service"]
+			node, environment, service := series.Labels["node"], series.Labels["environment"], series.Labels["service"]
+			key := keyFor(node, environment, service)
 			row := rows[key]
 			if row == nil {
-				row = &Row{Node: series.Labels["node"], Service: series.Labels["service"], Environment: series.Labels["environment"]}
+				if expected != nil {
+					continue // Authoritative inventory says this identity was inactive.
+				}
+				row = &replicaSeries{Row: Row{Node: node, Service: service, Environment: environment}, active: []hostload.UsageInterval{{From: from, To: to}}, metrics: map[string][]observability.Point{}}
 				rows[key] = row
 			}
-			stat := summarize(points, from, to)
-			switch metric {
-			case "cpu_usage":
-				row.CPU.Usage = stat
-			case "cpu_request":
-				row.CPU.Request = stat
-			case "cpu_limit":
-				row.CPU.Limit = stat
-			case "cpu_headroom":
-				row.CPU.Headroom = stat
-			case "memory_usage":
-				row.Memory.Usage = stat
-			case "memory_request":
-				row.Memory.Request = stat
-			case "memory_limit":
-				row.Memory.Limit = stat
-			case "memory_headroom":
-				row.Memory.Headroom = stat
-			}
+			row.metrics[metric] = points
 		}
 	}
-	seen := map[string]bool{}
-	services := map[string]*Row{}
+	services := map[string][]*replicaSeries{}
 	for _, key := range slices.Sorted(maps.Keys(rows)) {
-		row := *rows[key]
+		series := rows[key]
+		for _, metric := range resourceMetrics {
+			setStats(&series.Row, metric, summarizeReplica(series.metrics[metric], series.active))
+		}
+		row := series.Row
 		if !rowComplete(row) {
 			result.Complete = false
 		}
 		if row.Service == "" {
 			result.Nodes = append(result.Nodes, row)
-			seen[row.Node] = true
+			if row.CPU.Usage == nil && row.Memory.Usage == nil {
+				result.Missing = append(result.Missing, row.Node)
+			}
 			continue
 		}
 		result.Replicas = append(result.Replicas, row)
-		seen[row.Node+"/"+row.Service] = row.CPU.Usage != nil || row.Memory.Usage != nil
-		key = row.Environment + "/" + row.Service
-		total := services[key]
-		if total == nil {
-			copy := row
-			copy.Node = ""
-			services[key] = &copy
-		} else {
-			total.CPU = sumResource(total.CPU, row.CPU)
-			total.Memory = sumResource(total.Memory, row.Memory)
+		if row.CPU.Usage == nil && row.Memory.Usage == nil {
+			result.Missing = append(result.Missing, row.Node+"/"+row.Service)
 		}
+		key = row.Environment + "/" + row.Service
+		services[key] = append(services[key], series)
 	}
 	for _, key := range slices.Sorted(maps.Keys(services)) {
-		if !rowComplete(*services[key]) {
+		replicas := services[key]
+		row := Row{Service: replicas[0].Service, Environment: replicas[0].Environment}
+		for _, metric := range resourceMetrics {
+			setStats(&row, metric, aggregateMetric(replicas, metric, from, to))
+		}
+		if !rowComplete(row) {
 			result.Complete = false
 		}
-		result.Services = append(result.Services, *services[key])
+		result.Services = append(result.Services, row)
 	}
-	for _, node := range expected {
-		if !seen[node] {
-			result.Missing = append(result.Missing, node)
-		}
-	}
+	slices.Sort(result.Missing)
+	result.Missing = slices.Compact(result.Missing)
 	result.Truncated = result.Truncated || s.History.DroppedBetween(from, to)
 	result.Complete = result.Complete && !result.Truncated && len(result.Missing) == 0 && len(result.Nodes) > 0 && len(result.Replicas) > 0
 	return result, nil
@@ -306,30 +299,7 @@ func rowComplete(row Row) bool {
 	return true
 }
 
-func sumStats(a, b *Stats) *Stats {
-	if a == nil || b == nil {
-		return nil
-	}
-	from, to := maxTime(a.From, b.From), minTime(a.To, b.To)
-	return &Stats{Mean: a.Mean + b.Mean, Min: a.Min + b.Min, Max: a.Max + b.Max, Samples: min(a.Samples, b.Samples), From: from, To: to, Complete: a.Complete && b.Complete && from.Before(to)}
-}
-func maxTime(a, b time.Time) time.Time {
-	if a.After(b) {
-		return a
-	}
-	return b
-}
-func minTime(a, b time.Time) time.Time {
-	if a.Before(b) {
-		return a
-	}
-	return b
-}
-func sumResource(a, b Resource) Resource {
-	return Resource{Usage: sumStats(a.Usage, b.Usage), Request: sumStats(a.Request, b.Request), Limit: sumStats(a.Limit, b.Limit), Headroom: sumStats(a.Headroom, b.Headroom)}
-}
-
-func (s *Store) Handler(expected func(context.Context, time.Time, time.Time) ([]string, error)) http.Handler {
+func (s *Store) Handler(expected func(context.Context, time.Time, time.Time) ([]hostload.UsageInterval, error)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		from, err := time.Parse(time.RFC3339Nano, r.URL.Query().Get("from"))
 		to, toErr := time.Parse(time.RFC3339Nano, r.URL.Query().Get("to"))
@@ -341,7 +311,7 @@ func (s *Store) Handler(expected func(context.Context, time.Time, time.Time) ([]
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		var nodes []string
+		var nodes []hostload.UsageInterval
 		if expected != nil {
 			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 			defer cancel()

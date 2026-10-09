@@ -46,7 +46,7 @@ Reads have a ten-second deadline; unavailable or oversized inventory returns HTT
 Missing values stay JSON `null`; they never become zero usage or spare capacity.
 
 Each resource contains `usage`, `request`, `limit` and `headroom` statistics:
-sample mean, minimum, maximum, first/last bucket timestamps, sample count and
+mean, minimum, maximum, timestamps, sample count and
 coverage. CPU units are cores; memory units are bytes. Node memory comes from
 `MemTotal - MemAvailable`; service memory is cgroup working set, excluding
 inactive file pages. Requests come from the adopted signed workload profiles.
@@ -64,18 +64,30 @@ Raw history retains individual host samples. Queries use `[from, to)` bounds.
 Series idle for more than one hour release their slots before new measurements
 are admitted, so departed node, environment and role identities cannot consume
 the 4,096-series budget for fourteen days.
-Coverage requires at least two samples, with no
-gap larger than one quarter of the query window (bounded to 10–60 seconds).
-Service totals sum replica means. Their summed maxima are a conservative
-upper bound, and summed minimum headroom is a conservative lower bound;
-replica peaks need not occur at the same instant. Inspect `replicas` for
-individual values. Truncation or missing usage, requests or limits makes the
+Node and replica rows summarize samples only during their historical active
+intervals; coverage requires at least two samples per active interval, with no
+gap larger than one quarter of that interval (bounded to 10–60 seconds).
+Service statistics align replica measurements with admission, allocation,
+withdrawal and retirement intervals. Samples hold until the next measurement,
+for at most the coverage gap; the first sample may extend back to the active
+interval's start within the same gap. Inactive replicas contribute zero, so a
+1-core replica replaced halfway through a window still yields a 1-core service
+mean. Service means integrate aligned totals over the full requested window;
+their minimum and maximum describe those aligned totals. JSON additionally
+provides `max_upper_bound`, the sum of individual replica maxima, because
+replica peaks can occur at different times. Missing active measurements leave
+that service statistic `null`, including when an interior gap exceeds the hold
+limit; they never become zero contributions. Service timestamps describe the
+integration window, while node/replica timestamps describe their first/last
+measurements. Inspect `replicas` for individual values.
+Truncation or missing usage, requests or limits makes the
 window incomplete. Dropped-series coverage is tracked for the queried hour,
 conservatively rounded to minutes; healthy later windows recover without a
 controller restart. Longer configured telemetry intervals can therefore
 produce incomplete benchmark windows.
-Service statistics also require overlapping sampled coverage across replicas;
-an empty or inverted intersection leaves service and overall usage incomplete.
+Service coverage additionally requires a positive overlapping observed range
+for each concurrently active group. Sequential replicas are evaluated during
+their own lifetimes; known inactive gaps remain complete zero intervals.
 Capacity history limits never reject an otherwise accepted autoscaler report;
 both consumers record independently.
 

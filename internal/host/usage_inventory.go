@@ -3,13 +3,13 @@ package host
 import (
 	"context"
 	"errors"
-	"maps"
 	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -31,7 +31,7 @@ func (c *Controller) InitializeUsageHistory(ctx context.Context) error {
 
 // ExpectedUsage reads timestamped admission, allocation and retirement history
 // without letting later changes rewrite an earlier window's expectations.
-func (c *Controller) ExpectedUsage(ctx context.Context, from, to time.Time) ([]string, error) {
+func (c *Controller) ExpectedUsage(ctx context.Context, from, to time.Time) ([]hostload.UsageInterval, error) {
 	if c == nil || c.controlLog == nil || !from.Before(to) {
 		return nil, errors.New("historical host inventory is unavailable")
 	}
@@ -43,7 +43,7 @@ func (c *Controller) ExpectedUsage(ctx context.Context, from, to time.Time) ([]s
 	if err != nil {
 		return nil, err
 	}
-	expected := map[string]bool{}
+	expected := []hostload.UsageInterval{}
 	entries, err := c.usageHistory.Window(ctx, c.controlLog, c.cell, from, to, info.State.LastSeq)
 	if err != nil {
 		return nil, err
@@ -77,8 +77,8 @@ func (c *Controller) ExpectedUsage(ctx context.Context, from, to time.Time) ([]s
 			if err := validateRegistration(registration, c.cell); err != nil {
 				return nil, err
 			}
-			if overlapsActiveUsage(active, registrationSubjectKey(c.cell, registration.Node), laterTime(from, entry.CreatedAt), end) {
-				expected[registration.Node] = true
+			for _, interval := range intersectActiveUsage(active, registrationSubjectKey(c.cell, registration.Node), laterTime(from, entry.CreatedAt), end) {
+				expected = append(expected, hostload.UsageInterval{Node: registration.Node, Environment: registration.Environment, From: interval.from, To: interval.to})
 			}
 		} else {
 			var desired Desired
@@ -89,12 +89,31 @@ func (c *Controller) ExpectedUsage(ctx context.Context, from, to time.Time) ([]s
 				entry.SubjectKey != desiredSubjectKey(c.cell, desired.Node, desired.Role) {
 				return nil, errors.New("historical desired identity or epoch mismatch")
 			}
-			if !desired.Withdrawn && overlapsActiveUsage(active, registrationSubjectKey(c.cell, desired.Node), laterTime(from, entry.CreatedAt), end) {
-				expected[desired.Node+"/"+desired.Role] = true
+			if !desired.Withdrawn {
+				for _, interval := range intersectActiveUsage(active, registrationSubjectKey(c.cell, desired.Node), laterTime(from, entry.CreatedAt), end) {
+					expected = append(expected, hostload.UsageInterval{Node: desired.Node, Environment: desired.Environment, Role: desired.Role, From: interval.from, To: interval.to})
+				}
 			}
 		}
 	}
-	return slices.Sorted(maps.Keys(expected)), nil
+	slices.SortFunc(expected, func(a, b hostload.UsageInterval) int {
+		if order := strings.Compare(a.Node+"/"+a.Environment+"/"+a.Role, b.Node+"/"+b.Environment+"/"+b.Role); order != 0 {
+			return order
+		}
+		return a.From.Compare(b.From)
+	})
+	merged := expected[:0]
+	for _, interval := range expected {
+		if len(merged) > 0 {
+			last := &merged[len(merged)-1]
+			if last.Node == interval.Node && last.Environment == interval.Environment && last.Role == interval.Role && !last.To.Before(interval.From) {
+				last.To = laterTime(last.To, interval.To)
+				continue
+			}
+		}
+		merged = append(merged, interval)
+	}
+	return merged, nil
 }
 
 type usageInterval struct{ from, to time.Time }
@@ -141,14 +160,22 @@ func (c *Controller) activeUsageIntervals(entries []authority.LogEntry, from, to
 	return active, nil
 }
 
-func overlapsActiveUsage(active map[string][]usageInterval, key string, from, to time.Time) bool {
+func intersectActiveUsage(active map[string][]usageInterval, key string, from, to time.Time) []usageInterval {
 	if !from.Before(to) {
-		return false
+		return nil
 	}
 	intervals, known := active[key]
 	if !known {
-		return true
+		return []usageInterval{{from, to}}
 	}
 	i := sort.Search(len(intervals), func(i int) bool { return intervals[i].to.After(from) })
-	return i < len(intervals) && intervals[i].from.Before(to)
+	var overlap []usageInterval
+	for ; i < len(intervals) && intervals[i].from.Before(to); i++ {
+		end := to
+		if intervals[i].to.Before(end) {
+			end = intervals[i].to
+		}
+		overlap = append(overlap, usageInterval{laterTime(from, intervals[i].from), end})
+	}
+	return overlap
 }
