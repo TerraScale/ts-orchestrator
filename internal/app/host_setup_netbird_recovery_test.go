@@ -49,7 +49,7 @@ func TestHostSetupSeedsNetBirdWhenFirstInstalledResponseIsRenewal(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	pending, err := readOrCreateHostEnrollment(root, metadata)
+	pending, err := readOrCreateHostEnrollment(t.Context(), root, metadata, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

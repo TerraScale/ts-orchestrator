@@ -218,6 +218,89 @@ other user. Every Vault read or write in `ts-orch`, ts-auth's included,
 refuses to run while an OCI SDK debug, endpoint or TLS override variable is
 set.
 
+## Node credentials live in memory
+
+No orchestrator credential is kept on a node's disk (TS-745). Every directory
+below is tmpfs with swap disabled, so a reboot empties it and the node
+rebuilds it from Vault before the consumer starts:
+
+| Directory | Holds | After a reboot |
+| --- | --- | --- |
+| `/var/lib/terrascale-orchestrator-secrets` | Controller material (signed path) | `restore-controller-material` mounts tmpfs there and reads the exact versions the accepted manifest and the newest adopted generation pin |
+| `/run/terrascale-orchestrator-host-credentials` | Host enrollment identity and credentials | `host-setup` restores the identity from its Vault record, then rebuilds or renews the credentials |
+| `/srv/ts-managed/roles/<role>` | Role NATS identities and `_FILE` secrets | The host agent requests new identities and rereads the secrets |
+| `/srv/ts-managed/terrabase/tls` | TerraBase member key and certificate | The agent creates a key and the controller issues a certificate |
+| `/var/lib/terrascale-orchestrator-controller/material-generation` | A staged material generation | The stager stages it again |
+
+`selfupdate prepare`, root before each controller and host start, mounts the
+last three, deleting what an earlier release kept there on disk and giving a
+mount that is already there its owner and mode; the units' sandboxes already
+allow writing them. A managed host agent refuses role files or a member key
+on anything but tmpfs with swap off, so those members do not start without
+the mounts, and the controller's stager refuses such a spool.
+
+A node's first start on a new release runs the known-good release's prepare
+and the drop-ins it installed, which may predate the mounts. Every prepare
+that knows them writes `/run/terrascale-orchestrator-memory-prepare` before it
+mounts. Only without that marker, a host agent that finds its runtime
+directories on disk while its release is not yet known-good keeps the on-disk
+layout for that start, then exits once the release is known-good, so systemd
+starts it again under the release's own prepare, which mounts them. A mount
+or swap failure after the marker, or a known-good release, always enforces
+memory.
+host-setup without its memory directory keeps an identity that is still on
+disk in place for that run (copying no new key material), and moves it on the
+next.
+
+**Controller.** `bootstrap.service` runs `restore-controller-material` as
+root before admission, through the current release; a failure fails the
+unit, which retries, and only a rolled-back release without the command
+skips it. It also puts a pending `controller.json` in place when the adopted
+chain pins it, as prepare would: admission runs first. Each manifest and
+generation reference pins a secret OCID, version and SHA-256, so the restore
+reads exact versions and restart admission verifies the result as before.
+The generation chain is root-signed public metadata; its durable copy is
+`/var/lib/terrascale-orchestrator-bootstrap/material-generations.json`,
+written before each adoption commits. Nothing renews a controller's issued
+files yet; a renewal must publish its version to Vault first.
+
+```sh
+terrascale-orchestrator restore-controller-material --check              # compare every file with Vault; change nothing
+terrascale-orchestrator restore-controller-material --remove-disk-copies # stop the controller units first
+```
+
+`--remove-disk-copies` runs once per node, while the directory is still on
+disk: it deletes each file only after it equals its Vault version, and
+refuses if any file has no Vault copy or the directory is already in memory. Without it, the old files stay hidden
+under the mount.
+
+**Host.** `/etc/terrascale-orchestrator/host-enrollment-vault.json` names the
+record of the host's `.host-enrollment-pending.json`:
+`{"vault": "<Vault OCID>", "name": "<region>-ts-orchestrator-<host>-host-enrollment-pending-json"}`.
+The identity is the host's enrolled key set and signed request; the
+controller renews only that identity. host-setup publishes any change (a
+node rename, a refreshed initial request) as a new CURRENT version with
+`If-Match` before it uses it, so the host's dynamic group needs
+`SECRET_READ`/`SECRET_UPDATE` on exactly its record. A host without a record
+does not enroll. On its first run, host-setup moves an enrolled host's
+identity once: while `host.json` still names the on-disk credentials issued
+for `/etc/terrascale-orchestrator/.host-enrollment-pending.json`, it publishes
+that copy if the record differs, then deletes it. Any later disk copy is
+stale and only deleted. It rebuilds the credentials in memory from the ones
+on disk and then removes every `host-credentials-*` directory there.
+`host-enrollment-response.json` beside `host.json` keeps the credentials'
+public half (the controller's response: NATS user JWT and TLS chain, useless
+without the identity's keys), so after a reboot host-setup rebuilds them
+without the controller, which renews only within a credential's last day.
+A renewal request is signed public metadata too and stays on disk as
+`.host-enrollment-renewal.json` beside `host.json` until the renewal
+installs, so a host-setup cut short by a reboot replays exactly the request
+the controller may already have committed.
+
+**TerraBase.** GRU's Management credential is the Vault secret
+`gru-1-terrabase-management-credential`, delivered as a `_FILE` secret like
+SFO's; no profile names a file on disk.
+
 ## Give a workload a secret
 
 A workload profile names its secrets in `secrets`; its host agent reads them
@@ -225,7 +308,7 @@ with the instance principal each time it starts a replica. Signed config and
 desired state hold only the names, so rotating a secret (above) needs a
 restart, not a new signature. A key ending in `_FILE` is delivered as a
 0600 file of the workload user under
-`/run/terrascale-orchestrator-host/roles/<role>` instead of an environment value.
+`<managed runtime root>/roles/<role>` (tmpfs) instead of an environment value.
 The host reads it again each minute, so a rotation reaches the file without a
 restart; a process that reads the file only at start (TerraBase's backup
 keys) still needs one. See [services](cell-spec.md#vault-secrets).

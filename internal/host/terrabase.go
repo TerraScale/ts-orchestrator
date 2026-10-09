@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"golang.org/x/sys/unix"
 )
 
@@ -293,6 +294,12 @@ func (a *Agent) prepareTerraBase(ctx context.Context, d Desired) (map[string]str
 			return nil, time.Time{}, err
 		}
 		if err := a.ensureTerraBaseDataVolume(ctx); err != nil {
+			return nil, time.Time{}, err
+		}
+	}
+	// The member's private key never reaches disk (TS-745).
+	if a.cfg.MemoryRuntime {
+		if err := vaultsecret.RequireMemoryFilesystem(layout.TLS()); err != nil {
 			return nil, time.Time{}, err
 		}
 	}

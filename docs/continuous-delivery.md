@@ -283,9 +283,12 @@ host-setup has a drop-in too (TS-632): it runs `current`, the release the host
 agent runs, or the baked binary until `prepare` seeds one, so a change to
 enrollment ships with a rollout. `prepare` installs the same drop-in on a
 host whose image predates it (one with the host-setup unit), from the
-release that runs the step, without reloading systemd: it applies from the
-node's next boot. The first host or controller start after a release with it
-is `known-good` installs it; a `ts-orch node reboot` then makes it count.
+release that runs the step. The first host or controller start after a
+release with it is `known-good` installs it, then reloads systemd so the
+other unit reads it at its next start; prepare never fails a start for it,
+since the baked binary would run its own prepare instead. `prepare` also
+mounts the unit's runtime secret directories as tmpfs (TS-745,
+[secrets](secrets.md#node-credentials-live-in-memory)).
 Bootstrap admission (`terrascale-orchestrator-bootstrap.service`, which the
 controller requires) gets the same kind of drop-in from `prepare` on a
 controller (TS-668): it runs `bootstrap-controller` with `current`, or the

@@ -3,10 +3,12 @@ package app
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,8 +19,10 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/generationinstall"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 // Material generation install (TS-668): the operator's requests to the
@@ -187,10 +191,25 @@ func runMaterialGenerationStager(ctx context.Context, roots *rootRegistry) {
 		slog.Warn("material generation stager is off", observability.ComponentKey, "trust", "error", err)
 		return
 	}
+	stager := &generationinstall.Stager{KV: roots.kv, Target: target, Roots: roots.current,
+		Read:          exactSecretReader(func() (oci.Region, error) { return target.Expected.Cell, nil }),
+		Installed:     filepath.Join(bootstrapstart.MaterialDirectory, bootstrapstart.MaterialGenerationsFile),
+		Spool:         bootstrapstart.GenerationSpoolDirectory,
+		RequireMemory: vaultsecret.RequireMemoryFilesystem}
+	stager.Run(ctx)
+}
+
+// exactSecretReader reads exact Vault versions with the instance principal of
+// the cell cell returns, connecting on the first read.
+func exactSecretReader(cell func() (oci.Region, error)) bootstrapstart.SecretReader {
 	var vault *bootstrap.Vault
-	read := func(ctx context.Context, reference bootstrap.SecretReference) ([]byte, error) {
+	return func(ctx context.Context, reference bootstrap.SecretReference) ([]byte, error) {
 		if vault == nil {
-			region, err := target.Expected.Cell.OCIRegion()
+			cell, err := cell()
+			if err != nil {
+				return nil, err
+			}
+			region, err := cell.OCIRegion()
 			if err != nil {
 				return nil, err
 			}
@@ -198,16 +217,34 @@ func runMaterialGenerationStager(ctx context.Context, roots *rootRegistry) {
 			if err != nil {
 				return nil, err
 			}
-			created, err := bootstrap.NewInstancePrincipalVault(target.Expected.Cell, factory.Provider())
-			if err != nil {
+			if vault, err = bootstrap.NewInstancePrincipalVault(cell, factory.Provider()); err != nil {
 				return nil, err
 			}
-			vault = created
 		}
 		return vault.ReadGenerationSecret(ctx, reference)
 	}
-	stager := &generationinstall.Stager{KV: roots.kv, Target: target, Roots: roots.current, Read: read,
-		Installed: filepath.Join(bootstrapstart.MaterialDirectory, bootstrapstart.MaterialGenerationsFile),
-		Spool:     bootstrapstart.GenerationSpoolDirectory}
-	stager.Run(ctx)
+}
+
+// runRestoreControllerMaterial rebuilds the in-memory credential directory
+// from Vault before bootstrap admission (TS-745).
+func runRestoreControllerMaterial(ctx context.Context, args []string, output io.Writer) error {
+	flags := flag.NewFlagSet("restore-controller-material", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	remove := flags.Bool("remove-disk-copies", false, "delete the on-disk copies once each equals its Vault version")
+	check := flags.Bool("check", false, "compare every installed file with its Vault version and change nothing")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 || os.Geteuid() != 0 || *remove && *check {
+		return errors.New("usage (root): restore-controller-material [--remove-disk-copies | --check]")
+	}
+	note, err := bootstrapstart.RestoreMaterial(ctx, exactSecretReader(func() (oci.Region, error) {
+		target, err := bootstrapstart.AcceptedGenerationTarget()
+		return target.Expected.Cell, err
+	}), *remove, *check)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(output, "restore-controller-material: "+note)
+	return err
 }

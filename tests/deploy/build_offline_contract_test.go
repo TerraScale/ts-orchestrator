@@ -175,9 +175,9 @@ func TestOfflineHostSandboxWritableManagedPathOnly(t *testing.T) {
 	}
 	d := unitDirectives(string(read(t, filepath.Join(deployRoot(t), "deploy/systemd/terrascale-orchestrator-host.service"))), "")
 	equal(t, d["ProtectSystem"], "strict")
-	equal(t, d["ReadWritePaths"], "-"+managedDir+" /run/terrascale-orchestrator-host")
-	equal(t, d["RuntimeDirectory"], "terrascale-orchestrator-host")
-	equal(t, d["RuntimeDirectoryMode"], "0755")
+	// Role files and the member's TLS key are tmpfs mounts below the managed
+	// root, which selfupdate prepare makes before the agent starts (TS-745).
+	equal(t, d["ReadWritePaths"], "-"+managedDir)
 	base := t.TempDir()
 	if err := os.Chmod(base, 0755); err != nil {
 		t.Fatal(err)

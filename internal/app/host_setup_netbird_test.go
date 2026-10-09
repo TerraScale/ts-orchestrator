@@ -94,7 +94,7 @@ func TestHostEnrollmentOnlySeedsUnmanagedFirstBootstrapNetBirdConfig(t *testing.
 				return true, nil
 			}
 			response := hostenroll.Response{Operation: test.operation, NATSUserJWT: token, TLSCertificatePEM: "renewed-cert", NetBird: &next}
-			if err := installHostEnrollment(t.Context(), root, bundle, hostboot.Descriptor{Node: "node-a"}, pending, response, uint32(os.Getuid()), writer); err != nil {
+			if err := installHostEnrollment(t.Context(), root, root, bundle, hostboot.Descriptor{Node: "node-a"}, pending, response, uint32(os.Getuid()), writer); err != nil {
 				t.Fatal(err)
 			}
 			called := !test.host

@@ -191,7 +191,7 @@ func (c command) prepare(args []string) error {
 	proof := addProof(flags)
 	unit := flags.String("unit", "", "systemd unit that executes the current release")
 	baked := flags.String("baked-binary", selfupdate.DefaultBakedBinary, "image-installed binary")
-	systemd := flags.String("systemd-dir", "/etc/systemd/system", "unit directory that takes the host-setup and bootstrap drop-ins")
+	systemd := flags.String("systemd-dir", "/etc/systemd/system", "unit directory that takes the node's self-update drop-ins")
 	if err := parse(flags, args); err != nil {
 		return err
 	}
@@ -244,6 +244,7 @@ func (c command) prepare(args []string) error {
 	}
 	// A node whose image predates a drop-in gets it from the release that
 	// runs this step; a failure must not stop the unit's start.
+	changed := false
 	for _, dropin := range []struct {
 		name    string
 		install func(string) (bool, error)
@@ -251,7 +252,8 @@ func (c command) prepare(args []string) error {
 		if installed, err := dropin.install(*systemd); err != nil {
 			slog.Warn("self-update could not install the "+dropin.name+" drop-in", "error", err)
 		} else if installed {
-			if _, err := fmt.Fprintf(c.output, "selfupdate prepare installed the %s drop-in; it applies from the next boot\n", dropin.name); err != nil {
+			changed = true
+			if _, err := fmt.Fprintf(c.output, "selfupdate prepare installed the %s drop-in\n", dropin.name); err != nil {
 				return err
 			}
 		}
@@ -259,8 +261,27 @@ func (c command) prepare(args []string) error {
 	if err := c.installCurrentNetBirdAgent(layout.layout(), *systemd, *unit); err != nil {
 		slog.Warn("self-update could not prepare the NetBird worker", "error", err)
 	}
+	// Both drop-ins belong to other units, which read them at their next
+	// start once systemd reloads.
+	if changed {
+		if err := daemonReload(c.ctx); err != nil {
+			slog.Warn("self-update could not reload systemd; the drop-ins apply from the next boot", "error", err)
+		}
+	}
+	// The unit's runtime secrets live in memory (TS-745); this root step
+	// mounts their directories before the unit's process starts. A failure
+	// must not fail prepare (the baked fallback would run instead): the host
+	// agent refuses to write those secrets to disk.
+	if layout.layout().Root == selfupdate.DefaultRoot {
+		if err := memoryRuntime(*unit); err != nil {
+			slog.Warn("self-update could not mount the runtime secrets in memory", "unit", *unit, "error", err)
+		}
+	}
 	return nil
 }
+
+// daemonReload makes systemd read the installed drop-ins; tests replace it.
+var daemonReload = func(ctx context.Context) error { return systemctl(ctx, "daemon-reload") }
 
 // The caller holds the layout lock through the probe and startup request.
 func (c command) installCurrentNetBirdAgent(layout selfupdate.Layout, systemd, unit string) error {

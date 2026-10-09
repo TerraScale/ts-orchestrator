@@ -49,6 +49,8 @@ type MaterialStore struct {
 	serviceUID           uint32
 	serviceGID           uint32
 	allowUnsafeAncestors bool
+	// chainCopy is where an adopted chain is kept durably (GenerationChainCopy).
+	chainCopy string
 }
 
 func NewMaterialStore(vault SecretMaterializer, serviceUID, serviceGID uint32) (MaterialStore, error) {
@@ -57,7 +59,7 @@ func NewMaterialStore(vault SecretMaterializer, serviceUID, serviceGID uint32) (
 	}
 	return MaterialStore{
 		vault: vault, installedDirectory: MaterialDirectory, stagingDirectory: StagingDirectory,
-		serviceUID: serviceUID, serviceGID: serviceGID,
+		serviceUID: serviceUID, serviceGID: serviceGID, chainCopy: GenerationChainCopy,
 	}, nil
 }
 

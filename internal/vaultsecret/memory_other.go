@@ -14,3 +14,5 @@ func openMemoryDirectory(string) (*os.Root, error) {
 func RequireMemoryFilesystem(string) error {
 	return errors.New("Vault runtime files require Linux tmpfs")
 }
+
+func SwapOff() bool { return false }

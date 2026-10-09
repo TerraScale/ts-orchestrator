@@ -105,25 +105,10 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		if err != nil {
 			return err
 		}
-		client, err := ocivault.NewVaultsClientWithConfigurationProvider(factory.Provider())
-		if err != nil {
+		if _, err := Publish(ctx, factory, Ref{Vault: *vaultID, Name: *name}, *secretID, *expected, value); err != nil {
 			return err
 		}
-		client.SetRegion(factory.Region())
-		factory.Configure(&client.BaseClient, ociclient.ServiceVault)
-		stored, err := PublishVersion(ctx, client, Ref{Vault: *vaultID, Name: *name}, *secretID, *expected, value)
-		if err != nil {
-			return err
-		}
-		bundles, err := SecretsClient(factory)
-		if err != nil {
-			return errors.New("published version; readback client unavailable, reread CURRENT before retrying")
-		}
-		current, err := ReadCurrent(ctx, bundles, Ref{Vault: *vaultID, Name: *name})
-		if err != nil || current.ID != *secretID || current.Version <= *expected || current.Value() != string(value) {
-			return errors.New("published version; CURRENT readback differs or is unavailable, reread before retrying")
-		}
-		return printLine(output, stored)
+		return printLine(output, Stored{Secret: *name, ID: *secretID})
 	case "deliver":
 		if *cell == "" || *service == "" || *refs == "" || *directory == "" || *refresh <= 0 {
 			return errors.New("deliver requires --cell, --service, --refs, --dir and a positive --refresh")
@@ -201,6 +186,29 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		_, _ = io.WriteString(output, usage)
 		return fmt.Errorf("unknown vault command %q", args[0])
 	}
+}
+
+// Publish adds value as the CURRENT version of secret id with factory's
+// principal (PublishVersion), then reads CURRENT back and returns it.
+func Publish(ctx context.Context, factory *ociclient.Factory, ref Ref, id string, expected int64, value []byte) (Current, error) {
+	client, err := ocivault.NewVaultsClientWithConfigurationProvider(factory.Provider())
+	if err != nil {
+		return Current{}, err
+	}
+	client.SetRegion(factory.Region())
+	factory.Configure(&client.BaseClient, ociclient.ServiceVault)
+	if _, err := PublishVersion(ctx, client, ref, id, expected, value); err != nil {
+		return Current{}, err
+	}
+	bundles, err := SecretsClient(factory)
+	if err != nil {
+		return Current{}, errors.New("published version; readback client unavailable, reread CURRENT before retrying")
+	}
+	current, err := ReadCurrent(ctx, bundles, ref)
+	if err != nil || current.ID != id || current.Version <= expected || current.Value() != string(value) {
+		return Current{}, errors.New("published version; CURRENT readback differs or is unavailable, reread before retrying")
+	}
+	return current, nil
 }
 
 // Put stores value as secret name once, then reads the Vault's current

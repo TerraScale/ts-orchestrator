@@ -3,6 +3,7 @@
 package vaultsecret
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -61,5 +62,16 @@ func TestMemoryFileReplacementDoesNotFollowSymlinks(t *testing.T) {
 	}
 	if err := writeMemoryFile(root, "../escape", []byte("new")); err == nil {
 		t.Fatal("allowed a path escape")
+	}
+}
+
+// SwapOff answers what /proc/swaps lists, without reading it.
+func TestSwapOffMatchesProcSwaps(t *testing.T) {
+	swaps, err := os.ReadFile("/proc/swaps")
+	if err != nil {
+		t.Skip(err)
+	}
+	if want := len(bytes.Fields(swaps)) == 5; SwapOff() != want {
+		t.Fatalf("SwapOff() = %v, /proc/swaps says %v", SwapOff(), want)
 	}
 }

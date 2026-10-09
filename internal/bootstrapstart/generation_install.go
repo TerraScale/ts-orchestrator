@@ -30,7 +30,8 @@ import (
 // spool's owner.
 const (
 	// GenerationSpoolDirectory is the stager's directory, inside the
-	// controller's state directory.
+	// controller's state directory. selfupdate prepare mounts it in memory:
+	// the staged files are secrets (TS-745).
 	GenerationSpoolDirectory = "/var/lib/terrascale-orchestrator-controller/material-generation"
 	// GenerationArmedFile holds the fingerprint of the spooled generation
 	// the cell armed this slot for.

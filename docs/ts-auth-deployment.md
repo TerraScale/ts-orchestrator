@@ -479,10 +479,8 @@ one ts-auth replica on two of them).
    `TERRABASE_DASHBOARD_CREDENTIAL_FILE`, and TerraBase ignores it, so a
    member with only that variable answers every bootstrap call with 401. The committed
    [`terrabase-gru-1-profile.json`](../deploy/oci-region/terrabase-gru-1-profile.json)
-   sets it to `/etc/terrascale-orchestrator/terrabase-management-credential`
-   (owner `root:terrascale-workload`, mode 0640, written on each member from
-   the Vault secret `gru-1-terrabase-management-credential` before the
-   TerraBase release). It also sets `TERRABASE_AUTH_ISSUER`
+   delivers it from the Vault secret `gru-1-terrabase-management-credential`
+   as an in-memory `_FILE` secret ([secrets](secrets.md#node-credentials-live-in-memory)). It also sets `TERRABASE_AUTH_ISSUER`
    (`https://gru.auth.terrascale.tech/terrascale`, the issuer ts-auth emits)
    and `TERRABASE_AUTH_AUDIENCE` (`https://gru.api.terrascale.tech`), so
    TerraBase accepts ts-auth access tokens.

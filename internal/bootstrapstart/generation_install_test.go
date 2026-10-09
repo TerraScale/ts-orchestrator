@@ -261,3 +261,30 @@ func TestInstallGenerationConvergesAfterACrash(t *testing.T) {
 		t.Fatalf("disarmed: %q", outcome)
 	}
 }
+
+// A reboot after an adoption's commit but before prepare replaced
+// controller.json: the restore before admission puts the pending config in
+// place, as admission needs the generation's config (TS-745).
+func TestRestoreConvergesThePendingControllerConfig(t *testing.T) {
+	staged := newSpooledInstall(t)
+	if err := writeSynced(staged.pending(), staged.config); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range staged.files {
+		staged.write(name, data)
+	}
+	staged.write(MaterialGenerationsFile, staged.wire)
+	if err := convergeRestoredConfig(staged.installer.store, staged.installer.target, staged.wire, staged.installer.config); err != nil {
+		t.Fatal(err)
+	}
+	if !staged.installed() {
+		t.Fatal("the generation is not installed after the restore")
+	}
+	// Without a matching pending copy the restore refuses, as admission would.
+	if err := os.WriteFile(staged.installer.config, []byte(oldConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := convergeRestoredConfig(staged.installer.store, staged.installer.target, staged.wire, staged.installer.config); err == nil {
+		t.Fatal("restored a chain whose config is not in place")
+	}
+}

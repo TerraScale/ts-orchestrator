@@ -46,8 +46,6 @@ LimitCORE=0
 UMask=0077
 StateDirectory=terrascale-orchestrator-host
 StateDirectoryMode=0755
-RuntimeDirectory=terrascale-orchestrator-host
-RuntimeDirectoryMode=0755
 Delegate=yes
 DelegateSubgroup=supervisor
 NoNewPrivileges=yes
@@ -55,7 +53,7 @@ CapabilityBoundingSet=CAP_CHOWN CAP_KILL CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_D
 AmbientCapabilities=
 ProtectSystem=strict
 # A custom root needs a drop-in that resets this list before adding its exact path.
-ReadWritePaths=-/srv/ts-managed /run/terrascale-orchestrator-host
+ReadWritePaths=-/srv/ts-managed
 ProtectHome=yes
 PrivateTmp=yes
 ProtectKernelTunables=yes

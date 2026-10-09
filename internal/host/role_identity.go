@@ -24,7 +24,7 @@ import (
 )
 
 // A placed role's members get their own files from the host (TS-651), in
-// /run/terrascale-orchestrator-host/roles/<role>, each 0600 and owned by the workload
+// <managed runtime root>/roles/<role>, each 0600 and owned by the workload
 // user. A Vault secret whose key ends in _FILE is written there and the key
 // names the file, so the value never enters an environment. A role that
 // roleidentity grants buckets gets a NATS user and client certificate there
@@ -80,17 +80,8 @@ func (c *Controller) serveRoleIdentity(ctx context.Context, req request, r Regis
 // from the Vault again.
 const secretFilesRefresh = time.Minute
 
-const RoleFilesDirectory = "/run/terrascale-orchestrator-host/roles"
-
-func (a *Agent) roleFilesDirectory() string {
-	if a.roleFilesRoot != "" {
-		return a.roleFilesRoot
-	}
-	return RoleFilesDirectory
-}
-
 func (a *Agent) roleDir(role string) string {
-	return filepath.Join(a.roleFilesDirectory(), role)
+	return filepath.Join(a.cfg.ManagedRuntimeRoot, "roles", role)
 }
 
 // prepareRoleFiles writes d's file secrets, taking them out of secrets, and
@@ -200,7 +191,7 @@ func (a *Agent) ensureRoleDir(role string) (string, error) {
 	if a.cfg.ManagedRuntimeRoot == "" {
 		return "", errors.New(role + " needs role files, which need the host's managed runtime root")
 	}
-	roles := a.roleFilesDirectory()
+	roles := filepath.Join(a.cfg.ManagedRuntimeRoot, "roles")
 	if err := validateWorkloadRoot("role files", roles, a.cfg.WorkloadIdentity,
 		a.cfg.InstallRoot, a.cfg.StateRoot, a.cfg.TerraBaseRoot, a.cfg.TSAuthRoot); err != nil {
 		return "", err
@@ -209,7 +200,7 @@ func (a *Agent) ensureRoleDir(role string) (string, error) {
 	if err := ensureOwnedDir(roles, supervisor, gid, 0o750); err != nil {
 		return "", err
 	}
-	if a.roleFilesRoot == "" {
+	if a.cfg.MemoryRuntime {
 		if err := vaultsecret.RequireMemoryFilesystem(roles); err != nil {
 			return "", err
 		}

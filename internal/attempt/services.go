@@ -19,10 +19,6 @@ import (
 // admit them.
 const terraBasePeerPort, terraBaseClientPort = 9443, 9465
 
-// managementCredential is the file a home cell's TerraBase reads its
-// Management credential from, the bootstrap path before ts-auth serves.
-const managementCredential = "/etc/terrascale-orchestrator/terrabase-management-credential"
-
 // apiURL and authOrigin are a cell's regional TerraBase API and ts-auth
 // origins, sfo.api.terrascale.tech and sfo.auth.terrascale.tech.
 func apiURL(cell catalog.Entry) string { return "https://" + cell.Name() + ".api.terrascale.tech" }
@@ -111,14 +107,22 @@ func deriveTerraBase(cell catalog.Entry, plan Object) (Object, error) {
 		// decision 0009). Naming it on every member makes it the primary.
 		"TERRABASE_CATALOG_PRIMARY": members[0].name,
 	}
+	profile := Object{"resources": Object{"cpu": 1, "memory_bytes": 4 << 30, "disk_bytes": 20 << 30}, "env": env}
 	home, _ := catalog.Lookup(catalog.Bootstrap)
-	if cell.Cell == home.Cell {
-		env["TERRABASE_MANAGEMENT_CREDENTIAL_FILE"] = managementCredential
-	} else {
+	if cell.Cell != home.Cell {
 		env["TERRABASE_AUTH_ISSUER"] = authOrigin(home) + "/terrascale"
 		env["TERRABASE_AUTH_AUDIENCE"] = apiURL(cell) + "," + apiURL(home)
+		return profile, nil
 	}
-	return Object{"resources": Object{"cpu": 1, "memory_bytes": 4 << 30, "disk_bytes": 20 << 30}, "env": env}, nil
+	// The bootstrap path before ts-auth serves; the host delivers it as an
+	// in-memory file from Vault (TS-745).
+	vault := str(object(plan["resource_ids"]), "vault")
+	if vault == "" {
+		return nil, errors.New("attempt plan binds no vault for TerraBase's Management credential")
+	}
+	profile["secrets"] = Object{"TERRABASE_MANAGEMENT_CREDENTIAL_FILE": Object{"vault": vault,
+		"name": region + "-terrabase-management-credential"}}
+	return profile, nil
 }
 
 // deriveTSAuth is the cell's ts-auth profile and service spec: its own

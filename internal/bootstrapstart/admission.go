@@ -375,15 +375,24 @@ func digest(body []byte) string {
 
 func expectedMaterials(manifest bootstrap.Manifest, slot string) map[string]string {
 	materials := make(map[string]string)
+	for _, reference := range slotReferences(manifest, slot) {
+		materials[reference.TargetFile] = reference.SHA256
+	}
+	return materials
+}
+
+// slotReferences are the manifest secrets slot's credential directory holds.
+func slotReferences(manifest bootstrap.Manifest, slot string) []bootstrap.SecretReference {
+	var references []bootstrap.SecretReference
 	for _, reference := range manifest.Secrets {
 		if reference.Purpose == bootstrap.SecretRegionalShared || reference.Purpose == bootstrap.SecretHostIssuer ||
 			reference.Purpose == bootstrap.SecretController && reference.Slot == slot ||
 			(reference.Purpose == bootstrap.SecretSeedFounder || reference.Purpose == bootstrap.SecretSeedLedgerSigner) &&
 				slot == manifest.SeedSlot {
-			materials[reference.TargetFile] = reference.SHA256
+			references = append(references, reference)
 		}
 	}
-	return materials
+	return references
 }
 
 func (gate Gate) initialProofs(state bootstrap.SlotState, anchor bootstrap.VerifiedBootstrapAnchor,

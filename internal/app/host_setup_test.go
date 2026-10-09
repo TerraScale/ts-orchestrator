@@ -32,9 +32,9 @@ func TestPersistedHostRequestRecoveryAcrossReplayWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pending, err := readOrCreateHostEnrollment(root, hostenroll.InstanceMetadata{
+	pending, err := readOrCreateHostEnrollment(t.Context(), root, hostenroll.InstanceMetadata{
 		InstanceID: "ocid1.instance.oc1.sa-saopaulo-1.host-a", Descriptor: descriptor, Wire: descriptorWire,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestPersistedHostRequestRecoveryAcrossReplayWindow(t *testing.T) {
 	if _, _, err := hostenroll.ParseRequest(oldWire, time.Now()); err == nil {
 		t.Fatal("controller freshness check accepted an ungranted old request")
 	}
-	initialWire, err := createFreshInitialRequest(root, pending, original)
+	initialWire, err := createFreshInitialRequest(t.Context(), root, pending, original, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -135,6 +135,10 @@ func (store MaterialStore) rollForward(dir, staging int) error {
 		if err := unix.Fsync(dir); err != nil {
 			return err
 		}
+		// The durable copy is what restart recovery restores from (TS-745).
+		if err := store.keepChain(staging); err != nil {
+			return fmt.Errorf("keep %s: %w", MaterialGenerationsFile, err)
+		}
 		if err := unix.Renameat(staging, MaterialGenerationsFile, dir, MaterialGenerationsFile); err != nil {
 			return fmt.Errorf("install %s: %w", MaterialGenerationsFile, err)
 		}

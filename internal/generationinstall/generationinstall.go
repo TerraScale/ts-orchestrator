@@ -259,8 +259,11 @@ type Stager struct {
 	// Installed is the credential directory's adopted chain.
 	Installed string
 	Spool     string
-	Interval  time.Duration
-	Now       func() time.Time
+	// RequireMemory refuses a spool off tmpfs with swap disabled: the staged
+	// files are secrets (TS-745). Nil only in tests.
+	RequireMemory func(string) error
+	Interval      time.Duration
+	Now           func() time.Time
 
 	reported []byte
 }
@@ -293,6 +296,12 @@ func (s *Stager) Pass(ctx context.Context) Status {
 	if err := os.MkdirAll(s.Spool, 0o700); err != nil {
 		status.Error = err.Error()
 		return status
+	}
+	if s.RequireMemory != nil {
+		if err := s.RequireMemory(s.Spool); err != nil {
+			status.Error = err.Error()
+			return status
+		}
 	}
 	spool, err := os.OpenRoot(s.Spool)
 	if err != nil {

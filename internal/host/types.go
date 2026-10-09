@@ -244,11 +244,16 @@ type AgentConfig struct {
 	ManagedS3Credentials    ManagedS3CredentialResolver
 	ManagedBackupDataKeys   ManagedBackupDataKeyResolver
 	BakedSystemReserveBytes uint64
-	WorkloadIdentity        WorkloadIdentity
-	PollInterval            time.Duration
-	SessionTrace            bool
-	ClockCheck              func() error
-	VolumeInitSocket        string
+	// MemoryRuntime requires role files and the TerraBase member's TLS
+	// directory on tmpfs with swap disabled; a production host's selfupdate
+	// prepare mounts them before the agent starts. Without them those
+	// members do not start (TS-745).
+	MemoryRuntime    bool
+	WorkloadIdentity WorkloadIdentity
+	PollInterval     time.Duration
+	SessionTrace     bool
+	ClockCheck       func() error
+	VolumeInitSocket string
 
 	// TerraBaseDataVolume requires the member data directory to be the
 	// mounted OCI data volume; without that mount the member never starts.

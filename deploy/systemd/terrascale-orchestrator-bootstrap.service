@@ -16,6 +16,8 @@ Type=oneshot
 RemainAfterExit=yes
 Restart=on-failure
 RestartSec=10s
+# The credential directory is memory only: rebuild it from Vault first (TS-745).
+ExecStartPre=+/usr/local/bin/terrascale-orchestrator restore-controller-material
 ExecStart=/usr/local/bin/terrascale-orchestrator bootstrap-controller --config /etc/terrascale-orchestrator/controller.json
 # A boot's first admission can fail (the seed completion is not yet readable)
 # and fail the controller's start job with it; the retry that succeeds must

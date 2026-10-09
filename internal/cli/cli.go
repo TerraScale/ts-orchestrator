@@ -56,6 +56,7 @@ Runtime:
   host-setup             Install signed host enrollment
   host-volume-init       Initialize an admitted host volume
   install-controller-config  Install signed controller configuration
+  restore-controller-material  Rebuild the controller credentials in memory from Vault
   netbird-enroll         Enroll the local NetBird client
   identity-new           Generate a host identity
   selfupdate             Stage, activate and watch binary-only A/B updates
@@ -184,7 +185,7 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return runtimepriority.Run(ctx, args[1:], commandio.NewWriter(output))
 	case "run", "host", "check", "operator", "service", "get", "diff", "apply", "rollout", "node", "identity-new", "netbird-enroll",
 		"bootstrap-controller", "bootstrap-credential-check", "bootstrap-admit-initial",
-		"bootstrap-admit-restart", "install-controller-config", "host-setup", "host-volume-init":
+		"bootstrap-admit-restart", "install-controller-config", "host-setup", "host-volume-init", "restore-controller-material":
 		return app.Run(ctx, args, output)
 	default:
 		return fmt.Errorf("unknown command %q; use ts-orch --help", args[0])

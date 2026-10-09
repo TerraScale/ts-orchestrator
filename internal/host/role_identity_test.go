@@ -90,7 +90,6 @@ func TestRoleFilesDeliverSecretsAndNATSIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent.roleFilesRoot = filepath.Join(root, "roles")
 	if err := agent.acquire(t.Context()); err != nil {
 		t.Fatal(err)
 	}

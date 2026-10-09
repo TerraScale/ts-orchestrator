@@ -73,6 +73,9 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	if command == "host-setup" {
 		return runHostSetup(ctx, args[1:], output)
 	}
+	if command == "restore-controller-material" {
+		return runRestoreControllerMaterial(ctx, args[1:], output)
+	}
 	if command == "host-volume-init" {
 		return runHostVolumeInit(ctx, args[1:])
 	}
@@ -142,6 +145,12 @@ func effectiveLoadTelemetryInterval(configured *int) (time.Duration, error) {
 }
 
 func runHost(ctx context.Context, cfg Config, configPath string, output io.Writer) error {
+	ctx, restart := context.WithCancelCause(ctx)
+	defer restart(nil)
+	memoryRuntime, layout, release := hostMemoryRuntime(cfg)
+	if !memoryRuntime && release != "" {
+		go restartWhenKnownGood(ctx, layout, release, restart)
+	}
 	notifier := sdnotify.FromEnvironment()
 	if cfg.NATS.Embedded != nil {
 		return errors.New("host role cannot start the regional NATS server")
@@ -231,6 +240,7 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 		ManagedS3Credentials:    managedS3Credentials,
 		ManagedBackupDataKeys:   managedBackupDataKeys,
 		BakedSystemReserveBytes: bakedSystemReserveBytes,
+		MemoryRuntime:           memoryRuntime,
 		WorkloadIdentity:        identity,
 		PollInterval:            time.Duration(cfg.Host.PollMillis) * time.Millisecond, SessionTrace: cfg.Host.SessionTrace,
 		ClockCheck:       clockCheck,
@@ -264,7 +274,76 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 		slog.Warn("systemd readiness notification failed", "error", err)
 	}
 	defer func() { _ = notifier.Stopping() }()
-	return hostRunResult(ctx, agent.Run(ctx))
+	if err := hostRunResult(ctx, agent.Run(ctx)); err != nil {
+		return err
+	}
+	if cause := context.Cause(ctx); errors.Is(cause, errHostMemoryRestart) {
+		return cause
+	}
+	return nil
+}
+
+// errHostMemoryRestart ends the host runtime unsuccessfully so systemd starts
+// it again under its own release's prepare.
+var errHostMemoryRestart = errors.New("this release is known-good: restarting so its prepare mounts the runtime secrets in memory")
+
+// hostMemoryRuntime reports whether a managed host keeps its role files and
+// TerraBase member key in memory, which its selfupdate prepare mounts
+// (TS-745). It always does, except on the first start of a release that is
+// not yet known-good while those directories are still on disk: that start's
+// prepare ran the older known-good release, which predates the mounts, and
+// the version proof needs the workloads. The existing on-disk layout serves
+// that start; release names the running release, and the agent restarts once
+// it is known-good, so its own prepare mounts them. Only a missing
+// selfupdate.MemoryPrepareMarker shows that older prepare ran: a mount that
+// a newer prepare could not make still fails closed.
+func hostMemoryRuntime(cfg Config) (bool, selfupdate.Layout, string) {
+	layout := selfupdate.NewLayout(selfUpdateRoot(cfg.Host.SelfUpdateRoot))
+	if cfg.Host.ManagedRuntimeRoot == "" {
+		return false, layout, ""
+	}
+	dirs := []string{filepath.Join(cfg.Host.ManagedRuntimeRoot, "roles")}
+	if cfg.Host.TerraBaseRoot != "" {
+		dirs = append(dirs, filepath.Join(cfg.Host.TerraBaseRoot, "tls"))
+	}
+	onDisk := false
+	for _, dir := range dirs {
+		if vaultsecret.RequireMemoryFilesystem(dir) != nil {
+			onDisk = true
+		}
+	}
+	if _, err := os.Lstat(memoryPrepareMarker); !errors.Is(err, os.ErrNotExist) {
+		return true, layout, ""
+	}
+	current, currentErr := layout.Current()
+	knownGood, knownGoodErr := layout.KnownGood()
+	if !onDisk || currentErr != nil || knownGoodErr != nil || current == "" || knownGood == "" || knownGood == current {
+		return true, layout, ""
+	}
+	slog.Warn("the prepare before this start predates in-memory runtime secrets; the on-disk layout serves until this release is known-good",
+		"release", current, "known_good", knownGood)
+	return false, layout, current
+}
+
+// memoryPrepareMarker is selfupdate.MemoryPrepareMarker; tests replace it.
+var memoryPrepareMarker = selfupdate.MemoryPrepareMarker
+
+// restartWhenKnownGood ends the host runtime once release is known-good, so
+// systemd starts it again under release's prepare.
+func restartWhenKnownGood(ctx context.Context, layout selfupdate.Layout, release string, restart context.CancelCauseFunc) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if knownGood, err := layout.KnownGood(); err == nil && knownGood == release {
+			restart(errHostMemoryRestart)
+			return
+		}
+	}
 }
 
 func runHostVolumeInit(ctx context.Context, args []string) error {

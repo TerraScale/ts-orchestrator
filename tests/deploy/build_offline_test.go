@@ -937,7 +937,7 @@ func TestOfflineManagedRootAndVolumeInitUnits(t *testing.T) {
 	f := newOffline(t)
 	host := string(read(t, filepath.Join(deployRoot(t), "deploy/systemd/terrascale-orchestrator-host.service")))
 	contains(t, host, "ProtectSystem=strict\n")
-	contains(t, host, "ReadWritePaths=-"+managedDir+" /run/terrascale-orchestrator-host\n")
+	contains(t, host, "ReadWritePaths=-"+managedDir+"\n")
 	successful(t, f.run(nil, nil, nil))
 	metadata := object(t, read(t, f.metadata))
 	for _, tc := range []struct {

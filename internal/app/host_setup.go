@@ -31,9 +31,11 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )
@@ -89,8 +91,30 @@ func runHostSetup(ctx context.Context, args []string, output io.Writer) error {
 			return err
 		}
 	}
+	entry, ok := catalog.Lookup(bundle.Region)
+	if !ok {
+		return errors.New("enrollment bundle names an unknown region")
+	}
+	if err := vaultsecret.RequireMemoryFilesystem(HostCredentialDirectory); err != nil {
+		// A missing memory directory means host-setup's drop-in predates it:
+		// the first start after a binary-only upgrade runs before the new
+		// release's prepare installs it, and the host agent requires this unit.
+		// An identity still on disk keeps its credentials there this once; the
+		// next run moves it. A directory that fails the tmpfs or swap check
+		// fails closed.
+		if _, statErr := os.Stat(filepath.Join(*outputRoot, pendingHostEnrollmentFile)); errors.Is(err, os.ErrNotExist) && statErr == nil {
+			return runHostSetupWithMetadata(ctx, bundle, metadata, *outputRoot, output,
+				hostSetupRuntime{post: postHostEnrollment, ownerUID: 0, netbird: client.InstallBootstrapConfig})
+		}
+		return fmt.Errorf("host enrollment needs its memory directory: %w", err)
+	}
+	identity, err := loadHostIdentityRecord(*outputRoot, entry.OCIRegion)
+	if err != nil {
+		return err
+	}
 	return runHostSetupWithMetadata(ctx, bundle, metadata, *outputRoot, output,
-		hostSetupRuntime{post: postHostEnrollment, ownerUID: 0, netbird: client.InstallBootstrapConfig})
+		hostSetupRuntime{post: postHostEnrollment, ownerUID: 0, netbird: client.InstallBootstrapConfig,
+			secrets: HostCredentialDirectory, identity: identity})
 }
 
 type hostEnrollmentPoster func(context.Context, hostenroll.PublicBundle, []byte) ([]byte, error)
@@ -99,6 +123,10 @@ type hostSetupRuntime struct {
 	post     hostEnrollmentPoster
 	ownerUID uint32
 	netbird  func(context.Context, string, client.Pin, netbird.Config) (bool, error)
+	// secrets holds the identity, renewal and credentials in memory, and
+	// identity is their Vault record; tests keep them beside host.json.
+	secrets  string
+	identity *hostIdentityRecord
 }
 
 // runHostSetupWithMetadata keeps the guest enrollment flow identical after the
@@ -123,11 +151,23 @@ func runHostSetupWithMetadata(ctx context.Context, bundle hostenroll.PublicBundl
 	if err := validateHostSetupRootOwner(outputRoot, runtime.ownerUID); err != nil {
 		return err
 	}
-	renamed, err := resetRenamedHostEnrollment(outputRoot, metadata)
+	secrets := outputRoot
+	if runtime.secrets != "" {
+		secrets = runtime.secrets
+		if err := validateHostSetupRootOwner(secrets, runtime.ownerUID); err != nil {
+			return err
+		}
+	}
+	if runtime.identity != nil {
+		if err := runtime.identity.restore(ctx, outputRoot, secrets); err != nil {
+			return err
+		}
+	}
+	renamed, err := resetRenamedHostEnrollment(outputRoot, secrets, metadata)
 	if err != nil {
 		return err
 	}
-	pending, err := readOrCreateHostEnrollment(outputRoot, metadata)
+	pending, err := readOrCreateHostEnrollment(ctx, secrets, metadata, runtime.identity)
 	if err != nil {
 		return err
 	}
@@ -142,14 +182,19 @@ func runHostSetupWithMetadata(ctx context.Context, bundle hostenroll.PublicBundl
 	}
 	// A renamed host's installed configuration names its old node.
 	active := false
+	if !renamed && runtime.identity != nil {
+		if err := recoverHostCredentials(ctx, outputRoot, secrets, bundle, descriptor, pending, request, runtime); err != nil {
+			return err
+		}
+	}
 	if !renamed {
-		if active, err = installedHostCredentialActive(outputRoot, bundle, descriptor.Node, pending, request); err != nil {
+		if active, err = installedHostCredentialActive(outputRoot, secrets, bundle, descriptor.Node, pending, request); err != nil {
 			return err
 		}
 	}
 	if active {
 		_, _ = fmt.Fprintf(output, "host %s enrollment is current in cell %s\n", descriptor.Node, bundle.Cell)
-		return nil
+		return cleanLegacyHostEnrollment(runtime, outputRoot, secrets)
 	}
 	requestWire := pending.Request
 	if _, err := os.Stat(filepath.Join(outputRoot, "host.json")); err == nil && !renamed {
@@ -168,7 +213,7 @@ func runHostSetupWithMetadata(ctx context.Context, bundle hostenroll.PublicBundl
 		if request.Operation == "renew" {
 			requestWire, err = createFreshRenewalRequest(outputRoot, pending, original)
 		} else {
-			requestWire, err = createFreshInitialRequest(outputRoot, pending, original)
+			requestWire, err = createFreshInitialRequest(ctx, secrets, pending, original, runtime.identity)
 		}
 		if err != nil {
 			return err
@@ -225,7 +270,7 @@ func runHostSetupWithMetadata(ctx context.Context, bundle hostenroll.PublicBundl
 	if err := validateHostCredentials(bundle, descriptor.Node, pending, request, response); err != nil {
 		return err
 	}
-	if err := installHostEnrollment(ctx, outputRoot, bundle, descriptor, pending, response, runtime.ownerUID, runtime.netbird); err != nil {
+	if err := installHostEnrollment(ctx, outputRoot, secrets, bundle, descriptor, pending, response, runtime.ownerUID, runtime.netbird); err != nil {
 		return err
 	}
 	if request.Operation == "renew" {
@@ -234,7 +279,16 @@ func runHostSetupWithMetadata(ctx context.Context, bundle hostenroll.PublicBundl
 		}
 	}
 	_, _ = fmt.Fprintf(output, "host %s enrolled in cell %s\n", descriptor.Node, bundle.Cell)
-	return nil
+	return cleanLegacyHostEnrollment(runtime, outputRoot, secrets)
+}
+
+// cleanLegacyHostEnrollment removes the on-disk enrollment copies once the
+// identity lives in Vault and memory (TS-745).
+func cleanLegacyHostEnrollment(runtime hostSetupRuntime, root, secrets string) error {
+	if runtime.identity == nil || secrets == root {
+		return nil
+	}
+	return removeLegacyHostEnrollment(root, secrets)
 }
 
 // resetRenamedHostEnrollment reports a static host that ts-orch node rename
@@ -242,7 +296,7 @@ func runHostSetupWithMetadata(ctx context.Context, bundle hostenroll.PublicBundl
 // afresh under the new name: a persisted request for another node is
 // dropped, and host.json stays until the enrollment replaces it, so its
 // host-local options carry over.
-func resetRenamedHostEnrollment(root string, metadata hostenroll.InstanceMetadata) (bool, error) {
+func resetRenamedHostEnrollment(root, secrets string, metadata hostenroll.InstanceMetadata) (bool, error) {
 	current := metadata.Descriptor
 	config, err := LoadConfig(filepath.Join(root, "host.json"))
 	if errors.Is(err, os.ErrNotExist) || !current.IsStatic() {
@@ -254,12 +308,12 @@ func resetRenamedHostEnrollment(root string, metadata hostenroll.InstanceMetadat
 	if config.NATS.Cell != current.Cell || config.Host.Node == "" || config.Host.Node == current.Node {
 		return false, nil
 	}
-	if wire, err := os.ReadFile(filepath.Join(root, pendingHostEnrollmentFile)); err == nil {
+	if wire, err := os.ReadFile(filepath.Join(secrets, pendingHostEnrollmentFile)); err == nil {
 		var pending pendingHostEnrollment
 		var request hostenroll.Request
 		if json.Unmarshal(wire, &pending) != nil || json.Unmarshal(pending.Request, &request) != nil ||
 			request.Descriptor != string(metadata.Wire) {
-			if err := os.Remove(filepath.Join(root, pendingHostEnrollmentFile)); err != nil {
+			if err := os.Remove(filepath.Join(secrets, pendingHostEnrollmentFile)); err != nil {
 				return false, err
 			}
 		}
@@ -284,7 +338,7 @@ func parsePersistedHostRequest(wire []byte) (hostenroll.Request, error) {
 	return request, err
 }
 
-func installedHostCredentialActive(root string, bundle hostenroll.PublicBundle, node string,
+func installedHostCredentialActive(root, secrets string, bundle hostenroll.PublicBundle, node string,
 	pending pendingHostEnrollment, request hostenroll.Request,
 ) (bool, error) {
 	configPath := filepath.Join(root, "host.json")
@@ -298,7 +352,11 @@ func installedHostCredentialActive(root string, bundle hostenroll.PublicBundle, 
 		return false, err
 	}
 	credentialRoot := filepath.Dir(config.NATS.CredentialsFile)
-	if filepath.Dir(credentialRoot) != root ||
+	if filepath.Dir(credentialRoot) != secrets && filepath.Dir(credentialRoot) == root {
+		// Credentials kept on disk before they moved to memory: renew into it.
+		return false, nil
+	}
+	if filepath.Dir(credentialRoot) != secrets ||
 		!strings.HasPrefix(filepath.Base(credentialRoot), "host-credentials-") ||
 		config.NATS.Cell != bundle.Cell || config.NATS.Instance != node ||
 		config.NATS.URL != strings.Join(bundle.NATSURLs, ",") ||
@@ -312,8 +370,11 @@ func installedHostCredentialActive(root string, bundle hostenroll.PublicBundle, 
 		return false, errors.New("installed host configuration differs from the enrolled regional bundle")
 	}
 	for _, path := range []string{config.Host.IdentityKeyFile, config.NATS.CredentialsFile,
-		config.NATS.TLS.KeyFile, config.NATS.TLS.CAFile} {
-		if _, err := os.Stat(path); err != nil {
+		config.NATS.TLS.KeyFile, config.NATS.TLS.CertFile, config.NATS.TLS.CAFile} {
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) && secrets != root {
+			// The memory directory is empty after a reboot: renew.
+			return false, nil
+		} else if err != nil {
 			return false, errors.New("installed host credentials are incomplete")
 		}
 	}
@@ -420,8 +481,8 @@ func createFreshRenewalRequest(root string, pending pendingHostEnrollment,
 	return wire, nil
 }
 
-func createFreshInitialRequest(root string, pending pendingHostEnrollment,
-	original hostenroll.Request,
+func createFreshInitialRequest(ctx context.Context, root string, pending pendingHostEnrollment,
+	original hostenroll.Request, record *hostIdentityRecord,
 ) ([]byte, error) {
 	identity, err := base64.StdEncoding.DecodeString(pending.IdentityKey)
 	if err != nil || len(identity) != ed25519.PrivateKeySize {
@@ -448,6 +509,9 @@ func createFreshInitialRequest(root string, pending pendingHostEnrollment,
 	if err != nil {
 		return nil, err
 	}
+	if err := record.save(ctx, protected); err != nil {
+		return nil, err
+	}
 	if err := writeAtomicHostFile(filepath.Join(root, pendingHostEnrollmentFile), protected, 0o600); err != nil {
 		return nil, err
 	}
@@ -469,7 +533,9 @@ func validateHostSetupRootOwner(root string, ownerUID uint32) error {
 	return nil
 }
 
-func readOrCreateHostEnrollment(root string, metadata hostenroll.InstanceMetadata) (pendingHostEnrollment, error) {
+func readOrCreateHostEnrollment(ctx context.Context, root string, metadata hostenroll.InstanceMetadata,
+	identity *hostIdentityRecord,
+) (pendingHostEnrollment, error) {
 	path := filepath.Join(root, pendingHostEnrollmentFile)
 	if wire, err := os.ReadFile(path); err == nil {
 		var pending pendingHostEnrollment
@@ -534,6 +600,9 @@ func readOrCreateHostEnrollment(root string, metadata hostenroll.InstanceMetadat
 		Request:       requestWire}
 	wire, err := protocol.EncodeJSON(pending)
 	if err != nil {
+		return pendingHostEnrollment{}, err
+	}
+	if err := identity.save(ctx, wire); err != nil {
 		return pendingHostEnrollment{}, err
 	}
 	if err := writeAtomicHostFile(path, wire, 0o600); err != nil {
@@ -671,7 +740,7 @@ func validateHostCredentials(bundle hostenroll.PublicBundle, node string, pendin
 	return nil
 }
 
-func installHostEnrollment(ctx context.Context, root string, bundle hostenroll.PublicBundle, descriptor hostboot.Descriptor,
+func installHostEnrollment(ctx context.Context, root, secrets string, bundle hostenroll.PublicBundle, descriptor hostboot.Descriptor,
 	pending pendingHostEnrollment, response hostenroll.Response, ownerUID uint32,
 	bootstrapNetBird func(context.Context, string, client.Pin, netbird.Config) (bool, error),
 ) error {
@@ -681,7 +750,7 @@ func installHostEnrollment(ctx context.Context, root string, bundle hostenroll.P
 		return err
 	}
 	sum := sha256.Sum256(responseWire)
-	credentialRoot := filepath.Join(root, fmt.Sprintf("host-credentials-%x", sum[:12]))
+	credentialRoot := filepath.Join(secrets, fmt.Sprintf("host-credentials-%x", sum[:12]))
 	if err := os.Mkdir(credentialRoot, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
 		return err
 	}
@@ -761,6 +830,10 @@ func installHostEnrollment(ctx context.Context, root string, bundle hostenroll.P
 	}
 	wire, err := protocol.EncodeJSON(config)
 	if err != nil {
+		return err
+	}
+	// The response is the credentials' public half; keep it for a reboot.
+	if err := writeAtomicHostFile(filepath.Join(root, hostResponseFile), responseWire, 0o600); err != nil {
 		return err
 	}
 	return writeAtomicHostFile(filepath.Join(root, "host.json"), wire, 0o600)

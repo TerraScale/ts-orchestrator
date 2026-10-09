@@ -183,6 +183,9 @@ func TestServicesPhaseDerivesGRUsBootstrapProfiles(t *testing.T) {
 	delete(env, "TERRABASE_AUTH_ISSUER")
 	delete(env, "TERRABASE_AUTH_AUDIENCE")
 	env["TERRABASE_CATALOG_PRIMARY"] = "gru-1-db-1"
+	for _, ref := range object(terraBase["secrets"]) {
+		object(ref)["vault"] = fakeVault
+	}
 	if got := a.read(a.Path("services", "terrabase.profile.json")); !reflect.DeepEqual(got, terraBase) {
 		t.Fatalf("terrabase profile = %v", got)
 	}

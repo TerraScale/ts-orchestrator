@@ -204,3 +204,77 @@ func checkCurrentReleaseDropin(t *testing.T, unit, command, dropin string, insta
 		t.Fatalf("installed drop-in: %v", err)
 	}
 }
+
+// prepare reloads systemd after it installs a drop-in, so the other unit
+// reads it at its next start, and never fails the start for it (a failed
+// prepare would make the baked binary run its own; TS-745).
+func TestPrepareReloadsSystemdForNewDropins(t *testing.T) {
+	reloads := 0
+	previous := daemonReload
+	daemonReload = func(context.Context) error { reloads++; return nil }
+	defer func() { daemonReload = previous }()
+	temp := t.TempDir()
+	baked := filepath.Join(temp, "baked")
+	if err := os.WriteFile(baked, []byte("baked build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	systemd := filepath.Join(temp, "systemd")
+	if err := os.Mkdir(systemd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(systemd, selfupdate.HostSetupUnit), []byte("[Service]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"prepare", "--root", filepath.Join(temp, "root"), "--unit", selfupdate.HostUnit,
+		"--owner", fmt.Sprint(os.Getuid()), "--baked-binary", baked, "--systemd-dir", systemd}
+	for i := range 2 {
+		if err := run(t.Context(), args, &strings.Builder{}, time.Now, func(context.Context, string) error { return nil }); err != nil || reloads != 1 {
+			t.Fatalf("prepare %d: %v after %d reloads", i, err, reloads)
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(systemd, selfupdate.HostSetupUnit+".d", "60-selfupdate.conf")); err != nil ||
+		string(data) != selfupdate.HostSetupDropin {
+		t.Fatalf("host-setup drop-in: %v", err)
+	}
+}
+
+// Bootstrap's restore step fails the unit on any restore failure; only a
+// release whose CLI lacks the command (a rollback) skips it (TS-745).
+func TestBootstrapRestoreStepSkipsOnlyAnOlderRelease(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "60-selfupdate.conf")
+	if err := os.WriteFile(path, []byte(selfupdate.BootstrapDropin), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pre := execLines(t, path, "ExecStartPre")
+	if len(pre) != 2 || pre[0] != "" || !strings.HasPrefix(pre[1], "+/bin/sh -c '") {
+		t.Fatalf("bootstrap ExecStartPre = %q, want reset then one strict root step", pre)
+	}
+	script := strings.TrimSuffix(strings.TrimPrefix(pre[1], "+/bin/sh -c '"), "'")
+	temp := t.TempDir()
+	current := filepath.Join(temp, "current", selfupdate.BinaryName)
+	script = strings.NewReplacer("$$", "$", selfupdate.NewLayout(selfupdate.DefaultRoot).CurrentExecutable(), current).Replace(script)
+	if err := os.MkdirAll(filepath.Dir(current), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, help string
+		exit       int
+		want       int
+	}{{"older release", "Runtime:\n  run", 3, 0}, {"restore succeeds", "  restore-controller-material  Rebuild", 0, 0},
+		{"restore fails", "  restore-controller-material  Rebuild", 7, 7}} {
+		fake := "#!/bin/sh\nif [ \"$1\" = --help ]; then printf '%s\\n' '" + tc.help + "'; exit 0; fi\nexit " + fmt.Sprint(tc.exit) + "\n"
+		if err := os.WriteFile(current, []byte(fake), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		err := exec.Command("/bin/sh", "-c", script).Run()
+		code := 0
+		if exit, ok := err.(*exec.ExitError); ok {
+			code = exit.ExitCode()
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		if code != tc.want {
+			t.Errorf("%s: exit %d, want %d", tc.name, code, tc.want)
+		}
+	}
+}

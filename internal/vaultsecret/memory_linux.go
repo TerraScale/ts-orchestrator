@@ -3,7 +3,6 @@
 package vaultsecret
 
 import (
-	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -41,8 +40,7 @@ func openMemoryDirectory(directory string) (*os.Root, error) {
 	if err := unix.Fstatfs(int(file.Fd()), &fs); err != nil || fs.Type != unix.TMPFS_MAGIC {
 		return fail()
 	}
-	swaps, err := os.ReadFile("/proc/swaps")
-	if err != nil || len(bytes.Fields(swaps)) != 5 {
+	if !SwapOff() {
 		return fail()
 	}
 	return root, nil
@@ -57,9 +55,15 @@ func RequireMemoryFilesystem(directory string) error {
 	}
 	defer file.Close()
 	var fs unix.Statfs_t
-	swaps, swapErr := os.ReadFile("/proc/swaps")
-	if err := unix.Fstatfs(int(file.Fd()), &fs); err != nil || fs.Type != unix.TMPFS_MAGIC || swapErr != nil || len(bytes.Fields(swaps)) != 5 {
+	if err := unix.Fstatfs(int(file.Fd()), &fs); err != nil || fs.Type != unix.TMPFS_MAGIC || !SwapOff() {
 		return errors.New("Vault runtime files require tmpfs with swap disabled")
 	}
 	return nil
+}
+
+// SwapOff reports whether no swap is active. sysinfo(2) needs no /proc, so
+// it also answers inside units with ProcSubset=pid, such as the controller.
+func SwapOff() bool {
+	var info unix.Sysinfo_t
+	return unix.Sysinfo(&info) == nil && info.Totalswap == 0
 }

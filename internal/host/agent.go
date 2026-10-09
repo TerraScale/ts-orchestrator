@@ -72,8 +72,6 @@ type Agent struct {
 	terraBaseVolumeConfirmed string
 	// roleFilesFailures holds each role's last failed file renewal.
 	roleFilesFailures map[string]roleFilesFailure
-	// roleFilesRoot overrides the memory directory only in package tests.
-	roleFilesRoot string
 }
 
 // An open cycle has no outcome until work has succeeded or failed. A transient
