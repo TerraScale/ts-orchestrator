@@ -11,10 +11,10 @@ import (
 )
 
 // withAutoscaleSamples adds the workload autoscaler's per-service replica,
-// goal and signal readings, and the host load aggregator's TerraBase load
-// blocks, to every history sample. Both are filled only on the authority
-// leader, so followers record nothing extra. A nil reconciler returns
-// collect unchanged.
+// goal and signal readings, and the host load aggregator's node and service
+// resource usage and TerraBase load blocks, to every history sample. Both
+// are filled only on the authority leader, so followers record nothing extra.
+// A nil reconciler returns collect unchanged.
 func withAutoscaleSamples(collect func(context.Context) []observability.Sample, reconciler *workload.Reconciler,
 ) func(context.Context) []observability.Sample {
 	if reconciler == nil {
@@ -35,7 +35,7 @@ func withAutoscaleSamples(collect func(context.Context) []observability.Sample, 
 
 // leaderAutoscaleSamples is what the current term's leader records.
 func leaderAutoscaleSamples(reconciler *workload.Reconciler, load *hostload.Aggregator) []observability.Sample {
-	return append(autoscaleSamples(reconciler), terraBaseLoadSamples(load)...)
+	return append(autoscaleSamples(reconciler), hostLoadSamples(load)...)
 }
 
 // autoscaleSamples reports every reconciled service that has a result.
@@ -78,19 +78,40 @@ func autoscaleSamples(reconciler *workload.Reconciler) []observability.Sample {
 	return samples
 }
 
-// terraBaseLoadSamples reports each node's latest TerraBase load block.
-func terraBaseLoadSamples(load *hostload.Aggregator) []observability.Sample {
+// hostLoadSamples reports the latest non-stale authenticated host reports.
+func hostLoadSamples(load *hostload.Aggregator) []observability.Sample {
 	if load == nil {
 		return nil
 	}
 	var samples []observability.Sample
 	for _, node := range load.Nodes() {
+		member := strings.ToLower(node.Origin.Node)
+		labels := observability.L("member", member)
+		for _, value := range []struct {
+			metric string
+			value  *float64
+		}{{observability.HistHostCPUUtilization, node.Report.Host.CPU},
+			{observability.HistHostMemoryRatio, node.Report.Host.Memory},
+			{observability.HistHostDiskRatio, node.Report.Host.Disk}} {
+			if value.value != nil {
+				samples = append(samples, observability.Sample{Metric: value.metric, Labels: labels, Value: *value.value})
+			}
+		}
 		for _, role := range node.Report.Roles {
+			service := observability.L("member", member, "service", role.Role)
+			if role.CPUCores != nil {
+				samples = append(samples, observability.Sample{Metric: observability.HistServiceCPUCores,
+					Labels: service, Value: *role.CPUCores})
+			}
+			if role.MemoryBytes != nil {
+				samples = append(samples, observability.Sample{Metric: observability.HistServiceMemoryUsed,
+					Labels: service, Value: float64(*role.MemoryBytes)})
+			}
 			block := role.TerraBase
 			if block == nil {
 				continue
 			}
-			labels := observability.L("member", strings.ToLower(node.Origin.Node), "role", role.Role)
+			labels := observability.L("member", member, "role", role.Role)
 			samples = append(samples,
 				observability.Sample{Metric: observability.HistTerraBaseConnections, Labels: labels, Value: float64(block.Connections)},
 				observability.Sample{Metric: observability.HistTerraBaseStorage, Labels: labels, Value: float64(block.StorageBytes)},

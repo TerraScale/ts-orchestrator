@@ -1,7 +1,10 @@
 package dashboard
 
 import (
+	"encoding/json"
+	"html"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -94,7 +97,7 @@ func TestDetailPagesRenderTheirEntity(t *testing.T) {
 		"/rollouts/op-rollout-1": {"Managed TerraBase update", "orders / p0", "sha256:feedface", "Canary s1 promoted", "completed"},
 		"/volumes/vol-stuck":     {"attaching", "host-a", "Grew volume vol-stuck to 200 GB", "Volume vol-stuck stuck attaching"},
 		"/regions/fra/hosts/host-a": {"Host in FRA", "orders / p0", "s3", "vol-stuck", "Launched host host-a",
-			"host agents report their system view"},
+			"host load telemetry must be enabled", "Memory used", "Disk used", "Service CPU", "Service memory used"},
 		"/regions/sfo/hosts/host-z": {"Host in SFO", "served by that region"},
 		"/members/nobody":           {"is not a member that answered"},
 	} {
@@ -119,6 +122,110 @@ func TestPartitionHoldHistoryIsScopedToThePartition(t *testing.T) {
 	}
 	if strings.Contains(body, "seat ID shared") {
 		t.Fatalf("a seat ID only this partition has is flagged as shared")
+	}
+}
+
+func TestHostDetailChartsScopeNodeAndRange(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Truncate(time.Hour)
+	history := observability.NewHistory(observability.HistoryConfig{})
+	wants := []struct {
+		metric, unit string
+		values       map[string]float64
+	}{
+		{observability.HistHostCPUUtilization, "percent", map[string]float64{"host-a": 0.25}},
+		{observability.HistHostMemoryRatio, "percent", map[string]float64{"host-a": 0.5}},
+		{observability.HistHostDiskRatio, "percent", map[string]float64{"host-a": 0.75}},
+		{observability.HistServiceCPUCores, "", map[string]float64{"api": 0.125, "web": 1.5}},
+		{observability.HistServiceMemoryUsed, "bytes", map[string]float64{"api": 128 << 20, "web": 256 << 20}},
+	}
+	for _, at := range []time.Time{now.Add(-15 * 24 * time.Hour), now.Add(-13 * 24 * time.Hour), now.Add(-15 * time.Minute)} {
+		var samples []observability.Sample
+		for index, want := range wants {
+			for name, value := range want.values {
+				for _, node := range []string{"host-a", "host-ab", "ctl-1"} {
+					sampleValue := value
+					labels := observability.L("member", node)
+					if index >= 3 {
+						labels = append(labels, observability.Label{Name: "service", Value: name})
+					}
+					if node != "host-a" {
+						sampleValue = 9
+						if want.unit == "percent" {
+							sampleValue = 0.99
+						}
+					}
+					if at.Before(now.Add(-time.Hour)) {
+						sampleValue /= 2
+					}
+					samples = append(samples, observability.Sample{Metric: want.metric, Labels: labels, Value: sampleValue})
+				}
+			}
+		}
+		// Controller series sharing a node label must not supply host charts.
+		for _, metric := range []string{observability.HistCPUUtilization, observability.HistMemoryRatio, observability.HistFSRatio} {
+			samples = append(samples, observability.Sample{Metric: metric, Labels: observability.L("member", "host-a"), Value: 0.99})
+		}
+		history.Append(at, samples)
+	}
+	handler := New(Options{Now: func() time.Time { return now }, Journal: &Journal{History: history},
+		Snapshots: fixedSnapshots{snapshot: memberSnapshot()}}).Handler()
+	specAttribute := regexp.MustCompile(`<ts-chart[^>]*data-spec="([^"]*)"`)
+	for _, test := range []struct {
+		path     string
+		duration time.Duration
+		points   int
+	}{
+		{"/regions/fra/hosts/host-a", time.Hour, 1},
+		{"/regions/FRA/hosts/HOST-A?range=14d", 14 * 24 * time.Hour, 2},
+		{"/regions/fra/hosts/host-a?range=14d&host=host-ab&r=sfo", 14 * 24 * time.Hour, 2},
+		{"/regions/sfo/hosts/host-a?range=14d", 14 * 24 * time.Hour, 0},
+	} {
+		t.Run(test.path, func(t *testing.T) {
+			response := get(t, handler, test.path)
+			if response.Code != http.StatusOK {
+				t.Fatalf("GET = %d", response.Code)
+			}
+			matches := specAttribute.FindAllStringSubmatch(response.Body.String(), -1)
+			if test.points == 0 {
+				if len(matches) != 0 || !strings.Contains(response.Body.String(), "served by that region") {
+					t.Fatal("remote host page must not show local metric history")
+				}
+				return
+			}
+			if len(matches) != len(wants) {
+				t.Fatalf("rendered %d charts, want %d", len(matches), len(wants))
+			}
+			for index, match := range matches {
+				var spec chartSpec
+				if err := json.Unmarshal([]byte(html.UnescapeString(match[1])), &spec); err != nil {
+					t.Fatal(err)
+				}
+				want := wants[index]
+				if spec.Kind != "line" || spec.Unit != want.unit || spec.Empty != "" ||
+					spec.Start != now.Add(-test.duration).UnixMilli() || spec.End != now.UnixMilli() {
+					t.Fatalf("%s chart has wrong units, range or empty state: %+v", want.metric, spec)
+				}
+				if len(spec.Series) != len(want.values) {
+					t.Fatalf("%s has %d series, want %d", want.metric, len(spec.Series), len(want.values))
+				}
+				for _, series := range spec.Series {
+					value, found := want.values[series.Name]
+					if !found || len(series.Points) != test.points {
+						t.Fatalf("%s includes wrong host/service or point count: %+v", want.metric, series)
+					}
+					values := []float64{value}
+					if test.points == 2 {
+						values = []float64{value / 2, value}
+					}
+					for pointIndex, point := range series.Points {
+						if point[0] < float64(spec.Start) || point[0] > float64(spec.End) || point[1] != values[pointIndex] {
+							t.Fatalf("%s wrong history point: %v, want value %v within range", want.metric, point, values[pointIndex])
+						}
+					}
+				}
+			}
+		})
 	}
 }
 

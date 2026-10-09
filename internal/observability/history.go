@@ -161,13 +161,13 @@ func (t *tier) add(at int64, value float64, increase float64, counted bool) {
 	t.open.add(at, value, increase, counted)
 }
 
-// oldest returns the start of the tier's oldest bucket.
+// oldest returns the last sample time in the tier's oldest bucket.
 func (t *tier) oldest() (int64, bool) {
 	switch {
 	case t.size > 0:
-		return t.ring[t.start].Start, true
+		return t.ring[t.start].lastAt(), true
 	case t.opened:
-		return t.open.Start, true
+		return t.open.lastAt(), true
 	default:
 		return 0, false
 	}
@@ -460,8 +460,8 @@ func (current *series) coveringTier(chosen string, start int64) string {
 		if !ok {
 			continue
 		}
-		// The tier covers start only when its oldest bucket begins at or
-		// before it; a bucket beginning after start does not hold start.
+		// Rounded bucket starts can predate ingestion; compare known sample
+		// times so coarser tiers do not manufacture earlier coverage.
 		if oldest <= start {
 			return name
 		}

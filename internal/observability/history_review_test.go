@@ -198,6 +198,55 @@ func TestCoveringTierNeedsABucketAtOrBeforeStart(t *testing.T) {
 	}
 }
 
+func TestCoveringTierDoesNotInventLiveCoverage(t *testing.T) {
+	t.Parallel()
+	base := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	for _, offset := range []time.Duration{21*time.Minute + 15*time.Second, 51*time.Minute + 15*time.Second} {
+		history := NewHistory(HistoryConfig{})
+		first := base.Add(offset)
+		for minute := 0; minute <= 30; minute++ {
+			history.Append(first.Add(time.Duration(minute)*time.Minute), []Sample{{Metric: "c", Value: float64(minute), Counter: true}})
+		}
+		current := history.series["c"]
+		for _, chosen := range []string{TierRaw, Tier1m} {
+			for _, start := range []time.Time{first.Add(-30 * time.Minute), first.Add(-10 * time.Second)} {
+				if got := current.coveringTier(chosen, start.UnixMilli()); got != chosen {
+					t.Errorf("first=%s start=%s chosen=%s: tier=%s, want finest live tier", first, start, chosen, got)
+				}
+			}
+		}
+	}
+}
+
+func TestHistoryIncompleteLiveCoverageKeepsMinuteRates(t *testing.T) {
+	t.Parallel()
+	// Fix the position within the hour while staying inside minute-tier retention.
+	base := time.Now().Truncate(time.Hour).Add(-2 * time.Hour)
+	for _, test := range []struct {
+		name   string
+		offset time.Duration
+	}{{"same_hour", 21*time.Minute + 15*time.Second}, {"hour_boundary", 51*time.Minute + 15*time.Second}} {
+		t.Run(test.name, func(t *testing.T) {
+			history := NewHistory(HistoryConfig{})
+			first := base.Add(test.offset)
+			end := first.Add(30 * time.Minute)
+			for minute := 0; minute <= 30; minute++ {
+				history.Append(first.Add(time.Duration(minute)*time.Minute),
+					[]Sample{{Metric: "c", Value: float64(minute) * 60, Counter: true}})
+			}
+			result := history.Range(HistoryQuery{Metric: "c", Start: end.Add(-time.Hour), End: end, Rate: true})
+			if len(result.Series) != 1 || result.Series[0].Tier != Tier1m || len(result.Series[0].Points) != 30 {
+				t.Fatalf("incomplete live range = %+v, want 30 minute rates", result)
+			}
+			for _, point := range result.Series[0].Points {
+				if math.Abs(point.Value-1) > 1e-9 {
+					t.Fatalf("rate = %v at %s, want 1/s", point.Value, point.Time)
+				}
+			}
+		})
+	}
+}
+
 // A counter that resets and recovers inside one rollup bucket keeps all its
 // growth: increases are accumulated per raw sample before downsampling.
 func TestCounterResetInsideABucketKeepsItsGrowth(t *testing.T) {

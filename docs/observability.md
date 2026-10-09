@@ -99,9 +99,25 @@ fallback drops the `1m` tier, then the `5m` tier, and can truncate the exported
 hourly series to fit the byte limit, so a restored snapshot may contain
 incomplete history.
 
-This is the first TS-718 slice: longer retention and dashboard ranges for
-the existing collected metrics. Central node/service collection and the log
-archive are still pending; this slice does not complete TS-718.
+The existing host detail page (`/regions/{r}/hosts/{h}`) charts host CPU
+utilization, memory used ratio and disk used ratio, plus per-service CPU cores
+and memory used bytes, over the selected range including `14d`. These charts
+read only this controller's local region and match `member` to the
+authenticated host node name in lowercase; service series are named by their
+`service` role. Host history uses separate `host_cpu_utilization`,
+`host_memory_used_ratio` and `host_disk_used_ratio` metrics so controller
+CPU/memory/filesystem charts do not count host reports twice. Service history
+uses `service_cpu_cores` and `service_memory_used_bytes`.
+
+This nonfinal TS-718 slice retains the latest accepted host metrics in the
+existing bounded history. Host load telemetry must be enabled for reports to
+reach the controller (`host.load_telemetry_seconds` set to 5–3600,
+`controller.autoscale.enabled` set to `true` and
+`controller.autoscale.host_telemetry` set to `true`); service charts also
+require an accepted service load report. Automatic fleet enablement,
+durability across leadership changes and the central log archive are still
+pending. This slice does not complete TS-718 or establish a central archive
+for every node and service.
 
 ### Clock sync
 

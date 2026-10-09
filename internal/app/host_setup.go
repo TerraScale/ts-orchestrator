@@ -782,6 +782,7 @@ type hostLocalOptions struct {
 	TerraBaseDataVolume     bool              `json:"terrabase_data_volume,omitzero"`
 	TerraBaseDataVolumeID   string            `json:"terrabase_data_volume_id,omitempty"`
 	RoleMemoryMaxBytes      map[string]uint64 `json:"role_memory_max_bytes,omitempty"`
+	LoadTelemetrySeconds    int               `json:"load_telemetry_seconds,omitzero"`
 }
 
 func (o hostLocalOptions) applyTo(host *HostConfig) {
@@ -793,6 +794,7 @@ func (o hostLocalOptions) applyTo(host *HostConfig) {
 	host.TerraBaseDataVolume = o.TerraBaseDataVolume
 	host.TerraBaseDataVolumeID = o.TerraBaseDataVolumeID
 	host.RoleMemoryMaxBytes = o.RoleMemoryMaxBytes
+	host.LoadTelemetrySeconds = o.LoadTelemetrySeconds
 }
 
 // readHostLocalOptions reads the host-local options of an existing host.json.

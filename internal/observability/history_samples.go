@@ -66,6 +66,11 @@ const (
 	HistTerraBaseStorage      = "terrabase_storage_bytes" // member, role
 	HistTerraBaseLagSeq       = "terrabase_replication_lag_seq"
 	HistTerraBaseWriteQPS     = "terrabase_write_qps"
+	HistHostCPUUtilization    = "host_cpu_utilization"   // member; 0..1
+	HistHostMemoryRatio       = "host_memory_used_ratio" // member; 0..1
+	HistHostDiskRatio         = "host_disk_used_ratio"   // member; 0..1
+	HistServiceCPUCores       = "service_cpu_cores"      // member, service
+	HistServiceMemoryUsed     = "service_memory_used_bytes"
 )
 
 // Bounds on what the sampler remembers between snapshots.

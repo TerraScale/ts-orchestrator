@@ -2070,19 +2070,43 @@ func hostDetailBody(current view) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = chart("", current.memberChart(observability.HistCPUUtilization, "percent", false, "No CPU history for this host: host agents report their system view on their own listener, not to the controller yet.")).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = chart("", current.hostChart(observability.HistHostCPUUtilization, "percent", "member", "No CPU history for this host in the selected range; host load telemetry must be enabled.")).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 186, "</article><article><h2>Disk used <small>per filesystem</small></h2>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 186, "</article><article><h2>Memory used</h2>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = chart("", current.filesystemChart()).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = chart("", current.hostChart(observability.HistHostMemoryRatio, "percent", "member", "No memory history for this host in the selected range; host load telemetry must be enabled.")).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 187, "</article></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 187, "</article><article><h2>Disk used</h2>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = chart("", current.hostChart(observability.HistHostDiskRatio, "percent", "member", "No disk history for this host in the selected range; host load telemetry must be enabled.")).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 188, "</article></div><div class=\"cols-2\"><article><h2>Service CPU <small>cores</small></h2>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = chart("", current.hostChart(observability.HistServiceCPUCores, "", "service", "No service CPU history for this host in the selected range; host load telemetry must be enabled and the service must report load.")).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 189, "</article><article><h2>Service memory used</h2>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = chart("", current.hostChart(observability.HistServiceMemoryUsed, "bytes", "service", "No service memory history for this host in the selected range; host load telemetry must be enabled and the service must report load.")).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 190, "</article></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2095,7 +2119,7 @@ func hostDetailBody(current view) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 188, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 191, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -564,7 +564,7 @@ func membersBody(current view) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "<p class=\"muted\"><small>Host agents serve their own CPU, memory and filesystem view on their local observability listener.</small></p></article></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "<p class=\"muted\"><small>Open a host to see its CPU, memory, disk and service load history when host load telemetry is enabled.</small></p></article></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

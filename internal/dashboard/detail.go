@@ -459,6 +459,14 @@ func (current view) hostVolumes() []insights.Volume {
 	return out
 }
 
+func (current view) hostChart(metric, unit, nameBy, empty string) chartSpec {
+	var series []chartSeries
+	if current.Path["r"] == current.localRegion() {
+		series = current.historyRange(metric, map[string]string{"member": strings.ToLower(current.Path["h"])}, nameBy, false)
+	}
+	return current.lineChart("line", unit, series, empty)
+}
+
 // detailWindow names how far back the page's decision query looks: the
 // selected range, but at least a day (a week for rollouts and volumes).
 func (current view) detailWindow() string {

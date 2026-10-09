@@ -451,11 +451,25 @@ templ hostDetailBody(current view) {
 			<div class="cols">
 				<article>
 					<h2>CPU</h2>
-					@chart("", current.memberChart(observability.HistCPUUtilization, "percent", false, "No CPU history for this host: host agents report their system view on their own listener, not to the controller yet."))
+					@chart("", current.hostChart(observability.HistHostCPUUtilization, "percent", "member", "No CPU history for this host in the selected range; host load telemetry must be enabled."))
 				</article>
 				<article>
-					<h2>Disk used <small>per filesystem</small></h2>
-					@chart("", current.filesystemChart())
+					<h2>Memory used</h2>
+					@chart("", current.hostChart(observability.HistHostMemoryRatio, "percent", "member", "No memory history for this host in the selected range; host load telemetry must be enabled."))
+				</article>
+				<article>
+					<h2>Disk used</h2>
+					@chart("", current.hostChart(observability.HistHostDiskRatio, "percent", "member", "No disk history for this host in the selected range; host load telemetry must be enabled."))
+				</article>
+			</div>
+			<div class="cols-2">
+				<article>
+					<h2>Service CPU <small>cores</small></h2>
+					@chart("", current.hostChart(observability.HistServiceCPUCores, "", "service", "No service CPU history for this host in the selected range; host load telemetry must be enabled and the service must report load."))
+				</article>
+				<article>
+					<h2>Service memory used</h2>
+					@chart("", current.hostChart(observability.HistServiceMemoryUsed, "bytes", "service", "No service memory history for this host in the selected range; host load telemetry must be enabled and the service must report load."))
 				</article>
 			</div>
 		}
