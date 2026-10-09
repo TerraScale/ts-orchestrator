@@ -59,7 +59,8 @@ const (
 
 	// DashboardClientID is ts-auth's confidential OIDC client for ts-dashboard,
 	// which the dashboard (Fly app ts-dashboard) serves at DashboardOrigin.
-	DashboardClientID    = "01K72QMFXR0QW7MX6Z8HG1AXW0"
+	// Keep this identical to ts-auth's OidcIssuer.DashboardClientId.
+	DashboardClientID    = "01M4EQ2FRJ8S8B29E8TQVWNW4J"
 	DashboardOrigin      = "https://dash.terrascale.tech"
 	DashboardRedirectURI = DashboardOrigin + "/login/callback"
 	// DashboardLogoutURI is the dashboard's sign-in page, the exact

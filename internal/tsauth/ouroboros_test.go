@@ -75,6 +75,8 @@ func TestOuroborosTSAuthUserLookup(t *testing.T) {
 }
 
 func TestOuroborosFlySecrets(t *testing.T) {
+	// ts-auth ac893792 OidcIssuer.DashboardClientId is the registration contract.
+	const registeredDashboardClientID = "01M4EQ2FRJ8S8B29E8TQVWNW4J"
 	const projectID, key = "01K78000000000000000000001", "tb_SENTINEL-0123456789abcdef"
 	clientSecret := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("C"), 32))
 	newDashboardVault := func() *fakeVault {
@@ -84,7 +86,7 @@ func TestOuroborosFlySecrets(t *testing.T) {
 	// The dashboard's ts-auth client is the one ts-auth registers: its
 	// issuer, client id and callback.
 	settings := map[string]any{"TERRABASE_URL": "https://gru.api.terrascale.tech", "TERRABASE_PROJECT_ID": projectID, "TERRABASE_DATABASE": "dashboard",
-		"TS_AUTH_ISSUER": "https://gru.auth.terrascale.tech/terrascale", "TS_AUTH_CLIENT_ID": DashboardClientID,
+		"TS_AUTH_ISSUER": "https://gru.auth.terrascale.tech/terrascale", "TS_AUTH_CLIENT_ID": registeredDashboardClientID,
 		"TS_AUTH_REDIRECT_URL": "https://dash.terrascale.tech/login/callback"}
 	check := func(output string, staged bool) {
 		t.Helper()
@@ -130,7 +132,7 @@ func TestOuroborosFlySecrets(t *testing.T) {
 	slices.Sort(lines)
 	if string(args) != "secrets import --app ts-dashboard --stage\n" || fmt.Sprint(lines) != "[TERRABASE_API_KEY="+key+
 		" TERRABASE_DATABASE=dashboard TERRABASE_PROJECT_ID="+projectID+" TERRABASE_URL=https://gru.api.terrascale.tech"+
-		" TS_AUTH_CLIENT_ID="+DashboardClientID+" TS_AUTH_CLIENT_SECRET="+clientSecret+" TS_AUTH_ISSUER=https://gru.auth.terrascale.tech/terrascale"+
+		" TS_AUTH_CLIENT_ID="+registeredDashboardClientID+" TS_AUTH_CLIENT_SECRET="+clientSecret+" TS_AUTH_ISSUER=https://gru.auth.terrascale.tech/terrascale"+
 		" TS_AUTH_REDIRECT_URL=https://dash.terrascale.tech/login/callback]" {
 		t.Fatalf("flyctl %q with stdin %q", args, stdin)
 	}

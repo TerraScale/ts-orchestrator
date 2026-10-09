@@ -65,7 +65,7 @@ A controller serves the API when its config has `controller.machines_api`:
     "http://127.0.0.1:8080/terrascale/.well-known/jwks.json",
     "http://10.251.0.12:8080/terrascale/.well-known/jwks.json"
   ],
-  "clients": ["01K72QMFXR0QW7MX6Z8HG1AXW0"],
+  "clients": ["01M4EQ2FRJ8S8B29E8TQVWNW4J"],
   "platform_organization_id": "<platform organization ULID>",
   "members": {"<platform organization ULID>": ["<user ULID>"], "<organization ID>": ["<user ULID>"]}
 }
@@ -93,7 +93,7 @@ tenancy policy, with the same fields as above minus the listener:
   "issuer": "https://gru.auth.terrascale.tech/terrascale",
   "audience": "https://sfo.orch.terrascale.tech",
   "jwks_urls": ["https://gru.auth.terrascale.tech/terrascale/.well-known/jwks.json"],
-  "clients": ["01K72QMFXR0QW7MX6Z8HG1AXW0"],
+  "clients": ["01M4EQ2FRJ8S8B29E8TQVWNW4J"],
   "platform_organization_id": "<platform organization ULID>",
   "members": {"<platform organization ULID>": ["<user ULID>"]}
 }
