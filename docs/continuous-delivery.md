@@ -1,26 +1,29 @@
 # Continuous delivery to running cells
 
-Status: the opt-in TerraBase automation entry point is implemented; no live
-timer or signing grant is enabled by this change. The image puts
-the controller and host on
-[binary-only self-update](#binary-only-self-update). Production controllers
-follow their region's [release channel](#automatic-fleet-deployment-ts-557-part-1)
-by default and roll each CI release out to the controllers; hosts still move
-only when a root-run step stages and activates a release. The scoped auto-sign
-delegation, the staged rollout state machine, resumable image promotion and
-independent managed-host image qualification exist as opt-in foundations;
-each is off by default. Image-based orchestrator replacement is still a
-proposed follow-up.
+Every green main push dispatches automatic binary delivery to every serving
+region. Controllers follow their region's release channel and health-gated
+rollouts include participating managed hosts. Serving membership and admitted
+scope come from ts-orch; regional failures do not interrupt another region's
+rollout. See [the deployment pipeline](deploy-pipeline.md) for qualification,
+Vault signing, required scope activation, completion proofs and the lag alert.
+The image supplies [binary-only self-update](#binary-only-self-update).
+Root-scoped signing, quorum, readiness and rollback gates remain mandatory.
+
+This document also describes the operator-host TerraBase compatibility
+protocol, resumable image promotion and managed-host image qualification.
+Image-based orchestrator replacement remains a proposed follow-up.
 
 ## Mechanism and trust boundaries
 
-Use one operator-host timer per deployed TerraBase placement, with a reviewed
+For `operator terrabase-sync`, use one operator-host timer per deployed TerraBase placement, with a reviewed
 inventory covering every placement in each cell. Poll every minute; a
 publication notification can wake the same timer sooner. CI only publishes
 inputs. The operator host reaches Forgejo and controllers through existing
 TLS/Bastion access, holds the narrowly scoped online operator keys, and runs
 the single orchestrator binary. Controllers and hosts need no Forgejo route.
-Do not put operator, compatibility, release-leaf or root keys in Actions.
+Keep this protocol's operator and compatibility keys outside Actions. The
+automatic binary pipeline reads its delegated release leaf from OCI Vault;
+the offline root key stays outside Actions.
 
 Publication is not deployment authorization. Forgejo metadata and assets are
 untrusted inputs until their source lineage, qualification and byte digests
