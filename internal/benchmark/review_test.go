@@ -84,6 +84,169 @@ func TestFinalLatencyFailurePreservesMaximumWithoutScaleDown(t *testing.T) {
 	}
 }
 
+func TestIncompleteEvidenceCannotRecommendScaling(t *testing.T) {
+	w := workload(t)
+	clients := []string{"go"}
+	for _, reason := range []string{"short", "missing operation", "gap", "throughput disagreement", "missing summary", "short with cpu pressure", "short with latency pressure"} {
+		t.Run(reason, func(t *testing.T) {
+			first, last := measuredStage(t, w, clients), measuredStage(t, w, clients)
+			switch reason {
+			case "short", "short with cpu pressure", "short with latency pressure":
+				last.Samples = append(last.Samples[:20], last.Samples[30:]...)
+				if reason == "short with cpu pressure" {
+					last.Usage.Replicas[0].CPU.Headroom.Min = 0.01
+				}
+				if reason == "short with latency pressure" {
+					last.Samples[0].P99 = w.Targets.P99 * 1500
+				}
+			case "missing operation":
+				for i := range last.Samples {
+					last.Samples[i].Count = 0
+					last.Samples[i].OpsPerS = 0
+				}
+			case "gap":
+				for i := 15; i < 30; i++ {
+					last.Samples[i].TS = last.Samples[i].TS.Add(3 * time.Second)
+				}
+				last.To = last.To.Add(3 * time.Second)
+			case "throughput disagreement":
+				last.Samples[30].OpsPerS = 50
+			case "missing summary":
+				last.Samples = last.Samples[:30]
+			}
+			for _, stages := range [][]Stage{{last}, {first, last}} {
+				v := capacityVerdict(w, stages, clients)
+				if v.Scale != "unknown" || v.Bottleneck != "unknown" || v.CPUHeadroom == nil || v.MemoryHeadroom == nil {
+					t.Fatalf("incomplete evidence %s recommended scaling: %+v", reason, v)
+				}
+				if v.Qualified != (len(stages) == 2) || len(stages) == 2 && v.MaxSustainedOps != 100 {
+					t.Fatalf("earlier qualified maximum lost: %+v", v)
+				}
+			}
+		})
+	}
+}
+
+type resultRepository struct {
+	memoryRepository
+	save func(context.Context, Sample) error
+}
+
+func (r *resultRepository) SaveResult(ctx context.Context, _ string, _ int, sample Sample) error {
+	return r.save(ctx, sample)
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(data []byte) (int, error) { return f(data) }
+
+func TestSafetyCancellationPrecedesStorageAndOutput(t *testing.T) {
+	for _, mode := range []string{"errors", "latency", "storage failure", "output failure"} {
+		t.Run(mode, func(t *testing.T) {
+			w := workload(t)
+			now := time.Now().UTC()
+			stopped := make(chan struct{})
+			var stageCtx context.Context
+			g := generatorFunc(func(ctx context.Context, _ string, _ Workload, _ []string, emit func(Sample) error) error {
+				stageCtx = ctx
+				go func() { <-ctx.Done(); close(stopped) }()
+				now = now.Add(time.Second)
+				sample := Sample{TS: now, Client: "go", SDK: "go", SDKVersion: "test", Region: "gru", Op: "doc.get", Count: 100, Errors: 2}
+				if mode == "latency" {
+					sample.Errors = 0
+					sample.P99, sample.Max = w.Targets.P99*2001, w.Targets.P99*2001
+				}
+				if err := emit(sample); err != nil {
+					return err
+				}
+				return ctx.Err()
+			})
+			repo := &resultRepository{}
+			repo.save = func(ctx context.Context, sample Sample) error {
+				select {
+				case <-stopped:
+				case <-time.After(time.Second):
+					t.Fatal("storage blocked while load was still running")
+				}
+				deadline, bounded := ctx.Deadline()
+				if ctx.Err() != nil || !bounded || time.Until(deadline) > 30*time.Second {
+					t.Fatalf("triggering sample save is canceled or unbounded: %v %v", ctx.Err(), deadline)
+				}
+				if mode == "storage failure" {
+					return context.Canceled
+				}
+				repo.results = append(repo.results, sample)
+				return nil
+			}
+			output := writerFunc(func(data []byte) (int, error) {
+				if stageCtx.Err() != context.Canceled {
+					t.Fatal("output blocked while load was still running")
+				}
+				if mode == "output failure" {
+					return 0, context.Canceled
+				}
+				return len(data), nil
+			})
+			run, err := (Runner{Now: func() time.Time { return now }, Generator: g, Repository: repo, Usage: usageFixture}).Execute(t.Context(), "gru", w, []string{"go"}, output)
+			failed := mode == "storage failure" || mode == "output failure"
+			if failed {
+				if !errors.Is(err, context.Canceled) || run.Status != "failed" || run.Verdict.Scale != "unknown" {
+					t.Fatalf("I/O failure hidden by safety stop: %+v %v", run, err)
+				}
+			} else if err != nil || run.Status != "completed" || len(repo.results) != 1 || run.Verdict.Scale != "up" {
+				t.Fatalf("safety stop did not retain triggering result: %+v %v", run, err)
+			}
+		})
+	}
+}
+
+func TestCleanupStopsAllOwnedContainersConcurrently(t *testing.T) {
+	for _, mode := range []string{"cleanup-barrier", "cleanup-failures"} {
+		t.Run(mode, func(t *testing.T) {
+			installHelper(t, "podman", "TestPodmanHelper")
+			state := t.TempDir()
+			t.Setenv("TS_761_PODMAN_STATE", state)
+			t.Setenv("TS_761_PODMAN_MODE", mode)
+			jobID := newID()
+			names := []string{"bench-" + jobID + "-go", "bench-" + jobID + "-dotnet", "bench-" + jobID + "-rust"}
+			for _, name := range names {
+				if err := os.WriteFile(filepath.Join(state, name), []byte(jobID), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(state, "foreign"), []byte("another-job"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			err := cleanupContainers(ctx, jobID, append(names, "foreign"))
+			var cleanupErr *containerCleanupError
+			if !errors.As(err, &cleanupErr) || !strings.Contains(err.Error(), "foreign container") {
+				t.Fatalf("foreign ownership or cleanup error lost: %v", err)
+			}
+			if mode == "cleanup-barrier" && strings.Contains(err.Error(), "stop failed") {
+				t.Fatalf("clients did not receive concurrent stop requests: %v", err)
+			}
+			if mode == "cleanup-failures" && (!strings.Contains(err.Error(), "stop failed") || !strings.Contains(err.Error(), "cleanup failed")) {
+				t.Fatalf("joined cleanup errors lost: %v", err)
+			}
+			for _, name := range names {
+				_, err := os.Stat(filepath.Join(state, name))
+				if mode == "cleanup-failures" && strings.HasSuffix(name, "-go") {
+					if err != nil {
+						t.Fatal("failed removal fixture unexpectedly disappeared")
+					}
+				} else if !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("owned container remained after cleanup: %s %v", name, err)
+				}
+			}
+			if _, err := os.Stat(filepath.Join(state, "foreign")); err != nil {
+				t.Fatal("foreign container was removed")
+			}
+		})
+	}
+}
+
 func TestSafetyStopCannotHideCleanupFailure(t *testing.T) {
 	w := workload(t)
 	now := time.Now().UTC()

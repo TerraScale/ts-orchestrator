@@ -3,8 +3,10 @@ package hostload
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +22,8 @@ type SamplerConfig struct {
 	// native role (the host runner's role parent). Empty skips role usage.
 	CgroupRoot string
 	Roles      []string
+	// CgroupMount bounds ancestor limit reads; defaults to /sys/fs/cgroup.
+	CgroupMount string
 	// Filesystems are statfs'd; the fullest one is the host's disk_util.
 	Filesystems []observability.FilesystemRole
 	// ReadSystem and Now are test seams; they default to /proc and the
@@ -47,6 +51,9 @@ type Sampler struct {
 }
 
 func NewSampler(config SamplerConfig) *Sampler {
+	if config.CgroupMount == "" {
+		config.CgroupMount = "/sys/fs/cgroup"
+	}
 	if config.ReadSystem == nil {
 		config.ReadSystem = observability.ReadSystem
 	}
@@ -96,7 +103,11 @@ func (s *Sampler) Sample(terrabase map[string]memberstatus.Load) Report {
 		usage := RoleUsage{Role: role}
 		if s.config.CgroupRoot != "" {
 			group := filepath.Join(s.config.CgroupRoot, role)
-			usage.CPULimit, usage.MemoryLimit, usage.LimitsRead = readLimits(group)
+			usage.CPULimit, usage.MemoryLimit, usage.LimitsRead = readLimits(group, s.config.CgroupMount)
+			if usage.MemoryLimit != nil && memTotal > 0 {
+				limit := min(*usage.MemoryLimit, memTotal)
+				usage.MemoryLimit = &limit
+			}
 			if seconds, identity, ok := readGroupCPUSeconds(group); ok {
 				present[role] = struct{}{}
 				previous, seen := s.roles[role]
@@ -133,8 +144,8 @@ func (s *Sampler) Sample(terrabase map[string]memberstatus.Load) Report {
 	return report
 }
 
-// A nil limit with LimitsRead means the kernel reports "max" (unlimited).
-func readLimits(group string) (*float64, *uint64, bool) {
+// A nil memory limit with LimitsRead means every ancestor reports "max".
+func readLimits(group, mount string) (*float64, *uint64, bool) {
 	cpu, err := os.ReadFile(filepath.Join(group, "cpu.max"))
 	if err != nil {
 		return nil, nil, false
@@ -156,17 +167,39 @@ func readLimits(group string) (*float64, *uint64, bool) {
 		value := quota / period
 		cores = &value
 	}
-	memory, err := os.ReadFile(filepath.Join(group, "memory.max"))
-	if err != nil {
+	group, mount = filepath.Clean(group), filepath.Clean(mount)
+	relative, err := filepath.Rel(mount, group)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return nil, nil, false
+	}
+	controllers, err := os.ReadFile(filepath.Join(mount, "cgroup.controllers"))
+	if err != nil || !slices.Contains(strings.Fields(string(controllers)), "memory") {
 		return nil, nil, false
 	}
 	var cap *uint64
-	if value := strings.TrimSpace(string(memory)); value != "max" {
-		limit, err := strconv.ParseUint(value, 10, 64)
-		if err != nil || limit > MaxMemoryBytes {
+	for path := group; ; path = filepath.Dir(path) {
+		memory, err := os.ReadFile(filepath.Join(path, "memory.max"))
+		// The cgroup v2 filesystem root has no memory.max.
+		if err != nil && (path != mount || !errors.Is(err, os.ErrNotExist)) {
 			return nil, nil, false
 		}
-		cap = &limit
+		if err == nil {
+			if value := strings.TrimSpace(string(memory)); value != "max" {
+				limit, err := strconv.ParseUint(value, 10, 64)
+				if err != nil {
+					return nil, nil, false
+				}
+				if cap == nil || limit < *cap {
+					cap = &limit
+				}
+			}
+		}
+		if path == mount {
+			break
+		}
+	}
+	if cap != nil && *cap > MaxMemoryBytes {
+		return nil, nil, false
 	}
 	return cores, cap, true
 }

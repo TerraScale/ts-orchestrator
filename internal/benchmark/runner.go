@@ -161,15 +161,19 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 				return errors.New("benchmark result bound reached")
 			}
 			stage.Samples = append(stage.Samples, sample)
-			if err := r.Repository.SaveResult(stageCtx, run.ID, stageIndex, sample); err != nil {
-				return err
-			}
-			if err := json.NewEncoder(out).Encode(sample); err != nil {
-				return err
-			}
+			saveCtx := stageCtx
 			if sample.Type == "" && (sample.Count > 0 && float64(sample.Errors)/float64(sample.Count) > 0.01 || sample.P99 > w.Targets.P99*2000) {
 				stage.Stopped = "error rate >1% or p99 >2x target"
 				stop()
+				var saveCancel context.CancelFunc
+				saveCtx, saveCancel = context.WithTimeout(context.WithoutCancel(stageCtx), 30*time.Second)
+				defer saveCancel()
+			}
+			if err := r.Repository.SaveResult(saveCtx, run.ID, stageIndex, sample); err != nil {
+				return fmt.Errorf("save benchmark result: %w", err)
+			}
+			if err := json.NewEncoder(out).Encode(sample); err != nil {
+				return fmt.Errorf("stream benchmark result: %w", err)
 			}
 			return nil
 		})
@@ -211,8 +215,11 @@ func contains(values []string, value string) bool {
 func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 	v := Verdict{P99TargetMS: w.Targets.P99, Bottleneck: "unknown", Scale: "unknown"}
 	finalQualified := false
+	finalEvidenceComplete := false
+	finalSLOViolation := false
 	for _, stage := range stages {
-		qualified := stage.Stopped == "" && stage.Usage.Complete
+		evidenceComplete := true
+		sloViolation := stage.Stopped != ""
 		summaries := map[string]bool{}
 		perClient := map[string]map[int64]uint64{}
 		perOperation := map[string]bool{}
@@ -224,8 +231,11 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 				summaries[sample.Client] = true
 				ops += sample.OpsPerS
 				summaryRates[sample.Client] = sample.OpsPerS
-				if sample.ErrorRate > 0.01 || !summaryMatchesMix(sample, w) {
-					qualified = false
+				if sample.ErrorRate > 0.01 {
+					sloViolation = true
+				}
+				if !summaryMatchesMix(sample, w) {
+					evidenceComplete = false
 				}
 				continue
 			}
@@ -233,7 +243,7 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 				continue
 			}
 			if sample.Count > 0 && (sample.P99 > w.Targets.P99*1000 || float64(sample.Errors)/float64(sample.Count) > 0.01) {
-				qualified = false
+				sloViolation = true
 			}
 			seconds := perClient[sample.Client]
 			if seconds == nil {
@@ -246,12 +256,12 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 			}
 		}
 		if len(summaries) != len(clients) {
-			qualified = false
+			evidenceComplete = false
 		}
 		for _, client := range clients {
 			for _, op := range w.Mix {
 				if !perOperation[client+"/"+op.Op] {
-					qualified = false
+					evidenceComplete = false
 				}
 			}
 			seconds := perClient[client]
@@ -260,7 +270,7 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 				duration = w.Duration
 			}
 			if len(seconds) < max(30, duration-2) {
-				qualified = false
+				evidenceComplete = false
 				continue
 			}
 			var times []int64
@@ -271,20 +281,23 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 			}
 			observed := float64(count) / float64(len(seconds))
 			if observed == 0 || summaryRates[client] < observed*0.95 || summaryRates[client] > observed*1.05 {
-				qualified = false
+				evidenceComplete = false
 			}
 			slices.Sort(times)
 			for i := 1; i < len(times); i++ {
 				if times[i]-times[i-1] > 2 {
-					qualified = false
+					evidenceComplete = false
 				}
 			}
 		}
+		qualified := evidenceComplete && !sloViolation && stage.Usage.Complete
 		if qualified && ops > v.MaxSustainedOps {
 			v.MaxSustainedOps = ops
 			v.Qualified = true
 		}
 		finalQualified = qualified
+		finalEvidenceComplete = evidenceComplete
+		finalSLOViolation = sloViolation
 	}
 	if len(stages) == 0 {
 		return v
@@ -323,6 +336,10 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 	}
 	v.CPUHeadroom = &cpu
 	v.MemoryHeadroom = &memory
+	// A safety stop is measured pressure even though it truncates the evidence.
+	if !finalEvidenceComplete && last.Stopped == "" {
+		return v
+	}
 	v.Scale = "ok"
 	switch {
 	case cpuRatio < 0.2:
@@ -331,10 +348,10 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 	case memoryRatio < 0.2:
 		v.Bottleneck = "memory"
 		v.Scale = "up"
-	case !finalQualified:
+	case finalSLOViolation:
 		v.Bottleneck = "latency/errors"
 		v.Scale = "up"
-	case cpuRatio > 0.6 && memoryRatio > 0.6:
+	case finalQualified && cpuRatio > 0.6 && memoryRatio > 0.6:
 		v.Bottleneck = "none"
 		v.Scale = "down"
 	default:

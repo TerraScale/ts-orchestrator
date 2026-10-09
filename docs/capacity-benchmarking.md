@@ -23,8 +23,10 @@ sample mean, minimum, maximum, first/last bucket timestamps, sample count and
 coverage. CPU units are cores; memory units are bytes. Node memory comes from
 `MemTotal - MemAvailable`; service memory is cgroup working set, excluding
 inactive file pages. Requests come from the adopted signed workload profiles.
-The sampler reads `cpu.max` and `memory.max`; an unlimited role uses physical
-host capacity for effective headroom. Limits are per-role cgroup caps, not a
+The sampler reads `cpu.max` and resolves the smallest finite `memory.max`
+from the role through its cgroup ancestors, bounded by physical RAM. A role
+with no finite memory cap in that hierarchy uses physical host capacity.
+Unreadable or malformed ancestors leave limits unknown. Limits are caps, not a
 reservation of shared ancestor capacity. Node requests cover reporting,
 currently allocated roles; missing allocations make the answer incomplete.
 
@@ -92,7 +94,8 @@ tmpfs scratch, no capabilities, 1 CPU, 1 GiB memory and 256 processes each.
 No images are pulled, named volumes created or credentials written to disk.
 Each container has a fresh ULID name and ownership label. Cleanup stops and
 removes only these owned containers with a fresh context after cancellation
-or malformed output. Clients receive SIGINT and a 30-second shutdown reserve
+or malformed output. Clients stop concurrently within a shared 90-second
+cleanup deadline, so each receives SIGINT and a 30-second shutdown reserve
 for their SDK database cleanup. On cancellation the parent sends a control
 message and keeps SSH open to drain results until the worker acknowledges
 owned-container cleanup. Missing or failed acknowledgement fails the run;
@@ -121,6 +124,9 @@ dividing `duration_s` across steps with at least 30 seconds per step. Each
 step has its own `warmup_s`; measurement and warmups together must fit within
 780 seconds. Every run stops immediately
 when an emitted operation has error rate above 1% or p99 above twice target.
+Stage cancellation precedes SDK storage and output writes; the triggering
+record gets a separate 30-second save deadline. Storage, output and cleanup
+failures remain failures even when a safety threshold also stopped the run.
 A qualified stage needs complete regional usage, at least 30 seconds of
 per-client measurements, the configured measurement duration, all client
 summaries with exactly the workload's operation keys, successful measurement
@@ -131,8 +137,12 @@ is the sum of client summary throughput for the highest qualifying stage.
 Node or service headroom below 20% identifies CPU or memory pressure; more than 60%
 CPU and memory headroom permits a scale-down recommendation only when the
 final stage qualifies. An earlier qualifying stage retains its maximum
-sustained throughput even when a later ramp stage fails latency. Otherwise the
-recommendation is up for latency/errors, or ok. An incomplete window or
+sustained throughput even when a later ramp stage fails latency. Measured
+latency/error pressure recommends up; sufficient headroom otherwise reports ok.
+Insufficient duration, missing successful operations or summaries, timestamp
+gaps and throughput disagreement leave bottleneck and scale unknown, preserving
+any earlier qualifying maximum. An explicit safety stop remains measured
+pressure despite its truncated evidence. An incomplete telemetry window or
 failed run reports `qualified: false` and `scale: unknown`, never a safe
 scale-down. These are recommendations; the benchmark never changes serving
 capacity. Generator saturation has not been qualified on live hardware.

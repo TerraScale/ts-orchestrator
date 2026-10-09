@@ -173,12 +173,10 @@ func TestAdmissionRejectsServingNodesAndOtherRegions(t *testing.T) {
 
 func TestServiceLimitCanBeTheBottleneckOnAnIdleNode(t *testing.T) {
 	w := workload(t)
-	from := time.Now().UTC().Add(-time.Minute)
-	to := from.Add(30 * time.Second)
-	u, _ := usageFixture(t.Context(), "gru", from, to)
-	u.Replicas[0].CPU.Headroom = &capacity.Stats{Min: 0.05, Max: 0.05, Mean: 0.05, Complete: true}
-	u.Replicas[0].CPU.Limit = &capacity.Stats{Min: 1, Max: 1, Mean: 1, Complete: true}
-	v := capacityVerdict(w, []Stage{{From: from, To: to, Usage: u}}, []string{"go"})
+	stage := measuredStage(t, w, []string{"go"})
+	stage.Usage.Replicas[0].CPU.Headroom = &capacity.Stats{Min: 0.05, Max: 0.05, Mean: 0.05, Complete: true}
+	stage.Usage.Replicas[0].CPU.Limit = &capacity.Stats{Min: 1, Max: 1, Mean: 1, Complete: true}
+	v := capacityVerdict(w, []Stage{stage}, []string{"go"})
 	if v.Bottleneck != "cpu" || v.Scale != "up" {
 		t.Fatalf("ignored service cgroup pressure: %+v", v)
 	}
@@ -351,8 +349,28 @@ func TestPodmanHelper(t *testing.T) {
 		}
 		os.Exit(0)
 	case "stop":
+		switch os.Getenv("TS_761_PODMAN_MODE") {
+		case "cleanup-barrier":
+			_ = os.WriteFile(filepath.Join(state, ".stopped-"+name), nil, 0600)
+			deadline := time.Now().Add(3 * time.Second)
+			for {
+				stopped, _ := filepath.Glob(filepath.Join(state, ".stopped-*"))
+				if len(stopped) == 3 {
+					break
+				}
+				if time.Now().After(deadline) {
+					os.Exit(1)
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		case "cleanup-failures":
+			os.Exit(1)
+		}
 		os.Exit(0)
 	case "rm":
+		if os.Getenv("TS_761_PODMAN_MODE") == "cleanup-failures" && strings.HasSuffix(name, "-go") {
+			os.Exit(1)
+		}
 		_ = os.Remove(filepath.Join(state, name))
 		os.Exit(0)
 	default:

@@ -319,33 +319,46 @@ type containerCleanupError struct{ error }
 func cleanupContainers(ctx context.Context, jobID string, names []string) (resultErr error) {
 	cleanup, stop := context.WithTimeout(context.WithoutCancel(ctx), 90*time.Second)
 	defer stop()
-	// Names are newly generated ULIDs; never replace a pre-existing container.
-	for _, name := range names {
-		inspect := exec.CommandContext(cleanup, "podman", "inspect", "--format", "{{ index .Config.Labels \"ts-bench-job\" }}", name)
-		data, err := inspect.Output()
-		if err != nil {
-			check := exec.CommandContext(cleanup, "podman", "container", "exists", name).Run()
-			var exit *exec.ExitError
-			if !errors.As(check, &exit) || exit.ExitCode() != 1 {
-				resultErr = errors.Join(resultErr, errors.New("cannot verify benchmark container cleanup"))
-			}
-			continue
-		}
-		if strings.TrimSpace(string(data)) != jobID {
-			resultErr = errors.Join(resultErr, errors.New("refused cleanup of a foreign container"))
-			continue
-		}
-		if exec.CommandContext(cleanup, "podman", "stop", "--ignore", "--time", "30", name).Run() != nil {
-			resultErr = errors.Join(resultErr, errors.New("benchmark container stop failed"))
-		}
-		if exec.CommandContext(cleanup, "podman", "rm", "--force", "--ignore", name).Run() != nil {
-			resultErr = errors.Join(resultErr, errors.New("benchmark container cleanup failed"))
-		}
+	var wg sync.WaitGroup
+	cleanupErrors := make([]error, len(names))
+	// Each client gets its grace period without consuming another client's.
+	for i, name := range names {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cleanupErrors[i] = cleanupContainer(cleanup, jobID, name)
+		}()
 	}
+	wg.Wait()
+	resultErr = errors.Join(cleanupErrors...)
 	if resultErr != nil {
 		return &containerCleanupError{resultErr}
 	}
 	return nil
+}
+
+func cleanupContainer(ctx context.Context, jobID, name string) (resultErr error) {
+	// Names are newly generated ULIDs; never replace a pre-existing container.
+	inspect := exec.CommandContext(ctx, "podman", "inspect", "--format", "{{ index .Config.Labels \"ts-bench-job\" }}", name)
+	data, err := inspect.Output()
+	if err != nil {
+		check := exec.CommandContext(ctx, "podman", "container", "exists", name).Run()
+		var exit *exec.ExitError
+		if !errors.As(check, &exit) || exit.ExitCode() != 1 {
+			return errors.New("cannot verify benchmark container cleanup")
+		}
+		return nil
+	}
+	if strings.TrimSpace(string(data)) != jobID {
+		return errors.New("refused cleanup of a foreign container")
+	}
+	if exec.CommandContext(ctx, "podman", "stop", "--ignore", "--time", "30", name).Run() != nil {
+		resultErr = errors.New("benchmark container stop failed")
+	}
+	if exec.CommandContext(ctx, "podman", "rm", "--force", "--ignore", name).Run() != nil {
+		resultErr = errors.Join(resultErr, errors.New("benchmark container cleanup failed"))
+	}
+	return resultErr
 }
 
 func container(ctx context.Context, job Job, client, name string, workload []byte, secrets map[string]string, emit func([]byte) error) error {
