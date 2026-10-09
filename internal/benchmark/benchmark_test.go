@@ -220,7 +220,7 @@ func TestSDKPersistsULIDKeysWithoutPayloadIDs(t *testing.T) {
 			t.Errorf("non-public SDK path %s", r.URL.Path)
 		}
 		if strings.Contains(r.URL.Path, "/documents/") {
-			id := filepath.Base(r.URL.Path)
+			id := r.URL.Query().Get("id")
 			if !entityid.Valid(id) {
 				t.Errorf("non-ULID entity %s", id)
 			}

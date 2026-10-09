@@ -78,7 +78,11 @@ func (t regionTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return res, nil
 }
 func documents(ctx context.Context, e *environment) (err error) {
-	m, err := tb.NewManagement(tb.Config{Resolver: tb.StaticResolver(e.TerraBaseURL), Token: e.Credential, HTTPClient: e.HTTP, MaxRetries: -1})
+	managementURL := e.TerraBaseURL
+	if e.Target == "local" {
+		managementURL = e.AdminURL
+	}
+	m, err := tb.NewManagement(tb.Config{Resolver: tb.StaticResolver(managementURL), Token: e.Credential, HTTPClient: e.HTTP, MaxRetries: -1})
 	if err != nil {
 		return err
 	}
@@ -283,6 +287,22 @@ func cleanupProject(ctx context.Context, u *tb.ManagementUser, org, name string)
 		for _, project := range page.Items {
 			if project.Name != name {
 				continue
+			}
+			// Project deletion requires revoking the run's scoped keys first.
+			for keyCursor := ""; ; {
+				keys, err := u.ProjectAPIKeys(ctx, org, project.ID, tb.PageOptions{Limit: 100, After: keyCursor})
+				if err != nil {
+					return fmt.Errorf("cleanup list keys in %s: %w", project.ID, err)
+				}
+				for _, key := range keys.Items {
+					if err := u.RevokeProjectAPIKey(ctx, org, project.ID, key.ID); err != nil {
+						return fmt.Errorf("cleanup revoke key %s: %w", key.ID, err)
+					}
+				}
+				if keys.Next == "" {
+					break
+				}
+				keyCursor = keys.Next
 			}
 			for dbCursor := ""; ; {
 				databases, err := u.Databases(ctx, org, project.ID, tb.PageOptions{Limit: 100, After: dbCursor})

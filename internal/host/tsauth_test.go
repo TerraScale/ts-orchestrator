@@ -96,16 +96,12 @@ func TestTSAuthReplicaGetsVaultSecrets(t *testing.T) {
 	}
 }
 
-func TestTSAuthReplicaKeepsExistingUUIDProject(t *testing.T) {
+func TestTSAuthReplicaRejectsUUIDProject(t *testing.T) {
 	agent := tsAuthTestAgent(t)
 	secrets := tsAuthTestSecrets()
 	secrets[tsauth.EnvProjectID] = "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d"
-	env, err := agent.prepareTSAuth(tsAuthTestDesired(), secrets)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if env[tsauth.EnvDatabase] != secrets[tsauth.EnvProjectID]+"/auth" {
-		t.Fatal("existing project ID changed before reaching the replica")
+	if _, err := agent.prepareTSAuth(tsAuthTestDesired(), secrets); err == nil {
+		t.Fatal("accepted a UUID project for a ULID-only replica")
 	}
 }
 

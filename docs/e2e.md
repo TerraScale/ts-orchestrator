@@ -133,13 +133,17 @@ missing credential, corrupt artifact, timeout or assertion failure into pending.
 auth's ts-dotnet/ts-libs dependencies. Select a published real TerraBase release,
 verify its `.sha256` against the artifact, update the matching version and digest,
 and run local E2E. The current main prerelease is
-`ci-62801f5b3832b9fbef8895259bc62ca9a2f6f1fe-run-13363`. Source pins are
+`ci-27611cb984ccaaf8b37faea9a34a192a2e45b76a-run-16211`. Source pins are
 complete commit hashes, never moving branches.
 Switch auth from pinned source to the TS-488 release artifact once available.
 
-The SDK is pinned in `e2e/go.mod` to the merged ts-go#16 `main` commit
-`57a36b6d6aa08efbaa0617b7c6efd9cfbf26da05`, pseudo-version
-`v0.0.0-20261005010400-57a36b6d6aa0`. Its vanity path is not published, so a
+The SDK is pinned in `e2e/go.mod` to the merged `main` commit
+`f8f51d8a46c695734c502536dad5e31b968b994f`, pseudo-version
+`v0.0.0-20261009173424-f8f51d8a46c6`. It uses the current
+`/documents/by-key?id=…` point route and exposes project-key revocation,
+which cleanup requires before project deletion. The local backend starts with
+`--management-credential-file` and a 256 MiB memory budget. Service-credential
+Management requests use its loopback admin listener. Its vanity path is not published, so a
 Forgejo replacement fetches that same commit. Update both version references
 and run `go mod tidy` when bumping. Replace the pseudo-version with the release
 tag once the SDK release is published. Review newly shipped features and replace

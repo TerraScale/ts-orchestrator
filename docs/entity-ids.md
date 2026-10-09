@@ -55,9 +55,12 @@ Old IDs are not supported. There is no migration, backfill, ID rewrite,
 compatibility shim or dual read/write path. The cutover deletes the affected
 data and recreates bootstrap state through the current startup path.
 
-1. Qualify the combined TerraBase ULID and TS-755 schema10 release, compatible
-   SDK/auth/dashboard consumers, and this orchestrator release. Keep fleet
-   auto-deployment paused until all consumers are ready; never deploy schema9.
+1. Qualify the combined TerraBase ULID and TS-755 release (schema 11 in the
+   qualified successor), compatible SDK/auth/dashboard consumers, and this
+   orchestrator release; never deploy schema9. Main CI automatically dispatches
+   fleet deployment, so complete the coordinated direct cutover before allowing
+   an automatic deployment to use old agents/watchdogs. No deployment pause
+   is implied by this document.
 2. Verify the actual serving region, host, resolved storage path, bucket/object
    version and KV/stream inventory with protected operator access. Fence old
    writers in every serving region before deleting any data.
@@ -79,7 +82,8 @@ data and recreates bootstrap state through the current startup path.
    object-store heads,
    snapshots and backups too: none may restore old entity references. These
    are inventory candidates, not verified live deletion targets.
-   Include retained desired-release generations, dependent pin inventories and
+   Include retained retirement-quarantine/cutover records from previous deployments,
+   retained desired-release generations, dependent pin inventories and
    active-rollout slots,
    node-operation/fence records, OCI ownership journals and consumed permits,
    and both rollout step/reply boards and signed health proofs. Include retained

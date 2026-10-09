@@ -265,13 +265,13 @@ func TestHostUnitsAreTheJoinedHostsGroupedByTerraBaseSeats(t *testing.T) {
 	if _, err := load(t.Context()); err == nil || !strings.Contains(err.Error(), "gru-1-db-3 has not joined") {
 		t.Fatalf("an unjoined host was omitted: %v", err)
 	}
-	if _, err := f.board.Put(t.Context(), joinedKey("gru-1-db-3"), []byte("key-gru-1-db-3")); err != nil {
+	if _, err := f.board.Put(t.Context(), rollout.HostMembershipKey("gru-1-db-3"), []byte(`{"node":"gru-1-db-3","public_key":"key-gru-1-db-3"}`)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := load(t.Context()); err == nil || !strings.Contains(err.Error(), "gru-1-db-4 has not proved") {
 		t.Fatalf("a replaced host was omitted: %v", err)
 	}
-	if _, err := f.board.Put(t.Context(), joinedKey("gru-1-db-4"), []byte("key-of-the-new-gru-1-db-4")); err != nil {
+	if _, err := f.board.Put(t.Context(), rollout.HostMembershipKey("gru-1-db-4"), []byte(`{"node":"gru-1-db-4","public_key":"key-of-the-new-gru-1-db-4"}`)); err != nil {
 		t.Fatal(err)
 	}
 	units, err := load(t.Context())
@@ -302,7 +302,7 @@ func TestHostUnitsExcludeRetiredHistoryButKeepCurrentHostsWithoutSessions(t *tes
 	if _, err := load(t.Context()); err == nil || !strings.Contains(err.Error(), "current-host has not joined") {
 		t.Fatalf("historical retirement blocked rollout or a missing current session was silently omitted: %v", err)
 	}
-	if _, err := f.board.Create(t.Context(), joinedKey("current-host"), []byte("current-key")); err != nil {
+	if _, err := f.board.Create(t.Context(), rollout.HostMembershipKey("current-host"), []byte(`{"node":"current-host","public_key":"current-key"}`)); err != nil {
 		t.Fatal(err)
 	}
 	units, err := load(t.Context())

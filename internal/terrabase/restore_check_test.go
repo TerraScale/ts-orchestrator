@@ -25,7 +25,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const restoreDocument = "/v1/projects/00000000000000000000000002/databases/atlas/collections/restore_canary/documents/00000000000000000000000005"
+const restoreDocument = "/v1/projects/00000000000000000000000002/databases/atlas/collections/restore_canary/documents/by-key?id=00000000000000000000000005"
 
 func restorePlan(t *testing.T) string {
 	t.Helper()
@@ -120,14 +120,16 @@ func TestRestoreCheckRejectsBadFlags(t *testing.T) {
 		"no restored ID":  {"--plan", plan, "--binary", binary, "--organization", "o", "--document", restoreDocument, "--scratch-instance", "ocid1.instance.scratch"},
 		"not a volume":    append(slices.Clone(base), "--document", restoreDocument, "--restored-volume", "ocid1.instance.scratch"),
 		"bad volume ID":   append(slices.Clone(base), "--document", restoreDocument, "--restored-volume", "ocid1.volume.restore/other"),
-		"traversal":       append(slices.Clone(base), "--document", "/v1/projects/00000000000000000000000002/databases/../collections/c/documents/x"),
-		"dot segment":     append(slices.Clone(base), "--document", "/v1/projects/00000000000000000000000002/databases/d/collections/./documents/x"),
+		"traversal":       append(slices.Clone(base), "--document", "/v1/projects/00000000000000000000000002/databases/../collections/c/documents/by-key?id=x"),
+		"dot segment":     append(slices.Clone(base), "--document", "/v1/projects/00000000000000000000000002/databases/d/collections/./documents/by-key?id=x"),
 		"query":           append(slices.Clone(base), "--document", restoreDocument+"?x=1"),
+		"duplicate id":    append(slices.Clone(base), "--document", restoreDocument+"&id=00000000000000000000000006"),
+		"old route":       append(slices.Clone(base), "--document", strings.Replace(restoreDocument, "by-key?id=", "", 1)),
 		"fragment":        append(slices.Clone(base), "--document", restoreDocument+"#x"),
-		"escaped":         append(slices.Clone(base), "--document", "/v1/projects/00000000000000000000000002/databases/d/collections/c/documents/%2e%2e"),
-		"empty segment":   append(slices.Clone(base), "--document", "/v1/projects//databases/d/collections/c/documents/x"),
+		"escaped":         append(slices.Clone(base), "--document", "/v1/projects/00000000000000000000000002/databases/d/collections/c/documents/by-key?id=%2e%2e"),
+		"empty segment":   append(slices.Clone(base), "--document", "/v1/projects//databases/d/collections/c/documents/by-key?id=x"),
 		"extra segment":   append(slices.Clone(base), "--document", restoreDocument+"/more"),
-		"other prefix":    append(slices.Clone(base), "--document", "/v2/projects/p/databases/d/collections/c/documents/x"),
+		"other prefix":    append(slices.Clone(base), "--document", "/v2/projects/p/databases/d/collections/c/documents/by-key?id=x"),
 		"device flag":     append(slices.Clone(base), "--document", restoreDocument, "--device", "/dev/oracleoci/oraclevdb"),
 		"bad ready path":  append(slices.Clone(base), "--document", restoreDocument, "--ready-path", "/../admin"),
 		"no wait":         append(slices.Clone(base), "--document", restoreDocument, "--wait", "0s"),
@@ -215,7 +217,7 @@ func (s restoreServers) verify(t *testing.T, wait time.Duration) (string, error)
 			w.WriteHeader(s.readyStatus)
 			return
 		}
-		if r.URL.Path != restoreDocument || r.Header.Get("Authorization") != "Bearer s3cret" {
+		if r.URL.RequestURI() != restoreDocument || r.Header.Get("Authorization") != "Bearer s3cret" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

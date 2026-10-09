@@ -34,7 +34,6 @@ type Controller struct {
 	controlLog             jetstream.Stream
 	readOnly               bool
 	mutations              authority.HostMutationStore
-	quarantines            map[string]retirementQuarantineEntry
 	managedVerifier        ManagedRegistrationVerifier
 	managedDesiredVerifier ManagedDesiredVerifier
 	managedEffectGate      func(context.Context, uint64, authority.WorkloadScope) (func(), error)
@@ -118,8 +117,7 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 	if status.Config().Replicas != replicas {
 		return nil, fmt.Errorf("host state has %d replicas, requires %d", status.Config().Replicas, replicas)
 	}
-	quarantines, err := loadRetirementQuarantines(ctx, cfg.Conn, state, cfg.Cell)
-	if err != nil {
+	if err := rejectObsoleteRetirementState(ctx, state, cfg.Cell); err != nil {
 		return nil, err
 	}
 	controlLog := cfg.ControlLog
@@ -131,7 +129,6 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 	}
 	cacheCtx, cacheCancel := context.WithCancel(context.Background())
 	return &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations,
-		quarantines:     quarantines,
 		managedVerifier: cfg.ManagedRegistrationVerifier, managedDesiredVerifier: cfg.ManagedDesiredVerifier,
 		managedEffectGate: managedEffectGate, materialProvider: cfg.ManagedMaterialProvider,
 		credentialFloor: cfg.ManagedCredentialFloor, volumeInspector: cfg.ManagedVolumeInspector,
@@ -264,9 +261,6 @@ func (c *Controller) Register(ctx context.Context, r Registration) (Receipt, err
 	r.ID = id
 	if err := validateRegistration(r, c.cell); err != nil {
 		return Receipt{}, err
-	}
-	if _, quarantined := c.quarantines[r.Node]; quarantined {
-		return Receipt{}, ErrHostRetiring
 	}
 	if r.ManagedOCI != nil && r.ManagedPlacement == nil {
 		return Receipt{}, errors.New("managed host registration requires current schema-3 placement pins")
@@ -520,20 +514,12 @@ type retirement struct {
 }
 
 func (c *Controller) retired(ctx context.Context, node string) (bool, error) {
-	if _, quarantined := c.quarantines[node]; quarantined {
-		return true, nil
-	}
 	mark, _, err := c.readRetirement(ctx, node)
 	return mark.Retired, err
 }
 
 func (c *Controller) markRetired(ctx context.Context, epoch uint64, node string, retired bool) error {
 	if err := c.guard(ctx, epoch); err != nil {
-		return err
-	}
-	if _, quarantined := c.quarantines[node]; quarantined {
-		return ErrHostRetiring
-	} else if err := c.requireRetirementCutover(ctx); err != nil {
 		return err
 	}
 	data, operation, err := mutationPayload(retirement{Retired: retired})
@@ -748,8 +734,6 @@ const hostLeaderPoll = 500 * time.Millisecond
 // would capture, and deny, every request of the hosts connected to it.
 func (c *Controller) Run(ctx context.Context) error {
 	var subscriptions []*nats.Subscription
-	importPending := len(c.quarantines) > 0
-	var nextImport time.Time
 	unsubscribe := func() {
 		for _, sub := range subscriptions {
 			_ = sub.Unsubscribe()
@@ -764,19 +748,6 @@ func (c *Controller) Run(ctx context.Context) error {
 	defer ticker.Stop()
 	for {
 		leader := c.authorityLeader == nil || c.authorityLeader()
-		if !leader {
-			importPending = len(c.quarantines) > 0
-		} else if importPending && !time.Now().Before(nextImport) {
-			attempt, cancel := context.WithTimeout(ctx, 5*time.Second)
-			err := c.importRetirementQuarantines(attempt)
-			cancel()
-			if err == nil {
-				importPending = false
-			} else {
-				slog.Warn("retirement quarantine import deferred", "cell", c.cell, "error", err)
-				nextImport = time.Now().Add(5 * time.Second)
-			}
-		}
 		if leader && subscriptions == nil {
 			var err error
 			if subscriptions, err = c.subscribeHostRequests(ctx); err != nil {
@@ -887,9 +858,6 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 }
 
 func (c *Controller) registration(ctx context.Context, node string) (Registration, error) {
-	if _, quarantined := c.quarantines[node]; quarantined {
-		return Registration{}, ErrHostRetiring
-	}
 	r, _, exists, err := c.readRegistration(ctx, node)
 	if err != nil {
 		return Registration{}, err

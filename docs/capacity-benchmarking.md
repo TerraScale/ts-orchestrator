@@ -28,14 +28,11 @@ commits with JetStream timestamps. Hosts retired before the window are excluded;
 or restoring an identity later cannot rewrite an earlier answer. An idle check
 must succeed in the same authority epoch before retirement is committed.
 Admission checks and historical inventory read the same retirement records.
-Host control rejects obsolete `retired.<cell>.<node>` keys unless an operator
-has explicitly pinned an active mark as a permanent identity quarantine.
-Cleared, malformed, changed or missing evidence still fails closed. The
-[retirement storage upgrade](retirement-storage-upgrade.md) retains the active
-KV mark, imports a fenced ordered event, and requires explicit fleet cutover
-before ordinary retirement writes resume. It never deletes active safety
-marks or re-founds a serving cell. Inventory before the actual import commit
-is unavailable; the legacy timestamp is not invented ordered-log history.
+Host control rejects obsolete `retired.<cell>.<node>` keys. The coordinated
+[greenfield reset](entity-ids.md#clean-reset) clears affected retirement state
+and references after old writers are fenced; fresh signed enrollment policy
+must authorize only intended instances. No old retirement marks are imported
+or retained through a compatibility path.
 A startup baseline reads only the latest state per host subject; a five-second
 refresh caches one hour of incremental changes.
 Usage queries advance this checkpoint to a pinned log watermark, without

@@ -435,7 +435,7 @@ touches the member, its volume or its host.
    The document URL uses database and collection names; the separate database
    ID narrows the read-only API key to that database.
 5. On the scratch host, dry run:
-   `sudo ts-orch terrabase restore-check --plan ./plan.json --compartment <gru-1 workload compartment> --restored-volume <saved restored copy OCID> --binary ./terrabase-linux-arm64 --organization <org ULID> --database <database ULID> --document /v1/projects/<project ULID>/databases/<database name>/collections/<collection name>/documents/<document ULID> --scratch-instance <scratch OCID>`.
+   `sudo ts-orch terrabase restore-check --plan ./plan.json --compartment <gru-1 workload compartment> --restored-volume <saved restored copy OCID> --binary ./terrabase-linux-arm64 --organization <org ULID> --database <database ULID> --document '/v1/projects/<project ULID>/databases/<database name>/collections/<collection name>/documents/by-key?id=<document ULID>' --scratch-instance <scratch OCID>`.
 6. Rerun with `--apply` and expect
    `{"step":"verified","ready_path":"/readyz","document":...,"etag":...}`.
    The command re-reads OCI immediately before mounting and requires the

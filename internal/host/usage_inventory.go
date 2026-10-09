@@ -36,13 +36,6 @@ func (c *Controller) ExpectedUsage(ctx context.Context, from, to time.Time) ([]h
 	if c == nil || c.controlLog == nil || !from.Before(to) {
 		return nil, errors.New("historical host inventory is unavailable")
 	}
-	floor, err := c.quarantineHistoryFloor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if from.Before(floor) {
-		return nil, errors.New("inventory window predates the retirement history import")
-	}
 	if err := c.lockControlLog(ctx); err != nil {
 		return nil, err
 	}

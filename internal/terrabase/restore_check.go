@@ -33,7 +33,7 @@ import (
 const restoreBodyLimit = 1 << 20
 
 var (
-	documentPathRE = regexp.MustCompile(`^/v1/projects/([^/]+)/databases/([^/]+)/collections/([^/]+)/documents/([^/]+)$`)
+	documentPathRE = regexp.MustCompile(`^/v1/projects/([^/]+)/databases/([^/]+)/collections/([^/]+)/documents/by-key\?id=([^/&?#]+)$`)
 	pathSegmentRE  = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
 )
 
@@ -69,7 +69,7 @@ func runRestoreCheck(ctx context.Context, args []string, output io.Writer) error
 	binary := flags.String("binary", "", "terrabase-linux-<arch> release asset with its .sha256 asset beside it")
 	organization := flags.String("organization", "", "organization ID that owns --document")
 	database := flags.String("database", "", "database ID that owns --document; the URL uses its name")
-	document := flags.String("document", "", "/v1/projects/P/databases/D/collections/C/documents/ID that must exist in the backup")
+	document := flags.String("document", "", "/v1/projects/P/databases/D/collections/C/documents/by-key?id=ID that must exist in the backup")
 	scratch := flags.String("scratch-instance", "", "OCID of this scratch instance, as restore-volume printed it")
 	restored := flags.String("restored-volume", "", "exact restored copy volume_id printed by restore-volume")
 	readyPath := flags.String("ready-path", "/readyz", "client HTTPS path that answers 200 once the member serves requests")
@@ -143,7 +143,7 @@ func restoreVolumeConfig(planPath, compartment string) (oci.MemberVolumeConfig, 
 func resolveRestoreCheck(binary, organization, database, document, scratch, restored, readyPath string, wait time.Duration, apply bool) (restoreCheckRequest, error) {
 	match := documentPathRE.FindStringSubmatch(document)
 	if match == nil || !entityid.Valid(match[1]) || !pathSegment(match[2]) || !pathSegment(match[3]) || !entityid.Valid(match[4]) {
-		return restoreCheckRequest{}, fmt.Errorf("--document %q is not /v1/projects/P/databases/D/collections/C/documents/ID", document)
+		return restoreCheckRequest{}, fmt.Errorf("--document %q is not /v1/projects/P/databases/D/collections/C/documents/by-key?id=ID", document)
 	}
 	if !entityid.Valid(organization) {
 		return restoreCheckRequest{}, fmt.Errorf("--organization %q is not a canonical ULID", organization)
