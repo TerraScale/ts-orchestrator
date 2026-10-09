@@ -245,6 +245,8 @@ adds a visible `log_truncated` attribute. Inputs exceeding the 64 KiB scan bound
 and unsupported objects are omitted with that marker. Scoped values are frozen
 when attached; maps and slices become bounded JSON text. Logging levels, event
 selection and repeated-event suppression retain their existing behavior.
+Application-provided `LogValuer`, error and stringer callbacks still execute
+synchronously and must avoid blocking work.
 
 This TS-718 slice prepares structured runtime logs for central collection. It does
 not add retention or search of archived logs. Embedded NATS output, workload

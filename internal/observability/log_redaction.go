@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -59,43 +60,56 @@ func (h *redactingHandler) Handle(ctx context.Context, record slog.Record) error
 	// Preserve selection and component even when ordinary attributes exhaust
 	// the budget. This scan does not resolve or format application values.
 	var event, component slog.Attr
+	eventIndex, componentIndex := -1, -1
+	index := 0
 	record.Attrs(func(a slog.Attr) bool {
 		if a.Key == EventKey && a.Value.Kind() == slog.KindBool {
 			if event.Key == "" || !event.Value.Bool() {
 				event = a
+				eventIndex = index
 			}
 		}
 		if a.Key == ComponentKey {
 			component = a
+			componentIndex = index
 		}
+		index++
 		return true
 	})
-	for _, a := range []slog.Attr{event, component} {
+	// Reserve metadata capacity, but emit it in its original position so an
+	// inline group and a root component keep their last-value-wins ordering.
+	for _, a := range []*slog.Attr{&event, &component} {
 		if a.Key != "" {
-			if prepared, ok := s.attr(a, h.depth, h.sensitive); ok {
-				clean.AddAttrs(prepared)
-			}
+			*a, _ = s.attr(*a, h.depth, h.sensitive)
 		}
 	}
-	visited := 0
+	index = -1
 	record.Attrs(func(a slog.Attr) bool {
-		visited++
-		if a.Key == ComponentKey || (a.Key == EventKey && event.Key != "") {
+		index++
+		if index == eventIndex {
+			if event.Key != "" {
+				clean.AddAttrs(event)
+			}
 			return true
 		}
-		if h.blocked {
+		if index == componentIndex {
+			if component.Key != "" {
+				clean.AddAttrs(component)
+			}
+			return true
+		}
+		if a.Key == ComponentKey || (a.Key == EventKey && eventIndex >= 0) {
+			return true
+		}
+		if h.blocked || s.remaining <= 0 {
 			s.truncated = true
-			return false
+			return true
 		}
 		if prepared, ok := s.attr(a, h.depth, h.sensitive); ok {
 			clean.AddAttrs(prepared)
 		}
-		return s.remaining > 0
+		return true
 	})
-	// The marker also covers attributes we deliberately did not inspect.
-	if visited < record.NumAttrs() {
-		s.truncated = true
-	}
 	if s.truncated {
 		clean.AddAttrs(slog.Bool(logTruncatedKey, true))
 	}
@@ -303,11 +317,15 @@ func (s *logSanitizer) snapshot(value reflect.Value, depth int) any {
 	if !value.IsValid() {
 		return nil
 	}
-	if depth >= maxLogDepth || s.remaining <= 0 {
+	if s.remaining <= 0 {
 		s.truncated = true
 		return omittedLogValue
 	}
 	s.remaining--
+	if depth >= maxLogDepth {
+		s.truncated = true
+		return omittedLogValue
+	}
 	switch value.Kind() {
 	case reflect.Interface, reflect.Pointer:
 		if value.IsNil() {
@@ -328,19 +346,27 @@ func (s *logSanitizer) snapshot(value reflect.Value, depth int) any {
 		if value.Type().Key().Kind() != reflect.String {
 			break
 		}
+		if value.Len() > s.remaining {
+			s.truncated = true
+			return omittedLogValue
+		}
+		// Collect only bounded maps; sorted traversal makes nested clipping stable.
+		keys := value.MapKeys()
+		slices.SortFunc(keys, func(a, b reflect.Value) int {
+			return strings.Compare(a.String(), b.String())
+		})
 		frozen := map[string]any{}
-		iter := value.MapRange()
-		for iter.Next() {
+		for _, mapKey := range keys {
 			if s.remaining <= 0 {
 				s.truncated = true
 				break
 			}
-			key := iter.Key().String()
+			key := mapKey.String()
 			if sensitiveLogKey(key) {
 				s.remaining--
 				frozen[s.text(key, maxLogNameBytes)] = redactedLogValue
 			} else {
-				frozen[s.text(key, maxLogNameBytes)] = s.snapshot(iter.Value(), depth+1)
+				frozen[s.text(key, maxLogNameBytes)] = s.snapshot(value.MapIndex(mapKey), depth+1)
 			}
 		}
 		return frozen

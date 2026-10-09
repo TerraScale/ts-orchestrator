@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -152,6 +153,195 @@ func TestLogRedactionScopeOrderAndNames(t *testing.T) {
 				t.Fatalf("WithAttrs/WithGroup order changed: %s", output)
 			}
 		})
+	}
+}
+
+func TestLogRedactionRecordMetadataOrder(t *testing.T) {
+	t.Parallel()
+	inline := func(value string) slog.Attr {
+		return slog.Group("", slog.String(ComponentKey, value))
+	}
+	for _, format := range []string{"json", "logfmt"} {
+		for _, tc := range []struct {
+			name string
+			args []any
+		}{
+			{"inline before root", []any{inline("first"), ComponentKey, "last"}},
+			{"inline after root", []any{ComponentKey, "first", inline("last")}},
+			{"duplicate roots", []any{ComponentKey, "first", inline("middle"), ComponentKey, "last"}},
+			{"inline after duplicate roots", []any{ComponentKey, "first", ComponentKey, "middle", inline("last")}},
+		} {
+			t.Run(format+"/"+tc.name, func(t *testing.T) {
+				logger, output, bus := redactionLogger(t, format)
+				logger.Warn("attribution", tc.args...)
+				events := bus.Recent(0)
+				if len(events) != 1 || events[0].Component != "last" {
+					t.Fatalf("record component order changed: %+v", events)
+				}
+				if format == "json" {
+					var line map[string]any
+					if err := json.Unmarshal(output.Bytes(), &line); err != nil {
+						t.Fatal(err)
+					}
+					if line[ComponentKey] != "last" {
+						t.Fatalf("output component order changed: %s", output)
+					}
+				} else {
+					var component string
+					for _, field := range strings.Fields(output.String()) {
+						if strings.HasPrefix(field, ComponentKey+"=") {
+							component = strings.TrimPrefix(field, ComponentKey+"=")
+						}
+					}
+					if component != "last" {
+						t.Fatalf("output component order changed: %s", output)
+					}
+				}
+			})
+		}
+	}
+	for _, flags := range [][]bool{{true, false}, {false, true}, {true, false, true}, {false, false}} {
+		t.Run(fmt.Sprint(flags), func(t *testing.T) {
+			logger, output, bus := redactionLogger(t, "json")
+			var args []any
+			marked := false
+			for _, flag := range flags {
+				args = append(args, EventKey, flag)
+				marked = marked || flag
+			}
+			logger.Info("duplicate event flags", args...)
+			wantEvents := 0
+			if marked {
+				wantEvents = 1
+			}
+			if len(bus.Recent(0)) != wantEvents || strings.Count(output.String(), "\n") != 1 {
+				t.Fatalf("duplicate event selection changed: output=%s events=%+v", output, bus.Recent(0))
+			}
+			var line map[string]any
+			if err := json.Unmarshal(output.Bytes(), &line); err != nil {
+				t.Fatal(err)
+			}
+			if line[EventKey] != marked {
+				t.Fatalf("selected duplicate event flag changed: %s", output)
+			}
+		})
+	}
+	for _, rootFirst := range []bool{false, true} {
+		t.Run(fmt.Sprintf("inline event/root first=%v", rootFirst), func(t *testing.T) {
+			logger, output, bus := redactionLogger(t, "json")
+			args := []any{slog.Group("", slog.Bool(EventKey, false)), slog.Bool(EventKey, true)}
+			if rootFirst {
+				args[0], args[1] = args[1], args[0]
+			}
+			logger.Info("inline event order", args...)
+			var line map[string]any
+			if err := json.Unmarshal(output.Bytes(), &line); err != nil {
+				t.Fatal(err)
+			}
+			if len(bus.Recent(0)) != 1 || line[EventKey] != !rootFirst {
+				t.Fatalf("inline event order/selection changed: output=%s events=%+v", output, bus.Recent(0))
+			}
+		})
+	}
+}
+
+func TestLogRedactionSnapshotDepthConsumesBudget(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		value any
+	}{
+		{"slice", make([]int, 1_000_000)},
+		{"array", [1_000_000]int{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			nested := []any{[]any{[]any{tc.value}}}
+			s := logSanitizer{remaining: maxLogAttrs}
+			frozen := s.snapshot(reflect.ValueOf(&nested), 0)
+			// Inspect the intermediate tree before JSON encoding or text clipping.
+			inner := frozen.([]any)[0].([]any)[0].([]any)[0].([]any)
+			if nodes := 4 + len(inner); nodes > maxLogAttrs {
+				t.Fatalf("snapshot materialized %d nodes with a %d-node budget", nodes, maxLogAttrs)
+			}
+			if !s.truncated || s.remaining != 0 || len(inner) == 0 {
+				t.Fatalf("depth clipping did not exhaust the node budget: remaining=%d entries=%d truncated=%v", s.remaining, len(inner), s.truncated)
+			}
+			for _, value := range inner {
+				if value != omittedLogValue {
+					t.Fatalf("value at depth limit was retained: %v", value)
+				}
+			}
+		})
+	}
+}
+
+func TestLogRedactionMapRepeatSuppression(t *testing.T) {
+	t.Parallel()
+	oversized := make(map[string]int)
+	for i := range 40 {
+		oversized[fmt.Sprintf("k%02d", i)] = i
+	}
+	nested := make(map[string]map[string]int)
+	prefix := make(map[string][]int)
+	for i := range 4 {
+		key := fmt.Sprintf("k%02d", i)
+		nested[key] = make(map[string]int)
+		for j := range 8 {
+			nested[key][fmt.Sprintf("k%02d", j)] = j
+		}
+		prefix[key] = make([]int, 12)
+	}
+	// Oversized maps must be omitted whole before collecting any keys.
+	s := logSanitizer{remaining: maxLogAttrs}
+	if frozen := s.snapshot(reflect.ValueOf(oversized), 0); frozen != omittedLogValue || !s.truncated || s.remaining != maxLogAttrs-1 {
+		t.Fatalf("oversized map was sampled: type=%T remaining=%d truncated=%v", frozen, s.remaining, s.truncated)
+	}
+	for _, format := range []string{"json", "logfmt"} {
+		for _, tc := range []struct {
+			name  string
+			value any
+		}{
+			{"oversized", oversized},
+			{"nested maps", nested},
+			{"nested prefix", prefix},
+		} {
+			t.Run(format+"/"+tc.name, func(t *testing.T) {
+				logger, output, bus := redactionLogger(t, format)
+				var first string
+				for range 50 {
+					output.Reset()
+					logger.Warn("unchanged details", "details", tc.value)
+					if strings.Count(output.String(), "\n") != 1 {
+						t.Fatalf("local record lost: %s", output)
+					}
+					var details string
+					if format == "json" {
+						var line map[string]any
+						if err := json.Unmarshal(output.Bytes(), &line); err != nil {
+							t.Fatal(err)
+						}
+						if line[logTruncatedKey] != true {
+							t.Fatalf("map truncation hidden: %s", output)
+						}
+						details = line["details"].(string)
+					} else {
+						_, details, _ = strings.Cut(output.String(), " details=")
+						if !strings.Contains(details, logTruncatedKey+"=true") {
+							t.Fatalf("map truncation hidden: %s", output)
+						}
+					}
+					if first == "" {
+						first = details
+					} else if details != first {
+						t.Fatalf("unchanged map changed local output: first=%s next=%s", first, details)
+					}
+				}
+				events := bus.Recent(0)
+				if len(events) != 1 || events[0].Attrs[logTruncatedKey] != "true" {
+					t.Fatalf("unchanged maps escaped repeat suppression: %+v", events)
+				}
+			})
+		}
 	}
 }
 
