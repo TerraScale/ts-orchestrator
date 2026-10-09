@@ -679,6 +679,8 @@ status.json         the region leader's report: run, state (rolling |
 Release paths and schema identifiers are unversioned. Obsolete release
 storage is discarded and the cell is rebootstrapped, with releases published
 afresh; there is no migration, backfill, or compatibility reader.
+Bootstrap each cell with the updated binary and unversioned regional IAM
+policies before re-enabling fleet deployment or pruning.
 
 1. `ci.yml` on `main` dispatches `deploy.yml` after the image dispatch, only
    while the repository variable `TS_AUTO_DEPLOY_CELLS` is set. It refuses

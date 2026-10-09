@@ -322,11 +322,30 @@ func (s *Store) Releases(ctx context.Context, limit int) ([]Release, error) {
 // ReleasePins returns every retained rollback generation and every durable
 // known-bad digest, including entries aged out of the bounded cell list.
 func (s *Store) ReleasePins(ctx context.Context) (rollback, knownBad []string, err error) {
-	history, err := s.Releases(ctx, ReleaseHistory)
+	desired, _, err := s.Desired(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	for _, release := range history {
+	if desired.Generation() > 0 {
+		rollback = append(rollback, desired.Release.Digest)
+	}
+	// Failed best-effort purges leave readable rollback targets beyond ReleaseHistory.
+	keys, err := releasechannel.PinKeys(ctx, s.kv, "release.gen.*")
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, key := range keys {
+		entry, err := s.kv.Get(ctx, key)
+		if err != nil {
+			return nil, nil, err
+		}
+		var release Release
+		if err := protocol.DecodeTolerant(entry.Value(), &release, maxRecordBytes); err != nil {
+			return nil, nil, err
+		}
+		if err := release.validate(); err != nil || generationKey(release.Generation) != key {
+			return nil, nil, fmt.Errorf("%w: stored generation key %q", ErrInvalid, key)
+		}
 		rollback = append(rollback, release.Digest)
 	}
 	state, _, err := s.Cell(ctx)
@@ -334,7 +353,7 @@ func (s *Store) ReleasePins(ctx context.Context) (rollback, knownBad []string, e
 		return nil, nil, err
 	}
 	knownBad = slices.Clone(state.KnownBad)
-	keys, err := releasechannel.PinKeys(ctx, s.kv, "knownbad.*")
+	keys, err = releasechannel.PinKeys(ctx, s.kv, "knownbad.*")
 	if err != nil {
 		return nil, nil, err
 	}
