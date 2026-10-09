@@ -259,15 +259,15 @@ credential secrets and its own instance/VNIC metadata. The operator profile
 needs regional dashboard and storage secret reads and generator inspection.
 The storage credential is separate from the clients' throwaway-database
 identity. Provision a dedicated benchmarking ts-auth client before a live
-run; automatic provisioning is not implemented while the public SDK contract
-is blocked.
+run; automatic client provisioning is not implemented.
 
 ## Current integration blockers and cost
 
-The pinned public Go SDK, `ts-go@e534e7feb91f`, rejects plain ULID project IDs
-before any HTTP request. The storage adapter returns `SDK_BLOCKED`; it never
-converts IDs to UUIDs or bypasses the SDK. The public SDK's database lifecycle
-also needs alignment with the shared JWT client contract. The Rust client's
+The pinned public Go SDK, `ts-go@49fb07f5b866`, supports plain ULID project
+and document IDs. Benchmark run/result/usage documents use their TerraBase
+key as identity, without a duplicate payload `id`. Local SDK persistence
+tests verify this contract; live database lifecycle still needs qualification
+with the shared JWT client contract. The Rust client's
 [Slice 3 draft](https://git.terrascale.tech/TerraScale/ts-benchmark/pulls/12)
 records corresponding ULID, database-delete and indexed-query blockers.
 Slice 1's shared workloads/images are not published in the observed checkout.

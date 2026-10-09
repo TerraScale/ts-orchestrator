@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go/jetstream"
@@ -78,7 +79,7 @@ func (c *Controller) ExpectedUsage(ctx context.Context, from, to time.Time) ([]h
 			if err := decodeStrict(entry.Payload, &registration); err != nil {
 				return nil, err
 			}
-			if entry.SubjectKey != registrationSubjectKey(c.cell, registration.Node) {
+			if entry.SubjectKey != registrationSubjectKey(c.cell, registration.Node) || registration.ID != entityid.Derive("host", c.cell, registration.Node) {
 				return nil, errors.New("historical registration identity mismatch")
 			}
 			if err := validateRegistration(registration, c.cell); err != nil {

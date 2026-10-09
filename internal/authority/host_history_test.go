@@ -32,7 +32,7 @@ func TestHostHistoryBoundsReadsByInventoryAndNewChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	subject := mutationSubject("gru", MutationDesired, "gru.node.api")
-	record := controlRecord{Version: 1, Scope: "gru", Kind: MutationDesired, SubjectKey: "gru.node.api", OperationID: "first", Epoch: 1, Payload: []byte("active")}
+	record := controlRecord{Version: 1, Scope: "gru", Kind: MutationDesired, SubjectKey: "gru.node.api", OperationID: "0000000000FHEQV98X4ASD7RXW", Epoch: 1, Payload: []byte("active")}
 	data, err := json.Marshal(record)
 	if err != nil {
 		t.Fatal(err)

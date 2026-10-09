@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/capacity"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	v1 "terrascale.tech/sdk/v1"
 )
 
@@ -18,12 +19,12 @@ func NewRepository(ctx context.Context, origin, project, key string) (*SDKReposi
 	if err != nil {
 		return nil, err
 	}
-	if !idPattern.MatchString(project) {
+	if !entityid.Valid(project) {
 		return nil, errors.New("benchmark storage project must be a plain ULID")
 	}
 	db := client.Database(project, "benchmark")
 	if _, err := db.Create(ctx); err != nil {
-		return nil, fmt.Errorf("SDK_BLOCKED: benchmark storage requires public SDK support for plain ULID projects: %w", err)
+		return nil, fmt.Errorf("create benchmark storage database: %w", err)
 	}
 	for _, name := range []string{"runs", "results", "usage"} {
 		if _, err := db.CreateCollection(ctx, name); err != nil {
@@ -34,20 +35,22 @@ func NewRepository(ctx context.Context, origin, project, key string) (*SDKReposi
 }
 
 func (s *SDKRepository) SaveRun(ctx context.Context, run Run) error {
+	id := run.ID
+	run.ID = ""
 	run.Stages = append([]Stage(nil), run.Stages...)
 	for i := range run.Stages {
 		run.Stages[i].Samples = nil
 	}
-	_, err := s.Database.Collection("runs").Put(ctx, run.ID, run)
+	_, err := s.Database.Collection("runs").Put(ctx, id, run)
 	return err
 }
 func (s *SDKRepository) SaveResult(ctx context.Context, runID string, stage int, sample Sample) error {
-	id := newID()
-	_, err := s.Database.Collection("results").Put(ctx, id, map[string]any{"id": id, "run_id": runID, "stage": stage, "result": sample})
+	id := entityid.New()
+	_, err := s.Database.Collection("results").Put(ctx, id, map[string]any{"run_id": runID, "stage": stage, "result": sample})
 	return err
 }
 func (s *SDKRepository) SaveUsage(ctx context.Context, runID string, stage int, usage capacity.Usage) error {
-	id := newID()
-	_, err := s.Database.Collection("usage").Put(ctx, id, map[string]any{"id": id, "run_id": runID, "stage": stage, "usage": usage})
+	id := entityid.New()
+	_, err := s.Database.Collection("usage").Put(ctx, id, map[string]any{"run_id": runID, "stage": stage, "usage": usage})
 	return err
 }

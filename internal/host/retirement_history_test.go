@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -92,6 +93,7 @@ func TestRetirementAndRenameKeepHistoricalUsageWindows(t *testing.T) {
 		t.Fatal(err)
 	}
 	registration.Node, registration.NATSUserPublicKey = "node-b", testNATSUserKey("node-b")
+	registration.ID = entityid.Derive("host", "gru", "node-b")
 	if _, err := c.Register(t.Context(), registration); err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +146,7 @@ func TestHistoricalRetirementRequiresStateAndIdentity(t *testing.T) {
 			}
 			registerTestHost(t, c)
 			from := time.Now().UTC()
-			if _, err := mutations.CommitHostMutation(t.Context(), 1, authority.MutationRetirement, "gru.node-a", "invalid-retirement", 0, []byte(value)); err != nil {
+			if _, err := mutations.CommitHostMutation(t.Context(), 1, authority.MutationRetirement, "gru.node-a", entityid.New(), 0, []byte(value)); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := c.ExpectedUsage(t.Context(), from, time.Now().UTC()); err == nil {

@@ -46,7 +46,8 @@ Dashboard login uses opaque bearer-cookie secrets and fixed, scoped capacity
 slots; token-generation metadata fences rotations. Historical hash-only token
 metadata and metadata without a generation are rejected without rewriting.
 A TerraBase document's key owns its identity; its payload does not add a second
-`id` field.
+`id` field. Benchmark run/result/usage records follow this rule too, using the
+shared ULID generator and validator.
 
 ## Clean reset
 
@@ -73,6 +74,7 @@ data and recreates bootstrap state through the current startup path.
    workload placement/terminal intents, material receipts and client-credential
    subjects with their signed payloads and tenant/database/partition/member
    references; reset them together with the corresponding data and member state.
+   Inventory affected benchmark `runs`, `results` and `usage` collections too.
    Verify signed bootstrap configuration and material, global directory records,
    object-store heads,
    snapshots and backups too: none may restore old entity references. These

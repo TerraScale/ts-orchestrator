@@ -3,7 +3,6 @@ package benchmark
 
 import (
 	"bytes"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,7 +15,6 @@ import (
 var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 var imagePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9./:_-]*@sha256:[a-f0-9]{64}$`)
 var workerPathPattern = regexp.MustCompile(`^/[A-Za-z0-9_./-]+$`)
-var idPattern = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 var languages = []string{"go", "dotnet", "rust"}
 var operations = []string{"doc.create", "doc.get", "doc.update", "doc.delete", "query.simple", "query.indexed", "txn.multi"}
 
@@ -161,27 +159,3 @@ func (s Sample) MarshalJSON() ([]byte, error) {
 }
 
 func finite(value float64) bool { return !math.IsNaN(value) && !math.IsInf(value, 0) }
-
-func newID() string {
-	var data [16]byte
-	rand.Read(data[6:])
-	stamp := uint64(time.Now().UnixMilli())
-	for i := 5; i >= 0; i-- {
-		data[i] = byte(stamp)
-		stamp >>= 8
-	}
-	const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-	var out [26]byte
-	var acc uint32
-	bits, index := uint(2), 0
-	for _, value := range data {
-		acc = acc<<8 | uint32(value)
-		bits += 8
-		for bits >= 5 {
-			bits -= 5
-			out[index] = alphabet[(acc>>bits)&31]
-			index++
-		}
-	}
-	return string(out[:])
-}

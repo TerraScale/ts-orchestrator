@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"io"
 	"os/exec"
 	"time"
@@ -135,7 +136,7 @@ func workerSession(ctx context.Context, in io.Reader, out io.Writer, run func(co
 	decoder := json.NewDecoder(io.LimitReader(in, 1<<20))
 	decoder.DisallowUnknownFields()
 	var job Job
-	if err := decoder.Decode(&job); err != nil || !idPattern.MatchString(job.ID) {
+	if err := decoder.Decode(&job); err != nil || !entityid.Valid(job.ID) {
 		return errors.New("invalid benchmark job")
 	}
 	if closer, ok := in.(io.Closer); ok {
