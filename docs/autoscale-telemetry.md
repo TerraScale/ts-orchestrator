@@ -1,21 +1,22 @@
 # Autoscale telemetry
 
-Host agents can publish their load to the regional controller, and the
-workload autoscaler can use it as its signal source. Both halves are off by
-default and are enabled separately.
+Host agents publish resource load to the regional authority leader for
+metric history by default. Using those reports as autoscaling signals is a
+separate signed opt-in.
 
 ## Flags
 
 | Where | Field | Default | Effect |
 | --- | --- | --- | --- |
-| host config | `host.load_telemetry_seconds` | `0` (off) | The agent samples its load every N seconds (5..3600) and sends it as the `load` host operation. Keep it below 300 for scaling: the aggregator treats a 5 minute silence of every host as a break. |
-| signed controller config | `controller.autoscale.host_telemetry` | `false` | The authority leader accepts `load` reports and feeds them to the autoscaler. Scaling policies (`services[].scaling`) are refused without it. |
+| host config | `host.load_telemetry_seconds` | `15` when omitted | The agent samples its load every N seconds (5..3600) and sends it as the `load` host operation. Explicit `0` disables reporting. Keep it below 300 for scaling: the aggregator treats a 5 minute silence of every host as a break. |
+| signed controller config | `controller.autoscale.host_telemetry` | `false` | When autoscaling is enabled, the collected reports also feed its signal source. Scaling policies (`services[].scaling`) are refused without it. |
 
-A host with telemetry on and a controller with it off is harmless: the
-controller answers "not enabled", and the agent backs off exponentially up
-to ten minutes (or the configured interval, if longer) between attempts. A controller with telemetry on and hosts
-without it holds every scaling policy with `no-signal-data`; bounds and
-self-healing still work.
+Collection works with absent or disabled autoscaling. Reports are accepted
+only under valid regional authority; demotion and a new authority term
+discard cached reports before they can enter history. Failed publications
+back off exponentially up to ten minutes (or the configured interval, if
+longer). Hosts with reporting disabled supply no scaling signals; bounds
+and self-healing still work.
 
 ## What a host reports
 

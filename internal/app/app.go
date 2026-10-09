@@ -130,12 +130,24 @@ func validateLoadTelemetrySeconds(seconds int) error {
 	return nil
 }
 
+func effectiveLoadTelemetryInterval(configured *int) (time.Duration, error) {
+	seconds := 15
+	if configured != nil {
+		seconds = *configured
+	}
+	if err := validateLoadTelemetrySeconds(seconds); err != nil {
+		return 0, err
+	}
+	return time.Duration(seconds) * time.Second, nil
+}
+
 func runHost(ctx context.Context, cfg Config, configPath string, output io.Writer) error {
 	notifier := sdnotify.FromEnvironment()
 	if cfg.NATS.Embedded != nil {
 		return errors.New("host role cannot start the regional NATS server")
 	}
-	if err := validateLoadTelemetrySeconds(cfg.Host.LoadTelemetrySeconds); err != nil {
+	loadInterval, err := effectiveLoadTelemetryInterval(cfg.Host.LoadTelemetrySeconds)
+	if err != nil {
 		return err
 	}
 	cfg.NATS.ClientRole = "host"
@@ -222,7 +234,7 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 		WorkloadIdentity:        identity,
 		PollInterval:            time.Duration(cfg.Host.PollMillis) * time.Millisecond, SessionTrace: cfg.Host.SessionTrace,
 		ClockCheck:       clockCheck,
-		LoadInterval:     time.Duration(cfg.Host.LoadTelemetrySeconds) * time.Second,
+		LoadInterval:     loadInterval,
 		FollowRollouts:   hostRollouts(cfg, key, controllerKey),
 		FollowNetBird:    hostNetBird(cfg, controllerKey),
 		VolumeInitSocket: "/run/terrascale-orchestrator-volume-init.sock",

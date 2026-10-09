@@ -29,8 +29,8 @@ func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
 	// The reconciler always runs, for the roles a cell spec adds later;
 	// without a service it owns nothing.
 	reconciler, scaler, load, err := startWorkloadAutoscale("gru", nil, profiles, nil, nil, time.Time{}, &host.Controller{}, fencer)
-	if err != nil || scaler != nil || load != nil {
-		t.Fatalf("absent autoscale config started workers: %v %v %v", scaler, load, err)
+	if err != nil || scaler != nil || load == nil || reconciler.Signals() != nil {
+		t.Fatalf("absent autoscale config must collect without scaling: %v %v %v", scaler, load, err)
 	}
 	if _, owned := reconciler.Owns("api"); owned {
 		t.Fatal("a reconciler without services owns a role")
@@ -41,8 +41,8 @@ func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
 		t.Fatal(err)
 	}
 	disabled.HostTelemetry = true
-	if _, scaler, load, err := startWorkloadAutoscale("gru", disabled, profiles, nil, nil, time.Time{}, &host.Controller{}, fencer); err != nil || scaler != nil || load != nil {
-		t.Fatal("disabled autoscale config started workers")
+	if reconciler, scaler, load, err := startWorkloadAutoscale("gru", disabled, profiles, nil, nil, time.Time{}, &host.Controller{}, fencer); err != nil || scaler != nil || load == nil || reconciler.Signals() != nil {
+		t.Fatal("disabled autoscale config must collect without scaling")
 	}
 	var planner regionalDeliveryPlanner
 	if _, owned := planner.workloads.Owns("api"); owned {
@@ -132,7 +132,7 @@ func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
 		Scaling: &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.6}}}}}}
 	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, Leader: true, Epoch: 1, Revision: 1,
 		ExpiresAt: time.Now().Add(time.Hour)}}
-	reconciler, _, _, err := startWorkloadAutoscale("gru", config, map[string]WorkloadProfile{"api": {Resources: resources}},
+	reconciler, _, telemetry, err := startWorkloadAutoscale("gru", config, map[string]WorkloadProfile{"api": {Resources: resources}},
 		config.Services, nil, time.Time{}, &host.Controller{}, fencer)
 	if err != nil {
 		t.Fatal(err)
@@ -142,7 +142,7 @@ func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
 		t.Fatalf("signal source = %T, want the host load aggregator", reconciler.Signals())
 	}
 	cores := 1.0
-	if err := load.Record(hostload.Origin{Cell: "gru", Environment: "prod", Node: "pool-1"},
+	if err := telemetry.record(hostload.Origin{Cell: "gru", Environment: "prod", Node: "pool-1"},
 		hostload.Report{SchemaVersion: 1, Roles: []hostload.RoleUsage{{Role: "api", CPUCores: &cores}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -154,16 +154,13 @@ func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
 		t.Fatalf("cpu_util normalized by the signed 2-core request = %+v, %v", reading, err)
 	}
 	tbLoad := &memberstatus.Load{Connections: 4, ReplicationLagSeq: 2}
-	if err := load.Record(hostload.Origin{Cell: "gru", Environment: "prod", Node: "tb-1"},
+	if err := telemetry.record(hostload.Origin{Cell: "gru", Environment: "prod", Node: "tb-1"},
 		hostload.Report{SchemaVersion: 1, Roles: []hostload.RoleUsage{{Role: "terrabase", TerraBase: tbLoad}}}); err != nil {
 		t.Fatal(err)
 	}
-	// The reconciler has not ticked in this term yet, so the history gate
-	// stays closed; the leader's samples themselves carry the load.
-	if samples := withAutoscaleSamples(func(context.Context) []observability.Sample { return nil }, reconciler)(t.Context()); len(samples) != 0 {
-		t.Fatalf("samples recorded before the reconciler adopted the term: %+v", samples)
-	}
-	samples := leaderAutoscaleSamples(reconciler, load)
+	// Resource history does not wait for an autoscaler tick; its own term
+	// gate accepts the current leader's reports independently.
+	samples := withAutoscaleSamples(func(context.Context) []observability.Sample { return nil }, reconciler, telemetry)(t.Context())
 	found := map[string]float64{}
 	for _, sample := range samples {
 		found[sample.Metric] = sample.Value
@@ -177,7 +174,7 @@ func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
 	// A member that is not (or no longer) the authority leader records
 	// nothing extra: its cached reports and last results are not current.
 	fencer.set(authority.Snapshot{})
-	if samples := withAutoscaleSamples(func(context.Context) []observability.Sample { return nil }, reconciler)(t.Context()); len(samples) != 0 {
+	if samples := withAutoscaleSamples(func(context.Context) []observability.Sample { return nil }, reconciler, telemetry)(t.Context()); len(samples) != 0 {
 		t.Fatalf("follower recorded autoscale samples: %+v", samples)
 	}
 }

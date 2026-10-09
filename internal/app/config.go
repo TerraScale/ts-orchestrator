@@ -24,7 +24,7 @@ const maxConfigBytes = 1 << 20
 // new member (TestConfigVersionCoversEveryMember names the digest to record):
 // an older binary then skips the members it lacks instead of refusing them as
 // typos. Never rename or remove a member; an older config still names it.
-const ConfigVersion = 5
+const ConfigVersion = 6
 
 // Config is the one binary's role-specific configuration. A controller and a
 // host can share the same schema while holding separate credentials and files.
@@ -189,11 +189,10 @@ type HostConfig struct {
 	// SelfUpdateRoot is the release root the selfupdate prepare and watchdog
 	// steps use (their --root); empty means selfupdate.DefaultRoot.
 	SelfUpdateRoot string `json:"self_update_root,omitempty"`
-	// LoadTelemetrySeconds, when nonzero (5..3600), makes the host agent
-	// publish cgroup, disk and TerraBase load to its controller that often.
-	// Off by default; the controller also needs
-	// controller.autoscale.host_telemetry to accept it.
-	LoadTelemetrySeconds int `json:"load_telemetry_seconds,omitzero"`
+	// LoadTelemetrySeconds sets how often the host publishes cgroup, disk
+	// and TerraBase load. Omitted defaults to 15 seconds; 0 disables it,
+	// and an explicit interval must be within 5..3600 seconds.
+	LoadTelemetrySeconds *int `json:"load_telemetry_seconds,omitempty"`
 	// RoleMemoryMaxBytes caps a native role's cgroup memory.max on this host
 	// from its next start (TS-578), for example terrabase and ts-auth beside
 	// a controller, so neither can push the controller's NATS into the OOM

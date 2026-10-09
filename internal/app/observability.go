@@ -148,6 +148,8 @@ type controllerObservation struct {
 	holds *placementHoldLog
 	// autoscalers is the workload reconciler of the cell spec.
 	autoscalers *workload.Reconciler
+	// hostLoad collects resource metrics independently of autoscale policies.
+	hostLoad *hostTelemetry
 	// linkedPeers are the interregion peers whose observability services
 	// the cell account imports, so the local connection reaches them.
 	linkedPeers []string

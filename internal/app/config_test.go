@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 // A new config member needs a new ConfigVersion, or an older binary would
@@ -125,5 +126,42 @@ func TestSignedWireOfABuiltConfigIsCanonical(t *testing.T) {
 	wire, err := Config{NATS: natscell.Config{Cell: "gru"}}.signedWire()
 	if err != nil || string(wire) == "" || !strings.HasPrefix(string(wire), `{"nats":{"cell":"gru"`) {
 		t.Fatalf("signed wire = %s, %v", wire, err)
+	}
+}
+
+func TestLoadTelemetryConfigPreservesPresence(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		host string
+		want *int
+	}{
+		{name: "omitted", host: `{}`},
+		{name: "off", host: `{"load_telemetry_seconds":0}`, want: new(0)},
+		{name: "custom", host: `{"load_telemetry_seconds":60}`, want: new(60)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "host.json")
+			if err := os.WriteFile(path, []byte(`{"host":`+tt.host+`}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := LoadConfig(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := cfg.Host.LoadTelemetrySeconds
+			if (got == nil) != (tt.want == nil) || (got != nil && *got != *tt.want) {
+				t.Fatalf("decoded interval = %v; want %v", got, tt.want)
+			}
+			wire, err := protocol.EncodeJSON(cfg.Host)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if present := strings.Contains(string(wire), `"load_telemetry_seconds":`); present != (tt.want != nil) {
+				t.Fatalf("encoded interval presence = %v; want %v", present, tt.want != nil)
+			}
+			if tt.want != nil && !strings.Contains(string(wire), fmt.Sprintf(`"load_telemetry_seconds":%d`, *tt.want)) {
+				t.Fatalf("encoded interval differs: %s", wire)
+			}
+		})
 	}
 }

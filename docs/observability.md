@@ -109,15 +109,20 @@ authenticated host node name in lowercase; service series are named by their
 CPU/memory/filesystem charts do not count host reports twice. Service history
 uses `service_cpu_cores` and `service_memory_used_bytes`.
 
-This nonfinal TS-718 slice retains the latest accepted host metrics in the
-existing bounded history. Host load telemetry must be enabled for reports to
-reach the controller (`host.load_telemetry_seconds` set to 5–3600,
-`controller.autoscale.enabled` set to `true` and
-`controller.autoscale.host_telemetry` set to `true`); service charts also
-require an accepted service load report. Automatic fleet enablement,
-durability across leadership changes and the central log archive are still
-pending. This slice does not complete TS-718 or establish a central archive
-for every node and service.
+Host load collection is independent of autoscaling. An omitted
+`host.load_telemetry_seconds` reports every 15 seconds; explicit `0` disables
+reporting, and explicit intervals of 5–3600 seconds are preserved through
+credential renewal. The authority leader accepts authenticated reports and
+retains their resource measurements in the existing bounded history.
+Service readings must match the host's current registration and desired
+allocation. Cached reports are discarded on demotion or a new authority
+term. `controller.autoscale.host_telemetry` still separately authorizes
+using these reports to change replica counts.
+
+This nonfinal TS-718 slice requires the updated binary on each host and
+controller. Production fleet rollout, history durability across leadership
+changes and the central log archive remain pending. It does not complete
+TS-718 or establish a central archive for every node and service.
 
 ### Clock sync
 

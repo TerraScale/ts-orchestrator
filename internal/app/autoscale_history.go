@@ -14,28 +14,22 @@ import (
 // goal and signal readings, and the host load aggregator's node and service
 // resource usage and TerraBase load blocks, to every history sample. Both
 // are filled only on the authority leader, so followers record nothing extra.
-// A nil reconciler returns collect unchanged.
 func withAutoscaleSamples(collect func(context.Context) []observability.Sample, reconciler *workload.Reconciler,
+	load *hostTelemetry,
 ) func(context.Context) []observability.Sample {
-	if reconciler == nil {
+	if reconciler == nil && load == nil {
 		return collect
 	}
-	load, _ := reconciler.Signals().(*hostload.Aggregator)
 	return func(ctx context.Context) []observability.Sample {
 		samples := collect(ctx)
-		if !reconciler.Leading() {
-			// A former leader's last results and cached host reports, or a
-			// re-acquired lease's not yet reset ones, are not current;
-			// recording them would chart stale state as live.
-			return samples
+		if reconciler != nil && reconciler.Leading() {
+			samples = append(samples, autoscaleSamples(reconciler)...)
 		}
-		return append(samples, leaderAutoscaleSamples(reconciler, load)...)
+		if load != nil {
+			samples = append(samples, load.samples()...)
+		}
+		return samples
 	}
-}
-
-// leaderAutoscaleSamples is what the current term's leader records.
-func leaderAutoscaleSamples(reconciler *workload.Reconciler, load *hostload.Aggregator) []observability.Sample {
-	return append(autoscaleSamples(reconciler), hostLoadSamples(load)...)
 }
 
 // autoscaleSamples reports every reconciled service that has a result.

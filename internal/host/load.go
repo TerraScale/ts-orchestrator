@@ -77,9 +77,13 @@ func (c *Controller) storeLoad(ctx context.Context, req request, r Registration)
 		if err != nil {
 			return nil, err
 		}
-		if exists && !desired.Withdrawn {
-			roles = append(roles, role)
+		if !exists || desired.Withdrawn {
+			continue
 		}
+		if err := validateDesired(desired, c.cell, r); err != nil {
+			continue
+		}
+		roles = append(roles, role)
 	}
 	report.Roles = roles
 	err := (*sink)(hostload.Origin{Cell: c.cell, Environment: r.Environment, Node: req.Node}, report)

@@ -601,9 +601,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		if err := workloadReconciler.SetServices(specs, resources); err != nil {
 			slog.Error("reconciler refused the adopted cell spec", observability.ComponentKey, "cellspec", "error", err)
 		}
-		if hostLoad != nil {
-			hostLoad.SetRequests(loadRequests(resources))
-		}
+		hostLoad.load.SetRequests(loadRequests(resources))
 	}
 	if materialService != nil && managed != nil {
 		backupRuntime = &backupOperationRuntime{cell: cfg.NATS.Cell,
@@ -827,7 +825,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// its top, so Embedded is always set here.
 	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
 		brokerIDs: cfg.NATS.Embedded.BrokerIDs, authority: control, placements: placementStore, managed: managed != nil,
-		holds: placementHolds, autoscalers: workloadReconciler, linkedPeers: globalMirrorPeers(cfg.NATS),
+		holds: placementHolds, autoscalers: workloadReconciler, hostLoad: hostLoad, linkedPeers: globalMirrorPeers(cfg.NATS),
 		rollouts: rollouts, budgets: budgets, ociResources: ociReconcile.resources(),
 		credentials: controllerCredentialFiles(cfg),
 		nodes:       topologySource(cfg.NATS.Cell, cfg.NATS.Embedded.BrokerIDs, services, hostController, policy.nodes)},

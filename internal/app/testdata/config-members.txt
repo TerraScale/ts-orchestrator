@@ -1,4 +1,4 @@
-version 5
+version 6
 .Controller struct json:"controller"
 .Controller.ArtifactStoreMaxBytes int64 json:"artifact_store_max_bytes,omitzero"
 .Controller.Autoscale *struct json:"autoscale,omitempty"
@@ -262,7 +262,7 @@ version 5
 .Host.Environment string json:"environment"
 .Host.IdentityKeyFile string json:"identity_key_file"
 .Host.InstallRoot string json:"install_root"
-.Host.LoadTelemetrySeconds int json:"load_telemetry_seconds,omitzero"
+.Host.LoadTelemetrySeconds *int json:"load_telemetry_seconds,omitempty"
 .Host.ManagedRuntimeRoot string json:"managed_runtime_root,omitempty"
 .Host.ManagedVolumeOnlineGrow bool json:"managed_volume_online_grow,omitzero"
 .Host.Node string json:"node"

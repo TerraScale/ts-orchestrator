@@ -1,10 +1,13 @@
 package host
 
 import (
+	"crypto/ed25519"
+	"encoding/base64"
 	"strings"
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 )
@@ -63,8 +66,8 @@ func TestLoadOperationFiltersRolesAndUsesRegistrationOrigin(t *testing.T) {
 		t.Fatalf("withdrawn role still reported: %+v", gotReport)
 	}
 
-	// Throttled reports are answered, not failed, so the agent keeps its
-	// interval instead of backing off.
+	// Throttled reports return a negative acknowledgement, which the
+	// agent treats as a rejection and backs off.
 	c.SetLoadSink(func(hostload.Origin, hostload.Report) error { return hostload.ErrTooFrequent })
 	payload, err = c.handleAuthorized(t.Context(), signedHostRequest(t, hostKey, "load", s.SessionID, s.Epoch, report))
 	if err != nil {
@@ -77,6 +80,147 @@ func TestLoadOperationFiltersRolesAndUsesRegistrationOrigin(t *testing.T) {
 	invalid := hostload.Report{SchemaVersion: 9}
 	if _, err := c.handleAuthorized(t.Context(), signedHostRequest(t, hostKey, "load", s.SessionID, s.Epoch, invalid)); err == nil {
 		t.Fatal("invalid load report accepted")
+	}
+}
+
+func replaceLoadTestDesired(t *testing.T, c *Controller, desired Desired) {
+	t.Helper()
+	_, revision, _, err := c.readDesired(t.Context(), desired.Node, desired.Role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, operation, err := mutationPayload(desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Bypass admission to exercise validation of current stored desired state.
+	if _, err := c.mutations.CommitHostMutation(t.Context(), desired.AuthorityEpoch, authority.MutationDesired,
+		desiredSubjectKey(c.cell, desired.Node, desired.Role), operation, revision, payload); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoadOperationFiltersInvalidDesiredAndKeepsOtherUsage(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*Desired)
+	}{
+		{"wrong environment", func(d *Desired) { d.Environment = "staging" }},
+		{"managed desired on generic host", func(d *Desired) { d.ManagedMember = &ManagedMemberLaunch{} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, hostKey, s, _ := reportedTestHost(t)
+			r, _, _, err := c.readRegistration(t.Context(), "node-a")
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.Roles = append(r.Roles, "api")
+			r.Generation++
+			if _, err := c.Register(t.Context(), r); err != nil {
+				t.Fatal(err)
+			}
+			key := sessionKey(c.cell, r.Node)
+			old, revision, _, err := c.sessionSnapshot(t.Context(), key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			old.ExpiresAt = time.Now().Add(-time.Second)
+			if _, err := c.cas(t.Context(), key, old, revision); err != nil {
+				t.Fatal(err)
+			}
+			result, err := c.handleSession(t.Context(), signedHostRequest(t, hostKey, "session", s.SessionID, 0,
+				struct {
+					Kind string `json:"kind"`
+				}{"acquire"}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			s = result.(session)
+			desired, _, _, err := c.readDesired(t.Context(), "node-a", "terrabase")
+			if err != nil {
+				t.Fatal(err)
+			}
+			valid := desired
+			valid.Role = "api"
+			if _, err := c.ApplyDesired(t.Context(), valid); err != nil {
+				t.Fatal(err)
+			}
+			tc.change(&desired)
+			replaceLoadTestDesired(t, c, desired)
+			cpu, memory, disk, cores := 0.5, 0.6, 0.7, 0.125
+			report := hostload.Report{SchemaVersion: hostload.SchemaVersion,
+				Host:  hostload.HostUsage{CPU: &cpu, Memory: &memory, Disk: &disk},
+				Roles: []hostload.RoleUsage{{Role: "terrabase"}, {Role: "api", CPUCores: &cores}}}
+			calls := 0
+			c.SetLoadSink(func(origin hostload.Origin, got hostload.Report) error {
+				calls++
+				if origin != (hostload.Origin{Cell: r.Cell, Environment: r.Environment, Node: r.Node}) ||
+					!sameJSON(got.Host, report.Host) || len(got.Roles) != 1 || !sameJSON(got.Roles[0], report.Roles[1]) {
+					t.Fatalf("sink got origin %+v report %+v", origin, got)
+				}
+				return nil
+			})
+			payload, err := c.handleAuthorized(t.Context(), signedHostRequest(t, hostKey, "load", s.SessionID, s.Epoch, report))
+			if err != nil || calls != 1 {
+				t.Fatalf("filtered load error = %v, sink calls = %d", err, calls)
+			}
+			if ack, ok := payload.(loadAck); !ok || !ack.Accepted || loadOutcome(nil, ack) != nil {
+				t.Fatalf("filtered load not acknowledged: %#v", payload)
+			}
+		})
+	}
+}
+
+func TestLoadOperationRejectsInvalidAuthorizationBeforeSink(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*testing.T, *Controller, *request, ed25519.PrivateKey)
+		want   string
+	}{
+		{"wrong session", func(t *testing.T, _ *Controller, req *request, key ed25519.PrivateKey) {
+			req.SessionID = strings.Repeat("f", 32)
+			if err := signRequest(req, key, "gru"); err != nil {
+				t.Fatal(err)
+			}
+		}, "host session is not current"},
+		{"wrong epoch", func(t *testing.T, _ *Controller, req *request, key ed25519.PrivateKey) {
+			req.Epoch++
+			if err := signRequest(req, key, "gru"); err != nil {
+				t.Fatal(err)
+			}
+		}, "host session is not current"},
+		{"expired session", func(t *testing.T, c *Controller, _ *request, _ ed25519.PrivateKey) {
+			key := sessionKey(c.cell, "node-a")
+			s, revision, _, err := c.sessionSnapshot(t.Context(), key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.ExpiresAt = time.Now().Add(-time.Second)
+			if _, err := c.cas(t.Context(), key, s, revision); err != nil {
+				t.Fatal(err)
+			}
+		}, "host session is not current"},
+		{"invalid signature", func(_ *testing.T, _ *Controller, req *request, _ ed25519.PrivateKey) {
+			req.Envelope.Signature = base64.RawURLEncoding.EncodeToString(make([]byte, ed25519.SignatureSize))
+		}, "signature"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, hostKey, s, _ := reportedTestHost(t)
+			calls := 0
+			c.SetLoadSink(func(hostload.Origin, hostload.Report) error {
+				calls++
+				return nil
+			})
+			report := hostload.Report{SchemaVersion: hostload.SchemaVersion, Roles: []hostload.RoleUsage{{Role: "terrabase"}}}
+			req := signedHostRequest(t, hostKey, "load", s.SessionID, s.Epoch, report)
+			tc.change(t, c, &req, hostKey)
+			if _, err := c.handleAuthorized(t.Context(), req); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("invalid authorization load error = %v, want %q", err, tc.want)
+			}
+			if calls != 0 {
+				t.Fatalf("invalid authorization reached sink %d times", calls)
+			}
+		})
 	}
 }
 

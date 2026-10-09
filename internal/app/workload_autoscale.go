@@ -31,8 +31,7 @@ type AutoscaleConfig struct {
 	// NodePools are planned in recommend-only mode until a generic host
 	// provisioner exists; plans are logged, never applied.
 	NodePools []hostpool.NodePool `json:"node_pools,omitempty"`
-	// HostTelemetry makes the authority leader accept host load reports
-	// (the "load" host operation) and feed them to the autoscaler as its
+	// HostTelemetry feeds accepted host load reports to the autoscaler as its
 	// signal source. It is a trust decision: an authenticated host's
 	// self-reported load can then move a service within its signed replica
 	// bounds. Off by default; scaling policies are refused without it.
@@ -99,13 +98,13 @@ func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]Worklo
 
 // startWorkloadAutoscale builds the reconciler, which owns the cell spec's
 // reconciled roles, and, when the signed config enables autoscaling, its
-// host telemetry and host pool scaler, which reads the cell spec's budget
-// every tick. All act only on the regional authority leader. The returned
-// aggregator is nil without host telemetry.
+// host pool scaler, which reads the cell spec's budget every tick. Host
+// telemetry is collected independently; using it to scale remains opt-in.
+// All act only on the regional authority leader.
 func startWorkloadAutoscale(cell string, config *AutoscaleConfig, profiles map[string]WorkloadProfile,
 	specs []workload.ServiceSpec, budget func() *hostpool.Budget, cellSince time.Time, hosts *host.Controller,
 	fencer authority.Fencer,
-) (*workload.Reconciler, *hostpool.Scaler, *hostload.Aggregator, error) {
+) (*workload.Reconciler, *hostpool.Scaler, *hostTelemetry, error) {
 	var settings AutoscaleConfig
 	if config != nil && config.Enabled {
 		settings = *config
@@ -133,10 +132,10 @@ func startWorkloadAutoscale(cell string, config *AutoscaleConfig, profiles map[s
 		requester = scaler
 	}
 	var signals autoscale.Source
-	var load *hostload.Aggregator
+	load := &hostTelemetry{fencer: fencer,
+		load: hostload.NewAggregator(hostload.AggregatorConfig{Requests: loadRequests(resources)})}
 	if settings.HostTelemetry {
-		load = hostload.NewAggregator(hostload.AggregatorConfig{Requests: loadRequests(resources)})
-		signals = load
+		signals = load.load
 	}
 	reconciler, err := workload.New(workload.Config{Cell: cell, Specs: specs, Profiles: resources,
 		Hosts: hosts, Writer: hosts, Fencer: fencer, Signals: signals, Capacity: requester, Interval: interval,
@@ -144,12 +143,7 @@ func startWorkloadAutoscale(cell string, config *AutoscaleConfig, profiles map[s
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("start workload reconciler: %w", err)
 	}
-	if load != nil {
-		// Only the authority leader serves host requests, so only its
-		// aggregator fills; a new leader starts empty and its reconciler
-		// holds with no-signal-data until a full window arrives.
-		hosts.SetLoadSink(load.Record)
-	}
+	hosts.SetLoadSink(load.record)
 	return reconciler, scaler, load, nil
 }
 
