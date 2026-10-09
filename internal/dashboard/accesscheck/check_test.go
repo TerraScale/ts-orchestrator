@@ -210,7 +210,14 @@ func TestCurlReturnsBodyAndBoundsResponseSize(t *testing.T) {
 	if err != nil || status != "200" || ip != "127.0.0.1" || body != "body with newlines\n200 10.200.0.1\n" {
 		t.Fatalf("curl body/status split: %q %q %q %v", status, ip, body, err)
 	}
-	if _, _, _, err := curl(t.Context(), server.URL+"/large", "secret", 5*time.Second); err == nil {
-		t.Fatal("oversized response passed")
+	getLarge := func(ctx context.Context, _ string, token string, timeout time.Duration) (string, string, string, error) {
+		return curl(ctx, server.URL+"/large", token, timeout)
+	}
+	var out bytes.Buffer
+	err = check(t.Context(), &out, map[string]sshlogin.PeerAddress{"ts-gru-1": {IP: "10.200.0.1"}},
+		map[string]string{"gru": "secret", "sfo": "secret"}, 5*time.Second, getLarge)
+	if exit, ok := errors.AsType[*exec.ExitError](err); !ok || exit.ExitCode() != 63 ||
+		!strings.Contains(out.String(), "FAIL dashboard response exceeds 2 MiB") || strings.Contains(out.String(), "secret") {
+		t.Fatalf("oversized response diagnostic: %v; output: %s", err, &out)
 	}
 }

@@ -137,7 +137,7 @@ func rendered(path, body string) error {
 	}
 	root, err := html.Parse(strings.NewReader(body))
 	if err != nil {
-		return errors.New("dashboard HTML is unreadable")
+		return fmt.Errorf("dashboard HTML is unreadable: %w", err)
 	}
 	var content *html.Node
 	for node := range root.Descendants() {
@@ -209,6 +209,9 @@ func curl(ctx context.Context, url, token string, timeout time.Duration) (string
 	escaped := strings.NewReplacer("\\", "\\\\", "\"", "\\\"").Replace(token)
 	cmd.Stdin = strings.NewReader("header = \"Authorization: Bearer " + escaped + "\"\n")
 	output, err := cmd.Output()
+	if exit, ok := errors.AsType[*exec.ExitError](err); ok && exit.ExitCode() == 63 {
+		err = fmt.Errorf("dashboard response exceeds 2 MiB: %w", err)
+	}
 	body, result, _ := strings.CutLast(string(output), "\n")
 	status, remoteIP, _ := strings.Cut(strings.TrimSpace(result), " ")
 	return status, remoteIP, body, err
