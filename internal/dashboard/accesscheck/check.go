@@ -8,22 +8,26 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"net/url"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
+	"golang.org/x/net/html"
 )
 
 const usage = `Usage: ts-orch dashboard check --gru-token-file FILE --sfo-token-file FILE [--netbird COMMAND] [--timeout 5s]
 
 Read the six controller addresses from the local NetBird client, then curl
-/healthz and authenticated /topology by NetBird IP and by native DNS name.
+/healthz and every authenticated dashboard page by NetBird IP and native DNS.
 Requires curl and owner-only token files; never prints tokens or puts them
 on a process command line. No proxy, redirect, tunnel or DNS override is used.
-Exit 0 means all 24 requests returned HTTP 200.
+Exit 0 requires HTTP 200 with rendered content on every page, at least three
+topology nodes and three observed controllers in each /members view.
 `
 
 // Run checks GRU and SFO from this device without changing network configuration.
@@ -77,7 +81,10 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	return check(ctx, out, peers, tokens, *timeout, curl)
 }
 
-type fetch func(context.Context, string, string, time.Duration) (string, string, error)
+type fetch func(context.Context, string, string, time.Duration) (string, string, string, error)
+
+var paths = []string{"/healthz", "/", "/region", "/insights", "/decisions", "/releases", "/rollouts", "/ci",
+	"/topology", "/members", "/nats", "/terrabase", "/storage", "/oci", "/events"}
 
 func check(ctx context.Context, out io.Writer, peers map[string]sshlogin.PeerAddress, tokens map[string]string, timeout time.Duration, get fetch) error {
 	var failures []error
@@ -93,9 +100,9 @@ func check(ctx context.Context, out io.Writer, peers map[string]sshlogin.PeerAdd
 				continue
 			}
 			for _, host := range []string{ip, name + ".nb.ts.internal"} {
-				for _, path := range []string{"/healthz", "/topology"} {
+				for _, path := range paths {
 					url := "http://" + host + ":9463" + path
-					status, remoteIP, err := get(ctx, url, tokens[region], timeout)
+					status, remoteIP, body, err := get(ctx, url, tokens[region], timeout)
 					result := "OK"
 					if err != nil {
 						result = "FAIL " + err.Error()
@@ -110,6 +117,9 @@ func check(ctx context.Context, out io.Writer, peers map[string]sshlogin.PeerAdd
 							expected += " or " + peer.IPv6
 						}
 						failures = append(failures, fmt.Errorf("%s: connected to %s, expected %s", url, remoteIP, expected))
+					} else if err := rendered(path, body); err != nil {
+						result = "FAIL " + err.Error()
+						failures = append(failures, fmt.Errorf("%s: %w", url, err))
 					}
 					if _, err := fmt.Fprintf(out, "%s %s\n", result, url); err != nil {
 						return err
@@ -121,14 +131,85 @@ func check(ctx context.Context, out io.Writer, peers map[string]sshlogin.PeerAdd
 	return errors.Join(failures...)
 }
 
-func curl(ctx context.Context, url, token string, timeout time.Duration) (string, string, error) {
+func rendered(path, body string) error {
+	if path == "/healthz" {
+		return nil
+	}
+	root, err := html.Parse(strings.NewReader(body))
+	if err != nil {
+		return errors.New("dashboard HTML is unreadable")
+	}
+	var content *html.Node
+	for node := range root.Descendants() {
+		for _, attribute := range node.Attr {
+			if attribute.Key == "id" && attribute.Val == "content" {
+				content = node
+			}
+		}
+	}
+	if content == nil {
+		return errors.New("dashboard content is missing")
+	}
+	text, nodes, members := false, map[string]bool{}, map[string]bool{}
+	for node := range content.Descendants() {
+		if node.Type == html.TextNode && strings.TrimSpace(node.Data) != "" {
+			heading := false
+			for parent := range node.Ancestors() {
+				switch parent.Data {
+				case "h1", "h2", "h3", "h4", "h5", "h6", "script", "style":
+					heading = true
+				}
+				for _, attribute := range parent.Attr {
+					if attribute.Key == "class" && slices.Contains(strings.Fields(attribute.Val), "page-head") {
+						heading = true
+					}
+				}
+			}
+			text = text || !heading
+		}
+		for _, attribute := range node.Attr {
+			if node.Data == "g" && attribute.Key == "data-node" && attribute.Val != "" {
+				nodes[attribute.Val] = true
+			}
+			if node.Data == "a" && attribute.Key == "href" {
+				link, err := url.Parse(attribute.Val)
+				if err != nil || link.IsAbs() || link.Host != "" {
+					continue
+				}
+				member, found := strings.CutPrefix(link.Path, "/members/")
+				if !found || member == "" || strings.Contains(member, "/") {
+					continue
+				}
+				for parent := range node.Ancestors() {
+					if parent.Data == "tbody" {
+						members[member] = true
+						break
+					}
+				}
+			}
+		}
+	}
+	if !text {
+		return errors.New("dashboard content is empty")
+	}
+	if path == "/topology" && len(nodes) < 3 {
+		return fmt.Errorf("topology has %d nodes, need at least 3", len(nodes))
+	}
+	if path == "/members" && len(members) < 3 {
+		return fmt.Errorf("dashboard has %d observed controllers, need at least 3; check telemetry grants and cluster_aggregation", len(members))
+	}
+	return nil
+}
+
+func curl(ctx context.Context, url, token string, timeout time.Duration) (string, string, string, error) {
 	seconds := strconv.FormatFloat(timeout.Seconds(), 'f', -1, 64)
 	cmd := exec.CommandContext(ctx, "curl", "--disable", "--silent", "--noproxy", "*", "--max-time", seconds,
-		"--output", os.DevNull, "--write-out", "%{http_code} %{remote_ip}", "--config", "-", url)
+		"--max-filesize", "2097152", "--write-out", "\n%{http_code} %{remote_ip}", "--config", "-", url)
 	// curl reads the secret through stdin, never argv or a temporary file.
 	escaped := strings.NewReplacer("\\", "\\\\", "\"", "\\\"").Replace(token)
 	cmd.Stdin = strings.NewReader("header = \"Authorization: Bearer " + escaped + "\"\n")
 	output, err := cmd.Output()
-	status, remoteIP, _ := strings.Cut(strings.TrimSpace(string(output)), " ")
-	return status, remoteIP, err
+	body, result, _ := strings.CutLast(string(output), "\n")
+	status, remoteIP, _ := strings.Cut(strings.TrimSpace(result), " ")
+	return status, remoteIP, body, err
 }

@@ -68,13 +68,20 @@ scripts/check-dashboard-access.sh \
 
 The thin wrapper runs `ts-orch dashboard check`. It reads current IPs from
 `netbird status --json`, requires all six controllers, and curls `/healthz`
-and authenticated `/topology` by IP and native DNS: 24 requests total. It
-returns 0 only when every response is HTTP 200 from the expected NetBird IP.
+and all fourteen authenticated dashboard pages by IP and native DNS: 180
+requests total. It returns 0 only when every response is HTTP 200 from the
+expected NetBird IP, every page has rendered content, each topology has at
+least three distinct nodes, and each `/members` table has at least three
+distinct observed controllers. Missing-member placeholders do not count.
+This catches disabled aggregation or missing telemetry grants even when the
+dashboard returns HTTP 200. Response bodies are bounded to 2 MiB and are
+never printed. Legitimately empty resource lists do not fail the check.
 Native DNS may connect to the intended peer's IPv4 or IPv6 address reported
 by NetBird; an address belonging to another peer fails the check.
 It bypasses HTTP proxies, refuses redirects, does not override DNS, and passes
 tokens to curl through stdin. IP replacement needs no script edit. Each
-request has a five-second timeout (override with `--timeout 10s`).
+request has a five-second timeout (override with `--timeout 10s`). Allow about
+five minutes for the fleet check while regional requests time out.
 
 Never run checks, SSH, NetBird login/up, browser automation or SSO prompts on
 `mariogk-desktop`. The wrapper rejects hosts outside delta, beta and
