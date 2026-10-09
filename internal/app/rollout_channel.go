@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	goruntime "runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -208,7 +209,8 @@ func (c *rolloutControl) consumeUpdates(ctx context.Context, store *rollout.Stor
 func (c *rolloutControl) consumeChannel(ctx context.Context, store *rollout.Store, kv jetstream.KeyValue, epoch uint64,
 	wire []byte, now time.Time,
 ) error {
-	status := releasechannel.Status{Schema: releasechannel.StatusSchema, Cell: strings.ToUpper(c.cell), UpdatedAt: now}
+	status := releasechannel.Status{Schema: releasechannel.StatusSchema, Cell: strings.ToUpper(c.cell), UpdatedAt: now,
+		Environment: c.environment, Architectures: slices.Clone(c.architectures)}
 	var channel releasechannel.Channel
 	if len(wire) == 0 {
 		status.State, status.Reason = releasechannel.StateRolling, "the cell has no release channel"
@@ -268,7 +270,8 @@ func (c *rolloutControl) report(ctx context.Context, kv jetstream.KeyValue, stat
 
 func sameReport(a, b releasechannel.Status) bool {
 	return a.Cell == b.Cell && a.RunNumber == b.RunNumber && a.SourceRevision == b.SourceRevision &&
-		a.State == b.State && a.Reason == b.Reason && a.Pins.Equal(b.Pins)
+		a.State == b.State && a.Reason == b.Reason && a.Pins.Equal(b.Pins) &&
+		a.Environment == b.Environment && slices.Equal(a.Architectures, b.Architectures)
 }
 
 // bridgeChannel is the CI edge until TS-562 announces releases over NATS.

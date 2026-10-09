@@ -22,6 +22,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
@@ -561,6 +562,57 @@ func TestReleaseChannelPublishesManualPinsWithoutAChannel(t *testing.T) {
 	}
 	if stored, _ := f.bucket.status(t); stored.Pins == nil || !slices.Equal(stored.Pins.Rollback, []string{digest}) {
 		t.Fatalf("manual release pins missing: %+v", stored)
+	}
+}
+
+func TestReleaseChannelPublishesRealDeploymentScopeWithoutAValidChannel(t *testing.T) {
+	f := newChannelFixture(t)
+	// A bad desired scope cannot replace the running controller's trust scope.
+	channel := f.signer.channel(t, "GRU", 620, []byte("run 620"))
+	channel.Environment = "canary"
+	f.setChannel(t, channel)
+	status := f.consume(t)
+	if status.State != releasechannel.StateFailed || status.Environment != "production" ||
+		!slices.Equal(status.Architectures, []string{goruntime.GOARCH}) {
+		t.Fatalf("desired channel changed actual scope: %+v", status)
+	}
+	if err := f.control.bridgePass(t.Context(), f.kv); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := f.bucket.status(t)
+	if err := stored.ValidateDeploymentScope("GRU", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	changed := stored
+	changed.Environment = "canary"
+	if sameReport(stored, changed) {
+		t.Fatal("environment change suppressed report refresh")
+	}
+	changed = stored
+	changed.Architectures = []string{"amd64", "arm64"}
+	if sameReport(stored, changed) {
+		t.Fatal("architecture change suppressed report refresh")
+	}
+}
+
+func TestDeploymentScopeIncludesTheSignedManagedHostShape(t *testing.T) {
+	signer := newReleaseSigner(t)
+	services := signer.services(t)
+	shape := "VM.Standard.A1.Flex"
+	if goruntime.GOARCH == "arm64" {
+		shape = "VM.Standard.E5.Flex"
+	}
+	services.ociRegion = &oci.RegionConfig{Shape: shape}
+	control, err := newRolloutControl(Config{NATS: natscell.Config{Cell: "gru", Lab: true}}, services, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(control.architectures, []string{"amd64", "arm64"}) {
+		t.Fatalf("managed host architecture omitted: %+v", control.architectures)
+	}
+	services.ociRegion.Shape = "unknown"
+	if _, err := newRolloutControl(Config{}, services, ""); err == nil {
+		t.Fatal("unknown signed host shape was silently omitted")
 	}
 }
 

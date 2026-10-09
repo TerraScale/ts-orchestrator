@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	goruntime "runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -77,8 +78,9 @@ type rolloutControl struct {
 	interval time.Duration
 
 	// roots and environment verify a release channel for this cell.
-	roots       *rootRegistry
-	environment string
+	roots         *rootRegistry
+	environment   string
+	architectures []string
 	// follow runs the release channel consumer (controller.rollouts.channel).
 	follow bool
 	// ticks wakes the consumer after every executor tick.
@@ -114,7 +116,7 @@ type rolloutControl struct {
 // newRolloutControl takes the effective settings (rolloutSettings) and the
 // controller's OCI region, which locates the release channel.
 func newRolloutControl(cfg Config, services *specRegistry, region string) (*rolloutControl, error) {
-	c := &rolloutControl{cell: cfg.NATS.Cell, spool: rolloutexec.DefaultSpoolDir,
+	c := &rolloutControl{cell: cfg.NATS.Cell, spool: rolloutexec.DefaultSpoolDir, architectures: []string{goruntime.GOARCH},
 		layout: selfupdate.NewLayout(selfupdate.DefaultRoot), ticks: make(chan struct{}, 1)}
 	settings := cfg.Controller.Rollouts
 	signed := rollout.DefaultPolicy()
@@ -143,6 +145,17 @@ func newRolloutControl(cfg Config, services *specRegistry, region string) (*roll
 	}
 	if services != nil && services.roots != nil {
 		c.roots, c.environment = services.roots, services.identity.Environment
+		// Every controller slot shares the admitted image; managed hosts use the signed regional shape.
+		if services.ociRegion != nil {
+			architecture, err := imageArchitectureForShape(services.ociRegion.Shape)
+			if err != nil {
+				return nil, err
+			}
+			if architecture != goruntime.GOARCH {
+				c.architectures = append(c.architectures, architecture)
+				slices.Sort(c.architectures)
+			}
+		}
 		// The leader refuses a receipt that no node would stage; every node
 		// still verifies it against its own roots before it keeps a byte.
 		// The current roots are read per receipt, so a root rotation applies.

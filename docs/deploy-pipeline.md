@@ -21,6 +21,23 @@ concurrently. A signing, storage, publication or rollout failure
 in one region does not interrupt another region's healthy rollout; the command
 waits for all started regions and returns failure if any failed.
 
+The regional leader now includes `environment` and sorted `architectures` in
+`releases/orchestrator/status.json`. These come from its admitted trust
+environment, the executable architecture of the controller image shared by
+all controller slots, and the signed managed-host shape. Release progress
+and a malformed desired channel cannot change this scope. Existing status
+readers ignore the additional fields; health-proof formats are unchanged.
+Deploy this producer to both cells before switching CI to scope discovery.
+The shared consumer rejects missing scope or a heartbeat older than two
+minutes for that region, even if an older report says the rollout completed.
+
+The release leaf remains in OCI Vault. Required variables are
+`TS_OBJECT_NAMESPACE`, `TS_RELEASE_VAULT_ID`, `TS_RELEASE_LEAF_SECRET`,
+`TS_RELEASE_UPDATE_DELEGATION`, `TS_DEPLOY_OCI_USER`,
+`TS_DEPLOY_OCI_TENANCY`, and `TS_DEPLOY_OCI_FINGERPRINT`. Required secrets
+are `TS_DEPLOY_OCI_KEY` and `TS_DEPLOY_READ_TOKEN`. Delegation and regional
+IAM must cover both head buckets; missing authority fails visibly.
+
 Within a cell, the existing leader executor updates controllers one at a time,
 with the founder last. Quorum, load-balancer draining and readiness gates remain
 in force. Managed hosts follow after controllers; hosts sharing a TerraBase
