@@ -6,8 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
 // After a reboot empties the in-memory credential directory, the exact Vault
@@ -83,5 +85,38 @@ func TestRestoredMaterialPassesRestartAdmission(t *testing.T) {
 		t.Fatalf("check after restore: %v", err)
 	} else if note == "" {
 		t.Fatal("check printed nothing")
+	}
+}
+
+// A release that predates the durable chain copy adopts a generation without
+// updating it: restore keeps the installed chain that extends the copy, and
+// never a shorter or unrelated one.
+func TestRestoreKeepsTheNewerInstalledChain(t *testing.T) {
+	install := newGenerationInstall(t)
+	first, _ := install.signedGeneration()
+	chain, err := bootstrap.DecodeMaterialGenerationChain(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous, err := trust.Fingerprint(chain[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := bootstrap.SignMaterialGeneration(install.material.Generation(install.expected, 2, previous),
+		time.Now().Add(-time.Minute), time.Now().AddDate(0, 6, 0), install.rootKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	both, err := bootstrap.EncodeMaterialGenerationChain(append(chain, next))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kept, newer := newerChain(first, both); !newer || !bytes.Equal(kept, both) {
+		t.Fatal("restore kept a durable copy older than the installed chain")
+	}
+	for _, installed := range [][]byte{first, []byte("not a chain"), nil} {
+		if kept, newer := newerChain(both, installed); newer || !bytes.Equal(kept, both) {
+			t.Fatalf("restore replaced the durable copy with %q", installed)
+		}
 	}
 }

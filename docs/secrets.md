@@ -268,7 +268,9 @@ generation reference pins a secret OCID, version and SHA-256, so the restore
 reads exact versions and restart admission verifies the result as before.
 The generation chain is root-signed public metadata; its durable copy is
 `/var/lib/terrascale-orchestrator-bootstrap/material-generations.json`,
-written before each adoption commits. Nothing renews a controller's issued
+written before each adoption commits. An installed chain that extends that
+copy, adopted by an older release, is the newer one: restore verifies it and
+replaces the copy. Nothing renews a controller's issued
 files yet; a renewal must publish its version to Vault first.
 
 ```sh

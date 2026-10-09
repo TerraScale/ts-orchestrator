@@ -160,6 +160,11 @@ func (store MaterialStore) restorePlan(dir int, inMemory, keep bool) (map[string
 	if errors.Is(err, os.ErrNotExist) && !inMemory {
 		chain, err = readUnpinned(dir, MaterialGenerationsFile, store.serviceUID, store.serviceGID, maxGenerationChainBytes)
 		seed = err == nil && keep
+	} else if err == nil {
+		installed, readErr := readUnpinned(dir, MaterialGenerationsFile, store.serviceUID, store.serviceGID, maxGenerationChainBytes)
+		if newer, ok := newerChain(chain, installed); readErr == nil && ok {
+			chain, seed = newer, keep
+		}
 	}
 	if errors.Is(err, os.ErrNotExist) {
 		return materialReferences(manifest, nil), nil, nil
@@ -183,6 +188,18 @@ func (store MaterialStore) restorePlan(dir int, inMemory, keep bool) (map[string
 		}
 	}
 	return materialReferences(manifest, &verified[len(verified)-1]), chain, nil
+}
+
+// newerChain returns installed, and true, when it extends the durable chain:
+// a release older than the durable copy adopts a generation without updating
+// it. Either way the caller verifies the chain it keeps.
+func newerChain(durable, installed []byte) ([]byte, bool) {
+	held, heldErr := bootstrap.DecodeMaterialGenerationChain(durable)
+	newer, newerErr := bootstrap.DecodeMaterialGenerationChain(installed)
+	if heldErr != nil || newerErr != nil || !bootstrap.ExtendsMaterialGenerationChain(newer, held) {
+		return durable, false
+	}
+	return installed, true
 }
 
 // materialReferences is what restartPins pins, by reference: the slot's
