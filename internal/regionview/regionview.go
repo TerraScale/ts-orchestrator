@@ -96,8 +96,9 @@ type Version struct {
 	Members []string `json:"members"`
 }
 
-// Capacity totals the members' resources.
+// Capacity totals coherent resource readings; Partial marks missing coverage.
 type Capacity struct {
+	Partial         bool    `json:"partial,omitzero"`
 	CPUs            int     `json:"cpus"`
 	CPUUtilization  float64 `json:"cpu_utilization,omitzero"`
 	MemoryBytes     uint64  `json:"memory_bytes"`
@@ -151,7 +152,8 @@ type Node struct {
 	Operation string `json:"operation,omitempty"`
 	// Backends are the node's load balancer backends: the ones its fence
 	// record took out, else one per backend set of a role it runs.
-	Backends []Backend `json:"backends,omitempty"`
+	Backends  []Backend     `json:"backends,omitempty"`
+	Resources *ResourceView `json:"resources,omitempty"`
 }
 
 // Service is one role a host grant places on a node and its host report.
@@ -299,7 +301,14 @@ func (provider *Provider) Local(ctx context.Context) Summary {
 	summary.Health = score(summary, cluster != nil, open)
 	if provider.Nodes != nil {
 		summary.Nodes = provider.Nodes(ctx)
+		truncated := len(summary.Nodes) > maxTopologyMembers
 		summary.boundNodes()
+		for index := range summary.Nodes {
+			node := &summary.Nodes[index]
+			node.Resources = CollectResources(*node, provider.History, summary.ObservedAt)
+		}
+		fillNodeCapacity(&summary)
+		summary.Capacity.Partial = summary.Capacity.Partial || truncated
 	}
 	return summary
 }
@@ -605,6 +614,9 @@ func (summary *Summary) boundNodes() {
 		node.Services = node.Services[:min(len(node.Services), maxNodeServices)]
 		node.Backends = node.Backends[:min(len(node.Backends), maxNodeBackends)]
 		node.Fence = node.Fence[:min(len(node.Fence), maxNodeBackends)]
+		if node.Resources != nil {
+			node.Resources.Filesystems = node.Resources.Filesystems[:min(len(node.Resources.Filesystems), 37)]
+		}
 	}
 }
 

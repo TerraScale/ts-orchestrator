@@ -62,20 +62,22 @@ const kvRestoreAttemptTimeout = 2 * time.Minute
 
 // startKVSnapshots uploads each changed configuration bucket from the
 // authority leader, on the cell spec's schedule. The returned stop cancels
-// the uploader and waits for it.
+// the uploader and waits for it; view reads its current snapshot health.
 func startKVSnapshots(ctx context.Context, cfg Config, js jetstream.JetStream, control authority.Fencer,
 	services *specRegistry,
-) (func(), error) {
+) (stop func(), view func() observability.KVSnapshotView, err error) {
 	settings := cfg.Controller.KVSnapshot
 	if !settings.Enabled {
-		return func() {}, nil
+		return func() {}, func() observability.KVSnapshotView {
+			return observability.KVSnapshotView{State: "disabled"}
+		}, nil
 	}
 	objects, err := kvsnapshot.NewInstancePrincipalObjects(settings, cfg.NATS.Cell)
 	if err != nil {
-		return nil, fmt.Errorf("open KV snapshot storage: %w", err)
+		return nil, nil, fmt.Errorf("open KV snapshot storage: %w", err)
 	}
 	snapshotter := &kvsnapshot.Snapshotter{JS: js, Objects: objects, Buckets: kvsnapshot.Buckets,
 		Leader: func() bool { return control.Current().CanMutate() }, Interval: settings.Interval(),
 		Schedule: func() (time.Duration, bool) { return services.kvSnapshot(settings.Interval()) }}
-	return ownedLoop(ctx, "KV snapshot uploader", snapshotter.Run), nil
+	return ownedLoop(ctx, "KV snapshot uploader", snapshotter.Run), snapshotter.Status, nil
 }

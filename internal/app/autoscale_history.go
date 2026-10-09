@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"slices"
+	"strconv"
 	"strings"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
@@ -81,6 +82,13 @@ func hostLoadSamples(load *hostload.Aggregator) []observability.Sample {
 	for _, node := range load.Nodes() {
 		member := strings.ToLower(node.Origin.Node)
 		labels := observability.L("member", member)
+		samples = append(samples, observability.Sample{Metric: observability.HistHostReceivedAt,
+			Labels: labels, Value: float64(node.At.UnixMilli())})
+		incomplete := 0.0
+		if node.Report.Host.FilesystemsIncomplete {
+			incomplete = 1
+		}
+		samples = append(samples, observability.Sample{Metric: observability.HistHostFSIncomplete, Labels: labels, Value: incomplete})
 		for _, value := range []struct {
 			metric string
 			value  *float64
@@ -90,6 +98,25 @@ func hostLoadSamples(load *hostload.Aggregator) []observability.Sample {
 			if value.value != nil {
 				samples = append(samples, observability.Sample{Metric: value.metric, Labels: labels, Value: *value.value})
 			}
+		}
+		if node.Report.Host.CPUCores > 0 {
+			samples = append(samples, observability.Sample{Metric: observability.HistHostCPUCores,
+				Labels: labels, Value: float64(node.Report.Host.CPUCores)})
+		}
+		if node.Report.Host.MemoryBytes > 0 {
+			samples = append(samples, observability.Sample{Metric: observability.HistHostMemoryTotal,
+				Labels: labels, Value: float64(node.Report.Host.MemoryBytes)})
+		}
+		for _, filesystem := range node.Report.Host.Filesystems {
+			labels := observability.L("member", member, "role", filesystem.Role,
+				"path", filesystem.Path, "device", strconv.FormatUint(filesystem.Device, 10))
+			used := float64(filesystem.SizeBytes - filesystem.AvailBytes)
+			samples = append(samples,
+				observability.Sample{Metric: observability.HistHostFSUsed, Labels: labels, Value: used},
+				observability.Sample{Metric: observability.HistHostFSSize, Labels: labels, Value: float64(filesystem.SizeBytes)},
+				observability.Sample{Metric: observability.HistHostFSRatio, Labels: labels, Value: used / float64(filesystem.SizeBytes)},
+				observability.Sample{Metric: observability.HistHostFSFiles, Labels: labels, Value: float64(filesystem.Files)},
+				observability.Sample{Metric: observability.HistHostFSFilesFree, Labels: labels, Value: float64(filesystem.FilesFree)})
 		}
 		for _, role := range node.Report.Roles {
 			service := observability.L("member", member, "service", role.Role)

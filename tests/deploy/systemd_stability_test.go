@@ -46,3 +46,11 @@ func TestOrchestratorUnitsReportReadinessAndEscalateCrashLoops(t *testing.T) {
 		t.Fatal("a host watchdog would restart the runtime and stop its TerraBase members")
 	}
 }
+
+func TestControllerCanCollectNodeResources(t *testing.T) {
+	service := unitDirectives(string(read(t, filepath.Join(deployRoot(t), "deploy/systemd/terrascale-orchestrator-controller.service"))), "Service")
+	if service["ProcSubset"] == "pid" {
+		t.Fatal("ProcSubset=pid hides /proc/stat and /proc/meminfo, dropping CPU, memory and filesystem telemetry")
+	}
+	equal(t, service["ProtectProc"], "invisible")
+}

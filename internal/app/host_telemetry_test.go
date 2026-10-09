@@ -52,7 +52,7 @@ func TestHostTelemetryDiscardsPreviousAuthorityTerms(t *testing.T) {
 	if err := telemetry.record(origin, report); err != nil {
 		t.Fatal(err)
 	}
-	if len(telemetry.samples()) != 1 {
+	if len(telemetry.samples()) != 3 {
 		t.Fatal("current leader report missing")
 	}
 	// The leader can leave and reacquire authority between sampler ticks.
@@ -76,7 +76,7 @@ func TestHostTelemetryDiscardsPreviousAuthorityTerms(t *testing.T) {
 	if len(telemetry.samples()) != 0 {
 		t.Fatal("reacquired authority reused old load")
 	}
-	if err := telemetry.record(origin, report); err != nil || len(telemetry.samples()) != 1 {
+	if err := telemetry.record(origin, report); err != nil || len(telemetry.samples()) != 3 {
 		t.Fatalf("fresh report did not resume collection: %v", err)
 	}
 	leader.ExpiresAt = time.Now().Add(-time.Second)

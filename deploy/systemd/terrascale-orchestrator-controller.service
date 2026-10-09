@@ -63,7 +63,6 @@ RestrictSUIDSGID=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallArchitectures=native
 ProtectProc=invisible
-ProcSubset=pid
 
 [Install]
 WantedBy=multi-user.target

@@ -210,6 +210,9 @@ func WriteSystemMetrics(w io.Writer, view SystemView) {
 		WriteGauge(w, MetricPrefix+"host_clock_max_error_seconds", clock.MaxErrorSeconds)
 	}
 	for _, filesystem := range view.Filesystems {
+		if filesystem.SizeBytes == 0 {
+			continue
+		}
 		WriteGauge(w, Series(MetricPrefix+"host_filesystem_size_bytes", "role", filesystem.Role), float64(filesystem.SizeBytes))
 		WriteGauge(w, Series(MetricPrefix+"host_filesystem_avail_bytes", "role", filesystem.Role), float64(filesystem.AvailBytes))
 		WriteGauge(w, Series(MetricPrefix+"host_filesystem_files", "role", filesystem.Role), float64(filesystem.Files))
@@ -219,8 +222,8 @@ func WriteSystemMetrics(w io.Writer, view SystemView) {
 
 // ReadSystem reads this machine's CPU, memory, pressure and filesystem state
 // from /proc and statfs. Missing pressure files (kernels without PSI) are
-// skipped; a filesystem that cannot be read is reported with zero sizes
-// rather than failing the whole view.
+// skipped; a filesystem that cannot be read keeps its role and path with
+// zero sizes as unavailable evidence, without discarding successful readings.
 func ReadSystem(filesystems []FilesystemRole) (SystemView, error) {
 	view, err := readSystem("/proc", filesystems, statFilesystem)
 	view.Clock = readClock()

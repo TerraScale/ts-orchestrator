@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -60,8 +61,16 @@ func (source placementVolumes) Volumes(ctx context.Context) ([]insights.Volume, 
 	}
 	out := make([]insights.Volume, 0, len(members))
 	for _, member := range members {
+		since := time.Time{}
+		if volumeAttachmentState(member) == "attaching" {
+			since = member.AttachRequestedAt
+			if since.IsZero() && member.Stage == placement.StageAwaitingAttach {
+				// Observed attachments retain their persisted phase-entry time while waiting.
+				since = member.UpdatedAt
+			}
+		}
 		out = append(out, insights.Volume{ID: member.VolumeID, Host: member.HostNode,
-			State: volumeAttachmentState(member.Stage), Detail: string(member.Stage), StateSince: member.UpdatedAt})
+			State: volumeAttachmentState(member), Detail: "placement: " + string(member.Stage), StateSince: since})
 	}
 	return out, nil
 }
@@ -69,14 +78,19 @@ func (source placementVolumes) Volumes(ctx context.Context) ([]insights.Volume, 
 // volumeAttachmentState maps a member stage onto the canonical attachment
 // vocabulary the volume insight rule and the dashboard key on ("attaching",
 // "available", "attached"). The stage itself travels as Volume.Detail.
-func volumeAttachmentState(stage placement.MemberStage) string {
-	switch stage {
+func volumeAttachmentState(member placement.MemberState) string {
+	switch member.Stage {
 	case placement.StagePreparedAttach, placement.StageAwaitingAttach:
 		return "attaching"
 	case placement.StagePreparedVolume:
 		return "available"
+	case placement.StageStorageHandled, placement.StageTerminated, placement.StageRemoved:
+		return "unknown"
 	}
-	return "attached"
+	if member.HostNode != "" && member.AttachmentID != "" {
+		return "attached"
+	}
+	return "unknown"
 }
 
 // placedVolumeMembers lists the member state of every placed member that

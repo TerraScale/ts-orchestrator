@@ -11,21 +11,22 @@ const SnapshotVersion = 1
 // dashboard renders for one member. Optional sections are nil when the member
 // does not run that subsystem (a host has no authority or placement view).
 type MemberSnapshot struct {
-	Version      int            `json:"version"`
-	Cell         string         `json:"cell"`
-	Member       string         `json:"member"`
-	Role         string         `json:"role"`
-	BuildVersion string         `json:"build_version,omitempty"`
-	StartedAt    time.Time      `json:"started_at"`
-	ObservedAt   time.Time      `json:"observed_at"`
-	Ready        bool           `json:"ready"`
-	Checks       []CheckResult  `json:"checks,omitempty"`
-	Authority    *AuthorityView `json:"authority,omitempty"`
-	NATS         *NATSView      `json:"nats,omitempty"`
-	Placement    *PlacementView `json:"placement,omitempty"`
-	Delivery     *DeliveryView  `json:"delivery,omitempty"`
-	OCI          *OCIView       `json:"oci,omitempty"`
-	System       *SystemView    `json:"system,omitempty"`
+	Version      int             `json:"version"`
+	Cell         string          `json:"cell"`
+	Member       string          `json:"member"`
+	Role         string          `json:"role"`
+	BuildVersion string          `json:"build_version,omitempty"`
+	StartedAt    time.Time       `json:"started_at"`
+	ObservedAt   time.Time       `json:"observed_at"`
+	Ready        bool            `json:"ready"`
+	Checks       []CheckResult   `json:"checks,omitempty"`
+	Authority    *AuthorityView  `json:"authority,omitempty"`
+	NATS         *NATSView       `json:"nats,omitempty"`
+	Placement    *PlacementView  `json:"placement,omitempty"`
+	Delivery     *DeliveryView   `json:"delivery,omitempty"`
+	OCI          *OCIView        `json:"oci,omitempty"`
+	KVSnapshots  *KVSnapshotView `json:"kv_snapshots,omitempty"`
+	System       *SystemView     `json:"system,omitempty"`
 	// Credentials lists the expiring certificates and NATS JWTs this
 	// member runs with, so a cell-wide view sees every expiry ahead.
 	Credentials []CredentialView `json:"credentials,omitempty"`
@@ -169,6 +170,33 @@ type DeliveryView struct {
 	Deferred         uint64    `json:"deferred"`
 	TransportRetries uint64    `json:"transport_retries"`
 	LastAckAt        time.Time `json:"last_ack_at,omitzero"`
+}
+
+// KVSnapshotView reports configuration snapshots in Object Storage. State is
+// disabled, paused, follower, unknown, current or failed. Buckets contains one
+// metadata record per configured KV bucket, never document values or OCI secrets.
+type KVSnapshotView struct {
+	State               string    `json:"state"`
+	IntervalSeconds     float64   `json:"interval_seconds,omitzero"`
+	CheckTimeoutSeconds float64   `json:"check_timeout_seconds,omitzero"`
+	LastCheckAt         time.Time `json:"last_check_at,omitzero"`
+	// Overdue means a leader has no completed pass within interval plus timeout.
+	Overdue bool                   `json:"overdue,omitzero"`
+	Buckets []KVSnapshotBucketView `json:"buckets,omitempty"`
+}
+
+// KVSnapshotBucketView keeps successful evidence after a failed check. An
+// unchanged stream advances LastCurrentAt without advancing LastUploadedAt,
+// which records uploads by this process. State is unknown, current, failed,
+// absent or empty; absent and empty require successful stream inspection.
+type KVSnapshotBucketView struct {
+	Bucket         string    `json:"bucket"`
+	State          string    `json:"state"`
+	LastCheckAt    time.Time `json:"last_check_at,omitzero"`
+	LastUploadedAt time.Time `json:"last_uploaded_at,omitzero"`
+	LastCurrentAt  time.Time `json:"last_current_at,omitzero"`
+	Sequence       uint64    `json:"sequence,omitzero"`
+	ErrorClass     string    `json:"error_class,omitempty"`
 }
 
 // OCIView is per-operation OCI API usage since this process started.

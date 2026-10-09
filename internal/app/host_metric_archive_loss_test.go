@@ -17,13 +17,13 @@ func TestHostMetricHistoryDisclosesArchiveOmissionsAfterRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(observability.HostMetricInterval)
-	load := overflowingHostMetricLoad(t, 1)
+	load := overflowingHostMetricLoad(t, 1, now.Add(-time.Minute))
 	dropped, confirmed, err := publishHostMetricBatch(t.Context(), writer, load, load.archiveBatch(now.Add(-time.Minute)))
-	if err != nil || !confirmed || dropped != 58 {
+	if err != nil || !confirmed || dropped != 182 {
 		t.Fatalf("overflow publish: dropped=%d confirmed=%t err=%v", dropped, confirmed, err)
 	}
 	// A newer complete batch cannot erase loss in the retained archive.
-	if confirmed, err := writer.Publish(t.Context(), observability.HostMetricBatch{At: now, Epoch: 2,
+	if confirmed, err := writer.Publish(t.Context(), observability.HostMetricBatch{Version: observability.HostMetricBatchVersion, At: now, Epoch: 2,
 		Samples: []observability.Sample{{Metric: observability.HistHostCPUUtilization,
 			Labels: observability.L("member", "host-000"), Value: 0.25}}}); err != nil || !confirmed {
 		t.Fatalf("complete publish: confirmed=%t err=%v", confirmed, err)

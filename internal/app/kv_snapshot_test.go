@@ -23,3 +23,15 @@ func TestKVSnapshotsCoverConfigurationBuckets(t *testing.T) {
 		t.Fatalf("kvsnapshot.Buckets holds %s", machines.StatusBucket)
 	}
 }
+
+func TestStartKVSnapshotsDisabledExposesStatusWithoutDependencies(t *testing.T) {
+	stop, view, err := startKVSnapshots(t.Context(), Config{}, nil, nil, nil)
+	if err != nil || stop == nil || view == nil {
+		t.Fatalf("disabled snapshots = %v, %v, %v", stop != nil, view != nil, err)
+	}
+	stop()
+	status := view()
+	if status.State != "disabled" || status.IntervalSeconds != 0 || !status.LastCheckAt.IsZero() || len(status.Buckets) != 0 {
+		t.Fatalf("disabled status = %+v", status)
+	}
+}

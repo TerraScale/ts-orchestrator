@@ -149,15 +149,19 @@ func (current view) topologySummaries() []regionview.Summary {
 func topologyNodes(summary regionview.Summary) []regionview.Node {
 	nodes := slices.Clone(summary.Nodes)
 	known := map[string]bool{}
+	controllers := map[string]bool{}
 	for _, node := range nodes {
 		known[node.Name] = true
 		if node.Member != "" {
-			known[node.Member] = true
+			controllers[node.Member] = true
 		}
 	}
 	add := func(name, member string) {
-		if name != "" && !known[name] {
+		if name != "" && !known[name] && (member == "" || !controllers[member]) {
 			known[name] = true
+			if member != "" {
+				controllers[member] = true
+			}
 			nodes = append(nodes, regionview.Node{Name: name, Member: member})
 		}
 	}
@@ -358,6 +362,13 @@ func (current view) topologyNode(summary regionview.Summary, node regionview.Nod
 			status, detail = "warn", "out of rotation"
 		}
 		row("LB "+backend.Set, detail, status, href)
+	}
+	resources := current.resourcesForNode(node, local)
+	row("CPU", current.resourceCPU(resources), current.readingStatus(resources.CPU), href)
+	row("Memory", current.resourceMemory(resources), current.readingStatus(resources.Memory), href)
+	row("Disk", current.resourceDisk(resources), current.readingStatus(resources.Disk), href)
+	if note := resourceNote(resources); note != "" {
+		row("Resources", note, "warn", href)
 	}
 	statuses := make([]string, 0, len(box.Rows))
 	for _, row := range box.Rows {

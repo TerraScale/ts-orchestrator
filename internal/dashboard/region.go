@@ -33,10 +33,15 @@ func (current view) regionKPIs() []kpi {
 			Status: "ok", Href: current.State.link("/nats")})
 	}
 	if placement := current.placement(); placement != nil {
-		tiles = append(tiles, kpi{Label: "TerraBase partitions", Value: itoa(len(placement.Databases)),
+		partitions := 0
+		for _, database := range placement.Databases {
+			if !database.Terminal {
+				partitions++
+			}
+		}
+		tiles = append(tiles, kpi{Label: "Managed TerraBase partitions", Value: itoa(partitions),
 			Sub: counts(placement.StageCounts), Status: "info",
-			// The partition count's own history (len(placement.Databases)),
-			// not serving seats.
+			// Active partitions have their own history, separate from seats.
 			Spark: sparkValues(current.historyRange(observability.HistDatabases, nil, "", false)),
 			Href:  current.State.link("/terrabase")})
 	}

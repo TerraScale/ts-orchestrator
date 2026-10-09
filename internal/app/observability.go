@@ -199,6 +199,7 @@ type controllerObservation struct {
 	ociResources insights.OCIResourceProvider
 	// credentials are the controller's expiring credential files.
 	credentials []maintenance.CredentialFile
+	kvSnapshots func() observability.KVSnapshotView
 	// nodes lists the cell's granted nodes for the topology view.
 	nodes func(context.Context) []regionview.Node
 }
@@ -219,8 +220,8 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 		})
 	}
 	runtime.registry.Register(delivery.Metrics)
+	runtime.registry.Register(oci.Metrics)
 	if observed.managed {
-		runtime.registry.Register(oci.Metrics)
 		runtime.registry.Register(placement.Metrics)
 	}
 	runtime.health.Add(observability.Check{Name: "nats", Run: func(context.Context) (bool, string) {
@@ -246,12 +247,11 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 	}})
 	config := observability.CollectorConfig{Cell: runtime.cell, Member: runtime.member, Role: runtime.role,
 		Registry: runtime.registry, Health: runtime.health, Filesystems: filesystems,
-		Authority: func() observability.AuthorityView { return authorityView(observed.authority.Current()) },
-		NATS:      observed.nats.Observe,
-		Delivery:  delivery.View,
-	}
-	if observed.managed {
-		config.OCI = oci.APIView
+		Authority:   func() observability.AuthorityView { return authorityView(observed.authority.Current()) },
+		NATS:        observed.nats.Observe,
+		Delivery:    delivery.View,
+		KVSnapshots: observed.kvSnapshots,
+		OCI:         oci.APIView,
 	}
 	if observed.placements != nil {
 		store := observed.placements

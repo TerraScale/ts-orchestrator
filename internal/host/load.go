@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
 // Host load telemetry: the agent samples its own load every LoadInterval and
@@ -148,16 +150,43 @@ type cgroupRooted interface {
 // CgroupRoot is the role cgroup parent once Recover has run.
 func (p *processRunner) CgroupRoot() string { return p.cgroups }
 
-// publishLoad samples and publishes host load until ctx ends. Failures back
-// off exponentially up to maxLoadBackoff and are logged once per change of
-// outcome, so a controller without telemetry costs one request per backoff.
-func (a *Agent) publishLoad(ctx context.Context) {
-	filesystems := []observability.FilesystemRole{{Role: "state", Path: a.cfg.StateRoot},
+func (a *Agent) loadFilesystems() []observability.FilesystemRole {
+	filesystems := []observability.FilesystemRole{{Role: "boot", Path: "/"}, {Role: "state", Path: a.cfg.StateRoot},
 		{Role: "install", Path: a.cfg.InstallRoot}}
 	if a.cfg.ManagedRuntimeRoot != "" {
 		filesystems = append(filesystems, observability.FilesystemRole{Role: "managed_runtime", Path: a.cfg.ManagedRuntimeRoot})
 	}
-	config := hostload.SamplerConfig{Roles: a.cfg.Roles, Filesystems: filesystems}
+	if a.cfg.TerraBaseRoot != "" {
+		filesystems = append(filesystems, observability.FilesystemRole{Role: "terrabase_data", Path: terrabase.Layout(a.cfg.TerraBaseRoot).Data()})
+	}
+	a.nativeRootMu.Lock()
+	defer a.nativeRootMu.Unlock()
+	// shortcut: generic S3 members have no tracked mount path; add runtime mount tracking when they need filesystem telemetry.
+	for _, role := range a.cfg.Roles {
+		root := a.nativeRoots[role]
+		if root == nil {
+			continue
+		}
+		select {
+		case <-root.done:
+			continue
+		default:
+		}
+		member := filepath.Dir(root.path)
+		filesystems = append(filesystems, observability.FilesystemRole{
+			Role: "managed_volume_" + filepath.Base(member), Path: filepath.Join(member, "volume")})
+	}
+	return filesystems
+}
+
+// publishLoad samples and publishes host load until ctx ends. Failures back
+// off exponentially up to maxLoadBackoff and are logged once per change of
+// outcome, so a controller without telemetry costs one request per backoff.
+func (a *Agent) publishLoad(ctx context.Context) {
+	config := hostload.SamplerConfig{Roles: a.cfg.Roles,
+		ReadSystem: func([]observability.FilesystemRole) (observability.SystemView, error) {
+			return observability.ReadSystem(a.loadFilesystems())
+		}}
 	if rooted, ok := a.runner.(cgroupRooted); ok {
 		config.CgroupRoot = rooted.CgroupRoot()
 	}

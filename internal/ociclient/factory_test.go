@@ -1,0 +1,199 @@
+package ociclient
+
+import (
+	"bytes"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
+)
+
+type fakeDispatcher struct {
+	status int
+	err    error
+}
+
+func (dispatcher fakeDispatcher) Do(*http.Request) (*http.Response, error) {
+	if dispatcher.err != nil {
+		return nil, dispatcher.err
+	}
+	return &http.Response{StatusCode: dispatcher.status, Body: http.NoBody}, nil
+}
+
+func TestOperationTemplateRemovesIdentifiers(t *testing.T) {
+	t.Parallel()
+	for raw, want := range map[string]string{
+		"GET https://iaas.sa-saopaulo-1.oraclecloud.com/20160918/instances/ocid1.instance.oc1.sa-saopaulo-1.abc?page=9": "GET /instances/{id}",
+		"POST https://iaas.example/20160918/instances/ocid1.instance.oc1..x?action=SOFTSTOP":                            "POST /instances/{id}?action=SOFTSTOP",
+		"POST https://iaas.example/20160918/instances/x?action=evil-value":                                              "POST /instances/x?action={action}",
+		"GET https://iaas.example/20160918/volumeAttachments?compartmentId=ocid1.compartment.oc1..a":                    "GET /volumeAttachments",
+		"GET https://iaas.example/20160918/instances/1234567890/vnics":                                                  "GET /instances/{id}/vnics",
+		"GET https://objects.example/n/secretNamespace/b/secretBucket/o/secret/object/name?versionId=secret":            "GET /n/{id}/b/{id}/o/{id}",
+		"PUT https://objects.example/n/secretNamespace/b/secretBucket/u/secret/object/name?uploadId=secret":             "PUT /n/{id}/b/{id}/u/{id}",
+		"GET https://objects.example/n/secretNamespace/b/secretBucket/o?prefix=secret":                                  "GET /n/{id}/b/{id}/o",
+		"HEAD https://objects.example/n/secretNamespace/b/secretBucket":                                                 "HEAD /n/{id}/b/{id}",
+		"GET https://objects.example/n/secretNamespace/b":                                                               "GET /n/{id}/b",
+		"GET https://objects.example/n/secretNamespace/pe/secretEndpoint":                                               "GET /n/{id}/pe/{id}",
+		"GET https://objects.example/n/secretNamespace/b/secretBucket/p/secretToken":                                    "GET /n/{id}/b/{id}/p/{id}",
+		"POST https://objects.example/n/secretNamespace/b/secretBucket/actions/reencrypt/secret/object/name":            "POST /n/{id}/b/{id}/actions/reencrypt/{id}",
+	} {
+		method, url, _ := strings.Cut(raw, " ")
+		request := httptest.NewRequest(method, url, nil)
+		if got := operationTemplate(request); got != want {
+			t.Errorf("operationTemplate(%s) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+func TestInstrumentedDispatcherRecordsCallsErrorsAndThrottling(t *testing.T) {
+	clock := time.Unix(0, 0)
+	tick := func() time.Time {
+		clock = clock.Add(250 * time.Millisecond)
+		return clock
+	}
+	service := "test-" + strings.ReplaceAll(t.Name(), "/", "-")
+	for _, next := range []fakeDispatcher{{status: 200}, {status: 429}, {err: errors.New("reset")}} {
+		dispatcher := &instrumentedDispatcher{next: next, service: service, now: tick}
+		request := httptest.NewRequest(http.MethodGet, "https://iaas.example/20160918/instances/ocid1.instance.oc1..a", nil)
+		_, _ = dispatcher.Do(request)
+	}
+	var found bool
+	for _, operation := range APIOperations() {
+		if operation.Service != service {
+			continue
+		}
+		found = true
+		if operation.Operation != "GET /instances/{id}" || operation.Calls != 3 || operation.Errors != 2 ||
+			operation.Throttled != 1 || operation.MaxSeconds != 0.25 || operation.TotalSeconds != 0.75 {
+			t.Fatalf("operation view = %+v", operation)
+		}
+	}
+	if !found {
+		t.Fatal("instrumented calls are missing from the API view")
+	}
+	var output bytes.Buffer
+	Metrics.WritePrometheus(&output)
+	text := output.String()
+	for _, want := range []string{
+		`ts_orch_oci_requests_total{service="` + service + `",operation="GET /instances/{id}",code="429"} 1`,
+		`ts_orch_oci_requests_total{service="` + service + `",operation="GET /instances/{id}",code="transport_error"} 1`,
+		`ts_orch_oci_throttled_total{service="` + service + `",operation="GET /instances/{id}"} 1`,
+		`ts_orch_oci_request_duration_seconds_count{service="` + service + `",operation="GET /instances/{id}"} 3`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("metrics lack %q", want)
+		}
+	}
+	if strings.Contains(text, "ocid1.") {
+		t.Fatal("an OCID leaked into a metric label")
+	}
+}
+
+func TestOperationCardinalityIsBounded(t *testing.T) {
+	service := "bounded-" + strings.ReplaceAll(t.Name(), "/", "-")
+	for index := range maxOperationsPerService + 10 {
+		apiStats.record(service, "GET /r"+strings.Repeat("x", index%40)+string(rune('a'+index%26))+string(rune('a'+index/26)), 200, false, 0)
+	}
+	count := 0
+	other := false
+	for _, operation := range APIOperations() {
+		if operation.Service == service {
+			count++
+			other = other || operation.Operation == "other"
+		}
+	}
+	if count != maxOperationsPerService+1 || !other {
+		t.Fatalf("operations for service = %d (other=%v), want bound plus other", count, other)
+	}
+}
+
+func TestFactoryObjectStorageRecordsHTTPAttempts(t *testing.T) {
+	provider := testProvider(t)
+	const operation = "HEAD /n/{id}/b/{id}/o/{id}"
+	for _, test := range []struct {
+		name      string
+		statuses  []int
+		errors    uint64
+		throttled uint64
+	}{
+		{name: "success", statuses: []int{http.StatusOK}},
+		{name: "throttled", statuses: []int{http.StatusTooManyRequests, http.StatusOK}, errors: 1, throttled: 1},
+		{name: "transport error", statuses: []int{0, http.StatusOK}, errors: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			before := recordedOperation(string(ServiceObjectStorage), operation)
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				index := int(calls.Add(1)) - 1
+				if index >= len(test.statuses) {
+					t.Errorf("unexpected HTTP attempt %d", index+1)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				status := test.statuses[index]
+				if status == 0 {
+					connection, _, err := w.(http.Hijacker).Hijack()
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					_ = connection.Close()
+					return
+				}
+				w.Header().Set("ETag", "object-etag")
+				w.WriteHeader(status)
+			}))
+			defer server.Close()
+			factory, err := New(provider, Options{Region: "sa-saopaulo-1",
+				Retry: RetryOptions{MaxAttempts: 2, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			client, err := factory.ObjectStorage()
+			if err != nil {
+				t.Fatal(err)
+			}
+			PinHost(&client.BaseClient, server.URL)
+			response, err := client.HeadObject(t.Context(), objectstorage.HeadObjectRequest{
+				NamespaceName: new("secretNamespace"), BucketName: new("secretBucket"), ObjectName: new("secret/object/name"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response.ETag == nil || *response.ETag != "object-etag" || calls.Load() != int32(len(test.statuses)) {
+				t.Fatalf("Object Storage result changed: response=%+v calls=%d", response, calls.Load())
+			}
+			after := recordedOperation(string(ServiceObjectStorage), operation)
+			if after.Calls-before.Calls != uint64(len(test.statuses)) || after.Errors-before.Errors != test.errors ||
+				after.Throttled-before.Throttled != test.throttled || after.LastStatus != http.StatusOK ||
+				after.TotalSeconds <= before.TotalSeconds || after.MaxSeconds <= 0 {
+				t.Fatalf("Object Storage measurements: before=%+v after=%+v", before, after)
+			}
+			var output bytes.Buffer
+			Metrics.WritePrometheus(&output)
+			for _, secret := range []string{"secretNamespace", "secretBucket", "secret/object/name"} {
+				if strings.Contains(output.String(), secret) {
+					t.Fatalf("Object Storage identifier leaked into metrics: %s", secret)
+				}
+			}
+		})
+	}
+}
+
+func recordedOperation(service, operation string) observability.OCIOperationView {
+	operations := APIOperations()
+	index := slices.IndexFunc(operations, func(view observability.OCIOperationView) bool {
+		return view.Service == service && view.Operation == operation
+	})
+	if index >= 0 {
+		return operations[index]
+	}
+	return observability.OCIOperationView{}
+}

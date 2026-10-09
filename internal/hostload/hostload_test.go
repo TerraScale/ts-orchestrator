@@ -128,8 +128,8 @@ func TestSamplerDiffsCgroupAndHostCounters(t *testing.T) {
 		return observability.SystemView{CPUSeconds: observability.CPUSeconds{User: busy, Idle: idle},
 			MemTotalBytes: 8 << 30, MemAvailBytes: 6 << 30,
 			Filesystems: []observability.FilesystemView{
-				{Role: "state", SizeBytes: 100, AvailBytes: 80},
-				{Role: "install", SizeBytes: 100, AvailBytes: 40},
+				{Role: "state", Path: "/state", SizeBytes: 100, AvailBytes: 80, FreeBytes: 80},
+				{Role: "install", Path: "/install", SizeBytes: 100, AvailBytes: 40, FreeBytes: 40},
 				{Role: "broken", SizeBytes: 0},
 			}}, nil
 	}

@@ -7,8 +7,10 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -19,6 +21,8 @@ var ErrNewerLineage = errors.New("kv snapshot belongs to a newer stream")
 const (
 	captureTimeout = 30 * time.Second
 	drainTimeout   = time.Minute
+	// The full pass includes stream inspection, capture and Object Storage I/O.
+	snapshotPassTimeout = 2 * time.Minute
 )
 
 // Snapshotter uploads every changed bucket while this controller leads.
@@ -34,7 +38,13 @@ type Snapshotter struct {
 	Schedule func() (time.Duration, bool)
 	Now      func() time.Time
 
-	uploaded map[string]upload
+	passMu     sync.Mutex
+	nextBucket int
+	uploaded   map[string]upload
+	statusMu   sync.RWMutex
+	// One record per configured bucket; no document or error text is retained.
+	status      map[string]observability.KVSnapshotBucketView
+	lastCheckAt time.Time
 }
 
 // upload is the last object this snapshotter wrote or found current.
@@ -84,81 +94,96 @@ func (snapshotter *Snapshotter) Run(ctx context.Context) error {
 }
 
 // SnapshotOnce uploads each bucket whose stream changed since its last
-// upload and returns the buckets it wrote. One failing bucket does not stop
-// the others.
+// upload and returns the buckets it wrote. Errors are collected; the starting
+// bucket rotates so a timed-out pass cannot repeatedly starve the same buckets.
 func (snapshotter *Snapshotter) SnapshotOnce(ctx context.Context) ([]string, error) {
+	snapshotter.passMu.Lock()
+	defer snapshotter.passMu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, snapshotPassTimeout)
+	defer cancel()
 	if snapshotter.uploaded == nil {
 		snapshotter.uploaded = map[string]upload{}
 	}
 	var written []string
 	var failures []error
-	for _, bucket := range snapshotter.Buckets {
-		wrote, err := snapshotter.snapshot(ctx, bucket)
+	start := snapshotter.nextBucket
+	for index := range len(snapshotter.Buckets) {
+		bucket := snapshotter.Buckets[(start+index)%len(snapshotter.Buckets)]
+		wrote, state, err := snapshotter.snapshot(ctx, bucket)
+		snapshotter.recordCheck(bucket, wrote, state, err)
 		if err != nil {
 			failures = append(failures, err)
 		} else if wrote {
 			written = append(written, bucket)
 		}
 	}
+	if len(snapshotter.Buckets) > 0 {
+		snapshotter.nextBucket = (start + 1) % len(snapshotter.Buckets)
+	}
+	checkedAt := snapshotter.now()
+	snapshotter.statusMu.Lock()
+	snapshotter.lastCheckAt = checkedAt
+	snapshotter.statusMu.Unlock()
 	return written, errors.Join(failures...)
 }
 
-func (snapshotter *Snapshotter) snapshot(ctx context.Context, bucket string) (bool, error) {
+func (snapshotter *Snapshotter) snapshot(ctx context.Context, bucket string) (wrote bool, state string, err error) {
 	// Stream asks the stream leader for its current info on every call;
 	// CachedInfo returns that reply.
 	stream, err := snapshotter.JS.Stream(ctx, "KV_"+bucket)
 	if errors.Is(err, jetstream.ErrStreamNotFound) {
-		return false, nil
+		return false, "absent", nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("inspect %s: %w", bucket, err)
+		return false, "", fmt.Errorf("inspect %s: %w", bucket, err)
 	}
 	info := stream.CachedInfo()
 	created, sequence := info.Created, info.State.LastSeq
 	last, known := snapshotter.uploaded[bucket]
-	if sequence == 0 || known && last.created.Equal(created) && sequence <= last.sequence {
-		return false, nil
-	}
-	now := time.Now
-	if snapshotter.Now != nil {
-		now = snapshotter.Now
-	}
-	document, err := capture(ctx, snapshotter.JS, info, snapshotter.Objects.Cell, bucket, now().UTC())
-	if err != nil {
-		return false, err
+	if sequence == 0 {
+		return false, "empty", nil
 	}
 	// An unchanged ETag proves the object still holds this stream at a lower
 	// sequence, so the write needs no read.
-	if known && last.created.Equal(created) {
-		etag, err := snapshotter.Objects.Put(ctx, document, last.etag)
-		if err == nil {
-			snapshotter.uploaded[bucket] = upload{created: created, sequence: sequence, etag: etag}
-			return true, nil
+	if known && last.created.Equal(created) && sequence > last.sequence {
+		if err := snapshotter.writeSnapshot(ctx, info, bucket, last.etag); err == nil {
+			return true, "current", nil
 		}
 		// The object moved, vanished or could not be written: forget it
 		// and decide from a fresh read.
 		delete(snapshotter.uploaded, bucket)
 	}
-	current, etag, found, err := snapshotter.Objects.Get(ctx, bucket)
+	stored, etag, found, err := snapshotter.Objects.Get(ctx, bucket)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	if found {
-		if current.StreamCreated.After(created) {
-			return false, fmt.Errorf("%w: %s was snapshotted from a stream created at %s, after this one (%s)",
-				ErrNewerLineage, bucket, current.StreamCreated.Format(time.RFC3339Nano), created.Format(time.RFC3339Nano))
+		if stored.StreamCreated.After(created) {
+			return false, "", fmt.Errorf("%w: %s was snapshotted from a stream created at %s, after this one (%s)",
+				ErrNewerLineage, bucket, stored.StreamCreated.Format(time.RFC3339Nano), created.Format(time.RFC3339Nano))
 		}
-		if current.StreamCreated.Equal(created) && current.Sequence >= sequence {
-			snapshotter.uploaded[bucket] = upload{created: created, sequence: current.Sequence, etag: etag}
-			return false, nil
+		if stored.StreamCreated.Equal(created) && stored.Sequence >= sequence {
+			snapshotter.uploaded[bucket] = upload{created: created, sequence: stored.Sequence, etag: etag}
+			return false, "current", nil
 		}
+	}
+	if err := snapshotter.writeSnapshot(ctx, info, bucket, etag); err != nil {
+		return false, "", err
+	}
+	return true, "current", nil
+}
+
+func (snapshotter *Snapshotter) writeSnapshot(ctx context.Context, info *jetstream.StreamInfo, bucket, etag string) error {
+	document, err := capture(ctx, snapshotter.JS, info, snapshotter.Objects.Cell, bucket, snapshotter.now())
+	if err != nil {
+		return err
 	}
 	etag, err = snapshotter.Objects.Put(ctx, document, etag)
 	if err != nil {
-		return false, err
+		return err
 	}
-	snapshotter.uploaded[bucket] = upload{created: created, sequence: sequence, etag: etag}
-	return true, nil
+	snapshotter.uploaded[bucket] = upload{created: info.Created, sequence: info.State.LastSeq, etag: etag}
+	return nil
 }
 
 // capture reads the latest value of every key. Sequence is the stream's last

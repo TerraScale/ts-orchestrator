@@ -3,6 +3,7 @@ package host
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 )
 
 func TestLoadOperationIsRefusedUntilASinkIsSet(t *testing.T) {
@@ -18,6 +20,29 @@ func TestLoadOperationIsRefusedUntilASinkIsSet(t *testing.T) {
 	if _, err := c.handleAuthorized(t.Context(), signedHostRequest(t, hostKey, "load", s.SessionID, s.Epoch, report)); err == nil ||
 		!strings.Contains(err.Error(), errLoadDisabled.Error()) {
 		t.Fatalf("load accepted without a sink: %v", err)
+	}
+}
+
+func TestLoadOperationRejectsMalformedFilesystemsBeforeSink(t *testing.T) {
+	c, hostKey, session, _ := reportedTestHost(t)
+	calls := 0
+	c.SetLoadSink(func(hostload.Origin, hostload.Report) error { calls++; return nil })
+	valid := observability.FilesystemView{Role: "terrabase_data", Path: "/terrabase/data", SizeBytes: 100, AvailBytes: 40, FreeBytes: 50}
+	for name, filesystems := range map[string][]observability.FilesystemView{
+		"duplicate roles": {valid, valid},
+		"invalid size":    {{Role: valid.Role, Path: valid.Path, SizeBytes: 10, AvailBytes: 40, FreeBytes: 50}},
+		"invalid role":    {{Role: "data.*", Path: valid.Path, SizeBytes: 100}},
+		"invalid path":    {{Role: valid.Role, Path: "data", SizeBytes: 100}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			report := hostload.Report{SchemaVersion: hostload.SchemaVersion, Host: hostload.HostUsage{Filesystems: filesystems}}
+			if _, err := c.handleAuthorized(t.Context(), signedHostRequest(t, hostKey, "load", session.SessionID, session.Epoch, report)); !errors.Is(err, hostload.ErrInvalidReport) {
+				t.Fatalf("malformed filesystem reached sink: %v", err)
+			}
+		})
+	}
+	if calls != 0 {
+		t.Fatalf("invalid filesystems reached sink %d times", calls)
 	}
 }
 
@@ -32,11 +57,14 @@ func TestLoadOperationFiltersRolesAndUsesRegistrationOrigin(t *testing.T) {
 		return nil
 	})
 	cores, memory := 0.5, uint64(1<<20)
-	report := hostload.Report{SchemaVersion: hostload.SchemaVersion, Roles: []hostload.RoleUsage{
-		{Role: "terrabase", CPUCores: &cores, MemoryBytes: &memory, TerraBase: &memberstatus.Load{Connections: 3}},
-		// Not registered for this host: dropped before the sink sees it.
-		{Role: "api", CPUCores: &cores},
-	}}
+	report := hostload.Report{SchemaVersion: hostload.SchemaVersion,
+		Host: hostload.HostUsage{CPUCores: 8, MemoryBytes: 16 << 30, Filesystems: []observability.FilesystemView{
+			{Role: "terrabase_data", Path: "/terrabase/data", SizeBytes: 100, AvailBytes: 40, FreeBytes: 50, Device: 3},
+		}}, Roles: []hostload.RoleUsage{
+			{Role: "terrabase", CPUCores: &cores, MemoryBytes: &memory, TerraBase: &memberstatus.Load{Connections: 3}},
+			// Not registered for this host: dropped before the sink sees it.
+			{Role: "api", CPUCores: &cores},
+		}}
 	payload, err := c.handleAuthorized(t.Context(), signedHostRequest(t, hostKey, "load", s.SessionID, s.Epoch, report))
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +73,7 @@ func TestLoadOperationFiltersRolesAndUsesRegistrationOrigin(t *testing.T) {
 		t.Fatalf("load not acknowledged: %#v", payload)
 	}
 	if calls != 1 || gotOrigin != (hostload.Origin{Cell: "gru", Environment: "production", Node: "node-a"}) ||
-		len(gotReport.Roles) != 1 || gotReport.Roles[0].Role != "terrabase" {
+		!sameJSON(gotReport.Host, report.Host) || len(gotReport.Roles) != 1 || gotReport.Roles[0].Role != "terrabase" {
 		t.Fatalf("sink got origin %+v report %+v after %d calls", gotOrigin, gotReport, calls)
 	}
 

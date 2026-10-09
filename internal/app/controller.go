@@ -306,7 +306,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return fmt.Errorf("start storage capacity collector: %w", err)
 	}
 	defer stopCapacity()
-	stopKVSnapshots, err := startKVSnapshots(ctx, cfg, runtime.JetStream(), control, services)
+	stopKVSnapshots, kvSnapshots, err := startKVSnapshots(ctx, cfg, runtime.JetStream(), control, services)
 	if err != nil {
 		return err
 	}
@@ -847,8 +847,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		holds: placementHolds, autoscalers: workloadReconciler, hostLoad: hostLoad, linkedPeers: globalMirrorPeers(cfg.NATS),
 		rollouts: rollouts, budgets: budgets, ociResources: ociReconcile.resources(),
 		credentials: controllerCredentialFiles(cfg),
+		kvSnapshots: kvSnapshots,
 		nodes:       topologySource(cfg.NATS.Cell, cfg.NATS.Embedded.BrokerIDs, services, hostController, policy.nodes)},
-		[]observability.FilesystemRole{{Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
+		[]observability.FilesystemRole{{Role: "boot", Path: "/"}, {Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
 		return fmt.Errorf("attach controller observability: %w", err)
 	}
 	// A slot for every worker with room to spare, so no sender blocks

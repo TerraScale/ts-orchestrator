@@ -65,9 +65,9 @@ func sdkProviderFrom(factory *ociclient.Factory, config RegionConfig, hostMetada
 	// templated operation without touching signing, rate limiting or retry
 	// behavior (the shared factory installs those on the interceptor and
 	// retry policy, which run around the dispatcher).
-	compute.HTTPClient = instrument(compute.HTTPClient, "compute")
-	storage.HTTPClient = instrument(storage.HTTPClient, "blockstorage")
-	network.HTTPClient = instrument(network.HTTPClient, "network")
+	compute.HTTPClient = ociclient.Instrument(compute.HTTPClient, "compute")
+	storage.HTTPClient = ociclient.Instrument(storage.HTTPClient, "blockstorage")
+	network.HTTPClient = ociclient.Instrument(network.HTTPClient, "network")
 	return &sdkProvider{config: config, hostMetadata: maps.Clone(hostMetadata),
 		compute: compute, storage: storage, network: network}, nil
 }

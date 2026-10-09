@@ -205,6 +205,11 @@ templ notes(current view) {
 	for _, note := range current.Notes {
 		<p class="note" role="status">{ note }</p>
 	}
+	if current.Page.slug != "region" {
+		for _, collectionError := range current.sectionErrors() {
+			<p class="note warn" role="status">Collection failed: { collectionError }</p>
+		}
+	}
 	if len(current.Unavailable) > 0 {
 		<p class="note warn" role="status">Unavailable right now: { joinWords(current.Unavailable) }.</p>
 	}

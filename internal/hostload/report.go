@@ -13,9 +13,15 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"path/filepath"
 	"regexp"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 // SchemaVersion is the only Report version this build accepts.
@@ -28,6 +34,9 @@ const (
 	MaxCPUCores = 1024
 	// MaxMemoryBytes bounds a role's measured memory use.
 	MaxMemoryBytes = 1 << 44
+	// MaxFilesystems allows the host roots and one volume per managed role.
+	MaxFilesystems     = MaxRoles + 5
+	MaxFilesystemBytes = 1 << 50
 )
 
 var ErrInvalidReport = errors.New("invalid host load report")
@@ -41,15 +50,17 @@ type Report struct {
 	Roles         []RoleUsage `json:"roles,omitempty"`
 }
 
-// HostUsage is whole-host utilization as fractions in [0,1]. A nil field was
-// not measured this interval (for example the first CPU sample, which has no
-// earlier counter to diff against).
+// HostUsage carries capacity, filesystems and utilization fractions in [0,1].
+// A nil field was not measured this interval (for example the first CPU sample,
+// which has no earlier counter to diff against).
 type HostUsage struct {
-	CPUCores    int      `json:"cpu_capacity_cores,omitzero"`
-	MemoryBytes uint64   `json:"memory_capacity_bytes,omitzero"`
-	CPU         *float64 `json:"cpu_util,omitempty"`
-	Memory      *float64 `json:"mem_util,omitempty"`
-	Disk        *float64 `json:"disk_util,omitempty"`
+	FilesystemsIncomplete bool                           `json:"filesystems_incomplete,omitzero"`
+	CPUCores              int                            `json:"cpu_capacity_cores,omitzero"`
+	MemoryBytes           uint64                         `json:"memory_capacity_bytes,omitzero"`
+	CPU                   *float64                       `json:"cpu_util,omitempty"`
+	Memory                *float64                       `json:"mem_util,omitempty"`
+	Disk                  *float64                       `json:"disk_util,omitempty"`
+	Filesystems           []observability.FilesystemView `json:"filesystems,omitempty"`
 }
 
 // RoleUsage is one native role's cgroup v2 usage in absolute units, so the
@@ -77,6 +88,16 @@ func (r Report) Validate() error {
 		if value != nil && !fraction(*value) {
 			return fmt.Errorf("%w: host utilization out of range", ErrInvalidReport)
 		}
+	}
+	if len(r.Host.Filesystems) > MaxFilesystems {
+		return fmt.Errorf("%w: more than %d filesystems", ErrInvalidReport, MaxFilesystems)
+	}
+	filesystems := make(map[string]bool, len(r.Host.Filesystems))
+	for _, filesystem := range r.Host.Filesystems {
+		if !validFilesystem(filesystem) || filesystems[filesystem.Role] {
+			return fmt.Errorf("%w: invalid or repeated filesystem role %q", ErrInvalidReport, filesystem.Role)
+		}
+		filesystems[filesystem.Role] = true
 	}
 	if len(r.Roles) > MaxRoles {
 		return fmt.Errorf("%w: more than %d roles", ErrInvalidReport, MaxRoles)
@@ -107,6 +128,16 @@ func (r Report) Validate() error {
 		}
 	}
 	return nil
+}
+
+func validFilesystem(filesystem observability.FilesystemView) bool {
+	return protocol.ValidateSubjectToken(filesystem.Role) == nil &&
+		len(filesystem.Path) <= 4096 && utf8.ValidString(filesystem.Path) &&
+		filepath.IsAbs(filesystem.Path) && filepath.Clean(filesystem.Path) == filesystem.Path &&
+		!strings.ContainsFunc(filesystem.Path, unicode.IsControl) &&
+		filesystem.SizeBytes > 0 && filesystem.SizeBytes <= MaxFilesystemBytes &&
+		filesystem.AvailBytes <= filesystem.FreeBytes && filesystem.FreeBytes <= filesystem.SizeBytes &&
+		filesystem.Files <= MaxFilesystemBytes && filesystem.FilesFree <= filesystem.Files
 }
 
 func fraction(value float64) bool { return finiteWithin(value, 1) }

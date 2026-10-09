@@ -34,6 +34,7 @@ func (current view) globalKPIs() []kpi {
 	answering, expected := 0, 0
 	databases, serving, desired, rollouts := 0, 0, 0, 0
 	var diskUsed, diskTotal uint64
+	partialResources := false
 	quorumRegions, unknownQuorum := 0, 0
 	for _, summary := range regions {
 		if summary.Reach == decisionlog.RegionOK {
@@ -58,6 +59,7 @@ func (current view) globalKPIs() []kpi {
 		rollouts += len(summary.Rollouts)
 		diskUsed += summary.Capacity.DiskUsedBytes
 		diskTotal += summary.Capacity.DiskBytes
+		partialResources = partialResources || summary.Capacity.Partial || summary.Reach != decisionlog.RegionOK && !summary.Local
 	}
 	if len(regions) > 0 {
 		status := "ok"
@@ -108,17 +110,21 @@ func (current view) globalKPIs() []kpi {
 	if reporter := current.natsReporter(); reporter != nil {
 		degraded := 0
 		for _, stream := range reporter.NATS.Streams {
-			if stream.OfflinePeers > 0 {
+			if stream.OfflinePeers > 0 || stream.MaxReplicaLag > 0 {
 				degraded++
 			}
 		}
 		status := "ok"
-		if degraded > 0 {
+		if degraded > 0 || reporter.NATS.Truncated {
 			status = "warn"
+		}
+		sub := percent(storeUsed(reporter.NATS)) + " store used"
+		if reporter.NATS.Truncated {
+			sub += "; partial stream/consumer inventory"
 		}
 		tiles = append(tiles, kpi{Label: "JetStream · " + upper(current.localRegion()),
 			Value: itoa(len(reporter.NATS.Streams)-degraded) + " / " + itoa(len(reporter.NATS.Streams)) + " healthy",
-			Sub:   percent(storeUsed(reporter.NATS)) + " store used", Status: status,
+			Sub:   sub, Status: status,
 			Spark: sparkValues(sumSeries("store", current.historyRange(observability.HistJSStoreUsed, nil, "member", false))),
 			Href:  current.State.link("/nats")})
 	}
@@ -127,6 +133,9 @@ func (current view) globalKPIs() []kpi {
 			placement := current.placement()
 			ids := map[string]bool{}
 			for _, database := range placement.Databases {
+				if database.Terminal {
+					continue
+				}
 				ids[database.DatabaseID] = true
 				serving += database.Serving
 				desired += database.DesiredSeats
@@ -137,7 +146,7 @@ func (current view) globalKPIs() []kpi {
 			}
 			databases = len(ids)
 		}
-		tiles = append(tiles, kpi{Label: "TerraBase instances", Value: itoa(databases),
+		tiles = append(tiles, kpi{Label: "Managed TerraBase databases", Value: itoa(databases),
 			Sub: itoa(serving) + " / " + itoa(desired) + " seats serving", Status: boolStatus(serving >= desired),
 			Spark: sparkValues(current.historyRange(observability.HistSeatsServing, nil, "", false)),
 			Href:  current.State.link("/terrabase")})
@@ -155,8 +164,13 @@ func (current view) globalKPIs() []kpi {
 	}
 	if diskTotal > 0 {
 		used := float64(diskUsed) / float64(diskTotal)
+		sub, status := formatBytes(diskUsed)+" of "+formatBytes(diskTotal), ratioStatus(used)
+		if partialResources {
+			sub += "; partial resource coverage"
+			status = worst(status, "warn")
+		}
 		tiles = append(tiles, kpi{Label: "Storage used", Value: percent(used),
-			Sub: formatBytes(diskUsed) + " of " + formatBytes(diskTotal), Status: ratioStatus(used),
+			Sub: sub, Status: status,
 			Spark: sparkValues(sumSeries("disk", current.historyRange(observability.HistFSUsed, nil, "member", false))),
 			Href:  current.State.link("/storage")})
 	}

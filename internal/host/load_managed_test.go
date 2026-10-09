@@ -4,10 +4,14 @@ package host
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 )
 
 func TestLoadOperationValidatesCurrentManagedBinding(t *testing.T) {
@@ -71,5 +75,43 @@ func TestLoadOperationValidatesCurrentManagedBinding(t *testing.T) {
 				t.Fatalf("valid managed load not acknowledged: %#v", payload)
 			}
 		})
+	}
+}
+
+func TestLoadFilesystemsIncludeDataAndCurrentManagedVolumes(t *testing.T) {
+	root := "/srv/managed"
+	member := strings.Repeat("a", 32)
+	closed := make(chan struct{})
+	close(closed)
+	a := Agent{cfg: AgentConfig{StateRoot: "/state", InstallRoot: "/install", TerraBaseRoot: "/terrabase",
+		ManagedRuntimeRoot: root, Roles: []string{"terrabase", "stopped", "absent"}},
+		nativeRoots: map[string]*managedNativeRoot{
+			"terrabase": {path: filepath.Join(root, member, "native-root.sock"), done: make(chan struct{})},
+			"stopped":   {path: filepath.Join(root, "old", "native-root.sock"), done: closed},
+		}}
+	want := []observability.FilesystemRole{{Role: "boot", Path: "/"}, {Role: "state", Path: "/state"}, {Role: "install", Path: "/install"},
+		{Role: "managed_runtime", Path: root}, {Role: "terrabase_data", Path: "/terrabase/data"},
+		{Role: "managed_volume_" + member, Path: filepath.Join(root, member, "volume")}}
+	if got := a.loadFilesystems(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("filesystem roles = %+v, want %+v", got, want)
+	}
+	delete(a.nativeRoots, "terrabase")
+	if got := a.loadFilesystems(); !reflect.DeepEqual(got, want[:5]) {
+		t.Fatalf("stopped managed volume still sampled: %+v", got)
+	}
+}
+
+func TestLoadFilesystemsFitAllManagedRolesWithBoot(t *testing.T) {
+	a := Agent{cfg: AgentConfig{StateRoot: "/state", InstallRoot: "/install", TerraBaseRoot: "/terrabase",
+		ManagedRuntimeRoot: "/managed"}, nativeRoots: make(map[string]*managedNativeRoot)}
+	for i := range hostload.MaxRoles {
+		role := fmt.Sprintf("role-%d", i)
+		a.cfg.Roles = append(a.cfg.Roles, role)
+		a.nativeRoots[role] = &managedNativeRoot{path: filepath.Join("/managed", role, "native-root.sock"), done: make(chan struct{})}
+	}
+	filesystems := a.loadFilesystems()
+	if len(filesystems) != hostload.MaxFilesystems ||
+		filesystems[0] != (observability.FilesystemRole{Role: "boot", Path: "/"}) {
+		t.Fatalf("host roots and all managed volumes must fit report bound: %+v", filesystems)
 	}
 }

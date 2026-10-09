@@ -262,6 +262,9 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 	if cfg.Host.ManagedRuntimeRoot != "" {
 		filesystems = append(filesystems, observability.FilesystemRole{Role: "managed_runtime", Path: cfg.Host.ManagedRuntimeRoot})
 	}
+	if cfg.Host.TerraBaseRoot != "" {
+		filesystems = append(filesystems, observability.FilesystemRole{Role: "terrabase_data", Path: terrabase.Layout(cfg.Host.TerraBaseRoot).Data()})
+	}
 	if err := telemetry.attachHost(runtime, filesystems); err != nil {
 		return fmt.Errorf("attach host observability: %w", err)
 	}

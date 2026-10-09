@@ -74,8 +74,12 @@ func (s *Sampler) Sample(terrabase map[string]memberstatus.Load) Report {
 	memTotal := uint64(0)
 	if view, err := s.config.ReadSystem(s.config.Filesystems); err == nil {
 		memTotal = view.MemTotalBytes
-		report.Host.CPUCores = view.CPUCount
-		report.Host.MemoryBytes = view.MemTotalBytes
+		if view.CPUCount > 0 && view.CPUCount <= MaxCPUCores {
+			report.Host.CPUCores = view.CPUCount
+		}
+		if view.MemTotalBytes <= MaxMemoryBytes {
+			report.Host.MemoryBytes = view.MemTotalBytes
+		}
 		busy := view.CPUSeconds.Busy()
 		total := busy + view.CPUSeconds.Idle + view.CPUSeconds.IOWait
 		if s.hostSeen && total > s.host.total && busy >= s.host.usage {
@@ -85,15 +89,25 @@ func (s *Sampler) Sample(terrabase map[string]memberstatus.Load) Report {
 		if view.MemTotalBytes > 0 && view.MemAvailBytes <= view.MemTotalBytes {
 			report.Host.Memory = ratio(float64(view.MemTotalBytes-view.MemAvailBytes), float64(view.MemTotalBytes))
 		}
+		seen := make(map[string]bool)
 		for _, filesystem := range view.Filesystems {
-			if filesystem.SizeBytes == 0 || filesystem.AvailBytes > filesystem.SizeBytes {
+			if len(report.Host.Filesystems) == MaxFilesystems {
+				report.Host.FilesystemsIncomplete = true
+				break
+			}
+			if !validFilesystem(filesystem) || seen[filesystem.Role] {
+				report.Host.FilesystemsIncomplete = true
 				continue
 			}
+			seen[filesystem.Role] = true
+			report.Host.Filesystems = append(report.Host.Filesystems, filesystem)
 			used := ratio(float64(filesystem.SizeBytes-filesystem.AvailBytes), float64(filesystem.SizeBytes))
 			if report.Host.Disk == nil || *used > *report.Host.Disk {
 				report.Host.Disk = used
 			}
 		}
+	} else {
+		report.Host.FilesystemsIncomplete = true
 	}
 	present := make(map[string]struct{}, len(s.config.Roles))
 	for _, role := range s.config.Roles {

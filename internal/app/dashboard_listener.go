@@ -174,6 +174,17 @@ func (runtime *runtimeObservability) startDashboard(ctx context.Context, listene
 		}
 		board := dashboard.New(dashboard.Options{Health: runtime.health, Events: runtime.events, SignOut: true})
 		runtime.mountUsage(server)
+		runtime.boardsMu.Lock()
+		if runtime.snapshots != nil {
+			server.HandleSnapshots(runtime.snapshots)
+		}
+		if runtime.cluster != nil {
+			server.HandleCluster(runtime.cluster)
+		}
+		if providers := runtime.providers.Load(); providers != nil {
+			mountJournalAPI(server, *providers)
+		}
+		runtime.boardsMu.Unlock()
 		board.Mount(server)
 		serving, err := server.Start(serveCtx, settings)
 		if err != nil {

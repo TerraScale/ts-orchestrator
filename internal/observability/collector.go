@@ -33,6 +33,8 @@ type CollectorConfig struct {
 	Placement func(context.Context) (PlacementView, error)
 	Delivery  func() DeliveryView
 	OCI       func() OCIView
+	// KVSnapshots reads bounded in-memory snapshot metadata without I/O.
+	KVSnapshots func() KVSnapshotView
 	// Credentials lists the member's expiring credentials. It may return a
 	// partial list with an error, which marks the section failed.
 	Credentials func() ([]CredentialView, error)
@@ -113,6 +115,10 @@ func (collector *Collector) Snapshot(ctx context.Context, includeMetrics bool) (
 	if config.OCI != nil {
 		view := config.OCI()
 		snapshot.OCI = &view
+	}
+	if config.KVSnapshots != nil {
+		view := config.KVSnapshots()
+		snapshot.KVSnapshots = &view
 	}
 	if view, err := collector.systemView(ctx); err != nil {
 		fail("system", err)

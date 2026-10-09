@@ -54,7 +54,7 @@ func TestReadSystemFromProcFixture(t *testing.T) {
 	root := writeProcFixture(t)
 	stat := func(path string) (FilesystemView, error) {
 		if path == "/missing" {
-			return FilesystemView{}, errors.New("missing")
+			return FilesystemView{SizeBytes: 99, AvailBytes: 40, Files: 10, FilesFree: 5}, errors.New("missing")
 		}
 		return FilesystemView{SizeBytes: 100, AvailBytes: 40, Files: 10, FilesFree: 5}, nil
 	}
@@ -82,7 +82,7 @@ func TestReadSystemFromProcFixture(t *testing.T) {
 		t.Fatal("absent io pressure file produced a reading")
 	}
 	if len(view.Filesystems) != 2 || view.Filesystems[0].AvailBytes != 40 || view.Filesystems[1].SizeBytes != 0 ||
-		view.Filesystems[1].Role != "store" {
+		view.Filesystems[1] != (FilesystemView{Role: "store", Path: "/missing"}) {
 		t.Fatalf("filesystems = %+v", view.Filesystems)
 	}
 	view.Clock = &ClockView{Synchronized: true, OffsetSeconds: -0.002, MaxErrorSeconds: 0.0235}
@@ -95,6 +95,9 @@ func TestReadSystemFromProcFixture(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("metrics lack %q:\n%s", want, text)
 		}
+	}
+	if strings.Contains(text, `role="store"`) {
+		t.Fatalf("unavailable filesystem produced gauges:\n%s", text)
 	}
 }
 

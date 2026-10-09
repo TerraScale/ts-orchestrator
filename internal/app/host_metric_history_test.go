@@ -49,7 +49,7 @@ func TestHostMetricPublicationFencesAuthorityChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	batch := load.archiveBatch(time.Now())
-	if batch.Epoch != 1 || len(batch.Samples) != 2 || batch.At.Second() != 0 {
+	if batch.Epoch != 1 || len(batch.Samples) != 4 || batch.At.Second() != 0 {
 		t.Fatalf("batch = %+v", batch)
 	}
 	calls := 0
@@ -69,7 +69,7 @@ func TestHostMetricPublicationFencesAuthorityChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	fresh := load.archiveBatch(time.Now())
-	if fresh.Epoch != 2 || len(fresh.Samples) != 2 {
+	if fresh.Epoch != 2 || len(fresh.Samples) != 4 {
 		t.Fatalf("new term lost fresh reports: %+v", fresh)
 	}
 	fence.set(authority.Snapshot{})
@@ -86,7 +86,7 @@ func TestHostMetricHistoryReplaysWithoutMemberSnapshotOverlap(t *testing.T) {
 	}
 	now := time.Now().UTC().Truncate(time.Minute)
 	for _, at := range []time.Time{now.Add(-13 * 24 * time.Hour), now} {
-		if _, err := writer.Publish(t.Context(), observability.HostMetricBatch{At: at, Epoch: 1,
+		if _, err := writer.Publish(t.Context(), observability.HostMetricBatch{Version: observability.HostMetricBatchVersion, At: at, Epoch: 1,
 			Samples: []observability.Sample{{Metric: observability.HistHostCPUUtilization,
 				Labels: observability.L("member", "host-a"), Value: 0.25}}}); err != nil {
 			t.Fatal(err)
@@ -196,12 +196,12 @@ func TestHostMetricHistoryDisclosesReplaySeriesChurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Minute)
-	older := observability.HostMetricBatch{At: now.Add(-13 * 24 * time.Hour), Epoch: 1}
+	older := observability.HostMetricBatch{Version: observability.HostMetricBatchVersion, At: now.Add(-13 * 24 * time.Hour), Epoch: 1}
 	for index := range observability.DefaultHistorySeries {
 		older.Samples = append(older.Samples, observability.Sample{Metric: observability.HistHostCPUUtilization,
 			Labels: observability.L("member", fmt.Sprintf("retired-%04d", index)), Value: 0.25})
 	}
-	replacement := observability.HostMetricBatch{At: now, Epoch: 2, Samples: []observability.Sample{
+	replacement := observability.HostMetricBatch{Version: observability.HostMetricBatchVersion, At: now, Epoch: 2, Samples: []observability.Sample{
 		{Metric: observability.HistHostCPUUtilization, Labels: observability.L("member", "replacement"), Value: 0.5},
 	}}
 	for _, batch := range []observability.HostMetricBatch{older, replacement} {
@@ -268,7 +268,7 @@ func TestHostMetricHistoryDisclosesRejectedReplayBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Minute)
-	if confirmed, err := writer.Publish(t.Context(), observability.HostMetricBatch{At: now, Epoch: 1,
+	if confirmed, err := writer.Publish(t.Context(), observability.HostMetricBatch{Version: observability.HostMetricBatchVersion, At: now, Epoch: 1,
 		Samples: []observability.Sample{{Metric: observability.HistHostCPUUtilization,
 			Labels: observability.L("member", "host-a"), Value: 0.25}}}); err != nil || !confirmed {
 		t.Fatalf("valid publish: confirmed=%t err=%v", confirmed, err)
@@ -312,9 +312,9 @@ func TestHostMetricHistoryDisclosesRejectedReplayBatch(t *testing.T) {
 }
 
 func TestHostMetricArchiveOverflowRetainsSubsetAndAccountsDrops(t *testing.T) {
-	load := overflowingHostMetricLoad(t, 1)
+	load := overflowingHostMetricLoad(t, 1, time.Now())
 	batch := load.archiveBatch(time.Now())
-	if len(batch.Samples) != 4154 {
+	if len(batch.Samples) != 4278 {
 		t.Fatalf("producer samples = %d", len(batch.Samples))
 	}
 	h := &hostMetricHistory{}
@@ -339,7 +339,7 @@ func TestHostMetricArchiveOverflowRetainsSubsetAndAccountsDrops(t *testing.T) {
 		retained = bounded
 		return stream.Publish(publishCtx, bounded)
 	}), load, events)
-	if len(retained.Samples) != observability.DefaultHistorySeries || !retained.Incomplete || h.droppedSamples.Load() != 58 {
+	if len(retained.Samples) != observability.DefaultHistorySeries || !retained.Incomplete || h.droppedSamples.Load() != 182 {
 		t.Fatalf("overflow: retained=%d dropped=%d", len(retained.Samples), h.droppedSamples.Load())
 	}
 	if !reflect.DeepEqual(retained.Samples, batch.Samples[:len(retained.Samples)]) {
@@ -347,12 +347,12 @@ func TestHostMetricArchiveOverflowRetainsSubsetAndAccountsDrops(t *testing.T) {
 	}
 	var metrics bytes.Buffer
 	h.writeMetrics(&metrics)
-	if !strings.Contains(metrics.String(), "ts_orch_host_history_dropped_samples_total 58\n") {
+	if !strings.Contains(metrics.String(), "ts_orch_host_history_dropped_samples_total 182\n") {
 		t.Fatalf("dropped accounting absent from metrics: %s", metrics.String())
 	}
 	found := false
 	for _, event := range events.Recent(16) {
-		if event.Message == "Host metric archive omitted samples at capacity" && event.Attrs["dropped_samples"] == "58" {
+		if event.Message == "Host metric archive omitted samples at capacity" && event.Attrs["dropped_samples"] == "182" {
 			found = true
 		}
 	}
@@ -361,12 +361,14 @@ func TestHostMetricArchiveOverflowRetainsSubsetAndAccountsDrops(t *testing.T) {
 	}
 }
 
-func overflowingHostMetricLoad(t *testing.T, epoch uint64) *hostTelemetry {
+func overflowingHostMetricLoad(t *testing.T, epoch uint64, at time.Time) *hostTelemetry {
 	t.Helper()
 
 	fence := &metricTestFence{}
 	fence.set(authority.Snapshot{Ready: true, Leader: true, Epoch: epoch, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)})
-	load := &hostTelemetry{fencer: fence, load: hostload.NewAggregator(hostload.AggregatorConfig{})}
+	load := &hostTelemetry{fencer: fence, load: hostload.NewAggregator(hostload.AggregatorConfig{
+		Now: func() time.Time { return at },
+	})}
 	cpu, cores, memory := 0.4, 0.125, uint64(1024)
 	report := hostload.Report{SchemaVersion: hostload.SchemaVersion,
 		Host: hostload.HostUsage{CPU: &cpu, Memory: &cpu, Disk: &cpu}}
@@ -388,7 +390,7 @@ func overflowingHostMetricLoad(t *testing.T, epoch uint64) *hostTelemetry {
 }
 
 func TestHostMetricArchiveSkipDoesNotAccountAnotherWriterBatch(t *testing.T) {
-	load := overflowingHostMetricLoad(t, 2)
+	load := overflowingHostMetricLoad(t, 2, time.Now())
 	stream, err := observability.OpenHostMetricStream(t.Context(), testRolloutJetStream(t), "gru", 1)
 	if err != nil {
 		t.Fatal(err)
@@ -402,7 +404,7 @@ func TestHostMetricArchiveSkipDoesNotAccountAnotherWriterBatch(t *testing.T) {
 	}
 	// Use the same fixed minute to cover pipeline confirmation without a wall-clock boundary.
 	dropped, confirmed, err := publishHostMetricBatch(t.Context(), stream, load, load.archiveBatch(batch.At))
-	if err != nil || confirmed || dropped != 58 {
+	if err != nil || confirmed || dropped != 182 {
 		t.Fatalf("another leader's batch: dropped=%d confirmed=%t err=%v", dropped, confirmed, err)
 	}
 	h := &hostMetricHistory{}

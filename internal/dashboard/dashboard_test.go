@@ -122,7 +122,7 @@ func TestEveryPageRendersProviderData(t *testing.T) {
 		"/members":   {"ctl-2", "ctl-3", "did not answer", "host-a", "FD-1", "leader", "75.0%"},
 		"/nats":      {"TS_DELIVERY", "placement", "this server", "ctl-3", "512.0 MiB / 1.0 GiB"},
 		"/oci":       {"GET /instances/{id}", "429", "500ms", "OCI inventory provider is attached"},
-		"/storage":   {"/var/lib/ts/nats", "95.0%", "50.0%", "900 / 1000"},
+		"/storage":   {"No filesystem was reported", "50.0%"},
 		"/terrabase": {"00000000000DMQEY0YD7RZ04RR", "00000000003K6TBW31R91GBDRD", "joining 1, serving 2", "000000000036XR713YE93E9M0S: joining on host-a"},
 		"/rollouts":  {"0000000000HAAS49GS9KYXGSQT", "sha256:feedface", "1 / 3", "done 1, pending 2", "33.3%"},
 		"/events":    {"placement held", "reason=capacity", `<option value="placement"`},

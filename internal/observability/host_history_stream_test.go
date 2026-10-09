@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"math/rand"
 	"net"
@@ -57,7 +58,7 @@ func hostMetricTestStream(t *testing.T, srv *server.Server) *HostMetricStream {
 }
 
 func hostMetricTestBatch(at time.Time) HostMetricBatch {
-	return HostMetricBatch{At: at, Epoch: 1, Samples: []Sample{
+	return HostMetricBatch{Version: HostMetricBatchVersion, At: at, Epoch: 1, Samples: []Sample{
 		{Metric: HistHostCPUUtilization, Labels: L("member", "host-1"), Value: .25},
 	}}
 }
@@ -105,6 +106,335 @@ func hostMetricCount(history *History) uint32 {
 	return count
 }
 
+func hostMetricPublishTestBatches(t *testing.T, stream *HostMetricStream, count int) {
+	t.Helper()
+	at := time.Now().UTC().Truncate(HostMetricInterval).Add(-time.Duration(count) * HostMetricInterval)
+	for index := range count {
+		data, err := encodeHostMetricBatch(hostMetricTestBatch(at.Add(time.Duration(index) * HostMetricInterval)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := stream.js.Publish(t.Context(), stream.subject, data); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+type hostMetricCountInfoStream struct {
+	jetstream.Stream
+	requests atomic.Int32
+}
+
+func (stream *hostMetricCountInfoStream) Info(ctx context.Context, opts ...jetstream.StreamInfoOpt) (*jetstream.StreamInfo, error) {
+	stream.requests.Add(1)
+	return stream.Stream.Info(ctx, opts...)
+}
+
+func TestHostMetricStreamReplayBoundsManagementRequests(t *testing.T) {
+	stream := hostMetricTestStream(t, hostMetricBroker(t, t.TempDir(), -1))
+	const batches = 131
+	hostMetricPublishTestBatches(t, stream, batches)
+	counted := &hostMetricCountInfoStream{Stream: stream.stream}
+	stream.stream = counted
+	history := NewHistory(HistoryConfig{Interval: HostMetricInterval})
+	hostMetricTail(t, stream, history)
+	hostMetricWait(t, func() bool { return stream.CaughtUp() && hostMetricCount(history) == batches })
+	// Allow periodic monitoring, but no sequential management request for every record.
+	if requests := counted.requests.Load(); requests > batches/4 {
+		t.Fatalf("replaying %d batches required %d management requests", batches, requests)
+	}
+	t.Logf("replayed %d batches with %d management requests", batches, counted.requests.Load())
+}
+
+type hostMetricResetReplayInfoStream struct {
+	jetstream.Stream
+	requests atomic.Int32
+	resetAt  int32
+	reset    func(context.Context) error
+}
+
+func (stream *hostMetricResetReplayInfoStream) Info(ctx context.Context, opts ...jetstream.StreamInfoOpt) (*jetstream.StreamInfo, error) {
+	if stream.requests.Add(1) == stream.resetAt {
+		if err := stream.reset(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return stream.Stream.Info(ctx, opts...)
+}
+
+func TestHostMetricStreamReplayDiscardsBufferedChunkAcrossRecreation(t *testing.T) {
+	stream := hostMetricTestStream(t, hostMetricBroker(t, t.TempDir(), -1))
+	hostMetricPublishTestBatches(t, stream, hostMetricReplayChunk)
+	var fresh *HostMetricStream
+	stream.stream = &hostMetricResetReplayInfoStream{Stream: stream.stream, resetAt: 2, reset: func(ctx context.Context) error {
+		if err := stream.js.DeleteStream(ctx, HostMetricStreamName); err != nil {
+			return err
+		}
+		var err error
+		fresh, err = OpenHostMetricStream(ctx, stream.js, "gru", 1)
+		return err
+	}}
+	history := NewHistory(HistoryConfig{Interval: HostMetricInterval})
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	var next uint64
+	if err := stream.tailHostMetricsOnce(ctx, history, &next); err == nil {
+		t.Fatal("replay accepted a recreated archive")
+	}
+	if fresh == nil || fresh.subject == stream.subject {
+		t.Fatal("archive did not receive a fresh generation")
+	}
+	if stream.CaughtUp() || next != 0 || hostMetricCount(history) != 0 {
+		t.Fatalf("rejected chunk changed replay state: ready=%t, next=%d, samples=%d", stream.CaughtUp(), next, hostMetricCount(history))
+	}
+}
+
+func TestHostMetricStreamReplayResumesAfterInterruptedChunk(t *testing.T) {
+	stream := hostMetricTestStream(t, hostMetricBroker(t, t.TempDir(), -1))
+	const batches = 131
+	hostMetricPublishTestBatches(t, stream, batches)
+	interrupted := &hostMetricResetReplayInfoStream{Stream: stream.stream, resetAt: 3,
+		reset: func(context.Context) error { return errors.New("interrupted replay generation check") }}
+	stream.stream = interrupted
+	history := NewHistory(HistoryConfig{Interval: HostMetricInterval})
+	hostMetricTail(t, stream, history)
+	hostMetricWait(t, func() bool { return stream.CaughtUp() })
+	if count := hostMetricCount(history); count != batches {
+		t.Fatalf("resuming a buffered chunk lost or duplicated records: samples=%d, want %d", count, batches)
+	}
+	if interrupted.requests.Load() <= interrupted.resetAt {
+		t.Fatal("replay did not recover from the injected failure")
+	}
+}
+
+func TestHostMetricStreamRecreationResumesV1Publication(t *testing.T) {
+	stream := hostMetricTestStream(t, hostMetricBroker(t, t.TempDir(), -1))
+	at := time.Now().UTC().Truncate(HostMetricInterval)
+	batch := hostMetricTestBatch(at)
+	// The retired storage contract omitted the format version entirely.
+	raw, err := json.Marshal(struct {
+		At      time.Time `json:"at"`
+		Epoch   uint64    `json:"epoch"`
+		Samples []Sample  `json:"samples"`
+	}{At: batch.At, Epoch: batch.Epoch, Samples: batch.Samples})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.js.Publish(t.Context(), stream.subject, hostMetricGzip(t, raw)); err != nil {
+		t.Fatal(err)
+	}
+	if confirmed, err := stream.Publish(t.Context(), hostMetricTestBatch(at.Add(HostMetricInterval))); err == nil || confirmed {
+		t.Fatalf("unversioned archive accepted: confirmed=%t, error=%v", confirmed, err)
+	}
+	if err := stream.js.DeleteStream(t.Context(), HostMetricStreamName); err != nil {
+		t.Fatal(err)
+	}
+	stream, err = OpenHostMetricStream(t.Context(), stream.js, "gru", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if confirmed, err := stream.Publish(t.Context(), batch); err != nil || !confirmed {
+		t.Fatalf("recreated v1 archive: confirmed=%t, error=%v", confirmed, err)
+	}
+	info, err := stream.info(t.Context())
+	if err != nil || info.State.Msgs != 1 {
+		t.Fatalf("recreated archive did not contain exactly one fresh batch: %+v, %v", info, err)
+	}
+	stored, err := stream.message(t.Context(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded, err := decodeHostMetricBatch(stored.Data); err != nil || !reflect.DeepEqual(decoded, batch) {
+		t.Fatalf("fresh v1 batch = %+v, %v", decoded, err)
+	}
+	history := NewHistory(HistoryConfig{})
+	hostMetricTail(t, stream, history)
+	hostMetricWait(t, func() bool { return stream.CaughtUp() && hostMetricCount(history) == 1 })
+}
+
+type hostMetricResetPublishJS struct {
+	jetstream.JetStream
+	reset func()
+}
+
+func (js *hostMetricResetPublishJS) Publish(ctx context.Context, subject string, data []byte, opts ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+	js.reset()
+	return js.JetStream.Publish(ctx, subject, data, opts...)
+}
+
+func TestHostMetricStreamRejectsInFlightWritesAcrossRecreation(t *testing.T) {
+	for _, populated := range []bool{false, true} {
+		t.Run(fmt.Sprint(populated), func(t *testing.T) {
+			old := hostMetricTestStream(t, hostMetricBroker(t, t.TempDir(), -1))
+			at := time.Now().UTC().Truncate(HostMetricInterval).Add(-3 * HostMetricInterval)
+			if populated {
+				if confirmed, err := old.Publish(t.Context(), hostMetricTestBatch(at)); err != nil || !confirmed {
+					t.Fatalf("initial batch: confirmed=%t, error=%v", confirmed, err)
+				}
+			}
+			original := old.js
+			var fresh *HostMetricStream
+			old.js = &hostMetricResetPublishJS{JetStream: original, reset: func() {
+				if err := original.DeleteStream(t.Context(), HostMetricStreamName); err != nil {
+					t.Fatal(err)
+				}
+				var err error
+				fresh, err = OpenHostMetricStream(t.Context(), original, "gru", 1)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if populated {
+					if confirmed, err := fresh.Publish(t.Context(), hostMetricTestBatch(at.Add(HostMetricInterval))); err != nil || !confirmed {
+						t.Fatalf("fresh batch: confirmed=%t, error=%v", confirmed, err)
+					}
+				}
+			}}
+			gap := hostMetricTestBatch(at.Add(2 * HostMetricInterval))
+			gap.Incomplete = true
+			if confirmed, err := old.Publish(t.Context(), gap); err == nil || confirmed {
+				t.Fatalf("old in-flight write reached new generation: confirmed=%t, error=%v", confirmed, err)
+			}
+			if old.subject == fresh.subject {
+				t.Fatal("recreation reused the old generation subject")
+			}
+			info, err := fresh.info(t.Context())
+			want := uint64(0)
+			if populated {
+				want = 1
+			}
+			if err != nil || info.State.Msgs != want {
+				t.Fatalf("old gap contaminated fresh archive: %+v, %v", info, err)
+			}
+		})
+	}
+}
+
+func TestHostMetricStreamCaughtUpReplayRejectsRecreation(t *testing.T) {
+	for _, publish := range []bool{false, true} {
+		t.Run(fmt.Sprint(publish), func(t *testing.T) {
+			old := hostMetricTestStream(t, hostMetricBroker(t, t.TempDir(), -1))
+			history := NewHistory(HistoryConfig{Interval: HostMetricInterval})
+			hostMetricTail(t, old, history)
+			hostMetricWait(t, old.CaughtUp)
+			if err := old.js.DeleteStream(t.Context(), HostMetricStreamName); err != nil {
+				t.Fatal(err)
+			}
+			// The stream can remain absent while startup waits for quorum.
+			hostMetricWait(t, func() bool { return !old.CaughtUp() })
+			fresh, err := OpenHostMetricStream(t.Context(), old.js, "gru", 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if publish {
+				if confirmed, err := fresh.Publish(t.Context(), hostMetricTestBatch(time.Now())); err != nil || !confirmed {
+					t.Fatalf("fresh batch: confirmed=%t, error=%v", confirmed, err)
+				}
+			}
+			hostMetricWait(t, func() bool { return !old.CaughtUp() })
+			if count := hostMetricCount(history); count != 0 {
+				t.Fatalf("old reader consumed recreated archive: samples=%d", count)
+			}
+		})
+	}
+}
+
+func TestHostMetricStreamOpenPreservesGenerationAndRejectsOldContract(t *testing.T) {
+	first := hostMetricTestStream(t, hostMetricBroker(t, t.TempDir(), -1))
+	second, err := OpenHostMetricStream(t.Context(), first.js, "gru", 1)
+	if err != nil || second.subject != first.subject || !second.createdAt.Equal(first.createdAt) {
+		t.Fatalf("opening an existing archive changed generation: %+v, %v", second, err)
+	}
+	info, err := first.info(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.js.DeleteStream(t.Context(), HostMetricStreamName); err != nil {
+		t.Fatal(err)
+	}
+	base, err := protocol.ObservabilitySubject("gru", "host-metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := info.Config
+	config.Subjects = []string{base}
+	old, err := first.js.CreateStream(t.Context(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenHostMetricStream(t.Context(), first.js, "gru", 1); err == nil {
+		t.Fatal("accepted archive contract without a generation")
+	}
+	unchanged, err := old.Info(t.Context())
+	if err != nil || !reflect.DeepEqual(unchanged.Config.Subjects, []string{base}) {
+		t.Fatalf("opening old archive rewrote its contract: %+v, %v", unchanged, err)
+	}
+}
+
+type hostMetricResetReadStream struct {
+	jetstream.Stream
+	reset func()
+}
+
+func (stream *hostMetricResetReadStream) GetMsg(ctx context.Context, sequence uint64, opts ...jetstream.GetMsgOpt) (*jetstream.RawStreamMsg, error) {
+	stream.reset()
+	return stream.Stream.GetMsg(ctx, sequence, opts...)
+}
+
+func TestHostMetricStreamCannotConfirmIdenticalBatchFromAnotherGeneration(t *testing.T) {
+	old := hostMetricTestStream(t, hostMetricBroker(t, t.TempDir(), -1))
+	batch := hostMetricTestBatch(time.Now().UTC().Truncate(HostMetricInterval))
+	if confirmed, err := old.Publish(t.Context(), batch); err != nil || !confirmed {
+		t.Fatalf("initial batch: confirmed=%t, error=%v", confirmed, err)
+	}
+	old.stream = &hostMetricResetReadStream{Stream: old.stream, reset: func() {
+		if err := old.js.DeleteStream(t.Context(), HostMetricStreamName); err != nil {
+			t.Fatal(err)
+		}
+		fresh, err := OpenHostMetricStream(t.Context(), old.js, "gru", 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if confirmed, err := fresh.Publish(t.Context(), batch); err != nil || !confirmed {
+			t.Fatalf("identical fresh batch: confirmed=%t, error=%v", confirmed, err)
+		}
+	}}
+	if confirmed, err := old.Publish(t.Context(), batch); err == nil || confirmed {
+		t.Fatalf("new generation falsely confirmed old batch: confirmed=%t, error=%v", confirmed, err)
+	}
+}
+
+func TestHostMetricStreamConcurrentOpenUsesWinningGeneration(t *testing.T) {
+	first := hostMetricTestStream(t, hostMetricBroker(t, t.TempDir(), -1))
+	if err := first.js.DeleteStream(t.Context(), HostMetricStreamName); err != nil {
+		t.Fatal(err)
+	}
+	type result struct {
+		stream *HostMetricStream
+		err    error
+	}
+	results, start := make(chan result, 3), make(chan struct{})
+	for range 3 {
+		go func() {
+			<-start
+			stream, err := OpenHostMetricStream(t.Context(), first.js, "gru", 1)
+			results <- result{stream, err}
+		}()
+	}
+	close(start)
+	var winner *HostMetricStream
+	for range 3 {
+		opened := <-results
+		if opened.err != nil {
+			t.Fatal(opened.err)
+		}
+		if winner == nil {
+			winner = opened.stream
+		} else if opened.stream.subject != winner.subject || !opened.stream.createdAt.Equal(winner.createdAt) {
+			t.Fatal("concurrent opens did not bind the winning stream generation")
+		}
+	}
+}
+
 func TestHostMetricStreamConfigAndQuota(t *testing.T) {
 	stream := hostMetricTestStream(t, hostMetricBroker(t, t.TempDir(), -1))
 	info, err := stream.info(t.Context())
@@ -119,7 +449,8 @@ func TestHostMetricStreamConfigAndQuota(t *testing.T) {
 	if config.Name != HostMetricStreamName || config.Storage != jetstream.FileStorage || config.Replicas != 1 ||
 		config.Retention != jetstream.LimitsPolicy || config.Discard != jetstream.DiscardNew ||
 		config.MaxAge != HistoryRetention || config.MaxBytes != HostMetricStreamBytes || config.MaxMsgs != -1 ||
-		config.MaxMsgSize != HostMetricBatchBytes+hostMetricHeaderBytes || !reflect.DeepEqual(config.Subjects, []string{subject}) {
+		config.MaxMsgSize != HostMetricBatchBytes+hostMetricHeaderBytes || !reflect.DeepEqual(config.Subjects, []string{stream.subject}) ||
+		!strings.HasPrefix(stream.subject, subject+".") {
 		t.Fatalf("stream config = %+v", config)
 	}
 	if required := int64(HistoryRetention/HostMetricInterval+1) * (HostMetricBatchBytes + hostMetricHeaderBytes + 4096); required > config.MaxBytes {
@@ -357,7 +688,7 @@ func TestHostMetricStreamPublishRetryBound(t *testing.T) {
 	stream := hostMetricTestStream(t, hostMetricBroker(t, t.TempDir(), -1))
 	for _, code := range []jetstream.ErrorCode{jetstream.JSErrCodeStreamWrongLastSequence, jetstream.JSErrCodeStreamWrongLastSequenceConstant} {
 		contended := &hostMetricContendedJS{JetStream: stream.js, code: code}
-		writer := &HostMetricStream{stream: stream.stream, js: contended, subject: stream.subject}
+		writer := &HostMetricStream{stream: stream.stream, createdAt: stream.createdAt, js: contended, subject: stream.subject}
 		if confirmed, err := writer.Publish(t.Context(), hostMetricTestBatch(time.Now())); err == nil || confirmed {
 			t.Fatal("unbounded contention was accepted")
 		}
@@ -370,10 +701,18 @@ func TestHostMetricStreamPublishRetryBound(t *testing.T) {
 func TestHostMetricBatchValidation(t *testing.T) {
 	at := time.Now().UTC().Truncate(time.Minute)
 	for _, value := range []float64{0, 1} {
-		batch := HostMetricBatch{At: at, Epoch: 1, Samples: []Sample{
+		batch := HostMetricBatch{Version: HostMetricBatchVersion, At: at, Epoch: 1, Samples: []Sample{
 			{Metric: HistHostCPUUtilization, Labels: L("member", "host-1"), Value: value},
 			{Metric: HistHostMemoryRatio, Labels: L("member", "host-1"), Value: value},
 			{Metric: HistHostDiskRatio, Labels: L("member", "host-1"), Value: value},
+			{Metric: HistHostCPUCores, Labels: L("member", "host-1"), Value: max(1, value*1024)},
+			{Metric: HistHostMemoryTotal, Labels: L("member", "host-1"), Value: max(1, value*(1<<44))},
+			{Metric: HistHostReceivedAt, Labels: L("member", "host-1"), Value: max(1, value*float64(at.Add(HostMetricInterval).UnixMilli()))},
+			{Metric: HistHostFSUsed, Labels: L("member", "host-1", "role", "terrabase_data", "path", "/srv/data", "device", "42"), Value: value * (1 << 50)},
+			{Metric: HistHostFSSize, Labels: L("member", "host-1", "role", "terrabase_data", "path", "/srv/data", "device", "42"), Value: max(1, value*(1<<50))},
+			{Metric: HistHostFSRatio, Labels: L("member", "host-1", "role", "terrabase_data", "path", "/srv/data", "device", "42"), Value: value},
+			{Metric: HistHostFSFiles, Labels: L("member", "host-1", "role", "terrabase_data", "path", "/srv/data", "device", "42"), Value: value * (1 << 50)},
+			{Metric: HistHostFSFilesFree, Labels: L("member", "host-1", "role", "terrabase_data", "path", "/srv/data", "device", "42"), Value: value * (1 << 50)},
 			{Metric: HistServiceCPUCores, Labels: L("service", "terra-base", "member", "host-1"), Value: value * 1024},
 			{Metric: HistServiceMemoryUsed, Labels: L("member", "host-1", "service", "terra-base"), Value: value * (1 << 44)},
 		}}
@@ -387,16 +726,21 @@ func TestHostMetricBatchValidation(t *testing.T) {
 		}
 	}
 	cases := map[string]func(*HostMetricBatch){
-		"zero time":    func(b *HostMetricBatch) { b.At = time.Time{} },
-		"unaligned":    func(b *HostMetricBatch) { b.At = b.At.Add(time.Second) },
-		"non UTC":      func(b *HostMetricBatch) { b.At = b.At.In(time.FixedZone("local", 3600)) },
-		"zero epoch":   func(b *HostMetricBatch) { b.Epoch = 0 },
-		"wrong metric": func(b *HostMetricBatch) { b.Samples[0].Metric = HistAuthorityEpoch },
-		"counter":      func(b *HostMetricBatch) { b.Samples[0].Counter = true },
-		"negative":     func(b *HostMetricBatch) { b.Samples[0].Value = -.01 },
-		"ratio high":   func(b *HostMetricBatch) { b.Samples[0].Value = 1.01 },
-		"NaN":          func(b *HostMetricBatch) { b.Samples[0].Value = math.NaN() },
-		"infinite":     func(b *HostMetricBatch) { b.Samples[0].Value = math.Inf(1) },
+		"zero time":                  func(b *HostMetricBatch) { b.At = time.Time{} },
+		"unaligned":                  func(b *HostMetricBatch) { b.At = b.At.Add(time.Second) },
+		"non UTC":                    func(b *HostMetricBatch) { b.At = b.At.In(time.FixedZone("local", 3600)) },
+		"zero epoch":                 func(b *HostMetricBatch) { b.Epoch = 0 },
+		"wrong metric":               func(b *HostMetricBatch) { b.Samples[0].Metric = HistAuthorityEpoch },
+		"missing format version":     func(b *HostMetricBatch) { b.Version = 0 },
+		"unsupported format version": func(b *HostMetricBatch) { b.Version = 2 },
+		"counter":                    func(b *HostMetricBatch) { b.Samples[0].Counter = true },
+		"fractional collection flag": func(b *HostMetricBatch) {
+			b.Samples[0].Metric, b.Samples[0].Value = HistHostFSIncomplete, .5
+		},
+		"negative":   func(b *HostMetricBatch) { b.Samples[0].Value = -.01 },
+		"ratio high": func(b *HostMetricBatch) { b.Samples[0].Value = 1.01 },
+		"NaN":        func(b *HostMetricBatch) { b.Samples[0].Value = math.NaN() },
+		"infinite":   func(b *HostMetricBatch) { b.Samples[0].Value = math.Inf(1) },
 		"cores high": func(b *HostMetricBatch) {
 			b.Samples[0] = Sample{Metric: HistServiceCPUCores, Labels: L("member", "host-1", "service", "terra-base"), Value: 1025}
 		},
@@ -423,6 +767,90 @@ func TestHostMetricBatchValidation(t *testing.T) {
 				{Metric: HistServiceCPUCores, Labels: L("service", "terra-base", "member", "host-1")},
 			}
 		},
+		"host cores high": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostCPUCores, Labels: L("member", "host-1"), Value: 1025}
+		},
+		"fractional host cores": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostCPUCores, Labels: L("member", "host-1"), Value: .5}
+		},
+		"zero capacity": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostMemoryTotal, Labels: L("member", "host-1")}
+		},
+		"host memory high": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostMemoryTotal, Labels: L("member", "host-1"), Value: (1 << 44) + 1}
+		},
+		"zero receive time": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostReceivedAt, Labels: L("member", "host-1")}
+		},
+		"fractional receive time": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostReceivedAt, Labels: L("member", "host-1"), Value: 1.5}
+		},
+		"future receive time": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostReceivedAt, Labels: L("member", "host-1"), Value: float64(at.Add(HostMetricInterval).UnixMilli()) + 1}
+		},
+		"extra receive time label": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostReceivedAt, Labels: L("member", "host-1", "service", "api"), Value: float64(at.UnixMilli())}
+		},
+		"filesystem size high": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostFSSize, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: (1 << 50) + 1}
+		},
+		"fractional filesystem bytes": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostFSUsed, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: .5}
+		},
+		"zero filesystem size": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostFSSize, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42")}
+		},
+		"filesystem ratio high": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostFSRatio, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: 1.1}
+		},
+		"filesystem inode count high": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostFSFiles, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: (1 << 50) + 1}
+		},
+		"filesystem free inode count high": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostFSFilesFree, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: (1 << 50) + 1}
+		},
+		"fractional filesystem inode count": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostFSFiles, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: .5}
+		},
+		"fractional filesystem free inode count": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostFSFilesFree, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: .5}
+		},
+		"filesystem free inode count exceeds total": func(b *HostMetricBatch) {
+			b.Samples = []Sample{
+				{Metric: HistHostFSFiles, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: 100},
+				{Metric: HistHostFSFilesFree, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: 101},
+			}
+		},
+		"missing filesystem role": func(b *HostMetricBatch) { b.Samples[0].Metric = HistHostFSUsed },
+		"invalid filesystem role": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostFSUsed, Labels: L("member", "host-1", "role", "data.*", "path", "/srv/data", "device", "42")}
+		},
+		"duplicate filesystem role": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostFSUsed, Labels: L("member", "host-1", "role", "data", "role", "data", "path", "/srv/data", "device", "42")}
+		},
+		"filesystem service label": func(b *HostMetricBatch) {
+			b.Samples[0] = Sample{Metric: HistHostFSUsed, Labels: L("member", "host-1", "service", "data", "path", "/srv/data", "device", "42")}
+		},
+		"filesystem usage exceeds size": func(b *HostMetricBatch) {
+			b.Samples = []Sample{
+				{Metric: HistHostFSUsed, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: 101},
+				{Metric: HistHostFSSize, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: 100},
+			}
+		},
+		"filesystem ratio disagrees": func(b *HostMetricBatch) {
+			b.Samples = []Sample{
+				{Metric: HistHostFSUsed, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: 50},
+				{Metric: HistHostFSSize, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: 100},
+				{Metric: HistHostFSRatio, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: .75},
+			}
+		},
+		"too many filesystem roles": func(b *HostMetricBatch) {
+			b.Samples = nil
+			for i := range hostMetricMaxFilesystems + 1 {
+				b.Samples = append(b.Samples, Sample{Metric: HistHostFSUsed,
+					Labels: L("member", "host-1", "role", fmt.Sprintf("volume-%d", i), "path", "/srv/data", "device", "42")})
+			}
+		},
 		"too many samples": func(b *HostMetricBatch) { b.Samples = make([]Sample, DefaultHistorySeries+1) },
 	}
 	for name, mutate := range cases {
@@ -444,6 +872,117 @@ func TestHostMetricBatchValidation(t *testing.T) {
 	}
 	if IsHostMetric(HistCPUUtilization) || IsHostMetric("") {
 		t.Fatal("unrelated metric selected")
+	}
+}
+
+func TestHostMetricFilesystemIdentityValidation(t *testing.T) {
+	at := time.Now().UTC().Truncate(HostMetricInterval)
+	labels := func(path, device string) []Label {
+		return L("member", "host-1", "role", "data", "path", path, "device", device)
+	}
+	for name, invalid := range map[string][]Label{
+		"old filesystem shape": labels("/data", "42")[:2],
+		"missing path":         L("member", "host-1", "role", "data", "device", "42"),
+		"missing device":       L("member", "host-1", "role", "data", "path", "/data"),
+		"extra label":          append(labels("/data", "42"), Label{Name: "service", Value: "data"}),
+		"duplicate path":       append(labels("/data", "42"), Label{Name: "path", Value: "/data"}),
+		"duplicate device":     append(labels("/data", "42"), Label{Name: "device", Value: "42"}),
+		"empty path":           labels("", "42"),
+		"relative path":        labels("data", "42"),
+		"unclean path":         labels("/srv/../data", "42"),
+		"trailing slash":       labels("/data/", "42"),
+		"double slash":         labels("/srv//data", "42"),
+		"long path":            labels("/"+strings.Repeat("a", 4096), "42"),
+		"control path":         labels("/data\x00", "42"),
+		"delete control path":  labels("/data\x7f", "42"),
+		"unicode control path": labels("/data\u0085", "42"),
+		"empty device":         labels("/data", ""),
+		"leading zero device":  labels("/data", "042"),
+		"double zero device":   labels("/data", "00"),
+		"negative device":      labels("/data", "-1"),
+		"positive sign device": labels("/data", "+42"),
+		"hex device":           labels("/data", "0x2a"),
+		"device overflow":      labels("/data", "18446744073709551616"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			batch := HostMetricBatch{Version: HostMetricBatchVersion, At: at, Epoch: 1, Samples: []Sample{{Metric: HistHostFSFiles, Labels: invalid}}}
+			if _, err := encodeHostMetricBatch(batch); err == nil {
+				t.Fatal("invalid filesystem identity accepted for publication")
+			}
+			if _, _, err := BoundHostMetricBatch(batch); err == nil || errors.Is(err, errHostMetricBatchSize) {
+				t.Fatalf("bounding hid invalid filesystem identity: %v", err)
+			}
+			raw, err := json.Marshal(batch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := decodeHostMetricBatch(hostMetricGzip(t, raw)); err == nil {
+				t.Fatal("invalid persisted filesystem identity accepted")
+			}
+		})
+	}
+	batch := HostMetricBatch{Version: HostMetricBatchVersion, At: at, Epoch: 1, Samples: []Sample{{Metric: HistHostFSFiles, Labels: labels("/data\xff", "42")}}}
+	if _, err := encodeHostMetricBatch(batch); err == nil {
+		t.Fatal("invalid UTF-8 path accepted for publication")
+	}
+	batch.Samples[0].Labels = labels("/data", "42")
+	raw, err := json.Marshal(batch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = bytes.ReplaceAll(raw, []byte("/data"), []byte("/data\xff"))
+	if _, err := decodeHostMetricBatch(hostMetricGzip(t, raw)); err == nil {
+		t.Fatal("invalid persisted UTF-8 path accepted")
+	}
+	for _, changed := range [][]Label{labels("/replaced", "42"), labels("/data", "43")} {
+		batch.Samples = []Sample{
+			{Metric: HistHostFSFiles, Labels: labels("/data", "42"), Value: 100},
+			{Metric: HistHostFSFilesFree, Labels: changed, Value: 50},
+		}
+		if _, err := encodeHostMetricBatch(batch); err == nil {
+			t.Fatal("one filesystem role accepted conflicting path/device identity")
+		}
+	}
+	for _, path := range []string{"/", "/srv/dados espaço/🗄️", "/" + strings.Repeat("a", 4095)} {
+		for _, device := range []string{"0", "42", "18446744073709551615"} {
+			batch.Samples = []Sample{{Metric: HistHostFSFiles, Labels: labels(path, device)}}
+			data, err := encodeHostMetricBatch(batch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if restored, err := decodeHostMetricBatch(data); err != nil || !reflect.DeepEqual(restored, batch) {
+				t.Fatalf("valid filesystem identity lost: %+v, %v", restored, err)
+			}
+		}
+	}
+	batch.Samples = nil
+	for i := range hostMetricMaxFilesystems {
+		batch.Samples = append(batch.Samples, Sample{Metric: HistHostFSFiles,
+			Labels: L("member", "host-1", "role", fmt.Sprintf("volume-%d", i), "path", "/", "device", "42")})
+	}
+	if _, err := encodeHostMetricBatch(batch); err != nil {
+		t.Fatalf("exact filesystem bound rejected: %v", err)
+	}
+}
+
+func TestHostMetricFilesystemPrefixesRemainValid(t *testing.T) {
+	samples := []Sample{
+		{Metric: HistHostFSUsed, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: 75},
+		{Metric: HistHostFSSize, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: 100},
+		{Metric: HistHostFSRatio, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: .75},
+		{Metric: HistHostFSFiles, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: 20},
+		{Metric: HistHostFSFilesFree, Labels: L("member", "host-1", "role", "data", "path", "/srv/data", "device", "42"), Value: 15},
+	}
+	for count := range len(samples) {
+		batch := HostMetricBatch{Version: HostMetricBatchVersion, At: time.Now().UTC().Truncate(HostMetricInterval), Epoch: 1,
+			Samples: samples[:count+1], Incomplete: count < len(samples)-1}
+		data, err := encodeHostMetricBatch(batch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if restored, err := decodeHostMetricBatch(data); err != nil || !reflect.DeepEqual(restored, batch) {
+			t.Fatalf("bounded filesystem prefix failed replay: %+v, %v", restored, err)
+		}
 	}
 }
 

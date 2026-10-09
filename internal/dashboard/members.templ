@@ -20,6 +20,7 @@ templ membersBody(current view) {
 			}
 		</div>
 		@notes(current)
+		@resourceHosts(current)
 		if current.remote() {
 			<p class="note">Live host detail is served by { upper(current.region()) }'s own controllers; this page shows { upper(current.localRegion()) }.</p>
 		}
@@ -29,15 +30,15 @@ templ membersBody(current view) {
 					<h2>CPU</h2>
 					<span class="legend-note">click a point to see the events at that time</span>
 				</div>
-				@chart("", current.memberChart(observability.HistCPUUtilization, "percent", false, "No CPU history yet."))
+				@chart("", current.nodeChart(observability.HistHostCPUUtilization, "", "No CPU history yet."))
 			</article>
 			<article>
 				<h2>Memory used</h2>
-				@chart("", current.memberChart(observability.HistMemoryRatio, "percent", false, "No memory history yet."))
+				@chart("", current.nodeChart(observability.HistHostMemoryRatio, "", "No memory history yet."))
 			</article>
 			<article>
 				<h2>Disk used <small>per filesystem</small></h2>
-				@chart("", current.filesystemChart())
+				@chart("", current.nodeChart(observability.HistHostFSRatio, "role", "No filesystem history yet."))
 			</article>
 			<article>
 				<h2>Network <small>NATS bytes in per second</small></h2>
@@ -47,7 +48,7 @@ templ membersBody(current view) {
 		if current.State.param("host") == "" {
 			<div class="cols-2">
 				<article>
-					<h2>Fleet CPU heatmap <small>members × time</small></h2>
+					<h2>Fleet CPU heatmap <small>nodes × time</small></h2>
 					@chart("", current.cpuHeatmap())
 				</article>
 				<article>
@@ -157,4 +158,31 @@ templ membersBody(current view) {
 			<p class="muted"><small>Open a host to see its CPU, memory, disk and service load history when host load telemetry is enabled.</small></p>
 		</article>
 	</div>
+}
+
+templ resourceHosts(current view) {
+	<article>
+		<h2>Node resources</h2>
+		if nodes := current.resourceNodes(); len(nodes) == 0 {
+			@unavailable("No node has reported resources yet.")
+		} else {
+			<div class="table-scroll">
+				<table class="striped">
+					<thead><tr><th>Host node</th><th>Controller</th><th>CPU</th><th>Memory</th><th>Disk</th><th>Collection</th></tr></thead>
+					<tbody>
+						for _, node := range nodes {
+							<tr>
+								<td><a href={ safe(current.State.hostLink(current.localRegion(), node.Name)) }>{ node.Name }</a></td>
+								<td>{ orDash(node.Member) }</td>
+								<td>{ current.resourceCPU(node.Resources) }</td>
+								<td>{ current.resourceMemory(node.Resources) }</td>
+								<td>{ current.resourceDisk(node.Resources) }</td>
+								<td class="warn">{ resourceNote(node.Resources) }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	</article>
 }

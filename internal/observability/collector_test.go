@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/VictoriaMetrics/metrics"
 )
 
@@ -193,5 +195,38 @@ func TestCollectorReportsPartialCredentials(t *testing.T) {
 		if !strings.Contains(snapshot.Metrics, want) {
 			t.Errorf("metrics lack %q:\n%s", want, snapshot.Metrics)
 		}
+	}
+}
+
+func TestCollectorIncludesCurrentKVSnapshotMetadata(t *testing.T) {
+	t.Parallel()
+	collector, _ := testCollector(t, "snapshots", nil)
+	snapshot, err := collector.Snapshot(t.Context(), false)
+	if err != nil || snapshot.KVSnapshots != nil {
+		t.Fatalf("absent snapshot provider = %+v, %v", snapshot.KVSnapshots, err)
+	}
+	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	want := KVSnapshotView{State: "failed", IntervalSeconds: 60, CheckTimeoutSeconds: 120, LastCheckAt: now,
+		Buckets: []KVSnapshotBucketView{{Bucket: "TS_APPS", State: "failed", LastCheckAt: now,
+			LastUploadedAt: now.Add(-time.Hour), LastCurrentAt: now.Add(-time.Minute), Sequence: 7, ErrorClass: "timeout"}}}
+	collector.config.KVSnapshots = func() KVSnapshotView { return want }
+	for _, state := range []string{"failed", "follower", "paused", "current", "disabled", "unknown"} {
+		want.State = state
+		want.Overdue = state == "unknown"
+		snapshot, err = collector.Snapshot(t.Context(), false)
+		if err != nil || snapshot.KVSnapshots == nil || !reflect.DeepEqual(*snapshot.KVSnapshots, want) {
+			t.Fatalf("snapshot metadata = %+v, %v; want %+v", snapshot.KVSnapshots, err, want)
+		}
+	}
+	encoded, err := protocol.EncodeJSON(MemberSnapshot{KVSnapshots: &want})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded MemberSnapshot
+	if err := protocol.DecodeStrict(encoded, &decoded, 0); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.KVSnapshots == nil || !reflect.DeepEqual(*decoded.KVSnapshots, want) {
+		t.Fatalf("snapshot wire metadata = %+v, want %+v", decoded.KVSnapshots, want)
 	}
 }

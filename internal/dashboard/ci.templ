@@ -12,6 +12,8 @@ templ ciBody(current view) {
 			<h2>Latest qualification runs</h2>
 			if current.Journal == nil || current.Journal.Qualification == nil {
 				@unavailable("No qualification results are published to this controller yet. The CI slice provides them; until then admitted releases below carry their qualification evidence.")
+			} else if current.failed("qualification") {
+				@unavailable("Qualification results could not be read; the latest runs are unknown.")
 			} else if len(current.Qualifications) == 0 {
 				<p class="empty">No qualification run has been reported.</p>
 			} else {

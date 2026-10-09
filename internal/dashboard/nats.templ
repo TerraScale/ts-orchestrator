@@ -100,6 +100,9 @@ templ natsBody(current view) {
 				@unavailable("No member reported JetStream state.")
 			</article>
 		} else {
+			if reporter.NATS.Truncated {
+				<p class="warn">Stream and consumer inventory is partial; omitted resources have unknown health.</p>
+			}
 			<article>
 				<h2>Meta group</h2>
 				<p><small class="muted">As seen by { reporter.Member }; cluster size { itoa(reporter.NATS.MetaClusterSize) }.</small></p>

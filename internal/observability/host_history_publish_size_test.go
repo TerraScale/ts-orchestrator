@@ -19,7 +19,7 @@ func TestHostMetricStreamPublishesNearPayloadLimitWithHeaders(t *testing.T) {
 		}
 		return string(value[:])
 	}
-	batch := HostMetricBatch{At: time.Now().UTC().Truncate(HostMetricInterval), Epoch: 1}
+	batch := HostMetricBatch{Version: HostMetricBatchVersion, At: time.Now().UTC().Truncate(HostMetricInterval), Epoch: 1}
 	for range 2000 {
 		batch.Samples = append(batch.Samples, Sample{Metric: HistServiceMemoryUsed,
 			Labels: L("member", token(), "service", token()), Value: float64(random.Int63n(1 << 44))})

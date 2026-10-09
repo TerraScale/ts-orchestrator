@@ -31,11 +31,13 @@ func topologyFixture(query string) view {
 			Version: "v0.43.0", MetaLeader: index == 0})
 		node := "ts-gru-" + itoa(index+1)
 		nodes = append(nodes, regionview.Node{Name: node, Address: "10.251.0.1" + itoa(index+1), Member: name,
+			Resources: &regionview.ResourceView{CPU: &regionview.Reading{ObservedAt: testNow},
+				Memory: &regionview.Reading{ObservedAt: testNow}, Disk: &regionview.Reading{ObservedAt: testNow}},
 			Services: []regionview.Service{{Role: "terrabase", Digest: "sha256:7da6542c9f0e1b2a3c", State: "running"},
 				{Role: "ts-auth", Digest: "sha256:f8e35965", State: "running"}},
 			Backends: []regionview.Backend{{Set: "terrabase"}}})
 	}
-	return view{State: parseState(values), Ready: true, Local: &members[0],
+	return view{Now: testNow, State: parseState(values), Ready: true, Local: &members[0],
 		Cluster: &observability.ClusterSnapshot{Cell: "gru", Members: members},
 		Regions: []regionview.Summary{{Region: "gru", Local: true, Reach: decisionlog.RegionOK,
 			Health:  regionview.Health{Score: 100, Status: regionview.StatusHealthy},
@@ -48,6 +50,8 @@ func withSFO(current view, reach string) view {
 		Health:  regionview.Health{Score: 90, Status: regionview.StatusHealthy},
 		Members: []regionview.Member{{Name: "ctl-1", Role: "controller", Ready: true, Version: "v0.43.0", MetaLeader: true}},
 		Nodes: []regionview.Node{{Name: "ts-sfo-1", Address: "10.252.0.11", Member: "ctl-1",
+			Resources: &regionview.ResourceView{CPU: &regionview.Reading{ObservedAt: testNow},
+				Memory: &regionview.Reading{ObservedAt: testNow}, Disk: &regionview.Reading{ObservedAt: testNow}},
 			Services: []regionview.Service{{Role: "terrabase", Digest: "sha256:7da6542c9f0e", State: "running"}}}}})
 	return current
 }

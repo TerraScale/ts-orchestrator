@@ -396,6 +396,21 @@ templ volumeDetailBody(current view) {
 templ hostDetailBody(current view) {
 	<div id="content">
 		@detailHead(current, "Host in "+upper(current.Path["r"]), current.Path["h"], "/members", "All hosts")
+		{{ node := current.detailHostNode() }}
+		<article>
+			<h2>Resources</h2>
+			<dl class="kv">
+				<dt>CPU</dt>
+				<dd>{ current.resourceCPU(node.Resources) }</dd>
+				<dt>Memory</dt>
+				<dd>{ current.resourceMemory(node.Resources) }</dd>
+				<dt>Disk</dt>
+				<dd>{ current.resourceDisk(node.Resources) }</dd>
+			</dl>
+			if note := resourceNote(node.Resources); note != "" {
+				<p class="note warn">{ note }</p>
+			}
+		</article>
 		if current.Path["r"] != current.localRegion() {
 			<p class="note">Live seats and volumes of { upper(current.Path["r"]) } hosts are served by that region's controllers; this page shows the decisions and insights { upper(current.Path["r"]) } reports about this host.</p>
 		} else {

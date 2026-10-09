@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"maps"
 	"strconv"
 	"sync"
 )
@@ -66,10 +67,19 @@ const (
 	HistTerraBaseStorage      = "terrabase_storage_bytes" // member, role
 	HistTerraBaseLagSeq       = "terrabase_replication_lag_seq"
 	HistTerraBaseWriteQPS     = "terrabase_write_qps"
-	HistHostCPUUtilization    = "host_cpu_utilization"   // member; 0..1
-	HistHostMemoryRatio       = "host_memory_used_ratio" // member; 0..1
-	HistHostDiskRatio         = "host_disk_used_ratio"   // member; 0..1
-	HistServiceCPUCores       = "service_cpu_cores"      // member, service
+	HistHostCPUUtilization    = "host_cpu_utilization"        // member; 0..1
+	HistHostMemoryRatio       = "host_memory_used_ratio"      // member; 0..1
+	HistHostDiskRatio         = "host_disk_used_ratio"        // member; 0..1
+	HistHostCPUCores          = "host_cpu_capacity_cores"     // member
+	HistHostMemoryTotal       = "host_memory_total_bytes"     // member
+	HistHostReceivedAt        = "host_report_received_at_ms"  // member; authenticated controller receive time
+	HistHostFSIncomplete      = "host_filesystems_incomplete" // member; 0 or 1
+	HistHostFSUsed            = "host_filesystem_used_bytes"  // member, role, path, device
+	HistHostFSSize            = "host_filesystem_size_bytes"  // member, role, path, device
+	HistHostFSRatio           = "host_filesystem_used_ratio"  // member, role, path, device; 0..1
+	HistHostFSFiles           = "host_filesystem_files"       // member, role, path, device
+	HistHostFSFilesFree       = "host_filesystem_files_free"  // member, role, path, device
+	HistServiceCPUCores       = "service_cpu_cores"           // member, service
 	HistServiceMemoryUsed     = "service_memory_used_bytes"
 )
 
@@ -314,32 +324,43 @@ func (sampler *SnapshotSampler) Samples(cluster ClusterSnapshot) []Sample {
 		counter(HistOCISeconds, totals.seconds, "operation", operation)
 	}
 	if placement != nil {
-		gauge(HistDatabases, float64(len(placement.Databases)))
+		partitions := 0
+		stages := maps.Clone(placement.StageCounts)
 		desired, serving := 0, 0
 		for index, database := range placement.Databases {
-			desired += database.DesiredSeats
-			serving += database.Serving
 			if index < maxSampledPartitions {
 				gauge(HistPartitionDesired, float64(database.DesiredSeats),
 					"database", database.DatabaseID, "partition", database.PartitionID)
 				gauge(HistPartitionServing, float64(database.Serving),
 					"database", database.DatabaseID, "partition", database.PartitionID)
 			}
+			if database.Terminal {
+				for stage, count := range database.Stages {
+					if _, present := stages[stage]; present {
+						stages[stage] -= count
+					}
+				}
+				continue
+			}
+			partitions++
+			desired += database.DesiredSeats
+			serving += database.Serving
 			if rollout := database.Rollout; rollout != nil {
 				gauge(HistRolloutProgress, rollout.Progress(), "operation", rollout.OperationID)
 			}
 		}
+		gauge(HistDatabases, float64(partitions))
 		gauge(HistSeatsDesired, float64(desired))
 		gauge(HistSeatsServing, float64(serving))
-		for stage, count := range placement.StageCounts {
+		for stage, count := range stages {
 			gauge(HistStageMembers, float64(count), "stage", stage)
 			if len(sampler.stages) < maxSampledStages {
 				sampler.stages[stage] = true
 			}
 		}
-		// A stage that emptied is absent from StageCounts: record its zero.
+		// A stage that emptied is absent from the active counts: record its zero.
 		for stage := range sampler.stages {
-			if _, present := placement.StageCounts[stage]; !present {
+			if _, present := stages[stage]; !present {
 				gauge(HistStageMembers, 0, "stage", stage)
 			}
 		}

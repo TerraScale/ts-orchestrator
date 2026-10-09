@@ -7,6 +7,34 @@ templ terrabaseBody(current view) {
 		<h1>TerraBase instances</h1>
 		@notes(current)
 		@scopeNote(current)
+		<article>
+			<h2>TerraBase services on host nodes</h2>
+			<p class="legend-note">Host-agent reports describe running services. Managed database seats are listed separately below.</p>
+			{{ services := 0 }}
+			<table class="striped">
+				<thead><tr><th>Host node</th><th>Reported process state</th><th>Artifact digest</th></tr></thead>
+				<tbody>
+					for _, node := range current.resourceNodes() {
+						for _, service := range node.Services {
+							if service.Role == "terrabase" {
+								{{ services++ }}
+								{{ status, state := serviceStatus(service.State) }}
+								<tr>
+									<td><a href={ safe(current.State.hostLink(current.localRegion(), node.Name)) }>{ node.Name }</a></td>
+									<td>
+										@statusPill(status, state)
+									</td>
+									<td><code>{ orDash(service.Digest) }</code></td>
+								</tr>
+							}
+						}
+					}
+				</tbody>
+			</table>
+			if services == 0 {
+				@unavailable("No TerraBase service was reported by the region's host agents.")
+			}
+		</article>
 		if placement := current.placement(); placement != nil && len(placement.Databases) > 0 {
 			<article>
 				<div class="chart-title">
@@ -51,7 +79,7 @@ templ terrabaseBody(current view) {
 		{{ forecasts, forecastChart := current.storageForecasts() }}
 		<div class="cols-2">
 			<article>
-				<h2>Storage growth and time to full <small>linear trend over at least 24h</small></h2>
+				<h2>Controller filesystem growth and time to full <small>linear trend over at least 24h</small></h2>
 				@chart("", forecastChart)
 			</article>
 			<article>

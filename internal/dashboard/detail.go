@@ -462,9 +462,11 @@ func (current view) hostVolumes() []insights.Volume {
 func (current view) hostChart(metric, unit, nameBy, empty string) chartSpec {
 	var series []chartSeries
 	var warning string
+	node := current.detailHostNode()
+	member := node.Name
 	if current.Path["r"] == current.localRegion() && current.Journal != nil && current.Journal.History != nil {
 		result := current.Journal.History.Range(observability.HistoryQuery{Metric: metric,
-			Labels: map[string]string{"member": strings.ToLower(current.Path["h"])},
+			Labels: map[string]string{"member": strings.ToLower(member)},
 			Start:  current.Now.Add(-current.State.Range.Duration), End: current.Now, MaxSeries: 64})
 		series = historyChartSeries(result, metric, nameBy)
 		if result.Incomplete {

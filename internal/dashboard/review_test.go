@@ -210,7 +210,7 @@ func TestPartitionTileSparklinePlotsPartitionHistory(t *testing.T) {
 	snapshot := memberSnapshot()
 	current := view{State: parseState(url.Values{}), Now: testNow, Journal: journal, Local: &snapshot, Ready: true}
 	for _, tile := range current.regionKPIs() {
-		if tile.Label == "TerraBase partitions" {
+		if tile.Label == "Managed TerraBase partitions" {
 			for value := range strings.SplitSeq(tile.Spark, ",") {
 				if number, err := strconv.ParseFloat(value, 64); err != nil || number != 1 {
 					t.Fatalf("partition sparkline = %q, want the partition count's history", tile.Spark)
@@ -462,13 +462,26 @@ func TestDiskCapacityCountsSharedFilesystemsOnce(t *testing.T) {
 		{Role: "state", Path: "/var/lib/x/state", SizeBytes: 100, AvailBytes: 40, Device: 7},
 		{Role: "install", Path: "/var/lib/x/install", SizeBytes: 100, AvailBytes: 40, Device: 7},
 	}
-	current := view{State: parseState(url.Values{}), Local: &snapshot}
+	now := time.Now().UTC()
+	history := observability.NewHistory(observability.HistoryConfig{})
+	history.Append(now, []observability.Sample{{Metric: observability.HistHostReceivedAt,
+		Labels: observability.L("member", "physical-node"), Value: float64(now.UnixMilli())}})
+	for _, filesystem := range snapshot.System.Filesystems {
+		labels := observability.L("member", "physical-node", "role", filesystem.Role, "path", filesystem.Path, "device", "7")
+		history.Append(now, []observability.Sample{
+			{Metric: observability.HistHostFSSize, Labels: labels, Value: float64(filesystem.SizeBytes)},
+			{Metric: observability.HistHostFSUsed, Labels: labels, Value: float64(filesystem.SizeBytes - filesystem.AvailBytes)},
+			{Metric: observability.HistHostFSRatio, Labels: labels, Value: .6},
+		})
+	}
+	current := view{State: parseState(url.Values{}), Local: &snapshot, Now: now, Journal: &Journal{History: history},
+		Regions: []regionview.Summary{{Region: "fra", Local: true, Nodes: []regionview.Node{{Name: "physical-node", Member: "ctl-1"}}}}}
 	spec := current.capacityChart(true)
 	if spec.Bars[0].Values[0]+spec.Bars[1].Values[0] != 100 {
 		t.Fatalf("disk capacity = %+v", spec.Bars)
 	}
 	tree := current.filesystemTree()
-	if len(tree.Tree[0].Children) != 1 || tree.Tree[0].Children[0].Name != "state, install" || tree.Tree[0].Value != 100 {
+	if len(tree.Tree[0].Children) != 1 || tree.Tree[0].Children[0].Name != "install, state" || tree.Tree[0].Value != 100 {
 		t.Fatalf("treemap = %+v", tree.Tree)
 	}
 }

@@ -79,6 +79,8 @@ templ ociBody(current view) {
 			</div>
 			if current.Journal == nil || current.Journal.Inventory == nil {
 				@unavailable("The OCI resource inventory and drift report appear once the OCI inventory provider is attached.")
+			} else if current.failed("OCI inventory") {
+				@unavailable("OCI inventory could not be read; owned resources and drift are unknown.")
 			} else if len(current.Inventory) == 0 {
 				<p class="empty">No OCI resource is owned by this region.</p>
 			} else {

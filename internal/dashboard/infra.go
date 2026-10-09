@@ -28,18 +28,7 @@ func (current view) memberChart(metric, unit string, rate bool, empty string) ch
 
 // filesystemChart charts used ratio per member and filesystem role.
 func (current view) filesystemChart() chartSpec {
-	var series []chartSeries
-	if current.Journal != nil && current.Journal.History != nil {
-		result := current.Journal.History.Range(observability.HistoryQuery{Metric: observability.HistFSRatio,
-			Labels: current.hostFilter(), Start: current.Now.Add(-current.State.Range.Duration), End: current.Now})
-		for _, found := range result.Series {
-			points := make([][2]float64, 0, len(found.Points))
-			for _, point := range found.Points {
-				points = append(points, [2]float64{float64(point.Time.UnixMilli()), round(point.Value)})
-			}
-			series = append(series, chartSeries{Name: found.Labels["member"] + " " + found.Labels["role"], Points: points})
-		}
-	}
+	series := current.historyRange(observability.HistFSRatio, current.hostFilter(), "member,role", false)
 	spec := current.lineChart("line", "percent", series, "No filesystem history yet.")
 	spec.Min, spec.Max = float(0), float(1)
 	spec.Thresholds = []chartThreshold{{Value: 0.9, Label: "90%", Status: "bad"}}
@@ -47,7 +36,7 @@ func (current view) filesystemChart() chartSpec {
 }
 
 func (current view) cpuHeatmap() chartSpec {
-	spec := current.heatmap("percent", current.historyRange(observability.HistCPUUtilization, nil, "member", false),
+	spec := current.heatmap("percent", current.nodeHistory(observability.HistHostCPUUtilization, ""),
 		"No CPU history yet.")
 	spec.Min, spec.Max = float(0), float(1)
 	return spec
@@ -58,29 +47,31 @@ func (current view) capacityChart(disk bool) chartSpec {
 	spec := chartSpec{Kind: "hbar", Unit: "bytes"}
 	used := barSeries{Name: "used", Status: "info"}
 	free := barSeries{Name: "free", Status: "idle"}
-	for _, member := range current.members() {
-		if member.System == nil {
-			continue
+	for _, node := range current.resourceNodes() {
+		if warning := current.capacityWarning(node.Resources); warning != "" {
+			spec.Warning = warning
 		}
-		var total, available uint64
+		var total, consumed float64
 		if disk {
-			for _, filesystem := range observability.DistinctFilesystems(member.System.Filesystems) {
-				total += filesystem.SizeBytes
-				available += min(filesystem.AvailBytes, filesystem.SizeBytes)
+			for _, filesystem := range node.Resources.Filesystems {
+				if filesystem.SizeBytes != nil && filesystem.UsedBytes != nil {
+					total += filesystem.SizeBytes.Value
+					consumed += min(filesystem.UsedBytes.Value, filesystem.SizeBytes.Value)
+				}
 			}
-		} else {
-			total, available = member.System.MemTotalBytes, min(member.System.MemAvailBytes, member.System.MemTotalBytes)
+		} else if node.Resources.MemoryBytes != nil && node.Resources.MemoryUsedBytes != nil {
+			total, consumed = node.Resources.MemoryBytes.Value, node.Resources.MemoryUsedBytes.Value
 		}
 		if total == 0 {
 			continue
 		}
-		spec.Categories = append(spec.Categories, member.Member)
-		used.Values = append(used.Values, float64(total-available))
-		free.Values = append(free.Values, float64(available))
+		spec.Categories = append(spec.Categories, node.Name)
+		used.Values = append(used.Values, consumed)
+		free.Values = append(free.Values, max(total-consumed, 0))
 	}
 	spec.Bars = []barSeries{used, free}
 	if len(spec.Categories) == 0 {
-		spec.Empty = "No member reported its system view."
+		spec.Empty = "No node reported resource capacity."
 	}
 	return spec
 }
@@ -232,16 +223,18 @@ func forecastText(entry forecast) string {
 // filesystemTree sizes every member filesystem for the capacity treemap.
 func (current view) filesystemTree() chartSpec {
 	spec := chartSpec{Kind: "treemap", Unit: "bytes"}
-	for _, member := range current.members() {
-		if member.System == nil {
-			continue
+	for _, host := range current.resourceNodes() {
+		if warning := current.capacityWarning(host.Resources); warning != "" {
+			spec.Warning = warning
 		}
-		node := treeNode{Name: member.Member, Href: current.State.link("/members", "host", member.Member)}
-		for _, filesystem := range observability.DistinctFilesystems(member.System.Filesystems) {
-			used := filesystemUsed(filesystem)
-			node.Children = append(node.Children, treeNode{Name: filesystem.Role, Value: float64(filesystem.SizeBytes),
-				Status: ratioStatus(used)})
-			node.Value += float64(filesystem.SizeBytes)
+		node := treeNode{Name: host.Name, Href: current.State.hostLink(current.localRegion(), host.Name)}
+		for _, filesystem := range host.Resources.Filesystems {
+			if filesystem.SizeBytes == nil {
+				continue
+			}
+			node.Children = append(node.Children, treeNode{Name: cmp.Or(filesystem.Role, filesystem.Path), Value: filesystem.SizeBytes.Value,
+				Status: current.readingStatus(filesystem.UsedRatio)})
+			node.Value += filesystem.SizeBytes.Value
 		}
 		if len(node.Children) > 0 {
 			spec.Tree = append(spec.Tree, node)
@@ -260,7 +253,7 @@ func volumeStatus(volume insights.Volume, now time.Time) string {
 	case "available":
 		return "idle"
 	case "attaching", "detaching":
-		if now.Sub(volume.StateSince) > 15*time.Minute {
+		if !volume.StateSince.IsZero() && now.Sub(volume.StateSince) > 15*time.Minute {
 			return "bad"
 		}
 		return "run"

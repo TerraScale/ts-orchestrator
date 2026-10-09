@@ -101,11 +101,11 @@ var pages = []page{
 	{slug: "ci", title: "Qualification", group: "Delivery", needs: needQualification,
 		decisions: qualificationDecisions, body: ciBody},
 	{slug: "topology", title: "Topology", group: "Infrastructure", needs: needRegions, body: topologyBody},
-	{slug: "members", title: "Hosts", group: "Infrastructure", body: membersBody},
+	{slug: "members", title: "Hosts", group: "Infrastructure", needs: needRegions, body: membersBody},
 	{slug: "nats", title: "NATS", group: "Infrastructure", decisions: natsDecisions, body: natsBody},
-	{slug: "terrabase", title: "TerraBase", group: "Infrastructure", decisions: terrabaseDecisions,
+	{slug: "terrabase", title: "TerraBase", group: "Infrastructure", needs: needRegions, decisions: terrabaseDecisions,
 		body: terrabaseBody},
-	{slug: "storage", title: "Storage", group: "Infrastructure", needs: needVolumes, decisions: storageDecisions,
+	{slug: "storage", title: "Storage", group: "Infrastructure", needs: needVolumes | needRegions, decisions: storageDecisions,
 		body: storageBody},
 	{slug: "oci", title: "OCI", group: "Infrastructure", needs: needInventory, body: ociBody},
 	{slug: "events", title: "Events", group: "Logs", events: recentEvents, body: eventsBody},
@@ -284,6 +284,9 @@ func (current view) hosts() []hostRow {
 	}
 	rows := map[string]*hostRow{}
 	for _, database := range placement.Databases {
+		if database.Terminal {
+			continue
+		}
 		for _, member := range database.Members {
 			if member.HostNode == "" {
 				continue
@@ -317,7 +320,7 @@ func (current view) rollouts() []observability.DatabaseView {
 	}
 	var rollouts []observability.DatabaseView
 	for _, database := range placement.Databases {
-		if database.Rollout != nil {
+		if !database.Terminal && database.Rollout != nil {
 			rollouts = append(rollouts, database)
 		}
 	}

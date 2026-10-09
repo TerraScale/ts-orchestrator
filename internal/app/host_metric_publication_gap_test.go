@@ -17,11 +17,13 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 )
 
-func publicationGapLoad(t *testing.T) (*hostTelemetry, *metricTestFence) {
+func publicationGapLoad(t *testing.T, now *time.Time) (*hostTelemetry, *metricTestFence) {
 	t.Helper()
 	fence := &metricTestFence{}
 	fence.set(authority.Snapshot{Ready: true, Leader: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)})
-	load := &hostTelemetry{fencer: fence, load: hostload.NewAggregator(hostload.AggregatorConfig{})}
+	load := &hostTelemetry{fencer: fence, load: hostload.NewAggregator(hostload.AggregatorConfig{
+		Now: func() time.Time { return *now },
+	})}
 	publicationGapReport(t, load, 0.25)
 	return load, fence
 }
@@ -56,15 +58,106 @@ func publicationGapStored(t *testing.T, js jetstream.JetStream, sequence uint64)
 	return batch
 }
 
+func TestHostMetricPublicationRequiresRestartAfterArchiveRecreation(t *testing.T) {
+	js := testRolloutJetStream(t)
+	stream, err := observability.OpenHostMetricStream(t.Context(), js, "gru", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now().UTC().Truncate(time.Minute).Add(-3 * time.Minute)
+	clock := start
+	load, _ := publicationGapLoad(t, &clock)
+	legacy := load.archiveBatch(start)
+	legacy.Version = 0
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	if _, err := writer.Write(raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	archive, err := js.Stream(t.Context(), observability.HostMetricStreamName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := js.Publish(t.Context(), archive.CachedInfo().Config.Subjects[0], compressed.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	h, state, events := &hostMetricHistory{}, &hostMetricPublication{}, observability.NewEventBus(16)
+	h.publishStep(t.Context(), stream, load, events, state, start)
+	h.publishStep(t.Context(), stream, load, events, state, start.Add(time.Minute))
+	if !state.gap || h.failures.Load() != 2 {
+		t.Fatalf("unversioned rejection did not retain publication gap: %+v", state)
+	}
+	if err := js.DeleteStream(t.Context(), observability.HostMetricStreamName); err != nil {
+		t.Fatal(err)
+	}
+	recreated, err := observability.OpenHostMetricStream(t.Context(), js, "gru", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.publishStep(t.Context(), stream, load, events, state, start.Add(time.Minute+10*time.Second))
+	if h.failures.Load() != 3 || !state.gap {
+		t.Fatal("old publisher carried its pending gap into the recreated archive")
+	}
+	fresh, err := js.Stream(t.Context(), observability.HostMetricStreamName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := fresh.Info(t.Context())
+	if err != nil || info.State.Msgs != 0 {
+		t.Fatalf("old publisher wrote into the fresh stream: %+v, %v", info, err)
+	}
+	// An in-place controller restart opens a new handle and publication state.
+	clock = start.Add(2 * time.Minute)
+	load.load.Reset()
+	publicationGapReport(t, load, .5)
+	h.publishStep(t.Context(), recreated, load, events, &hostMetricPublication{}, clock)
+	if stored := publicationGapStored(t, js, 1); stored.Incomplete || stored.Version != 1 || stored.At != clock {
+		t.Fatalf("restarted publisher did not create complete v1 history: %+v", stored)
+	}
+	reader := &hostMetricHistory{local: observability.NewHistory(observability.HistoryConfig{}),
+		shared: observability.NewHistory(observability.HistoryConfig{Interval: observability.HostMetricInterval})}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { reader.run(ctx, js, "gru", 1, nil, nil); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if replay := reader.stream.Load(); replay != nil && replay.CaughtUp() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("recreated archive replay did not catch up")
+		}
+	}
+	result := reader.Range(observability.HistoryQuery{Metric: observability.HistHostCPUUtilization,
+		Labels: map[string]string{"member": "host-a"}, Start: start, End: clock})
+	if result.Pending || result.Incomplete || len(result.Series) != 1 || len(result.Series[0].Points) != 1 || result.Series[0].Points[0].Value != .5 {
+		t.Fatalf("old publication gap contaminated recreated history: %+v", result)
+	}
+	var metrics bytes.Buffer
+	reader.writeMetrics(&metrics)
+	if !strings.Contains(metrics.String(), "ts_orch_host_history_replay_ready 1\n") ||
+		!strings.Contains(metrics.String(), "ts_orch_host_history_archive_incomplete 0\n") {
+		t.Fatalf("recreated archive retained a coverage warning: %s", metrics.String())
+	}
+}
+
 func TestHostMetricPublicationGapSurvivesRecoveryAndReplay(t *testing.T) {
 	js := testRolloutJetStream(t)
 	stream, err := observability.OpenHostMetricStream(t.Context(), js, "gru", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	load, _ := publicationGapLoad(t)
-	h, state, events := &hostMetricHistory{}, &hostMetricPublication{}, observability.NewEventBus(16)
 	start := time.Now().UTC().Truncate(time.Minute).Add(-3 * time.Minute)
+	clock := start
+	load, _ := publicationGapLoad(t, &clock)
+	h, state, events := &hostMetricHistory{}, &hostMetricPublication{}, observability.NewEventBus(16)
 	failed := metricPublishFunc(func(context.Context, observability.HostMetricBatch) (bool, error) {
 		return false, errors.New("store unavailable")
 	})
@@ -132,9 +225,10 @@ func TestHostMetricPublicationGapSurvivesCompetingWriterSkip(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			load, _ := publicationGapLoad(t)
-			h, state, events := &hostMetricHistory{}, &hostMetricPublication{}, observability.NewEventBus(16)
 			start := time.Now().UTC().Truncate(time.Minute).Add(-3 * time.Minute)
+			clock := start
+			load, _ := publicationGapLoad(t, &clock)
+			h, state, events := &hostMetricHistory{}, &hostMetricPublication{}, observability.NewEventBus(16)
 			if test.failed {
 				h.publishStep(t.Context(), metricPublishFunc(func(context.Context, observability.HostMetricBatch) (bool, error) {
 					return false, errors.New("store unavailable")
@@ -193,9 +287,10 @@ func TestHostMetricPublicationGapLostAck(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			load, _ := publicationGapLoad(t)
-			h, state, events := &hostMetricHistory{}, &hostMetricPublication{}, observability.NewEventBus(16)
 			start := time.Now().UTC().Truncate(time.Minute).Add(-2 * time.Minute)
+			clock := start
+			load, _ := publicationGapLoad(t, &clock)
+			h, state, events := &hostMetricHistory{}, &hostMetricPublication{}, observability.NewEventBus(16)
 			var bodies [][]byte
 			publisher := metricPublishFunc(func(ctx context.Context, batch observability.HostMetricBatch) (bool, error) {
 				body, err := json.Marshal(batch)
@@ -209,12 +304,13 @@ func TestHostMetricPublicationGapLostAck(t *testing.T) {
 			if state.pending.At.IsZero() || h.failures.Load() != 1 {
 				t.Fatalf("lost ACK did not preserve pending batch: %+v", state)
 			}
-			load.load.Reset()
-			publicationGapReport(t, load, 0.5)
 			retryAt := start.Add(10 * time.Second)
 			if abandon {
 				retryAt = start.Add(time.Minute)
 			}
+			clock = retryAt
+			load.load.Reset()
+			publicationGapReport(t, load, 0.5)
 			h.publishStep(t.Context(), publisher, load, events, state, retryAt)
 			if state.gap || !state.pending.At.IsZero() || h.droppedSamples.Load() != 0 {
 				t.Fatalf("lost ACK recovery state=%+v dropped=%d", state, h.droppedSamples.Load())
@@ -261,9 +357,10 @@ func TestHostMetricPublicationGapEpochReplacementIsFenced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	load, fence := publicationGapLoad(t)
-	h, state, events := &hostMetricHistory{}, &hostMetricPublication{}, observability.NewEventBus(16)
 	start := time.Now().UTC().Truncate(time.Minute).Add(-time.Minute)
+	clock := start
+	load, fence := publicationGapLoad(t, &clock)
+	h, state, events := &hostMetricHistory{}, &hostMetricPublication{}, observability.NewEventBus(16)
 	h.publishStep(t.Context(), metricPublishFunc(func(context.Context, observability.HostMetricBatch) (bool, error) {
 		return false, errors.New("store unavailable")
 	}), load, events, state, start)
@@ -280,6 +377,7 @@ func TestHostMetricPublicationGapEpochReplacementIsFenced(t *testing.T) {
 	if calls != 0 {
 		t.Fatal("old epoch published without fresh reports")
 	}
+	clock = start.Add(20 * time.Second)
 	publicationGapReport(t, load, 0.5)
 	load.fencer = &publicationGapGuardFence{metricTestFence: fence, beforeGuard: func() { fence.set(authority.Snapshot{}) }}
 	h.publishStep(t.Context(), publisher, load, events, state, start.Add(20*time.Second))

@@ -1,0 +1,58 @@
+package dashboard
+
+import (
+	"strconv"
+	"time"
+)
+
+templ snapshotStorage(current view) {
+	<article>
+		<h2>Object Storage configuration snapshots</h2>
+		<p class="legend-note">Only the authority leader uploads changed KV buckets. A current check confirms snapshot coverage even when no upload is needed. Volume backup requests are listed separately below.</p>
+		if len(current.members()) == 0 {
+			@unavailable("No controller has reported snapshot health.")
+		}
+		for _, member := range current.members() {
+			<div class="chart-title">
+				<h3>{ member.Member }</h3>
+				@statusPill(snapshotStatus(current.snapshotState(member)), current.snapshotState(member))
+			</div>
+			if snapshots := member.KVSnapshots; snapshots == nil {
+				@unavailable("Snapshot health was not reported by this controller.")
+			} else {
+				<p class="muted">
+					Check interval: { formatDuration(time.Duration(snapshots.IntervalSeconds * float64(time.Second))) }. Last completed check:
+					@ago(snapshots.LastCheckAt)
+				</p>
+				if snapshots.Overdue || current.snapshotState(member) == "overdue" {
+					<p class="warn">The snapshot check is overdue; stored objects may no longer cover current KV state.</p>
+				}
+				if len(snapshots.Buckets) > 0 {
+					<div class="table-scroll">
+						<table class="striped">
+							<thead><tr><th>KV bucket</th><th>Last result</th><th>Sequence covered</th><th>Last confirmed current</th><th>Last upload by this process</th><th>Failure</th></tr></thead>
+							<tbody>
+								for _, bucket := range snapshots.Buckets {
+									<tr>
+										<td>{ bucket.Bucket }</td>
+										<td>
+											@statusPill(snapshotStatus(current.snapshotBucketState(snapshots, bucket)), current.snapshotBucketState(snapshots, bucket))
+										</td>
+										<td>{ strconv.FormatUint(bucket.Sequence, 10) }</td>
+										<td>
+											@ago(bucket.LastCurrentAt)
+										</td>
+										<td>
+											@ago(bucket.LastUploadedAt)
+										</td>
+										<td>{ orDash(bucket.ErrorClass) }</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				}
+			}
+		}
+	</article>
+}

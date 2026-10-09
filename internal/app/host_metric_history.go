@@ -100,14 +100,14 @@ func (t *hostTelemetry) archiveBatch(at time.Time) observability.HostMetricBatch
 		if order := cmp.Compare(len(a.Labels), len(b.Labels)); order != 0 {
 			return order
 		}
-		if len(a.Labels) == 2 {
+		if len(a.Labels) >= 2 {
 			if order := strings.Compare(a.Labels[1].Value, b.Labels[1].Value); order != 0 {
 				return order
 			}
 		}
 		return strings.Compare(a.Metric, b.Metric)
 	})
-	return observability.HostMetricBatch{At: at.UTC().Truncate(observability.HostMetricInterval),
+	return observability.HostMetricBatch{Version: observability.HostMetricBatchVersion, At: at.UTC().Truncate(observability.HostMetricInterval),
 		Epoch: t.epoch, Samples: samples}
 }
 

@@ -166,14 +166,29 @@ templ regionCard(current view, summary regionview.Summary) {
 		</dl>
 		<div class="meter">
 			<span>CPU</span>
-			@ratioBar(summary.Capacity.CPUUtilization)
+			if summary.Capacity.CPUs > 0 {
+				@ratioBar(summary.Capacity.CPUUtilization)
+			} else {
+				<span class="muted">unavailable</span>
+			}
 			<span>Memory</span>
-			@ratioBar(capacityRatio(summary.Capacity.MemoryUsedBytes, summary.Capacity.MemoryBytes))
+			if summary.Capacity.MemoryBytes > 0 {
+				@ratioBar(capacityRatio(summary.Capacity.MemoryUsedBytes, summary.Capacity.MemoryBytes))
+			} else {
+				<span class="muted">unavailable</span>
+			}
 			<span>Disk</span>
-			@ratioBar(capacityRatio(summary.Capacity.DiskUsedBytes, summary.Capacity.DiskBytes))
+			if summary.Capacity.DiskBytes > 0 {
+				@ratioBar(capacityRatio(summary.Capacity.DiskUsedBytes, summary.Capacity.DiskBytes))
+			} else {
+				<span class="muted">unavailable</span>
+			}
 			<span>JetStream</span>
 			@ratioBar(storeRatio(summary.Capacity))
 		</div>
+		if summary.Capacity.Partial {
+			<p class="warn">Resource coverage is partial; totals include only fresh capacity and usage pairs.</p>
+		}
 		<div>
 			<h3>Open problems <small>{ itoa(summary.Counts.Total()) }</small></h3>
 			if len(summary.Insights) == 0 {
