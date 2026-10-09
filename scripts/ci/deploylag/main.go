@@ -17,6 +17,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
 )
 
@@ -119,8 +120,10 @@ func (a api) history(ctx context.Context, service string) ([]commit, error) {
 func pending(history []commit, version string, now time.Time) (commit, time.Duration, error) {
 	var newest commit
 	var oldest time.Time
+	found := false
 	for _, entry := range history {
 		if entry.SHA == version {
+			found = true
 			break
 		}
 		if entry.GreenAt.IsZero() {
@@ -136,14 +139,17 @@ func pending(history []commit, version string, now time.Time) (commit, time.Dura
 			oldest = entry.GreenAt
 		}
 	}
+	if !found {
+		return commit{}, 0, errors.New("incomplete qualified-main history: deployed revision is outside the checked ancestry")
+	}
 	if oldest.IsZero() {
 		return newest, 0, nil
 	}
 	return newest, now.Sub(oldest), nil
 }
 
-func native(ctx context.Context, service, region string, now time.Time) (observation, error) {
-	result := observation{Service: service, Region: region, Target: "fleet", ObservedAt: now}
+func native(ctx context.Context, service, region string) (observation, error) {
+	result := observation{Service: service, Region: region, Target: "fleet"}
 	factory, err := ociclient.OperatorConfig(catalog.OCIRegion(region))
 	if err != nil {
 		return result, errors.New("OCI guard credentials are unavailable")
@@ -179,38 +185,53 @@ func native(ctx context.Context, service, region string, now time.Time) (observa
 	if err != nil {
 		return result, errors.New("regional fleet proof could not be read")
 	}
-	age := now.Sub(updated)
-	if found && cell == region && state == releasechannel.StateComplete &&
-		age >= -30*time.Second && age <= releasechannel.MaxPinAge {
+	result.ObservedAt = updated
+	if found && cell == region && state == releasechannel.StateComplete {
 		result.Version, result.Status = revision, 200
 	}
 	return result, nil
 }
 
+func proofError(proof observation, now time.Time) error {
+	if proof.Status != http.StatusOK || !release.ValidSourceRevision(proof.Version) {
+		return errors.New("live deployment proof is missing or invalid")
+	}
+	if age := now.Sub(proof.ObservedAt); age < -30*time.Second || age > releasechannel.MaxPinAge {
+		return errors.New("live deployment proof timestamp is stale or ahead of the clock")
+	}
+	return nil
+}
+
 func (a api) alert(ctx context.Context, findings []string) error {
 	base := forge + "ts-orchestrator/issues"
-	var issues []struct {
-		Number int    `json:"number"`
-		Title  string `json:"title"`
-		Body   string `json:"body"`
-	}
-	if err := a.request(ctx, "GET", base+"?state=open&type=issues&limit=50", a.writeToken, nil, &issues); err != nil {
-		return err
-	}
 	slices.Sort(findings)
 	body := "@mariogk Automatic deployment guard: a qualified main build has not reached every region within 30 minutes, or its live proof is unavailable.\n\n"
 	body += strings.Join(findings, "\n") + "\n\nPart of TS-768. See docs/deploy-pipeline.md and the scheduled deploy-lag.yml run."
-	for _, issue := range issues {
-		if issue.Title != alertTitle {
-			continue
+	for page := 1; ; page++ {
+		var issues []struct {
+			Number int    `json:"number"`
+			Title  string `json:"title"`
+			Body   string `json:"body"`
 		}
-		if len(findings) == 0 {
-			return a.request(ctx, "PATCH", fmt.Sprintf("%s/%d", base, issue.Number), a.writeToken, map[string]string{"state": "closed"}, nil)
+		if err := a.request(ctx, "GET", fmt.Sprintf("%s?state=open&type=issues&limit=50&page=%d", base, page),
+			a.writeToken, nil, &issues); err != nil {
+			return err
 		}
-		if issue.Body == body {
-			return nil
+		for _, issue := range issues {
+			if issue.Title != alertTitle {
+				continue
+			}
+			if len(findings) == 0 {
+				return a.request(ctx, "PATCH", fmt.Sprintf("%s/%d", base, issue.Number), a.writeToken, map[string]string{"state": "closed"}, nil)
+			}
+			if issue.Body == body {
+				return nil
+			}
+			return a.request(ctx, "PATCH", fmt.Sprintf("%s/%d", base, issue.Number), a.writeToken, map[string]string{"body": body}, nil)
 		}
-		return a.request(ctx, "PATCH", fmt.Sprintf("%s/%d", base, issue.Number), a.writeToken, map[string]string{"body": body}, nil)
+		if len(issues) == 0 {
+			break
+		}
 	}
 	if len(findings) == 0 {
 		return nil
@@ -220,7 +241,8 @@ func (a api) alert(ctx context.Context, findings []string) error {
 	}, nil)
 }
 
-func run(ctx context.Context, a api, now time.Time, notify bool) error {
+func run(ctx context.Context, a api, now func() time.Time,
+	readNative func(context.Context, string, string) (observation, error), notify bool) error {
 	histories := make(map[string][]commit)
 	var findings []string
 	var lock sync.Mutex
@@ -242,11 +264,12 @@ func run(ctx context.Context, a api, now time.Time, notify bool) error {
 	for _, service := range services[:3] {
 		for _, region := range regions {
 			workers.Go(func() {
-				proof, err := native(ctx, service, region, now)
+				proof, err := readNative(ctx, service, region)
 				lock.Lock()
 				defer lock.Unlock()
 				if err != nil {
 					findings = append(findings, "- "+service+" "+region+": live fleet proof unavailable")
+					return
 				}
 				observed = append(observed, proof)
 			})
@@ -273,21 +296,23 @@ func run(ctx context.Context, a api, now time.Time, notify bool) error {
 						break
 					}
 				}
-				if age := now.Sub(proof.ObservedAt); age < -30*time.Second || age > 2*time.Minute || proof.Status != 200 {
-					proof.Version = ""
-				}
 				observed = append(observed, proof)
 			}
 		}
 	}
 	for _, proof := range observed {
+		checkedAt := now()
+		if err := proofError(proof, checkedAt); err != nil {
+			findings = append(findings, "- "+proof.Service+" "+proof.Region+" "+proof.Target+": "+err.Error())
+			continue
+		}
 		history, ok := histories[proof.Service]
 		if !ok {
 			continue
 		}
-		target, lag, err := pending(history, proof.Version, now)
+		target, lag, err := pending(history, proof.Version, checkedAt)
 		if err != nil {
-			findings = append(findings, "- "+proof.Service+" "+proof.Region+": qualification clock invalid")
+			findings = append(findings, "- "+proof.Service+" "+proof.Region+": "+err.Error())
 			continue
 		}
 		fmt.Printf("%s %s %s deployed=%s target=%s oldest-pending=%s\n",
@@ -318,7 +343,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "deployment guard requires Forgejo read and alert-write credentials")
 		os.Exit(1)
 	}
-	if err := run(ctx, a, time.Now().UTC(), os.Getenv("TS_DEPLOY_GUARD_DRY_RUN") != "1"); err != nil {
+	if err := run(ctx, a, time.Now, native, os.Getenv("TS_DEPLOY_GUARD_DRY_RUN") != "1"); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

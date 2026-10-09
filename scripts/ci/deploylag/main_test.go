@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -92,15 +94,149 @@ func TestPendingDoesNotResetThirtyMinuteClockForContinuousBuilds(t *testing.T) {
 		version string
 		lag     time.Duration
 	}{
-		{"new", 0}, {"pending", time.Minute}, {"unknown", time.Hour},
+		{"new", 0}, {"pending", time.Minute},
 	} {
 		_, lag, err := pending(history, tc.version, now)
 		if err != nil || lag != tc.lag {
 			t.Fatalf("%s lag=%s err=%v", tc.version, lag, err)
 		}
 	}
+	if _, _, err := pending(history, "unknown", now); err == nil {
+		t.Fatal("treated incomplete ancestry as a recent deployment")
+	}
 	history[0].GreenAt = now.Add(time.Minute)
 	if _, _, err := pending(history, "live", now); err == nil {
 		t.Fatal("accepted future qualification")
+	}
+}
+
+func TestPendingRefusesAnExhaustedHistoryWindow(t *testing.T) {
+	now := time.Date(2026, 10, 9, 15, 0, 0, 0, time.UTC)
+	history := make([]commit, 50)
+	for i := range history {
+		history[i] = commit{SHA: fmt.Sprint(i), GreenAt: now.Add(-time.Minute)}
+	}
+	if _, _, err := pending(history, "older-deployed-revision", now); err == nil || !strings.Contains(err.Error(), "incomplete") {
+		t.Fatalf("stalled deployment reset its lag clock: %v", err)
+	}
+}
+
+func TestAlertFindsAndRecoversAnIncidentBeyondTheFirstPage(t *testing.T) {
+	for _, findings := range [][]string{nil, {"- ts-auth GRU overdue"}} {
+		t.Run(fmt.Sprint(len(findings)), func(t *testing.T) {
+			var methods []string
+			a := api{writeToken: "write", client: &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {
+				methods = append(methods, r.Method)
+				body := "[]"
+				if r.Method == "GET" {
+					switch r.URL.Query().Get("page") {
+					case "1":
+						body = "[" + strings.Repeat(`{"number":1,"title":"unrelated"},`, 49) + `{"number":50,"title":"unrelated"}]`
+					case "2":
+						body = `[{"number":42,"title":"TS-768: Deployment lag exceeds 30 minutes"}]`
+					default:
+						t.Fatalf("unexpected page: %s", r.URL)
+					}
+				} else if r.Method == "PATCH" {
+					wire, _ := io.ReadAll(r.Body)
+					if !strings.HasSuffix(r.URL.Path, "/42") || (strings.Contains(string(wire), `"state":"closed"`) != (len(findings) == 0)) {
+						t.Fatalf("wrong incident update: %s %s", r.URL, wire)
+					}
+				} else {
+					t.Fatalf("duplicate incident: %s", r.Method)
+				}
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
+			})}}
+			if err := a.alert(context.Background(), findings); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Join(methods, ",") != "GET,GET,PATCH" {
+				t.Fatal(methods)
+			}
+		})
+	}
+}
+
+func TestRunValidatesCurrentProofsBeforeClosingAnIncident(t *testing.T) {
+	baseNow := time.Date(2026, 10, 9, 15, 0, 0, 0, time.UTC)
+	latest, deployed := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	for _, broken := range []string{"", "native missing", "native stale", "edge missing", "edge stale", "edge non-200", "edge invalid revision"} {
+		t.Run(broken, func(t *testing.T) {
+			var elapsed atomic.Int64
+			now := func() time.Time { return baseNow.Add(time.Duration(elapsed.Load()) * time.Second) }
+			closed, updated := false, false
+			a := api{readToken: "read", writeToken: "write", client: &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {
+				body := "[]"
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/statuses"):
+					// History retrieval crosses the old 30-second future tolerance.
+					elapsed.Store(45)
+					greenAt := baseNow.Add(-time.Hour)
+					if strings.Contains(r.URL.Path, latest) {
+						greenAt = now()
+					}
+					body = fmt.Sprintf(`[{"context":"deployment/qualified","status":"success","created_at":%q}]`, greenAt.Format(time.RFC3339))
+				case strings.HasSuffix(r.URL.Path, "/commits"):
+					body = fmt.Sprintf(`[{"sha":%q},{"sha":%q}]`, latest, deployed)
+				case r.URL.Path == "/api/v1/deployments":
+					var rows []string
+					for _, service := range services[3:] {
+						for _, region := range regions {
+							targets := []string{"service"}
+							if service == "ts-status" {
+								targets = append(targets, "vantage")
+							}
+							for _, target := range targets {
+								status, version, observedAt := 200, deployed, now()
+								if service == "ts-atlas" && region == "SFO" {
+									switch broken {
+									case "edge missing":
+										continue
+									case "edge stale":
+										observedAt = now().Add(-3 * time.Minute)
+									case "edge non-200":
+										status = 503
+									case "edge invalid revision":
+										version = ""
+									}
+								}
+								rows = append(rows, fmt.Sprintf(`{"service":%q,"region":%q,"target":%q,"version":%q,"status":%d,"observedAt":%q}`,
+									service, region, target, version, status, observedAt.Format(time.RFC3339)))
+							}
+						}
+					}
+					body = "[" + strings.Join(rows, ",") + "]"
+				case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/issues"):
+					body = `[{"number":42,"title":"TS-768: Deployment lag exceeds 30 minutes"}]`
+				case r.Method == "PATCH":
+					wire, _ := io.ReadAll(r.Body)
+					closed = string(wire) == `{"state":"closed"}`
+					updated = strings.Contains(string(wire), "live deployment proof")
+				default:
+					t.Fatalf("unexpected guard request: %s %s", r.Method, r.URL)
+				}
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
+			})}}
+			readNative := func(_ context.Context, service, region string) (observation, error) {
+				proof := observation{Service: service, Region: region, Target: "fleet", Version: deployed, Status: 200, ObservedAt: now()}
+				if service == "ts-auth" && region == "GRU" {
+					switch broken {
+					case "native missing":
+						proof.Version, proof.Status = "", 0
+					case "native stale":
+						proof.ObservedAt = now().Add(-3 * time.Minute)
+					}
+				}
+				return proof, nil
+			}
+			err := run(context.Background(), a, now, readNative, true)
+			if broken == "" {
+				if err != nil || !closed {
+					t.Fatalf("fresh proofs/qualifications after slow history failed: closed=%v err=%v", closed, err)
+				}
+			} else if err == nil || closed || !updated {
+				t.Fatalf("invalid proof closed the alert before 30 minutes: updated=%v closed=%v err=%v", updated, closed, err)
+			}
+		})
 	}
 }
