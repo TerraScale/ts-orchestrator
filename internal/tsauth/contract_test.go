@@ -254,6 +254,9 @@ func TestValidateSecrets(t *testing.T) {
 	if err := ValidateSecrets(with2(testSecrets(), "TS_AUTH_SERVICE_CLIENTS", "smoke:"+sentinel)); err != nil {
 		t.Fatalf("service clients: %v", err)
 	}
+	if err := ValidateSecrets(with2(testSecrets(), EnvProjectID, "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d")); err != nil {
+		t.Fatalf("existing UUIDv7 project: %v", err)
+	}
 	short := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 31))
 	values := append(slices.Collect(maps.Values(testSecrets())), sentinel, short)
 	with := func(key, value string) map[string]string {
@@ -275,7 +278,11 @@ func TestValidateSecrets(t *testing.T) {
 		"4097-char api key":  with(EnvAPIKey, strings.Repeat("k", 4097)),
 		"non-ulid project":   with(EnvProjectID, "ts-auth"),
 		"lowercase project":  with(EnvProjectID, strings.ToLower(testProjectID)),
-		"uuid project":       with(EnvProjectID, "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d"),
+		"uppercase uuid":     with(EnvProjectID, "0192F0C4-7D1E-7A2B-9C3D-4E5F6A7B8C9D"),
+		"uuid v4 project":    with(EnvProjectID, "0192f0c4-7d1e-4a2b-9c3d-4e5f6a7b8c9d"),
+		"nil uuid project":   with(EnvProjectID, "00000000-0000-0000-0000-000000000000"),
+		"uuid variant":       with(EnvProjectID, "0192f0c4-7d1e-7a2b-7c3d-4e5f6a7b8c9d"),
+		"uuid whitespace":    with(EnvProjectID, "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d\n"),
 		"overflow project":   with(EnvProjectID, "81K78000000000000000000001"),
 		"none":               nil,
 	} {
@@ -285,6 +292,18 @@ func TestValidateSecrets(t *testing.T) {
 		} else if leak := leaks(err, values...); leak != "" {
 			t.Errorf("%s: error prints a secret: %v", name, err)
 		}
+	}
+}
+
+func TestProjectIDsAcceptULIDAndUUIDv7(t *testing.T) {
+	for _, project := range Projects {
+		t.Run(project.Name, func(t *testing.T) {
+			for _, id := range []string{testProjectID, "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d"} {
+				if err := validSecret(project.ProjectIDKey, id); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
 	}
 }
 
