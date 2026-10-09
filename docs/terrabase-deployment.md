@@ -20,7 +20,7 @@ command sequence is the [bring-up runbook](#gru-1-bring-up-runbook).
 | `ts-orch operator terrabase-release --config FILE [--nats-forward ...] --binary F --sha256 F --source-checkout DIR --commit SHA --environment ENV --profile F [--wait 10m]` | Verifies, admits and rolls out one release to all members; see [Run](#run). |
 | `ts-orch terrabase data-volume --plan FILE --member NAME (--instance OCID \| --grow-gb N) [--compartment OCID] [--apply]` | Prints the resolved data volume request as one JSON line. With `--apply`, creates and attaches the member's volume `NAME-data` (`{"step":"attached", ...}`) or grows it (`{"step":"grown", ...}`) through the operator's `~/.oci/config` DEFAULT profile; see [gru-1 runbook](#gru-1-live-deployment-runbook) step 7. |
 | `ts-orch terrabase restore-volume --plan FILE --member NAME --scratch-instance OCID [--backup OCID] [--compartment OCID] [--apply]` | Prints the resolved restore request. With `--apply`, restores the newest AVAILABLE backup of `NAME-data` (or `--backup`) into a new volume `restore-NAME-data` and attaches it to the scratch instance (`{"step":"restored", ...}`); see [Restore drill](#restore-drill). |
-| `ts-orch terrabase restore-check --plan FILE --restored-volume OCID --binary F --organization ORG --document PATH --scratch-instance OCID [--compartment OCID] [--ready-path P] [--wait D] [--apply]` | On the scratch host, as root: prints the plan. With `--apply`, verifies the exact restored OCID and restore tag, mounts it, and reads `PATH` through TerraBase in a loopback-only network namespace (`{"step":"verified", ...}`); see [Restore drill](#restore-drill). |
+| `ts-orch terrabase restore-check --plan FILE --restored-volume OCID --binary F --organization ORG --database DBID --document PATH --scratch-instance OCID [--compartment OCID] [--ready-path P] [--wait D] [--apply]` | On the scratch host, as root: prints the plan. With `--apply`, verifies the exact restored OCID and restore tag, mounts it, and reads `PATH` through TerraBase in a loopback-only network namespace (`{"step":"verified", ...}`); see [Restore drill](#restore-drill). |
 | `ts-orch operator hosts --config FILE [--nats-forward ...]` | Prints each host's registration, session and latest reports, including each member's digest and state. |
 | `ts-orch terrabase member-ca --cell CELL --out DIR` | Creates a standalone member CA for a lab controller config. A bootstrapped cell gets its CA from its controller material instead. |
 
@@ -431,9 +431,11 @@ touches the member, its volume or its host.
    `terrabase-linux-arm64.sha256` (see [Release files](#release-files)) and
    the `ts-orch` binary and plan to the scratch host. Configure the operator's
    OCI DEFAULT profile there for the read-only provenance check. Pick a document that existed
-   before the backup was taken and its organization ID.
+   before the backup was taken and its organization and database ULIDs.
+   The document URL uses database and collection names; the separate database
+   ID narrows the read-only API key to that database.
 5. On the scratch host, dry run:
-   `sudo ts-orch terrabase restore-check --plan ./plan.json --compartment <gru-1 workload compartment> --restored-volume <saved restored copy OCID> --binary ./terrabase-linux-arm64 --organization <org> --document /v1/projects/<p>/databases/<d>/collections/<c>/documents/<id> --scratch-instance <scratch OCID>`.
+   `sudo ts-orch terrabase restore-check --plan ./plan.json --compartment <gru-1 workload compartment> --restored-volume <saved restored copy OCID> --binary ./terrabase-linux-arm64 --organization <org ULID> --database <database ULID> --document /v1/projects/<project ULID>/databases/<database name>/collections/<collection name>/documents/<document ULID> --scratch-instance <scratch OCID>`.
 6. Rerun with `--apply` and expect
    `{"step":"verified","ready_path":"/readyz","document":...,"etag":...}`.
    The command re-reads OCI immediately before mounting and requires the

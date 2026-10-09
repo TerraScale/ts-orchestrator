@@ -78,7 +78,7 @@ type NodePressure struct {
 	// InstanceID binds this report to the OCI instance, not its reusable name.
 	InstanceID string    `json:"instance_id"`
 	State      NodeState `json:"state"`
-	// ProcessID is an opaque identifier unique to every TerraBase process
+	// ProcessID is a canonical ULID unique to every TerraBase process
 	// start or reboot.
 	ProcessID string `json:"process_id"`
 	// SampledAt is when the node measured this report, never the fetch time.

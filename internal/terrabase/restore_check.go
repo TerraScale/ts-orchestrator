@@ -48,11 +48,11 @@ type restoreCheckRequest struct {
 	ScratchInstance string `json:"scratch_instance"`
 	RestoredVolume  string `json:"restored_volume"`
 	Binary          string `json:"binary"`
+	DatabaseID      string `json:"database_id"`
 	Document        string `json:"document"`
 	ReadyPath       string `json:"ready_path"`
 	organization    string
 	project         string
-	database        string
 	id              string
 	wait            time.Duration
 }
@@ -68,6 +68,7 @@ func runRestoreCheck(ctx context.Context, args []string, output io.Writer) error
 	compartment := flags.String("compartment", "", "workload compartment OCID; defaults to the plan's resource_ids.workload_compartment")
 	binary := flags.String("binary", "", "terrabase-linux-<arch> release asset with its .sha256 asset beside it")
 	organization := flags.String("organization", "", "organization ID that owns --document")
+	database := flags.String("database", "", "database ID that owns --document; the URL uses its name")
 	document := flags.String("document", "", "/v1/projects/P/databases/D/collections/C/documents/ID that must exist in the backup")
 	scratch := flags.String("scratch-instance", "", "OCID of this scratch instance, as restore-volume printed it")
 	restored := flags.String("restored-volume", "", "exact restored copy volume_id printed by restore-volume")
@@ -77,10 +78,10 @@ func runRestoreCheck(ctx context.Context, args []string, output io.Writer) error
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if flags.NArg() != 0 || *plan == "" || *binary == "" || *organization == "" || *document == "" || *scratch == "" || *restored == "" {
-		return errors.New("restore-check requires --plan, --binary, --organization, --document, --scratch-instance and --restored-volume")
+	if flags.NArg() != 0 || *plan == "" || *binary == "" || *organization == "" || *database == "" || *document == "" || *scratch == "" || *restored == "" {
+		return errors.New("restore-check requires --plan, --binary, --organization, --database, --document, --scratch-instance and --restored-volume")
 	}
-	request, err := resolveRestoreCheck(*binary, *organization, *document, *scratch, *restored, *readyPath, *wait, *apply)
+	request, err := resolveRestoreCheck(*binary, *organization, *database, *document, *scratch, *restored, *readyPath, *wait, *apply)
 	if err != nil {
 		return err
 	}
@@ -139,13 +140,16 @@ func restoreVolumeConfig(planPath, compartment string) (oci.MemberVolumeConfig, 
 	return oci.MemberVolumeConfig{Region: region, CompartmentID: compartment, AvailabilityDomain: plan.AvailabilityDomain, VPUsPerGB: plan.VPUsPerGB}, nil
 }
 
-func resolveRestoreCheck(binary, organization, document, scratch, restored, readyPath string, wait time.Duration, apply bool) (restoreCheckRequest, error) {
+func resolveRestoreCheck(binary, organization, database, document, scratch, restored, readyPath string, wait time.Duration, apply bool) (restoreCheckRequest, error) {
 	match := documentPathRE.FindStringSubmatch(document)
-	if match == nil || !entityid.Valid(match[1]) || !entityid.Valid(match[2]) || !entityid.Valid(match[3]) || !entityid.Valid(match[4]) {
+	if match == nil || !entityid.Valid(match[1]) || !pathSegment(match[2]) || !pathSegment(match[3]) || !entityid.Valid(match[4]) {
 		return restoreCheckRequest{}, fmt.Errorf("--document %q is not /v1/projects/P/databases/D/collections/C/documents/ID", document)
 	}
 	if !entityid.Valid(organization) {
 		return restoreCheckRequest{}, fmt.Errorf("--organization %q is not a canonical ULID", organization)
+	}
+	if !entityid.Valid(database) {
+		return restoreCheckRequest{}, fmt.Errorf("--database %q is not a canonical ULID", database)
 	}
 	if !strings.HasPrefix(scratch, "ocid1.instance.") || strings.ContainsAny(scratch, " \t\r\n/") {
 		return restoreCheckRequest{}, fmt.Errorf("--scratch-instance %q is not an instance OCID", scratch)
@@ -171,7 +175,7 @@ func resolveRestoreCheck(binary, organization, document, scratch, restored, read
 		return restoreCheckRequest{}, err
 	}
 	return restoreCheckRequest{Step: "plan", Apply: apply, Device: oci.RestoreVolumeDevice, ScratchInstance: scratch, RestoredVolume: restored, Binary: binary, Document: document,
-		ReadyPath: readyPath, organization: organization, project: match[1], database: match[2], id: match[4], wait: wait}, nil
+		ReadyPath: readyPath, DatabaseID: database, organization: organization, project: match[1], id: match[4], wait: wait}, nil
 }
 
 func pathSegment(segment string) bool {
@@ -394,7 +398,7 @@ func verifyRestore(ctx context.Context, client *http.Client, adminURL, clientURL
 		OrganizationID string   `json:"organizationId"`
 		ProjectID      string   `json:"projectId"`
 		DatabaseID     string   `json:"databaseId"`
-	}{"restore-check", []string{"documents:read"}, request.organization, request.project, request.database})
+	}{"restore-check", []string{"documents:read"}, request.organization, request.project, request.DatabaseID})
 	if err != nil {
 		return "", err
 	}

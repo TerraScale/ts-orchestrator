@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ci/realcaller"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
@@ -89,12 +90,15 @@ func TestRealCallerCurrentReportExactIdentity(t *testing.T) {
 	}
 }
 func TestRealCallerCustomerEnvelopeCommitments(t *testing.T) {
-	id := []byte(strings.Repeat("i", 16))
+	id, err := entityid.Parse("01K78000000000000000000001")
+	if err != nil {
+		t.Fatal(err)
+	}
 	secret := []byte(strings.Repeat("s", 32))
-	encoded := base64.RawURLEncoding.EncodeToString(id)
+	encoded := id.String()
 	token := "tbk1." + encoded + "." + base64.RawURLEncoding.EncodeToString(secret)
 	ca := "CA PEM"
-	reply := rcObject{"customer": rcObject{"token_id": encoded, "verifier_sha256": rcSHA(append(append([]byte("TB-APIKEY-V1\x00"), id...), secret...)), "https_ca_sha256": rcSHA([]byte(ca))}}
+	reply := rcObject{"customer": rcObject{"token_id": encoded, "verifier_sha256": rcSHA(append(append([]byte("TB-APIKEY-V1\x00"), id[:]...), secret...)), "https_ca_sha256": rcSHA([]byte(ca))}}
 	for _, changed := range []bool{false, true} {
 		t.Run(fmt.Sprint(changed), func(t *testing.T) {
 			material := rcObject{"version": 1, "token": token, "https_ca_pem": ca}
@@ -110,6 +114,25 @@ func TestRealCallerCustomerEnvelopeCommitments(t *testing.T) {
 				t.Fatal(gotToken, gotCA, e)
 			}
 		})
+	}
+}
+
+func TestRealCallerCustomerTokenRejectsNoncanonicalIDs(t *testing.T) {
+	rawID := []byte(strings.Repeat("i", 16))
+	rawSecret := []byte(strings.Repeat("s", 32))
+	secret := base64.RawURLEncoding.EncodeToString(rawSecret)
+	verifier := rcSHA(append(append([]byte("TB-APIKEY-V1\x00"), rawID...), rawSecret...))
+	for _, id := range []string{
+		"00000000000000000000000000", "01k78000000000000000000001",
+		"token_01K78000000000000000000001", "81K78000000000000000000001",
+		"01a1105a-7350-7f48-a96e-d71bbb45d7a8",
+		base64.RawURLEncoding.EncodeToString(rawID),
+	} {
+		reply := rcObject{"customer": rcObject{"token_id": id, "verifier_sha256": verifier, "https_ca_sha256": rcSHA([]byte("CA PEM"))}}
+		material := rcObject{"version": 1, "token": "tbk1." + id + "." + secret, "https_ca_pem": "CA PEM"}
+		if _, _, err := realcaller.CustomerMaterial(reply, material); err == nil {
+			t.Errorf("accepted noncanonical token ID %q", id)
+		}
 	}
 }
 func TestRealCallerForwardMapRejections(t *testing.T) {

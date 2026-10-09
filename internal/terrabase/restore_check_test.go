@@ -25,7 +25,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const restoreDocument = "/v1/projects/00000000000000000000000002/databases/00000000000000000000000003/collections/00000000000000000000000004/documents/00000000000000000000000005"
+const restoreDocument = "/v1/projects/00000000000000000000000002/databases/atlas/collections/restore_canary/documents/00000000000000000000000005"
 
 func restorePlan(t *testing.T) string {
 	t.Helper()
@@ -51,7 +51,7 @@ func TestRestoreCheckPlanWithoutApply(t *testing.T) {
 	binary := fakeRelease(t)
 	plan := restorePlan(t)
 	var output bytes.Buffer
-	if err := runRestoreCheck(t.Context(), []string{"--plan", plan, "--binary", binary, "--organization", "00000000000000000000000001",
+	if err := runRestoreCheck(t.Context(), []string{"--plan", plan, "--binary", binary, "--organization", "00000000000000000000000001", "--database", "00000000000000000000000003",
 		"--document", restoreDocument, "--scratch-instance", "ocid1.instance.scratch", "--restored-volume", "ocid1.volume.restored"}, &output); err != nil {
 		t.Fatal(err)
 	}
@@ -61,9 +61,41 @@ func TestRestoreCheckPlanWithoutApply(t *testing.T) {
 	}
 	want := restoreCheckRequest{Step: "plan", Plan: plan, Compartment: "ocid1.compartment.workload", Device: "/dev/oracleoci/oraclevdz",
 		ScratchInstance: "ocid1.instance.scratch", RestoredVolume: "ocid1.volume.restored", Binary: binary,
-		Document: restoreDocument, ReadyPath: "/readyz"}
+		Document: restoreDocument, DatabaseID: "00000000000000000000000003", ReadyPath: "/readyz"}
 	if got != want || !strings.Contains(output.String(), `"apply":false`) {
 		t.Fatalf("plan = %s, want %+v", output.String(), want)
+	}
+}
+
+func TestRestoreCheckRequiresIDsAndSafeNames(t *testing.T) {
+	organization, database := "00000000000000000000000001", "00000000000000000000000003"
+	resolve := func(org, db, document string) (restoreCheckRequest, error) {
+		return resolveRestoreCheck("terrabase-linux-amd64", org, db, document,
+			"ocid1.instance.scratch", "ocid1.volume.restored", "/readyz", time.Minute, false)
+	}
+	request, err := resolve(organization, database, restoreDocument)
+	if err != nil || request.DatabaseID != database || request.project != "00000000000000000000000002" {
+		t.Fatalf("named database/collection with separate scoped ID: %+v, %v", request, err)
+	}
+	for _, name := range []string{".", "..", "%2e%2e", "atlas?query=1", "atlas#fragment", "atlas/other"} {
+		for _, segment := range []string{"atlas", "restore_canary"} {
+			if _, err := resolve(organization, database, strings.Replace(restoreDocument, segment, name, 1)); err == nil {
+				t.Errorf("accepted unsafe %s name %q", segment, name)
+			}
+		}
+	}
+	for _, id := range []string{"", "orders", "01k78000000000000000000001", "01a1105a-7350-7f48-a96e-d71bbb45d7a8"} {
+		if _, err := resolve(id, database, restoreDocument); err == nil {
+			t.Errorf("accepted invalid organization ID %q", id)
+		}
+		if _, err := resolve(organization, id, restoreDocument); err == nil {
+			t.Errorf("accepted invalid database ID %q", id)
+		}
+		for _, segment := range []string{"00000000000000000000000002", "00000000000000000000000005"} {
+			if _, err := resolve(organization, database, strings.Replace(restoreDocument, segment, id, 1)); err == nil {
+				t.Errorf("accepted invalid URL entity ID %q", id)
+			}
+		}
 	}
 }
 
@@ -72,12 +104,13 @@ func TestRestoreCheckRejectsBadFlags(t *testing.T) {
 	plan := restorePlan(t)
 	unverified := filepath.Join(t.TempDir(), "terrabase-linux-amd64")
 	writeFile(t, unverified, []byte("\x7fELF"))
-	base := []string{"--plan", plan, "--binary", binary, "--organization", "00000000000000000000000001", "--scratch-instance", "ocid1.instance.scratch",
+	base := []string{"--plan", plan, "--binary", binary, "--organization", "00000000000000000000000001", "--database", "00000000000000000000000003", "--scratch-instance", "ocid1.instance.scratch",
 		"--restored-volume", "ocid1.volume.restored"}
 	for name, args := range map[string][]string{
 		"no binary":       {"--organization", "o", "--document", restoreDocument},
 		"no organization": {"--binary", binary, "--document", restoreDocument},
 		"no document":     base,
+		"no database":     {"--plan", plan, "--binary", binary, "--organization", "00000000000000000000000001", "--document", restoreDocument, "--scratch-instance", "ocid1.instance.scratch", "--restored-volume", "ocid1.volume.restored"},
 		"unknown flag":    append(slices.Clone(base), "--document", restoreDocument, "--format"),
 		"extra argument":  append(slices.Clone(base), "--document", restoreDocument, "extra"),
 		"no checksum":     {"--plan", plan, "--binary", unverified, "--organization", "o", "--document", restoreDocument, "--scratch-instance", "ocid1.instance.scratch", "--restored-volume", "ocid1.volume.restored"},
@@ -87,11 +120,11 @@ func TestRestoreCheckRejectsBadFlags(t *testing.T) {
 		"no restored ID":  {"--plan", plan, "--binary", binary, "--organization", "o", "--document", restoreDocument, "--scratch-instance", "ocid1.instance.scratch"},
 		"not a volume":    append(slices.Clone(base), "--document", restoreDocument, "--restored-volume", "ocid1.instance.scratch"),
 		"bad volume ID":   append(slices.Clone(base), "--document", restoreDocument, "--restored-volume", "ocid1.volume.restore/other"),
-		"traversal":       append(slices.Clone(base), "--document", "/v1/projects/p/databases/../collections/c/documents/x"),
-		"dot segment":     append(slices.Clone(base), "--document", "/v1/projects/p/databases/d/collections/./documents/x"),
+		"traversal":       append(slices.Clone(base), "--document", "/v1/projects/00000000000000000000000002/databases/../collections/c/documents/x"),
+		"dot segment":     append(slices.Clone(base), "--document", "/v1/projects/00000000000000000000000002/databases/d/collections/./documents/x"),
 		"query":           append(slices.Clone(base), "--document", restoreDocument+"?x=1"),
 		"fragment":        append(slices.Clone(base), "--document", restoreDocument+"#x"),
-		"escaped":         append(slices.Clone(base), "--document", "/v1/projects/p/databases/d/collections/c/documents/%2e%2e"),
+		"escaped":         append(slices.Clone(base), "--document", "/v1/projects/00000000000000000000000002/databases/d/collections/c/documents/%2e%2e"),
 		"empty segment":   append(slices.Clone(base), "--document", "/v1/projects//databases/d/collections/c/documents/x"),
 		"extra segment":   append(slices.Clone(base), "--document", restoreDocument+"/more"),
 		"other prefix":    append(slices.Clone(base), "--document", "/v2/projects/p/databases/d/collections/c/documents/x"),
@@ -199,7 +232,7 @@ func (s restoreServers) verify(t *testing.T, wait time.Duration) (string, error)
 	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots}}
 	defer transport.CloseIdleConnections()
 	request := restoreCheckRequest{Document: restoreDocument, ReadyPath: "/readyz", organization: "00000000000000000000000001",
-		project: "00000000000000000000000002", database: "00000000000000000000000003", id: "00000000000000000000000005", wait: wait}
+		project: "00000000000000000000000002", DatabaseID: "00000000000000000000000003", id: "00000000000000000000000005", wait: wait}
 	return verifyRestore(t.Context(), &http.Client{Transport: transport, Timeout: 5 * time.Second},
 		adminServer.URL, clientServer.URL, request)
 }

@@ -82,7 +82,7 @@ func runIsolatedRestoreCheck(ctx context.Context, input io.Reader, output io.Wri
 		return errors.New("invalid isolated restore-check request")
 	}
 	r := payload.Check
-	request, err := resolveRestoreCheck(r.Binary, payload.Organization, r.Document, r.ScratchInstance, r.RestoredVolume, r.ReadyPath, payload.Wait, true)
+	request, err := resolveRestoreCheck(r.Binary, payload.Organization, r.DatabaseID, r.Document, r.ScratchInstance, r.RestoredVolume, r.ReadyPath, payload.Wait, true)
 	if err != nil {
 		return err
 	}

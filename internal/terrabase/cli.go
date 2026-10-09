@@ -19,7 +19,7 @@ import (
 const cliUsage = "Usage: ts-orch terrabase member-ca --cell CELL --out DIR\n" +
 	"       ts-orch terrabase data-volume --plan FILE --member NAME (--instance OCID | --grow-gb N) [--compartment OCID] [--apply]\n" +
 	"       ts-orch terrabase restore-volume --plan FILE --member NAME --scratch-instance OCID [--backup OCID] [--compartment OCID] [--apply]\n" +
-	"       ts-orch terrabase restore-check --plan FILE --binary FILE --organization ORG --document PATH --scratch-instance OCID --restored-volume OCID [--compartment OCID] [--ready-path PATH] [--wait D] [--apply]\n\n" +
+	"       ts-orch terrabase restore-check --plan FILE --binary FILE --organization ORG --database DBID --document PATH --scratch-instance OCID --restored-volume OCID [--compartment OCID] [--ready-path PATH] [--wait D] [--apply]\n\n" +
 	"  member-ca       Create a cell's TerraBase member CA: DIR/member-ca.pem and the owner-only DIR/member-ca.key\n" +
 	"  data-volume     Print, or with --apply create and attach (or grow) a member's OCI data volume NAME-data\n" +
 	"  restore-volume  Print, or with --apply restore a backup of NAME-data into a new volume on a scratch instance\n" +

@@ -361,15 +361,15 @@ func CustomerMaterial(reply, opened Object) (string, string, error) {
 	if len(parts) != 3 || parts[0] != "tbk1" || parts[1] != customer["token_id"] {
 		return "", "", fmt.Errorf("customer token ID differs from verified preparation reply")
 	}
-	id, e := base64.RawURLEncoding.Strict().DecodeString(parts[1])
+	id, e := entityid.Parse(parts[1])
 	if e != nil {
 		return "", "", fmt.Errorf("customer token encoding is invalid")
 	}
 	secret, e := base64.RawURLEncoding.Strict().DecodeString(parts[2])
-	if e != nil || len(id) != 16 || len(secret) != 32 {
+	if e != nil || len(secret) != 32 {
 		return "", "", fmt.Errorf("customer token length is invalid")
 	}
-	material := append(append([]byte("TB-APIKEY-V1\x00"), id...), secret...)
+	material := append(append([]byte("TB-APIKEY-V1\x00"), id[:]...), secret...)
 	if hashBytes(material) != customer["verifier_sha256"] || hashBytes([]byte(ca)) != customer["https_ca_sha256"] {
 		return "", "", fmt.Errorf("opened customer material differs from verified preparation reply")
 	}

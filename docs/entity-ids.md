@@ -79,6 +79,8 @@ data and recreates bootstrap state through the current startup path.
    current instances; wiping tombstones does not authorize revoked nodes.
    Inspect retained, retired and restore volumes and their provider create-key tags; affected old resources must be
    deleted, never adopted through an old tag or rewritten in place.
+   Inventory and delete affected controller-created OCI volume backups with
+   old create-key tags, including orphan backups whose source volume is gone.
    Verify local pending activations, proofs, watchdogs, retained artifacts,
    signed release/update receipts and delegations, accepted image receipts and
    their root-signed pinned admission manifests, and retained material

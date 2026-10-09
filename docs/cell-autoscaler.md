@@ -45,7 +45,7 @@ of at most 64 KiB:
   "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.example2",
   "state": "ready",
   "sampled_at": "2026-10-04T12:00:00Z",
-  "process_id": "start-42a091",
+  "process_id": "01K78000000000000000000002",
   "release": "sha256:3f1c…",
   "cpu_util": 0.42,
   "mem_util": 0.61,
@@ -57,7 +57,7 @@ of at most 64 KiB:
   "p95_latency_ms": 14,
   "load": {"connections": 310, "storage_bytes": 98784247808, "replication_lag_seq": 12, "write_qps": 240},
   "top_tenants": [
-    {"project": "0b5e7c1a-4f2d-4c8e-9a61-3d2f8e7b1c90", "request_rate": 620, "cpu_share": 0.4}
+    {"project": "01K78000000000000000000004", "request_rate": 620, "cpu_share": 0.4}
   ]
 }
 ```
@@ -69,7 +69,7 @@ of at most 64 KiB:
 | `instance_id` | OCI instance OCID; must equal the instance observed in OCI | required, 1–128 of `[A-Za-z0-9._:+-]` |
 | `state` | `joining`, `ready`, `draining` or `drained`; only `ready` serves and has caught up | one of the four |
 | `sampled_at` | when the node measured the whole report, never when it was fetched | RFC 3339; at most 2 minutes old, at most 5 seconds ahead |
-| `process_id` | opaque identity of this TerraBase process start; changes on every process restart/reboot and is never reused | 1–128 of `[A-Za-z0-9._:+-]` |
+| `process_id` | identity of this TerraBase process start; changes on every process restart/reboot and is never reused | canonical uppercase 26-character Crockford ULID |
 | `release` | the TerraBase build running; nodes that differ mean a rollout is in flight | 1–128 of `[A-Za-z0-9._:+-]` |
 | `cpu_util`, `mem_util` | fractions of the node's current shape; the names match the host telemetry signals | [0, 1] |
 | `disk_used_bytes`, `disk_total_bytes` | the data disk | 0 ≤ used ≤ total, total > 0 |
@@ -123,12 +123,12 @@ of the top-tenants load list, with a 1 MiB response limit:
   "sampled_at": "2026-10-04T12:00:00Z",
   "complete": true,
   "members": [
-    {"node": "gru-1-db-1", "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.example1", "incarnation": "start-1"},
-    {"node": "gru-1-db-2", "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.example2", "incarnation": "start-42a091"},
-    {"node": "gru-1-db-3", "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.example3", "incarnation": "start-3"}
+    {"node": "gru-1-db-1", "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.example1", "incarnation": "01K78000000000000000000001"},
+    {"node": "gru-1-db-2", "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.example2", "incarnation": "01K78000000000000000000002"},
+    {"node": "gru-1-db-3", "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.example3", "incarnation": "01K78000000000000000000003"}
   ],
   "placements": [
-    {"org": "acme", "database": "orders", "shard": 1,
+    {"org": "01K78000000000000000000005", "database": "01K78000000000000000000006", "shard": 1,
      "live_replicas": ["gru-1-db-1", "gru-1-db-2", "gru-1-db-3"]}
   ]
 }
@@ -136,9 +136,10 @@ of the top-tenants load list, with a 1 MiB response limit:
 
 Every field is required and non-null; only an explicit `placements: []`
 with `complete: true` means no placements. Each `(org, database, shard)`
-appears once. Organizations use the pressure contract's identifier; database
-identifiers are 1–128 characters from `[A-Za-z0-9._:+-]`, and shard IDs are
-positive integers. `live_replicas` names distinct nodes of this cell that
+appears once. Organization and database fields are entity IDs: canonical
+uppercase 26-character Crockford ULIDs, not names. Shard IDs are positive
+integers. Process incarnations use the same ULID form as pressure reports.
+`live_replicas` names distinct nodes of this cell that
 currently serve a durable copy caught up to that shard's source frontier.
 Stopped, receiver-only, lagging and planned replicas are excluded. `members`
 contains every owned node, including draining nodes and nodes with no live
