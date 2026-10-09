@@ -76,6 +76,10 @@ func TestRunDeliversAlertAfterCollectionContextEnds(t *testing.T) {
 	defer cancel()
 	delivered := false
 	a := api{readToken: "read", writeToken: "write", client: &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/v1/discovery" {
+			body := fmt.Sprintf(`{"v":1,"updated":%d,"regions":[{"id":"gru-1"},{"id":"sfo-1"}]}`, time.Now().Unix())
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))}, nil
+		}
 		if r.URL.Path == "/api/v1/deployments" {
 			cancel()
 			return nil, context.Canceled
@@ -225,14 +229,28 @@ func TestAlertFindsAndRecoversAnIncidentBeyondTheFirstPage(t *testing.T) {
 func TestRunValidatesCurrentProofsBeforeClosingAnIncident(t *testing.T) {
 	baseNow := time.Date(2026, 10, 9, 15, 0, 0, 0, time.UTC)
 	latest, deployed := strings.Repeat("a", 40), strings.Repeat("b", 40)
-	for _, broken := range []string{"", "native missing", "native stale", "edge missing", "edge stale", "edge non-200", "edge invalid revision"} {
+	for _, broken := range []string{"", "new region", "discovery missing", "native missing", "native stale", "edge missing", "edge stale", "edge non-200", "edge invalid revision"} {
 		t.Run(broken, func(t *testing.T) {
+			regions := []string{"GRU", "SFO"}
+			if broken == "new region" {
+				regions = append(regions, "FRA")
+			}
 			var elapsed atomic.Int64
+			var nativeReads atomic.Int64
 			now := func() time.Time { return baseNow.Add(time.Duration(elapsed.Load()) * time.Second) }
 			closed, updated := false, false
 			a := api{readToken: "read", writeToken: "write", client: &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {
 				body := "[]"
 				switch {
+				case r.URL.Path == "/v1/discovery":
+					var entries []string
+					for _, region := range regions {
+						entries = append(entries, fmt.Sprintf(`{"id":%q,"health":"unknown"}`, strings.ToLower(region)+"-1"))
+					}
+					if broken == "discovery missing" {
+						entries = nil
+					}
+					body = fmt.Sprintf(`{"v":1,"updated":%d,"regions":[%s]}`, time.Now().Unix(), strings.Join(entries, ","))
 				case strings.HasSuffix(r.URL.Path, "/statuses"):
 					// History retrieval crosses the old 30-second future tolerance.
 					elapsed.Store(45)
@@ -276,13 +294,14 @@ func TestRunValidatesCurrentProofsBeforeClosingAnIncident(t *testing.T) {
 				case r.Method == "PATCH":
 					wire, _ := io.ReadAll(r.Body)
 					closed = string(wire) == `{"state":"closed"}`
-					updated = strings.Contains(string(wire), "live deployment proof")
+					updated = strings.Contains(string(wire), "live deployment proof") || strings.Contains(string(wire), "Serving-region discovery unavailable")
 				default:
 					t.Fatalf("unexpected guard request: %s %s", r.Method, r.URL)
 				}
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
 			})}}
 			readNative := func(_ context.Context, service, region string) (observation, error) {
+				nativeReads.Add(1)
 				proof := observation{Service: service, Region: region, Target: "fleet", Version: deployed, Status: 200, ObservedAt: now()}
 				if service == "ts-auth" && region == "GRU" {
 					switch broken {
@@ -295,7 +314,14 @@ func TestRunValidatesCurrentProofsBeforeClosingAnIncident(t *testing.T) {
 				return proof, nil
 			}
 			err := run(context.Background(), a, now, readNative, true)
-			if broken == "" {
+			wantNative := int64(len(regions) * 3)
+			if broken == "discovery missing" {
+				wantNative = 0
+			}
+			if nativeReads.Load() != wantNative {
+				t.Fatalf("discovered native regions omitted: reads=%d want=%d", nativeReads.Load(), wantNative)
+			}
+			if broken == "" || broken == "new region" {
 				if err != nil || !closed {
 					t.Fatalf("fresh proofs/qualifications after slow history failed: closed=%v err=%v", closed, err)
 				}

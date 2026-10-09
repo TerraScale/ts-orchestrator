@@ -38,6 +38,7 @@ type regionBucket struct {
 	roots   trust.Keyring
 	outcome releasechannel.State
 	objects map[string][]byte
+	scope   *releasechannel.Status
 	log     *[]string
 	logMu   *sync.Mutex
 	wait    func(context.Context) error
@@ -73,6 +74,10 @@ func (bucket *regionBucket) GetObject(ctx context.Context, request objectstorage
 	data, ok := bucket.objects[name]
 	if name == releasechannel.StatusObject && !ok {
 		data, ok = bucket.status()
+		if !ok && bucket.scope != nil {
+			data, _ = json.Marshal(bucket.scope)
+			ok = true
+		}
 	}
 	if !ok {
 		return objectstorage.GetObjectResponse{}, httpError(404)
@@ -148,8 +153,9 @@ func newDeployFixture(t *testing.T) *deployFixture {
 			objects: map[string][]byte{}, log: &fixture.log, logMu: &fixture.logMu}
 	}
 	fixture.env = deployEnv{
-		check:   func(release.Qualification, string) error { return nil },
-		inspect: func(string, string, string) (binaryReceipt, error) { return testBinaryReceipt(), nil },
+		discover: func(context.Context) ([]string, error) { return []string{"GRU", "SFO"}, nil },
+		check:    func(release.Qualification, string) error { return nil },
+		inspect:  func(string, string, string) (binaryReceipt, error) { return testBinaryReceipt(), nil },
 		git: func(_ context.Context, args ...string) (string, error) {
 			if strings.HasSuffix(strings.Join(args, " "), "remote get-url origin") {
 				return "https://git.terrascale.tech/TerraScale/ts-orchestrator.git\n", nil
@@ -214,12 +220,12 @@ func TestDeployRollsOutEveryRegion(t *testing.T) {
 	}
 
 	output.Reset()
-	if err := c.fleetStatusWith([]string{"--namespace", "ns"}, fixture.env.storage); err != nil {
+	if err := c.fleetStatusWith([]string{"--namespace", "ns"}, fixture.env); err != nil {
 		t.Fatalf("fleet-status: %v", err)
 	}
 	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
-	if len(lines) != 3 || !strings.Contains(lines[0], `"cell":"GRU"`) || !strings.Contains(lines[0], `"state":"complete"`) ||
-		!strings.Contains(lines[0], `"run_number":620`) || strings.Contains(lines[2], "status") {
+	if len(lines) != 2 || !strings.Contains(lines[0], `"cell":"GRU"`) || !strings.Contains(lines[0], `"state":"complete"`) ||
+		!strings.Contains(lines[0], `"run_number":620`) {
 		t.Fatalf("fleet-status:\n%s", output.String())
 	}
 
@@ -229,7 +235,7 @@ func TestDeployRollsOutEveryRegion(t *testing.T) {
 		[]byte(`{"cell":"SFO","role":"terrabase","digest":"` + strings.Repeat("ab", 32) + `","state":"complete"}`)
 	output.Reset()
 	if err := c.fleetStatusWith([]string{"--namespace", "ns", "--cell", "GRU", "--cell", "SFO", "--role", "terrabase"},
-		fixture.env.storage); err != nil {
+		fixture.env); err != nil {
 		t.Fatalf("fleet-status --role: %v", err)
 	}
 	lines = strings.Split(strings.TrimSpace(output.String()), "\n")
@@ -445,7 +451,7 @@ func TestFleetStatusRequiresLeaderPinsBeforePruning(t *testing.T) {
 					f.buckets["GRU"].objects[name] = []byte(status)
 				}
 				output.Reset()
-				err := c.fleetStatusWith(args, f.env.storage)
+				err := c.fleetStatusWith(args, f.env)
 				if (err != nil) != (i < 3) {
 					t.Fatalf("status %d: err=%v output=%s", i, err, output.String())
 				}
@@ -487,10 +493,10 @@ func TestFleetStatusRejectsStaleLeaderPins(t *testing.T) {
 					f.buckets[cell].objects[name] = []byte(fmt.Sprintf(`{"schema":%q,"cell":%q,"role":%q,"updated_at":%q,"pins":{"rollback":[],"known_bad":[]}}`,
 						schema, cell, role, at.Format(time.RFC3339Nano)))
 				}
-				if err := c.fleetStatusWith(args, f.env.storage); err != nil {
+				if err := c.fleetStatusWith(args, f.env); err != nil {
 					t.Fatalf("ordinary status read: %v", err)
 				}
-				if err := c.fleetStatusWith(append(args, "--require-pins"), f.env.storage); (err != nil) != tc.bad {
+				if err := c.fleetStatusWith(append(args, "--require-pins"), f.env); (err != nil) != tc.bad {
 					t.Fatalf("strict status read = %v, invalid timestamp = %v", err, tc.bad)
 				}
 			})

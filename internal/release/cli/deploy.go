@@ -32,12 +32,13 @@ type deployEnv struct {
 	// storage returns the Object Storage client of a cell's region.
 	storage func(cell string) (releasechannel.ObjectClient, error)
 	// secret reads one Vault secret.
-	secret func(ctx context.Context, vaultID, name string) ([]byte, error)
+	secret   func(ctx context.Context, vaultID, name string) ([]byte, error)
+	discover func(context.Context) ([]string, error)
 }
 
 func (c command) deploy(args []string) error {
 	return c.deployWith(args, deployEnv{check: c.verifyForgejoQualification, inspect: c.inspectBinary, git: runGit,
-		storage: operatorObjectStorage, secret: readVaultSecret})
+		storage: operatorObjectStorage, secret: readVaultSecret, discover: discoverServingCells})
 }
 
 // deployWith signs and deploys one CI-qualified release independently in
@@ -54,29 +55,29 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	keyPath := flags.String("signing-key", "", "owner-only update leaf Ed25519 PKCS#8 private key PEM")
 	keySecret := flags.String("signing-key-secret", "", "OCI Vault secret holding the update leaf key, instead of --signing-key")
 	vaultID := flags.String("vault-id", "", "OCI Vault of --signing-key-secret")
-	environment := flags.String("environment", "", "production or canary")
+	environment := flags.String("environment", "", "production or canary; default the region's admitted scope")
 	checkout := flags.String("source-checkout", "", "repository checkout used to prove lineage")
 	namespace := flags.String("namespace", "", "Object Storage namespace of the regions' head buckets")
 	validFor := flags.Duration("valid-for", 7*24*time.Hour, "receipt validity, bounded by delegation expiry")
 	regionTimeout := flags.Duration("region-timeout", 2*time.Hour, "how long one cell may take to report the rollout complete")
 	poll := flags.Duration("poll", 30*time.Second, "how often a cell's status is read")
 	var cells, architectures stringList
-	flags.Var(&cells, "cell", "cell to deploy to concurrently; repeatable")
-	flags.Var(&architectures, "arch", "amd64 or arm64; repeatable")
+	flags.Var(&cells, "cell", "cell to deploy to concurrently; repeatable; default every serving cell")
+	flags.Var(&architectures, "arch", "amd64 or arm64; repeatable; default each region's architectures")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if *directory == "" || !release.ValidSourceRevision(*sourceRevision) || *delegationPath == "" || *rootPath == "" ||
 		(*keyPath == "") == (*keySecret == "") || (*keySecret == "") != (*vaultID == "") ||
-		!validEnvironment(*environment) || *checkout == "" || !validStorageToken(*namespace) ||
-		len(cells) == 0 || len(architectures) == 0 || *regionTimeout <= 0 || *poll <= 0 || flags.NArg() != 0 {
-		return errors.New("deploy requires --dir, --source-revision, --update-delegation, --root-key, --signing-key or --signing-key-secret with --vault-id, --environment, --source-checkout, --namespace, --cell and --arch")
+		*environment != "" && !validEnvironment(*environment) || *checkout == "" || !validStorageToken(*namespace) ||
+		*regionTimeout <= 0 || *poll <= 0 || flags.NArg() != 0 {
+		return errors.New("deploy requires --dir, --source-revision, --update-delegation, --root-key, --signing-key or --signing-key-secret with --vault-id, --source-checkout and --namespace")
 	}
-	for _, cell := range cells {
-		if !validRegion(cell) {
-			return fmt.Errorf("unsupported cell %q", cell)
-		}
+	targetCells, err := deploymentCells(c.ctx, cells, env.discover)
+	if err != nil {
+		return err
 	}
+	cells = targetCells
 	for _, architecture := range architectures {
 		if architecture != "amd64" && architecture != "arm64" {
 			return fmt.Errorf("unsupported architecture %q", architecture)
@@ -88,21 +89,6 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	}
 	if qualification.SourceRevision != *sourceRevision {
 		return errors.New("qualification names another source revision")
-	}
-	binaries := map[string]binaryReceipt{}
-	for _, architecture := range architectures {
-		receipt, err := env.inspect(binaryPath(*directory, architecture), defaultGoVersion, *sourceRevision)
-		if err != nil {
-			return err
-		}
-		receipt.QualificationSHA256 = qualificationDigest
-		if err := qualification.MatchBinary(receipt, qualificationDigest); err != nil {
-			return err
-		}
-		if receipt.GOARCH != architecture {
-			return fmt.Errorf("%s binary is built for %s", architecture, receipt.GOARCH)
-		}
-		binaries[architecture] = receipt
 	}
 	if err := env.check(qualification, qualificationDigest); err != nil {
 		return err
@@ -153,11 +139,41 @@ func (c command) deployWith(args []string, env deployEnv) error {
 				}
 			}()
 			cellStarted := time.Now()
-			channel := releasechannel.Channel{Schema: releasechannel.ChannelSchema, Cell: cell, Environment: *environment,
+			location, err := channelLocation(env, cell, *namespace)
+			if err != nil {
+				return err
+			}
+			cellEnvironment, cellArchitectures := *environment, []string(architectures)
+			if cellEnvironment == "" || len(cellArchitectures) == 0 {
+				scope, err := deploymentScope(c.ctx, location, cell)
+				if err != nil {
+					return err
+				}
+				if cellEnvironment == "" {
+					cellEnvironment = scope.Environment
+				}
+				if len(cellArchitectures) == 0 {
+					cellArchitectures = scope.Architectures
+				}
+			}
+			binaries := make(map[string]binaryReceipt, len(cellArchitectures))
+			channel := releasechannel.Channel{Schema: releasechannel.ChannelSchema, Cell: cell, Environment: cellEnvironment,
 				SourceRevision: *sourceRevision, RunNumber: qualification.Verification.RunNumber, Delegation: delegationWire}
-			for _, architecture := range architectures {
+			for _, architecture := range cellArchitectures {
+				receipt, err := env.inspect(binaryPath(*directory, architecture), defaultGoVersion, *sourceRevision)
+				if err != nil {
+					return err
+				}
+				receipt.QualificationSHA256 = qualificationDigest
+				if err := qualification.MatchBinary(receipt, qualificationDigest); err != nil {
+					return err
+				}
+				if receipt.GOARCH != architecture {
+					return fmt.Errorf("%s binary is built for %s", architecture, receipt.GOARCH)
+				}
+				binaries[architecture] = receipt
 				envelope, err := release.SignBinaryUpdateReceipt(binaries[architecture], qualification, qualificationDigest, cell,
-					*environment, lineage, delegation, roots, private, time.Now().UTC(), *validFor)
+					cellEnvironment, lineage, delegation, roots, private, time.Now().UTC(), *validFor)
 				if err != nil {
 					return fmt.Errorf("sign %s: %w", architecture, err)
 				}
@@ -168,14 +184,10 @@ func (c command) deployWith(args []string, env deployEnv) error {
 				channel.Receipts = append(channel.Receipts, wire)
 			}
 			// Receipts must remain valid through this region's complete rollout window.
-			if _, err := channel.Verify(roots, cell, *environment, time.Now().UTC().Add(*regionTimeout)); err != nil {
+			if _, err := channel.Verify(roots, cell, cellEnvironment, time.Now().UTC().Add(*regionTimeout)); err != nil {
 				return fmt.Errorf("receipts would expire during rollout; renew the update delegation: %w", err)
 			}
-			location, err := channelLocation(env, cell, *namespace)
-			if err != nil {
-				return err
-			}
-			for _, architecture := range architectures {
+			for _, architecture := range cellArchitectures {
 				if err := c.uploadBinary(location, binaryPath(*directory, architecture), binaries[architecture].SHA256); err != nil {
 					return fmt.Errorf("upload the %s binary to %s: %w", architecture, channel.Cell, err)
 				}
@@ -265,13 +277,13 @@ func channelLocation(env deployEnv, cell, namespace string) (releasechannel.Loca
 }
 
 func (c command) fleetStatus(args []string) error {
-	return c.fleetStatusWith(args, operatorObjectStorage)
+	return c.fleetStatusWith(args, deployEnv{storage: operatorObjectStorage, discover: discoverServingCells})
 }
 
 // fleetStatusWith prints one JSON line per cell: the release in its channel
 // and the status its leader reports, or with --role each named service
 // role's status instead. It fails if any cell cannot be read.
-func (c command) fleetStatusWith(args []string, storage func(string) (releasechannel.ObjectClient, error)) error {
+func (c command) fleetStatusWith(args []string, env deployEnv) error {
 	flags := flag.NewFlagSet("fleet-status", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	namespace := flags.String("namespace", "", "Object Storage namespace of the regions' head buckets")
@@ -291,9 +303,11 @@ func (c command) fleetStatusWith(args []string, storage func(string) (releasecha
 			return fmt.Errorf("invalid --role %q", role)
 		}
 	}
-	if len(cells) == 0 {
-		cells = catalog.Cells()
+	targetCells, err := deploymentCells(c.ctx, cells, env.discover)
+	if err != nil {
+		return err
 	}
+	cells = targetCells
 	type line struct {
 		Cell    string                 `json:"cell"`
 		Channel *channelSummary        `json:"channel,omitempty"`
@@ -306,7 +320,7 @@ func (c command) fleetStatusWith(args []string, storage func(string) (releasecha
 	for _, cell := range cells {
 		out := line{Cell: cell}
 		err := func() error {
-			location, err := channelLocation(deployEnv{storage: storage}, cell, *namespace)
+			location, err := channelLocation(env, cell, *namespace)
 			if err != nil {
 				return err
 			}

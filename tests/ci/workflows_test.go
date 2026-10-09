@@ -173,9 +173,10 @@ func TestWorkflowContracts(t *testing.T) {
 		}
 		wrapper := workflowText(t, "scripts/ci/deploy-fleet.sh")
 		forbidText(t, wrapper, "TS_AUTO_DEPLOY_")
-		requireText(t, wrapper, "cells=(GRU SFO)")
-		requireText(t, wrapper, "architectures=(arm64)")
-		requireText(t, wrapper, "--environment canary")
+		for _, flag := range []string{"--cell", "--environment", "--arch"} {
+			forbidText(t, wrapper, flag)
+		}
+		requireText(t, wrapper, "'.artifacts[].name'")
 		requireText(t, wrapper, "dist/ts-orch release deploy ")
 		requireText(t, wrapper, `--signing-key-secret "$TS_RELEASE_LEAF_SECRET" --vault-id "$TS_RELEASE_VAULT_ID"`)
 		forbidText(t, wrapper, "--signing-key \"")

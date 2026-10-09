@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
@@ -29,7 +30,6 @@ const collectionBudget = 7 * time.Minute
 const notificationBudget = 90 * time.Second
 
 var services = []string{"ts-orchestrator", "terrabase", "ts-auth", "ts-atlas", "ts-status", "ts-dashboard"}
-var regions = []string{"GRU", "SFO"}
 
 type commit struct {
 	SHA     string    `json:"sha"`
@@ -252,8 +252,12 @@ func run(ctx context.Context, a api, now func() time.Time,
 	readNative func(context.Context, string, string) (observation, error), notify bool) error {
 	collectCtx, cancelCollection := context.WithTimeout(ctx, collectionBudget)
 	defer cancelCollection()
+	regions, discoveryErr := atlas.DiscoverServingCells(collectCtx, a.client)
 	histories := make(map[string][]commit)
 	var findings []string
+	if discoveryErr != nil {
+		findings = append(findings, "- Serving-region discovery unavailable: "+discoveryErr.Error())
+	}
 	var lock sync.Mutex
 	var workers sync.WaitGroup
 	for _, service := range services {
@@ -291,7 +295,7 @@ func run(ctx context.Context, a api, now func() time.Time,
 	if err != nil {
 		findings = append(findings, "- Edge deployment observations unavailable from ts-status")
 	}
-	// Require the complete fixed matrix, including both Status vantage builds.
+	// Require every discovered region, including its Status vantage build.
 	for _, service := range services[3:] {
 		for _, region := range regions {
 			targets := []string{"service"}

@@ -30,13 +30,14 @@ import (
 // serviceBucket is a region's head bucket whose leader admits the role's
 // claim as a controller would, then reports outcome for it.
 type serviceBucket struct {
-	mu      sync.Mutex
-	cell    string
-	signer  ed25519.PublicKey
-	outcome releasechannel.State
-	objects map[string][]byte
-	log     *[]string
-	logMu   *sync.Mutex
+	mu          sync.Mutex
+	cell        string
+	environment string
+	signer      ed25519.PublicKey
+	outcome     releasechannel.State
+	objects     map[string][]byte
+	log         *[]string
+	logMu       *sync.Mutex
 }
 
 func (bucket *serviceBucket) PutObject(_ context.Context, request objectstorage.PutObjectRequest) (objectstorage.PutObjectResponse, error) {
@@ -90,7 +91,7 @@ func (bucket *serviceBucket) status() ([]byte, bool) {
 		status.Digest = record.Digest
 		binary := bucket.objects[releasechannel.ServiceBinaryObject("ts-auth", record.Digest)]
 		sum := sha256.Sum256(binary)
-		if actor != "ci-release" || record.Role != "ts-auth" || hex.EncodeToString(sum[:]) != record.Digest || int64(len(binary)) != record.Size {
+		if actor != "ci-release" || record.Role != "ts-auth" || record.Environment != bucket.environment || hex.EncodeToString(sum[:]) != record.Digest || int64(len(binary)) != record.Size {
 			err = errors.New("the binary is not the claimed one")
 		}
 	}
@@ -137,12 +138,13 @@ func newServiceDeployFixture(t *testing.T) *serviceDeployFixture {
 	fixture.key = filepath.Join(directory, "release.key")
 	writePrivateKey(t, fixture.key, private)
 	for _, cell := range []string{"GRU", "SFO"} {
-		fixture.buckets[cell] = &serviceBucket{cell: cell, signer: public, outcome: releasechannel.StateComplete,
+		fixture.buckets[cell] = &serviceBucket{cell: cell, environment: "canary", signer: public, outcome: releasechannel.StateComplete,
 			objects: map[string][]byte{}, log: &fixture.log, logMu: &fixture.logMu}
 	}
 	fixture.env = deployEnv{
-		storage: func(cell string) (releasechannel.ObjectClient, error) { return fixture.buckets[cell], nil },
-		secret:  func(context.Context, string, string) ([]byte, error) { return nil, errors.New("no Vault in this test") },
+		discover: func(context.Context) ([]string, error) { return []string{"GRU", "SFO"}, nil },
+		storage:  func(cell string) (releasechannel.ObjectClient, error) { return fixture.buckets[cell], nil },
+		secret:   func(context.Context, string, string) ([]byte, error) { return nil, errors.New("no Vault in this test") },
 	}
 	return fixture
 }
@@ -250,8 +252,9 @@ func TestServiceDeployRefusesIncompleteArguments(t *testing.T) {
 	if err := c.serviceDeployWith(fixture.args("NOPE"), fixture.env); err == nil {
 		t.Fatal("service-deploy accepted an unknown cell")
 	}
+	fixture.env.discover = func(context.Context) ([]string, error) { return nil, nil }
 	if err := c.serviceDeployWith(fixture.args(), fixture.env); err == nil {
-		t.Fatal("service-deploy accepted no cell")
+		t.Fatal("service-deploy accepted empty serving discovery")
 	}
 	if len(fixture.log) != 0 {
 		t.Fatalf("a refused deployment wrote %q", fixture.log)

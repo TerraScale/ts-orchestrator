@@ -21,22 +21,28 @@ concurrently. A signing, storage, publication or rollout failure
 in one region does not interrupt another region's healthy rollout; the command
 waits for all started regions and returns failure if any failed.
 
+Serving membership comes from the orchestrator's signed cell-spec topology,
+published at Atlas `/v1/discovery`. Region creation admits its Atlas entry;
+future supported regions join delivery without edits to service repositories.
+Routing health never removes an admitted region from deployment. The CLI
+rejects empty, unreadable, duplicate, unsupported or stale membership, rather
+than treating the entire supported-region catalog as a serving fleet.
+`release deploy`, `release service-deploy` and `release fleet-status` omit
+`--cell` to discover every serving cell. Native deploy commands omit
+`--environment` to use each region's admitted environment; orchestrator deploy
+also omits `--arch` to select each region's architectures. Scope reads and
+binary inspection happen inside independent region workers. An unreadable
+SFO inventory does not prevent GRU from deploying.
+
 The regional leader now includes `environment` and sorted `architectures` in
 `releases/orchestrator/status.json`. These come from its admitted trust
 environment, the executable architecture of the controller image shared by
 all controller slots, and the signed managed-host shape. Release progress
 and a malformed desired channel cannot change this scope. Existing status
 readers ignore the additional fields; health-proof formats are unchanged.
-Deploy this producer to both cells before switching CI to scope discovery.
+Deploy producer PR #350 to both cells before merging consumer PR #345.
 The shared consumer rejects missing scope or a heartbeat older than two
 minutes for that region, even if an older report says the rollout completed.
-
-The release leaf remains in OCI Vault. Required variables are
-`TS_OBJECT_NAMESPACE`, `TS_RELEASE_VAULT_ID`, `TS_RELEASE_LEAF_SECRET`,
-`TS_RELEASE_UPDATE_DELEGATION`, `TS_DEPLOY_OCI_USER`,
-`TS_DEPLOY_OCI_TENANCY`, and `TS_DEPLOY_OCI_FINGERPRINT`. Required secrets
-are `TS_DEPLOY_OCI_KEY` and `TS_DEPLOY_READ_TOKEN`. Delegation and regional
-IAM must cover both head buckets; missing authority fails visibly.
 
 Within a cell, the existing leader executor updates controllers one at a time,
 with the founder last. Quorum, load-balancer draining and readiness gates remain
@@ -64,11 +70,11 @@ Required variables:
   canonical `TS_RELEASE_UPDATE_DELEGATION` covering every serving target.
 - `TS_DEPLOY_OCI_USER`, `TS_DEPLOY_OCI_TENANCY`, and `TS_DEPLOY_OCI_FINGERPRINT`.
 
-There is no deployment switch. Until serving-fleet discovery lands, the script
-always deploys GRU and SFO using the verified `canary` environment and ARM64
-inventory: three running A1 controllers per cell and no workload compute
-instances. These constants follow the standalone switch-removal PR #347;
-repository variables cannot disable a cell or change its signed scope.
+There is no deployment switch or repository-maintained region list. The script
+downloads the qualification manifest's binary assets and delegates serving-cell,
+environment and architecture discovery to ts-orch. The verified initial fleet
+is GRU and SFO, with three ARM64 controllers in each cell and admitted `canary`
+environments. Future cells use their own reported scope and signing authority.
 
 Required secrets are `TS_DEPLOY_OCI_KEY` and `TS_DEPLOY_READ_TOKEN`. The OCI key
 may read only the release leaf and manage the regional release objects.
@@ -94,8 +100,10 @@ also fails visibly instead of restarting the 30-minute clock.
 
 Native services must report the expected source revision, complete, and a
 heartbeat within two minutes. Atlas, Status and Dashboard are observed through
-Status's fixed GRU/SFO vantage bindings at `/api/v1/deployments`; both Status
-vantage Workers also prove their own revision. The guard opens or updates one
+Status's GRU/SFO vantage bindings at `/api/v1/deployments`; both Status
+vantage Workers also prove their own revision. The guard discovers membership
+through the same orch-published topology and requires proofs for every region;
+a newly admitted region without its vantage proof raises an alert. The guard opens or updates one
 assigned Forgejo alert, mentions `@mariogk`, and fails its scheduled job when
 a qualified build is overdue after 30 minutes or telemetry is unreadable.
 It closes the alert only when the full matrix has valid fresh proofs and no
@@ -106,8 +114,8 @@ Its read token and OCI credentials are
 the existing scoped deployment secrets; its Actions token can write the
 orchestrator alert. Alert delivery failure also fails the job.
 
-Read each region with `ts-orch release fleet-status --namespace NS --cell GRU
---cell SFO`. Require the expected full source revision, run number, `complete`,
+Read every serving region with `ts-orch release fleet-status --namespace NS`.
+Require the expected full source revision, run number, `complete`,
 and fresh reports. Check the binary revision and services on every inventoried
 server as well; publishing a channel is not evidence of deployment.
 

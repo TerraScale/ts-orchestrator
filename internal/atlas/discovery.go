@@ -7,11 +7,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const (
+	DiscoveryURL      = "https://atlas.terrascale.tech"
 	discoveryTimeout  = 10 * time.Second
 	maxDiscoveryBytes = 256 << 10
 )
@@ -26,6 +31,39 @@ type Discovery struct {
 	// Regions carry their last health: ok, unknown or down.
 	Regions  []DiscoveredRegion `json:"regions"`
 	Services []Service          `json:"services"`
+}
+
+// ServingCells is the orch-published, signed-spec topology's membership.
+// Health affects routing, never whether an admitted cell receives a deployment.
+func (d Discovery) ServingCells(now time.Time) ([]string, error) {
+	if d.V != 1 || len(d.Regions) == 0 || len(d.Regions) > catalog.Len || d.Stale || d.Updated <= 0 ||
+		now.Sub(time.Unix(d.Updated, 0)) > StaleAfter || time.Unix(d.Updated, 0).Sub(now) > Interval {
+		return nil, errors.New("serving-region discovery is empty, stale or invalid")
+	}
+	cells := make([]string, 0, len(d.Regions))
+	for _, region := range d.Regions {
+		name, _, _ := strings.Cut(region.ID, "-")
+		entry, known := catalog.LookupName(name)
+		if !known {
+			return nil, fmt.Errorf("serving-region discovery includes unsupported cell %q", region.ID)
+		}
+		id, err := naming.RegionCell(entry.Cell).Name()
+		if err != nil || id != region.ID || slices.Contains(cells, entry.Cell) {
+			return nil, fmt.Errorf("serving-region discovery includes duplicate or unsupported cell %q", region.ID)
+		}
+		cells = append(cells, entry.Cell)
+	}
+	slices.Sort(cells)
+	return cells, nil
+}
+
+// DiscoverServingCells reads membership from ts-orch's published Atlas topology.
+func DiscoverServingCells(ctx context.Context, client *http.Client) ([]string, error) {
+	discovery, err := Discover(ctx, client, DiscoveryURL)
+	if err != nil {
+		return nil, err
+	}
+	return discovery.ServingCells(time.Now().UTC())
 }
 
 // DiscoveredRegion is a published region with its health.

@@ -18,7 +18,7 @@ import (
 )
 
 func (c command) serviceDeploy(args []string) error {
-	return c.serviceDeployWith(args, deployEnv{storage: operatorObjectStorage, secret: readVaultSecret})
+	return c.serviceDeployWith(args, deployEnv{storage: operatorObjectStorage, secret: readVaultSecret, discover: discoverServingCells})
 }
 
 // serviceDeployWith deploys one CI-built release of a native service role
@@ -36,7 +36,7 @@ func (c command) serviceDeployWith(args []string, env deployEnv) error {
 	repository := flags.String("repository", "", "HTTPS source repository the cells let the actor release")
 	commit := flags.String("commit", "", "source commit SHA")
 	checkout := flags.String("source-checkout", "", "checkout containing --commit, for the source tree digest")
-	environment := flags.String("environment", "", "production or canary")
+	environment := flags.String("environment", "", "production or canary; default each region's admitted scope")
 	actor := flags.String("actor", "", "the release key's trusted signer actor")
 	keyPath := flags.String("signing-key", "", "owner-only Ed25519 PKCS#8 private key PEM of --actor")
 	keySecret := flags.String("signing-key-secret", "", "OCI Vault secret holding the key, instead of --signing-key")
@@ -45,21 +45,21 @@ func (c command) serviceDeployWith(args []string, env deployEnv) error {
 	regionTimeout := flags.Duration("region-timeout", 30*time.Minute, "how long one cell may take to report the release")
 	poll := flags.Duration("poll", 5*time.Second, "how often a cell's status is read")
 	var cells stringList
-	flags.Var(&cells, "cell", "cell to deploy to concurrently; repeatable")
+	flags.Var(&cells, "cell", "cell to deploy to concurrently; repeatable; default every serving cell")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if *role == "" || *binaryPath == "" || *repository == "" || !release.ValidSourceRevision(*commit) || *checkout == "" ||
-		!validEnvironment(*environment) || *actor == "" || (*keyPath == "") == (*keySecret == "") ||
-		(*keySecret == "") != (*vaultID == "") || !validStorageToken(*namespace) || len(cells) == 0 ||
+		*environment != "" && !validEnvironment(*environment) || *actor == "" || (*keyPath == "") == (*keySecret == "") ||
+		(*keySecret == "") != (*vaultID == "") || !validStorageToken(*namespace) ||
 		*regionTimeout <= 0 || *poll <= 0 || flags.NArg() != 0 {
-		return errors.New("service-deploy requires --role, --binary, --repository, --commit, --source-checkout, --environment, --actor, --signing-key or --signing-key-secret with --vault-id, --namespace and --cell")
+		return errors.New("service-deploy requires --role, --binary, --repository, --commit, --source-checkout, --actor, --signing-key or --signing-key-secret with --vault-id and --namespace")
 	}
-	for _, cell := range cells {
-		if !validRegion(cell) {
-			return fmt.Errorf("unsupported cell %q", cell)
-		}
+	targetCells, err := deploymentCells(c.ctx, cells, env.discover)
+	if err != nil {
+		return err
 	}
+	cells = targetCells
 	file, size, sum, err := c.openHashedArtifact(*binaryPath, releasechannel.MaxServiceBinaryBytes)
 	if err != nil {
 		return err
@@ -104,8 +104,16 @@ func (c command) serviceDeployWith(args []string, env deployEnv) error {
 				return err
 			}
 			// The NATS cell is the lower-case logical cell.
+			cellEnvironment := *environment
+			if cellEnvironment == "" {
+				scope, err := deploymentScope(c.ctx, location, cell)
+				if err != nil {
+					return err
+				}
+				cellEnvironment = scope.Environment
+			}
 			request := delivery.ArtifactClaimRequest{Source: delivery.ArtifactSource{Repository: *repository, Commit: *commit,
-				TreeDigest: tree}, Cell: strings.ToLower(cell), Role: *role, Environment: *environment}
+				TreeDigest: tree}, Cell: strings.ToLower(cell), Role: *role, Environment: cellEnvironment}
 			record, err := delivery.NewArtifactRecord(request, digest, size)
 			if err != nil {
 				return err
