@@ -58,7 +58,7 @@ func (state unavailableRetirementKeys) ListKeysFiltered(context.Context, ...stri
 
 func TestRetirementStorageValidationFailsClosed(t *testing.T) {
 	failure := errors.New("host state unavailable")
-	if err := rejectObsoleteRetirementState(t.Context(), unavailableRetirementKeys{err: failure}, "gru"); !errors.Is(err, failure) {
+	if _, err := loadRetirementQuarantines(t.Context(), nil, unavailableRetirementKeys{err: failure}, "gru"); !errors.Is(err, failure) {
 		t.Fatalf("failed storage validation accepted: %v", err)
 	}
 }
