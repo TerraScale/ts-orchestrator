@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"text/tabwriter"
 	"time"
 
@@ -53,7 +54,10 @@ func (c Client) Query(ctx context.Context, region string, from, to time.Time) (U
 		hc.Transport = transport
 	}
 	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	var best *Usage
+	ctx, cancel := context.WithCancel(ctx)
+	var pending sync.WaitGroup
+	defer func() { cancel(); pending.Wait() }()
+	requests := make([]*http.Request, 0, len(c.URLs))
 	for _, base := range c.URLs {
 		u, err := url.Parse(base)
 		if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
@@ -69,25 +73,48 @@ func (c Client) Query(ctx context.Context, region string, from, to time.Time) (U
 			return Usage{}, err
 		}
 		req.Header.Set("Authorization", "Bearer "+c.Token)
-		response, err := hc.Do(req)
-		if err != nil {
-			if ctx.Err() != nil {
-				return Usage{}, ctx.Err()
+		requests = append(requests, req)
+	}
+	results := make(chan *Usage, len(requests))
+	for _, req := range requests {
+		pending.Go(func() {
+			var result *Usage
+			defer func() { results <- result }()
+			response, err := hc.Do(req)
+			if err != nil {
+				return
 			}
-			continue
+			defer response.Body.Close()
+			var usage Usage
+			err = json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(&usage)
+			if response.StatusCode == 200 && err == nil && usage.Region == region && usage.From.Equal(from) && usage.To.Equal(to) {
+				result = &usage
+			}
+		})
+	}
+	var best *Usage
+	for range requests {
+		var result *Usage
+		select {
+		case <-ctx.Done():
+			return Usage{}, ctx.Err()
+		case result = <-results:
 		}
-		var result Usage
-		err = json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(&result)
-		_ = response.Body.Close()
-		if response.StatusCode != 200 || err != nil || result.Region != region || !result.From.Equal(from) || !result.To.Equal(to) {
+		if err := ctx.Err(); err != nil {
+			return Usage{}, err
+		}
+		if result == nil {
 			continue
 		}
 		if result.Complete {
-			return result, nil
+			return *result, nil
 		}
 		if best == nil || len(result.Replicas) > len(best.Replicas) {
-			best = &result
+			best = result
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return Usage{}, err
 	}
 	if best != nil {
 		return *best, nil

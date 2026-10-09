@@ -12,15 +12,24 @@ grant is introduced.
 
 The current authority leader receives host reports. The CLI tries all three
 regional controllers and selects a complete answer; otherwise it returns the
-best partial answer with `complete: false`. Followers have no host history.
+best partial answer with `complete: false`. It queries the configured regional
+controllers concurrently; a complete answer cancels the remaining requests.
+Each request has a fifteen-second timeout within the caller's deadline, so
+two unavailable controllers cannot consume the runner's thirty-second usage
+deadline before a healthy third is queried. Followers have no host history.
 Windows must be increasing RFC3339 timestamps within the last hour. History
 is bounded, in memory and rebuilt after a controller restart or leadership
 change. Missing registered nodes and active allocations are listed in `missing`.
 Expected nodes and allocations come from timestamped committed control-log
 history over `[from, to)`, including the state immediately before `from`.
 Later admissions do not enter an older window; later withdrawals do not erase
-missing replicas from it. A startup baseline reads only the latest state per
-host subject; a five-second refresh caches one hour of incremental changes.
+missing replicas from it. Retirement and unretirement are fenced ordered-log
+commits with JetStream timestamps. Hosts retired before the window are excluded; retiring
+or restoring an identity later cannot rewrite an earlier answer. An idle check
+must succeed in the same authority epoch before retirement is committed.
+Admission checks and historical inventory read the same retirement records.
+A startup baseline reads only the latest state per host subject; a five-second
+refresh caches one hour of incremental changes.
 Usage queries advance this checkpoint to a pinned log watermark, without
 replaying lifetime mutations. Windows preceding startup or an expired baseline
 are unavailable. A checkpoint idle for an hour is reseeded from latest state.

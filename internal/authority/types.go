@@ -86,6 +86,7 @@ type HostMutationKind string
 
 const (
 	MutationRegistration      HostMutationKind = "registration"
+	MutationRetirement        HostMutationKind = "retirement"
 	MutationDesired           HostMutationKind = "desired"
 	MutationPlacementIntent   HostMutationKind = "placement-intent"
 	MutationMaterialReceipt   HostMutationKind = "material-receipt"

@@ -49,8 +49,8 @@ type Controller struct {
 	controlLogInfoGate     chan struct{}
 	usageHistory           authority.HostHistory
 	// retireMu orders RetireIdle against this process's desired commits,
-	// which hold it for reading; the retirement marks themselves live in
-	// host state, so a later leader enforces them too.
+	// which hold it for reading; the ordered log retains retirement marks
+	// so a later leader enforces them too.
 	retireMu        sync.RWMutex
 	ready           chan struct{}
 	readyOnce       sync.Once
@@ -498,42 +498,53 @@ func (c *Controller) ApplyDesired(ctx context.Context, d Desired) (Receipt, erro
 // terminated.
 var ErrHostRetiring = errors.New("host is being retired")
 
-// retirement is a node's retirement mark in host state. Clearing it writes
-// a mark that is not retired: host state reads refuse tombstones.
+// retirement is a node's retirement state in the ordered control log.
 type retirement struct {
-	Retired bool      `json:"retired"`
-	At      time.Time `json:"at"`
+	Retired bool `json:"retired"`
 }
-
-func retiredKey(cell, node string) string { return "retired." + cell + "." + node }
 
 func (c *Controller) retired(ctx context.Context, node string) (bool, error) {
-	var mark retirement
-	_, found, err := c.get(ctx, retiredKey(c.cell, node), &mark)
-	return found && mark.Retired, err
+	mark, _, err := c.readRetirement(ctx, node)
+	return mark.Retired, err
 }
 
-func (c *Controller) markRetired(ctx context.Context, node string, retired bool) error {
-	data, err := json.Marshal(retirement{Retired: retired, At: time.Now().UTC()})
-	if err == nil {
-		_, err = c.state.Put(ctx, retiredKey(c.cell, node), data)
+func (c *Controller) markRetired(ctx context.Context, epoch uint64, node string, retired bool) error {
+	if err := c.guard(ctx, epoch); err != nil {
+		return err
 	}
+	data, operation, err := mutationPayload(retirement{Retired: retired})
 	if err != nil {
-		return fmt.Errorf("mark %s retired=%t: %w", node, retired, err)
+		return err
 	}
-	return nil
+	for range 8 {
+		mark, revision, err := c.readRetirement(ctx, node)
+		if err != nil {
+			return err
+		}
+		if mark.Retired == retired {
+			return nil
+		}
+		_, err = c.mutations.CommitHostMutation(ctx, epoch, authority.MutationRetirement, registrationSubjectKey(c.cell, node), operation, revision, data)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, authority.ErrConflict) {
+			return fmt.Errorf("mark %s retired=%t: %w", node, retired, err)
+		}
+	}
+	return errors.New("host retirement contention")
 }
 
 // RetireIdle retires node if it holds no active allocation and reports
 // whether it did. A retired node takes no new allocation until Unretire,
-// also from a later leader: the mark is in host state and every desired
-// commit reads it. Withdrawals still apply. The mark is written before the
-// allocations are read, and in this process no desired commit runs in
-// between.
+// also from a later leader: the mark is in the log and every desired
+// commit reads it. Withdrawals still apply. The process lock excludes desired
+// commits during the idle check; the captured epoch fences leadership changes.
 func (c *Controller) RetireIdle(ctx context.Context, node string) (bool, error) {
 	c.retireMu.Lock()
 	defer c.retireMu.Unlock()
-	if err := c.markRetired(ctx, node, true); err != nil {
+	epoch := c.authorityEpoch()
+	if err := c.guard(ctx, epoch); err != nil {
 		return false, err
 	}
 	desired, err := c.ListDesired(ctx, "")
@@ -542,8 +553,11 @@ func (c *Controller) RetireIdle(ctx context.Context, node string) (bool, error) 
 	}
 	for _, d := range desired {
 		if d.Node == node && !d.Withdrawn {
-			return false, c.markRetired(ctx, node, false)
+			return false, nil
 		}
+	}
+	if err := c.markRetired(ctx, epoch, node, true); err != nil {
+		return false, err
 	}
 	return true, nil
 }
@@ -553,7 +567,7 @@ func (c *Controller) RetireIdle(ctx context.Context, node string) (bool, error) 
 func (c *Controller) Unretire(ctx context.Context, node string) error {
 	c.retireMu.Lock()
 	defer c.retireMu.Unlock()
-	return c.markRetired(ctx, node, false)
+	return c.markRetired(ctx, c.authorityEpoch(), node, false)
 }
 
 func sameDesiredTarget(a, b Desired) bool {

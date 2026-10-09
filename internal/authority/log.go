@@ -148,7 +148,7 @@ func verifyControlStreamConfig(actual jetstream.StreamConfig, replicas int) erro
 	return nil
 }
 
-// CommitHostMutation appends a registration or desired-state record only when
+// CommitHostMutation appends a registration, retirement or desired record when
 // both the global stream sequence and target record sequence still match. The
 // lease check and append therefore have one durable order with epoch changes.
 func (r *Runtime) CommitHostMutation(
@@ -328,7 +328,7 @@ func (r *Runtime) commitMutationVerified(
 	return 0, ErrConflict
 }
 
-// ReadHostMutation reads the current committed registration or desired record.
+// ReadHostMutation reads the current committed host record.
 func (r *Runtime) ReadHostMutation(ctx context.Context, kind HostMutationKind, subjectKey string) (LogEntry, error) {
 	if r == nil {
 		return LogEntry{}, ErrNotFound
@@ -1172,7 +1172,7 @@ func decodeControlRecord(data []byte) (controlRecord, error) {
 }
 
 func validateHostMutation(kind HostMutationKind, subjectKey, operationID string, payload []byte) error {
-	if kind != MutationRegistration && kind != MutationDesired {
+	if kind != MutationRegistration && kind != MutationDesired && kind != MutationRetirement {
 		return errors.New("host mutation kind is not allowed")
 	}
 	return validateMutation(kind, subjectKey, operationID, payload)
@@ -1195,7 +1195,7 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 	parts := strings.Split(subjectKey, ".")
 	want := 0
 	switch kind {
-	case MutationRegistration:
+	case MutationRegistration, MutationRetirement:
 		want = 2
 	case MutationDesired:
 		want = 3

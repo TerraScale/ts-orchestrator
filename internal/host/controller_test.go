@@ -167,7 +167,19 @@ func (m *memoryMutations) CommitHostMutation(ctx context.Context, epoch uint64, 
 	if m.entries[key].Sequence != expected {
 		return 0, authority.ErrConflict
 	}
-	ack, err := m.js.Publish(ctx, "ts.control.gru.host."+string(kind)+"."+subject, payload)
+	record, err := json.Marshal(struct {
+		Version     int                        `json:"version"`
+		Kind        authority.HostMutationKind `json:"kind"`
+		Scope       string                     `json:"scope"`
+		SubjectKey  string                     `json:"subject_key"`
+		OperationID string                     `json:"operation_id"`
+		Epoch       uint64                     `json:"epoch"`
+		Payload     []byte                     `json:"payload"`
+	}{1, kind, "gru", subject, operation, epoch, payload})
+	if err != nil {
+		return 0, err
+	}
+	ack, err := m.js.Publish(ctx, "ts.control.gru.host."+string(kind)+"."+subject, record)
 	if err != nil {
 		return 0, err
 	}
@@ -2572,7 +2584,7 @@ func TestRetireIdleRefusesNewAllocations(t *testing.T) {
 	if _, err := c.ApplyDesired(t.Context(), withdrawn); err != nil {
 		t.Fatalf("a retired host refused a withdrawal: %v", err)
 	}
-	// The mark is in host state: a successor controller enforces it.
+	// The mark is in the ordered log: a successor controller enforces it.
 	successor := &Controller{cell: c.cell, conn: c.conn, state: c.state, controlLog: c.controlLog,
 		mutations: c.mutations, artifacts: c.artifacts, authorityEpoch: c.authorityEpoch, authorityGuard: c.authorityGuard}
 	if _, err := successor.ApplyDesired(t.Context(), next); !errors.Is(err, ErrHostRetiring) {

@@ -53,7 +53,7 @@ func (h *HostHistory) Seed(ctx context.Context, stream jetstream.Stream, scope s
 	baseline := map[string]LogEntry{}
 	var newest time.Time
 	for _, subject := range slices.Sorted(maps.Keys(info.State.Subjects)) {
-		if !strings.HasPrefix(subject, mutationSubject(scope, MutationRegistration, scope+".")) && !strings.HasPrefix(subject, mutationSubject(scope, MutationDesired, scope+".")) {
+		if !strings.HasPrefix(subject, mutationSubject(scope, MutationRegistration, scope+".")) && !strings.HasPrefix(subject, mutationSubject(scope, MutationDesired, scope+".")) && !strings.HasPrefix(subject, mutationSubject(scope, MutationRetirement, scope+".")) {
 			continue
 		}
 		entry, err := stream.GetLastMsgForSubject(ctx, subject)
@@ -182,7 +182,7 @@ func (h *HostHistory) advance(ctx context.Context, stream jetstream.Stream, scop
 
 func decodeHostHistoryEntry(entry *jetstream.RawStreamMsg, scope string) (LogEntry, error) {
 	record, err := decodeControlRecord(entry.Data)
-	if err != nil || entry.Sequence == 0 || entry.Time.IsZero() || record.Scope != scope || (record.Kind != MutationRegistration && record.Kind != MutationDesired) || record.Epoch == 0 || entry.Subject != mutationSubject(scope, record.Kind, record.SubjectKey) || validateMutationKey(record.Kind, record.SubjectKey) != nil {
+	if err != nil || entry.Sequence == 0 || entry.Time.IsZero() || record.Scope != scope || record.Epoch == 0 || entry.Subject != mutationSubject(scope, record.Kind, record.SubjectKey) || validateHostMutation(record.Kind, record.SubjectKey, record.OperationID, record.Payload) != nil {
 		return LogEntry{}, errors.New("host history control entry is invalid")
 	}
 	return LogEntry{Kind: record.Kind, SubjectKey: record.SubjectKey, OperationID: record.OperationID, Epoch: record.Epoch, Sequence: entry.Sequence, CreatedAt: entry.Time, Payload: record.Payload}, nil
