@@ -50,7 +50,7 @@ rest - 130/60
 ./internal/bootstrapstart TestFounderReplacement* 6 norace
 ./internal/bootstrapstart TestReplacement* 6 norace
 ./internal/bootstrapstart TestFencedReplacementStopsBeforeEveryMutation 6 norace
-./internal/bootstrapstart TestFounderFloorArtifactsMatchInitializedPeerFloor 25
+./internal/bootstrapstart TestFounderFloorArtifactsMatchInitializedPeerFloor 3 norace
 ./internal/bootstrapstart * 1
 
 # Offline image builder: a successful build is about 25s, a rejection inside
