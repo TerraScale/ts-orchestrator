@@ -1,0 +1,48 @@
+name: Deployment lag guard
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: deployment-lag-guard
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: terrascale-builder
+    timeout-minutes: 15
+    env:
+      CI: 'true'
+      GOCACHE: /cache/go/build
+      GOMODCACHE: /cache/go/mod
+    steps:
+      - name: Check out the protected main guard
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          github-server-url: https://git.terrascale.tech
+          ref: main
+          persist-credentials: false
+
+      - name: Compare qualified builds with fresh regional deployment proofs
+        shell: bash
+        env:
+          FORGEJO_READ_TOKEN: ${{ secrets.TS_DEPLOY_READ_TOKEN }}
+          FORGEJO_WRITE_TOKEN: ${{ forgejo.token }}
+          TS_OBJECT_NAMESPACE: ${{ vars.TS_OBJECT_NAMESPACE }}
+          TS_DEPLOY_OCI_USER: ${{ vars.TS_DEPLOY_OCI_USER }}
+          TS_DEPLOY_OCI_TENANCY: ${{ vars.TS_DEPLOY_OCI_TENANCY }}
+          TS_DEPLOY_OCI_FINGERPRINT: ${{ vars.TS_DEPLOY_OCI_FINGERPRINT }}
+          TS_DEPLOY_OCI_KEY: ${{ secrets.TS_DEPLOY_OCI_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          work=$(mktemp -d)
+          trap 'rm -rf -- "$work"' EXIT
+          printf '%s\n' "$TS_DEPLOY_OCI_KEY" > "$work/key.pem"
+          unset TS_DEPLOY_OCI_KEY
+          printf '[DEFAULT]\nuser=%s\nfingerprint=%s\ntenancy=%s\nregion=sa-saopaulo-1\nkey_file=%s\n' \
+            "$TS_DEPLOY_OCI_USER" "$TS_DEPLOY_OCI_FINGERPRINT" "$TS_DEPLOY_OCI_TENANCY" "$work/key.pem" > "$work/config"
+          export OCI_CONFIG_FILE="$work/config"
+          go run ./scripts/ci/deploylag

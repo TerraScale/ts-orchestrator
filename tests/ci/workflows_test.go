@@ -76,8 +76,10 @@ func TestWorkflowContracts(t *testing.T) {
 		// The image job starts once the release is retained, so it never
 		// holds a builder slot while the checks run.
 		steps := matches(ci, `(?m)^      - name: (.+)$`)
-		if len(steps) < 3 || steps[len(steps)-1] != "Start the fleet deployment for this revision" ||
-			steps[len(steps)-2] != "Start the image build for this revision" || steps[len(steps)-3] != "Retain verified binaries and qualification manifest" {
+		if len(steps) < 4 || steps[len(steps)-1] != "Start the fleet deployment for this revision" ||
+			steps[len(steps)-2] != "Start the image build for this revision" ||
+			steps[len(steps)-3] != "Record the qualified main build for the deployment-lag guard" ||
+			steps[len(steps)-4] != "Retain verified binaries and qualification manifest" {
 			t.Fatalf("image and deploy dispatches must follow the retained release: %v", steps)
 		}
 		_, dispatchStep, _ := strings.Cut(ci, "- name: Start the image build for this revision")

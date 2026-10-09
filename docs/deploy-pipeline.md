@@ -57,6 +57,23 @@ environment before its value changes.
 
 ## Live verification and timing
 
+`deploy-lag.yml` runs every five minutes. Each service records a
+`deployment/qualified` commit status after verification and before delivery.
+The guard reads main ancestry and those markers rather than treating a failed
+deployment as a failed build. Continuous green builds cannot reset the clock
+of the oldest pending build. The latest 50 main commits bound API work; absent
+markers or unreadable observations fail visibly.
+
+Native services must report the expected source revision, complete, and a
+heartbeat within two minutes. Atlas, Status and Dashboard are observed through
+Status's fixed GRU/SFO vantage bindings at `/api/v1/deployments`; both Status
+vantage Workers also prove their own revision. The guard opens or updates one
+assigned Forgejo alert, mentions `@mariogk`, and fails its scheduled job when
+a qualified build is overdue after 30 minutes or telemetry is unreadable.
+It closes the alert after recovery. Its read token and OCI credentials are
+the existing scoped deployment secrets; its Actions token can write the
+orchestrator alert. Alert delivery failure also fails the job.
+
 Read each region with `ts-orch release fleet-status --namespace NS --cell GRU
 --cell SFO`. Require the expected full source revision, run number, `complete`,
 and fresh reports. Check the binary revision and services on every inventoried

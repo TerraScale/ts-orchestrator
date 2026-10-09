@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy one CI-qualified main revision to every configured region, the
+# Deploy one CI-qualified main revision to every configured region
 # concurrently, with ts-orch release deploy (docs/deploy-pipeline.md).
 #
 # usage: deploy-fleet.sh FORGEJO_PROFILES

@@ -17,6 +17,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
@@ -63,10 +64,14 @@ func TestServiceReleaseInventoryRemovedClaimPreservesState(t *testing.T) {
 			r, kv, bucket, location := servicePinsFixture(t)
 			ctx, role := t.Context(), terrabase.Role
 			state := serviceReleaseState{Claim: strings.Repeat("1", 64), Digest: strings.Repeat("f", 64),
-				IssuedAt: time.Now().UTC().Add(-time.Minute), Previous: strings.Repeat("a", 64),
+				SourceRevision: strings.Repeat("d", 40),
+				IssuedAt:       time.Now().UTC().Add(-time.Minute), Previous: strings.Repeat("a", 64),
 				Retained: []string{strings.Repeat("b", 64)}, State: phase, Reason: "persisted release outcome"}
 			if phase != releasechannel.StateRolling {
-				state.Intent = &delivery.Intent{OperationID: ulid.Make().String(), ArtifactDigest: state.Digest}
+				state.Intent = &delivery.Intent{OperationID: ulid.Make().String(), ArtifactDigest: state.Digest,
+					Role: role, Environment: "production", Generation: 1, DesiredReplicas: 1}
+				r.hosts = terraBaseMembers{reports: []host.Report{{Role: role, Environment: "production",
+					Generation: 1, Digest: state.Digest, State: "running", ObservedAt: time.Now()}}}
 				state.Rollback = &delivery.Intent{OperationID: ulid.Make().String(), ArtifactDigest: state.Previous}
 			}
 			key := releasechannel.ServiceStatusKey("GRU", role)
@@ -90,7 +95,7 @@ func TestServiceReleaseInventoryRemovedClaimPreservesState(t *testing.T) {
 				t.Fatal(err)
 			}
 			status := serviceInventoryStatus(t, location, role)
-			if status.State != phase || status.Digest != state.Digest || !status.IssuedAt.Equal(state.IssuedAt) || status.Reason != state.Reason ||
+			if status.State != phase || status.SourceRevision != state.SourceRevision || status.Digest != state.Digest || !status.IssuedAt.Equal(state.IssuedAt) || status.Reason != state.Reason ||
 				status.Pins == nil || !slices.Equal(status.Pins.Rollback, []string{state.Previous, state.Retained[0]}) ||
 				!slices.Equal(status.Pins.KnownBad, []string{bad}) || bucket.puts[releasechannel.ServiceStatusObject(role)] != 2 {
 				t.Fatalf("removed claim lost inventory: %+v, pins %+v", status, status.Pins)
@@ -422,4 +427,33 @@ func serviceInventoryStatus(t *testing.T, location releasechannel.Location, role
 		t.Fatalf("inventory status found = %v: %v", found, err)
 	}
 	return status
+}
+
+func TestServiceReleaseCompleteRevisionRequiresFreshReplicaProofs(t *testing.T) {
+	r, kv, _, location := servicePinsFixture(t)
+	state := serviceReleaseState{SourceRevision: strings.Repeat("a", 40), Digest: strings.Repeat("b", 64),
+		State: releasechannel.StateComplete, Intent: &delivery.Intent{Role: terrabase.Role,
+			ArtifactDigest: strings.Repeat("b", 64), Environment: "production", Generation: 1, DesiredReplicas: 1}}
+	for _, tc := range []struct {
+		name   string
+		age    time.Duration
+		digest string
+		want   releasechannel.State
+	}{
+		{"healthy", 0, state.Digest, releasechannel.StateComplete},
+		{"stale", time.Hour, state.Digest, releasechannel.StateRolling},
+		{"old build", 0, strings.Repeat("c", 64), releasechannel.StateRolling},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r.hosts = terraBaseMembers{reports: []host.Report{{Role: terrabase.Role, Environment: "production",
+				Generation: 1, Digest: tc.digest, State: "running", ObservedAt: time.Now().Add(-tc.age)}}}
+			if err := r.report(t.Context(), kv, terrabase.Role, state); err != nil {
+				t.Fatal(err)
+			}
+			status := serviceInventoryStatus(t, location, terrabase.Role)
+			if status.State != tc.want || status.SourceRevision != state.SourceRevision {
+				t.Fatalf("reported stale source as complete: %+v", status)
+			}
+		})
+	}
 }

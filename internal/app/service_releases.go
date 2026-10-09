@@ -83,11 +83,12 @@ type serviceReleases struct {
 // under releasechannel.ServiceStatusKey in the release channel bucket, so a
 // new leader resumes the release instead of starting it again.
 type serviceReleaseState struct {
-	Claim    string    `json:"claim"` // SHA-256 of release.json
-	IssuedAt time.Time `json:"issued_at"`
-	Digest   string    `json:"digest,omitempty"`
-	Actor    string    `json:"actor,omitempty"`
-	Previous string    `json:"previous,omitempty"`
+	SourceRevision string    `json:"source_revision,omitempty"`
+	Claim          string    `json:"claim"` // SHA-256 of release.json
+	IssuedAt       time.Time `json:"issued_at"`
+	Digest         string    `json:"digest,omitempty"`
+	Actor          string    `json:"actor,omitempty"`
+	Previous       string    `json:"previous,omitempty"`
 	// Retained protects the last release while a newer claim is refused
 	// before the leader resolves its actual serving rollback target.
 	Retained []string         `json:"retained,omitempty"`
@@ -193,6 +194,7 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 			case !issued.After(state.IssuedAt):
 				return fmt.Errorf("release.json holds a claim issued at %s, not after the cell's last %s release", issued, role)
 			}
+			next.SourceRevision = record.Source.Commit
 			if bad, found, err := knownBad(ctx, kv, role, record.Digest); err != nil {
 				return err
 			} else if found {
@@ -478,6 +480,20 @@ func (r *serviceReleases) report(ctx context.Context, kv jetstream.KeyValue, rol
 	if !r.fencer.Current().CanMutate() {
 		return errors.New("this controller no longer holds the authority lease")
 	}
+	// A historical completion cannot prove a currently serving source revision.
+	if state.State == releasechannel.StateComplete && state.SourceRevision != "" {
+		ready := false
+		if state.Intent != nil && state.Intent.DesiredReplicas > 0 {
+			statuses, err := r.hosts.ListHosts(ctx)
+			if err != nil {
+				return err
+			}
+			ready, _ = terraBaseReady(statuses, *state.Intent, time.Now())
+		}
+		if !ready {
+			state.State, state.Reason = releasechannel.StateRolling, "waiting for fresh target proofs from every service replica"
+		}
+	}
 	// A stalled inventory must not look newer than when collection began.
 	updatedAt := time.Now().UTC()
 	pins := &releasechannel.ReleasePins{Rollback: []string{}, KnownBad: []string{}}
@@ -513,13 +529,15 @@ func (r *serviceReleases) report(ctx context.Context, kv jetstream.KeyValue, rol
 		return err
 	}
 	status := releasechannel.ServiceStatus{Schema: releasechannel.ServiceStatusSchema, Cell: strings.ToUpper(r.cell),
-		Role: role, Digest: state.Digest, IssuedAt: state.IssuedAt, State: state.State, Reason: releasechannel.Clip(state.Reason),
+		SourceRevision: state.SourceRevision,
+		Role:           role, Digest: state.Digest, IssuedAt: state.IssuedAt, State: state.State, Reason: releasechannel.Clip(state.Reason),
 		UpdatedAt: updatedAt, Pins: pins}
 	stored, found, err := releasechannel.ReadServiceStatus(ctx, location, role)
 	if err != nil && !errors.Is(err, releasechannel.ErrInvalid) {
 		return err
 	}
 	if err == nil && found && stored.Cell == status.Cell && stored.Digest == status.Digest &&
+		stored.SourceRevision == status.SourceRevision &&
 		stored.IssuedAt.Equal(status.IssuedAt) && stored.State == status.State && stored.Reason == status.Reason &&
 		stored.Pins.Equal(status.Pins) && !releasechannel.PinRefreshDue(stored.UpdatedAt, updatedAt) {
 		return nil
