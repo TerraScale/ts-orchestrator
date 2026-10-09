@@ -60,9 +60,9 @@ func TestRollingJetStreamDomainSwitchKeepsData(t *testing.T) {
 	}
 
 	brokers := []string{"broker-a", "broker-b", "broker-c"}
-	clientPorts, routePorts, routes := make([]int, 3), make([]int, 3), make([]string, 3)
+	ports := freeClientPorts(t, 6)
+	clientPorts, routePorts, routes := ports[:3], ports[3:], make([]string, 3)
 	for index := range brokers {
-		clientPorts[index], routePorts[index] = freeClientPort(t), freeClientPort(t)
 		routes[index] = fmt.Sprintf("nats-route://127.0.0.1:%d", routePorts[index])
 	}
 	config := func(index int, withDomain bool) Config {
