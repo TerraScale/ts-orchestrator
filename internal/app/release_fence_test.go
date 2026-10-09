@@ -325,18 +325,26 @@ func TestReleaseFenceRestartsOneFencedNodeAtATime(t *testing.T) {
 }
 
 func TestReleaseFenceKeepsTheLastHealthyBackend(t *testing.T) {
-	fence, _, balancer, _, intent := newFenceTest(t)
+	fence, cell, balancer, _, intent := newFenceTest(t)
 	balancer.down["10.0.0.12:9465"], balancer.down["10.0.0.13:9465"] = true, true
-	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
+	fence.sleep = func(ctx context.Context, d time.Duration) error {
+		if d != fencePoll {
+			t.Fatalf("waited %s before checking the healthy alternative", d)
+		}
+		cancel()
+		return ctx.Err()
+	}
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent, nil); err == nil || !strings.Contains(err.Error(), "last healthy") {
+	if err := fence.sequence(ctx, intent, nil); !errors.Is(err, context.Canceled) ||
+		!strings.Contains(err.Error(), "terrabase backend of ctl-1") || !strings.Contains(err.Error(), "last healthy") {
 		t.Fatalf("fenced the last healthy backend: %v", err)
 	}
-	if len(balancer.log) != 0 {
-		t.Fatalf("changed the load balancer: %q", balancer.log)
+	if len(balancer.log) != 0 || len(cell.restarts) != 0 {
+		t.Fatalf("load balancer %q, restarts %q", balancer.log, cell.restarts)
 	}
 }
 
