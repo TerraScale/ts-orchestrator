@@ -34,7 +34,7 @@ type Discovery struct {
 }
 
 // ServingCells is the orch-published, signed-spec topology's membership.
-// Health affects routing, never whether an admitted cell receives a deployment.
+// Routing health does not remove an admitted cell from deployment.
 func (d Discovery) ServingCells(now time.Time) ([]string, error) {
 	if d.V != 1 || len(d.Regions) == 0 || len(d.Regions) > catalog.Len || d.Stale || d.Updated <= 0 ||
 		now.Sub(time.Unix(d.Updated, 0)) > StaleAfter || time.Unix(d.Updated, 0).Sub(now) > Interval {

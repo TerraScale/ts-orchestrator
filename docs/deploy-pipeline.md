@@ -40,7 +40,10 @@ environment, the executable architecture of the controller image shared by
 all controller slots, and the signed managed-host shape. Release progress
 and a malformed desired channel cannot change this scope. Existing status
 readers ignore the additional fields; health-proof formats are unchanged.
-Deploy producer PR #350 to both cells before merging consumer PR #345.
+For the initial scope-schema activation, deploy a qualified main containing
+the scope reporter to both cells with the supported operator scope flags.
+Verify fresh scope fields before testing the automatic workflow with omitted
+scope flags. Subsequent main builds discover scope without operator input.
 The shared consumer rejects missing scope or a heartbeat older than two
 minutes for that region, even if an older report says the rollout completed.
 
