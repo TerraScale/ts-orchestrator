@@ -4,6 +4,7 @@
 #
 #   <package> <test or glob> <seconds>[/<seconds under -short>] [cpu|solo|idle|norace]
 #   rest - <seconds>[/<seconds under -short>]
+
 #
 # cpu tests are packed into shards by cost, solo tests get a CPU shard of
 # their own and idle tests a shard in the pool for timer-bound process labs.
@@ -21,6 +22,8 @@
 # tests between shards, which re-runs those shards once.
 
 rest - 130/60
+
+./internal/natscell TestPrepareNodeIdentityPreservesR3State 35/1 idle
 
 # Multi-process controller and host labs: real 10-30s lease and session
 # timers, little CPU. tier.Integration skips them under -short.

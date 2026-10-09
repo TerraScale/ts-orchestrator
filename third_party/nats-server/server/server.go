@@ -108,6 +108,7 @@ func setServerProtoForTest(wantedProto int) int {
 type Info struct {
 	ID                string   `json:"server_id"`
 	Name              string   `json:"server_name"`
+	RaftNodeID        string   `json:"raft_node_id,omitempty"`
 	Version           string   `json:"version"`
 	Proto             int      `json:"proto"`
 	GitCommit         string   `json:"git_commit,omitempty"`
@@ -747,6 +748,7 @@ func NewServer(opts *Options) (*Server, error) {
 		GitCommit:    gitCommit,
 		GoVersion:    runtime.Version(),
 		Name:         serverName,
+		RaftNodeID:   getHash(serverName),
 		Host:         opts.Host,
 		Port:         opts.Port,
 		AuthRequired: false,

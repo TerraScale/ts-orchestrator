@@ -248,6 +248,7 @@ type ServerCapability uint64
 // ServerInfo identifies remote servers.
 type ServerInfo struct {
 	Name         string            `json:"name"`
+	RaftNodeID   string            `json:"raft_node_id,omitempty"`
 	Host         string            `json:"host"`
 	ID           string            `json:"id"`
 	Cluster      string            `json:"cluster,omitempty"`
@@ -511,6 +512,7 @@ RESET:
 	id := s.info.ID
 	host := s.info.Host
 	servername := s.info.Name
+	raftNodeID := s.info.RaftNodeID
 	domain := s.info.Domain
 	seqp := &s.sys.seq
 	js := s.info.JetStream
@@ -531,6 +533,7 @@ RESET:
 			for _, pm := range msgs {
 				if si := pm.si; si != nil {
 					si.Name = servername
+					si.RaftNodeID = raftNodeID
 					si.Domain = domain
 					si.Host = host
 					si.Cluster = cluster

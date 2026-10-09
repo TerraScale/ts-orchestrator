@@ -41,7 +41,7 @@ tier=${TS_TEST_TIER:-full}
 durations=${TS_RACE_DURATIONS:-$(dirname -- "$(realpath -- "$0")")/race-durations.txt}
 # The image contract suite drives the offline builder through hundreds of
 # command fakes per test; unsharded it serialised most of the CI job.
-sharded_packages=(./internal/app ./internal/bootstrapstart ./tests/deploy)
+sharded_packages=(./internal/app ./internal/bootstrapstart ./internal/natscell ./tests/deploy)
 configured_packages=("${sharded_packages[@]}")
 # Shard, listing and log names use the package's last element.
 declare -A seen_base=()
