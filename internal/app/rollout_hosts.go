@@ -54,16 +54,11 @@ type rolloutHosts struct {
 // maxHostReply bounds a host step agent's reply, as the executor reads it.
 const maxHostReply = 4 << 10
 
-// joinedKey marks a host that took part in a rollout exchange, holding the
-// registered key it proved with. A host joins the release program with its
-// first proof and stays in it: one that stops proving holds the host
+// Exchange implements host.RolloutSink. A host joins the release program
+// with its first proof and stays in it: one that stops proving holds the host
 // rollout instead of being left out, so a TerraBase seat is never moved
-// while its peer is silent. A host whose binary predates host self-update
-// never joins, and a host replaced under its name is a stranger until it
-// proves with its new key.
-func joinedKey(node string) string { return "host." + protocol.HashToken(node)[:32] }
-
-// Exchange implements host.RolloutSink.
+// while its peer is silent. A host replaced under its name is a stranger
+// until it proves with its new key.
 func (c *rolloutControl) Exchange(ctx context.Context, registration host.Registration, exchange host.RolloutExchange,
 ) (host.RolloutStep, error) {
 	hosts := c.hosts.Load()
@@ -103,7 +98,11 @@ func (c *rolloutControl) Exchange(ctx context.Context, registration host.Registr
 		delete(hosts.held, node)
 	}
 	hosts.mu.Unlock()
-	if err := putChanged(ctx, hosts.board, joinedKey(node), []byte(registration.PublicKey)); err != nil {
+	membership, err := protocol.EncodeJSON(rollout.HostMembership{Node: node, PublicKey: registration.PublicKey})
+	if err != nil {
+		return host.RolloutStep{}, err
+	}
+	if err := putChanged(ctx, hosts.board, rollout.HostMembershipKey(node), membership); err != nil {
 		return host.RolloutStep{}, err
 	}
 	if len(exchange.Reply) > 0 {
@@ -408,13 +407,17 @@ func hostUnits(list func(context.Context) ([]host.HostStatus, error), board jets
 			if status.Retired || colocated(r.Node) {
 				continue
 			}
-			entry, err := board.Get(ctx, joinedKey(r.Node))
+			entry, err := board.Get(ctx, rollout.HostMembershipKey(r.Node))
 			if errors.Is(err, jetstream.ErrKeyNotFound) {
 				return nil, fmt.Errorf("host %s has not joined self-update", r.Node)
 			} else if err != nil {
 				return nil, err
 			}
-			if string(entry.Value()) != r.PublicKey {
+			var membership rollout.HostMembership
+			if err := protocol.DecodeTolerant(entry.Value(), &membership, maxHostReply); err != nil {
+				return nil, err
+			}
+			if membership.Node != r.Node || membership.PublicKey != r.PublicKey {
 				return nil, fmt.Errorf("host %s has not proved its current registration key", r.Node)
 			}
 			var seats []string

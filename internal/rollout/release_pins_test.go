@@ -108,6 +108,9 @@ func TestReleasePinsRefusesInvalidRetainedRecords(t *testing.T) {
 		{"mismatched generation", generationKey(store.cell, 2), wire},
 		{"noncanonical key", "release.gen.01", wire},
 		{"zero generation", generationKey(store.cell, 0), []byte(strings.Replace(string(wire), `"generation":1`, `"generation":0`, 1))},
+		{"misbound abandonment", entityid.Derive("abandoned", "one"), []byte(`{"abandoned_rollout":"` + entityid.Derive("abandoned", "two") + `"}`)},
+		{"versioned abandonment", entityid.Derive("abandoned", "one"), []byte(`{"abandoned_rollout":"` + entityid.Derive("abandoned", "one") + `","schema_version":1}`)},
+		{"misbound membership", HostMembershipKey("ts-gru-1"), []byte(`{"node":"ts-gru-2","public_key":"key"}`)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := store.kv.Put(ctx, tc.key, tc.wire); err != nil {

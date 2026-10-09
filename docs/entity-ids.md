@@ -20,6 +20,11 @@ creation-time claim. They are not customer document identities or a substitute
 for TerraBase's atomic uniqueness guarantees. Entity keys in NATS KV have no
 type prefix; machines have their own `TS_MACHINES` bucket alongside `TS_APPS`
 and `TS_MACHINE_STATUS`.
+Joined-host memberships in `TS_ROLLOUTS` use derived ULID keys and typed
+node/public-key records. Release-pin discovery distinguishes those memberships
+and abandoned-rollout markers by their bound identities, so joining a host or
+recovering an interrupted cell claim cannot block pin publication. Old
+`host.<hash>` memberships belong to the coordinated clean reset.
 App-name/ULID lookup addresses (`<app-name>.<machine-ULID>`) live alongside
 primary machine records in `TS_MACHINES`; they are lookup references, not
 entity IDs. App-specific listings remain server-filtered. A single stream

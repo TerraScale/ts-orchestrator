@@ -269,6 +269,10 @@ func TestStoreBeginReclaimsASlotWhoseRecordWasNeverCreated(t *testing.T) {
 	if _, _, err := store.createRecord(ctx, lost, cell, testStart); !errors.Is(err, errAbandonedRollout) {
 		t.Fatalf("an abandoned rollout ID created a record: %v", err)
 	}
+	rollback, _, err := store.ReleasePins(ctx)
+	if err != nil || !slices.Contains(rollback, next.FromDigest) {
+		t.Fatalf("pins after abandonment recovery: %v %v", rollback, err)
+	}
 }
 
 func TestStoreBeginReportsALoadFailureInsteadOfAnActiveRollout(t *testing.T) {

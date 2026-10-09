@@ -350,21 +350,26 @@ func (s *Store) ReleasePins(ctx context.Context) (rollback, knownBad []string, e
 		if err != nil {
 			return nil, nil, err
 		}
-		// Rollouts and signed step/reply envelopes share the entity-key namespace.
+		// Operational records share the entity-key namespace with retained releases.
 		var kind struct {
-			ID          string       `json:"id"`
-			Generation  uint64       `json:"generation"`
-			RolloutID   string       `json:"rollout_id"`
-			Scope       *trust.Scope `json:"scope"`
-			Unit        string       `json:"unit"`
-			OperationID string       `json:"operation_id"`
+			HostMembership
+			AbandonedRollout string       `json:"abandoned_rollout"`
+			SchemaVersion    int          `json:"schema_version"`
+			ID               string       `json:"id"`
+			Generation       uint64       `json:"generation"`
+			RolloutID        string       `json:"rollout_id"`
+			Scope            *trust.Scope `json:"scope"`
+			Unit             string       `json:"unit"`
+			OperationID      string       `json:"operation_id"`
 		}
 		if err := protocol.DecodeTolerant(entry.Value(), &kind, maxRecordBytes); err != nil {
 			return nil, nil, err
 		}
 		step := kind.Scope != nil && kind.Scope.Slot != "" && key == entityid.Derive("rollout-step", kind.Scope.Slot)
 		reply := kind.Unit != "" && entityid.Valid(kind.OperationID) && key == entityid.Derive("rollout-step-reply", kind.Unit)
-		if kind.ID == "" && kind.Generation == 0 && (kind.RolloutID == key || step || reply) {
+		abandoned := kind.SchemaVersion == 0 && kind.AbandonedRollout == key
+		joined := kind.Node != "" && kind.PublicKey != "" && key == HostMembershipKey(kind.Node)
+		if kind.ID == "" && kind.Generation == 0 && (kind.RolloutID == key || step || reply || abandoned || joined) {
 			continue
 		}
 		var release Release

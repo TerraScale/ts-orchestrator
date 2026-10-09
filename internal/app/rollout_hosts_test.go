@@ -19,7 +19,10 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
@@ -29,6 +32,8 @@ import (
 type hostSinkFixture struct {
 	control *rolloutControl
 	board   jetstream.KeyValue
+	js      jetstream.JetStream
+	store   *rollout.Store
 	key     ed25519.PrivateKey
 	host    host.Registration
 }
@@ -36,7 +41,8 @@ type hostSinkFixture struct {
 func newHostSinkFixture(t *testing.T) *hostSinkFixture {
 	t.Helper()
 	js := testRolloutJetStream(t)
-	if _, err := rollout.OpenStore(t.Context(), js, "gru", 1, rolloutTestFence{epoch: 7}); err != nil {
+	store, err := rollout.OpenStore(t.Context(), js, "gru", 1, rolloutTestFence{epoch: 7})
+	if err != nil {
 		t.Fatal(err)
 	}
 	board, err := js.KeyValue(t.Context(), rollout.Bucket)
@@ -51,7 +57,7 @@ func newHostSinkFixture(t *testing.T) *hostSinkFixture {
 	control.hosts.Store(&rolloutHosts{collector: rolloutexec.NewCollector("gru", nil, nil), board: board,
 		colocated: colocatedNodes("gru", []rollout.Unit{{ID: "controller-a", Group: "controllers"}}, renamedSlotA),
 		last:      map[string]time.Time{}, held: map[string]time.Time{}})
-	return &hostSinkFixture{control: control, board: board, key: key, host: host.Registration{Cell: "gru",
+	return &hostSinkFixture{control: control, board: board, js: js, store: store, key: key, host: host.Registration{Cell: "gru",
 		Node: "gru-1-db-1", Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(public)}}
 }
 
@@ -89,8 +95,51 @@ func (f *hostSinkFixture) exchange(t *testing.T, exchange host.RolloutExchange) 
 
 func (f *hostSinkFixture) joined(t *testing.T, node string) bool {
 	t.Helper()
-	_, err := f.board.Get(t.Context(), joinedKey(node))
+	_, err := f.board.Get(t.Context(), rollout.HostMembershipKey(node))
 	return err == nil
+}
+
+func TestReleasePinsAfterHostJoins(t *testing.T) {
+	f := newHostSinkFixture(t)
+	ctx := t.Context()
+	digest := strings.Repeat("a", 64)
+	if _, err := f.store.PublishRelease(ctx, 7, rollout.Release{Digest: digest, Actor: "ops", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.exchange(t, host.RolloutExchange{Proof: f.proof(t, f.key)}); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := f.board.Keys(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range keys {
+		if key != "release.desired" && !entityid.Valid(key) {
+			t.Fatalf("host joining created a non-ULID key: %s", key)
+		}
+	}
+	rollback, knownBad, err := f.store.ReleasePins(ctx)
+	if err != nil || !slices.Equal(rollback, []string{digest}) || len(knownBad) != 0 {
+		t.Fatalf("pins after host joined: %v %v %v", rollback, knownBad, err)
+	}
+	channel, err := openChannelBucket(ctx, f.js, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.control.consumeChannel(ctx, f.store, channel, 7, nil, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := channel.Get(ctx, releasechannel.StatusKey("GRU"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status releasechannel.Status
+	if err := protocol.DecodeTolerant(entry.Value(), &status, releasechannel.MaxValueBytes); err != nil {
+		t.Fatal(err)
+	}
+	if status.Pins == nil || !slices.Equal(status.Pins.Rollback, []string{digest}) {
+		t.Fatalf("published pins after host joined: %+v", status.Pins)
+	}
 }
 
 // A host joins the release program with a proof its registered key signed,
@@ -186,7 +235,11 @@ func TestHostRolloutBinaryServesTheLeadersRelease(t *testing.T) {
 func TestHostUnitsAreTheJoinedHostsGroupedByTerraBaseSeats(t *testing.T) {
 	f := newHostSinkFixture(t)
 	for _, node := range []string{"gru-1-ctl-1", "ts-gru-1", "gru-1-db-1", "gru-1-db-2", "gru-1-api-1", "gru-1-db-4"} {
-		if _, err := f.board.Create(t.Context(), joinedKey(node), []byte("key-"+node)); err != nil {
+		wire, err := protocol.EncodeJSON(rollout.HostMembership{Node: node, PublicKey: "key-" + node})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.board.Create(t.Context(), rollout.HostMembershipKey(node), wire); err != nil {
 			t.Fatal(err)
 		}
 	}
