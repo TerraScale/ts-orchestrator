@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -16,23 +15,19 @@ import (
 // labCluster is a three-broker lab cell that uses the production seed-route
 // shape: each broker lists only the other brokers' routes.
 type labCluster struct {
-	routes     []string
-	routePorts []int
-	stores     []string
-	runtimes   []*Runtime
+	routes      []string
+	clientPorts []int
+	routePorts  []int
+	stores      []string
+	runtimes    []*Runtime
 }
 
 func newLabCluster(t *testing.T, size int) *labCluster {
 	t.Helper()
-	cluster := &labCluster{routePorts: make([]int, size), stores: make([]string, size),
+	ports := freeClientPorts(t, 2*size)
+	cluster := &labCluster{clientPorts: ports[:size], routePorts: ports[size:], stores: make([]string, size),
 		runtimes: make([]*Runtime, size), routes: make([]string, size)}
 	for index := range size {
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		cluster.routePorts[index] = listener.Addr().(*net.TCPAddr).Port
-		listener.Close()
 		cluster.routes[index] = fmt.Sprintf("nats-route://127.0.0.1:%d", cluster.routePorts[index])
 		cluster.stores[index] = filepath.Join(t.TempDir(), fmt.Sprintf("peer%d", index))
 	}
@@ -48,7 +43,7 @@ func (cluster *labCluster) start(t *testing.T, ctx context.Context, index int) *
 	t.Helper()
 	instance := fmt.Sprintf("peer%d", index)
 	runtime, err := Start(ctx, Config{Cell: "lab", Instance: instance, Replicas: len(cluster.routes), Lab: true,
-		Embedded: &Embedded{Host: "127.0.0.1", Port: -1, RouteHost: "127.0.0.1",
+		Embedded: &Embedded{Host: "127.0.0.1", Port: cluster.clientPorts[index], RouteHost: "127.0.0.1",
 			RoutePort: cluster.routePorts[index], Routes: PeerRoutes(cluster.routes, cluster.routes[index]),
 			StoreDir: cluster.stores[index], BrokerIDs: []string{"peer0", "peer1", "peer2"}[:len(cluster.routes)]},
 	})

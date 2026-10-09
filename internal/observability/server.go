@@ -165,6 +165,17 @@ func (server *Server) Handle(pattern string, handler http.Handler) {
 	server.mux.Handle(pattern, server.authenticate(handler))
 }
 
+// HandleAuthenticated never grants tokenless loopback access to this API.
+func (server *Server) HandleAuthenticated(pattern string, handler http.Handler) {
+	server.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if server.token == nil {
+			writePlain(w, http.StatusServiceUnavailable, "authenticated API requires a configured token\n")
+			return
+		}
+		handler.ServeHTTP(w, r)
+	}))
+}
+
 // HandleStatic mounts an unauthenticated route for public embedded files,
 // such as the dashboard's stylesheet the login form needs. It must never
 // serve cell state.

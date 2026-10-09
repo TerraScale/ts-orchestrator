@@ -6,12 +6,68 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 func registrationSubjectKey(cell, node string) string  { return cell + "." + node }
 func desiredSubjectKey(cell, node, role string) string { return cell + "." + node + "." + role }
+
+func rejectObsoleteRetirementState(ctx context.Context, state jetstream.KeyValue, cell string) error {
+	keys, err := state.ListKeysFiltered(ctx, "retired."+cell+".>")
+	if err != nil {
+		return fmt.Errorf("validate host retirement storage: %w", err)
+	}
+	defer keys.Stop()
+	obsolete := false
+	for range keys.Keys() {
+		obsolete = true
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if obsolete {
+		return errors.New("host state contains obsolete retirement keys; updated host control cannot start over this state")
+	}
+	return nil
+}
+
+func (c *Controller) readRetirement(ctx context.Context, node string) (retirement, uint64, error) {
+	if err := validateToken(node, "node"); err != nil {
+		return retirement{}, 0, err
+	}
+	key := registrationSubjectKey(c.cell, node)
+	entry, err := c.mutations.ReadHostMutation(ctx, authority.MutationRetirement, key)
+	if errors.Is(err, authority.ErrNotFound) {
+		return retirement{}, 0, nil
+	}
+	if err != nil {
+		return retirement{}, 0, err
+	}
+	if entry.Kind != authority.MutationRetirement || entry.SubjectKey != key || entry.Sequence == 0 || entry.Epoch == 0 {
+		return retirement{}, 0, errors.New("retirement log entry is malformed")
+	}
+	mark, err := decodeRetirement(entry.Payload)
+	if err != nil {
+		return retirement{}, 0, err
+	}
+	return mark, entry.Sequence, nil
+}
+
+func decodeRetirement(payload []byte) (retirement, error) {
+	var value struct {
+		Retired *bool `json:"retired"`
+	}
+	if err := decodeStrict(payload, &value); err != nil {
+		return retirement{}, err
+	}
+	if value.Retired == nil {
+		return retirement{}, errors.New("retirement record requires a non-null retired state")
+	}
+	return retirement{Retired: *value.Retired}, nil
+}
 
 func (c *Controller) readRegistration(ctx context.Context, node string) (Registration, uint64, bool, error) {
 	if err := validateToken(node, "node"); err != nil {

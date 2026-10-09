@@ -13,8 +13,8 @@ import (
 // the app JWT caller separately proves R3 formation. Production uses
 // DontListen so that the gated mTLS bridge owns the sole external client socket.
 func TestDontListenStartsRoutesWithoutClientSocketAndShutsDown(t *testing.T) {
-	clientPort := freeClientPort(t)
-	routePort := freeClientPort(t)
+	ports := freeClientPorts(t, 2)
+	clientPort, routePort := ports[0], ports[1]
 	options := &server.Options{ServerName: "dont-listen-route-test", Host: "127.0.0.1", Port: clientPort,
 		DontListen: true, NoLog: true, NoSigs: true,
 		Cluster: server.ClusterOpts{Name: "dont-listen-test", Host: "127.0.0.1", Port: routePort}}

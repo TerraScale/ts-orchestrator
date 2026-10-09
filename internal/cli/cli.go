@@ -14,7 +14,9 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/app"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/attempt"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/benchmark"
 	bootstrapcli "git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap/cli"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/capacity"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellscale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ci/realcaller"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ci/sourcedigest"
@@ -62,6 +64,8 @@ Runtime:
   selfupdate             Stage, activate and watch binary-only A/B updates
 
 Operator tooling:
+  usage                  Print regional node and service CPU/memory for a time window
+  bench                  Run isolated in-region benchmark clients and save capacity reports
   dashboard              Check every GRU and SFO dashboard over NetBird (read-only)
   network                Check address and DNS coexistence of NetBird and Tailscale (read-only)
   verify                 Observe production health, persistence gaps and OIDC (read-only)
@@ -107,6 +111,10 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return err
 	}
 	switch args[0] {
+	case "usage":
+		return capacity.Run(ctx, args[1:], output)
+	case "bench":
+		return benchmark.CLI(ctx, args[1:], output)
 	case "dashboard":
 		return accesscheck.Run(ctx, args[1:], output)
 	case "network":

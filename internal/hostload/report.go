@@ -45,9 +45,11 @@ type Report struct {
 // not measured this interval (for example the first CPU sample, which has no
 // earlier counter to diff against).
 type HostUsage struct {
-	CPU    *float64 `json:"cpu_util,omitempty"`
-	Memory *float64 `json:"mem_util,omitempty"`
-	Disk   *float64 `json:"disk_util,omitempty"`
+	CPUCores    int      `json:"cpu_capacity_cores,omitzero"`
+	MemoryBytes uint64   `json:"memory_capacity_bytes,omitzero"`
+	CPU         *float64 `json:"cpu_util,omitempty"`
+	Memory      *float64 `json:"mem_util,omitempty"`
+	Disk        *float64 `json:"disk_util,omitempty"`
 }
 
 // RoleUsage is one native role's cgroup v2 usage in absolute units, so the
@@ -57,6 +59,9 @@ type RoleUsage struct {
 	Role        string             `json:"role"`
 	CPUCores    *float64           `json:"cpu_cores,omitempty"`
 	MemoryBytes *uint64            `json:"memory_bytes,omitempty"`
+	CPULimit    *float64           `json:"cpu_limit_cores,omitempty"`
+	MemoryLimit *uint64            `json:"memory_limit_bytes,omitempty"`
+	LimitsRead  bool               `json:"limits_read,omitzero"`
 	TerraBase   *memberstatus.Load `json:"terrabase,omitempty"`
 }
 
@@ -64,6 +69,9 @@ type RoleUsage struct {
 func (r Report) Validate() error {
 	if r.SchemaVersion != SchemaVersion {
 		return fmt.Errorf("%w: schema version %d", ErrInvalidReport, r.SchemaVersion)
+	}
+	if r.Host.CPUCores < 0 || r.Host.CPUCores > MaxCPUCores || r.Host.MemoryBytes > MaxMemoryBytes {
+		return fmt.Errorf("%w: host capacity out of range", ErrInvalidReport)
 	}
 	for _, value := range []*float64{r.Host.CPU, r.Host.Memory, r.Host.Disk} {
 		if value != nil && !fraction(*value) {
@@ -87,6 +95,10 @@ func (r Report) Validate() error {
 		}
 		if role.MemoryBytes != nil && *role.MemoryBytes > MaxMemoryBytes {
 			return fmt.Errorf("%w: role %q memory out of range", ErrInvalidReport, role.Role)
+		}
+		if role.CPULimit != nil && (!finiteWithin(*role.CPULimit, MaxCPUCores) || *role.CPULimit == 0) ||
+			role.MemoryLimit != nil && *role.MemoryLimit > MaxMemoryBytes {
+			return fmt.Errorf("%w: role limit out of range", ErrInvalidReport)
 		}
 		if role.TerraBase != nil {
 			if err := role.TerraBase.Validate(); err != nil {

@@ -56,6 +56,70 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
+func TestSamplerReadsFiniteAndUnlimitedLimits(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root+"/cgroup.controllers", "cpu memory\n")
+	writeFile(t, root+"/cpu.max", "150000 100000\n")
+	writeFile(t, root+"/memory.max", "1048576\n")
+	cpu, memory, ok := readLimits(root, root)
+	if !ok || cpu == nil || *cpu != 1.5 || memory == nil || *memory != 1048576 {
+		t.Fatalf("finite limits %v %v %t", cpu, memory, ok)
+	}
+	writeFile(t, root+"/cpu.max", "max 100000\n")
+	writeFile(t, root+"/memory.max", "max\n")
+	cpu, memory, ok = readLimits(root, root)
+	if !ok || cpu != nil || memory != nil {
+		t.Fatal("unlimited limits lost")
+	}
+	writeFile(t, root+"/cpu.max", "NaN 100000\n")
+	if _, _, ok := readLimits(root, root); ok {
+		t.Fatal("accepted malformed quota")
+	}
+}
+
+func TestSamplerResolvesInheritedMemoryLimits(t *testing.T) {
+	for _, test := range []struct {
+		name, ancestor, leaf, root string
+		want                       uint64
+		valid                      bool
+	}{
+		{"inherited", "5368709120", "max", "", 5 << 30, true},
+		{"leaf tighter", "5368709120", "2147483648", "", 2 << 30, true},
+		{"root tighter", "5368709120", "max", "1073741824", 1 << 30, true},
+		{"physical tighter", "17179869184", "max", "", 8 << 30, true},
+		{"unlimited", "max", "max", "", 0, true},
+		{"missing ancestor", "", "max", "", 0, false},
+		{"malformed ancestor", "invalid", "max", "", 0, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mount := t.TempDir()
+			parent := filepath.Join(mount, "service")
+			writeFile(t, filepath.Join(mount, "cgroup.controllers"), "cpu memory\n")
+			if test.root != "" {
+				writeFile(t, filepath.Join(mount, "memory.max"), test.root)
+			}
+			if test.ancestor != "" {
+				writeFile(t, filepath.Join(parent, "memory.max"), test.ancestor)
+			}
+			writeFile(t, filepath.Join(parent, "api", "memory.max"), test.leaf)
+			writeFile(t, filepath.Join(parent, "api", "cpu.max"), "max 100000")
+			writeFile(t, filepath.Join(parent, "api", "memory.current"), "1024")
+			sampler := NewSampler(SamplerConfig{CgroupRoot: parent, CgroupMount: mount, Roles: []string{"api"},
+				ReadSystem: func([]observability.FilesystemRole) (observability.SystemView, error) {
+					return observability.SystemView{MemTotalBytes: 8 << 30}, nil
+				}})
+			report := sampler.Sample(nil)
+			if len(report.Roles) != 1 {
+				t.Fatalf("missing role: %+v", report)
+			}
+			role := report.Roles[0]
+			if role.LimitsRead != test.valid || test.want == 0 && role.MemoryLimit != nil || test.want > 0 && (role.MemoryLimit == nil || *role.MemoryLimit != test.want) {
+				t.Fatalf("inherited limit: %+v, want %d valid=%t", role, test.want, test.valid)
+			}
+		})
+	}
+}
+
 func TestSamplerDiffsCgroupAndHostCounters(t *testing.T) {
 	root := t.TempDir()
 	now := time.Unix(1_000, 0)

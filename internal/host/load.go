@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"slices"
 	"strings"
 	"time"
 
@@ -36,8 +35,8 @@ var (
 )
 
 // LoadSink receives one authenticated host load report whose roles were
-// filtered to the roles the host currently runs. Origin comes from the
-// controller's registration state, never from the report.
+// restricted to current allocations, including roles with unknown usage.
+// Origin comes from controller registration state, never from the report.
 type LoadSink func(origin hostload.Origin, report hostload.Report) error
 
 type loadAck struct {
@@ -68,12 +67,9 @@ func (c *Controller) storeLoad(ctx context.Context, req request, r Registration)
 	// Only roles registered for this host with a current, non-withdrawn
 	// allocation count: a host cannot report load for a service it does
 	// not run.
-	roles := report.Roles[:0]
-	for _, role := range report.Roles {
-		if !slices.Contains(r.Roles, role.Role) {
-			continue
-		}
-		desired, _, exists, err := c.readDesired(ctx, req.Node, role.Role)
+	roles := make([]hostload.RoleUsage, 0, len(r.Roles))
+	for _, name := range r.Roles {
+		desired, _, exists, err := c.readDesired(ctx, req.Node, name)
 		if err != nil {
 			return nil, err
 		}
@@ -82,6 +78,14 @@ func (c *Controller) storeLoad(ctx context.Context, req request, r Registration)
 		}
 		if err := validateDesired(desired, c.cell, r); err != nil {
 			continue
+		}
+		// Reservations survive missing cgroup measurements or a stopped process.
+		role := hostload.RoleUsage{Role: name}
+		for _, measured := range report.Roles {
+			if measured.Role == name {
+				role = measured
+				break
+			}
 		}
 		roles = append(roles, role)
 	}

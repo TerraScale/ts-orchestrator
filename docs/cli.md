@@ -158,6 +158,13 @@ without a rebuild; see [root rotation](root-rotation.md).
 
 ## Feature boundaries
 
+`ts-orch usage --region <gru|sfo> --from <RFC3339> --to <RFC3339>
+[--format json|table]` reads authenticated node and service CPU/memory history.
+`ts-orch bench run --region <gru|sfo> --workload <name> --clients go,dotnet,rust`
+runs isolated load-generator jobs and attaches that usage window. See
+[capacity benchmarking](capacity-benchmarking.md) for setup, current SDK
+blockers, bounds and cleanup guarantees.
+
 `ts-orch disaster-recovery replicate --config FILE [--apply]` prepares
 dedicated cross-region Object Storage mirrors, historical backfills and Vault
 key replicas. It does not execute a full-cell recovery drill. See

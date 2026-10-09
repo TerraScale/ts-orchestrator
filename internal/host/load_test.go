@@ -257,6 +257,33 @@ func TestTerraBaseLoadExpires(t *testing.T) {
 	}
 }
 
+func TestLoadOperationKeepsAllocatedRolesWithUnknownUsage(t *testing.T) {
+	c, hostKey, session, _ := reportedTestHost(t)
+	var got hostload.Report
+	c.SetLoadSink(func(_ hostload.Origin, report hostload.Report) error { got = report; return nil })
+	report := hostload.Report{SchemaVersion: hostload.SchemaVersion}
+	if _, err := c.handleAuthorized(t.Context(), signedHostRequest(t, hostKey, "load", session.SessionID, session.Epoch, report)); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Roles) != 1 || got.Roles[0].Role != "terrabase" || got.Roles[0].CPUCores != nil || got.Roles[0].MemoryBytes != nil || got.Roles[0].LimitsRead {
+		t.Fatalf("allocated role lost or unknown usage invented: %+v", got)
+	}
+	desired, _, _, err := c.readDesired(t.Context(), "node-a", "terrabase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	withdrawal := Desired{Cell: desired.Cell, Node: desired.Node, Environment: desired.Environment, Role: desired.Role, Generation: desired.Generation + 1, AuthorityEpoch: desired.AuthorityEpoch, Withdrawn: true}
+	if _, err := c.ApplyDesired(t.Context(), withdrawal); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.handleAuthorized(t.Context(), signedHostRequest(t, hostKey, "load", session.SessionID, session.Epoch, report)); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Roles) != 0 {
+		t.Fatalf("withdrawn role still reserved resources: %+v", got)
+	}
+}
+
 // A discarded (throttled) sample is a rejection that backs off.
 func TestLoadOutcomeTreatsDiscardedSampleAsRejection(t *testing.T) {
 	if err := loadOutcome(nil, loadAck{Accepted: true}); err != nil {

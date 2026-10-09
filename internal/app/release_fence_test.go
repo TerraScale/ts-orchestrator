@@ -325,18 +325,26 @@ func TestReleaseFenceRestartsOneFencedNodeAtATime(t *testing.T) {
 }
 
 func TestReleaseFenceKeepsTheLastHealthyBackend(t *testing.T) {
-	fence, _, balancer, _, intent := newFenceTest(t)
+	fence, cell, balancer, _, intent := newFenceTest(t)
 	balancer.down["10.0.0.12:9465"], balancer.down["10.0.0.13:9465"] = true, true
-	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
+	fence.sleep = func(ctx context.Context, d time.Duration) error {
+		if d != fencePoll {
+			t.Fatalf("waited %s before checking the healthy alternative", d)
+		}
+		cancel()
+		return ctx.Err()
+	}
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent, nil); err == nil || !strings.Contains(err.Error(), "last healthy") {
+	if err := fence.sequence(ctx, intent, nil); !errors.Is(err, context.Canceled) ||
+		!strings.Contains(err.Error(), "terrabase backend of ctl-1") || !strings.Contains(err.Error(), "last healthy") {
 		t.Fatalf("fenced the last healthy backend: %v", err)
 	}
-	if len(balancer.log) != 0 {
-		t.Fatalf("changed the load balancer: %q", balancer.log)
+	if len(balancer.log) != 0 || len(cell.restarts) != 0 {
+		t.Fatalf("load balancer %q, restarts %q", balancer.log, cell.restarts)
 	}
 }
 
@@ -562,26 +570,32 @@ func TestReleaseFenceChecksTheAlternativeAtEachChange(t *testing.T) {
 		"ts-auth":   {{IP: "10.0.0.11", Port: 8080}, {IP: "10.0.0.12", Port: 8080}},
 	}
 	balancer.down["10.0.0.12:8080"] = true
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
 	flipped := false
-	fence.sleep = func(ctx context.Context, _ time.Duration) error {
+	fence.sleep = func(ctx context.Context, d time.Duration) error {
+		if d != fencePoll {
+			return ctx.Err()
+		}
 		balancer.mu.Lock()
 		if !flipped {
 			flipped = true
 			balancer.down["10.0.0.12:8080"], balancer.down["10.0.0.12:9465"] = false, true
+		} else {
+			// Stop only once the fence has rechecked the failed alternative.
+			cancel()
 		}
 		balancer.mu.Unlock()
-		time.Sleep(time.Millisecond)
 		return ctx.Err()
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
-	defer cancel()
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent, nil); err == nil || !strings.Contains(err.Error(), "last healthy") {
+	if err := fence.sequence(ctx, intent, nil); !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "terrabase backend of ctl-1") || !strings.Contains(err.Error(), "last healthy") {
 		t.Fatalf("sequence: %v", err)
 	}
-	if slices.Contains(balancer.log, "terrabase 10.0.0.11:9465 offline") || len(cell.restarts) != 0 {
+	want := []string{"terrabase 10.0.0.11:9465 drain", "ts-auth 10.0.0.11:8080 drain"}
+	if !slices.Equal(balancer.log, want) || len(cell.restarts) != 0 {
 		t.Fatalf("load balancer %q, restarts %q", balancer.log, cell.restarts)
 	}
 }
