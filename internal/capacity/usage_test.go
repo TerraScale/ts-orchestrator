@@ -141,7 +141,7 @@ func TestAuthenticatedAPIAndRegionalClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.HandleAuthenticated("GET /v1/usage", s.Handler(func(context.Context) ([]string, error) { return []string{"a", "b"}, nil }))
+	server.HandleAuthenticated("GET /v1/usage", s.Handler(func(context.Context, time.Time, time.Time) ([]string, error) { return []string{"a", "b"}, nil }))
 	httpServer := httptest.NewServer(server)
 	defer httpServer.Close()
 	response, err := http.Get(httpServer.URL + "/v1/usage")

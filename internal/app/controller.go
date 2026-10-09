@@ -597,26 +597,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	planner.workloads = workloadReconciler
-	telemetry.usage.SetExpected(func(ctx context.Context) ([]string, error) {
-		hosts, err := hostController.ListHosts(ctx)
-		if err != nil {
-			return nil, err
-		}
-		var nodes []string
-		for _, status := range hosts {
-			nodes = append(nodes, status.Registration.Node)
-		}
-		desired, err := hostController.ListDesired(ctx, "")
-		if err != nil {
-			return nil, err
-		}
-		for _, allocation := range desired {
-			if !allocation.Withdrawn {
-				nodes = append(nodes, allocation.Node+"/"+allocation.Role)
-			}
-		}
-		return nodes, nil
-	})
+	telemetry.usage.SetExpected(hostController.ExpectedUsage)
 	hostController.SetLoadSink(func(origin hostload.Origin, report hostload.Report) error {
 		profiles, _ := services.effective()
 		return telemetry.recordHostLoad(hostLoad.record, origin, report, loadRequests(profileResources(profiles)))

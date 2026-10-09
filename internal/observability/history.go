@@ -28,8 +28,6 @@ const (
 	fiveMinuteRetention    = 24 * time.Hour
 	// HistoryRetention is the oldest metric data retained for queries.
 	HistoryRetention = 14 * 24 * time.Hour
-	// staleSeriesAfter drops a series that stopped reporting for 14 days.
-	staleSeriesAfter = HistoryRetention
 )
 
 // Label is one metric label pair.
@@ -204,6 +202,9 @@ type HistoryConfig struct {
 	// MaxSeries bounds distinct series; new series beyond it are dropped
 	// and counted.
 	MaxSeries int
+	// StaleAfter releases slots for series that stopped reporting.
+	// Zero uses the full history retention.
+	StaleAfter time.Duration
 }
 
 // History is a bounded in-memory time-series store of key metrics with
@@ -225,6 +226,9 @@ func NewHistory(config HistoryConfig) *History {
 	}
 	if config.MaxSeries <= 0 {
 		config.MaxSeries = DefaultHistorySeries
+	}
+	if config.StaleAfter <= 0 {
+		config.StaleAfter = HistoryRetention
 	}
 	return &History{config: config, series: map[string]*series{}, dropMinutes: map[int64]bool{}}
 }
@@ -276,7 +280,7 @@ func (history *History) Append(at time.Time, samples []Sample) {
 		}
 	}
 	// Prune first, so series that stopped reporting free their slots.
-	stale := millis - staleSeriesAfter.Milliseconds()
+	stale := millis - history.config.StaleAfter.Milliseconds()
 	for key, current := range history.series {
 		if current.last < stale {
 			delete(history.series, key)

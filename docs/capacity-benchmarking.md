@@ -16,6 +16,11 @@ best partial answer with `complete: false`. Followers have no host history.
 Windows must be increasing RFC3339 timestamps within the last hour. History
 is bounded, in memory and rebuilt after a controller restart or leadership
 change. Missing registered nodes and active allocations are listed in `missing`.
+Expected nodes and allocations come from timestamped committed control-log
+history over `[from, to)`, including the state immediately before `from`.
+Later admissions do not enter an older window; later withdrawals do not erase
+missing replicas from it. Historical inventory reads use a pinned log watermark
+and a ten-second deadline; unavailable or oversized inventory returns HTTP 503.
 Missing values stay JSON `null`; they never become zero usage or spare capacity.
 
 Each resource contains `usage`, `request`, `limit` and `headroom` statistics:
@@ -34,6 +39,9 @@ they remain listed as missing measurements. Unknown adopted requests leave
 node reservation totals unknown.
 
 Raw history retains individual host samples. Queries use `[from, to)` bounds.
+Series idle for more than one hour release their slots before new measurements
+are admitted, so departed node, environment and role identities cannot consume
+the 4,096-series budget for fourteen days.
 Coverage requires at least two samples, with no
 gap larger than one quarter of the query window (bounded to 10–60 seconds).
 Service totals sum replica means. Their summed maxima are a conservative

@@ -61,26 +61,26 @@ type Store struct {
 	History  *observability.History
 	mu       sync.Mutex
 	last     map[string]time.Time
-	expected func(context.Context) ([]string, error)
+	expected func(context.Context, time.Time, time.Time) ([]string, error)
 }
 
-func (s *Store) SetExpected(f func(context.Context) ([]string, error)) {
+func (s *Store) SetExpected(f func(context.Context, time.Time, time.Time) ([]string, error)) {
 	s.mu.Lock()
 	s.expected = f
 	s.mu.Unlock()
 }
-func (s *Store) Expected(ctx context.Context) ([]string, error) {
+func (s *Store) Expected(ctx context.Context, from, to time.Time) ([]string, error) {
 	s.mu.Lock()
 	f := s.expected
 	s.mu.Unlock()
 	if f == nil {
 		return nil, errors.New("regional inventory unavailable")
 	}
-	return f(ctx)
+	return f(ctx, from, to)
 }
 
 func NewStore(region string) *Store {
-	return &Store{Region: region, History: observability.NewHistory(observability.HistoryConfig{Interval: 5 * time.Second}), last: map[string]time.Time{}}
+	return &Store{Region: region, History: observability.NewHistory(observability.HistoryConfig{Interval: 5 * time.Second, StaleAfter: Retention}), last: map[string]time.Time{}}
 }
 
 // Record uses controller receive time and adopted requests for every allocated
@@ -220,16 +220,19 @@ func (s *Store) Query(from, to time.Time, expected []string) (Usage, error) {
 		rangeResult := s.History.Range(observability.HistoryQuery{Metric: "capacity_" + metric, Start: from, End: to, Tier: observability.TierRaw, MaxSeries: 4096})
 		result.Truncated = result.Truncated || rangeResult.Truncated
 		for _, series := range rangeResult.Series {
+			// Raw timestamps have millisecond precision; keep the window exclusive at its end.
+			points := slices.DeleteFunc(series.Points, func(point observability.Point) bool {
+				return point.Time.Before(from) || !point.Time.Before(to)
+			})
+			if len(points) == 0 {
+				continue
+			}
 			key := series.Labels["node"] + "/" + series.Labels["environment"] + "/" + series.Labels["service"]
 			row := rows[key]
 			if row == nil {
 				row = &Row{Node: series.Labels["node"], Service: series.Labels["service"], Environment: series.Labels["environment"]}
 				rows[key] = row
 			}
-			// Raw timestamps have millisecond precision; keep the window exclusive at its end.
-			points := slices.DeleteFunc(series.Points, func(point observability.Point) bool {
-				return point.Time.Before(from) || !point.Time.Before(to)
-			})
 			stat := summarize(points, from, to)
 			switch metric {
 			case "cpu_usage":
@@ -326,7 +329,7 @@ func sumResource(a, b Resource) Resource {
 	return Resource{Usage: sumStats(a.Usage, b.Usage), Request: sumStats(a.Request, b.Request), Limit: sumStats(a.Limit, b.Limit), Headroom: sumStats(a.Headroom, b.Headroom)}
 }
 
-func (s *Store) Handler(expected func(context.Context) ([]string, error)) http.Handler {
+func (s *Store) Handler(expected func(context.Context, time.Time, time.Time) ([]string, error)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		from, err := time.Parse(time.RFC3339Nano, r.URL.Query().Get("from"))
 		to, toErr := time.Parse(time.RFC3339Nano, r.URL.Query().Get("to"))
@@ -334,9 +337,15 @@ func (s *Store) Handler(expected func(context.Context) ([]string, error)) http.H
 			http.Error(w, "region, from and to are required", 400)
 			return
 		}
+		if err := ValidateWindow(s.Region, from, to, time.Now()); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
 		var nodes []string
 		if expected != nil {
-			nodes, err = expected(r.Context())
+			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+			defer cancel()
+			nodes, err = expected(ctx, from, to)
 			if err != nil {
 				http.Error(w, "regional inventory unavailable", 503)
 				return
