@@ -201,7 +201,7 @@ func TestChannelVerifyRefusesTampering(t *testing.T) {
 			channel.Receipts[0] = bytes.Replace(channel.Receipts[0], []byte(`"payload":{`), []byte(`"payload":{"x":1,`), 1)
 		}},
 		"another schema": {edit: func(channel *Channel) {
-			channel.Schema = "terrascale.orchestrator.release-channel.v2"
+			channel.Schema = "unknown"
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -462,5 +462,65 @@ func TestClipKeepsOneBoundedLine(t *testing.T) {
 	}
 	if got := Clip("a\nb\u0085c⁦d"); got != "a b c d" {
 		t.Fatalf("clip = %q", got)
+	}
+}
+
+func TestReleasePinValidationAndStatusBounds(t *testing.T) {
+	for _, pins := range []*ReleasePins{nil, {Rollback: []string{"short"}}, {KnownBad: []string{strings.Repeat("B", 64)}}, {KnownBad: []string{strings.Repeat("z", 64)}}} {
+		if err := pins.Validate(); err == nil {
+			t.Fatalf("accepted invalid pins: %+v", pins)
+		}
+	}
+	bucket := newFakeBucket()
+	location := Location{Client: bucket, Namespace: "ns", Bucket: "gru-1-head"}
+	pins := &ReleasePins{KnownBad: make([]string, 1200)}
+	for i := range pins.KnownBad {
+		pins.KnownBad[i] = fmt.Sprintf("%064x", i)
+	}
+	if err := WriteStatus(t.Context(), location, Status{Cell: "GRU", Pins: pins}); err != nil {
+		t.Fatal(err)
+	}
+	status, found, err := ReadStatus(t.Context(), location)
+	if err != nil || !found || !status.Pins.Equal(pins) {
+		t.Fatalf("large pin inventory lost: %+v %v", status.Pins, err)
+	}
+	if err := WriteServiceStatus(t.Context(), location, ServiceStatus{Cell: "GRU", Role: "terrabase", Pins: pins}); err != nil {
+		t.Fatal(err)
+	}
+	service, found, err := ReadServiceStatus(t.Context(), location, "terrabase")
+	if err != nil || !found || !service.Pins.Equal(pins) {
+		t.Fatalf("large service pin inventory lost: %+v %v", service.Pins, err)
+	}
+	before := bucket.puts
+	if err := location.write(t.Context(), StatusObject, make([]byte, maxStatusBytes+1)); !errors.Is(err, ErrInvalid) || bucket.puts != before {
+		t.Fatalf("oversized status write: %v, puts %d -> %d", err, before, bucket.puts)
+	}
+}
+
+func TestStatusReadClassifiesInvalidTelemetry(t *testing.T) {
+	for _, object := range []string{StatusObject, ServiceStatusObject("terrabase")} {
+		for _, tc := range []struct {
+			name string
+			wire []byte
+		}{
+			{name: "malformed", wire: []byte("{")},
+			{name: "invalid timestamp", wire: []byte(`{"updated_at":"invalid"}`)},
+			{name: "oversized", wire: bytes.Repeat([]byte(" "), maxStatusBytes+1)},
+		} {
+			t.Run(object+"/"+tc.name, func(t *testing.T) {
+				bucket := newFakeBucket()
+				bucket.set(object, tc.wire)
+				location := Location{Client: bucket, Namespace: "ns", Bucket: "gru-1-head"}
+				var err error
+				if object == StatusObject {
+					_, _, err = ReadStatus(t.Context(), location)
+				} else {
+					_, _, err = ReadServiceStatus(t.Context(), location, "terrabase")
+				}
+				if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), object) {
+					t.Fatalf("invalid telemetry error = %v, want ErrInvalid naming %s", err, object)
+				}
+			})
+		}
 	}
 }

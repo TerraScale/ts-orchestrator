@@ -664,7 +664,7 @@ aborting a release changes what the controllers run.
 Every merge to `main` is signed and published to every region by CI,
 region by region; nothing is copied by hand. CI cannot reach a cell's
 private NATS, so each region's release channel lives in its head bucket
-(`<cell>-head`, for example `gru-1-head`), under `releases/v1/orchestrator/`
+(`<cell>-head`, for example `gru-1-head`), under `releases/orchestrator/`
 (`internal/releasechannel`):
 
 ```text
@@ -675,6 +675,16 @@ channel.json        the region's current release: cell, environment, source
 status.json         the region leader's report: run, state (rolling |
                     complete | failed) and reason
 ```
+
+Release paths and schema identifiers are unversioned. Obsolete release
+storage is discarded and the cell is rebootstrapped, with releases published
+afresh; there is no migration, backfill, or compatibility reader.
+Bootstrap each cell with the updated binary and unversioned regional IAM
+policies before re-enabling fleet deployment or pruning.
+During this reset, discard the previous `TS_RELEASE_CHANNEL` KV bucket and
+obsolete head-bucket release objects for both orchestrator and service roles.
+Keep fleet deployment and pruning paused until every region has the new
+leader, then publish fresh channels and service claims before resuming them.
 
 1. `ci.yml` on `main` dispatches `deploy.yml` after the image dispatch, only
    while the repository variable `TS_AUTO_DEPLOY_CELLS` is set. It refuses
@@ -718,11 +728,11 @@ and the secret `TS_DEPLOY_OCI_KEY`. The OCI user's group needs only:
 
 ```text
 Allow group ts-orch-deploy to read secret-bundles in compartment <vault compartment> where target.secret.name = '<leaf secret>'
-Allow group ts-orch-deploy to manage objects in compartment <cell>-control where all {target.bucket.name='<cell>-head', target.object.name='releases/v1/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}
+Allow group ts-orch-deploy to manage objects in compartment <cell>-control where all {target.bucket.name='<cell>-head', target.object.name='releases/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}
 ```
 
-and each region's controllers `OBJECT_READ` on `releases/v1/*` plus
-`OBJECT_CREATE`/`OBJECT_OVERWRITE` on `releases/v1/orchestrator/status.json`.
+and each region's controllers `OBJECT_READ` on `releases/*` plus
+`OBJECT_CREATE`/`OBJECT_OVERWRITE` on `releases/orchestrator/status.json`.
 
 The region's authority leader follows its channel
 (`controller.rollouts.channel`, on by default in production; TS-560) over
@@ -746,8 +756,8 @@ polls:
    when it completed or every controller already proves the release, and
    `failed` when it was rolled back, aborted, frozen, refused or replaced by
    another generation first, or the channel does not verify or decode. A
-   report that differs from the stored one is stored and published on
-   `ts.orch.v1.<cell>.release.status` (`protocol.ReleaseStatusSubject`) for
+   report that differs from the stored one, or whose inventory heartbeat is
+   due, is stored and published on `protocol.ReleaseStatusSubject` for
    fan-in across regions; comparing with the stored report, not the
    leader's memory, replaces one a deposed leader left.
 
@@ -756,8 +766,9 @@ into it. Until it does, CI cannot reach the cell's NATS, so the leader
 bridges the CI edge every 30 s: it copies `channel.json` from the region's
 head bucket (the controller's OCI region and instance principal, the
 namespace from Object Storage) into the channel key, and the stored report
-back out to `status.json` when they differ (the head bucket keeps versions,
-so an unchanged report is not rewritten; a stale or forged one is). Only
+back out to `status.json` when they differ, including the timestamp of each
+successful inventory heartbeat. Copying an old KV report never renews its
+collection timestamp. Only
 this edge reads Object Storage.
 
 The rollout itself rolls a release that never becomes healthy back, marks it
@@ -770,8 +781,8 @@ The reviewed controller policy statements
 applies) grant the controllers the channel:
 
 ```text
-Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-head', target.object.name='releases/v1/*', request.permission='OBJECT_READ'}
-Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-head', target.object.name='releases/v1/orchestrator/status.json', any {request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}
+Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-head', target.object.name='releases/*', request.permission='OBJECT_READ'}
+Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-head', target.object.name='releases/orchestrator/status.json', any {request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}
 ```
 
 Limits of this part:
@@ -790,7 +801,7 @@ Limits of this part:
 - A `channel.json` that does not decode, or names a higher run, stops every
   later deployment to that region until an operator inspects it (fail
   closed). The deployment covers at most three cells, the job timeout.
-- Binaries are never deleted from `releases/v1/orchestrator/binaries/`; an
+- Binaries are never deleted from `releases/orchestrator/binaries/`; an
   Object Storage lifecycle rule should expire old ones.
 
 ### Automatic service releases (TS-610)
@@ -802,14 +813,15 @@ serves any native role; the leader's release rule for a role (its replica
 count) is `serviceReleaseReplicas`.
 
 ```text
-releases/v1/services/<role>/binaries/<sha256>   the binary, written once
-releases/v1/services/<role>/release.json        the signed artifact claim
-releases/v1/services/<role>/status.json         the region leader's report
+releases/services/<role>/binaries/<sha256>   the binary, written once
+releases/services/<role>/release.json        the signed artifact claim
+releases/services/<role>/status.json         the region leader's report
 ```
 
 1. The service's CI runs `ts-orch release service-deploy` (the
    `ts-orchestrator` CI binary its repository variables `TS_ORCH_RELEASE`
-   and `TS_ORCH_SHA256` pin; bump both together): it reads the role's release key from OCI
+   and `TS_ORCH_SHA256` pin; bump both together and clear that release's
+   prerelease flag so retention keeps the CI tool): it reads the role's release key from OCI
    Vault, and for each cell in order, the canary first, uploads the binary
    to the cell's head bucket, signs a delivery artifact claim (digest, size,
    repository, commit, `git archive` tree digest, computed without local Git settings, cell, role, environment)
@@ -903,12 +915,12 @@ releases/v1/services/<role>/status.json         the region leader's report
 
 Credentials: the service repositories hold one scoped OCI API key
 (`TS_RELEASE_OCI_KEY`) for the IAM user `ts-service-release`, whose group may
-only read the release key's secret and write `releases/v1/services/*` in the
+only read the release key's secret and write `releases/services/*` in the
 head buckets:
 
 ```text
 Allow group ts-service-release to read secret-bundles in compartment <vault compartment> where target.secret.name = 'ts-service-release-key'
-Allow group ts-service-release to manage objects in compartment <cell>-control where all {target.bucket.name='<cell>-head', target.object.name='releases/v1/services/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}
+Allow group ts-service-release to manage objects in compartment <cell>-control where all {target.bucket.name='<cell>-head', target.object.name='releases/services/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}
 ```
 
 The release key is an Ed25519 PKCS#8 PEM in that Vault secret. Its public
@@ -916,11 +928,11 @@ key is a trusted signer of each cell (`ci-release` in the cell spec's
 `signers`) with `roles` `terrabase` and `ts-auth`, the cell's environment
 and `repositories` limited to the two source repositories; it cannot sign
 orchestrator updates, register hosts or change the cell spec. The
-controllers already read `releases/v1/*` in their head bucket and need
+controllers already read `releases/*` in their head bucket and need
 `OBJECT_CREATE`/`OBJECT_OVERWRITE` on each role's
-`releases/v1/services/<role>/status.json` too, one statement per role: OCI
+`releases/services/<role>/status.json` too, one statement per role: OCI
 matches a `*` only at the end of an object name, so
-`releases/v1/services/*/status.json` grants nothing. Both are in
+`releases/services/*/status.json` grants nothing. Both are in
 `ociregion.RequiredControllerStatements`.
 
 Limits of this part:
@@ -928,7 +940,7 @@ Limits of this part:
 - Without a release fence a release writes every replica's desired at
   once, so every replica restarts together.
 - Roles other than `terrabase` and `ts-auth` need a release rule first.
-- Binaries are never deleted from `releases/v1/services/*/binaries/`; an
+- Binaries are never deleted from `releases/services/*/binaries/`; an
   Object Storage lifecycle rule should expire old ones.
 - A release that needs new storage state waits for an operator: ts-auth's
   readiness requires every collection of `AuthStore.RequiredCollections`
@@ -1091,23 +1103,43 @@ image builds add `image-<sha>-run-<id>-attempt-<n>`). The daily
 `prune-releases.yml` deletes, through the Forgejo API, every CI pre-release
 past the newest 20 that is older than 7 days, unless a region pins it. The
 attachments leave the ts-forgejo bucket; the git tags stay. Each deletion is
-logged, and the job ends with one `TS_RELEASE_PRUNE_V1` line (releases,
+logged, and the job ends with one `TS_RELEASE_PRUNE` line (releases,
 deleted, kept as pinned, bytes freed). Dispatch it with `dry_run=true` to
 only log. TerraBase runs the same job (`--role terrabase`).
 
 A release is pinned when its tag names a pinned revision or tag, or its small
 manifests (`qualification.json`, `*.sha256`) name a pinned binary digest. The
 pins are `ts-orch release fleet-status` of every head bucket (the channel's
-revision, or with `--role` the serving service digest) plus the repository
-variable `TS_RELEASE_PINS`. With no pin at all the job deletes nothing.
+revision, or with `--role` the service digest), including the leader's
+`pins.rollback` and `pins.known_bad` arrays in each `status.json` (TS-653).
+The orchestrator reports every retained release generation and the active
+rollout's predecessor; service roles report their persisted previous digest.
+Both include all durable known-bad keys, even entries older than the bounded
+orchestrator cell list. Pin changes refresh status even when release progress
+has not changed. Stable inventories are refreshed every 30 seconds, including
+roles with no `release.json`; removing a claim preserves persisted release
+pins. No `TS_RELEASE_PINS` repo variable is needed for these pins.
+Retain external CI tools (`TS_ORCH_RELEASE` and `TS_PRUNE_ORCH_RELEASE`) and
+founding images through Forgejo's native non-prerelease flag, because they
+are dependencies outside the cell's rollback inventory. Clear that flag on
+each newly selected tool or founding image before retiring its predecessor.
+The former manual pins were retained this way for TS-653: tool
+`ci-214cf4ddbe0c6b1a93f6ecdde710c7d05b9f44fc-run-14652`, founding image
+`image-d30f42663eb4c5ba9e5f0917fd8bb5df98dbe309-run-13042-attempt-1`, and
+`ci-a33737f4497f1a1efe429bf31ac6d9a836a83658-run-14752`.
 
-Rollback targets and known-bad digests live only in the cell's NATS, which
-CI cannot reach; so do controllers updated by hand while
-`TS_AUTO_DEPLOY_CELLS` is unset. Whoever deploys by hand, rolls back or
-records a known-bad release adds its tag, revision or digest to
-`TS_RELEASE_PINS` (whitespace separated). ts-orchestrator's variable also
-names the release that TerraBase's and ts-auth's `TS_ORCH_RELEASE` run, and
-the image release the regions are founded from.
+The pruning workflow uses `fleet-status --require-pins`: it refuses a missing
+status, absent pins, or an inventory more than two minutes old. Missing
+timestamps and timestamps more than 30 seconds ahead of the reader also
+stop pruning. `updated_at` records the start of the successful complete
+inventory read; collection or publication failures cannot renew it. A blocked
+release or unavailable store may expire the report, which stops pruning until
+the leader successfully refreshes it. Deploy the updated leader
+in every region before pruning resumes. An empty `pins` object means the
+leader read cell state and found no rollback or known-bad pins. Unreadable
+cell state never publishes an incomplete pin list. With no pin at all the
+pruning script deletes nothing. TerraBase's pruning workflow should use the
+updated `ts-orch` tool with `--role terrabase --require-pins` as well.
 
 ### Resumable image promotion
 

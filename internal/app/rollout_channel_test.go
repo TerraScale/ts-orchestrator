@@ -213,12 +213,13 @@ func (p proofsOn) Latest(unit string) (rolloutexec.HealthProof, bool) {
 }
 
 type channelFixture struct {
-	control *rolloutControl
-	store   *rollout.Store
-	kv      jetstream.KeyValue
-	bucket  *channelBucket
-	signer  releaseSigner
-	proofs  *proofsOn
+	control   *rolloutControl
+	store     *rollout.Store
+	kv        jetstream.KeyValue
+	rolloutKV jetstream.KeyValue
+	bucket    *channelBucket
+	signer    releaseSigner
+	proofs    *proofsOn
 }
 
 func newChannelFixture(t *testing.T) *channelFixture {
@@ -242,9 +243,13 @@ func newChannelFixture(t *testing.T) *channelFixture {
 	bucket := newChannelBucket()
 	control.channel = &channelSource{location: &releasechannel.Location{Client: bucket, Namespace: "ns", Bucket: "gru-1-head"}}
 	proofs := &proofsOn{digest: strings.Repeat("a", 64)}
+	rolloutKV, err := js.KeyValue(t.Context(), rollout.Bucket)
+	if err != nil {
+		t.Fatal(err)
+	}
 	control.program = rolloutexec.ReleaseProgram{Store: store, Proofs: proofs,
 		Controllers: []rollout.Unit{{ID: "ctl-a", Group: "controllers"}, {ID: "ctl-b", Group: "controllers"}}}
-	return &channelFixture{control: control, store: store, kv: kv, bucket: bucket, signer: signer, proofs: proofs}
+	return &channelFixture{control: control, store: store, kv: kv, rolloutKV: rolloutKV, bucket: bucket, signer: signer, proofs: proofs}
 }
 
 // setChannel announces channel in the cell's bucket, as TS-562 or the CI
@@ -511,5 +516,60 @@ func TestReleaseChannelDoesNotWaitForHostsThatCannotStart(t *testing.T) {
 	proofs["gru-1-db-1"] = strings.Repeat("a", 64)
 	if status := f.consume(t); status.State != releasechannel.StateRolling {
 		t.Fatalf("status with a host behind = %+v", status)
+	}
+}
+
+func TestReleaseChannelPinsRefreshWithoutProgressChange(t *testing.T) {
+	f := newChannelFixture(t)
+	f.setChannel(t, f.signer.channel(t, "GRU", 620, []byte("run 620")))
+	first := f.consume(t)
+	if first.Pins == nil || !slices.Equal(first.Pins.Rollback, []string{digestOf([]byte("run 620"))}) {
+		t.Fatalf("initial pins: %+v", first.Pins)
+	}
+	_, revision := f.report(t)
+	bad := strings.Repeat("e", 64)
+	if _, err := f.rolloutKV.Put(t.Context(), "knownbad."+bad, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	updated := f.consume(t)
+	_, nextRevision := f.report(t)
+	if updated.State != first.State || updated.Reason != first.Reason || nextRevision == revision ||
+		!slices.Equal(updated.Pins.KnownBad, []string{bad}) {
+		t.Fatalf("pin-only refresh: %+v revision %d -> %d", updated, revision, nextRevision)
+	}
+	if err := f.control.bridgePass(t.Context(), f.kv); err != nil {
+		t.Fatal(err)
+	}
+	if stored, _ := f.bucket.status(t); !stored.Pins.Equal(updated.Pins) {
+		t.Fatalf("head bucket pins: %+v", stored.Pins)
+	}
+}
+
+func TestReleaseChannelPublishesManualPinsWithoutAChannel(t *testing.T) {
+	f := newChannelFixture(t)
+	digest := strings.Repeat("a", 64)
+	if _, err := f.store.PublishRelease(t.Context(), 7, rollout.Release{Digest: digest, Actor: "ops", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.control.consumeChannel(t.Context(), f.store, f.kv, 7, nil, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.control.bridgePass(t.Context(), f.kv); err != nil {
+		t.Fatal(err)
+	}
+	if stored, _ := f.bucket.status(t); stored.Pins == nil || !slices.Equal(stored.Pins.Rollback, []string{digest}) {
+		t.Fatalf("manual release pins missing: %+v", stored)
+	}
+}
+
+func TestReleaseChannelWaitsForAPublishedGenerationToBecomeVisible(t *testing.T) {
+	f := newChannelFixture(t)
+	f.setChannel(t, f.signer.channel(t, "GRU", 620, []byte("run 620")))
+	f.consume(t)
+	// Model the follower still returning generation 1 immediately after
+	// the leader's generation-2 publish succeeded.
+	state, reason, err := f.control.generationState(t.Context(), f.store, rollout.Release{Generation: 2, Digest: strings.Repeat("b", 64)})
+	if err != nil || state != releasechannel.StateRolling || !strings.Contains(reason, "waiting for generation 2") {
+		t.Fatalf("a lagging desired read failed the release: %s %s %v", state, reason, err)
 	}
 }

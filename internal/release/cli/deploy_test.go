@@ -60,7 +60,7 @@ func (bucket *regionBucket) GetObject(_ context.Context, request objectstorage.G
 	defer bucket.mu.Unlock()
 	name := *request.ObjectName
 	data, ok := bucket.objects[name]
-	if name == releasechannel.StatusObject {
+	if name == releasechannel.StatusObject && !ok {
 		data, ok = bucket.status()
 	}
 	if !ok {
@@ -309,5 +309,85 @@ func TestDeployReadsTheLeafFromVault(t *testing.T) {
 	}
 	if len(asked) != 1 || asked[0] != vault+" global-release-update-leaf" || !fixture.touched("GRU") {
 		t.Fatalf("Vault reads %q, writes %q", asked, fixture.log)
+	}
+}
+
+func TestFleetStatusRequiresLeaderPinsBeforePruning(t *testing.T) {
+	f := newDeployFixture(t)
+	var output bytes.Buffer
+	c := command{ctx: t.Context(), output: &output}
+	rollback, bad := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	updated := time.Now().UTC().Format(time.RFC3339Nano)
+	for _, role := range []string{"", "terrabase"} {
+		t.Run("role="+role, func(t *testing.T) {
+			args := []string{"--namespace", "ns", "--cell", "GRU", "--require-pins"}
+			name, schema := releasechannel.StatusObject, releasechannel.StatusSchema
+			if role != "" {
+				args = append(args, "--role", role)
+				name, schema = releasechannel.ServiceStatusObject(role), releasechannel.ServiceStatusSchema
+			}
+			statuses := []string{
+				"",
+				fmt.Sprintf(`{"schema":%q,"cell":"GRU","role":%q,"state":"complete"}`, schema, role),
+				fmt.Sprintf(`{"schema":%q,"cell":"SFO","role":%q,"pins":{}}`, schema, role),
+				fmt.Sprintf(`{"schema":%q,"cell":"GRU","role":%q,"updated_at":%q,"pins":{"rollback":[%q],"known_bad":[%q]}}`, schema, role, updated, rollback, bad),
+				fmt.Sprintf(`{"schema":%q,"cell":"GRU","role":%q,"updated_at":%q,"pins":{"rollback":[],"known_bad":[]}}`, schema, role, updated),
+			}
+			for i, status := range statuses {
+				delete(f.buckets["GRU"].objects, name)
+				if status != "" {
+					f.buckets["GRU"].objects[name] = []byte(status)
+				}
+				output.Reset()
+				err := c.fleetStatusWith(args, f.env.storage)
+				if (err != nil) != (i < 3) {
+					t.Fatalf("status %d: err=%v output=%s", i, err, output.String())
+				}
+				if i == 3 && (!strings.Contains(output.String(), rollback) || !strings.Contains(output.String(), bad)) {
+					t.Fatalf("pins lost: %s", output.String())
+				}
+			}
+		})
+	}
+}
+
+func TestFleetStatusRejectsStaleLeaderPins(t *testing.T) {
+	f := newDeployFixture(t)
+	c := command{ctx: t.Context(), output: io.Discard}
+	now := time.Now().UTC()
+	for _, role := range []string{"", "terrabase"} {
+		for _, tc := range []struct {
+			name string
+			at   time.Time
+			bad  bool
+		}{
+			{"fresh", now, false},
+			{"missing timestamp", time.Time{}, true},
+			{"stale", now.Add(-releasechannel.MaxPinAge - time.Second), true},
+			{"future", now.Add(releasechannel.PinRefreshInterval + time.Minute), true},
+		} {
+			t.Run(role+"/"+tc.name, func(t *testing.T) {
+				name, schema := releasechannel.StatusObject, releasechannel.StatusSchema
+				args := []string{"--namespace", "ns", "--cell", "GRU", "--cell", "SFO"}
+				if role != "" {
+					name, schema = releasechannel.ServiceStatusObject(role), releasechannel.ServiceStatusSchema
+					args = append(args, "--role", role)
+				}
+				for _, cell := range []string{"GRU", "SFO"} {
+					at := now
+					if cell == "SFO" {
+						at = tc.at
+					}
+					f.buckets[cell].objects[name] = []byte(fmt.Sprintf(`{"schema":%q,"cell":%q,"role":%q,"updated_at":%q,"pins":{"rollback":[],"known_bad":[]}}`,
+						schema, cell, role, at.Format(time.RFC3339Nano)))
+				}
+				if err := c.fleetStatusWith(args, f.env.storage); err != nil {
+					t.Fatalf("ordinary status read: %v", err)
+				}
+				if err := c.fleetStatusWith(append(args, "--require-pins"), f.env.storage); (err != nil) != tc.bad {
+					t.Fatalf("strict status read = %v, invalid timestamp = %v", err, tc.bad)
+				}
+			})
+		}
 	}
 }

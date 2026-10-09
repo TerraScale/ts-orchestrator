@@ -39,6 +39,7 @@ rest - 130/60
 ./internal/app TestRootRotationOnARunningController 5
 ./internal/app TestTerraBaseReleaseUnderLoadServesNoErrors 6 idle
 ./internal/app TestTerraBaseReleaseFenceUnderLoad 8 idle
+./internal/app TestServiceReleasePinsRefusedClaimsDoNotAccumulate 35
 ./internal/app * 1
 
 # Founder runtime and replacement tests re-verify signed plans on every
@@ -50,7 +51,7 @@ rest - 130/60
 ./internal/bootstrapstart TestFounderReplacement* 6 norace
 ./internal/bootstrapstart TestReplacement* 6 norace
 ./internal/bootstrapstart TestFencedReplacementStopsBeforeEveryMutation 6 norace
-./internal/bootstrapstart TestFounderFloorArtifactsMatchInitializedPeerFloor 25
+./internal/bootstrapstart TestFounderFloorArtifactsMatchInitializedPeerFloor 3 norace
 ./internal/bootstrapstart * 1
 
 # Offline image builder: a successful build is about 25s, a rejection inside

@@ -30,7 +30,7 @@ const (
 	// channelActor publishes the generations the release channel brings.
 	channelActor = "release-channel"
 	// defaultChannelInterval is how often the CI edge reads Object Storage.
-	defaultChannelInterval = 30 * time.Second
+	defaultChannelInterval = releasechannel.PinRefreshInterval
 )
 
 // rolloutSettings returns the controller's rollout settings. A production
@@ -134,7 +134,7 @@ func openChannelBucket(ctx context.Context, js jetstream.JetStream, replicas int
 // followChannel is the channel's consumer. It watches the cell's channel
 // key and, on the authority leader, follows the newest document when it
 // changes and after every executor tick, which also moves the report on as
-// the rollout progresses. Nothing here polls.
+// the rollout progresses. A periodic refresh keeps its pin inventory current.
 func (c *rolloutControl) followChannel(ctx context.Context, store *rollout.Store, fencer authority.Fencer,
 	js jetstream.JetStream, replicas int,
 ) {
@@ -161,6 +161,13 @@ func (c *rolloutControl) consumeUpdates(ctx context.Context, store *rollout.Stor
 	kv jetstream.KeyValue, watcher jetstream.KeyWatcher,
 ) {
 	var latest []byte
+	initialized := false
+	interval := c.interval
+	if interval <= 0 {
+		interval = releasechannel.PinRefreshInterval
+	}
+	refresh := time.NewTicker(interval)
+	defer refresh.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -169,21 +176,22 @@ func (c *rolloutControl) consumeUpdates(ctx context.Context, store *rollout.Stor
 			if !ok {
 				return
 			}
-			if entry == nil {
-				continue
-			}
-			latest = nil
-			if entry.Operation() == jetstream.KeyValuePut {
-				latest = entry.Value()
+			initialized = true
+			if entry != nil {
+				latest = nil
+				if entry.Operation() == jetstream.KeyValuePut {
+					latest = entry.Value()
+				}
 			}
 		case <-c.ticks:
+		case <-refresh.C:
+		}
+		if !initialized {
+			continue
 		}
 		snapshot := fencer.Current()
 		if !snapshot.CanMutate() {
 			c.reported.Store(nil)
-			continue
-		}
-		if latest == nil {
 			continue
 		}
 		if err := c.consumeChannel(ctx, store, kv, snapshot.Epoch, latest, time.Now().UTC()); err != nil && ctx.Err() == nil {
@@ -202,7 +210,9 @@ func (c *rolloutControl) consumeChannel(ctx context.Context, store *rollout.Stor
 ) error {
 	status := releasechannel.Status{Schema: releasechannel.StatusSchema, Cell: strings.ToUpper(c.cell), UpdatedAt: now}
 	var channel releasechannel.Channel
-	if err := json.Unmarshal(wire, &channel); err != nil {
+	if len(wire) == 0 {
+		status.State, status.Reason = releasechannel.StateRolling, "the cell has no release channel"
+	} else if err := json.Unmarshal(wire, &channel); err != nil {
 		status.State, status.Reason = releasechannel.StateFailed, "the channel does not decode: "+err.Error()
 	} else {
 		status.RunNumber = channel.RunNumber
@@ -213,6 +223,11 @@ func (c *rolloutControl) consumeChannel(ctx context.Context, store *rollout.Stor
 			return err
 		}
 	}
+	rollback, knownBad, err := store.ReleasePins(ctx)
+	if err != nil {
+		return err
+	}
+	status.Pins = &releasechannel.ReleasePins{Rollback: rollback, KnownBad: knownBad}
 	status.Reason = releasechannel.Clip(status.Reason)
 	return c.report(ctx, kv, status)
 }
@@ -225,7 +240,8 @@ func (c *rolloutControl) report(ctx context.Context, kv jetstream.KeyValue, stat
 	entry, err := kv.Get(ctx, key)
 	if err == nil {
 		var stored releasechannel.Status
-		if json.Unmarshal(entry.Value(), &stored) == nil && sameReport(stored, status) {
+		if json.Unmarshal(entry.Value(), &stored) == nil && sameReport(stored, status) &&
+			!releasechannel.PinRefreshDue(stored.UpdatedAt, status.UpdatedAt) {
 			c.reported.Store(&stored)
 			return nil
 		}
@@ -252,7 +268,7 @@ func (c *rolloutControl) report(ctx context.Context, kv jetstream.KeyValue, stat
 
 func sameReport(a, b releasechannel.Status) bool {
 	return a.Cell == b.Cell && a.RunNumber == b.RunNumber && a.SourceRevision == b.SourceRevision &&
-		a.State == b.State && a.Reason == b.Reason
+		a.State == b.State && a.Reason == b.Reason && a.Pins.Equal(b.Pins)
 }
 
 // bridgeChannel is the CI edge until TS-562 announces releases over NATS.
@@ -322,9 +338,9 @@ func (c *rolloutControl) bridgePass(ctx context.Context, kv jetstream.KeyValue) 
 	if err := json.Unmarshal(entry.Value(), &report); err != nil {
 		return fmt.Errorf("decode the release channel report: %w", err)
 	}
-	// The head bucket keeps versions, so an unchanged report is not
-	// rewritten; a stale or forged one is.
-	if stored, found, err := releasechannel.ReadStatus(ctx, location); err == nil && found && sameReport(stored, report) {
+	// Preserve the inventory's collection time: copying an old report cannot renew it.
+	if stored, found, err := releasechannel.ReadStatus(ctx, location); err == nil && found && sameReport(stored, report) &&
+		stored.UpdatedAt.Equal(report.UpdatedAt) {
 		return nil
 	}
 	return releasechannel.WriteStatus(ctx, location, report)
@@ -418,6 +434,11 @@ func (c *rolloutControl) generationState(ctx context.Context, store *rollout.Sto
 		desired, _, err := store.Desired(ctx)
 		if err != nil {
 			return "", "", err
+		}
+		// A follower read can lag the generation just published by CAS.
+		// Only a newer generation proves this release was superseded.
+		if desired.Generation() < generation.Generation {
+			return releasechannel.StateRolling, fmt.Sprintf("waiting for generation %d to become visible", generation.Generation), nil
 		}
 		if desired.Generation() != generation.Generation {
 			return releasechannel.StateFailed, fmt.Sprintf("generation %d was replaced by generation %d before it rolled out",

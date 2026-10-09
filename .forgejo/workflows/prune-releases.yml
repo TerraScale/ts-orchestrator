@@ -3,12 +3,9 @@ name: Prune old CI pre-releases
 # TS-608: every main run retains a ~130 MB CI pre-release, so Forgejo storage
 # (the ts-forgejo bucket) grows without bound. Daily, delete the CI
 # pre-releases past the newest 20 that are older than 7 days, except those
-# the regions pin: the release in each head bucket's channel, read with
-# ts-orch release fleet-status, and the repository variable TS_RELEASE_PINS
-# (revisions, digests or tags; docs/continuous-delivery.md). Git tags stay.
-# ponytail: rollback and known-bad digests live only in cell NATS, so they
-# reach CI through TS_RELEASE_PINS by hand; have the leader mirror them into
-# status.json if hand pins get missed.
+# the regions pin: the release in each head bucket's channel and its
+# leader's rollback/known-bad pins in status.json (TS-653), read with
+# ts-orch release fleet-status --require-pins. Git tags stay.
 on:
   schedule:
     - cron: '41 4 * * *'
@@ -45,7 +42,6 @@ jobs:
         shell: bash
         env:
           TS_OBJECT_NAMESPACE: ${{ vars.TS_OBJECT_NAMESPACE }}
-          TS_RELEASE_PINS: ${{ vars.TS_RELEASE_PINS }}
           TS_DEPLOY_OCI_USER: ${{ vars.TS_DEPLOY_OCI_USER }}
           TS_DEPLOY_OCI_TENANCY: ${{ vars.TS_DEPLOY_OCI_TENANCY }}
           TS_DEPLOY_OCI_FINGERPRINT: ${{ vars.TS_DEPLOY_OCI_FINGERPRINT }}
@@ -60,9 +56,8 @@ jobs:
             "${TS_DEPLOY_OCI_USER}" "${TS_DEPLOY_OCI_FINGERPRINT}" "${TS_DEPLOY_OCI_TENANCY}" \
             "${RUNNER_TEMP}/oci-key.pem" > "${RUNNER_TEMP}/oci-config"
           OCI_CONFIG_FILE="${RUNNER_TEMP}/oci-config" dist/ts-orch release fleet-status \
-            --namespace "${TS_OBJECT_NAMESPACE}" > "${RUNNER_TEMP}/pins"
+            --namespace "${TS_OBJECT_NAMESPACE}" --require-pins > "${RUNNER_TEMP}/pins"
           rm -f -- "${RUNNER_TEMP}/oci-key.pem" "${RUNNER_TEMP}/oci-config"
-          printf '%s\n' "${TS_RELEASE_PINS}" >> "${RUNNER_TEMP}/pins"
           cat "${RUNNER_TEMP}/pins"
 
       - name: Delete unpinned CI pre-releases past the retention window

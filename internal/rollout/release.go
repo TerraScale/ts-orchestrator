@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
 )
 
 // The cell's desired orchestrator release lives in the rollout bucket: one
@@ -314,4 +317,64 @@ func (s *Store) Releases(ctx context.Context, limit int) ([]Release, error) {
 		releases = append(releases, release)
 	}
 	return releases, nil
+}
+
+// ReleasePins returns every retained rollback generation and every durable
+// known-bad digest, including entries aged out of the bounded cell list.
+func (s *Store) ReleasePins(ctx context.Context) (rollback, knownBad []string, err error) {
+	desired, _, err := s.Desired(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if desired.Generation() > 0 {
+		rollback = append(rollback, desired.Release.Digest)
+	}
+	// Failed best-effort purges leave readable rollback targets beyond ReleaseHistory.
+	keys, err := releasechannel.PinKeys(ctx, s.kv, "release.gen.*")
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, key := range keys {
+		entry, err := s.kv.Get(ctx, key)
+		if err != nil {
+			return nil, nil, err
+		}
+		var release Release
+		if err := protocol.DecodeTolerant(entry.Value(), &release, maxRecordBytes); err != nil {
+			return nil, nil, err
+		}
+		if err := release.validate(); err != nil || generationKey(release.Generation) != key {
+			return nil, nil, fmt.Errorf("%w: stored generation key %q", ErrInvalid, key)
+		}
+		rollback = append(rollback, release.Digest)
+	}
+	state, _, err := s.Cell(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	knownBad = slices.Clone(state.KnownBad)
+	keys, err = releasechannel.PinKeys(ctx, s.kv, "knownbad.*")
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, key := range keys {
+		digest := strings.TrimPrefix(key, "knownbad.")
+		if !digestRE.MatchString(digest) {
+			return nil, nil, fmt.Errorf("%w: known-bad key %q", ErrInvalid, key)
+		}
+		knownBad = append(knownBad, digest)
+	}
+	// A rollout's predecessor may predate the retained generation window,
+	// or be the image's baked binary, which has no generation of its own.
+	if state.ActiveRolloutID != "" {
+		record, _, err := s.Load(ctx, state.ActiveRolloutID)
+		if err != nil {
+			return nil, nil, err
+		}
+		rollback = append(rollback, record.FromDigest)
+		knownBad = append(knownBad, record.KnownBad...)
+	}
+	slices.Sort(rollback)
+	slices.Sort(knownBad)
+	return slices.Compact(rollback), slices.Compact(knownBad), nil
 }

@@ -98,5 +98,5 @@ while IFS= read -r release; do
 	echo "deleted $tag created=$(jq -r .created_at <<< "$release") bytes=$bytes dry_run=$dry_run"
 	deleted=$((deleted + 1)) freed=$((freed + bytes))
 done < "$work/candidates.json"
-printf 'TS_RELEASE_PRUNE_V1 repository=%s releases=%s deleted=%s kept_pinned=%s bytes=%s dry_run=%s\n' \
+printf 'TS_RELEASE_PRUNE repository=%s releases=%s deleted=%s kept_pinned=%s bytes=%s dry_run=%s\n' \
 	"$repository" "$(jq length "$work/releases.json")" "$deleted" "$kept" "$freed" "$dry_run"

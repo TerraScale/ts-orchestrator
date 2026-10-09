@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
@@ -9,11 +10,12 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 	"time"
-	"uuid"
 
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/oklog/ulid/v2"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
@@ -81,12 +83,15 @@ type serviceReleases struct {
 // under releasechannel.ServiceStatusKey in the release channel bucket, so a
 // new leader resumes the release instead of starting it again.
 type serviceReleaseState struct {
-	Claim    string           `json:"claim"` // SHA-256 of release.json
-	IssuedAt time.Time        `json:"issued_at"`
-	Digest   string           `json:"digest,omitempty"`
-	Actor    string           `json:"actor,omitempty"`
-	Previous string           `json:"previous,omitempty"`
-	Intent   *delivery.Intent `json:"intent,omitempty"` // set once submitted
+	Claim    string    `json:"claim"` // SHA-256 of release.json
+	IssuedAt time.Time `json:"issued_at"`
+	Digest   string    `json:"digest,omitempty"`
+	Actor    string    `json:"actor,omitempty"`
+	Previous string    `json:"previous,omitempty"`
+	// Retained protects the last release while a newer claim is refused
+	// before the leader resolves its actual serving rollback target.
+	Retained []string         `json:"retained,omitempty"`
+	Intent   *delivery.Intent `json:"intent,omitempty"` // persisted before submission
 	// Rollback is set once the release failed its gate and the rollback
 	// to Previous is submitted; a new leader finishes it.
 	Rollback *delivery.Intent `json:"rollback,omitempty"`
@@ -149,18 +154,31 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 			return err
 		}
 		claim, found, err := releasechannel.ReadServiceClaim(ctx, location, role)
-		if err != nil || !found {
+		if err != nil {
 			return err
+		}
+		if !found {
+			if revision == 0 {
+				state.State, state.Reason = releasechannel.StateRolling, "the service release channel has no claim"
+			}
+			return r.report(ctx, kv, role, state)
 		}
 		sum := sha256.Sum256(claim)
 		if state.Claim == hex.EncodeToString(sum[:]) && state.State != releasechannel.StateRolling {
-			return r.report(ctx, role, state)
+			return r.report(ctx, kv, role, state)
 		}
 		if state.Claim != hex.EncodeToString(sum[:]) {
 			// Only an authentic claim moves the cell's issuance watermark;
 			// any other is reported failed and leaves the state as it was.
-			next := serviceReleaseState{Claim: hex.EncodeToString(sum[:]), State: releasechannel.StateRolling,
+			next := serviceReleaseState{Claim: hex.EncodeToString(sum[:]), Previous: state.Previous, State: releasechannel.StateRolling,
 				Reason: "admitting the release"}
+			next.Retained = slices.Clone(state.Retained)
+			// Only a persisted intent means this digest could have reached hosts.
+			if state.Intent != nil && state.Digest != "" {
+				next.Retained = append(next.Retained, state.Digest)
+			}
+			slices.Sort(next.Retained)
+			next.Retained = slices.Compact(next.Retained)
 			record, actor, issued, err := r.verify(ctx, role, claim)
 			next.IssuedAt, next.Digest, next.Actor = issued, record.Digest, actor
 			switch {
@@ -168,10 +186,10 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 				return err
 			case err != nil:
 				next.State, next.Reason = releasechannel.StateFailed, "the claim does not verify in this cell: "+err.Error()
-				return r.report(ctx, role, next)
+				return r.report(ctx, kv, role, next)
 			case issued.After(time.Now().Add(releasechannel.ClaimClockSkew)):
 				next.State, next.Reason = releasechannel.StateFailed, fmt.Sprintf("the claim is issued in the future, at %s", issued)
-				return r.report(ctx, role, next)
+				return r.report(ctx, kv, role, next)
 			case !issued.After(state.IssuedAt):
 				return fmt.Errorf("release.json holds a claim issued at %s, not after the cell's last %s release", issued, role)
 			}
@@ -190,7 +208,7 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 			if revision, err = saveServiceRelease(ctx, kv, key, state, revision); err != nil {
 				return err
 			}
-			r.reportQuietly(ctx, role, state)
+			r.reportQuietly(ctx, kv, role, state)
 			if state.State == releasechannel.StateFailed {
 				return nil
 			}
@@ -202,7 +220,7 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 		if revision, err = saveServiceRelease(ctx, kv, key, state, revision); err != nil {
 			return err
 		}
-		r.reportQuietly(ctx, role, state)
+		r.reportQuietly(ctx, kv, role, state)
 		return nil
 	})
 	if err != nil {
@@ -215,7 +233,7 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 	if _, err := saveServiceRelease(ctx, kv, key, finished, revision); err != nil {
 		return err
 	}
-	r.reportQuietly(ctx, role, finished)
+	r.reportQuietly(ctx, kv, role, finished)
 	return nil
 }
 
@@ -280,9 +298,10 @@ func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, ro
 			return state, err
 		}
 		intent := nativeIntent(record, nativeRelease{Role: role, Replicas: replicas, Profile: profile}, generation)
-		intent.SchemaVersion, intent.OperationID = delivery.SchemaVersion, uuid.New().String()
+		intent.SchemaVersion, intent.OperationID = delivery.SchemaVersion, ulid.MustNew(ulid.Now(), rand.Reader).String()
 		intent.AuthorityEpoch = r.fencer.Current().Epoch
 		state.Digest, state.Actor, state.Previous, state.Intent = record.Digest, actor, previous, &intent
+		state.Retained = nil
 		state.Reason = fmt.Sprintf("rolling %d replicas from %s", replicas, previous)
 		if err := save(state); err != nil {
 			return state, err
@@ -345,7 +364,7 @@ func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, ro
 				return rollback, err
 			}
 		}
-		rollback.SchemaVersion, rollback.OperationID = delivery.SchemaVersion, uuid.New().String()
+		rollback.SchemaVersion, rollback.OperationID = delivery.SchemaVersion, ulid.MustNew(ulid.Now(), rand.Reader).String()
 		rollback.AuthorityEpoch = r.fencer.Current().Epoch
 		state.Rollback, state.Reason = &rollback, "rolling back to "+state.Previous
 		return rollback, save(state)
@@ -409,7 +428,7 @@ func (r *serviceReleases) fresh(ctx context.Context, role string, intent deliver
 	if err != nil {
 		return intent, false, err
 	}
-	intent.OperationID, intent.AuthorityEpoch = uuid.New().String(), epoch
+	intent.OperationID, intent.AuthorityEpoch = ulid.MustNew(ulid.Now(), rand.Reader).String(), epoch
 	intent.Generation = max(intent.Generation, nextReleaseGeneration(desired))
 	return intent, true, nil
 }
@@ -424,7 +443,7 @@ func (r *serviceReleases) deployer(actor string, recovering func(context.Context
 				return intent, "", errors.New("this controller no longer holds the authority lease")
 			}
 			if intent.OperationID == "" {
-				intent.OperationID = uuid.New().String()
+				intent.OperationID = ulid.MustNew(ulid.Now(), rand.Reader).String()
 			}
 			if intent.AuthorityEpoch == 0 {
 				intent.AuthorityEpoch = r.fencer.Current().Epoch
@@ -448,28 +467,68 @@ func (r *serviceReleases) deployer(actor string, recovering func(context.Context
 
 // reportQuietly reports state and only logs a failure: status.json is
 // telemetry, and the next pass writes it again.
-func (r *serviceReleases) reportQuietly(ctx context.Context, role string, state serviceReleaseState) {
-	if err := r.report(ctx, role, state); err != nil && ctx.Err() == nil {
+func (r *serviceReleases) reportQuietly(ctx context.Context, kv jetstream.KeyValue, role string, state serviceReleaseState) {
+	if err := r.report(ctx, kv, role, state); err != nil && ctx.Err() == nil {
 		slog.Warn("service release status", observability.ComponentKey, "rollout", "role", role, "error", err)
 	}
 }
 
-// report writes the role's status.json when it differs from state.
-func (r *serviceReleases) report(ctx context.Context, role string, state serviceReleaseState) error {
+// report writes the role's status.json when it changes or its inventory heartbeat is due.
+func (r *serviceReleases) report(ctx context.Context, kv jetstream.KeyValue, role string, state serviceReleaseState) error {
+	if !r.fencer.Current().CanMutate() {
+		return errors.New("this controller no longer holds the authority lease")
+	}
+	// A stalled inventory must not look newer than when collection began.
+	updatedAt := time.Now().UTC()
+	pins := &releasechannel.ReleasePins{Rollback: []string{}, KnownBad: []string{}}
+	rollback := slices.Clone(state.Retained)
+	if state.Previous != "" {
+		rollback = append(rollback, state.Previous)
+	}
+	for _, digest := range rollback {
+		if len(digest) != sha256.Size*2 || !lowerHexString(digest) {
+			return fmt.Errorf("invalid %s rollback digest %q", role, digest)
+		}
+		pins.Rollback = append(pins.Rollback, digest)
+	}
+	slices.Sort(pins.Rollback)
+	pins.Rollback = slices.Compact(pins.Rollback)
+	prefix := knownBadKey(role, "")
+	keys, err := releasechannel.PinKeys(ctx, kv, prefix+">")
+	if err != nil {
+		return fmt.Errorf("list %s release pins: %w", role, err)
+	}
+	for _, key := range keys {
+		if digest, found := strings.CutPrefix(key, prefix); found {
+			if len(digest) != sha256.Size*2 || !lowerHexString(digest) {
+				return fmt.Errorf("invalid known-bad digest key %q", key)
+			}
+			pins.KnownBad = append(pins.KnownBad, digest)
+		}
+	}
+	slices.Sort(pins.KnownBad)
+	pins.KnownBad = slices.Compact(pins.KnownBad)
 	location, err := r.channel.get(ctx)
 	if err != nil {
 		return err
 	}
 	status := releasechannel.ServiceStatus{Schema: releasechannel.ServiceStatusSchema, Cell: strings.ToUpper(r.cell),
-		Role: role, Digest: state.Digest, IssuedAt: state.IssuedAt, State: state.State, Reason: releasechannel.Clip(state.Reason)}
+		Role: role, Digest: state.Digest, IssuedAt: state.IssuedAt, State: state.State, Reason: releasechannel.Clip(state.Reason),
+		UpdatedAt: updatedAt, Pins: pins}
 	stored, found, err := releasechannel.ReadServiceStatus(ctx, location, role)
+	if err != nil && !errors.Is(err, releasechannel.ErrInvalid) {
+		return err
+	}
 	if err == nil && found && stored.Cell == status.Cell && stored.Digest == status.Digest &&
-		stored.IssuedAt.Equal(status.IssuedAt) && stored.State == status.State && stored.Reason == status.Reason {
+		stored.IssuedAt.Equal(status.IssuedAt) && stored.State == status.State && stored.Reason == status.Reason &&
+		stored.Pins.Equal(status.Pins) && !releasechannel.PinRefreshDue(stored.UpdatedAt, updatedAt) {
 		return nil
 	}
-	status.UpdatedAt = time.Now().UTC()
 	slog.Info("service release status", observability.ComponentKey, "rollout", "role", role, "digest", status.Digest,
 		"state", status.State, "reason", status.Reason)
+	if !r.fencer.Current().CanMutate() {
+		return errors.New("this controller no longer holds the authority lease")
+	}
 	return releasechannel.WriteServiceStatus(ctx, location, status)
 }
 

@@ -58,6 +58,8 @@ func TestPruneReleasesKeepsNewestRecentAndPinned(t *testing.T) {
 			fmt.Fprintf(w, `{"artifacts":[{"sha256":%q}]}`, digest)
 		case r.URL.Path == "/download/23":
 			http.Error(w, "broken", http.StatusInternalServerError)
+		case r.URL.Path == "/download/24":
+			fmt.Fprintf(w, `{"artifacts":[{"sha256":%q}]}`, strings.Repeat("e", 64))
 		case strings.HasPrefix(r.URL.Path, "/download/"):
 			fmt.Fprintf(w, `{"artifacts":[{"sha256":%q}]}`, strings.Repeat("0", 64))
 		default:
@@ -87,14 +89,15 @@ func TestPruneReleasesKeepsNewestRecentAndPinned(t *testing.T) {
 		t.Fatalf("pruned without pins: %v %v\n%s", err, deleted, output)
 	}
 	// Release 21 is pinned by its revision inside fleet-status JSON, 22 by
-	// a digest its manifest names, 23 by a manifest that cannot be read.
-	output, err := run(fmt.Sprintf(`{"cell":"GRU","channel":{"source_revision":%q}}`+"\n%s\n", revision(21), digest))
+	// the rollback digest, 23 by a manifest that cannot be read, and 24
+	// by the known-bad digest. All pins come from fleet-status JSON.
+	output, err := run(fmt.Sprintf(`{"cell":"GRU","channel":{"source_revision":%q},"status":{"pins":{"rollback":[%q],"known_bad":[%q]}}}`+"\n", revision(21), digest, strings.Repeat("e", 64)))
 	if err != nil {
 		t.Fatalf("prune: %v\n%s", err, output)
 	}
 	slices.Sort(deleted)
-	if !slices.Equal(deleted, []string{"20", "24"}) ||
-		!strings.Contains(output, "TS_RELEASE_PRUNE_V1 repository=TerraScale/demo releases=26 deleted=2 kept_pinned=3 bytes=2020 dry_run=false") {
+	if !slices.Equal(deleted, []string{"20"}) ||
+		!strings.Contains(output, "TS_RELEASE_PRUNE repository=TerraScale/demo releases=26 deleted=1 kept_pinned=4 bytes=1010 dry_run=false") {
 		t.Fatalf("deleted %v\n%s", deleted, output)
 	}
 }

@@ -234,6 +234,7 @@ func (c command) fleetStatusWith(args []string, storage func(string) (releasecha
 	flags := flag.NewFlagSet("fleet-status", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	namespace := flags.String("namespace", "", "Object Storage namespace of the regions' head buckets")
+	requirePins := flags.Bool("require-pins", false, "refuse missing statuses or release pins before CI pruning")
 	var cells stringList
 	flags.Var(&cells, "cell", "cell to show; repeatable; default every cell")
 	var roles stringList
@@ -276,6 +277,15 @@ func (c command) fleetStatusWith(args []string, storage func(string) (releasecha
 				if found {
 					out.Services = append(out.Services, status)
 				}
+				if *requirePins && (!found || status.Schema != releasechannel.ServiceStatusSchema || status.Cell != cell ||
+					status.Role != role || status.Pins == nil) {
+					return fmt.Errorf("%s %s has no release pins from its leader", cell, role)
+				}
+				if *requirePins {
+					if err := status.Pins.ValidateFresh(status.UpdatedAt, time.Now().UTC()); err != nil {
+						return err
+					}
+				}
 			}
 			if len(roles) > 0 {
 				return nil
@@ -290,6 +300,12 @@ func (c command) fleetStatusWith(args []string, storage func(string) (releasecha
 			status, found, err := releasechannel.ReadStatus(c.ctx, location)
 			if found {
 				out.Status = &status
+			}
+			if err == nil && *requirePins && (!found || status.Schema != releasechannel.StatusSchema || status.Cell != cell || status.Pins == nil) {
+				return fmt.Errorf("%s has no release pins from its leader", cell)
+			}
+			if err == nil && *requirePins {
+				return status.Pins.ValidateFresh(status.UpdatedAt, time.Now().UTC())
 			}
 			return err
 		}()

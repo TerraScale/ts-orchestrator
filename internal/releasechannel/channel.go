@@ -16,12 +16,14 @@ package releasechannel
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -35,18 +37,19 @@ import (
 )
 
 const (
-	ChannelSchema = "terrascale.orchestrator.release-channel.v1"
-	StatusSchema  = "terrascale.orchestrator.release-status.v1"
+	ChannelSchema = "terrascale.orchestrator.release-channel"
+	StatusSchema  = "terrascale.orchestrator.release-status"
 
 	// ChannelObject, StatusObject and BinaryPrefix live in the region's
-	// head bucket.
-	ChannelObject = "releases/v1/orchestrator/channel.json"
-	StatusObject  = "releases/v1/orchestrator/status.json"
-	BinaryPrefix  = "releases/v1/orchestrator/binaries/"
+	// head bucket. Bootstrap every cell with these paths before publishing;
+	// discard retired release state (docs/continuous-delivery.md).
+	ChannelObject = "releases/orchestrator/channel.json"
+	StatusObject  = "releases/orchestrator/status.json"
+	BinaryPrefix  = "releases/orchestrator/binaries/"
 
 	// MaxChannelBytes bounds a channel: one delegation and two receipts.
 	MaxChannelBytes = 4 * trust.MaxEnvelopeBytes
-	maxStatusBytes  = 64 << 10
+	maxStatusBytes  = MaxValueBytes
 	maxReason       = 512
 )
 
@@ -155,13 +158,45 @@ const (
 
 // Status is the region leader's report on the release in its channel.
 type Status struct {
-	Schema         string    `json:"schema"`
-	Cell           string    `json:"cell"`
-	SourceRevision string    `json:"source_revision"`
-	RunNumber      int64     `json:"run_number"`
-	State          State     `json:"state"`
-	Reason         string    `json:"reason,omitempty"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	Schema         string       `json:"schema"`
+	Cell           string       `json:"cell"`
+	SourceRevision string       `json:"source_revision"`
+	RunNumber      int64        `json:"run_number"`
+	State          State        `json:"state"`
+	Reason         string       `json:"reason,omitempty"`
+	UpdatedAt      time.Time    `json:"updated_at"`
+	Pins           *ReleasePins `json:"pins,omitempty"`
+}
+
+// ReleasePins protects rollback targets and withdrawn binaries from CI
+// pruning. A nil pointer means the leader has not published pins yet;
+// an empty value means it read the cell's state and found none.
+type ReleasePins struct {
+	Rollback []string `json:"rollback"`
+	KnownBad []string `json:"known_bad"`
+}
+
+func (pins *ReleasePins) Equal(other *ReleasePins) bool {
+	if pins == nil || other == nil {
+		return pins == other
+	}
+	return slices.Equal(pins.Rollback, other.Rollback) && slices.Equal(pins.KnownBad, other.KnownBad)
+}
+
+// Validate refuses an absent inventory or digests the pruning script would
+// silently skip. Status comes from a remote bucket, not trusted cell state.
+func (pins *ReleasePins) Validate() error {
+	if pins == nil {
+		return fmt.Errorf("%w: release pins are missing", ErrInvalid)
+	}
+	for _, digests := range [][]string{pins.Rollback, pins.KnownBad} {
+		for _, digest := range digests {
+			if _, err := hex.DecodeString(digest); err != nil || len(digest) != 64 || strings.ToLower(digest) != digest {
+				return fmt.Errorf("%w: release pin %q", ErrInvalid, digest)
+			}
+		}
+	}
+	return nil
 }
 
 // ObjectClient is the part of the OCI Object Storage client the channel
@@ -239,6 +274,9 @@ func WriteStatus(ctx context.Context, location Location, status Status) error {
 
 // write replaces name unconditionally.
 func (location Location) write(ctx context.Context, name string, wire []byte) error {
+	if len(wire) > maxStatusBytes {
+		return fmt.Errorf("%w: %s exceeds %d bytes", ErrInvalid, name, maxStatusBytes)
+	}
 	_, err := location.Client.PutObject(ctx, objectstorage.PutObjectRequest{
 		NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name,
 		ContentLength: new(int64(len(wire))), PutObjectBody: io.NopCloser(bytes.NewReader(wire)),
@@ -332,7 +370,7 @@ func (location Location) read(ctx context.Context, name string, limit int64, val
 		return found, err
 	}
 	if err := json.Unmarshal(data, value); err != nil {
-		return true, fmt.Errorf("decode %s: %w", name, err)
+		return true, fmt.Errorf("%w: decode %s: %w", ErrInvalid, name, err)
 	}
 	return true, nil
 }

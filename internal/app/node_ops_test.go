@@ -348,12 +348,20 @@ func TestNodeSubmitRefusals(t *testing.T) {
 func TestFenceWaitsForTheQuorumGuard(t *testing.T) {
 	ops, balancer, _ := newNodeOpsTest(t)
 	balancer.down["10.0.0.13:9465"] = true
-	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	api, _ := ops.fence.client(ctx)
+	// Cancel at the quorum wait so fixture I/O cannot consume the observation window.
+	ops.fence.sleep = func(ctx context.Context, _ time.Duration) error {
+		cancel()
+		return ctx.Err()
+	}
+	api, err := ops.fence.client(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	spec, _ := ops.fence.spec()
-	err := ops.fence.fence(ctx, api, 3, *spec, "ctl-1", fenceAddresses["ctl-1"], 0, holdMaintenance)
-	if err == nil || !strings.Contains(err.Error(), "keeps at least 2") || slices.Contains(balancer.log, "terrabase 10.0.0.11:9465 drain") {
+	err = ops.fence.fence(ctx, api, 3, *spec, "ctl-1", fenceAddresses["ctl-1"], 0, holdMaintenance)
+	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "keeps at least 2") || len(balancer.log) != 0 {
 		t.Fatalf("fence: %v, load balancer %q", err, balancer.log)
 	}
 }
