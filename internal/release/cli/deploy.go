@@ -138,52 +138,43 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	}
 	defer clear(private)
 
-	// Sign every cell first, so a cell outside the delegation fails before
-	// any region sees the release.
-	lineage := gitLineage{ctx: c.ctx, checkout: *checkout, run: env.git}
-	channels := make([]releasechannel.Channel, 0, len(cells))
-	for _, cell := range cells {
-		channel := releasechannel.Channel{Schema: releasechannel.ChannelSchema, Cell: cell, Environment: *environment,
-			SourceRevision: *sourceRevision, RunNumber: qualification.Verification.RunNumber, Delegation: delegationWire}
-		for _, architecture := range architectures {
-			envelope, err := release.SignBinaryUpdateReceipt(binaries[architecture], qualification, qualificationDigest, cell,
-				*environment, lineage, delegation, roots, private, time.Now().UTC(), *validFor)
-			if err != nil {
-				return fmt.Errorf("sign %s %s: %w", cell, architecture, err)
+	lineage := &deploymentLineage{checker: gitLineage{ctx: c.ctx, checkout: *checkout, run: env.git},
+		results: make(map[[3]string]error)}
+	started := time.Now()
+	progress := &deploymentWriter{Writer: c.output}
+	failures := make([]error, len(cells))
+	var regions errgroup.Group
+	for index, cell := range cells {
+		regions.Go(func() (regionErr error) {
+			defer func() {
+				if regionErr != nil {
+					failures[index] = fmt.Errorf("%s: %w", cell, regionErr)
+					fmt.Fprintf(progress, "%s failed: %v\n", cell, regionErr)
+				}
+			}()
+			cellStarted := time.Now()
+			channel := releasechannel.Channel{Schema: releasechannel.ChannelSchema, Cell: cell, Environment: *environment,
+				SourceRevision: *sourceRevision, RunNumber: qualification.Verification.RunNumber, Delegation: delegationWire}
+			for _, architecture := range architectures {
+				envelope, err := release.SignBinaryUpdateReceipt(binaries[architecture], qualification, qualificationDigest, cell,
+					*environment, lineage, delegation, roots, private, time.Now().UTC(), *validFor)
+				if err != nil {
+					return fmt.Errorf("sign %s: %w", architecture, err)
+				}
+				wire, err := trust.EncodeEnvelope(envelope)
+				if err != nil {
+					return err
+				}
+				channel.Receipts = append(channel.Receipts, wire)
 			}
-			wire, err := trust.EncodeEnvelope(envelope)
+			// Receipts must remain valid through this region's complete rollout window.
+			if _, err := channel.Verify(roots, cell, *environment, time.Now().UTC().Add(*regionTimeout)); err != nil {
+				return fmt.Errorf("receipts would expire during rollout; renew the update delegation: %w", err)
+			}
+			location, err := channelLocation(env, cell, *namespace)
 			if err != nil {
 				return err
 			}
-			channel.Receipts = append(channel.Receipts, wire)
-		}
-		if _, err := channel.Verify(roots, cell, *environment, time.Now().UTC()); err != nil {
-			return fmt.Errorf("signed %s channel fails consumer verification: %w", cell, err)
-		}
-		channels = append(channels, channel)
-	}
-	clear(private)
-
-	locations := make([]releasechannel.Location, len(channels))
-	for index, channel := range channels {
-		// A region verifies the receipts while it rolls the release out, so
-		// they must stay valid for the whole wait, however late it starts.
-		if _, err := channel.Verify(roots, channel.Cell, *environment, time.Now().UTC().Add(*regionTimeout)); err != nil {
-			return fmt.Errorf("%s receipts would expire during its rollout; renew the update delegation: %w", channel.Cell, err)
-		}
-		location, err := channelLocation(env, channel.Cell, *namespace)
-		if err != nil {
-			return err
-		}
-		locations[index] = location
-	}
-	started := time.Now()
-	progress := &deploymentWriter{Writer: c.output}
-	var regions errgroup.Group
-	for index, channel := range channels {
-		regions.Go(func() error {
-			cellStarted := time.Now()
-			location := locations[index]
 			for _, architecture := range architectures {
 				if err := c.uploadBinary(location, binaryPath(*directory, architecture), binaries[architecture].SHA256); err != nil {
 					return fmt.Errorf("upload the %s binary to %s: %w", architecture, channel.Cell, err)
@@ -194,7 +185,6 @@ func (c command) deployWith(args []string, env deployEnv) error {
 			}
 			fmt.Fprintf(progress, "%s published: run %d %s\n", channel.Cell, channel.RunNumber, channel.SourceRevision)
 			if err := releasechannel.Await(c.ctx, location, channel, *poll, time.Now().Add(*regionTimeout), progress); err != nil {
-				fmt.Fprintf(progress, "%s failed: %v\n", channel.Cell, err)
 				return err
 			}
 			fmt.Fprintf(progress, "%s rolled out in %s\n", channel.Cell, time.Since(cellStarted).Round(time.Second))
@@ -202,11 +192,32 @@ func (c command) deployWith(args []string, env deployEnv) error {
 		})
 	}
 	// Do not cancel a healthy cell's rollout when another cell rolls back.
-	if err := regions.Wait(); err != nil {
+	_ = regions.Wait()
+	if err := errors.Join(failures...); err != nil {
 		return fmt.Errorf("fleet rollout failed: %w", err)
 	}
 	_, err = fmt.Fprintf(c.output, "fleet complete: run %d %s in %s after %s\n", qualification.Verification.RunNumber,
 		*sourceRevision, strings.Join(cells, " "), time.Since(started).Round(time.Second))
+	return err
+}
+
+// Share each lineage proof and serialize fetches so parallel signers cannot
+// race Git's ref locks or repeat the same network request per architecture.
+type deploymentLineage struct {
+	sync.Mutex
+	checker release.LineageChecker
+	results map[[3]string]error
+}
+
+func (lineage *deploymentLineage) CheckLineage(base, revision, ref string) error {
+	lineage.Lock()
+	defer lineage.Unlock()
+	key := [3]string{base, revision, ref}
+	if err, found := lineage.results[key]; found {
+		return err
+	}
+	err := lineage.checker.CheckLineage(base, revision, ref)
+	lineage.results[key] = err
 	return err
 }
 

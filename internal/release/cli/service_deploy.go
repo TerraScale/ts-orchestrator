@@ -84,22 +84,25 @@ func (c command) serviceDeployWith(args []string, env deployEnv) error {
 		return fmt.Errorf("read the release key: %w", err)
 	}
 	defer clear(private)
-	locations := make([]releasechannel.Location, len(cells))
-	for index, cell := range cells {
-		locations[index], err = channelLocation(env, cell, *namespace)
-		if err != nil {
-			return err
-		}
-	}
-
 	// The elapsed times measure CI green to rolled out (TS-623): the job
 	// starts once the tests passed.
 	started := time.Now()
 	progress := &deploymentWriter{Writer: c.output}
+	failures := make([]error, len(cells))
 	var regions errgroup.Group
 	for index, cell := range cells {
-		regions.Go(func() error {
+		regions.Go(func() (regionErr error) {
+			defer func() {
+				if regionErr != nil {
+					failures[index] = fmt.Errorf("%s: %w", cell, regionErr)
+					fmt.Fprintf(progress, "%s %s failed: %v\n", cell, *role, regionErr)
+				}
+			}()
 			cellStarted := time.Now()
+			location, err := channelLocation(env, cell, *namespace)
+			if err != nil {
+				return err
+			}
 			// The NATS cell is the lower-case logical cell.
 			request := delivery.ArtifactClaimRequest{Source: delivery.ArtifactSource{Repository: *repository, Commit: *commit,
 				TreeDigest: tree}, Cell: strings.ToLower(cell), Role: *role, Environment: *environment}
@@ -107,7 +110,6 @@ func (c command) serviceDeployWith(args []string, env deployEnv) error {
 			if err != nil {
 				return err
 			}
-			location := locations[index]
 			// ReadAt keeps parallel uploads on the inspected inode with independent offsets.
 			if err := putImmutable(c.ctx, location.Client, location.Namespace, location.Bucket,
 				releasechannel.ServiceBinaryObject(*role, digest), io.NewSectionReader(file, 0, size), size, sum); err != nil {
@@ -131,14 +133,14 @@ func (c command) serviceDeployWith(args []string, env deployEnv) error {
 			fmt.Fprintf(progress, "%s %s published: %s %s\n", cell, *role, digest, *commit)
 			if err := releasechannel.AwaitService(c.ctx, location, cell, *role, digest, issued, *poll,
 				time.Now().Add(*regionTimeout), progress); err != nil {
-				fmt.Fprintf(progress, "%s %s failed: %v\n", cell, *role, err)
 				return err
 			}
 			fmt.Fprintf(progress, "%s %s rolled out in %s\n", cell, *role, time.Since(cellStarted).Round(time.Second))
 			return nil
 		})
 	}
-	if err := regions.Wait(); err != nil {
+	_ = regions.Wait()
+	if err := errors.Join(failures...); err != nil {
 		return fmt.Errorf("service rollout failed after %s: %w", time.Since(started).Round(time.Second), err)
 	}
 	_, err = fmt.Fprintf(c.output, "%s complete: %s %s in %s after %s\n", *role, digest, *commit, strings.Join(cells, " "),

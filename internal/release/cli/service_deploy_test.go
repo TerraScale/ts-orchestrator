@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -209,6 +210,33 @@ func TestServiceDeployFinishesOtherRegionsWhenOneRollsBack(t *testing.T) {
 	}
 	if !slices.Contains(fixture.log, "put SFO "+releasechannel.ServiceReleaseObject("ts-auth")) {
 		t.Fatalf("SFO did not receive its independent release: %q", fixture.log)
+	}
+}
+
+func TestServiceDeployStorageFailuresAreRegionalAndAllReported(t *testing.T) {
+	for _, failBoth := range []bool{false, true} {
+		t.Run(strconv.FormatBool(failBoth), func(t *testing.T) {
+			fixture := newServiceDeployFixture(t)
+			storage := fixture.env.storage
+			gruError, sfoError := errors.New("GRU storage unavailable"), errors.New("SFO storage unavailable")
+			fixture.env.storage = func(cell string) (releasechannel.ObjectClient, error) {
+				if cell == "GRU" {
+					return nil, gruError
+				}
+				if failBoth && cell == "SFO" {
+					return nil, sfoError
+				}
+				return storage(cell)
+			}
+			var output bytes.Buffer
+			err := (command{ctx: t.Context(), output: &output}).serviceDeployWith(fixture.args("GRU", "SFO"), fixture.env)
+			if !errors.Is(err, gruError) || errors.Is(err, sfoError) != failBoth ||
+				slices.Contains(fixture.log, "put SFO "+releasechannel.ServiceReleaseObject("ts-auth")) == failBoth ||
+				!strings.Contains(output.String(), "GRU ts-auth failed:") ||
+				strings.Contains(output.String(), "SFO ts-auth failed:") != failBoth {
+				t.Fatalf("service deploy = %v, writes %q\n%s", err, fixture.log, output.String())
+			}
+		})
 	}
 }
 

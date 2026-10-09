@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -290,13 +291,66 @@ func TestDeployWaitsForRegionsConcurrently(t *testing.T) {
 	}
 }
 
-func TestDeploySignsEveryRegionBeforePublishingAny(t *testing.T) {
+func TestDeployMissingDelegationDoesNotBlockOtherRegions(t *testing.T) {
 	fixture := newDeployFixture(t)
-	c := command{ctx: t.Context(), output: io.Discard}
-	// FRA is outside the delegation: nothing is published, not even GRU.
+	var output bytes.Buffer
+	c := command{ctx: t.Context(), output: &output}
 	if err := c.deployWith(fixture.args("GRU", "FRA"), fixture.env); !errors.Is(err, trust.ErrCapabilityDenied) {
 		t.Fatalf("deploy outside the delegation = %v", err)
 	}
+	if !fixture.touched("GRU") || fixture.touched("FRA") ||
+		!strings.Contains(output.String(), "GRU complete") || !strings.Contains(output.String(), "FRA failed:") {
+		t.Fatalf("regional signing failure blocked a healthy cell: %q\n%s", fixture.log, output.String())
+	}
+}
+
+func TestDeployStorageFailuresAreRegionalAndAllReported(t *testing.T) {
+	for _, failBoth := range []bool{false, true} {
+		t.Run(fmt.Sprint(failBoth), func(t *testing.T) {
+			fixture := newDeployFixture(t)
+			storage := fixture.env.storage
+			gruError, sfoError := errors.New("GRU storage unavailable"), errors.New("SFO storage unavailable")
+			fixture.env.storage = func(cell string) (releasechannel.ObjectClient, error) {
+				if cell == "GRU" {
+					return nil, gruError
+				}
+				if failBoth && cell == "SFO" {
+					return nil, sfoError
+				}
+				return storage(cell)
+			}
+			var output bytes.Buffer
+			err := (command{ctx: t.Context(), output: &output}).deployWith(fixture.args("GRU", "SFO"), fixture.env)
+			if !errors.Is(err, gruError) || errors.Is(err, sfoError) != failBoth ||
+				fixture.touched("SFO") == failBoth || !strings.Contains(output.String(), "GRU failed:") ||
+				strings.Contains(output.String(), "SFO failed:") != failBoth {
+				t.Fatalf("deploy = %v, writes %q\n%s", err, fixture.log, output.String())
+			}
+		})
+	}
+}
+
+func TestDeploySharesLineageFetchAcrossRegions(t *testing.T) {
+	fixture := newDeployFixture(t)
+	git := fixture.env.git
+	var fetches atomic.Int32
+	fixture.env.git = func(ctx context.Context, args ...string) (string, error) {
+		if slices.Contains(args, "fetch") {
+			fetches.Add(1)
+		}
+		return git(ctx, args...)
+	}
+	if err := (command{ctx: t.Context(), output: io.Discard}).deployWith(fixture.args("GRU", "SFO"), fixture.env); err != nil {
+		t.Fatal(err)
+	}
+	if fetches.Load() != 1 {
+		t.Fatalf("parallel regions fetched the same main ref %d times", fetches.Load())
+	}
+}
+
+func TestDeployRefusesUnqualifiedOrInvalidSource(t *testing.T) {
+	fixture := newDeployFixture(t)
+	c := command{ctx: t.Context(), output: io.Discard}
 	unqualified := fixture.env
 	unqualified.check = func(release.Qualification, string) error { return errors.New("run failed") }
 	if err := c.deployWith(fixture.args("GRU"), unqualified); err == nil {
