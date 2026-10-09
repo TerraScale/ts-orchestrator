@@ -16,6 +16,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
 // The cell's desired orchestrator release lives in the rollout bucket: one
@@ -66,7 +67,7 @@ func (r Release) validate() error {
 		r.SourceRevision != "" && !release.ValidSourceRevision(r.SourceRevision) ||
 		len(r.Receipt) > maxReleaseWire || len(r.Delegation) > maxReleaseWire ||
 		len(r.Delegation) > 0 && len(r.Receipt) == 0 || r.RollbackOf >= r.Generation ||
-		!tokenRE.MatchString(r.Actor) || r.CreatedAt.IsZero() {
+		(!tokenRE.MatchString(r.Actor) && !entityid.Valid(r.Actor)) || r.CreatedAt.IsZero() {
 		return fmt.Errorf("%w: release generation", ErrInvalid)
 	}
 	return nil
@@ -334,20 +335,43 @@ func (s *Store) ReleasePins(ctx context.Context) (rollback, knownBad []string, e
 		rollback = append(rollback, desired.Release.Digest)
 	}
 	// Failed best-effort purges leave readable rollback targets beyond ReleaseHistory.
-	keys, err := releasechannel.PinKeys(ctx, s.kv, "release.gen.*")
+	keys, err := releasechannel.PinKeys(ctx, s.kv, ">")
 	if err != nil {
 		return nil, nil, err
 	}
 	for _, key := range keys {
+		if key == cellKey || key == desiredKey || strings.HasPrefix(key, "knownbad.") {
+			continue
+		}
+		if !entityid.Valid(key) {
+			return nil, nil, fmt.Errorf("%w: retained record key %q", ErrInvalid, key)
+		}
 		entry, err := s.kv.Get(ctx, key)
 		if err != nil {
 			return nil, nil, err
+		}
+		// Rollouts and signed step/reply envelopes share the entity-key namespace.
+		var kind struct {
+			ID          string       `json:"id"`
+			Generation  uint64       `json:"generation"`
+			RolloutID   string       `json:"rollout_id"`
+			Scope       *trust.Scope `json:"scope"`
+			Unit        string       `json:"unit"`
+			OperationID string       `json:"operation_id"`
+		}
+		if err := protocol.DecodeTolerant(entry.Value(), &kind, maxRecordBytes); err != nil {
+			return nil, nil, err
+		}
+		step := kind.Scope != nil && kind.Scope.Slot != "" && key == entityid.Derive("rollout-step", kind.Scope.Slot)
+		reply := kind.Unit != "" && entityid.Valid(kind.OperationID) && key == entityid.Derive("rollout-step-reply", kind.Unit)
+		if kind.ID == "" && kind.Generation == 0 && (kind.RolloutID == key || step || reply) {
+			continue
 		}
 		var release Release
 		if err := protocol.DecodeTolerant(entry.Value(), &release, maxRecordBytes); err != nil {
 			return nil, nil, err
 		}
-		if err := release.validate(); err != nil || generationKey(release.Generation) != key {
+		if err := release.validate(); err != nil || generationKey(s.cell, release.Generation) != key || release.ID != key {
 			return nil, nil, fmt.Errorf("%w: stored generation key %q", ErrInvalid, key)
 		}
 		rollback = append(rollback, release.Digest)

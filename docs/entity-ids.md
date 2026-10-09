@@ -64,11 +64,16 @@ data and recreates bootstrap state through the current startup path.
    control-log/release-channel records.
    In `TS_CONTROL_LOG`, inventory retained authority leases and owner/transition
    references, barriers, lifecycle pending intents/approvals and NetBird
-   journals/commands with their dependent effect/fencing records. Verify signed
-   bootstrap configuration and material, global directory records, object-store heads,
+   journals/commands with their dependent effect/fencing records. Include signed
+   workload placement/terminal intents, material receipts and client-credential
+   subjects with their signed payloads and tenant/database/partition/member
+   references; reset them together with the corresponding data and member state.
+   Verify signed bootstrap configuration and material, global directory records,
+   object-store heads,
    snapshots and backups too: none may restore old entity references. These
    are inventory candidates, not verified live deletion targets.
-   Include retained desired-release generations and active-rollout slots,
+   Include retained desired-release generations, dependent pin inventories and
+   active-rollout slots,
    node-operation/fence records, OCI ownership journals and consumed permits,
    and both rollout step/reply boards and signed health proofs. Include retained
    decision-log records,

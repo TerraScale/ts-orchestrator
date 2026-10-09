@@ -44,7 +44,7 @@ func TestReleaseChannelWatcherInitialization(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := newChannelFixture(t)
 			manual := strings.Repeat("a", 64)
-			if _, err := f.store.PublishRelease(t.Context(), 7, rollout.Release{Digest: manual, Actor: "01arz3ndektsv4rrffq69g5fav", CreatedAt: time.Now().UTC()}); err != nil {
+			if _, err := f.store.PublishRelease(t.Context(), 7, rollout.Release{Digest: manual, Actor: "01ARZ3NDEKTSV4RRFFQ69G5FAV", CreatedAt: time.Now().UTC()}); err != nil {
 				t.Fatal(err)
 			}
 			var initial jetstream.KeyValueEntry
