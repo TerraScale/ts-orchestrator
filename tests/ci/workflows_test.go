@@ -86,8 +86,9 @@ func TestWorkflowContracts(t *testing.T) {
 		requireText(t, dispatchStep, "continue-on-error: true")
 		_, deployStep, _ := strings.Cut(ci, "- name: Start the fleet deployment for this revision")
 		requireText(t, deployStep, "run: bash scripts/ci/dispatch-image.sh deploy.yml\n")
-		requireText(t, deployStep, "continue-on-error: true")
-		requireText(t, deployStep, "forgejo.ref == 'refs/heads/main' && vars.TS_AUTO_DEPLOY_CELLS != ''")
+		forbidText(t, deployStep, "continue-on-error: true")
+		forbidText(t, deployStep, "vars.TS_AUTO_DEPLOY_CELLS != ''")
+		requireText(t, deployStep, "forgejo.ref == 'refs/heads/main'")
 		// The weekly run rebuilds the image but never redeploys.
 		requireText(t, ci, "  schedule:\n    - cron: ")
 		requireText(t, deployStep, "forgejo.event_name != 'schedule'")
@@ -139,13 +140,14 @@ func TestWorkflowContracts(t *testing.T) {
 			t.Fatalf("inputs: %v", got)
 		}
 	})
-	t.Run("deploy_waits_for_ci_and_stays_off_until_configured", func(t *testing.T) {
+	t.Run("deploy_waits_for_ci_and_requires_main", func(t *testing.T) {
 		deploy := workflowText(t, ".forgejo/workflows/deploy.yml")
 		forbidText(t, deploy, "  push:")
 		if got := matches(deploy, `(?m)^    name: (.+)$`); !reflect.DeepEqual(got, []string{"deploy/every-region"}) {
 			t.Fatalf("jobs: %v", got)
 		}
-		requireText(t, deploy, "    if: ${{ forgejo.ref == 'refs/heads/main' && vars.TS_AUTO_DEPLOY_CELLS != '' }}\n")
+		requireText(t, deploy, "    if: ${{ forgejo.ref == 'refs/heads/main' }}\n")
+		forbidText(t, deploy, "vars.TS_AUTO_DEPLOY_CELLS != ''")
 		// Queued, never cancelled: CI never abandons a region mid-rollout.
 		requireText(t, deploy, "  group: ts-orchestrator-deploy\n  cancel-in-progress: false\n")
 		_, dispatch, _ := strings.Cut(deploy, "workflow_dispatch:")
@@ -155,7 +157,7 @@ func TestWorkflowContracts(t *testing.T) {
 		}
 		steps := matches(deploy, `(?m)^      - name: (.+)$`)
 		gate := slices.Index(steps, "Wait for ci.yml and skip a failed or overtaken revision")
-		roll := slices.Index(steps, "Sign and roll the release out region by region")
+		roll := slices.Index(steps, "Sign and deploy every region concurrently")
 		if gate < 0 || roll != gate+1 || roll != len(steps)-1 {
 			t.Fatalf("the rollout must follow the CI gate: %v", steps)
 		}
@@ -173,7 +175,7 @@ func TestWorkflowContracts(t *testing.T) {
 		gateStep, _, _ = strings.Cut(gateStep, "- name:")
 		requireText(t, gateStep, "if: ${{ inputs.trigger == 'ci' }}")
 		requireText(t, gateStep, "GATE_WORKFLOW: deploy.yml\n")
-		requireText(t, gateStep, `bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" "${SOURCE_CI_RUN_ID}" "${SOURCE_CI_RUN_NUMBER}" 6000`)
+		requireText(t, gateStep, `bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" "${SOURCE_CI_RUN_ID}" "${SOURCE_CI_RUN_NUMBER}" 300`)
 		_, rollStep, _ := strings.Cut(deploy, "- name: Sign and roll the release out region by region")
 		requireText(t, rollStep, "if: ${{ steps.gate.outputs.skip != 'true' }}")
 		requireText(t, rollStep, `run: bash scripts/ci/deploy-fleet.sh "${RUNNER_TEMP}/forgejo"`)

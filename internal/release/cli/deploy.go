@@ -11,7 +11,10 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
@@ -38,12 +41,9 @@ func (c command) deploy(args []string) error {
 }
 
 // deployWith signs one CI-qualified release for every cell with the online
-// update leaf, then deploys it one cell at a time in the order given, the
-// first cell being the canary: it uploads the binaries, publishes the cell's
-// release channel and waits until the cell's controllers report the rollout
-// complete before the next cell sees the release. A cell that rolls the
-// release back, or does not finish in time, stops the fleet rollout and
-// fails the command.
+// update leaf, then deploys independent cells concurrently. Each cell owns
+// its quorum, health gates and rollback. A failed cell fails the command
+// after every other started deployment has finished.
 func (c command) deployWith(args []string, env deployEnv) error {
 	flags := flag.NewFlagSet("deploy", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -61,7 +61,7 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	regionTimeout := flags.Duration("region-timeout", 2*time.Hour, "how long one cell may take to report the rollout complete")
 	poll := flags.Duration("poll", 30*time.Second, "how often a cell's status is read")
 	var cells, architectures stringList
-	flags.Var(&cells, "cell", "cell to deploy to, in order; the first is the canary; repeatable")
+	flags.Var(&cells, "cell", "cell to deploy to concurrently; repeatable")
 	flags.Var(&architectures, "arch", "amd64 or arm64; repeatable")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -164,7 +164,8 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	}
 	clear(private)
 
-	for _, channel := range channels {
+	locations := make([]releasechannel.Location, len(channels))
+	for index, channel := range channels {
 		// A region verifies the receipts while it rolls the release out, so
 		// they must stay valid for the whole wait, however late it starts.
 		if _, err := channel.Verify(roots, channel.Cell, *environment, time.Now().UTC().Add(*regionTimeout)); err != nil {
@@ -174,22 +175,51 @@ func (c command) deployWith(args []string, env deployEnv) error {
 		if err != nil {
 			return err
 		}
-		for _, architecture := range architectures {
-			if err := c.uploadBinary(location, binaryPath(*directory, architecture), binaries[architecture].SHA256); err != nil {
-				return fmt.Errorf("upload the %s binary to %s: %w", architecture, channel.Cell, err)
-			}
-		}
-		if err := releasechannel.Publish(c.ctx, location, channel); err != nil {
-			return fmt.Errorf("publish to %s: %w", channel.Cell, err)
-		}
-		fmt.Fprintf(c.output, "%s published: run %d %s\n", channel.Cell, channel.RunNumber, channel.SourceRevision)
-		if err := releasechannel.Await(c.ctx, location, channel, *poll, time.Now().Add(*regionTimeout), c.output); err != nil {
-			return fmt.Errorf("fleet rollout stopped: %w", err)
-		}
+		locations[index] = location
 	}
-	_, err = fmt.Fprintf(c.output, "fleet complete: run %d %s in %s\n", qualification.Verification.RunNumber,
-		*sourceRevision, strings.Join(cells, " "))
+	started := time.Now()
+	progress := &deploymentWriter{Writer: c.output}
+	var regions errgroup.Group
+	for index, channel := range channels {
+		regions.Go(func() error {
+			cellStarted := time.Now()
+			location := locations[index]
+			for _, architecture := range architectures {
+				if err := c.uploadBinary(location, binaryPath(*directory, architecture), binaries[architecture].SHA256); err != nil {
+					return fmt.Errorf("upload the %s binary to %s: %w", architecture, channel.Cell, err)
+				}
+			}
+			if err := releasechannel.Publish(c.ctx, location, channel); err != nil {
+				return fmt.Errorf("publish to %s: %w", channel.Cell, err)
+			}
+			fmt.Fprintf(progress, "%s published: run %d %s\n", channel.Cell, channel.RunNumber, channel.SourceRevision)
+			if err := releasechannel.Await(c.ctx, location, channel, *poll, time.Now().Add(*regionTimeout), progress); err != nil {
+				fmt.Fprintf(progress, "%s failed: %v\n", channel.Cell, err)
+				return err
+			}
+			fmt.Fprintf(progress, "%s rolled out in %s\n", channel.Cell, time.Since(cellStarted).Round(time.Second))
+			return nil
+		})
+	}
+	// Do not cancel a healthy cell's rollout when another cell rolls back.
+	if err := regions.Wait(); err != nil {
+		return fmt.Errorf("fleet rollout failed: %w", err)
+	}
+	_, err = fmt.Fprintf(c.output, "fleet complete: run %d %s in %s after %s\n", qualification.Verification.RunNumber,
+		*sourceRevision, strings.Join(cells, " "), time.Since(started).Round(time.Second))
 	return err
+}
+
+// deploymentWriter serializes progress from independent regional waits.
+type deploymentWriter struct {
+	sync.Mutex
+	io.Writer
+}
+
+func (writer *deploymentWriter) Write(data []byte) (int, error) {
+	writer.Lock()
+	defer writer.Unlock()
+	return writer.Writer.Write(data)
 }
 
 func binaryPath(directory, architecture string) string {

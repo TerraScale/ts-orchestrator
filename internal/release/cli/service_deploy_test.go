@@ -9,11 +9,11 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -35,6 +35,7 @@ type serviceBucket struct {
 	outcome releasechannel.State
 	objects map[string][]byte
 	log     *[]string
+	logMu   *sync.Mutex
 }
 
 func (bucket *serviceBucket) PutObject(_ context.Context, request objectstorage.PutObjectRequest) (objectstorage.PutObjectResponse, error) {
@@ -49,7 +50,9 @@ func (bucket *serviceBucket) PutObject(_ context.Context, request objectstorage.
 		return objectstorage.PutObjectResponse{}, httpError(412)
 	}
 	bucket.objects[name] = data
+	bucket.logMu.Lock()
 	*bucket.log = append(*bucket.log, "put "+bucket.cell+" "+name)
+	bucket.logMu.Unlock()
 	return objectstorage.PutObjectResponse{}, nil
 }
 
@@ -101,6 +104,7 @@ type serviceDeployFixture struct {
 	binary, checkout, commit, key string
 	buckets                       map[string]*serviceBucket
 	log                           []string
+	logMu                         sync.Mutex
 	env                           deployEnv
 }
 
@@ -133,7 +137,7 @@ func newServiceDeployFixture(t *testing.T) *serviceDeployFixture {
 	writePrivateKey(t, fixture.key, private)
 	for _, cell := range []string{"GRU", "SFO"} {
 		fixture.buckets[cell] = &serviceBucket{cell: cell, signer: public, outcome: releasechannel.StateComplete,
-			objects: map[string][]byte{}, log: &fixture.log}
+			objects: map[string][]byte{}, log: &fixture.log, logMu: &fixture.logMu}
 	}
 	fixture.env = deployEnv{
 		storage: func(cell string) (releasechannel.ObjectClient, error) { return fixture.buckets[cell], nil },
@@ -153,7 +157,7 @@ func (fixture *serviceDeployFixture) args(cells ...string) []string {
 	return args
 }
 
-func TestServiceDeployReleasesTheCanaryFirstThenEachRegion(t *testing.T) {
+func TestServiceDeployReleasesEveryRegion(t *testing.T) {
 	fixture := newServiceDeployFixture(t)
 	var output bytes.Buffer
 	c := command{ctx: t.Context(), output: &output}
@@ -168,7 +172,9 @@ func TestServiceDeployReleasesTheCanaryFirstThenEachRegion(t *testing.T) {
 		"put SFO " + releasechannel.ServiceBinaryObject("ts-auth", digest),
 		"put SFO " + releasechannel.ServiceReleaseObject("ts-auth"),
 	}
-	if fmt.Sprint(fixture.log) != fmt.Sprint(want) {
+	slices.Sort(fixture.log)
+	slices.Sort(want)
+	if !slices.Equal(fixture.log, want) {
 		t.Fatalf("writes %q, want %q", fixture.log, want)
 	}
 	if !strings.Contains(output.String(), "ts-auth complete: "+digest) {
@@ -193,7 +199,7 @@ func TestServiceDeployReleasesTheCanaryFirstThenEachRegion(t *testing.T) {
 	}
 }
 
-func TestServiceDeployStopsWhenTheCanaryRollsBack(t *testing.T) {
+func TestServiceDeployFinishesOtherRegionsWhenOneRollsBack(t *testing.T) {
 	fixture := newServiceDeployFixture(t)
 	fixture.buckets["GRU"].outcome = releasechannel.StateFailed
 	c := command{ctx: t.Context(), output: io.Discard}
@@ -201,10 +207,8 @@ func TestServiceDeployStopsWhenTheCanaryRollsBack(t *testing.T) {
 	if !errors.Is(err, releasechannel.ErrFailed) {
 		t.Fatalf("a rolled-back canary: %v", err)
 	}
-	for _, entry := range fixture.log {
-		if strings.HasPrefix(entry, "put SFO ") {
-			t.Fatalf("SFO saw the release: %q", fixture.log)
-		}
+	if !slices.Contains(fixture.log, "put SFO "+releasechannel.ServiceReleaseObject("ts-auth")) {
+		t.Fatalf("SFO did not receive its independent release: %q", fixture.log)
 	}
 }
 

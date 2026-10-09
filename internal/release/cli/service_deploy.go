@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
@@ -20,12 +22,12 @@ func (c command) serviceDeploy(args []string) error {
 }
 
 // serviceDeployWith deploys one CI-built release of a native service role
-// (TS-610) to every cell in the order given, the first being the canary:
+// (TS-610) to every independent cell concurrently:
 // for each cell it signs a delivery artifact claim with the role's scoped
 // release key, uploads the binary to the cell's head bucket, publishes the
 // claim in the role's release channel and waits until the cell's leader
-// reports the role serving it. A cell that rolls the release back, or does
-// not finish in time, stops the rollout and fails the command.
+// reports the role serving it. Failure does not interrupt another cell's
+// healthy rollout; the command waits for every cell before returning.
 func (c command) serviceDeployWith(args []string, env deployEnv) error {
 	flags := flag.NewFlagSet("service-deploy", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -43,7 +45,7 @@ func (c command) serviceDeployWith(args []string, env deployEnv) error {
 	regionTimeout := flags.Duration("region-timeout", 30*time.Minute, "how long one cell may take to report the release")
 	poll := flags.Duration("poll", 5*time.Second, "how often a cell's status is read")
 	var cells stringList
-	flags.Var(&cells, "cell", "cell to deploy to, in order; the first is the canary; repeatable")
+	flags.Var(&cells, "cell", "cell to deploy to concurrently; repeatable")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -82,48 +84,62 @@ func (c command) serviceDeployWith(args []string, env deployEnv) error {
 		return fmt.Errorf("read the release key: %w", err)
 	}
 	defer clear(private)
+	locations := make([]releasechannel.Location, len(cells))
+	for index, cell := range cells {
+		locations[index], err = channelLocation(env, cell, *namespace)
+		if err != nil {
+			return err
+		}
+	}
 
 	// The elapsed times measure CI green to rolled out (TS-623): the job
 	// starts once the tests passed.
 	started := time.Now()
-	for _, cell := range cells {
-		cellStarted := time.Now()
-		// The NATS cell is the lower-case logical cell.
-		request := delivery.ArtifactClaimRequest{Source: delivery.ArtifactSource{Repository: *repository, Commit: *commit,
-			TreeDigest: tree}, Cell: strings.ToLower(cell), Role: *role, Environment: *environment}
-		record, err := delivery.NewArtifactRecord(request, digest, size)
-		if err != nil {
-			return err
-		}
-		location, err := channelLocation(env, cell, *namespace)
-		if err != nil {
-			return err
-		}
-		if err := putImmutable(c.ctx, location.Client, location.Namespace, location.Bucket,
-			releasechannel.ServiceBinaryObject(*role, digest), file, size, sum); err != nil {
-			return fmt.Errorf("upload the binary to %s: %w", cell, err)
-		}
-		// Sign right before publishing: the leader admits a claim only
-		// within an hour of its issuance.
-		codec := delivery.Ed25519Codec{Cell: request.Cell, Actor: *actor, PrivateKey: private, Lifetime: time.Minute,
-			MaxLifetime: 5 * time.Minute}
-		claim, err := codec.SignArtifact(c.ctx, record)
-		if err != nil {
-			return fmt.Errorf("sign the %s claim: %w", cell, err)
-		}
-		issued, err := releasechannel.ClaimIssuedAt(claim)
-		if err != nil {
-			return err
-		}
-		if err := releasechannel.PublishService(c.ctx, location, *role, claim); err != nil {
-			return fmt.Errorf("publish to %s: %w", cell, err)
-		}
-		fmt.Fprintf(c.output, "%s %s published: %s %s\n", cell, *role, digest, *commit)
-		if err := releasechannel.AwaitService(c.ctx, location, cell, *role, digest, issued, *poll,
-			time.Now().Add(*regionTimeout), c.output); err != nil {
-			return fmt.Errorf("service rollout stopped after %s: %w", time.Since(started).Round(time.Second), err)
-		}
-		fmt.Fprintf(c.output, "%s %s rolled out in %s\n", cell, *role, time.Since(cellStarted).Round(time.Second))
+	progress := &deploymentWriter{Writer: c.output}
+	var regions errgroup.Group
+	for index, cell := range cells {
+		regions.Go(func() error {
+			cellStarted := time.Now()
+			// The NATS cell is the lower-case logical cell.
+			request := delivery.ArtifactClaimRequest{Source: delivery.ArtifactSource{Repository: *repository, Commit: *commit,
+				TreeDigest: tree}, Cell: strings.ToLower(cell), Role: *role, Environment: *environment}
+			record, err := delivery.NewArtifactRecord(request, digest, size)
+			if err != nil {
+				return err
+			}
+			location := locations[index]
+			// ReadAt keeps parallel uploads on the inspected inode with independent offsets.
+			if err := putImmutable(c.ctx, location.Client, location.Namespace, location.Bucket,
+				releasechannel.ServiceBinaryObject(*role, digest), io.NewSectionReader(file, 0, size), size, sum); err != nil {
+				return fmt.Errorf("upload the binary to %s: %w", cell, err)
+			}
+			// Sign right before publishing: the leader admits a claim only
+			// within an hour of its issuance.
+			codec := delivery.Ed25519Codec{Cell: request.Cell, Actor: *actor, PrivateKey: private, Lifetime: time.Minute,
+				MaxLifetime: 5 * time.Minute}
+			claim, err := codec.SignArtifact(c.ctx, record)
+			if err != nil {
+				return fmt.Errorf("sign the %s claim: %w", cell, err)
+			}
+			issued, err := releasechannel.ClaimIssuedAt(claim)
+			if err != nil {
+				return err
+			}
+			if err := releasechannel.PublishService(c.ctx, location, *role, claim); err != nil {
+				return fmt.Errorf("publish to %s: %w", cell, err)
+			}
+			fmt.Fprintf(progress, "%s %s published: %s %s\n", cell, *role, digest, *commit)
+			if err := releasechannel.AwaitService(c.ctx, location, cell, *role, digest, issued, *poll,
+				time.Now().Add(*regionTimeout), progress); err != nil {
+				fmt.Fprintf(progress, "%s %s failed: %v\n", cell, *role, err)
+				return err
+			}
+			fmt.Fprintf(progress, "%s %s rolled out in %s\n", cell, *role, time.Since(cellStarted).Round(time.Second))
+			return nil
+		})
+	}
+	if err := regions.Wait(); err != nil {
+		return fmt.Errorf("service rollout failed after %s: %w", time.Since(started).Round(time.Second), err)
 	}
 	_, err = fmt.Fprintf(c.output, "%s complete: %s %s in %s after %s\n", *role, digest, *commit, strings.Join(cells, " "),
 		time.Since(started).Round(time.Second))

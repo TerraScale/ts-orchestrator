@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Deploy one CI-qualified main revision to every configured region, the
-# canary first, with ts-orch release deploy (docs/continuous-delivery.md).
+# concurrently, with ts-orch release deploy (docs/deploy-pipeline.md).
 #
 # usage: deploy-fleet.sh FORGEJO_PROFILES
 #
 # FORGEJO_PROFILES is the directory configure-fj-profiles.sh created. Inputs:
 #   SOURCE_SHA, SOURCE_CI_RUN_ID   the revision and its successful ci.yml run
-#   TS_AUTO_DEPLOY_CELLS           cells in deployment order, the canary first
+#   TS_AUTO_DEPLOY_CELLS           every serving cell
 #   TS_AUTO_DEPLOY_ARCHES          architectures to sign (default arm64)
 #   TS_AUTO_DEPLOY_ENVIRONMENT     release environment (default production)
 #   TS_OBJECT_NAMESPACE            Object Storage namespace of the head buckets
@@ -31,7 +31,7 @@ done
 [[ $(git rev-parse HEAD) == "$SOURCE_SHA" ]] || { echo 'checked-out source differs from the deployed revision' >&2; exit 1; }
 read -ra cells <<< "$TS_AUTO_DEPLOY_CELLS"
 read -ra architectures <<< "${TS_AUTO_DEPLOY_ARCHES:-arm64}"
-# deploy.yml's timeout-minutes allows the 30-minute region waits of three cells.
+# Independent cells share the same 30-minute rollout window.
 ((${#cells[@]} >= 1 && ${#cells[@]} <= 3)) || { echo 'TS_AUTO_DEPLOY_CELLS must name one to three cells' >&2; exit 2; }
 
 umask 077
@@ -69,4 +69,4 @@ XDG_DATA_HOME="$profiles/read" dist/ts-orch release deploy --dir "$work/release"
 	--update-delegation "$work/update-delegation.json" --root-key "$root_key" \
 	--signing-key-secret "$TS_RELEASE_LEAF_SECRET" --vault-id "$TS_RELEASE_VAULT_ID" \
 	--environment "${TS_AUTO_DEPLOY_ENVIRONMENT:-production}" --source-checkout . \
-	--namespace "$TS_OBJECT_NAMESPACE" --region-timeout 30m "${args[@]}"
+	--namespace "$TS_OBJECT_NAMESPACE" --region-timeout 30m --poll 5s "${args[@]}"

@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -37,6 +38,8 @@ type regionBucket struct {
 	outcome releasechannel.State
 	objects map[string][]byte
 	log     *[]string
+	logMu   *sync.Mutex
+	wait    func(context.Context) error
 }
 
 func (bucket *regionBucket) PutObject(_ context.Context, request objectstorage.PutObjectRequest) (objectstorage.PutObjectResponse, error) {
@@ -51,11 +54,18 @@ func (bucket *regionBucket) PutObject(_ context.Context, request objectstorage.P
 		return objectstorage.PutObjectResponse{}, httpError(412)
 	}
 	bucket.objects[name] = data
+	bucket.logMu.Lock()
 	*bucket.log = append(*bucket.log, "put "+bucket.cell+" "+name)
+	bucket.logMu.Unlock()
 	return objectstorage.PutObjectResponse{}, nil
 }
 
-func (bucket *regionBucket) GetObject(_ context.Context, request objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error) {
+func (bucket *regionBucket) GetObject(ctx context.Context, request objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error) {
+	if *request.ObjectName == releasechannel.StatusObject && bucket.wait != nil {
+		if err := bucket.wait(ctx); err != nil {
+			return objectstorage.GetObjectResponse{}, err
+		}
+	}
 	bucket.mu.Lock()
 	defer bucket.mu.Unlock()
 	name := *request.ObjectName
@@ -104,6 +114,7 @@ type deployFixture struct {
 	leafKey    string
 	buckets    map[string]*regionBucket
 	log        []string
+	logMu      sync.Mutex
 	env        deployEnv
 }
 
@@ -133,7 +144,7 @@ func newDeployFixture(t *testing.T) *deployFixture {
 	}
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
 		fixture.buckets[cell] = &regionBucket{cell: cell, roots: roots, outcome: releasechannel.StateComplete,
-			objects: map[string][]byte{}, log: &fixture.log}
+			objects: map[string][]byte{}, log: &fixture.log, logMu: &fixture.logMu}
 	}
 	fixture.env = deployEnv{
 		check:   func(release.Qualification, string) error { return nil },
@@ -172,7 +183,7 @@ func (fixture *deployFixture) touched(cell string) bool {
 	return false
 }
 
-func TestDeployRollsOutCanaryFirstThenEachRegion(t *testing.T) {
+func TestDeployRollsOutEveryRegion(t *testing.T) {
 	fixture := newDeployFixture(t)
 	var output bytes.Buffer
 	c := command{ctx: t.Context(), output: &output}
@@ -182,19 +193,22 @@ func TestDeployRollsOutCanaryFirstThenEachRegion(t *testing.T) {
 	binary := releasechannel.BinaryObject(testBinaryReceipt().SHA256)
 	want := []string{"put GRU " + binary, "put GRU " + releasechannel.ChannelObject,
 		"put SFO " + binary, "put SFO " + releasechannel.ChannelObject}
-	if strings.Join(fixture.log, "\n") != strings.Join(want, "\n") {
+	slices.Sort(fixture.log)
+	slices.Sort(want)
+	if !slices.Equal(fixture.log, want) {
 		t.Fatalf("writes = %q, want %q", fixture.log, want)
 	}
 	text := output.String()
-	if !strings.Contains(text, "GRU complete") || strings.Index(text, "GRU complete") > strings.Index(text, "SFO published") ||
+	if !strings.Contains(text, "GRU complete") || !strings.Contains(text, "SFO complete") ||
 		!strings.Contains(text, "fleet complete: run 620") {
 		t.Fatalf("output:\n%s", text)
 	}
 
 	// Deploying the same run again only renews the channels' receipts.
 	fixture.log = nil
-	if err := c.deployWith(fixture.args("GRU", "SFO"), fixture.env); err != nil ||
-		strings.Join(fixture.log, "\n") != strings.Join([]string{want[1], want[3]}, "\n") {
+	err := c.deployWith(fixture.args("GRU", "SFO"), fixture.env)
+	slices.Sort(fixture.log)
+	if err != nil || !slices.Equal(fixture.log, []string{"put GRU " + releasechannel.ChannelObject, "put SFO " + releasechannel.ChannelObject}) {
 		t.Fatalf("repeated deploy: %v, writes %q", err, fixture.log)
 	}
 
@@ -224,7 +238,7 @@ func TestDeployRollsOutCanaryFirstThenEachRegion(t *testing.T) {
 	}
 }
 
-func TestDeployStopsTheFleetWhenTheCanaryRollsBack(t *testing.T) {
+func TestDeployFinishesOtherRegionsWhenOneRollsBack(t *testing.T) {
 	fixture := newDeployFixture(t)
 	fixture.buckets["GRU"].outcome = releasechannel.StateFailed
 	var output bytes.Buffer
@@ -233,8 +247,46 @@ func TestDeployStopsTheFleetWhenTheCanaryRollsBack(t *testing.T) {
 	if !errors.Is(err, releasechannel.ErrFailed) || !strings.Contains(err.Error(), "GRU rolled back run 620") {
 		t.Fatalf("deploy = %v", err)
 	}
-	if fixture.touched("SFO") {
-		t.Fatalf("a region after the failed canary saw the release: %q", fixture.log)
+	if !fixture.touched("SFO") || !strings.Contains(output.String(), "SFO complete") {
+		t.Fatalf("the healthy region did not finish: %q\n%s", fixture.log, output.String())
+	}
+}
+
+func TestDeployWaitsForRegionsConcurrently(t *testing.T) {
+	fixture := newDeployFixture(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	reading := make(chan string, 2)
+	proceed := make(chan struct{})
+	for _, cell := range []string{"GRU", "SFO"} {
+		fixture.buckets[cell].wait = func(ctx context.Context) error {
+			reading <- cell
+			select {
+			case <-proceed:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- (command{ctx: ctx, output: io.Discard}).deployWith(fixture.args("GRU", "SFO"), fixture.env)
+	}()
+	seen := map[string]bool{}
+	for len(seen) < 2 {
+		select {
+		case cell := <-reading:
+			seen[cell] = true
+		case <-ctx.Done():
+			close(proceed)
+			<-done
+			t.Fatal("regions waited sequentially")
+		}
+	}
+	close(proceed)
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
 

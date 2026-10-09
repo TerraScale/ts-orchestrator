@@ -409,12 +409,12 @@ func hostUnits(list func(context.Context) ([]host.HostStatus, error), board jets
 			}
 			entry, err := board.Get(ctx, joinedKey(r.Node))
 			if errors.Is(err, jetstream.ErrKeyNotFound) {
-				continue
+				return nil, fmt.Errorf("host %s has not joined self-update", r.Node)
 			} else if err != nil {
 				return nil, err
 			}
 			if string(entry.Value()) != r.PublicKey {
-				continue
+				return nil, fmt.Errorf("host %s has not proved its current registration key", r.Node)
 			}
 			var seats []string
 			switch {
