@@ -516,10 +516,10 @@ func (r *serviceReleases) report(ctx context.Context, kv jetstream.KeyValue, rol
 		Role: role, Digest: state.Digest, IssuedAt: state.IssuedAt, State: state.State, Reason: releasechannel.Clip(state.Reason),
 		UpdatedAt: updatedAt, Pins: pins}
 	stored, found, err := releasechannel.ReadServiceStatus(ctx, location, role)
-	if err != nil {
+	if err != nil && !errors.Is(err, releasechannel.ErrInvalid) {
 		return err
 	}
-	if found && stored.Cell == status.Cell && stored.Digest == status.Digest &&
+	if err == nil && found && stored.Cell == status.Cell && stored.Digest == status.Digest &&
 		stored.IssuedAt.Equal(status.IssuedAt) && stored.State == status.State && stored.Reason == status.Reason &&
 		stored.Pins.Equal(status.Pins) && !releasechannel.PinRefreshDue(stored.UpdatedAt, updatedAt) {
 		return nil

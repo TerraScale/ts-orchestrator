@@ -496,3 +496,31 @@ func TestReleasePinValidationAndStatusBounds(t *testing.T) {
 		t.Fatalf("oversized status write: %v, puts %d -> %d", err, before, bucket.puts)
 	}
 }
+
+func TestStatusReadClassifiesInvalidTelemetry(t *testing.T) {
+	for _, object := range []string{StatusObject, ServiceStatusObject("terrabase")} {
+		for _, tc := range []struct {
+			name string
+			wire []byte
+		}{
+			{name: "malformed", wire: []byte("{")},
+			{name: "invalid timestamp", wire: []byte(`{"updated_at":"invalid"}`)},
+			{name: "oversized", wire: bytes.Repeat([]byte(" "), maxStatusBytes+1)},
+		} {
+			t.Run(object+"/"+tc.name, func(t *testing.T) {
+				bucket := newFakeBucket()
+				bucket.set(object, tc.wire)
+				location := Location{Client: bucket, Namespace: "ns", Bucket: "gru-1-head"}
+				var err error
+				if object == StatusObject {
+					_, _, err = ReadStatus(t.Context(), location)
+				} else {
+					_, _, err = ReadServiceStatus(t.Context(), location, "terrabase")
+				}
+				if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), object) {
+					t.Fatalf("invalid telemetry error = %v, want ErrInvalid naming %s", err, object)
+				}
+			})
+		}
+	}
+}

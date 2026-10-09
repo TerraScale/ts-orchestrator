@@ -41,7 +41,8 @@ const (
 	StatusSchema  = "terrascale.orchestrator.release-status"
 
 	// ChannelObject, StatusObject and BinaryPrefix live in the region's
-	// head bucket.
+	// head bucket. Bootstrap every cell with these paths before publishing;
+	// discard retired release state (docs/continuous-delivery.md).
 	ChannelObject = "releases/orchestrator/channel.json"
 	StatusObject  = "releases/orchestrator/status.json"
 	BinaryPrefix  = "releases/orchestrator/binaries/"
@@ -369,7 +370,7 @@ func (location Location) read(ctx context.Context, name string, limit int64, val
 		return found, err
 	}
 	if err := json.Unmarshal(data, value); err != nil {
-		return true, fmt.Errorf("decode %s: %w", name, err)
+		return true, fmt.Errorf("%w: decode %s: %w", ErrInvalid, name, err)
 	}
 	return true, nil
 }

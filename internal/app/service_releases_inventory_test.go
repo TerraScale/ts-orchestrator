@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json/v2"
 	"errors"
 	"reflect"
 	"slices"
@@ -148,6 +149,76 @@ func TestServiceReleaseInventoryUnchangedRefresh(t *testing.T) {
 				t.Fatalf("unchanged report writes = %d, want %d", got, wantWrites)
 			}
 		})
+	}
+}
+
+func TestServiceReleaseInventoryRepairsInvalidStatus(t *testing.T) {
+	for _, role := range []string{terrabase.Role, tsauth.Role} {
+		for _, corruption := range []string{"malformed", "updated_at", "oversized"} {
+			t.Run(role+"/"+corruption, func(t *testing.T) {
+				r, kv, bucket, location := servicePinsFixture(t)
+				ctx := t.Context()
+				state := serviceReleaseState{Claim: strings.Repeat("1", 64), Digest: strings.Repeat("f", 64),
+					IssuedAt: time.Now().UTC().Add(-time.Minute), Previous: strings.Repeat("a", 64),
+					Retained: []string{strings.Repeat("b", 64)}, State: releasechannel.StateComplete, Reason: "persisted release outcome"}
+				key := releasechannel.ServiceStatusKey("GRU", role)
+				revision, err := saveServiceRelease(ctx, kv, key, state, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				bad := strings.Repeat("c", 64)
+				if err := markKnownBad(ctx, kv, role, bad, errors.New("withdrawn")); err != nil {
+					t.Fatal(err)
+				}
+				want := releasechannel.ServiceStatus{Schema: releasechannel.ServiceStatusSchema, Cell: "GRU", Role: role,
+					Digest: state.Digest, IssuedAt: state.IssuedAt, State: state.State, Reason: state.Reason, UpdatedAt: time.Now().UTC(),
+					Pins: &releasechannel.ReleasePins{Rollback: []string{state.Previous, state.Retained[0]}, KnownBad: []string{bad}}}
+				wire, err := json.Marshal(want)
+				if err != nil {
+					t.Fatal(err)
+				}
+				switch corruption {
+				case "malformed":
+					// The object decodes completely before trailing junk fails, so it could otherwise dedupe.
+					wire = append(wire, 'x')
+				case "updated_at":
+					wire = []byte(strings.Replace(string(wire), want.UpdatedAt.Format(time.RFC3339Nano), "invalid", 1))
+				case "oversized":
+					wire = append(wire, strings.Repeat(" ", releasechannel.MaxValueBytes)...)
+				}
+				object := releasechannel.ServiceStatusObject(role)
+				bucket.objects[object], bucket.etags[object] = wire, "invalid-status"
+				stored, found, err := releasechannel.ReadServiceStatus(ctx, location, role)
+				if err == nil {
+					t.Fatal("corrupt status was readable")
+				}
+				if corruption == "malformed" && (!found || !reflect.DeepEqual(stored, want)) {
+					t.Fatalf("malformed status must leave a fully populated dedupe candidate: %+v, found %v: %v", stored, found, err)
+				}
+				before := time.Now().UTC()
+				if err := r.pass(ctx, kv, role); err != nil {
+					t.Fatal(err)
+				}
+				repaired := serviceInventoryStatus(t, location, role)
+				if repaired.UpdatedAt.Before(before) || repaired.UpdatedAt.After(time.Now().UTC()) {
+					t.Fatalf("repair timestamp = %s, want this successful pass", repaired.UpdatedAt)
+				}
+				want.UpdatedAt = repaired.UpdatedAt
+				if !reflect.DeepEqual(repaired, want) || bucket.puts[object] != 1 {
+					t.Fatalf("repair status = %+v, pins %+v, writes %d", repaired, repaired.Pins, bucket.puts[object])
+				}
+				if err := r.pass(ctx, kv, role); err != nil {
+					t.Fatal(err)
+				}
+				if got := serviceInventoryStatus(t, location, role); !reflect.DeepEqual(got, repaired) || bucket.puts[object] != 1 {
+					t.Fatalf("fresh repaired status was rewritten: %+v, writes %d", got, bucket.puts[object])
+				}
+				persisted, gotRevision, err := loadServiceRelease(ctx, kv, key)
+				if err != nil || gotRevision != revision || !reflect.DeepEqual(persisted, state) {
+					t.Fatalf("repair changed durable state: %+v, revision %d: %v", persisted, gotRevision, err)
+				}
+			})
+		}
 	}
 }
 
