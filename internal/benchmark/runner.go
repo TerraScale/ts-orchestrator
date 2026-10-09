@@ -30,6 +30,7 @@ type Stage struct {
 	Samples         []Sample             `json:"samples"`
 	Usage           capacity.Usage       `json:"usage"`
 	Stopped         string               `json:"stopped,omitempty"`
+	StoppedAt       time.Time            `json:"stopped_at,omitzero"`
 	MeasurementFrom map[string]time.Time `json:"measurement_from"`
 }
 
@@ -166,8 +167,9 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 					return errors.New("sample operation is outside workload mix")
 				}
 				key := sample.Client + "/" + sample.Op
-				if !seen[key].IsZero() && !sample.TS.After(seen[key]) {
-					return errors.New("duplicate or out-of-order sample")
+				epoch := stage.MeasurementFrom[sample.Client].Add(-time.Duration(w.Warmup) * time.Second)
+				if !seen[key].IsZero() && sample.TS.Sub(epoch)/time.Second <= seen[key].Sub(epoch)/time.Second {
+					return errors.New("duplicate or out-of-order sample interval")
 				}
 				seen[key] = sample.TS
 			}
@@ -178,6 +180,7 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 			saveCtx := stageCtx
 			if sample.Type == "" && (sample.Count > 0 && float64(sample.Errors)/float64(sample.Count) > 0.01 || sample.P99 > w.Targets.P99*2000) {
 				stage.Stopped = "error rate >1% or p99 >2x target"
+				stage.StoppedAt = r.Now().UTC()
 				stop()
 				var saveCancel context.CancelFunc
 				saveCtx, saveCancel = context.WithTimeout(context.WithoutCancel(stageCtx), 30*time.Second)
@@ -194,7 +197,11 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 		stop()
 		stage.To = r.Now().UTC()
 		usageCtx, usageCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-		stage.Usage, resultErr = r.Usage(usageCtx, region, stage.From, stage.To)
+		usageFrom, usageTo := measurementWindow(stage, clients)
+		stage.Usage = capacity.Usage{Region: region}
+		if usageFrom.Before(usageTo) {
+			stage.Usage, resultErr = r.Usage(usageCtx, region, usageFrom, usageTo)
+		}
 		if resultErr == nil {
 			resultErr = r.Repository.SaveUsage(usageCtx, run.ID, stageIndex, stage.Usage)
 		}
@@ -226,6 +233,29 @@ func contains(values []string, value string) bool {
 	return false
 }
 
+func measurementWindow(stage Stage, clients []string) (from, to time.Time) {
+	for _, client := range clients {
+		start := stage.MeasurementFrom[client]
+		if start.IsZero() {
+			return time.Time{}, time.Time{}
+		}
+		if start.After(from) {
+			from = start
+		}
+		end := start.Add(time.Duration(stage.Duration) * time.Second)
+		if to.IsZero() || end.Before(to) {
+			to = end
+		}
+	}
+	if stage.To.Before(to) {
+		to = stage.To
+	}
+	if !stage.StoppedAt.IsZero() && stage.StoppedAt.Before(to) {
+		to = stage.StoppedAt
+	}
+	return from, to
+}
+
 func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 	v := Verdict{P99TargetMS: w.Targets.P99, Bottleneck: "unknown", Scale: "unknown"}
 	finalQualified := false
@@ -239,8 +269,8 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 		evidenceComplete := true
 		sloViolation := stage.Stopped != ""
 		summaries := map[string]bool{}
-		perClient := map[string]map[int64]uint64{}
-		perOperation := map[string]bool{}
+		perOperation := map[string]map[int64]uint64{}
+		successful := map[string]bool{}
 		summaryRates := map[string]float64{}
 		ops := 0.0
 		for _, sample := range stage.Samples {
@@ -270,47 +300,50 @@ func capacityVerdict(w Workload, stages []Stage, clients []string) Verdict {
 			if sample.Count > 0 && (sample.P99 > w.Targets.P99*1000 || float64(sample.Errors)/float64(sample.Count) > 0.01) {
 				sloViolation = true
 			}
-			seconds := perClient[sample.Client]
+			key := sample.Client + "/" + sample.Op
+			seconds := perOperation[key]
 			if seconds == nil {
 				seconds = map[int64]uint64{}
-				perClient[sample.Client] = seconds
+				perOperation[key] = seconds
 			}
-			seconds[int64(sample.TS.Sub(start)/time.Second)] += sample.Count
+			second := int64(sample.TS.Sub(start) / time.Second)
+			if _, exists := seconds[second]; exists {
+				evidenceComplete = false
+				continue
+			}
+			seconds[second] = sample.Count
 			if sample.Count > sample.Errors {
-				perOperation[sample.Client+"/"+sample.Op] = true
+				successful[key] = true
 			}
 		}
 		if len(summaries) != len(clients) {
 			evidenceComplete = false
 		}
 		for _, client := range clients {
+			var count uint64
 			for _, op := range w.Mix {
-				if !perOperation[client+"/"+op.Op] {
+				key := client + "/" + op.Op
+				seconds := perOperation[key]
+				if !successful[key] || len(seconds) < max(30, duration-2) {
 					evidenceComplete = false
 				}
-			}
-			seconds := perClient[client]
-			if len(seconds) < max(30, duration-2) {
-				evidenceComplete = false
-				continue
-			}
-			var times []int64
-			var count uint64
-			for at := range seconds {
-				times = append(times, at)
-				count += seconds[at]
+				var times []int64
+				for at := range seconds {
+					times = append(times, at)
+					count += seconds[at]
+				}
+				slices.Sort(times)
+				for i := 1; i < len(times); i++ {
+					if times[i]-times[i-1] > 2 {
+						evidenceComplete = false
+					}
+				}
 			}
 			// Missing intervals still consume measurement time.
 			observed := float64(count) / float64(duration)
 			ops += observed
 			if observed == 0 || summaryRates[client] < observed*0.95 || summaryRates[client] > observed*1.05 {
 				evidenceComplete = false
-			}
-			slices.Sort(times)
-			for i := 1; i < len(times); i++ {
-				if times[i]-times[i-1] > 2 {
-					evidenceComplete = false
-				}
 			}
 		}
 		qualified := evidenceComplete && !sloViolation && stage.Usage.Complete

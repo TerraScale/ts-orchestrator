@@ -92,6 +92,13 @@ func TestRunnerRampPersistsAndStopsAtFirstUnsafeStep(t *testing.T) {
 		if !idPattern.MatchString(id) {
 			t.Fatal("run ID is not a ULID")
 		}
+		if w.Concurrency == 2 {
+			for _, client := range clients {
+				if err := emit(Sample{Type: "measurement_start", Client: client, Region: "gru", TS: now}); err != nil {
+					return err
+				}
+			}
+		}
 		for i := 0; i < 30; i++ {
 			now = now.Add(time.Second)
 			for _, client := range clients {

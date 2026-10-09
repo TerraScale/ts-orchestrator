@@ -151,6 +151,9 @@ func TestSafetyCancellationPrecedesStorageAndOutput(t *testing.T) {
 			g := generatorFunc(func(ctx context.Context, _ string, _ Workload, _ []string, emit func(Sample) error) error {
 				stageCtx = ctx
 				go func() { <-ctx.Done(); close(stopped) }()
+				if err := emit(Sample{Type: "measurement_start", Client: "go", Region: "gru", TS: now}); err != nil {
+					return err
+				}
 				now = now.Add(time.Second)
 				sample := Sample{TS: now, Client: "go", SDK: "go", SDKVersion: "test", Region: "gru", Op: "doc.get", Count: 100, Errors: 2}
 				if mode == "latency" {

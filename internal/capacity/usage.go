@@ -226,7 +226,11 @@ func (s *Store) Query(from, to time.Time, expected []string) (Usage, error) {
 				row = &Row{Node: series.Labels["node"], Service: series.Labels["service"], Environment: series.Labels["environment"]}
 				rows[key] = row
 			}
-			stat := summarize(series.Points, from, to)
+			// Raw timestamps have millisecond precision; keep the window exclusive at its end.
+			points := slices.DeleteFunc(series.Points, func(point observability.Point) bool {
+				return point.Time.Before(from) || !point.Time.Before(to)
+			})
+			stat := summarize(points, from, to)
 			switch metric {
 			case "cpu_usage":
 				row.CPU.Usage = stat
@@ -273,6 +277,9 @@ func (s *Store) Query(from, to time.Time, expected []string) (Usage, error) {
 		}
 	}
 	for _, key := range slices.Sorted(maps.Keys(services)) {
+		if !rowComplete(*services[key]) {
+			result.Complete = false
+		}
 		result.Services = append(result.Services, *services[key])
 	}
 	for _, node := range expected {
@@ -300,7 +307,8 @@ func sumStats(a, b *Stats) *Stats {
 	if a == nil || b == nil {
 		return nil
 	}
-	return &Stats{Mean: a.Mean + b.Mean, Min: a.Min + b.Min, Max: a.Max + b.Max, Samples: min(a.Samples, b.Samples), From: maxTime(a.From, b.From), To: minTime(a.To, b.To), Complete: a.Complete && b.Complete}
+	from, to := maxTime(a.From, b.From), minTime(a.To, b.To)
+	return &Stats{Mean: a.Mean + b.Mean, Min: a.Min + b.Min, Max: a.Max + b.Max, Samples: min(a.Samples, b.Samples), From: from, To: to, Complete: a.Complete && b.Complete && from.Before(to)}
 }
 func maxTime(a, b time.Time) time.Time {
 	if a.After(b) {

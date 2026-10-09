@@ -33,7 +33,8 @@ be read. Such replicas retain their signed requests and unknown usage/limits;
 they remain listed as missing measurements. Unknown adopted requests leave
 node reservation totals unknown.
 
-Raw buckets are five seconds. Coverage requires at least two buckets, with no
+Raw history retains individual host samples. Queries use `[from, to)` bounds.
+Coverage requires at least two samples, with no
 gap larger than one quarter of the query window (bounded to 10–60 seconds).
 Service totals sum replica means. Their summed maxima are a conservative
 upper bound, and summed minimum headroom is a conservative lower bound;
@@ -43,6 +44,10 @@ window incomplete. Dropped-series coverage is tracked for the queried hour,
 conservatively rounded to minutes; healthy later windows recover without a
 controller restart. Longer configured telemetry intervals can therefore
 produce incomplete benchmark windows.
+Service statistics also require overlapping sampled coverage across replicas;
+an empty or inverted intersection leaves service and overall usage incomplete.
+Capacity history limits never reject an otherwise accepted autoscaler report;
+both consumers record independently.
 
 Hosts default to a ten-second telemetry interval; an explicit
 `host.load_telemetry_seconds` chooses 5–3600 seconds. Capacity collection does
@@ -132,6 +137,12 @@ runner saves these per-client boundaries in stage metadata, excludes earlier
 intervals from qualification, and keeps controls out of shared JSONL results.
 Each client's measurement window ends after the stage's configured duration;
 samples at or after that boundary leave qualification incomplete.
+CPU/memory usage is queried over the common measurement window: the latest
+client start through the earliest client end, bounded by stage completion.
+Startup, warmup and cleanup stay outside the verdict's usage window. A safety
+stop records its cancellation time before persistence/output and truncates
+the usage window there. Without a common measured interval, usage and the
+capacity verdict remain unknown; no usage query is issued.
 OCI/SSH/Vault startup and different container start times cannot shift warmup.
 Missing, repeated or contradictory timing markers fail the run. Every run stops immediately
 when an emitted operation has error rate above 1% or p99 above twice target.
@@ -141,12 +152,17 @@ failures remain failures even when a safety threshold also stopped the run.
 A qualified stage needs complete regional usage, at least 30 seconds of
 per-client measurements, the configured measurement duration, all client
 summaries with exactly the workload's operation keys, successful measurement
-evidence for every client/operation, error rate at most 1% and measured p99
+interval coverage and successful measurement evidence for every client/operation,
+error rate at most 1% and measured p99
 at target. Percentiles are
 checked per client/operation; they are never averaged. The capacity figure
 is the sum of measured client counts divided by the full configured measurement
 duration for the highest qualifying stage. Missing intervals consume time in
 that denominator; each summary must agree with its measured rate within 5%.
+Every client/operation must cover at least 30 measurement intervals and all but
+two configured seconds, with no gap above two seconds. Explicit zero-count
+intervals preserve coverage; absent records do not. Repeated records inside
+one client/operation interval fail the run and cannot inflate counts.
 Node or service headroom below 20% identifies CPU or memory pressure; more than 60%
 CPU and memory headroom permits a scale-down recommendation only when the
 final stage qualifies. An earlier qualifying stage retains its maximum

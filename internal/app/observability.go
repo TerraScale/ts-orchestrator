@@ -18,6 +18,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/maintenance"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
@@ -63,6 +64,22 @@ type runtimeObservability struct {
 	// controller's journal stops and is no longer the process recorder.
 	journalCtx  context.Context
 	stopJournal context.CancelFunc
+}
+
+func (r *runtimeObservability) recordHostLoad(load *hostload.Aggregator, origin hostload.Origin, report hostload.Report, requests map[string]hostload.Request) error {
+	var loadErr error
+	if load != nil {
+		loadErr = load.Record(origin, report)
+	}
+	usageErr := r.usage.Record(origin, report, requests)
+	if load == nil {
+		return usageErr
+	}
+	// Optional capacity history must not back off accepted autoscaler telemetry.
+	if usageErr != nil {
+		slog.Debug("capacity history discarded a host report", observability.ComponentKey, "capacity", "node", origin.Node, "error", usageErr)
+	}
+	return loadErr
 }
 
 // startRuntimeObservability installs the structured default logger and
