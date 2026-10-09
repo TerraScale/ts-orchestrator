@@ -13,7 +13,7 @@ consumer peers. Removing the store ownership check cannot fix that.
 
 Preparation keeps all names and identity calculations unchanged. Before
 starting an embedded broker, ts-orch atomically pins the actual Raft ID,
-cell and controller slot in `<store_dir>/node-identity.json`. The record is
+cell and controller slot in `<store_dir>/node-identity.json` with `version: 1`. The record is
 owner-only and synced to disk. Another slot, ID, malformed record or unsafe
 file fails startup. The existing `server-name` ownership check remains.
 

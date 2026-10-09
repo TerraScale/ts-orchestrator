@@ -16,6 +16,7 @@ const nodeIdentityFile = "node-identity.json"
 // nodeIdentity binds a disk to its cell/controller slot and immutable Raft ID,
 // independently of the server's display name.
 type nodeIdentity struct {
+	Version  int    `json:"version"`
 	Cell     string `json:"cell"`
 	Instance string `json:"instance"`
 	NodeID   string `json:"node_id"`
@@ -31,7 +32,7 @@ func pinNodeIdentityWithSync(dir, cell, instance, nodeID string, syncDirectory f
 	if cell == "" || instance == "" || !validNodeID(nodeID) {
 		return fmt.Errorf("%w: invalid Raft store identity", ErrStoreIdentity)
 	}
-	want := nodeIdentity{Cell: cell, Instance: instance, NodeID: nodeID}
+	want := nodeIdentity{Version: 1, Cell: cell, Instance: instance, NodeID: nodeID}
 	path := filepath.Join(dir, nodeIdentityFile)
 	check := func() error {
 		info, err := os.Lstat(path)

@@ -72,7 +72,7 @@ func TestNodeIdentityExistingPinCannotBypassConcurrentDirectorySync(t *testing.T
 }
 
 func TestNodeIdentityRejectsCorruptOrIndirectPins(t *testing.T) {
-	for _, kind := range []string{"partial", "unknown-field", "permissions", "symlink"} {
+	for _, kind := range []string{"partial", "unknown-field", "unversioned", "wrong-version", "permissions", "symlink"} {
 		t.Run(kind, func(t *testing.T) {
 			dir := t.TempDir()
 			if err := pinNodeIdentity(dir, "gru", "controller-a", "abc123XY"); err != nil {
@@ -85,7 +85,15 @@ func TestNodeIdentityRejectsCorruptOrIndirectPins(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "unknown-field":
-				if err := os.WriteFile(path, []byte(`{"cell":"gru","instance":"controller-a","node_id":"abc123XY","extra":true}`), 0o600); err != nil {
+				if err := os.WriteFile(path, []byte(`{"version":1,"cell":"gru","instance":"controller-a","node_id":"abc123XY","extra":true}`), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case "unversioned", "wrong-version":
+				wire := `{"cell":"gru","instance":"controller-a","node_id":"abc123XY"}`
+				if kind == "wrong-version" {
+					wire = `{"version":2,"cell":"gru","instance":"controller-a","node_id":"abc123XY"}`
+				}
+				if err := os.WriteFile(path, []byte(wire), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			case "permissions":
