@@ -92,7 +92,7 @@ terrabase-release-process:
 # Lint the tracked shell scripts (needs shellcheck >= 0.11 on PATH; the
 # ts-builder image ships it).
 shellcheck:
-	git ls-files -z -- 'scripts/*.sh' 'deploy/*.sh' deploy/netbird/manager/netbird-firewall | xargs -0 shellcheck -S warning
+	git ls-files -z -- 'scripts/*.sh' 'deploy/*.sh' scripts/check-dashboard-netbird deploy/netbird/manager/netbird-firewall | xargs -0 shellcheck -S warning
 
 # The ts-ops NetBird store backup script carries its own self-check.
 netbird-backup-check:

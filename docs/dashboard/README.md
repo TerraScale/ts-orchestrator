@@ -90,6 +90,36 @@ firewall inspected before changing anything. An HTTP 401 needs the current
 token for that region. Do not add public ingress or hide a DNS failure with
 `curl --resolve`.
 
+### TS-740 strict acceptance checker
+
+Run `nice -n 19 bash scripts/check-dashboard-netbird` locally on delta, beta
+or mariogk-dev (`NB='sudo -n netbird-wt0'` on the NixOS dev VM). Other
+source hosts are rejected before any network command.
+It checks A/AAAA peer identity, TCP 9463 and HTTP over IPv4, IPv6 and native
+DNS, fetching regional tokens privately from OCI Vault. All DNS answers must
+belong to the intended peer; HTTP responses must report that peer's address.
+Every authenticated request, including direct IPv4, requires one inventory
+peer matching the controller FQDN and expected IPv4. Missing, mismatched or
+ambiguous inventory suppresses token requests while retaining unauthenticated
+probes and expected-IP listener diagnostics. The selected connected client's
+local address must identify one kernel WireGuard interface. Before each token
+request, the selected route must use that interface; curl binds to it with
+`--interface if!<name>`. Missing interfaces, disconnected clients, ambiguous
+addresses and routes through another device fail closed. `NB` wrappers and
+alternate interface names are supported through discovery from client status
+and local interface addresses.
+Authenticated name requests run only after DNS and the native-name health
+probe pass, and use `curl --resolve` to pin that validated DNS result for
+credential safety. Failed native DNS is never replaced with inventory values. Failed controllers
+get a bounded `netbird ssh --no-browser root@<expected-IPv4>`
+listener query using `ss -ltnp` directly, even when native DNS fails; it never starts an
+SSO browser or establishes a new NetBird login.
+
+TS-740 still requires topology JSON with a nonempty `nodes` array. The current
+`/topology` browser page returns HTML/SVG, so this strict checker returns 1
+even when transport and authenticated HTTP 200 pass. Resolving that acceptance
+contract requires an explicit COS decision.
+
 ## Pages
 
 | Page | What it shows |

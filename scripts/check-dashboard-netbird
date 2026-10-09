@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+# Read-only TS-740 acceptance check. Run only on delta, beta or mariogk-dev:
+#   nice -n 19 bash scripts/check-dashboard-netbird
+# Requires bash, getent, timeout, nc, curl, jq, oci and netbird.
+# Never starts a browser, logs in to NetBird or connects to an operator desktop.
+# Uses the operator's OCI config; tokens are never printed or passed in argv.
+set +x
+set -euo pipefail
+umask 077
+
+case $(hostname -s) in
+	delta|beta|mariogk-dev) ;;
+	*) printf 'Run only on delta, beta or mariogk-dev.\n' >&2; exit 2 ;;
+esac
+
+read -r -a netbird_command <<< "${NB:-netbird}"
+for tool in getent timeout nc curl jq oci base64 ip "${netbird_command[0]}"; do
+	command -v "$tool" >/dev/null || { printf 'Missing prerequisite: %s\n' "$tool" >&2; exit 2; }
+done
+scratch=$(mktemp -d)
+trap 'rm -rf -- "$scratch"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+token_header() {
+	local region=$1 vault=$2 secret=$3 token
+	if ! token=$(timeout 30 oci --region "$region" secrets secret-bundle get-secret-bundle-by-name \
+		--vault-id "$vault" --secret-name "$secret" \
+		--query 'data."secret-bundle-content".content' --raw-output 2>/dev/null | base64 --decode 2>/dev/null); then
+		printf 'Vault token unavailable: %s\n' "$secret" >&2
+		return
+	fi
+	# Reject control characters and curl header injection; do not echo the value.
+	if [[ -z $token || $token == *[[:space:][:cntrl:]]* ]]; then
+		printf 'Vault token invalid: %s\n' "$secret" >&2
+		return
+	fi
+	printf 'Authorization: Bearer %s\n' "$token" > "$scratch/$secret.header"
+}
+
+http_check() {
+	local url=$1 header=${2:-} status nodes remote expected=${3:-} pin=${4:-}
+	local name=$5 via=$6 ipv6=$7 interface=${8:-}
+	local args=(--disable --silent --noproxy '*' --connect-timeout 3 --max-time 10 --output "$scratch/body" --write-out '%{http_code} %{remote_ip}')
+	if [[ -n $header ]]; then
+		[[ -s $header ]] || { printf 'NO-TOKEN'; return; }
+		[[ -n $interface ]] || { printf 'TRANSPORT-FAIL'; return; }
+		args+=(--interface "if!$interface")
+		# Pin only after native DNS validation; never re-resolve with a token.
+		[[ -z $pin ]] || args+=(--resolve "$name:9463:$pin")
+		args+=(--header "@$header" --header 'Accept: application/json')
+	fi
+	if ! status=$(curl "${args[@]}" "$url" 2>/dev/null); then
+		printf 'CONNECT-FAIL'; return
+	else
+		remote=${status#* }; status=${status%% *}
+		[[ $remote != *:* ]] || remote=$(normalize_ipv6 "$remote")
+		if [[ $remote != "$expected" && ! ( $via == name && $remote == "$ipv6" && -n $ipv6 ) ]]; then
+			printf 'WRONG-PEER'; return
+		fi
+		printf '%s' "$remote" > "$scratch/remote"
+	fi
+	if [[ $status != 200 ]]; then
+		printf 'HTTP-%s' "$status"
+	elif [[ -z $header ]]; then
+		printf 'PASS'
+	# TS-740 explicitly requires JSON with nodes. The existing HTML route is
+	# an acceptance failure for TS-740, even when its HTTP status is 200.
+	elif nodes=$(jq -er -s 'if length == 1 and (.[0] | type) == "object" and (.[0].nodes | type) == "array" and (.[0].nodes | length) > 0 then .[0].nodes | length else error("missing nodes") end' "$scratch/body" 2>/dev/null); then
+		printf 'PASS(%s nodes)' "$nodes"
+	else
+		printf 'HTTP-200/INVALID-JSON'
+	fi
+}
+
+normalize_ipv6() {
+	local address=${1%%/*}
+	[[ $address == *:* && $address != *[!0-9a-fA-F:.]* ]] || return 0
+	# getent formats numeric addresses canonically, just like DNS answers.
+	timeout 5 getent ahostsv6 "$address" 2>/dev/null | awk '$2 == "STREAM" && /:/ && !/^::ffff:/ {print $1; exit}' || true
+}
+
+transport_ok() {
+	local address=$1 interface=$2
+	[[ -n $interface ]] || return 1
+	timeout 5 ip -j route get "$address" 2>/dev/null | jq -e --arg interface "$interface" \
+		'length == 1 and .[0].dev == $interface' >/dev/null 2>&1
+}
+
+printf 'Dashboard NetBird check: %s; source: %s\n\n' "$(date -u +%FT%TZ)" "$(hostname)"
+if ! timeout 10 "${netbird_command[@]}" status --json > "$scratch/peers.json" 2>/dev/null; then
+	printf '{}\n' > "$scratch/peers.json"
+	printf 'NetBird peer inventory unavailable; authenticated requests will be skipped.\n' >&2
+fi
+client_ip=$(jq -er 'select(.daemonStatus == "Connected") | .netbirdIp | split("/")[0]' "$scratch/peers.json" 2>/dev/null || true)
+nb_interface=
+if [[ -n $client_ip ]]; then
+	nb_interface=$(timeout 5 ip -d -j addr show 2>/dev/null | jq -er --arg ip "$client_ip" \
+		'[.[] | select(any(.addr_info[]?; .local == $ip))] | if length == 1 and .[0].linkinfo.info_kind == "wireguard" then .[0].ifname else empty end' 2>/dev/null || true)
+fi
+printf 'Token transport interface: %s\n\n' "${nb_interface:-UNVERIFIED}"
+token_header sa-saopaulo-1 \
+	ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq gru-1-orch-dashboard-token
+token_header us-sanjose-1 \
+	ocid1.vault.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrzcofqki6a5podtjnhvyiol7yqehrd77tp2hoeynxp5wozv54mq6a sfo-1-orch-dashboard-token
+
+printf '| Controller | A | AAAA | Via | Address | TCP 9463 | /healthz | /topology JSON | Result |\n'
+printf '|---|---|---|---|---|---|---|---|---|\n'
+failed=0 rows=0
+while read -r controller ipv4; do
+	name="$controller.nb.ts.internal"
+	a=$(timeout 5 getent ahostsv4 "$name" 2>/dev/null | awk '$2 == "STREAM" {print $1}' | sort -u || true)
+	aaaa=$(timeout 5 getent ahostsv6 "$name" 2>/dev/null | awk '$2 == "STREAM" && /:/ && !/^::ffff:/ {print $1}' | sort -u || true)
+	peer=$(jq -er --arg ip "$ipv4" --arg name "$name" \
+		'[.peers.details[] | select(.fqdn == $name and (.netbirdIp | split("/")[0]) == $ip)] | if length == 1 then .[0] else empty end' \
+		"$scratch/peers.json" 2>/dev/null || true)
+	identity=FAIL
+	[[ -z $peer ]] || identity=PASS
+	ipv6=$(jq -r '.netbirdIpv6 // empty' <<< "$peer" 2>/dev/null || true)
+	aaaa=$(while read -r answer; do
+		canonical=$(normalize_ipv6 "$answer")
+		printf '%s\n' "${canonical:-INVALID}"
+	done <<< "$aaaa" | sort -u)
+	ipv6=$(normalize_ipv6 "$ipv6")
+	dns4=FAIL dns6=FAIL controller_failed=0
+	[[ $a == "$ipv4" ]] && dns4=PASS
+	[[ -n $ipv6 && $aaaa == "$ipv6" ]] && dns6=PASS
+	region=${controller#ts-}; region=${region%-*}
+	for via in IPv4 IPv6 name; do
+		rows=$((rows + 1))
+		family=()
+		case $via in
+			IPv4) address=$ipv4; authority=$ipv4; family=(-4) ;;
+			IPv6) address=${ipv6:-MISSING}; authority="[$address]"; family=(-6) ;;
+			name) address=$name; authority=$name ;;
+		esac
+		tcp=FAIL health=MISSING topology=MISSING result=FAIL
+		expected=$address; [[ $via != name ]] || expected=$ipv4
+		if [[ $address != MISSING ]]; then
+			if timeout 5 nc "${family[@]}" -z -w 3 "$address" 9463 >/dev/null 2>&1; then tcp=PASS; fi
+			health=$(http_check "http://$authority:9463/healthz" "" "$expected" "" "$name" "$via" "$ipv6")
+			if [[ $identity != PASS || $health != PASS || ( $via == name && ( $dns4 != PASS || $dns6 != PASS ) ) ]]; then
+				topology=IDENTITY-FAIL
+			else
+				pin='' auth_address=$address
+				if [[ $via == name ]]; then
+					auth_address=$(cat "$scratch/remote")
+					pin=$auth_address
+					[[ $pin != *:* ]] || pin="[$pin]"
+				fi
+				if transport_ok "$auth_address" "$nb_interface"; then
+					topology=$(http_check "http://$authority:9463/topology" "$scratch/$region-1-orch-dashboard-token.header" "$expected" "$pin" "$name" "$via" "$ipv6" "$nb_interface")
+				else
+					topology=TRANSPORT-FAIL
+				fi
+			fi
+		fi
+		if [[ $dns4 == PASS && $dns6 == PASS && $tcp == PASS && $health == PASS && $topology == PASS\(* ]]; then
+			result=PASS
+		else
+			failed=$((failed + 1)); controller_failed=1
+		fi
+		printf '| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
+			"$controller" "$dns4" "$dns6" "$via" "$address" "$tcp" "$health" "$topology" "$result"
+	done
+	if ((controller_failed)); then
+		# Capture one read-only listener diagnostic per failing controller.
+		printf 'Expected IPv4: %s; inventory identity: %s.\n' "$ipv4" "$identity" > "$scratch/$controller.listen"
+		if ! timeout 15 "${netbird_command[@]}" ssh --no-browser "root@$ipv4" \
+			'ss -ltnp | grep 9463' </dev/null >> "$scratch/$controller.listen" 2>/dev/null; then
+			printf 'Listener query failed (SSH authentication, timeout or no 9463 listener).\n' >> "$scratch/$controller.listen"
+		fi
+	fi
+done <<'CONTROLLERS'
+ts-gru-1 10.200.87.215
+ts-gru-2 10.200.38.135
+ts-gru-3 10.200.168.164
+ts-sfo-1 10.200.112.213
+ts-sfo-2 10.200.122.37
+ts-sfo-3 10.200.63.195
+CONTROLLERS
+
+for listen in "$scratch"/*.listen; do
+	[[ -f $listen ]] || continue
+	controller=${listen##*/}; controller=${controller%.listen}
+	printf '\n%s remote listen address (NetBird SSH):\n```text\n' "$controller"
+	cat "$listen"
+	printf '```\n'
+done
+printf '\nResult: %s/%s acceptance rows passed.\n' "$((rows - failed))" "$rows"
+((failed == 0))
