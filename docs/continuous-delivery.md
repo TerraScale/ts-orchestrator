@@ -681,6 +681,10 @@ storage is discarded and the cell is rebootstrapped, with releases published
 afresh; there is no migration, backfill, or compatibility reader.
 Bootstrap each cell with the updated binary and unversioned regional IAM
 policies before re-enabling fleet deployment or pruning.
+During this reset, discard the previous `TS_RELEASE_CHANNEL` KV bucket and
+obsolete head-bucket release objects for both orchestrator and service roles.
+Keep fleet deployment and pruning paused until every region has the new
+leader, then publish fresh channels and service claims before resuming them.
 
 1. `ci.yml` on `main` dispatches `deploy.yml` after the image dispatch, only
    while the repository variable `TS_AUTO_DEPLOY_CELLS` is set. It refuses

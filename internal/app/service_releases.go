@@ -91,7 +91,7 @@ type serviceReleaseState struct {
 	// Retained protects the last release while a newer claim is refused
 	// before the leader resolves its actual serving rollback target.
 	Retained []string         `json:"retained,omitempty"`
-	Intent   *delivery.Intent `json:"intent,omitempty"` // set once submitted
+	Intent   *delivery.Intent `json:"intent,omitempty"` // persisted before submission
 	// Rollback is set once the release failed its gate and the rollback
 	// to Previous is submitted; a new leader finishes it.
 	Rollback *delivery.Intent `json:"rollback,omitempty"`
@@ -167,7 +167,8 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 			next := serviceReleaseState{Claim: hex.EncodeToString(sum[:]), Previous: state.Previous, State: releasechannel.StateRolling,
 				Reason: "admitting the release"}
 			next.Retained = slices.Clone(state.Retained)
-			if state.Digest != "" {
+			// Only a persisted intent means this digest could have reached hosts.
+			if state.Intent != nil && state.Digest != "" {
 				next.Retained = append(next.Retained, state.Digest)
 			}
 			slices.Sort(next.Retained)

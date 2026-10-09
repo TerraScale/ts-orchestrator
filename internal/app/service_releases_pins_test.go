@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/oklog/ulid/v2"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
@@ -97,6 +99,7 @@ func TestServiceReleasePinsInvalidClaimPreservesState(t *testing.T) {
 	ctx, role := t.Context(), terrabase.Role
 	state := serviceReleaseState{Claim: strings.Repeat("1", 64), Digest: strings.Repeat("f", 64),
 		Previous: strings.Repeat("a", 64), IssuedAt: time.Now().UTC(), State: releasechannel.StateComplete}
+	state.Intent = &delivery.Intent{OperationID: ulid.Make().String(), ArtifactDigest: state.Digest}
 	key := releasechannel.ServiceStatusKey("GRU", role)
 	revision, err := saveServiceRelease(ctx, kv, key, state, 0)
 	if err != nil {

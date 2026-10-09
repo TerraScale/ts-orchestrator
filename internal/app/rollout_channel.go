@@ -161,6 +161,7 @@ func (c *rolloutControl) consumeUpdates(ctx context.Context, store *rollout.Stor
 	kv jetstream.KeyValue, watcher jetstream.KeyWatcher,
 ) {
 	var latest []byte
+	initialized := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -169,14 +170,17 @@ func (c *rolloutControl) consumeUpdates(ctx context.Context, store *rollout.Stor
 			if !ok {
 				return
 			}
-			if entry == nil {
-				continue
-			}
-			latest = nil
-			if entry.Operation() == jetstream.KeyValuePut {
-				latest = entry.Value()
+			initialized = true
+			if entry != nil {
+				latest = nil
+				if entry.Operation() == jetstream.KeyValuePut {
+					latest = entry.Value()
+				}
 			}
 		case <-c.ticks:
+			if !initialized {
+				continue
+			}
 		}
 		snapshot := fencer.Current()
 		if !snapshot.CanMutate() {
