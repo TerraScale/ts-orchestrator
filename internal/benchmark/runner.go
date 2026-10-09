@@ -208,7 +208,7 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 		case persistenceErr = <-persisted:
 		case <-drainCtx.Done():
 			// ponytail: a blocked writer outlives this CLI run; require cancellable output before service reuse.
-			persistenceErr = errors.New("benchmark result drain timed out")
+			persistenceErr = errResultDrainTimeout
 		}
 		drainCancel()
 		cancelPersistence()

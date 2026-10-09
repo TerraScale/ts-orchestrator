@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -185,5 +187,27 @@ func TestPendingResultsDrainInOrderBeforeUsageAndFinalRun(t *testing.T) {
 		if !sample.TS.Equal(repo.results[0].TS.Add(time.Duration(i) * time.Second)) {
 			t.Fatal("persistence reordered samples")
 		}
+	}
+}
+
+func TestFailedResultOutputRetainsReportWithoutRetryingWriter(t *testing.T) {
+	for _, failure := range []error{errResultOutput, errResultDrainTimeout} {
+		t.Run(failure.Error(), func(t *testing.T) {
+			root := t.TempDir()
+			run := Run{ID: newID(), Region: "gru", Workload: workload(t), Started: time.Now().UTC(), Status: "failed", Verdict: Verdict{Scale: "unknown"}}
+			out := writerFunc(func([]byte) (int, error) {
+				t.Error("reporting retried the unavailable result writer")
+				return 0, errors.New("output unavailable")
+			})
+			err := finishRun(root, out, run, errors.Join(context.Canceled, failure))
+			if !errors.Is(err, failure) || !errors.Is(err, context.Canceled) {
+				t.Fatalf("output failure lost: %v", err)
+			}
+			path := filepath.Join(root, run.Region, run.Started.Format("2006-01-02")+"-"+run.Workload.Name+".md")
+			data, err := os.ReadFile(path)
+			if err != nil || !bytes.Contains(data, []byte(run.ID)) || !bytes.Contains(data, []byte(`"status":"failed"`)) {
+				t.Fatalf("failed-run report was lost: %s %v", data, err)
+			}
+		})
 	}
 }

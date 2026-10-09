@@ -140,7 +140,9 @@ output. One consumer preserves order, with a 256-record queue and a 30-second
 deadline per save. Queue overflow cancels load and fails the run. Pending results
 must drain before usage and final run persistence, within 30 seconds after
 generator cleanup. A blocked output writer cannot be forcibly interrupted;
-drain timeout fails the CLI run and cancels remaining saves. Every
+drain timeout fails the CLI run and cancels remaining saves. Output failure or
+drain timeout still saves the local report and skips subsequent writes to the
+unavailable output. Every
 run is a plain ULID. The `benchmark` database has `runs`, `results` and
 `usage` collections; results and usage refer to `run_id` and stage number.
 Run metadata includes the final capacity verdict, not duplicate raw result

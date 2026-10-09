@@ -161,18 +161,22 @@ func CLI(ctx context.Context, args []string, out io.Writer) error {
 		Job: Job{Region: *region, InstanceID: settings.Generator.InstanceID, Images: settings.Images, ClientID: settings.ClientID, ClientSecret: settings.ClientSecret, AuthOrigin: settings.AuthOrigin, AuthTenant: settings.AuthTenant}}
 	runner := Runner{Generator: generator, Repository: repository, Usage: usage.Query}
 	run, runErr := runner.Execute(ctx, *region, workload, clients, out)
-	if run.ID != "" {
-		if err := WriteVerdict(out, run); err != nil {
-			runErr = errors.Join(runErr, err)
-		}
-		path, err := writeReport(*reports, run)
-		if err != nil {
-			runErr = errors.Join(runErr, err)
-		} else {
-			if _, err := fmt.Fprintln(out, path); err != nil {
-				runErr = errors.Join(runErr, err)
-			}
-		}
+	return finishRun(*reports, out, run, runErr)
+}
+
+func finishRun(reports string, out io.Writer, run Run, runErr error) error {
+	if run.ID == "" {
+		return runErr
+	}
+	path, reportErr := writeReport(reports, run)
+	runErr = errors.Join(runErr, reportErr)
+	if errors.Is(runErr, errResultDrainTimeout) || errors.Is(runErr, errResultOutput) {
+		return runErr
+	}
+	runErr = errors.Join(runErr, WriteVerdict(out, run))
+	if reportErr == nil {
+		_, err := fmt.Fprintln(out, path)
+		runErr = errors.Join(runErr, err)
 	}
 	return runErr
 }

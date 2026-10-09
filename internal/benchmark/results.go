@@ -3,6 +3,7 @@ package benchmark
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -10,6 +11,9 @@ import (
 
 const resultQueueSize = 256
 const resultDrainTimeout = 30 * time.Second
+
+var errResultDrainTimeout = errors.New("benchmark result drain timed out")
+var errResultOutput = errors.New("stream benchmark result")
 
 func (r Runner) persistResults(ctx context.Context, runID string, stage int, pending <-chan Sample, out io.Writer) error {
 	encoder := json.NewEncoder(out)
@@ -27,7 +31,7 @@ func (r Runner) persistResults(ctx context.Context, runID string, stage int, pen
 			return err
 		}
 		if err := encoder.Encode(sample); err != nil {
-			return fmt.Errorf("stream benchmark result: %w", err)
+			return fmt.Errorf("%w: %w", errResultOutput, err)
 		}
 	}
 	return nil
