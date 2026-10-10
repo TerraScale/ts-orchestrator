@@ -53,7 +53,7 @@ like the cell's other buckets, history 1:
   "currency": "BRL",
   "observed_at": "2026-10-10T19:00:00Z",
   "through": "2026-10-08T00:00:00Z",
-  "days": [{"day": "2026-10-01", "cents": 267}],
+  "days": [{"day": "2026-10-01T00:00:00Z", "cents": 267}],
   "services": [{"name": "Block Storage", "cents": 807}],
   "components": [{"name": "terrabase", "cents": 437}]
 }
@@ -78,7 +78,7 @@ collector's error shows on the dashboard; no per-region statement is added.
 
 Slice: collector.
 
-`ocicost.Project(report, now, pendingDailyCents)`:
+`ocicost.Project(report, now, hosts)`, where hosts are the autoscaled hosts with their creation time and monthly list price:
 
 | Number | Method |
 | --- | --- |
@@ -89,7 +89,8 @@ Slice: collector.
 | Next month | (daily rate + pending) × days in next month. |
 
 Hosts removed during the window still count in the average until it moves
-past them, so the forecast errs high, never low.
+past them, so a scale-down shows late. A region whose cost is ramping up (a
+new region) forecasts low until its complete days catch up; usage data lags 48 h.
 
 ## Budget cap
 
