@@ -45,6 +45,9 @@ type Material struct {
 	CA, ControllerIssuer                                 Authority
 	// RoleSignerID is the role-scoped account signer.
 	RoleSignerID string
+	// Region is the cell token whose hosts the host issuer and scope serve;
+	// New's is gru.
+	Region string
 }
 
 // Certificate issues template under parent, or self-signed when parent is
@@ -87,37 +90,42 @@ func ControllerIssuer(now, notAfter time.Time) *x509.Certificate {
 }
 
 // HostIssuer is the host TLS issuer template of cell gru, as hostenroll loads it.
-func HostIssuer(now, notAfter time.Time) *x509.Certificate {
-	template := CA("TerraScale gru host issuer", now, notAfter)
+func HostIssuer(now, notAfter time.Time) *x509.Certificate { return hostIssuer("gru", now, notAfter) }
+
+func hostIssuer(region string, now, notAfter time.Time) *x509.Certificate {
+	template := CA("TerraScale "+region+" host issuer", now, notAfter)
 	template.MaxPathLenZero = true
 	template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
 	template.PermittedDNSDomainsCritical = true
-	template.PermittedDNSDomains = []string{".hosts.gru.terrascale.internal"}
-	template.PermittedURIDomains = []string{"hosts.gru.terrascale.internal"}
+	template.PermittedDNSDomains = []string{".hosts." + region + ".terrascale.internal"}
+	template.PermittedURIDomains = []string{"hosts." + region + ".terrascale.internal"}
 	return template
 }
 
 // New builds material valid for a year from now, for cell gru: a cell CA,
 // controller and host issuers under it, and the operator, system and cell
 // account JWTs with the host scope and a controller account signer.
-func New(t testing.TB, now time.Time) Material {
+func New(t testing.TB, now time.Time) Material { return NewCell(t, now, "gru") }
+
+// NewCell is New for the cell whose token is region.
+func NewCell(t testing.TB, now time.Time, region string) Material {
 	t.Helper()
 	operator, _ := nkeys.CreateOperator()
 	system, _ := nkeys.CreateAccount()
 	cell, _ := nkeys.CreateAccount()
 	hostSigner, _ := nkeys.CreateAccount()
-	return Rollover(t, now, Material{Operator: operator, System: system, Cell: cell, HostSigner: hostSigner})
+	return Rollover(t, now, Material{Operator: operator, System: system, Cell: cell, HostSigner: hostSigner, Region: region})
 }
 
 // Rollover builds a new CA, issuers and account signer for the NATS
 // operator, system and cell accounts and host signer of previous.
 func Rollover(t testing.TB, now time.Time, previous Material) Material {
 	t.Helper()
-	operator, system, cell, hostSigner := previous.Operator, previous.System, previous.Cell, previous.HostSigner
+	operator, system, cell, hostSigner, region := previous.Operator, previous.System, previous.Cell, previous.HostSigner, previous.Region
 	year := now.AddDate(1, 0, 0)
 	ca, caPEM, _ := Certificate(t, CA("TerraScale gru controller CA", now, year), nil)
 	controllerIssuer, controllerCert, controllerKey := Certificate(t, ControllerIssuer(now, year.Add(-time.Hour)), &ca)
-	_, hostCert, hostKey := Certificate(t, HostIssuer(now, year.Add(-time.Hour)), &ca)
+	_, hostCert, hostKey := Certificate(t, hostIssuer(region, now, year.Add(-time.Hour)), &ca)
 	signer, _ := nkeys.CreateAccount()
 	operatorID, _ := operator.PublicKey()
 	systemID, _ := system.PublicKey()
@@ -138,7 +146,7 @@ func Rollover(t testing.TB, now time.Time, previous Material) Material {
 	cellClaims.Expires = year.Unix()
 	cellClaims.Limits.JetStreamLimits = jwt.JetStreamLimits{MemoryStorage: jwt.NoLimit, DiskStorage: jwt.NoLimit,
 		Streams: jwt.NoLimit, Consumer: jwt.NoLimit}
-	cellClaims.SigningKeys.AddScopedSigner(bootstrapmaterial.HostScope("gru", hostSignerID))
+	cellClaims.SigningKeys.AddScopedSigner(bootstrapmaterial.HostScope(region, hostSignerID))
 	cellClaims.SigningKeys.Add(signerID)
 	cellJWT, _ := cellClaims.Encode(operator)
 	user, _ := nkeys.CreateUser()
@@ -147,7 +155,7 @@ func Rollover(t testing.TB, now time.Time, previous Material) Material {
 	userClaims := jwt.NewUserClaims(userID)
 	userClaims.Expires = year.Unix()
 	userClaims.Pub.Allow = jwt.StringList{"$SYS.REQ.ACCOUNT." + cellID + ".CLAIMS.UPDATE"}
-	userClaims.Sub.Allow = jwt.StringList{protocol.InboxGrant("gru", userID)}
+	userClaims.Sub.Allow = jwt.StringList{protocol.InboxGrant(region, userID)}
 	userJWT, _ := userClaims.Encode(system)
 	systemCreds, _ := jwt.FormatUserConfig(userJWT, userSeed)
 	return Material{Files: map[string][]byte{
@@ -157,7 +165,7 @@ func Rollover(t testing.TB, now time.Time, previous Material) Material {
 		"controller-tls-issuer-cert.pem": controllerCert, "controller-tls-issuer-key.pem": controllerKey,
 		"controller-account-signer.seed": append(signerSeed, '\n'),
 	}, OperatorID: operatorID, SystemID: systemID, CellID: cellID, HostSignerID: hostSignerID, SignerID: signerID,
-		Operator: operator, System: system, Cell: cell, HostSigner: hostSigner, Signer: signer,
+		Operator: operator, System: system, Cell: cell, HostSigner: hostSigner, Signer: signer, Region: region,
 		CA: ca, ControllerIssuer: controllerIssuer}.withRoleSigner(t)
 }
 
@@ -371,6 +379,47 @@ func (material Material) InterRegion(t testing.TB, now time.Time, slots []string
 						ServerName:      "leaf.gru.interregion.terrascale.internal",
 						CredentialsFile: directory + "leaf-sfo.creds", PeerAccount: parentID, TLS: leafTLS}}}}}},
 			json.Deterministic(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files["controller-"+slot+".json"] = config
+	}
+	return material.With(files)
+}
+
+// Link adds the region link (TS-803): cell.jwt with the link signer, the
+// interregion CA, each slot's leaf TLS and a controller config with a link
+// block, and outside the home link.creds for another account.
+func (material Material) Link(t testing.TB, now time.Time, slots []string) Material {
+	t.Helper()
+	year := now.AddDate(1, 0, 0)
+	signer, _ := nkeys.CreateAccount()
+	signerID, _ := signer.PublicKey()
+	ca, caPEM, _ := Certificate(t, CA("TerraScale interregion CA", now, year), nil)
+	files := map[string][]byte{"interregion-ca.pem": caPEM,
+		"cell.jwt": material.Account(t, "cell.jwt", func(claims *jwt.AccountClaims) { natscell.ApplyLink(claims, signerID) })}
+	const directory = bootstrap.MaterialDirectory + "/"
+	var credentials string
+	if material.Region != natscell.LinkHome {
+		home, _ := nkeys.CreateAccount()
+		homeID, _ := home.PublicKey()
+		creds, err := natscell.IssueLinkUser(signer, homeID, material.Region, now, year)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[bootstrap.LinkCredentialsFile], credentials = creds, directory+bootstrap.LinkCredentialsFile
+	}
+	for _, slot := range slots {
+		certName, keyName := bootstrap.InterRegionTLSFiles(slot)
+		_, files[certName], files[keyName] = Certificate(t, &x509.Certificate{Subject: pkix.Name{CommonName: material.Region + "-" + slot},
+			DNSNames: []string{"leaf." + material.Region + ".interregion.terrascale.internal"}, NotBefore: now.Add(-time.Hour),
+			NotAfter: year, KeyUsage: x509.KeyUsageDigitalSignature,
+			ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}, &ca)
+		config, err := json.Marshal(map[string]any{"version": 1, "controller": map[string]any{"candidate_id": slot},
+			"nats": natscell.Config{Cell: material.Region, Instance: slot, Embedded: &natscell.Embedded{
+				CellJWTFile: directory + "cell.jwt", SystemJWTFile: directory + "system.jwt",
+				Link: &natscell.Link{CredentialsFile: credentials, TLS: natscell.TLSFiles{CAFile: directory + "interregion-ca.pem",
+					CertFile: directory + certName, KeyFile: directory + keyName}}}}}, json.Deterministic(true))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -438,6 +438,17 @@ func (install *generationInstall) adoptInterRegion(manifestSHA256 string) (gener
 	t := install.t
 	t.Helper()
 	material := install.material.WithoutIssuers(t).InterRegion(t, time.Now(), install.expected.ControllerSlots)
+	config := install.adoptMaterial(material, manifestSHA256)
+	install.credential.Config.Embedded.InterRegion = embeddedBlock(t, config, install.dir).InterRegion
+	return material, config
+}
+
+// adoptMaterial installs material's generation 1 for controller-a, every
+// slot's config bound to manifestSHA256 or else the acceptance, and returns
+// controller-a's config.
+func (install *generationInstall) adoptMaterial(material generationtest.Material, manifestSHA256 string) []byte {
+	t := install.t
+	t.Helper()
 	generation := material.Generation(install.expected, 1, "")
 	for index := range generation.ControllerConfigs {
 		generation.ControllerConfigs[index].AcceptanceSHA256 = install.acceptance()
@@ -460,13 +471,11 @@ func (install *generationInstall) adoptInterRegion(manifestSHA256 string) (gener
 		t.Fatal(err)
 	}
 	install.write(MaterialGenerationsFile, wire)
-	config := material.Files["controller-controller-a.json"]
-	install.credential.Config.Embedded.InterRegion = interRegionBlock(t, config, install.dir)
-	return material, config
+	return material.Files["controller-controller-a.json"]
 }
 
-// interRegionBlock is config's interregion block with its files in dir.
-func interRegionBlock(t *testing.T, config []byte, dir string) *natscell.InterRegion {
+// embeddedBlock is config's embedded broker block with its files in dir.
+func embeddedBlock(t *testing.T, config []byte, dir string) *natscell.Embedded {
 	t.Helper()
 	var loaded struct {
 		NATS natscell.Config `json:"nats"`
@@ -475,7 +484,7 @@ func interRegionBlock(t *testing.T, config []byte, dir string) *natscell.InterRe
 	if err := protocol.DecodeTolerant([]byte(local), &loaded, bootstrap.MaxControllerConfigBytes); err != nil {
 		t.Fatal(err)
 	}
-	return loaded.NATS.Embedded.InterRegion
+	return loaded.NATS.Embedded
 }
 
 // The v1 contract as gru-1 and sfo-1 adopt it (TS-668). Without controller issuers
@@ -551,8 +560,34 @@ func TestRestartPinsAdoptWithRoleSignerInterRegion(t *testing.T) {
 		t.Error("accepted a config bound to another manifest")
 	}
 	plain := newGenerationInstall(t)
-	plain.credential.Config.Embedded.InterRegion = interRegionBlock(t, config, plain.dir)
+	plain.credential.Config.Embedded.InterRegion = embeddedBlock(t, config, plain.dir).InterRegion
 	if err := plain.verify(pinnedIP); err == nil {
 		t.Error("accepted interregion files without an adopted generation")
+	}
+}
+
+// The home's link (TS-803) pins the interregion CA and the slot's leaf TLS;
+// the loaded config's link block gives them their role, and only them.
+func TestRestartPinsAdoptLink(t *testing.T) {
+	newInstall := func() *generationInstall {
+		install := newGenerationInstall(t)
+		install.manifest.ControllerConfigSHA256 = digest([]byte(oldConfig))
+		material := install.material.WithoutIssuers(t).Link(t, time.Now(), install.expected.ControllerSlots)
+		install.loaded = install.adoptMaterial(material, "")
+		install.credential.Config.Embedded.Link = embeddedBlock(t, install.loaded, install.dir).Link
+		return install
+	}
+	if err := newInstall().verify(pinnedIP); err != nil {
+		t.Fatalf("the link's files: %v", err)
+	}
+	for name, change := range map[string]func(*natscell.Link, string){
+		"a regional file as the link CA":   func(link *natscell.Link, dir string) { link.TLS.CAFile = filepath.Join(dir, "ca.pem") },
+		"link credentials it does not pin": func(link *natscell.Link, dir string) { link.CredentialsFile = filepath.Join(dir, "link.creds") },
+	} {
+		install := newInstall()
+		change(install.credential.Config.Embedded.Link, install.dir)
+		if err := install.verify(pinnedIP); err == nil {
+			t.Errorf("accepted %s", name)
+		}
 	}
 }

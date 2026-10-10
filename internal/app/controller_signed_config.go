@@ -207,11 +207,11 @@ func validateControllerConfig(manifest controllerConfigBinding, observedPrivateI
 			return Config{}, fmt.Errorf("controller credential %s is absent from signed material", name)
 		}
 	}
-	// Interregion files come from an adopted material generation, whose pins
-	// restart admission checks (TS-668); they too live in the directory.
-	for _, path := range cfg.NATS.Embedded.InterRegion.Files() {
+	// Interregion and link files come from an adopted material generation, whose
+	// pins restart admission checks (TS-668); they too live in the directory.
+	for _, path := range append(cfg.NATS.Embedded.InterRegion.Files(), cfg.NATS.Embedded.Link.Files()...) {
 		if path != filepath.Join(bootstrapstart.MaterialDirectory, filepath.Base(path)) {
-			return Config{}, errors.New("interregion credential path escapes the signed material directory")
+			return Config{}, errors.New("interregion or link credential path escapes the signed material directory")
 		}
 	}
 	// The C# TerraBase member CA is host-issuer material: configured exactly

@@ -159,10 +159,10 @@ func (check LiveCredentials) verifyPaths(expected MaterialPins, slot, seedSlot s
 		}
 		paths = append(paths, check.TerraBaseCACertFile, check.TerraBaseCAKeyFile)
 	}
-	// Interregion files must belong to the accepted baseline or adopted generation.
-	for _, path := range e.InterRegion.Files() {
+	// Interregion and link files must belong to the accepted baseline or adopted generation.
+	for _, path := range append(e.InterRegion.Files(), e.Link.Files()...) {
 		if !expected.interRegion(filepath.Base(path)) {
-			return fmt.Errorf("%w: interregion credential path is not pinned by the adopted generation", ErrLiveCredentials)
+			return fmt.Errorf("%w: interregion or link credential path is not pinned by the adopted generation", ErrLiveCredentials)
 		}
 		paths = append(paths, path)
 	}

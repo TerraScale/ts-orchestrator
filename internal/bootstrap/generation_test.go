@@ -335,3 +335,41 @@ func TestMaterialGenerationInterRegionShape(t *testing.T) {
 		t.Error("accepted one slot's leaf TLS without the rest of the interregion files")
 	}
 }
+
+// A link (TS-803) pins the CA and every slot's leaf TLS without the
+// interregion account, and on a spoke its link user alone.
+func TestMaterialGenerationLinkShape(t *testing.T) {
+	expected := generationExpectation()
+	expected.Cell = "SFO"
+	spoke := generationtest.NewCell(t, generationNow, "sfo").WithoutIssuers(t).Link(t, generationNow, expected.ControllerSlots)
+	if err := spoke.Generation(expected, 1, "").Validate(); err != nil {
+		t.Fatal(err)
+	}
+	pin := func(generation *bootstrap.MaterialGeneration, name string) {
+		reference := generation.Secrets[0]
+		reference.Purpose, reference.Slot, reference.TargetFile = bootstrap.SecretInterRegion, "", name
+		generation.Secrets = append(generation.Secrets, reference)
+	}
+	for name, change := range map[string]func(*bootstrap.MaterialGeneration){
+		"the interregion account beside the link": func(generation *bootstrap.MaterialGeneration) { pin(generation, "interregion.jwt") },
+		"a parent's leaf credentials":             func(generation *bootstrap.MaterialGeneration) { pin(generation, "leaf-gru.creds") },
+		"link credentials bound to a slot": func(generation *bootstrap.MaterialGeneration) {
+			for index, secret := range generation.Secrets {
+				if secret.TargetFile == bootstrap.LinkCredentialsFile {
+					generation.Secrets[index].Slot = "controller-a"
+				}
+			}
+		},
+		"link credentials without the CA": func(generation *bootstrap.MaterialGeneration) {
+			generation.Secrets = slices.DeleteFunc(generation.Secrets, func(secret bootstrap.SecretReference) bool {
+				return secret.TargetFile == "interregion-ca.pem"
+			})
+		},
+	} {
+		generation := spoke.Generation(expected, 1, "")
+		change(&generation)
+		if generation.Validate() == nil {
+			t.Errorf("accepted %s", name)
+		}
+	}
+}

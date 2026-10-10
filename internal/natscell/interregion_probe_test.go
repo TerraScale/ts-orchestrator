@@ -46,7 +46,7 @@ func steeringRequest(t *testing.T, name string) []byte {
 // the home stream with: the linked prefix, the domain prefix, and the verbs
 // beside the one the contract carries.
 func steeringSubjects() []string {
-	linked := protocol.InterRegionJSAPIPrefix("gru")
+	linked := protocol.JSDomainAPIPrefix("gru")
 	stream := protocol.GlobalControlStream
 	return []string{
 		linked + ".CONSUMER.CREATE." + stream,
@@ -134,12 +134,12 @@ func assertRawLeafPeerIsDenyByDefault(ctx context.Context, t *testing.T, gru *te
 		"hub placement command":   protocol.PlacementApplySubject("gru"),
 		"hub control log":         protocol.Control("gru", "lease"),
 		"raw JetStream API":       "$JS.API.CONSUMER.CREATE." + protocol.GlobalControlStream,
-		"linked consumer create":  protocol.InterRegionJSAPIPrefix("gru") + ".CONSUMER.CREATE." + protocol.GlobalControlStream,
+		"linked consumer create":  protocol.JSDomainAPIPrefix("gru") + ".CONSUMER.CREATE." + protocol.GlobalControlStream,
 		"arbitrary peer relay":    "peer.relay",
 	}
 	for name, subject := range refused {
 		leaf := dialRawLeaf(ctx, t, addr, leafTLS, creds)
-		leaf.publish(t, subject, protocol.InterRegionJSAPIPrefix("sfo")+".reply", steeringRequest(t, "raw"))
+		leaf.publish(t, subject, protocol.JSDomainAPIPrefix("sfo")+".reply", steeringRequest(t, "raw"))
 		if reason := leaf.awaitClose(t); !strings.Contains(reason, "Permissions Violation for Publish") {
 			t.Errorf("%s: hub did not refuse %q, closed with %q", name, subject, reason)
 		}
@@ -318,7 +318,7 @@ func assertForwardResetFailsMirrorClosed(ctx context.Context, t *testing.T, gru 
 	stored := info.State.LastSeq
 	leaf := dialRawLeaf(ctx, t, addr, leafTLS, gru.childLeafCredentials(t, "compromised-leaf.creds", "sfo"))
 	defer leaf.close()
-	reset := protocol.JSConsumerResetSubject(protocol.InterRegionJSAPIPrefix("gru"), protocol.GlobalControlStream,
+	reset := protocol.JSConsumerResetSubject(protocol.JSDomainAPIPrefix("gru"), protocol.GlobalControlStream,
 		protocol.GlobalMirrorConsumer("sfo"))
 	leaf.publish(t, reset, "_R_.sibling", fmt.Appendf(nil, `{"seq":%d}`, stored+4))
 	time.Sleep(500 * time.Millisecond)

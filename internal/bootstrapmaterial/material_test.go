@@ -606,3 +606,33 @@ func TestCellAccountRoleSignerIsExactOrAbsent(t *testing.T) {
 		}
 	}
 }
+
+func TestMaterialLinkSignerIsOptionalAndValidated(t *testing.T) {
+	signer, err := nkeys.CreateAccount()
+	if err != nil {
+		t.Fatal(err)
+	}
+	signerID, _ := signer.PublicKey()
+	cfg := testConfig()
+	cfg.LinkSigner = "not-an-account-key"
+	if cfg.Validate() == nil {
+		t.Fatal("invalid link signer accepted")
+	}
+	cfg.LinkSigner = signerID
+	directory := filepath.Join(t.TempDir(), "material")
+	record, err := Generate(directory, cfg, time.Now().UTC().Truncate(time.Second))
+	if err != nil || ValidateLive(directory, record) != nil {
+		t.Fatalf("material with a link signer did not survive live validation: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(directory, "cell.jwt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := jwt.DecodeAccountClaims(string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := claim.SigningKeys[signerID]; !ok {
+		t.Fatal("cell account does not carry the link signer")
+	}
+}

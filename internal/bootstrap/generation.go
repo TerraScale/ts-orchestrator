@@ -32,7 +32,7 @@ import (
 // are rotated, and a retired root cannot extend it.
 //
 // The v1 contract pins slot configurations, the role signer and interregion
-// files, with controller issuers all or none.
+// or link files, with controller issuers all or none.
 const (
 	MaterialGenerationSchemaVersion = 1
 	MaxMaterialGenerationBytes      = 64 << 10
@@ -51,7 +51,13 @@ const (
 	// interregion account JWT and CA, a child's leaf-<parent>.creds, and each
 	// slot's leaf TLS, bound to that slot. interregion-ca.key and
 	// child-<cell>.seed stay offline with the owner and are never pinned.
+	// A link (TS-803) pins the same CA and leaf TLS, no account, and on a
+	// spoke LinkCredentialsFile.
 	SecretInterRegion SecretPurpose = "interregion"
+	// LinkCredentialsFile is a spoke's link user, issued by the global link
+	// signer for the home's cell account. One user links the region, so it is
+	// shared by every slot, like a child's leaf-<parent>.creds.
+	LinkCredentialsFile = "link.creds"
 )
 
 var ErrMaterialGenerationInvalid = errors.New("material generation is invalid")
@@ -226,15 +232,18 @@ func (generation MaterialGeneration) Validate() error {
 			ErrMaterialGenerationInvalid)
 	}
 	if interregion != 0 {
-		complete := seen["interregion.jwt"] && seen["interregion-ca.pem"] && leaves <= 1 &&
-			len(generation.ControllerConfigs) != 0
+		// The interregion account comes with at most one parent's
+		// credentials; a link has no account and at most its own.
+		account := seen["interregion.jwt"]
+		complete := seen["interregion-ca.pem"] && len(generation.ControllerConfigs) != 0 &&
+			(account && leaves <= 1 && !seen[LinkCredentialsFile] || !account && leaves == 0)
 		for _, slot := range generation.ControllerSlots {
 			cert, key := InterRegionTLSFiles(slot)
 			complete = complete && seen[cert] && seen[key]
 		}
 		if !complete {
-			return fmt.Errorf("%w: interregion files need the account, the CA, every slot's leaf TLS, "+
-				"at most one parent's credentials and the controller configs", ErrMaterialGenerationInvalid)
+			return fmt.Errorf("%w: interregion files need the CA, every slot's leaf TLS, the controller configs and "+
+				"either the account with at most one parent's credentials or a link's credentials alone", ErrMaterialGenerationInvalid)
 		}
 	}
 	if len(generation.ControllerConfigs) != 0 && len(generation.ControllerConfigs) != len(generation.ControllerSlots) {
@@ -251,7 +260,7 @@ func (generation MaterialGeneration) Validate() error {
 }
 
 // pinnable returns the purpose and slot under which a generation may pin
-// name. The v1 contract adds the interregion files and slot credentials; interregion-ca.key and
+// name. The v1 contract adds the interregion or link files and slot credentials; interregion-ca.key and
 // child-<cell>.seed are never pinnable.
 func (generation MaterialGeneration) pinnable(name string) (SecretPurpose, string, bool) {
 	if purpose, renewable := MaterialGenerationFiles()[name]; renewable {
@@ -259,7 +268,7 @@ func (generation MaterialGeneration) pinnable(name string) (SecretPurpose, strin
 	}
 	parent, leaf := strings.CutPrefix(name, "leaf-")
 	parent, creds := strings.CutSuffix(parent, ".creds")
-	if name == "interregion.jwt" || name == "interregion-ca.pem" ||
+	if name == "interregion.jwt" || name == "interregion-ca.pem" || name == LinkCredentialsFile ||
 		leaf && creds && clusterRE.MatchString(parent) && parent != strings.ToLower(string(generation.Cell)) {
 		return SecretInterRegion, "", true
 	}

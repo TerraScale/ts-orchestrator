@@ -66,7 +66,7 @@ func MirrorStreamConfig(home, cell string, replicas int) jetstream.StreamConfig 
 		AllowDirect: false,
 		Mirror: &jetstream.StreamSource{
 			Name:     StreamName,
-			External: &jetstream.ExternalStream{APIPrefix: protocol.InterRegionJSAPIPrefix(home)},
+			External: &jetstream.ExternalStream{APIPrefix: protocol.JSDomainAPIPrefix(home)},
 			Consumer: &jetstream.StreamConsumerSource{
 				Name:           protocol.GlobalMirrorConsumer(cell),
 				DeliverSubject: protocol.InterRegionGlobalDeliverSubject(cell),

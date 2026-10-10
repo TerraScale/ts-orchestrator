@@ -38,9 +38,12 @@ func (g *globalControl) close() {
 }
 
 func globalControlHome(global *GlobalControlConfig, nats natscell.Config) (string, error) {
-	home, err := interRegionLink(nats).GlobalControlHome(nats.Cell)
-	if err != nil {
-		return "", err
+	home := natscell.LinkHome
+	if nats.Embedded == nil || nats.Embedded.Link == nil {
+		var err error
+		if home, err = interRegionLink(nats).GlobalControlHome(nats.Cell); err != nil {
+			return "", err
+		}
 	}
 	if global != nil && global.Home != "" && global.Home != home {
 		return "", errors.New("global control home must agree with the interregion topology")

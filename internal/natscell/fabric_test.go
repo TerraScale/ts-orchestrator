@@ -16,6 +16,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalcontrol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/nats-io/nkeys"
 )
 
 // fabricTarget is how fast a relayed config change must be live in every
@@ -23,7 +24,7 @@ import (
 const fabricTarget = 30 * time.Second
 
 // TestRelayedCellSpecReachesTheSpokeThroughPartitions links a home and a
-// spoke region through the production leafnode contract. A cell spec the
+// spoke region through the link star. A cell spec the
 // home relays through TS_GLOBAL_CONTROL reaches the spoke's mirror and its
 // follower within the target. During a partition the spoke keeps serving
 // its local replica and catches up after the heal. The spoke acts only on
@@ -33,18 +34,23 @@ func TestRelayedCellSpecReachesTheSpokeThroughPartitions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 120*time.Second)
 	defer cancel()
 	root := t.TempDir()
-	topology := HubAndSpoke("gru", []string{"sfo"})
-	leafTLS := testBridgeTLS(t, filepath.Join(root, "leaf-tls"))
-	gru := newTestRegion(t, filepath.Join(root, "gru"), "gru", topology)
-	sfo := newTestRegion(t, filepath.Join(root, "sfo"), "sfo", topology)
-	leafPort := freeClientPort(t)
-	gru.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "0.0.0.0", Port: leafPort, TLS: leafTLS}
-	proxy := newTCPProxy(t, net.JoinHostPort("127.0.0.1", strconv.Itoa(leafPort)))
+	linkSigner, err := nkeys.CreateAccount()
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkSignerID, _ := linkSigner.PublicKey()
+	gru := newLinkRegion(t, filepath.Join(root, "gru"), "gru", linkSignerID)
+	sfo := newLinkRegion(t, filepath.Join(root, "sfo"), "sfo", linkSignerID)
+	linkTLS := testBridgeTLS(t, filepath.Join(root, "link-tls"))
+	linkPort := freeClientPort(t)
+	useLinkListener(t, linkPort)
+	proxy := newTCPProxy(t, net.JoinHostPort("127.0.0.1", strconv.Itoa(linkPort)))
 	defer proxy.Close()
-	sfo.cfg.Embedded.InterRegion.Remotes = []LeafRemote{{
-		Peer: "gru", URLs: []string{"nats-leaf://" + proxy.Addr()}, ServerName: testLeafServerName,
-		CredentialsFile: gru.childLeafCredentials(t, "sfo-leaf.creds", "sfo"), PeerAccount: gru.interregionID, TLS: leafTLS,
-	}}
+	linkHomeURLs = []string{"nats-leaf://" + proxy.Addr()}
+	gru.cfg.Embedded.Link = &Link{TLS: linkTLS}
+	sfo.cfg.Embedded.Link = &Link{CredentialsFile: linkUserCredentials(t, root, "sfo-link.creds", linkSigner, gru.cellID, "sfo"), TLS: linkTLS}
+	gru.cfg.CredentialsFile = testJWTUserCredentials(t, root, "gru-controller.creds", gru.cell, gru.cellID, nil, nil)
+	sfo.cfg.CredentialsFile = testJWTUserCredentials(t, root, "sfo-controller.creds", sfo.cell, sfo.cellID, nil, nil)
 	gruRuntime, err := Start(ctx, gru.cfg)
 	if err != nil {
 		t.Fatalf("start gru: %v", err)

@@ -51,15 +51,14 @@ func JSFlowControlSubject(stream, consumer string) string {
 	return "$JS.FC." + stream + "." + consumer + ".*"
 }
 
-// InterRegionJSAPIPrefix is the external JetStream API prefix under which a
-// home region exposes the reset verb of its global mirror consumers to peers
-// over a leafnode. Nothing else is reachable beneath it.
-func InterRegionJSAPIPrefix(home string) string {
-	token, err := RegionToken(home)
+// JSDomainAPIPrefix is the JetStream API of the region whose domain is domain,
+// as reached over a leafnode.
+func JSDomainAPIPrefix(domain string) string {
+	token, err := RegionToken(domain)
 	if err != nil || token == GlobalScope {
 		return ""
 	}
-	return InterRegionRoot + "." + token + ".jsapi"
+	return "$JS." + token + ".API"
 }
 
 // InterRegionGlobalDeliverSubject is the fixed delivery subject of cell's

@@ -553,7 +553,7 @@ func TestInstallGenerationOnlyWhenArmed(t *testing.T) {
 	}
 	// Restart admission accepts the installed set with the new controller.json.
 	staged.loaded = staged.config
-	staged.credential.Config.Embedded.InterRegion = interRegionBlock(t, staged.config, staged.dir)
+	staged.credential.Config.Embedded.InterRegion = embeddedBlock(t, staged.config, staged.dir).InterRegion
 	if err := staged.verify(pinnedIP); err != nil {
 		t.Fatalf("restart admission refuses the installed generation: %v", err)
 	}

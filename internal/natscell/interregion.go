@@ -295,7 +295,7 @@ func globalMirrorFlows(home, peer string) []contractFlow {
 		{
 			kind:        jwt.Service,
 			cellSubject: protocol.JSConsumerResetSubject(protocol.JSLocalAPIPrefix, protocol.GlobalControlStream, consumer),
-			linkSubject: protocol.JSConsumerResetSubject(protocol.InterRegionJSAPIPrefix(home), protocol.GlobalControlStream, consumer),
+			linkSubject: protocol.JSConsumerResetSubject(protocol.JSDomainAPIPrefix(home), protocol.GlobalControlStream, consumer),
 		},
 		sameFlow(jwt.Service, protocol.JSFlowControlSubject(protocol.GlobalControlStream, consumer)),
 	}

@@ -33,7 +33,9 @@ func installationIdentityFixture(t *testing.T) Config {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, role := range []string{"host", "role"} {
+	// Every cell account also carries the link signer (TS-803), which is no
+	// broker identity.
+	for _, role := range []string{"host", "role", linkRole} {
 		key, err := nkeys.CreateAccount()
 		if err != nil {
 			t.Fatal(err)

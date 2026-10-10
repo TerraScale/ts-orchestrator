@@ -53,6 +53,28 @@ has these transport properties:
   exactly one link to the parent (none at the root), and `global_home` the
   hub. Without it only the region's local view is checked, as before.
 
+## Link (TS-803)
+
+Regions form a star rooted at the global home (`natscell.LinkHome`, GRU). A
+region with `nats.embedded.link` set uses it instead of the interregion block;
+the two are never set together. The interregion account is being removed by
+TS-803: the block above is the old contract and is deleted in the next slice.
+
+- The home listens on `LinkPort` (7422) and needs no list of regions. Every
+  other region dials the home's three controllers with one leaf remote.
+- Each leaf binds the cell account on both sides (`LocalAccount` is the spoke's
+  cell, the user is the home's cell account), so no interregion account, export
+  or import exists.
+- Every cell account carries one link signing key, the link signer (its public
+  key is `LinkSigner` in the material config). `natscell.LinkScope` is its
+  scoped template: one role `link` for every region, so a new region needs no
+  re-signing.
+- A spoke's link user is `natscell.IssueLinkUser`: tagged `cell:<cell>`, issued
+  for the home's cell account, with no permissions or limits of its own.
+- The template alone decides what crosses (see Links in `region-agnostic.md`).
+  Replies to relayed requests need the `*.inbox.>` and `_INBOX.>` publish
+  grants, because a leaf's response permission does not carry them.
+
 ## Interregion material
 
 `ts-orch bootstrap generate-interregion-material --material-directory

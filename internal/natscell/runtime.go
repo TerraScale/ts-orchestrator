@@ -95,6 +95,9 @@ type Embedded struct {
 	// InterRegion describes this region's reviewed leaf topology and credentials.
 	// An absent block describes an isolated cell.
 	InterRegion *InterRegion `json:"interregion,omitempty"`
+	// Link joins this region to the global home with one link signer. It
+	// replaces InterRegion; a configuration sets one or the other.
+	Link *Link `json:"link,omitempty"`
 }
 
 // ServerName is the embedded NATS server name of a cell's controller
@@ -622,8 +625,16 @@ func (cfg Config) validate() error {
 	}
 	if cfg.Embedded != nil {
 		e := cfg.Embedded
+		if e.InterRegion != nil && e.Link != nil {
+			return errors.New("a region links to peers by interregion or by link, not both")
+		}
 		if err := e.InterRegion.validate(cfg); err != nil {
 			return err
+		}
+		if e.Link != nil {
+			if err := e.Link.validate(cfg); err != nil {
+				return err
+			}
 		}
 		if !cfg.Lab {
 			seen := make(map[string]struct{}, len(e.BrokerIDs))
@@ -715,9 +726,14 @@ func serverOptionsForStart(cfg Config, identityRekey bool) (*server.Options, err
 			if err := interRegionServerOptions(cfg, options, resolver, operator); err != nil {
 				return nil, err
 			}
-			if identityRekey {
-				options.LeafNode = server.LeafNodeOpts{}
+		}
+		if e.Link != nil {
+			if err := linkServerOptions(cfg, options, resolver); err != nil {
+				return nil, err
 			}
+		}
+		if identityRekey && (e.InterRegion != nil || e.Link != nil) {
+			options.LeafNode = server.LeafNodeOpts{}
 		}
 	}
 	if cfg.Replicas > 1 {

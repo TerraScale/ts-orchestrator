@@ -24,7 +24,7 @@ func TestChildLeafPermissionsAreScopedToTheSubtree(t *testing.T) {
 	contract := InterRegionContract{Cell: "gru", Peers: topology.Peers("gru"), GlobalHome: "gru", Subtrees: subtrees}
 	sfo := contract.ChildLeafPermissions("sfo")
 	reset := func(region string) string {
-		return protocol.JSConsumerResetSubject(protocol.InterRegionJSAPIPrefix("gru"), protocol.GlobalControlStream,
+		return protocol.JSConsumerResetSubject(protocol.JSDomainAPIPrefix("gru"), protocol.GlobalControlStream,
 			protocol.GlobalMirrorConsumer(region))
 	}
 	for _, own := range []string{"sfo", "iad"} {

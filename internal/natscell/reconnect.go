@@ -8,8 +8,9 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 )
 
-// ReconnectInterRegion kicks connected leaves of the pinned interregion account
-// without touching regional routes, clients or JetStream. NATS retains the
+// ReconnectInterRegion kicks connected leaves of the link account, the pinned
+// interregion account or, under a link, the cell account, without touching
+// regional routes, clients or JetStream. NATS retains the
 // existing TLS/account configuration and native retries; inbound leaves rely on
 // the peer's retry. The count reports successful kicks, not recovered links.
 // With no connected leaves it returns ErrUnavailable and leaves native retries
@@ -28,7 +29,7 @@ func (r *Runtime) ReconnectInterRegion(ctx context.Context) (int, error) {
 		return 0, ErrEmbeddedServerStopped
 	}
 	if r.resolver == nil || r.resolver.interregion == "" {
-		return 0, errors.New("interregion reconnect requires a pinned interregion account")
+		return 0, errors.New("interregion reconnect requires a pinned link account")
 	}
 	leafz, err := r.server.Leafz(&server.LeafzOptions{Account: r.resolver.interregion})
 	if err != nil {

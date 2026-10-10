@@ -67,6 +67,9 @@ type Config struct {
 	SubnetCIDR    string `json:"subnetCidr"`
 	Slots         []Slot `json:"slots"`
 	ValidityHours int    `json:"validityHours"`
+	// LinkSigner is the public account key of the home region's link signer.
+	// When set, the cell account carries the link signing key (natscell.ApplyLink).
+	LinkSigner string `json:"linkSigner,omitempty"`
 }
 
 type File struct {
@@ -112,6 +115,7 @@ func (cfg Config) validate() error {
 	}
 	region, err := MappedOCIRegion(cfg.Cell)
 	if err != nil || cfg.Region != region ||
+		cfg.LinkSigner != "" && !nkeys.IsValidPublicAccountKey(cfg.LinkSigner) ||
 		!entityid.Valid(cfg.DeploymentID) ||
 		!entityid.Valid(cfg.ClusterID) ||
 		cfg.ValidityHours < int(minValidity.Hours()) || cfg.ValidityHours > int(MaxValidity.Hours()) ||
@@ -280,7 +284,8 @@ func Load(directory string) (Record, error) {
 
 func sameConfig(a, b Config) bool {
 	return a.Environment == b.Environment && a.Region == b.Region && a.Cell == b.Cell && a.DeploymentID == b.DeploymentID && a.ClusterID == b.ClusterID &&
-		a.SubnetCIDR == b.SubnetCIDR && a.ValidityHours == b.ValidityHours && slices.Equal(a.Slots, b.Slots)
+		a.SubnetCIDR == b.SubnetCIDR && a.ValidityHours == b.ValidityHours && a.LinkSigner == b.LinkSigner &&
+		slices.Equal(a.Slots, b.Slots)
 }
 
 // memberCANames are the cell's C# TerraBase member CA. Generate always
@@ -383,6 +388,9 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 		return nil, Public{}, err
 	}
 	cellClaim.SigningKeys.AddScopedSigner(role)
+	if cfg.LinkSigner != "" {
+		natscell.ApplyLink(cellClaim, cfg.LinkSigner)
+	}
 	cellJWT, err := cellClaim.Encode(op)
 	if err != nil {
 		return nil, Public{}, err
@@ -845,8 +853,15 @@ func validateSignerFiles(directory string, record Record) error {
 	// Material generated before TS-663 has no role signer.
 	bound, hasRole := cellClaim.SigningKeys.GetScope(role.Key)
 	roleBound, _ := bound.(*jwt.UserScope)
+	// A link signer, when configured, is the only other scoped key.
+	hasLink := record.Config.LinkSigner != ""
+	if hasLink {
+		if _, linked := cellClaim.SigningKeys.GetScope(record.Config.LinkSigner); !linked {
+			return ErrMaterial
+		}
+	}
 	if !ok || !reflect.DeepEqual(hostScope, expectedHostScope(record.Config.Cell, issuerID)) ||
-		hasRole && !reflect.DeepEqual(roleBound, role) || len(cellClaim.SigningKeys) != 1+boolInt(hasRole) {
+		hasRole && !reflect.DeepEqual(roleBound, role) || len(cellClaim.SigningKeys) != 1+boolInt(hasRole)+boolInt(hasLink) {
 		return ErrMaterial
 	}
 	operatorWire, err := read("operator.creds")

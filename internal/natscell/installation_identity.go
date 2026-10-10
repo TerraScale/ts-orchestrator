@@ -122,6 +122,8 @@ func observeInstallationIdentity(cfg Config, dir int, nodeWire []byte) (Installa
 				return result, errors.New("installed cell has multiple role signers")
 			}
 			result.RoleSigner = key
+		case linkRole:
+			// The global link signer (TS-803) is no broker identity: nothing pins it.
 		default:
 			return result, errors.New("installed cell has unknown signing scope")
 		}

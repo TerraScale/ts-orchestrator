@@ -99,7 +99,7 @@ func TestMirrorConfigIsReadOnlyAndPinnedToHome(t *testing.T) {
 
 	config := MirrorStreamConfig("gru", "sfo", 3)
 	if len(config.Subjects) != 0 || config.Mirror == nil ||
-		config.Mirror.External.APIPrefix != "ts.interregion.v1.gru.jsapi" ||
+		config.Mirror.External.APIPrefix != "$JS.gru.API" ||
 		config.Mirror.External.DeliverPrefix != "" || config.Mirror.Consumer == nil ||
 		config.Mirror.Consumer.Name != "global-mirror-sfo" ||
 		config.Mirror.Consumer.DeliverSubject != "ts.interregion.v1.sfo.global" {
@@ -116,7 +116,7 @@ func TestMirrorConfigIsReadOnlyAndPinnedToHome(t *testing.T) {
 	}
 	tampered := []func(*jetstream.StreamConfig){
 		func(c *jetstream.StreamConfig) { c.Subjects = []string{protocol.GlobalStateStreamSubject()} },
-		func(c *jetstream.StreamConfig) { c.Mirror.External.APIPrefix = "$JS.gru.API" },
+		func(c *jetstream.StreamConfig) { c.Mirror.External.APIPrefix = "$JS.sfo.API" },
 		func(c *jetstream.StreamConfig) { c.Mirror.External.DeliverPrefix = "ts.interregion.v1.sfo.global" },
 		func(c *jetstream.StreamConfig) { c.Mirror.Consumer = nil },
 		func(c *jetstream.StreamConfig) {

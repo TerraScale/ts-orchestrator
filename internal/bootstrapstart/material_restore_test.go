@@ -629,7 +629,7 @@ func TestRestoredOfflineControllerCredentialsPassRestartAdmission(t *testing.T) 
 		t.Fatal(err)
 	}
 	staged.loaded = staged.config
-	staged.credential.Config.Embedded.InterRegion = interRegionBlock(t, staged.config, staged.dir)
+	staged.credential.Config.Embedded.InterRegion = embeddedBlock(t, staged.config, staged.dir).InterRegion
 	if err := staged.verify(pinnedIP); err != nil {
 		t.Fatal(err)
 	}

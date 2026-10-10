@@ -20,7 +20,8 @@ func TestControllerCredentialFilesListOnlyPublicMaterial(t *testing.T) {
 			MembershipCredentialsFile: "membership.creds", RoutePasswordFile: "route-password",
 			InterRegion: &natscell.InterRegion{AccountJWTFile: "interregion.jwt",
 				Listen:  &natscell.LeafListen{TLS: tls("leaf")},
-				Remotes: []natscell.LeafRemote{{Peer: "iad", CredentialsFile: "iad.creds", TLS: tls("iad")}}}}},
+				Remotes: []natscell.LeafRemote{{Peer: "iad", CredentialsFile: "iad.creds", TLS: tls("iad")}}},
+			Link: &natscell.Link{CredentialsFile: "link.creds", TLS: tls("link")}}},
 		Controller: ControllerConfig{HostTLSIssuerCertFile: "host-issuer-cert.pem", HostTLSIssuerKeyFile: "host-issuer-key.pem",
 			HostNATSIssuerSeedFile: "host-issuer.seed", TerraBaseCACertFile: "terrabase-ca.pem", TerraBaseCAKeyFile: "terrabase-ca.key",
 			ResponseKeyFile: "response.key"}}
@@ -30,7 +31,7 @@ func TestControllerCredentialFilesListOnlyPublicMaterial(t *testing.T) {
 	}
 	for _, want := range []string{"client-cert.pem", "client-ca.pem", "client.creds", "server-cert.pem", "route-ca.pem",
 		"operator.jwt", "system.jwt", "cell.jwt", "system.creds", "membership.creds", "interregion.jwt", "leaf-cert.pem",
-		"iad-cert.pem", "iad.creds", "host-issuer-cert.pem", "terrabase-ca.pem"} {
+		"iad-cert.pem", "iad.creds", "link-cert.pem", "link-ca.pem", "link.creds", "host-issuer-cert.pem", "terrabase-ca.pem"} {
 		if !slices.Contains(paths, want) {
 			t.Errorf("scan misses %s", want)
 		}

@@ -569,6 +569,7 @@ func clearSpool(spool *os.Root, slot string) error {
 		cert, key := bootstrap.InterRegionTLSFiles(slot)
 		known = known || candidate == bootstrapstart.GenerationConfigFile(slot) || candidate == slot+".creds" ||
 			candidate == cert || candidate == key || candidate == "interregion.jwt" || candidate == "interregion-ca.pem" ||
+			candidate == bootstrap.LinkCredentialsFile ||
 			candidate == bootstrapstart.GenerationArmedFile || candidate == bootstrapstart.MaterialGenerationsFile
 		if strings.HasPrefix(candidate, "leaf-") && strings.HasSuffix(candidate, ".creds") {
 			peer := strings.TrimSuffix(strings.TrimPrefix(candidate, "leaf-"), ".creds")

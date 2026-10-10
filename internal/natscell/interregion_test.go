@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalcontrol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/nats-io/jwt/v2"
@@ -190,8 +189,8 @@ func TestGlobalMirrorContractExportsNoConsumerCreation(t *testing.T) {
 	}
 	slices.Sort(linked)
 	if !slices.Equal(linked, []string{
-		"ts.interregion.v1.gru.jsapi.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-fra",
-		"ts.interregion.v1.gru.jsapi.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-sfo",
+		"$JS.gru.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-fra",
+		"$JS.gru.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-sfo",
 	}) {
 		t.Fatalf("home linked JetStream subjects = %v", linked)
 	}
@@ -202,7 +201,7 @@ func TestGlobalMirrorContractExportsNoConsumerCreation(t *testing.T) {
 	}
 	for _, want := range []string{
 		"ts.interregion.v1.sfo.global",
-		"ts.interregion.v1.gru.jsapi.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-sfo",
+		"$JS.gru.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-sfo",
 		"$JS.FC.TS_GLOBAL_CONTROL.global-mirror-sfo.*",
 	} {
 		if !slices.Contains(spokeImports, want) {
@@ -248,16 +247,16 @@ func TestGlobalMirrorContractExportsNoConsumerCreation(t *testing.T) {
 		t.Fatal("home leaf defaults let a peer impersonate the home health stream")
 	}
 	if slices.Contains(homeDefaults.Sub.Allow, protocol.Regional("gru", "query", ">")) ||
-		slices.Contains(homeDefaults.Sub.Allow, protocol.JSConsumerResetSubject(protocol.InterRegionJSAPIPrefix("gru"),
+		slices.Contains(homeDefaults.Sub.Allow, protocol.JSConsumerResetSubject(protocol.JSDomainAPIPrefix("gru"),
 			protocol.GlobalControlStream, protocol.GlobalMirrorConsumer("sfo"))) {
 		t.Fatal("home leaf defaults let a peer take the home's own requests")
 	}
 	// A spoke with a child (FRA dialing SFO) relays FRA's traffic to and from
 	// GRU, but its child can never speak for SFO or GRU, nor feed a mirror.
 	spokeDefaults := spoke.LeafPermissions()
-	ownReset := protocol.JSConsumerResetSubject(protocol.InterRegionJSAPIPrefix("gru"), protocol.GlobalControlStream,
+	ownReset := protocol.JSConsumerResetSubject(protocol.JSDomainAPIPrefix("gru"), protocol.GlobalControlStream,
 		protocol.GlobalMirrorConsumer("sfo"))
-	childReset := protocol.JSConsumerResetSubject(protocol.InterRegionJSAPIPrefix("gru"), protocol.GlobalControlStream,
+	childReset := protocol.JSConsumerResetSubject(protocol.JSDomainAPIPrefix("gru"), protocol.GlobalControlStream,
 		protocol.GlobalMirrorConsumer("fra"))
 	for _, denied := range []string{
 		protocol.RegionHealthSubject("sfo"), protocol.RegionHealthSubject("gru"), ownReset,
@@ -281,226 +280,6 @@ func TestGlobalMirrorContractExportsNoConsumerCreation(t *testing.T) {
 		slices.Contains(spokeDefaults.Sub.Allow, protocol.Regional("sfo", "query", ">")) {
 		t.Error("spoke hands its own feed or requests to a child")
 	}
-}
-
-// TestInterRegionLeafnodeCarriesOnlyContractSubjects links two production
-// regions, each with its own operator, through a leafnode bound to their
-// interregion accounts. Only the contract subjects cross; each region keeps
-// serving JetStream while the link is down, and the link recovers.
-func TestInterRegionLeafnodeCarriesOnlyContractSubjects(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
-	defer cancel()
-	root := t.TempDir()
-	topology := HubAndSpoke("gru", []string{"sfo"})
-	leafTLS := testBridgeTLS(t, filepath.Join(root, "leaf-tls"))
-	gru := newTestRegion(t, filepath.Join(root, "gru"), "gru", topology)
-	sfo := newTestRegion(t, filepath.Join(root, "sfo"), "sfo", topology)
-
-	leafPort := freeClientPort(t)
-	gru.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "0.0.0.0", Port: leafPort, TLS: leafTLS}
-	proxy := newTCPProxy(t, net.JoinHostPort("127.0.0.1", strconv.Itoa(leafPort)))
-	defer proxy.Close()
-	sfo.cfg.Embedded.InterRegion.Remotes = []LeafRemote{{
-		Peer: "gru", URLs: []string{"nats-leaf://" + proxy.Addr()}, ServerName: testLeafServerName,
-		CredentialsFile: gru.childLeafCredentials(t, "sfo-leaf.creds", "sfo"), PeerAccount: gru.interregionID, TLS: leafTLS,
-	}}
-	gru.cfg.Embedded.InterRegion.Topology = &topology
-	sfo.cfg.Embedded.InterRegion.Topology = &topology
-	sfo.cfg.Embedded.InterRegion.GlobalHome = ""
-
-	gruRuntime, err := Start(ctx, gru.cfg)
-	if err != nil {
-		t.Fatalf("start gru: %v", err)
-	}
-	defer gruRuntime.Close()
-	sfoRuntime, err := Start(ctx, sfo.cfg)
-	if err != nil {
-		t.Fatalf("start sfo: %v", err)
-	}
-	defer sfoRuntime.Close()
-
-	for name, runtime := range map[string]*Runtime{"gru": gruRuntime, "sfo": sfoRuntime} {
-		info, err := runtime.JetStream().AccountInfo(ctx)
-		if err != nil || info.Domain != name {
-			t.Fatalf("%s JetStream domain = %+v, %v", name, info, err)
-		}
-	}
-
-	// Everything SFO's cell publishes under its own regional root that reaches
-	// GRU's cell is captured here; only the health stream may arrive.
-	received := make(chan *nats.Msg, 64)
-	crossing, err := gruRuntime.Conn().ChanSubscribe(protocol.Regional("sfo", ">"), received)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gruCommands := make(chan *nats.Msg, 8)
-	gruPlacement, err := gruRuntime.Conn().ChanSubscribe(protocol.PlacementApplySubject("gru"), gruCommands)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer gruPlacement.Unsubscribe()
-	gruControl := make(chan *nats.Msg, 8)
-	gruControlSub, err := gruRuntime.Conn().ChanSubscribe(protocol.Control("gru", ">"), gruControl)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer gruControlSub.Unsubscribe()
-	if err := gruRuntime.Conn().Flush(); err != nil {
-		t.Fatal(err)
-	}
-	sfoQuery, err := sfoRuntime.Conn().Subscribe(protocol.Regional("sfo", "query", "status"), func(msg *nats.Msg) {
-		_ = msg.Respond([]byte("sfo-ok"))
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sfoQuery.Unsubscribe()
-	sfoPlacement, err := sfoRuntime.Conn().Subscribe(protocol.PlacementApplySubject("sfo"), func(msg *nats.Msg) {
-		_ = msg.Respond([]byte("must-not-cross"))
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sfoPlacement.Unsubscribe()
-	if err := sfoRuntime.Conn().Flush(); err != nil {
-		t.Fatal(err)
-	}
-
-	awaitHealth(ctx, t, sfoRuntime.Conn(), received, "first")
-	forbidden := []string{
-		protocol.AgentObservation("sfo", "agent-a", "status"),
-		protocol.PlacementApplySubject("sfo"),
-		protocol.Regional("sfo", "inbox", "user", "x"),
-		protocol.PlacementApplySubject("gru"),
-		protocol.Control("gru", "lease"),
-		protocol.Control("sfo", "lease"),
-		protocol.Broker("sfo", "ticket", "x"),
-	}
-	for _, subject := range forbidden {
-		if err := sfoRuntime.Conn().Publish(subject, []byte("forbidden")); err != nil {
-			t.Fatal(err)
-		}
-	}
-	awaitHealth(ctx, t, sfoRuntime.Conn(), received, "after-forbidden")
-	drainAllowed(t, received)
-	select {
-	case msg := <-gruCommands:
-		t.Fatalf("spoke reached hub command subject %q", msg.Subject)
-	case msg := <-gruControl:
-		t.Fatalf("spoke reached hub control subject %q", msg.Subject)
-	default:
-	}
-
-	// GRU's own requests below match its capture subscription locally.
-	if err := crossing.Unsubscribe(); err != nil {
-		t.Fatal(err)
-	}
-	reply := requestUntil(ctx, t, gruRuntime.Conn(), protocol.Regional("sfo", "query", "status"))
-	if string(reply.Data) != "sfo-ok" {
-		t.Fatalf("cross-region query reply = %q", reply.Data)
-	}
-	requestCtx, requestCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	if msg, err := gruRuntime.Conn().RequestWithContext(requestCtx, protocol.PlacementApplySubject("sfo"), []byte("x")); err == nil {
-		t.Fatalf("hub reached spoke placement command: %q", msg.Data)
-	}
-	requestCancel()
-
-	// The home region's global stream is mirrored read-only into the spoke
-	// through the durable consumer GRU created for SFO: only its fixed
-	// delivery subject, its reset verb and its flow-control replies cross.
-	home, err := gruRuntime.JetStream().CreateStream(ctx, globalcontrol.HomeStreamConfig(1))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := home.CreatePushConsumer(ctx, globalcontrol.MirrorConsumerConfig("sfo", 1)); err != nil {
-		t.Fatalf("home mirror consumer: %v", err)
-	}
-	if _, err := gruRuntime.JetStream().Publish(ctx, protocol.GlobalState("roster", "current"), []byte("r1")); err != nil {
-		t.Fatal(err)
-	}
-	// OpenMirror also verifies the server's view of the mirror config.
-	mirrorReader, err := globalcontrol.OpenMirror(ctx, sfoRuntime.JetStream(), "gru", "sfo", 1)
-	if err != nil {
-		t.Fatalf("open global mirror: %v", err)
-	}
-	mirror, err := sfoRuntime.JetStream().Stream(ctx, globalcontrol.StreamName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	waitStreamMessages(ctx, t, mirror, 1)
-	if _, err := sfoRuntime.JetStream().Publish(ctx, protocol.GlobalState("roster", "current"), []byte("forged")); err == nil {
-		t.Fatal("spoke wrote into the read-only global mirror")
-	}
-	assertPeerCannotSteerHomeDelivery(ctx, t, sfoRuntime.Conn(), home, gruCommands)
-	assertRawLeafPeerIsDenyByDefault(ctx, t, gru, gruRuntime.Conn(), sfoRuntime.Conn(), home, proxy.Addr(), leafTLS, gruCommands)
-
-	// A leaf user claiming GRU's cell account (signed by a real child key) is
-	// refused: the cell account allows no leafnode connections and knows no
-	// such signer, so only the interregion account is linkable.
-	rogue := newTestRegion(t, filepath.Join(root, "fra"), "fra", HubAndSpoke("gru", []string{"sfo", "fra"}))
-	rogue.cfg.Embedded.InterRegion.Remotes = []LeafRemote{{
-		Peer: "gru", URLs: []string{"nats-leaf://" + proxy.Addr()}, ServerName: testLeafServerName,
-		CredentialsFile: gru.leafCredentialsFor(t, "rogue-leaf.creds", gru.childKey(t, "fra"), gru.cellID), PeerAccount: gru.cellID, TLS: leafTLS,
-	}}
-	rogueRuntime, err := Start(ctx, rogue.cfg)
-	if err != nil {
-		t.Fatalf("start rogue spoke: %v", err)
-	}
-	defer rogueRuntime.Close()
-	time.Sleep(1500 * time.Millisecond)
-	if leafs := gruRuntime.server.NumLeafNodes(); leafs != 1 || rogueRuntime.server.NumLeafNodes() != 0 {
-		t.Fatalf("hub leafnodes = %d, rogue leafnodes = %d; cell-account leaf was admitted", leafs, rogueRuntime.server.NumLeafNodes())
-	}
-	_ = rogueRuntime.Close()
-
-	// Partition the link. Both regions keep full regional JetStream service.
-	proxy.Close()
-	waitLeafCount(ctx, t, gruRuntime, 0)
-	waitLeafCount(ctx, t, sfoRuntime, 0)
-	for name, runtime := range map[string]*Runtime{"gru": gruRuntime, "sfo": sfoRuntime} {
-		bucket, err := runtime.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "PARTITION_" + strings.ToUpper(name)})
-		if err != nil {
-			t.Fatalf("%s JetStream during partition: %v", name, err)
-		}
-		if _, err := bucket.Put(ctx, "probe", []byte(name)); err != nil {
-			t.Fatalf("%s KV during partition: %v", name, err)
-		}
-		local := make(chan *nats.Msg, 1)
-		sub, err := runtime.Conn().ChanSubscribe(protocol.HostRegisterSubject(name), local)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := runtime.Conn().Publish(protocol.HostRegisterSubject(name), []byte("local")); err != nil {
-			t.Fatal(err)
-		}
-		select {
-		case <-local:
-		case <-ctx.Done():
-			t.Fatalf("%s local messaging stopped during partition", name)
-		}
-		_ = sub.Unsubscribe()
-	}
-
-	// Heal the link; the spoke redials and the contract subjects flow again.
-	healed := make(chan *nats.Msg, 64)
-	healedSub, err := gruRuntime.Conn().ChanSubscribe(protocol.Regional("sfo", ">"), healed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer healedSub.Unsubscribe()
-	if _, err := home.Info(ctx); err != nil {
-		t.Fatalf("home global stream during partition: %v", err)
-	}
-	if _, err := gruRuntime.JetStream().Publish(ctx, protocol.GlobalState("roster", "current"), []byte("r2")); err != nil {
-		t.Fatalf("home global write during partition: %v", err)
-	}
-	if _, err := mirror.GetLastMsgForSubject(ctx, protocol.GlobalState("roster", "current")); err != nil {
-		t.Fatalf("spoke cannot read its mirror during partition: %v", err)
-	}
-	proxy.Reopen(t)
-	awaitHealth(ctx, t, sfoRuntime.Conn(), healed, "after-heal")
-	waitStreamMessages(ctx, t, mirror, 2)
-	assertForwardResetFailsMirrorClosed(ctx, t, gru, gruRuntime.JetStream(), mirror, mirrorReader, proxy.Addr(), leafTLS)
 }
 
 // TestInterRegionLeafFailsOverToTheNextURLInOrder dials the hub over two
@@ -588,43 +367,6 @@ func TestInterRegionLeafFailsOverToTheNextURLInOrder(t *testing.T) {
 	waitLeafCount(failover, t, gruRuntime, 1)
 	if reply := requestUntil(failover, t, gruRuntime.Conn(), protocol.Regional("sfo", "query", "status")); string(reply.Data) != "sfo-ok" {
 		t.Fatalf("query over the NetBird path = %q", reply.Data)
-	}
-}
-
-func awaitHealth(ctx context.Context, t *testing.T, publisher *nats.Conn, received chan *nats.Msg, marker string) {
-	t.Helper()
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		if err := publisher.Publish(protocol.RegionHealthSubject("sfo"), []byte(marker)); err != nil {
-			t.Fatal(err)
-		}
-		select {
-		case msg := <-received:
-			if msg.Subject != protocol.RegionHealthSubject("sfo") {
-				t.Fatalf("non-contract subject crossed the leafnode: %q", msg.Subject)
-			}
-			if string(msg.Data) == marker {
-				return
-			}
-		case <-ticker.C:
-		case <-ctx.Done():
-			t.Fatalf("health %q did not cross the leafnode", marker)
-		}
-	}
-}
-
-func drainAllowed(t *testing.T, received chan *nats.Msg) {
-	t.Helper()
-	for {
-		select {
-		case msg := <-received:
-			if msg.Subject != protocol.RegionHealthSubject("sfo") {
-				t.Fatalf("non-contract subject crossed the leafnode: %q", msg.Subject)
-			}
-		default:
-			return
-		}
 	}
 }
 

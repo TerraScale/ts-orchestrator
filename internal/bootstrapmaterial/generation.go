@@ -41,11 +41,12 @@ import (
 //   - operator.jwt is the operator's own, names the system account and has
 //     no signing keys; system.jwt and cell.jwt are signed by it; cell.jwt
 //     has JetStream and exactly these signing keys: the host scope of
-//     HostSigner, in v1 the role scope of RoleSigner, and the
-//     unscoped AccountSigner when the controller issuers are pinned;
+//     HostSigner, in v1 the role scope of RoleSigner, the
+//     unscoped AccountSigner when the controller issuers are pinned, and
+//     the link signer when its scope is the link's (TS-803);
 //   - system.creds is a system account user with only its claim-update and
 //     reply grants;
-//   - v1 (TS-668): the interregion files and controller configs, see
+//   - v1 (TS-668): the interregion or link files and controller configs, see
 //     generationCheck.interRegion.
 //
 // A slot's own files (its interregion leaf TLS, and its controller config,
@@ -145,9 +146,10 @@ func CheckGenerationFiles(generation bootstrap.MaterialGeneration, read func(nam
 			roleScope, roleScoped := cellClaim.SigningKeys.GetScope(generation.RoleSigner)
 			keys = keys && roleScoped && reflect.DeepEqual(roleScope, roleidentity.Scope(generation.RoleSigner))
 		}
-		if !keys || len(cellClaim.SigningKeys) != 1+boolInt(issuing)+boolInt(generation.RoleSigner != "") {
-			check.fail("cell.jwt must have exactly the host scope, in v1 the role scope, and with controller " +
-				"issuers the unscoped account signer as signing keys")
+		linked := natscell.VerifyLinkScope(cellClaim) == nil
+		if !keys || len(cellClaim.SigningKeys) != 1+boolInt(issuing)+boolInt(generation.RoleSigner != "")+boolInt(linked) {
+			check.fail("cell.jwt must have exactly the host scope, in v1 the role scope, with controller " +
+				"issuers the unscoped account signer, and a link's signer as signing keys")
 		}
 		if cellClaim.Limits.JetStreamLimits == (jwt.JetStreamLimits{}) {
 			check.fail("cell.jwt grants no JetStream")
@@ -190,8 +192,8 @@ func (check *generationCheck) controllerIssuers(generation bootstrap.MaterialGen
 	}
 }
 
-// interRegion checks a v1 generation's interregion files (TS-668) and
-// the controller configs read supplied:
+// interRegion checks a v1 generation's interregion files (TS-668) or link
+// files (TS-803) and the controller configs read supplied:
 //   - interregion.jwt is an account of its own, signed by the operator;
 //   - interregion-ca.pem holds one to four self-signed CAs, and each slot's
 //     leaf TLS is a matching certificate and key, not a CA, that chains to
@@ -199,11 +201,15 @@ func (check *generationCheck) controllerIssuers(generation bootstrap.MaterialGen
 //     .interregion.terrascale.internal;
 //   - a child's leaf-<parent>.creds is a leaf user without permissions of
 //     its own, issued by a scoped signing key of another interregion account;
-//   - each config carries interregion material exactly when the files are pinned. Its
+//   - a spoke's link.creds is a link user for its own cell (natscell
+//     ValidateLinkCredentialBytes);
+//   - each config carries interregion material exactly when interregion.jwt
+//     is pinned, and a link exactly when the CA is pinned without it. Its
 //     block then passes startup's validation, references only pinned files,
 //     by absolute path, pins on each remote the account that issued its
 //     credentials, and its contract accepts system.jwt, cell.jwt and
-//     interregion.jwt (natscell VerifyClaims: LeafNodeConn 0 and so on).
+//     interregion.jwt (natscell VerifyClaims: LeafNodeConn 0 and so on); the
+//     home's cell.jwt carries the link signer (natscell VerifyLinkScope).
 //
 // The contract comes from a config, so pinned interregion files need one.
 func (check *generationCheck) interRegion(generation bootstrap.MaterialGeneration, files, configs map[string][]byte,
@@ -224,6 +230,8 @@ func (check *generationCheck) interRegion(generation bootstrap.MaterialGeneratio
 			interregion = claim
 			check.jwt("interregion.jwt", claim.IssuedAt, claim.Expires)
 		}
+	}
+	if pinned["interregion-ca.pem"] {
 		roots := x509.NewCertPool()
 		for _, ca := range check.bundle("interregion-ca.pem", files["interregion-ca.pem"]) {
 			roots.AddCert(ca)
@@ -232,6 +240,16 @@ func (check *generationCheck) interRegion(generation bootstrap.MaterialGeneratio
 		for _, slot := range generation.ControllerSlots {
 			if cert, key := bootstrap.InterRegionTLSFiles(slot); files[cert] != nil || files[key] != nil {
 				check.interRegionLeaf(cert, files[cert], files[key], roots)
+			}
+		}
+	}
+	if pinned[bootstrap.LinkCredentialsFile] {
+		data := files[bootstrap.LinkCredentialsFile]
+		if err := natscell.ValidateLinkCredentialBytes(data, strings.ToLower(string(generation.Cell))); err != nil {
+			check.fail(bootstrap.LinkCredentialsFile + ": " + err.Error())
+		} else if raw, err := jwt.ParseDecoratedJWT(data); err == nil {
+			if user, err := jwt.DecodeUserClaims(raw); err == nil {
+				check.jwt(bootstrap.LinkCredentialsFile, user.IssuedAt, user.Expires)
 			}
 		}
 	}
@@ -255,7 +273,7 @@ func (check *generationCheck) interRegion(generation bootstrap.MaterialGeneratio
 			contracts++
 		}
 	}
-	if pinned["interregion.jwt"] && contracts == 0 {
+	if pinned["interregion-ca.pem"] && contracts == 0 {
 		check.fail("the interregion files need a controller config to check their contract against")
 	}
 }
@@ -340,13 +358,17 @@ func (check *generationCheck) controllerConfig(generation bootstrap.MaterialGene
 		}
 	}
 	var ir *natscell.InterRegion
+	var link *natscell.Link
 	if nats.Embedded != nil {
-		ir = nats.Embedded.InterRegion
+		ir, link = nats.Embedded.InterRegion, nats.Embedded.Link
 	}
 	home, err := ir.GlobalControlHome(nats.Cell)
 	if err != nil {
 		check.fail(name + " has an invalid global home: " + err.Error())
 		return false
+	}
+	if link != nil {
+		home = natscell.LinkHome
 	}
 	var controller map[string]jsontext.Value
 	if protocol.DecodeStrict(top["controller"], &controller, bootstrap.MaxControllerConfigBytes) != nil {
@@ -392,9 +414,11 @@ func (check *generationCheck) controllerConfig(generation bootstrap.MaterialGene
 			}
 		}
 	}
-	if (ir != nil) != pinned["interregion.jwt"] {
-		check.fail(name + " must reference interregion material exactly when the generation pins its files")
+	if (ir != nil) != pinned["interregion.jwt"] || (link != nil) != (pinned["interregion-ca.pem"] && !pinned["interregion.jwt"]) {
+		check.fail(name + " must reference interregion or link material exactly when the generation pins its files")
 		return false
+	} else if link != nil {
+		return check.link(generation, slot, name, nats, pinned, cellClaim)
 	} else if ir == nil {
 		return false
 	}
@@ -430,6 +454,37 @@ func (check *generationCheck) controllerConfig(generation bootstrap.MaterialGene
 	if !pinnedOnly {
 		check.fail(name + "'s interregion block references a file this generation does not pin, " +
 			"or a remote account that did not issue its credentials")
+	}
+	return true
+}
+
+// link checks one config's link block: only pinned files, by absolute path,
+// the slot's own leaf TLS, link.creds exactly on a spoke, and on the home a
+// cell.jwt that carries the link signer.
+func (check *generationCheck) link(generation bootstrap.MaterialGeneration, slot, name string, nats natscell.Config,
+	pinned map[string]bool, cellClaim *jwt.AccountClaims,
+) bool {
+	if nats.Cell != strings.ToLower(string(generation.Cell)) {
+		check.fail(name + " has no valid link block for this cell")
+		return false
+	}
+	file := func(path, want string) bool {
+		return path == filepath.Join(bootstrap.MaterialDirectory, want) && pinned[want]
+	}
+	link := nats.Embedded.Link
+	cert, key := bootstrap.InterRegionTLSFiles(slot)
+	credentials := link.CredentialsFile == "" && !pinned[bootstrap.LinkCredentialsFile]
+	if nats.Cell != natscell.LinkHome {
+		credentials = file(link.CredentialsFile, bootstrap.LinkCredentialsFile)
+	}
+	if !credentials || !file(link.TLS.CAFile, "interregion-ca.pem") || !file(link.TLS.CertFile, cert) ||
+		!file(link.TLS.KeyFile, key) || !file(nats.Embedded.CellJWTFile, "cell.jwt") || !file(nats.Embedded.SystemJWTFile, "system.jwt") {
+		check.fail(name + "'s link block references a file this generation does not pin, or link credentials on the home")
+	}
+	if nats.Cell == natscell.LinkHome && cellClaim != nil {
+		if err := natscell.VerifyLinkScope(cellClaim); err != nil {
+			check.fail("cell.jwt fails the link home check of " + name + ": " + err.Error())
+		}
 	}
 	return true
 }

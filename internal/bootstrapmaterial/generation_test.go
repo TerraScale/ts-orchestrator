@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nats-io/jwt/v2"
+	"github.com/nats-io/nkeys"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap/generationtest"
@@ -409,5 +410,60 @@ func TestCheckGenerationFilesRefusesFutureJWTs(t *testing.T) {
 	if _, err := bootstrapmaterial.CheckGenerationFiles(generation, material.Read, issued.Add(-10*time.Minute)); err == nil ||
 		!strings.Contains(err.Error(), "issued in the future") {
 		t.Fatalf("JWTs issued after the check: %v", err)
+	}
+}
+
+// TS-803: the home's link needs the link signer in cell.jwt; a spoke's
+// needs its own link user. Each config names exactly the pinned link files.
+func TestCheckGenerationFilesWithLink(t *testing.T) {
+	slots := generationExpectation().ControllerSlots
+	spokeExpectation := generationExpectation()
+	spokeExpectation.Cell = "SFO"
+	home := generationtest.New(t, generationNow).WithoutIssuers(t).Link(t, generationNow, slots)
+	spoke := generationtest.NewCell(t, generationNow, "sfo").WithoutIssuers(t).Link(t, generationNow, slots)
+	checkSpoke := func(material generationtest.Material) error {
+		_, err := bootstrapmaterial.CheckGenerationFiles(material.Generation(spokeExpectation, 1, ""), material.Read, time.Now())
+		return err
+	}
+	if _, err := check(home); err != nil {
+		t.Fatalf("home: %v", err)
+	}
+	if err := checkSpoke(spoke); err != nil {
+		t.Fatalf("spoke: %v", err)
+	}
+	unlinked := cellJWT(t, home, func(claims *jwt.AccountClaims) {
+		for key, scope := range claims.SigningKeys {
+			if user, ok := scope.(*jwt.UserScope); ok && user.Role == "link" {
+				delete(claims.SigningKeys, key)
+			}
+		}
+	})
+	if _, err := check(home.With(map[string][]byte{"cell.jwt": unlinked})); err == nil || !strings.Contains(err.Error(), "link home") {
+		t.Errorf("home without the link signer: %v", err)
+	}
+	if _, err := check(home.With(map[string][]byte{bootstrap.LinkCredentialsFile: spoke.Files[bootstrap.LinkCredentialsFile]})); err == nil {
+		t.Error("accepted link credentials on the home")
+	}
+	signer, _ := nkeys.CreateAccount()
+	homeAccount, _ := nkeys.CreateAccount()
+	homeID, _ := homeAccount.PublicKey()
+	fra, err := natscell.IssueLinkUser(signer, homeID, "fra", generationNow, generationNow.AddDate(1, 0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkSpoke(spoke.With(map[string][]byte{bootstrap.LinkCredentialsFile: fra})); err == nil {
+		t.Error("accepted another region's link user")
+	}
+	name := "controller-" + slots[0] + ".json"
+	config := strings.Replace(string(spoke.Files[name]), `"credentials_file":"`+bootstrap.MaterialDirectory+`/link.creds",`, "", 1)
+	if config == string(spoke.Files[name]) {
+		t.Fatal("spoke config fixture was not changed")
+	}
+	if err := checkSpoke(spoke.With(map[string][]byte{name: []byte(config)})); err == nil {
+		t.Error("accepted a spoke config without its link credentials")
+	}
+	withAccount := spoke.With(map[string][]byte{"interregion.jwt": []byte("unused")})
+	if err := checkSpoke(withAccount); err == nil {
+		t.Error("accepted the interregion account beside a link")
 	}
 }

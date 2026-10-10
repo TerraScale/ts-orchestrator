@@ -212,6 +212,7 @@ func validateAcceptedReferences(identity AcceptedIdentity) error {
 		allowed["founder-ledger.key"] = bootstrap.SecretSeedLedgerSigner
 	}
 	allowed["interregion.jwt"], allowed["interregion-ca.pem"] = bootstrap.SecretInterRegion, bootstrap.SecretInterRegion
+	allowed[bootstrap.LinkCredentialsFile] = bootstrap.SecretInterRegion
 	cert, key := bootstrap.InterRegionTLSFiles(identity.Slot)
 	allowed[cert], allowed[key] = bootstrap.SecretInterRegion, bootstrap.SecretInterRegion
 	seen := make(map[string]bool, len(identity.MaterialReferences))

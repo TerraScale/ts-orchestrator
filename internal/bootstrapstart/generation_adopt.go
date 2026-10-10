@@ -207,7 +207,8 @@ func (store MaterialStore) finish(dir int, target GenerationTarget, roots trust.
 	for _, name := range names {
 		_, known := allowed[name]
 		known = known || name == generationChainTemporary
-		known = known || name == "interregion.jwt" || name == "interregion-ca.pem" || name == cert || name == key || name == target.Slot+".creds"
+		known = known || name == "interregion.jwt" || name == "interregion-ca.pem" || name == cert || name == key || name == target.Slot+".creds" ||
+			name == bootstrap.LinkCredentialsFile
 		if strings.HasPrefix(name, "leaf-") && strings.HasSuffix(name, ".creds") {
 			peer := strings.TrimSuffix(strings.TrimPrefix(name, "leaf-"), ".creds")
 			known = catalog.IsCell(strings.ToUpper(peer)) && peer == strings.ToLower(peer)

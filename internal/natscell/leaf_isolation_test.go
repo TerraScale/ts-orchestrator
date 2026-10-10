@@ -148,7 +148,7 @@ func TestSiblingLeafCannotInterceptAnotherChild(t *testing.T) {
 		t.Fatalf("FRA published SFO's health; link closed with %q", reason)
 	}
 	resetter := dialRawLeaf(ctx, t, addr, leafTLS, gru.childLeafCredentials(t, "fra-reset.creds", "fra"))
-	resetter.publish(t, protocol.JSConsumerResetSubject(protocol.InterRegionJSAPIPrefix("gru"), protocol.GlobalControlStream,
+	resetter.publish(t, protocol.JSConsumerResetSubject(protocol.JSDomainAPIPrefix("gru"), protocol.GlobalControlStream,
 		protocol.GlobalMirrorConsumer("sfo")), "", []byte(`{"seq":99}`))
 	if reason := resetter.awaitClose(t); !strings.Contains(reason, "Permissions Violation for Publish") {
 		t.Fatalf("FRA reset SFO's mirror consumer; link closed with %q", reason)
