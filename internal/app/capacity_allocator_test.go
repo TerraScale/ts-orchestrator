@@ -63,9 +63,8 @@ func (r *recordedDecisions) Record(_ context.Context, decision decisionlog.Decis
 	return decision.ID
 }
 
-// startGlobalHome runs an embedded NATS and makes this member the global leader of a
-// home region, returning its global control.
-func startGlobalHome(t *testing.T, ctx context.Context) *globalControl {
+// startEmbeddedNATS runs an embedded JetStream server and connects to it.
+func startEmbeddedNATS(t *testing.T) *nats.Conn {
 	t.Helper()
 	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true,
 		StoreDir: filepath.Join(t.TempDir(), "jetstream")})
@@ -82,6 +81,14 @@ func startGlobalHome(t *testing.T, ctx context.Context) *globalControl {
 		t.Fatal(err)
 	}
 	t.Cleanup(conn.Close)
+	return conn
+}
+
+// startGlobalHome runs an embedded NATS and makes this member the global leader of a
+// home region, returning its global control and the connection it runs on.
+func startGlobalHome(t *testing.T, ctx context.Context) (*globalControl, *nats.Conn) {
+	t.Helper()
+	conn := startEmbeddedNATS(t)
 	js, err := jetstream.New(conn)
 	if err != nil {
 		t.Fatal(err)
@@ -103,13 +110,13 @@ func startGlobalHome(t *testing.T, ctx context.Context) *globalControl {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &globalControl{authority: control, writer: writer, reader: &writer.Reader}
+	return &globalControl{authority: control, writer: writer, reader: &writer.Reader}, conn
 }
 
 func TestCapacityAllocatorWritesAndJournalsOnChange(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	global := startGlobalHome(t, ctx)
+	global, _ := startGlobalHome(t, ctx)
 	now := time.Now().UTC()
 	epoch := global.authority.Current().Epoch
 	if err := budget.WriteBudget(ctx, global.writer, epoch, budget.Budget{Schema: budget.Schema, ID: entityid.New(),

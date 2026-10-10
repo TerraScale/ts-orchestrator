@@ -83,6 +83,9 @@ func (dashboard *Dashboard) loadJournal(ctx context.Context, current *view) {
 	if needs&needVersions != 0 {
 		current.loadVersions(ctx)
 	}
+	if needs&needCapacity != 0 && journal.Capacity != nil {
+		current.loadCapacity(ctx, journal.Capacity)
+	}
 	if needs&needRollouts != 0 && journal.Rollouts != nil {
 		if rollouts, err := dashboard.rollouts.get(ctx, "recent", journal.Rollouts.Rollouts); err != nil {
 			current.Unavailable = append(current.Unavailable, "rollouts")
@@ -120,13 +123,6 @@ func (dashboard *Dashboard) loadJournal(ctx context.Context, current *view) {
 			current.Unavailable = append(current.Unavailable, "OCI inventory")
 		} else {
 			current.Inventory = items
-		}
-	}
-	if needs&needBudget != 0 && journal.Budget != nil {
-		if capacity, ok, err := journal.Budget.Capacity(ctx); err != nil {
-			current.Unavailable = append(current.Unavailable, "budget")
-		} else if ok {
-			current.Capacity = &capacity
 		}
 	}
 }

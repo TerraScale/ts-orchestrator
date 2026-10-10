@@ -138,6 +138,7 @@ func (dashboard *Dashboard) Mount(mounter Mounter) {
 		mounter.Handle("GET "+page.path(), dashboard.guard(dashboard.pageHandler(page)))
 		mounter.Handle("GET "+page.streamPath(), dashboard.guard(dashboard.streamHandler(page)))
 	}
+	mounter.Handle("POST /capacity/budget", dashboard.guard(http.HandlerFunc(dashboard.setBudget)))
 }
 
 // Handler returns the dashboard routes on their own mux without any

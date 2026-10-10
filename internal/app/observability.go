@@ -15,7 +15,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/capacity"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
@@ -197,8 +196,6 @@ type controllerObservation struct {
 	cost func(context.Context) *ocicost.View
 	// costRollup is the region's cost for the dashboard rollup, cached.
 	costRollup func() *globalview.Cost
-	// capacity reads TS-804's global capacity document from the mirror.
-	capacity func(context.Context) (budget.Capacity, bool, error)
 	// rollouts is the rollout store, when the controller runs one. budgets is
 	// the monthly budget insight's source.
 	rollouts *rollout.Store
@@ -210,6 +207,8 @@ type controllerObservation struct {
 	kvSnapshots func() observability.KVSnapshotView
 	// nodes lists the cell's granted nodes for the topology view.
 	nodes func(context.Context) []regionview.Node
+	// capacity is the capacity page's source: budget, allowances and planner.
+	capacity dashboard.CapacitySource
 	// scale is the region's node scaling status, nil when the region runs no scaler.
 	scale func() *nodescale.Status
 }

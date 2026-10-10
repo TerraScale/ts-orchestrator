@@ -9,6 +9,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,7 +20,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
@@ -887,6 +887,19 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// The home allocates node growth under the monthly budget. Every region
 	// feeds the budget insight from the capacity document it reads.
 	allocator := startCapacityAllocator(runCtx, global, telemetry.regionRollups)
+	if err := startBudgetSet(runCtx, runtime.Conn(), global); err != nil {
+		return fmt.Errorf("serve budget requests: %w", err)
+	}
+	// The page shows this region's status from the rollup every member follows,
+	// so a follower shows what the leader published.
+	capacitySource := &capacityPage{conn: runtime.Conn(), global: global, scale: func() *nodescale.Status {
+		for _, region := range telemetry.regionRollups() {
+			if strings.EqualFold(region.Cell, cfg.NATS.Cell) && region.Rollup != nil {
+				return region.Rollup.Scale
+			}
+		}
+		return nil
+	}}
 	// runController refused a configuration without an embedded broker at
 	// its top, so Embedded is always set here.
 	linkSupervisor := &regionLinkSupervisor{cell: cfg.NATS.Cell, member: cfg.NATS.Instance,
@@ -900,14 +913,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		linkProbes:            linkSupervisor.snapshot,
 		nativeTerraBaseRegion: func() string { return services.profiles()[terrabase.Role].Env[terrabase.EnvRegion] },
 		cost:                  costViews.view, costRollup: costViews.rollup,
-		capacity: func(ctx context.Context) (budget.Capacity, bool, error) {
-			return budget.ReadCapacity(ctx, global.reader)
-		},
 		rollouts: rollouts, budgets: capacityBudgets{global: global, allocator: allocator}, ociResources: ociReconcile.resources(),
 		credentials: controllerCredentialFiles(cfg),
 		kvSnapshots: kvSnapshots,
 		nodes:       topologySource(cfg.NATS.Cell, cfg.NATS.Embedded.BrokerIDs, services, hostController, policy.nodes),
-		scale:       scaleStatus},
+		scale:       scaleStatus,
+		capacity:    capacitySource},
 		[]observability.FilesystemRole{{Role: "boot", Path: "/"}, {Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
 		return fmt.Errorf("attach controller observability: %w", err)
 	}
@@ -924,7 +935,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return errors.New("controller region link probe source is missing")
 	}
 	linkSupervisor.source = regions
-	startRegionPlanner(runCtx, cfg, runtime.JetStream(), global, telemetry.regionRollups, fullClusterReady)
+	startRegionPlanner(runCtx, cfg, runtime.JetStream(), global, telemetry.regionRollups, fullClusterReady, capacitySource)
 	workers.Go(func() { workerErrors <- linkSupervisor.Run(runCtx) })
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })

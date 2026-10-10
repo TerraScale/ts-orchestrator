@@ -11,7 +11,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
@@ -161,24 +160,8 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 		runtime.boardJournal = &dashboard.Journal{Decisions: providers.Decisions, Live: providers.Live,
 			History: providers.History, Insights: providers.Insights, Summaries: providers.Summarizer,
 			Local: regions.Local, Volumes: volumes, Rollouts: rolloutSource,
-			Global: globalView, Budget: budgetSource(observed.capacity)}
+			Global: globalView, Capacity: observed.capacity}
 	})
-}
-
-// capacityRead reads TS-804's global capacity document from the mirror.
-type capacityRead func(context.Context) (budget.Capacity, bool, error)
-
-// Capacity implements dashboard.BudgetSource.
-func (read capacityRead) Capacity(ctx context.Context) (budget.Capacity, bool, error) {
-	return read(ctx)
-}
-
-// budgetSource is the dashboard's budget source, nil when there is no read.
-func budgetSource(read capacityRead) dashboard.BudgetSource {
-	if read == nil {
-		return nil
-	}
-	return read
 }
 
 // regionRollups is every region's latest rollup, as this controller follows

@@ -80,6 +80,11 @@ func (b Budget) Encode() ([]byte, error) {
 	return protocol.EncodeJSON(b)
 }
 
+// Money formats cents in the currency's major unit, for example BRL 123.45.
+func Money(cents uint64, currency string) string {
+	return fmt.Sprintf("%s %d.%02d", currency, cents/100, cents%100)
+}
+
 // ReadBudget returns the current budget, or false when none was ever set.
 func ReadBudget(ctx context.Context, reader *globalcontrol.Reader) (Budget, bool, error) {
 	document, err := reader.Document(ctx, globalcontrol.KindBudget, protocol.GlobalScope)

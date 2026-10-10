@@ -347,7 +347,7 @@ func TestContentStreamPatchesOnlyChanges(t *testing.T) {
 	t.Parallel()
 	source := &switchingSnapshots{}
 	source.set(memberSnapshot())
-	// Every page's stream stays open at once, plus the members stream.
+	// Every page's stream stays open below, plus members: the listener's cap must cover them all.
 	dashboard := newTestDashboard(Options{Snapshots: source, MaxStreams: len(pages) + 1})
 	server := newStreamServer(t, dashboard)
 	for _, page := range pages {

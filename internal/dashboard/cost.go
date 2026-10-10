@@ -175,10 +175,11 @@ func (current view) costMethodLines() []string {
 
 // globalCapacity is TS-804's global cap, or nil when none is set.
 func (current view) globalCapacity() *budget.Capacity {
-	if current.Capacity == nil || current.Capacity.State == budget.StateNone {
+	capacity := current.capacityData().Capacity
+	if capacity == nil || capacity.State == budget.StateNone {
 		return nil
 	}
-	return current.Capacity
+	return capacity
 }
 
 // costCapKPI is the global budget cap tile: TS-804's cap against its projection.
@@ -192,7 +193,7 @@ func (current view) costCapKPI() kpi {
 	if capacity.CapCents > 0 {
 		sub += " (" + itoa(int(math.Round(float64(capacity.ProjectedCents)*100/float64(capacity.CapCents)))) + "%)"
 	}
-	status := capacityStatus(capacity.State)
+	status := costStatus(capacity.State)
 	if current.Now.Sub(capacity.At) > budget.AllowanceMaxAge {
 		sub += " · stale"
 		status = "warn"
@@ -236,8 +237,8 @@ func amount(cents uint64) string {
 	return fmt.Sprintf("%d.%02d", cents/100, cents%100)
 }
 
-// capacityStatus colors the global cap state. Unknown warns; no cap has no pill.
-func capacityStatus(state budget.State) string {
+// costStatus colors the global cap state. Unknown warns; no cap has no pill.
+func costStatus(state budget.State) string {
 	switch state {
 	case budget.StateOK:
 		return "ok"

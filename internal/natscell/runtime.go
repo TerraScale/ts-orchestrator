@@ -941,6 +941,8 @@ func userPermissions(cell string, user NKeyGrant) (*server.Permissions, error) {
 		permissions.Publish.Allow = append(permissions.Publish.Allow, protocol.AnyRegionQuerySubject())
 		if user.Global {
 			permissions.Publish.Allow = append(permissions.Publish.Allow, GlobalControllerPublishes()...)
+			permissions.Publish.Allow = append(permissions.Publish.Allow, GlobalControllerRequests()...)
+			permissions.Subscribe.Allow = append(permissions.Subscribe.Allow, GlobalControllerRequests()...)
 		}
 		permissions.Subscribe.Allow = append(permissions.Subscribe.Allow,
 			ControllerSubscriptions(cell)...)

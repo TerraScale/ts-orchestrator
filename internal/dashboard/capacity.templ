@@ -1,0 +1,192 @@
+package dashboard
+
+import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
+
+// capacityBody is the capacity page: the monthly budget and its form, the
+// capacity document, this region's node scaling and the region planner.
+templ capacityBody(current view) {
+	<div id="content">
+		<h1>Capacity</h1>
+		@notes(current)
+		if current.Journal == nil || current.Journal.Capacity == nil {
+			<article>
+				@unavailable("The budget, capacity and planner appear once this controller's capacity provider is attached.")
+			</article>
+		} else {
+			<div class="cols">
+				<article>
+					<h2>Monthly budget</h2>
+					@budgetSection(current.capacityData())
+				</article>
+				<article>
+					<h2>Capacity <small>what growth is allowed</small></h2>
+					@capacitySection(current.capacityData(), current.failed("capacity document"))
+				</article>
+			</div>
+			<article>
+				<h2>Regions <small>nodes, wanted, allowance and pressure</small></h2>
+				@regionsSection(current.capacityData())
+			</article>
+			<article>
+				<h2>This region's node scaling</h2>
+				@scaleSection(current.capacityData())
+			</article>
+			<article>
+				<h2>Region planner</h2>
+				@plannerSection(current.capacityData(), current.failed("region planner"))
+			</article>
+		}
+	</div>
+}
+
+templ budgetSection(data CapacityView) {
+	if data.Budget == nil {
+		<p class="empty">No monthly budget is set; nothing grows past its current size.</p>
+	} else {
+		<p>
+			Cap <strong>{ budget.Money(data.Budget.MonthlyCapCents, data.Budget.Currency) }</strong> a month,
+			set by <code>{ data.Budget.SetBy }</code>
+			<small class="muted">
+				@ago(data.Budget.SetAt)
+			</small>
+		</p>
+	}
+	if data.Home {
+		{{ amount, currency := data.budgetForm() }}
+		<form method="post" action="/capacity/budget" class="filters budget-form">
+			<label>
+				Amount
+				<input type="text" name="amount" value={ amount } placeholder="500.00" inputmode="decimal" pattern="[0-9]{1,11}(\.[0-9]{1,2})?" required/>
+			</label>
+			<label>
+				Currency
+				<input type="text" name="currency" value={ currency } maxlength="3" pattern="[A-Z]{3}" required/>
+			</label>
+			<button type="submit">Set monthly budget</button>
+		</form>
+	} else {
+		<p class="muted">The budget is set on the home region's dashboard.</p>
+	}
+}
+
+templ capacitySection(data CapacityView, unreadable bool) {
+	if unreadable {
+		@unavailable("The capacity document could not be read; growth is unknown.")
+	} else if data.Capacity == nil {
+		<p class="empty">No capacity document has been written yet.</p>
+	} else {
+		<p>
+			@statusPill(capacityStatus(data.Capacity.State), string(data.Capacity.State))
+			<strong>{ budget.Money(data.Capacity.ProjectedCents, data.Capacity.Currency) }</strong>
+			projected
+			if data.Capacity.CapCents > 0 {
+				of <strong>{ budget.Money(data.Capacity.CapCents, data.Capacity.Currency) }</strong>
+			}
+		</p>
+		if data.Capacity.CapCents > 0 {
+			@ratioBar(data.Capacity.Ratio)
+		}
+		<p>{ data.Capacity.Reason }</p>
+		<p class="muted">
+			Written 
+			<small>
+				@ago(data.Capacity.At)
+			</small>
+		</p>
+	}
+}
+
+templ regionsSection(data CapacityView) {
+	if data.Capacity == nil || len(data.Capacity.Regions) == 0 {
+		<p class="empty">No region has reported its nodes yet.</p>
+	} else {
+		<div class="table-scroll">
+			<table class="striped">
+				<thead><tr><th>Region</th><th>Nodes</th><th>Wanted</th><th>Allowance</th><th>Pressure</th></tr></thead>
+				<tbody>
+					for _, region := range data.Capacity.Regions {
+						<tr>
+							<td>{ upper(region.Cell) }</td>
+							<td>{ itoa(region.Nodes) }</td>
+							<td>{ itoa(region.Want) }</td>
+							<td>{ itoa(region.Allowance) }</td>
+							<td>
+								@ratioBar(region.Pressure)
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	}
+}
+
+templ scaleSection(data CapacityView) {
+	if data.Scale == nil {
+		<p class="empty">This region has no node scaling status yet.</p>
+	} else {
+		<p>
+			@statusPill(actionStatus(string(data.Scale.Action)), string(data.Scale.Action))
+			{ data.Scale.Reason }
+		</p>
+		<p>
+			{ itoa(data.Scale.Nodes) } nodes ({ itoa(data.Scale.QuorumNodes) } quorum, { itoa(data.Scale.PoolNodes) } pool),
+			wants { itoa(data.Scale.Want) }, allowed { itoa(data.Scale.Allowance) }.
+		</p>
+		@ratioBar(data.Scale.Pressure)
+		if rows := data.signalRows(); len(rows) > 0 {
+			<table class="striped">
+				<thead><tr><th>Signal</th><th>Value</th></tr></thead>
+				<tbody>
+					for _, row := range rows {
+						<tr><td>{ row.Name }</td><td>{ row.Value }</td></tr>
+					}
+				</tbody>
+			</table>
+		}
+		if inFlight := data.Scale.InFlight; inFlight != nil {
+			<p>
+				Running <strong>{ string(inFlight.Kind) }</strong> at step <code>{ inFlight.Step }</code>
+				if inFlight.Node != "" {
+					on <code>{ inFlight.Node }</code>
+				}
+				started 
+				<small>
+					@ago(inFlight.Started)
+				</small>
+			</p>
+		} else {
+			<p class="muted">No scale action is running.</p>
+		}
+		<p class="muted">
+			Last change 
+			<small>
+				@ago(data.Scale.LastChange)
+			</small>
+		</p>
+	}
+}
+
+templ plannerSection(data CapacityView, unreadable bool) {
+	if !data.Home {
+		<p class="empty">The region planner runs in the home region.</p>
+	} else if unreadable {
+		@unavailable("The region planner's state could not be read.")
+	} else if data.Planner == nil {
+		<p class="empty">The region planner has not decided yet.</p>
+	} else {
+		<p>
+			@statusPill(actionStatus(data.Planner.Action), data.Planner.Action)
+			if data.Planner.Cell != "" {
+				<strong>{ upper(data.Planner.Cell) }</strong>
+			}
+			{ data.Planner.Reason }
+		</p>
+		<p class="muted">
+			Decided 
+			<small>
+				@ago(data.Planner.At)
+			</small>
+		</p>
+	}
+}

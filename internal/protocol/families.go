@@ -146,6 +146,11 @@ func GlobalControlRequest(action string) string {
 	return subject
 }
 
+// GlobalBudgetSetSubject is the request a home controller sends its global
+// leader to set the monthly budget. It sits outside the control and global
+// state streams, which would acknowledge the request before the leader answers.
+func GlobalBudgetSetSubject() string { return GlobalControlRequest("budget-set") }
+
 // HostRegisterSubject is the controller host registration request subject.
 func HostRegisterSubject(cell string) string { return Regional(cell, VerbHostRegister) }
 

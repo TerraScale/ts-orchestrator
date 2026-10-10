@@ -128,6 +128,14 @@ contract requires an explicit COS decision.
 | `/topology` | Server-rendered SVG of this region: one column of nodes (`ts-<region>-<n>` with its private address), each with the ts-orch controller (build, authority and meta leader), the host agent, each role its host grant places (TerraBase member, ts-auth, ...) with its release digest and verified host report, TerraBase seats serving, the node's fence and active node operation, and its load balancer backends (from the fence records, not a live load balancer read). Arcs left of the nodes join nodes that replicate a TerraBase partition (tooltip: partitions and the latest replication lag). **Services + NATS** (`nats=1`) adds each controller's NATS server with connections and peers, the route mesh, the other nodes' client sessions and JetStream health (streams, KV buckets, store, streams with offline replicas or lag). Colors come only from evidence: an unproven route or client connection is grey and dashed. Every box links to its node, member or NATS page. Below the graph, every other region links to its `/regions/<cell>` view with its health. |
 | `/members`, `/nats`, `/terrabase`, `/storage`, `/oci`, `/events` | Host time series, fleet heatmap and capacity; NATS rates, lag and backlog; seat grids, stage history and time-to-full forecasts; volumes, capacity treemap and backups; OCI rates, latency, 429s and inventory; the live event stream with search and chart click-through. |
 
+The Capacity page (`/capacity`, Infrastructure) shows the monthly OCI budget,
+the capacity document with each region's nodes, wanted nodes, allowance and
+pressure, this region's node scaling status and the region planner's latest
+decision. The budget is set there from the home region's dashboard: the form
+posts to `/capacity/budget`, and the home's global leader writes it to
+`TS_GLOBAL_CONTROL`. Other regions show the budget read-only and the planner
+note that it runs in the home region.
+
 The OCI page also counts the managed fleet by OCI lifecycle state from the
 latest complete placement Observe sweep of each region: instances in the
 fleet's identity scope (owned or withheld), and the retained data volumes and

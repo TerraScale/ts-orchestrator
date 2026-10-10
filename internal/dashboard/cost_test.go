@@ -183,7 +183,7 @@ func TestBudgetCapTileShowsTheGlobalCap(t *testing.T) {
 			ProjectedCents: 45000, State: budget.StateOK},
 			kpi{Value: "BRL 1000.00", Sub: "projected BRL 450.00 (45%) · stale", Status: "warn"}},
 	} {
-		current := view{State: parseState(url.Values{}), Now: now, Capacity: test.capacity}
+		current := view{State: parseState(url.Values{}), Now: now, Capacity: &CapacityView{Capacity: test.capacity}}
 		got := current.costCapKPI()
 		if got.Label != "Budget cap" || got.Value != test.want.Value || got.Sub != test.want.Sub || got.Status != test.want.Status {
 			t.Errorf("%s: tile = %q %q %q, want %q %q %q", test.name, got.Value, got.Sub, got.Status,
@@ -211,8 +211,8 @@ func TestCostBodyStatesTheGlobalBudget(t *testing.T) {
 	capped := localCost(usdView(1000, 3000))
 	capped.State, capped.Now = parseState(url.Values{}), now
 	capped.Global = []globalview.Region{remoteCost("fra", nil, false)}
-	capped.Capacity = &budget.Capacity{At: now, CapCents: 100000, Currency: "BRL", ProjectedCents: 85000, Ratio: 0.85,
-		State: budget.StateWarn, Reason: "projected spend is at least 80% of the cap"}
+	capped.Capacity = &CapacityView{Capacity: &budget.Capacity{At: now, CapCents: 100000, Currency: "BRL", ProjectedCents: 85000, Ratio: 0.85,
+		State: budget.StateWarn, Reason: "projected spend is at least 80% of the cap"}}
 	cappedPage := render(capped)
 	for _, want := range []string{"projected spend is at least 80% of the cap", "as of"} {
 		if !strings.Contains(cappedPage, want) {

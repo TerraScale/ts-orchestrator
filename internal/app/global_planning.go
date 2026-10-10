@@ -67,21 +67,22 @@ func (k *rolloutKnownBad) IsKnownBad(ctx context.Context, digest string) (bool, 
 // wait on the cluster and on OCI, so they run in the background and the
 // controller does not wait for them; a failure is logged, not fatal.
 func startRegionPlanner(ctx context.Context, cfg Config, js jetstream.JetStream, global *globalControl,
-	rollups func() []globalview.Region, fullClusterReady func() bool,
+	rollups func() []globalview.Region, fullClusterReady func() bool, page *capacityPage,
 ) {
 	if global == nil || global.authority == nil {
 		return
 	}
 	go func() {
-		if err := runRegionPlanner(ctx, cfg, js, global, rollups, fullClusterReady); err != nil && ctx.Err() == nil {
+		if err := runRegionPlanner(ctx, cfg, js, global, rollups, fullClusterReady, page); err != nil && ctx.Err() == nil {
 			slog.Error("region planner did not start", observability.ComponentKey, "regionplanner", "error", err)
 		}
 	}()
 }
 
-// runRegionPlanner opens the planner's stores and starts its loop.
+// runRegionPlanner opens the planner's stores and starts its loop. The capacity
+// page reads the planner's decision from the store once it is open.
 func runRegionPlanner(ctx context.Context, cfg Config, js jetstream.JetStream, global *globalControl,
-	rollups func() []globalview.Region, fullClusterReady func() bool,
+	rollups func() []globalview.Region, fullClusterReady func() bool, page *capacityPage,
 ) error {
 	subscriptions, tenancy, err := retryHomeIdentity(ctx, cfg.NATS.Cell)
 	if err != nil {
@@ -101,6 +102,7 @@ func runRegionPlanner(ctx context.Context, cfg Config, js jetstream.JetStream, g
 	if err != nil {
 		return err
 	}
+	page.planner.Store(planner)
 	home := regionlifecycle.Home{Cell: cfg.NATS.Cell}
 	if err := home.Validate(); err != nil {
 		return err
