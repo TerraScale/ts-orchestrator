@@ -22,6 +22,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/nats-io/nkeys"
 )
 
 const (
@@ -73,6 +74,7 @@ type HostStateVolume struct {
 // HostStateHost includes inactive registrations as well as running hosts.
 // Registration and desired targets are independently verified current facts,
 // never decoded from the obsolete predecessor bytes.
+// A retired static orphan may omit instance/request evidence; it receives no grant.
 type HostStateHost struct {
 	InstanceOCID                string             `json:"instance_ocid"`
 	Registration                host.Registration  `json:"registration"`
@@ -228,18 +230,22 @@ func BuildHostStateHandoffPlan(observed HostStateObservation, now time.Time) (Ho
 		return add(authority.ControlStreamName, protocol.Control(cell, "host", string(kind), key), HostStateAppendHead, wire, true)
 	}
 	seenNodes, seenInstances := map[string]bool{}, map[string]bool{}
+	orphanHeads := map[string]bool{}
 	for _, facts := range observed.Hosts {
 		if err := validateHostStateFacts(facts, observed, now); err != nil {
 			return HostStateHandoffPlan{}, err
 		}
 		r := facts.Registration
-		if seenNodes[r.Node] || seenInstances[facts.InstanceOCID] {
+		if seenNodes[r.Node] || facts.InstanceOCID != "" && seenInstances[facts.InstanceOCID] {
 			return HostStateHandoffPlan{}, fmt.Errorf("%w: duplicate node or instance", ErrHostStateHandoff)
 		}
 		seenNodes[r.Node], seenInstances[facts.InstanceOCID] = true, true
 		r.ID, r.Generation = entityid.Derive("host", cell, r.Node), facts.RegistrationGenerationFloor+1
 		if err := addHead(authority.MutationRegistration, cell+"."+r.Node, r); err != nil {
 			return HostStateHandoffPlan{}, err
+		}
+		if facts.InstanceOCID == "" {
+			orphanHeads[authority.ControlStreamName+"/"+protocol.Control(cell, "host", "registration", cell+"."+r.Node)] = true
 		}
 		if err := addHead(authority.MutationRetirement, cell+"."+r.Node, struct {
 			Retired bool `json:"retired"`
@@ -252,6 +258,9 @@ func BuildHostStateHandoffPlan(observed HostStateObservation, now time.Time) (Ho
 			if err := addHead(authority.MutationDesired, cell+"."+r.Node+"."+d.Role, d); err != nil {
 				return HostStateHandoffPlan{}, err
 			}
+			if facts.InstanceOCID == "" {
+				orphanHeads[authority.ControlStreamName+"/"+protocol.Control(cell, "host", "desired", cell+"."+r.Node+"."+d.Role)] = true
+			}
 			for _, prefix := range []string{"cycle", "report", "desired"} {
 				if err := add(hostStateBucket, prefix+"."+cell+"."+r.Node+"."+d.Role, HostStateDelete, nil, false); err != nil {
 					return HostStateHandoffPlan{}, err
@@ -262,6 +271,10 @@ func BuildHostStateHandoffPlan(observed HostStateObservation, now time.Time) (Ho
 			if err := add(hostStateBucket, prefix+"."+cell+"."+r.Node, HostStateDelete, nil, true); err != nil {
 				return HostStateHandoffPlan{}, err
 			}
+		}
+		// Retiring an obsolete node must not revoke a surviving renamed instance.
+		if facts.InstanceOCID == "" {
+			continue
 		}
 		request, descriptor, _ := parseHostStateEnrollmentRequest(facts.EnrollmentRequest, now)
 		descriptorDigest, _ := descriptor.Digest()
@@ -306,7 +319,7 @@ func BuildHostStateHandoffPlan(observed HostStateObservation, now time.Time) (Ho
 	for _, previous := range observed.Preconditions {
 		id := previous.Bucket + "/" + previous.Key
 		record, ok := allowed[id]
-		if !ok || seen[id] || previous.Revision == 0 && previous.SHA256 != "" || previous.Revision != 0 && !digestRE.MatchString(previous.SHA256) ||
+		if !ok || seen[id] || orphanHeads[id] && previous.Revision == 0 || previous.Revision == 0 && previous.SHA256 != "" || previous.Revision != 0 && !digestRE.MatchString(previous.SHA256) ||
 			previous.Operation != "" && (record.Action == HostStateAppendHead || previous.Revision == 0 ||
 				previous.SHA256 != sha256Hex(nil) || previous.Operation != "DEL" && previous.Operation != "PURGE") {
 			return HostStateHandoffPlan{}, fmt.Errorf("%w: unknown, duplicate or invalid predecessor %s", ErrHostStateHandoff, id)
@@ -338,20 +351,23 @@ func hostStatePublicKey(value string) bool {
 func validateHostStateFacts(facts HostStateHost, observed HostStateObservation, now time.Time) error {
 	r := facts.Registration
 	cell := strings.ToLower(observed.Cell)
-	if !regionalOCID(facts.InstanceOCID, "instance", observed.Cell) || r.Cell != cell ||
+	orphan := facts.Retired && facts.InstanceOCID == "" && len(facts.EnrollmentRequest) == 0 && r.TerraBaseDataVolumeID == "" && facts.Volume == nil
+	if !orphan && !regionalOCID(facts.InstanceOCID, "instance", observed.Cell) || r.Cell != cell || !hostStateToken(r.Node) ||
 		r.Environment != observed.Environment || r.ID != entityid.Derive("host", cell, r.Node) ||
 		r.ManagedOCI != nil || r.ManagedPlacement != nil || r.ManagedMember != nil || r.SystemReserveBytes != 0 ||
 		r.Generation == 0 || r.Generation > facts.RegistrationGenerationFloor || facts.RegistrationGenerationFloor == ^uint64(0) ||
 		r.Capacity.CPU <= 0 || r.Capacity.MemoryBytes <= 0 || r.Capacity.DiskBytes <= 0 ||
 		len(r.Roles) == 0 || len(r.Roles) > 32 || len(facts.Desired) != len(r.Roles) ||
-		!hostStatePublicKey(r.PublicKey) || r.FailureDomain != "" && !hostStateToken(r.FailureDomain) {
+		!hostStatePublicKey(r.PublicKey) || !nkeys.IsValidPublicUserKey(r.NATSUserPublicKey) || r.FailureDomain != "" && !hostStateToken(r.FailureDomain) {
 		return fmt.Errorf("%w: host facts or unsupported managed registration", ErrHostStateHandoff)
 	}
-	request, descriptor, err := parseHostStateEnrollmentRequest(facts.EnrollmentRequest, now)
-	if err != nil || !descriptor.IsStatic() || descriptor.Cell != cell || descriptor.Node != r.Node ||
-		request.Operation != "enroll" || request.InstanceID != facts.InstanceOCID ||
-		request.IdentityPublicKey != r.PublicKey || request.NATSUserPublicKey != r.NATSUserPublicKey {
-		return fmt.Errorf("%w: exact validated static enrollment request", ErrHostStateHandoff)
+	if !orphan {
+		request, descriptor, err := parseHostStateEnrollmentRequest(facts.EnrollmentRequest, now)
+		if err != nil || !descriptor.IsStatic() || descriptor.Cell != cell || descriptor.Node != r.Node ||
+			request.Operation != "enroll" || request.InstanceID != facts.InstanceOCID ||
+			request.IdentityPublicKey != r.PublicKey || request.NATSUserPublicKey != r.NATSUserPublicKey {
+			return fmt.Errorf("%w: exact validated static enrollment request", ErrHostStateHandoff)
+		}
 	}
 	seen := map[string]bool{}
 	for _, role := range r.Roles {
@@ -394,6 +410,9 @@ func validateHostStateFacts(facts HostStateHost, observed HostStateObservation, 
 				return err
 			}
 		}
+	}
+	if orphan {
+		return nil
 	}
 	if r.TerraBaseDataVolumeID == "" && facts.Volume != nil {
 		return fmt.Errorf("%w: missing or foreign existing-volume proof", ErrHostStateHandoff)

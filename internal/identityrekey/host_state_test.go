@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -516,7 +517,19 @@ func TestHostStateHandoffNoHostsStillRequiresRegionalRetirementCoverage(t *testi
 }
 
 func TestHostStateHandoffHeadsWorkWithHostValidators(t *testing.T) {
+	testHostStateHandoffHeadsWorkWithHostValidators(t, false)
+}
+
+func TestHostStateHandoffOrphanHeadsWorkWithHostValidators(t *testing.T) {
+	testHostStateHandoffHeadsWorkWithHostValidators(t, true)
+}
+
+func testHostStateHandoffHeadsWorkWithHostValidators(t *testing.T, orphan bool) {
+	t.Helper()
 	o, _, _, now := hostStateFixture(t, "GRU")
+	if orphan {
+		removeOrphanEnrollmentEvidence(&o)
+	}
 	plan, err := BuildHostStateHandoffPlan(o, now)
 	if err != nil {
 		t.Fatal(err)
@@ -743,6 +756,126 @@ func TestHostStateHandoffRetainsHistoricalEnrollmentEvidence(t *testing.T) {
 			}
 			if _, err := BuildHostStateHandoffPlan(copy, now); err == nil {
 				t.Fatal("historical evidence lost identity/signature binding")
+			}
+		})
+	}
+}
+
+func removeOrphanEnrollmentEvidence(observed *HostStateObservation) (instance, volume string) {
+	orphan := &observed.Hosts[len(observed.Hosts)-1]
+	instance, volume = orphan.InstanceOCID, orphan.Volume.VolumeID
+	orphan.InstanceOCID, orphan.EnrollmentRequest = "", nil
+	orphan.Registration.TerraBaseDataVolumeID, orphan.Volume = "", nil
+	observed.Preconditions = slices.DeleteFunc(observed.Preconditions, func(p HostStatePrecondition) bool {
+		return p.Bucket == hostenroll.GrantBucket && (p.Key == sha256Hex([]byte(instance)) || p.Key == entityid.Derive("host-enrollment", instance)) ||
+			p.Bucket == hostStateBucket && (p.Key == "terrabase-format.gru."+orphan.Registration.Node+"."+sha256Hex([]byte(volume)) ||
+				p.Key == entityid.Derive("terrabase-format", "gru", orphan.Registration.Node, volume))
+	})
+	return instance, volume
+}
+
+func TestHostStateHandoffRetiresOrphanWithoutEnrollmentAuthority(t *testing.T) {
+	observed, root, roots, now := hostStateFixture(t, "GRU")
+	instance, volume := removeOrphanEnrollmentEvidence(&observed)
+	orphan := &observed.Hosts[len(observed.Hosts)-1]
+	plan, err := BuildHostStateHandoffPlan(observed, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := SignHostStateHandoffPlan(plan, now, now.Add(time.Hour), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, err := VerifyHostStateHandoffPlan(envelope, roots, observed, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retirement, withdrawal, session, grantChanges := false, false, false, 0
+	for _, record := range verified.Records() {
+		if record.Pin.Bucket == hostenroll.GrantBucket {
+			grantChanges++
+		}
+		if record.Pin.Bucket == hostenroll.GrantBucket && (record.Pin.Key == sha256Hex([]byte(instance)) || record.Pin.Key == entityid.Derive("host-enrollment", instance)) {
+			t.Fatal("orphan retirement changed a potentially reused instance's enrollment grant")
+		}
+		switch record.Pin.Key {
+		case protocol.Control("gru", "host", "retirement", "gru."+orphan.Registration.Node):
+			var head struct {
+				Payload []byte `json:"payload"`
+			}
+			if err := json.Unmarshal(record.Value, &head); err != nil {
+				t.Fatal(err)
+			}
+			retirement = string(head.Payload) == `{"retired":true}`
+		case protocol.Control("gru", "host", "desired", "gru."+orphan.Registration.Node+".terrabase"):
+			var head struct {
+				Payload []byte `json:"payload"`
+			}
+			if err := json.Unmarshal(record.Value, &head); err != nil {
+				t.Fatal(err)
+			}
+			var desired host.Desired
+			if err := protocol.DecodeStrict(head.Payload, &desired, 64<<10); err != nil {
+				t.Fatal(err)
+			}
+			withdrawal = desired.Withdrawn && desired.Digest == "" && desired.Generation == orphan.Desired[0].GenerationFloor+1
+		case "session.gru." + orphan.Registration.Node:
+			session = record.Action == HostStateDelete
+		}
+	}
+	if !retirement || !withdrawal || !session || grantChanges != 2*(len(observed.Hosts)-1) {
+		t.Fatal("orphan retirement lost retirement, withdrawal or session fencing")
+	}
+	second := cloneHostStateObservation(t, observed)
+	extra := second.Hosts[len(second.Hosts)-1]
+	extra.Desired = slices.Clone(extra.Desired)
+	extra.Registration.Node = "ts-gru-3"
+	extra.Registration.ID = entityid.Derive("host", "gru", extra.Registration.Node)
+	extra.Desired[0].Target.Node = extra.Registration.Node
+	second.Hosts = append(second.Hosts, extra)
+	for _, previous := range observed.Preconditions {
+		if strings.Contains(previous.Key, "."+orphan.Registration.Node) {
+			previous.Key = strings.ReplaceAll(previous.Key, "."+orphan.Registration.Node, "."+extra.Registration.Node)
+			second.Preconditions = append(second.Preconditions, previous)
+		}
+	}
+	if _, err := BuildHostStateHandoffPlan(second, now); err != nil {
+		t.Fatalf("two independently retired aliases require no invented instances: %v", err)
+	}
+	for _, fault := range []string{"active", "running desired", "instance without request", "request without instance", "registered volume", "absent registration", "absent desired", "invalid node", "invalid NATS key"} {
+		t.Run(fault, func(t *testing.T) {
+			changed := cloneHostStateObservation(t, observed)
+			host := &changed.Hosts[len(changed.Hosts)-1]
+			switch fault {
+			case "active":
+				host.Retired = false
+			case "running desired":
+				host.Desired[0].Target.Withdrawn = false
+			case "instance without request":
+				host.InstanceOCID = instance
+			case "request without instance":
+				host.EnrollmentRequest = []byte("unchecked request")
+			case "registered volume":
+				host.Registration.TerraBaseDataVolumeID = volume
+			case "absent registration", "absent desired":
+				kind := strings.TrimPrefix(fault, "absent ")
+				key := "gru." + host.Registration.Node
+				if kind == "desired" {
+					key += ".terrabase"
+				}
+				for i := range changed.Preconditions {
+					if changed.Preconditions[i].Key == protocol.Control("gru", "host", kind, key) {
+						changed.Preconditions[i].Revision, changed.Preconditions[i].SHA256 = 0, ""
+					}
+				}
+			case "invalid node":
+				host.Registration.Node = "foreign.node"
+				host.Registration.ID = entityid.Derive("host", "gru", host.Registration.Node)
+			case "invalid NATS key":
+				host.Registration.NATSUserPublicKey = "unchecked"
+			}
+			if _, err := BuildHostStateHandoffPlan(changed, now); !errors.Is(err, ErrHostStateHandoff) {
+				t.Fatalf("unsafe orphan %s admitted: %v", fault, err)
 			}
 		})
 	}

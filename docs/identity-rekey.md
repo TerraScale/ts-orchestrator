@@ -65,10 +65,17 @@ For an existing KV tombstone, each predecessor observation pins its positive
 revision, empty-data SHA-256 and exact `operation` (`DEL` or `PURGE`); the signed
 reset carries the same `previous_operation`. A tombstone is not revision-zero
 absence. Cleanup still publishes a new operation-owned tombstone before completion.
-Retained enrollment requests, including retired hosts, are checked at their
+Retained enrollment requests, including retired hosts receiving a disabled grant, are checked at their
 original signed issuance time and matched to independently observed instance,
 node, identity and NATS keys. Their exact request bytes are retained in the
 replacement grant; live enrollment still requires a request no older than 48 hours.
+An obsolete static node without retained enrollment evidence may instead be
+root-authorized as retired, with empty instance/request fields, all desired roles
+withdrawn and no registered block volume. Its existing registration and desired
+heads require positive exact predecessor revisions; sessions are deleted and no
+instance enrollment grant is created, replaced or deleted. A renamed surviving
+instance therefore keeps its separately verified grant. Complete broker inventory,
+current root signatures and regional writer quiescence remain mandatory.
 The root chain belongs to the proposed deployment and is verified from the
 existing baked genesis keys. No retired-identity decoder participates.
 
