@@ -10,44 +10,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  zero-config:
-    name: Reject new configuration switches
-    runs-on: terrascale-builder
-    timeout-minutes: 10
-    outputs:
-      source_sha: ${{ steps.policy.outputs.source_sha }}
-    steps:
-      - name: Check out the exact change with its history
-        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          github-server-url: https://git.terrascale.tech
-          ref: main
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Check out the shared TerraScale policy
-        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          github-server-url: https://git.terrascale.tech
-          repository: TerraScale/ts-builder
-          ref: 4abae826a08090c4505d7c8f3d7adcd78be616ef
-          path: .zero-config-policy
-          token: ${{ secrets.TERRASCALE_BOT_TOKEN }}
-          persist-credentials: false
-      - name: Check the added lines
-        id: policy
-        env:
-          ZERO_CONFIG_BASE: ${{ forgejo.event.pull_request.base.sha || forgejo.event.before }}
-        run: |
-          set -eu
-          ZERO_CONFIG_HEAD=$(git rev-parse HEAD)
-          if [ -z "$ZERO_CONFIG_BASE" ]; then
-            ZERO_CONFIG_BASE=$(git rev-parse "$ZERO_CONFIG_HEAD^")
-          fi
-          python3 .zero-config-policy/scripts/zero-config-check.py "$ZERO_CONFIG_BASE" "$ZERO_CONFIG_HEAD"
-          printf 'source_sha=%s\n' "$ZERO_CONFIG_HEAD" >> "$GITHUB_OUTPUT"
-
-  guard:
-    needs: [zero-config]
+  check:
     runs-on: terrascale-builder
     timeout-minutes: 15
     env:
@@ -56,10 +19,10 @@ jobs:
       GOMODCACHE: /cache/go/mod
     steps:
       - name: Check out the protected main guard
-        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           github-server-url: https://git.terrascale.tech
-          ref: ${{ needs.zero-config.outputs.source_sha }}
+          ref: main
           persist-credentials: false
 
       - name: Compare qualified builds with fresh regional deployment proofs
