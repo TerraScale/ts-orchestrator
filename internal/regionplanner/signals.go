@@ -117,9 +117,9 @@ func peerHoldPages(ctx context.Context, source decisionlog.Source, peer string, 
 // A peer's journal is data from another region, not a trusted statement:
 // each peer is queried on its own and only decisions about that peer are
 // kept, so one region can never raise signals for another. A forged hold can
-// at most make the planner propose the peer's overflow region, and a
-// proposal still needs a signed approval before anything is admitted or
-// spent. An unreachable peer contributes nothing to the round.
+// at most make the planner propose the peer's overflow region, and the
+// planner approves it only inside its guardrails before anything is admitted
+// or spent. An unreachable peer contributes nothing to the round.
 type PeerHolds struct {
 	// Decisions returns the federated decision source, or nil until the
 	// controller has attached it.

@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -29,9 +28,9 @@ import (
 )
 
 // RegionPlannerConfig runs the region planner on the global home's leader.
-// It only ever proposes: every proposal needs a signed approval before
-// anything is admitted or spent. Off by default; it requires global control
-// enabled with this region as the home.
+// It only proposes until the monthly budget guards admission (TS-804); then
+// it approves its own proposals inside those guardrails. Off by default; it requires global
+// control enabled with this region as the home.
 type RegionPlannerConfig struct {
 	Enabled             bool   `json:"enabled"`
 	IntervalSeconds     int    `json:"interval_seconds,omitzero"`
@@ -49,11 +48,6 @@ type RegionPlannerConfig struct {
 	RegionMonthlyCents map[string]uint64 `json:"region_monthly_cents"`
 	// Overflow names the cell to propose when a cell is capacity-limited.
 	Overflow map[string]string `json:"overflow,omitempty"`
-	// Approvers maps each region approval actor to its base64 Ed25519
-	// public key. Admission and every lifecycle step verify the record's
-	// signed approval against it; empty verifies nothing, so nothing is
-	// admitted or driven.
-	Approvers map[string]string `json:"approvers,omitempty"`
 	// PeerSignals also reads every interregion peer's capacity and limit
 	// placement holds from its decision journal. Off by default: peer
 	// journals are another region's data, and although they can only lead
@@ -61,7 +55,7 @@ type RegionPlannerConfig struct {
 	PeerSignals bool `json:"peer_signals,omitzero"`
 	// Admit admits approved regions, and refreshes the cost admission of
 	// in-flight ones, at their RegionMonthlyCents price under the region
-	// maximum, the monthly ceiling and the approval's cap. Off by default.
+	// maximum and the monthly ceiling. Off by default.
 	Admit bool `json:"admit,omitzero"`
 	// Drive advances admitted regions one lifecycle step per tick through
 	// the steps that have an effector. Off by default; a step without an
@@ -78,8 +72,8 @@ const (
 	defaultPlannerWindow   = 24 * time.Hour
 )
 
-// plannerPolicy builds and validates the planner and lifecycle policies.
-func (c *RegionPlannerConfig) plannerPolicy(home string) (regionplanner.Policy, regionlifecycle.Policy, error) {
+// plannerPolicy builds and validates the planner policy.
+func (c *RegionPlannerConfig) plannerPolicy(home string) (regionplanner.Policy, error) {
 	window := time.Duration(c.WindowSeconds) * time.Second
 	if window <= 0 {
 		window = defaultPlannerWindow
@@ -88,36 +82,20 @@ func (c *RegionPlannerConfig) plannerPolicy(home string) (regionplanner.Policy, 
 		Catalog: regionplanner.CatalogFromRegions(c.RegionMonthlyCents, c.Overflow), Window: window,
 		CapacityThreshold: max(c.CapacityThreshold, 3), LatencyThresholdMillis: max(c.LatencyThresholdMillis, 150),
 		LatencySamples: max(c.LatencySamples, 3), MaxRegions: c.MaxRegions, MonthlyCeilingCents: c.MonthlyCeilingCents,
-		Home: regionlifecycle.Home{Cell: home, MonthlyCents: c.HomeMonthlyCents},
+		Home: regionlifecycle.Home{Cell: home},
 	}
-	// The planner never approves. Approvers only verify approvals that
-	// arrive through their own signed path, before admission and steps.
-	lifecycle := regionlifecycle.Policy{
-		MaxRegions: c.MaxRegions, MonthlyCeilingCents: c.MonthlyCeilingCents,
-		AdmissionTTL: regionlifecycle.DefaultAdmissionTTL, ProposalTTL: 72 * time.Hour,
-		ApprovalMaxLifetime: 7 * 24 * time.Hour, ClockSkew: time.Minute, MinIdle: 14 * 24 * time.Hour,
-	}
-	if len(c.Approvers) != 0 {
-		lifecycle.Approvers = make(map[string]ed25519.PublicKey, len(c.Approvers))
-		for actor, encoded := range c.Approvers {
-			key, err := decodePublicKey(encoded)
-			if actor == "" || err != nil {
-				return regionplanner.Policy{}, regionlifecycle.Policy{}, fmt.Errorf("region approver %q: %w", actor,
-					errors.Join(err, errors.New("approver needs an actor and a base64 Ed25519 key")))
-			}
-			lifecycle.Approvers[actor] = key
-		}
+	// The home's cost comes out of the admission headroom, so zero would
+	// overcommit the budget.
+	if c.HomeMonthlyCents == 0 {
+		return regionplanner.Policy{}, errors.New("region planner needs the home region's monthly cost")
 	}
 	if c.SubscribeRegions && !c.Drive {
-		return regionplanner.Policy{}, regionlifecycle.Policy{}, errors.New("subscribe_regions needs drive")
-	}
-	if (c.Admit || c.Drive) && len(lifecycle.Approvers) == 0 {
-		return regionplanner.Policy{}, regionlifecycle.Policy{}, errors.New("admit and drive need region approvers")
+		return regionplanner.Policy{}, errors.New("subscribe_regions needs drive")
 	}
 	if _, err := (regionplanner.Planner{Policy: policy}).Plan(nil, nil, time.Now()); err != nil {
-		return regionplanner.Policy{}, regionlifecycle.Policy{}, fmt.Errorf("region planner policy: %w", err)
+		return regionplanner.Policy{}, fmt.Errorf("region planner policy: %w", err)
 	}
-	return policy, lifecycle, nil
+	return policy, nil
 }
 
 // startRollouts opens the rollout store. knownBad, when set,
@@ -170,7 +148,7 @@ func startRegionPlanner(ctx context.Context, cfg Config, js jetstream.JetStream,
 	if global == nil || global.authority == nil {
 		return nil, errors.New("the region planner runs only in the global home")
 	}
-	policy, lifecyclePolicy, err := settings.plannerPolicy(cfg.NATS.Cell)
+	policy, err := settings.plannerPolicy(cfg.NATS.Cell)
 	if err != nil {
 		return nil, err
 	}
@@ -202,12 +180,15 @@ func startRegionPlanner(ctx context.Context, cfg Config, js jetstream.JetStream,
 		sources = append(sources, regionplanner.PeerHolds{
 			Decisions: func() decisionlog.Source { return federation }, Peers: peers})
 	}
-	machine := regionlifecycle.Machine{Policy: lifecyclePolicy}
+	machine := regionlifecycle.Machine{}
 	runner := plannerRunner{source: sources, planner: regionplanner.Planner{Policy: policy},
 		store: store, machine: machine, leader: global.authority}
 	loop := &regionops.Loop{Store: store, Machine: machine, Home: policy.Home, Leader: global.authority, Plan: runner.plan}
 	if settings.Admit {
-		loop.Admissions = regionops.PriceList{MonthlyCents: settings.RegionMonthlyCents}
+		// The home's spend comes out of the budget; the in-flight regions are
+		// checked against what is left.
+		headroom := settings.MonthlyCeilingCents - min(settings.MonthlyCeilingCents, settings.HomeMonthlyCents)
+		loop.Admissions = regionops.PriceList{MonthlyCents: settings.RegionMonthlyCents, HeadroomCents: headroom}
 	}
 	if settings.Drive {
 		loop.Effectors = regionops.Effectors{}

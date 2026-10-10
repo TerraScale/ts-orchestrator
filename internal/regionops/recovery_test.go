@@ -2,7 +2,6 @@ package regionops
 
 import (
 	"context"
-	"crypto/ed25519"
 	"slices"
 	"testing"
 	"time"
@@ -11,7 +10,6 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlifecycle"
 )
 
@@ -30,16 +28,9 @@ func TestRecoveredIntentReconcilesBeforeReadmission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	public, private, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
 	start := time.Now().UTC()
 	clock := start
-	machine := regionlifecycle.Machine{Policy: regionlifecycle.Policy{MaxRegions: 3, MonthlyCeilingCents: 30_000,
-		AdmissionTTL: regionlifecycle.DefaultAdmissionTTL, ProposalTTL: 72 * time.Hour,
-		ApprovalMaxLifetime: 7 * 24 * time.Hour, ClockSkew: time.Minute, MinIdle: 14 * 24 * time.Hour,
-		Approvers: map[string]ed25519.PublicKey{approver: public}}}
+	machine := regionlifecycle.Machine{}
 	epoch := leader.Current().Epoch
 
 	// A crash left the subscription intent journaled in Subscribing.
@@ -52,22 +43,11 @@ func TestRecoveredIntentReconcilesBeforeReadmission(t *testing.T) {
 		if _, err := store.Create(ctx, epoch, record); err != nil {
 			t.Fatal(err)
 		}
-		payload, err := protocol.EncodeJSON(regionlifecycle.ApprovalPayload{Cell: cell, ProposalDigest: proposal.Digest(),
-			MaxMonthlyCents: 10_000})
+		next, err := machine.Approve(record, start)
 		if err != nil {
 			t.Fatal(err)
 		}
-		envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: cell,
-			Kind: regionlifecycle.ApproveExpansionKind, Actor: approver, OperationID: proposal.ID, Generation: 1},
-			start, start.Add(48*time.Hour), private)
-		if err != nil {
-			t.Fatal(err)
-		}
-		next, err := machine.Approve(record, envelope, start)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if next, err = machine.Admit(next, regionlifecycle.CostAdmission{EstimatedMonthlyCents: 9_000,
+		if next, err = machine.Admit(next, regionlifecycle.CostAdmission{EstimatedMonthlyCents: 9_000, HeadroomCents: 20_000,
 			EvidenceDigest: "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210", AdmittedAt: start},
 			regionlifecycle.Fleet{Regions: 1, CommittedMonthlyCents: 9_000}, start); err != nil {
 			t.Fatal(err)
@@ -91,10 +71,10 @@ func TestRecoveredIntentReconcilesBeforeReadmission(t *testing.T) {
 	// sfo's subscription exists and is READY; fra's does not exist.
 	tenancy := &fakeIdentity{status: map[string]identity.RegionSubscriptionStatusEnum{
 		"us-sanjose-1": identity.RegionSubscriptionStatusReady}}
-	// Both admissions expired, and the price now exceeds the approvals' cap.
+	// Both admissions expired, and the price now exceeds the budget headroom.
 	clock = start.Add(20 * time.Minute)
-	loop := &Loop{Store: store, Machine: machine, Home: regionlifecycle.Home{Cell: "gru", MonthlyCents: 9_000},
-		Leader: leader, Admissions: PriceList{MonthlyCents: map[string]uint64{"sfo": 11_000, "fra": 11_000}},
+	loop := &Loop{Store: store, Machine: machine, Home: regionlifecycle.Home{Cell: "gru"},
+		Leader: leader, Admissions: PriceList{MonthlyCents: map[string]uint64{"sfo": 11_000, "fra": 11_000}, HeadroomCents: 10_000},
 		Effectors: Effectors{regionlifecycle.StepSubscribe: Subscription{API: tenancy, TenancyID: "ocid1.tenancy.oc1..test"}},
 		Now:       func() time.Time { return clock }}
 	report := loop.Tick(ctx)
@@ -112,7 +92,7 @@ func TestRecoveredIntentReconcilesBeforeReadmission(t *testing.T) {
 
 	// With an acceptable price the absent effect is readmitted and re-run
 	// with its journaled create key.
-	loop.Admissions = PriceList{MonthlyCents: map[string]uint64{"sfo": 9_000, "fra": 9_000}}
+	loop.Admissions = PriceList{MonthlyCents: map[string]uint64{"sfo": 9_000, "fra": 9_000}, HeadroomCents: 20_000}
 	report = loop.Tick(ctx)
 	if !slices.Equal(report.Readmitted, []string{"fra"}) || !slices.Equal(tenancy.creates, []string{"FRA"}) {
 		t.Fatalf("readmitted tick = %+v (creates %v)", report, tenancy.creates)

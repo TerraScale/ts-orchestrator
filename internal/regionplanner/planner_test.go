@@ -2,7 +2,6 @@ package regionplanner
 
 import (
 	"context"
-	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"path/filepath"
@@ -34,7 +33,7 @@ func testPolicy() Policy {
 			"fra": {Cell: "fra", OCIRegion: "eu-frankfurt-1", EstimatedMonthlyCents: 9_500},
 		},
 		Window: 24 * time.Hour, CapacityThreshold: 3, LatencyThresholdMillis: 150, LatencySamples: 2,
-		MaxRegions: 3, MonthlyCeilingCents: 20_000, Home: regionlifecycle.Home{Cell: "gru", MonthlyCents: 9_000},
+		MaxRegions: 3, MonthlyCeilingCents: 20_000, Home: regionlifecycle.Home{Cell: "gru"},
 	}
 }
 
@@ -113,9 +112,14 @@ func TestPlannerIgnoresNoiseAndRespectsGuards(t *testing.T) {
 	}
 
 	both := []Signal{signal(SignalUnplaceableIntent, "sfo", "s", time.Hour), signal(SignalUnplaceableIntent, "fra", "f", time.Hour)}
-	proposals, err := planner.Plan(both, records, now)
-	// GRU commits 9_000. Cells are considered in sorted order: FRA fits
-	// (18_500), then SFO would make 27_500 > 20_000 and is left for later.
+	// An in-flight LHR bring-up commits 9_000. Cells are considered in sorted
+	// order: FRA fits (18_500), then SFO would make 27_500 > 20_000 and is left
+	// for later. An Active region's spend is not in-flight, so it is not here.
+	inFlight := activeGRU()
+	inFlight.Cell, inFlight.Phase = "lhr", regionlifecycle.Admitted
+	wide := planner
+	wide.Policy.MaxRegions = 10
+	proposals, err := wide.Plan(both, append(slices.Clone(records), inFlight), now)
 	if err != nil || len(proposals) != 1 || proposals[0].Cell != "fra" {
 		t.Fatalf("budget-limited proposals = %+v, %v", proposals, err)
 	}
@@ -163,7 +167,7 @@ type staticSource []Signal
 
 func (s staticSource) Signals(context.Context, time.Time) ([]Signal, error) { return s, nil }
 
-func TestRunOnlyProposesAndNeverApproves(t *testing.T) {
+func TestRunProposesWithoutApproving(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	js := newTestJetStream(t)
@@ -172,12 +176,7 @@ func TestRunOnlyProposesAndNeverApproves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	public, _, _ := ed25519.GenerateKey(nil)
-	machine := regionlifecycle.Machine{Policy: regionlifecycle.Policy{
-		MaxRegions: 3, MonthlyCeilingCents: 20_000, AdmissionTTL: regionlifecycle.DefaultAdmissionTTL,
-		ProposalTTL: time.Hour, ApprovalMaxLifetime: time.Hour, MinIdle: time.Hour,
-		Approvers: map[string]ed25519.PublicKey{"operator:x": public},
-	}}
+	machine := regionlifecycle.Machine{}
 	planner := Planner{Policy: testPolicy()}
 	source := staticSource{signal(SignalUnplaceableIntent, "sfo", "intent", time.Minute)}
 	epoch := global.Current().Epoch
@@ -186,22 +185,22 @@ func TestRunOnlyProposesAndNeverApproves(t *testing.T) {
 		t.Fatalf("run = %v, %v", submitted, err)
 	}
 	record, _, err := store.Get(ctx, "sfo")
-	if err != nil || record.Phase != regionlifecycle.Proposed || record.Approval != nil || record.Admission != nil {
+	if err != nil || record.Phase != regionlifecycle.Proposed || record.Admission != nil {
 		t.Fatalf("planner record = %+v, %v", record, err)
 	}
 	if submitted, err := Run(ctx, source, planner, store, machine, epoch, now); err != nil || len(submitted) != 0 {
 		t.Fatalf("second run = %v, %v; an open proposal must not be duplicated", submitted, err)
 	}
-	// After the proposal expires and is rejected, a later signal proposes anew.
-	expired, revision, err := store.Get(ctx, "sfo")
+	// After the proposal is rejected, a later signal proposes anew.
+	proposed, revision, err := store.Get(ctx, "sfo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	rejected, err := machine.Expire(expired, now.Add(2*time.Hour))
+	rejected, err := machine.Reject(proposed, "operator: replan", now.Add(2*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Update(ctx, epoch, expired, rejected, revision); err != nil {
+	if _, err := store.Update(ctx, epoch, proposed, rejected, revision); err != nil {
 		t.Fatal(err)
 	}
 	later := now.Add(48 * time.Hour)

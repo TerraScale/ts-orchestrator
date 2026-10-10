@@ -111,7 +111,7 @@ chain's status).
 | Volume auto-grow | `volume_resized` | `placement.Controller.growVolume`, after the journaled resize |
 | Controller slot replacement | `controller_replaced` | `membership.Reconciler`, after the founder (or the seed, when routed) accepted the replacement; `membership.SeedServer` on the seed when a routed replacement finishes or fails (rule `membership.seed_routed`) |
 | Region proposals | `region_proposed` | `regionplanner.Submit`, after the lifecycle record was stored |
-| Region admissions | `region_admitted` (admitted or readmitted, with the estimate and committed spend), `held` (refused by the region maximum, the ceiling or the approval; once per cell and reason) | `regionops.Loop`, after the lifecycle record was stored |
+| Region admissions | `region_admitted` (admitted or readmitted, with the estimate and committed spend), `held` (refused by the region maximum or the budget headroom; once per cell and reason) | `regionops.Loop`, after the lifecycle record was stored |
 | Region lifecycle steps | `region_step` (in progress, succeeded, or failed when held), `held` (waiting for an approval, a fresh admission, an effector or an OCI effect in progress; once per cell and reason) | `regionops.Loop`, after `Driver.Advance` or an observed resume |
 | OCI declarative reconcile | `oci_desired_published`, `oci_drift_corrected`, `oci_resource_deleted`, `oci_resource_released` | `app.desiredPass` after the KV writes; `ociresource.Controller` after the cloud write or the purge |
 

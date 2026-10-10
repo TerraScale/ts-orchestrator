@@ -305,28 +305,27 @@ credential rotation to acquire these grants. Global control runs automatically.
 `internal/regionlifecycle` is the state machine from the region auto-start
 review: Proposed, Approved, Admitted, one journaled step per effect up to
 Active, then RetireProposed, RetireApproved and reverse steps to Retired, plus
-Held, RollingBack and Rejected. Approvals are Ed25519-signed protocol
-envelopes from configured approvers, bound to the exact proposal digest and
-proposal generation. Spending steps need a cost admission younger than 15
-minutes; admission also enforces the region maximum and the global monthly
-ceiling. Records live in the `TS_REGION_LIFECYCLE` KV bucket and are advanced
-with compare-and-set under the global lease. The step intent, with a
+Held, RollingBack and Rejected. There are no signed approvals: the region
+planner approves its own proposals inside the budget guardrails of
+docs/capacity.md (TS-804); until those land, proposals stay Proposed. Spending steps need a cost
+admission younger than 15 minutes; admission also enforces the region maximum
+and the monthly budget headroom. Records live in the `TS_REGION_LIFECYCLE` KV
+bucket and are advanced with compare-and-set under the global lease. The step intent, with a
 deterministic create key used as the OCI retry token and ownership tag, is
 stored before each effect; after a crash the driver observes before retrying.
 Every effect is fenced: the intent is stamped with the leader's epoch by a
 compare-and-set before `Execute`, and the lease is guarded again immediately
 before it; a recovered intent is re-claimed through `Machine.ClaimStep`,
-which re-checks approval expiry and admission freshness. A region that fails
-after the seed launch is removed through `ProposeFailedRetire` and the signed
-retirement path; its pending intent is settled by observation before any
-teardown step. Approvals can be renewed in flight (`RenewApproval`,
-`RenewRetireApproval`). The global home counts toward the region maximum and
-the budget, budget sums saturate instead of wrapping, and a held unapproved
-proposal takes no slot.
+which re-checks admission freshness. A region that fails after the seed launch
+is removed through `ProposeFailedRetire` and the retirement path; its pending
+intent is settled by observation before any teardown step. The global home
+counts toward the region maximum, budget sums saturate instead of wrapping,
+and a held unapproved proposal takes no slot.
 
 `internal/regionplanner` turns unplaceable placement intents, classified OCI
-capacity and limit errors, and latency rollups into proposals. It only
-proposes; a human or policy approval is always required. Proposal IDs carry
+capacity and limit errors, and latency rollups into proposals. It
+proposes; approval comes from the planner inside the budget guardrails of
+docs/capacity.md (TS-804). Proposal IDs carry
 the target proposal generation (`<cell>-g<generation>-<hash>`), so no two
 attempts on one cell ever share a proposal ID. With
 the current `controller.region_planner` guard, it runs on the global leader
@@ -343,7 +342,8 @@ The query federation runs on the cell connection, independent of the HTTP
 observability listener; `peer_signals` without interregion peers refuses
 to start. A peer's
 journal is another region's data; a forged hold can at most propose the
-peer's overflow region, which still needs a signed approval. Latency signals
+peer's overflow region.
+Latency signals
 have no source yet: TerraBase member status carries no client latency.
 
 ### Region operations loop
@@ -353,7 +353,7 @@ have no source yet: TerraBase member status carries no client latency.
 
 1. runs the planner;
 2. with `admit`, admits an Approved region at its `region_monthly_cents`
-   price under the region maximum, the ceiling and the approval's cap, and
+   price under the region maximum and the budget headroom, and
    readmits an in-flight region before it starts a new spending step once
    its admission is in the last third of its TTL. A refused readmission
    blocks that step even while the older admission is still fresh. A
@@ -366,10 +366,8 @@ have no source yet: TerraBase member status carries no client latency.
    an effector, and resumes a Held region only when an observation finds
    its pending effect (an absent effect stays held for an operator).
 
-`admit` and `drive` need `approvers` (actor to base64 Ed25519 key); nothing
-is admitted or driven without a verifiable signed approval. Waits (no
-approval, stale admission, no effector, an OCI effect in progress) and
-refusals are journaled once per region and reason.
+Waits (stale admission, no effector, an OCI effect in progress) and refusals
+are journaled once per region and reason.
 
 The only effector so far is `subscribe_regions` (needs `drive`): the home's
 instance principal subscribes the tenancy to the proposal's catalog region
@@ -386,8 +384,6 @@ Every other step waits, journaled.
   plan files and an admission inventory, not on lifecycle records; they need
   a record-to-plan mapping and ownership tags by create key first. Material,
   seed, link, public API, handoff, activation and teardown are not started.
-- A signed path for operators to submit approvals (and renewals) into
-  lifecycle records; today approvals can only be stored by code.
 - Appending interregion material's `ledgerDigest` to the OCI bootstrap
   ledger as its own record kind, and rendering controller configuration
   (cell/system JWT paths, listener, subtrees, topology, remotes) from the

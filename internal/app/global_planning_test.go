@@ -25,10 +25,6 @@ func testPlannerConfig() *RegionPlannerConfig {
 		RegionMonthlyCents: map[string]uint64{"gru": 9_000, "fra": 9_500, "sfo": 9_000}, Overflow: map[string]string{"gru": "sfo"}}
 }
 
-// testApproverKey is a base64 Ed25519 public key (32 zero bytes are a valid
-// encoding for configuration parsing).
-const testApproverKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-
 // TestPeerSignalsNeedOnlyTheCellConnection pins ts-reviewer 13224: peer
 // signals use a federation over the cell connection, not the HTTP
 // listener's providers, and fail loudly without peers or a connection.
@@ -47,45 +43,27 @@ func TestPeerSignalsNeedOnlyTheCellConnection(t *testing.T) {
 	}
 }
 
-func TestRegionPlannerApproversEnableAdmitAndDrive(t *testing.T) {
-	t.Parallel()
-	config := testPlannerConfig()
-	config.Admit, config.Drive, config.SubscribeRegions = true, true, true
-	config.Approvers = map[string]string{"operator:mario": testApproverKey}
-	_, lifecycle, err := config.plannerPolicy("gru")
-	if err != nil || len(lifecycle.Approvers["operator:mario"]) != 32 {
-		t.Fatalf("lifecycle = %+v, %v", lifecycle, err)
-	}
-}
-
 func TestRegionPlannerPolicyCountsTheHomeAndValidates(t *testing.T) {
 	t.Parallel()
 
-	policy, lifecycle, err := testPlannerConfig().plannerPolicy("gru")
+	policy, err := testPlannerConfig().plannerPolicy("gru")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if policy.Home != (regionlifecycle.Home{Cell: "gru", MonthlyCents: 9_000}) || lifecycle.MaxRegions != 4 ||
+	if policy.Home != (regionlifecycle.Home{Cell: "gru"}) || policy.MaxRegions != 4 ||
 		policy.Catalog["sfo"].OCIRegion == "" || policy.Catalog["gru"].Overflow != "sfo" {
-		t.Fatalf("policy = %+v, lifecycle = %+v", policy, lifecycle)
+		t.Fatalf("policy = %+v", policy)
 	}
 	for name, mutate := range map[string]func(*RegionPlannerConfig){
 		"no ceiling":              func(c *RegionPlannerConfig) { c.MonthlyCeilingCents = 0 },
 		"no max":                  func(c *RegionPlannerConfig) { c.MaxRegions = 0 },
 		"no home cost":            func(c *RegionPlannerConfig) { c.HomeMonthlyCents = 0 },
 		"empty catalog":           func(c *RegionPlannerConfig) { c.RegionMonthlyCents = nil },
-		"admit without approvers": func(c *RegionPlannerConfig) { c.Admit = true },
-		"drive without approvers": func(c *RegionPlannerConfig) { c.Drive = true },
-		"subscribe without drive": func(c *RegionPlannerConfig) {
-			c.SubscribeRegions = true
-			c.Approvers = map[string]string{"operator:mario": testApproverKey}
-		},
-		"bad approver key":     func(c *RegionPlannerConfig) { c.Approvers = map[string]string{"operator:mario": "AAAA"} },
-		"empty approver actor": func(c *RegionPlannerConfig) { c.Approvers = map[string]string{"": testApproverKey} },
+		"subscribe without drive": func(c *RegionPlannerConfig) { c.SubscribeRegions = true },
 	} {
 		config := testPlannerConfig()
 		mutate(config)
-		if _, _, err := config.plannerPolicy("gru"); err == nil {
+		if _, err := config.plannerPolicy("gru"); err == nil {
 			t.Errorf("%s: planner policy accepted", name)
 		}
 	}
@@ -172,8 +150,9 @@ func (followerFencer) Current() authority.Snapshot {
 func (followerFencer) Guard(context.Context, uint64) error { return authority.ErrNotLeader }
 
 // TestPlannerRunnerProposesOnTheGlobalLeaderOnly drives one planner tick on
-// embedded JetStream: capacity holds in GRU propose its overflow region SFO
-// as a Proposed lifecycle record, and a follower proposes nothing.
+// embedded JetStream: capacity holds in GRU propose its overflow region SFO,
+// which the planner approves into an Approved lifecycle record, and a
+// follower proposes nothing.
 func TestPlannerRunnerProposesOnTheGlobalLeaderOnly(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
@@ -212,7 +191,7 @@ func TestPlannerRunnerProposesOnTheGlobalLeaderOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy, lifecycle, err := testPlannerConfig().plannerPolicy("gru")
+	policy, err := testPlannerConfig().plannerPolicy("gru")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +200,7 @@ func TestPlannerRunnerProposesOnTheGlobalLeaderOnly(t *testing.T) {
 		holds.record("OCI LaunchInstance: Out of host capacity in " + ad)
 	}
 	runner := plannerRunner{source: holdSignals{cell: "gru", holds: holds}, planner: regionplanner.Planner{Policy: policy},
-		store: store, machine: regionlifecycle.Machine{Policy: lifecycle}, leader: followerFencer{}}
+		store: store, machine: regionlifecycle.Machine{}, leader: followerFencer{}}
 	if submitted := runner.tick(ctx, time.Now()); len(submitted) != 0 {
 		t.Fatalf("follower proposed %v", submitted)
 	}
@@ -230,12 +209,13 @@ func TestPlannerRunnerProposesOnTheGlobalLeaderOnly(t *testing.T) {
 		t.Fatalf("leader proposals = %v", submitted)
 	}
 	record, _, err := store.Get(ctx, "sfo")
-	if err != nil || record.Phase != regionlifecycle.Proposed || record.Approval != nil {
-		t.Fatalf("proposed record = %+v, %v", record, err)
+	if err != nil || record.Phase != regionlifecycle.Approved || record.Admission != nil {
+		t.Fatalf("approved record = %+v, %v", record, err)
 	}
 	budgets, err := regionplanner.Budgets{Policy: policy, Records: store}.Budgets(ctx)
-	if err != nil || len(budgets) != 2 || budgets[0].Used != 1 {
-		// The unapproved proposal takes no slot; only the home does.
+	if err != nil || len(budgets) != 2 || budgets[0].Used != 2 || budgets[1].Used != 90 {
+		// The approved proposal takes a slot and commits its estimate; the
+		// home holds a slot.
 		t.Fatalf("budgets = %+v, %v", budgets, err)
 	}
 }

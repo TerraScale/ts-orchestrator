@@ -180,8 +180,8 @@ func seedMayExist(p Phase) bool {
 	return !forward || rank >= forwardOrder[SeedLaunching]
 }
 
-// OccupiesSlot reports whether a region in phase p counts toward the policy's
-// maximum region count and committed spend. An unapproved proposal does not.
+// OccupiesSlot reports whether a region in phase p counts toward the region
+// maximum and committed spend. An unapproved proposal does not.
 func (p Phase) OccupiesSlot() bool {
 	return p != Proposed && p != Rejected && p != Retired
 }
@@ -205,7 +205,7 @@ func NextStep(record Record) (Step, bool) {
 }
 
 // Spends reports whether step creates billable resources, so it needs a
-// cost admission younger than the policy's AdmissionTTL when it begins.
+// cost admission younger than AdmissionTTL when it begins.
 func (s Step) Spends() bool {
 	for _, def := range steps {
 		if def.step == s {
@@ -215,8 +215,8 @@ func (s Step) Spends() bool {
 	return false
 }
 
-// Retire reports whether step belongs to retirement, which needs the signed
-// retirement approval instead of the expansion approval and admission.
+// Retire reports whether step belongs to retirement, which starts from
+// RetireApproved instead of Admitted and needs no admission.
 func (s Step) Retire() bool {
 	for _, def := range steps {
 		if def.step == s {

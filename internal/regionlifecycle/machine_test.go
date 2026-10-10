@@ -1,10 +1,10 @@
 package regionlifecycle
 
 import (
-	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"math"
 	"slices"
 	"strings"
 	"testing"
@@ -12,13 +12,9 @@ import (
 	"unicode/utf8"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
-
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 var testEpoch = time.Date(2026, time.October, 2, 12, 0, 0, 0, time.UTC)
-
-const approver = "operator:mario"
 
 func digest(label string) string {
 	sum := sha256.Sum256([]byte(label))
@@ -27,21 +23,12 @@ func digest(label string) string {
 
 type fixture struct {
 	machine Machine
-	key     ed25519.PrivateKey
 	now     time.Time
 }
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	public, private, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &fixture{now: testEpoch, key: private, machine: Machine{Policy: Policy{
-		MaxRegions: 3, MonthlyCeilingCents: 20_000, AdmissionTTL: DefaultAdmissionTTL,
-		ProposalTTL: 72 * time.Hour, ApprovalMaxLifetime: 7 * 24 * time.Hour, ClockSkew: time.Minute,
-		MinIdle: 14 * 24 * time.Hour, Approvers: map[string]ed25519.PublicKey{approver: public},
-	}}}
+	return &fixture{now: testEpoch}
 }
 
 func (f *fixture) proposal() Proposal {
@@ -50,26 +37,8 @@ func (f *fixture) proposal() Proposal {
 		EstimatedMonthlyCents: 9_000, ProposedAt: f.now}
 }
 
-func (f *fixture) sign(t *testing.T, record Record, kind string, maxCents uint64, key ed25519.PrivateKey, lifetime time.Duration) protocol.Envelope {
-	t.Helper()
-	payload, err := protocol.EncodeJSON(ApprovalPayload{Cell: record.Cell, ProposalDigest: record.Proposal.Digest(), MaxMonthlyCents: maxCents})
-	if err != nil {
-		t.Fatal(err)
-	}
-	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: record.Cell, Kind: kind, Actor: approver,
-		OperationID: record.Proposal.ID, Generation: record.ProposalGeneration}, f.now, f.now.Add(lifetime), key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return envelope
-}
-
-func (f *fixture) approval(t *testing.T, record Record) protocol.Envelope {
-	return f.sign(t, record, ApproveExpansionKind, 10_000, f.key, 48*time.Hour)
-}
-
 func (f *fixture) admission() CostAdmission {
-	return CostAdmission{EstimatedMonthlyCents: 9_000, EvidenceDigest: digest("estimate"), AdmittedAt: f.now}
+	return CostAdmission{EstimatedMonthlyCents: 9_000, HeadroomCents: 20_000, EvidenceDigest: digest("estimate"), AdmittedAt: f.now}
 }
 
 // admitted returns a record in Admitted.
@@ -79,7 +48,7 @@ func (f *fixture) admitted(t *testing.T) Record {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record, err = f.machine.Approve(record, f.approval(t, record), f.now); err != nil {
+	if record, err = f.machine.Approve(record, f.now); err != nil {
 		t.Fatal(err)
 	}
 	if record, err = f.machine.Admit(record, f.admission(), Fleet{Regions: 1, CommittedMonthlyCents: 5_000}, f.now); err != nil {
@@ -144,13 +113,9 @@ func TestLifecycleBringUpAndRetirementFollowTheStepTable(t *testing.T) {
 		t.Fatalf("propose retire = %s, %v", record.Phase, err)
 	}
 	if _, _, err := f.machine.BeginStep(record, f.now); !errors.Is(err, ErrInvalidTransition) {
-		t.Fatalf("retirement step ran without approval: %v", err)
+		t.Fatalf("retirement step ran before approval: %v", err)
 	}
-	if _, err := f.machine.ApproveRetire(record, f.approval(t, record), f.now); !errors.Is(err, ErrApprovalRequired) {
-		t.Fatalf("expansion approval accepted for retirement: %v", err)
-	}
-	record, err = f.machine.ApproveRetire(record, f.sign(t, record, ApproveRetirementKind, 0, f.key, time.Hour), f.now)
-	if err != nil {
+	if record, err = f.machine.ApproveRetire(record, f.now); err != nil {
 		t.Fatal(err)
 	}
 	phases = []Phase{record.Phase}
@@ -164,53 +129,65 @@ func TestLifecycleBringUpAndRetirementFollowTheStepTable(t *testing.T) {
 	assertTerminal(t, f, record)
 }
 
-func TestApprovalAndAdmissionGuards(t *testing.T) {
+// Approve and ApproveRetire move only from their own phase, and a proposal
+// stops taking approval once its TTL has passed.
+func TestApproveRefusesWrongPhasesAndExpiredProposals(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	proposed, err := f.machine.Propose(f.proposal(), f.now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, stranger, _ := ed25519.GenerateKey(nil)
-	other := proposed
-	other.Proposal.EstimatedMonthlyCents = 1
-	approvals := map[string]protocol.Envelope{
-		"unknown key":        f.sign(t, proposed, ApproveExpansionKind, 10_000, stranger, time.Hour),
-		"retirement kind":    f.sign(t, proposed, ApproveRetirementKind, 10_000, f.key, time.Hour),
-		"other proposal":     f.sign(t, other, ApproveExpansionKind, 10_000, f.key, time.Hour),
-		"budget below quote": f.sign(t, proposed, ApproveExpansionKind, 8_999, f.key, time.Hour),
-		"too long lived":     f.sign(t, proposed, ApproveExpansionKind, 10_000, f.key, 30*24*time.Hour),
+	if _, err := f.machine.ApproveRetire(proposed, f.now); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("retirement approval of a proposal = %v", err)
 	}
-	tampered := f.approval(t, proposed)
-	tampered.Payload = []byte(`{"cell":"sfo","proposal_digest":"` + proposed.Proposal.Digest() + `","max_monthly_cents":99999999}`)
-	approvals["tampered payload"] = tampered
-	for name, approval := range approvals {
-		if _, err := f.machine.Approve(proposed, approval, f.now); !errors.Is(err, ErrApprovalRequired) {
-			t.Errorf("%s: approve = %v", name, err)
-		}
+	if _, err := f.machine.Approve(proposed, f.now.Add(ProposalTTL)); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("approval at the proposal TTL = %v", err)
 	}
-	if _, err := f.machine.Approve(proposed, f.approval(t, proposed), f.now.Add(48*time.Hour)); !errors.Is(err, ErrApprovalRequired) {
-		t.Fatalf("expired approval = %v", err)
+	approved, err := f.machine.Approve(proposed, f.now.Add(ProposalTTL-time.Second))
+	if err != nil || approved.Phase != Approved || approved.Generation != proposed.Generation+1 {
+		t.Fatalf("approve = %+v, %v", approved, err)
 	}
-	if _, err := f.machine.Approve(proposed, f.approval(t, proposed), f.now.Add(73*time.Hour)); !errors.Is(err, ErrInvalidTransition) {
-		t.Fatalf("approval of an expired proposal = %v", err)
+	if _, err := f.machine.Approve(approved, f.now); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("second approval = %v", err)
 	}
-	approved, err := f.machine.Approve(proposed, f.approval(t, proposed), f.now)
+	if _, err := f.machine.ApproveRetire(approved, f.now); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("retirement approval of an approved region = %v", err)
+	}
+}
+
+func TestAdmissionGuards(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	proposed, err := f.machine.Propose(f.proposal(), f.now)
 	if err != nil {
 		t.Fatal(err)
 	}
+	approved, err := f.machine.Approve(proposed, f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := f.admission()
+	stale.AdmittedAt = f.now.Add(-16 * time.Minute)
+	future := f.admission()
+	future.AdmittedAt = f.now.Add(time.Hour)
+	noEvidence := f.admission()
+	noEvidence.EvidenceDigest = ""
+	free := f.admission()
+	free.EstimatedMonthlyCents = 0
+	tight := f.admission()
+	tight.HeadroomCents = 13_999
 	admissions := map[string]struct {
 		admission CostAdmission
 		fleet     Fleet
 		want      error
 	}{
-		"stale":             {CostAdmission{9_000, digest("e"), f.now.Add(-16 * time.Minute)}, Fleet{}, ErrAdmissionStale},
-		"future":            {CostAdmission{9_000, digest("e"), f.now.Add(time.Hour)}, Fleet{}, ErrAdmissionStale},
-		"no evidence":       {CostAdmission{9_000, "", f.now}, Fleet{}, ErrAdmissionStale},
-		"zero estimate":     {CostAdmission{0, digest("e"), f.now}, Fleet{}, ErrAdmissionStale},
-		"region limit":      {f.admission(), Fleet{Regions: 3}, ErrRegionLimit},
-		"global ceiling":    {f.admission(), Fleet{Regions: 1, CommittedMonthlyCents: 11_001}, ErrBudgetCeiling},
-		"over approval cap": {CostAdmission{10_001, digest("e"), f.now}, Fleet{}, ErrBudgetCeiling},
+		"stale":           {stale, Fleet{}, ErrAdmissionStale},
+		"future":          {future, Fleet{}, ErrAdmissionStale},
+		"no evidence":     {noEvidence, Fleet{}, ErrAdmissionStale},
+		"zero estimate":   {free, Fleet{}, ErrAdmissionStale},
+		"region limit":    {f.admission(), Fleet{Regions: MaxRegions}, ErrRegionLimit},
+		"budget headroom": {tight, Fleet{Regions: 1, CommittedMonthlyCents: 5_000}, ErrBudgetCeiling},
 	}
 	for name, tc := range admissions {
 		if _, err := f.machine.Admit(approved, tc.admission, tc.fleet, f.now); !errors.Is(err, tc.want) {
@@ -220,14 +197,39 @@ func TestApprovalAndAdmissionGuards(t *testing.T) {
 	if _, err := f.machine.Admit(proposed, f.admission(), Fleet{}, f.now); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("admit without approval = %v", err)
 	}
-	unsigned := approved
-	unsigned.Approval = nil
-	if _, err := f.machine.Admit(unsigned, f.admission(), Fleet{}, f.now); !errors.Is(err, ErrApprovalRequired) {
-		t.Fatalf("admit with a removed approval = %v", err)
+}
+
+// An admission is refused when in-flight spend plus the estimate exceeds the
+// headroom, and accepted at exactly the headroom.
+func TestAdmissionHeadroomIsInclusive(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	proposed, err := f.machine.Propose(f.proposal(), f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approved, err := f.machine.Approve(proposed, f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleet := Fleet{Regions: 1, CommittedMonthlyCents: 5_000}
+	admission := f.admission()
+	admission.HeadroomCents = 13_999
+	if _, err := f.machine.Admit(approved, admission, fleet, f.now); !errors.Is(err, ErrBudgetCeiling) {
+		t.Fatalf("admission one cent over the headroom = %v", err)
+	}
+	admission.HeadroomCents = 14_000
+	admitted, err := f.machine.Admit(approved, admission, fleet, f.now)
+	if err != nil || admitted.Phase != Admitted {
+		t.Fatalf("admission at exactly the headroom = %+v, %v", admitted, err)
+	}
+	// A saturated committed sum is refused, not wrapped into an accepted one.
+	if _, err := f.machine.Admit(approved, admission, Fleet{CommittedMonthlyCents: math.MaxUint64}, f.now); !errors.Is(err, ErrBudgetCeiling) {
+		t.Fatalf("saturated committed spend = %v", err)
 	}
 }
 
-func TestSpendingStepsNeedFreshAdmissionAndLiveApproval(t *testing.T) {
+func TestSpendingStepsNeedAFreshAdmission(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	record := f.admitted(t)
@@ -235,24 +237,22 @@ func TestSpendingStepsNeedFreshAdmissionAndLiveApproval(t *testing.T) {
 	if _, _, err := f.machine.BeginStep(record, late); !errors.Is(err, ErrAdmissionStale) {
 		t.Fatalf("spending step with a stale admission = %v", err)
 	}
-	refreshed, err := f.machine.Readmit(record, CostAdmission{9_000, digest("again"), late}, Fleet{Regions: 1}, late)
+	readmission := f.admission()
+	readmission.EvidenceDigest, readmission.AdmittedAt = digest("again"), late
+	refreshed, err := f.machine.Readmit(record, readmission, Fleet{Regions: 1}, late)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := f.machine.BeginStep(refreshed, late); err != nil {
 		t.Fatalf("spending step after readmission = %v", err)
 	}
-	// Non-spending steps do not need a fresh admission, but every step needs
-	// a live approval.
+	// Non-spending steps do not need a fresh admission.
 	f.now = late
 	for record.Phase != ImageReady {
 		record = f.runStep(t, refreshedAt(t, f, record))
 	}
 	if _, _, err := f.machine.BeginStep(record, f.now.Add(time.Hour)); err != nil {
 		t.Fatalf("material step with an old admission = %v", err)
-	}
-	if _, _, err := f.machine.BeginStep(record, testEpoch.Add(49*time.Hour)); !errors.Is(err, ErrApprovalRequired) {
-		t.Fatalf("step after approval expiry = %v", err)
 	}
 	// A running step may be readmitted (a recovered intent needs a fresh
 	// admission to re-execute), but a retirement never is.
@@ -264,7 +264,8 @@ func TestSpendingStepsNeedFreshAdmissionAndLiveApproval(t *testing.T) {
 func refreshedAt(t *testing.T, f *fixture, record Record) Record {
 	t.Helper()
 	if def, ok := stepFrom(record.Phase); ok && def.spends {
-		next, err := f.machine.Readmit(record, CostAdmission{9_000, digest("fresh"), f.now}, Fleet{Regions: 1}, f.now)
+		next, err := f.machine.Readmit(record, CostAdmission{EstimatedMonthlyCents: 9_000, HeadroomCents: 20_000,
+			EvidenceDigest: digest("fresh"), AdmittedAt: f.now}, Fleet{Regions: 1}, f.now)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -397,8 +398,7 @@ func TestCancelRollsBackOnlyBeforeTheSeedLaunch(t *testing.T) {
 	}
 	assertTerminal(t, f, retired)
 
-	seeded := record
-	seeded = f.runStep(t, seeded) // SeedReserved
+	seeded := f.runStep(t, record) // SeedReserved
 	launching, _, err := f.machine.BeginStep(refreshedAt(t, f, seeded), f.now)
 	if err != nil {
 		t.Fatal(err)
@@ -432,12 +432,11 @@ func TestProposalsExpireAndRejectionIsTerminal(t *testing.T) {
 	if _, err := f.machine.Expire(proposed, f.now.Add(time.Hour)); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("early expiry = %v", err)
 	}
-	expired, err := f.machine.Expire(proposed, f.now.Add(72*time.Hour))
+	expired, err := f.machine.Expire(proposed, f.now.Add(ProposalTTL))
 	if err != nil || expired.Phase != Rejected {
 		t.Fatalf("expire = %+v, %v", expired, err)
 	}
 	assertTerminal(t, f, expired)
-	oldApproval := f.approval(t, proposed)
 	if _, err := f.machine.Repropose(expired, f.proposal(), f.now); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("repropose with the same proposal ID = %v", err)
 	}
@@ -448,16 +447,13 @@ func TestProposalsExpireAndRejectionIsTerminal(t *testing.T) {
 	second.ID = entityid.Derive("test-proposal", "sfo-capacity-2")
 	again, err := f.machine.Repropose(expired, second, f.now)
 	if err != nil || again.Phase != Proposed || again.Generation != expired.Generation+1 ||
-		again.ProposalGeneration != again.Generation || again.Approval != nil {
+		again.ProposalGeneration != again.Generation || again.Admission != nil {
 		t.Fatalf("repropose = %+v, %v", again, err)
 	}
 	if err := again.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.machine.Approve(again, oldApproval, f.now); !errors.Is(err, ErrApprovalRequired) {
-		t.Fatalf("approval of the previous proposal replayed: %v", err)
-	}
-	if _, err := f.machine.Approve(again, f.approval(t, again), f.now); err != nil {
+	if _, err := f.machine.Approve(again, f.now); err != nil {
 		t.Fatalf("approval of the new proposal = %v", err)
 	}
 	if CreateKey("sfo", second.ID, 1, StepSubscribe) == CreateKey("sfo", f.proposal().ID, 1, StepSubscribe) {
@@ -471,11 +467,6 @@ func TestProposalsExpireAndRejectionIsTerminal(t *testing.T) {
 	invalid.EvidenceDigests = []string{"not-a-digest"}
 	if _, err := f.machine.Propose(invalid, f.now); err == nil {
 		t.Fatal("proposal without digest evidence accepted")
-	}
-	broken := f.machine
-	broken.Policy.MaxRegions = 0
-	if _, err := broken.Propose(f.proposal(), f.now); err == nil {
-		t.Fatal("incomplete policy accepted")
 	}
 }
 
@@ -497,7 +488,6 @@ func TestEveryPhaseHasExactlyItsTableTransitions(t *testing.T) {
 		}
 		record := base
 		record.Phase = phase
-		record.RetireApproval = &protocol.Envelope{}
 		_, canBegin := stepFrom(phase)
 		def, isRunning := stepRunning(phase)
 		_, _, err := f.machine.BeginStep(record, f.now)
@@ -530,21 +520,23 @@ func TestEveryPhaseHasExactlyItsTableTransitions(t *testing.T) {
 	}
 }
 
-func TestFleetCountsOnlySlotHoldingOtherRegions(t *testing.T) {
+// FleetOf counts every slot-holding region and the home, but commits only the
+// spend of regions that are not yet Active.
+func TestFleetCountsSlotsAndCommitsOnlyInFlightSpend(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	admitted := f.admitted(t)
-	gru := admitted
-	gru.Cell, gru.Phase = "gru", Active
-	fra := admitted
-	fra.Cell, fra.Phase, fra.Admission = "fra", Held, nil
-	proposed := admitted
+	inFlight := f.admitted(t)
+	active := inFlight
+	active.Cell, active.Phase = "gru", Active
+	held := inFlight
+	held.Cell, held.Phase, held.Admission = "fra", Held, nil
+	proposed := inFlight
 	proposed.Cell, proposed.Phase = "iad", Proposed
-	retired := admitted
+	retired := inFlight
 	retired.Cell, retired.Phase = "lhr", Retired
-	fleet := FleetOf([]Record{admitted, gru, fra, proposed, retired}, "sfo", Home{})
-	if fleet.Regions != 2 || fleet.CommittedMonthlyCents != 18_000 {
-		t.Fatalf("fleet = %+v", fleet)
+	fleet := FleetOf([]Record{inFlight, active, held, proposed, retired}, "", Home{Cell: "lab"})
+	if fleet.Regions != 4 || fleet.CommittedMonthlyCents != 18_000 {
+		t.Fatalf("fleet = %+v; want 4 regions committing 18000 in flight", fleet)
 	}
 }
 
@@ -562,7 +554,7 @@ func assertTerminal(t *testing.T, f *fixture, record Record) {
 	if _, err := f.machine.Cancel(record, "x", f.now); err == nil {
 		t.Errorf("%s: Cancel accepted", record.Phase)
 	}
-	if _, err := f.machine.Approve(record, protocol.Envelope{}, f.now); err == nil {
+	if _, err := f.machine.Approve(record, f.now); err == nil {
 		t.Errorf("%s: Approve accepted", record.Phase)
 	}
 	if _, err := f.machine.Resume(record, nil, f.now); err == nil {
@@ -585,7 +577,7 @@ func TestReconcileRetirePendingAcceptsAnAbsentEffectWithoutDigest(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	approved, err := f.machine.ApproveRetire(proposed, f.sign(t, proposed, ApproveRetirementKind, 0, f.key, time.Hour), f.now)
+	approved, err := f.machine.ApproveRetire(proposed, f.now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -608,8 +600,8 @@ func TestBoundReasonKeepsValidUTF8(t *testing.T) {
 	}
 }
 
-// Cells follow the protocol's region-token rules, so every stored cell can
-// be signed into an approval.
+// Cells follow the protocol's region-token rules, so every stored cell is a
+// canonical region name.
 func TestCellsFollowProtocolRegionTokens(t *testing.T) {
 	t.Parallel()
 	for _, cell := range []string{"sfo", "us-east-1", "a1"} {

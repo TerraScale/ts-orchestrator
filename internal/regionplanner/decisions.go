@@ -12,9 +12,9 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlifecycle"
 )
 
-// recordProposal journals one proposal Submit stored as a Proposed lifecycle
-// record. It runs after the store write, so a skipped or conflicting
-// proposal is never journaled.
+// recordProposal journals one proposal Submit stored and approved. It runs
+// after the store write, so a skipped or conflicting proposal is never
+// journaled.
 func recordProposal(ctx context.Context, epoch uint64, proposal regionlifecycle.Proposal) {
 	decisionlog.Record(ctx, decisionlog.Decision{
 		Region:  proposal.Cell,
@@ -22,7 +22,7 @@ func recordProposal(ctx context.Context, epoch uint64, proposal regionlifecycle.
 		Kind:    decisionlog.KindRegionProposed,
 		Subject: decisionlog.Subject{Kind: "region", ID: proposal.Cell, Name: proposal.OCIRegion},
 		Summary: fmt.Sprintf("Proposed region %s (%s)", proposal.Cell, proposal.OCIRegion),
-		Reason:  proposal.Reason + "; it needs a signed approval before anything is admitted or spent.",
+		Reason:  proposal.Reason + "; it waits for the budget-guarded approval (TS-804), and nothing is admitted or spent before it.",
 		Rule:    "regionplanner.plan",
 		Signals: []decisionlog.Signal{{Name: "evidence", Value: float64(len(proposal.EvidenceDigests))},
 			{Name: "estimated_monthly_cost", Value: float64(proposal.EstimatedMonthlyCents) / 100, Unit: "USD"}},

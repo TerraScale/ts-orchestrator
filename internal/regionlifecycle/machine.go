@@ -1,9 +1,6 @@
 package regionlifecycle
 
 import (
-	"crypto/ed25519"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -21,10 +18,9 @@ import (
 
 var (
 	ErrInvalidTransition = errors.New("region lifecycle transition is not allowed from this phase")
-	ErrApprovalRequired  = errors.New("region lifecycle needs a valid signed approval")
 	ErrAdmissionStale    = errors.New("region cost admission is missing or older than its TTL")
-	ErrRegionLimit       = errors.New("region count would exceed the policy maximum")
-	ErrBudgetCeiling     = errors.New("region cost would exceed the global monthly ceiling")
+	ErrRegionLimit       = errors.New("region count would exceed the region maximum")
+	ErrBudgetCeiling     = errors.New("region cost would exceed the monthly budget headroom")
 	ErrUseRetire         = errors.New("the seed controller may exist; remove the region through retirement")
 	ErrStepMismatch      = errors.New("step result does not match the recorded intent")
 	ErrNotIdle           = errors.New("region is not idle long enough to retire")
@@ -33,19 +29,27 @@ var (
 
 const (
 	recordVersion = 1
-	// ApproveExpansionKind and ApproveRetirementKind are the signed envelope
-	// kinds of approvals. Envelope Region is the cell, OperationID the
-	// proposal ID, and Generation the record generation being approved.
-	ApproveExpansionKind  = "region.expansion.approve"
-	ApproveRetirementKind = "region.retirement.approve"
-	maxEvidence           = 16
+	maxEvidence   = 16
+)
+
+// The guardrails every region action runs under. They are fixed in code.
+const (
+	// MaxRegions is globalcontrol's roster bound.
+	MaxRegions = 32
+	// AdmissionTTL is how long a cost admission stays fresh for spending steps.
+	AdmissionTTL = 15 * time.Minute
+	// ProposalTTL is how long a proposal waits before it expires.
+	ProposalTTL = 72 * time.Hour
+	// ClockSkew tolerates a writer's clock running ahead of the reader's.
+	ClockSkew = time.Minute
+	// MinIdle is how long an Active region must be idle before retirement.
+	MinIdle = 14 * 24 * time.Hour
 )
 
 var (
 	cellToken = cellRule{}
 	// cellShape matches protocol.CanonicalRegion: no leading, trailing or
-	// consecutive hyphens, so every stored cell can be signed and verified
-	// in an approval envelope.
+	// consecutive hyphens, so every stored cell is a valid canonical region.
 	cellShape   = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 	idToken     = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
 	digestToken = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -88,26 +92,12 @@ func (p Proposal) Validate() error {
 	return nil
 }
 
-// Digest binds approvals to the exact proposal content.
-func (p Proposal) Digest() string {
-	digest := sha256.New()
-	for _, field := range append([]string{p.ID, p.Cell, p.OCIRegion, p.Reason,
-		fmt.Sprint(p.EstimatedMonthlyCents), p.ProposedAt.UTC().Format(time.RFC3339Nano)}, p.EvidenceDigests...) {
-		fmt.Fprintf(digest, "%d:%s;", len(field), field)
-	}
-	return hex.EncodeToString(digest.Sum(nil))
-}
-
-// ApprovalPayload is the signed body of an expansion or retirement approval.
-type ApprovalPayload struct {
-	Cell            string `json:"cell"`
-	ProposalDigest  string `json:"proposal_digest"`
-	MaxMonthlyCents uint64 `json:"max_monthly_cents"`
-}
-
 // CostAdmission is a fresh cost estimate admitted under the budget guards.
+// HeadroomCents is what the monthly budget leaves after every serving region's
+// projected spend, computed by the caller.
 type CostAdmission struct {
 	EstimatedMonthlyCents uint64    `json:"estimated_monthly_cents"`
+	HeadroomCents         uint64    `json:"headroom_cents"`
 	EvidenceDigest        string    `json:"evidence_digest"`
 	AdmittedAt            time.Time `json:"admitted_at"`
 }
@@ -160,17 +150,15 @@ type Record struct {
 	Cell       string `json:"cell"`
 	Generation uint64 `json:"generation"`
 	// ProposalGeneration is the record generation at which the current
-	// proposal was made; approvals bind to it so they cannot be replayed
-	// against a later proposal for the same cell.
-	ProposalGeneration uint64             `json:"proposal_generation"`
-	Phase              Phase              `json:"phase"`
-	Proposal           Proposal           `json:"proposal"`
-	Approval           *protocol.Envelope `json:"approval,omitempty"`
-	RetireApproval     *protocol.Envelope `json:"retire_approval,omitempty"`
-	Admission          *CostAdmission     `json:"admission,omitempty"`
-	Pending            *StepIntent        `json:"pending,omitempty"`
-	Completed          []StepResult       `json:"completed,omitempty"`
-	Hold               *Hold              `json:"hold,omitempty"`
+	// proposal was made; step keys bind to it so a replaced proposal never
+	// reuses an earlier attempt's retry tokens or tags.
+	ProposalGeneration uint64         `json:"proposal_generation"`
+	Phase              Phase          `json:"phase"`
+	Proposal           Proposal       `json:"proposal"`
+	Admission          *CostAdmission `json:"admission,omitempty"`
+	Pending            *StepIntent    `json:"pending,omitempty"`
+	Completed          []StepResult   `json:"completed,omitempty"`
+	Hold               *Hold          `json:"hold,omitempty"`
 	// RollbackFrom is the phase a cancel left; rollback removes what the
 	// completed steps created, in reverse.
 	RollbackFrom Phase `json:"rollback_from,omitempty"`
@@ -181,58 +169,34 @@ type Record struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
-// Policy holds the guard parameters. Approvers maps an approval actor to its
-// Ed25519 key; an empty map means nothing can be approved.
-type Policy struct {
-	MaxRegions          int
-	MonthlyCeilingCents uint64
-	AdmissionTTL        time.Duration
-	ProposalTTL         time.Duration
-	ApprovalMaxLifetime time.Duration
-	ClockSkew           time.Duration
-	MinIdle             time.Duration
-	Approvers           map[string]ed25519.PublicKey
-}
-
-// DefaultAdmissionTTL matches the region preview's 15-minute cost admission.
-const DefaultAdmissionTTL = 15 * time.Minute
-
-func (p Policy) validate() error {
-	if p.MaxRegions < 1 || p.MonthlyCeilingCents == 0 || p.AdmissionTTL <= 0 || p.AdmissionTTL > time.Hour ||
-		p.ProposalTTL <= 0 || p.ApprovalMaxLifetime <= 0 || p.ClockSkew < 0 || p.MinIdle <= 0 {
-		return errors.New("region lifecycle policy is incomplete")
-	}
-	return nil
-}
-
 // Fleet is the guard view of every other region: how many occupy a region
-// slot and what they are admitted to spend per month.
+// slot and what the in-flight ones are admitted to spend per month.
 type Fleet struct {
 	Regions               int
 	CommittedMonthlyCents uint64
 }
 
 // Home is the global home region. It was bootstrapped by hand and has no
-// lifecycle record, but it occupies a region slot and spends like any other.
+// lifecycle record, but it occupies a region slot.
 type Home struct {
-	Cell         string
-	MonthlyCents uint64
+	Cell string
 }
 
-// Validate requires a regional cell and a cost; a zero Home is invalid
-// because the guards would silently undercount the fleet.
+// Validate requires a regional cell; a zero Home is invalid because the
+// guards would silently undercount the fleet.
 func (h Home) Validate() error {
-	if !cellToken.MatchString(h.Cell) || h.Cell == protocol.GlobalScope || h.MonthlyCents == 0 {
-		return errors.New("region guards need the home region's cell and monthly cost")
+	if !cellToken.MatchString(h.Cell) || h.Cell == protocol.GlobalScope {
+		return errors.New("region guards need the home region's cell")
 	}
 	return nil
 }
 
 // FleetOf summarizes the home region and every record except cell's for the
-// admission guards. Committed spend counts each slot-holding region's
-// admitted estimate, or its proposal estimate before admission. Sums saturate
-// at the maximum instead of wrapping, so an absurd estimate can only make the
-// fleet look more expensive.
+// admission guards. Committed spend counts the admitted estimate, or the
+// proposal estimate before admission, of each slot-holding region that is not
+// yet Active: an Active region's spend is already in the budget headroom.
+// Sums saturate at the maximum instead of wrapping, so an absurd estimate can
+// only make the fleet look more expensive.
 func FleetOf(records []Record, cell string, home Home) Fleet {
 	var fleet Fleet
 	homeCounted := false
@@ -244,6 +208,9 @@ func FleetOf(records []Record, cell string, home Home) Fleet {
 			continue
 		}
 		fleet.Regions++
+		if record.Phase == Active {
+			continue
+		}
 		cents := record.Proposal.EstimatedMonthlyCents
 		if record.Admission != nil {
 			cents = record.Admission.EstimatedMonthlyCents
@@ -252,7 +219,6 @@ func FleetOf(records []Record, cell string, home Home) Fleet {
 	}
 	if home.Cell != "" && home.Cell != cell && !homeCounted {
 		fleet.Regions++
-		fleet.CommittedMonthlyCents = SaturatingAdd(fleet.CommittedMonthlyCents, home.MonthlyCents)
 	}
 	return fleet
 }
@@ -263,12 +229,6 @@ func SaturatingAdd(left, right uint64) uint64 {
 		return math.MaxUint64
 	}
 	return left + right
-}
-
-// FitsCeiling reports whether committed plus estimate stays within ceiling,
-// without overflowing.
-func FitsCeiling(committed, estimate, ceiling uint64) bool {
-	return committed <= ceiling && estimate <= ceiling-committed
 }
 
 // OccupiesSlot reports whether the record counts toward the region maximum
@@ -282,9 +242,7 @@ func (record Record) OccupiesSlot() bool {
 }
 
 // Machine applies transitions. It has no I/O; Store persists its results.
-type Machine struct {
-	Policy Policy
-}
+type Machine struct{}
 
 // CreateKey is the deterministic retry token and ownership tag for a step of
 // one proposal attempt. The proposal generation is part of it, so a cell
@@ -296,9 +254,6 @@ func CreateKey(cell, proposalID string, proposalGeneration uint64, step Step) st
 
 // Propose creates a new Proposed record.
 func (m Machine) Propose(proposal Proposal, now time.Time) (Record, error) {
-	if err := m.Policy.validate(); err != nil {
-		return Record{}, err
-	}
 	if err := proposal.Validate(); err != nil {
 		return Record{}, err
 	}
@@ -308,7 +263,7 @@ func (m Machine) Propose(proposal Proposal, now time.Time) (Record, error) {
 
 // Repropose starts a new proposal for a cell whose previous record is
 // terminal. Step keys derive from the new proposal ID, so nothing from the
-// previous attempt is reused; approvals and admissions are cleared.
+// previous attempt is reused; the new record carries no admission.
 func (m Machine) Repropose(prior Record, proposal Proposal, now time.Time) (Record, error) {
 	if !prior.Phase.Terminal() || proposal.Cell != prior.Cell || proposal.ID == prior.Proposal.ID {
 		return Record{}, ErrInvalidTransition
@@ -322,20 +277,16 @@ func (m Machine) Repropose(prior Record, proposal Proposal, now time.Time) (Reco
 	return next, nil
 }
 
-// Approve accepts a signed expansion approval for the exact proposal.
-func (m Machine) Approve(record Record, approval protocol.Envelope, now time.Time) (Record, error) {
+// Approve accepts a proposal inside ProposalTTL. The proposal's Reason is the
+// written reason; the region planner calls this only inside its guardrails.
+func (m Machine) Approve(record Record, now time.Time) (Record, error) {
 	if record.Phase != Proposed {
 		return Record{}, ErrInvalidTransition
 	}
 	if m.expired(record, now) {
 		return Record{}, fmt.Errorf("%w: proposal expired", ErrInvalidTransition)
 	}
-	if err := m.verifyApproval(record, approval, ApproveExpansionKind, now); err != nil {
-		return Record{}, err
-	}
-	next := record.advance(Approved, now)
-	next.Approval = &approval
-	return next, nil
+	return record.advance(Approved, now), nil
 }
 
 // Reject ends a proposal; it is terminal.
@@ -359,16 +310,13 @@ func (m Machine) Expire(record Record, now time.Time) (Record, error) {
 }
 
 func (m Machine) expired(record Record, now time.Time) bool {
-	return !now.Before(record.Proposal.ProposedAt.Add(m.Policy.ProposalTTL))
+	return !now.Before(record.Proposal.ProposedAt.Add(ProposalTTL))
 }
 
 // Admit applies the region count and budget guards to a fresh cost estimate.
 func (m Machine) Admit(record Record, admission CostAdmission, fleet Fleet, now time.Time) (Record, error) {
 	if record.Phase != Approved {
 		return Record{}, ErrInvalidTransition
-	}
-	if err := m.requireApproval(record, now); err != nil {
-		return Record{}, err
 	}
 	if err := m.admit(record, admission, fleet, now); err != nil {
 		return Record{}, err
@@ -387,9 +335,6 @@ func (m Machine) Readmit(record Record, admission CostAdmission, fleet Fleet, no
 	if !waiting && !running || record.Phase.Terminal() || isRetire(record.Phase) {
 		return Record{}, ErrInvalidTransition
 	}
-	if err := m.requireApproval(record, now); err != nil {
-		return Record{}, err
-	}
 	if err := m.admit(record, admission, fleet, now); err != nil {
 		return Record{}, err
 	}
@@ -400,19 +345,14 @@ func (m Machine) Readmit(record Record, admission CostAdmission, fleet Fleet, no
 
 func (m Machine) admit(record Record, admission CostAdmission, fleet Fleet, now time.Time) error {
 	if admission.EstimatedMonthlyCents == 0 || !digestToken.MatchString(admission.EvidenceDigest) ||
-		admission.AdmittedAt.IsZero() || admission.AdmittedAt.After(now.Add(m.Policy.ClockSkew)) ||
-		!now.Before(admission.AdmittedAt.Add(m.Policy.AdmissionTTL)) {
+		admission.AdmittedAt.IsZero() || admission.AdmittedAt.After(now.Add(ClockSkew)) ||
+		!now.Before(admission.AdmittedAt.Add(AdmissionTTL)) {
 		return ErrAdmissionStale
 	}
-	if fleet.Regions+1 > m.Policy.MaxRegions {
+	if fleet.Regions+1 > MaxRegions {
 		return ErrRegionLimit
 	}
-	payload, err := approvalPayload(*record.Approval)
-	if err != nil {
-		return err
-	}
-	if admission.EstimatedMonthlyCents > payload.MaxMonthlyCents ||
-		!FitsCeiling(fleet.CommittedMonthlyCents, admission.EstimatedMonthlyCents, m.Policy.MonthlyCeilingCents) {
+	if SaturatingAdd(fleet.CommittedMonthlyCents, admission.EstimatedMonthlyCents) > admission.HeadroomCents {
 		return ErrBudgetCeiling
 	}
 	return nil
@@ -435,18 +375,12 @@ func (m Machine) BeginStep(record Record, now time.Time) (Record, StepIntent, er
 	return next, intent, nil
 }
 
-// stepGuards are the checks every effect needs when it starts or restarts:
-// an unexpired approval of the right kind and, for spending steps, a cost
-// admission younger than AdmissionTTL.
+// stepGuards are the checks an effect needs when it starts or restarts: for
+// spending steps, a cost admission younger than AdmissionTTL. Retirement
+// steps need nothing more, because they only start from RetireApproved.
 func (m Machine) stepGuards(record Record, def stepDef, now time.Time) error {
-	if def.retire {
-		return m.requireRetireApproval(record, now)
-	}
-	if err := m.requireApproval(record, now); err != nil {
-		return err
-	}
-	if def.spends && (record.Admission == nil || record.Admission.AdmittedAt.After(now.Add(m.Policy.ClockSkew)) ||
-		!now.Before(record.Admission.AdmittedAt.Add(m.Policy.AdmissionTTL))) {
+	if def.spends && (record.Admission == nil || record.Admission.AdmittedAt.After(now.Add(ClockSkew)) ||
+		!now.Before(record.Admission.AdmittedAt.Add(AdmissionTTL))) {
 		return ErrAdmissionStale
 	}
 	return nil
@@ -454,8 +388,8 @@ func (m Machine) stepGuards(record Record, def stepDef, now time.Time) error {
 
 // ClaimStep re-journals the pending intent of a running step before its
 // effect is re-executed under epoch, for example after a crash left the
-// intent journaled but its effect absent. It re-checks the approval and
-// admission guards exactly as BeginStep does, refuses an intent that a newer
+// intent journaled but its effect absent. It re-checks the admission guard
+// exactly as BeginStep does, refuses an intent that a newer
 // leader journaled, and returns the next generation with the intent stamped
 // with epoch. The caller must persist the record (a compare-and-set under
 // epoch) before running the effect, so two leaders never both run it.
@@ -481,7 +415,7 @@ func (m Machine) ClaimStep(record Record, epoch uint64, now time.Time) (Record, 
 }
 
 // CompleteStep records the result of the pending step and advances. Results
-// are facts, so no approval or budget guard can block recording them.
+// are facts, so no admission guard can block recording them.
 func (m Machine) CompleteStep(record Record, result StepResult, now time.Time) (Record, error) {
 	def, ok := stepRunning(record.Phase)
 	if !ok || record.Pending == nil {
@@ -544,49 +478,11 @@ func (m Machine) Resume(record Record, observation *Observation, now time.Time) 
 	return restored.advance(restored.Phase, now), nil
 }
 
-// RenewApproval replaces the expansion approval of an in-flight bring-up
-// with a fresh signed one for the same proposal, keeping the phase and any
-// pending intent. Without it, an approval that expires mid-bring-up would
-// leave every later step stuck on ErrApprovalRequired.
-func (m Machine) RenewApproval(record Record, approval protocol.Envelope, now time.Time) (Record, error) {
-	phase := record.Phase
-	if phase == Held && record.Hold != nil {
-		phase = record.Hold.Phase
-	}
-	if _, forward := forwardOrder[phase]; !forward || phase == Proposed || phase == Active || record.Approval == nil {
-		return Record{}, ErrInvalidTransition
-	}
-	if err := m.verifyApproval(record, approval, ApproveExpansionKind, now); err != nil {
-		return Record{}, err
-	}
-	next := record.advance(record.Phase, now)
-	next.Approval = &approval
-	return next, nil
-}
-
-// RenewRetireApproval replaces the retirement approval of an in-flight
-// retirement, keeping the phase and any pending intent.
-func (m Machine) RenewRetireApproval(record Record, approval protocol.Envelope, now time.Time) (Record, error) {
-	phase := record.Phase
-	if phase == Held && record.Hold != nil {
-		phase = record.Hold.Phase
-	}
-	if !isRetire(phase) || phase == RetireProposed || record.RetireApproval == nil {
-		return Record{}, ErrInvalidTransition
-	}
-	if err := m.verifyApproval(record, approval, ApproveRetirementKind, now); err != nil {
-		return Record{}, err
-	}
-	next := record.advance(record.Phase, now)
-	next.RetireApproval = &approval
-	return next, nil
-}
-
 // ProposeFailedRetire starts retirement of a region whose bring-up failed
 // after the seed launch, when cancel can no longer roll it back. The region
 // may own a seed controller and billable resources, so it takes the same
-// signed retirement path as an Active region; no idle evidence is needed
-// because it never served. A pending intent is kept and reconciled by
+// retirement path as an Active region; no idle evidence is needed because it
+// never served. A pending intent is kept and reconciled by
 // observation (ReconcileRetirePending) before any teardown step begins.
 func (m Machine) ProposeFailedRetire(record Record, reason, evidenceDigest string, now time.Time) (Record, error) {
 	phase := record.Phase
@@ -699,7 +595,7 @@ func (m Machine) ProposeRetire(record Record, idle IdleEvidence, now time.Time) 
 		return Record{}, ErrInvalidTransition
 	}
 	if idle.PlacementIntents != 0 || idle.ActiveMembers != 0 || idle.IdleSince.IsZero() ||
-		now.Sub(idle.IdleSince) < m.Policy.MinIdle || !digestToken.MatchString(idle.EvidenceDigest) {
+		now.Sub(idle.IdleSince) < MinIdle || !digestToken.MatchString(idle.EvidenceDigest) {
 		return Record{}, ErrNotIdle
 	}
 	next := record.advance(RetireProposed, now)
@@ -707,68 +603,13 @@ func (m Machine) ProposeRetire(record Record, idle IdleEvidence, now time.Time) 
 	return next, nil
 }
 
-// ApproveRetire accepts a signed retirement approval. Retirement always needs
-// a human or policy signature, whatever the idle evidence says.
-func (m Machine) ApproveRetire(record Record, approval protocol.Envelope, now time.Time) (Record, error) {
+// ApproveRetire accepts a proposed retirement. The proposal's idle evidence
+// was checked by ProposeRetire, so nothing else is verified here.
+func (m Machine) ApproveRetire(record Record, now time.Time) (Record, error) {
 	if record.Phase != RetireProposed {
 		return Record{}, ErrInvalidTransition
 	}
-	if err := m.verifyApproval(record, approval, ApproveRetirementKind, now); err != nil {
-		return Record{}, err
-	}
-	next := record.advance(RetireApproved, now)
-	next.RetireApproval = &approval
-	return next, nil
-}
-
-func (m Machine) requireApproval(record Record, now time.Time) error {
-	if record.Approval == nil {
-		return ErrApprovalRequired
-	}
-	return m.verifyApproval(record, *record.Approval, ApproveExpansionKind, now)
-}
-
-func (m Machine) requireRetireApproval(record Record, now time.Time) error {
-	if record.RetireApproval == nil {
-		return ErrApprovalRequired
-	}
-	return m.verifyApproval(record, *record.RetireApproval, ApproveRetirementKind, now)
-}
-
-// verifyApproval checks the approver key, exact scope, expiry and that the
-// payload binds this proposal. The envelope generation is the record's
-// ProposalGeneration, so re-verifying at later transitions stays valid.
-func (m Machine) verifyApproval(record Record, approval protocol.Envelope, kind string, now time.Time) error {
-	key, ok := m.Policy.Approvers[approval.Actor]
-	if !ok {
-		return ErrApprovalRequired
-	}
-	scope := protocol.EnvelopeScope{Region: record.Cell, Kind: kind, Actor: approval.Actor,
-		OperationID: record.Proposal.ID, Generation: record.ProposalGeneration, Epoch: 0}
-	if err := protocol.VerifyEnvelope(approval, scope, key, now, protocol.VerifyPolicy{
-		MaxLifetime: m.Policy.ApprovalMaxLifetime, ClockSkew: m.Policy.ClockSkew,
-	}); err != nil {
-		return fmt.Errorf("%w: %w", ErrApprovalRequired, err)
-	}
-	payload, err := approvalPayload(approval)
-	if err != nil {
-		return err
-	}
-	if payload.Cell != record.Cell || payload.ProposalDigest != record.Proposal.Digest() {
-		return fmt.Errorf("%w: approval binds a different proposal", ErrApprovalRequired)
-	}
-	if kind == ApproveExpansionKind && payload.MaxMonthlyCents < record.Proposal.EstimatedMonthlyCents {
-		return fmt.Errorf("%w: approval budget is below the proposal estimate", ErrApprovalRequired)
-	}
-	return nil
-}
-
-func approvalPayload(approval protocol.Envelope) (ApprovalPayload, error) {
-	var payload ApprovalPayload
-	if err := protocol.DecodeStrict(approval.Payload, &payload, 4096); err != nil {
-		return ApprovalPayload{}, fmt.Errorf("%w: approval payload: %w", ErrApprovalRequired, err)
-	}
-	return payload, nil
+	return record.advance(RetireApproved, now), nil
 }
 
 func (record Record) advance(phase Phase, now time.Time) Record {

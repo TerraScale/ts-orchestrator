@@ -1,7 +1,7 @@
 // Package regionplanner turns demand and failure signals into region
-// proposals. It only ever proposes: every proposal starts in the lifecycle's
-// Proposed phase and needs a signed human or policy approval before anything
-// is admitted or spent. The planner never approves, admits, or executes.
+// proposals. Signed approvals are gone; the planner approves its own
+// proposals once the monthly budget guards admission (TS-804), so until then
+// a proposal stays Proposed and nothing is admitted or spent.
 package regionplanner
 
 import (
@@ -72,7 +72,7 @@ type Policy struct {
 	MaxRegions             int
 	MonthlyCeilingCents    uint64
 	// Home is the global home region. It has no lifecycle record but takes
-	// a region slot and spends against the ceiling, and is never proposed.
+	// a region slot, and is never proposed.
 	Home regionlifecycle.Home
 }
 
@@ -191,7 +191,7 @@ func (p Planner) Plan(signals []Signal, records []regionlifecycle.Record, now ti
 		}
 		entry := p.Policy.Catalog[cell]
 		if fleet.Regions >= p.Policy.MaxRegions ||
-			!regionlifecycle.FitsCeiling(fleet.CommittedMonthlyCents, entry.EstimatedMonthlyCents, p.Policy.MonthlyCeilingCents) {
+			regionlifecycle.SaturatingAdd(fleet.CommittedMonthlyCents, entry.EstimatedMonthlyCents) > p.Policy.MonthlyCeilingCents {
 			continue
 		}
 		proposal := p.proposal(entry, candidates[cell], nextProposalGeneration(records, cell), now)
@@ -247,7 +247,7 @@ func (p Planner) proposal(entry CatalogEntry, found *candidate, generation uint6
 	// The target proposal generation is part of it too. Repropose refuses
 	// only the immediately preceding ID, so an ID that could recur for a
 	// later attempt would let that attempt share an earlier attempt's
-	// identity in approvals, journal records and retry tokens. With the
+	// identity in journal records and retry tokens. With the
 	// generation, no two attempts on one cell ever share a proposal ID.
 	round := now.UTC().Truncate(p.Policy.Window).Format(time.RFC3339)
 	gen := strconv.FormatUint(generation, 10)

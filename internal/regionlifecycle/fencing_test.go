@@ -3,6 +3,7 @@ package regionlifecycle
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"sync"
 	"testing"
@@ -53,17 +54,18 @@ func TestFleetCountsTheHomeRegionAndSaturates(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	admitted := f.admitted(t)
-	home := Home{Cell: "gru", MonthlyCents: 6_000}
+	home := Home{Cell: "gru"}
 	if err := home.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	for _, invalid := range []Home{{}, {Cell: "gru"}, {Cell: "global", MonthlyCents: 1}, {Cell: "GRU", MonthlyCents: 1}} {
+	for _, invalid := range []Home{{}, {Cell: "global"}, {Cell: "GRU"}} {
 		if invalid.Validate() == nil {
 			t.Errorf("home %+v validated", invalid)
 		}
 	}
+	// The home takes a slot but its spend is already in the budget headroom.
 	fleet := FleetOf([]Record{admitted}, "fra", home)
-	if fleet.Regions != 2 || fleet.CommittedMonthlyCents != 15_000 {
+	if fleet.Regions != 2 || fleet.CommittedMonthlyCents != 9_000 {
 		t.Fatalf("fleet with home = %+v", fleet)
 	}
 	// The home is never counted twice, nor for its own guard.
@@ -85,33 +87,30 @@ func TestFleetCountsTheHomeRegionAndSaturates(t *testing.T) {
 	if SaturatingAdd(math.MaxUint64, 1) != math.MaxUint64 || SaturatingAdd(2, 3) != 5 {
 		t.Fatal("saturating add")
 	}
-	if FitsCeiling(9_000, math.MaxUint64-8_999, 20_000) || FitsCeiling(25_000, 0, 20_000) || !FitsCeiling(9_000, 11_000, 20_000) {
-		t.Fatal("ceiling check wraps or is off by one")
-	}
 }
 
 func TestHomeRegionTakesASlotAtAdmission(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	f.machine.Policy.MaxRegions = 2
 	record, err := f.machine.Propose(f.proposal(), f.now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record, err = f.machine.Approve(record, f.approval(t, record), f.now); err != nil {
+	if record, err = f.machine.Approve(record, f.now); err != nil {
 		t.Fatal(err)
 	}
-	other := record
-	other.Cell, other.Phase = "fra", Active
-	home := Home{Cell: "gru", MonthlyCents: 1_000}
-	if _, err := f.machine.Admit(record, f.admission(), FleetOf([]Record{other}, "sfo", home), f.now); !errors.Is(err, ErrRegionLimit) {
+	// MaxRegions-1 other regions fill every slot but the one the home holds.
+	var others []Record
+	for index := range MaxRegions - 1 {
+		other := record
+		other.Cell, other.Phase = fmt.Sprintf("region-%02d", index), Active
+		others = append(others, other)
+	}
+	if _, err := f.machine.Admit(record, f.admission(), FleetOf(others, "sfo", Home{Cell: "gru"}), f.now); !errors.Is(err, ErrRegionLimit) {
 		t.Fatalf("admission ignoring the home region = %v", err)
 	}
-	if _, err := f.machine.Admit(record, f.admission(), FleetOf(nil, "sfo", Home{Cell: "gru", MonthlyCents: 11_001}), f.now); !errors.Is(err, ErrBudgetCeiling) {
-		t.Fatalf("admission ignoring the home region's spend = %v", err)
-	}
-	if _, err := f.machine.Admit(record, f.admission(), FleetOf(nil, "sfo", home), f.now); err != nil {
-		t.Fatal(err)
+	if _, err := f.machine.Admit(record, f.admission(), FleetOf(others, "sfo", Home{}), f.now); err != nil {
+		t.Fatalf("admission into the last free slot = %v", err)
 	}
 }
 
@@ -122,11 +121,11 @@ func TestBudgetArithmeticCannotWrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record, err = f.machine.Approve(record, f.sign(t, record, ApproveExpansionKind, math.MaxUint64, f.key, time.Hour), f.now); err != nil {
+	if record, err = f.machine.Approve(record, f.now); err != nil {
 		t.Fatal(err)
 	}
 	// 9,000 + (MaxUint64 - 8,999) wraps to 0 in unchecked arithmetic.
-	admission := CostAdmission{EstimatedMonthlyCents: math.MaxUint64 - 8_999, EvidenceDigest: digest("x"), AdmittedAt: f.now}
+	admission := CostAdmission{EstimatedMonthlyCents: math.MaxUint64 - 8_999, HeadroomCents: 20_000, EvidenceDigest: digest("x"), AdmittedAt: f.now}
 	if _, err := f.machine.Admit(record, admission, Fleet{Regions: 1, CommittedMonthlyCents: 9_000}, f.now); !errors.Is(err, ErrBudgetCeiling) {
 		t.Fatalf("wrapping estimate admitted: %v", err)
 	}
@@ -177,14 +176,8 @@ func TestClaimStepRechecksGuardsAndEpoch(t *testing.T) {
 		t.Fatalf("zero epoch claimed: %v", err)
 	}
 	// Foundation spends: an admission older than its TTL blocks re-execution.
-	if _, _, err := f.machine.ClaimStep(running, 3, f.now.Add(DefaultAdmissionTTL)); !errors.Is(err, ErrAdmissionStale) {
+	if _, _, err := f.machine.ClaimStep(running, 3, f.now.Add(AdmissionTTL)); !errors.Is(err, ErrAdmissionStale) {
 		t.Fatalf("claim with a stale admission = %v", err)
-	}
-	// The approval lives 48 hours; past it nothing re-executes.
-	expired := running
-	expired.Admission = &CostAdmission{EstimatedMonthlyCents: 9_000, EvidenceDigest: digest("e"), AdmittedAt: f.now.Add(49 * time.Hour)}
-	if _, _, err := f.machine.ClaimStep(expired, 3, f.now.Add(49*time.Hour)); !errors.Is(err, ErrApprovalRequired) {
-		t.Fatalf("claim with an expired approval = %v", err)
 	}
 	claimed, intent, err := f.machine.ClaimStep(running, 4, f.now)
 	if err != nil {
@@ -199,78 +192,6 @@ func TestClaimStepRechecksGuardsAndEpoch(t *testing.T) {
 	}
 	if _, _, err := f.machine.ClaimStep(record, 4, f.now); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("claim outside a running step = %v", err)
-	}
-}
-
-func TestApprovalsRenewMidFlight(t *testing.T) {
-	t.Parallel()
-	f := newFixture(t)
-	record := f.runTo(t, f.admitted(t), Subscribed)
-	later := f.now.Add(49 * time.Hour)
-	if _, _, err := f.machine.BeginStep(record, later); !errors.Is(err, ErrApprovalRequired) {
-		t.Fatalf("step with an expired approval = %v", err)
-	}
-	f2 := *f
-	f2.now = later
-	renewal := f2.sign(t, record, ApproveExpansionKind, 10_000, f.key, 24*time.Hour)
-	renewed, err := f.machine.RenewApproval(record, renewal, later)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if renewed.Phase != Subscribed || renewed.Generation != record.Generation+1 {
-		t.Fatalf("renewal moved the record: %+v", renewed)
-	}
-	readmitted, err := f.machine.Readmit(renewed, CostAdmission{EstimatedMonthlyCents: 9_000, EvidenceDigest: digest("r"), AdmittedAt: later}, Fleet{}, later)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := f.machine.BeginStep(readmitted, later); err != nil {
-		t.Fatalf("step after renewal = %v", err)
-	}
-	// A renewal must still bind the same proposal and approver.
-	other := record
-	other.Proposal.Reason = "something else"
-	if _, err := f.machine.RenewApproval(record, f2.sign(t, other, ApproveExpansionKind, 10_000, f.key, time.Hour), later); !errors.Is(err, ErrApprovalRequired) {
-		t.Fatalf("renewal for a different proposal = %v", err)
-	}
-	if _, err := f.machine.RenewApproval(record, f2.sign(t, record, ApproveRetirementKind, 10_000, f.key, time.Hour), later); !errors.Is(err, ErrApprovalRequired) {
-		t.Fatalf("retirement envelope renewed an expansion: %v", err)
-	}
-	proposed, err := f.machine.Propose(f.proposal(), f.now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.machine.RenewApproval(proposed, f.approval(t, proposed), f.now); !errors.Is(err, ErrInvalidTransition) {
-		t.Fatalf("renewal of a never-approved proposal = %v", err)
-	}
-
-	// Retirement approvals renew while the retirement runs.
-	active := f.runTo(t, record, Active)
-	retiring, err := f.machine.ProposeRetire(active, IdleEvidence{IdleSince: f.now.Add(-30 * 24 * time.Hour), EvidenceDigest: digest("0000000000F6H63RT9R93XQ0MH")}, f.now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if retiring, err = f.machine.ApproveRetire(retiring, f.sign(t, retiring, ApproveRetirementKind, 0, f.key, time.Hour), f.now); err != nil {
-		t.Fatal(err)
-	}
-	drained := f.runStep(t, retiring)
-	if _, _, err := f.machine.BeginStep(drained, f.now.Add(2*time.Hour)); !errors.Is(err, ErrApprovalRequired) {
-		t.Fatalf("retire step with an expired approval = %v", err)
-	}
-	f3 := *f
-	f3.now = f.now.Add(2 * time.Hour)
-	renewedRetire, err := f.machine.RenewRetireApproval(drained, f3.sign(t, drained, ApproveRetirementKind, 0, f.key, time.Hour), f3.now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if renewedRetire.Phase != Drained {
-		t.Fatalf("retire renewal moved the record to %s", renewedRetire.Phase)
-	}
-	if _, _, err := f.machine.BeginStep(renewedRetire, f3.now); err != nil {
-		t.Fatalf("retire step after renewal = %v", err)
-	}
-	if _, err := f.machine.RenewRetireApproval(record, f3.sign(t, record, ApproveRetirementKind, 0, f.key, time.Hour), f3.now); !errors.Is(err, ErrInvalidTransition) {
-		t.Fatalf("retire renewal during bring-up = %v", err)
 	}
 }
 
@@ -309,7 +230,7 @@ func TestFailedBringUpRetiresAfterTheSeedLaunch(t *testing.T) {
 	if _, _, err := f.machine.BeginStep(proposed, f.now); err == nil {
 		t.Fatal("teardown began without a retirement approval")
 	}
-	approved, err := f.machine.ApproveRetire(proposed, f.sign(t, proposed, ApproveRetirementKind, 0, f.key, time.Hour), f.now)
+	approved, err := f.machine.ApproveRetire(proposed, f.now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,9 +370,9 @@ func TestDriverFencesBetweenClaimAndExecute(t *testing.T) {
 	}
 }
 
-// TestDriverRecoveryRechecksApprovalAndAdmission: a crash-recovered spending
-// step does not re-execute on an expired approval or a stale admission.
-func TestDriverRecoveryRechecksApprovalAndAdmission(t *testing.T) {
+// TestDriverRecoveryRechecksAdmission: a crash-recovered spending step does not
+// re-execute on a stale admission.
+func TestDriverRecoveryRechecksAdmission(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	f := newFixture(t)
@@ -463,12 +384,8 @@ func TestDriverRecoveryRechecksApprovalAndAdmission(t *testing.T) {
 	if parked, err := stale.Advance(ctx, 1, "sfo"); !errors.Is(err, ErrAdmissionStale) || parked.Phase != FoundationProvisioning {
 		t.Fatalf("recovery with a stale admission = %s, %v", parked.Phase, err)
 	}
-	expired := Driver{Machine: f.machine, Store: store, Effector: effector, Now: func() time.Time { return f.now.Add(49 * time.Hour) }}
-	if _, err := expired.Advance(ctx, 1, "sfo"); !errors.Is(err, ErrApprovalRequired) {
-		t.Fatalf("recovery with an expired approval = %v", err)
-	}
 	if effector.executes[StepFoundation] != 0 {
-		t.Fatal("recovery re-executed without valid guards")
+		t.Fatal("recovery re-executed without a fresh admission")
 	}
 	// Readmission of the running step unblocks it.
 	record, revision, err := store.Get(ctx, "sfo")
@@ -476,7 +393,8 @@ func TestDriverRecoveryRechecksApprovalAndAdmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	later := f.now.Add(time.Hour)
-	readmitted, err := f.machine.Readmit(record, CostAdmission{EstimatedMonthlyCents: 9_000, EvidenceDigest: digest("r"), AdmittedAt: later}, Fleet{}, later)
+	readmitted, err := f.machine.Readmit(record, CostAdmission{EstimatedMonthlyCents: 9_000, HeadroomCents: 20_000,
+		EvidenceDigest: digest("r"), AdmittedAt: later}, Fleet{}, later)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -511,7 +429,7 @@ func TestDriverReconcilesAFailedLaunchBeforeTeardown(t *testing.T) {
 	if revision, err = store.Update(ctx, 1, record, proposed, revision); err != nil {
 		t.Fatal(err)
 	}
-	approved, err := f.machine.ApproveRetire(proposed, f.sign(t, proposed, ApproveRetirementKind, 0, f.key, time.Hour), f.now)
+	approved, err := f.machine.ApproveRetire(proposed, f.now)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -77,7 +77,7 @@ func TestStoreAndDriverJournalIntentBeforeEffect(t *testing.T) {
 	if _, err := store.Create(ctx, epoch, proposed); !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate proposal = %v", err)
 	}
-	approved, err := f.machine.Approve(proposed, f.approval(t, proposed), f.now)
+	approved, err := f.machine.Approve(proposed, f.now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,13 +104,8 @@ func TestStoreAndDriverJournalIntentBeforeEffect(t *testing.T) {
 		t.Fatal(err)
 	}
 	read, _, err := store.Get(ctx, "sfo")
-	if err != nil || read.Phase != Admitted || read.Approval == nil {
+	if err != nil || read.Phase != Admitted || read.Admission == nil {
 		t.Fatalf("stored record = %+v, %v", read, err)
-	}
-	if err := protocol.VerifyEnvelope(*read.Approval, protocol.EnvelopeScope{Region: "sfo", Kind: ApproveExpansionKind,
-		Actor: approver, OperationID: read.Proposal.ID, Generation: read.ProposalGeneration}, f.machine.Policy.Approvers[approver], f.now,
-		protocol.VerifyPolicy{MaxLifetime: 72 * time.Hour}); err != nil {
-		t.Fatalf("approval did not survive storage byte for byte: %v", err)
 	}
 
 	effector := newFakeEffector()

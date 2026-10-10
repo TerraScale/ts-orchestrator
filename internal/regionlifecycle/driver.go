@@ -28,7 +28,7 @@ type Effector interface {
 // (so of two leaders racing on the same record only one can claim the
 // effect), and the lease is guarded again immediately before the effect. A
 // recovered intent is re-claimed through Machine.ClaimStep, which re-checks
-// approval expiry and admission freshness exactly as a fresh step does.
+// admission freshness exactly as a fresh step does.
 type Driver struct {
 	Machine  Machine
 	Store    *Store
@@ -43,8 +43,8 @@ func (d Driver) now() time.Time {
 	return time.Now()
 }
 
-// Advance runs the next step of cell, if any. Phases that wait on approval,
-// admission or a hold return the record unchanged.
+// Advance runs the next step of cell, if any. Phases that wait on admission
+// or a hold return the record unchanged.
 func (d Driver) Advance(ctx context.Context, epoch uint64, cell string) (Record, error) {
 	record, revision, err := d.Store.Get(ctx, cell)
 	if err != nil {
@@ -95,7 +95,7 @@ func (d Driver) Advance(ctx context.Context, epoch uint64, cell string) (Record,
 			return next, nil
 		}
 		// Re-claim the intent under this epoch with the guards re-checked;
-		// an expired approval or stale admission parks the step unexecuted.
+		// a stale admission parks the step unexecuted.
 		claimed, intent, err := d.Machine.ClaimStep(record, epoch, d.now())
 		if err != nil {
 			return record, err
@@ -111,8 +111,7 @@ func (d Driver) Advance(ctx context.Context, epoch uint64, cell string) (Record,
 	}
 	next, intent, err := d.Machine.BeginStep(record, d.now())
 	if err != nil {
-		// Missing approval or stale admission: wait for an operator or for
-		// the admission loop instead of holding.
+		// Stale admission: wait for the admission loop instead of holding.
 		return record, err
 	}
 	intent.Epoch = epoch

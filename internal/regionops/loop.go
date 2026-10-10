@@ -10,8 +10,8 @@
 //   - without an effector for a step, a region waiting on that step stays
 //     where it is and the wait is journaled once.
 //
-// The loop never approves anything: admission and every step still require
-// the signed approval the lifecycle machine verifies.
+// The loop never approves anything; the region planner approves its own
+// proposals inside the guardrails in docs/capacity.md (TS-804).
 package regionops
 
 import (
@@ -204,7 +204,7 @@ func (loop *Loop) admit(ctx context.Context, epoch uint64, cell string, fleetRec
 		return true, err
 	}
 	now := loop.now()
-	ttl := loop.Machine.Policy.AdmissionTTL
+	ttl := regionlifecycle.AdmissionTTL
 	readmit := false
 	switch {
 	case record.Phase == regionlifecycle.Approved && !recovered:
@@ -235,7 +235,7 @@ func (loop *Loop) admit(ctx context.Context, epoch uint64, cell string, fleetRec
 		next, err = loop.Machine.Admit(record, admission, fleet, now)
 	}
 	if errors.Is(err, regionlifecycle.ErrRegionLimit) || errors.Is(err, regionlifecycle.ErrBudgetCeiling) ||
-		errors.Is(err, regionlifecycle.ErrApprovalRequired) || errors.Is(err, regionlifecycle.ErrAdmissionStale) {
+		errors.Is(err, regionlifecycle.ErrAdmissionStale) {
 		loop.note(ctx, epoch, record, "admission refused: "+err.Error(), decisionlog.KindHeld, decisionlog.StatusPending)
 		report.Waiting = append(report.Waiting, cell)
 		// A refused readmission blocks this tick's step even while the older
@@ -311,8 +311,7 @@ func (loop *Loop) drive(ctx context.Context, epoch uint64, cell string, fleetRec
 		}
 		return err
 	}
-	if errors.Is(err, regionlifecycle.ErrApprovalRequired) || errors.Is(err, regionlifecycle.ErrAdmissionStale) ||
-		errors.Is(err, ErrEffectPending) {
+	if errors.Is(err, regionlifecycle.ErrAdmissionStale) || errors.Is(err, ErrEffectPending) {
 		loop.note(ctx, epoch, record, "step "+string(step)+" waits: "+err.Error(), decisionlog.KindHeld,
 			decisionlog.StatusPending)
 		report.Waiting = append(report.Waiting, cell)
@@ -400,7 +399,7 @@ func recordAdmission(ctx context.Context, epoch uint64, record regionlifecycle.R
 		Subject: regionSubject(record),
 		Summary: fmt.Sprintf("%s region %s at an estimated %d cents per month", verb, record.Cell,
 			record.Admission.EstimatedMonthlyCents),
-		Reason: "A fresh cost estimate fits the region maximum, the global monthly ceiling and the signed approval's cap.",
+		Reason: "A fresh cost estimate fits the region maximum and the monthly budget headroom.",
 		Rule:   "regionlifecycle.admit",
 		Signals: []decisionlog.Signal{
 			{Name: "estimated_monthly_cost", Value: float64(record.Admission.EstimatedMonthlyCents) / 100, Unit: "USD"},

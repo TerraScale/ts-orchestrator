@@ -83,7 +83,7 @@ func TestControllerRolloutsAndBudgetsReachInsightsAndTheDashboard(t *testing.T) 
 	// The planner's budgets: the global home alone fills a one-region
 	// ceiling.
 	budgets := regionplanner.Budgets{Records: noLifecycleRecords{}, Policy: regionplanner.Policy{MaxRegions: 1,
-		Home: regionlifecycle.Home{Cell: "lab", MonthlyCents: 1000}}}
+		Home: regionlifecycle.Home{Cell: "lab"}}}
 
 	if err := telemetry.attachController(ctx, controllerObservation{nats: nats, replicas: 1,
 		brokerIDs: []string{"one"}, authority: lease, rollouts: store, budgets: budgets}, nil); err != nil {

@@ -2,7 +2,6 @@ package regionops
 
 import (
 	"context"
-	"crypto/ed25519"
 	"errors"
 	"path/filepath"
 	"slices"
@@ -22,8 +21,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlifecycle"
 )
-
-const approver = "operator:mario"
 
 type recorder struct {
 	mu        sync.Mutex
@@ -104,20 +101,13 @@ func TestLoopAdmitsSubscribesAndWaitsOnTheGlobalLeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	public, private, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
 	start := time.Now().UTC()
 	clock := start
-	machine := regionlifecycle.Machine{Policy: regionlifecycle.Policy{MaxRegions: 3, MonthlyCeilingCents: 30_000,
-		AdmissionTTL: regionlifecycle.DefaultAdmissionTTL, ProposalTTL: 72 * time.Hour,
-		ApprovalMaxLifetime: 7 * 24 * time.Hour, ClockSkew: time.Minute, MinIdle: 14 * 24 * time.Hour,
-		Approvers: map[string]ed25519.PublicKey{approver: public}}}
+	machine := regionlifecycle.Machine{}
 	tenancy := &fakeIdentity{status: map[string]identity.RegionSubscriptionStatusEnum{
 		"sa-saopaulo-1": identity.RegionSubscriptionStatusReady}}
-	loop := &Loop{Store: store, Machine: machine, Home: regionlifecycle.Home{Cell: "gru", MonthlyCents: 9_000},
-		Leader: leader, Admissions: PriceList{MonthlyCents: map[string]uint64{"sfo": 9_000}},
+	loop := &Loop{Store: store, Machine: machine, Home: regionlifecycle.Home{Cell: "gru"},
+		Leader: leader, Admissions: PriceList{MonthlyCents: map[string]uint64{"sfo": 9_000}, HeadroomCents: 20_000},
 		Effectors: Effectors{
 			regionlifecycle.StepSubscribe: Subscription{API: tenancy, TenancyID: "ocid1.tenancy.oc1..test"},
 		},
@@ -148,18 +138,7 @@ func TestLoopAdmitsSubscribesAndWaitsOnTheGlobalLeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, err := protocol.EncodeJSON(regionlifecycle.ApprovalPayload{Cell: "sfo", ProposalDigest: proposal.Digest(),
-		MaxMonthlyCents: 10_000})
-	if err != nil {
-		t.Fatal(err)
-	}
-	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: "sfo",
-		Kind: regionlifecycle.ApproveExpansionKind, Actor: approver, OperationID: proposal.ID,
-		Generation: record.ProposalGeneration}, start, start.Add(48*time.Hour), private)
-	if err != nil {
-		t.Fatal(err)
-	}
-	approved, err := machine.Approve(record, envelope, start)
+	approved, err := machine.Approve(record, start)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,13 +193,13 @@ func TestLoopAdmitsSubscribesAndWaitsOnTheGlobalLeader(t *testing.T) {
 	foundation := &countingEffector{}
 	loop.Effectors[regionlifecycle.StepFoundation] = foundation
 	// A refused readmission blocks the step even though the older admission
-	// is still fresh: the new price exceeds the approval's cap.
-	loop.Admissions = PriceList{MonthlyCents: map[string]uint64{"sfo": 11_000}}
+	// is still fresh: the new price exceeds the budget headroom.
+	loop.Admissions = PriceList{MonthlyCents: map[string]uint64{"sfo": 11_000}, HeadroomCents: 10_000}
 	if report := loop.Tick(ctx); len(report.Readmitted)+len(report.Advanced) != 0 || foundation.executed != 0 ||
 		!slices.Equal(report.Waiting, []string{"sfo"}) {
 		t.Fatalf("refused readmission tick = %+v, executed %d", report, foundation.executed)
 	}
-	loop.Admissions = PriceList{MonthlyCents: map[string]uint64{"sfo": 9_000}}
+	loop.Admissions = PriceList{MonthlyCents: map[string]uint64{"sfo": 9_000}, HeadroomCents: 20_000}
 	report = loop.Tick(ctx)
 	if !slices.Equal(report.Readmitted, []string{"sfo"}) || !slices.Equal(report.Advanced, []string{"sfo"}) ||
 		foundation.executed != 1 {
@@ -257,29 +236,11 @@ func TestAdmissionRefusalsAreJournaledOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	public, private, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
 	now := time.Now().UTC()
-	machine := regionlifecycle.Machine{Policy: regionlifecycle.Policy{MaxRegions: 3, MonthlyCeilingCents: 12_000,
-		AdmissionTTL: regionlifecycle.DefaultAdmissionTTL, ProposalTTL: 72 * time.Hour,
-		ApprovalMaxLifetime: 7 * 24 * time.Hour, ClockSkew: time.Minute, MinIdle: 14 * 24 * time.Hour,
-		Approvers: map[string]ed25519.PublicKey{approver: public}}}
+	machine := regionlifecycle.Machine{}
 	proposal := regionlifecycle.Proposal{ID: entityid.Derive("test-proposal", entityid.Derive("test-proposal", "fra-g1-0123456789ab")), Cell: "fra", OCIRegion: "eu-frankfurt-1",
 		Reason: "planner: latency", EvidenceDigests: []string{"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
 		EstimatedMonthlyCents: 9_000, ProposedAt: now}
-	payload, err := protocol.EncodeJSON(regionlifecycle.ApprovalPayload{Cell: "fra", ProposalDigest: proposal.Digest(),
-		MaxMonthlyCents: 10_000})
-	if err != nil {
-		t.Fatal(err)
-	}
-	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: "fra",
-		Kind: regionlifecycle.ApproveExpansionKind, Actor: approver, OperationID: proposal.ID, Generation: 1},
-		now, now.Add(time.Hour), private)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if _, err := store.Create(ctx, leader.Current().Epoch, mustProposed(t, machine, proposal, now)); err != nil {
 		t.Fatal(err)
 	}
@@ -287,16 +248,16 @@ func TestAdmissionRefusalsAreJournaledOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	approved, err := machine.Approve(stored, envelope, now)
+	approved, err := machine.Approve(stored, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Update(ctx, leader.Current().Epoch, stored, approved, revision); err != nil {
 		t.Fatal(err)
 	}
-	// The home's 9,000 plus 9,000 exceeds the 12,000 ceiling.
-	loop := &Loop{Store: store, Machine: machine, Home: regionlifecycle.Home{Cell: "gru", MonthlyCents: 9_000},
-		Leader: leader, Admissions: PriceList{MonthlyCents: map[string]uint64{"fra": 9_000}}, Now: func() time.Time { return now }}
+	// The home's 9,000 plus 9,000 exceeds the 12,000 ceiling: 3,000 headroom.
+	loop := &Loop{Store: store, Machine: machine, Home: regionlifecycle.Home{Cell: "gru"},
+		Leader: leader, Admissions: PriceList{MonthlyCents: map[string]uint64{"fra": 9_000}, HeadroomCents: 3_000}, Now: func() time.Time { return now }}
 	for range 3 {
 		if report := loop.Tick(ctx); len(report.Admitted) != 0 || !slices.Equal(report.Waiting, []string{"fra"}) {
 			t.Fatalf("refused tick = %+v", report)
@@ -327,18 +288,7 @@ func TestAdmissionRefusalsAreJournaledOnce(t *testing.T) {
 	if revision, err = store.Repropose(ctx, leader.Current().Epoch, rejected, reproposed, revision); err != nil {
 		t.Fatal(err)
 	}
-	payload, err = protocol.EncodeJSON(regionlifecycle.ApprovalPayload{Cell: "fra", ProposalDigest: second.Digest(),
-		MaxMonthlyCents: 10_000})
-	if err != nil {
-		t.Fatal(err)
-	}
-	envelope, err = protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: "fra",
-		Kind: regionlifecycle.ApproveExpansionKind, Actor: approver, OperationID: second.ID,
-		Generation: reproposed.ProposalGeneration}, now, now.Add(time.Hour), private)
-	if err != nil {
-		t.Fatal(err)
-	}
-	approvedAgain, err := machine.Approve(reproposed, envelope, now)
+	approvedAgain, err := machine.Approve(reproposed, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,29 +376,11 @@ func TestDriveWithoutEffectorsJournalsTheWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	public, private, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
 	now := time.Now().UTC()
-	machine := regionlifecycle.Machine{Policy: regionlifecycle.Policy{MaxRegions: 3, MonthlyCeilingCents: 30_000,
-		AdmissionTTL: regionlifecycle.DefaultAdmissionTTL, ProposalTTL: 72 * time.Hour,
-		ApprovalMaxLifetime: 7 * 24 * time.Hour, ClockSkew: time.Minute, MinIdle: 14 * 24 * time.Hour,
-		Approvers: map[string]ed25519.PublicKey{approver: public}}}
+	machine := regionlifecycle.Machine{}
 	proposal := regionlifecycle.Proposal{ID: entityid.Derive("test-proposal", entityid.Derive("test-proposal", "fra-g1-0123456789ab")), Cell: "fra", OCIRegion: "eu-frankfurt-1",
 		Reason: "planner: latency", EvidenceDigests: []string{"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
 		EstimatedMonthlyCents: 9_000, ProposedAt: now}
-	payload, err := protocol.EncodeJSON(regionlifecycle.ApprovalPayload{Cell: "fra", ProposalDigest: proposal.Digest(),
-		MaxMonthlyCents: 10_000})
-	if err != nil {
-		t.Fatal(err)
-	}
-	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: "fra",
-		Kind: regionlifecycle.ApproveExpansionKind, Actor: approver, OperationID: proposal.ID, Generation: 1},
-		now, now.Add(time.Hour), private)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if _, err := store.Create(ctx, leader.Current().Epoch, mustProposed(t, machine, proposal, now)); err != nil {
 		t.Fatal(err)
 	}
@@ -456,15 +388,15 @@ func TestDriveWithoutEffectorsJournalsTheWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	approved, err := machine.Approve(stored, envelope, now)
+	approved, err := machine.Approve(stored, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Update(ctx, leader.Current().Epoch, stored, approved, revision); err != nil {
 		t.Fatal(err)
 	}
-	loop := &Loop{Store: store, Machine: machine, Home: regionlifecycle.Home{Cell: "gru", MonthlyCents: 9_000},
-		Leader: leader, Admissions: PriceList{MonthlyCents: map[string]uint64{"fra": 9_000}}, Effectors: Effectors{},
+	loop := &Loop{Store: store, Machine: machine, Home: regionlifecycle.Home{Cell: "gru"},
+		Leader: leader, Admissions: PriceList{MonthlyCents: map[string]uint64{"fra": 9_000}, HeadroomCents: 20_000}, Effectors: Effectors{},
 		Now: func() time.Time { return now }}
 	report := loop.Tick(ctx)
 	if !slices.Equal(report.Admitted, []string{"fra"}) || !slices.Equal(report.Waiting, []string{"fra"}) ||
