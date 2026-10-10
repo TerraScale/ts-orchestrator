@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -139,7 +138,7 @@ func (k *rolloutKnownBad) IsKnownBad(ctx context.Context, digest string) (bool, 
 // behind their own flags, admission and the lifecycle driver. It returns the
 // budget provider.
 func startRegionPlanner(ctx context.Context, cfg Config, js jetstream.JetStream, global *globalControl,
-	holds *placementHoldLog, conn *nats.Conn, fullClusterReady func() bool,
+	holds *placementHoldLog, conn *nats.Conn, peers *rosterPeers, fullClusterReady func() bool,
 ) (insights.BudgetProvider, error) {
 	settings := cfg.Controller.RegionPlanner
 	if settings == nil || !settings.Enabled {
@@ -172,13 +171,11 @@ func startRegionPlanner(ctx context.Context, cfg Config, js jetstream.JetStream,
 	}
 	sources := regionplanner.Sources{holdSignals{cell: cfg.NATS.Cell, holds: holds}}
 	if settings.PeerSignals {
-		peers := plannerPeers(cfg)
 		federation, err := peerDecisions(cfg.NATS.Cell, conn, peers)
 		if err != nil {
 			return nil, fmt.Errorf("region planner peer signals: %w", err)
 		}
-		sources = append(sources, regionplanner.PeerHolds{
-			Decisions: func() decisionlog.Source { return federation }, Peers: peers})
+		sources = append(sources, rosterHolds{peers: peers, federation: federation})
 	}
 	machine := regionlifecycle.Machine{}
 	runner := plannerRunner{source: sources, planner: regionplanner.Planner{Policy: policy},
@@ -232,33 +229,31 @@ func homeIdentity(ctx context.Context, cell string) (regionops.SubscriptionAPI, 
 	return client, tenancy, nil
 }
 
-// plannerPeers lists the regions whose placement holds the planner reads:
-// the interregion roster, which is exactly the set the decision federation
-// can reach.
-func plannerPeers(cfg Config) []string {
-	if cfg.NATS.Embedded == nil || cfg.NATS.Embedded.InterRegion == nil {
-		return nil
-	}
-	return slices.Clone(cfg.NATS.Embedded.InterRegion.Peers)
+// rosterHolds reads the placement holds of the roster's peers on every pass,
+// so a region that joins or leaves the roster is read from the next pass on.
+type rosterHolds struct {
+	peers      *rosterPeers
+	federation decisionlog.Source
 }
 
-// peerDecisions is a decision federation over the interregion peers only,
-// built on the cell connection independently of the HTTP observability
-// listener: the contract imports each peer's decision query service, so
-// peer signals never depend on whether the dashboard runs.
-func peerDecisions(cell string, conn *nats.Conn, peers []string) (decisionlog.Source, error) {
-	if conn == nil || len(peers) == 0 {
-		return nil, errors.New("peer signals need the cell connection and interregion peers")
+func (holds rosterHolds) Signals(ctx context.Context, since time.Time) ([]regionplanner.Signal, error) {
+	return regionplanner.PeerHolds{Decisions: func() decisionlog.Source { return holds.federation },
+		Peers: holds.peers.current()}.Signals(ctx, since)
+}
+
+// peerDecisions is a decision federation over the roster peers, built on the
+// cell connection independently of the HTTP observability listener: the
+// contract imports each peer's decision query service, so peer signals never
+// depend on whether the dashboard runs.
+func peerDecisions(cell string, conn *nats.Conn, peers *rosterPeers) (decisionlog.Source, error) {
+	if conn == nil {
+		return nil, errors.New("peer signals need the cell connection")
 	}
-	links, err := regionlink.New(cell, conn, peers, regionRequestTimeout)
+	links, err := regionlink.New(cell, conn, nil, regionRequestTimeout)
 	if err != nil {
 		return nil, err
 	}
-	for _, peer := range peers {
-		if err := links.Link(peer, conn); err != nil {
-			return nil, err
-		}
-	}
+	linkRoster(links, conn, peers)
 	return decisionlog.Federation{Links: links}, nil
 }
 

@@ -117,6 +117,21 @@ func (links *Links) Link(region string, conn *nats.Conn) error {
 	return nil
 }
 
+// Unlink drops a peer region: it leaves the configured set and its connection
+// is released. The local region and unknown regions are left alone.
+func (links *Links) Unlink(region string) {
+	token, err := protocol.RegionToken(region)
+	if err != nil || token == links.local {
+		return
+	}
+	links.mu.Lock()
+	defer links.mu.Unlock()
+	if index := slices.Index(links.regions, token); index > 0 {
+		links.regions = slices.Delete(links.regions, index, index+1)
+		delete(links.conns, token)
+	}
+}
+
 // Local returns this member's region token.
 func (links *Links) Local() string { return links.local }
 

@@ -249,6 +249,10 @@ func ControllerSubscriptions(cell string) []string {
 		protocol.RolloutProofSubject(cell, ""),
 		// Read-only query services this region answers for every region.
 		protocol.Regional(cell, "query", ">"),
+		// The global home builds the roster from every region's heartbeat.
+		// Material issued before this grant lacks it; the home then keeps no
+		// roster, and its peers keep their last one.
+		protocol.AnyRegionHealthSubject(),
 	}
 }
 

@@ -30,16 +30,23 @@ func testPlannerConfig() *RegionPlannerConfig {
 // listener's providers, and fail loudly without peers or a connection.
 func TestPeerSignalsNeedOnlyTheCellConnection(t *testing.T) {
 	t.Parallel()
-	if _, err := peerDecisions("gru", nil, []string{"sfo"}); err == nil {
+	if _, err := peerDecisions("gru", nil, &rosterPeers{}); err == nil {
 		t.Error("peer decisions without a connection")
 	}
-	if _, err := peerDecisions("gru", &nats.Conn{}, nil); err == nil {
-		t.Error("peer decisions without peers")
-	}
-	source, err := peerDecisions("gru", &nats.Conn{}, []string{"sfo", "fra"})
+	peers := &rosterPeers{}
+	source, err := peerDecisions("gru", &nats.Conn{}, peers)
 	federation, ok := source.(decisionlog.Federation)
-	if err != nil || !ok || federation.Local != nil || !slices.Equal(federation.Links.Regions(), []string{"gru", "fra", "sfo"}) {
+	if err != nil || !ok || federation.Local != nil || !slices.Equal(federation.Links.Regions(), []string{"gru"}) {
 		t.Fatalf("federation = %+v, %v", source, err)
+	}
+	// The roster drives the links: peers join and leave without a restart.
+	peers.apply([]string{"sfo", "fra"})
+	if !slices.Equal(federation.Links.Regions(), []string{"gru", "fra", "sfo"}) || !federation.Links.Linked("sfo") {
+		t.Fatalf("joined regions = %v", federation.Links.Regions())
+	}
+	peers.apply([]string{"fra"})
+	if !slices.Equal(federation.Links.Regions(), []string{"gru", "fra"}) || federation.Links.Linked("sfo") {
+		t.Fatalf("left regions = %v", federation.Links.Regions())
 	}
 }
 
@@ -74,15 +81,15 @@ func TestRegionPlannerRunsOnlyInTheGlobalHome(t *testing.T) {
 
 	cfg := Config{NATS: natscell.Config{Cell: "sfo", Replicas: 1}}
 	cfg.Controller.RegionPlanner = testPlannerConfig()
-	if _, err := startRegionPlanner(t.Context(), cfg, nil, nil, nil, nil, func() bool { return true }); err == nil {
+	if _, err := startRegionPlanner(t.Context(), cfg, nil, nil, nil, nil, nil, func() bool { return true }); err == nil {
 		t.Fatal("region planner started without global control")
 	}
 	cfg.Controller.Global = &GlobalControlConfig{Home: "gru"}
-	if _, err := startRegionPlanner(t.Context(), cfg, nil, &globalControl{}, nil, nil, func() bool { return true }); err == nil {
+	if _, err := startRegionPlanner(t.Context(), cfg, nil, &globalControl{}, nil, nil, nil, func() bool { return true }); err == nil {
 		t.Fatal("region planner started outside the global home")
 	}
 	cfg.Controller.RegionPlanner.Enabled = false
-	if budgets, err := startRegionPlanner(t.Context(), cfg, nil, nil, nil, nil, nil); err != nil || budgets != nil {
+	if budgets, err := startRegionPlanner(t.Context(), cfg, nil, nil, nil, nil, nil, nil); err != nil || budgets != nil {
 		t.Fatalf("disabled planner = %v, %v", budgets, err)
 	}
 	if _, err := startRollouts(t.Context(), cfg, nil, nil, nil, nil); err == nil {

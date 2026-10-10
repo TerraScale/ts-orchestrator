@@ -210,10 +210,8 @@ func OpenHome(ctx context.Context, js jetstream.JetStream, cell string, peers []
 	if !cellToken.MatchString(cell) {
 		return nil, errors.New("global home cell is invalid")
 	}
-	for _, peer := range peers {
-		if !cellToken.MatchString(peer) || peer == protocol.GlobalScope || peer == cell {
-			return nil, fmt.Errorf("global mirror peer %q is invalid", peer)
-		}
+	if err := validMirrorPeers(cell, peers); err != nil {
+		return nil, err
 	}
 	if fencer == nil || fencer.Current().Scope != protocol.GlobalScope {
 		return nil, errors.New("global writes require the global-scope authority")
@@ -231,6 +229,16 @@ func OpenHome(ctx context.Context, js jetstream.JetStream, cell string, peers []
 		return nil, err
 	}
 	return &Writer{Reader: Reader{stream: stream}, home: cell, fencer: fencer, js: js, replicas: replicas}, nil
+}
+
+// validMirrorPeers requires every peer to be a regional cell other than home.
+func validMirrorPeers(home string, peers []string) error {
+	for _, peer := range peers {
+		if !cellToken.MatchString(peer) || peer == protocol.GlobalScope || peer == home {
+			return fmt.Errorf("global mirror peer %q is invalid", peer)
+		}
+	}
+	return nil
 }
 
 // PutRoster writes the next roster generation. The home region cannot be

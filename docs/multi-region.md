@@ -269,6 +269,11 @@ The current global control plane still consumes `controller.global`
   plus a per-subject compare-and-set, with a `Ts-Global-Epoch` header that
   must match the record. A leader that passed its `Guard` and then paused can
   never commit after a newer term's barrier.
+- Regional leaders heartbeat on `region.health` every 10 seconds. The home's
+  global leader keeps the roster from those heartbeats (a region silent for
+  10 minutes leaves it), and every region follows the roster for its links,
+  planner peers and, at the home, its mirror consumers. Only heartbeats whose
+  cell matches their subject count.
 - The home region also creates the durable mirror consumer of every
   interregion peer. A pre-existing consumer under a peer's name that delivers
   anywhere else is refused, never adopted.

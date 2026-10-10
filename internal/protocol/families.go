@@ -192,6 +192,9 @@ func RegionRollupSubject(cell string) string { return Regional(cell, "region", "
 // RegionRollupGrant subscribes to every region's dashboard rollup.
 const RegionRollupGrant = SubjectRoot + ".*.region.rollup"
 
+// AnyRegionHealthSubject is every region's heartbeat, for the home's roster subscription.
+func AnyRegionHealthSubject() string { return SubjectRoot + ".*." + VerbRegionHealth }
+
 // Rollout executor subjects. The leader publishes the active rollout's status
 // on RolloutStatusSubject; every unit publishes its signed version/health
 // proof on RolloutProofSubject. Steps travel through the rollout KV bucket

@@ -295,6 +295,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return fmt.Errorf("start global control: %w", err)
 	}
 	defer global.close()
+	peers := &rosterPeers{}
 	gate, err := startBrokerGate(ctx, cfg, runtime, control, services.identity.DeploymentID, candidateID, ticketPrivate, ticketPublic, clockProbe)
 	if err != nil {
 		return fmt.Errorf("start broker admission gate: %w", err)
@@ -855,7 +856,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	hostController.SetRolloutSink(policy.rollouts)
 	budgets, err := startRegionPlanner(runCtx, cfg, runtime.JetStream(), global, placementHolds,
-		runtime.Conn(), fullClusterReady)
+		runtime.Conn(), peers, fullClusterReady)
 	if err != nil {
 		return fmt.Errorf("start region planner: %w", err)
 	}
@@ -866,7 +867,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	telemetry.registry.RegisterWriter(linkSupervisor.writeMetrics)
 	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
 		brokerIDs: cfg.NATS.Embedded.BrokerIDs, authority: control, placements: placementStore,
-		holds: placementHolds, autoscalers: workloadReconciler, hostLoad: hostLoad, hosts: hostController, linkedPeers: globalMirrorPeers(cfg.NATS),
+		holds: placementHolds, autoscalers: workloadReconciler, hostLoad: hostLoad, hosts: hostController, peers: peers,
 		linkProbes:            linkSupervisor.snapshot,
 		nativeTerraBaseRegion: func() string { return services.profiles()[terrabase.Role].Env[terrabase.EnvRegion] },
 		rollouts:              rollouts, budgets: budgets, ociResources: ociReconcile.resources(),
@@ -928,6 +929,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			workerErrors <- services.followRelayedSpecs(runCtx, global.reader, policy, control, hostController)
 		})
 	}
+	workers.Go(func() { runRegionRegistry(runCtx, runtime.Conn(), cfg, control, global, peers) })
 	if policy.rollouts.channel != nil {
 		releases := &serviceReleases{js: runtime.JetStream(), cell: cfg.NATS.Cell, channel: policy.rollouts.channel, deliveries: service,
 			hosts: hostController, profiles: services.profiles, fencer: control, fences: fences, history: nativeReleases,

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -18,7 +17,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlink"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
@@ -92,20 +90,15 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	if observed.nats != nil {
 		go watchControlPlane(ctx, runtime.cell, runtime.member, observed.authority, observed.nats, observed.replicas)
 	}
-	links, err := regionlink.New(runtime.cell, conn, configuredRegions(runtime.cell), regionRequestTimeout)
+	links, err := regionlink.New(runtime.cell, conn, nil, regionRequestTimeout)
 	if err != nil {
 		slog.WarnContext(ctx, "region links unavailable", observability.ComponentKey, "regionview", "error", err)
 		return
 	}
-	// Interregion peers are reachable through the cell connection: the
-	// contract imports exactly their region summary and decision query
-	// services over the leafnodes, so they are linked rather than shown as
-	// not_linked.
-	for _, peer := range observed.linkedPeers {
-		if err := links.Link(peer, conn); err != nil {
-			slog.WarnContext(ctx, "region link unavailable", observability.ComponentKey, "regionview", "region", peer, "error", err)
-		}
-	}
+	// Roster peers are reachable through the cell connection: the contract
+	// imports exactly their region summary and decision query services over
+	// the leafnodes, so they are linked rather than shown as not_linked.
+	linkRoster(links, conn, observed.peers)
 	if cluster != nil {
 		// The sampler, the insight engine and the region view share one
 		// scatter-gather per few seconds instead of one each.
@@ -169,19 +162,6 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 			Local: regions.Local, Volumes: volumes, Rollouts: rolloutSource,
 			Global: globalView}
 	})
-}
-
-// configuredRegions lists the product regions a product cell can link to.
-// A lab or test cell sees only itself.
-func configuredRegions(cell string) []string {
-	var all []string
-	for _, entry := range catalog.Founded() {
-		all = append(all, entry.Name())
-	}
-	if !slices.ContainsFunc(all, func(region string) bool { return strings.EqualFold(region, cell) }) {
-		return nil
-	}
-	return all
 }
 
 func openDecisionStream(ctx context.Context, js jetstream.JetStream, cell string, replicas int,

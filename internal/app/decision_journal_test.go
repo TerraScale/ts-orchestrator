@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -121,14 +120,5 @@ func TestHoldJournalDeduplicatesReasons(t *testing.T) {
 	log.record("reconciliation error: transient")
 	if got := log.Holds(time.Now()); len(got) != 2 {
 		t.Fatalf("active holds = %+v", got)
-	}
-}
-
-func TestConfiguredRegions(t *testing.T) {
-	if got := configuredRegions("gru"); !slices.Equal(got, []string{"gru", "sfo", "fra"}) {
-		t.Fatalf("gru = %v", got)
-	}
-	if got := configuredRegions("lab"); got != nil {
-		t.Fatalf("lab = %v", got)
 	}
 }

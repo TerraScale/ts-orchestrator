@@ -31,6 +31,7 @@ func TestSubjectFamiliesKeepWireFormat(t *testing.T) {
 		DeliveryIntentSubject("fra"):                           "ts.orch.v1.fra.delivery.intent",
 		DeliveryArtifactAdmitSubject("gru"):                    "ts.orch.v1.gru.delivery.artifact.admit",
 		RegionHealthSubject("GRU"):                             "ts.orch.v1.gru.region.health",
+		AnyRegionHealthSubject():                               "ts.orch.v1.*.region.health",
 		InboxPrefix("gru", key):                                "ts.orch.v1.gru.inbox." + key,
 		InboxGrant("gru", key):                                 "ts.orch.v1.gru.inbox." + key + ".>",
 		InboxGrant("gru", TemplateSubject):                     "ts.orch.v1.gru.inbox.{{subject()}}.>",

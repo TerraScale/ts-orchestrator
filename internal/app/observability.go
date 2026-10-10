@@ -186,9 +186,8 @@ type controllerObservation struct {
 	hostLoad *hostTelemetry
 	// hosts checks which NKey a node's log windows must come from.
 	hosts *host.Controller
-	// linkedPeers are the interregion peers whose observability services
-	// the cell account imports, so the local connection reaches them.
-	linkedPeers           []string
+	// peers are the other regions of the roster, followed by this region.
+	peers                 *rosterPeers
 	linkProbes            func() []regionview.LinkProbe
 	nativeTerraBaseRegion func() string
 	// rollouts and budgets are the rollout store and the region planner's
