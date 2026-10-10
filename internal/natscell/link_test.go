@@ -101,7 +101,7 @@ func linkControllerCredentials(t *testing.T, root, name string, region *testRegi
 		protocol.SubjectRoot+".*.obs."+protocol.ObservabilityRegionLeaf, protocol.SubjectRoot+".*.obs."+protocol.ObservabilityDecisionsLeaf,
 		protocol.SubjectRoot+".*.query.>")
 	claim.Sub.Allow = append(jwt.StringList(ControllerSubscriptions(cell)), protocol.ObservabilityGrant(cell),
-		protocol.SubjectRoot+"."+cell+".query.>", protocol.SubjectRoot+".*.region.health", protocol.RegionRollupGrant, protocol.InboxGrant(cell, userID))
+		protocol.SubjectRoot+"."+cell+".query.>", protocol.SubjectRoot+".*.region.health", protocol.InboxGrant(cell, userID))
 	claim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: time.Minute}
 	raw, err := claim.Encode(region.cell)
 	if err != nil {

@@ -253,6 +253,10 @@ func ControllerSubscriptions(cell string) []string {
 		// Material issued before this grant lacks it; the home then keeps no
 		// roster, and its peers keep their last one.
 		protocol.AnyRegionHealthSubject(),
+		// Every region's dashboard rollup (TS-805), carried by the link.
+		// Material issued before this grant lacks it; such a follower's
+		// global view stays empty and the leader holds only its own rollup.
+		protocol.RegionRollupGrant,
 	}
 }
 
