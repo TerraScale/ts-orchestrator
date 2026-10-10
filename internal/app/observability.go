@@ -251,6 +251,18 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 		KVSnapshots: observed.kvSnapshots,
 		OCI:         oci.APIView,
 	}
+	config.Links = func() []observability.RegionLinkProbe {
+		if observed.linkProbes == nil {
+			return nil
+		}
+		probes := observed.linkProbes()
+		links := make([]observability.RegionLinkProbe, len(probes))
+		for index, probe := range probes {
+			links[index] = observability.RegionLinkProbe{Region: probe.Region, ObservedAt: probe.ObservedAt,
+				Reach: probe.Reach, WAN: probe.WAN, LagGroups: probe.Lag, RTTMillis: probe.RoundTripMS}
+		}
+		return links
+	}
 	if observed.placements != nil {
 		store := observed.placements
 		config.Placement = func(ctx context.Context) (observability.PlacementView, error) {

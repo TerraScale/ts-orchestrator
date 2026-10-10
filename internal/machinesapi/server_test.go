@@ -105,7 +105,7 @@ func newFixture(t *testing.T) *fixture {
 	s, err := NewServer(Config{ListenAddress: "127.0.0.1:0", Issuer: testIssuer, Audience: testAudience,
 		JWKSURLs: []string{i.server.URL}, Clients: []string{"00000000006HEQR9ARBF6BV9X9"},
 		PlatformOrganizationID: PlatformOrg, Members: map[string][]string{PlatformOrg: {"0000000000FT4JKN5QV2BGQ38B"}, "0000000000WXB90H7AGW4BG94H": {"0000000000Z4WVDND9E6R945JB", "0000000000MB95NQ0RR1N1GQNJ"}, "0000000000RWJTCANH5947CM6T": {"00000000000N2RBS80K3HN7R4B"}}},
-		apps, tenants)
+		apps, tenants, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

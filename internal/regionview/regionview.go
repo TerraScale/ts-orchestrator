@@ -568,7 +568,7 @@ func (provider *Provider) remote(ctx context.Context, region string) Summary {
 	data, err := provider.Links.Request(ctx, region, SummaryLeaf, summaryRequestPayload)
 	if err != nil {
 		switch {
-		case errors.Is(err, regionlink.ErrNotLinked):
+		case errors.Is(err, regionlink.ErrNotLinked), errors.Is(err, regionlink.ErrUnknownRegion):
 			placeholder.Reach = decisionlog.RegionNotLinked
 			placeholder.Health.Reasons = []string{"no cross-region link yet"}
 		case errors.Is(err, context.DeadlineExceeded), errors.Is(err, nats.ErrTimeout), errors.Is(err, nats.ErrNoResponders):

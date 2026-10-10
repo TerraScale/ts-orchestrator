@@ -92,6 +92,21 @@ func TestCollectorReportsFailedSectionByClass(t *testing.T) {
 	}
 }
 
+func TestCollectorPreservesOriginalLinkEvidence(t *testing.T) {
+	t.Parallel()
+	collector, _ := testCollector(t, "one", nil)
+	observed := time.Now().UTC().Add(-3 * time.Minute)
+	collector.config.Links = func() []RegionLinkProbe {
+		return []RegionLinkProbe{{Region: "sfo", ObservedAt: observed, Reach: "ok", WAN: "ok", LagGroups: new(0.0)}}
+	}
+	for range 2 {
+		snapshot, err := collector.Snapshot(t.Context(), false)
+		if err != nil || len(snapshot.Links) != 1 || !snapshot.Links[0].ObservedAt.Equal(observed) || snapshot.Links[0].LagGroups == nil {
+			t.Fatalf("snapshot refreshed or lost original link evidence: %+v, %v", snapshot, err)
+		}
+	}
+}
+
 func TestRegistryTextTruncatesAtLineBoundary(t *testing.T) {
 	t.Parallel()
 	registry := NewRegistry(false)

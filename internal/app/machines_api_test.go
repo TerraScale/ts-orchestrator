@@ -150,7 +150,7 @@ func TestMachinesAPIFollowsTheCellSpec(t *testing.T) {
 	loopCtx, stop := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() {
-		done <- machinesAPILoop(loopCtx, cfg, broker, control, func() bool { return true }, current.Load)
+		done <- machinesAPILoop(loopCtx, cfg, broker, control, func() bool { return true }, current.Load, nil)
 	}()
 	health := func() int {
 		request, _ := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://%s:%d/healthz", host, cellspec.MachinesAPIPort), nil)

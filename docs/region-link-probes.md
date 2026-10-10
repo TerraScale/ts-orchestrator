@@ -25,12 +25,13 @@ table. Catalog regions without an authenticated link retain `not_linked`; they
 do not report a failed request or raise an outage insight.
 
 Explicit authenticated-request failures on admitted links and failed WAN
-observations reconnect this broker's leaves in its pinned interregion account.
+observations reconnect this broker's authenticated link leaves. TS-803 links
+bind the regional cell account.
 Attempts sharing the same transport are coalesced with a five-minute retry
 bound. Native NATS reconnect/failover remains responsible for redialing; regional
 routes, clients and JetStream state remain running. With no connected leaves,
 native retries continue and the attempted repair remains failed. Disconnecting
-leaves can briefly interrupt traffic on their shared interregion account.
+leaves can briefly interrupt cross-region traffic on their shared transport.
 No NATS gateway is configured in the current transport.
 
 The decision journal records failure, reconnect attempt and recovery separately.
@@ -39,9 +40,29 @@ authenticated reply with complete healthy WAN evidence is required. Metrics
 expose probe timestamp, request success/duration, WAN observation/health and
 group lag under `ts_orch_region_*` with peer and controller member labels.
 
-This slice does not provide automatic expired-credential issuance or ts-status
-incident delivery. Credential renewal needs the issuing authority to publish and
-sign a successor, then the existing privileged installer to adopt it in place;
-refetching expired Vault bytes is insufficient. ts-status needs an authenticated
-heartbeat consumer with independent freshness expiry. Live GRU/SFO acceptance
-still waits for TS-774's completed rotation and qualified deployment handoff.
+`GET /v1/link-health` on the public Machines API exposes only regional health:
+the expected/missing controller roster and each answering controller's minute
+probe states, WAN lag in change groups and original observation times. It uses
+the existing authenticated local snapshot scatter-gather, bounded to two seconds,
+and shares each result for three seconds. It never probes remote regions or
+repairs a link on an HTTP request. The response excludes private addresses,
+credentials, metrics, operational details and journal entries. `/healthz` and
+readiness retain their existing meaning; cross-region failure does not withdraw
+a regional load balancer backend.
+
+A 200 is evidence availability, not healthy connectivity. A consumer must check
+every expected controller and every admitted destination discovered through
+Atlas, retaining each original probe time. Repeated HTTP polls cannot renew old
+evidence. Probe times record when WAN was assessed; original WAN scrape times
+are not exposed by this endpoint. Missing controllers, absent probes and
+observations older than two minutes are monitoring loss; `not_linked`, unknown
+WAN and normal backlog do not prove a measured outage. TLS authenticates the
+discovered public origin; no controller report token or manually copied Worker
+secret is required.
+
+This endpoint is the producer contract. ts-status consumption, independent expiry
+and automatic incidents remain the next slice. Credential renewal needs TS-803's
+issuing authority to publish and sign a successor, then the existing privileged
+installer to adopt it in place; refetching expired Vault bytes is insufficient.
+Live GRU/SFO acceptance waits
+for TS-803's completed linking and qualified deployment handoff.

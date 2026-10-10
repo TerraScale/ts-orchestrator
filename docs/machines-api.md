@@ -33,6 +33,7 @@ The work ships in slices under TS-564.
 | --- | --- | --- |
 | `GET /healthz` | none | `{"status":"ok"}` |
 | `GET /v1/openapi.json` | none | The OpenAPI document |
+| `GET /v1/link-health` | none | Regional controller roster and original link probe evidence ([contract](region-link-probes.md)) |
 | `GET /v1/apps` | `orch:read` | `{"apps": [App]}`: the apps the caller may see |
 | `GET /v1/apps/{app}` | `orch:read` | The app |
 | `GET /v1/apps/{app}/machines` | `orch:read` | `{"machines": [Machine]}`, each with its `status` once observed |
@@ -75,7 +76,7 @@ A controller serves the API when its config has `controller.machines_api`:
   `TS_TENANTS` buckets, which every controller can read, so any controller
   answers.
 - Off loopback the listener requires `tls_cert_file` and `tls_key_file`:
-  requests carry bearer tokens.
+  protected routes require bearer tokens.
 - Each controller accepts at most 256 connections. The load balancer brings
   the internet to hosts that also run the cell's NATS quorum and authority.
 - **Signed production configs refuse `machines_api`**, so a signed config
@@ -116,8 +117,8 @@ tenancy policy, with the same fields as above minus the listener:
 
 ## Authentication
 
-Every route except `/healthz` and `/v1/openapi.json` requires a ts-auth
-access token as `Authorization: Bearer`. ts-auth has no introspection
+Every route except `/healthz`, `/v1/openapi.json` and `/v1/link-health` requires
+a ts-auth access token as `Authorization: Bearer`. ts-auth has no introspection
 endpoint, so the controller checks the token itself:
 
 - The token must be an RFC 9068 JWT with `typ: at+jwt`, so ts-auth ID

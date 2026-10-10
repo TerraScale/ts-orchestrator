@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -12,6 +13,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machines"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machinesapi"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tenant"
 )
 
@@ -20,6 +22,7 @@ import (
 // so any controller answers them.
 func startMachinesAPI(ctx context.Context, cfg Config, runtime *natscell.Runtime, control authority.Fencer,
 	fullClusterReady func() bool,
+	links observability.ClusterSource,
 ) (<-chan error, error) {
 	settings := cfg.Controller.MachinesAPI
 	if settings == nil {
@@ -41,7 +44,7 @@ func startMachinesAPI(ctx context.Context, cfg Config, runtime *natscell.Runtime
 	if err != nil {
 		return nil, err
 	}
-	server, err := machinesapi.NewServer(*settings, opened.apps, opened.tenants)
+	server, err := machinesapi.NewServer(*settings, opened.apps, opened.tenants, links)
 	if err != nil {
 		return nil, err
 	}
@@ -64,6 +67,7 @@ var machinesAPICheck = 5 * time.Second
 // the next check; the API never stops the controller.
 func machinesAPILoop(ctx context.Context, cfg Config, runtime *natscell.Runtime, control authority.Fencer,
 	fullClusterReady func() bool, current func() *cellspec.MachinesAPI,
+	links observability.ClusterSource,
 ) error {
 	var apps *machines.Store
 	var tenants *tenant.Store
@@ -90,7 +94,7 @@ func machinesAPILoop(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 			if want != nil && err == nil && fullClusterReady() {
 				var server *machinesapi.Server
 				embedded := cfg.NATS.Embedded
-				server, err = machinesapi.NewServer(want.Config(embedded.Host, embedded.TLS.CertFile, embedded.TLS.KeyFile), apps, tenants)
+				server, err = machinesapi.NewServer(want.Config(embedded.Host, embedded.TLS.CertFile, embedded.TLS.KeyFile), apps, tenants, links)
 				serveCtx, cancel := context.WithCancel(ctx)
 				if err == nil {
 					serving, err = server.Start(serveCtx)
@@ -120,4 +124,16 @@ func machinesAPILoop(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 		case <-ticker.C:
 		}
 	}
+}
+
+// Cluster serves only the authenticated local scatter-gather; HTTP never
+// triggers a cross-region probe or a control-plane action.
+func (runtime *runtimeObservability) Cluster(ctx context.Context, metrics bool) (observability.ClusterSnapshot, error) {
+	runtime.boardsMu.Lock()
+	source := runtime.cluster
+	runtime.boardsMu.Unlock()
+	if source == nil {
+		return observability.ClusterSnapshot{}, errors.New("controller snapshot source is unavailable")
+	}
+	return source.Cluster(ctx, metrics)
 }

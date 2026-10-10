@@ -724,7 +724,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		defer listener.Close()
 		enrollmentErrors = serveErrors
 	}
-	apiErrors, err := startMachinesAPI(runCtx, cfg, runtime, control, fullClusterReady)
+	apiErrors, err := startMachinesAPI(runCtx, cfg, runtime, control, fullClusterReady, telemetry)
 	if err != nil {
 		return err
 	}
@@ -961,7 +961,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// cell spec's machines_api section turns it on.
 	if cfg.Controller.MachinesAPI == nil && cfg.NATS.Embedded != nil {
 		workers.Go(func() {
-			workerErrors <- machinesAPILoop(runCtx, cfg, runtime, control, fullClusterReady, services.machinesAPI)
+			workerErrors <- machinesAPILoop(runCtx, cfg, runtime, control, fullClusterReady, services.machinesAPI, telemetry)
 		})
 	}
 	if apiErrors != nil {

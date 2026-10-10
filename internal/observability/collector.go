@@ -38,6 +38,7 @@ type CollectorConfig struct {
 	// Credentials lists the member's expiring credentials. It may return a
 	// partial list with an error, which marks the section failed.
 	Credentials func() ([]CredentialView, error)
+	Links       func() []RegionLinkProbe
 	// Filesystems are the mount roles reported by the system section.
 	Filesystems []FilesystemRole
 	// System replaces ReadSystem, for tests and non-Linux builds.
@@ -97,6 +98,9 @@ func (collector *Collector) Snapshot(ctx context.Context, includeMetrics bool) (
 	if config.Authority != nil {
 		view := config.Authority()
 		snapshot.Authority = &view
+	}
+	if config.Links != nil {
+		snapshot.Links = config.Links()
 	}
 	if view, err := collector.natsView(ctx); err != nil {
 		fail("nats", err)

@@ -140,8 +140,11 @@ func TestControllerObservabilityServesSnapshotAndCluster(t *testing.T) {
 	}
 	lease := observedAuthority{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Leader: true, Ready: true, Epoch: 3, Revision: 8,
 		ExpiresAt: time.Now().Add(time.Minute)}}
+	probeTime := time.Now().UTC().Add(-time.Minute)
 	if err := telemetry.attachController(ctx, controllerObservation{nats: nats, replicas: 1,
-		brokerIDs: []string{"one", "two"}, authority: lease}, nil); err != nil {
+		brokerIDs: []string{"one", "two"}, authority: lease, linkProbes: func() []regionview.LinkProbe {
+			return []regionview.LinkProbe{{Region: "sfo", ObservedAt: probeTime, Reach: "not_linked", WAN: "unknown", Detail: "private-probe-detail"}}
+		}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	telemetry.markStarted()
@@ -165,6 +168,10 @@ func TestControllerObservabilityServesSnapshotAndCluster(t *testing.T) {
 		len(cluster.Members) != 1 || cluster.Members[0].Member != "one" ||
 		len(cluster.Missing) != 1 || cluster.Missing[0] != "two" {
 		t.Fatalf("/v1/cluster = %d %s (%v)", status, body, err)
+	}
+	if len(cluster.Members[0].Links) != 1 || !cluster.Members[0].Links[0].ObservedAt.Equal(probeTime) ||
+		strings.Contains(body, "private-probe-detail") {
+		t.Fatalf("authenticated cluster snapshot lost or exposed probe evidence: %s", body)
 	}
 	if status, body = get("/members"); status != http.StatusOK || !strings.Contains(body, ">one</a></td>") {
 		t.Fatalf("default dashboard /members = %d %s", status, body)

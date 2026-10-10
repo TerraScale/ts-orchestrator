@@ -124,7 +124,7 @@ func (supervisor *regionLinkSupervisor) round(ctx context.Context) {
 	repair := false
 	for index := range probes {
 		probe := &probes[index]
-		if probe.Lag != nil && supervisor.newAheadFailures(remotes[index], local.TerraBase.NativeRegion, probe.ObservedAt) {
+		if probe.Lag != nil && supervisor.newAheadFailures(remotes[index], local.TerraBase.NativeRegion, probe.ObservedAt) && probe.WAN != regionlink.WANUnknown {
 			probe.WAN, probe.Detail = regionlink.WANFailed, "WAN replication reported new ahead failures"
 		}
 		for _, old := range previous {
@@ -185,8 +185,8 @@ func (supervisor *regionLinkSupervisor) round(ctx context.Context) {
 }
 
 func (supervisor *regionLinkSupervisor) needsRepair(probe regionview.LinkProbe) bool {
-	return probe.Reach != decisionlog.RegionNotLinked &&
-		((supervisor.source.Links.Linked(probe.Region) && probe.Reach != decisionlog.RegionOK) || probe.WAN == regionlink.WANFailed)
+	return supervisor.source.Links.Linked(probe.Region) && probe.Reach != decisionlog.RegionNotLinked &&
+		(probe.Reach != decisionlog.RegionOK || probe.WAN == regionlink.WANFailed)
 }
 
 func (supervisor *regionLinkSupervisor) newAheadFailures(remote regionview.Summary, sourceRegion string, now time.Time) bool {

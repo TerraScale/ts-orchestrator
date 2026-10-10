@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"math"
 	"strings"
 	"sync"
@@ -12,7 +13,10 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/nats-io/nats.go"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlink"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
@@ -383,6 +387,125 @@ func TestIncompleteOrCatchingUpWANDoesNotStartFailureEpisode(t *testing.T) {
 			supervisor.round(t.Context())
 			if len(recorder.decisions) != 0 || len(supervisor.failures) != 0 || supervisor.snapshot()[0].WAN != state {
 				t.Fatalf("normal or incomplete evidence became a failed episode: probes=%+v decisions=%+v", supervisor.snapshot(), recorder.decisions)
+			}
+		})
+	}
+}
+
+type changingLinkedTestRegions struct {
+	regionlink.Static
+	linked atomic.Bool
+}
+
+func (links *changingLinkedTestRegions) Linked(string) bool { return links.linked.Load() }
+
+func TestLinkRepairRequiresCurrentPeerAdmission(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		err    error
+		linked bool
+		repair bool
+	}{
+		{name: "removed peer with failed WAN"},
+		{name: "removed peer with failed request", err: context.DeadlineExceeded},
+		{name: "removed peer before dispatch", err: regionlink.ErrUnknownRegion},
+		{name: "removed peer readded before decision", err: regionlink.ErrUnknownRegion, linked: true},
+		{name: "admitted peer without physical leaf", err: nats.ErrNoResponders, linked: true, repair: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			now := time.Now().UTC()
+			recorder := new(linkTestRecorder)
+			links := &changingLinkedTestRegions{Static: regionlink.Static{LocalRegion: "gru", All: []string{"gru", "sfo"}}}
+			links.linked.Store(true)
+			links.Handler = func(context.Context, string, string, []byte) ([]byte, error) {
+				remote := wanTestSummary("sfo", now)
+				for _, node := range remote.Nodes {
+					remote.TerraBase.WAN = append(remote.TerraBase.WAN, regionview.WANPeer{SourceRegion: "gru-1",
+						Node: node.Name, ObservedAt: now, Members: 2, StalenessSeconds: 61})
+				}
+				data, err := json.Marshal(remote)
+				if err != nil {
+					return nil, err
+				}
+				// Membership can change after the round snapshots peers and before its decisions.
+				links.linked.Store(false)
+				links.linked.Store(test.linked)
+				return data, test.err
+			}
+			provider := &regionview.Provider{Cell: "gru", Links: links, Now: func() time.Time { return now },
+				NativeRegion: func() string { return "gru-1" },
+				Nodes:        func(context.Context) []regionview.Node { return wanTestSummary("gru", now).Nodes }}
+			repairs := 0
+			supervisor := &regionLinkSupervisor{cell: "gru", source: provider, recorder: recorder, now: func() time.Time { return now },
+				reconnect: func(context.Context) (int, error) { repairs++; return 0, natscell.ErrUnavailable }}
+			supervisor.round(t.Context())
+			if (repairs == 1) != test.repair {
+				t.Fatalf("current admission did not control repair: repairs=%d decisions=%+v", repairs, recorder.decisions)
+			}
+			probe := supervisor.snapshot()[0]
+			if errors.Is(test.err, regionlink.ErrUnknownRegion) && (probe.Reach != decisionlog.RegionNotLinked || strings.Contains(probe.Detail, "request failed")) {
+				t.Fatalf("pre-dispatch removal became an authenticated request outage: %+v", probe)
+			}
+			if !test.repair {
+				if len(recorder.decisions) != 0 || len(supervisor.failures) != 0 || probe.Recovery != "" {
+					t.Fatalf("ineligible peer started a failure or repair episode: probe=%+v decisions=%+v", probe, recorder.decisions)
+				}
+				return
+			}
+			if len(recorder.decisions) != 3 {
+				t.Fatalf("admitted outage lost its causal journal: %+v", recorder.decisions)
+			}
+			failed, repair, outcome := recorder.decisions[0], recorder.decisions[1], recorder.decisions[2]
+			if failed.Kind != "region_link_failed" || repair.ParentID != failed.ID || outcome.ParentID != repair.ID ||
+				outcome.Status != decisionlog.StatusFailed || supervisor.failures["sfo"] != failed.ID || !probe.LastSuccessAt.IsZero() {
+				t.Fatalf("zero physical leaves lost the failure chain or claimed recovery: probe=%+v decisions=%+v", probe, recorder.decisions)
+			}
+		})
+	}
+}
+
+func TestWANAheadFailuresPreserveUnknownEvidence(t *testing.T) {
+	for _, evidence := range []string{"unregistered", "incomplete", "complete"} {
+		t.Run(evidence, func(t *testing.T) {
+			now := time.Now().UTC()
+			recorder := new(linkTestRecorder)
+			counter := 5.0
+			provider := &regionview.Provider{Cell: "gru", Now: func() time.Time { return now },
+				NativeRegion: func() string { return "gru-1" },
+				Nodes:        func(context.Context) []regionview.Node { return wanTestSummary("gru", now).Nodes }}
+			provider.Links = regionlink.Static{LocalRegion: "gru", All: []string{"gru", "sfo"},
+				Handler: func(context.Context, string, string, []byte) ([]byte, error) {
+					remote := wanTestSummary("sfo", now)
+					for _, node := range remote.Nodes {
+						remote.TerraBase.WAN = append(remote.TerraBase.WAN, regionview.WANPeer{SourceRegion: "gru-1",
+							Node: node.Name, ObservedAt: now, Members: 2, StalenessSeconds: 1, AheadFailures: new(counter)})
+					}
+					if counter > 5 {
+						switch evidence {
+						case "unregistered":
+							remote.TerraBase.WAN[0].Unregistered = 1
+						case "incomplete":
+							remote.TerraBase.WAN = remote.TerraBase.WAN[:1]
+						}
+					}
+					return json.Marshal(remote)
+				}}
+			repairs := 0
+			supervisor := &regionLinkSupervisor{cell: "gru", source: provider, recorder: recorder, now: func() time.Time { return now },
+				reconnect: func(context.Context) (int, error) { repairs++; return 1, nil }}
+			supervisor.round(t.Context())
+			if supervisor.snapshot()[0].WAN != regionlink.WANOK || len(recorder.decisions) != 0 {
+				t.Fatal("historical ahead counter was treated as a new failure")
+			}
+			now, counter = now.Add(time.Minute), 6
+			supervisor.round(t.Context())
+			probe := supervisor.snapshot()[0]
+			if evidence == "complete" {
+				if probe.WAN != regionlink.WANFailed || repairs != 1 || len(recorder.decisions) != 3 {
+					t.Fatalf("coherent new ahead failures did not authorize repair: probe=%+v decisions=%+v", probe, recorder.decisions)
+				}
+			} else if probe.WAN != regionlink.WANUnknown || repairs != 0 || len(recorder.decisions) != 0 || len(supervisor.failures) != 0 {
+				t.Fatalf("new ahead failures promoted unknown WAN evidence: probe=%+v decisions=%+v", probe, recorder.decisions)
 			}
 		})
 	}

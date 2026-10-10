@@ -30,12 +30,25 @@ type MemberSnapshot struct {
 	// Credentials lists the expiring certificates and NATS JWTs this
 	// member runs with, so a cell-wide view sees every expiry ahead.
 	Credentials []CredentialView `json:"credentials,omitempty"`
+	// Links retains the minute probes' original evidence time, independent of
+	// when this member's snapshot is requested.
+	Links []RegionLinkProbe `json:"links,omitempty"`
 	// Errors names sections that failed to collect, by section name. The
 	// values are short classes, never raw upstream error text.
 	Errors map[string]string `json:"errors,omitempty"`
 	// Metrics is this member's Prometheus text exposition when requested.
 	Metrics          string `json:"metrics,omitempty"`
 	MetricsTruncated bool   `json:"metrics_truncated,omitzero"`
+}
+
+// RegionLinkProbe contains only public cross-region health evidence.
+type RegionLinkProbe struct {
+	Region     string    `json:"region"`
+	ObservedAt time.Time `json:"observed_at"`
+	Reach      string    `json:"reach"`
+	WAN        string    `json:"wan"`
+	LagGroups  *float64  `json:"lag_groups,omitempty"`
+	RTTMillis  float64   `json:"rtt_ms"`
 }
 
 // CheckResult is one readiness check outcome.

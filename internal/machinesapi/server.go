@@ -136,13 +136,15 @@ type Server struct {
 	apps     *machines.Store
 	tenants  *tenant.Store
 	// orgs maps a subject to its organization.
-	orgs map[string]string
-	mux  *http.ServeMux
-	http *http.Server
+	orgs      map[string]string
+	links     observability.ClusterSource
+	linkCache observability.Cache[observability.ClusterSnapshot]
+	mux       *http.ServeMux
+	http      *http.Server
 }
 
 // NewServer builds the routes. It does not bind; Start does.
-func NewServer(config Config, apps *machines.Store, tenants *tenant.Store) (*Server, error) {
+func NewServer(config Config, apps *machines.Store, tenants *tenant.Store, links observability.ClusterSource) (*Server, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -150,6 +152,7 @@ func NewServer(config Config, apps *machines.Store, tenants *tenant.Store) (*Ser
 		return nil, errors.New("machines API requires the app and tenant stores")
 	}
 	s := &Server{config: config, apps: apps, tenants: tenants, mux: http.NewServeMux(), orgs: map[string]string{},
+		links: links, linkCache: observability.Cache[observability.ClusterSnapshot]{TTL: 3 * time.Second},
 		verifier: NewVerifier(config.Issuer, config.Audience, config.JWKSURLs)}
 	for org, subjects := range config.Members {
 		for _, subject := range subjects {
@@ -163,6 +166,7 @@ func NewServer(config Config, apps *machines.Store, tenants *tenant.Store) (*Ser
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(openAPI)
 	})
+	s.mux.HandleFunc("GET /v1/link-health", s.linkHealth)
 	s.mux.Handle("GET /v1/apps", s.authorized(ScopeRead, s.listApps))
 	s.mux.Handle("GET /v1/apps/{app}", s.authorized(ScopeRead, s.withApp(s.getApp)))
 	s.mux.Handle("GET /v1/apps/{app}/machines", s.authorized(ScopeRead, s.withApp(s.listMachines)))

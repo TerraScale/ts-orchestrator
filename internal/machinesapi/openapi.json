@@ -22,6 +22,18 @@
         "responses": {"200": {"description": "The OpenAPI document"}}
       }
     },
+    "/v1/link-health": {
+      "get": {
+        "summary": "Original minute probe and WAN evidence from every regional controller",
+        "operationId": "getLinkHealth",
+        "description": "Public read-only health over TLS. No-store; bounded local snapshots share a three-second cache. A 200 reports evidence, not healthy links. Consumers must compare each expected member and admitted peer, reject future evidence, and independently expire probe timestamps older than two minutes. Empty/missing observations are monitoring loss; not_linked and unknown WAN are unobserved, not measured outages. Fetch origins through Atlas; do not derive hostnames from region codes.",
+        "security": [],
+        "responses": {
+          "200": {"description": "Bounded health evidence (at most 128 KiB)", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LinkHealth"}}}},
+          "503": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
     "/v1/apps": {
       "get": {
         "summary": "List the apps the caller may see",
@@ -105,6 +117,39 @@
       "NotFound": {"description": "No such record, or one the caller may not see", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
     },
     "schemas": {
+      "LinkHealth": {
+        "type": "object",
+        "required": ["version", "region", "observed_at", "expected", "missing", "members"],
+        "properties": {
+          "version": {"const": 1},
+          "region": {"type": "string"},
+          "observed_at": {"type": "string", "format": "date-time", "description": "Local snapshot gather time, not probe freshness"},
+          "expected": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"type": "string"}},
+          "missing": {"type": "array", "maxItems": 16, "uniqueItems": true, "items": {"type": "string"}},
+          "members": {"type": "array", "maxItems": 16, "items": {"$ref": "#/components/schemas/LinkHealthMember"}}
+        }
+      },
+      "LinkHealthMember": {
+        "type": "object",
+        "required": ["member", "observed_at", "links"],
+        "properties": {
+          "member": {"type": "string"},
+          "observed_at": {"type": "string", "format": "date-time", "description": "Member snapshot time, not probe freshness"},
+          "links": {"type": "array", "maxItems": 32, "items": {"$ref": "#/components/schemas/RegionLinkProbe"}}
+        }
+      },
+      "RegionLinkProbe": {
+        "type": "object",
+        "required": ["region", "observed_at", "reach", "wan", "rtt_ms"],
+        "properties": {
+          "region": {"type": "string"},
+          "observed_at": {"type": "string", "format": "date-time", "description": "Original minute probe completion time; HTTP polling never advances it"},
+          "reach": {"enum": ["ok", "not_linked", "unreachable", "error", "stale"]},
+          "wan": {"enum": ["ok", "unknown", "failed", "catching_up"]},
+          "lag_groups": {"type": "number", "minimum": 0, "description": "Largest measured directed replication backlog in change groups; absent when unobserved"},
+          "rtt_ms": {"type": "number", "minimum": 0}
+        }
+      },
       "Error": {
         "type": "object",
         "required": ["error", "message"],
