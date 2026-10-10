@@ -4,6 +4,9 @@ Status: design for TS-803. It replaces the TS-774 approach (per-controller
 credentials that list exact peers, per-cell release trust and the serial
 identity re-key transaction). Each section names the slice that implements it.
 
+Target: 20 regions with no code or manual setup per region (hard limit 32).
+Features build on the [registry and subject interface](region-registry.md).
+
 Adding a region must never require a change in any other region: no
 re-issued credential, re-signed account, edited inventory, IAM statement or
 release grant. Removing a region is equally automatic.
@@ -155,9 +158,10 @@ Slice: deploy targets.
 - The home's global leader publishes the roster to Atlas every 10 s with the
   Vault publish key; `release deploy` keeps discovering serving cells from
   Atlas `/v1/discovery`. Publishing is always on.
-- The cell token maps to its OCI region through the OCI SDK's region table
-  (`common.StringToRegion`), not a compiled allowlist, so any OCI region is a
-  valid target.
+- A cell token is the OCI short region code (legacy alias `sfo` for
+  `us-sanjose-1`) and maps to its OCI region through the OCI SDK's region
+  table (`common.StringToRegion`), not a compiled allowlist, so any OCI region
+  is a valid target.
 - One tenancy-level IAM statement lets the CI deploy group write
   `releases/*` in every `*-head` bucket; no statement names a region.
 - CI scripts set no home OCI region.
