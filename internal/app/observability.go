@@ -22,6 +22,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/logs"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/maintenance"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
@@ -67,6 +68,8 @@ type runtimeObservability struct {
 	// controller's journal stops and is no longer the process recorder.
 	journalCtx  context.Context
 	stopJournal context.CancelFunc
+	// logView is the controller's log summary; the rollup's errors come from it.
+	logView *logs.View
 }
 
 func (r *runtimeObservability) recordHostLoad(load host.LoadSink, origin hostload.Origin, report hostload.Report, requests map[string]hostload.Request) error {
@@ -180,6 +183,8 @@ type controllerObservation struct {
 	autoscalers *workload.Reconciler
 	// hostLoad collects resource metrics independently of autoscale policies.
 	hostLoad *hostTelemetry
+	// hosts checks which NKey a node's log windows must come from.
+	hosts *host.Controller
 	// linkedPeers are the interregion peers whose observability services
 	// the cell account imports, so the local connection reaches them.
 	linkedPeers           []string
@@ -204,6 +209,7 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 	filesystems []observability.FilesystemRole,
 ) error {
 	runtime.sessionJS, runtime.sessionReplicas = observed.nats.JetStream(), observed.replicas
+	runtime.attachLogs(ctx, observed)
 	if runtime.server != nil && runtime.config.BearerTokenFile != "" {
 		go retryDashboardSessionAttachment(ctx, func(attempt context.Context) error {
 			store, err := observability.OpenSessionStore(attempt, runtime.sessionJS, runtime.sessionReplicas, "local."+runtime.member)

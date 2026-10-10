@@ -867,7 +867,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	telemetry.registry.RegisterWriter(linkSupervisor.writeMetrics)
 	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
 		brokerIDs: cfg.NATS.Embedded.BrokerIDs, authority: control, placements: placementStore,
-		holds: placementHolds, autoscalers: workloadReconciler, hostLoad: hostLoad, linkedPeers: globalMirrorPeers(cfg.NATS),
+		holds: placementHolds, autoscalers: workloadReconciler, hostLoad: hostLoad, hosts: hostController, linkedPeers: globalMirrorPeers(cfg.NATS),
 		linkProbes:            linkSupervisor.snapshot,
 		nativeTerraBaseRegion: func() string { return services.profiles()[terrabase.Role].Env[terrabase.EnvRegion] },
 		rollouts:              rollouts, budgets: budgets, ociResources: ociReconcile.resources(),

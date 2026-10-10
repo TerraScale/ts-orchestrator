@@ -874,6 +874,16 @@ func (c *Controller) registration(ctx context.Context, node string) (Registratio
 	return r, nil
 }
 
+// NodeKey returns the NATS user public key that node's registration admits, so
+// a message on the node's observation subject can be checked against it.
+func (c *Controller) NodeKey(ctx context.Context, node string) (string, error) {
+	r, err := c.registration(ctx, node)
+	if err != nil {
+		return "", err
+	}
+	return r.NATSUserPublicKey, nil
+}
+
 func (c *Controller) handleSession(ctx context.Context, req request) (payload any, resultErr error) {
 	stage := "decode"
 	defer func() {

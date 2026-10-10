@@ -45,6 +45,25 @@ func assertNoLogSecrets(t *testing.T, output *bytes.Buffer, bus *EventBus, secre
 	}
 }
 
+func TestRedactTextRemovesCredentialsAndBoundsTheResult(t *testing.T) {
+	t.Parallel()
+	jwt := "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJsb2dUZXN0In0.signatureSecret123"
+	text := "Authorization: Bearer abc.def.ghi " + jwt + " nats://user:pass@host:4222/path"
+	got := RedactText(text, 512)
+	for _, secret := range []string{"abc.def.ghi", jwt, "user:pass"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("credential %q survived RedactText: %q", secret, got)
+		}
+	}
+	if !strings.Contains(got, "host:4222/path") {
+		t.Fatalf("URL host lost: %q", got)
+	}
+	long := RedactText(strings.Repeat("é", 300), 512)
+	if len(long) > 512 || !utf8.ValidString(long) {
+		t.Fatalf("bounded text is %d bytes, want at most 512 and valid UTF-8", len(long))
+	}
+}
+
 func TestLogRedactionCredentialsBothSinks(t *testing.T) {
 	t.Parallel()
 	jwt := "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJsb2dUZXN0In0.signatureSecret123"

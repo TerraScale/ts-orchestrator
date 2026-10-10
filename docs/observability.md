@@ -58,6 +58,7 @@ controller from serving its region.
 | `GET /v1/cluster[?metrics=1]` | token | Cell-wide `ClusterSnapshot` on controllers. |
 | `GET /v1/events?after=N&limit=M` | token | Recent events, oldest first. |
 | `GET /v1/usage?region=gru&from=<RFC3339>&to=<RFC3339>` | token required | Node, service and replica CPU/memory for a window within the last hour; [capacity benchmarking](capacity-benchmarking.md). |
+| `GET /v1/logs?window=1h&min_level=WARN&service=&limit=50` | token required | This region's log summary: `window` is `1h` or `24h`, `min_level` is `DEBUG` to `ERROR`, `limit` is at most 500. Controllers only. |
 
 Requests carrying `Forwarded`, `X-Forwarded-For` or `X-Real-IP` are rejected,
 as on the host enrollment listener.
@@ -283,6 +284,8 @@ holds only its last 100 lines. The nodes are every peer the host's NetBird
 client lists under a cell node or server name (`ts-gru-1`, `ts-sfo-2`,
 `gru-1-ctl-1`); `TS_LOG_SCAN_NODES` names them instead. A node it cannot
 read prints `unreadable` and fails the command; warnings and errors do not.
+The host agent's per-minute log windows share this classification in
+`internal/logs`, so log-scan and the windows count a record the same way.
 
 ## Cell-wide aggregation
 

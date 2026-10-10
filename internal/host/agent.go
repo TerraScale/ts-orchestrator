@@ -57,6 +57,11 @@ type Agent struct {
 	nativeDesired    map[string]nativeRootDesired
 	memoryCheck      func(Registration) error
 	wallNow          func() time.Time
+	// logsCommand, logsTick and logsPublish replace journalctl, the minute
+	// ticks and the publish in tests; nil means production.
+	logsCommand func(context.Context) (io.ReadCloser, error)
+	logsTick    <-chan time.Time
+	logsPublish func(subject string, data []byte) error
 	// addresses overrides this host's own addresses in tests.
 	addresses           func() ([]string, error)
 	watchdogTicks       <-chan time.Time
@@ -316,6 +321,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		go a.refreshNativeRootPins(work)
 	}
 	go a.publishLoad(work)
+	go a.publishLogs(work)
 	if a.cfg.FollowRollouts != nil {
 		go a.cfg.FollowRollouts(work, a)
 	}

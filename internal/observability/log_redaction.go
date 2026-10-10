@@ -486,3 +486,10 @@ func (s *logSanitizer) text(value string, limit int) string {
 	// Clone even short substrings: scoped strings must not pin large input buffers.
 	return strings.Clone(value)
 }
+
+// RedactText applies the structured logger's credential redaction to value and
+// keeps at most limit bytes. Text too large to scan becomes "[truncated]".
+func RedactText(value string, limit int) string {
+	s := logSanitizer{}
+	return s.text(value, limit)
+}

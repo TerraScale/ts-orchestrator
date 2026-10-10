@@ -34,7 +34,7 @@ func TestParseJournalClassifiesEveryFormat(t *testing.T) {
 		{"terrabase", "WARN", "TerraBase.Features.Replication.ReplicationSender: Replication of N databases to peer #N failed; retrying within N ms"},
 		{"ts-auth", "ERROR", "TerraScale.Auth.Hosting.ErrorEnvelopeMiddleware: Request failed with temporarily_unavailable"},
 		{"ts-orchestrator", "WARN", "rollout: rollout step relay: nats: key not found"},
-		{"ts-orchestrator", "ERROR", "nats: Error trying to connect to route (attempt N): dial tcp N.N.N.N:N: connect: connection refused"},
+		{"ts-orchestrator", "ERROR", "nats: Error trying to connect to route (attempt N): dial tcp N: connect: connection refused"},
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("ParseJournal =\n%q\nwant\n%q", got, want)
@@ -69,7 +69,7 @@ func TestParseFlyKeepsRecentWarningsAndErrors(t *testing.T) {
 	want := []Record{
 		{"ts-dashboard", "WARN", "read system database: system collection list failed: terrabase: N not_found"},
 		{"ts-dashboard", "ERROR", "resolve: store unavailable"},
-		{"ts-dashboard", "ERROR", "proxy: [PCN] instance refused connection. is your app listening on N.N.N.N:N?"},
+		{"ts-dashboard", "ERROR", "proxy: [PCN] instance refused connection. is your app listening on N?"},
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("ParseFly =\n%q\nwant\n%q", got, want)

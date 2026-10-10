@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -21,6 +20,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/logs"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
 )
@@ -212,101 +212,37 @@ func RemoteCommand(since time.Duration) string {
 		int(since.Seconds()), levelPattern)
 }
 
-var (
-	dotnetLevel = regexp.MustCompile(`^(warn|fail|crit): ([^\[ ]+)`)
-	natsLevel   = regexp.MustCompile(`^\[\d+\] \[(WRN|ERR|FTL)\] (.*)`)
-	volatile    = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\b[0-9a-fA-F]*[0-9][0-9a-fA-F]*\b|\d+`)
-)
-
-// normalize turns a message into its class: numbers, hashes and UUIDs
-// become N, so one cause counts as one class.
-func normalize(s string) string {
-	s = volatile.ReplaceAllString(strings.TrimSpace(s), "N")
-	if len(s) > 160 {
-		s = s[:160]
-	}
-	return s
-}
-
-func service(comm string) string {
-	switch {
-	case strings.HasPrefix(comm, "terrascale-orc"):
-		return "ts-orchestrator"
-	case comm == "":
-		return "unknown"
-	}
-	return comm
-}
-
-// ParseJournal reads RemoteCommand's output.
+// ParseJournal reads RemoteCommand's output: the WARN and ERROR records among
+// the lines it matched, classified by internal/logs.
 func ParseJournal(out []byte) []Record {
-	type entry struct {
-		Comm, PID, Message string
-	}
-	var entries []entry
-	for line := range bytes.Lines(out) {
-		var raw struct {
-			Comm    string          `json:"_COMM"`
-			PID     string          `json:"_PID"`
-			Message json.RawMessage `json:"MESSAGE"`
-		}
-		var message string
-		if json.Unmarshal(line, &raw) != nil || json.Unmarshal(raw.Message, &message) != nil {
-			continue // grep's "--" separators and binary messages
-		}
-		entries = append(entries, entry{raw.Comm, raw.PID, message})
-	}
+	var parser logs.Parser
 	var records []Record
-	for i, e := range entries {
-		if r, ok := parseLine(e.Message); ok {
-			r.Service = service(e.Comm)
-			records = append(records, r)
-			continue
+	add := func(r logs.Record, ok bool) {
+		if ok && warning(r.Level) {
+			records = append(records, Record{r.Service, r.Level, class(r)})
 		}
-		m := dotnetLevel.FindStringSubmatch(e.Message)
-		if m == nil {
-			continue
+	}
+	for line := range bytes.Lines(out) {
+		if e, ok := logs.DecodeJournal(line); ok { // grep's "--" separators are not records
+			add(parser.Parse(e))
 		}
-		text := ""
-		for _, next := range entries[i+1 : min(i+3, len(entries))] {
-			if next.PID == e.PID && strings.HasPrefix(next.Message, " ") {
-				text = next.Message
-				break
-			}
-		}
-		level := "WARN"
-		if m[1] != "warn" {
-			level = "ERROR"
-		}
-		records = append(records, Record{service(e.Comm), level, m[2] + ": " + normalize(text)})
+	}
+	for _, r := range parser.Flush() {
+		add(r, true)
 	}
 	return records
 }
 
-// parseLine classifies a single-line record: slog JSON or embedded NATS.
-func parseLine(message string) (Record, bool) {
-	if m := natsLevel.FindStringSubmatch(message); m != nil {
-		level := "WARN"
-		if m[1] != "WRN" {
-			level = "ERROR"
-		}
-		return Record{Level: level, Class: "nats: " + normalize(m[2])}, true
+func warning(level string) bool {
+	return level == logs.LevelWarn || level == logs.LevelError
+}
+
+// class is the record's class text: the component, then the message.
+func class(r logs.Record) string {
+	if r.Component == "" {
+		return r.Message
 	}
-	var slog struct {
-		Level, Msg, Component, Error string
-	}
-	if !strings.HasPrefix(message, "{") || json.Unmarshal([]byte(message), &slog) != nil ||
-		slog.Level != "WARN" && slog.Level != "ERROR" {
-		return Record{}, false
-	}
-	class := slog.Msg
-	if slog.Component != "" {
-		class = slog.Component + ": " + class
-	}
-	if slog.Error != "" {
-		class += ": " + slog.Error
-	}
-	return Record{Level: slog.Level, Class: normalize(class)}, true
+	return r.Component + ": " + r.Message
 }
 
 var (
@@ -327,9 +263,8 @@ func ParseFly(app string, out []byte, after time.Time) []Record {
 		if err != nil || at.Before(after) {
 			continue
 		}
-		if r, ok := parseLine(m[4]); ok {
-			r.Service = app
-			records = append(records, r)
+		if r, ok := logs.Classify(logs.Entry{Comm: app, Message: m[4]}); ok && warning(r.Level) {
+			records = append(records, Record{app, r.Level, class(r)})
 			continue
 		}
 		s := slogLevel.FindStringSubmatch(m[4])
@@ -337,7 +272,7 @@ func ParseFly(app string, out []byte, after time.Time) []Record {
 			// Fly's proxy and runner tag their own lines warn or error.
 			if level := strings.ToUpper(m[3]); level == "WARN" || level == "ERROR" {
 				source, _, _ := strings.Cut(m[2], "[")
-				records = append(records, Record{app, level, source + ": " + normalize(m[4])})
+				records = append(records, Record{app, level, source + ": " + logs.Normalize(m[4])})
 			}
 			continue
 		}
@@ -345,7 +280,7 @@ func ParseFly(app string, out []byte, after time.Time) []Record {
 		if s[3] != "" {
 			class += ": " + strings.Trim(s[3], `"`)
 		}
-		records = append(records, Record{app, s[1], normalize(class)})
+		records = append(records, Record{app, s[1], logs.Normalize(class)})
 	}
 	return records
 }
