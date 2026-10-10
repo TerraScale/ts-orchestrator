@@ -13,7 +13,6 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
@@ -135,27 +134,26 @@ func (k *rolloutKnownBad) IsKnownBad(ctx context.Context, digest string) (bool, 
 
 // startRegionPlanner opens the region lifecycle store on the global home and
 // runs the region operations loop on the global leader: the planner, and,
-// behind their own flags, admission and the lifecycle driver. It returns the
-// budget provider.
+// behind their own flags, admission and the lifecycle driver.
 func startRegionPlanner(ctx context.Context, cfg Config, js jetstream.JetStream, global *globalControl,
 	holds *placementHoldLog, conn *nats.Conn, peers *rosterPeers, fullClusterReady func() bool,
-) (insights.BudgetProvider, error) {
+) error {
 	settings := cfg.Controller.RegionPlanner
 	if settings == nil || !settings.Enabled {
-		return nil, nil
+		return nil
 	}
 	if global == nil || global.authority == nil {
-		return nil, errors.New("the region planner runs only in the global home")
+		return errors.New("the region planner runs only in the global home")
 	}
 	policy, err := settings.plannerPolicy(cfg.NATS.Cell)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	var subscriptions regionops.SubscriptionAPI
 	var tenancy string
 	if settings.Drive && settings.SubscribeRegions {
 		if subscriptions, tenancy, err = homeIdentity(ctx, cfg.NATS.Cell); err != nil {
-			return nil, fmt.Errorf("region subscription effector: %w", err)
+			return fmt.Errorf("region subscription effector: %w", err)
 		}
 	}
 	store, _, err := retryControllerOpen(ctx, "open region lifecycle store", fullClusterReady, false,
@@ -163,7 +161,7 @@ func startRegionPlanner(ctx context.Context, cfg Config, js jetstream.JetStream,
 			return regionlifecycle.OpenStore(attempt, js, cfg.NATS.Replicas, global.authority)
 		}, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	interval := time.Duration(settings.IntervalSeconds) * time.Second
 	if interval <= 0 {
@@ -173,7 +171,7 @@ func startRegionPlanner(ctx context.Context, cfg Config, js jetstream.JetStream,
 	if settings.PeerSignals {
 		federation, err := peerDecisions(cfg.NATS.Cell, conn, peers)
 		if err != nil {
-			return nil, fmt.Errorf("region planner peer signals: %w", err)
+			return fmt.Errorf("region planner peer signals: %w", err)
 		}
 		sources = append(sources, rosterHolds{peers: peers, federation: federation})
 	}
@@ -194,7 +192,7 @@ func startRegionPlanner(ctx context.Context, cfg Config, js jetstream.JetStream,
 		}
 	}
 	go loop.Run(ctx, interval)
-	return regionplanner.Budgets{Policy: policy, Records: store}, nil
+	return nil
 }
 
 // homeIdentity returns an identity client for this controller's instance

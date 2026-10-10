@@ -81,16 +81,16 @@ func TestRegionPlannerRunsOnlyInTheGlobalHome(t *testing.T) {
 
 	cfg := Config{NATS: natscell.Config{Cell: "sfo", Replicas: 1}}
 	cfg.Controller.RegionPlanner = testPlannerConfig()
-	if _, err := startRegionPlanner(t.Context(), cfg, nil, nil, nil, nil, nil, func() bool { return true }); err == nil {
+	if err := startRegionPlanner(t.Context(), cfg, nil, nil, nil, nil, nil, func() bool { return true }); err == nil {
 		t.Fatal("region planner started without global control")
 	}
 	cfg.Controller.Global = &GlobalControlConfig{Home: "gru"}
-	if _, err := startRegionPlanner(t.Context(), cfg, nil, &globalControl{}, nil, nil, nil, func() bool { return true }); err == nil {
+	if err := startRegionPlanner(t.Context(), cfg, nil, &globalControl{}, nil, nil, nil, func() bool { return true }); err == nil {
 		t.Fatal("region planner started outside the global home")
 	}
 	cfg.Controller.RegionPlanner.Enabled = false
-	if budgets, err := startRegionPlanner(t.Context(), cfg, nil, nil, nil, nil, nil, nil); err != nil || budgets != nil {
-		t.Fatalf("disabled planner = %v, %v", budgets, err)
+	if err := startRegionPlanner(t.Context(), cfg, nil, nil, nil, nil, nil, nil); err != nil {
+		t.Fatalf("disabled planner = %v", err)
 	}
 	if _, err := startRollouts(t.Context(), cfg, nil, nil, nil, nil); err == nil {
 		t.Fatal("mandatory rollouts admitted no JetStream")

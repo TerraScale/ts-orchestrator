@@ -56,15 +56,21 @@ type Scaler struct {
 	Revoke    func(ctx context.Context, instanceID string) error           // ends a removed node's enrollment
 	Backends  func(ctx context.Context, node, address string) (int, error) // load balancer backends still at the node
 	Journal   func(ctx context.Context, decision decisionlog.Decision)
-	Leader    authority.Fencer
-	Store     RecordStore
-	Now       func() time.Time
+	// Cost is the region's spend for the home's allowances: TS-807's ocicost
+	// supplies it, the per-region forecast with this region's pool nodes as
+	// pending cost, and the node price. Nil, or failing, leaves spend unknown
+	// and the global allocator holds growth.
+	Cost   func(ctx context.Context, pool PoolState) (Cost, error)
+	Leader authority.Fencer
+	Store  RecordStore
+	Now    func() time.Time
 
 	mu        sync.Mutex
 	history   History
 	status    Status
 	addresses map[string]string
 	heldKey   string // reason of the last journaled hold, without a cooldown's time left
+	costErr   string // last cost error logged, so a repeat is not logged every tick
 }
 
 // tick is one pass of the loop: what it observed, the record it changes, and the journal entries it queues.
@@ -150,7 +156,7 @@ func (s *Scaler) Tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	status := s.buildStatus(t, decision, allowance, fresh, samples)
+	status := s.buildStatus(t, decision, allowance, fresh, samples, s.costOf(ctx, t.pool))
 	t.record.Status = status
 	if err := s.Leader.Guard(ctx, t.epoch); err != nil {
 		return err
@@ -581,8 +587,29 @@ func (s *Scaler) regionSubject() decisionlog.Subject {
 	return decisionlog.Subject{Kind: "region", ID: s.Cell}
 }
 
+// costOf is the region's spend from the Cost callback. Without one, or when it fails or names a currency that is
+// not an ISO code, the spend is zero, which the home reads as unknown.
+func (s *Scaler) costOf(ctx context.Context, pool PoolState) Cost {
+	if s.Cost == nil {
+		return Cost{}
+	}
+	cost, err := s.Cost(ctx, pool)
+	if err == nil && !validCurrency(cost.Currency) {
+		err = fmt.Errorf("cost currency %q is not an ISO 4217 code", cost.Currency)
+	}
+	if err != nil {
+		if msg := err.Error(); msg != s.costErr {
+			s.costErr = msg
+			slog.Warn("node cost unavailable", observability.ComponentKey, sliceName, "cell", s.Cell, "error", err)
+		}
+		return Cost{}
+	}
+	s.costErr = ""
+	return cost
+}
+
 // buildStatus is the region's published view after this tick.
-func (s *Scaler) buildStatus(t *tick, decision Decision, allowance int, fresh bool, samples []Sample) Status {
+func (s *Scaler) buildStatus(t *tick, decision Decision, allowance int, fresh bool, samples []Sample, cost Cost) Status {
 	status := Status{
 		Schema: StatusSchema, Cell: s.Cell, At: t.now,
 		Nodes: t.obs.nodes, QuorumNodes: t.obs.quorum, PoolNodes: t.obs.pool,
@@ -590,6 +617,8 @@ func (s *Scaler) buildStatus(t *tick, decision Decision, allowance int, fresh bo
 		Action: decision.Action, Saturated: decision.Saturated,
 		Pressure: decision.Pressure, Signal: decision.Signal, Reason: decision.Reason,
 		InFlight: t.record.Action, LastChange: t.record.LastChange,
+		NodeMonthlyCents: cost.NodeMonthlyCents, ProjectedCents: cost.ProjectedCents,
+		Currency: cost.Currency, CostAt: cost.At,
 	}
 	if n := len(samples); n > 0 && samples[n-1].Complete() {
 		status.Signals = samples[n-1].Utilization

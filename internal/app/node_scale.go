@@ -73,6 +73,7 @@ func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Sta
 		Journal: func(ctx context.Context, decision decisionlog.Decision) {
 			decisionlog.Record(ctx, decision)
 		},
+		// Cost is wired when TS-807's ocicost lands; until then spend is unknown and growth holds.
 	}
 	in.scaler.Store(scaler)
 	go scaler.Run(ctx)

@@ -3,6 +3,7 @@ package nodescale
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 )
 
@@ -41,6 +42,31 @@ type Status struct {
 	Reason         string             `json:"reason"`
 	InFlight       *InFlight          `json:"in_flight,omitempty"`
 	LastChange     time.Time          `json:"last_change,omitzero"`
+	// The spend below comes from the Scaler's Cost callback, which TS-807's
+	// ocicost supplies: the list price of one more pool node for a month, and
+	// the region's forecast with its pool nodes pending. Without it, or when
+	// it fails, the spend is zero, which the home reads as unknown and holds
+	// growth.
+	NodeMonthlyCents uint64    `json:"node_monthly_cents,omitzero"`
+	ProjectedCents   uint64    `json:"projected_cents,omitzero"`
+	Currency         string    `json:"currency,omitempty"`
+	CostAt           time.Time `json:"cost_at,omitzero"`
+}
+
+// Cost is a region's spend as the Scaler's Cost callback reports it.
+type Cost struct {
+	NodeMonthlyCents uint64
+	ProjectedCents   uint64
+	Currency         string
+	At               time.Time
+}
+
+// currencyCode is an ISO 4217 code in upper case.
+var currencyCode = regexp.MustCompile(`^[A-Z]{3}$`)
+
+// validCurrency accepts no currency, which means spend is unknown, or an ISO 4217 code.
+func validCurrency(currency string) bool {
+	return currency == "" || currencyCode.MatchString(currency)
 }
 
 // Validate refuses a status the home cannot use.
@@ -54,6 +80,8 @@ func (s Status) Validate() error {
 		return errors.New("node status has no time")
 	case s.Reason == "" || len(s.Reason) > maxReasonBytes:
 		return fmt.Errorf("node status reason must be 1 to %d bytes", maxReasonBytes)
+	case !validCurrency(s.Currency):
+		return fmt.Errorf("node status currency %q is not an ISO 4217 code", s.Currency)
 	}
 	for _, count := range []int{s.Nodes, s.QuorumNodes, s.PoolNodes, s.Want, s.Allowance} {
 		if count < 0 || count > MaxNodes+MaxPoolNodes {

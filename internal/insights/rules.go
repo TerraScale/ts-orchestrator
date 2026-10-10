@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlink"
@@ -74,7 +75,7 @@ func (thresholds Thresholds) withDefaults() Thresholds {
 		OCIThrottledPerMinute: 0.2, OCIWindow: 10 * time.Minute, ConsumerPending: 1000,
 		ConsumerPendingFor: 10 * time.Minute, CertificateWarning: 14 * 24 * time.Hour,
 		CertificateCritical: 3 * 24 * time.Hour, PeerOffline: 5 * time.Minute,
-		AutoscalerAtMax: 15 * time.Minute, BudgetWarning: 0.9, RegionUnreachable: time.Minute,
+		AutoscalerAtMax: 15 * time.Minute, BudgetWarning: budget.WarnRatio, RegionUnreachable: time.Minute,
 		RepeatedHolds: 3, OCIDrift: 10 * time.Minute, OCIStale: 3 * time.Hour,
 	}
 	merged := thresholds

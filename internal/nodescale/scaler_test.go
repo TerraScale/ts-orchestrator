@@ -2,6 +2,7 @@ package nodescale
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -545,11 +546,40 @@ func TestNewLeaderResumesAction(t *testing.T) {
 	}
 }
 
+func TestCostFillsTheStatusAndFailureLeavesSpendUnknown(t *testing.T) {
+	r := newRig(t)
+	r.scaler.Cost = func(context.Context, PoolState) (Cost, error) {
+		return Cost{NodeMonthlyCents: 4100, ProjectedCents: 21000, Currency: "BRL", At: r.now}, nil
+	}
+	r.tick()
+	status := r.scaler.Status()
+	if status.NodeMonthlyCents != 4100 || status.ProjectedCents != 21000 || status.Currency != "BRL" || !status.CostAt.Equal(r.now) {
+		t.Fatalf("status cost = %+v", status)
+	}
+	r.scaler.Cost = func(context.Context, PoolState) (Cost, error) {
+		return Cost{NodeMonthlyCents: 4100, Currency: "BRL", At: r.now}, errors.New("cost report is stale")
+	}
+	r.step()
+	if status := r.scaler.Status(); status.NodeMonthlyCents != 0 || status.Currency != "" || !status.CostAt.IsZero() {
+		t.Fatalf("failed cost = %+v, want unknown spend", status)
+	}
+	r.scaler.Cost = func(context.Context, PoolState) (Cost, error) { return Cost{Currency: "real"}, nil }
+	r.step()
+	if status := r.scaler.Status(); status.Currency != "" || !status.CostAt.IsZero() {
+		t.Fatalf("invalid currency cost = %+v, want unknown spend", status)
+	}
+}
+
 func TestStatusValidate(t *testing.T) {
 	valid := Status{Schema: StatusSchema, Cell: "gru", At: t0, Nodes: 4, QuorumNodes: 3, PoolNodes: 1,
 		Want: 4, Allowance: 4, AllowanceFresh: true, Action: Hold, Reason: "load within band"}
 	if err := valid.Validate(); err != nil {
 		t.Fatal(err)
+	}
+	withCost := valid
+	withCost.Currency = "BRL"
+	if err := withCost.Validate(); err != nil {
+		t.Fatalf("status with an ISO currency: %v", err)
 	}
 	tests := []struct {
 		name string
@@ -562,6 +592,8 @@ func TestStatusValidate(t *testing.T) {
 		{"negative pool", func(s *Status) { s.PoolNodes = -1 }},
 		{"empty reason", func(s *Status) { s.Reason = "" }},
 		{"long reason", func(s *Status) { s.Reason = strings.Repeat("r", maxReasonBytes+1) }},
+		{"lower case currency", func(s *Status) { s.Currency = "brl" }},
+		{"long currency", func(s *Status) { s.Currency = "BRLX" }},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

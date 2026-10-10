@@ -199,8 +199,8 @@ type controllerObservation struct {
 	costRollup func() *globalview.Cost
 	// capacity reads TS-804's global capacity document from the mirror.
 	capacity func(context.Context) (budget.Capacity, bool, error)
-	// rollouts and budgets are the rollout store and the region planner's
-	// budgets, when their feature flags enable them.
+	// rollouts is the rollout store, when the controller runs one. budgets is
+	// the monthly budget insight's source.
 	rollouts *rollout.Store
 	budgets  insights.BudgetProvider
 	// ociResources is the OCI reconcile's last observations, when enabled.

@@ -23,7 +23,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -88,7 +87,7 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 	managed *managedControllerConfig, fleet oci.Fleet, intents placementIntentLookup,
 	members placement.MemberPinReader, controller *host.Controller, verifier host.ManagedRegistrationVerifier,
 	responseKey ed25519.PrivateKey,
-	fencer authority.Fencer, services *specRegistry, pool *nodescale.OCIPool,
+	fencer authority.Fencer, services *specRegistry, pool *nodePoolBinding,
 ) (*http.Server, net.Listener, <-chan error, error) {
 	if managed == nil || fleet == nil || intents == nil || members == nil || controller == nil || verifier == nil ||
 		cfg.NATS.Embedded == nil || cfg.Controller.HostEnrollmentListenAddress == "" {
@@ -136,6 +135,7 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 		services: services,
 	}
 	// A nil pool refuses every pool node. The typed nil is kept out of the interface.
+	// A pool that has not bound yet refuses until it does.
 	if pool != nil {
 		handler.pool = pool
 	}

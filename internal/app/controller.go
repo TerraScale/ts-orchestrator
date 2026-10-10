@@ -720,19 +720,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	var enrollmentErrors <-chan error
 	var managedEnrollment *managedHostEnrollment
-	// One node pool serves enrollment and the scaler. Without IMDS or OCI it
-	// is nil: pool nodes are refused and no scaler runs.
-	var pool *nodescale.OCIPool
-	var poolFactory *ociclient.Factory
+	// One node pool serves enrollment and the scaler. It binds in the
+	// background, since IMDS or OCI may not answer yet. Without a managed
+	// runtime, or in a lab, there is no pool: pool nodes are refused.
+	var pool *nodePoolBinding
 	if managed != nil && !cfg.NATS.Lab {
-		poolCtx, cancelPool := context.WithTimeout(runCtx, 30*time.Second)
-		var poolErr error
-		pool, poolFactory, poolErr = newNodePool(poolCtx, cfg.NATS.Cell)
-		cancelPool()
-		if poolErr != nil {
-			slog.Warn("node pool is unavailable; pool nodes will not enroll and no node scaler runs",
-				"component", "nodescale", "error", poolErr)
-		}
+		pool = &nodePoolBinding{}
 		server, listener, serveErrors, err := startManagedHostEnrollment(runCtx, cfg, runtime,
 			managed, fleet, control, placementStore, hostController, registrationVerifier, responseKey, control,
 			services, pool)
@@ -749,16 +742,16 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		defer server.Close()
 		defer listener.Close()
 		enrollmentErrors = serveErrors
+		go bindNodePool(runCtx, pool, nodePoolRetry, func(ctx context.Context) (boundNodePool, error) {
+			return bindNodeScaler(ctx, nodeScaling{cell: cfg.NATS.Cell, js: runtime.JetStream(),
+				replicas: cfg.NATS.Replicas, ready: fullClusterReady,
+				hosts: hostController, load: hostLoad, global: global, fencer: control, fences: fences,
+				enrollment: managedEnrollment, scaler: &poolScaler})
+		})
 	}
 	var scaleStatus func() *nodescale.Status
 	if pool != nil {
-		scaleStatus, err = startNodeScaler(runCtx, nodeScaling{cell: cfg.NATS.Cell, js: runtime.JetStream(),
-			replicas: cfg.NATS.Replicas, ready: fullClusterReady, pool: pool, factory: poolFactory,
-			hosts: hostController, load: hostLoad, global: global, fencer: control, fences: fences,
-			enrollment: managedEnrollment, scaler: &poolScaler})
-		if err != nil {
-			return fmt.Errorf("start node scaler: %w", err)
-		}
+		scaleStatus = pool.scaleStatus
 	}
 	apiErrors, err := startMachinesAPI(runCtx, cfg, runtime, control, fullClusterReady, telemetry)
 	if err != nil {
@@ -891,9 +884,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return fmt.Errorf("start rollout executor: %w", err)
 	}
 	hostController.SetRolloutSink(policy.rollouts)
-	budgets, err := startRegionPlanner(runCtx, cfg, runtime.JetStream(), global, placementHolds,
-		runtime.Conn(), peers, fullClusterReady)
-	if err != nil {
+	// The home allocates node growth under the monthly budget. Every region
+	// feeds the budget insight from the capacity document it reads.
+	allocator := startCapacityAllocator(runCtx, global, telemetry.regionRollups)
+	if err := startRegionPlanner(runCtx, cfg, runtime.JetStream(), global, placementHolds,
+		runtime.Conn(), peers, fullClusterReady); err != nil {
 		return fmt.Errorf("start region planner: %w", err)
 	}
 	// runController refused a configuration without an embedded broker at
@@ -912,7 +907,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		capacity: func(ctx context.Context) (budget.Capacity, bool, error) {
 			return budget.ReadCapacity(ctx, global.reader)
 		},
-		rollouts: rollouts, budgets: budgets, ociResources: ociReconcile.resources(),
+		rollouts: rollouts, budgets: capacityBudgets{global: global, allocator: allocator}, ociResources: ociReconcile.resources(),
 		credentials: controllerCredentialFiles(cfg),
 		kvSnapshots: kvSnapshots,
 		nodes:       topologySource(cfg.NATS.Cell, cfg.NATS.Embedded.BrokerIDs, services, hostController, policy.nodes),

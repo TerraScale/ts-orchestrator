@@ -181,6 +181,16 @@ func budgetSource(read capacityRead) dashboard.BudgetSource {
 	return read
 }
 
+// regionRollups is every region's latest rollup, as this controller follows
+// them. It is empty until the controller attaches its providers.
+func (runtime *runtimeObservability) regionRollups() []globalview.Region {
+	providers := runtime.providers.Load()
+	if providers == nil || providers.Global == nil {
+		return nil
+	}
+	return providers.Global.Regions()
+}
+
 func openDecisionStream(ctx context.Context, js jetstream.JetStream, cell string, replicas int,
 	journal *decisionlog.Journal,
 ) {
