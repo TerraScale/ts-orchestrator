@@ -264,7 +264,8 @@ func founderLaunchSDKRequest(request bootstrap.FounderPeerLaunchRequest, materia
 		manifest.Cell != request.Cell || manifest.Environment != request.Environment ||
 		manifest.ImageOCID != row.ImageOCID ||
 		len(material.Identity) == 0 || len(material.Anchor) == 0 || len(material.HostEnrollment) == 0 ||
-		len(material.OperatorSSHKey) == 0 {
+		len(material.OperatorSSHKey) == 0 || len(material.ManagedHostImageReceipt) == 0 ||
+		len(material.ManagedHostImageDelegation) == 0 {
 		return core.LaunchInstanceRequest{}, ErrFounderOCI
 	}
 	descriptor, err := protocol.EncodeJSON(Descriptor{SchemaVersion: 1, Slot: request.Slot})

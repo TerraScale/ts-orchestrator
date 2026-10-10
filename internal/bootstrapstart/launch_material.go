@@ -14,6 +14,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"golang.org/x/sys/unix"
 )
@@ -22,11 +23,13 @@ import (
 // image carries only the trust roots that authenticate it, so one qualified
 // image serves every deployment and bootstrap attempt.
 const (
-	IdentityMetadataKey    = "terrascale-bootstrap-identity-v1"
-	AnchorMetadataKey      = "terrascale-bootstrap-anchor-v1"
-	HostEnrollmentFilename = "host-enrollment-public.json"
-	identityFilename       = "identity.json"
-	anchorFilename         = "anchor.json"
+	IdentityMetadataKey                   = "terrascale-bootstrap-identity-v1"
+	AnchorMetadataKey                     = "terrascale-bootstrap-anchor-v1"
+	ManagedHostImageReceiptMetadataKey    = "terrascale-managed-host-image-receipt-v1"
+	ManagedHostImageDelegationMetadataKey = "terrascale-managed-host-image-delegation-v1"
+	HostEnrollmentFilename                = "host-enrollment-public.json"
+	identityFilename                      = "identity.json"
+	anchorFilename                        = "anchor.json"
 	// OperatorSSHKeyMetadataKey is OCI's standard launch metadata field.
 	// cloud-init authorizes it for the image's default user, so every server
 	// accepts the operator's OpenSSH key.
@@ -44,19 +47,23 @@ var (
 // LaunchMaterial is the exact public deployment material a controller
 // receives at launch and forwards to the instances it launches.
 type LaunchMaterial struct {
-	Identity       []byte
-	Anchor         []byte
-	HostEnrollment []byte
-	OperatorSSHKey []byte
+	Identity                   []byte
+	Anchor                     []byte
+	HostEnrollment             []byte
+	OperatorSSHKey             []byte
+	ManagedHostImageReceipt    []byte
+	ManagedHostImageDelegation []byte
 }
 
 // ControllerMetadata returns the launch metadata entries a controller needs.
 func (material LaunchMaterial) ControllerMetadata() map[string]string {
 	return map[string]string{
-		IdentityMetadataKey:            string(material.Identity),
-		AnchorMetadataKey:              string(material.Anchor),
-		hostboot.EnrollmentMetadataKey: string(material.HostEnrollment),
-		OperatorSSHKeyMetadataKey:      string(material.OperatorSSHKey),
+		IdentityMetadataKey:                   string(material.Identity),
+		AnchorMetadataKey:                     string(material.Anchor),
+		hostboot.EnrollmentMetadataKey:        string(material.HostEnrollment),
+		OperatorSSHKeyMetadataKey:             string(material.OperatorSSHKey),
+		ManagedHostImageReceiptMetadataKey:    string(material.ManagedHostImageReceipt),
+		ManagedHostImageDelegationMetadataKey: string(material.ManagedHostImageDelegation),
 	}
 }
 
@@ -69,10 +76,12 @@ func (material LaunchMaterial) HostMetadata() map[string]string {
 }
 
 // launchMaterialNames are the installed file names, in LaunchMaterial field order.
-var launchMaterialNames = [...]string{identityFilename, anchorFilename, HostEnrollmentFilename, operatorSSHKeyFilename}
+var launchMaterialNames = [...]string{identityFilename, anchorFilename, HostEnrollmentFilename, operatorSSHKeyFilename,
+	ManagedHostImageReceiptFilename, ManagedHostImageDelegationFilename}
 
 func (material LaunchMaterial) wires() [len(launchMaterialNames)][]byte {
-	return [...][]byte{material.Identity, material.Anchor, material.HostEnrollment, material.OperatorSSHKey}
+	return [...][]byte{material.Identity, material.Anchor, material.HostEnrollment, material.OperatorSSHKey,
+		material.ManagedHostImageReceipt, material.ManagedHostImageDelegation}
 }
 
 // LoadLaunchMaterial reads the installed material this controller forwards.
@@ -94,14 +103,15 @@ func (store bakedStore) loadLaunchMaterial() (LaunchMaterial, error) {
 	}
 	defer unix.Close(dir)
 	limits := [len(launchMaterialNames)]int64{maxIdentity, bootstrap.MaxBootstrapAnchorBytes,
-		hostenroll.MaxPublicBundleBytes, maxOperatorSSHKey}
+		hostenroll.MaxPublicBundleBytes, maxOperatorSSHKey, trust.MaxEnvelopeBytes, trust.MaxEnvelopeBytes}
 	var wires [len(launchMaterialNames)][]byte
 	for index, name := range launchMaterialNames {
 		if wires[index], err = store.readFile(dir, name, limits[index]); err != nil {
 			return LaunchMaterial{}, fmt.Errorf("read installed %s: %w", name, err)
 		}
 	}
-	return LaunchMaterial{Identity: wires[0], Anchor: wires[1], HostEnrollment: wires[2], OperatorSSHKey: wires[3]}, nil
+	return LaunchMaterial{Identity: wires[0], Anchor: wires[1], HostEnrollment: wires[2], OperatorSSHKey: wires[3],
+		ManagedHostImageReceipt: wires[4], ManagedHostImageDelegation: wires[5]}, nil
 }
 
 func (store bakedStore) installLaunchMaterial(ctx context.Context,
@@ -168,7 +178,15 @@ func (store bakedStore) verifyLaunchMaterial(material LaunchMaterial, now time.T
 		bundle.Environment != identity.Environment {
 		return fmt.Errorf("%w: host enrollment bundle belongs to another cell or environment", ErrLaunchMaterial)
 	}
-	return validateOperatorSSHKey(material.OperatorSSHKey)
+	if err := validateOperatorSSHKey(material.OperatorSSHKey); err != nil {
+		return err
+	}
+	// Initial admission binds the image ID and architecture to the signed fleet sidecar.
+	if _, err := release.VerifyImageCurrent(material.ManagedHostImageReceipt, material.ManagedHostImageDelegation, roots,
+		release.ImageExpectation{Environment: identity.Environment, LogicalRegion: string(identity.Cell)}, now); err != nil {
+		return fmt.Errorf("%w: managed host image: %v", ErrLaunchMaterial, err)
+	}
+	return nil
 }
 
 // validateOperatorSSHKey accepts exactly one canonical OpenSSH Ed25519 public

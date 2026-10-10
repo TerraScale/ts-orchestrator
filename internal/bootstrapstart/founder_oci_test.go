@@ -61,7 +61,8 @@ func TestFounderOCIObservationOnlyAttemptCannotLaunchOrChangeCandidate(t *testin
 const testOperatorSSHKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl operator@terrascale"
 
 var testLaunchMaterial = LaunchMaterial{Identity: []byte(`{"identity":1}`), Anchor: []byte(`{"anchor":1}`),
-	HostEnrollment: []byte(`{"bundle":1}`), OperatorSSHKey: []byte(testOperatorSSHKey)}
+	HostEnrollment: []byte(`{"bundle":1}`), OperatorSSHKey: []byte(testOperatorSSHKey),
+	ManagedHostImageReceipt: []byte(`{"image":1}`), ManagedHostImageDelegation: []byte(`{"delegation":1}`)}
 
 type lostResponseCompute struct {
 	requests []core.LaunchInstanceRequest

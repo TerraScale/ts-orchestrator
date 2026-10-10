@@ -183,7 +183,7 @@ func (e *Engine) invoke(name string, args []any, kw Object) any {
 	case "canonical_manual_seed_plan":
 		return canonicalSeed(obj(arg(0)))
 	case "seed_launch":
-		return e.seedLaunch(obj(arg(0)), pathValue(arg(1)), pathValue(arg(2)), pathValue(arg(3)), pathValue(arg(4)), pathValue(arg(5)), pathValue(arg(6)))
+		return e.seedLaunch(obj(arg(0)), pathValue(arg(1)), pathValue(arg(2)), pathValue(arg(3)), pathValue(arg(4)), pathValue(arg(5)), pathValue(arg(6)), pathValue(arg(7)), pathValue(arg(8)))
 	case "verify_seed_preflight":
 		return e.verifySeed(obj(arg(0)), pathValue(arg(1)), pathValue(arg(2)), obj(arg(3)), obj(arg(4)), pathValue(arg(5)), str(arg(6)), pathValue(option(7, "plan_path", nil)))
 	case "seed_preflight":

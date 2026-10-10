@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 )
@@ -106,7 +107,7 @@ func launchMaterial(path, label string) string {
 	}
 	return string(wire)
 }
-func (e *Engine) seedLaunch(plan Object, reviewedPath, manifestPath, identityPath, anchorPath, enrollmentPath, owner string) Object {
+func (e *Engine) seedLaunch(plan Object, reviewedPath, manifestPath, identityPath, anchorPath, enrollmentPath, owner, managedReceiptPath, managedDelegationPath string) Object {
 	reviewed := readJSON(reviewedPath, 30*1024, "reviewed seed plan")
 	manifest := validateManifest(manifestPath, str(plan["cell"]))
 	anchor := launchMaterial(anchorPath, "signed bootstrap anchor")
@@ -130,6 +131,8 @@ func (e *Engine) seedLaunch(plan Object, reviewedPath, manifestPath, identityPat
 		fail("plan has no controller-a host")
 	}
 	metadata := Object{"terrascale-bootstrap": `{"schemaVersion":1,"slot":"controller-a"}`, "terrascale-controller-manifest-v1": string(manifest), "terrascale-bootstrap-identity-v1": identity, "terrascale-bootstrap-anchor-v1": anchor, "terrascale-host-enrollment-v1": launchMaterial(enrollmentPath, "host enrollment bundle"), "ssh_authorized_keys": validateSSH(owner), "user_data": base64.StdEncoding.EncodeToString(seedUserData())}
+	metadata[bootstrapstart.ManagedHostImageReceiptMetadataKey] = launchMaterial(managedReceiptPath, "managed host image receipt")
+	metadata[bootstrapstart.ManagedHostImageDelegationMetadataKey] = launchMaterial(managedDelegationPath, "managed host image delegation")
 	size := 0
 	for k, v := range metadata {
 		size += len(k) + len(str(v))

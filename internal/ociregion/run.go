@@ -26,6 +26,7 @@ Read-only inventory and admission commands:
 Use --plan PLAN.json --inventory INVENTORY.json --admission ADMISSION.json.
 Write records with --out PATH; import admission also requires --projection PATH.
 member-launch requires --slot, --image-ocid, --host-enrollment, --owner-ssh-public-key and --out;
+seed-launch additionally requires --managed-host-image-receipt and --managed-host-image-delegation;
 cell-plan accepts --profile TERRABASE-PROFILE.json.
 Private peer inspection requires --pair-intent and both regional --left-* and --right-* evidence paths.`)
 			return err
@@ -63,7 +64,7 @@ func (e *Engine) run(argv []string) {
 		root = "deploy/oci-region"
 	}
 	defaults := map[string]string{"plan": e.PlanPath, "inventory": filepath.Join(root, "inventory.json"), "admission": filepath.Join(root, "admission.json")}
-	for _, name := range []string{"plan", "inventory", "out", "admission", "pair-intent", "left-plan", "left-inventory", "left-admission", "right-plan", "right-inventory", "right-admission", "bootstrap-tool", "anchor", "manifest", "identity", "image-ocid", "release-tool", "image-receipt", "release-delegation", "release-root", "image-file", "base-image-file", "kernel-file", "owner-ssh-public-key", "reviewed-plan", "host-enrollment", "slot", "profile", "projection", "phase", "staged-versions", "imported-images", "previous-admission", "previous-projection", "previous-inventory", "previous-imported-images", "previous-staged-versions"} {
+	for _, name := range []string{"plan", "inventory", "out", "admission", "pair-intent", "left-plan", "left-inventory", "left-admission", "right-plan", "right-inventory", "right-admission", "bootstrap-tool", "anchor", "manifest", "identity", "image-ocid", "release-tool", "image-receipt", "release-delegation", "release-root", "image-file", "base-image-file", "kernel-file", "owner-ssh-public-key", "reviewed-plan", "host-enrollment", "managed-host-image-receipt", "managed-host-image-delegation", "slot", "profile", "projection", "phase", "staged-versions", "imported-images", "previous-admission", "previous-projection", "previous-inventory", "previous-imported-images", "previous-staged-versions"} {
 		args[strings.ReplaceAll(name, "-", "_")] = defaults[name]
 		f.Func(name, "", func(v string) error { args[strings.ReplaceAll(name, "-", "_")] = v; return nil })
 	}
@@ -98,8 +99,8 @@ func (e *Engine) run(argv []string) {
 	}
 	plan := e.loadPlan(path)
 	if command == "seed-launch" {
-		require("seed launch requires --reviewed-plan, --manifest, --identity, --anchor, --host-enrollment, --owner-ssh-public-key and --out", "reviewed_plan", "manifest", "identity", "anchor", "host_enrollment", "owner_ssh_public_key", "out")
-		launch := e.seedLaunch(plan, get("reviewed_plan"), get("manifest"), get("identity"), get("anchor"), get("host_enrollment"), get("owner_ssh_public_key"))
+		require("seed launch requires --reviewed-plan, --manifest, --identity, --anchor, --host-enrollment, --owner-ssh-public-key, --managed-host-image-receipt, --managed-host-image-delegation and --out", "reviewed_plan", "manifest", "identity", "anchor", "host_enrollment", "owner_ssh_public_key", "managed_host_image_receipt", "managed_host_image_delegation", "out")
+		launch := e.seedLaunch(plan, get("reviewed_plan"), get("manifest"), get("identity"), get("anchor"), get("host_enrollment"), get("owner_ssh_public_key"), get("managed_host_image_receipt"), get("managed_host_image_delegation"))
 		wire := append(must(json.Marshal(launch, json.Deterministic(true), jsontext.Multiline(true))), '\n')
 		writeBytes(get("out"), wire, 0600)
 		if e.Stdout != nil {

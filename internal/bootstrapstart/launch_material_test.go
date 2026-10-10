@@ -1,6 +1,7 @@
 package bootstrapstart
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -19,9 +20,11 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/nats-io/nkeys"
 )
 
@@ -29,7 +32,16 @@ import (
 // plus launch material whose anchor those roots sign.
 func launchMaterialFixture(t *testing.T) (bakedStore, LaunchMaterial) {
 	t.Helper()
-	_, _, roots, _, anchorWire := verifiedAnchorFixture(t)
+	fixture := newAdmissionFlowFixture(t)
+	roots, anchorWire := fixture.gate.Roots, fixture.gate.AnchorWire
+	envelope, err := trust.DecodeEnvelope(fixture.ledger.state.ManifestRecord.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := bootstrap.ManifestPayload(envelope.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
 	directory := filepath.Join(t.TempDir(), "bootstrap")
 	rootsDirectory := filepath.Join(directory, "trust-roots")
 	if err := os.MkdirAll(rootsDirectory, 0o755); err != nil {
@@ -57,7 +69,8 @@ func launchMaterialFixture(t *testing.T) (bakedStore, LaunchMaterial) {
 	store := bakedStore{directory: directory, ownerUID: uint32(os.Getuid()),
 		ownerGID: uint32(os.Getgid()), allowUnsafeAncestors: true}
 	return store, LaunchMaterial{Identity: identity, Anchor: anchorWire, HostEnrollment: hostEnrollmentFixture(t),
-		OperatorSSHKey: []byte(testOperatorSSHKey)}
+		OperatorSSHKey: []byte(testOperatorSSHKey), ManagedHostImageReceipt: manifest.ReleaseImageReceiptWire,
+		ManagedHostImageDelegation: manifest.ReleaseDelegationWire}
 }
 
 func hostEnrollmentFixture(t *testing.T) []byte {
@@ -128,7 +141,9 @@ func TestInstallLaunchMaterialWritesVerifiedWriteOnceFiles(t *testing.T) {
 	loaded, err := store.loadLaunchMaterial()
 	if err != nil || string(loaded.Identity) != string(material.Identity) ||
 		string(loaded.Anchor) != string(material.Anchor) || string(loaded.HostEnrollment) != string(material.HostEnrollment) ||
-		string(loaded.OperatorSSHKey) != testOperatorSSHKey {
+		string(loaded.OperatorSSHKey) != testOperatorSSHKey ||
+		!bytes.Equal(loaded.ManagedHostImageReceipt, material.ManagedHostImageReceipt) ||
+		!bytes.Equal(loaded.ManagedHostImageDelegation, material.ManagedHostImageDelegation) {
 		t.Fatalf("installed launch material differs: %v", err)
 	}
 	baked, err := store.load()
@@ -141,6 +156,50 @@ func TestInstallLaunchMaterialWritesVerifiedWriteOnceFiles(t *testing.T) {
 	}
 	if err := store.installLaunchMaterial(t.Context(), unexpected, now); err != nil {
 		t.Fatalf("reinstall over complete material: %v", err)
+	}
+}
+
+func TestInstallLaunchMaterialRejectsMissingForeignAndExpiredManagedImage(t *testing.T) {
+	for _, fault := range []string{"missing receipt", "missing delegation", "foreign signer", "expired"} {
+		t.Run(fault, func(t *testing.T) {
+			store, material := launchMaterialFixture(t)
+			now := time.Now().UTC()
+			switch fault {
+			case "missing receipt":
+				material.ManagedHostImageReceipt = nil
+			case "missing delegation":
+				material.ManagedHostImageDelegation = nil
+			case "foreign signer":
+				_, foreign := launchMaterialFixture(t)
+				material.ManagedHostImageReceipt, material.ManagedHostImageDelegation = foreign.ManagedHostImageReceipt, foreign.ManagedHostImageDelegation
+			case "expired":
+				now = now.Add(2 * time.Hour)
+			}
+			if err := store.installLaunchMaterial(t.Context(), fetchOnce(t, material), now); !errors.Is(err, ErrLaunchMaterial) {
+				t.Fatalf("invalid managed image installed: %v", err)
+			}
+			for _, name := range launchMaterialNames {
+				if _, err := os.Lstat(filepath.Join(store.directory, name)); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("rejected launch installed %s: %v", name, err)
+				}
+			}
+		})
+	}
+}
+
+func TestInstallLaunchMaterialRecoversBeforeManagedImagePublication(t *testing.T) {
+	store, material := launchMaterialFixture(t)
+	for index, wire := range material.wires() {
+		if index < 4 {
+			writeBakedFixture(t, filepath.Join(store.directory, launchMaterialNames[index]), wire)
+		}
+	}
+	if err := store.installLaunchMaterial(t.Context(), fetchOnce(t, material), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.loadLaunchMaterial()
+	if err != nil || !bytes.Equal(loaded.ManagedHostImageReceipt, material.ManagedHostImageReceipt) {
+		t.Fatalf("partial publication did not recover: %v", err)
 	}
 }
 

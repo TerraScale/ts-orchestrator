@@ -90,6 +90,7 @@ func TestFetchLaunchMaterialReadsOperatorSSHKey(t *testing.T) {
 	bodies := map[string]string{
 		identityMetadataEndpoint: `{"identity":1}`, anchorMetadataEndpoint: `{"anchor":1}`,
 		hostEnrollmentMetadataEndpoint: `{"bundle":1}`, operatorSSHKeyMetadataEndpoint: testOperatorSSHKey,
+		managedHostImageReceiptMetadataEndpoint: `{"image":1}`, managedHostImageDelegationMetadataEndpoint: `{"delegation":1}`,
 	}
 	client := IMDSClient{client: &http.Client{Transport: imdsRoundTrip(func(request *http.Request) (*http.Response, error) {
 		body, ok := bodies[request.URL.String()]
@@ -100,7 +101,8 @@ func TestFetchLaunchMaterialReadsOperatorSSHKey(t *testing.T) {
 	})}}
 	material, err := client.FetchLaunchMaterial(t.Context())
 	if err != nil || string(material.OperatorSSHKey) != testOperatorSSHKey ||
-		string(material.HostEnrollment) != `{"bundle":1}` {
+		string(material.HostEnrollment) != `{"bundle":1}` || string(material.ManagedHostImageReceipt) != `{"image":1}` ||
+		string(material.ManagedHostImageDelegation) != `{"delegation":1}` {
 		t.Fatalf("launch material = %+v, %v", material, err)
 	}
 }

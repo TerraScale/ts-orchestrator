@@ -16,23 +16,26 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
 const (
-	imdsAddress                        = "169.254.169.254:80"
-	imdsBaseURL                        = "http://169.254.169.254/opc/v2/instance/"
-	descriptorEndpoint                 = imdsBaseURL + "metadata/terrascale-bootstrap"
-	controllerManifestEndpoint         = imdsBaseURL + "metadata/terrascale-controller-manifest-v1"
-	identityMetadataEndpoint           = imdsBaseURL + "metadata/" + IdentityMetadataKey
-	anchorMetadataEndpoint             = imdsBaseURL + "metadata/" + AnchorMetadataKey
-	hostEnrollmentMetadataEndpoint     = imdsBaseURL + "metadata/" + hostboot.EnrollmentMetadataKey
-	operatorSSHKeyMetadataEndpoint     = imdsBaseURL + "metadata/" + OperatorSSHKeyMetadataKey
-	identityEndpoint                   = imdsBaseURL + "id"
-	availabilityDomainEndpoint         = imdsBaseURL + "availabilityDomain"
-	faultDomainEndpoint                = imdsBaseURL + "faultDomain"
-	maxDescriptorBytes                 = 4096
-	MaxControllerManifestMetadataBytes = 30 << 10
-	imdsTimeout                        = 3 * time.Second
+	imdsAddress                                = "169.254.169.254:80"
+	imdsBaseURL                                = "http://169.254.169.254/opc/v2/instance/"
+	descriptorEndpoint                         = imdsBaseURL + "metadata/terrascale-bootstrap"
+	controllerManifestEndpoint                 = imdsBaseURL + "metadata/terrascale-controller-manifest-v1"
+	identityMetadataEndpoint                   = imdsBaseURL + "metadata/" + IdentityMetadataKey
+	anchorMetadataEndpoint                     = imdsBaseURL + "metadata/" + AnchorMetadataKey
+	hostEnrollmentMetadataEndpoint             = imdsBaseURL + "metadata/" + hostboot.EnrollmentMetadataKey
+	operatorSSHKeyMetadataEndpoint             = imdsBaseURL + "metadata/" + OperatorSSHKeyMetadataKey
+	managedHostImageReceiptMetadataEndpoint    = imdsBaseURL + "metadata/" + ManagedHostImageReceiptMetadataKey
+	managedHostImageDelegationMetadataEndpoint = imdsBaseURL + "metadata/" + ManagedHostImageDelegationMetadataKey
+	identityEndpoint                           = imdsBaseURL + "id"
+	availabilityDomainEndpoint                 = imdsBaseURL + "availabilityDomain"
+	faultDomainEndpoint                        = imdsBaseURL + "faultDomain"
+	maxDescriptorBytes                         = 4096
+	MaxControllerManifestMetadataBytes         = 30 << 10
+	imdsTimeout                                = 3 * time.Second
 )
 
 var (
@@ -155,8 +158,16 @@ func (imds IMDSClient) FetchLaunchMaterial(ctx context.Context) (LaunchMaterial,
 	if err != nil {
 		return LaunchMaterial{}, fmt.Errorf("read launch operator SSH key metadata: %w", err)
 	}
+	receipt, err := imds.fetch(ctx, managedHostImageReceiptMetadataEndpoint, trust.MaxEnvelopeBytes)
+	if err != nil {
+		return LaunchMaterial{}, fmt.Errorf("read launch managed host image receipt: %w", err)
+	}
+	delegation, err := imds.fetch(ctx, managedHostImageDelegationMetadataEndpoint, trust.MaxEnvelopeBytes)
+	if err != nil {
+		return LaunchMaterial{}, fmt.Errorf("read launch managed host image delegation: %w", err)
+	}
 	return LaunchMaterial{Identity: identity, Anchor: anchor, HostEnrollment: enrollment,
-		OperatorSSHKey: operatorSSHKey}, nil
+		OperatorSSHKey: operatorSSHKey, ManagedHostImageReceipt: receipt, ManagedHostImageDelegation: delegation}, nil
 }
 
 func (imds IMDSClient) fetch(ctx context.Context, endpoint string, maximum int64) ([]byte, error) {
@@ -164,6 +175,7 @@ func (imds IMDSClient) fetch(ctx context.Context, endpoint string, maximum int64
 		endpoint != controllerManifestEndpoint && endpoint != identityMetadataEndpoint &&
 		endpoint != anchorMetadataEndpoint && endpoint != hostEnrollmentMetadataEndpoint &&
 		endpoint != operatorSSHKeyMetadataEndpoint && endpoint != availabilityDomainEndpoint &&
+		endpoint != managedHostImageReceiptMetadataEndpoint && endpoint != managedHostImageDelegationMetadataEndpoint &&
 		endpoint != faultDomainEndpoint {
 		return nil, ErrInvalidDescriptor
 	}

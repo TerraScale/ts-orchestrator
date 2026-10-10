@@ -5487,6 +5487,12 @@
       },
       {
         "$path": "/tmp/tmppo0opjwf/owner.pub"
+      },
+      {
+        "$path": "/tmp/tmppo0opjwf/managed-host-image-receipt.json"
+      },
+      {
+        "$path": "/tmp/tmppo0opjwf/managed-host-image-delegation.json"
       }
     ],
     "fixture-0478": "c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSU9NcXFua1Z6cm0wU2RHNlVPb3FLTHNhYmdINUM5b2tXaTBkaDJsOUdLSmwgb3BlcmF0b3JAdGVycmFzY2FsZQo=",
@@ -22912,6 +22918,14 @@
         "/tmp/tmppo0opjwf/identity.json": {
           "$fixture": "fixture-0483"
         },
+        "/tmp/tmppo0opjwf/managed-host-image-delegation.json": {
+          "data": "eyJkZWxlZ2F0aW9uIjoxfQ==",
+          "mode": 420
+        },
+        "/tmp/tmppo0opjwf/managed-host-image-receipt.json": {
+          "data": "eyJpbWFnZSI6MX0=",
+          "mode": 420
+        },
         "/tmp/tmppo0opjwf/manifest.json": {
           "$fixture": "fixture-0481"
         },
@@ -22941,6 +22955,8 @@
           "terrascale-bootstrap-identity-v1": "{\"schemaVersion\":1,\"deploymentId\":\"0000000000F9PR1WNVDTEXS31Z\",\"environment\":\"canary\",\"cell\":\"GRU\"}",
           "terrascale-controller-manifest-v1": "{\"schemaVersion\": 1, \"keyId\": \"root\", \"signature\": \"signed\", \"scope\": {\"domain\": \"terrascale.bootstrap.manifest\", \"role\": \"controller\", \"slot\": \"controller-a\", \"cell\": \"GRU\"}, \"payload\": {\"schemaVersion\": 1, \"slot\": \"controller-a\", \"seedSlot\": \"controller-a\", \"cell\": \"GRU\"}}",
           "terrascale-host-enrollment-v1": "{\"schema_version\":1}",
+          "terrascale-managed-host-image-delegation-v1": "{\"delegation\":1}",
+          "terrascale-managed-host-image-receipt-v1": "{\"image\":1}",
           "user_data": "I2Nsb3VkLWNvbmZpZwp7InJ1bmNtZCI6WyJzZXQgLWV1OyBJRlM9JyAnIHJlYWQgLXIga2V5X3R5cGUga2V5X2RhdGEga2V5X2NvbW1lbnQgPCAvZXRjL3NzaC9zc2hfaG9zdF9lZDI1NTE5X2tleS5wdWI7IHRlc3QgXCIka2V5X3R5cGVcIiA9IHNzaC1lZDI1NTE5OyB0ZXN0IC1uIFwiJGtleV9kYXRhXCI7IHByaW50ZiAnXFxuVEVSUkFTQ0FMRV9TRUVEX0FfSE9TVF9LRVlfQkVHSU5cXG4lcyAlc1xcblRFUlJBU0NBTEVfU0VFRF9BX0hPU1RfS0VZX0VORFxcbicgXCIka2V5X3R5cGVcIiBcIiRrZXlfZGF0YVwiID4gL2Rldi9jb25zb2xlIl19Cg=="
         },
         "nsgIds": [
@@ -22993,6 +23009,14 @@
         "/tmp/tmppo0opjwf/identity.json": {
           "$fixture": "fixture-0483"
         },
+        "/tmp/tmppo0opjwf/managed-host-image-delegation.json": {
+          "data": "eyJkZWxlZ2F0aW9uIjoxfQ==",
+          "mode": 420
+        },
+        "/tmp/tmppo0opjwf/managed-host-image-receipt.json": {
+          "data": "eyJpbWFnZSI6MX0=",
+          "mode": 420
+        },
         "/tmp/tmppo0opjwf/manifest.json": {
           "$fixture": "fixture-0481"
         },
@@ -23040,6 +23064,14 @@
         "/tmp/tmppo0opjwf/identity.json": {
           "$fixture": "fixture-0483"
         },
+        "/tmp/tmppo0opjwf/managed-host-image-delegation.json": {
+          "data": "eyJkZWxlZ2F0aW9uIjoxfQ==",
+          "mode": 420
+        },
+        "/tmp/tmppo0opjwf/managed-host-image-receipt.json": {
+          "data": "eyJpbWFnZSI6MX0=",
+          "mode": 420
+        },
         "/tmp/tmppo0opjwf/manifest.json": {
           "$fixture": "fixture-0481"
         },
@@ -23085,6 +23117,14 @@
         },
         "/tmp/tmppo0opjwf/identity.json": {
           "$fixture": "fixture-0483"
+        },
+        "/tmp/tmppo0opjwf/managed-host-image-delegation.json": {
+          "data": "eyJkZWxlZ2F0aW9uIjoxfQ==",
+          "mode": 420
+        },
+        "/tmp/tmppo0opjwf/managed-host-image-receipt.json": {
+          "data": "eyJpbWFnZSI6MX0=",
+          "mode": 420
         },
         "/tmp/tmppo0opjwf/manifest.json": {
           "data": "eyJzY2hlbWFWZXJzaW9uIjogMSwgImtleUlkIjogInJvb3QiLCAic2lnbmF0dXJlIjogInNpZ25lZCIsICJzY29wZSI6IHsiZG9tYWluIjogInRlcnJhc2NhbGUuYm9vdHN0cmFwLm1hbmlmZXN0IiwgInJvbGUiOiAiY29udHJvbGxlciIsICJzbG90IjogImNvbnRyb2xsZXItYSIsICJjZWxsIjogIkZSQSJ9LCAicGF5bG9hZCI6IHsic2NoZW1hVmVyc2lvbiI6IDEsICJzbG90IjogImNvbnRyb2xsZXItYSIsICJzZWVkU2xvdCI6ICJjb250cm9sbGVyLWEiLCAiY2VsbCI6ICJHUlUifX0=",
@@ -23132,6 +23172,14 @@
         },
         "/tmp/tmppo0opjwf/identity.json": {
           "$fixture": "fixture-0483"
+        },
+        "/tmp/tmppo0opjwf/managed-host-image-delegation.json": {
+          "data": "eyJkZWxlZ2F0aW9uIjoxfQ==",
+          "mode": 420
+        },
+        "/tmp/tmppo0opjwf/managed-host-image-receipt.json": {
+          "data": "eyJpbWFnZSI6MX0=",
+          "mode": 420
         },
         "/tmp/tmppo0opjwf/manifest.json": {
           "$fixture": "fixture-0481"

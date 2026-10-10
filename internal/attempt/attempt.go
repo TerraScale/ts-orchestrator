@@ -898,7 +898,7 @@ func (a *Attempt) PhaseLaunch() {
 	a.preview(args...)
 	launchInput := filepath.Join(launch, "controller-a-launch.json")
 	a.remove(launchInput)
-	a.preview("seed-launch", "--plan", a.Plan(), "--reviewed-plan", reviewed, "--manifest", a.Manifest("controller-a"), "--identity", a.Path("identity.json"), "--anchor", a.Path("anchor.signed.json"), "--host-enrollment", a.Path("host-enrollment-public.json"), "--owner-ssh-public-key", str(a.Config, "owner_ssh_public_key"), "--out", launchInput)
+	a.preview("seed-launch", "--plan", a.Plan(), "--reviewed-plan", reviewed, "--manifest", a.Manifest("controller-a"), "--identity", a.Path("identity.json"), "--anchor", a.Path("anchor.signed.json"), "--host-enrollment", a.Path("host-enrollment-public.json"), "--owner-ssh-public-key", str(a.Config, "owner_ssh_public_key"), "--managed-host-image-receipt", a.ImageReceipt(), "--managed-host-image-delegation", a.Path("image", "image-delegation.signed.json"), "--out", launchInput)
 	if a.err != nil {
 		return
 	}
