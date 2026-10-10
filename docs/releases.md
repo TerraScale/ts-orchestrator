@@ -1,11 +1,17 @@
 # Build and release boundaries
 
 The Forgejo verification workflow checks out the event's exact Git revision and
-requires a clean tree. Its single job runs `make verify`: Go formatting
+requires a clean tree. Its producing job runs `make ci-verify`: Go formatting
 checks, `go vet`, and the complete Go test suite with race detection, including
 deployment and qualification driver contracts. The workflow uses Go 1.27.1;
 the `terrascale-builder` image supplies that exact version and `.mise.toml`
 pins the same version for local development.
+
+Release admission requires the exact successful run and one uniquely named
+producing job from its qualification manifest. Independent workflow checks,
+including the configuration policy check, may run alongside it. Admission reads
+that producing job's logs by job ID and requires its exact retained-manifest
+digest marker; another job's success or log cannot qualify the release.
 
 The same job then cross-compiles one static executable for Linux amd64 and one
 for Linux arm64 with cgo disabled. It checks the ELF machine type, absence of a

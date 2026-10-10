@@ -58,11 +58,12 @@ func (c command) verifyForgejoQualification(qualification release.Qualification,
 	if len(output) == 0 || len(output) > maxForgejoRunDetailBytes {
 		return errors.New("Forgejo run detail is empty or exceeds size limit")
 	}
-	if err := matchForgejoRunDetail(output, qualification); err != nil {
+	job, err := matchForgejoRunDetail(output, qualification)
+	if err != nil {
 		return err
 	}
-	command = exec.CommandContext(ctx, "fj", "actions", "logs",
-		strconv.FormatInt(qualification.Verification.RunNumber, 10), "-r", qualification.Repository)
+	command = exec.CommandContext(ctx, "fj", "actions", "job-logs",
+		strconv.FormatInt(job.ID, 10), "-r", qualification.Repository)
 	logs, err := command.Output()
 	if err != nil {
 		return fmt.Errorf("query exact Forgejo job logs with fj: %w", err)
@@ -73,26 +74,33 @@ func (c command) verifyForgejoQualification(qualification release.Qualification,
 	return matchForgejoQualificationLog(logs, qualification, qualificationSHA256)
 }
 
-func matchForgejoRunDetail(output []byte, qualification release.Qualification) error {
+func matchForgejoRunDetail(output []byte, qualification release.Qualification) (forgejoJobDetail, error) {
 	var detail forgejoRunDetail
 	if err := protocol.DecodeStrict(output, &detail, maxForgejoRunDetailBytes); err != nil {
-		return fmt.Errorf("decode Forgejo run detail: %w", err)
+		return forgejoJobDetail{}, fmt.Errorf("decode Forgejo run detail: %w", err)
 	}
 	if detail.RunID != qualification.Verification.RunID ||
 		detail.RunNumber != qualification.Verification.RunNumber ||
 		detail.HeadSHA != qualification.SourceRevision ||
 		detail.Workflow != qualification.Verification.Workflow || detail.Status != "success" {
-		return errors.New("Forgejo run ID, number, full source, workflow, or status differs from qualification")
+		return forgejoJobDetail{}, errors.New("Forgejo run ID, number, full source, workflow, or status differs from qualification")
 	}
-	if len(detail.Jobs) != 1 {
-		return errors.New("Forgejo verification run must have exactly one job")
+	var job forgejoJobDetail
+	matched := false
+	for _, candidate := range detail.Jobs {
+		if candidate.Name != qualification.Verification.Job {
+			continue
+		}
+		if matched {
+			return forgejoJobDetail{}, errors.New("Forgejo verification run has duplicate required jobs")
+		}
+		job, matched = candidate, true
 	}
-	job := detail.Jobs[0]
 	if job.ID <= 0 || job.RunID != detail.RunID || job.Name != qualification.Verification.Job ||
 		job.Status != "success" || job.Attempt <= 0 {
-		return errors.New("required Forgejo job has no successful result bound to the run")
+		return forgejoJobDetail{}, errors.New("required Forgejo job has no successful result bound to the run")
 	}
-	return nil
+	return job, nil
 }
 
 func matchForgejoQualificationLog(logs []byte, qualification release.Qualification, qualificationSHA256 string) error {

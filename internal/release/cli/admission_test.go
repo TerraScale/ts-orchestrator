@@ -29,6 +29,11 @@ func TestForgejoDetailMustMatchExactRunSourceJobAndSuccess(t *testing.T) {
 		wantError bool
 	}{
 		{"success", func(*forgejoRunDetail) {}, false},
+		{"additional configuration check", func(d *forgejoRunDetail) {
+			d.Jobs = append([]forgejoJobDetail{{ID: 24139, RunID: d.RunID,
+				Name: "Reject new configuration switches", Status: "success", Attempt: 1}}, d.Jobs...)
+		}, false},
+		{"missing required job", func(d *forgejoRunDetail) { d.Jobs = nil }, true},
 		{"other run ID", func(d *forgejoRunDetail) { d.RunID++ }, true},
 		{"other run number", func(d *forgejoRunDetail) { d.RunNumber++ }, true},
 		{"other full source", func(d *forgejoRunDetail) { d.HeadSHA = qualification.SourceRevision[:10] + strings.Repeat("a", 30) }, true},
@@ -38,6 +43,7 @@ func TestForgejoDetailMustMatchExactRunSourceJobAndSuccess(t *testing.T) {
 		{"failed job", func(d *forgejoRunDetail) { d.Jobs[0].Status = "failure" }, true},
 		{"job on another run", func(d *forgejoRunDetail) { d.Jobs[0].RunID++ }, true},
 		{"missing job ID", func(d *forgejoRunDetail) { d.Jobs[0].ID = 0 }, true},
+		{"missing job attempt", func(d *forgejoRunDetail) { d.Jobs[0].Attempt = 0 }, true},
 		{"duplicate job", func(d *forgejoRunDetail) { d.Jobs = append(d.Jobs, d.Jobs[0]) }, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -48,9 +54,12 @@ func TestForgejoDetailMustMatchExactRunSourceJobAndSuccess(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = matchForgejoRunDetail(wire, qualification)
+			job, err := matchForgejoRunDetail(wire, qualification)
 			if (err != nil) != test.wantError {
 				t.Fatalf("matchForgejoRunDetail() error = %v; wantError=%t", err, test.wantError)
+			}
+			if err == nil && job.ID != valid.Jobs[0].ID {
+				t.Fatalf("selected job ID = %d; want %d", job.ID, valid.Jobs[0].ID)
 			}
 		})
 	}
