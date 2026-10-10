@@ -35,6 +35,14 @@ func TestAllocateWithoutBudgetHoldsEveryRegion(t *testing.T) {
 	}
 }
 
+func TestAllocateHoldsEveryRegionWithAnInvalidBudget(t *testing.T) {
+	c := Allocate(budgetWithCap(0), []Region{freshRegion("gru", 3, 4, 0.9, 100, 10)}, testNow)
+	if c.State != StateNone || !strings.Contains(c.Reason, "invalid") || c.Regions[0].Allowance != 3 ||
+		math.IsNaN(c.Ratio) || c.Validate() != nil {
+		t.Fatalf("capacity = %+v, %v", c, c.Validate())
+	}
+}
+
 func TestAllocateHoldsEveryRegionWhenSpendIsUnknown(t *testing.T) {
 	stale := freshRegion("sfo", 1, 3, 0.9, 100, 500)
 	stale.At = testNow.Add(-StatusMaxAge - time.Minute)
@@ -42,7 +50,10 @@ func TestAllocateHoldsEveryRegionWhenSpendIsUnknown(t *testing.T) {
 	missing.At = time.Time{}
 	otherCurrency := freshRegion("sfo", 1, 3, 0.9, 100, 500)
 	otherCurrency.Currency = "USD"
-	for name, sfo := range map[string]Region{"stale": stale, "missing": missing, "other currency": otherCurrency} {
+	future := freshRegion("sfo", 1, 3, 0.9, 100, 500)
+	future.At = testNow.Add(AllowanceMaxAge + time.Minute)
+	for name, sfo := range map[string]Region{"stale": stale, "missing": missing, "other currency": otherCurrency,
+		"from the future": future} {
 		t.Run(name, func(t *testing.T) {
 			c := Allocate(budgetWithCap(100000), []Region{freshRegion("gru", 1, 3, 0.5, 100, 200), sfo}, testNow)
 			if c.State != StateUnknown || !strings.Contains(c.Reason, "sfo") {

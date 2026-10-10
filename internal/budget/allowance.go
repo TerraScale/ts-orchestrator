@@ -86,13 +86,21 @@ func Allocate(budget *Budget, regions []Region, now time.Time) Capacity {
 		capacity.Reason = "no monthly budget is set"
 		return capacity
 	}
+	if err := budget.Validate(); err != nil {
+		// Only a valid budget can admit spending, and its cap is never zero.
+		capacity.State = StateNone
+		capacity.Reason = "the monthly budget is invalid: " + err.Error()
+		return capacity
+	}
 	capacity.CapCents = budget.MonthlyCapCents
 	capacity.Currency = budget.Currency
 
 	var projected uint64
 	unknown := ""
 	for _, region := range sorted {
-		if !region.At.IsZero() && now.Sub(region.At) <= StatusMaxAge && region.Currency == budget.Currency {
+		// A status from further ahead than clock skew explains is as unknown as a stale one.
+		if !region.At.IsZero() && now.Sub(region.At) <= StatusMaxAge && region.At.Sub(now) <= AllowanceMaxAge &&
+			region.Currency == budget.Currency {
 			projected = saturatingAdd(projected, region.ProjectedCents)
 		} else if unknown == "" {
 			unknown = region.Cell
