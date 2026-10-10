@@ -77,6 +77,7 @@ var kindNouns = map[decisionlog.Kind][2]string{
 	decisionlog.KindVolumeReattached:   {"volume reattachment", "volume reattachments"},
 	decisionlog.KindBackupTaken:        {"backup", "backups"},
 	decisionlog.KindRegionProposed:     {"region proposal", "region proposals"},
+	decisionlog.KindRegionApproved:     {"region approval", "region approvals"},
 	decisionlog.KindRegionAdmitted:     {"region admission", "region admissions"},
 	decisionlog.KindRegionStep:         {"region step", "region steps"},
 	decisionlog.KindLeaderChanged:      {"leader change", "leader changes"},

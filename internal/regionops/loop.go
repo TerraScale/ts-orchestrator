@@ -405,6 +405,7 @@ func recordAdmission(ctx context.Context, epoch uint64, record regionlifecycle.R
 		Signals: []decisionlog.Signal{
 			{Name: "estimated_monthly_cost", Value: float64(record.Admission.EstimatedMonthlyCents) / 100, Unit: "USD"},
 			{Name: "committed_monthly_cost", Value: float64(fleet.CommittedMonthlyCents) / 100, Unit: "USD"},
+			{Name: "headroom", Value: float64(record.Admission.HeadroomCents), Unit: "cents"},
 			{Name: "other_regions", Value: float64(fleet.Regions)},
 		},
 		Status: decisionlog.StatusSucceeded, Epoch: epoch,

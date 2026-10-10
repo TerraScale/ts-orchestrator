@@ -327,54 +327,39 @@ intent is settled by observation before any teardown step. The global home
 counts toward the region maximum, budget sums saturate instead of wrapping,
 and a held unapproved proposal takes no slot.
 
-`internal/regionplanner` turns unplaceable placement intents, classified OCI
-capacity and limit errors, and latency rollups into proposals. It
-proposes; approval comes from the planner inside the budget guardrails of
-docs/capacity.md (TS-804). Proposal IDs carry
-the target proposal generation (`<cell>-g<generation>-<hash>`), so no two
-attempts on one cell ever share a proposal ID. With
-the current `controller.region_planner` guard, it runs on the global leader
-and feeds budgets to the insight engine. This guard is a TS-796 removal gap;
-`controller.rollouts` likewise opens the rollout store for the dashboard and
-insights.
-
-Its signals include the home's capacity/limit holds and every interregion peer's
-observations. The current `peer_signals` guard is a TS-796 removal gap; the planner
-queries each peer's decision journal over the observability contract for
-placement `held` decisions and keeps only those about that peer, paging
-back through truncated results (at most 8 pages of 256 per peer and round).
-The query federation runs on the cell connection, independent of the HTTP
-observability listener; `peer_signals` without interregion peers refuses
-to start. A peer's
-journal is another region's data; a forged hold can at most propose the
-peer's overflow region.
-Latency signals
-have no source yet: TerraBase member status carries no client latency.
+`internal/regionplanner` runs on the global home's leader every 10 minutes and
+decides from load and budget: it adds a region when a serving region has been
+saturated for an hour, and removes an idle one. The rules, guardrails and
+their numbers are in code and summarized in docs/capacity.md (TS-804). It
+approves its own proposals inside those guardrails, so nothing waits for a
+signed approval. Proposal IDs carry the target proposal generation
+(`<cell>-g<generation>-<hash>`), so no two attempts on one cell ever share a
+proposal ID. Its latest decision, holds included, is saved in the
+`TS_REGION_PLANNER` bucket for the dashboard.
 
 ### Region operations loop
 
 `internal/regionops` is the global leader's loop, run every
-`interval_seconds` while the controller holds the global lease. Each tick it:
+10 minutes while the controller holds the global lease. Each tick it:
 
 1. runs the planner;
-2. with `admit`, admits an Approved region at its `region_monthly_cents`
-   price under the region maximum and the budget headroom, and
+2. admits an Approved region at its proposal's estimated price under the region maximum and the budget headroom, and
    readmits an in-flight region before it starts a new spending step once
    its admission is in the last third of its TTL. A refused readmission
    blocks that step even while the older admission is still fresh. A
    journaled (recovered) spending intent is observed first: an existing
    effect is recorded regardless of budget, and an absent one is re-run
-   only after a successful readmission. The price is signed policy, not a
-   live quote; the admission is re-evaluated against the current fleet each
+   only after a successful readmission. The price is the planner's estimate,
+   not a live quote; the admission is re-evaluated against the current fleet each
    time;
-3. with `drive`, calls `Driver.Advance` once per region whose next step has
+3. calls `Driver.Advance` once per region whose next step has
    an effector, and resumes a Held region only when an observation finds
    its pending effect (an absent effect stays held for an operator).
 
 Waits (stale admission, no effector, an OCI effect in progress) and refusals
 are journaled once per region and reason.
 
-The only effector so far is `subscribe_regions` (needs `drive`): the home's
+The only effector so far is the subscription (always on): the home's
 instance principal subscribes the tenancy to the proposal's catalog region
 (`catalog.Entry.OCIRegionKey`, for example `SJC`), with the step's create key
 as the `opc-retry-token`. An accepted but not yet READY subscription holds

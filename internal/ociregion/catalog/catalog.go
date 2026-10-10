@@ -156,6 +156,15 @@ func CellForOCIRegion(region string) (Entry, bool) {
 	return Entry{}, false
 }
 
+// CellOf names the cell of an OCI region: the catalog's name when the region is
+// in the catalog (us-sanjose-1 is sfo), otherwise its lower-case OCI key.
+func CellOf(name, key string) string {
+	if entry, ok := CellForOCIRegion(name); ok {
+		return entry.Name()
+	}
+	return strings.ToLower(key)
+}
+
 // MatchesName reports whether name is the lower-case token of exactly cell.
 func MatchesName(name, cell string) bool {
 	entry, ok := Lookup(cell)

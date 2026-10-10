@@ -540,6 +540,23 @@ func TestFleetCountsSlotsAndCommitsOnlyInFlightSpend(t *testing.T) {
 	}
 }
 
+// A Held record counts by the phase it was held in: held while Active it takes
+// a slot but its spend is already in the headroom; held mid-teardown its spend
+// is still in flight.
+func TestFleetCountsHeldRecordsByTheirHeldPhase(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	heldActive := f.admitted(t)
+	heldActive.Cell, heldActive.Phase, heldActive.Admission = "ams", Held, nil
+	heldActive.Hold = &Hold{Phase: Active, Reason: "held", HeldAt: f.now}
+	heldTeardown := heldActive
+	heldTeardown.Cell, heldTeardown.Hold = "fra", &Hold{Phase: RetireApproved, Reason: "held", HeldAt: f.now}
+	fleet := FleetOf([]Record{heldActive, heldTeardown}, "", Home{Cell: "lab"})
+	if fleet.Regions != 3 || fleet.CommittedMonthlyCents != 9_000 {
+		t.Fatalf("fleet = %+v; want 3 slots (home included) committing only the torn-down region's 9000", fleet)
+	}
+}
+
 func assertTerminal(t *testing.T, f *fixture, record Record) {
 	t.Helper()
 	if !record.Phase.Terminal() {

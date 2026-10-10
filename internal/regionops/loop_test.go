@@ -2,6 +2,8 @@ package regionops
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"path/filepath"
 	"slices"
@@ -52,6 +54,16 @@ type fakeIdentity struct {
 	tokens  []string
 }
 
+// ListRegions lists the regions OCI offers, with the keys it reports for them.
+func (f *fakeIdentity) ListRegions(context.Context) (identity.ListRegionsResponse, error) {
+	regions := map[string]string{"sa-saopaulo-1": "GRU", "us-sanjose-1": "SJC", "eu-frankfurt-1": "FRA", "uk-london-1": "LHR"}
+	var items []identity.Region
+	for name, key := range regions {
+		items = append(items, identity.Region{Name: &name, Key: &key})
+	}
+	return identity.ListRegionsResponse{Items: items}, nil
+}
+
 func (f *fakeIdentity) ListRegionSubscriptions(_ context.Context, request identity.ListRegionSubscriptionsRequest,
 ) (identity.ListRegionSubscriptionsResponse, error) {
 	f.mu.Lock()
@@ -73,7 +85,7 @@ func (f *fakeIdentity) CreateRegionSubscription(_ context.Context, request ident
 	key := *request.RegionKey
 	f.creates = append(f.creates, key)
 	f.tokens = append(f.tokens, *request.OpcRetryToken)
-	name := map[string]string{"SJC": "us-sanjose-1", "FRA": "eu-frankfurt-1"}[key]
+	name := map[string]string{"SJC": "us-sanjose-1", "FRA": "eu-frankfurt-1", "LHR": "uk-london-1"}[key]
 	f.status[name] = identity.RegionSubscriptionStatusInProgress
 	return identity.CreateRegionSubscriptionResponse{RegionSubscription: identity.RegionSubscription{
 		RegionKey: &key, RegionName: &name, Status: identity.RegionSubscriptionStatusInProgress}}, nil
@@ -107,7 +119,7 @@ func TestLoopAdmitsSubscribesAndWaitsOnTheGlobalLeader(t *testing.T) {
 	tenancy := &fakeIdentity{status: map[string]identity.RegionSubscriptionStatusEnum{
 		"sa-saopaulo-1": identity.RegionSubscriptionStatusReady}}
 	loop := &Loop{Store: store, Machine: machine, Home: regionlifecycle.Home{Cell: "gru"},
-		Leader: leader, Admissions: PriceList{MonthlyCents: map[string]uint64{"sfo": 9_000}, HeadroomCents: 20_000},
+		Leader: leader, Admissions: fixedAdmissions{cents: 9_000, headroom: 20_000},
 		Effectors: Effectors{
 			regionlifecycle.StepSubscribe: Subscription{API: tenancy, TenancyID: "ocid1.tenancy.oc1..test"},
 		},
@@ -194,12 +206,12 @@ func TestLoopAdmitsSubscribesAndWaitsOnTheGlobalLeader(t *testing.T) {
 	loop.Effectors[regionlifecycle.StepFoundation] = foundation
 	// A refused readmission blocks the step even though the older admission
 	// is still fresh: the new price exceeds the budget headroom.
-	loop.Admissions = PriceList{MonthlyCents: map[string]uint64{"sfo": 11_000}, HeadroomCents: 10_000}
+	loop.Admissions = fixedAdmissions{cents: 11_000, headroom: 10_000}
 	if report := loop.Tick(ctx); len(report.Readmitted)+len(report.Advanced) != 0 || foundation.executed != 0 ||
 		!slices.Equal(report.Waiting, []string{"sfo"}) {
 		t.Fatalf("refused readmission tick = %+v, executed %d", report, foundation.executed)
 	}
-	loop.Admissions = PriceList{MonthlyCents: map[string]uint64{"sfo": 9_000}, HeadroomCents: 20_000}
+	loop.Admissions = fixedAdmissions{cents: 9_000, headroom: 20_000}
 	report = loop.Tick(ctx)
 	if !slices.Equal(report.Readmitted, []string{"sfo"}) || !slices.Equal(report.Advanced, []string{"sfo"}) ||
 		foundation.executed != 1 {
@@ -257,7 +269,7 @@ func TestAdmissionRefusalsAreJournaledOnce(t *testing.T) {
 	}
 	// The home's 9,000 plus 9,000 exceeds the 12,000 ceiling: 3,000 headroom.
 	loop := &Loop{Store: store, Machine: machine, Home: regionlifecycle.Home{Cell: "gru"},
-		Leader: leader, Admissions: PriceList{MonthlyCents: map[string]uint64{"fra": 9_000}, HeadroomCents: 3_000}, Now: func() time.Time { return now }}
+		Leader: leader, Admissions: fixedAdmissions{cents: 9_000, headroom: 3_000}, Now: func() time.Time { return now }}
 	for range 3 {
 		if report := loop.Tick(ctx); len(report.Admitted) != 0 || !slices.Equal(report.Waiting, []string{"fra"}) {
 			t.Fatalf("refused tick = %+v", report)
@@ -303,7 +315,7 @@ func TestAdmissionRefusalsAreJournaledOnce(t *testing.T) {
 	if kinds := journal.kinds(); !slices.Equal(kinds, []decisionlog.Kind{decisionlog.KindHeld, decisionlog.KindHeld}) {
 		t.Fatalf("journal after repropose = %v", kinds)
 	}
-	if _, err := (PriceList{}).Estimate(ctx, approved, now); err == nil {
+	if _, err := (fixedAdmissions{}).Estimate(ctx, approved, now); err == nil {
 		t.Fatal("a region without a price was estimated")
 	}
 }
@@ -396,7 +408,7 @@ func TestDriveWithoutEffectorsJournalsTheWait(t *testing.T) {
 		t.Fatal(err)
 	}
 	loop := &Loop{Store: store, Machine: machine, Home: regionlifecycle.Home{Cell: "gru"},
-		Leader: leader, Admissions: PriceList{MonthlyCents: map[string]uint64{"fra": 9_000}, HeadroomCents: 20_000}, Effectors: Effectors{},
+		Leader: leader, Admissions: fixedAdmissions{cents: 9_000, headroom: 20_000}, Effectors: Effectors{},
 		Now: func() time.Time { return now }}
 	report := loop.Tick(ctx)
 	if !slices.Equal(report.Admitted, []string{"fra"}) || !slices.Equal(report.Waiting, []string{"fra"}) ||
@@ -410,4 +422,23 @@ func TestDriveWithoutEffectorsJournalsTheWait(t *testing.T) {
 		decisionlog.KindHeld}) {
 		t.Fatalf("journal = %v", kinds)
 	}
+	if !slices.ContainsFunc(journal.decisions[0].Signals, func(signal decisionlog.Signal) bool {
+		return signal.Name == "headroom" && signal.Value == 20_000
+	}) {
+		t.Fatalf("admission journal does not carry the headroom: %+v", journal.decisions[0].Signals)
+	}
+}
+
+// fixedAdmissions admits a region at one price and headroom; a zero price is
+// refused, as a region without a price must be.
+type fixedAdmissions struct{ cents, headroom uint64 }
+
+func (admissions fixedAdmissions) Estimate(_ context.Context, record regionlifecycle.Record, now time.Time,
+) (regionlifecycle.CostAdmission, error) {
+	if admissions.cents == 0 {
+		return regionlifecycle.CostAdmission{}, errors.New("region has no price")
+	}
+	digest := sha256.Sum256([]byte(record.Cell + "\x00" + record.Proposal.ID + "\x00" + now.Format(time.RFC3339Nano)))
+	return regionlifecycle.CostAdmission{EstimatedMonthlyCents: admissions.cents, HeadroomCents: admissions.headroom,
+		EvidenceDigest: hex.EncodeToString(digest[:]), AdmittedAt: now.UTC()}, nil
 }

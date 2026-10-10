@@ -101,7 +101,7 @@ paths, the sidecars (with placement's member role),
 `membership`, `lease_seconds` and `renew_seconds`,
 the observability listener and the `kv_snapshot` location. Other mutable
 settings (`autoscale` intervals and node pools, `oci_reconcile` intervals and
-NLB, `global`, `region_planner`) get
+NLB, `global`) get
 sections the same way after this ticket. Storage capacity and placement volume
 backups instead use [fixed policy in code](storage.md#fixed-storage-policy).
 

@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -34,8 +35,8 @@ const (
 
 // The guardrails every region action runs under. They are fixed in code.
 const (
-	// MaxRegions is globalcontrol's roster bound.
-	MaxRegions = 32
+	// MaxRegions is the region bound the roster enforces too.
+	MaxRegions = catalog.MaxRegions
 	// AdmissionTTL is how long a cost admission stays fresh for spending steps.
 	AdmissionTTL = 15 * time.Minute
 	// ProposalTTL is how long a proposal waits before it expires.
@@ -208,7 +209,7 @@ func FleetOf(records []Record, cell string, home Home) Fleet {
 			continue
 		}
 		fleet.Regions++
-		if record.Phase == Active {
+		if record.effectivePhase() == Active {
 			continue
 		}
 		cents := record.Proposal.EstimatedMonthlyCents
@@ -234,11 +235,28 @@ func SaturatingAdd(left, right uint64) uint64 {
 // OccupiesSlot reports whether the record counts toward the region maximum
 // and committed spend. A Held record keeps the slot status of the phase it
 // was held in, so holding an unapproved proposal does not take a slot.
-func (record Record) OccupiesSlot() bool {
+func (record Record) OccupiesSlot() bool { return record.effectivePhase().OccupiesSlot() }
+
+// effectivePhase is the phase a record is in for the guards: a Held record
+// stands for the phase it was held in.
+func (record Record) effectivePhase() Phase {
 	if record.Phase == Held && record.Hold != nil {
-		return record.Hold.Phase.OccupiesSlot()
+		return record.Hold.Phase
 	}
-	return record.Phase.OccupiesSlot()
+	return record.Phase
+}
+
+// Admit applies the region maximum and the budget to one more region that
+// costs cents a month: the fleet's committed spend and cents must fit under
+// headroomCents. The planner's add guard and the admission both call it.
+func (fleet Fleet) Admit(headroomCents, cents uint64) error {
+	if fleet.Regions+1 > MaxRegions {
+		return ErrRegionLimit
+	}
+	if SaturatingAdd(fleet.CommittedMonthlyCents, cents) > headroomCents {
+		return ErrBudgetCeiling
+	}
+	return nil
 }
 
 // Machine applies transitions. It has no I/O; Store persists its results.
@@ -349,13 +367,7 @@ func (m Machine) admit(record Record, admission CostAdmission, fleet Fleet, now 
 		!now.Before(admission.AdmittedAt.Add(AdmissionTTL)) {
 		return ErrAdmissionStale
 	}
-	if fleet.Regions+1 > MaxRegions {
-		return ErrRegionLimit
-	}
-	if SaturatingAdd(fleet.CommittedMonthlyCents, admission.EstimatedMonthlyCents) > admission.HeadroomCents {
-		return ErrBudgetCeiling
-	}
-	return nil
+	return fleet.Admit(admission.HeadroomCents, admission.EstimatedMonthlyCents)
 }
 
 // BeginStep journals the intent for the step that starts in the current

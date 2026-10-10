@@ -74,7 +74,7 @@ func TestRecoveredIntentReconcilesBeforeReadmission(t *testing.T) {
 	// Both admissions expired, and the price now exceeds the budget headroom.
 	clock = start.Add(20 * time.Minute)
 	loop := &Loop{Store: store, Machine: machine, Home: regionlifecycle.Home{Cell: "gru"},
-		Leader: leader, Admissions: PriceList{MonthlyCents: map[string]uint64{"sfo": 11_000, "fra": 11_000}, HeadroomCents: 10_000},
+		Leader: leader, Admissions: fixedAdmissions{cents: 11_000, headroom: 10_000},
 		Effectors: Effectors{regionlifecycle.StepSubscribe: Subscription{API: tenancy, TenancyID: "ocid1.tenancy.oc1..test"}},
 		Now:       func() time.Time { return clock }}
 	report := loop.Tick(ctx)
@@ -92,7 +92,7 @@ func TestRecoveredIntentReconcilesBeforeReadmission(t *testing.T) {
 
 	// With an acceptable price the absent effect is readmitted and re-run
 	// with its journaled create key.
-	loop.Admissions = PriceList{MonthlyCents: map[string]uint64{"sfo": 9_000, "fra": 9_000}, HeadroomCents: 20_000}
+	loop.Admissions = fixedAdmissions{cents: 9_000, headroom: 20_000}
 	report = loop.Tick(ctx)
 	if !slices.Equal(report.Readmitted, []string{"fra"}) || !slices.Equal(tenancy.creates, []string{"FRA"}) {
 		t.Fatalf("readmitted tick = %+v (creates %v)", report, tenancy.creates)

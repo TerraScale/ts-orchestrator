@@ -887,10 +887,6 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// The home allocates node growth under the monthly budget. Every region
 	// feeds the budget insight from the capacity document it reads.
 	allocator := startCapacityAllocator(runCtx, global, telemetry.regionRollups)
-	if err := startRegionPlanner(runCtx, cfg, runtime.JetStream(), global, placementHolds,
-		runtime.Conn(), peers, fullClusterReady); err != nil {
-		return fmt.Errorf("start region planner: %w", err)
-	}
 	// runController refused a configuration without an embedded broker at
 	// its top, so Embedded is always set here.
 	linkSupervisor := &regionLinkSupervisor{cell: cfg.NATS.Cell, member: cfg.NATS.Instance,
@@ -928,6 +924,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return errors.New("controller region link probe source is missing")
 	}
 	linkSupervisor.source = regions
+	startRegionPlanner(runCtx, cfg, runtime.JetStream(), global, telemetry.regionRollups, fullClusterReady)
 	workers.Go(func() { workerErrors <- linkSupervisor.Run(runCtx) })
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })

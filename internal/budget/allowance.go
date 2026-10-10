@@ -258,6 +258,15 @@ func AllowanceFor(c Capacity, cell string, now time.Time) (int, bool) {
 	return c.Regions[index].Allowance, true
 }
 
+// Headroom is what the cap leaves after the projection while spend is known
+// and under the cap; otherwise nothing can be admitted.
+func (c Capacity) Headroom() uint64 {
+	if (c.State != StateOK && c.State != StateWarn) || c.ProjectedCents >= c.CapCents {
+		return 0
+	}
+	return c.CapCents - c.ProjectedCents
+}
+
 // Alerting reports whether the budget alert is open, with hysteresis: it opens
 // at WarnRatio and closes below ClearRatio. An unknown or unset budget keeps
 // the alert as it was.

@@ -19,7 +19,7 @@ var knownKinds = []decisionlog.Kind{decisionlog.KindReleaseAdmitted, decisionlog
 	decisionlog.KindScaleUp, decisionlog.KindScaleDown, decisionlog.KindHostLaunched, decisionlog.KindHostReclaimed,
 	decisionlog.KindMemberReplaced, decisionlog.KindControllerReplaced, decisionlog.KindStageChanged,
 	decisionlog.KindVolumeResized, decisionlog.KindVolumeReattached, decisionlog.KindBackupTaken,
-	decisionlog.KindRegionProposed, decisionlog.KindRegionAdmitted, decisionlog.KindRegionStep,
+	decisionlog.KindRegionProposed, decisionlog.KindRegionApproved, decisionlog.KindRegionAdmitted, decisionlog.KindRegionStep,
 	decisionlog.KindLeaderChanged, decisionlog.KindQuorumDegraded,
 	decisionlog.KindQuorumRestored, decisionlog.KindDeliveryApplied, decisionlog.KindDeliveryHeld,
 	decisionlog.KindDeliveryRejected, decisionlog.KindFounderLaunched, decisionlog.KindPeerEnrolled}

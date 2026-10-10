@@ -8,6 +8,19 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
+func TestCellOfNamesOCIRegionsAsTheCatalogDoes(t *testing.T) {
+	cases := []struct{ name, key, cell string }{
+		{"us-sanjose-1", "SJC", "sfo"},
+		{"sa-saopaulo-1", "GRU", "gru"},
+		{"uk-london-1", "LHR", "lhr"},
+	}
+	for _, tt := range cases {
+		if got := CellOf(tt.name, tt.key); got != tt.cell {
+			t.Fatalf("CellOf(%s, %s) = %q, want %q", tt.name, tt.key, got, tt.cell)
+		}
+	}
+}
+
 func TestCatalogIsClosedAndOrdered(t *testing.T) {
 	if got := Names()[:3]; !slices.Equal(got, []string{"gru", "sfo", "fra"}) {
 		t.Fatalf("leading cells=%v", got)

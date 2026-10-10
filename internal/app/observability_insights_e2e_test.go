@@ -14,19 +14,11 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlifecycle"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionplanner"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 )
 
-// noLifecycleRecords is a region lifecycle store with no record: only the
-// global home occupies a region slot.
-type noLifecycleRecords struct{}
-
-func (noLifecycleRecords) List(context.Context) ([]regionlifecycle.Record, error) { return nil, nil }
-
-// A controller with the rollout store and the region planner's budgets
-// attached: a rollout past its phase deadline and a budget at its ceiling
+// A controller with the rollout store
+// attached: a rollout past its phase deadline
 // reach the insight engine through the controller wiring, and the dashboard
 // shows them on the needs-attention page, the rollouts page and the
 // rollout's own detail page with its journaled decisions.
@@ -80,13 +72,8 @@ func TestControllerRolloutsAndBudgetsReachInsightsAndTheDashboard(t *testing.T) 
 	if _, err := store.Commit(ctx, revision, preflight); err != nil {
 		t.Fatal(err)
 	}
-	// The planner's budgets: the global home alone fills a one-region
-	// ceiling.
-	budgets := regionplanner.Budgets{Records: noLifecycleRecords{}, Policy: regionplanner.Policy{MaxRegions: 1,
-		Home: regionlifecycle.Home{Cell: "lab"}}}
-
 	if err := telemetry.attachController(ctx, controllerObservation{nats: nats, replicas: 1,
-		brokerIDs: []string{"one"}, authority: lease, rollouts: store, budgets: budgets}, nil); err != nil {
+		brokerIDs: []string{"one"}, authority: lease, rollouts: store}, nil); err != nil {
 		t.Fatal(err)
 	}
 	telemetry.markStarted()
@@ -107,7 +94,7 @@ func TestControllerRolloutsAndBudgetsReachInsightsAndTheDashboard(t *testing.T) 
 	// The engine evaluates as soon as it starts; the journal attaches
 	// asynchronously, so poll until the insights are listed.
 	want := map[string][]string{
-		"/insights":                     {"Rollout " + record.RolloutID[:12] + " is past its preflight deadline", "Budget regions is 100% used"},
+		"/insights":                     {"Rollout " + record.RolloutID[:12] + " is past its preflight deadline"},
 		"/rollouts":                     {record.RolloutID, "preflight", `href="/rollouts/` + record.RolloutID + `"`},
 		"/rollouts/" + record.RolloutID: {"preflight", "Rollout " + record.RolloutID[:12] + " is past its preflight deadline", "Admitted controller rollout " + record.RolloutID},
 	}

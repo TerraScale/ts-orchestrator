@@ -84,11 +84,8 @@ type ControllerConfig struct {
 	Autoscale  *AutoscaleConfig   `json:"autoscale,omitempty"`
 	// Global optionally pins the home derived from the signed interregion
 	// topology; global control always starts.
-	Global *GlobalControlConfig `json:"global,omitempty"`
-	// RegionPlanner runs the region planner in the global home; nil or
-	// disabled keeps it off.
-	RegionPlanner *RegionPlannerConfig `json:"region_planner,omitempty"`
-	SpecTrust     *SpecTrustConfig     `json:"spec_trust,omitempty"`
+	Global    *GlobalControlConfig `json:"global,omitempty"`
+	SpecTrust *SpecTrustConfig     `json:"spec_trust,omitempty"`
 	// KVSnapshot keeps the configuration KV buckets in OCI Object Storage
 	// and restores them into a rebuilt cell. Off by default.
 	KVSnapshot kvsnapshot.Config `json:"kv_snapshot,omitzero"`
