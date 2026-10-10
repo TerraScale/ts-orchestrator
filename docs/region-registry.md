@@ -52,7 +52,7 @@ control logs, host agents, broker) stays in its region.
 | `ts.orch.v1.<cell>.obs.region` | request/reply | Region summary (version 1). Dashboard rollups (TS-805). |
 | `ts.orch.v1.<cell>.obs.decisions` | request/reply | Decision journal query. |
 | `ts.orch.v1.<cell>.query.<verb>.>` | request/reply | Read-only services. New cross-region reads add a verb here. |
-| `ts.orch.v1.<cell>.region.health` | publish | Heartbeat above. |
+| `ts.orch.v1.<cell>.region.<name>` | publish | Region broadcasts: a region publishes only its own, every region receives all. `region.health` is the heartbeat above; `region.rollup` is TS-805's dashboard rollup. |
 | `ts.interregion.v1.<cell>.global` and `$JS.gru.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-<cell>` | mirror plumbing | `TS_GLOBAL_CONTROL` mirror; never publish to it. |
 
 New features use a new `query` verb with a version token, for example:
@@ -75,7 +75,7 @@ Credentials name roles and subject patterns, never regions.
 | --- | --- | --- |
 | controller | `ts.orch.v1.*.obs.region`, `ts.orch.v1.*.obs.decisions`, `ts.orch.v1.*.query.>` | own `ts.orch.v1.<cell>.query.>`, `obs.>`, every `region.health` |
 | service role (TerraBase, ts-auth, ...) | `ts.orch.v1.*.query.<verb>.>` for its query tags | own `ts.orch.v1.<cell>.query.<verb>.>` |
-| link (leaf user) | requests and own heartbeat; replies | requests for its own cell only; every heartbeat; its mirror feed |
+| link (leaf user) | requests and its own `region.>` broadcasts; replies | requests for its own cell only; every region's `region.>` broadcasts; its mirror feed |
 
 A new service gets cross-region reach by adding a query tag to its role
 identity, never a per-region grant.

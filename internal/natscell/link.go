@@ -62,20 +62,21 @@ func LinkScope(signer string) *jwt.UserScope {
 	scope.Description = "region links to the global home"
 	scope.Template.Pub.Allow = jwt.StringList{
 		root + ".*.query.>", root + ".*.obs." + protocol.ObservabilityRegionLeaf, root + ".*.obs." + protocol.ObservabilityDecisionsLeaf,
-		root + "." + cell + ".region.health",
+		// Region broadcasts (heartbeat, dashboard rollup, ...): its own only.
+		root + "." + cell + ".region.>",
 		protocol.JSConsumerResetSubject(protocol.JSDomainAPIPrefix(LinkHome), protocol.GlobalControlStream, consumer),
 		protocol.JSFlowControlSubject(protocol.GlobalControlStream, consumer),
 		// Replies to a relayed request: a leaf's Resp grant does not cover them.
 		root + ".*.inbox.>", "_INBOX.>",
 	}
 	// A region reads its own requests, observability and inbox, every region's
-	// health, and its own mirror feed; _INBOX lets it see TerraBase replies
+	// broadcasts, and its own mirror feed; _INBOX lets it see TerraBase replies
 	// relayed through the home, like the old _R_ limit. The mirror's reset
 	// replies come back on the server's own $JSC.R reply subjects, which the
 	// server does not name per consumer.
 	scope.Template.Sub.Allow = jwt.StringList{
 		root + "." + cell + ".query.>", root + "." + cell + ".obs." + protocol.ObservabilityRegionLeaf,
-		root + "." + cell + ".obs." + protocol.ObservabilityDecisionsLeaf, root + ".*.region.health",
+		root + "." + cell + ".obs." + protocol.ObservabilityDecisionsLeaf, root + ".*.region.>",
 		protocol.InterRegionRoot + "." + cell + ".global", root + "." + cell + ".inbox.>", "_INBOX.>", "$JSC.R.>",
 	}
 	scope.Template.AllowedConnectionTypes = jwt.StringList{jwt.ConnectionTypeLeafnode}

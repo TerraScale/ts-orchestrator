@@ -101,7 +101,7 @@ func linkControllerCredentials(t *testing.T, root, name string, region *testRegi
 		protocol.SubjectRoot+".*.obs."+protocol.ObservabilityRegionLeaf, protocol.SubjectRoot+".*.obs."+protocol.ObservabilityDecisionsLeaf,
 		protocol.SubjectRoot+".*.query.>")
 	claim.Sub.Allow = append(jwt.StringList(ControllerSubscriptions(cell)), protocol.ObservabilityGrant(cell),
-		protocol.SubjectRoot+"."+cell+".query.>", protocol.SubjectRoot+".*.region.health", protocol.InboxGrant(cell, userID))
+		protocol.SubjectRoot+"."+cell+".query.>", protocol.SubjectRoot+".*.region.health", protocol.RegionRollupGrant, protocol.InboxGrant(cell, userID))
 	claim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: time.Minute}
 	raw, err := claim.Encode(region.cell)
 	if err != nil {
@@ -130,14 +130,16 @@ func useLinkListener(t *testing.T, port int) {
 	linkServerName = testLeafServerName
 }
 
-// awaitEveryHealth publishes each region's heartbeat until every region has
-// received every region's.
-func awaitEveryHealth(ctx context.Context, t *testing.T, runtimes map[string]*Runtime, names []string) {
+// awaitEveryBroadcast publishes each region's broadcast on subject(region)
+// until every region has received every region's on grant.
+func awaitEveryBroadcast(ctx context.Context, t *testing.T, runtimes map[string]*Runtime, names []string,
+	subject func(string) string, grant string,
+) {
 	t.Helper()
 	received := map[string]chan *nats.Msg{}
 	for _, name := range names {
 		ch := make(chan *nats.Msg, 64)
-		sub, err := runtimes[name].Conn().ChanSubscribe(protocol.SubjectRoot+".*.region.health", ch)
+		sub, err := runtimes[name].Conn().ChanSubscribe(grant, ch)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -150,7 +152,7 @@ func awaitEveryHealth(ctx context.Context, t *testing.T, runtimes map[string]*Ru
 	}
 	for {
 		for _, name := range names {
-			if err := runtimes[name].Conn().Publish(protocol.RegionHealthSubject(name), []byte(name)); err != nil {
+			if err := runtimes[name].Conn().Publish(subject(name), []byte(name)); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -249,7 +251,8 @@ func TestLinkStarRelaysEveryRegionThroughTheHome(t *testing.T) {
 	}
 
 	// c: every region receives every region's health.
-	awaitEveryHealth(ctx, t, runtimes, names)
+	awaitEveryBroadcast(ctx, t, runtimes, names, protocol.RegionHealthSubject, protocol.SubjectRoot+".*.region.health")
+	awaitEveryBroadcast(ctx, t, runtimes, names, protocol.RegionRollupSubject, protocol.RegionRollupGrant)
 
 	// d: a raw leaf with SFO's link user cannot receive FRA's requests and
 	// cannot publish outside its own region.
@@ -327,7 +330,7 @@ func TestLinkScopeIsOneTemplateForEveryRegion(t *testing.T) {
 		t.Fatalf("link scope key/role = %q/%q", scope.Key, scope.Role)
 	}
 	for _, subject := range []string{"ts.orch.v1.*.query.>", "ts.orch.v1.*.obs.region", "ts.orch.v1.*.obs.decisions",
-		"ts.orch.v1.{{tag(cell)}}.region.health",
+		"ts.orch.v1.{{tag(cell)}}.region.>",
 		"$JS.gru.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-{{tag(cell)}}",
 		"$JS.FC.TS_GLOBAL_CONTROL.global-mirror-{{tag(cell)}}.*"} {
 		if !slices.Contains(scope.Template.Pub.Allow, subject) {
@@ -335,7 +338,7 @@ func TestLinkScopeIsOneTemplateForEveryRegion(t *testing.T) {
 		}
 	}
 	for _, subject := range []string{"ts.orch.v1.{{tag(cell)}}.query.>", "ts.orch.v1.{{tag(cell)}}.obs.region",
-		"ts.orch.v1.{{tag(cell)}}.obs.decisions", "ts.orch.v1.*.region.health", "ts.interregion.v1.{{tag(cell)}}.global",
+		"ts.orch.v1.{{tag(cell)}}.obs.decisions", "ts.orch.v1.*.region.>", "ts.interregion.v1.{{tag(cell)}}.global",
 		"ts.orch.v1.{{tag(cell)}}.inbox.>", "_INBOX.>", "$JSC.R.>"} {
 		if !slices.Contains(scope.Template.Sub.Allow, subject) {
 			t.Fatalf("link may not receive %q", subject)
