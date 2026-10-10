@@ -29,6 +29,14 @@ func TestDocumentsRelayExactBytesAsNextGenerations(t *testing.T) {
 			_, err := writer.PutDocument(ctx, epoch, KindCellSpec, "global", []byte("x"), nil)
 			return err
 		},
+		"budget regional cell": func() error {
+			_, err := writer.PutDocument(ctx, epoch, KindBudget, "sfo", []byte("x"), nil)
+			return err
+		},
+		"capacity regional cell": func() error {
+			_, err := writer.PutDocument(ctx, epoch, KindCapacity, "sfo", []byte("x"), nil)
+			return err
+		},
 		"bad cell": func() error {
 			_, err := writer.PutDocument(ctx, epoch, KindCellSpec, "S.FO", []byte("x"), nil)
 			return err
@@ -81,6 +89,18 @@ func TestDocumentsRelayExactBytesAsNextGenerations(t *testing.T) {
 	}
 	if _, err := writer.Document(ctx, KindCellSpec, "fra"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("another cell's document = %v", err)
+	}
+	// The global writer's own documents live under the global cell only.
+	for _, kind := range []Kind{KindBudget, KindCapacity} {
+		if _, err := writer.PutDocument(ctx, epoch, kind, protocol.GlobalScope, first, nil); err != nil {
+			t.Fatalf("%s document: %v", kind, err)
+		}
+		if document, err := writer.Document(ctx, kind, protocol.GlobalScope); err != nil || !bytes.Equal(document.Payload, first) {
+			t.Fatalf("%s document = %+v, %v", kind, document, err)
+		}
+		if _, err := writer.Document(ctx, kind, "sfo"); err == nil {
+			t.Fatalf("%s document read for a regional cell", kind)
+		}
 	}
 	// admit sees the exact stored payload, or nil, and may refuse the write.
 	refused := errors.New("refused")

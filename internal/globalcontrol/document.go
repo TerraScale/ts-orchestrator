@@ -11,12 +11,14 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// Document is a signed document the home region relays to every region:
-// the exact bytes an operator submitted for one cell. The relay adds no
-// authority. The global writer only orders and fences the record, and every
-// region verifies the bytes against its own trust roots before acting on
-// them, so a document no region would accept from an operator directly is
-// refused the same way when it arrives through the mirror.
+// Document is a document the home region relays to every region. A
+// KindCellSpec document is the exact bytes an operator submitted for one
+// regional cell: the relay adds no authority, the global writer only orders
+// and fences the record, and every region verifies the bytes against its own
+// trust roots before acting on them, so a document no region would accept
+// from an operator directly is refused the same way when it arrives through
+// the mirror. KindBudget and KindCapacity are the global writer's own
+// documents under the global cell, trusted like the roster.
 type Document struct {
 	Payload []byte
 	// Generation counts the record's payloads; it is not the document's
@@ -26,10 +28,16 @@ type Document struct {
 	Sequence   uint64
 }
 
-var errDocumentKey = errors.New("global document needs a document kind and a regional cell")
+var errDocumentKey = errors.New("global document needs a document kind and a matching cell")
 
 func validDocument(kind Kind, cell string) bool {
-	return kind == KindCellSpec && cellToken.MatchString(cell) && cell != protocol.GlobalScope
+	switch kind {
+	case KindCellSpec:
+		return cellToken.MatchString(cell) && cell != protocol.GlobalScope
+	case KindBudget, KindCapacity:
+		return cell == protocol.GlobalScope
+	}
+	return false
 }
 
 // PutDocument relays payload for cell as kind's next generation. A payload

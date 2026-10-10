@@ -45,18 +45,19 @@ var SecretUnsafeEnv = []string{"OCI_GO_SDK_DEBUG", "OCI_METADATA_BASE_URL", "OCI
 type Service string
 
 const (
-	ServiceCompute       Service = "compute"
-	ServiceBlockstorage  Service = "blockstorage"
-	ServiceNetwork       Service = "network"
-	ServiceObjectStorage Service = "objectstorage"
-	ServiceNLB           Service = "networkloadbalancer"
-	ServiceWorkRequests  Service = "workrequests"
-	ServiceIdentity      Service = "identity"
-	ServiceKMS           Service = "kms"
-	ServiceSearch        Service = "resourcesearch"
-	ServiceLimits        Service = "limits"
-	ServiceVault         Service = "vault"
-	ServiceUsage         Service = "usageapi"
+	ServiceCompute           Service = "compute"
+	ServiceComputeManagement Service = "computemanagement"
+	ServiceBlockstorage      Service = "blockstorage"
+	ServiceNetwork           Service = "network"
+	ServiceObjectStorage     Service = "objectstorage"
+	ServiceNLB               Service = "networkloadbalancer"
+	ServiceWorkRequests      Service = "workrequests"
+	ServiceIdentity          Service = "identity"
+	ServiceKMS               Service = "kms"
+	ServiceSearch            Service = "resourcesearch"
+	ServiceLimits            Service = "limits"
+	ServiceVault             Service = "vault"
+	ServiceUsage             Service = "usageapi"
 )
 
 // Limit is one token bucket: a sustained rate and a burst.
@@ -68,18 +69,19 @@ type Limit struct {
 // DefaultLimits stay well below OCI's published per-tenancy throttles so that
 // three regional controllers and an operator tool can share a tenancy.
 var DefaultLimits = map[Service]Limit{
-	ServiceCompute:       {PerSecond: 8, Burst: 16},
-	ServiceBlockstorage:  {PerSecond: 8, Burst: 16},
-	ServiceNetwork:       {PerSecond: 8, Burst: 16},
-	ServiceObjectStorage: {PerSecond: 20, Burst: 40},
-	ServiceNLB:           {PerSecond: 4, Burst: 8},
-	ServiceWorkRequests:  {PerSecond: 4, Burst: 8},
-	ServiceIdentity:      {PerSecond: 4, Burst: 8},
-	ServiceKMS:           {PerSecond: 4, Burst: 8},
-	ServiceSearch:        {PerSecond: 4, Burst: 8},
-	ServiceLimits:        {PerSecond: 4, Burst: 8},
-	ServiceVault:         {PerSecond: 4, Burst: 8},
-	ServiceUsage:         {PerSecond: 1, Burst: 2},
+	ServiceCompute:           {PerSecond: 8, Burst: 16},
+	ServiceComputeManagement: {PerSecond: 8, Burst: 16},
+	ServiceBlockstorage:      {PerSecond: 8, Burst: 16},
+	ServiceNetwork:           {PerSecond: 8, Burst: 16},
+	ServiceObjectStorage:     {PerSecond: 20, Burst: 40},
+	ServiceNLB:               {PerSecond: 4, Burst: 8},
+	ServiceWorkRequests:      {PerSecond: 4, Burst: 8},
+	ServiceIdentity:          {PerSecond: 4, Burst: 8},
+	ServiceKMS:               {PerSecond: 4, Burst: 8},
+	ServiceSearch:            {PerSecond: 4, Burst: 8},
+	ServiceLimits:            {PerSecond: 4, Burst: 8},
+	ServiceVault:             {PerSecond: 4, Burst: 8},
+	ServiceUsage:             {PerSecond: 1, Burst: 2},
 }
 
 var defaultLimit = Limit{PerSecond: 4, Burst: 8}
@@ -241,6 +243,18 @@ func (f *Factory) Compute() (core.ComputeClient, error) {
 	}
 	client.SetRegion(f.region)
 	f.Configure(&client.BaseClient, ServiceCompute)
+	return client, nil
+}
+
+// ComputeManagement returns a rate-limited Compute Management client for
+// instance pools and instance configurations.
+func (f *Factory) ComputeManagement() (core.ComputeManagementClient, error) {
+	client, err := core.NewComputeManagementClientWithConfigurationProvider(f.provider)
+	if err != nil {
+		return client, fmt.Errorf("create OCI Compute Management client: %w", err)
+	}
+	client.SetRegion(f.region)
+	f.Configure(&client.BaseClient, ServiceComputeManagement)
 	return client, nil
 }
 

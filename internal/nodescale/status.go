@@ -1,0 +1,64 @@
+package nodescale
+
+import (
+	"errors"
+	"fmt"
+	"time"
+)
+
+// StatusSchema is the wire version of Status. A reader refuses any other schema.
+const StatusSchema = 1
+
+// maxReasonBytes bounds Status.Reason, which the dashboard shows as it is.
+const maxReasonBytes = 256
+
+// InFlight is the scale action a region is running.
+type InFlight struct {
+	ID         string    `json:"id"`
+	Kind       Action    `json:"kind"`
+	Step       string    `json:"step"`
+	Node       string    `json:"node,omitempty"`
+	InstanceID string    `json:"instance_id,omitempty"`
+	Started    time.Time `json:"started"`
+}
+
+// Status is what a region publishes in its summary for the home's allowances.
+type Status struct {
+	Schema         int                `json:"schema"`
+	Cell           string             `json:"cell"`
+	At             time.Time          `json:"at"`
+	Nodes          int                `json:"nodes"`
+	QuorumNodes    int                `json:"quorum_nodes"`
+	PoolNodes      int                `json:"pool_nodes"`
+	Want           int                `json:"want"`
+	Allowance      int                `json:"allowance"`
+	AllowanceFresh bool               `json:"allowance_fresh"`
+	Action         Action             `json:"action"`
+	Saturated      bool               `json:"saturated,omitzero"`
+	Pressure       float64            `json:"pressure"`
+	Signal         Signal             `json:"signal,omitempty"`
+	Signals        map[Signal]float64 `json:"signals,omitempty"`
+	Reason         string             `json:"reason"`
+	InFlight       *InFlight          `json:"in_flight,omitempty"`
+	LastChange     time.Time          `json:"last_change,omitzero"`
+}
+
+// Validate refuses a status the home cannot use.
+func (s Status) Validate() error {
+	switch {
+	case s.Schema != StatusSchema:
+		return fmt.Errorf("node status schema %d, want %d", s.Schema, StatusSchema)
+	case !cellPattern.MatchString(s.Cell):
+		return fmt.Errorf("node status cell %q is not a cell name", s.Cell)
+	case s.At.IsZero():
+		return errors.New("node status has no time")
+	case s.Reason == "" || len(s.Reason) > maxReasonBytes:
+		return fmt.Errorf("node status reason must be 1 to %d bytes", maxReasonBytes)
+	}
+	for _, count := range []int{s.Nodes, s.QuorumNodes, s.PoolNodes, s.Want, s.Allowance} {
+		if count < 0 || count > MaxNodes+MaxPoolNodes {
+			return fmt.Errorf("node status count %d is outside 0 to %d", count, MaxNodes+MaxPoolNodes)
+		}
+	}
+	return nil
+}

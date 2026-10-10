@@ -1,5 +1,6 @@
 // Package globalcontrol owns the small, single-writer global state shared by
-// every region: the region roster and the database directory. The home region
+// every region: the region roster, the database directory, and the monthly
+// budget and capacity documents. The home region
 // (GRU) writes it to the TS_GLOBAL_CONTROL stream under the global-scope
 // authority lease; every other region holds a read-only JetStream mirror and
 // keeps serving from it when the home region is unreachable. Only global
@@ -29,6 +30,10 @@ const (
 	// KindCellSpec relays a region's signed cell spec (internal/cellspec),
 	// keyed by the region's cell (see Document).
 	KindCellSpec Kind = "cellspec"
+	// KindBudget is the tenancy's monthly OCI budget (internal/budget), cell global.
+	KindBudget Kind = "budget"
+	// KindCapacity is every region's node allowance (internal/budget), cell global.
+	KindCapacity Kind = "capacity"
 )
 
 // RosterKey is the single key of the region roster record.
