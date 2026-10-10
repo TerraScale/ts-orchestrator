@@ -88,7 +88,7 @@ func TestHostTelemetryDiscardsPreviousAuthorityTerms(t *testing.T) {
 }
 
 func TestHostTelemetryRestoresReleaseResourceNormalization(t *testing.T) {
-	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, Leader: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Minute)}}
+	fencer := &switchingFencer{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Minute)}}
 	telemetry := &hostTelemetry{fencer: fencer, load: hostload.NewAggregator(hostload.AggregatorConfig{})}
 	for _, resources := range []placement.Resources{{CPU: 2, MemoryBytes: 2048}, {CPU: 1, MemoryBytes: 1024}} {
 		telemetry.setResources(map[string]placement.Resources{"ts-auth": resources})

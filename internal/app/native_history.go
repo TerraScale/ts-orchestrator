@@ -47,6 +47,7 @@ type nativeProfileProvenance struct {
 	Manifest      []byte `json:"manifest,omitempty"`
 	Config        []byte `json:"config,omitempty"`
 	MaterialChain []byte `json:"material_chain,omitempty"`
+	Identity      []byte `json:"identity,omitempty"`
 }
 
 type nativeReleaseBinding struct {
@@ -87,6 +88,7 @@ type nativeStoredProfile struct {
 		Manifest      []string `json:"manifest,omitempty"`
 		Config        []string `json:"config,omitempty"`
 		MaterialChain []string `json:"material_chain,omitempty"`
+		Identity      []string `json:"identity,omitempty"`
 	} `json:"provenance"`
 }
 
@@ -128,6 +130,7 @@ func encodeNativeHistory(state nativeReleaseHistory, maxPayload int64) ([]byte, 
 			{b.Provenance.Manifest, &stored.Provenance.Manifest, bootstrapstart.MaxControllerManifestMetadataBytes},
 			{b.Provenance.Config, &stored.Provenance.Config, bootstrap.MaxControllerConfigBytes},
 			{b.Provenance.MaterialChain, &stored.Provenance.MaterialChain, bootstrap.MaxMaterialGenerations * (bootstrap.MaxMaterialGenerationBytes + 16<<10)},
+			{b.Provenance.Identity, &stored.Provenance.Identity, bootstrapstart.MaxAcceptedIdentityBytes},
 		} {
 			if len(field.data) > field.max {
 				return nil, nil, fmt.Errorf("%w: native provenance exceeds its signed input bound", delivery.ErrInvalid)
@@ -231,6 +234,7 @@ func (h *nativeHistory) hydrate(ctx context.Context, b *nativeReleaseBinding) er
 		{stored.Provenance.Manifest, &b.Provenance.Manifest, bootstrapstart.MaxControllerManifestMetadataBytes},
 		{stored.Provenance.Config, &b.Provenance.Config, bootstrap.MaxControllerConfigBytes},
 		{stored.Provenance.MaterialChain, &b.Provenance.MaterialChain, bootstrap.MaxMaterialGenerations * (bootstrap.MaxMaterialGenerationBytes + 16<<10)},
+		{stored.Provenance.Identity, &b.Provenance.Identity, bootstrapstart.MaxAcceptedIdentityBytes},
 	} {
 		if len(field.refs) > (field.max+nativeBlobBytes-1)/nativeBlobBytes {
 			return errors.New("native provenance has too many chunks")
@@ -435,12 +439,12 @@ func (h *nativeHistory) currentProvenance(ctx context.Context, role string, prof
 	if h.cfg.NATS.Lab {
 		return nativeProfileProvenance{}, errors.New("lab native profile must be in an accepted signed cell spec")
 	}
-	marker, err := bootstrapstart.NewMarkerStore().Read()
+	initial, err := bootstrapstart.NewMarkerStore().ReadInitialFormation()
 	if err != nil {
 		return nativeProfileProvenance{}, err
 	}
 	manifest, err := readInstalledControllerFile(controllerConfigDirectory, controllerManifestFilename, 0, 0, 0o644, bootstrapstart.MaxControllerManifestMetadataBytes)
-	if err != nil || controllerSHA256(manifest) != marker.ManifestSHA256 {
+	if err != nil || controllerSHA256(manifest) != initial.ManifestSHA256 {
 		return nativeProfileProvenance{}, errors.New("native profile manifest is not the accepted install")
 	}
 	config, err := h.cfg.signedWire()
@@ -451,7 +455,15 @@ func (h *nativeHistory) currentProvenance(ctx context.Context, role string, prof
 	if err != nil {
 		return nativeProfileProvenance{}, err
 	}
+	accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity()
+	if err != nil {
+		return nativeProfileProvenance{}, err
+	}
 	p := nativeProfileProvenance{Manifest: manifest, Config: config}
+	p.Identity, err = bootstrapstart.EncodeAcceptedIdentity(accepted)
+	if err != nil {
+		return nativeProfileProvenance{}, err
+	}
 	p.MaterialChain, err = readInstalledControllerFile(bootstrapstart.MaterialDirectory, bootstrapstart.MaterialGenerationsFile,
 		uid, gid, 0o600, bootstrap.MaxMaterialGenerations*(bootstrap.MaxMaterialGenerationBytes+16<<10))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -470,7 +482,7 @@ func (h *nativeHistory) verifyProfile(role string, profile WorkloadProfile, p na
 	}
 	var signed WorkloadProfile
 	if len(p.Spec) != 0 {
-		if len(p.Manifest)+len(p.Config)+len(p.MaterialChain) != 0 {
+		if len(p.Manifest)+len(p.Config)+len(p.MaterialChain)+len(p.Identity) != 0 {
 			return errors.New("ambiguous native profile provenance")
 		}
 		verified, err := cellspec.VerifyHistorical(p.Spec, r.roots.current(), r.identity)
@@ -498,6 +510,17 @@ func (h *nativeHistory) verifyProfile(role string, profile WorkloadProfile, p na
 		if manifest.DeploymentID != r.identity.DeploymentID || strings.ToLower(string(manifest.Cell)) != r.identity.Cell || manifest.Environment != r.identity.Environment {
 			return errors.New("retained controller manifest belongs to another deployment")
 		}
+		identity, err := bootstrapstart.DecodeAcceptedIdentity(p.Identity)
+		if err != nil {
+			return err
+		}
+		if identity.DeploymentID != manifest.DeploymentID || identity.Cell != string(manifest.Cell) || identity.Slot != manifest.Slot {
+			return errors.New("retained accepted identity belongs to another controller")
+		}
+		acceptance, err := identity.AcceptanceSHA256()
+		if err != nil {
+			return err
+		}
 		_, err = bootstrap.VerifyHistoricalManifest(envelope, r.roots.current(), bootstrap.ManifestExpectation{
 			DeploymentID: r.identity.DeploymentID, Cell: manifest.Cell, Environment: r.identity.Environment,
 			ClusterID: manifest.ClusterID, Slot: manifest.Slot, ImageOCID: manifest.ImageOCID,
@@ -519,8 +542,8 @@ func (h *nativeHistory) verifyProfile(role string, profile WorkloadProfile, p na
 			}
 			for _, pin := range verified[len(verified)-1].Generation().ControllerConfigs {
 				if pin.Slot == manifest.Slot {
-					if pin.ManifestSHA256 != controllerSHA256(p.Manifest) {
-						return errors.New("retained material/config manifest mismatch")
+					if pin.AcceptanceSHA256 != acceptance {
+						return errors.New("retained material/config acceptance mismatch")
 					}
 					want = pin.SHA256
 				}
