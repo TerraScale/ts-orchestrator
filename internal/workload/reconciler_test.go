@@ -144,17 +144,6 @@ func (f *fakeFencer) Guard(context.Context, uint64) error {
 	return nil
 }
 
-type capacityRecorder struct {
-	requests  []placement.WorkloadRequest
-	satisfied int
-}
-
-func (c *capacityRecorder) CapacitySatisfied(ServiceSpec) { c.satisfied++ }
-
-func (c *capacityRecorder) RequestCapacity(_ ServiceSpec, request placement.WorkloadRequest) {
-	c.requests = append(c.requests, request)
-}
-
 func statelessSpec(min, max int) ServiceSpec {
 	return ServiceSpec{Role: "api", Environment: "prod", Kind: KindStateless, Replicas: ReplicaBounds{Min: min, Max: max}}
 }
@@ -434,20 +423,10 @@ func TestReconcilerNeverUsesDedicatedTerraBaseHosts(t *testing.T) {
 	})
 	cell.seed("node-a", "api", testDigest, 4)
 	cell.runAll()
-	capacity := &capacityRecorder{}
-	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, statelessSpec(2, 2),
-		func(c *Config) { c.Capacity = capacity })
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, statelessSpec(2, 2))
 	err := reconciler.Tick(context.Background())
 	if !errors.Is(err, placement.ErrInsufficientCapacity) || len(cell.writes) != 0 {
 		t.Fatalf("Tick = %v, writes %v", err, cell.writes)
-	}
-	if len(capacity.requests) != 1 || capacity.requests[0].Replicas != 2 {
-		t.Fatalf("capacity requests = %#v", capacity.requests)
-	}
-	for _, candidate := range capacity.requests[0].Hosts {
-		if candidate.Node == "tb-1" {
-			t.Fatal("dedicated TerraBase host offered as a candidate")
-		}
 	}
 }
 
@@ -490,7 +469,7 @@ func TestReconcilerWaitsForReleaseAndHoldsExhaustedGenerations(t *testing.T) {
 	}
 }
 
-func TestReconcilerDomainCapRequestsCapacity(t *testing.T) {
+func TestReconcilerDomainCapHoldsPlacement(t *testing.T) {
 	cell := newFakeCell()
 	cell.addHost("node-a", "fd-1", true)
 	cell.addHost("node-b", "fd-1", true)
@@ -937,8 +916,7 @@ func TestRetainedReleaseResourcesRestoreReplacementPlacement(t *testing.T) {
 			cell.run("a", "api", "running")
 			spec := statelessSpec(2, 2)
 			spec.Resources = current
-			capacity := &capacityRecorder{}
-			config := Config{Cell: "gru", Specs: []ServiceSpec{spec}, Profiles: map[string]placement.Resources{"api": current}, Hosts: cell, Writer: cell, Fencer: &fakeFencer{leader: true, epoch: 2}, Now: func() time.Time { return testNow }, Capacity: capacity}
+			config := Config{Cell: "gru", Specs: []ServiceSpec{spec}, Profiles: map[string]placement.Resources{"api": current}, Hosts: cell, Writer: cell, Fencer: &fakeFencer{leader: true, epoch: 2}, Now: func() time.Time { return testNow }}
 			if restore {
 				config.ReleaseResources = func(context.Context, []host.Desired, map[string]placement.Resources) (map[string]placement.Resources, error) {
 					return map[string]placement.Resources{"api": retained}, nil
@@ -953,11 +931,11 @@ func TestRetainedReleaseResourcesRestoreReplacementPlacement(t *testing.T) {
 				t.Fatalf("placement result: %v", err)
 			}
 			if restore {
-				if len(cell.writes) != 1 || cell.writes[0].Node != "b" || cell.writes[0].Digest != testDigest || !maps.Equal(cell.writes[0].Env, cell.desired["a/api"].Env) || len(capacity.requests) != 0 {
-					t.Fatalf("retained reservations did not place exact restored replacement: %+v,capacity=%+v", cell.writes, capacity.requests)
+				if len(cell.writes) != 1 || cell.writes[0].Node != "b" || cell.writes[0].Digest != testDigest || !maps.Equal(cell.writes[0].Env, cell.desired["a/api"].Env) {
+					t.Fatalf("retained reservations did not place exact restored replacement: %+v", cell.writes)
 				}
-			} else if len(cell.writes) != 0 || len(capacity.requests) != 1 || capacity.requests[0].Request != current {
-				t.Fatalf("negative control accepted larger current reservations: %+v,capacity=%+v", cell.writes, capacity.requests)
+			} else if len(cell.writes) != 0 {
+				t.Fatalf("negative control accepted larger current reservations: %+v", cell.writes)
 			}
 		})
 	}

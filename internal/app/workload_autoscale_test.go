@@ -11,14 +11,12 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
-	"github.com/nats-io/nats.go/jetstream"
 )
 
 func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
@@ -28,9 +26,9 @@ func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
 		ExpiresAt: time.Now().Add(time.Hour)}}
 	// The reconciler always runs, for the roles a cell spec adds later;
 	// without a service it owns nothing.
-	reconciler, scaler, load, err := startWorkloadAutoscale("gru", nil, profiles, nil, nil, time.Time{}, &host.Controller{}, fencer, nil)
-	if err != nil || scaler != nil || load == nil || reconciler.Signals() != nil {
-		t.Fatalf("absent autoscale config must collect without scaling: %v %v %v", scaler, load, err)
+	reconciler, load, err := startWorkloadAutoscale("gru", nil, profiles, nil, &host.Controller{}, fencer, nil)
+	if err != nil || load == nil || reconciler.Signals() != nil {
+		t.Fatalf("absent autoscale config must collect without scaling: %v %v", load, err)
 	}
 	if _, owned := reconciler.Owns("api"); owned {
 		t.Fatal("a reconciler without services owns a role")
@@ -41,7 +39,7 @@ func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
 		t.Fatal(err)
 	}
 	disabled.HostTelemetry = true
-	if reconciler, scaler, load, err := startWorkloadAutoscale("gru", disabled, profiles, nil, nil, time.Time{}, &host.Controller{}, fencer, nil); err != nil || scaler != nil || load == nil || reconciler.Signals() != nil {
+	if reconciler, load, err := startWorkloadAutoscale("gru", disabled, profiles, nil, &host.Controller{}, fencer, nil); err != nil || load == nil || reconciler.Signals() != nil {
 		t.Fatal("disabled autoscale config must collect without scaling")
 	}
 	var planner regionalDeliveryPlanner
@@ -55,7 +53,6 @@ func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
 			Replicas: workload.ReplicaBounds{Max: 1}}}},
 		"resource mismatch": {Services: []workload.ServiceSpec{{Role: "api", Environment: "prod", Kind: workload.KindStateless,
 			Replicas: workload.ReplicaBounds{Max: 1}, Resources: placement.Resources{CPU: 9, MemoryBytes: 1, DiskBytes: 1}}}},
-		"invalid pool": {NodePools: []hostpool.NodePool{{Name: "general"}}},
 		"terrabase role": {Services: []workload.ServiceSpec{{Role: "terrabase", Environment: "prod",
 			Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Max: 1}}}},
 	}
@@ -118,8 +115,8 @@ func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
 		Scaling: &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.6}}}}}}
 	fencer := &switchingFencer{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1, Revision: 1,
 		ExpiresAt: time.Now().Add(time.Hour)}}
-	reconciler, _, telemetry, err := startWorkloadAutoscale("gru", config, map[string]WorkloadProfile{"api": {Resources: resources}},
-		config.Services, nil, time.Time{}, &host.Controller{}, fencer, nil)
+	reconciler, telemetry, err := startWorkloadAutoscale("gru", config, map[string]WorkloadProfile{"api": {Resources: resources}},
+		config.Services, &host.Controller{}, fencer, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,22 +183,5 @@ func TestTSAuthReleasePlacementCapsFailureDomains(t *testing.T) {
 	}
 	if cap := releasePlacementDomainCap("api"); cap != 0 {
 		t.Fatalf("generic release domain cap = %d, want 0", cap)
-	}
-}
-
-// The pool scaler dates the cell by its replicated authority log; a cell
-// whose log cannot be read has an unknown age.
-func TestAuthorityLogCreatedDatesTheCell(t *testing.T) {
-	js := testRolloutJetStream(t)
-	if created := authorityLogCreated(t.Context(), js); !created.IsZero() {
-		t.Fatalf("a cell without an authority log is dated %v", created)
-	}
-	stream, err := js.CreateStream(t.Context(), jetstream.StreamConfig{Name: authority.ControlStreamName,
-		Subjects: []string{"test.authority"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if created := authorityLogCreated(t.Context(), js); created.IsZero() || !created.Equal(stream.CachedInfo().Created) {
-		t.Fatalf("authority log dated %v, created %v", created, stream.CachedInfo().Created)
 	}
 }

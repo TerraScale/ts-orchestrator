@@ -279,7 +279,7 @@ func TestHostTelemetryAdoptionAndRecoveryUseCommittedResources(t *testing.T) {
 	f.save(t, tsauth.Role, nativeReleaseHistory{Schema: 1, Pending: &a, Good: []nativeGoodRelease{good}})
 	f.desired(t, a)
 	specs := []workload.ServiceSpec{{Role: tsauth.Role, Environment: "test", Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Min: 1, Max: 1}}}
-	reconciler, _, telemetry, err := startWorkloadAutoscale("gru", nil, profiles, specs, nil, time.Time{}, f.history.hosts, f.history.fencer, f.history)
+	reconciler, telemetry, err := startWorkloadAutoscale("gru", nil, profiles, specs, f.history.hosts, f.history.fencer, f.history)
 	if err != nil {
 		t.Fatal(err)
 	}

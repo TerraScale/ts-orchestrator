@@ -100,9 +100,27 @@ leader compares it with the sum over regions of the larger of month end and
 next month, and writes the `capacity` document: state `none`, `unknown`, `ok`,
 `warn` (at 80 % of the cap) or `over`. The `/cost` page shows that document.
 
+<<<<<<< HEAD
 TS-807 keeps no per-cell cap, so a region's view carries no budget state. TS-804
 deletes `hostpool` and scales nodes with `internal/nodescale`; its `Scaler.Cost`
 hook takes this region's forecast.
+=======
+The cap was the cell spec's signed `budget`, deleted in TS-804. The one global
+monthly budget (`internal/budget`) replaces it.
+`projected = max(month end, next month)`:
+
+| State | When |
+| --- | --- |
+| `none` | the cell spec sets no budget |
+| `unknown` | no report, a stale report, or a currency other than the cap's |
+| `ok` | projected < 80 % of the cap |
+| `warn` | projected ≥ 80 % (TS-804 raises the alert) |
+| `over` | projected ≥ the cap |
+
+The host pool budget gate (`hostpool`) was deleted in TS-804. It admitted a
+launch while the monthly price fit in `cap − projected`, and held every launch
+when the state was `unknown`.
+>>>>>>> 265a81b9 (TS-804: Delete hostpool, node_pools and the cell spec budget)
 
 ## Dashboard
 
@@ -199,7 +217,12 @@ Slices: collector and tags.
 
 1. Design (this document).
 2. Collector: `internal/ocicost` (report, Usage API reader, KV store,
+<<<<<<< HEAD
    forecast), the leader loop and `ts-orch cost report`.
+=======
+   forecast, budget state), the leader loop, the hostpool switch (deleted with
+   `internal/hostpool`) and `ts-orch cost report`.
+>>>>>>> 265a81b9 (TS-804: Delete hostpool, node_pools and the cell spec budget)
 3. Dashboard: summary field, `/cost`, landing tile.
 4. Tags: reconciler and `ts-orch cost tag`; live pass in GRU and SFO.
 

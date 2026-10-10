@@ -17,10 +17,10 @@ func TestHostTelemetryCollectsWithoutAutoscaling(t *testing.T) {
 	for _, config := range []*AutoscaleConfig{nil, {}, {HostTelemetry: true}, {Enabled: true}} {
 		fencer := &switchingFencer{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1,
 			Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}}
-		reconciler, scaler, telemetry, err := startWorkloadAutoscale("gru", config, nil, nil, nil,
-			time.Time{}, &host.Controller{}, fencer, nil)
-		if err != nil || scaler != nil || reconciler.Signals() != nil || telemetry == nil {
-			t.Fatalf("collection without scaling: reconciler=%v scaler=%v collector=%v err=%v", reconciler, scaler, telemetry, err)
+		reconciler, telemetry, err := startWorkloadAutoscale("gru", config, nil, nil,
+			&host.Controller{}, fencer, nil)
+		if err != nil || reconciler.Signals() != nil || telemetry == nil {
+			t.Fatalf("collection without scaling: reconciler=%v collector=%v err=%v", reconciler, telemetry, err)
 		}
 		cpu, cores := 0.4, 0.125
 		if err := telemetry.record(hostload.Origin{Cell: "gru", Environment: "production", Node: "Host-A"},

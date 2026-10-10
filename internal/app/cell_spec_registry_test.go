@@ -21,7 +21,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/kvsnapshot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -610,43 +609,6 @@ func TestSpecRegistryValidatesHostGrants(t *testing.T) {
 	if registry.controllerNode("gru", "controller-a") != "ts-gru-1" || registry.controllerNode("gru", "controller-b") != "gru-1-ctl-2" ||
 		registry.nodeAddress("ts-gru-1") != "10.251.0.21" || registry.nodeAddress("gru-1-db-1") != "" {
 		t.Fatal("the renamed grant does not map its controller slot and address")
-	}
-}
-
-// A budget needs every node pool priced, and the pool scaler reads the
-// adopted spec's budget, also after a restart adopted it before the scaler
-// started.
-func TestSpecRegistryBudgetNeedsPricedPools(t *testing.T) {
-	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
-	pool := hostpool.NodePool{Name: "general", Environment: "test", Roles: []string{"web"},
-		Shape: placement.Resources{CPU: 4, MemoryBytes: 8 << 30, DiskBytes: 50 << 30}, FailureDomains: []string{"fd-1"},
-		Max: 2, IdleCooldownSeconds: 600}
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}, Controller: ControllerConfig{
-		Workloads: map[string]WorkloadProfile{"web": {Resources: resources}},
-		Autoscale: &AutoscaleConfig{Enabled: true, NodePools: []hostpool.NodePool{pool}}}}
-	registry, err := newSpecRegistry(cfg, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	set := cellspec.Spec{Schema: cellspec.Schema, Generation: 1, RequiresBinary: 3,
-		Services: []cellspec.Service{{Role: "web", Profile: WorkloadProfile{Resources: resources}}},
-		Budget:   &hostpool.Budget{MonthlyCapCents: 50000, Currency: "USD"}}
-	if err := registry.validate(set); err == nil || !strings.Contains(err.Error(), "host_monthly_cents") {
-		t.Fatalf("budget with an unpriced pool: %v", err)
-	}
-	cfg.Controller.Autoscale.NodePools[0].HostMonthlyCents = 2500
-	if registry, err = newSpecRegistry(cfg, ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := registry.validate(set); err != nil {
-		t.Fatalf("budget with priced pools: %v", err)
-	}
-	if registry.budget() != nil {
-		t.Fatal("generation 0 has a budget")
-	}
-	registry.adopt(set, 1)
-	if got := registry.budget(); got == nil || *got != *set.Budget {
-		t.Fatalf("budget = %+v", got)
 	}
 }
 

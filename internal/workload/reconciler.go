@@ -30,14 +30,6 @@ type DesiredWriter interface {
 	ApplyDesired(context.Context, host.Desired) (host.Receipt, error)
 }
 
-// CapacityRequester is told when a service cannot be placed on current hosts,
-// and when it can again. Implementations must not block; they record demand
-// for a host-pool scaler.
-type CapacityRequester interface {
-	RequestCapacity(spec ServiceSpec, request placement.WorkloadRequest)
-	CapacitySatisfied(spec ServiceSpec)
-}
-
 type Config struct {
 	Cell     string
 	Specs    []ServiceSpec
@@ -51,7 +43,6 @@ type Config struct {
 	// Signals feeds autoscaling; nil disables signal-driven scaling while
 	// keeping self-healing and bound enforcement.
 	Signals  autoscale.Source
-	Capacity CapacityRequester
 	Interval time.Duration
 	Now      func() time.Time
 	Logf     func(string, ...any)
@@ -417,14 +408,6 @@ func (r *Reconciler) reconcile(ctx context.Context, spec ServiceSpec, profiles m
 	result.Target = target
 	step, err := PlanStep(StepInput{Cell: r.config.Cell, Spec: spec, Resources: resources,
 		Observation: observation, Release: release, Replicas: target, Epoch: epoch})
-	if errors.Is(err, placement.ErrInsufficientCapacity) && r.config.Capacity != nil {
-		r.config.Capacity.RequestCapacity(spec, placement.WorkloadRequest{Cell: r.config.Cell, Role: spec.Role,
-			Replicas: target, Request: resources, Hosts: observation.Candidates, Previous: release.Current,
-			MaxPerFailureDomain: spec.Placement.MaxPerFailureDomain})
-	}
-	if err == nil && r.config.Capacity != nil {
-		r.config.Capacity.CapacitySatisfied(spec)
-	}
 	if err != nil {
 		return result, nil, err
 	}

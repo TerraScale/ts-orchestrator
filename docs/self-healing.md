@@ -23,7 +23,7 @@ and what is still missing.
   be read, the problem it last reported stays open (the `insights` blind
   inputs).
 - **Reuse.** Insights, the decision journal, the rollout executor
-  (`rolloutexec`), the OCI reconcile (`ociresource`), `hostpool` and the host
+  (`rolloutexec`), the OCI reconcile (`ociresource`), `nodescale` and the host
   credential renewal already exist, and the slices build on them.
 
 ## Boundaries with sibling work
@@ -121,7 +121,7 @@ and what is still missing.
       with no re-found. Leaf lifetimes are then shortened.
 4. **Host repair.** If a host stops reporting for longer than a grace period
    and its OCI instance is stopped or terminated, the leader replaces it in
-   its node pool through `hostpool`, and the new host enrolls again. A host
+   its node pool, and the new host enrolls again. A host
    is never replaced while its volume is attached to a serving member.
 5. **In-place OS patching.** Signed package-set receipts (like release
    receipts) are applied by the host agent. Hosts are patched all at once

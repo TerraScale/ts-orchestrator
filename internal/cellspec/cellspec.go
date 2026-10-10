@@ -37,7 +37,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machinesapi"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
@@ -61,7 +60,7 @@ const (
 	// BinaryLevel is the highest requires_binary this binary understands.
 	// A change that adds a section raises it, and amendments that use the
 	// section require the new level.
-	// Level 2 adds profile secrets, level 3 the budget, level 4 host images,
+	// Level 2 adds profile secrets, level 3 reserved, level 4 host images,
 	// level 5 the kv_snapshot schedule, level 6 reserved, level 7
 	// the desired OCI resources, level 8 the trusted signers, level 9 the
 	// launch image, level 10 the artifact store quota, level 11 the Atlas
@@ -176,10 +175,7 @@ type Spec struct {
 	RequiresBinary uint64      `json:"requires_binary"`
 	Services       []Service   `json:"services"`
 	HostGrants     []HostGrant `json:"host_grants,omitempty"`
-	// Budget is the monthly cap on the cell's OCI spend that node pools
-	// launch hosts within.
-	Budget     *hostpool.Budget `json:"budget,omitempty"`
-	HostImages []HostImage      `json:"host_images,omitempty"`
+	HostImages     []HostImage `json:"host_images,omitempty"`
 	// KVSnapshot schedules the configuration bucket snapshots.
 	KVSnapshot *KVSnapshot `json:"kv_snapshot,omitempty"`
 	// OCIDesired replaces the signed config's desired OCI resources.
@@ -546,11 +542,6 @@ func (s Spec) Validate() error {
 			}
 		}
 	}
-	if s.Budget != nil {
-		if err := s.Budget.Validate(); err != nil {
-			return fmt.Errorf("%w: %w", ErrInvalid, err)
-		}
-	}
 	if snapshot := s.KVSnapshot; snapshot != nil && snapshot.IntervalSeconds != 0 &&
 		(snapshot.IntervalSeconds < 5 || snapshot.IntervalSeconds > 3600) {
 		return fmt.Errorf("%w: kv_snapshot interval_seconds must be 0 or 5 to 3600", ErrInvalid)
@@ -680,7 +671,7 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 }
 
 // Level is the lowest requires_binary the spec's sections need: 2 once a
-// profile names Vault secrets, 3 with a budget, 4 once it allows host
+// profile names Vault secrets, 4 once it allows host
 // images, 5 with a kv_snapshot schedule, 6 reserved, 7 with
 // desired OCI resources, 8 with signers, 9 once it names a launch image and
 // 10 with an artifact store quota, 11 with an Atlas publisher, 12 with
@@ -694,9 +685,6 @@ func (s Spec) Level() uint64 {
 		if len(service.Profile.Secrets) != 0 {
 			level = 2
 		}
-	}
-	if s.Budget != nil {
-		level = max(level, 3)
 	}
 	if len(s.HostImages) != 0 {
 		level = 4
@@ -983,8 +971,6 @@ func verifyDelegated(delegationWire []byte, specEnvelope trust.Envelope, roots t
 //   - any change to TerraBase's profile (resources, arguments or a setting),
 //     which binds membership, listeners, member certificates and the
 //     credentials and token issuers TerraBase trusts;
-//   - any budget change but a lower cap in the same currency, since the
-//     budget bounds what the cell may spend on hosts;
 //   - pausing kv_snapshot, since a rebuilt cell restores only what was
 //     uploaded;
 //   - in oci_desired, a new or changed enforce entry, turning on prune,
@@ -1045,9 +1031,6 @@ func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
 	if next.NetBird != nil && (current.NetBird == nil || !reflect.DeepEqual(current.NetBird.Enrollment, next.NetBird.Enrollment)) {
 		changes = append(changes, "netbird enrollment")
 	}
-	if change := budgetChange(current.Budget, next.Budget); change != "" && change != "lowered" {
-		changes = append(changes, "budget")
-	}
 	if next.KVSnapshot != nil && next.KVSnapshot.Paused && (current.KVSnapshot == nil || !current.KVSnapshot.Paused) {
 		changes = append(changes, "kv_snapshot pause")
 	}
@@ -1097,8 +1080,6 @@ type Plan struct {
 	// HostGrants names each node whose host grant is added, changed or
 	// removed.
 	HostGrants []string `json:"host_grants,omitempty"`
-	// Budget is "added", "updated" or "removed" when the budget changes.
-	Budget string `json:"budget,omitempty"`
 	// HostImages names each image the allow-list adds, changes or removes.
 	HostImages []string `json:"host_images,omitempty"`
 	// KVSnapshot is "added", "updated" or "removed" when the kv_snapshot
@@ -1174,9 +1155,6 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 		if !reflect.DeepEqual(before, after) {
 			plan.HostGrants = append(plan.HostGrants, node)
 		}
-	}
-	if plan.Budget = budgetChange(current.Budget, next.Budget); plan.Budget == "lowered" {
-		plan.Budget = "updated"
 	}
 	images := map[string]bool{}
 	for _, list := range [][]HostImage{current.HostImages, next.HostImages} {
@@ -1262,31 +1240,9 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 	return plan, nil
 }
 
-// budgetChange is "added", "removed", "lowered" when only the cap went
-// down, "updated" for any other change, or empty. Both the plan and the
-// root rule read it, so a field Budget gains is root-gated by default.
-func budgetChange(before, after *hostpool.Budget) string {
-	switch {
-	case before == nil && after == nil:
-		return ""
-	case before == nil:
-		return "added"
-	case after == nil:
-		return "removed"
-	case *before == *after:
-		return ""
-	}
-	lowered := *before
-	lowered.MonthlyCapCents = after.MonthlyCapCents
-	if lowered == *after && after.MonthlyCapCents < before.MonthlyCapCents {
-		return "lowered"
-	}
-	return "updated"
-}
-
 // Empty reports whether the plan changes nothing.
 func (p Plan) Empty() bool {
-	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 && p.Budget == "" &&
+	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 &&
 		p.KVSnapshot == "" && p.OCIDesired == "" && len(p.Signers) == 0 &&
 		p.LaunchImage == "" && p.ArtifactStore == "" && p.Atlas == "" && p.ReleaseFence == "" && p.MachinesAPI == "" &&
 		p.Dashboard == "" && p.NetBird == ""

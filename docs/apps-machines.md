@@ -18,7 +18,7 @@ An **app** is one service: `terrabase`, `ts-auth` or a tenant workload.
 | `version` | Set by the store: 1 at creation, plus one on every `config` change. |
 | `config` | The machine template (below). |
 | `regions` | Region pinning and scale: machines per [catalog](../internal/ociregion/catalog) region (`{"gru": 3}`). Autoscaling changes these counts; they do not change `version`. |
-| `node_pool` | Optional: place only on hosts of this signed [node pool](../internal/hostpool/pool.go). |
+| `node_pool` | Optional: place only on hosts of this node pool. |
 
 A **machine config** is what a host runs: the admitted artifact `role` and
 `digest`, `args`, `env`, `resources` (CPU cores, memory and disk bytes),
@@ -37,8 +37,8 @@ or `destroyed`) and `updated_at`. It is a separate record, so host reports
 and desired-state writes never contend.
 
 Regions are the [catalog](../internal/ociregion/catalog)'s and node pools
-are the signed controller config's
-(`controller.autoscale.node_pools`). Neither is copied into KV: an unsigned
+are the cell's OCI instance pools
+(`internal/nodescale`). Neither is copied into KV: an unsigned
 copy would be a second source of truth.
 
 ## Trust

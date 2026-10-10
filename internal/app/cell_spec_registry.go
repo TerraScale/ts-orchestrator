@@ -24,7 +24,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
@@ -71,8 +70,6 @@ type specRegistry struct {
 	// replaceSigners receives every newly adopted spec's trusted signers,
 	// under the registry lock; the controller's signer policy swaps them in.
 	replaceSigners func([]TrustedSignerConfig) error
-	// pools are the signed config's node pools; a budget needs each priced.
-	pools []hostpool.NodePool
 	// snapshots is whether the signed config sets a kv_snapshot location,
 	// which a kv_snapshot schedule needs.
 	snapshots bool
@@ -147,9 +144,6 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 	autoscaleConfig := cfg.Controller.Autoscale
 	if autoscaleConfig != nil {
 		r.hostTelemetry = autoscaleConfig.HostTelemetry
-		if autoscaleConfig.Enabled {
-			r.pools = autoscaleConfig.NodePools
-		}
 	}
 	if err := r.loadTrust(cfg); err != nil {
 		return nil, err
@@ -494,11 +488,6 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 		return fmt.Errorf("artifact_store max_bytes %d exceeds this controller's %d: its embedded NATS store_max_bytes less %d bytes for control state",
 			store.MaxBytes, max(limit, 0), headroom)
 	}
-	for _, pool := range r.pools {
-		if pool.HostMonthlyCents == 0 && spec.Budget != nil {
-			return fmt.Errorf("node pool %q has no host_monthly_cents, so a budget would hold all its launches", pool.Name)
-		}
-	}
 	return validateAutoscaleConfig(&AutoscaleConfig{HostTelemetry: r.hostTelemetry, Services: specs}, profiles)
 }
 
@@ -622,18 +611,6 @@ func (r *specRegistry) effective() (map[string]WorkloadProfile, []workload.Servi
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.effectiveLocked()
-}
-
-// budget is a copy of the current spec's budget; the pool scaler reads it
-// every tick.
-func (r *specRegistry) budget() *hostpool.Budget {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.current.Budget == nil {
-		return nil
-	}
-	budget := *r.current.Budget
-	return &budget
 }
 
 // kvSnapshot is the current spec's snapshot interval, or signed when the

@@ -316,7 +316,7 @@ a partitioned region holds its size. The fake lives in `_test.go` files only.
    journal and dashboard; switches and knobs deleted.
 8. Region effectors: network, NetBird, first nodes, removal (with TS-803).
 9. 20-region simulation.
-10. Delete `cellscale`, `hostpool`, the cell spec budget and old settings.
+10. Deleted: `cellscale`, `hostpool`, the cell spec budget and old settings.
 
 ## Live
 

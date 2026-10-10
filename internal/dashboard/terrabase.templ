@@ -118,7 +118,7 @@ templ terrabaseBody(current view) {
 		<article>
 			<div class="chart-title">
 				<h2>Autoscaled services <small>replicas vs goal, signals vs target</small></h2>
-				<a href={ safe(current.State.link("/decisions", "actor", "autoscale,hostpool")) }>Journal →</a>
+				<a href={ safe(current.State.link("/decisions", "actor", "autoscale,nodescale")) }>Journal →</a>
 			</div>
 			if autoscaled := current.autoscaledServices(); len(autoscaled.Services) == 0 {
 				@unavailable("No autoscaled service has reported yet. Autoscaling is off in this cell, or this member is not the authority leader.")

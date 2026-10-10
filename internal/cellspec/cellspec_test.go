@@ -19,7 +19,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/bucket"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -651,62 +650,6 @@ func TestProfileSecretsRequireLevelTwo(t *testing.T) {
 	decoded, err := Decode(payload)
 	if err != nil || decoded.Services[1].Profile.Secrets["TOKEN"].Name != "gru-1-web-token" {
 		t.Fatalf("Decode = %+v, %v", decoded.Services, err)
-	}
-}
-
-// A budget needs binary level 3. Only a lower cap in the same currency is an
-// ordinary amendment: every other budget change lets the cell spend more.
-func TestBudgetLevelValidateDiffAndWiden(t *testing.T) {
-	f := newFixture(t)
-	spec := testSpec(f.id, 1)
-	spec.Budget = &hostpool.Budget{MonthlyCapCents: 50000, Currency: "USD"}
-	if spec.Level() != 3 {
-		t.Fatalf("level with a budget = %d", spec.Level())
-	}
-	secrets := spec
-	secrets.Services = slices.Clone(spec.Services)
-	secrets.Services[1].Profile.Secrets = map[string]vaultsecret.Ref{"TOKEN": {Vault: "ocid1.vault.oc1.sa-saopaulo-1.vault", Name: "gru-1-web-token"}}
-	if secrets.Level() != 3 {
-		t.Fatalf("level with a budget and secrets = %d", secrets.Level())
-	}
-	if _, err := Encode(spec); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("Encode(budget at level 1) = %v", err)
-	}
-	spec.RequiresBinary = 3
-	payload, err := Encode(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decoded, err := Decode(payload); err != nil || *decoded.Budget != *spec.Budget {
-		t.Fatalf("Decode = %+v, %v", decoded.Budget, err)
-	}
-	invalid := spec
-	invalid.Budget = &hostpool.Budget{MonthlyCapCents: 0, Currency: "USD"}
-	if err := invalid.Validate(); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("zero cap accepted: %v", err)
-	}
-
-	unbudgeted := testSpec(f.id, 1)
-	for name, test := range map[string]struct {
-		before, after *hostpool.Budget
-		change        string
-		widens        bool
-	}{
-		"add":             {after: spec.Budget, change: "added", widens: true},
-		"remove":          {before: spec.Budget, change: "removed", widens: true},
-		"raise":           {before: spec.Budget, after: &hostpool.Budget{MonthlyCapCents: 50001, Currency: "USD"}, change: "updated", widens: true},
-		"change currency": {before: spec.Budget, after: &hostpool.Budget{MonthlyCapCents: 100, Currency: "BRL"}, change: "updated", widens: true},
-		"lower":           {before: spec.Budget, after: &hostpool.Budget{MonthlyCapCents: 49999, Currency: "USD"}, change: "updated"},
-		"keep":            {before: spec.Budget, after: &hostpool.Budget{MonthlyCapCents: 50000, Currency: "USD"}},
-	} {
-		current, next := unbudgeted, unbudgeted
-		current.Budget, next.Budget = test.before, test.after
-		next.Generation = 2
-		plan, err := Diff(current, next, nil)
-		if err != nil || plan.Budget != test.change || plan.Empty() != (test.change == "") ||
-			slices.Equal(plan.RootRequired, []string{"budget"}) != test.widens || len(plan.RootRequired) > 1 {
-			t.Errorf("%s: Diff = %+v, %v", name, plan, err)
-		}
 	}
 }
 

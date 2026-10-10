@@ -10,7 +10,7 @@ import (
 
 // knownSlices are the deciding slices the journal filter offers even before
 // they recorded anything.
-var knownSlices = []string{"authority", "autoscale", "bootstrap", "cluster", "delivery", "hostpool", "membership", "netbird",
+var knownSlices = []string{"authority", "autoscale", "bootstrap", "cluster", "delivery", "membership", "netbird", "nodescale",
 	"placement", "regionplanner", "rollout", "selfupdate", "storage"}
 
 var knownKinds = []decisionlog.Kind{decisionlog.KindReleaseAdmitted, decisionlog.KindUpgradeStarted,

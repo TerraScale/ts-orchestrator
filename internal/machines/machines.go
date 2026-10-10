@@ -22,7 +22,7 @@ var ErrInvalid = errors.New("invalid app or machine")
 
 var (
 	tokenRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
-	// poolRE is hostpool's node pool name rule.
+	// poolRE is the node pool name rule.
 	poolRE   = regexp.MustCompile(`^[a-z][a-z0-9-]{0,40}$`)
 	digestRE = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	envRE    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -58,7 +58,7 @@ type App struct {
 	// Regions pins the app to catalog regions and holds its machine count in
 	// each.
 	Regions map[string]int `json:"regions,omitempty"`
-	// NodePool names a signed hostpool.NodePool.
+	// NodePool pins the app to the hosts of one node pool.
 	NodePool string `json:"node_pool,omitempty"`
 	// AppSpec is the generic workload policy: placement, update strategy,
 	// stateful quorum and dependencies. Changing it is not a new version.

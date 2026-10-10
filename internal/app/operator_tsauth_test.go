@@ -418,7 +418,7 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 	// A fresh reconciler, after leader replay, keeps the recovery template and
 	// reservations despite today's larger B/C placement profile.
 	config := &AutoscaleConfig{Enabled: true, IntervalSeconds: 1, Services: []workload.ServiceSpec{spec}}
-	reconciler, _, _, err := startWorkloadAutoscale("gru", config, map[string]WorkloadProfile{tsauth.Role: profile}, []workload.ServiceSpec{spec}, nil, time.Time{}, history.hosts, history.fencer, history)
+	reconciler, _, err := startWorkloadAutoscale("gru", config, map[string]WorkloadProfile{tsauth.Role: profile}, []workload.ServiceSpec{spec}, history.hosts, history.fencer, history)
 	if err != nil {
 		t.Fatal(err)
 	}

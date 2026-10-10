@@ -43,7 +43,7 @@ func detailDecisions() []decisionlog.Decision {
 		decisionlog.Decision{ID: "v1", Time: at(8), Region: "fra", Actor: placement, Kind: decisionlog.KindVolumeResized,
 			Subject: decisionlog.Subject{Kind: "volume", ID: "vol-stuck", Name: "00000000000DMQEY0YD7RZ04RR/00000000003K6TBW31R91GBDRD"},
 			Summary: "Grew volume vol-stuck to 200 GB", Status: decisionlog.StatusSucceeded},
-		decisionlog.Decision{ID: "h1", Time: at(35), Region: "fra", Actor: decisionlog.Actor{Slice: "hostpool"},
+		decisionlog.Decision{ID: "h1", Time: at(35), Region: "fra", Actor: decisionlog.Actor{Slice: "nodescale"},
 			Kind: decisionlog.KindHostLaunched, Subject: decisionlog.Subject{Kind: "host", ID: "host-a", Name: "pool/host-a"},
 			Summary: "Launched host host-a", Status: decisionlog.StatusSucceeded},
 	)
@@ -443,7 +443,7 @@ func TestDetailPagesListOnlyTheirEntitysDecisions(t *testing.T) {
 		decisionlog.Decision{ID: "m10", Time: at, Region: "fra", Actor: decisionlog.Actor{Slice: "cluster"},
 			Kind: decisionlog.KindMemberReplaced, Subject: decisionlog.Subject{Kind: "member", ID: "ctl-10"},
 			Summary: "Replaced member ctl-10", Status: decisionlog.StatusSucceeded},
-		decisionlog.Decision{ID: "hb", Time: at, Region: "fra", Actor: decisionlog.Actor{Slice: "hostpool"},
+		decisionlog.Decision{ID: "hb", Time: at, Region: "fra", Actor: decisionlog.Actor{Slice: "nodescale"},
 			Kind: decisionlog.KindHostLaunched, Subject: decisionlog.Subject{Kind: "host", ID: "host-ab", Name: "pool/host-ab"},
 			Summary: "Launched host host-ab", Status: decisionlog.StatusSucceeded})}
 	handler := newTestDashboard(Options{Health: readyHealth(true), Journal: journal,

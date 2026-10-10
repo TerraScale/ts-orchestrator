@@ -634,8 +634,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		nativeMemberCA = terraBaseCA.CertificatePEM()
 	}
 	nativeReleases.canary = newSmokeGate(nativeMemberCA).check
-	workloadReconciler, capacityScaler, hostLoad, err := startWorkloadAutoscale(cfg.NATS.Cell, cfg.Controller.Autoscale,
-		profiles, specs, services.budget, authorityLogCreated(ctx, runtime.JetStream()), hostController, control, nativeReleases)
+	workloadReconciler, hostLoad, err := startWorkloadAutoscale(cfg.NATS.Cell, cfg.Controller.Autoscale,
+		profiles, specs, hostController, control, nativeReleases)
 	if err != nil {
 		return err
 	}
@@ -987,9 +987,6 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		if !cfg.NATS.Lab {
 			workers.Go(func() { runMaterialGenerationStager(runCtx, services.roots) })
 		}
-	}
-	if capacityScaler != nil {
-		workers.Go(func() { workerErrors <- capacityScaler.Run(runCtx) })
 	}
 	if enrollmentErrors != nil {
 		workers.Go(func() { workerErrors <- <-enrollmentErrors })
