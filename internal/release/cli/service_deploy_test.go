@@ -142,6 +142,7 @@ func newServiceDeployFixture(t *testing.T) *serviceDeployFixture {
 			objects: map[string][]byte{}, log: &fixture.log, logMu: &fixture.logMu}
 	}
 	fixture.env = deployEnv{
+		timeout:  2 * time.Second,
 		discover: func(context.Context) ([]string, error) { return []string{"GRU", "SFO"}, nil },
 		storage:  func(cell string) (releasechannel.ObjectClient, error) { return fixture.buckets[cell], nil },
 		secret:   func(context.Context, string, string) ([]byte, error) { return nil, errors.New("no Vault in this test") },
@@ -153,7 +154,7 @@ func (fixture *serviceDeployFixture) args(cells ...string) []string {
 	args := []string{"--role", "ts-auth", "--binary", fixture.binary,
 		"--repository", "https://git.terrascale.tech/TerraScale/ts-auth", "--commit", fixture.commit,
 		"--source-checkout", fixture.checkout, "--environment", "canary", "--actor", "ci-release",
-		"--signing-key", fixture.key, "--namespace", "ns", "--poll", "1ms", "--region-timeout", "2s"}
+		"--signing-key", fixture.key, "--namespace", "ns", "--poll", "1ms"}
 	for _, cell := range cells {
 		args = append(args, "--cell", cell)
 	}
@@ -192,6 +193,10 @@ func TestServiceDeployReleasesEveryRegion(t *testing.T) {
 	var record delivery.ArtifactRecord
 	if err := json.Unmarshal(fixture.buckets["GRU"].objects[releasechannel.ServiceReleaseObject("ts-auth")], &envelope); err != nil {
 		t.Fatal(err)
+	}
+	sfoIssued, err := releasechannel.ClaimIssuedAt(fixture.buckets["SFO"].objects[releasechannel.ServiceReleaseObject("ts-auth")])
+	if err != nil || !sfoIssued.Equal(envelope.IssuedAt) {
+		t.Fatalf("regions received different observation starts: %v", err)
 	}
 	if err := json.Unmarshal(envelope.Payload, &record); err != nil {
 		t.Fatal(err)

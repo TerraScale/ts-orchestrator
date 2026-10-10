@@ -132,6 +132,9 @@ func (e *Executor) Tick(ctx context.Context) error {
 	if e.issued == nil {
 		e.forget("")
 	}
+	if err := e.Store.RecoverReservation(ctx, snapshot.Epoch); err != nil {
+		return err
+	}
 	record, revision, ok, err := e.Store.Active(ctx)
 	if err != nil {
 		return err
@@ -634,8 +637,13 @@ func (e *Executor) startNext(ctx context.Context, epoch uint64) error {
 	for _, spec := range program {
 		existing, _, err := e.Store.Load(ctx, spec.RolloutID)
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
+			now := e.now()
+			if spec.StartedAt.After(now) {
+				e.waiting = fmt.Sprintf("the release is issued at %s; waiting for the cell clock", spec.StartedAt)
+				return nil
+			}
 			spec.AuthorityEpoch = epoch
-			if _, _, err := e.Store.Begin(ctx, spec, e.now()); err != nil {
+			if _, _, err := e.Store.Begin(ctx, spec, now); err != nil {
 				return fmt.Errorf("begin rollout %s: %w", spec.RolloutID, err)
 			}
 			return nil

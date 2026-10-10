@@ -9,18 +9,19 @@ import (
 func TestStoreActiveAndKnownBadFollowTheCellSlot(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := t.Context()
+	testBindRelease(t, store, 1, toDigest)
 	if _, _, ok, err := store.Active(ctx); err != nil || ok {
 		t.Fatalf("empty cell has an active rollout: %v %v", ok, err)
 	}
 	if _, err := store.IsKnownBad(ctx, "not-a-digest"); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("malformed digest = %v", err)
 	}
-	record, revision, err := store.Begin(ctx, testSpec("0000000000GBSYKHMNVHNRT6RH"), testStart)
+	record, revision, err := store.Begin(ctx, testSpec(testStageID(1)), testStart)
 	if err != nil {
 		t.Fatal(err)
 	}
 	active, activeRevision, ok, err := store.Active(ctx)
-	if err != nil || !ok || active.RolloutID != "0000000000GBSYKHMNVHNRT6RH" || activeRevision != revision {
+	if err != nil || !ok || active.RolloutID != testStageID(1) || activeRevision != revision {
 		t.Fatalf("active = %s %d %v %v", active.RolloutID, activeRevision, ok, err)
 	}
 	if err := store.Settle(ctx, active, 7); err != nil {

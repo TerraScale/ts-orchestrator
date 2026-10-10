@@ -173,7 +173,7 @@ func TestTerraBaseReleaseFenceUnderLoad(t *testing.T) {
 			intent := nativeIntent(candidate, nativeRelease{Role: terrabase.Role, Replicas: 3}, 7)
 			intent.SchemaVersion, intent.OperationID, intent.AuthorityEpoch = delivery.SchemaVersion, entityid.Derive("test-operation", "traffic-upgrade"), 3
 			state := serviceReleaseState{State: releasechannel.StateRolling, Actor: "ops", Digest: candidate.Digest,
-				Previous: previous.Digest, Intent: &intent}
+				Previous: previous.Digest, Intent: &intent, IssuedAt: time.Now()}
 			var revision uint64
 			save := func(next serviceReleaseState) (err error) {
 				revision, err = saveServiceRelease(ctx, kv, "traffic-test", next, revision)

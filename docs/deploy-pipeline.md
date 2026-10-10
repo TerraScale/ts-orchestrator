@@ -53,7 +53,14 @@ in force. Managed hosts follow after controllers; hosts sharing a TerraBase
 partition never restart together. The default canary soak is five minutes,
 later waves soak two minutes, and three healthy reports are required. Failed
 target proofs cause automatic rollback and mark the target known bad. CI allows
-30 minutes per region, with both regions sharing that window.
+a fixed 20-minute observation budget per release, shared by controller and
+host rollouts and preserved across leader changes. Qualification has a fixed
+10-minute budget, so qualification plus observation is at most 30 minutes.
+There is no timing variable, per-region CLI override or cell-spec policy.
+The controller automatically rolls back a release that reaches its observation
+deadline without complete fresh serving proofs; recovery has its own deadline.
+The [TS-783 timer inventory](rollout-policy.md) records before/after values,
+the paths covered by this policy change and the remaining ticket work.
 
 A region is complete only when every current controller and participating host
 freshly proves the target binary. An unjoined host, a changed registration key,

@@ -451,7 +451,7 @@ esac
 					t.Fatalf("suite did not run as a fresh qualification-tier test: %q", line)
 				}
 				var seconds int
-				if _, err := fmt.Sscanf(strings.Fields(line)[4], "-timeout=%ds", &seconds); err != nil || seconds <= 0 || seconds > 2400 {
+				if _, err := fmt.Sscanf(strings.Fields(line)[4], "-timeout=%ds", &seconds); err != nil || seconds <= 0 || seconds > 600 {
 					t.Fatalf("suite timeout is not drawn from the shared budget: %q", line)
 				}
 			}
@@ -471,16 +471,38 @@ printf -- '=== RUN   TestX\n--- PASS: TestX (0.00s)\nPASS\n'
 `), 0o755)
 	record := filepath.Join(root, "record")
 	env := map[string]string{"GO": goTool, "MOCK_RECORD": record, "TS_QUALIFICATION_SUITES": "terrabase-walkthrough terrabase-successor",
-		"TS_QUALIFICATION_BUDGET_SECONDS": "1"}
+		"TS_QUALIFICATION_BUDGET_SECONDS": "1"} // Retired input cannot override the fixed budget.
 	result := runCI(t, env, "bash", "scripts/ci/qualify-image.sh")
-	if result.Code != 1 || !strings.Contains(result.Stderr, "qualification suite terrabase-successor did not run: the 1s qualification budget is spent") {
+	if result.Code != 0 {
 		t.Fatalf("exit=%d stdout=%s stderr=%s", result.Code, result.Stdout, result.Stderr)
 	}
-	if lines := strings.Split(strings.TrimSpace(string(script.Read(t, record))), "\n"); len(lines) != 1 || !strings.Contains(lines[0], "-timeout=1s") {
+	lines := strings.Split(strings.TrimSpace(string(script.Read(t, record))), "\n")
+	if len(lines) != 2 {
 		t.Fatalf("recorded runs: %q", lines)
 	}
-	env["TS_QUALIFICATION_BUDGET_SECONDS"] = "0"
-	if result := runCI(t, env, "bash", "scripts/ci/qualify-image.sh"); result.Code != 2 || !strings.Contains(result.Stderr, "must be a positive number") {
-		t.Fatalf("exit=%d stderr=%s", result.Code, result.Stderr)
+	var first, second int
+	fmt.Sscanf(strings.Fields(lines[0])[3], "-timeout=%ds", &first)
+	fmt.Sscanf(strings.Fields(lines[1])[3], "-timeout=%ds", &second)
+	if first > 600 || first < 590 || second >= first || second < 580 {
+		t.Fatalf("timeouts do not share the fixed budget: %d then %d", first, second)
+	}
+}
+
+func TestQualifyImageDeadlineIncludesCompilation(t *testing.T) {
+	root := t.TempDir()
+	bin := filepath.Join(root, "bin")
+	wallTimeout, err := exec.LookPath("timeout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Shorten the process-boundary clock, without adding a production timing override.
+	script.Write(t, filepath.Join(bin, "timeout"), []byte("#!/usr/bin/env bash\n"+
+		"[[ $1 == --kill-after=5s && $2 =~ ^[0-9]+s$ ]] || exit 2\nshift 2\nexec "+wallTimeout+" --kill-after=0.1s 0.1s \"$@\"\n"), 0o755)
+	goTool := filepath.Join(bin, "go")
+	script.Write(t, goTool, []byte("#!/usr/bin/env bash\nsleep 2\nprintf -- '--- PASS: TestX (0.00s)\\nPASS\\n'\n"), 0o755)
+	result := runCI(t, map[string]string{"GO": goTool, "PATH": bin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"TS_QUALIFICATION_SUITES": "terrabase-walkthrough"}, "bash", "scripts/ci/qualify-image.sh")
+	if result.Code != 1 || !strings.Contains(result.Stdout+result.Stderr, "qualification suite terrabase-walkthrough failed") {
+		t.Fatalf("compilation escaped the deadline: exit=%d stdout=%s stderr=%s", result.Code, result.Stdout, result.Stderr)
 	}
 }

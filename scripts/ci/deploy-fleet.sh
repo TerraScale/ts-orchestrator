@@ -62,4 +62,4 @@ XDG_DATA_HOME="$profiles/read" dist/ts-orch release deploy --dir "$work/release"
 	--update-delegation "$work/update-delegation.json" --root-key "$root_key" \
 	--signing-key-secret "$TS_RELEASE_LEAF_SECRET" --vault-id "$TS_RELEASE_VAULT_ID" \
 	--source-checkout . \
-	--namespace "$TS_OBJECT_NAMESPACE" --region-timeout 30m --poll 5s
+	--namespace "$TS_OBJECT_NAMESPACE" --poll 5s

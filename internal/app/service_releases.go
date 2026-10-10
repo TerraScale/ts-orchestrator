@@ -21,6 +21,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/seatrollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
@@ -30,11 +31,6 @@ import (
 // it was not submitted, and an earlier submission of it may still be
 // rolling, so it is retried rather than failed.
 var errFencePrepare = errors.New("the release fence mark was not written")
-
-// serviceReleaseMaxAge bounds the age of a CI release claim the leader has
-// not started yet: CI signs it right before it publishes, so an older one
-// is a replay or a release the cell missed, which CI runs again.
-const serviceReleaseMaxAge = time.Hour
 
 // serviceReleaseRoles are the native roles CI releases through the service
 // release channel, in the order the leader checks them.
@@ -182,17 +178,21 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 			next.Retained = slices.Compact(next.Retained)
 			record, actor, issued, err := r.verify(ctx, role, claim)
 			next.IssuedAt, next.Digest, next.Actor = issued, record.Digest, actor
+			now := time.Now()
 			switch {
 			case err != nil && !errors.Is(err, delivery.ErrInvalid) && !errors.Is(err, delivery.ErrUnauthorized):
 				return err
 			case err != nil:
 				next.State, next.Reason = releasechannel.StateFailed, "the claim does not verify in this cell: "+err.Error()
 				return r.report(ctx, kv, role, next)
-			case issued.After(time.Now().Add(releasechannel.ClaimClockSkew)):
+			case issued.After(now.Add(releasechannel.ClaimClockSkew)):
 				next.State, next.Reason = releasechannel.StateFailed, fmt.Sprintf("the claim is issued in the future, at %s", issued)
 				return r.report(ctx, kv, role, next)
 			case !issued.After(state.IssuedAt):
 				return fmt.Errorf("release.json holds a claim issued at %s, not after the cell's last %s release", issued, role)
+			case issued.After(now):
+				// Tolerated skew waits without changing the signed observation start.
+				return fmt.Errorf("the claim is issued at %s; waiting for the cell clock", issued)
 			}
 			next.SourceRevision = record.Source.Commit
 			if bad, found, err := knownBad(ctx, kv, role, record.Digest); err != nil {
@@ -202,9 +202,9 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 					fmt.Sprintf("%s %s is known bad in this cell since %s (%s); release a new build", role, record.Digest,
 						bad.At.Format(time.RFC3339), bad.Reason)
 			}
-			if age := time.Since(issued); next.State == releasechannel.StateRolling && age > serviceReleaseMaxAge {
+			if age := time.Since(issued); next.State == releasechannel.StateRolling && age >= rollout.ObservationBudget {
 				next.State, next.Reason = releasechannel.StateFailed,
-					fmt.Sprintf("the claim was issued %s ago, more than %s; run the release again", age.Round(time.Second), serviceReleaseMaxAge)
+					fmt.Sprintf("the claim was issued %s ago, past its %s observation window; run the release again", age.Round(time.Second), rollout.ObservationBudget)
 			}
 			state = next
 			if revision, err = saveServiceRelease(ctx, kv, key, state, revision); err != nil {
@@ -267,7 +267,11 @@ func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, ro
 		return state, nil
 	}
 	var rollback delivery.ArtifactRecord
+	deadline := state.IssuedAt.Add(rollout.ObservationBudget)
 	if state.Intent == nil {
+		if !time.Now().Before(deadline) {
+			return failed(fmt.Errorf("the claim is past its %s observation window; run the release again", rollout.ObservationBudget))
+		}
 		// The profile decides a new release only; a recorded one resumes
 		// with its own replica count whatever the cell spec says now.
 		profile, ok := r.profiles()[role]
@@ -302,6 +306,10 @@ func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, ro
 		intent := nativeIntent(record, nativeRelease{Role: role, Replicas: replicas, Profile: profile}, generation)
 		intent.SchemaVersion, intent.OperationID = delivery.SchemaVersion, entityid.New()
 		intent.AuthorityEpoch = r.fencer.Current().Epoch
+		// Admission and predecessor lookup may have spent the remaining window without touching hosts.
+		if !time.Now().Before(deadline) {
+			return failed(fmt.Errorf("the claim is past its %s observation window; run the release again", rollout.ObservationBudget))
+		}
 		state.Digest, state.Actor, state.Previous, state.Intent = record.Digest, actor, previous, &intent
 		state.Retained = nil
 		state.Reason = fmt.Sprintf("rolling %d replicas from %s", replicas, previous)
@@ -322,8 +330,7 @@ func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, ro
 	}
 	wait := r.wait
 	if wait == 0 {
-		// A fenced release restarts its nodes one at a time.
-		wait = defaultReleaseWait(role, state.Intent.DesiredReplicas) + r.fences.allowance(state.Intent.DesiredReplicas)
+		wait = rollout.ObservationBudget
 	}
 	progress := &stickyWriter{writer: serviceReleaseLog{role: role}}
 	unfinished := func(err error) (serviceReleaseState, error) {
@@ -371,7 +378,11 @@ func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, ro
 		state.Rollback, state.Reason = &rollback, "rolling back to "+state.Previous
 		return rollback, save(state)
 	})
-	switch err := deployer.roll(ctx, intent, rollback, wait, progress); {
+	// Refresh and persistence are read/metadata work, never additional observation.
+	forward, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	wait = min(wait, time.Until(deadline))
+	switch err := deployer.roll(forward, intent, rollback, wait, progress); {
 	case errors.Is(err, errRecoveryNotStarted), errors.Is(err, errFencePrepare):
 		// Nothing proves the release, or its rollback, reached the hosts or
 		// failed there: a later pass resumes it.

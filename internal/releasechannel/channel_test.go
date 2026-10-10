@@ -435,6 +435,30 @@ func TestAwaitFollowsTheRegionStatus(t *testing.T) {
 	}
 }
 
+func TestAwaitKeepsDeadlineAndCancellationReasons(t *testing.T) {
+	channel := Channel{Cell: "GRU", SourceRevision: testRevision, RunNumber: testRunNumber}
+	location := Location{Client: newFakeBucket(), Namespace: "ns", Bucket: "gru-1-head"}
+	for range 20 {
+		deadline := time.Now().Add(5 * time.Millisecond)
+		ctx, cancel := context.WithDeadline(t.Context(), deadline)
+		err := Await(ctx, location, channel, time.Hour, deadline, io.Discard)
+		cancel()
+		if !errors.Is(err, ErrFailed) || !strings.Contains(err.Error(), "GRU did not complete run 620 in time") {
+			t.Fatalf("shared deadline lost release context: %v", err)
+		}
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := Await(ctx, location, channel, time.Hour, time.Now().Add(time.Hour), io.Discard); !errors.Is(err, context.Canceled) {
+		t.Fatalf("early cancellation lost its cause: %v", err)
+	}
+	ctx, cancel = context.WithDeadline(t.Context(), time.Now().Add(5*time.Millisecond))
+	defer cancel()
+	if err := Await(ctx, location, channel, time.Hour, time.Now().Add(time.Hour), io.Discard); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("earlier parent deadline lost its cause: %v", err)
+	}
+}
+
 type syncWriter struct {
 	mu sync.Mutex
 	w  io.Writer

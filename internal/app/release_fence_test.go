@@ -670,10 +670,7 @@ func TestReleaseFenceSweepsOlderReleases(t *testing.T) {
 	if !slices.Equal(left, []string{"fence.terrabase.3", "fence.ts-auth.9"}) {
 		t.Fatalf("left %q", left)
 	}
-	// Each node of a fenced release gets its grace, settle and 5 minutes.
-	if got := fence.allowance(3); got != 3*(defaultFenceGrace+defaultFenceSettle+5*time.Minute) {
-		t.Fatalf("allowance %s", got)
-	}
+
 }
 
 // After the cell drops its fence, backends a failed release left out of

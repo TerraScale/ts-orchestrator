@@ -346,6 +346,9 @@ func Await(ctx context.Context, location Location, channel Channel, poll time.Du
 		}
 		select {
 		case <-ctx.Done():
+			if !time.Now().Before(deadline) {
+				return fmt.Errorf("%w: %s did not complete run %d in time (%s)", ErrFailed, channel.Cell, channel.RunNumber, line)
+			}
 			return ctx.Err()
 		case <-time.After(min(poll, time.Until(deadline))):
 		}

@@ -20,12 +20,15 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 // deployEnv holds the deploy command's external boundaries.
 type deployEnv struct {
+	// timeout shortens the fixed observation budget in tests.
+	timeout time.Duration
 	check   func(release.Qualification, string) error
 	inspect func(string, string, string) (binaryReceipt, error)
 	git     func(context.Context, ...string) (string, error)
@@ -59,7 +62,6 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	checkout := flags.String("source-checkout", "", "repository checkout used to prove lineage")
 	namespace := flags.String("namespace", "", "Object Storage namespace of the regions' head buckets")
 	validFor := flags.Duration("valid-for", 7*24*time.Hour, "receipt validity, bounded by delegation expiry")
-	regionTimeout := flags.Duration("region-timeout", 2*time.Hour, "how long one cell may take to report the rollout complete")
 	poll := flags.Duration("poll", 30*time.Second, "how often a cell's status is read")
 	var cells, architectures stringList
 	flags.Var(&cells, "cell", "cell to deploy to concurrently; repeatable; default every serving cell")
@@ -70,7 +72,7 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	if *directory == "" || !release.ValidSourceRevision(*sourceRevision) || *delegationPath == "" || *rootPath == "" ||
 		(*keyPath == "") == (*keySecret == "") || (*keySecret == "") != (*vaultID == "") ||
 		*environment != "" && !validEnvironment(*environment) || *checkout == "" || !validStorageToken(*namespace) ||
-		*regionTimeout <= 0 || *poll <= 0 || flags.NArg() != 0 {
+		*poll <= 0 || flags.NArg() != 0 {
 		return errors.New("deploy requires --dir, --source-revision, --update-delegation, --root-key, --signing-key or --signing-key-secret with --vault-id, --source-checkout and --namespace")
 	}
 	targetCells, err := deploymentCells(c.ctx, cells, env.discover)
@@ -124,9 +126,16 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	}
 	defer clear(private)
 
-	lineage := &deploymentLineage{checker: gitLineage{ctx: c.ctx, checkout: *checkout, run: env.git},
-		results: make(map[[3]string]error)}
+	regionTimeout := rollout.ObservationBudget
+	if env.timeout > 0 {
+		regionTimeout = min(regionTimeout, env.timeout)
+	}
 	started := time.Now()
+	ctx, cancel := context.WithDeadline(c.ctx, started.Add(regionTimeout))
+	defer cancel()
+	c.ctx = ctx
+	lineage := &deploymentLineage{checker: gitLineage{ctx: ctx, checkout: *checkout, run: env.git},
+		results: make(map[[3]string]error)}
 	progress := &deploymentWriter{Writer: c.output}
 	failures := make([]error, len(cells))
 	var regions errgroup.Group
@@ -173,7 +182,7 @@ func (c command) deployWith(args []string, env deployEnv) error {
 				}
 				binaries[architecture] = receipt
 				envelope, err := release.SignBinaryUpdateReceipt(binaries[architecture], qualification, qualificationDigest, cell,
-					cellEnvironment, lineage, delegation, roots, private, time.Now().UTC(), *validFor)
+					cellEnvironment, lineage, delegation, roots, private, started.UTC(), *validFor)
 				if err != nil {
 					return fmt.Errorf("sign %s: %w", architecture, err)
 				}
@@ -183,8 +192,8 @@ func (c command) deployWith(args []string, env deployEnv) error {
 				}
 				channel.Receipts = append(channel.Receipts, wire)
 			}
-			// Receipts must remain valid through this region's complete rollout window.
-			if _, err := channel.Verify(roots, cell, cellEnvironment, time.Now().UTC().Add(*regionTimeout)); err != nil {
+			// Receipts must remain valid through the shared rollout deadline.
+			if _, err := channel.Verify(roots, cell, cellEnvironment, started.UTC().Add(regionTimeout)); err != nil {
 				return fmt.Errorf("receipts would expire during rollout; renew the update delegation: %w", err)
 			}
 			for _, architecture := range cellArchitectures {
@@ -196,7 +205,7 @@ func (c command) deployWith(args []string, env deployEnv) error {
 				return fmt.Errorf("publish to %s: %w", channel.Cell, err)
 			}
 			fmt.Fprintf(progress, "%s published: run %d %s\n", channel.Cell, channel.RunNumber, channel.SourceRevision)
-			if err := releasechannel.Await(c.ctx, location, channel, *poll, time.Now().Add(*regionTimeout), progress); err != nil {
+			if err := releasechannel.Await(c.ctx, location, channel, *poll, started.Add(regionTimeout), progress); err != nil {
 				return err
 			}
 			fmt.Fprintf(progress, "%s rolled out in %s\n", channel.Cell, time.Since(cellStarted).Round(time.Second))

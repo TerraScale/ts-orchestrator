@@ -599,24 +599,6 @@ func (f *releaseFence) sweep(ctx context.Context, epoch uint64, role string, rel
 	return nil
 }
 
-// allowance is the time a fenced release adds to the readiness gate for
-// replicas nodes: each is drained, restarted, returned and settled in turn.
-func (f *releaseFence) allowance(replicas int) time.Duration {
-	if f == nil {
-		return 0
-	}
-	spec, _ := f.spec()
-	if spec == nil {
-		return 0
-	}
-	perNode := durationOr(spec.DrainGraceSeconds, defaultFenceGrace) + durationOr(spec.SettleSeconds, defaultFenceSettle) +
-		5*time.Minute
-	if spec.Canary != nil {
-		return time.Duration(replicas)*perNode + canaryAllowance
-	}
-	return time.Duration(replicas) * perNode
-}
-
 // nodeState is node's report of role at release: running, failed, or
 // empty while it has none that is current.
 func (f *releaseFence) nodeState(ctx context.Context, role string, release uint64, node string) (string, error) {

@@ -188,7 +188,7 @@ func TestServiceReleasePinsIntentReplacesRetained(t *testing.T) {
 	candidate := publish("next release", issued.Add(time.Second))
 	r.profiles = func() map[string]WorkloadProfile { return terraBaseSeats("gru-1-db-1=10.251.0.21:9443") }
 	r.hosts = terraBaseMembers{reports: []host.Report{{Role: role, Environment: "test", State: "running", Digest: serving.Digest}}}
-	state := serviceReleaseState{Digest: candidate.Digest, Previous: strings.Repeat("c", 64), Retained: []string{strings.Repeat("d", 64)},
+	state := serviceReleaseState{Digest: candidate.Digest, IssuedAt: issued.Add(time.Second), Previous: strings.Repeat("c", 64), Retained: []string{strings.Repeat("d", 64)},
 		State: releasechannel.StateRolling, claim: bucket.objects[releasechannel.ServiceReleaseObject(role)], location: location}
 	stop := errors.New("stop before submission")
 	_, err := r.release(ctx, kv, role, state, func(next serviceReleaseState) error {

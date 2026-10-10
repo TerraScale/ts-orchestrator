@@ -26,7 +26,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
@@ -141,6 +140,50 @@ func testSpecRoots(t *testing.T) trust.Keyring {
 		t.Fatal(err)
 	}
 	return roots
+}
+
+func TestSpecRegistryStartupRefusesRetiredStoredPolicy(t *testing.T) {
+	dir := t.TempDir()
+	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "gru", Environment: "test"})
+	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}, Controller: ControllerConfig{SpecTrust: keys.config()}}
+	registry, err := newSpecRegistry(cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := testRolloutJetStream(t)
+	if err := registry.open(t.Context(), js, 1); err != nil {
+		t.Fatal(err)
+	}
+	spec := cellspec.Spec{Schema: cellspec.Schema, Identity: keys.identity, Generation: 1, RequiresBinary: 1,
+		Services: []cellspec.Service{}}
+	payload, err := cellspec.Encode(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload = append(payload[:len(payload)-1], []byte(`,"rollout_policy":{}}`)...)
+	now := time.Now()
+	envelope, err := trust.Sign(payload, keys.identity.Scope(), now, now.Add(time.Hour), keys.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := trust.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := protocol.EncodeJSON(cellspec.Signed{Spec: signed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.kv.Put(t.Context(), cellSpecKey, wire); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := newSpecRegistry(cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.open(t.Context(), js, 1); err == nil || !strings.Contains(err.Error(), "rollout_policy") {
+		t.Fatalf("startup discarded the stored policy and used bootstrap settings: %v", err)
+	}
 }
 
 // The generation 0 set is the signed config's generic workloads; TerraBase
@@ -752,37 +795,23 @@ func TestSpecRegistryKVSnapshotSchedule(t *testing.T) {
 	}
 }
 
-// Plans compare what is in force: the signed rollout policy (or the default)
-// and an empty kv_snapshot schedule are generation 0, so restating them
-// changes nothing and dropping a section returns to them.
-func TestSpecRegistryPlansAgainstTheSignedSettings(t *testing.T) {
-	signed := rollout.DefaultPolicy()
-	signed.BatchSize = 1
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}, Controller: ControllerConfig{
-		Rollouts:   &RolloutsConfig{Enabled: true, Executor: true, Policy: &signed},
-		KVSnapshot: kvsnapshot.Config{Enabled: true, Region: "sa-saopaulo-1", Namespace: "ns", Bucket: "kv"}}}
-	registry, err := newSpecRegistry(cfg, "")
+func TestSpecRegistryPlansAgainstTheSignedSnapshotSchedule(t *testing.T) {
+	registry, err := newSpecRegistry(Config{NATS: natscell.Config{Cell: "gru", Lab: true},
+		Controller: ControllerConfig{KVSnapshot: kvsnapshot.Config{Enabled: true, Region: "sa-saopaulo-1", Namespace: "ns", Bucket: "kv"}}}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	other := rollout.DefaultPolicy()
-	spec := func(policy *rollout.Policy, snapshot *cellspec.KVSnapshot) cellspec.Spec {
-		return cellspec.Spec{Schema: cellspec.Schema, Generation: 1, RequiresBinary: 6, RolloutPolicy: policy, KVSnapshot: snapshot}
-	}
 	for name, test := range map[string]struct {
-		current, next      cellspec.Spec
-		policy, kvSnapshot string
+		snapshot *cellspec.KVSnapshot
+		change   string
 	}{
-		"restate the signed policy": {current: spec(nil, nil), next: spec(&signed, nil)},
-		"another policy":            {current: spec(nil, nil), next: spec(&other, nil), policy: "updated"},
-		"drop back to the signed":   {current: spec(&other, nil), next: spec(nil, nil), policy: "updated"},
-		"drop a restated policy":    {current: spec(&signed, nil), next: spec(nil, nil)},
-		"empty schedule":            {current: spec(nil, nil), next: spec(nil, &cellspec.KVSnapshot{})},
-		"pause":                     {current: spec(nil, nil), next: spec(nil, &cellspec.KVSnapshot{Paused: true}), kvSnapshot: "updated"},
+		"empty schedule": {snapshot: new(cellspec.KVSnapshot{})},
+		"pause":          {snapshot: new(cellspec.KVSnapshot{Paused: true}), change: "updated"},
 	} {
-		test.next.Generation = 2
-		plan, err := cellspec.Diff(registry.withSigned(test.current), registry.withSigned(test.next), nil)
-		if err != nil || plan.RolloutPolicy != test.policy || plan.KVSnapshot != test.kvSnapshot {
+		current := cellspec.Spec{Schema: cellspec.Schema, Generation: 1}
+		next := cellspec.Spec{Schema: cellspec.Schema, Generation: 2, RequiresBinary: 5, KVSnapshot: test.snapshot}
+		plan, err := cellspec.Diff(registry.withSigned(current), registry.withSigned(next), nil)
+		if err != nil || plan.KVSnapshot != test.change {
 			t.Errorf("%s: plan = %+v, %v", name, plan, err)
 		}
 	}

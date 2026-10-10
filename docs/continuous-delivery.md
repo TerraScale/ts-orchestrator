@@ -585,9 +585,11 @@ healthy reports from one incarnation. A unit that restarts on another
 release, or does not prove the target within ten minutes, rolls the rollout
 back. Units prove themselves every 5 s, and the leader's executor acts as a
 proof arrives or the rollout bucket changes (a new generation, a step reply,
-an operator's request), not only on its 5 s tick. `controller.rollouts.policy`
-overrides the policy, and a [cell spec](cell-spec.md) `rollout_policy` overrides
-that on running controllers for the next rollout. Each controller relays its
+an operator's request), not only on its 5 s tick. The policy is fixed; signed
+configuration and NATS KV cell specs cannot override it. Controllers and hosts
+share a persisted 20-minute observation deadline from the receipt's signed
+issuance time. CI signs every region's receipt with the same start time.
+Each controller relays its
 own steps to its node's root step agent (see [step delivery](#step-delivery)).
 
 Once the controllers completed, `release-g<N>-hosts` moves the hosts the
@@ -834,10 +836,13 @@ releases/services/<role>/status.json         the region leader's report
    repository, commit, `git archive` tree digest, computed without local Git settings, cell, role, environment)
    and replaces `release.json` by compare-and-swap; a claim issued earlier
    than the one there never replaces it, unless that one is dated more
-   than 5 minutes ahead, which every leader refuses. It then polls `status.json` until
+   than 5 minutes ahead. Leaders refuse future-dated claims so clock skew
+   cannot extend observation. It then polls `status.json` until
    the cell reports the release `complete`. A `failed` report or no report
-   within `--region-timeout` stops the rollout and fails the job; later
-   cells never see the release.
+   within the fixed 20-minute observation budget fails the job. Every serving
+   region deploys concurrently and finishes its own rollout or rollback.
+   All regions' claims share one signed issuance time; channel polling and
+   leader changes cannot restart the 20-minute observation window.
 2. Every 30 s the region's authority leader reads each role's
    `release.json` (`serviceReleases` in `internal/app`). A claim it has not
    seen must first verify at its issuance instant against a trusted signer

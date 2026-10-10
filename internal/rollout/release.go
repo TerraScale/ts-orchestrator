@@ -31,6 +31,9 @@ const (
 	// ReleaseHistory is how many generations stay readable for rollback.
 	ReleaseHistory = 64
 	maxReleaseWire = 64 << 10
+	// ControllerReleaseDomain and HostReleaseDomain bind release stage IDs across planning, admission and status.
+	ControllerReleaseDomain = "release-controllers"
+	HostReleaseDomain       = "release-hosts"
 )
 
 var (
@@ -40,6 +43,47 @@ var (
 
 func generationKey(cell string, generation uint64) string {
 	return entityid.Derive("release", cell, strconv.FormatUint(generation, 10))
+}
+
+// ReleaseRolloutID is the rollout ID prefix of a desired release generation.
+func ReleaseRolloutID(generation uint64) string {
+	return entityid.Derive("release-rollout", strconv.FormatUint(generation, 10))
+}
+
+// releaseStage resolves derived stage IDs before reading their immutable generation.
+func (s *Store) releaseStage(ctx context.Context, id string) (Release, Kind, bool, error) {
+	desired, _, err := s.Desired(ctx)
+	if err != nil {
+		return Release{}, "", false, err
+	}
+	// Derivation keeps network reads independent of permanent operational history.
+	// shortcut: historical IDs cost local hashing; index them if generation counts make that costly.
+	for generation := desired.Generation(); generation > 0; generation-- {
+		if err := ctx.Err(); err != nil {
+			return Release{}, "", false, err
+		}
+		rolloutID := ReleaseRolloutID(generation)
+		for _, stage := range []struct {
+			domain string
+			kind   Kind
+		}{{ControllerReleaseDomain, KindController}, {HostReleaseDomain, KindHost}} {
+			if id != entityid.Derive(stage.domain, rolloutID) {
+				continue
+			}
+			release, err := s.generation(ctx, desired, generation)
+			if errors.Is(err, ErrNoRelease) {
+				return Release{}, "", false, nil
+			}
+			if err != nil {
+				return Release{}, "", false, err
+			}
+			if release.ID != generationKey(s.cell, generation) {
+				return Release{}, "", false, fmt.Errorf("%w: release stage generation ID", ErrInvalid)
+			}
+			return release, stage.kind, true, nil
+		}
+	}
+	return Release{}, "", false, ctx.Err()
 }
 
 // Release is one generation of the cell's desired orchestrator binary.
@@ -155,9 +199,11 @@ func (s *Store) generation(ctx context.Context, desired Desired, generation uint
 
 // PublishRelease makes release the next generation, fenced by epoch, and
 // returns it. A release that repeats the newest generation's binary changes
-// nothing and returns ErrReleaseUnchanged. A digest known bad in this cell is
-// refused.
+// nothing and returns ErrReleaseUnchanged, unless a newer CI issuance retries
+// an entirely untouched aborted program. A digest known bad in this cell is refused.
 func (s *Store) PublishRelease(ctx context.Context, epoch uint64, release Release) (Release, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if bad, err := s.IsKnownBad(ctx, release.Digest); err != nil {
 		return Release{}, err
 	} else if bad {
@@ -169,7 +215,13 @@ func (s *Store) PublishRelease(ctx context.Context, epoch uint64, release Releas
 			return Release{}, err
 		}
 		if desired.Generation() > 0 && desired.Release.Digest == release.Digest {
-			return desired.Release, ErrReleaseUnchanged
+			retry, err := s.retryUntouchedRelease(ctx, desired.Release, release)
+			if err != nil {
+				return Release{}, err
+			}
+			if !retry {
+				return desired.Release, ErrReleaseUnchanged
+			}
 		}
 		next := desired
 		next.Release = release
@@ -192,13 +244,47 @@ func (s *Store) PublishRelease(ctx context.Context, epoch uint64, release Releas
 		} else if err != nil {
 			return Release{}, err
 		}
-		if newest := next.Generation(); newest > ReleaseHistory && s.fencer.Guard(ctx, epoch) == nil {
+		if newest := next.Generation(); newest > ReleaseHistory {
 			// Best effort: a missed purge only keeps one more old copy.
-			_ = s.kv.Purge(ctx, generationKey(s.cell, newest-ReleaseHistory))
+			oldest := newest - ReleaseHistory
+			state, _, err := s.Cell(ctx)
+			if err == nil && state.ActiveRolloutID != entityid.Derive(ControllerReleaseDomain, ReleaseRolloutID(oldest)) &&
+				state.ActiveRolloutID != entityid.Derive(HostReleaseDomain, ReleaseRolloutID(oldest)) && s.fencer.Guard(ctx, epoch) == nil {
+				_ = s.kv.Purge(ctx, generationKey(s.cell, oldest))
+			}
 		}
 		return next.Release, nil
 	}
 	return Release{}, ErrConflict
+}
+
+func (s *Store) retryUntouchedRelease(ctx context.Context, previous, next Release) (bool, error) {
+	if previous.RollbackOf != 0 || next.RollbackOf != 0 || next.RunNumber <= previous.RunNumber || !next.CreatedAt.After(previous.CreatedAt) {
+		return false, nil
+	}
+	aborted := false
+	for _, domain := range []string{ControllerReleaseDomain, HostReleaseDomain} {
+		record, _, err := s.Load(ctx, entityid.Derive(domain, ReleaseRolloutID(previous.Generation)))
+		if errors.Is(err, jetstream.ErrKeyNotFound) {
+			continue
+		}
+		if errors.Is(err, ErrAbandonedRollout) {
+			aborted = true
+			continue
+		}
+		if err != nil || !record.abortedBeforeUpdate() {
+			return false, err
+		}
+		kind := KindController
+		if domain == HostReleaseDomain {
+			kind = KindHost
+		}
+		if record.ToDigest != previous.Digest || record.Kind != kind || !record.StartedAt.Equal(previous.CreatedAt) {
+			return false, fmt.Errorf("%w: aborted release stage binding", ErrInvalid)
+		}
+		aborted = true
+	}
+	return aborted, nil
 }
 
 func (s *Store) retain(ctx context.Context, epoch uint64, release Release) error {
@@ -324,61 +410,99 @@ func (s *Store) Releases(ctx context.Context, limit int) ([]Release, error) {
 	return releases, nil
 }
 
-// ReleasePins returns every retained rollback generation and every durable
-// known-bad digest, including entries aged out of the bounded cell list.
-func (s *Store) ReleasePins(ctx context.Context) (rollback, knownBad []string, err error) {
-	desired, _, err := s.Desired(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
+// retainedReleases inventories every readable generation, including copies left by failed purges.
+func (s *Store) retainedReleases(ctx context.Context, desired Desired) ([]Release, error) {
+	var releases []Release
 	if desired.Generation() > 0 {
-		rollback = append(rollback, desired.Release.Digest)
+		releases = append(releases, desired.Release)
 	}
 	// Failed best-effort purges leave readable rollback targets beyond ReleaseHistory.
 	keys, err := releasechannel.PinKeys(ctx, s.kv, ">")
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	for _, key := range keys {
 		if key == cellKey || key == desiredKey || strings.HasPrefix(key, "knownbad.") {
 			continue
 		}
 		if !entityid.Valid(key) {
-			return nil, nil, fmt.Errorf("%w: retained record key %q", ErrInvalid, key)
+			return nil, fmt.Errorf("%w: retained record key %q", ErrInvalid, key)
 		}
 		entry, err := s.kv.Get(ctx, key)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		// Operational records share the entity-key namespace with retained releases.
 		var kind struct {
 			HostMembership
-			AbandonedRollout string       `json:"abandoned_rollout"`
-			SchemaVersion    int          `json:"schema_version"`
-			ID               string       `json:"id"`
-			Generation       uint64       `json:"generation"`
-			RolloutID        string       `json:"rollout_id"`
-			Scope            *trust.Scope `json:"scope"`
-			Unit             string       `json:"unit"`
-			OperationID      string       `json:"operation_id"`
+			SchemaVersion int          `json:"schema_version"`
+			ID            string       `json:"id"`
+			Generation    uint64       `json:"generation"`
+			RolloutID     string       `json:"rollout_id"`
+			Scope         *trust.Scope `json:"scope"`
+			Unit          string       `json:"unit"`
+			OperationID   string       `json:"operation_id"`
 		}
 		if err := protocol.DecodeTolerant(entry.Value(), &kind, maxRecordBytes); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		step := kind.Scope != nil && kind.Scope.Slot != "" && key == entityid.Derive("rollout-step", kind.Scope.Slot)
 		reply := kind.Unit != "" && entityid.Valid(kind.OperationID) && key == entityid.Derive("rollout-step-reply", kind.Unit)
-		abandoned := kind.SchemaVersion == 0 && kind.AbandonedRollout == key
+		marker, err := decodeAbandoned(entry.Value(), key)
+		if err != nil {
+			return nil, err
+		}
+		abandoned := marker != nil
 		joined := kind.Node != "" && kind.PublicKey != "" && key == HostMembershipKey(kind.Node)
 		if kind.ID == "" && kind.Generation == 0 && (kind.RolloutID == key || step || reply || abandoned || joined) {
 			continue
 		}
 		var release Release
 		if err := protocol.DecodeTolerant(entry.Value(), &release, maxRecordBytes); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if err := release.validate(); err != nil || generationKey(s.cell, release.Generation) != key || release.ID != key {
-			return nil, nil, fmt.Errorf("%w: stored generation key %q", ErrInvalid, key)
+			return nil, fmt.Errorf("%w: stored generation key %q", ErrInvalid, key)
 		}
+		releases = append(releases, release)
+	}
+	return releases, nil
+}
+
+// ReleasePins returns every retained rollback generation and every durable
+// known-bad digest, including entries aged out of the bounded cell list.
+func (s *Store) ReleasePins(ctx context.Context) (rollback, knownBad []string, err error) {
+	for range cellCASAttempts {
+		desired, revision, err := s.Desired(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		rollback, knownBad, err := s.collectReleasePins(ctx, desired)
+		if errors.Is(err, jetstream.ErrKeyNotFound) {
+			// A purge can follow the desired write without changing its revision.
+			continue
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		_, observedRevision, err := s.Desired(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		// Publication can retain and prune generations during the inventory.
+		if observedRevision == revision {
+			return rollback, knownBad, nil
+		}
+	}
+	return nil, nil, ErrConflict
+}
+
+func (s *Store) collectReleasePins(ctx context.Context, desired Desired) (rollback, knownBad []string, err error) {
+	releases, err := s.retainedReleases(ctx, desired)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, release := range releases {
 		rollback = append(rollback, release.Digest)
 	}
 	state, _, err := s.Cell(ctx)
@@ -386,7 +510,7 @@ func (s *Store) ReleasePins(ctx context.Context) (rollback, knownBad []string, e
 		return nil, nil, err
 	}
 	knownBad = slices.Clone(state.KnownBad)
-	keys, err = releasechannel.PinKeys(ctx, s.kv, "knownbad.*")
+	keys, err := releasechannel.PinKeys(ctx, s.kv, "knownbad.*")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -400,12 +524,14 @@ func (s *Store) ReleasePins(ctx context.Context) (rollback, knownBad []string, e
 	// A rollout's predecessor may predate the retained generation window,
 	// or be the image's baked binary, which has no generation of its own.
 	if state.ActiveRolloutID != "" {
-		record, _, err := s.Load(ctx, state.ActiveRolloutID)
+		record, _, active, err := s.Active(ctx)
 		if err != nil {
 			return nil, nil, err
 		}
-		rollback = append(rollback, record.FromDigest)
-		knownBad = append(knownBad, record.KnownBad...)
+		if active {
+			rollback = append(rollback, record.FromDigest)
+			knownBad = append(knownBad, record.KnownBad...)
+		}
 	}
 	slices.Sort(rollback)
 	slices.Sort(knownBad)

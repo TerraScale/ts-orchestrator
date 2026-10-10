@@ -29,7 +29,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
@@ -81,11 +80,6 @@ type specRegistry struct {
 	// needs it. A signed TerraBase profile implies it, since signing
 	// refuses one without the CA.
 	terraBaseCA bool
-	// rolloutExecutor is whether this controller runs orchestrator
-	// rollouts, which a rollout policy needs; signedPolicy is then the
-	// signed config's policy, or the default.
-	rolloutExecutor bool
-	signedPolicy    *rollout.Policy
 	// signedDesired is the signed config's desired OCI resources when OCI
 	// reconcile is on; ociRegion, set once the signed region config is
 	// loaded, admits an oci_desired section's entries.
@@ -127,20 +121,12 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 		signers: slices.SortedFunc(slices.Values(cfg.Controller.TrustedSigners), func(a, b TrustedSignerConfig) int {
 			return strings.Compare(a.Actor, b.Actor)
 		}), snapshots: cfg.Controller.KVSnapshot.Enabled, terraBaseCA: cfg.Controller.TerraBaseCACertFile != "",
-		rolloutExecutor:     cfg.Controller.Rollouts != nil && cfg.Controller.Rollouts.Executor,
 		signedArtifactStore: cmp.Or(cfg.Controller.ArtifactStoreMaxBytes, delivery.DefaultArtifactStoreMaxBytes)}
 	if cfg.NATS.Embedded != nil {
 		r.artifactStoreLimit = cfg.NATS.Embedded.StoreLimitBytes() - specStoreHeadroomBytes
 	}
 	if _, signed := cfg.Controller.Workloads[terrabase.Role]; signed {
 		r.terraBaseCA = true
-	}
-	if r.rolloutExecutor {
-		policy := rollout.DefaultPolicy()
-		if cfg.Controller.Rollouts.Policy != nil {
-			policy = *cfg.Controller.Rollouts.Policy
-		}
-		r.signedPolicy = &policy
 	}
 	if reconcile := cfg.Controller.OciReconcile; reconcile != nil && reconcile.Enabled {
 		r.ociReconcile, r.signedDesired, r.publicLB = true, reconcile.Desired, reconcile.PublicLB
@@ -304,8 +290,7 @@ func (r *specRegistry) open(ctx context.Context, js jetstream.JetStream, replica
 	if err != nil {
 		return fmt.Errorf("read cell spec: %w", err)
 	}
-	r.load(entry)
-	return nil
+	return r.load(entry)
 }
 
 // Run adopts every spec another controller stores.
@@ -340,27 +325,33 @@ func (r *specRegistry) Run(ctx context.Context) error {
 }
 
 // load re-verifies a stored spec without expiry and adopts it. A record that
-// fails is logged and ignored: the controller keeps the spec it had. An
+// fails is logged; startup refuses it, and a running controller keeps its spec. An
 // amendment for a newer binary waits for this controller's binary update;
 // any other bad record is replaced by the leader's next amendment.
-func (r *specRegistry) load(entry jetstream.KeyValueEntry) {
+func (r *specRegistry) load(entry jetstream.KeyValueEntry) error {
 	if entry.Operation() != jetstream.KeyValuePut {
 		slog.Error("cell spec record was removed; keeping the current spec", observability.ComponentKey, "cellspec")
-		return
+		return errors.New("stored cell spec was removed")
 	}
 	verified, err := r.verify(entry.Value(), nil)
 	if newer := (*cellspec.NewerBinaryError)(nil); errors.As(err, &newer) {
 		slog.Warn("stored cell spec needs a newer binary; keeping the current spec", observability.ComponentKey, "cellspec",
 			"revision", entry.Revision(), "generation", newer.Generation, "requires_binary", newer.RequiresBinary,
 			"binary_level", cellspec.BinaryLevel)
-		return
+		return err
 	}
 	if err != nil {
 		slog.Error("stored cell spec rejected; keeping the current spec", observability.ComponentKey, "cellspec",
 			"revision", entry.Revision(), "error", err)
-		return
+		return fmt.Errorf("stored cell spec rejected: %w", err)
 	}
 	r.adopt(verified.Spec, entry.Revision())
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.revision < entry.Revision() {
+		return errors.New("stored cell spec could not be adopted")
+	}
+	return nil
 }
 
 func (r *specRegistry) adopt(spec cellspec.Spec, revision uint64) {
@@ -492,9 +483,6 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 	if store := spec.ArtifactStore; store != nil && store.MaxBytes > limit {
 		return fmt.Errorf("artifact_store max_bytes %d exceeds this controller's %d: its embedded NATS store_max_bytes less %d bytes for control state",
 			store.MaxBytes, max(limit, 0), headroom)
-	}
-	if spec.RolloutPolicy != nil && !r.rolloutExecutor {
-		return errors.New("a rollout policy needs the controllers' rollout executor (controller.rollouts.executor)")
 	}
 	for _, pool := range r.pools {
 		if pool.HostMonthlyCents == 0 && spec.Budget != nil {
@@ -653,8 +641,6 @@ func (r *specRegistry) kvSnapshot(signed time.Duration) (time.Duration, bool) {
 	return signed, schedule.Paused
 }
 
-// rolloutPolicy is the current spec's rollout policy, or signed when the
-// spec sets none.
 // ociDesired is the current spec's desired OCI resources, or the signed
 // config's when the spec lists none; nil lists none.
 func (r *specRegistry) ociDesired() *cellspec.OCIDesired {
@@ -735,9 +721,6 @@ func (r *specRegistry) withSigned(spec cellspec.Spec) cellspec.Spec {
 	if spec.OCIDesired == nil {
 		spec.OCIDesired = r.signedDesired
 	}
-	if spec.RolloutPolicy == nil {
-		spec.RolloutPolicy = r.signedPolicy
-	}
 	spec.Signers = r.effectiveSigners(spec)
 	if spec.KVSnapshot == nil && r.snapshots {
 		spec.KVSnapshot = &cellspec.KVSnapshot{}
@@ -757,15 +740,6 @@ func (r *specRegistry) artifactStoreMaxBytes() int64 {
 		return r.current.ArtifactStore.MaxBytes
 	}
 	return r.signedArtifactStore
-}
-
-func (r *specRegistry) rolloutPolicy(signed rollout.Policy) rollout.Policy {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.current.RolloutPolicy != nil {
-		return *r.current.RolloutPolicy
-	}
-	return signed
 }
 
 func (r *specRegistry) profiles() map[string]WorkloadProfile {

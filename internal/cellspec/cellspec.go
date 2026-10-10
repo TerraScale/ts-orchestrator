@@ -49,7 +49,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -63,7 +62,7 @@ const (
 	// A change that adds a section raises it, and amendments that use the
 	// section require the new level.
 	// Level 2 adds profile secrets, level 3 the budget, level 4 host images,
-	// level 5 the kv_snapshot schedule, level 6 the rollout policy, level 7
+	// level 5 the kv_snapshot schedule, level 6 reserved, level 7
 	// the desired OCI resources, level 8 the trusted signers, level 9 the
 	// launch image, level 10 the artifact store quota, level 11 the Atlas
 	// publisher, level 12 the release fence, level 13 a fenced set's
@@ -183,9 +182,6 @@ type Spec struct {
 	HostImages []HostImage      `json:"host_images,omitempty"`
 	// KVSnapshot schedules the configuration bucket snapshots.
 	KVSnapshot *KVSnapshot `json:"kv_snapshot,omitempty"`
-	// RolloutPolicy replaces the signed config's policy for the cell's next
-	// orchestrator rollouts; a rollout keeps the policy it started with.
-	RolloutPolicy *rollout.Policy `json:"rollout_policy,omitempty"`
 	// OCIDesired replaces the signed config's desired OCI resources.
 	OCIDesired *OCIDesired `json:"oci_desired,omitempty"`
 	// Signers replace the signed config's trusted signers, sorted by actor;
@@ -559,11 +555,6 @@ func (s Spec) Validate() error {
 		(snapshot.IntervalSeconds < 5 || snapshot.IntervalSeconds > 3600) {
 		return fmt.Errorf("%w: kv_snapshot interval_seconds must be 0 or 5 to 3600", ErrInvalid)
 	}
-	if s.RolloutPolicy != nil {
-		if err := s.RolloutPolicy.Validate(); err != nil {
-			return fmt.Errorf("%w: rollout_policy: %w", ErrInvalid, err)
-		}
-	}
 	if s.OCIDesired != nil {
 		if err := s.OCIDesired.Validate(); err != nil {
 			return fmt.Errorf("%w: oci_desired: %w", ErrInvalid, err)
@@ -690,7 +681,7 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 
 // Level is the lowest requires_binary the spec's sections need: 2 once a
 // profile names Vault secrets, 3 with a budget, 4 once it allows host
-// images, 5 with a kv_snapshot schedule, 6 with a rollout policy, 7 with
+// images, 5 with a kv_snapshot schedule, 6 reserved, 7 with
 // desired OCI resources, 8 with signers, 9 once it names a launch image and
 // 10 with an artifact store quota, 11 with an Atlas publisher, 12 with
 // a release fence (13, 14 and 15 with its min_serving, role and canary) and
@@ -712,9 +703,6 @@ func (s Spec) Level() uint64 {
 	}
 	if s.KVSnapshot != nil {
 		level = max(level, 5)
-	}
-	if s.RolloutPolicy != nil {
-		level = max(level, 6)
 	}
 	if s.OCIDesired != nil {
 		level = max(level, 7)
@@ -1116,9 +1104,6 @@ type Plan struct {
 	// KVSnapshot is "added", "updated" or "removed" when the kv_snapshot
 	// schedule changes.
 	KVSnapshot string `json:"kv_snapshot,omitempty"`
-	// RolloutPolicy is "added", "updated" or "removed" when the rollout
-	// policy changes.
-	RolloutPolicy string `json:"rollout_policy,omitempty"`
 	// OCIDesired is "added", "updated" or "removed" when the desired OCI
 	// resources change.
 	OCIDesired string `json:"oci_desired,omitempty"`
@@ -1214,14 +1199,6 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 	case before != nil && *before != *after:
 		plan.KVSnapshot = "updated"
 	}
-	switch before, after := current.RolloutPolicy, next.RolloutPolicy; {
-	case before == nil && after != nil:
-		plan.RolloutPolicy = "added"
-	case before != nil && after == nil:
-		plan.RolloutPolicy = "removed"
-	case before != nil && *before != *after:
-		plan.RolloutPolicy = "updated"
-	}
 	switch before, after := current.OCIDesired, next.OCIDesired; {
 	case before == nil && after != nil:
 		plan.OCIDesired = "added"
@@ -1310,7 +1287,7 @@ func budgetChange(before, after *hostpool.Budget) string {
 // Empty reports whether the plan changes nothing.
 func (p Plan) Empty() bool {
 	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 && p.Budget == "" &&
-		p.KVSnapshot == "" && p.RolloutPolicy == "" && p.OCIDesired == "" && len(p.Signers) == 0 &&
+		p.KVSnapshot == "" && p.OCIDesired == "" && len(p.Signers) == 0 &&
 		p.LaunchImage == "" && p.ArtifactStore == "" && p.Atlas == "" && p.ReleaseFence == "" && p.MachinesAPI == "" &&
 		p.Dashboard == "" && p.NetBird == ""
 }

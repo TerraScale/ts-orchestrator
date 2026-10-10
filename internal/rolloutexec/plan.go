@@ -90,19 +90,14 @@ func SelfUpdateProgram(id, cell, from, to string, controllers []rollout.Unit, ho
 ) Program {
 	var program Program
 	if len(controllers) > 0 {
-		program = append(program, rollout.Spec{RolloutID: entityid.Derive("release-controllers", id), Kind: rollout.KindController, Cell: cell,
+		program = append(program, rollout.Spec{RolloutID: entityid.Derive(rollout.ControllerReleaseDomain, id), Kind: rollout.KindController, Cell: cell,
 			FromDigest: from, ToDigest: to, Units: controllers, Policy: policy})
 	}
 	if len(hosts) > 0 {
-		program = append(program, rollout.Spec{RolloutID: entityid.Derive("release-hosts", id), Kind: rollout.KindHost, Cell: cell,
+		program = append(program, rollout.Spec{RolloutID: entityid.Derive(rollout.HostReleaseDomain, id), Kind: rollout.KindHost, Cell: cell,
 			FromDigest: from, ToDigest: to, Units: hosts, Policy: policy})
 	}
 	return program
-}
-
-// ReleaseRolloutID is the rollout ID prefix of a desired release generation.
-func ReleaseRolloutID(generation uint64) string {
-	return entityid.Derive("release-rollout", fmt.Sprint(generation))
 }
 
 // ReleaseProgram derives the executor's program from the cell's desired
@@ -137,9 +132,9 @@ func (p ReleaseProgram) Program(ctx context.Context) (Program, error) {
 	if release.Generation == 0 || desired.Paused || len(p.Controllers) == 0 {
 		return nil, nil
 	}
-	id := ReleaseRolloutID(release.Generation)
+	id := rollout.ReleaseRolloutID(release.Generation)
 	var program Program
-	controllers, done, err := p.rollout(ctx, entityid.Derive("release-controllers", id), rollout.KindController, p.Controllers, desired)
+	controllers, done, err := p.rollout(ctx, entityid.Derive(rollout.ControllerReleaseDomain, id), rollout.KindController, p.Controllers, desired)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +148,7 @@ func (p ReleaseProgram) Program(ctx context.Context) (Program, error) {
 	if err != nil || len(units) == 0 {
 		return program, err
 	}
-	hosts, _, err := p.rollout(ctx, entityid.Derive("release-hosts", id), rollout.KindHost, units, desired)
+	hosts, _, err := p.rollout(ctx, entityid.Derive(rollout.HostReleaseDomain, id), rollout.KindHost, units, desired)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +181,8 @@ func (p ReleaseProgram) rollout(ctx context.Context, id string, kind rollout.Kin
 		return nil, false, err
 	}
 	return &rollout.Spec{RolloutID: id, Kind: kind, Cell: desired.Cell, FromDigest: from,
-		ToDigest: desired.Release.Digest, Units: behind, Policy: p.Policy}, false, nil
+		ToDigest: desired.Release.Digest, Units: behind, Policy: p.Policy,
+		StartedAt: desired.Release.CreatedAt}, false, nil
 }
 
 func existingSpec(record rollout.Record) rollout.Spec {
@@ -195,7 +191,7 @@ func existingSpec(record rollout.Record) rollout.Spec {
 		units = append(units, rollout.Unit{ID: id, Group: progress.Group, Seed: progress.Seed})
 	}
 	return rollout.Spec{RolloutID: record.RolloutID, Kind: record.Kind, Cell: record.Cell, FromDigest: record.FromDigest,
-		ToDigest: record.ToDigest, Units: units, Policy: record.Policy}
+		ToDigest: record.ToDigest, Units: units, Policy: record.Policy, StartedAt: record.StartedAt}
 }
 
 // Behind returns the units that do not run target and the one release they

@@ -13,6 +13,8 @@ import (
 func TestStoreKnownBadOutlivesTheBoundedCellList(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := t.Context()
+	testBindRelease(t, store, 1, toDigest)
+	testBindRelease(t, store, 2, fromDigest)
 	// A legacy cell whose list is full and starts with toDigest, which has
 	// no durable record yet.
 	legacy := CellState{SchemaVersion: SchemaVersion, Cell: "gru"}
@@ -37,10 +39,10 @@ func TestStoreKnownBadOutlivesTheBoundedCellList(t *testing.T) {
 			t.Fatal("fixture did not age toDigest out of the cell list")
 		}
 	}
-	if _, _, err := store.Begin(ctx, testSpec("0000000000GBSYKHMNVHNRT6RH"), testStart); !errors.Is(err, ErrKnownBad) {
+	if _, _, err := store.Begin(ctx, testSpec(testStageID(1)), testStart); !errors.Is(err, ErrKnownBad) {
 		t.Fatalf("aged-out known-bad target admitted: %v", err)
 	}
-	restore := testSpec("0000000000VDVZT0DFJNS2394R")
+	restore := testSpec(testStageID(2))
 	restore.FromDigest, restore.ToDigest = toDigest, fromDigest
 	if _, _, err := store.Begin(ctx, restore, testStart); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("aged-out known-bad rollback target admitted: %v", err)
@@ -55,7 +57,9 @@ func TestStoreKnownBadOutlivesTheBoundedCellList(t *testing.T) {
 func TestStoreBeginChecksAnExistingIDBeforeReserving(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := t.Context()
-	record, revision, err := store.Begin(ctx, testSpec("0000000000GBSYKHMNVHNRT6RH"), testStart)
+	testBindRelease(t, store, 1, toDigest)
+	testBindRelease(t, store, 2, otherBad)
+	record, revision, err := store.Begin(ctx, testSpec(testStageID(1)), testStart)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +74,7 @@ func TestStoreBeginChecksAnExistingIDBeforeReserving(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reused := testSpec("0000000000GBSYKHMNVHNRT6RH")
+	reused := testSpec(testStageID(1))
 	reused.ToDigest = otherBad
 	if _, _, err := store.Begin(ctx, reused, testStart); !errors.Is(err, ErrConflict) {
 		t.Fatalf("reused ID = %v", err)
@@ -82,7 +86,7 @@ func TestStoreBeginChecksAnExistingIDBeforeReserving(t *testing.T) {
 	if after.ActiveRolloutID != "" || !maps.Equal(after.Attempts, before.Attempts) {
 		t.Fatalf("a refused Begin changed the cell: %+v -> %+v", before, after)
 	}
-	fresh := testSpec("0000000000VDVZT0DFJNS2394R")
+	fresh := testSpec(testStageID(2))
 	fresh.ToDigest = otherBad
 	if _, _, err := store.Begin(ctx, fresh, testStart); err != nil {
 		t.Fatalf("never-started candidate refused: %v", err)

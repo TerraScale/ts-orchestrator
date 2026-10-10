@@ -6,6 +6,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,6 +20,228 @@ type releasePinPurgeFailureKV struct{ jetstream.KeyValue }
 
 func (kv releasePinPurgeFailureKV) Purge(context.Context, string, ...jetstream.KVDeleteOpt) error {
 	return errors.New("purge unavailable")
+}
+
+type pausedPinReadKV struct {
+	jetstream.KeyValue
+	key     string
+	before  bool
+	paused  atomic.Bool
+	entered chan struct{}
+	resume  chan struct{}
+}
+
+func (kv *pausedPinReadKV) Get(ctx context.Context, key string) (jetstream.KeyValueEntry, error) {
+	var entry jetstream.KeyValueEntry
+	var err error
+	if !kv.before {
+		entry, err = kv.KeyValue.Get(ctx, key)
+	}
+	if key == kv.key && kv.paused.CompareAndSwap(false, true) {
+		close(kv.entered)
+		select {
+		case <-kv.resume:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if kv.before {
+		return kv.KeyValue.Get(ctx, key)
+	}
+	return entry, err
+}
+
+type pausedPinPurgeKV struct {
+	jetstream.KeyValue
+	key     string
+	paused  atomic.Bool
+	entered chan struct{}
+	resume  chan struct{}
+}
+
+func (kv *pausedPinPurgeKV) Purge(ctx context.Context, key string, opts ...jetstream.KVDeleteOpt) error {
+	if key == kv.key && kv.paused.CompareAndSwap(false, true) {
+		close(kv.entered)
+		select {
+		case <-kv.resume:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return kv.KeyValue.Purge(ctx, key, opts...)
+}
+
+func TestReleasePinsRetriesConcurrentPurge(t *testing.T) {
+	for _, phase := range []string{"publication during inventory", "purge after desired changed"} {
+		t.Run(phase, func(t *testing.T) {
+			store, _ := testStore(t)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			if _, err := store.PublishRelease(ctx, 7, Release{Digest: fromDigest, Actor: "ops", CreatedAt: testStart}); err != nil {
+				t.Fatal(err)
+			}
+			testBindRelease(t, store, ReleaseHistory, toDigest)
+			kv := store.kv
+			key := generationKey(store.cell, 1)
+			purge := &pausedPinPurgeKV{KeyValue: kv, key: key, entered: make(chan struct{}), resume: make(chan struct{})}
+			read := &pausedPinReadKV{KeyValue: purge, key: key, before: true, entered: make(chan struct{}), resume: make(chan struct{})}
+			store.kv = read
+			published := make(chan error, 1)
+			publish := func() {
+				go func() {
+					_, err := store.PublishRelease(ctx, 7, Release{Digest: otherBad, Actor: "ops", CreatedAt: testStart})
+					published <- err
+				}()
+			}
+			if phase == "purge after desired changed" {
+				publish()
+				select {
+				case <-purge.entered:
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				}
+			}
+			type result struct {
+				rollback, knownBad []string
+				err                error
+			}
+			finished := make(chan result, 1)
+			go func() {
+				rollback, knownBad, err := store.ReleasePins(ctx)
+				finished <- result{rollback, knownBad, err}
+			}()
+			select {
+			case <-read.entered:
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			if phase == "publication during inventory" {
+				publish()
+				select {
+				case <-purge.entered:
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				}
+			}
+			close(purge.resume)
+			if err := <-published; err != nil {
+				t.Fatal(err)
+			}
+			if _, err := kv.Get(ctx, key); !errors.Is(err, jetstream.ErrKeyNotFound) {
+				t.Fatalf("publication did not purge the enumerated generation: %v", err)
+			}
+			close(read.resume)
+			got := <-finished
+			if got.err != nil || !slices.Equal(got.rollback, []string{toDigest, otherBad}) || len(got.knownBad) != 0 {
+				t.Fatalf("concurrent purge lost complete pins: %v %v %v", got.rollback, got.knownBad, got.err)
+			}
+		})
+	}
+}
+
+func TestReleasePinsRetriesConcurrentPublication(t *testing.T) {
+	for _, phase := range []string{"after desired", "during inventory"} {
+		t.Run(phase, func(t *testing.T) {
+			store, _ := testStore(t)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			if _, err := store.PublishRelease(ctx, 7, Release{Digest: fromDigest, Actor: "ops", CreatedAt: testStart}); err != nil {
+				t.Fatal(err)
+			}
+			key := desiredKey
+			digests := []string{toDigest, otherBad}
+			want := []string{fromDigest, toDigest, otherBad}
+			if phase == "during inventory" {
+				testBindRelease(t, store, ReleaseHistory, toDigest)
+				key = generationKey(store.cell, 1)
+				head := strings.Repeat("d", 64)
+				digests = []string{otherBad, head}
+				want = []string{toDigest, otherBad, head}
+			}
+			paused := &pausedPinReadKV{KeyValue: store.kv, key: key, entered: make(chan struct{}), resume: make(chan struct{})}
+			store.kv = paused
+			type result struct {
+				rollback, knownBad []string
+				err                error
+			}
+			finished := make(chan result, 1)
+			go func() {
+				rollback, knownBad, err := store.ReleasePins(ctx)
+				finished <- result{rollback, knownBad, err}
+			}()
+			select {
+			case <-paused.entered:
+			case <-ctx.Done():
+				close(paused.resume)
+				t.Fatal(ctx.Err())
+			}
+			for _, digest := range digests {
+				if _, err := store.PublishRelease(ctx, 7, Release{Digest: digest, Actor: "ops", CreatedAt: testStart}); err != nil {
+					close(paused.resume)
+					<-finished
+					t.Fatal(err)
+				}
+			}
+			close(paused.resume)
+			got := <-finished
+			if got.err != nil || !slices.Equal(got.rollback, want) || len(got.knownBad) != 0 {
+				t.Fatalf("concurrent publication lost complete pins: %v %v %v, want %v", got.rollback, got.knownBad, got.err, want)
+			}
+		})
+	}
+}
+
+func TestReleasePinsProtectsUnpublishedCopyWithoutAdmittingItsStage(t *testing.T) {
+	store, _ := testStore(t)
+	ctx := t.Context()
+	if _, err := store.PublishRelease(ctx, 7, Release{Digest: fromDigest, Actor: "ops", CreatedAt: testStart}); err != nil {
+		t.Fatal(err)
+	}
+	future := Release{ID: generationKey(store.cell, 2), Generation: 2, Digest: toDigest, Actor: "ops", CreatedAt: testStart}
+	if err := store.retain(ctx, 7, future); err != nil {
+		t.Fatal(err)
+	}
+	rollback, knownBad, err := store.ReleasePins(ctx)
+	if err != nil || !slices.Equal(rollback, []string{fromDigest, toDigest}) || len(knownBad) != 0 {
+		t.Fatalf("readable copy lost conservative pins: %v %v %v", rollback, knownBad, err)
+	}
+	if _, _, err := store.Begin(ctx, testSpec(testStageID(2)), testStart); !errors.Is(err, ErrNoRelease) {
+		t.Fatalf("artifact pin authorized an unpublished stage: %v", err)
+	}
+	if state, _, err := store.Cell(ctx); err != nil || state.ActiveRolloutID != "" || len(state.Attempts) != 0 {
+		t.Fatalf("unpublished stage charged a reservation: %+v, %v", state, err)
+	}
+}
+
+type changingPinDesiredKV struct {
+	jetstream.KeyValue
+	reads int
+}
+
+func (kv *changingPinDesiredKV) Get(ctx context.Context, key string) (jetstream.KeyValueEntry, error) {
+	entry, err := kv.KeyValue.Get(ctx, key)
+	if key != desiredKey || err != nil {
+		return entry, err
+	}
+	kv.reads++
+	if _, err := kv.KeyValue.Put(ctx, key, entry.Value()); err != nil {
+		return nil, err
+	}
+	return kv.KeyValue.Get(ctx, key)
+}
+
+func TestReleasePinsBoundsDesiredRevisionChurn(t *testing.T) {
+	store, _ := testStore(t)
+	ctx := t.Context()
+	if _, err := store.PublishRelease(ctx, 7, Release{Digest: fromDigest, Actor: "ops", CreatedAt: testStart}); err != nil {
+		t.Fatal(err)
+	}
+	kv := &changingPinDesiredKV{KeyValue: store.kv}
+	store.kv = kv
+	rollback, knownBad, err := store.ReleasePins(ctx)
+	if !errors.Is(err, ErrConflict) || rollback != nil || knownBad != nil || kv.reads != 2*cellCASAttempts {
+		t.Fatalf("unbounded or incomplete churn result: %v %v %v, desired reads=%d", rollback, knownBad, err, kv.reads)
+	}
 }
 
 func TestReleasePinsIncludesAllRetainedGenerationsAfterFailedPurges(t *testing.T) {
@@ -129,12 +352,14 @@ func TestReleasePinsRefusesInvalidRetainedRecords(t *testing.T) {
 
 type releasePinReadFailureKV struct {
 	jetstream.KeyValue
-	key string
-	err error
+	key   string
+	err   error
+	reads int
 }
 
-func (kv releasePinReadFailureKV) Get(ctx context.Context, key string) (jetstream.KeyValueEntry, error) {
+func (kv *releasePinReadFailureKV) Get(ctx context.Context, key string) (jetstream.KeyValueEntry, error) {
 	if key == kv.key {
+		kv.reads++
 		return nil, kv.err
 	}
 	return kv.KeyValue.Get(ctx, key)
@@ -151,19 +376,23 @@ func TestReleasePinsRefusesIncompleteRetainedReads(t *testing.T) {
 		t.Fatal(err)
 	}
 	kv := store.kv
+	unavailable := errors.New("generation unavailable")
 	for _, tc := range []struct {
-		name string
-		err  error
+		name      string
+		err       error
+		wantErr   error
+		wantReads int
 	}{
-		{"missing after enumeration", jetstream.ErrKeyNotFound},
-		{"cancelled read", context.Canceled},
-		{"unavailable read", errors.New("generation unavailable")},
+		{"missing after enumeration", jetstream.ErrKeyNotFound, ErrConflict, cellCASAttempts},
+		{"cancelled read", context.Canceled, context.Canceled, 1},
+		{"unavailable read", unavailable, unavailable, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			store.kv = releasePinReadFailureKV{KeyValue: kv, key: generationKey(store.cell, 1), err: tc.err}
+			failed := &releasePinReadFailureKV{KeyValue: kv, key: generationKey(store.cell, 1), err: tc.err}
+			store.kv = failed
 			rollback, knownBad, err := store.ReleasePins(ctx)
-			if !errors.Is(err, tc.err) || rollback != nil || knownBad != nil {
-				t.Fatalf("incomplete read returned pins: %v %v %v", rollback, knownBad, err)
+			if !errors.Is(err, tc.wantErr) || rollback != nil || knownBad != nil || failed.reads != tc.wantReads {
+				t.Fatalf("incomplete read returned pins: %v %v %v, reads=%d", rollback, knownBad, err, failed.reads)
 			}
 		})
 	}

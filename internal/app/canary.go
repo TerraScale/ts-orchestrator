@@ -39,9 +39,6 @@ import (
 const (
 	canaryAttempts = 3
 	canaryRetry    = 15 * time.Second
-	// canaryAllowance is the time a canary adds to a fenced release's
-	// readiness gate: the baseline, the gate and its retries.
-	canaryAllowance = 3 * time.Minute
 	// canaryCheckTimeout bounds each request of the smoke gate.
 	canaryCheckTimeout = 15 * time.Second
 	// canaryCollection holds the smoke gate's documents; it creates it.

@@ -68,18 +68,6 @@ func TestSeatMembersAreTheSignedSeatsWithTheirBackends(t *testing.T) {
 	}
 }
 
-func TestTerraBaseReleaseWaitsFiveMinutesPerSeat(t *testing.T) {
-	for _, c := range []struct {
-		role     string
-		replicas int
-		want     time.Duration
-	}{{terrabase.Role, 1, 10 * time.Minute}, {terrabase.Role, 2, 10 * time.Minute}, {terrabase.Role, 3, 15 * time.Minute}, {"ts-auth", 3, 10 * time.Minute}} {
-		if got := defaultReleaseWait(c.role, c.replicas); got != c.want {
-			t.Fatalf("%s x%d: %v, want %v", c.role, c.replicas, got, c.want)
-		}
-	}
-}
-
 type seatLBAPI struct {
 	lb.API
 	backends  []lb.Backend

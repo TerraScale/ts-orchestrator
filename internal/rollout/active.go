@@ -32,13 +32,33 @@ func (s *Store) Active(ctx context.Context) (record Record, revision uint64, ok 
 		return Record{}, 0, false, err
 	}
 	record, revision, err = s.Load(ctx, state.ActiveRolloutID)
-	if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, errAbandonedRollout) {
+	if errors.Is(err, ErrAbandonedRollout) {
+		return Record{}, 0, false, nil
+	}
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
 		return Record{}, 0, false, nil
 	}
 	if err != nil {
 		return Record{}, 0, false, err
 	}
 	return record, revision, true, nil
+}
+
+// RecoverReservation abandons a record-free slot before program planning, including a marker-before-clear crash.
+func (s *Store) RecoverReservation(ctx context.Context, epoch uint64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, _, err := s.Cell(ctx)
+	if err != nil || state.ActiveRolloutID == "" {
+		return err
+	}
+	if _, _, err := s.Load(ctx, state.ActiveRolloutID); !errors.Is(err, jetstream.ErrKeyNotFound) && !errors.Is(err, ErrAbandonedRollout) {
+		return err
+	}
+	if err := s.abandon(ctx, epoch, state.ActiveRolloutID); err != nil {
+		return err
+	}
+	return s.releaseSlot(ctx, epoch, state.ActiveRolloutID)
 }
 
 // Settle releases the cell slot still held by a terminal record whose

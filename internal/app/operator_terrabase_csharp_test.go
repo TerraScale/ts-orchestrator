@@ -40,6 +40,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	sourcerelease "git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
@@ -546,6 +547,31 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 		t.Fatal(err)
 	}
 	pass(releasechannel.StateFailed, "was rolled back to "+unreadableDigest)
+	assertTerraBaseMember(t, ctx, adminPort, member, runner, unreadableDigest)
+	// An expired submitted intent still recovers, with a fresh recovery budget.
+	expired := writeTerraBaseRelease(t, filepath.Join(root, "expired"), []byte(fakeTerraBaseMagic+" expired"))
+	seed(expired, time.Now().Add(-rollout.ObservationBudget-time.Second), unreadableDigest, false)
+	pass(releasechannel.StateFailed, "was rolled back to "+unreadableDigest)
+	assertTerraBaseMember(t, ctx, adminPort, member, runner, unreadableDigest)
+	// Slow leader refresh cannot submit a forward intent after the absolute deadline.
+	seed(expired, time.Now().Add(-rollout.ObservationBudget+100*time.Millisecond), unreadableDigest, false)
+	refreshState, _, err := loadServiceRelease(ctx, kv, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished, err := releases.release(ctx, kv, terrabase.Role, refreshState, func(next serviceReleaseState) error {
+		if next.Rollback == nil {
+			time.Sleep(200 * time.Millisecond)
+		}
+		refreshState = next
+		return nil
+	})
+	if err != nil || finished.State != releasechannel.StateFailed || !strings.Contains(finished.Reason, "was rolled back to") {
+		t.Fatalf("release after slow refresh: %+v, %v", finished, err)
+	}
+	if receipt, err := deliveries.StatusFor(ctx, *refreshState.Intent); !errors.Is(err, delivery.ErrPending) {
+		t.Fatalf("late forward intent was submitted: %+v, %v", receipt, err)
+	}
 	assertTerraBaseMember(t, ctx, adminPort, member, runner, unreadableDigest)
 }
 

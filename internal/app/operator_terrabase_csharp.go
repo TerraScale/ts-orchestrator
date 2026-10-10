@@ -13,6 +13,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/seatrollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
@@ -26,7 +27,7 @@ type terraBaseReleaseOptions struct {
 	Commit           string
 	Environment      string
 	Profile          string        // the controller's signed workloads.terrabase profile
-	Wait             time.Duration // readiness gate per rollout; zero means defaultReleaseWait
+	Wait             time.Duration // readiness gate per rollout; zero means the fixed observation budget
 }
 
 // operatorTerraBaseRelease admits a C# TerraBase release and rolls every
@@ -105,7 +106,7 @@ type nativeRelease struct {
 
 func releaseNative(ctx context.Context, cfg Config, runtime *natscell.Runtime, target nativeRelease, options terraBaseReleaseOptions, output io.Writer) error {
 	if options.Wait == 0 {
-		options.Wait = defaultReleaseWait(target.Role, target.Replicas)
+		options.Wait = rollout.ObservationBudget
 	}
 	tree, err := release.SourceTreeDigest(ctx, options.SourceCheckout, options.Commit)
 	if err != nil {
@@ -240,7 +241,8 @@ func (d nativeDeployer) roll(ctx context.Context, intent delivery.Intent, rollba
 	d.canary = nil
 	// A fresh context with its own deadline: the command's context may be
 	// the one that expired or was interrupted.
-	recovery, cancel := context.WithTimeout(context.Background(), wait+time.Minute)
+	recoveryWait := rollout.ObservationBudget
+	recovery, cancel := context.WithTimeout(context.Background(), recoveryWait+time.Minute)
 	defer cancel()
 	if d.recovering != nil {
 		var err error
@@ -248,20 +250,10 @@ func (d nativeDeployer) roll(ctx context.Context, intent delivery.Intent, rollba
 			return fmt.Errorf("%s release %s failed its readiness gate (%w): %w: %w", role, digest, gateErr, errRecoveryNotStarted, err)
 		}
 	}
-	if _, err := d.rollOut(recovery, intent, wait, output); err != nil {
+	if _, err := d.rollOut(recovery, intent, recoveryWait, output); err != nil {
 		return fmt.Errorf("%s release %s failed its readiness gate (%w) and rollback to %s failed: %w: %w", role, digest, gateErr, previous, errRollbackUnfinished, err)
 	}
 	return fmt.Errorf("%s release %s failed its readiness gate and was rolled back to %s: %w", role, digest, previous, gateErr)
-}
-
-// defaultReleaseWait is the readiness gate's default: ten minutes, and for
-// TerraBase five minutes per seat, since seat rollouts (TS-571) restart one
-// seat at a time.
-func defaultReleaseWait(role string, replicas int) time.Duration {
-	if role == terrabase.Role {
-		return max(10*time.Minute, time.Duration(replicas)*5*time.Minute)
-	}
-	return 10 * time.Minute
 }
 
 // submitTerraBaseIntent is submitIntent; tests replace it to lose a publish
@@ -278,13 +270,18 @@ var submitTerraBaseIntent = submitIntent
 // until wait.
 func (d nativeDeployer) rollOut(ctx context.Context, intent delivery.Intent, wait time.Duration, output io.Writer,
 ) (changed bool, _ error) {
+	wait = min(wait, rollout.ObservationBudget)
 	service, reader := d.service, d.hosts
-	intent, fingerprint, submitErr := d.submit(ctx, intent)
-	if submitErr != nil && fingerprint == "" {
-		return false, submitErr
+	if wait <= 0 {
+		// An expired persisted intent may already have changed members.
+		return true, context.DeadlineExceeded
 	}
 	gateCtx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
+	intent, fingerprint, submitErr := d.submit(gateCtx, intent)
+	if submitErr != nil && fingerprint == "" {
+		return false, submitErr
+	}
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	accepted := false

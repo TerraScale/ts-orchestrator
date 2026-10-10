@@ -2,19 +2,168 @@ package rolloutexec
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 )
 
+func TestControllersAndHostsShareTheReleaseObservationDeadline(t *testing.T) {
+	h, program := releaseHarness(t)
+	release := h.publish(toDigest)
+	controllerID := entityid.Derive("release-controllers", rollout.ReleaseRolloutID(release.Generation))
+	plan, err := program.Program(t.Context())
+	if err != nil || len(plan) != 1 {
+		t.Fatalf("controller plan = %+v, %v", plan, err)
+	}
+	deadline := release.CreatedAt.Add(rollout.ObservationBudget)
+	if !plan[0].StartedAt.Add(rollout.ObservationBudget).Equal(deadline) {
+		t.Fatal("controller plan did not use the release deadline")
+	}
+	h.run(100, func() bool { return h.phase(controllerID) == rollout.PhaseComplete })
+	program.Hosts = func(context.Context) ([]rollout.Unit, error) { return HostUnits(map[string][]string{"h1": {}}), nil }
+	h.clock.Advance(time.Minute)
+	plan, err = program.Program(t.Context())
+	if err != nil || len(plan) != 2 || !plan[1].StartedAt.Add(rollout.ObservationBudget).Equal(deadline) {
+		t.Fatalf("hosts restarted observation: %+v, %v", plan, err)
+	}
+	h.executor.Program = program.Program
+	h.clock.Advance(deadline.Sub(h.clock.Now()))
+	if err := h.executor.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.phase(entityid.Derive("release-hosts", rollout.ReleaseRolloutID(release.Generation))); got != rollout.PhaseAborted {
+		t.Fatalf("expired hosts = %s", got)
+	}
+	retry := release
+	retry.RunNumber, retry.CreatedAt = 1, h.clock.Now()
+	if _, err := h.store.PublishRelease(t.Context(), 7, retry); !errors.Is(err, rollout.ErrReleaseUnchanged) {
+		t.Fatalf("partly promoted program renewed its deadline: %v", err)
+	}
+}
+
+func TestReleaseProgramWaitsForAuthenticatedFutureIssuance(t *testing.T) {
+	h, _ := releaseHarness(t)
+	issued := h.clock.Now().Add(time.Minute)
+	release, err := h.store.PublishRelease(t.Context(), 7, rollout.Release{Digest: toDigest, Actor: "ops", CreatedAt: issued})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.executor.Tick(t.Context()); err != nil {
+		t.Fatalf("future desired release did not wait: %v", err)
+	}
+	if !strings.Contains(h.executor.waiting, "waiting for the cell clock") || len(h.fleet.stepLog()) != 0 {
+		t.Fatalf("future desired release moved: waiting %q, steps %v", h.executor.waiting, h.fleet.stepLog())
+	}
+	if cell, _, err := h.store.Cell(t.Context()); err != nil || cell.ActiveRolloutID != "" || len(cell.Attempts) != 0 {
+		t.Fatalf("future desired release reserved a rollout: %+v, %v", cell, err)
+	}
+	h.clock.Advance(time.Minute)
+	id := entityid.Derive("release-controllers", rollout.ReleaseRolloutID(release.Generation))
+	h.run(100, func() bool { return h.phase(id) == rollout.PhaseComplete })
+	if record, _ := h.load(id); !record.StartedAt.Equal(issued) {
+		t.Fatalf("admission reset signed issuance: %+v", record)
+	}
+}
+
+func TestUntouchedReleaseExpiryAllowsFreshPublication(t *testing.T) {
+	for _, tc := range []struct {
+		kind  rollout.Kind
+		phase rollout.Phase
+	}{
+		{rollout.KindController, rollout.PhasePending},
+		{rollout.KindController, rollout.PhasePreflight},
+		{rollout.KindHost, rollout.PhasePending},
+		{rollout.KindHost, rollout.PhasePreflight},
+	} {
+		t.Run(string(tc.kind)+"/"+string(tc.phase), func(t *testing.T) {
+			h, program := releaseHarness(t)
+			domain, units := "release-controllers", []string{"ctl-a", "ctl-b", "ctl-c"}
+			if tc.kind == rollout.KindHost {
+				for _, id := range units {
+					h.fleet.units[id].digest = toDigest
+				}
+				domain, units = "release-hosts", []string{"h1"}
+				program.Hosts = func(context.Context) ([]rollout.Unit, error) { return HostUnits(map[string][]string{"h1": {}}), nil }
+				h.executor.Program = program.Program
+			}
+			release, err := h.store.PublishRelease(t.Context(), 7, rollout.Release{
+				Digest: toDigest, Actor: "ci", RunNumber: 1, CreatedAt: h.clock.Now()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			id := entityid.Derive(domain, rollout.ReleaseRolloutID(release.Generation))
+			if tc.phase == rollout.PhasePreflight {
+				h.gate.holds[""] = 10
+				if err := h.executor.Tick(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				if got := h.phase(id); got != tc.phase {
+					t.Fatalf("phase = %s, want %s", got, tc.phase)
+				}
+			}
+			probe := release
+			probe.RunNumber, probe.CreatedAt = 2, h.clock.Now().Add(time.Second)
+			if _, err := h.store.PublishRelease(t.Context(), 7, probe); !errors.Is(err, rollout.ErrReleaseUnchanged) {
+				t.Fatalf("unstarted or active program renewed its deadline: %v", err)
+			}
+			h.clock.Advance(rollout.ObservationBudget)
+			if err := h.executor.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			record, _ := h.load(id)
+			if record.Phase != rollout.PhaseAborted || !strings.Contains(record.Reason, "observation budget") {
+				t.Fatalf("untouched expiry = %+v", record)
+			}
+			if steps := h.fleet.stepLog(); len(steps) != 0 {
+				t.Fatalf("untouched expiry moved units: %v", steps)
+			}
+			if bad, err := h.store.IsKnownBad(t.Context(), toDigest); err != nil || bad || slices.Contains(record.KnownBad, toDigest) {
+				t.Fatalf("untested binary marked known bad: %v %v; record %v", bad, err, record.KnownBad)
+			}
+			if _, err := h.store.PublishRelease(t.Context(), 7, release); !errors.Is(err, rollout.ErrReleaseUnchanged) {
+				t.Fatalf("old issuance restarted the deadline: %v", err)
+			}
+			h.gate.holds[""] = 0
+			retry := release
+			retry.RunNumber, retry.CreatedAt = 2, h.clock.Now()
+			fresh, err := h.store.PublishRelease(t.Context(), 7, retry)
+			if err != nil || fresh.Generation != release.Generation+1 {
+				t.Fatalf("fresh issuance = %+v, %v", fresh, err)
+			}
+			freshID := entityid.Derive(domain, rollout.ReleaseRolloutID(fresh.Generation))
+			if err := h.executor.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			for range 2 {
+				if err := h.store.Settle(t.Context(), record, 7); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if cell, _, err := h.store.Cell(t.Context()); err != nil || cell.ActiveRolloutID != freshID || cell.Attempts[toDigest] != 1 {
+				t.Fatalf("old settlement changed the fresh attempt: %+v, %v", cell, err)
+			}
+			h.run(100, func() bool { return h.phase(freshID) == rollout.PhaseComplete })
+			if got := h.digests(units...); slices.ContainsFunc(got, func(d string) bool { return d != toDigest }) {
+				t.Fatalf("fresh publication did not promote: %v", got)
+			}
+			if kept, err := h.store.ReleaseGeneration(t.Context(), release.Generation); err != nil || !kept.CreatedAt.Equal(release.CreatedAt) {
+				t.Fatalf("fresh issuance rewrote history: %+v, %v", kept, err)
+			}
+		})
+	}
+}
+
 // releaseHarness drives the executor from the store's desired release.
 func releaseHarness(t *testing.T) (*harness, ReleaseProgram) {
 	t.Helper()
-	h := newHarness(t)
+	h := emptyHarness(t)
+	h.executor = &Executor{Cell: "gru", Store: h.store, Fencer: h.fence, Driver: h.fleet, Proofs: h.fleet, Gate: h.gate, Status: h.status, Now: h.clock.Now}
 	controllers, err := ControllerUnits([]string{"ctl-a", "ctl-b", "ctl-c"}, "ctl-a")
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +203,7 @@ func TestReleaseProgramMovesEveryControllerToTheDesiredReleaseSeedLast(t *testin
 	}
 	h.publish(toDigest)
 	h.run(100, func() bool {
-		return h.phase(entityid.Derive("release-controllers", ReleaseRolloutID(2))) == rollout.PhaseComplete
+		return h.phase(entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2))) == rollout.PhaseComplete
 	})
 	if steps := h.fleet.stepLog(); !slices.Equal(steps, []string{"prepare:ctl-b", "prepare:ctl-c", "prepare:ctl-a"}) {
 		t.Fatalf("steps = %v, want one controller per wave and the seed last", steps)
@@ -92,7 +241,7 @@ func TestReleaseProgramHonorsPauseAndRollsBackToAnEarlierGeneration(t *testing.T
 		t.Fatal(err)
 	}
 	h.run(100, func() bool {
-		return h.phase(entityid.Derive("release-controllers", ReleaseRolloutID(2))) == rollout.PhaseComplete
+		return h.phase(entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2))) == rollout.PhaseComplete
 	})
 
 	back, err := h.store.RollbackRelease(t.Context(), 7, 1, "ops", h.clock.Now())
@@ -100,7 +249,7 @@ func TestReleaseProgramHonorsPauseAndRollsBackToAnEarlierGeneration(t *testing.T
 		t.Fatalf("rollback = %+v %v", back, err)
 	}
 	h.run(100, func() bool {
-		return h.phase(entityid.Derive("release-controllers", ReleaseRolloutID(3))) == rollout.PhaseComplete
+		return h.phase(entityid.Derive("release-controllers", rollout.ReleaseRolloutID(3))) == rollout.PhaseComplete
 	})
 	if got := h.digests("ctl-a", "ctl-b", "ctl-c"); slices.ContainsFunc(got, func(d string) bool { return d != fromDigest }) {
 		t.Fatalf("controllers after the rollback generation: %v", got)
@@ -121,11 +270,11 @@ func TestAbortRollsBackARolloutTheOperatorSuperseded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if id, err := Abort(t.Context(), h.store, 7, back.Digest, "rolled back to generation 1", h.clock.Now()); err != nil || id != entityid.Derive("release-controllers", ReleaseRolloutID(2)) {
+	if id, err := Abort(t.Context(), h.store, 7, back.Digest, "rolled back to generation 1", h.clock.Now()); err != nil || id != entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2)) {
 		t.Fatalf("abort = %q %v", id, err)
 	}
 	h.run(20, func() bool {
-		return h.phase(entityid.Derive("release-controllers", ReleaseRolloutID(2))) == rollout.PhaseRolledBack
+		return h.phase(entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2))) == rollout.PhaseRolledBack
 	})
 	if got := h.digests("ctl-a", "ctl-b", "ctl-c"); slices.ContainsFunc(got, func(d string) bool { return d != fromDigest }) {
 		t.Fatalf("controllers after the abort: %v", got)
@@ -155,14 +304,14 @@ func TestResumeRetriesTheRollbackOfAFrozenRollout(t *testing.T) {
 	h.publish(fromDigest)
 	h.publish(toDigest)
 	h.run(10, func() bool {
-		return h.phase(entityid.Derive("release-controllers", ReleaseRolloutID(2))) == rollout.PhaseFrozen
+		return h.phase(entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2))) == rollout.PhaseFrozen
 	})
-	if id, err := Resume(t.Context(), h.store, h.fleet, 7, h.clock.Now()); err != nil || id != entityid.Derive("release-controllers", ReleaseRolloutID(2)) {
+	if id, err := Resume(t.Context(), h.store, h.fleet, 7, h.clock.Now()); err != nil || id != entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2)) {
 		t.Fatalf("resume = %q %v", id, err)
 	}
 	h.fleet.refuseRollback = false
 	h.run(10, func() bool {
-		return h.phase(entityid.Derive("release-controllers", ReleaseRolloutID(2))) == rollout.PhaseRolledBack
+		return h.phase(entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2))) == rollout.PhaseRolledBack
 	})
 	if id, err := Resume(t.Context(), h.store, h.fleet, 7, h.clock.Now()); err != nil || id != "" {
 		t.Fatalf("resume without a frozen rollout = %q %v", id, err)
@@ -178,9 +327,9 @@ func TestResumeRollsBackThePeersOfAUnitAnOperatorMovedOffTheTarget(t *testing.T)
 	h.publish(fromDigest)
 	h.publish(toDigest)
 	h.run(100, func() bool {
-		return h.phase(entityid.Derive("release-controllers", ReleaseRolloutID(2))) == rollout.PhaseFrozen
+		return h.phase(entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2))) == rollout.PhaseFrozen
 	})
-	if record, _ := h.load(entityid.Derive("release-controllers", ReleaseRolloutID(2))); record.Units["ctl-b"].State != rollout.UnitRollingBack {
+	if record, _ := h.load(entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2))); record.Units["ctl-b"].State != rollout.UnitRollingBack {
 		t.Fatalf("ctl-b = %s, want it waiting for its rollback", record.Units["ctl-b"].State)
 	}
 	fixed := strings.Repeat("d", 64)
@@ -188,11 +337,11 @@ func TestResumeRollsBackThePeersOfAUnitAnOperatorMovedOffTheTarget(t *testing.T)
 	h.fleet.restart("ctl-c")
 	h.fleet.refuseRollback = false
 	steps := len(h.fleet.stepLog())
-	if id, err := Resume(t.Context(), h.store, h.fleet, 7, h.clock.Now()); err != nil || id != entityid.Derive("release-controllers", ReleaseRolloutID(2)) {
+	if id, err := Resume(t.Context(), h.store, h.fleet, 7, h.clock.Now()); err != nil || id != entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2)) {
 		t.Fatalf("resume = %q %v", id, err)
 	}
 	h.run(20, func() bool {
-		return h.phase(entityid.Derive("release-controllers", ReleaseRolloutID(2))) == rollout.PhaseRolledBack
+		return h.phase(entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2))) == rollout.PhaseRolledBack
 	})
 	if got := h.fleet.stepLog()[steps:]; !slices.Equal(got, []string{"rollback:ctl-b"}) {
 		t.Fatalf("steps after the resume = %v, want ctl-b's rollback only", got)
@@ -211,23 +360,23 @@ func TestResumeRollsBackACanaryWhosePendingPeerAnOperatorMoved(t *testing.T) {
 	h.publish(fromDigest)
 	h.publish(toDigest)
 	h.run(10, func() bool {
-		return h.phase(entityid.Derive("release-controllers", ReleaseRolloutID(2))) == rollout.PhaseFrozen
+		return h.phase(entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2))) == rollout.PhaseFrozen
 	})
 	fixed := strings.Repeat("d", 64)
 	h.fleet.units["ctl-c"].digest = fixed
 	h.fleet.restart("ctl-c")
 	h.fleet.refuseRollback = false
 	steps := len(h.fleet.stepLog())
-	if id, err := Resume(t.Context(), h.store, h.fleet, 7, h.clock.Now()); err != nil || id != entityid.Derive("release-controllers", ReleaseRolloutID(2)) {
+	if id, err := Resume(t.Context(), h.store, h.fleet, 7, h.clock.Now()); err != nil || id != entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2)) {
 		t.Fatalf("resume = %q %v", id, err)
 	}
 	h.run(20, func() bool {
-		return h.phase(entityid.Derive("release-controllers", ReleaseRolloutID(2))) == rollout.PhaseRolledBack
+		return h.phase(entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2))) == rollout.PhaseRolledBack
 	})
 	if got := h.fleet.stepLog()[steps:]; !slices.Equal(got, []string{"rollback:ctl-b"}) {
 		t.Fatalf("steps after the resume = %v, want the canary's rollback only", got)
 	}
-	if record, _ := h.load(entityid.Derive("release-controllers", ReleaseRolloutID(2))); record.Units["ctl-c"].State != rollout.UnitPending {
+	if record, _ := h.load(entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2))); record.Units["ctl-c"].State != rollout.UnitPending {
 		t.Fatalf("ctl-c = %s, want it left pending", record.Units["ctl-c"].State)
 	}
 }
@@ -242,7 +391,7 @@ func TestResumeLeavesTheUnitsAnOperatorMovedOffTheTarget(t *testing.T) {
 	h.publish(fromDigest)
 	h.publish(toDigest)
 	h.run(10, func() bool {
-		return h.phase(entityid.Derive("release-controllers", ReleaseRolloutID(2))) == rollout.PhaseFrozen
+		return h.phase(entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2))) == rollout.PhaseFrozen
 	})
 	fixed := strings.Repeat("d", 64)
 	for _, unit := range []string{"ctl-a", "ctl-b", "ctl-c"} {
@@ -250,10 +399,10 @@ func TestResumeLeavesTheUnitsAnOperatorMovedOffTheTarget(t *testing.T) {
 		h.fleet.restart(unit)
 	}
 	steps := len(h.fleet.stepLog())
-	if id, err := Resume(t.Context(), h.store, h.fleet, 7, h.clock.Now()); err != nil || id != entityid.Derive("release-controllers", ReleaseRolloutID(2)) {
+	if id, err := Resume(t.Context(), h.store, h.fleet, 7, h.clock.Now()); err != nil || id != entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2)) {
 		t.Fatalf("resume = %q %v", id, err)
 	}
-	if phase := h.phase(entityid.Derive("release-controllers", ReleaseRolloutID(2))); !phase.Terminal() {
+	if phase := h.phase(entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2))); !phase.Terminal() {
 		t.Fatalf("resumed rollout = %s, want it ended", phase)
 	}
 	for range 3 {
@@ -280,12 +429,12 @@ func TestReleaseProgramMovesOnlyTheControllersBehind(t *testing.T) {
 	h.fleet.units["ctl-c"].digest = toDigest
 	h.publish(toDigest)
 	h.run(50, func() bool {
-		return h.phase(entityid.Derive("release-controllers", ReleaseRolloutID(2))) == rollout.PhaseComplete
+		return h.phase(entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2))) == rollout.PhaseComplete
 	})
 	if steps := h.fleet.stepLog(); !slices.Equal(steps, []string{"prepare:ctl-b"}) {
 		t.Fatalf("steps = %v, want the one controller behind", steps)
 	}
-	record, _ := h.load(entityid.Derive("release-controllers", ReleaseRolloutID(2)))
+	record, _ := h.load(entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2)))
 	if len(record.Units) != 1 {
 		t.Fatalf("rollout units = %v", record.Units)
 	}
@@ -335,7 +484,7 @@ func TestReleaseProgramMovesTheHostsAfterTheControllers(t *testing.T) {
 	h.publish(fromDigest)
 	h.publish(toDigest)
 	h.run(50, func() bool {
-		return h.phase(entityid.Derive("release-controllers", ReleaseRolloutID(2))) == rollout.PhaseComplete
+		return h.phase(entityid.Derive("release-controllers", rollout.ReleaseRolloutID(2))) == rollout.PhaseComplete
 	})
 	if steps := h.fleet.stepLog(); slices.ContainsFunc(steps, func(step string) bool { return strings.Contains(step, ":h") }) {
 		t.Fatalf("a host moved before the controllers completed: %v", steps)
@@ -345,12 +494,12 @@ func TestReleaseProgramMovesTheHostsAfterTheControllers(t *testing.T) {
 	}
 	h.fleet.units["h3"].down = false
 	h.run(80, func() bool {
-		return h.phase(entityid.Derive("release-hosts", ReleaseRolloutID(2))) == rollout.PhaseComplete
+		return h.phase(entityid.Derive("release-hosts", rollout.ReleaseRolloutID(2))) == rollout.PhaseComplete
 	})
 	if got := h.digests("h1", "h2", "h3"); !slices.Equal(got, []string{toDigest, toDigest, toDigest}) {
 		t.Fatalf("host digests = %v", got)
 	}
-	record, _ := h.load(entityid.Derive("release-hosts", ReleaseRolloutID(2)))
+	record, _ := h.load(entityid.Derive("release-hosts", rollout.ReleaseRolloutID(2)))
 	for _, wave := range record.Waves {
 		if slices.Contains(wave, "h1") && slices.Contains(wave, "h2") {
 			t.Fatalf("a wave took both seats of p1: %v", record.Waves)

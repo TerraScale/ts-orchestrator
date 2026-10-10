@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -61,6 +62,36 @@ func testStore(t *testing.T) (*Store, *epochFence) {
 	return store, fence
 }
 
+func testStageID(generation uint64) string {
+	return entityid.Derive(ControllerReleaseDomain, ReleaseRolloutID(generation))
+}
+
+// Seed immutable generations for store contracts without depending on publication retries.
+func testBindRelease(t *testing.T, store *Store, generation uint64, digest string) {
+	t.Helper()
+	ctx := t.Context()
+	release := Release{ID: generationKey(store.cell, generation), Generation: generation,
+		Digest: digest, Actor: "ci", RunNumber: int64(generation), CreatedAt: testStart}
+	if err := store.retain(ctx, 7, release); err != nil {
+		t.Fatal(err)
+	}
+	desired, revision, err := store.Desired(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if generation > desired.Generation() {
+		if desired.Generation() > 0 {
+			if err := store.retain(ctx, 7, desired.Release); err != nil {
+				t.Fatal(err)
+			}
+		}
+		desired.Release = release
+		if err := store.writeDesired(ctx, 7, desired, revision); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func testSpec(id string) Spec {
 	return Spec{RolloutID: id, Kind: KindController, Cell: "gru", FromDigest: fromDigest, ToDigest: toDigest,
 		Units: controllers(), Policy: testPolicy(), AuthorityEpoch: 7}
@@ -69,26 +100,28 @@ func testSpec(id string) Spec {
 func TestStoreBeginIsSingleActiveAndIdempotent(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := t.Context()
-	record, revision, err := store.Begin(ctx, testSpec("0000000000GBSYKHMNVHNRT6RH"), testStart)
+	testBindRelease(t, store, 1, toDigest)
+	testBindRelease(t, store, 2, otherBad)
+	record, revision, err := store.Begin(ctx, testSpec(testStageID(1)), testStart)
 	if err != nil || record.Phase != PhasePending || revision == 0 {
 		t.Fatalf("begin = %s %d %v", record.Phase, revision, err)
 	}
-	again, againRevision, err := store.Begin(ctx, testSpec("0000000000GBSYKHMNVHNRT6RH"), testStart.Add(time.Minute))
+	again, againRevision, err := store.Begin(ctx, testSpec(testStageID(1)), testStart.Add(time.Minute))
 	if err != nil || againRevision != revision || !again.StartedAt.Equal(record.StartedAt) {
 		t.Fatalf("repeated begin was not idempotent: %d %v", againRevision, err)
 	}
-	other := testSpec("0000000000VDVZT0DFJNS2394R")
+	other := testSpec(testStageID(2))
 	other.ToDigest = otherBad
 	if _, _, err := store.Begin(ctx, other, testStart); !errors.Is(err, ErrActiveRollout) {
 		t.Fatalf("second active rollout: %v", err)
 	}
-	conflicting := testSpec("0000000000GBSYKHMNVHNRT6RH")
+	conflicting := testSpec(testStageID(1))
 	conflicting.ToDigest = otherBad
 	if _, _, err := store.Begin(ctx, conflicting, testStart); !errors.Is(err, ErrConflict) {
 		t.Fatalf("rollout ID rebound: %v", err)
 	}
 	cell, _, err := store.Cell(ctx)
-	if err != nil || cell.ActiveRolloutID != "0000000000GBSYKHMNVHNRT6RH" || cell.Attempts[toDigest] != 1 {
+	if err != nil || cell.ActiveRolloutID != testStageID(1) || cell.Attempts[toDigest] != 1 {
 		t.Fatalf("cell = %+v %v", cell, err)
 	}
 }
@@ -96,7 +129,9 @@ func TestStoreBeginIsSingleActiveAndIdempotent(t *testing.T) {
 func TestStoreCommitIsCASFencedAndRecordsKnownBad(t *testing.T) {
 	store, fence := testStore(t)
 	ctx := t.Context()
-	record, revision, err := store.Begin(ctx, testSpec("0000000000GBSYKHMNVHNRT6RH"), testStart)
+	testBindRelease(t, store, 1, toDigest)
+	testBindRelease(t, store, 2, toDigest)
+	record, revision, err := store.Begin(ctx, testSpec(testStageID(1)), testStart)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,11 +167,11 @@ func TestStoreCommitIsCASFencedAndRecordsKnownBad(t *testing.T) {
 	if _, err := store.Commit(ctx, newRevision, started); !errors.Is(err, authority.ErrFenced) {
 		t.Fatalf("fenced epoch committed: %v", err)
 	}
-	adopted, adoptedRevision, err := store.Adopt(ctx, "0000000000GBSYKHMNVHNRT6RH", 8)
+	adopted, adoptedRevision, err := store.Adopt(ctx, testStageID(1), 8)
 	if err != nil || adopted.AuthorityEpoch != 8 {
 		t.Fatalf("adopt = %d %v", adopted.AuthorityEpoch, err)
 	}
-	if _, _, err := store.Adopt(ctx, "0000000000GBSYKHMNVHNRT6RH", 7); !errors.Is(err, authority.ErrFenced) {
+	if _, _, err := store.Adopt(ctx, testStageID(1), 7); !errors.Is(err, authority.ErrFenced) {
 		t.Fatalf("older epoch adopted: %v", err)
 	}
 
@@ -157,7 +192,7 @@ func TestStoreCommitIsCASFencedAndRecordsKnownBad(t *testing.T) {
 		t.Fatal(err)
 	}
 	cell, _, err := store.Cell(ctx)
-	if err != nil || cell.ActiveRolloutID != "0000000000GBSYKHMNVHNRT6RH" || len(cell.KnownBad) != 1 || cell.KnownBad[0] != toDigest {
+	if err != nil || cell.ActiveRolloutID != testStageID(1) || len(cell.KnownBad) != 1 || cell.KnownBad[0] != toDigest {
 		t.Fatalf("known-bad target not durable before rollback: %+v %v", cell, err)
 	}
 	done, err := Apply(rolling, Event{Kind: EventRollbackServing, Unit: "ctrl-b", At: testStart})
@@ -175,7 +210,7 @@ func TestStoreCommitIsCASFencedAndRecordsKnownBad(t *testing.T) {
 	if err != nil || cell.ActiveRolloutID != "" {
 		t.Fatalf("cell slot not released: %+v %v", cell, err)
 	}
-	retry := testSpec("0000000000VDVZT0DFJNS2394R")
+	retry := testSpec(testStageID(2))
 	retry.AuthorityEpoch = 8
 	if _, _, err := store.Begin(ctx, retry, testStart); !errors.Is(err, ErrKnownBad) {
 		t.Fatalf("known-bad digest restarted: %v", err)
@@ -185,21 +220,20 @@ func TestStoreCommitIsCASFencedAndRecordsKnownBad(t *testing.T) {
 func TestStoreBeginEnforcesAttemptBudget(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := t.Context()
-	record, revision, err := store.Begin(ctx, testSpec("0000000000GBSYKHMNVHNRT6RH"), testStart)
+	testBindRelease(t, store, 2, toDigest)
+	testBindRelease(t, store, 3, toDigest)
+	cell, revision, err := store.Cell(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	aborted, err := Apply(record, Event{Kind: EventAbort, At: testStart})
-	if err != nil {
+	cell.Attempts = map[string]int{toDigest: 1}
+	if err := store.writeCell(ctx, 7, cell, revision); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Commit(ctx, revision, aborted); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := store.Begin(ctx, testSpec("0000000000VDVZT0DFJNS2394R"), testStart); !errors.Is(err, ErrAttemptsExhausted) {
+	if _, _, err := store.Begin(ctx, testSpec(testStageID(2)), testStart); !errors.Is(err, ErrAttemptsExhausted) {
 		t.Fatalf("second attempt with max_attempts=1: %v", err)
 	}
-	spec := testSpec("0000000000WJEP7CN8MY7G92XF")
+	spec := testSpec(testStageID(3))
 	spec.Policy.MaxAttempts = 2
 	if _, _, err := store.Begin(ctx, spec, testStart); err != nil {
 		t.Fatalf("raised attempt budget refused: %v", err)
@@ -211,10 +245,41 @@ func TestStoreBeginEnforcesAttemptBudget(t *testing.T) {
 	}
 }
 
+func TestStoreRefundsAnUntouchedAbortOnlyOnce(t *testing.T) {
+	store, _ := testStore(t)
+	ctx := t.Context()
+	testBindRelease(t, store, 1, toDigest)
+	testBindRelease(t, store, 2, toDigest)
+	record, revision, err := store.Begin(ctx, testSpec(testStageID(1)), testStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aborted := apply(t, record, Event{Kind: EventAbort, At: testStart})
+	if _, err := store.Commit(ctx, revision, aborted); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _, err := store.Begin(ctx, testSpec(testStageID(2)), testStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := store.Settle(ctx, aborted, 7); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cell, _, err := store.Cell(ctx)
+	if err != nil || cell.ActiveRolloutID != fresh.RolloutID || cell.Attempts[toDigest] != 1 {
+		t.Fatalf("old abort refunded the new attempt: %+v, %v", cell, err)
+	}
+}
+
 func TestStoreBeginRepairsInterruptedCellRelease(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := t.Context()
-	record, revision, err := store.Begin(ctx, testSpec("0000000000GBSYKHMNVHNRT6RH"), testStart)
+	testBindRelease(t, store, 1, toDigest)
+	testBindRelease(t, store, 2, otherBad)
+	testBindRelease(t, store, 3, strings.Repeat("d", 64))
+	record, revision, err := store.Begin(ctx, testSpec(testStageID(1)), testStart)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,16 +295,17 @@ func TestStoreBeginRepairsInterruptedCellRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cell.ActiveRolloutID = "0000000000GBSYKHMNVHNRT6RH"
+	cell.ActiveRolloutID = testStageID(1)
+	cell.Attempts = map[string]int{toDigest: 1}
 	if err := store.writeCell(ctx, 7, cell, cellRevision); err != nil {
 		t.Fatal(err)
 	}
-	next := testSpec("0000000000VDVZT0DFJNS2394R")
+	next := testSpec(testStageID(2))
 	next.ToDigest = otherBad
 	if _, _, err := store.Begin(ctx, next, testStart); err != nil {
 		t.Fatalf("terminal rollout kept the cell slot: %v", err)
 	}
-	third := testSpec("0000000000WJEP7CN8MY7G92XF")
+	third := testSpec(testStageID(3))
 	third.ToDigest = strings.Repeat("d", 64)
 	if _, _, err := store.Begin(ctx, third, testStart); !errors.Is(err, ErrActiveRollout) {
 		t.Fatalf("live rollout lost the cell slot: %v", err)
@@ -249,6 +315,7 @@ func TestStoreBeginRepairsInterruptedCellRelease(t *testing.T) {
 func TestStoreBeginReclaimsASlotWhoseRecordWasNeverCreated(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := t.Context()
+	testBindRelease(t, store, 2, otherBad)
 	// Simulate a crash between the cell claim and the record create.
 	cell, revision, err := store.Cell(ctx)
 	if err != nil {
@@ -259,14 +326,14 @@ func TestStoreBeginReclaimsASlotWhoseRecordWasNeverCreated(t *testing.T) {
 	if err := store.writeCell(ctx, 7, cell, revision); err != nil {
 		t.Fatal(err)
 	}
-	next := testSpec("0000000000VDVZT0DFJNS2394R")
+	next := testSpec(testStageID(2))
 	next.ToDigest = otherBad
 	if _, _, err := store.Begin(ctx, next, testStart); err != nil {
 		t.Fatalf("a dangling claim kept the cell slot: %v", err)
 	}
 	// The abandoned ID can never create a live record afterwards.
 	lost := testSpec("0000000000EVVNWR99ZRR16PYM")
-	if _, _, err := store.createRecord(ctx, lost, cell, testStart); !errors.Is(err, errAbandonedRollout) {
+	if _, _, err := store.createRecord(ctx, lost, cell, testStart); !errors.Is(err, ErrAbandonedRollout) {
 		t.Fatalf("an abandoned rollout ID created a record: %v", err)
 	}
 	rollback, _, err := store.ReleasePins(ctx)
@@ -278,18 +345,20 @@ func TestStoreBeginReclaimsASlotWhoseRecordWasNeverCreated(t *testing.T) {
 func TestStoreBeginReportsALoadFailureInsteadOfAnActiveRollout(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := t.Context()
+	testBindRelease(t, store, 2, toDigest)
 	cell, revision, err := store.Cell(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	cell.ActiveRolloutID = "000000000027AH1R37TB6WTXAS"
+	cell.Attempts = map[string]int{toDigest: 1}
 	if err := store.writeCell(ctx, 7, cell, revision); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.kv.Put(ctx, rolloutKey("000000000027AH1R37TB6WTXAS"), []byte(`{"schema_version":1}`)); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := store.Begin(ctx, testSpec("0000000000VDVZT0DFJNS2394R"), testStart); err == nil || errors.Is(err, ErrActiveRollout) {
+	if _, _, err := store.Begin(ctx, testSpec(testStageID(2)), testStart); err == nil || errors.Is(err, ErrActiveRollout) {
 		t.Fatalf("an unreadable active record reported %v, want the load failure", err)
 	}
 }
@@ -297,15 +366,16 @@ func TestStoreBeginReportsALoadFailureInsteadOfAnActiveRollout(t *testing.T) {
 func TestStoreBeginRetryMustKeepThePlan(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := t.Context()
-	if _, _, err := store.Begin(ctx, testSpec("0000000000GBSYKHMNVHNRT6RH"), testStart); err != nil {
+	testBindRelease(t, store, 1, toDigest)
+	if _, _, err := store.Begin(ctx, testSpec(testStageID(1)), testStart); err != nil {
 		t.Fatal(err)
 	}
-	grown := testSpec("0000000000GBSYKHMNVHNRT6RH")
+	grown := testSpec(testStageID(1))
 	grown.Units = append(grown.Units, Unit{ID: "ctrl-d", Group: "controllers"})
 	if _, _, err := store.Begin(ctx, grown, testStart); !errors.Is(err, ErrConflict) {
 		t.Fatalf("a retry with a different unit set returned the stored plan: %v", err)
 	}
-	tuned := testSpec("0000000000GBSYKHMNVHNRT6RH")
+	tuned := testSpec(testStageID(1))
 	tuned.Policy.BatchSoakSeconds++
 	if _, _, err := store.Begin(ctx, tuned, testStart); !errors.Is(err, ErrConflict) {
 		t.Fatalf("a retry with a different policy returned the stored plan: %v", err)
@@ -315,7 +385,9 @@ func TestStoreBeginRetryMustKeepThePlan(t *testing.T) {
 func TestStoreRefundsTheAttemptOfACompletedRollout(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := t.Context()
-	record, revision, err := store.Begin(ctx, testSpec("0000000000GBSYKHMNVHNRT6RH"), testStart)
+	testBindRelease(t, store, 1, toDigest)
+	testBindRelease(t, store, 2, toDigest)
+	record, revision, err := store.Begin(ctx, testSpec(testStageID(1)), testStart)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +414,7 @@ func TestStoreRefundsTheAttemptOfACompletedRollout(t *testing.T) {
 		t.Fatalf("cell after completion = %+v %v", cell, err)
 	}
 	// The proven digest can be targeted again, for example to restore it.
-	restore := testSpec("0000000000VDVZT0DFJNS2394R")
+	restore := testSpec(testStageID(2))
 	restore.FromDigest, restore.ToDigest = otherBad, toDigest
 	if _, _, err := store.Begin(ctx, restore, at); err != nil {
 		t.Fatalf("a completed digest could not be targeted again: %v", err)
@@ -375,7 +447,8 @@ func TestBoundAttemptsEvictsKnownBadFirstAndKeepsTheTarget(t *testing.T) {
 func TestStoreReadsTheRecordsOfANewerBinary(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := t.Context()
-	record, _, err := store.Begin(ctx, testSpec("0000000000GBSYKHMNVHNRT6RH"), testStart)
+	testBindRelease(t, store, 1, toDigest)
+	record, _, err := store.Begin(ctx, testSpec(testStageID(1)), testStart)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,14 +464,14 @@ func TestStoreReadsTheRecordsOfANewerBinary(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	original := newer(rolloutKey("0000000000GBSYKHMNVHNRT6RH"), `"added_first":true`)
+	original := newer(rolloutKey(testStageID(1)), `"added_first":true`)
 	cellWire := newer(cellKey, `"added_by_newer_binary":{"wave_budget":2}`)
 	put(cellKey, cellWire)
-	if cell, _, err := store.Cell(ctx); err != nil || cell.ActiveRolloutID != "0000000000GBSYKHMNVHNRT6RH" {
+	if cell, _, err := store.Cell(ctx); err != nil || cell.ActiveRolloutID != testStageID(1) {
 		t.Fatalf("cell slot of a newer binary = %+v, %v", cell, err)
 	}
-	put(rolloutKey("0000000000GBSYKHMNVHNRT6RH"), newer(rolloutKey("0000000000GBSYKHMNVHNRT6RH"), `"added_by_newer_binary":true`))
-	if loaded, _, err := store.Load(ctx, "0000000000GBSYKHMNVHNRT6RH"); err != nil || loaded.RolloutID != record.RolloutID || loaded.Phase != record.Phase {
+	put(rolloutKey(testStageID(1)), newer(rolloutKey(testStageID(1)), `"added_by_newer_binary":true`))
+	if loaded, _, err := store.Load(ctx, testStageID(1)); err != nil || loaded.RolloutID != record.RolloutID || loaded.Phase != record.Phase {
 		t.Fatalf("record of a newer binary = %+v, %v", loaded, err)
 	}
 	for name, value := range map[string]string{
@@ -418,19 +491,19 @@ func TestStoreReadsTheRecordsOfANewerBinary(t *testing.T) {
 	}
 	newerPolicy := strings.Replace(string(policy), "{", `{"max_unavailable":2,`, 1)
 	newerDigest := sha256.Sum256([]byte(newerPolicy))
-	put(rolloutKey("0000000000GBSYKHMNVHNRT6RH"), []byte(strings.NewReplacer(string(policy), newerPolicy,
-		record.PolicyDigest, hex.EncodeToString(newerDigest[:])).Replace(string(newer(rolloutKey("0000000000GBSYKHMNVHNRT6RH"), `"added_later":true`)))))
-	if _, _, err := store.Load(ctx, "0000000000GBSYKHMNVHNRT6RH"); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "policy digest") {
+	put(rolloutKey(testStageID(1)), []byte(strings.NewReplacer(string(policy), newerPolicy,
+		record.PolicyDigest, hex.EncodeToString(newerDigest[:])).Replace(string(newer(rolloutKey(testStageID(1)), `"added_later":true`)))))
+	if _, _, err := store.Load(ctx, testStageID(1)); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "policy digest") {
 		t.Fatalf("record whose policy has a newer member = %v, want the policy digest refused", err)
 	}
-	put(rolloutKey("000000000074NHTQ2N7GPEMR41"), []byte(`{"abandoned_rollout":"000000000074NHTQ2N7GPEMR41","added_by_newer_binary":true}`))
-	if _, _, err := store.Load(ctx, "000000000074NHTQ2N7GPEMR41"); !errors.Is(err, errAbandonedRollout) {
-		t.Fatalf("abandoned marker of a newer binary = %v", err)
+	put(rolloutKey("000000000074NHTQ2N7GPEMR41"), []byte(`{"abandoned_rollout":"000000000074NHTQ2N7GPEMR41"}`))
+	if _, _, err := store.Load(ctx, "000000000074NHTQ2N7GPEMR41"); !errors.Is(err, ErrAbandonedRollout) {
+		t.Fatalf("digest-bound abandoned marker = %v", err)
 	}
 	// A newer record that happens to carry the marker's member is still a
 	// record: it has a schema version.
-	put(rolloutKey("0000000000GBSYKHMNVHNRT6RH"), []byte(strings.Replace(string(original), "{", `{"abandoned_rollout":"0000000000GBSYKHMNVHNRT6RH",`, 1)))
-	if loaded, _, err := store.Load(ctx, "0000000000GBSYKHMNVHNRT6RH"); err != nil || loaded.RolloutID != "0000000000GBSYKHMNVHNRT6RH" {
+	put(rolloutKey(testStageID(1)), []byte(strings.Replace(string(original), "{", fmt.Sprintf(`{"abandoned_rollout":%q,`, testStageID(1)), 1)))
+	if loaded, _, err := store.Load(ctx, testStageID(1)); err != nil || loaded.RolloutID != testStageID(1) {
 		t.Fatalf("record carrying the marker member = %+v, %v", loaded, err)
 	}
 }
@@ -476,7 +549,9 @@ func TestReleasePinsIncludesHistoryActivePredecessorAndDurableKnownBad(t *testin
 			t.Fatal(err)
 		}
 	}
-	if _, _, err := store.Begin(ctx, testSpec("01000000000000000000000001"), testStart); err != nil {
+	active := testSpec(testStageID(2))
+	active.ToDigest = strings.Repeat("d", 64)
+	if _, _, err := store.Begin(ctx, active, testStart); err != nil {
 		t.Fatal(err)
 	}
 	bad := strings.Repeat("e", 64)

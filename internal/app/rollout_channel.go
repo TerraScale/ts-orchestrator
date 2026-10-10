@@ -24,7 +24,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -105,7 +104,12 @@ func (c *rolloutControl) admitChannel(channel releasechannel.Channel, now time.T
 	}
 	for _, wire := range channel.Receipts {
 		if envelope, err := trust.DecodeEnvelope(wire); err == nil && envelope.Scope.Slot == "linux-"+goruntime.GOARCH {
-			return c.verify(wire, channel.Delegation, now)
+			admitted, err := c.verify(wire, channel.Delegation, now)
+			if err != nil {
+				return rollout.Release{}, err
+			}
+			admitted.CreatedAt = envelope.IssuedAt
+			return admitted, nil
 		}
 	}
 	return rollout.Release{}, fmt.Errorf("the channel has no receipt for %s", goruntime.GOARCH)
@@ -357,7 +361,10 @@ func (c *rolloutControl) channelState(ctx context.Context, store *rollout.Store,
 	if err != nil {
 		return releasechannel.StateFailed, "the release does not verify in this cell: " + err.Error(), nil
 	}
-	generation, refusal, err := channelGeneration(ctx, store, epoch, admitted, now)
+	if admitted.CreatedAt.After(now) {
+		return releasechannel.StateRolling, fmt.Sprintf("the release is issued at %s; waiting for the cell clock", admitted.CreatedAt), nil
+	}
+	generation, refusal, err := channelGeneration(ctx, store, epoch, admitted)
 	if err != nil || refusal != "" {
 		return releasechannel.StateFailed, refusal, err
 	}
@@ -369,9 +376,7 @@ func (c *rolloutControl) channelState(ctx context.Context, store *rollout.Store,
 // published. Generations are newest first, so an operator's rollback, a
 // generation that repeats an older run, never makes the channel publish
 // the release it rolled back from again.
-func channelGeneration(ctx context.Context, store *rollout.Store, epoch uint64, admitted rollout.Release,
-	now time.Time,
-) (rollout.Release, string, error) {
+func channelGeneration(ctx context.Context, store *rollout.Store, epoch uint64, admitted rollout.Release) (rollout.Release, string, error) {
 	history, err := store.Releases(ctx, rollout.ReleaseHistory)
 	if err != nil {
 		return rollout.Release{}, "", err
@@ -386,7 +391,7 @@ func channelGeneration(ctx context.Context, store *rollout.Store, epoch uint64, 
 	if admitted.RunNumber <= newest {
 		return rollout.Release{}, fmt.Sprintf("the cell already published run %d", newest), nil
 	}
-	admitted.Actor, admitted.CreatedAt = channelActor, now
+	admitted.Actor = channelActor
 	published, err := store.PublishRelease(ctx, epoch, admitted)
 	switch {
 	case errors.Is(err, rollout.ErrKnownBad):
@@ -411,14 +416,17 @@ func (c *rolloutControl) generationState(ctx context.Context, store *rollout.Sto
 		domain string
 		units  func(context.Context) ([]rollout.Unit, error)
 	}{
-		{"release-controllers", func(context.Context) ([]rollout.Unit, error) { return c.program.Controllers, nil }},
-		{"release-hosts", c.program.Hosts},
+		{rollout.ControllerReleaseDomain, func(context.Context) ([]rollout.Unit, error) { return c.program.Controllers, nil }},
+		{rollout.HostReleaseDomain, c.program.Hosts},
 	}
 	for _, part := range parts {
 		if part.units == nil {
 			continue
 		}
-		record, _, err := store.Load(ctx, entityid.Derive(part.domain, rolloutexec.ReleaseRolloutID(generation.Generation)))
+		record, _, err := store.Load(ctx, entityid.Derive(part.domain, rollout.ReleaseRolloutID(generation.Generation)))
+		if errors.Is(err, rollout.ErrAbandonedRollout) {
+			return releasechannel.StateFailed, "the rollout was abandoned before any update; run release again", nil
+		}
 		if err == nil {
 			switch record.Phase {
 			case rollout.PhaseComplete:

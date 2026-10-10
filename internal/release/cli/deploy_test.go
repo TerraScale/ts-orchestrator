@@ -16,6 +16,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
@@ -153,6 +154,7 @@ func newDeployFixture(t *testing.T) *deployFixture {
 			objects: map[string][]byte{}, log: &fixture.log, logMu: &fixture.logMu}
 	}
 	fixture.env = deployEnv{
+		timeout:  2 * time.Second,
 		discover: func(context.Context) ([]string, error) { return []string{"GRU", "SFO"}, nil },
 		check:    func(release.Qualification, string) error { return nil },
 		inspect:  func(string, string, string) (binaryReceipt, error) { return testBinaryReceipt(), nil },
@@ -174,7 +176,7 @@ func (fixture *deployFixture) args(cells ...string) []string {
 	args := []string{"--dir", fixture.releaseDir, "--source-revision", testRevision,
 		"--update-delegation", fixture.delegation, "--root-key", fixture.rootPath, "--signing-key", fixture.leafKey,
 		"--environment", "production", "--source-checkout", "/srv/checkout", "--namespace", "ns",
-		"--arch", "amd64", "--poll", "1ms", "--region-timeout", "2s"}
+		"--arch", "amd64", "--poll", "1ms"}
 	for _, cell := range cells {
 		args = append(args, "--cell", cell)
 	}
@@ -192,6 +194,14 @@ func (fixture *deployFixture) touched(cell string) bool {
 
 func TestDeployRollsOutEveryRegion(t *testing.T) {
 	fixture := newDeployFixture(t)
+	runGit := fixture.env.git
+	fixture.env.git = func(ctx context.Context, args ...string) (string, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) > fixture.env.timeout {
+			return "", errors.New("lineage check escaped the deployment deadline")
+		}
+		return runGit(ctx, args...)
+	}
 	var output bytes.Buffer
 	c := command{ctx: t.Context(), output: &output}
 	if err := c.deployWith(fixture.args("GRU", "SFO"), fixture.env); err != nil {
@@ -204,6 +214,25 @@ func TestDeployRollsOutEveryRegion(t *testing.T) {
 	slices.Sort(want)
 	if !slices.Equal(fixture.log, want) {
 		t.Fatalf("writes = %q, want %q", fixture.log, want)
+	}
+	var started time.Time
+	for _, cell := range []string{"GRU", "SFO"} {
+		var channel releasechannel.Channel
+		if err := json.Unmarshal(fixture.buckets[cell].objects[releasechannel.ChannelObject], &channel); err != nil {
+			t.Fatal(err)
+		}
+		for _, wire := range channel.Receipts {
+			receipt, err := trust.DecodeEnvelope(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if started.IsZero() {
+				started = receipt.IssuedAt
+			}
+			if !receipt.IssuedAt.Equal(started) {
+				t.Fatal("regions received different observation starts")
+			}
+		}
 	}
 	text := output.String()
 	if !strings.Contains(text, "GRU complete") || !strings.Contains(text, "SFO complete") ||
@@ -242,6 +271,38 @@ func TestDeployRollsOutEveryRegion(t *testing.T) {
 	if len(lines) != 2 || lines[0] != `{"cell":"GRU"}` || !strings.Contains(lines[1], strings.Repeat("ab", 32)) ||
 		strings.Contains(lines[1], "channel") {
 		t.Fatalf("fleet-status --role:\n%s", output.String())
+	}
+}
+
+func TestDeployReceiptValidityCoversSharedDeadline(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		validFor string
+		expired  bool
+	}{
+		{name: "covers deadline after preparation", validFor: "21m"},
+		{name: "expires before deadline", validFor: "19m", expired: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				fixture := newDeployFixture(t)
+				fixture.env.timeout = 0
+				inspect := fixture.env.inspect
+				fixture.env.inspect = func(path, version, revision string) (binaryReceipt, error) {
+					time.Sleep(2 * time.Minute)
+					return inspect(path, version, revision)
+				}
+				args := append(fixture.args("GRU"), "--valid-for", test.validFor)
+				err := (command{ctx: t.Context(), output: io.Discard}).deployWith(args, fixture.env)
+				if test.expired {
+					if !errors.Is(err, trust.ErrExpired) || fixture.touched("GRU") {
+						t.Fatalf("expired receipt: err=%v, writes=%q", err, fixture.log)
+					}
+				} else if err != nil || !fixture.touched("GRU") {
+					t.Fatalf("receipt covering deadline: err=%v, writes=%q", err, fixture.log)
+				}
+			})
+		})
 	}
 }
 
@@ -372,10 +433,9 @@ func TestDeployRefusesUnqualifiedOrInvalidSource(t *testing.T) {
 	if err := c.deployWith(fixture.args("GRU"), offMain); !errors.Is(err, release.ErrLineage) {
 		t.Fatalf("deployed a revision outside main = %v", err)
 	}
-	// The delegation expires in a day: receipts capped at it would lapse
-	// while a region still rolls them out.
+	// The fixed budget cannot be replaced by a longer per-region window.
 	if err := c.deployWith(append(fixture.args("GRU"), "--region-timeout", "25h"), fixture.env); err == nil ||
-		!strings.Contains(err.Error(), "renew the update delegation") {
+		!strings.Contains(err.Error(), "flag provided but not defined: -region-timeout") {
 		t.Fatalf("deployed receipts that expire mid-rollout: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(fixture.releaseDir, "terrascale-orchestrator-linux-amd64"), []byte("tampered bytes"), 0o644); err != nil {

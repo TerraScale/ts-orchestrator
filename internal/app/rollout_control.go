@@ -96,8 +96,7 @@ type rolloutControl struct {
 	// controllerNode returns the node of a controller slot's VM, which a
 	// host grant can name (TS-609); nil keeps the slot's NATS server name.
 	controllerNode func(slot string) string
-	// policy is the policy of the next rollout: the cell spec's, else the
-	// signed config's.
+	// policy returns the fixed rollout policy; tests replace its clock windows.
 	policy func() rollout.Policy
 	// hosts serves host self-updates once the executor runs.
 	hosts atomic.Pointer[rolloutHosts]
@@ -119,14 +118,9 @@ func newRolloutControl(cfg Config, services *specRegistry, region string) (*roll
 	c := &rolloutControl{cell: cfg.NATS.Cell, spool: rolloutexec.DefaultSpoolDir, architectures: []string{goruntime.GOARCH},
 		layout: selfupdate.NewLayout(selfupdate.DefaultRoot), ticks: make(chan struct{}, 1)}
 	settings := cfg.Controller.Rollouts
-	signed := rollout.DefaultPolicy()
-	if settings != nil && settings.Policy != nil {
-		signed = *settings.Policy
-	}
-	c.policy = func() rollout.Policy { return signed }
+	c.policy = rollout.DefaultPolicy
 	if services != nil {
 		c.controllerNode = func(slot string) string { return services.controllerNode(cfg.NATS.Cell, slot) }
-		c.policy = func() rollout.Policy { return services.rolloutPolicy(signed) }
 	}
 	if settings != nil && settings.Executor && !settings.Enabled {
 		return nil, errors.New("controller.rollouts.executor needs controller.rollouts.enabled")
@@ -137,11 +131,6 @@ func newRolloutControl(cfg Config, services *specRegistry, region string) (*roll
 	c.follow = settings != nil && settings.Channel
 	if c.follow && region != "" {
 		c.channel = instancePrincipalChannel(region, strings.ToUpper(cfg.NATS.Cell))
-	}
-	if settings != nil && settings.Policy != nil {
-		if err := settings.Policy.Validate(); err != nil {
-			return nil, fmt.Errorf("controller.rollouts.policy: %w", err)
-		}
 	}
 	if services != nil && services.roots != nil {
 		c.roots, c.environment = services.roots, services.identity.Environment
@@ -167,10 +156,14 @@ func newRolloutControl(cfg Config, services *specRegistry, region string) (*roll
 			if err != nil {
 				return rollout.Release{}, err
 			}
+			envelope, err := trust.DecodeEnvelope(receipt)
+			if err != nil {
+				return rollout.Release{}, err
+			}
 			admitted := rollout.Release{Digest: verified.Receipt().SHA256,
-				SourceRevision: verified.Receipt().SourceRevision, Receipt: receipt, Delegation: delegation}
+				SourceRevision: verified.Receipt().SourceRevision, Receipt: receipt, Delegation: delegation, CreatedAt: envelope.IssuedAt}
 			// An update receipt's authentic payload names the CI run.
-			if envelope, err := trust.DecodeEnvelope(receipt); err == nil && envelope.Scope.Domain == release.UpdateReceiptDomain {
+			if envelope.Scope.Domain == release.UpdateReceiptDomain {
 				var update release.BinaryUpdateReceipt
 				if err := protocol.DecodeStrict(envelope.Payload, &update, trust.MaxPayloadBytes); err != nil {
 					return rollout.Release{}, err
@@ -475,7 +468,7 @@ func (c *rolloutControl) serve(ctx context.Context, wire []byte, policy signerPo
 		if verifyErr != nil {
 			return rolloutReply{}, fmt.Errorf("release receipt: %w", verifyErr)
 		}
-		admitted.Actor, admitted.CreatedAt = trusted.Actor, now
+		admitted.Actor = trusted.Actor
 		var published rollout.Release
 		if published, err = store.PublishRelease(ctx, epoch, admitted); err == nil {
 			written = &published
@@ -495,9 +488,14 @@ func (c *rolloutControl) serve(ctx context.Context, wire []byte, policy signerPo
 		if c.verify == nil {
 			return rolloutReply{}, errors.New("this controller has no release trust roots to admit a receipt")
 		}
-		if _, verifyErr := c.verify(target.Receipt, target.Delegation, now); verifyErr != nil {
+		verified, verifyErr := c.verify(target.Receipt, target.Delegation, now)
+		if verifyErr != nil {
 			return rolloutReply{}, fmt.Errorf("generation %d's release receipt no longer verifies; publish it again: %w",
 				request.To, verifyErr)
+		}
+		// Rollback resets the generation start, so the executor cannot defer future receipt issuance.
+		if verified.CreatedAt.After(now) {
+			return rolloutReply{}, fmt.Errorf("generation %d's release receipt is issued in the future", request.To)
 		}
 		var release rollout.Release
 		release, err = store.RollbackRelease(ctx, epoch, request.To, trusted.Actor, now)

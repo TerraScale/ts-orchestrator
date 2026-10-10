@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/hex"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 )
 
 func (c command) serviceDeploy(args []string) error {
@@ -42,7 +44,6 @@ func (c command) serviceDeployWith(args []string, env deployEnv) error {
 	keySecret := flags.String("signing-key-secret", "", "OCI Vault secret holding the key, instead of --signing-key")
 	vaultID := flags.String("vault-id", "", "OCI Vault of --signing-key-secret")
 	namespace := flags.String("namespace", "", "Object Storage namespace of the regions' head buckets")
-	regionTimeout := flags.Duration("region-timeout", 30*time.Minute, "how long one cell may take to report the release")
 	poll := flags.Duration("poll", 5*time.Second, "how often a cell's status is read")
 	var cells stringList
 	flags.Var(&cells, "cell", "cell to deploy to concurrently; repeatable; default every serving cell")
@@ -52,7 +53,7 @@ func (c command) serviceDeployWith(args []string, env deployEnv) error {
 	if *role == "" || *binaryPath == "" || *repository == "" || !release.ValidSourceRevision(*commit) || *checkout == "" ||
 		*environment != "" && !validEnvironment(*environment) || *actor == "" || (*keyPath == "") == (*keySecret == "") ||
 		(*keySecret == "") != (*vaultID == "") || !validStorageToken(*namespace) ||
-		*regionTimeout <= 0 || *poll <= 0 || flags.NArg() != 0 {
+		*poll <= 0 || flags.NArg() != 0 {
 		return errors.New("service-deploy requires --role, --binary, --repository, --commit, --source-checkout, --actor, --signing-key or --signing-key-secret with --vault-id and --namespace")
 	}
 	targetCells, err := deploymentCells(c.ctx, cells, env.discover)
@@ -86,7 +87,14 @@ func (c command) serviceDeployWith(args []string, env deployEnv) error {
 	defer clear(private)
 	// The elapsed times measure CI green to rolled out (TS-623): the job
 	// starts once the tests passed.
+	regionTimeout := rollout.ObservationBudget
+	if env.timeout > 0 {
+		regionTimeout = min(regionTimeout, env.timeout)
+	}
 	started := time.Now()
+	ctx, cancel := context.WithDeadline(c.ctx, started.Add(regionTimeout))
+	defer cancel()
+	c.ctx = ctx
 	progress := &deploymentWriter{Writer: c.output}
 	failures := make([]error, len(cells))
 	var regions errgroup.Group
@@ -123,10 +131,9 @@ func (c command) serviceDeployWith(args []string, env deployEnv) error {
 				releasechannel.ServiceBinaryObject(*role, digest), io.NewSectionReader(file, 0, size), size, sum); err != nil {
 				return fmt.Errorf("upload the binary to %s: %w", cell, err)
 			}
-			// Sign right before publishing: the leader admits a claim only
-			// within an hour of its issuance.
+			// Every cell shares the deployment's signed observation start.
 			codec := delivery.Ed25519Codec{Cell: request.Cell, Actor: *actor, PrivateKey: private, Lifetime: time.Minute,
-				MaxLifetime: 5 * time.Minute}
+				MaxLifetime: 5 * time.Minute, Now: func() time.Time { return started.UTC() }}
 			claim, err := codec.SignArtifact(c.ctx, record)
 			if err != nil {
 				return fmt.Errorf("sign the %s claim: %w", cell, err)
@@ -140,7 +147,7 @@ func (c command) serviceDeployWith(args []string, env deployEnv) error {
 			}
 			fmt.Fprintf(progress, "%s %s published: %s %s\n", cell, *role, digest, *commit)
 			if err := releasechannel.AwaitService(c.ctx, location, cell, *role, digest, issued, *poll,
-				time.Now().Add(*regionTimeout), progress); err != nil {
+				started.Add(regionTimeout), progress); err != nil {
 				return err
 			}
 			fmt.Fprintf(progress, "%s %s rolled out in %s\n", cell, *role, time.Since(cellStarted).Round(time.Second))

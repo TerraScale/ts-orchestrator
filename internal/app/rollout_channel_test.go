@@ -317,7 +317,7 @@ func TestReleaseChannelPublishesANewerRunAndReportsProgress(t *testing.T) {
 	status := f.consume(t)
 	history := f.generations(t)
 	if len(history) != 1 || history[0].RunNumber != 620 || history[0].Digest != digestOf([]byte("run 620")) ||
-		history[0].Actor != channelActor || len(history[0].Receipt) == 0 {
+		history[0].Actor != channelActor || len(history[0].Receipt) == 0 || !history[0].CreatedAt.Equal(f.signer.now) {
 		t.Fatalf("published generations = %+v", history)
 	}
 	if status.Cell != "GRU" || status.RunNumber != 620 || status.State != releasechannel.StateRolling ||
@@ -349,6 +349,147 @@ func TestReleaseChannelPublishesANewerRunAndReportsProgress(t *testing.T) {
 	}
 	if len(f.generations(t)) != 1 {
 		t.Fatal("the same run was published twice")
+	}
+}
+
+func TestReleaseChannelRetriesUntouchedExpiryWithFreshSignedRun(t *testing.T) {
+	f := newChannelFixture(t)
+	f.control.program.Policy = rollout.DefaultPolicy()
+	ctx := t.Context()
+	binary := []byte("same binary across qualifying runs")
+	old := f.signer.channel(t, "GRU", 620, binary)
+	admitted, err := f.control.admitChannel(old, f.signer.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admitted.Actor = channelActor
+	first, err := f.store.PublishRelease(ctx, 7, admitted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := first.CreatedAt.Add(rollout.ObservationBudget)
+	verified, err := f.control.verify(first.Receipt, first.Delegation, at)
+	if err != nil || !verified.CreatedAt.Equal(first.CreatedAt) {
+		t.Fatalf("manual admission renewed signed issuance: %+v, %v", verified, err)
+	}
+	plan, err := f.control.program.Program(ctx)
+	if err != nil || len(plan) != 1 {
+		t.Fatalf("old plan = %+v, %v", plan, err)
+	}
+	plan[0].AuthorityEpoch = 7
+	record, revision, err := f.store.Begin(ctx, plan[0], at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expired, err := rollout.Apply(record, rollout.Event{Kind: rollout.EventStart, At: at})
+	if err != nil || expired.Phase != rollout.PhaseAborted {
+		t.Fatalf("old expiry = %+v, %v", expired, err)
+	}
+	if _, err := f.store.Commit(ctx, revision, expired); err != nil {
+		t.Fatal(err)
+	}
+	freshSigner := f.signer
+	freshSigner.now = at
+	fresh := freshSigner.channel(t, "GRU", 621, binary)
+	f.setChannel(t, fresh)
+	entry, err := f.kv.Get(ctx, releasechannel.ChannelKey("GRU"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.control.consumeChannel(ctx, f.store, f.kv, 7, entry.Value(), at); err != nil {
+		t.Fatal(err)
+	}
+	status, _ := f.report(t)
+	history := f.generations(t)
+	if status.State != releasechannel.StateRolling || len(history) != 2 || history[0].Digest != first.Digest ||
+		history[0].RunNumber != 621 || !history[0].CreatedAt.Equal(at) || !history[1].CreatedAt.Equal(first.CreatedAt) {
+		t.Fatalf("fresh signed run = %+v; history %+v", status, history)
+	}
+	plan, err = f.control.program.Program(ctx)
+	if err != nil || len(plan) != 1 || !plan[0].StartedAt.Equal(at) {
+		t.Fatalf("fresh plan = %+v, %v", plan, err)
+	}
+	plan[0].AuthorityEpoch = 7
+	if _, _, err := f.store.Begin(ctx, plan[0], at); err != nil {
+		t.Fatalf("fresh signed run could not start under the default attempt limit: %v", err)
+	}
+	// The old wire remains the old failed generation; it cannot reset the new one.
+	oldWire, err := json.Marshal(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.control.consumeChannel(ctx, f.store, f.kv, 7, oldWire, at); err != nil {
+		t.Fatal(err)
+	}
+	if desired, _, err := f.store.Desired(ctx); err != nil || desired.Release.Generation != history[0].Generation || !desired.Release.CreatedAt.Equal(at) {
+		t.Fatalf("old replay changed the fresh generation: %+v, %v", desired, err)
+	}
+}
+
+func TestReleaseChannelWaitsForToleratedReceiptClockSkew(t *testing.T) {
+	f := newChannelFixture(t)
+	f.control.program.Policy = rollout.DefaultPolicy()
+	now := f.signer.now
+	signer := f.signer
+	signer.now = now.Add(time.Minute)
+	channel := signer.channel(t, "GRU", 622, []byte("future receipt"))
+	admitted, err := f.control.admitChannel(channel, now)
+	if err != nil || !admitted.CreatedAt.Equal(signer.now) {
+		t.Fatalf("tolerated receipt did not verify with its original issuance: %+v, %v", admitted, err)
+	}
+	wire, err := json.Marshal(channel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.control.consumeChannel(t.Context(), f.store, f.kv, 7, wire, now); err != nil {
+		t.Fatal(err)
+	}
+	status, _ := f.report(t)
+	if status.State != releasechannel.StateRolling || !strings.Contains(status.Reason, "waiting for the cell clock") || len(f.generations(t)) != 0 {
+		t.Fatalf("future receipt was not deferred: %+v", status)
+	}
+	if cell, _, err := f.store.Cell(t.Context()); err != nil || cell.ActiveRolloutID != "" || len(cell.Attempts) != 0 {
+		t.Fatalf("future receipt reserved a rollout: %+v, %v", cell, err)
+	}
+	if err := f.control.consumeChannel(t.Context(), f.store, f.kv, 7, wire, signer.now); err != nil {
+		t.Fatal(err)
+	}
+	history := f.generations(t)
+	if len(history) != 1 || !history[0].CreatedAt.Equal(signer.now) {
+		t.Fatalf("admission reset signed issuance: %+v", history)
+	}
+	plan, err := f.control.program.Program(t.Context())
+	if err != nil || len(plan) != 1 || !plan[0].StartedAt.Equal(signer.now) {
+		t.Fatalf("observation start = %+v, %v", plan, err)
+	}
+}
+
+func TestReleaseChannelFailsUntrustedOrExcessivelyFutureReceipt(t *testing.T) {
+	for _, tamper := range []bool{false, true} {
+		t.Run(fmt.Sprint(tamper), func(t *testing.T) {
+			f := newChannelFixture(t)
+			signer := f.signer
+			signer.now = signer.now.Add(time.Minute + time.Second)
+			if tamper {
+				signer.now = f.signer.now.Add(30 * time.Second)
+			}
+			channel := signer.channel(t, "GRU", 622, []byte("refused future receipt"))
+			if tamper {
+				envelope, err := trust.DecodeEnvelope(channel.Receipts[0])
+				if err != nil {
+					t.Fatal(err)
+				}
+				envelope.Scope.Cell = "SFO"
+				channel.Receipts[0], err = trust.EncodeEnvelope(envelope)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			state, reason, err := f.control.channelState(t.Context(), f.store, 7, channel, f.signer.now)
+			if err != nil || state != releasechannel.StateFailed || !strings.Contains(reason, "does not verify") || len(f.generations(t)) != 0 {
+				t.Fatalf("invalid future receipt was deferred: %s %s, %v", state, reason, err)
+			}
+		})
 	}
 }
 

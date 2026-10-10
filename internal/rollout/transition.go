@@ -20,11 +20,12 @@ type Spec struct {
 	Policy         Policy
 	KnownBad       []string
 	AuthorityEpoch uint64
+	StartedAt      time.Time
 }
 
 // New plans the waves and returns a pending record. It performs no effect.
 func New(spec Spec, now time.Time) (Record, error) {
-	if now.IsZero() {
+	if now.IsZero() || spec.StartedAt.After(now) {
 		return Record{}, fmt.Errorf("%w: start time", ErrInvalid)
 	}
 	if slices.Contains(spec.KnownBad, spec.ToDigest) {
@@ -51,11 +52,15 @@ func New(spec Spec, now time.Time) (Record, error) {
 	}
 	knownBad := slices.Clone(spec.KnownBad)
 	slices.Sort(knownBad)
+	started := spec.StartedAt
+	if started.IsZero() {
+		started = now
+	}
 	record := Record{
 		SchemaVersion: SchemaVersion, RolloutID: spec.RolloutID, Kind: spec.Kind, Cell: spec.Cell,
 		FromDigest: spec.FromDigest, ToDigest: spec.ToDigest, Policy: spec.Policy, PolicyDigest: policyDigest,
 		Phase: PhasePending, Waves: waves, Units: units, KnownBad: slices.Compact(knownBad),
-		StartedAt: now.UTC(), PhaseStartedAt: now.UTC(), AuthorityEpoch: spec.AuthorityEpoch,
+		StartedAt: started.UTC(), PhaseStartedAt: now.UTC(), AuthorityEpoch: spec.AuthorityEpoch,
 	}
 	if err := record.Validate(); err != nil {
 		return Record{}, err
@@ -124,7 +129,7 @@ func Apply(record Record, event Event) (Record, error) {
 	}
 	next := record.Clone()
 	at := event.At.UTC()
-	if completionEvent(event.Kind) {
+	if completionEvent(event.Kind) || event.Kind == EventStart {
 		// A completion that arrives after its phase deadline must not erase
 		// that deadline: enforce it first, exactly as a tick at the same
 		// instant would, and drop the late completion if it fired.
@@ -218,6 +223,9 @@ func (record *Record) requirePhase(phases ...Phase) error {
 }
 
 func (record *Record) enter(phase Phase, at, deadline time.Time, reason string) {
+	if (phase == PhasePreflight || phase.preparing() || phase.soaking()) && deadline.After(record.StartedAt.Add(ObservationBudget)) {
+		deadline = record.StartedAt.Add(ObservationBudget)
+	}
 	record.Phase = phase
 	record.PhaseStartedAt = at
 	record.PhaseDeadline = deadline
@@ -405,6 +413,16 @@ func (record *Record) advanceIfSoaked(at time.Time) {
 }
 
 func (record *Record) tick(at time.Time) {
+	if (record.Phase == PhasePending || record.Phase == PhasePreflight || record.Phase.preparing() || record.Phase.soaking()) &&
+		!at.Before(record.StartedAt.Add(ObservationBudget)) {
+		reason := "release exceeded its fixed 20-minute observation budget"
+		if record.Phase == PhasePending || record.Phase == PhasePreflight {
+			record.finish(PhaseAborted, at, reason)
+		} else {
+			record.startRollback(at, reason)
+		}
+		return
+	}
 	switch {
 	case record.Phase == PhasePreflight && !at.Before(record.PhaseDeadline):
 		record.finish(PhaseAborted, at, "preflight deadline exceeded")

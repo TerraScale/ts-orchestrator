@@ -161,6 +161,13 @@ type Policy struct {
 	MaxRollbackRetries      int   `json:"max_rollback_retries"`
 }
 
+// QualificationBudget and ObservationBudget share the fixed release window.
+// Rollback has its own recovery deadline and never consumes this budget.
+const (
+	QualificationBudget = 10 * time.Minute
+	ObservationBudget   = 20 * time.Minute
+)
+
 // DefaultPolicy is as fast as a binary-only update allows (user decision
 // 2026-10-06): one canary soaks five minutes, then every later wave takes as
 // many units as PlanWaves lets it (never two of one group, the seed last and
@@ -296,6 +303,18 @@ func (record Record) validatePhaseUnits() error {
 		return fmt.Errorf("%w: rolling back without a unit to roll back", ErrInvalid)
 	}
 	return nil
+}
+
+func (record Record) abortedBeforeUpdate() bool {
+	if record.Phase != PhaseAborted || len(record.RollbackOrder) != 0 {
+		return false
+	}
+	for _, progress := range record.Units {
+		if progress.State != UnitPending {
+			return false
+		}
+	}
+	return true
 }
 
 // Clone returns a deep copy so transitions never alias a caller's record.

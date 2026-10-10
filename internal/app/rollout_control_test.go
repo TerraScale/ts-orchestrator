@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +16,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
@@ -168,6 +168,46 @@ func TestRolloutRequestsPublishPauseAndRollBack(t *testing.T) {
 	}
 }
 
+func TestRolloutRequestsDeferFutureReceiptAndRefuseEarlyRollback(t *testing.T) {
+	r := newRolloutRequester(t)
+	f := newChannelFixture(t)
+	r.control = f.control
+	f.control.store.Store(f.store)
+	signer := f.signer
+	signer.now = time.Now().UTC().Add(30 * time.Second)
+	for index, binary := range []string{"future first", "future second"} {
+		channel := signer.channel(t, "GRU", int64(621+index), []byte(binary))
+		receipt := channel.Receipts[0]
+		if goruntime.GOARCH == "arm64" {
+			receipt = channel.Receipts[1]
+		}
+		reply, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: receipt, Delegation: channel.Delegation}, nil))
+		if err != nil || reply.Status != "published" || reply.Desired == nil ||
+			reply.Desired.Generation != uint64(index+1) || !reply.Desired.CreatedAt.Equal(signer.now) {
+			t.Fatalf("future publication = %+v, %v", reply, err)
+		}
+	}
+	for _, generation := range []uint64{1, 3} {
+		if generation == 3 {
+			// A generation's rollback timestamp must not hide its future signed receipt.
+			if _, err := f.store.RollbackRelease(t.Context(), 7, 1, "ops", signer.now.Add(-time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := r.serve(r.sign(rolloutRollbackKind, rolloutRollbackRequest{To: generation}, nil)); err == nil ||
+			!strings.Contains(err.Error(), "receipt is issued in the future") {
+			t.Fatalf("early rollback to %d = %v", generation, err)
+		}
+		want := max(generation, 2)
+		if desired, _, err := f.store.Desired(t.Context()); err != nil || desired.Generation() != want {
+			t.Fatalf("refused rollback moved desired generation: %+v, %v", desired, err)
+		}
+	}
+	if cell, _, err := f.store.Cell(t.Context()); err != nil || cell.ActiveRolloutID != "" || len(cell.Attempts) != 0 {
+		t.Fatalf("future requests reserved a rollout: %+v, %v", cell, err)
+	}
+}
+
 func TestRolloutRequestsRefuseUntrustedStaleAndTamperedRequests(t *testing.T) {
 	r := newRolloutRequester(t)
 	digest := strings.Repeat("a", 64)
@@ -258,11 +298,6 @@ func TestRolloutConfigAndCommandFlagsAreChecked(t *testing.T) {
 	if _, err := newRolloutControl(Config{Controller: ControllerConfig{Rollouts: &RolloutsConfig{Enabled: true, Channel: true}}}, nil, ""); err == nil {
 		t.Fatal("a release channel without the executor was accepted")
 	}
-	policy := rollout.DefaultPolicy()
-	policy.CanaryUnits = 0
-	if _, err := newRolloutControl(Config{Controller: ControllerConfig{Rollouts: &RolloutsConfig{Enabled: true, Policy: &policy}}}, nil, ""); err == nil {
-		t.Fatal("a policy without a canary was accepted")
-	}
 	// A production controller without a rollouts block follows its
 	// region's release channel; a lab or an explicit block keeps its own.
 	if settings := rolloutSettings(Config{}); settings == nil || !settings.Enabled || !settings.Executor ||
@@ -296,9 +331,8 @@ func (proofs fixedProofs) Latest(unit string) (rolloutexec.HealthProof, bool) {
 	return proof, ok
 }
 
-// The cell spec's rollout policy governs the next rollout the executor
-// plans, on a running controller; without one the signed policy does.
-func TestNextRolloutUsesTheCellSpecPolicy(t *testing.T) {
+// Every cell uses the same policy without a configuration override.
+func TestNextRolloutUsesTheFixedPolicy(t *testing.T) {
 	ctx := t.Context()
 	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true},
 		Controller: ControllerConfig{Rollouts: &RolloutsConfig{Enabled: true, Executor: true}}}
@@ -328,25 +362,5 @@ func TestNextRolloutUsesTheCellSpecPolicy(t *testing.T) {
 	if got := planned(); got != rollout.DefaultPolicy() {
 		t.Fatalf("generation 0 policy = %+v", got)
 	}
-	policy := rollout.DefaultPolicy()
-	policy.BatchSize, policy.CanarySoakSeconds = 1, 0
-	if err := policy.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	spec := cellspec.Spec{Schema: cellspec.Schema, Generation: 1, RequiresBinary: 6, RolloutPolicy: &policy}
-	if err := registry.validate(spec); err != nil {
-		t.Fatal(err)
-	}
-	registry.adopt(spec, 1)
-	if got := planned(); got != policy {
-		t.Fatalf("cell spec policy = %+v", got)
-	}
-	// A controller that runs no rollouts refuses the section.
-	off, err := newSpecRegistry(Config{NATS: natscell.Config{Cell: "gru", Lab: true}}, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := off.validate(spec); err == nil || !strings.Contains(err.Error(), "rollout executor") {
-		t.Fatalf("policy without an executor: %v", err)
-	}
+
 }

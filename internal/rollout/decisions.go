@@ -2,11 +2,8 @@ package rollout
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
-
-	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
@@ -94,15 +91,8 @@ func transitionDecision(previous, next Record) (decisionlog.Kind, decisionlog.St
 // Rollouts lists the cell's active rollout for the insight engine's deadline
 // rule and the dashboard. It implements insights.RolloutProvider.
 func (s *Store) Rollouts(ctx context.Context) ([]insights.Rollout, error) {
-	state, _, err := s.Cell(ctx)
-	if err != nil || state.ActiveRolloutID == "" {
-		return nil, err
-	}
-	record, _, err := s.Load(ctx, state.ActiveRolloutID)
-	if errors.Is(err, jetstream.ErrKeyNotFound) {
-		return nil, nil
-	}
-	if err != nil {
+	record, _, active, err := s.Active(ctx)
+	if err != nil || !active {
 		return nil, err
 	}
 	return []insights.Rollout{InsightRollout(record)}, nil
