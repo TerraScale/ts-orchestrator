@@ -15,6 +15,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/capacity"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
@@ -29,6 +30,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ocicost"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
@@ -191,6 +193,12 @@ type controllerObservation struct {
 	peers                 *rosterPeers
 	linkProbes            func() []regionview.LinkProbe
 	nativeTerraBaseRegion func() string
+	// cost is the region's OCI cost view for its summary.
+	cost func(context.Context) *ocicost.View
+	// costRollup is the region's cost for the dashboard rollup, cached.
+	costRollup func() *globalview.Cost
+	// capacity reads TS-804's global capacity document from the mirror.
+	capacity func(context.Context) (budget.Capacity, bool, error)
 	// rollouts and budgets are the rollout store and the region planner's
 	// budgets, when their feature flags enable them.
 	rollouts *rollout.Store

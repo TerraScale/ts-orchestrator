@@ -2,9 +2,8 @@
 
 Status: design for TS-807. Each section names the slice that implements it.
 
-Every region reports its own OCI spend, forecasts it and checks it against
-its budget cap. The dashboard and the capacity controller (TS-804) read the
-same numbers from the same record. Adding a region needs no code, setting or
+Every region reports its own OCI spend and forecasts it. The dashboard and
+the capacity controller (TS-804) read the same numbers from the same record. Adding a region needs no code, setting or
 manual step: its controllers find their OCI region from the cell token and
 start reporting.
 
@@ -14,8 +13,7 @@ start reporting.
    OCI region's cost every hour and writes one report to the region's NATS
    KV. Everything else reads that report.
 2. **One forecast.** `ocicost.Project` is the only projection. The dashboard
-   shows it, the budget state is computed from it and the host pool budget
-   gate admits launches against it.
+   shows it and TS-804's node scaler reads it.
 3. **No stored credential.** The collector uses the controller's instance
    principal, like the region subscription code. No secret exists to copy,
    rotate or leak.
@@ -67,24 +65,27 @@ like the cell's other buckets, history 1:
   answer is refused and the previous report stays.
 
 Followers never call OCI. A report older than six hours (`MaxReportAge`) is
-stale: the dashboard says so and the budget state is `unknown`.
+stale: the dashboard says so.
 
 The controllers need one tenancy statement that names no region:
 `Allow dynamic-group <every region's controllers> to read usage-report in tenancy`.
 TS-803 owns that region-agnostic controller group. Until it exists the
-collector's error shows on the dashboard; no per-region statement is added.
+region shows "no OCI cost report yet" on the dashboard and the collector logs
+the IAM error once (component `ocicost`); no per-region statement is added.
 
 ## Forecast
 
 Slice: collector.
 
-`ocicost.Project(report, now, hosts)`, where hosts are the autoscaled hosts with their creation time and monthly list price:
+`ocicost.Project(report, now, hosts)`, where hosts are the region's autoscaled
+nodes with their creation time and monthly list price, supplied by TS-804's
+node scaler (none until it passes them):
 
 | Number | Method |
 | --- | --- |
 | Month to date | Sum of this month's days, including the partial ones after `through`. Matches the OCI console. |
 | Daily rate | Average of the 7 complete days before `through` that have usage (a new region averages the days it has). |
-| Pending autoscale | Cents a day not yet in the average: for each pool host launched inside or after the 7-day window, its list price for the window days it missed. TS-804's cell autoscaler adds its own launches the same way. |
+| Pending autoscale | Cents a day not yet in the average: for each pool host launched inside or after the 7-day window, its list price for the window days it missed. TS-804's node scaler supplies these nodes. |
 | Month end | This month's complete days + (daily rate + pending) × days from `through` to month end. |
 | Next month | (daily rate + pending) × days in next month. |
 
@@ -94,39 +95,35 @@ new region) forecasts low until its complete days catch up; usage data lags 48 h
 
 ## Budget cap
 
-Slice: collector.
+The cap is TS-804's global `KindBudget` (docs/capacity.md). TS-804's home
+leader compares it with the sum over regions of the larger of month end and
+next month, and writes the `capacity` document: state `none`, `unknown`, `ok`,
+`warn` (at 80 % of the cap) or `over`. The `/cost` page shows that document.
 
-The cap is the cell spec's signed `budget` (`monthly_cap_cents`, `currency`).
-`projected = max(month end, next month)`:
-
-| State | When |
-| --- | --- |
-| `none` | the cell spec sets no budget |
-| `unknown` | no report, a stale report, or a currency other than the cap's |
-| `ok` | projected < 80 % of the cap |
-| `warn` | projected ≥ 80 % (TS-804 raises the alert) |
-| `over` | projected ≥ the cap |
-
-The host pool budget gate (`hostpool`) admits a launch while its monthly
-price fits in `cap − projected`, and holds every launch when the state is
-`unknown`. Its own per-tick OCI reader (`hostpool.OCIUsage`, `Spend`) is
-deleted: it reads the KV report every tick instead.
+TS-807 keeps no per-cell cap, so a region's view carries no budget state. TS-804
+deletes `hostpool` and scales nodes with `internal/nodescale`; its `Scaler.Cost`
+hook takes this region's forecast.
 
 ## Dashboard
 
 Slice: dashboard.
 
+- Every controller keeps the region's cost view in memory, refreshed each
+  minute; the summary and the global view's rollup read it without I/O. The
+  rollup's `cost` section (TS-805, `globalview.Cost`) carries currency, per
+  hour (daily rate plus pending, / 24), month to date and month-end forecast.
 - The region summary (`ts.orch.v1.<cell>.obs.region`, `regionview.Summary`)
-  gains `cost`: the report's month to date, the forecast, the budget state
-  and at most 32 service and 32 component lines. No new subject is needed,
+  gains `cost`: the report's month to date, the forecast and at most 32
+  service and 32 component lines. No new subject is needed,
   so `query.cost.v1` from the registry table stays unused.
 - `/cost` sums every region's `cost` (one currency) and lists:
   totals, a row per region (month to date, daily rate, pending, month end,
-  next month, budget and state, data through, observed), month to date by
+  next month, data through, observed), month to date by
   service and by component, and the method above with each region's numbers
   filled in.
 - The landing page gets an "OCI spend" tile linking to `/cost`.
-- A region that does not answer shows as unknown; totals say "partial".
+- A region that does not answer, or has no report yet, shows why; totals
+  say "across N of M regions".
 
 ## Tags
 
@@ -202,14 +199,13 @@ Slices: collector and tags.
 
 1. Design (this document).
 2. Collector: `internal/ocicost` (report, Usage API reader, KV store,
-   forecast, budget state), the leader loop, the hostpool switch and
-   `ts-orch cost report`.
+   forecast), the leader loop and `ts-orch cost report`.
 3. Dashboard: summary field, `/cost`, landing tile.
 4. Tags: reconciler and `ts-orch cost tag`; live pass in GRU and SFO.
 
 ## Coordination
 
 - TS-803: registry, roster and the controller IAM group.
-- TS-804: reads `ocicost.Report`/`Project` and the budget state; adds its cell
-  autoscaler's pending launches; owns the 80 % alert.
+- TS-804: reads `ocicost.Report`/`Project`; its node scaler supplies the
+  pending nodes; owns the global cap and the 80 % alert.
 - TS-805: global dashboard pages read the summary field.

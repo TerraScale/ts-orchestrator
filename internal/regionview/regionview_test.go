@@ -2,7 +2,9 @@ package regionview
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,8 +14,34 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ocicost"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlink"
 )
+
+func TestLocalSummaryCarriesCost(t *testing.T) {
+	view := &ocicost.View{Cell: "gru", OCIRegion: "sa-saopaulo-1", Forecast: ocicost.Forecast{MonthEndCents: 3100}}
+	provider := &Provider{Cell: "gru", Cost: func(context.Context) *ocicost.View { return view }}
+	summary := provider.Local(t.Context())
+	if summary.Cost != view {
+		t.Fatalf("cost = %+v, want the provider's view", summary.Cost)
+	}
+	wire, err := json.Marshal(summary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Summary
+	if err := json.Unmarshal(wire, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Cost == nil || got.Cost.Forecast.MonthEndCents != 3100 {
+		t.Fatalf("cost after a JSON round trip = %+v", got.Cost)
+	}
+	// A region without a cost view omits the field.
+	provider.Cost = nil
+	if wire, err = json.Marshal(provider.Local(t.Context())); err != nil || strings.Contains(string(wire), `"cost":`) {
+		t.Fatalf("summary without a cost view = %s, %v", wire, err)
+	}
+}
 
 type staticCluster struct{ snapshot observability.ClusterSnapshot }
 

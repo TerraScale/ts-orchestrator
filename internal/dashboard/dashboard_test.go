@@ -347,7 +347,8 @@ func TestContentStreamPatchesOnlyChanges(t *testing.T) {
 	t.Parallel()
 	source := &switchingSnapshots{}
 	source.set(memberSnapshot())
-	dashboard := newTestDashboard(Options{Snapshots: source})
+	// Every page's stream stays open at once, plus the members stream.
+	dashboard := newTestDashboard(Options{Snapshots: source, MaxStreams: len(pages) + 1})
 	server := newStreamServer(t, dashboard)
 	for _, page := range pages {
 		if page.slug == "events" {

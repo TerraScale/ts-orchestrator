@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
@@ -32,6 +33,8 @@ type Journal struct {
 	Local func(context.Context) regionview.Summary
 	// Global holds every region's newest rollup, in memory (TS-805).
 	Global *globalview.View
+	// Budget reads TS-804's global capacity document from the local mirror.
+	Budget BudgetSource
 
 	// The providers below belong to slices built in parallel (rollout,
 	// storage, CI, OCI inventory). They stay nil until those slices land.
@@ -40,6 +43,13 @@ type Journal struct {
 	Volumes       insights.VolumeProvider
 	Qualification QualificationSource
 	Inventory     InventorySource
+}
+
+// BudgetSource reads TS-804's global capacity document (budget cap,
+// projection and state) from the region's mirror; ok is false before the
+// home first writes one.
+type BudgetSource interface {
+	Capacity(ctx context.Context) (budget.Capacity, bool, error)
 }
 
 // ErrRolloutNotFound means no retained release record exists for this exact ID.

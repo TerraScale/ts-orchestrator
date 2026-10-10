@@ -11,6 +11,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
@@ -114,7 +115,7 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 		withoutHostMetricSamples(withAutoscaleSamples(observability.ClusterCollect(cluster, collector), observed.autoscalers, observed.hostLoad)))
 	regions := &regionview.Provider{Cell: runtime.cell, Cluster: cluster, Snapshot: collector, History: sharedHistory,
 		Decisions: journal, Links: links, Nodes: observed.nodes, LinkProbes: observed.linkProbes,
-		NativeRegion: observed.nativeTerraBaseRegion}
+		NativeRegion: observed.nativeTerraBaseRegion, Cost: observed.cost}
 	insightConfig := insights.Config{Region: runtime.cell, Cluster: cluster, Local: collector,
 		History: sharedHistory, Decisions: journal, Reachability: regions, Holds: observed.holds}
 	// Optional providers of the other slices: each stays nil, and its rules
@@ -160,8 +161,24 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 		runtime.boardJournal = &dashboard.Journal{Decisions: providers.Decisions, Live: providers.Live,
 			History: providers.History, Insights: providers.Insights, Summaries: providers.Summarizer,
 			Local: regions.Local, Volumes: volumes, Rollouts: rolloutSource,
-			Global: globalView}
+			Global: globalView, Budget: budgetSource(observed.capacity)}
 	})
+}
+
+// capacityRead reads TS-804's global capacity document from the mirror.
+type capacityRead func(context.Context) (budget.Capacity, bool, error)
+
+// Capacity implements dashboard.BudgetSource.
+func (read capacityRead) Capacity(ctx context.Context) (budget.Capacity, bool, error) {
+	return read(ctx)
+}
+
+// budgetSource is the dashboard's budget source, nil when there is no read.
+func budgetSource(read capacityRead) dashboard.BudgetSource {
+	if read == nil {
+		return nil
+	}
+	return read
 }
 
 func openDecisionStream(ctx context.Context, js jetstream.JetStream, cell string, replicas int,

@@ -19,6 +19,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
@@ -32,6 +33,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ocicost"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
@@ -618,6 +620,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		}, nil); err != nil {
 		return err
 	}
+	costStore, _, err := retryControllerOpen(ctx, "open OCI cost report", fullClusterReady, false,
+		func(attempt context.Context) (*ocicost.Store, error) {
+			return ocicost.OpenStore(attempt, runtime.JetStream(), cfg.NATS.Replicas)
+		}, nil)
+	if err != nil {
+		return err
+	}
 	profiles, specs := services.effective()
 	nativeReleases.hosts, nativeReleases.fences = hostController, fences
 	var nativeMemberCA []byte
@@ -892,12 +901,18 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	linkSupervisor := &regionLinkSupervisor{cell: cfg.NATS.Cell, member: cfg.NATS.Instance,
 		reconnect: runtime.ReconnectInterRegion, recorder: telemetry.journal}
 	telemetry.registry.RegisterWriter(linkSupervisor.writeMetrics)
+	costViews := &ociCostViews{cell: cfg.NATS.Cell, store: costStore}
+	go costViews.run(runCtx)
 	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
 		brokerIDs: cfg.NATS.Embedded.BrokerIDs, authority: control, placements: placementStore,
 		holds: placementHolds, autoscalers: workloadReconciler, hostLoad: hostLoad, hosts: hostController, peers: peers,
 		linkProbes:            linkSupervisor.snapshot,
 		nativeTerraBaseRegion: func() string { return services.profiles()[terrabase.Role].Env[terrabase.EnvRegion] },
-		rollouts:              rollouts, budgets: budgets, ociResources: ociReconcile.resources(),
+		cost:                  costViews.view, costRollup: costViews.rollup,
+		capacity: func(ctx context.Context) (budget.Capacity, bool, error) {
+			return budget.ReadCapacity(ctx, global.reader)
+		},
+		rollouts: rollouts, budgets: budgets, ociResources: ociReconcile.resources(),
 		credentials: controllerCredentialFiles(cfg),
 		kvSnapshots: kvSnapshots,
 		nodes:       topologySource(cfg.NATS.Cell, cfg.NATS.Embedded.BrokerIDs, services, hostController, policy.nodes),
@@ -1004,6 +1019,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		workers.Go(func() {
 			runNetBirdManagement(runCtx, netbird.PublicConfigPath, func() bool { return control.Current().CanMutate() })
 		})
+		workers.Go(func() { workerErrors <- newOCICostCollector(cfg.NATS.Cell, costStore, control).Run(runCtx) })
 	}
 	if err := runtime.Conn().FlushTimeout(2 * time.Second); err != nil {
 		stop()

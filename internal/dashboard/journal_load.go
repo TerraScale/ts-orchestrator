@@ -122,6 +122,13 @@ func (dashboard *Dashboard) loadJournal(ctx context.Context, current *view) {
 			current.Inventory = items
 		}
 	}
+	if needs&needBudget != 0 && journal.Budget != nil {
+		if capacity, ok, err := journal.Budget.Capacity(ctx); err != nil {
+			current.Unavailable = append(current.Unavailable, "budget")
+		} else if ok {
+			current.Capacity = &capacity
+		}
+	}
 }
 
 // loadVersions reads the version source, or derives orchestrator member

@@ -1,9 +1,6 @@
 package ocicost
 
-import (
-	"fmt"
-	"time"
-)
+import "time"
 
 // Host is a host whose full cost the forecast must include although the
 // daily rate may not show all of it yet: an autoscaled host and its
@@ -111,74 +108,4 @@ func Project(report Report, now time.Time, hosts []Host) Forecast {
 // ceilDiv rounds up, so every division in a projection errs high.
 func ceilDiv(a, b uint64) uint64 {
 	return (a + b - 1) / b
-}
-
-// State is where a cell's projected spend stands against its cap.
-type State string
-
-const (
-	StateNone    State = "none"    // the cell sets no budget
-	StateUnknown State = "unknown" // no usable report
-	StateOK      State = "ok"
-	StateWarn    State = "warn" // projected at least WarnPercent of the cap
-	StateOver    State = "over" // projected at least the cap
-)
-
-// WarnPercent is the share of the cap that raises the budget alert (TS-804).
-const WarnPercent = 80
-
-// Budget is a cap checked against a forecast.
-type Budget struct {
-	State          State  `json:"state"`
-	CapCents       uint64 `json:"cap_cents,omitempty"`
-	Currency       string `json:"currency,omitempty"`
-	ProjectedCents uint64 `json:"projected_cents,omitempty"`
-	// HeadroomCents is the cap minus the projection; negative when over.
-	HeadroomCents int64 `json:"headroom_cents,omitempty"`
-	// Reason says why the state is unknown.
-	Reason string `json:"reason,omitempty"`
-}
-
-// Assess checks the forecast against the cap. A forecast that cannot speak
-// for this month reads unknown, so the launch gate holds rather than guesses.
-func Assess(capCents uint64, currency string, forecast *Forecast, now time.Time) Budget {
-	if capCents == 0 {
-		return Budget{State: StateNone}
-	}
-	budget := Budget{State: StateUnknown, CapCents: capCents, Currency: currency}
-	monthStart, _ := monthBounds(now)
-	switch {
-	case forecast == nil:
-		budget.Reason = "no cost report"
-	case now.Sub(forecast.ObservedAt) > MaxReportAge:
-		budget.Reason = "cost report is stale"
-	case forecast.ObservedAt.After(now):
-		budget.Reason = "cost report is from the future"
-	case forecast.ObservedAt.Before(monthStart):
-		budget.Reason = "cost report is from last month"
-	case forecast.Through.After(now):
-		budget.Reason = "cost data ends after now"
-	case max(forecast.MonthToDateCents, forecast.RateCents, forecast.PendingDailyCents,
-		forecast.MonthEndCents, forecast.NextMonthCents) > maxCents:
-		budget.Reason = "cost report is out of range"
-	case forecast.Currency != currency &&
-		(forecast.Currency != "" || forecast.MonthToDateCents+forecast.MonthEndCents+forecast.NextMonthCents != 0):
-		budget.Reason = fmt.Sprintf("cost is in %q, the budget in %q", forecast.Currency, currency)
-	}
-	if budget.Reason != "" {
-		return budget
-	}
-
-	projected := max(forecast.MonthEndCents, forecast.NextMonthCents)
-	budget.ProjectedCents = projected
-	budget.HeadroomCents = int64(capCents) - int64(projected)
-	switch {
-	case projected >= capCents:
-		budget.State = StateOver
-	case projected*100 >= capCents*WarnPercent:
-		budget.State = StateWarn
-	default:
-		budget.State = StateOK
-	}
-	return budget
 }

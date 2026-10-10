@@ -27,6 +27,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ocicost"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlink"
 )
@@ -200,6 +201,8 @@ type Summary struct {
 	Nodes           []Node      `json:"nodes,omitempty"`
 	Links           []LinkProbe `json:"links,omitempty"`
 	NodesIncomplete bool        `json:"nodes_incomplete,omitzero"`
+	// Cost is the region's OCI cost view. Older regions omit it.
+	Cost *ocicost.View `json:"cost,omitempty"`
 }
 
 // MixedVersions reports whether members run more than one build.
@@ -219,6 +222,8 @@ type Provider struct {
 	Nodes        func(ctx context.Context) []Node
 	LinkProbes   func() []LinkProbe
 	NativeRegion func() string
+	// Cost is the region's OCI cost view; nil reports none.
+	Cost func(ctx context.Context) *ocicost.View
 	// LatestDecisions and TopInsights bound the lists; zero takes the
 	// defaults.
 	LatestDecisions int
@@ -307,6 +312,9 @@ func (provider *Provider) Local(ctx context.Context) Summary {
 		fillNodeCapacity(&summary)
 		summary.Capacity.Partial = summary.Capacity.Partial || truncated
 		summary.TerraBase.WAN = CollectWAN(summary.Nodes, summary.TerraBase.NativeRegion, provider.History, summary.ObservedAt)
+	}
+	if provider.Cost != nil {
+		summary.Cost = provider.Cost(ctx)
 	}
 	return summary
 }

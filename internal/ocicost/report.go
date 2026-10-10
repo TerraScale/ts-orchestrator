@@ -1,8 +1,8 @@
 // Package ocicost reports a region's OCI spend. The regional authority
 // leader reads its OCI region's cost from the Usage API every hour into one
-// report in the region's NATS KV; Project forecasts the month from it and
-// Assess checks the forecast against the cell's budget cap. The dashboard
-// and the host pool budget gate read the same report (docs/oci-cost.md).
+// report in the region's NATS KV; Project forecasts the month from it. The
+// dashboard and the region's node scaler read the same report
+// (docs/oci-cost.md).
 package ocicost
 
 import (

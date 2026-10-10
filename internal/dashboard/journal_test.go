@@ -302,6 +302,7 @@ func TestJournalPagesRenderProviderData(t *testing.T) {
 		"/terrabase": {"Seats by database", "Time to full", "Scaling and placement decisions", "Scaled the TerraBase pool up"},
 		"/storage":   {"vol-stuck", "attaching", "Backed up orders", "treemap"},
 		"/oci":       {"Calls per second", "host-old", "unmanaged", "Mean latency"},
+		"/cost":      {"OCI cost", "By region", "Method"},
 		"/events":    {"Search"},
 	} {
 		response := get(t, handler, path)

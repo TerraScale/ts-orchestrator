@@ -13,6 +13,7 @@ import (
 
 	"github.com/a-h/templ"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
@@ -61,6 +62,8 @@ const (
 	needChain
 	// needGlobal copies the in-memory global view. It never calls a region.
 	needGlobal
+	// needBudget reads TS-804's global capacity document from the mirror.
+	needBudget
 )
 
 func (page page) path() string {
@@ -114,6 +117,7 @@ var pages = []page{
 	{slug: "storage", title: "Storage", group: "Infrastructure", needs: needVolumes | needLocal, decisions: storageDecisions,
 		body: storageBody},
 	{slug: "oci", title: "OCI", group: "Infrastructure", needs: needInventory, body: ociBody},
+	{slug: "cost", title: "OCI cost", group: "Infrastructure", needs: needLocal | needGlobal | needBudget, body: costBody},
 	{slug: "events", title: "Events", group: "Logs", events: recentEvents, body: eventsBody},
 }
 
@@ -165,6 +169,8 @@ type view struct {
 	Volumes         []insights.Volume
 	Qualifications  []Qualification
 	Inventory       []InventoryItem
+	// Capacity is TS-804's global capacity document; nil when unread or never written.
+	Capacity *budget.Capacity
 	// Unavailable names providers that are attached but failed.
 	Unavailable []string
 }

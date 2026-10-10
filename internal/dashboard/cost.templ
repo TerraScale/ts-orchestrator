@@ -1,0 +1,153 @@
+package dashboard
+
+import (
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ocicost"
+)
+
+templ costBody(current view) {
+	<div id="content">
+		<h1>OCI cost</h1>
+		@notes(current)
+		@kpiTiles(current.costKPIs())
+		<article>
+			<h2>Budget</h2>
+			if current.globalCapacity() == nil {
+				@unavailable("No global budget is set. TS-804's budget command sets one; until then growth is not capped by spend.")
+			} else {
+				@costCapacity(*current.globalCapacity())
+			}
+		</article>
+		<article>
+			<h2>By region <small>this month</small></h2>
+			<table class="striped">
+				<thead>
+					<tr>
+						<th>Region</th>
+						<th>Month to date</th>
+						<th>Daily rate</th>
+						<th>Pending / day</th>
+						<th>Month end</th>
+						<th>Next month</th>
+						<th>Data through</th>
+						<th>Observed</th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, row := range current.costRows() {
+						@costRegionRow(row)
+					}
+				</tbody>
+				@costTotalsFoot(current.costTotals())
+			</table>
+		</article>
+		<article>
+			<h2>By service <small>month to date, this region</small></h2>
+			@costLinesTable(current.costLines("services"), current.costTotals().Currency, "No service cost reported yet.")
+		</article>
+		<article>
+			<h2>By component <small>month to date, this region</small></h2>
+			@costLinesTable(current.costLines("components"), current.costTotals().Currency, "No component tags yet: resources are tagged hourly by the tag reconciler.")
+		</article>
+		<article>
+			<h2>Method</h2>
+			<ol>
+				<li>Month to date sums this month's days, partial days included. It matches the OCI console.</li>
+				<li>The daily rate is the average of the 7 complete days before "data through". OCI usage data lags 48 hours, so the newest days are not complete yet.</li>
+				<li>Pending is the list price per day of the autoscaled hosts, for the days the average has not covered.</li>
+				<li>Month end is the complete days plus (rate + pending) × the days left in the month.</li>
+				<li>Next month is (rate + pending) × the days of next month.</li>
+				<li>Budget compares TS-804's global cap with the sum over regions of the larger of month end and next month. It warns at 80%.</li>
+			</ol>
+			if lines := current.costMethodLines(); len(lines) == 0 {
+				@unavailable("No region reported a cost, so there is no forecast to explain.")
+			} else {
+				for _, line := range lines {
+					<p>{ line }</p>
+				}
+			}
+			<p class="muted">Other regions' service and component lines are on their own dashboards; their rollups carry month to date, the rate with pending hosts and month end.</p>
+		</article>
+	</div>
+}
+
+templ costRegionRow(row costRow) {
+	<tr>
+		<td>{ upper(row.Region) }</td>
+		if row.View == nil && row.Answered {
+			<td colspan="7" class="muted">no cost view: this region predates it</td>
+		} else if row.View == nil {
+			<td colspan="7" class="muted">did not answer</td>
+		} else if row.View.Missing != "" {
+			<td colspan="7" class="muted">{ row.View.Missing }</td>
+		} else {
+			@costCells(*row.View, row.Rollup)
+		}
+	</tr>
+}
+
+templ costCells(cost ocicost.View, rollup bool) {
+	<td>{ money(cost.Forecast.MonthToDateCents, cost.Forecast.Currency) }</td>
+	<td>{ money(cost.Forecast.RateCents, cost.Forecast.Currency) }</td>
+	if rollup {
+		<td class="muted">in rate</td>
+	} else {
+		<td>{ money(cost.Forecast.PendingDailyCents, cost.Forecast.Currency) }</td>
+	}
+	<td>{ money(cost.Forecast.MonthEndCents, cost.Forecast.Currency) }</td>
+	if rollup {
+		<td class="muted">—</td>
+	} else {
+		<td>{ money(cost.Forecast.NextMonthCents, cost.Forecast.Currency) }</td>
+	}
+	if rollup {
+		<td class="muted">—</td>
+	} else {
+		<td>{ cost.Forecast.Through.Format("2006-01-02") }</td>
+	}
+	<td>
+		@ago(cost.Forecast.ObservedAt)
+	</td>
+}
+
+templ costCapacity(capacity budget.Capacity) {
+	<p>
+		Cap <strong>{ money(capacity.CapCents, capacity.Currency) }</strong>.
+		Projected <strong>{ money(capacity.ProjectedCents, capacity.Currency) }</strong>, { percent(capacity.Ratio) } of the cap.
+		@statusPill(capacityStatus(capacity.State), string(capacity.State))
+	</p>
+	<p>{ capacity.Reason }</p>
+	<p class="muted">
+		as of
+		@ago(capacity.At)
+	</p>
+}
+
+templ costTotalsFoot(total costTotal) {
+	<tfoot>
+		<tr>
+			<th>All regions <small class="muted">{ itoa(total.Reported) } of { itoa(total.Expected) } reported</small></th>
+			<th>{ total.show(total.MonthToDate) }</th>
+			<th>{ total.show(total.Rate) }</th>
+			<th>{ total.showFull(total.Pending) }</th>
+			<th>{ total.show(total.MonthEnd) }</th>
+			<th>{ total.showFull(total.NextMonth) }</th>
+			<th colspan="2"></th>
+		</tr>
+	</tfoot>
+}
+
+templ costLinesTable(lines []ocicost.Line, currency string, empty string) {
+	if len(lines) == 0 {
+		@unavailable(empty)
+	} else {
+		<table class="striped">
+			<thead><tr><th>Name</th><th>Month to date</th></tr></thead>
+			<tbody>
+				for _, line := range lines {
+					<tr><td>{ line.Name }</td><td>{ money(line.Cents, currency) }</td></tr>
+				}
+			</tbody>
+		</table>
+	}
+}
