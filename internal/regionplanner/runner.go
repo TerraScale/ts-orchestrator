@@ -13,6 +13,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalcontrol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlifecycle"
 )
@@ -111,6 +112,7 @@ func (runner *Runner) regions(ctx context.Context, records []regionlifecycle.Rec
 		region.Cell = rollup.Cell
 		if rollup.Rollup != nil {
 			region.Status = rollup.Rollup.Scale
+			region.RTT = roundTrips(rollup.Rollup.Scale)
 		}
 		byCell[rollup.Cell] = region
 	}
@@ -119,7 +121,6 @@ func (runner *Runner) regions(ctx context.Context, records []regionlifecycle.Rec
 	byCell[home.Cell] = home
 	regions := make([]Region, 0, len(byCell))
 	// shortcut: globalcontrol lists no database directory, so no partition homed here is seen, and drain must refuse a region that homes one; upgrade when the directory can be listed.
-	// shortcut: no round trip is measured yet, so no candidate has one and every add holds; upgrade when the TCP connect probe (rtt_ms) publishes RTTs.
 	for cell, region := range byCell {
 		region.Home = cell == runner.Home.Cell
 		if region.OCIRegion == "" {
@@ -188,6 +189,18 @@ func regionMonthlyCents(regions []Region) uint64 {
 		monthly = regionlifecycle.SaturatingAdd(monthly, perNode)
 	}
 	return monthly
+}
+
+// roundTrips is a region's measured round trips to OCI regions, from its status, in durations.
+func roundTrips(status *nodescale.Status) map[string]time.Duration {
+	if status == nil {
+		return nil
+	}
+	rtt := make(map[string]time.Duration, len(status.RTTMillis))
+	for region, millis := range status.RTTMillis {
+		rtt[region] = time.Duration(millis) * time.Millisecond
+	}
+	return rtt
 }
 
 // changed reports a decision that differs from the stored one in action or reason.

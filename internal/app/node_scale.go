@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"maps"
+	"net"
 	"sync/atomic"
 	"time"
 
@@ -51,6 +52,7 @@ func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Sta
 	if err != nil {
 		return nil, err
 	}
+	prober := &nodescale.Prober{Regions: ociRegionNames(in.factory), Dial: (&net.Dialer{}).DialContext, Now: time.Now}
 	scaler := &nodescale.Scaler{Cell: in.cell, Pool: in.pool, Hosts: in.hosts, Store: store, Leader: in.fencer,
 		Now: time.Now,
 		Recipe: func(ctx context.Context) (nodescale.Recipe, error) {
@@ -73,11 +75,37 @@ func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Sta
 		Journal: func(ctx context.Context, decision decisionlog.Decision) {
 			decisionlog.Record(ctx, decision)
 		},
+		RTT: func() map[string]time.Duration {
+			rtt, _ := prober.Latest()
+			return rtt
+		},
 		// Cost is wired when TS-807's ocicost lands; until then spend is unknown and growth holds.
 	}
 	in.scaler.Store(scaler)
+	go prober.Run(ctx)
 	go scaler.Run(ctx)
 	return scaleStatus(scaler), nil
+}
+
+// ociRegionNames lists every OCI region's name through the instance principal the pool uses.
+func ociRegionNames(factory *ociclient.Factory) func(context.Context) ([]string, error) {
+	return func(ctx context.Context) ([]string, error) {
+		identities, err := factory.Identity()
+		if err != nil {
+			return nil, err
+		}
+		listed, err := identities.ListRegions(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var names []string
+		for _, region := range listed.Items {
+			if region.Name != nil {
+				names = append(names, *region.Name)
+			}
+		}
+		return names, nil
+	}
 }
 
 // withPoolAddresses adds the private addresses of the running scaler's pool

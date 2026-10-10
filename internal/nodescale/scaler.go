@@ -60,7 +60,9 @@ type Scaler struct {
 	// supplies it, the per-region forecast with this region's pool nodes as
 	// pending cost, and the node price. Nil, or failing, leaves spend unknown
 	// and the global allocator holds growth.
-	Cost   func(ctx context.Context, pool PoolState) (Cost, error)
+	Cost func(ctx context.Context, pool PoolState) (Cost, error)
+	// RTT is the latest measured round trip to each OCI region, from the Prober. Nil publishes none.
+	RTT    func() map[string]time.Duration
 	Leader authority.Fencer
 	Store  RecordStore
 	Now    func() time.Time
@@ -157,6 +159,7 @@ func (s *Scaler) Tick(ctx context.Context) error {
 		return err
 	}
 	status := s.buildStatus(t, decision, allowance, fresh, samples, s.costOf(ctx, t.pool))
+	status.RTTMillis = s.roundTrips()
 	t.record.Status = status
 	if err := s.Leader.Guard(ctx, t.epoch); err != nil {
 		return err
@@ -624,4 +627,18 @@ func (s *Scaler) buildStatus(t *tick, decision Decision, allowance int, fresh bo
 		status.Signals = samples[n-1].Utilization
 	}
 	return status
+}
+
+// roundTrips is the latest round trip to each OCI region in whole milliseconds. A sub-millisecond connect counts
+// as 1, since Validate refuses 0.
+func (s *Scaler) roundTrips() map[string]int {
+	if s.RTT == nil {
+		return nil
+	}
+	rtt := s.RTT()
+	millis := make(map[string]int, len(rtt))
+	for region, d := range rtt {
+		millis[region] = max(1, int(d.Round(time.Millisecond).Milliseconds()))
+	}
+	return millis
 }

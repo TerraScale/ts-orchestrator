@@ -570,6 +570,22 @@ func TestCostFillsTheStatusAndFailureLeavesSpendUnknown(t *testing.T) {
 	}
 }
 
+func TestRoundTripsFillTheStatus(t *testing.T) {
+	r := newRig(t)
+	r.scaler.RTT = func() map[string]time.Duration {
+		return map[string]time.Duration{"us-sanjose-1": 171400 * time.Microsecond,
+			"eu-frankfurt-1": 197 * time.Millisecond, "uk-london-1": 200 * time.Microsecond}
+	}
+	r.tick()
+	status := r.scaler.Status()
+	if status.RTTMillis["us-sanjose-1"] != 171 || status.RTTMillis["eu-frankfurt-1"] != 197 || status.RTTMillis["uk-london-1"] != 1 {
+		t.Fatalf("status rtt_ms = %v", status.RTTMillis)
+	}
+	if err := status.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStatusValidate(t *testing.T) {
 	valid := Status{Schema: StatusSchema, Cell: "gru", At: t0, Nodes: 4, QuorumNodes: 3, PoolNodes: 1,
 		Want: 4, Allowance: 4, AllowanceFresh: true, Action: Hold, Reason: "load within band"}

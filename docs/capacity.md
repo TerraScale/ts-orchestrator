@@ -245,8 +245,10 @@ steps, effectors) and `regionops` (the loop and the subscription effector).
 - **Add** a region when a serving region is saturated: it has 12 nodes and
   has wanted more for an hour. The new region is the OCI region (from OCI's
   own region list, `identity.ListRegions`) not serving yet with the lowest
-  measured RTT from the saturated region. Client latency joins the same
-  signal set when TS-805/TS-808 provide where clients are.
+  measured RTT from the saturated region; when egress blocks every probe,
+  the nearest one by great-circle distance between the catalog's region
+  coordinates. Client latency joins the same signal set when TS-805/TS-808
+  provide where clients are.
 - **Remove** a region that is not the home, has had 3 nodes and every signal
   below 0.15 for 14 days, and homes no database partition
   (`globalcontrol.Directory`).

@@ -10,11 +10,13 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlifecycle"
 )
 
@@ -118,9 +120,17 @@ func Decide(regions []Region, candidates []Candidate, records []regionlifecycle.
 		} else {
 			origin := regionNamed(regions, cell)
 			candidate, rtt, ok := nearest(origin, candidates, memory.Removed, now)
+			away := fmt.Sprintf("%v away", rtt.Round(time.Millisecond))
+			if !ok {
+				// No round trip measured (egress may block the probe): the closest by distance.
+				var km float64
+				if candidate, km, ok = closest(origin, candidates, memory.Removed, now); ok {
+					away = fmt.Sprintf("about %.0f km away (no round trip measured)", km)
+				}
+			}
 			switch {
 			case !ok:
-				return hold(fmt.Sprintf("no candidate region has a measured round trip from %s", cell))
+				return hold(fmt.Sprintf("no candidate region has a measured round trip or a location near %s", cell))
 			case budget.RegionMonthlyCents == 0:
 				return hold("the node price is unknown")
 			}
@@ -129,8 +139,8 @@ func Decide(regions []Region, candidates []Candidate, records []regionlifecycle.
 			}
 			memory.LastAction = now
 			return Decision{Action: ActionAdd, Cell: candidate.Cell, OCIRegion: candidate.OCIRegion, At: now,
-				Reason: fmt.Sprintf("%s has wanted more nodes for %v; %s is %v away, and %d nodes cost %s a month",
-					cell, now.Sub(saturated).Round(time.Minute), candidate.Cell, rtt.Round(time.Millisecond),
+				Reason: fmt.Sprintf("%s has wanted more nodes for %v; %s is %s, and %d nodes cost %s a month",
+					cell, now.Sub(saturated).Round(time.Minute), candidate.Cell, away,
 					NodesPerNewRegion, money(budget.RegionMonthlyCents, budget.Currency))}, memory
 		}
 	}
@@ -239,6 +249,42 @@ func nearest(from Region, candidates []Candidate, removed map[string]time.Time, 
 		}
 	}
 	return best, bestRTT, found
+}
+
+// closest is the candidate nearest to from by great-circle distance between
+// the catalog's region coordinates, in km.
+func closest(from Region, candidates []Candidate, removed map[string]time.Time, now time.Time,
+) (Candidate, float64, bool) {
+	origin, ok := catalog.Lookup(strings.ToUpper(from.Cell))
+	if !ok {
+		return Candidate{}, 0, false
+	}
+	var best Candidate
+	var bestKM float64
+	found := false
+	for _, candidate := range candidates {
+		if at, ok := removed[candidate.Cell]; ok && now.Sub(at) < ReaddCooldown {
+			continue
+		}
+		entry, ok := catalog.Lookup(strings.ToUpper(candidate.Cell))
+		if !ok {
+			continue
+		}
+		km := greatCircleKM(origin.Latitude, origin.Longitude, entry.Latitude, entry.Longitude)
+		if !found || km < bestKM || km == bestKM && candidate.Cell < best.Cell {
+			best, bestKM, found = candidate, km, true
+		}
+	}
+	return best, bestKM, found
+}
+
+// greatCircleKM is the haversine distance between two points on Earth.
+func greatCircleKM(lat1, lon1, lat2, lon2 float64) float64 {
+	const earthKM = 6371
+	rad := math.Pi / 180
+	dLat, dLon := (lat2-lat1)*rad, (lon2-lon1)*rad
+	h := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(lat1*rad)*math.Cos(lat2*rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
+	return 2 * earthKM * math.Asin(math.Sqrt(h))
 }
 
 // oldest returns the cells whose clocks started first, ties by cell.

@@ -86,12 +86,12 @@ func TestDecideRules(t *testing.T) {
 		{name: "a region at its ceiling is needed to add", regions: testRegions(statusBusy(), statusBusy(), statusBusy()),
 			candidates: lhrOnly, memory: saturatedLongEnough, headroom: testHeadroom, price: testPrice,
 			action: ActionHold, reason: "every region is within its load band"},
-		{name: "unmeasured candidates hold", regions: noMeasurement, candidates: lhrOnly, memory: saturatedLongEnough,
-			headroom: testHeadroom, price: testPrice, action: ActionHold,
-			reason: "no candidate region has a measured round trip from gru"},
-		{name: "a candidate nobody measured is ignored", regions: testRegions(statusSaturated(), statusBusy(), statusBusy()),
+		{name: "unmeasured candidates fall back to distance", regions: noMeasurement, candidates: lhrOnly,
+			memory: saturatedLongEnough, headroom: testHeadroom, price: testPrice, action: ActionAdd, cell: "lhr",
+			reason: "km away (no round trip measured)"},
+		{name: "a candidate neither measured nor located holds", regions: testRegions(statusSaturated(), statusBusy(), statusBusy()),
 			candidates: unmeasured, memory: saturatedLongEnough, headroom: testHeadroom, price: testPrice,
-			action: ActionHold, reason: "no candidate region has a measured round trip from gru"},
+			action: ActionHold, reason: "no candidate region has a measured round trip or a location near gru"},
 		{name: "unknown node price holds", regions: testRegions(statusSaturated(), statusBusy(), statusBusy()),
 			candidates: lhrOnly, memory: saturatedLongEnough, headroom: testHeadroom, price: 0,
 			action: ActionHold, reason: "the node price is unknown"},
@@ -110,7 +110,7 @@ func TestDecideRules(t *testing.T) {
 			candidates: lhrOnly, headroom: testHeadroom, price: testPrice,
 			memory: Memory{SaturatedSince: saturatedLongEnough.SaturatedSince,
 				Removed: map[string]time.Time{"lhr": testNow.Add(-10 * 24 * time.Hour)}},
-			action: ActionHold, reason: "no candidate region has a measured round trip from gru"},
+			action: ActionHold, reason: "no candidate region has a measured round trip or a location near gru"},
 		{name: "re-add cooldown passes", regions: testRegions(statusSaturated(), statusBusy(), statusBusy()),
 			candidates: lhrOnly, headroom: testHeadroom, price: testPrice,
 			memory: Memory{SaturatedSince: saturatedLongEnough.SaturatedSince,
@@ -246,5 +246,15 @@ func TestNearestPicksTheLowestRoundTrip(t *testing.T) {
 	}
 	if _, _, ok := nearest(Region{}, lhrAndAms, nil, testNow); ok {
 		t.Fatal("a region with no measurements picked a candidate")
+	}
+}
+
+func TestGreatCircleDistance(t *testing.T) {
+	// São Paulo to London is about 9,480 km.
+	if km := greatCircleKM(-23.43, -46.47, 51.51, -0.13); km < 9300 || km > 9700 {
+		t.Fatalf("GRU to LHR = %.0f km", km)
+	}
+	if km := greatCircleKM(1, 2, 1, 2); km != 0 {
+		t.Fatalf("a point to itself = %.0f km", km)
 	}
 }

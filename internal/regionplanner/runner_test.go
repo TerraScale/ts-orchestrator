@@ -172,3 +172,26 @@ func TestAddReprosesOverATerminalRecordAndApprovesIt(t *testing.T) {
 		t.Fatalf("reproposed lhr = %+v, prior %+v; want a new approved proposal", record, prior)
 	}
 }
+
+func TestRegionsReadTheMeasuredRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	status := statusIdle()
+	status.RTTMillis = map[string]int{"us-sanjose-1": 171, "eu-frankfurt-1": 197}
+	runner, _ := newTestRunner(t, []globalview.Region{summary("sfo", status)})
+	regions, err := runner.regions(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, region := range regions {
+		if region.Cell != "sfo" {
+			continue
+		}
+		if len(region.RTT) != 2 || region.RTT["us-sanjose-1"] != 171*time.Millisecond ||
+			region.RTT["eu-frankfurt-1"] != 197*time.Millisecond {
+			t.Fatalf("sfo RTT = %v; want 171ms and 197ms", region.RTT)
+		}
+		return
+	}
+	t.Fatal("sfo is not in the regions")
+}

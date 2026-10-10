@@ -13,6 +13,12 @@ const StatusSchema = 1
 // maxReasonBytes bounds Status.Reason, which the dashboard shows as it is.
 const maxReasonBytes = 256
 
+// Round trips: at most one per OCI region, each under a minute.
+const (
+	maxRoundTrips      = 64
+	maxRoundTripMillis = 60_000
+)
+
 // InFlight is the scale action a region is running.
 type InFlight struct {
 	ID         string    `json:"id"`
@@ -51,6 +57,8 @@ type Status struct {
 	ProjectedCents   uint64    `json:"projected_cents,omitzero"`
 	Currency         string    `json:"currency,omitempty"`
 	CostAt           time.Time `json:"cost_at,omitzero"`
+	// RTTMillis is the region's measured TCP connect time to each OCI region, from the Prober.
+	RTTMillis map[string]int `json:"rtt_ms,omitempty"`
 }
 
 // Cost is a region's spend as the Scaler's Cost callback reports it.
@@ -86,6 +94,14 @@ func (s Status) Validate() error {
 	for _, count := range []int{s.Nodes, s.QuorumNodes, s.PoolNodes, s.Want, s.Allowance} {
 		if count < 0 || count > MaxNodes+MaxPoolNodes {
 			return fmt.Errorf("node status count %d is outside 0 to %d", count, MaxNodes+MaxPoolNodes)
+		}
+	}
+	if len(s.RTTMillis) > maxRoundTrips {
+		return fmt.Errorf("node status has %d round trips, at most %d", len(s.RTTMillis), maxRoundTrips)
+	}
+	for region, millis := range s.RTTMillis {
+		if !ociRegionName.MatchString(region) || millis <= 0 || millis > maxRoundTripMillis {
+			return fmt.Errorf("node status round trip to %q is %d ms", region, millis)
 		}
 	}
 	return nil
