@@ -183,15 +183,26 @@ func (s *Service) retainedArtifacts(ctx context.Context, legacy nats.JetStreamCo
 	if err != nil {
 		return nil, err
 	}
-	released := map[group][]releasedArtifact{}
+	byIntent := map[Intent]operation{}
 	for _, message := range operations {
 		var op operation
 		if len(message.Data) == 0 || message.Header.Get("KV-Operation") != "" || json.Unmarshal(message.Data, &op) != nil {
 			continue
 		}
 		i := op.Intent
+		if i.Cell != s.config.Cell {
+			continue
+		}
+		// An exact durable decision supersedes its preparation copy; retain every distinct intent.
+		previous, ok := byIntent[i]
+		if ok && previous.Receipt != nil && (op.Receipt == nil || previous.Receipt.Status != "rejected") {
+			continue
+		}
+		byIntent[i] = op
+	}
+	released := map[group][]releasedArtifact{}
+	for i, op := range byIntent {
 		switch {
-		case i.Cell != s.config.Cell:
 		case op.Receipt == nil:
 			keep[i.ArtifactDigest] = true
 		case op.Receipt.Status != "rejected":

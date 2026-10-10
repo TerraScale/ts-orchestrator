@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/artifact"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -43,9 +44,9 @@ type delayedVisibilityObjectStore struct {
 }
 
 func TestRetryArtifactMetadataReadRecoversFromTransientLeaderFailure(t *testing.T) {
-	info := &nats.ObjectInfo{}
+	info := &nats.RawStreamMsg{}
 	var reads int
-	got, missing, err := retryArtifactMetadataRead(t.Context(), func(context.Context) (*nats.ObjectInfo, bool, error) {
+	got, missing, err := retryArtifactMetadataRead(t.Context(), func(context.Context) (*nats.RawStreamMsg, bool, error) {
 		reads++
 		if reads == 1 {
 			return nil, false, &nats.APIError{Code: 503, ErrorCode: 10008, Description: "JetStream system temporarily unavailable"}
@@ -61,7 +62,7 @@ func TestRetryArtifactMetadataReadFailsClosedOnPersistentLeaderFailure(t *testin
 	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
 	defer cancel()
 	var calls int
-	info, missing, err := retryArtifactMetadataRead(ctx, func(context.Context) (*nats.ObjectInfo, bool, error) {
+	info, missing, err := retryArtifactMetadataRead(ctx, func(context.Context) (*nats.RawStreamMsg, bool, error) {
 		calls++
 		return nil, false, &nats.APIError{Code: 503, ErrorCode: 10008, Description: "JetStream system temporarily unavailable"}
 	})
@@ -83,7 +84,7 @@ func TestRetryArtifactMetadataReadPreservesAbsenceAndPermanentErrors(t *testing.
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var reads int
-			info, missing, err := retryArtifactMetadataRead(t.Context(), func(context.Context) (*nats.ObjectInfo, bool, error) {
+			info, missing, err := retryArtifactMetadataRead(t.Context(), func(context.Context) (*nats.RawStreamMsg, bool, error) {
 				reads++
 				return nil, test.wantMissing, test.wantErr
 			})
@@ -98,7 +99,7 @@ func TestRetryArtifactMetadataReadPreservesAbsenceAndPermanentErrors(t *testing.
 func TestRetryArtifactMetadataReadStopsOnCallerCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	var reads int
-	info, missing, err := retryArtifactMetadataRead(ctx, func(context.Context) (*nats.ObjectInfo, bool, error) {
+	info, missing, err := retryArtifactMetadataRead(ctx, func(context.Context) (*nats.RawStreamMsg, bool, error) {
 		reads++
 		cancel()
 		return nil, false, &nats.APIError{Code: 503, ErrorCode: 10008}
@@ -144,7 +145,7 @@ func TestArtifactMetadataReadCancelsBlockedBrokerRequest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
 	defer cancel()
 	started := time.Now()
-	exists, err := s.artifactExistsForUpload(ctx, "digest")
+	exists, err := s.artifactExistsForUpload(ctx, ArtifactRecord{Digest: "digest"})
 	if exists || !errors.Is(err, context.DeadlineExceeded) || time.Since(started) >= 2*time.Second {
 		t.Fatalf("blocked authoritative broker read = (exists=%t, err=%v, elapsed=%s); want prompt caller deadline", exists, err, time.Since(started))
 	}
@@ -161,14 +162,14 @@ func TestArtifactMetadataReadDistinguishesMissingObjectAndBucket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	info, missing, err := authoritativeArtifactInfo(ctx, legacyJS, "missing")
+	info, missing, err := authoritativeArtifactMetadata(ctx, legacyJS, "missing")
 	if info != nil || !missing || err != nil {
 		t.Fatalf("missing object = (%p, %t, %v); want object absence", info, missing, err)
 	}
 	if err := legacyJS.DeleteObjectStore(ArtifactBucket); err != nil {
 		t.Fatal(err)
 	}
-	info, missing, err = authoritativeArtifactInfo(ctx, legacyJS, "missing")
+	info, missing, err = authoritativeArtifactMetadata(ctx, legacyJS, "missing")
 	if info != nil || missing || !errors.Is(err, nats.ErrStreamNotFound) {
 		t.Fatalf("missing bucket = (%p, %t, %v); want stream-not-found error", info, missing, err)
 	}
@@ -349,6 +350,79 @@ func TestPrepareArtifactUsesLeaderMetadataBeforeReplacingExistingObject(t *testi
 	}
 	if after.NUID != before.NUID || after.Chunks != before.Chunks {
 		t.Fatalf("retry replaced stored chunks: before NUID=%s chunks=%d, after NUID=%s chunks=%d", before.NUID, before.Chunks, after.NUID, after.Chunks)
+	}
+}
+
+func TestPrepareArtifactRepairsMetadataWithMissingChunks(t *testing.T) {
+	t.Parallel()
+	service, ctx := testService(t, &testWriter{})
+	content := bytes.Repeat([]byte("interrupted upload"), 1024)
+	record, _, err := service.PrepareArtifact(ctx, bytes.NewReader(content), artifactTestRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := service.artifacts.GetInfo(ctx, artifactKey(record.Digest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := service.js.Stream(ctx, "OBJ_"+ArtifactBucket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Purge(ctx, jetstream.WithPurgeSubject(artifactChunkPrefix+before.NUID)); err != nil {
+		t.Fatal(err)
+	}
+	store := &putCountingObjectStore{ObjectStore: service.artifacts}
+	service.artifacts = store
+	repaired, _, err := service.PrepareArtifact(ctx, bytes.NewReader(content), artifactTestRequest())
+	if err != nil || repaired != record || store.puts.Load() != 1 {
+		t.Fatalf("repair = %+v, %v, puts=%d; want same record and one upload", repaired, err, store.puts.Load())
+	}
+	after, err := service.artifacts.GetInfo(ctx, artifactKey(record.Digest))
+	if err != nil || after.NUID == before.NUID {
+		t.Fatalf("repair metadata = %+v, %v; want new verified chunks", after, err)
+	}
+	if err := service.verifyArtifact(ctx, record); err != nil {
+		t.Fatalf("repaired artifact: %v", err)
+	}
+}
+
+func TestPrepareArtifactRefusesInvalidExistingMetadata(t *testing.T) {
+	t.Parallel()
+	service, ctx := testService(t, &testWriter{})
+	content := []byte("existing artifact with malformed size")
+	record, _, err := service.PrepareArtifact(ctx, bytes.NewReader(content), artifactTestRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := service.js.Conn().JetStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, _, err := authoritativeArtifactMetadata(ctx, legacy, record.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var info jetstream.ObjectInfo
+	if err := json.Unmarshal(metadata.Data, &info); err != nil {
+		t.Fatal(err)
+	}
+	info.Size++
+	wire, err := json.Marshal(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Publish(metadata.Subject, wire, nats.Context(ctx)); err != nil {
+		t.Fatal(err)
+	}
+	store := &putCountingObjectStore{ObjectStore: service.artifacts}
+	service.artifacts = store
+	if _, _, err := service.PrepareArtifact(ctx, bytes.NewReader(content), artifactTestRequest()); !errors.Is(err, artifact.ErrInvalid) || store.puts.Load() != 0 {
+		t.Fatalf("invalid metadata = %v, puts=%d; want refusal without replacement", err, store.puts.Load())
+	}
+	after, _, err := authoritativeArtifactMetadata(ctx, legacy, record.Digest)
+	if err != nil || !bytes.Equal(after.Data, wire) {
+		t.Fatalf("invalid metadata changed during refusal: %v", err)
 	}
 }
 

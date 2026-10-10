@@ -98,24 +98,25 @@ func (s *Service) PrepareArtifact(ctx context.Context, reader io.ReadSeeker, req
 // storeArtifact stores the staged bytes of r unless the store already holds
 // them, and checks the stored object against r.
 func (s *Service) storeArtifact(ctx context.Context, snapshot *os.File, r ArtifactRecord) error {
-	exists, err := s.artifactExistsForUpload(ctx, r.Digest)
+	exists, err := s.artifactExistsForUpload(ctx, r)
 	if err != nil {
 		return err
 	}
-	if !exists {
-		if _, err := snapshot.Seek(0, io.SeekStart); err != nil {
-			return err
+	if exists {
+		return nil
+	}
+	if _, err := snapshot.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	// Without a deadline every chunk ack gets only the JetStream default
+	// timeout, which a slow operator link such as a bastion forward misses.
+	uploadCtx, cancel := context.WithTimeout(ctx, artifactUploadTimeout)
+	defer cancel()
+	if _, err := s.artifacts.Put(uploadCtx, jetstream.ObjectMeta{Name: artifactKey(r.Digest)}, contextReader{uploadCtx, snapshot}); err != nil {
+		if isArtifactStoreFullError(err) {
+			return fmt.Errorf("store artifact: %w: %w", ErrArtifactStoreFull, err)
 		}
-		// Without a deadline every chunk ack gets only the JetStream default
-		// timeout, which a slow operator link such as a bastion forward misses.
-		uploadCtx, cancel := context.WithTimeout(ctx, artifactUploadTimeout)
-		defer cancel()
-		if _, err := s.artifacts.Put(uploadCtx, jetstream.ObjectMeta{Name: artifactKey(r.Digest)}, contextReader{uploadCtx, snapshot}); err != nil {
-			if isArtifactStoreFullError(err) {
-				return fmt.Errorf("store artifact: %w: %w", ErrArtifactStoreFull, err)
-			}
-			return fmt.Errorf("store artifact: %w", err)
-		}
+		return fmt.Errorf("store artifact: %w", err)
 	}
 	return s.verifyArtifact(ctx, r)
 }
@@ -168,7 +169,7 @@ func (s *Service) VerifyClaim(ctx context.Context, claim []byte) (ArtifactRecord
 	return r, actor, nil
 }
 
-func (s *Service) artifactExistsForUpload(ctx context.Context, digest string) (bool, error) {
+func (s *Service) artifactExistsForUpload(ctx context.Context, r ArtifactRecord) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -189,8 +190,8 @@ func (s *Service) artifactExistsForUpload(ctx context.Context, digest string) (b
 	if err != nil {
 		return false, fmt.Errorf("bind artifact metadata reader: %w", err)
 	}
-	info, missing, err := retryArtifactMetadataRead(ctx, func(attemptCtx context.Context) (*nats.ObjectInfo, bool, error) {
-		return authoritativeArtifactInfo(attemptCtx, legacyJS, digest)
+	metadata, missing, err := retryArtifactMetadataRead(ctx, func(attemptCtx context.Context) (*nats.RawStreamMsg, bool, error) {
+		return authoritativeArtifactMetadata(attemptCtx, legacyJS, r.Digest)
 	})
 	if err != nil {
 		return false, err
@@ -198,19 +199,31 @@ func (s *Service) artifactExistsForUpload(ctx context.Context, digest string) (b
 	if missing {
 		return false, nil
 	}
-	if info == nil {
-		return false, fmt.Errorf("%w: authoritative artifact metadata is empty", ErrInvalid)
+	var info jetstream.ObjectInfo
+	if err := json.Unmarshal(metadata.Data, &info); err != nil {
+		return false, fmt.Errorf("inspect authoritative artifact metadata: %w", nats.ErrBadObjectMeta)
 	}
-	if err := ctx.Err(); err != nil {
-		return false, err
+	if info.Deleted {
+		return false, nil
 	}
-	return true, nil
+	readCtx, cancel := context.WithTimeout(ctx, artifactUploadTimeout)
+	defer cancel()
+	err = artifact.ReadVerifiedAuthoritative(readCtx, s.js, &info, ArtifactBucket, artifactKey(r.Digest),
+		r.Digest, r.Size, MaxArtifactBytes, io.Discard)
+	if errors.Is(err, jetstream.ErrObjectNotFound) {
+		// Only a leader-proven missing chunk permits repair; a changed reference fences it.
+		if err := artifact.DeleteIfUnchanged(readCtx, legacyJS, ArtifactBucket, metadata); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // The legacy ObjectStore.GetInfo uses this leader MSG.GET but discards its
 // context option, while ObjectStore setup does an unbounded StreamInfo. Use
-// the SDK's context-aware raw read and decode the same metadata format.
-func authoritativeArtifactInfo(ctx context.Context, js nats.JetStreamContext, digest string) (*nats.ObjectInfo, bool, error) {
+// the SDK's context-aware raw read so repairs retain its exact CAS revision.
+func authoritativeArtifactMetadata(ctx context.Context, js nats.JetStreamContext, digest string) (*nats.RawStreamMsg, bool, error) {
 	key := artifactKey(digest)
 	subject := "$O." + ArtifactBucket + ".M." + base64.URLEncoding.EncodeToString([]byte(key))
 	message, err := js.GetLastMsg("OBJ_"+ArtifactBucket, subject, nats.Context(ctx))
@@ -223,21 +236,13 @@ func authoritativeArtifactInfo(ctx context.Context, js nats.JetStreamContext, di
 	if message == nil {
 		return nil, false, fmt.Errorf("%w: authoritative artifact metadata is empty", ErrInvalid)
 	}
-	var info nats.ObjectInfo
-	if err := json.Unmarshal(message.Data, &info); err != nil {
-		return nil, false, fmt.Errorf("inspect authoritative artifact metadata: %w", nats.ErrBadObjectMeta)
-	}
-	if info.Deleted {
-		return nil, true, nil
-	}
-	info.ModTime = message.Time
-	return &info, false, nil
+	return message, false, nil
 }
 
 // A leader change can briefly reject the authoritative MSG.GET lookup. Retry
 // only that read; a missing object permits upload, while an unresolved read
 // failure never permits a Put.
-func retryArtifactMetadataRead(ctx context.Context, read func(context.Context) (*nats.ObjectInfo, bool, error)) (*nats.ObjectInfo, bool, error) {
+func retryArtifactMetadataRead(ctx context.Context, read func(context.Context) (*nats.RawStreamMsg, bool, error)) (*nats.RawStreamMsg, bool, error) {
 	retryCtx, cancel := context.WithTimeout(ctx, intentPublishTimeout)
 	defer cancel()
 
