@@ -11,7 +11,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
 )
 
 var (
@@ -49,79 +48,61 @@ func TestScopeOwnsRequiresExactTagsAndSourceVolume(t *testing.T) {
 }
 
 func TestPlanCreatesFirstFullThenIncrementalsOnInterval(t *testing.T) {
-	policy := Policy{Enabled: true, FullEvery: 3}
-	actions := Plan(policy, scope, volume, nil, now)
+	actions := Plan(scope, volume, nil, now)
 	if len(actions) != 1 || actions[0].Kind != ActionCreate || actions[0].Type != TypeFull || !entityid.Valid(actions[0].Key) {
 		t.Fatalf("first plan = %+v", actions)
 	}
 	// Same slot replays the same idempotency key.
-	if again := Plan(policy, scope, volume, nil, now.Add(time.Minute)); again[0].Key != actions[0].Key {
+	if again := Plan(scope, volume, nil, now.Add(time.Minute)); again[0].Key != actions[0].Key {
 		t.Fatal("create key is not stable within its slot")
 	}
 	recent := []oci.CloudVolumeBackup{owned("b1", "AVAILABLE", TypeFull, time.Hour)}
-	if actions := Plan(policy, scope, volume, recent, now); len(actions) != 0 {
+	if actions := Plan(scope, volume, recent, now); len(actions) != 0 {
 		t.Fatalf("backup inside interval planned %+v", actions)
 	}
 	due := []oci.CloudVolumeBackup{owned("b1", "AVAILABLE", TypeFull, 25*time.Hour)}
-	if actions := Plan(policy, scope, volume, due, now); len(actions) != 1 || actions[0].Type != TypeIncremental {
+	if actions := Plan(scope, volume, due, now); len(actions) != 1 || actions[0].Type != TypeIncremental {
 		t.Fatalf("due incremental = %+v", actions)
 	}
-	chain := []oci.CloudVolumeBackup{
-		owned("b3", "AVAILABLE", TypeIncremental, 25*time.Hour),
-		owned("b2", "AVAILABLE", TypeIncremental, 49*time.Hour),
-		owned("b1", "AVAILABLE", TypeFull, 73*time.Hour),
+	chain := []oci.CloudVolumeBackup{owned("full", "AVAILABLE", TypeFull, 7*24*time.Hour+time.Hour)}
+	for index := range 6 {
+		chain = append(chain, owned(fmt.Sprintf("inc-%d", index), "AVAILABLE", TypeIncremental, time.Duration(index+1)*24*time.Hour+time.Hour))
 	}
-	if actions := Plan(policy, scope, volume, chain, now); len(actions) != 1 || actions[0].Type != TypeFull {
-		t.Fatalf("FullEvery did not start a new full backup: %+v", actions)
+	if actions := Plan(scope, volume, chain, now); len(actions) != 1 || actions[0].Type != TypeFull {
+		t.Fatalf("the seventh successor was not FULL: %+v", actions)
 	}
 	inProgress := []oci.CloudVolumeBackup{owned("b2", "CREATING", TypeIncremental, 30*time.Hour), owned("b1", "AVAILABLE", TypeFull, 50*time.Hour)}
-	if actions := Plan(policy, scope, volume, inProgress, now); len(actions) != 0 {
+	if actions := Plan(scope, volume, inProgress, now); len(actions) != 0 {
 		t.Fatalf("plan created while a backup is in progress: %+v", actions)
 	}
 	queued := []oci.CloudVolumeBackup{owned("b2", "REQUEST_RECEIVED", TypeIncremental, 30*time.Hour), owned("b1", "AVAILABLE", TypeFull, 50*time.Hour)}
-	if actions := Plan(policy, scope, volume, queued, now); len(actions) != 0 {
+	if actions := Plan(scope, volume, queued, now); len(actions) != 0 {
 		t.Fatalf("plan created while a backup request is queued: %+v", actions)
 	}
 	foreign := owned("f1", "AVAILABLE", TypeFull, time.Hour)
 	foreign.FreeformTags = nil
-	if actions := Plan(policy, scope, volume, []oci.CloudVolumeBackup{foreign}, now); len(actions) != 1 || actions[0].Type != TypeFull {
+	if actions := Plan(scope, volume, []oci.CloudVolumeBackup{foreign}, now); len(actions) != 1 || actions[0].Type != TypeFull {
 		t.Fatalf("foreign backup satisfied the policy: %+v", actions)
 	}
 }
 
 func TestPlanPrunesOnlyOwnedAvailableBeyondRetain(t *testing.T) {
 	var backups []oci.CloudVolumeBackup
-	for index := range 5 {
+	for index := range 10 {
 		backups = append(backups, owned(fmt.Sprintf("b%d", index), "AVAILABLE", TypeIncremental, time.Duration(index+1)*time.Hour))
 	}
 	backups = append(backups, owned("faulty", "FAULTY", TypeFull, 100*time.Hour))
 	foreign := owned("foreign", "AVAILABLE", TypeFull, 200*time.Hour)
 	foreign.FreeformTags = nil
 	backups = append(backups, foreign)
-	policy := Policy{Enabled: true, Retain: 2}
-	if actions := Plan(policy, scope, volume, backups, now); len(actions) != 0 {
-		t.Fatalf("prune ran while disabled: %+v", actions)
-	}
-	policy.Prune = true
 	var deleted []string
-	for _, action := range Plan(policy, scope, volume, backups, now) {
+	for _, action := range Plan(scope, volume, backups, now) {
 		if action.Kind == ActionDelete {
 			deleted = append(deleted, action.BackupID)
 		}
 	}
-	if fmt.Sprint(deleted) != "[b2 b3 b4]" {
+	if fmt.Sprint(deleted) != "[b7 b8 b9]" {
 		t.Fatalf("pruned %v, want the three oldest owned AVAILABLE backups", deleted)
-	}
-}
-
-func TestPolicyValidation(t *testing.T) {
-	if err := (Policy{}).Validate(); err != nil {
-		t.Fatal(err)
-	}
-	for _, bad := range []Policy{{IntervalHours: -1}, {Retain: 1000}, {FullEvery: -2}, {RunIntervalSeconds: 5}} {
-		if err := bad.Validate(); err == nil {
-			t.Fatalf("invalid policy accepted: %+v", bad)
-		}
 	}
 }
 
@@ -142,16 +123,18 @@ func leader() authority.Snapshot {
 }
 
 type fakeProvider struct {
-	backups map[string]oci.CloudVolumeBackup
-	tokens  map[string]string
-	creates int
-	deletes []string
-	onGet   func(*oci.CloudVolumeBackup)
-	gone    map[string]bool
+	backups   map[string]oci.CloudVolumeBackup
+	tokens    map[string]string
+	creates   int
+	deletes   []string
+	onGet     func(*oci.CloudVolumeBackup)
+	gone      map[string]bool
+	goneErr   map[string]error
+	goneReads map[string]int
 }
 
 func newFakeProvider(backups ...oci.CloudVolumeBackup) *fakeProvider {
-	provider := &fakeProvider{backups: make(map[string]oci.CloudVolumeBackup), tokens: make(map[string]string)}
+	provider := &fakeProvider{backups: make(map[string]oci.CloudVolumeBackup), tokens: make(map[string]string), goneReads: make(map[string]int)}
 	for _, backup := range backups {
 		provider.backups[backup.ID] = backup
 	}
@@ -189,7 +172,8 @@ func (p *fakeProvider) ListCompartmentVolumeBackups(context.Context) ([]oci.Clou
 }
 
 func (p *fakeProvider) VolumeGone(_ context.Context, volumeID string) (bool, error) {
-	return p.gone[volumeID], nil
+	p.goneReads[volumeID]++
+	return p.gone[volumeID], p.goneErr[volumeID]
 }
 
 func (p *fakeProvider) GetVolumeBackup(_ context.Context, id string) (oci.CloudVolumeBackup, error) {
@@ -212,57 +196,56 @@ func (p *fakeProvider) DeleteVolumeBackup(_ context.Context, id, etag string) er
 	return nil
 }
 
-func runner(provider *fakeProvider, fencer *fakeFencer, policy Policy) Runner {
-	return Runner{Policy: policy, Scope: scope, Provider: provider, Fencer: fencer,
+func runner(provider *fakeProvider, fencer *fakeFencer) Runner {
+	return Runner{Scope: scope, Provider: provider, Fencer: fencer,
 		Volumes: func(context.Context) ([]string, error) { return []string{volume}, nil },
 		Now:     func() time.Time { return now }}
 }
 
 func TestRunnerCreatesIdempotentlyAndPrunesWithExactETag(t *testing.T) {
 	var existing []oci.CloudVolumeBackup
-	for index := range 4 {
+	for index := range 9 {
 		existing = append(existing, owned(fmt.Sprintf("old-%d", index), "AVAILABLE", TypeFull, time.Duration(index+25)*time.Hour))
 	}
 	provider := newFakeProvider(existing...)
 	fencer := &fakeFencer{snapshot: leader()}
-	report, err := runner(provider, fencer, Policy{Enabled: true, Retain: 2, FullEvery: 2, Prune: true}).RunOnce(t.Context())
+	report, err := runner(provider, fencer).RunOnce(t.Context())
 	if err != nil || len(report.Created) != 1 || len(report.Deleted) != 2 {
 		t.Fatalf("report = %+v, %v", report, err)
 	}
-	if provider.creates != 1 || fmt.Sprint(provider.deletes) != "[old-2 old-3]" {
+	if provider.creates != 1 || fmt.Sprint(provider.deletes) != "[old-7 old-8]" {
 		t.Fatalf("creates=%d deletes=%v", provider.creates, provider.deletes)
 	}
 	// The new backup is CREATING: a second pass creates nothing.
-	if report, err := runner(provider, fencer, Policy{Enabled: true, Retain: 2, FullEvery: 2, Prune: true}).RunOnce(t.Context()); err != nil || len(report.Created) != 0 {
+	if report, err := runner(provider, fencer).RunOnce(t.Context()); err != nil || len(report.Created) != 0 {
 		t.Fatalf("second pass = %+v, %v", report, err)
 	}
 }
 
 func TestRunnerSkipsBackupThatChangedOwnershipBeforeDelete(t *testing.T) {
-	provider := newFakeProvider(
-		owned("keep", "AVAILABLE", TypeFull, time.Hour),
-		owned("old", "AVAILABLE", TypeFull, 2*time.Hour),
-	)
+	provider := newFakeProvider(owned("old", "AVAILABLE", TypeFull, 8*time.Hour))
+	for index := range 7 {
+		backup := owned(fmt.Sprintf("keep-%d", index), "AVAILABLE", TypeFull, time.Duration(index+1)*time.Hour)
+		provider.backups[backup.ID] = backup
+	}
 	provider.onGet = func(backup *oci.CloudVolumeBackup) { backup.FreeformTags = nil }
-	report, err := runner(provider, &fakeFencer{snapshot: leader()}, Policy{Enabled: true, Retain: 1, FullEvery: 1, Prune: true}).RunOnce(t.Context())
+	report, err := runner(provider, &fakeFencer{snapshot: leader()}).RunOnce(t.Context())
 	if err != nil || len(provider.deletes) != 0 || len(report.Skipped) != 1 {
 		t.Fatalf("re-read foreign backup was deleted: report=%+v deletes=%v err=%v", report, provider.deletes, err)
 	}
 }
 
-func TestRunnerRefusesFollowersFencedAndDisabled(t *testing.T) {
+func TestRunnerRefusesFollowersAndFencedAuthority(t *testing.T) {
 	provider := newFakeProvider()
 	follower := &fakeFencer{snapshot: authority.Snapshot{Ready: true, Epoch: 3, Revision: 5, ExpiresAt: time.Now().Add(time.Minute)}}
-	if _, err := runner(provider, follower, Policy{Enabled: true}).RunOnce(t.Context()); !errors.Is(err, authority.ErrNotLeader) {
+	if _, err := runner(provider, follower).RunOnce(t.Context()); !errors.Is(err, authority.ErrNotLeader) {
 		t.Fatalf("follower ran: %v", err)
 	}
 	fenced := &fakeFencer{snapshot: leader(), guardErr: authority.ErrFenced}
-	if _, err := runner(provider, fenced, Policy{Enabled: true}).RunOnce(t.Context()); !errors.Is(err, authority.ErrFenced) {
+	if _, err := runner(provider, fenced).RunOnce(t.Context()); !errors.Is(err, authority.ErrFenced) {
 		t.Fatalf("fenced runner did not stop: %v", err)
 	}
-	if _, err := runner(provider, &fakeFencer{snapshot: leader()}, Policy{}).RunOnce(t.Context()); !errors.Is(err, storage.ErrDisabled) {
-		t.Fatalf("disabled policy ran: %v", err)
-	}
+
 	if provider.creates != 0 {
 		t.Fatalf("refused runs created %d backups", provider.creates)
 	}
@@ -286,10 +269,8 @@ func TestRunnerPrunesOrphanedBackupsOfRemovedVolumesAfterRetention(t *testing.T)
 	)
 	provider.gone = map[string]bool{removed: true}
 	fencer := &fakeFencer{snapshot: leader()}
-	if _, err := runner(provider, fencer, Policy{Enabled: true}).RunOnce(t.Context()); err != nil || len(provider.deletes) != 0 {
-		t.Fatalf("orphans pruned without Prune: deletes=%v err=%v", provider.deletes, err)
-	}
-	report, err := runner(provider, fencer, Policy{Enabled: true, Prune: true}).RunOnce(t.Context())
+
+	report, err := runner(provider, fencer).RunOnce(t.Context())
 	if err != nil || fmt.Sprint(provider.deletes) != "[old]" || fmt.Sprint(report.Deleted) != "[old]" {
 		t.Fatalf("orphan prune deletes=%v report=%+v err=%v; want only the expired owned backup of the removed volume", provider.deletes, report, err)
 	}
@@ -299,7 +280,7 @@ func TestRunnerProtectsListedVolumesButSkipsOrphansOnPartialListing(t *testing.T
 	const removed = "ocid1.volume.removed"
 	provider := newFakeProvider(orphan("old", removed, 400*24*time.Hour))
 	provider.gone = map[string]bool{removed: true}
-	partial := runner(provider, &fakeFencer{snapshot: leader()}, Policy{Enabled: true, Prune: true})
+	partial := runner(provider, &fakeFencer{snapshot: leader()})
 	partial.Volumes = func(context.Context) ([]string, error) {
 		return []string{volume}, fmt.Errorf("%w: partition unreadable", ErrPartialVolumes)
 	}

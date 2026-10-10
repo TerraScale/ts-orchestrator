@@ -21,7 +21,7 @@ import (
 const MountFlags = unix.MS_NOSUID | unix.MS_NODEV | unix.MS_NOEXEC | unix.MS_NOATIME
 
 // ext4IocResizeFS is EXT4_IOC_RESIZE_FS, _IOW('f', 16, __u64). It needs
-// CAP_SYS_RESOURCE; see GrowConfig.
+// CAP_SYS_RESOURCE, which the volume initializer unit grants.
 const ext4IocResizeFS = 0x40086610
 
 // HardenRemount applies MountFlags to an existing mount at target without
@@ -65,10 +65,7 @@ func Rescan(rdev uint64) error {
 // mountPath to the device size. It is idempotent and never shrinks. The
 // caller must already have verified that mountPath is the exclusive mount of
 // the pinned device.
-func Grow(ctx context.Context, cfg GrowConfig, mountPath string, rdev uint64, fsType string) (bool, error) {
-	if !cfg.Enabled {
-		return false, nil
-	}
+func Grow(ctx context.Context, mountPath string, rdev uint64, fsType string) (bool, error) {
 	if err := Rescan(rdev); err != nil {
 		return false, err
 	}

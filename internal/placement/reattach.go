@@ -13,7 +13,7 @@ import (
 
 // reattachRetainedVolume moves the retained volume of a replacement host
 // attempt from its lost predecessor instance to the replacement. It runs only
-// with ReattachOnHostLoss and only for a replacement attempt that recorded
+// for a replacement attempt that recorded
 // its PreviousInstanceID. Each call executes at most one failover step; the
 // member advances to StageAwaitingRuntimeContract once the volume is attached
 // to the replacement alone and carries a mount-existing permit.
@@ -49,7 +49,7 @@ func (controller *Controller) reattachRetainedVolume(ctx context.Context, epoch 
 		versioned.Revision = revision
 	}
 	reattacher := failover.Reattacher{
-		Config: failover.Config{Enabled: true}, Fencer: controller.fencer,
+		Fencer:    controller.fencer,
 		Instances: boundary, Volumes: boundary, Permits: boundary, Now: controller.currentTime,
 		// The member state was read under this tick's epoch; a step under a
 		// later epoch must not act on it.

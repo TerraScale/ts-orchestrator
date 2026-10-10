@@ -17,11 +17,12 @@ const maxProviderItems = 512
 
 type sdkProvider struct {
 	config       RegionConfig
+	terminations *KVJournal
 	hostMetadata map[string]string
 	compute      core.ComputeClient
 	storage      core.BlockstorageClient
 	network      core.VirtualNetworkClient
-	// verified is the optional Observe verification cache; nil disables it.
+	// verified is initialized by every production SDK constructor.
 	verified *verificationCache
 }
 
@@ -69,7 +70,7 @@ func sdkProviderFrom(factory *ociclient.Factory, config RegionConfig, hostMetada
 	storage.HTTPClient = ociclient.Instrument(storage.HTTPClient, "blockstorage")
 	network.HTTPClient = ociclient.Instrument(network.HTTPClient, "network")
 	return &sdkProvider{config: config, hostMetadata: maps.Clone(hostMetadata),
-		compute: compute, storage: storage, network: network}, nil
+		compute: compute, storage: storage, network: network, verified: newVerificationCache()}, nil
 }
 
 func (provider *sdkProvider) ListInstances(ctx context.Context, compartmentID string) ([]CloudInstance, error) {

@@ -93,9 +93,8 @@ func attemptKey(slot string, owned []oci.CloudVolumeBackup) string {
 // Plan decides the backup effects for one volume from its listed backups.
 // Only owned backups are considered. No create is planned while an owned
 // backup is queued or CREATING; prune never touches non-AVAILABLE backups and never
-// deletes the newest Retain AVAILABLE ones.
-func Plan(policy Policy, scope Scope, volumeID string, backups []oci.CloudVolumeBackup, now time.Time) []Action {
-	policy = policy.WithDefaults()
+// deletes the newest retain AVAILABLE ones.
+func Plan(scope Scope, volumeID string, backups []oci.CloudVolumeBackup, now time.Time) []Action {
 	var owned []oci.CloudVolumeBackup
 	for _, backup := range backups {
 		if scope.Owns(backup, volumeID) {
@@ -123,17 +122,14 @@ func Plan(policy Policy, scope Scope, volumeID string, backups []oci.CloudVolume
 			}
 		}
 	}
-	if !creating && (latest.IsZero() || now.Sub(latest) >= policy.Interval()) {
+	if !creating && (latest.IsZero() || now.Sub(latest) >= backupInterval) {
 		kind := TypeIncremental
-		if !sawFull || sinceFull+1 >= policy.FullEvery {
+		if !sawFull || sinceFull+1 >= fullEvery {
 			kind = TypeFull
 		}
-		slot := fmt.Sprintf("%s/%d", volumeID, now.UTC().Truncate(policy.Interval()).Unix())
+		slot := fmt.Sprintf("%s/%d", volumeID, now.UTC().Truncate(backupInterval).Unix())
 		actions = append(actions, Action{Kind: ActionCreate, VolumeID: volumeID, Type: kind,
 			Key: attemptKey(slot, owned)})
-	}
-	if !policy.Prune {
-		return actions
 	}
 	kept := 0
 	for _, backup := range owned {
@@ -141,7 +137,7 @@ func Plan(policy Policy, scope Scope, volumeID string, backups []oci.CloudVolume
 			continue
 		}
 		kept++
-		if kept > policy.Retain {
+		if kept > retain {
 			actions = append(actions, Action{Kind: ActionDelete, VolumeID: volumeID, BackupID: backup.ID})
 		}
 	}

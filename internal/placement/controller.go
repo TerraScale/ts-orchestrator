@@ -65,19 +65,8 @@ type Config struct {
 	// VolumeDeadlines bound transitional retained-volume phases; zero fields
 	// use storage lifecycle defaults (ten minutes for ATTACHING).
 	VolumeDeadlines lifecycle.Deadlines
-	// AutoGrowVolumes lets placement grow a retained volume created under a
-	// smaller resource profile through the fleet's grow-only resize. Off by
-	// default: a smaller volume stays an error for the operator instead.
-	AutoGrowVolumes bool
-	// ReattachOnHostLoss lets a replacement host attempt take over the
-	// retained volume of its lost predecessor through storage/failover:
-	// only after OCI reports the predecessor TERMINATED, with a journaled
-	// fenced detach, an attach over DETACHED history and a mount-existing
-	// (never format) permit. Off by default: the replacement's attach then
-	// holds on the predecessor's attachment history, as before.
-	ReattachOnHostLoss bool
-	OnError            func(error)
-	OnHold             func(string)
+	OnError         func(error)
+	OnHold          func(string)
 	// LostMemberEvidence enables replacing a member whose OCI host is gone.
 	// Nil keeps such members held without replacement.
 	LostMemberEvidence LostMemberEvidence
@@ -493,17 +482,26 @@ func (controller *Controller) advanceMember(
 		_, err := controller.persist(ctx, epoch, versioned.Revision, state)
 		return true, err
 	case StagePreparedVolume:
-		instance, exists := instances[state.InstanceID]
-		if !exists {
+		if _, exists := instances[state.InstanceID]; !exists {
 			controller.hold(fmt.Sprintf("member %s OCI host is not currently observed; retained volume creation is withheld", seat.MemberID))
 			return false, nil
 		}
-		if err := controller.validateObservedInstance(instance, state, seat); err != nil {
+		var sizeGB int64
+		if state.VolumeID == "" {
+			var err error
+			sizeGB, err = volumeSizeGB(controller.config.Resources.DiskBytes)
+			if err != nil {
+				return false, err
+			}
+			if !controller.runtimeArtifactReady(ctx, state, seat) {
+				return false, nil
+			}
+		}
+		instance, fresh, err := controller.freshVolumeHost(ctx, intent, seat, state)
+		if err != nil {
 			return false, err
 		}
-		status, admitted := controller.admittedHost(intent, state, instance, statuses)
-		if !admitted || status.Registration.Generation != state.HostGeneration {
-			controller.hold(fmt.Sprintf("member %s has no current exact host registration; retained volume creation is withheld", seat.MemberID))
+		if !fresh {
 			return false, nil
 		}
 		// The member's own host image must qualify before its volume is
@@ -517,10 +515,7 @@ func (controller *Controller) advanceMember(
 			_, err := controller.persist(ctx, epoch, versioned.Revision, state)
 			return true, err
 		}
-		sizeGB, err := volumeSizeGB(controller.config.Resources.DiskBytes)
-		if err != nil {
-			return false, err
-		}
+		// Admission may change during the live OCI reads.
 		if !controller.runtimeArtifactReady(ctx, state, seat) {
 			return false, nil
 		}
@@ -547,6 +542,11 @@ func (controller *Controller) advanceMember(
 		}
 		if volume.SizeGB < sizeGB {
 			// The volume was created under an earlier, smaller resource profile.
+			if _, fresh, err := controller.freshVolumeHost(ctx, intent, seat, state); err != nil {
+				return false, err
+			} else if !fresh {
+				return false, nil
+			}
 			grown, err := controller.growVolume(ctx, epoch, intent, volume, sizeGB)
 			if err != nil {
 				return false, fmt.Errorf("retained member volume %s/%s is %d GiB, below the desired %d GiB: %w",
@@ -583,7 +583,7 @@ func (controller *Controller) advanceMember(
 		if err := controller.verifyHostImage(ctx, instance); err != nil {
 			return false, err
 		}
-		if controller.config.ReattachOnHostLoss && state.PreviousInstanceID != "" {
+		if state.PreviousInstanceID != "" {
 			return controller.reattachRetainedVolume(ctx, epoch, intent, seat, versioned)
 		}
 		var attachment *oci.Attachment
@@ -1094,14 +1094,64 @@ func (controller *Controller) guard(ctx context.Context, epoch uint64) error {
 	return controller.fencer.Guard(ctx, epoch)
 }
 
-var errVolumeAutoGrowDisabled = errors.New("volume auto-grow is disabled in placement config")
+// freshVolumeHost bypasses the sweep cache before volume preparation effects.
+func (controller *Controller) freshVolumeHost(ctx context.Context, intent Intent, seat Seat, state MemberState) (oci.Instance, bool, error) {
+	var instances []oci.Instance
+	var err error
+	if observer, ok := controller.fleet.(oci.SelectiveObserver); ok {
+		instances, err = observer.ObserveSelected(ctx, func(id, node string) bool {
+			return id == state.InstanceID || node == state.HostNode
+		})
+	} else {
+		instances, err = controller.fleet.Observe(ctx)
+	}
+	if err != nil {
+		return oci.Instance{}, false, fmt.Errorf("freshly observe retained volume host %s: %w", seat.MemberID, err)
+	}
+	var current oci.Instance
+	found := false
+	for _, instance := range instances {
+		if instance.ID != state.InstanceID && instance.Node != state.HostNode {
+			continue
+		}
+		if found {
+			return oci.Instance{}, false, errors.New("fresh OCI observation contains an ambiguous retained volume host identity")
+		}
+		current, found = instance, true
+	}
+	if !found {
+		controller.hold(fmt.Sprintf("member %s OCI host is not freshly observed; retained volume preparation is withheld", seat.MemberID))
+		return oci.Instance{}, false, nil
+	}
+	if err := controller.validateObservedInstance(current, state, seat); err != nil {
+		return oci.Instance{}, false, err
+	}
+	statuses, err := controller.hosts.ListHosts(ctx)
+	if err != nil {
+		return oci.Instance{}, false, fmt.Errorf("read current retained volume host registration %s: %w", seat.MemberID, err)
+	}
+	var registration host.HostStatus
+	found = false
+	for _, status := range statuses {
+		if status.Registration.Node != state.HostNode {
+			continue
+		}
+		if found {
+			return oci.Instance{}, false, errors.New("host view returned duplicate retained volume host registrations")
+		}
+		registration, found = status, true
+	}
+	status, admitted := controller.admittedHost(intent, state, current, map[string]host.HostStatus{state.HostNode: registration})
+	if !found || !admitted || status.Registration.Generation != state.HostGeneration {
+		controller.hold(fmt.Sprintf("member %s has no current exact host registration; retained volume preparation is withheld", seat.MemberID))
+		return oci.Instance{}, false, nil
+	}
+	return current, true, nil
+}
 
 // growVolume grows an owned retained volume through the fleet's journaled
-// resize seam when AutoGrowVolumes is enabled.
+// resize seam.
 func (controller *Controller) growVolume(ctx context.Context, epoch uint64, intent Intent, volume oci.RetainedVolume, sizeGB int64) (oci.RetainedVolume, error) {
-	if !controller.config.AutoGrowVolumes {
-		return volume, errVolumeAutoGrowDisabled
-	}
 	resizer, ok := controller.fleet.(oci.VolumeResizer)
 	if !ok {
 		return volume, oci.ErrVolumeResizeUnsupported

@@ -2,16 +2,13 @@ package oci
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
-
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 )
 
-// MaxObserveVerificationTTL bounds how long a storage and network
+// observeVerificationTTL bounds how long a storage and network
 // verification may be reused by placement's periodic Observe.
-const MaxObserveVerificationTTL = 60 * time.Second
+const observeVerificationTTL = 60 * time.Second
 
 type observeOnlyKey struct{}
 
@@ -46,24 +43,17 @@ type cachedVerification struct {
 // failure, or the TTL expiring forces a fresh verification.
 //
 // The cache trades detection latency of out-of-band VNIC or boot volume
-// changes (up to the TTL) for OCI read volume, so it is off unless the signed
-// controller configuration enables it.
+// changes (up to one minute) for OCI read volume. Admission and mutation
+// paths always verify afresh.
 type verificationCache struct {
-	ttl time.Duration
 	now func() time.Time
 
 	mu      sync.Mutex
 	entries map[string]cachedVerification
 }
 
-func newVerificationCache(ttl time.Duration) (*verificationCache, error) {
-	if ttl < 0 || ttl > MaxObserveVerificationTTL {
-		return nil, errors.New("OCI observe verification cache TTL is out of bounds")
-	}
-	if ttl == 0 {
-		return nil, nil
-	}
-	return &verificationCache{ttl: ttl, now: time.Now, entries: map[string]cachedVerification{}}, nil
+func newVerificationCache() *verificationCache {
+	return &verificationCache{now: time.Now, entries: map[string]cachedVerification{}}
 }
 
 func (c *verificationCache) lookup(ctx context.Context, id, etag string) (string, bool) {
@@ -73,7 +63,7 @@ func (c *verificationCache) lookup(ctx context.Context, id, etag string) (string
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	entry, ok := c.entries[id]
-	if !ok || entry.etag != etag || c.now().Sub(entry.at) >= c.ttl {
+	if !ok || entry.etag != etag || c.now().Sub(entry.at) >= observeVerificationTTL {
 		return "", false
 	}
 	return entry.privateIP, true
@@ -87,7 +77,7 @@ func (c *verificationCache) store(id, etag, privateIP string) {
 	defer c.mu.Unlock()
 	now := c.now()
 	for key, entry := range c.entries {
-		if now.Sub(entry.at) >= c.ttl {
+		if now.Sub(entry.at) >= observeVerificationTTL {
 			delete(c.entries, key)
 		}
 	}
@@ -104,29 +94,4 @@ func (c *verificationCache) forget(id string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.entries, id)
-}
-
-// InstancePrincipalFleetFactory returns NewInstancePrincipalFleetWithImageVerifier
-// with an Observe verification cache of ttl. A zero ttl keeps the previous
-// behavior of verifying every instance on every Observe.
-func InstancePrincipalFleetFactory(ttl time.Duration) func(RegionConfig, RegionIntent, Journal, authority.Fencer,
-	DrainRequester, WriterStopVerifier, ImageQualificationVerifier, map[string]string) (Fleet, error) {
-	return func(config RegionConfig, intent RegionIntent, journal Journal, fencer authority.Fencer,
-		drainRequester DrainRequester, writerStop WriterStopVerifier, imageVerifier ImageQualificationVerifier,
-		hostMetadata map[string]string,
-	) (Fleet, error) {
-		if err := config.Validate(intent); err != nil {
-			return nil, err
-		}
-		cache, err := newVerificationCache(ttl)
-		if err != nil {
-			return nil, err
-		}
-		provider, err := newSDKProvider(config, hostMetadata)
-		if err != nil {
-			return nil, err
-		}
-		provider.verified = cache
-		return NewFleetWithImageVerifier(config, intent, provider, journal, fencer, drainRequester, writerStop, imageVerifier)
-	}
 }

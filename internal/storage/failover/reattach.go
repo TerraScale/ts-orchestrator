@@ -23,11 +23,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
 )
 
-// Config gates reattach-on-host-loss. It is off by default.
-type Config struct {
-	Enabled bool `json:"enabled,omitzero"`
-}
-
 // Attachment is one observed OCI attachment record of the volume.
 type Attachment struct {
 	ID         string
@@ -183,7 +178,6 @@ type MountPermitter interface {
 
 // Reattacher executes one reattach step per call on the authority leader.
 type Reattacher struct {
-	Config    Config
 	Fencer    authority.Fencer
 	Instances InstanceObserver
 	Volumes   VolumeAttacher
@@ -198,9 +192,6 @@ type Reattacher struct {
 // Step decides and executes the next step and returns it. StepHold and
 // StepProveFence return an error wrapping the reason.
 func (reattacher Reattacher) Step(ctx context.Context, request Request) (Step, error) {
-	if !reattacher.Config.Enabled {
-		return Step{}, storage.ErrDisabled
-	}
 	if err := request.validate(); err != nil {
 		return Step{}, err
 	}

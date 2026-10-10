@@ -156,48 +156,58 @@ func (f *fleet) resizeSettled(ctx context.Context, op OperationIntent, volumes [
 }
 
 func (f *fleet) VerifyTerminalInventorySettled(ctx context.Context, intent authority.TerminalIntent) error {
+	_, err := f.inspectTerminalInventory(ctx, intent)
+	return err
+}
+
+func (f *fleet) inspectTerminalInventory(ctx context.Context, intent authority.TerminalIntent) ([]string, error) {
+	var terminated []string
 	resolved, err := f.DiscoverTerminalTargets(ctx, intent)
 	if err != nil {
-		return err
+		return terminated, err
 	}
 	for i, target := range resolved {
 		if target != intent.Targets[i] {
-			return fmt.Errorf("%w: seat %s has an omitted or changed resource ID", ErrForeignResource, target.SeatID)
+			return terminated, fmt.Errorf("%w: seat %s has an omitted or changed resource ID", ErrForeignResource, target.SeatID)
 		}
 		if target.InstanceID != "" {
 			cloud, err := f.provider.GetInstance(ctx, target.InstanceID)
 			if err != nil && !isNotFound(err) {
-				return err
+				return terminated, err
 			}
 			if err == nil {
 				if cloud.ID != target.InstanceID || cloud.CompartmentID != f.config.CompartmentID {
-					return ErrForeignResource
+					return terminated, ErrForeignResource
 				}
 				if cloud.LifecycleState != "TERMINATED" {
 					if _, _, err := f.reobserveLaunch(ctx, target.InstanceID, false); err != nil {
-						return fmt.Errorf("%w: terminal instance has no positive ownership: %v", ErrForeignResource, err)
+						return terminated, fmt.Errorf("%w: terminal instance has no positive ownership: %v", ErrForeignResource, err)
 					}
 				}
 			}
 			image, err := f.terminalBootImage(ctx, target)
 			if err != nil {
-				return err
+				return terminated, err
 			}
 			boot, err := f.provider.GetBootVolume(ctx, target.BootVolumeID)
 			if err != nil && !isNotFound(err) {
-				return err
+				return terminated, err
 			}
 			if err == nil && !f.terminalBootMatches(boot, target.BootVolumeID, image) {
-				return fmt.Errorf("%w: terminal boot volume differs from fleet pins", ErrForeignResource)
+				return terminated, fmt.Errorf("%w: terminal boot volume differs from fleet pins", ErrForeignResource)
 			}
 		}
 		if target.DataVolumeID != "" {
-			if _, _, err := f.reobserveVolume(ctx, target.DataVolumeID); err != nil && !isNotFound(err) {
-				return err
+			volume, _, err := f.reobserveVolume(ctx, target.DataVolumeID)
+			if err != nil && !isNotFound(err) {
+				return terminated, err
+			}
+			if err == nil && volume.LifecycleState == "TERMINATED" {
+				terminated = append(terminated, volume.ID)
 			}
 		}
 	}
-	return nil
+	return terminated, nil
 }
 
 func (f *fleet) ReconcileTerminal(ctx context.Context, intent authority.TerminalIntent, markerSeq uint64) (TerminalStatus, error) {
@@ -205,7 +215,13 @@ func (f *fleet) ReconcileTerminal(ctx context.Context, intent authority.Terminal
 	if err := f.requireTerminalMarker(ctx, intent, markerSeq); err != nil {
 		return status, err
 	}
-	if err := f.VerifyTerminalInventorySettled(ctx, intent); err != nil {
+	terminated, err := f.inspectTerminalInventory(ctx, intent)
+	for _, id := range terminated {
+		if writeErr := f.journal.RecordVolumeTermination(ctx, f.config, id); writeErr != nil {
+			return status, errors.Join(err, writeErr)
+		}
+	}
+	if err != nil {
 		return status, err
 	}
 	for _, target := range intent.Targets {
@@ -477,7 +493,7 @@ func (f *fleet) InspectTerminalStatus(ctx context.Context, intent authority.Term
 			}
 		}
 		if target.DataVolumeID != "" {
-			settled, err := f.terminalDataSettled(ctx, target.DataVolumeID)
+			settled, _, err := f.terminalDataSettled(ctx, target.DataVolumeID)
 			if err != nil {
 				status.Phase = TerminalPhaseHeld
 				return status, err
@@ -559,7 +575,7 @@ func (f *fleet) reconcileTerminalBoot(ctx context.Context, intent authority.Term
 func (f *fleet) reconcileTerminalData(ctx context.Context, intent authority.TerminalIntent, seq uint64,
 	target authority.TerminalTarget,
 ) (bool, error) {
-	settled, err := f.terminalDataSettled(ctx, target.DataVolumeID)
+	settled, err := f.reconcileTerminalDataReadback(ctx, target.DataVolumeID)
 	if err != nil || settled {
 		if err != nil {
 			return false, err
@@ -577,6 +593,12 @@ func (f *fleet) reconcileTerminalData(ctx context.Context, intent authority.Term
 	if err != nil {
 		return false, err
 	}
+	if volume.LifecycleState == "TERMINATED" {
+		if err := f.journal.RecordVolumeTermination(ctx, f.config, volume.ID); err != nil {
+			return false, err
+		}
+		return true, f.settleTerminalRecorded(ctx, intent, seq, actionTerminalDataDelete, target.DataVolumeID)
+	}
 	if volume.ETag == "" {
 		return false, ErrStaleETag
 	}
@@ -586,7 +608,7 @@ func (f *fleet) reconcileTerminalData(ctx context.Context, intent authority.Term
 	return f.terminalMutation(ctx, intent, seq, actionTerminalDataDelete, target.DataVolumeID,
 		target.DataCreateKey, volume.ETag,
 		func() error { return f.provider.DeleteVolume(ctx, target.DataVolumeID, volume.ETag) },
-		func() (bool, error) { return f.terminalDataSettled(ctx, target.DataVolumeID) })
+		func() (bool, error) { return f.reconcileTerminalDataReadback(ctx, target.DataVolumeID) })
 }
 
 func (f *fleet) terminalInstanceSettled(ctx context.Context, id string) (bool, error) {
@@ -639,25 +661,37 @@ func (f *fleet) terminalBootSettled(ctx context.Context, target authority.Termin
 	return !activeBootAttachments(attachments, id), nil
 }
 
-func (f *fleet) terminalDataSettled(ctx context.Context, id string) (bool, error) {
+// The second result identifies a positive TERMINATED read, never a 404.
+func (f *fleet) terminalDataSettled(ctx context.Context, id string) (bool, bool, error) {
 	volume, err := f.provider.GetVolume(ctx, id)
 	if err != nil && !isNotFound(err) {
-		return false, err
+		return false, false, err
 	}
-	if err == nil {
+	terminated := err == nil
+	if terminated {
 		if volume.ID != id || volume.CompartmentID != f.config.CompartmentID ||
 			volume.AvailabilityDomain != f.config.AvailabilityDomain {
-			return false, ErrForeignResource
+			return false, false, ErrForeignResource
 		}
 		if volume.LifecycleState != "TERMINATED" {
-			return false, nil
+			return false, false, nil
 		}
 	}
 	attachments, err := f.findVolumeAttachments(ctx, id)
 	if err != nil {
-		return false, err
+		return false, terminated, err
 	}
-	return !activeDataAttachments(attachments), nil
+	return !activeDataAttachments(attachments), terminated, nil
+}
+
+func (f *fleet) reconcileTerminalDataReadback(ctx context.Context, id string) (bool, error) {
+	settled, terminated, err := f.terminalDataSettled(ctx, id)
+	if terminated {
+		if writeErr := f.journal.RecordVolumeTermination(ctx, f.config, id); writeErr != nil {
+			return false, errors.Join(err, writeErr)
+		}
+	}
+	return settled, err
 }
 
 func activeBootAttachments(attachments []CloudBootAttachment, id string) bool {

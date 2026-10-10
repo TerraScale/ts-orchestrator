@@ -308,7 +308,7 @@ func prepareTerraBaseDataVolume(ctx context.Context, cfg VolumeInitConfig, grant
 	}
 	// ponytail: growth runs only when the agent asks, at most every
 	// terraBaseVolumeRecheck; a udev or resize event trigger can replace that.
-	if grown, err := hostvolume.Grow(ctx, hostvolume.GrowConfig{Enabled: true}, target, device.stat.Rdev, storage.FileSystemExt4); err != nil {
+	if grown, err := hostvolume.Grow(ctx, target, device.stat.Rdev, storage.FileSystemExt4); err != nil {
 		slog.Warn("terrabase data volume online grow failed", "mount", target, "error", err)
 	} else if grown {
 		slog.Info("terrabase data volume filesystem grown to its device size", "mount", target)

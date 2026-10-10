@@ -33,8 +33,8 @@ type VolumeBackupProvider interface {
 	// compartment, so backups whose source volume left placement stay
 	// reachable for retention.
 	ListCompartmentVolumeBackups(ctx context.Context) ([]CloudVolumeBackup, error)
-	// VolumeGone reports whether the source volume no longer exists: OCI
-	// answers 404 or reports it TERMINATED.
+	// VolumeGone persists and reuses a scope-verified TERMINATED observation.
+	// OCI 404 can conceal an unreadable resource and is not deletion proof.
 	VolumeGone(ctx context.Context, volumeID string) (bool, error)
 	GetVolumeBackup(ctx context.Context, backupID string) (CloudVolumeBackup, error)
 	DeleteVolumeBackup(ctx context.Context, backupID, etag string) error
@@ -42,11 +42,19 @@ type VolumeBackupProvider interface {
 
 // NewInstancePrincipalVolumeBackupProvider builds the region-pinned SDK
 // backup seam with instance-principal authentication.
-func NewInstancePrincipalVolumeBackupProvider(config RegionConfig, intent RegionIntent) (VolumeBackupProvider, error) {
+func NewInstancePrincipalVolumeBackupProvider(config RegionConfig, intent RegionIntent, journal *KVJournal) (VolumeBackupProvider, error) {
 	if err := config.Validate(intent); err != nil {
 		return nil, err
 	}
-	return newSDKProvider(config, nil)
+	if journal == nil {
+		return nil, errors.New("volume backups require the durable OCI journal")
+	}
+	provider, err := newSDKProvider(config, nil)
+	if err != nil {
+		return nil, err
+	}
+	provider.terminations = journal
+	return provider, nil
 }
 
 func (provider *sdkProvider) CreateVolumeBackup(ctx context.Context, volumeID, displayName, backupType string, tags map[string]string, retryToken string) (CloudVolumeBackup, error) {
@@ -75,9 +83,8 @@ func (provider *sdkProvider) ListVolumeBackups(ctx context.Context, volumeID str
 }
 
 // newestVolumeBackups lists at most bound backups of one volume, newest
-// first. A volume's backup history grows without limit when pruning is off;
-// the planner only needs the newest backups (latest, the run since the last
-// FULL, and the newest Retain to keep), and pruning walks older ones into
+// first. The planner only needs the newest backups (latest, the run since
+// the last FULL, and the retained history), and pruning walks older ones into
 // view on later passes. A long history therefore never stops scheduling.
 func (provider *sdkProvider) newestVolumeBackups(ctx context.Context, volumeID string, bound int) ([]CloudVolumeBackup, error) {
 	var backups []CloudVolumeBackup
@@ -137,14 +144,28 @@ func (provider *sdkProvider) VolumeGone(ctx context.Context, volumeID string) (b
 	if volumeID == "" {
 		return false, errors.New("OCI volume lookup requires a volume ID")
 	}
-	volume, err := provider.GetVolume(ctx, volumeID)
-	if isNotFound(err) {
-		return true, nil
+	if provider.terminations == nil {
+		return false, errors.New("volume deletion proof requires the durable OCI journal")
 	}
+	terminated, err := provider.terminations.volumeTerminated(ctx, provider.config, volumeID)
+	if err != nil || terminated {
+		return terminated, err
+	}
+	volume, err := provider.GetVolume(ctx, volumeID)
 	if err != nil {
 		return false, err
 	}
-	return volume.LifecycleState == "TERMINATED", nil
+	if volume.ID != volumeID || volume.CompartmentID != provider.config.CompartmentID ||
+		volume.AvailabilityDomain != provider.config.AvailabilityDomain {
+		return false, ErrForeignResource
+	}
+	if volume.LifecycleState != "TERMINATED" {
+		return false, nil
+	}
+	if err := provider.terminations.RecordVolumeTermination(ctx, provider.config, volumeID); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (provider *sdkProvider) GetVolumeBackup(ctx context.Context, backupID string) (CloudVolumeBackup, error) {

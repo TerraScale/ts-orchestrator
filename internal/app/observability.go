@@ -174,7 +174,6 @@ type controllerObservation struct {
 	brokerIDs  []string
 	authority  authority.Fencer
 	placements placement.Store
-	managed    bool
 	// holds is the placement reconciler's hold log, read by the insights.
 	holds *placementHoldLog
 	// autoscalers is the workload reconciler of the cell spec.
@@ -214,9 +213,7 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 	}
 	runtime.registry.Register(delivery.Metrics)
 	runtime.registry.Register(oci.Metrics)
-	if observed.managed {
-		runtime.registry.Register(placement.Metrics)
-	}
+	runtime.registry.Register(placement.Metrics)
 	runtime.health.Add(observability.Check{Name: "nats", Run: func(context.Context) (bool, string) {
 		if observed.nats.Ready() {
 			return true, "regional broker connected"

@@ -108,8 +108,9 @@ paths, the sidecars (with placement's member role), `offline_restart_admission`,
 `membership`, `lease_seconds` and `renew_seconds`,
 the observability listener and the `kv_snapshot` location. Other mutable
 settings (`autoscale` intervals and node pools, `oci_reconcile` intervals and
-NLB, `volume_backup`, `storage_capacity`, `global`, `region_planner`) get
-sections the same way after this ticket.
+NLB, `global`, `region_planner`) get
+sections the same way after this ticket. Storage capacity and placement volume
+backups instead use [fixed policy in code](storage.md#fixed-storage-policy).
 
 The last slice renders new controller configs with only these: the
 `oci-region attempt` services phase applies TerraBase's profile (root-signed)

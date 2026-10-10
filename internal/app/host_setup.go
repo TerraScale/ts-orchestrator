@@ -847,18 +847,16 @@ const controllerHostObservability = "127.0.0.1:9466"
 // itself. Enrollment and credential renewal do not know them, so they are
 // preserved across a host.json rewrite.
 type hostLocalOptions struct {
-	ManagedVolumeOnlineGrow bool              `json:"managed_volume_online_grow,omitzero"`
-	SelfUpdateProofFile     string            `json:"self_update_proof_file,omitempty"`
-	SelfUpdateRoot          string            `json:"self_update_root,omitempty"`
-	TerraBaseRoot           string            `json:"terrabase_root,omitempty"`
-	TSAuthRoot              string            `json:"ts_auth_root,omitempty"`
-	TerraBaseDataVolume     bool              `json:"terrabase_data_volume,omitzero"`
-	TerraBaseDataVolumeID   string            `json:"terrabase_data_volume_id,omitempty"`
-	RoleMemoryMaxBytes      map[string]uint64 `json:"role_memory_max_bytes,omitempty"`
+	SelfUpdateProofFile   string            `json:"self_update_proof_file,omitempty"`
+	SelfUpdateRoot        string            `json:"self_update_root,omitempty"`
+	TerraBaseRoot         string            `json:"terrabase_root,omitempty"`
+	TSAuthRoot            string            `json:"ts_auth_root,omitempty"`
+	TerraBaseDataVolume   bool              `json:"terrabase_data_volume,omitzero"`
+	TerraBaseDataVolumeID string            `json:"terrabase_data_volume_id,omitempty"`
+	RoleMemoryMaxBytes    map[string]uint64 `json:"role_memory_max_bytes,omitempty"`
 }
 
 func (o hostLocalOptions) applyTo(host *HostConfig) {
-	host.ManagedVolumeOnlineGrow = o.ManagedVolumeOnlineGrow
 	host.SelfUpdateProofFile = o.SelfUpdateProofFile
 	host.SelfUpdateRoot = o.SelfUpdateRoot
 	host.TerraBaseRoot = o.TerraBaseRoot

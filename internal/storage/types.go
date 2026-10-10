@@ -28,8 +28,6 @@ var (
 	// ErrWriterNotFenced reports that the previous writer has not been proven
 	// stopped, so the volume must not be attached anywhere else.
 	ErrWriterNotFenced = errors.New("retained volume writer is not proven fenced")
-	// ErrDisabled reports a storage feature that is off in configuration.
-	ErrDisabled = errors.New("storage feature is disabled in configuration")
 )
 
 // VolumeRole names what a measured or managed volume is used for.

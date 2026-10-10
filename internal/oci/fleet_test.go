@@ -1945,6 +1945,7 @@ func (f *fakeFencer) Guard(context.Context, uint64) error {
 }
 
 type fakeJournal struct {
+	terminations map[string]RegionConfig
 	intents      map[string]OperationIntent
 	results      map[string]OperationResult
 	instances    map[string]ResourceIdentity
@@ -1955,11 +1956,17 @@ type fakeJournal struct {
 
 func newFakeJournal() *fakeJournal {
 	return &fakeJournal{
-		intents: make(map[string]OperationIntent), results: make(map[string]OperationResult),
+		terminations: make(map[string]RegionConfig),
+		intents:      make(map[string]OperationIntent), results: make(map[string]OperationResult),
 		instances: make(map[string]ResourceIdentity),
 		volumes:   make(map[string]ResourceIdentity), attachments: make(map[string]AttachmentIdentity),
 		bootBindings: make(map[string]BootBinding),
 	}
+}
+
+func (j *fakeJournal) RecordVolumeTermination(_ context.Context, config RegionConfig, id string) error {
+	j.terminations[id] = config
+	return nil
 }
 
 func (j *fakeJournal) RecordBootBinding(_ context.Context, binding BootBinding) error {
@@ -2209,6 +2216,11 @@ func (journal *observeReadOnlyJournal) RecordIntent(context.Context, OperationIn
 func (journal *observeReadOnlyJournal) RecordResult(context.Context, OperationResult) error {
 	journal.writes++
 	return errors.New("Observe attempted to write a result")
+}
+
+func (journal *observeReadOnlyJournal) RecordVolumeTermination(context.Context, RegionConfig, string) error {
+	journal.writes++
+	return errors.New("Observe attempted to write termination proof")
 }
 
 type observeSDKSigner struct{}

@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
@@ -21,14 +20,6 @@ type managedPlacementSettings struct {
 	Environment string              `json:"environment"`
 	MemberRole  string              `json:"member_role"`
 	Resources   placement.Resources `json:"resources"`
-	TickMillis  int64               `json:"tick_millis,omitzero"`
-	// AutoGrowVolumes opts into grow-only resize of retained volumes created
-	// under a smaller resource profile. Off by default.
-	AutoGrowVolumes bool `json:"auto_grow_volumes,omitzero"`
-	// ReattachOnHostLoss opts into moving a lost member's retained volume
-	// to its replacement host once OCI reports the old host TERMINATED.
-	// Off by default.
-	ReattachOnHostLoss bool `json:"reattach_on_host_loss,omitzero"`
 }
 
 type managedControllerConfig struct {
@@ -44,10 +35,7 @@ func (m managedControllerConfig) placementConfig(cell string, onError func(error
 		ManagedOwner: m.region.Owner, FleetGeneration: m.region.Generation,
 		ImageID:     m.region.ImageID,
 		Environment: settings.Environment, MemberRole: settings.MemberRole, Resources: settings.Resources,
-		TickInterval:       time.Duration(settings.TickMillis) * time.Millisecond,
-		AutoGrowVolumes:    settings.AutoGrowVolumes,
-		ReattachOnHostLoss: settings.ReattachOnHostLoss,
-		OnError:            onError, OnHold: onHold,
+		OnError: onError, OnHold: onHold,
 	}
 }
 
@@ -105,9 +93,6 @@ func parseManagedPlacementSettings(data []byte) (managedPlacementSettings, error
 	var settings managedPlacementSettings
 	if err := json.Unmarshal(data, &settings, json.RejectUnknownMembers(true)); err != nil {
 		return managedPlacementSettings{}, fmt.Errorf("parse TerraBase placement config: %w", err)
-	}
-	if settings.TickMillis < 0 || settings.TickMillis > 300_000 || settings.TickMillis > 0 && settings.TickMillis < 100 {
-		return managedPlacementSettings{}, errors.New("TerraBase placement tick_millis must be zero or 100..300000")
 	}
 	return settings, nil
 }

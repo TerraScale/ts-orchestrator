@@ -67,9 +67,8 @@ uploads fail with `ErrArtifactStoreFull`.
 
 Managed OCI mode requires `controller.oci_region_intent_file`,
 `controller.oci_region_config`, and `controller.placement_config` together.
-The placement file accepts `environment`, `member_role`, `resources`, and an
-optional `tick_millis` (zero means the five-second default; otherwise 100 to
-300000). Managed placement can create region-bound hosts and retained volumes
+The placement file accepts `environment`, `member_role` and `resources`.
+Placement runs every five seconds. Managed placement can create region-bound hosts and retained volumes
 and, after confirmed attachment, publish signed TerraBase desired state; it
 then holds at `awaiting-healthy`. Host image, first-boot configuration, and
 enrollment remain operator-provided, the orchestrator does not mount the guest

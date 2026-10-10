@@ -723,36 +723,27 @@ func TestControllerFailingPlacementDoesNotStarveLaterPlacement(t *testing.T) {
 	}
 }
 
-func TestControllerGrowsUndersizedRetainedVolumeOnlyWhenEnabled(t *testing.T) {
+func TestControllerGrowsUndersizedRetainedVolumeAutomatically(t *testing.T) {
 	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
 	seat := Seat{MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent}
-	for _, enabled := range []bool{false, true} {
-		store := newPlacementMemoryStore(t, intent)
-		member := store.members[seat.MemberID]
-		member.State.Stage = StagePreparedVolume
-		member.State.VolumeID, member.State.AttachmentID = "", ""
-		store.members[seat.MemberID] = member
-		// The test controller desires 50 GiB (32 GiB rounded up to OCI's minimum);
-		// the volume was created under an earlier smaller profile.
-		fleet := &placementTestFleet{instances: attachedInstances(t, intent), volumeResult: &oci.RetainedVolume{
-			ID: "volume-created", CreateKey: volumeCreateKey(intent, seat), Region: oci.RegionGRU,
-			Owner: "owner-a", Generation: 1, SizeGB: 40,
-		}}
-		hosts := &placementTestHosts{statuses: admittedStatuses(t, intent)}
-		controller := startTestPlacementController(t, store, fleet, hosts, nil)
-		controller.config.AutoGrowVolumes = enabled
-		err := controller.Tick(t.Context())
-		state := store.members[seat.MemberID].State
-		if !enabled {
-			if err == nil || len(fleet.resizeRequests) != 0 || store.casCalls != 0 {
-				t.Fatalf("disabled auto-grow resized or advanced: err=%v resizes=%d CAS=%d", err, len(fleet.resizeRequests), store.casCalls)
-			}
-			continue
-		}
-		if err != nil || len(fleet.resizeRequests) != 1 || fleet.resizeRequests[0].SizeGB != 50 ||
-			fleet.resizeRequests[0].VolumeID != "volume-created" || state.Stage != StagePreparedAttach {
-			t.Fatalf("enabled auto-grow did not resize then advance: err=%v resizes=%+v stage=%s", err, fleet.resizeRequests, state.Stage)
-		}
+	store := newPlacementMemoryStore(t, intent)
+	member := store.members[seat.MemberID]
+	member.State.Stage = StagePreparedVolume
+	member.State.VolumeID, member.State.AttachmentID = "", ""
+	store.members[seat.MemberID] = member
+	// The test controller desires 50 GiB (32 GiB rounded up to OCI's minimum);
+	// the volume was created under an earlier smaller profile.
+	fleet := &placementTestFleet{instances: attachedInstances(t, intent), volumeResult: &oci.RetainedVolume{
+		ID: "volume-created", CreateKey: volumeCreateKey(intent, seat), Region: oci.RegionGRU,
+		Owner: "owner-a", Generation: 1, SizeGB: 40,
+	}}
+	hosts := &placementTestHosts{statuses: admittedStatuses(t, intent)}
+	controller := startTestPlacementController(t, store, fleet, hosts, nil)
+	err := controller.Tick(t.Context())
+	state := store.members[seat.MemberID].State
+	if err != nil || len(fleet.resizeRequests) != 1 || fleet.resizeRequests[0].SizeGB != 50 ||
+		fleet.resizeRequests[0].VolumeID != "volume-created" || state.Stage != StagePreparedAttach {
+		t.Fatalf("automatic growth did not resize then advance: err=%v resizes=%+v stage=%s", err, fleet.resizeRequests, state.Stage)
 	}
 }
 
@@ -767,7 +758,7 @@ func TestControllerPreparesRetainedVolumeOnlyWithCurrentExactHost(t *testing.T) 
 		wantError      bool
 	}{
 		{name: "current exact host", wantCreate: true},
-		{name: "undersized observed volume", wantVolumeCall: true, wantError: true,
+		{name: "undersized observed volume", wantCreate: true,
 			change: func(_ *placementMemoryStore, fleet *placementTestFleet, _ *placementTestHosts) {
 				fleet.volumeResult.SizeGB = 1
 			}},

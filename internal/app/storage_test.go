@@ -3,13 +3,18 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/backup"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/capacity"
 )
 
 type volumeListStore struct {
@@ -63,29 +68,82 @@ func TestPlacementVolumeIDsSkipsAnUnreadablePartition(t *testing.T) {
 	}
 }
 
-func TestStorageFeaturesAreOffByDefault(t *testing.T) {
-	if _, err := startControllerStorageCapacity(t.Context(), Config{}, nil, nil); err != nil {
-		t.Fatalf("disabled capacity collector started: %v", err)
+func TestStorageFeaturesRequireTheirDependenciesWithoutAnOptIn(t *testing.T) {
+	if _, err := startControllerStorageCapacity(t.Context(), Config{}, nil, nil); err == nil {
+		t.Fatal("capacity collector silently skipped without its embedded broker")
 	}
-	if _, err := startVolumeBackups(t.Context(), Config{}, nil, nil, nil); err != nil {
-		t.Fatalf("disabled volume backups started: %v", err)
-	}
-	var cfg Config
-	cfg.Controller.VolumeBackup.Enabled = true
-	if _, err := startVolumeBackups(t.Context(), cfg, nil, nil, nil); err == nil {
-		t.Fatal("volume backups started without a managed controller")
-	}
-	cfg.Controller.StorageCapacity.Enabled = true
-	cfg.Controller.StorageCapacity.IntervalSeconds = 60
-	cfg.Controller.StorageCapacity.TTLSeconds = 30
-	if _, err := startControllerStorageCapacity(t.Context(), cfg, nil, nil); err == nil {
-		t.Fatal("capacity collector accepted a TTL shorter than its interval")
+	if _, err := startVolumeBackups(t.Context(), nil, nil, nil, nil); err == nil {
+		t.Fatal("volume backups silently skipped without a managed controller")
 	}
 }
 
-// A background service runs under a context its owner cancels, and stop
-// returns only after the loop has returned, so a controller startup failure
-// joins it before closing the NATS runtime and authority it uses (#127 11984).
+func TestControllerCollectsStorageWithoutSettings(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	cfg := Config{NATS: natscell.Config{Cell: "lab", Instance: "storage-controller", Replicas: 1, Lab: true,
+		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")}}}
+	runtime, err := natscell.Start(ctx, cfg.NATS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	stop, err := startControllerStorageCapacity(ctx, cfg, runtime, func() bool { return true })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	store, err := capacity.OpenUsageStore(ctx, runtime.JetStream(), 1, storage.DefaultUsageTTL, capacity.DefaultPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		usages, err := store.Usages(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(usages) == 2 {
+			for _, usage := range usages {
+				if usage.Node != cfg.NATS.Instance || usage.TotalBytes == 0 {
+					t.Fatalf("invalid controller measurement: %+v", usage)
+				}
+			}
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("controller published no boot and JetStream measurements")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+func TestRoleConfigRejectsRemovedStorageControls(t *testing.T) {
+	for _, section := range []string{
+		`"controller":{"storage_capacity":{"enabled":false}}`,
+		`"controller":{"storage_capacity":{"enabled":true}}`,
+		`"controller":{"storage_capacity":{"interval_seconds":30}}`,
+		`"controller":{"volume_backup":{"enabled":false}}`,
+		`"controller":{"volume_backup":{"prune":true}}`,
+		`"controller":{"volume_backup":{"retain":7}}`,
+		`"controller":{"oci_observe_verify_cache_seconds":0}`,
+		`"controller":{"oci_observe_verify_cache_seconds":60}`,
+		`"host":{"managed_volume_online_grow":false}`,
+		`"host":{"managed_volume_online_grow":true}`,
+	} {
+		wire := []byte(`{"version":1,` + section + `}`)
+		if _, err := decodeConfig(wire); err == nil {
+			t.Errorf("retired setting accepted: %s", wire)
+		}
+		path := filepath.Join(t.TempDir(), "config.json")
+		if err := os.WriteFile(path, wire, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := readHostLocalOptions(path); err == nil {
+			t.Errorf("renewal discarded a retired setting: %s", wire)
+		}
+	}
+}
+
 func TestOwnedLoopStopCancelsAndJoins(t *testing.T) {
 	started, finished := make(chan struct{}), make(chan struct{})
 	stop := ownedLoop(context.Background(), "test loop", func(ctx context.Context) error {

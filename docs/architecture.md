@@ -91,10 +91,9 @@ uploads fail with `ErrArtifactStoreFull`.
 
 Managed placement configuration is provided through the controller's
 `oci_region_intent_file`, `oci_region_config`, and `placement_config` paths.
-The strict placement file accepts `environment`, `member_role`, `resources`,
-and optional `tick_millis`; a zero tick uses five seconds. Configured tick
-intervals must be 100 ms to five minutes. These options are rejected unless
-all three managed configuration paths are set together.
+The strict placement file accepts `environment`, `member_role` and `resources`.
+Placement runs every five seconds. Managed configuration requires all three
+paths together; signed production manifests already bind them.
 
 For admitted placement, the regional controller provisions an OCI host and a
 retained volume, waits for the host's exact signed registration and a positive

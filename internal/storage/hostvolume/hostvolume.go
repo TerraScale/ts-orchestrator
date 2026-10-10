@@ -109,14 +109,6 @@ func FormatCommand(fsType, uuid string) (string, []string, error) {
 	}
 }
 
-// GrowConfig enables online filesystem growth. The retired managed member
-// path keeps it off unless the operator opts in; the C# TerraBase data volume
-// always grows. ext4 growth needs CAP_SYS_RESOURCE, which the volume
-// initializer unit grants.
-type GrowConfig struct {
-	Enabled bool
-}
-
 // Ext4ResizeBlocks returns the block count passed to EXT4_IOC_RESIZE_FS for a
 // device of deviceBytes and a filesystem block size. The kernel treats an
 // unchanged count as a no-op and rejects shrinking, so growth stays one-way.

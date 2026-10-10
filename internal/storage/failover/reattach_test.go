@@ -134,7 +134,7 @@ func TestReattacherDrivesTerminatedHostToMountedReplacement(t *testing.T) {
 	instances := fakeInstances{"old": "RUNNING"}
 	volumes := &fakeVolumes{attachments: []Attachment{attachment("a", "old", "ATTACHED")}}
 	permits := &fakePermits{granted: map[string]bool{}}
-	reattacher := Reattacher{Config: Config{Enabled: true}, Fencer: &fakeFencer{snapshot: leader()},
+	reattacher := Reattacher{Fencer: &fakeFencer{snapshot: leader()},
 		Instances: instances, Volumes: volumes, Permits: permits}
 
 	// A host that only stopped answering is never detached.
@@ -176,16 +176,11 @@ func TestReattacherDrivesTerminatedHostToMountedReplacement(t *testing.T) {
 	}
 }
 
-func TestReattacherRefusesDisabledFollowerFencedAndForeignAttachments(t *testing.T) {
+func TestReattacherRefusesFollowerFencedAndForeignAttachments(t *testing.T) {
 	volumes := &fakeVolumes{attachments: []Attachment{attachment("a", "old", "ATTACHED")}}
-	base := Reattacher{Config: Config{Enabled: true}, Fencer: &fakeFencer{snapshot: leader()},
+	base := Reattacher{Fencer: &fakeFencer{snapshot: leader()},
 		Instances: fakeInstances{"old": "TERMINATED"}, Volumes: volumes, Permits: &fakePermits{granted: map[string]bool{}}}
 
-	disabled := base
-	disabled.Config.Enabled = false
-	if _, err := disabled.Step(t.Context(), request); !errors.Is(err, storage.ErrDisabled) {
-		t.Fatalf("disabled reattach ran: %v", err)
-	}
 	follower := base
 	follower.Fencer = &fakeFencer{snapshot: authority.Snapshot{Ready: true}}
 	if _, err := follower.Step(t.Context(), request); !errors.Is(err, authority.ErrNotLeader) {
@@ -213,7 +208,7 @@ func TestReattacherRefusesDisabledFollowerFencedAndForeignAttachments(t *testing
 func TestReattacherSeparatesFailedLookupsAndBindsTheExpectedEpoch(t *testing.T) {
 	volumes := &fakeVolumes{attachments: []Attachment{attachment("a", "old", "ATTACHED")}}
 	permits := &fakePermits{granted: map[string]bool{}}
-	reattacher := Reattacher{Config: Config{Enabled: true}, Fencer: &fakeFencer{snapshot: leader()},
+	reattacher := Reattacher{Fencer: &fakeFencer{snapshot: leader()},
 		Instances: fakeInstances{}, Volumes: volumes, Permits: permits}
 	step, err := reattacher.Step(t.Context(), request)
 	if step.Kind != StepProveFence || !errors.Is(err, ErrFenceUnobserved) || !errors.Is(err, storage.ErrWriterNotFenced) {

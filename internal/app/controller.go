@@ -362,7 +362,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		}
 		fleet, err = openManagedControllerFleet(ctx, managed.region, managed.intent, journal, control,
 			launchMaterial.HostMetadata(), managedImageVerifierFor(cfg.Controller, services.hostImageSnapshot, services.holdLaunch),
-			oci.InstancePrincipalFleetFactory(time.Duration(cfg.Controller.OciObserveVerifyCacheSeconds)*time.Second))
+			oci.NewInstancePrincipalFleetWithImageVerifier)
 		if err != nil {
 			return fmt.Errorf("start region-bound OCI fleet: %w", err)
 		}
@@ -406,7 +406,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		if err != nil {
 			return err
 		}
-		stopBackups, err := startVolumeBackups(ctx, cfg, managed, control, placementStore)
+		stopBackups, err := startVolumeBackups(ctx, managed, control, placementStore, journal)
 		if err != nil {
 			return fmt.Errorf("start volume backup policy: %w", err)
 		}
@@ -845,7 +845,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// runController refused a configuration without an embedded broker at
 	// its top, so Embedded is always set here.
 	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
-		brokerIDs: cfg.NATS.Embedded.BrokerIDs, authority: control, placements: placementStore, managed: managed != nil,
+		brokerIDs: cfg.NATS.Embedded.BrokerIDs, authority: control, placements: placementStore,
 		holds: placementHolds, autoscalers: workloadReconciler, hostLoad: hostLoad, linkedPeers: globalMirrorPeers(cfg.NATS),
 		rollouts: rolloutStore, budgets: budgets, ociResources: ociReconcile.resources(),
 		credentials: controllerCredentialFiles(cfg),

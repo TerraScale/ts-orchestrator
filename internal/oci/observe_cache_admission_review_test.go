@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
@@ -43,10 +42,7 @@ func TestObserveUsesCachedVerificationOnlyWhenOptedIn(t *testing.T) {
 		instances: map[string]CloudInstance{host.ID: setupProvider.instances[host.ID]}, getInstanceCalls: make(map[string]int)}}
 	base := common.BaseClient{Host: "https://sdk.test.invalid", BasePath: "20160918",
 		UserAgent: "oci-observe-cache-test", Signer: observeSDKSigner{}, HTTPClient: readback}
-	cache, err := newVerificationCache(30 * time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
+	cache := newVerificationCache()
 	adapter := &sdkProvider{config: config, compute: core.ComputeClient{BaseClient: base},
 		storage: core.BlockstorageClient{BaseClient: base}, network: core.VirtualNetworkClient{BaseClient: base},
 		verified: cache}

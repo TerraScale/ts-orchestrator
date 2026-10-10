@@ -27,28 +27,46 @@ flags but lacks `noatime`. This is best effort and failures are logged.
 A signed `xfs` pin is formatted with `mkfs.xfs -m uuid=<pin>`, which needs
 `xfsprogs` on the host image.
 
-## Current storage guard inventory
+## Fixed storage policy
 
 Every storage feature must always be available, with fixed correct limits and
-automatic credential delivery. The fields below describe guards still present
-in the current implementation; TS-796 removes them. This is technical inventory,
-not a production activation or tuning table. Ownership, complete observations,
-retention and backup-chain integrity checks still authorize any deletion.
+automatic credential delivery. Ownership, complete observations, retention and
+backup-chain integrity checks remain required for any deletion.
 
-| Setting | Effect | Prerequisite |
-|---|---|---|
-| placement `auto_grow_volumes` | Grows a retained volume created under a smaller resource profile through the journaled `Fleet.ResizeRetainedVolume` (grow-only). | None. |
-| host `managed_volume_online_grow` | The volume initializer rescans the device and grows the mounted filesystem: `EXT4_IOC_RESIZE_FS` for ext4, `xfs_growfs` for xfs. The device size is read from sysfs (`/sys/dev/block/<maj>:<min>/size`), because the pinned device descriptor is `O_PATH`. A grow is attempted when the device exceeds the filesystem's statfs size by at least 512 MiB, half of OCI's 1 GiB resize step, so every real resize triggers it. | ext4 growth needs `CAP_SYS_RESOURCE`, which the `terrascale-orchestrator-host-volume-init.service` bounding set grants. The setting gates growth only for the retired managed member path; the C# TerraBase data volume always grows (see [TerraBase runtime contract](terrabase-runtime-contract.md#data-volume)). |
-| controller `storage_capacity.enabled` | Each controller publishes its boot root and JetStream StoreDir usage. The unused JetStream max-store reservation counts as used, and it is also subtracted from the node's boot headroom when the StoreDir is on the boot filesystem. Pressure is logged, and critical pressure is logged as an error. | None. |
-| controller `volume_backup.enabled` | The leader keeps crash-consistent OCI volume backups of placed members' retained volumes: every `interval_hours`, with a FULL backup every `full_every` and INCREMENTAL backups otherwise. With `prune` set, `retain` must be at least `full_every`, so pruning never deletes the last FULL. | The controller dynamic group needs `manage volume-backups` in the compartment. |
-| controller `volume_backup.prune` | Deletes owned AVAILABLE backups beyond `retain`. Before each delete it re-reads the backup's tags, source volume and state, and deletes with If-Match on the ETag. Owned backups of a volume that has left placement and no longer exists in OCI (404 or TERMINATED) are deleted once they are older than `orphan_retention_days` (default 30). Orphan retention runs only when every placement partition was readable on that pass. | `volume_backup.enabled`. |
-| controller `kv_snapshot.enabled` | Keeps the configuration KV buckets in OCI Object Storage and restores them into a rebuilt cell (see Configuration snapshots). | The controller dynamic group needs object read, create and overwrite on the snapshot prefix. |
-| placement `reattach_on_host_loss` | A replacement host attempt takes over its lost predecessor's retained volume (see Reattach on host loss). | The lost-member replacement itself needs a `LostMemberEvidence` source. Roll every controller to this version first (new durable field). |
+Capacity collection, placement volume backups and pruning, volume growth,
+and reattachment have no activation settings. Removed config members are
+rejected, including the former `storage_capacity` and `volume_backup` blocks.
 
-C# TerraBase member data volumes do not use the `volume_backup` runner:
-`oci.MemberVolumes.Ensure` assigns each one the cell's OCI volume backup
-policy (daily INCREMENTAL kept 7 days, weekly FULL kept 28 days), which OCI
-runs itself. See [TerraBase runtime contract](terrabase-runtime-contract.md#backups).
+| Behavior | Fixed policy and required evidence |
+|---|---|
+| Controller capacity | Every controller measures its boot root and JetStream StoreDir every 30 seconds, with a two-minute record TTL. Pressure thresholds are 70%/85%/95%, with floors of 1 GiB and 1,024 free inodes. Unused JetStream reservation counts against headroom. |
+| Placement volume backups | Every regional managed leader evaluates every 15 minutes and backs up each placed retained volume daily. The first backup and every seventh successor are FULL; others are INCREMENTAL. The newest seven AVAILABLE backups survive pruning. The controller's instance principal needs `manage volume-backups` in its admitted compartment. |
+| Backup pruning | Each eligible delete rechecks exact ownership, source volume, AVAILABLE state and ETag. Every evaluation records a scope-verified TERMINATED source for owned orphan backups, including those younger than 30 days, in the replicated non-expiring OCI journal. Terminal reconciliation also persists exact TERMINATED reads during inventory verification and deletion readback; a failed proof write keeps teardown pending for retry. Read-only status never creates proof. After 30 days that durable proof authorizes pruning even after OCI purges the source, only with a complete placement inventory. A 404 without prior proof, a mismatched scope or a journal failure holds deletion. |
+| Grow and reattach | Placement grows an owned undersized volume during preparation. A replacement with a durable predecessor uses the fenced reattachment sequence below. The host initializer always attempts grow on its verified exclusive mount; growth errors are logged while that mount remains usable. |
+
+Fixed retention applies to existing controller-owned AVAILABLE backups as well
+as new backups. The next successful evaluation can delete older recovery
+points kept by previous settings: placed sources keep the newest seven,
+and proven-terminated sources become eligible after 30 days from backup creation.
+Every eligible deletion checks exact ownership, current authority and a fresh
+ETag; orphan deletion also requires durable source-termination proof.
+
+Filesystem growth rescans the pinned device, reads its size from sysfs and
+uses `EXT4_IOC_RESIZE_FS` for ext4 or `xfs_growfs` for xfs. Growth begins when
+the device exceeds the filesystem by at least 512 MiB. The volume initializer
+unit grants `CAP_SYS_RESOURCE` for ext4 growth. Placement runs every five
+seconds; its file carries only `environment`, `member_role` and `resources`.
+
+Signed production manifests bind all three managed regional inputs. Removing
+the unmanaged startup path remains part of the discovery slice.
+Capacity signals are collected, but a production placement pressure consumer
+and a lost-member evidence source still need wiring. Reattachment cannot bypass
+that missing replication/quorum/writer-stop evidence.
+
+Static C# TerraBase member data volumes use the separate mandatory OCI policy:
+`oci.MemberVolumes.Ensure` assigns daily INCREMENTAL backups kept seven days
+and weekly FULL backups kept 28 days. OCI executes those schedules itself.
+See [TerraBase runtime contract](terrabase-runtime-contract.md#backups).
 
 After a C# member drains for scale-in, `oci.MemberVolumes.Retire` detaches
 its exact recorded volume, tags it with the retired node name and time, and
@@ -119,9 +137,8 @@ moves under all 8 attempts holds with `ErrStaleETag`.
 
 ## Reattach on host loss
 
-With placement `reattach_on_host_loss`, a replacement host attempt (whose
-member state records `previous_instance_id`) does not attach its retained
-volume directly. Each placement tick runs one `failover.Reattacher` step:
+A replacement host attempt whose member state records `previous_instance_id`
+always uses fenced reattachment for its retained volume. Each placement tick runs one `failover.Reattacher` step:
 
 1. Prove the old instance fenced: OCI must report it `TERMINATED`. A
    STOPPED, TERMINATING, missing (404) or unreachable instance holds the

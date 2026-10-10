@@ -339,6 +339,8 @@ type AttachmentIdentity struct {
 // and IsOwnedVolume must return true only for resources whose controller
 // ownership is backed by a durable operation or a separately verified handoff.
 type Journal interface {
+	// RecordVolumeTermination persists only a caller-verified exact TERMINATED observation.
+	RecordVolumeTermination(context.Context, RegionConfig, string) error
 	RecordIntent(context.Context, OperationIntent) error
 	RecordResult(context.Context, OperationResult) error
 	// GetResult always returns the immutable stored intent in result.Intent,

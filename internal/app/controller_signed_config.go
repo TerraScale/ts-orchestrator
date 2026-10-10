@@ -215,9 +215,7 @@ func ValidateInstalledControllerConfig(manifest bootstrap.Manifest, observedPriv
 	}
 	var placement managedPlacementSettings
 	if err := protocol.DecodeStrict(manifest.ControllerFiles[2].Bytes, &placement, bootstrap.MaxControllerSidecarBytes); err != nil ||
-		placement.Environment != manifest.Environment || placement.MemberRole == "" ||
-		placement.TickMillis < 0 || placement.TickMillis > 300_000 ||
-		placement.TickMillis > 0 && placement.TickMillis < 100 {
+		placement.Environment != manifest.Environment || placement.MemberRole == "" {
 		return Config{}, errors.New("controller placement config differs from signed environment")
 	}
 	// Controller start refuses the same overlap; refuse it before signing.

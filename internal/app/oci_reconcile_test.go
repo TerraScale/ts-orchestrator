@@ -24,10 +24,10 @@ func TestOciReconcileConfigDefaultsOffAndValidates(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"candidate_id":"a"}`), &cfg, json.RejectUnknownMembers(true)); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.OciReconcile != nil || cfg.OciObserveVerifyCacheSeconds != 0 {
-		t.Fatal("OCI reconcile or observe cache is on by default")
+	if cfg.OciReconcile != nil {
+		t.Fatal("OCI reconcile is on by default")
 	}
-	wire := `{"oci_observe_verify_cache_seconds":15,"oci_reconcile":{"enabled":true,"interval_seconds":120,"tag_mode":"defined",` +
+	wire := `{"oci_reconcile":{"enabled":true,"interval_seconds":120,"tag_mode":"defined",` +
 		`"public_nlb":{"name":"public-api","nlb_id":"ocid1.networkloadbalancer.oc1..n","backend_set":"terrabase-https","port":9465}}}`
 	if err := json.Unmarshal([]byte(wire), &cfg, json.RejectUnknownMembers(true)); err != nil {
 		t.Fatal(err)

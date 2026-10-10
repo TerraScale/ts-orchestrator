@@ -29,7 +29,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/hostvolume"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
@@ -353,7 +352,6 @@ func runHostVolumeInit(ctx context.Context, args []string) error {
 		ControllerPublicKey: key, ManagedRuntimeRoot: cfg.Host.ManagedRuntimeRoot,
 		StateRoot:             "/var/lib/terrascale-orchestrator-volume-init",
 		WorkloadIdentity:      host.WorkloadIdentity{UID: cfg.Host.WorkloadUID, GID: cfg.Host.WorkloadGID},
-		Grow:                  hostvolume.GrowConfig{Enabled: cfg.Host.ManagedVolumeOnlineGrow},
 		TerraBaseDataDir:      terraBaseData,
 		TerraBaseDataVolumeID: cfg.Host.TerraBaseDataVolumeID,
 		ReadMetadata: func(ctx context.Context) (host.VolumeInitMetadata, error) {

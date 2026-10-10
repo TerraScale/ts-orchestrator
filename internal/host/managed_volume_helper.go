@@ -40,9 +40,6 @@ type VolumeInitConfig struct {
 	StateRoot               string
 	WorkloadIdentity        WorkloadIdentity
 	ReadMetadata            func(context.Context) (VolumeInitMetadata, error)
-	// Grow enables online filesystem growth of managed member volumes after
-	// an OCI volume resize. It is off by default.
-	Grow hostvolume.GrowConfig
 	// TerraBaseDataDir, when set, is the C# TerraBase member data directory
 	// the member's data volume is mounted on; see terrabase_volume.go.
 	TerraBaseDataDir      string
@@ -346,7 +343,7 @@ func prepareManagedVolumeDevice(ctx context.Context, cfg VolumeInitConfig, permi
 		_ = lock.Close()
 	}()
 	if mounted, err := verifyManagedMount(paths, *launch.Runtime, cfg.WorkloadIdentity); err == nil {
-		maintainManagedMount(ctx, cfg, paths, mounted, device)
+		maintainManagedMount(ctx, paths, mounted, device)
 		mounted.close()
 		return requireManagedVolumeProvenance(paths, *launch, consumed)
 	}
@@ -367,7 +364,7 @@ func prepareManagedVolumeDevice(ctx context.Context, cfg VolumeInitConfig, permi
 		if err != nil {
 			return err
 		}
-		maintainManagedMount(ctx, cfg, paths, mount, device)
+		maintainManagedMount(ctx, paths, mount, device)
 		mount.close()
 		return requireManagedVolumeProvenance(paths, *launch, consumed)
 	}
@@ -410,7 +407,7 @@ func prepareManagedVolumeDevice(ctx context.Context, cfg VolumeInitConfig, permi
 	if err != nil {
 		return err
 	}
-	maintainManagedMount(ctx, cfg, paths, mount, device)
+	maintainManagedMount(ctx, paths, mount, device)
 	mount.close()
 	return requireManagedVolumeProvenance(paths, *launch, true)
 }
@@ -680,16 +677,15 @@ func formatManagedFilesystem(ctx context.Context, device *managedDevice, fsType,
 }
 
 // maintainManagedMount upgrades an already verified mount: it adds the
-// hardened per-mount flags to a mount made by an older initializer and, when
-// enabled, grows the filesystem after an OCI resize. Failures are logged, not
-// returned, so a serving member keeps its verified mount.
-func maintainManagedMount(ctx context.Context, cfg VolumeInitConfig, paths managedRuntimePaths, mount managedMount, device *managedDevice) {
+// hardened per-mount flags and grows the filesystem after an OCI resize.
+// Failures are logged so a serving member keeps its verified mount.
+func maintainManagedMount(ctx context.Context, paths managedRuntimePaths, mount managedMount, device *managedDevice) {
 	if err := hostvolume.RequireHardened("/proc/self/mountinfo", mount.id); err != nil {
 		if err := hostvolume.HardenRemount(paths.mount); err != nil {
 			slog.Warn("managed volume mount hardening failed", "mount", paths.mount, "error", err)
 		}
 	}
-	if grown, err := hostvolume.Grow(ctx, cfg.Grow, paths.mount, device.stat.Rdev, mount.fsType); err != nil {
+	if grown, err := hostvolume.Grow(ctx, paths.mount, device.stat.Rdev, mount.fsType); err != nil {
 		slog.Warn("managed volume online grow failed", "mount", paths.mount, "error", err)
 	} else if grown {
 		slog.Info("managed volume filesystem grown to its device size", "mount", paths.mount)

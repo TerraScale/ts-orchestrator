@@ -54,13 +54,12 @@ func TestHostEnrollmentRenewalKeepsHostLocalOptions(t *testing.T) {
 		return cfg
 	}
 	first := install("-1")
-	if first.Host.ManagedVolumeOnlineGrow || first.Host.SelfUpdateProofFile != "" || first.Host.TerraBaseRoot != "" ||
+	if first.Host.SelfUpdateProofFile != "" || first.Host.TerraBaseRoot != "" ||
 		first.Host.TSAuthRoot != "" ||
 		first.Host.TerraBaseDataVolume {
 		t.Fatalf("first enrollment invented host-local options: %+v", first.Host)
 	}
 	// The operator enables the host-local options.
-	first.Host.ManagedVolumeOnlineGrow = true
 	first.Host.SelfUpdateProofFile = "/run/terrascale-orchestrator/host-proof.json"
 	first.Host.SelfUpdateRoot = "/var/lib/terrascale-orchestrator/releases"
 	first.Host.TerraBaseRoot = "/srv/ts-managed/terrabase"
@@ -76,7 +75,7 @@ func TestHostEnrollmentRenewalKeepsHostLocalOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	renewed := install("-2")
-	if !renewed.Host.ManagedVolumeOnlineGrow || renewed.Host.SelfUpdateProofFile != first.Host.SelfUpdateProofFile ||
+	if renewed.Host.SelfUpdateProofFile != first.Host.SelfUpdateProofFile ||
 		renewed.Host.SelfUpdateRoot != first.Host.SelfUpdateRoot || renewed.Host.TerraBaseRoot != first.Host.TerraBaseRoot ||
 		renewed.Host.TSAuthRoot != first.Host.TSAuthRoot ||
 		!renewed.Host.TerraBaseDataVolume || renewed.Host.TerraBaseDataVolumeID != first.Host.TerraBaseDataVolumeID ||

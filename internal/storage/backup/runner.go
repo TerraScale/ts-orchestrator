@@ -13,12 +13,10 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
 )
 
-// Runner applies Policy on the authority leader.
+// Runner applies the backup policy on the authority leader.
 type Runner struct {
-	Policy   Policy
 	Scope    Scope
 	Provider oci.VolumeBackupProvider
 	Fencer   authority.Fencer
@@ -42,12 +40,6 @@ type Report struct {
 }
 
 func (runner Runner) validate() error {
-	if !runner.Policy.Enabled {
-		return storage.ErrDisabled
-	}
-	if err := runner.Policy.Validate(); err != nil {
-		return err
-	}
 	if runner.Provider == nil || runner.Fencer == nil || runner.Volumes == nil || runner.Scope.Owner == "" || runner.Scope.Region == "" {
 		return errors.New("volume backup runner requires a provider, authority fencer, volume source and owner scope")
 	}
@@ -79,13 +71,24 @@ func (runner Runner) RunOnce(ctx context.Context) (Report, error) {
 	if partial {
 		failures = append(failures, fmt.Errorf("list volumes to back up: %w", err))
 	}
+	protected := make([]string, 0, len(volumes))
 	for _, volumeID := range volumes {
+		gone, err := runner.Provider.VolumeGone(ctx, volumeID)
+		if err != nil {
+			protected = append(protected, volumeID)
+			failures = append(failures, err)
+			continue
+		}
+		if gone {
+			continue
+		}
+		protected = append(protected, volumeID)
 		backups, err := runner.Provider.ListVolumeBackups(ctx, volumeID)
 		if err != nil {
 			failures = append(failures, err)
 			continue
 		}
-		for _, action := range Plan(runner.Policy, runner.Scope, volumeID, backups, now()) {
+		for _, action := range Plan(runner.Scope, volumeID, backups, now()) {
 			if err := runner.guard(ctx, epoch); err != nil {
 				return report, errors.Join(append(failures, err)...)
 			}
@@ -114,19 +117,17 @@ func (runner Runner) RunOnce(ctx context.Context) (Report, error) {
 			}
 		}
 	}
-	if runner.Policy.Prune && !partial {
-		if err := runner.pruneOrphans(ctx, epoch, volumes, now(), &report); err != nil {
+	if !partial {
+		if err := runner.pruneOrphans(ctx, epoch, protected, now(), &report); err != nil {
 			failures = append(failures, err)
 		}
 	}
 	return report, errors.Join(failures...)
 }
 
-// pruneOrphans deletes owned AVAILABLE backups whose source volume is no
-// longer placed, has been removed from OCI, and whose backup is older than
-// the orphan retention. Without it a torn-down partition would strand its
-// last Retain backups for ever, since per-volume pruning only visits placed
-// volumes. It runs only over a complete placement listing.
+// pruneOrphans deletes expired owned AVAILABLE backups of proven-terminated
+// sources, including those still named by old placement records. Only a complete
+// placement listing can establish that every unproven source remains protected.
 func (runner Runner) pruneOrphans(ctx context.Context, epoch uint64, placed []string, now time.Time, report *Report) error {
 	backups, err := runner.Provider.ListCompartmentVolumeBackups(ctx)
 	if err != nil {
@@ -136,17 +137,18 @@ func (runner Runner) pruneOrphans(ctx context.Context, epoch uint64, placed []st
 	for _, volumeID := range placed {
 		live[volumeID] = true
 	}
-	retention := runner.Policy.OrphanRetention()
+	retention := orphanRetention
 	gone := make(map[string]bool)
 	var failures []error
 	for _, backup := range backups {
 		volumeID := backup.VolumeID
 		if volumeID == "" || live[volumeID] || !runner.Scope.Owns(backup, volumeID) ||
-			backup.LifecycleState != "AVAILABLE" || now.Sub(backup.CreatedAt) < retention {
+			backup.LifecycleState != "AVAILABLE" {
 			continue
 		}
 		removed, checked := gone[volumeID]
 		if !checked {
+			gone[volumeID] = false
 			removed, err = runner.Provider.VolumeGone(ctx, volumeID)
 			if err != nil {
 				failures = append(failures, err)
@@ -154,7 +156,8 @@ func (runner Runner) pruneOrphans(ctx context.Context, epoch uint64, placed []st
 			}
 			gone[volumeID] = removed
 		}
-		if !removed {
+		// Capture termination before OCI purges the source, even for young backups.
+		if !removed || now.Sub(backup.CreatedAt) < retention {
 			continue
 		}
 		deleted, err := runner.prune(ctx, epoch, volumeID, backup.ID)
@@ -199,13 +202,13 @@ func (runner Runner) guard(ctx context.Context, epoch uint64) error {
 	return nil
 }
 
-// Run evaluates the policy every RunInterval until ctx ends. Followers skip
+// Run evaluates the policy every fifteen minutes until ctx ends. Followers skip
 // quietly; failures are logged and retried on the next tick.
 func (runner Runner) Run(ctx context.Context) error {
 	if err := runner.validate(); err != nil {
 		return err
 	}
-	ticker := time.NewTicker(runner.Policy.RunInterval())
+	ticker := time.NewTicker(runInterval)
 	defer ticker.Stop()
 	for {
 		report, err := runner.RunOnce(ctx)

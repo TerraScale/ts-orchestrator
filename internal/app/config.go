@@ -12,8 +12,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/backup"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/capacity"
 )
 
 const maxConfigBytes = 1 << 20
@@ -73,16 +71,6 @@ type ControllerConfig struct {
 	// against the wall clock, so a reboot without NTP does not reach the
 	// offline path; relaxing those boot units is a separate trust decision.
 	OfflineRestartAdmission bool `json:"offline_restart_admission,omitzero"`
-	// StorageCapacity publishes this node's boot root and JetStream StoreDir
-	// usage to the regional TTL'd usage bucket. Off by default.
-	StorageCapacity capacity.Config `json:"storage_capacity,omitzero"`
-	// VolumeBackup applies the OCI volume backup policy to placed members'
-	// retained volumes on the authority leader. Off by default.
-	VolumeBackup backup.Policy `json:"volume_backup,omitzero"`
-	// OciObserveVerifyCacheSeconds lets placement's periodic Observe reuse a
-	// member host's boot volume and VNIC verification while its instance ETag
-	// is unchanged, for at most this many seconds (0 disables, max 60).
-	OciObserveVerifyCacheSeconds int `json:"oci_observe_verify_cache_seconds,omitzero"`
 	// OciReconcile enables the declarative OCI resource reconcilers; nil or
 	// disabled keeps them off.
 	OciReconcile *OciReconcileConfig `json:"oci_reconcile,omitempty"`
@@ -168,10 +156,6 @@ type HostConfig struct {
 	// root volume initializer; the member never starts without it.
 	TerraBaseDataVolume   bool   `json:"terrabase_data_volume,omitzero"`
 	TerraBaseDataVolumeID string `json:"terrabase_data_volume_id,omitempty"`
-	// ManagedVolumeOnlineGrow lets the root volume initializer grow a managed
-	// member filesystem to its resized OCI volume. Off by default; the C#
-	// TerraBase data volume always grows.
-	ManagedVolumeOnlineGrow bool `json:"managed_volume_online_grow,omitzero"`
 	// SelfUpdateProofFile is where a started host agent writes the version
 	// proof for a pending self-update activation, signed with its identity
 	// key; empty means selfupdate.DefaultProofFile, which the image's

@@ -28,6 +28,7 @@ type KVJournal struct {
 }
 
 type journalEntry struct {
+	VolumeTermination  volumeTermination        `json:"volume_termination,omitzero"`
 	FormatPermit       VolumeFormatPermitRecord `json:"format_permit,omitzero"`
 	MountPermit        VolumeMountPermitRecord  `json:"mount_permit,omitzero"`
 	SchemaVersion      int                      `json:"schema_version"`
@@ -147,7 +148,7 @@ func OpenJournal(ctx context.Context, js jetstream.JetStream, replicas int) (*KV
 			return nil, fmt.Errorf("inspect OCI journal bucket: %w", statusErr)
 		}
 		config := status.Config()
-		if config.Replicas != replicas || config.Storage != jetstream.FileStorage || config.History < 2 || config.MaxValueSize > journalMaxValueSize {
+		if config.Replicas != replicas || config.Storage != jetstream.FileStorage || config.TTL != 0 || config.History < 2 || config.MaxValueSize > journalMaxValueSize {
 			return nil, errors.New("existing OCI journal bucket has incompatible durability limits")
 		}
 	}

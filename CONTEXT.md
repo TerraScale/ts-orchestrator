@@ -199,9 +199,8 @@ Once the quota is full, new uploads fail with `ErrArtifactStoreFull`.
 
 ## Managed OCI placement
 
-The placement file accepts `environment`, `member_role`, `resources`, and
-optional `tick_millis`. Unknown fields are rejected. A zero tick selects the
-five-second default; configured ticks must be between 100 ms and five minutes.
+The placement file accepts `environment`, `member_role` and `resources`.
+Unknown fields are rejected. Placement runs every five seconds.
 OCI intent, region configuration, and placement configuration must be
 configured together. The host image, bootstrap, and signed host enrollment
 remain operator-provided. After the retained volume is observed as attached

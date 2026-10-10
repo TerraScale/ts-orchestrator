@@ -10,31 +10,24 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/backup"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/capacity"
 )
 
 // startControllerStorageCapacity measures this controller's boot root and
 // JetStream StoreDir and publishes them to the regional TTL'd usage bucket.
-// It runs on every controller (each node measures itself) and only when
-// controller.storage_capacity.enabled is set.
+// It runs on every controller; each node measures itself.
 //
 // The returned stop cancels the collector and waits for it, so the controller
 // joins it on every return path before closing the NATS runtime it uses.
 func startControllerStorageCapacity(ctx context.Context, cfg Config, runtime *natscell.Runtime, fullClusterReady func() bool) (func(), error) {
-	settings := cfg.Controller.StorageCapacity
-	if !settings.Enabled {
-		return func() {}, nil
-	}
-	if err := settings.Validate(); err != nil {
-		return nil, err
-	}
 	if cfg.NATS.Embedded == nil || runtime == nil {
 		return nil, errors.New("storage capacity requires the embedded regional NATS server")
 	}
 	store, _, err := retryControllerOpen(ctx, "open storage usage bucket", fullClusterReady, false,
 		func(attempt context.Context) (*capacity.UsageStore, error) {
-			return capacity.OpenUsageStore(attempt, runtime.JetStream(), cfg.NATS.Replicas, settings.TTL(), settings.Policy)
+			return capacity.OpenUsageStore(attempt, runtime.JetStream(), cfg.NATS.Replicas, storage.DefaultUsageTTL, capacity.DefaultPolicy())
 		}, nil)
 	if err != nil {
 		return nil, err
@@ -44,7 +37,7 @@ func startControllerStorageCapacity(ctx context.Context, cfg Config, runtime *na
 		Targets: capacity.ControllerTargets(cfg.NATS.Embedded.StoreDir, runtime.LocalStoreUsedBytes, cfg.NATS.Embedded.StoreLimitBytes()),
 	}
 	return ownedLoop(ctx, "controller storage capacity collector", func(ctx context.Context) error {
-		return capacity.Run(ctx, collector, store, settings.Policy, settings.Interval(), capacity.LogSignal)
+		return capacity.Run(ctx, collector, store, capacity.DefaultPolicy(), storage.DefaultCollectInterval, capacity.LogSignal)
 	}), nil
 }
 
@@ -67,28 +60,20 @@ func ownedLoop(parent context.Context, name string, run func(context.Context) er
 }
 
 // startVolumeBackups runs the OCI volume backup policy on the authority
-// leader when controller.volume_backup.enabled is set. Followers evaluate
-// nothing; every OCI effect is epoch-guarded inside the runner. The returned
-// stop cancels the runner and waits for it.
-func startVolumeBackups(ctx context.Context, cfg Config, managed *managedControllerConfig,
-	fencer authority.Fencer, store placement.Store,
+// leader. Followers evaluate nothing; every OCI effect is epoch-guarded.
+// The returned stop cancels the runner and waits for it.
+func startVolumeBackups(ctx context.Context, managed *managedControllerConfig,
+	fencer authority.Fencer, store placement.Store, journal *oci.KVJournal,
 ) (func(), error) {
-	policy := cfg.Controller.VolumeBackup
-	if !policy.Enabled {
-		return func() {}, nil
-	}
-	if err := policy.Validate(); err != nil {
-		return nil, err
-	}
-	if managed == nil || store == nil {
+	if managed == nil || store == nil || fencer == nil {
 		return nil, errors.New("volume backups require a managed OCI controller")
 	}
-	provider, err := oci.NewInstancePrincipalVolumeBackupProvider(managed.region, managed.intent)
+	provider, err := oci.NewInstancePrincipalVolumeBackupProvider(managed.region, managed.intent, journal)
 	if err != nil {
 		return nil, fmt.Errorf("start OCI volume backup client: %w", err)
 	}
 	runner := backup.Runner{
-		Policy: policy, Provider: provider, Fencer: fencer,
+		Provider: provider, Fencer: fencer,
 		Scope:   backup.Scope{Owner: managed.region.Owner, Region: managed.region.Region},
 		Volumes: func(ctx context.Context) ([]string, error) { return placementVolumeIDs(ctx, store) },
 	}

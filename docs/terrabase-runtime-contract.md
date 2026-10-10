@@ -429,8 +429,8 @@ that name with other schedules or tags, instead of changing them. These are
 crash-consistent volume backups; SQLite's WAL makes them restorable, and the
 [restore drill](terrabase-deployment.md#restore-drill) proves one.
 
-The controller's backup runner (`internal/storage/backup`, `volume_backup`
-in [storage](storage.md)) is not used: it needs the controller leader,
+The controller's [placement backup runner](storage.md#fixed-storage-policy)
+(`internal/storage/backup`) is not used for static C# member volumes: it needs the controller leader,
 placement and a single count-based cadence. The OCI provider seam in
 [`volume_backup.go`](../internal/oci/volume_backup.go) is reused.
 Incremental backups bill changed blocks; the plan's budget allows

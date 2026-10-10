@@ -53,4 +53,16 @@ type regionOnlyFleet struct {
 	region oci.Region
 }
 
+func TestPlacementFileRejectsRemovedControls(t *testing.T) {
+	for _, wire := range []string{
+		`{"auto_grow_volumes":false}`, `{"auto_grow_volumes":true}`,
+		`{"reattach_on_host_loss":false}`, `{"reattach_on_host_loss":true}`,
+		`{"tick_millis":0}`, `{"tick_millis":5000}`,
+	} {
+		if _, err := parseManagedPlacementSettings([]byte(wire)); err == nil {
+			t.Errorf("retired setting accepted: %s", wire)
+		}
+	}
+}
+
 func (fleet regionOnlyFleet) Region() oci.Region { return fleet.region }

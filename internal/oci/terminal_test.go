@@ -12,9 +12,15 @@ import (
 
 func terminalFixture(t *testing.T) (*fleet, *fakeProvider, *fakeJournal, *fakeFencer, authority.TerminalIntent) {
 	t.Helper()
+	journal := newFakeJournal()
+	fleet, provider, fencer, intent := terminalFixtureWithJournal(t, journal)
+	return fleet, provider, journal, fencer, intent
+}
+
+func terminalFixtureWithJournal(t *testing.T, journal Journal) (*fleet, *fakeProvider, *fakeFencer, authority.TerminalIntent) {
+	t.Helper()
 	config, regionIntent := testRegionConfig()
 	provider := newFakeProvider(config)
-	journal := newFakeJournal()
 	fencer := &fakeFencer{snapshot: writableSnapshot()}
 	api, err := newTestFleet(config, regionIntent, provider, journal, fencer, nil, nil)
 	if err != nil {
@@ -57,7 +63,7 @@ func terminalFixture(t *testing.T) (*fleet, *fakeProvider, *fakeJournal, *fakeFe
 	if err := intent.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	return fleet, provider, journal, fencer, intent
+	return fleet, provider, fencer, intent
 }
 
 func acceptTerminalFixture(t *testing.T, fencer *fakeFencer, intent authority.TerminalIntent) {
