@@ -33,7 +33,9 @@ type fakeCloud struct {
 	etags       map[string]string
 	tokens      map[string]string // opc-retry-token -> the id it created
 	detaches    []core.DetachInstancePoolInstanceDetails
-	shrinks     int // UpdateInstancePool calls that lowered a pool's size
+	updates     int                                       // UpdateInstancePool calls
+	shrinks     int                                       // UpdateInstancePool calls that lowered a pool's size
+	applying    map[string]core.UpdateInstancePoolDetails // accepted configuration and placement updates; see settle
 	nextID      int
 }
 
@@ -41,7 +43,7 @@ func newFakeCloud() *fakeCloud {
 	return &fakeCloud{pools: map[string]*core.InstancePool{}, configs: map[string]*core.InstanceConfiguration{},
 		instances: map[string]*core.Instance{}, members: map[string]string{},
 		attachments: map[string][]core.VnicAttachment{}, vnics: map[string]core.Vnic{},
-		etags: map[string]string{}, tokens: map[string]string{}}
+		etags: map[string]string{}, tokens: map[string]string{}, applying: map[string]core.UpdateInstancePoolDetails{}}
 }
 
 func (f *fakeCloud) id(kind string) string {
@@ -151,9 +153,11 @@ func (f *fakeCloud) UpdateInstancePool(_ context.Context, request core.UpdateIns
 	if err := f.fresh(id, request.IfMatch); err != nil {
 		return core.UpdateInstancePoolResponse{}, err
 	}
+	f.updates++
 	details := request.UpdateInstancePoolDetails
-	if details.InstanceConfigurationId != nil {
-		pool.InstanceConfigurationId = details.InstanceConfigurationId
+	if details.InstanceConfigurationId != nil || details.PlacementConfigurations != nil {
+		// OCI applies a configuration or placement change later; the pool keeps its old ones until settle.
+		f.applying[id] = details
 	}
 	if details.Size != nil {
 		if *details.Size < deref(pool.Size) {
@@ -163,6 +167,25 @@ func (f *fakeCloud) UpdateInstancePool(_ context.Context, request core.UpdateIns
 	}
 	f.touch(id)
 	return core.UpdateInstancePoolResponse{InstancePool: *pool, Etag: common.String(f.etags[id])}, nil
+}
+
+// settle applies the configuration and placement updates OCI has accepted, as OCI does once the pool is done updating.
+func (f *fakeCloud) settle() {
+	for id, details := range f.applying {
+		pool := f.pools[id]
+		if details.InstanceConfigurationId != nil {
+			pool.InstanceConfigurationId = details.InstanceConfigurationId
+		}
+		if details.PlacementConfigurations != nil {
+			pool.PlacementConfigurations = nil
+			for _, placement := range details.PlacementConfigurations {
+				pool.PlacementConfigurations = append(pool.PlacementConfigurations, core.InstancePoolPlacementConfiguration{
+					AvailabilityDomain: placement.AvailabilityDomain, PrimaryVnicSubnets: placement.PrimaryVnicSubnets})
+			}
+		}
+		delete(f.applying, id)
+		f.touch(id)
+	}
 }
 
 func (f *fakeCloud) ListInstancePoolInstances(_ context.Context, request core.ListInstancePoolInstancesRequest) (core.ListInstancePoolInstancesResponse, error) {
@@ -285,7 +308,7 @@ func newTestPool(t *testing.T, f *fakeCloud) *OCIPool {
 }
 
 func testRecipe() Recipe {
-	return Recipe{Cell: "gru", CompartmentID: testCompartment, SubnetID: "ocid1.subnet.test",
+	return Recipe{Cell: "gru", SubnetID: "ocid1.subnet.test",
 		NSGIDs: []string{"ocid1.nsg.a", "ocid1.nsg.b"}, AvailabilityDomains: []string{"AD-1", "AD-2"},
 		ImageID: "ocid1.image.v1", OCPUs: 2, MemoryGB: 12,
 		Metadata: map[string]string{"ts_host": "descriptor", "ssh_authorized_keys": "ssh-ed25519 AAAA"}}
@@ -351,6 +374,12 @@ func TestRecipeDigest(t *testing.T) {
 	newMetadata.Metadata["ssh_authorized_keys"] = "ssh-ed25519 BBBB"
 	if newMetadata.Digest() == base.Digest() {
 		t.Error("new metadata kept the digest")
+	}
+	if base.digest("VM.Standard.E4.Flex", BootVolumeGB) == base.Digest() {
+		t.Error("a new node shape kept the digest")
+	}
+	if base.digest(NodeShape, BootVolumeGB+1) == base.Digest() {
+		t.Error("a new boot volume size kept the digest")
 	}
 	if got, want := ConfigurationName(base), "ts-gru-node-"+base.Digest(); got != want {
 		t.Errorf("configuration name %q, want %q", got, want)
@@ -428,6 +457,35 @@ func TestEnsureIsIdempotent(t *testing.T) {
 	if first.PoolID != second.PoolID || first.ConfigurationID != second.ConfigurationID {
 		t.Errorf("second ensure changed the pool: %+v then %+v", first, second)
 	}
+	if f.updates != 0 {
+		t.Errorf("%d pool updates for an unchanged recipe, want 0", f.updates)
+	}
+}
+
+func TestEnsureUpdatesPoolPlacements(t *testing.T) {
+	cases := map[string]func(*Recipe){
+		"subnet":  func(r *Recipe) { r.SubnetID = "ocid1.subnet.new" },
+		"AD list": func(r *Recipe) { r.AvailabilityDomains = []string{"AD-1", "AD-3"} },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newFakeCloud()
+			pool := newTestPool(t, f)
+			ctx := context.Background()
+			if _, err := pool.Ensure(ctx, testRecipe()); err != nil {
+				t.Fatal(err)
+			}
+			next := testRecipe()
+			mutate(&next)
+			if _, err := pool.Ensure(ctx, next); err != nil {
+				t.Fatal(err)
+			}
+			f.settle()
+			if pooled := onlyPool(t, f); !placementsMatch(pooled, next) {
+				t.Errorf("placements %+v after the update, want %v on %s", pooled.PlacementConfigurations, next.AvailabilityDomains, next.SubnetID)
+			}
+		})
+	}
 }
 
 func TestEnsureSwitchesRecipeAndDeletesOldConfiguration(t *testing.T) {
@@ -445,6 +503,10 @@ func TestEnsureSwitchesRecipeAndDeletesOldConfiguration(t *testing.T) {
 
 	next := testRecipe()
 	next.ImageID = "ocid1.image.v2"
+	if _, err := pool.Ensure(ctx, next); err != nil {
+		t.Fatal(err)
+	}
+	f.settle()
 	state, err := pool.Ensure(ctx, next)
 	if err != nil {
 		t.Fatal(err)
@@ -465,6 +527,36 @@ func TestEnsureSwitchesRecipeAndDeletesOldConfiguration(t *testing.T) {
 	}
 	if state.ConfigurationID != deref(config.Id) || len(state.Instances) != 1 {
 		t.Errorf("state %+v", state)
+	}
+}
+
+func TestRepointKeepsOldConfigurationUntilNextEnsure(t *testing.T) {
+	f := newFakeCloud()
+	pool := newTestPool(t, f)
+	ctx := context.Background()
+	if _, err := pool.Ensure(ctx, testRecipe()); err != nil {
+		t.Fatal(err)
+	}
+	old := deref(onlyConfig(t, f).Id)
+
+	next := testRecipe()
+	next.ImageID = "ocid1.image.v2"
+	if _, err := pool.Ensure(ctx, next); err != nil {
+		t.Fatalf("re-point right after the update: %v", err)
+	}
+	if _, ok := f.configs[old]; !ok || len(f.configs) != 2 {
+		t.Fatalf("%d configurations after the re-point, want the old one kept beside the new one", len(f.configs))
+	}
+
+	f.settle()
+	if _, err := pool.Ensure(ctx, next); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.configs[old]; ok {
+		t.Error("old configuration survived an ensure after the pool moved off it")
+	}
+	if got, want := deref(onlyPool(t, f).InstanceConfigurationId), deref(onlyConfig(t, f).Id); got != want {
+		t.Errorf("pool points at %s, the only configuration is %s", got, want)
 	}
 }
 
@@ -493,6 +585,10 @@ func TestEnsureNeverDeletesAnotherCellsConfiguration(t *testing.T) {
 	}
 	next := testRecipe()
 	next.ImageID = "ocid1.image.v2"
+	if _, err := gru.Ensure(ctx, next); err != nil {
+		t.Fatal(err)
+	}
+	f.settle()
 	if _, err := gru.Ensure(ctx, next); err != nil {
 		t.Fatal(err)
 	}

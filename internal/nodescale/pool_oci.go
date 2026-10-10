@@ -129,16 +129,19 @@ func (o *OCIPool) Ensure(ctx context.Context, recipe Recipe) (PoolState, error) 
 	if err != nil {
 		return PoolState{}, err
 	}
+	// OCI applies a re-point later, so the configuration the pool references now must survive this cycle.
+	keep := []string{configID}
 	switch {
 	case pool == nil:
 		err = o.createPool(ctx, recipe, configID)
-	case deref(pool.InstanceConfigurationId) != configID:
-		err = o.point(ctx, pool, etag, configID)
+	case deref(pool.InstanceConfigurationId) != configID || !placementsMatch(pool, recipe):
+		keep = append(keep, deref(pool.InstanceConfigurationId))
+		err = o.point(ctx, pool, etag, configID, recipe)
 	}
 	if err != nil {
 		return PoolState{}, err
 	}
-	if err := o.pruneConfigurations(ctx, configID); err != nil {
+	if err := o.pruneConfigurations(ctx, keep...); err != nil {
 		return PoolState{}, err
 	}
 	return o.Observe(ctx)
@@ -371,14 +374,14 @@ func (o *OCIPool) ensureConfiguration(ctx context.Context, recipe Recipe) (strin
 	return deref(response.Id), nil
 }
 
-// pruneConfigurations deletes the cell's other configurations. The pool references only keep now.
-func (o *OCIPool) pruneConfigurations(ctx context.Context, keep string) error {
+// pruneConfigurations deletes the cell's configurations that are not in keep.
+func (o *OCIPool) pruneConfigurations(ctx context.Context, keep ...string) error {
 	configs, err := o.configurations(ctx)
 	if err != nil {
 		return err
 	}
 	for _, config := range configs {
-		if deref(config.Id) == keep {
+		if slices.Contains(keep, deref(config.Id)) {
 			continue
 		}
 		if _, err := o.management.DeleteInstanceConfiguration(ctx, core.DeleteInstanceConfigurationRequest{
@@ -416,15 +419,44 @@ func (o *OCIPool) createPool(ctx context.Context, recipe Recipe, configID string
 	return nil
 }
 
-// point moves the pool to another configuration. Its size is left alone.
-func (o *OCIPool) point(ctx context.Context, pool *core.InstancePool, etag, configID string) error {
+// point moves the pool to the recipe's configuration and placements. Its size is left alone.
+func (o *OCIPool) point(ctx context.Context, pool *core.InstancePool, etag, configID string, recipe Recipe) error {
+	details := core.UpdateInstancePoolDetails{InstanceConfigurationId: common.String(configID)}
+	if !placementsMatch(pool, recipe) {
+		for _, domain := range recipe.AvailabilityDomains {
+			details.PlacementConfigurations = append(details.PlacementConfigurations, core.UpdateInstancePoolPlacementConfigurationDetails{
+				AvailabilityDomain: common.String(domain),
+				PrimaryVnicSubnets: &core.InstancePoolPlacementPrimarySubnet{SubnetId: common.String(recipe.SubnetID)},
+			})
+		}
+	}
 	_, err := o.management.UpdateInstancePool(ctx, core.UpdateInstancePoolRequest{
-		InstancePoolId: pool.Id, IfMatch: common.String(etag),
-		UpdateInstancePoolDetails: core.UpdateInstancePoolDetails{InstanceConfigurationId: common.String(configID)}})
+		InstancePoolId: pool.Id, IfMatch: common.String(etag), UpdateInstancePoolDetails: details})
 	if err != nil {
 		return fmt.Errorf("point instance pool %s at %s: %w", deref(pool.DisplayName), configID, err)
 	}
 	return nil
+}
+
+// placementsMatch reports whether the pool places nodes in the recipe's availability domains, in order, each on its subnet.
+func placementsMatch(pool *core.InstancePool, recipe Recipe) bool {
+	if len(pool.PlacementConfigurations) != len(recipe.AvailabilityDomains) {
+		return false
+	}
+	for i, placement := range pool.PlacementConfigurations {
+		if deref(placement.AvailabilityDomain) != recipe.AvailabilityDomains[i] || placementSubnet(placement) != recipe.SubnetID {
+			return false
+		}
+	}
+	return true
+}
+
+// placementSubnet is the placement's primary VNIC subnet. OCI may still answer with only the deprecated primarySubnetId.
+func placementSubnet(placement core.InstancePoolPlacementConfiguration) string {
+	if placement.PrimaryVnicSubnets != nil && placement.PrimaryVnicSubnets.SubnetId != nil {
+		return *placement.PrimaryVnicSubnets.SubnetId
+	}
+	return deref(placement.PrimarySubnetId)
 }
 
 // launchDetails is what every pool node launches from. Its subnet comes from the pool's placement.

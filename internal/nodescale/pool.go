@@ -15,9 +15,9 @@ import (
 )
 
 // Recipe is everything a pool node is launched from. Its digest names the instance configuration.
+// The compartment is the pool's.
 type Recipe struct {
 	Cell                string // e.g. "gru"
-	CompartmentID       string
 	SubnetID            string
 	NSGIDs              []string
 	AvailabilityDomains []string // one placement configuration each, in this order
@@ -34,8 +34,8 @@ func (r Recipe) Validate() error {
 	if !cellPattern.MatchString(r.Cell) {
 		return fmt.Errorf("node cell %q is not a cell name", r.Cell)
 	}
-	if r.CompartmentID == "" || r.SubnetID == "" || r.ImageID == "" {
-		return fmt.Errorf("node recipe for cell %s needs a compartment, subnet and image", r.Cell)
+	if r.SubnetID == "" || r.ImageID == "" {
+		return fmt.Errorf("node recipe for cell %s needs a subnet and image", r.Cell)
 	}
 	if len(r.NSGIDs) == 0 || slices.Contains(r.NSGIDs, "") {
 		return fmt.Errorf("node recipe for cell %s needs network security groups", r.Cell)
@@ -53,12 +53,14 @@ func (r Recipe) Validate() error {
 	return nil
 }
 
-// Digest is the first 12 hex characters of a SHA-256 over the canonical recipe.
+// Digest is the first 12 hex characters of a SHA-256 over the canonical recipe and the launch constants.
 // NSG order does not matter; availability domain order does, because it is the placement order.
-func (r Recipe) Digest() string {
+func (r Recipe) Digest() string { return r.digest(NodeShape, BootVolumeGB) }
+
+// digest hashes the recipe as launched with the given shape and boot volume size.
+func (r Recipe) digest(shape string, bootVolumeGB int) string {
 	canonical := struct {
 		Cell                string
-		CompartmentID       string
 		SubnetID            string
 		NSGIDs              []string
 		AvailabilityDomains []string
@@ -66,9 +68,10 @@ func (r Recipe) Digest() string {
 		OCPUs               string // strings: float encoding fails on NaN
 		MemoryGB            string
 		Metadata            map[string]string
+		NodeShape           string
+		BootVolumeGB        int
 	}{
 		Cell:                r.Cell,
-		CompartmentID:       r.CompartmentID,
 		SubnetID:            r.SubnetID,
 		NSGIDs:              slices.Sorted(slices.Values(r.NSGIDs)),
 		AvailabilityDomains: r.AvailabilityDomains,
@@ -76,8 +79,10 @@ func (r Recipe) Digest() string {
 		OCPUs:               strconv.FormatFloat(float64(r.OCPUs), 'g', -1, 32),
 		MemoryGB:            strconv.FormatFloat(float64(r.MemoryGB), 'g', -1, 32),
 		Metadata:            r.Metadata,
+		NodeShape:           shape,
+		BootVolumeGB:        bootVolumeGB,
 	}
-	encoded, _ := json.Marshal(canonical, json.Deterministic(true)) // strings and slices only: cannot fail
+	encoded, _ := json.Marshal(canonical, json.Deterministic(true)) // strings, ints and slices only: cannot fail
 	digest := sha256.Sum256(encoded)
 	return hex.EncodeToString(digest[:])[:12]
 }
