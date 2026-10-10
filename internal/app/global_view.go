@@ -10,6 +10,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlink"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabasestats"
 )
 
 // startGlobalView follows every region's rollup into the dashboard's global
@@ -19,8 +20,9 @@ func (runtime *runtimeObservability) startGlobalView(ctx context.Context, observ
 	links regionlink.Requester, cluster observability.ClusterSource, volumes insights.VolumeProvider,
 ) *globalview.View {
 	view := globalview.NewView(runtime.cell, links.Regions, nil)
+	conn := observed.nats.Conn()
 	sources := globalview.Sources{Cell: runtime.cell, Cluster: cluster, Grants: observed.nodes, Volumes: volumes,
-		Links: observed.linkProbes}
+		Links: observed.linkProbes, Databases: terrabasestats.Follow(ctx, conn, runtime.cell).Databases}
 	if observed.hostLoad != nil {
 		sources.Reports = observed.hostLoad.nodes
 	}
@@ -36,7 +38,6 @@ func (runtime *runtimeObservability) startGlobalView(ctx context.Context, observ
 	}
 	build := func(ctx context.Context) globalview.Rollup { return globalview.Build(sources.Collect(ctx)) }
 	leading := func() bool { return observed.authority != nil && observed.authority.Current().CanMutate() }
-	conn := observed.nats.Conn()
 	go globalview.Publish(ctx, conn, runtime.cell, leading, build, view)
 	go func() {
 		if err := view.Follow(ctx, conn); err != nil {

@@ -227,6 +227,10 @@ func ReleaseStatusSubject(cell string) string { return Regional(cell, "release",
 // telemetry leaf (ObservabilitySubject) of one regional cell.
 func ObservabilityGrant(cell string) string { return Regional(cell, "obs", ">") }
 
+// TerraBaseObservabilitySubject is the regional rollup of TerraBase database
+// stats (TS-806). It sits under ObservabilityGrant, so controllers subscribe to it.
+func TerraBaseObservabilitySubject(cell string) string { return Regional(cell, "obs", "terrabase") }
+
 // Observability leaves a region answers for other regions. They are the only
 // telemetry the interregion contract carries, as exact request/reply
 // services: the region summary and the decision journal query. Member

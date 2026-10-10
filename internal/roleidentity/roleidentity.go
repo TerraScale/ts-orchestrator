@@ -52,9 +52,10 @@ var Grants = map[string]Grant{
 	// TS-633's backup shipper lease; TerraBase's NatsLeaseStore binds it.
 	// TS-643's cross-region pulls: members answer terrabase-wan queries in
 	// their cell and ask other cells' members over the interregion links.
+	// TS-806's live database stats: members answer terrabase-stats detail requests in their cell.
 	"terrabase": {EnvPrefix: "TERRABASE_NATS_", Buckets: []Bucket{
 		{Name: "terrabase_backup_leases", TTL: 15 * time.Second, History: 1, Memory: true},
-	}, Queries: []string{"terrabase-wan"}},
+	}, Queries: []string{"terrabase-wan", "terrabase-stats"}},
 }
 
 // Reserved reports whether key is a launch setting the host sets for role's

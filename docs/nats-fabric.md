@@ -113,7 +113,8 @@ and its settings prefix; today only `terrabase` has one.
   `ts.orch.v1.{{tag(cell)}}.query.{{tag(query)}}.>` and one response per
   request. The interregion contract carries the query family as a service,
   so a request reaches another region's members over the links. TerraBase
-  has `terrabase-wan` (TS-643's cross-region pulls).
+  has `terrabase-wan` (TS-643's cross-region pulls) and `terrabase-stats`
+  (TS-806's live database stats detail).
 - **No stream API beyond reads.** A stream create request names any
   subjects, so a role that could create its bucket could capture
   controller traffic. The leader creates each granted bucket before it

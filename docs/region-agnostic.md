@@ -95,7 +95,8 @@ The global-home grants (`ts.control.global.>`, `ts.global.v1.>`) are part of
 the controller role in every region; only the global lease holder uses them.
 
 TerraBase's WAN keeps `ts.orch.v1.*.query.terrabase-wan.>` (publish), its own
-cell's subject (subscribe) and one response per request (TS-677).
+cell's subject (subscribe) and one response per request (TS-677). Its live
+database stats keep the same shape for `terrabase-stats` (TS-806).
 
 ### Links
 

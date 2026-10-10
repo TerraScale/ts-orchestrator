@@ -131,7 +131,7 @@ func TestRoleUserReachesOnlyItsBuckets(t *testing.T) {
 	claim, err := jwt.DecodeUserClaims(rawJWT)
 	if err != nil || claim.Issuer != signerID || claim.IssuerAccount != cellID || claim.Subject != memberID ||
 		!claim.HasEmptyPermissions() || !claim.Tags.Contains("kv:terrabase_backup_leases") || claim.Expires != expires.Unix() ||
-		!claim.Tags.Contains("query:terrabase-wan") || !claim.Tags.Contains("cell:gru") {
+		!claim.Tags.Contains("query:terrabase-wan") || !claim.Tags.Contains("query:terrabase-stats") || !claim.Tags.Contains("cell:gru") {
 		t.Fatalf("role JWT: %+v %v", claim, err)
 	}
 	leafBlock, rest := pem.Decode(chain)
