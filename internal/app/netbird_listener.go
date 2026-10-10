@@ -31,18 +31,15 @@ func (n *netbirdRollout) meshListenerLoop(ctx context.Context, localAddress func
 	defer ticker.Stop()
 	last := ""
 	for ctx.Err() == nil {
-		pin, err := n.target(ctx)
-		var address netip.Addr
-		if err == nil && pin != nil {
-			address = localAddress()
-		}
-		if err == nil && address != bound {
+		address := localAddress()
+		var err error
+		if address != bound {
 			if listener != nil {
 				_ = listener.Close()
 			}
 			listener, bound = nil, netip.Addr{}
 		}
-		if err == nil && address.IsValid() && listener == nil {
+		if address.IsValid() && listener == nil {
 			listener, err = listen(address)
 			if err == nil {
 				bound = address

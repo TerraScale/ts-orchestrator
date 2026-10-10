@@ -286,11 +286,12 @@ rollback. This also covers a first local installation recovered through renewal
 after the original response was lost. Subsequent setting changes belong to the
 fenced NetBird rollout.
 
-With a pin active, each controller also binds its exact NetBird IPv4 address
+The controller's NATS mesh listener binds its exact NetBird IPv4 address
 on the regional NATS client port. It uses the same TLS-first/mTLS, JWT and
 authority-ticket gate as the OCI listener; OCI remains available during
-enrollment and upgrades. Address changes rebind this listener, and removing
-the pin closes it after any outstanding recovery finishes. Managed same-cell
+enrollment and upgrades. Enrollment and address changes rebind this listener
+automatically, without a NetBird rollout pin. Losing the local
+mesh address closes it until NetBird reconnects. Managed same-cell
 policies allow TCP 4222, 8080 and 9465 for NATS, ts-auth and TerraBase health;
 sync these policies before applying the pin. Interregion port 7422 uses the
 leaf protocol and separate credentials and cannot replace this probe. Verify

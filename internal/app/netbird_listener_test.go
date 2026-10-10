@@ -9,8 +9,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 )
 
 type netbirdTestListener struct {
@@ -26,9 +24,9 @@ func (l *netbirdTestListener) Close() error {
 }
 
 func TestNetBirdMeshListenerRetriesRebindsAndCloses(t *testing.T) {
-	n := netbirdRollout{fence: &releaseFence{kv: fenceKV(t), fencer: &fenceLease{}}, services: &specRegistry{}}
+	n := netbirdRollout{}
 	var local atomic.Value
-	local.Store(netip.MustParseAddr("10.200.1.2"))
+	local.Store(netip.Addr{})
 	var first atomic.Bool
 	first.Store(true)
 	events := make(chan string, 16)
@@ -51,11 +49,6 @@ func TestNetBirdMeshListenerRetriesRebindsAndCloses(t *testing.T) {
 		n.meshListenerLoop(ctx, func() netip.Addr { return local.Load().(netip.Addr) }, listen, 10*time.Millisecond)
 	}()
 	t.Cleanup(func() { cancel(); <-done })
-	setPin := func(pin *cellspec.NetBird) {
-		n.services.mu.Lock()
-		n.services.current.NetBird = pin
-		n.services.mu.Unlock()
-	}
 	want := func(expected string) {
 		t.Helper()
 		select {
@@ -69,18 +62,18 @@ func TestNetBirdMeshListenerRetriesRebindsAndCloses(t *testing.T) {
 	}
 	select {
 	case event := <-events:
-		t.Fatalf("disabled pin opened mesh listener: %s", event)
+		t.Fatalf("listener opened before NetBird enrollment: %s", event)
 	case <-time.After(30 * time.Millisecond):
 	}
-	setPin(&cellspec.NetBird{})
+	local.Store(netip.MustParseAddr("10.200.1.2"))
 	want("retry")
 	want("listen 10.200.1.2")
 	local.Store(netip.MustParseAddr("10.200.1.3"))
 	want("close 10.200.1.2")
 	want("listen 10.200.1.3")
-	setPin(nil)
+	local.Store(netip.Addr{})
 	want("close 10.200.1.3")
-	setPin(&cellspec.NetBird{})
+	local.Store(netip.MustParseAddr("10.200.1.3"))
 	want("listen 10.200.1.3")
 	cancel()
 	want("close 10.200.1.3")
