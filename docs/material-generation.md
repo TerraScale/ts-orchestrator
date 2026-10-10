@@ -63,8 +63,8 @@ controller credentials. Breaking changes update v1 in place; obsolete identity-s
   slot. It must pin every slot's credentials and config. Observability is
   always active; its config block may be absent. The JWT must be
   signed by the cell account, match its user seed and slot's fence/inbox,
-  grant local `obs.>` subscriptions and exactly the configured peers'
-  `obs.region` and `obs.decisions` publishes. Remote wildcards, snapshots,
+  grant local `obs.>` subscriptions and the `ts.orch.v1.*.obs.region` and
+  `ts.orch.v1.*.obs.decisions` publish patterns. Remote snapshots,
   raw journals and mutations are refused. A later generation must retain
   credential pins, so a restart cannot revert to the founding JWTs.
 - **Interregion files**, Vault purpose `interregion`, all or none:
@@ -117,21 +117,9 @@ keys.
 
 ## Sign a generation
 
-For cells without online issuers, issue each controller's telemetry grants
-with the existing offline cell account seed and the reviewed immutable
-interregion material:
-
-```sh
-ts-orch bootstrap issue-observability-credentials \
-  --credentials /private/founding/controller-a.creds \
-  --account-seed /private/founding/issuer-cell.seed \
-  --interregion-directory /private/gru-interregion \
-  --slot controller-a --cell-account <signed-generation-cell-account> \
-  --out /private/generation-3/controller-a.creds
-```
-
-Repeat for B/C. Output is a new owner-only file; the original material is
-immutable. User keys, authority grants and expiry stay the same. Publish
+Founding controller credentials already carry the telemetry pattern grants
+for every region, so a generation pins each slot's founding `.creds` as
+they are. Adding a region needs no new controller credentials. Publish
 the exact bytes to Vault, add slot-bound `controller` references to the
 candidate. Pin each current config with the path of that slot's `.creds`.
 Deploy binary support to every controller before publishing/arming this

@@ -934,6 +934,10 @@ func userPermissions(cell string, user NKeyGrant) (*server.Permissions, error) {
 			protocol.Regional(cell, ">"), protocol.Control(cell, ">"), "$JS.API.>", "$KV.>", "$O.>",
 			"$JS.ACK.TS_DELIVERY_INTENTS.TS_DELIVERY_WORKER.>",
 		}}
+		for _, leaf := range protocol.InterRegionObservabilityLeaves() {
+			permissions.Publish.Allow = append(permissions.Publish.Allow, protocol.AnyRegionObservabilitySubject(leaf))
+		}
+		permissions.Publish.Allow = append(permissions.Publish.Allow, protocol.AnyRegionQuerySubject())
 		if user.Global {
 			permissions.Publish.Allow = append(permissions.Publish.Allow, GlobalControllerPublishes()...)
 		}

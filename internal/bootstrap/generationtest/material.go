@@ -3,7 +3,6 @@
 package generationtest
 
 import (
-	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -215,10 +214,6 @@ func (material Material) Generation(expected bootstrap.MaterialGenerationExpecta
 func (material Material) WithControllerCredentials(t testing.TB, slots []string) Material {
 	t.Helper()
 	files := map[string][]byte{}
-	signerSeed, _ := material.Cell.Seed()
-	// Seed returns the fixture key's backing storage.
-	signerSeed = bytes.Clone(signerSeed)
-	defer clear(signerSeed)
 	for _, slot := range slots {
 		name := "controller-" + slot + ".json"
 		var config struct {
@@ -234,13 +229,9 @@ func (material Material) WithControllerCredentials(t testing.TB, slots []string)
 			t.Fatalf("WithControllerCredentials: decode %s: %v", name, err)
 		}
 		config.NATS.CredentialsFile = bootstrap.MaterialDirectory + "/" + slot + ".creds"
-		var peers []string
 		var ir *natscell.InterRegion
 		if embedded := config.NATS.Embedded; embedded != nil {
 			ir = embedded.InterRegion
-		}
-		if ir != nil {
-			peers = ir.Peers
 		}
 		home, err := ir.GlobalControlHome(config.NATS.Cell)
 		if err != nil {
@@ -259,23 +250,17 @@ func (material Material) WithControllerCredentials(t testing.TB, slots []string)
 		claim.Sub.Allow = jwt.StringList{protocol.InboxGrant("gru", public), protocol.Broker("gru", "ticket", ">"),
 			protocol.Broker("gru", "fence", slot)}
 		claim.Sub.Allow.Add(natscell.ControllerSubscriptions("gru")...)
+		claim.Sub.Allow.Add(protocol.ObservabilityGrant("gru"))
 		claim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
 		raw, err := claim.Encode(material.Cell)
 		if err != nil {
 			t.Fatal(err)
 		}
-		current, _ := jwt.FormatUserConfig(raw, seed)
-		creds, err := bootstrapmaterial.IssueControllerObservabilityCredentials(current, signerSeed, "gru", slot,
-			material.CellID, peers, globalHome)
-		if err != nil {
-			t.Fatal(err)
-		}
-		files[slot+".creds"] = creds
+		files[slot+".creds"], _ = jwt.FormatUserConfig(raw, seed)
 		files[name], err = json.Marshal(config)
 		if err != nil {
 			t.Fatal(err)
 		}
-		clear(current)
 		clear(seed)
 		user.Wipe()
 	}

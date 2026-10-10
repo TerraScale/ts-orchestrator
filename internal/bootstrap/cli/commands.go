@@ -73,8 +73,6 @@ func (c command) runAt(args []string, now time.Time) error {
 		return c.runGenerateControllerMaterial(args[1:])
 	case "generate-interregion-material":
 		return c.runGenerateInterRegionMaterial(args[1:])
-	case "issue-observability-credentials":
-		return c.issueObservabilityCredentialsAt(args[1:], now)
 	case "render-interregion-config":
 		return c.runRenderInterRegionConfig(args[1:])
 	case "role-claim":

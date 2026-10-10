@@ -29,7 +29,6 @@ Commands:
   open-rotated-customer-material
   generate-controller-material
   generate-interregion-material
-  issue-observability-credentials
   render-interregion-config
   role-claim
   provision-controller-material

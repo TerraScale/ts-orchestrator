@@ -180,9 +180,7 @@ The replacement signed generation must retain the checkpoint's independently
 observed regional operator, system/cell accounts and store identity. Pin exact
 immutable Vault versions and verify the new role signer, credentials and
 reviewed topology. Generating fresh regional account keys is not an in-place
-cutover. `issue-observability-credentials` requires a separately reviewed v1
-interregion directory before issuance; this PR supplies no retired-directory
-reader or automatic metadata conversion.
+cutover.
 
 The installer replaces only the exact root-signed opaque predecessor hashes
 for the installed and durable generation chains. The signed reset similarly

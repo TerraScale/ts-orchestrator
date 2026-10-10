@@ -215,26 +215,18 @@ func BrokerOperatorPublishPermissions(cell string) jwt.StringList {
 	}
 }
 
-// ControllerPublishes is the regional controller's publish surface.
+// ControllerPublishes is the regional controller's publish surface. It also
+// names every region's summary, decision and read-only query services by
+// pattern, so no region needs its own grant; remote snapshots, journals and
+// mutations stay out.
 func ControllerPublishes(cell string) jwt.StringList {
-	return jwt.StringList{protocol.Regional(cell, ">"), protocol.Control(cell, ">"), "$JS.API.>", "$KV.>", "$O.>",
+	publishes := jwt.StringList{protocol.Regional(cell, ">"), protocol.Control(cell, ">"), "$JS.API.>", "$KV.>", "$O.>",
 		protocol.Broker(cell, "ticket", ">"), protocol.Broker(cell, "fence", ">")}
-}
-
-// ControllerObservabilityPublishes names only the two read-only services of
-// each reviewed peer; no remote snapshot, journal or mutation is granted.
-func ControllerObservabilityPublishes(peers []string) (jwt.StringList, error) {
-	var subjects jwt.StringList
-	for _, peer := range peers {
-		for _, leaf := range protocol.InterRegionObservabilityLeaves() {
-			subject, err := protocol.ObservabilitySubject(peer, leaf)
-			if err != nil {
-				return nil, fmt.Errorf("controller observability peer %q: %w", peer, err)
-			}
-			subjects.Add(subject)
-		}
+	for _, leaf := range protocol.InterRegionObservabilityLeaves() {
+		publishes.Add(protocol.AnyRegionObservabilitySubject(leaf))
 	}
-	return subjects, nil
+	publishes.Add(protocol.AnyRegionQuerySubject())
+	return publishes
 }
 
 // ControllerSubscriptions is the exact regional request surface a controller
@@ -255,6 +247,8 @@ func ControllerSubscriptions(cell string) []string {
 		// lacks it; such a controller sees no proofs, so its executor holds
 		// every rollout in preflight and nothing moves.
 		protocol.RolloutProofSubject(cell, ""),
+		// Read-only query services this region answers for every region.
+		protocol.Regional(cell, "query", ">"),
 	}
 }
 

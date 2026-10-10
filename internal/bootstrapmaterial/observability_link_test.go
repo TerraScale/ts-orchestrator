@@ -163,7 +163,7 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 	}
 	names := []string{"controller-a", "controller-b", "controller-c"}
 	for index := range regions {
-		r, peer := &regions[index], regions[1-index].record.Cell
+		r := &regions[index]
 		old := read(r.material, "controller-a.creds")
 		raw, err := jwt.ParseDecoratedJWT(old)
 		if err != nil {
@@ -173,7 +173,7 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// Model deficient installed credentials; fresh issuance always grants telemetry.
+		// Model deficient installed credentials; founding material always grants telemetry.
 		claim.Sub.Allow.Remove(protocol.ObservabilityGrant(r.record.Cell))
 		signer, err := nkeys.FromSeed(bytes.TrimSpace(read(r.material, "issuer-cell.seed")))
 		if err != nil {
@@ -218,17 +218,9 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 			permissionDenied(conn, failures, protocol.InterRegionObservabilitySubject(r.record.Cell, responder.leaf))
 			_ = sub.Unsubscribe()
 		}
-		for _, leaf := range protocol.InterRegionObservabilityLeaves() {
-			requestDenied(conn, failures, protocol.InterRegionObservabilitySubject(peer, leaf))
-		}
 		conn.Close()
 		for _, slot := range names {
-			credentials, err := IssueControllerObservabilityCredentials(read(r.material, slot+".creds"), read(r.material, "issuer-cell.seed"),
-				r.record.Cell, slot, r.broker.CellAccount(), []string{peer}, r.record.Config.Topology.Hub == r.record.Cell)
-			if err != nil {
-				t.Fatal(err)
-			}
-			conn, failures := connect(r, slot, credentials)
+			conn, failures := connect(r, slot, read(r.material, slot+".creds"))
 			r.clients, r.errors = append(r.clients, conn), append(r.errors, failures)
 			collector, err := observability.NewCollector(observability.CollectorConfig{Cell: r.record.Cell, Member: slot, Role: "controller",
 				System: func() (observability.SystemView, error) { return observability.SystemView{}, nil }})
@@ -312,8 +304,6 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 				protocol.InterRegionObservabilitySubject(peer, observability.SnapshotLeaf),
 				protocol.InterRegionObservabilitySubject(peer, decisionlog.JournalLeaf),
 				protocol.PlacementApplySubject(peer),
-				protocol.InterRegionObservabilitySubject("fra", regionview.SummaryLeaf),
-				protocol.InterRegionObservabilitySubject("fra", decisionlog.QueryLeaf),
 			} {
 				requestDenied(conn, r.errors[clientIndex], subject)
 				sub, err := conn.SubscribeSync(subject)

@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,71 +70,6 @@ func TestGenerateInterRegionMaterialWritesThePublicInventory(t *testing.T) {
 			t.Fatalf("public inventory carries %s (%v)", name, err)
 		}
 	}
-	base, err := bootstrapmaterial.Load(material)
-	if err != nil {
-		t.Fatal(err)
-	}
-	credentialsOut := filepath.Join(root, "controller-a-observability.creds")
-	for _, test := range []struct {
-		name, directory, want string
-		now                   time.Time
-		cause                 error
-	}{
-		{"incomplete", filepath.Join(root, "missing"), "load interregion material", now, bootstrapmaterial.ErrMaterial},
-		{"future", filepath.Join(root, "interregion"), "not yet valid", record.IssuedAt.Add(-time.Nanosecond), nil},
-		{"expired", filepath.Join(root, "interregion"), "has expired", record.ExpiresAt, nil},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			err := (command{ctx: t.Context(), output: &output}).runAt([]string{"issue-observability-credentials",
-				"--credentials", filepath.Join(material, "controller-a.creds"), "--account-seed", filepath.Join(material, "issuer-cell.seed"),
-				"--interregion-directory", test.directory, "--slot", "controller-a", "--cell-account", base.Public.CellAccountNKey,
-				"--out", credentialsOut}, test.now)
-			if err == nil || !strings.Contains(err.Error(), test.want) || test.cause != nil && !errors.Is(err, test.cause) {
-				t.Fatalf("want %q with cause %v, got %v", test.want, test.cause, err)
-			}
-			if _, err := os.Stat(credentialsOut); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("invalid interregion material created credentials: %v", err)
-			}
-		})
-	}
-	issueAt := func(slot, account, outputPath string, at time.Time) error {
-		return (command{ctx: t.Context(), output: &output}).runAt([]string{"issue-observability-credentials", "--credentials", filepath.Join(material, "controller-a.creds"),
-			"--account-seed", filepath.Join(material, "issuer-cell.seed"), "--interregion-directory", filepath.Join(root, "interregion"),
-			"--slot", slot, "--cell-account", account, "--out", outputPath}, at)
-	}
-	issue := func(slot, account string) error {
-		return issueAt(slot, account, credentialsOut, record.IssuedAt)
-	}
-	immutableOutput := filepath.Join(root, "interregion", "controller-a-observability.creds")
-	if err := issueAt("controller-a", base.Public.CellAccountNKey, immutableOutput, record.IssuedAt); err == nil {
-		t.Fatal("credential output inside immutable interregion material accepted")
-	}
-	if _, err := os.Stat(immutableOutput); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("immutable interregion directory changed: %v", err)
-	}
-	if issue("controller-d", base.Public.CellAccountNKey) == nil {
-		t.Fatal("unknown slot accepted")
-	}
-	if issue("controller-a", base.Public.SystemAccountNKey) == nil {
-		t.Fatal("wrong cell account accepted")
-	}
-	if err := issue("controller-a", base.Public.CellAccountNKey); err != nil {
-		t.Fatal(err)
-	}
-	creds, err := os.ReadFile(credentialsOut)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := bootstrapmaterial.CheckControllerObservabilityCredentials(creds, "gru", "controller-a", base.Public.CellAccountNKey, []string{"sfo"}, true); err != nil {
-		t.Fatal(err)
-	}
-	if issue("controller-a", base.Public.CellAccountNKey) == nil {
-		t.Fatal("existing credentials overwritten")
-	}
-	if bytes.Contains(output.Bytes(), creds) {
-		t.Fatal("private credentials printed")
-	}
-
 	// The hub's block for one slot, at the installed paths.
 	block := filepath.Join(root, "interregion-controller-b.json")
 	render := func(extra ...string) error {

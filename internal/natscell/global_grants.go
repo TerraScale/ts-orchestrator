@@ -13,8 +13,11 @@ import (
 // GlobalControllerPublishes is what a controller in the global home region
 // publishes beyond its regional grants: the global-scope authority lease and
 // journal (ts.control.global.>) and the fenced global state records
-// (ts.global.v1.>). Only home-region controller credentials carry them; every
-// other region reads its mirror through the JetStream API it already has.
+// (ts.global.v1.>). The controller role carries them in every region, so a
+// credential never depends on which region is the home: only the global lease
+// holder writes, fenced by the lease and the stream's compare-and-set, and
+// neither namespace crosses a region link, so outside the home they reach
+// nothing.
 func GlobalControllerPublishes() []string {
 	return []string{protocol.Control(protocol.GlobalScope, ">"), protocol.GlobalState(">")}
 }

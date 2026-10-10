@@ -319,6 +319,9 @@ func TestSubjectBuildersUseVersionedRegionalAndHashedAgentScopes(t *testing.T) {
 	if wildcard := ObservabilityGrant("global"); wildcard != "" {
 		t.Fatalf("ObservabilityGrant(global) = %q, want empty", wildcard)
 	}
+	if pattern := AnyRegionObservabilitySubject(ObservabilityDecisionsLeaf); pattern != "ts.orch.v1.*.obs.decisions" {
+		t.Fatalf("AnyRegionObservabilitySubject() = %q", pattern)
+	}
 	if _, err := ObservabilitySubject("GRU", "snap.*"); !errors.Is(err, ErrInvalidSubjectToken) {
 		t.Fatalf("ObservabilitySubject(injected token) error = %v, want ErrInvalidSubjectToken", err)
 	}

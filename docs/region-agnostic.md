@@ -129,8 +129,8 @@ either.
 
 Deleted: the interregion account and its contract, per-peer imports and
 exports, per-child signing keys, `LeafTopology`/subtrees, per-pair leaf
-credentials, `generate-interregion-material`, `render-interregion-config`,
-`ControllerObservabilityPublishes` and `issue-observability-credentials`.
+credentials, `generate-interregion-material`, `render-interregion-config`, and per-peer
+controller telemetry grants (controllers hold `ts.orch.v1.*.obs.*` patterns).
 
 ## Discovery
 

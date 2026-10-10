@@ -394,11 +394,7 @@ func (check *generationCheck) controllerConfig(generation bootstrap.MaterialGene
 			check.fail(credsName + " must be present and referenced at its installed path by its own cell and slot's config")
 			return false
 		}
-		var peers []string
-		if ir != nil {
-			peers = ir.Peers
-		}
-		if err := CheckControllerObservabilityCredentials(files[credsName], nats.Cell, slot, generation.CellAccount, peers, home == nats.Cell); err != nil {
+		if err := CheckControllerCredentials(files[credsName], nats.Cell, slot, generation.CellAccount); err != nil {
 			check.fail(credsName + ": " + err.Error())
 		} else if raw, err := jwt.ParseDecoratedJWT(files[credsName]); err == nil {
 			claim, err := jwt.DecodeUserClaims(raw)

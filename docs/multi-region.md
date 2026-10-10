@@ -169,10 +169,10 @@ block is merged into the controller config the material generation pins.
 
 The dashboard link checks a version-1 remote `obs.region` response, with a
 1.5-second timeout. A connected leaf alone does not make that check green.
-Controllers need the local `obs.>` subscription and exact configured-peer
-`obs.region`/`obs.decisions` publishes. For existing cells, rotate them with
-the offline credential command and a [signed material generation](material-generation.md#sign-a-generation).
-This leaves remote snapshots, raw journals and mutations unexported. Verify
+Controllers hold the local `obs.>` subscription and the publish patterns
+`ts.orch.v1.*.obs.region` and `ts.orch.v1.*.obs.decisions`. They are valid
+whatever regions exist, so a new region needs no credential change. This
+leaves remote snapshots, raw journals and mutations unexported. Verify
 TerraBase replication separately; dashboard summary success proves control
 plane request/reply traffic, not database catch-up.
 

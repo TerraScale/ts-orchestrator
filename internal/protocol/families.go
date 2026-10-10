@@ -238,6 +238,14 @@ func InterRegionObservabilityLeaves() []string {
 // observability leaf of cell, for example ts.orch.v1.gru.obs.region.
 func InterRegionObservabilitySubject(cell, leaf string) string { return Regional(cell, "obs", leaf) }
 
+// AnyRegionObservabilitySubject is leaf's read-only service in every region, for role grants.
+func AnyRegionObservabilitySubject(leaf string) string {
+	return joinSubject(SubjectRoot, []string{"*", "obs", leaf})
+}
+
+// AnyRegionQuerySubject is every region's read-only query services, for role grants.
+func AnyRegionQuerySubject() string { return SubjectRoot + ".*.query.>" }
+
 // RoleQueryTemplates are a role user's query grants (TS-668), with cell and
 // verb as user-template expressions such as {{tag(cell)}}: it requests verb
 // in every cell, across the interregion links too, and answers it only in

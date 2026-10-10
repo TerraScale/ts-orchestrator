@@ -239,6 +239,8 @@ func TestCheckGenerationControllerCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, grant := range natscell.GlobalControllerPublishes() {
+		// The controller role is the same in every region: only the global
+		// lease holder uses these grants.
 		t.Run("non-home "+grant, func(t *testing.T) {
 			creds := material.Files["controller-a.creds"]
 			raw, _ := jwt.ParseDecoratedJWT(creds)
@@ -253,9 +255,8 @@ func TestCheckGenerationControllerCredentials(t *testing.T) {
 			seed, _ := user.Seed()
 			defer clear(seed)
 			widened, _ := jwt.FormatUserConfig(encoded, seed)
-			if _, err := check(material.With(map[string][]byte{"controller-a.creds": widened})); err == nil ||
-				!strings.Contains(err.Error(), "unscoped publish") {
-				t.Fatalf("non-home global grant passed generation validation: %v", err)
+			if _, err := check(material.With(map[string][]byte{"controller-a.creds": widened})); err != nil {
+				t.Fatalf("non-home global grant refused: %v", err)
 			}
 		})
 	}
