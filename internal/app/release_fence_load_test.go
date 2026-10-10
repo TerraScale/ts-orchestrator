@@ -157,19 +157,18 @@ func TestTerraBaseReleaseFenceUnderLoad(t *testing.T) {
 				return nil
 			}
 			gateCalls := 0
-			releases := &serviceReleases{cell: "gru", deliveries: service, hosts: cell, fencer: fence.fencer,
-				fences: fence, wait: 10 * time.Second, canary: func(_ context.Context, target canaryTarget) map[string]string {
-					cell.mu.Lock()
-					defer cell.mu.Unlock()
-					gateCalls++
-					if target.Role != terrabase.Role || target.Node != "ctl-1" || len(cell.restarts) > 1 {
-						t.Errorf("canary %+v ran after restarts %v", target, cell.restarts)
-					}
-					if scenario == "canary failure" && len(cell.restarts) == 1 {
-						return map[string]string{checkDocuments: "injected candidate regression"}
-					}
-					return nil
-				}}
+			canary := func(_ context.Context, target canaryTarget) map[string]string {
+				cell.mu.Lock()
+				defer cell.mu.Unlock()
+				gateCalls++
+				if target.Role != terrabase.Role || target.Node != "ctl-1" || len(cell.restarts) > 1 {
+					t.Errorf("canary %+v ran after restarts %v", target, cell.restarts)
+				}
+				if scenario == "canary failure" && len(cell.restarts) == 1 {
+					return map[string]string{checkDocuments: "injected candidate regression"}
+				}
+				return nil
+			}
 			intent := nativeIntent(candidate, nativeRelease{Role: terrabase.Role, Replicas: 3}, 7)
 			intent.SchemaVersion, intent.OperationID, intent.AuthorityEpoch = delivery.SchemaVersion, entityid.Derive("test-operation", "traffic-upgrade"), 3
 			state := serviceReleaseState{State: releasechannel.StateRolling, Actor: "ops", Digest: candidate.Digest,
@@ -182,7 +181,61 @@ func TestTerraBaseReleaseFenceUnderLoad(t *testing.T) {
 			if err := save(state); err != nil {
 				t.Fatal(err)
 			}
-			state, err = releases.release(ctx, kv, terrabase.Role, state, save)
+			// This modeled traffic fixture supplies test-only preparation/proofs;
+			// signed profile history is exercised by the native app integrations.
+			deployer := nativeDeployer{service: service, hosts: cell, sequence: fence.sequence, canary: canary,
+				prepare: func(_ context.Context, i delivery.Intent, _, _ string) (delivery.Intent, *nativeRollbackTarget, error) {
+					return i, &nativeRollbackTarget{Artifact: previous, ConfigDigest: intent.ConfigDigest, Replicas: 3}, nil
+				},
+				submit: func(ctx context.Context, i delivery.Intent) (delivery.Intent, string, error) {
+					if i.OperationID == "" {
+						i.OperationID = entityid.New()
+						i.AuthorityEpoch = 3
+					}
+					fp, err := i.Fingerprint()
+					if err != nil {
+						return i, "", err
+					}
+					if err := fence.prepare(ctx, i); err != nil {
+						return i, "", err
+					}
+					return i, fp, service.SubmitVerified(ctx, i, "ops")
+				},
+				observe: func(ctx context.Context, i delivery.Intent) (bool, error) {
+					statuses, err := cell.ListHosts(ctx)
+					if err != nil {
+						return false, err
+					}
+					desired, err := cell.ListDesired(ctx, i.Role)
+					if err != nil {
+						return false, err
+					}
+					for j := range desired {
+						desired[j].Cell, desired[j].Environment, desired[j].Digest = i.Cell, i.Environment, i.ArtifactDigest
+					}
+					for j := range statuses {
+						s := &statuses[j]
+						s.Verified, s.SessionExpiresAt = true, time.Now().Add(time.Minute)
+						s.Registration = host.Registration{Cell: i.Cell, Node: s.Reports[0].Node, Environment: i.Environment, Roles: []string{i.Role}}
+						s.Reports[0].Cell, s.Reports[0].SessionID, s.Reports[0].Epoch = i.Cell, entityid.Derive("test-session", s.Registration.Node), 3
+					}
+					nodes, err := nativeReady(statuses, desired, i, time.Now())
+					return len(nodes) == i.DesiredReplicas, err
+				},
+				recovering: func(ctx context.Context, recovery delivery.Intent, cause error) (delivery.Intent, error) {
+					recovery.OperationID, recovery.AuthorityEpoch = entityid.New(), 3
+					state.Rollback, state.Reason = &recovery, cause.Error()
+					if err := markKnownBad(ctx, kv, terrabase.Role, candidate.Digest, cause); err != nil {
+						return recovery, err
+					}
+					return recovery, save(state)
+				}}
+			gateErr := deployer.roll(ctx, intent, 10*time.Second, io.Discard)
+			if gateErr == nil {
+				state.State = releasechannel.StateComplete
+			} else {
+				state.State, state.Reason = releasechannel.StateFailed, gateErr.Error()
+			}
 			finish()
 			if err != nil {
 				t.Fatal(err)

@@ -20,7 +20,8 @@ import (
 )
 
 type regionalDeliveryPlanner struct {
-	hosts *host.Controller
+	nativeHistory *nativeHistory
+	hosts         *host.Controller
 	// profiles returns the current cell spec's delivery profiles.
 	profiles func() map[string]WorkloadProfile
 	// address returns the private address the cell spec grants a node.
@@ -29,6 +30,12 @@ type regionalDeliveryPlanner struct {
 }
 
 func (p *regionalDeliveryPlanner) ApplyDesired(ctx context.Context, desired host.Desired) (host.Receipt, error) {
+	if slices.Contains(serviceReleaseRoles, desired.Role) {
+		if p.nativeHistory == nil {
+			return host.Receipt{}, errors.New("native signed profile history is unavailable")
+		}
+		return p.nativeHistory.ApplyDesired(ctx, desired)
+	}
 	return p.hosts.ApplyDesired(ctx, desired)
 }
 
@@ -139,10 +146,10 @@ func terraBasePlacement(profile WorkloadProfile, replicas int, candidates []plac
 // not with its host, so the release replaces it in place instead of
 // quarantining the host: the rollback of a release that crashed on every
 // replica must not need as many spare hosts as there are replicas.
-func releaseFailures(observation workload.Observation, digest string) []placement.Assignment {
+func releaseFailures(observation workload.Observation, digest, configDigest string) []placement.Assignment {
 	previous := slices.Clone(observation.Assignments)
 	for i, assignment := range previous {
-		if active, ok := observation.Active[assignment.Node]; ok && active.Digest != digest {
+		if active, ok := observation.Active[assignment.Node]; ok && (active.Digest != digest || delivery.ConfigDigestOf(active.Args, active.Env, active.Secrets) != configDigest) {
 			previous[i].Pending = true
 		}
 	}
@@ -165,6 +172,17 @@ func (p *regionalDeliveryPlanner) plan(ctx context.Context, intent delivery.Inte
 	if !ok {
 		return nil, fmt.Errorf("no workload profile for role %q", intent.Role)
 	}
+	if slices.Contains(serviceReleaseRoles, intent.Role) {
+		if p.nativeHistory == nil {
+			return nil, errors.New("native signed profile history is unavailable")
+		}
+		var err error
+		profile, err = p.nativeHistory.profile(ctx, intent)
+		if err != nil {
+			return nil, err
+		}
+		profiles[intent.Role] = profile
+	}
 	if delivery.ConfigDigestOf(profile.Args, profile.Env, profile.Secrets) != intent.ConfigDigest {
 		return nil, errors.New("intent configuration digest differs from controller workload profile")
 	}
@@ -176,9 +194,18 @@ func (p *regionalDeliveryPlanner) plan(ctx context.Context, intent delivery.Inte
 	if err != nil {
 		return nil, err
 	}
+	if p.nativeHistory == nil {
+		return nil, errors.New("native signed profile history is unavailable")
+	}
+	// The target uses its prepared profile; colocated roles use their committed reservations.
+	otherAllocations := slices.DeleteFunc(slices.Clone(allocations), func(d host.Desired) bool { return d.Role == intent.Role })
+	resources, err := p.nativeHistory.resources(ctx, otherAllocations, profileResources(profiles))
+	if err != nil {
+		return nil, err
+	}
 	observation, err := workload.Observe(workload.Snapshot{
 		Cell: intent.Cell, Environment: intent.Environment, Role: intent.Role,
-		Hosts: statuses, Desired: allocations, Profiles: profileResources(profiles), Now: time.Now(),
+		Hosts: statuses, Desired: allocations, Profiles: resources, Now: time.Now(),
 	})
 	if err != nil {
 		return nil, err
@@ -186,7 +213,7 @@ func (p *regionalDeliveryPlanner) plan(ctx context.Context, intent delivery.Inte
 	if *shape, err = shapeOf(observation); err != nil {
 		return nil, err
 	}
-	candidates, previous := observation.Candidates, releaseFailures(observation, intent.ArtifactDigest)
+	candidates, previous := observation.Candidates, releaseFailures(observation, intent.ArtifactDigest, intent.ConfigDigest)
 	if intent.Role == terrabase.Role {
 		if candidates, previous, err = terraBasePlacement(profile, shape.Replicas, candidates, previous, p.address); err != nil {
 			return nil, err

@@ -41,12 +41,13 @@ const (
 // quota and deletes the artifacts no host needs, from the authority leader,
 // so releases never wait on a hand cleanup (TS-576).
 type artifactStoreKeeper struct {
-	control  authority.Fencer
-	service  *delivery.Service
-	hosts    *host.Controller
-	quota    func() int64
-	storeDir string
-	netbird  *netbirdRollout
+	control       authority.Fencer
+	service       *delivery.Service
+	hosts         *host.Controller
+	quota         func() int64
+	storeDir      string
+	netbird       *netbirdRollout
+	nativeHistory *nativeHistory
 }
 
 func (k artifactStoreKeeper) Run(ctx context.Context) error {
@@ -74,6 +75,11 @@ func (k artifactStoreKeeper) pass(ctx context.Context) {
 	}
 	collection, err := k.service.CollectArtifacts(ctx, func(ctx context.Context) ([]delivery.ArtifactUse, error) {
 		uses, err := artifactsInUse(ctx, k.hosts)
+		if err == nil && k.nativeHistory != nil {
+			var native []delivery.ArtifactUse
+			native, err = k.nativeHistory.artifactsInUse(ctx)
+			uses = append(uses, native...)
+		}
 		if err != nil || k.netbird == nil {
 			return uses, err
 		}

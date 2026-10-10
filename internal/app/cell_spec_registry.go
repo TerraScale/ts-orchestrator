@@ -48,8 +48,9 @@ const (
 // replicated KV record, and every controller re-verifies that record before
 // it uses it.
 type specRegistry struct {
-	cell     string
-	identity cellspec.Identity
+	nativeHistory *nativeHistory
+	cell          string
+	identity      cellspec.Identity
 	// roots is the cell's root chain; nil when the controller cannot verify
 	// specs (a lab without spec_trust): it then refuses every amendment.
 	roots *rootRegistry

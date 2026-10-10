@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"time"
@@ -525,6 +526,10 @@ func operationValueFromMsg(subject string, msg *nats.RawStreamMsg) (*operationVa
 }
 
 func (s *Service) Status(ctx context.Context, operationID string) (Receipt, error) {
+	return s.status(ctx, operationID, "")
+}
+
+func (s *Service) status(ctx context.Context, operationID, expectedFingerprint string) (Receipt, error) {
 	if s == nil || !entityid.Valid(operationID) {
 		return Receipt{}, ErrInvalid
 	}
@@ -546,6 +551,9 @@ func (s *Service) Status(ctx context.Context, operationID string) (Receipt, erro
 	if err != nil || fingerprint != op.Fingerprint {
 		return Receipt{}, fmt.Errorf("%w: invalid durable operation fingerprint", ErrInvalid)
 	}
+	if expectedFingerprint != "" && fingerprint != expectedFingerprint {
+		return Receipt{}, ErrConflict
+	}
 	if op.Receipt == nil {
 		return Receipt{}, ErrPending
 	}
@@ -560,12 +568,52 @@ func (s *Service) StatusFor(ctx context.Context, intent Intent) (Receipt, error)
 	if err != nil {
 		return Receipt{}, err
 	}
-	r, err := s.Status(ctx, intent.OperationID)
+	return s.status(ctx, intent.OperationID, fingerprint)
+}
+
+// AcceptedIntent finds the exact accepted release identity for a serving
+// baseline that predates the native good-history index. It never infers
+// acceptance from host desired state alone.
+func (s *Service) AcceptedIntent(ctx context.Context, target Intent) (Intent, error) {
+	legacy, err := s.config.Conn.JetStream()
 	if err != nil {
-		return Receipt{}, err
+		return Intent{}, err
 	}
-	if r.Fingerprint != fingerprint {
-		return Receipt{}, ErrConflict
+	messages, err := lastMessages(ctx, s.js, legacy, "KV_"+OperationBucket, "$KV."+OperationBucket+".>")
+	if err != nil {
+		return Intent{}, err
 	}
-	return r, nil
+	var found *Intent
+	for _, message := range messages {
+		if message.Header.Get("KV-Operation") != "" {
+			continue
+		}
+		var op operation
+		if err := jsonv2.Unmarshal(message.Data, &op); err != nil {
+			return Intent{}, fmt.Errorf("decode baseline delivery: %w", err)
+		}
+		i := op.Intent
+		if i.OperationID == "" || message.Subject != "$KV."+OperationBucket+"."+operationKey(i.OperationID) {
+			continue
+		}
+		if i.Cell != target.Cell || i.Role != target.Role || i.Environment != target.Environment ||
+			i.ArtifactDigest != target.ArtifactDigest || i.ConfigDigest != target.ConfigDigest || i.Generation != target.Generation {
+			continue
+		}
+		receipt, err := s.StatusFor(ctx, i)
+		if err != nil {
+			return Intent{}, err
+		}
+		if receipt.Status != "accepted" {
+			continue
+		}
+		if found != nil {
+			return Intent{}, fmt.Errorf("%w: ambiguous accepted baseline", ErrConflict)
+		}
+		found = &i
+	}
+	if found == nil {
+		return Intent{}, ErrPending
+	}
+	return *found, nil
 }

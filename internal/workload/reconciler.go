@@ -42,9 +42,12 @@ type Config struct {
 	Cell     string
 	Specs    []ServiceSpec
 	Profiles map[string]placement.Resources
-	Hosts    HostView
-	Writer   DesiredWriter
-	Fencer   authority.Fencer
+	// ReleaseResources resolves reservations from accepted release profiles;
+	// desired templates do not carry resource reservations.
+	ReleaseResources func(context.Context, []host.Desired, map[string]placement.Resources) (map[string]placement.Resources, error)
+	Hosts            HostView
+	Writer           DesiredWriter
+	Fencer           authority.Fencer
 	// Signals feeds autoscaling; nil disables signal-driven scaling while
 	// keeping self-healing and bound enforcement.
 	Signals  autoscale.Source
@@ -301,10 +304,19 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if r.config.ReleaseResources != nil {
+		profiles, err = r.config.ReleaseResources(ctx, desired, profiles)
+		if err != nil {
+			return err
+		}
+	}
 	var errs []error
 	for _, spec := range specs {
 		if spec.Kind != KindStateless {
 			continue
+		}
+		if r.config.ReleaseResources != nil && spec.Resources != (placement.Resources{}) {
+			spec.Resources = profiles[spec.Role]
 		}
 		// Every service plans against the allocations earlier services
 		// committed in this tick, so two services can never both claim

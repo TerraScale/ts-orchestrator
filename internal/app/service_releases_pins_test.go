@@ -21,13 +21,14 @@ import (
 
 func servicePinsFixture(t *testing.T) (*serviceReleases, jetstream.KeyValue, *channelBucket, releasechannel.Location) {
 	t.Helper()
-	kv, err := openChannelBucket(t.Context(), testRolloutJetStream(t), 1)
+	js := testRolloutJetStream(t)
+	kv, err := openChannelBucket(t.Context(), js, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	bucket := newChannelBucket()
 	location := releasechannel.Location{Client: bucket, Namespace: "ns", Bucket: "gru-1-head"}
-	r := &serviceReleases{cell: "gru", channel: &channelSource{location: &location}, fencer: rolloutTestFence{epoch: 7}}
+	r := &serviceReleases{js: js, cell: "gru", channel: &channelSource{location: &location}, fencer: rolloutTestFence{epoch: 7}}
 	return r, kv, bucket, location
 }
 

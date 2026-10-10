@@ -49,6 +49,8 @@ const (
 type canaryTarget struct {
 	Role, Node, Address string
 	Canary              cellspec.Canary
+	Baseline            bool
+	Profile             WorkloadProfile
 }
 
 // canaryGate runs live checks against a release's canary and returns each
@@ -102,8 +104,6 @@ type smokeGate struct {
 	// memberCA verifies a TerraBase canary's member certificate
 	// (controller.terrabase_ca_cert_file); nil fails its document check.
 	memberCA []byte
-	// clientPort is TerraBase's client port in the cell's profile.
-	clientPort func() int
 	// credentials reads the canary's credentials from Vault.
 	credentials func(context.Context, vaultsecret.Ref) (string, error)
 	// public is the client of the public origins and of a ts-auth canary.
@@ -115,8 +115,8 @@ type smokeGate struct {
 
 // newSmokeGate is the controller's gate: Vault through the instance
 // principal, and no redirect followed.
-func newSmokeGate(memberCA []byte, clientPort func() int) smokeGate {
-	return smokeGate{memberCA: memberCA, clientPort: clientPort,
+func newSmokeGate(memberCA []byte) smokeGate {
+	return smokeGate{memberCA: memberCA,
 		credentials: func(ctx context.Context, ref vaultsecret.Ref) (string, error) {
 			values, err := vaultsecret.ReadRefs(ctx, map[string]vaultsecret.Ref{cellspec.CanaryKey: ref})
 			return values[cellspec.CanaryKey], err
@@ -138,8 +138,15 @@ func (g smokeGate) check(ctx context.Context, target canaryTarget) map[string]st
 	case tsauth.Role:
 		authURL = "http://" + net.JoinHostPort(target.Address, strconv.Itoa(cmp.Or(g.authPort, tsauth.Port)))
 	case terrabase.Role:
-		apiURL = "https://" + net.JoinHostPort(target.Address, strconv.Itoa(g.clientPort()))
-		api, memberErr = g.member(target.Address)
+		var memberProfile terrabase.Profile
+		memberProfile, memberErr = terrabase.ParseProfile(target.Profile.Env)
+		if memberErr == nil && memberProfile.ClientPort == 0 {
+			memberErr = errors.New("the selected terrabase profile has no client port")
+		}
+		if memberErr == nil {
+			apiURL = "https://" + net.JoinHostPort(target.Address, strconv.Itoa(memberProfile.ClientPort))
+			api, memberErr = g.member(target.Address)
+		}
 	}
 	fail(checkAuthDiscovery, discoverAuth(ctx, g.public, authURL))
 	authKey, terraBaseKey, err := g.keys(ctx, canary.Credentials)
@@ -169,9 +176,6 @@ func (g smokeGate) member(address string) (*http.Client, error) {
 	roots := x509.NewCertPool()
 	if len(g.memberCA) == 0 || !roots.AppendCertsFromPEM(g.memberCA) {
 		return nil, errors.New("this controller has no TerraBase member CA")
-	}
-	if g.clientPort() == 0 {
-		return nil, errors.New("the terrabase profile has no client port")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{RootCAs: roots, ServerName: address, MinVersion: tls.VersionTLS12}

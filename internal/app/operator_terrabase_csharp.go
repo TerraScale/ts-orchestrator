@@ -9,9 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/seatrollout"
@@ -31,7 +35,7 @@ type terraBaseReleaseOptions struct {
 }
 
 // operatorTerraBaseRelease admits a C# TerraBase release and rolls every
-// member the profile's peer list names to it at once. The release passes its readiness gate
+// member the profile's peer list names through native preparation. The release passes its readiness gate
 // when every member reports the new digest running, which the host reports
 // only after the member's /healthz answers. A release that fails the gate is
 // rolled back to the digest the members ran before, which must pass the
@@ -112,24 +116,12 @@ func releaseNative(ctx context.Context, cfg Config, runtime *natscell.Runtime, t
 	if err != nil {
 		return err
 	}
-	reader, err := operatorHostReader(ctx, cfg, runtime)
+	deadline := time.Now().UTC().Add(min(options.Wait, rollout.ObservationBudget))
+	deployer, err := operatorNativeDeployer(ctx, cfg, runtime, deadline)
 	if err != nil {
 		return err
 	}
-	service, err := operatorService(ctx, cfg, runtime, true)
-	if err != nil {
-		return err
-	}
-	deployer := nativeDeployer{service: service, hosts: reader,
-		submit: func(ctx context.Context, intent delivery.Intent) (delivery.Intent, string, error) {
-			return submitTerraBaseIntent(ctx, cfg, runtime, intent)
-		}}
 	previous, generation, err := deployer.current(ctx, target.Role, options.Environment)
-	if err != nil {
-		return err
-	}
-	// Resolve the rollback target before anything changes.
-	rollback, err := deployer.rollbackTarget(ctx, previous, target.Digest, target.Role, options.Environment)
 	if err != nil {
 		return err
 	}
@@ -146,7 +138,56 @@ func releaseNative(ctx context.Context, cfg Config, runtime *natscell.Runtime, t
 	if err := printJSON(output, terraBaseReleaseStep{Step: "artifact", Digest: record.Digest, Previous: previous}); err != nil {
 		return err
 	}
-	return deployer.roll(ctx, nativeIntent(record, target, generation), rollback, options.Wait, output)
+	return deployer.roll(ctx, nativeIntent(record, target, generation), options.Wait, output)
+}
+
+func operatorNativeDeployer(ctx context.Context, cfg Config, runtime *natscell.Runtime, deadline time.Time) (nativeDeployer, error) {
+	setupCtx, stopSetup := context.WithTimeout(ctx, operatorSubmitSetupTimeout)
+	defer stopSetup()
+	reader, err := retryOperatorMetadata(setupCtx, func(attempt context.Context) (*host.Reader, error) {
+		return operatorHostReader(attempt, cfg, runtime)
+	})
+	if err != nil {
+		return nativeDeployer{}, err
+	}
+	service, err := retryOperatorMetadata(setupCtx, func(attempt context.Context) (*delivery.Service, error) {
+		return operatorService(attempt, cfg, runtime, true)
+	})
+	if err != nil {
+		return nativeDeployer{}, err
+	}
+	return nativeDeployer{service: service, hosts: reader,
+		prepare: func(ctx context.Context, intent delivery.Intent, recoveryOf, resumeOf string) (delivery.Intent, *nativeRollbackTarget, error) {
+			if intent.SchemaVersion == 0 {
+				intent.SchemaVersion = delivery.SchemaVersion
+			}
+			if intent.Cell == "" {
+				intent.Cell = cfg.NATS.Cell
+			}
+			if intent.OperationID == "" {
+				intent.OperationID = entityid.New()
+			}
+			if intent.AuthorityEpoch == 0 {
+				readCtx, stopRead := context.WithTimeout(ctx, operatorSubmitSetupTimeout)
+				epoch, err := observeOperatorAuthority(readCtx, func(attempt context.Context) (authority.Snapshot, error) {
+					return authority.Observe(attempt, runtime.JetStream(), cfg.NATS.Cell)
+				})
+				stopRead()
+				if err != nil {
+					return intent, nil, err
+				}
+				intent.AuthorityEpoch = epoch
+			}
+			reply, err := requestNativeRelease(ctx, cfg, runtime, nativePrepareKind, nativePrepareRequest{Intent: intent, RecoveryOf: recoveryOf, ResumeOf: resumeOf, Deadline: deadline})
+			return reply.Intent, reply.Previous, err
+		},
+		observe: func(ctx context.Context, intent delivery.Intent) (bool, error) {
+			reply, err := requestNativeRelease(ctx, cfg, runtime, nativeObserveKind, nativePrepareRequest{Intent: intent})
+			return reply.Ready, err
+		},
+		submit: func(ctx context.Context, intent delivery.Intent) (delivery.Intent, string, error) {
+			return submitTerraBaseIntent(ctx, cfg, runtime, intent)
+		}}, nil
 }
 
 // errReplicasDisagree refuses a release while the role's running replicas
@@ -173,6 +214,10 @@ type nativeDeployer struct {
 	service *delivery.Service
 	hosts   seatrollout.Hosts
 	submit  func(context.Context, delivery.Intent) (delivery.Intent, string, error)
+	prepare func(context.Context, delivery.Intent, string, string) (delivery.Intent, *nativeRollbackTarget, error)
+	observe func(context.Context, delivery.Intent) (bool, error)
+	target  *nativeRollbackTarget
+	bound   bool
 	// recovering, when set, records the rollback intent, and the gate error
 	// that caused it, before roll submits it and returns the intent to
 	// submit.
@@ -207,24 +252,27 @@ func nativeIntent(record delivery.ArtifactRecord, release nativeRelease, generat
 		ConfigDigest: delivery.ConfigDigestOf(profile.Args, profile.Env, profile.Secrets)}
 }
 
-// rollbackTarget is the admitted artifact of previous, the digest the
-// replicas run before a release of digest; none when they run none or it.
-func (d nativeDeployer) rollbackTarget(ctx context.Context, previous, digest, role, environment string) (delivery.ArtifactRecord, error) {
-	if previous == "" || previous == digest {
-		return delivery.ArtifactRecord{}, nil
-	}
-	rollback, err := d.service.ResolveAdmittedArtifact(ctx, previous, role, environment)
-	if err != nil {
-		return delivery.ArtifactRecord{}, fmt.Errorf("resolve rollback artifact %s: %w", previous, err)
-	}
-	return rollback, nil
-}
-
 // roll submits intent and waits for its readiness gate. A release that
-// fails the gate is rolled back to rollback (rollbackTarget), which must
+// fails the gate is rolled back to its persisted target, which must
 // pass the same gate; roll then fails.
-func (d nativeDeployer) roll(ctx context.Context, intent delivery.Intent, rollback delivery.ArtifactRecord, wait time.Duration, output io.Writer) error {
+func (d nativeDeployer) roll(ctx context.Context, intent delivery.Intent, wait time.Duration, output io.Writer) error {
+	if d.prepare == nil || d.observe == nil {
+		return errors.New("native deployer requires signed profile preparation and verified observation")
+	}
+	good := d.target
+	var rollback delivery.ArtifactRecord
+	if !d.bound {
+		var err error
+		intent, good, err = d.prepare(ctx, intent, "", "")
+		if err != nil {
+			return fmt.Errorf("%s release %s did not reach the members: prepare native release before host changes: %w", intent.Role, intent.ArtifactDigest, err)
+		}
+	}
+	if good != nil {
+		rollback = good.Artifact
+	}
 	role, digest, generation := intent.Role, intent.ArtifactDigest, intent.Generation
+	forwardIntent := intent
 	previous := rollback.Digest
 	changed, gateErr := d.rollOut(ctx, intent, wait, output)
 	switch {
@@ -236,6 +284,9 @@ func (d nativeDeployer) roll(ctx context.Context, intent delivery.Intent, rollba
 		return fmt.Errorf("%s release %s failed its readiness gate and there is no previous digest to roll back to: %w", role, digest, gateErr)
 	}
 	intent.Source, intent.ArtifactDigest, intent.ManifestDigest = rollback.Source, rollback.Digest, rollback.ManifestDigest
+	if good != nil {
+		intent.ConfigDigest, intent.DesiredReplicas = good.ConfigDigest, good.Replicas
+	}
 	intent.OperationID, intent.AuthorityEpoch, intent.Generation = "", 0, generation+1
 	// A rollback restores what served before; no canary gates it.
 	d.canary = nil
@@ -244,10 +295,24 @@ func (d nativeDeployer) roll(ctx context.Context, intent delivery.Intent, rollba
 	recoveryWait := rollout.ObservationBudget
 	recovery, cancel := context.WithTimeout(context.Background(), recoveryWait+time.Minute)
 	defer cancel()
+	desired, err := d.hosts.ListDesired(recovery, role)
+	if err != nil {
+		return fmt.Errorf("%w: read committed rollback generation: %w", errRecoveryNotStarted, err)
+	}
+	intent.Generation = max(intent.Generation, nextReleaseGeneration(desired))
+	if generation == ^uint64(0) || intent.Generation == 0 {
+		return fmt.Errorf("%w: %w", errRecoveryNotStarted, workload.ErrGenerationSpace)
+	}
 	if d.recovering != nil {
 		var err error
 		if intent, err = d.recovering(recovery, intent, gateErr); err != nil {
 			return fmt.Errorf("%s release %s failed its readiness gate (%w): %w: %w", role, digest, gateErr, errRecoveryNotStarted, err)
+		}
+	}
+	if d.prepare != nil {
+		var err error
+		if intent, _, err = d.prepare(recovery, intent, forwardIntent.OperationID, ""); err != nil {
+			return fmt.Errorf("%w: %w", errRecoveryNotStarted, err)
 		}
 	}
 	if _, err := d.rollOut(recovery, intent, recoveryWait, output); err != nil {
@@ -271,7 +336,10 @@ var submitTerraBaseIntent = submitIntent
 func (d nativeDeployer) rollOut(ctx context.Context, intent delivery.Intent, wait time.Duration, output io.Writer,
 ) (changed bool, _ error) {
 	wait = min(wait, rollout.ObservationBudget)
-	service, reader := d.service, d.hosts
+	service := d.service
+	if d.observe == nil {
+		return false, errors.New("native release requires verified observation")
+	}
 	if wait <= 0 {
 		// An expired persisted intent may already have changed members.
 		return true, context.DeadlineExceeded
@@ -307,16 +375,13 @@ func (d nativeDeployer) rollOut(ctx context.Context, intent delivery.Intent, wai
 			}
 		}
 		if accepted {
-			statuses, err := reader.ListHosts(gateCtx)
+			ready, err := d.observe(gateCtx, intent)
 			last = err
-			if err == nil {
-				ready, err := terraBaseReady(statuses, intent, time.Now())
-				if err != nil {
-					return true, err
-				}
-				if ready {
-					return true, printJSON(output, terraBaseReleaseStep{Step: "ready", Digest: intent.ArtifactDigest, Members: intent.DesiredReplicas})
-				}
+			if errors.Is(err, errBadRelease) {
+				return true, err
+			}
+			if err == nil && ready {
+				return true, printJSON(output, terraBaseReleaseStep{Step: "ready", Digest: intent.ArtifactDigest, Members: intent.DesiredReplicas})
 			}
 		}
 		select {
@@ -342,6 +407,31 @@ func (d nativeDeployer) rollOut(ctx context.Context, intent delivery.Intent, wai
 	}
 }
 
+func requestNativeRelease(ctx context.Context, cfg Config, runtime *natscell.Runtime, kind string, request nativePrepareRequest) (nativePrepareReply, error) {
+	wire, err := json.Marshal(request)
+	if err != nil {
+		return nativePrepareReply{}, err
+	}
+	if len(wire) > maxRegistrationBytes || int64(len(wire)+nativePayloadOverhead) > runtime.Conn().MaxPayload() {
+		return nativePrepareReply{}, errors.New("native release request exceeds broker payload bound")
+	}
+	wire, err = requestLeader(ctx, cfg, runtime, kind, "native release", wire)
+	if err != nil {
+		return nativePrepareReply{}, err
+	}
+	var reply nativePrepareReply
+	if err := protocol.DecodeStrict(wire, &reply, maxRegistrationBytes); err != nil {
+		return reply, err
+	}
+	if reply.Error != "" {
+		if strings.Contains(reply.Error, errBadRelease.Error()) {
+			return reply, fmt.Errorf("%w: %s", errBadRelease, reply.Error)
+		}
+		return reply, errors.New(reply.Error)
+	}
+	return reply, nil
+}
+
 // unchanged reports whether a durable delivery receipt proves that no
 // member's desired was written: a rejection, or a hold from the placement
 // planner, which comes before every write.
@@ -364,8 +454,8 @@ type terraBaseReleaseStep struct {
 	Members    int    `json:"members,omitzero"`
 }
 
-// releaseCurrent returns the digest the role's running replicas serve, the
-// only safe rollback target, and the next intent generation, above every
+// releaseCurrent returns the running replicas' digest for progress and the
+// next intent generation, above every
 // committed desired of the role, withdrawals included. A role the workload
 // reconciler owns commits release-scoped generations (release <<
 // workload.ReleaseShift), so its next intent is the next release. Running
@@ -397,28 +487,6 @@ func nextReleaseGeneration(desired []host.Desired) uint64 {
 		highest = release
 	}
 	return highest + 1
-}
-
-// terraBaseReady reports whether the intent's replicas all run its digest.
-// A reconciled role reports the release-scoped generation of the intent. A
-// failed replica fails the gate at once.
-func terraBaseReady(statuses []host.HostStatus, intent delivery.Intent, now time.Time) (bool, error) {
-	running := 0
-	for _, status := range statuses {
-		for _, report := range status.Reports {
-			if report.Role != intent.Role || report.Environment != intent.Environment || report.Digest != intent.ArtifactDigest ||
-				report.Generation != intent.Generation && workload.ReleaseOf(report.Generation) != intent.Generation {
-				continue
-			}
-			if report.State == "failed" {
-				return false, fmt.Errorf("%w: %s replica %s failed: %s", errBadRelease, intent.Role, report.Node, report.Error)
-			}
-			if report.State == "running" && now.Sub(report.ObservedAt) < host.ReportMaxAge {
-				running++
-			}
-		}
-	}
-	return running >= intent.DesiredReplicas, nil
 }
 
 // stickyWriter keeps the first write error and drops later output, so a

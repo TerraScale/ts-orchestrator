@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
@@ -61,6 +62,9 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	controllerCtx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	root := t.TempDir()
+	specKeys := newTestSpecTrust(t, root, cellspec.Identity{
+		DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "lab", Environment: "test"})
+	profile := WorkloadProfile{Resources: placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}}
 	var tlsFiles natscell.TLSFiles
 	var routePasswordFile string
 	if production {
@@ -91,7 +95,6 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	}
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{"terrabase"}, Environments: []string{"test"}, CanRegisterHosts: true}
-	specTrust := authorityTestSpecTrust(t, root, "lab")
 	configs := make([]string, 3)
 	for index := range configs {
 		instance := fmt.Sprintf("peer%d", index)
@@ -101,10 +104,10 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 					Host: "127.0.0.1", Port: clientPorts[index], RouteHost: "127.0.0.1", RoutePort: routePorts[index],
 					Routes: natscell.PeerRoutes(routes, routes[index]), StoreDir: filepath.Join(root, instance), StoreMaxBytes: 4 << 30, Users: grants,
 					TLS: tlsFiles, RouteTLS: tlsFiles, RouteUser: r3RouteUser(production), RoutePasswordFile: routePasswordFile}},
-			Controller: ControllerConfig{SpecTrust: specTrust, CandidateID: entityid.Derive("test-controller", instance), ResponseKeyFile: filepath.Join(root, "controller.key"),
+			Controller: ControllerConfig{CandidateID: entityid.Derive("test-controller", instance), ResponseKeyFile: filepath.Join(root, "controller.key"),
+				SpecTrust:             specKeys.config(),
 				ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
-				Workloads: map[string]WorkloadProfile{"terrabase": {Resources: placement.Resources{
-					CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}}}},
+				Workloads: map[string]WorkloadProfile{"terrabase": profile}},
 		})
 	}
 	children := make([]*controllerChild, 3)
@@ -146,12 +149,14 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 		t.Fatal(err)
 	}
 	defer probe.Close()
-	operatorConfig := testJSONFile(t, root, "operator.json", Config{Version: ConfigVersion,
+	operatorCfg := Config{Version: ConfigVersion,
 		NATS: natscell.Config{Cell: "lab", Instance: "operator", Replicas: 3, Lab: true,
 			URL: strings.Join(urls, ","), NKeySeedFile: operatorSeed, TLS: tlsFiles},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")},
-	})
+	}
+	operatorConfig := testJSONFile(t, root, "operator.json", operatorCfg)
+	applyNativeTestSpec(t, operatorCfg, probe, specKeys, []cellspec.Service{{Role: "terrabase", Profile: profile}}, 1)
 	registration := host.Registration{Cell: "lab", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
 		PublicKey: base64.StdEncoding.EncodeToString(hostPublic), NATSUserPublicKey: hostNKey, Generation: 1,
 		Capacity: host.Capacity{CPU: 2, MemoryBytes: 256 << 20, DiskBytes: 512 << 20}}

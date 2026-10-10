@@ -879,3 +879,48 @@ func TestReconcilerStopsWritingWhenServicesAreReplaced(t *testing.T) {
 		t.Fatalf("writes %v, results %v after the services were replaced", cell.writes, reconciler.Last())
 	}
 }
+
+func TestRetainedReleaseResourcesRestoreReplacementPlacement(t *testing.T) {
+	retained := testProfile
+	current := placement.Resources{CPU: retained.CPU * 2, MemoryBytes: retained.MemoryBytes * 2, DiskBytes: retained.DiskBytes * 2}
+	for _, restore := range []bool{false, true} {
+		t.Run(fmt.Sprint(restore), func(t *testing.T) {
+			cell := newFakeCell()
+			for _, node := range []string{"a", "b"} {
+				cell.addHost(node, node, true, func(r *host.Registration) {
+					r.Capacity = host.Capacity{CPU: retained.CPU, MemoryBytes: retained.MemoryBytes, DiskBytes: retained.DiskBytes}
+				})
+			}
+			generation, err := ReleaseGeneration(1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cell.seed("a", "api", testDigest, generation)
+			cell.run("a", "api", "running")
+			spec := statelessSpec(2, 2)
+			spec.Resources = current
+			capacity := &capacityRecorder{}
+			config := Config{Cell: "gru", Specs: []ServiceSpec{spec}, Profiles: map[string]placement.Resources{"api": current}, Hosts: cell, Writer: cell, Fencer: &fakeFencer{leader: true, epoch: 2}, Now: func() time.Time { return testNow }, Capacity: capacity}
+			if restore {
+				config.ReleaseResources = func(context.Context, []host.Desired, map[string]placement.Resources) (map[string]placement.Resources, error) {
+					return map[string]placement.Resources{"api": retained}, nil
+				}
+			}
+			reconciler, err := New(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = reconciler.Tick(t.Context())
+			if restore && err != nil || !restore && !errors.Is(err, placement.ErrInsufficientCapacity) {
+				t.Fatalf("placement result: %v", err)
+			}
+			if restore {
+				if len(cell.writes) != 1 || cell.writes[0].Node != "b" || cell.writes[0].Digest != testDigest || !maps.Equal(cell.writes[0].Env, cell.desired["a/api"].Env) || len(capacity.requests) != 0 {
+					t.Fatalf("retained reservations did not place exact restored replacement: %+v,capacity=%+v", cell.writes, capacity.requests)
+				}
+			} else if len(cell.writes) != 0 || len(capacity.requests) != 1 || capacity.requests[0].Request != current {
+				t.Fatalf("negative control accepted larger current reservations: %+v,capacity=%+v", cell.writes, capacity.requests)
+			}
+		})
+	}
+}

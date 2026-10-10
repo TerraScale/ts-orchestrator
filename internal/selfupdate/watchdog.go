@@ -92,16 +92,22 @@ func Watch(layout Layout, unit string, proof ProofCheck, now time.Time) (Outcome
 				// confirm the activation at the next check.
 				slog.Warn("self-update version proof process is gone", "activation", activation.ActivationID, "pid", verified.ProcessID)
 			} else if err == nil {
-				if err := os.Remove(layout.activationPath()); err != nil {
+				if err := layout.rememberConfirmed(activation.Target); err != nil {
 					return OutcomePending, activation, err
 				}
-				recordResolution(activation, OutcomeConfirmed)
 				// The confirmed release runs the image's root steps from
 				// now on (Delegate).
 				if err := layout.flipLink(knownGoodLink, activation.Target); err != nil {
+					return OutcomePending, activation, err
+				}
+				if err := os.Remove(layout.activationPath()); err != nil {
+					return OutcomePending, activation, err
+				}
+				if err := syncDir(layout.Root); err != nil {
 					return OutcomeConfirmed, activation, err
 				}
-				return OutcomeConfirmed, activation, syncDir(layout.Root)
+				recordResolution(activation, OutcomeConfirmed)
+				return OutcomeConfirmed, activation, nil
 			} else {
 				slog.Warn("self-update version proof rejected", "activation", activation.ActivationID, "error", err)
 			}
@@ -280,8 +286,8 @@ func Prepare(layout Layout, unit, bakedBinary string, proof ProofCheck, now time
 const StagedReleaseRetention = 24 * time.Hour
 
 // PruneReleases removes settled release directories: everything except the
-// current and known-good releases, both sides of a pending activation, the
-// image-baked release, and non-known-bad releases staged within
+// current, known-good and retained confirmed releases, both sides of a pending
+// activation, the image-baked release, and non-known-bad releases staged within
 // StagedReleaseRetention.
 // The caller holds Lock. It returns the removed digests.
 func (layout Layout) PruneReleases(now time.Time) ([]string, error) {
@@ -293,8 +299,17 @@ func (layout Layout) PruneReleases(now time.Time) ([]string, error) {
 		return nil, nil
 	}
 	keep := map[string]bool{current: true}
-	if known, err := layout.KnownGood(); err == nil && known != "" {
+	if known, err := layout.KnownGood(); err != nil {
+		return nil, err
+	} else if known != "" {
 		keep[known] = true
+	}
+	confirmed, err := layout.ConfirmedReleases()
+	if err != nil {
+		return nil, err
+	}
+	for _, digest := range confirmed {
+		keep[digest] = true
 	}
 	activation, pending, err := layout.Pending()
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -272,7 +273,7 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 		if *intentPath == "" {
 			return errors.New("deploy and rollback require --intent FILE")
 		}
-		return operatorSubmit(ctx, cfg, runtime, *intentPath, output)
+		return operatorSubmit(ctx, cfg, runtime, operation, *intentPath, output)
 	case "service-list", "spec-get":
 		return operatorSpecGet(ctx, cfg, runtime, output)
 	case "spec-diff":
@@ -556,7 +557,7 @@ func observeOperatorAuthority(ctx context.Context, observe func(context.Context)
 	return snapshot.Epoch, nil
 }
 
-func operatorSubmit(ctx context.Context, cfg Config, runtime *natscell.Runtime, path string, output io.Writer) error {
+func operatorSubmit(ctx context.Context, cfg Config, runtime *natscell.Runtime, command, path string, output io.Writer) error {
 	data, err := readBoundedConfigFile(path)
 	if err != nil {
 		return err
@@ -568,7 +569,35 @@ func operatorSubmit(ctx context.Context, cfg Config, runtime *natscell.Runtime, 
 	if err := json.Unmarshal(data, &intent, json.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("parse delivery intent: %w", err)
 	}
-	intent, fingerprint, err := submitIntent(ctx, cfg, runtime, intent)
+	var fingerprint string
+	if slices.Contains(serviceReleaseRoles, intent.Role) {
+		var deployer nativeDeployer
+		deployer, err = operatorNativeDeployer(ctx, cfg, runtime, time.Now().UTC().Add(staged.ObservationBudget))
+		if err != nil {
+			return err
+		}
+		if command == "rollback" {
+			intent, err = prepareNativeRestore(ctx, cfg, runtime, intent)
+		} else {
+			intent, deployer.target, err = deployer.prepare(ctx, intent, "", "")
+		}
+		if err != nil {
+			return fmt.Errorf("prepare native delivery before host changes: %w", err)
+		}
+		deployer.bound = true
+		if command == "rollback" {
+			if _, err := deployer.rollOut(ctx, intent, staged.ObservationBudget, io.Discard); err != nil {
+				return fmt.Errorf("%w: %w", errRollbackUnfinished, err)
+			}
+		} else {
+			if err := deployer.roll(ctx, intent, staged.ObservationBudget, io.Discard); err != nil {
+				return err
+			}
+		}
+		fingerprint, err = intent.Fingerprint()
+	} else {
+		intent, fingerprint, err = submitIntent(ctx, cfg, runtime, intent)
+	}
 	if err != nil {
 		return err
 	}

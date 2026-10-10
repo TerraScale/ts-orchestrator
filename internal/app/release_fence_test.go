@@ -822,11 +822,18 @@ func TestReleaseFenceCleanupStopsOnALostLease(t *testing.T) {
 // A release whose fence mark could not be written was not submitted, and
 // roll reports it so that the leader retries it rather than failing it.
 func TestReleaseFencePrepareFailureIsRetried(t *testing.T) {
-	deployer := nativeDeployer{submit: func(_ context.Context, intent delivery.Intent) (delivery.Intent, string, error) {
-		return intent, "", fmt.Errorf("%w: %w", errFencePrepare, errors.New("KV unavailable"))
-	}}
+	deployer := nativeDeployer{prepare: func(_ context.Context, intent delivery.Intent, _, _ string) (delivery.Intent, *nativeRollbackTarget, error) {
+		return intent, nil, nil
+	},
+		observe: func(context.Context, delivery.Intent) (bool, error) {
+			t.Fatal("unsubmitted intent was observed")
+			return false, nil
+		},
+		submit: func(_ context.Context, intent delivery.Intent) (delivery.Intent, string, error) {
+			return intent, "", fmt.Errorf("%w: %w", errFencePrepare, errors.New("KV unavailable"))
+		}}
 	err := deployer.roll(t.Context(), delivery.Intent{Role: "ts-auth", ArtifactDigest: strings.Repeat("a", 64)},
-		delivery.ArtifactRecord{}, time.Second, io.Discard)
+		time.Second, io.Discard)
 	if !errors.Is(err, errFencePrepare) {
 		t.Fatalf("roll: %v", err)
 	}

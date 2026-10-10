@@ -13,10 +13,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
@@ -190,6 +192,7 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 	operatorPublic, _ := testEd25519(t, root, "operator.key")
 	profile, spec := tsAuthGRUConfig(t)
 	spec.Environment = "test"
+	specKeys := nativeTestTrust(t, root)
 	nodes := []string{"ctl-1", "ctl-2", "ctl-3"}
 	users := []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller", Global: true}, {PublicKey: operatorNKey, Role: "operator"}}
 	hostKeys := map[string][2]string{}
@@ -205,7 +208,8 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30,
 				Users: users}},
-		Controller: ControllerConfig{SpecTrust: authorityTestSpecTrust(t, root, "gru"), CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
+		Controller: ControllerConfig{CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
+			SpecTrust:             specKeys.config(),
 			ArtifactStoreMaxBytes: 512 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads: map[string]WorkloadProfile{tsauth.Role: profile},
 			Autoscale: &AutoscaleConfig{Enabled: true, IntervalSeconds: 1, Services: []workload.ServiceSpec{spec}}},
@@ -227,6 +231,12 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}}
 	operatorConfigPath := testJSONFile(t, root, "operator.json", operatorConfig)
+	operatorRuntime, err := natscell.Start(ctx, operatorConfig.NATS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer operatorRuntime.Close()
+	applyNativeTestSpec(t, operatorConfig, operatorRuntime, specKeys, []cellspec.Service{{Role: tsauth.Role, Profile: profile, Spec: &spec}}, 1)
 
 	identity := testHostWorkloadIdentity()
 	secrets := map[string]string{tsauth.EnvAPIKey: "tb_fake-key", tsauth.EnvProjectID: "01K78000000000000000000001",
@@ -325,6 +335,31 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 		t.Fatalf("upgrade: %v\n%s", err, out)
 	}
 	assertReplicas(secondDigest)
+	goodProfile := cloneNativeProfile(profile)
+	profile = cloneNativeProfile(profile)
+	profile.Env["NONSECRET_SETTING"] = "B"
+	profile.Resources.CPU = 2
+	profile.Resources.MemoryBytes *= 2
+	profile.Resources.DiskBytes *= 2
+	ref := profile.Secrets[tsauth.EnvAPIKey]
+	ref.Name += "-v2"
+	profile.Secrets[tsauth.EnvAPIKey] = ref
+	vault[ref.Name] = secrets[tsauth.EnvAPIKey]
+	spec.Resources = profile.Resources
+	profilePath = testJSONFile(t, root, "profile-B.json", profile)
+	applyNativeTestSpec(t, operatorConfig, operatorRuntime, specKeys, []cellspec.Service{{Role: tsauth.Role, Profile: profile, Spec: &spec}}, 2)
+	// A spec change after publication must neither change the saved candidate
+	// nor substitute current C for retained A during recovery.
+	submitTerraBaseIntent = func(ctx context.Context, cfg Config, runtime *natscell.Runtime, intent delivery.Intent) (delivery.Intent, string, error) {
+		accepted, fingerprint, err := submitIntent(ctx, cfg, runtime, intent)
+		if intent.ConfigDigest == delivery.ConfigDigestOf(profile.Args, profile.Env, profile.Secrets) {
+			current := cloneNativeProfile(profile)
+			current.Env["NONSECRET_SETTING"] = "C"
+			applyNativeTestSpec(t, operatorConfig, operatorRuntime, specKeys, []cellspec.Service{{Role: tsauth.Role, Profile: current, Spec: &spec}}, 3)
+		}
+		return accepted, fingerprint, err
+	}
+	t.Cleanup(func() { submitTerraBaseIntent = submitIntent })
 
 	falsePath, err := exec.LookPath("false")
 	if err != nil {
@@ -337,6 +372,90 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 	third := writeTSAuthRelease(t, filepath.Join(root, "broken"), broken)
 	if out, err := release(third, 15*time.Second); err == nil || !strings.Contains(err.Error(), "was rolled back to "+secondDigest) {
 		t.Fatalf("broken release: %v\n%s", err, out)
+	}
+	assertReplicas(secondDigest)
+	submitTerraBaseIntent = submitIntent
+	service, err := operatorService(ctx, operatorConfig, operatorRuntime, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controllerCfg, err := LoadConfig(controllerConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leader, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "replay", Replicas: 1, Lab: true, URL: operatorConfig.NATS.URL, NKeySeedFile: controllerSeed, ClientRole: "controller"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer leader.Close()
+	policy, err := buildSignerPolicy(operatorConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err = delivery.ConnectClient(ctx, delivery.Config{Conn: leader.Conn(), JS: leader.JetStream(), Cell: "gru", Verifier: policy.codec, ArtifactVerifier: policy.codec, Authorize: policy.authorizeIntent, AuthorizeArtifact: policy.authorizeArtifact})
+	if err != nil {
+		t.Fatal(err)
+	}
+	history := nativeTestHistory(t, controllerCfg, leader, service, observedLeader{js: leader.JetStream()})
+	saved, _, err := history.load(ctx, tsauth.Role)
+	if err != nil || saved.Recovery == nil || saved.Pending == nil || saved.Recovery.Intent.ArtifactDigest != secondDigest ||
+		saved.Recovery.ProfileDigest != nativeProfileDigest(goodProfile) || saved.Pending.ProfileDigest == saved.Recovery.ProfileDigest {
+		t.Fatalf("changed full config was not restored: %+v, %v", saved, err)
+	}
+	desired, err := history.hosts.ListDesired(ctx, tsauth.Role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range desired {
+		if !d.Withdrawn && (d.Digest != secondDigest || !slices.Equal(d.Args, goodProfile.Args) || !maps.Equal(d.Env, goodProfile.Env) || !maps.Equal(d.Secrets, goodProfile.Secrets)) {
+			t.Fatalf("host kept failed config: %+v", d)
+		}
+	}
+	resources, err := history.resources(ctx, desired, map[string]placement.Resources{tsauth.Role: profile.Resources})
+	if err != nil || resources[tsauth.Role] != goodProfile.Resources {
+		t.Fatalf("retained placement resources: %v, %v", resources, err)
+	}
+	// A fresh reconciler, after leader replay, keeps the recovery template and
+	// reservations despite today's larger B/C placement profile.
+	config := &AutoscaleConfig{Enabled: true, IntervalSeconds: 1, Services: []workload.ServiceSpec{spec}}
+	reconciler, _, _, err := startWorkloadAutoscale("gru", config, map[string]WorkloadProfile{tsauth.Role: profile}, []workload.ServiceSpec{spec}, nil, time.Time{}, history.hosts, history.fencer, history)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.Tick(ctx); err != nil {
+		t.Fatalf("leader replay reconciliation: %v", err)
+	}
+	confirmed, err := history.hosts.ListDesired(ctx, tsauth.Role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range confirmed {
+		if !d.Withdrawn && (d.Digest != secondDigest || !maps.Equal(d.Env, goodProfile.Env) || !maps.Equal(d.Secrets, goodProfile.Secrets)) {
+			t.Fatal("reconciliation restored B/C")
+		}
+	}
+	// The same binary with a bad configuration must restore A and reject that
+	// exact full profile without poisoning the proven-good artifact.
+	profile = cloneNativeProfile(profile)
+	profile.Env["NONSECRET_SETTING"] = "bad-config-only"
+	ref = profile.Secrets[tsauth.EnvAPIKey]
+	ref.Name += "-absent"
+	profile.Secrets[tsauth.EnvAPIKey] = ref
+	profilePath = testJSONFile(t, root, "profile-config-only.json", profile)
+	applyNativeTestSpec(t, operatorConfig, operatorRuntime, specKeys, []cellspec.Service{{Role: tsauth.Role, Profile: profile, Spec: &spec}}, 4)
+	if out, err := release(second, 15*time.Second); err == nil || !strings.Contains(err.Error(), "was rolled back to "+secondDigest) {
+		t.Fatalf("config-only failure did not recover: %v\n%s", err, out)
+	}
+	assertReplicas(secondDigest)
+	recovered, _, err := history.load(ctx, tsauth.Role)
+	if err != nil || recovered.Recovery == nil || recovered.Recovery.ProfileDigest != nativeProfileDigest(goodProfile) {
+		t.Fatalf("config-only recovery changed A: %+v,%v", recovered, err)
+	}
+	if _, err := service.ResolveAdmittedArtifact(ctx, secondDigest, tsauth.Role, "test"); err != nil {
+		t.Fatalf("config-only failure poisoned good bytes: %v", err)
+	}
+	if out, err := release(second, 15*time.Second); err == nil || !strings.Contains(err.Error(), "known bad") {
+		t.Fatalf("failed full profile was retried: %v\n%s", err, out)
 	}
 	assertReplicas(secondDigest)
 	for _, node := range nodes {
@@ -442,11 +561,19 @@ func TestReleaseReplacesFailedReplicasOfAnotherReleaseInPlace(t *testing.T) {
 		Active:      map[string]host.Desired{"ctl-1": {Node: "ctl-1", Digest: "broken"}, "ctl-2": {Node: "ctl-2", Digest: "good"}},
 		Assignments: []placement.Assignment{{Node: "ctl-1", Role: tsauth.Role}, {Node: "ctl-2", Role: tsauth.Role, Ordinal: 1}},
 	}
-	previous := releaseFailures(observation, "good")
+	previous := releaseFailures(observation, "good", delivery.ConfigDigestOf(nil, nil, nil))
 	if !previous[0].Pending || previous[1].Pending {
 		t.Fatalf("assignments %+v: want the broken release's replica replaced in place, the good one's failure kept", previous)
 	}
 	if observation.Assignments[0].Pending {
 		t.Fatal("releaseFailures changed the observation")
+	}
+}
+
+func TestReleaseReplacesFailedConfigurationOfSameArtifactInPlace(t *testing.T) {
+	observation := workload.Observation{Active: map[string]host.Desired{"ctl-1": {Digest: "good", Env: map[string]string{"config": "B"}}, "ctl-2": {Digest: "good", Env: map[string]string{"config": "A"}}}, Assignments: []placement.Assignment{{Node: "ctl-1", Role: tsauth.Role}, {Node: "ctl-2", Role: tsauth.Role, Ordinal: 1}}}
+	previous := releaseFailures(observation, "good", delivery.ConfigDigestOf(nil, map[string]string{"config": "A"}, nil))
+	if !previous[0].Pending || previous[1].Pending {
+		t.Fatalf("configuration-only failure could not be replaced in place: %+v", previous)
 	}
 }

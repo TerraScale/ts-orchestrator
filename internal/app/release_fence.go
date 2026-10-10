@@ -366,7 +366,9 @@ nodes:
 			// every check must pass.
 			canary.Node = node
 			if state != "running" {
-				canary.Baseline = slices.Sorted(maps.Keys(gate(ctx, target)))
+				baseline := target
+				baseline.Baseline = true
+				canary.Baseline = slices.Sorted(maps.Keys(gate(ctx, baseline)))
 				slog.Info("release canary baseline", observability.ComponentKey, "rollout", "role", role,
 					"release", release, "node", node, "failing", canary.Baseline)
 			}

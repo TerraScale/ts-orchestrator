@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oklog/ulid/v2"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
@@ -95,7 +96,11 @@ func TestServiceReleaseInventoryRemovedClaimPreservesState(t *testing.T) {
 				t.Fatal(err)
 			}
 			status := serviceInventoryStatus(t, location, role)
-			if status.State != phase || status.SourceRevision != state.SourceRevision || status.Digest != state.Digest || !status.IssuedAt.Equal(state.IssuedAt) || status.Reason != state.Reason ||
+			wantPhase, wantReason := phase, state.Reason
+			if phase == releasechannel.StateComplete {
+				wantPhase, wantReason = releasechannel.StateRolling, "waiting for fresh target proofs from every service replica"
+			}
+			if status.State != wantPhase || status.SourceRevision != state.SourceRevision || status.Digest != state.Digest || !status.IssuedAt.Equal(state.IssuedAt) || status.Reason != wantReason ||
 				status.Pins == nil || !slices.Equal(status.Pins.Rollback, []string{state.Previous, state.Retained[0]}) ||
 				!slices.Equal(status.Pins.KnownBad, []string{bad}) || bucket.puts[releasechannel.ServiceStatusObject(role)] != 2 {
 				t.Fatalf("removed claim lost inventory: %+v, pins %+v", status, status.Pins)
@@ -312,15 +317,6 @@ func (b *serviceInventoryBucket) PutObject(ctx context.Context, request objectst
 	return b.channelBucket.PutObject(ctx, request)
 }
 
-type serviceInventoryReadError struct {
-	jetstream.KeyValue
-	err error
-}
-
-func (kv serviceInventoryReadError) Get(context.Context, string) (jetstream.KeyValueEntry, error) {
-	return nil, kv.err
-}
-
 func TestServiceReleaseInventoryReadErrorsDoNotPublish(t *testing.T) {
 	for _, source := range []string{"durable state", "channel discovery", "claim", "status"} {
 		t.Run(source, func(t *testing.T) {
@@ -337,7 +333,8 @@ func TestServiceReleaseInventoryReadErrorsDoNotPublish(t *testing.T) {
 			r.channel.location = &failing
 			switch source {
 			case "durable state":
-				kv = serviceInventoryReadError{KeyValue: kv, err: want}
+				r.js.Conn().Close()
+				want = nats.ErrConnectionClosed
 			case "channel discovery":
 				r.channel = &channelSource{open: func(context.Context) (releasechannel.Location, error) { return releasechannel.Location{}, want }}
 			case "claim":
@@ -440,7 +437,7 @@ func TestServiceReleaseCompleteRevisionRequiresFreshReplicaProofs(t *testing.T) 
 		digest string
 		want   releasechannel.State
 	}{
-		{"healthy", 0, state.Digest, releasechannel.StateComplete},
+		{"unsigned snapshot", 0, state.Digest, releasechannel.StateRolling},
 		{"stale", time.Hour, state.Digest, releasechannel.StateRolling},
 		{"old build", 0, strings.Repeat("c", 64), releasechannel.StateRolling},
 	} {

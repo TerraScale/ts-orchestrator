@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
@@ -55,6 +56,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 	var controllerDone, agentDone *convergenceTask
 	var hostRuntime *natscell.Runtime
 	root := t.TempDir()
+	specKeys := nativeTestTrust(t, root)
 	t.Cleanup(func() {
 		cancel()
 		waitForConvergenceFixtureExit(t, "host agent", agentDone)
@@ -104,6 +106,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 			},
 		},
 	}
+	controllerConfig.Controller.SpecTrust = specKeys.config()
 	controllerConfigPath := testJSONFile(t, root, "controller.json", controllerConfig)
 	controllerOutput := &readyWriter{ready: make(chan struct{})}
 	controllerDone = newConvergenceTask()
@@ -127,6 +130,13 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")},
 	}
 	operatorConfigPath := testJSONFile(t, root, "operator.json", operatorConfig)
+	operatorRuntime, err := natscell.Start(ctx, operatorConfig.NATS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer operatorRuntime.Close()
+	applyNativeTestSpec(t, operatorConfig, operatorRuntime, specKeys,
+		[]cellspec.Service{{Role: "terrabase", Profile: controllerConfig.Controller.Workloads["terrabase"]}}, 1)
 	registration := host.Registration{
 		Cell: "gru", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
 		PublicKey: base64.StdEncoding.EncodeToString(hostPublic), NATSUserPublicKey: hostNKey, Generation: 1,

@@ -10,11 +10,13 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
@@ -56,18 +58,17 @@ func serviceReleaseReplicas(cell, role string, profile WorkloadProfile) (int, er
 // readiness gate and rollback as the operator's release commands, one role
 // at a time, and reports in the role's status.json.
 type serviceReleases struct {
+	js         jetstream.JetStream
 	cell       string // the NATS cell, e.g. gru
 	channel    *channelSource
 	deliveries *delivery.Service
 	hosts      seatrollout.Hosts
 	profiles   func() map[string]WorkloadProfile
 	fencer     authority.Fencer
+	history    *nativeHistory
 	// fences restarts each release one node at a time when the cell spec
 	// has a release fence; nil restarts every replica at once.
 	fences *releaseFence
-	// canary gates a fenced release on its first node when the fence has
-	// a canary (TS-623).
-	canary canaryGate
 	// interval is how often the channels are read; zero means
 	// defaultChannelInterval.
 	interval time.Duration
@@ -89,6 +90,9 @@ type serviceReleaseState struct {
 	// before the leader resolves its actual serving rollback target.
 	Retained []string         `json:"retained,omitempty"`
 	Intent   *delivery.Intent `json:"intent,omitempty"` // persisted before submission
+	// Preparation is persisted before native CAS; its exact request survives
+	// either side of the native/channel handoff, including epoch refreshes.
+	Preparation *nativePrepareRequest `json:"preparation,omitempty"`
 	// Rollback is set once the release failed its gate and the rollback
 	// to Previous is submitted; a new leader finishes it.
 	Rollback *delivery.Intent `json:"rollback,omitempty"`
@@ -137,15 +141,22 @@ func (r *serviceReleases) run(ctx context.Context, js jetstream.JetStream, repli
 // pass reads role's channel and starts, resumes or reports its release. An
 // error leaves the state as it was; the next pass retries.
 func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role string) error {
+	epoch := r.fencer.Current().Epoch
+	if !r.fencer.Current().CanMutate() {
+		return errors.New("lost the authority lease before the release")
+	}
+	if err := r.fencer.Guard(ctx, epoch); err != nil {
+		return err
+	}
 	key := releasechannel.ServiceStatusKey(strings.ToUpper(r.cell), role)
-	state, revision, err := loadServiceRelease(ctx, kv, key)
+	state, revision, err := r.load(ctx, key)
 	if err != nil {
 		return err
 	}
 	// A submitted release finishes, or rolls back, from its recorded intent
 	// before the channel is read: its delivery may be partly committed, and
 	// neither a newer claim nor an unreadable channel may hold it.
-	if state.State != releasechannel.StateRolling || state.Intent == nil {
+	if state.State != releasechannel.StateRolling || state.Intent == nil && state.Preparation == nil {
 		location, err := r.channel.get(ctx)
 		if err != nil {
 			return err
@@ -207,7 +218,7 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 					fmt.Sprintf("the claim was issued %s ago, past its %s observation window; run the release again", age.Round(time.Second), rollout.ObservationBudget)
 			}
 			state = next
-			if revision, err = saveServiceRelease(ctx, kv, key, state, revision); err != nil {
+			if revision, err = r.save(ctx, kv, key, state, revision, epoch); err != nil {
 				return err
 			}
 			r.reportQuietly(ctx, kv, role, state)
@@ -217,9 +228,9 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 		}
 		state.claim, state.location = claim, location
 	}
-	finished, err := r.release(ctx, kv, role, state, func(next serviceReleaseState) error {
+	finished, err := r.release(ctx, kv, role, state, epoch, func(next serviceReleaseState) error {
 		state = next
-		if revision, err = saveServiceRelease(ctx, kv, key, state, revision); err != nil {
+		if revision, err = r.save(ctx, kv, key, state, revision, epoch); err != nil {
 			return err
 		}
 		r.reportQuietly(ctx, kv, role, state)
@@ -232,7 +243,7 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 	if !r.fencer.Current().CanMutate() {
 		return errors.New("lost the authority lease during the release")
 	}
-	if _, err := saveServiceRelease(ctx, kv, key, finished, revision); err != nil {
+	if _, err := r.save(ctx, kv, key, finished, revision, epoch); err != nil {
 		return err
 	}
 	r.reportQuietly(ctx, kv, role, finished)
@@ -259,14 +270,25 @@ func (r *serviceReleases) verify(ctx context.Context, role string, claim []byte)
 // changed or rolled back. save records progress; an error from release or
 // save means the release may be retried, and a release whose rollback has
 // not finished stays rolling.
-func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, role string, state serviceReleaseState,
+func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, role string, state serviceReleaseState, operationEpoch uint64,
 	save func(serviceReleaseState) error,
 ) (serviceReleaseState, error) {
+	if err := r.fencer.Guard(ctx, operationEpoch); err != nil {
+		return state, err
+	}
 	failed := func(err error) (serviceReleaseState, error) {
 		state.State, state.Reason = releasechannel.StateFailed, err.Error()
 		return state, nil
 	}
-	var rollback delivery.ArtifactRecord
+	if state.Preparation != nil {
+		if err := r.finishPreparation(ctx, &state, operationEpoch, save); err != nil {
+			return state, err
+		}
+		if state.State == releasechannel.StateFailed {
+			return state, nil
+		}
+	}
+	var target *nativeGoodRelease
 	deadline := state.IssuedAt.Add(rollout.ObservationBudget)
 	if state.Intent == nil {
 		if !time.Now().Before(deadline) {
@@ -297,35 +319,55 @@ func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, ro
 		if err != nil {
 			return state, err
 		}
-		// Resolve the rollback target before anything changes.
-		if rollback, err = deployer.rollbackTarget(ctx, previous, record.Digest, role, record.Environment); permanentLookup(err) {
-			return failed(err)
-		} else if err != nil {
-			return state, err
-		}
 		intent := nativeIntent(record, nativeRelease{Role: role, Replicas: replicas, Profile: profile}, generation)
-		intent.SchemaVersion, intent.OperationID = delivery.SchemaVersion, entityid.New()
-		intent.AuthorityEpoch = r.fencer.Current().Epoch
+		intent.SchemaVersion = delivery.SchemaVersion
+		intent.AuthorityEpoch = operationEpoch
+		intent.OperationID = entityid.Derive("native-channel-release", r.cell, role, state.Claim, strconv.FormatUint(intent.AuthorityEpoch, 10))
 		// Admission and predecessor lookup may have spent the remaining window without touching hosts.
 		if !time.Now().Before(deadline) {
 			return failed(fmt.Errorf("the claim is past its %s observation window; run the release again", rollout.ObservationBudget))
 		}
-		state.Digest, state.Actor, state.Previous, state.Intent = record.Digest, actor, previous, &intent
-		state.Retained = nil
-		state.Reason = fmt.Sprintf("rolling %d replicas from %s", replicas, previous)
+		if r.history == nil {
+			return failed(errors.New("native signed profile history is unavailable"))
+		}
+		state.Digest, state.Actor, state.Previous = record.Digest, actor, previous
+		state.Preparation = &nativePrepareRequest{Intent: intent, Deadline: deadline}
+		state.Reason = "selecting the signed native release and predecessor"
 		if err := save(state); err != nil {
 			return state, err
 		}
-	} else if state.Rollback == nil {
-		var err error
-		rollback, err = r.deployer(state.Actor, nil).rollbackTarget(ctx, state.Previous, state.Digest, role, state.Intent.Environment)
-		if permanentLookup(err) {
-			// The release is submitted: gate it even without a target.
-			slog.Warn("service release has no rollback target", observability.ComponentKey, "rollout", "role", role,
-				"previous", state.Previous, "error", err)
-			rollback = delivery.ArtifactRecord{}
-		} else if err != nil {
+		if err := r.finishPreparation(ctx, &state, operationEpoch, save); err != nil {
 			return state, err
+		}
+		if state.State == releasechannel.StateFailed {
+			return state, nil
+		}
+	}
+	{
+		if r.history == nil {
+			return state, errors.New("native signed profile history is unavailable")
+		}
+		history, _, err := r.history.load(ctx, role)
+		if err != nil {
+			return state, err
+		}
+		target = history.Previous
+		if history.Pending == nil || history.Pending.Intent.OperationID != state.Intent.OperationID {
+			return state, delivery.ErrConflict
+		}
+		if history.Recovery != nil && state.Rollback == nil {
+			state.Rollback = &history.Recovery.Intent
+			if err := save(state); err != nil {
+				return state, err
+			}
+		}
+		if state.Rollback == nil && target == nil && !time.Now().Before(deadline) {
+			if err := r.deliveries.RefuseIntent(ctx, *state.Intent, state.Actor, operationEpoch,
+				"native observation expired before first-install delivery"); err == nil {
+				return failed(context.DeadlineExceeded)
+			} else if !errors.Is(err, delivery.ErrConflict) {
+				return state, err
+			}
 		}
 	}
 	wait := r.wait
@@ -339,15 +381,19 @@ func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, ro
 	}
 	if state.Rollback != nil {
 		// An earlier pass or leader started the rollback: finish it.
-		intent, changed, err := r.fresh(ctx, role, *state.Rollback)
+		intent, changed, err := r.fresh(ctx, role, *state.Rollback, operationEpoch)
 		if err != nil {
 			return state, err
 		}
 		if changed {
-			state.Rollback = &intent
+			state.Preparation = &nativePrepareRequest{Intent: intent, RecoveryOf: state.Intent.OperationID, ResumeOf: state.Rollback.OperationID}
 			if err := save(state); err != nil {
 				return state, err
 			}
+			if err := r.finishPreparation(ctx, &state, operationEpoch, save); err != nil {
+				return state, err
+			}
+			intent = *state.Rollback
 		}
 		deployer := r.deployer(state.Actor, nil)
 		deployer.canary = nil
@@ -356,33 +402,57 @@ func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, ro
 		}
 		return failed(fmt.Errorf("%s release %s failed its readiness gate and was rolled back to %s", role, state.Digest, state.Previous))
 	}
-	intent, changed, err := r.fresh(ctx, role, *state.Intent)
-	if err != nil {
-		return state, err
-	}
-	if changed {
-		state.Intent = &intent
-		if err := save(state); err != nil {
+	intent, changed := *state.Intent, false
+	if time.Now().Before(deadline) {
+		var err error
+		intent, changed, err = r.fresh(ctx, role, intent, operationEpoch)
+		if err != nil {
 			return state, err
 		}
 	}
+	if changed {
+		state.Preparation = &nativePrepareRequest{Intent: intent, ResumeOf: state.Intent.OperationID, Deadline: deadline}
+		if err := save(state); err != nil {
+			return state, err
+		}
+		if err := r.finishPreparation(ctx, &state, operationEpoch, save); err != nil {
+			return state, err
+		}
+		intent = *state.Intent
+	}
 	deployer := r.deployer(state.Actor, func(ctx context.Context, rollback delivery.Intent, cause error) (delivery.Intent, error) {
+		rollback.SchemaVersion, rollback.OperationID = delivery.SchemaVersion, entityid.New()
+		rollback.AuthorityEpoch = operationEpoch
+		state.Preparation = &nativePrepareRequest{Intent: rollback, RecoveryOf: intent.OperationID}
+		state.Reason = "selecting the recorded native predecessor for recovery"
+		if err := save(state); err != nil {
+			return rollback, err
+		}
+		if err := r.finishPreparation(ctx, &state, operationEpoch, save); err != nil {
+			return rollback, err
+		}
+		rollback = *state.Rollback
+		if err := r.history.reject(ctx, intent, cause, operationEpoch); err != nil {
+			return rollback, err
+		}
 		// Recorded before the rollback: the cell never releases it again.
-		if errors.Is(cause, errBadRelease) {
+		if errors.Is(cause, errBadRelease) && (target == nil || target.Binding.Artifact.Digest != state.Digest) {
+			if err := r.fencer.Guard(ctx, operationEpoch); err != nil {
+				return rollback, err
+			}
 			if err := markKnownBad(ctx, kv, role, state.Digest, cause); err != nil {
 				return rollback, err
 			}
 		}
-		rollback.SchemaVersion, rollback.OperationID = delivery.SchemaVersion, entityid.New()
-		rollback.AuthorityEpoch = r.fencer.Current().Epoch
 		state.Rollback, state.Reason = &rollback, "rolling back to "+state.Previous
 		return rollback, save(state)
 	})
+	deployer.target, deployer.bound = nativeTarget(target), true
 	// Refresh and persistence are read/metadata work, never additional observation.
 	forward, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	wait = min(wait, time.Until(deadline))
-	switch err := deployer.roll(forward, intent, rollback, wait, progress); {
+	switch err := deployer.roll(forward, intent, wait, progress); {
 	case errors.Is(err, errRecoveryNotStarted), errors.Is(err, errFencePrepare):
 		// Nothing proves the release, or its rollback, reached the hosts or
 		// failed there: a later pass resumes it.
@@ -396,10 +466,80 @@ func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, ro
 	return state, nil
 }
 
-// permanentLookup reports an artifact lookup that a retry cannot change.
-func permanentLookup(err error) bool {
-	return errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, delivery.ErrInvalid) ||
-		errors.Is(err, delivery.ErrUnauthorized)
+// Reconcile an exact durably recorded handoff before reading another claim.
+// A native CAS with a lost reply is completed by read-back, never reselection.
+func (r *serviceReleases) finishPreparation(ctx context.Context, state *serviceReleaseState, epoch uint64, save func(serviceReleaseState) error) error {
+	if r.history == nil {
+		return errors.New("native signed profile history is unavailable")
+	}
+	request := *state.Preparation
+	history, _, err := r.history.load(ctx, request.Intent.Role)
+	if err != nil {
+		return err
+	}
+	selected := history.Pending
+	if request.RecoveryOf != "" {
+		selected = history.Recovery
+	}
+	fingerprint, err := request.Intent.Fingerprint()
+	if err != nil {
+		return err
+	}
+	if selected == nil || selected.Fingerprint != fingerprint {
+		if request.RecoveryOf == "" && !time.Now().Before(request.Deadline) {
+			state.Preparation = nil
+			if state.Intent == nil {
+				state.State, state.Reason = releasechannel.StateFailed, "the claim is past its observation window before native selection"
+			}
+			return save(*state)
+		}
+		fresh, changed, err := r.fresh(ctx, request.Intent.Role, request.Intent, epoch)
+		if err != nil {
+			return err
+		}
+		if changed {
+			request.Intent = fresh
+			fingerprint, err = request.Intent.Fingerprint()
+			if err != nil {
+				return err
+			}
+			state.Preparation = &request
+			if err := save(*state); err != nil {
+				return err
+			}
+		}
+		if _, err := r.history.prepare(ctx, request); err != nil {
+			// Includes ambiguous CAS and a fence mark failure after selection.
+			// Keep the request so a later leader can read back that exact binding.
+			return err
+		}
+		history, _, err = r.history.load(ctx, request.Intent.Role)
+		if err != nil {
+			return err
+		}
+		selected = history.Pending
+		if request.RecoveryOf != "" {
+			selected = history.Recovery
+		}
+	}
+	if selected == nil || selected.Fingerprint != fingerprint {
+		return delivery.ErrConflict
+	}
+	if request.RecoveryOf != "" {
+		if history.Pending == nil || history.Pending.Intent.OperationID != request.RecoveryOf {
+			return delivery.ErrConflict
+		}
+		state.Rollback, state.Reason = new(selected.Intent), "rolling back to "+state.Previous
+	} else {
+		state.Intent = new(selected.Intent)
+		if history.Previous != nil {
+			state.Previous = history.Previous.Binding.Artifact.Digest
+		}
+		state.Retained = nil
+		state.Reason = fmt.Sprintf("rolling %d replicas from %s", selected.Intent.DesiredReplicas, state.Previous)
+	}
+	state.Preparation = nil
+	return save(*state)
 }
 
 // admit copies the claimed binary out of the head bucket and admits it.
@@ -425,8 +565,10 @@ func (r *serviceReleases) admit(ctx context.Context, location releasechannel.Loc
 // epoch and the delivery worker has not accepted it, which fences it, the
 // same intent issued again under this leader's epoch, above every
 // generation committed since; changed reports the latter.
-func (r *serviceReleases) fresh(ctx context.Context, role string, intent delivery.Intent) (delivery.Intent, bool, error) {
-	epoch := r.fencer.Current().Epoch
+func (r *serviceReleases) fresh(ctx context.Context, role string, intent delivery.Intent, epoch uint64) (delivery.Intent, bool, error) {
+	if err := r.fencer.Guard(ctx, epoch); err != nil {
+		return intent, false, err
+	}
 	if intent.AuthorityEpoch == epoch {
 		return intent, false, nil
 	}
@@ -451,6 +593,19 @@ func (r *serviceReleases) fresh(ctx context.Context, role string, intent deliver
 // rollback before it is submitted.
 func (r *serviceReleases) deployer(actor string, recovering func(context.Context, delivery.Intent, error) (delivery.Intent, error)) nativeDeployer {
 	deployer := nativeDeployer{service: r.deliveries, hosts: r.hosts, recovering: recovering,
+		prepare: func(ctx context.Context, intent delivery.Intent, recoveryOf, resumeOf string) (delivery.Intent, *nativeRollbackTarget, error) {
+			if r.history == nil {
+				return intent, nil, errors.New("native signed profile history is unavailable")
+			}
+			reply, err := r.history.prepare(ctx, nativePrepareRequest{Intent: intent, RecoveryOf: recoveryOf, ResumeOf: resumeOf})
+			return reply.Intent, reply.Previous, err
+		},
+		observe: func(ctx context.Context, intent delivery.Intent) (bool, error) {
+			if r.history == nil {
+				return false, errors.New("native signed profile history is unavailable")
+			}
+			return r.history.observe(ctx, intent)
+		},
 		submit: func(ctx context.Context, intent delivery.Intent) (delivery.Intent, string, error) {
 			if !r.fencer.Current().CanMutate() {
 				return intent, "", errors.New("this controller no longer holds the authority lease")
@@ -458,23 +613,41 @@ func (r *serviceReleases) deployer(actor string, recovering func(context.Context
 			if intent.OperationID == "" {
 				intent.OperationID = entityid.New()
 			}
-			if intent.AuthorityEpoch == 0 {
-				intent.AuthorityEpoch = r.fencer.Current().Epoch
+			epoch := intent.AuthorityEpoch
+			if r.history == nil {
+				return intent, "", errors.New("native signed profile history is unavailable")
+			}
+			if _, err := r.history.profile(ctx, intent); err != nil {
+				return intent, "", err
 			}
 			fingerprint, err := intent.Fingerprint()
 			if err != nil {
 				return intent, "", err
 			}
+			if intent.AuthorityEpoch != r.fencer.Current().Epoch {
+				receipt, err := r.deliveries.StatusFor(ctx, intent)
+				if err != nil || receipt.Status != "accepted" {
+					return intent, "", authority.ErrFenced
+				}
+				return intent, fingerprint, nil
+			}
+			if err := r.fencer.Guard(ctx, epoch); err != nil {
+				return intent, "", err
+			}
 			// Sequence the release before any host can see it. Nothing is
 			// published yet; the release stays rolling and is retried.
-			if err := r.fences.prepare(ctx, intent); err != nil {
+			history, _, err := r.history.load(ctx, intent.Role)
+			if err != nil {
+				return intent, "", err
+			}
+			if err := r.history.prepareGate(ctx, intent, history); err != nil {
 				return intent, "", fmt.Errorf("%w: %w", errFencePrepare, err)
+			}
+			if _, err := r.history.profile(ctx, intent); err != nil {
+				return intent, "", err
 			}
 			return intent, fingerprint, r.deliveries.SubmitVerified(ctx, intent, actor)
 		}}
-	if r.fences != nil {
-		deployer.sequence, deployer.canary = r.fences.sequence, r.canary
-	}
 	return deployer
 }
 
@@ -494,12 +667,12 @@ func (r *serviceReleases) report(ctx context.Context, kv jetstream.KeyValue, rol
 	// A historical completion cannot prove a currently serving source revision.
 	if state.State == releasechannel.StateComplete && state.SourceRevision != "" {
 		ready := false
-		if state.Intent != nil && state.Intent.DesiredReplicas > 0 {
-			statuses, err := r.hosts.ListHosts(ctx)
-			if err != nil {
+		if state.Intent != nil && state.Intent.DesiredReplicas > 0 && r.history != nil {
+			nodes, err := r.history.ready(ctx, *state.Intent)
+			if err != nil && !errors.Is(err, errBadRelease) {
 				return err
 			}
-			ready, _ = terraBaseReady(statuses, *state.Intent, time.Now())
+			ready = len(nodes) != 0
 		}
 		if !ready {
 			state.State, state.Reason = releasechannel.StateRolling, "waiting for fresh target proofs from every service replica"
@@ -509,6 +682,17 @@ func (r *serviceReleases) report(ctx context.Context, kv jetstream.KeyValue, rol
 	updatedAt := time.Now().UTC()
 	pins := &releasechannel.ReleasePins{Rollback: []string{}, KnownBad: []string{}}
 	rollback := slices.Clone(state.Retained)
+	if r.history != nil {
+		uses, err := r.history.artifactsInUse(ctx)
+		if err != nil {
+			return err
+		}
+		for _, use := range uses {
+			if use.Role == role {
+				rollback = append(rollback, use.Digest)
+			}
+		}
+	}
 	if state.Previous != "" {
 		rollback = append(rollback, state.Previous)
 	}
@@ -595,19 +779,30 @@ func markKnownBad(ctx context.Context, kv jetstream.KeyValue, role, digest strin
 	return err
 }
 
-func loadServiceRelease(ctx context.Context, kv jetstream.KeyValue, key string) (serviceReleaseState, uint64, error) {
-	entry, err := kv.Get(ctx, key)
-	if errors.Is(err, jetstream.ErrKeyNotFound) {
+func (r *serviceReleases) load(ctx context.Context, key string) (serviceReleaseState, uint64, error) {
+	if r.js == nil {
+		return serviceReleaseState{}, 0, errors.New("native release channel leader reader is unavailable")
+	}
+	legacy, err := r.js.Conn().JetStream()
+	if err != nil {
+		return serviceReleaseState{}, 0, err
+	}
+	subject := "$KV." + releasechannel.Bucket + "." + key
+	msg, err := legacy.GetLastMsg("KV_"+releasechannel.Bucket, subject, nats.Context(ctx))
+	if errors.Is(err, nats.ErrMsgNotFound) {
 		return serviceReleaseState{}, 0, nil
 	}
 	if err != nil {
 		return serviceReleaseState{}, 0, err
 	}
-	var state serviceReleaseState
-	if err := json.Unmarshal(entry.Value(), &state); err != nil {
-		return serviceReleaseState{}, 0, fmt.Errorf("decode %s: %w", key, err)
+	if msg.Subject != subject || msg.Sequence == 0 || msg.Header.Get("KV-Operation") != "" {
+		return serviceReleaseState{}, 0, errors.New("invalid native release channel state marker")
 	}
-	return state, entry.Revision(), nil
+	var state serviceReleaseState
+	if err := json.Unmarshal(msg.Data, &state, json.RejectUnknownMembers(true)); err != nil {
+		return state, 0, err
+	}
+	return state, msg.Sequence, nil
 }
 
 // saveServiceRelease writes state at revision (zero creates it) and returns
@@ -621,6 +816,13 @@ func saveServiceRelease(ctx context.Context, kv jetstream.KeyValue, key string, 
 		return kv.Create(ctx, key, wire)
 	}
 	return kv.Update(ctx, key, wire, revision)
+}
+
+func (r *serviceReleases) save(ctx context.Context, kv jetstream.KeyValue, key string, state serviceReleaseState, revision, epoch uint64) (uint64, error) {
+	if err := r.fencer.Guard(ctx, epoch); err != nil {
+		return 0, err
+	}
+	return saveServiceRelease(ctx, kv, key, state, revision)
 }
 
 // serviceReleaseLog logs the release gate's progress lines.

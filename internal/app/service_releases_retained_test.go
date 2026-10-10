@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -23,6 +24,21 @@ import (
 )
 
 const servicePinsActor = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+
+func loadServiceRelease(ctx context.Context, kv jetstream.KeyValue, key string) (serviceReleaseState, uint64, error) {
+	entry, err := kv.Get(ctx, key)
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return serviceReleaseState{}, 0, nil
+	}
+	if err != nil {
+		return serviceReleaseState{}, 0, err
+	}
+	var state serviceReleaseState
+	if err := json.Unmarshal(entry.Value(), &state); err != nil {
+		return serviceReleaseState{}, 0, fmt.Errorf("decode %s: %w", key, err)
+	}
+	return state, entry.Revision(), nil
+}
 
 func servicePinsSignedFixture(t *testing.T) (*serviceReleases, jetstream.KeyValue, *channelBucket, func(string, time.Time) delivery.ArtifactRecord) {
 	t.Helper()
@@ -50,7 +66,7 @@ func servicePinsSignedFixture(t *testing.T) (*serviceReleases, jetstream.KeyValu
 	}
 	bucket := newChannelBucket()
 	location := releasechannel.Location{Client: bucket, Namespace: "ns", Bucket: "gru-1-head"}
-	r := &serviceReleases{cell: "gru", channel: &channelSource{location: &location}, deliveries: service,
+	r := &serviceReleases{js: js, cell: "gru", channel: &channelSource{location: &location}, deliveries: service,
 		fencer: rolloutTestFence{epoch: 7}, profiles: func() map[string]WorkloadProfile { return nil }}
 	publish := func(data string, issued time.Time) delivery.ArtifactRecord {
 		t.Helper()
@@ -145,7 +161,7 @@ func TestServiceReleasePinsRefusedClaimsDoNotAccumulate(t *testing.T) {
 						{Role: role, Environment: "test", State: "running", Digest: rollback}}}
 					reason = "finish the previous release first"
 				case 3:
-					reason = "resolve rollback artifact"
+					reason = "native signed profile history is unavailable"
 				}
 				if err := r.pass(ctx, kv, role); err != nil {
 					t.Fatalf("claim %d: %v", i, err)
@@ -176,7 +192,7 @@ func TestServiceReleasePinsRefusedClaimsDoNotAccumulate(t *testing.T) {
 	}
 }
 
-func TestServiceReleasePinsIntentReplacesRetained(t *testing.T) {
+func TestServiceReleasePinsUnprovenProfileRefusedBeforeSubmission(t *testing.T) {
 	r, kv, bucket, publish := servicePinsSignedFixture(t)
 	ctx, role := t.Context(), terrabase.Role
 	location := *r.channel.location
@@ -190,18 +206,13 @@ func TestServiceReleasePinsIntentReplacesRetained(t *testing.T) {
 	r.hosts = terraBaseMembers{reports: []host.Report{{Role: role, Environment: "test", State: "running", Digest: serving.Digest}}}
 	state := serviceReleaseState{Digest: candidate.Digest, IssuedAt: issued.Add(time.Second), Previous: strings.Repeat("c", 64), Retained: []string{strings.Repeat("d", 64)},
 		State: releasechannel.StateRolling, claim: bucket.objects[releasechannel.ServiceReleaseObject(role)], location: location}
-	stop := errors.New("stop before submission")
-	_, err := r.release(ctx, kv, role, state, func(next serviceReleaseState) error {
-		if next.Intent == nil || next.Intent.ArtifactDigest != candidate.Digest || next.Previous != serving.Digest || len(next.Retained) != 0 {
-			t.Fatalf("resolved serving target did not replace retained pins: %+v", next)
-		}
-		if _, err := ulid.ParseStrict(next.Intent.OperationID); err != nil {
-			t.Fatalf("operation ID %q: %v", next.Intent.OperationID, err)
-		}
-		return stop
+	finished, err := r.release(ctx, kv, role, state, r.fencer.Current().Epoch, func(next serviceReleaseState) error {
+		t.Fatal("unproven serving profile was persisted for submission")
+		return nil
 	})
-	if !errors.Is(err, stop) {
-		t.Fatalf("release = %v, want stopped before submission", err)
+	if err != nil || finished.State != releasechannel.StateFailed || finished.Intent != nil ||
+		!slices.Equal(finished.Retained, state.Retained) || !strings.Contains(finished.Reason, "native signed profile history is unavailable") {
+		t.Fatalf("unproven serving profile was selected: %+v, %v", finished, err)
 	}
 }
 

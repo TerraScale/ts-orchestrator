@@ -449,6 +449,9 @@ func (s *Service) processDelivery(ctx context.Context, wire []byte, delivered ui
 		}
 		shape, plan, planErr := s.plan(ctx, intent)
 		if planErr != nil {
+			if errors.Is(planErr, ErrInvalid) && ctx.Err() == nil {
+				return s.rejectIntent(ctx, wire, intent, actor, "invalid or unprepared delivery intent")
+			}
 			limit := s.config.MaxPlannerAttempts
 			if limit <= 0 {
 				limit = DefaultMaxPlannerAttempts
@@ -521,6 +524,9 @@ func (s *Service) processDelivery(ctx context.Context, wire []byte, delivered ui
 			return false, stageDeliveryError("apply_guard", err)
 		}
 		if _, err := s.config.Writer.ApplyDesired(ctx, desired); err != nil {
+			if errors.Is(err, ErrInvalid) && ctx.Err() == nil {
+				return s.hold(ctx, key, op, revision, "prepared delivery no longer authorizes desired changes; reconcile with a new intent")
+			}
 			if errors.Is(err, authority.ErrFenced) {
 				return s.hold(ctx, key, op, revision, "authority epoch fenced; reconcile with a new intent")
 			}

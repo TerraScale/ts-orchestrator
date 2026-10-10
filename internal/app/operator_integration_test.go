@@ -12,12 +12,14 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
@@ -112,6 +114,7 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 40*time.Second)
 	defer cancel()
 	root := t.TempDir()
+	specKeys := nativeTestTrust(t, root)
 	portListener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -133,6 +136,7 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 		Controller: ControllerConfig{SpecTrust: authorityTestSpecTrust(t, root, "gru"), CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"), ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads: map[string]WorkloadProfile{"terrabase": {Resources: placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}}}},
 	}
+	controllerConfig.Controller.SpecTrust = specKeys.config()
 	controllerConfigPath := testJSONFile(t, root, "controller.json", controllerConfig)
 	controllerOutput := &readyWriter{ready: make(chan struct{})}
 	controllerDone := make(chan error, 1)
@@ -151,6 +155,13 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}}
 	operatorConfigPath := testJSONFile(t, root, "operator.json", operatorConfig)
+	operatorRuntime, err := natscell.Start(ctx, operatorConfig.NATS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer operatorRuntime.Close()
+	applyNativeTestSpec(t, operatorConfig, operatorRuntime, specKeys,
+		[]cellspec.Service{{Role: "terrabase", Profile: controllerConfig.Controller.Workloads["terrabase"]}}, 1)
 	registration := host.Registration{Cell: "gru", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
 		PublicKey: base64.StdEncoding.EncodeToString(hostPublic), NATSUserPublicKey: hostNKey, Generation: 1,
 		Capacity: host.Capacity{CPU: 2, MemoryBytes: 256 << 20, DiskBytes: 512 << 20}}
@@ -227,6 +238,21 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &submitted); err != nil || submitted.OperationID == "" || submitted.Fingerprint == "" {
 		t.Fatalf("submit receipt: %v: %s", err, output.String())
 	}
+	inspector, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "native-proof-inspector", Replicas: 1, Lab: true,
+		URL: operatorConfig.NATS.URL, NKeySeedFile: controllerSeed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inspector.Close()
+	history := nativeHistory{js: inspector.JetStream(), services: &specRegistry{cell: "gru"}}
+	retained, _, err := history.load(ctx, "terrabase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retained.Good) != 1 ||
+		retained.Good[0].Binding.Fingerprint != submitted.Fingerprint || !slices.Equal(retained.Good[0].Nodes, []string{"node-a"}) {
+		t.Fatalf("raw native delivery returned before certification: %+v, %v", retained, err)
+	}
 	for {
 		output.Reset()
 		err := Run(ctx, []string{"operator", "status", "--config", operatorConfigPath,
@@ -263,6 +289,72 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 		"--operation-id", submitted.OperationID, "--fingerprint", strings.Repeat("0", 64)}, &output); !errors.Is(err, delivery.ErrConflict) {
 		t.Fatalf("status accepted wrong fingerprint: %v", err)
 	}
+	profileB := cloneNativeProfile(controllerConfig.Controller.Workloads["terrabase"])
+	profileB.Resources.MemoryBytes = 80 << 20
+	applyNativeTestSpec(t, operatorConfig, operatorRuntime, specKeys, []cellspec.Service{{Role: "terrabase", Profile: profileB}}, 2)
+	if err := os.WriteFile(artifactPath, []byte("#!/bin/sh\nsleep 31\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	output.Reset()
+	if err := Run(ctx, []string{"operator", "artifact-push", "--config", operatorConfigPath, "--file", artifactPath,
+		"--repository", source.Repository, "--commit", source.Commit, "--tree-digest", source.TreeDigest,
+		"--role", "terrabase", "--environment", "test"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	var recordB delivery.ArtifactRecord
+	if err := json.Unmarshal(output.Bytes(), &recordB); err != nil {
+		t.Fatal(err)
+	}
+	intentB := intent
+	intentB.ArtifactDigest, intentB.ManifestDigest, intentB.Generation = recordB.Digest, recordB.ManifestDigest, 2
+	intentB.ConfigDigest = delivery.ConfigDigestOf(profileB.Args, profileB.Env, profileB.Secrets)
+	intentBPath := testJSONFile(t, root, "intent-b.json", intentB)
+	output.Reset()
+	if err := Run(ctx, []string{"operator", "deploy", "--config", operatorConfigPath, "--intent", intentBPath}, &output); err != nil {
+		t.Fatalf("forward B: %v", err)
+	}
+	profileC := cloneNativeProfile(profileB)
+	profileC.Resources.MemoryBytes = 96 << 20
+	applyNativeTestSpec(t, operatorConfig, operatorRuntime, specKeys, []cellspec.Service{{Role: "terrabase", Profile: profileC}}, 3)
+	restoreA := intent
+	restoreA.Generation = 3
+	restoreAPath := testJSONFile(t, root, "restore-a.json", restoreA)
+	output.Reset()
+	if err := Run(ctx, []string{"operator", "rollback", "--config", operatorConfigPath, "--intent", restoreAPath}, &output); err != nil {
+		t.Fatalf("raw rollback A after adopting C: %v", err)
+	}
+	retained, _, err = history.load(ctx, "terrabase")
+	profileA := controllerConfig.Controller.Workloads["terrabase"]
+	if err != nil || retained.Recovery == nil || retained.Good[0].Binding.Fingerprint != retained.Recovery.Fingerprint ||
+		retained.Recovery.Artifact.Digest != record.Digest || retained.Recovery.ProfileDigest != nativeProfileDigest(profileA) || len(retained.Good) != 2 {
+		t.Fatalf("raw rollback did not certify retained A: %+v err=%v", retained, err)
+	}
+	// A signed publisher cannot bypass the controller's native selection.
+	unprepared := intent
+	unprepared.OperationID = "00000000005Z76YVTT1GQ84KF6"
+	unprepared.Generation = 4
+	unprepared, _, err = submitIntent(ctx, operatorConfig, operatorRuntime, unprepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deliveryClient, err := operatorService(ctx, operatorConfig, operatorRuntime, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		receipt, err := deliveryClient.StatusFor(ctx, unprepared)
+		if err == nil && receipt.Status == "rejected" && receipt.Error != "" {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("unprepared signed intent did not reach durable refusal: %+v, %v", receipt, err)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	if observed, err := runner.Observe(ctx, "terrabase"); err != nil || !observed.Running || observed.Digest != record.Digest {
+		t.Fatalf("unprepared intent changed serving workload: %+v, %v", observed, err)
+	}
 	placeIntent := testManagedPlacementIntent()
 	placeIntent.DatabaseID = "00000000001Y9Z8VKC1VV66J6B"
 	placeIntent.Generation = 1
@@ -277,16 +369,16 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 	}
 	operatorConnection := operatorConfig.NATS
 	operatorConnection.ClientRole = "operator"
-	operatorRuntime, err := natscell.Start(ctx, operatorConnection)
+	placementRuntime, err := natscell.Start(ctx, operatorConnection)
 	if err != nil {
 		t.Fatal(err)
 	}
-	reader, err := authority.OpenReader(ctx, operatorRuntime.JetStream(), "gru")
+	reader, err := authority.OpenReader(ctx, placementRuntime.JetStream(), "gru")
 	if err != nil {
 		t.Fatal(err)
 	}
 	stored, err := reader.ReadPlacementIntent(ctx, placeIntent.DatabaseID, placeIntent.PartitionID)
-	operatorRuntime.Close()
+	placementRuntime.Close()
 	if err != nil || stored.Sequence != placeReceipt.Sequence {
 		t.Fatalf("ordered placement readback: sequence %d, err %v", stored.Sequence, err)
 	}

@@ -14,12 +14,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,6 +36,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
@@ -102,6 +105,7 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	profile := WorkloadProfile{Resources: placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20},
 		Env: map[string]string{terrabase.EnvAdminPort: strconv.Itoa(adminPort), terrabase.EnvPeerPort: strconv.Itoa(peerPort),
 			terrabase.EnvPeers: fmt.Sprintf("node-a=127.0.0.1:%d", peerPort)}}
+	specKeys := nativeTestTrust(t, root)
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{"terrabase"}, Environments: []string{"test"}, CanRegisterHosts: true,
 		Repositories: []string{terrabase.Repository}}
@@ -110,7 +114,8 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30,
 				Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller", Global: true}, {PublicKey: operatorNKey, Role: "operator"},
 					{PublicKey: hostNKey, Role: "host", Node: "node-a"}}}},
-		Controller: ControllerConfig{SpecTrust: authorityTestSpecTrust(t, root, "gru"), CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
+		Controller: ControllerConfig{CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
+			SpecTrust:             specKeys.config(),
 			ArtifactStoreMaxBytes: 512 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads:           map[string]WorkloadProfile{"terrabase": profile},
 			TerraBaseCACertFile: filepath.Join(root, "ca", "member-ca.pem"), TerraBaseCAKeyFile: filepath.Join(root, "ca", "member-ca.key")},
@@ -132,6 +137,12 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}}
 	operatorConfigPath := testJSONFile(t, root, "operator.json", operatorConfig)
+	operatorRuntime, err := natscell.Start(ctx, operatorConfig.NATS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer operatorRuntime.Close()
+	applyNativeTestSpec(t, operatorConfig, operatorRuntime, specKeys, []cellspec.Service{{Role: terrabase.Role, Profile: profile}}, 1)
 	registrationPath := testJSONFile(t, root, "registration.json", host.Registration{Cell: "gru", Node: "node-a",
 		Environment: "test", Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(hostPublic),
 		NATSUserPublicKey: hostNKey, Generation: 1, Capacity: host.Capacity{CPU: 2, MemoryBytes: 256 << 20, DiskBytes: 512 << 20}})
@@ -299,9 +310,14 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	}
 	location := releasechannel.Location{Client: newChannelBucket(), Namespace: "ns", Bucket: "gru-1-head"}
 	var publishSigned func(string, time.Time, ed25519.PrivateKey) string
-	releases := &serviceReleases{cell: "gru", channel: &channelSource{location: &location}, deliveries: deliveries,
+	releases := &serviceReleases{js: leader.JetStream(), cell: "gru", channel: &channelSource{location: &location}, deliveries: deliveries,
 		hosts: reader, fencer: observedLeader{js: leader.JetStream()}, wait: 15 * time.Second,
 		profiles: func() map[string]WorkloadProfile { return map[string]WorkloadProfile{terrabase.Role: profile} }}
+	controllerCfg, err := LoadConfig(controllerConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releases.history = nativeTestHistory(t, controllerCfg, leader, deliveries, releases.fencer)
 	signingKey, err := readPrivateKey(filepath.Join(root, "operator.key"))
 	if err != nil {
 		t.Fatal(err)
@@ -375,15 +391,36 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	assertTerraBaseMember(t, ctx, adminPort, member, runner, channelDigest)
 	// A second pass reports the finished release again and changes nothing.
 	pass(releasechannel.StateComplete, "")
-	thirdDigest := publish(third, now.Add(time.Second))
+	channelGoodProfile := cloneNativeProfile(profile)
+	profile = cloneNativeProfile(profile)
+	profile.Env["NONSECRET_SETTING"] = "channel-B"
+	profile.Resources.CPU = 2
+	applyNativeTestSpec(t, operatorConfig, operatorRuntime, specKeys, []cellspec.Service{{Role: terrabase.Role, Profile: profile}}, 2)
+	specEntry, err := releases.history.services.kv.Get(ctx, cellSpecKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := releases.history.services.load(specEntry); err != nil {
+		t.Fatal(err)
+	}
+	channelBrokenData, err := os.ReadFile(third)
+	if err != nil {
+		t.Fatal(err)
+	}
+	channelBroken := writeTerraBaseRelease(t, filepath.Join(root, "channel-broken"), append(channelBrokenData, []byte("channel failure")...))
+	thirdDigest := publish(channelBroken, now.Add(time.Second))
 	pass(releasechannel.StateFailed, "was rolled back to "+channelDigest)
 	assertTerraBaseMember(t, ctx, adminPort, member, runner, channelDigest)
+	channelDesired, err := releases.history.hosts.ListDesired(ctx, terrabase.Role)
+	if err != nil || len(channelDesired) != 1 || !maps.Equal(channelDesired[0].Env, channelGoodProfile.Env) {
+		t.Fatalf("channel rollback kept changed config: %+v, %v", channelDesired, err)
+	}
 	// TS-623: the rolled-back digest is known bad; CI running it again
 	// never reaches the members.
 	if bad, found, err := knownBad(ctx, kv, terrabase.Role, thirdDigest); err != nil || !found || bad.Reason == "" {
 		t.Fatalf("known bad %+v %v %v", bad, found, err)
 	}
-	publish(third, now.Add(1500*time.Millisecond))
+	publish(channelBroken, now.Add(1500*time.Millisecond))
 	pass(releasechannel.StateFailed, "is known bad in this cell")
 	assertTerraBaseMember(t, ctx, adminPort, member, runner, channelDigest)
 	// A replayed older claim never reaches the members.
@@ -420,6 +457,7 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	stale := nativeIntent(record, nativeRelease{Role: terrabase.Role, Replicas: 1, Profile: profile}, 1)
 	stale.SchemaVersion, stale.OperationID = delivery.SchemaVersion, entityid.Derive("test-operation", "earlier-leader")
 	stale.AuthorityEpoch = releases.fencer.Current().Epoch + 7
+	seedNativeTestBinding(t, releases.history, stale, channelDigest, nil)
 	key := releasechannel.ServiceStatusKey("GRU", terrabase.Role)
 	_, revision, err := loadServiceRelease(ctx, kv, key)
 	if err != nil {
@@ -468,6 +506,7 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 			intent.OperationID = entityid.Derive("test-operation", "earlier-rollback", digest)
 			state.Rollback = &intent
 		}
+		seedNativeTestBinding(t, releases.history, forward, previous, state.Rollback)
 		sum := sha256.Sum256(claim)
 		state.Claim = hex.EncodeToString(sum[:])
 		_, revision, err := loadServiceRelease(ctx, kv, key)
@@ -518,30 +557,33 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 		t.Fatalf("the release resumed without its channel: %+v %v", state, err)
 	}
 	assertTerraBaseMember(t, ctx, adminPort, member, runner, unreadableDigest)
-	// A rollback that does not pass its gate is not a final outcome: the
-	// release stays rolling and the rollback is retried until it serves.
-	brokenData, err := os.ReadFile(third)
-	if err != nil {
-		t.Fatal(err)
-	}
-	brokenSum := sha256.Sum256(brokenData)
+	// A persisted recovery cannot select an unrelated artifact by digest.
 	stuck := writeTerraBaseRelease(t, filepath.Join(root, "stuck"), []byte(fakeTerraBaseMagic+" stuck"))
-	seed(stuck, now.Add(7*time.Second), hex.EncodeToString(brokenSum[:]), true)
-	if err := releases.pass(ctx, kv, terrabase.Role); err == nil {
-		t.Fatal("a rollback that never served finished the release")
-	}
+	seed(stuck, now.Add(7*time.Second), unreadableDigest, true)
 	state, revision, err := loadServiceRelease(ctx, kv, key)
-	if err != nil || state.State != releasechannel.StateRolling || !strings.Contains(state.Reason, "has not finished") {
-		t.Fatalf("after a rollback that never served: %+v %v", state, err)
-	}
-	good, err := deliveries.ResolveAdmittedArtifact(ctx, unreadableDigest, terrabase.Role, "test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	retry := *state.Rollback
-	retry.Source, retry.ArtifactDigest, retry.ManifestDigest = good.Source, good.Digest, good.ManifestDigest
-	retry.OperationID, retry.Generation = entityid.Derive("test", "retried-rollback"), retry.Generation+1
-	state.Rollback, state.Previous = &retry, unreadableDigest
+	tampered := *state.Rollback
+	tampered.ArtifactDigest = thirdDigest
+	state.Rollback = &tampered
+	if _, err := saveServiceRelease(ctx, kv, key, state, revision); err != nil {
+		t.Fatal(err)
+	}
+	if err := releases.pass(ctx, kv, terrabase.Role); err == nil {
+		t.Fatal("unbound recovery completed")
+	}
+	assertTerraBaseMember(t, ctx, adminPort, member, runner, unreadableDigest)
+	state, revision, err = loadServiceRelease(ctx, kv, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	historyState, _, err := releases.history.load(ctx, terrabase.Role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Rollback = &historyState.Recovery.Intent
+	state.Preparation = nil
 	if _, err := saveServiceRelease(ctx, kv, key, state, revision); err != nil {
 		t.Fatal(err)
 	}
@@ -558,7 +600,7 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	finished, err := releases.release(ctx, kv, terrabase.Role, refreshState, func(next serviceReleaseState) error {
+	finished, err := releases.release(ctx, kv, terrabase.Role, refreshState, releases.fencer.Current().Epoch, func(next serviceReleaseState) error {
 		if next.Rollback == nil {
 			time.Sleep(200 * time.Millisecond)
 		}
@@ -572,6 +614,60 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 		t.Fatalf("late forward intent was submitted: %+v, %v", receipt, err)
 	}
 	assertTerraBaseMember(t, ctx, adminPort, member, runner, unreadableDigest)
+	_, persistedRevision, err := loadServiceRelease(ctx, kv, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := saveServiceRelease(ctx, kv, key, finished, persistedRevision); err != nil {
+		t.Fatal(err)
+	}
+	// Fourteen actual accepted/gated releases displace old good slots; failed
+	// candidates never consume those slots, and GC keeps all ten good binaries.
+	var successful []string
+	for i := range 14 {
+		binary := writeTerraBaseRelease(t, filepath.Join(root, fmt.Sprintf("retained-%d", i)), []byte(fakeTerraBaseMagic+fmt.Sprintf(" retained %d", i)))
+		successful = append(successful, publish(binary, time.Now().UTC()))
+		pass(releasechannel.StateComplete, "")
+	}
+	checkNativeHistoryCanaryCannotCertifyEarlyRunning(t, releases.history)
+	for i := range 2 {
+		bad := writeTerraBaseRelease(t, filepath.Join(root, fmt.Sprintf("failed-retained-%d", i)), append(channelBrokenData, byte(i)))
+		publish(bad, time.Now().UTC())
+		pass(releasechannel.StateFailed, "was rolled back to "+successful[len(successful)-1])
+	}
+	retained, _, err := releases.history.load(ctx, terrabase.Role)
+	if err != nil || len(retained.Good) != nativeGoodLimit {
+		t.Fatalf("retained history: %+v, %v", retained, err)
+	}
+	for i, good := range retained.Good {
+		if good.Binding.Artifact.Digest != successful[len(successful)-1-i] {
+			t.Fatal("failed candidate consumed a good slot")
+		}
+	}
+	uses, err := releases.history.artifactsInUse(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection, err := deliveries.CollectArtifacts(ctx, func(context.Context) ([]delivery.ArtifactUse, error) { return uses, nil }, time.Now().Add(72*time.Hour), func(context.Context) error { return nil })
+	if err != nil {
+		t.Fatalf("good-history GC: %+v, %v", collection, err)
+	}
+	for _, good := range retained.Good {
+		if _, err := deliveries.ResolveAdmittedArtifact(ctx, good.Binding.Artifact.Digest, terrabase.Role, "test"); err != nil {
+			t.Fatalf("GC removed good binary: %v", err)
+		}
+	}
+	status, _, err := releasechannel.ReadServiceStatus(ctx, location, terrabase.Role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, good := range retained.Good {
+		if !slices.Contains(status.Pins.Rollback, good.Binding.Artifact.Digest) {
+			t.Fatal("CI inventory omitted good digest")
+		}
+	}
+	checkNativeHistoryMutationFailures(t, releases.history)
+
 }
 
 // observedLeader lends a test client the cell's current authority epoch,
@@ -745,13 +841,10 @@ func TestTerraBaseReleaseStateRules(t *testing.T) {
 		t.Fatal("running members on two digests were accepted")
 	}
 	intent := delivery.Intent{Role: "terrabase", Environment: "prod", ArtifactDigest: "d9", Generation: 2, DesiredReplicas: 1}
-	if ready, err := terraBaseReady(statuses, intent, now); ready || err != nil {
+	if ready, err := nativeReady(statuses, desired, intent, now); len(ready) != 0 || err != nil {
 		t.Fatalf("a member of another environment satisfied the gate: %v, %v", ready, err)
 	}
 	intent.ArtifactDigest, intent.Generation = "d2", 5
-	if _, err := terraBaseReady(statuses, intent, now); err == nil {
-		t.Fatal("a failed member did not fail the gate")
-	}
 	if heldAfterPlanning(delivery.Receipt{Status: "held", Error: delivery.PlannerRefusedHold + " 30 times (insufficient_capacity)"}) {
 		t.Fatal("a planner hold, which writes no member, counted as a change")
 	}

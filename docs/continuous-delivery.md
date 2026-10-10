@@ -194,6 +194,7 @@ executable on a running node with an A/B layout:
   known-good -> releases/<sha256>               runs the root steps (below)
   activation.json                               pending switch, if any
   known-bad.json                                digests rolled back on this node
+  confirmed-releases.json                       latest ten distinct node confirmations
 ```
 
 1. **Distribute.** The qualified binary (about 46 MB, under the 512 MiB
@@ -255,8 +256,23 @@ executable on a running node with an A/B layout:
    release when that still verifies, marks the target known bad, and moves
    the record aside as `activation.json.unreadable-<time>`.
 6. **Prune.** After each `prepare`, release directories that are not
-   current, not part of a pending activation, not the baked release, and
-   either known bad or staged more than 24 hours ago are removed.
+   current, known-good, part of a pending activation, the baked release, or
+   among the latest ten distinct node-confirmed binaries are removed when
+   known bad or staged more than 24 hours ago. A subsequent rejection removes
+   a digest from the eligible confirmation history. The root-owned v1
+   `confirmed-releases.json` index is committed before the known-good link
+   and activation removal. An unreadable or unsafe index stops confirmation
+   and pruning; the activation remains available for recovery. Neither a
+   failed candidate nor staging alone creates a confirmation.
+
+The confirmation index preserves local binary bytes, independently of staging
+age. It does not establish fleet promotion, retain role configuration, extend
+receipt validity, or authorize restaging. A fleet rollback still needs its
+retained release/config pair and current authority checks. Root maintenance
+steps must run an implementation that preserves this index: older release or
+image-baked helpers do not understand it. Installation and downgrade behavior
+must be qualified before claiming retained-byte availability across a live
+rollback.
 
 The image installs `deploy/systemd/selfupdate/`: both runtime units' drop-ins
 and the watchdog template, with the `controller` and `host` timer instances
@@ -898,10 +914,11 @@ releases/services/<role>/status.json         the region leader's report
    workload reconciler moves mid-release is fenced too. Once every node
    serves a release, the marks
    and permits that failed or superseded sequences of the role's older
-   releases left are removed. The operator's `terrabase-release` and
-   `ts-auth-release` commands do not go through the fence: they restart
-   every replica at once, so they are for breaking glass, with the
-   backends drained by hand first.
+   releases left are removed. The operator's `terrabase-release`,
+   `ts-auth-release` and native `deploy` commands use the same controller
+   preparation and fence/canary certification. Native `rollback` restores
+   a retained pair through the fence and health proof; recovery does not
+   repeat the forward canary.
    With TerraBase seats (`controller.terrabase_seats`) the seat controller
    keeps ordering TerraBase restarts and the fence sequences the other
    roles only, so one sequencer gates each role.
@@ -923,6 +940,80 @@ releases/services/<role>/status.json         the region leader's report
    failed `status.json` write only logs; a
    failure to read hosts or state is retried on the next pass rather than
    failing the release.
+
+### Native release/configuration retention
+
+`TS_NATIVE_RELEASES` retains ten distinct successful binary/profile pairs per
+native role, plus the active candidate, its recorded predecessor and any
+recovery target. A pair includes the admitted artifact identity, complete
+`WorkloadProfile` (arguments, environment, resource profile and Vault
+references), signed profile provenance, and the exact accepted intent
+fingerprint. Binary staging or intent submission alone does not mark a pair
+good: every expected committed replica must have a fresh, verified report
+from its current host session matching its desired generation and digest.
+Certification requires two advancing observations at least one deployer poll
+apart and completion of the native fence/canary sequence. A running snapshot
+cannot bypass an unfinished canary.
+
+The role's CAS index stores compact bindings. Full profiles and their signed
+provenance use immutable, digest-checked bounded records, so ten valid profiles
+and their recovery pins fit without repeating proof bytes in one KV value.
+Preparation reserves the index space needed for promotion and recovery before
+allowing forward effects. Channel preparation and epoch refresh are journaled
+before native selection, so leader loss at either CAS boundary resumes the
+same target and original deadline.
+An expired first-install selection with no predecessor is settled as rejected
+only when no delivery worker has claimed its operation. This uses the current
+leader's authority while preserving the original fingerprint, without
+publishing expired work or replacing an accepted or partially written plan.
+
+Preparation persists the exact profile binding before host changes. Recovery
+uses the recorded predecessor's configuration as well as its binary, including
+when the rejected configuration used the same binary. The delivery planner
+resolves that profile only for the selected persisted operation; choosing an
+old configuration digest does not authorize arbitrary historical settings.
+An existing serving baseline can enter the index through ordinary observation
+of its accepted intent and exact signed profile. If those facts cannot be
+proved, preparation refuses the change before writing host desired state.
+The native `operator deploy --intent` caller uses the same preparation,
+certification and recovery path as the native release commands. It keeps its
+single operation/fingerprint response and returns success only after the
+native gate completes; it cannot publish an unprepared native operation.
+`operator rollback --intent` selects a retained good pair before submission
+and follows the native gate without rebuilding. It prefers the exact recorded
+predecessor; another target must identify one full resource profile. A target
+absent from retention or ambiguous across profiles receives a durable rejected
+receipt. Manual restoration leaves the healthy release it replaces eligible
+for later recovery. An uncertified forward or manual restore cannot plan or
+write desired state after its original fixed observation deadline; retries do
+not extend that deadline. A separately prepared automatic recovery does not
+inherit the failed candidate's expired deadline.
+
+Current trust and role/Vault scope still apply to retained targets. Configuration
+recovery does not restore old signers, topology, authority material, database
+data or secret values. Vault references resolve their current secret values
+at launch. Resource profiles restore placement reservations and utilization
+accounting; they do not impose process/cgroup limits or restore VM shapes.
+Artifact collection and release-channel inventories include good,
+pending, predecessor and recovery references; an unreadable index stops
+collection instead of silently dropping those pins.
+Immutable proof metadata is append-only; the active index retains ten good
+pairs, but this slice does not collect unreferenced proof records.
+
+This retention foundation does not add a fleet rollback command or dashboard
+mutation. It does not establish managed-member, generic-workload, Fly
+`ts-dashboard`, orchestrator role-config recovery or live drill coverage.
+The native smoke gate does not establish a sustained traffic/error-rate
+observation window. Channel work resumes under a new leader; this slice does
+not add a controller worker that takes over an abandoned direct operator
+command. Retained bindings preserve its identity, but do not by themselves
+complete that recovery.
+The existing generic four-VM qualification still generates a production
+controller without baked admission material and an unsigned shell workload
+profile. Its runtime bootstrap and native deploy/restore prerequisites are
+unresolved; source and driver-contract tests do not prove that VM scenario.
+The native app integration uses a modeled test runner and is not live or
+Firecracker qualification evidence.
 
 Credentials: the service repositories hold one scoped OCI API key
 (`TS_RELEASE_OCI_KEY`) for the IAM user `ts-service-release`, whose group may

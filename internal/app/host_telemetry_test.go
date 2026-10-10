@@ -10,6 +10,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 )
 
 func TestHostTelemetryCollectsWithoutAutoscaling(t *testing.T) {
@@ -17,7 +18,7 @@ func TestHostTelemetryCollectsWithoutAutoscaling(t *testing.T) {
 		fencer := &switchingFencer{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1,
 			Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}}
 		reconciler, scaler, telemetry, err := startWorkloadAutoscale("gru", config, nil, nil, nil,
-			time.Time{}, &host.Controller{}, fencer)
+			time.Time{}, &host.Controller{}, fencer, nil)
 		if err != nil || scaler != nil || reconciler.Signals() != nil || telemetry == nil {
 			t.Fatalf("collection without scaling: reconciler=%v scaler=%v collector=%v err=%v", reconciler, scaler, telemetry, err)
 		}
@@ -83,5 +84,24 @@ func TestHostTelemetryDiscardsPreviousAuthorityTerms(t *testing.T) {
 	fencer.set(leader)
 	if len(telemetry.samples()) != 0 {
 		t.Fatal("expired authority charted load")
+	}
+}
+
+func TestHostTelemetryRestoresReleaseResourceNormalization(t *testing.T) {
+	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, Leader: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Minute)}}
+	telemetry := &hostTelemetry{fencer: fencer, load: hostload.NewAggregator(hostload.AggregatorConfig{})}
+	for _, resources := range []placement.Resources{{CPU: 2, MemoryBytes: 2048}, {CPU: 1, MemoryBytes: 1024}} {
+		telemetry.setResources(map[string]placement.Resources{"ts-auth": resources})
+		if len(telemetry.load.Nodes()) != 0 || telemetry.requests["ts-auth"].CPUCores != float64(resources.CPU) || telemetry.requests["ts-auth"].MemoryBytes != resources.MemoryBytes {
+			t.Fatal("resource change retained incompatible normalized samples")
+		}
+		cpu := 0.5
+		if err := telemetry.record(hostload.Origin{Cell: "gru", Environment: "production", Node: "host-a"}, hostload.Report{SchemaVersion: hostload.SchemaVersion, Roles: []hostload.RoleUsage{{Role: "ts-auth", CPUCores: &cpu}}}); err != nil {
+			t.Fatal(err)
+		}
+		telemetry.setResources(map[string]placement.Resources{"ts-auth": resources})
+		if len(telemetry.load.Nodes()) != 1 {
+			t.Fatal("unchanged release discarded current utilization window")
+		}
 	}
 }

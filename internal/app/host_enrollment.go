@@ -16,6 +16,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/nats-io/nats.go"
 )
 
@@ -146,6 +147,32 @@ func serveHostEnrollment(ctx context.Context, conn *nats.Conn, cell string, poli
 			}
 			if wire, marshalErr := json.Marshal(reply); marshalErr == nil {
 				_ = message.Respond(wire)
+			}
+			return
+		}
+		if decodeErr == nil && services != nil && services.nativeHistory != nil &&
+			(envelope.Kind == nativePrepareKind || envelope.Kind == nativeObserveKind || envelope.Kind == nativeRestoreKind) {
+			respond := func(nativeCtx context.Context) {
+				reply, err := services.nativeHistory.serve(nativeCtx, message.Data, policy)
+				if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrNotLeader) || !fencer.Current().CanMutate() {
+					return
+				}
+				if err != nil {
+					reply = nativePrepareReply{Error: err.Error()}
+				}
+				if wire, err := encodeNativeReply(reply, conn.MaxPayload()); err == nil {
+					_ = message.Respond(wire)
+				}
+			}
+			if envelope.Kind == nativeObserveKind {
+				// A fenced gate outlives one RPC attempt without blocking host enrollment.
+				go func() {
+					gateCtx, stop := context.WithTimeout(ctx, rollout.ObservationBudget)
+					defer stop()
+					respond(gateCtx)
+				}()
+			} else {
+				respond(requestCtx)
 			}
 			return
 		}

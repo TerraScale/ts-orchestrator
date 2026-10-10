@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
@@ -224,14 +225,15 @@ func TestSmokeGateChecksTheCanary(t *testing.T) {
 	public := api.Client()
 	public.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	key := smokeKey + "\n"
-	gate := smokeGate{public: public, authPort: authPort, clientPort: func() int { return apiPort },
+	gate := smokeGate{public: public, authPort: authPort,
 		memberCA:    pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: api.Certificate().Raw}),
 		credentials: func(context.Context, vaultsecret.Ref) (string, error) { return key, nil }}
 	canary := cellspec.Canary{Project: "p", Database: "db", AuthURL: auth.URL, APIURL: api.URL,
 		DashboardLoginURL: dashboard.URL + "/login"}
 	host, _, _ := net.SplitHostPort(apiURL.Host)
+	profile := WorkloadProfile{Env: map[string]string{terrabase.EnvPeerPort: "9466", terrabase.EnvPeers: "ctl-1=127.0.0.1:9466", terrabase.EnvClientPort: strconv.Itoa(apiPort)}}
 	for _, role := range []string{tsauth.Role, terrabase.Role} {
-		target := canaryTarget{Role: role, Node: "ctl-1", Address: host, Canary: canary}
+		target := canaryTarget{Role: role, Node: "ctl-1", Address: host, Canary: canary, Profile: profile}
 		if failed := gate.check(t.Context(), target); len(failed) != 0 {
 			t.Fatalf("%s canary: %v", role, failed)
 		}
@@ -239,7 +241,7 @@ func TestSmokeGateChecksTheCanary(t *testing.T) {
 	if len(cell.documents) != 0 {
 		t.Fatalf("left documents %v", cell.documents)
 	}
-	target := canaryTarget{Role: terrabase.Role, Node: "ctl-1", Address: host, Canary: canary}
+	target := canaryTarget{Role: terrabase.Role, Node: "ctl-1", Address: host, Canary: canary, Profile: profile}
 	cell.ignoreIfMatch, cell.hosted = true, true
 	failed := gate.check(t.Context(), target)
 	if !strings.Contains(failed[checkDocuments], "stale If-Match answered 200") ||
@@ -277,5 +279,72 @@ func TestSmokeGateChecksTheCanary(t *testing.T) {
 		if strings.Contains(reason, smokeKey[25:]) {
 			t.Fatalf("a reason holds the key: %q", reason)
 		}
+	}
+}
+
+func TestNativeCanaryUsesPredecessorAndSelectedPorts(t *testing.T) {
+	for _, broken := range []bool{false, true} {
+		t.Run(fmt.Sprintf("broken-candidate-%v", broken), func(t *testing.T) {
+			fence, cell, _, _, intent := newFenceTest(t)
+			cell.role, intent.Role = terrabase.Role, terrabase.Role
+			a := &smokeCell{documents: map[string]int{}}
+			b := &smokeCell{documents: map[string]int{}, ignoreIfMatch: broken}
+			auth := httptest.NewServer(http.HandlerFunc(a.auth))
+			defer auth.Close()
+			var aCalls, bCalls, cCalls atomic.Int32
+			serve := func(c *smokeCell, calls *atomic.Int32) *httptest.Server {
+				return httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					calls.Add(1)
+					c.api(w, r)
+				}))
+			}
+			apiA, apiB := serve(a, &aCalls), serve(b, &bCalls)
+			defer apiA.Close()
+			defer apiB.Close()
+			apiC := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				cCalls.Add(1)
+				http.Error(w, "newest spec must not be probed", http.StatusServiceUnavailable)
+			}))
+			defer apiC.Close()
+			profile := func(server *httptest.Server) WorkloadProfile {
+				u, err := url.Parse(server.URL)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return WorkloadProfile{Env: map[string]string{terrabase.EnvPeerPort: "9466", terrabase.EnvPeers: "ctl-1=127.0.0.1:9466", terrabase.EnvClientPort: u.Port()}}
+			}
+			profileA, profileB, profileC := profile(apiA), profile(apiB), profile(apiC)
+			spec, _ := fence.spec()
+			spec.Canary = &cellspec.Canary{Project: "p", Database: "db", AuthURL: auth.URL, APIURL: apiC.URL}
+			smoke := newSmokeGate(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: apiA.Certificate().Raw}))
+			smoke.credentials = func(context.Context, vaultsecret.Ref) (string, error) { return "tb_canary", nil }
+			history := &nativeHistory{services: &specRegistry{fixed: map[string]WorkloadProfile{terrabase.Role: profileC}},
+				canary: func(ctx context.Context, target canaryTarget) map[string]string {
+					// Keep the fence's modeled private topology; probe real local endpoints.
+					target.Address = "127.0.0.1"
+					return smoke.check(ctx, target)
+				}}
+			selected := history.selectedCanaryGate(nativeReleaseHistory{Previous: &nativeGoodRelease{Binding: nativeReleaseBinding{Profile: profileA}}}, nativeReleaseBinding{Profile: profileB})
+			// Adoption or mutation after selection cannot replace B's endpoint with C.
+			profileB.Env[terrabase.EnvClientPort] = profileC.Env[terrabase.EnvClientPort]
+			if err := fence.prepare(t.Context(), intent); err != nil {
+				t.Fatal(err)
+			}
+			err := fence.sequence(t.Context(), intent, selected)
+			if broken != errors.Is(err, errBadRelease) || !broken && err != nil {
+				t.Fatalf("candidate broken=%v: %v", broken, err)
+			}
+			if aCalls.Load() == 0 || bCalls.Load() == 0 || cCalls.Load() != 0 {
+				t.Fatalf("endpoint calls: predecessor=%d candidate=%d newest=%d", aCalls.Load(), bCalls.Load(), cCalls.Load())
+			}
+			if broken {
+				record, err := fence.canary(t.Context(), intent.Role, intent.Generation)
+				if err != nil || record.Passed || slices.Contains(record.Baseline, checkDocuments) || !slices.Equal(cell.restarts, []string{"ctl-1"}) {
+					t.Fatalf("candidate regression was suppressed by baseline: %+v, restarts=%v, err=%v", record, cell.restarts, err)
+				}
+			} else if len(cell.restarts) != 3 {
+				t.Fatalf("healthy B did not finish the fence: %v", cell.restarts)
+			}
+		})
 	}
 }

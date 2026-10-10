@@ -104,6 +104,7 @@ func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]Worklo
 func startWorkloadAutoscale(cell string, config *AutoscaleConfig, profiles map[string]WorkloadProfile,
 	specs []workload.ServiceSpec, budget func() *hostpool.Budget, cellSince time.Time, hosts *host.Controller,
 	fencer authority.Fencer,
+	nativeReleases *nativeHistory,
 ) (*workload.Reconciler, *hostpool.Scaler, *hostTelemetry, error) {
 	var settings AutoscaleConfig
 	if config != nil && config.Enabled {
@@ -132,13 +133,26 @@ func startWorkloadAutoscale(cell string, config *AutoscaleConfig, profiles map[s
 		requester = scaler
 	}
 	var signals autoscale.Source
-	load := &hostTelemetry{fencer: fencer,
-		load: hostload.NewAggregator(hostload.AggregatorConfig{Requests: loadRequests(resources)})}
+	requests := loadRequests(resources)
+	load := &hostTelemetry{fencer: fencer, requests: requests,
+		load: hostload.NewAggregator(hostload.AggregatorConfig{Requests: requests})}
 	if settings.HostTelemetry {
 		signals = load.load
 	}
-	reconciler, err := workload.New(workload.Config{Cell: cell, Specs: specs, Profiles: resources,
-		Hosts: hosts, Writer: hosts, Fencer: fencer, Signals: signals, Capacity: requester, Interval: interval,
+	var releaseResources func(context.Context, []host.Desired, map[string]placement.Resources) (map[string]placement.Resources, error)
+	var writer workload.DesiredWriter = hosts
+	if nativeReleases != nil {
+		releaseResources = func(ctx context.Context, desired []host.Desired, profiles map[string]placement.Resources) (map[string]placement.Resources, error) {
+			resolved, err := nativeReleases.resources(ctx, desired, profiles)
+			if err == nil {
+				load.setResources(resolved)
+			}
+			return resolved, err
+		}
+		writer = nativeReleases
+	}
+	reconciler, err := workload.New(workload.Config{Cell: cell, Specs: specs, Profiles: resources, ReleaseResources: releaseResources,
+		Hosts: hosts, Writer: writer, Fencer: fencer, Signals: signals, Capacity: requester, Interval: interval,
 		Logf: log.Printf})
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("start workload reconciler: %w", err)

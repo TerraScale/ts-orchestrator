@@ -375,6 +375,19 @@ func (s *Service) touchArtifact(ctx context.Context, digest string) error {
 	return err
 }
 
+// RetainArtifact validates the admitted bytes and touches their metadata before
+// a caller commits a durable reference, fencing a concurrent GC deletion.
+func (s *Service) RetainArtifact(ctx context.Context, record ArtifactRecord) error {
+	resolved, err := s.ResolveAdmittedArtifact(ctx, record.Digest, record.Role, record.Environment)
+	if err != nil {
+		return err
+	}
+	if resolved != record {
+		return ErrConflict
+	}
+	return s.touchArtifact(ctx, record.Digest)
+}
+
 func (s *Service) persistArtifactAdmission(ctx context.Context, record ArtifactRecord, envelope []byte, actor string) error {
 	key := admissionKey(record.Digest, record.Cell, record.Role, record.Environment)
 	newAdmission := signedAdmission{Record: record, Envelope: bytes.Clone(envelope), Actor: actor}

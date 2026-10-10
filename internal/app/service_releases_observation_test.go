@@ -77,7 +77,7 @@ func TestServiceReleaseRefusesExpiredUnsubmittedClaim(t *testing.T) {
 func TestServiceReleaseRefusesExpiredPendingAdmission(t *testing.T) {
 	r, kv, _, _ := servicePinsSignedFixture(t)
 	state := serviceReleaseState{IssuedAt: time.Now().UTC().Add(-rollout.ObservationBudget), State: releasechannel.StateRolling}
-	finished, err := r.release(t.Context(), kv, terrabase.Role, state, func(serviceReleaseState) error {
+	finished, err := r.release(t.Context(), kv, terrabase.Role, state, r.fencer.Current().Epoch, func(serviceReleaseState) error {
 		t.Fatal("expired pending admission persisted an intent")
 		return nil
 	})
@@ -120,7 +120,7 @@ func TestServiceReleaseRefusesExpiryDuringInitialAdmission(t *testing.T) {
 	state := serviceReleaseState{Digest: candidate.Digest, IssuedAt: issued, Previous: serving.Digest,
 		Retained: []string{serving.Digest}, State: releasechannel.StateRolling,
 		claim: bucket.objects[releasechannel.ServiceReleaseObject(role)], location: location}
-	finished, err := r.release(ctx, kv, role, state, func(serviceReleaseState) error {
+	finished, err := r.release(ctx, kv, role, state, r.fencer.Current().Epoch, func(serviceReleaseState) error {
 		t.Fatal("admission that expired during binary read persisted an intent")
 		return nil
 	})

@@ -28,7 +28,7 @@ func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
 		ExpiresAt: time.Now().Add(time.Hour)}}
 	// The reconciler always runs, for the roles a cell spec adds later;
 	// without a service it owns nothing.
-	reconciler, scaler, load, err := startWorkloadAutoscale("gru", nil, profiles, nil, nil, time.Time{}, &host.Controller{}, fencer)
+	reconciler, scaler, load, err := startWorkloadAutoscale("gru", nil, profiles, nil, nil, time.Time{}, &host.Controller{}, fencer, nil)
 	if err != nil || scaler != nil || load == nil || reconciler.Signals() != nil {
 		t.Fatalf("absent autoscale config must collect without scaling: %v %v %v", scaler, load, err)
 	}
@@ -41,7 +41,7 @@ func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
 		t.Fatal(err)
 	}
 	disabled.HostTelemetry = true
-	if reconciler, scaler, load, err := startWorkloadAutoscale("gru", disabled, profiles, nil, nil, time.Time{}, &host.Controller{}, fencer); err != nil || scaler != nil || load == nil || reconciler.Signals() != nil {
+	if reconciler, scaler, load, err := startWorkloadAutoscale("gru", disabled, profiles, nil, nil, time.Time{}, &host.Controller{}, fencer, nil); err != nil || scaler != nil || load == nil || reconciler.Signals() != nil {
 		t.Fatal("disabled autoscale config must collect without scaling")
 	}
 	var planner regionalDeliveryPlanner
@@ -119,7 +119,7 @@ func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
 	fencer := &switchingFencer{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1, Revision: 1,
 		ExpiresAt: time.Now().Add(time.Hour)}}
 	reconciler, _, telemetry, err := startWorkloadAutoscale("gru", config, map[string]WorkloadProfile{"api": {Resources: resources}},
-		config.Services, nil, time.Time{}, &host.Controller{}, fencer)
+		config.Services, nil, time.Time{}, &host.Controller{}, fencer, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

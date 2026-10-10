@@ -319,6 +319,16 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return fmt.Errorf("start storage capacity collector: %w", err)
 	}
 	defer stopCapacity()
+	nativeKV, _, err := retryControllerOpen(ctx, "open native release history", fullClusterReady, false,
+		func(attempt context.Context) (jetstream.KeyValue, error) {
+			return openNativeHistory(attempt, runtime.JetStream(), cfg.NATS.Replicas)
+		}, nil)
+	if err != nil {
+		return err
+	}
+	nativeReleases := &nativeHistory{kv: nativeKV, js: runtime.JetStream(), services: services,
+		deliveries: service, fencer: control, cfg: cfg}
+	planner.nativeHistory, services.nativeHistory = nativeReleases, nativeReleases
 	stopKVSnapshots, kvSnapshots, err := startKVSnapshots(ctx, cfg, runtime.JetStream(), control, services)
 	if err != nil {
 		return err
@@ -604,8 +614,14 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	profiles, specs := services.effective()
+	nativeReleases.hosts, nativeReleases.fences = hostController, fences
+	var nativeMemberCA []byte
+	if terraBaseCA != nil {
+		nativeMemberCA = terraBaseCA.CertificatePEM()
+	}
+	nativeReleases.canary = newSmokeGate(nativeMemberCA).check
 	workloadReconciler, capacityScaler, hostLoad, err := startWorkloadAutoscale(cfg.NATS.Cell, cfg.Controller.Autoscale,
-		profiles, specs, services.budget, authorityLogCreated(ctx, runtime.JetStream()), hostController, control)
+		profiles, specs, services.budget, authorityLogCreated(ctx, runtime.JetStream()), hostController, control, nativeReleases)
 	if err != nil {
 		return err
 	}
@@ -629,15 +645,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		}
 	}()
 	hostController.SetLoadSink(func(origin hostload.Origin, report hostload.Report) error {
-		profiles, _ := services.effective()
-		return telemetry.recordHostLoad(hostLoad.record, origin, report, loadRequests(profileResources(profiles)))
+		return hostLoad.recordCommitted(ctx, nativeReleases, telemetry, origin, report)
 	})
 	services.changed = func(profiles map[string]WorkloadProfile, specs []workload.ServiceSpec) {
 		resources := profileResources(profiles)
 		if err := workloadReconciler.SetServices(specs, resources); err != nil {
 			slog.Error("reconciler refused the adopted cell spec", observability.ComponentKey, "cellspec", "error", err)
 		}
-		hostLoad.load.SetRequests(loadRequests(resources))
 	}
 	if materialService != nil && managed != nil {
 		backupRuntime = &backupOperationRuntime{cell: cfg.NATS.Cell,
@@ -904,9 +918,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		Config: services.atlasConfig, Authority: control, LoadKey: atlas.VaultKey}
 	workers.Go(func() { workerErrors <- atlasPublisher.Run(runCtx) })
 	workers.Go(func() { workerErrors <- services.Run(runCtx) })
+	workers.Go(func() { workerErrors <- nativeReleases.run(runCtx) })
 	workers.Go(func() {
 		workerErrors <- artifactStoreKeeper{control: control, service: service, hosts: hostController,
-			quota: services.artifactStoreMaxBytes, storeDir: cfg.NATS.Embedded.StoreDir, netbird: networkControl}.Run(runCtx)
+			quota: services.artifactStoreMaxBytes, storeDir: cfg.NATS.Embedded.StoreDir, netbird: networkControl,
+			nativeHistory: nativeReleases}.Run(runCtx)
 	})
 	if global.writer == nil {
 		workers.Go(func() {
@@ -914,16 +930,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		})
 	}
 	if policy.rollouts.channel != nil {
-		releases := &serviceReleases{cell: cfg.NATS.Cell, channel: policy.rollouts.channel, deliveries: service,
-			hosts: hostController, profiles: services.profiles, fencer: control, fences: fences}
-		var memberCA []byte
-		if terraBaseCA != nil {
-			memberCA = terraBaseCA.CertificatePEM()
-		}
-		releases.canary = newSmokeGate(memberCA, func() int {
-			profile, _ := terrabase.ParseProfile(services.profiles()[terrabase.Role].Env)
-			return profile.ClientPort
-		}).check
+		releases := &serviceReleases{js: runtime.JetStream(), cell: cfg.NATS.Cell, channel: policy.rollouts.channel, deliveries: service,
+			hosts: hostController, profiles: services.profiles, fencer: control, fences: fences, history: nativeReleases}
 		workers.Go(func() { releases.run(runCtx, runtime.JetStream(), cfg.NATS.Replicas) })
 	}
 	if policy.nodes != nil {
