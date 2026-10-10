@@ -196,7 +196,7 @@ func rendered(path, body string) error {
 		return fmt.Errorf("topology has %d nodes, need at least 3", len(nodes))
 	}
 	if path == "/members" && len(members) < 3 {
-		return fmt.Errorf("dashboard has %d observed controllers, need at least 3; check telemetry grants", len(members))
+		return fmt.Errorf("dashboard has %d observed controllers, need at least 3; check for missing telemetry grants", len(members))
 	}
 	return nil
 }

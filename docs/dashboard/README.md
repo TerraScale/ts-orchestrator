@@ -73,7 +73,7 @@ requests total. It returns 0 only when every response is HTTP 200 from the
 expected NetBird IP, every page has rendered content, each topology has at
 least three distinct nodes, and each `/members` table has at least three
 distinct observed controllers. Missing-member placeholders do not count.
-This catches missing telemetry grants even when the
+This catches missing telemetry grants or incomplete collection even when the
 dashboard returns HTTP 200. Response bodies are bounded to 2 MiB and are
 never printed. Legitimately empty resource lists do not fail the check.
 Native DNS may connect to the intended peer's IPv4 or IPv6 address reported
