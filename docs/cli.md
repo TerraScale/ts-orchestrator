@@ -127,7 +127,7 @@ CI runs `ts-orch release deploy` for every `main` merge; see
 
 | Command | Purpose |
 | --- | --- |
-| `ts-orch release deploy --dir D --source-revision SHA --update-delegation F --root-key F --signing-key-secret NAME --vault-id OCID --environment E --source-checkout DIR --namespace NS --cell C... --arch A...` | Sign the release for every cell, then publish it to each region in order, the first being the canary, and wait for each to complete |
+| `ts-orch release deploy --dir D --source-revision SHA --update-delegation F` (or `--update-delegation-secret NAME`) `--root-key F --signing-key-secret NAME --vault-id OCID --environment E --source-checkout DIR --namespace NS --cell C... --arch A...` | Sign the release for every cell, then publish it to each region in order, the first being the canary, and wait for each to complete |
 | `ts-orch release service-deploy --role R --binary F --repository URL --commit SHA --source-checkout DIR --environment ENV --actor A --signing-key-secret S --vault-id V --namespace NS --cell C...` | CI: release a native service (TerraBase, ts-auth) to every region, canary first, through its service release channel ([automatic service releases](continuous-delivery.md#automatic-service-releases-ts-610)) |
 | `ts-orch release fleet-status --namespace NS [--cell C...] [--role R...]` | Print every region's release channel and rollout status as JSON lines; with `--role`, each named service role's release status instead |
 

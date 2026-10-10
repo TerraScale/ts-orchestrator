@@ -69,7 +69,7 @@ func newChannelFixture(t *testing.T) channelFixture {
 	}
 	delegation, err := release.SignUpdateDelegation(release.BinaryUpdateDelegation{
 		Schema: release.UpdateDelegationSchema, SubjectKeyID: keyID, SubjectPublicKey: encodedLeaf,
-		Environment: "production", Cells: []string{"GRU", "SFO"}, Architectures: []string{"amd64", "arm64"},
+		Environment: "production", Architectures: []string{"amd64", "arm64"},
 		Repository: release.QualificationRepository, Workflow: release.QualificationWorkflow,
 		Ref: release.LineageRef, LineageBase: testLineageBase,
 	}, now.Add(-time.Minute), now.Add(7*24*time.Hour), rootPrivate)

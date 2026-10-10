@@ -77,7 +77,7 @@ cell to complete a deployment.
 Required variables:
 
 - `TS_OBJECT_NAMESPACE`, `TS_RELEASE_VAULT_ID`, `TS_RELEASE_LEAF_SECRET`, and
-  canonical `TS_RELEASE_UPDATE_DELEGATION` covering every serving target.
+  the Vault secret `release-delegation`, a root-signed update delegation covering every serving region of the environment.
 - `TS_DEPLOY_OCI_USER`, `TS_DEPLOY_OCI_TENANCY`, and `TS_DEPLOY_OCI_FINGERPRINT`.
 
 There is no deployment switch or repository-maintained region list. The script

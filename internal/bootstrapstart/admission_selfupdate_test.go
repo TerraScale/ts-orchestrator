@@ -115,7 +115,7 @@ func (f *selfUpdateFixture) updateReceipt(data []byte, environment, cell string)
 	keyID, encoded := f.leaf()
 	delegation, err := release.SignUpdateDelegation(release.BinaryUpdateDelegation{
 		Schema: release.UpdateDelegationSchema, SubjectKeyID: keyID, SubjectPublicKey: encoded,
-		Environment: environment, Cells: []string{cell}, Architectures: []string{"amd64"},
+		Environment: environment, Architectures: []string{"amd64"},
 		Repository: release.QualificationRepository, Workflow: release.QualificationWorkflow,
 		Ref: release.LineageRef, LineageBase: strings.Repeat("9", 40),
 	}, f.now.Add(-time.Minute), f.now.Add(time.Hour), f.rootPrivate)

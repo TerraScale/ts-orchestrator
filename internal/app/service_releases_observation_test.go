@@ -107,7 +107,7 @@ func TestServiceReleaseRefusesExpiryDuringInitialAdmission(t *testing.T) {
 	ctx, role := t.Context(), terrabase.Role
 	location := *r.channel.location
 	serving := publish("serving before slow admission", time.Now().UTC().Add(-time.Minute))
-	if _, _, err := r.admit(ctx, location, role, bucket.objects[releasechannel.ServiceReleaseObject(role)]); err != nil {
+	if _, _, err := r.admit(ctx, kv, location, role, bucket.objects[releasechannel.ServiceReleaseObject(role)]); err != nil {
 		t.Fatal(err)
 	}
 	r.profiles = func() map[string]WorkloadProfile { return terraBaseSeats("gru-1-db-1=10.251.0.21:9443") }

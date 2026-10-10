@@ -132,7 +132,7 @@ func newDeployFixture(t *testing.T) *deployFixture {
 	fixture.delegation = filepath.Join(fixture.directory, "update-delegation.json")
 	if err := c.signUpdateDelegation([]string{"--subject-public-key", fixture.leafPath, "--root-key", fixture.rootPath,
 		"--signing-key", fixture.privatePath, "--environment", "production", "--lineage-base", testLineageBase,
-		"--cell", "GRU", "--cell", "SFO", "--arch", "amd64",
+		"--service", "terrabase=https://git.terrascale.tech/TerraScale/terrabase", "--arch", "amd64",
 		"--issued-at", fixture.now.Add(-time.Minute).Format(time.RFC3339),
 		"--expires-at", fixture.now.Add(24 * time.Hour).Format(time.RFC3339), "--out", fixture.delegation}); err != nil {
 		t.Fatal(err)
@@ -358,19 +358,6 @@ func TestDeployWaitsForRegionsConcurrently(t *testing.T) {
 	}
 }
 
-func TestDeployMissingDelegationDoesNotBlockOtherRegions(t *testing.T) {
-	fixture := newDeployFixture(t)
-	var output bytes.Buffer
-	c := command{ctx: t.Context(), output: &output}
-	if err := c.deployWith(fixture.args("GRU", "FRA"), fixture.env); !errors.Is(err, trust.ErrCapabilityDenied) {
-		t.Fatalf("deploy outside the delegation = %v", err)
-	}
-	if !fixture.touched("GRU") || fixture.touched("FRA") ||
-		!strings.Contains(output.String(), "GRU complete") || !strings.Contains(output.String(), "FRA failed:") {
-		t.Fatalf("regional signing failure blocked a healthy cell: %q\n%s", fixture.log, output.String())
-	}
-}
-
 func TestDeployStorageFailuresAreRegionalAndAllReported(t *testing.T) {
 	for _, failBoth := range []bool{false, true} {
 		t.Run(fmt.Sprint(failBoth), func(t *testing.T) {
@@ -480,6 +467,38 @@ func TestDeployReadsTheLeafFromVault(t *testing.T) {
 		t.Fatalf("deploy with the Vault leaf: %v", err)
 	}
 	if len(asked) != 1 || asked[0] != vault+" global-release-update-leaf" || !fixture.touched("GRU") {
+		t.Fatalf("Vault reads %q, writes %q", asked, fixture.log)
+	}
+}
+
+func TestDeployReadsTheDelegationFromVault(t *testing.T) {
+	fixture := newDeployFixture(t)
+	delegation, err := os.ReadFile(fixture.delegation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var asked []string
+	fixture.env.secret = func(_ context.Context, vaultID, name string) ([]byte, error) {
+		asked = append(asked, vaultID+" "+name)
+		return delegation, nil
+	}
+	vault := "ocid1.vault.oc1.sa-saopaulo-1.example"
+	c := command{ctx: t.Context(), output: io.Discard}
+	both := append(fixture.args("GRU"), "--update-delegation-secret", "release-delegation", "--vault-id", vault)
+	if err := c.deployWith(both, fixture.env); err == nil {
+		t.Fatal("deploy accepted two delegation sources")
+	}
+	args := fixture.args("GRU")
+	for index, arg := range args {
+		if arg == "--update-delegation" {
+			args[index], args[index+1] = "--update-delegation-secret", "release-delegation"
+			break
+		}
+	}
+	if err := c.deployWith(append(args, "--vault-id", vault), fixture.env); err != nil {
+		t.Fatalf("deploy with the Vault delegation: %v", err)
+	}
+	if len(asked) != 1 || asked[0] != vault+" release-delegation" || !fixture.touched("GRU") {
 		t.Fatalf("Vault reads %q, writes %q", asked, fixture.log)
 	}
 }

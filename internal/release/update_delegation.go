@@ -5,7 +5,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
+	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
@@ -15,9 +18,10 @@ import (
 
 // A binary update delegation is the scoped auto-sign grant: the offline root
 // authorizes one online leaf key to sign binary update receipts for any
-// CI-qualified descendant of a pinned main revision, limited to explicit
-// environment, cells and architectures, for a short bounded interval. It is
-// a distinct root-signed document, so the per-source release delegation
+// CI-qualified descendant of a pinned main revision, limited to an explicit
+// environment and architectures, for a short bounded interval. It also names
+// the service roles the leaf may release in every region of that environment.
+// It is a distinct root-signed document, so the per-source release delegation
 // keeps its exact meaning, and consumers accept update receipts only behind
 // an explicit configuration flag.
 const (
@@ -35,29 +39,53 @@ const (
 	// MaxUpdateReceiptLifetime bounds one automatically signed receipt.
 	MaxUpdateReceiptLifetime = 31 * 24 * time.Hour
 
-	updateDelegationDeployment = "0000000000TA7Q4JYMWMMHHMPQ"
-	updateDelegationCell       = "global"
-	updateDelegationRole       = "release-signer"
-	updateDelegationSlot       = "lineage"
-	maxUpdateDelegationCells   = 8
+	updateDelegationDeployment  = "0000000000TA7Q4JYMWMMHHMPQ"
+	updateDelegationCell        = "global"
+	updateDelegationRole        = "release-signer"
+	updateDelegationSlot        = "lineage"
+	maxUpdateDelegationServices = 16
 )
 
-var ErrLineage = errors.New("release source lineage is not authorized")
+// DelegatedReleaseActorPrefix starts the actor of every claim signed by a
+// delegated release key; DelegatedReleaseActor appends the key's identity, so
+// an actor names exactly one key and its delegation.
+const DelegatedReleaseActorPrefix = "release-"
+
+// DelegatedReleaseActor is the actor claims signed by publicKey carry.
+func DelegatedReleaseActor(publicKey ed25519.PublicKey) (string, error) {
+	keyID, err := trust.KeyID(publicKey)
+	if err != nil {
+		return "", err
+	}
+	return DelegatedReleaseActorPrefix + strings.TrimPrefix(keyID, "sha256:")[:16], nil
+}
+
+var (
+	ErrLineage = errors.New("release source lineage is not authorized")
+
+	serviceRolePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+)
 
 // BinaryUpdateDelegation is the root-signed payload of a scoped auto-sign
 // grant. LineageBase is a reviewed main revision; every signed source must
 // descend from it on LineageRef and be qualified by Workflow.
 type BinaryUpdateDelegation struct {
-	Schema           string   `json:"schema"`
-	SubjectKeyID     string   `json:"subject_key_id"`
-	SubjectPublicKey string   `json:"subject_public_key"`
-	Environment      string   `json:"environment"`
-	Cells            []string `json:"cells"`
-	Architectures    []string `json:"architectures"`
-	Repository       string   `json:"repository"`
-	Workflow         string   `json:"workflow"`
-	Ref              string   `json:"ref"`
-	LineageBase      string   `json:"lineage_base"`
+	Schema           string         `json:"schema"`
+	SubjectKeyID     string         `json:"subject_key_id"`
+	SubjectPublicKey string         `json:"subject_public_key"`
+	Environment      string         `json:"environment"`
+	Architectures    []string       `json:"architectures"`
+	Services         []ServiceGrant `json:"services"`
+	Repository       string         `json:"repository"`
+	Workflow         string         `json:"workflow"`
+	Ref              string         `json:"ref"`
+	LineageBase      string         `json:"lineage_base"`
+}
+
+// ServiceGrant names one service role and its repository the delegated key may release.
+type ServiceGrant struct {
+	Role       string `json:"role"`
+	Repository string `json:"repository"`
 }
 
 // SourceLineage is the leaf's signed statement of how the source was
@@ -100,13 +128,14 @@ func (delegation BinaryUpdateDelegation) Validate() error {
 	if delegation.Schema != UpdateDelegationSchema || !ValidEnvironment(delegation.Environment) ||
 		delegation.Repository != QualificationRepository || delegation.Workflow != QualificationWorkflow ||
 		delegation.Ref != LineageRef || !revisionPattern.MatchString(delegation.LineageBase) ||
-		len(delegation.Cells) == 0 || len(delegation.Cells) > maxUpdateDelegationCells ||
-		len(delegation.Architectures) == 0 || len(delegation.Architectures) > 2 {
+		len(delegation.Architectures) == 0 || len(delegation.Architectures) > 2 || len(delegation.Services) > maxUpdateDelegationServices {
 		return fmt.Errorf("%w: binary update delegation scope", ErrInvalidReceipt)
 	}
-	if !sortedUnique(delegation.Cells, ValidRegion) ||
-		!sortedUnique(delegation.Architectures, func(value string) bool { return value == "amd64" || value == "arm64" }) {
-		return fmt.Errorf("%w: binary update delegation cells or architectures", ErrInvalidReceipt)
+	if !sortedUnique(delegation.Architectures, func(value string) bool { return value == "amd64" || value == "arm64" }) {
+		return fmt.Errorf("%w: binary update delegation architectures", ErrInvalidReceipt)
+	}
+	if err := validateServiceGrants(delegation.Services); err != nil {
+		return err
 	}
 	publicKey, err := base64.RawURLEncoding.DecodeString(delegation.SubjectPublicKey)
 	if err != nil || len(publicKey) != ed25519.PublicKeySize {
@@ -126,6 +155,23 @@ func sortedUnique(values []string, valid func(string) bool) bool {
 		}
 	}
 	return true
+}
+
+// validateServiceGrants requires grants sorted by strictly ascending role, so each role appears once.
+func validateServiceGrants(services []ServiceGrant) error {
+	for index, service := range services {
+		repository, err := url.Parse(service.Repository)
+		if !serviceRolePattern.MatchString(service.Role) || index > 0 && services[index-1].Role >= service.Role ||
+			err != nil || repository.Scheme != "https" || repository.Host == "" || len(service.Repository) > 512 {
+			return fmt.Errorf("%w: binary update delegation services", ErrInvalidReceipt)
+		}
+	}
+	return nil
+}
+
+// MayRelease reports whether the delegation names exactly this role and repository.
+func (delegation BinaryUpdateDelegation) MayRelease(role, repository string) bool {
+	return slices.Contains(delegation.Services, ServiceGrant{Role: role, Repository: repository})
 }
 
 // Validate checks the receipt payload's own fields.
@@ -217,8 +263,8 @@ func verifyUpdateDelegation(envelope trust.Envelope, roots trust.Keyring, enviro
 
 func (verified verifiedUpdateDelegation) authorize(receipt BinaryUpdateReceipt) error {
 	delegation := verified.delegation
-	if !slices.Contains(delegation.Cells, receipt.Cell) || !slices.Contains(delegation.Architectures, receipt.Binary.GOARCH) {
-		return fmt.Errorf("%w: cell or architecture is outside the delegation", trust.ErrCapabilityDenied)
+	if !slices.Contains(delegation.Architectures, receipt.Binary.GOARCH) {
+		return fmt.Errorf("%w: architecture is outside the delegation", trust.ErrCapabilityDenied)
 	}
 	if receipt.DelegationSHA256 != verified.digest || receipt.Lineage.Repository != delegation.Repository ||
 		receipt.Lineage.Workflow != delegation.Workflow || receipt.Lineage.Ref != delegation.Ref ||
@@ -319,6 +365,22 @@ func VerifyBinaryUpdateCurrent(envelopeWire, delegationWire []byte, roots trust.
 		return VerifiedBinary{}, err
 	}
 	return VerifiedBinary{receipt: receipt, proof: proof}, nil
+}
+
+// VerifyReleaseDelegationCurrent verifies the root-signed update delegation for
+// the consumer's environment against a currently valid root. It returns the
+// delegation, the leaf key it authorizes and when the grant expires.
+func VerifyReleaseDelegationCurrent(delegationWire []byte, roots trust.Keyring, environment string, now time.Time,
+) (BinaryUpdateDelegation, ed25519.PublicKey, time.Time, error) {
+	envelope, err := trust.DecodeEnvelope(delegationWire)
+	if err != nil {
+		return BinaryUpdateDelegation{}, nil, time.Time{}, err
+	}
+	verified, err := verifyUpdateDelegation(envelope, roots, environment, currentAt(now))
+	if err != nil {
+		return BinaryUpdateDelegation{}, nil, time.Time{}, err
+	}
+	return verified.delegation, verified.publicKey, envelope.ExpiresAt, nil
 }
 
 // VerifyBinaryUpdateHistorical verifies that an update receipt was signed

@@ -59,7 +59,7 @@ binary-only self-update below replaces the executable, not the image):
 | TerraBase automation grants | Human authorizes new root-bound signed controller config: update actor with `can_place_terrabase`, `can_update_terrabase_runtime`, repository/role/environment limits; separate compatibility actor with `can_certify_terrabase_compatibility`. Installing this config is a separately reviewed operation. |
 | TerraBase per-seat Prepare | Online update key and independent compatibility key on the operator host, only after the approved compatibility policy has been satisfied. Existing `terrabase-update` signs both statements. |
 | Orchestrator binary receipt | Human reviews exact qualified main source/run/job attempt and bytes; offline root issues source/architecture/environment-scoped delegation; local leaf owner runs `ts-orch release sign-binary`. |
-| Orchestrator binary update receipt (current trust inventory) | Offline root issues a time-bounded (at most 31 days) binary update delegation scoped to environment, cells, architectures and descendants of a reviewed main revision (`ts-orch release sign-update-delegation`). The online leaf then signs any `ci.yml`-qualified descendant automatically (`ts-orch release sign-binary-update`). Nodes automatically verify these receipts against the current root and the exact delegated scope. |
+| Orchestrator binary update receipt (current trust inventory) | Offline root issues a time-bounded (at most 31 days) binary update delegation scoped to an environment, architectures and descendants of a reviewed main revision, and naming the service roles and repositories the leaf may release (`ts-orch release sign-update-delegation --service ROLE=REPOSITORY`). It covers every cell of its environment. The online leaf then signs any `ci.yml`-qualified descendant automatically (`ts-orch release sign-binary-update`). Nodes automatically verify these receipts against the current root and the exact delegated scope. |
 | Orchestrator image receipt | Existing image workflow builds and qualifies; authorized operator imports; offline root narrows the delegation to the cell/image OCID; local leaf owner signs and verifies the image receipt (`ts-orch image promote`). |
 | Running-cell replacement plan | Proposed new offline-root-signed authorization pins predecessor install/instance, successor manifest/image receipt, same cell/deployment/slot, increasing generation, credentials/config digests, validity, resource budget and explicit rollback target. Accepted restart does not supply this authority. Root private keys stay offline. |
 
@@ -745,8 +745,8 @@ trust scope. These constants will be replaced by ts-orch region discovery;
 there is no per-repository target list or environment switch to configure.
 Inputs (repository variables unless noted):
 `TS_OBJECT_NAMESPACE`, `TS_RELEASE_VAULT_ID`, `TS_RELEASE_LEAF_SECRET`,
-`TS_RELEASE_UPDATE_DELEGATION` (the envelope from `ts-orch release
-sign-update-delegation`, re-issued at most every 31 days),
+the Vault secret `release-delegation` (the root-signed envelope from `ts-orch release
+sign-update-delegation`, which the root re-signs in Vault at least every 31 days; deploy reads it with `--update-delegation-secret`),
 `TS_DEPLOY_OCI_USER`, `TS_DEPLOY_OCI_TENANCY`, `TS_DEPLOY_OCI_FINGERPRINT`
 and the secret `TS_DEPLOY_OCI_KEY`. The OCI user's group needs only:
 

@@ -29,6 +29,19 @@ func (list *stringList) Set(value string) error {
 	return nil
 }
 
+// serviceList is the repeatable --service ROLE=REPOSITORY flag.
+type serviceList []release.ServiceGrant
+
+func (list *serviceList) String() string { return fmt.Sprint(*list) }
+func (list *serviceList) Set(value string) error {
+	role, repository, ok := strings.Cut(value, "=")
+	if !ok || role == "" || repository == "" {
+		return fmt.Errorf("service %q must be ROLE=REPOSITORY", value)
+	}
+	*list = append(*list, release.ServiceGrant{Role: role, Repository: repository})
+	return nil
+}
+
 // signUpdateDelegation is the offline root operation that issues a scoped,
 // time-bounded binary update delegation to one online leaf key.
 func (c command) signUpdateDelegation(args []string) error {
@@ -42,8 +55,9 @@ func (c command) signUpdateDelegation(args []string) error {
 	privatePath := flags.String("signing-key", "", "owner-only offline root Ed25519 PKCS#8 private key PEM")
 	environment := flags.String("environment", "", "production or canary")
 	lineageBase := flags.String("lineage-base", "", "reviewed main revision every signed source must descend from")
-	var cells, architectures stringList
-	flags.Var(&cells, "cell", "logical cell GRU, SFO or FRA; repeatable")
+	var services serviceList
+	var architectures stringList
+	flags.Var(&services, "service", "service role and repository ROLE=REPOSITORY the leaf may release; repeatable")
 	flags.Var(&architectures, "arch", "amd64 or arm64; repeatable")
 	issuedAtText := flags.String("issued-at", "", "canonical UTC RFC3339 issuance instant")
 	expiresAtText := flags.String("expires-at", "", "canonical UTC RFC3339 expiry instant")
@@ -52,8 +66,8 @@ func (c command) signUpdateDelegation(args []string) error {
 		return err
 	}
 	if *leafPath == "" || *rootPath == "" || *privatePath == "" || *output == "" || flags.NArg() != 0 ||
-		!validEnvironment(*environment) || !release.ValidSourceRevision(*lineageBase) || len(cells) == 0 || len(architectures) == 0 {
-		return errors.New("sign-update-delegation requires keys, --environment, --lineage-base, --cell, --arch, a UTC interval and --out")
+		!validEnvironment(*environment) || !release.ValidSourceRevision(*lineageBase) || len(architectures) == 0 {
+		return errors.New("sign-update-delegation requires keys, --environment, --lineage-base, --arch, a UTC interval and --out; --service is repeatable")
 	}
 	issuedAt, err := parseDelegationUTC(*issuedAtText)
 	if err != nil {
@@ -93,11 +107,11 @@ func (c command) signUpdateDelegation(args []string) error {
 	if err != nil {
 		return err
 	}
-	slices.Sort(cells)
 	slices.Sort(architectures)
+	slices.SortFunc(services, func(a, b release.ServiceGrant) int { return strings.Compare(a.Role, b.Role) })
 	delegation := release.BinaryUpdateDelegation{
 		Schema: release.UpdateDelegationSchema, SubjectKeyID: leafID, SubjectPublicKey: leafEncoded,
-		Environment: *environment, Cells: cells, Architectures: architectures,
+		Environment: *environment, Architectures: architectures, Services: services,
 		Repository: release.QualificationRepository, Workflow: release.QualificationWorkflow,
 		Ref: release.LineageRef, LineageBase: *lineageBase,
 	}

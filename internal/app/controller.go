@@ -930,7 +930,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	if policy.rollouts.channel != nil {
 		releases := &serviceReleases{js: runtime.JetStream(), cell: cfg.NATS.Cell, channel: policy.rollouts.channel, deliveries: service,
-			hosts: hostController, profiles: services.profiles, fencer: control, fences: fences, history: nativeReleases}
+			hosts: hostController, profiles: services.profiles, fencer: control, fences: fences, history: nativeReleases,
+			policy: policy, roots: policy.rollouts.roots.current, environment: policy.rollouts.environment}
 		workers.Go(func() { releases.run(runCtx, runtime.JetStream(), cfg.NATS.Replicas) })
 	}
 	if policy.nodes != nil {

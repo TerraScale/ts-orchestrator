@@ -13,6 +13,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 )
 
 var grantToken = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
@@ -23,6 +24,8 @@ type signerPolicy struct {
 	// signers is the current set. A controller replaces it when the cell
 	// spec changes the signers, and every check reads it.
 	signers *atomic.Pointer[signerSet]
+	// release is the root-delegated release key of the release channel.
+	release *atomic.Pointer[delegatedReleaseSigner]
 	cell    string
 	// services adds the release grants of the cell's adopted spec.
 	services *specRegistry
@@ -31,6 +34,21 @@ type signerPolicy struct {
 	// nodes answers node operations; nil without a release fence bucket.
 	nodes *nodeOps
 }
+
+// delegatedReleaseSigner is the root-delegated release key from the
+// orchestrator release channel. Its actor names the key, so a claim is
+// authorized only by the delegation of the key that signed it, and only until
+// that delegation expires.
+type delegatedReleaseSigner struct {
+	delegation release.BinaryUpdateDelegation
+	key        ed25519.PublicKey
+	keyID      string
+	actor      string
+	expires    time.Time
+}
+
+// current reports whether d still authorizes its key.
+func (d *delegatedReleaseSigner) current() bool { return d != nil && time.Now().Before(d.expires) }
 
 // ValidateTrustedSignerGrant applies the same actor, scope, and key checks used
 // by the controller and operator runtime before an offline role config is made.
@@ -52,14 +70,34 @@ func buildSignerPolicy(cfg Config) (signerPolicy, error) {
 	}
 	signers := &atomic.Pointer[signerSet]{}
 	signers.Store(&set)
+	releases := &atomic.Pointer[delegatedReleaseSigner]{}
 	return signerPolicy{
 		codec: delivery.Ed25519Codec{Cell: cfg.NATS.Cell, Lifetime: time.Minute, MaxLifetime: 5 * time.Minute,
 			ClockSkew: 30 * time.Second, Lookup: func(keyID string) (delivery.TrustedSigner, bool) {
-				trusted, ok := signers.Load().trusted[keyID]
-				return trusted, ok
+				if trusted, ok := signers.Load().trusted[keyID]; ok {
+					return trusted, true
+				}
+				if delegated := releases.Load(); delegated.current() && delegated.keyID == keyID {
+					return delivery.TrustedSigner{Actor: delegated.actor, PublicKey: delegated.key}, true
+				}
+				return delivery.TrustedSigner{}, false
 			}},
-		signers: signers, cell: cfg.NATS.Cell,
+		signers: signers, release: releases, cell: cfg.NATS.Cell,
 	}, nil
+}
+
+// setReleaseDelegation makes the root-delegated release key the current release signer until expires.
+func (p signerPolicy) setReleaseDelegation(delegation release.BinaryUpdateDelegation, key ed25519.PublicKey, expires time.Time) error {
+	keyID, err := protocol.KeyID(key)
+	if err != nil {
+		return err
+	}
+	actor, err := release.DelegatedReleaseActor(key)
+	if err != nil {
+		return err
+	}
+	p.release.Store(&delegatedReleaseSigner{delegation: delegation, key: key, keyID: keyID, actor: actor, expires: expires})
+	return nil
 }
 
 // trusted returns the current signer of keyID.
@@ -92,6 +130,9 @@ func newSignerSet(signers []TrustedSignerConfig) (signerSet, error) {
 	trusted := make(map[string]delivery.TrustedSigner, len(signers))
 	grants := make(map[string]TrustedSignerConfig, len(signers))
 	for _, grant := range signers {
+		if strings.HasPrefix(grant.Actor, release.DelegatedReleaseActorPrefix) {
+			return signerSet{}, fmt.Errorf("trusted signer actor %q is reserved for root-delegated release keys", grant.Actor)
+		}
 		if !grantToken.MatchString(grant.Actor) || len(grant.Roles) == 0 || len(grant.Environments) == 0 {
 			return signerSet{}, errors.New("each signer requires an actor, roles, and environments")
 		}
@@ -194,6 +235,11 @@ func (p signerPolicy) authorizeArtifact(_ context.Context, actor string, record 
 // mayRelease applies the signer's grant, or a releaser entry of the cell
 // spec, within the signer's repository grant.
 func (p signerPolicy) mayRelease(actor, role, environment, repository string) bool {
+	if strings.HasPrefix(actor, release.DelegatedReleaseActorPrefix) {
+		delegated := p.release.Load()
+		return delegated.current() && actor == delegated.actor && environment == delegated.delegation.Environment &&
+			delegated.delegation.MayRelease(role, repository)
+	}
 	grant, exists := p.grant(actor)
 	if !exists || len(grant.Repositories) > 0 && !slices.Contains(grant.Repositories, repository) {
 		return false

@@ -39,8 +39,8 @@ func (c command) serviceDeployWith(args []string, env deployEnv) error {
 	commit := flags.String("commit", "", "source commit SHA")
 	checkout := flags.String("source-checkout", "", "checkout containing --commit, for the source tree digest")
 	environment := flags.String("environment", "", "production or canary; default each region's admitted scope")
-	actor := flags.String("actor", "", "the release key's trusted signer actor")
-	keyPath := flags.String("signing-key", "", "owner-only Ed25519 PKCS#8 private key PEM of --actor")
+	actor := flags.String("actor", "", "a cell signer's actor; default the root-delegated release key's actor")
+	keyPath := flags.String("signing-key", "", "owner-only Ed25519 PKCS#8 private key PEM of the release key")
 	keySecret := flags.String("signing-key-secret", "", "OCI Vault secret holding the key, instead of --signing-key")
 	vaultID := flags.String("vault-id", "", "OCI Vault of --signing-key-secret")
 	namespace := flags.String("namespace", "", "Object Storage namespace of the regions' head buckets")
@@ -51,10 +51,10 @@ func (c command) serviceDeployWith(args []string, env deployEnv) error {
 		return err
 	}
 	if *role == "" || *binaryPath == "" || *repository == "" || !release.ValidSourceRevision(*commit) || *checkout == "" ||
-		*environment != "" && !validEnvironment(*environment) || *actor == "" || (*keyPath == "") == (*keySecret == "") ||
+		*environment != "" && !validEnvironment(*environment) || (*keyPath == "") == (*keySecret == "") ||
 		(*keySecret == "") != (*vaultID == "") || !validStorageToken(*namespace) ||
 		*poll <= 0 || flags.NArg() != 0 {
-		return errors.New("service-deploy requires --role, --binary, --repository, --commit, --source-checkout, --actor, --signing-key or --signing-key-secret with --vault-id and --namespace")
+		return errors.New("service-deploy requires --role, --binary, --repository, --commit, --source-checkout, --signing-key or --signing-key-secret with --vault-id and --namespace")
 	}
 	targetCells, err := deploymentCells(c.ctx, cells, env.discover)
 	if err != nil {
@@ -85,6 +85,11 @@ func (c command) serviceDeployWith(args []string, env deployEnv) error {
 		return fmt.Errorf("read the release key: %w", err)
 	}
 	defer clear(private)
+	if *actor == "" {
+		if *actor, err = release.DelegatedReleaseActor(private.Public().(ed25519.PublicKey)); err != nil {
+			return err
+		}
+	}
 	// The elapsed times measure CI green to rolled out (TS-623): the job
 	// starts once the tests passed.
 	regionTimeout := rollout.ObservationBudget

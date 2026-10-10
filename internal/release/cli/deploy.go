@@ -54,10 +54,11 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	directory := flags.String("dir", "", "retained CI release: qualification.json and terrascale-orchestrator-linux-<arch>")
 	sourceRevision := flags.String("source-revision", "", "expected exact Git revision")
 	delegationPath := flags.String("update-delegation", "", "root-signed binary update delegation")
+	delegationSecret := flags.String("update-delegation-secret", "", "OCI Vault secret holding the root-signed release delegation, instead of --update-delegation")
 	rootPath := flags.String("root-key", "", "root public key PEM")
 	keyPath := flags.String("signing-key", "", "owner-only update leaf Ed25519 PKCS#8 private key PEM")
 	keySecret := flags.String("signing-key-secret", "", "OCI Vault secret holding the update leaf key, instead of --signing-key")
-	vaultID := flags.String("vault-id", "", "OCI Vault of --signing-key-secret")
+	vaultID := flags.String("vault-id", "", "OCI Vault of --signing-key-secret and --update-delegation-secret")
 	environment := flags.String("environment", "", "production or canary; default the region's admitted scope")
 	checkout := flags.String("source-checkout", "", "repository checkout used to prove lineage")
 	namespace := flags.String("namespace", "", "Object Storage namespace of the regions' head buckets")
@@ -69,11 +70,11 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *directory == "" || !release.ValidSourceRevision(*sourceRevision) || *delegationPath == "" || *rootPath == "" ||
-		(*keyPath == "") == (*keySecret == "") || (*keySecret == "") != (*vaultID == "") ||
+	if *directory == "" || !release.ValidSourceRevision(*sourceRevision) || (*delegationPath == "") == (*delegationSecret == "") || *rootPath == "" ||
+		(*keyPath == "") == (*keySecret == "") || (*keySecret == "" && *delegationSecret == "") != (*vaultID == "") ||
 		*environment != "" && !validEnvironment(*environment) || *checkout == "" || !validStorageToken(*namespace) ||
 		*poll <= 0 || flags.NArg() != 0 {
-		return errors.New("deploy requires --dir, --source-revision, --update-delegation, --root-key, --signing-key or --signing-key-secret with --vault-id, --source-checkout and --namespace")
+		return errors.New("deploy requires --dir, --source-revision, --update-delegation or --update-delegation-secret, --root-key, --signing-key or --signing-key-secret, --vault-id with any secret, --source-checkout and --namespace")
 	}
 	targetCells, err := deploymentCells(c.ctx, cells, env.discover)
 	if err != nil {
@@ -95,9 +96,17 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	if err := env.check(qualification, qualificationDigest); err != nil {
 		return err
 	}
-	delegation, err := readEnvelope(*delegationPath)
+	var delegation trust.Envelope
+	if *delegationPath != "" {
+		delegation, err = readEnvelope(*delegationPath)
+	} else {
+		var data []byte
+		if data, err = env.secret(c.ctx, *vaultID, *delegationSecret); err == nil {
+			delegation, err = trust.DecodeEnvelope(data)
+		}
+	}
 	if err != nil {
-		return err
+		return fmt.Errorf("read the update delegation: %w", err)
 	}
 	delegationWire, err := trust.EncodeEnvelope(delegation)
 	if err != nil {

@@ -68,7 +68,7 @@ func newReleaseSigner(t *testing.T) releaseSigner {
 	}
 	delegation, err := release.SignUpdateDelegation(release.BinaryUpdateDelegation{
 		Schema: release.UpdateDelegationSchema, SubjectKeyID: keyID, SubjectPublicKey: encoded,
-		Environment: "production", Cells: []string{"GRU", "SFO"}, Architectures: []string{"amd64", "arm64"},
+		Environment: "production", Architectures: []string{"amd64", "arm64"},
 		Repository: release.QualificationRepository, Workflow: release.QualificationWorkflow,
 		Ref: release.LineageRef, LineageBase: strings.Repeat("9", 40),
 	}, now.Add(-time.Minute), now.Add(7*24*time.Hour), rootPrivate)

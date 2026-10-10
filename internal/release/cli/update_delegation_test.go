@@ -21,7 +21,7 @@ func TestSignUpdateDelegationThenAutoSignBinaryUpdate(t *testing.T) {
 	delegationPath := filepath.Join(fixture.directory, "update-delegation.json")
 	delegationArgs := []string{"--subject-public-key", fixture.leafPath, "--root-key", fixture.rootPath,
 		"--signing-key", fixture.privatePath, "--environment", "canary", "--lineage-base", testLineageBase,
-		"--cell", "GRU", "--arch", "amd64",
+		"--service", "terrabase=https://git.terrascale.tech/TerraScale/terrabase", "--arch", "amd64",
 		"--issued-at", fixture.now.Add(-time.Minute).Format(time.RFC3339),
 		"--expires-at", fixture.now.Add(24 * time.Hour).Format(time.RFC3339), "--out", delegationPath}
 	tooLong := append([]string{}, delegationArgs...)
@@ -140,7 +140,7 @@ func TestSignUpdateDelegationRefusesTheRootAsLeaf(t *testing.T) {
 	c := command{ctx: context.Background(), output: os.Stdout}
 	args := []string{"--subject-public-key", fixture.rootPath, "--root-key", fixture.rootPath,
 		"--signing-key", fixture.privatePath, "--environment", "canary", "--lineage-base", testLineageBase,
-		"--cell", "GRU", "--arch", "amd64",
+		"--service", "terrabase=https://git.terrascale.tech/TerraScale/terrabase", "--arch", "amd64",
 		"--issued-at", fixture.now.Add(-time.Minute).Format(time.RFC3339),
 		"--expires-at", fixture.now.Add(24 * time.Hour).Format(time.RFC3339),
 		"--out", filepath.Join(fixture.directory, "root-leaf.json")}

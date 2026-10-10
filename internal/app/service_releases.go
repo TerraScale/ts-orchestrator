@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
@@ -22,10 +23,13 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/seatrollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
 )
 
@@ -74,6 +78,11 @@ type serviceReleases struct {
 	interval time.Duration
 	// wait overrides the readiness gate's wait in tests.
 	wait time.Duration
+	// policy holds the root-delegated release key the channel carries.
+	policy signerPolicy
+	// roots and environment verify that delegation for this cell.
+	roots       func() trust.Keyring
+	environment string
 }
 
 // serviceReleaseState is the leader's record of a role's newest release,
@@ -188,7 +197,7 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 			}
 			slices.Sort(next.Retained)
 			next.Retained = slices.Compact(next.Retained)
-			record, actor, issued, err := r.verify(ctx, role, claim)
+			record, actor, issued, err := r.verify(ctx, kv, role, claim)
 			next.IssuedAt, next.Digest, next.Actor = issued, record.Digest, actor
 			now := time.Now()
 			switch {
@@ -253,16 +262,51 @@ func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role 
 
 // verify authenticates role's claim for this cell and returns its record,
 // signer and issuance instant.
-func (r *serviceReleases) verify(ctx context.Context, role string, claim []byte) (delivery.ArtifactRecord, string, time.Time, error) {
+func (r *serviceReleases) verify(ctx context.Context, kv jetstream.KeyValue, role string, claim []byte) (delivery.ArtifactRecord, string, time.Time, error) {
 	issued, err := releasechannel.ClaimIssuedAt(claim)
 	if err != nil {
 		return delivery.ArtifactRecord{}, "", time.Time{}, fmt.Errorf("%w: %w", delivery.ErrInvalid, err)
+	}
+	if err := r.trustReleaseDelegation(ctx, kv); err != nil {
+		return delivery.ArtifactRecord{}, "", time.Time{}, err
 	}
 	record, actor, err := r.deliveries.VerifyClaim(ctx, claim)
 	if err == nil && record.Role != role {
 		err = fmt.Errorf("%w: the claim is for role %s", delivery.ErrInvalid, record.Role)
 	}
 	return record, actor, issued, err
+}
+
+// trustReleaseDelegation makes the cell's root-delegated release key the
+// current release signer. An absent or unverifiable delegation clears it, so
+// the claim verifies through the cell signers alone; a failed read is returned
+// so the pass retries instead of failing the claim.
+func (r *serviceReleases) trustReleaseDelegation(ctx context.Context, kv jetstream.KeyValue) error {
+	if r.policy.release == nil {
+		return nil
+	}
+	entry, err := kv.Get(ctx, releasechannel.ChannelKey(strings.ToUpper(r.cell)))
+	if err != nil && !errors.Is(err, jetstream.ErrKeyNotFound) {
+		return fmt.Errorf("read the release delegation: %w", err)
+	}
+	if err == nil {
+		var channel releasechannel.Channel
+		if err = protocol.DecodeStrict(entry.Value(), &channel, releasechannel.MaxValueBytes); err == nil {
+			var delegation release.BinaryUpdateDelegation
+			var key ed25519.PublicKey
+			var expires time.Time
+			delegation, key, expires, err = release.VerifyReleaseDelegationCurrent(channel.Delegation, r.roots(), r.environment, time.Now())
+			if err == nil {
+				err = r.policy.setReleaseDelegation(delegation, key, expires)
+			}
+		}
+	}
+	if err != nil {
+		slog.Warn("release delegation refused; claims verify through cell signers only", observability.ComponentKey, "rollout",
+			"cell", r.cell, "error", err)
+		r.policy.release.Store(nil)
+	}
+	return nil
 }
 
 // release admits the channel's claim unless state already holds its intent,
@@ -305,7 +349,7 @@ func (r *serviceReleases) release(ctx context.Context, kv jetstream.KeyValue, ro
 		if err != nil {
 			return failed(err)
 		}
-		record, actor, err := r.admit(ctx, state.location, role, state.claim)
+		record, actor, err := r.admit(ctx, kv, state.location, role, state.claim)
 		if errors.Is(err, delivery.ErrInvalid) || errors.Is(err, delivery.ErrUnauthorized) {
 			return failed(err)
 		}
@@ -544,9 +588,9 @@ func (r *serviceReleases) finishPreparation(ctx context.Context, state *serviceR
 }
 
 // admit copies the claimed binary out of the head bucket and admits it.
-func (r *serviceReleases) admit(ctx context.Context, location releasechannel.Location, role string, claim []byte,
+func (r *serviceReleases) admit(ctx context.Context, kv jetstream.KeyValue, location releasechannel.Location, role string, claim []byte,
 ) (delivery.ArtifactRecord, string, error) {
-	claimed, _, _, err := r.verify(ctx, role, claim)
+	claimed, _, _, err := r.verify(ctx, kv, role, claim)
 	if err != nil {
 		return delivery.ArtifactRecord{}, "", err
 	}

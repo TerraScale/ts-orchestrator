@@ -4,6 +4,8 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -11,7 +13,10 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
-const testLineageBase = "89abcdef0123456789abcdef0123456789abcdef"
+const (
+	testLineageBase       = "89abcdef0123456789abcdef0123456789abcdef"
+	testServiceRepository = "https://git.terrascale.tech/TerraScale/terrabase"
+)
 
 type fakeLineage struct {
 	err   error
@@ -66,7 +71,8 @@ func newUpdateFixture(t *testing.T) updateFixture {
 		binary: binary, qualification: qualification, qualDigest: qualDigest,
 		delegation: BinaryUpdateDelegation{
 			Schema: UpdateDelegationSchema, SubjectKeyID: keyID, SubjectPublicKey: encodedPublic,
-			Environment: "canary", Cells: []string{"FRA", "GRU"}, Architectures: []string{"amd64", "arm64"},
+			Environment: "canary", Architectures: []string{"amd64", "arm64"},
+			Services:   []ServiceGrant{{Role: "terrabase", Repository: testServiceRepository}, {Role: "ts-auth", Repository: testServiceRepository}},
 			Repository: QualificationRepository, Workflow: QualificationWorkflow, Ref: LineageRef, LineageBase: testLineageBase,
 		},
 	}
@@ -193,8 +199,11 @@ func TestBinaryUpdateReceiptHistoricalOutlivesExpiryNotScope(t *testing.T) {
 
 func TestBinaryUpdateSigningEnforcesScopeLineageAndKey(t *testing.T) {
 	fixture := newUpdateFixture(t)
-	if _, err := fixture.sign("SFO", &fakeLineage{}); !errors.Is(err, trust.ErrCapabilityDenied) {
-		t.Fatalf("cell outside delegation signed: %v", err)
+	armOnly := fixture
+	armOnly.delegation.Architectures = []string{"arm64"}
+	armOnly.envelope = armOnly.signDelegation(t, fixture.now.Add(-time.Minute), fixture.now.Add(7*24*time.Hour))
+	if _, err := armOnly.sign("GRU", &fakeLineage{}); !errors.Is(err, trust.ErrCapabilityDenied) {
+		t.Fatalf("architecture outside delegation signed: %v", err)
 	}
 	if _, err := fixture.sign("GRU", &fakeLineage{err: errors.New("not an ancestor")}); !errors.Is(err, ErrLineage) {
 		t.Fatalf("non-descendant source signed: %v", err)
@@ -220,15 +229,57 @@ func TestBinaryUpdateSigningEnforcesScopeLineageAndKey(t *testing.T) {
 		fixture.rootPrivate); err == nil {
 		t.Fatal("long-lived update delegation signed")
 	}
-	unsorted := fixture.delegation
-	unsorted.Cells = []string{"GRU", "FRA"}
-	if err := unsorted.Validate(); err == nil {
-		t.Fatal("non-canonical cell list accepted")
-	}
 	otherRef := fixture.delegation
 	otherRef.Ref = "refs/heads/feature"
 	if err := otherRef.Validate(); err == nil {
 		t.Fatal("non-main lineage accepted")
+	}
+}
+
+func TestBinaryUpdateDelegationServices(t *testing.T) {
+	fixture := newUpdateFixture(t)
+	if err := fixture.delegation.Validate(); err != nil {
+		t.Fatalf("delegation with services: %v", err)
+	}
+	if !fixture.delegation.MayRelease("terrabase", testServiceRepository) || fixture.delegation.MayRelease("terrabase", "https://git.terrascale.tech/TerraScale/other") ||
+		fixture.delegation.MayRelease("ts-orchestrator", testServiceRepository) {
+		t.Fatal("MayRelease does not name exactly the granted role and repository")
+	}
+	for name, services := range map[string][]ServiceGrant{
+		"unsorted":       {{Role: "ts-auth", Repository: testServiceRepository}, {Role: "terrabase", Repository: testServiceRepository}},
+		"duplicate role": {{Role: "terrabase", Repository: testServiceRepository}, {Role: "terrabase", Repository: testServiceRepository}},
+		"bad role":       {{Role: "TerraBase", Repository: testServiceRepository}},
+		"plain http":     {{Role: "terrabase", Repository: "http://git.terrascale.tech/TerraScale/terrabase"}},
+	} {
+		invalid := fixture.delegation
+		invalid.Services = services
+		if err := invalid.Validate(); err == nil {
+			t.Errorf("%s services accepted", name)
+		}
+	}
+	tooMany := make([]ServiceGrant, maxUpdateDelegationServices+1)
+	for index := range tooMany {
+		tooMany[index] = ServiceGrant{Role: fmt.Sprintf("role-%02d", index), Repository: testServiceRepository}
+	}
+	fixture.delegation.Services = tooMany
+	if err := fixture.delegation.Validate(); err == nil {
+		t.Error("17 services accepted")
+	}
+}
+
+func TestVerifyReleaseDelegationCurrent(t *testing.T) {
+	fixture := newUpdateFixture(t)
+	wire := encodeEnvelope(t, fixture.envelope)
+	delegation, key, expires, err := VerifyReleaseDelegationCurrent(wire, fixture.roots, "canary", fixture.now)
+	if err != nil {
+		t.Fatalf("verify release delegation: %v", err)
+	}
+	if !slices.Equal(delegation.Services, fixture.delegation.Services) || !key.Equal(fixture.leafPrivate.Public()) ||
+		!expires.Equal(fixture.envelope.ExpiresAt) {
+		t.Fatalf("delegation = %+v, key %x", delegation, key)
+	}
+	if _, _, _, err := VerifyReleaseDelegationCurrent(wire, fixture.roots, "production", fixture.now); err == nil {
+		t.Fatal("delegation for another environment accepted")
 	}
 }
 

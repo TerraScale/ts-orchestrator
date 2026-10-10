@@ -124,7 +124,7 @@ func (f *fixture) autoSigned(data []byte) ([]byte, []byte) {
 	keyID, encoded := f.leafIdentity()
 	delegation, err := release.SignUpdateDelegation(release.BinaryUpdateDelegation{
 		Schema: release.UpdateDelegationSchema, SubjectKeyID: keyID, SubjectPublicKey: encoded,
-		Environment: "canary", Cells: []string{"GRU"}, Architectures: []string{runtime.GOARCH},
+		Environment: "canary", Architectures: []string{runtime.GOARCH},
 		Repository: release.QualificationRepository, Workflow: release.QualificationWorkflow,
 		Ref: release.LineageRef, LineageBase: strings.Repeat("9", 40),
 	}, f.now.Add(-time.Minute), f.now.Add(time.Hour), f.rootPrivate)

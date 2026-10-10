@@ -198,7 +198,7 @@ func TestServiceReleasePinsUnprovenProfileRefusedBeforeSubmission(t *testing.T) 
 	location := *r.channel.location
 	issued := time.Now().UTC().Add(-time.Minute)
 	serving := publish("actual serving release", issued)
-	if _, _, err := r.admit(ctx, location, role, bucket.objects[releasechannel.ServiceReleaseObject(role)]); err != nil {
+	if _, _, err := r.admit(ctx, kv, location, role, bucket.objects[releasechannel.ServiceReleaseObject(role)]); err != nil {
 		t.Fatal(err)
 	}
 	candidate := publish("next release", issued.Add(time.Second))
