@@ -184,7 +184,7 @@ func TestDashboardSessionAttachmentRetriesAndStops(t *testing.T) {
 	var attempts atomic.Int32
 	done := make(chan struct{})
 	go func() {
-		retryAttachment(ctx, "dashboard session storage", func(attempt context.Context) error {
+		retryAttachment(ctx, "dashboard", "dashboard session storage", func(attempt context.Context) error {
 			if _, ok := attempt.Deadline(); !ok {
 				t.Error("attachment attempt is unbounded")
 			}
@@ -213,5 +213,5 @@ func TestDashboardSessionAttachmentRetriesAndStops(t *testing.T) {
 	}
 	stopped, cancelStopped := context.WithCancel(t.Context())
 	cancelStopped()
-	retryAttachment(stopped, "dashboard session storage", func(context.Context) error { t.Fatal("canceled runtime attempted attachment"); return nil })
+	retryAttachment(stopped, "dashboard", "dashboard session storage", func(context.Context) error { t.Fatal("canceled runtime attempted attachment"); return nil })
 }

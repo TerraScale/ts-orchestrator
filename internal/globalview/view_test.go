@@ -297,7 +297,8 @@ func TestFollowLoadsAndFollows(t *testing.T) {
 	view := NewView("gru", func() []string { return []string{"sfo"} }, nil)
 	ch := view.Changed()
 	done := make(chan error, 1)
-	go func() { done <- view.Follow(ctx, conn, kv) }()
+	go view.KeepLastKnown(ctx, kv, func() bool { return false })
+	go func() { done <- view.Follow(ctx, conn) }()
 	waitClosed(t, ch)
 	region, _ := view.Region("sfo")
 	if region.Rollup == nil || !region.Rollup.ObservedAt.Equal(now.Add(-time.Second)) {
@@ -323,6 +324,29 @@ func TestFollowLoadsAndFollows(t *testing.T) {
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatalf("Follow returned %v after cancel", err)
+	}
+}
+
+func TestKeepLastKnownPersistsWhileLeading(t *testing.T) {
+	_, js := startNATS(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	kv, err := OpenBucket(ctx, js, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := NewView("gru", func() []string { return []string{"sfo"} }, nil)
+	view.Accept(rollupAt("gru", time.Now()))
+	go view.KeepLastKnown(ctx, kv, func() bool { return true })
+	for {
+		if _, err := kv.Get(ctx, "gru"); err == nil {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("the leader did not persist its rollup")
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
 }
 
@@ -404,7 +428,7 @@ func TestTwentyRegionsFollow(t *testing.T) {
 	defer cancel()
 	view := NewView("gru", func() []string { return cells }, nil)
 	done := make(chan error, 1)
-	go func() { done <- view.Follow(ctx, conn, nil) }()
+	go func() { done <- view.Follow(ctx, conn) }()
 
 	var sent int
 	publishRound := func() {
@@ -475,7 +499,7 @@ func TestPublishWhileLeading(t *testing.T) {
 	defer cancel()
 	done := make(chan struct{})
 	go func() {
-		Publish(ctx, conn, "sfo", leading.Load, build, view, nil)
+		Publish(ctx, conn, "sfo", leading.Load, build, view)
 		close(done)
 	}()
 

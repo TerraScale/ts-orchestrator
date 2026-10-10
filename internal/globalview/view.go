@@ -112,14 +112,9 @@ func (v *View) Accept(r Rollup) bool {
 	return true
 }
 
-// Follow loads the last-known bucket when kv is not nil, then accepts every
-// valid rollup on protocol.RegionRollupGrant until ctx ends.
-func (v *View) Follow(ctx context.Context, conn *nats.Conn, kv jetstream.KeyValue) error {
-	if kv != nil {
-		if err := v.load(ctx, kv); err != nil {
-			slog.Warn("dashboard last-known rollups not loaded", observability.ComponentKey, "globalview", "error", err)
-		}
-	}
+// Follow accepts every valid rollup on protocol.RegionRollupGrant until ctx
+// ends. It needs no bucket, so live rollups flow while JetStream is down.
+func (v *View) Follow(ctx context.Context, conn *nats.Conn) error {
 	sub, err := conn.Subscribe(protocol.RegionRollupGrant, func(msg *nats.Msg) {
 		r, err := decode(msg.Subject, msg.Data)
 		if err != nil {
@@ -136,6 +131,31 @@ func (v *View) Follow(ctx context.Context, conn *nats.Conn, kv jetstream.KeyValu
 		slog.Debug("dashboard rollup subscription not closed", observability.ComponentKey, "globalview", "error", err)
 	}
 	return nil
+}
+
+// KeepLastKnown loads the last-known bucket into the view, then persists the
+// view every PersistEvery while leading() is true, until ctx ends. Each write
+// is bounded by PersistEvery, so a stalled bucket never blocks publishing.
+func (v *View) KeepLastKnown(ctx context.Context, kv jetstream.KeyValue, leading func() bool) {
+	if err := v.load(ctx, kv); err != nil {
+		slog.Warn("dashboard last-known rollups not loaded", observability.ComponentKey, "globalview", "error", err)
+	}
+	ticker := time.NewTicker(PersistEvery)
+	defer ticker.Stop()
+	for {
+		if leading() {
+			persistCtx, cancel := context.WithTimeout(ctx, PersistEvery)
+			if err := v.Persist(persistCtx, kv); err != nil {
+				slog.Warn("dashboard rollups not persisted", observability.ComponentKey, "globalview", "error", err)
+			}
+			cancel()
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 // Persist writes each listed region's rollup to kv when it advanced and its

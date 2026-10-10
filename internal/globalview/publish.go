@@ -10,18 +10,17 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
 )
 
 // Publish publishes build(ctx) on protocol.RegionRollupSubject(cell) every
-// PublishEvery while leading() is true, hands it to view, and persists the
-// view when kv is not nil. It returns when ctx ends.
-func Publish(ctx context.Context, conn *nats.Conn, cell string, leading func() bool, build func(context.Context) Rollup, view *View, kv jetstream.KeyValue) {
+// PublishEvery while leading() is true and hands it to view. It returns when
+// ctx ends.
+func Publish(ctx context.Context, conn *nats.Conn, cell string, leading func() bool, build func(context.Context) Rollup, view *View) {
 	ticker := time.NewTicker(PublishEvery)
 	defer ticker.Stop()
 	for {
 		if leading() {
-			publishOnce(ctx, conn, cell, build, view, kv)
+			publishOnce(ctx, conn, cell, build, view)
 		}
 		select {
 		case <-ctx.Done():
@@ -31,7 +30,7 @@ func Publish(ctx context.Context, conn *nats.Conn, cell string, leading func() b
 	}
 }
 
-func publishOnce(ctx context.Context, conn *nats.Conn, cell string, build func(context.Context) Rollup, view *View, kv jetstream.KeyValue) {
+func publishOnce(ctx context.Context, conn *nats.Conn, cell string, build func(context.Context) Rollup, view *View) {
 	buildCtx, cancel := context.WithTimeout(ctx, PublishEvery)
 	defer cancel()
 	r := build(buildCtx)
@@ -48,10 +47,4 @@ func publishOnce(ctx context.Context, conn *nats.Conn, cell string, build func(c
 		slog.Warn("dashboard rollup not published", observability.ComponentKey, "globalview", "cell", cell, "error", err)
 	}
 	view.Accept(r)
-	if kv == nil {
-		return
-	}
-	if err := view.Persist(ctx, kv); err != nil {
-		slog.Warn("dashboard rollup not persisted", observability.ComponentKey, "globalview", "cell", cell, "error", err)
-	}
 }

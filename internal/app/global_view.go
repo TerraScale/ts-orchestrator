@@ -32,20 +32,23 @@ func (runtime *runtimeObservability) startGlobalView(ctx context.Context, observ
 	}
 	sources.Scale = observed.scale
 	build := func(ctx context.Context) globalview.Rollup { return globalview.Build(sources.Collect(ctx)) }
-	leading := func() bool { return observed.authority.Current().CanMutate() }
+	leading := func() bool { return observed.authority != nil && observed.authority.Current().CanMutate() }
 	conn := observed.nats.Conn()
+	go globalview.Publish(ctx, conn, runtime.cell, leading, build, view)
+	go func() {
+		if err := view.Follow(ctx, conn); err != nil {
+			slog.Warn("dashboard rollups not followed", observability.ComponentKey, "globalview", "error", err)
+		}
+	}()
+	// Live rollups flow without the bucket; it only adds last-known values.
 	go func() {
 		var kv jetstream.KeyValue
-		retryAttachment(ctx, "dashboard rollup bucket", func(attempt context.Context) (err error) {
+		retryAttachment(ctx, "globalview", "dashboard rollup bucket", func(attempt context.Context) (err error) {
 			kv, err = globalview.OpenBucket(attempt, observed.nats.JetStream(), observed.replicas)
 			return err
 		})
-		if ctx.Err() != nil {
-			return
-		}
-		go globalview.Publish(ctx, conn, runtime.cell, leading, build, view, kv)
-		if err := view.Follow(ctx, conn, kv); err != nil {
-			slog.Warn("dashboard rollups not followed", observability.ComponentKey, "globalview", "error", err)
+		if ctx.Err() == nil {
+			view.KeepLastKnown(ctx, kv, leading)
 		}
 	}()
 	return view
