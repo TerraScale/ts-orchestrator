@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
@@ -189,15 +192,21 @@ func (enrollment *managedHostEnrollment) staticMember(node string) (terrabase.Pe
 
 // staticAdmission is how a static host enrolls, decided once per request
 // and checked again before the credential is released: as a member the
-// effective TerraBase profile lists, or by a cell spec host grant.
+// effective TerraBase profile lists, by a cell spec host grant, or as a node
+// of the cell's pool with the cell's service roles.
 type staticAdmission struct {
 	Grant    *cellspec.HostGrant
 	Capacity host.Capacity
+	Pool     bool
+	Roles    []string
 }
 
-// roles are the roles an enrollment response lists: a granted host's roles;
-// a TerraBase member's role is implied.
+// roles are the roles an enrollment response lists: a granted host's roles,
+// a pool node's service roles; a TerraBase member's role is implied.
 func (admission staticAdmission) roles() []string {
+	if admission.Pool {
+		return admission.Roles
+	}
 	if admission.Grant == nil {
 		return nil
 	}
@@ -205,13 +214,18 @@ func (admission staticAdmission) roles() []string {
 }
 
 // observeStatic authenticates a static host: a host the cell spec grants the
-// direct peer's address, a TerraBase member it colocates included, or else a
-// TerraBase member the effective profile lists at that address.
+// direct peer's address, a TerraBase member it colocates included, a node of
+// the cell's pool, or else a TerraBase member the effective profile lists at
+// that address.
 func (enrollment *managedHostEnrollment) observeStatic(ctx context.Context, peerIP string,
 	request hostenroll.Request, descriptor hostboot.Descriptor,
 ) (oci.CloudInstance, staticAdmission, error) {
 	peer, capacity, listed := enrollment.staticMember(descriptor.Node)
-	if _, _, granted := enrollment.services.hostGrant(descriptor.Node); granted || !listed {
+	_, _, granted := enrollment.services.hostGrant(descriptor.Node)
+	if !granted && !listed && enrollment.pool != nil {
+		return enrollment.observePoolNode(ctx, peerIP, request, descriptor)
+	}
+	if granted || !listed {
 		return enrollment.observeGranted(ctx, peerIP, request, descriptor)
 	}
 	if peer.Address.Addr().String() != peerIP {
@@ -255,9 +269,64 @@ func (enrollment *managedHostEnrollment) observeGranted(ctx context.Context, pee
 	return instance, staticAdmission{Grant: &grant, Capacity: capacity}, nil
 }
 
+// observePoolNode authenticates a node pool instance: OCI shows it RUNNING in
+// this cell's pool under the node's name at the direct peer's address, and
+// tagged as a node of this cell. Its shape sets the capacity.
+func (enrollment *managedHostEnrollment) observePoolNode(ctx context.Context, peerIP string,
+	request hostenroll.Request, descriptor hostboot.Descriptor,
+) (oci.CloudInstance, staticAdmission, error) {
+	// Nodes 1 to 3 are the quorum nodes, never pool instances.
+	if number, err := strconv.Atoi(descriptor.Node[strings.LastIndexByte(descriptor.Node, '-')+1:]); err != nil ||
+		number < firstPoolNode {
+		return oci.CloudInstance{}, staticAdmission{}, errors.New("a pool node is numbered from 4")
+	}
+	state, err := enrollment.pool.Observe(ctx)
+	if err != nil {
+		return oci.CloudInstance{}, staticAdmission{}, err
+	}
+	if !slices.ContainsFunc(state.Instances, func(member nodescale.PoolInstance) bool {
+		return member.ID == request.InstanceID && member.Name == descriptor.Node &&
+			member.State == "RUNNING" && member.PrivateIP == peerIP
+	}) {
+		return oci.CloudInstance{}, staticAdmission{}, errors.New("static host is not a running node of this cell's pool at its private address")
+	}
+	observer, ok := enrollment.fleet.(oci.NamedHostObserver)
+	if !ok {
+		return oci.CloudInstance{}, staticAdmission{}, errors.New("regional fleet cannot observe pool nodes")
+	}
+	instance, err := observer.ObserveNamedHost(ctx, request.InstanceID, descriptor.Node)
+	if err != nil {
+		return oci.CloudInstance{}, staticAdmission{}, err
+	}
+	if instance.PrivateIP != peerIP || instance.FreeformTags[poolTagCell] != enrollment.cell ||
+		instance.FreeformTags[poolTagRole] != poolNodeRole {
+		return oci.CloudInstance{}, staticAdmission{}, errors.New("pool node does not match its OCI instance")
+	}
+	if instance.Ocpus == nil || instance.MemoryInGBs == nil || *instance.Ocpus < 1 || *instance.MemoryInGBs < 1 {
+		return oci.CloudInstance{}, staticAdmission{}, errors.New("pool node has no OCI shape")
+	}
+	capacity := host.Capacity{CPU: int(*instance.Ocpus), MemoryBytes: int64(*instance.MemoryInGBs) << 30,
+		DiskBytes: nodescale.BootVolumeGB << 30}
+	return instance, staticAdmission{Pool: true, Roles: enrollment.poolRoles(), Capacity: capacity}, nil
+}
+
+// poolRoles are the roles a pool node runs: every reconciled service's role
+// except the TerraBase member's.
+func (enrollment *managedHostEnrollment) poolRoles() []string {
+	_, specs := enrollment.services.effective()
+	var roles []string
+	for _, spec := range specs {
+		if spec.Role != terrabase.Role {
+			roles = append(roles, spec.Role)
+		}
+	}
+	slices.Sort(roles)
+	return slices.Compact(roles)
+}
+
 // staticRegistration is the registration a static host enrolls with: a
-// TerraBase member with one member's capacity, or a granted host with its
-// grant's roles and environment.
+// TerraBase member with one member's capacity, a granted host with its
+// grant's roles and environment, or a pool node with the cell's service roles.
 func (enrollment *managedHostEnrollment) staticRegistration(ctx context.Context, request hostenroll.Request,
 	descriptor hostboot.Descriptor, instance oci.CloudInstance, admission staticAdmission,
 ) (host.Registration, error) {
@@ -268,11 +337,29 @@ func (enrollment *managedHostEnrollment) staticRegistration(ctx context.Context,
 	if grant := admission.Grant; grant != nil {
 		registration.Roles, registration.Environment = grant.Roles, grant.Environment
 	}
+	if admission.Pool {
+		registration.Roles = admission.Roles
+	}
 	statuses, err := enrollment.controller.ListHosts(ctx)
 	if err != nil {
 		return host.Registration{}, err
 	}
-	return nextStaticRegistration(registration, statuses)
+	registration, err = nextStaticRegistration(registration, statuses)
+	if err != nil {
+		return host.Registration{}, err
+	}
+	// A scale-down retires its node's name for reuse. OCI has just shown a new
+	// instance under that name, so it may take it again. The same host renewing
+	// keeps its keys and stays retired: it may be draining.
+	if admission.Pool && slices.ContainsFunc(statuses, func(status host.HostStatus) bool {
+		return status.Registration.Node == descriptor.Node && status.Retired &&
+			status.Registration.PublicKey != request.IdentityPublicKey
+	}) {
+		if err := enrollment.controller.Unretire(ctx, descriptor.Node); err != nil {
+			return host.Registration{}, err
+		}
+	}
+	return registration, nil
 }
 
 // nextStaticRegistration keeps the node's current generation when nothing

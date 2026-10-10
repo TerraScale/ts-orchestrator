@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
@@ -76,6 +77,8 @@ type managedHostEnrollment struct {
 	// enrolls as a member its effective terrabase profile lists, or by one
 	// of its host grants.
 	services *specRegistry
+	// pool admits the node pool's instances. Nil refuses every pool node.
+	pool nodePoolMembers
 }
 
 var errStaleUnclaimedRenewal = errors.New("stale unclaimed host renewal")
@@ -130,6 +133,14 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 		fleet:     fleet, intents: intents, members: members, controller: controller, verifier: verifier,
 		grants: grantStore, issuer: issuer, responseKey: responseKey, fencer: fencer,
 		services: services,
+	}
+	poolCtx, cancelPool := context.WithTimeout(ctx, 30*time.Second)
+	pool, err := newNodePool(poolCtx, cfg.NATS.Cell)
+	cancelPool()
+	if err != nil {
+		slog.Warn("node pool is unavailable; pool nodes will not enroll", "component", "nodescale", "error", err)
+	} else {
+		handler.pool = pool
 	}
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second,
 		MaxHeaderBytes: 4096, TLSConfig: tlsConfig}

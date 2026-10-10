@@ -204,3 +204,50 @@ func TestReadControllerHostMetadataNamesTheControllerSlot(t *testing.T) {
 		t.Fatalf("an instance without a controller slot: %v", err)
 	}
 }
+
+func TestReadPoolNodeMetadataWaitsForTheLeaderToName(t *testing.T) {
+	instanceID := "ocid1.instance.oc1.sa-saopaulo-1.pool4"
+	marker := []byte(`{"schemaVersion":1}`)
+	name := []byte("inst-abc")
+	client := imdsDoFunc(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.String() {
+		case imdsInstanceURL:
+			return imdsResponse(http.StatusOK, []byte(instanceID), -1), nil
+		case imdsNameURL:
+			return imdsResponse(http.StatusOK, name, int64(len(name))), nil
+		case imdsNodePoolURL:
+			if marker == nil {
+				return imdsResponse(http.StatusNotFound, nil, 0), nil
+			}
+			return imdsResponse(http.StatusOK, marker, int64(len(marker))), nil
+		default:
+			t.Fatalf("unexpected IMDS endpoint %s", request.URL)
+			return nil, nil
+		}
+	})
+	if _, err := ReadPoolNodeMetadata(t.Context(), client, "gru", "GRU"); !errors.Is(err, ErrNodeNotNamed) {
+		t.Fatalf("an unnamed pool instance: %v", err)
+	}
+	name = []byte("ts-sfo-4")
+	if _, err := ReadPoolNodeMetadata(t.Context(), client, "gru", "GRU"); !errors.Is(err, ErrNodeNotNamed) {
+		t.Fatalf("another region's name: %v", err)
+	}
+	name = []byte("ts-gru-4")
+	metadata, err := ReadPoolNodeMetadata(t.Context(), client, "gru", "GRU")
+	if err != nil || metadata.InstanceID != instanceID || metadata.Descriptor != hostboot.Static("gru", "GRU", "ts-gru-4") ||
+		string(metadata.Wire) != `{"schema_version":2,"cell":"gru","region":"GRU","node":"ts-gru-4"}` {
+		t.Fatalf("pool node metadata = %+v, %v", metadata, err)
+	}
+	for _, invalid := range [][]byte{[]byte(`{"schemaVersion":2}`), []byte(`{"schemaVersion":"1"}`),
+		[]byte(`{"schemaVersion":1,"extra":1}`)} {
+		marker = invalid
+		if _, err := ReadPoolNodeMetadata(t.Context(), client, "gru", "GRU"); err == nil ||
+			errors.Is(err, ErrNotManagedHost) || errors.Is(err, ErrNodeNotNamed) {
+			t.Errorf("accepted pool marker %s: %v", invalid, err)
+		}
+	}
+	marker = nil
+	if _, err := ReadPoolNodeMetadata(t.Context(), client, "gru", "GRU"); !errors.Is(err, ErrNotManagedHost) {
+		t.Fatalf("an instance without the pool marker: %v", err)
+	}
+}

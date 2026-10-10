@@ -21,6 +21,7 @@ const (
 	imdsEnrollmentURL = "http://169.254.169.254/opc/v2/instance/metadata/" + hostboot.EnrollmentMetadataKey
 	// imdsBootstrapURL is the controller launch hint naming its signed slot.
 	imdsBootstrapURL = "http://169.254.169.254/opc/v2/instance/metadata/terrascale-bootstrap"
+	imdsNodePoolURL  = "http://169.254.169.254/opc/v2/instance/metadata/" + hostboot.NodePoolMetadataKey
 	maxIMDSIDBytes   = 255
 )
 
@@ -28,6 +29,10 @@ const (
 // such as a controller sharing the qualified image. An operator-launched C#
 // TerraBase host carries a static descriptor (hostboot.Static) instead.
 var ErrNotManagedHost = errors.New("instance has no managed host descriptor")
+
+// ErrNodeNotNamed reports a node pool instance the regional leader has not
+// renamed to its node name yet; host-setup retries until it has.
+var ErrNodeNotNamed = errors.New("pool node is not named yet")
 
 type HTTPDoer interface {
 	Do(*http.Request) (*http.Response, error)
@@ -129,6 +134,43 @@ func ReadControllerHostMetadata(ctx context.Context, client HTTPDoer, cell, regi
 	}
 	if displayName := strings.TrimSpace(string(name)); naming.IsNode(displayName, region) {
 		node = displayName
+	}
+	descriptor := hostboot.Static(cell, region, node)
+	encoded, err := descriptor.CanonicalBytes()
+	if err != nil {
+		return InstanceMetadata{}, err
+	}
+	return InstanceMetadata{InstanceID: instanceID, Descriptor: descriptor, Wire: encoded}, nil
+}
+
+// ReadPoolNodeMetadata returns the static descriptor of a node pool instance
+// once the regional leader has named it ts-<region>-<n>. Until then OCI's
+// inst-… name is no node name, so the instance is ErrNodeNotNamed.
+func ReadPoolNodeMetadata(ctx context.Context, client HTTPDoer, cell, region string) (InstanceMetadata, error) {
+	instanceID, err := readInstanceID(ctx, client)
+	if err != nil {
+		return InstanceMetadata{}, err
+	}
+	wire, err := readIMDS(ctx, client, imdsNodePoolURL, 256)
+	if errors.Is(err, errIMDSKeyAbsent) {
+		return InstanceMetadata{}, ErrNotManagedHost
+	}
+	if err != nil {
+		return InstanceMetadata{}, fmt.Errorf("read OCI IMDSv2 node pool marker: %w", err)
+	}
+	var marker struct {
+		SchemaVersion int `json:"schemaVersion"`
+	}
+	if err := protocol.DecodeStrict(wire, &marker, 256); err != nil || marker.SchemaVersion != 1 {
+		return InstanceMetadata{}, errors.New("OCI IMDSv2 node pool marker is invalid")
+	}
+	name, err := readIMDS(ctx, client, imdsNameURL, 256)
+	if err != nil {
+		return InstanceMetadata{}, fmt.Errorf("read OCI IMDSv2 display name: %w", err)
+	}
+	node := strings.TrimSpace(string(name))
+	if !naming.IsNode(node, region) {
+		return InstanceMetadata{}, ErrNodeNotNamed
 	}
 	descriptor := hostboot.Static(cell, region, node)
 	encoded, err := descriptor.CanonicalBytes()

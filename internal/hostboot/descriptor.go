@@ -27,6 +27,8 @@ const (
 	// EnrollmentMetadataKey carries the exact public host enrollment bundle.
 	// Controllers deliver it at launch so the host image stays deployment-neutral.
 	EnrollmentMetadataKey = "terrascale-host-enrollment-v1"
+	// NodePoolMetadataKey marks an instance pool's instance; its value is {"schemaVersion":1}.
+	NodePoolMetadataKey = "terrascale-node-pool"
 )
 
 var (

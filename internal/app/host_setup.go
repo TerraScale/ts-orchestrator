@@ -84,6 +84,12 @@ func runHostSetup(ctx context.Context, args []string, output io.Writer) error {
 	if controller {
 		metadata, err = hostenroll.ReadControllerHostMetadata(ctx, imds, bundle.Cell, bundle.Region)
 		if errors.Is(err, hostenroll.ErrNotManagedHost) {
+			metadata, err = hostenroll.ReadPoolNodeMetadata(ctx, imds, bundle.Cell, bundle.Region)
+		}
+		if errors.Is(err, hostenroll.ErrNodeNotNamed) {
+			return errors.New("pool node is waiting for the regional leader to name it")
+		}
+		if errors.Is(err, hostenroll.ErrNotManagedHost) {
 			_, _ = fmt.Fprintln(output, "instance is not a managed host; nothing to enroll")
 			return nil
 		}
